@@ -716,7 +716,15 @@ pub async fn project_files_list(
     project_path: String,
     limit: Option<usize>,
 ) -> Result<Vec<String>, String> {
-    let base = canonical_project_base(&project_path)?;
+    // La visita del disco e' bloccante: su un repository grande occuperebbe un
+    // worker del runtime async e fermerebbe gli altri comandi in attesa.
+    tokio::task::spawn_blocking(move || files_list_sync(&project_path, limit))
+        .await
+        .map_err(|error| format!("Elenco file interrotto: {}", error))?
+}
+
+fn files_list_sync(project_path: &str, limit: Option<usize>) -> Result<Vec<String>, String> {
+    let base = canonical_project_base(project_path)?;
     let max_results = limit.unwrap_or(2000).clamp(1, 10000);
 
     let mut files = Vec::new();
@@ -1431,8 +1439,15 @@ pub async fn project_git_status(project_path: String) -> Result<FileGitStatus, S
 /// ricevere migliaia di file. Fuori da un repository la lista resta vuota.
 #[command]
 pub async fn project_git_ignored(project_path: String) -> Result<Vec<String>, String> {
+    // `git ls-files` su un repository grande dura secondi: fuori dal runtime async.
+    tokio::task::spawn_blocking(move || git_ignored_sync(&project_path))
+        .await
+        .map_err(|error| format!("Task project_git_ignored: {error}"))
+}
+
+fn git_ignored_sync(project_path: &str) -> Vec<String> {
     let Some(out) = run_git(
-        &project_path,
+        project_path,
         &[
             "ls-files",
             "-z",
@@ -1442,14 +1457,13 @@ pub async fn project_git_ignored(project_path: String) -> Result<Vec<String>, St
             "--directory",
         ],
     ) else {
-        return Ok(Vec::new());
+        return Vec::new();
     };
-    Ok(out
-        .split(|&b| b == 0)
+    out.split(|&b| b == 0)
         .filter_map(|raw| std::str::from_utf8(raw).ok())
         .map(|path| path.replace('\\', "/").trim_end_matches('/').to_string())
         .filter(|path| !path.is_empty())
-        .collect())
+        .collect()
 }
 
 // ---------- Storico git ----------
@@ -1538,14 +1552,21 @@ fn parse_git_diff_stats(out: &[u8]) -> GitDiffStats {
     stats
 }
 
+/// Byte letti al massimo per contare le righe di un file non tracciato.
+const UNTRACKED_LINE_COUNT_LIMIT: u64 = 2 * 1024 * 1024;
+
 /// Conta le righe di un file non tracciato senza caricarlo interamente.
 /// I file binari restano nel conteggio dei file ma non inventano righe.
+/// Oltre `UNTRACKED_LINE_COUNT_LIMIT` (2 MB) si contano solo le righe dei primi
+/// 2 MB: un dump o un log enorme lasciato nella cartella non deve bloccare il
+/// pannello per secondi, e il totale resta un ordine di grandezza, non un
+/// valore esatto.
 pub(crate) fn count_untracked_text_lines(path: &Path) -> Option<u64> {
     let metadata = fs::symlink_metadata(path).ok()?;
     if !metadata.file_type().is_file() {
         return None;
     }
-    let mut file = fs::File::open(path).ok()?;
+    let mut file = fs::File::open(path).ok()?.take(UNTRACKED_LINE_COUNT_LIMIT);
     let mut buffer = [0_u8; 8192];
     let mut lines = 0_u64;
     let mut saw_bytes = false;
@@ -2251,6 +2272,12 @@ mod tests {
 
         assert_eq!(count_untracked_text_lines(&text), Some(2));
         assert_eq!(count_untracked_text_lines(&binary), None);
+
+        // Oltre 2 MB si contano solo le righe dei primi 2 MB: 3 MB di righe da
+        // due byte valgono 1 Mi righe, non 1.5 Mi.
+        let huge = root.join("huge.log");
+        fs::write(&huge, "x\n".repeat(3 * 1024 * 1024 / 2)).unwrap();
+        assert_eq!(count_untracked_text_lines(&huge), Some(1024 * 1024));
     }
 
     #[test]

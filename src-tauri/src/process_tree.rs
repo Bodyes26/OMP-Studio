@@ -135,7 +135,64 @@ impl Drop for WindowsJob {
     }
 }
 
+/// Vero quando il Job Object non ha piu' processi attivi. `TerminateJobObject`
+/// e' asincrono: finche' il conteggio non scende a zero i file aperti dai
+/// processi dell'albero restano bloccati e `git worktree remove` si fermerebbe
+/// a meta' cartella. Senza job (associazione fallita) non c'e' nulla da attendere.
+#[cfg(target_os = "windows")]
+pub fn job_drained(job: Option<&WindowsJob>) -> bool {
+    job.and_then(WindowsJob::accounting)
+        .is_none_or(|(_, active)| active == 0)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn send_signal(signal: &str, target: &str) -> bool {
+    // Il `--` e' necessario: il `kill` di procps (Linux) senza separatore
+    // interpreta `-PID` in modo diverso e termina il chiamante stesso.
+    std::process::Command::new("kill")
+        .args([signal, "--", target])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+/// Vero finche' il process group `pgid` contiene almeno un processo che non
+/// e' uno zombie. `kill -0` da solo non basta: il leader e' figlio di Studio e
+/// resta zombie finche' la sessione non lo raccoglie con `wait`, quindi il
+/// gruppo sembrerebbe vivo per tutta l'attesa.
+#[cfg(not(target_os = "windows"))]
+pub fn process_group_alive(pgid: u32) -> bool {
+    if !send_signal("-0", &format!("-{}", pgid)) {
+        return false;
+    }
+    let output = match std::process::Command::new("ps")
+        .args(["-A", "-o", "pgid=,stat="])
+        .stderr(std::process::Stdio::null())
+        .output()
+    {
+        Ok(output) if output.status.success() => output,
+        // Senza `ps` si resta prudenti: il gruppo risponde a `kill -0`.
+        _ => return true,
+    };
+    let wanted = pgid.to_string();
+    String::from_utf8_lossy(&output.stdout).lines().any(|line| {
+        let mut fields = line.split_whitespace();
+        fields.next() == Some(wanted.as_str())
+            && fields.next().is_some_and(|stat| !stat.starts_with('Z'))
+    })
+}
+
+/// Tempo concesso all'albero per uscire con SIGTERM prima del SIGKILL: abbastanza
+/// per chiudere file e socket, poco per chi chiude una sessione e aspetta.
+#[cfg(not(target_os = "windows"))]
+const GROUP_TERM_GRACE: std::time::Duration = std::time::Duration::from_millis(1500);
+
 /// Abbattimento ricorsivo e forzato dell'albero dei processi (SIGKILL / Job Object terminate / taskkill).
+///
+/// Su Unix `pid` deve essere il leader del proprio process group (`setsid` del
+/// PTY, `process_group(0)` di RPC e sync): il segnale va a `-pid`, cioe' a tutto
+/// il gruppo, nipoti compresi.
 pub fn kill_process_tree(pid: Option<u32>, #[cfg(target_os = "windows")] job: Option<&WindowsJob>) {
     #[cfg(target_os = "windows")]
     {
@@ -159,23 +216,22 @@ pub fn kill_process_tree(pid: Option<u32>, #[cfg(target_os = "windows")] job: Op
     #[cfg(not(target_os = "windows"))]
     {
         if let Some(p) = pid {
-            // Invia SIGTERM e poi SIGKILL al gruppo di processi (-PID). Il `--` e'
-            // necessario: il `kill` di procps (Linux) senza separatore interpreta
-            // `-PID` in modo diverso e termina il chiamante stesso.
-            let _ = std::process::Command::new("kill")
-                .args(["-TERM", "--", &format!("-{}", p)])
-                .output();
-            let _ = std::process::Command::new("kill")
-                .args(["-KILL", "--", &format!("-{}", p)])
-                .output();
-            // Termina anche il PID singolo direttamente nel caso non fosse process group leader
-            let _ = std::process::Command::new("kill")
-                .args(["-KILL", &p.to_string()])
-                .output();
-            // Termina ricorsivamente eventuali processi figli via pkill
-            let _ = std::process::Command::new("pkill")
-                .args(["-KILL", "-P", &p.to_string()])
-                .output();
+            let group = format!("-{}", p);
+            if send_signal("-TERM", &group) {
+                // SIGHUP e' cio' che riceverebbe chiudendo il terminale: una shell
+                // interattiva ignora SIGTERM ma con SIGHUP lo inoltra ai propri job
+                // (che con il job control vivono in gruppi propri) ed esce.
+                let _ = send_signal("-HUP", &group);
+                let deadline = std::time::Instant::now() + GROUP_TERM_GRACE;
+                while process_group_alive(p) && std::time::Instant::now() < deadline {
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                }
+                let _ = send_signal("-KILL", &group);
+            }
+            // PID singolo, per un processo che non e' leader del proprio gruppo.
+            // Nessun `pkill -P` dopo: morto il padre, i figli passano a init e
+            // non sarebbero piu' trovati per PPID.
+            let _ = send_signal("-KILL", &p.to_string());
         }
     }
 }
@@ -208,6 +264,13 @@ pub trait LaneProcessControl: Send + Sync {
     fn is_alive(&self) -> bool;
     /// Abbatte l'albero e attende l'uscita. Deve essere idempotente.
     fn stop_and_wait(&self);
+    /// Vero quando, dopo l'arresto, nessun processo dell'albero e' ancora in
+    /// uscita (Job Object vuoto su Windows, process group vuoto su Unix). Il
+    /// processo radice puo' essere gia' raccolto mentre un nipote sta ancora
+    /// chiudendo i propri file.
+    fn tree_drained(&self) -> bool {
+        true
+    }
 }
 
 struct LaneProcessEntry {
@@ -358,6 +421,8 @@ pub fn unregister_lane_process(kind: LaneProcessKind, owner_id: u64) {
 
 /// Voci ancora vive, ordinate in modo deterministico. Le voci di processi
 /// gia' usciti vengono potate qui: nessun indicatore fantasma sulla corsia.
+/// `is_alive` usa `try_wait`, che raccoglie il figlio uscito: da quel momento
+/// il suo PID puo' essere riusato, e le sessioni non lo segnalano piu'.
 fn snapshot(filter: impl Fn(&LaneProcessEntry) -> bool) -> Vec<LaneProcessInfo> {
     let mut registry = LANE_PROCESSES.lock();
     registry.retain(|_, entry| entry.control.is_alive());
@@ -388,7 +453,13 @@ pub fn lane_processes_under(root: &Path) -> Vec<LaneProcessInfo> {
     snapshot(|entry| is_within(root, &entry.workspace_root))
 }
 
-fn stop_matching(filter: impl Fn(&LaneProcessEntry) -> bool) -> LaneProcessStopReport {
+/// Intervallo di controllo mentre si attende lo svuotamento degli alberi.
+const DRAIN_POLL: std::time::Duration = std::time::Duration::from_millis(100);
+
+fn stop_matching(
+    filter: impl Fn(&LaneProcessEntry) -> bool,
+    drain_timeout: Option<std::time::Duration>,
+) -> LaneProcessStopReport {
     // Il lock del registro non viene mai tenuto durante l'arresto: la sessione
     // che sta uscendo si deregistra da sola e richiederebbe lo stesso lock.
     let targets: Vec<(RegistryKey, Arc<dyn LaneProcessControl>, LaneProcessInfo)> = {
@@ -401,15 +472,45 @@ fn stop_matching(filter: impl Fn(&LaneProcessEntry) -> bool) -> LaneProcessStopR
     };
 
     let mut report = LaneProcessStopReport::default();
+    let mut draining: Vec<(Arc<dyn LaneProcessControl>, LaneProcessInfo)> = Vec::new();
     for (key, control, info) in targets {
         control.stop_and_wait();
         if control.is_alive() {
             report.remaining.push(info);
         } else {
             LANE_PROCESSES.lock().remove(&key);
-            report.stopped.push(info);
+            draining.push((control, info));
         }
     }
+
+    let Some(timeout) = drain_timeout else {
+        report
+            .stopped
+            .extend(draining.into_iter().map(|(_, info)| info));
+        return report;
+    };
+    // La radice e' uscita, ma un nipote puo' essere ancora in chiusura: chi deve
+    // cancellare la cartella aspetta che l'albero sia vuoto. Allo scadere chi e'
+    // ancora vivo finisce in `remaining` e la rimozione resta bloccata, invece
+    // di lasciare una cartella cancellata a meta'.
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        draining.retain(|(control, info)| {
+            if control.tree_drained() {
+                report.stopped.push(info.clone());
+                false
+            } else {
+                true
+            }
+        });
+        if draining.is_empty() || std::time::Instant::now() >= deadline {
+            break;
+        }
+        std::thread::sleep(DRAIN_POLL);
+    }
+    report
+        .remaining
+        .extend(draining.into_iter().map(|(_, info)| info));
     report
 }
 
@@ -417,13 +518,23 @@ fn stop_matching(filter: impl Fn(&LaneProcessEntry) -> bool) -> LaneProcessStopR
 /// non vengono mai toccate: il filtro e' sull'identita' registrata, non sul
 /// nome del processo.
 pub fn stop_lane_processes(project_id: &str, lane_id: &str) -> LaneProcessStopReport {
-    stop_matching(|entry| entry.project_id == project_id && entry.lane_id == lane_id)
+    stop_matching(
+        |entry| entry.project_id == project_id && entry.lane_id == lane_id,
+        None,
+    )
 }
 
 /// Arresto mirato per il cleanup di un worktree: tutto e solo cio' che Studio
-/// ha avviato dentro quella radice.
-pub fn stop_lane_processes_under(root: &Path) -> LaneProcessStopReport {
-    stop_matching(|entry| is_within(root, &entry.workspace_root))
+/// ha avviato dentro quella radice. Attende fino a `drain_timeout` che gli
+/// alberi arrestati non abbiano piu' processi attivi.
+pub fn stop_lane_processes_under(
+    root: &Path,
+    drain_timeout: std::time::Duration,
+) -> LaneProcessStopReport {
+    stop_matching(
+        |entry| is_within(root, &entry.workspace_root),
+        Some(drain_timeout),
+    )
 }
 
 #[tauri::command]
@@ -590,13 +701,123 @@ mod tests {
         assert_eq!(lane_processes_for(project, MAIN_LANE_ID).len(), 1);
         assert!(lane_processes_under(&lane_root).is_empty());
 
-        let report = stop_lane_processes_under(&main_root);
+        let report = stop_lane_processes_under(&main_root, std::time::Duration::from_secs(5));
         assert_eq!(report.stopped.len(), 1);
         assert!(!main_child.is_alive());
         assert!(lane_processes_for(project, MAIN_LANE_ID).is_empty());
 
         let _ = std::fs::remove_dir_all(&lane_root);
         let _ = std::fs::remove_dir_all(&main_root);
+    }
+
+    /// Radice gia' uscita ma albero non ancora vuoto (un nipote che chiude i
+    /// file): la rimozione deve attendere e, allo scadere, restare bloccata.
+    struct SlowDrain {
+        drained_after: std::time::Instant,
+    }
+
+    impl LaneProcessControl for SlowDrain {
+        fn is_alive(&self) -> bool {
+            false
+        }
+        fn stop_and_wait(&self) {}
+        fn tree_drained(&self) -> bool {
+            std::time::Instant::now() >= self.drained_after
+        }
+    }
+
+    fn register_control(owner_id: u64, root: &Path, control: Arc<dyn LaneProcessControl>) {
+        // Inserimento diretto: `is_alive` falso farebbe potare la voce dallo
+        // snapshot, ma l'arresto lavora sulla mappa e non passa da li'.
+        LANE_PROCESSES.lock().insert(
+            (LaneProcessKind::Terminal, owner_id),
+            LaneProcessEntry {
+                project_id: "proj-drain".to_string(),
+                lane_id: "wt-drain".to_string(),
+                workspace_root: root.to_path_buf(),
+                pid: None,
+                label: "Terminale".to_string(),
+                started_at_ms: now_ms(),
+                control,
+            },
+        );
+    }
+
+    #[test]
+    fn w11_attende_lo_svuotamento_dell_albero_prima_di_liberare_la_corsia() {
+        let root = temp_root("drain-ok");
+        register_control(
+            9201,
+            &root,
+            Arc::new(SlowDrain {
+                drained_after: std::time::Instant::now() + std::time::Duration::from_millis(300),
+            }),
+        );
+        let started = std::time::Instant::now();
+        let report = stop_lane_processes_under(&root, std::time::Duration::from_secs(5));
+        assert!(started.elapsed() >= std::time::Duration::from_millis(300));
+        assert_eq!(report.stopped.len(), 1);
+        assert!(report.remaining.is_empty());
+
+        let stuck_root = temp_root("drain-stuck");
+        register_control(
+            9202,
+            &stuck_root,
+            Arc::new(SlowDrain {
+                drained_after: std::time::Instant::now() + std::time::Duration::from_secs(3600),
+            }),
+        );
+        let report = stop_lane_processes_under(&stuck_root, std::time::Duration::from_millis(300));
+        assert!(report.stopped.is_empty());
+        assert_eq!(report.remaining.len(), 1);
+
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&stuck_root);
+    }
+
+    /// Un processo e' "vivo" se esiste e non e' uno zombie: nel container di
+    /// test init potrebbe non raccogliere subito gli orfani.
+    #[cfg(not(target_os = "windows"))]
+    fn pid_running(pid: u32) -> bool {
+        std::process::Command::new("ps")
+            .args(["-o", "stat=", "-p", &pid.to_string()])
+            .output()
+            .map(|output| {
+                let stat = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                !stat.is_empty() && !stat.starts_with('Z')
+            })
+            .unwrap_or(false)
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn kill_process_tree_abbatte_anche_i_nipoti_del_gruppo() {
+        use std::io::BufRead;
+        use std::os::unix::process::CommandExt;
+
+        let mut child = std::process::Command::new("sh")
+            .args(["-c", "sleep 60 & echo $!; wait"])
+            .stdout(std::process::Stdio::piped())
+            .process_group(0)
+            .spawn()
+            .expect("avvio sh di prova");
+        let mut line = String::new();
+        std::io::BufReader::new(child.stdout.take().unwrap())
+            .read_line(&mut line)
+            .expect("PID del nipote");
+        let grandchild: u32 = line.trim().parse().expect("PID numerico");
+        assert!(pid_running(grandchild));
+        assert!(process_group_alive(child.id()));
+
+        kill_process_tree(Some(child.id()));
+        let _ = child.wait();
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while pid_running(grandchild) && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert!(!pid_running(grandchild), "il nipote sleep e' sopravvissuto");
+        assert!(!process_group_alive(child.id()));
     }
 
     #[test]

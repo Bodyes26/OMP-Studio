@@ -25,16 +25,16 @@
 use std::io::Write;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 #[cfg(target_os = "windows")]
 use super::CREATE_NO_WINDOW;
 use super::{
-    describe_processes, discover_repository, git_args, output_detail, path_string,
-    registered_values, require_git, resolve_managed_worktree, run_git, same_path, validate_lane_id,
-    validate_target_branch, WorktreeError, WorktreeErrorCode,
-    LANE_BRANCH_PREFIX, WORKTREE_MUTATION_LOCK,
+    allowlist_paths, blocking_changes, describe_processes, discover_repository, git_args,
+    output_detail, path_string, registered_values, require_git, resolve_managed_worktree, run_git,
+    same_path, validate_lane_id, validate_target_branch, worktree_mutation_lock, WorktreeError,
+    WorktreeErrorCode, LANE_BRANCH_PREFIX,
 };
 
 const RECEIPT_COMMIT: &str = "ompStudioIntegratedCommit";
@@ -126,6 +126,37 @@ pub struct DeleteLaneBranchArgs {
     pub project_path: String,
     pub lane_id: String,
     pub confirm: bool,
+    /// Consenso esplicito a scartare commit della corsia mai integrati. Senza,
+    /// un branch con lavoro proprio non integrato non viene mai forzato.
+    #[serde(default)]
+    pub discard_unintegrated: bool,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LaneBranchQueryArgs {
+    pub project_path: String,
+    pub lane_id: String,
+}
+
+/// Lavoro del branch di corsia che andrebbe perso eliminandolo.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LaneUnintegratedSummary {
+    pub branch_exists: bool,
+    pub integrated: bool,
+    /// Commit del branch non raggiungibili dal target (o dal commit base se il
+    /// target non esiste piu'). Zero quando la corsia e' integrata.
+    pub commits: u32,
+    /// File che quei commit cambiano rispetto al punto di diramazione.
+    pub files: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LaneIntegrationState {
+    pub branch_exists: bool,
+    pub integrated: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -135,13 +166,23 @@ struct IntegrationReceipt {
     strategy: IntegrateStrategy,
 }
 
-fn mutation_lock() -> Result<std::sync::MutexGuard<'static, ()>, WorktreeError> {
-    WORKTREE_MUTATION_LOCK.lock().map_err(|_| {
-        WorktreeError::new(
-            WorktreeErrorCode::Internal,
-            "Lock del gestore worktree non disponibile",
-        )
-    })
+/// Prima versione di Git con `merge-tree --write-tree`, su cui si regge il
+/// merge in memoria dell'integrazione.
+const MIN_MERGE_TREE_VERSION: (u32, u32, u32) = (2, 38, 0);
+
+fn ensure_git_supports_merge_tree(version: Option<(u32, u32, u32)>) -> Result<(), WorktreeError> {
+    match version {
+        Some((major, minor, patch)) if (major, minor, patch) < MIN_MERGE_TREE_VERSION => {
+            Err(WorktreeError::new(
+                WorktreeErrorCode::GitTooOld,
+                format!(
+                    "Integrazione corsie: serve Git 2.38 o successivo (trovato {major}.{minor})"
+                ),
+            ))
+        }
+        // Versione illeggibile: decide `merge-tree` stesso, con il suo errore.
+        _ => Ok(()),
+    }
 }
 
 fn git_text(cwd: &Path, args: &[&str]) -> Result<String, WorktreeError> {
@@ -293,22 +334,62 @@ fn worktree_matches_commit(cwd: &Path, sha: &str) -> Result<bool, WorktreeError>
     Ok(diff_quiet(cwd, &[sha])? && diff_quiet(cwd, &["--cached", sha])? && untracked_empty(cwd)?)
 }
 
-fn empty_hooks_path() -> Result<String, WorktreeError> {
-    let directory = std::env::temp_dir().join("omp-studio-empty-hooks");
-    std::fs::create_dir_all(&directory).map_err(|error| {
-        WorktreeError::with_detail(
-            WorktreeErrorCode::Internal,
-            "Impossibile preparare una directory hook vuota",
-            error.to_string(),
-        )
-    })?;
-    path_string(&directory)
+/// Prima cartella `omp-studio-no-hooks[-N]` utilizzabile sotto `base`: assente
+/// (Git allora non trova alcun hook) oppure vuota. Non viene mai creata.
+fn unused_hooks_dir(base: &Path) -> Option<PathBuf> {
+    (0..16).find_map(|attempt| {
+        let name = if attempt == 0 {
+            "omp-studio-no-hooks".to_string()
+        } else {
+            format!("omp-studio-no-hooks-{attempt}")
+        };
+        let candidate = base.join(name);
+        match std::fs::symlink_metadata(&candidate) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Some(candidate),
+            Ok(metadata)
+                if metadata.is_dir()
+                    && !metadata.file_type().is_symlink()
+                    && std::fs::read_dir(&candidate)
+                        .is_ok_and(|mut entries| entries.next().is_none()) =>
+            {
+                Some(candidate)
+            }
+            _ => None,
+        }
+    })
+}
+
+/// `core.hooksPath` dei passaggi interni: una cartella senza hook.
+///
+/// Prima stava in `temp_dir()`, che su Linux e macOS e' condivisa fra utenti:
+/// chiunque poteva creare `/tmp/omp-studio-empty-hooks` con hook propri, poi
+/// eseguiti con i permessi di chi integra. Ora la base e' privata: la cartella
+/// dati locale dell'app dell'utente o, se non disponibile, la gitdir comune del
+/// repository, dove scrive solo chi potrebbe gia' scrivere `.git/hooks`. La
+/// cartella non viene creata: un percorso assente basta a Git per non trovare
+/// hook, e se qualcosa vi esiste gia' con dei file si sceglie un altro nome.
+fn no_hooks_path(cwd: &Path) -> Result<String, WorktreeError> {
+    let app_dir = crate::lab::paths::lab_root().and_then(|lab| lab.parent().map(Path::to_path_buf));
+    if let Some(candidate) = app_dir.as_deref().and_then(unused_hooks_dir) {
+        return path_string(&candidate);
+    }
+    let common = git_text(
+        cwd,
+        &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+    )?;
+    if let Some(candidate) = unused_hooks_dir(Path::new(&common)) {
+        return path_string(&candidate);
+    }
+    Err(WorktreeError::new(
+        WorktreeErrorCode::Internal,
+        "Impossibile scegliere una cartella hook vuota per l'integrazione",
+    ))
 }
 
 /// Git senza hook dell'utente, firma o editor: sono passaggi interni della
 /// pipeline e l'unico commit che resta sul target e' lo squash di `commit-tree`.
 fn git_without_hooks(cwd: &Path, args: &[&str]) -> Result<std::process::Output, WorktreeError> {
-    let hooks = empty_hooks_path()?;
+    let hooks = no_hooks_path(cwd)?;
     let mut command = Command::new("git");
     command
         .current_dir(cwd)
@@ -621,61 +702,264 @@ fn commit_tree(
     )
 }
 
+/// Sincronizzazione del checkout fallita. `touched` dice se il working tree
+/// puo' essere gia' stato modificato (errore durante o dopo `reset`/`read-tree`)
+/// o se il fallimento e' avvenuto nei controlli preliminari, a disco intatto.
+struct SyncFailure {
+    error: WorktreeError,
+    touched: bool,
+}
+
+fn untouched(error: WorktreeError) -> SyncFailure {
+    SyncFailure {
+        error,
+        touched: false,
+    }
+}
+
+fn touched(error: WorktreeError) -> SyncFailure {
+    SyncFailure {
+        error,
+        touched: true,
+    }
+}
+
+/// Allinea il checkout target, se pulito, al nuovo commit con `reset --hard`.
 fn sync_checkout(
     root: &Path,
     target_branch: &str,
     from_sha: &str,
     to_sha: &str,
-) -> Result<(), WorktreeError> {
-    if attached_branch(root)?.as_deref() != Some(target_branch) {
-        return Err(WorktreeError::new(
+) -> Result<(), SyncFailure> {
+    if attached_branch(root).map_err(untouched)?.as_deref() != Some(target_branch) {
+        return Err(untouched(WorktreeError::new(
             WorktreeErrorCode::CheckoutMismatch,
             "Il checkout principale non e' piu' sul branch target",
-        ));
+        )));
     }
-    if resolve_commit(root, "HEAD")? == to_sha && porcelain_files(root)?.is_empty() {
+    if resolve_commit(root, "HEAD").map_err(untouched)? == to_sha
+        && porcelain_files(root).map_err(untouched)?.is_empty()
+    {
         return Ok(());
     }
-    if !worktree_matches_commit(root, from_sha)? {
-        return Err(WorktreeError::new(
+    if !worktree_matches_commit(root, from_sha).map_err(untouched)? {
+        return Err(untouched(WorktreeError::new(
             WorktreeErrorCode::TargetDirty,
             "Il checkout target e' cambiato durante l'operazione",
-        ));
+        )));
     }
-    reset_hard(root, to_sha)?;
-    if resolve_commit(root, "HEAD")? != to_sha || !porcelain_files(root)?.is_empty() {
-        return Err(WorktreeError::new(
+    reset_hard(root, to_sha).map_err(touched)?;
+    if resolve_commit(root, "HEAD").map_err(touched)? != to_sha
+        || !porcelain_files(root).map_err(touched)?.is_empty()
+    {
+        return Err(touched(WorktreeError::new(
             WorktreeErrorCode::GitCommandFailed,
             "Il checkout target non coincide con il commit atteso",
-        ));
+        )));
     }
     Ok(())
 }
 
+/// Allinea il checkout target con file sporchi disgiunti: `read-tree -m -u` a
+/// due alberi aggiorna solo i percorsi cambiati e lascia il resto com'e'.
 fn sync_checkout_preserving(
     root: &Path,
     target_branch: &str,
     from_sha: &str,
     to_sha: &str,
-) -> Result<(), WorktreeError> {
-    if attached_branch(root)?.as_deref() != Some(target_branch) {
-        return Err(WorktreeError::new(
+) -> Result<(), SyncFailure> {
+    if attached_branch(root).map_err(untouched)?.as_deref() != Some(target_branch) {
+        return Err(untouched(WorktreeError::new(
             WorktreeErrorCode::CheckoutMismatch,
             "Il checkout principale non e' piu' sul branch target",
-        ));
+        )));
     }
     git_without_hooks_ok(
         root,
         &["read-tree", "-m", "-u", from_sha, to_sha],
         "read-tree non ha aggiornato il checkout target",
+    )
+    .map_err(touched)?;
+    if resolve_commit(root, "HEAD").map_err(touched)? != to_sha {
+        return Err(touched(WorktreeError::new(
+            WorktreeErrorCode::GitCommandFailed,
+            "Il checkout target non coincide con il commit di destinazione",
+        )));
+    }
+    Ok(())
+}
+
+/// Git senza hook con `input` su stdin (liste `--pathspec-from-file` lunghe
+/// oltre il limite della riga di comando di Windows).
+fn git_without_hooks_input(
+    cwd: &Path,
+    args: &[&str],
+    input: &[u8],
+    failure: &str,
+) -> Result<(), WorktreeError> {
+    let hooks = no_hooks_path(cwd)?;
+    let mut command = Command::new("git");
+    command
+        .current_dir(cwd)
+        .arg("-c")
+        .arg(format!("core.hooksPath={hooks}"))
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    #[cfg(target_os = "windows")]
+    command.creation_flags(CREATE_NO_WINDOW);
+    let mut child = command.spawn().map_err(|error| {
+        WorktreeError::with_detail(
+            WorktreeErrorCode::GitUnavailable,
+            "Git non e' disponibile",
+            error.to_string(),
+        )
+    })?;
+    if let Some(mut stdin) = child.stdin.take() {
+        // Un errore di scrittura emerge comunque dall'esito di Git.
+        let _ = stdin.write_all(input);
+    }
+    let output = child.wait_with_output().map_err(|error| {
+        WorktreeError::with_detail(
+            WorktreeErrorCode::GitCommandFailed,
+            failure,
+            error.to_string(),
+        )
+    })?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(WorktreeError::with_detail(
+            WorktreeErrorCode::GitCommandFailed,
+            failure,
+            output_detail(&output),
+        ))
+    }
+}
+
+/// Riporta a `to_sha` i soli percorsi che differiscono da `from_sha`, senza
+/// toccare il resto del checkout (i file sporchi disgiunti dell'utente). Un
+/// `read-tree` interrotto puo' aver scritto file senza aggiornare l'indice:
+/// un secondo `read-tree` li lascerebbe com'erano, il checkout dei percorsi no.
+fn restore_changed_paths(root: &Path, from_sha: &str, to_sha: &str) -> Result<(), WorktreeError> {
+    let output = require_git(
+        root,
+        &git_args(&[
+            "diff",
+            "--name-status",
+            "--no-renames",
+            "-z",
+            from_sha,
+            to_sha,
+        ]),
+        WorktreeErrorCode::GitCommandFailed,
+        "Impossibile determinare i file da ripristinare",
     )?;
+    let mut to_checkout: Vec<u8> = Vec::new();
+    let mut to_delete: Vec<String> = Vec::new();
+    let mut fields = output.stdout.split(|byte| *byte == 0);
+    while let (Some(status), Some(path)) = (fields.next(), fields.next()) {
+        if status.is_empty() || path.is_empty() {
+            continue;
+        }
+        if status.first() == Some(&b'D') {
+            // Assente in `to_sha`: c'e' solo perche' l'aggiornamento l'ha scritto.
+            to_delete.push(String::from_utf8_lossy(path).into_owned());
+        } else {
+            to_checkout.extend_from_slice(path);
+            to_checkout.push(0);
+        }
+    }
+    if !to_checkout.is_empty() {
+        git_without_hooks_input(
+            root,
+            &[
+                "--literal-pathspecs",
+                "checkout",
+                to_sha,
+                "--pathspec-from-file=-",
+                "--pathspec-file-nul",
+            ],
+            &to_checkout,
+            "Impossibile ripristinare i file del checkout target",
+        )?;
+    }
+    for path in &to_delete {
+        let input = format!("{path}\0");
+        git_without_hooks_input(
+            root,
+            &[
+                "--literal-pathspecs",
+                "rm",
+                "-q",
+                "--cached",
+                "--ignore-unmatch",
+                "--pathspec-from-file=-",
+                "--pathspec-file-nul",
+            ],
+            input.as_bytes(),
+            "Impossibile togliere dall'indice un file dell'aggiornamento annullato",
+        )?;
+        let absolute = root.join(path);
+        if std::fs::symlink_metadata(&absolute)
+            .is_ok_and(|metadata| !metadata.is_dir() || metadata.file_type().is_symlink())
+        {
+            std::fs::remove_file(&absolute).map_err(|error| {
+                WorktreeError::with_detail(
+                    WorktreeErrorCode::GitCommandFailed,
+                    format!("Impossibile rimuovere '{path}' dal checkout target"),
+                    error.to_string(),
+                )
+            })?;
+        }
+    }
+    Ok(())
+}
+
+/// Riporta il working tree a `to_sha` dopo che il ref e' gia' stato rimesso
+/// a posto ma la sincronizzazione si era fermata a meta' (tipicamente un file
+/// bloccato da un altro programma su Windows). Un checkout pulito prima
+/// dell'operazione torna indietro con `reset --hard` senza perdere nulla; uno
+/// con file sporchi disgiunti ripristina solo i percorsi dell'aggiornamento,
+/// che per costruzione non si sovrappongono a quei file.
+fn restore_checkout(
+    root: &Path,
+    was_clean: bool,
+    from_sha: &str,
+    to_sha: &str,
+) -> Result<(), WorktreeError> {
+    if was_clean {
+        reset_hard(root, to_sha)?;
+    } else {
+        restore_changed_paths(root, from_sha, to_sha)?;
+    }
     if resolve_commit(root, "HEAD")? != to_sha {
         return Err(WorktreeError::new(
             WorktreeErrorCode::GitCommandFailed,
-            "Il checkout target non coincide con il commit di destinazione",
+            "Il checkout target non coincide con il commit ripristinato",
         ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+pub(super) fn restore_checkout_for_tests(
+    root: &Path,
+    was_clean: bool,
+    from_sha: &str,
+    to_sha: &str,
+) -> Result<(), WorktreeError> {
+    restore_checkout(root, was_clean, from_sha, to_sha)
+}
+
+/// Errore per un checkout rimasto a meta' con il ref gia' ripristinato.
+fn checkout_left_halfway(detail: String) -> WorktreeError {
+    WorktreeError::with_detail(
+        WorktreeErrorCode::CheckoutSyncFailed,
+        "Il branch target e' stato ripristinato, ma alcuni file del checkout principale sono rimasti a meta'. Esegui git status nel progetto, chiudi i programmi che bloccano i file e riprova",
+        detail,
+    )
 }
 
 fn rollback_ref(
@@ -713,7 +997,7 @@ fn diff_name_only_z(cwd: &Path, from: &str, to: &str) -> Result<Vec<String>, Wor
     Ok(files)
 }
 
-fn paths_match(a: &str, b: &str) -> bool {
+pub(super) fn paths_match(a: &str, b: &str) -> bool {
     let norm_a = a.replace('\\', "/");
     let norm_b = b.replace('\\', "/");
     #[cfg(target_os = "windows")]
@@ -726,17 +1010,112 @@ fn paths_match(a: &str, b: &str) -> bool {
     }
 }
 
-/// File sporchi del checkout che l'aggiornamento toccherebbe.
-fn overlapping_paths(dirty: &[String], changed: &[String]) -> Vec<String> {
+/// File sporchi del checkout che l'aggiornamento toccherebbe. `ignored` sono le
+/// copie locali dell'allowlist: sono gli originali da cui la corsia ha copiato
+/// la configurazione, non lavoro dell'utente da proteggere accodando.
+fn overlapping_paths(dirty: &[String], changed: &[String], ignored: &[String]) -> Vec<String> {
     let mut overlapping: Vec<String> = Vec::new();
     for path in dirty {
+        if ignored.iter().any(|skip| paths_match(skip, path)) {
+            continue;
+        }
         if changed.iter().any(|other| paths_match(path, other))
-            && !overlapping.iter().any(|existing| paths_match(existing, path))
+            && !overlapping
+                .iter()
+                .any(|existing| paths_match(existing, path))
         {
             overlapping.push(path.clone());
         }
     }
     overlapping
+}
+
+/// Vero se `path` sta dentro la cartella `dir` (entrambi con `/`).
+fn path_within(path: &str, dir: &str) -> bool {
+    path.len() > dir.len()
+        && path.as_bytes()[dir.len()] == b'/'
+        && path
+            .get(..dir.len())
+            .is_some_and(|prefix| paths_match(prefix, dir))
+}
+
+/// Massimo di file elencati in un messaggio d'errore.
+const MAX_LISTED_FILES: usize = 10;
+
+fn list_for_message(files: &[String]) -> String {
+    let mut text = files
+        .iter()
+        .take(MAX_LISTED_FILES)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(", ");
+    if files.len() > MAX_LISTED_FILES {
+        text.push_str(&format!(" (e altri {})", files.len() - MAX_LISTED_FILES));
+    }
+    text
+}
+
+/// File ignorati presenti nel checkout target che l'aggiornamento scriverebbe.
+/// `reset --hard` li sovrascrive senza chiedere (un `secret.json` ignorato in
+/// locale e versionato dalla corsia), quindi vanno trovati prima di muovere il
+/// ref. `--directory` riduce una cartella ignorata intera a una voce: per quei
+/// casi conta se il file esiste davvero sul disco.
+fn ignored_files_overwritten(
+    root: &Path,
+    changed: &[String],
+) -> Result<Vec<String>, WorktreeError> {
+    if changed.is_empty() {
+        return Ok(Vec::new());
+    }
+    let output = require_git(
+        root,
+        &git_args(&[
+            "ls-files",
+            "--others",
+            "--ignored",
+            "--exclude-standard",
+            "--directory",
+            "-z",
+        ]),
+        WorktreeErrorCode::GitCommandFailed,
+        "Impossibile elencare i file ignorati del checkout target",
+    )?;
+    let ignored: Vec<String> = output
+        .stdout
+        .split(|byte| *byte == 0)
+        .filter(|raw| !raw.is_empty())
+        .map(|raw| String::from_utf8_lossy(raw).replace('\\', "/"))
+        .collect();
+    let mut hits: Vec<String> = Vec::new();
+    for path in changed {
+        let hit = ignored.iter().any(|entry| match entry.strip_suffix('/') {
+            Some(dir) => {
+                paths_match(dir, path)
+                    || (path_within(path, dir)
+                        && std::fs::symlink_metadata(root.join(path)).is_ok())
+            }
+            None => paths_match(entry, path),
+        });
+        if hit && !hits.iter().any(|existing| paths_match(existing, path)) {
+            hits.push(path.clone());
+        }
+    }
+    Ok(hits)
+}
+
+fn ensure_no_ignored_overwrite(root: &Path, changed: &[String]) -> Result<(), WorktreeError> {
+    let hits = ignored_files_overwritten(root, changed)?;
+    if hits.is_empty() {
+        return Ok(());
+    }
+    Err(WorktreeError::with_detail(
+        WorktreeErrorCode::TargetDirty,
+        format!(
+            "Il checkout target contiene file ignorati da Git che l'operazione sovrascriverebbe: {}. Spostali o rinominali e riprova",
+            list_for_message(&hits)
+        ),
+        hits.join("\n"),
+    ))
 }
 
 enum MergeTreeResult {
@@ -830,8 +1209,23 @@ fn merge_target_into_lane(
     ))
 }
 
+/// `git add -A` della corsia senza le copie locali dell'allowlist: un percorso
+/// escluso per argomento, con `literal` perche' `*` o `[` nel nome non diventino
+/// pattern. Argv separati, mai una shell: spazi e apici passano intatti.
+fn lane_add_args(allowlisted: &[String]) -> Vec<String> {
+    let mut args = vec!["add".to_string(), "-A".to_string()];
+    if !allowlisted.is_empty() {
+        args.push("--".to_string());
+        args.push(".".to_string());
+        for path in allowlisted {
+            args.push(format!(":(exclude,literal){path}"));
+        }
+    }
+    args
+}
+
 pub(crate) fn land_sync(args: WorktreeLandArgs) -> Result<WorktreeLandOutcome, WorktreeError> {
-    let _lock = mutation_lock()?;
+    let _lock = worktree_mutation_lock();
     let context = discover_repository(&args.project_path)?;
     let lane_id = validate_lane_id(&args.lane_id)?.to_string();
     let (worktree, entry) = resolve_managed_worktree(&context, &args.worktree_path)?;
@@ -856,6 +1250,9 @@ pub(crate) fn land_sync(args: WorktreeLandArgs) -> Result<WorktreeLandOutcome, W
         args.target_branch.as_deref(),
     )?;
     let message = validate_message(&args.message)?;
+    // Prima di qualsiasi commit automatico: con un Git senza `merge-tree
+    // --write-tree` la corsia resterebbe committata senza poter integrare.
+    ensure_git_supports_merge_tree(super::git_version())?;
 
     // Controllo processi attivi escludendo quelli esenti
     let active_processes: Vec<_> = crate::process_tree::lane_processes_under(&worktree)
@@ -875,9 +1272,12 @@ pub(crate) fn land_sync(args: WorktreeLandArgs) -> Result<WorktreeLandOutcome, W
         ));
     }
 
+    // Copie locali dell'allowlist: mai nel commit della corsia, mai "lavoro".
+    let allowlisted = allowlist_paths(&context, &lane_branch)?;
+
     // Idempotenza preliminare: se la corsia e' pulita e HEAD corrisponde alla ricevuta gia' sul target
     let current_lane = resolve_commit(&worktree, "HEAD")?;
-    if porcelain_files(&worktree)?.is_empty() && !merge_in_progress(&worktree)? {
+    if blocking_changes(&worktree, &allowlisted)?.is_empty() && !merge_in_progress(&worktree)? {
         if let Some(receipt) =
             receipt_on_target(&context, &lane_branch, &target_branch, &current_lane)?
         {
@@ -909,18 +1309,23 @@ pub(crate) fn land_sync(args: WorktreeLandArgs) -> Result<WorktreeLandOutcome, W
         )?;
     }
 
-    // Se ci sono file modificati o non tracciati, esegui git add -A e committa
-    if !porcelain_files(&worktree)?.is_empty() {
+    // Modifiche della corsia (copie dell'allowlist escluse): add e commit.
+    if !blocking_changes(&worktree, &allowlisted)?.is_empty() {
+        let add_args = lane_add_args(&allowlisted);
+        let add_refs: Vec<&str> = add_args.iter().map(String::as_str).collect();
         git_without_hooks_ok(
             &worktree,
-            &["add", "-A"],
+            &add_refs,
             "Impossibile preparare le modifiche della corsia (git add)",
         )?;
-        git_without_hooks_ok(
-            &worktree,
-            &["commit", "-m", &message],
-            "Impossibile creare il commit delle modifiche della corsia",
-        )?;
+        // Senza nulla in stage (es. solo file locali esclusi) `commit` fallirebbe.
+        if !diff_quiet(&worktree, &["--cached"])? {
+            git_without_hooks_ok(
+                &worktree,
+                &["commit", "-m", &message],
+                "Impossibile creare il commit delle modifiche della corsia",
+            )?;
+        }
     }
 
     let mut lane_head = resolve_commit(&worktree, "HEAD")?;
@@ -999,13 +1404,14 @@ pub(crate) fn land_sync(args: WorktreeLandArgs) -> Result<WorktreeLandOutcome, W
     let dirty = porcelain_files(&context.repository_root)?;
     let changed = diff_name_only_z(&context.repository_root, &target_sha, &new_commit)?;
 
-    let overlapping = overlapping_paths(&dirty, &changed);
+    let overlapping = overlapping_paths(&dirty, &changed, &allowlisted);
     if !overlapping.is_empty() {
         return Ok(WorktreeLandOutcome::Queued {
             reason: "target_overlap".to_string(),
             files: overlapping,
         });
     }
+    ensure_no_ignored_overwrite(&context.repository_root, &changed)?;
 
     // CAS update-ref del branch target
     update_ref(
@@ -1048,7 +1454,7 @@ pub(crate) fn land_sync(args: WorktreeLandArgs) -> Result<WorktreeLandOutcome, W
         )
     };
 
-    if let Err(error) = sync_res {
+    if let Err(failure) = sync_res {
         if rollback_ref(
             &context,
             &lane_branch,
@@ -1056,18 +1462,34 @@ pub(crate) fn land_sync(args: WorktreeLandArgs) -> Result<WorktreeLandOutcome, W
             &target_sha,
             &new_commit,
         )
-        .is_ok()
+        .is_err()
         {
             return Err(WorktreeError::with_detail(
-                WorktreeErrorCode::GitCommandFailed,
-                "Integrazione annullata senza modificare il target",
-                error.message,
+                WorktreeErrorCode::CheckoutSyncFailed,
+                "Il commit e' sul target ma il checkout non e' allineato: il tentativo successivo non crea un altro merge",
+                failure.error.message,
             ));
         }
+        // Il ref e' tornato indietro: se il checkout era gia' stato toccato va
+        // riportato anche lui, o il target mostrerebbe file dell'integrazione
+        // annullata come modifiche locali.
+        if failure.touched {
+            if let Err(restore_error) = restore_checkout(
+                &context.repository_root,
+                dirty.is_empty(),
+                &new_commit,
+                &target_sha,
+            ) {
+                return Err(checkout_left_halfway(format!(
+                    "{}; ripristino: {}",
+                    failure.error.message, restore_error.message
+                )));
+            }
+        }
         return Err(WorktreeError::with_detail(
-            WorktreeErrorCode::CheckoutSyncFailed,
-            "Il commit e' sul target ma il checkout non e' allineato: il tentativo successivo non crea un altro merge",
-            error.message,
+            WorktreeErrorCode::GitCommandFailed,
+            "Integrazione annullata senza modificare il target",
+            failure.error.message,
         ));
     }
 
@@ -1101,7 +1523,7 @@ pub(crate) fn land_sync(args: WorktreeLandArgs) -> Result<WorktreeLandOutcome, W
 pub(crate) fn undo_land_sync(
     args: WorktreeUndoLandArgs,
 ) -> Result<WorktreeUndoLandOutcome, WorktreeError> {
-    let _lock = mutation_lock()?;
+    let _lock = worktree_mutation_lock();
     let context = discover_repository(&args.project_path)?;
     let lane_id = validate_lane_id(&args.lane_id)?.to_string();
     let target_branch = validate_target_branch(&context, &args.target_branch)?;
@@ -1133,6 +1555,16 @@ pub(crate) fn undo_land_sync(
             "Il branch target e' avanzato rispetto al commit da annullare",
         ));
     }
+    // L'annullamento riporta il ref al genitore diretto dello squash: con un
+    // `previousTarget` diverso (stato del frontend vecchio o manomesso) si
+    // butterebbero via commit che non appartengono all'integrazione.
+    let parent = resolve_commit(&context.repository_root, &format!("{commit}^"))?;
+    if parent != previous_target {
+        return Err(WorktreeError::new(
+            WorktreeErrorCode::TargetMoved,
+            "Il commit da annullare non e' figlio diretto del target precedente indicato",
+        ));
+    }
 
     if !unmerged_paths(&context.repository_root)?.is_empty() {
         return Err(WorktreeError::new(
@@ -1143,7 +1575,7 @@ pub(crate) fn undo_land_sync(
 
     let dirty = porcelain_files(&context.repository_root)?;
     let changed = diff_name_only_z(&context.repository_root, &commit, &previous_target)?;
-    let overlapping = overlapping_paths(&dirty, &changed);
+    let overlapping = overlapping_paths(&dirty, &changed, &[]);
     if !overlapping.is_empty() {
         return Err(WorktreeError::with_detail(
             WorktreeErrorCode::TargetDirty,
@@ -1151,6 +1583,7 @@ pub(crate) fn undo_land_sync(
             overlapping.join(", "),
         ));
     }
+    ensure_no_ignored_overwrite(&context.repository_root, &changed)?;
 
     // CAS update_ref: da commit a previous_target
     update_ref(
@@ -1161,7 +1594,6 @@ pub(crate) fn undo_land_sync(
     )?;
 
     let lane_branch = format!("{LANE_BRANCH_PREFIX}{lane_id}");
-    clear_receipt(&context, &lane_branch);
 
     let sync_res = if dirty.is_empty() {
         sync_checkout(
@@ -1179,19 +1611,47 @@ pub(crate) fn undo_land_sync(
         )
     };
 
-    if let Err(error) = sync_res {
-        let _ = update_ref(
+    if let Err(failure) = sync_res {
+        if update_ref(
             &context.repository_root,
             &target_branch,
             &commit,
             &previous_target,
-        );
+        )
+        .is_err()
+        {
+            // Il ref e' rimasto sul target precedente: l'integrazione e' di
+            // fatto annullata e la ricevuta non vale piu'.
+            clear_receipt(&context, &lane_branch);
+            return Err(WorktreeError::with_detail(
+                WorktreeErrorCode::CheckoutSyncFailed,
+                "Il branch target e' tornato al commit precedente ma il checkout non e' allineato. Esegui git status nel progetto, chiudi i programmi che bloccano i file e riprova",
+                failure.error.message,
+            ));
+        }
+        if failure.touched {
+            if let Err(restore_error) = restore_checkout(
+                &context.repository_root,
+                dirty.is_empty(),
+                &previous_target,
+                &commit,
+            ) {
+                return Err(checkout_left_halfway(format!(
+                    "{}; ripristino: {}",
+                    failure.error.message, restore_error.message
+                )));
+            }
+        }
         return Err(WorktreeError::with_detail(
             WorktreeErrorCode::CheckoutSyncFailed,
             "Impossibile allineare il checkout target al commit precedente durante l'annullamento",
-            error.message,
+            failure.error.message,
         ));
     }
+
+    // La ricevuta si toglie solo ad annullamento riuscito: se il checkout non
+    // si allinea il commit resta sul target e la corsia resta integrata.
+    clear_receipt(&context, &lane_branch);
 
     // Creazione esclusiva del branch di ripristino refs/heads/omp/restored-<laneId>
     let mut counter = 1;
@@ -1225,8 +1685,202 @@ pub(crate) fn undo_land_sync(
     })
 }
 
+/// Stato del branch di corsia rispetto all'integrazione, in sola lettura.
+struct LaneBranchState {
+    branch: String,
+    tip: String,
+    target: String,
+    receipt: Option<IntegrationReceipt>,
+    /// Ricevuta valida, tip == sorgente della ricevuta e commit sul target.
+    integrated: bool,
+}
+
+/// `None` se il branch `omp/lane-<id>` non esiste.
+fn lane_branch_state(
+    context: &super::RepositoryContext,
+    lane_id: &str,
+) -> Result<Option<LaneBranchState>, WorktreeError> {
+    let branch = format!("{LANE_BRANCH_PREFIX}{lane_id}");
+    if !super::branch_exists(context, &branch)? {
+        return Ok(None);
+    }
+    let tip = resolve_commit(&context.repository_root, &format!("refs/heads/{branch}"))?;
+    let target = super::config_get(context, &branch, "ompStudioTargetBranch")?
+        .unwrap_or_else(|| "main".to_string());
+    let receipt = read_config_receipt(context, &branch)?;
+    let integrated = match &receipt {
+        Some(receipt) if receipt.source == tip => {
+            super::branch_exists(context, &target)?
+                && is_ancestor(
+                    &context.repository_root,
+                    &receipt.commit,
+                    &format!("refs/heads/{target}"),
+                )?
+        }
+        _ => false,
+    };
+    Ok(Some(LaneBranchState {
+        branch,
+        tip,
+        target,
+        receipt,
+        integrated,
+    }))
+}
+
+/// Commit base registrato alla creazione, se ancora risolvibile.
+fn registered_base(context: &super::RepositoryContext, branch: &str) -> Option<String> {
+    super::config_get(context, branch, "ompStudioBaseCommit")
+        .ok()
+        .flatten()
+        .and_then(|base| resolve_commit(&context.repository_root, &base).ok())
+}
+
+/// Vero se il branch non porta lavoro proprio: il tip e' ancora il commit
+/// base registrato, oppure e' gia' contenuto nel target (merge esterno).
+fn lane_has_no_own_work(
+    context: &super::RepositoryContext,
+    state: &LaneBranchState,
+) -> Result<bool, WorktreeError> {
+    if registered_base(context, &state.branch).as_deref() == Some(state.tip.as_str()) {
+        return Ok(true);
+    }
+    if super::branch_exists(context, &state.target)? {
+        return is_ancestor(
+            &context.repository_root,
+            &state.tip,
+            &format!("refs/heads/{}", state.target),
+        );
+    }
+    Ok(false)
+}
+
+/// Voci dell'output di Git separate da `separator` (righe o NUL di `-z`).
+fn count_entries(cwd: &Path, args: &[&str], separator: u8) -> Result<u32, WorktreeError> {
+    let output = require_git(
+        cwd,
+        &git_args(args),
+        WorktreeErrorCode::GitCommandFailed,
+        "Impossibile contare il lavoro non integrato della corsia",
+    )?;
+    let count = output
+        .stdout
+        .split(|byte| *byte == separator)
+        .filter(|raw| !raw.iter().all(u8::is_ascii_whitespace))
+        .count();
+    Ok(u32::try_from(count).unwrap_or(u32::MAX))
+}
+
+pub(crate) fn lane_unintegrated_summary_sync(
+    args: LaneBranchQueryArgs,
+) -> Result<LaneUnintegratedSummary, WorktreeError> {
+    let context = discover_repository(&args.project_path)?;
+    let lane_id = validate_lane_id(&args.lane_id)?;
+    let Some(state) = lane_branch_state(&context, lane_id)? else {
+        return Ok(LaneUnintegratedSummary {
+            branch_exists: false,
+            integrated: false,
+            commits: 0,
+            files: 0,
+        });
+    };
+    if state.integrated {
+        return Ok(LaneUnintegratedSummary {
+            branch_exists: true,
+            integrated: true,
+            commits: 0,
+            files: 0,
+        });
+    }
+    let root = &context.repository_root;
+    // Riferimento: la sorgente gia' integrata se la corsia e' andata avanti dopo
+    // lo squash (i commit squashati non sono "nel target" per Git, il loro
+    // contenuto si'), altrimenti il target, altrimenti il commit base.
+    let integrated_source = match &state.receipt {
+        Some(receipt) if is_ancestor(root, &receipt.source, &state.tip)? => {
+            Some(receipt.source.clone())
+        }
+        _ => None,
+    };
+    let reference = match integrated_source {
+        Some(source) => Some(source),
+        None if super::branch_exists(&context, &state.target)? => {
+            Some(format!("refs/heads/{}", state.target))
+        }
+        None => registered_base(&context, &state.branch),
+    };
+    let (commits, files) = match reference {
+        Some(reference) => {
+            let commits = count_entries(
+                root,
+                &["rev-list", &format!("{reference}..{}", state.tip)],
+                b'\n',
+            )?;
+            let fork = git_text(root, &["merge-base", &reference, &state.tip]).ok();
+            let files = match fork.filter(|fork| !fork.is_empty()) {
+                Some(fork) => count_entries(
+                    root,
+                    &[
+                        "diff",
+                        "--name-only",
+                        "--no-renames",
+                        "-z",
+                        &fork,
+                        &state.tip,
+                    ],
+                    0,
+                )?,
+                None => {
+                    count_entries(root, &["ls-tree", "-r", "--name-only", "-z", &state.tip], 0)?
+                }
+            };
+            (commits, files)
+        }
+        None => (
+            count_entries(root, &["rev-list", &state.tip], b'\n')?,
+            count_entries(root, &["ls-tree", "-r", "--name-only", "-z", &state.tip], 0)?,
+        ),
+    };
+    Ok(LaneUnintegratedSummary {
+        branch_exists: true,
+        integrated: false,
+        commits,
+        files,
+    })
+}
+
+pub(crate) fn lane_integration_state_sync(
+    args: LaneBranchQueryArgs,
+) -> Result<LaneIntegrationState, WorktreeError> {
+    let context = discover_repository(&args.project_path)?;
+    let lane_id = validate_lane_id(&args.lane_id)?;
+    Ok(match lane_branch_state(&context, lane_id)? {
+        Some(state) => LaneIntegrationState {
+            branch_exists: true,
+            integrated: state.integrated,
+        },
+        None => LaneIntegrationState {
+            branch_exists: false,
+            integrated: false,
+        },
+    })
+}
+
+fn delete_branch(
+    context: &super::RepositoryContext,
+    branch: &str,
+    force: bool,
+) -> Result<bool, WorktreeError> {
+    let flag = if force { "-D" } else { "-d" };
+    let output = run_git(
+        &context.repository_root,
+        &git_args(&["branch", flag, branch]),
+    )?;
+    Ok(output.status.success())
+}
+
 pub(crate) fn delete_lane_branch_sync(args: DeleteLaneBranchArgs) -> Result<(), WorktreeError> {
-    let _lock = mutation_lock()?;
+    let _lock = worktree_mutation_lock();
     if !args.confirm {
         return Err(WorktreeError::new(
             WorktreeErrorCode::ConfirmationRequired,
@@ -1235,10 +1889,12 @@ pub(crate) fn delete_lane_branch_sync(args: DeleteLaneBranchArgs) -> Result<(), 
     }
     let context = discover_repository(&args.project_path)?;
     let lane_id = validate_lane_id(&args.lane_id)?;
-    let branch = format!("{LANE_BRANCH_PREFIX}{lane_id}");
-    if !super::branch_exists(&context, &branch)? {
+    // Solo `omp/lane-<id>`: l'id e' validato, quindi il nome non puo' uscire
+    // dal prefisso di corsia.
+    let Some(state) = lane_branch_state(&context, lane_id)? else {
         return Ok(());
-    }
+    };
+    let branch = state.branch.clone();
     let is_checked_out = super::porcelain_worktrees(&context)?
         .iter()
         .any(|entry| entry.branch.as_deref() == Some(&branch));
@@ -1248,41 +1904,37 @@ pub(crate) fn delete_lane_branch_sync(args: DeleteLaneBranchArgs) -> Result<(), 
             "Il branch e' ancora checked out: nessun force e' stato usato",
         ));
     }
-    let Some(receipt) = read_config_receipt(&context, &branch)? else {
+
+    // Lavoro gia' al sicuro: integrato (squash, che per Git non risulta
+    // "merged") oppure nessun commit proprio. Si prova `-d` e solo per questi
+    // casi si ripiega su `-D`: il tip non contiene nulla che andrebbe perso.
+    let safe = state.integrated || lane_has_no_own_work(&context, &state)?;
+    if !safe {
+        if !args.discard_unintegrated {
+            return Err(match &state.receipt {
+                Some(_) => WorktreeError::new(
+                    WorktreeErrorCode::LaneDivergedAfterIntegrate,
+                    "Il branch contiene commit non compresi nell'integrazione e non viene forzato",
+                ),
+                None => WorktreeError::new(
+                    WorktreeErrorCode::ConfirmationRequired,
+                    "Il branch non ha un'integrazione riconosciuta e non viene forzato",
+                ),
+            });
+        }
+        // Consenso esplicito a scartare il lavoro non integrato.
+        if delete_branch(&context, &branch, true)? {
+            return Ok(());
+        }
         return Err(WorktreeError::new(
-            WorktreeErrorCode::ConfirmationRequired,
-            "Il branch non ha un'integrazione riconosciuta e non viene forzato",
-        ));
-    };
-    let tip = resolve_commit(&context.repository_root, &format!("refs/heads/{branch}"))?;
-    if tip != receipt.source {
-        return Err(WorktreeError::new(
-            WorktreeErrorCode::LaneDivergedAfterIntegrate,
-            "Il branch contiene commit non compresi nell'integrazione e non viene forzato",
-        ));
-    }
-    let target = super::config_get(&context, &branch, "ompStudioTargetBranch")?
-        .unwrap_or_else(|| "main".to_string());
-    if !is_ancestor(
-        &context.repository_root,
-        &receipt.commit,
-        &format!("refs/heads/{target}"),
-    )? {
-        return Err(WorktreeError::new(
-            WorktreeErrorCode::LaneDivergedAfterIntegrate,
-            "Il commit di integrazione non e' sul target: il branch non viene eliminato",
+            WorktreeErrorCode::GitCommandFailed,
+            "Git non ha eliminato il branch della corsia",
         ));
     }
 
-    let deleted = run_git(
-        &context.repository_root,
-        &git_args(&["branch", "-d", &branch]),
-    )?;
-    if deleted.status.success() {
+    if delete_branch(&context, &branch, false)? {
         return Ok(());
     }
-    // `-D` solo sul tip appena integrato. Lo squash non risulta "merged" per
-    // Git, ma l'albero e' quello del receipt: non e' lavoro sconosciuto.
     let forced = run_git(
         &context.repository_root,
         &git_args(&["branch", "-D", &branch]),
@@ -1295,5 +1947,93 @@ pub(crate) fn delete_lane_branch_sync(args: DeleteLaneBranchArgs) -> Result<(), 
             "Git non ha eliminato il branch della corsia",
             output_detail(&forced),
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rifiuta_git_precedente_alla_2_38_con_messaggio_esplicito() {
+        let error = ensure_git_supports_merge_tree(Some((2, 37, 9))).unwrap_err();
+        assert_eq!(error.code, WorktreeErrorCode::GitTooOld);
+        assert_eq!(
+            error.message,
+            "Integrazione corsie: serve Git 2.38 o successivo (trovato 2.37)"
+        );
+        assert!(ensure_git_supports_merge_tree(Some((2, 38, 0))).is_ok());
+        assert!(ensure_git_supports_merge_tree(Some((3, 0, 0))).is_ok());
+        assert!(ensure_git_supports_merge_tree(None).is_ok());
+    }
+
+    #[test]
+    fn esclude_le_copie_allowlist_dal_git_add() {
+        assert_eq!(lane_add_args(&[]), vec!["add", "-A"]);
+        assert_eq!(
+            lane_add_args(&["Parametri.ini".to_string(), "conf/a b*.ini".to_string()]),
+            vec![
+                "add",
+                "-A",
+                "--",
+                ".",
+                ":(exclude,literal)Parametri.ini",
+                ":(exclude,literal)conf/a b*.ini",
+            ]
+        );
+    }
+
+    #[test]
+    fn overlap_ignora_le_copie_allowlist_e_confronta_le_cartelle_per_componenti() {
+        let dirty = vec!["Parametri.ini".to_string(), "src/a.txt".to_string()];
+        let changed = vec!["Parametri.ini".to_string(), "src/a.txt".to_string()];
+        assert_eq!(
+            overlapping_paths(&dirty, &changed, &["Parametri.ini".to_string()]),
+            vec!["src/a.txt".to_string()]
+        );
+        assert!(path_within("build/out.js", "build"));
+        assert!(!path_within("buildx/out.js", "build"));
+        assert!(!path_within("build", "build"));
+    }
+
+    #[test]
+    fn elenco_file_nel_messaggio_si_ferma_a_dieci() {
+        let files: Vec<String> = (0..12).map(|i| format!("f{i}")).collect();
+        let text = list_for_message(&files);
+        assert!(text.starts_with("f0, f1"));
+        assert!(text.contains("f9"));
+        assert!(!text.contains("f10,"));
+        assert!(text.ends_with("(e altri 2)"));
+    }
+
+    #[test]
+    fn cartella_hook_assente_o_vuota_mai_una_con_file() {
+        let base =
+            std::env::temp_dir().join(format!("omp-studio-hooks-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        assert_eq!(
+            unused_hooks_dir(&base),
+            Some(base.join("omp-studio-no-hooks"))
+        );
+
+        // Una cartella con dentro un hook non viene mai usata.
+        let planted = base.join("omp-studio-no-hooks");
+        std::fs::create_dir_all(&planted).unwrap();
+        std::fs::write(planted.join("pre-commit"), "#!/bin/sh\nexit 1\n").unwrap();
+        assert_eq!(
+            unused_hooks_dir(&base),
+            Some(base.join("omp-studio-no-hooks-1"))
+        );
+        // Vuota: utilizzabile.
+        std::fs::create_dir_all(base.join("omp-studio-no-hooks-1")).unwrap();
+        assert_eq!(
+            unused_hooks_dir(&base),
+            Some(base.join("omp-studio-no-hooks-1"))
+        );
+        // Il percorso scelto non e' mai sotto la cartella temporanea condivisa.
+        let chosen = no_hooks_path(&base).unwrap_or_default();
+        assert!(!chosen.contains("omp-studio-empty-hooks"));
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

@@ -385,7 +385,6 @@ pub fn start(app: AppHandle) {
         };
 
         let _ = BRIDGE_PORT.set(port);
-        println!("[LaneBridge] Server HTTP avviato su 127.0.0.1:{}", port);
 
         loop {
             match listener.accept().await {

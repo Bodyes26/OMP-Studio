@@ -32,10 +32,19 @@ impl PtySession {
             return;
         }
 
+        // Se il figlio e' gia' stato raccolto (lo fa anche `is_alive` del
+        // registro corsie con `try_wait`), il suo PID e' tornato libero e
+        // potrebbe appartenere a un processo estraneo: niente segnali per PID.
+        // Il Job Object di Windows resta sicuro perche' e' un handle.
+        let pid = if self.child.lock().try_wait().ok().flatten().is_some() {
+            None
+        } else {
+            self.pid
+        };
         #[cfg(target_os = "windows")]
-        crate::process_tree::kill_process_tree(self.pid, self.job.as_deref());
+        crate::process_tree::kill_process_tree(pid, self.job.as_deref());
         #[cfg(not(target_os = "windows"))]
-        crate::process_tree::kill_process_tree(self.pid);
+        crate::process_tree::kill_process_tree(pid);
 
         // Il lock del figlio vive solo qui dentro: il registro delle corsie
         // interroga `is_alive` tenendo il proprio lock, e conservare i due
@@ -68,6 +77,20 @@ impl crate::process_tree::LaneProcessControl for PtySession {
 
     fn stop_and_wait(&self) {
         self.kill_tree();
+    }
+
+    fn tree_drained(&self) -> bool {
+        #[cfg(target_os = "windows")]
+        {
+            crate::process_tree::job_drained(self.job.as_deref())
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            // La shell del PTY e' leader di sessione e di gruppo (setsid di
+            // portable-pty): il suo PID e' anche il PGID dell'albero.
+            self.pid
+                .is_none_or(|pid| !crate::process_tree::process_group_alive(pid))
+        }
     }
 }
 
@@ -336,9 +359,20 @@ impl PtyManager {
             let mut lock = self.sessions.lock();
             lock.drain().collect()
         };
-        for (pty_id, session) in sessions {
-            session.kill_tree();
-            remove_breadcrumb(pty_id);
+        // In parallelo: su Unix ogni albero ha fino a 1.5 s per uscire con
+        // SIGTERM prima del SIGKILL, e all'uscita dell'app le attese non devono
+        // sommarsi una sessione dopo l'altra.
+        let handles: Vec<_> = sessions
+            .into_iter()
+            .map(|(pty_id, session)| {
+                thread::spawn(move || {
+                    session.kill_tree();
+                    remove_breadcrumb(pty_id);
+                })
+            })
+            .collect();
+        for handle in handles {
+            let _ = handle.join();
         }
     }
 }
@@ -405,10 +439,6 @@ pub async fn pty_open(
         .map_err(|e| e.to_string())?;
 
     let omp_path = crate::omp_ops::get_omp_binary();
-    println!(
-        "[PTY] pty_open called: cwd={:?}, omp_path={:?}, args={:?}, cols={}, rows={}",
-        cwd, omp_path, args, cols, rows
-    );
     let pty_id = {
         let mut id_guard = manager.next_id.lock();
         let id = *id_guard;
@@ -580,23 +610,37 @@ pub async fn pty_open(
         }
         cmd.env("FIG_DISABLE", "1");
     }
-    let child = match pair.slave.spawn_command(cmd) {
-        Ok(c) => {
-            println!("[PTY] spawn_command succeeded for pty_id {}", pty_id);
-            c
-        }
+    let mut child = match pair.slave.spawn_command(cmd) {
+        Ok(c) => c,
         Err(e) => {
             if bridge_creds.is_some() {
                 crate::lane_bridge::revoke_owner("terminal", pty_id);
             }
-            eprintln!("[PTY] spawn_command failed: {}", e);
             return Err(format!("spawn_command failed: {}", e));
         }
     };
 
+    // Il figlio e' gia' vivo: se i canali del PTY non si aprono non resta
+    // nessuno a possederlo, quindi va abbattuto qui insieme al token del ponte.
     let master_pty = pair.master;
-    let reader = master_pty.try_clone_reader().map_err(|e| e.to_string())?;
-    let writer = master_pty.take_writer().map_err(|e| e.to_string())?;
+    let channels = master_pty
+        .try_clone_reader()
+        .and_then(|reader| master_pty.take_writer().map(|writer| (reader, writer)));
+    let (reader, writer) = match channels {
+        Ok(channels) => channels,
+        Err(error) => {
+            #[cfg(target_os = "windows")]
+            crate::process_tree::kill_process_tree(child.process_id(), None);
+            #[cfg(not(target_os = "windows"))]
+            crate::process_tree::kill_process_tree(child.process_id());
+            let _ = child.kill();
+            let _ = child.wait();
+            if bridge_creds.is_some() {
+                crate::lane_bridge::revoke_owner("terminal", pty_id);
+            }
+            return Err(error.to_string());
+        }
+    };
 
     let master_arc = Arc::new(Mutex::new(master_pty));
     let writer_arc = Arc::new(Mutex::new(writer));
@@ -606,13 +650,7 @@ pub async fn pty_open(
     #[cfg(target_os = "windows")]
     let job = if let Some(proc_id) = pid {
         match WindowsJob::create_for_process(proc_id) {
-            Ok(j) => {
-                println!(
-                    "[PTY] Associato processo {} a Windows Job Object (kill on close)",
-                    proc_id
-                );
-                Some(Arc::new(j))
-            }
+            Ok(j) => Some(Arc::new(j)),
             Err(e) => {
                 eprintln!(
                     "[PTY] Avviso: associazione Job Object fallita per PID {}: {}",
@@ -742,7 +780,9 @@ pub async fn pty_close(pty_id: u64, manager: State<'_, PtyManager>) -> Result<()
 /// Termina forzatamente la sessione PTY e l'intero albero dei processi figli (SIGKILL/taskkill).
 #[tauri::command]
 pub async fn pty_force_kill(pty_id: u64, manager: State<'_, PtyManager>) -> Result<(), String> {
-    let session = manager.sessions.lock().get(&pty_id).cloned();
+    // `remove`, non `get`: una sessione abbattuta non deve restare nella mappa,
+    // dove `pty_write`/`pty_resize` continuerebbero a trovarla.
+    let session = manager.sessions.lock().remove(&pty_id);
     let session = session.ok_or_else(|| format!("Sessione PTY {} non trovata", pty_id))?;
     tokio::task::spawn_blocking(move || {
         session.kill_tree();
