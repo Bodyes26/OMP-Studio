@@ -15,7 +15,7 @@ Documento tecnico. Le versioni, i contratti IPC, gli schemi di persistenza e le 
 | PTY | `portable-pty` | **0.9.0** | ConPTY nativo su Windows 10/11, POSIX PTY su macOS e Linux |
 | RPC OMP | `omp --mode rpc-ui` su stdio | NDJSON Protocol v2 | Seconda superficie GUI: streaming asincrono bidirezionale, riassemblaggio chunk fino a 64 MiB, coalescenza delta |
 | Frontend | Svelte 5 + Vite (template `svelte-ts`) | Svelte **5.56.8** | Reattività nativa con Runes (`$state`, `$derived`, `$effect`, `$props`), nessun framework server, zero overhead di virtual DOM |
-| Terminale | `@xterm/xterm` + `@xterm/addon-canvas` | **6.0.0** / **0.7.0** | Renderer Canvas ad alte prestazioni; addon fit, ligatures, unicode11, web-links, search |
+| Terminale | `@xterm/xterm` | **6.0.0** | Renderer DOM (vedi §1.1); addon fit, ligatures, unicode11, web-links, search, clipboard |
 | Editor | `monaco-editor` | **0.56.0** | Istanza Monaco singola multi-modello, visualizzatore diff Git affiancato, sintassi estesa |
 | Diagrammi & Whiteboard | `mermaid` | **11.x** | Rendering SVG interattivo zoomabile/panorabile per il tool agente `studio_diagram` |
 | Sandbox & Sanitizzazione | `dompurify` | **3.x** | Difesa in profondità per anteprime vettoriali SVG e prototipi UI isolati in iframe sandbox privi di script |
@@ -32,9 +32,9 @@ Documento tecnico. Le versioni, i contratti IPC, gli schemi di persistenza e le 
 
 `tauri-plugin-fs` e `tauri-plugin-shell` **non** vengono usati: il backend Rust espone solo comandi specifici a perimetro controllato con validazione dei path dentro la radice del progetto attivo.
 
-### 1.1 Renderer Canvas per xterm.js (non WebGL)
+### 1.1 Renderer DOM per xterm.js
 
-Il renderer WebGL di xterm.js non viene impiegato a causa di instabilità documentate in ambienti WebView2/Chromium (blocco rendering durante la digitazione [#4665](https://github.com/xtermjs/xterm.js/issues/4665), corruzione delle legature tipografiche [#3303](https://github.com/xtermjs/xterm.js/issues/3303)). Si utilizza `@xterm/addon-canvas` 0.7.0 abbinato a `@xterm/addon-ligatures` 0.10.0, che garantisce rendering deterministico a 60-120 fps, supporto perfetto ai glifi Nerd Font incorporati e stabilità assoluta.
+xterm.js 6 ha rimosso il renderer Canvas (`@xterm/addon-canvas`, pensato per xterm 5): il terminale usa il renderer DOM, abbinato a `@xterm/addon-ligatures` per le legature dei Nerd Font incorporati. È il renderer più compatibile (WebView2, WKWebView, WebKitGTK) e non dipende dalla scheda video. Il renderer WebGL (`@xterm/addon-webgl`) è più veloce con output molto lunghi ma in passato ha avuto problemi in WebView2 (blocco del rendering durante la digitazione [#4665](https://github.com/xtermjs/xterm.js/issues/4665), legature corrotte [#3303](https://github.com/xtermjs/xterm.js/issues/3303)) e perde il contesto grafico con alcuni driver o col desktop remoto: la sua adozione è parcheggiata in `IDEAS.md`.
 
 ---
 
@@ -453,14 +453,14 @@ I diagrammi Mermaid (`studio_diagram`) e le anteprime statiche SVG vengono rende
    ```
 3. **Iframe Sandboxing:** l'anteprima risiede all'interno di un `<iframe sandbox="">` privo di `allow-scripts` e `allow-same-origin`, con origine `null`. Il motore del browser disabilita l'esecuzione JavaScript alla radice e impedisce qualunque accesso a `window.parent` o alle API privilegiate Tauri `window.__TAURI__`.
 
-#### 7.3.2 Architettura di Confinamento del Laboratorio Prototipi React
-A differenza dei file statici, il Laboratorio prototipi richiede l'esecuzione di codice JavaScript reale (React 19, Tailwind v4, Recharts, Motion, Radix). La sicurezza non viene affidata a un iframe statico o a promesse del prompt, ma a una difesa a strati insuperabile:
-1. **Processo Chromium gestito e versionato:** esecuzione all'interno di un binario Chrome for Testing dedicato, separato dai browser personali dell'utente, con profilo temporaneo in cache locale privo di cronologia, cookie o credenziali dell'utente.
-2. **Origine virtuale in-memory:** il documento risiede su `http://lab.virtual` senza alcun server HTTP esposto sulla rete locale e senza accesso a `file://`.
-3. **Assenza totale di IPC Tauri:** nel contesto del prototipo `window.__TAURI__` e i bridge nativi sono categoricamente assenti.
-4. **Policy di rete nel controller CDP (Fetch domain):** poiché la sola CSP non impedisce la navigazione tramite `location.href`, il controller CDP intercetta tutte le richieste a livello di protocollo. Qualsiasi navigazione esterna o richiesta verso domini non esplicitamente autorizzati viene bloccata dal controller con `Fetch.failRequest` (`BlockedByClient`).
-5. **Watchdog runtime e recupero crash:** il controller monitora la responsività del target; cicli infiniti sincroni (`while(true)`) vengono interrotti in meno di 2 ms tramite `Runtime.terminateExecution`. In caso di stallo grave, il target viene riciclato (`Target.closeTarget` e `Target.createTarget`) ripristinando la piena usabilità senza riavviare Studio né toccare la sessione principale.
-6. **Broker di scrittura confinata (`extensions/studio-lab.ts`):** l'agente del Laboratorio e i subagenti autori operano con allowlist rigida di 8 tool (`lab_write_file`, `lab_read_file`, `lab_list_files`, `lab_delete_file`, `task`, `hub`, `todo`, `ask`). Shell (`bash`), interpreti (`eval`), scritture generiche (`write`, `edit`), browser host, debugger e MCP sono bloccati per difetto (deny-by-default, fail-closed). Tutti i percorsi sono validati canonicamente con `realpathSync` contro traversal `..`, percorsi assoluti, confini fra prototipi e symlink/junction esterni.
+#### 7.3.2 Confinamento del Laboratorio Prototipi React (Gate R30)
+Il Laboratorio esegue codice JavaScript reale (React 19, Tailwind v4 e le dipendenze dichiarate dal prototipo). È una funzione sperimentale, spenta per impostazione predefinita (Impostazioni → flag alpha). La sicurezza è a strati:
+1. **Workspace fuori dal progetto:** ogni prototipo vive in `<app_local_data_dir>/lab/prototypes/<id>` (Windows `%LOCALAPPDATA%\sh.omp.studio\lab`, macOS `~/Library/Application Support/sh.omp.studio/lab`, Linux `~/.local/share/sh.omp.studio/lab`) con un repository Git interno indipendente; i comandi `lab_*` verificano che il percorso resti confinato sotto `prototypes/` e il Git interno non esegue hook né firme dell'utente.
+2. **Compilazione locale:** il bundle è prodotto da `esbuild-wasm` in un Web Worker; le dipendenze esterne arrivano da esm.sh con versioni fissate nel `package.json` del prototipo.
+3. **Server di anteprima loopback:** `lab/preview_server.rs` ascolta solo su `127.0.0.1` con porta casuale, serve i file dalla memoria (nessun accesso al disco, nessun path traversal) dietro un token casuale da 128 bit e con una CSP propria che ammette solo esm.sh.
+4. **Iframe a origine opaca:** l'anteprima gira in `<iframe sandbox="allow-scripts allow-forms allow-modals allow-popups">` senza `allow-same-origin`: nessun accesso a `window.parent`, allo storage di Studio o all'IPC Tauri. La CSP dell'app ammette questi iframe con `frame-src http://127.0.0.1:*`.
+5. **Agente confinato (`extensions/studio-lab.ts`):** hook `tool_call` fail-closed. Letture ammesse solo nel workspace del prototipo e nel progetto originale, scritture solo nel workspace, shell ed `eval` bloccati, browser consentito solo verso l'URL locale dell'anteprima.
+
 ### 7.4 Integrità degli Aggiornamenti e Installer
 Sia `studio_updater.rs` sia l'installer di OMP in `setup.rs`:
 - Scaricano esclusivamente da repository ufficiali GitHub (`Bodyes26/OMP-Studio` e `can1357/oh-my-pi`).
@@ -483,15 +483,12 @@ Tutti gli obiettivi architetturali sono verificati e misurati su build Release:
 | Avvio a finestra interattiva | < 700 ms | **380 ms** | Timestamp da `main()` al primo frame montato |
 | Primo prompt visibile | < 1.5 s | **0.75 s** | Risoluzione diretta del binario senza invocazione shell |
 | Cambio progetto attivo | < 50 ms | **< 16 ms** (1 frame) | Cambio immediato di `visibility: hidden` senza smontaggio DOM |
-| Latenza tasto → glifo terminale | < 16 ms | **~7 ms** | Stream Channel raw bytes su ConPTY/Canvas |
+| Latenza tasto → glifo terminale | < 16 ms | **~7 ms** | Stream Channel raw bytes su ConPTY (misura col renderer Canvas, da ripetere col DOM) |
 | Throughput output terminale | > 20 MB/s | **~26 MB/s** | Test di burst su streaming log esteso |
 | Latenza rendering streaming chat | < 16 ms | **~8 ms** | Coalescenza delta 8 ms con animazioni CSS native |
 | RAM a riposo (1 progetto) | < 250 MB | **~145 MB** | Processo Rust (~85 MB) + WebView (~60 MB) |
 | RAM con 3 progetti attivi | < 500 MB | **~220 MB** | 3 sessioni PTY/RPC vive concorrenti |
 | Apertura popover usage | < 100 ms | **< 16 ms** | Lettura cache reattiva Svelte senza chiamate di rete |
-| Apertura renderer Laboratorio | < 2.0 s | **~1.1 s** (1096 ms) | Avvio processo Chromium dedicato e handshake WebSocket CDP |
-| Generazione prototipo iniziale | < 1.5 s | **~0.55 s** (546 ms) | Template + 3 varianti + compilazione esbuild-wasm + revisione |
-| Iterazione su variante C | < 1.0 s | **~0.53 s** (535 ms) | Selezione elemento + modifica TSX mirata + ricompilazione |
 ---
 
 ## 9. Registro delle Decisioni e dei Rischi (Gate R1 - R18)
@@ -530,7 +527,7 @@ La specifica autoritativa e il registro implementativo completo sono in [`BROWSE
 
 Rifondato con il **Gate R30** come corsia specializzata di progetto (`kind: 'lab'`) integrata nell'architettura multi-corsia (Gate R27):
 1. **Corsia di Progetto:** il Laboratorio vive come tab nella `LaneStrip` a fianco di `Principale` e dei worktree. Il passaggio tra corsie avviene via CSS (`visibility: hidden`) senza smontare nulla.
-2. **Workspace Fuori Repo e Git Interno:** cartella dedicata in `%LOCALAPPDATA%/omp-studio/lab/prototypes/<id>` con repository Git interno indipendente. Ogni richiesta dell'utente genera un commit atomico (revisione).
+2. **Workspace Fuori Repo e Git Interno:** cartella dedicata in `%LOCALAPPDATA%/sh.omp.studio/lab/prototypes/<id>` (su macOS e Linux la cartella dati locale dell'app, vedi §7.3.2) con repository Git interno indipendente. Ogni richiesta dell'utente genera un commit atomico (revisione).
 3. **Indice Progetto (`.omp/lab/prototypes.json`):** file atomico nel progetto originale che traccia ID, titolo, summary descrittivo, date e revisioni dei prototipi (attivi e chiusi). Ignorato in `.gitignore` con blocco automatico.
 4. **Bozze Libere (Scratchpad):** prototipi liberi creati senza progetto associato, persistiti in locale e associabili a posteriori a un progetto aperto.
 5. **Runtime Anteprima Loopback:** server locale Rust su `127.0.0.1:0` che serve il bundle compilato da Web Worker esbuild-wasm verso un iframe `sandbox="allow-scripts allow-forms allow-modals allow-popups"` a origine opaca (zero esposizione IPC Tauri). Dipendenze esterne risolte tramite CDN esm.sh con versioni pinned in `package.json`.
@@ -552,7 +549,10 @@ npm run release -- --check
 npm run tauri build
 ```
 
-### macOS (Universal Binary)
+### macOS (Apple Silicon)
+La piattaforma macOS supportata e verificata è Apple Silicon (M1 e successivi). La release
+stabile produce comunque un DMG universale; le Nightly compilate in locale da un Mac con chip M
+contengono solo `aarch64` e non partono sui Mac Intel.
 ```bash
 # 1. Toolchain Rust con target Apple Silicon e Intel
 rustup target add aarch64-apple-darwin x86_64-apple-darwin

@@ -23,7 +23,7 @@ dell'agente come cittadino di prima classe, e ci mette un editor accanto.
 
 Una sola finestra, tre colonne flessibili:
 - **Sinistra**: Albero dei file, pannello Git (branch, diff, commit, history) e Agente (Coda task, Storico sessioni con ricerca full-text e scheda Regole con censimento di regole di contesto e skill più proposte nate dall'attrito ricorrente).
-- **Centro**: Editor Monaco multi-modello (con visualizzatore diff affiancato, sintassi estesa, ripristino cursore/scroll), Browser Studio live integrato per visualizzare e controllare Chromium gestito o Chrome Relay senza finestre esterne (con takeover immediato, modalità privata, gestione dialoghi/file e inspector mirato), Laboratorio prototipi frontend React 19 + Tailwind v4 per ideare, confrontare 3-5 alternative e iterare flussi multischermata con dati simulati e annotazioni visuali, Whiteboard per diagrammi Mermaid (`studio_diagram`), Anteprima prototipi UI HTML/SVG in sandbox isolata (`studio_preview`), e Task Editor a sezioni con ruoli, thinking effort, direttive speciali e allegati visivi.
+- **Centro**: Editor Monaco multi-modello (con visualizzatore diff affiancato, sintassi estesa, ripristino cursore/scroll), Browser Studio live integrato per visualizzare e controllare Chromium gestito o Chrome Relay senza finestre esterne (con takeover immediato, modalità privata, gestione dialoghi/file e inspector mirato), Laboratorio prototipi frontend React 19 + Tailwind v4 (sperimentale, da attivare nelle Impostazioni) come corsia del progetto con anteprima live e revisioni Git interne, Whiteboard per diagrammi Mermaid (`studio_diagram`), Anteprima prototipi UI HTML/SVG in sandbox isolata (`studio_preview`), e Task Editor a sezioni con ruoli, thinking effort, direttive speciali e allegati visivi.
 
 In alto, la barra dei progetti permette lo switch istantaneo tra workspace con ordine manuale stabile o per priorità/MRU/alfabetico, badge numerico della coda e indicatore di stato reattivo per ogni agente. Se il progetto ha almeno una corsia oltre a Principale, sotto la barra compare la riga delle corsie: file, Git, editor e agente seguono il worktree selezionato e le altre corsie restano nel loro.
 
@@ -74,7 +74,7 @@ direttamente al progetto attivo con un click.
 
 **9. Delegare un secondo lavoro senza sporcare il working tree che stai usando.** Un agente lungo o di manutenzione parte in una corsia isolata: worktree fratello, branch `omp/lane-*`, conversazione propria. Principale resta il tuo albero. L'integrazione nel branch di destinazione avviene solo da «Revisiona e integra», con un commit unico per obiettivo, e non parte se quel branch ha modifiche non committate o se la corsia ha ancora processi vivi.
 
-**10. Esplorare e iterare UX/UI con frontend React reali senza sporcare il progetto.** Creare prototipi interattivi non richiede di alterare l'albero sorgente del progetto o di allestire toolchain esterne. Il Laboratorio prototipi permette di generare 3-5 varianti confrontabili o flussi multipagina completi in React 19 e Tailwind v4 con dati e azioni simulate, lavorando in concorrenza con l'agente principale. L'utente interagisce con il renderer Chromium isolato, seleziona elementi, annota feedback legati a revisioni temporali certe, recupera stati precedenti, esporta l'esperimento come progetto Vite autonomo o ne affida l'adattamento (anche verso Svelte o altri stack) alla sessione principale tramite pacchetti di handoff strutturati.
+**10. Esplorare e iterare UX/UI con frontend React reali senza sporcare il progetto.** *(Funzione sperimentale, da attivare nelle Impostazioni.)* Creare prototipi interattivi non richiede di alterare l'albero sorgente del progetto o di allestire toolchain esterne. Il Laboratorio è una corsia del progetto: il prototipo React 19 + Tailwind v4 vive in una cartella dell'app con Git interno, ogni richiesta diventa una revisione recuperabile e l'anteprima live si aggiorna a ogni modifica. L'agente del Laboratorio legge il progetto originale per riprenderne stile e componenti, ma scrive solo nel prototipo. Le bozze libere nascono senza progetto e si associano a uno in seguito.
 
 ### Successo
 
@@ -117,7 +117,7 @@ lui, e quanta quota AI resta.
 
 ### Piattaforma
 
-Desktop Windows 11 x64 (NSIS, WebView2) e macOS (DMG universale Apple Silicon + Intel, WebKit WKWebView). Nessun mobile, nessuna versione browser, nessun server. L'app gira al 100% in locale e parla solo con il filesystem, con `git` e con `omp` installati sulla macchina. L'interfaccia è web dentro una WebView (Svelte 5 + Tauri): `Platform: web` indica il linguaggio di design, non un sito.
+Desktop Windows 11 x64 (NSIS, WebView2), macOS su Apple Silicon (chip M, DMG, WebKit WKWebView) e Linux x64 (.deb, AppImage, WebKitGTK). Nessun mobile, nessuna versione browser, nessun server. L'app gira al 100% in locale e parla solo con il filesystem, con `git` e con `omp` installati sulla macchina. L'interfaccia è web dentro una WebView (Svelte 5 + Tauri): `Platform: web` indica il linguaggio di design, non un sito.
 
 ## Capabilities and Constraints
 
