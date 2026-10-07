@@ -1273,3 +1273,132 @@ La prima implementazione del Laboratorio (Gate R24, vista separata `LabView` da 
 - Composer e `TerminalSession` sono esercitati in Vite con un bridge temporaneo verso processi omp reali, inclusi task chat/PTY e file di risultato. Il bridge sostituisce l'IPC fisico Tauri: lo smoke non equivale a una nuova esecuzione del binario desktop compilato.
 - Il watcher non fornisce una conferma per i no-op: l'intervallo intermedio è una misura empirica, mentre il notice finale entro cinque secondi è il criterio di successo. Un watcher rallentato causa un errore visibile, non un task avviato senza prewalk.
 
+## Dialogo `ask` nativo via `set_ask_dialog`
+
+**Data:** 2026-10-07
+**Esito:** IMPLEMENTATO (supera il riscontro C16 di omp 18.4.1)
+
+### Decisioni
+
+1. **Adozione del comando `set_ask_dialog`.** Su sorgenti omp 18.8 (e da omp 18.4.9+) l'host RPC può optare per il dialogo nativo inviando `{"type":"set_ask_dialog","enabled":true}` dopo `ready`. Lo strumento `ask` invia quindi tutte le domande in un unico frame `extension_ui_request` con `method: "ask"`, `questions` e `timeout`.
+2. **Rimozione del motore sequenziale.** Il vecchio meccanismo di ricostruzione incrementale (matching per firma delle opzioni, round multipli simulati via `select`/`editor`, sentinelle `Done selecting`, passi di flush e recovery) è eliminato.
+3. **Risposta singola e codifica fedele.** L'utente risponde con un unico frame `extension_ui_response` contenente `answers: [{ id, selectedOptions, customInput }]`:
+   - Scelte ordinarie: etichette verbatim in `selectedOptions`.
+   - "Altro…" / testo libero: testo in `customInput`, `selectedOptions: []`.
+   - Note: a scelta multipla viaggiano in `customInput: "nota: …"`; a scelta singola, poiché il parser di omp vieta sia opzione che customInput contemporanei per domande single-select, l'etichetta e la nota vengono unite in `customInput: "etichetta (nota: …)"`.
+   - "Decidi tu": invia il testo convenzionale in `customInput`.
+   - Timeout locale: invia `{ cancelled: true, timedOut: true }`, consentendo a omp di applicare le scelte consigliate (`timedOutAskDialogResult`).
+   - Annullamento/chiusura: invia `{ cancelled: true }`.
+4. **Retrocompatibilità flussi non-ask.** Le richieste interattive delle estensioni e del login (`select`, `confirm`, `input`, `editor`) continuano a funzionare inalterate sul loro canale dedicato.
+
+## Coda dei messaggi nativa di omp al posto della coda locale di Studio
+
+**Data:** 2026-10-07
+**Esito:** IMPLEMENTATO (supera la motivazione del Gate R22 e il punto 5 del Gate R32)
+
+### Il problema
+
+Il Gate R22 (2026-09-02) e il Gate R32 (2026-09-28) avevano deciso che la coda
+dei messaggi restasse in Studio, perche' su omp 18.4.1 il protocollo RPC non
+esponeva alcun comando per interrogare, modificare, riordinare o estrarre i
+messaggi gia' in coda. Studio teneva quindi una coda locale dei soli follow-up
+(modulo `localFollowUpQueue.ts` + macchina a stati `followUpDispatcher.ts`),
+con pausa dopo Stop, 'Invia ora' e invio a `agent_end`; gli steer partivano
+subito e restavano chip di sola lettura. Il costo era il doppio stato: i chip
+locali e il `queuedMessageCount` di omp potevano divergere, e un crash prima di
+`agent_end` perdeva i follow-up.
+
+### Decisioni
+
+1. **Sorgente di verita' = omp.** La coda arriva da `get_state.queuedMessages`
+   (`{ steering: string[], followUp: string[] }`) e dall'evento `queue_update`,
+   che ne e' uno snapshot e sostituisce lo stato precedente. Lo specchio
+   ottimistico `queued`, la coda locale `localFollowUps`, il flag
+   `localFollowUpsPaused` e i moduli `localFollowUpQueue.ts` e
+   `followUpDispatcher.ts` (con il loro test) sono eliminati. Il testo dei chip
+   e' opaco: si rimanda identico a omp. Nuovo modulo di supporto, puro e
+   testato: `src/lib/agent/queueRestore.ts`.
+
+2. **Invio durante lo streaming: si continua a usare `prompt` con
+   `streamingBehavior`.** La scelta steer/follow-up (default, split button,
+   `Alt+Enter`) resta quella di sempre. `prompt` e' l'unico percorso che
+   preserva la pipeline di Studio: `attachEditorContext`, il preflight
+   (`orchestratePromptPreflight`) e la gestione delle skill/comandi di omp
+   (incluso il `queueChipText` che omp registra dai comandi `/`), oltre a
+   mantenere il contratto `prompt_result` a cui Studio e' agganciato. I comandi
+   `/` intercettati da Studio non passano da qui: `Composer.handleSubmit` li
+   dirotta su `onSlashCommand` prima di `session.prompt`, anche mentre l'agente
+   lavora, quindi non finiscono mai nella coda di omp come testo.
+
+3. **Modifica dei chip con i comandi di omp.** Edit = `remove_queued_message`
+   (che restituisce testo e immagini del messaggio rimosso) e ripristino nel
+   composer; Remove = `remove_queued_message`; Promote sui follow-up =
+   `promote_queued_message` (etichetta «Steer ora» / «Steer now»). Se la
+   risposta omette le immagini (`imagesDropped`) lo si dice con un avviso. Il
+   chip e' identificato dal suo testo, non da un id locale.
+
+4. **Stop con recupero della coda.** Il primo stadio dell'escalation invia
+   `abort_and_restore_queue` invece del solo `abort`; `abort_bash` continua a
+   fermare il processo figlio in corso (viaggia dentro lo stesso comando del
+   client). La risposta riporta `steering` e `followUp` ritirati (dal piu'
+   vecchio), che tornano nel composer. Il libro contabile sta nel client
+   (`abortAndRestoreQueue`), non in Rust: `abortPendingRequests` sblocca le
+   altre promise in volo *prima* dell'invio, poi il comando parte dal percorso
+   normale delle richieste e si attende con il suo timeout — cosi' non si uccide
+   mai la risposta che ci serve. Se il processo e' bloccato la richiesta scade e
+   `forceKill` (una `invoke` separata) resta comunque disponibile: il doppio
+   stadio e' intatto. Su un omp piu' vecchio di 18.4.4 il comando non esiste e
+   si ripiega su `abort`.
+
+5. **Ripristino accanto alla bozza.** Il contenuto ritirato entra nell'editor
+   dopo la bozza corrente, separato da una riga vuota (come l'editor della TUI
+   quando si scrive mentre si preme `Esc`); con la bozza vuota resta solo lui.
+   Le immagini ritirate tornano tra gli allegati. Il ripristino passa da un
+   handler registrato dal composer (`registerQueueRestoreHandler`): la sessione
+   non conosce il DOM. Senza composer montato il contenuto resta in attesa e
+   viene consegnato al primo che si registra. `Alt+↑` richiama l'ultimo
+   messaggio in coda (prima i follow-up, poi gli steer) con lo stesso percorso.
+
+### Vincoli verificati su `omp` 18.8.0
+
+- `remove_queued_message { message, queue }` restituisce `{ removed, images?, imagesDropped? }`;
+  `promote_queued_message { message }` restituisce `{ promoted }`;
+  `abort_and_restore_queue` restituisce `{ steering, followUp, imagesDropped?, truncated? }`.
+- `queue_update` e' uno snapshot coalescato: omp non lo riemette se la coda
+  visibile non cambia.
+- `prompt` con `streamingBehavior` accoda il messaggio nella coda scelta;
+  `steer`/`follow_up` accodano senza avviare un turno ma non eseguono i comandi
+  `/` (li rifiutano con `#throwIfExtensionCommand`) ne' il resto della pipeline.
+
+### Perimetro
+
+- Rimozione di `localFollowUpQueue.ts`, `followUpDispatcher.ts`,
+  `test/local-follow-up-queue.test.ts`, delle chiavi i18n
+  `chat_v2_queue_paused`/`_send_now`/`_edit_blocked`/`_start_timeout`/
+  `_attachments`/`_server_count` e delle azioni di pausa/ripresa.
+- `backend Rust` invariato.
+
+---
+
+## Controllo per-subagente e calcolo costi disgiunti (omp 18.8 RPC)
+
+**Data:** 2026-10-07  
+**Esito:** IMPLEMENTATO
+
+### Decisioni
+
+1. **Comandi RPC `cancel_subagent` e `steer_subagent`.** Studio adotta i comandi RPC per controllare i subagenti singoli senza interrompere la sessione madre:
+   - `cancel_subagent { subagentId }`: esegue l'abort del turno vivo e registra la tombstone del subagente; restituisce `{ cancelled: boolean }`. Se `cancelled === false` il subagente era gia' terminato (notifica informativa).
+   - `steer_subagent { subagentId, message }`: invia il messaggio utente alla sessione viva del subagente via prompt steer al prossimo confine di passo.
+2. **Affordance UI unificata.**
+   - In `SubagentDrawer`: pulsante «Ferma» visibile se running/pending con stile pericolo e disabilitazione durante la chiamata; barra compatta inferiore con campo monoriga e invio per steerare il subagente attivo.
+   - In `ComposerTray`: pulsante icona stop (`IconStop`) con tooltip su ciascuna riga di subagente in esecuzione/coda (senza catturare il clic che apre il cassetto).
+   - In `TaskRow` (tramite `AgentLink`): slot snippet `action` che ospita il pulsante stop con tooltip per i subagenti attivi.
+3. **Calcolo dei costi dei subagenti via Rust (`session_subagent_cost`).**
+   - Poiche' `get_session_stats` di omp calcola solo i messaggi della sessione principale, i costi dei subagenti risiedono nei rispettivi transcript `.jsonl` nella cartella artifacts (`<sessionFile senza .jsonl>/`).
+   - Il nuovo comando Rust legge in streaming con `BufReader` tutti i file `.jsonl` ricorsivamente ed estrae `message.usage.cost.total` dai messaggi con `role == "assistant"`.
+   - Il file `__advisor.jsonl` alla radice della cartella artifacts e' escluso (advisor della sessione principale); i file `__advisor.jsonl` dentro le sottocartelle dei subagenti sono inclusi.
+4. **Visualizzazione costo diviso.**
+   - La sessione tiene traccia di `sessionCost`, `subagentCost` e del derivato `totalCost`.
+   - `subagentCost` viene aggiornato insieme a `refreshCost()` e alla conclusione del ciclo di vita di ciascun subagente.
+   - Nel pulsante/tooltip di contesto e nel popover `ContextPanel`, quando `subagentCost > 0` viene esposta la ripartizione: `Sessione $x · Subagenti $y`.

@@ -1,5 +1,5 @@
 /**
- * Formattazione e validazione delle risposte del wizard `ask`.
+ * Formattazione e validazione delle risposte del tool `ask` (nativo via `set_ask_dialog`).
  *
  * Vive fuori dal componente per due ragioni:
  * 1. e' la logica che decide **cosa arriva all'agente**, quindi va verificata
@@ -10,11 +10,11 @@
  */
 
 import { m as msg } from '$lib/paraglide/messages.js';
+import type { AskDialogAnswer } from './wire';
 
 /**
  * Domanda come l'ha dichiarata l'agente negli argomenti del tool `ask`. Vive
- * qui e non nella sessione perche' il piano di consegna si costruisce da
- * questa forma e i test devono poterla usare senza istanziare una sessione.
+ * qui e non nella sessione perche' i test devono poterla usare senza istanziare una sessione.
  */
 export interface AskQuestionOption {
 	label: string;
@@ -37,10 +37,11 @@ export interface AnswerableOption {
 	/** Etichetta senza il suffisso ` (Recommended)`: e' la chiave di selezione. */
 	cleanLabel: string;
 	isOther: boolean;
-	isDoneSentinel: boolean;
+	isDoneSentinel?: boolean;
 }
 
 export interface AnswerableQuestion {
+	id: string;
 	options: AnswerableOption[];
 	multi: boolean;
 	/** Chiavi `cleanLabel` selezionate. */
@@ -90,43 +91,6 @@ export function isDoneOption(label: string): boolean {
 }
 
 /**
- * Chiave di confronto tra le opzioni di una richiesta e quelle di una domanda
- * dichiarata negli argomenti del tool. Fuori restano il suffisso
- * ` (Recommended)` e le voci aggiunte dal runtime di omp ("Altro", "Fine
- * selezione"), che compaiono e scompaiono tra un round e l'altro dello stesso
- * elenco.
- */
-export function optionSignature(labels: string[]): string {
-	return labels
-		.map(cleanOptionLabel)
-		.filter((label) => !isOtherOption(label) && !isDoneOption(label))
-		.join('\u0000');
-}
-
-/**
- * Indice della domanda le cui opzioni corrispondono alla richiesta in arrivo,
- * `-1` quando non ce n'e' nessuna. `preferred` (l'indice dichiarato dal
- * titolo `(k/N)`) viene provato per primo.
- *
- * Serve a non fidarsi a occhi chiusi degli argomenti del tool: il protocollo
- * di `ask` e' sequenziale e una lista disallineata farebbe finire la risposta
- * di una domanda nella casella di un'altra.
- */
-export function matchQuestionIndex(
-	questions: { options: { label: string }[] }[],
-	signature: string,
-	preferred = 0
-): number {
-	const signatures = questions.map((question) =>
-		optionSignature(question.options.map((option) => option.label))
-	);
-	if (preferred >= 0 && preferred < signatures.length && signatures[preferred] === signature) {
-		return preferred;
-	}
-	return signatures.indexOf(signature);
-}
-
-/**
  * Vero solo quando la risposta esiste davvero:
  * - "Altro" richiede del testo, non basta averlo scelto;
  * - una domanda mai mostrata non ha risposta, nemmeno quando l'opzione
@@ -153,16 +117,8 @@ export function firstUnansweredIndex(questions: AnswerableQuestion[]): number {
 	return questions.findIndex((question) => !isQuestionAnswered(question));
 }
 
-/**
- * Etichette riservate dal runtime di `omp`. `OTHER_LABEL` e' l'unica voce
- * sintetica che compare davvero sul filo; la sentinella di fine selezione
- * dipende dal `symbolPreset` del tema (`unicode` -> `✔`, `nerd` -> un glifo
- * della private use area, `ascii` -> `[ok]`) e non viene mai inviata da omp
- * quando la navigazione avanti e' attiva, quindi va indovinata: per questo il
- * passo di chiusura porta con se' un ripiego.
- */
 export const OTHER_LABEL = 'Other (type your own)';
-export const DONE_SENTINEL = '✔ Done selecting';
+
 /**
  * Testo convenzionale con cui "Decidi tu" viaggia sul filo: la risposta
  * libera deve essere distinguibile da una scelta tra le opzioni. Va al
@@ -179,53 +135,32 @@ export function isDecideForMeText(text: string): boolean {
 }
 
 /**
- * Un passo del piano di consegna: una richiesta di omp, una risposta. Il
- * protocollo di `ask` e' sequenziale e irreversibile, quindi il piano si
- * costruisce **intero** quando l'utente ha finito di compilare, e si consegna
- * un passo per richiesta.
- */
-export type AskFlushStep =
-	| {
-			method: 'select';
-			value: string;
-			/** Firma delle opzioni della domanda a cui il passo appartiene. */
-			signature: string;
-			/**
-			 * Passo che chiude una domanda a scelta multipla. Se omp ripropone
-			 * la stessa domanda significa che non ha riconosciuto la sentinella:
-			 * `recovery` la annulla (rinviarla la toglie dal set) e chiude per
-			 * la strada che non dipende dal tema.
-			 */
-			recovery?: AskFlushStep[];
-	  }
-	| { method: 'editor'; value: string };
-
-/**
  * Risposta dell'utente o del wizard a una richiesta interattiva.
  * Accetta sia il formato ad azione esplicita (`action`) sia i payload normali
- * `{ value }`, `{ confirmed }`, `{ cancelled }`.
+ * `{ value }`, `{ confirmed }`, `{ cancelled }`, `{ answers }`.
  */
 export type PromptAnswer =
 	| { action: 'select'; value: string }
 	| { action: 'confirm'; confirmed: boolean }
 	| { action: 'input' | 'editor'; value: string }
-	| { action: 'wizard'; plan: AskFlushStep[]; value?: string }
+	| { action: 'wizard' | 'ask'; answers: AskDialogAnswer[]; value?: string }
 	| { action: 'cancel' }
 	| {
-			action: 'select' | 'confirm' | 'input' | 'editor' | 'wizard' | 'cancel';
+			action: 'select' | 'confirm' | 'input' | 'editor' | 'wizard' | 'ask' | 'cancel';
 			value?: string;
 			confirmed?: boolean;
-			plan?: AskFlushStep[];
+			answers?: AskDialogAnswer[];
 	  }
 	| { value: string }
 	| { confirmed: boolean }
-	| { cancelled: true };
+	| { cancelled: true }
+	| { answers: AskDialogAnswer[] };
 
 export interface NormalizedPromptAnswer {
-	action: 'select' | 'confirm' | 'input' | 'editor' | 'wizard' | 'cancel';
+	action: 'select' | 'confirm' | 'input' | 'editor' | 'wizard' | 'ask' | 'cancel';
 	value?: string;
 	confirmed?: boolean;
-	plan?: AskFlushStep[];
+	answers?: AskDialogAnswer[];
 }
 
 /**
@@ -241,139 +176,94 @@ export function normalizePromptAnswer(answer: PromptAnswer): NormalizedPromptAns
 	if ('confirmed' in answer && typeof answer.confirmed === 'boolean') {
 		return { action: 'confirm', confirmed: answer.confirmed };
 	}
+	if ('answers' in answer && Array.isArray(answer.answers)) {
+		return { action: 'wizard', answers: answer.answers };
+	}
 	if ('value' in answer && typeof answer.value === 'string') {
 		return { action: 'select', value: answer.value };
 	}
 	return { action: 'cancel' };
 }
 
-/** Firma delle opzioni dichiarate per una domanda del wizard. */
-export function answerableSignature(question: AnswerableQuestion): string {
-	return optionSignature(question.options.map((option) => option.label));
-}
-
 /** Etichetta originale dell'opzione scelta, o la chiave se non si ritrova. */
-function originalLabel(question: AnswerableQuestion, key: string): string {
-	return question.options.find((option) => option.cleanLabel === key)?.label ?? key;
-}
-
-/** Riassunto leggibile di una risposta a scelta multipla, nota compresa. */
-function multiSummary(question: AnswerableQuestion, selected: string[]): string {
-	const note = question.note.trim();
-	const labels = selected.map((key) => cleanOptionLabel(originalLabel(question, key)));
-	const body = labels.length > 0 ? labels.join(', ') : 'nessuna opzione';
-	return note ? `${body} (nota: ${note})` : body;
+export function originalLabel(question: AnswerableQuestion, key: string): string {
+	return question.options.find((option) => option.cleanLabel === key || option.label === key)?.label ?? key;
 }
 
 /**
- * Passi da consegnare per una domanda. Chiamarla su una domanda senza risposta
- * e' un errore di programmazione: restituirebbe una risposta inventata, che nel
- * protocollo sequenziale di `ask` finirebbe anche sulla domanda sbagliata.
+ * Costruisce le risposte nel formato nativo `AskDialogAnswer` di omp 18.8.
+ * Restituisce `null` se manca almeno una risposta, così il chiamante non
+ * può inviare risposte parziali.
  */
-export function buildQuestionSteps(question: AnswerableQuestion): AskFlushStep[] {
-	if (!isQuestionAnswered(question)) {
-		throw new Error('Risposta assente: la domanda non e\u2019 stata compilata');
-	}
-
-	const signature = answerableSignature(question);
-	const note = question.note.trim();
-
-	// "Decidi tu": a scelta singola il ramo di omp accetta qualunque stringa
-	// e la registra come risposta. A scelta multipla la chiusura diretta con
-	// una stringa libera eviterebbe di registrare selezioni spurie nel set:
-	// il testo convenzionale chiude la domanda in un solo passo.
-	if (question.decideForMe) {
-		const decide = decideForMeText();
-		return [{ method: 'select', value: note ? `${decide} (nota: ${note})` : decide, signature }];
-	}
-
-	if (question.multi) {
-		const selected = Array.from(question.selectedOptions);
-		const steps: AskFlushStep[] = selected.map((key) => ({
-			method: 'select' as const,
-			value: originalLabel(question, key),
-			signature
-		}));
-
-		// Se l'utente ha indicato un valore personalizzato ("Altro"), inviamo
-		// la richiesta attraverso la voce Other e il prompt editor
-		if (question.isCustom) {
-			const custom = question.customInput.trim();
-			const customValue = note ? `${custom} (nota: ${note})` : custom;
-			steps.push(
-				{ method: 'select', value: OTHER_LABEL, signature },
-				{ method: 'editor', value: customValue }
-			);
-			return steps;
-		}
-
-		// Ogni spunta e' un round: il ciclo di omp ripropone lo stesso elenco
-		// dopo ognuna. La nota non puo' viaggiare come spunta, perche' omp
-		// aggiunge al set qualunque valore ignoto e l'agente si ritroverebbe
-		// un'opzione inesistente tra quelle scelte.
-		const summary = multiSummary(question, selected);
-		const viaOther: AskFlushStep[] = [
-			{ method: 'select', value: OTHER_LABEL, signature },
-			{ method: 'editor', value: note || summary }
-		];
-		if (note) {
-			// Con una nota la chiusura passa per `Other`: omp conserva le spunte
-			// e mette il testo in `customInput`, che e' il solo campo del
-			// protocollo in cui una nota puo' arrivare intera.
-			steps.push(...viaOther);
-			return steps;
-		}
-		steps.push({
-			method: 'select',
-			value: DONE_SENTINEL,
-			signature,
-			// Sentinella non riconosciuta: rinviarla la toglie dal set, poi si
-			// chiude per la strada indipendente dal tema.
-			recovery: [{ method: 'select', value: DONE_SENTINEL, signature }, ...viaOther]
-		});
-		return steps;
-	}
-
-	// Scelta singola con "Altro": il valore va spedito cosi' com'e'. Il ramo a
-	// scelta singola di omp accetta qualunque stringa e la registra come risposta,
-	// quindi non serve passare per `Other` e per la richiesta `editor` che ne seguirebbe.
-	if (question.isCustom) {
-		const custom = question.customInput.trim();
-		return [{ method: 'select', value: note ? `${custom} (nota: ${note})` : custom, signature }];
-	}
-
-	const selected = Array.from(question.selectedOptions);
-
-	const label = originalLabel(question, selected[0]);
-	return [
-		{
-			method: 'select',
-			value: note ? `${cleanOptionLabel(label)} (nota: ${note})` : label,
-			signature
-		}
-	];
-}
-
-/**
- * Piano completo del wizard, o `null` se manca almeno una risposta: il
- * chiamante non deve poter inviare un wizard incompleto.
- */
-export function buildFlushPlan(questions: AnswerableQuestion[]): AskFlushStep[] | null {
+export function buildAskDialogAnswers(questions: AnswerableQuestion[]): AskDialogAnswer[] | null {
 	if (questions.length === 0 || firstUnansweredIndex(questions) !== -1) return null;
-	return questions.flatMap(buildQuestionSteps);
-}
 
-/** Vero quando il passo puo' essere consegnato a questa richiesta. */
-export function stepAcceptsRequest(
-	step: AskFlushStep,
-	request: { method: string; signature: string }
-): boolean {
-	if (step.method === 'select') {
-		return request.method === 'select' && request.signature === step.signature;
-	}
-	// La richiesta di testo libero aperta da `Other` arriva come `editor`;
-	// `input` e' la stessa cosa con una riga sola.
-	return request.method === 'editor' || request.method === 'input';
+	return questions.map((question) => {
+		const note = question.note.trim();
+
+		// "Decidi tu": invia il testo convenzionale in customInput e nessuna opzione selezionata
+		if (question.decideForMe) {
+			const decide = decideForMeText();
+			const custom = note ? `${decide} (nota: ${note})` : decide;
+			return {
+				id: question.id,
+				selectedOptions: [],
+				customInput: custom
+			};
+		}
+
+		// Opzione personalizzata ("Altro...")
+		if (question.isCustom) {
+			const customVal = question.customInput.trim();
+			const custom = note ? `${customVal} (nota: ${note})` : (customVal || undefined);
+			return {
+				id: question.id,
+				selectedOptions: [],
+				customInput: custom
+			};
+		}
+
+		if (question.multi) {
+			const selected = Array.from(question.selectedOptions).map((key) =>
+				originalLabel(question, key)
+			);
+			const custom = note ? `nota: ${note}` : undefined;
+			return {
+				id: question.id,
+				selectedOptions: selected,
+				customInput: custom
+			};
+		}
+
+		// Scelta singola:
+		const selectedKeys = Array.from(question.selectedOptions);
+		if (selectedKeys.length === 0) {
+			const custom = note ? `nota: ${note}` : undefined;
+			return {
+				id: question.id,
+				selectedOptions: [],
+				customInput: custom
+			};
+		}
+
+		const label = originalLabel(question, selectedKeys[0]);
+		if (note) {
+			// Per omp 18.8, una risposta a scelta singola non può avere contemporaneamente
+			// selectedOptions non vuoto e customInput non nullo (parseAskDialogResponse solleverebbe errore).
+			// Se l'utente ha inserito una nota, uniamo l'etichetta e la nota in customInput.
+			return {
+				id: question.id,
+				selectedOptions: [],
+				customInput: `${label} (nota: ${note})`
+			};
+		}
+
+		return {
+			id: question.id,
+			selectedOptions: [label],
+			customInput: undefined
+		};
+	});
 }
 
 /**
@@ -420,9 +310,8 @@ export function parseAskQuestions(args: unknown): AskQuestion[] | undefined {
 }
 
 /**
- * Inverso di `buildQuestionSteps` per una singola etichetta: serve al
- * renderer che rilegge le risposte gia' inviate e deve mostrare separatamente
- * l'opzione scelta e la nota che l'utente le aveva allegato.
+ * Inverso per una singola etichetta: serve al renderer che rilegge le risposte
+ * gia' inviate e deve mostrare separatamente l'opzione scelta e la nota che l'utente le aveva allegato.
  */
 export function extractNoteFromLabel(label: string): { clean: string; note?: string } {
 	const match = label.match(/^(.*?)\s*\((?:nota|note):\s*([^)]+)\)$/i);

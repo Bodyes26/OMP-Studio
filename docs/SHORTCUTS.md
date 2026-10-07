@@ -43,6 +43,7 @@ Le scorciatoie globali catturate dall'app vivono dietro il modificatore **`Ctrl+
 | `Alt+1` … `Alt+6` | Composer GUI | Precompila il composer con il suggerimento in quella posizione (non invia) |
 | `Invio` | Composer GUI | Invia con la modalità predefinita; con la palette aperta seleziona il comando evidenziato |
 | `Alt+Invio` | Composer GUI | Invia con la modalità di accodamento alternativa (opposta al default) |
+| `Alt+Freccia Su` | Composer GUI, bozza vuota | Richiama nell'editor l'ultimo messaggio in coda (prima i follow-up, poi gli steer) |
 | `Maiusc+Invio` / `Ctrl+Invio` | Composer GUI | Inserisce una nuova riga |
 | `Esc` | Composer GUI | Chiude palette/menu/modale aiuto |
 | `Ctrl+0` | Diagramma a fuoco | Adatta il diagramma alla finestra |

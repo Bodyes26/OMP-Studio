@@ -4,8 +4,9 @@
 	 * Editor contenteditable a badge per @file e /comando, barra strumenti con
 	 * allegati, @, ruolo, modello, thinking, anello di contesto e pulsante Invio/Stop.
 	 */
-	import type { AgentSession } from '$lib/agent/session.svelte';
-	import type { ImageContent, ModelInfo, ThinkingLevel, AvailableCommand } from '$lib/agent/wire';
+	import type { AgentSession, QueuedMessage } from '$lib/agent/session.svelte';
+	import type { ImageContent, ModelInfo, ThinkingLevel, AvailableCommand, RestoredQueuedMessage } from '$lib/agent/wire';
+	import { restoreBesideDraft, restoredQueueImages, restoredQueueText } from '$lib/agent/queueRestore';
 	import { modelSupportsImages, modelSupportsReasoning } from '$lib/agent/wire';
 	import { STUDIO_SLASH_COMMANDS, mergeCommands } from '$lib/agent/commands';
 	import {
@@ -77,6 +78,7 @@
 	import SuggestPanel, { type SuggestionItem } from './SuggestPanel.svelte';
 	import SuggestionChips from './SuggestionChips.svelte';
 	import ComposerNoticeStrip from './ComposerNoticeStrip.svelte';
+	import ModesMenu from './ModesMenu.svelte';
 
 	import {
 		IconAttach,
@@ -123,7 +125,7 @@
 	let rootEl = $state<HTMLDivElement | null>(null);
 	let editorRef = $state<ReturnType<typeof ComposerEditor> | null>(null);
 	let controlsStripEl = $state<HTMLDivElement | null>(null);
-	type MenuKind = 'attach' | 'role' | 'model' | 'thinking' | 'context' | 'sendMode' | null;
+	type MenuKind = 'attach' | 'role' | 'model' | 'thinking' | 'modes' | 'context' | 'sendMode' | null;
 	let activeMenu = $state<MenuKind>(null);
 
 	let attachments = $state<ComposerAttachment[]>([]);
@@ -232,6 +234,20 @@
 			modelSettingsStore.knownSelectors
 		) ?? 'default'
 	);
+
+	const contextTooltip = $derived.by(() => {
+		const base = m.chat_v2_composer_context_title();
+		const total = session.totalCost;
+		if (total === null || total <= 0) return base;
+		if (session.subagentCost > 0) {
+			const split = m.chat_session_cost_split({
+				own: `$${(session.sessionCost ?? 0).toFixed(4)}`,
+				subagents: `$${session.subagentCost.toFixed(4)}`
+			});
+			return `${base} · $${total.toFixed(4)} (${split})`;
+		}
+		return `${base} · $${total.toFixed(4)}`;
+	});
 
 
 	// Aggiornamento suggerimenti palette
@@ -548,14 +564,23 @@
 		}
 	}
 
+	/**
+	 * Richiama in bozza l'ultimo messaggio in coda: esce dalla coda di omp
+	 * (`remove_queued_message`) e torna nell'editor accanto alla bozza. La
+	 * gesture ha senso a bozza vuota, come il dequeue della TUI.
+	 */
+	async function recallQueuedMessage(chip: QueuedMessage) {
+		const restored = await session.removeQueuedMessage(chip.text, chip.queue);
+		if (restored) restoreQueue([restored]);
+	}
+
 	// Filtro tasti editor
 	function handleKeydownFilter(e: KeyboardEvent): boolean {
 		if (e.altKey && e.key === 'ArrowUp' && isDraftEmpty()) {
-			const entry = session.takeLastLocalFollowUp();
-			if (entry) {
+			const chip = session.lastQueuedMessage();
+			if (chip) {
 				e.preventDefault();
-				if (!restoreDraft(entry.text, entry.images)) session.requeueLocalFollowUp(entry);
-				else focus();
+				void recallQueuedMessage(chip);
 				return true;
 			}
 		}
@@ -738,11 +763,28 @@
 		});
 	});
 
-	export function restoreDraft(text: string, images?: (ComposerAttachment | ImageContent)[]): boolean {
-		if (!isDraftEmpty() || !editorRef) return false;
-		insertComposerText(text);
-		attachments = images?.map((img) => 'kind' in img ? img : imageContentToAttachment(img)) ?? [];
-		return true;
+	// L'input ritirato dalla coda (Stop, modifica di un chip) torna qui: la
+	// sessione conosce il protocollo, il composer conosce l'editor.
+	$effect(() => {
+		const target = session;
+		return target.registerQueueRestoreHandler((entries: readonly RestoredQueuedMessage[]) => restoreQueue(entries));
+	});
+
+	/**
+	 * Riporta nell'editor l'input ritirato dalla coda di omp: il testo si
+	 * accoda alla bozza corrente (una riga vuota in mezzo), le immagini vanno
+	 * negli allegati. Sostituisce il vecchio ripristino a bozza vuota, che
+	 * rifiutava di lavorare con una bozza presente e perdeva il messaggio.
+	 */
+	export function restoreQueue(entries: readonly RestoredQueuedMessage[]): void {
+		if (!editorRef) return;
+		const restored = restoredQueueText(entries);
+		const images = restoredQueueImages(entries);
+		if (!restored && images.length === 0) return;
+		const draft = editorRef.getWireText(isSkillCommand);
+		editorRef.setPlainText(restoreBesideDraft(draft, restored), isSkillCommand);
+		if (images.length > 0) attachments = [...attachments, ...images.map(imageContentToAttachment)];
+		focus();
 	}
 
 	const canSend = $derived(currentSegments.some((s) => s.t !== 'text' || s.s.trim().length > 0) || attachments.length > 0);
@@ -1053,6 +1095,16 @@
 				{/snippet}
 			</MenuButton>
 
+			<!-- Menu Modalita e limiti (Fast, Slow, Limiti, Riscaldamento cache) -->
+			{#if !isLab}
+				<ModesMenu
+					{session}
+					open={activeMenu === 'modes'}
+					onToggle={() => (activeMenu = activeMenu === 'modes' ? null : 'modes')}
+					onClose={() => (activeMenu = null)}
+				/>
+			{/if}
+
 			<!-- Controlli Prewalk -->
 			{#if !isLab}
 				<div class="prewalk-controls">
@@ -1101,6 +1153,7 @@
 				<MenuButton
 					open={activeMenu === 'context'}
 					title={m.chat_v2_composer_context_title()}
+					tooltip={contextTooltip}
 					hasPopup="dialog"
 					contentRole="dialog"
 					align="right"
@@ -1137,6 +1190,8 @@
 							contextUsage={session.contextUsage}
 							report={session.contextReport}
 							draftTokens={draftTokensEstimate}
+							sessionCost={session.sessionCost}
+							subagentCost={session.subagentCost}
 							onCompact={() => {
 								activeMenu = null;
 								void session.compact();

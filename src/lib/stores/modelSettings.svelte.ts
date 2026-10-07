@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import { sessionRegistry } from '$lib/agent/sessionRegistry';
 import { load, type Store } from '@tauri-apps/plugin-store';
 import { restartOmpTerminals } from '../terminal/terminal';
 import { settingsStore } from './settings.svelte';
@@ -73,7 +74,17 @@ export interface ModelConfigDto {
 	disabledProviders: string[];
 	fallbackChains: Record<string, string[]>;
 	defaultThinkingLevel?: string;
+	cacheWarming?: string;
 }
+
+/**
+ * Mappa i provider di login che sono alias verso il provider canonico che memorizza le credenziali.
+ * In omp 18.7+ `openai-codex-device` memorizza sotto `openai-codex`, e `zai-coding-plan` sotto `zai`.
+ */
+export const OAUTH_PROVIDER_ALIASES: Record<string, string> = {
+	'openai-codex-device': 'openai-codex',
+	'zai-coding-plan': 'zai'
+};
 
 export interface ModelFinding {
 	role: string;
@@ -188,6 +199,7 @@ class ModelSettingsStore {
 	lastCheckAt = $state<number>(0);
 	dismissedFingerprint = $state<string>('');
 	statusToast = $state<string | null>(null);
+	modelPickCallback = $state<((selector: string) => void) | null>(null);
 	private healthWatchInitialized = false;
 	private healthIntervalTimer: number | null = null;
 	private healthBootstrapTimer: number | null = null;
@@ -289,7 +301,20 @@ class ModelSettingsStore {
 	}
 
 	closeModal() {
+		this.modelPickCallback = null;
 		settingsStore.close();
+	}
+
+	openForSelection(callback: (selector: string) => void) {
+		this.modelPickCallback = callback;
+		this.openModal('catalog');
+	}
+
+	selectModel(selector: string) {
+		const cb = this.modelPickCallback;
+		this.modelPickCallback = null;
+		this.closeModal();
+		cb?.(selector);
 	}
 
 	showToast(msg: string, duration = 3500) {
@@ -361,10 +386,33 @@ class ModelSettingsStore {
 
 	/** Rimuove un account di autenticazione e ricarica accounts/providers. */
 	async removeAccount(provider: string, credentialId: number) {
+		const canonicalProvider = OAUTH_PROVIDER_ALIASES[provider] ?? provider;
 		try {
-			await invoke('remove_auth_account', { provider, credentialId });
-			await Promise.all([this.loadAccounts(), this.loadProviders()]);
-			this.showToast('Account rimosso');
+			// Cerca una sessione RPC attiva e pronta: se disponibile, usiamo il comando `logout`
+			// di OMP che aggiorna lo store delle credenziali in memoria e invalida i modelli del provider.
+			const readySession = sessionRegistry
+				.getAllSessions()
+				.find((s) => s.isReady && !s.exited);
+
+			if (readySession && readySession.logout) {
+				const result = await readySession.logout(canonicalProvider, credentialId);
+				await Promise.all([this.loadAccounts(), this.loadProviders()]);
+				if (result?.remainingSource) {
+					this.showToast(
+						msg.providers_tab_account_removed_remaining_source_toast({
+							source: result.remainingSource
+						})
+					);
+				} else {
+					this.showToast(msg.providers_tab_account_removed_toast());
+				}
+			} else {
+				// Senza processi OMP in esecuzione con una sessione pronta, la scrittura diretta
+				// su agent.db e' l'unico modo per disattivare la riga prima del prossimo avvio.
+				await invoke('remove_auth_account', { provider: canonicalProvider, credentialId });
+				await Promise.all([this.loadAccounts(), this.loadProviders()]);
+				this.showToast(msg.providers_tab_account_removed_toast());
+			}
 		} catch (e) {
 			console.error('Failed to remove auth account:', e);
 			this.showToast(msg.ui_ts_modelsettings_errore_rimozione_account_value1_077a({ value1: String(e) }));

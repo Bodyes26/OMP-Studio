@@ -17,6 +17,8 @@ export interface AgentUiHooks {
 	openImage(data: string, mimeType: string): void;
 	/** Apre il cassetto del transcript di un subagent. */
 	openSubagent(subagentId: string): void;
+	/** Interrompe l'esecuzione di un subagent attivo. */
+	cancelSubagent?(subagentId: string): void;
 	/** Passa alla scheda TERMINAL di questo progetto. */
 	switchToTerminal(): void;
 }
@@ -36,6 +38,7 @@ export function agentUiHooks(): AgentUiHooks {
 			openFile: () => {},
 			openImage: () => {},
 			openSubagent: () => {},
+			cancelSubagent: () => {},
 			switchToTerminal: () => {}
 		}
 	);

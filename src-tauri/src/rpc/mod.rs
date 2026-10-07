@@ -826,6 +826,7 @@ pub async fn rpc_open(
     lane_id: Option<String>,
     project_id: Option<String>,
     continue_last: Option<bool>,
+    model: Option<String>,
     on_event: Channel<String>,
     manager: State<'_, RpcManager>,
 ) -> Result<u64, String> {
@@ -884,6 +885,9 @@ pub async fn rpc_open(
     );
     for arg in session_args {
         command.arg(arg);
+    }
+    if let Some(m) = model.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        command.arg("--model").arg(m);
     }
 
     command
@@ -1113,6 +1117,7 @@ pub async fn rpc_open_lab(
     lane_id: Option<String>,
     resume: Option<String>,
     continue_last: Option<bool>,
+    model: Option<String>,
     on_event: Channel<String>,
     manager: State<'_, RpcManager>,
 ) -> Result<u64, String> {
@@ -1181,6 +1186,9 @@ pub async fn rpc_open_lab(
     );
     for arg in session_args {
         command.arg(arg);
+    }
+    if let Some(m) = model.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        command.arg("--model").arg(m);
     }
 
     let effective_lane_id = lane_id

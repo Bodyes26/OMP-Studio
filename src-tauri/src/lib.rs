@@ -52,9 +52,9 @@ use studio_updater::{
 mod models_ops;
 use models_ops::{
     apply_model_fixes, check_model_health, get_auth_accounts, get_available_models_catalog,
-    get_custom_providers, get_model_config, get_model_providers, get_models_catalog,
-    get_role_suggestions, refresh_model_provider, refresh_models_catalog, remove_auth_account,
-    save_custom_providers, save_model_config,
+    get_cache_warming_setting, get_custom_providers, get_model_config, get_model_providers,
+    get_models_catalog, get_role_suggestions, refresh_model_provider, refresh_models_catalog,
+    remove_auth_account, save_custom_providers, save_model_config, set_cache_warming_setting,
 };
 mod setup;
 use setup::{detect_project_roots, install_nerd_font, install_omp, setup_status};
@@ -92,6 +92,8 @@ use companion_ops::{
 
 mod doctor_ops;
 use doctor_ops::run_studio_doctor;
+mod subagent_cost;
+use subagent_cost::session_subagent_cost;
 
 pub mod browser_live;
 use browser_live::{
@@ -237,6 +239,7 @@ pub fn run() {
             sessions_list,
             sessions_search,
             session_credential_pins,
+            session_subagent_cost,
             get_omp_version,
             check_omp_update,
             run_omp_update,
@@ -264,6 +267,8 @@ pub fn run() {
             check_model_health,
             apply_model_fixes,
             get_role_suggestions,
+            get_cache_warming_setting,
+            set_cache_warming_setting,
             setup_status,
             run_studio_doctor,
             install_omp,

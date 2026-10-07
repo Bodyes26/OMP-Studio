@@ -1,29 +1,20 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-	buildFlushPlan,
-	buildQuestionSteps,
+	buildAskDialogAnswers,
 	cleanOptionLabel,
 	decideForMeText,
-	isDecideForMeText,
-	DONE_SENTINEL,
 	extractNoteFromLabel,
 	firstUnansweredIndex,
 	isDoneOption,
 	isOtherOption,
 	isQuestionAnswered,
-	matchQuestionIndex,
-	optionSignature,
 	OTHER_LABEL,
 	parseAskQuestions,
-	stepAcceptsRequest,
 	type AnswerableOption,
-	type AnswerableQuestion,
-	type AskFlushStep,
-	type AskQuestion
+	type AnswerableQuestion
 } from '../src/lib/agent/askAnswers.ts';
 import { parseAskToolCall, summarizeAskAnswer } from '../src/lib/agent/askResult.ts';
-import { useLocale } from './locale.ts';
 
 function option(label: string): AnswerableOption {
 	return {
@@ -36,26 +27,26 @@ function option(label: string): AnswerableOption {
 
 function question(overrides: Partial<AnswerableQuestion> = {}): AnswerableQuestion {
 	return {
+		id: 'q1',
 		options: [
 			option('SQLite (Recommended)'),
 			option('PostgreSQL'),
 			option('MySQL'),
-			option('Other (type your own)'),
-			option('✔ Done selecting')
+			option('Other (type your own)')
 		],
-	multi: false,
-	selectedOptions: new Set<string>(),
-	note: '',
-	customInput: '',
-	decideForMe: false,
-	isCustom: false,
-	touched: false,
-	visited: true,
-	...overrides
+		multi: false,
+		selectedOptions: new Set<string>(),
+		note: '',
+		customInput: '',
+		decideForMe: false,
+		isCustom: false,
+		touched: false,
+		visited: true,
+		...overrides
 	};
 }
 
-describe('Ask tool: etichette, note e piano di consegna', () => {
+describe('Ask tool: parsing etichette e validazione risposte', () => {
 	describe('Parsing delle etichette', () => {
 		it('rimuove il suffisso (Recommended)', () => {
 			assert.equal(cleanOptionLabel('SQLite (Recommended)'), 'SQLite');
@@ -82,20 +73,16 @@ describe('Ask tool: etichette, note e piano di consegna', () => {
 			assert.equal(isQuestionAnswered(question()), false);
 		});
 
-		it('costruire passi per una domanda senza risposta e un errore, non la prima opzione', () => {
-			assert.throws(() => buildQuestionSteps(question()), /Risposta assente/);
-		});
-
 		it('"Altro" senza testo non e una risposta', () => {
 			const q = question({ isCustom: true, touched: true, customInput: '   ' });
 			assert.equal(isQuestionAnswered(q), false);
-			assert.throws(() => buildQuestionSteps(q), /Risposta assente/);
 		});
 
-		it('un wizard incompleto non produce un piano da consegnare', () => {
-			const answered = question({ selectedOptions: new Set(['PostgreSQL']), touched: true });
-			assert.equal(buildFlushPlan([answered, question()]), null);
-			assert.equal(firstUnansweredIndex([answered, question()]), 1);
+		it('un wizard incompleto non produce risposte (ritorna null)', () => {
+			const answered = question({ id: 'q1', selectedOptions: new Set(['PostgreSQL']), touched: true });
+			const unanswered = question({ id: 'q2' });
+			assert.equal(buildAskDialogAnswers([answered, unanswered]), null);
+			assert.equal(firstUnansweredIndex([answered, unanswered]), 1);
 			assert.equal(firstUnansweredIndex([answered]), -1);
 		});
 
@@ -107,25 +94,11 @@ describe('Ask tool: etichette, note e piano di consegna', () => {
 		it('la pre-selezione consigliata di una domanda mai aperta non e una risposta', () => {
 			const mai = question({ selectedOptions: new Set(['SQLite']), visited: false });
 			assert.equal(isQuestionAnswered(mai), false);
-			assert.throws(() => buildQuestionSteps(mai), /Risposta assente/);
 		});
 
 		it('la stessa pre-selezione vale come risposta appena la domanda e mostrata', () => {
 			const vista = question({ selectedOptions: new Set(['SQLite']), visited: true });
 			assert.equal(isQuestionAnswered(vista), true);
-			const steps = buildQuestionSteps(vista);
-			assert.equal(steps.length, 1);
-			assert.equal(steps[0].method, 'select');
-			if (steps[0].method === 'select') {
-				assert.equal(steps[0].value, 'SQLite (Recommended)');
-			}
-		});
-
-		it('un wizard con domande mai aperte non parte, e indica la prima', () => {
-			const vista = question({ selectedOptions: new Set(['PostgreSQL']) });
-			const mai = question({ selectedOptions: new Set(['SQLite']), visited: false });
-			assert.equal(buildFlushPlan([vista, mai, mai]), null);
-			assert.equal(firstUnansweredIndex([vista, mai, mai]), 1);
 		});
 
 		it('la scelta multipla mai aperta non vale "nessuna" nemmeno se toccata', () => {
@@ -133,191 +106,156 @@ describe('Ask tool: etichette, note e piano di consegna', () => {
 		});
 	});
 
-	describe('Costruzione del piano di consegna', () => {
-		it('rimanda l etichetta originale dell opzione scelta', () => {
-			const q = question({ selectedOptions: new Set(['SQLite']), touched: true });
-			const steps = buildQuestionSteps(q);
-			assert.deepEqual(steps, [
-				{
-					method: 'select',
-					value: 'SQLite (Recommended)',
-					signature: optionSignature(['SQLite', 'PostgreSQL', 'MySQL'])
-				}
-			]);
-		});
-
-		it('allega la nota alla scelta singola, senza il suffisso Recommended', () => {
+	describe('Costruzione risposte native AskDialogAnswer', () => {
+		it('rimanda l etichetta originale verbatim a scelta singola', () => {
 			const q = question({
+				id: 'db',
 				selectedOptions: new Set(['SQLite']),
-				note: '  solo per sviluppo locale  ',
 				touched: true
 			});
-			const steps = buildQuestionSteps(q);
-			assert.deepEqual(steps, [
-				{
-					method: 'select',
-					value: 'SQLite (nota: solo per sviluppo locale)',
-					signature: optionSignature(['SQLite', 'PostgreSQL', 'MySQL'])
-				}
-			]);
-		});
-
-		it('chiude la scelta multipla senza nota con la sentinella Done e recovery', () => {
-			const q = question({
-				multi: true,
-				selectedOptions: new Set(['PostgreSQL', 'SQLite']),
-				touched: true
+			const answers = buildAskDialogAnswers([q]);
+			assert.ok(answers);
+			assert.equal(answers.length, 1);
+			assert.deepEqual(answers[0], {
+				id: 'db',
+				selectedOptions: ['SQLite (Recommended)'],
+				customInput: undefined
 			});
-			const signature = optionSignature(['SQLite', 'PostgreSQL', 'MySQL']);
-			const steps = buildQuestionSteps(q);
-			assert.equal(steps.length, 3);
-			assert.equal(steps[0].value, 'PostgreSQL');
-			assert.equal(steps[1].value, 'SQLite (Recommended)');
-			assert.equal(steps[2].value, DONE_SENTINEL);
-			if (steps[2].method === 'select' && steps[2].recovery) {
-				assert.equal(steps[2].recovery.length, 3);
-				assert.equal(steps[2].recovery[0].value, DONE_SENTINEL);
-				assert.equal(steps[2].recovery[1].value, OTHER_LABEL);
-				assert.equal(steps[2].recovery[2].method, 'editor');
-			} else {
-				assert.fail('Manca il recovery sul passo di chiusura');
-			}
 		});
 
-		it('chiude la scelta multipla con nota via Other + editor per preservarla', () => {
+		it('unisce etichetta e nota in customInput a scelta singola per rispettare il vincolo omp', () => {
 			const q = question({
-				multi: true,
+				id: 'db',
 				selectedOptions: new Set(['PostgreSQL']),
-				note: 'vedi doc',
+				note: 'usare pool dedicato',
 				touched: true
 			});
-			const steps = buildQuestionSteps(q);
-			assert.deepEqual(steps, [
-				{
-					method: 'select',
-					value: 'PostgreSQL',
-					signature: optionSignature(['SQLite', 'PostgreSQL', 'MySQL'])
-				},
-				{
-					method: 'select',
-					value: OTHER_LABEL,
-					signature: optionSignature(['SQLite', 'PostgreSQL', 'MySQL'])
-				},
-				{
-					method: 'editor',
-					value: 'vedi doc'
-				}
-			]);
-		});
-
-		it('invia il testo personalizzato quando l utente scrive in "Altro"', () => {
-			const q = question({
-				isCustom: true,
-				touched: true,
-				customInput: '  Soluzione ibrida  ',
-				note: 'vedi doc'
+			const answers = buildAskDialogAnswers([q]);
+			assert.ok(answers);
+			assert.equal(answers.length, 1);
+			assert.deepEqual(answers[0], {
+				id: 'db',
+				selectedOptions: [],
+				customInput: 'PostgreSQL (nota: usare pool dedicato)'
 			});
-			const steps = buildQuestionSteps(q);
-			assert.deepEqual(steps, [
-				{
-					method: 'select',
-					value: 'Soluzione ibrida (nota: vedi doc)',
-					signature: optionSignature(['SQLite', 'PostgreSQL', 'MySQL'])
-				}
-			]);
 		});
 
-		it('chiude correttamente la scelta multipla quando l utente seleziona "Altro"', () => {
+		it('invia customInput per opzione personalizzata (Altro)', () => {
 			const q = question({
-				multi: true,
+				id: 'db',
 				isCustom: true,
-				touched: true,
-				customInput: '  Redis  ',
-				note: 'per caching'
-			});
-			const steps = buildQuestionSteps(q);
-			assert.deepEqual(steps, [
-				{
-					method: 'select',
-					value: OTHER_LABEL,
-					signature: optionSignature(['SQLite', 'PostgreSQL', 'MySQL'])
-				},
-				{
-					method: 'editor',
-					value: 'Redis (nota: per caching)'
-				}
-			]);
-		});
-
-		it('invia il testo convenzionale quando l utente sceglie "Decidi tu"', () => {
-			useLocale('it');
-			const q = question({ decideForMe: true });
-			assert.equal(isQuestionAnswered(q), true);
-			const steps = buildQuestionSteps(q);
-			assert.deepEqual(steps, [
-				{
-					method: 'select',
-					value: 'Decidi tu: scegli la soluzione migliore',
-					signature: optionSignature(['SQLite', 'PostgreSQL', 'MySQL'])
-				}
-			]);
-		});
-
-		it('allega la nota al testo convenzionale di "Decidi tu"', () => {
-			useLocale('it');
-			const q = question({ decideForMe: true, multi: true, touched: true, note: 'budget limitato' });
-			assert.equal(isQuestionAnswered(q), true);
-			const steps = buildQuestionSteps(q);
-			assert.deepEqual(steps, [
-				{
-					method: 'select',
-					value: 'Decidi tu: scegli la soluzione migliore (nota: budget limitato)',
-					signature: optionSignature(['SQLite', 'PostgreSQL', 'MySQL'])
-				}
-			]);
-		});
-
-		it('"Decidi tu" arriva al modello nella lingua dell\'interfaccia e si riconosce in entrambe', () => {
-			useLocale('en');
-			const steps = buildQuestionSteps(question({ decideForMe: true }));
-			assert.equal(steps[0].value, 'You decide: choose the best solution');
-			assert.equal(isDecideForMeText('You decide: choose the best solution'), true);
-			assert.equal(isDecideForMeText('Decidi tu: scegli la soluzione migliore'), true);
-			assert.equal(isDecideForMeText('SQLite'), false);
-			useLocale('it');
-		});
-
-		it('concatena i passi di tutte le domande nel piano del wizard', () => {
-			const first = question({ selectedOptions: new Set(['PostgreSQL']), touched: true });
-			const second = question({
-				multi: true,
-				selectedOptions: new Set(['SQLite']),
+				customInput: 'CockroachDB',
 				touched: true
 			});
-			const plan = buildFlushPlan([first, second]);
-			assert.ok(plan);
-			assert.equal(plan.length, 3);
-			assert.equal(plan[0].value, 'PostgreSQL');
-			assert.equal(plan[1].value, 'SQLite (Recommended)');
-			assert.equal(plan[2].value, DONE_SENTINEL);
-		});
-	});
-	describe('Verifica di corrispondenza delle richieste (stepAcceptsRequest)', () => {
-		const sig1 = optionSignature(['SQLite', 'PostgreSQL']);
-		const sig2 = optionSignature(['JWT', 'Session cookies']);
-
-		it('accetta una select solo se la firma combacia', () => {
-			const step: AskFlushStep = { method: 'select', value: 'SQLite', signature: sig1 };
-			assert.equal(stepAcceptsRequest(step, { method: 'select', signature: sig1 }), true);
-			assert.equal(stepAcceptsRequest(step, { method: 'select', signature: sig2 }), false);
-			assert.equal(stepAcceptsRequest(step, { method: 'editor', signature: sig1 }), false);
+			const answers = buildAskDialogAnswers([q]);
+			assert.ok(answers);
+			assert.deepEqual(answers[0], {
+				id: 'db',
+				selectedOptions: [],
+				customInput: 'CockroachDB'
+			});
 		});
 
-		it('accetta editor o input per passi editor', () => {
-			const step: AskFlushStep = { method: 'editor', value: 'testo nota' };
-			assert.equal(stepAcceptsRequest(step, { method: 'editor', signature: '' }), true);
-			assert.equal(stepAcceptsRequest(step, { method: 'input', signature: '' }), true);
-			assert.equal(stepAcceptsRequest(step, { method: 'select', signature: sig1 }), false);
+		it('unisce customInput e nota per opzione personalizzata', () => {
+			const q = question({
+				id: 'db',
+				isCustom: true,
+				customInput: 'CockroachDB',
+				note: 'versione serverless',
+				touched: true
+			});
+			const answers = buildAskDialogAnswers([q]);
+			assert.ok(answers);
+			assert.deepEqual(answers[0], {
+				id: 'db',
+				selectedOptions: [],
+				customInput: 'CockroachDB (nota: versione serverless)'
+			});
+		});
+
+		it('invia testo convenzionale per "Decidi tu"', () => {
+			const q = question({
+				id: 'db',
+				decideForMe: true,
+				touched: true
+			});
+			const answers = buildAskDialogAnswers([q]);
+			assert.ok(answers);
+			assert.deepEqual(answers[0], {
+				id: 'db',
+				selectedOptions: [],
+				customInput: decideForMeText()
+			});
+		});
+
+		it('unisce "Decidi tu" e nota', () => {
+			const q = question({
+				id: 'db',
+				decideForMe: true,
+				note: 'preferisci soluzioni senza dipendenze native',
+				touched: true
+			});
+			const answers = buildAskDialogAnswers([q]);
+			assert.ok(answers);
+			assert.deepEqual(answers[0], {
+				id: 'db',
+				selectedOptions: [],
+				customInput: `${decideForMeText()} (nota: preferisci soluzioni senza dipendenze native)`
+			});
+		});
+
+		it('invia opzioni multiple verbatim a scelta multipla', () => {
+			const q = question({
+				id: 'features',
+				multi: true,
+				selectedOptions: new Set(['PostgreSQL', 'MySQL']),
+				touched: true
+			});
+			const answers = buildAskDialogAnswers([q]);
+			assert.ok(answers);
+			assert.deepEqual(answers[0], {
+				id: 'features',
+				selectedOptions: ['PostgreSQL', 'MySQL'],
+				customInput: undefined
+			});
+		});
+
+		it('invia opzioni multiple con nota in customInput', () => {
+			const q = question({
+				id: 'features',
+				multi: true,
+				selectedOptions: new Set(['PostgreSQL', 'MySQL']),
+				note: 'entrambi con replica',
+				touched: true
+			});
+			const answers = buildAskDialogAnswers([q]);
+			assert.ok(answers);
+			assert.deepEqual(answers[0], {
+				id: 'features',
+				selectedOptions: ['PostgreSQL', 'MySQL'],
+				customInput: 'nota: entrambi con replica'
+			});
+		});
+
+		it('preserva ordine e id delle domande in un wizard con piu domande', () => {
+			const q1 = question({
+				id: 'q_storage',
+				selectedOptions: new Set(['PostgreSQL']),
+				touched: true
+			});
+			const q2 = question({
+				id: 'q_auth',
+				options: [option('JWT'), option('Session')],
+				selectedOptions: new Set(['JWT']),
+				touched: true
+			});
+			const answers = buildAskDialogAnswers([q1, q2]);
+			assert.ok(answers);
+			assert.equal(answers.length, 2);
+			assert.equal(answers[0].id, 'q_storage');
+			assert.deepEqual(answers[0].selectedOptions, ['PostgreSQL']);
+			assert.equal(answers[1].id, 'q_auth');
+			assert.deepEqual(answers[1].selectedOptions, ['JWT']);
 		});
 	});
 
@@ -354,23 +292,15 @@ describe('Ask tool: etichette, note e piano di consegna', () => {
 	});
 
 	describe('Round trip con il renderer delle risposte', () => {
-		it('la nota formattata viene riletta separata dall opzione', () => {
-			const [step] = buildQuestionSteps(
-				question({
-					selectedOptions: new Set(['PostgreSQL']),
-					note: 'robusto per multi-utenza',
-					touched: true
-				})
-			);
-			assert.equal(step.method, 'select');
-			assert.deepEqual(extractNoteFromLabel(step.value), {
-				clean: 'PostgreSQL',
-				note: 'robusto per multi-utenza'
-			});
-		});
-
 		it('preserva etichette prive di nota', () => {
 			assert.deepEqual(extractNoteFromLabel('PostgreSQL'), { clean: 'PostgreSQL' });
+		});
+
+		it('estrae nota in italiano (nota: ...)', () => {
+			assert.deepEqual(extractNoteFromLabel('PostgreSQL (nota: multi-utenza)'), {
+				clean: 'PostgreSQL',
+				note: 'multi-utenza'
+			});
 		});
 
 		it('legge anche la forma inglese (note: ...)', () => {
@@ -378,83 +308,6 @@ describe('Ask tool: etichette, note e piano di consegna', () => {
 				clean: 'JWT',
 				note: 'include refresh token'
 			});
-		});
-	});
-
-	describe('Simulazione ordine invertito (richiesta prima degli argomenti)', () => {
-		const toolArgs = {
-			questions: [
-				{
-					id: 'storage_type',
-					question: 'Quale storage backend?',
-					options: [{ label: 'SQLite (Recommended)' }, { label: 'PostgreSQL' }]
-				},
-				{
-					id: 'auth_method',
-					question: 'Quale autenticazione?',
-					options: [{ label: 'JWT' }, { label: 'Session cookies' }]
-				}
-			]
-		};
-
-		it('arricchisce la richiesta nuda e consegna il piano a entrambi i round', () => {
-			// 1. OMP invia extension_ui_request PRIMA di tool_execution_start
-			const bareRequest = {
-				id: 'req_1',
-				options: ['SQLite (Recommended)', 'PostgreSQL', 'Other (type your own)'],
-				method: 'select'
-			};
-			const bareSig = optionSignature(bareRequest.options);
-
-			// 2. tool_execution_start arriva subito dopo
-			const parsedQuestions = parseAskQuestions(toolArgs);
-			assert.ok(parsedQuestions);
-
-			// 3. Arricchimento bidirezionale
-			const matched = matchQuestionIndex(parsedQuestions, bareSig, 0);
-			assert.equal(matched, 0);
-
-			// 4. L'utente compila entrambe le domande nel modulo completo
-			const q1: AnswerableQuestion = {
-				options: parsedQuestions[0].options.map((o) => option(o.label)),
-				multi: false,
-				selectedOptions: new Set(['SQLite']),
-				note: '',
-				customInput: '',
-				isCustom: false,
-				touched: true,
-				visited: true
-			};
-			const q2: AnswerableQuestion = {
-				options: parsedQuestions[1].options.map((o) => option(o.label)),
-				multi: false,
-				selectedOptions: new Set(['JWT']),
-				note: 'senza refresh',
-				customInput: '',
-				isCustom: false,
-				touched: true,
-				visited: true
-			};
-
-			const plan = buildFlushPlan([q1, q2]);
-			assert.ok(plan);
-			assert.equal(plan.length, 2);
-
-			// 5. La prima risposta viene spedita a req_1
-			const [firstStep, ...rest] = plan;
-			assert.equal(firstStep.value, 'SQLite (Recommended)');
-			assert.equal(stepAcceptsRequest(firstStep, { method: 'select', signature: bareSig }), true);
-
-			// 6. La seconda richiesta arriva da OMP
-			const secondReq = {
-				id: 'req_2',
-				options: ['JWT', 'Session cookies', 'Other (type your own)'],
-				method: 'select'
-			};
-			const secondSig = optionSignature(secondReq.options);
-			const secondStep = rest[0];
-			assert.equal(secondStep.value, 'JWT (nota: senza refresh)');
-			assert.equal(stepAcceptsRequest(secondStep, { method: 'select', signature: secondSig }), true);
 		});
 	});
 });
@@ -468,7 +321,6 @@ describe('Ask tool: riepilogo delle risposte inviate', () => {
 	};
 
 	it('unisce scelte e testo libero e scarta la sentinella Other', () => {
-		// Forma reale di omp (fixtures/chat-v2/ask-real.ndjson) con Other tra le scelte.
 		const [fruit, toppings] = parseAskToolCall(args, {
 			results: [
 				{ id: 'fruit', question: 'Frutta preferita?', options: ['Apple', 'Banana'], multi: false, selectedOptions: ['Apple (Recommended)'] },

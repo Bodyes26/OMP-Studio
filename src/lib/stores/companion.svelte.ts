@@ -36,7 +36,7 @@ export interface PendingUiPayload {
 	message?: string;
 	options?: string[];
 	optionDetails?: { description?: string }[];
-	method?: 'select' | 'confirm' | 'input' | 'editor';
+	method?: 'select' | 'confirm' | 'input' | 'editor' | 'ask';
 	placeholder?: string;
 	prefill?: string;
 	deadline?: number;

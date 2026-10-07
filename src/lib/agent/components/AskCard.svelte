@@ -28,17 +28,17 @@
 	} from '$lib/icons';
 	import type { AgentSession, PendingAsk } from '../session.svelte';
 	import {
-		buildFlushPlan,
+		buildAskDialogAnswers,
 		cleanOptionLabel,
 		firstUnansweredIndex,
 		isDoneOption,
 		isOtherOption,
 		isQuestionAnswered,
 		type AnswerableQuestion,
-		type AskFlushStep,
 		type AskQuestion,
 		type AskQuestionOption
 	} from '../askAnswers';
+	import type { AskDialogAnswer } from '../wire';
 	import { parseAskTitle, sanitizeAskDetail } from '../askTitle';
 	import { askConfirmKeyAction, isImeComposing, shouldAutoFocusAskCard } from '../askFocus';
 	import { promptBus } from '../promptBus';
@@ -87,16 +87,25 @@
 	}
 
 	// Scadenza con countdown: oltre, omp risolve da se' al default e la
-	// scheda si chiude da sola come prima (nessun invio dal client).
+	// scheda invia la risposta di timeout (cancelled: true, timedOut: true).
 	let now = $state(Date.now());
 	$effect(() => {
 		if (!pending.deadline) return;
 		const timer = setInterval(() => {
 			now = Date.now();
+			if (pending.deadline && Date.now() >= pending.deadline) {
+				clearInterval(timer);
+				handleCountdownTimeout();
+			}
 		}, 500);
 		return () => clearInterval(timer);
 	});
 
+	function handleCountdownTimeout() {
+		if (submitting) return;
+		submitting = true;
+		void session.cancelPendingUi(true);
+	}
 	const remainingSeconds = $derived.by(() => {
 		if (!pending.deadline) return null;
 		const diff = Math.ceil((pending.deadline - now) / 1000);
@@ -478,25 +487,25 @@
 
 	async function submitAllAnswers() {
 		if (submitting) return;
-		const plan = buildFlushPlan(questions);
-		if (!plan) {
+		const answers = buildAskDialogAnswers(questions);
+		if (!answers) {
 			if (missingIndex >= 0) void goToStep(missingIndex);
 			return;
 		}
 		submitting = true;
 		try {
-			await submitPlan(plan);
+			await submitAnswers(answers);
 		} finally {
 			submitting = false;
 		}
 	}
 
-	async function submitPlan(plan: AskFlushStep[]) {
+	async function submitAnswers(answers: AskDialogAnswer[]) {
 		if (pending.requestId && promptBus.hasPending(pending.requestId)) {
-			const handled = await promptBus.resolveRequest(pending.requestId, { action: 'wizard', plan });
+			const handled = await promptBus.resolveRequest(pending.requestId, { action: 'wizard', answers });
 			if (handled) return;
 		}
-		await session.submitAskWizard(plan);
+		await session.submitAskAnswers(answers);
 	}
 
 	// `submitting` evita il doppio invio (doppio clic, Invio ripetuto): la
@@ -772,7 +781,7 @@
 		</nav>
 	{/if}
 
-	{#if pending.method === 'select'}
+	{#if pending.method === 'select' || pending.method === 'ask'}
 		{#if isReviewStep}
 			<div class="ask-review">
 				{#each questions as q, idx}

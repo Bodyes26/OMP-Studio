@@ -8,7 +8,7 @@ import {
 	windowLabel
 } from '$lib/stores/windowBridge.ts';
 
-export type PromptMethod = 'select' | 'confirm' | 'input' | 'editor';
+export type PromptMethod = 'select' | 'confirm' | 'input' | 'editor' | 'ask';
 
 /**
  * `expired`: richiesta persistita da un'esecuzione precedente. Il processo omp

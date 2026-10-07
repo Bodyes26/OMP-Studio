@@ -7,6 +7,7 @@
 
 import { Channel, invoke } from '@tauri-apps/api/core';
 import type {
+	AbortAndRestoreQueueResult,
 	AgentSessionEvent,
 	ExtensionUiResponse,
 	LoginProviderInfo,
@@ -38,13 +39,20 @@ const SLOW_COMMANDS: Record<string, true> = { compact: true, handoff: true, bash
  *  Stesso valore del client RPC di riferimento di omp. */
 const LOGIN_TIMEOUT_MS = 600_000;
 
-/** `abort` e `abort_bash` hanno priorita' massima e non devono mai attendere il
- *  timeout di un minuto: l'interruzione deve agire subito.
+/** `abort`, `abort_bash` e `abort_and_restore_queue` hanno priorita' massima e
+ *  non devono mai attendere il timeout di un minuto: l'interruzione deve agire
+ *  subito, e se omp e' bloccato la risposta di ripristino va persa in fretta
+ *  (l'escalation a `forceKill` resta comunque disponibile).
  *  `negotiate_capabilities` sta nella stessa lista per il motivo opposto: e'
  *  un handshake locale che o risponde subito o non e' supportato, e non deve
  *  ne' tenere aperta la sessione ne' cadere con l'abort dell'utente. */
 const FAST_COMMAND_TIMEOUT_MS = 4_000;
-const FAST_COMMANDS: Record<string, true> = { abort: true, abort_bash: true, negotiate_capabilities: true };
+const FAST_COMMANDS: Record<string, true> = {
+	abort: true,
+	abort_bash: true,
+	abort_and_restore_queue: true,
+	negotiate_capabilities: true
+};
 
 /** Un rapporto di blocco al massimo ogni tanto: un blocco fa scadere in
  *  cascata tutte le richieste in volo, e basta fotografarlo una volta. */
@@ -131,7 +139,7 @@ export class OmpRpcClient {
 	async open(
 		cwd: string,
 		resume?: string | null,
-		opts?: { laneId?: string | null; projectId?: string | null; continueLast?: boolean }
+		opts?: { laneId?: string | null; projectId?: string | null; continueLast?: boolean; model?: string | null }
 	): Promise<number> {
 		const epoch = ++this.openEpoch;
 		const channel = new Channel<string>();
@@ -154,6 +162,7 @@ export class OmpRpcClient {
 			laneId: opts?.laneId ?? null,
 			projectId: opts?.projectId ?? null,
 			continueLast: opts?.continueLast ?? false,
+			model: opts?.model ?? null,
 			onEvent: channel
 		});
 		// Un processo che fallisce in avvio puo' emettere `studio_exit` prima
@@ -176,6 +185,7 @@ export class OmpRpcClient {
 		laneId?: string | null;
 		resume?: string | null;
 		continueLast?: boolean;
+		model?: string | null;
 	}): Promise<number> {
 		const epoch = ++this.openEpoch;
 		const channel = new Channel<string>();
@@ -196,6 +206,7 @@ export class OmpRpcClient {
 			laneId: opts.laneId ?? null,
 			resume: opts.resume ?? null,
 			continueLast: opts.continueLast ?? false,
+			model: opts.model ?? null,
 			onEvent: channel
 		});
 		if (this.closed || epoch !== this.openEpoch) {
@@ -321,6 +332,40 @@ export class OmpRpcClient {
 			window.clearTimeout(entry.timer);
 			this.pending.delete(id);
 			entry.reject(rpcError(reason, entry.command, 'aborted'));
+		}
+	}
+
+	/**
+	 * Stop con recupero della coda. `abort_and_restore_queue` e' l'unico comando
+	 * la cui risposta ci serve: `abortPendingRequests` cancella tutto il resto
+	 * PRIMA dell'invio (come `abort`), poi la richiesta parte dal percorso
+	 * normale e si attende con il suo timeout. Cosi' le altre promise in volo si
+	 * sbloccano subito senza rischiare di uccidere l'unica risposta utile, e se
+	 * il processo e' bloccato la richiesta scade mentre `forceKill` (una `invoke`
+	 * a se') resta comunque disponibile.
+	 *
+	 * Un omp piu' vecchio del 18.4.4 non conosce il comando: in quel caso si
+	 * ripiega sull'`abort` semplice, che ferma il turno ma non restituisce la
+	 * coda. Il ripiego e' innocuo anche quando la risposta si e' solo persa,
+	 * perche' l'abort di omp e' idempotente.
+	 */
+	async abortAndRestoreQueue(): Promise<AbortAndRestoreQueueResult | null> {
+		if (this.rpcId === null || this.closed) return null;
+		this.abortEpoch++;
+		this.abortPendingRequests('Interrotto dall\u2019utente');
+		const rpcId = this.rpcId;
+		// `abort_and_restore_queue` fa l'abort del turno, `abort_bash` ferma il
+		// processo figlio in corso e sblocca i buffer di delta lato Rust.
+		void invoke('rpc_send', { rpcId, line: JSON.stringify({ id: `s${++this.seq}`, type: 'abort_bash' }) }).catch(
+			() => {}
+		);
+		try {
+			const data = await this.send<AbortAndRestoreQueueResult>({ type: 'abort_and_restore_queue' });
+			return data ?? null;
+		} catch (error) {
+			console.warn('abort_and_restore_queue non disponibile, ripiego su abort:', error);
+			void this.abort();
+			return null;
 		}
 	}
 

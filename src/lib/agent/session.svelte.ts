@@ -1,4 +1,5 @@
 import { attachEditorContext } from '$lib/editor/editorContext';
+import { invoke } from '@tauri-apps/api/core';
 import { orchestratePromptPreflight, type PromptPreflightDeps } from './promptPreflight';
 import { settingsStore } from '$lib/stores/settings.svelte';
 import { formatTokens } from '$lib/utils/format';
@@ -20,21 +21,19 @@ let firstComposerReadyMarked = false;
 import { isAllowedExternalUrl } from '$lib/utils/externalUrl';
 import { openExternalUrl } from '$lib/utils/openExternal';
 import { OmpRpcClient } from './client';
-import { isMissingSessionError } from './resumeErrors';
+import { isMissingSessionError, parseUnavailableResumeModel } from './resumeErrors';
+import { laneStore } from '$lib/stores/lanes.svelte';
+import type { LaneId, ProjectId } from '$lib/types/lanes';
+import { splitModelSelector } from '$lib/stores/modelSettingsHelpers';
 import { handOffPrewalk, isPrewalkHandOff, parsePrewalkNotice, reducePrewalkNotice, type PrewalkState } from './prewalk';
 import {
-	matchQuestionIndex,
-	optionSignature,
 	parseAskQuestions,
-	stepAcceptsRequest,
 	normalizePromptAnswer,
-	type AskFlushStep,
 	type AskQuestion,
 	type PromptAnswer
 } from './askAnswers';
 import { AskStreamTracker, streamToAskQuestions, type StreamAskState } from './askStream';
-import { enqueueFollowUp, removeFollowUp, type LocalFollowUp } from './localFollowUpQueue';
-import { FollowUpDispatcher } from './followUpDispatcher';
+import { queueChips } from './queueRestore';
 import { canRestorePrompt, promptBus, type PromptRequest } from './promptBus';
 import { laneSessionKey } from './sessionKeys';
 import { SessionSuggestions } from './suggestions.svelte';
@@ -68,10 +67,26 @@ import {
 	type RpcSessionState,
 	type SessionStats,
 	type StreamingBehavior,
+	type QueuedMessagesState,
+	type QueuedMessageQueue,
+	type RemoveQueuedMessageResult,
+	type RestoredQueuedMessage,
 	type ThinkingLevel,
 	type TodoPhase,
+	type FastModeResult,
+	type Goal,
+	type GoalModeState,
+	type GoalResult,
+	type UsageLimitState,
+	type CacheWarmingPhase,
+	type CacheWarmingOutcome,
+	type CacheWarmingMode,
+	type AskDialogAnswer,
+	type AskDialogQuestion,
+	type CancelSubagentResult,
 	StreamBatcher
 } from './wire';
+import type { CacheWarmingInFlight, CacheWarmingLast } from './sessionModes';
 import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
 import { computeQuotaInfo } from '$lib/quota/projectQuota';
 import {
@@ -162,6 +177,12 @@ export interface NoticeEntry {
 	detail?: string[];
 	/** Presente sugli avvisi che offrono il passaggio alla TUI. */
 	offerTerminal?: boolean;
+	/** Azione azionabile associata all'avviso (es. scelta modello). */
+	action?: {
+		label: string;
+		title?: string;
+		run: () => void;
+	};
 }
 
 /**
@@ -253,10 +274,10 @@ export type TranscriptEntry =
 	| IrcEntry
 	| SystemChipEntry
 	| LaneLandingEntry;
+/** Una voce della coda di omp: testo opaco del chip e coda di provenienza. */
 export interface QueuedMessage {
-	id: number;
 	text: string;
-	behavior: StreamingBehavior;
+	queue: QueuedMessageQueue;
 }
 
 export interface PendingAsk {
@@ -268,7 +289,7 @@ export interface PendingAsk {
 	 */
 	toolCallId?: string;
 
-	method: 'select' | 'confirm' | 'input' | 'editor';
+	method: 'select' | 'confirm' | 'input' | 'editor' | 'ask';
 	title: string;
 	message?: string;
 	options: string[];
@@ -296,7 +317,11 @@ export interface PendingAsk {
 export type PendingUiRequest = PendingAsk;
 
 /** Contenuto di una risposta a una `extension_ui_request`. */
-type AskAnswerPayload = { value: string } | { confirmed: boolean } | { cancelled: true };
+type AskAnswerPayload =
+	| { value: string }
+	| { confirmed: boolean }
+	| { cancelled: true; timedOut?: boolean }
+	| { answers: AskDialogAnswer[] };
 
 export { RENDER_WINDOW, clampVisibleCount, sliceVisibleEntries, hasEarlierEntries } from './transcriptWindow';
 
@@ -363,6 +388,11 @@ export class AgentSession {
 	observedRevisionId = $state<string | null>(null);
 
 	private composerInsertHandlers = new Set<(text: string) => void>();
+
+	/** Compositori montati che sanno rimettersi in bozza l'input ritirato dalla coda. */
+	private queueRestoreHandlers = new Set<(entries: readonly RestoredQueuedMessage[]) => void>();
+	/** Input ritirato senza compositore montato: consegnato al primo che si registra. */
+	private pendingQueueRestore: RestoredQueuedMessage[] = [];
 
 	registerComposerInsertHandler(handler: (text: string) => void): () => void {
 		this.composerInsertHandlers.add(handler);
@@ -483,35 +513,36 @@ export class AgentSession {
 	sessionId = $state<string | null>(null);
 	sessionFile = $state<string | null>(null);
 	sessionName = $state<string | null>(null);
+	/** Modello richiesto come override per startup (--model) */
+	private requestedModelOverride: string | null = null;
+	/** Modello non disponibile rilevato su resume fallito */
+	private unavailableResumeModel: string | null = null;
+	/** Modello fallback applicato durante la ripresa automatica */
+	private resumedFallbackModel: string | null = null;
+	/** Flag per tentare il fallback automatico su modello default una sola volta */
+	private resumeFallbackAttempted = false;
+	/** Flag per indicare un cambio di sessione intenzionale (new, fork, handoff) */
+	private expectingSessionTransition = false;
 	queuedMessageCount = $state(0);
+	/**
+	 * Coda di omp come la mostra la tray: chip preprint. Sorgente di verita' e'
+	 * omp (`get_state.queuedMessages` e l'evento `queue_update`); qui non c'e'
+	 * nessuno specchio locale, perche' ogni modifica passa da un comando.
+	 */
+	queuedMessages = $state<QueuedMessagesState>({ steering: [], followUp: [] });
 	sessionCost = $state<number | null>(null);
+	subagentCost = $state(0);
+
+	/** Costo totale comprensivo della sessione principale e dei subagenti. */
+	get totalCost(): number | null {
+		if (this.sessionCost === null && this.subagentCost === 0) return null;
+		return (this.sessionCost ?? 0) + this.subagentCost;
+	}
 
 	todoPhases = $state<TodoPhase[]>([]);
 	subagents = $state<AgentProgress[]>([]);
 	todoReminder = $state<{ attempt: number; max: number } | null>(null);
 	availableCommands = $state<AvailableCommand[]>([]);
-	queued = $state<QueuedMessage[]>([]);
-	localFollowUps = $state<LocalFollowUp[]>([]);
-	localFollowUpsPaused = $state(false);
-	/**
-	 * Coda locale: decide quando parte il follow-up successivo. Vive fuori
-	 * dalla classe perche' e' una macchina a stati che si prova nei test.
-	 */
-	private readonly followUps = new FollowUpDispatcher({
-		queue: () => this.localFollowUps,
-		mode: () => settingsStore.general.followUpMode,
-		paused: () => this.localFollowUpsPaused,
-		idle: () =>
-			this.isReady && this.isAttached && !this.isStreaming && !this.isAborting && !this.pendingUi,
-		send: (item, forced) => this.prompt(item.text, item.images, 'followUp', true, item.id, forced),
-		remove: (id) => this.removeLocalFollowUp(id),
-		pause: (reason) => {
-			this.localFollowUpsPaused = true;
-			if (reason === 'timeout') this.flashNotice('warning', messages.chat_v2_queue_start_timeout());
-		},
-		setTimer: (callback, ms) => window.setTimeout(callback, ms),
-		clearTimer: (handle) => window.clearTimeout(handle as number)
-	});
 	pendingUi = $state<PendingUiRequest | null>(null);
 	/** Solo anteprima: nessuna risposta parte finche' omp non emette extension_ui_request. */
 	streamAsk = $state<{ toolCallId: string | null; state: StreamAskState } | null>(null);
@@ -520,6 +551,16 @@ export class AgentSession {
 	seededPrompt = $state<SeededPrompt | null>(null);
 	startupPhase = $state<'idle' | 'starting' | 'ready'>('idle');
 	exited = $state(false);
+
+	fastModeEnabled = $state(false);
+	fastModeActive = $state(false);
+	slowModeSupported = $state(false);
+	slowModeEnabled = $state(false);
+	slowModeScope = $state<'session' | 'global' | null>(null);
+	usageLimit = $state<UsageLimitState | null>(null);
+	goal = $state<GoalModeState | null>(null);
+	cacheWarmingInFlight = $state<CacheWarmingInFlight | null>(null);
+	cacheWarmingLast = $state<CacheWarmingLast | null>(null);
 
 	private preflightDeps: PromptPreflightDeps | null = null;
 
@@ -551,26 +592,8 @@ export class AgentSession {
 	 * l'effetto di trasmissione a ogni delta dello streaming.
 	 */
 	activityLine = $state<{ text: string; at: number; kind: 'intent' | 'assistant' } | null>(null);
-	/**
-	 * Piano di consegna del wizard: le risposte gia' compilate dall'utente che
-	 * aspettano la richiesta a cui appartengono. Il protocollo di `ask` e'
-	 * sequenziale e irreversibile, quindi la card raccoglie tutto e qui restano
-	 * i passi ancora da consegnare, uno per richiesta.
-	 *
-	 * Il vincolo e' il `toolCallId`: senza di lui un passo rimasto in coda
-	 * finirebbe su una domanda futura e diversa. `lastClosing` ricorda la
-	 * sentinella di fine selezione appena consegnata: se omp ripropone la
-	 * stessa domanda vuol dire che non l'ha riconosciuta (dipende dal tema) e
-	 * il ripiego del passo prende il suo posto.
-	 */
-	private askFlush: {
-		toolCallId: string | null;
-		steps: AskFlushStep[];
-		lastClosing: AskFlushStep | null;
-	} | null = null;
 
 	private nextEntryId = 1;
-	private nextQueueId = 1;
 	private assistantEntry: AssistantEntry | null = null;
 	private readonly toolEntries = new Map<string, ToolEntry>();
 	private renderedCustomKeys = new Set<string>();
@@ -779,9 +802,15 @@ export class AgentSession {
 		await this.open(resume);
 	}
 
-	async open(resume?: string | null) {
+	async open(resume?: string | null, opts?: { modelOverride?: string | null }) {
 		if (this.client.isOpen) return;
 		const requestedResume = resume ?? null;
+		const modelOverride = opts?.modelOverride ?? null;
+		this.requestedModelOverride = modelOverride;
+
+		if (this.openTarget !== requestedResume) {
+			this.resumeFallbackAttempted = false;
+		}
 
 		if (this.openReadySpanEnd) {
 			this.openReadySpanEnd('sostituito');
@@ -792,14 +821,9 @@ export class AgentSession {
 		this.openReadySpanEnd = perfSpan('session', `rpc_open->ready ${projectName} ${lane}`);
 
 		if (this.opening) {
-			// Stessa sessione: una sola apertura basta.
-			if (this.openTarget === requestedResume) return this.opening;
-			// Sessione diversa: vince la richiesta piu' recente, ed e' l'unico
-			// modo di riprendere una chat mentre il processo del progetto sta
-			// ancora partendo. Senza chiudere l'apertura in volo restavano due
-			// processi omp vivi sullo stesso progetto: l'insediamento si
-			// faceva sul primo pronto (la sessione nuova e vuota), i prompt
-			// andavano all'altro, e la chat ripresa restava senza messaggi.
+			// Stessa sessione e nessun override: una sola apertura basta.
+			if (this.openTarget === requestedResume && !modelOverride) return this.opening;
+			// Sessione diversa o override richiesto: vince la richiesta piu' recente.
 			await this.close();
 		}
 
@@ -823,7 +847,8 @@ export class AgentSession {
 						projectId: this.projectKey,
 						laneId: this.laneId ?? 'main',
 						resume: requestedResume,
-						continueLast: true
+						continueLast: true,
+						model: modelOverride
 					});
 					void nameExistingPrototypeIfLong(this.projectKey, this.laneId ?? 'main');
 				} else {
@@ -833,7 +858,8 @@ export class AgentSession {
 					await this.client.open(this.cwd, requestedResume, {
 						laneId: this.laneId ?? null,
 						projectId: this.projectKey ?? null,
-						continueLast
+						continueLast,
+						model: modelOverride
 					});
 				}
 			} catch (error) {
@@ -884,6 +910,10 @@ export class AgentSession {
 		this.attachGeneration++;
 		this.isRebuildingTranscript = false;
 		this.requestedResume = null;
+		this.sessionId = null;
+		this.sessionFile = null;
+		this.requestedModelOverride = null;
+		this.expectingSessionTransition = false;
 		this.endAborting();
 		this.pendingStartupPrompts = [];
 		this.clearPendingUi();
@@ -920,7 +950,9 @@ export class AgentSession {
 			await Promise.all([
 				this.refreshState(),
 				this.client.send({ type: 'set_subagent_subscription', level: 'progress' }),
-				this.applyQueueModes()
+				this.client.send({ type: 'set_ask_dialog', enabled: true }).catch(() => {}),
+				this.applyQueueModes(),
+				this.applyCacheWarming()
 			]);
 			await this.rebuildTranscript();
 			void this.refreshCost();
@@ -950,6 +982,20 @@ export class AgentSession {
 		if (generation !== this.attachGeneration) return;
 
 		this.isAttached = true;
+		if (this.unavailableResumeModel && this.resumedFallbackModel) {
+			const failed = this.unavailableResumeModel;
+			const fallback = this.resumedFallbackModel;
+			this.unavailableResumeModel = null;
+			this.resumedFallbackModel = null;
+			this.pushNotice(
+				'warning',
+				(messages as Record<string, any>).ui_ts_session_modello_non_disponibile_ripresa_con?.({
+					model: failed,
+					fallback
+				}) ?? `Il modello ${failed} non è più disponibile: sessione ripresa con ${fallback}.`,
+				'session'
+			);
+		}
 		if (!firstComposerReadyMarked) {
 			firstComposerReadyMarked = true;
 			perfMark('boot', `composer ready ${projectName}`);
@@ -1392,6 +1438,32 @@ export class AgentSession {
 			this.pushNotice('warning', messages.ui_ts_session_impossibile_sincronizzare_le_modalita_di_coda_value1_1e87({ value1: this.reason(error) }));
 		}
 	}
+
+	/**
+	 * Riafferma la modalita' di riscaldamento cache configurata nelle impostazioni.
+	 * Studio la riafferma sia durante l'insediamento sia quando l'utente modifica
+	 * la preferenza in Settings.
+	 */
+	async applyCacheWarming(mode?: CacheWarmingMode): Promise<void> {
+		if (!this.isReady) return;
+		try {
+			const targetMode = mode ?? settingsStore.general.cacheWarming;
+			await this.client.send({ type: 'set_cache_warming', mode: targetMode });
+		} catch (error) {
+			this.pushNotice('warning', messages.ui_ts_session_impossibile_sincronizzare_cache_warming_value1_e82a({ value1: this.reason(error) }));
+		}
+	}
+
+	/**
+	 * Rimuove una credenziale memorizzata per un provider tramite il comando RPC nativo logout.
+	 */
+	async logout(providerId: string, credentialId: number): Promise<{ remainingSource?: string }> {
+		return this.client.send<{ remainingSource?: string }>({
+			type: 'logout',
+			providerId,
+			credentialId
+		});
+	}
 	async refreshCommands() {
 		try {
 			const res = await this.client.send<{ commands?: AvailableCommand[] }>({ type: 'get_available_commands' });
@@ -1409,14 +1481,67 @@ export class AgentSession {
 		if (state.model) this.model = state.model;
 		if (state.thinkingLevel) this.thinkingLevel = state.thinkingLevel;
 		if (state.contextUsage) this.contextUsage = state.contextUsage;
+		const isInitialSession = this.sessionId === null;
+		const sessionIdChanged = typeof state.sessionId === 'string' && state.sessionId !== this.sessionId;
+		const sessionFileChanged =
+			typeof state.sessionFile === 'string' &&
+			this.sessionFile !== null &&
+			state.sessionFile !== this.sessionFile;
+		const involuntaryRelocation =
+			!isInitialSession && (sessionIdChanged || sessionFileChanged) && !this.expectingSessionTransition;
+
+		if (this.expectingSessionTransition) {
+			this.expectingSessionTransition = false;
+		}
+
 		if (typeof state.sessionId === 'string' && state.sessionId !== this.sessionId) {
 			this.contextReport = null;
 			this.contextReportStamp = '';
 			this.contextReportWanted = '';
 		}
 		if (typeof state.sessionId === 'string') this.sessionId = state.sessionId;
-		if (typeof state.sessionFile === 'string') this.sessionFile = state.sessionFile;
+		if (typeof state.sessionFile === 'string') {
+			const changed = state.sessionFile !== this.sessionFile;
+			this.sessionFile = state.sessionFile;
+			if (changed) void this.refreshSubagentCost();
+		}
 		if (typeof state.sessionName === 'string') this.sessionName = state.sessionName;
+
+		// Aggiorna la corsia persistita per qualunque cambio sessione (sia volontario che rilocalizzato)
+		if (sessionIdChanged && this.projectKey && typeof state.sessionId === 'string') {
+			const lane = this.laneId ?? 'main';
+			void laneStore
+				.updateLane(this.projectKey as ProjectId, lane as LaneId, {
+					sessionId: state.sessionId
+				})
+				.catch((err) => console.warn('Aggiornamento sessionId corsia fallito:', err));
+		}
+
+		// Quando la sessione e' continuata in un nuovo file perche' un altro processo omp scriveva il file precedente
+		if (involuntaryRelocation && typeof state.sessionId === 'string') {
+			const newSessionId = state.sessionId;
+			if (this.sessionName) {
+				void invoke('session_title_save', {
+					sessionId: newSessionId,
+					title: this.sessionName
+				}).catch((err) => console.warn('Copia titolo sessione fallita:', err));
+			}
+
+			if (typeof window !== 'undefined') {
+				window.dispatchEvent(
+					new CustomEvent('studio-sessions-refresh', {
+						detail: { projectPath: this.cwd, sessionId: newSessionId }
+					})
+				);
+			}
+
+			this.pushNotice(
+				'info',
+				(messages as Record<string, any>).ui_ts_session_continua_in_nuovo_file?.() ??
+					'La sessione continua in un nuovo file perché un altro processo omp la stava usando',
+				'session-persistence'
+			);
+		}
 		if (Array.isArray(state.todoPhases)) {
 			this.todoPhases = state.todoPhases;
 			if (!this.hasActiveTodos()) {
@@ -1432,14 +1557,40 @@ export class AgentSession {
 			}
 		}
 		if (typeof state.isCompacting === 'boolean') this.isCompacting = state.isCompacting;
-		if (typeof state.queuedMessageCount === 'number') {
-			this.queuedMessageCount = state.queuedMessageCount;
-			// Il conteggio del server e' l'autorita': i chip locali sono uno
-			// specchio, e uno specchio piu' lungo dell'originale e' un errore.
-			if (this.queued.length > state.queuedMessageCount) {
-				this.queued = this.queued.slice(this.queued.length - state.queuedMessageCount);
-			}
-		}
+		if (typeof state.queuedMessageCount === 'number') this.queuedMessageCount = state.queuedMessageCount;
+		// Lo snapshot di `get_state` e' l'autorita' anche sui testi dei chip; se
+		// manca (versione vecchia) restano quelli dell'ultimo `queue_update`.
+		if (state.queuedMessages) this.applyQueuedMessages(state.queuedMessages);
+		if ('fastModeEnabled' in state) this.fastModeEnabled = Boolean(state.fastModeEnabled);
+		if ('fastModeActive' in state) this.fastModeActive = Boolean(state.fastModeActive);
+		if ('slowModeSupported' in state) this.slowModeSupported = Boolean(state.slowModeSupported);
+		if ('slowModeEnabled' in state) this.slowModeEnabled = Boolean(state.slowModeEnabled);
+		if ('slowModeScope' in state) this.slowModeScope = state.slowModeScope ?? null;
+		if ('usageLimit' in state) this.usageLimit = state.usageLimit ?? null;
+		if ('goal' in state) this.goal = state.goal ?? null;
+	}
+
+	/**
+	 * Sostituisce i chip della coda con lo snapshot di omp. Il testo e' quello
+	 * del chip, opaco: si rimanda identico a `remove_queued_message`. Il
+	 * conteggio autorevole e' `queuedMessageCount`, che include anche voci non
+	 * modificabili dall'utente (card advisor); i chip restano il sottoinsieme
+	 * su cui i comandi agiscono.
+	 */
+	private applyQueuedMessages(queued: QueuedMessagesState | null | undefined) {
+		this.queuedMessages = {
+			steering: Array.isArray(queued?.steering) ? [...queued.steering] : [],
+			followUp: Array.isArray(queued?.followUp) ? [...queued.followUp] : []
+		};
+	}
+
+	/**
+	 * Azzera il riflesso della coda: il processo che ne era la sorgente non c'e'
+	 * piu', quindi i chip non vanno mostrati come se fossero vivi.
+	 */
+	private clearQueueState() {
+		this.queuedMessageCount = 0;
+		this.queuedMessages = { steering: [], followUp: [] };
 	}
 
 	private async refreshCost() {
@@ -1460,6 +1611,7 @@ export class AgentSession {
 		} catch {
 			// Le statistiche sono un chip, non un invariante.
 		}
+		await this.refreshSubagentCost();
 	}
 
 	/**
@@ -1811,12 +1963,6 @@ export class AgentSession {
 					at: Date.now(),
 					kind: 'intent'
 				};
-				// La richiesta della prima domanda puo' arrivare prima di questo
-				// evento: omp la scrive per conto suo mentre gli eventi di
-				// sessione passano dallo stream dell'agent-loop. La card che
-				// aspetta e' gia' aperta e va completata adesso, o resterebbe una
-				// domanda alla volta senza possibilita' di tornare indietro.
-				if (event.toolName === 'ask') this.enrichPendingAsk(entry.toolCallId, entry.args);
 				return;
 			}
 
@@ -1843,11 +1989,6 @@ export class AgentSession {
 					notifyGitStatusRefresh(this.cwd);
 				}
 				traceAgent(`tool-end:${entry?.toolName ?? '?'}`);
-				// La chiamata e' finita: qualunque passo non consegnato non ha
-				// piu' una domanda a cui appartenere.
-				if (this.askFlush && this.askFlush.toolCallId === event.toolCallId) {
-					this.askFlush = null;
-				}
 				if (entry?.toolName === 'ask' && this.streamAsk?.toolCallId === event.toolCallId) {
 					this.clearStreamAsk();
 				}
@@ -1861,7 +2002,6 @@ export class AgentSession {
 			}
 
 			case 'agent_start':
-				this.followUps.onAgentStart();
 				if (this.isAborting) return;
 				if (this.turnStartedAt === null) this.turnStartedAt = Date.now();
 				this.suggestions.invalidate();
@@ -1888,10 +2028,6 @@ export class AgentSession {
 				if (!this.pendingUi && !wasAborting) {
 					this.suggestions.notifyTurnEnd();
 				}
-				// Il follow-up successivo parte solo qui: la risposta al `prompt`
-				// precede `agent_start`, quindi l'esito dell'invio non dice che
-				// l'agente ha finito.
-				if (!wasAborting) this.followUps.onAgentEnd();
 				return;
 			}
 			case 'turn_start':
@@ -1921,6 +2057,11 @@ export class AgentSession {
 				// mount e' rumore e si scarta; un problema va nell'etichetta del composer.
 				if (event.source === 'xdev') {
 					if (level !== 'info') this.flashNotice(level, text);
+					return;
+				}
+				// Avviso di rilocalizzazione sessione da omp: forza get_state immediato e sopprime il notice inglese grezzo
+				if (event.source === 'session-persistence') {
+					void this.refreshState().catch(() => {});
 					return;
 				}
 				const prewalkNotice = parsePrewalkNotice(event.source, event.level, text);
@@ -2064,6 +2205,8 @@ export class AgentSession {
 					} else if (this.prewalk.state === 'handedOff') {
 						this.prewalk = { ...this.prewalk, handedOffTo: event.model.name ?? event.model.id };
 					}
+					// fastModeActive e slowModeSupported dipendono dal modello attivo
+					void this.refreshState().catch((error) => console.warn('Aggiornamento stato modello:', error));
 				} else {
 					// omp 18.4.10 emette solo il tipo; il notice switched conferma
 					// il passaggio. get_state distingue anche un cambio manuale.
@@ -2087,8 +2230,66 @@ export class AgentSession {
 				void this.refreshState();
 				return;
 
+			case 'goal_updated': {
+				if (event.state !== undefined) {
+					this.goal = event.state ?? null;
+				} else if (event.goal !== undefined) {
+					if (event.goal === null) {
+						this.goal = null;
+					} else {
+						this.goal = {
+							enabled: event.goal.status === 'active',
+							mode: event.goal.status === 'dropped' ? 'exiting' : 'active',
+							goal: event.goal
+						};
+					}
+				}
+				return;
+			}
+
+			case 'cache_warming_start': {
+				const phase = (event.phase as CacheWarmingPhase) ?? 'idle';
+				const provider = typeof event.provider === 'string' ? event.provider : '';
+				const model = typeof event.model === 'string' ? event.model : '';
+				this.cacheWarmingInFlight = {
+					phase,
+					provider,
+					model,
+					since: Date.now()
+				};
+				return;
+			}
+
+			case 'cache_warming_end': {
+				this.cacheWarmingInFlight = null;
+				const outcome = (event.outcome as CacheWarmingOutcome) ?? 'hit';
+				const phase = event.phase as CacheWarmingPhase | undefined;
+				const provider = typeof event.provider === 'string' ? event.provider : undefined;
+				const model = typeof event.model === 'string' ? event.model : undefined;
+				const usage = event.usage as MessageUsage | undefined;
+				const rawCost = (usage?.cost as { total?: number } | undefined)?.total ?? (typeof usage?.cost === 'number' ? usage.cost : undefined);
+				const warmingStopReason = typeof event.warmingStopReason === 'string' ? event.warmingStopReason : undefined;
+				this.cacheWarmingLast = {
+					outcome,
+					phase,
+					provider,
+					model,
+					usage,
+					cost: typeof rawCost === 'number' && Number.isFinite(rawCost) ? rawCost : undefined,
+					warmingStopReason,
+					at: Date.now()
+				};
+				return;
+			}
+
 			case 'available_commands_update':
 				if (Array.isArray(event.commands)) this.availableCommands = event.commands;
+				return;
+
+			// `queue_update` e' uno snapshot che sostituisce lo stato precedente:
+			// omp lo emette coalescendo i cambiamenti, quindi non serve confronto.
+			case 'queue_update':
+				this.applyQueuedMessages({ steering: event.steering ?? [], followUp: event.followUp ?? [] });
 				return;
 
 			case 'subagent_lifecycle':
@@ -2188,8 +2389,7 @@ export class AgentSession {
 				this.activeAssistantId = null;
 				this.assistantEntry = null;
 				this.clearStreamAsk();
-				this.localFollowUpsPaused = true;
-				this.followUps.invalidate();
+				this.clearQueueState();
 				this.exited = true;
 				this.isReady = false;
 				const exitWaiters = this.readyWaiters;
@@ -2245,6 +2445,41 @@ export class AgentSession {
 					void this.recoverMissingResume();
 					return;
 				}
+				const unavailableResumeModel =
+					requestedResume !== null ? parseUnavailableResumeModel(stderr) : null;
+				if (unavailableResumeModel && requestedResume !== null && !this.resumeFallbackAttempted) {
+					this.resumeFallbackAttempted = true;
+					this.unavailableResumeModel = unavailableResumeModel;
+					this.requestedResume = null;
+					void this.recoverUnavailableModelResume(requestedResume, unavailableResumeModel, stderr);
+					return;
+				}
+				if (unavailableResumeModel) {
+					this.requestedResume = null;
+					this.unavailableResumeModel = null;
+					this.resumedFallbackModel = null;
+					this.push({
+						id: this.nextEntryId++,
+						kind: 'notice',
+						level: 'error',
+						message:
+							(messages as Record<string, any>).ui_ts_session_modello_non_disponibile_errore?.({
+								model: unavailableResumeModel
+							}) ?? `Il modello ${unavailableResumeModel} non è disponibile per questa sessione.`,
+						detail: stderr.slice(-12),
+						offerTerminal: true,
+						action: {
+							label: (messages as Record<string, any>).ui_ts_session_scegli_modello?.() ?? 'Scegli modello',
+							run: () => {
+								modelSettingsStore.openForSelection(async (chosenSelector) => {
+									const { base } = splitModelSelector(chosenSelector, modelSettingsStore.knownSelectors);
+									await this.open(requestedResume, { modelOverride: base });
+								});
+							}
+						}
+					});
+					return;
+				}
 
 				this.requestedResume = null;
 				this.push({
@@ -2280,6 +2515,66 @@ export class AgentSession {
 			this.recoveredResume = null;
 			this.pushNotice('error', `Nuova chat non avviata: ${this.reason(error)}`, undefined, true);
 		}
+	}
+
+	private async recoverUnavailableModelResume(sessionId: string, failedModel: string, stderr: string[]) {
+		const opening = this.opening;
+		if (opening) {
+			try {
+				await opening;
+			} catch {
+				// L'errore utile e' gia' nello stderr del processo terminato.
+			}
+		}
+		let defaultModel: string | null = null;
+		try {
+			await modelSettingsStore.ensureConfigAndCatalog();
+			const raw =
+				modelSettingsStore.config?.modelRoles?.default ||
+				modelSettingsStore.draftConfig?.modelRoles?.default;
+			if (raw) {
+				const base = splitModelSelector(raw, modelSettingsStore.knownSelectors).base.trim();
+				if (base && base !== failedModel) {
+					defaultModel = base;
+				}
+			}
+		} catch (error) {
+			console.warn('Risoluzione modello di default non riuscita:', error);
+		}
+
+		if (defaultModel) {
+			this.resumedFallbackModel = defaultModel;
+			try {
+				await this.open(sessionId, { modelOverride: defaultModel });
+				return;
+			} catch (error) {
+				console.warn('Tentativo di riapertura con modello default fallito:', error);
+			}
+		}
+
+		// Se nessun modello di default o il retry fallisce, mostra l'avviso di errore con l'azione per scegliere il modello
+		this.unavailableResumeModel = null;
+		this.resumedFallbackModel = null;
+		this.push({
+			id: this.nextEntryId++,
+			kind: 'notice',
+			level: 'error',
+			message:
+				(messages as Record<string, any>).ui_ts_session_modello_non_disponibile_errore?.({
+					model: failedModel
+				}) ?? `Il modello ${failedModel} non è disponibile per questa sessione.`,
+			detail: stderr.slice(-12),
+			offerTerminal: true,
+			action: {
+				label: (messages as Record<string, any>).ui_ts_session_scegli_modello?.() ?? 'Scegli modello',
+				run: () => {
+					modelSettingsStore.openForSelection(async (chosenSelector) => {
+						const { base } = splitModelSelector(chosenSelector, modelSettingsStore.knownSelectors);
+						await this.open(sessionId, { modelOverride: base });
+					});
+				}
+			}
+		});
 	}
 
 	private asMessage(value: AgentMessage | string | undefined): AgentMessage | null {
@@ -2549,7 +2844,6 @@ export class AgentSession {
 		if (inner.type === 'toolcall_end') {
 			if (this.askTracker.end(index, call)) {
 				this.streamAsk = this.askTracker.current;
-				if (call?.arguments && call.id) this.enrichPendingAsk(call.id, call.arguments);
 			}
 			return;
 		}
@@ -2631,6 +2925,10 @@ export class AgentSession {
 		const existing = this.subagents.findIndex((candidate) => candidate.id === key);
 		if (existing === -1) this.subagents.push({ ...progress, id: key });
 		else this.subagents[existing] = { ...this.subagents[existing], ...progress, id: key };
+
+		if (progress.status === 'completed' || progress.status === 'failed' || progress.status === 'aborted') {
+			void this.refreshSubagentCost();
+		}
 	}
 
 	/**
@@ -2654,6 +2952,7 @@ export class AgentSession {
 					void promptBus.cancelRequest(cancelId, undefined, true);
 				}
 				this.clearPendingUi();
+				this.pushNotice('info', messages.chat_v2_ask_withdrawn(), 'domande');
 			}
 			return;
 		}
@@ -2681,6 +2980,68 @@ export class AgentSession {
 		}
 		if (ANSWERABLE_UI_METHODS[method] !== true) return;
 
+		if (method === 'ask') {
+			const questions: AskQuestion[] = Array.isArray(event.questions)
+				? (event.questions as AskDialogQuestion[]).map((q, idx) => ({
+						id: typeof q.id === 'string' && q.id ? q.id : `q${idx + 1}`,
+						question: typeof q.question === 'string' ? q.question : '',
+						header: typeof q.header === 'string' ? q.header : undefined,
+						options: Array.isArray(q.options)
+							? q.options.map((opt) => ({
+									label: typeof opt.label === 'string' ? opt.label : String(opt),
+									description: typeof opt.description === 'string' ? opt.description : undefined,
+									preview: typeof opt.preview === 'string' ? opt.preview : undefined
+								}))
+							: [],
+						multi: q.multi === true,
+						recommended: typeof q.recommended === 'number' ? q.recommended : undefined
+					}))
+				: [];
+
+			const runningAsk = Array.from(this.toolEntries.values())
+				.reverse()
+				.find((t) => t.running && t.toolName === 'ask');
+
+			this.pendingUi = {
+				kind: 'ask',
+				requestId: id,
+				toolCallId: runningAsk?.toolCallId ?? this.streamAsk?.toolCallId ?? undefined,
+				method: 'ask',
+				title: questions[0]?.question ?? '',
+				message: undefined,
+				options: questions[0]?.options.map((o) => o.label) ?? [],
+				optionDetails: questions[0]?.options.map((o) => ({ description: o.description })) ?? [],
+				deadline: typeof event.timeout === 'number' ? Date.now() + event.timeout : undefined,
+				questions,
+				questionIndex: 0,
+				totalQuestions: questions.length
+			};
+			this.agentState = 'attention';
+
+			promptBus.registerRequest({
+				requestId: id,
+				projectId: this.projectKey,
+				laneId: this.laneId ?? 'main',
+				sessionId: this.sessionId,
+				toolCallId: runningAsk?.toolCallId,
+				owner: this.promptOwner(),
+				kind: 'ask',
+				method: 'ask',
+				title: this.pendingUi.title,
+				message: this.pendingUi.message,
+				options: this.pendingUi.options,
+				optionDetails: this.pendingUi.optionDetails,
+				deadline: this.pendingUi.deadline,
+				questions,
+				questionIndex: 0,
+				totalQuestions: questions.length,
+				responder: async (answer) => {
+					return this.handlePromptAnswer(id, answer);
+				}
+			});
+			return;
+		}
+
 		const options = Array.isArray(event.options)
 			? event.options.filter((option): option is string => typeof option === 'string')
 			: [];
@@ -2692,59 +3053,11 @@ export class AgentSession {
 							: undefined
 				}))
 			: [];
-		const signature = optionSignature(options);
-
-		// La chiamata `ask` in corso identifica il wizard: e' l'unico modo di
-		// distinguere "round successivo della stessa domanda" da "nuova
-		// domanda", che non deve mai essere risposta al posto dell'utente.
-		const runningAsk = Array.from(this.toolEntries.values())
-			.reverse()
-			.find((t) => t.running && t.toolName === 'ask');
-
-		if (this.askFlush && this.deliverFlushStep(this.askFlush, id, method, signature, runningAsk?.toolCallId)) {
-			return;
-		}
-
-		// Informazioni complete della domanda quando la richiesta proviene dal
-		// tool `ask` (`arguments.questions`).
-		let parsedQuestions = parseAskQuestions(runningAsk?.args);
-		if (!parsedQuestions && method === 'select' && this.streamAsk?.state.complete &&
-			(!runningAsk || this.streamAsk.toolCallId === runningAsk.toolCallId)) {
-			parsedQuestions = streamToAskQuestions(this.streamAsk.state.questions);
-		}
-
-		// Il titolo dichiara la posizione nella sequenza (`(k/N)`): e' l'unico
-		// dato che arriva insieme alla richiesta, quindi vale anche quando gli
-		// argomenti del tool non sono disponibili.
-		let questionIndex: number | undefined;
-		let totalQuestions: number | undefined;
-		const progMatch = (title ?? '').match(/\((\d+)\/(\d+)\)/);
-		if (progMatch) {
-			questionIndex = parseInt(progMatch[1], 10) - 1;
-			totalQuestions = parseInt(progMatch[2], 10);
-		}
-
-		// Le opzioni della richiesta sono l'unica prova che la lista di domande
-		// riguarda davvero questo round: se non combaciano con nessuna domanda,
-		// la lista viene scartata e resta la richiesta nuda, che e' sempre
-		// allineata. Un wizard disallineato manderebbe la risposta di una
-		// domanda nella casella di un'altra.
-		if (parsedQuestions && parsedQuestions.length > 0 && method === 'select') {
-			const matched = matchQuestionIndex(parsedQuestions, signature, questionIndex ?? 0);
-			if (matched >= 0) {
-				questionIndex = matched;
-				totalQuestions = parsedQuestions.length;
-			} else {
-				parsedQuestions = undefined;
-			}
-		} else {
-			parsedQuestions = undefined;
-		}
 
 		this.pendingUi = {
 			kind: 'ask',
 			requestId: id,
-			toolCallId: runningAsk?.toolCallId ?? this.streamAsk?.toolCallId ?? undefined,
+			toolCallId: undefined,
 			method: method === 'confirm' || method === 'input' || method === 'editor' ? method : 'select',
 			title: title ?? '',
 			message: text,
@@ -2752,10 +3065,7 @@ export class AgentSession {
 			optionDetails,
 			placeholder: typeof event.placeholder === 'string' ? event.placeholder : undefined,
 			prefill: typeof event.prefill === 'string' ? event.prefill : undefined,
-			deadline: typeof event.timeout === 'number' ? Date.now() + event.timeout : undefined,
-			questions: parsedQuestions,
-			questionIndex,
-			totalQuestions
+			deadline: typeof event.timeout === 'number' ? Date.now() + event.timeout : undefined
 		};
 		this.agentState = 'attention';
 
@@ -2764,7 +3074,6 @@ export class AgentSession {
 			projectId: this.projectKey,
 			laneId: this.laneId ?? 'main',
 			sessionId: this.sessionId,
-			toolCallId: runningAsk?.toolCallId,
 			owner: this.promptOwner(),
 			kind: 'ask',
 			method: this.pendingUi.method,
@@ -2775,9 +3084,6 @@ export class AgentSession {
 			placeholder: this.pendingUi.placeholder,
 			prefill: this.pendingUi.prefill,
 			deadline: this.pendingUi.deadline,
-			questions: parsedQuestions,
-			questionIndex,
-			totalQuestions,
 			responder: async (answer) => {
 				return this.handlePromptAnswer(id, answer);
 			}
@@ -2803,7 +3109,6 @@ export class AgentSession {
 		const reqId = this.pendingUi?.requestId;
 		this.pendingUi = null;
 		this.askDraft = null;
-		this.askFlush = null;
 		if (this.agentState === 'attention') this.agentState = this.isStreaming ? 'working' : 'idle';
 		if (reqId && promptBus.hasPending(reqId)) {
 			// Chiusura locale: il bus non deve richiamare il responder, che
@@ -2834,135 +3139,6 @@ export class AgentSession {
 		this.agentState = 'working';
 	}
 
-	/**
-	 * Quando `tool_execution_start` arriva dopo la prima richiesta, completa la
-	 * card gia' aperta con la lista di tutte le domande. La card e' reattiva:
-	 * la sostituzione dell'oggetto attiva il remount nel modulo completo.
-	 */
-	private enrichPendingAsk(toolCallId: string, args: Record<string, unknown>) {
-		const pending = this.pendingUi;
-		if (!pending || pending.kind !== 'ask') return;
-		if (pending.toolCallId && pending.toolCallId !== toolCallId) return;
-		if (pending.questions && pending.questions.length > 0) return;
-		const questions = parseAskQuestions(args);
-		if (!questions || questions.length === 0) return;
-
-		const signature = optionSignature(pending.options);
-		const matched = matchQuestionIndex(questions, signature, pending.questionIndex ?? 0);
-		if (matched < 0) return;
-
-		this.pendingUi = {
-			...pending,
-			toolCallId,
-			questions,
-			questionIndex: matched,
-			totalQuestions: questions.length
-		};
-
-		promptBus.registerRequest({
-			requestId: pending.requestId,
-			projectId: this.projectKey,
-			laneId: this.laneId ?? 'main',
-			sessionId: this.sessionId,
-			toolCallId,
-			owner: this.promptOwner(),
-			kind: 'ask',
-			method: pending.method,
-			title: pending.title,
-			message: pending.message,
-			options: pending.options,
-			optionDetails: pending.optionDetails,
-			placeholder: pending.placeholder,
-			prefill: pending.prefill,
-			deadline: pending.deadline,
-			questions,
-			questionIndex: matched,
-			totalQuestions: questions.length,
-			responder: async (answer) => {
-				return this.handlePromptAnswer(pending.requestId, answer);
-			}
-		});
-	}
-
-	/**
-	 * Consegna il prossimo passo del piano a una richiesta in arrivo. Ritorna
-	 * vero se la richiesta e' stata consumata (quindi la card non deve
-	 * comparire), falso se il piano non e' applicabile e la richiesta va
-	 * mostrata all'utente.
-	 */
-	private deliverFlushStep(
-		flush: { toolCallId: string | null; steps: AskFlushStep[]; lastClosing: AskFlushStep | null },
-		id: string,
-		method: string,
-		signature: string,
-		runningCallId: string | undefined
-	): boolean {
-		const sameCall = flush.toolCallId !== null && runningCallId === flush.toolCallId;
-		const request = { method, signature };
-
-		// Se omp ripropone la stessa domanda dopo una sentinella di chiusura,
-		// vuol dire che la sentinella non e' stata riconosciuta (glifo diverso
-		// per il tema attivo). Inseriamo i passi di ripiego in testa al piano.
-		if (
-			flush.lastClosing &&
-			method === 'select' &&
-			flush.lastClosing.method === 'select' &&
-			signature === flush.lastClosing.signature &&
-			flush.lastClosing.recovery &&
-			(flush.steps.length === 0 ||
-				flush.steps[0].method !== 'select' ||
-				flush.steps[0].signature !== signature)
-		) {
-			const recovery = flush.lastClosing.recovery;
-			flush.lastClosing = null;
-			flush.steps.unshift(...recovery);
-		}
-
-		const next = flush.steps[0];
-		if (!next) {
-			if (sameCall) {
-				// Piano finito ma la stessa chiamata chiede ancora: fermiamo il
-				// piano e lasciamo rispondere l'utente.
-				this.askFlush = null;
-				this.pushNotice(
-					'warning',
-					'La sequenza di risposte automatiche e\u2019 terminata prima che l\u2019agente ricevesse tutte le informazioni: rispondi a questa richiesta per continuare.',
-					'domande'
-				);
-			}
-			return false;
-		}
-
-		const accepts = (sameCall || flush.toolCallId === null) && stepAcceptsRequest(next, request);
-		if (!accepts) {
-			// Disallineamento: la richiesta non combacia con il passo che
-			// la coda si aspettava. Scartiamo il piano rimasto per evitare
-			// di mandare risposte nella casella sbagliata.
-			this.askFlush = null;
-			if (sameCall || flush.toolCallId === null) {
-				this.pushNotice(
-					'warning',
-					messages.ui_ts_session_la_richiesta_dell_agente_non_corrisponde_al_adca(),
-					'domande'
-				);
-			}
-			return false;
-		}
-
-		flush.steps.shift();
-		flush.lastClosing = next.method === 'select' && next.recovery ? next : null;
-		if (flush.steps.length === 0 && !flush.lastClosing) {
-			this.askFlush = null;
-		}
-
-		void this.client.respondUi({
-			type: 'extension_ui_response',
-			id,
-			value: next.value
-		});
-		return true;
-	}
-
 	/* --------------------------------------------------------- risposte UI */
 
 	/**
@@ -2972,27 +3148,38 @@ export class AgentSession {
 	 */
 	private async respond(
 		pending: PendingUiRequest,
-		answer: AskAnswerPayload,
-		flush: { toolCallId: string | null; steps: AskFlushStep[]; lastClosing: AskFlushStep | null } | null
+		answer: AskAnswerPayload
 	): Promise<boolean> {
 		const previousState = this.agentState;
-		// Il piano va armato prima dell'invio: il round successivo puo'
-		// arrivare mentre la promessa e' ancora in volo.
-		this.askFlush = flush;
 		this.pendingUi = null;
 		if (this.agentState === 'attention') this.agentState = this.isStreaming ? 'working' : 'idle';
 
 		try {
 			await this.client.respondUi(
 				'cancelled' in answer
-					? { type: 'extension_ui_response', id: pending.requestId, cancelled: true }
-					: 'confirmed' in answer
+					? {
+							type: 'extension_ui_response',
+							id: pending.requestId,
+							cancelled: true,
+							...(answer.timedOut ? { timedOut: true } : {})
+						}
+					: 'answers' in answer
 						? {
 								type: 'extension_ui_response',
 								id: pending.requestId,
-								confirmed: answer.confirmed
+								answers: answer.answers
 							}
-						: { type: 'extension_ui_response', id: pending.requestId, value: answer.value }
+						: 'confirmed' in answer
+							? {
+									type: 'extension_ui_response',
+									id: pending.requestId,
+									confirmed: answer.confirmed
+								}
+							: {
+									type: 'extension_ui_response',
+									id: pending.requestId,
+									value: answer.value
+								}
 			);
 			if (promptBus.hasPending(pending.requestId)) {
 				if ('cancelled' in answer) {
@@ -3003,7 +3190,6 @@ export class AgentSession {
 			}
 			return true;
 		} catch (error) {
-			this.askFlush = null;
 			this.pendingUi = pending;
 			this.agentState = previousState;
 			this.pushNotice('error', `Risposta non inviata: ${this.reason(error)}`);
@@ -3011,51 +3197,32 @@ export class AgentSession {
 		}
 	}
 
-	/**
-	 * Invia il piano completo del wizard: il primo passo subito alla richiesta
-	 * viva, gli altri armati in `askFlush` per i round successivi.
-	 */
-	async submitAskWizard(plan: AskFlushStep[]) {
-		if (plan.length === 0) {
+	async submitAskAnswers(answers: AskDialogAnswer[]) {
+		if (answers.length === 0) {
 			await this.cancelPendingUi();
 			return;
 		}
 		const pending = this.pendingUi;
 		if (!pending) return;
-
-		const [first, ...rest] = plan;
-		const runningAsk = Array.from(this.toolEntries.values())
-			.reverse()
-			.find((t) => t.running && t.toolName === 'ask');
-		const toolCallId = pending.toolCallId ?? runningAsk?.toolCallId ?? null;
-		const hasRecovery = Boolean(first.method === 'select' && first.recovery);
-		const flush =
-			rest.length > 0 || hasRecovery
-				? {
-						toolCallId,
-						steps: rest,
-						lastClosing: first.method === 'select' && first.recovery ? first : null
-					}
-				: null;
-		await this.respond(pending, { value: first.value }, flush);
+		await this.respond(pending, { answers });
 	}
 
 	async answerSelect(value: string) {
 		const pending = this.pendingUi;
 		if (!pending) return;
-		await this.respond(pending, { value }, null);
+		await this.respond(pending, { value });
 	}
 
 	async answerConfirm(confirmed: boolean) {
 		const pending = this.pendingUi;
 		if (!pending) return;
-		await this.respond(pending, { confirmed }, null);
+		await this.respond(pending, { confirmed });
 	}
 
-	async cancelPendingUi(): Promise<boolean> {
+	async cancelPendingUi(timedOut = false): Promise<boolean> {
 		const pending = this.pendingUi;
 		if (!pending) return true;
-		return this.respond(pending, { cancelled: true }, null);
+		return this.respond(pending, { cancelled: true, timedOut });
 	}
 
 	/**
@@ -3103,8 +3270,8 @@ export class AgentSession {
 		if (!current || current.requestId !== requestId) return false;
 
 		const normalized = normalizePromptAnswer(answer);
-		if (normalized.action === 'wizard' && normalized.plan) {
-			await this.submitAskWizard(normalized.plan);
+		if ((normalized.action === 'wizard' || normalized.action === 'ask') && normalized.answers) {
+			await this.submitAskAnswers(normalized.answers);
 			return true;
 		}
 		if (normalized.action === 'confirm' && typeof normalized.confirmed === 'boolean') {
@@ -3191,68 +3358,107 @@ export class AgentSession {
 		});
 	}
 
-	/** I follow-up restano locali e modificabili finche' il turno non si chiude. */
-	get localFollowUpQueue(): LocalFollowUp[] {
-		return this.localFollowUps;
+	/** Chip della coda di omp: prima gli steer, poi i follow-up. */
+	get queuedChips(): QueuedMessage[] {
+		return queueChips(this.queuedMessages);
 	}
 
-	removeLocalFollowUp(id: number) {
-		this.localFollowUps = removeFollowUp(this.localFollowUps, id);
+	/** Ultimo messaggio in coda: prima i follow-up, poi gli steer (come la TUI). */
+	lastQueuedMessage(): QueuedMessage | null {
+		const { steering, followUp } = this.queuedMessages;
+		const last = (text: string | undefined, queue: QueuedMessageQueue): QueuedMessage | null =>
+			text === undefined ? null : { text, queue };
+		return last(followUp.at(-1), 'followUp') ?? last(steering.at(-1), 'steering');
 	}
 
-	takeLastLocalFollowUp(): LocalFollowUp | null {
-		const entry = this.localFollowUpQueue.at(-1);
-		if (!entry) return null;
-		this.removeLocalFollowUp(entry.id);
-		return entry;
-	}
-	requeueLocalFollowUp(entry: LocalFollowUp) {
-		this.localFollowUps = enqueueFollowUp(this.localFollowUps, entry);
+	/**
+	 * Ritira un chip dalla coda di omp: il testo e' quello opaco mostrato dal
+	 * chip e va rimandato identico. Restituisce il contenuto da ripristinare
+	 * nell'editor, o `null` se omp non ha trovato il messaggio.
+	 */
+	async removeQueuedMessage(text: string, queue: QueuedMessageQueue): Promise<RestoredQueuedMessage | null> {
+		if (!this.isReady) return null;
+		try {
+			const result = await this.client.send<RemoveQueuedMessageResult>({
+				type: 'remove_queued_message',
+				message: text,
+				queue
+			});
+			if (result?.imagesDropped) this.pushNotice('warning', messages.chat_v2_queue_images_dropped());
+			if (!result?.removed) {
+				// Il chip non c'era piu' (consumato da omp): si riallinea lo stato.
+				void this.reconcile();
+				return null;
+			}
+			return { text, images: result.images ?? [] };
+		} catch (error) {
+			this.pushNotice('error', messages.chat_v2_queue_edit_failed({ error: this.reason(error) }));
+			return null;
+		}
 	}
 
+	/** Sposta un follow-up in testa alla coda degli steer. */
+	async promoteQueuedMessage(text: string): Promise<boolean> {
+		if (!this.isReady) return false;
+		try {
+			const result = await this.client.send<{ promoted?: boolean }>({
+				type: 'promote_queued_message',
+				message: text
+			});
+			if (!result?.promoted) {
+				void this.reconcile();
+				return false;
+			}
+			return true;
+		} catch (error) {
+			this.pushNotice('error', messages.chat_v2_queue_edit_failed({ error: this.reason(error) }));
+			return false;
+		}
+	}
 
-	resumeLocalFollowUps() {
-		if (!this.isReady || !this.isAttached) return;
-		this.localFollowUpsPaused = false;
-		void this.followUps.dispatch();
+	/**
+	 * Consegna all'editor i messaggi ritirati dalla coda (Stop, modifica di un
+	 * chip). I compositori montati si registrano qui: la sessione non conosce
+	 * il DOM e il ripristino resta una sola implementazione. Senza compositore
+	 * (una corsia che non ha ancora una Chat) il contenuto resta in attesa e
+	 * viene consegnato appena uno si registra, invece di andare perso.
+	 */
+	registerQueueRestoreHandler(handler: (entries: readonly RestoredQueuedMessage[]) => void): () => void {
+		this.queueRestoreHandlers.add(handler);
+		if (this.pendingQueueRestore.length > 0) {
+			const pending = this.pendingQueueRestore;
+			this.pendingQueueRestore = [];
+			handler(pending);
+		}
+		return () => this.queueRestoreHandlers.delete(handler);
+	}
+
+	private restoreQueueToComposer(entries: readonly RestoredQueuedMessage[]): void {
+		const withContent = entries.filter((entry) => entry.text.trim().length > 0 || (entry.images?.length ?? 0) > 0);
+		if (withContent.length === 0) return;
+		if (this.queueRestoreHandlers.size === 0) {
+			this.pendingQueueRestore.push(...withContent);
+			return;
+		}
+		for (const handler of this.queueRestoreHandlers) handler(withContent);
 	}
 
 	async prompt(
 		message: string,
 		images: ImageContent[] = [],
-		behavior: StreamingBehavior = 'steer',
-		fromLocalQueue = false,
-		localQueueEntryId?: number,
-		/**
-		 * Solo per la coda locale in modalita' `all`: impone il comportamento
-		 * senza guardare `isStreaming`, perche' omp ha gia' avviato il primo
-		 * messaggio anche se `agent_start` non e' ancora arrivato.
-		 */
-		forcedBehavior?: StreamingBehavior
+		behavior: StreamingBehavior = 'steer'
 	): Promise<'sent' | 'deferred' | 'failed' | 'empty'> {
 		const trimmed = message.trim();
 		if (!trimmed && images.length === 0) return 'empty';
-		if (fromLocalQueue && this.pendingUi) return 'failed';
 		// Subito dopo uno Stop omp sta ancora chiudendo il turno: decidere ora
 		// tra prompt e steer leggerebbe uno streaming che sta per finire e il
 		// messaggio verrebbe spedito come steer di un turno gia' interrotto.
 		if (this.isAborting) await this.waitAbortSettled();
-		const localQueueWasStreaming = this.isStreaming;
-		const localQueueEpoch = this.followUps.epoch;
 		const answeringAsk = this.pendingUi !== null;
 		// In RPC "Chat about this" non e' disponibile. La richiesta bloccante
 		// va chiusa prima del messaggio, altrimenti omp resta in attesa del filo UI.
 		if (answeringAsk && !(await this.cancelPendingUi())) return 'failed';
 		if (answeringAsk && this.isStreaming) behavior = 'followUp';
-		if (fromLocalQueue && this.isStreaming && behavior === 'steer') behavior = 'followUp';
-		if (!fromLocalQueue && this.isStreaming && behavior === 'followUp') {
-			this.localFollowUps = enqueueFollowUp(this.localFollowUps, {
-				id: this.nextQueueId++,
-				text: trimmed,
-				images: images.map((image) => ({ ...image }))
-			});
-			return 'deferred';
-		}
 		if (this.laneId && this.laneId !== 'main') {
 			this.synthesizeLaneTitleOnFirstPrompt(trimmed);
 		}
@@ -3267,10 +3473,6 @@ export class AgentSession {
 			{ images, projectPath: this.cwd },
 			this.preflightDeps ?? undefined
 		);
-		if (fromLocalQueue && (localQueueEpoch !== this.followUps.epoch || this.localFollowUpsPaused ||
-			this.isAborting || this.pendingUi || !this.isReady || !this.isAttached ||
-			(!forcedBehavior && this.isStreaming !== localQueueWasStreaming) ||
-			(localQueueEntryId !== undefined && !this.localFollowUps.some((entry) => entry.id === localQueueEntryId)))) return 'failed';
 		const fullMessage = attachEditorContext(enriched, this.cwd);
 
 		const seed = this.seededPrompt;
@@ -3297,14 +3499,11 @@ export class AgentSession {
 			return 'deferred';
 		}
 
-		const streaming = forcedBehavior !== undefined || this.isStreaming;
-		if (forcedBehavior) behavior = forcedBehavior;
-		if (streaming) {
-			this.queued.push({ id: this.nextQueueId++, text: fullMessage, behavior });
-		} else {
-			// Fuori dallo streaming il messaggio compare subito: l'eco di omp
-			// lo completera' invece di duplicarlo. Durante lo streaming il
-			// posto del messaggio e' il chip della coda, non il transcript.
+		// Durante lo streaming la coda e' di omp: il messaggio entra li' con il
+		// comportamento scelto e il suo chip arriva da `queue_update`. Il testo
+		// del transcript resta solo a chi avvia un turno.
+		const streaming = this.isStreaming;
+		if (!streaming) {
 			this.optimisticUser = this.push({
 				id: entryId,
 				kind: 'user',
@@ -3320,7 +3519,6 @@ export class AgentSession {
 				streamingBehavior: streaming ? behavior : undefined
 			});
 		} catch (error) {
-			if (streaming) this.queued = this.queued.filter((entry) => entry.text !== fullMessage);
 			this.dropOptimisticUser();
 			this.pushNotice('error', `Prompt non accettato: ${this.reason(error)}`);
 			return 'failed';
@@ -3436,8 +3634,6 @@ export class AgentSession {
 		// 1. Notifica lo stato di interruzione e blocca l'accettazione di nuovi delta/messaggi
 		this.isAborting = true;
 		this.suggestions.invalidate();
-		this.localFollowUpsPaused = true;
-		this.followUps.invalidate();
 		this.turnStartedAt = null;
 		this.isCompacting = false;
 		this.deltaBatcher.clear();
@@ -3472,7 +3668,6 @@ export class AgentSession {
 		}
 
 		this.clearPendingUi();
-		this.queued = [];
 		this.pendingStartupPrompts = [];
 		this.attachEventQueue = [];
 		this.dropOptimisticUser();
@@ -3489,9 +3684,24 @@ export class AgentSession {
 			}
 		}, AgentSession.ABORT_FALLBACK_MS);
 
-		// 2. Invio prioritario al client RPC per richiedere il soft abort (SIGINT/abort)
+		// 2. Interruzione con recupero della coda: omp ritira l'input accodato e
+		// lo restituisce, cosi' lo Stop non lo perde. Lo `abort_bash` che ferma
+		// il processo figlio viaggia dentro il comando del client.
 		try {
-			await this.client.abort();
+			const restored = await this.client.abortAndRestoreQueue();
+			// La coda di omp e' vuota per costruzione: lo specchio locale si
+			// allinea subito, senza aspettare il prossimo evento.
+			this.clearQueueState();
+			if (!restored) {
+				void this.reconcile();
+				return;
+			}
+			if (restored.imagesDropped || restored.truncated) {
+				this.pushNotice('warning', messages.chat_v2_queue_restore_partial());
+			}
+			// Dal piu' vecchio: prima gli steer, poi i follow-up, come li
+			// rimette l'editor della TUI.
+			this.restoreQueueToComposer([...restored.steering, ...restored.followUp]);
 		} catch (error) {
 			console.warn('Invio comando abort:', error);
 		}
@@ -3502,8 +3712,6 @@ export class AgentSession {
 	 */
 	async forceKill() {
 		this.clearPrewalkState();
-		this.localFollowUpsPaused = true;
-		this.followUps.invalidate();
 		this.endAborting();
 		this.isStreaming = false;
 		this.turnStartedAt = null;
@@ -3542,7 +3750,7 @@ export class AgentSession {
 		}
 
 		this.clearPendingUi();
-		this.queued = [];
+		this.clearQueueState();
 		this.pendingStartupPrompts = [];
 		this.attachEventQueue = [];
 		this.dropOptimisticUser();
@@ -3704,9 +3912,8 @@ export class AgentSession {
 	}
 
 	async newSession(): Promise<string | null> {
+		this.expectingSessionTransition = true;
 		await this.resetPrewalkForNewChat();
-		this.followUps.invalidate();
-		this.localFollowUpsPaused = true;
 		this.pendingStartupPrompts = [];
 		this.attachEventQueue = [];
 		this.endAborting();
@@ -3723,9 +3930,7 @@ export class AgentSession {
 		this.todoPhases = [];
 		this.todoReminder = null;
 		this.renderedCustomKeys.clear();
-		this.queued = [];
-		this.localFollowUps = [];
-		this.localFollowUpsPaused = false;
+		this.clearQueueState();
 		this.isStreaming = false;
 		this.turnStartedAt = null;
 		this.isCompacting = false;
@@ -3736,11 +3941,10 @@ export class AgentSession {
 	}
 	async forkSession(): Promise<string | null> {
 		await this.resetPrewalkForNewChat();
-		this.localFollowUpsPaused = true;
-		this.followUps.invalidate();
 		this.pendingStartupPrompts = [];
 		this.attachEventQueue = [];
 		this.endAborting();
+		this.expectingSessionTransition = true;
 		this.suggestions.invalidate();
 		const parent = this.sessionId;
 		await this.client.send({ type: 'new_session', parentSession: parent || undefined });
@@ -3755,9 +3959,7 @@ export class AgentSession {
 		this.todoPhases = [];
 		this.todoReminder = null;
 		this.renderedCustomKeys.clear();
-		this.queued = [];
-		this.localFollowUps = [];
-		this.localFollowUpsPaused = false;
+		this.clearQueueState();
 		this.isStreaming = false;
 		this.turnStartedAt = null;
 		this.isCompacting = false;
@@ -3838,10 +4040,9 @@ export class AgentSession {
 	async handoff(customInstructions?: string): Promise<boolean> {
 		if (this.isCompacting) return false;
 		this.isCompacting = true;
-		this.localFollowUpsPaused = true;
-		this.followUps.invalidate();
 		this.pushNotice('info', messages.ui_ts_session_passaggio_delle_consegne_handoff_in_corso_bce8(), 'studio');
 
+		this.expectingSessionTransition = true;
 		try {
 			await this.client.send({
 				type: 'handoff',
@@ -3859,9 +4060,7 @@ export class AgentSession {
 			this.todoPhases = [];
 			this.todoReminder = null;
 			this.renderedCustomKeys.clear();
-			this.queued = [];
-			this.localFollowUps = [];
-			this.localFollowUpsPaused = false;
+			this.clearQueueState();
 			this.visibleCount = RENDER_WINDOW;
 
 			await this.rebuildTranscript();
@@ -3941,6 +4140,127 @@ export class AgentSession {
 	/** Chiude l'esito indicato, oppure quello corrente se `id` manca. */
 	dismissComposerNotice(id?: number) {
 		if (id === undefined || this.composerNotice?.id === id) this.composerNotice = null;
+	}
+
+	/** Imposta la modalita veloce (fast mode) su omp. */
+	async setFastMode(enabled: boolean): Promise<boolean> {
+		try {
+			const res = await this.client.send<FastModeResult>({ type: 'set_fast_mode', enabled });
+			if (res) {
+				this.fastModeEnabled = Boolean(res.enabled);
+				this.fastModeActive = Boolean(res.active);
+			}
+			void this.refreshState();
+			return true;
+		} catch (error) {
+			this.flashNotice('error', this.reason(error));
+			return false;
+		}
+	}
+
+	/** Imposta la modalita lenta (slow mode) su omp. */
+	async setSlowMode(enabled: boolean): Promise<boolean> {
+		try {
+			const res = await this.client.send<{ enabled: boolean }>({ type: 'set_slow_mode', enabled });
+			if (res && typeof res.enabled === 'boolean') {
+				this.slowModeEnabled = res.enabled;
+			}
+			void this.refreshState();
+			return true;
+		} catch (error) {
+			this.flashNotice('error', this.reason(error));
+			return false;
+		}
+	}
+
+	/** Esegue un'operazione sul goal corrente (pause, resume, drop). */
+	async setGoalOp(op: 'pause' | 'resume' | 'drop'): Promise<boolean> {
+		try {
+			const res = await this.client.send<GoalResult>({ type: 'goal', op });
+			if (res) {
+				if (res.state !== undefined) {
+					this.goal = res.state;
+				} else if (res.goal !== undefined) {
+					this.goal = res.goal
+						? {
+								enabled: res.goal.status === 'active',
+								mode: res.goal.status === 'dropped' ? 'exiting' : 'active',
+								goal: res.goal
+							}
+						: null;
+				}
+			}
+			void this.refreshState();
+			return true;
+		} catch (error) {
+			this.flashNotice('error', this.reason(error));
+			return false;
+		}
+	}
+
+	pauseGoal(): Promise<boolean> {
+		return this.setGoalOp('pause');
+	}
+
+	resumeGoal(): Promise<boolean> {
+		return this.setGoalOp('resume');
+	}
+
+	dropGoal(): Promise<boolean> {
+		return this.setGoalOp('drop');
+	}
+
+	/**
+	 * Interrompe l'esecuzione di un singolo subagente senza abortire la sessione principale.
+	 */
+	async cancelSubagent(subagentId: string): Promise<boolean> {
+		try {
+			const res = await this.client.send<CancelSubagentResult>({
+				type: 'cancel_subagent',
+				subagentId
+			});
+			if (res && res.cancelled === false) {
+				this.pushNotice('info', messages.subagent_notice_already_stopped({ id: subagentId }), 'subagent');
+				return false;
+			}
+			return true;
+		} catch (error) {
+			this.pushNotice('error', messages.subagent_notice_cancel_failed({ id: subagentId, error: this.reason(error) }), 'subagent');
+			return false;
+		}
+	}
+
+	/**
+	 * Invia un messaggio di steering a un subagente in esecuzione.
+	 */
+	async steerSubagent(subagentId: string, message: string): Promise<boolean> {
+		try {
+			await this.client.send({
+				type: 'steer_subagent',
+				subagentId,
+				message
+			});
+			return true;
+		} catch (error) {
+			this.pushNotice('error', messages.subagent_notice_steer_failed({ id: subagentId, error: this.reason(error) }), 'subagent');
+			return false;
+		}
+	}
+
+	/**
+	 * Legge via IPC il costo totale sostenuto dai subagenti scansionando i transcript su disco.
+	 */
+	async refreshSubagentCost() {
+		const file = this.sessionFile;
+		if (!file) return;
+		try {
+			const cost = await invoke<number>('session_subagent_cost', { sessionFile: file });
+			if (typeof cost === 'number' && Number.isFinite(cost)) {
+				this.subagentCost = cost;
+			}
+		} catch (error) {
+			console.warn('Errore lettura costo subagenti:', error);
+		}
 	}
 
 	/**

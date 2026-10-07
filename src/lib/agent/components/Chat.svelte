@@ -6,7 +6,8 @@
 	// l'autoscroll si sospende e compare un pulsante «In fondo» con icona freccia in giu'.
 	// Unico punto di innesto per i ganci verso il guscio (`setAgentUiHooks`).
 
-	import type { AgentSession } from '../session.svelte';
+	import type { AgentSession, QueuedMessage } from '../session.svelte';
+	import type { RestoredQueuedMessage } from '../wire';
 	import { setContext, tick as svelteTick } from 'svelte';
 	import { chatReveal } from '../motion';
 	import { setAgentUiHooks } from '../ui-context';
@@ -56,6 +57,9 @@
 		openImage: (data, mimeType) => onOpenImage?.(data, mimeType),
 		openSubagent: (id) => {
 			activeSubagentId = id;
+		},
+		cancelSubagent: (id) => {
+			void session.cancelSubagent(id);
 		},
 		switchToTerminal: () => onSwitchToTerminal?.()
 	});
@@ -244,8 +248,7 @@
 	let composerRef: {
 		focus: () => void;
 		addPaths: (paths: readonly string[]) => Promise<void>;
-		restoreDraft: (text: string, images?: import('../wire').ImageContent[]) => boolean;
-		isDraftEmpty: () => boolean;
+		restoreQueue: (entries: readonly RestoredQueuedMessage[]) => void;
 	} | null = $state(null);
 
 	/**
@@ -305,19 +308,24 @@
 		};
 	});
 
-	let queueEditBlocked = $state(false);
-	function editQueuedFollowUp(id: number) {
-		const entry = session.localFollowUpQueue.find((item: import('../localFollowUpQueue').LocalFollowUp) => item.id === id);
-		if (!entry || !composerRef) return;
-		if (!composerRef.isDraftEmpty()) {
-			queueEditBlocked = true;
-			composerRef.focus();
-			return;
-		}
-		if (!composerRef.restoreDraft(entry.text, entry.images)) return;
-		session.removeLocalFollowUp(id);
-		queueEditBlocked = false;
-		composerRef.focus();
+	/**
+	 * Modifica di un chip: il messaggio esce dalla coda di omp e torna
+	 * nell'editor, accanto alla bozza se ce n'e' una. Il testo del chip e'
+	 * opaco e va rimandato identico al comando.
+	 */
+	async function editQueuedMessage(chip: QueuedMessage) {
+		const restored = await session.removeQueuedMessage(chip.text, chip.queue);
+		if (!restored) return;
+		composerRef?.restoreQueue([restored]);
+		composerRef?.focus();
+	}
+
+	async function removeQueuedMessage(chip: QueuedMessage) {
+		await session.removeQueuedMessage(chip.text, chip.queue);
+	}
+
+	async function promoteQueuedMessage(chip: QueuedMessage) {
+		await session.promoteQueuedMessage(chip.text);
 	}
 
 </script>
@@ -382,25 +390,26 @@
 			{/if}
 			{#snippet queuedRows()}
 				<QueueChips
-					local={session.localFollowUpQueue}
-					queued={session.queued}
-					serverCount={session.queuedMessageCount}
-					paused={session.localFollowUpsPaused}
-					onEdit={editQueuedFollowUp}
-					onRemove={(id) => session.removeLocalFollowUp(id)}
-					onResume={() => session.resumeLocalFollowUps()}
+					chips={session.queuedChips}
+					onEdit={editQueuedMessage}
+					onRemove={removeQueuedMessage}
+					onPromote={promoteQueuedMessage}
 				/>
-				{#if queueEditBlocked}<p class="queue-edit-warning" role="alert">{m.chat_v2_queue_edit_blocked()}</p>{/if}
 			{/snippet}
 			<ComposerTray
 				quota={quotaInfo}
 				phases={session.todoPhases}
 				reminder={session.todoReminder}
 				subagents={session.subagents}
-				queueCount={session.localFollowUpQueue.length + Math.max(session.queued.length, session.queuedMessageCount)}
+				queueCount={Math.max(session.queuedChips.length, session.queuedMessageCount)}
 				queue={queuedRows}
+				goal={session.goal?.goal ?? null}
+				onPauseGoal={() => void session.pauseGoal()}
+				onResumeGoal={() => void session.resumeGoal()}
+				onDropGoal={() => void session.dropGoal()}
 				questionOpen={session.pendingUi !== null}
 				onOpenSubagent={(id) => (activeSubagentId = id)}
+				onCancelSubagent={(id) => void session.cancelSubagent(id)}
 				questionMinimized={askMinimized && session.pendingUi
 					? {
 							title: session.pendingUi.title,
@@ -560,12 +569,6 @@
 	.scroll-bottom-btn:active {
 		transform: scale(0.97);
 	}
-	.queue-edit-warning {
-		padding: var(--space-1) var(--space-2);
-		color: var(--danger);
-		font-size: var(--text-xs);
-	}
-
 	.composer-under-ask { display: none; }
 
 	.footer-inner {

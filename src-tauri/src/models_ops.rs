@@ -149,6 +149,8 @@ pub struct ModelConfigDto {
     pub disabled_providers: Vec<String>,
     pub fallback_chains: HashMap<String, Vec<String>>,
     pub default_thinking_level: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_warming: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -385,7 +387,29 @@ fn default_model_config() -> ModelConfigDto {
         disabled_providers: Vec::new(),
         fallback_chains: HashMap::new(),
         default_thinking_level: Some("auto".into()),
+        cache_warming: Some("idle".into()),
     }
+}
+
+/// Estrae la modalita cache warming da config.yml preservando la compatibilita'
+/// sia con il formato nidificato standard (`providers: { cacheWarming: ... }`)
+/// sia con eventuale chiave puntata (`providers.cacheWarming`).
+fn parse_cache_warming(mapping: &serde_yaml::Mapping) -> String {
+    if let Some(providers_val) = mapping.get(&yaml_key("providers")) {
+        if let Some(providers_map) = providers_val.as_mapping() {
+            if let Some(cw_val) = providers_map.get(&yaml_key("cacheWarming")) {
+                if let Some(cw_str) = cw_val.as_str() {
+                    return cw_str.to_string();
+                }
+            }
+        }
+    }
+    if let Some(cw_val) = mapping.get(&yaml_key("providers.cacheWarming")) {
+        if let Some(cw_str) = cw_val.as_str() {
+            return cw_str.to_string();
+        }
+    }
+    "idle".to_string()
 }
 
 fn yaml_key(name: &str) -> serde_yaml::Value {
@@ -442,6 +466,7 @@ fn model_config_from_mapping(
     {
         config.default_thinking_level = level;
     }
+    config.cache_warming = Some(parse_cache_warming(mapping));
     Ok(config)
 }
 
@@ -495,6 +520,16 @@ fn save_model_config_locked(path: &Path, config: &ModelConfigDto) -> Result<(), 
         );
     }
 
+    if let Some(cw) = &config.cache_warming {
+        let providers_key = yaml_key("providers");
+        let mut providers_map = match mapping.get(&providers_key) {
+            Some(value) => value.as_mapping().cloned().unwrap_or_default(),
+            None => serde_yaml::Mapping::new(),
+        };
+        providers_map.insert(yaml_key("cacheWarming"), serde_yaml::Value::String(cw.clone()));
+        mapping.insert(providers_key, serde_yaml::Value::Mapping(providers_map));
+    }
+
     let serialized = serde_yaml::to_string(&serde_yaml::Value::Mapping(mapping))
         .map_err(|error| format!("Serializzazione {}: {}", path.display(), error))?;
     atomic_write(path, serialized.as_bytes())
@@ -525,6 +560,37 @@ pub async fn get_model_config() -> Result<ModelConfigDto, String> {
 pub async fn save_model_config(config: ModelConfigDto) -> Result<(), String> {
     let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
     save_model_config_path(&agent.join("config.yml"), &config)
+}
+
+#[command]
+pub async fn get_cache_warming_setting() -> Result<String, String> {
+    let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
+    let path = agent.join("config.yml");
+    match read_yaml_mapping(&path)? {
+        Some(mapping) => Ok(parse_cache_warming(&mapping)),
+        None => Ok("idle".to_string()),
+    }
+}
+
+#[command]
+pub async fn set_cache_warming_setting(mode: String) -> Result<(), String> {
+    if !["off", "streaming", "idle"].contains(&mode.as_str()) {
+        return Err(format!("Modalita cache warming non valida: {}", mode));
+    }
+    let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
+    let path = agent.join("config.yml");
+    let _guard = mutation_lock()?;
+    let mut mapping = read_yaml_mapping(&path)?.unwrap_or_default();
+    let providers_key = yaml_key("providers");
+    let mut providers_map = match mapping.get(&providers_key) {
+        Some(value) => value.as_mapping().cloned().unwrap_or_default(),
+        None => serde_yaml::Mapping::new(),
+    };
+    providers_map.insert(yaml_key("cacheWarming"), serde_yaml::Value::String(mode));
+    mapping.insert(providers_key, serde_yaml::Value::Mapping(providers_map));
+    let serialized = serde_yaml::to_string(&serde_yaml::Value::Mapping(mapping))
+        .map_err(|error| format!("Serializzazione {}: {}", path.display(), error))?;
+    atomic_write(&path, serialized.as_bytes())
 }
 
 // -----------------------------------------------------------------------------
@@ -3388,6 +3454,42 @@ mod tests {
                 .and_then(|value| value.get("backoffMs"))
                 .and_then(serde_yaml::Value::as_u64),
             Some(250)
+        );
+    }
+
+    #[test]
+    fn cache_warming_setting_reads_and_writes_preserving_providers() {
+        let dir = TestDir::new("cache-warming");
+        let path = dir.path().join("config.yml");
+        fs::write(
+            &path,
+            "providers:\n  customProvider:\n    apiKey: secret123\nunknownRoot: keep\n",
+        )
+        .expect("scrittura fixture");
+
+        let mapping = read_yaml_mapping(&path).expect("lettura").unwrap();
+        assert_eq!(parse_cache_warming(&mapping), "idle");
+
+        let mut config = read_model_config_path(&path).expect("lettura config");
+        assert_eq!(config.cache_warming, Some("idle".into()));
+        config.cache_warming = Some("streaming".into());
+        save_model_config_path(&path, &config).expect("salvataggio config");
+
+        let updated = read_yaml_mapping(&path).expect("lettura").unwrap();
+        assert_eq!(parse_cache_warming(&updated), "streaming");
+        assert_eq!(
+            updated
+                .get(yaml_key("providers"))
+                .and_then(|p| p.get("customProvider"))
+                .and_then(|c| c.get("apiKey"))
+                .and_then(serde_yaml::Value::as_str),
+            Some("secret123")
+        );
+        assert_eq!(
+            updated
+                .get(yaml_key("unknownRoot"))
+                .and_then(serde_yaml::Value::as_str),
+            Some("keep")
         );
     }
 

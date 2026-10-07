@@ -9,6 +9,7 @@
 		type StreamingBehavior,
 		type QueueMode,
 		type InterruptMode,
+		type CacheWarmingMode,
 		type LanguagePreference
 	} from '$lib/stores/settings.svelte';
 	import { projectStore } from '$lib/stores/projects.svelte';
@@ -297,6 +298,27 @@
 				>
 					<option value="immediate">{m.settings_general_immediate()}</option>
 					<option value="wait">{m.settings_general_wait_turn_end()}</option>
+				</select>
+			</div>
+		</div>
+
+		<div class="form-row">
+			<div class="form-row-copy">
+				<label for="settings-cache-warming" id="settings-cache-warming-label" class="form-row-label">{m.settings_general_cache_warming_title()}</label>
+				<span id="settings-cache-warming-desc" class="form-row-desc">{m.settings_general_cache_warming_desc()}</span>
+			</div>
+			<div class="form-row-control">
+				<select
+					id="settings-cache-warming"
+					class="ui-select"
+					value={settingsStore.general.cacheWarming}
+					aria-labelledby="settings-cache-warming-label"
+					aria-describedby="settings-cache-warming-desc"
+					onchange={(e) => void settingsStore.setCacheWarming((e.currentTarget as HTMLSelectElement).value as CacheWarmingMode)}
+				>
+					<option value="off">{m.settings_general_cache_warming_off()}</option>
+					<option value="streaming">{m.settings_general_cache_warming_streaming()}</option>
+					<option value="idle">{m.settings_general_cache_warming_idle()}</option>
 				</select>
 			</div>
 		</div>

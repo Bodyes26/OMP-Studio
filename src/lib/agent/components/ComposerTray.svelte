@@ -12,8 +12,10 @@
 	import { onDestroy } from 'svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	import { AutoOpen, Lingering } from '../motionState.svelte';
-	import type { AgentProgress, TodoItem, TodoPhase } from '../wire';
+	import type { AgentProgress, Goal, TodoItem, TodoPhase } from '../wire';
 	import { describeSubagentActivity, formatTrayDuration } from '../subagentActivity';
+	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import GoalTray from './GoalTray.svelte';
 	import StatusMark from '$lib/ui/StatusMark.svelte';
 	import {
 		IconChevronRight,
@@ -21,7 +23,8 @@
 		IconClose,
 		IconLoop,
 		IconQueue,
-		IconSubagents
+		IconSubagents,
+		IconStop,
 	} from '$lib/icons';
 
 	export interface QuestionMinimized {
@@ -52,7 +55,12 @@
 		questionMinimized,
 		questionOpen = false,
 		onOpenSubagent,
-		quota
+		onCancelSubagent,
+		quota,
+		goal = null,
+		onPauseGoal,
+		onResumeGoal,
+		onDropGoal
 	} = $props<{
 		phases?: TodoPhase[];
 		reminder?: { attempt: number; max: number } | null;
@@ -62,7 +70,12 @@
 		questionMinimized?: QuestionMinimized;
 		questionOpen?: boolean;
 		onOpenSubagent?: (id: string) => void;
+		onCancelSubagent?: (id: string) => void;
 		quota?: QuotaTrayInfo;
+		goal?: Goal | null;
+		onPauseGoal?: () => void;
+		onResumeGoal?: () => void;
+		onDropGoal?: () => void;
 	}>();
 
 	// --- Statistiche Todo ---
@@ -118,17 +131,21 @@
 	}
 
 	// --- Visibilita' sezioni (alive: gli incompleti restano visibili anche a idle) ---
+	const hasGoal = $derived(goal !== null && goal !== undefined && goal.status !== 'dropped');
 	const hasTodo = $derived(phases.length > 0 && totalCount > 0);
 	const hasSubs = $derived(subagents.length > 0);
 	const hasQueue = $derived(queue !== undefined && queueCount > 0);
 	const asking = $derived(questionOpen || questionMinimized !== undefined);
 	let quotaDetailsOpen = $state(false);
-	const hasSections = $derived(hasTodo || hasSubs || hasQueue);
+	const hasSections = $derived(hasGoal || hasTodo || hasSubs || hasQueue);
 	// Compatto solo a scheda aperta: ridotta, la domanda e' gia' una riga
 	// d'attenzione e le sezioni tornano consultabili.
 	const compactForAsk = $derived(questionOpen && questionMinimized === undefined && hasSections);
 	const compactSummaryText = $derived.by(() => {
 		const parts: string[] = [];
+		if (hasGoal && goal) {
+			parts.push(`${m.chat_v2_tray_goal_title()}: ${goal.status}`);
+		}
 		if (hasSubs) {
 			const label = subLive ? m.chat_v2_tray_subagents_running() : m.chat_v2_tray_subagents_completed();
 			parts.push(`${label} ${subDoneCount}/${subagents.length}`);
@@ -159,12 +176,13 @@
 	});
 
 	// Lingering per uscita con chiusura in altezza
+	const goalLinger = new Lingering<Goal>();
 	const todoLinger = new Lingering<TodoPhase[]>();
 	const subsLinger = new Lingering<AgentProgress[]>();
 	const queueLinger = new Lingering<number>();
 	const askLinger = new Lingering<QuestionMinimized>();
-
 	$effect(() => {
+		goalLinger.update(hasGoal && goal ? goal : undefined);
 		todoLinger.update(hasTodo ? phases : undefined);
 	});
 	$effect(() => {
@@ -177,6 +195,7 @@
 		askLinger.update(questionMinimized);
 	});
 	onDestroy(() => {
+		goalLinger.dispose();
 		todoLinger.dispose();
 		subsLinger.dispose();
 		queueLinger.dispose();
@@ -186,6 +205,7 @@
 	const anyShown = $derived(
 		quota !== undefined ||
 			compactForAsk ||
+			goalLinger.shown !== undefined ||
 			todoLinger.shown !== undefined ||
 			subsLinger.shown !== undefined ||
 			queueLinger.shown !== undefined ||
@@ -195,6 +215,7 @@
 		anyShown &&
 			!quota &&
 			!compactForAsk &&
+			(goalLinger.shown === undefined || goalLinger.leaving) &&
 			(todoLinger.shown === undefined || todoLinger.leaving) &&
 			(subsLinger.shown === undefined || subsLinger.leaving) &&
 			(queueLinger.shown === undefined || queueLinger.leaving) &&
@@ -325,6 +346,20 @@
 						</div>
 					</div>
 				{:else}
+				<!-- Sezione Obiettivo (Goal) -->
+				{#if goalLinger.shown !== undefined}
+					<div class={goalLinger.leaving ? 'tray-out' : 'tray-in'}>
+						<div class="tray-fold-inner">
+							<GoalTray
+								goal={goalLinger.shown}
+								onPause={onPauseGoal}
+								onResume={onResumeGoal}
+								onDrop={onDropGoal}
+							/>
+						</div>
+					</div>
+				{/if}
+
 				<!-- Sezione Todo -->
 				{#if todoLinger.shown !== undefined}
 					<div class={todoLinger.leaving ? 'tray-out' : 'tray-in'}>
@@ -485,6 +520,21 @@
 														{sub.toolCount ?? sub.recentTools?.length ?? 0}
 														{#if sub.durationMs !== undefined} · {fmtDuration(sub.durationMs)}{/if}
 													</span>
+												{/if}
+												{#if (sub.status === 'running' || sub.status === 'pending') && sub.id && onCancelSubagent}
+													<Tooltip text={m.subagent_action_stop()} placement="top" offset={4}>
+														<button
+															type="button"
+															class="agent-stop-btn"
+															aria-label={m.subagent_action_stop()}
+															onclick={(e) => {
+																e.stopPropagation();
+																if (sub.id) onCancelSubagent?.(sub.id);
+															}}
+														>
+															<IconStop />
+														</button>
+													</Tooltip>
 												{/if}
 											</div>
 										{/each}
@@ -822,6 +872,26 @@
 		font-size: var(--text-meta);
 		color: var(--ink-faint);
 		font-variant-numeric: tabular-nums;
+	}
+	.agent-stop-btn {
+		--icon-size: 11px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 18px;
+		height: 18px;
+		padding: 0;
+		background: color-mix(in srgb, var(--danger) 10%, transparent);
+		color: var(--danger);
+		border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent);
+		border-radius: var(--radius-sm);
+		cursor: pointer;
+		flex-shrink: 0;
+		transition: background-color var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast);
+	}
+	.agent-stop-btn:hover {
+		background: color-mix(in srgb, var(--danger) 20%, transparent);
+		border-color: color-mix(in srgb, var(--danger) 45%, transparent);
 	}
 	.quota-attention-row {
 		border-bottom: 1px solid var(--line);

@@ -337,6 +337,15 @@
 						</div>
 
 						<div class="action-cell">
+							{#if modelSettingsStore.modelPickCallback}
+								<button
+									type="button"
+									class="ui-button ui-button-primary select-model-btn"
+									onclick={() => modelSettingsStore.selectModel(mDto.selector)}
+								>
+									<span>{m.ui_catalogtab_seleziona_modello?.() ?? 'Usa modello'}</span>
+								</button>
+							{:else}
 							<MenuButton
 								open={openAssignMenuFor === mDto.selector}
 								width="280px"
@@ -403,6 +412,7 @@
 									</div>
 								</div>
 							</MenuButton>
+							{/if}
 						</div>
 					</div>
 				{/each}
@@ -768,6 +778,12 @@
 	.action-cell {
 		position: relative;
 		flex-shrink: 0;
+	}
+	.select-model-btn {
+		font-size: 12px;
+		padding: 4px 10px;
+		height: 28px;
+		white-space: nowrap;
 	}
 
 	.assign-menu {

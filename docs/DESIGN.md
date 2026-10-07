@@ -1086,7 +1086,7 @@ le azioni usano `.ui-button-primary` (`--on-brand` su `--brand`) e `.ui-button-s
 ### Chip di suggerimento e coda
 
 - **Suggerimenti:** solo a composer vuoto, fermo, senza allegati e con la palette chiusa. Pillole `3px 10px` su `--bg-raised` con bordo `--line`, didascalia `--ink-muted`, indice `Alt+N` in `kbd`. Il click precompila e non invia mai. Si naviga con roving tabindex.
-- **Coda:** i follow-up locali hanno «Modifica» e «Rimuovi»; gli steer già partiti sono di sola lettura a opacità 0,7.
+- **Coda:** chip della coda di omp (steer prima, follow-up poi). Ogni chip ha «Modifica» (torna nell'editor con le sue immagini), «Rimuovi» e, sui follow-up, «Steer ora» (`promote_queued_message`). Il testo del chip è opaco: si mostra così com'è e si rimanda identico a omp.
 
 ### Pulsante «in fondo»
 

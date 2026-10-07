@@ -15,6 +15,9 @@ export type StreamingBehavior = 'steer' | 'followUp';
 export type QueueMode = 'all' | 'one-at-a-time';
 export type InterruptMode = 'immediate' | 'wait';
 export type SubagentSubscription = 'off' | 'progress' | 'events';
+export type QueuedMessageQueue = 'steering' | 'followUp';
+export type CacheWarmingMode = 'off' | 'streaming' | 'idle';
+export type GoalOp = 'get' | 'create' | 'resume' | 'pause' | 'drop';
 
 /** Immagine sul filo: `data` e' base64 **nudo**, non un data-URL. */
 export interface ImageContent {
@@ -48,6 +51,20 @@ export type RpcCommand =
 	| { type: 'set_session_name'; name: string }
 	| { type: 'bash'; command: string }
 	| { type: 'abort_bash' }
+	| { type: 'steer'; message: string; images?: ImageContent[] }
+	| { type: 'follow_up'; message: string; images?: ImageContent[] }
+	| { type: 'remove_queued_message'; message: string; queue: QueuedMessageQueue }
+	| { type: 'promote_queued_message'; message: string }
+	| { type: 'abort_and_restore_queue' }
+	| { type: 'set_fast_mode'; enabled: boolean }
+	| { type: 'set_slow_mode'; enabled: boolean }
+	| { type: 'set_cache_warming'; mode: CacheWarmingMode }
+	| { type: 'goal'; op: GoalOp; objective?: string; token_budget?: number }
+	| { type: 'set_ask_dialog'; enabled: boolean }
+	| { type: 'cancel_subagent'; subagentId: string }
+	| { type: 'steer_subagent'; subagentId: string; message: string }
+	| { type: 'get_logout_accounts'; providerId: string }
+	| { type: 'logout'; providerId: string; credentialId: number }
 	| { type: 'get_login_providers' }
 	| { type: 'login'; providerId: string }
 	| { type: 'negotiate_capabilities'; capabilities: RpcCapability[] }
@@ -141,10 +158,97 @@ export interface RpcSessionState {
 	sessionName?: string;
 	messageCount?: number;
 	queuedMessageCount?: number;
+	/** omp 18.4.4+: testo dei chip in coda, accettato tale e quale da `remove_queued_message`. */
+	queuedMessages?: QueuedMessagesState;
 	todoPhases?: TodoPhase[];
 	contextUsage?: ContextUsage;
 	autoCompactionEnabled?: boolean;
+	fastModeEnabled?: boolean;
+	/** `false` con `fastModeEnabled` vuol dire: richiesto ma non applicabile al modello attivo. */
+	fastModeActive?: boolean;
+	slowModeSupported?: boolean;
+	slowModeEnabled?: boolean;
+	slowModeScope?: 'session' | 'global';
+	usageLimit?: UsageLimitState;
+	goal?: GoalModeState | null;
 }
+
+/* ------------------------------------------------- coda, limiti, obiettivi */
+
+export interface QueuedMessagesState {
+	steering: string[];
+	followUp: string[];
+}
+
+export interface RemoveQueuedMessageResult {
+	removed: boolean;
+	images?: ImageContent[];
+	imagesDropped?: boolean;
+}
+
+export interface RestoredQueuedMessage {
+	text: string;
+	images?: ImageContent[];
+}
+
+/** Input in coda ritirato prima dell'abort, dal piu' vecchio. */
+export interface AbortAndRestoreQueueResult {
+	steering: RestoredQueuedMessage[];
+	followUp: RestoredQueuedMessage[];
+	imagesDropped?: boolean;
+	truncated?: boolean;
+}
+
+export interface FastModeResult {
+	enabled: boolean;
+	active: boolean;
+}
+
+export interface CancelSubagentResult {
+	cancelled: boolean;
+}
+
+export type UsageLimitState =
+	| { stage: 'low_priority'; resetsAtSec: number; allowanceLeftPercent?: number }
+	| { stage: 'wrap_up'; resetsAtSec?: number; extraUsage: boolean };
+
+export type GoalStatus = 'active' | 'paused' | 'budget-limited' | 'complete' | 'dropped';
+
+export interface Goal {
+	id: string;
+	objective: string;
+	status: GoalStatus;
+	tokenBudget?: number;
+	tokensUsed: number;
+	timeUsedSeconds: number;
+	createdAt: number;
+	updatedAt: number;
+}
+
+export interface GoalModeState {
+	enabled: boolean;
+	mode: 'active' | 'exiting';
+	reason?: 'completed';
+	goal: Goal;
+}
+
+/** Esito di ogni op di `goal`: entrambi null quando la sessione non ha obiettivo. */
+export interface GoalResult {
+	goal: Goal | null;
+	state: GoalModeState | null;
+}
+
+export interface LogoutAccount {
+	credentialId: number;
+	provider: string;
+	label: string;
+	detail: string;
+	type: 'api_key' | 'oauth';
+	active: boolean;
+}
+
+export type CacheWarmingPhase = 'streaming' | 'idle';
+export type CacheWarmingOutcome = 'hit' | 'miss' | 'error' | 'aborted';
 
 export interface AvailableCommand {
 	name: string;
@@ -399,6 +503,17 @@ export interface AgentSessionEvent {
 	error?: string;
 	reason?: string;
 	extensionPath?: string;
+	/** `queue_update` */
+	steering?: string[];
+	followUp?: string[];
+	/** `cache_warming_start` / `cache_warming_end` */
+	phase?: CacheWarmingPhase;
+	provider?: string;
+	outcome?: CacheWarmingOutcome;
+	warmingStopReason?: string;
+	/** `goal_updated` */
+	goal?: Goal | null;
+	state?: GoalModeState;
 	[key: string]: unknown;
 }
 
@@ -415,7 +530,26 @@ export type ExtensionUiMethod =
 	| 'setWidget'
 	| 'setTitle'
 	| 'set_editor_text'
-	| 'open_url';
+	| 'open_url'
+	| 'ask';
+
+/** Una domanda di `ask` (omp 18.4.9+, dopo `set_ask_dialog`). "Altro" non e' tra le opzioni: il testo libero c'e' sempre. */
+export interface AskDialogQuestion {
+	id: string;
+	question: string;
+	header?: string;
+	options: { label: string; description?: string; preview?: string }[];
+	multi?: boolean;
+	/** Indice in `options` della scelta consigliata. */
+	recommended?: number;
+}
+
+export interface AskDialogAnswer {
+	id: string;
+	/** Etichette esatte delle opzioni scelte. */
+	selectedOptions: string[];
+	customInput?: string;
+}
 
 export interface ExtensionUiRequest {
 	type: 'extension_ui_request';
@@ -435,20 +569,24 @@ export interface ExtensionUiRequest {
 	launchUrl?: string;
 	widgetKey?: string;
 	content?: unknown;
+	/** `ask` */
+	questions?: AskDialogQuestion[];
 	level?: string;
 }
 
 export type ExtensionUiResponse =
 	| { type: 'extension_ui_response'; id: string; value: string }
 	| { type: 'extension_ui_response'; id: string; confirmed: boolean }
-	| { type: 'extension_ui_response'; id: string; cancelled: true; timedOut?: boolean };
+	| { type: 'extension_ui_response'; id: string; cancelled: true; timedOut?: boolean }
+	| { type: 'extension_ui_response'; id: string; answers: AskDialogAnswer[] };
 
 /** I soli metodi che vogliono una risposta: `setWidget` & co. arrivano da soli. */
 export const ANSWERABLE_UI_METHODS: Record<string, true> = {
 	select: true,
 	confirm: true,
 	input: true,
-	editor: true
+	editor: true,
+	ask: true
 };
 
 /* ------------------------------------------------------- frame di Studio */

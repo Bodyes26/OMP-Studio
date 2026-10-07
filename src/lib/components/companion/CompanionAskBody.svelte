@@ -231,7 +231,7 @@
 			<div class="ask-options" transition:trayFold>
 				{#each req.pendingUi.options as opt, idx (opt)}
 					{@const isOther = isOtherOption(opt)}
-					{@const isRec = opt.endsWith(' (Recommended)')}
+					{@const isRec = opt.endsWith(' (Recommended)') || (req.pendingUi.questions?.[0] as { recommended?: number } | undefined)?.recommended === idx}
 					{@const clean = isOther ? m.ui_askcard_altro_scrivi_la_tua_risposta_3c62() : cleanOptionLabel(opt)}
 					{@const description = isOther && !req.pendingUi.optionDetails?.[idx]?.description
 						? m.ui_askcard_inserisci_una_risposta_personalizzata_f9dc()

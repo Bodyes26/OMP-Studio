@@ -487,11 +487,26 @@
 	) {
 		delete replyDrafts[projectId];
 		delete customReplyProjects[projectId];
-		const targetReqId =
-			requestId ??
-			companionStore.attentionRequests.find(
-				(r) => r.projectId === projectId && (!laneId || (r.laneId ?? 'main') === laneId)
-			)?.pendingUi?.requestId;
+		const targetReq = companionStore.attentionRequests.find(
+			(r) => r.projectId === projectId && (!laneId || (r.laneId ?? 'main') === laneId)
+		);
+		const targetReqId = requestId ?? targetReq?.pendingUi?.requestId;
+
+		if (targetReq?.pendingUi?.method === 'ask') {
+			const questions = targetReq.pendingUi.questions as Array<{ id?: string }> | undefined;
+			const qId = questions?.[0]?.id ?? 'q1';
+			const answer = {
+				action: 'wizard' as const,
+				answers: [{ id: qId, selectedOptions: [value] }]
+			};
+			if (targetReqId) {
+				const handled = await companionStore.respondPrompt(targetReqId, answer, laneId);
+				if (handled) return;
+			}
+			await companionStore.respondUi(projectId, answer, laneId, targetReqId);
+			return;
+		}
+
 		if (targetReqId) {
 			const handled = await companionStore.respondPrompt(targetReqId, { action: 'select', value }, laneId);
 			if (handled) return;
@@ -552,6 +567,22 @@
 		delete replyDrafts[projectId];
 		delete customReplyProjects[projectId];
 		const targetReqId = requestId ?? request?.pendingUi?.requestId;
+
+		if (request?.pendingUi?.method === 'ask') {
+			const questions = request.pendingUi.questions as Array<{ id?: string }> | undefined;
+			const qId = questions?.[0]?.id ?? 'q1';
+			const answer = {
+				action: 'wizard' as const,
+				answers: [{ id: qId, selectedOptions: [], customInput: value }]
+			};
+			if (targetReqId) {
+				const handled = await companionStore.respondPrompt(targetReqId, answer, laneId);
+				if (handled) return;
+			}
+			await companionStore.respondUi(projectId, answer, laneId, targetReqId);
+			return;
+		}
+
 		if (targetReqId) {
 			const handled = await companionStore.respondPrompt(targetReqId, { action: 'select', value }, laneId);
 			if (handled) return;

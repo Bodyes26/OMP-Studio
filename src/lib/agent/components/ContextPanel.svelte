@@ -19,12 +19,16 @@
 		contextUsage = null,
 		report = null,
 		draftTokens = 0,
+		sessionCost = null,
+		subagentCost = 0,
 		onCompact
 	} = $props<{
 		model?: ModelInfo | null;
 		contextUsage?: ContextUsage | null;
 		report?: ContextReport | null;
 		draftTokens?: number;
+		sessionCost?: number | null;
+		subagentCost?: number;
 		onCompact: () => void;
 	}>();
 
@@ -33,6 +37,9 @@
 	const accounted = $derived(fresh ? categoryTokenSum(fresh) : contextUsage?.tokens || 0);
 	const totalUsed = $derived(accounted + draftTokens);
 	const pct = $derived(maxCtx > 0 ? Math.min(100, Math.round((totalUsed / maxCtx) * 100)) : 0);
+
+	const hasCost = $derived(sessionCost !== null || subagentCost > 0);
+	const totalCost = $derived((sessionCost ?? 0) + subagentCost);
 
 	const rows = $derived.by(() => {
 		const list: { id: string; fallback: string; tokens: number }[] = [];
@@ -119,6 +126,23 @@
 			{model?.name || model?.id || 'Modello attivo'}
 		</div>
 
+		{#if hasCost && totalCost > 0}
+			<div class="session-cost-row">
+				<div class="cost-headline">
+					<span class="cost-label">{m.chat_v2_composer_context_cost_label()}</span>
+					<span class="cost-value font-mono">${totalCost.toFixed(4)}</span>
+				</div>
+				{#if subagentCost > 0}
+					<div class="cost-split font-mono">
+						{m.chat_session_cost_split({
+							own: `$${(sessionCost ?? 0).toFixed(4)}`,
+							subagents: `$${subagentCost.toFixed(4)}`
+						})}
+					</div>
+				{/if}
+			</div>
+		{/if}
+
 		<div class="meter-track" aria-hidden="true">
 			{#each segments as segment (segment.id)}
 				<span class="meter-segment {segment.id}" style="width: {segment.width}%;"></span>
@@ -150,6 +174,32 @@
 </div>
 
 <style>
+	.session-cost-row {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		padding: var(--space-2) 0;
+		border-top: 1px solid var(--line);
+	}
+	.cost-headline {
+		display: flex;
+		justify-content: space-between;
+		align-items: baseline;
+	}
+	.cost-label {
+		font-size: var(--text-xs);
+		color: var(--ink-faint);
+		font-weight: 500;
+	}
+	.cost-value {
+		font-size: var(--text-sm);
+		font-weight: 600;
+		color: var(--ink);
+	}
+	.cost-split {
+		font-size: var(--text-meta);
+		color: var(--ink-muted);
+	}
 	.context-panel {
 		display: flex;
 		flex-direction: column;

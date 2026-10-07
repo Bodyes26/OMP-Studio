@@ -10,7 +10,7 @@
 	// a `progress`: `events` inoltra ogni evento annidato di ogni subagent ed e'
 	// costoso durante un fan-out a 32 worker.
 	import type { AgentSession, SystemChipEntry } from '../session.svelte';
-	import type { AgentMessage } from '../wire';
+	import type { AgentMessage, AgentProgress } from '../wire';
 	import { IconSubagents, IconClose } from '$lib/icons';
 	import { classifySystemMessage, stripNoticeWrapper } from '../notices';
 	import SystemChip from './SystemChip.svelte';
@@ -54,6 +54,46 @@
 	let messages = $state<AgentMessage[]>([]);
 	let errorText = $state<string | null>(null);
 
+
+	const subagent = $derived(session.subagents.find((s: AgentProgress) => s.id === subagentId));
+	const isRunning = $derived(subagent?.status === 'running');
+	const isPending = $derived(subagent?.status === 'pending');
+	const canStop = $derived(isRunning || isPending);
+
+	let isStopping = $state(false);
+	let steerMessage = $state('');
+	let isSteering = $state(false);
+
+	async function handleStop() {
+		if (isStopping || !canStop) return;
+		isStopping = true;
+		try {
+			await session.cancelSubagent(subagentId);
+		} finally {
+			isStopping = false;
+		}
+	}
+
+	async function handleSteer() {
+		const text = steerMessage.trim();
+		if (!text || isSteering || !isRunning) return;
+		isSteering = true;
+		try {
+			const ok = await session.steerSubagent(subagentId, text);
+			if (ok) {
+				steerMessage = '';
+			}
+		} finally {
+			isSteering = false;
+		}
+	}
+
+	function handleSteerKeydown(event: KeyboardEvent) {
+		if (event.key === 'Enter') {
+			event.preventDefault();
+			void handleSteer();
+		}
+	}
 	function textOf(content: AgentMessage['content']): string {
 		if (!content) return '';
 		if (typeof content === 'string') return content;
@@ -282,7 +322,19 @@
 			<span class="glyph"><IconSubagents aria-hidden="true" /></span>
 			<span class="title">{subagentId}</span>
 		</div>
-		<button type="button" class="btn-close" onclick={onClose} aria-label={m.page_modal_restart_btn_close()}><IconClose /></button>
+		<div class="head-actions">
+			{#if canStop}
+				<button
+					type="button"
+					class="btn-stop"
+					disabled={isStopping}
+					onclick={handleStop}
+				>
+					{m.subagent_action_stop()}
+				</button>
+			{/if}
+			<button type="button" class="btn-close" onclick={onClose} aria-label={m.page_modal_restart_btn_close()}><IconClose /></button>
+		</div>
 	</div>
 
 	{#if errorText}
@@ -321,6 +373,29 @@
 			<div class="empty">{m.ui_subagentdrawer_in_attesa_dei_messaggi_del_subagent_76d6()}</div>
 		{/each}
 	</div>
+
+	{#if isRunning}
+		<div class="drawer-footer">
+			<div class="steer-box">
+				<input
+					type="text"
+					class="steer-input"
+					placeholder={m.subagent_steer_placeholder()}
+					bind:value={steerMessage}
+					onkeydown={handleSteerKeydown}
+					disabled={isSteering}
+				/>
+				<button
+					type="button"
+					class="steer-send-btn"
+					disabled={!steerMessage.trim() || isSteering}
+					onclick={handleSteer}
+				>
+					{m.subagent_steer_send()}
+				</button>
+			</div>
+		</div>
+	{/if}
 </div>
 
 <style>
@@ -481,5 +556,74 @@
 		font-style: italic;
 		padding: var(--space-4) 0;
 		text-align: center;
+	}
+
+	.head-actions {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+	}
+
+	.btn-stop {
+		font-size: var(--text-xs);
+		font-weight: 500;
+		color: var(--danger);
+		background: color-mix(in srgb, var(--danger) 10%, transparent);
+		border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+		border-radius: var(--radius-sm);
+		padding: 2px 8px;
+		cursor: pointer;
+		line-height: 1.4;
+		transition: background-color var(--dur-fast), border-color var(--dur-fast), opacity var(--dur-fast);
+	}
+	.btn-stop:hover:not(:disabled) {
+		background: color-mix(in srgb, var(--danger) 18%, transparent);
+		border-color: color-mix(in srgb, var(--danger) 50%, transparent);
+	}
+	.btn-stop:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.drawer-footer {
+		padding: var(--space-2) var(--space-3);
+		border-top: 1px solid var(--line);
+		background: var(--bg-surface);
+	}
+
+	.steer-box {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+	}
+
+	.steer-input {
+		flex: 1;
+		font-size: var(--text-sm);
+		background: var(--bg-sunken);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
+		padding: var(--space-1) var(--space-2);
+		color: var(--ink);
+		outline: none;
+	}
+	.steer-input:focus {
+		border-color: var(--focus);
+	}
+
+	.steer-send-btn {
+		font-size: var(--text-xs);
+		font-weight: 600;
+		padding: var(--space-1) var(--space-3);
+		background: var(--brand);
+		color: var(--brand-contrast);
+		border: none;
+		border-radius: var(--radius-md);
+		cursor: pointer;
+		transition: opacity var(--dur-fast);
+	}
+	.steer-send-btn:disabled {
+		opacity: 0.4;
+		cursor: not-allowed;
 	}
 </style>

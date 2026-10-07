@@ -13,6 +13,20 @@ released: items are closed into a version via `npm run release -- <version>`.
 
 ### Added
 - When the agent writes an SVG file you see it as an image, and a Mermaid file (`.mmd`, `.mermaid`) as a diagram, right below the tool-call group: the preview stays visible with the list collapsed and follows the theme.
+- "Modes" button in the composer: turns Fast and Slow on or off for the active model, shows whether the account is past its usage limit (slow lane or wrap-up allowance, with the reset time) and the outcome of the last prompt-cache warming.
+- When there is a goal (`/goal`), the tray above the composer shows it with status, tokens used, budget and time, with Pause, Resume and Delete.
+- Each running subagent can be stopped on its own, from the tray or from its transcript panel, without interrupting the session; from the panel you can also send it a message.
+- The session cost includes what subagents spend, with a "Session · Subagents" breakdown in the context panel and tooltip.
+- "Cache warming" setting (Settings → General): off, only while running, or also between turns; it applies to every session, including those already open.
+
+### Changed
+- The message queue is `omp`'s own: pending steering and follow-up messages appear as chips you can edit, remove or send right away as steering; Stop puts messages still in the queue back into the composer, next to what you are typing, with their attachments. `Alt+↑` on an empty composer takes back the last queued message.
+- The agent's questions arrive all together and are sent with a single answer; when `omp` withdraws an expired question, the card closes with a notice.
+- Removing an account in Settings goes through `omp` when a session is open, so that session stops using it immediately; if another valid credential remains (for example an environment variable) it is pointed out.
+
+### Fixed
+- Resuming a session whose model is no longer available no longer closes the chat with an error: Studio reopens it with the default role's model and says so, or lets you pick another one.
+- When the same session is also open in a terminal, `omp` continues in a new file: Studio follows it, tells you, and reopens it from there with its title.
 
 ## [1.7.0] - 2026-10-07
 

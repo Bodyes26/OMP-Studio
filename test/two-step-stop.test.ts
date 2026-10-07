@@ -20,22 +20,45 @@ interface InvokeCall {
 }
 
 let calls: InvokeCall[] = [];
+/** Timer registrati dal client tramite `window.setTimeout`: il test li fa
+ *  scadere a comando (`expireTimers`), senza attese reali. */
+let clientTimers = new Map<number, () => void>();
+let nextClientTimer = 1;
 
+function expireTimers() {
+	const pending = [...clientTimers.values()];
+	clientTimers.clear();
+	for (const callback of pending) callback();
+}
+
+/** Timer del client catturati: `expireTimers` li fa scadere a richiesta, cosi'
+ *  i comandi che vanno in timeout non fanno attendere il test. */
 function installTauriMock() {
 	calls = [];
+	clientTimers = new Map();
+	nextClientTimer = 1;
 	const internals = {
 		invoke: async (cmd: string, args: Record<string, unknown>) => {
 			calls.push({ cmd, args: args || {} });
 			if (cmd === 'rpc_open') return 1;
 			if (cmd === 'pty_open') return 1;
+			// Il rapporto di blocco parte a ogni timeout e interroga il backend:
+			// qui non c'e', quindi si respinge e il rapporto prende il ramo muto.
+			if (cmd === 'rpc_diagnostics') throw new Error('mock: diagnostica assente');
 			return {};
 		},
 		transformCallback: (fn: (arg: unknown) => void) => fn,
 		unregisterCallback: () => {}
 	};
 	(globalThis as { window?: unknown; __TAURI_INTERNALS__?: unknown }).window = {
-		setTimeout: (h: () => void, ms: number) => setTimeout(h, ms),
-		clearTimeout: (id: NodeJS.Timeout) => clearTimeout(id),
+		setTimeout: (h: () => void) => {
+			const id = nextClientTimer++;
+			clientTimers.set(id, h);
+			return id;
+		},
+		clearTimeout: (id: number) => {
+			clientTimers.delete(id);
+		},
 		__TAURI_INTERNALS__: internals
 	};
 	(globalThis as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = internals;
@@ -166,5 +189,29 @@ describe('Integrazione OmpRpcClient: rpc_abort e rpc_force_kill', () => {
 		const forceKillCalls = calls.filter((c) => c.cmd === 'rpc_force_kill');
 		assert.equal(forceKillCalls.length, 1);
 		assert.deepEqual(forceKillCalls[0].args, { rpcId: 42 });
+	});
+
+	it('client.abortAndRestoreQueue invia abort_bash e abort_and_restore_queue', async () => {
+		const client = new OmpRpcClient();
+		const internals = client as unknown as { rpcId: number; lastHangReportAt: number };
+		internals.rpcId = 42;
+		// Il rapporto di blocco ha una sua rete di timer (5 s) e non c'entra
+		// con questa prova: lo si disattiva come se ne fosse appena scritto uno.
+		internals.lastHangReportAt = Date.now();
+		// Il mock non risponde: si fa scadere a comando il timer del comando,
+		// senza attese reali, e si verifica anche il ripiego su `abort`.
+		const pending = client.abortAndRestoreQueue();
+		expireTimers();
+		const restored = await pending;
+		assert.equal(restored, null);
+
+		const sent = calls
+			.filter((call) => call.cmd === 'rpc_send')
+			.map((call) => JSON.parse(String(call.args.line)) as { type: string });
+		assert.deepEqual(
+			sent.map((frame) => frame.type),
+			['abort_bash', 'abort_and_restore_queue']
+		);
+		assert.equal(calls.filter((call) => call.cmd === 'rpc_abort').length, 1);
 	});
 });

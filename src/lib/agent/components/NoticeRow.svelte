@@ -41,6 +41,16 @@
 		</div>
 
 		<div class="actions">
+			{#if entry.action}
+				<button
+					type="button"
+					class="action-btn"
+					onclick={() => entry.action?.run()}
+					title={entry.action.title || entry.action.label}
+				>
+					<span>{entry.action.label}</span>
+				</button>
+			{/if}
 			{#if hasDetail}
 				<button
 					type="button"

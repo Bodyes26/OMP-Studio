@@ -4,6 +4,9 @@
 	// Il clic sulla riga espande la disclosure dei dettagli.
 	// L'apertura del transcript avviene esplicitamente dal dettaglio tramite hook.
 	import { agentUiHooks } from '../../ui-context';
+	import { m } from '$lib/paraglide/messages.js';
+	import { IconStop } from '$lib/icons';
+	import Tooltip from '$lib/ui/Tooltip.svelte';
 	import type { AgentProgress } from '../../wire';
 	import { formatDuration } from '../types';
 	import { agentProgressToTaskRow, type TaskRowModel } from '../../taskRow';
@@ -58,6 +61,23 @@
 	class={className}
 	onOpenTranscript={progress.id ? handleOpenTranscript : undefined}
 >
+	{#snippet action()}
+		{#if (progress.status === 'running' || progress.status === 'pending') && progress.id && hooks.cancelSubagent}
+			<Tooltip text={m.subagent_action_stop()} placement="top" offset={4}>
+				<button
+					type="button"
+					class="subagent-stop-btn"
+					aria-label={m.subagent_action_stop()}
+					onclick={(e) => {
+						e.stopPropagation();
+						if (progress.id) hooks.cancelSubagent?.(progress.id);
+					}}
+				>
+					<IconStop />
+				</button>
+			</Tooltip>
+		{/if}
+	{/snippet}
 	{#if progress.recentTools && progress.recentTools.length > 0}
 		<div class="agent-recent-tools">
 			<span class="tools-heading">Tool:</span>
@@ -98,5 +118,25 @@
 		border: 1px solid var(--line);
 		border-radius: var(--radius-sm);
 		color: var(--ink-muted);
+	}
+	.subagent-stop-btn {
+		--icon-size: 11px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 18px;
+		height: 18px;
+		padding: 0;
+		background: color-mix(in srgb, var(--danger) 10%, transparent);
+		color: var(--danger);
+		border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent);
+		border-radius: var(--radius-sm);
+		cursor: pointer;
+		flex-shrink: 0;
+		transition: background-color var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast);
+	}
+	.subagent-stop-btn:hover {
+		background: color-mix(in srgb, var(--danger) 20%, transparent);
+		border-color: color-mix(in srgb, var(--danger) 45%, transparent);
 	}
 </style>

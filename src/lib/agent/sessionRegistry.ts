@@ -11,7 +11,7 @@
 // dagli id PTY/RPC creati dai rispettivi adapter.
 
 import type { AgentSession, AgentSessionConfig } from './session.svelte';
-import type { AskFlushStep } from './askAnswers';
+import type { AskDialogAnswer, CacheWarmingMode } from './wire';
 import { promptBus } from './promptBus.ts';
 import { laneSessionKey } from './sessionKeys';
 import { m as msg } from '$lib/paraglide/messages.js';
@@ -26,10 +26,10 @@ export interface UiResponsePayload {
 	sessionId?: string;
 	requestId?: string;
 	response: {
-		action: 'select' | 'confirm' | 'wizard' | 'cancel';
+		action: 'select' | 'confirm' | 'wizard' | 'ask' | 'cancel';
 		value?: string;
 		confirmed?: boolean;
-		plan?: AskFlushStep[];
+		answers?: AskDialogAnswer[];
 	};
 }
 
@@ -51,9 +51,13 @@ export interface AgentSessionLike {
 	close(): Promise<void>;
 	abort(): Promise<void>;
 	applyQueueModes?(): Promise<void>;
+	applyCacheWarming?(mode?: CacheWarmingMode): Promise<void>;
+	logout?(providerId: string, credentialId: number): Promise<{ remainingSource?: string }>;
+	readonly isReady?: boolean;
+	readonly exited?: boolean;
 	answerSelect?(value: string): Promise<void>;
 	answerConfirm?(confirmed: boolean): Promise<void>;
-	submitAskWizard?(plan: AskFlushStep[]): Promise<void>;
+	submitAskAnswers?(answers: AskDialogAnswer[]): Promise<void>;
 	cancelPendingUi?(): Promise<boolean | void>;
 	clearInferredAttention?(): void;
 	/** L'esito della consegna interessa solo la coda dei task: qui basta attendere. */
@@ -370,8 +374,8 @@ export class SessionRegistry<T extends AgentSessionLike = AgentSession> {
 				await target.answerConfirm?.(response.confirmed);
 				return true;
 			}
-			if (response.action === 'wizard' && response.plan) {
-				await target.submitAskWizard?.(response.plan);
+			if ((response.action === 'wizard' || response.action === 'ask') && response.answers) {
+				await target.submitAskAnswers?.(response.answers);
 				return true;
 			}
 			if (response.action === 'cancel') {

@@ -994,6 +994,14 @@
 		}
 	});
 
+	// Riapplica la modalita' di cache warming a tutte le sessioni agenti attive quando cambia la preferenza generale.
+	$effect(() => {
+		const warming = settingsStore.general.cacheWarming;
+		for (const session of sessionRegistry.getAllSessions()) {
+			void session.applyCacheWarming?.(warming);
+		}
+	});
+
 	/**
 	 * Scrive solo se qualcosa cambia davvero. La versione precedente
 	 * assegnava un oggetto nuovo a ogni chiamata: dentro l'`$effect` qui sopra

@@ -1,4 +1,5 @@
 import { load, type Store } from '@tauri-apps/plugin-store';
+import { invoke } from '@tauri-apps/api/core';
 import { debounce } from 'lodash-es';
 import {
 	type TaskDirective,
@@ -14,7 +15,7 @@ import {
 	sanitizeSuggestionsCatalog,
 	getFactorySuggestion
 } from './promptSuggestions';
-import type { StreamingBehavior, QueueMode, InterruptMode } from '$lib/agent/wire';
+import type { StreamingBehavior, QueueMode, InterruptMode, CacheWarmingMode } from '$lib/agent/wire';
 import { m as msg } from '$lib/paraglide/messages.js';
 import { broadcastToWindows, listenFromWindows } from './windowBridge';
 
@@ -62,7 +63,7 @@ export type ChatWidth = 'readable' | 'full';
  * per token senza animazioni, `final` tutto insieme a risposta conclusa.
  */
 export type ChatReveal = 'blur' | 'stream' | 'final';
-export type { StreamingBehavior, QueueMode, InterruptMode };
+export type { StreamingBehavior, QueueMode, InterruptMode, CacheWarmingMode };
 
 
 export type SettingsSection = 'general' | 'appearance' | 'accessibility' | 'notifications' | 'projectBar' | 'workspace' | 'tasks' | 'models' | 'suggestions' | 'companion' | 'github' | 'doctor';
@@ -199,6 +200,7 @@ export interface GeneralSettings {
 	steeringMode: QueueMode;
 	followUpMode: QueueMode;
 	interruptMode: InterruptMode;
+	cacheWarming: CacheWarmingMode;
 }
 
 
@@ -292,7 +294,8 @@ export const DEFAULT_SETTINGS: StudioSettings = {
 		defaultStreamingBehavior: 'steer',
 		steeringMode: 'one-at-a-time',
 		followUpMode: 'one-at-a-time',
-		interruptMode: 'immediate'
+		interruptMode: 'immediate',
+		cacheWarming: 'idle'
 	},
 	notifications: {
 		enabled: true,
@@ -429,7 +432,8 @@ export function parseSettings(value: unknown): StudioSettings {
 			),
 			steeringMode: pick(general.steeringMode, ['all', 'one-at-a-time'] as const, d.general.steeringMode),
 			followUpMode: pick(general.followUpMode, ['all', 'one-at-a-time'] as const, d.general.followUpMode),
-			interruptMode: pick(general.interruptMode, ['immediate', 'wait'] as const, d.general.interruptMode)
+			interruptMode: pick(general.interruptMode, ['immediate', 'wait'] as const, d.general.interruptMode),
+			cacheWarming: pick(general.cacheWarming, ['off', 'streaming', 'idle'] as const, d.general.cacheWarming)
 		},
 		notifications: {
 			enabled: bool(notif.enabled, d.notifications.enabled),
@@ -556,6 +560,14 @@ class SettingsStore {
 			// Impostazioni illeggibili: si lavora con i default, senza bloccare
 			// l'avvio. Il costo di un errore qui deve restare zero.
 			this.store = null;
+		}
+		try {
+			const persistedWarming = await invoke<string>('get_cache_warming_setting');
+			if (persistedWarming === 'off' || persistedWarming === 'streaming' || persistedWarming === 'idle') {
+				this.general.cacheWarming = persistedWarming;
+			}
+		} catch {
+			// Fallback: mantiene il valore da settings.json o default 'idle'
 		}
 		this.initialized = true;
 		this.ready = true;
@@ -844,7 +856,22 @@ class SettingsStore {
 
 	patchGeneral(patch: Partial<GeneralSettings>) {
 		Object.assign(this.general, patch);
+		if (patch.cacheWarming) {
+			void invoke('set_cache_warming_setting', { mode: patch.cacheWarming }).catch((err) => {
+				console.error('Failed to persist cache warming to config.yml:', err);
+			});
+		}
 		this.save();
+	}
+
+	async setCacheWarming(mode: CacheWarmingMode) {
+		this.general.cacheWarming = mode;
+		this.save();
+		try {
+			await invoke('set_cache_warming_setting', { mode });
+		} catch (error) {
+			console.error('Failed to persist cache warming setting:', error);
+		}
 	}
 
 	toggleSidebar(kind: 'git' | 'lab' = 'git') {

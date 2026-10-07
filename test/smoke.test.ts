@@ -69,7 +69,7 @@ import './prompt-bus.test.ts';
 import './project-tab-metadata.test.ts';
 import './reveal.test.ts';
 import './tool-categories.test.ts';
-import './local-follow-up-queue.test.ts';
+import './queue-restore.test.ts';
 import './composer-submit.test.ts';
 import './ask-stream.test.ts';
 import './chat-drop.test.ts';

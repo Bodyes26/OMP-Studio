@@ -28,3 +28,33 @@ export function isMissingSessionError(stderrLines: readonly string[], sessionId:
 		);
 	});
 }
+
+/**
+ * Riconosce l'errore di modello salvato non piu' disponibile durante la ripresa
+ * della sessione dallo stderr di `omp` (omp >= 18.6.3) ed estrae la stringa del
+ * modello (`provider/id`).
+ *
+ * Il testo emesso da omp e': `Could not restore model <provider/id>` (con eventuale
+ * prefisso `Error: `, virgolette, o codici ANSI colore).
+ */
+export function parseUnavailableResumeModel(stderrLines: readonly string[]): string | null {
+	for (const rawLine of stderrLines) {
+		// Rimuove sequenze di escape ANSI e normalizza gli spazi
+		const line = rawLine.replace(/\u001b\[[0-9;]*[a-zA-Z]/g, '').trim();
+		// Cerca il pattern "could not restore model <modello>"
+		const match = /(?:could not restore model)\s+["']?([^\s"'\r\n]+)/i.exec(line);
+		if (match && match[1]) {
+			let model = match[1].trim();
+			// Pulisce virgolette e punteggiatura terminale della frase (es. virgola, punto e virgola, chiusura parentesi)
+			model = model.replace(/^[/"']+|[/"',;)]+$/g, '');
+			// Rimuove l'eventuale punto finale di fine frase (un modelId non termina con punto)
+			if (model.endsWith('.')) {
+				model = model.slice(0, -1);
+			}
+			if (model.length > 0) {
+				return model;
+			}
+		}
+	}
+	return null;
+}

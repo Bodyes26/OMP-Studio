@@ -11,6 +11,7 @@
 		durationMs: number;
 		model?: string;
 		cost?: number;
+		subagentCost?: number;
 	}
 
 	let { data }: { data: TurnFooterData } = $props();
@@ -49,7 +50,18 @@
 	}
 
 	const durationLabel = $derived(data.durationMs > 0 ? formatDuration(data.durationMs) : null);
-	const costLabel = $derived(formatCost(data.cost));
+	const ownCost = $derived(data.cost ?? 0);
+	const subCost = $derived(data.subagentCost ?? 0);
+	const totalCost = $derived(ownCost + subCost);
+	const costLabel = $derived(formatCost(totalCost > 0 ? totalCost : data.cost));
+	const costTooltip = $derived(
+		subCost > 0
+			? m.chat_session_cost_split({
+					own: `$${ownCost.toFixed(4)}`,
+					subagents: `$${subCost.toFixed(4)}`
+				})
+			: undefined
+	);
 	const toolCallsLabel = $derived(
 		data.toolCallsCount > 0
 			? (data.toolCallsCount === 1
@@ -92,7 +104,7 @@
 		{/if}
 		{#if costLabel}
 			{#if toolCallsLabel || durationLabel || data.model}<span class="sep">·</span>{/if}
-			<span class="meta-item cost">{costLabel}</span>
+			<span class="meta-item cost" title={costTooltip}>{costLabel}</span>
 		{/if}
 	</div>
 </div>

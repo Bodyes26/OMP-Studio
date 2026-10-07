@@ -13,6 +13,20 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ### Added
 - Quando l'agente scrive un file SVG lo vedi come immagine, e un file Mermaid (`.mmd`, `.mermaid`) come diagramma, subito sotto il gruppo di chiamate: l'anteprima resta visibile anche con l'elenco compresso e segue il tema.
+- Pulsante «Modalità» nel composer: attiva o disattiva Fast e Slow per il modello attivo, mostra se l'account è oltre il limite d'uso (corsia lenta o margine di chiusura, con l'orario di reset) e l'esito dell'ultimo riscaldamento della cache dei prompt.
+- Se c'è un obiettivo (`/goal`), il vassoio sopra il composer lo mostra con stato, token usati, budget e tempo, con Pausa, Riprendi ed Elimina.
+- Ogni subagente in esecuzione si può fermare da solo, dal vassoio o dal pannello del suo transcript, senza interrompere la sessione; dal pannello gli si può anche scrivere un messaggio.
+- Il costo della sessione comprende anche quanto spendono i subagenti, con la ripartizione «Sessione · Subagenti» nel pannello del contesto e nel tooltip.
+- Impostazione «Riscaldamento cache» (Impostazioni → Generale): disattivato, solo durante l'esecuzione o anche tra un turno e l'altro; vale per tutte le sessioni, anche quelle già aperte.
+
+### Changed
+- La coda dei messaggi è quella di `omp`: steer e seguiti in attesa compaiono come chip modificabili, eliminabili o da inviare subito come steer; lo Stop riporta nel composer, accanto a quello che stai scrivendo, i messaggi ancora in coda con i loro allegati. `Alt+↑` a composer vuoto riprende l'ultimo messaggio in coda.
+- Le domande dell'agente arrivano tutte insieme e partono con una sola risposta; se `omp` ritira una domanda scaduta, la scheda si chiude con un avviso.
+- Rimuovere un account dalle Impostazioni passa da `omp` quando c'è una sessione aperta, così la sessione smette subito di usarlo; se resta un'altra credenziale valida (per esempio una variabile d'ambiente) viene indicata.
+
+### Fixed
+- Riprendere una sessione il cui modello non è più disponibile non chiude più la chat con un errore: Studio la riapre con il modello del ruolo predefinito e lo segnala, oppure permette di sceglierne un altro.
+- Se la stessa sessione è aperta anche in un terminale, `omp` prosegue in un nuovo file: Studio lo segue, lo segnala e la riapre da lì, con il suo titolo.
 
 ## [1.7.0] - 2026-10-07
 

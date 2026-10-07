@@ -126,7 +126,8 @@ commands.allow = [
     "sessions_list",
     "sessions_search",
     "provider_hosts",
-    "session_credential_pins"
+    "session_credential_pins",
+    "session_subagent_cost"
 ]
 
 [[permission]]
@@ -160,7 +161,9 @@ commands.allow = [
     "refresh_model_provider",
     "check_model_health",
     "apply_model_fixes",
-    "get_role_suggestions"
+    "get_role_suggestions",
+    "get_cache_warming_setting",
+    "set_cache_warming_setting"
 ]
 
 [[permission]]
