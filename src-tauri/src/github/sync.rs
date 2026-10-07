@@ -419,6 +419,7 @@ pub(crate) struct GitPorcelainV2BranchInfo {
 /// - '# branch.head <head>' indica il branch corrente o '(detached)'
 /// - '# branch.upstream <upstream>' indica il branch remoto tracciato
 /// - '# branch.ab +<ahead> -<behind>' indica il disallineamento numerico
+///
 /// Qualsiasi riga non vuota che non inizi con '#' rappresenta modifiche
 /// al working tree (modificati, untracked, conflitti, rinomine).
 pub(crate) fn parse_porcelain_v2_branch(raw: &str) -> GitPorcelainV2BranchInfo {

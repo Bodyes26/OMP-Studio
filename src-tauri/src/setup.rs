@@ -122,6 +122,7 @@ pub(crate) fn read_omp_version(binary: &Path) -> Option<String> {
     // che `cmd.exe /c` non sa eseguire, e su Unix risolverebbe il link di bun
     // fino allo script, cambiando argv[0] rispetto agli altri lanci di omp.
     let ext = binary.extension().and_then(|e| e.to_str()).unwrap_or("");
+    #[cfg_attr(not(target_os = "windows"), allow(unused_mut))]
     let mut cmd = if cfg!(target_os = "windows")
         && (ext.eq_ignore_ascii_case("cmd") || ext.eq_ignore_ascii_case("bat"))
     {

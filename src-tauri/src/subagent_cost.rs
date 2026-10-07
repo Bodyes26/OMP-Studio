@@ -55,8 +55,8 @@ impl BoundedCostCache {
     }
 
     fn insert(&mut self, key: TranscriptCacheKey, cost: f64) {
-        if self.entries.contains_key(&key) {
-            self.entries.insert(key, cost);
+        if let Some(slot) = self.entries.get_mut(&key) {
+            *slot = cost;
             return;
         }
         if self.entries.len() >= MAX_CACHE_ENTRIES {

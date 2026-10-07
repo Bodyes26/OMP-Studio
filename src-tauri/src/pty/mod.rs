@@ -280,10 +280,8 @@ fn write_overlay() -> std::path::PathBuf {
 
     // Memoizzazione in memoria dell'ultimo contenuto scritto: evita I/O superfluo su ogni pty_open (PERF-16).
     let mut last = LAST_OVERLAY.lock();
-    let needs_write = match last.as_deref() {
-        Some(previous) if previous == yml && overlay_path.exists() => false,
-        _ => true,
-    };
+    let needs_write =
+        !matches!(last.as_deref(), Some(previous) if previous == yml && overlay_path.exists());
     if needs_write {
         if let Ok(mut f) = std::fs::File::create(&overlay_path) {
             let _ = f.write_all(yml.as_bytes());

@@ -1635,8 +1635,8 @@ impl BoundedUntrackedLineCache {
     }
 
     fn insert(&mut self, key: UntrackedLineCacheKey, val: Option<u64>) {
-        if self.entries.contains_key(&key) {
-            self.entries.insert(key, val);
+        if let Some(slot) = self.entries.get_mut(&key) {
+            *slot = val;
             return;
         }
 
