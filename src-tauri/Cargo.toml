@@ -60,8 +60,9 @@ windows-sys = { version = "0.59", features = [
 ] }
 
 [profile.release]
-# Ottimizzazione per dimensione ed esecuzione rapida con LTO parallela (Thin LTO)
-opt-level = "s"
+# Ottimizzazione massima della velocita' di esecuzione (opt-level 3 per massime prestazioni
+# CPU su decodifica JSON, SQLite e PTY) con LTO parallela (Thin LTO)
+opt-level = 3
 lto = "thin"
 codegen-units = 16
 panic = "abort"

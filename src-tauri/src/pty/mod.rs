@@ -1,8 +1,8 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{Read, Seek, SeekFrom, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::thread;
 
 use parking_lot::Mutex;
@@ -262,6 +262,9 @@ pub async fn pty_session_info(
 /// `theme.dark`/`theme.light` puntano al tema scritto da `theme_apply`, e solo
 /// se quel file esiste: un nome di tema inesistente farebbe ripiegare `omp`
 /// sul tema builtin `dark`, cambiando l'aspetto della TUI dell'utente.
+static LAST_OVERLAY: LazyLock<parking_lot::Mutex<Option<String>>> =
+    LazyLock::new(|| parking_lot::Mutex::new(None));
+
 fn write_overlay() -> std::path::PathBuf {
     let mut overlay_path = std::env::temp_dir();
     overlay_path.push("omp-studio-overlay.yml");
@@ -275,8 +278,17 @@ fn write_overlay() -> std::path::PathBuf {
         yml.push('\n');
     }
 
-    if let Ok(mut f) = std::fs::File::create(&overlay_path) {
-        let _ = f.write_all(yml.as_bytes());
+    // Memoizzazione in memoria dell'ultimo contenuto scritto: evita I/O superfluo su ogni pty_open (PERF-16).
+    let mut last = LAST_OVERLAY.lock();
+    let needs_write = match last.as_deref() {
+        Some(previous) if previous == yml && overlay_path.exists() => false,
+        _ => true,
+    };
+    if needs_write {
+        if let Ok(mut f) = std::fs::File::create(&overlay_path) {
+            let _ = f.write_all(yml.as_bytes());
+            *last = Some(yml);
+        }
     }
     overlay_path
 }
@@ -311,35 +323,54 @@ pub fn main_agent_system_prompt() -> String {
 /// Cartella delle estensioni di Studio: `%LOCALAPPDATA%/omp-studio/extensions`
 /// su Windows, `~/.omp-studio/extensions` altrove. Mai dentro `~/.omp`.
 fn extensions_dir() -> Option<std::path::PathBuf> {
-    let base = if cfg!(target_os = "windows") {
-        std::env::var("LOCALAPPDATA").ok()?
-    } else {
-        std::env::var("HOME").ok()?
-    };
-    let dir = std::path::Path::new(&base)
-        .join(if cfg!(target_os = "windows") {
-            "omp-studio"
+    static EXTENSIONS_DIR: LazyLock<Option<std::path::PathBuf>> = LazyLock::new(|| {
+        let base = if cfg!(target_os = "windows") {
+            std::env::var("LOCALAPPDATA").ok()?
         } else {
-            ".omp-studio"
-        })
-        .join("extensions");
-    std::fs::create_dir_all(&dir).ok()?;
-    Some(dir)
+            std::env::var("HOME").ok()?
+        };
+        let dir = std::path::Path::new(&base)
+            .join(if cfg!(target_os = "windows") {
+                "omp-studio"
+            } else {
+                ".omp-studio"
+            })
+            .join("extensions");
+        std::fs::create_dir_all(&dir).ok()?;
+        Some(dir)
+    });
+    EXTENSIONS_DIR.clone()
 }
+
+static VERIFIED_EXTENSIONS: LazyLock<parking_lot::Mutex<HashSet<PathBuf>>> =
+    LazyLock::new(|| parking_lot::Mutex::new(HashSet::new()));
 
 /// Estrae un'estensione inclusa nel binario e ritorna il percorso da passare
 /// a omp con `-e`. Riscrive il file quando il sorgente incluso differisce
 /// dalla copia su disco: aggiornando Studio si aggiornano le estensioni.
+/// Memoizza per percorso entro il processo: dopo la prima verifica basta una
+/// `stat` (esistenza e dimensione) invece di rileggere il file a ogni lancio.
+/// La dimensione copre il caso di un'altra istanza di Studio (stabile e
+/// nightly insieme) che riscrive la sua versione dell'estensione.
 /// None = impossibile scrivere: le sessioni partono comunque, solo senza
 /// quell'estensione.
 pub fn write_extension(file_name: &str, source: &str) -> Option<String> {
     let path = extensions_dir()?.join(file_name);
+    if VERIFIED_EXTENSIONS.lock().contains(&path)
+        && std::fs::metadata(&path).is_ok_and(|m| m.len() == source.len() as u64)
+    {
+        return Some(path.to_string_lossy().to_string());
+    }
     let stale = match std::fs::read_to_string(&path) {
         Ok(existing) => existing != source,
         Err(_) => true,
     };
     if stale {
         std::fs::write(&path, source).ok()?;
+    }
+    {
+        let mut guard = VERIFIED_EXTENSIONS.lock();
+        guard.insert(path.clone());
     }
     Some(path.to_string_lossy().to_string())
 }
@@ -700,7 +731,44 @@ pub async fn pty_open(
         });
     }
 
-    // Read thread
+    // Zero-latency coalescing (PERF-15):
+    // Il thread lettore spinge i chunk letti su un canale mpsc in memoria.
+    // Il thread forwarder si blocca con `recv()` sul primo chunk (zero latenza aggiunta
+    // per singoli tasti o echo) e poi aggrega con `try_recv()` tutti i dati gia'
+    // in coda (fino a 256 KiB) prima di emettere un singolo messaggio IPC `on_output.send(...)`.
+    let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
+
+    thread::spawn(move || {
+        const MAX_COALESCED_BYTES: usize = 256 * 1024;
+        let mut pending: Option<Vec<u8>> = None;
+        loop {
+            let mut coalesced = match pending.take() {
+                Some(chunk) => chunk,
+                None => match rx.recv() {
+                    Ok(chunk) => chunk,
+                    Err(_) => break,
+                },
+            };
+
+            while coalesced.len() < MAX_COALESCED_BYTES {
+                match rx.try_recv() {
+                    Ok(next) => {
+                        if coalesced.len() + next.len() > MAX_COALESCED_BYTES && !coalesced.is_empty() {
+                            pending = Some(next);
+                            break;
+                        }
+                        coalesced.extend_from_slice(&next);
+                    }
+                    Err(_) => break,
+                }
+            }
+
+            if on_output.send(Response::new(coalesced)).is_err() {
+                break;
+            }
+        }
+    });
+
     thread::spawn(move || {
         let mut buf = [0u8; 65536];
         let mut reader = reader;
@@ -708,7 +776,7 @@ pub async fn pty_open(
         loop {
             match reader.read(&mut buf) {
                 Ok(n) if n > 0 => {
-                    if on_output.send(Response::new(buf[..n].to_vec())).is_err() {
+                    if tx.send(buf[..n].to_vec()).is_err() {
                         break;
                     }
                 }

@@ -7,6 +7,13 @@ import TsWorker from 'monaco-editor/language/typescript/ts.worker?worker';
 import { canvasColors, onThemeChange } from '$lib/theme';
 import { settingsStore, withFontFamily } from '$lib/stores/settings.svelte';
 import { perfMark } from '$lib/perf';
+import {
+	registerActiveEditorProvider,
+	type EditorSelectionInfo,
+	type ActiveEditorInfo
+} from './activeEditor';
+
+export type { EditorSelectionInfo, ActiveEditorInfo };
 
 let monacoInitialized = false;
 
@@ -207,16 +214,6 @@ export function getCurrentFileContent(absPath: string): string | null {
 	const model = models.get(absPath);
 	return model ? model.getValue(undefined, true) : null;
 }
-export interface EditorSelectionInfo {
-	selectionText: string;
-	startLine: number;
-	startColumn: number;
-	endLine: number;
-	endColumn: number;
-	hasFocus: boolean;
-	cursorLine: number;
-	cursorColumn: number;
-}
 
 export function getActiveEditorInfo(): {
 	activePath: string | null;
@@ -253,6 +250,9 @@ export function getActiveEditorInfo(): {
 		}
 	};
 }
+
+// Registra il provider per consentire la lettura live da editorContext senza import statico
+registerActiveEditorProvider(getActiveEditorInfo);
 
 export { languageForFile } from './languages';
 

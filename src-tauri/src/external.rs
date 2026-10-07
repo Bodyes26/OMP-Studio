@@ -219,24 +219,10 @@ fn vscode_exe_candidates_from_shim(shim: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
-/// Percorsi che `where.exe` associa a un nome, senza passare da una shell.
+/// Percorsi associati a un nome sul PATH, risolti nativamente in-process senza spawnare `where.exe`.
 #[cfg(target_os = "windows")]
 fn where_on_path(name: &str) -> Vec<PathBuf> {
-    let mut cmd = Command::new("where.exe");
-    cmd.arg(name);
-    cmd.creation_flags(CREATE_NO_WINDOW);
-    let Ok(out) = cmd.output() else {
-        return Vec::new();
-    };
-    if !out.status.success() {
-        return Vec::new();
-    }
-    String::from_utf8_lossy(&out.stdout)
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .map(PathBuf::from)
-        .collect()
+    crate::path_lookup::find_all(name)
 }
 
 /// Eseguibili di VS Code effettivamente presenti, in ordine di preferenza.

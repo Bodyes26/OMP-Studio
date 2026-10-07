@@ -181,7 +181,7 @@
 	 * precedente arrivava dopo ed elencava sessioni che non sono di qui.
 	 */
 	let requestToken = 0;
-
+	let lastLoadedAt = 0;
 	async function loadSessions(customQuery?: string) {
 		const target = projectPath;
 		const token = ++requestToken;
@@ -197,6 +197,7 @@
 			knownSessions = trackFresh(knownSessions, result.map((s) => s.id), fresh);
 			freshKeys = fresh;
 			sessions = result;
+			lastLoadedAt = Date.now();
 			scheduleReconciliation();
 			// Solo l'elenco completo: i risultati di una ricerca sono un
 			// sottoinsieme casuale, i titoli si generano all'apertura dello storico.
@@ -266,7 +267,12 @@
 				void loadSessions();
 			}
 		};
-		const onFocus = () => void loadSessions();
+		const onFocus = () => {
+			// Soglia di freschezza di 10 s: evita tempeste di scansioni disco
+			// quando l'utente fa alt-tab frequenti tra Studio e l'editor/browser.
+			if (Date.now() - lastLoadedAt < 10_000) return;
+			void loadSessions();
+		};
 		window.addEventListener('focus', onFocus);
 		window.addEventListener('studio-sessions-refresh', refresh);
 		return () => {

@@ -810,7 +810,7 @@
 	.lane-tab-item.attention::after {
 		box-shadow: inset 0 0 0 1.5px var(--warn);
 		animation: breathing-amber-ring var(--dur-breathing, 1.9s) var(--ease-breathing, cubic-bezier(0.4, 0, 0.2, 1)) infinite;
-		will-change: opacity, box-shadow;
+		will-change: opacity;
 	}
 
 	.lane-tab-item.finished::after {

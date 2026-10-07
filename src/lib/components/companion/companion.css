@@ -401,10 +401,8 @@
 	color: var(--ink-muted);
 }
 
-/*
-	Anello ambra che respira: la tessera aspetta te. E' uno dei movimenti
-	persistenti ammessi (Alive-and-Visible Rule), solo per lo stato vivo.
-*/
+/* Anello ambra che respira: keyframe globale `breathing-amber-ring` (app.css),
+   che anima solo l'opacita' dell'anello statico. */
 .project-card.attention::after {
 	content: '';
 	position: absolute;
@@ -413,7 +411,7 @@
 	box-shadow: inset 0 0 0 1.5px var(--warn);
 	pointer-events: none;
 	animation: breathing-amber-ring var(--dur-breathing, 1.9s) var(--ease-breathing, cubic-bezier(0.4, 0, 0.2, 1)) infinite;
-	will-change: opacity, box-shadow;
+	will-change: opacity;
 }
 
 @media (prefers-reduced-motion: reduce) {

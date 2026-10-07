@@ -204,17 +204,17 @@
 }
 
 /* Respiro dell'anello ambra nello stato 'attention' (attesa input utente / ask).
-   Curva sinusoidale organica (breathing easing) che varia con continuita'
-   l'opacita' e l'espansione dell'anello inset, senza costosi repaint. */
+   Curva sinusoidale organica (breathing easing). L'anello e' un box-shadow
+   statico sul pseudo-elemento e qui varia solo l'opacita': animare il
+   box-shadow costringeva a ridisegnare l'anello a ogni frame sulla CPU,
+   l'opacita' la compone la GPU. */
 @keyframes breathing-amber-ring {
   0%, 100% {
     opacity: 0.35;
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-amber, var(--warn)) 40%, transparent);
     animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
   }
   50% {
     opacity: 1;
-    box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--color-amber, var(--warn)) 90%, transparent);
     animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
   }
 }

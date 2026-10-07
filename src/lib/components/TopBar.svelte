@@ -50,6 +50,7 @@
 	import { openLabEntry, reportLabDeleteFailure } from '$lib/lanes/laneActions';
 	import { deleteLabPrototype } from '$lib/lanes/laneLifecycle';
 	import { ask } from '@tauri-apps/plugin-dialog';
+	import { createAdaptivePoller } from '$lib/utils/windowActivity.svelte';
 
 	let {
 		onUsageClick, onNewProject, onSettingsClick, onSetupClick, onQueueClick,
@@ -383,43 +384,27 @@
 			}
 		};
 
-		// Focus della finestra: aggiorna SOLO il progetto attivo, con soglia minima di 5 s
-		const handleFocus = () => {
-			const active = projectStore.projects.find((p) => p.id === projectStore.activeId);
-			if (active) {
-				void refreshTopBarProject(active, 'focus', false);
-			}
-		};
-
-		// Cambio visibilita': al rientro visibile aggiorna una sola volta il progetto attivo
-		const handleVisibilityChange = () => {
-			if (document.visibilityState === 'visible') {
+		// Poller adattivo locale da 15 s: rallenta a 60 s quando la finestra e' visibile
+		// ma non a fuoco (es. secondo monitor) per non sprecare spawn git; si sospende
+		// del tutto se nascosta e si riaggiorna al rientro a fuoco (cooldown 5 s).
+		const poller = createAdaptivePoller({
+			focusedIntervalMs: 15_000,
+			unfocusedIntervalMs: 60_000,
+			cooldownMs: 5_000,
+			action: (reason) => {
 				const active = projectStore.projects.find((p) => p.id === projectStore.activeId);
 				if (active) {
-					void refreshTopBarProject(active, 'visible', false);
+					void refreshTopBarProject(active, reason, false);
 				}
 			}
-		};
-
-		// Poller ogni 15 s: ignora i tick se la finestra e' minimizzata o nascosta
-		const interval = window.setInterval(() => {
-			if (document.visibilityState === 'hidden') return;
-			const active = projectStore.projects.find((p) => p.id === projectStore.activeId);
-			if (active) {
-				void refreshTopBarProject(active, 'interval', false);
-			}
-		}, 15_000);
+		});
 
 		window.addEventListener('git-status-refresh', handleGitRefresh);
-		window.addEventListener('focus', handleFocus);
-		document.addEventListener('visibilitychange', handleVisibilityChange);
 
 		return () => {
 			cancelled = true;
 			window.removeEventListener('git-status-refresh', handleGitRefresh);
-			window.removeEventListener('focus', handleFocus);
-			document.removeEventListener('visibilitychange', handleVisibilityChange);
-			clearInterval(interval);
+			poller.destroy();
 		};
 	});
 
@@ -1692,7 +1677,7 @@
 	.tab.attention::after {
 		box-shadow: inset 0 0 0 1.5px var(--warn);
 		animation: breathing-amber-ring var(--dur-breathing, 1.9s) var(--ease-breathing, cubic-bezier(0.4, 0, 0.2, 1)) infinite;
-		will-change: opacity, box-shadow;
+		will-change: opacity;
 	}
 
 	.tab.finished::after {

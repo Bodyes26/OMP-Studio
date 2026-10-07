@@ -94,65 +94,33 @@ pub(crate) fn omp_binary_if_present() -> Option<PathBuf> {
     which_on_path(&resolved)
 }
 
-/// Risolve un eseguibile sul `PATH` senza dipendenze: `where` su Windows,
-/// `command -v` altrove.
+/// Risolve un eseguibile sul `PATH` senza spawnare processi esterni (`where.exe` o `sh -c`).
 fn which_on_path(program: &str) -> Option<PathBuf> {
-    #[cfg(target_os = "windows")]
-    {
-        let mut cmd = Command::new("where.exe");
-        cmd.arg(program);
-        cmd.creation_flags(CREATE_NO_WINDOW);
-        if let Ok(output) = cmd.output() {
-            if output.status.success() {
-                let text = String::from_utf8_lossy(&output.stdout);
-                if let Some(first) = text.lines().next().map(|l| l.trim()) {
-                    if !first.is_empty() {
-                        return Some(PathBuf::from(first));
-                    }
-                }
-            }
-        }
-        // Prova con estensioni comuni se non presenti
-        if !program.ends_with(".exe") && !program.ends_with(".cmd") && !program.ends_with(".bat") {
-            for ext in &[".exe", ".cmd", ".bat", ".ps1"] {
-                let candidate = format!("{}{}", program, ext);
-                let mut cmd = Command::new("where.exe");
-                cmd.arg(&candidate);
-                cmd.creation_flags(CREATE_NO_WINDOW);
-                if let Ok(out) = cmd.output() {
-                    if out.status.success() {
-                        let text = String::from_utf8_lossy(&out.stdout);
-                        if let Some(first) = text.lines().next().map(|l| l.trim()) {
-                            if !first.is_empty() {
-                                return Some(PathBuf::from(first));
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        None
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let output = Command::new("sh")
-            .arg("-c")
-            .arg(format!("command -v {}", program))
-            .output()
-            .ok()?;
-        if !output.status.success() {
-            return None;
-        }
-        let text = String::from_utf8_lossy(&output.stdout);
-        let first = text.lines().next()?.trim();
-        (!first.is_empty()).then(|| PathBuf::from(first))
-    }
+    crate::path_lookup::which(program)
 }
 
 pub(crate) fn read_omp_version(binary: &Path) -> Option<String> {
-    if let Some(cached) = crate::omp_ops::get_cached_omp_version_for(binary) {
+    let canonical = crate::omp_ops::canonicalize_binary(binary);
+    // 1. Lettura veloce dalla cache senza acquisire il lock di single-flight
+    if let Some(cached) = crate::omp_ops::get_cached_omp_version_for(&canonical) {
         return Some(cached);
     }
+
+    // 2. Single-flight: se piu' chiamate concorrenti (es. setup_status e get_omp_version
+    // all'avvio) arrivano insieme a cache fredda, la prima esegue il processo e le altre
+    // attendono il suo completamento invece di forkare piu' volte `omp --version`.
+    static SPAWN_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = SPAWN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+
+    // 3. Double-checked locking: ri-verifichiamo la cache dopo aver acquisito il lock
+    if let Some(cached) = crate::omp_ops::get_cached_omp_version_for(&canonical) {
+        return Some(cached);
+    }
+
+    // Il percorso canonico serve solo da chiave di cache: si lancia il binario
+    // cosi' come e' stato risolto. Su Windows `canonicalize` produce `\\?\C:\...`,
+    // che `cmd.exe /c` non sa eseguire, e su Unix risolverebbe il link di bun
+    // fino allo script, cambiando argv[0] rispetto agli altri lanci di omp.
     let ext = binary.extension().and_then(|e| e.to_str()).unwrap_or("");
     let mut cmd = if cfg!(target_os = "windows")
         && (ext.eq_ignore_ascii_case("cmd") || ext.eq_ignore_ascii_case("bat"))
@@ -171,7 +139,9 @@ pub(crate) fn read_omp_version(binary: &Path) -> Option<String> {
         "boot",
         crate::perf_trace::command_label(binary.to_string_lossy().as_ref(), ["--version"]),
     );
-    let output = cmd.output().ok()?;
+    // Usiamo omp_capture per raccogliere stdout/stderr ed evitare che il figlio
+    // lasci file di log orfani in ~/.omp/logs.
+    let output = crate::omp_ops::omp_capture(cmd).ok()?;
     // Con exit diverso da 0 lo stderr e' un messaggio d'errore, non una versione:
     // leggerlo come tale (e metterlo in cache) mostrava l'errore al posto della versione.
     if !output.status.success() {
@@ -181,7 +151,7 @@ pub(crate) fn read_omp_version(binary: &Path) -> Option<String> {
         &String::from_utf8_lossy(&output.stdout),
         &String::from_utf8_lossy(&output.stderr),
     )?;
-    crate::omp_ops::set_cached_omp_version_for(binary, ver.clone());
+    crate::omp_ops::set_cached_omp_version_for(&canonical, ver.clone());
     Some(ver)
 }
 

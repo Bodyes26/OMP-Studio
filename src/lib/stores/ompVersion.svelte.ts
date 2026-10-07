@@ -29,7 +29,7 @@ class OmpVersionStore {
 		if (this.current === null) void this.refresh();
 	}
 
-	set(version: string): void {
+	set(version: string | null): void {
 		this.current = version;
 	}
 }

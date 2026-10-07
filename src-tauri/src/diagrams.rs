@@ -150,27 +150,37 @@ fn scan_and_emit(app: &AppHandle, state: &DiagramWatcherState) {
 fn setup_diagrams_watcher(
     dir: &std::path::Path,
     tx: std::sync::mpsc::Sender<()>,
-) -> Option<notify::RecommendedWatcher> {
-    let mut watcher = notify::recommended_watcher(move |_res| {
+) -> (Option<notify::RecommendedWatcher>, bool) {
+    let Ok(mut watcher) = notify::recommended_watcher(move |_res| {
         let _ = tx.send(());
-    })
-    .ok()?;
-    // Preferiamo osservare la cartella genitrice in modo ricorsivo:
-    // se l'utente cancella la cartella `diagrams` e poi omp la ricrea,
-    // il descrittore sulla cartella padre non viene invalidato.
+    }) else {
+        return (None, false);
+    };
+
+    // Se la cartella `diagrams` esiste, la osserviamo direttamente in modalita' non ricorsiva:
+    // `scan_and_emit` legge solo i file .json diretti senza scendere in sottocartelle (PERF-14).
+    if dir.exists() && watcher.watch(dir, RecursiveMode::NonRecursive).is_ok() {
+        return (Some(watcher), true);
+    }
+
+    // Se la cartella non esiste ancora, osserviamo il genitore (~/.omp-studio)
+    // in modo NON ricorsivo solo per accorgerci di quando la cartella viene creata,
+    // per poi passare a osservare direttamente il target.
     if let Some(parent) = dir.parent() {
-        if watcher.watch(parent, RecursiveMode::Recursive).is_ok() {
-            return Some(watcher);
+        if parent.exists() && watcher.watch(parent, RecursiveMode::NonRecursive).is_ok() {
+            return (Some(watcher), false);
         }
     }
+
     if watcher.watch(dir, RecursiveMode::NonRecursive).is_ok() {
-        return Some(watcher);
+        return (Some(watcher), true);
     }
-    None
+
+    (None, false)
 }
 
 /// Avvia il watcher all'avvio dell'app. Un thread a eventi con debounce di
-/// 150 ms e controllo di sicurezza ogni 10 s: nessun polling a 2 Hz.
+/// 150 ms e controllo di sicurezza ogni 60 s (PERF-14): nessun polling a 2 Hz.
 pub fn spawn_watcher(app: AppHandle) {
     std::thread::spawn(move || {
         let state = DiagramWatcherState::new();
@@ -179,25 +189,40 @@ pub fn spawn_watcher(app: AppHandle) {
         let _ = std::fs::create_dir_all(&dir);
 
         let (tx, rx) = std::sync::mpsc::channel();
-        let mut watcher = setup_diagrams_watcher(&dir, tx.clone());
+        let (mut watcher, mut watching_target) = setup_diagrams_watcher(&dir, tx.clone());
 
         // Prima scansione iniziale per raccogliere eventuali diagrammi gia' pronti
         scan_and_emit(&app, &state);
 
         loop {
-            // Attende un evento dal watcher con un timeout di sicurezza di 10 s.
-            match rx.recv_timeout(Duration::from_secs(10)) {
+            // Timeout allungato a 60 s per ridurre i risvegli periodici a riposo (PERF-14).
+            match rx.recv_timeout(Duration::from_secs(60)) {
                 Ok(()) => {
                     // Debounce di 150 ms per raggruppare scritture rapide dello stesso file
                     std::thread::sleep(Duration::from_millis(150));
                     while rx.try_recv().is_ok() {}
+
+                    // Se stavamo osservando il genitore in attesa della creazione della cartella,
+                    // passiamo a osservare direttamente il target non appena esiste.
+                    if !watching_target && dir.exists() {
+                        let (new_watcher, target) = setup_diagrams_watcher(&dir, tx.clone());
+                        if new_watcher.is_some() {
+                            watcher = new_watcher;
+                            watching_target = target;
+                        }
+                    }
+
                     scan_and_emit(&app, &state);
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                    // Rescan di sicurezza periodico ogni 10 s
-                    if !dir.exists() || watcher.is_none() {
+                    // Rescan di sicurezza periodico ogni 60 s (PERF-14)
+                    if !dir.exists() || watcher.is_none() || !watching_target {
                         let _ = std::fs::create_dir_all(&dir);
-                        watcher = setup_diagrams_watcher(&dir, tx.clone());
+                        let (new_watcher, target) = setup_diagrams_watcher(&dir, tx.clone());
+                        if new_watcher.is_some() {
+                            watcher = new_watcher;
+                            watching_target = target;
+                        }
                     }
                     scan_and_emit(&app, &state);
                 }

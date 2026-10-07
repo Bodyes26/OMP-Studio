@@ -28,11 +28,6 @@
 		IconTerminal,
 		IconClose
 	} from '$lib/icons';
-	import {
-		createDiffEditorInstance,
-		applyEditorSettings,
-		languageForFile
-	} from '$lib/editor/monaco';
 	import type { AgentLane, ProjectId } from '$lib/types/lanes';
 	import type { LaneRecord } from '$lib/stores/lanePersistence';
 	import type { Project } from '$lib/stores/projects.svelte';
@@ -339,6 +334,11 @@
 					modified = modRes.content;
 				}
 
+				// Monaco si carica qui e non con un import statico: questo modale e'
+				// montato dalla pagina principale e lo trascinerebbe (editor e worker)
+				// nel bundle iniziale, anche per chi non apre mai una revisione.
+				const { createDiffEditorInstance, applyEditorSettings, languageForFile } =
+					await import('$lib/editor/monaco');
 				if (!active) return;
 				if (!container || !filePath) return;
 				cleanupDiff();

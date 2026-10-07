@@ -56,6 +56,7 @@ use models_ops::{
     get_models_catalog, get_role_suggestions, refresh_model_provider, refresh_models_catalog,
     remove_auth_account, save_custom_providers, save_model_config, set_cache_warming_setting,
 };
+pub(crate) mod path_lookup;
 mod setup;
 use setup::{detect_project_roots, install_nerd_font, install_omp, setup_status};
 mod alerts;

@@ -26,6 +26,20 @@ let started = false;
 let pending: string[] = [];
 let flushTimer: number | null = null;
 let lastAgent = '-';
+/**
+ * Diagnostica disattivata di default in produzione per azzerare I/O e roundtrip IPC.
+ * Per riabilitarla eseguire nella console:
+ *   localStorage.setItem('studio.focusTrace', '1')
+ * e ricaricare l'applicazione (oppure eseguire in modalita' di sviluppo).
+ */
+export function isFocusTraceEnabled(): boolean {
+	if (typeof window === 'undefined') return false;
+	try {
+		return Boolean(import.meta.env.DEV || window.localStorage?.getItem('studio.focusTrace') === '1');
+	} catch {
+		return false;
+	}
+}
 
 function describe(node: EventTarget | null): string {
 	if (!node) return 'null';
@@ -67,7 +81,7 @@ function schedule() {
  * nella finestra Companion, dove non viene avviato) e' una funzione vuota.
  */
 export function traceFocus(kind: string, detail = ''): void {
-	if (!started) return;
+	if (!started || !isFocusTraceEnabled()) return;
 	const stamp = new Date().toISOString().slice(11, 23);
 	const window_ = document.hasFocus() ? 'fg' : 'bg';
 	const line =
@@ -79,13 +93,14 @@ export function traceFocus(kind: string, detail = ''): void {
 
 /** Ultima attivita' dell'agente, usata per correlare i salti di fuoco. */
 export function traceAgent(detail: string): void {
+	if (!started || !isFocusTraceEnabled()) return;
 	lastAgent = detail;
 	traceFocus('agent', '');
 }
 
 /** Avvia il tracciatore nella finestra principale. Idempotente. */
 export async function startFocusTracer(): Promise<void> {
-	if (started) return;
+	if (started || !isFocusTraceEnabled()) return;
 	started = true;
 
 	window.addEventListener('focus', () => traceFocus('window-focus'));

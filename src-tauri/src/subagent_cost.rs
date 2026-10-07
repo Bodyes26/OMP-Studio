@@ -1,7 +1,9 @@
+use std::collections::{HashMap, VecDeque};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-
+use std::sync::{LazyLock, Mutex};
+use std::time::SystemTime;
 // Deserializzazione minimale per estrarre solo usage.cost.total dai messaggi
 // assistente nei transcript JSONL dei subagent.
 #[derive(serde::Deserialize)]
@@ -24,6 +26,51 @@ struct MessageEntry {
 struct LineEntry {
     message: Option<MessageEntry>,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct TranscriptCacheKey {
+    path: PathBuf,
+    mtime: SystemTime,
+    len: u64,
+}
+
+/// Limite massimo di transcript subagent memorizzati in memoria (PERF-17).
+const MAX_CACHE_ENTRIES: usize = 2048;
+
+struct BoundedCostCache {
+    entries: HashMap<TranscriptCacheKey, f64>,
+    order: VecDeque<TranscriptCacheKey>,
+}
+
+impl BoundedCostCache {
+    fn new() -> Self {
+        Self {
+            entries: HashMap::with_capacity(256),
+            order: VecDeque::with_capacity(256),
+        }
+    }
+
+    fn get(&self, key: &TranscriptCacheKey) -> Option<f64> {
+        self.entries.get(key).copied()
+    }
+
+    fn insert(&mut self, key: TranscriptCacheKey, cost: f64) {
+        if self.entries.contains_key(&key) {
+            self.entries.insert(key, cost);
+            return;
+        }
+        if self.entries.len() >= MAX_CACHE_ENTRIES {
+            if let Some(oldest) = self.order.pop_front() {
+                self.entries.remove(&oldest);
+            }
+        }
+        self.order.push_back(key.clone());
+        self.entries.insert(key, cost);
+    }
+}
+
+static COST_CACHE: LazyLock<Mutex<BoundedCostCache>> =
+    LazyLock::new(|| Mutex::new(BoundedCostCache::new()));
 
 /// Legge in streaming riga per riga un file di transcript `.jsonl`, estraendo e
 /// sommando i costi dei messaggi assistente senza caricare l'intero file in memoria.
@@ -94,7 +141,33 @@ pub fn session_subagent_cost_sync(session_file: &str) -> f64 {
 
     let mut total = 0.0;
     for file in files {
-        total += file_subagent_cost(&file);
+        // Memoizzazione per file (PERF-17): la chiave unisce percorso,
+        // data di modifica e dimensione. Se il transcript e' immutato si
+        // evita di riaprire e ri-deserializzare l'intero file JSONL.
+        let meta = std::fs::metadata(&file).ok();
+        let key = meta.map(|m| TranscriptCacheKey {
+            path: file.clone(),
+            mtime: m.modified().unwrap_or(SystemTime::UNIX_EPOCH),
+            len: m.len(),
+        });
+
+        if let Some(k) = &key {
+            let cached = {
+                let cache = COST_CACHE.lock().unwrap_or_else(|p| p.into_inner());
+                cache.get(k)
+            };
+            if let Some(cost) = cached {
+                total += cost;
+                continue;
+            }
+        }
+
+        let cost = file_subagent_cost(&file);
+        if let Some(k) = key {
+            let mut cache = COST_CACHE.lock().unwrap_or_else(|p| p.into_inner());
+            cache.insert(k, cost);
+        }
+        total += cost;
     }
     total
 }
@@ -170,6 +243,32 @@ mod tests {
         let cost = session_subagent_cost_sync(session_file.to_str().unwrap());
         let expected = 0.123;
         assert!((cost - expected).abs() < 1e-6);
+
+        // Pulizia
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_subagent_cost_memoization() {
+        let temp_dir = std::env::temp_dir().join(format!("omp_test_subagents_memo_{}", std::process::id()));
+        let session_file = temp_dir.join("memo_session.jsonl");
+        let artifacts_dir = temp_dir.join("memo_session");
+
+        fs::create_dir_all(&artifacts_dir).unwrap();
+        let sub_file = artifacts_dir.join("sub_memo.jsonl");
+        let mut sub = File::create(&sub_file).unwrap();
+        writeln!(
+            sub,
+            r#"{{"type":"message","message":{{"role":"assistant","usage":{{"cost":{{"total":0.50}}}}}}}}"#
+        )
+        .unwrap();
+
+        let cost1 = session_subagent_cost_sync(session_file.to_str().unwrap());
+        assert!((cost1 - 0.50).abs() < 1e-6);
+
+        // Seconda chiamata: deve restituire lo stesso risultato via cache
+        let cost2 = session_subagent_cost_sync(session_file.to_str().unwrap());
+        assert_eq!(cost1, cost2);
 
         // Pulizia
         let _ = fs::remove_dir_all(&temp_dir);

@@ -7,26 +7,77 @@
 	let { value, label = 'argomenti' } = $props<{ value: unknown; label?: string }>();
 
 	let open = $state(false);
+	function hasJsonContent(val: unknown): boolean {
+		if (val === null || val === undefined) return false;
+		if (typeof val !== 'object') return true;
+		if (Array.isArray(val)) return val.length > 0;
+		return Object.keys(val).length > 0;
+	}
 
+	function estimateJsonLines(val: unknown, depth = 3): number {
+		if (val === null || typeof val !== 'object') return 1;
+		if (Array.isArray(val)) {
+			if (val.length === 0) return 1;
+			let lines = 2;
+			for (let i = 0; i < val.length; i++) {
+				if (lines > 500) return lines;
+				lines += depth > 0 && typeof val[i] === 'object' && val[i] !== null
+					? estimateJsonLines(val[i], depth - 1)
+					: 1;
+			}
+			return lines;
+		}
+		const keys = Object.keys(val);
+		if (keys.length === 0) return 1;
+		let lines = 2;
+		for (let i = 0; i < keys.length; i++) {
+			if (lines > 500) return lines;
+			const v = (val as Record<string, unknown>)[keys[i]];
+			lines += depth > 0 && typeof v === 'object' && v !== null
+				? estimateJsonLines(v, depth - 1)
+				: 1;
+		}
+		return lines;
+	}
+
+	const hasContent = $derived(hasJsonContent(value));
+
+	// Calcola la stringa formattata solo quando il blocco e' aperto,
+	// evitando serializzazioni inutili quando i dettagli sono chiusi
 	const text = $derived.by(() => {
+		if (!open || !hasContent) return '';
 		try {
 			return JSON.stringify(value, null, 2) ?? '';
 		} catch {
-			// Riferimenti circolari non arrivano dal filo, ma un oggetto con un
-			// getter che lancia si: meglio una riga onesta che una card rotta.
 			return '(payload non serializzabile)';
 		}
 	});
-	const lineCount = $derived(text ? text.split('\n').length : 0);
+
+	// Conteggio righe: esatto quando aperto (con ciclo rapido su newline),
+	// stimato a basso costo quando chiuso senza stringify
+	const lineCount = $derived.by(() => {
+		if (!hasContent) return 0;
+		if (open && text) {
+			let count = 1;
+			let pos = -1;
+			while ((pos = text.indexOf('\n', pos + 1)) !== -1) {
+				count++;
+			}
+			return count;
+		}
+		return estimateJsonLines(value);
+	});
 </script>
 
-{#if text && text !== '{}'}
+{#if hasContent}
 	<details bind:open>
 		<summary>
 			<span class="chevron" aria-hidden="true"><IconChevronRight /></span>
 			<span>{label} · {m.chat_lines_count({ count: lineCount })}</span>
 		</summary>
-		<pre>{text}</pre>
+		{#if open}
+			<pre>{text}</pre>
+		{/if}
 	</details>
 {/if}
 

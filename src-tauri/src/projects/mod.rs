@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::io::{self, Read};
 #[cfg(target_os = "windows")]
@@ -7,7 +7,8 @@ use std::os::windows::process::CommandExt;
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration, Instant};
+use std::sync::{LazyLock, Mutex};
+use std::time::{Duration, Instant, SystemTime};
 use tauri::command;
 use tauri::ipc::Response;
 
@@ -476,28 +477,32 @@ pub async fn path_create_file(
     parent_rel: String,
     name: String,
 ) -> Result<Dirent, String> {
-    let (dest_path, parent_norm, file_name) =
-        resolve_new_destination(&project_path, &parent_rel, &name)?;
+    tokio::task::spawn_blocking(move || {
+        let (dest_path, parent_norm, file_name) =
+            resolve_new_destination(&project_path, &parent_rel, &name)?;
 
-    let file = fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&dest_path)
-        .map_err(|e| format!("Impossibile creare il file '{}': {}", name, e))?;
+        let file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&dest_path)
+            .map_err(|e| format!("Impossibile creare il file '{}': {}", name, e))?;
 
-    drop(file);
+        drop(file);
 
-    let rel_path = if parent_norm.is_empty() {
-        file_name.clone()
-    } else {
-        format!("{}/{}", parent_norm, file_name)
-    };
+        let rel_path = if parent_norm.is_empty() {
+            file_name.clone()
+        } else {
+            format!("{}/{}", parent_norm, file_name)
+        };
 
-    Ok(Dirent {
-        name: file_name,
-        path: rel_path,
-        is_dir: false,
+        Ok(Dirent {
+            name: file_name,
+            path: rel_path,
+            is_dir: false,
+        })
     })
+    .await
+    .map_err(|e| format!("Task path_create_file: {e}"))?
 }
 
 #[command]
@@ -506,23 +511,27 @@ pub async fn path_create_directory(
     parent_rel: String,
     name: String,
 ) -> Result<Dirent, String> {
-    let (dest_path, parent_norm, dir_name) =
-        resolve_new_destination(&project_path, &parent_rel, &name)?;
+    tokio::task::spawn_blocking(move || {
+        let (dest_path, parent_norm, dir_name) =
+            resolve_new_destination(&project_path, &parent_rel, &name)?;
 
-    fs::create_dir(&dest_path)
-        .map_err(|e| format!("Impossibile creare la cartella '{}': {}", name, e))?;
+        fs::create_dir(&dest_path)
+            .map_err(|e| format!("Impossibile creare la cartella '{}': {}", name, e))?;
 
-    let rel_path = if parent_norm.is_empty() {
-        dir_name.clone()
-    } else {
-        format!("{}/{}", parent_norm, dir_name)
-    };
+        let rel_path = if parent_norm.is_empty() {
+            dir_name.clone()
+        } else {
+            format!("{}/{}", parent_norm, dir_name)
+        };
 
-    Ok(Dirent {
-        name: dir_name,
-        path: rel_path,
-        is_dir: true,
+        Ok(Dirent {
+            name: dir_name,
+            path: rel_path,
+            is_dir: true,
+        })
     })
+    .await
+    .map_err(|e| format!("Task path_create_directory: {e}"))?
 }
 
 /// Contatore dei nomi temporanei della rinomina in due passi: il pid da solo
@@ -603,112 +612,124 @@ pub async fn path_rename(
     rel: String,
     new_name: String,
 ) -> Result<Dirent, String> {
-    validate_basename(&new_name)?;
-    let (old_path, parent_rel, old_name, is_dir) = resolve_existing_entry(&project_path, &rel)?;
+    tokio::task::spawn_blocking(move || {
+        validate_basename(&new_name)?;
+        let (old_path, parent_rel, old_name, is_dir) = resolve_existing_entry(&project_path, &rel)?;
 
-    if new_name == old_name {
+        if new_name == old_name {
+            let rel_path = if parent_rel.is_empty() {
+                new_name.clone()
+            } else {
+                format!("{}/{}", parent_rel, new_name)
+            };
+            return Ok(Dirent {
+                name: new_name,
+                path: rel_path,
+                is_dir,
+            });
+        }
+
+        let parent_dir = old_path.parent().ok_or("Cartella genitore non trovata")?;
+        let new_path = parent_dir.join(&new_name);
+
+        let base = canonical_project_base(&project_path)?;
+        if !new_path.starts_with(&base) || new_path.parent() != Some(parent_dir) {
+            return Err("La destinazione della rinomina esce dalla cartella consentita".to_string());
+        }
+
+        // Su un filesystem case-insensitive (APFS, NTFS) il percorso di
+        // destinazione risolve alla sorgente: la collisione e' apparente e la
+        // rinomina richiesta e' proprio quella. Il confronto e' sull'identita'
+        // dell'elemento, non sul nome, cosi' una collisione vera con un file
+        // diverso continua a essere rifiutata.
+        let is_case_only_rename = is_same_entry(&old_path, &new_path);
+
+        if !is_case_only_rename && fs::symlink_metadata(&new_path).is_ok() {
+            return Err(format!(
+                "Un elemento con il nome '{}' esiste gia'",
+                new_name
+            ));
+        }
+
+        let outcome = if is_case_only_rename {
+            rename_via_temp(&old_path, &new_path)
+        } else {
+            fs::rename(&old_path, &new_path)
+        };
+
+        outcome.map_err(|e| {
+            format!(
+                "Impossibile rinominare '{}' in '{}': {}",
+                old_name, new_name, e
+            )
+        })?;
+
         let rel_path = if parent_rel.is_empty() {
             new_name.clone()
         } else {
             format!("{}/{}", parent_rel, new_name)
         };
-        return Ok(Dirent {
+
+        Ok(Dirent {
             name: new_name,
             path: rel_path,
             is_dir,
-        });
-    }
-
-    let parent_dir = old_path.parent().ok_or("Cartella genitore non trovata")?;
-    let new_path = parent_dir.join(&new_name);
-
-    let base = canonical_project_base(&project_path)?;
-    if !new_path.starts_with(&base) || new_path.parent() != Some(parent_dir) {
-        return Err("La destinazione della rinomina esce dalla cartella consentita".to_string());
-    }
-
-    // Su un filesystem case-insensitive (APFS, NTFS) il percorso di
-    // destinazione risolve alla sorgente: la collisione e' apparente e la
-    // rinomina richiesta e' proprio quella. Il confronto e' sull'identita'
-    // dell'elemento, non sul nome, cosi' una collisione vera con un file
-    // diverso continua a essere rifiutata.
-    let is_case_only_rename = is_same_entry(&old_path, &new_path);
-
-    if !is_case_only_rename && fs::symlink_metadata(&new_path).is_ok() {
-        return Err(format!(
-            "Un elemento con il nome '{}' esiste gia'",
-            new_name
-        ));
-    }
-
-    let outcome = if is_case_only_rename {
-        rename_via_temp(&old_path, &new_path)
-    } else {
-        fs::rename(&old_path, &new_path)
-    };
-
-    outcome.map_err(|e| {
-        format!(
-            "Impossibile rinominare '{}' in '{}': {}",
-            old_name, new_name, e
-        )
-    })?;
-
-    let rel_path = if parent_rel.is_empty() {
-        new_name.clone()
-    } else {
-        format!("{}/{}", parent_rel, new_name)
-    };
-
-    Ok(Dirent {
-        name: new_name,
-        path: rel_path,
-        is_dir,
+        })
     })
+    .await
+    .map_err(|e| format!("Task path_rename: {e}"))?
 }
 
 #[command]
 pub async fn path_trash(project_path: String, rel: String) -> Result<(), String> {
-    let (target_path, _, _, _) = resolve_existing_entry(&project_path, &rel)?;
-    trash::delete(&target_path)
-        .map_err(|e| format!("Impossibile spostare nel cestino '{}': {}", rel, e))?;
-    Ok(())
+    tokio::task::spawn_blocking(move || {
+        let (target_path, _, _, _) = resolve_existing_entry(&project_path, &rel)?;
+        trash::delete(&target_path)
+            .map_err(|e| format!("Impossibile spostare nel cestino '{}': {}", rel, e))?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("Task path_trash: {e}"))?
 }
 
 #[command]
 pub async fn tree_read(project_path: String, rel: String) -> Result<Vec<Dirent>, String> {
-    let target = resolve_path(&project_path, &rel)?;
+    tokio::task::spawn_blocking(move || {
+        let target = resolve_path(&project_path, &rel)?;
 
-    let mut entries = Vec::new();
-    let dir = fs::read_dir(&target).map_err(|e| e.to_string())?;
+        let mut entries = Vec::new();
+        let dir = fs::read_dir(&target).map_err(|e| e.to_string())?;
 
-    for entry in dir.flatten() {
-        let path = entry.path();
-        let name = entry.file_name().to_string_lossy().to_string();
-        let is_dir = path.is_dir();
+        for entry in dir.flatten() {
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().to_string();
+            let is_dir = path.is_dir();
 
-        // Normalize path string
-        let rel_p = if rel.is_empty() {
-            name.clone()
-        } else {
-            format!("{}/{}", rel, name)
-        };
+            // Normalize path string
+            let rel_p = if rel.is_empty() {
+                name.clone()
+            } else {
+                format!("{}/{}", rel, name)
+            };
 
-        entries.push(Dirent {
-            name,
-            path: rel_p,
-            is_dir,
+            entries.push(Dirent {
+                name,
+                path: rel_p,
+                is_dir,
+            });
+        }
+
+        // Sort: directories first, then alphabetical
+        entries.sort_by(|a, b| {
+            b.is_dir
+                .cmp(&a.is_dir)
+                .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
         });
-    }
 
-    // Sort: directories first, then alphabetical
-    entries.sort_by(|a, b| {
-        b.is_dir
-            .cmp(&a.is_dir)
-            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
-    });
-
-    Ok(entries)
+        Ok(entries)
+    })
+    .await
+    .map_err(|e| format!("Task tree_read: {e}"))?
 }
 
 #[command]
@@ -775,13 +796,12 @@ fn files_list_sync(project_path: &str, limit: Option<usize>) -> Result<Vec<Strin
     Ok(files)
 }
 
-#[command]
-pub async fn project_files_search(
-    project_path: String,
-    query: String,
+fn project_files_search_sync(
+    project_path: &str,
+    query: &str,
     limit: Option<usize>,
 ) -> Result<Vec<FileSearchResult>, String> {
-    let base = canonical_project_base(&project_path)?;
+    let base = canonical_project_base(project_path)?;
     let clean_query = query.trim();
     if clean_query.is_empty() {
         return Ok(Vec::new());
@@ -930,6 +950,17 @@ pub async fn project_files_search(
 
     results.truncate(max_results);
     Ok(results)
+}
+
+#[command]
+pub async fn project_files_search(
+    project_path: String,
+    query: String,
+    limit: Option<usize>,
+) -> Result<Vec<FileSearchResult>, String> {
+    tokio::task::spawn_blocking(move || project_files_search_sync(&project_path, &query, limit))
+        .await
+        .map_err(|error| format!("Ricerca file interrotta: {}", error))?
 }
 
 const MAX_CONTENT_FILE_SIZE: u64 = 1024 * 1024; // 1 MiB
@@ -1271,7 +1302,15 @@ async fn content_search_within(
         };
         let found = match git_result {
             Some(found) => found,
-            None => search_filesystem(&canonical_base, trimmed, start_time, deadline),
+            None => {
+                let base = canonical_base.clone();
+                let cand = trimmed.to_string();
+                tokio::task::spawn_blocking(move || {
+                    search_filesystem(&base, &cand, start_time, deadline)
+                })
+                .await
+                .unwrap_or_default()
+            }
         };
 
         if !found.is_empty() {
@@ -1327,16 +1366,24 @@ pub async fn file_read(project_path: String, rel: String) -> Result<FileContent,
 /// distruggerebbe.
 #[command]
 pub async fn file_read_bytes(project_path: String, rel: String) -> Result<Response, String> {
-    let target = resolve_path(&project_path, &rel)?;
-    let bytes = fs::read(&target).map_err(|e| e.to_string())?;
-    Ok(Response::new(bytes))
+    tokio::task::spawn_blocking(move || {
+        let target = resolve_path(&project_path, &rel)?;
+        let bytes = fs::read(&target).map_err(|e| e.to_string())?;
+        Ok(Response::new(bytes))
+    })
+    .await
+    .map_err(|e| format!("Task file_read_bytes: {e}"))?
 }
 
 #[command]
 pub async fn file_write(project_path: String, rel: String, content: String) -> Result<(), String> {
-    let target = resolve_path(&project_path, &rel)?;
-    fs::write(&target, content).map_err(|e| e.to_string())?;
-    Ok(())
+    tokio::task::spawn_blocking(move || {
+        let target = resolve_path(&project_path, &rel)?;
+        fs::write(&target, content).map_err(|e| e.to_string())?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("Task file_write: {e}"))?
 }
 #[command]
 pub async fn file_git_head(project_path: String, rel: String) -> Result<GitHeadContent, String> {
@@ -1371,12 +1418,11 @@ pub async fn file_git_head(project_path: String, rel: String) -> Result<GitHeadC
     .map_err(|e| e.to_string())?
 }
 
-#[command]
-pub async fn project_git_status(project_path: String) -> Result<FileGitStatus, String> {
+fn project_git_status_sync(project_path: &str) -> Result<FileGitStatus, String> {
     let mut statuses = HashMap::new();
 
     let mut cmd = Command::new("git");
-    cmd.current_dir(&project_path);
+    cmd.current_dir(project_path);
     cmd.args(["status", "--porcelain", "-u", "-z"]);
 
     #[cfg(target_os = "windows")]
@@ -1431,6 +1477,13 @@ pub async fn project_git_status(project_path: String) -> Result<FileGitStatus, S
     }
 
     Ok(FileGitStatus { statuses })
+}
+
+#[command]
+pub async fn project_git_status(project_path: String) -> Result<FileGitStatus, String> {
+    tokio::task::spawn_blocking(move || project_git_status_sync(&project_path))
+        .await
+        .map_err(|e| format!("Task project_git_status: {e}"))?
 }
 
 /// Percorsi esclusi da `.gitignore`, relativi alla cartella del progetto.
@@ -1552,6 +1605,55 @@ fn parse_git_diff_stats(out: &[u8]) -> GitDiffStats {
     stats
 }
 
+/// Cache in memoria a dimensione limitata per il conteggio righe dei file untracked.
+/// Evita di riaprire e scandire i file ad ogni ciclo di polling dello stato git
+/// quando il file non e' stato modificato (stesso path, mtime e len).
+#[derive(Hash, PartialEq, Eq, Clone, Debug)]
+struct UntrackedLineCacheKey {
+    path: PathBuf,
+    mtime: Option<SystemTime>,
+    len: u64,
+}
+
+struct BoundedUntrackedLineCache {
+    entries: HashMap<UntrackedLineCacheKey, Option<u64>>,
+    order: VecDeque<UntrackedLineCacheKey>,
+    capacity: usize,
+}
+
+impl BoundedUntrackedLineCache {
+    fn new(capacity: usize) -> Self {
+        Self {
+            entries: HashMap::with_capacity(capacity),
+            order: VecDeque::with_capacity(capacity),
+            capacity,
+        }
+    }
+
+    fn get(&self, key: &UntrackedLineCacheKey) -> Option<Option<u64>> {
+        self.entries.get(key).copied()
+    }
+
+    fn insert(&mut self, key: UntrackedLineCacheKey, val: Option<u64>) {
+        if self.entries.contains_key(&key) {
+            self.entries.insert(key, val);
+            return;
+        }
+
+        while self.order.len() >= self.capacity {
+            if let Some(oldest) = self.order.pop_front() {
+                self.entries.remove(&oldest);
+            }
+        }
+
+        self.order.push_back(key.clone());
+        self.entries.insert(key, val);
+    }
+}
+
+static UNTRACKED_LINE_CACHE: LazyLock<Mutex<BoundedUntrackedLineCache>> =
+    LazyLock::new(|| Mutex::new(BoundedUntrackedLineCache::new(4096)));
+
 /// Byte letti al massimo per contare le righe di un file non tracciato.
 const UNTRACKED_LINE_COUNT_LIMIT: u64 = 2 * 1024 * 1024;
 
@@ -1566,6 +1668,33 @@ pub(crate) fn count_untracked_text_lines(path: &Path) -> Option<u64> {
     if !metadata.file_type().is_file() {
         return None;
     }
+
+    let len = metadata.len();
+    let mtime = metadata.modified().ok();
+    let key = UntrackedLineCacheKey {
+        path: path.to_path_buf(),
+        mtime,
+        len,
+    };
+
+    {
+        let cache = UNTRACKED_LINE_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(cached) = cache.get(&key) {
+            return cached;
+        }
+    }
+
+    let result = count_untracked_text_lines_uncached(path);
+
+    {
+        let mut cache = UNTRACKED_LINE_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+        cache.insert(key, result);
+    }
+
+    result
+}
+
+fn count_untracked_text_lines_uncached(path: &Path) -> Option<u64> {
     let mut file = fs::File::open(path).ok()?.take(UNTRACKED_LINE_COUNT_LIMIT);
     let mut buffer = [0_u8; 8192];
     let mut lines = 0_u64;
@@ -1588,16 +1717,24 @@ pub(crate) fn count_untracked_text_lines(path: &Path) -> Option<u64> {
 }
 
 fn git_diff_stats_sync(project_path: &str) -> GitDiffStats {
-    if run_git(project_path, &["rev-parse", "--is-inside-work-tree"]).is_none() {
-        return GitDiffStats::default();
-    }
+    // Prova prima `diff HEAD --numstat -M`: nella maggior parte dei casi (repo con commit)
+    // ha successo ed evita la chiamata separata a `rev-parse --is-inside-work-tree`.
+    // Solo se fallisce controlliamo `rev-parse` per distinguere un repo senza commit (unborn HEAD)
+    // da una cartella che non e' affatto un repo git.
+    let diff_out = run_git(project_path, &["diff", "HEAD", "--numstat", "-M"]);
 
-    let mut stats = run_git(project_path, &["diff", "HEAD", "--numstat", "-M"])
-        .map(|out| parse_git_diff_stats(&out))
-        .unwrap_or(GitDiffStats {
-            is_repo: true,
-            ..GitDiffStats::default()
-        });
+    let mut stats = match diff_out {
+        Some(out) => parse_git_diff_stats(&out),
+        None => {
+            if run_git(project_path, &["rev-parse", "--is-inside-work-tree"]).is_none() {
+                return GitDiffStats::default();
+            }
+            GitDiffStats {
+                is_repo: true,
+                ..GitDiffStats::default()
+            }
+        }
+    };
 
     if let Some(untracked) = run_git(
         project_path,
@@ -1676,12 +1813,11 @@ pub(crate) fn merge_name_status_numstat(
         .collect()
 }
 
-#[command]
-pub async fn git_last_commit(project_path: String) -> Result<Option<CommitInfo>, String> {
+fn git_last_commit_sync(project_path: &str) -> Result<Option<CommitInfo>, String> {
     let sep = '\u{1f}';
     let fmt = format!("%H{sep}%h{sep}%an{sep}%at{sep}%s");
     let Some(out) = run_git(
-        &project_path,
+        project_path,
         &["log", "-1", &format!("--pretty=format:{fmt}")],
     ) else {
         return Ok(None);
@@ -1693,7 +1829,7 @@ pub async fn git_last_commit(project_path: String) -> Result<Option<CommitInfo>,
     }
     let hash = parts[0].to_string();
     let status = run_git(
-        &project_path,
+        project_path,
         &[
             "diff-tree",
             "--no-commit-id",
@@ -1705,7 +1841,7 @@ pub async fn git_last_commit(project_path: String) -> Result<Option<CommitInfo>,
     )
     .unwrap_or_default();
     let numstat = run_git(
-        &project_path,
+        project_path,
         &[
             "diff-tree",
             "--no-commit-id",
@@ -1727,8 +1863,14 @@ pub async fn git_last_commit(project_path: String) -> Result<Option<CommitInfo>,
 }
 
 #[command]
-pub async fn git_recent_commits(
-    project_path: String,
+pub async fn git_last_commit(project_path: String) -> Result<Option<CommitInfo>, String> {
+    tokio::task::spawn_blocking(move || git_last_commit_sync(&project_path))
+        .await
+        .map_err(|e| format!("Task git_last_commit: {e}"))?
+}
+
+fn git_recent_commits_sync(
+    project_path: &str,
     limit: Option<u32>,
 ) -> Result<Vec<CommitInfo>, String> {
     let n = limit.unwrap_or(10).clamp(1, 50);
@@ -1736,7 +1878,7 @@ pub async fn git_recent_commits(
     let rec = '\u{1e}';
     let fmt = format!("{rec}%H{sep}%h{sep}%an{sep}%at{sep}%s");
     let Some(out) = run_git(
-        &project_path,
+        project_path,
         &[
             "log",
             &format!("-n{n}"),
@@ -1792,17 +1934,32 @@ pub async fn git_recent_commits(
 }
 
 #[command]
-pub async fn git_current_branch(project_path: String) -> Result<String, String> {
+pub async fn git_recent_commits(
+    project_path: String,
+    limit: Option<u32>,
+) -> Result<Vec<CommitInfo>, String> {
+    tokio::task::spawn_blocking(move || git_recent_commits_sync(&project_path, limit))
+        .await
+        .map_err(|e| format!("Task git_recent_commits: {e}"))?
+}
+
+fn git_current_branch_sync(project_path: &str) -> Result<String, String> {
     Ok(
-        run_git(&project_path, &["rev-parse", "--abbrev-ref", "HEAD"])
+        run_git(project_path, &["rev-parse", "--abbrev-ref", "HEAD"])
             .map(|b| String::from_utf8_lossy(&b).trim().to_string())
             .unwrap_or_default(),
     )
 }
 
 #[command]
-pub async fn git_working_numstat(project_path: String) -> Result<HashMap<String, NumStat>, String> {
-    let Some(out) = run_git(&project_path, &["diff", "HEAD", "--numstat", "-M"]) else {
+pub async fn git_current_branch(project_path: String) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || git_current_branch_sync(&project_path))
+        .await
+        .map_err(|e| format!("Task git_current_branch: {e}"))?
+}
+
+fn git_working_numstat_sync(project_path: &str) -> Result<HashMap<String, NumStat>, String> {
+    let Some(out) = run_git(project_path, &["diff", "HEAD", "--numstat", "-M"]) else {
         return Ok(HashMap::new());
     };
     let mut map = HashMap::new();
@@ -1822,22 +1979,21 @@ pub async fn git_working_numstat(project_path: String) -> Result<HashMap<String,
     Ok(map)
 }
 
-/// Contenuto di un file a una revisione arbitraria ("HEAD~1", hash, ...).
-/// Serve al diff dei commit: l'originale e' `<hash>~1`, il modificato e'
-/// `<hash>`. Il blocco `..` e' una difesa in piu' rispetto a `file_git_head`.
 #[command]
-pub async fn file_git_rev(
-    project_path: String,
-    rel: String,
-    rev: String,
-) -> Result<GitRevContent, String> {
+pub async fn git_working_numstat(project_path: String) -> Result<HashMap<String, NumStat>, String> {
+    tokio::task::spawn_blocking(move || git_working_numstat_sync(&project_path))
+        .await
+        .map_err(|e| format!("Task git_working_numstat: {e}"))?
+}
+
+fn file_git_rev_sync(project_path: &str, rel: &str, rev: &str) -> Result<GitRevContent, String> {
     if rel.split(['/', '\\']).any(|seg| seg == "..") {
         return Err("Percorso non valido".to_string());
     }
     let rel_norm = rel.replace('\\', "/");
     let spec = format!("{rev}:{rel_norm}");
     let mut cmd = Command::new("git");
-    cmd.current_dir(&project_path);
+    cmd.current_dir(project_path);
     cmd.args(["show", &spec]);
     #[cfg(target_os = "windows")]
     cmd.creation_flags(0x08000000);
@@ -1853,17 +2009,29 @@ pub async fn file_git_rev(
     }
 }
 
+/// Contenuto di un file a una revisione arbitraria ("HEAD~1", hash, ...).
+/// Serve al diff dei commit: l'originale e' `<hash>~1`, il modificato e'
+/// `<hash>`. Il blocco `..` e' una difesa in piu' rispetto a `file_git_head`.
+#[command]
+pub async fn file_git_rev(
+    project_path: String,
+    rel: String,
+    rev: String,
+) -> Result<GitRevContent, String> {
+    tokio::task::spawn_blocking(move || file_git_rev_sync(&project_path, &rel, &rev))
+        .await
+        .map_err(|e| format!("Task file_git_rev: {e}"))?
+}
+
 #[derive(Serialize)]
 pub struct GitBranch {
     pub name: String,
     pub current: bool,
 }
 
-/// Elenco dei branch locali. `current` marca quello attivo.
-#[command]
-pub async fn git_branch_list(project_path: String) -> Result<Vec<GitBranch>, String> {
+fn git_branch_list_sync(project_path: &str) -> Result<Vec<GitBranch>, String> {
     let Some(out) = run_git(
-        &project_path,
+        project_path,
         &["branch", "--list", "--format=%(HEAD)%00%(refname:short)"],
     ) else {
         return Ok(Vec::new());
@@ -1887,6 +2055,14 @@ pub async fn git_branch_list(project_path: String) -> Result<Vec<GitBranch>, Str
     Ok(branches)
 }
 
+/// Elenco dei branch locali. `current` marca quello attivo.
+#[command]
+pub async fn git_branch_list(project_path: String) -> Result<Vec<GitBranch>, String> {
+    tokio::task::spawn_blocking(move || git_branch_list_sync(&project_path))
+        .await
+        .map_err(|e| format!("Task git_branch_list: {e}"))?
+}
+
 /// Checkout di un branch esistente. Rifiuta se ci sono modifiche non
 /// committate: l'agente potrebbe stare lavorando e un checkout le
 /// mescolerebbe con il branch di destinazione.
@@ -1899,59 +2075,68 @@ pub async fn git_branch_checkout(project_path: String, name: String) -> Result<(
                 .to_string(),
         );
     }
-    let mut cmd = Command::new("git");
-    cmd.current_dir(&project_path);
-    cmd.args(["checkout", &name]);
-    #[cfg(target_os = "windows")]
-    cmd.creation_flags(0x08000000);
-    let out = cmd.output().map_err(|e| e.to_string())?;
-    if !out.status.success() {
-        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
-    }
-    Ok(())
+    tokio::task::spawn_blocking(move || {
+        let mut cmd = Command::new("git");
+        cmd.current_dir(&project_path);
+        cmd.args(["checkout", &name]);
+        #[cfg(target_os = "windows")]
+        cmd.creation_flags(0x08000000);
+        let out = cmd.output().map_err(|e| e.to_string())?;
+        if !out.status.success() {
+            return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("Task git_branch_checkout: {e}"))?
 }
 
-/// Crea un branch e ci si sposta sopra (`git checkout -b`).
 #[command]
 pub async fn git_branch_create(project_path: String, name: String) -> Result<(), String> {
-    let trimmed = name.trim();
+    let trimmed = name.trim().to_string();
     if trimmed.is_empty() || trimmed.contains("..") || trimmed.starts_with('-') {
         return Err("Nome di branch non valido".to_string());
     }
-    let mut cmd = Command::new("git");
-    cmd.current_dir(&project_path);
-    cmd.args(["checkout", "-b", trimmed]);
-    #[cfg(target_os = "windows")]
-    cmd.creation_flags(0x08000000);
-    let out = cmd.output().map_err(|e| e.to_string())?;
-    if !out.status.success() {
-        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
-    }
-    Ok(())
+    tokio::task::spawn_blocking(move || {
+        let mut cmd = Command::new("git");
+        cmd.current_dir(&project_path);
+        cmd.args(["checkout", "-b", &trimmed]);
+        #[cfg(target_os = "windows")]
+        cmd.creation_flags(0x08000000);
+        let out = cmd.output().map_err(|e| e.to_string())?;
+        if !out.status.success() {
+            return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("Task git_branch_create: {e}"))?
 }
 
-/// Unisce `name` nel branch corrente (`git merge --no-ff`). Nessun rebase:
-/// il merge commit preserva la storia del lavoro dell'agente.
 #[command]
 pub async fn git_branch_merge(project_path: String, name: String) -> Result<String, String> {
     let status = project_git_status(project_path.clone()).await?;
     if !status.statuses.is_empty() {
         return Err("Ci sono modifiche non committate: committale prima di fare merge".to_string());
     }
-    let mut cmd = Command::new("git");
-    cmd.current_dir(&project_path);
-    cmd.args(["merge", "--no-ff", &name]);
-    #[cfg(target_os = "windows")]
-    cmd.creation_flags(0x08000000);
-    let out = cmd.output().map_err(|e| e.to_string())?;
-    let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    if !out.status.success() {
-        let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
-        // Conflitto: git lascia il repo in merge parziale. L'utente risolve
-        // a mano; qui si segnala senza nascondere nulla.
-        return Err(if stderr.is_empty() { stdout } else { stderr });
-    }
-    Ok(stdout)
+    tokio::task::spawn_blocking(move || {
+        let mut cmd = Command::new("git");
+        cmd.current_dir(&project_path);
+        cmd.args(["merge", "--no-ff", &name]);
+        #[cfg(target_os = "windows")]
+        cmd.creation_flags(0x08000000);
+        let out = cmd.output().map_err(|e| e.to_string())?;
+        let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if !out.status.success() {
+            let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            // Conflitto: git lascia il repo in merge parziale. L'utente risolve
+            // a mano; qui si segnala senza nascondere nulla.
+            return Err(if stderr.is_empty() { stdout } else { stderr });
+        }
+        Ok(stdout)
+    })
+    .await
+    .map_err(|e| format!("Task git_branch_merge: {e}"))?
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -2076,18 +2261,22 @@ fn parse_candidate(raw: &str) -> (String, Option<usize>) {
 /// dal contesto WebView privilegiato di Tauri (nessun accesso a IPC, store o filesystem).
 #[command]
 pub async fn preview_file(project_path: String, rel: String) -> Result<GitRevContent, String> {
-    let resolved = resolve_path(&project_path, &rel)?;
-    if !resolved.is_file() {
-        return Ok(GitRevContent {
-            content: String::new(),
-            exists: false,
-        });
-    }
-    let bytes = fs::read(&resolved).map_err(|e| e.to_string())?;
-    Ok(GitRevContent {
-        content: String::from_utf8_lossy(&bytes).to_string(),
-        exists: true,
+    tokio::task::spawn_blocking(move || {
+        let resolved = resolve_path(&project_path, &rel)?;
+        if !resolved.is_file() {
+            return Ok(GitRevContent {
+                content: String::new(),
+                exists: false,
+            });
+        }
+        let bytes = fs::read(&resolved).map_err(|e| e.to_string())?;
+        Ok(GitRevContent {
+            content: String::from_utf8_lossy(&bytes).to_string(),
+            exists: true,
+        })
     })
+    .await
+    .map_err(|e| format!("Task preview_file: {e}"))?
 }
 
 fn find_file_in_dir(dir: &Path, target_name: &str, depth: usize) -> Option<PathBuf> {
@@ -2232,11 +2421,11 @@ mod tests {
     use super::resolve_parent_dir;
     use super::{
         content_search_within, count_untracked_text_lines, file_git_rev, fuzzy_match_str,
-        git_last_commit, git_recent_commits, merge_name_status_numstat, parse_git_diff_stats,
-        path_create_directory, path_create_file, path_rename, project_files_list,
-        project_files_search, project_git_ignored, rename_via_temp, resolve_existing_entry,
-        resolve_new_destination, resolve_path, resolve_project_file_sync, split_rel_path,
-        validate_basename, Dirent, ProjectContentSearchResult,
+        git_diff_stats_sync, git_last_commit, git_recent_commits, merge_name_status_numstat,
+        parse_git_diff_stats, path_create_directory, path_create_file, path_rename,
+        project_files_list, project_files_search, project_git_ignored, rename_via_temp,
+        resolve_existing_entry, resolve_new_destination, resolve_path, resolve_project_file_sync,
+        split_rel_path, validate_basename, Dirent, ProjectContentSearchResult,
     };
     use std::collections::HashSet;
     use std::fs;
@@ -2278,6 +2467,32 @@ mod tests {
         let huge = root.join("huge.log");
         fs::write(&huge, "x\n".repeat(3 * 1024 * 1024 / 2)).unwrap();
         assert_eq!(count_untracked_text_lines(&huge), Some(1024 * 1024));
+    }
+
+    #[test]
+    fn git_diff_stats_untracked_cache_hit_e_invalidazione() {
+        let root = temp_dir("git-diff-cache");
+        let text = root.join("cached.txt");
+        fs::write(&text, b"line1\nline2\n").unwrap();
+
+        // Prima lettura: calcola e inserisce in cache
+        assert_eq!(count_untracked_text_lines(&text), Some(2));
+        // Seconda lettura con stesso mtime e len: cache hit immediato
+        assert_eq!(count_untracked_text_lines(&text), Some(2));
+
+        // Modifica del file: lunghezza o mtime cambiano -> cache miss e ricalcolo
+        fs::write(&text, b"line1\nline2\nline3\n").unwrap();
+        assert_eq!(count_untracked_text_lines(&text), Some(3));
+    }
+
+    #[test]
+    fn git_diff_stats_sync_non_repo_ritorna_default() {
+        let root = temp_dir("non-repo-diff");
+        let stats = git_diff_stats_sync(root.to_str().unwrap());
+        assert!(!stats.is_repo);
+        assert_eq!(stats.files, 0);
+        assert_eq!(stats.additions, 0);
+        assert_eq!(stats.deletions, 0);
     }
 
     #[test]

@@ -135,14 +135,33 @@ const mentionMarked = new Marked({
 	]
 });
 
-/** Come `lexMarkdownInline`, con le menzioni `@file` come token `fileMention`. */
+const mentionInlineLexCache = new Map<string, Token[]>();
+
+/** Come `lexMarkdownInline`, con le menzioni `@file` come token `fileMention`. Con cache LRU. */
 export function lexMarkdownInlineWithMentions(source: string): Token[] {
 	if (!source) return [];
-	try {
-		return mentionMarked.Lexer.lexInline(source, mentionMarked.defaults);
-	} catch {
-		return [{ type: 'text', raw: source, text: source } as Tokens.Text];
+	const cached = mentionInlineLexCache.get(source);
+	if (cached !== undefined) {
+		mentionInlineLexCache.delete(source);
+		mentionInlineLexCache.set(source, cached);
+		return cached;
 	}
+
+	let tokens: Token[];
+	try {
+		tokens = mentionMarked.Lexer.lexInline(source, mentionMarked.defaults);
+	} catch {
+		tokens = [{ type: 'text', raw: source, text: source } as Tokens.Text];
+	}
+
+	if (mentionInlineLexCache.size >= MAX_LEX_CACHE_SIZE) {
+		const oldest = mentionInlineLexCache.keys().next().value;
+		if (oldest !== undefined) {
+			mentionInlineLexCache.delete(oldest);
+		}
+	}
+	mentionInlineLexCache.set(source, tokens);
+	return tokens;
 }
 
 const mentionLexCache = new Map<string, Token[]>();
@@ -223,15 +242,53 @@ const LANGUAGE_ALIASES: Record<string, string> = {
  * se' i 4 MB di Monaco anche quando nessun messaggio contiene codice. Il
  * caricamento dinamico e' l'unico modo di tenerli fuori dal primo frame.
  */
+const MAX_COLORIZE_CACHE = 200;
+const colorizeCache = new Map<string, string>();
+
+/**
+ * Ritorna l'HTML evidenziato in cache LRU se gia' presente, evitando attese asincrone.
+ */
+export function getCachedColorizedCode(code: string, language: string | undefined): string | null {
+	const requested = (language ?? '').trim().toLowerCase();
+	if (!requested) return null;
+	const resolved = LANGUAGE_ALIASES[requested] ?? requested;
+	const cacheKey = `${resolved}:${code}`;
+	const cached = colorizeCache.get(cacheKey);
+	if (cached !== undefined) {
+		colorizeCache.delete(cacheKey);
+		colorizeCache.set(cacheKey, cached);
+		return cached;
+	}
+	return null;
+}
+
 export async function colorizeCode(code: string, language: string | undefined): Promise<string | null> {
 	const requested = (language ?? '').trim().toLowerCase();
 	if (!requested) return null;
 	const resolved = LANGUAGE_ALIASES[requested] ?? requested;
+	const cacheKey = `${resolved}:${code}`;
+	const cached = colorizeCache.get(cacheKey);
+	if (cached !== undefined) {
+		colorizeCache.delete(cacheKey);
+		colorizeCache.set(cacheKey, cached);
+		return cached;
+	}
+
+	// Caricamento dinamico: Monaco pesa diversi megabyte e non deve essere
+	// caricato nel frame iniziale prima che un messaggio contenga codice.
 	const monaco = await import('monaco-editor');
 	const known = monaco.languages.getLanguages().some((entry) => entry.id === resolved);
 	if (!known) return null;
 	try {
-		return await monaco.editor.colorize(code, resolved, { tabSize: 2 });
+		const html = await monaco.editor.colorize(code, resolved, { tabSize: 2 });
+		if (colorizeCache.size >= MAX_COLORIZE_CACHE) {
+			const oldest = colorizeCache.keys().next().value;
+			if (oldest !== undefined) {
+				colorizeCache.delete(oldest);
+			}
+		}
+		colorizeCache.set(cacheKey, html);
+		return html;
 	} catch {
 		return null;
 	}

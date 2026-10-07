@@ -185,11 +185,17 @@ fn discard_child_log_in(dir: &Path, pid: u32, spawned_at: SystemTime) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
+    let pid_str = pid.to_string();
     for entry in entries.flatten() {
         let name = entry.file_name();
         let Some(name) = name.to_str() else {
             continue;
         };
+        // Evitiamo parsing o chiamate a metadata() se il nome non contiene
+        // neppure la stringa del PID del figlio appena terminato.
+        if !name.contains(&pid_str) {
+            continue;
+        }
         if omp_log_pid(name) != Some(pid) {
             continue;
         }
@@ -831,6 +837,23 @@ pub fn session_transcript_exists(session_id: &str) -> bool {
     transcript_exists_in(&agent.join("sessions"), session_id)
 }
 
+/// Tipo della voce senza una `stat` in piu': `file_type()` arriva gia' dalla
+/// lettura della cartella (d_type su macOS/Linux, FindNextFile su Windows).
+/// Solo i link simbolici si risolvono, come facevano `is_file`/`is_dir`.
+fn entry_kind(entry: &std::fs::DirEntry) -> (bool, bool) {
+    match entry.file_type() {
+        Ok(kind) if !kind.is_symlink() => (kind.is_file(), kind.is_dir()),
+        _ => {
+            let path = entry.path();
+            (path.is_file(), path.is_dir())
+        }
+    }
+}
+
+fn is_jsonl(path: &Path) -> bool {
+    path.extension().and_then(|ext| ext.to_str()) == Some("jsonl")
+}
+
 fn collect_subagent_sessions(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) {
     if depth > 4 {
         return;
@@ -839,12 +862,13 @@ fn collect_subagent_sessions(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) {
         return;
     };
     for entry in entries.flatten() {
+        let (is_file, is_dir) = entry_kind(&entry);
         let path = entry.path();
-        if path.is_file() {
-            if path.extension().and_then(|ext| ext.to_str()) == Some("jsonl") {
+        if is_file {
+            if is_jsonl(&path) {
                 out.push(path);
             }
-        } else if path.is_dir() {
+        } else if is_dir {
             collect_subagent_sessions(&path, depth + 1, out);
         }
     }
@@ -1670,6 +1694,12 @@ fn extract_credential_pins_from_file(path: &Path) -> HashMap<String, String> {
 
 /// Localizza un file di sessione dato il suo id (UUID o prefisso) o nome file,
 /// cercando nelle cartelle progetto e nelle relative sottocartelle subagenti.
+///
+/// Prima i transcript principali (un livello per cartella progetto), poi le
+/// sottocartelle subagenti: una sessione principale si trova senza scendere
+/// nelle centinaia di cartelle degli artefatti, il caso di gran lunga piu'
+/// frequente. Un match esatto vince sempre su un prefisso; a parita' vince il
+/// transcript principale.
 fn find_session_file_in(sessions_root: &Path, session_id: &str) -> Option<PathBuf> {
     let clean_id = session_id
         .trim()
@@ -1680,35 +1710,52 @@ fn find_session_file_in(sessions_root: &Path, session_id: &str) -> Option<PathBu
         return None;
     }
 
-    let folders = std::fs::read_dir(sessions_root).ok()?;
-    let mut prefix_match = None;
+    // Nome file principale: `<timestamp>_<sessionId>.jsonl`. Some(true) = match
+    // esatto (UUID o stem intero), Some(false) = prefisso (resume abbreviato).
+    let classify = |path: &Path| -> Option<bool> {
+        let stem = path.file_stem().and_then(|s| s.to_str())?;
+        let candidate_id = stem.rsplit('_').next().unwrap_or(stem);
+        if candidate_id.eq_ignore_ascii_case(clean_id) || stem.eq_ignore_ascii_case(clean_id) {
+            Some(true)
+        } else if candidate_id.starts_with(clean_id) || stem.starts_with(clean_id) {
+            Some(false)
+        } else {
+            None
+        }
+    };
 
-    for folder in folders.flatten() {
-        let folder_path = folder.path();
-        if !folder_path.is_dir() {
+    let mut prefix_match = None;
+    let mut subdirs = Vec::new();
+    for folder in std::fs::read_dir(sessions_root).ok()?.flatten() {
+        if !entry_kind(&folder).1 {
             continue;
         }
-
-        let mut jsonl_files = Vec::new();
-        collect_subagent_sessions(&folder_path, 0, &mut jsonl_files);
-
-        for path in jsonl_files {
-            let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
-                continue;
-            };
-            // Nome file principale: `<timestamp>_<sessionId>.jsonl`.
-            let candidate_id = stem.rsplit('_').next().unwrap_or(stem);
-
-            // Match esatto: sull'UUID estratto o sull'intero stem del file.
-            if candidate_id.eq_ignore_ascii_case(clean_id) || stem.eq_ignore_ascii_case(clean_id) {
-                return Some(path);
+        let Ok(entries) = std::fs::read_dir(folder.path()) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let (is_file, is_dir) = entry_kind(&entry);
+            let path = entry.path();
+            if is_dir {
+                subdirs.push(path);
+            } else if is_file && is_jsonl(&path) {
+                match classify(&path) {
+                    Some(true) => return Some(path),
+                    Some(false) if prefix_match.is_none() => prefix_match = Some(path),
+                    _ => {}
+                }
             }
+        }
+    }
 
-            // Match per prefisso come fallback (supporta resume/ricerca abbreviata).
-            if prefix_match.is_none()
-                && (candidate_id.starts_with(clean_id) || stem.starts_with(clean_id))
-            {
-                prefix_match = Some(path);
+    for dir in subdirs {
+        let mut jsonl_files = Vec::new();
+        collect_subagent_sessions(&dir, 1, &mut jsonl_files);
+        for path in jsonl_files {
+            match classify(&path) {
+                Some(true) => return Some(path),
+                Some(false) if prefix_match.is_none() => prefix_match = Some(path),
+                _ => {}
             }
         }
     }
@@ -1756,6 +1803,17 @@ type OmpVersionCache = HashMap<PathBuf, (Option<SystemTime>, String)>;
 static CACHED_OMP_VERSION: LazyLock<Mutex<OmpVersionCache>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+pub(crate) fn canonicalize_binary(binary: &Path) -> PathBuf {
+    let resolved = if binary.is_absolute() {
+        binary.to_path_buf()
+    } else if let Some(found) = crate::path_lookup::which(binary.to_string_lossy().as_ref()) {
+        found
+    } else {
+        binary.to_path_buf()
+    };
+    std::fs::canonicalize(&resolved).unwrap_or(resolved)
+}
+
 fn binary_mtime(binary: &Path) -> Option<SystemTime> {
     std::fs::metadata(binary).and_then(|m| m.modified()).ok()
 }
@@ -1766,11 +1824,14 @@ pub fn invalidate_cached_omp_version() {
 }
 
 /// Versione in cache per `binary`, solo se il file e' ancora quello (stesso mtime).
+/// Utilizza il percorso canonico del file per evitare chiavi duplicate dovute a
+/// symlink, percorsi relativi o invocazioni con nome nudo dal PATH.
 pub fn get_cached_omp_version_for(binary: &Path) -> Option<String> {
-    let modified = binary_mtime(binary);
+    let canonical = canonicalize_binary(binary);
+    let modified = binary_mtime(&canonical);
     CACHED_OMP_VERSION
         .lock()
-        .get(binary)
+        .get(&canonical)
         .filter(|(cached_mtime, _)| *cached_mtime == modified)
         .map(|(_, version)| version.clone())
 }
@@ -1778,54 +1839,17 @@ pub fn get_cached_omp_version_for(binary: &Path) -> Option<String> {
 /// Salva la versione letta da `binary`. Da chiamare solo con un `--version`
 /// terminato con exit 0: un errore non deve restare in cache come versione.
 pub fn set_cached_omp_version_for(binary: &Path, version: String) {
+    let canonical = canonicalize_binary(binary);
+    let modified = binary_mtime(&canonical);
     CACHED_OMP_VERSION
         .lock()
-        .insert(binary.to_path_buf(), (binary_mtime(binary), version));
-}
-
-/// Estrae la versione dall'output di `omp --version` ("omp/18.0.4", "v18.0.4").
-fn parse_omp_version_output(stdout: &str) -> Option<String> {
-    let ver = stdout
-        .trim()
-        .trim_start_matches("omp")
-        .trim_start_matches('/')
-        .trim_start_matches('v')
-        .trim();
-    (!ver.is_empty()).then(|| ver.to_string())
+        .insert(canonical, (modified, version));
 }
 
 pub fn get_omp_version_sync() -> Result<String, String> {
     let omp_path = get_omp_binary();
-    if let Some(cached) = get_cached_omp_version_for(Path::new(&omp_path)) {
-        return Ok(cached);
-    }
-    let mut cmd = Command::new(&omp_path);
-    cmd.arg("--version");
-    #[cfg(target_os = "windows")]
-    {
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-        cmd.creation_flags(CREATE_NO_WINDOW);
-    }
-
-    let _span = crate::perf_trace::span(
-        "boot",
-        crate::perf_trace::command_label(&omp_path, ["--version"]),
-    );
-    let output = omp_capture(cmd).map_err(|e| format!("Failed to run omp: {}", e))?;
-    if !output.status.success() {
-        return Err(format!(
-            "omp --version terminato con errore ({})",
-            output.status
-        ));
-    }
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    match parse_omp_version_output(&stdout) {
-        Some(v) => {
-            set_cached_omp_version_for(Path::new(&omp_path), v.clone());
-            Ok(v)
-        }
-        None => Err("Unable to parse version".to_string()),
-    }
+    crate::setup::read_omp_version(Path::new(&omp_path))
+        .ok_or_else(|| "Unable to parse version".to_string())
 }
 
 #[command]
@@ -3019,13 +3043,5 @@ riga_non_json_che_viene_ignorata
         assert!(!session_folder_might_match("--D--altro--", progetto));
         let legacy = format!("home-altro-{}", "a".repeat(64));
         assert!(!session_folder_might_match(&legacy, progetto));
-    }
-
-    #[test]
-    fn parse_versione_omp() {
-        let parse = |raw: &str| parse_omp_version_output(raw);
-        assert_eq!(parse("omp/18.0.4\n").as_deref(), Some("18.0.4"));
-        assert_eq!(parse("v18.1.0").as_deref(), Some("18.1.0"));
-        assert_eq!(parse("  "), None);
     }
 }

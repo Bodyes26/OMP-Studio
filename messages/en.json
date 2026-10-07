@@ -2387,6 +2387,7 @@
     }
   ],
   "output_block_collapse": "Collapse {label}",
+  "output_block_truncated_note": "Output truncated: display limited to the first {max} lines",
   "code_block_fallback_lang": "text",
   "code_block_expand": "Expand code block",
   "code_block_collapse": "Collapse code block",

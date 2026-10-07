@@ -117,7 +117,7 @@
 	const SCROLL_THRESHOLD = 40;
 
 	function requestScrollToBottom() {
-		if (!scrollEl || !pinned || userScrolledUp) return;
+		if (!visible || !scrollEl || !pinned || userScrolledUp) return;
 		if (motionReduced()) {
 			const maxScroll = Math.max(0, scrollEl.scrollHeight - scrollEl.clientHeight);
 			scrollEl.scrollTop = maxScroll;
@@ -127,7 +127,7 @@
 		if (rafId) return;
 		rafId = requestAnimationFrame(() => {
 			rafId = 0;
-			if (!scrollEl || !pinned || userScrolledUp) return;
+			if (!visible || !scrollEl || !pinned || userScrolledUp) return;
 			const maxScroll = Math.max(0, scrollEl.scrollHeight - scrollEl.clientHeight);
 			if (Math.abs(scrollEl.scrollTop - maxScroll) >= 1) {
 				scrollEl.scrollTop = maxScroll;
@@ -137,7 +137,7 @@
 	}
 
 	function scrollToBottom() {
-		if (!scrollEl) return;
+		if (!visible || !scrollEl) return;
 		pinned = true;
 		userScrolledUp = false;
 		if (rafId) {
@@ -194,7 +194,7 @@
 				cancelAnimationFrame(rafId);
 				rafId = 0;
 			}
-			if (scrollEl) {
+			if (scrollEl && visible) {
 				scrollEl.scrollTop = Math.max(0, scrollEl.scrollHeight - scrollEl.clientHeight);
 				lastScrollTop = scrollEl.scrollTop;
 			}
@@ -211,7 +211,7 @@
 				cancelAnimationFrame(rafId);
 				rafId = 0;
 			}
-			if (scrollEl) {
+			if (scrollEl && visible) {
 				scrollEl.scrollTop = Math.max(0, scrollEl.scrollHeight - scrollEl.clientHeight);
 				lastScrollTop = scrollEl.scrollTop;
 			}
@@ -338,6 +338,7 @@
 	bind:this={surfaceEl}
 	class="chat-surface"
 	style:visibility={visible ? 'visible' : 'hidden'}
+	style:content-visibility={visible ? 'visible' : 'hidden'}
 	style:pointer-events={visible ? 'auto' : 'none'}
 	style:position="absolute"
 	style:inset="0"

@@ -192,18 +192,8 @@ fn resolve_gh_binary() -> Option<PathBuf> {
         if candidate.exists() {
             return Some(candidate);
         }
-        let mut cmd = Command::new("where.exe");
-        cmd.arg("gh.exe");
-        cmd.creation_flags(CREATE_NO_WINDOW);
-        if let Ok(out) = cmd.output() {
-            if out.status.success() {
-                let txt = String::from_utf8_lossy(&out.stdout);
-                if let Some(first) = txt.lines().next().map(|l| l.trim()) {
-                    if !first.is_empty() {
-                        return Some(PathBuf::from(first));
-                    }
-                }
-            }
+        if let Some(path) = crate::path_lookup::which("gh.exe") {
+            return Some(path);
         }
     }
 
@@ -229,16 +219,8 @@ fn resolve_gh_binary() -> Option<PathBuf> {
                 return Some(candidate);
             }
         }
-        let mut cmd = Command::new("which");
-        cmd.arg("gh");
-        if let Ok(out) = cmd.output() {
-            if out.status.success() {
-                let txt = String::from_utf8_lossy(&out.stdout);
-                let first = txt.trim();
-                if !first.is_empty() {
-                    return Some(PathBuf::from(first));
-                }
-            }
+        if let Some(path) = crate::path_lookup::which("gh") {
+            return Some(path);
         }
         // Ultimo tentativo: shell di login dell'utente (legge il suo PATH reale).
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());

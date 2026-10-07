@@ -15,6 +15,17 @@ released: items are closed into a version via `npm run release -- <version>`.
 - New "Commands" entry in Settings: the catalog of `omp` and Studio commands, grouped by category, with search, explanation, benefits, examples and when to use each one, so you can discover features like prewalk without having to know them. Each command can be pinned in the composer, on the inner bar or below the composer, in the form you prefer, reordered by dragging (or `Alt+←/→`) and reset to the default layout. Attach, role, model and thinking are always present; `@` and context can be shown wherever you want. New commands that `omp` adds after an update appear in a "New" section until Studio describes them.
 - The row below the composer moves entries that don't fit into a "…" menu.
 
+### Changed
+- Fewer background processes: the top bar Git status is read with a single `git` command instead of five, Git and usage-limit checks slow down when Studio is not in the foreground and stop when it is minimized, and looking up `omp`, `gh` and VS Code no longer starts external processes. The difference is most noticeable on Windows with an active antivirus.
+- Faster startup: `omp --version` runs only once, the `omp` update check starts after the sessions open, and the editor and diagrams load only when needed instead of when the window opens.
+- Smoother chat on long replies: text and code blocks are updated instead of being rebuilt on every token, code highlighting follows the stream without chasing it, and a very long tool output no longer freezes the interface (beyond 2 MB or 20,000 lines it shows the beginning with a notice).
+- Chats of projects that are not visible are no longer redrawn, terminals receive output in batches, and the breathing attention ring no longer keeps the CPU busy.
+- Git operations and file searches no longer slow down the interface's other requests.
+- The focus diagnostics log (`focus-trace.log`) is no longer written unless you enable it.
+
+### Fixed
+- Studio no longer burns CPU continuously while idle: for every session without a pinned account, the account lookup repeated endlessly, scanning every session on disk (over 150% CPU on Mac).
+
 ## [1.7.2] - 2026-10-07
 
 ### Fixed

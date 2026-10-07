@@ -25,7 +25,6 @@ import { sessionRegistry } from '$lib/agent/sessionRegistry';
 import { laneOrchestrator } from './laneOrchestrator.svelte';
 import { openLabEntry } from './laneActions';
 import { labApi } from '$lib/lab/api';
-import { disposeLabRuntime } from '$lib/lab/runtime.svelte';
 import { settingsStore } from '$lib/stores/settings.svelte';
 import { m } from '$lib/paraglide/messages.js';
 import {
@@ -367,6 +366,9 @@ export async function deleteWorktreeLane(
  * caso in cui il runtime sia gia' stato smontato con lo stop ancora in volo.
  */
 async function stopLabWatch(ownerProjectId: string, targetLaneId: string): Promise<void> {
+	// Caricamento dinamico: evita che l'albero di TopBar.svelte trascini
+	// il runtime del Laboratorio prima dell'uso effettivo di una corsia Lab.
+	const { disposeLabRuntime } = await import('$lib/lab/runtime.svelte');
 	await disposeLabRuntime(ownerProjectId, targetLaneId).catch(() => undefined);
 	await labApi.watchStop(`${ownerProjectId}:${targetLaneId}`).catch(() => undefined);
 }

@@ -1,5 +1,5 @@
 import { projectStore, normalizeProjectPath } from '$lib/stores/projects.svelte';
-import { getActiveEditorInfo } from '$lib/editor/monaco';
+import { getActiveEditorInfo } from './activeEditor';
 
 export interface EditorContextOptions {
 	projectPath?: string;

@@ -25,7 +25,17 @@ export default defineConfig(({ isSsrBuild }) => ({
         ? {}
         : {
             manualChunks(id) {
+              // Rollup aggiunge a un chunk manuale anche le dipendenze dei suoi moduli
+              // non assegnate altrove: lodash-es (usato da mermaid e dagli store per
+              // `debounce`) e l'helper di preload di Vite finivano in vendor-mermaid,
+              // e l'import statico di `debounce` caricava ~3 MB di mermaid all'avvio.
+              if (id.includes('vite/preload-helper')) {
+                return 'preload-helper';
+              }
               if (id.includes('node_modules')) {
+                if (id.includes('lodash')) {
+                  return 'vendor-lodash';
+                }
                 if (id.includes('@xterm')) {
                   return 'vendor-xterm';
                 }

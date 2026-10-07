@@ -246,6 +246,9 @@
 
 		async function poll() {
 			if (destroyed || isPolling) return;
+			// Salta il tick se la finestra e' nascosta o minimizzata: il drawer e' contenuto visibile
+			// quindi non limitiamo a focus (l'utente puo' osservarlo mentre lavora su un altro schermo).
+			if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
 			isPolling = true;
 			try {
 				const res: SubagentMessagesResponse = await session.client.send({

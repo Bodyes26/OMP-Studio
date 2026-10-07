@@ -92,7 +92,7 @@
 	import type { TerminalSessionInfo } from '$lib/terminal/terminal';
 	import { invoke } from '@tauri-apps/api/core';
 	import { listen } from '@tauri-apps/api/event';
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import { startFocusTracer } from '$lib/focusTracer';
 
 	let leftSection = $state<'files' | 'git' | 'agent'>('files');
@@ -490,7 +490,18 @@
 	let sessionPinsCache = $state<Record<string, Record<string, string>>>({});
 	const sessionPinsInFlight = new Set<string>();
 	const prevGeneratingBySession = new Map<string, boolean>();
+	let postGenerationQuotaDebounceTimer: number | null = null;
 
+	function triggerPostGenerationQuotaRefresh(): void {
+		if (postGenerationQuotaDebounceTimer !== null) {
+			window.clearTimeout(postGenerationQuotaDebounceTimer);
+		}
+		// Raggruppa le sessioni che finiscono insieme per non lanciare `omp usage` in parallelo
+		postGenerationQuotaDebounceTimer = window.setTimeout(() => {
+			postGenerationQuotaDebounceTimer = null;
+			void quotaStore.refresh(false);
+		}, 1500);
+	}
 	/**
 	 * Ricava provider, modello e pin credenziale realmente in uso da un progetto.
 	 *
@@ -570,7 +581,7 @@
 				// Se la generazione e' appena terminata, invalida la cache per rileggere i pin freschi dal transcript
 				if (wasGenerating && !isGenerating) {
 					delete sessionPinsCache[sessionKey];
-					void quotaStore.refresh(false);
+					triggerPostGenerationQuotaRefresh();
 				}
 
 				const cached = sessionPinsCache[sessionKey];
@@ -581,9 +592,12 @@
 						if (matchedKey) credentialPin = cached[matchedKey];
 					}
 				}
-				// Se il pin per questo provider non e' ancora in cache e non c'e' una richiesta in volo,
-				// interroga session_credential_pins per estrarre i pin aggiornati dal transcript
-				if (!credentialPin && !sessionPinsInFlight.has(sessionKey)) {
+				// Una sola lettura per sessione, rinnovata quando la generazione termina.
+				// Il criterio e' l'assenza della voce in cache, non del pin: una sessione
+				// senza pin per questo provider (il caso comune) lascia `credentialPin`
+				// vuoto anche dopo la risposta, e la scrittura di `sessionPinsCache`
+				// rilanciava l'effetto in un ciclo infinito di scansioni del disco.
+				if (cached === undefined && !sessionPinsInFlight.has(sessionKey)) {
 					sessionPinsInFlight.add(sessionKey);
 					invoke<Record<string, string>>('session_credential_pins', { sessionId: sessionKey })
 						.then((pins) => {
@@ -872,18 +886,24 @@
 				const laneRecord = laneStore.lanes.find((l) => l.projectId === p.id && l.laneId === laneId);
 				const laneTitle = laneRecord?.title ?? (laneId !== 'main' ? laneId : 'Principale');
 
-				const attention = buildAttentionRequest(
-					{ id: p.id, name: p.name, hue: p.hue },
-					{
-						laneId,
-						laneTitle,
-						pendingUi: s.pendingUi ? $state.snapshot(s.pendingUi) : null,
-						blockedQuotaState: s.blockedQuotaState ? $state.snapshot(s.blockedQuotaState) : null,
-						inferredAttention: s.inferredAttention ? $state.snapshot(s.inferredAttention) : null,
-						model: s.model,
-						recentMessages: s.recentMessages
-					}
-				);
+				// Leggiamo recentMessages solo se esiste una potenziale richiesta di attenzione,
+				// e sempre dentro untrack() per evitare che ogni singolo token di streaming
+				// sottoscriva questo effect multi-progetto e scateni una cascata di re-render.
+				const hasAttentionCandidate = Boolean(s.pendingUi || s.blockedQuotaState || s.inferredAttention);
+				const attention = hasAttentionCandidate
+					? buildAttentionRequest(
+							{ id: p.id, name: p.name, hue: p.hue },
+							{
+								laneId,
+								laneTitle,
+								pendingUi: s.pendingUi ? $state.snapshot(s.pendingUi) : null,
+								blockedQuotaState: s.blockedQuotaState ? $state.snapshot(s.blockedQuotaState) : null,
+								inferredAttention: s.inferredAttention ? $state.snapshot(s.inferredAttention) : null,
+								model: s.model,
+								recentMessages: untrack(() => s.recentMessages)
+							}
+						)
+					: null;
 
 				if (attention) {
 					projectAttentionMessages.push(askQuestionText(attention.pendingUi));
@@ -929,37 +949,49 @@
 
 	// Risposte rapide arrivate dalla finestra Companion o da scorciatoia esterna
 	$effect(() => {
+		let disposed = false;
 		const unlistens: Array<() => void> = [];
-		void listen<UiResponsePayload>('studio-respond-ui', async (event) => {
-			await sessionRegistry.routeUiResponse(event.payload);
-		}).then((fn) => { unlistens.push(fn); });
+		const register = (promise: Promise<() => void>) => {
+			void promise.then((fn) => {
+				if (disposed) {
+					fn();
+				} else {
+					unlistens.push(fn);
+				}
+			});
+		};
 
-		void listen<{ projectId: string; laneId?: string; targetSelector?: string; thinkingLevel?: string }>(
+		register(listen<UiResponsePayload>('studio-respond-ui', async (event) => {
+			await sessionRegistry.routeUiResponse(event.payload);
+		}));
+
+		register(listen<{ projectId: string; laneId?: string; targetSelector?: string; thinkingLevel?: string }>(
 			'studio-resolve-quota-blocked',
 			async (event) => {
 				const { projectId, laneId, targetSelector, thinkingLevel } = event.payload;
 				await handleResolveQuotaBlocked(projectId, laneId, targetSelector, thinkingLevel);
 			}
-		).then((fn) => { unlistens.push(fn); });
+		));
 
-		void listen<{ projectId: string; laneId?: string }>('studio-dismiss-quota-blocked', (event) => {
+		register(listen<{ projectId: string; laneId?: string }>('studio-dismiss-quota-blocked', (event) => {
 			handleDismissQuotaBlocked(event.payload.projectId, event.payload.laneId);
-		}).then((fn) => { unlistens.push(fn); });
+		}));
 
-		void listen<{ projectId: string; taskId: string; follow?: boolean }>('studio-run-task', (event) => {
+		register(listen<{ projectId: string; taskId: string; follow?: boolean }>('studio-run-task', (event) => {
 			const { projectId, taskId, follow } = event.payload;
 			void handleRunTask(projectId, taskId, { follow: follow ?? false });
-		}).then((fn) => { unlistens.push(fn); });
+		}));
 
 		// La companion chiede di portare qui il fuoco su un progetto: e' la
 		// strada rapida per "ha finito, fammi vedere cosa ha fatto". Riusa il
 		// percorso del click sulle notifiche di sistema, che sa gia' come
 		// ripristinare la finestra e selezionare il progetto.
-		void listen<{ projectId: string }>('studio-focus-project', (event) => {
+		register(listen<{ projectId: string }>('studio-focus-project', (event) => {
 			void notificationManager.handleNotificationClick(event.payload.projectId);
-		}).then((fn) => { unlistens.push(fn); });
+		}));
 
 		return () => {
+			disposed = true;
 			for (const unlisten of unlistens) unlisten();
 		};
 	});
@@ -2224,7 +2256,10 @@
 			// attendere, un utente con progetti vedrebbe il wizard solo perche'
 			// la lista e' ancora vuota.
 			await Promise.all([projectStore.init(), laneStore.init()]);
-			const status = await invoke<{ missing: string[] }>('setup_status');
+			const status = await invoke<{ missing: string[]; ompVersion?: string | null }>('setup_status');
+			if (status.ompVersion) {
+				ompVersionStore.set(status.ompVersion);
+			}
 			setupIncomplete = status.missing.length > 0;
 			if (status.missing.includes('omp')) {
 				setupStartAt = 'install';
@@ -2259,7 +2294,10 @@
 	/** Aggiorna il solo indicatore, senza decidere di aprire niente. */
 	async function refreshSetupChip() {
 		try {
-			const status = await invoke<{ missing: string[] }>('setup_status');
+			const status = await invoke<{ missing: string[]; ompVersion?: string | null }>('setup_status');
+			if (status.ompVersion) {
+				ompVersionStore.set(status.ompVersion);
+			}
 			setupIncomplete = status.missing.length > 0;
 		} catch (e) {
 			console.error(m.ui__page_verifica_del_contratto_omp_545e(), e);
@@ -2310,10 +2348,19 @@
 		cleanup = () => window.removeEventListener('studio-active-session-ready', onReady);
 	}
 
+	let updateCheckBootTimer: number | null = null;
+
 	onMount(() => {
 		perfMark('boot', 'app start');
-		void ompVersionStore.refresh();
-		scheduleDeferredBootTask(() => void checkOmpUpdateSilently());
+		// Non lanciamo ompVersionStore.refresh() all'avvio: checkSetupContract()
+		// interroga `setup_status` che popola gia' la versione senza spawnare
+		// un processo `omp --version` separato a vuoto.
+		// Differiamo la verifica degli aggiornamenti a ~30s dall'avvio per non competere
+		// con lo startup delle sessioni.
+		updateCheckBootTimer = window.setTimeout(() => {
+			updateCheckBootTimer = null;
+			void checkOmpUpdateSilently();
+		}, 30_000);
 		scheduleDeferredBootTask(() => void ompChangelogStore.checkStatus());
 		void checkSetupContract();
 		studioUpdaterStore.init();
@@ -2321,6 +2368,14 @@
 	});
 
 	onDestroy(() => {
+		if (postGenerationQuotaDebounceTimer !== null) {
+			window.clearTimeout(postGenerationQuotaDebounceTimer);
+			postGenerationQuotaDebounceTimer = null;
+		}
+		if (updateCheckBootTimer !== null) {
+			window.clearTimeout(updateCheckBootTimer);
+			updateCheckBootTimer = null;
+		}
 		studioUpdaterStore.destroy();
 		modelSettingsStore.destroyHealthWatch();
 	});

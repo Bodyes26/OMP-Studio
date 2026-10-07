@@ -15,6 +15,17 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Nuova voce «Comandi» nelle Impostazioni: il catalogo dei comandi di `omp` e di Studio, raggruppati per categoria, con ricerca, spiegazione, vantaggi, esempi e quando conviene usarli, così scopri funzioni come prewalk senza doverle conoscere. Ogni comando si può fissare nel composer, sulla barra interna o sotto il composer, nella forma che preferisci, riordinare con il trascinamento (o `Alt+←/→`) e ripristinare al layout predefinito. Allegato, ruolo, modello e thinking restano sempre presenti; `@` e contesto si possono mostrare dove vuoi. I comandi nuovi che `omp` aggiunge dopo un aggiornamento compaiono in una sezione «Nuovi» finché Studio non li descrive.
 - La riga sotto il composer manda le voci che non entrano in un menu «…».
 
+### Changed
+- Meno processi in background: lo stato Git della barra superiore si legge con un solo comando `git` invece di cinque, i controlli di Git e dei limiti d'uso rallentano quando Studio non è in primo piano e si fermano quando è ridotto a icona, e la ricerca di `omp`, `gh` e VS Code non avvia più processi esterni. Su Windows con l'antivirus attivo la differenza si sente di più.
+- Avvio più rapido: `omp --version` viene eseguito una sola volta, il controllo degli aggiornamenti di `omp` parte dopo l'apertura delle sessioni, e l'editor e i diagrammi si caricano solo quando servono invece che all'apertura della finestra.
+- Chat più fluida nelle risposte lunghe: testo e blocchi di codice si aggiornano invece di essere ricreati a ogni token, la colorazione del codice segue lo streaming senza rincorrerlo, e un output molto lungo di un tool non blocca più l'interfaccia (oltre 2 MB o 20.000 righe ne mostra l'inizio con un avviso).
+- Le chat dei progetti non visibili non vengono più ridisegnate, i terminali ricevono l'output a blocchi e l'anello di attenzione che respira non impegna più la CPU.
+- Le operazioni Git e le ricerche nei file non rallentano più le altre richieste dell'interfaccia.
+- Il registro diagnostico del fuoco (`focus-trace.log`) non viene più scritto se non lo si attiva.
+
+### Fixed
+- Studio non consuma più CPU di continuo a riposo: per ogni sessione senza un account fissato la ricerca dell'account si ripeteva senza sosta scorrendo tutte le sessioni su disco (oltre il 150% di CPU su Mac).
+
 ## [1.7.2] - 2026-10-07
 
 ### Fixed

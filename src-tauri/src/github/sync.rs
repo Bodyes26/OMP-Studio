@@ -405,6 +405,73 @@ fn parse_commit_log(raw: &str) -> Vec<CommitSummary> {
     list
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GitPorcelainV2BranchInfo {
+    pub branch: String,
+    pub upstream: Option<String>,
+    pub ahead: u32,
+    pub behind: u32,
+    pub has_uncommitted: bool,
+}
+
+/// Parsing di `git status --porcelain=v2 --branch`.
+/// Le righe header iniziano con '# ':
+/// - '# branch.head <head>' indica il branch corrente o '(detached)'
+/// - '# branch.upstream <upstream>' indica il branch remoto tracciato
+/// - '# branch.ab +<ahead> -<behind>' indica il disallineamento numerico
+/// Qualsiasi riga non vuota che non inizi con '#' rappresenta modifiche
+/// al working tree (modificati, untracked, conflitti, rinomine).
+pub(crate) fn parse_porcelain_v2_branch(raw: &str) -> GitPorcelainV2BranchInfo {
+    let mut branch = String::new();
+    let mut upstream = None;
+    let mut ahead = 0;
+    let mut behind = 0;
+    let mut has_uncommitted = false;
+
+    for line in raw.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        if let Some(rest) = trimmed.strip_prefix('#') {
+            let header = rest.trim_start();
+            if let Some(b) = header.strip_prefix("branch.head ") {
+                branch = b.trim().to_string();
+            } else if let Some(u) = header.strip_prefix("branch.upstream ") {
+                let u_clean = u.trim();
+                if !u_clean.is_empty() {
+                    upstream = Some(u_clean.to_string());
+                }
+            } else if let Some(ab) = header.strip_prefix("branch.ab ") {
+                for part in ab.split_whitespace() {
+                    if let Some(a) = part.strip_prefix('+') {
+                        ahead = a.parse::<u32>().unwrap_or(0);
+                    } else if let Some(b) = part.strip_prefix('-') {
+                        behind = b.parse::<u32>().unwrap_or(0);
+                    }
+                }
+            }
+        } else {
+            // Qualsiasi voce fuori dagli header (#) segnala file modificati,
+            // aggiunti, rimossi o untracked nel working tree
+            has_uncommitted = true;
+        }
+    }
+
+    if branch.is_empty() {
+        branch = "HEAD".to_string();
+    }
+
+    GitPorcelainV2BranchInfo {
+        branch,
+        upstream,
+        ahead,
+        behind,
+        has_uncommitted,
+    }
+}
+
 #[tauri::command]
 pub async fn git_upstream_status(project_path: String) -> Result<GitUpstreamStatus, String> {
     tokio::task::spawn_blocking(move || {
@@ -413,56 +480,33 @@ pub async fn git_upstream_status(project_path: String) -> Result<GitUpstreamStat
             return Err(format!("Percorso '{project_path}' non trovato"));
         }
 
-        // Verifica se è un git worktree
-        if run_git_in(path, &["rev-parse", "--is-inside-work-tree"]).is_err() {
-            return Ok(GitUpstreamStatus {
-                is_git: false,
-                branch: String::new(),
-                upstream: None,
-                ahead: 0,
-                behind: 0,
-                incoming_commits: Vec::new(),
-                outgoing_commits: Vec::new(),
-                has_uncommitted: false,
-            });
-        }
+        // Singolo spawn git: `status --porcelain=v2 --branch` restituisce
+        // in una sola chiamata se il path e' un repo git, il branch corrente,
+        // l'upstream, ahead/behind e la presenza di modifiche locali.
+        // Riduce da 5 a 1 i processi git creati ogni ciclo di polling.
+        let status_raw = match run_git_in(path, &["status", "--porcelain=v2", "--branch"]) {
+            Ok(out) => out,
+            Err(_) => {
+                return Ok(GitUpstreamStatus {
+                    is_git: false,
+                    branch: String::new(),
+                    upstream: None,
+                    ahead: 0,
+                    behind: 0,
+                    incoming_commits: Vec::new(),
+                    outgoing_commits: Vec::new(),
+                    has_uncommitted: false,
+                });
+            }
+        };
 
-        // Branch corrente
-        let branch = run_git_in(path, &["symbolic-ref", "--short", "HEAD"])
-            .or_else(|_| run_git_in(path, &["rev-parse", "--abbrev-ref", "HEAD"]))
-            .unwrap_or_else(|_| "HEAD".to_string());
-
-        // File modificati locali
-        let status_out = run_git_in(path, &["status", "--porcelain"]).unwrap_or_default();
-        let has_uncommitted = !status_out.trim().is_empty();
-
-        // Upstream tracking branch
-        let upstream = run_git_in(
-            path,
-            &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
-        )
-        .ok();
-
-        let mut ahead = 0;
-        let mut behind = 0;
+        let parsed = parse_porcelain_v2_branch(&status_raw);
         let mut incoming = Vec::new();
         let mut outgoing = Vec::new();
 
-        if upstream.is_some() {
-            // Conta ahead / behind
-            if let Ok(counts) = run_git_in(
-                path,
-                &["rev-list", "--left-right", "--count", "HEAD...@{u}"],
-            ) {
-                let parts: Vec<&str> = counts.split_whitespace().collect();
-                if parts.len() >= 2 {
-                    ahead = parts[0].parse::<u32>().unwrap_or(0);
-                    behind = parts[1].parse::<u32>().unwrap_or(0);
-                }
-            }
-
+        if parsed.upstream.is_some() {
             // Se ci sono commit incoming
-            if behind > 0 {
+            if parsed.behind > 0 {
                 let format_arg = "--pretty=format:%H\u{1f}%h\u{1f}%s\u{1f}%an\u{1f}%ar";
                 if let Ok(raw_log) =
                     run_git_in(path, &["log", format_arg, "HEAD..@{u}", "-n", "10"])
@@ -472,7 +516,7 @@ pub async fn git_upstream_status(project_path: String) -> Result<GitUpstreamStat
             }
 
             // Se ci sono commit outgoing
-            if ahead > 0 {
+            if parsed.ahead > 0 {
                 let format_arg = "--pretty=format:%H\u{1f}%h\u{1f}%s\u{1f}%an\u{1f}%ar";
                 if let Ok(raw_log) =
                     run_git_in(path, &["log", format_arg, "@{u}..HEAD", "-n", "10"])
@@ -484,18 +528,19 @@ pub async fn git_upstream_status(project_path: String) -> Result<GitUpstreamStat
 
         Ok(GitUpstreamStatus {
             is_git: true,
-            branch,
-            upstream,
-            ahead,
-            behind,
+            branch: parsed.branch,
+            upstream: parsed.upstream,
+            ahead: parsed.ahead,
+            behind: parsed.behind,
             incoming_commits: incoming,
             outgoing_commits: outgoing,
-            has_uncommitted,
+            has_uncommitted: parsed.has_uncommitted,
         })
     })
     .await
     .map_err(|e| format!("Task upstream status: {e}"))?
 }
+
 
 #[tauri::command]
 pub async fn git_sync_repo(project_path: String, action: String) -> Result<String, String> {
@@ -1073,5 +1118,97 @@ mod tests {
             res.is_err(),
             "pull-ff su cartella non git deve fallire chiuso"
         );
+    }
+
+    #[test]
+    fn test_parse_porcelain_v2_upstream_ahead_behind() {
+        let raw = "\
+# branch.oid 881a25b3e1fa841ed15c654789cc993158a08c45
+# branch.head feature/login
+# branch.upstream origin/feature/login
+# branch.ab +3 -2
+";
+        let info = parse_porcelain_v2_branch(raw);
+        assert_eq!(info.branch, "feature/login");
+        assert_eq!(info.upstream, Some("origin/feature/login".to_string()));
+        assert_eq!(info.ahead, 3);
+        assert_eq!(info.behind, 2);
+        assert!(!info.has_uncommitted);
+    }
+
+    #[test]
+    fn test_parse_porcelain_v2_detached_head() {
+        let raw = "\
+# branch.oid 881a25b3e1fa841ed15c654789cc993158a08c45
+# branch.head (detached)
+";
+        let info = parse_porcelain_v2_branch(raw);
+        assert_eq!(info.branch, "(detached)");
+        assert_eq!(info.upstream, None);
+        assert_eq!(info.ahead, 0);
+        assert_eq!(info.behind, 0);
+        assert!(!info.has_uncommitted);
+    }
+
+    #[test]
+    fn test_parse_porcelain_v2_no_upstream() {
+        let raw = "\
+# branch.oid 881a25b3e1fa841ed15c654789cc993158a08c45
+# branch.head main
+";
+        let info = parse_porcelain_v2_branch(raw);
+        assert_eq!(info.branch, "main");
+        assert_eq!(info.upstream, None);
+        assert_eq!(info.ahead, 0);
+        assert_eq!(info.behind, 0);
+        assert!(!info.has_uncommitted);
+    }
+
+    #[test]
+    fn test_parse_porcelain_v2_initial_unborn_branch() {
+        let raw = "\
+# branch.oid (initial)
+# branch.head main
+";
+        let info = parse_porcelain_v2_branch(raw);
+        assert_eq!(info.branch, "main");
+        assert_eq!(info.upstream, None);
+        assert_eq!(info.ahead, 0);
+        assert_eq!(info.behind, 0);
+        assert!(!info.has_uncommitted);
+    }
+
+    #[test]
+    fn test_parse_porcelain_v2_dirty_vs_clean() {
+        let raw_clean = "\
+# branch.oid 881a25b3e1fa841ed15c654789cc993158a08c45
+# branch.head main
+# branch.upstream origin/main
+# branch.ab +0 -0
+";
+        let info_clean = parse_porcelain_v2_branch(raw_clean);
+        assert!(!info_clean.has_uncommitted);
+
+        let raw_dirty = "\
+# branch.oid 881a25b3e1fa841ed15c654789cc993158a08c45
+# branch.head main
+# branch.upstream origin/main
+# branch.ab +0 -0
+1 .M N... 100644 100644 100644 123 456 src/main.rs
+? untracked.txt
+";
+        let info_dirty = parse_porcelain_v2_branch(raw_dirty);
+        assert!(info_dirty.has_uncommitted);
+    }
+
+    #[test]
+    fn test_parse_porcelain_v2_fallback_head() {
+        let raw = "";
+        let info = parse_porcelain_v2_branch(raw);
+        assert_eq!(info.branch, "HEAD");
+        assert_eq!(info.upstream, None);
+        assert_eq!(info.ahead, 0);
+        assert_eq!(info.behind, 0);
+        assert!(!info.has_uncommitted);
     }
 }

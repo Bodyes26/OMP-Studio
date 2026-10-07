@@ -17,7 +17,7 @@
 	} = $props();
 </script>
 
-{#each tokens as token (token)}
+{#each tokens as token, i (`${i}:${token.type}`)}
 	{#if token.type === 'heading'}
 		{#if token.depth === 1}
 			<h1 class="heading h1"><MarkdownInline tokens={token.tokens} {onOpenFile} /></h1>
@@ -43,7 +43,7 @@
 	{:else if token.type === 'list'}
 		{#if token.ordered}
 			<ol start={typeof token.start === 'number' ? token.start : 1} class="list ordered">
-				{#each token.items as item, itemIdx (itemIdx)}
+				{#each token.items as item, itemIdx (`${itemIdx}:${item.task ? 'task' : 'item'}`)}
 					<li class="list-item" class:task-item={item.task}>
 						{#if item.task}
 							<input type="checkbox" checked={item.checked} disabled class="task-checkbox" />
@@ -56,7 +56,7 @@
 			</ol>
 		{:else}
 			<ul class="list unordered">
-				{#each token.items as item, itemIdx (itemIdx)}
+				{#each token.items as item, itemIdx (`${itemIdx}:${item.task ? 'task' : 'item'}`)}
 					<li class="list-item" class:task-item={item.task}>
 						{#if item.task}
 							<input type="checkbox" checked={item.checked} disabled class="task-checkbox" />
@@ -73,7 +73,7 @@
 			<table class="table">
 				<thead>
 					<tr>
-						{#each token.header as cell, ci (ci)}
+						{#each token.header as cell, ci (`${ci}:th`)}
 							<th style={cell.align ? `text-align: ${cell.align}` : undefined}>
 								<MarkdownInline tokens={cell.tokens} {onOpenFile} />
 							</th>
@@ -81,9 +81,9 @@
 					</tr>
 				</thead>
 				<tbody>
-					{#each token.rows as row, ri (ri)}
+					{#each token.rows as row, ri (`${ri}:tr`)}
 						<tr>
-							{#each row as cell, ci (ci)}
+							{#each row as cell, ci (`${ci}:td`)}
 								<td style={cell.align ? `text-align: ${cell.align}` : undefined}>
 									<MarkdownInline tokens={cell.tokens} {onOpenFile} />
 								</td>

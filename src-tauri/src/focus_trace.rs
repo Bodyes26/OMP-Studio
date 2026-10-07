@@ -10,10 +10,14 @@
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::{channel, Sender};
+use std::sync::{Mutex, OnceLock};
 use tauri::{command, AppHandle, Manager};
-
 /// Oltre questa soglia il file riparte da zero.
 const MAX_BYTES: u64 = 2 * 1024 * 1024;
+
+static SINK: OnceLock<Mutex<Sender<Vec<String>>>> = OnceLock::new();
+static PATH: OnceLock<PathBuf> = OnceLock::new();
 
 fn trace_path(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = app
@@ -27,7 +31,40 @@ fn trace_path(app: &AppHandle) -> Result<PathBuf, String> {
 /// Percorso del file di traccia, da mostrare a chi deve raccoglierlo.
 #[command]
 pub fn focus_trace_path(app: AppHandle) -> Result<String, String> {
-    Ok(trace_path(&app)?.to_string_lossy().to_string())
+    if let Some(path) = PATH.get() {
+        return Ok(path.to_string_lossy().to_string());
+    }
+    let path = trace_path(&app)?;
+    let _ = PATH.set(path.clone());
+    Ok(path.to_string_lossy().to_string())
+}
+
+/// Inizializza il thread scrittore dedicato se non e' gia' attivo.
+/// Evita di eseguire I/O sincrono su disco nel thread IPC di Tauri (PERF-04).
+fn ensure_writer(app: &AppHandle) -> Result<(), String> {
+    if SINK.get().is_some() {
+        return Ok(());
+    }
+    let path = trace_path(app)?;
+    let _ = PATH.set(path.clone());
+    let (tx, rx) = channel::<Vec<String>>();
+    if SINK.set(Mutex::new(tx)).is_err() {
+        return Ok(());
+    }
+
+    std::thread::spawn(move || {
+        // Un recv bloccante per lotto, poi svuota la coda pendente:
+        // le scritture su disco restano fuori dal thread IPC di Tauri.
+        while let Ok(first_batch) = rx.recv() {
+            let mut all_lines = first_batch;
+            while let Ok(mut next_batch) = rx.try_recv() {
+                all_lines.append(&mut next_batch);
+            }
+            let _ = append_lines(&path, &all_lines);
+        }
+    });
+
+    Ok(())
 }
 
 /// Accoda un lotto di righe al file indicato, azzerandolo se ha superato il
@@ -51,12 +88,20 @@ fn append_lines(path: &Path, lines: &[String]) -> Result<(), String> {
 }
 
 /// Accoda un lotto di righe gia' formattate dal frontend.
+/// La scrittura su file avviene in background su un thread dedicato
+/// per non bloccare il dispatcher IPC di Tauri (PERF-04).
 #[command]
 pub fn focus_trace_append(app: AppHandle, lines: Vec<String>) -> Result<(), String> {
     if lines.is_empty() {
         return Ok(());
     }
-    append_lines(&trace_path(&app)?, &lines)
+    ensure_writer(&app)?;
+    if let Some(sink) = SINK.get() {
+        if let Ok(tx) = sink.lock() {
+            let _ = tx.send(lines);
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

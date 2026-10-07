@@ -25,6 +25,7 @@
 	import { githubStore } from '$lib/stores/github.svelte';
 	import { normalizeProjectPath } from '$lib/stores/projects.svelte';
 	import { openUrl } from '@tauri-apps/plugin-opener';
+	import { createAdaptivePoller } from '$lib/utils/windowActivity.svelte';
 
 	let {
 		projectPath,
@@ -238,13 +239,17 @@
 		void loadBranches();
 		void loadSessions();
 
-		const onFocus = () => {
-			const wasRecent = Date.now() - lastRefreshedAt < 5000;
-			void refresh('focus', false);
-			if (!wasRecent) {
-				void loadBranches();
+		const poller = createAdaptivePoller({
+			focusedIntervalMs: 15_000,
+			unfocusedIntervalMs: 60_000,
+			cooldownMs: 5_000,
+			action: (reason) => {
+				void refresh(reason, false);
+				if (reason === 'focus') {
+					void loadBranches();
+				}
 			}
-		};
+		});
 
 		const onGitRefresh = (event: Event) => {
 			const target = (event as CustomEvent<GitStatusRefreshDetail>).detail?.projectPath;
@@ -254,35 +259,17 @@
 			) {
 				return;
 			}
+			poller.markRefreshed();
 			void refresh('event', true);
 			void loadBranches();
 		};
 
-		const onVisibilityChange = () => {
-			if (document.visibilityState === 'visible') {
-				void refresh('visible', false);
-			}
-		};
-
-		// L'agente committa mentre la finestra e' gia' a fuoco: il solo evento
-		// focus non basterebbe a raccogliere i suoi commit.
-		// Salta i tick quando la finestra e' nascosta o ridotta a icona.
-		const iv = setInterval(() => {
-			if (document.visibilityState === 'hidden') return;
-			void refresh('interval', false);
-		}, 15000);
-
 		window.addEventListener('git-status-refresh', onGitRefresh);
-		window.addEventListener('focus', onFocus);
-		document.addEventListener('visibilitychange', onVisibilityChange);
 		return () => {
 			window.removeEventListener('git-status-refresh', onGitRefresh);
-			window.removeEventListener('focus', onFocus);
-			document.removeEventListener('visibilitychange', onVisibilityChange);
-			clearInterval(iv);
+			poller.destroy();
 		};
 	});
-
 	function toggleCommit(hash: string) {
 		expandedCommit = expandedCommit === hash ? null : hash;
 	}

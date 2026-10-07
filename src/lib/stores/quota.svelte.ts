@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { accountPinHash, shortestWindowLimit, remainingFractionOf } from '../quota/resolve';
 import { m as msg } from '$lib/paraglide/messages.js';
+import { createAdaptivePoller, type AdaptivePoller } from '$lib/utils/windowActivity.svelte';
 
 export type ProviderHost = {
 	provider: string;
@@ -165,11 +166,11 @@ class QuotaStore {
 		}
 	});
 
-	private timer: number | null = null;
-	private onVisibility: (() => void) | null = null;
+	private poller: AdaptivePoller | null = null;
 	private startupDeferTimer: number | null = null;
 	private startupCleanup: (() => void) | null = null;
 	private initialized = false;
+	private inFlightRefresh: Promise<void> | null = null;
 
 	init() {
 		if (this.initialized) return;
@@ -200,21 +201,16 @@ class QuotaStore {
 		}
 
 		if (typeof window !== 'undefined') {
-			// A finestra nascosta (minimizzata) il chip non e' visibile: interrogare
-			// `omp usage` la' serve solo a generare un log per processo e una riga di
-			// storico nel database di omp. Al ritorno in primo piano si rilegge
-			// subito, se il dato e' scaduto.
-			this.timer = window.setInterval(() => {
-				if (document.visibilityState === 'hidden') return;
-				void this.refresh(false);
-			}, QUOTA_POLL_MS);
-
-			this.onVisibility = () => {
-				if (document.visibilityState !== 'visible') return;
-				const stale = this.lastFetchedAt === null || Date.now() - this.lastFetchedAt > QUOTA_POLL_MS;
-				if (stale) void this.refresh(false);
-			};
-			document.addEventListener('visibilitychange', this.onVisibility);
+			// Poller adattivo a 90 s: sospeso a finestra nascosta (`visibilityState === 'hidden'`),
+			// rallentato se non a fuoco e rieseguito subito al rientro del fuoco se stale (>5 s).
+			this.poller = createAdaptivePoller({
+				focusedIntervalMs: QUOTA_POLL_MS,
+				unfocusedIntervalMs: Math.max(QUOTA_POLL_MS, 60_000),
+				cooldownMs: 5000,
+				action: () => {
+					void this.refresh(false);
+				}
+			});
 		}
 	}
 
@@ -225,18 +221,26 @@ class QuotaStore {
 		}
 		this.startupCleanup?.();
 		this.startupCleanup = null;
-		if (this.timer !== null) {
-			clearInterval(this.timer);
-			this.timer = null;
-		}
-		if (this.onVisibility) {
-			document.removeEventListener('visibilitychange', this.onVisibility);
-			this.onVisibility = null;
+		if (this.poller !== null) {
+			this.poller.destroy();
+			this.poller = null;
 		}
 		this.initialized = false;
 	}
 
 	async refresh(force = false): Promise<void> {
+		// Se c'e' gia' un refresh in corso, riutilizziamo la stessa Promise
+		// per evitare spawn concorrenti di `omp usage` CLI.
+		if (this.inFlightRefresh) {
+			return this.inFlightRefresh;
+		}
+		this.inFlightRefresh = this.doRefresh(force).finally(() => {
+			this.inFlightRefresh = null;
+		});
+		return this.inFlightRefresh;
+	}
+
+	private async doRefresh(force: boolean): Promise<void> {
 		this.loading = true;
 		try {
 			const [usage, hosts] = await Promise.all([
@@ -251,6 +255,7 @@ class QuotaStore {
 
 			this.evaluateStatus();
 			await this.updateReportPinHashes(this.reports);
+			this.poller?.markRefreshed(this.lastFetchedAt);
 		} catch (err) {
 			// Resilienza totale: non rilanciamo mai l'errore per evitare crash del renderer UI
 			this.error = String(err);

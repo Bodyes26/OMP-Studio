@@ -62,7 +62,6 @@ import './task-row.test.ts';
 import './task-recovery.test.ts';
 import './icons.test.ts';
 import './tool-stopwatch.test.ts';
-import './breathing-ring.test.ts';
 import './file-mention.test.ts';
 import './two-step-stop.test.ts';
 import './prompt-bus.test.ts';

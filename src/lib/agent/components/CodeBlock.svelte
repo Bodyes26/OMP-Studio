@@ -4,7 +4,7 @@
 	// CodeBlock: blocco di codice per le risposte dell'assistente con evidenziazione
 	// sintattica Monaco, intestazione a fisarmonica (accordion) e copia rapida.
 	// Il codice scorre con il transcript (nessun tetto di altezza interno).
-	import { colorizeCode, detectFilePathBlock, type FilePathItem } from '../markdown';
+	import { colorizeCode, getCachedColorizedCode, detectFilePathBlock, type FilePathItem } from '../markdown';
 	import { agentUiHooks } from '../ui-context';
 	import { IconChevronRight, IconCheck, IconFile, IconCopy } from '$lib/icons';
 	import { Lingering } from '../motionState.svelte';
@@ -38,11 +38,23 @@
 	const hooks = agentUiHooks();
 	const normalizedLang = $derived((lang ?? '').trim().toLowerCase());
 	const displayLang = $derived(normalizedLang || m.code_block_fallback_lang());
-	const lines = $derived(text ? text.split('\n') : []);
-	const lineCount = $derived(lines.length);
+	// Conteggio righe rapido con indexOf('\n') senza allocare array di stringhe
+	const lineCount = $derived.by(() => {
+		if (!text) return 0;
+		let count = 1;
+		let pos = -1;
+		while ((pos = text.indexOf('\n', pos + 1)) !== -1) {
+			count++;
+		}
+		return count;
+	});
 	const lineLabel = $derived(m.chat_lines_count({ count: lineCount }));
 	const filePathItems = $derived(detectFilePathBlock(text, normalizedLang));
-	// Evidenziazione asincrona tramite Monaco
+
+	// Evidenziazione asincrona tramite Monaco:
+	// - se gia' in cache LRU, applica immediatamente senza attese;
+	// - altrimenti applica throttle trailing (~250ms) per non ricolorare
+	//   a ogni singolo token durante lo streaming, mostrando il testo grezzo.
 	$effect(() => {
 		const currentText = text;
 		const currentLang = normalizedLang;
@@ -51,21 +63,30 @@
 			return;
 		}
 
+		const cached = getCachedColorizedCode(currentText, currentLang);
+		if (cached) {
+			colorizedHtml = cached;
+			return;
+		}
+
 		let cancelled = false;
-		colorizeCode(currentText, currentLang)
-			.then((html) => {
-				if (!cancelled) {
-					colorizedHtml = html;
-				}
-			})
-			.catch(() => {
-				if (!cancelled) {
-					colorizedHtml = null;
-				}
-			});
+		const timer = setTimeout(() => {
+			colorizeCode(currentText, currentLang)
+				.then((html) => {
+					if (!cancelled) {
+						colorizedHtml = html;
+					}
+				})
+				.catch(() => {
+					if (!cancelled) {
+						colorizedHtml = null;
+					}
+				});
+		}, 250);
 
 		return () => {
 			cancelled = true;
+			clearTimeout(timer);
 		};
 	});
 
