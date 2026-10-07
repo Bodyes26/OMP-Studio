@@ -395,16 +395,16 @@ fn default_model_config() -> ModelConfigDto {
 /// sia con il formato nidificato standard (`providers: { cacheWarming: ... }`)
 /// sia con eventuale chiave puntata (`providers.cacheWarming`).
 fn parse_cache_warming(mapping: &serde_yaml::Mapping) -> String {
-    if let Some(providers_val) = mapping.get(&yaml_key("providers")) {
+    if let Some(providers_val) = mapping.get(yaml_key("providers")) {
         if let Some(providers_map) = providers_val.as_mapping() {
-            if let Some(cw_val) = providers_map.get(&yaml_key("cacheWarming")) {
+            if let Some(cw_val) = providers_map.get(yaml_key("cacheWarming")) {
                 if let Some(cw_str) = cw_val.as_str() {
                     return cw_str.to_string();
                 }
             }
         }
     }
-    if let Some(cw_val) = mapping.get(&yaml_key("providers.cacheWarming")) {
+    if let Some(cw_val) = mapping.get(yaml_key("providers.cacheWarming")) {
         if let Some(cw_str) = cw_val.as_str() {
             return cw_str.to_string();
         }

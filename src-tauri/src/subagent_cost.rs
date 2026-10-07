@@ -80,10 +80,9 @@ fn collect_subagent_jsonl_files(dir: &Path, is_root: bool, out: &mut Vec<PathBuf
 }
 
 pub fn session_subagent_cost_sync(session_file: &str) -> f64 {
-    let artifacts_dir = if session_file.ends_with(".jsonl") {
-        PathBuf::from(&session_file[..session_file.len() - 6])
-    } else {
-        PathBuf::from(session_file)
+    let artifacts_dir = match session_file.strip_suffix(".jsonl") {
+        Some(stem) => PathBuf::from(stem),
+        None => PathBuf::from(session_file),
     };
 
     if !artifacts_dir.is_dir() {

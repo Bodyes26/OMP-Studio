@@ -820,6 +820,8 @@ fn apply_resume_or_continue(
 }
 
 #[tauri::command]
+// La firma espone i parametri del comando IPC usati dal frontend.
+#[allow(clippy::too_many_arguments)]
 pub async fn rpc_open(
     cwd: String,
     resume: Option<String>,

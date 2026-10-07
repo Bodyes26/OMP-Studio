@@ -11,6 +11,9 @@ released: items are closed into a version via `npm run release -- <version>`.
 
 ## [Unreleased]
 
+### Fixed
+- 1.7.1 was never published because of an error while building the installers: 1.7.2 contains the same changes.
+
 ## [1.7.1] - 2026-10-07
 
 ### Added
