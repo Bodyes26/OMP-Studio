@@ -11,6 +11,8 @@ released: items are closed into a version via `npm run release -- <version>`.
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-10-07
+
 ### Added
 - Isolated work lanes on the same repository: a second agent works in a sibling worktree on an `omp/lane-*` branch, with its own conversation, while Main stays your tree. The lane row appears under the project bar only when there is at least one lane besides Main; the "+" button creates worktrees and reopens closed lanes, and so does the project popover. Switching lane realigns files, Git, editor and agent together; a question in a lane you are not looking at does not steal focus but makes its tab pulse. The `bin`, `obj`, `.vs`, `packages` and `node_modules` folders are not copied; local files needed to run the project (`Parametri.ini`, `.env`) are copied only after confirmation and never end up in the lane's commits.
 - Starting tasks in lanes: clicking a queued task starts it on Main when Main is free; when it is busy Studio offers an isolated lane (or "Force in …" the open lane), and Shift+click opens one without asking. Automatic starts keep at most one lane open on their own and, from the third concurrent agent, a notice lists the models and processes already running.
@@ -100,7 +102,6 @@ released: items are closed into a version via `npm run release -- <version>`.
 - On Linux updating replaces the running AppImage and restarts Studio; with the `.deb` package Studio stays open and explains how to finish the installation.
 - The Studio update shows the SHA-256 fingerprint as verified only after the download.
 - Updating on the Nightly channel no longer fails with a 404 error right after a release and no longer falls back to an older build's installer.
-
 ## [1.6.0] - 2026-09-21
 
 ### Added

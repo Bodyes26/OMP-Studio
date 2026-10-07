@@ -11,6 +11,8 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-10-07
+
 ### Added
 - Corsie di lavoro isolate sullo stesso repository: un secondo agente lavora in un worktree fratello sul branch `omp/lane-*`, con la sua conversazione, mentre Principale resta il tuo albero. La riga delle corsie compare sotto la barra dei progetti solo quando, oltre a Principale, c'è almeno un'altra corsia; il «+» crea worktree e riapre le corsie chiuse, e lo stesso si fa dal popover del progetto. Cambiare corsia riallinea file, Git, editor e agente; una domanda in una corsia che non stai guardando non ruba il fuoco ma fa pulsare la sua scheda. Le cartelle `bin`, `obj`, `.vs`, `packages` e `node_modules` non vengono copiate; i file locali che servono ad avviare il progetto (`Parametri.ini`, `.env`) si copiano solo dopo una conferma e non finiscono mai nei commit della corsia.
 - Avvio dei task in corsia: il clic su un task in coda parte su Principale se è libera; se sta lavorando Studio propone una corsia isolata (o «Forza in …» nella corsia aperta), e Maiusc+clic la apre senza domanda. L'avvio automatico tiene al massimo una corsia aperta da sé e, dal terzo agente contemporaneo, un avviso elenca modelli e processi già in esecuzione.
@@ -100,7 +102,6 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Su Linux l'aggiornamento sostituisce l'AppImage in uso e riavvia Studio; con il pacchetto `.deb` Studio resta aperto e spiega come completare l'installazione.
 - L'aggiornamento di Studio indica l'impronta SHA-256 come verificata solo dopo il download.
 - L'aggiornamento al canale Nightly non fallisce più con errore 404 subito dopo una pubblicazione e non ripiega sull'installer di una build precedente.
-
 ## [1.6.0] - 2026-09-21
 
 ### Added
