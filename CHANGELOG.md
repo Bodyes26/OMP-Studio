@@ -11,9 +11,10 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ## [Unreleased]
 
+## [1.7.2] - 2026-10-07
+
 ### Fixed
 - La 1.7.1 non è stata pubblicata per un errore nella compilazione degli installer: la 1.7.2 contiene le stesse novità.
-
 ## [1.7.1] - 2026-10-07
 
 ### Added
