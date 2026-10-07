@@ -76,9 +76,8 @@
 	import AttachMenu from './AttachMenu.svelte';
 	import AttachmentThumb, { type ComposerAttachment } from './AttachmentThumb.svelte';
 	import SuggestPanel, { type SuggestionItem } from './SuggestPanel.svelte';
-	import SuggestionChips from './SuggestionChips.svelte';
 	import ComposerNoticeStrip from './ComposerNoticeStrip.svelte';
-	import ModesMenu from './ModesMenu.svelte';
+	import ComposerStatusLine from './ComposerStatusLine.svelte';
 
 	import {
 		IconAttach,
@@ -87,9 +86,7 @@
 		IconStop,
 		IconWarning,
 		IconChevronUp,
-		IconSparkles,
-		IconPrewalk,
-		IconRefresh
+		IconSparkles
 	} from '$lib/icons';
 
 	let {
@@ -125,7 +122,7 @@
 	let rootEl = $state<HTMLDivElement | null>(null);
 	let editorRef = $state<ReturnType<typeof ComposerEditor> | null>(null);
 	let controlsStripEl = $state<HTMLDivElement | null>(null);
-	type MenuKind = 'attach' | 'role' | 'model' | 'thinking' | 'modes' | 'context' | 'sendMode' | null;
+	type MenuKind = 'attach' | 'role' | 'model' | 'thinking' | 'context' | 'sendMode' | null;
 	let activeMenu = $state<MenuKind>(null);
 
 	let attachments = $state<ComposerAttachment[]>([]);
@@ -234,20 +231,6 @@
 			modelSettingsStore.knownSelectors
 		) ?? 'default'
 	);
-
-	const contextTooltip = $derived.by(() => {
-		const base = m.chat_v2_composer_context_title();
-		const total = session.totalCost;
-		if (total === null || total <= 0) return base;
-		if (session.subagentCost > 0) {
-			const split = m.chat_session_cost_split({
-				own: `$${(session.sessionCost ?? 0).toFixed(4)}`,
-				subagents: `$${session.subagentCost.toFixed(4)}`
-			});
-			return `${base} · $${total.toFixed(4)} (${split})`;
-		}
-		return `${base} · $${total.toFixed(4)}`;
-	});
 
 
 	// Aggiornamento suggerimenti palette
@@ -809,56 +792,21 @@
 		visible && !session.isStreaming && !canSend && !currentTrigger && displayedSuggestions.length > 0
 	);
 
-	// Stato e controlli Prewalk
+	/**
+	 * Le chip le disegna Chat.svelte sopra il vassoio (todo, subagenti, coda):
+	 * qui in mezzo staccherebbero il vassoio dal riquadro a cui e' agganciato.
+	 * Lo stato resta qui perche' dipende dalla bozza e dalla tendina @ e /.
+	 */
+	export function visibleSuggestionChips(): SuggestionChipItem[] {
+		return showSuggestionChips ? displayedSuggestions : [];
+	}
+
+	export function applySuggestionChip(prompt: string): void {
+		insertComposerText(prompt);
+		focus();
+	}
+
 	const isLab = $derived(Boolean(session.labConfig));
-	const smolConfigured = $derived(modelSettingsStore.config?.modelRoles?.smol?.trim() || '');
-	const smolEmpty = $derived(!smolConfigured);
-	const smolFallbacks = $derived(modelSettingsStore.config?.fallbackChains?.smol || []);
-	const prewalkState = $derived(session.prewalk?.state ?? 'off');
-	const prewalkTarget = $derived(session.prewalk.target || '');
-	const handedOffTo = $derived(session.prewalk?.handedOffTo || session.model?.name || session.model?.id || '');
-	const isPrewalkBusy = $derived(session.prewalkBusy || !session.isReady);
-
-	const prewalkTooltipText = $derived.by(() => {
-		if (smolEmpty) return m.chat_v2_composer_prewalk_missing_smol();
-		if (session.prewalkBusy) return m.chat_v2_composer_prewalk_busy();
-		if (smolFallbacks.length > 0) {
-			return m.chat_v2_composer_prewalk_tooltip_with_fallbacks({
-				smol: smolConfigured,
-				fallbacks: smolFallbacks.join(', ')
-			});
-		}
-		return m.chat_v2_composer_prewalk_tooltip({ smol: smolConfigured });
-	});
-
-	const prewalkAriaLabel = $derived.by(() => {
-		if (prewalkState === 'off') return m.chat_v2_composer_prewalk_arm_aria();
-		return m.chat_v2_composer_prewalk_disarm_aria();
-	});
-
-	async function handlePrewalkClick() {
-		if (prewalkState === 'off') {
-			try {
-				await session.armPrewalk();
-			} catch (err) {
-				session.pushNotice('error', err instanceof Error ? err.message : String(err), 'prewalk');
-			}
-		} else {
-			try {
-				await session.disarmPrewalk();
-			} catch (err) {
-				session.pushNotice('error', err instanceof Error ? err.message : String(err), 'prewalk');
-			}
-		}
-	}
-
-	async function handleRestartPrewalk() {
-		try {
-			await session.restartPrewalk();
-		} catch (err) {
-			session.pushNotice('error', err instanceof Error ? err.message : String(err), 'prewalk');
-		}
-	}
 </script>
 
 <svelte:window onkeydown={handleWindowKeydown} />
@@ -867,17 +815,6 @@
      Tauri e lo gestisce Chat.svelte (addPaths): i gestori HTML non ricevono file. -->
 <div bind:this={rootEl} class="composer-root" class:hidden={!visible}>
 	<ComposerNoticeStrip {session} />
-
-	<!-- Suggerimenti prompt (visibili solo quando l'agente è fermo) -->
-	{#if showSuggestionChips}
-		<SuggestionChips
-			chips={displayedSuggestions}
-			onSelect={(prompt) => {
-				insertComposerText(prompt);
-				focus();
-			}}
-		/>
-	{/if}
 
 	<!-- Tendina suggerimenti @ o / ancorata sul Range rect del cursore -->
 	{#if currentTrigger && suggestItems.length > 0}
@@ -986,7 +923,8 @@
 
 			<span class="toolbar-divider" aria-hidden="true"></span>
 
-			<!-- Striscia controlli sessione a scorrimento orizzontale (ruolo, modello, thinking, prewalk) -->
+			<!-- Striscia controlli sessione a scorrimento orizzontale (ruolo, modello, thinking);
+			     velocita' e prewalk stanno nella riga di stato sotto il riquadro. -->
 			<div
 				class="toolbar-controls-strip"
 				bind:this={controlsStripEl}
@@ -1094,57 +1032,6 @@
 					</div>
 				{/snippet}
 			</MenuButton>
-
-			<!-- Menu Modalita e limiti (Fast, Slow, Limiti, Riscaldamento cache) -->
-			{#if !isLab}
-				<ModesMenu
-					{session}
-					open={activeMenu === 'modes'}
-					onToggle={() => (activeMenu = activeMenu === 'modes' ? null : 'modes')}
-					onClose={() => (activeMenu = null)}
-				/>
-			{/if}
-
-			<!-- Controlli Prewalk -->
-			{#if !isLab}
-				<div class="prewalk-controls">
-					<Tooltip text={prewalkTooltipText} placement="top" offset={6}>
-						<button
-							type="button"
-							class="prewalk-btn"
-							class:armed={prewalkState === 'armed'}
-							class:handed-off={prewalkState === 'handedOff'}
-							disabled={smolEmpty || isPrewalkBusy}
-							aria-pressed={prewalkState !== 'off'}
-							aria-label={prewalkAriaLabel}
-							onclick={handlePrewalkClick}
-						>
-							<span class="prewalk-icon"><IconPrewalk /></span>
-							<span class="prewalk-name font-mono">{m.chat_v2_composer_prewalk_title()}</span>
-							{#if prewalkState === 'armed'}
-								<span class="prewalk-target font-mono">→ {prewalkTarget || '…'}</span>
-							{:else if prewalkState === 'handedOff'}
-								<span class="prewalk-target font-mono">{handedOffTo || '…'}</span>
-							{/if}
-						</button>
-					</Tooltip>
-
-					{#if prewalkState === 'handedOff'}
-						<Tooltip text={m.chat_v2_composer_prewalk_restart_aria()} placement="top" offset={6}>
-							<button
-								type="button"
-								class="prewalk-repeat-btn"
-								disabled={smolEmpty || isPrewalkBusy}
-								aria-label={m.chat_v2_composer_prewalk_restart_aria()}
-								onclick={handleRestartPrewalk}
-							>
-								<span class="prewalk-icon"><IconRefresh /></span>
-								<span>{m.chat_v2_composer_prewalk_restart()}</span>
-							</button>
-						</Tooltip>
-					{/if}
-				</div>
-			{/if}
 			</div>
 
 			<!-- Parte destra: Finestra di contesto e Pulsante Invio/Stop -->
@@ -1153,7 +1040,9 @@
 				<MenuButton
 					open={activeMenu === 'context'}
 					title={m.chat_v2_composer_context_title()}
-					tooltip={contextTooltip}
+					tooltip={session.cacheWarmingInFlight
+						? `${m.chat_v2_composer_context_title()} · ${m.chat_v2_composer_modes_cache_in_flight({ phase: session.cacheWarmingInFlight.phase })}`
+						: undefined}
 					hasPopup="dialog"
 					contentRole="dialog"
 					align="right"
@@ -1166,6 +1055,7 @@
 						{@const used = (session.contextUsage?.tokens || 0) + draftTokensEstimate}
 						{@const pct = Math.min(1, used / maxCtx)}
 						{@const C = 2 * Math.PI * 7}
+						<span class="context-ring-wrap">
 						<svg viewBox="0 0 18 18" class="context-ring" aria-hidden="true">
 							<circle cx="9" cy="9" r="7" fill="none" stroke="var(--line)" stroke-width="2.2" />
 							<circle
@@ -1180,6 +1070,10 @@
 								stroke-dashoffset={C * (1 - pct)}
 							/>
 						</svg>
+						{#if session.cacheWarmingInFlight}
+							<span class="context-warming-dot" aria-hidden="true"></span>
+						{/if}
+						</span>
 						<span class="context-numbers font-mono tabular-nums">
 							{formatTokens(used)}<span class="context-max">/{formatTokens(maxCtx)}</span>
 						</span>
@@ -1192,6 +1086,8 @@
 							draftTokens={draftTokensEstimate}
 							sessionCost={session.sessionCost}
 							subagentCost={session.subagentCost}
+							cacheWarmingInFlight={session.cacheWarmingInFlight}
+							cacheWarmingLast={session.cacheWarmingLast}
 							onCompact={() => {
 								activeMenu = null;
 								void session.compact();
@@ -1284,6 +1180,8 @@
 			</div>
 		</div>
 	</div>
+
+	<ComposerStatusLine {session} {activeRole} {isLab} />
 </div>
 
 <style>
@@ -1450,97 +1348,6 @@
 		color: var(--ink-muted);
 	}
 
-	.prewalk-controls {
-		display: inline-flex;
-		align-items: center;
-		gap: 2px;
-	}
-
-	.prewalk-btn {
-		display: inline-flex;
-		align-items: center;
-		gap: 6px;
-		height: 28px;
-		padding: 0 8px;
-		font-family: var(--font-ui);
-		font-size: var(--text-xs);
-		color: var(--ink-muted);
-		background: transparent;
-		border: 1px solid transparent;
-		border-radius: var(--radius-md);
-		cursor: pointer;
-		user-select: none;
-		white-space: nowrap;
-		transition: background-color var(--dur-fast) var(--ease-out),
-			color var(--dur-fast) var(--ease-out),
-			border-color var(--dur-fast) var(--ease-out);
-	}
-
-	.prewalk-btn:hover:not(:disabled) {
-		background: var(--bg-hover);
-		color: var(--ink);
-	}
-
-	.prewalk-btn.armed,
-	.prewalk-btn.handed-off {
-		background: var(--bg-hover);
-		color: var(--ink);
-		border-color: var(--line);
-	}
-
-	.prewalk-btn:disabled {
-		opacity: 0.45;
-		cursor: not-allowed;
-	}
-
-	.prewalk-icon {
-		display: inline-flex;
-		align-items: center;
-		--icon-size: 14px;
-	}
-
-	.prewalk-name {
-		font-size: var(--text-xs);
-	}
-
-	.prewalk-target {
-		color: var(--brand-ink);
-		font-size: var(--text-caption);
-		max-width: 120px;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.prewalk-repeat-btn {
-		display: inline-flex;
-		align-items: center;
-		gap: 4px;
-		height: 28px;
-		padding: 0 6px;
-		font-family: var(--font-ui);
-		font-size: var(--text-xs);
-		color: var(--ink-muted);
-		background: transparent;
-		border: 1px solid transparent;
-		border-radius: var(--radius-md);
-		cursor: pointer;
-		user-select: none;
-		white-space: nowrap;
-		transition: background-color var(--dur-fast) var(--ease-out),
-			color var(--dur-fast) var(--ease-out);
-	}
-
-	.prewalk-repeat-btn:hover:not(:disabled) {
-		background: var(--bg-hover);
-		color: var(--ink);
-	}
-
-	.prewalk-repeat-btn:disabled {
-		opacity: 0.45;
-		cursor: not-allowed;
-	}
-
 	.toolbar-right {
 		margin-left: auto;
 		display: flex;
@@ -1568,6 +1375,36 @@
 		width: 18px;
 		height: 18px;
 		transform: rotate(-90deg);
+	}
+
+	.context-ring-wrap {
+		position: relative;
+		display: inline-flex;
+	}
+
+	/* Riscaldamento della cache in corso: il dettaglio sta nel pannello del contesto. */
+	.context-warming-dot {
+		position: absolute;
+		top: -2px;
+		right: -3px;
+		width: 7px;
+		height: 7px;
+		border-radius: var(--radius-full);
+		background: var(--warn);
+		border: 1.5px solid var(--bg-raised);
+		animation: context-warming 1.2s ease-in-out infinite;
+	}
+
+	@keyframes context-warming {
+		50% {
+			opacity: 0.35;
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.context-warming-dot {
+			animation: none;
+		}
 	}
 
 	.context-numbers {

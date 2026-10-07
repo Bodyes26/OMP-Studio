@@ -11,12 +11,14 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-10-07
+
 ### Added
 - Quando l'agente scrive un file SVG lo vedi come immagine, e un file Mermaid (`.mmd`, `.mermaid`) come diagramma, subito sotto il gruppo di chiamate: l'anteprima resta visibile anche con l'elenco compresso e segue il tema.
-- Pulsante «Modalità» nel composer: attiva o disattiva Fast e Slow per il modello attivo, mostra se l'account è oltre il limite d'uso (corsia lenta o margine di chiusura, con l'orario di reset) e l'esito dell'ultimo riscaldamento della cache dei prompt.
+- Riga di stato sotto il composer: modalità rapida e lenta (si accende una alla volta), prewalk e limite d'uso dell'account (corsia lenta o margine di chiusura, con l'orario di reset), con il costo della sessione a destra. Compare solo quello che si può usare: rapida e lenta solo se il modello le supporta, prewalk solo se `@smol` è configurato e il ruolo attivo non è già smol. L'esito dell'ultimo riscaldamento della cache dei prompt sta nel pannello del contesto, e un pallino sull'anello segnala quando è in corso.
 - Se c'è un obiettivo (`/goal`), il vassoio sopra il composer lo mostra con stato, token usati, budget e tempo, con Pausa, Riprendi ed Elimina.
 - Ogni subagente in esecuzione si può fermare da solo, dal vassoio o dal pannello del suo transcript, senza interrompere la sessione; dal pannello gli si può anche scrivere un messaggio.
-- Il costo della sessione comprende anche quanto spendono i subagenti, con la ripartizione «Sessione · Subagenti» nel pannello del contesto e nel tooltip.
+- Il costo della sessione comprende anche quanto spendono i subagenti, con la ripartizione «Sessione · Subagenti» nel pannello del contesto e nel tooltip del costo nella riga di stato.
 - Impostazione «Riscaldamento cache» (Impostazioni → Generale): disattivato, solo durante l'esecuzione o anche tra un turno e l'altro; vale per tutte le sessioni, anche quelle già aperte.
 
 ### Changed
@@ -27,7 +29,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 ### Fixed
 - Riprendere una sessione il cui modello non è più disponibile non chiude più la chat con un errore: Studio la riapre con il modello del ruolo predefinito e lo segnala, oppure permette di sceglierne un altro.
 - Se la stessa sessione è aperta anche in un terminale, `omp` prosegue in un nuovo file: Studio lo segue, lo segnala e la riapre da lì, con il suo titolo.
-
+- I suggerimenti di prompt stanno sopra il vassoio di todo, subagenti e coda, che resta attaccato al composer, e occupano una sola riga: quelli che non entrano si raggiungono scorrendo con la rotella.
 ## [1.7.0] - 2026-10-07
 
 ### Added

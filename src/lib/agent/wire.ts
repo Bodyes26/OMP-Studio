@@ -101,6 +101,10 @@ export interface ModelInfo {
 	reasoning?: boolean;
 	thinking?: boolean | string[] | { mode?: string; efforts?: string[] };
 	input?: string[];
+	/** Campi del modello di omp che decidono quali livelli di servizio (/fast, /slow) valgono. */
+	api?: string;
+	serviceTiers?: string[];
+	identity?: { class?: string };
 }
 
 /** Verifica se il modello supporta l'elaborazione di immagini. */

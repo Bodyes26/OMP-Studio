@@ -16,11 +16,47 @@
 
 	let focusedIndex = $state(0);
 	let chipElements = $state<(HTMLButtonElement | null)[]>([]);
+	let rowEl = $state<HTMLDivElement | null>(null);
+	let fadeStart = $state(false);
+	let fadeEnd = $state(false);
 
 	$effect(() => {
 		if (focusedIndex >= chips.length && chips.length > 0) {
 			focusedIndex = 0;
 		}
+	});
+
+	// Una sola riga a scorrimento: le sfumature dicono da che lato ci sono altre chip.
+	function updateFades() {
+		if (!rowEl) return;
+		const max = rowEl.scrollWidth - rowEl.clientWidth;
+		fadeStart = rowEl.scrollLeft > 1;
+		fadeEnd = rowEl.scrollLeft < max - 1;
+	}
+
+	// La rotella verticale scorre la riga: la barra di scorrimento e' nascosta e
+	// senza Shift un mouse non avrebbe modo di raggiungere le chip fuori vista.
+	// Listener non passivo: altrimenti preventDefault viene ignorato.
+	function handleWheel(event: WheelEvent) {
+		if (!rowEl || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
+		if (rowEl.scrollWidth <= rowEl.clientWidth) return;
+		event.preventDefault();
+		rowEl.scrollLeft += event.deltaY;
+	}
+
+	$effect(() => {
+		const el = rowEl;
+		if (!el) return;
+		// Rilegge le misure anche quando cambiano le chip, non solo la larghezza.
+		void chips;
+		updateFades();
+		const observer = new ResizeObserver(updateFades);
+		observer.observe(el);
+		el.addEventListener('wheel', handleWheel, { passive: false });
+		return () => {
+			observer.disconnect();
+			el.removeEventListener('wheel', handleWheel);
+		};
 	});
 
 	function handleKeydown(event: KeyboardEvent, index: number) {
@@ -50,7 +86,15 @@
 </script>
 
 {#if chips.length > 0}
-	<div class="suggestion-chips" role="toolbar" aria-label="Suggerimenti prompt">
+	<div
+		bind:this={rowEl}
+		class="suggestion-chips"
+		class:fade-start={fadeStart}
+		class:fade-end={fadeEnd}
+		role="toolbar"
+		aria-label="Suggerimenti prompt"
+		onscroll={updateFades}
+	>
 		{#each chips as chip, index (chip.id)}
 			<button
 				type="button"
@@ -73,12 +117,45 @@
 <style>
 	.suggestion-chips {
 		display: flex;
-		flex-wrap: wrap;
+		flex-wrap: nowrap;
 		gap: var(--space-2);
 		align-items: center;
-		padding: 0 0 var(--space-2) 0;
+		/* Il riquadro di scorrimento taglia anche in verticale: il padding lascia
+		   spazio all'anello di focus, il margine negativo riallinea il bordo. */
+		padding: 3px 3px;
+		margin: -3px -3px calc(var(--space-2) - 3px);
+		overflow-x: auto;
+		scrollbar-width: none;
 		font-size: var(--text-xs);
 		line-height: 1.3;
+		--fade: 32px;
+	}
+
+	.suggestion-chips::-webkit-scrollbar {
+		display: none;
+	}
+
+	/* Solo il canale alfa conta nella maschera: var(--ink) fa da token opaco. */
+	.suggestion-chips.fade-end {
+		mask-image: linear-gradient(to right, var(--ink) calc(100% - var(--fade)), transparent);
+	}
+
+	.suggestion-chips.fade-start {
+		mask-image: linear-gradient(to right, transparent, var(--ink) var(--fade));
+	}
+
+	.suggestion-chips.fade-start.fade-end {
+		mask-image: linear-gradient(
+			to right,
+			transparent,
+			var(--ink) var(--fade),
+			var(--ink) calc(100% - var(--fade)),
+			transparent
+		);
+	}
+
+	.suggestion-chip {
+		flex-shrink: 0;
 	}
 
 	.suggestion-chip:focus-visible {

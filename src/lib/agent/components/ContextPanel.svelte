@@ -12,6 +12,8 @@
 		type ContextReport
 	} from '$lib/agent/contextReport';
 	import { formatTokens } from '$lib/utils/format';
+	import { formatRelativeTime, type CacheWarmingInFlight, type CacheWarmingLast } from '$lib/agent/sessionModes';
+	import { IconFlame } from '$lib/icons';
 	import { m } from '$lib/paraglide/messages.js';
 
 	let {
@@ -21,6 +23,8 @@
 		draftTokens = 0,
 		sessionCost = null,
 		subagentCost = 0,
+		cacheWarmingInFlight = null,
+		cacheWarmingLast = null,
 		onCompact
 	} = $props<{
 		model?: ModelInfo | null;
@@ -29,6 +33,8 @@
 		draftTokens?: number;
 		sessionCost?: number | null;
 		subagentCost?: number;
+		cacheWarmingInFlight?: CacheWarmingInFlight | null;
+		cacheWarmingLast?: CacheWarmingLast | null;
 		onCompact: () => void;
 	}>();
 
@@ -163,6 +169,47 @@
 			<p class="notes">{fresh.notes.join('\n')}</p>
 		{/if}
 
+		{#if cacheWarmingInFlight || cacheWarmingLast}
+			<div class="cache-row">
+				<div class="cache-headline">
+					<span class="cache-icon" aria-hidden="true"><IconFlame /></span>
+					<span class="cost-label">{m.chat_v2_composer_modes_cache_title()}</span>
+				</div>
+				{#if cacheWarmingInFlight}
+					<span class="cache-detail warming">
+						{m.chat_v2_composer_modes_cache_in_flight({ phase: cacheWarmingInFlight.phase })}
+					</span>
+				{:else if cacheWarmingLast}
+					{@const outcome = cacheWarmingLast.outcome}
+					<span class="cache-detail">
+						<span class:hit={outcome === 'hit'} class:miss={outcome !== 'hit'}>
+							{m.chat_v2_composer_modes_cache_last_outcome({
+								outcome:
+									outcome === 'hit'
+										? m.chat_v2_composer_modes_cache_outcome_hit()
+										: outcome === 'miss'
+											? m.chat_v2_composer_modes_cache_outcome_miss()
+											: outcome === 'error'
+												? m.chat_v2_composer_modes_cache_outcome_error()
+												: m.chat_v2_composer_modes_cache_outcome_aborted()
+							})}
+						</span>
+						· {formatRelativeTime(cacheWarmingLast.at)}
+					</span>
+					{#if cacheWarmingLast.cost !== undefined}
+						<span class="cache-detail font-mono">
+							{m.chat_v2_composer_modes_cache_cost({ cost: `$${cacheWarmingLast.cost.toFixed(4)}` })}
+						</span>
+					{/if}
+					{#if cacheWarmingLast.warmingStopReason}
+						<span class="cache-detail">
+							{m.chat_v2_composer_modes_cache_stop_reason({ reason: cacheWarmingLast.warmingStopReason })}
+						</span>
+					{/if}
+				{/if}
+			</div>
+		{/if}
+
 		<p class="auto-compact-hint">
 			{m.chat_v2_composer_context_auto_compact()}
 		</p>
@@ -199,6 +246,36 @@
 	.cost-split {
 		font-size: var(--text-meta);
 		color: var(--ink-muted);
+	}
+	.cache-row {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		padding-top: var(--space-2);
+		border-top: 1px solid var(--line);
+	}
+	.cache-headline {
+		display: flex;
+		align-items: center;
+		gap: 5px;
+	}
+	.cache-icon {
+		display: inline-flex;
+		color: var(--ink-faint);
+		--icon-size: 12px;
+	}
+	.cache-detail {
+		font-size: 11.5px;
+		color: var(--ink-muted);
+	}
+	.cache-detail.warming {
+		color: var(--warn);
+	}
+	.cache-detail .hit {
+		color: var(--success);
+	}
+	.cache-detail .miss {
+		color: var(--warn);
 	}
 	.context-panel {
 		display: flex;

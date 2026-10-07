@@ -151,7 +151,8 @@ export { default as IconSubagents } from '@lucide/svelte/icons/split';
 // Modalita, limiti, riscaldamento cache e obiettivi.
 export { default as IconTarget } from '@lucide/svelte/icons/target';
 export { default as IconFlame } from '@lucide/svelte/icons/flame';
-export { default as IconSliders } from '@lucide/svelte/icons/sliders-horizontal';
+export { default as IconFastMode } from '@lucide/svelte/icons/zap';
+export { default as IconSlowMode } from '@lucide/svelte/icons/turtle';
 export { default as IconPause } from '@lucide/svelte/icons/pause';
 // Inspector e Browser Live.
 export { default as IconInspect } from '@lucide/svelte/icons/mouse-pointer-click';

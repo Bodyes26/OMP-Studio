@@ -1,15 +1,9 @@
 /**
- * Helper e modelli per modalita operative (Fast/Slow), limiti d'uso account,
- * riscaldamento della prompt cache ed esecuzione di obiettivi (Goal).
+ * Helper e modelli per modalita operative (Fast/Slow), limiti d'uso account
+ * e riscaldamento della prompt cache.
  */
 
-import type {
-	CacheWarmingPhase,
-	CacheWarmingOutcome,
-	MessageUsage,
-	UsageLimitState,
-	GoalModeState
-} from './wire';
+import type { CacheWarmingPhase, CacheWarmingOutcome, MessageUsage, ModelInfo, UsageLimitState } from './wire';
 import { m } from '$lib/paraglide/messages.js';
 
 export interface CacheWarmingInFlight {
@@ -71,31 +65,58 @@ export function formatResetTime(resetsAtSec: number): string {
 }
 
 /**
- * Sintesi per il tooltip del pulsante unificato delle modalita nel composer.
+ * Il modello attivo ha un livello "priority" che /fast puo' accendere?
+ * omp via RPC dice solo `fastModeActive`, che ha senso a modalita' gia' accesa;
+ * per nascondere la voce prima serve la sua regola (`isFastModeActive`, omp 18.8):
+ * famiglia del provider e livelli dichiarati dal modello. Restano fuori i
+ * provider OpenAI-compatibili personalizzati: se li si accende da /fast,
+ * `fastModeActive` li fa comparire comunque.
  */
-export function getModesTooltipText(opts: {
-	fastModeEnabled: boolean;
-	fastModeActive: boolean;
-	slowModeEnabled: boolean;
-	usageLimit: UsageLimitState | null;
-	cacheWarmingInFlight: CacheWarmingInFlight | null;
-}): string {
-	const { fastModeEnabled, fastModeActive, slowModeEnabled, usageLimit, cacheWarmingInFlight } = opts;
+export function modelSupportsFastMode(model: ModelInfo | null | undefined): boolean {
+	const provider = model?.provider;
+	if (!provider) return false;
+	if (provider === 'anthropic') return true;
+	if (provider === 'openrouter') {
+		const family = model.identity?.class;
+		return family === 'openai' || family === 'google';
+	}
+	// Proxy con protocollo Anthropic: famiglia anthropic, ma priority vale solo sul provider ufficiale.
+	if (model.api === 'anthropic-messages') return false;
+	if (model.api === 'openai-codex-responses' && model.serviceTiers && model.serviceTiers.length > 0) {
+		return model.serviceTiers.includes('priority');
+	}
+	return provider === 'openai' || provider === 'openai-codex' || provider === 'google' || provider === 'google-vertex';
+}
 
-	if (cacheWarmingInFlight) {
-		return m.chat_v2_composer_modes_summary_warming();
+/** Testo breve del limite d'uso per la riga di stato del composer. */
+export function usageLimitLabel(limit: UsageLimitState): string {
+	const head =
+		limit.stage === 'low_priority' && limit.allowanceLeftPercent !== undefined
+			? m.chat_v2_composer_status_limit_percent({ percent: limit.allowanceLeftPercent })
+			: m.chat_v2_composer_status_limit();
+	if (limit.resetsAtSec === undefined) return head;
+	return `${head} · ${m.chat_v2_composer_status_resets({ time: formatResetTime(limit.resetsAtSec) })}`;
+}
+
+/** Dettaglio del limite d'uso per il tooltip: fase, quota o uso extra, ripristino. */
+export function usageLimitDetail(limit: UsageLimitState): string {
+	const parts: string[] = [];
+	if (limit.stage === 'low_priority') {
+		parts.push(m.chat_v2_composer_modes_usage_limit_stage_low_priority());
+		if (limit.allowanceLeftPercent !== undefined) {
+			parts.push(m.chat_v2_composer_modes_usage_limit_allowance({ percent: limit.allowanceLeftPercent }));
+		}
+	} else {
+		parts.push(m.chat_v2_composer_modes_usage_limit_stage_wrap_up());
+		parts.push(
+			limit.extraUsage
+				? m.chat_v2_composer_modes_usage_limit_extra_yes()
+				: m.chat_v2_composer_modes_usage_limit_extra_no()
+		);
 	}
-	if (usageLimit) {
-		return m.chat_v2_composer_modes_summary_warning();
+	if (limit.resetsAtSec !== undefined) {
+		parts.push(m.chat_v2_composer_modes_usage_limit_resets_at({ time: formatResetTime(limit.resetsAtSec) }));
 	}
-	if (fastModeEnabled && fastModeActive) {
-		return m.chat_v2_composer_modes_summary_fast();
-	}
-	if (fastModeEnabled && !fastModeActive) {
-		return m.chat_v2_composer_modes_summary_fast_unavailable();
-	}
-	if (slowModeEnabled) {
-		return m.chat_v2_composer_modes_summary_slow();
-	}
-	return m.chat_v2_composer_modes_summary_neutral();
+	// Il tooltip non va a capo sui `\n`: le parti stanno su una riga separate da un punto.
+	return `${m.chat_v2_composer_modes_usage_limit_title()}: ${parts.join(' · ')}`;
 }

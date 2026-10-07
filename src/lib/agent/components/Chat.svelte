@@ -8,6 +8,7 @@
 
 	import type { AgentSession, QueuedMessage } from '../session.svelte';
 	import type { RestoredQueuedMessage } from '../wire';
+	import type { SuggestionChipItem } from '$lib/stores/promptSuggestions';
 	import { setContext, tick as svelteTick } from 'svelte';
 	import { chatReveal } from '../motion';
 	import { setAgentUiHooks } from '../ui-context';
@@ -25,6 +26,7 @@
 	import ComposerTray from './ComposerTray.svelte';
 	import QueueChips from './QueueChips.svelte';
 	import SubagentDrawer from './SubagentDrawer.svelte';
+	import SuggestionChips from './SuggestionChips.svelte';
 	import Transcript from './Transcript.svelte';
 
 	let {
@@ -249,6 +251,8 @@
 		focus: () => void;
 		addPaths: (paths: readonly string[]) => Promise<void>;
 		restoreQueue: (entries: readonly RestoredQueuedMessage[]) => void;
+		visibleSuggestionChips: () => SuggestionChipItem[];
+		applySuggestionChip: (prompt: string) => void;
 	} | null = $state(null);
 
 	/**
@@ -396,6 +400,11 @@
 					onPromote={promoteQueuedMessage}
 				/>
 			{/snippet}
+			<!-- Sopra il vassoio: vassoio e composer restano un blocco unico. -->
+			<SuggestionChips
+				chips={composerRef?.visibleSuggestionChips() ?? []}
+				onSelect={(prompt) => composerRef?.applySuggestionChip(prompt)}
+			/>
 			<ComposerTray
 				quota={quotaInfo}
 				phases={session.todoPhases}
