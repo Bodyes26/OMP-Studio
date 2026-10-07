@@ -276,12 +276,15 @@ pub fn is_valid_prototype_id(id: &str) -> bool {
 /// Configurazione generata per-sessione per il Laboratorio prototipi.
 /// Disattiva shell (`bash`), interpreti host (`eval`), browser generico
 /// e configurazioni MCP di progetto, caricando l'estensione confinata dello Step 4.
+/// `lanes_extension_path` aggiunge l'estensione delle corsie: dentro il
+/// Laboratorio registra il solo `corsia_fatto`, che l'hook fail-closed ammette.
 /// NON usa l'overlay globale `approvalMode: yolo`, NON tocca `~/.omp`,
 /// e alloca un file temporaneo dedicato per ciascuna sessione.
 pub fn write_lab_session_config(
     rpc_id: u64,
     prototype_id: &str,
     lab_extension_path: Option<&str>,
+    lanes_extension_path: Option<&str>,
 ) -> Result<std::path::PathBuf, String> {
     let mut config_path = std::env::temp_dir();
     let safe_proto = prototype_id
@@ -317,11 +320,17 @@ pub fn write_lab_session_config(
     // Disattivazione xdev per esporre direttamente i tool confinati del Laboratorio
     content.push_str("tools:\n  xdev: false\n\n");
 
-    // Caricamento estensione Step 4
+    // Caricamento estensione Step 4 (e, se presente, delle corsie). Senza
+    // l'estensione confinata non si carica nient'altro: le corsie da sole
+    // non avrebbero il gate fail-closed attorno.
     if let Some(ext_path) = lab_extension_path {
         let normalized = ext_path.replace('\\', "/");
         content.push_str("extensions:\n");
         content.push_str(&format!("  - \"{}\"\n", normalized));
+        if let Some(lanes_path) = lanes_extension_path {
+            let normalized = lanes_path.replace('\\', "/");
+            content.push_str(&format!("  - \"{}\"\n", normalized));
+        }
     }
 
     std::fs::write(&config_path, content.as_bytes()).map_err(|e| {
@@ -1152,6 +1161,8 @@ pub async fn rpc_open_lab(
 
     let omp_path = crate::omp_ops::get_omp_binary();
     let lab_extension = crate::pty::write_extension("studio-lab.ts", LAB_EXTENSION_TS);
+    let lanes_extension =
+        crate::pty::write_extension("studio-lanes.ts", crate::pty::LANES_EXTENSION_TS);
 
     let rpc_id = {
         let mut guard = manager.next_id.lock();
@@ -1161,7 +1172,12 @@ pub async fn rpc_open_lab(
     };
 
     let lab_config_path =
-        write_lab_session_config(rpc_id, &prototype_id, lab_extension.as_deref())?;
+        write_lab_session_config(
+            rpc_id,
+            &prototype_id,
+            lab_extension.as_deref(),
+            lanes_extension.as_deref(),
+        )?;
 
     let mut command = Command::new(&omp_path);
     command.arg("--mode").arg("rpc-ui");
@@ -1218,6 +1234,25 @@ pub async fn rpc_open_lab(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
+    // Token del bridge solo per un prototipo di progetto: la bozza libera non
+    // ha una corsia da segnare come finita. Il proprietario dentro una corsia
+    // puo' chiamare soltanto `fatto` e `stato` (vedi `lane_bridge::authorize`).
+    let lab_bridge = if !effective_project_id.is_empty() && !effective_lane_id.is_empty() {
+        crate::lane_bridge::issue_token(crate::lane_bridge::BridgeOwner {
+            owner_kind: "agent".to_string(),
+            owner_id: rpc_id,
+            project_id: Some(effective_project_id.to_string()),
+            lane_id: Some(effective_lane_id.to_string()),
+            cwd: workspace_path.clone(),
+        })
+    } else {
+        None
+    };
+    if let Some((url, token)) = &lab_bridge {
+        command.env("OMP_STUDIO_BRIDGE_URL", url);
+        command.env("OMP_STUDIO_BRIDGE_TOKEN", token);
+    }
+
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
@@ -1244,6 +1279,9 @@ pub async fn rpc_open_lab(
         Ok(child) => child,
         Err(error) => {
             let _ = std::fs::remove_file(&lab_config_path);
+            if lab_bridge.is_some() {
+                crate::lane_bridge::revoke_owner("agent", rpc_id);
+            }
             return Err(format!("Avvio di omp per sessione Laboratorio: {}", error));
         }
     };
@@ -1714,6 +1752,7 @@ mod tests {
             999,
             "test-proto-config",
             Some("C:/test/extensions/studio-lab.ts"),
+            Some("C:/test/extensions/studio-lanes.ts"),
         )
         .expect("scrittura configurazione riuscita");
 
@@ -1730,6 +1769,10 @@ mod tests {
         // Verifica estensione caricata
         assert!(content.contains("extensions:"));
         assert!(content.contains("C:/test/extensions/studio-lab.ts"));
+        // Le corsie entrano solo dopo l'estensione confinata, che ne filtra i tool
+        let lab_at = content.find("studio-lab.ts").unwrap();
+        let lanes_at = content.find("studio-lanes.ts").expect("estensione corsie caricata");
+        assert!(lanes_at > lab_at);
 
         // Invariante vincolante: NESSUN overlay yolo
         assert!(!content.contains("approvalMode: yolo"));
