@@ -27,6 +27,10 @@
 		type ToolSummary
 	} from './categories';
 	import CategoryIcon from './parts/CategoryIcon.svelte';
+	import WritePreview from './parts/WritePreview.svelte';
+	import { asRecord, str } from './types';
+	import { isSvgFileName } from '$lib/editor/svgSandbox';
+	import { isMermaidFileName } from '$lib/mermaidSvg';
 
 	export type ToolGroupEntry = ToolEntry | AssistantEntry;
 
@@ -48,6 +52,24 @@
 		activeAssistantId != null && assistantEntries.some((e) => e.id === activeAssistantId)
 	);
 	const isLive = $derived(isToolRunning || isStreamingThinking);
+
+	// Anteprime dei file SVG e Mermaid scritti nel gruppo. Stanno fuori
+	// dall'elenco a scorrimento (max 18rem) per restare visibili anche a gruppo
+	// compresso, come omp le mostra sotto la card del file. Gli argomenti di
+	// `write` arrivano completi con `tool_execution_start`: niente render parziali.
+	const writePreviews = $derived.by(() => {
+		const out: { id: number; path: string; kind: 'svg' | 'mermaid'; content: string }[] = [];
+		for (const entry of toolEntries) {
+			if (entry.toolName !== 'write' || entry.result?.isError === true) continue;
+			const content = str(entry.args.content);
+			const path =
+				str(asRecord(entry.result?.details)?.resolvedPath) ?? str(entry.args.path) ?? str(entry.args.file);
+			if (!content || !path) continue;
+			const kind = isSvgFileName(path) ? 'svg' : isMermaidFileName(path) ? 'mermaid' : null;
+			if (kind) out.push({ id: entry.id, path, kind, content });
+		}
+		return out;
+	});
 
 	// Cronometro condiviso: attivo mentre c'è attività in corso
 	$effect(() => {
@@ -443,6 +465,10 @@
 			{@render renderBatches(fullBatches)}
 		</div>
 	{/if}
+
+	{#each writePreviews as preview (preview.id)}
+		<WritePreview path={preview.path} kind={preview.kind} content={preview.content} />
+	{/each}
 </div>
 
 <style>

@@ -2,10 +2,10 @@
 	import { m } from '$lib/paraglide/messages.js';
 	import { onMount } from 'svelte';
 	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-	import { sanitizeSvg } from '$lib/editor/svgSandbox';
+	import { renderMermaidSvg } from '$lib/mermaidSvg';
 	import { normalizeRoutingPath } from '$lib/agent/laneRouting';
 	import { IconClose, IconZoomIn, IconZoomOut } from '$lib/icons';
-	import { onThemeChange, tokenHex } from '$lib/theme';
+	import { onThemeChange } from '$lib/theme';
 	import Tooltip from '$lib/ui/Tooltip.svelte';
 	import StatusMark from '$lib/ui/StatusMark.svelte';
 
@@ -61,33 +61,7 @@
 		rendering = true;
 		renderError = null;
 		try {
-			const mermaidApi = (await import('mermaid')).default;
-			mermaidApi.initialize({
-				startOnLoad: false,
-				securityLevel: 'strict',
-				theme: 'base',
-				// La sanificazione elimina <foreignObject>: le etichette HTML di
-				// Mermaid sparirebbero. Con htmlLabels false sono <text> SVG.
-				htmlLabels: false,
-				flowchart: { htmlLabels: false },
-				// I colori seguono i token del tema attivo. Mermaid li passa a
-				// khroma, che non legge oklch() ne' color-mix(): servono gli
-				// esadecimali risolti dal tema, non le espressioni dei token.
-				themeVariables: {
-					background: 'transparent',
-					fontFamily:
-						'"Inter Variable", "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif',
-					fontSize: '13px',
-					primaryColor: tokenHex('--bg-overlay'),
-					primaryTextColor: tokenHex('--ink'),
-					primaryBorderColor: tokenHex('--brand'),
-					lineColor: tokenHex('--ink-faint'),
-					secondaryColor: tokenHex('--bg-raised'),
-					tertiaryColor: tokenHex('--bg-base')
-				}
-			});
-			const { svg } = await mermaidApi.render('studio-diagram-' + Date.now(), mermaid);
-			svgHost.innerHTML = sanitizeSvg(svg);
+			svgHost.innerHTML = await renderMermaidSvg(mermaid);
 			// Scala 1 = misura naturale del viewBox: lo zoom lo fa la transform
 			// della whiteboard. Senza larghezza e altezza esplicite l'SVG, dentro
 			// una tela assoluta senza misura, collassa a 0x0.

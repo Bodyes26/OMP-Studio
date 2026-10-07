@@ -11,6 +11,9 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ## [Unreleased]
 
+### Added
+- Quando l'agente scrive un file SVG lo vedi come immagine, e un file Mermaid (`.mmd`, `.mermaid`) come diagramma, subito sotto il gruppo di chiamate: l'anteprima resta visibile anche con l'elenco compresso e segue il tema.
+
 ## [1.7.0] - 2026-10-07
 
 ### Added

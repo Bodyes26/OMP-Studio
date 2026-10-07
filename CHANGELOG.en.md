@@ -11,6 +11,9 @@ released: items are closed into a version via `npm run release -- <version>`.
 
 ## [Unreleased]
 
+### Added
+- When the agent writes an SVG file you see it as an image, and a Mermaid file (`.mmd`, `.mermaid`) as a diagram, right below the tool-call group: the preview stays visible with the list collapsed and follows the theme.
+
 ## [1.7.0] - 2026-10-07
 
 ### Added
