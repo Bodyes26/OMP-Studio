@@ -374,6 +374,7 @@
 						args={item.entry.args}
 						result={item.entry.result}
 						running={item.entry.running}
+						toolCallId={item.entry.toolCallId}
 					/>
 				{:else if item.entry.kind === 'assistant'}
 					<div class="thinking-body">

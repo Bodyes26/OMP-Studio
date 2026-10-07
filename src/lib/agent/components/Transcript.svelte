@@ -19,7 +19,8 @@
 	import { chatReveal } from '../motion';
 	import OmpWelcome from './OmpWelcome.svelte';
 	import ToolGroup, { type ToolGroupEntry } from '../tools/ToolGroup.svelte';
-	import { groupsInExecution } from '../tools/registry';
+	import { groupsInExecution, rendererFor } from '../tools/registry';
+	import { isCorsiaTool } from '$lib/lanes/agentLaneRoutes';
 	import { categoryForTool } from '../tools/categories';
 	import { TodoTraceTracker, type TodoTraceItem } from '../todoTrace';
 	import AssistantText from './AssistantText.svelte';
@@ -104,7 +105,8 @@
 		| { kind: 'system-group'; id: number; entries: (SystemChipEntry | NoticeEntry)[] }
 		| { kind: 'todo-trace'; id: string; entry: ToolEntry; trace: TodoTraceItem; countTool: boolean }
 		| { kind: 'subagent-trace'; id: number; entry: ToolEntry }
-		| { kind: 'ask-trace'; id: number; entry: ToolEntry };
+		| { kind: 'ask-trace'; id: number; entry: ToolEntry }
+		| { kind: 'corsia-trace'; id: number; entry: ToolEntry };
 	function hasResponseContent(entry: AssistantEntry): boolean {
 		return entry.blocks.some(
 			(b) => (b.type === 'text' && b.text.trim().length > 0) || b.type === 'image'
@@ -177,6 +179,13 @@
 			if (entry.kind === 'tool' && categoryForTool(entry.toolName) === 'ask') {
 				flushSegment();
 				items.push({ kind: 'ask-trace', id: entry.id, entry });
+				continue;
+			}
+			// Ogni tool `corsia_*` ha la sua card (e la proposta di worktree aspetta
+			// un clic): dentro un gruppo chiuso non si vedrebbe.
+			if (entry.kind === 'tool' && isCorsiaTool(entry.toolName)) {
+				flushSegment();
+				items.push({ kind: 'corsia-trace', id: entry.id, entry });
 				continue;
 			}
 			if (isExecutionEntry(entry)) {
@@ -346,7 +355,7 @@
 		// (tool-group, subagent-result, irc) prendono il respiro pieno di --space-3.
 		if (item.kind === 'tool-group') return 'content';
 		if (item.kind === 'system-group') return 'system';
-		if (item.kind === 'todo-trace' || item.kind === 'subagent-trace' || item.kind === 'ask-trace') return 'content';
+		if (item.kind === 'todo-trace' || item.kind === 'subagent-trace' || item.kind === 'ask-trace' || item.kind === 'corsia-trace') return 'content';
 		const k = item.entry.kind;
 		if (k === 'user') return 'user';
 		if (k === 'notice' || k === 'system-chip' || k === 'compaction' || k === 'retry' || k === 'ttsr') return 'system';
@@ -464,6 +473,15 @@
 					<SubagentTrace entry={item.entry} subagents={session.subagents} />
 				{:else if item.kind === 'ask-trace'}
 					<AskTrace entry={item.entry} />
+				{:else if item.kind === 'corsia-trace'}
+					{@const corsia = rendererFor(item.entry.toolName)}
+					<corsia.component
+						name={item.entry.toolName}
+						args={item.entry.args}
+						result={item.entry.result}
+						running={item.entry.running}
+						toolCallId={item.entry.toolCallId}
+					/>
 				{:else if item.kind === 'system-group'}
 					<NoticeGroup entries={item.entries} fresh={!disableAnimations} />
 				{:else if item.entry.kind === 'user'}
