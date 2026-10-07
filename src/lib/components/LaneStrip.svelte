@@ -47,6 +47,7 @@
 		type ProjectProfileReview
 	} from '$lib/lanes/laneProfile';
 	import type { LaneProcessInfo } from '$lib/lanes/processSupervisor';
+	import { agentLanes } from '$lib/lanes/agentLanes.svelte';
 
 	let {
 		project,
@@ -178,6 +179,23 @@
 	function requestDeletePrototype(targetLaneId: LaneId, title: string, prototypeId: string) {
 		deleteConfirmTarget = { laneId: targetLaneId, title, prototypeId };
 	}
+
+	/**
+	 * `corsia_scarta` non cancella mai lavoro mai integrato (ne' un prototipo)
+	 * senza l'utente: apre questo stesso dialogo, con la perdita calcolata qui.
+	 */
+	$effect(() => {
+		const request = agentLanes.deleteRequest;
+		if (!request || request.projectId !== project.id) return;
+		agentLanes.deleteRequest = null;
+		const lane = projectLanes.find((candidate) => candidate.laneId === request.laneId);
+		if (!lane || lane.status === 'archived') return;
+		if (lane.kind === 'lab' && lane.labPrototypeId) {
+			requestDeletePrototype(lane.laneId, lane.title, lane.labPrototypeId);
+		} else {
+			void requestDeleteWorktree(lane.laneId, lane.title, lane.branch ?? undefined);
+		}
+	});
 
 	async function executeDelete() {
 		const target = deleteConfirmTarget;
