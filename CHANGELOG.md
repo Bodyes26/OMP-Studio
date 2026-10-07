@@ -14,6 +14,13 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 ### Added
 - Nuova voce «Comandi» nelle Impostazioni: il catalogo dei comandi di `omp` e di Studio, raggruppati per categoria, con ricerca, spiegazione, vantaggi, esempi e quando conviene usarli, così scopri funzioni come prewalk senza doverle conoscere. Ogni comando si può fissare nel composer, sulla barra interna o sotto il composer, nella forma che preferisci, riordinare con il trascinamento (o `Alt+←/→`) e ripristinare al layout predefinito. Allegato, ruolo, modello e thinking restano sempre presenti; `@` e contesto si possono mostrare dove vuoi. I comandi nuovi che `omp` aggiunge dopo un aggiornamento compaiono in una sezione «Nuovi» finché Studio non li descrive.
 - La riga sotto il composer manda le voci che non entrano in un menu «…».
+- L'agente gestisce le corsie da solo, con una card in chat per ogni gesto: apre una corsia worktree o un prototipo del Laboratorio con un obiettivo, ti dice a che punto sono (in corso, finita, bloccata, in coda) con i file toccati, legge il riassunto lasciato dall'agente della corsia, integra, chiude, scarta e consegna un prototipo alla Principale. Non usa mai git per farlo: lo fa Studio, con gli stessi passaggi dei pulsanti. Oltre il limite di agenti simultanei la richiesta va in coda e parte appena si libera un posto.
+- Prima di un'operazione rischiosa l'agente ti chiede «Operazione pericolosa, facciamo worktree?» con due pulsanti, «No, resta su main» e «Crea nuovo worktree»: aspetta la tua scelta e non crea mai corsie a tua insaputa.
+- L'agente di una corsia, anche del Laboratorio, segnala quando ha finito e lascia un riassunto; la corsia diventa pronta per la revisione e la Principale lo legge senza aprirla.
+
+### Changed
+- Quando l'agente integra una corsia e ci sono conflitti, non prova più a risolverli: la corsia passa a te con l'elenco dei file e si apre la revisione. Un merge pulito si integra da solo come prima.
+- Se chiedi all'agente di scartare una corsia con lavoro mai integrato, o un prototipo, Studio non cancella nulla e ti chiede conferma nella sua finestra.
 
 ### Changed
 - Meno processi in background: lo stato Git della barra superiore si legge con un solo comando `git` invece di cinque, i controlli di Git e dei limiti d'uso rallentano quando Studio non è in primo piano e si fermano quando è ridotto a icona, e la ricerca di `omp`, `gh` e VS Code non avvia più processi esterni. Su Windows con l'antivirus attivo la differenza si sente di più.

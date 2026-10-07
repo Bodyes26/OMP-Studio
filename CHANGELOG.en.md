@@ -14,6 +14,13 @@ released: items are closed into a version via `npm run release -- <version>`.
 ### Added
 - New "Commands" entry in Settings: the catalog of `omp` and Studio commands, grouped by category, with search, explanation, benefits, examples and when to use each one, so you can discover features like prewalk without having to know them. Each command can be pinned in the composer, on the inner bar or below the composer, in the form you prefer, reordered by dragging (or `Alt+←/→`) and reset to the default layout. Attach, role, model and thinking are always present; `@` and context can be shown wherever you want. New commands that `omp` adds after an update appear in a "New" section until Studio describes them.
 - The row below the composer moves entries that don't fit into a "…" menu.
+- The agent manages lanes on its own, with a chat card for each step: it opens a worktree lane or a Lab prototype with a goal, tells you where they stand (running, done, blocked, queued) with the files touched, reads the summary left by the lane's agent, integrates, closes, discards and hands a prototype over to Main. It never uses git for this: Studio does it, with the same steps as the buttons. Beyond the limit of simultaneous agents the request is queued and starts as soon as a slot frees up.
+- Before a risky operation the agent asks you "Risky operation, use a worktree?" with two buttons, "No, stay on main" and "Create new worktree": it waits for your choice and never creates lanes behind your back.
+- A lane's agent, Lab included, reports when it is done and leaves a summary; the lane becomes ready for review and Main reads it without opening it.
+
+### Changed
+- When the agent integrates a lane and there are conflicts, it no longer tries to resolve them: the lane is handed to you with the list of files and the review opens. A clean merge still integrates on its own.
+- If you ask the agent to discard a lane with work that was never integrated, or a prototype, Studio deletes nothing and asks for your confirmation in its own dialog.
 
 ### Changed
 - Fewer background processes: the top bar Git status is read with a single `git` command instead of five, Git and usage-limit checks slow down when Studio is not in the foreground and stop when it is minimized, and looking up `omp`, `gh` and VS Code no longer starts external processes. The difference is most noticeable on Windows with an active antivirus.

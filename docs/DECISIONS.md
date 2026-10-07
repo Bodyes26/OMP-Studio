@@ -1416,3 +1416,37 @@ locali e il `queuedMessageCount` di omp potevano divergere, e un crash prima di
 2. **Generazione e verifica assistita per gli agenti:** Quando il gate di release (`scripts/check-commands.mjs`) rileva comandi nuovi da `omp`, l'agente può generare una singola bozza `CommandManifestEntry` completa, sottoporla all'utente con il tool `ask` e inserirla nel file appropriato (`omp-modes.ts` o `omp-session.ts`) con una sola operazione atomica.
 3. **Controllo dei tipi a tempo di compilazione:** I contratti di `CommandText` (`CommandTexts = { it: CommandText, en: CommandText }`) impongono staticamente che entrambe le lingue contengano tutti i campi obbligatori (`title`, `summary`, `benefits`, `examples`), evitando chiavi mancanti o disallineate che in JSON richiederebbero controlli a runtime o linter aggiuntivi.
 4. **Perimetro Paraglide preservato:** Le etichette strutturali dell'interfaccia utente (titoli delle sezioni, pulsanti di azione, messaggi di stato, attributi aria) restano interamente gestite tramite Paraglide (`messages/*.json`), mantenendo la coerenza applicativa per tutti gli elementi del guscio.
+
+## Gate R33: le corsie le guida l'agente con un tool per verbo, il "come" resta a Studio
+
+**Data:** 2026-10-07
+**Esito:** APPROVATO (estende il Gate R29 e rivede il punto 9; rivede il punto 5 sui conflitti)
+
+### Il problema
+
+L'agente poteva solo integrare una corsia (`studio_lane_integrate`). Per aprirne una, sapere a che punto era, leggerne l'esito, chiuderla o consegnare un prototipo del Laboratorio servivano clic dell'utente, oppure l'agente ripiegava su `git worktree`, `git merge` e `git add` fatti a mano: proprio cio' che il Gate R29 voleva togliere. Sui conflitti il tool chiedeva all'agente di risolverli e fare `git add` nel worktree, cioe' gli consegnava percorsi e comandi git.
+
+### Decisioni
+
+1. **Un tool per verbo, ciascuno con la sua approvazione.** `corsia_avvia` (write), `corsia_stato` (read), `corsia_risultato` (read), `corsia_integra` (write), `corsia_chiudi` e `corsia_scarta` (write), `corsia_consegna` (write), `corsia_fatto` (read), `corsia_proponi` (read). L'agente nomina cosa vuole; branch, worktree, commit, merge e pulizia restano a Studio, che riusa i flussi della GUI (spedizione del task in corsia nuova, `worktree_land`, `closeLane`, `deleteWorktreeLane`, `deleteLabPrototype`).
+2. **Bridge a router.** `lane_bridge.rs` espone `POST /v1/corsie/{avvia,stato,risultato,integra,chiudi,scarta,consegna,fatto,proponi}`; `/v1/lane/integrate` resta come alias di `integra`. Stesso token per sessione, stesso confronto in tempo costante, stesso `BridgeOwner`, stesso inoltro al frontend (`lane-bridge://request` + `lane_bridge_respond`), ora con `route` e `body`.
+3. **Permessi dal proprietario del token.** Dentro una corsia (worktree o Laboratorio) si possono chiamare solo `fatto` e `stato`: una corsia non apre, integra o scarta corsie. Il controllo e' in Rust (403) e ripetuto nel frontend; l'estensione registra solo i tool ammessi.
+4. **Integrazione pulita automatica, conflitti all'utente.** Merge pulito: squash e pulizia senza conferma, come oggi. Con conflitti l'agente riceve l'elenco dei file e l'istruzione di non risolverli; la corsia passa in `conflict` e Studio apre la revisione (`LaneReviewModal`) quando il progetto e' in vista.
+5. **Soft-cap: l'agente non chiede, mette in coda.** Oltre `CONCURRENCY_SOFT_CAP` l'obiettivo di `corsia_avvia` entra nella coda del progetto come task e parte da solo quando si libera un posto; la risposta e' "in coda". I prototipi del Laboratorio non contano nel cap, come nel routing della coda.
+6. **Scartare lavoro mai integrato chiede sempre conferma.** `corsia_scarta` su un worktree con commit mai integrati, con processi vivi o su un prototipo non cancella nulla: apre il dialogo di eliminazione della `LaneStrip` e risponde all'agente di non ritentare.
+7. **`corsia_fatto` lascia il riassunto nel record della corsia.** Il testo e l'ora sono persistiti in `lanes.json` (`agentSummary`, `agentSummaryAt`, campi opzionali: i registri precedenti restano validi); un worktree attivo passa a `review_ready`. `corsia_risultato` lo restituisce con il diffstat, o con revisione e anteprima per un prototipo.
+8. **Il Laboratorio riceve il canale, ma solo per `corsia_fatto`.** La sessione Lab di un prototipo di progetto riceve il token e carica `studio-lanes.ts` dopo `studio-lab.ts`; l'allowlist fail-closed ammette `corsia_fatto` e nessun altro `corsia_*`. Le bozze libere restano senza canale.
+9. **Proporre un worktree e' un gesto esplicito.** Prima di operazioni rischiose o sperimentali l'agente chiama `corsia_proponi`: una card dedicata (non la domanda di `ask`) con «Operazione pericolosa, facciamo worktree?», il motivo e due pillole, «No, resta su main» e «Crea nuovo worktree». Il tool resta bloccato fino al clic (fino a 30 minuti); «Crea» crea la corsia e le affida l'obiettivo, o la apre vuota all'utente. Le descrizioni dei tool vietano di creare corsie in silenzio.
+10. **Ogni tool ha la sua card in chat**, fuori dal gruppo di esecuzione, con i colori e gli anelli della `LaneStrip` e i pulsanti Apri, Revisiona, Conferma eliminazione.
+
+### Perche' non le alternative
+
+- **Un solo tool con un parametro `azione`:** meno superficie, ma un'unica approvazione per letture e cancellazioni e descrizioni troppo generiche per guidare il modello.
+- **L'agente risolve i conflitti da solo:** veloce, ma riporta git nelle mani dell'agente e nasconde all'utente proprio il momento in cui due lavori si toccano.
+- **Oltre il soft-cap si chiede conferma come nella GUI:** il tool resterebbe bloccato su un dialogo che l'utente non ha chiesto; la coda e' reversibile e visibile.
+
+### Rischi accettati
+
+- Una proposta lasciata senza risposta tiene il turno dell'agente fermo fino a 30 minuti. Se l'agente viene fermato prima del clic la card perde le pillole e mostra la proposta come chiusa; le proposte aperte non accendono l'anello d'attenzione del progetto.
+- Il riassunto di `corsia_fatto` e' quello che l'agente scrive: Studio non lo verifica contro il diff, che `corsia_risultato` mostra accanto.
+- Il conflitto risolto dall'agente della corsia su richiesta dell'utente (pulsante della revisione) usa ancora `git add` nel worktree, perche' `worktree_land` lo richiede per chiudere il merge.
