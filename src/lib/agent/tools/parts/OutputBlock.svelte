@@ -20,7 +20,7 @@
 		<pre>{shown}</pre>
 		{#if hidden > 0}
 			<button type="button" onclick={() => (expanded = !expanded)}>
-				{expanded ? `Comprimi ${label}` : m.ui_outputblock_value1_righe_in_piu_d8e9({ value1: hidden })}
+				{expanded ? m.output_block_collapse({ label }) : m.ui_outputblock_value1_righe_in_piu_d8e9({ value1: hidden })}
 			</button>
 		{/if}
 	</div>

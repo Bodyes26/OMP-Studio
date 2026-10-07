@@ -40,9 +40,9 @@ use projects::{
 };
 mod omp_ops;
 use omp_ops::{
-    check_omp_update, get_omp_version, omp_user_theme, provider_hosts, run_omp_update,
-    session_credential_pins, sessions_list, sessions_search, sweep_stale_logs, theme_apply,
-    usage_snapshot,
+    check_omp_update, get_omp_changelog_status, get_omp_version, mark_omp_changelog_seen,
+    omp_user_theme, provider_hosts, run_omp_update, session_credential_pins, sessions_list,
+    sessions_search, sweep_stale_logs, theme_apply, usage_snapshot,
 };
 mod studio_updater;
 use studio_updater::{
@@ -240,6 +240,8 @@ pub fn run() {
             get_omp_version,
             check_omp_update,
             run_omp_update,
+            get_omp_changelog_status,
+            mark_omp_changelog_seen,
             theme_apply,
             omp_user_theme,
             provider_hosts,

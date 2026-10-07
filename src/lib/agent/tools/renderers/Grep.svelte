@@ -5,6 +5,7 @@
   il blocco di output formattato e l'eventuale EmptyNotice se i risultati superano i limiti.
 -->
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	import CountBadge from '../parts/CountBadge.svelte';
 	import EmptyNotice from '../parts/EmptyNotice.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
@@ -12,7 +13,6 @@
 	import {
 		asRecord,
 		bool,
-		countLabel,
 		num,
 		recordList,
 		resultText,
@@ -52,7 +52,7 @@
 				<div class="match-row">
 					<PathChip path={item.path} />
 					{#if item.count !== undefined}
-						<CountBadge text={countLabel(item.count, 'match', 'match')} muted />
+						<CountBadge text={m.chat_matches_count({ count: item.count })} muted />
 					{/if}
 				</div>
 			{/each}

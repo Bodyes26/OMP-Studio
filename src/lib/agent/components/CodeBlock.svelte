@@ -6,7 +6,6 @@
 	// Il codice scorre con il transcript (nessun tetto di altezza interno).
 	import { colorizeCode, detectFilePathBlock, type FilePathItem } from '../markdown';
 	import { agentUiHooks } from '../ui-context';
-	import { countLabel } from '../tools/types';
 	import { IconChevronRight, IconCheck, IconFile, IconCopy } from '$lib/icons';
 	import { Lingering } from '../motionState.svelte';
 	let {
@@ -38,10 +37,10 @@
 	});
 	const hooks = agentUiHooks();
 	const normalizedLang = $derived((lang ?? '').trim().toLowerCase());
-	const displayLang = $derived(normalizedLang || 'testo');
+	const displayLang = $derived(normalizedLang || m.code_block_fallback_lang());
 	const lines = $derived(text ? text.split('\n') : []);
 	const lineCount = $derived(lines.length);
-	const lineLabel = $derived(countLabel(lineCount, 'riga', 'righe'));
+	const lineLabel = $derived(m.chat_lines_count({ count: lineCount }));
 	const filePathItems = $derived(detectFilePathBlock(text, normalizedLang));
 	// Evidenziazione asincrona tramite Monaco
 	$effect(() => {
@@ -143,7 +142,7 @@
 			class="header-toggle"
 			onclick={toggleCollapse}
 			aria-expanded={!collapsed}
-			title={collapsed ? 'Espandi blocco di codice' : 'Comprimi blocco di codice'}
+			title={collapsed ? m.code_block_expand() : m.code_block_collapse()}
 		>
 			<span class="chevron" class:expanded={!collapsed} aria-hidden="true"><IconChevronRight /></span>
 			<span class="code-lang">{displayLang}</span>

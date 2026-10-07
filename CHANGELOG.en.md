@@ -35,6 +35,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Prototype Lab (experimental, enable it in Settings → General): each React 19 + Tailwind v4 prototype is a lane of the project with a live preview, an internal Git that saves every request as a recoverable revision, and an agent that reads the original project but writes only in the prototype. Prototypes reopen from the project popover and can be deleted for good from the tab's menu; `Ctrl+Alt+P` creates a free prototype that can later be attached to a project.
 - Sign in to OAuth providers from Settings: "Sign in again", "Add account" and "Sign in with OAuth" open an integrated terminal running `omp login <provider>`, and the account list refreshes when it closes.
 - The empty chat shows the `omp` banner with the installed version, animated the first time; the same wireframe banner replaces the grey placeholders while `omp` starts or a session loads.
+- After an `omp` update the empty chat shows, under the banner, how many changes arrived, as the terminal does: clicking the notice or `/changelog` (`/changelog full` for the full list) opens them in a window. Once read, the notice disappears from the terminal too.
 
 ### Changed
 - New logo: omp's square pi. On Windows the icon is the pi alone and the window switches to white legs when the taskbar is dark; on macOS and Linux the pi sits on a dark rounded tile. The logo in the top bar and in the Companion follows the theme.
@@ -93,7 +94,8 @@ released: items are closed into a version via `npm run release -- <version>`.
 - When Studio closes, the latest project and lane changes are saved.
 - The Companion shortcut closes the window even when the interface does not respond; Escape closes the suggestion palette without closing the window and the pin is always visible.
 - With the Lab disabled, `Ctrl+Alt+P` opens the setting that enables it instead of doing nothing.
-- The English interface no longer shows Italian text in settings, chat, tools, the built-in browser, the Git panel, the file tree, the editor and the terminal.
+- The English interface no longer shows Italian text in settings, chat, tools, code blocks, the built-in browser, the Git panel, the file tree, the editor, the terminal, the top bar "Queue" button, Doctor checks and task directives.
+- With a narrow chat column, for example next to a prototype preview, the composer keeps its side margin and role, model, thinking and prewalk scroll horizontally instead of overflowing the edge; the send button always stays visible.
 - The macOS app downloaded from the DMG opens instead of being reported as "damaged": the whole bundle is signed (ad-hoc signature). Until it is notarised, the first launch requires System Settings › Privacy & Security › "Open Anyway".
 - On Linux updating replaces the running AppImage and restarts Studio; with the `.deb` package Studio stays open and explains how to finish the installation.
 - The Studio update shows the SHA-256 fingerprint as verified only after the download.

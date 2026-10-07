@@ -131,12 +131,14 @@ commands.allow = [
 
 [[permission]]
 identifier = "allow-omp-runtime"
-description = "Versione, aggiornamento e tema del runtime omp"
+description = "Versione, aggiornamento, changelog e tema del runtime omp"
 commands.allow = [
     "greet",
     "get_omp_version",
     "check_omp_update",
     "run_omp_update",
+    "get_omp_changelog_status",
+    "mark_omp_changelog_seen",
     "theme_apply",
     "omp_user_theme"
 ]

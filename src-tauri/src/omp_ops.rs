@@ -2059,8 +2059,9 @@ fn run_omp_update_sync() -> Result<String, String> {
     let cleaned = strip_ansi(&combined).trim().to_string();
 
     if output.status.success() {
-        // La versione su disco e' cambiata: invalidiamo la cache per rileggerla fresca.
+        // La versione su disco e' cambiata: invalidiamo le cache per rileggerle fresche.
         invalidate_cached_omp_version();
+        invalidate_cached_omp_changelog();
         Ok(cleaned)
     } else {
         let msg = if !cleaned.is_empty() {
@@ -2082,9 +2083,368 @@ pub async fn run_omp_update() -> Result<String, String> {
         .map_err(|e| format!("Task run_omp_update: {}", e))?
 }
 
+/// Rappresentazione semver semplice per confrontare versioni di omp e changelog.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct SemVer {
+    pub major: u32,
+    pub minor: u32,
+    pub patch: u32,
+}
+
+impl SemVer {
+    pub fn parse(s: &str) -> Option<Self> {
+        let clean = s.trim().trim_start_matches("omp/").trim_start_matches('v');
+        let mut parts = clean.split('.');
+        let major = parts.next()?.parse().ok()?;
+        let minor = parts.next()?.parse().ok()?;
+        let patch_part = parts.next()?.split(['-', '+', ' ']).next()?;
+        let patch = patch_part.parse().ok()?;
+        Some(SemVer { major, minor, patch })
+    }
+}
+
+/// Singola voce di changelog estratta dal file Markdown con conteggio modifiche.
+#[derive(Debug, Clone)]
+pub struct ParsedChangelogEntry {
+    pub ver: SemVer,
+    pub content: String,
+    pub change_count: usize,
+}
+
+/// Analizza il testo markdown del changelog ed estrae le versioni con le relative modifiche.
+/// Allineato alla logica di parsing di omp upstream (packages/coding-agent/src/utils/changelog.ts).
+pub fn parse_changelog_entries(text: &str) -> Vec<ParsedChangelogEntry> {
+    let mut entries = Vec::new();
+    let mut current_ver: Option<SemVer> = None;
+    let mut current_lines = Vec::new();
+
+    let finish_entry = |entries: &mut Vec<ParsedChangelogEntry>,
+                        ver: Option<SemVer>,
+                        lines: &[String]| {
+        if let Some(v) = ver {
+            let mut changes = 0;
+            let mut in_category = false;
+            for line in lines {
+                let trimmed = line.trim();
+                if trimmed.starts_with("### ") {
+                    in_category = true;
+                } else if trimmed.starts_with("## ") {
+                    in_category = false;
+                } else if in_category && (trimmed.starts_with("- ") || trimmed.starts_with("* ")) {
+                    changes += 1;
+                }
+            }
+            entries.push(ParsedChangelogEntry {
+                ver: v,
+                content: lines.join("\n").trim().to_string(),
+                change_count: changes,
+            });
+        }
+    };
+
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("## ") {
+            let after_prefix = trimmed.trim_start_matches("##").trim();
+            let ver_candidate = after_prefix
+                .trim_start_matches('[')
+                .split([']', ' ', '-'])
+                .next()
+                .unwrap_or("");
+            if let Some(parsed) = SemVer::parse(ver_candidate) {
+                finish_entry(&mut entries, current_ver, &current_lines);
+                current_ver = Some(parsed);
+                current_lines = vec![line.to_string()];
+                continue;
+            }
+        }
+        if current_ver.is_some() {
+            current_lines.push(line.to_string());
+        }
+    }
+
+    finish_entry(&mut entries, current_ver, &current_lines);
+    entries
+}
+
+/// Stato del changelog per il frontend di Studio.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct OmpChangelogStatus {
+    pub has_unseen: bool,
+    pub current_version: String,
+    pub last_seen_version: Option<String>,
+    pub change_count: usize,
+    pub release_count: usize,
+    pub unseen_markdown: String,
+    pub full_markdown: String,
+}
+
+/// Percorso del file marker ~/.omp/agent/last-changelog-version condiviso con omp TUI.
+pub fn last_changelog_version_file() -> Option<PathBuf> {
+    let mut path = agent_dir()?;
+    path.push("last-changelog-version");
+    Some(path)
+}
+
+fn read_last_changelog_version() -> Option<String> {
+    let path = last_changelog_version_file()?;
+    std::fs::read_to_string(path)
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+fn write_last_changelog_version(version: &str) -> Result<(), String> {
+    let path = last_changelog_version_file().ok_or("Impossibile trovare directory ~/.omp/agent")?;
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    std::fs::write(&path, version.trim())
+        .map_err(|e| format!("Scrittura last-changelog-version: {}", e))
+}
+
+type ChangelogCacheKey = (PathBuf, Option<SystemTime>);
+static CACHED_CHANGELOG_TEXT: LazyLock<Mutex<Option<(ChangelogCacheKey, String)>>> =
+    LazyLock::new(|| Mutex::new(None));
+
+pub fn invalidate_cached_omp_changelog() {
+    *CACHED_CHANGELOG_TEXT.lock() = None;
+}
+
+/// Esegue omp in modalita' RPC per estrarre il changelog incorporato nel binario.
+/// L'output viene memorizzato nella cache in RAM e invalidato all'aggiornamento.
+fn fetch_omp_changelog_sync() -> Result<String, String> {
+    let omp_path = get_omp_binary();
+    let omp_path_buf = PathBuf::from(&omp_path);
+    let mtime = binary_mtime(&omp_path_buf);
+    let cache_key = (omp_path_buf, mtime);
+
+    if let Some((cached_key, cached_text)) = CACHED_CHANGELOG_TEXT.lock().as_ref() {
+        if *cached_key == cache_key {
+            return Ok(cached_text.clone());
+        }
+    }
+
+    let mut cmd = Command::new(&omp_path);
+    cmd.arg("--mode").arg("rpc");
+    #[cfg(target_os = "windows")]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    cmd.stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null());
+
+    let spawned_at = SystemTime::now();
+    let mut child = cmd.spawn().map_err(|e| format!("Spawn omp rpc: {}", e))?;
+    let pid = child.id();
+
+    if let Some(mut stdin) = child.stdin.take() {
+        use std::io::Write;
+        let _ = stdin.write_all(b"{\"type\":\"prompt\",\"message\":\"/changelog full\"}\n");
+        let _ = stdin.flush();
+    }
+
+    let mut changelog_text = String::new();
+    if let Some(stdout) = child.stdout.take() {
+        let reader = BufReader::new(stdout);
+        for line in reader.lines().flatten() {
+            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&line) {
+                if val.get("type").and_then(|t| t.as_str()) == Some("command_output") {
+                    if let Some(text) = val.get("text").and_then(|t| t.as_str()) {
+                        changelog_text = text.to_string();
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    let _ = child.kill();
+    let _ = child.wait();
+    discard_child_log(pid, spawned_at);
+
+    if changelog_text.is_empty() {
+        return Err("Nessun output changelog ricevuto da omp".to_string());
+    }
+
+    *CACHED_CHANGELOG_TEXT.lock() = Some((cache_key, changelog_text.clone()));
+    Ok(changelog_text)
+}
+
+/// Calcola lo stato del changelog verificando la versione vista e contando le novita'.
+pub fn get_omp_changelog_status_sync() -> Result<OmpChangelogStatus, String> {
+    let current_raw = get_omp_version_sync().unwrap_or_else(|_| "unknown".to_string());
+    let current_ver_clean = current_raw
+        .trim_start_matches("omp/")
+        .trim_start_matches('v')
+        .to_string();
+    let current_parsed = SemVer::parse(&current_ver_clean);
+
+    let last_seen_raw = read_last_changelog_version();
+    let last_seen_parsed = last_seen_raw.as_deref().and_then(SemVer::parse);
+
+    // Se il marker non esiste ancora (primo avvio assoluto su una nuova macchina),
+    // inizializziamo con la versione corrente senza notificare (comportamento identico a TUI).
+    if last_seen_raw.is_none() {
+        if let Some(cur) = &current_parsed {
+            let _ = write_last_changelog_version(&format!("{}.{}.{}", cur.major, cur.minor, cur.patch));
+        }
+        return Ok(OmpChangelogStatus {
+            has_unseen: false,
+            current_version: current_ver_clean,
+            last_seen_version: None,
+            change_count: 0,
+            release_count: 0,
+            unseen_markdown: String::new(),
+            full_markdown: String::new(),
+        });
+    }
+
+    let last_seen_str = last_seen_raw.clone().unwrap_or_default();
+
+    // Se la versione vista e' uguale o superiore a quella corrente, nessun nuovo changelog.
+    if let (Some(cur), Some(last)) = (current_parsed, last_seen_parsed) {
+        if cur <= last {
+            return Ok(OmpChangelogStatus {
+                has_unseen: false,
+                current_version: current_ver_clean,
+                last_seen_version: Some(last_seen_str),
+                change_count: 0,
+                release_count: 0,
+                unseen_markdown: String::new(),
+                full_markdown: String::new(),
+            });
+        }
+    } else if last_seen_str == current_ver_clean {
+        return Ok(OmpChangelogStatus {
+            has_unseen: false,
+            current_version: current_ver_clean,
+            last_seen_version: Some(last_seen_str),
+            change_count: 0,
+            release_count: 0,
+            unseen_markdown: String::new(),
+            full_markdown: String::new(),
+        });
+    }
+
+    // Ci sono modifiche non viste: leggiamo il changelog da omp.
+    let full_text = fetch_omp_changelog_sync().unwrap_or_default();
+    let entries = parse_changelog_entries(&full_text);
+
+    let mut unseen_entries = Vec::new();
+    let mut total_changes = 0;
+
+    for entry in &entries {
+        let is_unseen = match (last_seen_parsed, current_parsed) {
+            (Some(last), Some(cur)) => entry.ver > last && entry.ver <= cur,
+            (Some(last), None) => entry.ver > last,
+            _ => true,
+        };
+        if is_unseen {
+            total_changes += entry.change_count;
+            unseen_entries.push(entry);
+        }
+    }
+
+    // Ordine dal piu' recente al meno recente
+    unseen_entries.sort_by(|a, b| b.ver.cmp(&a.ver));
+
+    let unseen_markdown = unseen_entries
+        .iter()
+        .map(|e| e.content.as_str())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+
+    let release_count = unseen_entries.len();
+    let has_unseen = release_count > 0;
+
+    Ok(OmpChangelogStatus {
+        has_unseen,
+        current_version: current_ver_clean,
+        last_seen_version: Some(last_seen_str),
+        change_count: total_changes,
+        release_count,
+        unseen_markdown,
+        full_markdown: full_text,
+    })
+}
+
+/// Aggiorna il marker ~/.omp/agent/last-changelog-version alla versione indicata o corrente.
+pub fn mark_omp_changelog_seen_sync(target_version: Option<String>) -> Result<(), String> {
+    let ver = match target_version {
+        Some(v) => v,
+        None => get_omp_version_sync().unwrap_or_default(),
+    };
+    if ver.is_empty() {
+        return Err("Versione non valida".to_string());
+    }
+    let clean = ver.trim_start_matches("omp/").trim_start_matches('v').to_string();
+    write_last_changelog_version(&clean)
+}
+
+#[command]
+pub async fn get_omp_changelog_status() -> Result<OmpChangelogStatus, String> {
+    tokio::task::spawn_blocking(get_omp_changelog_status_sync)
+        .await
+        .map_err(|e| format!("Task get_omp_changelog_status: {}", e))?
+}
+
+#[command]
+pub async fn mark_omp_changelog_seen(version: Option<String>) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || mark_omp_changelog_seen_sync(version))
+        .await
+        .map_err(|e| format!("Task mark_omp_changelog_seen: {}", e))?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn semver_parse_e_confronto() {
+        let v1 = SemVer::parse("18.6.0").unwrap();
+        let v2 = SemVer::parse("v18.7.0").unwrap();
+        let v3 = SemVer::parse("omp/18.7.0").unwrap();
+        let v4 = SemVer::parse("18.6.2-beta").unwrap();
+
+        assert_eq!(v1, SemVer { major: 18, minor: 6, patch: 0 });
+        assert_eq!(v2, SemVer { major: 18, minor: 7, patch: 0 });
+        assert_eq!(v2, v3);
+        assert_eq!(v4, SemVer { major: 18, minor: 6, patch: 2 });
+        assert!(v2 > v1);
+        assert!(v4 > v1);
+        assert!(v2 > v4);
+    }
+
+    #[test]
+    fn parse_changelog_entries_estrae_versioni_e_modifiche() {
+        let markdown = r#"
+# Changelog
+
+## [18.7.0] - 2026-10-07
+
+### Added
+- Feature one
+- Feature two
+
+### Fixed
+- Bug fix one
+
+## [18.6.0] - 2026-10-01
+
+### Changed
+- Change one
+"#;
+        let entries = parse_changelog_entries(markdown);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].ver, SemVer { major: 18, minor: 7, patch: 0 });
+        assert_eq!(entries[0].change_count, 3);
+        assert_eq!(entries[1].ver, SemVer { major: 18, minor: 6, patch: 0 });
+        assert_eq!(entries[1].change_count, 1);
+    }
 
     #[test]
     fn accetta_le_tre_forme_di_output_di_una_sorgente() {

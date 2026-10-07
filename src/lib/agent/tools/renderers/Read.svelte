@@ -5,12 +5,12 @@
   i metadati della sorgente e l'anteprima del contenuto letto in OutputBlock.
 -->
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	import KeyValue from '../parts/KeyValue.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
 	import ToolFileHeader from '../parts/ToolFileHeader.svelte';
 	import {
 		asRecord,
-		countLabel,
 		num,
 		resultText,
 		str,
@@ -76,7 +76,7 @@
 		<ToolFileHeader
 			path={pathSelector.path}
 			line={pathSelector.line}
-			meta={sizeFormatted || (totalLines !== undefined ? countLabel(totalLines, 'riga', 'righe') : undefined)}
+			meta={sizeFormatted || (totalLines !== undefined ? m.chat_lines_count({ count: totalLines }) : undefined)}
 		/>
 	{:else if sourceValue}
 		<div class="source-header">

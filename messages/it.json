@@ -15,6 +15,16 @@
   "page_omp_update_status_installing": "Installazione...",
   "page_omp_update_status_installed": "Aggiornato!",
   "page_omp_update_status_update_error": "Errore aggiornamento",
+  "page_omp_update_notice_single": "omp è stato aggiornato alla v{version} ({count} novità). Digita {command} per vederle.",
+  "page_omp_update_notice_single_one": "omp è stato aggiornato alla v{version} (1 novità). Digita {command} per vederla.",
+  "page_omp_update_notice_multi": "omp è stato aggiornato alla v{version} ({count} novità in {releases} versioni). Digita {command} per vederle.",
+  "page_omp_update_notice_tooltip": "Mostra le novità di omp",
+  "page_omp_changelog_modal_title": "Novità di omp",
+  "page_omp_changelog_modal_tab_unseen": "Nuove modifiche",
+  "page_omp_changelog_modal_tab_full": "Tutto il changelog",
+  "page_omp_changelog_modal_close": "Chiudi",
+  "page_omp_changelog_modal_empty": "Nessuna voce di changelog trovata.",
+  "ui_ts_commands_mostra_il_riepilogo_delle_novita_di_omp": "Mostra il changelog e le novità delle ultime versioni di omp",
   "page_empty_open_project": "Apri progetto",
   "page_empty_open_scratchpad": "Avvia Scratchpad",
   "page_empty_open_folder_shortcut": "Apri cartella progetto",
@@ -105,6 +115,36 @@
   "topbar_tab_scratchpad": "Scratchpad",
   "topbar_lanes_badge_worktree_title": "{count} worktree attivi",
   "topbar_lanes_badge_lab_title": "{count} prototipi Lab aperti",
+  "topbar_tab_aria_worktrees": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
+      "match": {
+        "countPlural=one": "{count} worktree",
+        "countPlural=other": "{count} worktree"
+      }
+    }
+  ],
+  "topbar_tab_aria_prototypes": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
+      "match": {
+        "countPlural=one": "{count} prototipo",
+        "countPlural=other": "{count} prototipi"
+      }
+    }
+  ],
   "lanestrip_title": "Corsie di lavoro",
   "lanestrip_tab_main": "Principale",
   "lanestrip_tab_new": "Nuova corsia",
@@ -220,6 +260,7 @@
   "topbar_companion_chip_title": "Apri o fissa la finestra Companion (Alt+Spazio)",
   "topbar_queue_chip_title": "Task in attesa su tutti i progetti (Ctrl+Alt+T)",
   "topbar_queue_chip_aria": "Task in coda su tutti i progetti: {count} (Ctrl+Alt+T)",
+  "topbar_queue_chip_label": "Coda ({count})",
   "topbar_win_minimize": "Riduci a icona",
   "topbar_win_restore": "Ripristina",
   "topbar_win_maximize": "Ingrandisci",
@@ -328,6 +369,14 @@
   ],
   "task_editor_manage_directives_btn": "Gestisci direttive",
   "task_editor_directive_upgrade_btn": "Aggiorna",
+  "directive_factory_plan_name": "Modalità Piano",
+  "directive_factory_plan_desc": "Formula un piano architetturale ed attende approvazione prima di modificare file.",
+  "directive_factory_discussion_name": "Discussione & Requisiti",
+  "directive_factory_discussion_desc": "Pone domande approfondite per chiarire ogni decisione prima di toccare il codice.",
+  "directive_factory_minimal_name": "Soluzione Minimale",
+  "directive_factory_minimal_desc": "Forza la soluzione più semplice, pigra e senza dipendenze o astrazioni superflue.",
+  "directive_factory_research_name": "Ricerca Web Online",
+  "directive_factory_research_desc": "Esegue ricerche online mirate sull'ambito della richiesta prima di procedere.",
   "task_editor_context_editor_title": "Includi il contesto dell'editor",
   "task_editor_context_editor_desc": "Allega l'elenco dei file correntemente aperti e la selezione attiva nell'editor.",
   "task_editor_quota_used_elsewhere": "In uso altrove",
@@ -867,6 +916,51 @@
   "settings_doctor_loading_label": "Caricamento diagnostica",
   "settings_doctor_loading_text": "Esecuzione checkup diagnostico dell'ambiente in corso...",
   "settings_doctor_run_error": "Errore durante l'autodiagnostica:",
+  "doctor_check_omp_binary": "Eseguibile omp",
+  "doctor_check_omp_version": "Versione omp",
+  "doctor_check_omp_rpc": "Protocollo RPC-UI",
+  "doctor_check_git_lanes_merge": "Integrazione corsie",
+  "doctor_check_git_version": "Git CLI",
+  "doctor_check_shell_bash_windows": "Git Bash (bash.exe)",
+  "doctor_check_shell_bash_unix": "Shell Bash",
+  "doctor_check_git_repo_status": "Repository aperto",
+  "doctor_check_pty_backend": "Backend Terminale Nativo (PTY)",
+  "doctor_check_sqlite_history_db": "Database Cronologia (history.db)",
+  "doctor_check_sqlite_stats_db": "Database Statistiche (stats.db)",
+  "doctor_check_sqlite_agent_db": "Database Agente & Credenziali (agent.db)",
+  "doctor_check_provider_none": "Provider AI Configurato",
+  "doctor_val_omp_not_found": "Non trovato nel PATH di sistema",
+  "doctor_rec_omp_install": "Installa omp eseguendo `npm install -g @oh-my-pi/pi-coding-agent` o aggiungilo al PATH",
+  "doctor_val_unknown": "Sconosciuta",
+  "doctor_val_version_missing": "Non rilevabile (eseguibile assente)",
+  "doctor_rec_omp_version_verify": "Verifica che il binario omp risponda correttamente a `omp --version`",
+  "doctor_rec_install_omp_version": "Installare omp per rilevare la versione",
+  "doctor_val_not_available": "Non disponibile",
+  "doctor_rec_omp_rpc_update": "Aggiorna omp a una versione compatibile con la modalità `--mode rpc-ui`",
+  "doctor_rec_install_omp_rpc": "Installare omp per abilitare il runtime delle sessioni",
+  "doctor_val_git_not_found": "Non trovato o non funzionante",
+  "doctor_rec_git_install": "Installa Git e assicurati che sia disponibile nel PATH",
+  "doctor_val_bash_not_in_standard_paths": "Non rilevato nei percorsi standard",
+  "doctor_val_bash_not_in_path": "bash non rilevata in PATH",
+  "doctor_rec_bash_install_windows": "Installa Git for Windows con i componenti bash per consentire l'esecuzione degli script agent",
+  "doctor_rec_bash_verify_unix": "Verifica che /bin/bash sia installata e accessibile",
+  "doctor_val_repo_none": "Nessun progetto aperto in primo piano",
+  "doctor_val_repo_not_a_repo": "La cartella attiva non è un repository Git",
+  "doctor_rec_repo_init": "Inizializza un repository con `git init` se desideri il tracciamento",
+  "doctor_val_repo_clean": "Ramo `{branch}` · working tree pulito",
+  "doctor_val_repo_modified": "Ramo `{branch}` · {count} file modificati non committati",
+  "doctor_val_pty_conpty": "ConPTY operativo (backend pseudo-terminale nativo Windows)",
+  "doctor_val_pty_posix": "POSIX openpty operativo (backend Unix PTY)",
+  "doctor_rec_pty_conpty": "Verifica che il sistema supporti ConPTY (Windows 10 versione 1809 o successiva)",
+  "doctor_rec_pty_posix": "Verifica i permessi sui descrittori pseudo-terminale (/dev/pts)",
+  "doctor_val_sqlite_not_created": "Non ancora creato (verrà inizializzato automaticamente da omp)",
+  "doctor_val_sqlite_query_only_inactive": "Aperto ma PRAGMA query_only non attivo",
+  "doctor_rec_sqlite_readonly": "Assicurarsi che la connessione al DB imponga la sola lettura",
+  "doctor_val_provider_none": "Nessun provider configurato in Studio",
+  "doctor_rec_provider_none": "Configura almeno un provider (es. Anthropic, OpenAI, Google) nelle Impostazioni > Modelli",
+  "doctor_val_provider_missing_base_url": "Non verificabile: baseUrl mancante nella configurazione modelli",
+  "doctor_val_provider_endpoint_unknown": "Configurato · connettività non verificabile (endpoint non noto a Studio)",
+  "doctor_rec_provider_network": "Verifica la connessione internet, proxy o limitazioni firewall aziendali",
   "settings_companion_spotlight_title": "Chiusura Spotlight",
   "settings_companion_spotlight_esc_only_desc": "Chiudi la Companion solo con il tasto Esc.",
   "settings_companion_spotlight_esc_blur_desc": "Chiudi anche quando la finestra perde il fuoco (click fuori).",
@@ -2149,6 +2243,55 @@
   "chat_v2_tool_meta_files": "{count} file",
   "chat_v2_tool_meta_matches_in_files": "{matches} in {files} file",
   "chat_v2_tool_meta_replacements": "{count} mod.",
+  "chat_lines_count": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
+      "match": {
+        "countPlural=one": "{count} riga",
+        "countPlural=other": "{count} righe"
+      }
+    }
+  ],
+  "chat_results_count": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
+      "match": {
+        "countPlural=one": "{count} risultato",
+        "countPlural=other": "{count} risultati"
+      }
+    }
+  ],
+  "chat_matches_count": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
+      "match": {
+        "countPlural=one": "{count} match",
+        "countPlural=other": "{count} match"
+      }
+    }
+  ],
+  "output_block_collapse": "Comprimi {label}",
+  "code_block_fallback_lang": "testo",
+  "code_block_expand": "Espandi blocco di codice",
+  "code_block_collapse": "Comprimi blocco di codice",
   "chat_v2_composer_model_fallback": "Il modello attivo",
   "chat_v2_composer_model_label": "Modello",
   "chat_v2_composer_send_mode_title": "Modalità invio",

@@ -6,7 +6,7 @@ import { settingsStore } from './settings.svelte';
 import { modelSettingsStore, STANDARD_ROLES, splitModelSelector } from './modelSettings.svelte';
 import { quotaStore, providersMatch } from './quota.svelte';
 import { parseProjectTasksFile, serializeProjectTasksFile, type StudioTask, type StudioTaskOptions } from './taskSerialization';
-import { createDirectiveSnapshot } from './taskDirectives';
+import { createDirectiveSnapshot, directiveDisplayName, directiveDisplayDescription } from './taskDirectives';
 import { removeAttentionRequest, upsertAttentionRequest } from './companionAttention';
 import { broadcastToWindows, listenFromWindows } from './windowBridge';
 import type { ImageContent } from '$lib/agent/wire';
@@ -558,9 +558,9 @@ class CompanionStore {
 				.filter((d) => !d.hidden)
 				.map((d) => ({
 					id: d.id,
-					name: d.name,
+					name: directiveDisplayName(d),
 					tag: d.tag,
-					description: d.description
+					description: directiveDisplayDescription(d)
 				}));
 
 			const config = modelSettingsStore.config;

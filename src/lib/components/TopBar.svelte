@@ -890,7 +890,7 @@
 					aria-selected={isActive}
 					tabindex={p.id === rovingTabId ? 0 : -1}
 					aria-haspopup="dialog"
-					aria-label={m.topbar_tab_aria_label({ type: p.labDraft ? m.lab_lane_draft_badge() : p.canonicalProjectPath ? m.topbar_tab_project() : m.topbar_tab_scratchpad(), name: p.name, state: AGENT_STATE_LABEL[aggState], queued: queued > 0 ? ` · ${queued} task in coda` : '' }) + (gitLanesCount > 0 ? ` · ${gitLanesCount} worktree` : '') + (labLanesCount > 0 ? ` · ${labLanesCount} prototipi` : '') + gitDiffLabel + upstreamLabel}
+					aria-label={m.topbar_tab_aria_label({ type: p.labDraft ? m.lab_lane_draft_badge() : p.canonicalProjectPath ? m.topbar_tab_project() : m.topbar_tab_scratchpad(), name: p.name, state: AGENT_STATE_LABEL[aggState], queued: queued > 0 ? ` · ${m.topbar_queue_count_label({ count: queued })}` : '' }) + (gitLanesCount > 0 ? ` · ${m.topbar_tab_aria_worktrees({ count: gitLanesCount })}` : '') + (labLanesCount > 0 ? ` · ${m.topbar_tab_aria_prototypes({ count: labLanesCount })}` : '') + gitDiffLabel + upstreamLabel}
 				>
 
 					{#if p.canonicalProjectPath}
@@ -914,7 +914,7 @@
 						<span class="tab-reveal" class:show={isActive && queued > 0}>
 							<span class="tab-reveal-inner">
 								{#if queueStyle === 'dot'}
-									<span class="tab-queue-dot" aria-hidden="true" title="{queued} task in coda"></span>
+									<span class="tab-queue-dot" aria-hidden="true" title={m.topbar_queue_count_label({ count: queued })}></span>
 								{:else}
 									<span
 										class="tab-queue"
@@ -1107,7 +1107,7 @@
 				onclick={(e) => { e.stopPropagation(); onQueueClick?.(e.currentTarget); }}
 				aria-label={m.topbar_queue_chip_aria({ count: taskStore.totalQueued })}
 			>
-				Coda ({taskStore.totalQueued})
+				{m.topbar_queue_chip_label({ count: taskStore.totalQueued })}
 			</button>
 			</Tooltip>
 		{/if}

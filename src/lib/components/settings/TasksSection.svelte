@@ -8,7 +8,9 @@
 	import {
 		type TaskDirective,
 		type DirectivePlacement,
-		getFactoryDirective
+		getFactoryDirective,
+		directiveDisplayName,
+		directiveDisplayDescription
 	} from '$lib/stores/taskDirectives';
 	import {
 		IconCheck,
@@ -877,7 +879,7 @@
 								id={`dir-default-${d.id}`}
 								checked={isDefault}
 								onChange={() => toggleDefaultDirective(d.id)}
-								ariaLabel={m.settings_tasks_default_for_aria({ name: d.name, scope: (isProjectScope ? currentProject?.name : undefined) ?? m.settings_tasks_scope_global_name() })}
+								ariaLabel={m.settings_tasks_default_for_aria({ name: directiveDisplayName(d), scope: (isProjectScope ? currentProject?.name : undefined) ?? m.settings_tasks_scope_global_name() })}
 							/>
 						</Tooltip>
 					</div>
@@ -911,7 +913,7 @@
 					<!-- Info Direttiva -->
 					<div class="col-main">
 						<div class="row-top">
-							<span class="dir-name">{d.name}</span>
+							<span class="dir-name">{directiveDisplayName(d)}</span>
 							{#if d.factoryKey}
 								<span class="factory-pill">{m.settings_preset_pill()}</span>
 							{/if}
@@ -927,7 +929,7 @@
 								<span class="hidden-pill">{m.settings_tasks_hidden_pill()}</span>
 							{/if}
 						</div>
-						<p class="dir-desc">{d.description || d.prompt}</p>
+						<p class="dir-desc">{directiveDisplayDescription(d) || d.prompt}</p>
 					</div>
 
 					<!-- Azioni sulla riga -->

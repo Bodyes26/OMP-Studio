@@ -7,6 +7,7 @@
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages.js';
 	import { ompVersionStore } from '$lib/stores/ompVersion.svelte';
+	import { ompChangelogStore } from '$lib/stores/ompChangelog.svelte';
 	import { motionReduced } from '../motionState.svelte';
 
 	let { visible = true, loading = false }: { visible?: boolean; loading?: boolean } = $props();
@@ -49,6 +50,7 @@
 
 	$effect(() => {
 		ompVersionStore.ensure();
+		void ompChangelogStore.checkStatus();
 	});
 </script>
 
@@ -112,6 +114,42 @@
 		<p class="hint" class:is-off={phase !== 'loading'}>{m.ui_transcript_caricamento_sessione_in_corso_d8f1()}</p>
 		<p class="hint" class:is-off={phase === 'loading'}>{m.chat_v2_empty_state()}</p>
 	</div>
+
+	{#if phase !== 'loading' && ompChangelogStore.hasUnseenUpdate}
+		<div class="update-notice">
+			<button
+				type="button"
+				class="update-notice-btn"
+				onclick={() => void ompChangelogStore.openModal()}
+				title={m.page_omp_update_notice_tooltip()}
+			>
+				<span class="sparkle" aria-hidden="true">✦</span>
+				<span class="notice-text">
+					{#if ompChangelogStore.releaseCount <= 1}
+						{#if ompChangelogStore.changeCount === 1}
+							{m.page_omp_update_notice_single_one({
+								version: ompChangelogStore.currentVersion,
+								command: '/changelog'
+							})}
+						{:else}
+							{m.page_omp_update_notice_single({
+								version: ompChangelogStore.currentVersion,
+								count: ompChangelogStore.changeCount,
+								command: '/changelog'
+							})}
+						{/if}
+					{:else}
+						{m.page_omp_update_notice_multi({
+							version: ompChangelogStore.currentVersion,
+							count: ompChangelogStore.changeCount,
+							releases: ompChangelogStore.releaseCount,
+							command: '/changelog'
+						})}
+					{/if}
+				</span>
+			</button>
+		</div>
+	{/if}
 </div>
 
 <style>
@@ -230,6 +268,54 @@
 	}
 	.is-intro .hint {
 		animation: welcome-text 400ms 1070ms var(--ease-out) backwards;
+	}
+	.is-intro .update-notice {
+		animation: welcome-text 400ms 1200ms var(--ease-out) backwards;
+	}
+
+	.update-notice {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		margin-top: calc(-1 * var(--space-2, 8px));
+	}
+
+	.update-notice-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		padding: 4px 12px;
+		border-radius: var(--radius-full, 9999px);
+		border: 1px solid var(--line-subtle, rgba(255, 255, 255, 0.08));
+		background: var(--bg-surface-raised, rgba(255, 255, 255, 0.03));
+		color: var(--ink-muted);
+		font-family: var(--font-ui, sans-serif);
+		font-size: var(--text-sm, 13px);
+		line-height: 20px;
+		cursor: pointer;
+		transition: all 140ms ease;
+		text-align: center;
+	}
+
+	.update-notice-btn:hover {
+		color: var(--ink);
+		border-color: var(--accent, #f84fcc);
+		background: var(--accent-subtle, rgba(248, 79, 204, 0.08));
+	}
+
+	.update-notice-btn:focus-visible {
+		outline: 2px solid var(--accent, #f84fcc);
+		outline-offset: 2px;
+	}
+
+	.sparkle {
+		color: var(--accent, #f84fcc);
+		font-size: 11px;
+		flex-shrink: 0;
+	}
+
+	.notice-text {
+		color: inherit;
 	}
 
 	/* Caricamento: lockup in fil di ferro, senza riempimento. Con il movimento

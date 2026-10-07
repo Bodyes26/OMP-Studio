@@ -122,7 +122,7 @@
 
 	let rootEl = $state<HTMLDivElement | null>(null);
 	let editorRef = $state<ReturnType<typeof ComposerEditor> | null>(null);
-
+	let controlsStripEl = $state<HTMLDivElement | null>(null);
 	type MenuKind = 'attach' | 'role' | 'model' | 'thinking' | 'context' | 'sendMode' | null;
 	let activeMenu = $state<MenuKind>(null);
 
@@ -534,6 +534,20 @@
 		}).then(() => session.refreshState());
 	}
 
+	/**
+	 * Se la striscia controlli ha overflow orizzontale e l'utente usa la rotellina
+	 * verticale senza asse orizzontale, converte il movimento in scorrimento orizzontale.
+	 */
+	function handleStripWheel(e: WheelEvent) {
+		if (!controlsStripEl) return;
+		if (e.deltaY && !e.deltaX) {
+			if (controlsStripEl.scrollWidth > controlsStripEl.clientWidth) {
+				e.preventDefault();
+				controlsStripEl.scrollLeft += e.deltaY;
+			}
+		}
+	}
+
 	// Filtro tasti editor
 	function handleKeydownFilter(e: KeyboardEvent): boolean {
 		if (e.altKey && e.key === 'ArrowUp' && isDraftEmpty()) {
@@ -893,39 +907,50 @@
 
 		<!-- Barra inferiore: controlli modello, ruolo, allegati, contesto, invio -->
 		<div class="composer-toolbar">
-			<!-- Allega file -->
-			<MenuButton
-				open={activeMenu === 'attach'}
-				title={m.chat_v2_composer_attach_title()}
-				hasPopup="menu"
-				width="260px"
-				onToggle={() => (activeMenu = activeMenu === 'attach' ? null : 'attach')}
-				onClose={() => (activeMenu = null)}
-			>
-				{#snippet trigger()}
-					<span class="toolbar-attach-icon"><IconAttach /></span>
-				{/snippet}
-				{#snippet children()}
-					<AttachMenu
-						onPickFiles={() => void pickFromDialog(false)}
-						onPickFolder={() => void pickFromDialog(true)}
-					/>
-				{/snippet}
-			</MenuButton>
-
-			<!-- Menzione file @ -->
-			<Tooltip text={m.chat_v2_composer_mention_title()} placement="top" offset={6}>
-				<button
-					type="button"
-					class="composer-icon-btn"
-					aria-label={m.chat_v2_composer_mention_title()}
-					onclick={() => editorRef?.insertTrigger('@')}
+			<!-- Azioni primarie fisse a sinistra: allegati e menzione @ -->
+			<div class="toolbar-left">
+				<!-- Allega file -->
+				<MenuButton
+					open={activeMenu === 'attach'}
+					title={m.chat_v2_composer_attach_title()}
+					hasPopup="menu"
+					width="260px"
+					onToggle={() => (activeMenu = activeMenu === 'attach' ? null : 'attach')}
+					onClose={() => (activeMenu = null)}
 				>
-					<IconAt />
-				</button>
-			</Tooltip>
+					{#snippet trigger()}
+						<span class="toolbar-attach-icon"><IconAttach /></span>
+					{/snippet}
+					{#snippet children()}
+						<AttachMenu
+							onPickFiles={() => void pickFromDialog(false)}
+							onPickFolder={() => void pickFromDialog(true)}
+						/>
+					{/snippet}
+				</MenuButton>
+
+				<!-- Menzione file @ -->
+				<Tooltip text={m.chat_v2_composer_mention_title()} placement="top" offset={6}>
+					<button
+						type="button"
+						class="composer-icon-btn"
+						aria-label={m.chat_v2_composer_mention_title()}
+						onclick={() => editorRef?.insertTrigger('@')}
+					>
+						<IconAt />
+					</button>
+				</Tooltip>
+			</div>
 
 			<span class="toolbar-divider" aria-hidden="true"></span>
+
+			<!-- Striscia controlli sessione a scorrimento orizzontale (ruolo, modello, thinking, prewalk) -->
+			<div
+				class="toolbar-controls-strip"
+				bind:this={controlsStripEl}
+				onwheel={handleStripWheel}
+				tabindex="-1"
+			>
 
 			<!-- Menu Ruolo -->
 			<MenuButton
@@ -1068,6 +1093,7 @@
 					{/if}
 				</div>
 			{/if}
+			</div>
 
 			<!-- Parte destra: Finestra di contesto e Pulsante Invio/Stop -->
 			<div class="toolbar-right">
@@ -1211,6 +1237,8 @@
 		width: 100%;
 		display: flex;
 		flex-direction: column;
+		min-width: 0;
+		container-type: inline-size;
 	}
 
 	.composer-root.hidden {
@@ -1300,11 +1328,40 @@
 		transition: transform var(--dur-fast) var(--ease-out);
 	}
 
+	.toolbar-left {
+		display: inline-flex;
+		align-items: center;
+		gap: 2px;
+		flex-shrink: 0;
+	}
+
+	.toolbar-controls-strip {
+		display: flex;
+		align-items: center;
+		gap: 2px;
+		flex: 1 1 auto;
+		min-width: 0;
+		overflow-x: auto;
+		overflow-y: hidden;
+		white-space: nowrap;
+		scrollbar-width: none;
+		-ms-overflow-style: none;
+	}
+
+	.toolbar-controls-strip::-webkit-scrollbar {
+		display: none;
+	}
+
+	.toolbar-controls-strip > * {
+		flex-shrink: 0;
+	}
+
 	.toolbar-divider {
 		width: 1px;
 		height: 16px;
 		background: var(--line);
 		margin: 0 4px;
+		flex-shrink: 0;
 	}
 
 	.active-role-dot {
@@ -1434,6 +1491,22 @@
 		display: flex;
 		align-items: center;
 		gap: 6px;
+		flex-shrink: 0;
+	}
+
+	@container (max-width: 340px) {
+		.context-max {
+			display: none;
+		}
+	}
+
+	@container (max-width: 270px) {
+		.context-numbers {
+			display: none;
+		}
+		.toolbar-divider {
+			display: none;
+		}
 	}
 
 	.context-ring {

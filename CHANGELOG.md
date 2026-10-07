@@ -35,6 +35,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Laboratorio prototipi (sperimentale, da attivare in Impostazioni → Generale): ogni prototipo React 19 + Tailwind v4 è una corsia del progetto con anteprima live, un Git interno che salva ogni richiesta come revisione recuperabile e un agente che legge il progetto originale ma scrive solo nel prototipo. I prototipi si riaprono dal popover del progetto e si eliminano definitivamente dal menu della scheda; `Ctrl+Alt+P` crea un prototipo libero, associabile in seguito a un progetto.
 - Accesso ai provider OAuth dalle Impostazioni: «Accedi di nuovo», «Aggiungi account» e «Accedi con OAuth» aprono un terminale integrato con `omp login <provider>` e l'elenco degli account si aggiorna alla chiusura.
 - La chat vuota mostra il banner di `omp` con la versione installata, animato alla prima apertura; lo stesso banner in fil di ferro sostituisce i riquadri grigi mentre `omp` si avvia o una sessione si carica.
+- Dopo un aggiornamento di `omp` la chat vuota mostra sotto il banner quante novità sono arrivate, come fa il terminale: un clic sull'avviso o `/changelog` (`/changelog full` per l'elenco completo) le apre in una finestra. Una volta lette l'avviso sparisce anche dal terminale.
 
 ### Changed
 - Nuovo logo: il pi greco squadrato di omp. Su Windows l'icona è il solo pi e la finestra passa alle gambe bianche quando la barra delle applicazioni è scura; su macOS e Linux il pi sta su un riquadro arrotondato scuro. Il logo della barra superiore e della Companion segue il tema.
@@ -93,7 +94,8 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Alla chiusura di Studio le ultime modifiche a progetti e corsie vengono salvate.
 - La scorciatoia della Companion chiude la finestra anche se l'interfaccia non risponde; Escape chiude la palette dei suggerimenti senza chiudere la finestra e la puntina si vede sempre.
 - Con il Laboratorio disattivato, `Ctrl+Alt+P` apre l'impostazione per attivarlo invece di non fare nulla.
-- L'interfaccia in inglese non mostra più testi in italiano in impostazioni, chat, strumenti, browser integrato, pannello Git, albero dei file, editor e terminale.
+- L'interfaccia in inglese non mostra più testi in italiano in impostazioni, chat, strumenti, blocchi di codice, browser integrato, pannello Git, albero dei file, editor, terminale, pulsante «Coda» della barra superiore, controlli del Doctor e direttive dei task.
+- Con la colonna della chat stretta, per esempio accanto all'anteprima di un prototipo, il composer mantiene il margine laterale e ruolo, modello, thinking e prewalk scorrono in orizzontale invece di uscire dal bordo; il pulsante di invio resta sempre visibile.
 - L'app per macOS scaricata dal DMG si apre invece di essere segnalata come «danneggiata»: il bundle è firmato per intero (firma ad-hoc). Finché non è notarizzata, al primo avvio serve Impostazioni di Sistema › Privacy e sicurezza › «Apri comunque».
 - Su Linux l'aggiornamento sostituisce l'AppImage in uso e riavvia Studio; con il pacchetto `.deb` Studio resta aperto e spiega come completare l'installazione.
 - L'aggiornamento di Studio indica l'impronta SHA-256 come verificata solo dopo il download.

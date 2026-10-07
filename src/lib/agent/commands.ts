@@ -116,6 +116,16 @@ export const STUDIO_SLASH_COMMANDS: AvailableCommand[] = [
 		source: 'studio'
 	},
 	{
+		name: 'changelog',
+		get description() { return msg.ui_ts_commands_mostra_il_riepilogo_delle_novita_di_omp(); },
+		aliases: ['whatsnew'],
+		input: { hint: '[full]' },
+		subcommands: [
+			{ name: 'full', description: 'Mostra tutto il changelog storico' }
+		],
+		source: 'studio'
+	},
+	{
 		name: 'help',
 		get description() { return msg.ui_ts_commands_mostra_i_comandi_disponibili_nella_superficie_gui_88cd(); },
 		source: 'studio'

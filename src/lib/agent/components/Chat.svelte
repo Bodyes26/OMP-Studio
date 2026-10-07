@@ -574,6 +574,8 @@
 		display: flex;
 		flex-direction: column;
 		min-width: 0;
+		box-sizing: border-box;
+		padding-inline: var(--space-3);
 	}
 
 	.footer-inner.readable {

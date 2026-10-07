@@ -15,6 +15,16 @@
   "page_omp_update_status_installing": "Installing...",
   "page_omp_update_status_installed": "Updated!",
   "page_omp_update_status_update_error": "Update error",
+  "page_omp_update_notice_single": "omp updated to v{version} ({count} changes). Type {command} to view.",
+  "page_omp_update_notice_single_one": "omp updated to v{version} (1 change). Type {command} to view.",
+  "page_omp_update_notice_multi": "omp updated to v{version} ({count} changes across {releases} releases). Type {command} to view.",
+  "page_omp_update_notice_tooltip": "Show What's New in omp",
+  "page_omp_changelog_modal_title": "What's New in omp",
+  "page_omp_changelog_modal_tab_unseen": "New changes",
+  "page_omp_changelog_modal_tab_full": "Full changelog",
+  "page_omp_changelog_modal_close": "Close",
+  "page_omp_changelog_modal_empty": "No changelog entries found.",
+  "ui_ts_commands_mostra_il_riepilogo_delle_novita_di_omp": "Show the changelog and release notes for recent omp versions",
   "page_empty_open_project": "Open project",
   "page_empty_open_scratchpad": "Launch Scratchpad",
   "page_empty_open_folder_shortcut": "Open project folder",
@@ -105,6 +115,36 @@
   "topbar_tab_scratchpad": "Scratchpad",
   "topbar_lanes_badge_worktree_title": "{count} active worktrees",
   "topbar_lanes_badge_lab_title": "{count} open Lab prototypes",
+  "topbar_tab_aria_worktrees": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
+      "match": {
+        "countPlural=one": "{count} worktree",
+        "countPlural=other": "{count} worktrees"
+      }
+    }
+  ],
+  "topbar_tab_aria_prototypes": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
+      "match": {
+        "countPlural=one": "{count} prototype",
+        "countPlural=other": "{count} prototypes"
+      }
+    }
+  ],
   "lanestrip_title": "Work lanes",
   "lanestrip_tab_main": "Main",
   "lanestrip_tab_new": "New lane",
@@ -220,6 +260,7 @@
   "topbar_companion_chip_title": "Open or pin Companion window (Alt+Space)",
   "topbar_queue_chip_title": "Tasks waiting across all projects (Ctrl+Alt+T)",
   "topbar_queue_chip_aria": "Queued tasks across all projects: {count} (Ctrl+Alt+T)",
+  "topbar_queue_chip_label": "Queue ({count})",
   "topbar_win_minimize": "Minimize",
   "topbar_win_restore": "Restore",
   "topbar_win_maximize": "Maximize",
@@ -328,6 +369,14 @@
   ],
   "task_editor_manage_directives_btn": "Manage directives",
   "task_editor_directive_upgrade_btn": "Update",
+  "directive_factory_plan_name": "Plan Mode",
+  "directive_factory_plan_desc": "Formulates an architectural plan and waits for approval before editing files.",
+  "directive_factory_discussion_name": "Discussion & Requirements",
+  "directive_factory_discussion_desc": "Asks in-depth questions to clarify decisions before touching code.",
+  "directive_factory_minimal_name": "Minimal Solution",
+  "directive_factory_minimal_desc": "Enforces the simplest, laziest solution without superfluous dependencies or abstractions.",
+  "directive_factory_research_name": "Online Web Research",
+  "directive_factory_research_desc": "Performs targeted online research on the request scope before proceeding.",
   "task_editor_context_editor_title": "Include editor context",
   "task_editor_context_editor_desc": "Attach list of currently open files and active selection in editor.",
   "task_editor_quota_used_elsewhere": "In use elsewhere",
@@ -867,6 +916,51 @@
   "settings_doctor_loading_label": "Loading diagnostics",
   "settings_doctor_loading_text": "Running the environment diagnostic checkup...",
   "settings_doctor_run_error": "Self-diagnosis failed:",
+  "doctor_check_omp_binary": "omp Executable",
+  "doctor_check_omp_version": "omp Version",
+  "doctor_check_omp_rpc": "RPC-UI Protocol",
+  "doctor_check_git_lanes_merge": "Lane Integration",
+  "doctor_check_git_version": "Git CLI",
+  "doctor_check_shell_bash_windows": "Git Bash (bash.exe)",
+  "doctor_check_shell_bash_unix": "Bash Shell",
+  "doctor_check_git_repo_status": "Open Repository",
+  "doctor_check_pty_backend": "Native Terminal Backend (PTY)",
+  "doctor_check_sqlite_history_db": "History Database (history.db)",
+  "doctor_check_sqlite_stats_db": "Statistics Database (stats.db)",
+  "doctor_check_sqlite_agent_db": "Agent & Credentials Database (agent.db)",
+  "doctor_check_provider_none": "Configured AI Provider",
+  "doctor_val_omp_not_found": "Not found in system PATH",
+  "doctor_rec_omp_install": "Install omp via `npm install -g @oh-my-pi/pi-coding-agent` or add it to PATH",
+  "doctor_val_unknown": "Unknown",
+  "doctor_val_version_missing": "Undetectable (executable missing)",
+  "doctor_rec_omp_version_verify": "Verify that omp binary responds correctly to `omp --version`",
+  "doctor_rec_install_omp_version": "Install omp to detect the version",
+  "doctor_val_not_available": "Not available",
+  "doctor_rec_omp_rpc_update": "Update omp to a version compatible with `--mode rpc-ui` mode",
+  "doctor_rec_install_omp_rpc": "Install omp to enable session runtime",
+  "doctor_val_git_not_found": "Not found or not working",
+  "doctor_rec_git_install": "Install Git and ensure it is available in PATH",
+  "doctor_val_bash_not_in_standard_paths": "Not detected in standard paths",
+  "doctor_val_bash_not_in_path": "bash not detected in PATH",
+  "doctor_rec_bash_install_windows": "Install Git for Windows with bash components to allow agent script execution",
+  "doctor_rec_bash_verify_unix": "Verify that /bin/bash is installed and accessible",
+  "doctor_val_repo_none": "No project open in foreground",
+  "doctor_val_repo_not_a_repo": "Active folder is not a Git repository",
+  "doctor_rec_repo_init": "Initialize a repository with `git init` if you want tracking",
+  "doctor_val_repo_clean": "Branch `{branch}` · clean working tree",
+  "doctor_val_repo_modified": "Branch `{branch}` · {count} uncommitted modified files",
+  "doctor_val_pty_conpty": "ConPTY operational (native Windows pseudo-terminal backend)",
+  "doctor_val_pty_posix": "POSIX openpty operational (Unix PTY backend)",
+  "doctor_rec_pty_conpty": "Verify that system supports ConPTY (Windows 10 version 1809 or later)",
+  "doctor_rec_pty_posix": "Verify permissions on pseudo-terminal descriptors (/dev/pts)",
+  "doctor_val_sqlite_not_created": "Not created yet (will be initialized automatically by omp)",
+  "doctor_val_sqlite_query_only_inactive": "Open but PRAGMA query_only is inactive",
+  "doctor_rec_sqlite_readonly": "Ensure DB connection enforces read-only",
+  "doctor_val_provider_none": "No provider configured in Studio",
+  "doctor_rec_provider_none": "Configure at least one provider (e.g. Anthropic, OpenAI, Google) in Settings > Models",
+  "doctor_val_provider_missing_base_url": "Not verifiable: baseUrl missing in model configuration",
+  "doctor_val_provider_endpoint_unknown": "Configured · connectivity not verifiable (endpoint unknown to Studio)",
+  "doctor_rec_provider_network": "Check internet connection, proxy, or corporate firewall limitations",
   "settings_companion_spotlight_title": "Spotlight Dismiss",
   "settings_companion_spotlight_esc_only_desc": "Close the Companion only with the Esc key.",
   "settings_companion_spotlight_esc_blur_desc": "Also close when the window loses focus (click outside).",
@@ -2149,6 +2243,55 @@
   "chat_v2_tool_meta_files": "{count} files",
   "chat_v2_tool_meta_matches_in_files": "{matches} in {files} files",
   "chat_v2_tool_meta_replacements": "{count} chg.",
+  "chat_lines_count": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
+      "match": {
+        "countPlural=one": "{count} line",
+        "countPlural=other": "{count} lines"
+      }
+    }
+  ],
+  "chat_results_count": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
+      "match": {
+        "countPlural=one": "{count} result",
+        "countPlural=other": "{count} results"
+      }
+    }
+  ],
+  "chat_matches_count": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
+      "match": {
+        "countPlural=one": "{count} match",
+        "countPlural=other": "{count} matches"
+      }
+    }
+  ],
+  "output_block_collapse": "Collapse {label}",
+  "code_block_fallback_lang": "text",
+  "code_block_expand": "Expand code block",
+  "code_block_collapse": "Collapse code block",
   "chat_v2_composer_model_fallback": "The active model",
   "chat_v2_composer_model_label": "Model",
   "chat_v2_composer_send_mode_title": "Send mode",

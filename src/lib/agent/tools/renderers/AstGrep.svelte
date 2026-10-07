@@ -6,13 +6,13 @@
   e gli eventuali errori di parsing.
 -->
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	import CountBadge from '../parts/CountBadge.svelte';
 	import KeyValue from '../parts/KeyValue.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
 	import PathChip from '../parts/PathChip.svelte';
 	import {
 		asRecord,
-		countLabel,
 		num,
 		recordList,
 		resultText,
@@ -60,7 +60,7 @@
 					<div class="file-match-row">
 						<PathChip path={filePath} />
 						{#if count !== undefined}
-							<CountBadge text={countLabel(count, 'risultato', 'risultati')} muted />
+							<CountBadge text={m.chat_results_count({ count })} muted />
 						{/if}
 					</div>
 				{/if}

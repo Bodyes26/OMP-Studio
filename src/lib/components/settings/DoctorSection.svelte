@@ -9,6 +9,11 @@
 	import { IconWarning, IconRefresh, IconCopy, IconArrowRight } from '$lib/icons';
 	import StatusMark from '$lib/ui/StatusMark.svelte';
 	import Segmented from '$lib/ui/Segmented.svelte';
+	import {
+		getDoctorCheckName,
+		getDoctorCheckValue,
+		getDoctorCheckRecommendation
+	} from './doctorI18n';
 
 	const activePath = $derived(
 		projectStore.activeProject?.lane.workspacePath ||
@@ -209,18 +214,18 @@
 										</td>
 
 										<td class="cell-check">
-											<span class="check-name">{item.name}</span>
+											<span class="check-name">{getDoctorCheckName(item)}</span>
 										</td>
 
 										<td class="cell-val">
-											<code class="val-code">{item.value}</code>
+											<code class="val-code">{getDoctorCheckValue(item)}</code>
 										</td>
 
 										<td class="cell-rec">
 											{#if item.recommendation}
 												<div class="recommendation-box" class:rec-error={item.status === 'error'} class:rec-warn={item.status === 'warn'}>
 													<span class="rec-bullet" aria-hidden="true"><IconArrowRight /></span>
-													<span class="rec-text">{item.recommendation}</span>
+													<span class="rec-text">{getDoctorCheckRecommendation(item)}</span>
 												</div>
 											{:else}
 												<span class="rec-empty">—</span>

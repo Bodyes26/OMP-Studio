@@ -8,6 +8,7 @@
  * - Un task memorizza uno snapshot immutabile delle direttive attive al momento della creazione/modifica.
  */
 
+import { m } from '$lib/paraglide/messages.js';
 export type DirectivePlacement = 'before' | 'after';
 export type FactoryDirectiveKey = 'plan' | 'discussion' | 'minimal' | 'research';
 
@@ -111,6 +112,57 @@ export function createDirectiveSnapshot(
  */
 export function getFactoryDirective(key: FactoryDirectiveKey): TaskDirective | undefined {
 	return FACTORY_DIRECTIVES.find((d) => d.factoryKey === key);
+}
+
+/**
+ * Restituisce il nome localizzato della direttiva di catalogo.
+ * Se e' un preset di fabbrica (non modificato dall'utente), ritorna il messaggio Paraglide.
+ */
+export function directiveDisplayName(directive: {
+	factoryKey?: FactoryDirectiveKey | null;
+	id?: string;
+	name: string;
+}): string {
+	const key = directive.factoryKey ?? (directive.id?.replace(/^dir_factory_/, '') as FactoryDirectiveKey | undefined);
+	if (key === 'plan' && (!directive.name || directive.name === 'Modalità Piano' || directive.name === 'Plan Mode')) {
+		return m.directive_factory_plan_name();
+	}
+	if (key === 'discussion' && (!directive.name || directive.name === 'Discussione & Requisiti' || directive.name === 'Discussion & Requirements')) {
+		return m.directive_factory_discussion_name();
+	}
+	if (key === 'minimal' && (!directive.name || directive.name === 'Soluzione Minimale' || directive.name === 'Minimal Solution')) {
+		return m.directive_factory_minimal_name();
+	}
+	if (key === 'research' && (!directive.name || directive.name === 'Ricerca Web Online' || directive.name === 'Online Web Research')) {
+		return m.directive_factory_research_name();
+	}
+	return directive.name;
+}
+
+/**
+ * Restituisce la descrizione localizzata della direttiva di catalogo.
+ * Se e' un preset di fabbrica (non modificato dall'utente), ritorna il messaggio Paraglide.
+ */
+export function directiveDisplayDescription(directive: {
+	factoryKey?: FactoryDirectiveKey | null;
+	id?: string;
+	description?: string;
+}): string {
+	const key = directive.factoryKey ?? (directive.id?.replace(/^dir_factory_/, '') as FactoryDirectiveKey | undefined);
+	const desc = directive.description ?? '';
+	if (key === 'plan' && (!desc || desc === FACTORY_DIRECTIVES[0].description)) {
+		return m.directive_factory_plan_desc();
+	}
+	if (key === 'discussion' && (!desc || desc === FACTORY_DIRECTIVES[1].description)) {
+		return m.directive_factory_discussion_desc();
+	}
+	if (key === 'minimal' && (!desc || desc === FACTORY_DIRECTIVES[2].description)) {
+		return m.directive_factory_minimal_desc();
+	}
+	if (key === 'research' && (!desc || desc === FACTORY_DIRECTIVES[3].description)) {
+		return m.directive_factory_research_desc();
+	}
+	return desc;
 }
 
 /**

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { m } from '$lib/paraglide/messages.js';
 	import { IconChevronRight } from '$lib/icons';
 	// JSON pieghevole: il ripiego quando non c'e' niente di meglio da dire su
 	// un payload. Usato da `Generic` e dai renderer per gli argomenti che non
@@ -23,7 +24,7 @@
 	<details bind:open>
 		<summary>
 			<span class="chevron" aria-hidden="true"><IconChevronRight /></span>
-			<span>{label} · {lineCount} righe</span>
+			<span>{label} · {m.chat_lines_count({ count: lineCount })}</span>
 		</summary>
 		<pre>{text}</pre>
 	</details>

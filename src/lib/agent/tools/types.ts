@@ -115,10 +115,6 @@ export function formatElapsed(ms: number): string {
 	return `${minutes}m ${String(seconds).padStart(2, '0')}s`;
 }
 
-/** Conteggio con plurale italiano: `1 file`, `3 file`, `1 riga`, `2 righe`. */
-export function countLabel(count: number, singular: string, plural: string): string {
-	return `${count} ${count === 1 ? singular : plural}`;
-}
 
 /**
  * Estrae una breve descrizione dell'errore per il microcopy di fallimento.

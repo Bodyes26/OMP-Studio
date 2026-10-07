@@ -14,6 +14,8 @@
 	import {
 		createDirectiveSnapshot,
 		compareDirectiveRevision,
+		directiveDisplayName,
+		directiveDisplayDescription,
 		type TaskDirective,
 		type TaskDirectiveSnapshot
 	} from '$lib/stores/taskDirectives';
@@ -476,7 +478,7 @@
 
 	function directiveTooltip(directive: TaskDirective | TaskDirectiveSnapshot): string {
 		const placement = directive.placement === 'after' ? m.task_editor_directive_after_tooltip() : '';
-		return [directive.description, placement].filter(Boolean).join(' · ');
+		return [directiveDisplayDescription(directive), placement].filter(Boolean).join(' · ');
 	}
 
 	function setIncludeEditorContext(checked: boolean) {
@@ -894,7 +896,7 @@
 								onclick={() => toggleDirective(directive)}
 							>
 								{#if active}<span class="chip-check"><IconCheck /></span>{/if}
-								<span class="chip-text">{directive.name}</span>
+								<span class="chip-text">{directiveDisplayName(directive)}</span>
 							</button>
 						</Tooltip>
 					{/each}
@@ -904,14 +906,14 @@
 					<div class="directive-notice">
 						{#if notice.status === 'upgrade_available'}
 							<StatusMark status="attention" active={false} />
-							<span class="notice-text">{m.task_editor_directive_upgrade_available({ name: notice.snapshot.name, revision: notice.revision })}</span>
+							<span class="notice-text">{m.task_editor_directive_upgrade_available({ name: directiveDisplayName(notice.snapshot), revision: notice.revision })}</span>
 							<Tooltip text={m.ui_taskeditor_sostituisce_lo_snapshot_congelato_con_la_versione_b86f()}>
 								<button type="button" class="ui-button ui-button-ghost" onclick={() => upgradeDirective(notice.snapshot.id)}>
 									{m.task_editor_directive_upgrade_btn()}
 								</button>
 							</Tooltip>
 						{:else}
-							<span class="notice-text muted">{m.task_editor_directive_orphan({ name: notice.snapshot.name })}</span>
+							<span class="notice-text muted">{m.task_editor_directive_orphan({ name: directiveDisplayName(notice.snapshot) })}</span>
 						{/if}
 					</div>
 				{/each}

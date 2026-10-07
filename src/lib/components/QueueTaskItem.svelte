@@ -6,6 +6,7 @@
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { roleBadge, splitTaskText, taskLabel } from '$lib/stores/taskTitle';
 	import { requestTaskTitle } from '$lib/stores/taskTitles';
+	import { directiveDisplayName } from '$lib/stores/taskDirectives';
 	import { contextMenu, type ContextMenuEntry } from '$lib/contextMenu.svelte';
 	import {
 		IconArrowDown,
@@ -296,10 +297,10 @@
 			{/if}
 			{#if role && (!showHeadline || !text.headline)}<span class="chip role">{role}</span>{/if}
 			{#each directives.slice(0, maxDirectives) as d (d.id)}
-				<span class="chip mode">{d.name}</span>
+				<span class="chip mode">{directiveDisplayName(d)}</span>
 			{/each}
 			{#if directives.length > maxDirectives}
-				<span class="chip mode" title={directives.slice(maxDirectives).map((d) => d.name).join(', ')}>
+				<span class="chip mode" title={directives.slice(maxDirectives).map((d) => directiveDisplayName(d)).join(', ')}>
 					+{directives.length - maxDirectives}
 				</span>
 			{/if}

@@ -20,6 +20,7 @@
 	import { ROLE_HUES } from '$lib/agent/roleHues';
 	import { FAST_EXIT_MS, motionReduced } from '$lib/agent/motionState.svelte';
 	import { parseQuickTaskLocal, type LocalQuickTask } from '$lib/companion/quickTaskLocal';
+	import { directiveDisplayName } from '$lib/stores/taskDirectives';
 	import CompanionShell from './CompanionShell.svelte';
 	import CompanionComposer, { type CompanionSuggestSources } from './CompanionComposer.svelte';
 	import CompanionMonitor from './CompanionMonitor.svelte';
@@ -116,7 +117,7 @@
 
 	const parseInput = $derived({
 		projects: knownProjects.map((p) => ({ id: p.id, name: p.name, label: p.label ?? undefined, path: p.canonicalProjectPath ?? '' })),
-		directives: knownDirectives.map((d) => ({ id: d.id, name: d.name, tag: d.tag, hidden: d.hidden })),
+		directives: knownDirectives.map((d) => ({ id: d.id, name: directiveDisplayName(d), tag: d.tag, hidden: d.hidden })),
 		roles: configuredRoles.map((role) => role.id),
 		modelSelectors: modelSettingsStore.assignableCatalog.map((model) => model.selector)
 	});
@@ -126,8 +127,8 @@
 			.filter((p) => p.canonicalProjectPath)
 			.map((p) => ({ name: p.name, label: p.label?.trim() || p.name, hue: projectHues.get(p.id) ?? p.hue })),
 		directives: knownDirectives.map((d) => ({
-			value: (d.tag ?? d.name).replace(/^\//, ''),
-			label: d.name,
+			value: (d.tag ?? directiveDisplayName(d)).replace(/^\//, ''),
+			label: directiveDisplayName(d),
 			hint: d.tag
 		})),
 		roles: configuredRoles.map((role) => ({

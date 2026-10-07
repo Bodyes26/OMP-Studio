@@ -48,10 +48,10 @@
 
 	function resolveMetaSize(lines?: number, size?: string): string | undefined {
 		if (lines !== undefined && size) {
-			return `${lines} righe · ${size}`;
+			return `${m.chat_lines_count({ count: lines })} · ${size}`;
 		}
 		if (lines !== undefined) {
-			return `${lines} righe`;
+			return m.chat_lines_count({ count: lines });
 		}
 		if (size) {
 			return size;

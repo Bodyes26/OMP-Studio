@@ -42,6 +42,8 @@
 	import EmptyState from '$lib/components/EmptyState.svelte';
 	import { studioUpdaterStore, formatVersion } from '$lib/stores/studioUpdater.svelte';
 	import { ompVersionStore } from '$lib/stores/ompVersion.svelte';
+	import { ompChangelogStore } from '$lib/stores/ompChangelog.svelte';
+	import OmpChangelogModal from '$lib/components/OmpChangelogModal.svelte';
 	import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
 	import { parseRoleSelector, resolveActiveRole, nextCycleRole } from '$lib/stores/modelSettingsHelpers';
 	import { settingsStore } from '$lib/stores/settings.svelte';
@@ -1756,6 +1758,11 @@
 			usageOpen = true;
 			return true;
 		}
+		if (lowerCmd === '/changelog' || lowerCmd === '/whatsnew') {
+			const showFull = argument.toLowerCase() === 'full';
+			void ompChangelogStore.openModal(showFull);
+			return true;
+		}
 		if (lowerCmd === '/terminal') {
 			void switchSurface(projectId, 'terminal');
 			return true;
@@ -2299,6 +2306,7 @@
 		perfMark('boot', 'app start');
 		void ompVersionStore.refresh();
 		scheduleDeferredBootTask(() => void checkOmpUpdateSilently());
+		scheduleDeferredBootTask(() => void ompChangelogStore.checkStatus());
 		void checkSetupContract();
 		studioUpdaterStore.init();
 		modelSettingsStore.initHealthWatch();
@@ -2366,6 +2374,7 @@
 		try {
 			await invoke('run_omp_update');
 			await ompVersionStore.refresh();
+			void ompChangelogStore.checkStatus(true);
 			pendingUpdateCheck = null;
 			updateMessage = m.page_omp_update_status_installed();
 			ompBadgeType = 'success';
@@ -3280,6 +3289,7 @@
 
 	<StudioUpdateModal />
 	<ShortcutsHelpModal />
+	<OmpChangelogModal />
 	{#if viewingImage}
 		<ImageModal
 			data={viewingImage.data}
