@@ -2250,7 +2250,7 @@ fn fetch_omp_changelog_sync() -> Result<String, String> {
     let mut changelog_text = String::new();
     if let Some(stdout) = child.stdout.take() {
         let reader = BufReader::new(stdout);
-        for line in reader.lines().flatten() {
+        for line in reader.lines().map_while(Result::ok) {
             if let Ok(val) = serde_json::from_str::<serde_json::Value>(&line) {
                 if val.get("type").and_then(|t| t.as_str()) == Some("command_output") {
                     if let Some(text) = val.get("text").and_then(|t| t.as_str()) {
@@ -2350,7 +2350,7 @@ pub fn get_omp_changelog_status_sync() -> Result<OmpChangelogStatus, String> {
     }
 
     // Ordine dal piu' recente al meno recente
-    unseen_entries.sort_by(|a, b| b.ver.cmp(&a.ver));
+    unseen_entries.sort_by_key(|b| std::cmp::Reverse(b.ver));
 
     let unseen_markdown = unseen_entries
         .iter()
