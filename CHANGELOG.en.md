@@ -11,6 +11,10 @@ released: items are closed into a version via `npm run release -- <version>`.
 
 ## [Unreleased]
 
+### Added
+- New "Commands" entry in Settings: the catalog of `omp` and Studio commands, grouped by category, with search, explanation, benefits, examples and when to use each one, so you can discover features like prewalk without having to know them. Each command can be pinned in the composer, on the inner bar or below the composer, in the form you prefer, reordered by dragging (or `Alt+←/→`) and reset to the default layout. Attach, role, model and thinking are always present; `@` and context can be shown wherever you want. New commands that `omp` adds after an update appear in a "New" section until Studio describes them.
+- The row below the composer moves entries that don't fit into a "…" menu.
+
 ## [1.7.2] - 2026-10-07
 
 ### Fixed

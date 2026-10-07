@@ -44,6 +44,7 @@ function parseArgs() {
 		skipBuild: false,
 		noCloud: false,
 		allowDirty: false,
+		skipCommandCheck: false,
 		help: false
 	};
 
@@ -59,6 +60,8 @@ function parseArgs() {
 			opts.noCloud = true;
 		} else if (arg === '--allow-dirty') {
 			opts.allowDirty = true;
+		} else if (arg === '--skip-command-check') {
+			opts.skipCommandCheck = true;
 		} else if (arg === '--build-id') {
 			opts.buildId = args[++i];
 		} else if (/^[1-9]\d*$/.test(arg)) {
@@ -83,6 +86,7 @@ Opzioni:
   --skip-build        Salta la compilazione e usa l'installer piu' recente
   --no-cloud          Non avviare su GitHub la build degli altri sistemi operativi
   --allow-dirty       Compila anche con modifiche non committate (solo con --dry-run)
+  --skip-command-check Salta la verifica comandi omp con il catalogo (emergenza)
   -h, --help          Mostra questo messaggio di aiuto
 `);
 }
@@ -271,6 +275,21 @@ async function main() {
 	if (opts.help) {
 		printHelp();
 		return;
+	}
+	if (opts.skipCommandCheck) {
+		console.warn('\nATTENZIONE: verifica allineamento comandi omp saltata (--skip-command-check).');
+	} else {
+		console.log('\nVerifico l\'allineamento dei comandi omp con il catalogo...');
+		const cmdCheck = spawnSync(process.execPath, [join(ROOT, 'scripts', 'check-commands.mjs')], {
+			cwd: ROOT,
+			stdio: 'inherit'
+		});
+		if (cmdCheck.status !== 0) {
+			console.error('\nPubblicazione interrotta: il catalogo dei comandi non e\' allineato a omp.');
+			console.error('Consulta docs/COMMANDS.md per la procedura di aggiornamento.');
+			console.error('Per forzare la pubblicazione in emergenza: --skip-command-check\n');
+			process.exit(1);
+		}
 	}
 
 	assertCleanWorkingTree(opts);

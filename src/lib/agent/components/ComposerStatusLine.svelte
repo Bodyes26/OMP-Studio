@@ -1,31 +1,82 @@
 <script lang="ts">
 	/**
-	 * Riga di stato sotto il composer: velocita' (rapida/lenta), prewalk, limite
-	 * d'uso e costo. Una voce compare solo quando puo' agire su modello e ruolo
-	 * attivi: un comando inutilizzabile non occupa spazio in una colonna stretta.
+	 * Riga di stato sotto il composer.
+	 *
+	 * Disegna le voci della zona `statusLine` definite dal layout (`layout.pinned`):
+	 * - Controlli con stato (`fast`, `slow`, `prewalk`, `ctl.limit`, `ctl.cost`):
+	 *   compaiono solo quando il loro stato/modello lo richiede (un pin non li fa comparire
+	 *   se non hanno nulla da dire, preservando spazio per colonne strette);
+	 * - Controlli contestuali (`ctl.context`, `ctl.mention`): anello di contesto con pannello
+	 *   ContextPanel e inserimento rapido `@` nell'editor;
+	 * - Comandi generici fissati dall'utente: resi tramite `ComposerPinnedItem`.
+	 *
+	 * Overflow:
+	 * Se le voci superano la larghezza orizzontale disponibile, le voci in coda
+	 * confluiscono automaticamente nel menu compatto «…» (`ComposerOverflowMenu`).
+	 * La misura avviene via ResizeObserver con cache delle larghezze, evitando flicker
+	 * al primo render.
 	 */
 	import type { AgentSession } from '../session.svelte';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import type { ComposerLayout, PinnedCommand, CommandManifestEntry } from '../commandCatalog/types';
+	import { resolveLayout, itemsInZone } from '../commandCatalog/layout';
+	import { COMMAND_MANIFEST } from '../commandCatalog/manifest/index';
+	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
 	import { modelSupportsFastMode, usageLimitDetail, usageLimitLabel } from '../sessionModes';
-	import { IconFastMode, IconSlowMode, IconPrewalk, IconRefresh, IconWarning } from '$lib/icons';
+	import { resolveContextWindow } from '../contextReport';
+	import { formatTokens } from '$lib/utils/format';
+	import {
+		IconFastMode,
+		IconSlowMode,
+		IconPrewalk,
+		IconRefresh,
+		IconWarning,
+		IconAt
+	} from '$lib/icons';
 	import { m } from '$lib/paraglide/messages.js';
+
+	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import MenuButton from '$lib/ui/MenuButton.svelte';
+	import ContextPanel from './ContextPanel.svelte';
+	import ComposerPinnedItem from './ComposerPinnedItem.svelte';
+	import ComposerOverflowMenu from './ComposerOverflowMenu.svelte';
 
 	let {
 		session,
 		activeRole,
-		isLab
+		isLab,
+		layout,
+		draftTokens = 0,
+		onActivateCommand,
+		onInsertMention
 	} = $props<{
 		session: AgentSession;
 		activeRole: string | null;
 		isLab: boolean;
+		layout?: ComposerLayout | null;
+		draftTokens?: number;
+		onActivateCommand?: (entry: CommandManifestEntry) => void;
+		onInsertMention?: () => void;
 	}>();
+
+	const manifestMap = new Map(COMMAND_MANIFEST.map((entry) => [entry.id, entry]));
+
+	// Layout effettivo: usa il prop se passato, altrimenti risolve dallo store impostazioni
+	const resolvedLayout = $derived(
+		layout !== undefined
+			? (layout ?? resolveLayout(null, COMMAND_MANIFEST))
+			: resolveLayout(settingsStore.composerLayout, COMMAND_MANIFEST)
+	);
+
+	const statusPins = $derived(itemsInZone(resolvedLayout, 'statusLine'));
 
 	const smolConfigured = $derived(modelSettingsStore.config?.modelRoles?.smol?.trim() || '');
 	const smolFallbacks = $derived(modelSettingsStore.config?.fallbackChains?.smol || []);
 	const prewalkState = $derived(session.prewalk?.state ?? 'off');
 	const prewalkTarget = $derived(session.prewalk?.target || '');
-	const handedOffTo = $derived(session.prewalk?.handedOffTo || session.model?.name || session.model?.id || '');
+	const handedOffTo = $derived(
+		session.prewalk?.handedOffTo || session.model?.name || session.model?.id || ''
+	);
 	const prewalkBusy = $derived(session.prewalkBusy || !session.isReady);
 
 	// Il laboratorio lavora con il suo modello fisso: velocita' e prewalk non si toccano.
@@ -41,7 +92,29 @@
 	);
 	const limit = $derived(session.usageLimit);
 	const totalCost = $derived(session.totalCost);
-	const hasItems = $derived(showFast || showSlow || showPrewalk || limit !== null || (totalCost ?? 0) > 0);
+
+	// Regola di visibilità: i controlli di sistema compaiono solo se c'è un'informazione reale
+	// da comunicare. Un pin non li forza a schermo se lo stato è inattivo.
+	function isPinActive(id: string): boolean {
+		switch (id) {
+			case 'fast':
+				return showFast;
+			case 'slow':
+				return showSlow;
+			case 'prewalk':
+				return showPrewalk;
+			case 'ctl.limit':
+				return limit !== null;
+			case 'ctl.cost':
+				return totalCost !== null && totalCost > 0;
+			default:
+				// Controlli espliciti e comandi generici fissati dall'utente sono sempre visibili
+				return true;
+		}
+	}
+
+	const activePins = $derived(statusPins.filter((pin) => isPinActive(pin.id)));
+	const hasItems = $derived(activePins.length > 0);
 
 	const fastPaused = $derived(session.fastModeEnabled && !session.fastModeActive);
 	const fastTooltip = $derived(
@@ -78,6 +151,7 @@
 	);
 
 	let speedBusy = $state(false);
+	let contextMenuOpen = $state(false);
 
 	/**
 	 * Rapida e lenta sono livelli di servizio alternativi: accenderne uno spegne
@@ -109,96 +183,366 @@
 			session.pushNotice('error', err instanceof Error ? err.message : String(err), 'prewalk');
 		}
 	}
+
+	// --------------------------------------------------------------------------
+	// Misurazione dinamica dell'overflow tramite ResizeObserver
+	// --------------------------------------------------------------------------
+	let lineEl = $state<HTMLDivElement | null>(null);
+	let overflowOpen = $state(false);
+	let overflowCutIndex = $state<number>(-1); // -1 = tutto a schermo senza overflow
+
+	const widthCache = new Map<string, number>();
+
+	function checkOverflow() {
+		if (!lineEl) return;
+		const containerWidth = lineEl.clientWidth;
+		if (containerWidth <= 0) return;
+
+		// Aggiorna le larghezze misurate per ogni voce attualmente disegnata nel DOM
+		const nodes = lineEl.querySelectorAll<HTMLElement>('.status-entry[data-pin-id]');
+		for (const node of nodes) {
+			const id = node.dataset.pinId;
+			if (id && node.offsetWidth > 0) {
+				widthCache.set(id, node.offsetWidth);
+			}
+		}
+
+		const gap = 8;
+		const overflowBtnWidth = 32;
+
+		let cumulative = 0;
+		let cut = -1;
+
+		for (let i = 0; i < activePins.length; i++) {
+			const pin = activePins[i];
+			const w = widthCache.get(pin.id) ?? 60;
+			const isFirst = i === 0;
+			const nextTotal = cumulative + (isFirst ? 0 : gap) + w;
+
+			const isLast = i === activePins.length - 1;
+			const neededWithMore = nextTotal + (isLast ? 0 : gap + overflowBtnWidth);
+
+			if (neededWithMore > containerWidth && i > 0) {
+				cut = i;
+				break;
+			}
+			cumulative = nextTotal;
+		}
+
+		overflowCutIndex = cut;
+	}
+
+	$effect(() => {
+		if (!lineEl) return;
+		// Rilancia al cambio del numero o della composizione di pin attivi
+		void activePins.length;
+
+		const ro = new ResizeObserver(() => {
+			checkOverflow();
+		});
+		ro.observe(lineEl);
+
+		// Misura al primo mount (senza flicker perche' parte con -1 e adatta nel primo frame)
+		checkOverflow();
+
+		return () => ro.disconnect();
+	});
+
+	const visiblePins = $derived(
+		overflowCutIndex === -1 ? activePins : activePins.slice(0, overflowCutIndex)
+	);
+	const overflowPins = $derived(
+		overflowCutIndex === -1 ? [] : activePins.slice(overflowCutIndex)
+	);
+
+	function isPinnedDisabled(entry: CommandManifestEntry): boolean {
+		if (entry.origin === 'studio') return false;
+		return !session.isReady || session.isCompacting;
+	}
 </script>
 
 {#if hasItems}
-	<div class="status-line" role="group" aria-label={m.chat_v2_composer_status_label()}>
-		{#if showFast}
-			<span class="status-entry"><Tooltip text={fastTooltip} placement="top" offset={6}>
-				<button
-					type="button"
-					class="status-item"
-					class:on={session.fastModeEnabled && !fastPaused}
-					class:paused={fastPaused}
-					aria-pressed={session.fastModeEnabled}
-					aria-label={m.chat_v2_composer_modes_fast_title()}
-					disabled={speedBusy}
-					onclick={() => void toggleSpeed('fast')}
-				>
-					<span class="status-icon"><IconFastMode /></span>{m.chat_v2_composer_status_fast()}
-				</button>
-			</Tooltip></span>
-		{/if}
-
-		{#if showSlow}
-			<span class="status-entry"><Tooltip text={slowTooltip} placement="top" offset={6}>
-				<button
-					type="button"
-					class="status-item"
-					class:on={session.slowModeEnabled}
-					aria-pressed={session.slowModeEnabled}
-					aria-label={m.chat_v2_composer_modes_slow_title()}
-					disabled={speedBusy}
-					onclick={() => void toggleSpeed('slow')}
-				>
-					<span class="status-icon"><IconSlowMode /></span>{m.chat_v2_composer_status_slow()}
-				</button>
-			</Tooltip></span>
-		{/if}
-
-		{#if showPrewalk}
-			<span class="status-entry">
-				<Tooltip text={prewalkTooltip} placement="top" offset={6}>
-					<button
-						type="button"
-						class="status-item"
-						class:on={prewalkState !== 'off'}
-						aria-pressed={prewalkState !== 'off'}
-						aria-label={prewalkState === 'off'
-							? m.chat_v2_composer_prewalk_arm_aria()
-							: m.chat_v2_composer_prewalk_disarm_aria()}
-						disabled={prewalkBusy}
-						onclick={() =>
-							void runPrewalk(() =>
-								prewalkState === 'off' ? session.armPrewalk() : session.disarmPrewalk()
-							)}
-					>
-						<span class="status-icon"><IconPrewalk /></span>{m.chat_v2_composer_prewalk_title().toLowerCase()}
-						{#if prewalkState === 'armed'}
-							<span class="status-target">→ {prewalkTarget || '…'}</span>
-						{:else if prewalkState === 'handedOff'}
-							<span class="status-target">· {handedOffTo || '…'}</span>
-						{/if}
-					</button>
-				</Tooltip>
-				{#if prewalkState === 'handedOff'}
-					<Tooltip text={m.chat_v2_composer_prewalk_restart_aria()} placement="top" offset={6}>
+	<div
+		bind:this={lineEl}
+		class="status-line"
+		role="group"
+		aria-label={m.chat_v2_composer_status_label()}
+	>
+		{#each visiblePins as pin (pin.id)}
+			{#if pin.id === 'fast' && showFast}
+				<span class="status-entry" data-pin-id="fast">
+					<Tooltip text={fastTooltip} placement="top" offset={6}>
 						<button
 							type="button"
 							class="status-item"
-							aria-label={m.chat_v2_composer_prewalk_restart_aria()}
-							disabled={prewalkBusy}
-							onclick={() => void runPrewalk(() => session.restartPrewalk())}
+							class:on={session.fastModeEnabled && !fastPaused}
+							class:paused={fastPaused}
+							aria-pressed={session.fastModeEnabled}
+							aria-label={m.chat_v2_composer_modes_fast_title()}
+							disabled={speedBusy}
+							onclick={() => void toggleSpeed('fast')}
 						>
-							<span class="status-icon"><IconRefresh /></span>{m.chat_v2_composer_prewalk_restart().toLowerCase()}
+							<span class="status-icon"><IconFastMode /></span>{m.chat_v2_composer_status_fast()}
 						</button>
 					</Tooltip>
-				{/if}
-			</span>
-		{/if}
-
-		{#if limit}
-			<span class="status-entry"><Tooltip text={usageLimitDetail(limit)} placement="top" offset={6}>
-				<span class="status-item warn" role="status">
-					<span class="status-icon"><IconWarning /></span>{usageLimitLabel(limit)}
 				</span>
-			</Tooltip></span>
-		{/if}
+			{:else if pin.id === 'slow' && showSlow}
+				<span class="status-entry" data-pin-id="slow">
+					<Tooltip text={slowTooltip} placement="top" offset={6}>
+						<button
+							type="button"
+							class="status-item"
+							class:on={session.slowModeEnabled}
+							aria-pressed={session.slowModeEnabled}
+							aria-label={m.chat_v2_composer_modes_slow_title()}
+							disabled={speedBusy}
+							onclick={() => void toggleSpeed('slow')}
+						>
+							<span class="status-icon"><IconSlowMode /></span>{m.chat_v2_composer_status_slow()}
+						</button>
+					</Tooltip>
+				</span>
+			{:else if pin.id === 'prewalk' && showPrewalk}
+				<span class="status-entry" data-pin-id="prewalk">
+					<Tooltip text={prewalkTooltip} placement="top" offset={6}>
+						<button
+							type="button"
+							class="status-item"
+							class:on={prewalkState !== 'off'}
+							aria-pressed={prewalkState !== 'off'}
+							aria-label={prewalkState === 'off'
+								? m.chat_v2_composer_prewalk_arm_aria()
+								: m.chat_v2_composer_prewalk_disarm_aria()}
+							disabled={prewalkBusy}
+							onclick={() =>
+								void runPrewalk(() =>
+									prewalkState === 'off' ? session.armPrewalk() : session.disarmPrewalk()
+								)}
+						>
+							<span class="status-icon"><IconPrewalk /></span>{m.chat_v2_composer_prewalk_title().toLowerCase()}
+							{#if prewalkState === 'armed'}
+								<span class="status-target">→ {prewalkTarget || '…'}</span>
+							{:else if prewalkState === 'handedOff'}
+								<span class="status-target">· {handedOffTo || '…'}</span>
+							{/if}
+						</button>
+					</Tooltip>
+					{#if prewalkState === 'handedOff'}
+						<Tooltip text={m.chat_v2_composer_prewalk_restart_aria()} placement="top" offset={6}>
+							<button
+								type="button"
+								class="status-item"
+								aria-label={m.chat_v2_composer_prewalk_restart_aria()}
+								disabled={prewalkBusy}
+								onclick={() => void runPrewalk(() => session.restartPrewalk())}
+							>
+								<span class="status-icon"><IconRefresh /></span>{m.chat_v2_composer_prewalk_restart().toLowerCase()}
+							</button>
+						</Tooltip>
+					{/if}
+				</span>
+			{:else if pin.id === 'ctl.limit' && limit}
+				<span class="status-entry" data-pin-id="ctl.limit">
+					<Tooltip text={usageLimitDetail(limit)} placement="top" offset={6}>
+						<span class="status-item warn" role="status">
+							<span class="status-icon"><IconWarning /></span>{usageLimitLabel(limit)}
+						</span>
+					</Tooltip>
+				</span>
+			{:else if pin.id === 'ctl.cost' && totalCost !== null && totalCost > 0}
+				<span class="status-entry status-cost" data-pin-id="ctl.cost">
+					<Tooltip text={costTooltip} placement="top" offset={6}>
+						<span class="status-item">
+							${totalCost < 0.01 ? totalCost.toFixed(4) : totalCost.toFixed(2)}
+						</span>
+					</Tooltip>
+				</span>
+			{:else if pin.id === 'ctl.context'}
+				<!-- Controllo finestra di contesto pinnato nella statusLine -->
+				<span class="status-entry" data-pin-id="ctl.context">
+					<MenuButton
+						open={contextMenuOpen}
+						title={m.chat_v2_composer_context_title()}
+						tooltip={session.cacheWarmingInFlight
+							? `${m.chat_v2_composer_context_title()} · ${m.chat_v2_composer_modes_cache_in_flight({ phase: session.cacheWarmingInFlight.phase })}`
+							: undefined}
+						hasPopup="dialog"
+						contentRole="dialog"
+						align="right"
+						width="320px"
+						onToggle={() => (contextMenuOpen = !contextMenuOpen)}
+						onClose={() => (contextMenuOpen = false)}
+					>
+						{#snippet trigger()}
+							{@const maxCtx = resolveContextWindow(session.contextUsage, session.model?.contextWindow)}
+							{@const used = (session.contextUsage?.tokens || 0) + draftTokens}
+							{@const pct = Math.min(1, used / maxCtx)}
+							{@const C = 2 * Math.PI * 7}
+							<span class="context-ring-wrap">
+								<svg viewBox="0 0 18 18" class="context-ring" aria-hidden="true">
+									<circle cx="9" cy="9" r="7" fill="none" stroke="var(--line)" stroke-width="2.2" />
+									<circle
+										cx="9"
+										cy="9"
+										r="7"
+										fill="none"
+										stroke={pct > 0.85 ? 'var(--danger)' : pct > 0.6 ? 'var(--warn)' : 'var(--ink)'}
+										stroke-width="2.2"
+										stroke-linecap="round"
+										stroke-dasharray={C}
+										stroke-dashoffset={C * (1 - pct)}
+									/>
+								</svg>
+								{#if session.cacheWarmingInFlight}
+									<span class="context-warming-dot" aria-hidden="true"></span>
+								{/if}
+							</span>
+							<span class="context-numbers font-mono tabular-nums">
+								{formatTokens(used)}<span class="context-max">/{formatTokens(maxCtx)}</span>
+							</span>
+						{/snippet}
+						{#snippet children()}
+							<ContextPanel
+								model={session.model}
+								contextUsage={session.contextUsage}
+								report={session.contextReport}
+								{draftTokens}
+								sessionCost={session.sessionCost}
+								subagentCost={session.subagentCost}
+								cacheWarmingInFlight={session.cacheWarmingInFlight}
+								cacheWarmingLast={session.cacheWarmingLast}
+								onCompact={() => {
+									contextMenuOpen = false;
+									void session.compact();
+								}}
+							/>
+						{/snippet}
+					</MenuButton>
+				</span>
+			{:else if pin.id === 'ctl.mention'}
+				<!-- Tasto menzione @ pinnato nella statusLine -->
+				<span class="status-entry" data-pin-id="ctl.mention">
+					<Tooltip text={m.chat_v2_composer_mention_title()} placement="top" offset={6}>
+						<button
+							type="button"
+							class="status-item"
+							aria-label={m.chat_v2_composer_mention_title()}
+							onclick={() => onInsertMention?.()}
+						>
+							<span class="status-icon"><IconAt /></span>@{m.chat_v2_composer_mention_title().toLowerCase()}
+						</button>
+					</Tooltip>
+				</span>
+			{:else}
+				<!-- Qualsiasi altro comando generico fissato dall'utente -->
+				{@const entry = manifestMap.get(pin.id)}
+				{#if entry}
+					<span class="status-entry" data-pin-id={pin.id}>
+						<ComposerPinnedItem
+							{entry}
+							form={pin.form}
+							zone="statusLine"
+							disabled={isPinnedDisabled(entry)}
+							onActivate={onActivateCommand}
+						/>
+					</span>
+				{/if}
+			{/if}
+		{/each}
 
-		{#if totalCost !== null && totalCost > 0}
-			<span class="status-entry status-cost"><Tooltip text={costTooltip} placement="top" offset={6}>
-				<span class="status-item">${totalCost < 0.01 ? totalCost.toFixed(4) : totalCost.toFixed(2)}</span>
-			</Tooltip></span>
+		<!-- Menu di overflow se la riga supera la larghezza disponibile -->
+		{#if overflowPins.length > 0}
+			<span
+				class="status-entry status-overflow"
+				class:pushed-right={overflowPins.some((p) => p.id === 'ctl.cost')}
+			>
+				<ComposerOverflowMenu
+					open={overflowOpen}
+					onToggle={() => (overflowOpen = !overflowOpen)}
+					onClose={() => (overflowOpen = false)}
+				>
+					{#each overflowPins as pin (pin.id)}
+						{#if pin.id === 'fast'}
+							<button
+								type="button"
+								class="overflow-menu-item"
+								class:is-active={session.fastModeEnabled}
+								onclick={() => {
+									overflowOpen = false;
+									void toggleSpeed('fast');
+								}}
+							>
+								<IconFastMode />
+								<span>{m.chat_v2_composer_modes_fast_title()}</span>
+							</button>
+						{:else if pin.id === 'slow'}
+							<button
+								type="button"
+								class="overflow-menu-item"
+								class:is-active={session.slowModeEnabled}
+								onclick={() => {
+									overflowOpen = false;
+									void toggleSpeed('slow');
+								}}
+							>
+								<IconSlowMode />
+								<span>{m.chat_v2_composer_modes_slow_title()}</span>
+							</button>
+						{:else if pin.id === 'prewalk'}
+							<button
+								type="button"
+								class="overflow-menu-item"
+								class:is-active={prewalkState !== 'off'}
+								onclick={() => {
+									overflowOpen = false;
+									void runPrewalk(() =>
+										prewalkState === 'off' ? session.armPrewalk() : session.disarmPrewalk()
+									);
+								}}
+							>
+								<IconPrewalk />
+								<span>{m.chat_v2_composer_prewalk_title()}</span>
+							</button>
+						{:else if pin.id === 'ctl.limit' && limit}
+							<div class="overflow-menu-item warn">
+								<IconWarning />
+								<span>{usageLimitLabel(limit)}</span>
+							</div>
+						{:else if pin.id === 'ctl.cost' && totalCost !== null && totalCost > 0}
+							<div class="overflow-menu-item">
+								<span>${totalCost < 0.01 ? totalCost.toFixed(4) : totalCost.toFixed(2)}</span>
+							</div>
+						{:else if pin.id === 'ctl.mention'}
+							<button
+								type="button"
+								class="overflow-menu-item"
+								onclick={() => {
+									overflowOpen = false;
+									onInsertMention?.();
+								}}
+							>
+								<IconAt />
+								<span>{m.chat_v2_composer_mention_title()}</span>
+							</button>
+						{:else}
+							{@const entry = manifestMap.get(pin.id)}
+							{#if entry}
+								<button
+									type="button"
+									class="overflow-menu-item"
+									disabled={isPinnedDisabled(entry)}
+									onclick={() => {
+										overflowOpen = false;
+										onActivateCommand?.(entry);
+									}}
+								>
+									<span>/{entry.id}</span>
+								</button>
+							{/if}
+						{/if}
+					{/each}
+				</ComposerOverflowMenu>
+			</span>
 		{/if}
 	</div>
 {/if}
@@ -208,7 +552,7 @@
 	   piccolo, voci separate da un punto, il costo spinto a destra. */
 	.status-line {
 		display: flex;
-		flex-wrap: wrap;
+		flex-wrap: nowrap;
 		align-items: center;
 		column-gap: 8px;
 		padding: 4px 6px 0;
@@ -216,16 +560,16 @@
 		font-size: var(--text-xs);
 		color: var(--ink-faint);
 		min-width: 0;
+		overflow: hidden;
 		/* Ogni voce ha il suo punto a sinistra, dentro lo spazio fra le voci: a inizio
-		   riga (anche dopo un a capo in colonna stretta) cade fuori dal bordo sinistro
-		   e viene tagliato. Sopra, sotto e a destra il ritaglio lascia spazio agli
-		   anelli di fuoco. */
+		   riga cade fuori dal bordo sinistro e viene tagliato. */
 		clip-path: inset(-6px -6px -6px 6px);
 	}
 
 	.status-entry {
 		display: inline-flex;
 		align-items: center;
+		flex-shrink: 0;
 	}
 
 	.status-entry:not(.status-cost)::before {
@@ -237,6 +581,10 @@
 	}
 
 	.status-cost {
+		margin-left: auto;
+	}
+
+	.status-overflow.pushed-right {
 		margin-left: auto;
 	}
 
@@ -293,5 +641,79 @@
 		max-width: 140px;
 		overflow: hidden;
 		text-overflow: ellipsis;
+	}
+
+	/* Voci del menu di overflow */
+	.overflow-menu-item {
+		display: inline-flex;
+		align-items: center;
+		gap: 8px;
+		padding: 6px 10px;
+		border-radius: var(--radius-md);
+		background: transparent;
+		border: none;
+		color: var(--ink);
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		cursor: pointer;
+		text-align: left;
+		white-space: nowrap;
+		--icon-size: 13px;
+	}
+
+	.overflow-menu-item:hover:not(:disabled) {
+		background: var(--bg-hover);
+	}
+
+	.overflow-menu-item:disabled {
+		opacity: 0.45;
+		cursor: not-allowed;
+	}
+
+	.overflow-menu-item.is-active {
+		color: var(--brand-ink);
+	}
+
+	.overflow-menu-item.warn {
+		color: var(--warn);
+	}
+
+	/* Elementi SVG del contesto */
+	.context-ring {
+		width: 18px;
+		height: 18px;
+		transform: rotate(-90deg);
+	}
+
+	.context-ring-wrap {
+		position: relative;
+		display: inline-flex;
+	}
+
+	.context-warming-dot {
+		position: absolute;
+		top: -2px;
+		right: -3px;
+		width: 7px;
+		height: 7px;
+		border-radius: var(--radius-full);
+		background: var(--warn);
+		border: 1.5px solid var(--bg-raised);
+		animation: context-warming 1.2s ease-in-out infinite;
+	}
+
+	@keyframes context-warming {
+		50% {
+			opacity: 0.35;
+		}
+	}
+
+	.context-numbers {
+		font-size: var(--text-caption);
+		color: var(--ink);
+	}
+
+	.context-max {
+		color: var(--ink-faint);
 	}
 </style>

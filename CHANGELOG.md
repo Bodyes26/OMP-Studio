@@ -11,6 +11,10 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ## [Unreleased]
 
+### Added
+- Nuova voce «Comandi» nelle Impostazioni: il catalogo dei comandi di `omp` e di Studio, raggruppati per categoria, con ricerca, spiegazione, vantaggi, esempi e quando conviene usarli, così scopri funzioni come prewalk senza doverle conoscere. Ogni comando si può fissare nel composer, sulla barra interna o sotto il composer, nella forma che preferisci, riordinare con il trascinamento (o `Alt+←/→`) e ripristinare al layout predefinito. Allegato, ruolo, modello e thinking restano sempre presenti; `@` e contesto si possono mostrare dove vuoi. I comandi nuovi che `omp` aggiunge dopo un aggiornamento compaiono in una sezione «Nuovi» finché Studio non li descrive.
+- La riga sotto il composer manda le voci che non entrano in un menu «…».
+
 ## [1.7.2] - 2026-10-07
 
 ### Fixed

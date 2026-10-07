@@ -1402,3 +1402,17 @@ locali e il `queuedMessageCount` di omp potevano divergere, e un crash prima di
    - La sessione tiene traccia di `sessionCost`, `subagentCost` e del derivato `totalCost`.
    - `subagentCost` viene aggiornato insieme a `refreshCost()` e alla conclusione del ciclo di vita di ciascun subagente.
    - Nel pulsante/tooltip di contesto e nel popover `ContextPanel`, quando `subagentCost > 0` viene esposta la ripartizione: `Sessione $x · Subagenti $y`.
+
+---
+
+## Testi del catalogo comandi nel manifesto bilingue, non in messages/*.json
+
+**Data:** 2026-10-07  
+**Esito:** IMPLEMENTATO  
+**Decisione:** I testi estesi del catalogo dei comandi (titoli, descrizioni, benefici, esempi e indicazioni d'uso) risiedono direttamente nelle strutture dati del manifesto TypeScript (`text: { it: CommandText, en: CommandText }`), anziché nei file Paraglide `messages/it.json` e `messages/en.json`.
+
+**Motivazione:**
+1. **Atomicità delle voci del catalogo:** Un comando nuovo o modificato in omp richiede un set corposo di informazioni (titolo, sintesi, array di vantaggi, array di esempi con comando e nota, indicazione d'uso). Con il formato bilingue in-line, ogni comando è un unico blocco TypeScript autosufficiente: aggiungere, revisionare o rimuovere una voce tocca un solo file anziché dover sincronizzare frammenti di chiavi distinte tra `messages/it.json`, `messages/en.json` e i componenti.
+2. **Generazione e verifica assistita per gli agenti:** Quando il gate di release (`scripts/check-commands.mjs`) rileva comandi nuovi da `omp`, l'agente può generare una singola bozza `CommandManifestEntry` completa, sottoporla all'utente con il tool `ask` e inserirla nel file appropriato (`omp-modes.ts` o `omp-session.ts`) con una sola operazione atomica.
+3. **Controllo dei tipi a tempo di compilazione:** I contratti di `CommandText` (`CommandTexts = { it: CommandText, en: CommandText }`) impongono staticamente che entrambe le lingue contengano tutti i campi obbligatori (`title`, `summary`, `benefits`, `examples`), evitando chiavi mancanti o disallineate che in JSON richiederebbero controlli a runtime o linter aggiuntivi.
+4. **Perimetro Paraglide preservato:** Le etichette strutturali dell'interfaccia utente (titoli delle sezioni, pulsanti di azione, messaggi di stato, attributi aria) restano interamente gestite tramite Paraglide (`messages/*.json`), mantenendo la coerenza applicativa per tutti gli elementi del guscio.

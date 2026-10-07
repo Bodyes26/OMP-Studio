@@ -78,3 +78,5 @@ import './todo-trace.test.ts';
 import './tooltip-behavior.test.ts';
 import './companion-settings.test.ts';
 import './session-modes.test.ts';
+import './command-layout.test.ts';
+import './command-manifest.test.ts';

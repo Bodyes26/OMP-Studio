@@ -130,10 +130,12 @@ function latestVersion(changelog) {
 }
 
 export function runCli(argv = process.argv.slice(2)) {
-	const arg = argv[0];
+	const skipCommandCheck = argv.includes('--skip-command-check');
+	const cleanArgv = argv.filter((a) => a !== '--skip-command-check');
+	const arg = cleanArgv[0];
 
 	if (arg === '--help' || arg === '-h') {
-		console.log('Uso: npm run release -- <major.minor.patch> | --notes [versione] | --check');
+		console.log('Uso: npm run release -- <major.minor.patch> [--skip-command-check] | --notes [versione] | --check');
 		process.exit(0);
 	}
 	if (arg === '--check' || arg === '-c' || arg === '--verify') {
@@ -141,7 +143,7 @@ export function runCli(argv = process.argv.slice(2)) {
 		process.exit(result.ok ? 0 : 1);
 	}
 	if (arg === '--notes' || arg === '-n') {
-		const version = argv[1] ?? latestVersion(read('CHANGELOG.md'));
+		const version = cleanArgv[1] ?? latestVersion(read('CHANGELOG.md'));
 		const notes = version && bilingualNotes(version);
 		if (!notes) {
 			console.error(
@@ -154,11 +156,27 @@ export function runCli(argv = process.argv.slice(2)) {
 	}
 
 	if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(arg ?? '')) {
-		console.error('Uso: npm run release -- <major.minor.patch> | --notes [versione] | --check');
+		console.error('Uso: npm run release -- <major.minor.patch> [--skip-command-check] | --notes [versione] | --check');
 		process.exit(1);
 	}
 	const version = arg;
 
+	// Gate preliminare: allineamento dei comandi omp con il catalogo di Studio
+	if (skipCommandCheck) {
+		console.warn('\nATTENZIONE: verifica allineamento comandi omp saltata (--skip-command-check).');
+	} else {
+		console.log('Verifico l\'allineamento dei comandi omp con il catalogo...');
+		const cmdCheck = spawnSync(process.execPath, [join(ROOT, 'scripts', 'check-commands.mjs')], {
+			cwd: ROOT,
+			stdio: 'inherit'
+		});
+		if (cmdCheck.status !== 0) {
+			console.error('\nRelease interrotta: il catalogo dei comandi non e\' allineato a omp.');
+			console.error('Consulta docs/COMMANDS.md per la procedura di aggiornamento.');
+			console.error('Per forzare la release in emergenza: --skip-command-check\n');
+			process.exit(1);
+		}
+	}
 // Validazione preliminare fondamentale: i 4 file devono essere allineati prima del bump!
 const preCheck = checkVersionAlignment({ silent: false });
 if (!preCheck.ok) {

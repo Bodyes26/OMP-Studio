@@ -18,6 +18,7 @@ import {
 import type { StreamingBehavior, QueueMode, InterruptMode, CacheWarmingMode } from '$lib/agent/wire';
 import { m as msg } from '$lib/paraglide/messages.js';
 import { broadcastToWindows, listenFromWindows } from './windowBridge';
+import type { ComposerLayout, PinnedCommand, ComposerZone, ComposerForm } from '$lib/agent/commandCatalog/types';
 
 /** Annuncio inter-finestra di un salvataggio delle impostazioni. */
 const SETTINGS_CHANGED_EVENT = 'studio-settings-changed';
@@ -66,7 +67,7 @@ export type ChatReveal = 'blur' | 'stream' | 'final';
 export type { StreamingBehavior, QueueMode, InterruptMode, CacheWarmingMode };
 
 
-export type SettingsSection = 'general' | 'appearance' | 'accessibility' | 'notifications' | 'projectBar' | 'workspace' | 'tasks' | 'models' | 'suggestions' | 'companion' | 'github' | 'doctor';
+export type SettingsSection = 'general' | 'appearance' | 'accessibility' | 'notifications' | 'projectBar' | 'workspace' | 'tasks' | 'models' | 'suggestions' | 'companion' | 'github' | 'doctor' | 'commands';
 /** Stile del messaggio della notifica di sistema. */
 export type NotificationStyle = 'brief' | 'detailed';
 
@@ -229,6 +230,7 @@ export interface StudioSettings {
 	accessibility: AccessibilitySettings;
 	appearance: AppearanceSettings;
 	github: GithubSettings;
+	composerLayout: ComposerLayout | null;
 }
 export const DEFAULT_SETTINGS: StudioSettings = {
 	projectBar: {
@@ -317,7 +319,8 @@ export const DEFAULT_SETTINGS: StudioSettings = {
 		},
 		queueView: 'compact',
 		companionSpotlightDismiss: 'esc-only'
-	}
+	},
+	composerLayout: null
 };
 
 export const EDITOR_FONT_SIZE_RANGE = { min: 9, max: 28 } as const;
@@ -342,6 +345,42 @@ function str(value: unknown, fallback: string): string {
 function pick<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
 	return allowed.includes(value as T) ? (value as T) : fallback;
 }
+const VALID_COMPOSER_ZONES: readonly ComposerZone[] = ['toolbar', 'statusLine'];
+const VALID_COMPOSER_FORMS: readonly ComposerForm[] = ['icon', 'chip'];
+
+/**
+ * Sanitizza un layout del composer salvato:
+ * scarta pin malformati, conserva id sconosciuti, ordina per `order`, impone version: 1.
+ * Restituisce null se il layout e' assente o non valido.
+ */
+export function sanitizeComposerLayout(value: unknown): ComposerLayout | null {
+	if (!value || typeof value !== 'object') return null;
+	const record = value as Record<string, unknown>;
+	if (record.version !== 1 || !Array.isArray(record.pinned)) {
+		return null;
+	}
+	const sanitizedPins: PinnedCommand[] = [];
+	for (const p of record.pinned) {
+		if (!p || typeof p !== 'object') continue;
+		const pin = p as Record<string, unknown>;
+		if (typeof pin.id !== 'string' || pin.id.trim() === '') continue;
+		if (typeof pin.zone !== 'string' || !VALID_COMPOSER_ZONES.includes(pin.zone as ComposerZone)) continue;
+		if (typeof pin.form !== 'string' || !VALID_COMPOSER_FORMS.includes(pin.form as ComposerForm)) continue;
+		const order = typeof pin.order === 'number' && Number.isFinite(pin.order) ? Math.round(pin.order) : 0;
+		sanitizedPins.push({
+			id: pin.id.trim(),
+			zone: pin.zone as ComposerZone,
+			form: pin.form as ComposerForm,
+			order
+		});
+	}
+	sanitizedPins.sort((a, b) => a.order - b.order);
+	return {
+		version: 1,
+		pinned: sanitizedPins
+	};
+}
+
 
 /**
  * Legge quello che c'e' su disco senza fidarsene: una versione precedente,
@@ -464,8 +503,9 @@ export function parseSettings(value: unknown): StudioSettings {
 				appearance.companionSpotlightDismiss,
 				['esc-only', 'esc-and-blur'] as const,
 				d.appearance.companionSpotlightDismiss
-			)
-		}
+			),
+		},
+		composerLayout: sanitizeComposerLayout(record.composerLayout)
 	};
 }
 
@@ -514,6 +554,7 @@ class SettingsStore {
 		companionSpotlightDismiss: DEFAULT_SETTINGS.appearance.companionSpotlightDismiss
 	});
 	github = $state<GithubSettings>({ ...DEFAULT_SETTINGS.github });
+	composerLayout = $state<ComposerLayout | null>(DEFAULT_SETTINGS.composerLayout);
 	/** Vero quando il disco e' stato letto: prima di allora valgono i default. */
 	ready = $state(false);
 
@@ -596,6 +637,7 @@ class SettingsStore {
 		this.accessibility = parsed.accessibility;
 		this.appearance = parsed.appearance;
 		this.github = parsed.github;
+		this.composerLayout = parsed.composerLayout;
 		cacheSnapshot(parsed);
 	}
 
@@ -614,7 +656,8 @@ class SettingsStore {
 			general: $state.snapshot(this.general),
 			accessibility: $state.snapshot(this.accessibility),
 			appearance: $state.snapshot(this.appearance),
-			github: $state.snapshot(this.github)
+			github: $state.snapshot(this.github),
+			composerLayout: $state.snapshot(this.composerLayout)
 		};
 		await this.store.set('studioSettings', snapshot);
 		await this.store.save();
@@ -853,6 +896,11 @@ class SettingsStore {
 		this.save();
 	}
 
+	setComposerLayout(layout: ComposerLayout | null) {
+		this.composerLayout = layout ? sanitizeComposerLayout(layout) : null;
+		this.save();
+	}
+
 
 	patchGeneral(patch: Partial<GeneralSettings>) {
 		Object.assign(this.general, patch);
@@ -931,7 +979,11 @@ class SettingsStore {
 			this.appearance.companionSpotlightDismiss = DEFAULT_SETTINGS.appearance.companionSpotlightDismiss;
 		}
 		if (!section || section === 'github') this.github = { ...DEFAULT_SETTINGS.github };
+		if (!section || section === 'commands') this.composerLayout = null;
 		this.save();
+	}
+	resetToDefaults(section?: Exclude<SettingsSection, 'models' | 'doctor'>) {
+		this.reset(section);
 	}
 }
 

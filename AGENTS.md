@@ -139,7 +139,7 @@ commit, push e build, insieme al lavoro corrente. Prima del commit:
 
 - `git status --short` (senza filtro di percorso) per vedere tutto ciò che entra;
 - verifica sull'intero insieme, non solo sull'ultimo lavoro: `npm run check`,
-  `npm test` e, se `src-tauri/` è modificato, `cargo check`/`cargo test`;
+  `npm test`, `npm run check:commands` (se fallisce consulta `docs/COMMANDS.md`) e, se `src-tauri/` è modificato, `cargo check`/`cargo test`;
 - controlla che ogni voce di `[Unreleased]` corrisponda a codice presente e viceversa;
 - escludi solo file estranei al progetto (segreti, dump, file temporanei come
   `.release-notes.md`): se un file ha dubbia natura, chiedi con `ask` prima di committare.
@@ -176,8 +176,7 @@ node scripts/release.mjs --notes    # note bilingui dell'ultima versione rilasci
 
 Quando l'utente richiede o conferma il rilascio, l'agente esegue la pipeline. Come per
 la Nightly, il rilascio include **tutte** le modifiche del working tree, parcheggiate
-comprese (stessi controlli preliminari della sezione Nightly):
-
+comprese (stessi controlli preliminari della sezione Nightly, inclusi `npm run check:commands` con rimando a `docs/COMMANDS.md` e test completi):
 ```powershell
 # 1. Bump versioni e chiusura changelog
 npm run release -- 0.2.0

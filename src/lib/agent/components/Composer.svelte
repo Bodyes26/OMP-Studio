@@ -78,6 +78,10 @@
 	import SuggestPanel, { type SuggestionItem } from './SuggestPanel.svelte';
 	import ComposerNoticeStrip from './ComposerNoticeStrip.svelte';
 	import ComposerStatusLine from './ComposerStatusLine.svelte';
+	import ComposerPinnedItem from './ComposerPinnedItem.svelte';
+	import { resolveLayout, itemsInZone } from '$lib/agent/commandCatalog/layout';
+	import { COMMAND_MANIFEST } from '$lib/agent/commandCatalog/manifest/index';
+	import type { CommandManifestEntry } from '$lib/agent/commandCatalog/types';
 
 	import {
 		IconAttach,
@@ -174,6 +178,67 @@
 
 	function isSkillCommand(name: string): boolean {
 		return isSkillName(allCommands, name);
+	}
+
+	// Layout configurabile del composer, risolto contro il manifesto curato dei comandi
+	const layout = $derived(resolveLayout(settingsStore.composerLayout, COMMAND_MANIFEST));
+	const toolbarPins = $derived(itemsInZone(layout, 'toolbar'));
+	const manifestMap = $derived(new Map(COMMAND_MANIFEST.map((entry) => [entry.id, entry])));
+
+	// Regola di partizione della toolbar:
+	// - toolbarLeftPins: azioni fisse di sinistra ('ctl.attach' e 'ctl.mention') nell'ordine del layout;
+	// - toolbarRightPins: monitoraggio del contesto ('ctl.context') prima dei pulsanti fissi stop/invio;
+	// - toolbarCenterPins: striscia centrale scorrevole con ruolo, modello, thinking e qualsiasi altro
+	//   comando generico fissato dall'utente nella toolbar, nell'ordine definito dal layout.
+	const toolbarLeftPins = $derived(
+		toolbarPins.filter((pin) => pin.id === 'ctl.attach' || pin.id === 'ctl.mention')
+	);
+	const toolbarRightPins = $derived(
+		toolbarPins.filter((pin) => pin.id === 'ctl.context')
+	);
+	const toolbarCenterPins = $derived(
+		toolbarPins.filter(
+			(pin) => pin.id !== 'ctl.attach' && pin.id !== 'ctl.mention' && pin.id !== 'ctl.context'
+		)
+	);
+
+	/**
+	 * Esecuzione di un comando fissato nel composer (clic su chip o icona).
+	 * Rispetta l'instradamento reale: se ha argomenti obbligatori (<...>) inserisce
+	 * '/id ' nell'editor e mette a fuoco; altrimenti passa da Studio o omp.
+	 */
+	function handlePinnedCommand(entry: CommandManifestEntry) {
+		const requiresArgs = Boolean(entry.argsHint && /<[^>]+>/.test(entry.argsHint));
+		if (requiresArgs) {
+			editorRef?.insertPlainText(`/${entry.id} `, isSkillCommand);
+			focus();
+			return;
+		}
+
+		const raw = `/${entry.id}`;
+		const route = routeComposerSubmit(raw);
+		if (route.kind === 'studio' && onSlashCommand?.(route.raw)) {
+			return;
+		}
+
+		void (async () => {
+			session.dismissComposerNotice();
+			try {
+				await session.prompt(raw, [], sendBehaviorChoice);
+			} catch (error) {
+				session.flashNotice(
+					'error',
+					m.chat_v2_composer_prompt_rejected({
+						error: error instanceof Error ? error.message : String(error)
+					})
+				);
+			}
+		})();
+	}
+
+	function isPinnedCommandDisabled(entry: CommandManifestEntry): boolean {
+		if (entry.origin === 'studio') return false;
+		return !session.isReady || session.isCompacting;
 	}
 
 	// Caricamento modelli disponibili. Il composer e' visibile prima che la
@@ -886,215 +951,261 @@
 
 		<!-- Barra inferiore: controlli modello, ruolo, allegati, contesto, invio -->
 		<div class="composer-toolbar">
-			<!-- Azioni primarie fisse a sinistra: allegati e menzione @ -->
+			<!-- Azioni primarie fisse a sinistra: allegati e menzione @ (secondo il layout) -->
 			<div class="toolbar-left">
-				<!-- Allega file -->
-				<MenuButton
-					open={activeMenu === 'attach'}
-					title={m.chat_v2_composer_attach_title()}
-					hasPopup="menu"
-					width="260px"
-					onToggle={() => (activeMenu = activeMenu === 'attach' ? null : 'attach')}
-					onClose={() => (activeMenu = null)}
-				>
-					{#snippet trigger()}
-						<span class="toolbar-attach-icon"><IconAttach /></span>
-					{/snippet}
-					{#snippet children()}
-						<AttachMenu
-							onPickFiles={() => void pickFromDialog(false)}
-							onPickFolder={() => void pickFromDialog(true)}
-						/>
-					{/snippet}
-				</MenuButton>
-
-				<!-- Menzione file @ -->
-				<Tooltip text={m.chat_v2_composer_mention_title()} placement="top" offset={6}>
-					<button
-						type="button"
-						class="composer-icon-btn"
-						aria-label={m.chat_v2_composer_mention_title()}
-						onclick={() => editorRef?.insertTrigger('@')}
-					>
-						<IconAt />
-					</button>
-				</Tooltip>
+				{#each toolbarLeftPins as pin (pin.id)}
+					{#if pin.id === 'ctl.attach'}
+						<!-- Allega file -->
+						<MenuButton
+							open={activeMenu === 'attach'}
+							title={m.chat_v2_composer_attach_title()}
+							hasPopup="menu"
+							width="260px"
+							onToggle={() => (activeMenu = activeMenu === 'attach' ? null : 'attach')}
+							onClose={() => (activeMenu = null)}
+						>
+							{#snippet trigger()}
+								<span class="toolbar-attach-icon"><IconAttach /></span>
+							{/snippet}
+							{#snippet children()}
+								<AttachMenu
+									onPickFiles={() => void pickFromDialog(false)}
+									onPickFolder={() => void pickFromDialog(true)}
+								/>
+							{/snippet}
+						</MenuButton>
+					{:else if pin.id === 'ctl.mention'}
+						<!-- Menzione file @ -->
+						<Tooltip text={m.chat_v2_composer_mention_title()} placement="top" offset={6}>
+							<button
+								type="button"
+								class="composer-icon-btn"
+								aria-label={m.chat_v2_composer_mention_title()}
+								onclick={() => editorRef?.insertTrigger('@')}
+							>
+								<IconAt />
+							</button>
+						</Tooltip>
+					{:else}
+						{@const entry = manifestMap.get(pin.id)}
+						{#if entry}
+							<ComposerPinnedItem
+								{entry}
+								form={pin.form}
+								zone="toolbar"
+								disabled={isPinnedCommandDisabled(entry)}
+								onActivate={handlePinnedCommand}
+							/>
+						{/if}
+					{/if}
+				{/each}
 			</div>
 
-			<span class="toolbar-divider" aria-hidden="true"></span>
+			{#if toolbarLeftPins.length > 0}
+				<span class="toolbar-divider" aria-hidden="true"></span>
+			{/if}
 
-			<!-- Striscia controlli sessione a scorrimento orizzontale (ruolo, modello, thinking);
-			     velocita' e prewalk stanno nella riga di stato sotto il riquadro. -->
+			<!-- Striscia controlli sessione a scorrimento orizzontale (ruolo, modello, thinking
+			     e qualsiasi altro comando generico fissato dall'utente nella toolbar) -->
 			<div
 				class="toolbar-controls-strip"
 				bind:this={controlsStripEl}
 				onwheel={handleStripWheel}
 				tabindex="-1"
 			>
-
-			<!-- Menu Ruolo -->
-			<MenuButton
-				open={activeMenu === 'role'}
-				title={m.chat_v2_composer_role_title()}
-				hasPopup="listbox"
-				width="420px"
-				onToggle={() => (activeMenu = activeMenu === 'role' ? null : 'role')}
-				onClose={() => (activeMenu = null)}
-			>
-				{#snippet trigger()}
-					<span class="active-role-dot"></span>
-					<span class="role-name font-mono">{activeRole}</span>
-				{/snippet}
-				{#snippet children()}
-					<RoleMenu
-						activeRole={activeRole}
-						assignments={roleAssignments}
-						onPick={(roleId) => {
-							activeMenu = null;
-							onSlashCommand?.(`/role ${roleId}`);
-						}}
-					/>
-				{/snippet}
-			</MenuButton>
-
-			<!-- Menu Modello -->
-			<MenuButton
-				open={activeMenu === 'model'}
-				title={m.chat_v2_composer_model_title()}
-				hasPopup="dialog"
-				contentRole="dialog"
-				width="400px"
-				onToggle={() => (activeMenu = activeMenu === 'model' ? null : 'model')}
-				onClose={() => (activeMenu = null)}
-			>
-				{#snippet trigger()}
-					<span class="model-name-label">{session.model?.name || session.model?.id || m.chat_v2_composer_model_label()}</span>
-					<span class="chevron-indicator"><IconChevronUp /></span>
-				{/snippet}
-				{#snippet children()}
-					<ModelPickerList
-						catalog={availableModels}
-						value={session.model?.provider && session.model?.id
-							? `${session.model.provider}/${session.model.id}`
-							: session.model?.id || ''}
-						placeholder={m.chat_v2_composer_model_search()}
-						showFooter
-						onSelect={(selector, mod) => {
-							activeMenu = null;
-							const provider = mod.provider || (selector.includes('/') ? selector.split('/')[0] : '');
-							const modelId = mod.id || (selector.includes('/') ? selector.split('/')[1] : selector);
-							if (provider && modelId) {
-								void session.client.send({
-									type: 'set_model',
-									provider,
-									modelId
-								}).then(() => session.refreshState());
-							}
-						}}
-						onClose={() => (activeMenu = null)}
-					/>
-				{/snippet}
-			</MenuButton>
-
-			<!-- Menu Thinking -->
-			<MenuButton
-				open={activeMenu === 'thinking'}
-				title={m.chat_v2_composer_thinking_title()}
-				hasPopup="dialog"
-				contentRole="dialog"
-				width="320px"
-				onToggle={() => (activeMenu = activeMenu === 'thinking' ? null : 'thinking')}
-				onClose={() => (activeMenu = null)}
-			>
-				{#snippet trigger()}
-					<ThinkingMeter level={session.thinkingLevel || 'off'} />
-					<span class="thinking-label font-mono">{session.thinkingLevel || 'off'}</span>
-				{/snippet}
-				{#snippet children()}
-					<!-- Il popover resta aperto mentre si trascina: ogni passo si applica subito. -->
-					<div class="thinking-popover">
-						{#if modelSupportsReasoning(session.model)}
-							<ReasoningSlider
-								value={session.thinkingLevel || 'off'}
-								levels={chatThinkingLevels}
-								onChange={(level) => {
-									void session.client.send({
-										type: 'set_thinking_level',
-										level: level as ThinkingLevel
-									}).then(() => session.refreshState());
-								}}
+				{#each toolbarCenterPins as pin (pin.id)}
+					{#if pin.id === 'ctl.role'}
+						<!-- Menu Ruolo -->
+						<MenuButton
+							open={activeMenu === 'role'}
+							title={m.chat_v2_composer_role_title()}
+							hasPopup="listbox"
+							width="420px"
+							onToggle={() => (activeMenu = activeMenu === 'role' ? null : 'role')}
+							onClose={() => (activeMenu = null)}
+						>
+							{#snippet trigger()}
+								<span class="active-role-dot"></span>
+								<span class="role-name font-mono">{activeRole}</span>
+							{/snippet}
+							{#snippet children()}
+								<RoleMenu
+									activeRole={activeRole}
+									assignments={roleAssignments}
+									onPick={(roleId) => {
+										activeMenu = null;
+										onSlashCommand?.(`/role ${roleId}`);
+									}}
+								/>
+							{/snippet}
+						</MenuButton>
+					{:else if pin.id === 'ctl.model'}
+						<!-- Menu Modello -->
+						<MenuButton
+							open={activeMenu === 'model'}
+							title={m.chat_v2_composer_model_title()}
+							hasPopup="dialog"
+							contentRole="dialog"
+							width="400px"
+							onToggle={() => (activeMenu = activeMenu === 'model' ? null : 'model')}
+							onClose={() => (activeMenu = null)}
+						>
+							{#snippet trigger()}
+								<span class="model-name-label">{session.model?.name || session.model?.id || m.chat_v2_composer_model_label()}</span>
+								<span class="chevron-indicator"><IconChevronUp /></span>
+							{/snippet}
+							{#snippet children()}
+								<ModelPickerList
+									catalog={availableModels}
+									value={session.model?.provider && session.model?.id
+										? `${session.model.provider}/${session.model.id}`
+										: session.model?.id || ''}
+									placeholder={m.chat_v2_composer_model_search()}
+									showFooter
+									onSelect={(selector, mod) => {
+										activeMenu = null;
+										const provider = mod.provider || (selector.includes('/') ? selector.split('/')[0] : '');
+										const modelId = mod.id || (selector.includes('/') ? selector.split('/')[1] : selector);
+										if (provider && modelId) {
+											void session.client.send({
+												type: 'set_model',
+												provider,
+												modelId
+											}).then(() => session.refreshState());
+										}
+									}}
+									onClose={() => (activeMenu = null)}
+								/>
+							{/snippet}
+						</MenuButton>
+					{:else if pin.id === 'ctl.thinking'}
+						<!-- Menu Thinking -->
+						<MenuButton
+							open={activeMenu === 'thinking'}
+							title={m.chat_v2_composer_thinking_title()}
+							hasPopup="dialog"
+							contentRole="dialog"
+							width="320px"
+							onToggle={() => (activeMenu = activeMenu === 'thinking' ? null : 'thinking')}
+							onClose={() => (activeMenu = null)}
+						>
+							{#snippet trigger()}
+								<ThinkingMeter level={session.thinkingLevel || 'off'} />
+								<span class="thinking-label font-mono">{session.thinkingLevel || 'off'}</span>
+							{/snippet}
+							{#snippet children()}
+								<!-- Il popover resta aperto mentre si trascina: ogni passo si applica subito. -->
+								<div class="thinking-popover">
+									{#if modelSupportsReasoning(session.model)}
+										<ReasoningSlider
+											value={session.thinkingLevel || 'off'}
+											levels={chatThinkingLevels}
+											onChange={(level) => {
+												void session.client.send({
+													type: 'set_thinking_level',
+													level: level as ThinkingLevel
+												}).then(() => session.refreshState());
+											}}
+										/>
+									{:else}
+										<p class="thinking-unsupported">
+											{m.chat_v2_composer_thinking_unsupported({ model: session.model?.name || session.model?.id || m.chat_v2_composer_model_fallback() })}
+										</p>
+									{/if}
+								</div>
+							{/snippet}
+						</MenuButton>
+					{:else}
+						{@const entry = manifestMap.get(pin.id)}
+						{#if entry}
+							<ComposerPinnedItem
+								{entry}
+								form={pin.form}
+								zone="toolbar"
+								disabled={isPinnedCommandDisabled(entry)}
+								onActivate={handlePinnedCommand}
 							/>
-						{:else}
-							<p class="thinking-unsupported">
-								{m.chat_v2_composer_thinking_unsupported({ model: session.model?.name || session.model?.id || m.chat_v2_composer_model_fallback() })}
-							</p>
 						{/if}
-					</div>
-				{/snippet}
-			</MenuButton>
+					{/if}
+				{/each}
 			</div>
 
 			<!-- Parte destra: Finestra di contesto e Pulsante Invio/Stop -->
 			<div class="toolbar-right">
-				<!-- Anello finestra di contesto -->
-				<MenuButton
-					open={activeMenu === 'context'}
-					title={m.chat_v2_composer_context_title()}
-					tooltip={session.cacheWarmingInFlight
-						? `${m.chat_v2_composer_context_title()} · ${m.chat_v2_composer_modes_cache_in_flight({ phase: session.cacheWarmingInFlight.phase })}`
-						: undefined}
-					hasPopup="dialog"
-					contentRole="dialog"
-					align="right"
-					width="320px"
-					onToggle={() => (activeMenu = activeMenu === 'context' ? null : 'context')}
-					onClose={() => (activeMenu = null)}
-				>
-					{#snippet trigger()}
-						{@const maxCtx = resolveContextWindow(session.contextUsage, session.model?.contextWindow)}
-						{@const used = (session.contextUsage?.tokens || 0) + draftTokensEstimate}
-						{@const pct = Math.min(1, used / maxCtx)}
-						{@const C = 2 * Math.PI * 7}
-						<span class="context-ring-wrap">
-						<svg viewBox="0 0 18 18" class="context-ring" aria-hidden="true">
-							<circle cx="9" cy="9" r="7" fill="none" stroke="var(--line)" stroke-width="2.2" />
-							<circle
-								cx="9"
-								cy="9"
-								r="7"
-								fill="none"
-								stroke={pct > 0.85 ? 'var(--danger)' : pct > 0.6 ? 'var(--warn)' : 'var(--ink)'}
-								stroke-width="2.2"
-								stroke-linecap="round"
-								stroke-dasharray={C}
-								stroke-dashoffset={C * (1 - pct)}
+				{#each toolbarRightPins as pin (pin.id)}
+					{#if pin.id === 'ctl.context'}
+						<!-- Anello finestra di contesto -->
+						<MenuButton
+							open={activeMenu === 'context'}
+							title={m.chat_v2_composer_context_title()}
+							tooltip={session.cacheWarmingInFlight
+								? `${m.chat_v2_composer_context_title()} · ${m.chat_v2_composer_modes_cache_in_flight({ phase: session.cacheWarmingInFlight.phase })}`
+								: undefined}
+							hasPopup="dialog"
+							contentRole="dialog"
+							align="right"
+							width="320px"
+							onToggle={() => (activeMenu = activeMenu === 'context' ? null : 'context')}
+							onClose={() => (activeMenu = null)}
+						>
+							{#snippet trigger()}
+								{@const maxCtx = resolveContextWindow(session.contextUsage, session.model?.contextWindow)}
+								{@const used = (session.contextUsage?.tokens || 0) + draftTokensEstimate}
+								{@const pct = Math.min(1, used / maxCtx)}
+								{@const C = 2 * Math.PI * 7}
+								<span class="context-ring-wrap">
+								<svg viewBox="0 0 18 18" class="context-ring" aria-hidden="true">
+									<circle cx="9" cy="9" r="7" fill="none" stroke="var(--line)" stroke-width="2.2" />
+									<circle
+										cx="9"
+										cy="9"
+										r="7"
+										fill="none"
+										stroke={pct > 0.85 ? 'var(--danger)' : pct > 0.6 ? 'var(--warn)' : 'var(--ink)'}
+										stroke-width="2.2"
+										stroke-linecap="round"
+										stroke-dasharray={C}
+										stroke-dashoffset={C * (1 - pct)}
+									/>
+								</svg>
+								{#if session.cacheWarmingInFlight}
+									<span class="context-warming-dot" aria-hidden="true"></span>
+								{/if}
+								</span>
+								<span class="context-numbers font-mono tabular-nums">
+									{formatTokens(used)}<span class="context-max">/{formatTokens(maxCtx)}</span>
+								</span>
+							{/snippet}
+							{#snippet children()}
+								<ContextPanel
+									model={session.model}
+									contextUsage={session.contextUsage}
+									report={session.contextReport}
+									draftTokens={draftTokensEstimate}
+									sessionCost={session.sessionCost}
+									subagentCost={session.subagentCost}
+									cacheWarmingInFlight={session.cacheWarmingInFlight}
+									cacheWarmingLast={session.cacheWarmingLast}
+									onCompact={() => {
+										activeMenu = null;
+										void session.compact();
+									}}
+								/>
+							{/snippet}
+						</MenuButton>
+					{:else}
+						{@const entry = manifestMap.get(pin.id)}
+						{#if entry}
+							<ComposerPinnedItem
+								{entry}
+								form={pin.form}
+								zone="toolbar"
+								disabled={isPinnedCommandDisabled(entry)}
+								onActivate={handlePinnedCommand}
 							/>
-						</svg>
-						{#if session.cacheWarmingInFlight}
-							<span class="context-warming-dot" aria-hidden="true"></span>
 						{/if}
-						</span>
-						<span class="context-numbers font-mono tabular-nums">
-							{formatTokens(used)}<span class="context-max">/{formatTokens(maxCtx)}</span>
-						</span>
-					{/snippet}
-					{#snippet children()}
-						<ContextPanel
-							model={session.model}
-							contextUsage={session.contextUsage}
-							report={session.contextReport}
-							draftTokens={draftTokensEstimate}
-							sessionCost={session.sessionCost}
-							subagentCost={session.subagentCost}
-							cacheWarmingInFlight={session.cacheWarmingInFlight}
-							cacheWarmingLast={session.cacheWarmingLast}
-							onCompact={() => {
-								activeMenu = null;
-								void session.compact();
-							}}
-						/>
-					{/snippet}
-				</MenuButton>
+					{/if}
+				{/each}
 
 				<!-- Stop non disabilita l'invio: durante il turno si puo' fare steer o follow-up.
 				     Se dopo l'abort l'agente non si ferma, il pulsante si arma come «Forza arresto». -->
@@ -1181,7 +1292,18 @@
 		</div>
 	</div>
 
-	<ComposerStatusLine {session} {activeRole} {isLab} />
+	<ComposerStatusLine
+		{session}
+		{activeRole}
+		{isLab}
+		{layout}
+		draftTokens={draftTokensEstimate}
+		onActivateCommand={handlePinnedCommand}
+		onInsertMention={() => {
+			editorRef?.insertTrigger('@');
+			focus();
+		}}
+	/>
 </div>
 
 <style>
