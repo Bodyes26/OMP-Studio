@@ -24,6 +24,8 @@
 	import { lexMarkdownWithMentions } from '$lib/agent/markdown';
 	import StatusMark from '$lib/ui/StatusMark.svelte';
 	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import ScheduleChip from './schedule/ScheduleChip.svelte';
+	import ScheduleMenu from './schedule/ScheduleMenu.svelte';
 
 	/**
 	 * Un task della coda, condiviso da pannello Agente e cassetto globale.
@@ -295,6 +297,7 @@
 					<span>{m.queue_drawer_status_abandoned()}</span>
 				</span>
 			{/if}
+			{#if isQueued && task.schedule}<ScheduleChip {task} />{/if}
 			{#if role && (!showHeadline || !text.headline)}<span class="chip role">{role}</span>{/if}
 			{#each directives.slice(0, maxDirectives) as d (d.id)}
 				<span class="chip mode">{directiveDisplayName(d)}</span>
@@ -342,16 +345,20 @@
 		{/if}
 	</div>
 
-	<Tooltip text={m.queue_drawer_edit_btn_title()} placement="top" offset={6}>
-		<button
-			type="button"
-			class="edit"
-			onclick={onEdit}
-			aria-label={m.agent_panel_edit_task_aria({ title: label })}
-		>
-			<IconPencil />
-		</button>
-	</Tooltip>
+	<div class="side">
+		<Tooltip text={m.queue_drawer_edit_btn_title()} placement="top" offset={6}>
+			<button
+				type="button"
+				class="edit"
+				onclick={onEdit}
+				aria-label={m.agent_panel_edit_task_aria({ title: label })}
+			>
+				<IconPencil />
+			</button>
+		</Tooltip>
+		<!-- Orologio: programma l'avvio (al reset della quota, non prima di un orario). -->
+		{#if isQueued}<ScheduleMenu {task} />{/if}
+	</div>
 </div>
 
 <style>
@@ -397,6 +404,14 @@
 		border: 0;
 		background: transparent;
 		font: inherit;
+	}
+
+	.side {
+		align-self: start;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 2px;
 	}
 
 	.grip,

@@ -13,6 +13,7 @@
 	import { quotaStore } from '$lib/stores/quota.svelte';
 	import { activeQuotaStore } from '$lib/stores/activeQuota.svelte';
 	import QuotaChip from './quota/QuotaChip.svelte';
+	import { scheduleStore } from '$lib/stores/schedule.svelte';
 	import Tooltip from '$lib/ui/Tooltip.svelte';
 	import BrandMark from '$lib/ui/BrandMark.svelte';
 	import ProjectPopover from './ProjectPopover.svelte';
@@ -764,6 +765,21 @@
 		}
 	}
 
+
+	// Task programmati in attesa nei progetti aperti (Gate R35):
+	// contatore con l'orologio sulla chip della quota, niente cruscotti.
+	const scheduledSummary = $derived.by(() =>
+		scheduleStore.waitingSummary(
+			projectStore.projects.flatMap((project) =>
+				project.canonicalProjectPath ? taskStore.tasksFor(project.canonicalProjectPath) : []
+			)
+		)
+	);
+	const scheduledTip = $derived(
+		scheduledSummary.next !== undefined
+			? m.schedule_quota_chip_tip({ count: scheduledSummary.count, when: scheduleStore.formatWhen(scheduledSummary.next) })
+			: m.schedule_quota_chip_tip_unknown({ count: scheduledSummary.count })
+	);
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
@@ -1104,8 +1120,9 @@
 			remainingPct={activeQuotaStore.info.remainingPct}
 			shortName={activeQuotaStore.info.shortName}
 			hasLimits={activeQuotaStore.info.hasLimits}
-			title={activeQuotaStore.info.tooltip}
-			ariaLabel={activeQuotaStore.info.tooltip}
+			title={scheduledSummary.count > 0 ? `${activeQuotaStore.info.tooltip}\n${scheduledTip}` : activeQuotaStore.info.tooltip}
+			ariaLabel={scheduledSummary.count > 0 ? `${activeQuotaStore.info.tooltip}. ${scheduledTip}` : activeQuotaStore.info.tooltip}
+			scheduledCount={scheduledSummary.count}
 			longWindowAlert={activeQuotaStore.info.longWindowAlert}
 			onclick={(e) => { e.stopPropagation(); onUsageClick?.(e.currentTarget instanceof HTMLElement ? e.currentTarget : null); }}
 		/>

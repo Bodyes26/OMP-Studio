@@ -19,11 +19,16 @@
 	import { chatReveal } from '../motion';
 	import OmpWelcome from './OmpWelcome.svelte';
 	import ToolGroup, { type ToolGroupEntry } from '../tools/ToolGroup.svelte';
-	import { groupsInExecution } from '../tools/registry';
+	import { groupsInExecution, rendererFor } from '../tools/registry';
+	import { isCorsiaTool } from '$lib/lanes/agentLaneRoutes';
 	import { categoryForTool } from '../tools/categories';
 	import { TodoTraceTracker, type TodoTraceItem } from '../todoTrace';
 	import AssistantText from './AssistantText.svelte';
 	import TurnFooter, { type TurnFooterData } from './TurnFooter.svelte';
+	import { addToolToTurnDiff, emptyTurnDiff, type TurnDiffStats } from '../turnDiff';
+	import TurnHeadsUp from './TurnHeadsUp.svelte';
+	import { agentHeadsUp, isHeadsUpToolEntry, type TurnHeadsUp as TurnHeadsUpData } from '../turnHeadsUp';
+	import { headsUpSeen } from '../headsUpSeen.svelte';
 	import CompactionRow from './CompactionRow.svelte';
 	import NoticeRow from './NoticeRow.svelte';
 	import RetryRow from './RetryRow.svelte';
@@ -35,10 +40,16 @@
 	import AskTrace from './AskTrace.svelte';
 	import IrcMessageCard from './IrcMessageCard.svelte';
 	import LaneLandingCard from './LaneLandingCard.svelte';
+	import PlanEntryView from './PlanEntryView.svelte';
+	import PlanApprovedCard from './PlanApprovedCard.svelte';
+	import { parseApprovedPlanMessage } from '../planMode';
+	import GuidedGoalEntry from './GuidedGoalEntry.svelte';
 	import SystemChip from './SystemChip.svelte';
 	import NoticeGroup from './NoticeGroup.svelte';
 	import ActivityIndicator from './ActivityIndicator.svelte';
 	import { settingsStore } from '$lib/stores/settings.svelte';
+	import LoopTranscriptRow from './LoopTranscriptRow.svelte';
+	import { foldLoopItems, giroHeadline, isGiroClosed, isLoopActive } from '../loopMode';
 
 	let { session, visible = true } = $props<{ session: AgentSession; visible?: boolean }>();
 
@@ -104,7 +115,16 @@
 		| { kind: 'system-group'; id: number; entries: (SystemChipEntry | NoticeEntry)[] }
 		| { kind: 'todo-trace'; id: string; entry: ToolEntry; trace: TodoTraceItem; countTool: boolean }
 		| { kind: 'subagent-trace'; id: number; entry: ToolEntry }
-		| { kind: 'ask-trace'; id: number; entry: ToolEntry };
+		| { kind: 'ask-trace'; id: number; entry: ToolEntry }
+		| { kind: 'corsia-trace'; id: number; entry: ToolEntry }
+		// /loop: giro chiuso ripiegato (o intestazione del giro aperto), separatore
+		// del giro in corso e riga finale con l'esito.
+		| { kind: 'loop-giro'; id: string; n: number; open: boolean; headline: string }
+		| { kind: 'loop-sep'; id: string; n: number }
+		| { kind: 'loop-end'; id: string };
+
+	/** Giri aperti a mano, per id dell'entry del prompt ripetuto. */
+	let openGiri = $state<Record<string, boolean>>({});
 	function hasResponseContent(entry: AssistantEntry): boolean {
 		return entry.blocks.some(
 			(b) => (b.type === 'text' && b.text.trim().length > 0) || b.type === 'image'
@@ -158,6 +178,9 @@
 		}
 
 		for (const entry of entries) {
+			// La chiamata `studio_headsup` non e' un passo di lavoro: la sua frase
+			// diventa la card prima del piè di turno (Gate R40).
+			if (isHeadsUpToolEntry(entry)) continue;
 			if (entry.kind === 'tool' && entry.toolName === 'todo') {
 				flushSegment();
 				const traces = todoTraces.get(entry.id) ?? [];
@@ -177,6 +200,13 @@
 			if (entry.kind === 'tool' && categoryForTool(entry.toolName) === 'ask') {
 				flushSegment();
 				items.push({ kind: 'ask-trace', id: entry.id, entry });
+				continue;
+			}
+			// Ogni tool `corsia_*` ha la sua card (e la proposta di worktree aspetta
+			// un clic): dentro un gruppo chiuso non si vedrebbe.
+			if (entry.kind === 'tool' && isCorsiaTool(entry.toolName)) {
+				flushSegment();
+				items.push({ kind: 'corsia-trace', id: entry.id, entry });
 				continue;
 			}
 			if (isExecutionEntry(entry)) {
@@ -242,13 +272,126 @@
 		}
 
 		flushSystemSegment();
-		return finalItems;
+		return foldLoop(finalItems);
 	});
 
+	/** Testo dell'assistente dentro un giro: la sua ultima riga titola la riga ripiegata. */
+	function assistantTexts(items: readonly DisplayItem[]): string[] {
+		const texts: string[] = [];
+		for (const item of items) {
+			if (item.kind !== 'single' || item.entry.kind !== 'assistant') continue;
+			for (const block of item.entry.blocks) if (block.type === 'text' && block.text.trim()) texts.push(block.text);
+		}
+		return texts;
+	}
+
+	/**
+	 * Variante B del /loop: i giri chiusi diventano una riga nel transcript, il
+	 * giro in corso ha un separatore al posto del prompt ripetuto, il messaggio
+	 * d'avvio resta la bolla «/loop». Senza giri marcati la lista non cambia.
+	 */
+	function foldLoop(items: DisplayItem[]): DisplayItem[] {
+		const loop = session.loop;
+		const hasGiri = items.some((item) => item.kind === 'single' && item.entry.kind === 'user' && item.entry.loopGiro !== undefined);
+		if (!hasGiri) return items;
+		const folded = foldLoopItems(
+			items,
+			(item) => {
+				if (item.kind !== 'single' || item.entry.kind !== 'user') return { user: false, key: '' };
+				return { user: true, giro: item.entry.loopGiro, key: String(item.entry.id) };
+			},
+			(n) => (loop ? isGiroClosed(loop, n) : true),
+			(key) => openGiri[key] === true
+		);
+		const out: DisplayItem[] = [];
+		for (const part of folded) {
+			if (part.kind === 'item') out.push(part.item);
+			else if (part.kind === 'giro-sep') out.push({ kind: 'loop-sep', id: part.key, n: part.n });
+			else out.push({ kind: 'loop-giro', id: part.key, n: part.n, open: part.open, headline: giroHeadline(assistantTexts(part.items)) });
+		}
+		if (loop && !isLoopActive(loop) && loop.giro > 0) out.push({ kind: 'loop-end', id: loop.id });
+		return out;
+	}
+
+	/**
+	 * Frasi `studio_headsup` per turno, indicizzate per id del messaggio utente
+	 * che apre il turno (-1 = prima di ogni messaggio). Si leggono dalle entry
+	 * complete: la chiamata non entra in `displayItems`.
+	 */
+	const agentHeadsUpByTurn = $derived.by<Map<number, { text: string; entryId: number }>>(() => {
+		const map = new Map<number, { text: string; entryId: number }>();
+		let turnStart = -1;
+		let segment: TranscriptEntry[] = [];
+		const flush = () => {
+			const found = segment.some(isHeadsUpToolEntry) ? agentHeadsUp(segment) : null;
+			if (found) map.set(turnStart, found);
+		};
+		for (const entry of session.entries) {
+			if (entry.kind === 'user') {
+				flush();
+				turnStart = entry.id;
+				segment = [];
+			} else {
+				segment.push(entry);
+			}
+		}
+		flush();
+		return map;
+	});
+
+	/** Indice dell'elemento visualizzato che contiene ciascuna entry: serve al clic sull'heads-up. */
+	const displayIndexByEntryId = $derived.by<Map<number, number>>(() => {
+		const map = new Map<number, number>();
+		displayItems.forEach((item, index) => {
+			if (item.kind === 'tool-group' || item.kind === 'system-group') {
+				for (const entry of item.entries) map.set(entry.id, index);
+			} else if (item.kind === 'single') {
+				map.set(item.entry.id, index);
+			} else if ('entry' in item) {
+				map.set(item.entry.id, index);
+			}
+			// Le righe del /loop (giro ripiegato, separatore, fine) non hanno una
+			// entry propria: un heads-up dentro un giro chiuso non ha dove scorrere.
+		});
+		return map;
+	});
+
+	/**
+	 * Heads-up del turno che chiude all'indice di piè dato. Per l'ultimo turno
+	 * vale la frase della sessione (agente, smol o fatti); per i turni gia'
+	 * passati solo quella dell'agente, che resta nel `.jsonl`. Le frasi gia'
+	 * segnate come viste non tornano.
+	 */
+	function headsUpForTurn(userEntryId: number, isLastTurn: boolean): TurnHeadsUpData | undefined {
+		let candidate: TurnHeadsUpData | null = null;
+		if (isLastTurn && session.headsUp) {
+			candidate = session.headsUp;
+		} else {
+			const agent = agentHeadsUpByTurn.get(userEntryId);
+			if (agent) candidate = { text: agent.text, source: 'agent', targetEntryId: null };
+		}
+		if (!candidate || headsUpSeen.isSeen(session.sessionId, candidate.text)) return undefined;
+		return candidate;
+	}
+
+	function gotoHeadsUpTarget(entryId: number | null) {
+		if (!transcriptEl) return;
+		const index = entryId !== null ? displayIndexByEntryId.get(entryId) : undefined;
+		if (index === undefined) return;
+		const row = transcriptEl.querySelector<HTMLElement>(`[data-display-index="${index}"]`);
+		if (!row) return;
+		row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+		row.classList.remove('headsup-flash');
+		void row.offsetWidth;
+		row.classList.add('headsup-flash');
+		window.setTimeout(() => row.classList.remove('headsup-flash'), 1400);
+	}
+
 	// Piè del turno dell'agente: calcola i metadati di ogni turno concluso (Gate R32 - C07).
-	const turnFootersByIndex = $derived.by<Map<number, TurnFooterData>>(() => {
-		const map = new Map<number, TurnFooterData>();
+	const turnFootersByIndex = $derived.by<Map<number, TurnFooterData & { headsUp?: TurnHeadsUpData }>>(() => {
+		const map = new Map<number, TurnFooterData & { headsUp?: TurnHeadsUpData }>();
 		if (displayItems.length === 0) return map;
+		let currentUserEntryId = -1;
 
 		let currentTurnStartIndex = -1;
 		let currentTurnAssistantTexts: string[] = [];
@@ -257,6 +400,13 @@
 		let currentTurnModel: string | undefined;
 		let currentTurnStartMs = 0;
 		let currentTurnEndMs = 0;
+		let currentTurnUserId: number | null = null;
+		let currentTurnAssistantTs: number | null = null;
+		let currentTurnDiff: TurnDiffStats = emptyTurnDiff();
+
+		function turnDiffOrUndefined(): TurnDiffStats | undefined {
+			return currentTurnDiff.added > 0 || currentTurnDiff.removed > 0 ? currentTurnDiff : undefined;
+		}
 
 		function recordEntries(entries: TranscriptEntry[]) {
 			for (const entry of entries) {
@@ -272,8 +422,12 @@
 					if (entry.model) {
 						currentTurnModel = entry.model;
 					}
+					if (typeof entry.messageTs === 'number') {
+						currentTurnAssistantTs = entry.messageTs;
+					}
 				} else if (entry.kind === 'tool') {
 					currentTurnToolCalls += 1;
+					addToolToTurnDiff(currentTurnDiff, entry);
 					if (entry.startedAt && (!currentTurnStartMs || entry.startedAt < currentTurnStartMs)) {
 						currentTurnStartMs = entry.startedAt;
 					}
@@ -296,9 +450,14 @@
 						toolCallsCount: currentTurnToolCalls,
 						durationMs: duration,
 						model: currentTurnModel,
-						cost: currentTurnCost > 0 ? currentTurnCost : undefined
+						cost: currentTurnCost > 0 ? currentTurnCost : undefined,
+						userTranscriptId: currentTurnUserId,
+						assistantTs: currentTurnAssistantTs,
+						diff: turnDiffOrUndefined(),
+						headsUp: headsUpForTurn(currentUserEntryId, false)
 					});
 				}
+				currentUserEntryId = item.entry.id;
 				currentTurnStartIndex = i;
 				currentTurnAssistantTexts = [];
 				currentTurnToolCalls = 0;
@@ -306,6 +465,9 @@
 				currentTurnModel = undefined;
 				currentTurnStartMs = 0;
 				currentTurnEndMs = 0;
+				currentTurnUserId = item.kind === 'single' ? item.entry.id : null;
+				currentTurnAssistantTs = null;
+				currentTurnDiff = emptyTurnDiff();
 			} else {
 				if (currentTurnStartIndex === -1) {
 					currentTurnStartIndex = i;
@@ -332,7 +494,11 @@
 				toolCallsCount: currentTurnToolCalls,
 				durationMs: duration,
 				model: currentTurnModel,
-				cost: currentTurnCost > 0 ? currentTurnCost : undefined
+				cost: currentTurnCost > 0 ? currentTurnCost : undefined,
+				userTranscriptId: currentTurnUserId,
+				assistantTs: currentTurnAssistantTs,
+				diff: turnDiffOrUndefined(),
+				headsUp: headsUpForTurn(currentUserEntryId, true)
 			});
 		}
 
@@ -346,11 +512,20 @@
 		// (tool-group, subagent-result, irc) prendono il respiro pieno di --space-3.
 		if (item.kind === 'tool-group') return 'content';
 		if (item.kind === 'system-group') return 'system';
-		if (item.kind === 'todo-trace' || item.kind === 'subagent-trace' || item.kind === 'ask-trace') return 'content';
+		if (item.kind === 'todo-trace' || item.kind === 'subagent-trace' || item.kind === 'ask-trace' || item.kind === 'corsia-trace') return 'content';
+		if (item.kind === 'loop-giro' || item.kind === 'loop-sep' || item.kind === 'loop-end') return 'system';
 		const k = item.entry.kind;
 		if (k === 'user') return 'user';
+		// Le risposte dell'intervista dell'obiettivo sono bolle dell'utente.
+		if (k === 'guided-goal') {
+			const part = item.entry.part;
+			if (part === 'command' || part === 'answer') return 'user';
+			if (part === 'started' || part === 'note') return 'system';
+			return 'content';
+		}
 		if (k === 'notice' || k === 'system-chip' || k === 'compaction' || k === 'retry' || k === 'ttsr') return 'system';
 		if (k === 'subagent-result' || k === 'irc') return 'content';
+		if (k === 'plan' && (item.entry.kind === 'plan') && (item.entry.variant === 'enter' || item.entry.variant === 'exit')) return 'system';
 		return 'content';
 	}
 
@@ -451,6 +626,7 @@
 			{@const prevKind = i > 0 ? entryKind(displayItems[i - 1]) : null}
 			<div
 				class="entry-row"
+				data-display-index={i}
 				class:turn-boundary={kind === 'user' && i > 0}
 				class:after-user={prevKind === 'user'}
 				class:system-tight={kind === 'system' && prevKind === 'system'}
@@ -464,10 +640,43 @@
 					<SubagentTrace entry={item.entry} subagents={session.subagents} />
 				{:else if item.kind === 'ask-trace'}
 					<AskTrace entry={item.entry} />
+				{:else if item.kind === 'corsia-trace'}
+					{@const corsia = rendererFor(item.entry.toolName)}
+					<corsia.component
+						name={item.entry.toolName}
+						args={item.entry.args}
+						result={item.entry.result}
+						running={item.entry.running}
+						toolCallId={item.entry.toolCallId}
+					/>
 				{:else if item.kind === 'system-group'}
 					<NoticeGroup entries={item.entries} fresh={!disableAnimations} />
+				{:else if item.kind === 'loop-giro'}
+					<LoopTranscriptRow
+						kind="giro"
+						loop={session.loop}
+						n={item.n}
+						open={item.open}
+						headline={item.headline}
+						onToggle={() => (openGiri = { ...openGiri, [item.id]: !item.open })}
+					/>
+				{:else if item.kind === 'loop-sep'}
+					<LoopTranscriptRow kind="sep" n={item.n} />
+				{:else if item.kind === 'loop-end'}
+					<LoopTranscriptRow kind="end" loop={session.loop} />
+				{:else if item.entry.kind === 'user' && item.entry.loopStart}
+					<LoopTranscriptRow
+						kind="start"
+						loop={session.loop?.id === item.entry.loopStart ? session.loop : null}
+						prompt={item.entry.content}
+					/>
 				{:else if item.entry.kind === 'user'}
-					<UserMessage entry={item.entry} />
+					{@const approved = parseApprovedPlanMessage(item.entry.content)}
+					{#if approved}
+						<PlanApprovedCard {approved} />
+					{:else}
+						<UserMessage entry={item.entry} planBadge={session.plan.isPlanPrompt(item.entry)} />
+					{/if}
 				{:else if item.entry.kind === 'assistant'}
 					<AssistantText
 						entry={item.entry}
@@ -491,10 +700,23 @@
 					<TtsrRow entry={item.entry} fresh={!disableAnimations} />
 				{:else if item.entry.kind === 'lane-landing'}
 					<LaneLandingCard entry={item.entry} />
+				{:else if item.entry.kind === 'plan'}
+					<PlanEntryView {session} entry={item.entry} />
+				{:else if item.entry.kind === 'guided-goal'}
+					<GuidedGoalEntry entry={item.entry} {session} />
 				{/if}
 			</div>
-			{#if turnFootersByIndex.get(i)}
-				<TurnFooter data={turnFootersByIndex.get(i)!} />
+			{@const footer = turnFootersByIndex.get(i)}
+			{#if footer}
+				{#if footer.headsUp}
+					{@const hu = footer.headsUp}
+					<TurnHeadsUp
+						headsUp={hu}
+						onGoto={hu.targetEntryId !== null ? () => gotoHeadsUpTarget(hu.targetEntryId) : undefined}
+						onDismiss={() => headsUpSeen.markSeen(session.sessionId, hu.text)}
+					/>
+				{/if}
+				<TurnFooter data={footer} />
 			{/if}
 		{/each}
 	{/if}
@@ -547,6 +769,18 @@
 
 	.entry-row.system-tight {
 		margin-top: var(--space-1);
+	}
+
+	/* Arrivo dal clic sull'heads-up: un lampo neutro, solo `from` (From-Only Rule). */
+	.entry-row:global(.headsup-flash) {
+		animation: headsup-flash 1.4s var(--ease-out, ease-out);
+		border-radius: var(--radius-md);
+	}
+
+	@keyframes headsup-flash {
+		from {
+			background: color-mix(in oklch, var(--warn) 14%, transparent);
+		}
 	}
 
 	.agent-activity {

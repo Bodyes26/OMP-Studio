@@ -58,10 +58,10 @@
 		uniquePaths,
 		type DroppedImage
 	} from '$lib/agent/chatDrop';
-	import { untrack } from 'svelte';
+	import { untrack, type Snippet } from 'svelte';
 	import { routeComposerSubmit, remainingAfterSend } from '$lib/agent/composerSubmit';
 	import { TwoStepStop } from '$lib/agent/twoStepStop';
-	import { composerChord, yieldsToShellShortcut } from '$lib/agent/composerShortcuts';
+	import { composerChord, isPlanToggleChord, yieldsToShellShortcut } from '$lib/agent/composerShortcuts';
 	import { IS_MAC } from '$lib/utils/platform';
 	import { m } from '$lib/paraglide/messages.js';
 
@@ -78,7 +78,13 @@
 	import SuggestPanel, { type SuggestionItem } from './SuggestPanel.svelte';
 	import ComposerNoticeStrip from './ComposerNoticeStrip.svelte';
 	import ComposerStatusLine from './ComposerStatusLine.svelte';
+	import ExtensionWidgets from './ExtensionWidgets.svelte';
 	import ComposerPinnedItem from './ComposerPinnedItem.svelte';
+	import LabNotesQueue from '$lib/lab/LabNotesQueue.svelte';
+	import { labVisualNotesFor } from '$lib/lab/visualNotesStore.svelte';
+	import { appendLabNotes, formatLabNotesBlock, type LabNote } from '$lib/lab/visualNotes';
+	import { labNotesLabels } from '$lib/lab/visualNotesLabels';
+	import { renderAnnotatedFrame } from '$lib/lab/annotateFrame';
 	import { resolveLayout, itemsInZone } from '$lib/agent/commandCatalog/layout';
 	import { COMMAND_MANIFEST } from '$lib/agent/commandCatalog/manifest/index';
 	import type { CommandManifestEntry } from '$lib/agent/commandCatalog/types';
@@ -90,15 +96,21 @@
 		IconStop,
 		IconWarning,
 		IconChevronUp,
-		IconSparkles
+		IconSparkles,
+		IconPlan,
+		IconAside,
+		IconClose,
+		IconQuote
 	} from '$lib/icons';
+	import { btwQuotePreview, withBtwQuote } from '$lib/agent/btw';
 
 	let {
 		session,
 		visible = true,
 		dropTarget = false,
 		onSlashCommand,
-		onNewChat
+		onNewChat,
+		shellOverride
 	} = $props<{
 		session: AgentSession;
 		visible?: boolean;
@@ -106,6 +118,12 @@
 		dropTarget?: boolean;
 		onSlashCommand?: (raw: string) => boolean;
 		onNewChat?: () => void;
+		/**
+		 * Sostituisce la sagoma (editor e barra) restando dentro il composer:
+		 * avvisi e riga di stato restano dove sono. Lo usa /loop, che trasforma
+		 * il composer in modalita' ripetizione. La bozza resta nell'editor nascosto.
+		 */
+		shellOverride?: Snippet;
 	}>();
 
 	// Convertitore esportato per trasformare ImageContent del protocollo wire in ComposerAttachment
@@ -130,6 +148,9 @@
 	let activeMenu = $state<MenuKind>(null);
 
 	let attachments = $state<ComposerAttachment[]>([]);
+	// Note visive del Laboratorio («Indica e disegna»): solo nelle corsie Lab.
+	const labNotes = $derived(session.labConfig ? labVisualNotesFor(session) : null);
+	const labNoteCount = $derived(labNotes?.notes.length ?? 0);
 	let draftRevision = $state(0);
 	let availableModels = $state<ModelInfo[]>([]);
 
@@ -389,11 +410,15 @@
 		for (const att of attachments) {
 			total += att.tokens;
 		}
+		// Note visive: ~80 token di testo per nota piu' il fotogramma (~1600).
+		if (labNoteCount > 0) total += 1600 + labNoteCount * 80;
 		return total;
 	});
 
 	// Avviso visivo quando il modello non supporta immagini ma sono presenti immagini o video
-	const hasVisualAttachments = $derived(attachments.some((a) => a.kind === 'image' || a.kind === 'video'));
+	const hasVisualAttachments = $derived(
+		labNoteCount > 0 || attachments.some((a) => a.kind === 'image' || a.kind === 'video')
+	);
 	const visualNoVisionWarning = $derived(hasVisualAttachments && !modelSupportsImages(session.model));
 
 	// Aggiunta file generici e immagini
@@ -664,6 +689,13 @@
 		if (!insideComposer && (isTypingSurface(e.target) || isTypingSurface(activeEl))) return;
 		if (settingsStore.open || modelSettingsStore.isOpen || shortcutsModalStore.isOpen) return;
 
+		// Modalita' Piano: stessa combinazione del Terminale (app.plan.toggle).
+		if (isPlanToggleChord(e, IS_MAC) && !session.labConfig) {
+			e.preventDefault();
+			void session.plan.toggle();
+			return;
+		}
+
 		// Alt+lettera su Windows/Linux, Ctrl+Opzione+lettera su Mac: Opzione da
 		// sola scrive caratteri (€ ç ñ) e non va rubata.
 		const chord = composerChord(e, IS_MAC);
@@ -674,6 +706,13 @@
 		if (chord === 'letter' && yieldsToShellShortcut(key, IS_MAC, insideComposer)) return;
 
 		if (ctrlOnly) {
+			if (key === 'b') {
+				// Domanda a margine. Nel composer (contenteditable) Ctrl+B
+				// farebbe il grassetto: il default va fermato in ogni caso.
+				e.preventDefault();
+				session.btw.toggle();
+				return;
+			}
 			if (key === 'p') {
 				// Senza preventDefault la WebView apre la stampa.
 				e.preventDefault();
@@ -748,6 +787,36 @@
 				return;
 			}
 			const sent = [...attachments];
+			// «Usa nel messaggio»: la citazione della domanda a margine entra
+			// nel contesto solo adesso, in testa al messaggio inviato.
+			const quote = session.btw.quote;
+			if (quote) wireText = withBtwQuote(quote.markdown, wireText);
+			// Note visive: un blocco compatto in coda al testo e un solo fotogramma
+			// annotato. Se la cattura non c'e' (o il modello non vede), solo testo.
+			const sentNotes = labNotes && labNotes.notes.length > 0 ? labNotes : null;
+			let notesImage: ImageContent | null = null;
+			if (sentNotes) {
+				const noteList = $state.snapshot(sentNotes.notes) as LabNote[];
+				const wantsImage = modelSupportsImages(session.model);
+				const frame = wantsImage ? await sentNotes.frameForSend() : null;
+				if (frame) {
+					try {
+						const img = await renderAnnotatedFrame(frame, noteList);
+						notesImage = { type: 'image', data: img.data, mimeType: img.mimeType };
+					} catch {
+						notesImage = null;
+					}
+				}
+				if (wantsImage && !notesImage) session.flashNotice('warning', m.lab_notes_frame_failed_notice());
+				wireText = appendLabNotes(
+					wireText,
+					formatLabNotesBlock(noteList, {
+						labels: labNotesLabels(),
+						viewport: sentNotes.viewport,
+						imageAttached: notesImage !== null
+					})
+				);
+			}
 			const stagedNonImages = sent.filter((a) => a.path && a.kind !== 'image');
 			if (stagedNonImages.length > 0) {
 				const pathsBlock = stagedNonImages.map((a) => `- ${a.path}`).join('\n');
@@ -758,10 +827,17 @@
 			const imagesToSend: ImageContent[] = sent
 				.filter((a) => a.kind === 'image' && a.base64)
 				.map((a) => ({ type: 'image', data: a.base64!, mimeType: a.mimeType || 'image/jpeg' }));
+			if (notesImage) imagesToSend.push(notesImage);
 			let behavior: StreamingBehavior = sendBehaviorChoice;
 			if (isAlt) behavior = behavior === 'steer' ? 'followUp' : 'steer';
+			// In Piano la bolla prende il badge «Piano».
+			if (session.plan.active) session.plan.notePlanPrompt(wireText);
 			const result = await session.prompt(wireText, imagesToSend, behavior);
-			if (result === 'sent' || result === 'deferred') clearAfterSend(sent);
+			if (result === 'sent' || result === 'deferred') {
+				clearAfterSend(sent);
+				if (quote && session.btw.quote === quote) session.btw.clearQuote();
+				sentNotes?.clear();
+			}
 		} catch (error) {
 			session.flashNotice(
 				'error',
@@ -773,7 +849,7 @@
 	}
 
 	export function isDraftEmpty(): boolean {
-		return (!editorRef || editorRef.getIsEmpty()) && attachments.length === 0;
+		return (!editorRef || editorRef.getIsEmpty()) && attachments.length === 0 && !session.btw.quote && labNoteCount === 0;
 	}
 
 
@@ -835,12 +911,22 @@
 		focus();
 	}
 
-	const canSend = $derived(currentSegments.some((s) => s.t !== 'text' || s.s.trim().length > 0) || attachments.length > 0);
-	const placeholderText = $derived(
-		session.isStreaming
-			? m.chat_v2_composer_placeholder_busy()
-			: m.chat_v2_composer_placeholder_idle()
+	const canSend = $derived(
+		currentSegments.some((s) => s.t !== 'text' || s.s.trim().length > 0) ||
+			attachments.length > 0 ||
+			session.btw.quote !== null ||
+			labNoteCount > 0
 	);
+	/** Il pulsante «A margine» c'e' solo se omp sa rispondere (18.6.3+); lo sondano l'avvio e il primo uso. */
+	const showBtwButton = $derived(session.isReady && session.btw.supported !== false);
+	const placeholderText = $derived(
+		session.plan.active
+			? m.plan_composer_placeholder()
+			: session.isStreaming
+				? m.chat_v2_composer_placeholder_busy()
+				: m.chat_v2_composer_placeholder_idle()
+	);
+	const planActive = $derived(session.plan.active);
 
 	// Chip di risposta: le statiche configurate davanti, poi quelle generate dal
 	// modello leggero sull'ultimo turno (anche quando l'agente chiude con una
@@ -880,9 +966,14 @@
      Tauri e lo gestisce Chat.svelte (addPaths): i gestori HTML non ricevono file. -->
 <div bind:this={rootEl} class="composer-root" class:hidden={!visible}>
 	<ComposerNoticeStrip {session} />
+	<ExtensionWidgets widgets={session.extensionWidgets} placement="aboveEditor" />
+
+	{#if shellOverride}
+		{@render shellOverride()}
+	{/if}
 
 	<!-- Tendina suggerimenti @ o / ancorata sul Range rect del cursore -->
-	{#if currentTrigger && suggestItems.length > 0}
+	{#if currentTrigger && suggestItems.length > 0 && !shellOverride}
 		<SuggestPanel
 			kind={currentTrigger.kind}
 			query={currentTrigger.query}
@@ -895,8 +986,8 @@
 		/>
 	{/if}
 
-	<!-- Riquadro principale del composer -->
-	<div class="composer-shell" class:dragging={dropTarget}>
+	<!-- Riquadro principale del composer (nascosto, non smontato, sotto /loop) -->
+	<div class="composer-shell" class:dragging={dropTarget} class:planmode={planActive} class:shell-hidden={Boolean(shellOverride)}>
 		<!-- Striscia informativa per comando/skill attivo con argomenti -->
 		{#if activeCmdDef}
 			<div class="cmd-strip rv-blur" style="--dur: 200ms; --blur: 4px;">
@@ -913,6 +1004,32 @@
 					<span class="cmd-strip-hint font-mono">‹{activeCmdDef.input.hint}›</span>
 				{/if}
 			</div>
+		{/if}
+
+		<!-- Citazione da «A margine»: entra nel contesto solo all'invio -->
+		{#if session.btw.quote}
+			{@const quote = session.btw.quote}
+			<div class="btw-quote-row">
+				<div class="btw-quote-chip rv-blur" style="--dur: 200ms; --blur: 3px;" role="note" aria-label={m.btw_quote_aria()}>
+					<span class="btw-quote-icon" aria-hidden="true"><IconQuote /></span>
+					<strong>{m.btw_title()}</strong>
+					<span class="btw-quote-text" title={quote.answer}>«{quote.question}» — {btwQuotePreview(quote.answer)}</span>
+					<button
+						type="button"
+						class="btw-quote-remove"
+						aria-label={m.btw_quote_remove()}
+						title={m.btw_quote_remove()}
+						onclick={() => session.btw.clearQuote()}
+					>
+						<IconClose />
+					</button>
+				</div>
+			</div>
+		{/if}
+
+		<!-- Note visive del Laboratorio (Punta / Riquadro nell'anteprima) -->
+		{#if labNotes && labNoteCount > 0}
+			<LabNotesQueue notes={labNotes} />
 		{/if}
 
 		<!-- Riquadro allegati (miniature immagini, video e file) -->
@@ -1005,6 +1122,26 @@
 				<span class="toolbar-divider" aria-hidden="true"></span>
 			{/if}
 
+			<!-- Domanda a margine (/btw, Ctrl+B): riquadro sopra il composer -->
+			{#if showBtwButton}
+				<Tooltip text={m.btw_button_tooltip()} placement="top" offset={6}>
+					<button
+						type="button"
+						class="btw-pill"
+						class:on={session.btw.open}
+						aria-pressed={session.btw.open}
+						aria-label={m.btw_button_tooltip()}
+						onclick={() => session.btw.toggle()}
+					>
+						<IconAside aria-hidden="true" />
+						<span class="btw-pill-label">{m.btw_title()}</span>
+						{#if session.btw.busy && !session.btw.open}
+							<span class="btw-pill-live" aria-hidden="true"></span>
+						{/if}
+					</button>
+				</Tooltip>
+			{/if}
+
 			<!-- Striscia controlli sessione a scorrimento orizzontale (ruolo, modello, thinking
 			     e qualsiasi altro comando generico fissato dall'utente nella toolbar) -->
 			<div
@@ -1013,6 +1150,27 @@
 				onwheel={handleStripWheel}
 				tabindex="-1"
 			>
+				{#if !isLab}
+					<!-- Pillola della modalita' Piano: accende/spegne come /plan (Alt+Maiusc+P). -->
+					<Tooltip
+						text={planActive ? m.plan_pill_exit_title() : m.plan_pill_enter_title({ keys: IS_MAC ? '⌃⌥⇧P' : 'Alt+Maiusc+P' })}
+						placement="top"
+						offset={6}
+					>
+						<button
+							type="button"
+							class="plan-pill"
+							class:on={planActive}
+							aria-pressed={planActive}
+							disabled={session.plan.handingOff}
+							onclick={() => void session.plan.toggle()}
+						>
+							<IconPlan aria-hidden="true" />
+							{m.plan_pill_label()}
+							{#if planActive}<span class="plan-pill-x" aria-hidden="true"><IconClose /></span>{/if}
+						</button>
+					</Tooltip>
+				{/if}
 				{#each toolbarCenterPins as pin (pin.id)}
 					{#if pin.id === 'ctl.role'}
 						<!-- Menu Ruolo -->
@@ -1304,6 +1462,7 @@
 			focus();
 		}}
 	/>
+	<ExtensionWidgets widgets={session.extensionWidgets} placement="belowEditor" />
 </div>
 
 <style>
@@ -1317,6 +1476,10 @@
 	}
 
 	.composer-root.hidden {
+		display: none;
+	}
+
+	.composer-shell.shell-hidden {
 		display: none;
 	}
 
@@ -1410,6 +1573,47 @@
 		flex-shrink: 0;
 	}
 
+	.plan-pill {
+		height: 28px;
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		padding: 0 10px;
+		margin-right: 2px;
+		border-radius: var(--radius-full);
+		border: 1px solid var(--line-strong);
+		color: var(--ink-muted);
+		background: transparent;
+		font-family: var(--font-ui);
+		font-size: var(--text-sm);
+		cursor: pointer;
+		flex: none;
+		transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out),
+			border-color var(--dur-fast) var(--ease-out);
+	}
+	.plan-pill:hover:not(:disabled) {
+		background: var(--bg-hover);
+		color: var(--ink);
+	}
+	.plan-pill.on {
+		border-color: color-mix(in srgb, var(--brand) 60%, transparent);
+		background: color-mix(in srgb, var(--brand) 12%, transparent);
+		color: var(--ink);
+		font-weight: 600;
+	}
+	.plan-pill.on :global(svg:first-child) {
+		color: var(--brand-ink);
+	}
+	.plan-pill-x {
+		display: inline-flex;
+		opacity: 0.6;
+		margin-left: 2px;
+		--icon-size: 11px;
+	}
+	:global(.composer-shell.planmode) {
+		border-color: color-mix(in srgb, var(--brand) 55%, transparent);
+	}
+
 	.toolbar-controls-strip {
 		display: flex;
 		align-items: center;
@@ -1429,6 +1633,103 @@
 
 	.toolbar-controls-strip > * {
 		flex-shrink: 0;
+	}
+
+	.btw-pill {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		height: 28px;
+		padding: 0 10px;
+		flex-shrink: 0;
+		border: 1px solid var(--line-strong);
+		border-radius: var(--radius-full);
+		background: transparent;
+		color: var(--ink-muted);
+		font-family: var(--font-ui);
+		font-size: var(--text-sm);
+		white-space: nowrap;
+		cursor: pointer;
+		--icon-size: 14px;
+		transition:
+			background-color var(--dur-fast) var(--ease-out),
+			color var(--dur-fast) var(--ease-out),
+			border-color var(--dur-fast) var(--ease-out);
+	}
+	.btw-pill:hover {
+		background: var(--bg-hover);
+		color: var(--ink);
+	}
+	.btw-pill.on {
+		border-color: color-mix(in oklch, var(--brand) 60%, transparent);
+		background: color-mix(in oklch, var(--brand) 12%, transparent);
+		color: var(--ink);
+		font-weight: 600;
+	}
+	.btw-pill.on :global(svg) {
+		color: var(--brand-ink);
+	}
+	.btw-pill-live {
+		width: 7px;
+		height: 7px;
+		border-radius: 50%;
+		background: var(--warn);
+		animation: state-pulse 1.2s ease-in-out infinite;
+	}
+
+	.btw-quote-row {
+		display: flex;
+		padding: 8px 14px 0;
+		min-width: 0;
+	}
+	.btw-quote-chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		max-width: 100%;
+		min-width: 0;
+		padding: 4px 6px 4px 8px;
+		border-radius: var(--radius-md);
+		background: var(--bg-hover);
+		font-family: var(--font-ui);
+		font-size: var(--text-sm);
+		color: var(--ink-muted);
+	}
+	.btw-quote-chip strong {
+		color: var(--ink);
+		font-weight: 600;
+		white-space: nowrap;
+		flex: none;
+	}
+	.btw-quote-icon {
+		display: inline-flex;
+		color: var(--ink-faint);
+		--icon-size: 12px;
+		flex: none;
+	}
+	.btw-quote-text {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.btw-quote-remove {
+		display: grid;
+		place-items: center;
+		width: 18px;
+		height: 18px;
+		flex: none;
+		padding: 0;
+		border: 0;
+		border-radius: var(--radius-sm);
+		background: transparent;
+		color: var(--ink-faint);
+		cursor: pointer;
+		--icon-size: 11px;
+	}
+	.btw-quote-remove:hover {
+		color: var(--ink);
+		background: var(--bg-active);
 	}
 
 	.toolbar-divider {
@@ -1489,6 +1790,9 @@
 			display: none;
 		}
 		.toolbar-divider {
+			display: none;
+		}
+		.btw-pill-label {
 			display: none;
 		}
 	}

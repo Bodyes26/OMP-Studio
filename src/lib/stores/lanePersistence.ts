@@ -39,6 +39,14 @@ export interface LaneRecord extends AgentLane {
 	archivedAt: number | null;
 	recoveredAt: number | null;
 	closedAt: number | null;
+	/**
+	 * Riassunto lasciato dall'agente della corsia con `corsia_fatto`: e' cio'
+	 * che `corsia_risultato` restituisce alla Principale. Persistito accanto al
+	 * record perche' deve sopravvivere a un riavvio di Studio.
+	 */
+	agentSummary?: string | null;
+	/** Epoch ms di `corsia_fatto`: la corsia e' "finita" per l'agente. */
+	agentSummaryAt?: number | null;
 }
 
 interface StoredLaneV1 {
@@ -65,6 +73,8 @@ interface StoredLaneV1 {
 	labPrototypeId?: string | null;
 	closedAt?: number | null;
 	titleLocked?: boolean;
+	agentSummary?: string | null;
+	agentSummaryAt?: number | null;
 }
 
 interface StoredProfileV1 {
@@ -229,6 +239,13 @@ function parseStoredLane(value: unknown): LaneRecord | null {
 	const labPrototypeId = nullableString(source.labPrototypeId) ?? null;
 	const closedAt = source.closedAt === undefined ? null : nullableTimestamp(source.closedAt);
 	const titleLocked = typeof source.titleLocked === 'boolean' ? source.titleLocked : false;
+	// Campi arrivati con i tool `corsia_*`: assenti nei registri precedenti.
+	// Un valore malformato non invalida la corsia, si perde solo il riassunto.
+	const agentSummary = typeof source.agentSummary === 'string' && source.agentSummary.trim() ? source.agentSummary : null;
+	const agentSummaryAt =
+		agentSummary !== null && typeof source.agentSummaryAt === 'number' && Number.isFinite(source.agentSummaryAt)
+			? source.agentSummaryAt
+			: null;
 	if (closedAt === undefined) return null;
 	if (
 		!rawProjectId ||
@@ -286,7 +303,9 @@ function parseStoredLane(value: unknown): LaneRecord | null {
 			kind,
 			labPrototypeId,
 			closedAt: closedAt ?? null,
-			titleLocked
+			titleLocked,
+			agentSummary,
+			agentSummaryAt
 		};
 	} catch {
 		return null;
@@ -478,7 +497,9 @@ export function serializeLaneStoreDocument(
 			kind: lane.kind ?? 'git',
 			labPrototypeId: lane.labPrototypeId ?? null,
 			closedAt: lane.closedAt ?? null,
-			titleLocked: lane.titleLocked ?? false
+			titleLocked: lane.titleLocked ?? false,
+			agentSummary: lane.agentSummary ?? null,
+			agentSummaryAt: lane.agentSummaryAt ?? null
 		})),
 		profiles: profiles.map((profile) => ({
 			projectId: profile.projectId,
@@ -521,7 +542,9 @@ export function laneRecordFromAgentLane(lane: AgentLane, sessionId: string | nul
 		kind: lane.kind ?? 'git',
 		labPrototypeId: lane.labPrototypeId ?? null,
 		closedAt: (lane as Partial<LaneRecord>).closedAt ?? null,
-		titleLocked: lane.titleLocked ?? false
+		titleLocked: lane.titleLocked ?? false,
+		agentSummary: (lane as Partial<LaneRecord>).agentSummary ?? null,
+		agentSummaryAt: (lane as Partial<LaneRecord>).agentSummaryAt ?? null
 	};
 }
 

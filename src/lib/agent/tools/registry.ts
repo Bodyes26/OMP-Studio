@@ -10,6 +10,8 @@ import type { ToolRenderer } from './types';
 import AstEdit from './renderers/AstEdit.svelte';
 import AstGrep from './renderers/AstGrep.svelte';
 import Bash from './renderers/Bash.svelte';
+import Corsia from './renderers/Corsia.svelte';
+import CorsiaProponi from './renderers/CorsiaProponi.svelte';
 import Browser from './renderers/Browser.svelte';
 import Debug from './renderers/Debug.svelte';
 import Edit from './renderers/Edit.svelte';
@@ -39,11 +41,24 @@ import Yield from './renderers/Yield.svelte';
 
 const GENERIC: ToolRenderer = { component: Generic, expandable: true };
 
+// Tool delle corsie (`studio-lanes.ts`): ognuno ha la sua card in chat, fuori
+// dal gruppo di esecuzione, come le interazioni con l'utente.
+const CORSIA: ToolRenderer = { component: Corsia, expandable: true, groupInExecution: false };
+
 const REGISTRY: Record<string, ToolRenderer> = {
 	ast_edit: { component: AstEdit, expandable: true },
 	ast_grep: { component: AstGrep, expandable: true },
 	bash: { component: Bash, expandable: true },
 	browser: { component: Browser, expandable: true },
+	corsia_avvia: CORSIA,
+	corsia_stato: CORSIA,
+	corsia_risultato: CORSIA,
+	corsia_integra: CORSIA,
+	corsia_chiudi: CORSIA,
+	corsia_scarta: CORSIA,
+	corsia_consegna: CORSIA,
+	corsia_fatto: CORSIA,
+	corsia_proponi: { component: CorsiaProponi, expandable: true, groupInExecution: false },
 	debug: { component: Debug, expandable: true },
 	edit: { component: Edit, expandable: true },
 	eval: { component: Eval, expandable: true },

@@ -4,12 +4,15 @@
 	// Governa l'anteprima isolata su server loopback Rust:
 	//  - Toolbar con selettore viewport (desktop / tablet 768px / mobile 375px);
 	//  - Ricarica e apertura nel browser di sistema;
-	//  - Modalita' "Seleziona" per ispezionare elementi nel DOM del prototipo;
+	//  - «Indica e disegna» (R42): Punta (clic, Maiusc+clic aggiunge) e
+	//    Riquadro (trascina un'area) creano note numerate nella coda del composer,
+	//    riagganciate dopo ogni ricompilazione; il fotogramma annotato si cattura
+	//    dentro l'iframe (inspect/inspector-client.js). Alt+I solo qui;
 	//  - Selettore revisioni git con banner sola lettura e ripristino;
 	//  - Duplicazione ed esportazione cartella;
 	//  - Barra errori di compilazione e runtime con azione "Chiedi di correggere".
 
-	import { onDestroy } from 'svelte';
+	import { onDestroy, tick, untrack } from 'svelte';
 	import { openUrl } from '@tauri-apps/plugin-opener';
 	import { open } from '@tauri-apps/plugin-dialog';
 	import { m } from '$lib/paraglide/messages.js';
@@ -22,6 +25,8 @@
 		type LabLaneRuntime
 	} from './runtime.svelte';
 	import type { LabRevision } from './types';
+	import { labVisualNotesFor } from './visualNotesStore.svelte';
+	import { shortTargetLabel, viewportLabel, type LabNote, type LabRect, type LabTarget } from './visualNotes';
 	import {
 		IconChevronDown,
 		IconChevronRight,
@@ -32,13 +37,19 @@
 		IconSparkles,
 		IconWarning,
 		IconCheck,
-		IconClose
+		IconClose,
+		IconInspect,
+		IconAreaSelect
 	} from '$lib/icons';
 	import AlertBanner from '$lib/components/AlertBanner.svelte';
 	import StatusMark from '$lib/ui/StatusMark.svelte';
 	import MenuButton from '$lib/ui/MenuButton.svelte';
 	import Tooltip from '$lib/ui/Tooltip.svelte';
 	import { Lingering, ROW_EXIT_MS } from '$lib/agent/motionState.svelte';
+	import { IS_MAC } from '$lib/utils/platform';
+	import { letterChordLabel } from '$lib/agent/composerShortcuts';
+
+	const INSPECT_SHORTCUT = `${letterChordLabel(IS_MAC)}+I`;
 
 	let {
 		projectId,
@@ -75,7 +86,32 @@
 
 	let iframeEl = $state<HTMLIFrameElement | null>(null);
 	let viewportMode = $state<'desktop' | 'tablet' | 'mobile'>('desktop');
-	let isSelectModeActive = $state(false);
+
+	// «Indica e disegna»
+	type InspectMode = 'off' | 'point' | 'area';
+	const notes = $derived(labVisualNotesFor(session));
+	let inspectMode = $state<InspectMode>('off');
+	let inspectorReady = $state(false);
+	let frameWrapperEl = $state<HTMLDivElement | null>(null);
+	let popover = $state<{ id: string; x: number; y: number } | null>(null);
+	let popoverInputEl = $state<HTMLTextAreaElement | null>(null);
+	const popoverNote = $derived(popover ? (notes.notes.find((n: LabNote) => n.id === popover?.id) ?? null) : null);
+	const inspectDisabled = $derived(runtime.isViewingHistorical || !runtime.url);
+	const pendingCaptures = new Map<string, (data: CaptureReply | null) => void>();
+	let captureTimer: number | null = null;
+	let captureSeq = 0;
+
+	interface CaptureReply {
+		ok: boolean;
+		dataUrl?: string;
+		width?: number;
+		height?: number;
+		scale?: number;
+		region?: LabRect;
+		rects?: Record<string, LabRect[]>;
+		warnings?: string[];
+		error?: string;
+	}
 
 	// Revisioni storiche
 	let revisions = $state<LabRevision[]>([]);
@@ -133,20 +169,8 @@
 
 			if (data.type === 'runtime_error' && data.error) {
 				runtime.reportRuntimeError(data.error);
-			} else if (data.type === 'element_selected') {
-				isSelectModeActive = false;
-				iframeEl.contentWindow?.postMessage(
-					{ source: 'lab-parent', type: 'toggle_select_mode', enabled: false },
-					'*'
-				);
-
-				const snippet = data.textSnippet ? ` "${data.textSnippet}"` : '';
-				const refText = m.lab_view_selected_element_text({
-					tag: data.tag,
-					selector: data.selector,
-					snippet
-				});
-				session.insertComposerText(refText);
+			} else if (typeof data.type === 'string' && data.type.startsWith('inspect_')) {
+				handleInspectorMessage(data);
 			}
 		}
 
@@ -171,18 +195,226 @@
 		}
 	}
 
-	// Ogni pubblicazione ricrea l'iframe, che riparte senza modalita' Seleziona.
+	// ---- «Indica e disegna» ------------------------------------------------
+
+	function postToPreview(msg: Record<string, unknown>): void {
+		iframeEl?.contentWindow?.postMessage({ source: 'lab-parent', ...msg }, '*');
+	}
+
+	function setInspectMode(next: InspectMode): void {
+		inspectMode = inspectDisabled ? 'off' : next;
+		postToPreview({ type: 'inspect_mode', mode: inspectMode });
+		if (inspectMode === 'off') popover = null;
+	}
+
+	function toggleInspect(): void {
+		setInspectMode(inspectMode === 'off' ? 'point' : 'off');
+	}
+
+	function currentViewportLabel(vp?: { width: number; height: number }): string {
+		const w = vp?.width ?? iframeEl?.clientWidth ?? 0;
+		const h = vp?.height ?? iframeEl?.clientHeight ?? 0;
+		return viewportLabel(viewportMode, w, h);
+	}
+
+	/** Popover della nota vicino all'elemento (coordinate del viewport dell'iframe). */
+	function openPopover(id: string, client?: LabRect): void {
+		notes.activeId = id;
+		const wrapW = frameWrapperEl?.clientWidth ?? 600;
+		const wrapH = frameWrapperEl?.clientHeight ?? 400;
+		const width = 280;
+		const height = 170;
+		const r = client ?? { x: 16, y: 16, width: 0, height: 0 };
+		let y = r.y + r.height + 8;
+		if (y + height > wrapH) y = Math.max(8, r.y - height - 8);
+		const x = Math.min(Math.max(8, r.x), Math.max(8, wrapW - width - 8));
+		popover = { id, x, y: Math.min(y, Math.max(8, wrapH - height - 8)) };
+		void tick().then(() => popoverInputEl?.focus());
+	}
+
+	function closePopover(): void {
+		popover = null;
+	}
+
+	function handleInspectorMessage(data: Record<string, any>): void {
+		switch (data.type) {
+			case 'inspect_ready':
+				inspectorReady = true;
+				if (data.viewport) notes.viewport = currentViewportLabel(data.viewport);
+				postToPreview({ type: 'inspect_mode', mode: inspectDisabled ? 'off' : inspectMode });
+				syncInspector();
+				break;
+			case 'inspect_pick': {
+				const target = data.target as LabTarget;
+				if (data.viewport) notes.viewport = currentViewportLabel(data.viewport);
+				const note = data.additive ? notes.addTarget(target) : null;
+				const created = note ?? notes.add('point', [target]);
+				openPopover(created.id, data.client);
+				break;
+			}
+			case 'inspect_area': {
+				if (data.viewport) notes.viewport = currentViewportLabel(data.viewport);
+				const created = notes.add('area', (data.groups ?? []) as LabTarget[], {
+					rect: data.rect,
+					total: data.total,
+					omitted: data.omitted,
+					pickId: data.pickId
+				});
+				openPopover(created.id, data.client);
+				break;
+			}
+			case 'inspect_marker_click':
+				openPopover(data.id, data.client);
+				break;
+			case 'inspect_synced':
+				notes.applySync(data.notes ?? []);
+				break;
+			case 'inspect_captured': {
+				const resolve = pendingCaptures.get(data.reqId);
+				if (resolve) {
+					pendingCaptures.delete(data.reqId);
+					resolve(data as CaptureReply);
+				}
+				break;
+			}
+			case 'inspect_key':
+				if (data.key === 'toggle') toggleInspect();
+				else if (data.key === 'escape') {
+					if (popover) closePopover();
+					else setInspectMode('off');
+				}
+				break;
+		}
+	}
+
+	/** Manda all'ispettore le note correnti: numeri, marker e riaggancio dopo una ricompilazione. */
+	function syncInspector(): void {
+		if (!inspectorReady) return;
+		const list = runtime.isViewingHistorical ? [] : ($state.snapshot(notes.notes) as LabNote[]);
+		postToPreview({
+			type: 'inspect_sync',
+			activeId: notes.activeId,
+			notes: list.map((n) => ({
+				id: n.id,
+				n: n.n,
+				kind: n.kind,
+				rect: n.rect ?? null,
+				pickId: n.pickId ?? null,
+				targets: n.targets.map((t) => ({
+					tag: t.tag,
+					loc: t.loc,
+					locKind: t.locKind,
+					selector: t.selector,
+					instance: t.instance,
+					pickId: t.pickId ?? null
+				}))
+			}))
+		});
+	}
+
+	function scheduleCapture(): void {
+		if (captureTimer !== null) window.clearTimeout(captureTimer);
+		captureTimer = null;
+		if (notes.notes.length === 0) {
+			notes.setFrame(null, 'idle');
+			return;
+		}
+		if (!visible || runtime.isViewingHistorical) return;
+		notes.setFrame(notes.frame, 'pending');
+		captureTimer = window.setTimeout(() => {
+			captureTimer = null;
+			void captureFrame();
+		}, 700);
+	}
+
+	/** Chiede all'ispettore il fotogramma (rasterizzazione DOM nell'iframe). */
+	async function captureFrame(): Promise<void> {
+		if (captureTimer !== null) {
+			window.clearTimeout(captureTimer);
+			captureTimer = null;
+		}
+		if (!inspectorReady || !iframeEl || !visible || runtime.isViewingHistorical || notes.notes.length === 0) return;
+		const revision = notes.revision;
+		const reqId = `cap-${++captureSeq}`;
+		const reply = await new Promise<CaptureReply | null>((resolve) => {
+			pendingCaptures.set(reqId, resolve);
+			postToPreview({ type: 'inspect_capture', reqId, maxSide: 1568 });
+			window.setTimeout(() => {
+				if (pendingCaptures.delete(reqId)) resolve(null);
+			}, 12_000);
+		});
+		// Una nota cambiata nel frattempo: vale la cattura successiva.
+		if (revision !== notes.revision) return;
+		if (!reply || !reply.ok || !reply.dataUrl || !reply.region) {
+			notes.setFrame(null, 'failed', reply?.error ?? 'timeout');
+			return;
+		}
+		notes.setFrame(
+			{
+				dataUrl: reply.dataUrl,
+				width: reply.width ?? 0,
+				height: reply.height ?? 0,
+				scale: reply.scale ?? 1,
+				region: reply.region,
+				rects: reply.rects ?? {},
+				warnings: reply.warnings ?? [],
+				revision
+			},
+			'ok'
+		);
+	}
+
+	// Ogni pubblicazione ricrea l'iframe: l'ispettore nuovo manda `inspect_ready`.
 	$effect(() => {
 		void runtime.publishSeq;
-		isSelectModeActive = false;
+		inspectorReady = false;
+		popover = null;
 	});
 
-	function toggleSelectMode(): void {
-		isSelectModeActive = !isSelectModeActive;
-		iframeEl?.contentWindow?.postMessage(
-			{ source: 'lab-parent', type: 'toggle_select_mode', enabled: isSelectModeActive },
-			'*'
-		);
+	// Revisione storica: strumenti spenti, marker nascosti.
+	$effect(() => {
+		if (inspectDisabled) untrack(() => setInspectMode('off'));
+	});
+
+	// Note aggiunte, rimosse o riagganciate: marker aggiornati e nuovo fotogramma.
+	$effect(() => {
+		void notes.revision;
+		void notes.activeId;
+		void runtime.isViewingHistorical;
+		if (!inspectorReady) return;
+		untrack(() => {
+			syncInspector();
+			scheduleCapture();
+		});
+	});
+
+	// Il composer chiede un fotogramma fresco al momento dell'invio.
+	$effect(() => notes.registerCaptureHandler(() => captureFrame()));
+
+	onDestroy(() => {
+		if (captureTimer !== null) window.clearTimeout(captureTimer);
+		for (const resolve of pendingCaptures.values()) resolve(null);
+		pendingCaptures.clear();
+	});
+
+	function handleWindowKeydown(e: KeyboardEvent): void {
+		if (!visible) return;
+		// Alt+I (Ctrl+Opzione+I su macOS, come le altre scorciatoie a lettera).
+		// Anche il Browser Live ascolta Alt+I sulla finestra (selettore): se l'ha
+		// gia' consumato lui, qui non si accende «Punta» nello stesso colpo.
+		if (e.altKey && e.defaultPrevented) return;
+		if (e.altKey && !e.metaKey && e.code === 'KeyI' && (!e.ctrlKey || IS_MAC)) {
+			e.preventDefault();
+			toggleInspect();
+		} else if (e.key === 'Escape' && inspectMode !== 'off' && !popover) {
+			setInspectMode('off');
+		}
+	}
+
+	function popoverLabel(note: LabNote): string {
+		if (note.kind === 'area') return m.lab_note_area_label({ count: String(note.total ?? note.targets.length) });
+		if (note.targets.length > 1) return m.lab_note_elements_label({ count: String(note.targets.length) });
+		return note.targets[0] ? shortTargetLabel(note.targets[0]) : '';
 	}
 
 	function handleReload(): void {
@@ -265,6 +497,8 @@
 	}
 </script>
 
+<svelte:window onkeydown={handleWindowKeydown} />
+
 <div class="lab-preview-pane" class:is-hidden={!visible}>
 	<!-- Toolbar superiore -->
 	<header class="lab-toolbar" aria-label={m.lab_preview_toolbar_aria()}>
@@ -331,22 +565,52 @@
 					<IconExternalLink />
 				</button>
 			</Tooltip>
+		</div>
+
+		<div class="toolbar-divider" role="separator"></div>
+
+		<!-- «Indica e disegna»: Punta e Riquadro -->
+		<div class="toolbar-group inspect-tools" role="group" aria-label={m.lab_view_inspect_group_aria()}>
 			<Tooltip
-				text={isSelectModeActive ? m.lab_view_select_element_active() : m.lab_view_select_element()}
+				text={inspectDisabled && runtime.isViewingHistorical ? m.lab_view_inspect_disabled_historical() : m.lab_view_point_tooltip({ shortcut: INSPECT_SHORTCUT })}
 				placement="bottom"
 			>
 				<button
 					type="button"
 					class="tool-btn select-btn"
-					class:is-active={isSelectModeActive}
-					onclick={toggleSelectMode}
-					aria-label={m.lab_view_select_element()}
-					aria-pressed={isSelectModeActive}
+					class:is-active={inspectMode === 'point'}
+					onclick={() => setInspectMode(inspectMode === 'point' ? 'off' : 'point')}
+					aria-label={m.lab_view_point()}
+					aria-pressed={inspectMode === 'point'}
+					disabled={inspectDisabled}
 				>
-					<span class="select-indicator"></span>
-					<span class="btn-text">{m.lab_view_select_element()}</span>
+					<IconInspect />
+					<span class="btn-text">{m.lab_view_point()}</span>
+					<kbd class="tool-kbd">{INSPECT_SHORTCUT}</kbd>
 				</button>
 			</Tooltip>
+			<Tooltip
+				text={inspectDisabled && runtime.isViewingHistorical ? m.lab_view_inspect_disabled_historical() : m.lab_view_area_tooltip()}
+				placement="bottom"
+			>
+				<button
+					type="button"
+					class="tool-btn select-btn"
+					class:is-active={inspectMode === 'area'}
+					onclick={() => setInspectMode(inspectMode === 'area' ? 'off' : 'area')}
+					aria-label={m.lab_view_area()}
+					aria-pressed={inspectMode === 'area'}
+					disabled={inspectDisabled}
+				>
+					<IconAreaSelect />
+					<span class="btn-text">{m.lab_view_area()}</span>
+				</button>
+			</Tooltip>
+			{#if notes.notes.length > 0}
+				<span class="notes-count" aria-label={m.lab_notes_title({ count: String(notes.notes.length) })}>
+					{notes.notes.length}
+				</span>
+			{/if}
 		</div>
 
 		<div class="toolbar-spacer"></div>
@@ -479,7 +743,7 @@
 
 	<!-- Area visualizzazione anteprima -->
 	<div class="preview-stage">
-		<div class="preview-frame-wrapper" style:width={iframeWrapperWidth}>
+		<div class="preview-frame-wrapper" style:width={iframeWrapperWidth} bind:this={frameWrapperEl}>
 			{#if runtime.isInitialLoading}
 				<div class="state-overlay">
 					<StatusMark status="running" label={m.lab_view_initial_loading()} />
@@ -503,6 +767,64 @@
 						class="preview-iframe"
 					></iframe>
 				{/key}
+			{/if}
+
+			{#if inspectMode !== 'off' && runtime.url}
+				<div class="mode-hint" role="status">
+					{inspectMode === 'point' ? m.lab_view_hint_point() : m.lab_view_hint_area()}
+				</div>
+			{/if}
+
+			{#if popover && popoverNote}
+				{@const note = popoverNote}
+				<div
+					class="note-pop"
+					style:left="{popover.x}px"
+					style:top="{popover.y}px"
+					role="dialog"
+					aria-label={m.lab_note_dialog_aria({ n: String(note.n) })}
+				>
+					<div class="np-head">
+						<span class="np-num" class:is-stale={note.stale}>{note.n}</span>
+						<span class="np-label">{popoverLabel(note)}</span>
+					</div>
+					{#if note.kind === 'point' && note.targets[0]?.loc}
+						<div class="np-meta">{note.targets[0].loc}</div>
+					{/if}
+					{#if note.stale}
+						<div class="np-warn">{m.lab_note_stale()}</div>
+					{/if}
+					<textarea
+						bind:this={popoverInputEl}
+						class="np-input"
+						rows="2"
+						placeholder={m.lab_note_placeholder()}
+						value={note.text}
+						oninput={(e) => notes.setText(note.id, e.currentTarget.value)}
+						onkeydown={(e) => {
+							if (e.key === 'Escape' || (e.key === 'Enter' && !e.shiftKey)) {
+								e.preventDefault();
+								e.stopPropagation();
+								closePopover();
+							}
+						}}
+					></textarea>
+					<div class="np-actions">
+						<button
+							type="button"
+							class="ui-button ui-button-ghost"
+							onclick={() => {
+								notes.remove(note.id);
+								closePopover();
+							}}
+						>
+							{m.lab_note_remove()}
+						</button>
+						<button type="button" class="ui-button ui-button-primary" onclick={closePopover}>
+							{m.lab_note_done()}
+						</button>
+					</div>
+				</div>
 			{/if}
 
 			{#if runtime.isCompiling && !runtime.isInitialLoading}
@@ -664,11 +986,133 @@
 		border-color: color-mix(in oklch, var(--brand) 30%, transparent);
 	}
 
-	.select-indicator {
-		width: 6px;
-		height: 6px;
+	.tool-kbd {
+		font-family: var(--font-mono, monospace);
+		font-size: 10px;
+		color: var(--ink-faint);
+		border: 1px solid var(--line);
+		border-radius: 4px;
+		padding: 0 4px;
+		line-height: 14px;
+	}
+
+	.notes-count {
+		min-width: 16px;
+		height: 16px;
+		padding: 0 4px;
+		margin-left: 2px;
+		border-radius: 8px;
+		background: var(--brand);
+		color: var(--bg-sunken);
+		font-size: 10px;
+		font-weight: 700;
+		line-height: 16px;
+		text-align: center;
+	}
+
+	.mode-hint {
+		position: absolute;
+		left: 50%;
+		bottom: var(--space-3);
+		transform: translateX(-50%);
+		padding: 5px 10px;
 		border-radius: var(--radius-full);
-		background-color: currentColor;
+		background: color-mix(in oklch, var(--bg-overlay, var(--bg-raised)) 94%, transparent);
+		border: 1px solid var(--line-strong);
+		box-shadow: var(--shadow-raise);
+		color: var(--ink-muted);
+		font-size: var(--text-caption);
+		white-space: nowrap;
+		pointer-events: none;
+		z-index: var(--z-sticky);
+	}
+
+	.note-pop {
+		position: absolute;
+		width: 280px;
+		padding: 10px;
+		background: var(--bg-overlay, var(--bg-raised));
+		border: 1px solid var(--line-strong);
+		border-radius: var(--radius-lg, 12px);
+		box-shadow: var(--shadow-overlay);
+		color: var(--ink);
+		z-index: var(--z-toast);
+	}
+
+	.np-head {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		margin-bottom: 4px;
+		font-size: var(--text-sm);
+		min-width: 0;
+	}
+
+	.np-num {
+		min-width: 18px;
+		height: 18px;
+		padding: 0 4px;
+		border-radius: 9px;
+		background: var(--brand);
+		color: var(--bg-sunken);
+		font-size: 10.5px;
+		font-weight: 700;
+		line-height: 18px;
+		text-align: center;
+		flex-shrink: 0;
+	}
+
+	.np-num.is-stale {
+		background: var(--warn);
+	}
+
+	.np-label {
+		font-family: var(--font-mono, monospace);
+		font-size: 11.5px;
+		color: var(--brand-ink);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.np-meta {
+		font-family: var(--font-mono, monospace);
+		font-size: 10.5px;
+		color: var(--ink-faint);
+		margin-bottom: 6px;
+		word-break: break-all;
+	}
+
+	.np-warn {
+		font-size: var(--text-caption);
+		color: var(--warn);
+		margin-bottom: 6px;
+	}
+
+	.np-input {
+		width: 100%;
+		box-sizing: border-box;
+		min-height: 52px;
+		resize: vertical;
+		background: var(--bg-sunken);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
+		color: var(--ink);
+		font: inherit;
+		font-size: 13px;
+		line-height: 1.45;
+		padding: 7px 9px;
+		outline: none;
+	}
+
+	.np-input:focus {
+		border-color: color-mix(in oklch, var(--brand) 55%, transparent);
+	}
+
+	.np-actions {
+		display: flex;
+		justify-content: space-between;
+		margin-top: 8px;
 	}
 
 	/* Menu revisioni (elementi interni al popover) */

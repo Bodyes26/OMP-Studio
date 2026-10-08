@@ -225,7 +225,9 @@ l'ordine MRU corrente: nessuno si ritrova le tessere rimescolate al primo avvio.
 `markDispatching`, cioè lo stato che l'effetto di auto-avvio legge per decidere. Scrivere
 dentro l'effetto che ha appena letto quello stato è il difetto che in questo stesso file
 aveva già prodotto `effect_update_depth_exceeded` (commento in `routes/+page.svelte`): la
-spedizione passa da `queueMicrotask` e da un lock per progetto.
+spedizione passa da `queueMicrotask` e da un lock per progetto. *Aggiornato da
+«Gate R34»: il microtask diventa un timer di stabilita' con
+ri-verifica, la prontezza dell'auto-avvio diventa «ferma e stabile».*
 
 **Perimetro di scrittura.** Una sola chiave nuova, `studioSettings` in
 `%APPDATA%\omp-studio\settings.json`, più due campi per progetto (`autoDispatch`,
@@ -876,7 +878,7 @@ APPROVATO, non ancora superato (manca S47).
 ### Architettura di sicurezza e confini tecnici (ricerca/laboratorio-prototipi-piano.md §§ 5-9)
 
 1. **Broker di scrittura confinata (`extensions/studio-lab.ts`):** estensione autonoma iniettata per-sessione con hook `tool_call` fail-closed; allowlist stretta di soli 8 tool ammessi (`lab_write_file`, `lab_read_file`, `lab_list_files`, `lab_delete_file`, `task`, `hub`, `todo`, `ask`); blocco immediato per difetto di shell (`bash`), interpreti (`eval`), scritture generiche (`write`, `edit`), browser host, debugger e server MCP; validazione dei percorsi con `realpathSync` contro traversal `..`, percorsi assoluti, collisioni tra prototipi e symlink/junction esterni.
-2. **Isolamento del renderer:** esecuzione in processo Chromium dedicato e versionato (Chrome for Testing) con profilo temporaneo privo di dati personali; origine virtuale `http://lab.virtual` senza porte di rete esposte sull'host; assenza totale del bridge nativo Tauri `window.__TAURI__`; controller CDP con policy di rete attiva che intercetta e blocca tentativi di navigazione `location.href` e richieste esterne con errore `BlockedByClient`.
+2. **Isolamento del renderer** *(superato dal Gate R30: l'anteprima e' un iframe sandbox a origine opaca nella WebView di Studio, servito dal server loopback `lab/preview_server.rs`; niente Chromium dedicato, CDP o watchdog. Il testo resta come registro della decisione originale)*: esecuzione in processo Chromium dedicato e versionato (Chrome for Testing) con profilo temporaneo privo di dati personali; origine virtuale `http://lab.virtual` senza porte di rete esposte sull'host; assenza totale del bridge nativo Tauri `window.__TAURI__`; controller CDP con policy di rete attiva che intercetta e blocca tentativi di navigazione `location.href` e richieste esterne con errore `BlockedByClient`.
 3. **Watchdog runtime e crash recovery:** interruzione immediata dei cicli sincroni infiniti in meno di 2 ms tramite `Runtime.terminateExecution`; riciclo del target CDP (`Target.closeTarget` e `Target.createTarget`) in caso di stallo, garantendo il recupero della piena reattività senza terminare l'agente principale o Studio.
 4. **Esecuzione offline senza CDN (`static/lab/`):** catalogo dipendenze a versioni fissate (React 19.2.8, Tailwind v4.3.3, Lucide 1.42.0, Radix Dialog 1.1.23, Recharts 3.10.1, Motion 13.2.0, esbuild-wasm 0.28.2); bundle fidati precompilati in locale che consentono l'avvio immediato e la riapertura dei prototipi anche in assenza totale di connettività internet.
 5. **Contesto stabile e rilevamento deriva (drift):** acquisizione congelata del working tree (comprese modifiche non committate dell'utente); esclusione categorica di credenziali, file `.env*` e chiavi private; verifica di coerenza a più passaggi; rilevamento del drift senza rigenerazione automatica del prototipo e aggiornamento solo su richiesta esplicita dell'utente con storico tracciato.
@@ -1416,3 +1418,398 @@ locali e il `queuedMessageCount` di omp potevano divergere, e un crash prima di
 2. **Generazione e verifica assistita per gli agenti:** Quando il gate di release (`scripts/check-commands.mjs`) rileva comandi nuovi da `omp`, l'agente può generare una singola bozza `CommandManifestEntry` completa, sottoporla all'utente con il tool `ask` e inserirla nel file appropriato (`omp-modes.ts` o `omp-session.ts`) con una sola operazione atomica.
 3. **Controllo dei tipi a tempo di compilazione:** I contratti di `CommandText` (`CommandTexts = { it: CommandText, en: CommandText }`) impongono staticamente che entrambe le lingue contengano tutti i campi obbligatori (`title`, `summary`, `benefits`, `examples`), evitando chiavi mancanti o disallineate che in JSON richiederebbero controlli a runtime o linter aggiuntivi.
 4. **Perimetro Paraglide preservato:** Le etichette strutturali dell'interfaccia utente (titoli delle sezioni, pulsanti di azione, messaggi di stato, attributi aria) restano interamente gestite tramite Paraglide (`messages/*.json`), mantenendo la coerenza applicativa per tutti gli elementi del guscio.
+
+---
+
+## Gate R33: diramazioni e albero dei rami nella GUI con i comandi RPC di omp
+
+**Data:** 2026-10-08
+**Esito:** IMPLEMENTATO (rivede lo scarto «Pulsanti per `/share`, `/fork`, `/tree`» di `IDEAS.md` per la sola superficie GUI)
+
+### Il problema
+
+1. `/fork` nella chat GUI mandava `new_session { parentSession }`: omp registrava il genitore ma apriva una sessione **vuota**, mentre il catalogo prometteva di «clonare la cronologia corrente». Era un difetto visibile.
+2. Non c'era modo di ripartire da un punto della conversazione: quando l'agente prende la strada sbagliata a meta' sessione l'unica via era una chat nuova o la TUI.
+3. `/tree` di Studio era un alias di `/resume`/`/sessions`: stesso nome del comando omp che naviga l'albero della sessione, funzione diversa.
+4. `IDEAS.md` aveva scartato i pulsanti per `/fork` e `/tree` perche' significavano scrivere comandi slash nel PTY, cioe' pilotare la TUI al posto dell'utente. Quella ragione vale per la superficie Terminale; la GUI e' un client `omp --mode rpc-ui` e omp 18.8 espone `fork`, `branch`, `get_entries`, `get_tree` e `get_branch_messages` come comandi RPC dichiarati (`docs/rpc.md`, «Session» e «Pi-compatible history/tree commands»). Per la GUI lo scarto non vale piu'; per il Terminale resta valido (la TUI li ha gia').
+
+### Decisioni
+
+1. **`/fork` = comando RPC `fork` senza `entryId`.** Copia l'intera sessione con gli artefatti in un file nuovo e ci resta sopra; poi `get_state` (nuovo `sessionId`/`sessionFile`, la corsia lo persiste) e ricostruzione paginata del transcript con `get_messages_page`. `cancelled: true` (veto di un'estensione, sessione non persistita) e l'errore `code: "session_busy"` lasciano la sessione di prima intatta, transcript e coda compresi, e producono un avviso sopra il composer. Prima del comando si disarma il prewalk come per la nuova chat (decisione «Prewalk»).
+2. **Le diramazioni partono solo a sessione ferma.** omp rifiuta `fork` con `session_busy`, ma `branch` no: un ramo preso a meta' turno perderebbe la risposta in arrivo. Studio blocca prima (streaming, compattazione, domanda aperta, diramazione gia' in corso) e spiega il motivo nella voce disabilitata. Le corsie Laboratorio non diramano (Gate R30: una sola chat continua).
+3. **Messaggi del transcript -> entry durevoli.** Il `messageId` degli eventi e' un id di processo; l'entry di omp si ricava da `get_entries`, tenuto in una copia locale aggiornata in coda con `since` (ricarica completa su `unknown_since`, cambio di sessione o foglia fuori copia). La chiave e' `message.timestamp`, lo stesso valore che omp scrive nel file: Studio lo conserva su ogni entry utente/assistente (`messageTs`), sia dalla diretta sia dalla ricostruzione. Senza timestamp si allinea per posizione dalla coda del ramo attivo con confronto del testo, che regge anche dopo una compattazione.
+4. **«Dirama da qui» su un messaggio utente = nuova sessione fino a *prima* di quel messaggio** (`fork` sul messaggio precedente, artefatti compresi). «Modifica e riprova» fa lo stesso e rimette nel composer testo e immagini del messaggio, senza il blocco di contesto editor che Studio ricalcola all'invio. Per il primo messaggio della sessione non c'e' nulla da copiare e si usa `branch`, che apre la sessione vuota. **Sotto una risposta conclusa** «Dirama da qui» usa `fork` sull'ultimo messaggio del turno (omp estende il taglio fino ai risultati tool del batch).
+5. **Pannello «Rami» da `get_tree`.** Nodi = messaggi utente; il ramo attivo resta una linea dritta a sinistra, i rami alternativi si mostrano rientrati dove si staccano; fuori dal ramo attivo prosegue il figlio piu' recente, come nella TUI. Costruzione iterativa: una sessione lineare lunga ha migliaia di livelli.
+6. **Aprire un ramo crea una sessione nuova.** Via RPC non esiste lo spostamento della foglia nello stesso file (il `navigateTree` del `/tree` della TUI); il clic su un ramo inattivo fa `fork` sulla punta di quel ramo. Il pannello lo dice e rimanda al Terminale per la navigazione nello stesso file. Se omp aggiungera' un comando RPC per `navigateTree`, il clic passera' a quello senza cambiare l'interfaccia.
+7. **Comandi.** `/sessions` diventa alias di `/resume` (elenco sessioni); `/tree` apre il pannello Rami; `/branch` resta l'alias del pannello Git. L'instradamento di questi comandi vive in `src/lib/agent/slashRouter.ts` con test puri: e' il primo pezzo estratto da `handleGuiSlashCommand`, senza spostare il resto.
+
+### Alternative scartate
+
+- **`branch` per «Dirama da qui» su ogni messaggio utente.** Ripartirebbe dal genitore del messaggio come `fork`, ma senza copiare gli artefatti: i risultati tool conservati che citano `artifact://N` non si risolverebbero piu'.
+- **Pilotare `/tree` nel PTY dalla GUI.** E' l'esatto motivo dello scarto di `IDEAS.md` e resta escluso.
+- **Spostare la foglia nello stesso file con `branch` + `new_session`.** Non esiste un comando RPC che lo faccia; simularlo creerebbe comunque file nuovi con un nome che non lo dice.
+
+---
+
+## Fine lavoro «vera» (`session_settled`) e stato/widget delle estensioni (omp 18.8 RPC)
+
+**Data:** 2026-10-08  
+**Esito:** IMPLEMENTATO
+
+### Il problema
+
+- Lo stato della sessione GUI tornava `idle` su `agent_end`. Con subagenti asincroni, bash in background o follow-up in coda l'agente si risveglia dopo: notifica «ha finito» e auto-avvio della coda potevano scattare sopra lavoro ancora in volo.
+- `setStatus` leggeva `event.message`, ma omp manda `statusKey`/`statusText`; `setWidget` e `setTitle` erano ignorati. Lo stato delle estensioni non compariva mai.
+
+### Decisioni
+
+1. **Yield e quiete sono due momenti.** Lo yield (`agent_end` terminale, oppure non terminale con `awaitingAsyncWork: true`) libera il composer e chiude il turno: piè di turno, suggerimenti, `runEndSeq`. La quiete (`session_settled`, `prompt_result.sessionSettled: true`, `get_state.isSettled`) e' la fine del lavoro: solo li' `agentState` passa da `working` a `idle`, quindi `finished`, annuncio e companion. La logica pura sta in `src/lib/agent/settle.ts`.
+2. **Il background resta `working` per tessere e notifiche, ma ha un motivo suo nel cancello.** `GuiGateSnapshot.backgroundWork` produce il blocco `background` («Lavoro in background»): non pronto, niente auto-avvio, ma instradabile verso un'altra corsia come `working`. Nel composer una voce discreta «in background» nella riga di stato.
+3. **Compatibilita' per capability, non per versione.** Finche' omp non mostra `isSettled` o `session_settled` (`settle.aware === false`) lo yield vale come quiete: con omp precedenti il comportamento e' identico a prima. Una fine non terminale con `awaitingAsyncWork` e' trattata come yield solo quando omp riporta la quiete; altrimenti resta l'attesa del prossimo `agent_end`.
+4. **Rete di sicurezza.** Mentre si aspetta la quiete, `get_state` ogni 15 s riallinea `isSettled` nel caso un `session_settled` vada perso. Un processo nuovo (`ready`), un'uscita o la chiusura azzerano quiete e stato delle estensioni.
+5. **`prompt_result.status === "error"`** con `agentInvoked: true` diventa un avviso in chat con provider, modello, HTTP e «si puo' riprovare» (`error.retryable`). Non si duplica con la riga della quota nel vassoio ne' con la risposta d'errore legacy dei prompt rifiutati prima dell'agente.
+6. **Estensioni.** `extensionStatus` (per `statusKey`; testo vuoto o assente toglie la voce) e `extensionWidgets` (`widgetKey` → righe + `aboveEditor`/`belowEditor`; righe assenti tolgono il widget). Le voci di stato sono chip nella riga di stato del composer (overflow nel menu «…»), i widget blocchi monospazio sopra o sotto il composer. I colori ANSI si riducono ai toni semantici del tema (`--danger`, `--success`, `--warn`, `--brand-ink`, `--ink`, `--ink-faint`): la palette a sedici colori resta del terminale (Sacred Terminal Rule). La logica pura e' in `src/lib/agent/extensionUi.ts`.
+7. **`setTitle` ignorato di proposito.** E' il titolo del terminale, che omp in RPC sopprime senza `PI_RPC_EMIT_TITLE=1`; il nome della chat Studio lo genera e lo salva da se'.
+
+### Vincoli verificati su `omp` 18.8.4
+
+- `docs/rpc.md` § «Yield vs settled», `prompt` payload, forma di `agent_end` (`isTerminal`, `yielded`, `awaitingAsyncWork`).
+- `rpc-types.ts`: `RpcPromptResultFrame`, `RpcSessionSettledFrame`, `RpcSessionState.isSettled`/`hasPendingAsyncWork`, `RpcExtensionUIRequest` (`setStatus`, `setWidget`, `setTitle`).
+- `rpc-mode.ts`: `setWidget` inoltra solo array di stringhe; i widget disegnati da factory TUI (dashboard `autoresearch`) arrivano solo come rimozione.
+
+---
+
+## Gate R34: l'auto-avvio parte solo a sessione ferma e stabile
+
+**Data:** 2026-10-08  
+**Esito:** IMPLEMENTATO  
+**Aggiorna:** Gate R12 (condizione di prontezza dell'auto-avvio e uscita dall'effetto)
+
+### Il problema riportato
+
+Con l'interruttore acceso i task in coda partivano uno dopo l'altro senza aspettare la fine del precedente, anche mentre l'agente era solo in pausa fra un tool e l'altro. Per questo l'auto-avvio non veniva mai usato.
+
+### Cause trovate (con evidenza)
+
+1. **`turn_end` fra un giro di tool e l'altro (GUI, causa principale).** `AgentSession` spegne `isStreaming` e riporta `agentState` a `idle` (`resolveSettledState`) a ogni `turn_end`; `turn_start` lo riaccende. Il cancello leggeva solo quei due campi: nella fixture reale `tools-real.ndjson` si apre quattro volte dentro un solo run. L'effetto spediva al primo frame con un `queueMicrotask` e `dispatchTaskInLane` chiamava `newSession()` sopra il run vivo.
+2. **Prompt ammesso, run non ancora partito (GUI).** In omp 18.8 (`rpc-mode.ts`, `#promptWithMessage`) la risposta al comando `prompt` parte su `onPromptAdmitted`, prima di preflight, controllo della chiave, compattazione pre-prompt e `agent_start`. Dopo la consegna `newSession()` aveva lasciato `agentState = idle` e `terminalBusy` tornava falso: il task successivo partiva subito, con un altro `new_session` sopra il prompt appena inviato.
+3. **Retry e compattazione che continuano il run.** Passano da un `agent_end` non terminale (`yielded: false`): Studio lo ignorava giustamente, ma il `turn_end` precedente aveva gia' aperto il cancello, per tutta la durata del backoff (secondi) o della compattazione.
+4. **Coda nativa di omp.** Steer/follow-up accodati faranno partire un altro turno; con un omp senza quiete nessun campo lo diceva al cancello.
+5. **Terminale: stesso buco di (2).** Il titolo resta `π >` finche' omp non avvia il run; `assertAutomationReady` guardava solo il titolo e il secondo task scriveva `/new` sopra il primo. Il titolo invece **non** va a `idle` fra i tool, ne' durante retry e compattazione che continua il run (verificato in `event-controller.ts` di omp 18.8).
+6. **Nessuna stabilita' ne' ri-verifica.** Un singolo frame `ready` bastava; un fallimento su Principale veniva ritentato in un ciclo stretto.
+
+### Decisioni
+
+1. **Il cancello conosce il run, non il giro di tool.** `GuiGateSnapshot` aggiunge `runActive` (`settle.running`), `awaitingRun`, `retrying`, `nativeQueue`, `subagentsRunning` (solo omp senza quiete). Run vivo, attesa del run e retry danno `working`; coda nativa e subagenti danno `background`. Entrambi restano instradabili in corsia. Logica pura in `src/lib/agent/runActivity.ts`.
+2. **Stabilita' continuata e ri-verifica autorevole.** `AutoDispatchArbiter` (`src/lib/lanes/autoDispatchArbiter.ts`): 2,5 s di idoneita' continuata (3 s nel terminale), in GUI anche 2,5 s dall'ultimo evento del ciclo di vita; poi `get_state` (GUI) o lo stato del PTY (terminale) e una seconda lettura del cancello. Se non e' quieto, nuovo tentativo dopo 5 s senza `get_state` a raffica. 2,5 s sono molto piu' delle pause fra i giri di tool (millisecondi) e restano impercettibili rispetto alla durata di un task.
+3. **Lock per progetto** dalla ri-verifica alla consegna; spedizione da timer, fuori dall'effetto. Fallimento su Principale: pausa di 30 s per quel task.
+4. **Le voci di stato delle estensioni non sono attivita'.** Un'estensione che aggiorna la riga di stato a vuoto non deve tenere ferma la coda per sempre.
+5. **Terminale: il segnale piu' affidabile e' il titolo, piu' l'attesa del run.** Dopo la scrittura del task Studio ignora `idle` fino al primo `working`/`attention` (o 30 s). La barra OSC 9;4 si legge quando c'e' (`terminal.showProgress` in omp), ma non si attiva da Studio: cambierebbe le preferenze dell'utente. Limite dichiarato: un job in background porta il titolo a `idle`; per code con subagenti asincroni la superficie consigliata e' la GUI.
+6. **Reti di sicurezza contro il blocco opposto.** `awaitingRun` scade dopo 30 s senza `agent_start` (non durante una compattazione); con un omp senza quiete un run senza eventi da 20 s si chiude se `get_state.isStreaming` e' falso; errori, uscita del processo e rete dello Stop chiudono il run.
+
+### Alternative scartate
+
+- **Solo debounce.** Copre le pause fra i tool, non il backoff dei retry ne' la finestra prima di `agent_start` con preflight lente.
+- **Aspettare il `prompt_result` del task precedente.** Esiste solo con omp 18.8 e non copre il terminale.
+- **Forzare `TERM_PROGRAM=tern` nel PTY per avere sempre la barra OSC 9;4.** Cambia anche titolo e capability della TUI.
+
+---
+
+## Gate R35: coda che parte al reset della quota
+
+**Data:** 2026-10-08  
+**Esito:** IMPLEMENTATO (da verificare su Windows con omp reale)  
+**Aggiorna:** Gate R12 (un task programmato parte anche con l'auto-avvio spento), Gate R34 (stesso arbitro)  
+**Prototipo:** `coda-reset.html`, variante A (etichetta sul task)
+
+### Il problema
+
+Con la quota del provider finita, un task in coda va a sbattere sul limite oppure resta fermo finche' l'utente non torna al PC al momento del reset. Una sessione fermata dal limite si poteva solo spostare su un altro modello.
+
+### Decisioni (di Maurizio)
+
+1. **Programmazione per task, con l'orologio.** Un'icona orologio (non il menu «⋯») sulla riga della coda e nel TaskEditor: «Al reset della quota», «Non prima delle HH:MM», «Scegli un orario…». Il campo `schedule` sta alla **radice** dello `StudioTask` (in `options` sparirebbe: `sanitizeLoadedTasks` lo ricostruisce con chiavi fisse), con `resume` per le voci di ripresa. Estensione `studio-tasks` e tool `project_tasks` lo conservano, lo mostrano e lo accettano.
+2. **Parte anche con l'auto-avvio spento.** La programmazione e' gia' il gesto esplicito (Read-Before-Run). Passa dallo stesso arbitro dell'auto-avvio: stabilita', ri-verifica, lock per progetto, slot unico di R27.
+3. **Il reset non si congela.** Ruolo → provider → finestra, riletto a ogni giro da `omp usage`; multi-account (vale il primo che si libera) e finestra settimanale (l'etichetta mostra la data). Prima di partire, snapshot forzato. Senza dati, l'orario salvato e' dichiarato «stima» (Principio 7).
+4. **«Aspetta il prossimo reset» nel blocco di quota** accanto a «Passa a…»: voce di ripresa in testa alla coda (`/retry` nella stessa sessione), solo su clic (nessuna rimessa in coda automatica).
+5. **Studio chiuso al reset: banner, mai partenza automatica** («Avvia ora / Lasciali in coda»), nemmeno con l'auto-avvio acceso.
+6. **Visibilita' senza cruscotti:** chip con orologio e conto alla rovescia in coda, orario sulla riga della Companion, contatore sulla chip della quota e riga nel popover usage.
+
+### Alternative scartate
+
+- **Interruttore di progetto «Rispetta la quota»** (variante B): implicito, una sola soglia, richiede l'auto-avvio acceso, niente «dopo le 19».
+- **Sezione «Più tardi» con linea del tempo** (variante C): troppa superficie in 300 px, scivola verso il cruscotto che `PRODUCT.md` evita.
+- **`setTimeout` fino al reset:** con lo standby scade in ritardo o tutto insieme; si usa un passo fisso di 30 s piu' fuoco e risveglio.
+
+### Limiti dichiarati
+
+- Studio deve restare aperto (e il PC acceso): non c'e' vassoio di sistema.
+- Non fatti in questa iterazione: la «guardia» all'avvio con quota ≤ 10%, il trattenimento automatico dei task non programmati, il parsing «al reset/stanotte» nel Companion, la riga nella barra inferiore.
+
+---
+
+## Gate R36: modalita' Piano nella chat GUI con l'estensione `studio-plan`
+
+**Data:** 2026-10-08
+**Esito:** IMPLEMENTATO (segnaposto: il numero del Gate si assegna al merge). Riferimento visivo: prototipo `plan-mode.html`, variante A.
+
+### Il problema
+
+1. Il `/plan` di omp (18.8.x) esiste solo nella TUI: `builtin-modes.ts` lo dichiara con `handleTui`, non c'e' un comando RPC `plan`, `get_state` non riporta lo stato del Piano e la revisione del piano (`PlanReviewOverlay`) e' un overlay della TUI. Nella chat GUI (`omp --mode rpc-ui`) `/plan` non faceva nulla di utile.
+2. Il Piano e' il modo giusto per i compiti lunghi: esplorare in sola lettura, scrivere un piano completo, approvarlo e farlo eseguire da una sessione pulita. Mancava proprio nella superficie pensata per chi non usa la TUI.
+3. Pilotare `/plan` nel PTY dalla GUI e' escluso per la stessa ragione dello scarto di `IDEAS.md` sui pulsanti per i comandi TUI (vedi Gate R33).
+
+### Decisioni
+
+1. **Un'estensione di Studio fa la parte di omp.** `extensions/studio-plan.ts` viene passata con `-e` a ogni processo omp (come `studio-tasks`/`studio-lanes`) ma si accende solo nel processo GUI: `rpc/mod.rs` imposta `OMP_STUDIO_PLAN=gui`; nel PTY la variabile manca e l'estensione resta inerte, cosi' nel Terminale vale il `/plan` nativo. Offre il comando nascosto `/studio-plan on|off|status|review`, l'hook `before_agent_start` (prompt di sistema del Piano; per i subagenti quello dei subagenti), l'hook `tool_call` (guardia di scrittura) e lo strumento `studio_plan_submit({slug, title})`.
+2. **Prompt copiati da omp.** I testi del Piano sono adattati da `plan-mode-active.md`, `plan-mode-subagent.md`, `plan-mode-approved.md` e `plan-mode-compact-instructions.md` di oh-my-pi 18.8.4 (MIT, attribuzione nei file). L'adattamento sostituisce `resolve { action: "apply" }` con `studio_plan_submit`. Vanno riallineati a ogni release di omp (controllo in `docs/COMMANDS.md`).
+3. **Guardia di scrittura come quella nativa, fail-closed.** In Piano `write`/`edit`/`ast_edit`/`notebook*`/`apply_patch` passano solo verso `local://` e `<cwd>/.omp/plans/`; rinomina ed eliminazione sono sempre vietate; uno strumento di scrittura senza un percorso riconoscibile e' bloccato. `bash` e gli strumenti di lettura non sono toccati: come in omp, la sola lettura dei comandi e' affidata al prompt.
+4. **Revisione = `extension_ui_request` di tipo `editor` riconoscibile.** `studio_plan_submit` legge `local://<slug>-plan.md` e chiama `ctx.ui.editor` con titolo `studio-plan-review:<meta JSON>` e il piano come testo precompilato. Studio riconosce il prefisso (`parsePlanReviewRequest`), apre la card del piano a sezioni (`##`) con commenti, modifica ed eliminazione per sezione, e risponde con la decisione JSON (`approve | refine | save | cancel`, strada, ruolo, autosalvataggio, contenuto riscritto). Un client RPC che non conosce il prefisso vede un normale editor e il flusso resta usabile.
+5. **Lo stato viaggia su `setStatus('studio-plan', json)`** ed e' salvato nella sessione come voce custom `studio-plan-state`: dopo un resume l'estensione lo ripristina e lo ripubblica, e la GUI lo prende come fonte di verita'.
+6. **Il passaggio di compito lo orchestra Studio con i comandi RPC esistenti.** All'approvazione l'estensione salva la copia in `.omp/plans/<TITOLO>_PLAN.md` (stessa regola di `planSaveFileName` di omp, senza sovrascrivere) e spegne la guardia; lo strumento chiude il turno. Studio poi, a sessione ferma, segue la strada scelta (tasti 1-4): **nuova sessione** (predefinita, `new_session`), **nuova corsia** (worktree via `createNewLane`, la vista la segue), **compatta e continua** (`compact` con le istruzioni del piano), **mantieni il contesto**; applica il ruolo d'esecuzione (solo i ruoli configurati, `default` sempre) e consegna il prompt «piano approvato» con il piano incollato. Ogni passo e' visibile nella card del passaggio, con «Torna alla sessione di pianificazione».
+7. **Ingressi.** `/plan [testo]` (con testo entra e manda), `/plan-review`, la pillola «Piano» del composer e `Alt+Maiusc+P` (`Ctrl+Opzione+Maiusc+P` su Mac, come `app.plan.toggle` di omp). All'entrata si passa al ruolo `plan` se configurato e il modello precedente torna all'uscita senza approvazione. I messaggi mandati in Piano hanno il badge «Piano». Il Laboratorio e' escluso (Gate R30: una sola chat continua).
+8. **Le card del Piano sono voci del solo client** (`PlanEntry`): non sono nella storia di omp; si ancorano al `messageTs` dell'ultimo messaggio e tornano al loro posto quando il transcript si ricostruisce (`reanchorEntries`).
+
+### Limiti noti
+
+- Se omp aggiunge un comando RPC per il Piano (vedi bozza di issue upstream), l'estensione va sostituita: il frontend parla gia' in termini di stato, revisione e decisione e cambia solo il trasporto.
+- La guardia non risolve i symlink (la nativa usa `realpath` sull'antenato esistente): un symlink dentro `.omp/plans/` che punta fuori resterebbe scrivibile. Rischio basso, da chiudere se emerge.
+- `bash` non e' bloccato, come nel Piano nativo: un agente che ignora il prompt puo' cambiare file con la shell.
+- I prompt sono copie: tra una release di omp e il riallineamento il comportamento della GUI puo' divergere da quello della TUI.
+- Lo stato del Piano e' per processo omp: i subagenti vedono la stessa guardia; due sessioni principali nello stesso processo non sono un caso di Studio.
+- Non verificato con omp reale su Windows: radice di `local://` con percorsi lunghi (ripiego in `%TEMP%\omp-local\<id>` come omp), corsie worktree dal passaggio, ripresa dopo il riavvio di Studio a revisione aperta. La parte Rust (`pty/mod.rs`, `rpc/mod.rs`) non e' stata compilata in sandbox.
+
+### Alternative scartate
+
+- **Pilotare il `/plan` della TUI nel PTY.** Stesso motivo dello scarto di `IDEAS.md`.
+- **Solo prompt, senza estensione.** Nessuna guardia di scrittura reale e nessun punto in cui fermare l'agente fino alla decisione.
+- **Domanda `ask` per l'approvazione.** Non porta il piano completo ne' le modifiche per sezione; il prompt di omp vieta esplicitamente di chiedere l'approvazione con `ask`.
+
+---
+
+## Gate R37: domande a margine (`/btw`) nella chat GUI con i comandi RPC di omp
+
+**Data:** 2026-10-08
+**Esito:** IMPLEMENTATO (variante A del prototipo `btw.html`: riquadro effimero sopra il composer)
+
+### Il problema
+
+1. In omp `/btw` ha solo il gestore della TUI: in RPC il dispatcher dei builtin lo salta e il testo arriva a `session.prompt`. Scritto nella chat GUI, `/btw perché…` diventava un messaggio normale al modello principale, entrava nel contesto e, ad agente occupato, finiva in coda.
+2. Non c'era un modo di chiedere qualcosa sulla sessione **mentre** l'agente lavora senza interromperlo (steer) o accodare un messaggio (follow-up).
+3. omp (dalla 18.6.3) espone invece la funzione completa come comandi RPC dichiarati: `btw`, `btw_cancel`, `get_btw_history` e i frame `btw_record`/`btw_delta` (`docs/rpc.md`, «Side questions»), con lo storico salvato accanto alla sessione e condiviso con la TUI.
+
+### Decisioni
+
+1. **Riquadro effimero sopra il composer (variante A).** Il gesto piu' rapido e la chat resta pulita; il pannello laterale (variante B) toglierebbe larghezza alla chat e la bolla nel transcript (C) rischia di confondere cio' che e' nel contesto con cio' che non lo e'. Lo Storico sta in una tendina del riquadro: se servira' sempre a portata, il riquadro puo' evolvere in B senza cambiare lo stato (`SessionBtw`).
+2. **Tre ingressi, un solo stato.** Pulsante «A margine» nel composer, `Ctrl+B` (`⌘B` su Mac) e `/btw [domanda]`. Studio intercetta sempre `/btw` nel guscio (`routeBtwSlash`): non va mai a omp come prompt. Senza domanda apre il riquadro; con la domanda la manda subito.
+3. **Niente nel transcript.** I frame `btw_*` vanno a `AgentSession.btw` e mai a `entries`. Esc chiude il riquadro ma la domanda continua: l'argomento aperto resta una riga del vassoio («sta rispondendo» / «risposta pronta» · «Apri»); la X della riga la toglie senza annullare.
+4. **Approfondimenti nello stesso argomento.** Dopo una risposta il campo del riquadro approfondisce (`recordId`); «Nuova domanda» apre un argomento nuovo. Una domanda per volta per sessione, come impone omp: Studio non manda la seconda e lo dice invece di mostrare l'errore di omp.
+5. **«Usa nel messaggio» = citazione, non promozione.** Domanda e ultima risposta diventano un chip nel composer e un blockquote anteposto al testo **solo all'invio**: entrano nel contesto solo se l'utente invia. Il *branch* della TUI (promuovere lo scambio nella sessione) non ha un comando RPC; resta una richiesta upstream (`btw_branch`).
+6. **omp senza `/btw`.** `get_btw_history` a fine insediamento fa da sonda: `Unknown command` (o un `parse` senza id) nasconde il pulsante, e `/btw` o `Ctrl+B` lasciano un avviso che chiede di aggiornare omp dalla barra di stato. Nessun rimando al terminale. Un processo nuovo risonda.
+7. **Cambio di sessione.** omp annulla la domanda in corso su nuova chat, ripresa, fork e ramo; Studio azzera storico e argomento aperto quando `get_state` porta un altro `sessionId`. Bozza del riquadro e citazione restano: sono testo dell'utente.
+8. **Suggerimenti statici.** Il prototipo mostrava domande legate alla sessione; per non spendere una chiamata al modello all'apertura il riquadro propone tre domande generiche (cosa sta facendo, quanto manca, riassunto delle decisioni).
+
+### Alternative scartate
+
+- **Lasciare `/btw` a omp.** In RPC diventa un prompt: e' esattamente il difetto da correggere.
+- **Estensione Studio che intercetta `/btw`.** Inutile: i comandi RPC coprono domanda, approfondimenti, annullamento, storico e streaming.
+- **Un pin del layout per il pulsante.** Il layout salvato non riceve le voci nuove (vanno in «Nuovi»): il pulsante e' fisso nel composer e la voce `btw` del catalogo resta fissabile sotto il composer.
+
+### Rischi accettati
+
+- Con il protocollo v1 lo storico non e' paginato: uno storico molto grande puo' superare il limite del trasporto (con la v2 omp lo spezza in chunk, che Studio gia' ricompone).
+- Il riquadro copre l'ultima parte del transcript finche' e' aperto; Esc lo chiude senza perdere la risposta.
+
+---
+
+## Gate R38: /loop nella chat GUI con un'estensione di Studio
+
+**Data:** 2026-10-08
+**Esito:** IMPLEMENTATO (numerazione definitiva al merge)
+
+### Il problema
+
+In omp `/loop` ha solo `handleTui` e tutto il motore vive in `InteractiveMode`: via RPC il dispatcher salta i comandi solo-TUI e il testo arrivava al modello come prompt normale. Non esiste un comando RPC `loop`. I mattoni ci sono (`prompt`, `abort`, `compact`, `new_session`, `agent_end`), mancano il motore e una condizione shell che non finisca nel contesto: il comando RPC `bash` registra l'output nella sessione.
+
+### Decisioni
+
+1. **Motore in un'estensione di Studio, `extensions/studio-loop.ts`**, caricata con `-e` come le altre (`pty/mod.rs`, `rpc/mod.rs`). L'handler `input` gira prima dei builtin anche in RPC (`emitInput(…, "rpc")`) e consuma `/loop …` e le righe di controllo `/studio-loop pause|resume|stop|dismiss|probe|status` anche a turno in corso. `agent_end` chiude il giro, `sendUserMessage` avvia il successivo dopo 800 ms. Semantica della TUI: il primo giro parte sempre, il limite (giri o durata) si controlla prima della condizione, la condizione gira prima di ogni giro dal secondo; exit 0/1 sono risposte, il resto (127, timeout di 30 s, mancato avvio) e' una condizione rotta che ferma il loop e lo spiega. Un abort esterno (Esc, Stop del turno) mette in pausa come nella TUI.
+2. **Solo GUI.** L'estensione si registra solo nei processi `--mode rpc-ui` e agisce solo sulla sessione principale (`ctx.mode === "rpc"`, profondita' 0: le estensioni vengono rilegate anche ai subagenti). Nel Terminale resta il `/loop` nativo; la GUI non rimanda mai al terminale.
+3. **Condizione in una shell separata con `pi.exec`.** `pi.exec` non passa da una shell e `executeBash` non e' nell'API delle estensioni: l'estensione cerca la shell come `resolveWindowsShell` di omp (Git Bash nei percorsi noti, poi `bash`/`sh` sul PATH, poi `cmd.exe /d /s /c`); su POSIX `$SHELL` se bash/zsh, altrimenti `/bin/bash` o `sh`. L'output non entra nel contesto. Non legge `shellPath` delle impostazioni di omp.
+4. **Stato verso la GUI con `setStatus("studio.loop", json)`** (snapshot: loop e ultimo «Prova ora»), lo stesso canale che leggono Companion e coda tramite `AgentSession.loop`. Persistenza con `appendEntry("studio-loop", { loop })` a ogni transizione: al resume un loop vivo torna **in pausa**, mai in corsa da solo; un giro lasciato a meta' conta come interrotto. Dopo l'insediamento Studio chiede `/studio-loop status`, perche' il frame di `session_start` puo' arrivare prima che la chat ascolti.
+5. **Presenza del motore verificata prima di inviare.** L'estensione registra il comando `studio-loop` (compare in `get_available_commands`, nascosto dai menu di Studio): senza, Studio non manda nulla, perche' `/loop` finirebbe al modello come testo.
+6. **«Tra i giri»:** `prompt` (continua), `compact` (`ctx.compact()` prima del giro), `reset` (sessione nuova). Le estensioni hanno `newSession` solo nei comandi: con `reset` il motore si ferma in `resetting`, Studio manda `new_session` e il giro riparte su `session_switch` con motivo `new`. In omp e' l'impostazione `loop.mode`; nella GUI e' il flag `--between` (solo Studio).
+7. **Interfaccia: variante B del prototipo** (`out/prototipi/loop.html?v=B`). Il composer diventa la modalita' ripetizione (pillole con menu, anteprima della riga `/loop …`, «Avvia»), poi il pannello di controllo (barra a segmenti, contatore grande, Pausa a fine giro / Riprendi / Stop immediato al posto di Invia, «Prova ora»). Implementata come `shellOverride` del `Composer`: avvisi e riga di stato restano, la bozza resta nell'editor nascosto. I giri si riconoscono dal prompt ripetuto (`UserEntry.loopGiro`, marcato perche' lo stato del giro arriva prima del prompt) e si ripiegano nel transcript (`foldLoopItems`).
+8. **La sessione resta occupata finche' il loop e' attivo**, pausa compresa: `GuiGateSnapshot.loopActive` blocca il cancello della coda (blocco `loop`, instradabile su un'altra corsia) e `laneBusy`; fra due giri la corsia risulta al lavoro.
+9. **Il loop non parte a turno in corso**: il primo giro diventerebbe uno steer del turno attivo.
+
+### Alternative scartate
+
+- **Motore dentro Studio** (`loopRunner` + comando Rust per la condizione): semantica duplicata lato GUI e un secondo runner shell da mantenere.
+- **Comando RPC `bash` per la condizione:** registra l'output nella sessione e sporca il contesto.
+- **Ripristinare un loop in corsa dopo il resume:** ripartirebbe da solo senza che l'utente lo veda.
+
+### Da verificare su Windows con omp reale
+
+Caricamento dell'estensione in `rpc-ui`, ordine `setStatus` → messaggio utente del giro, shell scelta per la condizione (Git Bash vs `cmd.exe`), `compact` e `reset` tra i giri, ripristino in pausa dopo il resume.
+
+---
+
+## Gate R39: obiettivo guidato nella chat GUI (intervista, variante B)
+
+**Data:** 2026-10-08
+**Esito:** IMPLEMENTATO (prototipo `guided-goal.html`, variante B approvata)
+
+### Il problema
+
+1. In omp `/goal` e `/guided-goal` hanno solo la versione TUI. Nella chat GUI (`omp --mode rpc-ui`) il testo arrivava al modello come prompt normale: niente obiettivo, contesto sporcato.
+2. Il goal mode era raggiungibile via RPC (`goal {op}` + `goal_updated`) e Studio aveva gia' il vassoio con Pausa/Riprendi/Elimina, ma **nessun punto di creazione**.
+3. Via RPC un obiettivo **non prosegue da solo**: `goal.continuationModes` vale `["interactive"]` di default, quindi in Studio faceva un turno e si fermava.
+4. omp applica solo il `token_budget`: il «tetto di tentativi» dell'intervista di omp e' testo nell'obiettivo.
+
+### Decisioni
+
+1. **Intervista in chat, una domanda alla volta (variante B).** Cinque campi come l'intervista di omp (criteri binari, verifica, tetto, confini, stop). La domanda corrente si risponde da una scheda a scelte che prende il posto del composer (grammatica di AskCard, «Altro…» per la risposta libera, Salta, Annulla con Esc); una striscia in cima alla chat mostra i cinque campi che si spuntano. Alla fine la bozza arriva come card nel transcript, modificabile sul posto.
+2. **Il flusso e' di Studio ed e' deterministico.** Domande e risposte proposte sono fisse (`src/lib/agent/guidedGoal.ts`), le risposte libere si interpretano con parser puri; nessun turno del modello e' necessario. Le entry dell'intervista sono locali al transcript: non vanno a omp e non entrano nel contesto (il «contro» della variante B, «occupa la sessione per 5 turni», non c'e').
+3. **L'agente puo' affinare le proposte, senza occupare la sessione.** Estensione `extensions/studio-goal.ts` (solo GUI): comando `/studio-goal suggest {…}` mandato come prompt (i comandi delle estensioni partono prima di tutto e anche a turno in corso), lettura dei comandi del progetto, `ctx.runEphemeralTurn({tools:false})` come `/btw`, risposta con `setStatus("studio.goal", json)` subito azzerato. Le proposte sostituiscono solo le domande non ancora risposte e possono riformulare l'obiettivo in modo misurabile. Senza estensione, con omp senza turni a margine o con un errore, nulla cambia nel flusso.
+4. **Controlli prima dell'avvio.** «Avvia obiettivo» resta spento con obiettivo vuoto, nessun criterio, un criterio vago («più veloce», «più pulito», «faster» senza numero, comando, exit code o test), nessuna verifica o tetto incompleto. Confini e stop mancanti sono consigli non bloccanti. Il criterio vago e' segnalato gia' nella scheda (risposta libera) e in giallo nella striscia e nella bozza.
+5. **`goal create` con markdown a sezioni fisse** e `token_budget` dal tetto; il tetto di tentativi entra nelle condizioni di stop (`Stop after N attempts and ask the user how to proceed.`) e **Studio lo fa rispettare**: conta un tentativo per ogni `agent_start` con l'obiettivo attivo e fa `goal pause` all'`agent_end` terminale che raggiunge il tetto, con un avviso. Il conteggio vive in Studio: dopo un riavvio riparte da zero (il tetto si rilegge dal testo).
+6. **Continuazione abilitata da Studio, senza voce nelle Impostazioni.** L'overlay GUI per-sessione aggiunge `goal.continuationModes: [interactive, rpc]`. Vale solo per i processi `rpc-ui` lanciati da Studio; la config dell'utente e il terminale non cambiano.
+7. **Banner fisso in cima alla chat** per ogni obiettivo della sessione (anche creato con `/goal` o dallo strumento `goal` dell'agente): titolo, stato, tentativi contro il tetto a segmenti, budget con barra, tempo, Pausa/Riprendi/Stop (Stop = `drop` con conferma), criteri e verifica a scomparsa. Sostituisce la sezione obiettivo del vassoio: l'obiettivo e' la cornice della sessione, non un'attivita' accanto al composer. Completato resta verde e chiudibile.
+8. **La coda considera la chat occupata** finche' l'obiettivo e' attivo o in definizione (`goalHold` nel cancello, `laneBusy` nel routing): fra un tentativo e l'altro l'agente risulta fermo ma omp sta per ripartire.
+9. **Ingressi.** Pulsante «Obiettivo» fissato di fabbrica nella barra del composer (voce `guided-goal` del catalogo, unica eccezione alla regola «comandi del guscio non fissati»), `/guided-goal [idea]`, `/goal` senza argomenti (intervista se non c'e' un obiettivo, stato se c'e'), `/goal <obiettivo>` crea subito come in omp, `/goal pause|resume|drop|stop|show`. `/goal budget` non ha un RPC: Studio lo spiega. Mai rimandi al terminale. In Laboratorio non e' disponibile.
+
+### Alternative scartate
+
+- **Kickoff nascosto con il prompt `guided-goal-interview.md` di omp** (l'agente intervista nella sessione): servirebbero `prompt synthetic` e `set_active_tools` via RPC, che non esistono; ogni domanda sarebbe un turno nel contesto e l'intervista non funzionerebbe senza modello.
+- **Domande generate dall'agente con `ask`**: stessa occupazione della sessione e nessun flusso deterministico.
+- **Voce in Impostazioni per `goal.continuationModes`**: senza continuazione un obiettivo creato dalla GUI non serve a nulla; non e' una preferenza.
+- **Tetto di tentativi applicato da omp**: non esiste il campo; resta la richiesta upstream (insieme a un'op `goal interview`).
+
+---
+
+## Gate R40: heads-up di fine turno, una frase sola e solo se serve
+
+**Data:** 2026-10-08
+**Esito:** APPROVATO (variante A del prototipo `heads-up.html`, ridotta su indicazione di Maurizio)
+
+### Il problema
+
+Nei turni lunghi la cosa importante (un test fallito e lasciato lì, una modifica allo schema del database, una domanda posta a metà risposta) sta in mezzo al racconto e si perde. Il prototipo proponeva una scheda «Da guardare» con fino a cinque voci e un'azione per voce: troppo. Maurizio vuole una card piccola con **al massimo una frase**, che compare solo quando c'è davvero qualcosa.
+
+### Decisioni
+
+1. **Una frase, tre fonti, priorità fissa.** Agente (`studio_headsup`) > sintesi smol > frase composta dai fatti. L'agente vince perché solo lui sa cosa non ha verificato o cosa ha deciso da solo; smol sostituisce i fatti perché li riceve in ingresso e li fonde col racconto; i fatti sono il ripiego deterministico a costo zero.
+2. **Fatti certi calcolati da Studio** (`turnHeadsUp.ts`, funzioni pure): comando di **verifica** (test, build, typecheck, lint) fallito e mai riuscito dopo con la stessa chiave; domanda `ask` scaduta e risolta da omp col default; comando rischioso riuscito (`git push`, `reset --hard`, `clean -f`, `rm -r` fuori da `node_modules`/`dist`/`/tmp`…, `DROP TABLE`, `publish`); file delicato modificato (manifest delle dipendenze, migrazioni e `.sql`, `schema.prisma`, CI, `.env*`, `AGENTS.md`/`CLAUDE.md`, `tauri.conf.json`, capability). Un `grep` che esce con 1 non è un fatto; i lockfile da soli non contano. La frase dai fatti usa al massimo le due categorie più gravi.
+3. **Tool `studio_headsup`** in `extensions/studio-headsup.ts`, caricato con `-e` in GUI e PTY come le altre estensioni. Nessuna riga nel prompt di sistema: la regola d'uso (quando chiamarlo e quando no, una frase, max 200 caratteri) sta nella descrizione del tool. Restituisce subito «ok»; la frase sta negli argomenti, quindi resta nel `.jsonl` e torna anche dopo una ripresa.
+4. **Ripiego smol nella chiamata esistente.** Nessuna seconda chiamata: `generate_prompt_suggestions` riceve `turnDigest` e `wantHeadsUp` e risponde con `headsUp` (una frase o `null`). Si chiede solo se l'agente ha taciuto e il turno è grande (fatti certi, almeno 8 chiamate o 1.500 caratteri di testo). Con i suggerimenti dinamici spenti smol non parte e restano i fatti.
+5. **Dove:** card prima del piè di turno; la stessa frase nella card del progetto della companion e nella notifica di sistema (una per turno, dopo l'analisi post-turno; mai se il turno chiede già una risposta o se stai guardando quel progetto; con lo stile compatto la frase resta fuori dalla notifica). I turni passati mostrano solo la frase dell'agente.
+6. **Gesti:** clic sulla frase = vai al punto (primo fatto, altrimenti ultima risposta); X = visto. Il «visto» è machine-local (`localStorage`, chiave sessione + hash della frase), non in `~/.omp` né nel repo.
+
+### Perché non le alternative
+
+- **Elenco di voci con azioni (prototipo A pieno):** più informazione, ma occupa metà chat e diventa un secondo racconto da leggere.
+- **Solo smol:** vede solo il testo, non sa cosa non è stato verificato e tende a inventare cautele generiche.
+- **Solo agente:** può dimenticarsene, e su un fallimento è giudice di parte.
+- **Riga fissa nel prompt di sistema:** costa token a ogni turno; la descrizione del tool basta.
+
+### Rischi accettati
+
+- La lista dei file delicati e dei comandi di verifica è un default fisso, non ancora configurabile per progetto.
+- Nelle sessioni terminale (PTY) la card non esiste: la TUI mostra la chiamata `studio_headsup` come un tool qualsiasi, e companion e notifica non ricevono la frase.
+- Il modello può chiamare `studio_headsup` anche quando non serve: la descrizione lo vieta esplicitamente, ma l'effetto va osservato sull'uso reale.
+
+---
+
+## Gate R41: diario di bordo e documenti di progetto tenuti dall'agente
+
+**Data:** 2026-10-08
+**Esito:** IMPLEMENTATO (variante A del prototipo `diario-progetto.html`; numero del Gate da assegnare al merge)
+
+### Il problema
+
+1. Cio' che si decide in una sessione (scelte, motivi, strade scartate, dubbi) resta nel transcript: la sessione successiva, un'altra corsia o un altro modello non lo sanno, e Maurizio deve rispiegarlo.
+2. `AGENTS.md` e le regole dicono all'agente *come* lavorare, non *cosa* e' il progetto e *perche'* e' fatto cosi'; mescolarci la storia farebbe crescere il contesto di ogni turno.
+3. Chiedere all'utente di approvare ogni riga di diario (schede da confermare) trasforma un aiuto in un compito: Maurizio vuole che l'agente lo tenga quasi interamente da solo.
+
+### Decisioni
+
+1. **Un'estensione, un tool, un comando.** `extensions/studio-docs.ts` si carica con `-e` nelle sessioni di progetto PTY e RPC (non nel Laboratorio), come `studio-tasks` e `studio-lanes`. Registra il tool `project_docs` (`list`, `read`, `search`, `update`, `sources`, `init`) e il comando `/diario` (`init [locale]`, `aggiorna`, `locale`, `repo`, `<domanda>`). Il prompt di sistema riceve **una sola riga** (~60 token, hook `before_agent_start`) e solo nei progetti col diario attivo: documenti e diario si leggono su richiesta.
+2. **Dove vivono i file: nel repo, per default.** Diario mensile in `docs/diario/AAAA-MM.md`, documenti tematici in `docs/progetto/{scopo,uso,decisioni,storia,domande-aperte}.md`, manifest in `.omp/progetto.json`. Motivazione della cartella:
+   - il diario e' conoscenza del progetto, non della macchina: deve viaggiare col codice (clone, altro PC, collaboratori, revisione nelle PR) e git ne conserva data e autore gratis; in `~/.omp` andrebbe perso cambiando macchina e mescolerebbe i progetti;
+   - `docs/` e' dove gli esseri umani e gli agenti cercano gia' la documentazione; `.omp/` e' spesso ignorato da git e nascosto negli editor;
+   - due sottocartelle distinte perche' sono due forme diverse: `diario/` e' cronologico e cresce solo in coda, `progetto/` descrive lo stato attuale per tema e si riscrive;
+   - un file per mese tiene i file corti (leggibili a colpo d'occhio, poco contesto quando l'agente li apre) e limita i conflitti di merge al mese corrente;
+   - nomi in italiano come il resto del lavoro di Maurizio; il manifest permette di mapparli su documenti gia' esistenti (es. `decisioni -> docs/DECISIONS.md`) invece di duplicarli.
+3. **Opzione per progetto fuori da git.** `/diario init locale`, `/diario locale` e il pulsante «Inizializza fuori da git» usano `storage: "local"`: tutto in `.omp/progetto/`, escluso con `.omp/.gitignore` (lo stesso file di `tasks.json`). Serve per repository di clienti o pubblici. `/diario repo` lo riporta in `docs/`. I documenti mappati su file dell'utente non si spostano mai. Lo stato macchina (impronte delle sezioni scritte dall'agente) sta sempre in `.omp/progetto-stato.json`, fuori da git.
+4. **L'agente scrive da solo, citando la fonte.** A fine task con contenuto durevole (decisioni e perche', cosa cambia per chi usa il progetto, tappe, domande aperte) l'agente aggiorna diario e documenti con `project_docs update` senza chiedere; ogni riga porta la fonte (`[sessione 1a2b3c4d]`, `[commit abc1234]`). Nessuna scheda da approvare.
+5. **Le righe scritte a mano sono dell'utente.** `replace_section` riscrive una sezione solo se il corpo e' ancora identico all'impronta lasciata dall'agente; altrimenti rifiuta e l'agente deve chiedere (`force` solo dopo il si'). `append` e `add_section` non toccano il testo esistente.
+6. **`/diario init` legge prima di chiedere.** Se il progetto ha materiale (documentazione, piu' di qualche commit, sessioni passate) l'agente ricava i documenti da README/AGENTS/docs/CHANGELOG, `git log` e storico delle sessioni (`history.db` e transcript `.jsonl` di omp, **in sola lettura**) e mette cio' che non trova in `domande-aperte`. Su un progetto nuovo fa un'intervista breve: una domanda per messaggio, al massimo 6-8. Dalla GUI l'inizializzazione parte come un task normale, cosi' segue l'instradamento della coda e resta nello storico.
+7. **Un diario per progetto, anche nelle corsie.** La radice e' il checkout principale (`git rev-parse --git-common-dir`): scriverlo nel worktree lo spezzerebbe in rami che si scontrano al merge.
+8. **Scheda «Progetto» in sola lettura.** Il pannello Agente guadagna la quarta sottoscheda: documenti, ultime voci del diario, apertura nell'editor per correggere a mano, e «Chiedi al diario» con una chiamata effimera al modello leggero (`project_docs_ask`, stesso schema dei suggerimenti: `omp -p --no-session --no-tools`, 60 s). Il frontend sceglie gli estratti pertinenti e li passa come contesto; Rust non legge il disco, quindi il comando non puo' uscire dal progetto.
+
+### Rischi accettati
+
+- Lavorando in una corsia, l'agente scrive il diario nel checkout principale: le modifiche compaiono li' come file non committati finche' qualcuno non le committa.
+- `history.db` si legge con `bun:sqlite`: fuori da Bun (test con Node) l'elenco dei prompt e' vuoto e l'init si basa su documenti, git e transcript.
+- Se `.omp/` e' ignorato dal `.gitignore` di radice, il manifest (e quindi le mappature) resta solo su questa macchina; l'agente lo segnala in una riga all'init.
+- «Chiedi al diario» risponde solo dagli estratti scelti per parole: una domanda formulata con parole diverse puo' non trovarli; in chat `/diario <domanda>` usa l'agente completo.
+
+---
+
+## Gate R42: «Indica e disegna» nel Laboratorio (versione semplificata)
+
+**Data:** 2026-10-08
+**Esito:** IMPLEMENTATO (da collaudare su Windows, macOS e Linux con omp reale)
+
+### Decisioni di Maurizio
+
+1. **Solo due modalita':** *Punta* (clic su un elemento, Maiusc+clic per aggiungerne altri alla stessa nota) e *Riquadro* (si trascina un rettangolo e si raccolgono gli elementi DOM significativi al suo interno, raggruppati per componente e `file:riga`). Niente penna, niente ritocco diretto: sostituiscono il vecchio pulsante «Seleziona».
+2. **Note numerate in una coda nel composer:** ogni selezione ha numero e nota facoltativa; un componente nuovo (`LabNotesQueue.svelte`), non `ComposerPinnedItem` (che e' il pulsante dei comandi fissati). All'invio diventano un blocco compatto `<lab-notes>`.
+3. **Un solo fotogramma annotato per messaggio**, allegato come immagine con il meccanismo degli allegati del composer.
+4. **Cattura multipiattaforma senza codice nativo:** niente `CapturePreview` di WebView2. Il DOM si rasterizza dentro l'iframe (tecnica di modern-screenshot/html-to-image: clone con stili calcolati → SVG `foreignObject` → canvas, immagini e font come data URL), implementata come modulo vendorizzato nello script ispettore, senza dipendenze npm. Fallback: solo testo con avviso.
+5. **Riaggancio dopo la ricompilazione** tramite `data-lab-loc` + indice d'istanza + selettore; una nota il cui elemento sparisce resta, marcata «superata».
+6. **Scorciatoia `Alt+I` solo nel Laboratorio** (Ctrl+Opzione+I su macOS, come le altre scorciatoie a lettera della GUI).
+
+### Motivazioni tecniche
+
+- **Mappa sorgente al momento della compilazione.** React 19 ha tolto `_debugSource` e il bundle vendorizzato e' di produzione: l'unica fonte affidabile di `file:riga` e' esbuild con `jsxDev`, che passa `{fileName, lineNumber, columnNumber}` allo shim. Costo: un attributo per elemento host, trascurabile in locale.
+- **Rasterizzazione nell'iframe invece della cattura nativa.** Il parent non puo' leggere i pixel di un iframe a origine opaca; la cattura nativa richiederebbe tre implementazioni (WebView2, WKWebView, WebKitGTK) non compilabili qui e andrebbe ritagliata per non includere la chat. Il clone del DOM resta dentro il prototipo, e' identico sui tre sistemi e non tocca Rust. Limiti accettati: canvas WebGL, video e iframe annidati diventano segnaposto; immagini e font di altre origini senza CORS vengono sostituiti; la resa di WebKit puo' differire di qualche pixel.
+- **Sicurezza.** Nessun `allow-same-origin`; il parent accetta solo messaggi dal proprio iframe. Il prototipo potrebbe falsificare un messaggio dell'ispettore, ma l'effetto massimo e' una nota visibile nella coda, che non parte senza l'invio dell'utente.
+- **Gate R24 aggiornato:** il punto «Isolamento del renderer» descriveva il Chromium dedicato con origine `lab.virtual`, superato dal Gate R30; ora lo dice esplicitamente.
+
+---
+
+## Gate R43: le corsie le guida l'agente con un tool per verbo, il "come" resta a Studio
+
+**Data:** 2026-10-07
+**Esito:** APPROVATO (estende il Gate R29 e rivede il punto 9; rivede il punto 5 sui conflitti)
+
+### Il problema
+
+L'agente poteva solo integrare una corsia (`studio_lane_integrate`). Per aprirne una, sapere a che punto era, leggerne l'esito, chiuderla o consegnare un prototipo del Laboratorio servivano clic dell'utente, oppure l'agente ripiegava su `git worktree`, `git merge` e `git add` fatti a mano: proprio cio' che il Gate R29 voleva togliere. Sui conflitti il tool chiedeva all'agente di risolverli e fare `git add` nel worktree, cioe' gli consegnava percorsi e comandi git.
+
+### Decisioni
+
+1. **Un tool per verbo, ciascuno con la sua approvazione.** `corsia_avvia` (write), `corsia_stato` (read), `corsia_risultato` (read), `corsia_integra` (write), `corsia_chiudi` e `corsia_scarta` (write), `corsia_consegna` (write), `corsia_fatto` (read), `corsia_proponi` (read). L'agente nomina cosa vuole; branch, worktree, commit, merge e pulizia restano a Studio, che riusa i flussi della GUI (spedizione del task in corsia nuova, `worktree_land`, `closeLane`, `deleteWorktreeLane`, `deleteLabPrototype`).
+2. **Bridge a router.** `lane_bridge.rs` espone `POST /v1/corsie/{avvia,stato,risultato,integra,chiudi,scarta,consegna,fatto,proponi}`; `/v1/lane/integrate` resta come alias di `integra`. Stesso token per sessione, stesso confronto in tempo costante, stesso `BridgeOwner`, stesso inoltro al frontend (`lane-bridge://request` + `lane_bridge_respond`), ora con `route` e `body`.
+3. **Permessi dal proprietario del token.** Dentro una corsia (worktree o Laboratorio) si possono chiamare solo `fatto` e `stato`: una corsia non apre, integra o scarta corsie. Il controllo e' in Rust (403) e ripetuto nel frontend; l'estensione registra solo i tool ammessi.
+4. **Integrazione pulita automatica, conflitti all'utente.** Merge pulito: squash e pulizia senza conferma, come oggi. Con conflitti l'agente riceve l'elenco dei file e l'istruzione di non risolverli; la corsia passa in `conflict` e Studio apre la revisione (`LaneReviewModal`) quando il progetto e' in vista.
+5. **Soft-cap: l'agente non chiede, mette in coda.** Oltre `CONCURRENCY_SOFT_CAP` l'obiettivo di `corsia_avvia` entra nella coda del progetto come task e parte da solo quando si libera un posto; la risposta e' "in coda". I prototipi del Laboratorio non contano nel cap, come nel routing della coda.
+6. **Scartare lavoro mai integrato chiede sempre conferma.** `corsia_scarta` su un worktree con commit mai integrati, con processi vivi o su un prototipo non cancella nulla: apre il dialogo di eliminazione della `LaneStrip` e risponde all'agente di non ritentare.
+7. **`corsia_fatto` lascia il riassunto nel record della corsia.** Il testo e l'ora sono persistiti in `lanes.json` (`agentSummary`, `agentSummaryAt`, campi opzionali: i registri precedenti restano validi); un worktree attivo passa a `review_ready`. `corsia_risultato` lo restituisce con il diffstat, o con revisione e anteprima per un prototipo.
+8. **Il Laboratorio riceve il canale, ma solo per `corsia_fatto`.** La sessione Lab di un prototipo di progetto riceve il token e carica `studio-lanes.ts` dopo `studio-lab.ts`; l'allowlist fail-closed ammette `corsia_fatto` e nessun altro `corsia_*`. Le bozze libere restano senza canale.
+9. **Proporre un worktree e' un gesto esplicito.** Prima di operazioni rischiose o sperimentali l'agente chiama `corsia_proponi`: una card dedicata (non la domanda di `ask`) con «Operazione pericolosa, facciamo worktree?», il motivo e due pillole, «No, resta su main» e «Crea nuovo worktree». Il tool resta bloccato fino al clic (fino a 30 minuti); «Crea» crea la corsia e le affida l'obiettivo, o la apre vuota all'utente. Le descrizioni dei tool vietano di creare corsie in silenzio.
+10. **Ogni tool ha la sua card in chat**, fuori dal gruppo di esecuzione, con i colori e gli anelli della `LaneStrip` e i pulsanti Apri, Revisiona, Conferma eliminazione.
+
+### Perche' non le alternative
+
+- **Un solo tool con un parametro `azione`:** meno superficie, ma un'unica approvazione per letture e cancellazioni e descrizioni troppo generiche per guidare il modello.
+- **L'agente risolve i conflitti da solo:** veloce, ma riporta git nelle mani dell'agente e nasconde all'utente proprio il momento in cui due lavori si toccano.
+- **Oltre il soft-cap si chiede conferma come nella GUI:** il tool resterebbe bloccato su un dialogo che l'utente non ha chiesto; la coda e' reversibile e visibile.
+
+### Rischi accettati
+
+- Una proposta lasciata senza risposta tiene il turno dell'agente fermo fino a 30 minuti. Se l'agente viene fermato prima del clic la card perde le pillole e mostra la proposta come chiusa; le proposte aperte non accendono l'anello d'attenzione del progetto.
+- Il riassunto di `corsia_fatto` e' quello che l'agente scrive: Studio non lo verifica contro il diff, che `corsia_risultato` mostra accanto.
+- Il conflitto risolto dall'agente della corsia su richiesta dell'utente (pulsante della revisione) usa ancora `git add` nel worktree, perche' `worktree_land` lo richiede per chiudere il merge.

@@ -29,6 +29,7 @@ Le scorciatoie globali catturate dall'app vivono dietro il modificatore **`Ctrl+
 | `Ctrl+Alt+Freccia Sinistra` | Globale | Se il progetto attivo ha corsie secondarie, passa alla corsia precedente; altrimenti al progetto aperto precedente |
 | `Ctrl+Alt+Maiusc+Freccia` | Globale | Sposta la tessera del progetto attivo a destra o a sinistra (ordinamento manuale) |
 | `Ctrl+P` | Superficie GUI | Cicla sequenzialmente tra i ruoli configurati (`default` → `plan` → `smol`...) |
+| `Ctrl+B` | Superficie GUI, riquadro «A margine» | Apre e chiude il riquadro delle domande a margine (`/btw`) sopra il composer; nel riquadro `Invio` invia, `Maiusc+Invio` va a capo, `Esc` chiude e la domanda continua nel vassoio. Su macOS anche `⌘B` |
 | `Alt+R` | Superficie GUI | Apre il menu rapido di selezione del ruolo con filtro e navigazione |
 | `Alt+P` | Superficie GUI | Apre il catalogo modelli con filtro rapido e navigazione tastiera |
 | `Alt+M` | Superficie GUI | Apre il menu di selezione del livello di thinking (ragionamento) |
@@ -37,6 +38,9 @@ Le scorciatoie globali catturate dall'app vivono dietro il modificatore **`Ctrl+
 | `Ctrl+C` | Superficie GUI | Interrompe la risposta in streaming (quando non c'è testo evidenziato); se l'agente non si ferma, una seconda pressione forza l'arresto |
 | `Alt+E` | Superficie GUI | Mette a fuoco il campo di scrittura del Composer |
 | `Alt+N` | Superficie GUI | Apre una nuova chat nel progetto attivo |
+| `Alt+Maiusc+P` | Superficie GUI | Accende e spegne la modalita' Piano della chat (come `/plan` e la pillola «Piano» del composer; nel Terminale vale l'`app.plan.toggle` di omp). Su Mac `Ctrl+Opzione+Maiusc+P`. Non attiva nel Laboratorio |
+| `1` … `4` | Scheda di approvazione del Piano | Sceglie la strada di esecuzione (nuova sessione, nuova corsia, compatta e continua, mantieni il contesto) |
+| `Ctrl+Invio` | Scheda di approvazione del Piano | «Approva ed esegui» sulla strada scelta |
 | `/` | Composer GUI | Apre la palette dei comandi slash disponibili |
 | `@` | Composer GUI, editor task, Companion | Apre la palette dei file del progetto; nella Companion dopo `#progetto` |
 | `#` | Companion | Sceglie il progetto di destinazione del task |
@@ -46,6 +50,9 @@ Le scorciatoie globali catturate dall'app vivono dietro il modificatore **`Ctrl+
 | `Alt+Freccia Su` | Composer GUI, bozza vuota | Richiama nell'editor l'ultimo messaggio in coda (prima i follow-up, poi gli steer) |
 | `Maiusc+Invio` / `Ctrl+Invio` | Composer GUI | Inserisce una nuova riga |
 | `Esc` | Composer GUI | Chiude palette/menu/modale aiuto |
+| `Invio` | Composer in ripetizione (`/loop`) | Avvia la ripetizione (`Maiusc+Invio` va a capo) |
+| `Esc` | Composer in ripetizione (`/loop`) | Chiude il menu della pillola o esce dalla modalità ripetizione; a ripetizione avviata la mette in pausa a fine giro |
+| `Alt+I` | Anteprima del Laboratorio | Attiva o spegne «Punta» (Indica e disegna); `Maiusc+clic` aggiunge l'elemento alla nota aperta, `Esc` esce |
 | `Ctrl+0` | Diagramma a fuoco | Adatta il diagramma alla finestra |
 | `Ctrl+S` | Editor | Salva il file corrente e lo notifica |
 | `Ctrl+W` | Editor | Chiude il file corrente |

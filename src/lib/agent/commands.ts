@@ -15,7 +15,7 @@ export const STUDIO_SLASH_COMMANDS: AvailableCommand[] = [
 	{
 		name: 'resume',
 		get description() { return msg.ui_ts_commands_riprende_una_sessione_precedente_o_apre_lo_d684(); },
-		aliases: [],
+		aliases: ['sessions'],
 		source: 'studio',
 		input: { hint: '[id]' }
 	},
@@ -143,15 +143,57 @@ export const STUDIO_SLASH_COMMANDS: AvailableCommand[] = [
 		source: 'studio'
 	},
 	{
+		name: 'btw',
+		get description() { return msg.ui_ts_commands_btw_description(); },
+		source: 'studio',
+		input: { hint: '[domanda]' }
+	},
+	{
 		name: 'tree',
 		get description() { return msg.ui_ts_commands_mostra_l_albero_e_lo_storico_delle_0376(); },
-		aliases: ['sessions'],
 		source: 'studio'
 	},
 	{
 		name: 'fork',
 		get description() { return msg.ui_ts_commands_crea_una_nuova_diramazione_fork_della_sessione_8343(); },
 		source: 'studio'
+	},
+	{
+		name: 'plan',
+		get description() { return msg.plan_command_description(); },
+		source: 'studio',
+		input: { hint: '[testo]' }
+	},
+	{
+		name: 'plan-review',
+		get description() { return msg.plan_review_command_description(); },
+		source: 'studio'
+	},
+	{
+		// Ripetizione (variante B): il motore e' l'estensione studio-loop; la
+		// GUI apre il composer in modalita' ripetizione o avvia `/loop …`.
+		name: 'loop',
+		get description() { return msg.loop_cmd_description(); },
+		source: 'studio',
+		input: { hint: "[N|10m] [--until|--while 'cmd'] [prompt]" }
+	},
+	{
+		name: 'guided-goal',
+		get description() { return msg.commands_guided_goal_desc(); },
+		source: 'studio',
+		input: { hint: '[idea]' }
+	},
+	{
+		name: 'goal',
+		get description() { return msg.commands_goal_desc(); },
+		source: 'studio',
+		input: { hint: '[obiettivo]' },
+		subcommands: [
+			{ name: 'show', get description() { return msg.commands_goal_show(); } },
+			{ name: 'pause', get description() { return msg.commands_goal_pause(); } },
+			{ name: 'resume', get description() { return msg.commands_goal_resume(); } },
+			{ name: 'drop', get description() { return msg.commands_goal_drop(); } }
+		]
 	},
 	{
 		name: 'drop',
@@ -165,6 +207,9 @@ export const STUDIO_SLASH_COMMANDS: AvailableCommand[] = [
 		source: 'studio'
 	}
 ];
+
+/** Trasporti interni delle estensioni di Studio: `/studio-plan` per `/plan` (Gate R36), `/studio-loop` per `/loop` (Gate R38), `/studio-goal` per le proposte dell'obiettivo guidato (Gate R39). */
+const HIDDEN_EXTENSION_COMMANDS = new Set(['studio-plan', 'studio-loop', 'studio-goal']);
 
 /**
  * Unisce i comandi nativi del guscio con quelli dinamici ricevuti da omp.
@@ -187,6 +232,8 @@ export function mergeCommands(
 	}
 
 	for (const cmd of ompCommands) {
+		// Comandi interni delle estensioni di Studio: li manda il guscio, non l'utente.
+		if (HIDDEN_EXTENSION_COMMANDS.has(cmd.name.toLowerCase())) continue;
 		const isSkill = cmd.source === 'skill' || cmd.name.startsWith('skill:');
 		const cleanName = isSkill ? cmd.name.replace(/^skill:/, '') : cmd.name;
 		const lowerClean = cleanName.toLowerCase();

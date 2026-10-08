@@ -1,4 +1,4 @@
-import { attachEditorContext } from '$lib/editor/editorContext';
+import { attachEditorContext, splitMessageAndEditorContext } from '$lib/editor/editorContext';
 import { invoke } from '@tauri-apps/api/core';
 import { orchestratePromptPreflight, type PromptPreflightDeps } from './promptPreflight';
 import { settingsStore } from '$lib/stores/settings.svelte';
@@ -9,6 +9,20 @@ import { nameExistingPrototypeIfLong, nameLaneFromPrompt } from '$lib/lanes/lane
 import { projectStore } from '$lib/stores/projects.svelte';
 import { perfMark, perfSpan } from '$lib/perf';
 import { generateSessionTitle } from '$lib/stores/sessionTitles';
+import {
+	agentHeadsUp,
+	buildTurnDigest,
+	collectTurnFacts,
+	factsSentence,
+	lastAssistantId,
+	lastTurnEntries,
+	resolveHeadsUp,
+	turnKeyOf,
+	wantsSmolHeadsUp,
+	type HeadsUpFact,
+	type HeadsUpPhrases,
+	type TurnHeadsUp
+} from './turnHeadsUp';
 
 let firstComposerReadyMarked = false;
 // Stato della superficie GUI: un'istanza per progetto.
@@ -45,6 +59,72 @@ import {
 	tailOfText
 } from '$lib/stores/companionText';
 import type { GuiGateSnapshot } from './automationGate';
+import {
+	emptyExtensionUi,
+	reduceExtensionUi,
+	type ExtensionStatusMap,
+	type ExtensionWidgetMap
+} from './extensionUi';
+import {
+	INITIAL_SETTLE,
+	isBackgroundPending,
+	isBackgroundYield,
+	promptResultError,
+	settleFromState,
+	settleOnAgentStart,
+	settleOnPromptResult,
+	settleOnSessionSettled,
+	settleOnYield,
+	type SettleState
+} from './settle';
+import {
+	AWAITING_RUN_TIMEOUT_MS,
+	INITIAL_RUN_ACTIVITY,
+	awaitingRunExpired,
+	quietForMs,
+	reduceRunActivity,
+	runActivityOnPromptDropped,
+	runActivityOnPromptSent,
+	runActivityReset,
+	verifyQuietSnapshot,
+	type QuietVerdict,
+	type RunActivity
+} from './runActivity';
+import {
+	LOOP_CONTROL_COMMAND,
+	LOOP_STATUS_KEY,
+	controlLine,
+	draftCommand,
+	isLoopActive,
+	isLoopPromptEcho,
+	parseLoopSnapshot,
+	type LoopDraft,
+	type LoopProbe,
+	type LoopState
+} from './loopMode';
+import {
+	answerCurrent,
+	canLaunch,
+	currentQuestion,
+	describeAnswer,
+	goalMarkdown,
+	mergeAgentSuggestions,
+	parseAttemptCap,
+	parseFreeAnswer,
+	parseStudioGoalStatus,
+	setIdea,
+	shouldPauseForCap,
+	skipCurrent,
+	startInterview,
+	STUDIO_GOAL_COMMAND,
+	STUDIO_GOAL_STATUS_KEY,
+	suggestCommand,
+	type GoalAnswerValue,
+	type GoalDraft,
+	type GoalFieldKey,
+	type GoalInterview
+} from './guidedGoal';
+import { getLocale } from '$lib/paraglide/runtime.js';
 import {
 	RENDER_WINDOW,
 	clampVisibleCount,
@@ -117,11 +197,26 @@ import {
 } from './browser-live';
 import { classifySystemMessage, noticeDedupKey, type JobResult, type ClassifiedNotice } from './notices';
 import {
+	OmpEntryCache,
+	activePath,
+	previousMessageEntryId,
+	requestBranch,
+	requestFork,
+	resolveTurnEndEntryId,
+	resolveUserEntryId,
+	type BranchOutcome,
+	type OmpEntriesPage,
+	type OmpTreeSnapshot
+} from './sessionTree';
+import {
 	isContextReportText,
 	parseContextReport,
 	type ContextReport
 } from './contextReport';
 import { m as messages } from '$lib/paraglide/messages.js';
+import { PlanController } from './planController.svelte';
+import { PLAN_STATUS_KEY, parsePlanReviewRequest, reanchorEntries } from './planMode';
+import { SessionBtw } from './btwState.svelte';
 /** Stato dell'agente per la barra dei progetti: stessa semantica del PTY. */
 export type AgentSurfaceState = 'idle' | 'working' | 'attention' | 'unknown';
 
@@ -143,6 +238,16 @@ export interface UserEntry {
 	content: string;
 	images: { data: string; mimeType: string }[];
 	attribution?: string;
+	/**
+	 * `message.timestamp` (ms) del messaggio omp: e' lo stesso valore che omp
+	 * scrive nel file di sessione, quindi lega l'entry del transcript all'entry
+	 * durevole di `get_entries` per diramare da questo punto.
+	 */
+	messageTs?: number;
+	/** Prompt ripetuto dal loop: numero del giro (il transcript lo ripiega). */
+	loopGiro?: number;
+	/** Messaggio d'avvio di un /loop dalla GUI: id del loop, per la riga di riepilogo. */
+	loopStart?: string;
 }
 
 export interface AssistantEntry {
@@ -152,6 +257,8 @@ export interface AssistantEntry {
 	usage?: MessageUsage;
 	model?: string;
 	stopReason?: string;
+	/** Come `UserEntry.messageTs`; condiviso dai pezzi di uno stesso messaggio. */
+	messageTs?: number;
 }
 
 export interface ToolEntry {
@@ -262,7 +369,37 @@ export interface LaneLandingEntry {
 	landingId: string;
 }
 
+/**
+ * Voce del solo client per la modalita' Piano (Gate R36): riga d'entrata
+ * o d'uscita, card del piano in revisione, card del passaggio di compito.
+ * `refId` punta allo stato in `planCards`; `anchorTs` e `sessionId` la
+ * rimettono al suo posto dopo una ricostruzione del transcript.
+ */
+export interface PlanEntry {
+	id: number;
+	kind: 'plan';
+	variant: 'enter' | 'exit' | 'doc' | 'handoff';
+	refId: string;
+	anchorTs: number | null;
+	sessionId: string | null;
+}
+
+/**
+ * Passo dell'intervista dell'obiettivo guidato: vive solo in Studio (non va a
+ * omp e non entra nel contesto). `draft` disegna la card della bozza leggendo
+ * `session.guidedGoal` per `interviewId`.
+ */
+export interface GuidedGoalEntry {
+	id: number;
+	kind: 'guided-goal';
+	part: 'command' | 'question' | 'answer' | 'draft' | 'started' | 'note';
+	interviewId: string;
+	text: string;
+	field?: GoalFieldKey;
+}
+
 export type TranscriptEntry =
+	| GuidedGoalEntry
 	| UserEntry
 	| AssistantEntry
 	| ToolEntry
@@ -273,7 +410,8 @@ export type TranscriptEntry =
 	| SubagentResultEntry
 	| IrcEntry
 	| SystemChipEntry
-	| LaneLandingEntry;
+	| LaneLandingEntry
+	| PlanEntry;
 /** Una voce della coda di omp: testo opaco del chip e coda di provenienza. */
 export interface QueuedMessage {
 	text: string;
@@ -328,6 +466,19 @@ export { RENDER_WINDOW, clampVisibleCount, sliceVisibleEntries, hasEarlierEntrie
 /** Tentativi di ricostruzione del transcript prima di arrendersi. */
 const REBUILD_ATTEMPTS = 3;
 
+/**
+ * Ogni quanto si richiede `get_state` mentre si aspetta la quiete. E' solo la
+ * rete per un `session_settled` perso: il segnale normale e' il frame.
+ */
+const SETTLE_POLL_MS = 15_000;
+
+/**
+ * Con un omp che non riporta la quiete, un run che ha ceduto senza un
+ * `agent_end` terminale (continuazione annullata) resterebbe «vivo» per
+ * sempre. Dopo questo tempo senza eventi `get_state` decide.
+ */
+const RUN_STALE_MS = 20_000;
+
 function textOf(blocks: ContentBlock[] | string | undefined): string {
 	if (!blocks) return '';
 	// I messaggi `custom` di omp portano `content` come stringa: senza questo
@@ -367,6 +518,20 @@ function assistantEntryText(entry: AssistantEntry): string {
 		.trim();
 }
 
+/** Testi localizzati per la frase dei fatti dell'heads-up. */
+function headsUpPhrases(): HeadsUpPhrases {
+	return {
+		failed: (command) => messages.headsup_fact_failed({ command }),
+		failedTwo: (first, second) => messages.headsup_fact_failed_two({ first, second }),
+		failedMany: (command, others) => messages.headsup_fact_failed_many({ command, count: others }),
+		expiredQuestion: () => messages.headsup_fact_expired_question(),
+		risky: (command) => messages.headsup_fact_risky({ command }),
+		sensitive: (files) => messages.headsup_fact_sensitive({ files }),
+		sensitiveMany: (files, others) => messages.headsup_fact_sensitive_many({ files, count: others }),
+		and: messages.headsup_fact_and()
+	};
+}
+
 export interface AgentSessionConfig {
 	cwd: string;
 	scope?: 'lane' | 'main';
@@ -380,6 +545,15 @@ export interface AgentSessionConfig {
 export class AgentSession {
 	readonly client: OmpRpcClient;
 	readonly suggestions: SessionSuggestions = new SessionSuggestions(this);
+	/**
+	 * Domande a margine (`/btw`): riquadro sopra il composer, storico e
+	 * citazione «Usa nel messaggio». Non toccano mai il transcript.
+	 */
+	readonly btw: SessionBtw = new SessionBtw({
+		send: (command) => this.client.send(command),
+		flash: (level, message) => this.flashNotice(level, message),
+		notice: (level, message) => this.pushNotice(level, message, 'studio')
+	});
 
 	readonly scope: 'lane' | 'main';
 	readonly laneId: string | null;
@@ -523,6 +697,17 @@ export class AgentSession {
 	private resumeFallbackAttempted = false;
 	/** Flag per indicare un cambio di sessione intenzionale (new, fork, handoff) */
 	private expectingSessionTransition = false;
+	/**
+	 * Timestamp del messaggio assistente in streaming: i pezzi aperti dopo una
+	 * chiamata tool appartengono allo stesso messaggio omp e lo ereditano.
+	 */
+	private liveAssistantTs: number | undefined = undefined;
+	/** Pannello «Rami» aperto (da `/tree`, dal pin o dal menu della chat). */
+	branchPanelOpen = $state(false);
+	/** Una diramazione e' in corso: menu e pannello non ne accettano un'altra. */
+	branchBusy = $state(false);
+	/** Copia di `get_entries`, aggiornata in coda: serve a tradurre i messaggi in entry. */
+	private readonly ompEntries = new OmpEntryCache();
 	queuedMessageCount = $state(0);
 	/**
 	 * Coda di omp come la mostra la tray: chip preprint. Sorgente di verita' e'
@@ -547,7 +732,45 @@ export class AgentSession {
 	/** Solo anteprima: nessuna risposta parte finche' omp non emette extension_ui_request. */
 	streamAsk = $state<{ toolCallId: string | null; state: StreamAskState } | null>(null);
 	private readonly askTracker = new AskStreamTracker();
-	statusText = $state<string | null>(null);
+	/**
+	 * Voci di stato delle estensioni (`setStatus`), per `statusKey`. Nella TUI
+	 * stanno nel piede; qui nella riga di stato del composer.
+	 */
+	extensionStatus = $state<ExtensionStatusMap>({});
+	/** Widget di testo delle estensioni (`setWidget`), sopra o sotto il composer. */
+	extensionWidgets = $state<ExtensionWidgetMap>({});
+	/**
+	 * Quiete della sessione (`session_settled`): vedi `settle.ts`. Finche' omp
+	 * non dimostra di riportarla, lo yield vale come fine del lavoro.
+	 */
+	settle = $state<SettleState>({ ...INITIAL_SETTLE });
+	private settlePollTimer: ReturnType<typeof setTimeout> | null = null;
+	/**
+	 * Attivita' del run per l'avvio automatico della coda (`runActivity.ts`).
+	 * Il record intero non e' reattivo (cambia a ogni delta); i due flag che
+	 * il cancello legge sono rispecchiati in `awaitingRun` e `isRetrying`.
+	 */
+	private runActivity: RunActivity = { ...INITIAL_RUN_ACTIVITY };
+	/** Prompt ammesso, `agent_start` non ancora arrivato. */
+	awaitingRun = $state(false);
+	/** omp aspetta per ritentare la chiamata al modello. */
+	isRetrying = $state(false);
+	private awaitingRunTimer: ReturnType<typeof setTimeout> | null = null;
+	private runWatchTimer: ReturnType<typeof setTimeout> | null = null;
+	/**
+	 * /loop della GUI (estensione `studio-loop.ts`): stato pubblicato con
+	 * `setStatus("studio.loop")`. Resta dopo la fine finche' l'utente non
+	 * preme «Chiudi», come il pannello del prototipo.
+	 */
+	loop = $state<LoopState | null>(null);
+	/** Esito dell'ultimo «Prova ora» sul comando della condizione. */
+	loopProbe = $state<LoopProbe | null>(null);
+	/** Composer in modalita' ripetizione (pillole) prima dell'avvio. */
+	loopSetup = $state<LoopDraft | null>(null);
+	/** Id dei loop gia' annunciati con il messaggio d'avvio nel transcript. */
+	private readonly announcedLoops = new Set<string>();
+	/** `--between reset`: la sessione nuova per il giro e' gia' stata chiesta. */
+	private loopResetFor: string | null = null;
 	seededPrompt = $state<SeededPrompt | null>(null);
 	startupPhase = $state<'idle' | 'starting' | 'ready'>('idle');
 	exited = $state(false);
@@ -559,6 +782,18 @@ export class AgentSession {
 	slowModeScope = $state<'session' | 'global' | null>(null);
 	usageLimit = $state<UsageLimitState | null>(null);
 	goal = $state<GoalModeState | null>(null);
+	/** Modalita' Piano della chat GUI: revisione e passaggio di compito. */
+	readonly plan: PlanController = new PlanController(this);
+	/** Intervista dell'obiettivo guidato in corso (o appena conclusa). */
+	guidedGoal = $state<GoalInterview | null>(null);
+	/** Tentativi dell'obiettivo corrente contati da Studio (turni con l'obiettivo attivo). */
+	goalAttempts = $state(0);
+	/** Tetto di tentativi dell'obiettivo corrente (dal testo dell'obiettivo). */
+	goalAttemptCap = $state<number | null>(null);
+	private goalTrackedId: string | null = null;
+	private goalAttemptOpen = false;
+	private guidedGoalSeq = 0;
+	private guidedGoalTimer: ReturnType<typeof setTimeout> | null = null;
 	cacheWarmingInFlight = $state<CacheWarmingInFlight | null>(null);
 	cacheWarmingLast = $state<CacheWarmingLast | null>(null);
 
@@ -592,6 +827,18 @@ export class AgentSession {
 	 * l'effetto di trasmissione a ogni delta dello streaming.
 	 */
 	activityLine = $state<{ text: string; at: number; kind: 'intent' | 'assistant' } | null>(null);
+	/**
+	 * Heads-up dell'ultimo turno concluso (Gate R40): una frase, o
+	 * null quando non c'e' niente che l'utente rischi di perdere. Si fissa a
+	 * fine turno (fatti + agente) e si aggiorna una volta sola se il ripiego
+	 * smol risponde; si azzera all'avvio del turno successivo.
+	 */
+	headsUp = $state<TurnHeadsUp | null>(null);
+	private headsUpTurnKey: string | null = null;
+	private headsUpFacts: HeadsUpFact[] = [];
+	private headsUpAgent: { text: string; entryId: number } | null = null;
+	private headsUpFallbackEntryId: number | null = null;
+	private headsUpFactsText: string | null = null;
 
 	private nextEntryId = 1;
 	private assistantEntry: AssistantEntry | null = null;
@@ -629,6 +876,8 @@ export class AgentSession {
 	private abortFallbackTimer: number | null = null;
 	/** Prompt scritti subito dopo uno Stop che aspettano la fine dell'interruzione. */
 	private abortSettledWaiters: Array<() => void> = [];
+	/** Chi aspetta la fine del turno (passaggio di compito del Piano). */
+	private idleWaiters: Array<() => void> = [];
 	private unsubscribeEvent: (() => void) | null = null;
 	private deltaBatcher = new StreamBatcher((items) => {
 		for (const item of items) {
@@ -687,13 +936,64 @@ export class AgentSession {
 			// Fra un turno e l'altro `isStreaming` torna falso mentre l'agente
 			// continua: lo stato della sessione e' lo stesso che leggono badge
 			// e routing, cosi' il cancello non dice "pronto" a un agente al lavoro.
-			streaming: this.isStreaming || this.agentState === 'working',
+			// Il lavoro in background tiene `working` ma ha un motivo suo.
+			streaming: this.isStreaming || (this.agentState === 'working' && !this.backgroundPending),
+			// Il run resta vivo da `agent_start` allo yield anche quando
+			// `turn_end` ha spento `isStreaming` fra un giro di tool e l'altro,
+			// durante l'attesa di un nuovo tentativo o una compattazione che
+			// continua il run. Prima di questi campi il cancello diceva
+			// "pronto" in quelle pause e l'auto-avvio spediva il task dopo.
+			runActive: this.settle.running,
+			awaitingRun: this.awaitingRun,
+			retrying: this.isRetrying,
 			compacting: this.isCompacting,
+			nativeQueue: this.queuedMessageCount > 0,
+			subagentsRunning:
+				!this.settle.aware && this.subagents.some((sub) => sub.status === 'running' || sub.status === 'pending'),
 			blockingQuestion: this.pendingUi ? askQuestionText(this.pendingUi) : null,
+			goalHold: this.goalHoldsSession,
 			quotaBlock: quota && !quota.dismissed ? quota.title : null,
 			inferencePending: this.suggestions.isAnalyzing,
-			inferredQuestion: this.inferredAttention?.question ?? null
+			inferredQuestion: this.inferredAttention?.question ?? null,
+			backgroundWork: this.backgroundPending,
+			loopActive: isLoopActive(this.loop)
 		};
+	}
+
+	/** Millisecondi dall'ultimo evento del ciclo di vita del run. */
+	quietForMs(now = Date.now()): number {
+		return quietForMs(this.runActivity, now);
+	}
+
+	/**
+	 * Ri-verifica autorevole prima di un avvio automatico: chiede `get_state`,
+	 * lo applica (riallinea run, coda e quiete) e risponde se omp e' davvero
+	 * fermo. Un errore vale «non fermo»: meglio un giro di attesa in piu' che
+	 * un task spedito sopra un run.
+	 */
+	async verifyQuietForDispatch(): Promise<QuietVerdict> {
+		if (!this.isReady || !this.isAttached || this.exited) return { quiet: false, reason: 'streaming' };
+		try {
+			const state = await this.client.send<RpcSessionState>({ type: 'get_state' });
+			this.applyState(state);
+			return verifyQuietSnapshot(state);
+		} catch {
+			return { quiet: false, reason: 'streaming' };
+		}
+	}
+
+	/** Nessun lavoro che possa ancora risvegliare la sessione (vedi `settle.ts`). */
+	get settled(): boolean {
+		return this.settle.settled;
+	}
+
+	/**
+	 * L'agente ha ceduto il turno ma omp ha ancora lavoro in background
+	 * (subagenti asincroni, bash, coda) che puo' risvegliarlo. Sempre falso con
+	 * un omp che non riporta la quiete.
+	 */
+	get backgroundPending(): boolean {
+		return isBackgroundPending(this.settle, this.isStreaming || this.isCompacting);
 	}
 	constructor(config: AgentSessionConfig) {
 		this.client = config.client ?? new OmpRpcClient();
@@ -784,6 +1084,59 @@ export class AgentSession {
 			};
 			return;
 		}
+	}
+
+	/**
+	 * Fissa l'heads-up del turno appena chiuso con le due fonti immediate:
+	 * la frase dell'agente (`studio_headsup`) e i fatti certi. Il ripiego smol
+	 * arriva dopo, da `SessionSuggestions`, solo se l'agente ha taciuto.
+	 */
+	private captureHeadsUp() {
+		const turn = lastTurnEntries(this.entries);
+		this.headsUpTurnKey = turnKeyOf(turn);
+		this.headsUpFacts = collectTurnFacts(turn);
+		this.headsUpAgent = agentHeadsUp(turn);
+		this.headsUpFallbackEntryId = lastAssistantId(turn);
+		this.headsUpFactsText = factsSentence(this.headsUpFacts, headsUpPhrases());
+		this.headsUp = resolveHeadsUp({
+			agent: this.headsUpAgent,
+			smol: null,
+			facts: this.headsUpFacts,
+			factsText: this.headsUpFactsText,
+			fallbackEntryId: this.headsUpFallbackEntryId
+		});
+	}
+
+	/**
+	 * Cosa chiedere alla chiamata post-turno: la frase smol serve solo se
+	 * l'agente non ha parlato e il turno puo' nascondere qualcosa.
+	 */
+	headsUpRequest(): { turnKey: string; digest: string } | null {
+		if (!this.headsUpTurnKey || this.headsUpAgent) return null;
+		const turn = lastTurnEntries(this.entries);
+		if (!wantsSmolHeadsUp(turn, this.headsUpFacts)) return null;
+		return { turnKey: this.headsUpTurnKey, digest: buildTurnDigest(turn, this.headsUpFacts) };
+	}
+
+	/** Frase del ripiego smol per il turno `turnKey`; null lascia i fatti. */
+	applySmolHeadsUp(turnKey: string, text: string | null) {
+		if (turnKey !== this.headsUpTurnKey || this.headsUpAgent || this.isStreaming) return;
+		this.headsUp = resolveHeadsUp({
+			agent: null,
+			smol: text,
+			facts: this.headsUpFacts,
+			factsText: this.headsUpFactsText,
+			fallbackEntryId: this.headsUpFallbackEntryId
+		});
+	}
+
+	private clearHeadsUp() {
+		this.headsUp = null;
+		this.headsUpTurnKey = null;
+		this.headsUpFacts = [];
+		this.headsUpAgent = null;
+		this.headsUpFallbackEntryId = null;
+		this.headsUpFactsText = null;
 	}
 
 	/**
@@ -918,10 +1271,12 @@ export class AgentSession {
 		this.pendingStartupPrompts = [];
 		this.clearPendingUi();
 		this.resetBrowserLive();
+		this.btw.resetForProcess();
 		// Analisi e domanda dedotta appartengono al transcript che si chiude:
 		// precedente e terrebbe sospeso l'auto-dispatch del progetto nuovo.
 		this.suggestions.invalidate();
 		this.deltaBatcher.clear();
+		this.resetProcessScopedState();
 		await this.client.close();
 	}
 
@@ -956,7 +1311,12 @@ export class AgentSession {
 			]);
 			await this.rebuildTranscript();
 			void this.refreshCost();
-			void this.refreshCommands();
+			// Dopo un resume o un riavvio di omp lo stato del loop si chiede
+			// esplicitamente: il frame di `session_start` puo' arrivare prima
+			// che la chat sia in ascolto.
+			void this.refreshCommands().then(() => this.requestLoopStatus());
+			// Sonda e storico insieme: un omp senza `/btw` nasconde il pulsante.
+			void this.btw.loadHistory();
 			endAttachSpan('ok');
 		} catch (error) {
 			endAttachSpan('errore');
@@ -1495,6 +1855,8 @@ export class AgentSession {
 		}
 
 		if (typeof state.sessionId === 'string' && state.sessionId !== this.sessionId) {
+			// Lo storico `/btw` vive accanto al file di sessione: con la sessione cambia.
+			if (this.sessionId !== null) this.btw.resetForSession();
 			this.contextReport = null;
 			this.contextReportStamp = '';
 			this.contextReportWanted = '';
@@ -1548,14 +1910,30 @@ export class AgentSession {
 				this.todoReminder = null;
 			}
 		}
+		// Prima la quiete: decide se uno snapshot fermo e' "finito" o "in background".
+		const wasBackground = this.backgroundPending;
+		this.settle = settleFromState(this.settle, state);
+		// omp senza quiete: un run rimasto «vivo» senza eventi da tempo e che
+		// `get_state` dice fermo e' una continuazione mai partita.
+		if (
+			typeof state.isSettled !== 'boolean' &&
+			this.settle.running &&
+			state.isStreaming === false &&
+			state.isCompacting !== true &&
+			this.quietForMs() >= RUN_STALE_MS
+		) {
+			this.settle = { ...this.settle, running: false };
+		}
 		if (typeof state.isStreaming === 'boolean') {
 			this.isStreaming = state.isStreaming;
-			if (!state.isStreaming && this.agentState === 'working') {
+			if (!state.isStreaming && this.agentState === 'working' && !this.backgroundPending) {
 				this.agentState = this.pendingUi ? 'attention' : 'idle';
 				this.assistantEntry = null;
 				this.activeAssistantId = null;
 			}
 		}
+		if (wasBackground && !this.backgroundPending) this.onSettled();
+		else if (this.backgroundPending) this.scheduleSettlePoll();
 		if (typeof state.isCompacting === 'boolean') this.isCompacting = state.isCompacting;
 		if (typeof state.queuedMessageCount === 'number') this.queuedMessageCount = state.queuedMessageCount;
 		// Lo snapshot di `get_state` e' l'autorita' anche sui testi dei chip; se
@@ -1567,7 +1945,10 @@ export class AgentSession {
 		if ('slowModeEnabled' in state) this.slowModeEnabled = Boolean(state.slowModeEnabled);
 		if ('slowModeScope' in state) this.slowModeScope = state.slowModeScope ?? null;
 		if ('usageLimit' in state) this.usageLimit = state.usageLimit ?? null;
-		if ('goal' in state) this.goal = state.goal ?? null;
+		if ('goal' in state) {
+			this.goal = state.goal ?? null;
+			this.syncGoalTracking();
+		}
 	}
 
 	/**
@@ -1645,7 +2026,11 @@ export class AgentSession {
 				} while (cursor);
 
 				if (failed === null) {
-					this.entries = this.mapHistory(collected);
+					// Le card del Piano non sono nella storia di omp: tornano al loro posto.
+					const planEntries = this.entries.filter(
+						(entry): entry is PlanEntry => entry.kind === 'plan' && entry.sessionId === this.sessionId
+					);
+					this.entries = reanchorEntries(this.mapHistory(collected), planEntries);
 					// Le card ricostruite devono restare aggiornabili dalla diretta:
 					// nella mappa vanno le istanze reattive, prese dopo l'assegnazione.
 					this.toolEntries.clear();
@@ -1654,6 +2039,7 @@ export class AgentSession {
 					}
 					this.optimisticUser = null;
 					this.visibleCount = RENDER_WINDOW;
+					this.restoreGuidedGoalEntries();
 					return;
 				}
 				if (failed === 'fatal') break;
@@ -1705,7 +2091,8 @@ export class AgentSession {
 					kind: 'user',
 					content: textOf(message.content),
 					images: imagesOf(message.content),
-					attribution: message.attribution
+					attribution: message.attribution,
+					messageTs: message.timestamp
 				});
 				continue;
 			}
@@ -1726,7 +2113,8 @@ export class AgentSession {
 						blocks: [...currentBlocks],
 						model: message.model,
 						usage: isLast ? message.usage : undefined,
-						stopReason: isLast ? message.stopReason : undefined
+						stopReason: isLast ? message.stopReason : undefined,
+						messageTs: message.timestamp
 					});
 					currentBlocks.length = 0;
 				};
@@ -1814,6 +2202,8 @@ export class AgentSession {
 			this.deltaBatcher.flush();
 		}
 
+		this.applyRunActivity(reduceRunActivity(this.runActivity, event, Date.now()));
+
 		switch (event.type) {
 			case 'ready':
 				if (this.readyEpoch === this.client.epoch) {
@@ -1840,6 +2230,11 @@ export class AgentSession {
 				// Le capability appartengono al processo, non alla chat: un
 				// runtime nuovo puo' sostituirne uno precedente e viceversa.
 				this.resetBrowserLive();
+				// Anche il supporto alla quiete e lo stato delle estensioni: un
+				// processo nuovo puo' essere un omp di un'altra versione, e le
+				// estensioni ripubblicano le loro voci all'avvio.
+				this.resetProcessScopedState();
+				this.btw.resetForProcess();
 				void this.negotiateCapabilities(event);
 				void this.attach();
 				return;
@@ -1872,6 +2267,14 @@ export class AgentSession {
 				this.applyDelta(event);
 				return;
 
+			// Domande a margine: fuori dal transcript, solo nel riquadro «A margine».
+			case 'btw_record':
+				this.btw.applyRecordFrame(event.record);
+				return;
+			case 'btw_delta':
+				this.btw.applyDeltaFrame(event.recordId, event.delta);
+				return;
+
 			case 'message_start': {
 				const message = this.asMessage(event.message);
 				if (!message) return;
@@ -1881,11 +2284,17 @@ export class AgentSession {
 					const content = textOf(message.content);
 					const pending = this.optimisticUser;
 					this.optimisticUser = null;
+					// Il prompt ripetuto dal loop e' un giro, non un nuovo messaggio:
+					// lo stato del giro arriva prima del prompt (vedi l'estensione).
+					const loopGiro =
+						this.loop?.status === 'running' && isLoopPromptEcho(this.loop, content) ? this.loop.giro : undefined;
 					// L'eco del messaggio appena spedito non va disegnata due
 					// volte: si completa quella gia' a schermo.
 					if (pending && pending.content === content) {
 						pending.images = imagesOf(message.content);
 						pending.attribution = message.attribution;
+						pending.messageTs = message.timestamp;
+						if (loopGiro !== undefined) pending.loopGiro = loopGiro;
 						return;
 					}
 					this.push({
@@ -1893,17 +2302,21 @@ export class AgentSession {
 						kind: 'user',
 						content,
 						images: imagesOf(message.content),
-						attribution: message.attribution
+						attribution: message.attribution,
+						messageTs: message.timestamp,
+						loopGiro
 					});
 				} else if (message.role === 'assistant') {
 					if (!this.isStreaming || this.isAborting) return;
 					// `push` restituisce l'istanza dentro l'array reattivo: tenere
 					// l'oggetto grezzo significherebbe mutarlo fuori dal proxy di
 					// Svelte e non far mai comparire il testo in streaming.
+					this.liveAssistantTs = message.timestamp;
 					this.assistantEntry = this.push({
 						id: this.nextEntryId++,
 						kind: 'assistant',
-						blocks: []
+						blocks: [],
+						messageTs: message.timestamp
 					}) as AssistantEntry;
 					this.activeAssistantId = this.assistantEntry.id;
 				} else if (message.role === 'custom' || message.role === 'developer') {
@@ -1922,9 +2335,11 @@ export class AgentSession {
 			case 'message_end': {
 				const message = this.asMessage(event.message);
 				if (!message || message.role !== 'assistant') return;
+				this.liveAssistantTs = undefined;
 				if (this.assistantEntry) {
 					this.assistantEntry.usage = message.usage;
 					this.assistantEntry.model = message.model;
+					if (typeof message.timestamp === 'number') this.assistantEntry.messageTs = message.timestamp;
 					if (!this.assistantEntry.stopReason) {
 						this.assistantEntry.stopReason = message.stopReason;
 					}
@@ -1995,7 +2410,7 @@ export class AgentSession {
 				if (!this.isStreaming) {
 					const hasRunning = Array.from(this.toolEntries.values()).some((t) => t.running);
 					if (!hasRunning) {
-						this.agentState = this.pendingUi ? 'attention' : 'idle';
+						this.agentState = this.pendingUi ? 'attention' : this.backgroundPending ? 'working' : 'idle';
 					}
 				}
 				return;
@@ -2005,15 +2420,25 @@ export class AgentSession {
 				if (this.isAborting) return;
 				if (this.turnStartedAt === null) this.turnStartedAt = Date.now();
 				this.suggestions.invalidate();
+				this.settle = settleOnAgentStart(this.settle);
+				this.stopSettlePoll();
+				this.clearHeadsUp();
 				this.isStreaming = true;
 				this.markWorking();
+				this.noteGoalAttemptStart();
 				return;
 
 			case 'agent_end': {
 				const wasAborting = this.isAborting;
 				this.endAborting();
-				// `isTerminal: false` significa che la sessione riprendera' solo se non e' stato richiesto un abort
-				if (event.isTerminal === false && !wasAborting) return;
+				// `isTerminal: false` significa che la sessione riprendera' solo se non e' stato
+				// richiesto un abort. Eccezione: una fine che aspetta solo un job in background
+				// e' un turno concluso, se omp dira' poi quando la sessione e' quieta.
+				if (event.isTerminal === false && !wasAborting && !isBackgroundYield(this.settle, event)) {
+					this.scheduleRunWatch();
+					return;
+				}
+				this.settle = settleOnYield(this.settle);
 				this.clearStreamAsk();
 				this.isStreaming = false;
 				this.turnStartedAt = null;
@@ -2022,11 +2447,37 @@ export class AgentSession {
 				this.activeAssistantId = null;
 				this.runEndSeq += 1;
 				this.agentState = this.resolveSettledState();
+				this.releaseIdleWaiters();
+				this.noteGoalAttemptEnd(wasAborting);
 				void this.reconcile();
 				this.captureAssistantActivity();
 				notifyGitStatusRefresh(this.cwd);
+				if (!wasAborting) this.captureHeadsUp();
 				if (!this.pendingUi && !wasAborting) {
 					this.suggestions.notifyTurnEnd();
+				}
+				if (this.backgroundPending) this.scheduleSettlePoll();
+				return;
+			}
+
+			// omp 18.8+: la sessione e' quieta, nulla la risveglera'. E' qui, non
+			// su `agent_end`, che il lavoro e' davvero finito.
+			case 'session_settled': {
+				this.settle = settleOnSessionSettled();
+				this.onSettled();
+				return;
+			}
+
+			// omp 18.8+: esito di un `prompt`. Porta la quiete al momento dello
+			// yield e, in caso di errore del provider, il messaggio pulito.
+			case 'prompt_result': {
+				const wasSettled = this.settle.settled;
+				this.settle = settleOnPromptResult(this.settle, event);
+				if (!wasSettled && this.settle.settled) this.onSettled();
+				const failure = promptResultError(event);
+				// La quota ha gia' la sua riga nel vassoio con le azioni di recupero.
+				if (failure && !(this.blockedQuotaState && !this.blockedQuotaState.dismissed)) {
+					this.pushNotice('error', this.promptFailureText(failure), 'provider');
 				}
 				return;
 			}
@@ -2043,6 +2494,7 @@ export class AgentSession {
 				this.assistantEntry = null;
 				this.activeAssistantId = null;
 				this.agentState = this.resolveSettledState();
+				this.scheduleRunWatch();
 				void this.reconcile();
 				this.captureAssistantActivity();
 				notifyGitStatusRefresh(this.cwd);
@@ -2084,7 +2536,7 @@ export class AgentSession {
 					if (!hasRunningTools && !this.assistantEntry) {
 						this.isStreaming = false;
 						this.turnStartedAt = null;
-						this.agentState = this.pendingUi ? 'attention' : 'idle';
+						this.agentState = this.pendingUi ? 'attention' : this.backgroundPending ? 'working' : 'idle';
 					}
 				}
 				return;
@@ -2244,6 +2696,7 @@ export class AgentSession {
 						};
 					}
 				}
+				this.syncGoalTracking();
 				return;
 			}
 
@@ -2331,6 +2784,9 @@ export class AgentSession {
 						}
 					}
 				}
+				// Il trasporto e' caduto: nessun `session_settled` arrivera' da questo canale.
+				this.stopSettlePoll();
+				this.settle = { ...this.settle, settled: true, running: false };
 				this.agentState = this.pendingUi ? 'attention' : 'idle';
 				this.pushNotice('error', msg);
 				void this.reconcile();
@@ -2366,6 +2822,9 @@ export class AgentSession {
 					}
 				}
 				this.checkAndSetQuotaBlocked(msg, false);
+				// Come per `isStreaming`: per Studio il run e' finito. Se omp
+				// continua davvero, `agent_start`/`get_state` lo riaccendono.
+				if (this.settle.running) this.settle = { ...this.settle, running: false };
 				this.agentState = this.resolveSettledState();
 				this.pushNotice('error', msg);
 				void this.reconcile();
@@ -2390,6 +2849,7 @@ export class AgentSession {
 				this.assistantEntry = null;
 				this.clearStreamAsk();
 				this.clearQueueState();
+				this.resetProcessScopedState();
 				this.exited = true;
 				this.isReady = false;
 				const exitWaiters = this.readyWaiters;
@@ -2733,7 +3193,118 @@ export class AgentSession {
 		if (this.pendingUi) return 'attention';
 		if (this.blockedQuotaState && !this.blockedQuotaState.dismissed) return 'attention';
 		if (this.inferredAttention) return 'attention';
+		// Turno ceduto ma lavoro ancora in volo: per la tessera e per le
+		// notifiche l'agente non ha finito. `finished` arriva con la quiete.
+		if (this.backgroundPending) return 'working';
 		return 'idle';
+	}
+
+	/** Il lavoro in background e' finito: lo stato torna quello di un turno concluso. */
+	private onSettled() {
+		this.stopSettlePoll();
+		if (this.isStreaming || this.isCompacting) return;
+		if (this.agentState === 'working') this.agentState = this.resolveSettledState();
+	}
+
+	/**
+	 * Rete di sicurezza per un `session_settled` perso (processo riavviato a
+	 * meta', frame scartato): finche' si aspetta il background, `get_state` ogni
+	 * tanto riporta `isSettled`. Un timer solo, mai sovrapposto.
+	 */
+	private scheduleSettlePoll() {
+		if (this.settlePollTimer !== null || this.exited) return;
+		this.settlePollTimer = setTimeout(() => {
+			this.settlePollTimer = null;
+			if (!this.backgroundPending || this.exited || !this.isReady) return;
+			void this.reconcile().finally(() => {
+				if (this.backgroundPending) this.scheduleSettlePoll();
+			});
+		}, SETTLE_POLL_MS);
+	}
+
+	private stopSettlePoll() {
+		if (this.settlePollTimer === null) return;
+		clearTimeout(this.settlePollTimer);
+		this.settlePollTimer = null;
+	}
+
+	/**
+	 * Rispecchia i flag reattivi solo quando cambiano: il record si aggiorna a
+	 * ogni delta e scriverlo in una `$state` riaccenderebbe il cancello della
+	 * coda a ogni token.
+	 */
+	private applyRunActivity(next: RunActivity) {
+		this.runActivity = next;
+		if (this.awaitingRun !== next.awaitingRun) this.awaitingRun = next.awaitingRun;
+		if (this.isRetrying !== next.retrying) this.isRetrying = next.retrying;
+		if (next.awaitingRun) this.armAwaitingRunTimer();
+		else if (this.awaitingRunTimer !== null) {
+			clearTimeout(this.awaitingRunTimer);
+			this.awaitingRunTimer = null;
+		}
+	}
+
+	/** Rete di sicurezza: un prompt ammesso che non avvia mai un run non blocca la coda per sempre. */
+	private armAwaitingRunTimer() {
+		if (this.awaitingRunTimer !== null) return;
+		this.awaitingRunTimer = setTimeout(() => {
+			this.awaitingRunTimer = null;
+			if (!this.runActivity.awaitingRun) return;
+			// La compattazione prima del prompt ha il suo stato: si aspetta ancora.
+			if (this.isCompacting || !awaitingRunExpired(this.runActivity, Date.now())) {
+				this.armAwaitingRunTimer();
+				return;
+			}
+			this.applyRunActivity(runActivityOnPromptDropped(this.runActivity));
+		}, AWAITING_RUN_TIMEOUT_MS);
+	}
+
+	/**
+	 * omp senza quiete: se il run resta «vivo» senza eventi, `get_state` dopo
+	 * `RUN_STALE_MS` decide (vedi `applyState`). Con la quiete serve a nulla:
+	 * `session_settled` e `isSettled` chiudono gia' il run.
+	 */
+	private scheduleRunWatch() {
+		if (this.settle.aware || this.runWatchTimer !== null || this.exited) return;
+		this.runWatchTimer = setTimeout(() => {
+			this.runWatchTimer = null;
+			if (!this.settle.running || this.isStreaming || this.exited || !this.isReady) return;
+			if (this.quietForMs() < RUN_STALE_MS) {
+				this.scheduleRunWatch();
+				return;
+			}
+			void this.reconcile().finally(() => {
+				if (this.settle.running && !this.isStreaming) this.scheduleRunWatch();
+			});
+		}, RUN_STALE_MS);
+	}
+
+	private stopRunWatch() {
+		if (this.runWatchTimer === null) return;
+		clearTimeout(this.runWatchTimer);
+		this.runWatchTimer = null;
+	}
+
+	/** Quiete e voci delle estensioni appartengono al processo omp, non alla chat. */
+	private resetProcessScopedState() {
+		this.stopSettlePoll();
+		this.stopRunWatch();
+		this.settle = { ...INITIAL_SETTLE };
+		this.applyRunActivity(runActivityReset(this.runActivity, Date.now()));
+		const empty = emptyExtensionUi();
+		this.extensionStatus = empty.status;
+		this.extensionWidgets = empty.widgets;
+	}
+
+	/** Messaggio d'errore di un `prompt_result`: provider, modello, HTTP e se si puo' riprovare. */
+	private promptFailureText(failure: NonNullable<ReturnType<typeof promptResultError>>): string {
+		const source = [failure.provider, failure.model].filter(Boolean).join(' · ');
+		const http = failure.httpStatus !== undefined ? ` (HTTP ${failure.httpStatus})` : '';
+		const head = source
+			? messages.chat_v2_prompt_error_with_source({ source: `${source}${http}` })
+			: messages.chat_v2_prompt_error({ http });
+		const tail = failure.retryable ? messages.chat_v2_prompt_error_retryable() : '';
+		return [`${head} ${failure.message}`, tail].filter(Boolean).join(' ');
 	}
 
 	/**
@@ -2882,7 +3453,8 @@ export class AgentSession {
 		this.assistantEntry = this.push({
 			id: this.nextEntryId++,
 			kind: 'assistant',
-			blocks: []
+			blocks: [],
+			messageTs: this.liveAssistantTs
 		}) as AssistantEntry;
 		this.activeAssistantId = this.assistantEntry.id;
 		return this.assistantEntry;
@@ -2945,6 +3517,11 @@ export class AgentSession {
 
 		if (method === 'cancel') {
 			const target = typeof event.targetId === 'string' ? event.targetId : null;
+			// Revisione del Piano ritirata da omp (turno interrotto): via la scheda.
+			if (target && this.plan.closeReview(target)) {
+				this.settleAttention();
+				return;
+			}
 			if (!target || this.pendingUi?.requestId === target) {
 				const cancelId = target ?? this.pendingUi?.requestId;
 				if (cancelId && promptBus.hasPending(cancelId)) {
@@ -2958,13 +3535,43 @@ export class AgentSession {
 		}
 		if (method === 'notify') {
 			const body = text ?? title;
-			if (body) this.pushNotice(this.noticeLevel(event.level), body, 'estensione');
+			// omp manda il livello in `notifyType`; `level` resta per i frame vecchi.
+			if (body) this.pushNotice(this.noticeLevel(event.notifyType ?? event.level), body, 'estensione');
 			return;
 		}
-		if (method === 'setStatus') {
-			this.statusText = text ?? title ?? null;
+		// Le chiavi riservate di Studio portano stato strutturato (JSON) per la
+		// GUI: si intercettano prima del ramo generico, cosi' non compaiono mai
+		// come voce di stato o widget dell'estensione.
+		if (method === 'setStatus' && event.statusKey === PLAN_STATUS_KEY) {
+			// Lo stato del Piano arriva su una chiave sua: non e' testo per la riga di stato.
+			this.plan.applyStatus(event.statusText);
 			return;
 		}
+		if (method === 'setStatus' && event.statusKey === STUDIO_GOAL_STATUS_KEY) {
+			// Risposta dell'estensione `studio-goal`: dati per l'intervista, non uno stato da mostrare.
+			this.applyStudioGoalStatus(typeof event.statusText === 'string' ? event.statusText : undefined);
+			return;
+		}
+		if (method === 'setStatus' && event.statusKey === LOOP_STATUS_KEY) {
+			this.applyLoopStatus(event.statusText);
+			return;
+		}
+		if (method === 'setStatus' || method === 'setWidget') {
+			const next = reduceExtensionUi(
+				{ status: this.extensionStatus, widgets: this.extensionWidgets },
+				event
+			);
+			if (next) {
+				this.extensionStatus = next.status;
+				this.extensionWidgets = next.widgets;
+			}
+			return;
+		}
+		// `setTitle` e' il titolo del terminale (omp in RPC lo sopprime se non c'e'
+		// PI_RPC_EMIT_TITLE=1): non e' il nome della sessione, che Studio genera
+		// e salva da se'. Usarlo come titolo della scheda lo sovrascriverebbe con
+		// testi di stato da terminale. Lo si ignora di proposito.
+		if (method === 'setTitle') return;
 		if (method === 'open_url') {
 			// Il campo `launchUrl` esiste proprio per questo: quando c'e', e'
 			// l'indirizzo da aprire davvero. L'evento arriva da un'estensione
@@ -2979,6 +3586,17 @@ export class AgentSession {
 			return;
 		}
 		if (ANSWERABLE_UI_METHODS[method] !== true) return;
+
+		// Revisione del Piano: `editor` con titolo `studio-plan-review:`. Non e'
+		// una domanda generica: la decide la scheda di approvazione.
+		if (method === 'editor') {
+			const review = parsePlanReviewRequest(title, event.prefill);
+			if (review) {
+				this.plan.openReview(id, review);
+				this.agentState = 'attention';
+				return;
+			}
+		}
 
 		if (method === 'ask') {
 			const questions: AskQuestion[] = Array.isArray(event.questions)
@@ -3133,7 +3751,7 @@ export class AgentSession {
 	 * l'anello di attenzione nella barra progetti e l'allerta sull'icona.
 	 */
 	private markWorking() {
-		if (this.pendingUi) return;
+		if (this.pendingUi || this.plan.review) return;
 		this.inferredAttention = null;
 		this.blockedQuotaState = null;
 		this.agentState = 'working';
@@ -3443,6 +4061,139 @@ export class AgentSession {
 		for (const handler of this.queueRestoreHandlers) handler(withContent);
 	}
 
+	/* ------------------------------------------------------------- /loop */
+
+	/** Il motore del loop (estensione di Studio) e' caricato in questo omp. */
+	get loopAvailable(): boolean {
+		const name = LOOP_CONTROL_COMMAND.slice(1);
+		return this.availableCommands.some((command) => command.name === name);
+	}
+
+	/** Il loop occupa la sessione: la coda non deve partire, il composer e' il pannello. */
+	get loopActive(): boolean {
+		return isLoopActive(this.loop);
+	}
+
+	private applyLoopStatus(raw: unknown): void {
+		const snapshot = parseLoopSnapshot(raw);
+		const loop = snapshot?.loop ?? null;
+		this.loopProbe = snapshot?.probe ?? null;
+		if (loop && !this.announcedLoops.has(loop.id) && loop.prompt && loop.giro <= 1 && !loop.restored) {
+			// Il messaggio d'avvio: «/loop» + prompt + riepilogo delle opzioni.
+			this.announcedLoops.add(loop.id);
+			this.push({ id: this.nextEntryId++, kind: 'user', content: loop.prompt, images: [], loopStart: loop.id });
+		} else if (loop) {
+			this.announcedLoops.add(loop.id);
+		}
+		if (loop && isLoopActive(loop)) this.loopSetup = null;
+		this.loop = loop;
+		if (loop?.status === 'resetting' && this.loopResetFor !== `${loop.id}:${loop.giro}`) {
+			// `--between reset`: le estensioni non aprono sessioni fuori dai
+			// comandi, la apre Studio; il giro riparte su `session_switch`.
+			this.loopResetFor = `${loop.id}:${loop.giro}`;
+			void this.newSession().catch((error) =>
+				this.pushNotice('error', messages.loop_reset_failed({ error: this.reason(error) }), 'loop')
+			);
+		}
+	}
+
+	/** Chiede all'estensione di ripubblicare lo stato (dopo l'insediamento). */
+	async requestLoopStatus(): Promise<void> {
+		if (!this.loopAvailable) return;
+		await this.sendLoopLine(controlLine('status'), true);
+	}
+
+	/**
+	 * Le righe del loop passano da `prompt`: l'handler `input` dell'estensione
+	 * le consuma prima di qualunque altra cosa, anche a turno in corso, quindi
+	 * non entrano mai nel transcript ne' nel contesto. Senza estensione non si
+	 * invia nulla: il testo finirebbe al modello.
+	 */
+	private async sendLoopLine(line: string, quiet = false): Promise<boolean> {
+		if (!this.isReady || !this.loopAvailable) {
+			if (!quiet) this.flashNotice('warning', messages.loop_unavailable());
+			return false;
+		}
+		try {
+			await this.client.send({
+				type: 'prompt',
+				message: line,
+				streamingBehavior: this.isStreaming ? 'steer' : undefined
+			});
+			return true;
+		} catch (error) {
+			if (!quiet) this.pushNotice('error', messages.loop_command_failed({ error: this.reason(error) }), 'loop');
+			return false;
+		}
+	}
+
+	openLoopSetup(draft?: LoopDraft): void {
+		if (this.loopActive) return;
+		if (!this.loopAvailable) {
+			this.flashNotice('warning', messages.loop_unavailable());
+			return;
+		}
+		// Un loop finito ancora a schermo lascia il posto alla nuova configurazione.
+		if (this.loop) void this.dismissLoop();
+		this.loopSetup = draft ?? this.loopSetup ?? {
+			prompt: '',
+			limit: { kind: 'iterations', count: 6 },
+			condition: 'none',
+			command: 'npm test',
+			between: 'prompt'
+		};
+	}
+
+	closeLoopSetup(): void {
+		this.loopSetup = null;
+		this.loopProbe = null;
+	}
+
+	/** «Avvia»: la riga `/loop …` della bozza va al motore. */
+	async startLoop(draft: LoopDraft): Promise<boolean> {
+		const line = draftCommand(draft);
+		if (!line || !draft.prompt.trim()) return false;
+		return this.startLoopCommand(line);
+	}
+
+	/** `/loop …` gia' composto (scritto nel composer o dalle pillole). */
+	async startLoopCommand(line: string): Promise<boolean> {
+		if (this.loopActive) {
+			this.flashNotice('info', messages.loop_already_active());
+			return false;
+		}
+		if (this.loop) await this.dismissLoop();
+		return this.sendLoopLine(line);
+	}
+
+	pauseLoop(): Promise<boolean> {
+		return this.sendLoopLine(controlLine('pause'));
+	}
+
+	resumeLoop(): Promise<boolean> {
+		return this.sendLoopLine(controlLine('resume'));
+	}
+
+	stopLoop(): Promise<boolean> {
+		return this.sendLoopLine(controlLine('stop'));
+	}
+
+	/** «Prova ora»: esegue il comando della condizione una volta. */
+	probeLoopCondition(command: string): Promise<boolean> {
+		const cmd = command.trim();
+		if (!cmd) return Promise.resolve(false);
+		this.loopProbe = { command: cmd, running: true, at: Date.now() };
+		return this.sendLoopLine(controlLine('probe', cmd));
+	}
+
+	/** «Chiudi»: toglie il pannello di un loop finito. */
+	async dismissLoop(): Promise<void> {
+		if (this.loopActive) return;
+		this.loop = null;
+		this.loopProbe = null;
+		await this.sendLoopLine(controlLine('dismiss'), true);
+	}
+
 	async prompt(
 		message: string,
 		images: ImageContent[] = [],
@@ -3511,14 +4262,21 @@ export class AgentSession {
 				images: images.map((image) => ({ data: image.data, mimeType: image.mimeType }))
 			}) as UserEntry;
 		}
+		// Un prompt a sessione ferma avvia un run, ma omp risponde gia'
+		// all'ammissione, prima di `agent_start`: fino ad allora la sessione
+		// risulterebbe ferma e la coda potrebbe spedire il task dopo.
+		if (!streaming) this.applyRunActivity(runActivityOnPromptSent(this.runActivity, Date.now()));
 		try {
-			await this.client.send({
+			const ack = await this.client.send<{ agentInvoked?: boolean } | undefined>({
 				type: 'prompt',
 				message: fullMessage,
 				images: images.length > 0 ? images : undefined,
 				streamingBehavior: streaming ? behavior : undefined
 			});
+			// Comando locale (slash builtin, estensione): nessun run partira'.
+			if (ack?.agentInvoked === false) this.applyRunActivity(runActivityOnPromptDropped(this.runActivity));
 		} catch (error) {
+			this.applyRunActivity(runActivityOnPromptDropped(this.runActivity));
 			this.dropOptimisticUser();
 			this.pushNotice('error', `Prompt non accettato: ${this.reason(error)}`);
 			return 'failed';
@@ -3538,15 +4296,18 @@ export class AgentSession {
 			}
 			this.optimisticUser = pending.optimisticUser;
 
+			const streaming = this.isStreaming;
+			if (!streaming) this.applyRunActivity(runActivityOnPromptSent(this.runActivity, Date.now()));
 			try {
-				const streaming = this.isStreaming;
-				await this.client.send({
+				const ack = await this.client.send<{ agentInvoked?: boolean } | undefined>({
 					type: 'prompt',
 					message: pending.message,
 					images: pending.images.length > 0 ? pending.images : undefined,
 					streamingBehavior: streaming ? pending.behavior : undefined
 				});
+				if (ack?.agentInvoked === false) this.applyRunActivity(runActivityOnPromptDropped(this.runActivity));
 			} catch (error) {
+				this.applyRunActivity(runActivityOnPromptDropped(this.runActivity));
 				this.dropOptimisticUser();
 				const idx = this.entries.findIndex((e) => e.id === pending.optimisticUser.id);
 				if (idx !== -1) this.entries.splice(idx, 1);
@@ -3679,6 +4440,8 @@ export class AgentSession {
 			this.abortFallbackTimer = null;
 			if (this.isAborting) {
 				this.isStreaming = false;
+				if (this.settle.running) this.settle = { ...this.settle, running: false };
+				this.applyRunActivity(runActivityOnPromptDropped(this.runActivity));
 				this.agentState = 'idle';
 				this.endAborting();
 			}
@@ -3911,6 +4674,91 @@ export class AgentSession {
 		}
 	}
 
+	/**
+	 * Stato vivo legato al processo e alla sessione di prima: va azzerato a
+	 * ogni cambio di sessione voluto (nuova chat, fork, branch), qualunque cosa
+	 * contenga la sessione di arrivo.
+	 */
+	private resetLiveSessionState(): void {
+		this.plan.onSessionReset();
+		this.entries = [];
+		this.clearGuidedGoal();
+		this.toolEntries.clear();
+		this.clearStreamAsk();
+		this.assistantEntry = null;
+		this.activeAssistantId = null;
+		this.liveAssistantTs = undefined;
+		this.activityLine = null;
+		this.clearHeadsUp();
+		this.optimisticUser = null;
+		this.subagents = [];
+		this.todoPhases = [];
+		this.todoReminder = null;
+		this.renderedCustomKeys.clear();
+		this.clearQueueState();
+		this.isStreaming = false;
+		this.turnStartedAt = null;
+		this.isCompacting = false;
+		this.agentState = 'idle';
+		this.applyRunActivity(runActivityReset(this.runActivity, Date.now()));
+		this.visibleCount = RENDER_WINDOW;
+		this.ompEntries.invalidate();
+	}
+
+	/** Voce del Piano nel transcript, ancorata all'ultimo messaggio di omp. */
+	pushPlanEntry(variant: PlanEntry['variant'], refId: string): PlanEntry {
+		let anchorTs: number | null = null;
+		for (let index = this.entries.length - 1; index >= 0; index--) {
+			const entry = this.entries[index];
+			if ((entry.kind === 'user' || entry.kind === 'assistant') && entry.messageTs !== undefined) {
+				anchorTs = entry.messageTs;
+				break;
+			}
+			// Un'altra voce del Piano ha gia' il suo ancoraggio: si va dopo di lei.
+			if (entry.kind === 'plan') {
+				anchorTs = entry.anchorTs;
+				break;
+			}
+		}
+		return this.push<PlanEntry>({
+			id: this.nextEntryId++,
+			kind: 'plan',
+			variant,
+			refId,
+			anchorTs,
+			sessionId: this.sessionId
+		});
+	}
+
+	/** Si risolve quando il turno in corso finisce (o subito, a sessione ferma). */
+	waitForIdle(timeoutMs = 60_000): Promise<boolean> {
+		if (!this.isStreaming) return Promise.resolve(true);
+		return new Promise<boolean>((resolve) => {
+			const timer = window.setTimeout(() => {
+				this.idleWaiters = this.idleWaiters.filter((waiter) => waiter !== done);
+				resolve(false);
+			}, timeoutMs);
+			const done = () => {
+				window.clearTimeout(timer);
+				resolve(true);
+			};
+			this.idleWaiters.push(done);
+		});
+	}
+
+	private releaseIdleWaiters(): void {
+		const waiters = this.idleWaiters;
+		this.idleWaiters = [];
+		for (const resolve of waiters) resolve();
+	}
+
+	/** Chiusa una richiesta interattiva del Piano, l'anello d'attenzione si spegne. */
+	settleAttention(): void {
+		if (this.agentState === 'attention' && !this.pendingUi) {
+			this.agentState = this.isStreaming ? 'working' : 'idle';
+		}
+	}
+
 	async newSession(): Promise<string | null> {
 		this.expectingSessionTransition = true;
 		await this.resetPrewalkForNewChat();
@@ -3919,54 +4767,217 @@ export class AgentSession {
 		this.endAborting();
 		this.suggestions.invalidate();
 		await this.client.send({ type: 'new_session' });
-		this.entries = [];
-		this.toolEntries.clear();
-		this.clearStreamAsk();
-		this.assistantEntry = null;
-		this.activeAssistantId = null;
-		this.activityLine = null;
-		this.optimisticUser = null;
-		this.subagents = [];
-		this.todoPhases = [];
-		this.todoReminder = null;
-		this.renderedCustomKeys.clear();
-		this.clearQueueState();
-		this.isStreaming = false;
-		this.turnStartedAt = null;
-		this.isCompacting = false;
-		this.agentState = 'idle';
-		this.visibleCount = RENDER_WINDOW;
+		this.resetLiveSessionState();
 		await this.refreshState();
 		return this.sessionId;
 	}
-	async forkSession(): Promise<string | null> {
-		await this.resetPrewalkForNewChat();
-		this.pendingStartupPrompts = [];
-		this.attachEventQueue = [];
-		this.endAborting();
-		this.expectingSessionTransition = true;
-		this.suggestions.invalidate();
-		const parent = this.sessionId;
-		await this.client.send({ type: 'new_session', parentSession: parent || undefined });
-		this.entries = [];
-		this.toolEntries.clear();
-		this.clearStreamAsk();
-		this.assistantEntry = null;
-		this.activeAssistantId = null;
-		this.activityLine = null;
-		this.optimisticUser = null;
-		this.subagents = [];
-		this.todoPhases = [];
-		this.todoReminder = null;
-		this.renderedCustomKeys.clear();
-		this.clearQueueState();
-		this.isStreaming = false;
-		this.turnStartedAt = null;
-		this.isCompacting = false;
-		this.agentState = 'idle';
-		this.visibleCount = RENDER_WINDOW;
-		await this.refreshState();
-		return this.sessionId;
+
+	/* ---------------------------------------------------------- diramazioni */
+
+	/**
+	 * Le diramazioni partono solo a sessione ferma: omp rifiuta comunque `fork`
+	 * con `session_busy`, ma `branch` no, e un ramo preso a meta' turno
+	 * perderebbe la risposta in arrivo. Le corsie Laboratorio hanno una sola
+	 * chat continua (Gate R30) e non diramano.
+	 */
+	get canBranch(): boolean {
+		return (
+			!this.labConfig &&
+			this.isOpen &&
+			!this.isStreaming &&
+			!this.isCompacting &&
+			!this.branchBusy &&
+			this.pendingUi === null
+		);
+	}
+
+	/** Perche' una diramazione non puo' partire adesso; `null` se puo'. */
+	branchBlockedReason(): string | null {
+		if (this.labConfig) return messages.branch_lab_unavailable();
+		if (this.branchBusy) return messages.branch_in_progress();
+		if (this.isStreaming || this.isCompacting || this.pendingUi !== null) return messages.branch_busy();
+		if (!this.isOpen) return messages.branch_not_ready();
+		return null;
+	}
+
+	/** Allinea la copia di `get_entries` (incrementale con `since`). */
+	private async syncOmpEntries(): Promise<void> {
+		await this.ompEntries.sync(
+			(since) => this.client.send<OmpEntriesPage>(since ? { type: 'get_entries', since } : { type: 'get_entries' }),
+			this.sessionFile ?? this.sessionId
+		);
+	}
+
+	private ompActivePath() {
+		return activePath((id) => this.ompEntries.get(id), this.ompEntries.leafId);
+	}
+
+	/** Albero grezzo della sessione per il pannello Rami. */
+	async loadBranchTree(): Promise<OmpTreeSnapshot> {
+		const snapshot = await this.client.send<OmpTreeSnapshot>({ type: 'get_tree' });
+		return { tree: Array.isArray(snapshot?.tree) ? snapshot.tree : [], leafId: snapshot?.leafId ?? null };
+	}
+
+	/**
+	 * Esegue una diramazione e, se omp la accetta, adotta la sessione nuova:
+	 * stato, transcript ricostruito dalla cronologia copiata, costi, elenco
+	 * sessioni. Un rifiuto (`session_busy`, veto di un'estensione) lascia la
+	 * sessione di prima intatta, transcript compreso.
+	 */
+	private async runBranchTransition(
+		request: () => Promise<BranchOutcome>,
+		success: string
+	): Promise<BranchOutcome> {
+		const blocked = this.branchBlockedReason();
+		if (blocked) {
+			this.flashNotice('warning', blocked);
+			return { kind: 'busy' };
+		}
+		this.branchBusy = true;
+		try {
+			// Come la nuova chat: con l'overlay prewalk vero il cambio di sessione
+			// riarmerebbe il prewalk in silenzio (DECISIONS, Prewalk).
+			await this.resetPrewalkForNewChat();
+			this.expectingSessionTransition = true;
+			const outcome = await request();
+			if (outcome.kind !== 'done') {
+				this.expectingSessionTransition = false;
+				if (outcome.kind === 'busy') this.flashNotice('warning', messages.branch_busy());
+				else if (outcome.kind === 'cancelled') this.flashNotice('warning', messages.branch_cancelled());
+				else this.flashNotice('error', messages.page_slash_cmd_fork_error({ error: outcome.message }));
+				return outcome;
+			}
+			this.pendingStartupPrompts = [];
+			this.attachEventQueue = [];
+			this.endAborting();
+			this.suggestions.invalidate();
+			this.resetLiveSessionState();
+			await this.refreshState();
+			await this.rebuildTranscript();
+			void this.refreshCost();
+			if (typeof window !== 'undefined') {
+				window.dispatchEvent(
+					new CustomEvent('studio-sessions-refresh', {
+						detail: { projectPath: this.cwd, sessionId: this.sessionId ?? undefined }
+					})
+				);
+			}
+			this.flashNotice('info', success);
+			return outcome;
+		} catch (error) {
+			this.expectingSessionTransition = false;
+			this.flashNotice('error', messages.page_slash_cmd_fork_error({ error: this.reason(error) }));
+			return { kind: 'error', message: this.reason(error) };
+		} finally {
+			this.branchBusy = false;
+		}
+	}
+
+	/**
+	 * `/fork`: copia l'intera sessione (con gli artefatti) in una nuova e ci
+	 * resta sopra. Prima del 18.x Studio mandava `new_session` con il genitore,
+	 * che apriva una chat vuota.
+	 */
+	async forkSession(): Promise<BranchOutcome> {
+		return this.runBranchTransition(
+			() => requestFork((command) => this.client.send(command)),
+			messages.branch_fork_done()
+		);
+	}
+
+	/** Diramazione su un'entry precisa di `get_entries` (pannello Rami, menu). */
+	async forkAtEntry(entryId: string, success = messages.branch_fork_point_done()): Promise<BranchOutcome> {
+		return this.runBranchTransition(
+			() => requestFork((command) => this.client.send(command), entryId),
+			success
+		);
+	}
+
+	/**
+	 * Ramo che riparte da *prima* di un messaggio utente (entry omp). Si usa
+	 * `fork` sul messaggio precedente, che porta con se' gli artefatti citati
+	 * dai risultati tool; per il primo messaggio non c'e' nulla da copiare e si
+	 * usa `branch`, che apre la sessione vuota. Con `restore` il testo (e le
+	 * immagini) del messaggio tornano nel composer: «Modifica e riprova».
+	 */
+	async branchBeforeUserEntry(
+		entryId: string,
+		restore: { text: string; images: { data: string; mimeType: string }[] } | null
+	): Promise<BranchOutcome> {
+		try {
+			await this.syncOmpEntries();
+		} catch (error) {
+			this.flashNotice('error', messages.page_slash_cmd_fork_error({ error: this.reason(error) }));
+			return { kind: 'error', message: this.reason(error) };
+		}
+		const previous = previousMessageEntryId((id) => this.ompEntries.get(id), entryId);
+		const send = (command: Parameters<OmpRpcClient['send']>[0]) => this.client.send(command);
+		const outcome = await this.runBranchTransition(
+			() => (previous ? requestFork(send, previous) : requestBranch(send, entryId)),
+			restore ? messages.branch_edit_done() : messages.branch_fork_point_done()
+		);
+		if (outcome.kind === 'done' && restore) {
+			// Il blocco del contesto editor che Studio accoda al prompt non e'
+			// testo dell'utente: al nuovo invio si ricalcola sul contesto attuale.
+			const parsed = splitMessageAndEditorContext(restore.text);
+			const text = parsed.context ? parsed.userMessage : restore.text;
+			const images = restore.images.map((image) => ({ type: 'image' as const, data: image.data, mimeType: image.mimeType }));
+			this.restoreQueueToComposer([{ text, images }]);
+		}
+		return outcome;
+	}
+
+	/** Entry omp del messaggio utente `transcriptId`, o avviso se non si trova. */
+	private async userEntryIdFor(transcriptId: number): Promise<string | null> {
+		await this.syncOmpEntries();
+		const found = resolveUserEntryId(this.entries, transcriptId, this.ompActivePath());
+		if (!found) this.flashNotice('warning', messages.branch_unmapped());
+		return found;
+	}
+
+	/** «Dirama da qui» / «Modifica e riprova» dal menu di un messaggio utente. */
+	async branchFromUserMessage(transcriptId: number, mode: 'fork' | 'edit'): Promise<BranchOutcome> {
+		const blocked = this.branchBlockedReason();
+		if (blocked) {
+			this.flashNotice('warning', blocked);
+			return { kind: 'busy' };
+		}
+		const entry = this.entries.find((candidate) => candidate.id === transcriptId);
+		if (!entry || entry.kind !== 'user') return { kind: 'error', message: 'not-a-user-message' };
+		let entryId: string | null;
+		try {
+			entryId = await this.userEntryIdFor(transcriptId);
+		} catch (error) {
+			this.flashNotice('error', messages.page_slash_cmd_fork_error({ error: this.reason(error) }));
+			return { kind: 'error', message: this.reason(error) };
+		}
+		if (!entryId) return { kind: 'error', message: 'unmapped' };
+		return this.branchBeforeUserEntry(
+			entryId,
+			mode === 'edit' ? { text: entry.content, images: entry.images ?? [] } : null
+		);
+	}
+
+	/** «Dirama da qui» sotto una risposta: nuova sessione che finisce con questo turno. */
+	async forkAfterTurn(turn: { userTranscriptId: number | null; assistantTs: number | null }): Promise<BranchOutcome> {
+		const blocked = this.branchBlockedReason();
+		if (blocked) {
+			this.flashNotice('warning', blocked);
+			return { kind: 'busy' };
+		}
+		let entryId: string | null;
+		try {
+			await this.syncOmpEntries();
+			entryId = resolveTurnEndEntryId(this.entries, turn, this.ompActivePath());
+		} catch (error) {
+			this.flashNotice('error', messages.page_slash_cmd_fork_error({ error: this.reason(error) }));
+			return { kind: 'error', message: this.reason(error) };
+		}
+		if (!entryId) {
+			this.flashNotice('warning', messages.branch_unmapped());
+			return { kind: 'error', message: 'unmapped' };
+		}
+		return this.forkAtEntry(entryId);
 	}
 
 	/** Compatta la cronologia e il contesto della sessione attiva. */
@@ -4055,6 +5066,7 @@ export class AgentSession {
 			this.assistantEntry = null;
 			this.activeAssistantId = null;
 			this.activityLine = null;
+			this.clearHeadsUp();
 			this.optimisticUser = null;
 			this.subagents = [];
 			this.todoPhases = [];
@@ -4189,6 +5201,7 @@ export class AgentSession {
 							}
 						: null;
 				}
+				this.syncGoalTracking();
 			}
 			void this.refreshState();
 			return true;
@@ -4208,6 +5221,315 @@ export class AgentSession {
 
 	dropGoal(): Promise<boolean> {
 		return this.setGoalOp('drop');
+	}
+
+	// -----------------------------------------------------------------------
+	// Obiettivo guidato (`/guided-goal`) e tentativi dell'obiettivo
+	// -----------------------------------------------------------------------
+
+	/**
+	 * La sessione e' impegnata dall'obiettivo: attivo (omp prosegue da solo fra
+	 * un turno e l'altro, quindi `isStreaming` falso non vuol dire libera) o in
+	 * definizione (l'intervista occupa il composer). La coda non deve partire.
+	 */
+	get goalHoldsSession(): boolean {
+		if (this.goal?.goal.status === 'active') return true;
+		const phase = this.guidedGoal?.phase;
+		return phase === 'idea' || phase === 'asking' || phase === 'draft' || phase === 'starting';
+	}
+
+	/** L'estensione `studio-goal` e' caricata: l'agente puo' proporre le risposte. */
+	get goalSuggestionsAvailable(): boolean {
+		return this.availableCommands.some((command) => command.name === STUDIO_GOAL_COMMAND);
+	}
+
+	/** Intervista ancora da concludere (domande o bozza da avviare). */
+	get guidedGoalOpen(): boolean {
+		const phase = this.guidedGoal?.phase;
+		return phase === 'idea' || phase === 'asking' || phase === 'draft' || phase === 'starting';
+	}
+
+	private pushGuided(part: GuidedGoalEntry['part'], text: string, field?: GoalFieldKey): GuidedGoalEntry | null {
+		const interview = this.guidedGoal;
+		if (!interview) return null;
+		return this.push<GuidedGoalEntry>({
+			id: this.nextEntryId++,
+			kind: 'guided-goal',
+			part,
+			interviewId: interview.id,
+			text,
+			field
+		});
+	}
+
+	/** Mette nel transcript la domanda corrente (testo dell'agente se c'e'). */
+	private askCurrentGuidedQuestion(intro = false): void {
+		const interview = this.guidedGoal;
+		if (!interview) return;
+		if (interview.phase === 'idea') {
+			this.pushGuided('question', messages.guided_goal_q_idea());
+			return;
+		}
+		const question = currentQuestion(interview);
+		if (!question) return;
+		const text = intro ? `${messages.guided_goal_intro()} ${question.question}` : question.question;
+		this.pushGuided('question', text, question.field);
+	}
+
+	/**
+	 * Avvia l'intervista. Rifiutata con un obiettivo gia' presente (omp ne tiene
+	 * uno per sessione) e in Laboratorio; un'intervista aperta resta quella.
+	 */
+	startGuidedGoal(idea: string): boolean {
+		if (this.labConfig) {
+			this.flashNotice('info', messages.guided_goal_lab_unavailable());
+			return false;
+		}
+		if (this.goal && (this.goal.goal.status === 'active' || this.goal.goal.status === 'paused' || this.goal.goal.status === 'budget-limited')) {
+			this.flashNotice('warning', messages.guided_goal_already_active());
+			return false;
+		}
+		if (this.guidedGoalOpen) {
+			this.flashNotice('info', messages.guided_goal_already_open());
+			return false;
+		}
+		const id = `gg-${Date.now().toString(36)}-${++this.guidedGoalSeq}`;
+		this.guidedGoal = startInterview(id, idea);
+		this.pushGuided('command', idea.trim());
+		this.askCurrentGuidedQuestion(true);
+		this.requestGoalSuggestions();
+		return true;
+	}
+
+	/** Proposte dell'agente con un turno a margine dell'estensione (facoltativo). */
+	private requestGoalSuggestions(): void {
+		const interview = this.guidedGoal;
+		if (!interview || !this.goalSuggestionsAvailable || !this.isReady || this.exited) return;
+		if (interview.phase !== 'asking') return; // senza idea non c'e' niente da proporre
+		this.guidedGoal = { ...interview, agent: 'pending' };
+		const command = suggestCommand(interview.id, interview.idea, getLocale());
+		this.client.send({ type: 'prompt', message: command }).catch(() => {
+			if (this.guidedGoal?.id === interview.id) this.guidedGoal = { ...this.guidedGoal, agent: 'failed' };
+		});
+		if (this.guidedGoalTimer) clearTimeout(this.guidedGoalTimer);
+		// Il turno a margine puo' non arrivare mai (estensione vecchia, provider lento):
+		// dopo un minuto l'intervista resta con le proposte fisse, senza attese.
+		this.guidedGoalTimer = setTimeout(() => {
+			this.guidedGoalTimer = null;
+			if (this.guidedGoal?.id === interview.id && this.guidedGoal.agent === 'pending') {
+				this.guidedGoal = { ...this.guidedGoal, agent: 'failed' };
+			}
+		}, 60_000);
+	}
+
+	private applyStudioGoalStatus(text: string | undefined): void {
+		const status = parseStudioGoalStatus(text);
+		const interview = this.guidedGoal;
+		if (!status || !interview || status.requestId !== interview.id) return;
+		if (this.guidedGoalTimer) {
+			clearTimeout(this.guidedGoalTimer);
+			this.guidedGoalTimer = null;
+		}
+		if (status.type === 'error') {
+			this.guidedGoal = { ...interview, agent: 'failed' };
+			return;
+		}
+		const merged = mergeAgentSuggestions(interview, status.suggestions);
+		this.guidedGoal = merged;
+		// La domanda corrente nel transcript prende il testo dell'agente.
+		const question = currentQuestion(merged);
+		if (question?.fromAgent) {
+			for (let index = this.entries.length - 1; index >= 0; index--) {
+				const entry = this.entries[index];
+				if (entry.kind === 'guided-goal' && entry.interviewId === merged.id && entry.part === 'question') {
+					if (entry.field === question.field) {
+						const intro = merged.step === 0 ? `${messages.guided_goal_intro()} ` : '';
+						entry.text = `${intro}${question.question}`;
+					}
+					break;
+				}
+			}
+		}
+	}
+
+	/**
+	 * Risposta alla domanda corrente: un'opzione proposta (`value`) o testo
+	 * libero. Il testo libero che non si lascia interpretare resta comunque la
+	 * risposta: la bozza segnala cosa manca prima dell'avvio.
+	 */
+	answerGuidedGoal(answer: GoalAnswerValue | string): void {
+		let interview = this.guidedGoal;
+		if (!interview) return;
+		if (interview.phase === 'idea') {
+			if (typeof answer !== 'string' || !answer.trim()) return;
+			interview = setIdea(interview, answer);
+			this.guidedGoal = interview;
+			this.pushGuided('answer', answer.trim());
+			this.askCurrentGuidedQuestion(true);
+			this.requestGoalSuggestions();
+			return;
+		}
+		const question = currentQuestion(interview);
+		if (!question) return;
+		let value: GoalAnswerValue | null;
+		let shown: string;
+		if (typeof answer === 'string') {
+			const text = answer.trim();
+			if (!text) return;
+			value = parseFreeAnswer(question.field, text);
+			shown = text;
+		} else {
+			value = answer;
+			shown = describeAnswer(answer);
+		}
+		this.pushGuided('answer', shown, question.field);
+		if (!value) {
+			// Niente da ricavare (per esempio un tetto senza numeri): resta da sistemare nella bozza.
+			this.guidedGoal = { ...skipCurrent(interview), answers: { ...interview.answers, [question.field]: shown } };
+		} else {
+			this.guidedGoal = answerCurrent(interview, value);
+		}
+		this.afterGuidedAnswer();
+	}
+
+	skipGuidedGoalQuestion(): void {
+		const interview = this.guidedGoal;
+		if (!interview || interview.phase !== 'asking') return;
+		const question = currentQuestion(interview);
+		this.pushGuided('answer', messages.guided_goal_skipped(), question?.field);
+		this.guidedGoal = skipCurrent(interview);
+		this.afterGuidedAnswer();
+	}
+
+	private afterGuidedAnswer(): void {
+		const interview = this.guidedGoal;
+		if (!interview) return;
+		if (interview.phase === 'asking') {
+			this.askCurrentGuidedQuestion();
+			return;
+		}
+		if (interview.phase === 'draft') {
+			this.pushGuided('question', messages.guided_goal_draft_intro());
+			this.pushGuided('draft', '');
+		}
+	}
+
+	/**
+	 * La ricostruzione del transcript da omp non conosce l'intervista (vive solo
+	 * in Studio): se e' ancora aperta, la domanda corrente o la bozza tornano in
+	 * coda, altrimenti la bozza da avviare sparirebbe.
+	 */
+	private restoreGuidedGoalEntries(): void {
+		const interview = this.guidedGoal;
+		if (!interview || !this.guidedGoalOpen) return;
+		if (interview.phase === 'draft' || interview.phase === 'starting') {
+			this.pushGuided('question', messages.guided_goal_draft_intro());
+			this.pushGuided('draft', '');
+		} else {
+			this.askCurrentGuidedQuestion();
+		}
+	}
+
+	/** Correzioni fatte nella card della bozza. */
+	updateGuidedGoalDraft(draft: GoalDraft): void {
+		const interview = this.guidedGoal;
+		if (!interview || interview.phase !== 'draft') return;
+		this.guidedGoal = { ...interview, draft };
+	}
+
+	cancelGuidedGoal(): void {
+		const interview = this.guidedGoal;
+		if (!interview || !this.guidedGoalOpen || interview.phase === 'starting') return;
+		this.pushGuided('note', messages.guided_goal_cancelled());
+		this.guidedGoal = { ...interview, phase: 'cancelled' };
+		if (this.guidedGoalTimer) {
+			clearTimeout(this.guidedGoalTimer);
+			this.guidedGoalTimer = null;
+		}
+	}
+
+	private clearGuidedGoal(): void {
+		if (this.guidedGoalTimer) clearTimeout(this.guidedGoalTimer);
+		this.guidedGoalTimer = null;
+		this.guidedGoal = null;
+	}
+
+	/** «Avvia»: crea l'obiettivo su omp solo se i controlli bloccanti sono passati. */
+	async launchGuidedGoal(): Promise<boolean> {
+		const interview = this.guidedGoal;
+		if (!interview || interview.phase !== 'draft' || !canLaunch(interview.draft)) return false;
+		this.guidedGoal = { ...interview, phase: 'starting' };
+		const draft = interview.draft;
+		const created = await this.createGoal(goalMarkdown(draft), draft.tokenBudget ?? undefined, draft.attempts);
+		const current = this.guidedGoal;
+		if (!current || current.id !== interview.id) return created;
+		if (!created) {
+			this.guidedGoal = { ...current, phase: 'draft' };
+			return false;
+		}
+		this.guidedGoal = { ...current, phase: 'started' };
+		this.pushGuided('started', draft.objective);
+		return true;
+	}
+
+	/**
+	 * `goal create` su omp. L'obiettivo prosegue da solo fra un turno e l'altro
+	 * perche' l'overlay di Studio abilita `goal.continuationModes: rpc`.
+	 */
+	async createGoal(objective: string, tokenBudget?: number, attemptCap?: number | null): Promise<boolean> {
+		const text = objective.trim();
+		if (!text) return false;
+		try {
+			const res = await this.client.send<GoalResult>({
+				type: 'goal',
+				op: 'create',
+				objective: text,
+				token_budget: tokenBudget && tokenBudget > 0 ? Math.round(tokenBudget) : undefined
+			});
+			if (res?.state !== undefined) this.goal = res.state;
+			this.syncGoalTracking();
+			if (attemptCap !== undefined) this.goalAttemptCap = attemptCap ?? null;
+			void this.refreshState();
+			return true;
+		} catch (error) {
+			this.flashNotice('error', messages.guided_goal_create_failed({ error: this.reason(error) }));
+			return false;
+		}
+	}
+
+	/** Nuovo obiettivo (o nessuno): i tentativi ripartono da zero, il tetto si rilegge dal testo. */
+	private syncGoalTracking(): void {
+		const goal = this.goal?.goal ?? null;
+		const id = goal?.id ?? null;
+		if (id === this.goalTrackedId) return;
+		this.goalTrackedId = id;
+		this.goalAttempts = 0;
+		this.goalAttemptOpen = false;
+		this.goalAttemptCap = goal ? parseAttemptCap(goal.objective) : null;
+	}
+
+	/** Un tentativo e' un giro dell'agente con l'obiettivo attivo. */
+	private noteGoalAttemptStart(): void {
+		if (this.goal?.goal.status !== 'active' || this.goalAttemptOpen) return;
+		this.goalAttemptOpen = true;
+		this.goalAttempts += 1;
+	}
+
+	/**
+	 * Fine del giro: al tetto di tentativi l'obiettivo va in pausa, perche' omp
+	 * conosce solo il budget di token e altrimenti continuerebbe.
+	 */
+	private noteGoalAttemptEnd(aborted: boolean): void {
+		if (!this.goalAttemptOpen) return;
+		this.goalAttemptOpen = false;
+		if (aborted) return;
+		if (shouldPauseForCap(this.goalAttempts, this.goalAttemptCap, this.goal?.goal.status)) {
+			void this.pauseGoal().then((paused) => {
+				if (paused) {
+					this.pushNotice('info', messages.goal_banner_cap_reached({ count: this.goalAttempts }), 'studio');
+				}
+			});
+		}
 	}
 
 	/**

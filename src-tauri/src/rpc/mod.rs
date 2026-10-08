@@ -199,8 +199,12 @@ impl RpcManager {
 
 
 /// Riscrive in modo atomico il file di configurazione overlay GUI,
-/// preservando la base (`tools.approvalMode: yolo`, `read.defaultLimit: 1200`)
-/// e aggiornando il valore di `prewalk.enabled`.
+/// preservando la base (`tools.approvalMode: yolo`, `read.defaultLimit: 1200`,
+/// `goal.continuationModes` con `rpc`) e aggiornando il valore di `prewalk.enabled`.
+///
+/// `goal.continuationModes`: di default omp fa proseguire da solo un obiettivo
+/// (goal mode) solo nel terminale (`interactive`). Senza `rpc` un obiettivo
+/// creato dalla chat GUI farebbe un turno e poi si fermerebbe.
 /// Rifiuta la riscrittura se il percorso appartiene a una configurazione del Laboratorio.
 pub(crate) fn set_gui_overlay_prewalk(
     config_path: &std::path::Path,
@@ -210,9 +214,9 @@ pub(crate) fn set_gui_overlay_prewalk(
         return Err("Rifiutata modifica prewalk su configurazione Laboratorio".to_string());
     }
     let content: &[u8] = if enabled {
-        b"tools:\n  approvalMode: yolo\nread:\n  defaultLimit: 1200\nprewalk:\n  enabled: true\n"
+        b"tools:\n  approvalMode: yolo\nread:\n  defaultLimit: 1200\ngoal:\n  continuationModes:\n    - interactive\n    - rpc\nprewalk:\n  enabled: true\n"
     } else {
-        b"tools:\n  approvalMode: yolo\nread:\n  defaultLimit: 1200\nprewalk:\n  enabled: false\n"
+        b"tools:\n  approvalMode: yolo\nread:\n  defaultLimit: 1200\ngoal:\n  continuationModes:\n    - interactive\n    - rpc\nprewalk:\n  enabled: false\n"
     };
     crate::fs_atomic::atomic_write(config_path, content)
 }
@@ -276,12 +280,15 @@ pub fn is_valid_prototype_id(id: &str) -> bool {
 /// Configurazione generata per-sessione per il Laboratorio prototipi.
 /// Disattiva shell (`bash`), interpreti host (`eval`), browser generico
 /// e configurazioni MCP di progetto, caricando l'estensione confinata dello Step 4.
+/// `lanes_extension_path` aggiunge l'estensione delle corsie: dentro il
+/// Laboratorio registra il solo `corsia_fatto`, che l'hook fail-closed ammette.
 /// NON usa l'overlay globale `approvalMode: yolo`, NON tocca `~/.omp`,
 /// e alloca un file temporaneo dedicato per ciascuna sessione.
 pub fn write_lab_session_config(
     rpc_id: u64,
     prototype_id: &str,
     lab_extension_path: Option<&str>,
+    lanes_extension_path: Option<&str>,
 ) -> Result<std::path::PathBuf, String> {
     let mut config_path = std::env::temp_dir();
     let safe_proto = prototype_id
@@ -317,11 +324,17 @@ pub fn write_lab_session_config(
     // Disattivazione xdev per esporre direttamente i tool confinati del Laboratorio
     content.push_str("tools:\n  xdev: false\n\n");
 
-    // Caricamento estensione Step 4
+    // Caricamento estensione Step 4 (e, se presente, delle corsie). Senza
+    // l'estensione confinata non si carica nient'altro: le corsie da sole
+    // non avrebbero il gate fail-closed attorno.
     if let Some(ext_path) = lab_extension_path {
         let normalized = ext_path.replace('\\', "/");
         content.push_str("extensions:\n");
         content.push_str(&format!("  - \"{}\"\n", normalized));
+        if let Some(lanes_path) = lanes_extension_path {
+            let normalized = lanes_path.replace('\\', "/");
+            content.push_str(&format!("  - \"{}\"\n", normalized));
+        }
     }
 
     std::fs::write(&config_path, content.as_bytes()).map_err(|e| {
@@ -847,6 +860,16 @@ pub async fn rpc_open(
         crate::pty::write_extension("studio-tasks.ts", crate::pty::TASKS_EXTENSION_TS);
     let lanes_extension =
         crate::pty::write_extension("studio-lanes.ts", crate::pty::LANES_EXTENSION_TS);
+    let plan_extension =
+        crate::pty::write_extension("studio-plan.ts", crate::pty::PLAN_EXTENSION_TS);
+    let loop_extension =
+        crate::pty::write_extension("studio-loop.ts", crate::pty::LOOP_EXTENSION_TS);
+    let goal_extension =
+        crate::pty::write_extension("studio-goal.ts", crate::pty::GOAL_EXTENSION_TS);
+    let headsup_extension =
+        crate::pty::write_extension("studio-headsup.ts", crate::pty::HEADSUP_EXTENSION_TS);
+    let docs_extension =
+        crate::pty::write_extension("studio-docs.ts", crate::pty::DOCS_EXTENSION_TS);
 
     // Progetto senza cartella (chat temporanea): stesso trattamento del PTY,
     // sessione effimera e nessun `--cwd`.
@@ -877,6 +900,23 @@ pub async fn rpc_open(
     if let Some(path) = &lanes_extension {
         command.arg("-e").arg(path);
     }
+    if let Some(path) = &plan_extension {
+        command.arg("-e").arg(path);
+    }
+    if let Some(path) = &loop_extension {
+        command.arg("-e").arg(path);
+    }
+    // Proposte dell'agente per l'obiettivo guidato (`/guided-goal`): facoltativa,
+    // senza file l'intervista resta con le proposte fisse.
+    if let Some(path) = &goal_extension {
+        command.arg("-e").arg(path);
+    }
+    if let Some(path) = &headsup_extension {
+        command.arg("-e").arg(path);
+    }
+    if let Some(path) = &docs_extension {
+        command.arg("-e").arg(path);
+    }
     // Applica resume (se sessione valida) oppure continue_last
     let mut session_args = Vec::new();
     apply_resume_or_continue(
@@ -895,6 +935,9 @@ pub async fn rpc_open(
     command
         .current_dir(&launch_cwd)
         .env("OMP_STUDIO", "1")
+        // Accende `studio-plan.ts`: il Piano della chat GUI. Nel PTY la
+        // variabile manca e l'estensione resta inerte (vale il `/plan` nativo).
+        .env("OMP_STUDIO_PLAN", "gui")
         // Come per il PTY: nessun wizard dentro una sessione di lavoro.
         .env("OMP_SKIP_SETUP", "1");
     if let Some(lane) = &lane_id {
@@ -1098,6 +1141,7 @@ pub const LAB_SYSTEM_PROMPT: &str = "You are the OMP Studio Lab agent. You build
 - When the purpose of the prototype becomes clear or changes, call lab_set_summary with a 2-3 line summary of what it does, in the user's language: the main project agent uses it to find this prototype later.\n\
 - Every user request becomes one revision: Studio commits when your turn ends. Never run git.\n\
 - To compare alternatives, build them inside the prototype with a visible variant switcher.\n\
+- A user message may end with a <lab-notes> block from Point/Area in the preview: each numbered entry lists the element's file:line:column (the JSX that rendered it, or the component call site), component, selector, classes and text, plus the user's note; numbers match the boxes in the attached frame. Open those lines first instead of searching, and change the shared component when several instances come from one line unless the note says otherwise.\n\
 - Reply in the user's language.";
 
 /// Avvia una sessione OMP confinata per la corsia Laboratorio prototipi.
@@ -1152,6 +1196,8 @@ pub async fn rpc_open_lab(
 
     let omp_path = crate::omp_ops::get_omp_binary();
     let lab_extension = crate::pty::write_extension("studio-lab.ts", LAB_EXTENSION_TS);
+    let lanes_extension =
+        crate::pty::write_extension("studio-lanes.ts", crate::pty::LANES_EXTENSION_TS);
 
     let rpc_id = {
         let mut guard = manager.next_id.lock();
@@ -1161,7 +1207,12 @@ pub async fn rpc_open_lab(
     };
 
     let lab_config_path =
-        write_lab_session_config(rpc_id, &prototype_id, lab_extension.as_deref())?;
+        write_lab_session_config(
+            rpc_id,
+            &prototype_id,
+            lab_extension.as_deref(),
+            lanes_extension.as_deref(),
+        )?;
 
     let mut command = Command::new(&omp_path);
     command.arg("--mode").arg("rpc-ui");
@@ -1218,6 +1269,25 @@ pub async fn rpc_open_lab(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
+    // Token del bridge solo per un prototipo di progetto: la bozza libera non
+    // ha una corsia da segnare come finita. Il proprietario dentro una corsia
+    // puo' chiamare soltanto `fatto` e `stato` (vedi `lane_bridge::authorize`).
+    let lab_bridge = if !effective_project_id.is_empty() && !effective_lane_id.is_empty() {
+        crate::lane_bridge::issue_token(crate::lane_bridge::BridgeOwner {
+            owner_kind: "agent".to_string(),
+            owner_id: rpc_id,
+            project_id: Some(effective_project_id.to_string()),
+            lane_id: Some(effective_lane_id.to_string()),
+            cwd: workspace_path.clone(),
+        })
+    } else {
+        None
+    };
+    if let Some((url, token)) = &lab_bridge {
+        command.env("OMP_STUDIO_BRIDGE_URL", url);
+        command.env("OMP_STUDIO_BRIDGE_TOKEN", token);
+    }
+
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
@@ -1244,6 +1314,9 @@ pub async fn rpc_open_lab(
         Ok(child) => child,
         Err(error) => {
             let _ = std::fs::remove_file(&lab_config_path);
+            if lab_bridge.is_some() {
+                crate::lane_bridge::revoke_owner("agent", rpc_id);
+            }
             return Err(format!("Avvio di omp per sessione Laboratorio: {}", error));
         }
     };
@@ -1714,6 +1787,7 @@ mod tests {
             999,
             "test-proto-config",
             Some("C:/test/extensions/studio-lab.ts"),
+            Some("C:/test/extensions/studio-lanes.ts"),
         )
         .expect("scrittura configurazione riuscita");
 
@@ -1730,6 +1804,10 @@ mod tests {
         // Verifica estensione caricata
         assert!(content.contains("extensions:"));
         assert!(content.contains("C:/test/extensions/studio-lab.ts"));
+        // Le corsie entrano solo dopo l'estensione confinata, che ne filtra i tool
+        let lab_at = content.find("studio-lab.ts").unwrap();
+        let lanes_at = content.find("studio-lanes.ts").expect("estensione corsie caricata");
+        assert!(lanes_at > lab_at);
 
         // Invariante vincolante: NESSUN overlay yolo
         assert!(!content.contains("approvalMode: yolo"));
@@ -1873,6 +1951,29 @@ mod tests {
         assert!(overlay.read.summarize.is_none());
         assert!(!overlay.prewalk.enabled);
 
+        let _ = std::fs::remove_file(overlay_path);
+    }
+
+    #[test]
+    fn overlay_gui_abilita_la_continuazione_dei_goal_in_rpc() {
+        #[derive(Deserialize)]
+        struct OverlayGoalOnly {
+            goal: OverlayGoal,
+        }
+        #[derive(Deserialize)]
+        struct OverlayGoal {
+            #[serde(rename = "continuationModes")]
+            continuation_modes: Vec<String>,
+        }
+
+        let rpc_id = 99006;
+        let overlay_path = write_gui_overlay(rpc_id).expect("overlay GUI generato");
+        for enabled in [true, false] {
+            set_gui_overlay_prewalk(&overlay_path, enabled).expect("riscrittura overlay riuscita");
+            let content = std::fs::read_to_string(&overlay_path).expect("overlay leggibile");
+            let parsed: OverlayGoalOnly = serde_yaml::from_str(&content).expect("overlay YAML valido");
+            assert_eq!(parsed.goal.continuation_modes, vec!["interactive", "rpc"]);
+        }
         let _ = std::fs::remove_file(overlay_path);
     }
 

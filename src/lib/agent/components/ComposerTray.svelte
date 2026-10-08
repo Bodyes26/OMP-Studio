@@ -18,11 +18,13 @@
 	import GoalTray from './GoalTray.svelte';
 	import StatusMark from '$lib/ui/StatusMark.svelte';
 	import {
+		IconAside,
 		IconChevronRight,
 		IconChevronUp,
 		IconClose,
 		IconLoop,
 		IconQueue,
+		IconSchedule,
 		IconSubagents,
 		IconStop,
 	} from '$lib/icons';
@@ -32,6 +34,13 @@
 		count?: number;
 		from?: string;
 		onOpen: () => void;
+	}
+	/** Domanda a margine (`/btw`) a riquadro chiuso: riga «A margine … Apri». */
+	export interface BtwTrayInfo {
+		question: string;
+		state: 'running' | 'ready' | 'stopped';
+		onOpen: () => void;
+		onDismiss: () => void;
 	}
 	export interface QuotaTrayInfo {
 		kind: 'exhausted' | 'limit';
@@ -43,6 +52,9 @@
 		onSwitch?: () => void;
 		onChooseModel: () => void;
 		onDismiss: () => void;
+		/** «Aspetta il prossimo reset · 14:05»: rimette la sessione in coda al reset. */
+		waitResetLabel?: string;
+		onWaitReset?: () => void;
 	}
 
 
@@ -60,7 +72,8 @@
 		goal = null,
 		onPauseGoal,
 		onResumeGoal,
-		onDropGoal
+		onDropGoal,
+		btw
 	} = $props<{
 		phases?: TodoPhase[];
 		reminder?: { attempt: number; max: number } | null;
@@ -76,6 +89,7 @@
 		onPauseGoal?: () => void;
 		onResumeGoal?: () => void;
 		onDropGoal?: () => void;
+		btw?: BtwTrayInfo;
 	}>();
 
 	// --- Statistiche Todo ---
@@ -181,6 +195,7 @@
 	const subsLinger = new Lingering<AgentProgress[]>();
 	const queueLinger = new Lingering<number>();
 	const askLinger = new Lingering<QuestionMinimized>();
+	const btwLinger = new Lingering<BtwTrayInfo>();
 	$effect(() => {
 		goalLinger.update(hasGoal && goal ? goal : undefined);
 		todoLinger.update(hasTodo ? phases : undefined);
@@ -194,12 +209,16 @@
 	$effect(() => {
 		askLinger.update(questionMinimized);
 	});
+	$effect(() => {
+		btwLinger.update(btw);
+	});
 	onDestroy(() => {
 		goalLinger.dispose();
 		todoLinger.dispose();
 		subsLinger.dispose();
 		queueLinger.dispose();
 		askLinger.dispose();
+		btwLinger.dispose();
 	});
 
 	const anyShown = $derived(
@@ -209,7 +228,8 @@
 			todoLinger.shown !== undefined ||
 			subsLinger.shown !== undefined ||
 			queueLinger.shown !== undefined ||
-			askLinger.shown !== undefined
+			askLinger.shown !== undefined ||
+			btwLinger.shown !== undefined
 	);
 	const allLeaving = $derived(
 		anyShown &&
@@ -219,7 +239,8 @@
 			(todoLinger.shown === undefined || todoLinger.leaving) &&
 			(subsLinger.shown === undefined || subsLinger.leaving) &&
 			(queueLinger.shown === undefined || queueLinger.leaving) &&
-			(askLinger.shown === undefined || askLinger.leaving)
+			(askLinger.shown === undefined || askLinger.leaving) &&
+			(btwLinger.shown === undefined || btwLinger.leaving)
 	);
 </script>
 
@@ -250,6 +271,16 @@
 												onclick={quota.onSwitch}
 											>
 												{quota.switchLabel}
+											</button>
+										{/if}
+										{#if quota.onWaitReset && quota.waitResetLabel}
+											<button
+												type="button"
+												class="ui-button ui-button-secondary quota-wait-reset"
+												onclick={quota.onWaitReset}
+											>
+												<IconSchedule aria-hidden="true" />
+												{quota.waitResetLabel}
 											</button>
 										{/if}
 										<button
@@ -599,6 +630,41 @@
 						</div>
 					</div>
 				{/if}
+
+				<!-- Domanda a margine a riquadro chiuso (Esc): resta raggiungibile con «Apri». -->
+				{#if btwLinger.shown !== undefined}
+					{@const aside = btwLinger.shown}
+					<div class={btwLinger.leaving ? 'tray-out' : 'tray-in'}>
+						<div class="tray-fold-inner">
+							<div class="btw-row" role="status">
+								<span class="btw-row-dot {aside.state}" aria-hidden="true"></span>
+								<span class="btw-row-icon" aria-hidden="true"><IconAside /></span>
+								<strong class="btw-row-title">{m.btw_title()}</strong>
+								<span class="btw-row-q" title={aside.question}>«{aside.question}»</span>
+								<span class="btw-row-state">
+									{aside.state === 'running'
+										? m.btw_tray_running()
+										: aside.state === 'ready'
+											? m.btw_tray_ready()
+											: m.btw_tray_stopped()}
+								</span>
+								<button type="button" class="ui-button ui-button-secondary btw-row-open" onclick={() => aside.onOpen()}>
+									{m.btw_tray_open()}
+								</button>
+								<Tooltip text={m.btw_tray_dismiss()} placement="top" offset={4}>
+									<button
+										type="button"
+										class="btw-row-dismiss"
+										aria-label={m.btw_tray_dismiss()}
+										onclick={() => aside.onDismiss()}
+									>
+										<IconClose />
+									</button>
+								</Tooltip>
+							</div>
+						</div>
+					</div>
+				{/if}
 			</div>
 		</div>
 	</div>
@@ -932,6 +998,13 @@
 		flex-shrink: 0;
 		margin-left: auto;
 	}
+	.quota-wait-reset {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		--icon-size: 12px;
+	}
+
 	.quota-details-toggle {
 		display: inline-flex;
 		align-items: center;
@@ -1009,6 +1082,80 @@
 	.compact-sep {
 		color: var(--ink-faint);
 		user-select: none;
+	}
+	.btw-row {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		width: 100%;
+		min-width: 0;
+		padding: 6px var(--space-2) 6px var(--space-3);
+		border-top: 1px solid var(--line);
+		font-family: var(--font-ui);
+		font-size: 12.5px;
+		color: var(--ink);
+		box-sizing: border-box;
+	}
+	.tray-in:first-child .btw-row,
+	.tray-out:first-child .btw-row {
+		border-top: 0;
+	}
+	.btw-row-dot {
+		width: 7px;
+		height: 7px;
+		border-radius: 50%;
+		flex: none;
+		background: var(--ink-faint);
+	}
+	.btw-row-dot.running {
+		background: var(--warn);
+		animation: state-pulse 1.2s ease-in-out infinite;
+	}
+	.btw-row-dot.ready {
+		background: var(--success);
+	}
+	.btw-row-icon {
+		display: inline-flex;
+		color: var(--brand-ink);
+		--icon-size: 13px;
+	}
+	.btw-row-title {
+		font-weight: 600;
+		white-space: nowrap;
+	}
+	.btw-row-q {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		color: var(--ink-muted);
+	}
+	.btw-row-state {
+		color: var(--ink-faint);
+		font-size: var(--text-sm);
+		white-space: nowrap;
+	}
+	.btw-row-open {
+		padding: 2px 9px;
+		font-size: var(--text-sm);
+	}
+	.btw-row-dismiss {
+		width: 24px;
+		height: 24px;
+		display: grid;
+		place-items: center;
+		padding: 0;
+		border: 0;
+		border-radius: var(--radius-md);
+		background: transparent;
+		color: var(--ink-muted);
+		cursor: pointer;
+		--icon-size: 12px;
+	}
+	.btw-row-dismiss:hover {
+		background: var(--bg-hover);
+		color: var(--ink);
 	}
 	.ask-attention-row {
 		display: flex;

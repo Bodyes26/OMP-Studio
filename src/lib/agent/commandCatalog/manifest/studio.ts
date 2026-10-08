@@ -1,4 +1,4 @@
-// Voci del catalogo per i comandi slash nativi di OMP Studio (16 comandi guscio).
+// Voci del catalogo per i comandi slash nativi di OMP Studio (19 comandi guscio).
 //
 // Questi comandi vengono intercettati localmente dal guscio GUI di Studio
 // (in handleGuiSlashCommand) e non sono builtin inoltrati a omp via RPC.
@@ -6,12 +6,64 @@
 // switch, changelog, compact, handoff) sono esclusi da qui e gestiti con origin
 // 'omp' nei rispettivi file del manifesto.
 //
-// Nessun comando del guscio ha defaultPlacement attivo: di fabbrica restano
-// non fissati e possono essere aggiunti dall'utente alla riga di stato (statusLine).
+// Di fabbrica i comandi del guscio restano non fissati e possono essere aggiunti
+// dall'utente alla riga di stato (statusLine). Unica eccezione `guided-goal`:
+// il pulsante «Obiettivo» nella barra del composer e' l'ingresso dell'obiettivo
+// guidato (prototipo approvato, variante B).
 
 import type { CommandManifestEntry } from '../types';
 
 export const STUDIO_ENTRIES: readonly CommandManifestEntry[] = [
+	{
+		id: 'guided-goal',
+		origin: 'studio',
+		category: 'modes',
+		icon: 'IconTarget',
+		control: 'action',
+		supported: [
+			{ zone: 'toolbar', form: 'chip' },
+			{ zone: 'toolbar', form: 'icon' },
+			{ zone: 'statusLine', form: 'chip' }
+		],
+		defaultPlacement: { zone: 'toolbar', form: 'chip' },
+		argsHint: '[idea]',
+		text: {
+			it: {
+				title: 'Obiettivo',
+				summary:
+					'Definisce un obiettivo con cinque domande in chat (criteri, verifica, tetto, confini, stop) e lo avvia in goal mode.',
+				benefits: [
+					'Trasforma un’idea vaga in criteri che danno un sì o un no, con il criterio vago segnalato prima di partire.',
+					'Fissa un tetto di tentativi e di token: l’agente lavora da solo ma non gira a vuoto.',
+					'Segui l’avanzamento nel banner in cima alla chat, con Pausa, Riprendi e Stop.'
+				],
+				examples: [
+					{ command: '/guided-goal', note: 'Apre l’intervista: prima domanda «cosa vuoi ottenere?»' },
+					{ command: '/guided-goal rendi più veloce l’avvio', note: 'Parte dall’idea e chiede subito i criteri' },
+					{ command: '/goal pause', note: 'Mette in pausa l’obiettivo attivo (anche resume, drop, show)' }
+				],
+				whenToUse:
+					'Quando un lavoro va portato avanti per più turni fino a un risultato verificabile, senza guidarlo passo per passo.'
+			},
+			en: {
+				title: 'Goal',
+				summary:
+					'Defines a goal through five questions in chat (criteria, verification, cap, boundaries, stop) and starts it in goal mode.',
+				benefits: [
+					'Turns a vague idea into yes/no criteria, flagging a vague criterion before anything starts.',
+					'Sets an attempt and token cap: the agent works on its own without spinning in circles.',
+					'Follow progress in the banner at the top of the chat, with Pause, Resume and Stop.'
+				],
+				examples: [
+					{ command: '/guided-goal', note: 'Opens the interview, starting with “what do you want to achieve?”' },
+					{ command: '/guided-goal make startup faster', note: 'Starts from the idea and asks for the criteria right away' },
+					{ command: '/goal pause', note: 'Pauses the active goal (also resume, drop, show)' }
+				],
+				whenToUse:
+					'When a piece of work should run over several turns until a verifiable result, without steering it step by step.'
+			}
+		}
+	},
 	{
 		id: 'new',
 		origin: 'studio',
@@ -94,6 +146,10 @@ export const STUDIO_ENTRIES: readonly CommandManifestEntry[] = [
 					{
 						command: '/resume ses_123abc',
 						note: 'Carica direttamente la sessione con l’identificativo indicato'
+					},
+					{
+						command: '/sessions',
+						note: 'Alias equivalente: apre l’elenco delle sessioni del progetto'
 					}
 				],
 				whenToUse:
@@ -115,6 +171,10 @@ export const STUDIO_ENTRIES: readonly CommandManifestEntry[] = [
 					{
 						command: '/resume ses_123abc',
 						note: 'Directly switches to and loads the session with the specified ID'
+					},
+					{
+						command: '/sessions',
+						note: 'Equivalent alias: opens the project session list'
 					}
 				],
 				whenToUse:
@@ -659,10 +719,55 @@ export const STUDIO_ENTRIES: readonly CommandManifestEntry[] = [
 		}
 	},
 	{
+		id: 'btw',
+		origin: 'studio',
+		category: 'context',
+		icon: 'IconAside',
+		control: 'panel',
+		supported: [
+			{ zone: 'statusLine', form: 'chip' },
+			{ zone: 'statusLine', form: 'icon' }
+		],
+		defaultPlacement: null,
+		argsHint: '[domanda]',
+		text: {
+			it: {
+				title: 'A margine',
+				summary: 'Fa una domanda veloce sulla sessione in un riquadro sopra il composer: risponde il modello senza strumenti, l’agente non si ferma e la domanda non entra nel contesto.',
+				benefits: [
+					'Chiarisci un dubbio mentre l’agente lavora, senza interromperlo né mettere in coda un messaggio.',
+					'La risposta scorre nel riquadro; gli approfondimenti restano nello stesso argomento e lo Storico è condiviso con il /btw del terminale.',
+					'«Usa nel messaggio» porta domanda e risposta nel composer come citazione: entra nel contesto solo se invii.'
+				],
+				examples: [
+					{ command: '/btw perché quotaStore usa una Map?', note: 'Apre il riquadro e manda subito la domanda' },
+					{ command: '/btw', note: 'Apre il riquadro con i suggerimenti e lo Storico (anche Ctrl+B o il pulsante «A margine»)' }
+				],
+				whenToUse:
+					'Quando ti serve una spiegazione o un promemoria sulla sessione senza fermare l’agente né sporcare la conversazione. Richiede omp 18.6.3 o successivo.'
+			},
+			en: {
+				title: 'Aside',
+				summary: 'Asks a quick question about the session in a box above the composer: the model answers without tools, the agent keeps going and the question never enters the context.',
+				benefits: [
+					'Clear up a doubt while the agent works, without interrupting it or queuing a message.',
+					'The answer streams in the box; follow-ups stay in the same topic and the History is shared with the terminal /btw.',
+					'“Use in message” puts the question and answer in the composer as a quote: it enters the context only if you send it.'
+				],
+				examples: [
+					{ command: '/btw why does quotaStore use a Map?', note: 'Opens the box and sends the question right away' },
+					{ command: '/btw', note: 'Opens the box with suggestions and the History (also Ctrl+B or the “Aside” button)' }
+				],
+				whenToUse:
+					'When you need an explanation or a reminder about the session without stopping the agent or cluttering the conversation. Needs omp 18.6.3 or later.'
+			}
+		}
+	},
+	{
 		id: 'tree',
 		origin: 'studio',
 		category: 'session',
-		icon: 'IconSubagents',
+		icon: 'IconGitBranch',
 		control: 'panel',
 		supported: [
 			{ zone: 'statusLine', form: 'chip' },
@@ -671,46 +776,38 @@ export const STUDIO_ENTRIES: readonly CommandManifestEntry[] = [
 		defaultPlacement: null,
 		text: {
 			it: {
-				title: 'Albero sessioni',
-				summary: 'Mostra l’albero e la cronologia delle sessioni del progetto nella barra laterale.',
+				title: 'Rami della sessione',
+				summary: 'Apre il pannello Rami: l’albero delle diramazioni della sessione aperta, con il ramo attivo evidenziato.',
 				benefits: [
-					'Visualizzazione gerarchica delle sessioni e delle rispettive diramazioni (fork).',
-					'Permette di navigare facilmente tra flussi di lavoro paralleli o passati.',
-					'Facilita il passaggio rapido a conversazioni precedenti con un clic.'
+					'Mostra dove la conversazione si è divisa (rewind, «Modifica e riprova», diramazioni) con un nodo per ogni tuo messaggio.',
+					'Un clic su un ramo lo apre come nuova sessione, fino al suo ultimo messaggio, senza toccare quella di partenza.',
+					'Da un nodo puoi anche diramare da prima del messaggio o rimetterlo nel composer per riprovarlo.'
 				],
 				examples: [
 					{
 						command: '/tree',
-						note: 'Apre la vista ad albero delle sessioni nella barra laterale sinistra'
-					},
-					{
-						command: '/sessions',
-						note: 'Alias equivalente per accedere allo storico delle sessioni'
+						note: 'Apre il pannello Rami sopra la chat della corsia attiva'
 					}
 				],
 				whenToUse:
-					'Quando vuoi consultare la struttura complessiva delle conversazioni e passare a un altro ramo di lavoro.'
+					'Quando vuoi capire da dove arriva la conversazione o riprendere un tentativo lasciato su un altro ramo. L’elenco delle sessioni è /sessions.'
 			},
 			en: {
-				title: 'Session tree',
-				summary: 'Displays the tree and timeline of project sessions in the sidebar.',
+				title: 'Session branches',
+				summary: 'Opens the Branches panel: the fork tree of the open session, with the active branch highlighted.',
 				benefits: [
-					'Hierarchical visualization of sessions and their branched forks.',
-					'Easily navigate between parallel or historical work streams.',
-					'Enables one-click switching to any prior conversation.'
+					'Shows where the conversation split (rewinds, “Edit and retry”, forks) with one node per message you sent.',
+					'Clicking a branch opens it as a new session, up to its last message, leaving the original untouched.',
+					'From a node you can also branch from before the message or put it back in the composer to retry it.'
 				],
 				examples: [
 					{
 						command: '/tree',
-						note: 'Opens the session tree view in the left sidebar'
-					},
-					{
-						command: '/sessions',
-						note: 'Equivalent alias to access the session history view'
+						note: 'Opens the Branches panel over the active lane’s chat'
 					}
 				],
 				whenToUse:
-					'When surveying multi-branch session structures or hopping across separate conversation threads.'
+					'When you want to see where the conversation came from or pick up an attempt left on another branch. The session list is /sessions.'
 			}
 		}
 	},
@@ -728,37 +825,37 @@ export const STUDIO_ENTRIES: readonly CommandManifestEntry[] = [
 		text: {
 			it: {
 				title: 'Dirama sessione (Fork)',
-				summary: 'Crea una nuova sessione derivata clonando la cronologia corrente fino a questo punto.',
+				summary: 'Copia l’intera sessione corrente, cronologia e artefatti compresi, in una nuova sessione e prosegue sulla copia.',
 				benefits: [
-					'Permette di sperimentare soluzioni alternative senza perdere la cronologia originale.',
-					'Isola tentativi rischiosi in un ramo separato preservando la conversazione madre.',
-					'Passa immediatamente alla nuova sessione derivata pronta per il prompt.'
+					'Permette di sperimentare un’alternativa senza toccare la conversazione di partenza, che resta nell’elenco sessioni.',
+					'La copia conserva tutto il contesto: l’agente continua da dove eri, senza ripartire da zero.',
+					'Per ripartire da un punto precedente usa «Dirama da qui» o «Modifica e riprova» nel menu di un messaggio.'
 				],
 				examples: [
 					{
 						command: '/fork',
-						note: 'Dirama la sessione corrente e passa al nuovo ramo duplicato'
+						note: 'Copia la sessione e passa subito alla copia; funziona solo ad agente fermo'
 					}
 				],
 				whenToUse:
-					'Quando intendi provare un refactoring o un approccio alternativo mantenendo intatta la chat di partenza.'
+					'Quando vuoi provare un refactoring o un approccio rischioso mantenendo intatta la chat di partenza.'
 			},
 			en: {
 				title: 'Fork session',
-				summary: 'Creates a branched session by cloning current conversation history up to this turn.',
+				summary: 'Copies the whole current session, history and artifacts included, into a new session and continues on the copy.',
 				benefits: [
-					'Safely experiment with alternative implementations without losing original conversation state.',
-					'Isolates risky changes to a separate branch while keeping parent chat intact.',
-					'Switches immediately to the newly branched session ready for input.'
+					'Try an alternative without touching the original conversation, which stays in the session list.',
+					'The copy keeps the full context: the agent carries on from where you were instead of starting over.',
+					'To restart from an earlier point use “Branch from here” or “Edit and retry” in a message’s menu.'
 				],
 				examples: [
 					{
 						command: '/fork',
-						note: 'Forks active session and switches immediately to the cloned branch'
+						note: 'Copies the session and switches to the copy right away; works only while the agent is idle'
 					}
 				],
 				whenToUse:
-					'When testing a divergent architecture or risky approach while preserving the original discussion intact.'
+					'When testing a refactor or a risky approach while keeping the original conversation intact.'
 			}
 		}
 	},
@@ -859,5 +956,150 @@ export const STUDIO_ENTRIES: readonly CommandManifestEntry[] = [
 					'When finishing work in the current session and resetting the chat surface.'
 			}
 		}
+	},
+	{
+		id: 'plan',
+		origin: 'studio',
+		category: 'modes',
+		icon: 'IconPlan',
+		control: 'toggle',
+		supported: [
+			{ zone: 'statusLine', form: 'chip' },
+			{ zone: 'statusLine', form: 'icon' }
+		],
+		defaultPlacement: null,
+		argsHint: '[testo]',
+		text: {
+			it: {
+				title: 'Modalità Piano',
+				summary:
+					'Accende o spegne la modalità Piano nella chat: l’agente esplora in sola lettura, scrive il piano e te lo propone per l’approvazione.',
+				benefits: [
+					'Il progetto resta intatto: write ed edit funzionano solo sul file del piano (local://) e su .omp/plans/.',
+					'Il piano arriva come card a sezioni: commenti, modifichi o elimini ogni sezione prima di decidere.',
+					'All’approvazione Studio passa il compito: nuova sessione pulita, nuova corsia, compattazione o cronologia completa, con il ruolo scelto.'
+				],
+				examples: [
+					{ command: '/plan', note: 'Accende la modalità Piano (di nuovo per uscirne)' },
+					{ command: '/plan aggiungi l’export CSV', note: 'Entra in Piano e manda subito la richiesta' }
+				],
+				whenToUse:
+					'Prima di un cambiamento che tocca più file o che vuoi far eseguire a un agente con contesto pulito. Nel Terminale resta il /plan nativo di omp.'
+			},
+			en: {
+				title: 'Plan mode',
+				summary:
+					'Turns plan mode on or off in the chat: the agent explores read-only, writes the plan and proposes it for approval.',
+				benefits: [
+					'The project stays untouched: write and edit only work on the plan file (local://) and on .omp/plans/.',
+					'The plan arrives as a sectioned card: comment on, edit or delete each section before deciding.',
+					'On approval Studio hands the task off: fresh session, new lane, compaction or full history, with the chosen role.'
+				],
+				examples: [
+					{ command: '/plan', note: 'Turns plan mode on (again to leave it)' },
+					{ command: '/plan add the CSV export', note: 'Enters plan mode and sends the request right away' }
+				],
+				whenToUse:
+					'Before a change that touches several files or that you want an agent to execute with a clean context. In the Terminal omp’s native /plan stays.'
+			}
+		}
+	},
+	{
+		id: 'plan-review',
+		origin: 'studio',
+		category: 'modes',
+		icon: 'IconPlan',
+		control: 'panel',
+		supported: [
+			{ zone: 'statusLine', form: 'chip' },
+			{ zone: 'statusLine', form: 'icon' }
+		],
+		defaultPlacement: null,
+		text: {
+			it: {
+				title: 'Rivedi il piano',
+				summary: 'Riapre la revisione dell’ultimo piano della sessione, anche dopo averla chiusa.',
+				benefits: [
+					'Ritrovi la card del piano e la scheda di approvazione senza far riscrivere nulla all’agente.',
+					'Commenti, modifiche e strade di esecuzione funzionano come alla prima proposta.'
+				],
+				examples: [{ command: '/plan-review', note: 'Riapre la revisione del piano proposto' }],
+				whenToUse: 'Quando hai chiuso la revisione o sei uscito dal Piano e vuoi decidere sul piano già scritto.'
+			},
+			en: {
+				title: 'Review the plan',
+				summary: 'Reopens the review of the session’s latest plan, even after closing it.',
+				benefits: [
+					'Brings back the plan card and the approval sheet without the agent rewriting anything.',
+					'Comments, edits and execution paths work as on the first proposal.'
+				],
+				examples: [{ command: '/plan-review', note: 'Reopens the review of the proposed plan' }],
+				whenToUse: 'When you closed the review or left plan mode and want to decide on the plan already written.'
+			}
+		}
 	}
 ];
+
+/**
+ * «Ripeti» (/loop, variante B): pillola nel composer subito dopo @. Sta fuori
+ * da STUDIO_ENTRIES perche' `index.ts` la colloca accanto ai controlli, dove
+ * il prototipo approvato la mette; come voce Studio e' un'azione che apre il
+ * composer in modalita' ripetizione.
+ */
+export const STUDIO_LOOP_ENTRY: CommandManifestEntry = {
+	id: 'loop',
+	origin: 'studio',
+	category: 'modes',
+	icon: 'IconRepeat',
+	control: 'action',
+	supported: [
+		{ zone: 'toolbar', form: 'chip' },
+		{ zone: 'toolbar', form: 'icon' },
+		{ zone: 'statusLine', form: 'chip' },
+		{ zone: 'statusLine', form: 'icon' }
+	],
+	defaultPlacement: { zone: 'toolbar', form: 'chip' },
+	argsHint: "[N|10m] [--until|--while 'comando'] [prompt]",
+	text: {
+		it: {
+			title: 'Ripeti',
+			summary:
+				'Trasforma il composer in modalità ripetizione: lo stesso prompt riparte a ogni giro, con un limite di giri o di tempo e una condizione di stop.',
+			benefits: [
+				'Lascia lavorare l’agente da solo fino a un risultato verificabile, per esempio finché i test passano.',
+				'Il controllo gira in una shell separata prima di ogni giro dal secondo in poi: non entra nel contesto della chat.',
+				'Pausa a fine giro, Riprendi e Stop immediato restano nel composer; i giri chiusi si ripiegano in una riga.'
+			],
+			examples: [
+				{ command: '/loop', note: 'Apre il composer in modalità ripetizione con le pillole' },
+				{
+					command: "/loop 6 --until 'npm test' correggi il primo test che fallisce",
+					note: 'Al massimo 6 giri, si ferma quando npm test riesce'
+				},
+				{ command: '/loop 30m rifinisci la documentazione', note: 'Ripete per mezz’ora' }
+			],
+			whenToUse:
+				'Quando un compito si chiude in più passi uguali con un criterio di fine chiaro. Nel Terminale vale il /loop nativo di omp.'
+		},
+		en: {
+			title: 'Repeat',
+			summary:
+				'Turns the composer into repeat mode: the same prompt runs again each round, with a round or time limit and a stop condition.',
+			benefits: [
+				'Lets the agent work on its own until a verifiable result, for example until the tests pass.',
+				'The check runs in a separate shell before every round from the second on: it never enters the chat context.',
+				'Pause at the end of a round, Resume and immediate Stop stay in the composer; finished rounds fold into one line.'
+			],
+			examples: [
+				{ command: '/loop', note: 'Opens the composer in repeat mode with the pills' },
+				{
+					command: "/loop 6 --until 'npm test' fix the first failing test",
+					note: 'At most 6 rounds, stops when npm test passes'
+				},
+				{ command: '/loop 30m polish the documentation', note: 'Repeats for half an hour' }
+			],
+			whenToUse:
+				'When a task closes in several identical steps with a clear end criterion. In the Terminal the native omp /loop applies.'
+		}
+	}
+};

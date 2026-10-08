@@ -56,6 +56,8 @@
 	import Tooltip from '$lib/ui/Tooltip.svelte';
 	import StatusMark from '$lib/ui/StatusMark.svelte';
 	import { roleConfigFromSelector } from './taskRoleConfig';
+	import ScheduleMenu from './schedule/ScheduleMenu.svelte';
+	import ScheduleChip from './schedule/ScheduleChip.svelte';
 	import {
 		IconAttach,
 		IconAt,
@@ -671,6 +673,11 @@
 								<IconAt />
 							</button>
 						</Tooltip>
+						<!-- Orologio: parte da solo al reset della quota o non prima di un orario. -->
+						{#if task.status === 'queued'}
+							<ScheduleMenu {task} align="left" size="toolbar" />
+							{#if task.schedule}<span class="schedule-chip-slot"><ScheduleChip {task} /></span>{/if}
+						{/if}
 
 						<!-- Salva e' l'azione principale; avviare e' una scelta esplicita nel menu -->
 						<div class="save-split">
@@ -1062,6 +1069,12 @@
 	.split-chevron {
 		display: inline-flex;
 		--icon-size: 12px;
+	}
+
+	.schedule-chip-slot {
+		display: inline-flex;
+		min-width: 0;
+		overflow: hidden;
 	}
 
 	.run-menu {

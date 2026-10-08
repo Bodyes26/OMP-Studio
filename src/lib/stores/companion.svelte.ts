@@ -99,6 +99,8 @@ export interface CompanionProjectRuntime {
 	 * stato completato.
 	 */
 	activity?: { text: string; at: number; kind: 'intent' | 'assistant' };
+	/** Heads-up dell'ultimo turno (Gate R40): una frase, finche' non e' vista. */
+	headsUp?: string;
 }
 
 export interface CompanionRunTaskPayload {
@@ -371,6 +373,12 @@ class CompanionStore {
 			targetSelector,
 			thinkingLevel
 		});
+	}
+
+	/** Rimette la sessione in coda: riprende con `/retry` al reset della quota. */
+	async waitQuotaReset(projectId: string, laneId?: string | null) {
+		this.clearAttentionRequest(projectId, laneId);
+		await emit('studio-wait-quota-reset', { projectId, laneId: laneId ?? undefined });
 	}
 
 	/** Archivia l'avviso di blocco quota senza eseguire switch o ripresa. */

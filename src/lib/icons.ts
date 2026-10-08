@@ -144,6 +144,11 @@ export { default as IconPrewalk } from '@lucide/svelte/icons/footprints';
 export { default as IconGrip } from '@lucide/svelte/icons/grip-vertical';
 export { default as IconPencil } from '@lucide/svelte/icons/pencil';
 
+// Diramazioni della sessione (menu dei messaggi, pannello Rami).
+export { default as IconMore } from '@lucide/svelte/icons/ellipsis';
+export { default as IconFork } from '@lucide/svelte/icons/git-fork';
+export { default as IconEditRetry } from '@lucide/svelte/icons/pencil-line';
+
 // Varie.
 export { default as IconDiamond } from '@lucide/svelte/icons/diamond';
 export { default as IconSubagents } from '@lucide/svelte/icons/split';
@@ -154,10 +159,20 @@ export { default as IconFlame } from '@lucide/svelte/icons/flame';
 export { default as IconFastMode } from '@lucide/svelte/icons/zap';
 export { default as IconSlowMode } from '@lucide/svelte/icons/turtle';
 export { default as IconPause } from '@lucide/svelte/icons/pause';
+// Task programmati: al reset della quota o non prima di un orario.
+export { default as IconSchedule } from '@lucide/svelte/icons/clock';
+// Ripetizione (/loop): pillola «Ripeti» e pannello del composer.
+export { default as IconRepeat } from '@lucide/svelte/icons/repeat';
 // Inspector e Browser Live.
 export { default as IconInspect } from '@lucide/svelte/icons/mouse-pointer-click';
+// Laboratorio «Indica e disegna»: riquadro che raccoglie gli elementi di un'area.
+export { default as IconAreaSelect } from '@lucide/svelte/icons/square-dashed-mouse-pointer';
 export { default as IconNetwork } from '@lucide/svelte/icons/activity';
 export { default as IconHistory } from '@lucide/svelte/icons/history';
+// Domande a margine (/btw): riquadro, approfondimento, citazione nel composer.
+export { default as IconAside } from '@lucide/svelte/icons/message-square-quote';
+export { default as IconFollowUp } from '@lucide/svelte/icons/corner-down-right';
+export { default as IconQuote } from '@lucide/svelte/icons/quote';
 export { default as IconSend } from '@lucide/svelte/icons/send';
 export { default as IconStop } from '@lucide/svelte/icons/square';
 export { default as IconAt } from '@lucide/svelte/icons/at-sign';
@@ -170,3 +185,9 @@ export { default as IconPanelLeftClose } from '@lucide/svelte/icons/panel-left-c
 
 // Laboratorio prototipi.
 export { default as IconLab } from '@lucide/svelte/icons/flask-conical';
+
+// Modalita' Piano della chat GUI: pillola, card del piano, strade di esecuzione.
+export { default as IconPlan } from '@lucide/svelte/icons/clipboard-list';
+export { default as IconComment } from '@lucide/svelte/icons/message-square';
+export { default as IconCompact } from '@lucide/svelte/icons/fold-vertical';
+export { default as IconKeepHistory } from '@lucide/svelte/icons/list';

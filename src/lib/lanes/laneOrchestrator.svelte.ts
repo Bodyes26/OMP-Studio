@@ -31,6 +31,10 @@ import type { TerminalSession } from '$lib/terminal/terminal';
 export interface TerminalMetaEntry {
 	inputPending: boolean;
 	sessionId: string | null;
+	/** Task scritto nel PTY, titolo non ancora `working` (vedi `terminalActivity.ts`). */
+	awaitingStart?: boolean;
+	/** Barra di avanzamento OSC 9;4 di omp attiva. */
+	progressActive?: boolean;
 }
 
 export class LaneOrchestrator {
@@ -99,8 +103,18 @@ export class LaneOrchestrator {
 		const current = this.terminalMeta[key];
 		const inputPending = patch.inputPending ?? current?.inputPending ?? false;
 		const sessionId = patch.sessionId !== undefined ? patch.sessionId : (current?.sessionId ?? null);
-		if (current && current.inputPending === inputPending && current.sessionId === sessionId) return;
-		this.terminalMeta[key] = { inputPending, sessionId };
+		const awaitingStart = patch.awaitingStart ?? current?.awaitingStart ?? false;
+		const progressActive = patch.progressActive ?? current?.progressActive ?? false;
+		if (
+			current &&
+			current.inputPending === inputPending &&
+			current.sessionId === sessionId &&
+			(current.awaitingStart ?? false) === awaitingStart &&
+			(current.progressActive ?? false) === progressActive
+		) {
+			return;
+		}
+		this.terminalMeta[key] = { inputPending, sessionId, awaitingStart, progressActive };
 	}
 
 	handleTerminalState(project: Project, laneId: string, state: AgentState): void {
@@ -285,7 +299,12 @@ export class LaneOrchestrator {
 			const session = sessionRegistry.getLaneSession(project.id, laneId);
 			if (!session) return 'unknown';
 			if (session.pendingUi) return 'attention';
-			if (session.isStreaming || session.isCompacting) return 'working';
+			// Il run vivo (fra un giro di tool e l'altro `isStreaming` e' spento)
+			// e il prompt appena ammesso contano come lavoro: senza, la coda
+			// vedeva `Principale` libera nelle pause del run.
+			if (session.isStreaming || session.isCompacting || session.settle.running || session.awaitingRun) return 'working';
+			// Fra due giri di un /loop omp e' fermo per un attimo: la corsia resta al lavoro.
+			if (session.loop && session.loop.status !== 'paused' && session.loopActive) return 'working';
 			// Solo le corsie non in vista possono essere "da leggere": quella
 			// aperta a schermo e' gia' letta, e la barra di stato resta ferma.
 			if (
@@ -316,8 +335,14 @@ export class LaneOrchestrator {
 	 * il task puo' partire in questa corsia.
 	 */
 	laneBusy(project: Project, lane: AgentLane | LaneRecord): boolean {
+		// Un /loop attivo, anche in pausa, tiene la corsia: la coda va altrove.
+		if (sessionRegistry.getLaneSession(project.id, lane.laneId)?.loopActive) return true;
 		const state = this.laneAgentState(project, lane.laneId);
 		if (state === 'working') return true;
+		// Obiettivo attivo o in definizione: fra un tentativo e l'altro l'agente
+		// risulta fermo, ma omp sta per ripartire da solo (o l'intervista occupa
+		// il composer). Per la coda la corsia e' occupata.
+		if (sessionRegistry.getLaneSession(project.id, lane.laneId)?.goalHoldsSession) return true;
 		if (state !== 'attention') return false;
 		if (this.laneSurface(project, lane.laneId) !== 'gui') return true;
 		const session = sessionRegistry.getLaneSession(project.id, lane.laneId);

@@ -68,6 +68,8 @@
 			title: m.shortcuts_cat_composer(),
 			column: 1,
 			items: [
+				{ keys: [IS_MAC ? '⌘B' : 'Ctrl+B'], description: m.shortcuts_item_btw() },
+				{ keys: [`${L}+Shift+P`], description: m.shortcuts_item_plan() },
 				{ keys: ['Invio'], description: m.ui_shortcutshelpmodal_invia_il_messaggio_o_seleziona_il_comando_af10() },
 				{ keys: ['Alt+Invio'], description: m.ui_shortcutshelpmodal_invia_con_la_modalita_di_accodamento_alternativa_4022() },
 				{ keys: ['Shift+Invio', 'Ctrl+Invio'], description: m.ui_shortcutshelpmodal_inserisce_una_nuova_riga_nel_campo_di_6250() },
@@ -77,7 +79,9 @@
 				{ keys: [`${L}+N`], description: m.ui_shortcutshelpmodal_apre_una_nuova_chat_nel_progetto_attivo_3acb() },
 				{ keys: [`${L}+C`], description: m.ui_shortcutshelpmodal_interrompe_la_risposta_in_streaming_o_cancella_6699() },
 				{ keys: ['Ctrl+C'], description: m.ui_shortcutshelpmodal_interrompe_la_risposta_in_streaming_senza_testo_37ce() },
-				{ keys: ['Esc'], description: m.shortcuts_item_close_menus() }
+				{ keys: ['Esc'], description: m.shortcuts_item_close_menus() },
+				// Chiave unica per l'#each: Invio/Esc nel composer in ripetizione (/loop).
+				{ keys: ['Invio', 'Esc'], description: m.shortcuts_item_loop() }
 			]
 		},
 		{
@@ -90,6 +94,7 @@
 				{ keys: ['Ctrl+Alt+N'], description: m.ui_shortcutshelpmodal_nuovo_progetto_apre_il_selettore_cartella_01ff() },
 				{ keys: ['Ctrl+Alt+S'], description: m.shortcuts_item_scratchpad() },
 				{ keys: ['Ctrl+Alt+P'], description: m.shortcuts_item_lab_prototype() },
+				{ keys: [`${L}+I`], description: m.shortcuts_item_lab_point() },
 				{ keys: ['Ctrl+Alt+U'], description: m.shortcuts_item_usage_panel() },
 				{ keys: ['Ctrl+Alt+M'], description: m.ui_shortcutshelpmodal_apre_le_impostazioni_modelli_ruoli_catalogo_provider_9786() },
 				{ keys: ['Ctrl+Alt+,'], description: m.ui_shortcutshelpmodal_apre_le_impostazioni_generali_di_studio_0d93() },

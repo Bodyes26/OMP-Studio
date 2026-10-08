@@ -6,7 +6,17 @@
 //  3. Bundle dell'applicazione caricato come modulo ESM (./app.js);
 //  4. Shim in memoria per localStorage e sessionStorage (iframe opaco bloccherebbe l'accesso);
 //  5. Bridge per la segnalazione degli errori di runtime a Studio;
-//  6. Bridge per l'ispezione e selezione degli elementi del DOM con selettori CSS univoci.
+//  6. Ispettore «Indica e disegna» (modulo ES inline, prima di app.js): Punta, Riquadro,
+//     marker numerati, riaggancio dopo la ricompilazione e cattura del fotogramma
+//     (inspect/inspector-client.js, protocollo `inspect_*` v2, Gate R42).
+
+import inspectorSource from './inspect/inspector-client.js?raw';
+
+/** Sorgente dell'ispettore pronto per un `<script type="module">` inline. */
+export function buildInspectorModule(source: string = inspectorSource): string {
+	// Un `</script` letterale chiuderebbe il tag in anticipo.
+	return source.replace(/<\/script/gi, '<\\/script') + '\ninstallLabInspector(window);\n';
+}
 
 export interface LabPreviewHtmlOptions {
 	title?: string;
@@ -27,6 +37,7 @@ export function buildLabPreviewHtml(options: LabPreviewHtmlOptions): string {
 	const title = options.title ?? 'Prototipo Laboratorio';
 	const importMapJson = JSON.stringify({ imports: options.importMap }, null, 2);
 	const css = options.compiledCss ?? '';
+	const inspectorModule = buildInspectorModule();
 
 	return `<!doctype html>
 <html lang="it">
@@ -123,114 +134,9 @@ ${css}
     };
   })();
 
-  /* Bridge per la selezione interattiva degli elementi DOM */
-  (function() {
-    var selectMode = false;
-    var overlayEl = null;
-
-    function getOverlay() {
-      if (!overlayEl) {
-        overlayEl = document.createElement('div');
-        overlayEl.id = '__lab_inspect_overlay';
-        overlayEl.style.position = 'fixed';
-        overlayEl.style.pointerEvents = 'none';
-        overlayEl.style.border = '2px solid #2563eb';
-        overlayEl.style.backgroundColor = 'rgba(37, 99, 235, 0.12)';
-        overlayEl.style.zIndex = '2147483647';
-        overlayEl.style.display = 'none';
-        overlayEl.style.transition = 'all 0.05s ease-out';
-        overlayEl.style.borderRadius = '3px';
-        document.documentElement.appendChild(overlayEl);
-      }
-      return overlayEl;
-    }
-
-    function computeSelector(el) {
-      if (!el || el === document.body || el === document.documentElement) return 'body';
-      if (el.id) {
-        try {
-          return '#' + CSS.escape(el.id);
-        } catch (_) {
-          return '#' + el.id;
-        }
-      }
-      var steps = [];
-      var cur = el;
-      while (cur && cur !== document.body && cur !== document.documentElement) {
-        var tag = cur.tagName.toLowerCase();
-        var parent = cur.parentElement;
-        if (parent) {
-          var sameTagSiblings = Array.from(parent.children).filter(function(sibling) {
-            return sibling.tagName === cur.tagName;
-          });
-          if (sameTagSiblings.length > 1) {
-            var idx = sameTagSiblings.indexOf(cur) + 1;
-            tag += ':nth-of-type(' + idx + ')';
-          }
-        }
-        steps.unshift(tag);
-        cur = parent;
-      }
-      return steps.join(' > ');
-    }
-
-    function updateHighlight(target) {
-      var overlay = getOverlay();
-      if (!selectMode || !target || target === document.body || target === document.documentElement) {
-        overlay.style.display = 'none';
-        return;
-      }
-      var rect = target.getBoundingClientRect();
-      overlay.style.display = 'block';
-      overlay.style.top = rect.top + 'px';
-      overlay.style.left = rect.left + 'px';
-      overlay.style.width = rect.width + 'px';
-      overlay.style.height = rect.height + 'px';
-    }
-
-    document.addEventListener('mousemove', function(e) {
-      if (!selectMode) return;
-      var target = document.elementFromPoint(e.clientX, e.clientY);
-      updateHighlight(target);
-    }, true);
-
-    document.addEventListener('click', function(e) {
-      if (!selectMode) return;
-      e.preventDefault();
-      e.stopPropagation();
-
-      var target = document.elementFromPoint(e.clientX, e.clientY);
-      if (!target) return;
-
-      var rect = target.getBoundingClientRect();
-      var selector = computeSelector(target);
-      var textSnippet = (target.innerText || target.textContent || '').trim().slice(0, 120);
-
-      window.parent.postMessage({
-        source: 'lab-preview',
-        type: 'element_selected',
-        selector: selector,
-        tag: target.tagName.toLowerCase(),
-        textSnippet: textSnippet,
-        box: {
-          x: Math.round(rect.x),
-          y: Math.round(rect.y),
-          width: Math.round(rect.width),
-          height: Math.round(rect.height)
-        }
-      }, '*');
-    }, true);
-
-    window.addEventListener('message', function(e) {
-      if (!e.data || e.data.source !== 'lab-parent') return;
-      if (e.data.type === 'toggle_select_mode') {
-        selectMode = !!e.data.enabled;
-        if (!selectMode && overlayEl) {
-          overlayEl.style.display = 'none';
-        }
-      }
-    });
-  })();
+  </script>
+  <script type="module">
+${inspectorModule}
   </script>
 </head>
 <body class="bg-white text-neutral-900 min-h-screen">

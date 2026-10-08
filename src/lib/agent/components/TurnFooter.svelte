@@ -3,7 +3,12 @@
 	// Piè del turno dell'agente (Gate R32 - C07).
 	// Mostrato a turno concluso (da messaggio utente ad agent_end):
 	// Copia testo dell'assistente, N chiamate tool, durata, modello, costo totale.
-	import { IconCopy, IconCheck } from '$lib/icons';
+	// Con modifiche ai file, il bilancio `+N −M` del turno: il clic apre il
+	// diff del primo file toccato (lo stesso diff con HEAD del pannello Git).
+	import { IconCopy, IconCheck, IconFork } from '$lib/icons';
+	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import { agentUiHooks } from '../ui-context';
+	import type { TurnDiffStats } from '../turnDiff';
 
 	export interface TurnFooterData {
 		assistantText: string;
@@ -12,9 +17,36 @@
 		model?: string;
 		cost?: number;
 		subagentCost?: number;
+		/** Messaggio utente che apre il turno (id del transcript), se c'e'. */
+		userTranscriptId?: number | null;
+		/** `messageTs` dell'ultima risposta del turno: lega il turno al file di omp. */
+		assistantTs?: number | null;
+		/** Righe aggiunte/rimosse dalle card edit/write del turno. */
+		diff?: TurnDiffStats;
 	}
 
 	let { data }: { data: TurnFooterData } = $props();
+
+	const hooks = agentUiHooks();
+	const branch = hooks.branch;
+	const canBranch = $derived(branch ? branch.canBranch() : false);
+	const branchTooltip = $derived(
+		branch && !canBranch ? (branch.blockedReason() ?? m.branch_action_fork_after_hint()) : m.branch_action_fork_after_hint()
+	);
+
+	function forkAfterTurn() {
+		if (!branch || !canBranch) return;
+		branch.afterTurn({ userTranscriptId: data.userTranscriptId ?? null, assistantTs: data.assistantTs ?? null });
+	}
+
+	const firstFile = $derived(data.diff?.files[0] ?? null);
+	const firstFileName = $derived(firstFile ? (firstFile.split(/[\\/]/).pop() ?? firstFile) : '');
+
+	function openTurnDiff() {
+		if (!firstFile) return;
+		if (hooks.openDiff) hooks.openDiff(firstFile);
+		else hooks.openFile(firstFile);
+	}
 
 	let copied = $state(false);
 	let copyTimer: number | null = null;
@@ -90,7 +122,48 @@
 		</button>
 	{/if}
 
+	{#if branch}
+		<Tooltip text={branchTooltip} placement="top" offset={4}>
+			<button
+				type="button"
+				class="copy-btn"
+				onclick={forkAfterTurn}
+				aria-disabled={canBranch ? undefined : 'true'}
+				class:is-disabled={!canBranch}
+			>
+				<span class="icon" aria-hidden="true"><IconFork /></span>
+				<span>{m.branch_action_fork_here()}</span>
+			</button>
+		</Tooltip>
+	{/if}
+
 	<div class="meta-row">
+		{#if data.diff}
+			{#if firstFile}
+				<Tooltip text={m.chat_v2_turn_diff_tooltip({ file: firstFileName })} placement="top" offset={6}>
+					<button
+						type="button"
+						class="diff-badge"
+						aria-label={m.chat_v2_turn_diff_aria({
+							added: data.diff.added,
+							removed: data.diff.removed,
+							files: data.diff.files.length,
+							file: firstFileName
+						})}
+						onclick={openTurnDiff}
+					>
+						<span class="diff-add">+{data.diff.added}</span>
+						<span class="diff-del">−{data.diff.removed}</span>
+					</button>
+				</Tooltip>
+			{:else}
+				<span class="diff-badge static">
+					<span class="diff-add">+{data.diff.added}</span>
+					<span class="diff-del">−{data.diff.removed}</span>
+				</span>
+			{/if}
+			{#if toolCallsLabel || durationLabel || data.model || costLabel}<span class="sep">·</span>{/if}
+		{/if}
 		{#if toolCallsLabel}
 			<span class="meta-item">{toolCallsLabel}</span>
 		{/if}
@@ -147,6 +220,16 @@
 		outline-offset: 1px;
 	}
 
+	.copy-btn.is-disabled {
+		opacity: 0.5;
+		cursor: default;
+	}
+
+	.copy-btn.is-disabled:hover {
+		background: transparent;
+		color: var(--ink-faint);
+	}
+
 	.copy-btn .icon {
 		display: flex;
 		align-items: center;
@@ -167,6 +250,45 @@
 
 	.sep {
 		opacity: 0.5;
+	}
+
+	/* Bilancio del turno: stessi colori del `+N/−N` delle righe di traccia,
+	   mono tabulare; come pulsante solo un fondo in hover, niente pillola. */
+	.diff-badge {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		padding: 1px 4px;
+		margin: 0 -2px;
+		background: transparent;
+		border: none;
+		border-radius: var(--radius-sm);
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		font-variant-numeric: tabular-nums;
+		cursor: pointer;
+		transition: background var(--dur-fast) var(--ease-out);
+	}
+
+	.diff-badge.static {
+		cursor: default;
+	}
+
+	button.diff-badge:hover {
+		background: var(--bg-hover);
+	}
+
+	button.diff-badge:focus-visible {
+		outline: 2px solid var(--brand);
+		outline-offset: 1px;
+	}
+
+	.diff-add {
+		color: var(--success);
+	}
+
+	.diff-del {
+		color: var(--danger);
 	}
 
 	.model {

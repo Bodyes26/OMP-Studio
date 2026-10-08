@@ -31,7 +31,9 @@ export type AutomationBlock =
 	| 'question'
 	| 'quota'
 	| 'working'
+	| 'loop'
 	| 'compacting'
+	| 'background'
 	| 'terminal-input'
 	| 'terminal-unknown';
 
@@ -70,11 +72,62 @@ export interface GuiGateSnapshot {
 	inferencePending: boolean;
 	/** Domanda dedotta a fine turno: il processo e' libero, ma puo' richiedere una risposta. */
 	inferredQuestion: string | null;
+	/**
+	 * Turno ceduto ma sessione non ancora quieta (omp 18.8 `session_settled`):
+	 * subagenti asincroni, bash in background o coda possono risvegliarla.
+	 * Assente o falso con un omp che non riporta la quiete.
+	 */
+	backgroundWork?: boolean;
+	/**
+	 * Run vivo da `agent_start` allo yield (`SettleState.running`). Resta vero
+	 * nelle pause in cui `streaming` e' spento: fra un giro di tool e l'altro,
+	 * durante l'attesa di un nuovo tentativo, nella compattazione che continua
+	 * il run.
+	 */
+	runActive?: boolean;
+	/** Prompt ammesso da omp ma `agent_start` non ancora arrivato. */
+	awaitingRun?: boolean;
+	/** omp aspetta per ritentare la chiamata al modello (`auto_retry_start`). */
+	retrying?: boolean;
+	/** Steer o follow-up nella coda nativa di omp: faranno partire un altro turno. */
+	nativeQueue?: boolean;
+	/** Subagenti ancora in corsa (solo con un omp che non riporta la quiete). */
+	subagentsRunning?: boolean;
+	/**
+	 * Un /loop e' attivo (anche in pausa o fra due giri): la sessione e'
+	 * occupata. Fra un giro e l'altro omp e' fermo per 800 ms e un task della
+	 * coda si infilerebbe come se fosse un giro. Facoltativo per i chiamanti
+	 * che non conoscono il loop.
+	 */
+	loopActive?: boolean;
+	/**
+	 * Obiettivo attivo o in definizione: omp prosegue da solo fra un turno e
+	 * l'altro (o l'intervista occupa il composer), quindi la sessione e'
+	 * occupata anche quando nessun turno e' in corso. Facoltativo per gli
+	 * snapshot scritti prima dell'obiettivo guidato.
+	 */
+	goalHold?: boolean;
+}
+
+/**
+ * Stato del terminale (TUI) che conta per l'avvio di un task. Lo stato viene
+ * dal titolo che omp scrive con OSC 0/2 (`\u03c0 >`, `\u03c0 :`, `\u03c0 !`):
+ * vedi `docs/ARCHITECTURE.md` per i suoi limiti.
+ */
+export interface TerminalGateExtras {
+	/**
+	 * Studio ha appena scritto un task nel PTY e omp non ha ancora portato il
+	 * titolo a `working`: senza, la coda vedeva il vecchio `idle` e spediva il
+	 * task successivo sopra quello appena consegnato.
+	 */
+	awaitingStart?: boolean;
+	/** omp segnala lavoro con la barra di avanzamento OSC 9;4 (se attiva). */
+	progressActive?: boolean;
 }
 
 export type AutomationGateInput =
 	| { surface: 'gui'; busy: boolean; session: GuiGateSnapshot | null }
-	| { surface: 'terminal'; busy: boolean; inputPending: boolean; agentState: AgentState };
+	| ({ surface: 'terminal'; busy: boolean; inputPending: boolean; agentState: AgentState } & TerminalGateExtras);
 
 function gate(
 	block: AutomationBlock,
@@ -113,8 +166,10 @@ export function isLaneRoutable(gate: AutomationGate): boolean {
 		case 'ready':
 		case 'busy':
 		case 'working':
+		case 'loop':
 		case 'starting':
 		case 'compacting':
+		case 'background':
 		case 'terminal-input':
 			return true;
 		default:
@@ -141,7 +196,7 @@ export function resolveAutomationGate(input: AutomationGateInput): AutomationGat
 				m.gate_hint_terminal_input()
 			);
 		}
-		if (input.agentState === 'working') {
+		if (input.agentState === 'working' || input.awaitingStart || input.progressActive) {
 			return gate('working', m.gate_label_working(), m.gate_detail_working(), m.gate_hint_working());
 		}
 		if (input.agentState === 'attention') {
@@ -209,8 +264,16 @@ export function resolveAutomationGate(input: AutomationGateInput): AutomationGat
 		);
 	}
 
-	if (session.streaming) {
+	if (session.loopActive) {
+		return gate('loop', m.gate_label_loop(), m.gate_detail_loop(), m.gate_hint_loop());
+	}
+
+	if (session.streaming || session.runActive || session.awaitingRun || session.retrying) {
 		return gate('working', m.gate_label_working(), m.gate_detail_working(), m.gate_hint_working());
+	}
+
+	if (session.goalHold) {
+		return gate('working', m.gate_label_goal(), m.gate_detail_goal(), m.gate_hint_goal());
 	}
 
 	if (session.compacting) {
@@ -219,6 +282,17 @@ export function resolveAutomationGate(input: AutomationGateInput): AutomationGat
 			m.ui__page_compattazione_in_corso_538c(),
 			m.gate_detail_compacting(),
 			m.gate_hint_compacting()
+		);
+	}
+
+	// Dopo lo stato occupato vero: un nuovo task partirebbe sopra un lavoro che
+	// sta per risvegliare l'agente. Come `working`, la coda si sposta di corsia.
+	if (session.backgroundWork || session.nativeQueue || session.subagentsRunning) {
+		return gate(
+			'background',
+			m.gate_label_background(),
+			m.gate_detail_background(),
+			m.gate_hint_background()
 		);
 	}
 

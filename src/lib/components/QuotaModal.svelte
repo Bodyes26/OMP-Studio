@@ -1,5 +1,13 @@
 <script module lang="ts">
 	export type { ProviderHost } from '$lib/stores/quota.svelte';
+
+	// Task programmati dei progetti aperti: il popover dice quanti aspettano
+	// il reset di ciascun provider (Gate R35).
+	const scheduledTasks = $derived(
+		projectStore.projects.flatMap((project) =>
+			project.canonicalProjectPath ? taskStore.tasksFor(project.canonicalProjectPath) : []
+		)
+	);
 </script>
 
 <script lang="ts">
@@ -12,7 +20,10 @@
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import QuotaLimitRow from './quota/QuotaLimitRow.svelte';
 	import { limitTone } from '$lib/quota/resolve';
-	import { IconRefresh, IconClose, IconWarning } from '$lib/icons';
+	import { IconRefresh, IconClose, IconWarning, IconSchedule } from '$lib/icons';
+	import { scheduleStore } from '$lib/stores/schedule.svelte';
+	import { taskStore } from '$lib/stores/tasks.svelte';
+	import { projectStore } from '$lib/stores/projects.svelte';
 	import StatusMark from '$lib/ui/StatusMark.svelte';
 	import Tooltip from '$lib/ui/Tooltip.svelte';
 
@@ -306,6 +317,7 @@
 								.filter((host) => providersMatch(host.provider, report.provider))
 								.map((host) => host.project || host.host)
 								.filter((label) => Boolean(label)))]}
+							{@const waitingHere = scheduleStore.waitingSummary(scheduledTasks, (provider) => providersMatch(provider, report.provider))}
 							<div class="provider-section">
 								<h4>
 									<span>{report.provider}</span>
@@ -341,6 +353,12 @@
 										delayIndex={limitIndex}
 									/>
 								{/each}
+								{#if waitingHere.count > 0}
+									<div class="schedule-waiting">
+										<IconSchedule aria-hidden="true" />
+										{m.schedule_quota_popover_waiting({ count: waitingHere.count })}
+									</div>
+								{/if}
 							</div>
 						{/if}
 					{/each}
@@ -353,6 +371,16 @@
 {/if}
 
 <style>
+	.schedule-waiting {
+		display: flex;
+		align-items: center;
+		gap: 5px;
+		margin-top: 4px;
+		font-size: var(--text-xs);
+		color: var(--ink-muted);
+		--icon-size: 12px;
+	}
+
 	.popover {
 		position: fixed;
 		top: 48px;

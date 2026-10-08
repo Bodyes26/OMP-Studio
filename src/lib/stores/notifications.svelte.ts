@@ -173,6 +173,33 @@ class NotificationManager {
 	}
 
 	/**
+	 * Heads-up di fine turno (Gate R40): la stessa frase della chat,
+	 * solo se l'utente non sta gia' guardando quel progetto. Con lo stile
+	 * compatto la frase resta fuori dalla notifica, come le domande.
+	 */
+	async notifyHeadsUp(project: { id: string; name: string }, text: string): Promise<void> {
+		if (!settingsStore.notifications.enabled) return;
+		const isAppFocused = typeof document !== 'undefined' && document.hasFocus();
+		if (isAppFocused && projectStore.activeId === project.id) return;
+		try {
+			await this.init();
+			let granted = await isPermissionGranted();
+			if (!granted) granted = (await requestPermission()) === 'granted';
+			if (!granted) return;
+			const isDetailed = settingsStore.notifications.style === 'detailed';
+			sendNotification({
+				title: isDetailed ? m.headsup_notification_title({ project: project.name }) : 'OMP Studio',
+				body: isDetailed ? text : m.headsup_notification_compact({ project: project.name }),
+				channelId: 'omp-studio-alerts',
+				extra: { projectId: project.id },
+				silent: !settingsStore.notifications.sound
+			});
+		} catch (error) {
+			console.warn('Invio notifica heads-up non riuscito:', error);
+		}
+	}
+
+	/**
 	 * Invia la notifica toast del sistema operativo (se abilitata nelle impostazioni).
 	 */
 	private async dispatchOsNotification(project: { id: string; name: string }) {

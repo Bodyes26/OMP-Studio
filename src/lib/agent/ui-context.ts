@@ -13,6 +13,11 @@ const KEY = Symbol('studio-agent-ui');
 export interface AgentUiHooks {
 	/** Apre un percorso (relativo o assoluto) nell'editor Monaco. */
 	openFile(path: string, line?: number | null): void;
+	/**
+	 * Apre il confronto con HEAD di un file (lo stesso del pannello Git).
+	 * Facoltativo: dove manca, chi lo usa ripiega su `openFile`.
+	 */
+	openDiff?(path: string): void;
 	/** Apre un'immagine base64 nel visualizzatore esistente. */
 	openImage(data: string, mimeType: string): void;
 	/** Apre il cassetto del transcript di un subagent. */
@@ -21,6 +26,22 @@ export interface AgentUiHooks {
 	cancelSubagent?(subagentId: string): void;
 	/** Passa alla scheda TERMINAL di questo progetto. */
 	switchToTerminal(): void;
+	/**
+	 * Diramazioni dai messaggi del transcript. Opzionali: fuori dalla chat
+	 * (cassetto dei subagenti, test) le voci di menu non compaiono.
+	 */
+	branch?: BranchHooks;
+}
+
+export interface BranchHooks {
+	/** Se una diramazione puo' partire adesso (agente fermo, niente domanda aperta). */
+	canBranch(): boolean;
+	/** Motivo del blocco, per il suggerimento della voce disabilitata. */
+	blockedReason(): string | null;
+	/** «Dirama da qui» (`fork`) o «Modifica e riprova» (`edit`) dal messaggio utente. */
+	fromUserMessage(transcriptId: number, mode: 'fork' | 'edit'): void;
+	/** «Dirama da qui» sotto una risposta: nuova sessione fino a fine turno. */
+	afterTurn(turn: { userTranscriptId: number | null; assistantTs: number | null }): void;
 }
 
 export function setAgentUiHooks(hooks: AgentUiHooks) {

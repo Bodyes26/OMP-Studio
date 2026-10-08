@@ -10,15 +10,23 @@ import type { CommandManifestEntry } from '../types';
 import { CONTROL_ENTRIES } from './controls';
 import { OMP_ENTRIES_MODES } from './omp-modes';
 import { OMP_ENTRIES_SESSION } from './omp-session';
-import { STUDIO_ENTRIES } from './studio';
+import { STUDIO_ENTRIES, STUDIO_LOOP_ENTRY } from './studio';
 
 // ctl.limit e ctl.cost chiudono la riga sotto il composer (limite, poi costo a
 // destra): nel manifesto stanno coi controlli, ma di fabbrica vanno dopo i
 // toggle omp (fast, slow, prewalk), quindi si spostano in coda all'assemblaggio.
 const TRAILING_READOUTS = ['ctl.limit', 'ctl.cost'];
 
+// «Ripeti» (/loop) segue subito allegato e @, prima di ruolo e modello: e' la
+// posizione del prototipo approvato (variante B).
+const LEADING_CONTROLS = ['ctl.attach', 'ctl.mention'];
+
 export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
-	...CONTROL_ENTRIES.filter((entry) => !TRAILING_READOUTS.includes(entry.id)),
+	...CONTROL_ENTRIES.filter((entry) => LEADING_CONTROLS.includes(entry.id)),
+	STUDIO_LOOP_ENTRY,
+	...CONTROL_ENTRIES.filter(
+		(entry) => !TRAILING_READOUTS.includes(entry.id) && !LEADING_CONTROLS.includes(entry.id)
+	),
 	...OMP_ENTRIES_MODES,
 	...OMP_ENTRIES_SESSION,
 	...STUDIO_ENTRIES,

@@ -48,3 +48,14 @@ const SHELL_CHORD_LETTERS = new Set(['a', 'b', 'c', 'd', 'l', 'm', 'n', 'p', 'r'
 export function yieldsToShellShortcut(key: string, isMac: boolean, insideComposer: boolean): boolean {
 	return isMac && !insideComposer && SHELL_CHORD_LETTERS.has(key);
 }
+
+/**
+ * Alt+Maiusc+P (Ctrl+Opzione+Maiusc+P su Mac): accende e spegne la modalita'
+ * Piano, come `app.plan.toggle` di omp nel Terminale. `code` e non `key`: con
+ * Maiusc e Alt alcuni layout producono un carattere diverso da `P`.
+ */
+export function isPlanToggleChord(e: ModifierState & { code: string }, isMac: boolean): boolean {
+	if (!e.shiftKey || e.code !== 'KeyP') return false;
+	if (isMac) return e.ctrlKey && e.altKey && !e.metaKey;
+	return e.altKey && !e.ctrlKey && !e.metaKey;
+}

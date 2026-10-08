@@ -93,6 +93,7 @@ graph TB
 - **Coalescenza dei delta di streaming:** gli eventi `assistantMessageEvent` ad alta frequenza vengono coalesciati all'interno di una finestra temporale di **8 ms** (`DELTA_WINDOW`), evitando il costo $O(n^2)$ di passaggi IPC per risposte lunghe in streaming.
 - **Buffer circolare stderr:** conserva le ultime 200 righe di output stderr del processo per offrire diagnostica dettagliata ed immediata in caso di crash o errori di configurazione all'avvio.
 - **Canale di interruzione prioritario:** i comandi di stop (`abort`, `abort_bash`) operano con timeout rapido a 4 secondi (`FAST_COMMAND_TIMEOUT_MS`) e cancellazione locale immediata dei buffer, garantendo reattività istantanea alla pressione del pulsante di stop o `Alt+C`.
+- **Modalita' Piano della GUI:** il processo RPC riceve `-e studio-plan.ts` e `OMP_STUDIO_PLAN=gui`; il PTY riceve la stessa estensione senza la variabile, e li' resta inerte (vale il `/plan` nativo). Dettagli in §6.10.
 
 ### 2.3 Worker Asincroni e Database SQLite
 - Tutte le interrogazioni su `stats.db`, `history.db` e `agent.db` vengono eseguite all'interno di `tokio::task::spawn_blocking` con connessioni aperte in modalità `OpenFlags::SQLITE_OPEN_READ_ONLY`, `PRAGMA query_only = ON` e `PRAGMA busy_timeout = 3000`, evitando di bloccare l'event loop di Tauri.
@@ -101,6 +102,13 @@ graph TB
 - **Esecuzione effimera e isolata:** il comando `generate_prompt_suggestions` invoca `omp -p` con il modello del ruolo `smol` come processo figlio effimero e isolato, effettuando il parsing dell'array JSON di risposta con fallimento silenzioso.
 - **Scelta architetturale:** processo effimero e non residente (misurati 5,7 s con `smol`, 4,3 s con suffisso `:minimal`, contro ~1,5 s di un processo caldo) perche' l'utente ha accettato la latenza e un processo residente introdurrebbe ciclo di vita, watchdog e rischio di contesto condiviso fra progetti.
 - **Politica Opt-In e Fallimento Silenzioso:** la generazione e' opt-in (`dynamicEnabled` predefinito a falso) perche' costa una chiamata a modello per ogni fine turno. In caso di errore o timeout, il comando restituisce un array vuoto senza disturbare l'utente.
+- **Heads-up nella stessa chiamata (Gate R40):** quando l'agente non ha chiamato `studio_headsup` e il turno è grande (fatti certi, almeno 8 chiamate o 1.500 caratteri di testo), il frontend passa `turnDigest` (fatti + testo completo del turno, tagliato in mezzo a 6.000 caratteri) e `wantHeadsUp`; il digest viaggia nel file di contesto, mai in argv. Il modello risponde con `headsUp`: al massimo una frase o `null`. Senza `wantHeadsUp` il campo viene scartato lato Rust.
+
+### 2.5 Heads-up di fine turno (Gate R40)
+- **Tre fonti, una frase.** `src/lib/agent/turnHeadsUp.ts` (funzioni pure) calcola dai tool del turno i fatti certi: comando di verifica fallito e mai riuscito dopo (stessa chiave «npm test», «cargo check»…), domanda `ask` scaduta, comando rischioso riuscito (`git push`, `reset --hard`, `rm -r` fuori dalle cartelle usa e getta…), file delicato modificato (manifest, migrazioni/SQL, CI, `.env*`, `AGENTS.md`, `tauri.conf.json`, capability). Priorità: frase dell'agente (`studio_headsup`) > frase smol (stessa chiamata post-turno di `suggestions_ops.rs`) > frase composta dai fatti.
+- **Stato.** `AgentSession.headsUp` vale per l'ultimo turno: si fissa ad `agent_end` (agente + fatti), si aggiorna una volta se smol risponde, si azzera ad `agent_start`. I turni passati mostrano solo la frase dell'agente, che resta nel `.jsonl` perché sta negli argomenti del tool.
+- **Superfici.** Card `TurnHeadsUp.svelte` prima del piè di turno (clic = scorre all'elemento del transcript, X = visto), riga nella card del progetto della companion (`CompanionProjectRuntime.headsUp`), notifica di sistema (`notificationManager.notifyHeadsUp`, una per turno, dopo l'analisi post-turno, mai se il turno chiede già una risposta o se stai guardando il progetto).
+- **Visto.** `headsUpSeen.svelte.ts`: chiavi `sessione|hash della frase` in `localStorage` (ultime 400), machine-local; non usa gli id delle entry, che cambiano a ogni ricostruzione.
 
 ---
 
@@ -121,11 +129,13 @@ projects/
   worktrees/
     lane_integrate.rs   Squash e fast-forward: il target non resta mai in conflitto
 lanes_store.rs          Scrittura atomica di lanes.json (app data, chiave laneState)
+lane_bridge.rs          Bridge loopback /v1/corsie/<verbo> per i tool corsia_* (token per sessione, permessi)
 process_tree.rs         Job Object e registro degli alberi di processo per corsia
 omp_ops.rs              Query protette SQLite (usage, storico sessioni), verifica/aggiornamento OMP, temi, sorgenti di quota dichiarate dall'utente
 rules_ops.rs            Censimento regole di contesto e skill, analisi attrito in sola lettura su history.db
 models_ops.rs           Gestione catalogo modelli, ruoli operativi, catene di fallback e raccomandazioni
-suggestions_ops.rs      Comando generate_prompt_suggestions: chiamata effimera a omp -p con ruolo smol, parsing JSON, fallimento silenzioso
+suggestions_ops.rs      Comando generate_prompt_suggestions: chiamata effimera a omp -p con ruolo smol, parsing JSON (anche headsUp), fallimento silenzioso
+journal_ops.rs          Comando project_docs_ask (Gate R41): «Chiedi al diario», chiamata effimera a omp -p --no-session --no-tools col modello leggero sugli estratti passati dal frontend, nessuna lettura di disco
 setup.rs                SetupWizard: download resiliente OMP, verifica SHA-256 nativa, installazione font Nerd
 studio_updater.rs       Updater applicazione: canali Stable/Nightly, verifica integrità SHA-256
 alerts.rs               Notifiche OS, registrazione AUMID Windows (sh.omp.studio), attenzione Dock/Taskbar
@@ -157,15 +167,35 @@ lib/
     notifications.svelte.ts Gestione centrale notifiche toast, badge icona e preferenze utente
     rules.svelte.ts     Censimento regole/skill per progetto e proposte di regola memorizzate
     suggestions.svelte.ts Controller per sessione dei suggerimenti dinamici: trigger agent_end, chiave di turno, invalidazione, timeout
+    turnHeadsUp.ts      Heads-up di fine turno: fatti certi del turno, frase dai fatti, priorità agente > smol > fatti, digest per smol
+    headsUpSeen.svelte.ts Heads-up già visti (localStorage, chiave sessione + hash della frase)
+  projectDocs/
+    projectDocs.ts      Diario di progetto (Gate R41): manifest, percorsi di default, parsing del diario, scelta degli estratti per «Chiedi al diario» (funzioni pure, contratto con l'estensione)
+    projectDocsStore.svelte.ts Stato della scheda Progetto: lettura con file_read, rilettura a fine lavoro dell'agente, domanda con project_docs_ask
   agent/
     client.ts           OmpRpcClient: correlazione richieste/risposte, timeout dinamici, channel listener
     session.svelte.ts   AgentSession: riduttore reattivo di stato, gestione streaming, cronologia transcript
+    settle.ts           Yield contro quiete (`session_settled`): funzioni pure per lo stato «in background»
+    runActivity.ts      Attivita' del run per l'auto-avvio: prompt ammesso, retry, ultimo evento, verifica di `get_state`
+    extensionUi.ts      Stato e widget delle estensioni (`setStatus`/`setWidget`), pulizia e colori ANSI
+    turnDiff.ts         Bilancio `+N −M` del turno dalle card edit/write per il piè di turno
     wire.ts             Tipi TypeScript e mapping del protocollo RPC NDJSON v2
+    sessionTree.ts      Diramazioni: copia incrementale di get_entries, mappatura transcript -> entry, righe del pannello Rami (Gate R33)
+    slashRouter.ts      Instradamento puro dei comandi slash di sessione (/resume, /sessions, /tree, /fork), di /plan, di /btw e dell'obiettivo (/guided-goal, /goal)
+    btw.ts              Domande a margine: record e turni di /btw, delta, citazione per il composer, riconoscimento di omp senza RPC btw (Gate R37)
+    btwState.svelte.ts  SessionBtw: stato del riquadro «A margine» per sessione (storico, argomento aperto, bozza, citazione)
+    loopMode.ts         /loop nella GUI: pillole, riga /loop, stato da setStatus, segmenti e giri ripiegati (Gate R38)
+    guidedGoal.ts       Obiettivo guidato: domande e proposte fisse, risposte libere, bozza, controlli (criterio vago, tetto), markdown per `goal create`, proposte dell'agente (Gate R39)
     components/
       Chat.svelte       Pannello chat principale della superficie GUI
+      BtwPopover.svelte Riquadro «A margine» (/btw) sopra il composer: streaming, approfondimenti, Storico
       Composer.svelte   Input prompt con autocomplete slash (/), drag&drop immagini, ciclo ruoli
       SuggestionChips.svelte Riga di chip nel composer per suggerimenti prompt fissi e dinamici
       Transcript.svelte Lista messaggi con autoscroll resiliente e virtualizzazione progressiva
+      BranchPanel.svelte Pannello «Rami»: albero di get_tree, ramo attivo evidenziato, apertura di un ramo come nuova sessione
+      GoalBanner.svelte Banner fisso dell'obiettivo in cima alla chat: stato, tentativi/tetto, budget, tempo, Pausa/Riprendi/Stop
+      GuidedGoalStrip.svelte / GuidedGoalAskCard.svelte / GuidedGoalDraftCard.svelte / GuidedGoalEntry.svelte  Intervista dell'obiettivo guidato
+      TurnHeadsUp.svelte Card di una frase prima del piè di turno (clic = vai al punto, X = visto)
       AskCard.svelte    Card di risposta interattiva con roving tabindex
       ThinkingBlock.svelte Accordion per blocchi di ragionamento con indicatore tempo
       TodoStrip.svelte  Visualizzatore fasi e task del tool todo
@@ -182,8 +212,9 @@ lib/
     LaneProfileDialog.svelte Consenso una tantum sui file locali del worktree
     FileTree.svelte     Albero file pigro con filtro incrementale
     GitPanel.svelte     Pannello Git: branch, diff modifiche, commit recenti e sessioni
-    AgentPanel.svelte   Tre viste del progetto: coda task, storico sessioni e regole/skill
+    AgentPanel.svelte   Quattro viste del progetto: coda task, storico sessioni, regole/skill e diario di progetto
     RulesPanel.svelte   Ispettore regole di contesto e skill, con proposte nate dall'attrito
+    ProjectDocsPanel.svelte Scheda Progetto: documenti, ultime voci del diario, «Chiedi al diario», inizializzazione
     TaskEditor.svelte   Editor a sezioni: prompt, ruoli, slider thinking, toggle speciali, immagini
     QueueDrawer.svelte  Cassetto aggregato delle code di tutti i progetti con avvio diretto
     UsagePopover.svelte Popover quote, breakdown costi, trend e countdown al reset
@@ -202,6 +233,7 @@ lib/
   terminal/
     Terminal.svelte     Componente xterm.js per sessione PTY
     terminal.ts         Configurazione addon, tema, fit e invio comandi di ripresa
+    terminalActivity.ts Titolo OSC di omp, barra OSC 9;4 e attesa del run dopo un task scritto nel PTY
 ```
 
 ---
@@ -292,6 +324,9 @@ clear_app_attention() -> Result<(), String>;
 
 // --- Suggerimenti Prompt ---
 generate_prompt_suggestions(last_assistant: String, last_user: String, model_selector: Option<String>, max_items: u8) -> Result<Vec<String>, String>;
+
+// --- Diario di progetto (Gate R41) ---
+project_docs_ask(question: String, context: String, model_selector: Option<String>) -> Result<Option<String>, String>;
 ```
 ---
 
@@ -345,6 +380,18 @@ interface StudioTask {
   createdAt: number;
   updatedAt: number;
   status: 'queued' | 'running' | 'completed' | 'cancelled';
+  // Gate R35: alla radice, non in `options` (che la GUI ricostruisce
+  // con chiavi fisse). Validati campo per campo; malformati = assenti.
+  schedule?: {
+    kind: 'reset' | 'at';
+    provider?: string;     // fissato alla scelta dal ruolo/modello del task
+    limitId?: string;      // finestra che bloccava (informativa)
+    notBefore?: number;    // 'at': orario; 'reset': reset letto alla scelta (solo stima)
+    origin: 'user' | 'recovery';
+    setAt: number;         // separa i reset passati a Studio chiuso
+    missed?: boolean;      // fermo nel banner «Avvia ora / Lasciali in coda»
+  };
+  resume?: { sessionId: string; laneId?: string }; // voce di ripresa: `/retry` in quella sessione
 }
 ```
 
@@ -358,11 +405,31 @@ Al momento del dispatch, la funzione `formatTaskPrompt` arricchisce il prompt ap
   - `researchMode`: direttiva all'approfondimento della documentazione online e best practice.
 
 ### 5.3 Meccanismo di Auto-Dispatch
-L'avvio automatico dei task in coda è configurabile per singolo progetto (`autoDispatch: true`). Per evitare loop di reattività e race condition:
-1. Lo stato dell'agente viene validato (`automationReason() === 'Pronto'`: agente idle, nessun input pendente, nessuna transizione di cambio scheda in corso).
-2. L'invio viene eseguito all'interno di un `queueMicrotask` protetto da un lock per progetto (`dispatchingProjects`).
-3. Con le corsie, il bersaglio non e' la corsia visibile: Principale se libera, altrimenti al massimo una corsia worktree automatica (vedi §5.4).
+L'avvio automatico dei task in coda è configurabile per singolo progetto (`autoDispatch: true`). Un task parte solo quando la sessione e' ferma **e stabile**:
 
+1. **Cancello** (`automationGate.ts`, `autoDispatchReady`). GUI: nessuna domanda `ask`, nessuna quota, sessione pronta, nessun run vivo e nessuna attesa. Oltre a `isStreaming` (che `turn_end` spegne fra un giro di tool e l'altro) contano `runActive` (`settle.running`, da `agent_start` allo yield: copre le pause fra i tool, l'attesa di un nuovo tentativo e la compattazione che continua il run), `awaitingRun` (prompt ammesso da omp, `agent_start` non ancora arrivato: omp risponde a `prompt` all'ammissione), `retrying` (`auto_retry_start` aperto), `compacting`, `nativeQueue` (steer/follow-up nella coda di omp) e `backgroundWork` (yield senza quiete, §6.9). Con un omp senza quiete anche i subagenti in corsa. Analisi post-turno e domande dedotte sospendono solo l'auto-avvio. Terminale: titolo `idle` (§5.3.1), nessun testo nel prompt, nessun task appena scritto in attesa del run (`awaitingStart`), nessuna barra OSC 9;4.
+2. **Stabilita'** (`src/lib/lanes/autoDispatchArbiter.ts`). L'effetto in `+page.svelte` passa all'arbitro i candidati idonei *adesso*; l'arbitro li spedisce solo dopo 2,5 s di idoneita' continuata (3 s nel terminale). Ogni chiusura del cancello azzera il conto; in GUI la quiete conta dall'ultimo evento del ciclo di vita del run (`AgentSession.quietForMs()`; le voci di stato delle estensioni non contano).
+3. **Ri-verifica.** Allo scadere: GUI `get_state` (`AgentSession.verifyQuietForDispatch()`: `isStreaming`, `isCompacting`, `queuedMessageCount`, `isSettled`, `hasPendingAsyncWork`), terminale `TerminalSession.isAutomationQuiet()`; poi il cancello si rilegge. Se non e' quieto non parte nulla e si riprova dopo 5 s.
+4. **Lock per progetto** dalla ri-verifica alla consegna; il rilascio chiede un nuovo giro all'effetto. La spedizione parte da un timer, fuori dall'effetto (`handleRunTask` scrive lo stato che l'effetto legge). Una consegna fallita su Principale riprova dopo 30 s; un fallimento in una corsia nuova non si ritenta da solo.
+5. Con le corsie, il bersaglio non e' la corsia visibile: Principale se libera, altrimenti al massimo una corsia worktree automatica (vedi §5.4). `laneAgentState` conta anche `settle.running` e `awaitingRun`, cosi' Principale non sembra libera nelle pause del run.
+
+Reti di sicurezza: `awaitingRun` scade dopo 30 s senza `agent_start` (non durante una compattazione); con un omp senza quiete un run «vivo» senza eventi per 20 s viene chiuso se `get_state` dice `isStreaming: false`; `error`/`agent_error`, uscita del processo e la rete dello Stop chiudono il run.
+
+#### 5.3.1 Terminale: cosa dice il titolo di omp
+
+Nel terminale lo stato viene dal titolo OSC (`π >` idle, `π :` working, `π !` attention, `tui.titleState`). In omp 18.8 il titolo diventa `working` su `agent_start` e torna `idle` solo su un `agent_end` terminale, su un `agent_end` non terminale con `awaitingAsyncWork`, o quando una continuazione programmata non parte: **non** scatta fra un tool e l'altro, ne' durante retry o compattazione che continua il run. I buchi erano due: dopo che Studio scrive il task nel PTY il titolo resta `idle` finche' omp non avvia il run (ora `awaitingStart`, fino al primo `working`/`attention` o 30 s), e il vecchio `assertAutomationReady` passava. Limiti che restano: un job in background (subagente asincrono, bash in background) porta il titolo a `idle` e il terminale non ha un segnale di quiete; la compattazione a riposo non tocca il titolo. Se l'utente accende `terminal.showProgress` in omp, la barra OSC 9;4 copre compattazione e run e Studio la legge (`progressActive`). Per code con lavoro in background la superficie consigliata e' la GUI.
+
+
+#### 5.3.2 Task programmati: coda al reset della quota (Gate R35)
+
+Un task con `schedule` non e' preso dall'auto-avvio classico: ha il suo candidato e passa dallo **stesso** arbitro (§5.3, stabilita', ri-verifica, lock, slot unico di R27). Differenza voluta: parte anche con `autoDispatch` spento, perche' la programmazione e' gia' il gesto esplicito. «Avvia» resta sempre li' e la scavalca.
+
+- **Da ruolo a finestra** (`src/lib/quota/scheduleTarget.ts`, puro): `options.modelSelector` o `modelRoles[role]` → `provider/model` → report di `omp usage --json` di quel provider (tutti gli account; vale quello che si libera prima) → `familyLimits`. Con finestre ferme (≤ 10%) il task aspetta il reset piu' lontano fra quelle (la 7 giorni, se e' lei a bloccare); senza finestre ferme aspetta il reset della finestra scelta o il suo cambio di finestra. `resetsAt` si rilegge a ogni giro; `notBefore` salvato vale solo come «stima» quando usage non risponde. Provider senza limiti in usage: nessun reset da aspettare.
+- **Orologio** (`src/lib/quota/scheduleClock.ts`, `src/lib/stores/schedule.svelte.ts`): passo di 30 s, giro al fuoco e al ritorno visibile, risveglio dallo standby riconosciuto da un salto fra due giri (rilegge usage). Niente `setTimeout` lunghi.
+- **Candidato e conferma** (`src/lib/stores/scheduleRunner.svelte.ts`): `autoDispatchCandidateFor` in `+page.svelte` chiede prima `scheduleRunner.candidateFor(project)` (riprese in testa, poi ordine di coda; la ripresa torna nella sua corsia). Nella `verify` dell'arbitro un task «al reset» chiede `usage_snapshot(force=true)` e parte solo se il reset e' confermato (al massimo una conferma al minuto per task). L'auto-avvio classico salta i task programmati e si ferma davanti a una ripresa in attesa (`nextAutoDispatchTask`).
+- **Ripresa** («Aspetta il prossimo reset» nel vassoio della chat e nella Companion): `parkSessionUntilReset` crea in testa alla coda un task `/retry` con `resume` e `schedule{kind:'reset', origin:'recovery'}`, archivia l'avviso di quota e lo dice in chat. Alla partenza: GUI riapre la sessione se non e' quella aperta nella corsia e invia `/retry`; terminale `/resume <id>` e `/retry` dal PTY (`sendRunCommand`, con l'attesa del run come per `startTask`). Una ripresa fallita non si ritenta da sola.
+- **Studio chiuso al reset**: ogni task si giudica una volta per avvio, al primo verdetto certo. Se e' gia' dovuto e la programmazione e' piu' vecchia dell'avvio, prende `missed` e va nel banner (coda, cassetto, card della Companion): «Avvia ora» toglie il segno e lo rimette nel percorso dell'arbitro, «Lasciali in coda» toglie la programmazione. Mai partenza automatica, nemmeno con l'auto-avvio acceso.
+- **Estensione**: `/tasks` mostra `[al reset ~HH:MM]`, `[dopo HH:MM]`, `[riprendi]`; Invio toglie la programmazione. `project_tasks` accetta `schedule: reset|at|none` e `scheduleAt` (`HH:MM` o ISO). Un «al reset» scritto dal tool arriva senza provider: Studio lo completa dal ruolo al primo giro.
 
 ### 5.4 Corsie di lavoro (Gate R27)
 
@@ -376,11 +443,39 @@ Un progetto resta una tessera. Una corsia (`AgentLane`) e' il workspace su cui g
 - **Switch.** Selezionare una corsia riallinea file tree, Git, modelli Monaco e agente sul `workspacePath` di quella corsia. I buffer sporchi sono chiave `workspace + path`. I PTY gia' avviati restano montati.
 - **Profilo.** `worktree_profile_scan` classifica i sottoprogetti (ASP.NET/.NET Framework, .NET SDK, Node, Vite, Svelte, frontend statico) e distingue `PackageReference` da `packages.config`. `bin`, `obj`, `.vs`, `packages`, `node_modules` e `dist` non si copiano e non si collegano con junction: lo scan non li attraversa e l'allowlist rifiuta ogni percorso che li contiene. I file locali piccoli (`Parametri.ini`, `.env`) si copiano solo dopo conferma; la decisione, solo percorsi, sta nel profilo dentro `lanes.json`.
 - **Processi.** PTY e RPC registrano l'albero su `projectId` + `laneId` e sulla radice del workspace. La rimozione con processi vivi risponde `processes_active`. «Arresta processi e rimuovi» ferma solo quell'albero. Un lock o un rifiuto di Git lascia la corsia in `cleanup_pending`, non `archived`. Porte, `launchSettings.json` e IIS Express non vengono riscritti.
-- **Integrazione (Gate R29).** `worktree_review_inspect` legge il diff verso `targetBranch` senza scrivere sul target. `worktree_land` è l'unica pipeline, chiamata dal pulsante "Integra" del modale e dal tool `studio_lane_integrate`: committa il lavoro della corsia (hook disabilitati), calcola il merge con `git merge-tree --write-tree`, crea un solo commit squash con i trailer `OMP-Lane-Id`/`OMP-Lane-Head` e lo applica con `update-ref` confronta-e-scambia. Con conflitti esegue il merge nel worktree della corsia e restituisce i file; il target non vede mai conflitti. Un checkout principale sporco si aggiorna con `git read-tree -m -u` se i file non si sovrappongono, altrimenti l'esito è `queued` e il frontend ritenta. `worktree_undo_land` riporta il target indietro solo se nessun commit è arrivato dopo e crea `omp/restored-<laneId>`. Un secondo `worktree_land` sullo stesso SHA non crea un altro commit.
-- **Canale per gli agenti.** `lane_bridge.rs` ascolta su `127.0.0.1` (porta effimera). Ogni sessione `omp` di progetto (RPC e PTY, non Laboratorio) riceve `OMP_STUDIO_BRIDGE_URL` e `OMP_STUDIO_BRIDGE_TOKEN`; l'estensione `studio-lanes.ts` fa `POST /v1/lane/integrate`, Rust emette `lane-bridge://request` e attende `lane_bridge_respond` dal frontend (`src/lib/lanes/laneLanding.svelte.ts`), che orchestra coda, conferme, pulizia e card in chat.
+- **Integrazione (Gate R29).** `worktree_review_inspect` legge il diff verso `targetBranch` senza scrivere sul target. `worktree_land` è l'unica pipeline, chiamata dal pulsante "Integra" del modale e dal tool `corsia_integra`: committa il lavoro della corsia (hook disabilitati), calcola il merge con `git merge-tree --write-tree`, crea un solo commit squash con i trailer `OMP-Lane-Id`/`OMP-Lane-Head` e lo applica con `update-ref` confronta-e-scambia. Con conflitti esegue il merge nel worktree della corsia e restituisce i file; il target non vede mai conflitti. Se a chiedere e' l'agente (Gate R43), riceve solo l'elenco dei file: la corsia passa all'utente e Studio apre la revisione. Un checkout principale sporco si aggiorna con `git read-tree -m -u` se i file non si sovrappongono, altrimenti l'esito è `queued` e il frontend ritenta. `worktree_undo_land` riporta il target indietro solo se nessun commit è arrivato dopo e crea `omp/restored-<laneId>`. Un secondo `worktree_land` sullo stesso SHA non crea un altro commit.
+- **Canale per gli agenti (Gate R43).** `lane_bridge.rs` ascolta su `127.0.0.1` (porta effimera). Ogni sessione `omp` di progetto (RPC e PTY) e la sessione Lab di un prototipo di progetto ricevono `OMP_STUDIO_BRIDGE_URL` e `OMP_STUDIO_BRIDGE_TOKEN` (token per sessione, confronto in tempo costante, revocato alla chiusura). L'estensione `extensions/studio-lanes.ts` registra un tool per verbo e chiama `POST /v1/corsie/<verbo>`:
+
+  | Rotta | Tool | Approvazione | Campo obbligatorio | Chi |
+  |---|---|---|---|---|
+  | `/v1/corsie/avvia` | `corsia_avvia` | write | `obiettivo` (+ `tipo`, `profilo`) | Principale |
+  | `/v1/corsie/stato` | `corsia_stato` | read | — | Principale e corsie |
+  | `/v1/corsie/risultato` | `corsia_risultato` | read | `corsia` | Principale |
+  | `/v1/corsie/integra` | `corsia_integra` | write | `messaggio` (+ `corsia`) | Principale |
+  | `/v1/corsie/chiudi` | `corsia_chiudi` | write | `corsia` | Principale |
+  | `/v1/corsie/scarta` | `corsia_scarta` | write | `corsia` | Principale |
+  | `/v1/corsie/consegna` | `corsia_consegna` | write | `prototipo` | Principale |
+  | `/v1/corsie/fatto` | `corsia_fatto` | read | `riassunto` | corsie (worktree e Lab) |
+  | `/v1/corsie/proponi` | `corsia_proponi` | read | `motivo` (+ `obiettivo`, `toolCallId`) | Principale |
+
+  `/v1/lane/integrate` resta come alias di `integra` (corpo `laneId`/`message` tradotto in `corsia`/`messaggio`). Il permesso dipende dal `BridgeOwner` del token: un chiamante dentro una corsia (`lane_id` diverso da `main`) riceve 403 su tutto tranne `fatto` e `stato`. Rust emette `lane-bridge://request` con `route` e `body` e attende `lane_bridge_respond` (180 s, 30 minuti per `proponi`, che aspetta il clic dell'utente). Il frontend smista per verbo in `src/lib/lanes/agentLanes.svelte.ts` (logica pura in `agentLaneRoutes.ts`) e riusa i flussi della GUI: spedizione del task in corsia nuova (registrata da `+page.svelte`), `laneLanding.land`, `closeLane`/`deleteWorktreeLane`/`deleteLabPrototype`, indice e revisioni del Laboratorio. Oltre `CONCURRENCY_SOFT_CAP` l'obiettivo entra nella coda del progetto e parte quando si libera un posto. Il riassunto di `corsia_fatto` e' persistito nel record della corsia (`agentSummary`, `agentSummaryAt`). Ogni tool ha una card in chat (`renderers/Corsia.svelte`, `renderers/CorsiaProponi.svelte`).
 - **Persistenza.** `lanes.json` vive nella directory dati dell'app, chiave `laneState`. `lanes_store_write_atomic` serializza le webview e sostituisce il file con scrittura atomica. Il plugin store viene aperto e chiuso subito: la sua `save` usa `fs::write` e non deve riscrivere questo file in uscita. All'avvio Studio riconcilia il registro con `git worktree list --porcelain`: un worktree assente o `prunable` archivia il record con causa, un worktree Studio non registrato viene recuperato senza cancellare nulla.
 
 Comandi IPC aggiunti: `worktree_inspect`, `worktree_create`, `worktree_list`, `worktree_remove`, `worktree_profile_scan`, `worktree_apply_allowlist`, `worktree_review_inspect`, `worktree_land`, `worktree_undo_land`, `worktree_delete_lane_branch`, `lanes_store_read`, `lanes_store_write_atomic`, `lane_processes_list`, `lane_processes_stop`, `lane_bridge_respond`.
+
+### 5.5 Diario di progetto (Gate R41)
+
+Il diario di bordo e i documenti di progetto li scrive l'agente dentro `omp`; Studio li mostra e li interroga senza scriverli.
+
+- **Estensione `extensions/studio-docs.ts`.** Incorporata con `include_str!` (`pty::DOCS_EXTENSION_TS`), scritta nella cartella temporanea da `write_extension` e passata con `-e` sia da `pty_open` (Windows e POSIX) sia da `rpc_open`; il Laboratorio non la carica. Registra il tool `project_docs` (`list`, `read`, `search`, `update`, `sources`, `init`, approvazione `read`), il comando `/diario` e l'hook `before_agent_start`, che aggiunge al prompt di sistema una riga (~60 token) solo se `.omp/progetto.json` esiste nella radice.
+- **Radice.** `resolveProjectRoot` usa `git rev-parse --git-common-dir`: in una corsia (worktree) il diario e' quello del checkout principale. Fuori da git vale la cartella corrente. Ogni percorso passa da `safeRel` (niente assoluti, niente `..`) e si scrive in modo atomico (file temporaneo + `rename`).
+- **File.** Manifest `.omp/progetto.json` (`version`, `storage: repo|local`, `diaryDir`, ruolo -> file). Default `repo`: `docs/diario/AAAA-MM.md` e `docs/progetto/<ruolo>.md`; `local`: tutto sotto `.omp/progetto/`, escluso con `.omp/.gitignore`. All'init i documenti gia' presenti che corrispondono a un ruolo (es. `docs/DECISIONS.md`) vengono mappati invece di duplicati; `switchStorage` sposta solo i file di default. Lo stato `.omp/progetto-stato.json` (sempre fuori da git) conserva l'impronta (SHA-1 troncato, solo confronto) di ogni sezione scritta dall'agente: `replace_section` rifiuta se la sezione e' cambiata a mano, salvo `force`.
+- **Fonti.** Ogni voce porta `[sessione <id8>]` (default: la sessione corrente) o `[commit <sha7>]`. `sources` elenca documentazione esistente, riepilogo di `git log`, transcript `.jsonl` della cartella in `~/.omp/agent` (o `PI_CODING_AGENT_DIR`) e i prompt di `history.db` letti con `bun:sqlite` in sola lettura (fuori da Bun l'elenco e' vuoto). Nessuna scrittura sotto `~/.omp`.
+- **Init dalla GUI.** La scheda Progetto chiama `handleInitJournal` in `+page.svelte`, che crea un task col prompt `/diario init` (o `/diario init locale`) e lo manda con `handleRunTask`: stesso instradamento della coda (Principale o corsia) e traccia nello storico.
+- **Scheda Progetto.** `projectDocsStore` legge manifest, documenti e diario del mese (e del precedente) con `file_read` relativo al progetto, all'apertura e quando l'agente del progetto passa da al lavoro a fermo. «Chiedi al diario» spezza i file in sezioni (`chunkMarkdown`), sceglie quelle con piu' parole della domanda entro 16.000 caratteri (`buildAskContext`) e chiama `project_docs_ask`, che riusa `run_ephemeral_omp` con il modello leggero (timeout 60 s, contesto tagliato a 24.000 caratteri, domanda a 600). La vista `project` e' la quarta di `AGENT_VIEWS`.
+- **Contratto.** `src/lib/projectDocs/projectDocs.ts` ripete ruoli, percorsi e parsing del manifest perche' l'estensione usa `node:fs` e non si importa nel webview; `test/project-docs.test.ts` verifica che restino allineati e che l'estensione sia caricata con `-e`. `test/studio-docs.test.ts` copre manifest, scrittura con fonti, protezione delle righe a mano, spostamento fuori da git, corsie e prompt.
+
+Comando IPC aggiunto: `project_docs_ask` (permesso `allow-project-docs`).
 
 
 ---
@@ -405,15 +500,72 @@ Quando l'agente o un tool (es. `ask`) richiede una scelta interattiva, OMP invia
 - Convalida del fuoco per evitare invii accidentali tramite `Enter`.
 - Risposta tipizzata `extension_ui_response` inviata tramite `rpc_send`.
 
-### 6.4 Prewalk per chat e task
+I metodi senza risposta (`notify`, `setStatus`, `setWidget`, `setTitle`, `open_url`) passano dallo stesso riduttore. `setStatus { statusKey, statusText }` e `setWidget { widgetKey, widgetLines, widgetPlacement }` aggiornano `AgentSession.extensionStatus` ed `extensionWidgets` tramite le funzioni pure di `src/lib/agent/extensionUi.ts` (testo o righe assenti tolgono la voce); la riga di stato del composer mostra le voci, `ExtensionWidgets.svelte` i widget sopra o sotto il composer. `notify` legge il livello da `notifyType`. `setTitle` e' ignorato (titolo del terminale, non della chat). Entrambe le mappe si azzerano a ogni `ready` e all'uscita del processo.
+
+### 6.4 Diramazioni e albero dei rami (Gate R33)
+
+- `/fork` manda `fork` senza `entryId` (copia intera con artefatti); «Dirama da qui» e «Modifica e riprova» sui messaggi, e il pannello «Rami», mandano `fork { entryId }` o, per il primo messaggio, `branch { entryId }`. Ogni variante apre un file di sessione nuovo: dopo la risposta `AgentSession` azzera lo stato vivo, rilegge `get_state` (la corsia salva il nuovo `sessionId`) e ricostruisce il transcript con `get_messages_page`. `cancelled` e `code: "session_busy"` lasciano la sessione intatta con un avviso.
+- Mappatura transcript -> entry: `UserEntry`/`AssistantEntry` portano `messageTs` (`message.timestamp` di omp, identico nel file). `OmpEntryCache` (`src/lib/agent/sessionTree.ts`) tiene la copia di `get_entries`, aggiornata con `since`; `activePath` risale dalla foglia, `resolveUserEntryId`/`resolveTurnEndEntryId` scelgono l'entry, con ripiego per posizione e testo.
+- Il pannello `BranchPanel.svelte` legge `get_tree` e lo proietta con `buildBranchTree` (solo messaggi utente, ramo attivo dritto, alternativi rientrati, iterativo). Il clic su un ramo inattivo fa `fork` sulla sua punta (`branchTipEntryId`): via RPC omp non ha lo spostamento di foglia nello stesso file della TUI.
+- Gli hook di ramo arrivano ai componenti del transcript via `AgentUiHooks.branch` (contesto impostato da `Chat.svelte`); fuori dalla chat le voci non compaiono.
+
+### 6.5 Domande a margine `/btw` (Gate R37)
+
+- Comandi RPC di omp (18.6.3+, `docs/rpc.md` «Side questions»): `btw { question, recordId? }` → `{ record }`, `btw_cancel { recordId? }` → `{ cancelled }` (in `FAST_COMMANDS`: omp lo esegue fuori coda), `get_btw_history` → `{ records }` dal piu' recente. Frame: `btw_record` (record intero a ogni cambio di stato, l'ultimo vince) e `btw_delta { recordId, delta }` (testo dell'ultimo turno). Il primo `btw_record` arriva **prima** della risposta a `btw`; tutti i delta dopo.
+- `AgentSession.btw` (`SessionBtw`, `src/lib/agent/btwState.svelte.ts`) riceve i frame dal riduttore e non tocca mai `entries`: niente finisce nel transcript. La logica pura (parsing tollerante, `applyBtwDelta`, `upsertBtwRecord`, citazione) sta in `btw.ts` con test in Node.
+- Supporto: `get_btw_history` parte a fine insediamento e fa da sonda. `Unknown command` (o un errore `parse` senza id, `uncorrelated`) mette `supported = false`: il pulsante «A margine» sparisce e `/btw`/`Ctrl+B` lasciano un avviso che spiega come aggiornare omp, senza rimandi al terminale. Un processo nuovo (`ready`) risonda.
+- Ingressi: pulsante nel composer (tra le azioni di sinistra e la striscia ruolo/modello), `Ctrl+B` (ascoltato sulla finestra dal composer; ferma anche il grassetto del contenteditable), `/btw [domanda]` intercettato in `handleGuiSlashCommand` con `routeBtwSlash` (mai inoltrato come prompt). Il riquadro (`BtwPopover.svelte`) e' assoluto nel piede della chat sopra vassoio e composer; a riquadro chiuso l'argomento aperto resta una riga di `ComposerTray` con «Apri».
+- Una domanda per volta per sessione (regola di omp): Studio non manda la seconda e lo dice. Cambio di sessione (nuova chat, ripresa, fork, ramo): omp annulla la domanda in corso; Studio azzera storico e selezione quando `get_state` porta un `sessionId` diverso, e conserva bozza e citazione.
+- «Usa nel messaggio»: `SessionBtw.quote` (domanda + ultima risposta in blockquote markdown) compare come chip nel composer e viene anteposta al testo solo all'invio riuscito (`withBtwQuote`); con un comando slash resta per il messaggio successivo. Il *branch* della TUI (promuovere lo scambio nella sessione) non ha un comando RPC.
+
+### 6.6 /loop nella chat (Gate R38)
+
+- Motore: `extensions/studio-loop.ts`, caricata con `-e` in `rpc/mod.rs` e `pty/mod.rs` ma attiva solo con `--mode rpc-ui` sulla sessione principale. L'handler `input` consuma `/loop …` e `/studio-loop <op>` prima dei builtin; `agent_end` chiude il giro e `sendUserMessage` avvia il successivo dopo 800 ms. La condizione `--until/--while` gira con `pi.exec` nella shell che sceglierebbe omp (Git Bash, poi PATH, poi `cmd.exe`), con timeout di 30 s, fuori dal contesto.
+- Stato: `ctx.ui.setStatus("studio.loop", json)` → `AgentSession.applyLoopStatus` → `session.loop` / `session.loopProbe`. Persistenza con `appendEntry("studio-loop")`; al resume un loop vivo torna in pausa. Dopo l'insediamento Studio chiede `/studio-loop status`. Il comando registrato `studio-loop` dice a Studio che il motore c'e'.
+- GUI: `loopMode.ts` (puro: bozza delle pillole, riga `/loop`, instradamento di `/loop`, segmenti, ripiegamento dei giri), `LoopComposer.svelte` (pillole e pannello, al posto della sagoma del `Composer` via `shellOverride`), `LoopTranscriptRow.svelte` (bolla `/loop`, separatore, giro ripiegato, riga finale). `UserEntry.loopGiro` marca il prompt ripetuto; `UserEntry.loopStart` la bolla d'avvio.
+- Occupazione: `GuiGateSnapshot.loopActive` (blocco `loop` del cancello della coda) e `laneBusy`/`laneAgentState` tengono la corsia occupata finche' il loop e' attivo, pausa compresa. `--between reset`: il motore aspetta in `resetting`, Studio manda `new_session`, il giro riparte su `session_switch`.
+
+### 6.7 Obiettivo guidato e goal mode (Gate R39)
+
+- In omp `/goal` e `/guided-goal` hanno solo `handleTui`: inoltrati come prompt in `rpc-ui` arrivano al modello come testo. Studio li intercetta (`routeGoalSlash` in `slashRouter.ts`, chiamato da `handleGuiSlashCommand`) e usa l'RPC `goal {op: get|create|resume|pause|drop, objective, token_budget}` con l'evento `goal_updated` (`modes/rpc/rpc-goal.ts`).
+- **Intervista in Studio, deterministica.** `AgentSession.startGuidedGoal` crea un `GoalInterview` (`guidedGoal.ts`): cinque domande fisse con tre risposte proposte, una consigliata, e risposta libera interpretata (`parseCap`, `parseBoundaries`, `splitItems`). Domande e risposte sono entry locali `kind: 'guided-goal'` del transcript: non vanno a omp e non entrano nel contesto. `Chat.svelte` mette `GuidedGoalAskCard` al posto del composer e `GuidedGoalStrip` in cima; alla fine una entry `draft` disegna `GuidedGoalDraftCard`. `draftIssues` blocca «Avvia» (obiettivo, criteri vaghi o assenti, verifica, tetto); confini e stop mancanti sono consigli. Una ricostruzione del transcript rimette in coda la domanda o la bozza aperta.
+- **Proposte dell'agente (facoltative).** Se `get_available_commands` contiene `studio-goal` (estensione `extensions/studio-goal.ts`, caricata con `-e` solo da `rpc_open`), Studio manda il prompt `/studio-goal suggest {requestId, idea, locale}`: in omp i comandi delle estensioni partono prima di tutto, anche durante un turno, e non entrano nel transcript. L'estensione legge i comandi del progetto (`package.json`, `Cargo.toml`…) e fa un `ctx.runEphemeralTurn({tools: false})` (lo stesso turno a margine di `/btw`); risponde con `ctx.ui.setStatus("studio.goal", json)`, che arriva come `extension_ui_request` `setStatus` con `statusKey` e viene consumato da `applyStudioGoalStatus` senza toccare la riga di stato. Le proposte sostituiscono solo le domande non ancora risposte; senza risposta entro 60 s l'intervista resta sulle proposte fisse.
+- **`goal create`.** L'obiettivo e' markdown a sezioni fisse (`## Objective / ## Success criteria / ## Verification / ## Boundaries / ## Stop conditions`, come `prompts/goals/guided-goal-interview.md`), `token_budget` dal tetto. Il tetto di tentativi non e' un campo di omp: sta nel testo (`Stop after N attempts…`, riletto da `parseAttemptCap` anche dopo un riavvio) e Studio conta i tentativi (un `agent_start` con l'obiettivo attivo) e fa `goal pause` al `agent_end` terminale che raggiunge il tetto.
+- **Continuazione via RPC.** omp fa proseguire un obiettivo da solo solo nei modi elencati in `goal.continuationModes` (default `["interactive"]`): l'overlay GUI per-sessione (`write_gui_overlay`/`set_gui_overlay_prewalk` in `src-tauri/src/rpc/mod.rs`) scrive `goal.continuationModes: [interactive, rpc]`. La config dell'utente non viene toccata e il terminale non cambia.
+- **Banner.** `GoalBanner.svelte` in cima a `Chat.svelte` mostra ogni obiettivo della sessione (creato da Studio, con `/goal` o dallo strumento `goal` dell'agente) e sostituisce la sezione obiettivo del vassoio (`GoalTray` non e' piu' montato). Un obiettivo completato resta verde e chiudibile dopo che omp lo toglie dallo stato.
+- **Coda.** `AgentSession.goalHoldsSession` (obiettivo attivo o intervista aperta) entra in `GuiGateSnapshot.goalHold` -> blocco `working` «Obiettivo attivo» in `resolveAutomationGate`, e in `laneBusy` del `laneOrchestrator`: fra un tentativo e l'altro `isStreaming` e' falso ma omp sta per ripartire, quindi l'auto-avvio non manda task in quella chat.
+
+### 6.8 Prewalk per chat e task
 
 - Il modello attivo pianifica; omp risolve `@smol` all'armo e passa una sola volta dopo la prima chiamata `edit`/`write` successiva a una chiamata `todo` riuscita. Studio non modifica `modelRoles.smol` né `fallbackChains.smol`.
 - `AgentSession.prewalk` distingue `off`, `armed` e `handedOff`; i notice di sorgente `prewalk` confermano armo, disarmo e modello effettivo. `model_changed` può arrivare senza payload: il notice `switched to …` e `get_state` aggiornano il modello, mentre `thinking_level_changed` aggiorna il thinking.
 - Il composer offre armo/disarmo e «Ripeti» (`/prewalk restart`, ritorno a `@default`). Le scritture dell'overlay sono serializzate; armo/disarmo attendono il notice entro cinque secondi. Il disarmo di un armo slash con overlay già falso attraversa `true` → `false`, con 400 ms tra le scritture perché `true` su una sessione già armata può essere silenzioso.
-- Dopo il passaggio l'overlay torna falso. Nuova chat e fork disarmano prima di `new_session`, per evitare il riarmo automatico con overlay vero; un nuovo processo, anche con `--resume`/`--continue`, parte spento. Lab e prewalk dei subagenti sono esclusi.
+- Dopo il passaggio l'overlay torna falso. Nuova chat, fork e diramazioni disarmano prima di `new_session`/`fork`/`branch`, per evitare il riarmo automatico con overlay vero; un nuovo processo, anche con `--resume`/`--continue`, parte spento. Lab e prewalk dei subagenti sono esclusi.
 - `StudioTaskOptions.prewalk` è un booleano opzionale in `.omp/tasks.json`. Il dispatch GUI arma dopo modello/thinking e prima del prompt: se l'armo fallisce, il task resta in coda. Il dispatch PTY invia `/prewalk` dopo `/new` e la conferma della nuova sessione, prima del prompt incollato.
 - `project_tasks` conserva l'opzione in add/update e `/tasks` la mostra con `[prewalk]`. Invio nell'overlay TUI non la applica: il prewalk del task viene applicato da Studio quando lo avvia.
 
+### 6.9 Fine del turno e quiete della sessione
+
+`AgentSession` distingue due momenti (logica pura in `src/lib/agent/settle.ts`, stato in `settle: { aware, settled, running }`):
+
+| Evento | Effetto |
+|---|---|
+| `agent_start` | `running = true`, `settled = false`, `agentState = working` |
+| `agent_end` terminale, o non terminale con `awaitingAsyncWork` (solo se `aware`) | **yield**: `isStreaming = false`, `runEndSeq++`, piè di turno e suggerimenti; `running = false`; senza `aware` anche `settled = true` |
+| `prompt_result` | `sessionSettled: true` → quiete; `status: "error"` con `agentInvoked` → avviso con provider/HTTP/`retryable` |
+| `session_settled` | **quiete**: `settled = true`, `agentState` da `working` a `idle`/`attention` |
+| `get_state` | `isSettled` (con `isStreaming`) riallinea chi si attacca a meta'; la sua presenza accende `aware` |
+
+`running` e' anche il «run vivo» del cancello della coda (§5.3): `turn_end` spegne `isStreaming` a ogni giro di tool, `running` resta acceso fino allo yield. `backgroundPending = aware && !settled && !running && !streaming`. In quello stato `agentState` resta `working` (tessera, companion e `finished` aspettano la quiete), `automationSnapshot.backgroundWork` e' vero (blocco `background` in `automationGate.ts`, instradabile in corsia) e la riga di stato mostra «in background». Mentre si aspetta, un `get_state` ogni 15 s fa da rete per un `session_settled` perso. Con un omp che non riporta la quiete (`aware` mai acceso) lo yield vale come quiete: il comportamento precedente.
+
+
+### 6.10 Modalita' Piano nella chat GUI (Gate R36)
+
+- **Trasporto:** `extensions/studio-plan.ts` (comando nascosto `/studio-plan on|off|status|review`, hook `before_agent_start` e `tool_call`, strumento `studio_plan_submit`). Studio manda `/studio-plan <op>` come `prompt` senza bolla nel transcript; `mergeCommands` lo nasconde dalla palette. Lo stato torna con `setStatus` sulla chiave `studio-plan` (JSON) e sopravvive al resume come voce custom `studio-plan-state`.
+- **Revisione:** `extension_ui_request` `editor` con titolo `studio-plan-review:<meta>` e piano precompilato. `AgentSession` la intercetta prima delle domande generiche e la passa a `PlanController.openReview`; un `cancel` di omp la chiude. La risposta `extension_ui_response` porta la decisione JSON (`encodePlanDecision`).
+- **Moduli:** `src/lib/agent/planMode.ts` (puro: parser della richiesta e dello stato, sezioni `##`, ricomposizione, strade e tasti, passi del passaggio, prompt d'esecuzione, `reanchorEntries`); `src/lib/agent/planController.svelte.ts` (stato reattivo per sessione, `planCards` condiviso tra sessioni, orchestrazione del passaggio, ruoli); `PlanHost` registrato da `+page.svelte` per creare la corsia e riprendere la sessione di pianificazione. Componenti: `PlanApprovalCard` (al posto del composer durante la revisione), `PlanDocCard`, `PlanHandoffCard`, `PlanApprovedCard`, `PlanTray` (piano in costruzione), `PlanEntryView`.
+- **Transcript:** le voci `PlanEntry` (`enter | exit | doc | handoff`) sono del solo client, ancorate al `messageTs` dell'ultimo messaggio; dopo una ricostruzione con `get_messages_page` `reanchorEntries` le rimette dopo il loro messaggio.
+- **Passaggio:** risposta `approve` → fine turno (`waitForIdle`) → strada (`new_session` | corsia | `compact` con istruzioni | stessa sessione) → ruolo → `prompt` con il piano approvato. Un errore ferma il passaggio sulla card con il passo fallito.
 
 ---
 
@@ -459,7 +611,7 @@ Il Laboratorio esegue codice JavaScript reale (React 19, Tailwind v4 e le dipend
 2. **Compilazione locale:** il bundle è prodotto da `esbuild-wasm` in un Web Worker; le dipendenze esterne arrivano da esm.sh con versioni fissate nel `package.json` del prototipo.
 3. **Server di anteprima loopback:** `lab/preview_server.rs` ascolta solo su `127.0.0.1` con porta casuale, serve i file dalla memoria (nessun accesso al disco, nessun path traversal) dietro un token casuale da 128 bit e con una CSP propria che ammette solo esm.sh.
 4. **Iframe a origine opaca:** l'anteprima gira in `<iframe sandbox="allow-scripts allow-forms allow-modals allow-popups">` senza `allow-same-origin`: nessun accesso a `window.parent`, allo storage di Studio o all'IPC Tauri. La CSP dell'app ammette questi iframe con `frame-src http://127.0.0.1:*`.
-5. **Agente confinato (`extensions/studio-lab.ts`):** hook `tool_call` fail-closed. Letture ammesse solo nel workspace del prototipo e nel progetto originale, scritture solo nel workspace, shell ed `eval` bloccati, browser consentito solo verso l'URL locale dell'anteprima.
+5. **Agente confinato (`extensions/studio-lab.ts`):** hook `tool_call` fail-closed. Letture ammesse solo nel workspace del prototipo e nel progetto originale, scritture solo nel workspace, shell ed `eval` bloccati, browser consentito solo verso l'URL locale dell'anteprima. Dei tool delle corsie passa solo `corsia_fatto`, per segnalare la fine del lavoro (Gate R43).
 
 ### 7.4 Integrità degli Aggiornamenti e Installer
 Sia `studio_updater.rs` sia l'installer di OMP in `setup.rs`:
@@ -509,7 +661,7 @@ Tutti gli obiettivi architetturali sono verificati e misurati su build Release:
 | **R17** | Notifiche OS e Allerte Icona | Registrazione AUMID `sh.omp.studio`, notifiche toast OS, dot rosso taskbar Windows e badge Dock macOS. | SUPERATO |
 | **R18** | Suggerimenti dinamici effimeri vs residenti | Processo effimero e non residente via `omp -p` (misurati 5,7 s con `smol`, 4,3 s con suffisso `:minimal`, contro ~1,5 s di un processo caldo) perche' l'utente ha accettato la latenza e un processo residente introdurrebbe ciclo di vita, watchdog e rischio di contesto condiviso fra progetti; generazione opt-in (`dynamicEnabled: false` di default) per non consumare chiamate a modello non richieste ad ogni fine turno. | SUPERATO |
 | **R23** | Browser Studio gestito e trasmesso nella colonna centrale | Superficie dedicata BrowserViewer centrale, broker gestito windowless, stream binario BLF1 loopback con backpressure hardware/software, control epochs, takeover atomico e privato, inspector mirato (ring buffer bounded), dialoghi/popup/file/recording espliciti, Chrome Relay target-scoped e teardown crash-safe senza orfani. | SUPERATO |
-| **R24** | Laboratorio prototipi frontend React 19 + Tailwind v4 | Spazio GUI dedicato per esplorare UX/UI con frontend React reali e dati simulati. Concorrenza con il principale, broker confinato `extensions/studio-lab.ts`, VFS chiuso, bundler offline locale (`static/lab/`), controller Chromium gestito con allowlist CDP, watchdog loop < 2ms, revisioni locali atomiche, export autonomo Vite e handoff al principale. | SUPERATO |
+| **R24** | Laboratorio prototipi frontend React 19 + Tailwind v4 | Spazio GUI dedicato per esplorare UX/UI con frontend React reali e dati simulati. Concorrenza con il principale, broker confinato `extensions/studio-lab.ts`, VFS chiuso, bundler offline locale (`static/lab/`), revisioni locali atomiche, export autonomo Vite e handoff al principale. Il renderer Chromium dedicato con CDP e watchdog e' stato sostituito dal Gate R30 (iframe sandbox nella WebView di Studio, §9.2). | SUPERATO |
 ### 9.1 Browser Studio (Gate R23 — S38-S47 completati, SUPERATO)
 
 Il Gate R23 introduce la superficie Browser nella colonna centrale, alimentata da
@@ -532,6 +684,13 @@ Rifondato con il **Gate R30** come corsia specializzata di progetto (`kind: 'lab
 4. **Bozze Libere (Scratchpad):** prototipi liberi creati senza progetto associato, persistiti in locale e associabili a posteriori a un progetto aperto.
 5. **Runtime Anteprima Loopback:** server locale Rust su `127.0.0.1:0` che serve il bundle compilato da Web Worker esbuild-wasm verso un iframe `sandbox="allow-scripts allow-forms allow-modals allow-popups"` a origine opaca (zero esposizione IPC Tauri). Dipendenze esterne risolte tramite CDN esm.sh con versioni pinned in `package.json`.
 6. **Confinamento Agente:** estensione `studio-lab.ts` con hook `tool_call` fail-closed (letture ammesse solo su workspace e progetto originale, scritture solo su workspace, shell/eval bloccati, browser consentito solo su URL locale anteprima).
+7. **Indica e disegna (Gate R42):**
+   - *Mappa sorgente.* `compiler.ts` compila con `jsxDev: true` e risolve `react/jsx-dev-runtime` verso un modulo virtuale (`lab/inspect/jsxDevShim.ts`) che delega al runtime di produzione: ogni elemento host riceve `data-lab-loc="src/File.tsx:riga:colonna"`, ogni componente registra il punto di chiamata in una `WeakMap(props → loc)` (icone e librerie senza attributo). Vale solo nell'anteprima: l'esportazione resta un progetto Vite pulito.
+   - *Ispettore nell'iframe.* `lab/inspect/inspector-client.js` e' inserito inline (`?raw`) da `preview-builder.ts` prima di `app.js`. Disegna hover, etichetta e marker numerati in uno shadow root chiuso; con una modalita' attiva un «catcher» trasparente riceve i puntatori, cosi' il prototipo non vede clic e trascinamenti. Componente e punto di chiamata si leggono dal fiber React (`__reactFiber$`, React fissato a 19.2.8); se manca resta `data-lab-loc`.
+   - *Protocollo `postMessage` v2* (filtrato su `event.source === iframe.contentWindow`). Studio → iframe: `inspect_mode {point|area|off}`, `inspect_sync {notes}`, `inspect_capture {reqId, maxSide}`. Iframe → Studio: `inspect_ready`, `inspect_pick {target, additive}`, `inspect_area {rect, groups, total, omitted}`, `inspect_marker_click`, `inspect_synced` (riaggancio dopo la ricompilazione, `stale` se l'elemento non c'e' piu'), `inspect_captured`, `inspect_key`. Il prototipo gira nello stesso realm e potrebbe falsificare un messaggio: al massimo crea una nota nella coda, che non parte mai senza l'invio dell'utente.
+   - *Riquadro.* Raccoglie gli elementi significativi (con `data-lab-loc`, controlli, media o testo proprio) che cadono per almeno l'80% nell'area e li raggruppa per componente e `file:riga` (×N), massimo 12 gruppi.
+   - *Fotogramma.* Un solo PNG per messaggio, rasterizzato dentro l'iframe (clone del DOM con stili calcolati in linea → SVG `foreignObject` → canvas): funziona uguale su WebView2, WKWebView e WebKitGTK senza codice nativo. Immagini e font diventano data URL quando il server risponde con CORS; altrimenti segnaposto grigio e avviso. Studio disegna riquadri e numeri su canvas (`lab/annotateFrame.ts`) e allega l'immagine con il meccanismo degli allegati del composer. Se la cattura fallisce, o il modello non vede immagini, parte solo il testo.
+   - *Coda e pacchetto.* `lab/visualNotesStore.svelte.ts` tiene una coda per sessione (WeakMap accanto ad `AgentSession`); `LabNotesQueue.svelte` la mostra nel composer della corsia Lab. All'invio `visualNotes.ts` aggiunge al testo un blocco `<lab-notes>` con, per ogni nota, numero, nota e per ogni elemento `<tag> · componente · file:riga:col`, selettore, classi e testo breve. `LAB_SYSTEM_PROMPT` spiega all'agente come usarlo.
 ---
 
 ## 10. Prerequisiti di Build e Compilazione

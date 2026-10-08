@@ -21,6 +21,7 @@
 		onOpenFile,
 		onInputPendingChange,
 		onSessionChange,
+		onHoldChange,
 		sessionRef,
 		stopRef,
 	} = $props<{
@@ -37,6 +38,8 @@
 		onOpenFile?: (relPath: string, line: number | null) => void;
 		onInputPendingChange?: (pending: boolean) => void;
 		onSessionChange?: (session: TerminalSessionInfo | null) => void;
+		/** Attese che il titolo non mostra: task appena scritto, barra OSC 9;4. */
+		onHoldChange?: (hold: { awaitingStart: boolean; progressActive: boolean }) => void;
 		sessionRef?: (session: TerminalSession | null) => void;
 		/** Lo Stop sta nella testata della colonna, fuori dalla viewport (D6). */
 		stopRef?: (control: TerminalStopControl | null) => void;
@@ -65,6 +68,7 @@
 			projectId,
 			continueLast
 		);
+		session.onHoldChange = (hold) => onHoldChange?.(hold);
 		sessionRef?.(session);
 		stopRef?.(stop);
 

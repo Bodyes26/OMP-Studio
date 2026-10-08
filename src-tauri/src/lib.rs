@@ -82,6 +82,8 @@ mod lane_naming_ops;
 use lane_naming_ops::generate_lane_name;
 mod task_title_ops;
 use task_title_ops::generate_task_title;
+mod journal_ops;
+use journal_ops::project_docs_ask;
 mod session_titles_store;
 use session_titles_store::session_title_save;
 mod companion_ops;
@@ -288,6 +290,7 @@ pub fn run() {
             generate_prompt_suggestions,
             generate_lane_name,
             generate_task_title,
+            project_docs_ask,
             session_title_save,
             toggle_companion_window,
             hide_companion_window,

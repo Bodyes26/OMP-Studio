@@ -32,6 +32,16 @@ export type RpcCommand =
 	| { type: 'prompt'; message: string; images?: ImageContent[]; streamingBehavior?: StreamingBehavior }
 	| { type: 'abort' }
 	| { type: 'new_session'; parentSession?: string }
+	// Diramazioni (omp 18.8): `fork` copia la sessione intera o fino a `entryId`,
+	// `branch` riparte dal genitore di un messaggio utente; entrambi aprono un file nuovo.
+	| { type: 'fork'; entryId?: string }
+	| { type: 'branch'; entryId: string }
+	| { type: 'get_entries'; since?: string }
+	| { type: 'get_tree' }
+	// Domande a margine (omp 18.6.3+): risposta in streaming con `btw_delta`/`btw_record`.
+	| { type: 'btw'; question: string; recordId?: string }
+	| { type: 'btw_cancel'; recordId?: string }
+	| { type: 'get_btw_history' }
 	| { type: 'get_state' }
 	| { type: 'get_available_commands' }
 	| { type: 'get_messages_page'; cursor?: string; limit?: number }
@@ -175,6 +185,10 @@ export interface RpcSessionState {
 	slowModeScope?: 'session' | 'global';
 	usageLimit?: UsageLimitState;
 	goal?: GoalModeState | null;
+	/** omp 18.8+: job in background o consegne che possono ancora risvegliare la sessione. */
+	hasPendingAsyncWork?: boolean;
+	/** omp 18.8+: stesso predicato di `session_settled` (nessun run, coda vuota, nessun job). */
+	isSettled?: boolean;
 }
 
 /* ------------------------------------------------- coda, limiti, obiettivi */
@@ -473,6 +487,12 @@ export interface AgentSessionEvent {
 	messages?: AgentMessage[];
 	/** `agent_end`: terminale quando `!== false`. */
 	isTerminal?: boolean;
+	/** `agent_end` (omp 18.8+): l'agente ha ceduto il turno; assente nei runtime vecchi. */
+	yielded?: boolean;
+	/** `agent_end` (omp 18.8+): fine non terminale che solo un job in background puo' riprendere. */
+	awaitingAsyncWork?: boolean;
+	/** `prompt_result` (omp 18.8+): la sessione era gia' quieta al momento dello yield. */
+	sessionSettled?: boolean;
 	/** `tool_execution_*` */
 	toolCallId?: string;
 	toolName?: string;
@@ -512,6 +532,10 @@ export interface AgentSessionEvent {
 	followUp?: string[];
 	/** `cache_warming_start` / `cache_warming_end` */
 	phase?: CacheWarmingPhase;
+	/** `btw_record`: record intero della domanda a margine (vedi `btw.ts`). */
+	record?: unknown;
+	/** `btw_delta`: argomento a cui appartiene `delta`. */
+	recordId?: string;
 	provider?: string;
 	outcome?: CacheWarmingOutcome;
 	warmingStopReason?: string;
@@ -571,7 +595,15 @@ export interface ExtensionUiRequest {
 	/** `open_url` */
 	url?: string;
 	launchUrl?: string;
+	/** `setStatus` (omp 18.x): `statusText` assente o vuoto toglie la voce. */
+	statusKey?: string;
+	statusText?: string;
+	/** `setWidget`: `widgetLines` assente toglie il widget. */
 	widgetKey?: string;
+	widgetLines?: string[];
+	widgetPlacement?: 'aboveEditor' | 'belowEditor';
+	/** `notify`: livello dell'avviso (`info`, `warning`, `error`). */
+	notifyType?: string;
 	content?: unknown;
 	/** `ask` */
 	questions?: AskDialogQuestion[];

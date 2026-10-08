@@ -16,23 +16,35 @@
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { motionReduced } from '../motionState.svelte';
 	import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
+	import { scheduleStore } from '$lib/stores/schedule.svelte';
 	import Tooltip from '$lib/ui/Tooltip.svelte';
 	import { getCurrentWebview } from '@tauri-apps/api/webview';
 	import { dropSummary, physicalToCssPoint } from '../chatDrop';
 
 	import AskCard from './AskCard.svelte';
 	import AskStreamPreview from './AskStreamPreview.svelte';
+	import BranchPanel from './BranchPanel.svelte';
+	import BtwPopover from './BtwPopover.svelte';
+	import { btwLatestTurn, isBtwRunning } from '../btw';
 	import Composer from './Composer.svelte';
 	import ComposerTray from './ComposerTray.svelte';
+	import LoopComposer from './LoopComposer.svelte';
+	import GoalBanner from './GoalBanner.svelte';
+	import GuidedGoalAskCard from './GuidedGoalAskCard.svelte';
+	import GuidedGoalStrip from './GuidedGoalStrip.svelte';
+	import type { Goal } from '../wire';
 	import QueueChips from './QueueChips.svelte';
 	import SubagentDrawer from './SubagentDrawer.svelte';
 	import SuggestionChips from './SuggestionChips.svelte';
 	import Transcript from './Transcript.svelte';
+	import PlanTray from './PlanTray.svelte';
+	import PlanApprovalCard from './PlanApprovalCard.svelte';
 
 	let {
 		session,
 		visible = true,
 		onOpenFile,
+		onOpenDiff,
 		onOpenImage,
 		onSwitchToTerminal,
 		onSlashCommand,
@@ -41,6 +53,7 @@
 		session: AgentSession;
 		visible?: boolean;
 		onOpenFile?: (path: string, line?: number | null) => void;
+		onOpenDiff?: (path: string) => void;
 		onOpenImage?: (data: string, mimeType: string) => void;
 		onSwitchToTerminal?: () => void;
 		onSlashCommand?: (raw: string) => boolean;
@@ -56,6 +69,7 @@
 	// bisogno di callback inoltrate a mano.
 	setAgentUiHooks({
 		openFile: (path, line) => onOpenFile?.(path, line),
+		openDiff: (path) => (onOpenDiff ? onOpenDiff(path) : onOpenFile?.(path, null)),
 		openImage: (data, mimeType) => onOpenImage?.(data, mimeType),
 		openSubagent: (id) => {
 			activeSubagentId = id;
@@ -63,7 +77,18 @@
 		cancelSubagent: (id) => {
 			void session.cancelSubagent(id);
 		},
-		switchToTerminal: () => onSwitchToTerminal?.()
+		switchToTerminal: () => onSwitchToTerminal?.(),
+		branch: {
+			canBranch: () => session.canBranch,
+			blockedReason: () => session.branchBlockedReason(),
+			fromUserMessage: (transcriptId, mode) => {
+				void session.branchFromUserMessage(transcriptId, mode).then((outcome: { kind: string }) => {
+					// «Modifica e riprova»: il testo e' tornato nel composer, il fuoco lo segue.
+					if (mode === 'edit' && outcome.kind === 'done') composerRef?.focus();
+				});
+			},
+			afterTurn: (turn) => void session.forkAfterTurn(turn)
+		}
 	});
 
 	let scrollEl: HTMLElement | null = $state(null);
@@ -84,6 +109,50 @@
 		askMinimizedRequestId = null;
 	}
 	let activeSubagentId = $state<string | null>(null);
+
+	// --- Obiettivo (goal mode) ------------------------------------------------
+	// L'intervista dell'obiettivo guidato prende il posto del composer; l'obiettivo
+	// avviato vive nel banner in cima. Un obiettivo completato resta nel banner
+	// (verde, chiudibile) anche dopo che omp lo toglie dallo stato della sessione.
+	const guidedAsking = $derived(
+		session.guidedGoal !== null &&
+			(session.guidedGoal.phase === 'asking' || session.guidedGoal.phase === 'idea') &&
+			session.pendingUi === null
+	);
+	let finishedGoal = $state<Goal | null>(null);
+	let lastGoalSeen: Goal | null = null;
+	let lastGoalSession: string | null = null;
+	$effect(() => {
+		const current = session.goal?.goal ?? null;
+		const sessionId = session.sessionId ?? null;
+		if (sessionId !== lastGoalSession) {
+			lastGoalSession = sessionId;
+			lastGoalSeen = null;
+			finishedGoal = null;
+		}
+		if (current) {
+			if (current.status !== 'complete') finishedGoal = null;
+			lastGoalSeen = current;
+		} else {
+			if (lastGoalSeen?.status === 'complete') finishedGoal = lastGoalSeen;
+			lastGoalSeen = null;
+		}
+	});
+	const bannerGoal = $derived.by(() => {
+		const current = session.goal?.goal ?? null;
+		if (current && current.status !== 'dropped') return current;
+		return finishedGoal;
+	});
+	let goalOpBusy = $state(false);
+	async function goalOp(run: () => Promise<boolean>) {
+		if (goalOpBusy) return;
+		goalOpBusy = true;
+		try {
+			await run();
+		} finally {
+			goalOpBusy = false;
+		}
+	}
 	let quotaSwitching = $state(false);
 	const quotaInfo = $derived.by(() => {
 		const bq = session.blockedQuotaState;
@@ -108,9 +177,44 @@
 				  }
 				: undefined,
 			onChooseModel: () => modelSettingsStore.openModal('catalog'),
-			onDismiss: () => session.dismissBlockedQuota()
+			onDismiss: () => session.dismissBlockedQuota(),
+			// Coda al reset (Gate R35): la sessione si rimette in testa
+			// alla coda e riprende con `/retry` quando il provider si resetta.
+			waitResetLabel:
+				bq.reasonKind === 'quota_exhausted' && session.sessionId && !session.labConfig
+					? waitResetLabel(bq.failedSelector)
+					: undefined,
+			onWaitReset: () =>
+				window.dispatchEvent(
+					new CustomEvent('studio-quota-wait-reset', {
+						detail: { projectId: session.projectKey, laneId: session.laneId ?? 'main' }
+					})
+				)
 		};
 	});
+
+	function waitResetLabel(selector: string | undefined): string {
+		const fallback = session.usageLimit?.resetsAtSec ? session.usageLimit.resetsAtSec * 1000 : undefined;
+		const when = scheduleStore.previewResetWhen(selector, fallback);
+		return when ? m.schedule_quota_wait_reset({ when }) : m.schedule_quota_wait_reset_plain();
+	}
+
+	// Domanda a margine a riquadro chiuso: riga nel vassoio con «Apri».
+	const btwTray = $derived.by(() => {
+		const record = session.btw.trayRecord;
+		if (!record) return undefined;
+		const status = btwLatestTurn(record).status;
+		return {
+			question: record.question,
+			state: isBtwRunning(record) ? ('running' as const) : status === 'complete' ? ('ready' as const) : ('stopped' as const),
+			onOpen: () => session.btw.setOpen(true),
+			onDismiss: () => session.btw.dismissTray()
+		};
+	});
+
+	function focusComposerSoon() {
+		if (visible && document.hasFocus()) void svelteTick().then(() => composerRef?.focus());
+	}
 
 	let lastScrollTop = 0;
 	// Soglia in pixel per considerare l'utente "al fondo" (tolleranza subpixel e font scaling).
@@ -343,6 +447,20 @@
 	style:position="absolute"
 	style:inset="0"
 >
+	{#if bannerGoal}
+		<GoalBanner
+			goal={bannerGoal}
+			attempts={session.goalAttempts}
+			cap={session.goalAttemptCap}
+			busy={goalOpBusy}
+			onPause={() => void goalOp(() => session.pauseGoal())}
+			onResume={() => void goalOp(() => session.resumeGoal())}
+			onDrop={() => void goalOp(() => session.dropGoal())}
+			onDismiss={session.goal ? undefined : () => (finishedGoal = null)}
+		/>
+	{:else if session.guidedGoal && session.guidedGoalOpen}
+		<GuidedGoalStrip interview={session.guidedGoal} />
+	{/if}
 	{#if isDraggingColumn}
 		<div class="chat-column-drag-overlay" aria-hidden="true">
 			<div class="drag-overlay-card">
@@ -401,11 +519,17 @@
 					onPromote={promoteQueuedMessage}
 				/>
 			{/snippet}
+			{#if session.btw.open && visible}
+				<BtwPopover btw={session.btw} onUseInMessage={focusComposerSoon} onClose={focusComposerSoon} />
+			{/if}
 			<!-- Sopra il vassoio: vassoio e composer restano un blocco unico. -->
 			<SuggestionChips
 				chips={composerRef?.visibleSuggestionChips() ?? []}
 				onSelect={(prompt) => composerRef?.applySuggestionChip(prompt)}
 			/>
+			{#if session.plan.building}
+				<PlanTray outline={session.plan.outline} planFilePath={session.plan.planFilePath} />
+			{/if}
 			<ComposerTray
 				quota={quotaInfo}
 				phases={session.todoPhases}
@@ -413,10 +537,7 @@
 				subagents={session.subagents}
 				queueCount={Math.max(session.queuedChips.length, session.queuedMessageCount)}
 				queue={queuedRows}
-				goal={session.goal?.goal ?? null}
-				onPauseGoal={() => void session.pauseGoal()}
-				onResumeGoal={() => void session.resumeGoal()}
-				onDropGoal={() => void session.dropGoal()}
+				btw={btwTray}
 				questionOpen={session.pendingUi !== null}
 				onOpenSubagent={(id) => (activeSubagentId = id)}
 				onCancelSubagent={(id) => void session.cancelSubagent(id)}
@@ -428,25 +549,48 @@
 						}
 					: undefined}
 			/>
-			{#if session.pendingUi && !askMinimized}
+			{#if session.plan.approvalOpen}
+				<!-- Revisione del Piano: la scheda prende il posto del composer. -->
+				<PlanApprovalCard {session} {visible} />
+			{/if}
+			{#if session.pendingUi && !askMinimized && !session.plan.approvalOpen}
 				{@const cardKey = `${session.pendingUi.toolCallId ?? session.pendingUi.requestId}:${session.pendingUi.questions?.length ?? 0}:${session.pendingUi.questionIndex ?? 0}`}
 				{#key cardKey}
 					<AskCard {session} pending={session.pendingUi} {visible} onMinimize={minimizeAsk} />
 				{/key}
 			{/if}
-			<div class:composer-under-ask={session.pendingUi !== null && !askMinimized}>
+			{#if guidedAsking && session.guidedGoal}
+				<GuidedGoalAskCard {session} interview={session.guidedGoal} {visible} />
+			{/if}
+			<div
+				class:composer-under-ask={(session.pendingUi !== null && !askMinimized) || session.plan.approvalOpen || session.plan.handingOff || guidedAsking}
+			>
 				<Composer
 					bind:this={composerRef}
 					{session}
-					visible={visible && (session.pendingUi === null || askMinimized)}
+					visible={visible && (session.pendingUi === null || askMinimized) && !session.plan.approvalOpen && !session.plan.handingOff && !guidedAsking}
 					dropTarget={isDraggingColumn}
 					onSlashCommand={(cmd: string) => (onSlashCommand ? onSlashCommand(cmd) : false)}
 					{onNewChat}
+					shellOverride={session.loopSetup || session.loop ? loopShell : undefined}
 				/>
+				{#snippet loopShell()}
+					<LoopComposer {session} {visible} />
+				{/snippet}
 			</div>
 		</div>
 	</div>
 
+
+	{#if session.branchPanelOpen}
+		<BranchPanel
+			{session}
+			onClose={() => {
+				session.branchPanelOpen = false;
+				if (visible && document.hasFocus()) void svelteTick().then(() => composerRef?.focus());
+			}}
+		/>
+	{/if}
 
 	{#if activeSubagentId}
 		<SubagentDrawer

@@ -29,6 +29,7 @@ Global shortcuts captured by the application live behind the **`Ctrl+Alt`** modi
 | `Ctrl+Alt+Arrow Left` | Global | If the active project has secondary lanes, switch to the previous lane; otherwise switch to the previous open project |
 | `Ctrl+Alt+Shift+Arrow` | Global | Move active project tile left or right (manual reordering) |
 | `Ctrl+P` | GUI Surface | Sequentially cycle through configured roles (`default` → `plan` → `smol`...) |
+| `Ctrl+B` | GUI Surface, "Aside" box | Opens and closes the side question box (`/btw`) above the composer; in the box `Enter` sends, `Shift+Enter` adds a line, `Esc` closes it and the question carries on in the tray. On macOS also `⌘B` |
 | `Alt+R` | GUI Surface | Open quick role selector with filter and navigation |
 | `Alt+P` | GUI Surface | Open model catalog with quick filter and keyboard navigation |
 | `Alt+M` | GUI Surface | Open thinking (reasoning) level selector menu |
@@ -37,6 +38,9 @@ Global shortcuts captured by the application live behind the **`Ctrl+Alt`** modi
 | `Ctrl+C` | GUI Surface | Interrupt streaming response (when no text is selected); if the agent does not stop, pressing again forces it to stop |
 | `Alt+E` | GUI Surface | Focus Composer input field |
 | `Alt+N` | GUI Surface | Open new chat in active project |
+| `Alt+Shift+P` | GUI Surface | Toggle the chat Plan mode (same as `/plan` and the composer "Plan" pill; in the Terminal omp's own `app.plan.toggle` applies). On Mac `Ctrl+Option+Shift+P`. Not available in the Lab |
+| `1` … `4` | Plan approval panel | Pick the execution path (new session, new lane, compact and continue, keep context) |
+| `Ctrl+Enter` | Plan approval panel | "Approve and run" on the selected path |
 | `/` | GUI Composer | Open available slash command palette |
 | `@` | GUI Composer, task editor, Companion | Open the project file palette; in the Companion after `#project` |
 | `#` | Companion | Pick the task's destination project |
@@ -45,6 +49,9 @@ Global shortcuts captured by the application live behind the **`Ctrl+Alt`** modi
 | `Alt+Enter` | GUI Composer | Send with alternate queueing mode (opposite of default) |
 | `Shift+Enter` / `Ctrl+Enter` | GUI Composer | Insert new line |
 | `Esc` | GUI Composer | Close palette/menu/help modal |
+| `Enter` | Composer in repeat mode (`/loop`) | Start the repeat (`Shift+Enter` adds a line) |
+| `Esc` | Composer in repeat mode (`/loop`) | Close the pill menu or leave repeat mode; once started, pause the repeat at the end of the round |
+| `Alt+I` | Lab preview | Toggle "Point" (Point and draw); `Shift+click` adds the element to the open note, `Esc` exits |
 | `Ctrl+0` | Focused Diagram | Fit diagram to window |
 | `Ctrl+S` | Editor | Save current file and notify |
 | `Ctrl+W` | Editor | Close current file |

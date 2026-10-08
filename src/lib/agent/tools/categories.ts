@@ -485,6 +485,43 @@ export function categorizeTool(input: CategorizeToolInput): ToolSummary {
 			break;
 		}
 
+		case 'corsia_avvia':
+			label = msg.corsia_card_title_avvia();
+			detail = str(args.obiettivo);
+			break;
+		case 'corsia_stato':
+			label = msg.corsia_card_title_stato();
+			break;
+		case 'corsia_risultato':
+			label = msg.corsia_card_title_risultato();
+			detail = str(details?.titolo) ?? str(args.corsia);
+			break;
+		case 'corsia_integra':
+			label = msg.corsia_card_title_integra();
+			detail = str(details?.titolo) ?? str(args.corsia) ?? str(args.messaggio);
+			meta = str(details?.kind);
+			break;
+		case 'corsia_chiudi':
+			label = msg.corsia_card_title_chiudi();
+			detail = str(details?.titolo) ?? str(args.corsia);
+			break;
+		case 'corsia_scarta':
+			label = msg.corsia_card_title_scarta();
+			detail = str(details?.titolo) ?? str(args.corsia);
+			break;
+		case 'corsia_consegna':
+			label = msg.corsia_card_title_consegna();
+			detail = str(details?.titolo) ?? str(args.prototipo);
+			break;
+		case 'corsia_fatto':
+			label = msg.corsia_card_title_fatto();
+			detail = str(args.riassunto)?.split('\n', 1)[0];
+			break;
+		case 'corsia_proponi':
+			label = msg.corsia_proposal_title();
+			detail = str(args.motivo);
+			break;
+
 		default: {
 			// MCP tool o fallback sconosciuto
 			label = toolName;

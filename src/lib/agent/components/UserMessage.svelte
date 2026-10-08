@@ -12,9 +12,12 @@
 	import MarkdownInline from './MarkdownInline.svelte';
 	import { splitMessageAndEditorContext } from '$lib/editor/editorContext';
 	import { baseName } from '../tools/types';
-	import { IconClose, IconFile } from '$lib/icons';
+	import { IconClose, IconCopy, IconEditRetry, IconFile, IconFork, IconMore } from '$lib/icons';
+	import { contextMenu, type ContextMenuEntry } from '$lib/contextMenu.svelte';
+	import Tooltip from '$lib/ui/Tooltip.svelte';
 
-	let { entry }: { entry: UserEntry } = $props();
+	// `planBadge`: messaggio mandato in modalita' Piano (badge «Piano» come nel prototipo).
+	let { entry, planBadge = false }: { entry: UserEntry; planBadge?: boolean } = $props();
 
 	const hooks = agentUiHooks();
 	const isNonStandardAttribution = $derived(
@@ -57,6 +60,64 @@
 		}
 		return list;
 	});
+
+	// Menu del messaggio: diramazioni (se la chat le offre) e copia del testo.
+	// Le voci di ramo restano visibili anche quando non possono partire, con il
+	// motivo nel suggerimento: sparire a meta' turno sarebbe piu' confuso. Il
+	// suggerimento (title) spiega cosa fa la voce; `detail` e' per valori brevi.
+	const branch = hooks.branch;
+	const canBranch = $derived(branch ? branch.canBranch() : false);
+
+	function menuItems(): ContextMenuEntry[] {
+		const items: ContextMenuEntry[] = [];
+		if (branch) {
+			const blocked = canBranch ? null : branch.blockedReason();
+			items.push(
+				{
+					kind: 'item',
+					label: m.branch_action_fork_here(),
+					icon: IconFork,
+					disabled: !canBranch,
+					hint: blocked ?? m.branch_action_fork_here_hint(),
+					run: () => branch.fromUserMessage(entry.id, 'fork')
+				},
+				{
+					kind: 'item',
+					label: m.branch_action_edit_retry(),
+					icon: IconEditRetry,
+					disabled: !canBranch,
+					hint: blocked ?? m.branch_action_edit_retry_hint(),
+					run: () => branch.fromUserMessage(entry.id, 'edit')
+				},
+				{ kind: 'separator' }
+			);
+		}
+		items.push({
+			kind: 'item',
+			label: m.branch_action_copy(),
+			icon: IconCopy,
+			disabled: !displayMessage,
+			run: async () => {
+				try {
+					await navigator.clipboard.writeText(displayMessage);
+				} catch {
+					// Copia non riuscita: niente da annunciare, il testo resta selezionabile.
+				}
+			}
+		});
+		return items;
+	}
+
+	function openMenu(event: MouseEvent, invoker?: HTMLElement) {
+		contextMenu.open(event, { label: m.branch_message_menu_label(), items: menuItems(), invoker });
+	}
+
+	function handleBubbleContextMenu(event: MouseEvent) {
+		// Il gestore globale ha gia' aperto «Copia» su una selezione: si rispetta.
+		if (contextMenu.isOpen) return;
+		event.preventDefault();
+		openMenu(event);
+	}
 </script>
 
 <div class="user-message-container">
@@ -81,9 +142,11 @@
 		</div>
 	{/if}
 
-	<div class="user-bubble rv-lift">
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div class="user-bubble rv-lift" oncontextmenu={handleBubbleContextMenu}>
 		{#if displayMessage}
 			<div class="content">
+				{#if planBadge}<span class="plan-badge-inline font-mono">{m.plan_badge()}</span>{/if}
 				<MarkdownInline tokens={inlineTokens} />
 			</div>
 		{/if}
@@ -168,6 +231,20 @@
 			</div>
 		{/if}
 	</div>
+
+	<div class="message-actions">
+		<Tooltip text={m.branch_message_menu_aria()} placement="top" offset={4}>
+			<button
+				type="button"
+				class="actions-btn"
+				aria-label={m.branch_message_menu_aria()}
+				aria-haspopup="menu"
+				onclick={(event) => openMenu(event, event.currentTarget as HTMLElement)}
+			>
+				<IconMore aria-hidden="true" />
+			</button>
+		</Tooltip>
+	</div>
 </div>
 
 <style>
@@ -179,6 +256,48 @@
 		max-width: 80%;
 		gap: var(--space-2);
 		min-width: 0;
+	}
+
+	/* Azioni del messaggio: compaiono al passaggio o al fuoco, come il piè del turno. */
+	.message-actions {
+		display: flex;
+		justify-content: flex-end;
+		margin-top: calc(-1 * var(--space-1));
+		opacity: 0;
+		transition: opacity var(--dur-fast) var(--ease-out);
+	}
+
+	.user-message-container:hover .message-actions,
+	.user-message-container:focus-within .message-actions {
+		opacity: 1;
+	}
+
+	.actions-btn {
+		--icon-size: 14px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 24px;
+		height: 20px;
+		padding: 0;
+		background: transparent;
+		border: none;
+		border-radius: var(--radius-sm);
+		color: var(--ink-faint);
+		cursor: pointer;
+		transition:
+			background var(--dur-fast) var(--ease-out),
+			color var(--dur-fast) var(--ease-out);
+	}
+
+	.actions-btn:hover {
+		background: var(--bg-hover);
+		color: var(--ink-muted);
+	}
+
+	.actions-btn:focus-visible {
+		outline: 2px solid var(--brand);
+		outline-offset: 1px;
 	}
 
 	.user-attribution {
@@ -221,6 +340,15 @@
 		width: 56px;
 		height: 56px;
 		object-fit: cover;
+	}
+
+	.plan-badge-inline {
+		font-size: 0.84em;
+		background: var(--ink);
+		color: var(--bg-base);
+		border-radius: var(--radius-md);
+		padding: 1px 6px;
+		margin-right: 4px;
 	}
 
 	.user-bubble {

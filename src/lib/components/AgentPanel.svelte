@@ -3,12 +3,14 @@
 	import { m } from '$lib/paraglide/messages.js';
 	import SessionList from './SessionList.svelte';
 	import RulesPanel from './RulesPanel.svelte';
+	import ProjectDocsPanel from './ProjectDocsPanel.svelte';
 	import EmptyState from './EmptyState.svelte';
 	import { taskStore, type AgentView } from '$lib/stores/tasks.svelte';
 	import { rulesStore } from '$lib/stores/rules.svelte';
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { isLaneRoutable, type AutomationBlock, type AutomationGate } from '$lib/agent/automationGate';
 	import QueueTaskItem from './QueueTaskItem.svelte';
+	import MissedScheduleBanner from './schedule/MissedScheduleBanner.svelte';
 	import { chatReveal, revealEase } from '$lib/agent/motion';
 	import { motionReduced, Lingering } from '$lib/agent/motionState.svelte';
 	import { IconPlus } from '$lib/icons';
@@ -24,7 +26,9 @@
 		onEditTask,
 		onRunTask,
 		onResumeSession,
-		onOpenFile
+		onOpenFile,
+		agentBusy = false,
+		onInitJournal
 	}: {
 		projectPath: string;
 		gate: AutomationGate;
@@ -35,6 +39,10 @@
 		onRunTask: (taskId: string, shiftKey: boolean) => void;
 		onResumeSession: (sessionId: string) => void;
 		onOpenFile: (relPath: string) => void;
+		/** L'agente principale del progetto sta lavorando (la scheda Progetto rilegge a fine lavoro). */
+		agentBusy?: boolean;
+		/** Avvia `/diario init` come task del progetto. */
+		onInitJournal: (storage: 'repo' | 'local') => void;
 	} = $props();
 
 	const tasks = $derived(taskStore.tasksFor(projectPath).filter((t) => t.status !== 'dispatching'));
@@ -57,6 +65,10 @@
 			label: m.agent_panel_tab_rules(),
 			count: frictionCount,
 			countTone: 'attention'
+		},
+		{
+			value: 'project',
+			label: m.agent_panel_tab_project()
 		}
 	]);
 	/**
@@ -185,6 +197,9 @@
 				{/if}
 			</div>
 
+			<!-- Reset passato a Studio chiuso: i task programmati aspettano una scelta. -->
+			<MissedScheduleBanner {tasks} />
+
 			<ul class="queue-list" class:queue-cards={isCardView} aria-label={m.queue_drawer_heading()}>
 				{#if tasks.length === 0}
 					<li class="empty-task-container">
@@ -241,9 +256,13 @@
 				onResume={onResumeSession}
 			/>
 		</div>
-	{:else}
+	{:else if view === 'rules'}
 		<div id="panel-agent-rules" role="tabpanel" aria-labelledby="tab-agent-rules" class="panel-tab-body">
 			<RulesPanel {projectPath} {onOpenFile} />
+		</div>
+	{:else}
+		<div id="panel-agent-project" role="tabpanel" aria-labelledby="tab-agent-project" class="panel-tab-body">
+			<ProjectDocsPanel {projectPath} {agentBusy} {onOpenFile} {onInitJournal} />
 		</div>
 	{/if}
 </div>

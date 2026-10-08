@@ -474,6 +474,60 @@
 	overflow: hidden;
 }
 
+/* ---- Heads-up di fine turno (Gate R40) -------------------------- */
+
+/* Una riga di prosa, non una card nella card: l'ambra sta solo nell'icona. */
+.card-headsup {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--space-2);
+	width: 100%;
+	min-width: 0;
+	padding: 0;
+	border: 0;
+	background: none;
+	color: var(--ink);
+	font: inherit;
+	font-size: var(--text-trace);
+	line-height: 1.5;
+	text-align: left;
+	cursor: pointer;
+}
+
+.card-headsup .hu-icon {
+	--icon-size: 13px;
+	display: inline-flex;
+	flex: none;
+	margin-top: 3px;
+	color: var(--warn);
+}
+
+.card-headsup .hu-text {
+	flex: 1;
+	min-width: 0;
+	display: -webkit-box;
+	-webkit-line-clamp: 3;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+}
+
+.card-headsup .hu-label {
+	color: var(--ink-muted);
+	font-weight: 560;
+}
+
+.card-headsup:hover .hu-text {
+	text-decoration: underline;
+	text-decoration-color: var(--line-strong);
+	text-underline-offset: 3px;
+}
+
+.card-headsup:focus-visible {
+	outline: 2px solid var(--focus-ring);
+	outline-offset: 2px;
+	border-radius: var(--radius-sm);
+}
+
 /* ---- Coda della card ---------------------------------------------------- */
 
 /* Dentro la lastra, senza una seconda cornice: niente card annidate. */
@@ -535,6 +589,25 @@
 
 .queue-row-run {
 	--icon-size: 14px;
+}
+
+/* Orario di un task programmato (al reset o non prima di): neutro e tabulare. */
+.queue-row-when {
+	display: inline-flex;
+	flex: none;
+	align-items: center;
+	gap: 3px;
+	font-size: var(--text-caption);
+	font-variant-numeric: tabular-nums;
+	color: var(--ink-faint);
+	--icon-size: 11px;
+}
+
+.queue-schedule-line {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	--icon-size: 11px;
 }
 
 .queue-more,
