@@ -38,6 +38,7 @@ import './studio-updater.test.ts';
 import './ui-fixes-170.test.ts';
 import './tool-errors.test.ts';
 import './prompt-suggestions.test.ts';
+import './turn-headsup.test.ts';
 import './agent-interaction.test.ts';
 import './model-settings.test.ts';
 import './loose-search.test.ts';
