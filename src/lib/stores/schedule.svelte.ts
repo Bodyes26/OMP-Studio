@@ -1,5 +1,5 @@
 /**
- * Stato reattivo dei task programmati (Gate R3X-coda-reset).
+ * Stato reattivo dei task programmati (Gate R35).
  *
  * Collega i moduli puri (`scheduleTarget`, `scheduleQueue`, `scheduleClock`)
  * agli store di Studio: quota letta da `omp usage`, ruoli dei modelli, ora

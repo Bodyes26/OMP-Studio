@@ -226,7 +226,7 @@ l'ordine MRU corrente: nessuno si ritrova le tessere rimescolate al primo avvio.
 dentro l'effetto che ha appena letto quello stato è il difetto che in questo stesso file
 aveva già prodotto `effect_update_depth_exceeded` (commento in `routes/+page.svelte`): la
 spedizione passa da `queueMicrotask` e da un lock per progetto. *Aggiornato da
-«Gate R3X-auto-avvio-stabile»: il microtask diventa un timer di stabilita' con
+«Gate R34»: il microtask diventa un timer di stabilita' con
 ri-verifica, la prontezza dell'auto-avvio diventa «ferma e stabile».*
 
 **Perimetro di scrittura.** Una sola chiave nuova, `studioSettings` in
@@ -1479,7 +1479,7 @@ locali e il `queuedMessageCount` di omp potevano divergere, e un crash prima di
 
 ---
 
-## Gate R3X-auto-avvio-stabile: l'auto-avvio parte solo a sessione ferma e stabile
+## Gate R34: l'auto-avvio parte solo a sessione ferma e stabile
 
 **Data:** 2026-10-08  
 **Esito:** IMPLEMENTATO  
@@ -1515,11 +1515,11 @@ Con l'interruttore acceso i task in coda partivano uno dopo l'altro senza aspett
 
 ---
 
-## Gate R3X-coda-reset: coda che parte al reset della quota
+## Gate R35: coda che parte al reset della quota
 
 **Data:** 2026-10-08  
 **Esito:** IMPLEMENTATO (da verificare su Windows con omp reale)  
-**Aggiorna:** Gate R12 (un task programmato parte anche con l'auto-avvio spento), Gate R3X-auto-avvio-stabile (stesso arbitro)  
+**Aggiorna:** Gate R12 (un task programmato parte anche con l'auto-avvio spento), Gate R34 (stesso arbitro)  
 **Prototipo:** `coda-reset.html`, variante A (etichetta sul task)
 
 ### Il problema
@@ -1548,7 +1548,7 @@ Con la quota del provider finita, un task in coda va a sbattere sul limite oppur
 
 ---
 
-## Gate R3X-plan: modalita' Piano nella chat GUI con l'estensione `studio-plan`
+## Gate R36: modalita' Piano nella chat GUI con l'estensione `studio-plan`
 
 **Data:** 2026-10-08
 **Esito:** IMPLEMENTATO (segnaposto: il numero del Gate si assegna al merge). Riferimento visivo: prototipo `plan-mode.html`, variante A.
@@ -1587,7 +1587,7 @@ Con la quota del provider finita, un task in coda va a sbattere sul limite oppur
 
 ---
 
-## Gate R3X-btw: domande a margine (`/btw`) nella chat GUI con i comandi RPC di omp
+## Gate R37: domande a margine (`/btw`) nella chat GUI con i comandi RPC di omp
 
 **Data:** 2026-10-08
 **Esito:** IMPLEMENTATO (variante A del prototipo `btw.html`: riquadro effimero sopra il composer)
@@ -1622,7 +1622,7 @@ Con la quota del provider finita, un task in coda va a sbattere sul limite oppur
 
 ---
 
-## Gate R3X-loop: /loop nella chat GUI con un'estensione di Studio
+## Gate R38: /loop nella chat GUI con un'estensione di Studio
 
 **Data:** 2026-10-08
 **Esito:** IMPLEMENTATO (numerazione definitiva al merge)
@@ -1655,7 +1655,7 @@ Caricamento dell'estensione in `rpc-ui`, ordine `setStatus` → messaggio utente
 
 ---
 
-## Gate R3X-guided-goal: obiettivo guidato nella chat GUI (intervista, variante B)
+## Gate R39: obiettivo guidato nella chat GUI (intervista, variante B)
 
 **Data:** 2026-10-08
 **Esito:** IMPLEMENTATO (prototipo `guided-goal.html`, variante B approvata)
@@ -1688,7 +1688,7 @@ Caricamento dell'estensione in `rpc-ui`, ordine `setStatus` → messaggio utente
 
 ---
 
-## Gate R3X-heads-up: heads-up di fine turno, una frase sola e solo se serve
+## Gate R40: heads-up di fine turno, una frase sola e solo se serve
 
 **Data:** 2026-10-08
 **Esito:** APPROVATO (variante A del prototipo `heads-up.html`, ridotta su indicazione di Maurizio)
@@ -1721,7 +1721,7 @@ Nei turni lunghi la cosa importante (un test fallito e lasciato lì, una modific
 
 ---
 
-## Gate R3X-diario: diario di bordo e documenti di progetto tenuti dall'agente
+## Gate R41: diario di bordo e documenti di progetto tenuti dall'agente
 
 **Data:** 2026-10-08
 **Esito:** IMPLEMENTATO (variante A del prototipo `diario-progetto.html`; numero del Gate da assegnare al merge)
@@ -1757,7 +1757,7 @@ Nei turni lunghi la cosa importante (un test fallito e lasciato lì, una modific
 
 ---
 
-## Gate R3X-lab-indica: «Indica e disegna» nel Laboratorio (versione semplificata)
+## Gate R42: «Indica e disegna» nel Laboratorio (versione semplificata)
 
 **Data:** 2026-10-08
 **Esito:** IMPLEMENTATO (da collaudare su Windows, macOS e Linux con omp reale)

@@ -1,5 +1,5 @@
 <!--
-  PlanDocCard.svelte (Gate R3X-plan).
+  PlanDocCard.svelte (Gate R36).
 
   Il piano proposto come card nel racconto: titolo, percorso `local://`, una
   sezione per ogni `##`. In revisione ogni sezione si commenta, si modifica o si

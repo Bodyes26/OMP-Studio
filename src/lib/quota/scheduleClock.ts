@@ -1,5 +1,5 @@
 /**
- * Orologio dei task programmati (Gate R3X-coda-reset).
+ * Orologio dei task programmati (Gate R35).
  *
  * Niente `setTimeout` lunghi fino al reset: con il PC in standby scadono in
  * ritardo o tutti insieme. Si controlla invece a passo fisso (30 s), al

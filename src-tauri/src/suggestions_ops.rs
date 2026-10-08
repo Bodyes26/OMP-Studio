@@ -6,7 +6,7 @@
 //! 2. **Nessuna scrittura automatica.** I suggerimenti vengono restituiti al frontend solo per precompilare il composer su richiesta dell'utente.
 //! 3. **Modello leggero.** Viene utilizzato il modello configurato nel ruolo `smol` (o fallback su `default` o selettore esplicito),
 //!    riducendo al minimo costi e latenza.
-//! 4. **Heads-up nella stessa chiamata (Gate R3X-heads-up).** Quando il frontend lo chiede (`want_heads_up`),
+//! 4. **Heads-up nella stessa chiamata (Gate R40).** Quando il frontend lo chiede (`want_heads_up`),
 //!    il modello riceve anche il digest del turno (fatti certi + testo completo) e restituisce al massimo una
 //!    frase in `headsUp`. Nessuna seconda chiamata: il costo e' qualche centinaio di token in ingresso.
 //! 5. **Fallimento silenzioso.** Qualsiasi errore di timeout o di parsing restituisce un array vuoto, evitando di mostrare toast o errori

@@ -102,9 +102,9 @@ graph TB
 - **Esecuzione effimera e isolata:** il comando `generate_prompt_suggestions` invoca `omp -p` con il modello del ruolo `smol` come processo figlio effimero e isolato, effettuando il parsing dell'array JSON di risposta con fallimento silenzioso.
 - **Scelta architetturale:** processo effimero e non residente (misurati 5,7 s con `smol`, 4,3 s con suffisso `:minimal`, contro ~1,5 s di un processo caldo) perche' l'utente ha accettato la latenza e un processo residente introdurrebbe ciclo di vita, watchdog e rischio di contesto condiviso fra progetti.
 - **Politica Opt-In e Fallimento Silenzioso:** la generazione e' opt-in (`dynamicEnabled` predefinito a falso) perche' costa una chiamata a modello per ogni fine turno. In caso di errore o timeout, il comando restituisce un array vuoto senza disturbare l'utente.
-- **Heads-up nella stessa chiamata (Gate R3X-heads-up):** quando l'agente non ha chiamato `studio_headsup` e il turno è grande (fatti certi, almeno 8 chiamate o 1.500 caratteri di testo), il frontend passa `turnDigest` (fatti + testo completo del turno, tagliato in mezzo a 6.000 caratteri) e `wantHeadsUp`; il digest viaggia nel file di contesto, mai in argv. Il modello risponde con `headsUp`: al massimo una frase o `null`. Senza `wantHeadsUp` il campo viene scartato lato Rust.
+- **Heads-up nella stessa chiamata (Gate R40):** quando l'agente non ha chiamato `studio_headsup` e il turno è grande (fatti certi, almeno 8 chiamate o 1.500 caratteri di testo), il frontend passa `turnDigest` (fatti + testo completo del turno, tagliato in mezzo a 6.000 caratteri) e `wantHeadsUp`; il digest viaggia nel file di contesto, mai in argv. Il modello risponde con `headsUp`: al massimo una frase o `null`. Senza `wantHeadsUp` il campo viene scartato lato Rust.
 
-### 2.5 Heads-up di fine turno (Gate R3X-heads-up)
+### 2.5 Heads-up di fine turno (Gate R40)
 - **Tre fonti, una frase.** `src/lib/agent/turnHeadsUp.ts` (funzioni pure) calcola dai tool del turno i fatti certi: comando di verifica fallito e mai riuscito dopo (stessa chiave «npm test», «cargo check»…), domanda `ask` scaduta, comando rischioso riuscito (`git push`, `reset --hard`, `rm -r` fuori dalle cartelle usa e getta…), file delicato modificato (manifest, migrazioni/SQL, CI, `.env*`, `AGENTS.md`, `tauri.conf.json`, capability). Priorità: frase dell'agente (`studio_headsup`) > frase smol (stessa chiamata post-turno di `suggestions_ops.rs`) > frase composta dai fatti.
 - **Stato.** `AgentSession.headsUp` vale per l'ultimo turno: si fissa ad `agent_end` (agente + fatti), si aggiorna una volta se smol risponde, si azzera ad `agent_start`. I turni passati mostrano solo la frase dell'agente, che resta nel `.jsonl` perché sta negli argomenti del tool.
 - **Superfici.** Card `TurnHeadsUp.svelte` prima del piè di turno (clic = scorre all'elemento del transcript, X = visto), riga nella card del progetto della companion (`CompanionProjectRuntime.headsUp`), notifica di sistema (`notificationManager.notifyHeadsUp`, una per turno, dopo l'analisi post-turno, mai se il turno chiede già una risposta o se stai guardando il progetto).
@@ -134,7 +134,7 @@ omp_ops.rs              Query protette SQLite (usage, storico sessioni), verific
 rules_ops.rs            Censimento regole di contesto e skill, analisi attrito in sola lettura su history.db
 models_ops.rs           Gestione catalogo modelli, ruoli operativi, catene di fallback e raccomandazioni
 suggestions_ops.rs      Comando generate_prompt_suggestions: chiamata effimera a omp -p con ruolo smol, parsing JSON (anche headsUp), fallimento silenzioso
-journal_ops.rs          Comando project_docs_ask (Gate R3X-diario): «Chiedi al diario», chiamata effimera a omp -p --no-session --no-tools col modello leggero sugli estratti passati dal frontend, nessuna lettura di disco
+journal_ops.rs          Comando project_docs_ask (Gate R41): «Chiedi al diario», chiamata effimera a omp -p --no-session --no-tools col modello leggero sugli estratti passati dal frontend, nessuna lettura di disco
 setup.rs                SetupWizard: download resiliente OMP, verifica SHA-256 nativa, installazione font Nerd
 studio_updater.rs       Updater applicazione: canali Stable/Nightly, verifica integrità SHA-256
 alerts.rs               Notifiche OS, registrazione AUMID Windows (sh.omp.studio), attenzione Dock/Taskbar
@@ -169,7 +169,7 @@ lib/
     turnHeadsUp.ts      Heads-up di fine turno: fatti certi del turno, frase dai fatti, priorità agente > smol > fatti, digest per smol
     headsUpSeen.svelte.ts Heads-up già visti (localStorage, chiave sessione + hash della frase)
   projectDocs/
-    projectDocs.ts      Diario di progetto (Gate R3X-diario): manifest, percorsi di default, parsing del diario, scelta degli estratti per «Chiedi al diario» (funzioni pure, contratto con l'estensione)
+    projectDocs.ts      Diario di progetto (Gate R41): manifest, percorsi di default, parsing del diario, scelta degli estratti per «Chiedi al diario» (funzioni pure, contratto con l'estensione)
     projectDocsStore.svelte.ts Stato della scheda Progetto: lettura con file_read, rilettura a fine lavoro dell'agente, domanda con project_docs_ask
   agent/
     client.ts           OmpRpcClient: correlazione richieste/risposte, timeout dinamici, channel listener
@@ -181,10 +181,10 @@ lib/
     wire.ts             Tipi TypeScript e mapping del protocollo RPC NDJSON v2
     sessionTree.ts      Diramazioni: copia incrementale di get_entries, mappatura transcript -> entry, righe del pannello Rami (Gate R33)
     slashRouter.ts      Instradamento puro dei comandi slash di sessione (/resume, /sessions, /tree, /fork), di /plan, di /btw e dell'obiettivo (/guided-goal, /goal)
-    btw.ts              Domande a margine: record e turni di /btw, delta, citazione per il composer, riconoscimento di omp senza RPC btw (Gate R3X-btw)
+    btw.ts              Domande a margine: record e turni di /btw, delta, citazione per il composer, riconoscimento di omp senza RPC btw (Gate R37)
     btwState.svelte.ts  SessionBtw: stato del riquadro «A margine» per sessione (storico, argomento aperto, bozza, citazione)
-    loopMode.ts         /loop nella GUI: pillole, riga /loop, stato da setStatus, segmenti e giri ripiegati (Gate R3X-loop)
-    guidedGoal.ts       Obiettivo guidato: domande e proposte fisse, risposte libere, bozza, controlli (criterio vago, tetto), markdown per `goal create`, proposte dell'agente (Gate R3X-guided-goal)
+    loopMode.ts         /loop nella GUI: pillole, riga /loop, stato da setStatus, segmenti e giri ripiegati (Gate R38)
+    guidedGoal.ts       Obiettivo guidato: domande e proposte fisse, risposte libere, bozza, controlli (criterio vago, tetto), markdown per `goal create`, proposte dell'agente (Gate R39)
     components/
       Chat.svelte       Pannello chat principale della superficie GUI
       BtwPopover.svelte Riquadro «A margine» (/btw) sopra il composer: streaming, approfondimenti, Storico
@@ -324,7 +324,7 @@ clear_app_attention() -> Result<(), String>;
 // --- Suggerimenti Prompt ---
 generate_prompt_suggestions(last_assistant: String, last_user: String, model_selector: Option<String>, max_items: u8) -> Result<Vec<String>, String>;
 
-// --- Diario di progetto (Gate R3X-diario) ---
+// --- Diario di progetto (Gate R41) ---
 project_docs_ask(question: String, context: String, model_selector: Option<String>) -> Result<Option<String>, String>;
 ```
 ---
@@ -379,7 +379,7 @@ interface StudioTask {
   createdAt: number;
   updatedAt: number;
   status: 'queued' | 'running' | 'completed' | 'cancelled';
-  // Gate R3X-coda-reset: alla radice, non in `options` (che la GUI ricostruisce
+  // Gate R35: alla radice, non in `options` (che la GUI ricostruisce
   // con chiavi fisse). Validati campo per campo; malformati = assenti.
   schedule?: {
     kind: 'reset' | 'at';
@@ -419,7 +419,7 @@ Reti di sicurezza: `awaitingRun` scade dopo 30 s senza `agent_start` (non durant
 Nel terminale lo stato viene dal titolo OSC (`π >` idle, `π :` working, `π !` attention, `tui.titleState`). In omp 18.8 il titolo diventa `working` su `agent_start` e torna `idle` solo su un `agent_end` terminale, su un `agent_end` non terminale con `awaitingAsyncWork`, o quando una continuazione programmata non parte: **non** scatta fra un tool e l'altro, ne' durante retry o compattazione che continua il run. I buchi erano due: dopo che Studio scrive il task nel PTY il titolo resta `idle` finche' omp non avvia il run (ora `awaitingStart`, fino al primo `working`/`attention` o 30 s), e il vecchio `assertAutomationReady` passava. Limiti che restano: un job in background (subagente asincrono, bash in background) porta il titolo a `idle` e il terminale non ha un segnale di quiete; la compattazione a riposo non tocca il titolo. Se l'utente accende `terminal.showProgress` in omp, la barra OSC 9;4 copre compattazione e run e Studio la legge (`progressActive`). Per code con lavoro in background la superficie consigliata e' la GUI.
 
 
-#### 5.3.2 Task programmati: coda al reset della quota (Gate R3X-coda-reset)
+#### 5.3.2 Task programmati: coda al reset della quota (Gate R35)
 
 Un task con `schedule` non e' preso dall'auto-avvio classico: ha il suo candidato e passa dallo **stesso** arbitro (§5.3, stabilita', ri-verifica, lock, slot unico di R27). Differenza voluta: parte anche con `autoDispatch` spento, perche' la programmazione e' gia' il gesto esplicito. «Avvia» resta sempre li' e la scavalca.
 
@@ -448,7 +448,7 @@ Un progetto resta una tessera. Una corsia (`AgentLane`) e' il workspace su cui g
 
 Comandi IPC aggiunti: `worktree_inspect`, `worktree_create`, `worktree_list`, `worktree_remove`, `worktree_profile_scan`, `worktree_apply_allowlist`, `worktree_review_inspect`, `worktree_land`, `worktree_undo_land`, `worktree_delete_lane_branch`, `lanes_store_read`, `lanes_store_write_atomic`, `lane_processes_list`, `lane_processes_stop`, `lane_bridge_respond`.
 
-### 5.5 Diario di progetto (Gate R3X-diario)
+### 5.5 Diario di progetto (Gate R41)
 
 Il diario di bordo e i documenti di progetto li scrive l'agente dentro `omp`; Studio li mostra e li interroga senza scriverli.
 
@@ -494,7 +494,7 @@ I metodi senza risposta (`notify`, `setStatus`, `setWidget`, `setTitle`, `open_u
 - Il pannello `BranchPanel.svelte` legge `get_tree` e lo proietta con `buildBranchTree` (solo messaggi utente, ramo attivo dritto, alternativi rientrati, iterativo). Il clic su un ramo inattivo fa `fork` sulla sua punta (`branchTipEntryId`): via RPC omp non ha lo spostamento di foglia nello stesso file della TUI.
 - Gli hook di ramo arrivano ai componenti del transcript via `AgentUiHooks.branch` (contesto impostato da `Chat.svelte`); fuori dalla chat le voci non compaiono.
 
-### 6.5 Domande a margine `/btw` (Gate R3X-btw)
+### 6.5 Domande a margine `/btw` (Gate R37)
 
 - Comandi RPC di omp (18.6.3+, `docs/rpc.md` «Side questions»): `btw { question, recordId? }` → `{ record }`, `btw_cancel { recordId? }` → `{ cancelled }` (in `FAST_COMMANDS`: omp lo esegue fuori coda), `get_btw_history` → `{ records }` dal piu' recente. Frame: `btw_record` (record intero a ogni cambio di stato, l'ultimo vince) e `btw_delta { recordId, delta }` (testo dell'ultimo turno). Il primo `btw_record` arriva **prima** della risposta a `btw`; tutti i delta dopo.
 - `AgentSession.btw` (`SessionBtw`, `src/lib/agent/btwState.svelte.ts`) riceve i frame dal riduttore e non tocca mai `entries`: niente finisce nel transcript. La logica pura (parsing tollerante, `applyBtwDelta`, `upsertBtwRecord`, citazione) sta in `btw.ts` con test in Node.
@@ -503,14 +503,14 @@ I metodi senza risposta (`notify`, `setStatus`, `setWidget`, `setTitle`, `open_u
 - Una domanda per volta per sessione (regola di omp): Studio non manda la seconda e lo dice. Cambio di sessione (nuova chat, ripresa, fork, ramo): omp annulla la domanda in corso; Studio azzera storico e selezione quando `get_state` porta un `sessionId` diverso, e conserva bozza e citazione.
 - «Usa nel messaggio»: `SessionBtw.quote` (domanda + ultima risposta in blockquote markdown) compare come chip nel composer e viene anteposta al testo solo all'invio riuscito (`withBtwQuote`); con un comando slash resta per il messaggio successivo. Il *branch* della TUI (promuovere lo scambio nella sessione) non ha un comando RPC.
 
-### 6.6 /loop nella chat (Gate R3X-loop)
+### 6.6 /loop nella chat (Gate R38)
 
 - Motore: `extensions/studio-loop.ts`, caricata con `-e` in `rpc/mod.rs` e `pty/mod.rs` ma attiva solo con `--mode rpc-ui` sulla sessione principale. L'handler `input` consuma `/loop …` e `/studio-loop <op>` prima dei builtin; `agent_end` chiude il giro e `sendUserMessage` avvia il successivo dopo 800 ms. La condizione `--until/--while` gira con `pi.exec` nella shell che sceglierebbe omp (Git Bash, poi PATH, poi `cmd.exe`), con timeout di 30 s, fuori dal contesto.
 - Stato: `ctx.ui.setStatus("studio.loop", json)` → `AgentSession.applyLoopStatus` → `session.loop` / `session.loopProbe`. Persistenza con `appendEntry("studio-loop")`; al resume un loop vivo torna in pausa. Dopo l'insediamento Studio chiede `/studio-loop status`. Il comando registrato `studio-loop` dice a Studio che il motore c'e'.
 - GUI: `loopMode.ts` (puro: bozza delle pillole, riga `/loop`, instradamento di `/loop`, segmenti, ripiegamento dei giri), `LoopComposer.svelte` (pillole e pannello, al posto della sagoma del `Composer` via `shellOverride`), `LoopTranscriptRow.svelte` (bolla `/loop`, separatore, giro ripiegato, riga finale). `UserEntry.loopGiro` marca il prompt ripetuto; `UserEntry.loopStart` la bolla d'avvio.
 - Occupazione: `GuiGateSnapshot.loopActive` (blocco `loop` del cancello della coda) e `laneBusy`/`laneAgentState` tengono la corsia occupata finche' il loop e' attivo, pausa compresa. `--between reset`: il motore aspetta in `resetting`, Studio manda `new_session`, il giro riparte su `session_switch`.
 
-### 6.7 Obiettivo guidato e goal mode (Gate R3X-guided-goal)
+### 6.7 Obiettivo guidato e goal mode (Gate R39)
 
 - In omp `/goal` e `/guided-goal` hanno solo `handleTui`: inoltrati come prompt in `rpc-ui` arrivano al modello come testo. Studio li intercetta (`routeGoalSlash` in `slashRouter.ts`, chiamato da `handleGuiSlashCommand`) e usa l'RPC `goal {op: get|create|resume|pause|drop, objective, token_budget}` con l'evento `goal_updated` (`modes/rpc/rpc-goal.ts`).
 - **Intervista in Studio, deterministica.** `AgentSession.startGuidedGoal` crea un `GoalInterview` (`guidedGoal.ts`): cinque domande fisse con tre risposte proposte, una consigliata, e risposta libera interpretata (`parseCap`, `parseBoundaries`, `splitItems`). Domande e risposte sono entry locali `kind: 'guided-goal'` del transcript: non vanno a omp e non entrano nel contesto. `Chat.svelte` mette `GuidedGoalAskCard` al posto del composer e `GuidedGoalStrip` in cima; alla fine una entry `draft` disegna `GuidedGoalDraftCard`. `draftIssues` blocca «Avvia» (obiettivo, criteri vaghi o assenti, verifica, tetto); confini e stop mancanti sono consigli. Una ricostruzione del transcript rimette in coda la domanda o la bozza aperta.
@@ -544,7 +544,7 @@ I metodi senza risposta (`notify`, `setStatus`, `setWidget`, `setTitle`, `open_u
 `running` e' anche il «run vivo» del cancello della coda (§5.3): `turn_end` spegne `isStreaming` a ogni giro di tool, `running` resta acceso fino allo yield. `backgroundPending = aware && !settled && !running && !streaming`. In quello stato `agentState` resta `working` (tessera, companion e `finished` aspettano la quiete), `automationSnapshot.backgroundWork` e' vero (blocco `background` in `automationGate.ts`, instradabile in corsia) e la riga di stato mostra «in background». Mentre si aspetta, un `get_state` ogni 15 s fa da rete per un `session_settled` perso. Con un omp che non riporta la quiete (`aware` mai acceso) lo yield vale come quiete: il comportamento precedente.
 
 
-### 6.10 Modalita' Piano nella chat GUI (Gate R3X-plan)
+### 6.10 Modalita' Piano nella chat GUI (Gate R36)
 
 - **Trasporto:** `extensions/studio-plan.ts` (comando nascosto `/studio-plan on|off|status|review`, hook `before_agent_start` e `tool_call`, strumento `studio_plan_submit`). Studio manda `/studio-plan <op>` come `prompt` senza bolla nel transcript; `mergeCommands` lo nasconde dalla palette. Lo stato torna con `setStatus` sulla chiave `studio-plan` (JSON) e sopravvive al resume come voce custom `studio-plan-state`.
 - **Revisione:** `extension_ui_request` `editor` con titolo `studio-plan-review:<meta>` e piano precompilato. `AgentSession` la intercetta prima delle domande generiche e la passa a `PlanController.openReview`; un `cancel` di omp la chiude. La risposta `extension_ui_response` porta la decisione JSON (`encodePlanDecision`).
@@ -669,7 +669,7 @@ Rifondato con il **Gate R30** come corsia specializzata di progetto (`kind: 'lab
 4. **Bozze Libere (Scratchpad):** prototipi liberi creati senza progetto associato, persistiti in locale e associabili a posteriori a un progetto aperto.
 5. **Runtime Anteprima Loopback:** server locale Rust su `127.0.0.1:0` che serve il bundle compilato da Web Worker esbuild-wasm verso un iframe `sandbox="allow-scripts allow-forms allow-modals allow-popups"` a origine opaca (zero esposizione IPC Tauri). Dipendenze esterne risolte tramite CDN esm.sh con versioni pinned in `package.json`.
 6. **Confinamento Agente:** estensione `studio-lab.ts` con hook `tool_call` fail-closed (letture ammesse solo su workspace e progetto originale, scritture solo su workspace, shell/eval bloccati, browser consentito solo su URL locale anteprima).
-7. **Indica e disegna (Gate R3X-lab-indica):**
+7. **Indica e disegna (Gate R42):**
    - *Mappa sorgente.* `compiler.ts` compila con `jsxDev: true` e risolve `react/jsx-dev-runtime` verso un modulo virtuale (`lab/inspect/jsxDevShim.ts`) che delega al runtime di produzione: ogni elemento host riceve `data-lab-loc="src/File.tsx:riga:colonna"`, ogni componente registra il punto di chiamata in una `WeakMap(props → loc)` (icone e librerie senza attributo). Vale solo nell'anteprima: l'esportazione resta un progetto Vite pulito.
    - *Ispettore nell'iframe.* `lab/inspect/inspector-client.js` e' inserito inline (`?raw`) da `preview-builder.ts` prima di `app.js`. Disegna hover, etichetta e marker numerati in uno shadow root chiuso; con una modalita' attiva un «catcher» trasparente riceve i puntatori, cosi' il prototipo non vede clic e trascinamenti. Componente e punto di chiamata si leggono dal fiber React (`__reactFiber$`, React fissato a 19.2.8); se manca resta `data-lab-loc`.
    - *Protocollo `postMessage` v2* (filtrato su `event.source === iframe.contentWindow`). Studio → iframe: `inspect_mode {point|area|off}`, `inspect_sync {notes}`, `inspect_capture {reqId, maxSide}`. Iframe → Studio: `inspect_ready`, `inspect_pick {target, additive}`, `inspect_area {rect, groups, total, omitted}`, `inspect_marker_click`, `inspect_synced` (riaggancio dopo la ricompilazione, `stale` se l'elemento non c'e' piu'), `inspect_captured`, `inspect_key`. Il prototipo gira nello stesso realm e potrebbe falsificare un messaggio: al massimo crea una nota nella coda, che non parte mai senza l'invio dell'utente.

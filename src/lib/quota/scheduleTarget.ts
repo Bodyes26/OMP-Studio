@@ -1,5 +1,5 @@
 /**
- * Da task programmato a finestra di quota (Gate R3X-coda-reset).
+ * Da task programmato a finestra di quota (Gate R35).
  *
  * Modulo puro: riceve i report di `omp usage --json` e la configurazione dei
  * ruoli invece di leggerli dagli store, cosi' gli smoke test lo verificano con

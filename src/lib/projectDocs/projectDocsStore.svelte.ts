@@ -1,5 +1,5 @@
 /**
- * Stato della scheda «Progetto» (Gate R3X-diario): legge manifest, documenti e
+ * Stato della scheda «Progetto» (Gate R41): legge manifest, documenti e
  * diario del mese con `file_read` e risponde a «Chiedi al diario» con una
  * chiamata effimera (`project_docs_ask`). Non scrive mai: i file li mantiene
  * l'agente con il tool `project_docs`, o l'utente a mano nell'editor.

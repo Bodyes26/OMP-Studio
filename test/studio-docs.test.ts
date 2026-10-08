@@ -1,5 +1,5 @@
 /**
- * Diario di progetto (Gate R3X-diario): estensione `studio-docs`, manifest,
+ * Diario di progetto (Gate R41): estensione `studio-docs`, manifest,
  * scrittura del diario con le fonti, protezione delle righe scritte a mano,
  * spostamento fuori da git e riga nel prompt solo dove il diario e' attivo.
  */

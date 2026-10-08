@@ -1,6 +1,6 @@
 // @ts-nocheck — codice che gira DENTRO l'iframe dell'anteprima, non in Studio.
 //
-// Ispettore «Indica e disegna» del Laboratorio prototipi (Gate R3X-lab-indica).
+// Ispettore «Indica e disegna» del Laboratorio prototipi (Gate R42).
 //
 // Questo file e' un modulo ES autosufficiente, senza import: preview-builder lo
 // legge come testo (`?raw`) e lo inserisce nell'HTML dell'anteprima in un

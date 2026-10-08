@@ -208,7 +208,7 @@ export const STUDIO_SLASH_COMMANDS: AvailableCommand[] = [
 	}
 ];
 
-/** Trasporti interni delle estensioni di Studio: `/studio-plan` per `/plan` (Gate R3X-plan), `/studio-loop` per `/loop` (Gate R3X-loop), `/studio-goal` per le proposte dell'obiettivo guidato (Gate R3X-guided-goal). */
+/** Trasporti interni delle estensioni di Studio: `/studio-plan` per `/plan` (Gate R36), `/studio-loop` per `/loop` (Gate R38), `/studio-goal` per le proposte dell'obiettivo guidato (Gate R39). */
 const HIDDEN_EXTENSION_COMMANDS = new Set(['studio-plan', 'studio-loop', 'studio-goal']);
 
 /**

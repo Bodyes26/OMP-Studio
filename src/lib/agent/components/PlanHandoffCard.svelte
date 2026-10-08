@@ -1,5 +1,5 @@
 <!--
-  PlanHandoffCard.svelte (Gate R3X-plan).
+  PlanHandoffCard.svelte (Gate R36).
 
   Card del passaggio di compito: «Da» (pianificazione) → «A» (nuova sessione,
   corsia o stessa sessione) e i passi che Studio esegue uno dopo l'altro.

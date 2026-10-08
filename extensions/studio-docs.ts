@@ -1,4 +1,4 @@
-// Estensione OMP: diario di bordo e documenti di progetto (Gate R3X-diario).
+// Estensione OMP: diario di bordo e documenti di progetto (Gate R41).
 //
 // Fornisce:
 // 1. Tool agente `project_docs` (list / read / search / update / sources / init):

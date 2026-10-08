@@ -1,6 +1,6 @@
 <script lang="ts">
 	/**
-	 * Orologio del task (Gate R3X-coda-reset): programma l'avvio «al reset
+	 * Orologio del task (Gate R35): programma l'avvio «al reset
 	 * della quota», «non prima delle HH:MM» o a un orario scelto. Lo stesso
 	 * componente sta sulla riga della coda e nella barra del TaskEditor.
 	 *

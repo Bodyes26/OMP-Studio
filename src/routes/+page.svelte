@@ -683,7 +683,7 @@
 			const gate = automationGate(p.id);
 			const laneSession = registeredSessionFor(p);
 			const activity = laneSession?.activityLine;
-			// Heads-up di fine turno (Gate R3X-heads-up): la stessa frase della chat,
+			// Heads-up di fine turno (Gate R40): la stessa frase della chat,
 			// finche' non e' segnata come vista.
 			const headsUp =
 				laneSession?.headsUp && !laneSession.isStreaming && !headsUpSeen.isSeen(laneSession.sessionId, laneSession.headsUp.text)
@@ -1026,7 +1026,7 @@
 			for (const unlisten of unlistens) unlisten();
 		};
 	});
-	// Heads-up di fine turno nella notifica di sistema (Gate R3X-heads-up).
+	// Heads-up di fine turno nella notifica di sistema (Gate R40).
 	// Una per turno: si aspetta la fine dell'analisi post-turno, cosi' parte
 	// la frase definitiva (agente, smol o fatti) e non quella provvisoria. Se
 	// il turno chiede gia' una risposta, la notifica di attenzione basta.
@@ -1224,7 +1224,7 @@
 	}
 
 	/**
-	 * Diario di progetto (Gate R3X-diario): l'inizializzazione e' un task come
+	 * Diario di progetto (Gate R41): l'inizializzazione e' un task come
 	 * gli altri, cosi' passa dallo stesso instradamento (principale o corsia,
 	 * GUI o terminale) e resta nello storico delle sessioni. Il prompt e' il
 	 * comando dell'estensione, senza direttive: un prefisso lo romperebbe.
@@ -1251,7 +1251,7 @@
 		const task = taskStore.taskById(taskId);
 		if (!project?.canonicalProjectPath || !task) return;
 
-		// Voce di ripresa (Gate R3X-coda-reset): torna nella sua sessione.
+		// Voce di ripresa (Gate R35): torna nella sua sessione.
 		if (task.resume) {
 			await dispatchResumeTask(project, task);
 			return;
@@ -1616,7 +1616,7 @@
 	}
 
 	function autoDispatchCandidateFor(project: Project): AutoDispatchCandidate | null {
-		// Task programmati (Gate R3X-coda-reset): passano per primi e partono
+		// Task programmati (Gate R35): passano per primi e partono
 		// anche con l'auto-avvio spento, dallo stesso arbitro (scheduleRunner).
 		const scheduled = scheduleRunner.candidateFor(project, scheduleRouteDeps);
 		if (scheduled) return { projectId: project.id, ...scheduled };
@@ -1828,7 +1828,7 @@
 		}
 	}
 
-	// Modalita' Piano (Gate R3X-plan): il passaggio di compito sulla strada
+	// Modalita' Piano (Gate R36): il passaggio di compito sulla strada
 	// «nuova corsia» e il ritorno alla sessione di pianificazione sono cose del
 	// guscio. La corsia nasce con il meccanismo di sempre (`createNewLane`) e
 	// la vista la segue, come un task lanciato con Ctrl+clic.
@@ -1977,7 +1977,7 @@
 			}
 			return true;
 		}
-		// Modalita' Piano (Gate R3X-plan): `/plan` e `/plan-review` di omp sono solo
+		// Modalita' Piano (Gate R36): `/plan` e `/plan-review` di omp sono solo
 		// TUI, nella chat li serve Studio con l'estensione studio-plan.
 		const planAction = routePlanSlash(trimmed);
 		if (planAction) {

@@ -1,4 +1,4 @@
-// Estensione OMP: heads-up di fine turno per OMP Studio (Gate R3X-heads-up).
+// Estensione OMP: heads-up di fine turno per OMP Studio (Gate R40).
 //
 // Fornisce il tool `studio_headsup`: l'agente lo chiama con UNA frase solo
 // quando nel turno e' successo qualcosa che l'utente rischia di perdere

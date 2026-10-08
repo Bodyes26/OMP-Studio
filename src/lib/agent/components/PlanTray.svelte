@@ -1,5 +1,5 @@
 <!--
-  PlanTray.svelte (Gate R3X-plan).
+  PlanTray.svelte (Gate R36).
 
   Vassoio «Piano in costruzione» sopra il composer: le cinque sezioni del
   formato del Piano si spuntano man mano che l'agente scrive `local://*-plan.md`.

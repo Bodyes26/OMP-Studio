@@ -1,4 +1,4 @@
-// Note visive del Laboratorio («Indica e disegna», Gate R3X-lab-indica).
+// Note visive del Laboratorio («Indica e disegna», Gate R42).
 //
 // Tipi e funzioni pure: il pacchetto testuale che riceve l'agente e la
 // geometria delle annotazioni sul fotogramma. Lo stato reattivo vive in

@@ -1,5 +1,5 @@
 <script lang="ts">
-	// Coda delle note visive nel composer della corsia Laboratorio (Gate R3X-lab-indica).
+	// Coda delle note visive nel composer della corsia Laboratorio (Gate R42).
 	// Un chip per nota (numero, elemento, nota); un clic apre la nota per
 	// modificarla e mostra il blocco esatto che ricevera' l'agente.
 	// Componente proprio: ComposerPinnedItem e' il pulsante dei comandi fissati.

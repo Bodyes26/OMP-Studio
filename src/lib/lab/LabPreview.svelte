@@ -4,7 +4,7 @@
 	// Governa l'anteprima isolata su server loopback Rust:
 	//  - Toolbar con selettore viewport (desktop / tablet 768px / mobile 375px);
 	//  - Ricarica e apertura nel browser di sistema;
-	//  - «Indica e disegna» (R3X-lab-indica): Punta (clic, Maiusc+clic aggiunge) e
+	//  - «Indica e disegna» (R42): Punta (clic, Maiusc+clic aggiunge) e
 	//    Riquadro (trascina un'area) creano note numerate nella coda del composer,
 	//    riagganciate dopo ogni ricompilazione; il fotogramma annotato si cattura
 	//    dentro l'iframe (inspect/inspector-client.js). Alt+I solo qui;

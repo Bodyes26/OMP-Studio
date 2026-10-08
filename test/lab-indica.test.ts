@@ -1,5 +1,5 @@
 /**
- * Laboratorio «Indica e disegna» (Gate R3X-lab-indica):
+ * Laboratorio «Indica e disegna» (Gate R42):
  * - mappa sorgente: esbuild `jsxDev` + shim `react/jsx-dev-runtime` -> `data-lab-loc`;
  * - raggruppamento del Riquadro per componente e file:riga;
  * - geometria della regione catturata e delle annotazioni;

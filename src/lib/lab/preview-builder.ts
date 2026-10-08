@@ -8,7 +8,7 @@
 //  5. Bridge per la segnalazione degli errori di runtime a Studio;
 //  6. Ispettore «Indica e disegna» (modulo ES inline, prima di app.js): Punta, Riquadro,
 //     marker numerati, riaggancio dopo la ricompilazione e cattura del fotogramma
-//     (inspect/inspector-client.js, protocollo `inspect_*` v2, Gate R3X-lab-indica).
+//     (inspect/inspector-client.js, protocollo `inspect_*` v2, Gate R42).
 
 import inspectorSource from './inspect/inspector-client.js?raw';
 

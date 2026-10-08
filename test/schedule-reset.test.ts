@@ -1,5 +1,5 @@
 /**
- * Coda che parte al reset della quota (Gate R3X-coda-reset).
+ * Coda che parte al reset della quota (Gate R35).
  *
  * Copre le parti pure: da ruolo a finestra di quota (con piu' account e
  * finestra settimanale), la conservazione di `schedule`/`resume` fra GUI ed

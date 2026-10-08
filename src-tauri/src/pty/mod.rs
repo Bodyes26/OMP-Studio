@@ -307,9 +307,9 @@ pub const LOOP_EXTENSION_TS: &str = include_str!("../../../extensions/studio-loo
 /// Estensione dell'obiettivo guidato: proposte dell'agente con un turno a margine.
 /// Caricata solo dalla chat GUI (`rpc_open`), non dal terminale.
 pub const GOAL_EXTENSION_TS: &str = include_str!("../../../extensions/studio-goal.ts");
-/// Tool `studio_headsup` (Gate R3X-heads-up): una frase di fine turno dall'agente.
+/// Tool `studio_headsup` (Gate R40): una frase di fine turno dall'agente.
 pub const HEADSUP_EXTENSION_TS: &str = include_str!("../../../extensions/studio-headsup.ts");
-/// Tool `project_docs` e comando `/diario` (Gate R3X-diario): diario e documenti di progetto.
+/// Tool `project_docs` e comando `/diario` (Gate R41): diario e documenti di progetto.
 pub const DOCS_EXTENSION_TS: &str = include_str!("../../../extensions/studio-docs.ts");
 
 /// Unica direttiva aggiunta all'avvio: tenerla qui evita divergenze tra GUI,

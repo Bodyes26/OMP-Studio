@@ -55,7 +55,7 @@ export function routeSessionSlash(raw: string): SessionSlashAction | null {
 }
 
 /**
- * Modalita' Piano (Gate R3X-plan): `/plan [testo]` accende/spegne il Piano (con un
+ * Modalita' Piano (Gate R36): `/plan [testo]` accende/spegne il Piano (con un
  * testo entra e lo manda), `/plan-review` riapre la revisione. Il `/plan` di omp
  * e' solo TUI: nella chat lo serve Studio con l'estensione `studio-plan`.
  */

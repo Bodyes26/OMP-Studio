@@ -1,5 +1,5 @@
 /**
- * Heads-up di fine turno (Gate R3X-heads-up): fatti certi, priorita' delle
+ * Heads-up di fine turno (Gate R40): fatti certi, priorita' delle
  * fonti, frase unica, estensione `studio_headsup` e caricamento con `-e`.
  */
 import { describe, it } from 'node:test';

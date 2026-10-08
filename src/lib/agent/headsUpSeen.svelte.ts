@@ -1,5 +1,5 @@
 /**
- * Heads-up gia' visti (Gate R3X-heads-up).
+ * Heads-up gia' visti (Gate R40).
  *
  * Machine-local e minimo: un elenco di chiavi `sessione|hash della frase` in
  * localStorage, tagliato alle ultime 400. Non entra in `~/.omp` ne' nel repo:

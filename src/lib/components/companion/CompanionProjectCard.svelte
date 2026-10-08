@@ -99,7 +99,7 @@
 	const activityText = $derived(runtime?.activity?.text ?? null);
 
 	/**
-	 * Heads-up di fine turno (Gate R3X-heads-up): la stessa frase della chat,
+	 * Heads-up di fine turno (Gate R40): la stessa frase della chat,
 	 * sopra l'estratto. Solo ad agente fermo: mentre lavora vale la riga di
 	 * attivita', e una domanda aperta ha il suo corpo.
 	 */

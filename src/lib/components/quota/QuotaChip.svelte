@@ -34,7 +34,7 @@
 		interactive?: boolean;
 		class?: string;
 		longWindowAlert?: QuotaLongWindowAlert | null;
-		/** Task programmati in attesa (Gate R3X-coda-reset): «⏱2» accanto alla quota. */
+		/** Task programmati in attesa (Gate R35): «⏱2» accanto alla quota. */
 		scheduledCount?: number;
 	}>();
 

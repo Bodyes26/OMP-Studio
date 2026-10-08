@@ -1,4 +1,4 @@
-// Disegno delle annotazioni sul fotogramma del Laboratorio (Gate R3X-lab-indica).
+// Disegno delle annotazioni sul fotogramma del Laboratorio (Gate R42).
 //
 // Il fotogramma arriva dall'ispettore come PNG senza overlay; qui, in Studio, si
 // disegnano riquadri e numeri delle note su un canvas e si ottiene l'immagine

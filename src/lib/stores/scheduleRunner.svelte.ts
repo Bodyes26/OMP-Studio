@@ -1,5 +1,5 @@
 /**
- * Avvio dei task programmati (Gate R3X-coda-reset), solo nella finestra
+ * Avvio dei task programmati (Gate R35), solo nella finestra
  * principale.
  *
  * Vive fuori da `+page.svelte` per non intrecciarsi con l'auto-avvio: la

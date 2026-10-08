@@ -1,5 +1,5 @@
 /**
- * Quale task programmato parte, e quale no (Gate R3X-coda-reset).
+ * Quale task programmato parte, e quale no (Gate R35).
  *
  * Modulo puro accanto a `scheduleTarget.ts`: lo usano gli effetti di avvio in
  * `+page.svelte` e i badge, senza runa ne' store, cosi' le regole restano

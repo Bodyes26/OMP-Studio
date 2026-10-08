@@ -1,5 +1,5 @@
 <!--
-  PlanEntryView.svelte (Gate R3X-plan).
+  PlanEntryView.svelte (Gate R36).
 
   Voce del Piano nel transcript: riga d'entrata/uscita, card del piano,
   card del passaggio di compito. Lo stato vive in `planCards`.

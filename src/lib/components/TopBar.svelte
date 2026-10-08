@@ -766,7 +766,7 @@
 	}
 
 
-	// Task programmati in attesa nei progetti aperti (Gate R3X-coda-reset):
+	// Task programmati in attesa nei progetti aperti (Gate R35):
 	// contatore con l'orologio sulla chip della quota, niente cruscotti.
 	const scheduledSummary = $derived.by(() =>
 		scheduleStore.waitingSummary(

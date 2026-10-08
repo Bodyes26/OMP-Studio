@@ -178,7 +178,7 @@
 				: undefined,
 			onChooseModel: () => modelSettingsStore.openModal('catalog'),
 			onDismiss: () => session.dismissBlockedQuota(),
-			// Coda al reset (Gate R3X-coda-reset): la sessione si rimette in testa
+			// Coda al reset (Gate R35): la sessione si rimette in testa
 			// alla coda e riprende con `/retry` quando il provider si resetta.
 			waitResetLabel:
 				bq.reasonKind === 'quota_exhausted' && session.sessionId && !session.labConfig

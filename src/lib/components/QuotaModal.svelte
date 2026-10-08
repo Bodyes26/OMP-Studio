@@ -2,7 +2,7 @@
 	export type { ProviderHost } from '$lib/stores/quota.svelte';
 
 	// Task programmati dei progetti aperti: il popover dice quanti aspettano
-	// il reset di ciascun provider (Gate R3X-coda-reset).
+	// il reset di ciascun provider (Gate R35).
 	const scheduledTasks = $derived(
 		projectStore.projects.flatMap((project) =>
 			project.canonicalProjectPath ? taskStore.tasksFor(project.canonicalProjectPath) : []

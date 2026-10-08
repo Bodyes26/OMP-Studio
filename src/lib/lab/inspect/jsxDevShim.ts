@@ -1,4 +1,4 @@
-// Mappa sorgente del Laboratorio (Gate R3X-lab-indica).
+// Mappa sorgente del Laboratorio (Gate R42).
 //
 // esbuild con `jsxDev: true` chiama `jsxDEV(type, props, key, isStatic, source)`
 // con `source = { fileName: 'vfs:/src/App.tsx', lineNumber, columnNumber }`.

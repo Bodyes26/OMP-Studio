@@ -1,5 +1,5 @@
 <!--
-  PlanApprovedCard.svelte (Gate R3X-plan).
+  PlanApprovedCard.svelte (Gate R36).
 
   Primo messaggio dell'esecuzione dopo l'approvazione: invece di una bolla con
   tutto il piano, una card «Piano approvato · titolo» con sezioni e percorso,

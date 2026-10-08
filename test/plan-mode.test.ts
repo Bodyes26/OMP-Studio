@@ -1,4 +1,4 @@
-// Modalita' Piano della chat GUI (Gate R3X-plan): parser della revisione,
+// Modalita' Piano della chat GUI (Gate R36): parser della revisione,
 // sezioni, decisione, ordine del passaggio, guardia dell'estensione e
 // orchestrazione del controller su una sessione finta.
 

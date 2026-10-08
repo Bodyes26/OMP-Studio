@@ -1,4 +1,4 @@
-//! «Chiedi al diario» (Gate R3X-diario): risposta effimera dalla scheda Progetto.
+//! «Chiedi al diario» (Gate R41): risposta effimera dalla scheda Progetto.
 //!
 //! Stesso schema dei suggerimenti post-turno (`suggestions_ops.rs`): chiamata
 //! `omp -p --no-session --no-tools` con il modello leggero, nessuna sessione

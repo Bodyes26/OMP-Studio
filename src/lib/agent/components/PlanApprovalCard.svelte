@@ -1,5 +1,5 @@
 <!--
-  PlanApprovalCard.svelte (Gate R3X-plan).
+  PlanApprovalCard.svelte (Gate R36).
 
   Scheda di approvazione del Piano: prende il posto del composer con la sagoma
   della scheda domanda. Quattro strade (tasti 1–4; preselezionata la nuova

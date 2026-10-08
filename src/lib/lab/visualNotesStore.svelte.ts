@@ -1,4 +1,4 @@
-// Coda delle note visive di una sessione Laboratorio (Gate R3X-lab-indica).
+// Coda delle note visive di una sessione Laboratorio (Gate R42).
 //
 // La scrive LabPreview (Punta, Riquadro, riaggancio, cattura) e la legge il
 // composer (chip, invio). Una coda per sessione, anche se il composer non e'

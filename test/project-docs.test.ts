@@ -1,5 +1,5 @@
 /**
- * Diario di progetto lato Studio (Gate R3X-diario): lettura del manifest e del
+ * Diario di progetto lato Studio (Gate R41): lettura del manifest e del
  * diario, contesto per «Chiedi al diario», contratto con l'estensione e
  * caricamento con `-e`.
  */

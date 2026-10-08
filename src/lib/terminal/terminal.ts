@@ -419,7 +419,7 @@ export class TerminalSession {
 
 	/**
 	 * Comando slash che fa partire un run (`/retry` della voce di ripresa,
-	 * Gate R3X-coda-reset): come per `startTask`, fino al primo titolo
+	 * Gate R35): come per `startTask`, fino al primo titolo
 	 * `working` il vecchio `idle` non vale, cosi' l'auto-avvio non spedisce
 	 * un altro task sopra la ripresa.
 	 */

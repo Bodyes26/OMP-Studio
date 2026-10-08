@@ -9,7 +9,7 @@ export interface PromptSuggestionsResult {
 	suggestions: string[];
 	awaitsUserInput: boolean;
 	questionSummary: string | null;
-	/** Frase heads-up del ripiego smol (Gate R3X-heads-up), solo se richiesta. */
+	/** Frase heads-up del ripiego smol (Gate R40), solo se richiesta. */
 	headsUp?: string | null;
 }
 /**

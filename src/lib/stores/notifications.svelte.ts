@@ -173,7 +173,7 @@ class NotificationManager {
 	}
 
 	/**
-	 * Heads-up di fine turno (Gate R3X-heads-up): la stessa frase della chat,
+	 * Heads-up di fine turno (Gate R40): la stessa frase della chat,
 	 * solo se l'utente non sta gia' guardando quel progetto. Con lo stile
 	 * compatto la frase resta fuori dalla notifica, come le domande.
 	 */

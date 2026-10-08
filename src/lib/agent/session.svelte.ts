@@ -370,7 +370,7 @@ export interface LaneLandingEntry {
 }
 
 /**
- * Voce del solo client per la modalita' Piano (Gate R3X-plan): riga d'entrata
+ * Voce del solo client per la modalita' Piano (Gate R36): riga d'entrata
  * o d'uscita, card del piano in revisione, card del passaggio di compito.
  * `refId` punta allo stato in `planCards`; `anchorTs` e `sessionId` la
  * rimettono al suo posto dopo una ricostruzione del transcript.
@@ -828,7 +828,7 @@ export class AgentSession {
 	 */
 	activityLine = $state<{ text: string; at: number; kind: 'intent' | 'assistant' } | null>(null);
 	/**
-	 * Heads-up dell'ultimo turno concluso (Gate R3X-heads-up): una frase, o
+	 * Heads-up dell'ultimo turno concluso (Gate R40): una frase, o
 	 * null quando non c'e' niente che l'utente rischi di perdere. Si fissa a
 	 * fine turno (fatti + agente) e si aggiorna una volta sola se il ripiego
 	 * smol risponde; si azzera all'avvio del turno successivo.

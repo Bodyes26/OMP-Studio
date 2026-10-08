@@ -8,7 +8,7 @@
 //  4. Dipendenze verificate rispetto a package.json (devono essere presenti e con versione esatta);
 //  5. CSS aggregato in tag <style type="text/tailwindcss"> con rimozione di @import "tailwindcss";
 //  6. JSX in modalita' sviluppo (`jsxDev`) verso lo shim `react/jsx-dev-runtime` del Lab, che marca
-//     ogni elemento host con `data-lab-loc="file:riga:colonna"` per «Indica» (R3X-lab-indica).
+//     ogni elemento host con `data-lab-loc="file:riga:colonna"` per «Indica» (R42).
 
 import * as esbuild from 'esbuild-wasm';
 import {

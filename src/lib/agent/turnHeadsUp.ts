@@ -1,5 +1,5 @@
 /**
- * Heads-up di fine turno (Gate R3X-heads-up).
+ * Heads-up di fine turno (Gate R40).
  *
  * Una sola frase, solo quando nel turno e' successo qualcosa che l'utente
  * rischia di perdere perche' sta a meta' del racconto. Tre fonti, in ordine

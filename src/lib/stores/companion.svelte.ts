@@ -99,7 +99,7 @@ export interface CompanionProjectRuntime {
 	 * stato completato.
 	 */
 	activity?: { text: string; at: number; kind: 'intent' | 'assistant' };
-	/** Heads-up dell'ultimo turno (Gate R3X-heads-up): una frase, finche' non e' vista. */
+	/** Heads-up dell'ultimo turno (Gate R40): una frase, finche' non e' vista. */
 	headsUp?: string;
 }
 

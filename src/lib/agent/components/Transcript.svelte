@@ -177,7 +177,7 @@
 
 		for (const entry of entries) {
 			// La chiamata `studio_headsup` non e' un passo di lavoro: la sua frase
-			// diventa la card prima del piè di turno (Gate R3X-heads-up).
+			// diventa la card prima del piè di turno (Gate R40).
 			if (isHeadsUpToolEntry(entry)) continue;
 			if (entry.kind === 'tool' && entry.toolName === 'todo') {
 				flushSegment();

@@ -34,7 +34,7 @@ export interface StudioTaskOptions {
 }
 
 /**
- * Programmazione di un task in coda (Gate R3X-coda-reset). Vive alla radice
+ * Programmazione di un task in coda (Gate R35). Vive alla radice
  * del task e non in `options`, che `sanitizeLoadedTasks` ricostruisce con una
  * lista fissa di chiavi: in `options` sparirebbe alla prima scrittura della GUI.
  *

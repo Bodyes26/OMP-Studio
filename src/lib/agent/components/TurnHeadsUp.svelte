@@ -1,5 +1,5 @@
 <script lang="ts">
-	// Heads-up di fine turno (Gate R3X-heads-up): una frase, prima del piè di
+	// Heads-up di fine turno (Gate R40): una frase, prima del piè di
 	// turno, solo quando c'e' qualcosa che l'utente rischia di perdere a meta'
 	// del racconto. Due gesti soli: il clic sulla frase porta al punto del
 	// turno, la X la segna come vista. Niente elenchi, niente pulsanti di

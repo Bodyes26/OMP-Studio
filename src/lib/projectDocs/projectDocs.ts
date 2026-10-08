@@ -1,5 +1,5 @@
 /**
- * Diario di progetto lato Studio (Gate R3X-diario): funzioni pure.
+ * Diario di progetto lato Studio (Gate R41): funzioni pure.
  *
  * Il formato dei file e del manifest e' quello dell'estensione
  * `extensions/studio-docs.ts`, che li scrive. L'estensione gira dentro omp e

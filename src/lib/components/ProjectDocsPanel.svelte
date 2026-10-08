@@ -1,5 +1,5 @@
 <script lang="ts">
-	// Scheda «Progetto» del pannello Agente (Gate R3X-diario, variante A).
+	// Scheda «Progetto» del pannello Agente (Gate R41, variante A).
 	//
 	// Il diario e i documenti li mantiene l'agente da solo (tool `project_docs`):
 	// qui si guardano, si aprono nell'editor per correggerli a mano e si
