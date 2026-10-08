@@ -356,6 +356,14 @@ describe('studio-loop: motore', () => {
 		assert.equal(h.sent.length, 0);
 	});
 
+	it('non parte a turno in corso: il primo giro sarebbe uno steer', () => {
+		const h = harness();
+		h.setIdle(false);
+		assert.equal(h.engine.start({ prompt: 'p' }).ok, false);
+		assert.equal(h.sent.length, 0);
+		assert.equal(h.engine.loop, null);
+	});
+
 	it('un secondo avvio con loop attivo e\' rifiutato', () => {
 		const h = harness();
 		h.engine.start({ prompt: 'p' });
@@ -400,5 +408,14 @@ describe('studio-loop: motore', () => {
 		assert.equal(h.engine.dismiss().ok, true);
 		assert.equal(h.engine.loop, null);
 		assert.equal(h.persisted[h.persisted.length - 1], null);
+	});
+});
+
+describe('studio-loop: solo nella chat GUI', () => {
+	it('riconosce omp --mode rpc-ui, non la TUI', async () => {
+		const { isGuiProcess } = await import('../extensions/studio-loop.ts');
+		assert.equal(isGuiProcess(['bun', 'omp', '--mode', 'rpc-ui', '--cwd', 'x']), true);
+		assert.equal(isGuiProcess(['omp', '--mode=rpc-ui']), true);
+		assert.equal(isGuiProcess(['omp', '--config', 'a.yml', '-e', 'x.ts']), false);
 	});
 });

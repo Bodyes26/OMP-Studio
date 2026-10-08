@@ -541,6 +541,10 @@ export class LoopEngine {
 	/** `/loop …` dalla GUI. Senza prompt resta armato: il prossimo messaggio diventa il prompt. */
 	start(parsed: ParsedLoopArgs): ControlResult {
 		if (this.active) return { ok: false, error: "A loop is already active. Stop it first." };
+		// Il primo giro e' un prompt nuovo: a turno in corso diventerebbe uno steer.
+		if (parsed.prompt?.trim() && !this.deps.isIdle()) {
+			return { ok: false, error: "The agent is busy: start the loop when the turn is over." };
+		}
 		const now = this.deps.now();
 		this.clearTimer();
 		this.abortCondition();
@@ -897,6 +901,10 @@ interface ExecResultLike {
 }
 
 interface LoopApi {
+	registerCommand?(
+		name: string,
+		options: { description?: string; handler: (args: string, ctx: LoopContext) => Promise<void> }
+	): void;
 	on(event: string, handler: (event: Record<string, unknown>, ctx: LoopContext) => unknown): void;
 	sendUserMessage(content: string): unknown;
 	appendEntry(customType: string, data?: unknown): void;
@@ -912,7 +920,20 @@ function lastAssistantAborted(messages: unknown): boolean {
 	return false;
 }
 
+/** Il processo e' la chat GUI di Studio (`omp --mode rpc-ui`), non il Terminale. */
+export function isGuiProcess(argv: readonly string[]): boolean {
+	for (let i = 0; i < argv.length; i++) {
+		if (argv[i] === "--mode" && (argv[i + 1] === "rpc-ui" || argv[i + 1] === "rpc")) return true;
+		if (argv[i] === "--mode=rpc-ui" || argv[i] === "--mode=rpc") return true;
+	}
+	return false;
+}
+
 export default function studioLoopExtension(pi: LoopApi): void {
+	// Nel Terminale l'estensione non registra nulla: li' vale il /loop nativo.
+	const argv = (globalThis as { process?: { argv?: string[] } }).process?.argv ?? [];
+	if (!isGuiProcess(argv)) return;
+
 	let ctxRef: LoopContext | null = null;
 	let shell: ShellChoice | null = null;
 	// Solo la sessione principale in rpc-ui: nella TUI c'e' il /loop nativo, e le
@@ -943,12 +964,8 @@ export default function studioLoopExtension(pi: LoopApi): void {
 			await ctxRef?.compact();
 		},
 		runCondition: async (command, signal) => {
-			shell ??= resolveConditionShell(
-				process.platform,
-				process.env as Record<string, string | undefined>,
-				hostExists,
-				hostWhich
-			);
+			const host = (globalThis as { process?: { platform?: string; env?: Record<string, string | undefined> } }).process;
+			shell ??= resolveConditionShell(host?.platform ?? "linux", host?.env ?? {}, hostExists, hostWhich);
 			const cwd = ctxRef?.sessionManager?.getCwd?.() ?? ctxRef?.cwd;
 			const started = Date.now();
 			try {
@@ -1017,6 +1034,18 @@ export default function studioLoopExtension(pi: LoopApi): void {
 		ctxRef = ctx;
 		if (event.willContinue === true) return;
 		engine.onAgentEnd(lastAssistantAborted(event.messages));
+	});
+
+	// Il comando serve alla GUI per sapere che il motore c'e' (compare in
+	// `get_available_commands`) prima di inviare `/loop`: senza estensione il
+	// testo finirebbe al modello. Le righe vere le consuma l'handler `input`.
+	pi.registerCommand?.(LOOP_CONTROL_COMMAND.slice(1), {
+		description: "Studio: /loop engine for the GUI chat (internal)",
+		handler: async (_args, ctx) => {
+			if (!isGui(ctx)) return;
+			ctxRef = ctx;
+			engine.republish();
+		}
 	});
 
 	pi.on("input", async (event, ctx) => {

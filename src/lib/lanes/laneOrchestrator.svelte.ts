@@ -286,6 +286,8 @@ export class LaneOrchestrator {
 			if (!session) return 'unknown';
 			if (session.pendingUi) return 'attention';
 			if (session.isStreaming || session.isCompacting) return 'working';
+			// Fra due giri di un /loop omp e' fermo per un attimo: la corsia resta al lavoro.
+			if (session.loop && session.loop.status !== 'paused' && session.loopActive) return 'working';
 			// Solo le corsie non in vista possono essere "da leggere": quella
 			// aperta a schermo e' gia' letta, e la barra di stato resta ferma.
 			if (
@@ -316,6 +318,8 @@ export class LaneOrchestrator {
 	 * il task puo' partire in questa corsia.
 	 */
 	laneBusy(project: Project, lane: AgentLane | LaneRecord): boolean {
+		// Un /loop attivo, anche in pausa, tiene la corsia: la coda va altrove.
+		if (sessionRegistry.getLaneSession(project.id, lane.laneId)?.loopActive) return true;
 		const state = this.laneAgentState(project, lane.laneId);
 		if (state === 'working') return true;
 		if (state !== 'attention') return false;

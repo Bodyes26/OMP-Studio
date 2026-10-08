@@ -25,6 +25,7 @@
 	import BranchPanel from './BranchPanel.svelte';
 	import Composer from './Composer.svelte';
 	import ComposerTray from './ComposerTray.svelte';
+	import LoopComposer from './LoopComposer.svelte';
 	import QueueChips from './QueueChips.svelte';
 	import SubagentDrawer from './SubagentDrawer.svelte';
 	import SuggestionChips from './SuggestionChips.svelte';
@@ -454,7 +455,11 @@
 					dropTarget={isDraggingColumn}
 					onSlashCommand={(cmd: string) => (onSlashCommand ? onSlashCommand(cmd) : false)}
 					{onNewChat}
+					shellOverride={session.loopSetup || session.loop ? loopShell : undefined}
 				/>
+				{#snippet loopShell()}
+					<LoopComposer {session} {visible} />
+				{/snippet}
 			</div>
 		</div>
 	</div>

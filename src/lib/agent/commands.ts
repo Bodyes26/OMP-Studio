@@ -153,6 +153,14 @@ export const STUDIO_SLASH_COMMANDS: AvailableCommand[] = [
 		source: 'studio'
 	},
 	{
+		// Ripetizione (variante B): il motore e' l'estensione studio-loop; la
+		// GUI apre il composer in modalita' ripetizione o avvia `/loop …`.
+		name: 'loop',
+		get description() { return msg.loop_cmd_description(); },
+		source: 'studio',
+		input: { hint: "[N|10m] [--until|--while 'cmd'] [prompt]" }
+	},
+	{
 		name: 'drop',
 		get description() { return msg.ui_ts_commands_apre_lo_storico_per_gestire_ed_eliminare_f7c8(); },
 		source: 'studio'
@@ -186,6 +194,8 @@ export function mergeCommands(
 	}
 
 	for (const cmd of ompCommands) {
+		// Canale interno dell'estensione studio-loop: non e' un comando da digitare.
+		if (cmd.name === 'studio-loop') continue;
 		const isSkill = cmd.source === 'skill' || cmd.name.startsWith('skill:');
 		const cleanName = isSkill ? cmd.name.replace(/^skill:/, '') : cmd.name;
 		const lowerClean = cleanName.toLowerCase();

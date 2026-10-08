@@ -159,6 +159,8 @@ export { default as IconFlame } from '@lucide/svelte/icons/flame';
 export { default as IconFastMode } from '@lucide/svelte/icons/zap';
 export { default as IconSlowMode } from '@lucide/svelte/icons/turtle';
 export { default as IconPause } from '@lucide/svelte/icons/pause';
+// Ripetizione (/loop): pillola «Ripeti» e pannello del composer.
+export { default as IconRepeat } from '@lucide/svelte/icons/repeat';
 // Inspector e Browser Live.
 export { default as IconInspect } from '@lucide/svelte/icons/mouse-pointer-click';
 export { default as IconNetwork } from '@lucide/svelte/icons/activity';

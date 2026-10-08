@@ -71,6 +71,7 @@
 		resolveQueueRoot,
 		type ConcurrencyWarning
 	} from '$lib/lanes/queueDispatch';
+	import { routeLoopSlash } from '$lib/agent/loopMode';
 	import LaneStrip from '$lib/components/LaneStrip.svelte';
 	import LaneDispatchDialog from '$lib/components/LaneDispatchDialog.svelte';
 	import LaneProfileDialog from '$lib/components/LaneProfileDialog.svelte';
@@ -1733,6 +1734,26 @@
 				case 'fork':
 					// Esito (fatto, occupato, annullato, errore) annunciato dalla sessione.
 					void session.forkSession();
+					break;
+			}
+			return true;
+		}
+		// /loop nella chat: il composer diventa la ripetizione (variante B).
+		// Instradamento puro in `loopMode.ts`; il motore e' l'estensione.
+		if (lowerCmd === '/loop') {
+			const action = routeLoopSlash(argument, session.loopActive);
+			switch (action.kind) {
+				case 'setup':
+					session.openLoopSetup(action.draft);
+					break;
+				case 'start':
+					void session.startLoopCommand(action.command);
+					break;
+				case 'stop':
+					void session.stopLoop();
+					break;
+				case 'error':
+					session.flashNotice('warning', action.message);
 					break;
 			}
 			return true;

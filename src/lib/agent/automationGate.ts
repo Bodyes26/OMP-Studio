@@ -31,6 +31,7 @@ export type AutomationBlock =
 	| 'question'
 	| 'quota'
 	| 'working'
+	| 'loop'
 	| 'compacting'
 	| 'terminal-input'
 	| 'terminal-unknown';
@@ -70,6 +71,13 @@ export interface GuiGateSnapshot {
 	inferencePending: boolean;
 	/** Domanda dedotta a fine turno: il processo e' libero, ma puo' richiedere una risposta. */
 	inferredQuestion: string | null;
+	/**
+	 * Un /loop e' attivo (anche in pausa o fra due giri): la sessione e'
+	 * occupata. Fra un giro e l'altro omp e' fermo per 800 ms e un task della
+	 * coda si infilerebbe come se fosse un giro. Facoltativo per i chiamanti
+	 * che non conoscono il loop.
+	 */
+	loopActive?: boolean;
 }
 
 export type AutomationGateInput =
@@ -113,6 +121,7 @@ export function isLaneRoutable(gate: AutomationGate): boolean {
 		case 'ready':
 		case 'busy':
 		case 'working':
+		case 'loop':
 		case 'starting':
 		case 'compacting':
 		case 'terminal-input':
@@ -207,6 +216,10 @@ export function resolveAutomationGate(input: AutomationGateInput): AutomationGat
 			m.gate_detail_starting(),
 			m.gate_hint_starting()
 		);
+	}
+
+	if (session.loopActive) {
+		return gate('loop', m.gate_label_loop(), m.gate_detail_loop(), m.gate_hint_loop());
 	}
 
 	if (session.streaming) {
