@@ -150,12 +150,13 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		gap: var(--space-2);
+		padding-bottom: var(--space-2);
+		border-bottom: 1px solid var(--line);
 	}
 
 	.section-header h4 {
 		margin: 0;
-		font-size: var(--text-sm);
+		font-size: var(--text-base);
 		font-weight: 600;
 		color: var(--ink);
 	}

@@ -1,7 +1,8 @@
 <script lang="ts">
 	// Sezione Doctor (autodiagnostica di sistema e runtime OMP, Design v2).
-	// Usa StatusMark per tutti gli stati (completato/attenzione/fallito),
-	// Segmented per i filtri e bottoni standard .ui-button.
+	// Allineata alle convenzioni grafiche e di layout del centro impostazioni:
+	// usa `.settings-section` per il padding esterno, `.section-header` per l'intestazione,
+	// `.section-block` e `.section-group` per i raggruppamenti, e `.form-row` per ogni verifica.
 	import { onMount } from 'svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	import { doctorStore, type DoctorCategory, type DoctorItem } from '$lib/stores/doctor.svelte';
@@ -21,6 +22,7 @@
 		undefined
 	);
 
+	// Esegue la diagnostica al primo ingresso se il referto non e' ancora presente
 	onMount(() => {
 		if (!doctorStore.report && !doctorStore.loading) {
 			void doctorStore.runDoctor(activePath);
@@ -63,10 +65,10 @@
 	const groupedItems = $derived(groupByCategory(doctorStore.filteredItems));
 </script>
 
-<div class="doctor-section">
-	<!-- Intestazione del dottore con sommario e controlli rapidi -->
-	<div class="doctor-header">
-		<div class="doctor-title-block">
+<div class="settings-section">
+	<!-- Intestazione standard di sezione con sommario diagnostico e azioni rapide -->
+	<div class="section-header">
+		<div class="section-title-wrap">
 			<div class="title-with-badge">
 				<h4>{m.settings_doctor_title()}</h4>
 				{#if doctorStore.report}
@@ -95,13 +97,13 @@
 					</div>
 				{/if}
 			</div>
-			<p class="doctor-desc">{m.settings_doctor_desc()}</p>
+			<p class="section-lead">{m.settings_doctor_desc()}</p>
 		</div>
 
-		<div class="doctor-actions">
+		<div class="header-actions">
 			<button
 				type="button"
-				class="ui-button ui-button-secondary btn-doctor"
+				class="ui-button ui-button-secondary"
 				onclick={handleCopy}
 				disabled={!doctorStore.report || doctorStore.loading}
 				aria-label={m.settings_doctor_copy_report()}
@@ -112,7 +114,7 @@
 
 			<button
 				type="button"
-				class="ui-button ui-button-secondary btn-doctor"
+				class="ui-button ui-button-secondary"
 				onclick={handleRefresh}
 				disabled={doctorStore.loading}
 				aria-label={m.settings_doctor_run()}
@@ -127,7 +129,7 @@
 		</div>
 	</div>
 
-	<!-- Barra filtri -->
+	<!-- Barra filtri e informazioni ambientali del sistema -->
 	{#if doctorStore.report}
 		<div class="filter-bar">
 			<Segmented
@@ -157,9 +159,9 @@
 		</div>
 	{/if}
 
-	<!-- Corpo principale: tabella o stato caricamento -->
+	<!-- Corpo principale: stato caricamento, errore, lista vuota o gruppi di verifiche -->
 	{#if doctorStore.loading && !doctorStore.report}
-		<div class="loading-box">
+		<div class="loading-state">
 			<StatusMark status="running" label={m.settings_doctor_loading_label()} />
 			<span>{m.settings_doctor_loading_text()}</span>
 		</div>
@@ -179,90 +181,78 @@
 				<p>{m.settings_doctor_empty_issues()}</p>
 			</div>
 		{:else}
-			<div class="doctor-table-wrapper">
-				{#each groupedItems as group (group.category)}
-					<div class="category-block">
-						<div class="category-header">
-							<h5>{group.title}</h5>
-						</div>
-
-						<table class="doctor-table">
-							<thead>
-								<tr>
-									<th class="col-status">{m.settings_doctor_col_status()}</th>
-									<th class="col-check">{m.settings_doctor_col_check()}</th>
-									<th class="col-val">{m.settings_doctor_col_value()}</th>
-									<th class="col-rec">{m.settings_doctor_col_rec()}</th>
-								</tr>
-							</thead>
-							<tbody>
-								{#each group.items as item (item.id)}
-									<tr class="item-row" class:row-warn={item.status === 'warn'} class:row-error={item.status === 'error'}>
-										<td class="cell-status">
-											<span class="status-cell-wrap">
-												{#if item.status === 'ok'}
-													<StatusMark status="completed" label={m.settings_doctor_item_ok()} />
-													<span class="status-cell-text">{m.settings_doctor_item_ok()}</span>
-												{:else if item.status === 'warn'}
-													<StatusMark status="attention" active={false} label={m.settings_doctor_item_warn()} />
-													<span class="status-cell-text text-warn">{m.settings_doctor_item_warn()}</span>
-												{:else}
-													<StatusMark status="failed" label={m.settings_doctor_item_error()} />
-													<span class="status-cell-text text-error">{m.settings_doctor_item_error()}</span>
-												{/if}
-											</span>
-										</td>
-
-										<td class="cell-check">
-											<span class="check-name">{getDoctorCheckName(item)}</span>
-										</td>
-
-										<td class="cell-val">
-											<code class="val-code">{getDoctorCheckValue(item)}</code>
-										</td>
-
-										<td class="cell-rec">
-											{#if item.recommendation}
-												<div class="recommendation-box" class:rec-error={item.status === 'error'} class:rec-warn={item.status === 'warn'}>
-													<span class="rec-bullet" aria-hidden="true"><IconArrowRight /></span>
-													<span class="rec-text">{getDoctorCheckRecommendation(item)}</span>
-												</div>
-											{:else}
-												<span class="rec-empty">—</span>
-											{/if}
-										</td>
-									</tr>
-								{/each}
-							</tbody>
-						</table>
+			{#each groupedItems as group (group.category)}
+				<div class="section-block">
+					<div class="block-header-row">
+						<span class="block-title">{group.title}</span>
+						<span class="block-count">{group.items.length}</span>
 					</div>
-				{/each}
-			</div>
+
+					<!-- Scheda con le righe di verifica nel formato standard del settings center -->
+					<div class="section-group">
+						{#each group.items as item (item.id)}
+							<div class="form-row doctor-row" class:row-warn={item.status === 'warn'} class:row-error={item.status === 'error'}>
+								<div class="form-row-copy">
+									<div class="doctor-check-line">
+										{#if item.status === 'ok'}
+											<StatusMark status="completed" label={m.settings_doctor_item_ok()} />
+										{:else if item.status === 'warn'}
+											<StatusMark status="attention" active={false} label={m.settings_doctor_item_warn()} />
+										{:else}
+											<StatusMark status="failed" label={m.settings_doctor_item_error()} />
+										{/if}
+										<span class="form-row-label">{getDoctorCheckName(item)}</span>
+									</div>
+									{#if item.recommendation}
+										<div class="doctor-rec-box" class:rec-error={item.status === 'error'} class:rec-warn={item.status === 'warn'}>
+											<span class="rec-bullet" aria-hidden="true"><IconArrowRight /></span>
+											<span class="rec-text">{getDoctorCheckRecommendation(item)}</span>
+										</div>
+									{/if}
+								</div>
+
+								<div class="form-row-control">
+									<code class="val-code" title={getDoctorCheckValue(item)}>{getDoctorCheckValue(item)}</code>
+									<span
+										class="status-pill"
+										class:status-ok={item.status === 'ok'}
+										class:status-warn={item.status === 'warn'}
+										class:status-error={item.status === 'error'}
+									>
+										{item.status === 'ok' ? m.settings_doctor_item_ok() : item.status === 'warn' ? m.settings_doctor_item_warn() : m.settings_doctor_item_error()}
+									</span>
+								</div>
+							</div>
+						{/each}
+					</div>
+				</div>
+			{/each}
 		{/if}
 	{/if}
 </div>
 
 <style>
-	.doctor-section {
+	.settings-section {
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-4);
-		color: var(--ink);
+		padding: var(--space-3) var(--space-4);
 	}
 
-	.doctor-header {
+	.section-header {
 		display: flex;
-		justify-content: space-between;
 		align-items: flex-start;
+		justify-content: space-between;
 		gap: var(--space-4);
-		padding-bottom: var(--space-3);
+		padding-bottom: var(--space-2);
 		border-bottom: 1px solid var(--line);
 	}
 
-	.doctor-title-block {
+	.section-title-wrap {
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-1);
+		min-width: 0;
 	}
 
 	.title-with-badge {
@@ -272,24 +262,32 @@
 		flex-wrap: wrap;
 	}
 
-	.title-with-badge h4 {
+	.section-header h4 {
 		margin: 0;
-		font-size: var(--text-title);
+		font-size: var(--text-base);
 		font-weight: 600;
+		color: var(--ink);
 	}
 
-	.doctor-desc {
+	.section-lead {
 		margin: 0;
-		font-size: var(--text-label);
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
 		line-height: 1.4;
+	}
+
+	.header-actions {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		flex-shrink: 0;
 	}
 
 	.doctor-status-summary {
 		display: inline-flex;
 		align-items: center;
 		gap: 6px;
-		font-size: var(--text-label);
+		font-size: var(--text-caption);
 		font-weight: 500;
 		color: var(--ink);
 	}
@@ -308,19 +306,7 @@
 		font-size: var(--text-meta);
 		font-variant-numeric: tabular-nums;
 		color: var(--ink-faint);
-		margin-left: 4px;
-	}
-
-	.doctor-actions {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		flex-shrink: 0;
-	}
-
-	.btn-doctor {
-		gap: 6px;
-		--icon-size: 14px;
+		margin-left: 2px;
 	}
 
 	.filter-bar {
@@ -328,7 +314,6 @@
 		align-items: center;
 		justify-content: space-between;
 		gap: var(--space-3);
-		padding: 2px 0;
 		flex-wrap: wrap;
 	}
 
@@ -344,14 +329,186 @@
 		color: var(--ink-faint);
 	}
 
-	.loading-box {
+	.section-block {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+	}
+
+	.block-header-row {
 		display: flex;
 		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-2);
+	}
+
+	.block-title {
+		font-size: var(--text-label);
+		font-weight: 600;
+		color: var(--ink);
+		text-transform: none;
+		letter-spacing: normal;
+	}
+
+	.block-count {
+		font-size: var(--text-caption);
+		font-variant-numeric: tabular-nums;
+		color: var(--ink-faint);
+	}
+
+	.section-group {
+		display: flex;
+		flex-direction: column;
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
+		background: var(--bg-raised);
+		overflow: hidden;
+	}
+
+	.form-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-4);
+		padding: var(--space-3);
+		border-bottom: 1px solid var(--line);
+		transition: background-color var(--dur-fast) var(--ease-out);
+	}
+
+	.form-row:last-child {
+		border-bottom: none;
+	}
+
+	.form-row:hover {
+		background: var(--bg-hover);
+	}
+
+	.form-row.row-warn {
+		background: color-mix(in oklab, var(--warn) 4%, transparent);
+	}
+
+	.form-row.row-warn:hover {
+		background: color-mix(in oklab, var(--warn) 8%, var(--bg-hover));
+	}
+
+	.form-row.row-error {
+		background: color-mix(in oklab, var(--danger) 5%, transparent);
+	}
+
+	.form-row.row-error:hover {
+		background: color-mix(in oklab, var(--danger) 9%, var(--bg-hover));
+	}
+
+	.form-row-copy {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
+		min-width: 0;
+		flex: 1;
+	}
+
+	.doctor-check-line {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		min-width: 0;
+	}
+
+	.form-row-label {
+		font-size: var(--text-label);
+		font-weight: 500;
+		color: var(--ink);
+	}
+
+	.doctor-rec-box {
+		display: flex;
+		align-items: flex-start;
+		gap: 6px;
+		font-size: var(--text-caption);
+		line-height: 1.4;
+		margin-left: calc(var(--space-2) + 14px);
+	}
+
+	.doctor-rec-box.rec-warn {
+		color: var(--warn);
+	}
+
+	.doctor-rec-box.rec-error {
+		color: var(--danger);
+		font-weight: 500;
+	}
+
+	.rec-bullet {
+		--icon-size: 12px;
+		color: var(--ink-faint);
+		display: inline-flex;
+		align-items: center;
+		margin-top: 2px;
+		flex-shrink: 0;
+	}
+
+	.rec-text {
+		flex: 1;
+	}
+
+	.form-row-control {
+		flex-shrink: 0;
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+	}
+
+	.val-code {
+		font-family: var(--font-mono);
+		font-size: var(--text-caption);
+		padding: 2px 6px;
+		background: var(--bg-sunken);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+		color: var(--ink);
+		max-width: 320px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.status-pill {
+		font-size: var(--text-caption);
+		font-weight: 500;
+		padding: 1px 6px;
+		border-radius: var(--radius-sm);
+		border: 1px solid var(--line);
+		background: var(--bg-raised);
+		color: var(--ink-muted);
+	}
+
+	.status-pill.status-warn {
+		color: var(--warn);
+		border-color: color-mix(in oklab, var(--warn) 30%, var(--line));
+		background: color-mix(in oklab, var(--warn) 8%, var(--bg-raised));
+	}
+
+	.status-pill.status-error {
+		color: var(--danger);
+		font-weight: 600;
+		border-color: color-mix(in oklab, var(--danger) 30%, var(--line));
+		background: color-mix(in oklab, var(--danger) 8%, var(--bg-raised));
+	}
+
+	.loading-state,
+	.empty-state {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
 		justify-content: center;
-		gap: var(--space-3);
+		gap: var(--space-2);
 		padding: 48px 16px;
 		color: var(--ink-muted);
 		font-size: var(--text-body);
+	}
+
+	.empty-state p {
+		margin: 0;
 	}
 
 	.error-banner {
@@ -376,187 +533,6 @@
 
 	.btn-retry {
 		padding: 4px 10px;
-		font-size: var(--text-caption);
-	}
-
-	.empty-state {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		gap: var(--space-2);
-		padding: 48px 16px;
-		color: var(--ink-muted);
-		font-size: var(--text-body);
-	}
-
-	.empty-state p {
-		margin: 0;
-	}
-
-	.doctor-table-wrapper {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-4);
-	}
-
-	.category-block {
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		overflow: hidden;
-		background: var(--bg-raised);
-	}
-
-	.category-header {
-		padding: 8px 12px;
-		background: var(--bg-hover);
-		border-bottom: 1px solid var(--line);
-	}
-
-	.category-header h5 {
-		margin: 0;
-		font-size: var(--text-label);
-		font-weight: 600;
-		color: var(--ink);
-		text-transform: none;
-		letter-spacing: normal;
-	}
-
-	.doctor-table {
-		width: 100%;
-		border-collapse: collapse;
-		font-size: var(--text-label);
-		text-align: left;
-	}
-
-	.doctor-table th {
-		padding: 7px 12px;
-		font-size: var(--text-caption);
-		font-weight: 600;
-		text-transform: none;
-		letter-spacing: normal;
-		color: var(--ink-muted);
-		border-bottom: 1px solid var(--line);
-		background: var(--bg-raised);
-	}
-
-	.col-status {
-		width: 120px;
-		text-align: left;
-	}
-
-	.col-check {
-		width: 220px;
-	}
-
-	.col-val {
-		width: 320px;
-	}
-
-	.col-rec {
-		min-width: 200px;
-	}
-
-	.item-row {
-		border-bottom: 1px solid var(--line);
-		transition: background-color var(--dur-fast) var(--ease-out);
-	}
-
-	.item-row:last-child {
-		border-bottom: none;
-	}
-
-	.item-row:hover {
-		background: var(--bg-hover);
-	}
-
-	.item-row.row-warn {
-		background: color-mix(in oklab, var(--warn) 4%, transparent);
-	}
-
-	.item-row.row-error {
-		background: color-mix(in oklab, var(--danger) 5%, transparent);
-	}
-
-	.doctor-table td {
-		padding: 8px 12px;
-		vertical-align: middle;
-	}
-
-	.cell-status {
-		text-align: left;
-		padding: 8px 12px;
-	}
-
-	.status-cell-wrap {
-		display: inline-flex;
-		align-items: center;
-		gap: 6px;
-	}
-
-	.status-cell-text {
-		font-size: var(--text-caption);
-		font-weight: 500;
-		color: var(--ink);
-	}
-
-	.status-cell-text.text-warn {
-		color: var(--warn);
-	}
-
-	.status-cell-text.text-error {
-		color: var(--danger);
-		font-weight: 600;
-	}
-
-	.check-name {
-		font-weight: 500;
-		color: var(--ink);
-	}
-
-	.val-code {
-		font-family: var(--font-mono);
-		font-size: var(--text-caption);
-		padding: 2px 6px;
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		color: var(--ink);
-		word-break: break-all;
-	}
-
-	.recommendation-box {
-		display: flex;
-		align-items: flex-start;
-		gap: 6px;
-		font-size: var(--text-caption);
-		line-height: 1.4;
-	}
-
-	.recommendation-box.rec-warn {
-		color: var(--warn);
-	}
-
-	.recommendation-box.rec-error {
-		color: var(--danger);
-		font-weight: 500;
-	}
-
-	.rec-bullet {
-		--icon-size: 12px;
-		color: var(--ink-faint);
-		display: inline-flex;
-		align-items: center;
-		margin-top: 2px;
-		flex-shrink: 0;
-	}
-
-	.rec-text {
-		flex: 1;
-	}
-
-	.rec-empty {
-		color: var(--ink-faint);
 		font-size: var(--text-caption);
 	}
 </style>

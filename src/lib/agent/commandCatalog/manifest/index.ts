@@ -17,18 +17,24 @@ import { STUDIO_ENTRIES, STUDIO_LOOP_ENTRY } from './studio';
 // toggle omp (fast, slow, prewalk), quindi si spostano in coda all'assemblaggio.
 const TRAILING_READOUTS = ['ctl.limit', 'ctl.cost'];
 
-// «Ripeti» (/loop) segue subito allegato e @, prima di ruolo e modello: e' la
-// posizione del prototipo approvato (variante B).
+// Azioni primarie fisse a sinistra nella toolbar: allegato e menzione @.
 const LEADING_CONTROLS = ['ctl.attach', 'ctl.mention'];
+
+// Comandi del guscio con collocazione di fabbrica nella toolbar:
+// - «Ripeti» (/loop) segue subito allegato e @ (posizione approvata, variante B);
+// - «A margine» (/btw) e «Modalita' Piano» (/plan) aprono la striscia centrale;
+// - «Obiettivo» (guided-goal) chiude la striscia dei comandi di modalita'.
+const LEADING_STUDIO_TOOLBAR = ['btw', 'plan'];
 
 export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
 	...CONTROL_ENTRIES.filter((entry) => LEADING_CONTROLS.includes(entry.id)),
 	STUDIO_LOOP_ENTRY,
+	...STUDIO_ENTRIES.filter((entry) => LEADING_STUDIO_TOOLBAR.includes(entry.id)),
 	...CONTROL_ENTRIES.filter(
 		(entry) => !TRAILING_READOUTS.includes(entry.id) && !LEADING_CONTROLS.includes(entry.id)
 	),
 	...OMP_ENTRIES_MODES,
 	...OMP_ENTRIES_SESSION,
-	...STUDIO_ENTRIES,
+	...STUDIO_ENTRIES.filter((entry) => !LEADING_STUDIO_TOOLBAR.includes(entry.id)),
 	...TRAILING_READOUTS.flatMap((id) => CONTROL_ENTRIES.filter((entry) => entry.id === id))
 ];

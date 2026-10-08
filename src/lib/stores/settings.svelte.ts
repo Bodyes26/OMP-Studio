@@ -375,9 +375,13 @@ export function sanitizeComposerLayout(value: unknown): ComposerLayout | null {
 		});
 	}
 	sanitizedPins.sort((a, b) => a.order - b.order);
+	const known = Array.isArray(record.known)
+		? record.known.filter((id): id is string => typeof id === 'string' && id.trim() !== '')
+		: undefined;
 	return {
 		version: 1,
-		pinned: sanitizedPins
+		pinned: sanitizedPins,
+		...(known ? { known } : {})
 	};
 }
 

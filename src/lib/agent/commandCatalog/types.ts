@@ -94,8 +94,14 @@ export interface PinnedCommand {
 	order: number;
 }
 
-/** Layout salvato. `null` nelle impostazioni = usa i valori di fabbrica. */
+/**
+ * Layout salvato. `null` nelle impostazioni = usa i valori di fabbrica.
+ * `known` elenca gli id del manifesto esistenti all'ultimo salvataggio: una voce
+ * fissata di fabbrica che non vi compare e' nuova e compare da sola nel composer,
+ * mentre una gia' nota e assente e' stata tolta dall'utente e resta fuori.
+ */
 export interface ComposerLayout {
 	version: 1;
 	pinned: PinnedCommand[];
+	known?: string[];
 }

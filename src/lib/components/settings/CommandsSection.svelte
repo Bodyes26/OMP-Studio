@@ -1,9 +1,9 @@
 <!--
   CommandsSection.svelte — Voce Impostazioni > Comandi:
-  1. Editor di layout con anteprima del composer (toolbar e statusLine), drag & drop,
-     tastiera accessibile e ripristino di fabbrica.
-  2. Catalogo comandi raggruppato per categorie, con ricerca, sezione "Nuovi" da omp runtime,
-     pannello dettaglio con spiegazione, vantaggi, esempi e switch/selettore per fissare nel composer.
+  1. Editor di layout con anteprima del fake composer e drag & drop continuo
+     (pointer events con ghost fluttuante, riordino e rimozione tramite × o drag fuori).
+  2. Palette dei comandi disponibili sotto il composer, con ricerca e drag verso l'alto.
+  3. Pannello di dettaglio laterale con documentazione completa, esempi e selettore forma.
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages.js';
@@ -12,34 +12,31 @@
 	import { sessionRegistry } from '$lib/agent/sessionRegistry';
 	import type { AgentSession } from '$lib/agent/session.svelte';
 	import type { AvailableCommand } from '$lib/agent/wire';
-	import { COMMAND_MANIFEST } from '$lib/agent/commandCatalog/manifest';
+	import { COMMAND_MANIFEST } from '$lib/agent/commandCatalog/manifest/index';
 	import type {
-		CommandCategory,
 		CommandManifestEntry,
 		CommandPlacement,
-		ComposerLayout
+		ComposerLayout,
+		ComposerZone,
+		PinnedCommand
 	} from '$lib/agent/commandCatalog/types';
 	import {
 		resolveLayout,
 		pin,
 		unpin,
 		movePin,
-		mergeWithOrphans,
+		placePin,
+		layoutToSave,
+		suggestedPlacement,
 		itemsInZone
 	} from '$lib/agent/commandCatalog/layout';
-	import { resolveCommandText, matchesCommandSearch } from '$lib/agent/commandCatalog/text';
+	import { resolveCommandText } from '$lib/agent/commandCatalog/text';
 	import ComposerPreview from './commands/ComposerPreview.svelte';
+	import CommandPalette from './commands/CommandPalette.svelte';
 	import CommandDetail from './commands/CommandDetail.svelte';
 	import CommandIcon from './commands/CommandIcon.svelte';
 	import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
-	import {
-		IconSearch,
-		IconClose,
-		IconLock,
-		IconPin,
-		IconSparkles
-	} from '$lib/icons';
+	import { IconLock, IconGrip } from '$lib/icons';
 
 	// Stato ricerca e selezione
 	let searchQuery = $state('');
@@ -52,7 +49,7 @@
 		resolveLayout(settingsStore.composerLayout, COMMAND_MANIFEST)
 	);
 
-	// Set di id fissati per evidenziazione rapida nell'elenco
+	// Set di id fissati per evidenziazione rapida
 	const pinnedIds = $derived(
 		new Set(resolvedLayout.pinned.map((p) => p.id))
 	);
@@ -79,98 +76,20 @@
 		});
 	});
 
-	// Filtraggio dei comandi nuovi tramite la barra di ricerca
-	const filteredNewCommands = $derived.by(() => {
-		const q = searchQuery.trim().toLowerCase();
-		if (!q) return uncataloguedBuiltinCommands;
-		return uncataloguedBuiltinCommands.filter(
-			(cmd) =>
-				cmd.name.toLowerCase().includes(q) ||
-				`/${cmd.name}`.toLowerCase().includes(q) ||
-				(cmd.description && cmd.description.toLowerCase().includes(q))
-		);
-	});
-
-	// Ordine fisso delle categorie
-	const CATEGORY_ORDER: readonly CommandCategory[] = [
-		'modes',
-		'models',
-		'context',
-		'session',
-		'workspace',
-		'tools',
-		'extensions',
-		'info',
-		'security',
-		'app'
-	];
-
-	function categoryTitle(category: CommandCategory): string {
-		switch (category) {
-			case 'modes':
-				return m.settings_commands_cat_modes();
-			case 'models':
-				return m.settings_commands_cat_models();
-			case 'context':
-				return m.settings_commands_cat_context();
-			case 'session':
-				return m.settings_commands_cat_session();
-			case 'workspace':
-				return m.settings_commands_cat_workspace();
-			case 'tools':
-				return m.settings_commands_cat_tools();
-			case 'extensions':
-				return m.settings_commands_cat_extensions();
-			case 'info':
-				return m.settings_commands_cat_info();
-			case 'security':
-				return m.settings_commands_cat_security();
-			case 'app':
-				return m.settings_commands_cat_app();
-			default:
-				return category;
-		}
-	}
-
-	// Raggruppamento e filtraggio delle voci per categoria
-	const groupedEntries = $derived.by(() => {
-		const q = searchQuery.trim();
-		const result: { category: CommandCategory; title: string; entries: CommandManifestEntry[] }[] = [];
-
-		for (const cat of CATEGORY_ORDER) {
-			const matching = COMMAND_MANIFEST.filter((entry) => {
-				if (entry.category !== cat) return false;
-				if (!q) return true;
-				return matchesCommandSearch(entry, q);
-			});
-
-			if (matching.length > 0) {
-				result.push({
-					category: cat,
-					title: categoryTitle(cat),
-					entries: matching
-				});
-			}
-		}
-
-		return result;
-	});
-
-	const totalMatchingEntries = $derived(
-		groupedEntries.reduce((acc, g) => acc + g.entries.length, 0) + filteredNewCommands.length
-	);
+	// Mappa id -> entry del manifesto
+	const entryMap = $derived(new Map(COMMAND_MANIFEST.map((e) => [e.id, e])));
 
 	// Seleziona la prima voce se nulla e' selezionato
 	$effect(() => {
 		if (selectedCommandId === null && selectedNewCommand === null) {
-			if (groupedEntries.length > 0 && groupedEntries[0].entries.length > 0) {
-				selectedCommandId = groupedEntries[0].entries[0].id;
+			if (COMMAND_MANIFEST.length > 0) {
+				selectedCommandId = COMMAND_MANIFEST[0].id;
 			}
 		}
 	});
 
 	const selectedEntry = $derived(
-		selectedCommandId ? COMMAND_MANIFEST.find((e) => e.id === selectedCommandId) ?? null : null
+		selectedCommandId ? entryMap.get(selectedCommandId) ?? null : null
 	);
 
 	function selectEntry(id: string) {
@@ -183,9 +102,9 @@
 		selectedCommandId = null;
 	}
 
-	// Azioni layout con conservazione degli orfani
+	// Salvataggio reattivo del layout tramite layoutToSave
 	function handleLayoutChange(newLayout: ComposerLayout) {
-		const merged = mergeWithOrphans(newLayout, settingsStore.composerLayout, COMMAND_MANIFEST);
+		const merged = layoutToSave(newLayout, settingsStore.composerLayout, COMMAND_MANIFEST);
 		settingsStore.setComposerLayout(merged);
 	}
 
@@ -216,23 +135,160 @@
 		settingsStore.setComposerLayout(null);
 		showResetConfirm = false;
 	}
+
+	function handleQuickPin(entry: CommandManifestEntry) {
+		const placement = suggestedPlacement(entry);
+		if (!placement) return;
+		const newLayout = pin(resolvedLayout, COMMAND_MANIFEST, entry.id, placement);
+		handleLayoutChange(newLayout);
+		selectedCommandId = entry.id;
+	}
+
+	function handleRemovePin(id: string) {
+		const entry = entryMap.get(id);
+		if (entry?.locked) return;
+		const newLayout = unpin(resolvedLayout, COMMAND_MANIFEST, id);
+		handleLayoutChange(newLayout);
+	}
+
+	// -------------------------------------------------------------------------
+	// Controller Drag & Drop globale basato su Pointer Events
+	// -------------------------------------------------------------------------
+	interface DragSession {
+		id: string;
+		entry: CommandManifestEntry;
+		source: 'palette' | 'preview';
+		originPin?: PinnedCommand;
+		clientX: number;
+		clientY: number;
+	}
+
+	let activeDrag = $state<DragSession | null>(null);
+
+	function startDragFromPalette(entry: CommandManifestEntry, clientX: number, clientY: number) {
+		activeDrag = {
+			id: entry.id,
+			entry,
+			source: 'palette',
+			clientX,
+			clientY
+		};
+		selectedCommandId = entry.id;
+		attachGlobalDragListeners();
+	}
+
+	function startDragFromPreview(pinItem: PinnedCommand, clientX: number, clientY: number) {
+		const entry = entryMap.get(pinItem.id);
+		if (!entry || entry.locked) return;
+		activeDrag = {
+			id: pinItem.id,
+			entry,
+			source: 'preview',
+			originPin: pinItem,
+			clientX,
+			clientY
+		};
+		selectedCommandId = pinItem.id;
+		attachGlobalDragListeners();
+	}
+
+	function handleGlobalPointerMove(e: PointerEvent) {
+		if (!activeDrag) return;
+		activeDrag.clientX = e.clientX;
+		activeDrag.clientY = e.clientY;
+	}
+
+	function handleGlobalPointerUp(e: PointerEvent) {
+		if (!activeDrag) return;
+		const dropX = e.clientX;
+		const dropY = e.clientY;
+
+		// Rilevamento della drop zone sotto il cursore
+		const elUnderPointer = document.elementFromPoint(dropX, dropY);
+		const dropTarget = elUnderPointer?.closest('[data-drop-zone]') as HTMLElement | null;
+		const dropZoneAttr = dropTarget?.dataset.dropZone;
+
+		if (dropZoneAttr) {
+			const targetZone: ComposerZone =
+				dropZoneAttr.startsWith('toolbar') ? 'toolbar' : 'statusLine';
+
+			const canDropInZone = activeDrag.entry.supported.some((p) => p.zone === targetZone);
+			if (canDropInZone) {
+				// Trova la forma preferita
+				const preferredForm = activeDrag.originPin?.form ?? activeDrag.entry.supported.find((p) => p.zone === targetZone)!.form;
+
+				// Calcolo della posizione target in base alla prossimità visiva dei pin esistenti
+				const pinElements = Array.from(
+					dropTarget.querySelectorAll<HTMLElement>('[data-pin-id]')
+				);
+				let targetIndex = pinElements.length;
+
+				for (let i = 0; i < pinElements.length; i++) {
+					const rect = pinElements[i].getBoundingClientRect();
+					const midX = rect.left + rect.width / 2;
+					if (dropX < midX) {
+						targetIndex = i;
+						break;
+					}
+				}
+
+				const newLayout = placePin(
+					resolvedLayout,
+					COMMAND_MANIFEST,
+					activeDrag.id,
+					{ zone: targetZone, form: preferredForm },
+					targetIndex
+				);
+				handleLayoutChange(newLayout);
+			}
+		} else if (activeDrag.source === 'preview') {
+			// Se un pin del composer viene trascinato fuori dalle zone valide, viene rimosso
+			handleRemovePin(activeDrag.id);
+		}
+
+		endDrag();
+	}
+
+	function handleGlobalKeyDown(e: KeyboardEvent) {
+		if (e.key === 'Escape') {
+			e.stopPropagation();
+			endDrag();
+		}
+	}
+
+	function attachGlobalDragListeners() {
+		window.addEventListener('pointermove', handleGlobalPointerMove);
+		window.addEventListener('pointerup', handleGlobalPointerUp);
+		window.addEventListener('keydown', handleGlobalKeyDown, true);
+	}
+
+	function endDrag() {
+		activeDrag = null;
+		window.removeEventListener('pointermove', handleGlobalPointerMove);
+		window.removeEventListener('pointerup', handleGlobalPointerUp);
+		window.removeEventListener('keydown', handleGlobalKeyDown, true);
+	}
 </script>
 
-<div class="commands-section">
-	<!-- Intestazione della sezione -->
-	<div class="section-top-header">
-		<h3 class="section-headline">{m.settings_commands_title()}</h3>
-		<p class="section-lead">{m.settings_commands_desc()}</p>
+<div class="commands-section settings-section">
+	<!-- Intestazione della sezione (allineata alla convenzione standard) -->
+	<div class="section-header">
+		<div class="section-header-copy">
+			<h4>{m.settings_commands_title()}</h4>
+			<p class="section-desc">{m.settings_commands_desc()}</p>
+		</div>
 	</div>
 
-	<!-- Editor layout: Anteprima del composer -->
+	<!-- Editor di layout: Fake Composer interattivo -->
 	<ComposerPreview
 		layout={resolvedLayout}
 		manifest={COMMAND_MANIFEST}
 		selectedId={selectedCommandId}
+		activeDrag={activeDrag}
 		onSelect={selectEntry}
-		onLayoutChange={handleLayoutChange}
+		onRemovePin={handleRemovePin}
 		onResetRequest={() => (showResetConfirm = true)}
+		onStartPinDrag={startDragFromPreview}
 	/>
 
 	<!-- Dialogo di conferma ripristino fabbrica -->
@@ -246,137 +302,24 @@
 		onCancel={() => (showResetConfirm = false)}
 	/>
 
-	<!-- Catalogo comandi: Master / Detail -->
-	<div class="catalog-layout">
-		<!-- Colonna sinistra: Ricerca ed Elenco categorie -->
-		<div class="catalog-master">
-			<!-- Barra di ricerca -->
-			<div class="search-bar">
-				<span class="search-icon" aria-hidden="true">
-					<IconSearch />
-				</span>
-				<input
-					type="text"
-					class="search-input"
-					bind:value={searchQuery}
-					placeholder={m.settings_commands_search_placeholder()}
-					aria-label={m.settings_commands_search_placeholder()}
-				/>
-				{#if searchQuery}
-					<button
-						type="button"
-						class="btn-clear-search"
-						aria-label={m.file_tree_clear_search()}
-						onclick={() => (searchQuery = '')}
-					>
-						<IconClose />
-					</button>
-				{/if}
-			</div>
-
-			<!-- Elenco comandi raggruppato -->
-			<div class="catalog-scroll-list" role="list">
-				{#if totalMatchingEntries === 0}
-					<div class="empty-search-state">
-						<IconSearch />
-						<p class="empty-title">{m.settings_commands_search_empty()}</p>
-						<p class="empty-hint">{m.settings_commands_search_empty_hint()}</p>
-					</div>
-				{:else}
-					<!-- Sezione Nuovi da omp (se presenti a runtime) -->
-					{#if filteredNewCommands.length > 0}
-						<div class="category-block">
-							<div class="category-header category-new-header">
-								<span class="category-title">
-									<IconSparkles />
-									<span>{m.settings_commands_section_new()}</span>
-								</span>
-								<span class="category-count">{filteredNewCommands.length}</span>
-							</div>
-							<div class="category-items">
-								{#each filteredNewCommands as cmd (cmd.name)}
-									{@const isSelected = selectedNewCommand?.name === cmd.name}
-									<button
-										type="button"
-										class="command-item-btn"
-										class:selected={isSelected}
-										aria-current={isSelected ? 'true' : undefined}
-										onclick={() => selectNewCommand(cmd)}
-									>
-										<span class="item-icon-box">
-											<IconSparkles />
-										</span>
-										<div class="item-text-box">
-											<span class="item-name">{cmd.name}</span>
-											<span class="item-slash">/{cmd.name}</span>
-										</div>
-										<span class="badge-new-pill">new</span>
-									</button>
-								{/each}
-							</div>
-						</div>
-					{/if}
-
-					<!-- Categorie curate dal manifesto -->
-					{#each groupedEntries as group (group.category)}
-						<div class="category-block">
-							<div class="category-header">
-								<span class="category-title">{group.title}</span>
-								<span class="category-count">{group.entries.length}</span>
-							</div>
-
-							<div class="category-items">
-								{#each group.entries as entry (entry.id)}
-									{@const text = resolveCommandText(entry)}
-									{@const isSelected = selectedCommandId === entry.id}
-									{@const isPinned = pinnedIds.has(entry.id)}
-									{@const isLocked = entry.locked ?? false}
-
-									<button
-										type="button"
-										class="command-item-btn"
-										class:selected={isSelected}
-										aria-current={isSelected ? 'true' : undefined}
-										onclick={() => selectEntry(entry.id)}
-									>
-										<span class="item-icon-box">
-											<CommandIcon icon={entry.icon} />
-										</span>
-										<div class="item-text-box">
-											<span class="item-name">{text.title}</span>
-											{#if entry.origin !== 'control'}
-												<span class="item-slash">/{entry.id}</span>
-											{:else}
-												<span class="item-slash control-tag">{entry.id}</span>
-											{/if}
-										</div>
-
-										<div class="item-trailing-badges">
-											{#if isLocked}
-												<Tooltip text={m.settings_commands_locked_badge()}>
-													<span class="badge-icon locked" aria-label={m.settings_commands_locked_badge()}>
-														<IconLock />
-													</span>
-												</Tooltip>
-											{:else if isPinned}
-												<Tooltip text={m.settings_commands_pin_switch()}>
-													<span class="badge-icon pinned" aria-label={m.settings_commands_pin_switch()}>
-														<IconPin />
-													</span>
-												</Tooltip>
-											{/if}
-										</div>
-									</button>
-								{/each}
-							</div>
-						</div>
-					{/each}
-				{/if}
-			</div>
+	<!-- Area inferiore: Palette comandi disponibili a sinistra + Dettaglio a destra -->
+	<div class="lower-grid">
+		<div class="grid-palette">
+			<CommandPalette
+				manifest={COMMAND_MANIFEST}
+				{pinnedIds}
+				bind:searchQuery
+				selectedId={selectedCommandId}
+				newCommands={uncataloguedBuiltinCommands}
+				{selectedNewCommand}
+				onSelect={selectEntry}
+				onSelectNew={selectNewCommand}
+				onQuickPin={handleQuickPin}
+				onStartDrag={startDragFromPalette}
+			/>
 		</div>
 
-		<!-- Colonna destra: Pannello Dettaglio -->
-		<div class="catalog-detail">
+		<div class="grid-detail">
 			<CommandDetail
 				entry={selectedEntry}
 				newCommand={selectedNewCommand}
@@ -386,6 +329,17 @@
 			/>
 		</div>
 	</div>
+
+	<!-- Fantasma di trascinamento (Drag Ghost) -->
+	{#if activeDrag}
+		<div
+			class="drag-ghost"
+			style="left: {activeDrag.clientX + 10}px; top: {activeDrag.clientY + 10}px;"
+		>
+			<CommandIcon icon={activeDrag.entry.icon} />
+			<span class="ghost-title">{resolveCommandText(activeDrag.entry).title}</span>
+		</div>
+	{/if}
 </div>
 
 <style>
@@ -393,279 +347,72 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-4);
-		padding: var(--space-4);
-		background: var(--bg-base);
+		padding: var(--space-3) var(--space-4);
 	}
 
-	.section-top-header {
+	.section-header {
 		display: flex;
-		flex-direction: column;
-		gap: var(--space-1);
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: var(--space-4);
+		padding-bottom: var(--space-2);
+		border-bottom: 1px solid var(--line);
 	}
 
-	.section-headline {
-		margin: 0;
-		font-size: var(--text-title);
+	.section-header h4 {
+		font-size: var(--text-base);
 		font-weight: 600;
 		color: var(--ink);
-	}
-
-	.section-lead {
 		margin: 0;
-		font-size: var(--text-body);
-		color: var(--ink-muted);
-		max-width: 680px;
-		line-height: 1.45;
 	}
 
-	.catalog-layout {
+	.section-desc {
+		margin: 2px 0 0;
+		font-size: var(--text-xs);
+		color: var(--ink-muted);
+		line-height: 1.4;
+	}
+
+	.lower-grid {
 		display: grid;
-		grid-template-columns: 280px 1fr;
+		grid-template-columns: 1fr 340px;
 		gap: var(--space-4);
 		align-items: start;
 	}
 
-	.catalog-master {
+	.grid-palette {
+		min-width: 0;
+	}
+
+	.grid-detail {
+		min-width: 0;
+	}
+
+	/* Ghost visivo durante il trascinamento */
+	.drag-ghost {
+		position: fixed;
+		z-index: 10000;
+		pointer-events: none;
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		padding: 5px 12px;
 		background: var(--bg-raised);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-lg);
-		display: flex;
-		flex-direction: column;
-		overflow: hidden;
-		max-height: 640px;
-	}
-
-	.search-bar {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		padding: var(--space-2) var(--space-3);
-		border-bottom: 1px solid var(--line);
-		background: var(--bg-sunken);
-	}
-
-	.search-icon {
-		display: inline-flex;
-		color: var(--ink-faint);
-		font-size: 13px;
-	}
-
-	.search-input {
-		flex: 1;
-		background: transparent;
-		border: none;
 		color: var(--ink);
-		font-size: var(--text-caption);
-		outline: none;
-		padding: 2px 0;
-	}
-
-	.search-input::placeholder {
-		color: var(--ink-faint);
-	}
-
-	.btn-clear-search {
-		background: transparent;
-		border: none;
-		color: var(--ink-faint);
-		cursor: pointer;
-		padding: 2px;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		border-radius: var(--radius-sm);
-	}
-
-	.btn-clear-search:hover {
-		color: var(--ink);
-	}
-
-	.catalog-scroll-list {
-		overflow-y: auto;
-		display: flex;
-		flex-direction: column;
-		padding: var(--space-2);
-		gap: var(--space-3);
-	}
-
-	.category-block {
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-	}
-
-	.category-header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: var(--space-1) var(--space-2);
-		font-size: 11px;
-		font-weight: 600;
-		color: var(--ink-muted);
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
-	}
-
-	.category-new-header {
-		color: var(--warn);
-	}
-
-	.category-title {
-		display: inline-flex;
-		align-items: center;
-		gap: 4px;
-	}
-
-	.category-count {
-		font-feature-settings: 'tnum';
-		opacity: 0.75;
-	}
-
-	.category-items {
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-	}
-
-	.command-item-btn {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		padding: 5px var(--space-2);
-		background: transparent;
-		border: 1px solid transparent;
+		border: 1px solid var(--brand);
 		border-radius: var(--radius-md);
-		color: var(--ink);
-		cursor: pointer;
-		text-align: left;
-		transition: background-color 0.12s ease, border-color 0.12s ease;
-		width: 100%;
-	}
-
-	.command-item-btn:hover {
-		background: var(--bg-hover);
-	}
-
-	.command-item-btn:focus-visible {
-		outline: 2px solid var(--brand);
-		outline-offset: -1px;
-	}
-
-	.command-item-btn.selected {
-		background: var(--bg-active);
-		border-color: var(--line-strong);
-	}
-
-	.item-icon-box {
-		width: 22px;
-		height: 22px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		color: var(--ink-muted);
-		flex-shrink: 0;
-	}
-
-	.command-item-btn.selected .item-icon-box {
-		color: var(--brand-ink);
-	}
-
-	.item-text-box {
-		display: flex;
-		flex-direction: column;
-		min-width: 0;
-		flex: 1;
-		gap: 1px;
-	}
-
-	.item-name {
-		font-size: var(--text-caption);
+		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+		font-size: var(--text-xs);
 		font-weight: 500;
-		color: var(--ink);
-		overflow: hidden;
-		text-overflow: ellipsis;
+		transform: translate3d(0, 0, 0);
+	}
+
+	.ghost-title {
 		white-space: nowrap;
 	}
 
-	.item-slash {
-		font-family: var(--font-mono);
-		font-size: 11px;
-		color: var(--ink-faint);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.control-tag {
-		font-family: inherit;
-		font-size: 10.5px;
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
-	}
-
-	.item-trailing-badges {
-		display: flex;
-		align-items: center;
-		gap: 3px;
-		flex-shrink: 0;
-	}
-
-	.badge-icon {
-		display: inline-flex;
-		font-size: 11px;
-		opacity: 0.8;
-	}
-
-	.badge-icon.locked {
-		color: var(--ink-faint);
-	}
-
-	.badge-icon.pinned {
-		color: var(--brand-ink);
-	}
-
-	.badge-new-pill {
-		font-size: 10px;
-		text-transform: uppercase;
-		padding: 1px 4px;
-		border-radius: var(--radius-sm);
-		background: color-mix(in oklch, var(--warn) 18%, transparent);
-		color: var(--warn);
-		font-weight: 600;
-		letter-spacing: 0.04em;
-	}
-
-	.empty-search-state {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		padding: var(--space-5) var(--space-3);
-		text-align: center;
-		color: var(--ink-muted);
-		gap: var(--space-1);
-	}
-
-	.empty-title {
-		margin: var(--space-2) 0 0;
-		font-size: var(--text-caption);
-		font-weight: 600;
-		color: var(--ink);
-	}
-
-	.empty-hint {
-		margin: 0;
-		font-size: 11.5px;
-		color: var(--ink-faint);
-		line-height: 1.4;
-	}
-
-	.catalog-detail {
-		min-width: 0;
-	}
-
-	@media (max-width: 760px) {
-		.catalog-layout {
+	@media (max-width: 820px) {
+		.lower-grid {
 			grid-template-columns: 1fr;
 		}
 	}

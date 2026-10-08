@@ -437,7 +437,7 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-4);
-		padding: var(--space-4);
+		padding: var(--space-3) var(--space-4);
 		color: var(--ink);
 	}
 

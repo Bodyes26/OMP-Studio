@@ -26,6 +26,12 @@
 </script>
 
 <div class="settings-section">
+	<!-- Intestazione standard di sezione con ripristino ai valori predefiniti -->
+	<div class="section-header">
+		<h4>{m.settings_nav_companion()}</h4>
+		<button type="button" class="ui-button ui-button-secondary" onclick={() => settingsStore.reset('companion')}>{m.settings_section_reset()}</button>
+	</div>
+
 	<div class="section-block">
 		<div class="block-head-row">
 			<div class="block-titles">
@@ -71,14 +77,29 @@
 	.settings-section {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-5);
-		padding: var(--space-4);
+		gap: var(--space-4);
+		padding: var(--space-3) var(--space-4);
+	}
+
+	.section-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding-bottom: var(--space-2);
+		border-bottom: 1px solid var(--line);
+	}
+
+	.section-header h4 {
+		margin: 0;
+		font-size: var(--text-base);
+		font-weight: 600;
+		color: var(--ink);
 	}
 
 	.section-block {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-3);
+		gap: var(--space-2);
 	}
 
 	.block-head-row {

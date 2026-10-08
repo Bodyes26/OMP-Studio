@@ -1,39 +1,65 @@
 <!--
-  ComposerPreview.svelte — Anteprima interattiva del composer con le due zone
-  (toolbar e statusLine), drag & drop reorder, supporto tastiera accessibile
-  e rispetto dei vincoli `supported` e `locked` del manifesto.
+  ComposerPreview.svelte — Fake composer che riproduce fedelmente il composer reale
+  di Studio:
+  - Riquadro editor finto con placeholder e riga allegati/quote simulate;
+  - Toolbar divisa in tre gruppi (sinistra, centro scorrevole, destra fissa con pulsante invio);
+  - Riga inferiore statusLine sotto il composer;
+  - Trascinamento dei comandi con pointer events, ghost visivo, anteprima a fessura (drop marker);
+  - Animazioni flip e transizioni fade/scale per comparsa/scomparsa in tempo reale;
+  - Rimozione tramite pulsante × o trascinamento all'esterno.
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages.js';
-	import type { ComposerLayout, PinnedCommand, ComposerZone, ComposerForm, CommandManifestEntry } from '$lib/agent/commandCatalog/types';
-	import { itemsInZone, movePin, unpin, isSupported, type Manifest } from '$lib/agent/commandCatalog/layout';
+	import type {
+		ComposerLayout,
+		PinnedCommand,
+		ComposerZone,
+		ComposerForm,
+		CommandManifestEntry
+	} from '$lib/agent/commandCatalog/types';
+	import {
+		itemsInZone,
+		partitionToolbar,
+		suggestedPlacement,
+		type Manifest
+	} from '$lib/agent/commandCatalog/layout';
 	import { resolveCommandText } from '$lib/agent/commandCatalog/text';
 	import CommandIcon from './CommandIcon.svelte';
 	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import { flip } from 'svelte/animate';
+	import { scale } from 'svelte/transition';
+	import { motionReduced } from '$lib/agent/motionState.svelte';
 	import {
-		IconGrip,
-		IconChevronLeft,
-		IconChevronRight,
 		IconClose,
 		IconLock,
 		IconLoop,
-		IconWarning
+		IconArrowUp,
+		IconAttach,
+		IconAt,
+		IconPlan,
+		IconAside,
+		IconChevronUp,
+		IconGrip
 	} from '$lib/icons';
 
 	let {
 		layout,
 		manifest,
 		selectedId,
+		activeDrag = null,
 		onSelect,
-		onLayoutChange,
-		onResetRequest
+		onRemovePin,
+		onResetRequest,
+		onStartPinDrag
 	}: {
 		layout: ComposerLayout;
 		manifest: Manifest;
 		selectedId: string | null;
+		activeDrag?: { id: string; zone?: ComposerZone } | null;
 		onSelect: (id: string) => void;
-		onLayoutChange: (newLayout: ComposerLayout) => void;
+		onRemovePin: (id: string) => void;
 		onResetRequest: () => void;
+		onStartPinDrag: (pin: PinnedCommand, clientX: number, clientY: number) => void;
 	} = $props();
 
 	const entryMap = $derived.by(() => {
@@ -44,150 +70,19 @@
 		return map;
 	});
 
-	const toolbarItems = $derived(itemsInZone(layout, 'toolbar'));
-	const statusLineItems = $derived(itemsInZone(layout, 'statusLine'));
+	const toolbarPins = $derived(itemsInZone(layout, 'toolbar'));
+	const partitioned = $derived(partitionToolbar(toolbarPins));
+	const toolbarLeft = $derived(partitioned.left);
+	const toolbarCenter = $derived(partitioned.center);
+	const toolbarRight = $derived(partitioned.right);
 
-	// Stato drag and drop
-	let draggedPin = $state<PinnedCommand | null>(null);
-	let dragOverZone = $state<ComposerZone | null>(null);
-	let isDragValidForZone = $state(true);
-	let dragOverIndex = $state<number | null>(null);
-	let feedbackMessage = $state<string | null>(null);
-	let feedbackTimer: ReturnType<typeof setTimeout> | null = null;
+	const statusLinePins = $derived(itemsInZone(layout, 'statusLine'));
 
-	function showFeedback(text: string) {
-		if (feedbackTimer) clearTimeout(feedbackTimer);
-		feedbackMessage = text;
-		feedbackTimer = setTimeout(() => {
-			feedbackMessage = null;
-			feedbackTimer = null;
-		}, 3000);
-	}
-
-	function handleDragStart(pinItem: PinnedCommand, event: DragEvent) {
-		draggedPin = pinItem;
-		if (event.dataTransfer) {
-			event.dataTransfer.effectAllowed = 'move';
-			event.dataTransfer.setData('text/plain', pinItem.id);
-		}
-	}
-
-	function handleDragEnd() {
-		draggedPin = null;
-		dragOverZone = null;
-		dragOverIndex = null;
-		isDragValidForZone = true;
-	}
-
-	function handleZoneDragOver(zone: ComposerZone, event: DragEvent) {
-		event.preventDefault();
-		if (!draggedPin) return;
-
-		const entry = entryMap.get(draggedPin.id);
-		if (!entry) return;
-
-		// Verifica se il comando supporta la zona di destinazione
-		const canDropInZone = entry.supported.some((p) => p.zone === zone);
-		dragOverZone = zone;
-		isDragValidForZone = canDropInZone;
-
-		if (event.dataTransfer) {
-			event.dataTransfer.dropEffect = canDropInZone ? 'move' : 'none';
-		}
-	}
-
-	function handleZoneDragLeave(zone: ComposerZone, event: DragEvent) {
-		// Se il cursore esce dalla zona
-		const related = event.relatedTarget as HTMLElement | null;
-		const currentTarget = event.currentTarget as HTMLElement | null;
-		if (currentTarget && related && currentTarget.contains(related)) {
-			return;
-		}
-		if (dragOverZone === zone) {
-			dragOverZone = null;
-			dragOverIndex = null;
-			isDragValidForZone = true;
-		}
-	}
-
-	function handleZoneDrop(zone: ComposerZone, event: DragEvent) {
-		event.preventDefault();
-		if (!draggedPin) return;
-
-		const entry = entryMap.get(draggedPin.id);
-		if (!entry) {
-			handleDragEnd();
-			return;
-		}
-
-		const supportedPlacement = entry.supported.find((p) => p.zone === zone);
-		if (!supportedPlacement) {
-			showFeedback(m.settings_commands_drag_invalid());
-			handleDragEnd();
-			return;
-		}
-
-		// Se nella zona di destinazione e' supportata la stessa forma attuale, conservala; altrimenti usa la prima supportata
-		const chosenForm: ComposerForm = entry.supported.some((p) => p.zone === zone && p.form === draggedPin?.form)
-			? draggedPin.form
-			: supportedPlacement.form;
-
-		const targetZoneItems = zone === 'toolbar' ? toolbarItems : statusLineItems;
-		const targetIndex = dragOverIndex !== null ? dragOverIndex : targetZoneItems.length;
-
-		const newLayout = movePin(
-			layout,
-			manifest,
-			draggedPin.id,
-			{ zone, form: chosenForm },
-			targetIndex
-		);
-		onLayoutChange(newLayout);
-		handleDragEnd();
-	}
-
-	function handleItemDragOver(zone: ComposerZone, index: number, event: DragEvent) {
-		event.stopPropagation();
-		event.preventDefault();
-		handleZoneDragOver(zone, event);
-		dragOverIndex = index;
-	}
-
-	function handleMoveStep(pinItem: PinnedCommand, delta: -1 | 1) {
-		const zoneItems = pinItem.zone === 'toolbar' ? toolbarItems : statusLineItems;
-		const currentIndex = zoneItems.findIndex((p) => p.id === pinItem.id);
-		if (currentIndex === -1) return;
-
-		const newIndex = currentIndex + delta;
-		if (newIndex < 0 || newIndex >= zoneItems.length) return;
-
-		const newLayout = movePin(
-			layout,
-			manifest,
-			pinItem.id,
-			{ zone: pinItem.zone, form: pinItem.form },
-			newIndex
-		);
-		onLayoutChange(newLayout);
-	}
-
-	function handleUnpin(pinItem: PinnedCommand) {
-		const entry = entryMap.get(pinItem.id);
-		if (entry?.locked) return;
-		const newLayout = unpin(layout, manifest, pinItem.id);
-		onLayoutChange(newLayout);
-	}
-
-	function handleItemKeyDown(pinItem: PinnedCommand, event: KeyboardEvent) {
-		if (event.altKey) {
-			if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
-				event.preventDefault();
-				handleMoveStep(pinItem, -1);
-			} else if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
-				event.preventDefault();
-				handleMoveStep(pinItem, 1);
-			}
-		}
+	function handlePointerDown(e: PointerEvent, pin: PinnedCommand) {
+		if (e.button !== 0) return;
+		const target = e.target as HTMLElement | null;
+		if (target?.closest('.remove-x-btn')) return;
+		onStartPinDrag(pin, e.clientX, e.clientY);
 	}
 </script>
 
@@ -207,107 +102,72 @@
 		</button>
 	</div>
 
-	{#if feedbackMessage}
-		<div class="feedback-banner" role="alert">
-			<IconWarning />
-			<span>{feedbackMessage}</span>
-		</div>
-	{/if}
-
-	<div class="preview-surface">
-		<!-- Zona 1: Toolbar del composer -->
-		<div
-			class="preview-zone toolbar-zone"
-			class:drag-over={dragOverZone === 'toolbar'}
-			class:drag-invalid={dragOverZone === 'toolbar' && !isDragValidForZone}
-			role="region"
-			aria-label={m.settings_commands_zone_toolbar_title()}
-			ondragover={(e) => handleZoneDragOver('toolbar', e)}
-			ondragleave={(e) => handleZoneDragLeave('toolbar', e)}
-			ondrop={(e) => handleZoneDrop('toolbar', e)}
-		>
-			<div class="zone-label-row">
-				<span class="zone-tag">{m.settings_commands_zone_toolbar_title()}</span>
-				<span class="zone-count">{toolbarItems.length}</span>
+	<!-- Guscio del Fake Composer (identico al Composer.svelte reale) -->
+	<div class="fake-composer-surface">
+		<div class="fake-composer-shell" data-drop-zone="toolbar">
+			<!-- Zona editor finta con placeholder -->
+			<div class="fake-editor-area">
+				<span class="fake-placeholder">{m.settings_commands_fake_placeholder()}</span>
 			</div>
 
-			<div class="zone-items">
-				{#if toolbarItems.length === 0}
-					<div class="zone-empty-hint">{m.settings_commands_zone_empty()}</div>
-				{:else}
-					{#each toolbarItems as p, idx (p.id)}
-						{@const entry = entryMap.get(p.id)}
-						{@const text = entry ? resolveCommandText(entry) : null}
-						{@const title = text?.title ?? p.id}
+			<!-- Toolbar del composer: sinistra, centro, destra -->
+			<div class="fake-toolbar">
+				<!-- Gruppo sinistro (allegato, @) -->
+				<div class="toolbar-group toolbar-left" data-drop-zone="toolbar-left">
+					{#each toolbarLeft as pin (pin.id)}
+						{@const entry = entryMap.get(pin.id)}
+						{@const isSelected = selectedId === pin.id}
 						{@const isLocked = entry?.locked ?? false}
-						{@const isSelected = selectedId === p.id}
+						{@const isBeingDragged = activeDrag?.id === pin.id}
 
 						<div
-							class="preview-item form-{p.form}"
-							class:selected={isSelected}
-							class:locked={isLocked}
-							class:dragging={draggedPin?.id === p.id}
-							draggable="true"
-							role="button"
-							tabindex="0"
-							aria-label={`${title} (${p.form === 'chip' ? m.settings_commands_form_chip() : m.settings_commands_form_icon()})`}
-							onclick={() => onSelect(p.id)}
-							onkeydown={(e) => {
-								if (e.key === 'Enter' || e.key === ' ') {
-									e.preventDefault();
-									onSelect(p.id);
-								} else {
-									handleItemKeyDown(p, e);
-								}
-							}}
-							ondragstart={(e) => handleDragStart(p, e)}
-							ondragend={handleDragEnd}
-							ondragover={(e) => handleItemDragOver('toolbar', idx, e)}
+							class="pin-item-wrapper"
+							animate:flip={{ duration: motionReduced() ? 0 : 180 }}
+							in:scale={{ duration: motionReduced() ? 0 : 140, start: 0.85 }}
+							out:scale={{ duration: motionReduced() ? 0 : 100, start: 0.85 }}
 						>
-							<span class="drag-handle" aria-hidden="true">
-								<IconGrip />
-							</span>
-
-							<div class="item-visual">
-								<CommandIcon icon={entry?.icon} class="item-icon" />
-								{#if p.form === 'chip'}
-									<span class="item-label">{title}</span>
+							<div
+								class="fake-pin-item form-{pin.form}"
+								class:selected={isSelected}
+								class:locked={isLocked}
+								class:dragging-placeholder={isBeingDragged}
+								data-pin-id={pin.id}
+								role="button"
+								tabindex="0"
+								onclick={() => onSelect(pin.id)}
+								onkeydown={(e) => {
+									if (e.key === 'Enter' || e.key === ' ') {
+										e.preventDefault();
+										onSelect(pin.id);
+									}
+								}}
+								onpointerdown={(e) => handlePointerDown(e, pin)}
+							>
+								{#if pin.id === 'ctl.attach'}
+									<IconAttach />
+								{:else if pin.id === 'ctl.mention'}
+									<IconAt />
+								{:else}
+									<CommandIcon icon={entry?.icon} />
+									{#if pin.form === 'chip'}
+										<span class="pin-label">{resolveCommandText(entry ?? { text: { it: { title: pin.id } } } as any).title}</span>
+									{/if}
 								{/if}
-							</div>
 
-							{#if isLocked}
-								<Tooltip text={m.settings_commands_locked_badge()}>
-									<span class="lock-indicator" aria-label={m.settings_commands_locked_badge()}>
+								{#if isLocked}
+									<span class="pin-badge locked-badge" title={m.settings_commands_locked_badge()} aria-label={m.settings_commands_locked_badge()}>
 										<IconLock />
 									</span>
-								</Tooltip>
-							{/if}
-
-							<div class="item-actions">
-								<button
-									type="button"
-									class="item-btn"
-									disabled={idx === 0}
-									aria-label={m.settings_commands_item_move_left()}
-									onclick={(e) => { e.stopPropagation(); handleMoveStep(p, -1); }}
-								>
-									<IconChevronLeft />
-								</button>
-								<button
-									type="button"
-									class="item-btn"
-									disabled={idx === toolbarItems.length - 1}
-									aria-label={m.settings_commands_item_move_right()}
-									onclick={(e) => { e.stopPropagation(); handleMoveStep(p, 1); }}
-								>
-									<IconChevronRight />
-								</button>
-								{#if !isLocked}
+								{:else}
 									<button
 										type="button"
-										class="item-btn remove-btn"
+										class="remove-x-btn"
 										aria-label={m.settings_commands_item_unpin()}
-										onclick={(e) => { e.stopPropagation(); handleUnpin(p); }}
+										title={m.settings_commands_item_unpin()}
+										onclick={(e) => {
+											e.stopPropagation();
+											onRemovePin(pin.id);
+										}}
 									>
 										<IconClose />
 									</button>
@@ -315,103 +175,79 @@
 							</div>
 						</div>
 					{/each}
+				</div>
+
+				{#if toolbarLeft.length > 0}
+					<span class="fake-divider" aria-hidden="true"></span>
 				{/if}
-			</div>
-		</div>
 
-		<!-- Zona 2: StatusLine sotto il composer -->
-		<div
-			class="preview-zone status-zone"
-			class:drag-over={dragOverZone === 'statusLine'}
-			class:drag-invalid={dragOverZone === 'statusLine' && !isDragValidForZone}
-			role="region"
-			aria-label={m.settings_commands_zone_status_title()}
-			ondragover={(e) => handleZoneDragOver('statusLine', e)}
-			ondragleave={(e) => handleZoneDragLeave('statusLine', e)}
-			ondrop={(e) => handleZoneDrop('statusLine', e)}
-		>
-			<div class="zone-label-row">
-				<span class="zone-tag">{m.settings_commands_zone_status_title()}</span>
-				<span class="zone-count">{statusLineItems.length}</span>
-			</div>
-
-			<div class="zone-items">
-				{#if statusLineItems.length === 0}
-					<div class="zone-empty-hint">{m.settings_commands_zone_empty()}</div>
-				{:else}
-					{#each statusLineItems as p, idx (p.id)}
-						{@const entry = entryMap.get(p.id)}
-						{@const text = entry ? resolveCommandText(entry) : null}
-						{@const title = text?.title ?? p.id}
+				<!-- Striscia centrale scorrevole (btw, plan, ruolo, modello, thinking, comandi custom) -->
+				<div class="toolbar-group toolbar-center" data-drop-zone="toolbar-center">
+					{#each toolbarCenter as pin (pin.id)}
+						{@const entry = entryMap.get(pin.id)}
+						{@const isSelected = selectedId === pin.id}
 						{@const isLocked = entry?.locked ?? false}
-						{@const isSelected = selectedId === p.id}
+						{@const isBeingDragged = activeDrag?.id === pin.id}
 
 						<div
-							class="preview-item form-{p.form}"
-							class:selected={isSelected}
-							class:locked={isLocked}
-							class:dragging={draggedPin?.id === p.id}
-							draggable="true"
-							role="button"
-							tabindex="0"
-							aria-label={`${title} (${p.form === 'chip' ? m.settings_commands_form_chip() : m.settings_commands_form_icon()})`}
-							onclick={() => onSelect(p.id)}
-							onkeydown={(e) => {
-								if (e.key === 'Enter' || e.key === ' ') {
-									e.preventDefault();
-									onSelect(p.id);
-								} else {
-									handleItemKeyDown(p, e);
-								}
-							}}
-							ondragstart={(e) => handleDragStart(p, e)}
-							ondragend={handleDragEnd}
-							ondragover={(e) => handleItemDragOver('statusLine', idx, e)}
+							class="pin-item-wrapper"
+							animate:flip={{ duration: motionReduced() ? 0 : 180 }}
+							in:scale={{ duration: motionReduced() ? 0 : 140, start: 0.85 }}
+							out:scale={{ duration: motionReduced() ? 0 : 100, start: 0.85 }}
 						>
-							<span class="drag-handle" aria-hidden="true">
-								<IconGrip />
-							</span>
-
-							<div class="item-visual">
-								<CommandIcon icon={entry?.icon} class="item-icon" />
-								{#if p.form === 'chip'}
-									<span class="item-label">{title}</span>
+							<div
+								class="fake-pin-item form-{pin.form}"
+								class:selected={isSelected}
+								class:locked={isLocked}
+								class:dragging-placeholder={isBeingDragged}
+								data-pin-id={pin.id}
+								role="button"
+								tabindex="0"
+								onclick={() => onSelect(pin.id)}
+								onkeydown={(e) => {
+									if (e.key === 'Enter' || e.key === ' ') {
+										e.preventDefault();
+										onSelect(pin.id);
+									}
+								}}
+								onpointerdown={(e) => handlePointerDown(e, pin)}
+							>
+								{#if pin.id === 'btw'}
+									<IconAside />
+									<span class="pin-label">{m.btw_title()}</span>
+								{:else if pin.id === 'plan'}
+									<IconPlan />
+									<span class="pin-label">{m.plan_pill_label()}</span>
+								{:else if pin.id === 'ctl.role'}
+									<span class="fake-dot"></span>
+									<span class="pin-label font-mono">default</span>
+								{:else if pin.id === 'ctl.model'}
+									<span class="pin-label">Claude 3.7 Sonnet</span>
+									<IconChevronUp />
+								{:else if pin.id === 'ctl.thinking'}
+									<span class="fake-thinking-bar"></span>
+									<span class="pin-label font-mono">off</span>
+								{:else}
+									<CommandIcon icon={entry?.icon} />
+									{#if pin.form === 'chip'}
+										<span class="pin-label">{resolveCommandText(entry ?? { text: { it: { title: pin.id } } } as any).title}</span>
+									{/if}
 								{/if}
-							</div>
 
-							{#if isLocked}
-								<Tooltip text={m.settings_commands_locked_badge()}>
-									<span class="lock-indicator" aria-label={m.settings_commands_locked_badge()}>
+								{#if isLocked}
+									<span class="pin-badge locked-badge" title={m.settings_commands_locked_badge()} aria-label={m.settings_commands_locked_badge()}>
 										<IconLock />
 									</span>
-								</Tooltip>
-							{/if}
-
-							<div class="item-actions">
-								<button
-									type="button"
-									class="item-btn"
-									disabled={idx === 0}
-									aria-label={m.settings_commands_item_move_left()}
-									onclick={(e) => { e.stopPropagation(); handleMoveStep(p, -1); }}
-								>
-									<IconChevronLeft />
-								</button>
-								<button
-									type="button"
-									class="item-btn"
-									disabled={idx === statusLineItems.length - 1}
-									aria-label={m.settings_commands_item_move_right()}
-									onclick={(e) => { e.stopPropagation(); handleMoveStep(p, 1); }}
-								>
-									<IconChevronRight />
-								</button>
-								{#if !isLocked}
+								{:else}
 									<button
 										type="button"
-										class="item-btn remove-btn"
+										class="remove-x-btn"
 										aria-label={m.settings_commands_item_unpin()}
-										onclick={(e) => { e.stopPropagation(); handleUnpin(p); }}
+										title={m.settings_commands_item_unpin()}
+										onclick={(e) => {
+											e.stopPropagation();
+											onRemovePin(pin.id);
+										}}
 									>
 										<IconClose />
 									</button>
@@ -419,8 +255,148 @@
 							</div>
 						</div>
 					{/each}
-				{/if}
+				</div>
+
+				<!-- Gruppo destro fisso (contesto e tasto Invio) -->
+				<div class="toolbar-group toolbar-right" data-drop-zone="toolbar-right">
+					{#each toolbarRight as pin (pin.id)}
+						{@const entry = entryMap.get(pin.id)}
+						{@const isSelected = selectedId === pin.id}
+						{@const isLocked = entry?.locked ?? false}
+						{@const isBeingDragged = activeDrag?.id === pin.id}
+
+						<div
+							class="pin-item-wrapper"
+							animate:flip={{ duration: motionReduced() ? 0 : 180 }}
+							in:scale={{ duration: motionReduced() ? 0 : 140, start: 0.85 }}
+							out:scale={{ duration: motionReduced() ? 0 : 100, start: 0.85 }}
+						>
+							<div
+								class="fake-pin-item form-{pin.form}"
+								class:selected={isSelected}
+								class:locked={isLocked}
+								class:dragging-placeholder={isBeingDragged}
+								data-pin-id={pin.id}
+								role="button"
+								tabindex="0"
+								onclick={() => onSelect(pin.id)}
+								onkeydown={(e) => {
+									if (e.key === 'Enter' || e.key === ' ') {
+										e.preventDefault();
+										onSelect(pin.id);
+									}
+								}}
+								onpointerdown={(e) => handlePointerDown(e, pin)}
+							>
+								{#if pin.id === 'ctl.context'}
+									<span class="fake-ring"></span>
+									<span class="pin-label font-mono">12k/200k</span>
+								{:else}
+									<CommandIcon icon={entry?.icon} />
+									{#if pin.form === 'chip'}
+										<span class="pin-label">{resolveCommandText(entry ?? { text: { it: { title: pin.id } } } as any).title}</span>
+									{/if}
+								{/if}
+
+								{#if isLocked}
+									<span class="pin-badge locked-badge" title={m.settings_commands_locked_badge()} aria-label={m.settings_commands_locked_badge()}>
+										<IconLock />
+									</span>
+								{:else}
+									<button
+										type="button"
+										class="remove-x-btn"
+										aria-label={m.settings_commands_item_unpin()}
+										title={m.settings_commands_item_unpin()}
+										onclick={(e) => {
+											e.stopPropagation();
+											onRemovePin(pin.id);
+										}}
+									>
+										<IconClose />
+									</button>
+								{/if}
+							</div>
+						</div>
+					{/each}
+
+					<!-- Tasto Invio simulato -->
+					<div class="fake-send-btn" aria-hidden="true">
+						<IconArrowUp />
+					</div>
+				</div>
 			</div>
+		</div>
+
+		<!-- StatusLine sotto il composer (seconda zona) -->
+		<div class="fake-status-line" data-drop-zone="statusLine">
+			{#if statusLinePins.length === 0}
+				<span class="status-line-empty-hint">{m.settings_commands_zone_empty()}</span>
+			{:else}
+				{#each statusLinePins as pin (pin.id)}
+					{@const entry = entryMap.get(pin.id)}
+					{@const isSelected = selectedId === pin.id}
+					{@const isLocked = entry?.locked ?? false}
+					{@const isBeingDragged = activeDrag?.id === pin.id}
+
+					<div
+						class="pin-item-wrapper"
+						animate:flip={{ duration: motionReduced() ? 0 : 180 }}
+						in:scale={{ duration: motionReduced() ? 0 : 140, start: 0.85 }}
+						out:scale={{ duration: motionReduced() ? 0 : 100, start: 0.85 }}
+					>
+						<div
+							class="fake-status-pin form-{pin.form}"
+							class:selected={isSelected}
+							class:locked={isLocked}
+							class:dragging-placeholder={isBeingDragged}
+							data-pin-id={pin.id}
+							role="button"
+							tabindex="0"
+							onclick={() => onSelect(pin.id)}
+							onkeydown={(e) => {
+								if (e.key === 'Enter' || e.key === ' ') {
+									e.preventDefault();
+									onSelect(pin.id);
+								}
+							}}
+							onpointerdown={(e) => handlePointerDown(e, pin)}
+						>
+							<CommandIcon icon={entry?.icon} />
+							{#if pin.form === 'chip'}
+								<span class="status-pin-label font-mono">
+									{#if pin.id === 'ctl.cost'}
+										$0.02
+									{:else if pin.id === 'ctl.limit'}
+										80% limit
+									{:else}
+										{resolveCommandText(entry ?? { text: { it: { title: pin.id } } } as any).title}
+									{/if}
+								</span>
+							{/if}
+
+							{#if isLocked}
+								<span class="pin-badge locked-badge" title={m.settings_commands_locked_badge()} aria-label={m.settings_commands_locked_badge()}>
+									<IconLock />
+								</span>
+							{:else}
+								<button
+									type="button"
+									class="remove-x-btn"
+									aria-label={m.settings_commands_item_unpin()}
+									title={m.settings_commands_item_unpin()}
+									onclick={(e) => {
+										e.stopPropagation();
+										onRemovePin(pin.id);
+									}}
+								>
+									<IconClose />
+								</button>
+							{/if}
+						</div>
+					</div>
+				{/each}
+			{/if}
 		</div>
 	</div>
 </div>
@@ -441,221 +417,262 @@
 		align-items: flex-start;
 		justify-content: space-between;
 		gap: var(--space-4);
-		flex-wrap: wrap;
-	}
-
-	.preview-header-copy {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-1);
 	}
 
 	.preview-title {
 		margin: 0;
-		font-size: var(--text-body);
+		font-size: var(--text-base);
 		font-weight: 600;
 		color: var(--ink);
 	}
 
 	.preview-desc {
-		margin: 0;
-		font-size: var(--text-caption);
+		margin: 2px 0 0;
+		font-size: var(--text-xs);
 		color: var(--ink-muted);
-		max-width: 560px;
-		line-height: 1.4;
+		line-height: 1.45;
 	}
 
 	.reset-button {
-		font-size: var(--text-caption);
-		padding: var(--space-1) var(--space-3);
+		font-size: var(--text-xs);
+		padding: 4px 10px;
 		display: inline-flex;
 		align-items: center;
-		gap: var(--space-2);
-		white-space: nowrap;
+		gap: 6px;
+		flex-shrink: 0;
 	}
 
-	.feedback-banner {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		padding: var(--space-2) var(--space-3);
-		background: color-mix(in oklch, var(--warn) 15%, transparent);
-		border: 1px solid color-mix(in oklch, var(--warn) 30%, transparent);
-		border-radius: var(--radius-md);
-		color: var(--ink);
-		font-size: var(--text-caption);
-	}
-
-	.preview-surface {
+	.fake-composer-surface {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-2);
+		gap: 6px;
+		background: var(--bg-base);
+		padding: var(--space-3);
+		border-radius: var(--radius-lg);
+		border: 1px solid var(--line);
+	}
+
+	.fake-composer-shell {
+		background: var(--bg-raised);
+		border: 1px solid var(--line-strong);
+		border-radius: var(--radius-lg);
+		display: flex;
+		flex-direction: column;
+		overflow: hidden;
+		min-height: 100px;
+	}
+
+	.fake-editor-area {
+		padding: 12px 14px;
+		flex: 1;
+		min-height: 52px;
+		user-select: none;
+	}
+
+	.fake-placeholder {
+		color: var(--ink-faint);
+		font-size: var(--text-body);
+		font-style: italic;
+	}
+
+	.fake-toolbar {
+		display: flex;
+		align-items: center;
+		padding: 6px 8px;
+		gap: 4px;
+		border-top: 1px solid var(--line);
+		background: color-mix(in srgb, var(--bg-sunken) 60%, transparent);
+	}
+
+	.toolbar-group {
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
+	}
+
+	.toolbar-left {
+		flex-shrink: 0;
+	}
+
+	.toolbar-center {
+		flex: 1;
+		overflow-x: auto;
+		scrollbar-width: none;
+	}
+
+	.toolbar-center::-webkit-scrollbar {
+		display: none;
+	}
+
+	.toolbar-right {
+		flex-shrink: 0;
+		margin-left: auto;
+	}
+
+	.fake-divider {
+		width: 1px;
+		height: 16px;
+		background: var(--line);
+		margin: 0 2px;
+	}
+
+	.pin-item-wrapper {
+		display: inline-flex;
+		align-items: center;
+		flex-shrink: 0;
+	}
+
+	.fake-pin-item {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		padding: 3px 8px;
+		height: 28px;
 		background: var(--bg-base);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-md);
-		padding: var(--space-3);
-	}
-
-	.preview-zone {
-		background: var(--bg-sunken);
-		border: 1px dashed var(--line);
-		border-radius: var(--radius-md);
-		padding: var(--space-2) var(--space-3);
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-2);
-		min-height: 52px;
-		transition: border-color 0.15s ease, background-color 0.15s ease;
-	}
-
-	.preview-zone.drag-over {
-		border-color: var(--brand);
-		background: color-mix(in oklch, var(--brand) 8%, var(--bg-sunken));
-	}
-
-	.preview-zone.drag-invalid {
-		border-color: var(--danger);
-		background: color-mix(in oklch, var(--danger) 10%, var(--bg-sunken));
-	}
-
-	.zone-label-row {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		font-size: 11px;
-		color: var(--ink-muted);
-		font-weight: 500;
-	}
-
-	.zone-tag {
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
-		font-size: 10.5px;
-	}
-
-	.zone-count {
-		font-feature-settings: 'tnum';
-		opacity: 0.8;
-	}
-
-	.zone-items {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		gap: var(--space-2);
-	}
-
-	.zone-empty-hint {
-		font-size: var(--text-caption);
-		color: var(--ink-faint);
-		font-style: italic;
-		padding: var(--space-1) 0;
-	}
-
-	.preview-item {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-1);
-		background: var(--bg-raised);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		padding: 3px 6px;
 		color: var(--ink);
-		font-size: var(--text-caption);
+		font-size: var(--text-xs);
 		cursor: grab;
+		position: relative;
 		user-select: none;
-		transition: background-color 0.12s ease, border-color 0.12s ease, transform 0.12s ease;
+		transition:
+			background-color var(--dur-fast) var(--ease-out),
+			border-color var(--dur-fast) var(--ease-out);
 	}
 
-	.preview-item:hover {
-		background: var(--bg-hover);
-		border-color: var(--line-strong);
-	}
-
-	.preview-item:focus-visible {
-		outline: 2px solid var(--brand);
-		outline-offset: 1px;
-	}
-
-	.preview-item.selected {
-		border-color: var(--brand);
-		background: color-mix(in oklch, var(--brand) 12%, var(--bg-raised));
-	}
-
-	.preview-item.dragging {
-		opacity: 0.45;
+	.fake-pin-item:active {
 		cursor: grabbing;
 	}
 
-	.drag-handle {
-		display: inline-flex;
-		color: var(--ink-faint);
-		cursor: grab;
+	.fake-pin-item.form-icon {
+		width: 28px;
+		padding: 0;
+		justify-content: center;
 	}
 
-	.item-visual {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-1);
+	.fake-pin-item.selected {
+		border-color: var(--brand);
+		background: var(--bg-active);
 	}
 
-	.item-label {
-		font-weight: 500;
+	.fake-pin-item.dragging-placeholder {
+		opacity: 0.3;
+		border-style: dashed;
+	}
+
+	.pin-label {
 		max-width: 120px;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
 
-	.lock-indicator {
-		display: inline-flex;
-		color: var(--ink-muted);
-		opacity: 0.8;
+	.fake-dot {
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		background: var(--brand-ink);
 	}
 
-	.item-actions {
-		display: none;
-		align-items: center;
-		gap: 2px;
-		margin-left: 2px;
+	.fake-thinking-bar {
+		width: 14px;
+		height: 4px;
+		border-radius: 2px;
+		background: var(--line-strong);
 	}
 
-	.preview-item:hover .item-actions,
-	.preview-item:focus-within .item-actions {
-		display: inline-flex;
+	.fake-ring {
+		width: 12px;
+		height: 12px;
+		border-radius: 50%;
+		border: 2px solid var(--brand);
 	}
 
-	.item-btn {
-		background: transparent;
-		border: none;
-		color: var(--ink-muted);
-		cursor: pointer;
-		padding: 2px;
-		border-radius: var(--radius-sm);
+	.pin-badge {
 		display: inline-flex;
-		align-items: center;
-		justify-content: center;
+		color: var(--ink-faint);
 		font-size: 11px;
 	}
 
-	.item-btn:hover:not(:disabled) {
-		background: var(--bg-hover);
+	.remove-x-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 16px;
+		height: 16px;
+		margin-left: 2px;
+		background: transparent;
+		border: none;
+		border-radius: 50%;
+		color: var(--ink-faint);
+		cursor: pointer;
+		opacity: 0.7;
+		transition: opacity var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+	}
+
+	.remove-x-btn:hover {
+		opacity: 1;
+		color: var(--danger);
+		background: color-mix(in srgb, var(--danger) 15%, transparent);
+	}
+
+	.fake-send-btn {
+		width: 28px;
+		height: 28px;
+		border-radius: var(--radius-md);
+		background: var(--ink);
+		color: var(--bg-base);
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		margin-left: 4px;
+	}
+
+	.fake-status-line {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 6px;
+		padding: 4px 6px;
+		min-height: 26px;
+	}
+
+	.status-line-empty-hint {
+		font-size: 11px;
+		color: var(--ink-faint);
+		font-style: italic;
+	}
+
+	.fake-status-pin {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		padding: 2px 6px;
+		background: transparent;
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+		color: var(--ink-muted);
+		font-size: var(--text-xs);
+		cursor: grab;
+		user-select: none;
+	}
+
+	.fake-status-pin:active {
+		cursor: grabbing;
+	}
+
+	.fake-status-pin.selected {
+		border-color: var(--brand);
 		color: var(--ink);
 	}
 
-	.item-btn:disabled {
+	.fake-status-pin.dragging-placeholder {
 		opacity: 0.3;
-		cursor: not-allowed;
+		border-style: dashed;
 	}
 
-	.item-btn.remove-btn:hover {
-		color: var(--danger);
-	}
-
-	@media (prefers-reduced-motion: reduce) {
-		.preview-item,
-		.preview-zone {
-			transition: none;
-		}
+	.status-pin-label {
+		font-size: 11px;
 	}
 </style>

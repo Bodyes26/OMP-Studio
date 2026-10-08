@@ -45,7 +45,9 @@
 	import ContextPanel from './ContextPanel.svelte';
 	import ComposerPinnedItem from './ComposerPinnedItem.svelte';
 	import ComposerOverflowMenu from './ComposerOverflowMenu.svelte';
-
+	import { flip } from 'svelte/animate';
+	import { scale } from 'svelte/transition';
+	import { motionReduced } from '$lib/agent/motionState.svelte';
 	let {
 		session,
 		activeRole,
@@ -334,8 +336,15 @@
 			{/if}
 		{/if}
 		{#each visiblePins as pin (pin.id)}
-			{#if pin.id === 'fast' && showFast}
-				<span class="status-entry" data-pin-id="fast">
+			<span
+				class="status-entry"
+				class:status-cost={pin.id === 'ctl.cost'}
+				data-pin-id={pin.id}
+				animate:flip={{ duration: motionReduced() ? 0 : 180 }}
+				in:scale={{ duration: motionReduced() ? 0 : 140, start: 0.85 }}
+				out:scale={{ duration: motionReduced() ? 0 : 100, start: 0.85 }}
+			>
+				{#if pin.id === 'fast' && showFast}
 					<Tooltip text={fastTooltip} placement="top" offset={6}>
 						<button
 							type="button"
@@ -350,9 +359,7 @@
 							<span class="status-icon"><IconFastMode /></span>{m.chat_v2_composer_status_fast()}
 						</button>
 					</Tooltip>
-				</span>
-			{:else if pin.id === 'slow' && showSlow}
-				<span class="status-entry" data-pin-id="slow">
+				{:else if pin.id === 'slow' && showSlow}
 					<Tooltip text={slowTooltip} placement="top" offset={6}>
 						<button
 							type="button"
@@ -366,9 +373,7 @@
 							<span class="status-icon"><IconSlowMode /></span>{m.chat_v2_composer_status_slow()}
 						</button>
 					</Tooltip>
-				</span>
-			{:else if pin.id === 'prewalk' && showPrewalk}
-				<span class="status-entry" data-pin-id="prewalk">
+				{:else if pin.id === 'prewalk' && showPrewalk}
 					<Tooltip text={prewalkTooltip} placement="top" offset={6}>
 						<button
 							type="button"
@@ -405,18 +410,14 @@
 							</button>
 						</Tooltip>
 					{/if}
-				</span>
-			{:else if pin.id === BACKGROUND_ID}
-				<span class="status-entry" data-pin-id={BACKGROUND_ID}>
+				{:else if pin.id === BACKGROUND_ID}
 					<Tooltip text={m.chat_v2_composer_status_background_tooltip()} placement="top" offset={6}>
 						<span class="status-item background" role="status">
 							<span class="background-dot" aria-hidden="true"></span>{m.chat_v2_composer_status_background()}
 						</span>
 					</Tooltip>
-				</span>
-			{:else if pin.id.startsWith(EXT_PREFIX)}
-				{@const key = extKey(pin.id)}
-				<span class="status-entry" data-pin-id={pin.id}>
+				{:else if pin.id.startsWith(EXT_PREFIX)}
+					{@const key = extKey(pin.id)}
 					<Tooltip
 						text={`${m.chat_v2_composer_extension_status_tooltip({ key })}: ${extStatusText.get(key) ?? ''}`}
 						placement="top"
@@ -424,26 +425,20 @@
 					>
 						<span class="status-item ext-status">{extStatusText.get(key) ?? ''}</span>
 					</Tooltip>
-				</span>
-			{:else if pin.id === 'ctl.limit' && limit}
-				<span class="status-entry" data-pin-id="ctl.limit">
+				{:else if pin.id === 'ctl.limit' && limit}
 					<Tooltip text={usageLimitDetail(limit)} placement="top" offset={6}>
 						<span class="status-item warn" role="status">
 							<span class="status-icon"><IconWarning /></span>{usageLimitLabel(limit)}
 						</span>
 					</Tooltip>
-				</span>
-			{:else if pin.id === 'ctl.cost' && totalCost !== null && totalCost > 0}
-				<span class="status-entry status-cost" data-pin-id="ctl.cost">
+				{:else if pin.id === 'ctl.cost' && totalCost !== null && totalCost > 0}
 					<Tooltip text={costTooltip} placement="top" offset={6}>
 						<span class="status-item">
 							${totalCost < 0.01 ? totalCost.toFixed(4) : totalCost.toFixed(2)}
 						</span>
 					</Tooltip>
-				</span>
-			{:else if pin.id === 'ctl.context'}
-				<!-- Controllo finestra di contesto pinnato nella statusLine -->
-				<span class="status-entry" data-pin-id="ctl.context">
+				{:else if pin.id === 'ctl.context'}
+					<!-- Controllo finestra di contesto pinnato nella statusLine -->
 					<MenuButton
 						open={contextMenuOpen}
 						title={m.chat_v2_composer_context_title()}
@@ -502,10 +497,8 @@
 							/>
 						{/snippet}
 					</MenuButton>
-				</span>
-			{:else if pin.id === 'ctl.mention'}
-				<!-- Tasto menzione @ pinnato nella statusLine -->
-				<span class="status-entry" data-pin-id="ctl.mention">
+				{:else if pin.id === 'ctl.mention'}
+					<!-- Tasto menzione @ pinnato nella statusLine -->
 					<Tooltip text={m.chat_v2_composer_mention_title()} placement="top" offset={6}>
 						<button
 							type="button"
@@ -516,12 +509,10 @@
 							<span class="status-icon"><IconAt /></span>@{m.chat_v2_composer_mention_title().toLowerCase()}
 						</button>
 					</Tooltip>
-				</span>
-			{:else}
-				<!-- Qualsiasi altro comando generico fissato dall'utente -->
-				{@const entry = manifestMap.get(pin.id)}
-				{#if entry}
-					<span class="status-entry" data-pin-id={pin.id}>
+				{:else}
+					<!-- Qualsiasi altro comando generico fissato dall'utente -->
+					{@const entry = manifestMap.get(pin.id)}
+					{#if entry}
 						<ComposerPinnedItem
 							{entry}
 							form={pin.form}
@@ -529,9 +520,9 @@
 							disabled={isPinnedDisabled(entry)}
 							onActivate={onActivateCommand}
 						/>
-					</span>
+					{/if}
 				{/if}
-			{/if}
+			</span>
 		{/each}
 
 		<!-- Menu di overflow se la riga supera la larghezza disponibile -->

@@ -8,7 +8,9 @@ import {
 	itemsInZone,
 	mergeWithOrphans,
 	movePin,
+	partitionToolbar,
 	pin,
+	placePin,
 	resolveLayout,
 	suggestedPlacement,
 	unpin
@@ -294,4 +296,37 @@ test('Command Layout — mergeWithOrphans conserva i pin orfani salvati', () => 
 		'Il pin orfano del layout salvato deve essere conservato'
 	);
 	assert.strictEqual(merged.pinned.find((p) => p.id === 'vecchio_comando_disattivato')?.zone, 'statusLine');
+});
+test('Command Layout — partitionToolbar ripartisce secondo i gruppi visivi fissi', () => {
+	const pins = [
+		{ id: 'ctl.context', zone: 'toolbar' as const, form: 'icon' as const, order: 0 },
+		{ id: 'ctl.attach', zone: 'toolbar' as const, form: 'icon' as const, order: 1 },
+		{ id: 'btw', zone: 'toolbar' as const, form: 'chip' as const, order: 2 },
+		{ id: 'ctl.mention', zone: 'toolbar' as const, form: 'icon' as const, order: 3 },
+		{ id: 'ctl.role', zone: 'toolbar' as const, form: 'chip' as const, order: 4 }
+	];
+	const part = partitionToolbar(pins);
+	assert.deepEqual(part.left.map((p) => p.id), ['ctl.attach', 'ctl.mention']);
+	assert.deepEqual(part.center.map((p) => p.id), ['btw', 'ctl.role']);
+	assert.deepEqual(part.right.map((p) => p.id), ['ctl.context']);
+});
+
+test('Command Layout — novita di fabbrica compaiono se non ancora note, rimozioni restano', () => {
+	const savedWithRemoval: ComposerLayout = {
+		version: 1,
+		pinned: [{ id: 'ctl.attach', zone: 'toolbar', form: 'icon', order: 0 }],
+		known: ['ctl.attach', 'ctl.model', 'fast', 'compact']
+	};
+	const resolvedRemoval = resolveLayout(savedWithRemoval, SYNTHETIC_MANIFEST);
+	const sl = itemsInZone(resolvedRemoval, 'statusLine');
+	assert.ok(!sl.some((p) => p.id === 'fast'), 'Un comando rimosso esplicitamente non deve ricomparire');
+
+	const savedMissingFeature: ComposerLayout = {
+		version: 1,
+		pinned: [{ id: 'ctl.attach', zone: 'toolbar', form: 'icon', order: 0 }],
+		known: ['ctl.attach', 'ctl.model']
+	};
+	const resolvedAddition = resolveLayout(savedMissingFeature, SYNTHETIC_MANIFEST);
+	const slAdded = itemsInZone(resolvedAddition, 'statusLine');
+	assert.ok(slAdded.some((p) => p.id === 'fast'), 'Una novita di fabbrica non ancora nota deve comparire');
 });

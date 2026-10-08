@@ -725,10 +725,12 @@ export const STUDIO_ENTRIES: readonly CommandManifestEntry[] = [
 		icon: 'IconAside',
 		control: 'panel',
 		supported: [
+			{ zone: 'toolbar', form: 'chip' },
+			{ zone: 'toolbar', form: 'icon' },
 			{ zone: 'statusLine', form: 'chip' },
 			{ zone: 'statusLine', form: 'icon' }
 		],
-		defaultPlacement: null,
+		defaultPlacement: { zone: 'toolbar', form: 'chip' },
 		argsHint: '[domanda]',
 		text: {
 			it: {
@@ -964,10 +966,12 @@ export const STUDIO_ENTRIES: readonly CommandManifestEntry[] = [
 		icon: 'IconPlan',
 		control: 'toggle',
 		supported: [
+			{ zone: 'toolbar', form: 'chip' },
+			{ zone: 'toolbar', form: 'icon' },
 			{ zone: 'statusLine', form: 'chip' },
 			{ zone: 'statusLine', form: 'icon' }
 		],
-		defaultPlacement: null,
+		defaultPlacement: { zone: 'toolbar', form: 'chip' },
 		argsHint: '[testo]',
 		text: {
 			it: {
