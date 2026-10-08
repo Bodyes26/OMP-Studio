@@ -80,3 +80,4 @@ import './session-modes.test.ts';
 import './command-layout.test.ts';
 import './command-manifest.test.ts';
 import './studio-docs.test.ts';
+import './project-docs.test.ts';
