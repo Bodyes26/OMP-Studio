@@ -1446,3 +1446,42 @@ locali e il `queuedMessageCount` di omp potevano divergere, e un crash prima di
 - **`branch` per «Dirama da qui» su ogni messaggio utente.** Ripartirebbe dal genitore del messaggio come `fork`, ma senza copiare gli artefatti: i risultati tool conservati che citano `artifact://N` non si risolverebbero piu'.
 - **Pilotare `/tree` nel PTY dalla GUI.** E' l'esatto motivo dello scarto di `IDEAS.md` e resta escluso.
 - **Spostare la foglia nello stesso file con `branch` + `new_session`.** Non esiste un comando RPC che lo faccia; simularlo creerebbe comunque file nuovi con un nome che non lo dice.
+
+---
+
+## Gate R3X-plan: modalita' Piano nella chat GUI con l'estensione `studio-plan`
+
+**Data:** 2026-10-08
+**Esito:** IMPLEMENTATO (segnaposto: il numero del Gate si assegna al merge). Riferimento visivo: prototipo `plan-mode.html`, variante A.
+
+### Il problema
+
+1. Il `/plan` di omp (18.8.x) esiste solo nella TUI: `builtin-modes.ts` lo dichiara con `handleTui`, non c'e' un comando RPC `plan`, `get_state` non riporta lo stato del Piano e la revisione del piano (`PlanReviewOverlay`) e' un overlay della TUI. Nella chat GUI (`omp --mode rpc-ui`) `/plan` non faceva nulla di utile.
+2. Il Piano e' il modo giusto per i compiti lunghi: esplorare in sola lettura, scrivere un piano completo, approvarlo e farlo eseguire da una sessione pulita. Mancava proprio nella superficie pensata per chi non usa la TUI.
+3. Pilotare `/plan` nel PTY dalla GUI e' escluso per la stessa ragione dello scarto di `IDEAS.md` sui pulsanti per i comandi TUI (vedi Gate R33).
+
+### Decisioni
+
+1. **Un'estensione di Studio fa la parte di omp.** `extensions/studio-plan.ts` viene passata con `-e` a ogni processo omp (come `studio-tasks`/`studio-lanes`) ma si accende solo nel processo GUI: `rpc/mod.rs` imposta `OMP_STUDIO_PLAN=gui`; nel PTY la variabile manca e l'estensione resta inerte, cosi' nel Terminale vale il `/plan` nativo. Offre il comando nascosto `/studio-plan on|off|status|review`, l'hook `before_agent_start` (prompt di sistema del Piano; per i subagenti quello dei subagenti), l'hook `tool_call` (guardia di scrittura) e lo strumento `studio_plan_submit({slug, title})`.
+2. **Prompt copiati da omp.** I testi del Piano sono adattati da `plan-mode-active.md`, `plan-mode-subagent.md`, `plan-mode-approved.md` e `plan-mode-compact-instructions.md` di oh-my-pi 18.8.4 (MIT, attribuzione nei file). L'adattamento sostituisce `resolve { action: "apply" }` con `studio_plan_submit`. Vanno riallineati a ogni release di omp (controllo in `docs/COMMANDS.md`).
+3. **Guardia di scrittura come quella nativa, fail-closed.** In Piano `write`/`edit`/`ast_edit`/`notebook*`/`apply_patch` passano solo verso `local://` e `<cwd>/.omp/plans/`; rinomina ed eliminazione sono sempre vietate; uno strumento di scrittura senza un percorso riconoscibile e' bloccato. `bash` e gli strumenti di lettura non sono toccati: come in omp, la sola lettura dei comandi e' affidata al prompt.
+4. **Revisione = `extension_ui_request` di tipo `editor` riconoscibile.** `studio_plan_submit` legge `local://<slug>-plan.md` e chiama `ctx.ui.editor` con titolo `studio-plan-review:<meta JSON>` e il piano come testo precompilato. Studio riconosce il prefisso (`parsePlanReviewRequest`), apre la card del piano a sezioni (`##`) con commenti, modifica ed eliminazione per sezione, e risponde con la decisione JSON (`approve | refine | save | cancel`, strada, ruolo, autosalvataggio, contenuto riscritto). Un client RPC che non conosce il prefisso vede un normale editor e il flusso resta usabile.
+5. **Lo stato viaggia su `setStatus('studio-plan', json)`** ed e' salvato nella sessione come voce custom `studio-plan-state`: dopo un resume l'estensione lo ripristina e lo ripubblica, e la GUI lo prende come fonte di verita'.
+6. **Il passaggio di compito lo orchestra Studio con i comandi RPC esistenti.** All'approvazione l'estensione salva la copia in `.omp/plans/<TITOLO>_PLAN.md` (stessa regola di `planSaveFileName` di omp, senza sovrascrivere) e spegne la guardia; lo strumento chiude il turno. Studio poi, a sessione ferma, segue la strada scelta (tasti 1-4): **nuova sessione** (predefinita, `new_session`), **nuova corsia** (worktree via `createNewLane`, la vista la segue), **compatta e continua** (`compact` con le istruzioni del piano), **mantieni il contesto**; applica il ruolo d'esecuzione (solo i ruoli configurati, `default` sempre) e consegna il prompt «piano approvato» con il piano incollato. Ogni passo e' visibile nella card del passaggio, con «Torna alla sessione di pianificazione».
+7. **Ingressi.** `/plan [testo]` (con testo entra e manda), `/plan-review`, la pillola «Piano» del composer e `Alt+Maiusc+P` (`Ctrl+Opzione+Maiusc+P` su Mac, come `app.plan.toggle` di omp). All'entrata si passa al ruolo `plan` se configurato e il modello precedente torna all'uscita senza approvazione. I messaggi mandati in Piano hanno il badge «Piano». Il Laboratorio e' escluso (Gate R30: una sola chat continua).
+8. **Le card del Piano sono voci del solo client** (`PlanEntry`): non sono nella storia di omp; si ancorano al `messageTs` dell'ultimo messaggio e tornano al loro posto quando il transcript si ricostruisce (`reanchorEntries`).
+
+### Limiti noti
+
+- Se omp aggiunge un comando RPC per il Piano (vedi bozza di issue upstream), l'estensione va sostituita: il frontend parla gia' in termini di stato, revisione e decisione e cambia solo il trasporto.
+- La guardia non risolve i symlink (la nativa usa `realpath` sull'antenato esistente): un symlink dentro `.omp/plans/` che punta fuori resterebbe scrivibile. Rischio basso, da chiudere se emerge.
+- `bash` non e' bloccato, come nel Piano nativo: un agente che ignora il prompt puo' cambiare file con la shell.
+- I prompt sono copie: tra una release di omp e il riallineamento il comportamento della GUI puo' divergere da quello della TUI.
+- Lo stato del Piano e' per processo omp: i subagenti vedono la stessa guardia; due sessioni principali nello stesso processo non sono un caso di Studio.
+- Non verificato con omp reale su Windows: radice di `local://` con percorsi lunghi (ripiego in `%TEMP%\omp-local\<id>` come omp), corsie worktree dal passaggio, ripresa dopo il riavvio di Studio a revisione aperta. La parte Rust (`pty/mod.rs`, `rpc/mod.rs`) non e' stata compilata in sandbox.
+
+### Alternative scartate
+
+- **Pilotare il `/plan` della TUI nel PTY.** Stesso motivo dello scarto di `IDEAS.md`.
+- **Solo prompt, senza estensione.** Nessuna guardia di scrittura reale e nessun punto in cui fermare l'agente fino alla decisione.
+- **Domanda `ask` per l'approvazione.** Non porta il piano completo ne' le modifiche per sezione; il prompt di omp vieta esplicitamente di chiedere l'approvazione con `ask`.
