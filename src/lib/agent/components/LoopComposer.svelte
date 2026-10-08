@@ -241,8 +241,8 @@
 	{:else if probe$ && probeVerdict}
 		<span class="loop-probe">
 			<span class="font-mono" class:bad={probe$.exit !== 0} class:good={probe$.exit === 0}>exit {probe$.exit ?? '?'}</span>
-			{#if probe$.out}<span class="muted"> · {probe$.out}</span>{/if}
-			<span class="muted"> → </span><span class={probeVerdict.tone}>{probeVerdict.text}</span>
+			{#if probe$.out}<span class="muted">{' · '}{probe$.out}</span>{/if}
+			<span class="muted">{' → '}</span><span class={probeVerdict.tone}>{probeVerdict.text}</span>
 		</span>
 	{/if}
 {/snippet}
@@ -455,13 +455,13 @@
 								<span>{m.loop_restored()}</span>
 							{:else if loop.condition}
 								{@render condText(loop.condition.command, loop.condition.until)}
-								<span class="faint"> · </span>
+								<span class="faint">{' · '}</span>
 								{#if loop.status === 'checking'}
 									<span class="loop-spin" aria-hidden="true"></span>{m.loop_checking()}
 								{:else if lastCheck}
 									{m.loop_last_check()} <code class="loop-code">{loop.condition.command}</code> →
 									<span class:bad={lastCheck.exit !== 0} class:good={lastCheck.exit === 0}>exit {lastCheck.exit ?? '?'}</span>
-									{#if lastCheck.out}<span class="faint"> · </span>{lastCheck.out}{/if}
+									{#if lastCheck.out}<span class="faint">{' · '}</span>{lastCheck.out}{/if}
 								{:else}
 									{m.loop_check_first()}
 								{/if}
@@ -469,9 +469,9 @@
 								{m.loop_no_condition()}
 							{/if}
 							{#if probe$ && !probe$.running && probeVerdict}
-								<span class="faint"> · </span>{m.loop_probe()}: {@render probeLine()}
+								<span class="faint">{' · '}</span>{m.loop_probe()}: {@render probeLine()}
 							{:else if probe$?.running}
-								<span class="faint"> · </span>{@render probeLine()}
+								<span class="faint">{' · '}</span>{@render probeLine()}
 							{/if}
 						{:else}
 							{endMessage}
@@ -671,6 +671,11 @@
 		display: flex;
 		flex-direction: column;
 		gap: 1px;
+	}
+
+	/* La voce scelta e' in grassetto, la sua descrizione no. */
+	.loop-mi-body .faint {
+		font-weight: 400;
 	}
 
 	.loop-menu-fields {
