@@ -2931,5 +2931,6 @@
   "loop_cmd_description": "Repeats a prompt each round, with a limit and a stop condition",
   "loop_panel_aria": "Repeat panel",
   "loop_segments_aria": "Round {giro} of {total}",
-  "loop_start_busy": "The agent is working: start the repeat when the turn is over."
+  "loop_start_busy": "The agent is working: start the repeat when the turn is over.",
+  "shortcuts_item_loop": "Composer in repeat mode (/loop): Enter starts; Esc closes the menu, leaves the pills or pauses at the end of the round"
 }

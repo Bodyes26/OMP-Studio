@@ -77,7 +77,9 @@
 				{ keys: [`${L}+N`], description: m.ui_shortcutshelpmodal_apre_una_nuova_chat_nel_progetto_attivo_3acb() },
 				{ keys: [`${L}+C`], description: m.ui_shortcutshelpmodal_interrompe_la_risposta_in_streaming_o_cancella_6699() },
 				{ keys: ['Ctrl+C'], description: m.ui_shortcutshelpmodal_interrompe_la_risposta_in_streaming_senza_testo_37ce() },
-				{ keys: ['Esc'], description: m.shortcuts_item_close_menus() }
+				{ keys: ['Esc'], description: m.shortcuts_item_close_menus() },
+				// Chiave unica per l'#each: Invio/Esc nel composer in ripetizione (/loop).
+				{ keys: ['Invio', 'Esc'], description: m.shortcuts_item_loop() }
 			]
 		},
 		{

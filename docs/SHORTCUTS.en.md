@@ -45,6 +45,8 @@ Global shortcuts captured by the application live behind the **`Ctrl+Alt`** modi
 | `Alt+Enter` | GUI Composer | Send with alternate queueing mode (opposite of default) |
 | `Shift+Enter` / `Ctrl+Enter` | GUI Composer | Insert new line |
 | `Esc` | GUI Composer | Close palette/menu/help modal |
+| `Enter` | Composer in repeat mode (`/loop`) | Start the repeat (`Shift+Enter` adds a line) |
+| `Esc` | Composer in repeat mode (`/loop`) | Close the pill menu or leave repeat mode; once started, pause the repeat at the end of the round |
 | `Ctrl+0` | Focused Diagram | Fit diagram to window |
 | `Ctrl+S` | Editor | Save current file and notify |
 | `Ctrl+W` | Editor | Close current file |

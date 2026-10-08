@@ -2931,5 +2931,6 @@
   "loop_cmd_description": "Ripete un prompt a ogni giro, con limite e condizione di stop",
   "loop_panel_aria": "Pannello della ripetizione",
   "loop_segments_aria": "Giro {giro} di {total}",
-  "loop_start_busy": "L'agente sta lavorando: avvia la ripetizione a turno finito."
+  "loop_start_busy": "L'agente sta lavorando: avvia la ripetizione a turno finito.",
+  "shortcuts_item_loop": "Composer in ripetizione (/loop): Invio avvia; Esc chiude il menu, esce dalle pillole o mette in pausa a fine giro"
 }

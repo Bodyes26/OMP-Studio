@@ -46,6 +46,8 @@ Le scorciatoie globali catturate dall'app vivono dietro il modificatore **`Ctrl+
 | `Alt+Freccia Su` | Composer GUI, bozza vuota | Richiama nell'editor l'ultimo messaggio in coda (prima i follow-up, poi gli steer) |
 | `Maiusc+Invio` / `Ctrl+Invio` | Composer GUI | Inserisce una nuova riga |
 | `Esc` | Composer GUI | Chiude palette/menu/modale aiuto |
+| `Invio` | Composer in ripetizione (`/loop`) | Avvia la ripetizione (`Maiusc+Invio` va a capo) |
+| `Esc` | Composer in ripetizione (`/loop`) | Chiude il menu della pillola o esce dalla modalità ripetizione; a ripetizione avviata la mette in pausa a fine giro |
 | `Ctrl+0` | Diagramma a fuoco | Adatta il diagramma alla finestra |
 | `Ctrl+S` | Editor | Salva il file corrente e lo notifica |
 | `Ctrl+W` | Editor | Chiude il file corrente |
