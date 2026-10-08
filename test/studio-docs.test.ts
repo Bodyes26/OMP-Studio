@@ -6,7 +6,7 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import studioDocsExtension, {
@@ -269,7 +269,7 @@ describe('Diario: corsie e prompt', () => {
 		git(['worktree', 'add', '-q', lane]);
 		try {
 			const resolved = resolveProjectRoot(lane).replace(/\\/g, '/');
-			assert.equal(resolved.replace(/\/+$/, ''), root.replace(/\\/g, '/').replace(/\/+$/, ''));
+			assert.equal(resolved.replace(/\/+$/, ''), realpathSync(root).replace(/\\/g, '/').replace(/\/+$/, ''));
 		} finally {
 			rmSync(lane, { recursive: true, force: true });
 		}
