@@ -6,7 +6,9 @@
 //  2. Output ESM con JSX automatico (react/jsx-runtime);
 //  3. File locali risolti dal VFS dello snapshot, dipendenze bare esterne con import map;
 //  4. Dipendenze verificate rispetto a package.json (devono essere presenti e con versione esatta);
-//  5. CSS aggregato in tag <style type="text/tailwindcss"> con rimozione di @import "tailwindcss".
+//  5. CSS aggregato in tag <style type="text/tailwindcss"> con rimozione di @import "tailwindcss";
+//  6. JSX in modalita' sviluppo (`jsxDev`) verso lo shim `react/jsx-dev-runtime` del Lab, che marca
+//     ogni elemento host con `data-lab-loc="file:riga:colonna"` per «Indica» (R3X-lab-indica).
 
 import * as esbuild from 'esbuild-wasm';
 import {
@@ -16,6 +18,7 @@ import {
 	parsePackageSpecifier
 } from './catalog.ts';
 import type { LabFile, LabPreviewError } from './types.ts';
+import { LAB_JSX_DEV_SHIM } from './inspect/jsxDevShim.ts';
 
 export interface LabCompileResult {
 	ok: boolean;
@@ -49,7 +52,12 @@ export async function ensureEsbuildInitialized(wasmUrl = '/lab/esbuild.wasm'): P
 		try {
 			const maybeGlobal: Record<string, unknown> = globalThis;
 			const hasNodeProcess = 'process' in maybeGlobal && typeof maybeGlobal.process === 'object' && maybeGlobal.process !== null;
-			if (typeof window === 'undefined' && hasNodeProcess) {
+			const nodeVersions = hasNodeProcess
+				? (maybeGlobal.process as { versions?: { node?: unknown } }).versions
+				: undefined;
+			// Node si riconosce da `process.versions.node`, non dall'assenza di
+			// `window`: gli smoke test definiscono un `window` finto.
+			if (typeof nodeVersions?.node === 'string') {
 				// In ambiente Node.js esbuild-wasm si inizializza senza opzioni
 				await esbuild.initialize({});
 			} else {
@@ -141,6 +149,17 @@ export async function compileLabPrototype(files: LabFile[]): Promise<LabCompileR
 	const vfsPlugin: esbuild.Plugin = {
 		name: 'lab-vfs-resolver',
 		setup(build) {
+			// Runtime JSX di sviluppo: modulo virtuale che aggiunge la mappa sorgente.
+			// Va registrato prima del risolutore dei bare specifier.
+			build.onResolve({ filter: /^react\/jsx-dev-runtime$/ }, () => ({
+				path: 'jsx-dev-runtime',
+				namespace: 'lab-internal'
+			}));
+			build.onLoad({ filter: /.*/, namespace: 'lab-internal' }, () => ({
+				contents: LAB_JSX_DEV_SHIM,
+				loader: 'js'
+			}));
+
 			// Risolve file locali
 			build.onResolve({ filter: /^\.{1,2}\/|^\// }, (args) => {
 				const importer = args.importer || '/';
@@ -287,7 +306,10 @@ export async function compileLabPrototype(files: LabFile[]): Promise<LabCompileR
 			bundle: true,
 			format: 'esm',
 			jsx: 'automatic',
+			jsxDev: true,
 			target: 'es2022',
+			// Nessun tsconfig dal disco: il prototipo vive tutto nel VFS.
+			tsconfigRaw: '{}',
 			write: false,
 			plugins: [vfsPlugin]
 		});
