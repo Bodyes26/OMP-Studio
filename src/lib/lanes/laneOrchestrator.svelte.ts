@@ -339,6 +339,10 @@ export class LaneOrchestrator {
 		if (sessionRegistry.getLaneSession(project.id, lane.laneId)?.loopActive) return true;
 		const state = this.laneAgentState(project, lane.laneId);
 		if (state === 'working') return true;
+		// Obiettivo attivo o in definizione: fra un tentativo e l'altro l'agente
+		// risulta fermo, ma omp sta per ripartire da solo (o l'intervista occupa
+		// il composer). Per la coda la corsia e' occupata.
+		if (sessionRegistry.getLaneSession(project.id, lane.laneId)?.goalHoldsSession) return true;
 		if (state !== 'attention') return false;
 		if (this.laneSurface(project, lane.laneId) !== 'gui') return true;
 		const session = sessionRegistry.getLaneSession(project.id, lane.laneId);

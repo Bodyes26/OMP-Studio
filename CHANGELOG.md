@@ -16,6 +16,8 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - La riga sotto il composer manda le voci che non entrano in un menu «…».
 - «Dirama da qui» e «Modifica e riprova» nel menu «…» di ogni tuo messaggio nella chat (anche con il tasto destro): aprono una nuova sessione con la conversazione fino a prima di quel messaggio, e con «Modifica e riprova» il testo torna nel composer per correggerlo e reinviarlo. Sotto ogni risposta conclusa «Dirama da qui» apre una nuova sessione che finisce con quel turno. La sessione di partenza resta intatta nell'elenco sessioni.
 - Ripetizione (`/loop`) nella chat: la pillola «Ripeti» nel composer, o `/loop`, trasforma il composer in modalità ripetizione con pillole a tendina per il limite (giri o tempo), la condizione di stop (finché un comando riesce o fallisce, con «Prova ora») e cosa fare tra un giro e l'altro (continuare, compattare o ripartire da una sessione nuova). Avviata, il composer diventa il pannello di controllo: barra a segmenti per giro, contatore, ultimo controllo, «Pausa» che scatta a fine giro, «Riprendi» e «Stop» immediato. I giri finiti si ripiegano in una riga nel transcript, con l'esito del controllo e la durata. `/loop 6 --until 'npm test' …` scritto nel composer parte subito, con la stessa sintassi del Terminale. Una ripetizione in pausa sopravvive alla ripresa della sessione, e finché è attiva la coda dei task non avvia nulla su quella chat.
+- Obiettivo guidato nella chat: con «Obiettivo» nel composer, `/guided-goal [idea]` o `/goal`, Studio fissa l'obiettivo con cinque domande una alla volta (criteri, verifica, tetto, confini, stop) a cui rispondi da una scheda a scelte al posto del composer, oppure scrivendo la tua risposta. Una striscia in cima mostra i cinque campi che si riempiono; un criterio vago come «più veloce» senza soglia viene segnalato. Alla fine la bozza arriva come card nella chat, modificabile, e «Avvia obiettivo» resta spento finché ci sono problemi o manca il tetto. Avviato, l'obiettivo vive in un banner fisso in cima alla chat con tentativi, budget di token, tempo e Pausa, Riprendi e Stop; al tetto di tentativi si mette in pausa da solo. Con l'agente disponibile domande e risposte proposte si adattano al progetto.
+- `/goal pause`, `/goal resume`, `/goal drop`, `/goal show` e `/goal <obiettivo>` funzionano nella chat GUI invece di arrivare al modello come testo.
 - Pannello «Rami» (`/tree`, o fissato nel composer): l'albero della sessione aperta con un nodo per ogni tuo messaggio, il ramo attivo evidenziato e i rami alternativi rientrati dove si staccano. Un clic su un ramo lo apre come nuova sessione fino al suo ultimo messaggio; dal menu di un nodo puoi anche diramare da prima del messaggio o riprovarlo.
 - Le righe di stato e i piccoli pannelli che le estensioni di `omp` mostrano nel terminale ora compaiono anche nella chat: lo stato come voce della riga sotto il composer, i pannelli di testo sopra o sotto il composer, con i colori ridotti a quelli del tema.
 - Nel piè di ogni turno che ha modificato file compare il bilancio `+N −M` delle righe aggiunte e rimosse; un clic apre il confronto del primo file modificato.
@@ -34,6 +36,8 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Le chat dei progetti non visibili non vengono più ridisegnate, i terminali ricevono l'output a blocchi e l'anello di attenzione che respira non impegna più la CPU.
 - Le operazioni Git e le ricerche nei file non rallentano più le altre richieste dell'interfaccia.
 - Il registro diagnostico del fuoco (`focus-trace.log`) non viene più scritto se non lo si attiva.
+- L'obiettivo della sessione non sta più nel vassoio sopra il composer: è il banner in cima alla chat.
+- Con un obiettivo attivo, o in definizione, l'avvio automatico della coda considera la chat occupata anche tra un tentativo e l'altro.
 - `/tree` nella chat GUI apre il pannello «Rami», come il `/tree` di `omp`, invece dell'elenco sessioni: l'elenco resta su `/sessions` e `/resume`.
 - `/btw` scritto nella chat GUI non arriva più al modello principale come testo normale: lo gestisce Studio con il riquadro «A margine».
 
@@ -43,6 +47,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Un errore del provider a fine turno (per esempio un sovraccarico o un limite) ora compare in chat con provider, codice HTTP e l'indicazione se si può riprovare.
 - Gli avvisi delle estensioni mantengono il loro livello (avviso, errore) invece di comparire sempre come informazione.
 - Studio non consuma più CPU di continuo a riposo: per ogni sessione senza un account fissato la ricerca dell'account si ripeteva senza sosta scorrendo tutte le sessioni su disco (oltre il 150% di CPU su Mac).
+- Un obiettivo creato nella chat GUI prosegue da solo un tentativo dopo l'altro, come nel terminale: prima si fermava dopo il primo turno.
 - `/fork` nella chat GUI copia davvero la sessione, cronologia e artefatti compresi, e prosegue sulla copia: prima apriva una chat vuota. Se l'agente sta lavorando o aspetta una risposta, Studio lo dice e lascia tutto com'era.
 
 ## [1.7.2] - 2026-10-07

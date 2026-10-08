@@ -29,6 +29,10 @@
 	import Composer from './Composer.svelte';
 	import ComposerTray from './ComposerTray.svelte';
 	import LoopComposer from './LoopComposer.svelte';
+	import GoalBanner from './GoalBanner.svelte';
+	import GuidedGoalAskCard from './GuidedGoalAskCard.svelte';
+	import GuidedGoalStrip from './GuidedGoalStrip.svelte';
+	import type { Goal } from '../wire';
 	import QueueChips from './QueueChips.svelte';
 	import SubagentDrawer from './SubagentDrawer.svelte';
 	import SuggestionChips from './SuggestionChips.svelte';
@@ -105,6 +109,50 @@
 		askMinimizedRequestId = null;
 	}
 	let activeSubagentId = $state<string | null>(null);
+
+	// --- Obiettivo (goal mode) ------------------------------------------------
+	// L'intervista dell'obiettivo guidato prende il posto del composer; l'obiettivo
+	// avviato vive nel banner in cima. Un obiettivo completato resta nel banner
+	// (verde, chiudibile) anche dopo che omp lo toglie dallo stato della sessione.
+	const guidedAsking = $derived(
+		session.guidedGoal !== null &&
+			(session.guidedGoal.phase === 'asking' || session.guidedGoal.phase === 'idea') &&
+			session.pendingUi === null
+	);
+	let finishedGoal = $state<Goal | null>(null);
+	let lastGoalSeen: Goal | null = null;
+	let lastGoalSession: string | null = null;
+	$effect(() => {
+		const current = session.goal?.goal ?? null;
+		const sessionId = session.sessionId ?? null;
+		if (sessionId !== lastGoalSession) {
+			lastGoalSession = sessionId;
+			lastGoalSeen = null;
+			finishedGoal = null;
+		}
+		if (current) {
+			if (current.status !== 'complete') finishedGoal = null;
+			lastGoalSeen = current;
+		} else {
+			if (lastGoalSeen?.status === 'complete') finishedGoal = lastGoalSeen;
+			lastGoalSeen = null;
+		}
+	});
+	const bannerGoal = $derived.by(() => {
+		const current = session.goal?.goal ?? null;
+		if (current && current.status !== 'dropped') return current;
+		return finishedGoal;
+	});
+	let goalOpBusy = $state(false);
+	async function goalOp(run: () => Promise<boolean>) {
+		if (goalOpBusy) return;
+		goalOpBusy = true;
+		try {
+			await run();
+		} finally {
+			goalOpBusy = false;
+		}
+	}
 	let quotaSwitching = $state(false);
 	const quotaInfo = $derived.by(() => {
 		const bq = session.blockedQuotaState;
@@ -399,6 +447,20 @@
 	style:position="absolute"
 	style:inset="0"
 >
+	{#if bannerGoal}
+		<GoalBanner
+			goal={bannerGoal}
+			attempts={session.goalAttempts}
+			cap={session.goalAttemptCap}
+			busy={goalOpBusy}
+			onPause={() => void goalOp(() => session.pauseGoal())}
+			onResume={() => void goalOp(() => session.resumeGoal())}
+			onDrop={() => void goalOp(() => session.dropGoal())}
+			onDismiss={session.goal ? undefined : () => (finishedGoal = null)}
+		/>
+	{:else if session.guidedGoal && session.guidedGoalOpen}
+		<GuidedGoalStrip interview={session.guidedGoal} />
+	{/if}
 	{#if isDraggingColumn}
 		<div class="chat-column-drag-overlay" aria-hidden="true">
 			<div class="drag-overlay-card">
@@ -475,10 +537,6 @@
 				subagents={session.subagents}
 				queueCount={Math.max(session.queuedChips.length, session.queuedMessageCount)}
 				queue={queuedRows}
-				goal={session.goal?.goal ?? null}
-				onPauseGoal={() => void session.pauseGoal()}
-				onResumeGoal={() => void session.resumeGoal()}
-				onDropGoal={() => void session.dropGoal()}
 				btw={btwTray}
 				questionOpen={session.pendingUi !== null}
 				onOpenSubagent={(id) => (activeSubagentId = id)}
@@ -501,13 +559,16 @@
 					<AskCard {session} pending={session.pendingUi} {visible} onMinimize={minimizeAsk} />
 				{/key}
 			{/if}
+			{#if guidedAsking && session.guidedGoal}
+				<GuidedGoalAskCard {session} interview={session.guidedGoal} {visible} />
+			{/if}
 			<div
-				class:composer-under-ask={(session.pendingUi !== null && !askMinimized) || session.plan.approvalOpen || session.plan.handingOff}
+				class:composer-under-ask={(session.pendingUi !== null && !askMinimized) || session.plan.approvalOpen || session.plan.handingOff || guidedAsking}
 			>
 				<Composer
 					bind:this={composerRef}
 					{session}
-					visible={visible && (session.pendingUi === null || askMinimized) && !session.plan.approvalOpen && !session.plan.handingOff}
+					visible={visible && (session.pendingUi === null || askMinimized) && !session.plan.approvalOpen && !session.plan.handingOff && !guidedAsking}
 					dropTarget={isDraggingColumn}
 					onSlashCommand={(cmd: string) => (onSlashCommand ? onSlashCommand(cmd) : false)}
 					{onNewChat}

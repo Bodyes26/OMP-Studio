@@ -178,6 +178,24 @@ export const STUDIO_SLASH_COMMANDS: AvailableCommand[] = [
 		input: { hint: "[N|10m] [--until|--while 'cmd'] [prompt]" }
 	},
 	{
+		name: 'guided-goal',
+		get description() { return msg.commands_guided_goal_desc(); },
+		source: 'studio',
+		input: { hint: '[idea]' }
+	},
+	{
+		name: 'goal',
+		get description() { return msg.commands_goal_desc(); },
+		source: 'studio',
+		input: { hint: '[obiettivo]' },
+		subcommands: [
+			{ name: 'show', get description() { return msg.commands_goal_show(); } },
+			{ name: 'pause', get description() { return msg.commands_goal_pause(); } },
+			{ name: 'resume', get description() { return msg.commands_goal_resume(); } },
+			{ name: 'drop', get description() { return msg.commands_goal_drop(); } }
+		]
+	},
+	{
 		name: 'drop',
 		get description() { return msg.ui_ts_commands_apre_lo_storico_per_gestire_ed_eliminare_f7c8(); },
 		source: 'studio'
@@ -190,8 +208,8 @@ export const STUDIO_SLASH_COMMANDS: AvailableCommand[] = [
 	}
 ];
 
-/** Trasporti interni delle estensioni di Studio: `/studio-plan` per `/plan` (Gate R3X-plan), `/studio-loop` per `/loop` (Gate R3X-loop). */
-const HIDDEN_EXTENSION_COMMANDS = new Set(['studio-plan', 'studio-loop']);
+/** Trasporti interni delle estensioni di Studio: `/studio-plan` per `/plan` (Gate R3X-plan), `/studio-loop` per `/loop` (Gate R3X-loop), `/studio-goal` per le proposte dell'obiettivo guidato (Gate R3X-guided-goal). */
+const HIDDEN_EXTENSION_COMMANDS = new Set(['studio-plan', 'studio-loop', 'studio-goal']);
 
 /**
  * Unisce i comandi nativi del guscio con quelli dinamici ricevuti da omp.

@@ -89,6 +89,29 @@ import {
 	type LoopState
 } from './loopMode';
 import {
+	answerCurrent,
+	canLaunch,
+	currentQuestion,
+	describeAnswer,
+	goalMarkdown,
+	mergeAgentSuggestions,
+	parseAttemptCap,
+	parseFreeAnswer,
+	parseStudioGoalStatus,
+	setIdea,
+	shouldPauseForCap,
+	skipCurrent,
+	startInterview,
+	STUDIO_GOAL_COMMAND,
+	STUDIO_GOAL_STATUS_KEY,
+	suggestCommand,
+	type GoalAnswerValue,
+	type GoalDraft,
+	type GoalFieldKey,
+	type GoalInterview
+} from './guidedGoal';
+import { getLocale } from '$lib/paraglide/runtime.js';
+import {
 	RENDER_WINDOW,
 	clampVisibleCount,
 	sliceVisibleEntries,
@@ -347,7 +370,22 @@ export interface PlanEntry {
 	sessionId: string | null;
 }
 
+/**
+ * Passo dell'intervista dell'obiettivo guidato: vive solo in Studio (non va a
+ * omp e non entra nel contesto). `draft` disegna la card della bozza leggendo
+ * `session.guidedGoal` per `interviewId`.
+ */
+export interface GuidedGoalEntry {
+	id: number;
+	kind: 'guided-goal';
+	part: 'command' | 'question' | 'answer' | 'draft' | 'started' | 'note';
+	interviewId: string;
+	text: string;
+	field?: GoalFieldKey;
+}
+
 export type TranscriptEntry =
+	| GuidedGoalEntry
 	| UserEntry
 	| AssistantEntry
 	| ToolEntry
@@ -718,6 +756,16 @@ export class AgentSession {
 	goal = $state<GoalModeState | null>(null);
 	/** Modalita' Piano della chat GUI: revisione e passaggio di compito. */
 	readonly plan: PlanController = new PlanController(this);
+	/** Intervista dell'obiettivo guidato in corso (o appena conclusa). */
+	guidedGoal = $state<GoalInterview | null>(null);
+	/** Tentativi dell'obiettivo corrente contati da Studio (turni con l'obiettivo attivo). */
+	goalAttempts = $state(0);
+	/** Tetto di tentativi dell'obiettivo corrente (dal testo dell'obiettivo). */
+	goalAttemptCap = $state<number | null>(null);
+	private goalTrackedId: string | null = null;
+	private goalAttemptOpen = false;
+	private guidedGoalSeq = 0;
+	private guidedGoalTimer: ReturnType<typeof setTimeout> | null = null;
 	cacheWarmingInFlight = $state<CacheWarmingInFlight | null>(null);
 	cacheWarmingLast = $state<CacheWarmingLast | null>(null);
 
@@ -863,6 +911,7 @@ export class AgentSession {
 			subagentsRunning:
 				!this.settle.aware && this.subagents.some((sub) => sub.status === 'running' || sub.status === 'pending'),
 			blockingQuestion: this.pendingUi ? askQuestionText(this.pendingUi) : null,
+			goalHold: this.goalHoldsSession,
 			quotaBlock: quota && !quota.dismissed ? quota.title : null,
 			inferencePending: this.suggestions.isAnalyzing,
 			inferredQuestion: this.inferredAttention?.question ?? null,
@@ -1803,7 +1852,10 @@ export class AgentSession {
 		if ('slowModeEnabled' in state) this.slowModeEnabled = Boolean(state.slowModeEnabled);
 		if ('slowModeScope' in state) this.slowModeScope = state.slowModeScope ?? null;
 		if ('usageLimit' in state) this.usageLimit = state.usageLimit ?? null;
-		if ('goal' in state) this.goal = state.goal ?? null;
+		if ('goal' in state) {
+			this.goal = state.goal ?? null;
+			this.syncGoalTracking();
+		}
 	}
 
 	/**
@@ -1894,6 +1946,7 @@ export class AgentSession {
 					}
 					this.optimisticUser = null;
 					this.visibleCount = RENDER_WINDOW;
+					this.restoreGuidedGoalEntries();
 					return;
 				}
 				if (failed === 'fatal') break;
@@ -2278,6 +2331,7 @@ export class AgentSession {
 				this.stopSettlePoll();
 				this.isStreaming = true;
 				this.markWorking();
+				this.noteGoalAttemptStart();
 				return;
 
 			case 'agent_end': {
@@ -2300,6 +2354,7 @@ export class AgentSession {
 				this.runEndSeq += 1;
 				this.agentState = this.resolveSettledState();
 				this.releaseIdleWaiters();
+				this.noteGoalAttemptEnd(wasAborting);
 				void this.reconcile();
 				this.captureAssistantActivity();
 				notifyGitStatusRefresh(this.cwd);
@@ -2546,6 +2601,7 @@ export class AgentSession {
 						};
 					}
 				}
+				this.syncGoalTracking();
 				return;
 			}
 
@@ -3394,6 +3450,11 @@ export class AgentSession {
 		if (method === 'setStatus' && event.statusKey === PLAN_STATUS_KEY) {
 			// Lo stato del Piano arriva su una chiave sua: non e' testo per la riga di stato.
 			this.plan.applyStatus(event.statusText);
+			return;
+		}
+		if (method === 'setStatus' && event.statusKey === STUDIO_GOAL_STATUS_KEY) {
+			// Risposta dell'estensione `studio-goal`: dati per l'intervista, non uno stato da mostrare.
+			this.applyStudioGoalStatus(typeof event.statusText === 'string' ? event.statusText : undefined);
 			return;
 		}
 		if (method === 'setStatus' && event.statusKey === LOOP_STATUS_KEY) {
@@ -4526,6 +4587,7 @@ export class AgentSession {
 	private resetLiveSessionState(): void {
 		this.plan.onSessionReset();
 		this.entries = [];
+		this.clearGuidedGoal();
 		this.toolEntries.clear();
 		this.clearStreamAsk();
 		this.assistantEntry = null;
@@ -5042,6 +5104,7 @@ export class AgentSession {
 							}
 						: null;
 				}
+				this.syncGoalTracking();
 			}
 			void this.refreshState();
 			return true;
@@ -5061,6 +5124,315 @@ export class AgentSession {
 
 	dropGoal(): Promise<boolean> {
 		return this.setGoalOp('drop');
+	}
+
+	// -----------------------------------------------------------------------
+	// Obiettivo guidato (`/guided-goal`) e tentativi dell'obiettivo
+	// -----------------------------------------------------------------------
+
+	/**
+	 * La sessione e' impegnata dall'obiettivo: attivo (omp prosegue da solo fra
+	 * un turno e l'altro, quindi `isStreaming` falso non vuol dire libera) o in
+	 * definizione (l'intervista occupa il composer). La coda non deve partire.
+	 */
+	get goalHoldsSession(): boolean {
+		if (this.goal?.goal.status === 'active') return true;
+		const phase = this.guidedGoal?.phase;
+		return phase === 'idea' || phase === 'asking' || phase === 'draft' || phase === 'starting';
+	}
+
+	/** L'estensione `studio-goal` e' caricata: l'agente puo' proporre le risposte. */
+	get goalSuggestionsAvailable(): boolean {
+		return this.availableCommands.some((command) => command.name === STUDIO_GOAL_COMMAND);
+	}
+
+	/** Intervista ancora da concludere (domande o bozza da avviare). */
+	get guidedGoalOpen(): boolean {
+		const phase = this.guidedGoal?.phase;
+		return phase === 'idea' || phase === 'asking' || phase === 'draft' || phase === 'starting';
+	}
+
+	private pushGuided(part: GuidedGoalEntry['part'], text: string, field?: GoalFieldKey): GuidedGoalEntry | null {
+		const interview = this.guidedGoal;
+		if (!interview) return null;
+		return this.push<GuidedGoalEntry>({
+			id: this.nextEntryId++,
+			kind: 'guided-goal',
+			part,
+			interviewId: interview.id,
+			text,
+			field
+		});
+	}
+
+	/** Mette nel transcript la domanda corrente (testo dell'agente se c'e'). */
+	private askCurrentGuidedQuestion(intro = false): void {
+		const interview = this.guidedGoal;
+		if (!interview) return;
+		if (interview.phase === 'idea') {
+			this.pushGuided('question', messages.guided_goal_q_idea());
+			return;
+		}
+		const question = currentQuestion(interview);
+		if (!question) return;
+		const text = intro ? `${messages.guided_goal_intro()} ${question.question}` : question.question;
+		this.pushGuided('question', text, question.field);
+	}
+
+	/**
+	 * Avvia l'intervista. Rifiutata con un obiettivo gia' presente (omp ne tiene
+	 * uno per sessione) e in Laboratorio; un'intervista aperta resta quella.
+	 */
+	startGuidedGoal(idea: string): boolean {
+		if (this.labConfig) {
+			this.flashNotice('info', messages.guided_goal_lab_unavailable());
+			return false;
+		}
+		if (this.goal && (this.goal.goal.status === 'active' || this.goal.goal.status === 'paused' || this.goal.goal.status === 'budget-limited')) {
+			this.flashNotice('warning', messages.guided_goal_already_active());
+			return false;
+		}
+		if (this.guidedGoalOpen) {
+			this.flashNotice('info', messages.guided_goal_already_open());
+			return false;
+		}
+		const id = `gg-${Date.now().toString(36)}-${++this.guidedGoalSeq}`;
+		this.guidedGoal = startInterview(id, idea);
+		this.pushGuided('command', idea.trim());
+		this.askCurrentGuidedQuestion(true);
+		this.requestGoalSuggestions();
+		return true;
+	}
+
+	/** Proposte dell'agente con un turno a margine dell'estensione (facoltativo). */
+	private requestGoalSuggestions(): void {
+		const interview = this.guidedGoal;
+		if (!interview || !this.goalSuggestionsAvailable || !this.isReady || this.exited) return;
+		if (interview.phase !== 'asking') return; // senza idea non c'e' niente da proporre
+		this.guidedGoal = { ...interview, agent: 'pending' };
+		const command = suggestCommand(interview.id, interview.idea, getLocale());
+		this.client.send({ type: 'prompt', message: command }).catch(() => {
+			if (this.guidedGoal?.id === interview.id) this.guidedGoal = { ...this.guidedGoal, agent: 'failed' };
+		});
+		if (this.guidedGoalTimer) clearTimeout(this.guidedGoalTimer);
+		// Il turno a margine puo' non arrivare mai (estensione vecchia, provider lento):
+		// dopo un minuto l'intervista resta con le proposte fisse, senza attese.
+		this.guidedGoalTimer = setTimeout(() => {
+			this.guidedGoalTimer = null;
+			if (this.guidedGoal?.id === interview.id && this.guidedGoal.agent === 'pending') {
+				this.guidedGoal = { ...this.guidedGoal, agent: 'failed' };
+			}
+		}, 60_000);
+	}
+
+	private applyStudioGoalStatus(text: string | undefined): void {
+		const status = parseStudioGoalStatus(text);
+		const interview = this.guidedGoal;
+		if (!status || !interview || status.requestId !== interview.id) return;
+		if (this.guidedGoalTimer) {
+			clearTimeout(this.guidedGoalTimer);
+			this.guidedGoalTimer = null;
+		}
+		if (status.type === 'error') {
+			this.guidedGoal = { ...interview, agent: 'failed' };
+			return;
+		}
+		const merged = mergeAgentSuggestions(interview, status.suggestions);
+		this.guidedGoal = merged;
+		// La domanda corrente nel transcript prende il testo dell'agente.
+		const question = currentQuestion(merged);
+		if (question?.fromAgent) {
+			for (let index = this.entries.length - 1; index >= 0; index--) {
+				const entry = this.entries[index];
+				if (entry.kind === 'guided-goal' && entry.interviewId === merged.id && entry.part === 'question') {
+					if (entry.field === question.field) {
+						const intro = merged.step === 0 ? `${messages.guided_goal_intro()} ` : '';
+						entry.text = `${intro}${question.question}`;
+					}
+					break;
+				}
+			}
+		}
+	}
+
+	/**
+	 * Risposta alla domanda corrente: un'opzione proposta (`value`) o testo
+	 * libero. Il testo libero che non si lascia interpretare resta comunque la
+	 * risposta: la bozza segnala cosa manca prima dell'avvio.
+	 */
+	answerGuidedGoal(answer: GoalAnswerValue | string): void {
+		let interview = this.guidedGoal;
+		if (!interview) return;
+		if (interview.phase === 'idea') {
+			if (typeof answer !== 'string' || !answer.trim()) return;
+			interview = setIdea(interview, answer);
+			this.guidedGoal = interview;
+			this.pushGuided('answer', answer.trim());
+			this.askCurrentGuidedQuestion(true);
+			this.requestGoalSuggestions();
+			return;
+		}
+		const question = currentQuestion(interview);
+		if (!question) return;
+		let value: GoalAnswerValue | null;
+		let shown: string;
+		if (typeof answer === 'string') {
+			const text = answer.trim();
+			if (!text) return;
+			value = parseFreeAnswer(question.field, text);
+			shown = text;
+		} else {
+			value = answer;
+			shown = describeAnswer(answer);
+		}
+		this.pushGuided('answer', shown, question.field);
+		if (!value) {
+			// Niente da ricavare (per esempio un tetto senza numeri): resta da sistemare nella bozza.
+			this.guidedGoal = { ...skipCurrent(interview), answers: { ...interview.answers, [question.field]: shown } };
+		} else {
+			this.guidedGoal = answerCurrent(interview, value);
+		}
+		this.afterGuidedAnswer();
+	}
+
+	skipGuidedGoalQuestion(): void {
+		const interview = this.guidedGoal;
+		if (!interview || interview.phase !== 'asking') return;
+		const question = currentQuestion(interview);
+		this.pushGuided('answer', messages.guided_goal_skipped(), question?.field);
+		this.guidedGoal = skipCurrent(interview);
+		this.afterGuidedAnswer();
+	}
+
+	private afterGuidedAnswer(): void {
+		const interview = this.guidedGoal;
+		if (!interview) return;
+		if (interview.phase === 'asking') {
+			this.askCurrentGuidedQuestion();
+			return;
+		}
+		if (interview.phase === 'draft') {
+			this.pushGuided('question', messages.guided_goal_draft_intro());
+			this.pushGuided('draft', '');
+		}
+	}
+
+	/**
+	 * La ricostruzione del transcript da omp non conosce l'intervista (vive solo
+	 * in Studio): se e' ancora aperta, la domanda corrente o la bozza tornano in
+	 * coda, altrimenti la bozza da avviare sparirebbe.
+	 */
+	private restoreGuidedGoalEntries(): void {
+		const interview = this.guidedGoal;
+		if (!interview || !this.guidedGoalOpen) return;
+		if (interview.phase === 'draft' || interview.phase === 'starting') {
+			this.pushGuided('question', messages.guided_goal_draft_intro());
+			this.pushGuided('draft', '');
+		} else {
+			this.askCurrentGuidedQuestion();
+		}
+	}
+
+	/** Correzioni fatte nella card della bozza. */
+	updateGuidedGoalDraft(draft: GoalDraft): void {
+		const interview = this.guidedGoal;
+		if (!interview || interview.phase !== 'draft') return;
+		this.guidedGoal = { ...interview, draft };
+	}
+
+	cancelGuidedGoal(): void {
+		const interview = this.guidedGoal;
+		if (!interview || !this.guidedGoalOpen || interview.phase === 'starting') return;
+		this.pushGuided('note', messages.guided_goal_cancelled());
+		this.guidedGoal = { ...interview, phase: 'cancelled' };
+		if (this.guidedGoalTimer) {
+			clearTimeout(this.guidedGoalTimer);
+			this.guidedGoalTimer = null;
+		}
+	}
+
+	private clearGuidedGoal(): void {
+		if (this.guidedGoalTimer) clearTimeout(this.guidedGoalTimer);
+		this.guidedGoalTimer = null;
+		this.guidedGoal = null;
+	}
+
+	/** «Avvia»: crea l'obiettivo su omp solo se i controlli bloccanti sono passati. */
+	async launchGuidedGoal(): Promise<boolean> {
+		const interview = this.guidedGoal;
+		if (!interview || interview.phase !== 'draft' || !canLaunch(interview.draft)) return false;
+		this.guidedGoal = { ...interview, phase: 'starting' };
+		const draft = interview.draft;
+		const created = await this.createGoal(goalMarkdown(draft), draft.tokenBudget ?? undefined, draft.attempts);
+		const current = this.guidedGoal;
+		if (!current || current.id !== interview.id) return created;
+		if (!created) {
+			this.guidedGoal = { ...current, phase: 'draft' };
+			return false;
+		}
+		this.guidedGoal = { ...current, phase: 'started' };
+		this.pushGuided('started', draft.objective);
+		return true;
+	}
+
+	/**
+	 * `goal create` su omp. L'obiettivo prosegue da solo fra un turno e l'altro
+	 * perche' l'overlay di Studio abilita `goal.continuationModes: rpc`.
+	 */
+	async createGoal(objective: string, tokenBudget?: number, attemptCap?: number | null): Promise<boolean> {
+		const text = objective.trim();
+		if (!text) return false;
+		try {
+			const res = await this.client.send<GoalResult>({
+				type: 'goal',
+				op: 'create',
+				objective: text,
+				token_budget: tokenBudget && tokenBudget > 0 ? Math.round(tokenBudget) : undefined
+			});
+			if (res?.state !== undefined) this.goal = res.state;
+			this.syncGoalTracking();
+			if (attemptCap !== undefined) this.goalAttemptCap = attemptCap ?? null;
+			void this.refreshState();
+			return true;
+		} catch (error) {
+			this.flashNotice('error', messages.guided_goal_create_failed({ error: this.reason(error) }));
+			return false;
+		}
+	}
+
+	/** Nuovo obiettivo (o nessuno): i tentativi ripartono da zero, il tetto si rilegge dal testo. */
+	private syncGoalTracking(): void {
+		const goal = this.goal?.goal ?? null;
+		const id = goal?.id ?? null;
+		if (id === this.goalTrackedId) return;
+		this.goalTrackedId = id;
+		this.goalAttempts = 0;
+		this.goalAttemptOpen = false;
+		this.goalAttemptCap = goal ? parseAttemptCap(goal.objective) : null;
+	}
+
+	/** Un tentativo e' un giro dell'agente con l'obiettivo attivo. */
+	private noteGoalAttemptStart(): void {
+		if (this.goal?.goal.status !== 'active' || this.goalAttemptOpen) return;
+		this.goalAttemptOpen = true;
+		this.goalAttempts += 1;
+	}
+
+	/**
+	 * Fine del giro: al tetto di tentativi l'obiettivo va in pausa, perche' omp
+	 * conosce solo il budget di token e altrimenti continuerebbe.
+	 */
+	private noteGoalAttemptEnd(aborted: boolean): void {
+		if (!this.goalAttemptOpen) return;
+		this.goalAttemptOpen = false;
+		if (aborted) return;
+		if (shouldPauseForCap(this.goalAttempts, this.goalAttemptCap, this.goal?.goal.status)) {
+			void this.pauseGoal().then((paused) => {
+				if (paused) {
+					this.pushNotice('info', messages.goal_banner_cap_reached({ count: this.goalAttempts }), 'studio');
+				}
+			});
+		}
 	}
 
 	/**

@@ -100,6 +100,13 @@ export interface GuiGateSnapshot {
 	 * che non conoscono il loop.
 	 */
 	loopActive?: boolean;
+	/**
+	 * Obiettivo attivo o in definizione: omp prosegue da solo fra un turno e
+	 * l'altro (o l'intervista occupa il composer), quindi la sessione e'
+	 * occupata anche quando nessun turno e' in corso. Facoltativo per gli
+	 * snapshot scritti prima dell'obiettivo guidato.
+	 */
+	goalHold?: boolean;
 }
 
 /**
@@ -263,6 +270,10 @@ export function resolveAutomationGate(input: AutomationGateInput): AutomationGat
 
 	if (session.streaming || session.runActive || session.awaitingRun || session.retrying) {
 		return gate('working', m.gate_label_working(), m.gate_detail_working(), m.gate_hint_working());
+	}
+
+	if (session.goalHold) {
+		return gate('working', m.gate_label_goal(), m.gate_detail_goal(), m.gate_hint_goal());
 	}
 
 	if (session.compacting) {

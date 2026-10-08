@@ -304,6 +304,9 @@ pub const PLAN_EXTENSION_TS: &str = include_str!("../../../extensions/studio-pla
 /// `/loop` della chat GUI (rpc-ui). Nel PTY viene caricata come le altre ma
 /// resta inerte: nel Terminale vale il `/loop` nativo della TUI.
 pub const LOOP_EXTENSION_TS: &str = include_str!("../../../extensions/studio-loop.ts");
+/// Estensione dell'obiettivo guidato: proposte dell'agente con un turno a margine.
+/// Caricata solo dalla chat GUI (`rpc_open`), non dal terminale.
+pub const GOAL_EXTENSION_TS: &str = include_str!("../../../extensions/studio-goal.ts");
 
 /// Unica direttiva aggiunta all'avvio: tenerla qui evita divergenze tra GUI,
 /// Laboratorio e TUI senza salvarla nei messaggi o nel transcript.

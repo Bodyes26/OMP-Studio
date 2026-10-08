@@ -39,6 +39,7 @@
 	import PlanEntryView from './PlanEntryView.svelte';
 	import PlanApprovedCard from './PlanApprovedCard.svelte';
 	import { parseApprovedPlanMessage } from '../planMode';
+	import GuidedGoalEntry from './GuidedGoalEntry.svelte';
 	import SystemChip from './SystemChip.svelte';
 	import NoticeGroup from './NoticeGroup.svelte';
 	import ActivityIndicator from './ActivityIndicator.svelte';
@@ -422,6 +423,13 @@
 		if (item.kind === 'loop-giro' || item.kind === 'loop-sep' || item.kind === 'loop-end') return 'system';
 		const k = item.entry.kind;
 		if (k === 'user') return 'user';
+		// Le risposte dell'intervista dell'obiettivo sono bolle dell'utente.
+		if (k === 'guided-goal') {
+			const part = item.entry.part;
+			if (part === 'command' || part === 'answer') return 'user';
+			if (part === 'started' || part === 'note') return 'system';
+			return 'content';
+		}
 		if (k === 'notice' || k === 'system-chip' || k === 'compaction' || k === 'retry' || k === 'ttsr') return 'system';
 		if (k === 'subagent-result' || k === 'irc') return 'content';
 		if (k === 'plan' && (item.entry.kind === 'plan') && (item.entry.variant === 'enter' || item.entry.variant === 'exit')) return 'system';
@@ -591,6 +599,8 @@
 					<LaneLandingCard entry={item.entry} />
 				{:else if item.entry.kind === 'plan'}
 					<PlanEntryView {session} entry={item.entry} />
+				{:else if item.entry.kind === 'guided-goal'}
+					<GuidedGoalEntry entry={item.entry} {session} />
 				{/if}
 			</div>
 			{#if turnFootersByIndex.get(i)}

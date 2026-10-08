@@ -167,10 +167,11 @@ lib/
     turnDiff.ts         Bilancio `+N −M` del turno dalle card edit/write per il piè di turno
     wire.ts             Tipi TypeScript e mapping del protocollo RPC NDJSON v2
     sessionTree.ts      Diramazioni: copia incrementale di get_entries, mappatura transcript -> entry, righe del pannello Rami (Gate R33)
-    slashRouter.ts      Instradamento puro dei comandi slash di sessione (/resume, /sessions, /tree, /fork) e di /btw
+    slashRouter.ts      Instradamento puro dei comandi slash di sessione (/resume, /sessions, /tree, /fork), di /plan, di /btw e dell'obiettivo (/guided-goal, /goal)
     btw.ts              Domande a margine: record e turni di /btw, delta, citazione per il composer, riconoscimento di omp senza RPC btw (Gate R3X-btw)
     btwState.svelte.ts  SessionBtw: stato del riquadro «A margine» per sessione (storico, argomento aperto, bozza, citazione)
     loopMode.ts         /loop nella GUI: pillole, riga /loop, stato da setStatus, segmenti e giri ripiegati (Gate R3X-loop)
+    guidedGoal.ts       Obiettivo guidato: domande e proposte fisse, risposte libere, bozza, controlli (criterio vago, tetto), markdown per `goal create`, proposte dell'agente (Gate R3X-guided-goal)
     components/
       Chat.svelte       Pannello chat principale della superficie GUI
       BtwPopover.svelte Riquadro «A margine» (/btw) sopra il composer: streaming, approfondimenti, Storico
@@ -178,6 +179,8 @@ lib/
       SuggestionChips.svelte Riga di chip nel composer per suggerimenti prompt fissi e dinamici
       Transcript.svelte Lista messaggi con autoscroll resiliente e virtualizzazione progressiva
       BranchPanel.svelte Pannello «Rami»: albero di get_tree, ramo attivo evidenziato, apertura di un ramo come nuova sessione
+      GoalBanner.svelte Banner fisso dell'obiettivo in cima alla chat: stato, tentativi/tetto, budget, tempo, Pausa/Riprendi/Stop
+      GuidedGoalStrip.svelte / GuidedGoalAskCard.svelte / GuidedGoalDraftCard.svelte / GuidedGoalEntry.svelte  Intervista dell'obiettivo guidato
       AskCard.svelte    Card di risposta interattiva con roving tabindex
       ThinkingBlock.svelte Accordion per blocchi di ragionamento con indicatore tempo
       TodoStrip.svelte  Visualizzatore fasi e task del tool todo
@@ -474,6 +477,16 @@ I metodi senza risposta (`notify`, `setStatus`, `setWidget`, `setTitle`, `open_u
 - Stato: `ctx.ui.setStatus("studio.loop", json)` → `AgentSession.applyLoopStatus` → `session.loop` / `session.loopProbe`. Persistenza con `appendEntry("studio-loop")`; al resume un loop vivo torna in pausa. Dopo l'insediamento Studio chiede `/studio-loop status`. Il comando registrato `studio-loop` dice a Studio che il motore c'e'.
 - GUI: `loopMode.ts` (puro: bozza delle pillole, riga `/loop`, instradamento di `/loop`, segmenti, ripiegamento dei giri), `LoopComposer.svelte` (pillole e pannello, al posto della sagoma del `Composer` via `shellOverride`), `LoopTranscriptRow.svelte` (bolla `/loop`, separatore, giro ripiegato, riga finale). `UserEntry.loopGiro` marca il prompt ripetuto; `UserEntry.loopStart` la bolla d'avvio.
 - Occupazione: `GuiGateSnapshot.loopActive` (blocco `loop` del cancello della coda) e `laneBusy`/`laneAgentState` tengono la corsia occupata finche' il loop e' attivo, pausa compresa. `--between reset`: il motore aspetta in `resetting`, Studio manda `new_session`, il giro riparte su `session_switch`.
+
+### 6.5b Obiettivo guidato e goal mode (Gate R3X-guided-goal)
+
+- In omp `/goal` e `/guided-goal` hanno solo `handleTui`: inoltrati come prompt in `rpc-ui` arrivano al modello come testo. Studio li intercetta (`routeGoalSlash` in `slashRouter.ts`, chiamato da `handleGuiSlashCommand`) e usa l'RPC `goal {op: get|create|resume|pause|drop, objective, token_budget}` con l'evento `goal_updated` (`modes/rpc/rpc-goal.ts`).
+- **Intervista in Studio, deterministica.** `AgentSession.startGuidedGoal` crea un `GoalInterview` (`guidedGoal.ts`): cinque domande fisse con tre risposte proposte, una consigliata, e risposta libera interpretata (`parseCap`, `parseBoundaries`, `splitItems`). Domande e risposte sono entry locali `kind: 'guided-goal'` del transcript: non vanno a omp e non entrano nel contesto. `Chat.svelte` mette `GuidedGoalAskCard` al posto del composer e `GuidedGoalStrip` in cima; alla fine una entry `draft` disegna `GuidedGoalDraftCard`. `draftIssues` blocca «Avvia» (obiettivo, criteri vaghi o assenti, verifica, tetto); confini e stop mancanti sono consigli. Una ricostruzione del transcript rimette in coda la domanda o la bozza aperta.
+- **Proposte dell'agente (facoltative).** Se `get_available_commands` contiene `studio-goal` (estensione `extensions/studio-goal.ts`, caricata con `-e` solo da `rpc_open`), Studio manda il prompt `/studio-goal suggest {requestId, idea, locale}`: in omp i comandi delle estensioni partono prima di tutto, anche durante un turno, e non entrano nel transcript. L'estensione legge i comandi del progetto (`package.json`, `Cargo.toml`…) e fa un `ctx.runEphemeralTurn({tools: false})` (lo stesso turno a margine di `/btw`); risponde con `ctx.ui.setStatus("studio.goal", json)`, che arriva come `extension_ui_request` `setStatus` con `statusKey` e viene consumato da `applyStudioGoalStatus` senza toccare la riga di stato. Le proposte sostituiscono solo le domande non ancora risposte; senza risposta entro 60 s l'intervista resta sulle proposte fisse.
+- **`goal create`.** L'obiettivo e' markdown a sezioni fisse (`## Objective / ## Success criteria / ## Verification / ## Boundaries / ## Stop conditions`, come `prompts/goals/guided-goal-interview.md`), `token_budget` dal tetto. Il tetto di tentativi non e' un campo di omp: sta nel testo (`Stop after N attempts…`, riletto da `parseAttemptCap` anche dopo un riavvio) e Studio conta i tentativi (un `agent_start` con l'obiettivo attivo) e fa `goal pause` al `agent_end` terminale che raggiunge il tetto.
+- **Continuazione via RPC.** omp fa proseguire un obiettivo da solo solo nei modi elencati in `goal.continuationModes` (default `["interactive"]`): l'overlay GUI per-sessione (`write_gui_overlay`/`set_gui_overlay_prewalk` in `src-tauri/src/rpc/mod.rs`) scrive `goal.continuationModes: [interactive, rpc]`. La config dell'utente non viene toccata e il terminale non cambia.
+- **Banner.** `GoalBanner.svelte` in cima a `Chat.svelte` mostra ogni obiettivo della sessione (creato da Studio, con `/goal` o dallo strumento `goal` dell'agente) e sostituisce la sezione obiettivo del vassoio (`GoalTray` non e' piu' montato). Un obiettivo completato resta verde e chiudibile dopo che omp lo toglie dallo stato.
+- **Coda.** `AgentSession.goalHoldsSession` (obiettivo attivo o intervista aperta) entra in `GuiGateSnapshot.goalHold` -> blocco `working` «Obiettivo attivo» in `resolveAutomationGate`, e in `laneBusy` del `laneOrchestrator`: fra un tentativo e l'altro `isStreaming` e' falso ma omp sta per ripartire, quindi l'auto-avvio non manda task in quella chat.
 
 ### 6.6 Prewalk per chat e task
 

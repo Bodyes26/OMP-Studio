@@ -16,6 +16,8 @@ released: items are closed into a version via `npm run release -- <version>`.
 - The row below the composer moves entries that don't fit into a "…" menu.
 - "Branch from here" and "Edit and retry" in the "…" menu of each of your messages in the chat (also on right-click): they open a new session with the conversation up to just before that message, and with "Edit and retry" its text goes back into the composer so you can fix it and resend. Under each finished answer, "Branch from here" opens a new session ending with that turn. The original session stays untouched in the session list.
 - Repeat (`/loop`) in the chat: the "Repeat" pill in the composer, or `/loop`, turns the composer into repeat mode with drop-down pills for the limit (rounds or time), the stop condition (until a command passes or fails, with "Try now") and what to do between rounds (continue, compact or start from a new session). Once started, the composer becomes the control panel: a segmented bar per round, a counter, the last check, "Pause" that takes effect at the end of the round, "Resume" and an immediate "Stop". Finished rounds fold into one line in the transcript, with the check result and the duration. `/loop 6 --until 'npm test' …` typed in the composer starts right away, with the same syntax as the Terminal. A paused repeat survives resuming the session, and while it is active the task queue doesn't start anything in that chat.
+- Guided goal in the chat: with "Goal" in the composer, `/guided-goal [idea]` or `/goal`, Studio pins the goal down with five questions, one at a time (criteria, verification, cap, boundaries, stop), answered from a choice card that takes the composer's place, or by writing your own answer. A strip at the top shows the five fields filling in; a vague criterion like "faster" without a threshold is flagged. At the end the draft arrives as an editable card in the chat, and "Start goal" stays disabled while there are problems or the cap is missing. Once started, the goal lives in a fixed banner at the top of the chat with attempts, token budget, time and Pause, Resume and Stop; it pauses itself when the attempt cap is reached. When the agent is available, the questions and suggested answers adapt to the project.
+- `/goal pause`, `/goal resume`, `/goal drop`, `/goal show` and `/goal <objective>` work in the GUI chat instead of reaching the model as text.
 - "Branches" panel (`/tree`, or pinned in the composer): the tree of the open session with one node per message you sent, the active branch highlighted and alternative branches indented where they split off. Clicking a branch opens it as a new session up to its last message; a node's menu also lets you branch from before the message or retry it.
 - The status lines and small panels that `omp` extensions show in the terminal now appear in the chat too: status as an entry of the row below the composer, text panels above or below the composer, with colors reduced to the theme's.
 - The footer of every turn that changed files shows the `+N −M` balance of lines added and removed; a click opens the diff of the first changed file.
@@ -34,6 +36,8 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Chats of projects that are not visible are no longer redrawn, terminals receive output in batches, and the breathing attention ring no longer keeps the CPU busy.
 - Git operations and file searches no longer slow down the interface's other requests.
 - The focus diagnostics log (`focus-trace.log`) is no longer written unless you enable it.
+- The session goal is no longer in the tray above the composer: it is the banner at the top of the chat.
+- With a goal active, or being defined, the queue's auto-start treats the chat as busy even between one attempt and the next.
 - `/tree` in the GUI chat opens the "Branches" panel, like `omp`'s `/tree`, instead of the session list: the list stays on `/sessions` and `/resume`.
 - `/btw` typed in the GUI chat no longer reaches the main model as plain text: Studio handles it with the "Aside" box.
 
@@ -43,6 +47,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - A provider error at the end of a turn (for example an overload or a limit) now shows up in the chat with the provider, HTTP code and whether you can try again.
 - Extension notices keep their level (warning, error) instead of always showing as information.
 - Studio no longer burns CPU continuously while idle: for every session without a pinned account, the account lookup repeated endlessly, scanning every session on disk (over 150% CPU on Mac).
+- A goal created in the GUI chat continues on its own, one attempt after another, as in the terminal: it used to stop after the first turn.
 - `/fork` in the GUI chat now really copies the session, history and artifacts included, and continues on the copy: it used to open an empty chat. If the agent is working or waiting for an answer, Studio says so and leaves everything as it was.
 
 ## [1.7.2] - 2026-10-07
