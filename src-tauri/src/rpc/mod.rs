@@ -847,6 +847,8 @@ pub async fn rpc_open(
         crate::pty::write_extension("studio-tasks.ts", crate::pty::TASKS_EXTENSION_TS);
     let lanes_extension =
         crate::pty::write_extension("studio-lanes.ts", crate::pty::LANES_EXTENSION_TS);
+    let loop_extension =
+        crate::pty::write_extension("studio-loop.ts", crate::pty::LOOP_EXTENSION_TS);
 
     // Progetto senza cartella (chat temporanea): stesso trattamento del PTY,
     // sessione effimera e nessun `--cwd`.
@@ -875,6 +877,9 @@ pub async fn rpc_open(
         command.arg("-e").arg(path);
     }
     if let Some(path) = &lanes_extension {
+        command.arg("-e").arg(path);
+    }
+    if let Some(path) = &loop_extension {
         command.arg("-e").arg(path);
     }
     // Applica resume (se sessione valida) oppure continue_last

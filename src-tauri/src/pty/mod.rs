@@ -297,6 +297,9 @@ fn write_overlay() -> std::path::PathBuf {
 pub const DIAGRAM_EXTENSION_TS: &str = include_str!("../../../extensions/studio-diagram.ts");
 pub const TASKS_EXTENSION_TS: &str = include_str!("../../../extensions/studio-tasks.ts");
 pub const LANES_EXTENSION_TS: &str = include_str!("../../../extensions/studio-lanes.ts");
+/// `/loop` della chat GUI (rpc-ui). Nel PTY viene caricata come le altre ma
+/// resta inerte: nel Terminale vale il `/loop` nativo della TUI.
+pub const LOOP_EXTENSION_TS: &str = include_str!("../../../extensions/studio-loop.ts");
 
 /// Unica direttiva aggiunta all'avvio: tenerla qui evita divergenze tra GUI,
 /// Laboratorio e TUI senza salvarla nei messaggi o nel transcript.
@@ -487,6 +490,7 @@ pub async fn pty_open(
     let extension_arg = write_extension("studio-diagram.ts", DIAGRAM_EXTENSION_TS);
     let tasks_extension_arg = write_extension("studio-tasks.ts", TASKS_EXTENSION_TS);
     let lanes_extension_arg = write_extension("studio-lanes.ts", LANES_EXTENSION_TS);
+    let loop_extension_arg = write_extension("studio-loop.ts", LOOP_EXTENSION_TS);
 
     // Il `--resume` arriva dal frontend con l'id della sessione da cui si sta
     // passando: se quella sessione non ha ancora un transcript, omp esce con
@@ -511,6 +515,10 @@ pub async fn pty_open(
             launch_args.push(ext.clone());
         }
         if let Some(ext) = &lanes_extension_arg {
+            launch_args.push("-e".to_string());
+            launch_args.push(ext.clone());
+        }
+        if let Some(ext) = &loop_extension_arg {
             launch_args.push("-e".to_string());
             launch_args.push(ext.clone());
         }
@@ -578,6 +586,10 @@ pub async fn pty_open(
             launch.push_str(&sh_quote(ext));
         }
         if let Some(ext) = &lanes_extension_arg {
+            launch.push_str(" -e ");
+            launch.push_str(&sh_quote(ext));
+        }
+        if let Some(ext) = &loop_extension_arg {
             launch.push_str(" -e ");
             launch.push_str(&sh_quote(ext));
         }
