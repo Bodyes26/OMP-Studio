@@ -2848,5 +2848,17 @@
   "branch_panel_open_in_terminal": "Switch to the Terminal",
   "branch_panel_selected_actions": "Actions on the selected branch",
   "page_gui_help_fork": "/fork — copy the whole session into a new one and continue on the copy",
-  "page_gui_help_tree": "/tree — open the Branches panel of the open session"
+  "page_gui_help_tree": "/tree — open the Branches panel of the open session",
+  "gate_label_background": "Background work",
+  "gate_detail_background": "OMP has answered, but subagents, background commands or queued messages can still resume this chat.",
+  "gate_hint_background": "Wait for it to finish: the queue restarts on its own. You can also start the task in another lane.",
+  "chat_v2_composer_status_background": "in background",
+  "chat_v2_composer_status_background_tooltip": "The agent has answered, but OMP still has background work (subagents, commands, queued messages). The completion notice and automatic task start wait for it to finish.",
+  "chat_v2_composer_extension_status_tooltip": "Extension · {key}",
+  "chat_v2_composer_extension_widget_aria": "Extension panel {key}",
+  "chat_v2_prompt_error_with_source": "Provider error ({source}):",
+  "chat_v2_prompt_error": "Provider error{http}:",
+  "chat_v2_prompt_error_retryable": "This is a temporary error: you can try again.",
+  "chat_v2_turn_diff_tooltip": "Lines added and removed in this turn · open the diff of {file}",
+  "chat_v2_turn_diff_aria": "{added} lines added and {removed} removed in {files} file(s): open the diff of {file}"
 }

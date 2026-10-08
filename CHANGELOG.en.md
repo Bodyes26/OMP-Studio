@@ -16,6 +16,9 @@ released: items are closed into a version via `npm run release -- <version>`.
 - The row below the composer moves entries that don't fit into a "…" menu.
 - "Branch from here" and "Edit and retry" in the "…" menu of each of your messages in the chat (also on right-click): they open a new session with the conversation up to just before that message, and with "Edit and retry" its text goes back into the composer so you can fix it and resend. Under each finished answer, "Branch from here" opens a new session ending with that turn. The original session stays untouched in the session list.
 - "Branches" panel (`/tree`, or pinned in the composer): the tree of the open session with one node per message you sent, the active branch highlighted and alternative branches indented where they split off. Clicking a branch opens it as a new session up to its last message; a node's menu also lets you branch from before the message or retry it.
+- The status lines and small panels that `omp` extensions show in the terminal now appear in the chat too: status as an entry of the row below the composer, text panels above or below the composer, with colors reduced to the theme's.
+- The footer of every turn that changed files shows the `+N −M` balance of lines added and removed; a click opens the diff of the first changed file.
+- When the agent has answered but is still working in the background (async subagents, background commands, queued messages), the row below the composer says so with "in background".
 
 ### Changed
 - Fewer background processes: the top bar Git status is read with a single `git` command instead of five, Git and usage-limit checks slow down when Studio is not in the foreground and stop when it is minimized, and looking up `omp`, `gh` and VS Code no longer starts external processes. The difference is most noticeable on Windows with an active antivirus.
@@ -27,6 +30,10 @@ released: items are closed into a version via `npm run release -- <version>`.
 - `/tree` in the GUI chat opens the "Branches" panel, like `omp`'s `/tree`, instead of the session list: the list stays on `/sessions` and `/resume`.
 
 ### Fixed
+- The queue's automatic start no longer launches tasks one after another: it waits until the agent has really stopped (not just paused between two tools, during a retry or a compaction, or right after receiving the previous task), until no messages are queued in `omp`, and until the quiet lasts a few seconds; before starting it checks the state with `omp` again. In the terminal it waits until `omp` has actually started the task it just sent.
+- The "finished" notice and the automatic start of the next task wait until the agent has really finished, background work included, instead of firing at the first answer (requires `omp` 18.8; with earlier versions the previous behavior stays).
+- A provider error at the end of a turn (for example an overload or a limit) now shows up in the chat with the provider, HTTP code and whether you can try again.
+- Extension notices keep their level (warning, error) instead of always showing as information.
 - Studio no longer burns CPU continuously while idle: for every session without a pinned account, the account lookup repeated endlessly, scanning every session on disk (over 150% CPU on Mac).
 - `/fork` in the GUI chat now really copies the session, history and artifacts included, and continues on the copy: it used to open an empty chat. If the agent is working or waiting for an answer, Studio says so and leaves everything as it was.
 

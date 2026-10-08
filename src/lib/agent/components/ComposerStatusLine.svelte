@@ -9,6 +9,9 @@
 	 * - Controlli contestuali (`ctl.context`, `ctl.mention`): anello di contesto con pannello
 	 *   ContextPanel e inserimento rapido `@` nell'editor;
 	 * - Comandi generici fissati dall'utente: resi tramite `ComposerPinnedItem`.
+	 * - Voci non configurabili, che compaiono solo quando c'e' qualcosa da dire:
+	 *   «in background» (turno ceduto, sessione non ancora quieta) e le voci di
+	 *   stato delle estensioni di omp (`setStatus`), una per `statusKey`.
 	 *
 	 * Overflow:
 	 * Se le voci superano la larghezza orizzontale disponibile, le voci in coda
@@ -18,6 +21,7 @@
 	 */
 	import type { AgentSession } from '../session.svelte';
 	import type { ComposerLayout, PinnedCommand, CommandManifestEntry } from '../commandCatalog/types';
+	import { statusEntries } from '../extensionUi';
 	import { resolveLayout, itemsInZone } from '../commandCatalog/layout';
 	import { COMMAND_MANIFEST } from '../commandCatalog/manifest/index';
 	import { settingsStore } from '$lib/stores/settings.svelte';
@@ -113,8 +117,35 @@
 		}
 	}
 
-	const activePins = $derived(statusPins.filter((pin) => isPinActive(pin.id)));
+	/**
+	 * Voci di sessione che non stanno nel layout: le si infila nella stessa
+	 * sequenza dei pin (prima del costo, che resta spinto a destra) cosi'
+	 * condividono misura e overflow. Gli id con `__` non collidono con i comandi.
+	 */
+	const BACKGROUND_ID = '__background';
+	const EXT_PREFIX = '__ext:';
+	const extStatus = $derived(statusEntries(session.extensionStatus));
+	const extStatusText = $derived(new Map(extStatus.map((entry) => [entry.key, entry.text])));
+	const sessionItems = $derived.by((): PinnedCommand[] => {
+		const items: PinnedCommand[] = [];
+		const synthetic = (id: string): PinnedCommand => ({ id, zone: 'statusLine', form: 'chip', order: 0 });
+		if (session.backgroundPending) items.push(synthetic(BACKGROUND_ID));
+		for (const entry of extStatus) items.push(synthetic(`${EXT_PREFIX}${entry.key}`));
+		return items;
+	});
+
+	const activePins = $derived.by(() => {
+		const pins = statusPins.filter((pin) => isPinActive(pin.id));
+		if (sessionItems.length === 0) return pins;
+		const costIndex = pins.findIndex((pin) => pin.id === 'ctl.cost');
+		if (costIndex === -1) return [...pins, ...sessionItems];
+		return [...pins.slice(0, costIndex), ...sessionItems, ...pins.slice(costIndex)];
+	});
 	const hasItems = $derived(activePins.length > 0);
+
+	function extKey(id: string): string {
+		return id.slice(EXT_PREFIX.length);
+	}
 
 	const fastPaused = $derived(session.fastModeEnabled && !session.fastModeActive);
 	const fastTooltip = $derived(
@@ -235,7 +266,10 @@
 	$effect(() => {
 		if (!lineEl) return;
 		// Rilancia al cambio del numero o della composizione di pin attivi
+		// (le voci delle estensioni cambiano testo e quindi larghezza).
 		void activePins.length;
+		void activePins.map((pin) => pin.id).join('|');
+		void extStatus.map((entry) => entry.text).join('|');
 
 		const ro = new ResizeObserver(() => {
 			checkOverflow();
@@ -340,6 +374,25 @@
 							</button>
 						</Tooltip>
 					{/if}
+				</span>
+			{:else if pin.id === BACKGROUND_ID}
+				<span class="status-entry" data-pin-id={BACKGROUND_ID}>
+					<Tooltip text={m.chat_v2_composer_status_background_tooltip()} placement="top" offset={6}>
+						<span class="status-item background" role="status">
+							<span class="background-dot" aria-hidden="true"></span>{m.chat_v2_composer_status_background()}
+						</span>
+					</Tooltip>
+				</span>
+			{:else if pin.id.startsWith(EXT_PREFIX)}
+				{@const key = extKey(pin.id)}
+				<span class="status-entry" data-pin-id={pin.id}>
+					<Tooltip
+						text={`${m.chat_v2_composer_extension_status_tooltip({ key })}: ${extStatusText.get(key) ?? ''}`}
+						placement="top"
+						offset={6}
+					>
+						<span class="status-item ext-status">{extStatusText.get(key) ?? ''}</span>
+					</Tooltip>
 				</span>
 			{:else if pin.id === 'ctl.limit' && limit}
 				<span class="status-entry" data-pin-id="ctl.limit">
@@ -503,6 +556,17 @@
 								<IconPrewalk />
 								<span>{m.chat_v2_composer_prewalk_title()}</span>
 							</button>
+						{:else if pin.id === BACKGROUND_ID}
+							<div class="overflow-menu-item" role="status" title={m.chat_v2_composer_status_background_tooltip()}>
+								<span class="background-dot" aria-hidden="true"></span>
+								<span>{m.chat_v2_composer_status_background()}</span>
+							</div>
+						{:else if pin.id.startsWith(EXT_PREFIX)}
+							{@const key = extKey(pin.id)}
+							<div class="overflow-menu-item ext-status-row" title={m.chat_v2_composer_extension_status_tooltip({ key })}>
+								<span class="ext-status-key">{key}</span>
+								<span class="ext-status-text">{extStatusText.get(key) ?? ''}</span>
+							</div>
 						{:else if pin.id === 'ctl.limit' && limit}
 							<div class="overflow-menu-item warn">
 								<IconWarning />
@@ -634,6 +698,57 @@
 	.status-icon {
 		display: inline-flex;
 		align-items: center;
+	}
+
+	/* Lavoro in background: un punto che respira, come il riscaldamento della
+	   cache, e il testo in `--ink-muted`. Discreto: non e' un'attenzione. */
+	.status-item.background {
+		color: var(--ink-muted);
+	}
+
+	.background-dot {
+		width: 6px;
+		height: 6px;
+		flex-shrink: 0;
+		border-radius: var(--radius-full);
+		background: var(--ink-muted);
+		animation: background-breathe 1.6s ease-in-out infinite;
+	}
+
+	@keyframes background-breathe {
+		50% {
+			opacity: 0.3;
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.background-dot {
+			animation: none;
+		}
+	}
+
+	/* Voce di un'estensione: testo libero, tagliato con ellissi. */
+	.status-item.ext-status {
+		display: inline-block;
+		max-width: 240px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		vertical-align: middle;
+	}
+
+	.ext-status-row {
+		cursor: default;
+		max-width: 320px;
+	}
+
+	.ext-status-key {
+		color: var(--ink-faint);
+		flex-shrink: 0;
+	}
+
+	.ext-status-text {
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 
 	.status-target {

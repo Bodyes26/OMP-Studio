@@ -24,6 +24,7 @@
 	import { TodoTraceTracker, type TodoTraceItem } from '../todoTrace';
 	import AssistantText from './AssistantText.svelte';
 	import TurnFooter, { type TurnFooterData } from './TurnFooter.svelte';
+	import { addToolToTurnDiff, emptyTurnDiff, type TurnDiffStats } from '../turnDiff';
 	import CompactionRow from './CompactionRow.svelte';
 	import NoticeRow from './NoticeRow.svelte';
 	import RetryRow from './RetryRow.svelte';
@@ -259,6 +260,11 @@
 		let currentTurnEndMs = 0;
 		let currentTurnUserId: number | null = null;
 		let currentTurnAssistantTs: number | null = null;
+		let currentTurnDiff: TurnDiffStats = emptyTurnDiff();
+
+		function turnDiffOrUndefined(): TurnDiffStats | undefined {
+			return currentTurnDiff.added > 0 || currentTurnDiff.removed > 0 ? currentTurnDiff : undefined;
+		}
 
 		function recordEntries(entries: TranscriptEntry[]) {
 			for (const entry of entries) {
@@ -279,6 +285,7 @@
 					}
 				} else if (entry.kind === 'tool') {
 					currentTurnToolCalls += 1;
+					addToolToTurnDiff(currentTurnDiff, entry);
 					if (entry.startedAt && (!currentTurnStartMs || entry.startedAt < currentTurnStartMs)) {
 						currentTurnStartMs = entry.startedAt;
 					}
@@ -303,7 +310,8 @@
 						model: currentTurnModel,
 						cost: currentTurnCost > 0 ? currentTurnCost : undefined,
 						userTranscriptId: currentTurnUserId,
-						assistantTs: currentTurnAssistantTs
+						assistantTs: currentTurnAssistantTs,
+						diff: turnDiffOrUndefined()
 					});
 				}
 				currentTurnStartIndex = i;
@@ -315,6 +323,7 @@
 				currentTurnEndMs = 0;
 				currentTurnUserId = item.kind === 'single' ? item.entry.id : null;
 				currentTurnAssistantTs = null;
+				currentTurnDiff = emptyTurnDiff();
 			} else {
 				if (currentTurnStartIndex === -1) {
 					currentTurnStartIndex = i;
@@ -343,7 +352,8 @@
 				model: currentTurnModel,
 				cost: currentTurnCost > 0 ? currentTurnCost : undefined,
 				userTranscriptId: currentTurnUserId,
-				assistantTs: currentTurnAssistantTs
+				assistantTs: currentTurnAssistantTs,
+				diff: turnDiffOrUndefined()
 			});
 		}
 

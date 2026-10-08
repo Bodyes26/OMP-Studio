@@ -16,6 +16,9 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - La riga sotto il composer manda le voci che non entrano in un menu «…».
 - «Dirama da qui» e «Modifica e riprova» nel menu «…» di ogni tuo messaggio nella chat (anche con il tasto destro): aprono una nuova sessione con la conversazione fino a prima di quel messaggio, e con «Modifica e riprova» il testo torna nel composer per correggerlo e reinviarlo. Sotto ogni risposta conclusa «Dirama da qui» apre una nuova sessione che finisce con quel turno. La sessione di partenza resta intatta nell'elenco sessioni.
 - Pannello «Rami» (`/tree`, o fissato nel composer): l'albero della sessione aperta con un nodo per ogni tuo messaggio, il ramo attivo evidenziato e i rami alternativi rientrati dove si staccano. Un clic su un ramo lo apre come nuova sessione fino al suo ultimo messaggio; dal menu di un nodo puoi anche diramare da prima del messaggio o riprovarlo.
+- Le righe di stato e i piccoli pannelli che le estensioni di `omp` mostrano nel terminale ora compaiono anche nella chat: lo stato come voce della riga sotto il composer, i pannelli di testo sopra o sotto il composer, con i colori ridotti a quelli del tema.
+- Nel piè di ogni turno che ha modificato file compare il bilancio `+N −M` delle righe aggiunte e rimosse; un clic apre il confronto del primo file modificato.
+- Quando l'agente ha risposto ma lavora ancora in background (subagenti asincroni, comandi in background, messaggi in coda), la riga sotto il composer lo dice con «in background».
 
 ### Changed
 - Meno processi in background: lo stato Git della barra superiore si legge con un solo comando `git` invece di cinque, i controlli di Git e dei limiti d'uso rallentano quando Studio non è in primo piano e si fermano quando è ridotto a icona, e la ricerca di `omp`, `gh` e VS Code non avvia più processi esterni. Su Windows con l'antivirus attivo la differenza si sente di più.
@@ -27,6 +30,10 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - `/tree` nella chat GUI apre il pannello «Rami», come il `/tree` di `omp`, invece dell'elenco sessioni: l'elenco resta su `/sessions` e `/resume`.
 
 ### Fixed
+- L'avvio automatico della coda non fa più partire i task uno dopo l'altro: aspetta che l'agente sia fermo davvero (non solo in pausa fra un tool e l'altro, durante un nuovo tentativo o una compattazione, o subito dopo aver ricevuto il task precedente), che non ci siano messaggi in coda in `omp`, e che la quiete duri qualche secondo; prima di partire ricontrolla lo stato con `omp`. Nel terminale aspetta che `omp` abbia davvero iniziato il task appena inviato.
+- La notifica «ha finito» e l'avvio automatico del task successivo aspettano che l'agente abbia finito davvero, anche il lavoro in background, invece di scattare alla prima risposta (richiede `omp` 18.8; con versioni precedenti resta il comportamento di prima).
+- Un errore del provider a fine turno (per esempio un sovraccarico o un limite) ora compare in chat con provider, codice HTTP e l'indicazione se si può riprovare.
+- Gli avvisi delle estensioni mantengono il loro livello (avviso, errore) invece di comparire sempre come informazione.
 - Studio non consuma più CPU di continuo a riposo: per ogni sessione senza un account fissato la ricerca dell'account si ripeteva senza sosta scorrendo tutte le sessioni su disco (oltre il 150% di CPU su Mac).
 - `/fork` nella chat GUI copia davvero la sessione, cronologia e artefatti compresi, e prosegue sulla copia: prima apriva una chat vuota. Se l'agente sta lavorando o aspetta una risposta, Studio lo dice e lascia tutto com'era.
 

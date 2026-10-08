@@ -181,6 +181,10 @@ export interface RpcSessionState {
 	slowModeScope?: 'session' | 'global';
 	usageLimit?: UsageLimitState;
 	goal?: GoalModeState | null;
+	/** omp 18.8+: job in background o consegne che possono ancora risvegliare la sessione. */
+	hasPendingAsyncWork?: boolean;
+	/** omp 18.8+: stesso predicato di `session_settled` (nessun run, coda vuota, nessun job). */
+	isSettled?: boolean;
 }
 
 /* ------------------------------------------------- coda, limiti, obiettivi */
@@ -479,6 +483,12 @@ export interface AgentSessionEvent {
 	messages?: AgentMessage[];
 	/** `agent_end`: terminale quando `!== false`. */
 	isTerminal?: boolean;
+	/** `agent_end` (omp 18.8+): l'agente ha ceduto il turno; assente nei runtime vecchi. */
+	yielded?: boolean;
+	/** `agent_end` (omp 18.8+): fine non terminale che solo un job in background puo' riprendere. */
+	awaitingAsyncWork?: boolean;
+	/** `prompt_result` (omp 18.8+): la sessione era gia' quieta al momento dello yield. */
+	sessionSettled?: boolean;
 	/** `tool_execution_*` */
 	toolCallId?: string;
 	toolName?: string;
@@ -577,7 +587,15 @@ export interface ExtensionUiRequest {
 	/** `open_url` */
 	url?: string;
 	launchUrl?: string;
+	/** `setStatus` (omp 18.x): `statusText` assente o vuoto toglie la voce. */
+	statusKey?: string;
+	statusText?: string;
+	/** `setWidget`: `widgetLines` assente toglie il widget. */
 	widgetKey?: string;
+	widgetLines?: string[];
+	widgetPlacement?: 'aboveEditor' | 'belowEditor';
+	/** `notify`: livello dell'avviso (`info`, `warning`, `error`). */
+	notifyType?: string;
 	content?: unknown;
 	/** `ask` */
 	questions?: AskDialogQuestion[];

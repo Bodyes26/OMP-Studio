@@ -2848,5 +2848,17 @@
   "branch_panel_open_in_terminal": "Passa al Terminale",
   "branch_panel_selected_actions": "Azioni sul ramo selezionato",
   "page_gui_help_fork": "/fork — copia la sessione intera in una nuova e prosegue sulla copia",
-  "page_gui_help_tree": "/tree — apre il pannello Rami della sessione aperta"
+  "page_gui_help_tree": "/tree — apre il pannello Rami della sessione aperta",
+  "gate_label_background": "Lavoro in background",
+  "gate_detail_background": "OMP ha risposto, ma subagenti, comandi in background o messaggi in coda possono ancora riprendere questa chat.",
+  "gate_hint_background": "Attendi che finisca: la coda riparte da sola. Puoi anche avviare il task in un'altra corsia.",
+  "chat_v2_composer_status_background": "in background",
+  "chat_v2_composer_status_background_tooltip": "L'agente ha risposto, ma OMP ha ancora lavoro in background (subagenti, comandi, messaggi in coda). La notifica di fine e l'avvio automatico dei task aspettano che finisca.",
+  "chat_v2_composer_extension_status_tooltip": "Estensione · {key}",
+  "chat_v2_composer_extension_widget_aria": "Pannello dell'estensione {key}",
+  "chat_v2_prompt_error_with_source": "Errore del provider ({source}):",
+  "chat_v2_prompt_error": "Errore del provider{http}:",
+  "chat_v2_prompt_error_retryable": "È un errore temporaneo: puoi riprovare.",
+  "chat_v2_turn_diff_tooltip": "Righe aggiunte e rimosse nel turno · apri il diff di {file}",
+  "chat_v2_turn_diff_aria": "{added} righe aggiunte e {removed} rimosse in {files} file: apri il diff di {file}"
 }

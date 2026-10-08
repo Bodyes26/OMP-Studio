@@ -61,7 +61,7 @@
 	import { taskStore, formatTaskPrompt, type StudioTask, type TaskRunLaneContext } from '$lib/stores/tasks.svelte';
 	import { taskLabel } from '$lib/stores/taskTitle';
 	import { laneStore, type LaneRecord } from '$lib/stores/lanes.svelte';
-	import { laneOrchestrator } from '$lib/lanes/laneOrchestrator.svelte';
+	import { laneOrchestrator, type TerminalMetaEntry } from '$lib/lanes/laneOrchestrator.svelte';
 	import { describeLaneProcess } from '$lib/lanes/processSupervisor';
 	import { laneBranchDeleteArgs } from '$lib/lanes/laneCleanup';
 	import {
@@ -71,6 +71,12 @@
 		resolveQueueRoot,
 		type ConcurrencyWarning
 	} from '$lib/lanes/queueDispatch';
+	import {
+		AUTO_DISPATCH_STABLE_MS,
+		AUTO_DISPATCH_STABLE_MS_TERMINAL,
+		AutoDispatchArbiter,
+		type AutoDispatchCandidate
+	} from '$lib/lanes/autoDispatchArbiter';
 	import LaneStrip from '$lib/components/LaneStrip.svelte';
 	import LaneDispatchDialog from '$lib/components/LaneDispatchDialog.svelte';
 	import LaneProfileDialog from '$lib/components/LaneProfileDialog.svelte';
@@ -1042,7 +1048,7 @@
 	 * alzava `effect_update_depth_exceeded` e abbandonava il ciclo di
 	 * aggiornamento dell'intera applicazione.
 	 */
-	function updateTerminalMeta(project: Project, patch: Partial<{ inputPending: boolean; sessionId: string | null }>, laneId = project.lane.laneId) {
+	function updateTerminalMeta(project: Project, patch: Partial<TerminalMetaEntry>, laneId = project.lane.laneId) {
 		laneOrchestrator.updateTerminalMeta(runtimeKey(project, laneId), patch);
 	}
 
@@ -1084,7 +1090,9 @@
 			surface: 'terminal',
 			busy,
 			inputPending: terminalMeta[key]?.inputPending === true,
-			agentState: laneOrchestrator.laneAgentState(project, laneId)
+			agentState: laneOrchestrator.laneAgentState(project, laneId),
+			awaitingStart: terminalMeta[key]?.awaitingStart === true,
+			progressActive: terminalMeta[key]?.progressActive === true
 		});
 	}
 
@@ -1513,71 +1521,121 @@
 
 	/**
 	 * Auto-avvio per progetto (spento di default, vedi docs/DECISIONS.md Gate
-	 * R12): quando l'agente di un progetto con l'interruttore acceso torna
-	 * `Pronto` e ha task in coda, il primo parte da solo.
+	 * R12): quando l'agente di un progetto con l'interruttore acceso e' fermo
+	 * davvero e ha task in coda, il primo parte da solo.
 	 *
 	 * Con `Principale` occupata l'auto-avvio apre al massimo **una** corsia
 	 * worktree per progetto (Gate R27): lo slot resta impegnato finche' quella
 	 * corsia non viene archiviata, e le corsie create a mano lo sospendono del
-	 * tutto. Un task che ha gia' fatto fallire un auto-avvio non viene
-	 * ritentato da solo: rispedirlo genererebbe una seconda corsia per lo
-	 * stesso lavoro.
+	 * tutto. Un task che ha gia' fatto fallire un auto-avvio in una corsia
+	 * nuova non viene ritentato da solo: rispedirlo genererebbe una seconda
+	 * corsia per lo stesso lavoro.
 	 *
-	 * La spedizione esce dall'effetto con `queueMicrotask` e passa da un lock
-	 * per progetto: `handleRunTask` scrive `terminalBusy` e `markDispatching`,
-	 * cioe' proprio lo stato che l'effetto legge, e scriverlo qui dentro
-	 * riaccenderebbe l'effetto che l'ha prodotto (`effect_update_depth_exceeded`).
+	 * L'effetto si limita a dire all'arbitro (`autoDispatchArbiter.ts`) quali
+	 * candidati sono idonei *adesso*. L'arbitro chiede che lo restino per un
+	 * periodo continuato (pause fra un giro di tool, prompt appena ammesso,
+	 * attese di un nuovo tentativo non bastano piu'), ri-verifica con
+	 * `get_state` o con lo stato del PTY e spedisce sotto un lock per
+	 * progetto. La spedizione parte da un timer, fuori dall'effetto:
+	 * `handleRunTask` scrive `terminalBusy` e `markDispatching`, cioe' proprio
+	 * lo stato che l'effetto legge (`effect_update_depth_exceeded`).
 	 */
-	const autoDispatching = new Set<string>();
 	const autoDispatchFailed = new Set<string>();
-	$effect(() => {
-		const candidates: Array<{ projectId: string; taskId: string; newLane: boolean }> = [];
-		for (const project of projectStore.projects) {
-			if (!project.autoDispatch || !project.canonicalProjectPath) continue;
-			if (autoDispatching.has(project.id)) continue;
-			const next = taskStore
-				.tasksFor(project.canonicalProjectPath)
-				.find((task) => task.status === 'queued' && !autoDispatchFailed.has(task.id));
-			if (!next) continue;
-			const decision = decideAutoDispatch({
-				lanes: laneOrchestrator.laneDispatchSnapshots(project),
-				worktreeCapable: Boolean(project.canonicalProjectPath)
-			});
-			if (decision.kind === 'wait') continue;
-			if (decision.kind === 'main') {
-				const gate = automationGate(project.id, MAIN_LANE_ID);
-				// Il click manuale puo' scavalcare una domanda testuale; l'auto-run
-				// aspetta invece sia la classificazione sia la decisione dell'utente.
-				if (!gate.autoDispatchReady) continue;
-			}
-			candidates.push({
-				projectId: project.id,
-				taskId: next.id,
-				newLane: decision.kind === 'new-lane'
-			});
-		}
+	let autoDispatchEpoch = $state(0);
 
-		for (const candidate of candidates) {
-			autoDispatching.add(candidate.projectId);
-			queueMicrotask(() => {
-				void handleRunTask(candidate.projectId, candidate.taskId, {
-					auto: true,
-					newLane: candidate.newLane,
-					laneId: candidate.newLane ? undefined : MAIN_LANE_ID
-				})
-					.then(() => {
-						// Solo i tentativi che hanno creato una corsia restano fuori
-						// dall'auto-avvio: riprovarli genererebbe un secondo worktree
-						// per lo stesso lavoro. Un fallimento su `Principale` non
-						// lascia risorse dietro di se' e puo' ripartire da solo.
-						if (candidate.newLane && taskStore.taskById(candidate.taskId)) {
-							autoDispatchFailed.add(candidate.taskId);
-						}
-					})
-					.finally(() => autoDispatching.delete(candidate.projectId));
+	function mainLaneSurface(project: Project): 'gui' | 'terminal' | undefined {
+		const lane =
+			project.lane.laneId === MAIN_LANE_ID ? project.lane : laneOrchestrator.laneRecord(project, MAIN_LANE_ID);
+		return lane?.surface;
+	}
+
+	function autoDispatchCandidateFor(project: Project): AutoDispatchCandidate | null {
+		if (!project.autoDispatch || !project.canonicalProjectPath) return null;
+		const next = taskStore
+			.tasksFor(project.canonicalProjectPath)
+			.find((task) => task.status === 'queued' && !autoDispatchFailed.has(task.id));
+		if (!next) return null;
+		const decision = decideAutoDispatch({
+			lanes: laneOrchestrator.laneDispatchSnapshots(project),
+			worktreeCapable: Boolean(project.canonicalProjectPath)
+		});
+		if (decision.kind === 'wait') return null;
+		if (decision.kind === 'main') {
+			// Il click manuale puo' scavalcare una domanda testuale; l'auto-run
+			// aspetta invece sia la classificazione sia la decisione dell'utente.
+			if (!automationGate(project.id, MAIN_LANE_ID).autoDispatchReady) return null;
+		}
+		return { projectId: project.id, taskId: next.id, newLane: decision.kind === 'new-lane' };
+	}
+
+	const autoDispatchArbiter = new AutoDispatchArbiter({
+		now: () => Date.now(),
+		setTimer: (fn, ms) => window.setTimeout(fn, ms),
+		clearTimer: (handle) => window.clearTimeout(handle as number),
+		stableMs: (candidate) => {
+			if (candidate.newLane) return AUTO_DISPATCH_STABLE_MS;
+			const project = projectStore.projects.find((p) => p.id === candidate.projectId);
+			return project && mainLaneSurface(project) === 'terminal'
+				? AUTO_DISPATCH_STABLE_MS_TERMINAL
+				: AUTO_DISPATCH_STABLE_MS;
+		},
+		quietForMs: (candidate) => {
+			if (candidate.newLane) return null;
+			const project = projectStore.projects.find((p) => p.id === candidate.projectId);
+			if (!project || mainLaneSurface(project) !== 'gui') return null;
+			return registeredSessionFor(project, MAIN_LANE_ID)?.quietForMs() ?? null;
+		},
+		stillEligible: (candidate) => {
+			const project = projectStore.projects.find((p) => p.id === candidate.projectId);
+			const current = project ? autoDispatchCandidateFor(project) : null;
+			return (
+				current !== null &&
+				current.taskId === candidate.taskId &&
+				current.newLane === candidate.newLane
+			);
+		},
+		verify: async (candidate) => {
+			// Una corsia nuova nasce per questo task: non c'e' nulla da sorprendere.
+			if (candidate.newLane) return true;
+			const project = projectStore.projects.find((p) => p.id === candidate.projectId);
+			if (!project) return false;
+			if (mainLaneSurface(project) === 'gui') {
+				const session = registeredSessionFor(project, MAIN_LANE_ID);
+				if (!session) return false;
+				return (await session.verifyQuietForDispatch()).quiet;
+			}
+			return terminalSessionFor(project, MAIN_LANE_ID)?.isAutomationQuiet() ?? false;
+		},
+		dispatch: async (candidate) => {
+			await handleRunTask(candidate.projectId, candidate.taskId, {
+				auto: true,
+				newLane: candidate.newLane,
+				laneId: candidate.newLane ? undefined : MAIN_LANE_ID
 			});
+			const task = taskStore.taskById(candidate.taskId);
+			// Solo i tentativi che hanno creato una corsia restano fuori
+			// dall'auto-avvio: riprovarli genererebbe un secondo worktree per
+			// lo stesso lavoro. Un fallimento su `Principale` non lascia
+			// risorse dietro di se' e riparte dopo una pausa.
+			if (candidate.newLane && task) autoDispatchFailed.add(candidate.taskId);
+			return task?.status === 'queued' ? 'failed' : 'delivered';
+		},
+		requestResync: () => {
+			autoDispatchEpoch += 1;
 		}
 	});
+
+	$effect(() => {
+		void autoDispatchEpoch;
+		const candidates: AutoDispatchCandidate[] = [];
+		for (const project of projectStore.projects) {
+			const candidate = autoDispatchCandidateFor(project);
+			if (candidate) candidates.push(candidate);
+		}
+		untrack(() => autoDispatchArbiter.sync(candidates));
+	});
+
+	onDestroy(() => autoDispatchArbiter.dispose());
 
 	async function handleResumeSession(projectId: string, sessionId: string, laneId?: string) {
 		const project = projectStore.projects.find((candidate) => candidate.id === projectId);
@@ -2200,6 +2258,29 @@
 			line: targetLine,
 			id: ++terminalOpenRequestId
 		};
+	}
+
+	/**
+	 * Badge `+N −M` del piè di turno: apre il diff con HEAD del file, lo stesso
+	 * del pannello Git. Il percorso arriva dalla card del tool (relativo o
+	 * assoluto) e si risolve come i link del terminale.
+	 */
+	async function handleChatOpenDiff(projectId: string, filePath: string) {
+		if (projectStore.activeId !== projectId) projectStore.setActive(projectId);
+		let targetPath = filePath;
+		const proj = projectStore.projects.find((p) => p.id === projectId);
+		if (proj?.lane.workspacePath) {
+			try {
+				const res: { rel_path: string; line: number | null } | null = await invoke('resolve_project_file', {
+					projectPath: proj.lane.workspacePath,
+					candidate: filePath
+				});
+				if (res?.rel_path) targetPath = res.rel_path;
+			} catch {
+				// Senza risoluzione si prova con il percorso grezzo, come per i link.
+			}
+		}
+		handleGitPanelDiff(targetPath, 'working');
 	}
 
 	// Chip @file nelle anteprime dei task (coda, popover di progetto): apre il
@@ -3223,6 +3304,7 @@
 								session={laneOrchestrator.getOrCreateAgentSession(p, lane)}
 								visible={isLaneActive}
 								onOpenFile={(filePath, line) => handleTerminalOpenFile(p.id, filePath, line ?? null)}
+								onOpenDiff={lane.kind === 'lab' ? undefined : (filePath) => void handleChatOpenDiff(p.id, filePath)}
 								onOpenImage={(data, mimeType) => (viewingImage = { data, mimeType })}
 								onSwitchToTerminal={lane.kind === 'lab' ? undefined : () => void switchSurface(p.id, 'terminal')}
 								onSlashCommand={(raw) => handleGuiSlashCommand(p.id, lane.laneId, raw)}
@@ -3246,6 +3328,7 @@
 								}}
 								onStateChange={(state) => handleTerminalState(p, state, lane.laneId)}
 								onInputPendingChange={(inputPending) => laneOrchestrator.updateTerminalMeta(key, { inputPending })}
+								onHoldChange={(hold) => laneOrchestrator.updateTerminalMeta(key, hold)}
 								onSessionChange={(session: TerminalSessionInfo | null) => laneOrchestrator.updateTerminalMeta(key, { sessionId: session?.sessionId ?? null })}
 								onOpenFile={(filePath, line) => handleTerminalOpenFile(p.id, filePath, line)}
 							/>

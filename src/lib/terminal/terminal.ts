@@ -17,7 +17,17 @@ import {
 	type TerminalTaskConfiguration
 } from './taskConfiguration';
 import { m as msg } from '$lib/paraglide/messages.js';
-const TITLE_STATE_REGEX = /^\u03c0 ([>:!])(?: |$)/;
+import {
+	TERMINAL_START_TIMEOUT_MS,
+	holdExpired,
+	holdOnProgress,
+	holdOnTaskWritten,
+	holdOnTitleState,
+	holdReset,
+	parseProgressOsc,
+	parseTitleState,
+	type TerminalHold
+} from './terminalActivity';
 
 // Deve essere uno stack di font letterale: xterm/Monaco lo usano anche per
 // `ctx.font` su canvas, dove `var(--font-mono)` e' invalido e provoca il
@@ -62,6 +72,9 @@ export class TerminalSession {
 	private ptyEpoch = 0;
 	private unsubscribeTheme: () => void;
 	private currentState: TerminalAgentState = 'unknown';
+	/** Attese che il titolo non mostra: vedi `terminalActivity.ts`. */
+	private hold: TerminalHold = holdReset();
+	private holdTimer: number | null = null;
 	private pendingInputLength = 0;
 	private currentSession: TerminalSessionInfo | null = null;
 	/** Sessione da riprendere al primo avvio, consumata una volta sola: un
@@ -106,6 +119,8 @@ export class TerminalSession {
 	public onOpenFile: (relPath: string, line: number | null) => void = () => {};
 	public onInputPendingChange: (pending: boolean) => void = () => {};
 	public onSessionChange: (session: TerminalSessionInfo | null) => void = () => {};
+	/** Cambia un'attesa che il titolo non mostra (task appena scritto, barra OSC 9;4). */
+	public onHoldChange: (hold: { awaitingStart: boolean; progressActive: boolean }) => void = () => {};
 	get currentSessionInfo(): TerminalSessionInfo | null {
 		return this.currentSession;
 	}
@@ -233,11 +248,9 @@ export class TerminalSession {
 		});
 
 		this.term.onTitleChange((title) => {
-			const match = TITLE_STATE_REGEX.exec(title);
-			const state = match
-				? ({ ">": "idle", ":": "working", "!": "attention" } as const)[match[1] as ">" | ":" | "!"]
-				: "unknown";
+			const state = parseTitleState(title);
 			this.currentState = state;
+			this.setHold(holdOnTitleState(this.hold, state));
 			if (state === 'working') this.setInputPending(0);
 			this.onStateChange(state);
 			if (state !== 'unknown') this.endBootHint();
@@ -245,6 +258,16 @@ export class TerminalSession {
 		});
 
 		this.term.onBell(() => this.playBell());
+
+		// OSC 9;4: barra di avanzamento che omp scrive solo con
+		// `terminal.showProgress` acceso. Quando c'e' copre anche la
+		// compattazione a riposo, che il titolo non mostra. `false`: nessun
+		// altro uso dell'OSC 9 viene intercettato.
+		this.term.parser.registerOscHandler(9, (data) => {
+			const active = parseProgressOsc(data);
+			if (active !== null) this.setHold(holdOnProgress(this.hold, active));
+			return false;
+		});
 
 		this.resizeObserver = new ResizeObserver(() => {
 			clearTimeout(this.resizeTimeout ?? undefined);
@@ -344,9 +367,43 @@ export class TerminalSession {
 		throw new Error(failureMessage);
 	}
 
+	/**
+	 * Pronto per ricevere un task adesso: titolo `idle`, nessun task appena
+	 * scritto in attesa del run, nessuna barra di avanzamento, nessun testo a
+	 * meta' nel prompt. E' la ri-verifica dell'auto-avvio prima di scrivere.
+	 */
+	public isAutomationQuiet(): boolean {
+		return (
+			!this.disposed &&
+			this.ptyId !== null &&
+			this.currentState === 'idle' &&
+			!this.hold.awaitingStart &&
+			!this.hold.progressActive &&
+			this.pendingInputLength === 0
+		);
+	}
+
+	private setHold(next: TerminalHold) {
+		const prev = this.hold;
+		this.hold = next;
+		if (next.awaitingStart && this.holdTimer === null) {
+			this.holdTimer = window.setTimeout(() => {
+				this.holdTimer = null;
+				if (holdExpired(this.hold, Date.now())) this.setHold({ ...this.hold, awaitingStart: false, awaitingSince: null });
+				else if (this.hold.awaitingStart) this.setHold(this.hold);
+			}, TERMINAL_START_TIMEOUT_MS);
+		} else if (!next.awaitingStart && this.holdTimer !== null) {
+			window.clearTimeout(this.holdTimer);
+			this.holdTimer = null;
+		}
+		if (prev.awaitingStart !== next.awaitingStart || prev.progressActive !== next.progressActive) {
+			this.onHoldChange({ awaitingStart: next.awaitingStart, progressActive: next.progressActive });
+		}
+	}
+
 	private assertAutomationReady() {
 		if (this.disposed || this.ptyId === null) throw new Error(msg.ui_ts_terminal_terminale_omp_non_pronto_c22b());
-		if (this.currentState !== 'idle') throw new Error(msg.ui_ts_terminal_omp_deve_essere_in_attesa_prima_di_6479());
+		if (this.currentState !== 'idle' || this.hold.awaitingStart) throw new Error(msg.ui_ts_terminal_omp_deve_essere_in_attesa_prima_di_6479());
 		if (this.pendingInputLength > 0) throw new Error(msg.ui_ts_terminal_completa_o_cancella_il_testo_presente_nel_6a90());
 	}
 
@@ -383,7 +440,15 @@ export class TerminalSession {
 		if (configuration?.prewalk) {
 			await this.sendCommand('/prewalk');
 		}
-		await this.writePty(`\x1b[200~${prompt}\x1b[201~\r`);
+		// Da qui al primo titolo `working` il vecchio `idle` non vale piu':
+		// il run sta partendo (preflight, compattazione prima del prompt).
+		this.setHold(holdOnTaskWritten(this.hold, Date.now()));
+		try {
+			await this.writePty(`\x1b[200~${prompt}\x1b[201~\r`);
+		} catch (error) {
+			this.setHold({ ...this.hold, awaitingStart: false, awaitingSince: null });
+			throw error;
+		}
 		this.setInputPending(0);
 		return next;
 	}
@@ -762,6 +827,7 @@ export class TerminalSession {
 		}
 		this.term.reset();
 		this.currentState = 'unknown';
+		this.setHold(holdReset());
 		this.setInputPending(0);
 		this.updateSessionInfo(null);
 		this.onStateChange('unknown');
@@ -816,6 +882,10 @@ export class TerminalSession {
 		this.flushTerminalOutput();
 		this.clearTerminalOutputBuffer();
 		this.clearBootTimers();
+		if (this.holdTimer !== null) {
+			window.clearTimeout(this.holdTimer);
+			this.holdTimer = null;
+		}
 		await this.release();
 		this.disposed = true;
 		this.unsubscribeTheme();

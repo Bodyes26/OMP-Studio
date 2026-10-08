@@ -78,6 +78,7 @@
 	import SuggestPanel, { type SuggestionItem } from './SuggestPanel.svelte';
 	import ComposerNoticeStrip from './ComposerNoticeStrip.svelte';
 	import ComposerStatusLine from './ComposerStatusLine.svelte';
+	import ExtensionWidgets from './ExtensionWidgets.svelte';
 	import ComposerPinnedItem from './ComposerPinnedItem.svelte';
 	import { resolveLayout, itemsInZone } from '$lib/agent/commandCatalog/layout';
 	import { COMMAND_MANIFEST } from '$lib/agent/commandCatalog/manifest/index';
@@ -880,6 +881,7 @@
      Tauri e lo gestisce Chat.svelte (addPaths): i gestori HTML non ricevono file. -->
 <div bind:this={rootEl} class="composer-root" class:hidden={!visible}>
 	<ComposerNoticeStrip {session} />
+	<ExtensionWidgets widgets={session.extensionWidgets} placement="aboveEditor" />
 
 	<!-- Tendina suggerimenti @ o / ancorata sul Range rect del cursore -->
 	{#if currentTrigger && suggestItems.length > 0}
@@ -1304,6 +1306,7 @@
 			focus();
 		}}
 	/>
+	<ExtensionWidgets widgets={session.extensionWidgets} placement="belowEditor" />
 </div>
 
 <style>

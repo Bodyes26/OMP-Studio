@@ -80,3 +80,5 @@ import './companion-settings.test.ts';
 import './session-modes.test.ts';
 import './command-layout.test.ts';
 import './command-manifest.test.ts';
+import './extension-ui-settle.test.ts';
+import './auto-dispatch-stability.test.ts';

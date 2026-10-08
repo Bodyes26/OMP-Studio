@@ -13,6 +13,11 @@ const KEY = Symbol('studio-agent-ui');
 export interface AgentUiHooks {
 	/** Apre un percorso (relativo o assoluto) nell'editor Monaco. */
 	openFile(path: string, line?: number | null): void;
+	/**
+	 * Apre il confronto con HEAD di un file (lo stesso del pannello Git).
+	 * Facoltativo: dove manca, chi lo usa ripiega su `openFile`.
+	 */
+	openDiff?(path: string): void;
 	/** Apre un'immagine base64 nel visualizzatore esistente. */
 	openImage(data: string, mimeType: string): void;
 	/** Apre il cassetto del transcript di un subagent. */
