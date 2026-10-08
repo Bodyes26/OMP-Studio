@@ -87,7 +87,12 @@
 	import LaneDispatchDialog from '$lib/components/LaneDispatchDialog.svelte';
 	import LaneProfileDialog from '$lib/components/LaneProfileDialog.svelte';
 	import LaneReviewModal from '$lib/components/LaneReviewModal.svelte';
-	import { laneLanding, type LaneBridgeRequestPayload } from '$lib/lanes/laneLanding.svelte';
+	import { laneLanding } from '$lib/lanes/laneLanding.svelte';
+	import {
+		agentLanes,
+		type AgentLaneDispatchOutcome,
+		type CorsieBridgePayload
+	} from '$lib/lanes/agentLanes.svelte';
 	import {
 		recordAllowlistDecision,
 		reviewProjectProfile,
@@ -301,6 +306,11 @@
 		void startFocusTracer();
 		void notificationManager.init();
 		laneLanding.init();
+		agentLanes.init();
+		// I tool `corsia_*` passano dallo stesso percorso del click con Shift.
+		agentLanes.setHost({
+			dispatchTaskInNewLane: (project, taskId, options) => dispatchAgentTask(project, taskId, options)
+		});
 		function buildResolutionContext() {
 			return {
 				projects: projectStore.projects,
@@ -322,9 +332,9 @@
 			const context = buildResolutionContext();
 			laneSurfaceStore.routePreviewEvent(e.payload, context);
 		});
-		const unlistenBridge = listen<LaneBridgeRequestPayload>('lane-bridge://request', (e) => {
+		const unlistenBridge = listen<CorsieBridgePayload>('lane-bridge://request', (e) => {
 			if (!e.payload) return;
-			void laneLanding.handleBridgeRequest(e.payload);
+			void agentLanes.handleBridgeRequest(e.payload);
 		});
 
 		return () => {
@@ -332,6 +342,8 @@
 			void unlistenPreview.then((un) => un());
 			void unlistenBridge.then((un) => un());
 			laneLanding.dispose();
+			agentLanes.setHost(null);
+			agentLanes.dispose();
 		};
 	});
 	let usageOpen = $state(false);
@@ -423,6 +435,20 @@
 		follow: boolean;
 	} | null>(null);
 	let reviewingLane = $state<AgentLane | LaneRecord | null>(null);
+
+	/**
+	 * `corsia_integra` con conflitti consegna la corsia all'utente: la revisione
+	 * si apre appena il progetto e' quello in vista (subito, o quando ci torna).
+	 */
+	$effect(() => {
+		const request = agentLanes.reviewRequest;
+		if (!request || projectStore.activeId !== request.projectId) return;
+		const lane = laneStore
+			.lanesFor(request.projectId as ProjectId)
+			.find((candidate) => candidate.laneId === request.laneId);
+		agentLanes.reviewRequest = null;
+		if (lane && lane.status !== 'archived') reviewingLane = lane;
+	});
 
 	async function askLaneToResolveConflicts(prompt: string) {
 		const project = projectStore.activeProject;
@@ -1309,7 +1335,11 @@
 	 * corsia viene archiviata subito: un worktree vuoto terrebbe occupato lo
 	 * slot dell'auto-dispatch senza che nessun lavoro sia partito.
 	 */
-	async function dispatchInNewLane(project: Project, task: StudioTask, options: RunTaskOptions) {
+	async function dispatchInNewLane(
+		project: Project,
+		task: StudioTask,
+		options: RunTaskOptions
+	): Promise<AgentLaneDispatchOutcome> {
 		const key = runtimeKey(project);
 		if (!options.auto) {
 			const review = await reviewProjectProfile(project).catch((error) => {
@@ -1323,7 +1353,7 @@
 					review,
 					follow: options.follow === true
 				};
-				return;
+				return { kind: 'awaiting-consent' };
 			}
 		}
 		let created: LaneRecord;
@@ -1339,8 +1369,9 @@
 				activate: options.follow === true
 			});
 		} catch (error) {
-			agentErrors[key] = error instanceof Error ? error.message : String(error);
-			return;
+			const message = error instanceof Error ? error.message : String(error);
+			agentErrors[key] = message;
+			return { kind: 'failed', message };
 		}
 
 		const delivered = await dispatchTaskInLane(project, created, task, {
@@ -1348,13 +1379,28 @@
 			skipGate: true
 		});
 		if (!delivered) {
+			const reason = agentErrors[runtimeKey(project, created.laneId)];
 			await discardUndeliveredLane(project, created);
-			return;
+			return { kind: 'failed', message: reason || m.lane_dispatch_agent_failed() };
 		}
 		if (options.follow) {
 			if (projectStore.activeId !== project.id) projectStore.setActive(project.id);
 			await laneOrchestrator.switchLane(project.id as ProjectId, created.laneId);
 		}
+		return { kind: 'started', lane: created };
+	}
+
+	/** Spedizione chiesta da un tool `corsia_*`: stesso percorso, esito restituito all'agente. */
+	async function dispatchAgentTask(
+		project: Project,
+		taskId: string,
+		options: { follow?: boolean }
+	): Promise<AgentLaneDispatchOutcome> {
+		const task = taskStore.taskById(taskId);
+		if (!project.canonicalProjectPath || !task) {
+			return { kind: 'failed', message: m.lane_dispatch_agent_failed() };
+		}
+		return dispatchInNewLane(project, task, { follow: options.follow === true });
 	}
 
 	/**

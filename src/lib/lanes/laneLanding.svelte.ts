@@ -8,7 +8,8 @@
 // 5. Creazione e aggiornamento delle card reattive nella chat di Studio.
 // 6. Coda persistente con ripresa automatica ogni 15s o quando la sessione principale torna libera.
 // 7. Annullamento integrazione via `worktree_undo_land`.
-// 8. Gestione richieste bridge HTTP (`lane-bridge://request`).
+// Le richieste del bridge (`lane-bridge://request`) le smista
+// `agentLanes.svelte.ts`: qui arriva solo `land()` per `corsia_integra`.
 
 import { invoke } from '@tauri-apps/api/core';
 import { laneStore } from '$lib/stores/lanes.svelte';
@@ -173,16 +174,6 @@ export interface LaneLandingRecord {
 	worktreePath?: string;
 }
 
-export interface LaneBridgeRequestPayload {
-	requestId: string;
-	ownerKind: 'agent' | 'terminal';
-	ownerId: number;
-	projectId: string | null;
-	callerLaneId: string | null;
-	cwd: string;
-	laneId: string | null;
-	message: string;
-}
 
 const QUEUE_STORAGE_KEY = 'omp-studio.laneLandingQueue';
 
@@ -653,8 +644,10 @@ export class LaneLandingService {
 				worktreePath: outcome.worktreePath
 			});
 
+			// Nessuna istruzione git all'agente (Gate R33): i conflitti li vede
+			// l'utente nella revisione, che Studio gli apre.
 			const fileList = outcome.files.map((f) => `- ${f}`).join('\n');
-			const agentText = `Rilevati conflitti durante il merge con il branch target ${outcome.targetBranch}.\nFile in conflitto:\n${fileList}\nWorktree: ${outcome.worktreePath}\nIstruzioni: risolvi i conflitti in quei file, esegui \`git add\` sui file risolti, NON fare commit, poi richiama studio_lane_integrate.`;
+			const agentText = `Integrazione non eseguita: il merge con ${outcome.targetBranch} ha conflitti.\nFile in conflitto:\n${fileList}\nStudio ha segnato la corsia come in attesa dell'utente e gli ha aperto la revisione. Non risolvere i conflitti, non usare git e non ritentare: riferisci all'utente.`;
 
 			return {
 				kind: 'conflicts',
@@ -916,115 +909,9 @@ export class LaneLandingService {
 		const targetBranch = refreshed.lane.targetBranch ?? 'main';
 		const text =
 			promptText ??
-			`Nella corsia ci sono conflitti Git non risolti rispetto a ${targetBranch}. Aiutami a risolverli solo in questa corsia: modifica i file in conflitto, esegui \`git add\` sui file risolti, NON fare commit, poi richiama studio_lane_integrate.`;
+			`Nella corsia ci sono conflitti Git non risolti rispetto a ${targetBranch}. Aiutami a risolverli solo in questa corsia: modifica i file in conflitto, esegui \`git add\` sui file risolti, NON fare commit, poi chiama corsia_fatto con un riassunto: l'integrazione la ripeto io da Studio.`;
 
 		await session.prompt(text);
-	}
-
-	/**
-	 * Gestisce la richiesta proveniente dal bridge HTTP loopback (evento `lane-bridge://request`).
-	 * Invia SEMPRE una risposta tramite `lane_bridge_respond`.
-	 */
-	async handleBridgeRequest(payload: LaneBridgeRequestPayload): Promise<void> {
-		try {
-			// Il token del bridge viene emesso solo con un projectId: senza,
-			// indovinare il progetto rischierebbe di integrare la corsia sbagliata.
-			const project = payload.projectId
-				? projectStore.projects.find((p) => p.id === payload.projectId)
-				: undefined;
-
-			if (!project) {
-				await invoke('lane_bridge_respond', {
-					requestId: payload.requestId,
-					response: {
-						ok: false,
-						text: 'Progetto non trovato.'
-					}
-				});
-				return;
-			}
-
-			// Una sessione senza laneId e' la Principale (stessa convenzione di sessionKey).
-			const callerLaneId = payload.callerLaneId ?? 'main';
-			let targetLaneId = (payload.laneId as LaneId | null) ?? null;
-			if (!targetLaneId) {
-				if (callerLaneId !== 'main') {
-					targetLaneId = callerLaneId as LaneId;
-				} else {
-					// Chiamante principale senza laneId
-					const openLanes = laneStore
-						.lanesFor(project.id as ProjectId)
-						// Le corsie Lab non si integrano con Git: contarle rendeva ambigua
-						// la scelta anche con un solo worktree aperto.
-						.filter(
-							(l) =>
-								l.laneId !== 'main' &&
-								l.kind !== 'lab' &&
-								l.status !== 'archived' &&
-								l.status !== 'closed'
-						);
-
-					if (openLanes.length === 1) {
-						targetLaneId = openLanes[0].laneId;
-					} else if (openLanes.length === 0) {
-						await invoke('lane_bridge_respond', {
-							requestId: payload.requestId,
-							response: {
-								ok: false,
-								text: 'Nessuna corsia aperta da integrare nel progetto.'
-							}
-						});
-						return;
-					} else {
-						const list = openLanes.map((l) => `- ${l.laneId}: ${l.title}`).join('\n');
-						await invoke('lane_bridge_respond', {
-							requestId: payload.requestId,
-							response: {
-								ok: false,
-								text: `Specificare la corsia da integrare. Corsie aperte disponibili:\n${list}`,
-								details: {
-									lanes: openLanes.map((l) => ({ id: l.laneId, title: l.title }))
-								}
-							}
-						});
-						return;
-					}
-				}
-			}
-
-			const caller: LandCaller = {
-				kind: payload.ownerKind,
-				ownerId: payload.ownerId,
-				callerLaneId
-			};
-
-			const result = await this.land(project, targetLaneId, {
-				message: payload.message,
-				caller
-			});
-
-			// Coda, conferma e conflitti non sono errori del tool: il testo dice
-			// all'agente cosa fare (o di non ritentare).
-			const ok = result.kind !== 'error';
-
-			await invoke('lane_bridge_respond', {
-				requestId: payload.requestId,
-				response: {
-					ok,
-					text: result.agentText,
-					details: result
-				}
-			});
-		} catch (err) {
-			const message = err instanceof Error ? err.message : String(err);
-			await invoke('lane_bridge_respond', {
-				requestId: payload.requestId,
-				response: {
-					ok: false,
-					text: `Errore imprevisto durante l'integrazione: ${message}`
-				}
-			}).catch(() => undefined);
-		}
 	}
 }
 

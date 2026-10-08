@@ -14,6 +14,8 @@ export interface ToolRenderProps {
 	args: Record<string, unknown>;
 	result?: { content?: ContentBlock[]; details?: unknown; isError?: boolean };
 	running?: boolean;
+	/** Id della chiamata: lo usano le card interattive (proposta di corsia). */
+	toolCallId?: string;
 	/** Il corpo espandibile e' l'unica vista renderizzata dal componente (Gate R32 - C10). */
 }
 

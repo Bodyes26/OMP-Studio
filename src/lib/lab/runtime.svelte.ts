@@ -341,3 +341,14 @@ export async function disposeLabRuntime(projectId: string, laneId: string): Prom
 		await runtime.stop();
 	}
 }
+
+/**
+ * Anteprima di una corsia Lab senza crearne il runtime: `null` se in questa
+ * sessione di Studio l'anteprima non e' mai stata montata. Serve ai tool
+ * `corsia_risultato`/`corsia_consegna`, che leggono e non devono avviare nulla.
+ */
+export function peekLabRuntime(projectId: string, laneId: string): { url: string | null; errors: number } | null {
+	const runtime = runtimes.get(`${projectId}:${laneId}`);
+	if (!runtime) return null;
+	return { url: runtime.url, errors: runtime.allErrors.length };
+}

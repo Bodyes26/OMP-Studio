@@ -92,3 +92,4 @@ import './auto-dispatch-stability.test.ts';
 import './plan-mode.test.ts';
 import './studio-docs.test.ts';
 import './project-docs.test.ts';
+import './corsie-agente.test.ts';

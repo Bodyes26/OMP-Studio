@@ -15,6 +15,9 @@
 //    - `web_search`: consultazione documentazione pubblica online.
 //    - `lab_preview_status`: stato della compilazione/runtime dell'anteprima.
 //    - `lab_set_summary`: salvataggio metadati (titolo e riepilogo) del prototipo.
+//    - `corsia_fatto`: segnala a Studio che il lavoro del prototipo e' finito
+//      (bridge loopback con token per-sessione). Gli altri tool `corsia_*` non
+//      sono ammessi: una corsia non apre, integra o scarta corsie.
 //
 // 2. Tool di lettura file (`read`, `grep`, `glob`):
 //    - Consentiti esclusivamente dentro il workspace del prototipo (OMP_LAB_WORKSPACE)
@@ -172,7 +175,10 @@ const FREE_TOOLS: Record<string, true> = {
 	web_search: true,
 	wait: true,
 	lab_preview_status: true,
-	lab_set_summary: true
+	lab_set_summary: true,
+	// Unico tool delle corsie ammesso nel Laboratorio: segnala a Studio la fine
+	// del lavoro tramite il bridge. Gli altri `corsia_*` restano bloccati.
+	corsia_fatto: true
 };
 
 const ALLOWED_READ_SCHEMES: Record<string, true> = {
