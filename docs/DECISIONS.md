@@ -1416,3 +1416,37 @@ locali e il `queuedMessageCount` di omp potevano divergere, e un crash prima di
 2. **Generazione e verifica assistita per gli agenti:** Quando il gate di release (`scripts/check-commands.mjs`) rileva comandi nuovi da `omp`, l'agente può generare una singola bozza `CommandManifestEntry` completa, sottoporla all'utente con il tool `ask` e inserirla nel file appropriato (`omp-modes.ts` o `omp-session.ts`) con una sola operazione atomica.
 3. **Controllo dei tipi a tempo di compilazione:** I contratti di `CommandText` (`CommandTexts = { it: CommandText, en: CommandText }`) impongono staticamente che entrambe le lingue contengano tutti i campi obbligatori (`title`, `summary`, `benefits`, `examples`), evitando chiavi mancanti o disallineate che in JSON richiederebbero controlli a runtime o linter aggiuntivi.
 4. **Perimetro Paraglide preservato:** Le etichette strutturali dell'interfaccia utente (titoli delle sezioni, pulsanti di azione, messaggi di stato, attributi aria) restano interamente gestite tramite Paraglide (`messages/*.json`), mantenendo la coerenza applicativa per tutti gli elementi del guscio.
+
+---
+
+## Gate R3X-heads-up: heads-up di fine turno, una frase sola e solo se serve
+
+**Data:** 2026-10-08
+**Esito:** APPROVATO (variante A del prototipo `heads-up.html`, ridotta su indicazione di Maurizio)
+
+### Il problema
+
+Nei turni lunghi la cosa importante (un test fallito e lasciato lì, una modifica allo schema del database, una domanda posta a metà risposta) sta in mezzo al racconto e si perde. Il prototipo proponeva una scheda «Da guardare» con fino a cinque voci e un'azione per voce: troppo. Maurizio vuole una card piccola con **al massimo una frase**, che compare solo quando c'è davvero qualcosa.
+
+### Decisioni
+
+1. **Una frase, tre fonti, priorità fissa.** Agente (`studio_headsup`) > sintesi smol > frase composta dai fatti. L'agente vince perché solo lui sa cosa non ha verificato o cosa ha deciso da solo; smol sostituisce i fatti perché li riceve in ingresso e li fonde col racconto; i fatti sono il ripiego deterministico a costo zero.
+2. **Fatti certi calcolati da Studio** (`turnHeadsUp.ts`, funzioni pure): comando di **verifica** (test, build, typecheck, lint) fallito e mai riuscito dopo con la stessa chiave; domanda `ask` scaduta e risolta da omp col default; comando rischioso riuscito (`git push`, `reset --hard`, `clean -f`, `rm -r` fuori da `node_modules`/`dist`/`/tmp`…, `DROP TABLE`, `publish`); file delicato modificato (manifest delle dipendenze, migrazioni e `.sql`, `schema.prisma`, CI, `.env*`, `AGENTS.md`/`CLAUDE.md`, `tauri.conf.json`, capability). Un `grep` che esce con 1 non è un fatto; i lockfile da soli non contano. La frase dai fatti usa al massimo le due categorie più gravi.
+3. **Tool `studio_headsup`** in `extensions/studio-headsup.ts`, caricato con `-e` in GUI e PTY come le altre estensioni. Nessuna riga nel prompt di sistema: la regola d'uso (quando chiamarlo e quando no, una frase, max 200 caratteri) sta nella descrizione del tool. Restituisce subito «ok»; la frase sta negli argomenti, quindi resta nel `.jsonl` e torna anche dopo una ripresa.
+4. **Ripiego smol nella chiamata esistente.** Nessuna seconda chiamata: `generate_prompt_suggestions` riceve `turnDigest` e `wantHeadsUp` e risponde con `headsUp` (una frase o `null`). Si chiede solo se l'agente ha taciuto e il turno è grande (fatti certi, almeno 8 chiamate o 1.500 caratteri di testo). Con i suggerimenti dinamici spenti smol non parte e restano i fatti.
+5. **Dove:** card prima del piè di turno; la stessa frase nella card del progetto della companion e nella notifica di sistema (una per turno, dopo l'analisi post-turno; mai se il turno chiede già una risposta o se stai guardando quel progetto; con lo stile compatto la frase resta fuori dalla notifica). I turni passati mostrano solo la frase dell'agente.
+6. **Gesti:** clic sulla frase = vai al punto (primo fatto, altrimenti ultima risposta); X = visto. Il «visto» è machine-local (`localStorage`, chiave sessione + hash della frase), non in `~/.omp` né nel repo.
+
+### Perché non le alternative
+
+- **Elenco di voci con azioni (prototipo A pieno):** più informazione, ma occupa metà chat e diventa un secondo racconto da leggere.
+- **Solo smol:** vede solo il testo, non sa cosa non è stato verificato e tende a inventare cautele generiche.
+- **Solo agente:** può dimenticarsene, e su un fallimento è giudice di parte.
+- **Riga fissa nel prompt di sistema:** costa token a ogni turno; la descrizione del tool basta.
+
+### Rischi accettati
+
+- La lista dei file delicati e dei comandi di verifica è un default fisso, non ancora configurabile per progetto.
+- Nelle sessioni terminale (PTY) la card non esiste: la TUI mostra la chiamata `studio_headsup` come un tool qualsiasi, e companion e notifica non ricevono la frase.
+- Il modello può chiamare `studio_headsup` anche quando non serve: la descrizione lo vieta esplicitamente, ma l'effetto va osservato sull'uso reale.
+
