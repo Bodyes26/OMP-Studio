@@ -857,6 +857,8 @@ pub async fn rpc_open(
         crate::pty::write_extension("studio-loop.ts", crate::pty::LOOP_EXTENSION_TS);
     let goal_extension =
         crate::pty::write_extension("studio-goal.ts", crate::pty::GOAL_EXTENSION_TS);
+    let headsup_extension =
+        crate::pty::write_extension("studio-headsup.ts", crate::pty::HEADSUP_EXTENSION_TS);
 
     // Progetto senza cartella (chat temporanea): stesso trattamento del PTY,
     // sessione effimera e nessun `--cwd`.
@@ -896,6 +898,9 @@ pub async fn rpc_open(
     // Proposte dell'agente per l'obiettivo guidato (`/guided-goal`): facoltativa,
     // senza file l'intervista resta con le proposte fisse.
     if let Some(path) = &goal_extension {
+        command.arg("-e").arg(path);
+    }
+    if let Some(path) = &headsup_extension {
         command.arg("-e").arg(path);
     }
     // Applica resume (se sessione valida) oppure continue_last

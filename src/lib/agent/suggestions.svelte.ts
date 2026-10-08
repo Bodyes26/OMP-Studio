@@ -9,6 +9,8 @@ export interface PromptSuggestionsResult {
 	suggestions: string[];
 	awaitsUserInput: boolean;
 	questionSummary: string | null;
+	/** Frase heads-up del ripiego smol (Gate R3X-heads-up), solo se richiesta. */
+	headsUp?: string | null;
 }
 /**
  * Esegue una promise con un limite massimo di tempo sul frontend.
@@ -161,6 +163,9 @@ export class SessionSuggestions {
 
 		const token = ++this.requestToken;
 		this.isAnalyzing = true;
+		// Heads-up: la stessa chiamata, con il digest del turno, solo quando
+		// l'agente non ha gia' scritto la sua frase e il turno e' grande.
+		const headsUpRequest = this.session.headsUpRequest();
 
 		try {
 			const res = await withTimeout(
@@ -168,7 +173,9 @@ export class SessionSuggestions {
 					lastAssistant,
 					lastUser,
 					modelSelector,
-					maxItems
+					maxItems,
+					turnDigest: headsUpRequest?.digest ?? null,
+					wantHeadsUp: headsUpRequest !== null
 				}),
 				timeoutMs
 			);
@@ -194,6 +201,11 @@ export class SessionSuggestions {
 							? res.questionSummary.trim()
 							: null
 					};
+
+			if (headsUpRequest && !Array.isArray(res)) {
+				const sentence = typeof res?.headsUp === 'string' ? res.headsUp.trim() : '';
+				this.session.applySmolHeadsUp(headsUpRequest.turnKey, sentence || null);
+			}
 
 			this.items = structured.suggestions;
 			this.awaitsUserInput = structured.awaitsUserInput;

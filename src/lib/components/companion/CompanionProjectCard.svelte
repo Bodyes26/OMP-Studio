@@ -28,7 +28,7 @@
 	import CompanionAskBody from './CompanionAskBody.svelte';
 	import CompanionProjectQueue from './CompanionProjectQueue.svelte';
 	import MissedScheduleBanner from '../schedule/MissedScheduleBanner.svelte';
-	import { IconArrowLeft, IconChevronRight, IconPlus } from '$lib/icons';
+	import { IconArrowLeft, IconChevronRight, IconPlus, IconWarning } from '$lib/icons';
 
 	let {
 		project,
@@ -97,6 +97,13 @@
 	});
 
 	const activityText = $derived(runtime?.activity?.text ?? null);
+
+	/**
+	 * Heads-up di fine turno (Gate R3X-heads-up): la stessa frase della chat,
+	 * sopra l'estratto. Solo ad agente fermo: mentre lavora vale la riga di
+	 * attivita', e una domanda aperta ha il suo corpo.
+	 */
+	const headsUpText = $derived(busy ? null : (runtime?.headsUp ?? null));
 
 	const agentStatus = $derived.by<{ mark: StatusMarkType; label: string }>(() => {
 		switch (project.lane.agentState) {
@@ -240,8 +247,19 @@
 			     troncata, non duplica un controllo. -->
 			<p class="card-activity" title={activityText} transition:trayFold>{activityText}</p>
 		{/if}
-	{:else if settledExcerpt || queued.length > 0}
+	{:else if headsUpText || settledExcerpt || queued.length > 0}
 		<div class="card-body" transition:trayFold>
+			{#if headsUpText}
+				<button
+					type="button"
+					class="card-headsup"
+					title={m.headsup_goto_title()}
+					onclick={() => onFocusProject(project.id)}
+				>
+					<span class="hu-icon" aria-hidden="true"><IconWarning /></span>
+					<span class="hu-text"><span class="hu-label">{m.headsup_label()}</span> {headsUpText}</span>
+				</button>
+			{/if}
 			{#if settledExcerpt}
 				<div class="card-excerpt">
 					<span class="excerpt-age">{settledExcerpt.age}</span>

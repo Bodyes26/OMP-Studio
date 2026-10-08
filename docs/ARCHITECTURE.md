@@ -102,6 +102,13 @@ graph TB
 - **Esecuzione effimera e isolata:** il comando `generate_prompt_suggestions` invoca `omp -p` con il modello del ruolo `smol` come processo figlio effimero e isolato, effettuando il parsing dell'array JSON di risposta con fallimento silenzioso.
 - **Scelta architetturale:** processo effimero e non residente (misurati 5,7 s con `smol`, 4,3 s con suffisso `:minimal`, contro ~1,5 s di un processo caldo) perche' l'utente ha accettato la latenza e un processo residente introdurrebbe ciclo di vita, watchdog e rischio di contesto condiviso fra progetti.
 - **Politica Opt-In e Fallimento Silenzioso:** la generazione e' opt-in (`dynamicEnabled` predefinito a falso) perche' costa una chiamata a modello per ogni fine turno. In caso di errore o timeout, il comando restituisce un array vuoto senza disturbare l'utente.
+- **Heads-up nella stessa chiamata (Gate R3X-heads-up):** quando l'agente non ha chiamato `studio_headsup` e il turno è grande (fatti certi, almeno 8 chiamate o 1.500 caratteri di testo), il frontend passa `turnDigest` (fatti + testo completo del turno, tagliato in mezzo a 6.000 caratteri) e `wantHeadsUp`; il digest viaggia nel file di contesto, mai in argv. Il modello risponde con `headsUp`: al massimo una frase o `null`. Senza `wantHeadsUp` il campo viene scartato lato Rust.
+
+### 2.5 Heads-up di fine turno (Gate R3X-heads-up)
+- **Tre fonti, una frase.** `src/lib/agent/turnHeadsUp.ts` (funzioni pure) calcola dai tool del turno i fatti certi: comando di verifica fallito e mai riuscito dopo (stessa chiave «npm test», «cargo check»…), domanda `ask` scaduta, comando rischioso riuscito (`git push`, `reset --hard`, `rm -r` fuori dalle cartelle usa e getta…), file delicato modificato (manifest, migrazioni/SQL, CI, `.env*`, `AGENTS.md`, `tauri.conf.json`, capability). Priorità: frase dell'agente (`studio_headsup`) > frase smol (stessa chiamata post-turno di `suggestions_ops.rs`) > frase composta dai fatti.
+- **Stato.** `AgentSession.headsUp` vale per l'ultimo turno: si fissa ad `agent_end` (agente + fatti), si aggiorna una volta se smol risponde, si azzera ad `agent_start`. I turni passati mostrano solo la frase dell'agente, che resta nel `.jsonl` perché sta negli argomenti del tool.
+- **Superfici.** Card `TurnHeadsUp.svelte` prima del piè di turno (clic = scorre all'elemento del transcript, X = visto), riga nella card del progetto della companion (`CompanionProjectRuntime.headsUp`), notifica di sistema (`notificationManager.notifyHeadsUp`, una per turno, dopo l'analisi post-turno, mai se il turno chiede già una risposta o se stai guardando il progetto).
+- **Visto.** `headsUpSeen.svelte.ts`: chiavi `sessione|hash della frase` in `localStorage` (ultime 400), machine-local; non usa gli id delle entry, che cambiano a ogni ricostruzione.
 
 ---
 
@@ -126,7 +133,7 @@ process_tree.rs         Job Object e registro degli alberi di processo per corsi
 omp_ops.rs              Query protette SQLite (usage, storico sessioni), verifica/aggiornamento OMP, temi, sorgenti di quota dichiarate dall'utente
 rules_ops.rs            Censimento regole di contesto e skill, analisi attrito in sola lettura su history.db
 models_ops.rs           Gestione catalogo modelli, ruoli operativi, catene di fallback e raccomandazioni
-suggestions_ops.rs      Comando generate_prompt_suggestions: chiamata effimera a omp -p con ruolo smol, parsing JSON, fallimento silenzioso
+suggestions_ops.rs      Comando generate_prompt_suggestions: chiamata effimera a omp -p con ruolo smol, parsing JSON (anche headsUp), fallimento silenzioso
 setup.rs                SetupWizard: download resiliente OMP, verifica SHA-256 nativa, installazione font Nerd
 studio_updater.rs       Updater applicazione: canali Stable/Nightly, verifica integrità SHA-256
 alerts.rs               Notifiche OS, registrazione AUMID Windows (sh.omp.studio), attenzione Dock/Taskbar
@@ -158,6 +165,8 @@ lib/
     notifications.svelte.ts Gestione centrale notifiche toast, badge icona e preferenze utente
     rules.svelte.ts     Censimento regole/skill per progetto e proposte di regola memorizzate
     suggestions.svelte.ts Controller per sessione dei suggerimenti dinamici: trigger agent_end, chiave di turno, invalidazione, timeout
+    turnHeadsUp.ts      Heads-up di fine turno: fatti certi del turno, frase dai fatti, priorità agente > smol > fatti, digest per smol
+    headsUpSeen.svelte.ts Heads-up già visti (localStorage, chiave sessione + hash della frase)
   agent/
     client.ts           OmpRpcClient: correlazione richieste/risposte, timeout dinamici, channel listener
     session.svelte.ts   AgentSession: riduttore reattivo di stato, gestione streaming, cronologia transcript
@@ -181,6 +190,7 @@ lib/
       BranchPanel.svelte Pannello «Rami»: albero di get_tree, ramo attivo evidenziato, apertura di un ramo come nuova sessione
       GoalBanner.svelte Banner fisso dell'obiettivo in cima alla chat: stato, tentativi/tetto, budget, tempo, Pausa/Riprendi/Stop
       GuidedGoalStrip.svelte / GuidedGoalAskCard.svelte / GuidedGoalDraftCard.svelte / GuidedGoalEntry.svelte  Intervista dell'obiettivo guidato
+      TurnHeadsUp.svelte Card di una frase prima del piè di turno (clic = vai al punto, X = visto)
       AskCard.svelte    Card di risposta interattiva con roving tabindex
       ThinkingBlock.svelte Accordion per blocchi di ragionamento con indicatore tempo
       TodoStrip.svelte  Visualizzatore fasi e task del tool todo
