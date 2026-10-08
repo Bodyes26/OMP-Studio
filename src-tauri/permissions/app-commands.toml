@@ -249,6 +249,13 @@ commands.allow = [
 ]
 
 [[permission]]
+identifier = "allow-project-docs"
+description = "Diario di progetto: risposta effimera del modello leggero alle domande sul diario (nessuna scrittura, nessuna sessione)"
+commands.allow = [
+    "project_docs_ask"
+]
+
+[[permission]]
 identifier = "allow-companion"
 description = "Finestra secondaria Companion: alternanza visibilita', stato geometrico e parsing NL dei task"
 commands.allow = [
@@ -346,6 +353,7 @@ permissions = [
     "allow-prompt-suggestions",
     "allow-lane-naming",
     "allow-task-titles",
+    "allow-project-docs",
     "allow-browser-live",
     "allow-companion",
     "allow-github",
