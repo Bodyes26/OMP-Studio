@@ -2193,6 +2193,29 @@
 		};
 	}
 
+	/**
+	 * Badge `+N −M` del piè di turno: apre il diff con HEAD del file, lo stesso
+	 * del pannello Git. Il percorso arriva dalla card del tool (relativo o
+	 * assoluto) e si risolve come i link del terminale.
+	 */
+	async function handleChatOpenDiff(projectId: string, filePath: string) {
+		if (projectStore.activeId !== projectId) projectStore.setActive(projectId);
+		let targetPath = filePath;
+		const proj = projectStore.projects.find((p) => p.id === projectId);
+		if (proj?.lane.workspacePath) {
+			try {
+				const res: { rel_path: string; line: number | null } | null = await invoke('resolve_project_file', {
+					projectPath: proj.lane.workspacePath,
+					candidate: filePath
+				});
+				if (res?.rel_path) targetPath = res.rel_path;
+			} catch {
+				// Senza risoluzione si prova con il percorso grezzo, come per i link.
+			}
+		}
+		handleGitPanelDiff(targetPath, 'working');
+	}
+
 	// Chip @file nelle anteprime dei task (coda, popover di progetto): apre il
 	// file nel progetto del task e toglie di mezzo la superficie sopra l'editor.
 	function openMentionedFile(projectId: string, relPath: string) {
@@ -3214,6 +3237,7 @@
 								session={laneOrchestrator.getOrCreateAgentSession(p, lane)}
 								visible={isLaneActive}
 								onOpenFile={(filePath, line) => handleTerminalOpenFile(p.id, filePath, line ?? null)}
+								onOpenDiff={lane.kind === 'lab' ? undefined : (filePath) => void handleChatOpenDiff(p.id, filePath)}
 								onOpenImage={(data, mimeType) => (viewingImage = { data, mimeType })}
 								onSwitchToTerminal={lane.kind === 'lab' ? undefined : () => void switchSurface(p.id, 'terminal')}
 								onSlashCommand={(raw) => handleGuiSlashCommand(p.id, lane.laneId, raw)}

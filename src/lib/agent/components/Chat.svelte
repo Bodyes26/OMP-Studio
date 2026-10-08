@@ -33,6 +33,7 @@
 		session,
 		visible = true,
 		onOpenFile,
+		onOpenDiff,
 		onOpenImage,
 		onSwitchToTerminal,
 		onSlashCommand,
@@ -41,6 +42,7 @@
 		session: AgentSession;
 		visible?: boolean;
 		onOpenFile?: (path: string, line?: number | null) => void;
+		onOpenDiff?: (path: string) => void;
 		onOpenImage?: (data: string, mimeType: string) => void;
 		onSwitchToTerminal?: () => void;
 		onSlashCommand?: (raw: string) => boolean;
@@ -56,6 +58,7 @@
 	// bisogno di callback inoltrate a mano.
 	setAgentUiHooks({
 		openFile: (path, line) => onOpenFile?.(path, line),
+		openDiff: (path) => (onOpenDiff ? onOpenDiff(path) : onOpenFile?.(path, null)),
 		openImage: (data, mimeType) => onOpenImage?.(data, mimeType),
 		openSubagent: (id) => {
 			activeSubagentId = id;

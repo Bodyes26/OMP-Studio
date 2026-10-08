@@ -24,6 +24,7 @@
 	import { TodoTraceTracker, type TodoTraceItem } from '../todoTrace';
 	import AssistantText from './AssistantText.svelte';
 	import TurnFooter, { type TurnFooterData } from './TurnFooter.svelte';
+	import { addToolToTurnDiff, emptyTurnDiff, type TurnDiffStats } from '../turnDiff';
 	import CompactionRow from './CompactionRow.svelte';
 	import NoticeRow from './NoticeRow.svelte';
 	import RetryRow from './RetryRow.svelte';
@@ -257,6 +258,11 @@
 		let currentTurnModel: string | undefined;
 		let currentTurnStartMs = 0;
 		let currentTurnEndMs = 0;
+		let currentTurnDiff: TurnDiffStats = emptyTurnDiff();
+
+		function turnDiffOrUndefined(): TurnDiffStats | undefined {
+			return currentTurnDiff.added > 0 || currentTurnDiff.removed > 0 ? currentTurnDiff : undefined;
+		}
 
 		function recordEntries(entries: TranscriptEntry[]) {
 			for (const entry of entries) {
@@ -274,6 +280,7 @@
 					}
 				} else if (entry.kind === 'tool') {
 					currentTurnToolCalls += 1;
+					addToolToTurnDiff(currentTurnDiff, entry);
 					if (entry.startedAt && (!currentTurnStartMs || entry.startedAt < currentTurnStartMs)) {
 						currentTurnStartMs = entry.startedAt;
 					}
@@ -296,7 +303,8 @@
 						toolCallsCount: currentTurnToolCalls,
 						durationMs: duration,
 						model: currentTurnModel,
-						cost: currentTurnCost > 0 ? currentTurnCost : undefined
+						cost: currentTurnCost > 0 ? currentTurnCost : undefined,
+						diff: turnDiffOrUndefined()
 					});
 				}
 				currentTurnStartIndex = i;
@@ -306,6 +314,7 @@
 				currentTurnModel = undefined;
 				currentTurnStartMs = 0;
 				currentTurnEndMs = 0;
+				currentTurnDiff = emptyTurnDiff();
 			} else {
 				if (currentTurnStartIndex === -1) {
 					currentTurnStartIndex = i;
@@ -332,7 +341,8 @@
 				toolCallsCount: currentTurnToolCalls,
 				durationMs: duration,
 				model: currentTurnModel,
-				cost: currentTurnCost > 0 ? currentTurnCost : undefined
+				cost: currentTurnCost > 0 ? currentTurnCost : undefined,
+				diff: turnDiffOrUndefined()
 			});
 		}
 
