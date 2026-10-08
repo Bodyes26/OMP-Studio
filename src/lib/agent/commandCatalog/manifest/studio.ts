@@ -987,3 +987,67 @@ export const STUDIO_ENTRIES: readonly CommandManifestEntry[] = [
 		}
 	}
 ];
+
+/**
+ * «Ripeti» (/loop, variante B): pillola nel composer subito dopo @. Sta fuori
+ * da STUDIO_ENTRIES perche' `index.ts` la colloca accanto ai controlli, dove
+ * il prototipo approvato la mette; come voce Studio e' un'azione che apre il
+ * composer in modalita' ripetizione.
+ */
+export const STUDIO_LOOP_ENTRY: CommandManifestEntry = {
+	id: 'loop',
+	origin: 'studio',
+	category: 'modes',
+	icon: 'IconRepeat',
+	control: 'action',
+	supported: [
+		{ zone: 'toolbar', form: 'chip' },
+		{ zone: 'toolbar', form: 'icon' },
+		{ zone: 'statusLine', form: 'chip' },
+		{ zone: 'statusLine', form: 'icon' }
+	],
+	defaultPlacement: { zone: 'toolbar', form: 'chip' },
+	argsHint: "[N|10m] [--until|--while 'comando'] [prompt]",
+	text: {
+		it: {
+			title: 'Ripeti',
+			summary:
+				'Trasforma il composer in modalità ripetizione: lo stesso prompt riparte a ogni giro, con un limite di giri o di tempo e una condizione di stop.',
+			benefits: [
+				'Lascia lavorare l’agente da solo fino a un risultato verificabile, per esempio finché i test passano.',
+				'Il controllo gira in una shell separata prima di ogni giro dal secondo in poi: non entra nel contesto della chat.',
+				'Pausa a fine giro, Riprendi e Stop immediato restano nel composer; i giri chiusi si ripiegano in una riga.'
+			],
+			examples: [
+				{ command: '/loop', note: 'Apre il composer in modalità ripetizione con le pillole' },
+				{
+					command: "/loop 6 --until 'npm test' correggi il primo test che fallisce",
+					note: 'Al massimo 6 giri, si ferma quando npm test riesce'
+				},
+				{ command: '/loop 30m rifinisci la documentazione', note: 'Ripete per mezz’ora' }
+			],
+			whenToUse:
+				'Quando un compito si chiude in più passi uguali con un criterio di fine chiaro. Nel Terminale vale il /loop nativo di omp.'
+		},
+		en: {
+			title: 'Repeat',
+			summary:
+				'Turns the composer into repeat mode: the same prompt runs again each round, with a round or time limit and a stop condition.',
+			benefits: [
+				'Lets the agent work on its own until a verifiable result, for example until the tests pass.',
+				'The check runs in a separate shell before every round from the second on: it never enters the chat context.',
+				'Pause at the end of a round, Resume and immediate Stop stay in the composer; finished rounds fold into one line.'
+			],
+			examples: [
+				{ command: '/loop', note: 'Opens the composer in repeat mode with the pills' },
+				{
+					command: "/loop 6 --until 'npm test' fix the first failing test",
+					note: 'At most 6 rounds, stops when npm test passes'
+				},
+				{ command: '/loop 30m polish the documentation', note: 'Repeats for half an hour' }
+			],
+			whenToUse:
+				'When a task closes in several identical steps with a clear end criterion. In the Terminal the native omp /loop applies.'
+		}
+	}
+};

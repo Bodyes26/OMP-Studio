@@ -58,7 +58,7 @@
 		uniquePaths,
 		type DroppedImage
 	} from '$lib/agent/chatDrop';
-	import { untrack } from 'svelte';
+	import { untrack, type Snippet } from 'svelte';
 	import { routeComposerSubmit, remainingAfterSend } from '$lib/agent/composerSubmit';
 	import { TwoStepStop } from '$lib/agent/twoStepStop';
 	import { composerChord, isPlanToggleChord, yieldsToShellShortcut } from '$lib/agent/composerShortcuts';
@@ -104,7 +104,8 @@
 		visible = true,
 		dropTarget = false,
 		onSlashCommand,
-		onNewChat
+		onNewChat,
+		shellOverride
 	} = $props<{
 		session: AgentSession;
 		visible?: boolean;
@@ -112,6 +113,12 @@
 		dropTarget?: boolean;
 		onSlashCommand?: (raw: string) => boolean;
 		onNewChat?: () => void;
+		/**
+		 * Sostituisce la sagoma (editor e barra) restando dentro il composer:
+		 * avvisi e riga di stato restano dove sono. Lo usa /loop, che trasforma
+		 * il composer in modalita' ripetizione. La bozza resta nell'editor nascosto.
+		 */
+		shellOverride?: Snippet;
 	}>();
 
 	// Convertitore esportato per trasformare ImageContent del protocollo wire in ComposerAttachment
@@ -920,8 +927,12 @@
 	<ComposerNoticeStrip {session} />
 	<ExtensionWidgets widgets={session.extensionWidgets} placement="aboveEditor" />
 
+	{#if shellOverride}
+		{@render shellOverride()}
+	{/if}
+
 	<!-- Tendina suggerimenti @ o / ancorata sul Range rect del cursore -->
-	{#if currentTrigger && suggestItems.length > 0}
+	{#if currentTrigger && suggestItems.length > 0 && !shellOverride}
 		<SuggestPanel
 			kind={currentTrigger.kind}
 			query={currentTrigger.query}
@@ -934,8 +945,8 @@
 		/>
 	{/if}
 
-	<!-- Riquadro principale del composer -->
-	<div class="composer-shell" class:dragging={dropTarget} class:planmode={planActive}>
+	<!-- Riquadro principale del composer (nascosto, non smontato, sotto /loop) -->
+	<div class="composer-shell" class:dragging={dropTarget} class:planmode={planActive} class:shell-hidden={Boolean(shellOverride)}>
 		<!-- Striscia informativa per comando/skill attivo con argomenti -->
 		{#if activeCmdDef}
 			<div class="cmd-strip rv-blur" style="--dur: 200ms; --blur: 4px;">
@@ -1419,6 +1430,10 @@
 	}
 
 	.composer-root.hidden {
+		display: none;
+	}
+
+	.composer-shell.shell-hidden {
 		display: none;
 	}
 

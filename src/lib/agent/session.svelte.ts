@@ -77,6 +77,18 @@ import {
 	type RunActivity
 } from './runActivity';
 import {
+	LOOP_CONTROL_COMMAND,
+	LOOP_STATUS_KEY,
+	controlLine,
+	draftCommand,
+	isLoopActive,
+	isLoopPromptEcho,
+	parseLoopSnapshot,
+	type LoopDraft,
+	type LoopProbe,
+	type LoopState
+} from './loopMode';
+import {
 	RENDER_WINDOW,
 	clampVisibleCount,
 	sliceVisibleEntries,
@@ -195,6 +207,10 @@ export interface UserEntry {
 	 * durevole di `get_entries` per diramare da questo punto.
 	 */
 	messageTs?: number;
+	/** Prompt ripetuto dal loop: numero del giro (il transcript lo ripiega). */
+	loopGiro?: number;
+	/** Messaggio d'avvio di un /loop dalla GUI: id del loop, per la riga di riepilogo. */
+	loopStart?: string;
 }
 
 export interface AssistantEntry {
@@ -675,6 +691,20 @@ export class AgentSession {
 	isRetrying = $state(false);
 	private awaitingRunTimer: ReturnType<typeof setTimeout> | null = null;
 	private runWatchTimer: ReturnType<typeof setTimeout> | null = null;
+	/**
+	 * /loop della GUI (estensione `studio-loop.ts`): stato pubblicato con
+	 * `setStatus("studio.loop")`. Resta dopo la fine finche' l'utente non
+	 * preme «Chiudi», come il pannello del prototipo.
+	 */
+	loop = $state<LoopState | null>(null);
+	/** Esito dell'ultimo «Prova ora» sul comando della condizione. */
+	loopProbe = $state<LoopProbe | null>(null);
+	/** Composer in modalita' ripetizione (pillole) prima dell'avvio. */
+	loopSetup = $state<LoopDraft | null>(null);
+	/** Id dei loop gia' annunciati con il messaggio d'avvio nel transcript. */
+	private readonly announcedLoops = new Set<string>();
+	/** `--between reset`: la sessione nuova per il giro e' gia' stata chiesta. */
+	private loopResetFor: string | null = null;
 	seededPrompt = $state<SeededPrompt | null>(null);
 	startupPhase = $state<'idle' | 'starting' | 'ready'>('idle');
 	exited = $state(false);
@@ -836,7 +866,8 @@ export class AgentSession {
 			quotaBlock: quota && !quota.dismissed ? quota.title : null,
 			inferencePending: this.suggestions.isAnalyzing,
 			inferredQuestion: this.inferredAttention?.question ?? null,
-			backgroundWork: this.backgroundPending
+			backgroundWork: this.backgroundPending,
+			loopActive: isLoopActive(this.loop)
 		};
 	}
 
@@ -1138,7 +1169,10 @@ export class AgentSession {
 			]);
 			await this.rebuildTranscript();
 			void this.refreshCost();
-			void this.refreshCommands();
+			// Dopo un resume o un riavvio di omp lo stato del loop si chiede
+			// esplicitamente: il frame di `session_start` puo' arrivare prima
+			// che la chat sia in ascolto.
+			void this.refreshCommands().then(() => this.requestLoopStatus());
 			// Sonda e storico insieme: un omp senza `/btw` nasconde il pulsante.
 			void this.btw.loadHistory();
 			endAttachSpan('ok');
@@ -2104,12 +2138,17 @@ export class AgentSession {
 					const content = textOf(message.content);
 					const pending = this.optimisticUser;
 					this.optimisticUser = null;
+					// Il prompt ripetuto dal loop e' un giro, non un nuovo messaggio:
+					// lo stato del giro arriva prima del prompt (vedi l'estensione).
+					const loopGiro =
+						this.loop?.status === 'running' && isLoopPromptEcho(this.loop, content) ? this.loop.giro : undefined;
 					// L'eco del messaggio appena spedito non va disegnata due
 					// volte: si completa quella gia' a schermo.
 					if (pending && pending.content === content) {
 						pending.images = imagesOf(message.content);
 						pending.attribution = message.attribution;
 						pending.messageTs = message.timestamp;
+						if (loopGiro !== undefined) pending.loopGiro = loopGiro;
 						return;
 					}
 					this.push({
@@ -2118,7 +2157,8 @@ export class AgentSession {
 						content,
 						images: imagesOf(message.content),
 						attribution: message.attribution,
-						messageTs: message.timestamp
+						messageTs: message.timestamp,
+						loopGiro
 					});
 				} else if (message.role === 'assistant') {
 					if (!this.isStreaming || this.isAborting) return;
@@ -3356,6 +3396,10 @@ export class AgentSession {
 			this.plan.applyStatus(event.statusText);
 			return;
 		}
+		if (method === 'setStatus' && event.statusKey === LOOP_STATUS_KEY) {
+			this.applyLoopStatus(event.statusText);
+			return;
+		}
 		if (method === 'setStatus' || method === 'setWidget') {
 			const next = reduceExtensionUi(
 				{ status: this.extensionStatus, widgets: this.extensionWidgets },
@@ -3859,6 +3903,139 @@ export class AgentSession {
 			return;
 		}
 		for (const handler of this.queueRestoreHandlers) handler(withContent);
+	}
+
+	/* ------------------------------------------------------------- /loop */
+
+	/** Il motore del loop (estensione di Studio) e' caricato in questo omp. */
+	get loopAvailable(): boolean {
+		const name = LOOP_CONTROL_COMMAND.slice(1);
+		return this.availableCommands.some((command) => command.name === name);
+	}
+
+	/** Il loop occupa la sessione: la coda non deve partire, il composer e' il pannello. */
+	get loopActive(): boolean {
+		return isLoopActive(this.loop);
+	}
+
+	private applyLoopStatus(raw: unknown): void {
+		const snapshot = parseLoopSnapshot(raw);
+		const loop = snapshot?.loop ?? null;
+		this.loopProbe = snapshot?.probe ?? null;
+		if (loop && !this.announcedLoops.has(loop.id) && loop.prompt && loop.giro <= 1 && !loop.restored) {
+			// Il messaggio d'avvio: «/loop» + prompt + riepilogo delle opzioni.
+			this.announcedLoops.add(loop.id);
+			this.push({ id: this.nextEntryId++, kind: 'user', content: loop.prompt, images: [], loopStart: loop.id });
+		} else if (loop) {
+			this.announcedLoops.add(loop.id);
+		}
+		if (loop && isLoopActive(loop)) this.loopSetup = null;
+		this.loop = loop;
+		if (loop?.status === 'resetting' && this.loopResetFor !== `${loop.id}:${loop.giro}`) {
+			// `--between reset`: le estensioni non aprono sessioni fuori dai
+			// comandi, la apre Studio; il giro riparte su `session_switch`.
+			this.loopResetFor = `${loop.id}:${loop.giro}`;
+			void this.newSession().catch((error) =>
+				this.pushNotice('error', messages.loop_reset_failed({ error: this.reason(error) }), 'loop')
+			);
+		}
+	}
+
+	/** Chiede all'estensione di ripubblicare lo stato (dopo l'insediamento). */
+	async requestLoopStatus(): Promise<void> {
+		if (!this.loopAvailable) return;
+		await this.sendLoopLine(controlLine('status'), true);
+	}
+
+	/**
+	 * Le righe del loop passano da `prompt`: l'handler `input` dell'estensione
+	 * le consuma prima di qualunque altra cosa, anche a turno in corso, quindi
+	 * non entrano mai nel transcript ne' nel contesto. Senza estensione non si
+	 * invia nulla: il testo finirebbe al modello.
+	 */
+	private async sendLoopLine(line: string, quiet = false): Promise<boolean> {
+		if (!this.isReady || !this.loopAvailable) {
+			if (!quiet) this.flashNotice('warning', messages.loop_unavailable());
+			return false;
+		}
+		try {
+			await this.client.send({
+				type: 'prompt',
+				message: line,
+				streamingBehavior: this.isStreaming ? 'steer' : undefined
+			});
+			return true;
+		} catch (error) {
+			if (!quiet) this.pushNotice('error', messages.loop_command_failed({ error: this.reason(error) }), 'loop');
+			return false;
+		}
+	}
+
+	openLoopSetup(draft?: LoopDraft): void {
+		if (this.loopActive) return;
+		if (!this.loopAvailable) {
+			this.flashNotice('warning', messages.loop_unavailable());
+			return;
+		}
+		// Un loop finito ancora a schermo lascia il posto alla nuova configurazione.
+		if (this.loop) void this.dismissLoop();
+		this.loopSetup = draft ?? this.loopSetup ?? {
+			prompt: '',
+			limit: { kind: 'iterations', count: 6 },
+			condition: 'none',
+			command: 'npm test',
+			between: 'prompt'
+		};
+	}
+
+	closeLoopSetup(): void {
+		this.loopSetup = null;
+		this.loopProbe = null;
+	}
+
+	/** «Avvia»: la riga `/loop …` della bozza va al motore. */
+	async startLoop(draft: LoopDraft): Promise<boolean> {
+		const line = draftCommand(draft);
+		if (!line || !draft.prompt.trim()) return false;
+		return this.startLoopCommand(line);
+	}
+
+	/** `/loop …` gia' composto (scritto nel composer o dalle pillole). */
+	async startLoopCommand(line: string): Promise<boolean> {
+		if (this.loopActive) {
+			this.flashNotice('info', messages.loop_already_active());
+			return false;
+		}
+		if (this.loop) await this.dismissLoop();
+		return this.sendLoopLine(line);
+	}
+
+	pauseLoop(): Promise<boolean> {
+		return this.sendLoopLine(controlLine('pause'));
+	}
+
+	resumeLoop(): Promise<boolean> {
+		return this.sendLoopLine(controlLine('resume'));
+	}
+
+	stopLoop(): Promise<boolean> {
+		return this.sendLoopLine(controlLine('stop'));
+	}
+
+	/** «Prova ora»: esegue il comando della condizione una volta. */
+	probeLoopCondition(command: string): Promise<boolean> {
+		const cmd = command.trim();
+		if (!cmd) return Promise.resolve(false);
+		this.loopProbe = { command: cmd, running: true, at: Date.now() };
+		return this.sendLoopLine(controlLine('probe', cmd));
+	}
+
+	/** «Chiudi»: toglie il pannello di un loop finito. */
+	async dismissLoop(): Promise<void> {
+		if (this.loopActive) return;
+		this.loop = null;
+		this.loopProbe = null;
+		await this.sendLoopLine(controlLine('dismiss'), true);
 	}
 
 	async prompt(

@@ -80,6 +80,7 @@
 		AutoDispatchArbiter,
 		type AutoDispatchCandidate
 	} from '$lib/lanes/autoDispatchArbiter';
+	import { routeLoopSlash } from '$lib/agent/loopMode';
 	import LaneStrip from '$lib/components/LaneStrip.svelte';
 	import LaneDispatchDialog from '$lib/components/LaneDispatchDialog.svelte';
 	import LaneProfileDialog from '$lib/components/LaneProfileDialog.svelte';
@@ -1949,6 +1950,26 @@
 			// Con omp senza `/btw` `setOpen` lascia un avviso e il riquadro resta chiuso.
 			session.btw.setOpen(true);
 			if (btwAction.question && session.btw.open) void session.btw.ask(btwAction.question);
+			return true;
+		}
+		// /loop nella chat: il composer diventa la ripetizione (variante B).
+		// Instradamento puro in `loopMode.ts`; il motore e' l'estensione.
+		if (lowerCmd === '/loop') {
+			const action = routeLoopSlash(argument, session.loopActive);
+			switch (action.kind) {
+				case 'setup':
+					session.openLoopSetup(action.draft);
+					break;
+				case 'start':
+					void session.startLoopCommand(action.command);
+					break;
+				case 'stop':
+					void session.stopLoop();
+					break;
+				case 'error':
+					session.flashNotice('warning', action.message);
+					break;
+			}
 			return true;
 		}
 		if (lowerCmd === '/drop') {

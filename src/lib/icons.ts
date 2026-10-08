@@ -161,6 +161,8 @@ export { default as IconSlowMode } from '@lucide/svelte/icons/turtle';
 export { default as IconPause } from '@lucide/svelte/icons/pause';
 // Task programmati: al reset della quota o non prima di un orario.
 export { default as IconSchedule } from '@lucide/svelte/icons/clock';
+// Ripetizione (/loop): pillola «Ripeti» e pannello del composer.
+export { default as IconRepeat } from '@lucide/svelte/icons/repeat';
 // Inspector e Browser Live.
 export { default as IconInspect } from '@lucide/svelte/icons/mouse-pointer-click';
 export { default as IconNetwork } from '@lucide/svelte/icons/activity';

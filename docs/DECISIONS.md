@@ -1619,3 +1619,37 @@ Con la quota del provider finita, un task in coda va a sbattere sul limite oppur
 
 - Con il protocollo v1 lo storico non e' paginato: uno storico molto grande puo' superare il limite del trasporto (con la v2 omp lo spezza in chunk, che Studio gia' ricompone).
 - Il riquadro copre l'ultima parte del transcript finche' e' aperto; Esc lo chiude senza perdere la risposta.
+
+---
+
+## Gate R3X-loop: /loop nella chat GUI con un'estensione di Studio
+
+**Data:** 2026-10-08
+**Esito:** IMPLEMENTATO (numerazione definitiva al merge)
+
+### Il problema
+
+In omp `/loop` ha solo `handleTui` e tutto il motore vive in `InteractiveMode`: via RPC il dispatcher salta i comandi solo-TUI e il testo arrivava al modello come prompt normale. Non esiste un comando RPC `loop`. I mattoni ci sono (`prompt`, `abort`, `compact`, `new_session`, `agent_end`), mancano il motore e una condizione shell che non finisca nel contesto: il comando RPC `bash` registra l'output nella sessione.
+
+### Decisioni
+
+1. **Motore in un'estensione di Studio, `extensions/studio-loop.ts`**, caricata con `-e` come le altre (`pty/mod.rs`, `rpc/mod.rs`). L'handler `input` gira prima dei builtin anche in RPC (`emitInput(…, "rpc")`) e consuma `/loop …` e le righe di controllo `/studio-loop pause|resume|stop|dismiss|probe|status` anche a turno in corso. `agent_end` chiude il giro, `sendUserMessage` avvia il successivo dopo 800 ms. Semantica della TUI: il primo giro parte sempre, il limite (giri o durata) si controlla prima della condizione, la condizione gira prima di ogni giro dal secondo; exit 0/1 sono risposte, il resto (127, timeout di 30 s, mancato avvio) e' una condizione rotta che ferma il loop e lo spiega. Un abort esterno (Esc, Stop del turno) mette in pausa come nella TUI.
+2. **Solo GUI.** L'estensione si registra solo nei processi `--mode rpc-ui` e agisce solo sulla sessione principale (`ctx.mode === "rpc"`, profondita' 0: le estensioni vengono rilegate anche ai subagenti). Nel Terminale resta il `/loop` nativo; la GUI non rimanda mai al terminale.
+3. **Condizione in una shell separata con `pi.exec`.** `pi.exec` non passa da una shell e `executeBash` non e' nell'API delle estensioni: l'estensione cerca la shell come `resolveWindowsShell` di omp (Git Bash nei percorsi noti, poi `bash`/`sh` sul PATH, poi `cmd.exe /d /s /c`); su POSIX `$SHELL` se bash/zsh, altrimenti `/bin/bash` o `sh`. L'output non entra nel contesto. Non legge `shellPath` delle impostazioni di omp.
+4. **Stato verso la GUI con `setStatus("studio.loop", json)`** (snapshot: loop e ultimo «Prova ora»), lo stesso canale che leggono Companion e coda tramite `AgentSession.loop`. Persistenza con `appendEntry("studio-loop", { loop })` a ogni transizione: al resume un loop vivo torna **in pausa**, mai in corsa da solo; un giro lasciato a meta' conta come interrotto. Dopo l'insediamento Studio chiede `/studio-loop status`, perche' il frame di `session_start` puo' arrivare prima che la chat ascolti.
+5. **Presenza del motore verificata prima di inviare.** L'estensione registra il comando `studio-loop` (compare in `get_available_commands`, nascosto dai menu di Studio): senza, Studio non manda nulla, perche' `/loop` finirebbe al modello come testo.
+6. **«Tra i giri»:** `prompt` (continua), `compact` (`ctx.compact()` prima del giro), `reset` (sessione nuova). Le estensioni hanno `newSession` solo nei comandi: con `reset` il motore si ferma in `resetting`, Studio manda `new_session` e il giro riparte su `session_switch` con motivo `new`. In omp e' l'impostazione `loop.mode`; nella GUI e' il flag `--between` (solo Studio).
+7. **Interfaccia: variante B del prototipo** (`out/prototipi/loop.html?v=B`). Il composer diventa la modalita' ripetizione (pillole con menu, anteprima della riga `/loop …`, «Avvia»), poi il pannello di controllo (barra a segmenti, contatore grande, Pausa a fine giro / Riprendi / Stop immediato al posto di Invia, «Prova ora»). Implementata come `shellOverride` del `Composer`: avvisi e riga di stato restano, la bozza resta nell'editor nascosto. I giri si riconoscono dal prompt ripetuto (`UserEntry.loopGiro`, marcato perche' lo stato del giro arriva prima del prompt) e si ripiegano nel transcript (`foldLoopItems`).
+8. **La sessione resta occupata finche' il loop e' attivo**, pausa compresa: `GuiGateSnapshot.loopActive` blocca il cancello della coda (blocco `loop`, instradabile su un'altra corsia) e `laneBusy`; fra due giri la corsia risulta al lavoro.
+9. **Il loop non parte a turno in corso**: il primo giro diventerebbe uno steer del turno attivo.
+
+### Alternative scartate
+
+- **Motore dentro Studio** (`loopRunner` + comando Rust per la condizione): semantica duplicata lato GUI e un secondo runner shell da mantenere.
+- **Comando RPC `bash` per la condizione:** registra l'output nella sessione e sporca il contesto.
+- **Ripristinare un loop in corsa dopo il resume:** ripartirebbe da solo senza che l'utente lo veda.
+
+### Da verificare su Windows con omp reale
+
+Caricamento dell'estensione in `rpc-ui`, ordine `setStatus` → messaggio utente del giro, shell scelta per la condizione (Git Bash vs `cmd.exe`), `compact` e `reset` tra i giri, ripristino in pausa dopo il resume.
+

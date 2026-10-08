@@ -170,6 +170,7 @@ lib/
     slashRouter.ts      Instradamento puro dei comandi slash di sessione (/resume, /sessions, /tree, /fork) e di /btw
     btw.ts              Domande a margine: record e turni di /btw, delta, citazione per il composer, riconoscimento di omp senza RPC btw (Gate R3X-btw)
     btwState.svelte.ts  SessionBtw: stato del riquadro «A margine» per sessione (storico, argomento aperto, bozza, citazione)
+    loopMode.ts         /loop nella GUI: pillole, riga /loop, stato da setStatus, segmenti e giri ripiegati (Gate R3X-loop)
     components/
       Chat.svelte       Pannello chat principale della superficie GUI
       BtwPopover.svelte Riquadro «A margine» (/btw) sopra il composer: streaming, approfondimenti, Storico
@@ -384,7 +385,7 @@ Al momento del dispatch, la funzione `formatTaskPrompt` arricchisce il prompt ap
 ### 5.3 Meccanismo di Auto-Dispatch
 L'avvio automatico dei task in coda è configurabile per singolo progetto (`autoDispatch: true`). Un task parte solo quando la sessione e' ferma **e stabile**:
 
-1. **Cancello** (`automationGate.ts`, `autoDispatchReady`). GUI: nessuna domanda `ask`, nessuna quota, sessione pronta, nessun run vivo e nessuna attesa. Oltre a `isStreaming` (che `turn_end` spegne fra un giro di tool e l'altro) contano `runActive` (`settle.running`, da `agent_start` allo yield: copre le pause fra i tool, l'attesa di un nuovo tentativo e la compattazione che continua il run), `awaitingRun` (prompt ammesso da omp, `agent_start` non ancora arrivato: omp risponde a `prompt` all'ammissione), `retrying` (`auto_retry_start` aperto), `compacting`, `nativeQueue` (steer/follow-up nella coda di omp) e `backgroundWork` (yield senza quiete, §6.6). Con un omp senza quiete anche i subagenti in corsa. Analisi post-turno e domande dedotte sospendono solo l'auto-avvio. Terminale: titolo `idle` (§5.3.1), nessun testo nel prompt, nessun task appena scritto in attesa del run (`awaitingStart`), nessuna barra OSC 9;4.
+1. **Cancello** (`automationGate.ts`, `autoDispatchReady`). GUI: nessuna domanda `ask`, nessuna quota, sessione pronta, nessun run vivo e nessuna attesa. Oltre a `isStreaming` (che `turn_end` spegne fra un giro di tool e l'altro) contano `runActive` (`settle.running`, da `agent_start` allo yield: copre le pause fra i tool, l'attesa di un nuovo tentativo e la compattazione che continua il run), `awaitingRun` (prompt ammesso da omp, `agent_start` non ancora arrivato: omp risponde a `prompt` all'ammissione), `retrying` (`auto_retry_start` aperto), `compacting`, `nativeQueue` (steer/follow-up nella coda di omp) e `backgroundWork` (yield senza quiete, §6.7). Con un omp senza quiete anche i subagenti in corsa. Analisi post-turno e domande dedotte sospendono solo l'auto-avvio. Terminale: titolo `idle` (§5.3.1), nessun testo nel prompt, nessun task appena scritto in attesa del run (`awaitingStart`), nessuna barra OSC 9;4.
 2. **Stabilita'** (`src/lib/lanes/autoDispatchArbiter.ts`). L'effetto in `+page.svelte` passa all'arbitro i candidati idonei *adesso*; l'arbitro li spedisce solo dopo 2,5 s di idoneita' continuata (3 s nel terminale). Ogni chiusura del cancello azzera il conto; in GUI la quiete conta dall'ultimo evento del ciclo di vita del run (`AgentSession.quietForMs()`; le voci di stato delle estensioni non contano).
 3. **Ri-verifica.** Allo scadere: GUI `get_state` (`AgentSession.verifyQuietForDispatch()`: `isStreaming`, `isCompacting`, `queuedMessageCount`, `isSettled`, `hasPendingAsyncWork`), terminale `TerminalSession.isAutomationQuiet()`; poi il cancello si rilegge. Se non e' quieto non parte nulla e si riprova dopo 5 s.
 4. **Lock per progetto** dalla ri-verifica alla consegna; il rilascio chiede un nuovo giro all'effetto. La spedizione parte da un timer, fuori dall'effetto (`handleRunTask` scrive lo stato che l'effetto legge). Una consegna fallita su Principale riprova dopo 30 s; un fallimento in una corsia nuova non si ritenta da solo.
@@ -467,7 +468,14 @@ I metodi senza risposta (`notify`, `setStatus`, `setWidget`, `setTitle`, `open_u
 - Una domanda per volta per sessione (regola di omp): Studio non manda la seconda e lo dice. Cambio di sessione (nuova chat, ripresa, fork, ramo): omp annulla la domanda in corso; Studio azzera storico e selezione quando `get_state` porta un `sessionId` diverso, e conserva bozza e citazione.
 - «Usa nel messaggio»: `SessionBtw.quote` (domanda + ultima risposta in blockquote markdown) compare come chip nel composer e viene anteposta al testo solo all'invio riuscito (`withBtwQuote`); con un comando slash resta per il messaggio successivo. Il *branch* della TUI (promuovere lo scambio nella sessione) non ha un comando RPC.
 
-### 6.5 Prewalk per chat e task
+### 6.5 /loop nella chat (Gate R3X-loop)
+
+- Motore: `extensions/studio-loop.ts`, caricata con `-e` in `rpc/mod.rs` e `pty/mod.rs` ma attiva solo con `--mode rpc-ui` sulla sessione principale. L'handler `input` consuma `/loop …` e `/studio-loop <op>` prima dei builtin; `agent_end` chiude il giro e `sendUserMessage` avvia il successivo dopo 800 ms. La condizione `--until/--while` gira con `pi.exec` nella shell che sceglierebbe omp (Git Bash, poi PATH, poi `cmd.exe`), con timeout di 30 s, fuori dal contesto.
+- Stato: `ctx.ui.setStatus("studio.loop", json)` → `AgentSession.applyLoopStatus` → `session.loop` / `session.loopProbe`. Persistenza con `appendEntry("studio-loop")`; al resume un loop vivo torna in pausa. Dopo l'insediamento Studio chiede `/studio-loop status`. Il comando registrato `studio-loop` dice a Studio che il motore c'e'.
+- GUI: `loopMode.ts` (puro: bozza delle pillole, riga `/loop`, instradamento di `/loop`, segmenti, ripiegamento dei giri), `LoopComposer.svelte` (pillole e pannello, al posto della sagoma del `Composer` via `shellOverride`), `LoopTranscriptRow.svelte` (bolla `/loop`, separatore, giro ripiegato, riga finale). `UserEntry.loopGiro` marca il prompt ripetuto; `UserEntry.loopStart` la bolla d'avvio.
+- Occupazione: `GuiGateSnapshot.loopActive` (blocco `loop` del cancello della coda) e `laneBusy`/`laneAgentState` tengono la corsia occupata finche' il loop e' attivo, pausa compresa. `--between reset`: il motore aspetta in `resetting`, Studio manda `new_session`, il giro riparte su `session_switch`.
+
+### 6.6 Prewalk per chat e task
 
 - Il modello attivo pianifica; omp risolve `@smol` all'armo e passa una sola volta dopo la prima chiamata `edit`/`write` successiva a una chiamata `todo` riuscita. Studio non modifica `modelRoles.smol` né `fallbackChains.smol`.
 - `AgentSession.prewalk` distingue `off`, `armed` e `handedOff`; i notice di sorgente `prewalk` confermano armo, disarmo e modello effettivo. `model_changed` può arrivare senza payload: il notice `switched to …` e `get_state` aggiornano il modello, mentre `thinking_level_changed` aggiorna il thinking.
@@ -476,7 +484,7 @@ I metodi senza risposta (`notify`, `setStatus`, `setWidget`, `setTitle`, `open_u
 - `StudioTaskOptions.prewalk` è un booleano opzionale in `.omp/tasks.json`. Il dispatch GUI arma dopo modello/thinking e prima del prompt: se l'armo fallisce, il task resta in coda. Il dispatch PTY invia `/prewalk` dopo `/new` e la conferma della nuova sessione, prima del prompt incollato.
 - `project_tasks` conserva l'opzione in add/update e `/tasks` la mostra con `[prewalk]`. Invio nell'overlay TUI non la applica: il prewalk del task viene applicato da Studio quando lo avvia.
 
-### 6.6 Fine del turno e quiete della sessione
+### 6.7 Fine del turno e quiete della sessione
 
 `AgentSession` distingue due momenti (logica pura in `src/lib/agent/settle.ts`, stato in `settle: { aware, settled, running }`):
 

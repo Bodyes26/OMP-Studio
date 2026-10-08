@@ -43,6 +43,8 @@
 	import NoticeGroup from './NoticeGroup.svelte';
 	import ActivityIndicator from './ActivityIndicator.svelte';
 	import { settingsStore } from '$lib/stores/settings.svelte';
+	import LoopTranscriptRow from './LoopTranscriptRow.svelte';
+	import { foldLoopItems, giroHeadline, isGiroClosed, isLoopActive } from '../loopMode';
 
 	let { session, visible = true } = $props<{ session: AgentSession; visible?: boolean }>();
 
@@ -108,7 +110,15 @@
 		| { kind: 'system-group'; id: number; entries: (SystemChipEntry | NoticeEntry)[] }
 		| { kind: 'todo-trace'; id: string; entry: ToolEntry; trace: TodoTraceItem; countTool: boolean }
 		| { kind: 'subagent-trace'; id: number; entry: ToolEntry }
-		| { kind: 'ask-trace'; id: number; entry: ToolEntry };
+		| { kind: 'ask-trace'; id: number; entry: ToolEntry }
+		// /loop: giro chiuso ripiegato (o intestazione del giro aperto), separatore
+		// del giro in corso e riga finale con l'esito.
+		| { kind: 'loop-giro'; id: string; n: number; open: boolean; headline: string }
+		| { kind: 'loop-sep'; id: string; n: number }
+		| { kind: 'loop-end'; id: string };
+
+	/** Giri aperti a mano, per id dell'entry del prompt ripetuto. */
+	let openGiri = $state<Record<string, boolean>>({});
 	function hasResponseContent(entry: AssistantEntry): boolean {
 		return entry.blocks.some(
 			(b) => (b.type === 'text' && b.text.trim().length > 0) || b.type === 'image'
@@ -246,8 +256,46 @@
 		}
 
 		flushSystemSegment();
-		return finalItems;
+		return foldLoop(finalItems);
 	});
+
+	/** Testo dell'assistente dentro un giro: la sua ultima riga titola la riga ripiegata. */
+	function assistantTexts(items: readonly DisplayItem[]): string[] {
+		const texts: string[] = [];
+		for (const item of items) {
+			if (item.kind !== 'single' || item.entry.kind !== 'assistant') continue;
+			for (const block of item.entry.blocks) if (block.type === 'text' && block.text.trim()) texts.push(block.text);
+		}
+		return texts;
+	}
+
+	/**
+	 * Variante B del /loop: i giri chiusi diventano una riga nel transcript, il
+	 * giro in corso ha un separatore al posto del prompt ripetuto, il messaggio
+	 * d'avvio resta la bolla «/loop». Senza giri marcati la lista non cambia.
+	 */
+	function foldLoop(items: DisplayItem[]): DisplayItem[] {
+		const loop = session.loop;
+		const hasGiri = items.some((item) => item.kind === 'single' && item.entry.kind === 'user' && item.entry.loopGiro !== undefined);
+		if (!hasGiri) return items;
+		const folded = foldLoopItems(
+			items,
+			(item) => {
+				if (item.kind !== 'single' || item.entry.kind !== 'user') return { user: false, key: '' };
+				return { user: true, giro: item.entry.loopGiro, key: String(item.entry.id) };
+			},
+			(n) => (loop ? isGiroClosed(loop, n) : true),
+			(key) => openGiri[key] === true
+		);
+		const out: DisplayItem[] = [];
+		for (const part of folded) {
+			if (part.kind === 'item') out.push(part.item);
+			else if (part.kind === 'giro-sep') out.push({ kind: 'loop-sep', id: part.key, n: part.n });
+			else out.push({ kind: 'loop-giro', id: part.key, n: part.n, open: part.open, headline: giroHeadline(assistantTexts(part.items)) });
+		}
+		if (loop && !isLoopActive(loop) && loop.giro > 0) out.push({ kind: 'loop-end', id: loop.id });
+		return out;
+	}
 
 	// Piè del turno dell'agente: calcola i metadati di ogni turno concluso (Gate R32 - C07).
 	const turnFootersByIndex = $derived.by<Map<number, TurnFooterData>>(() => {
@@ -371,6 +419,7 @@
 		if (item.kind === 'tool-group') return 'content';
 		if (item.kind === 'system-group') return 'system';
 		if (item.kind === 'todo-trace' || item.kind === 'subagent-trace' || item.kind === 'ask-trace') return 'content';
+		if (item.kind === 'loop-giro' || item.kind === 'loop-sep' || item.kind === 'loop-end') return 'system';
 		const k = item.entry.kind;
 		if (k === 'user') return 'user';
 		if (k === 'notice' || k === 'system-chip' || k === 'compaction' || k === 'retry' || k === 'ttsr') return 'system';
@@ -491,6 +540,25 @@
 					<AskTrace entry={item.entry} />
 				{:else if item.kind === 'system-group'}
 					<NoticeGroup entries={item.entries} fresh={!disableAnimations} />
+				{:else if item.kind === 'loop-giro'}
+					<LoopTranscriptRow
+						kind="giro"
+						loop={session.loop}
+						n={item.n}
+						open={item.open}
+						headline={item.headline}
+						onToggle={() => (openGiri = { ...openGiri, [item.id]: !item.open })}
+					/>
+				{:else if item.kind === 'loop-sep'}
+					<LoopTranscriptRow kind="sep" n={item.n} />
+				{:else if item.kind === 'loop-end'}
+					<LoopTranscriptRow kind="end" loop={session.loop} />
+				{:else if item.entry.kind === 'user' && item.entry.loopStart}
+					<LoopTranscriptRow
+						kind="start"
+						loop={session.loop?.id === item.entry.loopStart ? session.loop : null}
+						prompt={item.entry.content}
+					/>
 				{:else if item.entry.kind === 'user'}
 					{@const approved = parseApprovedPlanMessage(item.entry.content)}
 					{#if approved}

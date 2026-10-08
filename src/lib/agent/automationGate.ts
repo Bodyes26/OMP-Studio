@@ -31,6 +31,7 @@ export type AutomationBlock =
 	| 'question'
 	| 'quota'
 	| 'working'
+	| 'loop'
 	| 'compacting'
 	| 'background'
 	| 'terminal-input'
@@ -92,6 +93,13 @@ export interface GuiGateSnapshot {
 	nativeQueue?: boolean;
 	/** Subagenti ancora in corsa (solo con un omp che non riporta la quiete). */
 	subagentsRunning?: boolean;
+	/**
+	 * Un /loop e' attivo (anche in pausa o fra due giri): la sessione e'
+	 * occupata. Fra un giro e l'altro omp e' fermo per 800 ms e un task della
+	 * coda si infilerebbe come se fosse un giro. Facoltativo per i chiamanti
+	 * che non conoscono il loop.
+	 */
+	loopActive?: boolean;
 }
 
 /**
@@ -151,6 +159,7 @@ export function isLaneRoutable(gate: AutomationGate): boolean {
 		case 'ready':
 		case 'busy':
 		case 'working':
+		case 'loop':
 		case 'starting':
 		case 'compacting':
 		case 'background':
@@ -246,6 +255,10 @@ export function resolveAutomationGate(input: AutomationGateInput): AutomationGat
 			m.gate_detail_starting(),
 			m.gate_hint_starting()
 		);
+	}
+
+	if (session.loopActive) {
+		return gate('loop', m.gate_label_loop(), m.gate_detail_loop(), m.gate_hint_loop());
 	}
 
 	if (session.streaming || session.runActive || session.awaitingRun || session.retrying) {

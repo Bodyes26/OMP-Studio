@@ -170,6 +170,14 @@ export const STUDIO_SLASH_COMMANDS: AvailableCommand[] = [
 		source: 'studio'
 	},
 	{
+		// Ripetizione (variante B): il motore e' l'estensione studio-loop; la
+		// GUI apre il composer in modalita' ripetizione o avvia `/loop …`.
+		name: 'loop',
+		get description() { return msg.loop_cmd_description(); },
+		source: 'studio',
+		input: { hint: "[N|10m] [--until|--while 'cmd'] [prompt]" }
+	},
+	{
 		name: 'drop',
 		get description() { return msg.ui_ts_commands_apre_lo_storico_per_gestire_ed_eliminare_f7c8(); },
 		source: 'studio'
@@ -182,8 +190,8 @@ export const STUDIO_SLASH_COMMANDS: AvailableCommand[] = [
 	}
 ];
 
-/** `/studio-plan` e' il trasporto di `/plan` nella chat (Gate R3X-plan). */
-const HIDDEN_EXTENSION_COMMANDS = new Set(['studio-plan']);
+/** Trasporti interni delle estensioni di Studio: `/studio-plan` per `/plan` (Gate R3X-plan), `/studio-loop` per `/loop` (Gate R3X-loop). */
+const HIDDEN_EXTENSION_COMMANDS = new Set(['studio-plan', 'studio-loop']);
 
 /**
  * Unisce i comandi nativi del guscio con quelli dinamici ricevuti da omp.
