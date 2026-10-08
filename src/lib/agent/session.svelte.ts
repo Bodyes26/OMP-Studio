@@ -9,6 +9,20 @@ import { nameExistingPrototypeIfLong, nameLaneFromPrompt } from '$lib/lanes/lane
 import { projectStore } from '$lib/stores/projects.svelte';
 import { perfMark, perfSpan } from '$lib/perf';
 import { generateSessionTitle } from '$lib/stores/sessionTitles';
+import {
+	agentHeadsUp,
+	buildTurnDigest,
+	collectTurnFacts,
+	factsSentence,
+	lastAssistantId,
+	lastTurnEntries,
+	resolveHeadsUp,
+	turnKeyOf,
+	wantsSmolHeadsUp,
+	type HeadsUpFact,
+	type HeadsUpPhrases,
+	type TurnHeadsUp
+} from './turnHeadsUp';
 
 let firstComposerReadyMarked = false;
 // Stato della superficie GUI: un'istanza per progetto.
@@ -367,6 +381,20 @@ function assistantEntryText(entry: AssistantEntry): string {
 		.trim();
 }
 
+/** Testi localizzati per la frase dei fatti dell'heads-up. */
+function headsUpPhrases(): HeadsUpPhrases {
+	return {
+		failed: (command) => messages.headsup_fact_failed({ command }),
+		failedTwo: (first, second) => messages.headsup_fact_failed_two({ first, second }),
+		failedMany: (command, others) => messages.headsup_fact_failed_many({ command, count: others }),
+		expiredQuestion: () => messages.headsup_fact_expired_question(),
+		risky: (command) => messages.headsup_fact_risky({ command }),
+		sensitive: (files) => messages.headsup_fact_sensitive({ files }),
+		sensitiveMany: (files, others) => messages.headsup_fact_sensitive_many({ files, count: others }),
+		and: messages.headsup_fact_and()
+	};
+}
+
 export interface AgentSessionConfig {
 	cwd: string;
 	scope?: 'lane' | 'main';
@@ -592,6 +620,18 @@ export class AgentSession {
 	 * l'effetto di trasmissione a ogni delta dello streaming.
 	 */
 	activityLine = $state<{ text: string; at: number; kind: 'intent' | 'assistant' } | null>(null);
+	/**
+	 * Heads-up dell'ultimo turno concluso (Gate R3X-heads-up): una frase, o
+	 * null quando non c'e' niente che l'utente rischi di perdere. Si fissa a
+	 * fine turno (fatti + agente) e si aggiorna una volta sola se il ripiego
+	 * smol risponde; si azzera all'avvio del turno successivo.
+	 */
+	headsUp = $state<TurnHeadsUp | null>(null);
+	private headsUpTurnKey: string | null = null;
+	private headsUpFacts: HeadsUpFact[] = [];
+	private headsUpAgent: { text: string; entryId: number } | null = null;
+	private headsUpFallbackEntryId: number | null = null;
+	private headsUpFactsText: string | null = null;
 
 	private nextEntryId = 1;
 	private assistantEntry: AssistantEntry | null = null;
@@ -784,6 +824,59 @@ export class AgentSession {
 			};
 			return;
 		}
+	}
+
+	/**
+	 * Fissa l'heads-up del turno appena chiuso con le due fonti immediate:
+	 * la frase dell'agente (`studio_headsup`) e i fatti certi. Il ripiego smol
+	 * arriva dopo, da `SessionSuggestions`, solo se l'agente ha taciuto.
+	 */
+	private captureHeadsUp() {
+		const turn = lastTurnEntries(this.entries);
+		this.headsUpTurnKey = turnKeyOf(turn);
+		this.headsUpFacts = collectTurnFacts(turn);
+		this.headsUpAgent = agentHeadsUp(turn);
+		this.headsUpFallbackEntryId = lastAssistantId(turn);
+		this.headsUpFactsText = factsSentence(this.headsUpFacts, headsUpPhrases());
+		this.headsUp = resolveHeadsUp({
+			agent: this.headsUpAgent,
+			smol: null,
+			facts: this.headsUpFacts,
+			factsText: this.headsUpFactsText,
+			fallbackEntryId: this.headsUpFallbackEntryId
+		});
+	}
+
+	/**
+	 * Cosa chiedere alla chiamata post-turno: la frase smol serve solo se
+	 * l'agente non ha parlato e il turno puo' nascondere qualcosa.
+	 */
+	headsUpRequest(): { turnKey: string; digest: string } | null {
+		if (!this.headsUpTurnKey || this.headsUpAgent) return null;
+		const turn = lastTurnEntries(this.entries);
+		if (!wantsSmolHeadsUp(turn, this.headsUpFacts)) return null;
+		return { turnKey: this.headsUpTurnKey, digest: buildTurnDigest(turn, this.headsUpFacts) };
+	}
+
+	/** Frase del ripiego smol per il turno `turnKey`; null lascia i fatti. */
+	applySmolHeadsUp(turnKey: string, text: string | null) {
+		if (turnKey !== this.headsUpTurnKey || this.headsUpAgent || this.isStreaming) return;
+		this.headsUp = resolveHeadsUp({
+			agent: null,
+			smol: text,
+			facts: this.headsUpFacts,
+			factsText: this.headsUpFactsText,
+			fallbackEntryId: this.headsUpFallbackEntryId
+		});
+	}
+
+	private clearHeadsUp() {
+		this.headsUp = null;
+		this.headsUpTurnKey = null;
+		this.headsUpFacts = [];
+		this.headsUpAgent = null;
+		this.headsUpFallbackEntryId = null;
+		this.headsUpFactsText = null;
 	}
 
 	/**
@@ -2005,6 +2098,7 @@ export class AgentSession {
 				if (this.isAborting) return;
 				if (this.turnStartedAt === null) this.turnStartedAt = Date.now();
 				this.suggestions.invalidate();
+				this.clearHeadsUp();
 				this.isStreaming = true;
 				this.markWorking();
 				return;
@@ -2025,6 +2119,7 @@ export class AgentSession {
 				void this.reconcile();
 				this.captureAssistantActivity();
 				notifyGitStatusRefresh(this.cwd);
+				if (!wasAborting) this.captureHeadsUp();
 				if (!this.pendingUi && !wasAborting) {
 					this.suggestions.notifyTurnEnd();
 				}
@@ -3925,6 +4020,7 @@ export class AgentSession {
 		this.assistantEntry = null;
 		this.activeAssistantId = null;
 		this.activityLine = null;
+		this.clearHeadsUp();
 		this.optimisticUser = null;
 		this.subagents = [];
 		this.todoPhases = [];
@@ -3954,6 +4050,7 @@ export class AgentSession {
 		this.assistantEntry = null;
 		this.activeAssistantId = null;
 		this.activityLine = null;
+		this.clearHeadsUp();
 		this.optimisticUser = null;
 		this.subagents = [];
 		this.todoPhases = [];
@@ -4055,6 +4152,7 @@ export class AgentSession {
 			this.assistantEntry = null;
 			this.activeAssistantId = null;
 			this.activityLine = null;
+			this.clearHeadsUp();
 			this.optimisticUser = null;
 			this.subagents = [];
 			this.todoPhases = [];

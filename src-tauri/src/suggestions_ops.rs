@@ -6,7 +6,10 @@
 //! 2. **Nessuna scrittura automatica.** I suggerimenti vengono restituiti al frontend solo per precompilare il composer su richiesta dell'utente.
 //! 3. **Modello leggero.** Viene utilizzato il modello configurato nel ruolo `smol` (o fallback su `default` o selettore esplicito),
 //!    riducendo al minimo costi e latenza.
-//! 4. **Fallimento silenzioso.** Qualsiasi errore di timeout o di parsing restituisce un array vuoto, evitando di mostrare toast o errori
+//! 4. **Heads-up nella stessa chiamata (Gate R3X-heads-up).** Quando il frontend lo chiede (`want_heads_up`),
+//!    il modello riceve anche il digest del turno (fatti certi + testo completo) e restituisce al massimo una
+//!    frase in `headsUp`. Nessuna seconda chiamata: il costo e' qualche centinaio di token in ingresso.
+//! 5. **Fallimento silenzioso.** Qualsiasi errore di timeout o di parsing restituisce un array vuoto, evitando di mostrare toast o errori
 //!    invisibili per una funzionalita' accessoria.
 
 use crate::directives_ops::EphemeralOutcome;
@@ -27,6 +30,8 @@ pub struct PromptSuggestionsResult {
     pub awaits_user_input: bool,
     /// Sintesi breve della domanda o richiesta posta dall'agente (es. "Confermi e procedo?").
     pub question_summary: Option<String>,
+    /// Frase heads-up del turno (al massimo una), presente solo se richiesta e se c'e' qualcosa da segnalare.
+    pub heads_up: Option<String>,
 }
 
 impl PromptSuggestionsResult {
@@ -35,6 +40,7 @@ impl PromptSuggestionsResult {
             suggestions: Vec::new(),
             awaits_user_input: false,
             question_summary: None,
+            heads_up: None,
         }
     }
 }
@@ -49,6 +55,8 @@ struct RawStructuredSuggestions {
     question_summary: Option<String>,
     #[serde(default)]
     suggestions: Vec<String>,
+    #[serde(default)]
+    heads_up: Option<String>,
 }
 
 /// Prompt di sistema per l'analisi del turno e la generazione di risposte rapide.
@@ -60,7 +68,8 @@ Regole tassative:
 {
   "awaitsUserInput": true | false,
   "questionSummary": "domanda o richiesta di conferma sintetica (max 120 caratteri) oppure null",
-  "suggestions": ["risposta 1", "risposta 2"]
+  "suggestions": ["risposta 1", "risposta 2"],
+  "headsUp": "una frase oppure null"
 }
 Nessun testo introduttivo, nessun commento, nessun blocco markdown prima o dopo.
 
@@ -79,7 +88,14 @@ Nessun testo introduttivo, nessun commento, nessun blocco markdown prima o dopo.
    - Scrivi nella STESSA LINGUA dell'ultimo messaggio dell'agente.
    - Se l'agente ha presentato un piano o chiede conferma, la prima risposta deve essere l'approvazione (es. "Procedi pure").
    - Se l'agente ha posto una domanda a scelta multipla, includi opzioni plausibili.
-   - Se non hai nulla di utile da proporre, usa []."#;
+   - Se non hai nulla di utile da proporre, usa [].
+
+5. Campo "headsUp" (facoltativo):
+   - Compilalo SOLO se il file allegato contiene la sezione "# Heads-up richiesto"; altrimenti imposta null.
+   - E' AL MASSIMO UNA FRASE (max 200 caratteri), in linguaggio naturale, nella STESSA LINGUA del messaggio dell'agente, in terza persona riferita all'agente (es. "Ha cambiato lo schema del DB e non ha eseguito i test; ti chiede se tenere la vecchia API.").
+   - Serve a far notare all'utente cio' che potrebbe perdersi perche' sta a meta' del racconto: un comando di verifica fallito e non risolto, test o build non eseguiti dopo modifiche, una modifica delicata (schema del database, API pubblica, dipendenze, migrazioni, configurazione), una decisione presa al posto dell'utente, una domanda posta a meta' messaggio.
+   - Includi i "Fatti certi del turno" se ci sono, fondendoli in una frase sola.
+   - Se nel turno non c'e' niente di questo genere, o se tutto e' gia' evidente nelle ultime righe del messaggio, imposta null. Non riassumere il lavoro svolto, non inventare cautele generiche."#;
 
 /// Tronca una stringa preservando gli ultimi `max_chars` caratteri (la coda) su confini UTF-8 validi.
 fn truncate_suffix_chars(s: &str, max_chars: usize) -> &str {
@@ -125,6 +141,26 @@ fn clean_suggestion_strings(raw_items: Vec<String>, max_items: usize) -> Vec<Str
     cleaned
 }
 
+/// Lunghezza massima della frase heads-up accettata dal modello (caratteri).
+const HEADS_UP_MAX_CHARS: usize = 220;
+
+/// Riduce la frase heads-up a una riga: spazi compressi, niente valori segnaposto ("null", "-"),
+/// tagliata a `HEADS_UP_MAX_CHARS` caratteri su confine UTF-8.
+fn clean_heads_up(raw: Option<String>) -> Option<String> {
+    let text = raw?;
+    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let trimmed = flat.trim().trim_matches('"').trim();
+    let lower = trimmed.to_lowercase();
+    if trimmed.is_empty() || lower == "null" || lower == "none" || trimmed == "-" {
+        return None;
+    }
+    if trimmed.chars().count() <= HEADS_UP_MAX_CHARS {
+        return Some(trimmed.to_string());
+    }
+    let cut = truncate_prefix_chars(trimmed, HEADS_UP_MAX_CHARS - 1).trim_end();
+    Some(format!("{}…", cut))
+}
+
 /// Estrae e ripulisce il risultato strutturato dal testo grezzo prodotto dal modello.
 pub(crate) fn parse_and_clean_suggestions(
     raw_response: &str,
@@ -155,6 +191,7 @@ pub(crate) fn parse_and_clean_suggestions(
             suggestions: cleaned_suggestions,
             awaits_user_input: awaits,
             question_summary: summary,
+            heads_up: clean_heads_up(structured.heads_up),
         };
     }
 
@@ -165,6 +202,7 @@ pub(crate) fn parse_and_clean_suggestions(
             suggestions: cleaned,
             awaits_user_input: false,
             question_summary: None,
+            heads_up: None,
         };
     }
 
@@ -178,7 +216,10 @@ pub async fn generate_prompt_suggestions(
     last_user: String,
     model_selector: Option<String>,
     max_items: u8,
+    turn_digest: Option<String>,
+    want_heads_up: Option<bool>,
 ) -> Result<PromptSuggestionsResult, String> {
+    let want_heads_up = want_heads_up.unwrap_or(false);
     let assistant_trimmed = last_assistant.trim();
     if assistant_trimmed.is_empty() {
         return Ok(PromptSuggestionsResult::empty());
@@ -206,6 +247,16 @@ pub async fn generate_prompt_suggestions(
         "# Ultimo messaggio dell'agente\n{}\n",
         truncated_assistant
     ));
+    // Il digest viaggia nel file di contesto (mai in argv): fatti certi e testo intero del turno,
+    // gia' tagliato in mezzo dal frontend; qui un secondo tetto difensivo.
+    if want_heads_up {
+        let digest = turn_digest.as_deref().map(str::trim).unwrap_or("");
+        context_md.push_str("\n# Heads-up richiesto\n");
+        if !digest.is_empty() {
+            context_md.push_str(truncate_prefix_chars(digest, 8000));
+            context_md.push('\n');
+        }
+    }
 
     let user_prompt = format!(
         "Genera al massimo {} risposte suggerite in formato array JSON basandoti sui messaggi nel file allegato.",
@@ -236,10 +287,12 @@ pub async fn generate_prompt_suggestions(
         _ => return Ok(PromptSuggestionsResult::empty()),
     };
 
-    Ok(parse_and_clean_suggestions(
-        &raw_response,
-        max_items_clamped,
-    ))
+    let mut parsed = parse_and_clean_suggestions(&raw_response, max_items_clamped);
+    // Un heads-up non richiesto non passa: il frontend lo ha gia' dall'agente o non lo vuole.
+    if !want_heads_up {
+        parsed.heads_up = None;
+    }
+    Ok(parsed)
 }
 
 #[cfg(test)]
@@ -281,6 +334,34 @@ mod tests {
             res.suggestions,
             vec!["Procedi pure", "Mostrami prima il diff", "Annulla"]
         );
+    }
+
+    #[test]
+    fn test_parse_heads_up_sentence() {
+        let raw = r#"{"awaitsUserInput": false, "suggestions": [], "headsUp": "  Ha cambiato lo schema del DB\n e non ha eseguito i test.  "}"#;
+        let res = parse_and_clean_suggestions(raw, 3);
+        assert_eq!(
+            res.heads_up.as_deref(),
+            Some("Ha cambiato lo schema del DB e non ha eseguito i test.")
+        );
+    }
+
+    #[test]
+    fn test_parse_heads_up_null_and_placeholders() {
+        let raw = r#"{"awaitsUserInput": false, "suggestions": [], "headsUp": null}"#;
+        assert_eq!(parse_and_clean_suggestions(raw, 3).heads_up, None);
+        let raw = r#"{"awaitsUserInput": false, "suggestions": [], "headsUp": "null"}"#;
+        assert_eq!(parse_and_clean_suggestions(raw, 3).heads_up, None);
+        let raw = r#"{"awaitsUserInput": false, "suggestions": []}"#;
+        assert_eq!(parse_and_clean_suggestions(raw, 3).heads_up, None);
+    }
+
+    #[test]
+    fn test_clean_heads_up_truncates_on_char_boundary() {
+        let long = "è".repeat(300);
+        let cleaned = clean_heads_up(Some(long)).unwrap();
+        assert_eq!(cleaned.chars().count(), HEADS_UP_MAX_CHARS);
+        assert!(cleaned.ends_with('…'));
     }
 
     #[test]
@@ -334,7 +415,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_empty_assistant_returns_empty() {
-        let res = generate_prompt_suggestions("   ".to_string(), "ciao".to_string(), None, 3).await;
+        let res =
+            generate_prompt_suggestions("   ".to_string(), "ciao".to_string(), None, 3, None, None)
+                .await;
         assert_eq!(res.unwrap(), PromptSuggestionsResult::empty());
     }
 }
