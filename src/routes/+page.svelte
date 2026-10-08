@@ -1708,7 +1708,7 @@
 				const term = terminalSessionFor(project, lane.laneId);
 				if (!term) throw new Error(m.ui__page_terminale_non_pronto_6be5());
 				await term.resumeSession(resume.sessionId);
-				await term.sendCommand('/retry');
+				await term.sendRunCommand('/retry');
 			}
 			taskStore.deleteTask(task.id);
 			companionStore.clearAttentionRequest(project.id, lane.laneId);
