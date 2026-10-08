@@ -46,6 +46,24 @@ import {
 } from '$lib/stores/companionText';
 import type { GuiGateSnapshot } from './automationGate';
 import {
+	emptyExtensionUi,
+	reduceExtensionUi,
+	type ExtensionStatusMap,
+	type ExtensionWidgetMap
+} from './extensionUi';
+import {
+	INITIAL_SETTLE,
+	isBackgroundPending,
+	isBackgroundYield,
+	promptResultError,
+	settleFromState,
+	settleOnAgentStart,
+	settleOnPromptResult,
+	settleOnSessionSettled,
+	settleOnYield,
+	type SettleState
+} from './settle';
+import {
 	RENDER_WINDOW,
 	clampVisibleCount,
 	sliceVisibleEntries,
@@ -328,6 +346,12 @@ export { RENDER_WINDOW, clampVisibleCount, sliceVisibleEntries, hasEarlierEntrie
 /** Tentativi di ricostruzione del transcript prima di arrendersi. */
 const REBUILD_ATTEMPTS = 3;
 
+/**
+ * Ogni quanto si richiede `get_state` mentre si aspetta la quiete. E' solo la
+ * rete per un `session_settled` perso: il segnale normale e' il frame.
+ */
+const SETTLE_POLL_MS = 15_000;
+
 function textOf(blocks: ContentBlock[] | string | undefined): string {
 	if (!blocks) return '';
 	// I messaggi `custom` di omp portano `content` come stringa: senza questo
@@ -547,7 +571,19 @@ export class AgentSession {
 	/** Solo anteprima: nessuna risposta parte finche' omp non emette extension_ui_request. */
 	streamAsk = $state<{ toolCallId: string | null; state: StreamAskState } | null>(null);
 	private readonly askTracker = new AskStreamTracker();
-	statusText = $state<string | null>(null);
+	/**
+	 * Voci di stato delle estensioni (`setStatus`), per `statusKey`. Nella TUI
+	 * stanno nel piede; qui nella riga di stato del composer.
+	 */
+	extensionStatus = $state<ExtensionStatusMap>({});
+	/** Widget di testo delle estensioni (`setWidget`), sopra o sotto il composer. */
+	extensionWidgets = $state<ExtensionWidgetMap>({});
+	/**
+	 * Quiete della sessione (`session_settled`): vedi `settle.ts`. Finche' omp
+	 * non dimostra di riportarla, lo yield vale come fine del lavoro.
+	 */
+	settle = $state<SettleState>({ ...INITIAL_SETTLE });
+	private settlePollTimer: ReturnType<typeof setTimeout> | null = null;
 	seededPrompt = $state<SeededPrompt | null>(null);
 	startupPhase = $state<'idle' | 'starting' | 'ready'>('idle');
 	exited = $state(false);
@@ -687,13 +723,29 @@ export class AgentSession {
 			// Fra un turno e l'altro `isStreaming` torna falso mentre l'agente
 			// continua: lo stato della sessione e' lo stesso che leggono badge
 			// e routing, cosi' il cancello non dice "pronto" a un agente al lavoro.
-			streaming: this.isStreaming || this.agentState === 'working',
+			// Il lavoro in background tiene `working` ma ha un motivo suo.
+			streaming: this.isStreaming || (this.agentState === 'working' && !this.backgroundPending),
 			compacting: this.isCompacting,
 			blockingQuestion: this.pendingUi ? askQuestionText(this.pendingUi) : null,
 			quotaBlock: quota && !quota.dismissed ? quota.title : null,
 			inferencePending: this.suggestions.isAnalyzing,
-			inferredQuestion: this.inferredAttention?.question ?? null
+			inferredQuestion: this.inferredAttention?.question ?? null,
+			backgroundWork: this.backgroundPending
 		};
+	}
+
+	/** Nessun lavoro che possa ancora risvegliare la sessione (vedi `settle.ts`). */
+	get settled(): boolean {
+		return this.settle.settled;
+	}
+
+	/**
+	 * L'agente ha ceduto il turno ma omp ha ancora lavoro in background
+	 * (subagenti asincroni, bash, coda) che puo' risvegliarlo. Sempre falso con
+	 * un omp che non riporta la quiete.
+	 */
+	get backgroundPending(): boolean {
+		return isBackgroundPending(this.settle, this.isStreaming || this.isCompacting);
 	}
 	constructor(config: AgentSessionConfig) {
 		this.client = config.client ?? new OmpRpcClient();
@@ -922,6 +974,7 @@ export class AgentSession {
 		// precedente e terrebbe sospeso l'auto-dispatch del progetto nuovo.
 		this.suggestions.invalidate();
 		this.deltaBatcher.clear();
+		this.resetProcessScopedState();
 		await this.client.close();
 	}
 
@@ -1548,14 +1601,19 @@ export class AgentSession {
 				this.todoReminder = null;
 			}
 		}
+		// Prima la quiete: decide se uno snapshot fermo e' "finito" o "in background".
+		const wasBackground = this.backgroundPending;
+		this.settle = settleFromState(this.settle, state);
 		if (typeof state.isStreaming === 'boolean') {
 			this.isStreaming = state.isStreaming;
-			if (!state.isStreaming && this.agentState === 'working') {
+			if (!state.isStreaming && this.agentState === 'working' && !this.backgroundPending) {
 				this.agentState = this.pendingUi ? 'attention' : 'idle';
 				this.assistantEntry = null;
 				this.activeAssistantId = null;
 			}
 		}
+		if (wasBackground && !this.backgroundPending) this.onSettled();
+		else if (this.backgroundPending) this.scheduleSettlePoll();
 		if (typeof state.isCompacting === 'boolean') this.isCompacting = state.isCompacting;
 		if (typeof state.queuedMessageCount === 'number') this.queuedMessageCount = state.queuedMessageCount;
 		// Lo snapshot di `get_state` e' l'autorita' anche sui testi dei chip; se
@@ -1840,6 +1898,10 @@ export class AgentSession {
 				// Le capability appartengono al processo, non alla chat: un
 				// runtime nuovo puo' sostituirne uno precedente e viceversa.
 				this.resetBrowserLive();
+				// Anche il supporto alla quiete e lo stato delle estensioni: un
+				// processo nuovo puo' essere un omp di un'altra versione, e le
+				// estensioni ripubblicano le loro voci all'avvio.
+				this.resetProcessScopedState();
 				void this.negotiateCapabilities(event);
 				void this.attach();
 				return;
@@ -1995,7 +2057,7 @@ export class AgentSession {
 				if (!this.isStreaming) {
 					const hasRunning = Array.from(this.toolEntries.values()).some((t) => t.running);
 					if (!hasRunning) {
-						this.agentState = this.pendingUi ? 'attention' : 'idle';
+						this.agentState = this.pendingUi ? 'attention' : this.backgroundPending ? 'working' : 'idle';
 					}
 				}
 				return;
@@ -2005,6 +2067,8 @@ export class AgentSession {
 				if (this.isAborting) return;
 				if (this.turnStartedAt === null) this.turnStartedAt = Date.now();
 				this.suggestions.invalidate();
+				this.settle = settleOnAgentStart(this.settle);
+				this.stopSettlePoll();
 				this.isStreaming = true;
 				this.markWorking();
 				return;
@@ -2012,8 +2076,11 @@ export class AgentSession {
 			case 'agent_end': {
 				const wasAborting = this.isAborting;
 				this.endAborting();
-				// `isTerminal: false` significa che la sessione riprendera' solo se non e' stato richiesto un abort
-				if (event.isTerminal === false && !wasAborting) return;
+				// `isTerminal: false` significa che la sessione riprendera' solo se non e' stato
+				// richiesto un abort. Eccezione: una fine che aspetta solo un job in background
+				// e' un turno concluso, se omp dira' poi quando la sessione e' quieta.
+				if (event.isTerminal === false && !wasAborting && !isBackgroundYield(this.settle, event)) return;
+				this.settle = settleOnYield(this.settle);
 				this.clearStreamAsk();
 				this.isStreaming = false;
 				this.turnStartedAt = null;
@@ -2027,6 +2094,29 @@ export class AgentSession {
 				notifyGitStatusRefresh(this.cwd);
 				if (!this.pendingUi && !wasAborting) {
 					this.suggestions.notifyTurnEnd();
+				}
+				if (this.backgroundPending) this.scheduleSettlePoll();
+				return;
+			}
+
+			// omp 18.8+: la sessione e' quieta, nulla la risveglera'. E' qui, non
+			// su `agent_end`, che il lavoro e' davvero finito.
+			case 'session_settled': {
+				this.settle = settleOnSessionSettled();
+				this.onSettled();
+				return;
+			}
+
+			// omp 18.8+: esito di un `prompt`. Porta la quiete al momento dello
+			// yield e, in caso di errore del provider, il messaggio pulito.
+			case 'prompt_result': {
+				const wasSettled = this.settle.settled;
+				this.settle = settleOnPromptResult(this.settle, event);
+				if (!wasSettled && this.settle.settled) this.onSettled();
+				const failure = promptResultError(event);
+				// La quota ha gia' la sua riga nel vassoio con le azioni di recupero.
+				if (failure && !(this.blockedQuotaState && !this.blockedQuotaState.dismissed)) {
+					this.pushNotice('error', this.promptFailureText(failure), 'provider');
 				}
 				return;
 			}
@@ -2084,7 +2174,7 @@ export class AgentSession {
 					if (!hasRunningTools && !this.assistantEntry) {
 						this.isStreaming = false;
 						this.turnStartedAt = null;
-						this.agentState = this.pendingUi ? 'attention' : 'idle';
+						this.agentState = this.pendingUi ? 'attention' : this.backgroundPending ? 'working' : 'idle';
 					}
 				}
 				return;
@@ -2331,6 +2421,9 @@ export class AgentSession {
 						}
 					}
 				}
+				// Il trasporto e' caduto: nessun `session_settled` arrivera' da questo canale.
+				this.stopSettlePoll();
+				this.settle = { ...this.settle, settled: true };
 				this.agentState = this.pendingUi ? 'attention' : 'idle';
 				this.pushNotice('error', msg);
 				void this.reconcile();
@@ -2390,6 +2483,7 @@ export class AgentSession {
 				this.assistantEntry = null;
 				this.clearStreamAsk();
 				this.clearQueueState();
+				this.resetProcessScopedState();
 				this.exited = true;
 				this.isReady = false;
 				const exitWaiters = this.readyWaiters;
@@ -2733,7 +2827,59 @@ export class AgentSession {
 		if (this.pendingUi) return 'attention';
 		if (this.blockedQuotaState && !this.blockedQuotaState.dismissed) return 'attention';
 		if (this.inferredAttention) return 'attention';
+		// Turno ceduto ma lavoro ancora in volo: per la tessera e per le
+		// notifiche l'agente non ha finito. `finished` arriva con la quiete.
+		if (this.backgroundPending) return 'working';
 		return 'idle';
+	}
+
+	/** Il lavoro in background e' finito: lo stato torna quello di un turno concluso. */
+	private onSettled() {
+		this.stopSettlePoll();
+		if (this.isStreaming || this.isCompacting) return;
+		if (this.agentState === 'working') this.agentState = this.resolveSettledState();
+	}
+
+	/**
+	 * Rete di sicurezza per un `session_settled` perso (processo riavviato a
+	 * meta', frame scartato): finche' si aspetta il background, `get_state` ogni
+	 * tanto riporta `isSettled`. Un timer solo, mai sovrapposto.
+	 */
+	private scheduleSettlePoll() {
+		if (this.settlePollTimer !== null || this.exited) return;
+		this.settlePollTimer = setTimeout(() => {
+			this.settlePollTimer = null;
+			if (!this.backgroundPending || this.exited || !this.isReady) return;
+			void this.reconcile().finally(() => {
+				if (this.backgroundPending) this.scheduleSettlePoll();
+			});
+		}, SETTLE_POLL_MS);
+	}
+
+	private stopSettlePoll() {
+		if (this.settlePollTimer === null) return;
+		clearTimeout(this.settlePollTimer);
+		this.settlePollTimer = null;
+	}
+
+	/** Quiete e voci delle estensioni appartengono al processo omp, non alla chat. */
+	private resetProcessScopedState() {
+		this.stopSettlePoll();
+		this.settle = { ...INITIAL_SETTLE };
+		const empty = emptyExtensionUi();
+		this.extensionStatus = empty.status;
+		this.extensionWidgets = empty.widgets;
+	}
+
+	/** Messaggio d'errore di un `prompt_result`: provider, modello, HTTP e se si puo' riprovare. */
+	private promptFailureText(failure: NonNullable<ReturnType<typeof promptResultError>>): string {
+		const source = [failure.provider, failure.model].filter(Boolean).join(' · ');
+		const http = failure.httpStatus !== undefined ? ` (HTTP ${failure.httpStatus})` : '';
+		const head = source
+			? messages.chat_v2_prompt_error_with_source({ source: `${source}${http}` })
+			: messages.chat_v2_prompt_error({ http });
+		const tail = failure.retryable ? messages.chat_v2_prompt_error_retryable() : '';
+		return [`${head} ${failure.message}`, tail].filter(Boolean).join(' ');
 	}
 
 	/**
@@ -2958,13 +3104,26 @@ export class AgentSession {
 		}
 		if (method === 'notify') {
 			const body = text ?? title;
-			if (body) this.pushNotice(this.noticeLevel(event.level), body, 'estensione');
+			// omp manda il livello in `notifyType`; `level` resta per i frame vecchi.
+			if (body) this.pushNotice(this.noticeLevel(event.notifyType ?? event.level), body, 'estensione');
 			return;
 		}
-		if (method === 'setStatus') {
-			this.statusText = text ?? title ?? null;
+		if (method === 'setStatus' || method === 'setWidget') {
+			const next = reduceExtensionUi(
+				{ status: this.extensionStatus, widgets: this.extensionWidgets },
+				event
+			);
+			if (next) {
+				this.extensionStatus = next.status;
+				this.extensionWidgets = next.widgets;
+			}
 			return;
 		}
+		// `setTitle` e' il titolo del terminale (omp in RPC lo sopprime se non c'e'
+		// PI_RPC_EMIT_TITLE=1): non e' il nome della sessione, che Studio genera
+		// e salva da se'. Usarlo come titolo della scheda lo sovrascriverebbe con
+		// testi di stato da terminale. Lo si ignora di proposito.
+		if (method === 'setTitle') return;
 		if (method === 'open_url') {
 			// Il campo `launchUrl` esiste proprio per questo: quando c'e', e'
 			// l'indirizzo da aprire davvero. L'evento arriva da un'estensione

@@ -104,7 +104,7 @@
 
 	function gateStatus(gate: AutomationGate): StatusMarkType {
 		if (gate.block === 'question' || gate.block === 'quota') return 'attention';
-		if (gate.block === 'working' || gate.block === 'starting' || gate.block === 'compacting') return 'running';
+		if (gate.block === 'working' || gate.block === 'starting' || gate.block === 'compacting' || gate.block === 'background') return 'running';
 		if (!isLaneRoutable(gate)) return 'blocked';
 		return 'pending';
 	}

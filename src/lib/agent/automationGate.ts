@@ -32,6 +32,7 @@ export type AutomationBlock =
 	| 'quota'
 	| 'working'
 	| 'compacting'
+	| 'background'
 	| 'terminal-input'
 	| 'terminal-unknown';
 
@@ -70,6 +71,12 @@ export interface GuiGateSnapshot {
 	inferencePending: boolean;
 	/** Domanda dedotta a fine turno: il processo e' libero, ma puo' richiedere una risposta. */
 	inferredQuestion: string | null;
+	/**
+	 * Turno ceduto ma sessione non ancora quieta (omp 18.8 `session_settled`):
+	 * subagenti asincroni, bash in background o coda possono risvegliarla.
+	 * Assente o falso con un omp che non riporta la quiete.
+	 */
+	backgroundWork?: boolean;
 }
 
 export type AutomationGateInput =
@@ -115,6 +122,7 @@ export function isLaneRoutable(gate: AutomationGate): boolean {
 		case 'working':
 		case 'starting':
 		case 'compacting':
+		case 'background':
 		case 'terminal-input':
 			return true;
 		default:
@@ -219,6 +227,17 @@ export function resolveAutomationGate(input: AutomationGateInput): AutomationGat
 			m.ui__page_compattazione_in_corso_538c(),
 			m.gate_detail_compacting(),
 			m.gate_hint_compacting()
+		);
+	}
+
+	// Dopo lo stato occupato vero: un nuovo task partirebbe sopra un lavoro che
+	// sta per risvegliare l'agente. Come `working`, la coda si sposta di corsia.
+	if (session.backgroundWork) {
+		return gate(
+			'background',
+			m.gate_label_background(),
+			m.gate_detail_background(),
+			m.gate_hint_background()
 		);
 	}
 
