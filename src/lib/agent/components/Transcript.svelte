@@ -24,6 +24,9 @@
 	import { TodoTraceTracker, type TodoTraceItem } from '../todoTrace';
 	import AssistantText from './AssistantText.svelte';
 	import TurnFooter, { type TurnFooterData } from './TurnFooter.svelte';
+	import TurnHeadsUp from './TurnHeadsUp.svelte';
+	import { agentHeadsUp, isHeadsUpToolEntry, type TurnHeadsUp as TurnHeadsUpData } from '../turnHeadsUp';
+	import { headsUpSeen } from '../headsUpSeen.svelte';
 	import CompactionRow from './CompactionRow.svelte';
 	import NoticeRow from './NoticeRow.svelte';
 	import RetryRow from './RetryRow.svelte';
@@ -158,6 +161,9 @@
 		}
 
 		for (const entry of entries) {
+			// La chiamata `studio_headsup` non e' un passo di lavoro: la sua frase
+			// diventa la card prima del piè di turno (Gate R3X-heads-up).
+			if (isHeadsUpToolEntry(entry)) continue;
 			if (entry.kind === 'tool' && entry.toolName === 'todo') {
 				flushSegment();
 				const traces = todoTraces.get(entry.id) ?? [];
@@ -245,10 +251,83 @@
 		return finalItems;
 	});
 
+	/**
+	 * Frasi `studio_headsup` per turno, indicizzate per id del messaggio utente
+	 * che apre il turno (-1 = prima di ogni messaggio). Si leggono dalle entry
+	 * complete: la chiamata non entra in `displayItems`.
+	 */
+	const agentHeadsUpByTurn = $derived.by<Map<number, { text: string; entryId: number }>>(() => {
+		const map = new Map<number, { text: string; entryId: number }>();
+		let turnStart = -1;
+		let segment: TranscriptEntry[] = [];
+		const flush = () => {
+			const found = segment.some(isHeadsUpToolEntry) ? agentHeadsUp(segment) : null;
+			if (found) map.set(turnStart, found);
+		};
+		for (const entry of session.entries) {
+			if (entry.kind === 'user') {
+				flush();
+				turnStart = entry.id;
+				segment = [];
+			} else {
+				segment.push(entry);
+			}
+		}
+		flush();
+		return map;
+	});
+
+	/** Indice dell'elemento visualizzato che contiene ciascuna entry: serve al clic sull'heads-up. */
+	const displayIndexByEntryId = $derived.by<Map<number, number>>(() => {
+		const map = new Map<number, number>();
+		displayItems.forEach((item, index) => {
+			if (item.kind === 'tool-group' || item.kind === 'system-group') {
+				for (const entry of item.entries) map.set(entry.id, index);
+			} else if (item.kind === 'single') {
+				map.set(item.entry.id, index);
+			} else {
+				map.set(item.entry.id, index);
+			}
+		});
+		return map;
+	});
+
+	/**
+	 * Heads-up del turno che chiude all'indice di piè dato. Per l'ultimo turno
+	 * vale la frase della sessione (agente, smol o fatti); per i turni gia'
+	 * passati solo quella dell'agente, che resta nel `.jsonl`. Le frasi gia'
+	 * segnate come viste non tornano.
+	 */
+	function headsUpForTurn(userEntryId: number, isLastTurn: boolean): TurnHeadsUpData | undefined {
+		let candidate: TurnHeadsUpData | null = null;
+		if (isLastTurn && session.headsUp) {
+			candidate = session.headsUp;
+		} else {
+			const agent = agentHeadsUpByTurn.get(userEntryId);
+			if (agent) candidate = { text: agent.text, source: 'agent', targetEntryId: null };
+		}
+		if (!candidate || headsUpSeen.isSeen(session.sessionId, candidate.text)) return undefined;
+		return candidate;
+	}
+
+	function gotoHeadsUpTarget(entryId: number | null) {
+		if (!transcriptEl) return;
+		const index = entryId !== null ? displayIndexByEntryId.get(entryId) : undefined;
+		if (index === undefined) return;
+		const row = transcriptEl.querySelector<HTMLElement>(`[data-display-index="${index}"]`);
+		if (!row) return;
+		row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+		row.classList.remove('headsup-flash');
+		void row.offsetWidth;
+		row.classList.add('headsup-flash');
+		window.setTimeout(() => row.classList.remove('headsup-flash'), 1400);
+	}
+
 	// Piè del turno dell'agente: calcola i metadati di ogni turno concluso (Gate R32 - C07).
-	const turnFootersByIndex = $derived.by<Map<number, TurnFooterData>>(() => {
-		const map = new Map<number, TurnFooterData>();
+	const turnFootersByIndex = $derived.by<Map<number, TurnFooterData & { headsUp?: TurnHeadsUpData }>>(() => {
+		const map = new Map<number, TurnFooterData & { headsUp?: TurnHeadsUpData }>();
 		if (displayItems.length === 0) return map;
+		let currentUserEntryId = -1;
 
 		let currentTurnStartIndex = -1;
 		let currentTurnAssistantTexts: string[] = [];
@@ -296,9 +375,11 @@
 						toolCallsCount: currentTurnToolCalls,
 						durationMs: duration,
 						model: currentTurnModel,
-						cost: currentTurnCost > 0 ? currentTurnCost : undefined
+						cost: currentTurnCost > 0 ? currentTurnCost : undefined,
+						headsUp: headsUpForTurn(currentUserEntryId, false)
 					});
 				}
+				currentUserEntryId = item.entry.id;
 				currentTurnStartIndex = i;
 				currentTurnAssistantTexts = [];
 				currentTurnToolCalls = 0;
@@ -332,7 +413,8 @@
 				toolCallsCount: currentTurnToolCalls,
 				durationMs: duration,
 				model: currentTurnModel,
-				cost: currentTurnCost > 0 ? currentTurnCost : undefined
+				cost: currentTurnCost > 0 ? currentTurnCost : undefined,
+				headsUp: headsUpForTurn(currentUserEntryId, true)
 			});
 		}
 
@@ -451,6 +533,7 @@
 			{@const prevKind = i > 0 ? entryKind(displayItems[i - 1]) : null}
 			<div
 				class="entry-row"
+				data-display-index={i}
 				class:turn-boundary={kind === 'user' && i > 0}
 				class:after-user={prevKind === 'user'}
 				class:system-tight={kind === 'system' && prevKind === 'system'}
@@ -493,8 +576,17 @@
 					<LaneLandingCard entry={item.entry} />
 				{/if}
 			</div>
-			{#if turnFootersByIndex.get(i)}
-				<TurnFooter data={turnFootersByIndex.get(i)!} />
+			{@const footer = turnFootersByIndex.get(i)}
+			{#if footer}
+				{#if footer.headsUp}
+					{@const hu = footer.headsUp}
+					<TurnHeadsUp
+						headsUp={hu}
+						onGoto={hu.targetEntryId !== null ? () => gotoHeadsUpTarget(hu.targetEntryId) : undefined}
+						onDismiss={() => headsUpSeen.markSeen(session.sessionId, hu.text)}
+					/>
+				{/if}
+				<TurnFooter data={footer} />
 			{/if}
 		{/each}
 	{/if}
@@ -547,6 +639,18 @@
 
 	.entry-row.system-tight {
 		margin-top: var(--space-1);
+	}
+
+	/* Arrivo dal clic sull'heads-up: un lampo neutro, solo `from` (From-Only Rule). */
+	.entry-row:global(.headsup-flash) {
+		animation: headsup-flash 1.4s var(--ease-out, ease-out);
+		border-radius: var(--radius-md);
+	}
+
+	@keyframes headsup-flash {
+		from {
+			background: color-mix(in oklch, var(--warn) 14%, transparent);
+		}
 	}
 
 	.agent-activity {

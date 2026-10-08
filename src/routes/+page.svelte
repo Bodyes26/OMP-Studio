@@ -49,6 +49,7 @@
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { projectOrder } from '$lib/stores/projectOrder.svelte';
 	import { notificationManager } from '$lib/stores/notifications.svelte';
+	import { headsUpSeen } from '$lib/agent/headsUpSeen.svelte';
 	import { companionStore, type CompanionProjectRuntime } from '$lib/stores/companion.svelte';
 	import { buildAttentionRequest } from '$lib/stores/companionAttention';
 	import { askQuestionText } from '$lib/agent/askTitle';
@@ -668,7 +669,14 @@
 		const runtimes: CompanionProjectRuntime[] = projectStore.projects.map((p) => {
 			const { provider, modelId, credentialPin } = resolveProjectRuntime(p);
 			const gate = automationGate(p.id);
-			const activity = registeredSessionFor(p)?.activityLine;
+			const laneSession = registeredSessionFor(p);
+			const activity = laneSession?.activityLine;
+			// Heads-up di fine turno (Gate R3X-heads-up): la stessa frase della chat,
+			// finche' non e' segnata come vista.
+			const headsUp =
+				laneSession?.headsUp && !laneSession.isStreaming && !headsUpSeen.isSeen(laneSession.sessionId, laneSession.headsUp.text)
+					? laneSession.headsUp.text
+					: undefined;
 			return {
 				projectId: p.id,
 				provider,
@@ -679,7 +687,8 @@
 				// La companion ha solo il tooltip: spiegazione e rimedio insieme,
 				// altrimenti resta con un'etichetta che non dice cosa fare.
 				runBlockReason: gate.ready ? undefined : `${gate.detail} ${gate.hint}`.trim(),
-				activity: activity ? { ...activity } : undefined
+				activity: activity ? { ...activity } : undefined,
+				headsUp
 			};
 		});
 
@@ -688,7 +697,7 @@
 		// e tinta ci stanno perche' la companion disegna anche quelli: senza, un
 		// progetto rinominato restava col vecchio nome fino al riavvio.
 		const structural = projectStore.projects
-			.map((p, i) => `${p.id}:${p.name}:${p.label ?? ''}:${p.hue}:${p.colorMode}:${p.lane.agentState}:${runtimes[i].provider ?? ''}:${runtimes[i].modelId ?? ''}:${runtimes[i].credentialPin ?? ''}:${runtimes[i].canRunTask ?? false}:${runtimes[i].runBlockReason ?? ''}`)
+			.map((p, i) => `${p.id}:${p.name}:${p.label ?? ''}:${p.hue}:${p.colorMode}:${p.lane.agentState}:${runtimes[i].provider ?? ''}:${runtimes[i].modelId ?? ''}:${runtimes[i].credentialPin ?? ''}:${runtimes[i].canRunTask ?? false}:${runtimes[i].runBlockReason ?? ''}:${runtimes[i].headsUp ?? ''}`)
 			.join('|');
 		const activityOnly = runtimes
 			.map((r) => (r.activity ? `${r.activity.kind}:${r.activity.at}` : ''))
@@ -995,6 +1004,26 @@
 			for (const unlisten of unlistens) unlisten();
 		};
 	});
+	// Heads-up di fine turno nella notifica di sistema (Gate R3X-heads-up).
+	// Una per turno: si aspetta la fine dell'analisi post-turno, cosi' parte
+	// la frase definitiva (agente, smol o fatti) e non quella provvisoria. Se
+	// il turno chiede gia' una risposta, la notifica di attenzione basta.
+	const notifiedHeadsUpTurns = new Set<string>();
+	$effect(() => {
+		for (const p of projectStore.projects) {
+			for (const s of sessionRegistry.getSessionsForProject(p.id)) {
+				const hu = s.headsUp;
+				if (!hu || s.isStreaming || s.suggestions.isAnalyzing) continue;
+				const turnKey = `${s.sessionKey}|${s.runEndSeq}`;
+				if (notifiedHeadsUpTurns.has(turnKey)) continue;
+				notifiedHeadsUpTurns.add(turnKey);
+				if (s.pendingUi || s.inferredAttention) continue;
+				if (untrack(() => headsUpSeen.isSeen(s.sessionId, hu.text))) continue;
+				void notificationManager.notifyHeadsUp({ id: p.id, name: p.label?.trim() || p.name }, hu.text);
+			}
+		}
+	});
+
 	// Notifiche di sistema e allerta sull'icona dell'app (Dock / Taskbar)
 	$effect(() => {
 		for (const p of projectStore.projects) {
