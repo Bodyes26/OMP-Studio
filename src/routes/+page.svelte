@@ -10,6 +10,7 @@
 	import Chat from '$lib/agent/components/Chat.svelte';
 	import { AgentSession } from '$lib/agent/session.svelte';
 	import { laneSessionKey, sessionRegistry, type UiResponsePayload } from '$lib/agent/sessionRegistry';
+	import { routeSessionSlash } from '$lib/agent/slashRouter';
 	import type { RpcCommand, ThinkingLevel } from '$lib/agent/wire';
 	import ImageModal from '$lib/agent/components/ImageModal.svelte';
 	import { IconNewChat, IconCircleAlert, IconClose } from '$lib/icons';
@@ -1705,29 +1706,35 @@
 			void handleNewChat(projectId, laneId);
 			return true;
 		}
-		if (lowerCmd === '/resume' || lowerCmd === '/sessions' || lowerCmd === '/tree') {
-			const targetLane = laneOf(project, laneId);
-			if (targetLane?.kind === 'lab') {
-				session.pushNotice('info', m.lane_lifecycle_lab_no_sessions(), 'studio');
+		// Sessioni e rami: instradamento puro in `slashRouter` (coperto dai test).
+		const sessionAction = routeSessionSlash(trimmed);
+		if (sessionAction) {
+			if (laneOf(project, laneId)?.kind === 'lab') {
+				session.pushNotice(
+					'info',
+					sessionAction.kind === 'fork' || sessionAction.kind === 'branches'
+						? m.branch_lab_unavailable()
+						: m.lane_lifecycle_lab_no_sessions(),
+					'studio'
+				);
 				return true;
 			}
-			if (argument && lowerCmd === '/resume') {
-				void handleResumeSession(projectId, argument, laneId);
-			} else {
-				leftSection = 'agent';
-				taskStore.setView(project.canonicalProjectPath, 'sessions');
+			switch (sessionAction.kind) {
+				case 'resume':
+					void handleResumeSession(projectId, sessionAction.sessionId, laneId);
+					break;
+				case 'sessions':
+					leftSection = 'agent';
+					taskStore.setView(project.canonicalProjectPath, 'sessions');
+					break;
+				case 'branches':
+					session.branchPanelOpen = true;
+					break;
+				case 'fork':
+					// Esito (fatto, occupato, annullato, errore) annunciato dalla sessione.
+					void session.forkSession();
+					break;
 			}
-			return true;
-		}
-		if (lowerCmd === '/fork') {
-			void (async () => {
-				try {
-					const newId = await session.forkSession();
-					session.flashNotice('info', m.page_slash_cmd_fork_success({ id: newId ?? '' }));
-				} catch (error) {
-					session.flashNotice('error', m.page_slash_cmd_fork_error({ error: error instanceof Error ? error.message : String(error) }));
-				}
-			})();
 			return true;
 		}
 		if (lowerCmd === '/drop') {
@@ -1986,6 +1993,8 @@
 			m.page_gui_help_title(),
 			m.ui__page_new_clear_avvia_una_nuova_sessione_f67b(),
 			m.ui__page_resume_id_riprende_una_sessione_o_apre_97fd(),
+			m.page_gui_help_fork(),
+			m.page_gui_help_tree(),
 			m.page_gui_help_compact(),
 			m.ui__page_handoff_istruzioni_passa_il_testimone_a_una_1f1b(),
 			'/thinking <off|minimal|low|medium|high|xhigh|max>',

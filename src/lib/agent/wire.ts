@@ -32,6 +32,12 @@ export type RpcCommand =
 	| { type: 'prompt'; message: string; images?: ImageContent[]; streamingBehavior?: StreamingBehavior }
 	| { type: 'abort' }
 	| { type: 'new_session'; parentSession?: string }
+	// Diramazioni (omp 18.8): `fork` copia la sessione intera o fino a `entryId`,
+	// `branch` riparte dal genitore di un messaggio utente; entrambi aprono un file nuovo.
+	| { type: 'fork'; entryId?: string }
+	| { type: 'branch'; entryId: string }
+	| { type: 'get_entries'; since?: string }
+	| { type: 'get_tree' }
 	| { type: 'get_state' }
 	| { type: 'get_available_commands' }
 	| { type: 'get_messages_page'; cursor?: string; limit?: number }

@@ -1,4 +1,4 @@
-import { attachEditorContext } from '$lib/editor/editorContext';
+import { attachEditorContext, splitMessageAndEditorContext } from '$lib/editor/editorContext';
 import { invoke } from '@tauri-apps/api/core';
 import { orchestratePromptPreflight, type PromptPreflightDeps } from './promptPreflight';
 import { settingsStore } from '$lib/stores/settings.svelte';
@@ -117,6 +117,18 @@ import {
 } from './browser-live';
 import { classifySystemMessage, noticeDedupKey, type JobResult, type ClassifiedNotice } from './notices';
 import {
+	OmpEntryCache,
+	activePath,
+	previousMessageEntryId,
+	requestBranch,
+	requestFork,
+	resolveTurnEndEntryId,
+	resolveUserEntryId,
+	type BranchOutcome,
+	type OmpEntriesPage,
+	type OmpTreeSnapshot
+} from './sessionTree';
+import {
 	isContextReportText,
 	parseContextReport,
 	type ContextReport
@@ -143,6 +155,12 @@ export interface UserEntry {
 	content: string;
 	images: { data: string; mimeType: string }[];
 	attribution?: string;
+	/**
+	 * `message.timestamp` (ms) del messaggio omp: e' lo stesso valore che omp
+	 * scrive nel file di sessione, quindi lega l'entry del transcript all'entry
+	 * durevole di `get_entries` per diramare da questo punto.
+	 */
+	messageTs?: number;
 }
 
 export interface AssistantEntry {
@@ -152,6 +170,8 @@ export interface AssistantEntry {
 	usage?: MessageUsage;
 	model?: string;
 	stopReason?: string;
+	/** Come `UserEntry.messageTs`; condiviso dai pezzi di uno stesso messaggio. */
+	messageTs?: number;
 }
 
 export interface ToolEntry {
@@ -523,6 +543,17 @@ export class AgentSession {
 	private resumeFallbackAttempted = false;
 	/** Flag per indicare un cambio di sessione intenzionale (new, fork, handoff) */
 	private expectingSessionTransition = false;
+	/**
+	 * Timestamp del messaggio assistente in streaming: i pezzi aperti dopo una
+	 * chiamata tool appartengono allo stesso messaggio omp e lo ereditano.
+	 */
+	private liveAssistantTs: number | undefined = undefined;
+	/** Pannello «Rami» aperto (da `/tree`, dal pin o dal menu della chat). */
+	branchPanelOpen = $state(false);
+	/** Una diramazione e' in corso: menu e pannello non ne accettano un'altra. */
+	branchBusy = $state(false);
+	/** Copia di `get_entries`, aggiornata in coda: serve a tradurre i messaggi in entry. */
+	private readonly ompEntries = new OmpEntryCache();
 	queuedMessageCount = $state(0);
 	/**
 	 * Coda di omp come la mostra la tray: chip preprint. Sorgente di verita' e'
@@ -1705,7 +1736,8 @@ export class AgentSession {
 					kind: 'user',
 					content: textOf(message.content),
 					images: imagesOf(message.content),
-					attribution: message.attribution
+					attribution: message.attribution,
+					messageTs: message.timestamp
 				});
 				continue;
 			}
@@ -1726,7 +1758,8 @@ export class AgentSession {
 						blocks: [...currentBlocks],
 						model: message.model,
 						usage: isLast ? message.usage : undefined,
-						stopReason: isLast ? message.stopReason : undefined
+						stopReason: isLast ? message.stopReason : undefined,
+						messageTs: message.timestamp
 					});
 					currentBlocks.length = 0;
 				};
@@ -1886,6 +1919,7 @@ export class AgentSession {
 					if (pending && pending.content === content) {
 						pending.images = imagesOf(message.content);
 						pending.attribution = message.attribution;
+						pending.messageTs = message.timestamp;
 						return;
 					}
 					this.push({
@@ -1893,17 +1927,20 @@ export class AgentSession {
 						kind: 'user',
 						content,
 						images: imagesOf(message.content),
-						attribution: message.attribution
+						attribution: message.attribution,
+						messageTs: message.timestamp
 					});
 				} else if (message.role === 'assistant') {
 					if (!this.isStreaming || this.isAborting) return;
 					// `push` restituisce l'istanza dentro l'array reattivo: tenere
 					// l'oggetto grezzo significherebbe mutarlo fuori dal proxy di
 					// Svelte e non far mai comparire il testo in streaming.
+					this.liveAssistantTs = message.timestamp;
 					this.assistantEntry = this.push({
 						id: this.nextEntryId++,
 						kind: 'assistant',
-						blocks: []
+						blocks: [],
+						messageTs: message.timestamp
 					}) as AssistantEntry;
 					this.activeAssistantId = this.assistantEntry.id;
 				} else if (message.role === 'custom' || message.role === 'developer') {
@@ -1922,9 +1959,11 @@ export class AgentSession {
 			case 'message_end': {
 				const message = this.asMessage(event.message);
 				if (!message || message.role !== 'assistant') return;
+				this.liveAssistantTs = undefined;
 				if (this.assistantEntry) {
 					this.assistantEntry.usage = message.usage;
 					this.assistantEntry.model = message.model;
+					if (typeof message.timestamp === 'number') this.assistantEntry.messageTs = message.timestamp;
 					if (!this.assistantEntry.stopReason) {
 						this.assistantEntry.stopReason = message.stopReason;
 					}
@@ -2882,7 +2921,8 @@ export class AgentSession {
 		this.assistantEntry = this.push({
 			id: this.nextEntryId++,
 			kind: 'assistant',
-			blocks: []
+			blocks: [],
+			messageTs: this.liveAssistantTs
 		}) as AssistantEntry;
 		this.activeAssistantId = this.assistantEntry.id;
 		return this.assistantEntry;
@@ -3911,6 +3951,33 @@ export class AgentSession {
 		}
 	}
 
+	/**
+	 * Stato vivo legato al processo e alla sessione di prima: va azzerato a
+	 * ogni cambio di sessione voluto (nuova chat, fork, branch), qualunque cosa
+	 * contenga la sessione di arrivo.
+	 */
+	private resetLiveSessionState(): void {
+		this.entries = [];
+		this.toolEntries.clear();
+		this.clearStreamAsk();
+		this.assistantEntry = null;
+		this.activeAssistantId = null;
+		this.liveAssistantTs = undefined;
+		this.activityLine = null;
+		this.optimisticUser = null;
+		this.subagents = [];
+		this.todoPhases = [];
+		this.todoReminder = null;
+		this.renderedCustomKeys.clear();
+		this.clearQueueState();
+		this.isStreaming = false;
+		this.turnStartedAt = null;
+		this.isCompacting = false;
+		this.agentState = 'idle';
+		this.visibleCount = RENDER_WINDOW;
+		this.ompEntries.invalidate();
+	}
+
 	async newSession(): Promise<string | null> {
 		this.expectingSessionTransition = true;
 		await this.resetPrewalkForNewChat();
@@ -3919,54 +3986,217 @@ export class AgentSession {
 		this.endAborting();
 		this.suggestions.invalidate();
 		await this.client.send({ type: 'new_session' });
-		this.entries = [];
-		this.toolEntries.clear();
-		this.clearStreamAsk();
-		this.assistantEntry = null;
-		this.activeAssistantId = null;
-		this.activityLine = null;
-		this.optimisticUser = null;
-		this.subagents = [];
-		this.todoPhases = [];
-		this.todoReminder = null;
-		this.renderedCustomKeys.clear();
-		this.clearQueueState();
-		this.isStreaming = false;
-		this.turnStartedAt = null;
-		this.isCompacting = false;
-		this.agentState = 'idle';
-		this.visibleCount = RENDER_WINDOW;
+		this.resetLiveSessionState();
 		await this.refreshState();
 		return this.sessionId;
 	}
-	async forkSession(): Promise<string | null> {
-		await this.resetPrewalkForNewChat();
-		this.pendingStartupPrompts = [];
-		this.attachEventQueue = [];
-		this.endAborting();
-		this.expectingSessionTransition = true;
-		this.suggestions.invalidate();
-		const parent = this.sessionId;
-		await this.client.send({ type: 'new_session', parentSession: parent || undefined });
-		this.entries = [];
-		this.toolEntries.clear();
-		this.clearStreamAsk();
-		this.assistantEntry = null;
-		this.activeAssistantId = null;
-		this.activityLine = null;
-		this.optimisticUser = null;
-		this.subagents = [];
-		this.todoPhases = [];
-		this.todoReminder = null;
-		this.renderedCustomKeys.clear();
-		this.clearQueueState();
-		this.isStreaming = false;
-		this.turnStartedAt = null;
-		this.isCompacting = false;
-		this.agentState = 'idle';
-		this.visibleCount = RENDER_WINDOW;
-		await this.refreshState();
-		return this.sessionId;
+
+	/* ---------------------------------------------------------- diramazioni */
+
+	/**
+	 * Le diramazioni partono solo a sessione ferma: omp rifiuta comunque `fork`
+	 * con `session_busy`, ma `branch` no, e un ramo preso a meta' turno
+	 * perderebbe la risposta in arrivo. Le corsie Laboratorio hanno una sola
+	 * chat continua (Gate R30) e non diramano.
+	 */
+	get canBranch(): boolean {
+		return (
+			!this.labConfig &&
+			this.isOpen &&
+			!this.isStreaming &&
+			!this.isCompacting &&
+			!this.branchBusy &&
+			this.pendingUi === null
+		);
+	}
+
+	/** Perche' una diramazione non puo' partire adesso; `null` se puo'. */
+	branchBlockedReason(): string | null {
+		if (this.labConfig) return messages.branch_lab_unavailable();
+		if (this.branchBusy) return messages.branch_in_progress();
+		if (this.isStreaming || this.isCompacting || this.pendingUi !== null) return messages.branch_busy();
+		if (!this.isOpen) return messages.branch_not_ready();
+		return null;
+	}
+
+	/** Allinea la copia di `get_entries` (incrementale con `since`). */
+	private async syncOmpEntries(): Promise<void> {
+		await this.ompEntries.sync(
+			(since) => this.client.send<OmpEntriesPage>(since ? { type: 'get_entries', since } : { type: 'get_entries' }),
+			this.sessionFile ?? this.sessionId
+		);
+	}
+
+	private ompActivePath() {
+		return activePath((id) => this.ompEntries.get(id), this.ompEntries.leafId);
+	}
+
+	/** Albero grezzo della sessione per il pannello Rami. */
+	async loadBranchTree(): Promise<OmpTreeSnapshot> {
+		const snapshot = await this.client.send<OmpTreeSnapshot>({ type: 'get_tree' });
+		return { tree: Array.isArray(snapshot?.tree) ? snapshot.tree : [], leafId: snapshot?.leafId ?? null };
+	}
+
+	/**
+	 * Esegue una diramazione e, se omp la accetta, adotta la sessione nuova:
+	 * stato, transcript ricostruito dalla cronologia copiata, costi, elenco
+	 * sessioni. Un rifiuto (`session_busy`, veto di un'estensione) lascia la
+	 * sessione di prima intatta, transcript compreso.
+	 */
+	private async runBranchTransition(
+		request: () => Promise<BranchOutcome>,
+		success: string
+	): Promise<BranchOutcome> {
+		const blocked = this.branchBlockedReason();
+		if (blocked) {
+			this.flashNotice('warning', blocked);
+			return { kind: 'busy' };
+		}
+		this.branchBusy = true;
+		try {
+			// Come la nuova chat: con l'overlay prewalk vero il cambio di sessione
+			// riarmerebbe il prewalk in silenzio (DECISIONS, Prewalk).
+			await this.resetPrewalkForNewChat();
+			this.expectingSessionTransition = true;
+			const outcome = await request();
+			if (outcome.kind !== 'done') {
+				this.expectingSessionTransition = false;
+				if (outcome.kind === 'busy') this.flashNotice('warning', messages.branch_busy());
+				else if (outcome.kind === 'cancelled') this.flashNotice('warning', messages.branch_cancelled());
+				else this.flashNotice('error', messages.page_slash_cmd_fork_error({ error: outcome.message }));
+				return outcome;
+			}
+			this.pendingStartupPrompts = [];
+			this.attachEventQueue = [];
+			this.endAborting();
+			this.suggestions.invalidate();
+			this.resetLiveSessionState();
+			await this.refreshState();
+			await this.rebuildTranscript();
+			void this.refreshCost();
+			if (typeof window !== 'undefined') {
+				window.dispatchEvent(
+					new CustomEvent('studio-sessions-refresh', {
+						detail: { projectPath: this.cwd, sessionId: this.sessionId ?? undefined }
+					})
+				);
+			}
+			this.flashNotice('info', success);
+			return outcome;
+		} catch (error) {
+			this.expectingSessionTransition = false;
+			this.flashNotice('error', messages.page_slash_cmd_fork_error({ error: this.reason(error) }));
+			return { kind: 'error', message: this.reason(error) };
+		} finally {
+			this.branchBusy = false;
+		}
+	}
+
+	/**
+	 * `/fork`: copia l'intera sessione (con gli artefatti) in una nuova e ci
+	 * resta sopra. Prima del 18.x Studio mandava `new_session` con il genitore,
+	 * che apriva una chat vuota.
+	 */
+	async forkSession(): Promise<BranchOutcome> {
+		return this.runBranchTransition(
+			() => requestFork((command) => this.client.send(command)),
+			messages.branch_fork_done()
+		);
+	}
+
+	/** Diramazione su un'entry precisa di `get_entries` (pannello Rami, menu). */
+	async forkAtEntry(entryId: string, success = messages.branch_fork_point_done()): Promise<BranchOutcome> {
+		return this.runBranchTransition(
+			() => requestFork((command) => this.client.send(command), entryId),
+			success
+		);
+	}
+
+	/**
+	 * Ramo che riparte da *prima* di un messaggio utente (entry omp). Si usa
+	 * `fork` sul messaggio precedente, che porta con se' gli artefatti citati
+	 * dai risultati tool; per il primo messaggio non c'e' nulla da copiare e si
+	 * usa `branch`, che apre la sessione vuota. Con `restore` il testo (e le
+	 * immagini) del messaggio tornano nel composer: «Modifica e riprova».
+	 */
+	async branchBeforeUserEntry(
+		entryId: string,
+		restore: { text: string; images: { data: string; mimeType: string }[] } | null
+	): Promise<BranchOutcome> {
+		try {
+			await this.syncOmpEntries();
+		} catch (error) {
+			this.flashNotice('error', messages.page_slash_cmd_fork_error({ error: this.reason(error) }));
+			return { kind: 'error', message: this.reason(error) };
+		}
+		const previous = previousMessageEntryId((id) => this.ompEntries.get(id), entryId);
+		const send = (command: Parameters<OmpRpcClient['send']>[0]) => this.client.send(command);
+		const outcome = await this.runBranchTransition(
+			() => (previous ? requestFork(send, previous) : requestBranch(send, entryId)),
+			restore ? messages.branch_edit_done() : messages.branch_fork_point_done()
+		);
+		if (outcome.kind === 'done' && restore) {
+			// Il blocco del contesto editor che Studio accoda al prompt non e'
+			// testo dell'utente: al nuovo invio si ricalcola sul contesto attuale.
+			const parsed = splitMessageAndEditorContext(restore.text);
+			const text = parsed.context ? parsed.userMessage : restore.text;
+			const images = restore.images.map((image) => ({ type: 'image' as const, data: image.data, mimeType: image.mimeType }));
+			this.restoreQueueToComposer([{ text, images }]);
+		}
+		return outcome;
+	}
+
+	/** Entry omp del messaggio utente `transcriptId`, o avviso se non si trova. */
+	private async userEntryIdFor(transcriptId: number): Promise<string | null> {
+		await this.syncOmpEntries();
+		const found = resolveUserEntryId(this.entries, transcriptId, this.ompActivePath());
+		if (!found) this.flashNotice('warning', messages.branch_unmapped());
+		return found;
+	}
+
+	/** «Dirama da qui» / «Modifica e riprova» dal menu di un messaggio utente. */
+	async branchFromUserMessage(transcriptId: number, mode: 'fork' | 'edit'): Promise<BranchOutcome> {
+		const blocked = this.branchBlockedReason();
+		if (blocked) {
+			this.flashNotice('warning', blocked);
+			return { kind: 'busy' };
+		}
+		const entry = this.entries.find((candidate) => candidate.id === transcriptId);
+		if (!entry || entry.kind !== 'user') return { kind: 'error', message: 'not-a-user-message' };
+		let entryId: string | null;
+		try {
+			entryId = await this.userEntryIdFor(transcriptId);
+		} catch (error) {
+			this.flashNotice('error', messages.page_slash_cmd_fork_error({ error: this.reason(error) }));
+			return { kind: 'error', message: this.reason(error) };
+		}
+		if (!entryId) return { kind: 'error', message: 'unmapped' };
+		return this.branchBeforeUserEntry(
+			entryId,
+			mode === 'edit' ? { text: entry.content, images: entry.images ?? [] } : null
+		);
+	}
+
+	/** «Dirama da qui» sotto una risposta: nuova sessione che finisce con questo turno. */
+	async forkAfterTurn(turn: { userTranscriptId: number | null; assistantTs: number | null }): Promise<BranchOutcome> {
+		const blocked = this.branchBlockedReason();
+		if (blocked) {
+			this.flashNotice('warning', blocked);
+			return { kind: 'busy' };
+		}
+		let entryId: string | null;
+		try {
+			await this.syncOmpEntries();
+			entryId = resolveTurnEndEntryId(this.entries, turn, this.ompActivePath());
+		} catch (error) {
+			this.flashNotice('error', messages.page_slash_cmd_fork_error({ error: this.reason(error) }));
+			return { kind: 'error', message: this.reason(error) };
+		}
+		if (!entryId) {
+			this.flashNotice('warning', messages.branch_unmapped());
+			return { kind: 'error', message: 'unmapped' };
+		}
+		return this.forkAtEntry(entryId);
 	}
 
 	/** Compatta la cronologia e il contesto della sessione attiva. */

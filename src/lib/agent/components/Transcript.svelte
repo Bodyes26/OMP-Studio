@@ -257,6 +257,8 @@
 		let currentTurnModel: string | undefined;
 		let currentTurnStartMs = 0;
 		let currentTurnEndMs = 0;
+		let currentTurnUserId: number | null = null;
+		let currentTurnAssistantTs: number | null = null;
 
 		function recordEntries(entries: TranscriptEntry[]) {
 			for (const entry of entries) {
@@ -271,6 +273,9 @@
 					}
 					if (entry.model) {
 						currentTurnModel = entry.model;
+					}
+					if (typeof entry.messageTs === 'number') {
+						currentTurnAssistantTs = entry.messageTs;
 					}
 				} else if (entry.kind === 'tool') {
 					currentTurnToolCalls += 1;
@@ -296,7 +301,9 @@
 						toolCallsCount: currentTurnToolCalls,
 						durationMs: duration,
 						model: currentTurnModel,
-						cost: currentTurnCost > 0 ? currentTurnCost : undefined
+						cost: currentTurnCost > 0 ? currentTurnCost : undefined,
+						userTranscriptId: currentTurnUserId,
+						assistantTs: currentTurnAssistantTs
 					});
 				}
 				currentTurnStartIndex = i;
@@ -306,6 +313,8 @@
 				currentTurnModel = undefined;
 				currentTurnStartMs = 0;
 				currentTurnEndMs = 0;
+				currentTurnUserId = item.kind === 'single' ? item.entry.id : null;
+				currentTurnAssistantTs = null;
 			} else {
 				if (currentTurnStartIndex === -1) {
 					currentTurnStartIndex = i;
@@ -332,7 +341,9 @@
 				toolCallsCount: currentTurnToolCalls,
 				durationMs: duration,
 				model: currentTurnModel,
-				cost: currentTurnCost > 0 ? currentTurnCost : undefined
+				cost: currentTurnCost > 0 ? currentTurnCost : undefined,
+				userTranscriptId: currentTurnUserId,
+				assistantTs: currentTurnAssistantTs
 			});
 		}
 

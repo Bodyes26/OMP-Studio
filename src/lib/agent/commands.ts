@@ -15,7 +15,7 @@ export const STUDIO_SLASH_COMMANDS: AvailableCommand[] = [
 	{
 		name: 'resume',
 		get description() { return msg.ui_ts_commands_riprende_una_sessione_precedente_o_apre_lo_d684(); },
-		aliases: [],
+		aliases: ['sessions'],
 		source: 'studio',
 		input: { hint: '[id]' }
 	},
@@ -145,7 +145,6 @@ export const STUDIO_SLASH_COMMANDS: AvailableCommand[] = [
 	{
 		name: 'tree',
 		get description() { return msg.ui_ts_commands_mostra_l_albero_e_lo_storico_delle_0376(); },
-		aliases: ['sessions'],
 		source: 'studio'
 	},
 	{

@@ -22,6 +22,7 @@
 
 	import AskCard from './AskCard.svelte';
 	import AskStreamPreview from './AskStreamPreview.svelte';
+	import BranchPanel from './BranchPanel.svelte';
 	import Composer from './Composer.svelte';
 	import ComposerTray from './ComposerTray.svelte';
 	import QueueChips from './QueueChips.svelte';
@@ -63,7 +64,18 @@
 		cancelSubagent: (id) => {
 			void session.cancelSubagent(id);
 		},
-		switchToTerminal: () => onSwitchToTerminal?.()
+		switchToTerminal: () => onSwitchToTerminal?.(),
+		branch: {
+			canBranch: () => session.canBranch,
+			blockedReason: () => session.branchBlockedReason(),
+			fromUserMessage: (transcriptId, mode) => {
+				void session.branchFromUserMessage(transcriptId, mode).then((outcome: { kind: string }) => {
+					// «Modifica e riprova»: il testo e' tornato nel composer, il fuoco lo segue.
+					if (mode === 'edit' && outcome.kind === 'done') composerRef?.focus();
+				});
+			},
+			afterTurn: (turn) => void session.forkAfterTurn(turn)
+		}
 	});
 
 	let scrollEl: HTMLElement | null = $state(null);
@@ -447,6 +459,16 @@
 		</div>
 	</div>
 
+
+	{#if session.branchPanelOpen}
+		<BranchPanel
+			{session}
+			onClose={() => {
+				session.branchPanelOpen = false;
+				if (visible && document.hasFocus()) void svelteTick().then(() => composerRef?.focus());
+			}}
+		/>
+	{/if}
 
 	{#if activeSubagentId}
 		<SubagentDrawer
