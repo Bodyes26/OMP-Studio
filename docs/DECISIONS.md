@@ -1416,3 +1416,33 @@ locali e il `queuedMessageCount` di omp potevano divergere, e un crash prima di
 2. **Generazione e verifica assistita per gli agenti:** Quando il gate di release (`scripts/check-commands.mjs`) rileva comandi nuovi da `omp`, l'agente può generare una singola bozza `CommandManifestEntry` completa, sottoporla all'utente con il tool `ask` e inserirla nel file appropriato (`omp-modes.ts` o `omp-session.ts`) con una sola operazione atomica.
 3. **Controllo dei tipi a tempo di compilazione:** I contratti di `CommandText` (`CommandTexts = { it: CommandText, en: CommandText }`) impongono staticamente che entrambe le lingue contengano tutti i campi obbligatori (`title`, `summary`, `benefits`, `examples`), evitando chiavi mancanti o disallineate che in JSON richiederebbero controlli a runtime o linter aggiuntivi.
 4. **Perimetro Paraglide preservato:** Le etichette strutturali dell'interfaccia utente (titoli delle sezioni, pulsanti di azione, messaggi di stato, attributi aria) restano interamente gestite tramite Paraglide (`messages/*.json`), mantenendo la coerenza applicativa per tutti gli elementi del guscio.
+
+---
+
+## Gate R33: diramazioni e albero dei rami nella GUI con i comandi RPC di omp
+
+**Data:** 2026-10-08
+**Esito:** IMPLEMENTATO (rivede lo scarto «Pulsanti per `/share`, `/fork`, `/tree`» di `IDEAS.md` per la sola superficie GUI)
+
+### Il problema
+
+1. `/fork` nella chat GUI mandava `new_session { parentSession }`: omp registrava il genitore ma apriva una sessione **vuota**, mentre il catalogo prometteva di «clonare la cronologia corrente». Era un difetto visibile.
+2. Non c'era modo di ripartire da un punto della conversazione: quando l'agente prende la strada sbagliata a meta' sessione l'unica via era una chat nuova o la TUI.
+3. `/tree` di Studio era un alias di `/resume`/`/sessions`: stesso nome del comando omp che naviga l'albero della sessione, funzione diversa.
+4. `IDEAS.md` aveva scartato i pulsanti per `/fork` e `/tree` perche' significavano scrivere comandi slash nel PTY, cioe' pilotare la TUI al posto dell'utente. Quella ragione vale per la superficie Terminale; la GUI e' un client `omp --mode rpc-ui` e omp 18.8 espone `fork`, `branch`, `get_entries`, `get_tree` e `get_branch_messages` come comandi RPC dichiarati (`docs/rpc.md`, «Session» e «Pi-compatible history/tree commands»). Per la GUI lo scarto non vale piu'; per il Terminale resta valido (la TUI li ha gia').
+
+### Decisioni
+
+1. **`/fork` = comando RPC `fork` senza `entryId`.** Copia l'intera sessione con gli artefatti in un file nuovo e ci resta sopra; poi `get_state` (nuovo `sessionId`/`sessionFile`, la corsia lo persiste) e ricostruzione paginata del transcript con `get_messages_page`. `cancelled: true` (veto di un'estensione, sessione non persistita) e l'errore `code: "session_busy"` lasciano la sessione di prima intatta, transcript e coda compresi, e producono un avviso sopra il composer. Prima del comando si disarma il prewalk come per la nuova chat (decisione «Prewalk»).
+2. **Le diramazioni partono solo a sessione ferma.** omp rifiuta `fork` con `session_busy`, ma `branch` no: un ramo preso a meta' turno perderebbe la risposta in arrivo. Studio blocca prima (streaming, compattazione, domanda aperta, diramazione gia' in corso) e spiega il motivo nella voce disabilitata. Le corsie Laboratorio non diramano (Gate R30: una sola chat continua).
+3. **Messaggi del transcript -> entry durevoli.** Il `messageId` degli eventi e' un id di processo; l'entry di omp si ricava da `get_entries`, tenuto in una copia locale aggiornata in coda con `since` (ricarica completa su `unknown_since`, cambio di sessione o foglia fuori copia). La chiave e' `message.timestamp`, lo stesso valore che omp scrive nel file: Studio lo conserva su ogni entry utente/assistente (`messageTs`), sia dalla diretta sia dalla ricostruzione. Senza timestamp si allinea per posizione dalla coda del ramo attivo con confronto del testo, che regge anche dopo una compattazione.
+4. **«Dirama da qui» su un messaggio utente = nuova sessione fino a *prima* di quel messaggio** (`fork` sul messaggio precedente, artefatti compresi). «Modifica e riprova» fa lo stesso e rimette nel composer testo e immagini del messaggio, senza il blocco di contesto editor che Studio ricalcola all'invio. Per il primo messaggio della sessione non c'e' nulla da copiare e si usa `branch`, che apre la sessione vuota. **Sotto una risposta conclusa** «Dirama da qui» usa `fork` sull'ultimo messaggio del turno (omp estende il taglio fino ai risultati tool del batch).
+5. **Pannello «Rami» da `get_tree`.** Nodi = messaggi utente; il ramo attivo resta una linea dritta a sinistra, i rami alternativi si mostrano rientrati dove si staccano; fuori dal ramo attivo prosegue il figlio piu' recente, come nella TUI. Costruzione iterativa: una sessione lineare lunga ha migliaia di livelli.
+6. **Aprire un ramo crea una sessione nuova.** Via RPC non esiste lo spostamento della foglia nello stesso file (il `navigateTree` del `/tree` della TUI); il clic su un ramo inattivo fa `fork` sulla punta di quel ramo. Il pannello lo dice e rimanda al Terminale per la navigazione nello stesso file. Se omp aggiungera' un comando RPC per `navigateTree`, il clic passera' a quello senza cambiare l'interfaccia.
+7. **Comandi.** `/sessions` diventa alias di `/resume` (elenco sessioni); `/tree` apre il pannello Rami; `/branch` resta l'alias del pannello Git. L'instradamento di questi comandi vive in `src/lib/agent/slashRouter.ts` con test puri: e' il primo pezzo estratto da `handleGuiSlashCommand`, senza spostare il resto.
+
+### Alternative scartate
+
+- **`branch` per «Dirama da qui» su ogni messaggio utente.** Ripartirebbe dal genitore del messaggio come `fork`, ma senza copiare gli artefatti: i risultati tool conservati che citano `artifact://N` non si risolverebbero piu'.
+- **Pilotare `/tree` nel PTY dalla GUI.** E' l'esatto motivo dello scarto di `IDEAS.md` e resta escluso.
+- **Spostare la foglia nello stesso file con `branch` + `new_session`.** Non esiste un comando RPC che lo faccia; simularlo creerebbe comunque file nuovi con un nome che non lo dice.

@@ -283,6 +283,8 @@ Servono a non ridiscuterle fra un mese.
   fasi todo sono stato; il dialogo no.
 - **Pulsanti per `/share`, `/fork`, `/tree`.** Si realizzano scrivendo comandi slash nel
   PTY: è pilotare la TUI al posto dell'utente, e la TUI li ha già a due tasti.
+  *Vale solo per il Terminale:* nella GUI, client `rpc-ui`, `/fork` e `/tree` usano i comandi
+  RPC di omp (`fork`, `get_tree`) e non pilotano la TUI (`DECISIONS.md`, Gate R33).
 - **Studio come server MCP per l'agente.** La registrazione passa solo da `mcp.json`
   (progetto o utente): sporca il repo dell'utente o `~/.omp`. La stessa cosa si ottiene
   con `pi.registerTool` nell'estensione-ponte, a costo zero di scritture.

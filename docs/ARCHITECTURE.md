@@ -161,11 +161,14 @@ lib/
     client.ts           OmpRpcClient: correlazione richieste/risposte, timeout dinamici, channel listener
     session.svelte.ts   AgentSession: riduttore reattivo di stato, gestione streaming, cronologia transcript
     wire.ts             Tipi TypeScript e mapping del protocollo RPC NDJSON v2
+    sessionTree.ts      Diramazioni: copia incrementale di get_entries, mappatura transcript -> entry, righe del pannello Rami (Gate R33)
+    slashRouter.ts      Instradamento puro dei comandi slash di sessione (/resume, /sessions, /tree, /fork)
     components/
       Chat.svelte       Pannello chat principale della superficie GUI
       Composer.svelte   Input prompt con autocomplete slash (/), drag&drop immagini, ciclo ruoli
       SuggestionChips.svelte Riga di chip nel composer per suggerimenti prompt fissi e dinamici
       Transcript.svelte Lista messaggi con autoscroll resiliente e virtualizzazione progressiva
+      BranchPanel.svelte Pannello «Rami»: albero di get_tree, ramo attivo evidenziato, apertura di un ramo come nuova sessione
       AskCard.svelte    Card di risposta interattiva con roving tabindex
       ThinkingBlock.svelte Accordion per blocchi di ragionamento con indicatore tempo
       TodoStrip.svelte  Visualizzatore fasi e task del tool todo
@@ -405,12 +408,19 @@ Quando l'agente o un tool (es. `ask`) richiede una scelta interattiva, OMP invia
 - Convalida del fuoco per evitare invii accidentali tramite `Enter`.
 - Risposta tipizzata `extension_ui_response` inviata tramite `rpc_send`.
 
-### 6.4 Prewalk per chat e task
+### 6.4 Diramazioni e albero dei rami (Gate R33)
+
+- `/fork` manda `fork` senza `entryId` (copia intera con artefatti); «Dirama da qui» e «Modifica e riprova» sui messaggi, e il pannello «Rami», mandano `fork { entryId }` o, per il primo messaggio, `branch { entryId }`. Ogni variante apre un file di sessione nuovo: dopo la risposta `AgentSession` azzera lo stato vivo, rilegge `get_state` (la corsia salva il nuovo `sessionId`) e ricostruisce il transcript con `get_messages_page`. `cancelled` e `code: "session_busy"` lasciano la sessione intatta con un avviso.
+- Mappatura transcript -> entry: `UserEntry`/`AssistantEntry` portano `messageTs` (`message.timestamp` di omp, identico nel file). `OmpEntryCache` (`src/lib/agent/sessionTree.ts`) tiene la copia di `get_entries`, aggiornata con `since`; `activePath` risale dalla foglia, `resolveUserEntryId`/`resolveTurnEndEntryId` scelgono l'entry, con ripiego per posizione e testo.
+- Il pannello `BranchPanel.svelte` legge `get_tree` e lo proietta con `buildBranchTree` (solo messaggi utente, ramo attivo dritto, alternativi rientrati, iterativo). Il clic su un ramo inattivo fa `fork` sulla sua punta (`branchTipEntryId`): via RPC omp non ha lo spostamento di foglia nello stesso file della TUI.
+- Gli hook di ramo arrivano ai componenti del transcript via `AgentUiHooks.branch` (contesto impostato da `Chat.svelte`); fuori dalla chat le voci non compaiono.
+
+### 6.5 Prewalk per chat e task
 
 - Il modello attivo pianifica; omp risolve `@smol` all'armo e passa una sola volta dopo la prima chiamata `edit`/`write` successiva a una chiamata `todo` riuscita. Studio non modifica `modelRoles.smol` né `fallbackChains.smol`.
 - `AgentSession.prewalk` distingue `off`, `armed` e `handedOff`; i notice di sorgente `prewalk` confermano armo, disarmo e modello effettivo. `model_changed` può arrivare senza payload: il notice `switched to …` e `get_state` aggiornano il modello, mentre `thinking_level_changed` aggiorna il thinking.
 - Il composer offre armo/disarmo e «Ripeti» (`/prewalk restart`, ritorno a `@default`). Le scritture dell'overlay sono serializzate; armo/disarmo attendono il notice entro cinque secondi. Il disarmo di un armo slash con overlay già falso attraversa `true` → `false`, con 400 ms tra le scritture perché `true` su una sessione già armata può essere silenzioso.
-- Dopo il passaggio l'overlay torna falso. Nuova chat e fork disarmano prima di `new_session`, per evitare il riarmo automatico con overlay vero; un nuovo processo, anche con `--resume`/`--continue`, parte spento. Lab e prewalk dei subagenti sono esclusi.
+- Dopo il passaggio l'overlay torna falso. Nuova chat, fork e diramazioni disarmano prima di `new_session`/`fork`/`branch`, per evitare il riarmo automatico con overlay vero; un nuovo processo, anche con `--resume`/`--continue`, parte spento. Lab e prewalk dei subagenti sono esclusi.
 - `StudioTaskOptions.prewalk` è un booleano opzionale in `.omp/tasks.json`. Il dispatch GUI arma dopo modello/thinking e prima del prompt: se l'armo fallisce, il task resta in coda. Il dispatch PTY invia `/prewalk` dopo `/new` e la conferma della nuova sessione, prima del prompt incollato.
 - `project_tasks` conserva l'opzione in add/update e `/tasks` la mostra con `[prewalk]`. Invio nell'overlay TUI non la applica: il prewalk del task viene applicato da Studio quando lo avvia.
 
