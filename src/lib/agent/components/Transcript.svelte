@@ -35,6 +35,9 @@
 	import AskTrace from './AskTrace.svelte';
 	import IrcMessageCard from './IrcMessageCard.svelte';
 	import LaneLandingCard from './LaneLandingCard.svelte';
+	import PlanEntryView from './PlanEntryView.svelte';
+	import PlanApprovedCard from './PlanApprovedCard.svelte';
+	import { parseApprovedPlanMessage } from '../planMode';
 	import SystemChip from './SystemChip.svelte';
 	import NoticeGroup from './NoticeGroup.svelte';
 	import ActivityIndicator from './ActivityIndicator.svelte';
@@ -362,6 +365,7 @@
 		if (k === 'user') return 'user';
 		if (k === 'notice' || k === 'system-chip' || k === 'compaction' || k === 'retry' || k === 'ttsr') return 'system';
 		if (k === 'subagent-result' || k === 'irc') return 'content';
+		if (k === 'plan' && (item.entry.kind === 'plan') && (item.entry.variant === 'enter' || item.entry.variant === 'exit')) return 'system';
 		return 'content';
 	}
 
@@ -478,7 +482,12 @@
 				{:else if item.kind === 'system-group'}
 					<NoticeGroup entries={item.entries} fresh={!disableAnimations} />
 				{:else if item.entry.kind === 'user'}
-					<UserMessage entry={item.entry} />
+					{@const approved = parseApprovedPlanMessage(item.entry.content)}
+					{#if approved}
+						<PlanApprovedCard {approved} />
+					{:else}
+						<UserMessage entry={item.entry} planBadge={session.plan.isPlanPrompt(item.entry)} />
+					{/if}
 				{:else if item.entry.kind === 'assistant'}
 					<AssistantText
 						entry={item.entry}
@@ -502,6 +511,8 @@
 					<TtsrRow entry={item.entry} fresh={!disableAnimations} />
 				{:else if item.entry.kind === 'lane-landing'}
 					<LaneLandingCard entry={item.entry} />
+				{:else if item.entry.kind === 'plan'}
+					<PlanEntryView {session} entry={item.entry} />
 				{/if}
 			</div>
 			{#if turnFootersByIndex.get(i)}

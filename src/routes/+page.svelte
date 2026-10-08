@@ -10,7 +10,8 @@
 	import Chat from '$lib/agent/components/Chat.svelte';
 	import { AgentSession } from '$lib/agent/session.svelte';
 	import { laneSessionKey, sessionRegistry, type UiResponsePayload } from '$lib/agent/sessionRegistry';
-	import { routeSessionSlash } from '$lib/agent/slashRouter';
+	import { routePlanSlash, routeSessionSlash } from '$lib/agent/slashRouter';
+	import { setPlanHost } from '$lib/agent/planController.svelte';
 	import type { RpcCommand, ThinkingLevel } from '$lib/agent/wire';
 	import ImageModal from '$lib/agent/components/ImageModal.svelte';
 	import { IconNewChat, IconCircleAlert, IconClose } from '$lib/icons';
@@ -1616,6 +1617,34 @@
 		}
 	}
 
+	// Modalita' Piano (Gate R3X-plan): il passaggio di compito sulla strada
+	// «nuova corsia» e il ritorno alla sessione di pianificazione sono cose del
+	// guscio. La corsia nasce con il meccanismo di sempre (`createNewLane`) e
+	// la vista la segue, come un task lanciato con Ctrl+clic.
+	onMount(() => {
+		setPlanHost({
+			createLane: async (origin, { title }) => {
+				const project = projectStore.projects.find((candidate) => candidate.id === origin.projectKey);
+				if (!project?.canonicalProjectPath) return null;
+				const created = await laneOrchestrator.createNewLane(project, {
+					origin: 'manual',
+					surface: 'gui',
+					title,
+					activate: true
+				});
+				const session = laneOrchestrator.getOrCreateAgentSession(project, created);
+				await session.ensureOpen(null);
+				await session.waitUntilReady(15000);
+				await laneOrchestrator.switchLane(project.id as ProjectId, created.laneId);
+				return { session, title: created.title, branch: created.branch ?? '' };
+			},
+			resumeSession: (origin, sessionId) => {
+				void handleResumeSession(origin.projectKey, sessionId, origin.laneId ?? undefined);
+			}
+		});
+		return () => setPlanHost({});
+	});
+
 	/**
 	 * Handoff tra TERMINAL e GUI: un solo processo omp attivo per progetto.
 	 * La sessione passa da una superficie all'altra con `--resume <sessionId>`
@@ -1735,6 +1764,19 @@
 					void session.forkSession();
 					break;
 			}
+			return true;
+		}
+		// Modalita' Piano (Gate R3X-plan): `/plan` e `/plan-review` di omp sono solo
+		// TUI, nella chat li serve Studio con l'estensione studio-plan.
+		const planAction = routePlanSlash(trimmed);
+		if (planAction) {
+			if (laneOf(project, laneId)?.kind === 'lab') {
+				session.flashNotice('info', m.plan_lab_unavailable());
+				return true;
+			}
+			if (planAction.kind === 'plan-review') void session.plan.reopenReview();
+			else if (planAction.argument) void session.plan.enter(planAction.argument);
+			else void session.plan.toggle();
 			return true;
 		}
 		if (lowerCmd === '/drop') {
@@ -1995,6 +2037,7 @@
 			m.ui__page_resume_id_riprende_una_sessione_o_apre_97fd(),
 			m.page_gui_help_fork(),
 			m.page_gui_help_tree(),
+			m.page_gui_help_plan(),
 			m.page_gui_help_compact(),
 			m.ui__page_handoff_istruzioni_passa_il_testimone_a_una_1f1b(),
 			'/thinking <off|minimal|low|medium|high|xhigh|max>',

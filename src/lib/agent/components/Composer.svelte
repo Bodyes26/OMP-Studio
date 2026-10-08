@@ -61,7 +61,7 @@
 	import { untrack } from 'svelte';
 	import { routeComposerSubmit, remainingAfterSend } from '$lib/agent/composerSubmit';
 	import { TwoStepStop } from '$lib/agent/twoStepStop';
-	import { composerChord, yieldsToShellShortcut } from '$lib/agent/composerShortcuts';
+	import { composerChord, isPlanToggleChord, yieldsToShellShortcut } from '$lib/agent/composerShortcuts';
 	import { IS_MAC } from '$lib/utils/platform';
 	import { m } from '$lib/paraglide/messages.js';
 
@@ -90,7 +90,9 @@
 		IconStop,
 		IconWarning,
 		IconChevronUp,
-		IconSparkles
+		IconSparkles,
+		IconPlan,
+		IconClose
 	} from '$lib/icons';
 
 	let {
@@ -664,6 +666,13 @@
 		if (!insideComposer && (isTypingSurface(e.target) || isTypingSurface(activeEl))) return;
 		if (settingsStore.open || modelSettingsStore.isOpen || shortcutsModalStore.isOpen) return;
 
+		// Modalita' Piano: stessa combinazione del Terminale (app.plan.toggle).
+		if (isPlanToggleChord(e, IS_MAC) && !session.labConfig) {
+			e.preventDefault();
+			void session.plan.toggle();
+			return;
+		}
+
 		// Alt+lettera su Windows/Linux, Ctrl+Opzione+lettera su Mac: Opzione da
 		// sola scrive caratteri (€ ç ñ) e non va rubata.
 		const chord = composerChord(e, IS_MAC);
@@ -760,6 +769,8 @@
 				.map((a) => ({ type: 'image', data: a.base64!, mimeType: a.mimeType || 'image/jpeg' }));
 			let behavior: StreamingBehavior = sendBehaviorChoice;
 			if (isAlt) behavior = behavior === 'steer' ? 'followUp' : 'steer';
+			// In Piano la bolla prende il badge «Piano».
+			if (session.plan.active) session.plan.notePlanPrompt(wireText);
 			const result = await session.prompt(wireText, imagesToSend, behavior);
 			if (result === 'sent' || result === 'deferred') clearAfterSend(sent);
 		} catch (error) {
@@ -837,10 +848,13 @@
 
 	const canSend = $derived(currentSegments.some((s) => s.t !== 'text' || s.s.trim().length > 0) || attachments.length > 0);
 	const placeholderText = $derived(
-		session.isStreaming
-			? m.chat_v2_composer_placeholder_busy()
-			: m.chat_v2_composer_placeholder_idle()
+		session.plan.active
+			? m.plan_composer_placeholder()
+			: session.isStreaming
+				? m.chat_v2_composer_placeholder_busy()
+				: m.chat_v2_composer_placeholder_idle()
 	);
+	const planActive = $derived(session.plan.active);
 
 	// Chip di risposta: le statiche configurate davanti, poi quelle generate dal
 	// modello leggero sull'ultimo turno (anche quando l'agente chiude con una
@@ -896,7 +910,7 @@
 	{/if}
 
 	<!-- Riquadro principale del composer -->
-	<div class="composer-shell" class:dragging={dropTarget}>
+	<div class="composer-shell" class:dragging={dropTarget} class:planmode={planActive}>
 		<!-- Striscia informativa per comando/skill attivo con argomenti -->
 		{#if activeCmdDef}
 			<div class="cmd-strip rv-blur" style="--dur: 200ms; --blur: 4px;">
@@ -1013,6 +1027,27 @@
 				onwheel={handleStripWheel}
 				tabindex="-1"
 			>
+				{#if !isLab}
+					<!-- Pillola della modalita' Piano: accende/spegne come /plan (Alt+Maiusc+P). -->
+					<Tooltip
+						text={planActive ? m.plan_pill_exit_title() : m.plan_pill_enter_title({ keys: IS_MAC ? '⌃⌥⇧P' : 'Alt+Maiusc+P' })}
+						placement="top"
+						offset={6}
+					>
+						<button
+							type="button"
+							class="plan-pill"
+							class:on={planActive}
+							aria-pressed={planActive}
+							disabled={session.plan.handingOff}
+							onclick={() => void session.plan.toggle()}
+						>
+							<IconPlan aria-hidden="true" />
+							{m.plan_pill_label()}
+							{#if planActive}<span class="plan-pill-x" aria-hidden="true"><IconClose /></span>{/if}
+						</button>
+					</Tooltip>
+				{/if}
 				{#each toolbarCenterPins as pin (pin.id)}
 					{#if pin.id === 'ctl.role'}
 						<!-- Menu Ruolo -->
@@ -1408,6 +1443,47 @@
 		align-items: center;
 		gap: 2px;
 		flex-shrink: 0;
+	}
+
+	.plan-pill {
+		height: 28px;
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		padding: 0 10px;
+		margin-right: 2px;
+		border-radius: var(--radius-full);
+		border: 1px solid var(--line-strong);
+		color: var(--ink-muted);
+		background: transparent;
+		font-family: var(--font-ui);
+		font-size: var(--text-sm);
+		cursor: pointer;
+		flex: none;
+		transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out),
+			border-color var(--dur-fast) var(--ease-out);
+	}
+	.plan-pill:hover:not(:disabled) {
+		background: var(--bg-hover);
+		color: var(--ink);
+	}
+	.plan-pill.on {
+		border-color: color-mix(in srgb, var(--brand) 60%, transparent);
+		background: color-mix(in srgb, var(--brand) 12%, transparent);
+		color: var(--ink);
+		font-weight: 600;
+	}
+	.plan-pill.on :global(svg:first-child) {
+		color: var(--brand-ink);
+	}
+	.plan-pill-x {
+		display: inline-flex;
+		opacity: 0.6;
+		margin-left: 2px;
+		--icon-size: 11px;
+	}
+	:global(.composer-shell.planmode) {
+		border-color: color-mix(in srgb, var(--brand) 55%, transparent);
 	}
 
 	.toolbar-controls-strip {

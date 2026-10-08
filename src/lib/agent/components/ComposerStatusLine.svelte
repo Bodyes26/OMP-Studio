@@ -31,7 +31,8 @@
 		IconPrewalk,
 		IconRefresh,
 		IconWarning,
-		IconAt
+		IconAt,
+		IconLock
 	} from '$lib/icons';
 	import { m } from '$lib/paraglide/messages.js';
 
@@ -195,7 +196,12 @@
 
 	function checkOverflow() {
 		if (!lineEl) return;
-		const containerWidth = lineEl.clientWidth;
+		// Le voci del Piano stanno sempre davanti: lo spazio per i pin e' il resto.
+		let planWidth = 0;
+		for (const node of lineEl.querySelectorAll<HTMLElement>('.status-entry[data-pin-id^="plan"]')) {
+			planWidth += node.offsetWidth + 8;
+		}
+		const containerWidth = lineEl.clientWidth - planWidth;
 		if (containerWidth <= 0) return;
 
 		// Aggiorna le larghezze misurate per ogni voce attualmente disegnata nel DOM
@@ -261,13 +267,38 @@
 	}
 </script>
 
-{#if hasItems}
+{#if hasItems || session.plan.active}
 	<div
 		bind:this={lineEl}
 		class="status-line"
 		role="group"
 		aria-label={m.chat_v2_composer_status_label()}
 	>
+		{#if session.plan.active}
+			<!-- Modalita' Piano: prima voce, sempre visibile finche' e' accesa. -->
+			<span class="status-entry status-plan" data-pin-id="plan">
+				<span class="status-item on">
+					<span class="status-icon"><IconLock /></span>{m.plan_status_readonly()}
+				</span>
+			</span>
+			{#if session.plan.planFilePath}
+				<span class="status-entry status-plan-file" data-pin-id="plan-file">
+					<span class="status-item">{m.plan_status_file({ path: session.plan.planFilePath })}</span>
+				</span>
+				<span class="status-entry" data-pin-id="plan-review">
+					<Tooltip text={m.plan_status_review_title()} placement="top" offset={6}>
+						<button
+							type="button"
+							class="status-item"
+							disabled={session.isStreaming || session.plan.review !== null}
+							onclick={() => void session.plan.reopenReview()}
+						>
+							/plan-review
+						</button>
+					</Tooltip>
+				</span>
+			{/if}
+		{/if}
 		{#each visiblePins as pin (pin.id)}
 			{#if pin.id === 'fast' && showFast}
 				<span class="status-entry" data-pin-id="fast">
@@ -570,6 +601,17 @@
 		display: inline-flex;
 		align-items: center;
 		flex-shrink: 0;
+	}
+
+	.status-plan::before {
+		content: none !important;
+	}
+	.status-plan-file .status-item {
+		max-width: 260px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		display: inline-block;
 	}
 
 	.status-entry:not(.status-cost)::before {
