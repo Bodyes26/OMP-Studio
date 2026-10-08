@@ -10,7 +10,7 @@
 	import Chat from '$lib/agent/components/Chat.svelte';
 	import { AgentSession } from '$lib/agent/session.svelte';
 	import { laneSessionKey, sessionRegistry, type UiResponsePayload } from '$lib/agent/sessionRegistry';
-	import { routeSessionSlash } from '$lib/agent/slashRouter';
+	import { routeBtwSlash, routeSessionSlash } from '$lib/agent/slashRouter';
 	import type { RpcCommand, ThinkingLevel } from '$lib/agent/wire';
 	import ImageModal from '$lib/agent/components/ImageModal.svelte';
 	import { IconNewChat, IconCircleAlert, IconClose } from '$lib/icons';
@@ -1737,6 +1737,14 @@
 			}
 			return true;
 		}
+		// Domanda a margine: riquadro sopra il composer, mai un prompt al modello.
+		const btwAction = routeBtwSlash(trimmed);
+		if (btwAction) {
+			// Con omp senza `/btw` `setOpen` lascia un avviso e il riquadro resta chiuso.
+			session.btw.setOpen(true);
+			if (btwAction.question && session.btw.open) void session.btw.ask(btwAction.question);
+			return true;
+		}
 		if (lowerCmd === '/drop') {
 			const targetLane = laneOf(project, laneId);
 			if (targetLane?.kind === 'lab') {
@@ -1995,6 +2003,7 @@
 			m.ui__page_resume_id_riprende_una_sessione_o_apre_97fd(),
 			m.page_gui_help_fork(),
 			m.page_gui_help_tree(),
+			m.page_gui_help_btw(),
 			m.page_gui_help_compact(),
 			m.ui__page_handoff_istruzioni_passa_il_testimone_a_una_1f1b(),
 			'/thinking <off|minimal|low|medium|high|xhigh|max>',

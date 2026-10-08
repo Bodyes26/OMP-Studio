@@ -163,6 +163,10 @@ export { default as IconPause } from '@lucide/svelte/icons/pause';
 export { default as IconInspect } from '@lucide/svelte/icons/mouse-pointer-click';
 export { default as IconNetwork } from '@lucide/svelte/icons/activity';
 export { default as IconHistory } from '@lucide/svelte/icons/history';
+// Domande a margine (/btw): riquadro, approfondimento, citazione nel composer.
+export { default as IconAside } from '@lucide/svelte/icons/message-square-quote';
+export { default as IconFollowUp } from '@lucide/svelte/icons/corner-down-right';
+export { default as IconQuote } from '@lucide/svelte/icons/quote';
 export { default as IconSend } from '@lucide/svelte/icons/send';
 export { default as IconStop } from '@lucide/svelte/icons/square';
 export { default as IconAt } from '@lucide/svelte/icons/at-sign';

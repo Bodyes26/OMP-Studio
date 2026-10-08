@@ -134,6 +134,7 @@ import {
 	type ContextReport
 } from './contextReport';
 import { m as messages } from '$lib/paraglide/messages.js';
+import { SessionBtw } from './btwState.svelte';
 /** Stato dell'agente per la barra dei progetti: stessa semantica del PTY. */
 export type AgentSurfaceState = 'idle' | 'working' | 'attention' | 'unknown';
 
@@ -400,6 +401,15 @@ export interface AgentSessionConfig {
 export class AgentSession {
 	readonly client: OmpRpcClient;
 	readonly suggestions: SessionSuggestions = new SessionSuggestions(this);
+	/**
+	 * Domande a margine (`/btw`): riquadro sopra il composer, storico e
+	 * citazione «Usa nel messaggio». Non toccano mai il transcript.
+	 */
+	readonly btw: SessionBtw = new SessionBtw({
+		send: (command) => this.client.send(command),
+		flash: (level, message) => this.flashNotice(level, message),
+		notice: (level, message) => this.pushNotice(level, message, 'studio')
+	});
 
 	readonly scope: 'lane' | 'main';
 	readonly laneId: string | null;
@@ -949,6 +959,7 @@ export class AgentSession {
 		this.pendingStartupPrompts = [];
 		this.clearPendingUi();
 		this.resetBrowserLive();
+		this.btw.resetForProcess();
 		// Analisi e domanda dedotta appartengono al transcript che si chiude:
 		// precedente e terrebbe sospeso l'auto-dispatch del progetto nuovo.
 		this.suggestions.invalidate();
@@ -988,6 +999,8 @@ export class AgentSession {
 			await this.rebuildTranscript();
 			void this.refreshCost();
 			void this.refreshCommands();
+			// Sonda e storico insieme: un omp senza `/btw` nasconde il pulsante.
+			void this.btw.loadHistory();
 			endAttachSpan('ok');
 		} catch (error) {
 			endAttachSpan('errore');
@@ -1526,6 +1539,8 @@ export class AgentSession {
 		}
 
 		if (typeof state.sessionId === 'string' && state.sessionId !== this.sessionId) {
+			// Lo storico `/btw` vive accanto al file di sessione: con la sessione cambia.
+			if (this.sessionId !== null) this.btw.resetForSession();
 			this.contextReport = null;
 			this.contextReportStamp = '';
 			this.contextReportWanted = '';
@@ -1873,6 +1888,7 @@ export class AgentSession {
 				// Le capability appartengono al processo, non alla chat: un
 				// runtime nuovo puo' sostituirne uno precedente e viceversa.
 				this.resetBrowserLive();
+				this.btw.resetForProcess();
 				void this.negotiateCapabilities(event);
 				void this.attach();
 				return;
@@ -1903,6 +1919,14 @@ export class AgentSession {
 
 			case 'studio_delta':
 				this.applyDelta(event);
+				return;
+
+			// Domande a margine: fuori dal transcript, solo nel riquadro «A margine».
+			case 'btw_record':
+				this.btw.applyRecordFrame(event.record);
+				return;
+			case 'btw_delta':
+				this.btw.applyDeltaFrame(event.recordId, event.delta);
 				return;
 
 			case 'message_start': {

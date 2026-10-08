@@ -23,6 +23,8 @@
 	import AskCard from './AskCard.svelte';
 	import AskStreamPreview from './AskStreamPreview.svelte';
 	import BranchPanel from './BranchPanel.svelte';
+	import BtwPopover from './BtwPopover.svelte';
+	import { btwLatestTurn, isBtwRunning } from '../btw';
 	import Composer from './Composer.svelte';
 	import ComposerTray from './ComposerTray.svelte';
 	import QueueChips from './QueueChips.svelte';
@@ -123,6 +125,23 @@
 			onDismiss: () => session.dismissBlockedQuota()
 		};
 	});
+
+	// Domanda a margine a riquadro chiuso: riga nel vassoio con «Apri».
+	const btwTray = $derived.by(() => {
+		const record = session.btw.trayRecord;
+		if (!record) return undefined;
+		const status = btwLatestTurn(record).status;
+		return {
+			question: record.question,
+			state: isBtwRunning(record) ? ('running' as const) : status === 'complete' ? ('ready' as const) : ('stopped' as const),
+			onOpen: () => session.btw.setOpen(true),
+			onDismiss: () => session.btw.dismissTray()
+		};
+	});
+
+	function focusComposerSoon() {
+		if (visible && document.hasFocus()) void svelteTick().then(() => composerRef?.focus());
+	}
 
 	let lastScrollTop = 0;
 	// Soglia in pixel per considerare l'utente "al fondo" (tolleranza subpixel e font scaling).
@@ -413,6 +432,9 @@
 					onPromote={promoteQueuedMessage}
 				/>
 			{/snippet}
+			{#if session.btw.open && visible}
+				<BtwPopover btw={session.btw} onUseInMessage={focusComposerSoon} onClose={focusComposerSoon} />
+			{/if}
 			<!-- Sopra il vassoio: vassoio e composer restano un blocco unico. -->
 			<SuggestionChips
 				chips={composerRef?.visibleSuggestionChips() ?? []}
@@ -429,6 +451,7 @@
 				onPauseGoal={() => void session.pauseGoal()}
 				onResumeGoal={() => void session.resumeGoal()}
 				onDropGoal={() => void session.dropGoal()}
+				btw={btwTray}
 				questionOpen={session.pendingUi !== null}
 				onOpenSubagent={(id) => (activeSubagentId = id)}
 				onCancelSubagent={(id) => void session.cancelSubagent(id)}
