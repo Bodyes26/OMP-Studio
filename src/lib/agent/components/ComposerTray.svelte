@@ -23,6 +23,7 @@
 		IconClose,
 		IconLoop,
 		IconQueue,
+		IconSchedule,
 		IconSubagents,
 		IconStop,
 	} from '$lib/icons';
@@ -43,6 +44,9 @@
 		onSwitch?: () => void;
 		onChooseModel: () => void;
 		onDismiss: () => void;
+		/** «Aspetta il prossimo reset · 14:05»: rimette la sessione in coda al reset. */
+		waitResetLabel?: string;
+		onWaitReset?: () => void;
 	}
 
 
@@ -250,6 +254,16 @@
 												onclick={quota.onSwitch}
 											>
 												{quota.switchLabel}
+											</button>
+										{/if}
+										{#if quota.onWaitReset && quota.waitResetLabel}
+											<button
+												type="button"
+												class="ui-button ui-button-secondary quota-wait-reset"
+												onclick={quota.onWaitReset}
+											>
+												<IconSchedule aria-hidden="true" />
+												{quota.waitResetLabel}
 											</button>
 										{/if}
 										<button
@@ -932,6 +946,13 @@
 		flex-shrink: 0;
 		margin-left: auto;
 	}
+	.quota-wait-reset {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		--icon-size: 12px;
+	}
+
 	.quota-details-toggle {
 		display: inline-flex;
 		align-items: center;

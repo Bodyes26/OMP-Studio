@@ -1512,3 +1512,35 @@ Con l'interruttore acceso i task in coda partivano uno dopo l'altro senza aspett
 - **Solo debounce.** Copre le pause fra i tool, non il backoff dei retry ne' la finestra prima di `agent_start` con preflight lente.
 - **Aspettare il `prompt_result` del task precedente.** Esiste solo con omp 18.8 e non copre il terminale.
 - **Forzare `TERM_PROGRAM=tern` nel PTY per avere sempre la barra OSC 9;4.** Cambia anche titolo e capability della TUI.
+
+## Gate R3X-coda-reset: coda che parte al reset della quota
+
+**Data:** 2026-10-08  
+**Esito:** IMPLEMENTATO (da verificare su Windows con omp reale)  
+**Aggiorna:** Gate R12 (un task programmato parte anche con l'auto-avvio spento), Gate R3X-auto-avvio-stabile (stesso arbitro)  
+**Prototipo:** `coda-reset.html`, variante A (etichetta sul task)
+
+### Il problema
+
+Con la quota del provider finita, un task in coda va a sbattere sul limite oppure resta fermo finche' l'utente non torna al PC al momento del reset. Una sessione fermata dal limite si poteva solo spostare su un altro modello.
+
+### Decisioni (di Maurizio)
+
+1. **Programmazione per task, con l'orologio.** Un'icona orologio (non il menu «⋯») sulla riga della coda e nel TaskEditor: «Al reset della quota», «Non prima delle HH:MM», «Scegli un orario…». Il campo `schedule` sta alla **radice** dello `StudioTask` (in `options` sparirebbe: `sanitizeLoadedTasks` lo ricostruisce con chiavi fisse), con `resume` per le voci di ripresa. Estensione `studio-tasks` e tool `project_tasks` lo conservano, lo mostrano e lo accettano.
+2. **Parte anche con l'auto-avvio spento.** La programmazione e' gia' il gesto esplicito (Read-Before-Run). Passa dallo stesso arbitro dell'auto-avvio: stabilita', ri-verifica, lock per progetto, slot unico di R27.
+3. **Il reset non si congela.** Ruolo → provider → finestra, riletto a ogni giro da `omp usage`; multi-account (vale il primo che si libera) e finestra settimanale (l'etichetta mostra la data). Prima di partire, snapshot forzato. Senza dati, l'orario salvato e' dichiarato «stima» (Principio 7).
+4. **«Aspetta il prossimo reset» nel blocco di quota** accanto a «Passa a…»: voce di ripresa in testa alla coda (`/retry` nella stessa sessione), solo su clic (nessuna rimessa in coda automatica).
+5. **Studio chiuso al reset: banner, mai partenza automatica** («Avvia ora / Lasciali in coda»), nemmeno con l'auto-avvio acceso.
+6. **Visibilita' senza cruscotti:** chip con orologio e conto alla rovescia in coda, orario sulla riga della Companion, contatore sulla chip della quota e riga nel popover usage.
+
+### Alternative scartate
+
+- **Interruttore di progetto «Rispetta la quota»** (variante B): implicito, una sola soglia, richiede l'auto-avvio acceso, niente «dopo le 19».
+- **Sezione «Più tardi» con linea del tempo** (variante C): troppa superficie in 300 px, scivola verso il cruscotto che `PRODUCT.md` evita.
+- **`setTimeout` fino al reset:** con lo standby scade in ritardo o tutto insieme; si usa un passo fisso di 30 s piu' fuoco e risveglio.
+
+### Limiti dichiarati
+
+- Studio deve restare aperto (e il PC acceso): non c'e' vassoio di sistema.
+- Non fatti in questa iterazione: la «guardia» all'avvio con quota ≤ 10%, il trattenimento automatico dei task non programmati, il parsing «al reset/stanotte» nel Companion, la riga nella barra inferiore.
+

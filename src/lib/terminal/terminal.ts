@@ -417,6 +417,23 @@ export class TerminalSession {
 		this.setInputPending(0);
 	}
 
+	/**
+	 * Comando slash che fa partire un run (`/retry` della voce di ripresa,
+	 * Gate R3X-coda-reset): come per `startTask`, fino al primo titolo
+	 * `working` il vecchio `idle` non vale, cosi' l'auto-avvio non spedisce
+	 * un altro task sopra la ripresa.
+	 */
+	public async sendRunCommand(command: string) {
+		this.assertAutomationReady();
+		this.setHold(holdOnTaskWritten(this.hold, Date.now()));
+		try {
+			await this.sendCommand(command);
+		} catch (error) {
+			this.setHold({ ...this.hold, awaitingStart: false, awaitingSince: null });
+			throw error;
+		}
+	}
+
 	public async startTask(prompt: string, configuration?: TerminalTaskConfiguration) {
 		if (!prompt.trim()) throw new Error('Il task non contiene un prompt');
 		if (prompt.includes('\x1b[201~')) throw new Error('Il prompt contiene una sequenza di controllo non supportata');

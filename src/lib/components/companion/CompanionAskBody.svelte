@@ -18,7 +18,8 @@
 	import { CONTEXT_VISIBLE_CHARS, tailOfText } from '$lib/stores/companionText';
 	import StatusMark from '$lib/ui/StatusMark.svelte';
 	import CompanionMarkdown from './CompanionMarkdown.svelte';
-	import { IconArrowUp, IconCheck, IconClose, IconPencil, IconSparkles } from '$lib/icons';
+	import { IconArrowUp, IconCheck, IconClose, IconPencil, IconSchedule, IconSparkles } from '$lib/icons';
+	import { scheduleStore } from '$lib/stores/schedule.svelte';
 
 	let {
 		req,
@@ -33,6 +34,7 @@
 		onQuickReplyText,
 		onResolveQuotaBlocked,
 		onDismissQuotaBlocked,
+		onWaitQuotaReset,
 		draft,
 		wantsText
 	} = $props<{
@@ -48,6 +50,7 @@
 		onQuickReplyText: (projectId: string, laneId?: string | null, requestId?: string | null) => void | Promise<void>;
 		onResolveQuotaBlocked: (projectId: string, selector: string, laneId?: string | null) => void | Promise<void>;
 		onDismissQuotaBlocked: (projectId: string, laneId?: string | null) => void | Promise<void>;
+		onWaitQuotaReset: (projectId: string, laneId?: string | null) => void | Promise<void>;
 		draft: string;
 		wantsText: (pending: AttentionRequest['pendingUi']) => boolean;
 	}>();
@@ -186,6 +189,17 @@
 				>
 					{m.companion_quota_dismiss()}
 				</button>
+				{#if bq?.reasonKind === 'quota_exhausted'}
+					{@const when = scheduleStore.previewResetWhen(bq.failedSelector)}
+					<button
+						type="button"
+						class="ui-button ui-button-secondary"
+						onclick={() => void onWaitQuotaReset(req.projectId, req.laneId)}
+					>
+						<IconSchedule />
+						{when ? m.schedule_companion_wait_reset({ when }) : m.schedule_quota_wait_reset_plain()}
+					</button>
+				{/if}
 				{#if suggested}
 					<button
 						type="button"

@@ -22,6 +22,8 @@ export interface CompanionAskHandlers {
 	onQuickReplyText: (projectId: string, laneId?: string | null, requestId?: string | null) => void | Promise<void>;
 	onResolveQuotaBlocked: (projectId: string, selector: string, laneId?: string | null) => void | Promise<void>;
 	onDismissQuotaBlocked: (projectId: string, laneId?: string | null) => void | Promise<void>;
+	/** «Al reset 14:05»: la sessione riprende con `/retry` al reset della quota. */
+	onWaitQuotaReset: (projectId: string, laneId?: string | null) => void | Promise<void>;
 	draftFor: (req: AttentionRequest) => string;
 	wantsText: (pending: AttentionRequest['pendingUi']) => boolean;
 }

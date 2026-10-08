@@ -33,6 +33,47 @@ export interface StudioTaskOptions {
 	prewalk?: boolean;
 }
 
+/**
+ * Programmazione di un task in coda (Gate R3X-coda-reset). Vive alla radice
+ * del task e non in `options`, che `sanitizeLoadedTasks` ricostruisce con una
+ * lista fissa di chiavi: in `options` sparirebbe alla prima scrittura della GUI.
+ *
+ * - `reset`: parte quando la quota del provider del ruolo torna disponibile.
+ *   L'orario non si congela: si rilegge `resetsAt` da `omp usage` a ogni giro.
+ *   `notBefore` e' il reset letto al momento della scelta e serve solo a
+ *   mostrare un orario (marcato «stima») quando i dati di usage mancano.
+ * - `at`: non parte prima di `notBefore` (epoch ms).
+ *
+ * Un task programmato parte da solo anche con l'auto-avvio del progetto
+ * spento: la programmazione e' gia' l'azione esplicita dell'utente.
+ */
+export type TaskScheduleKind = 'reset' | 'at';
+export type TaskScheduleOrigin = 'user' | 'recovery';
+
+export interface TaskSchedule {
+	kind: TaskScheduleKind;
+	/** Provider fissato alla scelta, dal ruolo o dal modello del task. */
+	provider?: string;
+	/** Finestra che bloccava o che si e' scelta (`anthropic:5h`): informativa. */
+	limitId?: string;
+	/** `at`: orario scelto. `reset`: reset letto alla scelta, solo indicativo. */
+	notBefore?: number;
+	origin: TaskScheduleOrigin;
+	/** Quando e' stata scelta: distingue i reset passati a Studio chiuso. */
+	setAt: number;
+	/**
+	 * Il momento e' passato mentre Studio era chiuso: il task aspetta una
+	 * decisione nel banner («Avvia ora / Lasciali in coda») e non parte da solo.
+	 */
+	missed?: boolean;
+}
+
+/** Voce di ripresa: rilancia `/retry` nella sessione interrotta dal limite. */
+export interface TaskResume {
+	sessionId: string;
+	laneId?: string;
+}
+
 export interface StudioTask {
 	id: string;
 	projectPath: string;
@@ -50,6 +91,45 @@ export interface StudioTask {
 	 */
 	title?: string;
 	titleHash?: string;
+	/** Programmazione: vedi `TaskSchedule`. Assente = task normale. */
+	schedule?: TaskSchedule;
+	/** Presente solo nelle voci di ripresa create da un blocco di quota. */
+	resume?: TaskResume;
+}
+
+/**
+ * Valida la programmazione letta da `tasks.json`, scritta anche da TUI e tool:
+ * un valore malformato si scarta, il task resta.
+ */
+export function normalizeTaskSchedule(value: unknown): TaskSchedule | undefined {
+	if (!value || typeof value !== 'object') return undefined;
+	const raw = value as Record<string, unknown>;
+	if (raw.kind !== 'reset' && raw.kind !== 'at') return undefined;
+	const notBefore =
+		typeof raw.notBefore === 'number' && Number.isFinite(raw.notBefore) && raw.notBefore > 0
+			? raw.notBefore
+			: undefined;
+	// «Non prima delle» senza orario non dice nulla: meglio un task normale.
+	if (raw.kind === 'at' && notBefore === undefined) return undefined;
+	const schedule: TaskSchedule = {
+		kind: raw.kind,
+		origin: raw.origin === 'recovery' ? 'recovery' : 'user',
+		setAt: typeof raw.setAt === 'number' && Number.isFinite(raw.setAt) ? raw.setAt : 0
+	};
+	if (typeof raw.provider === 'string' && raw.provider.trim()) schedule.provider = raw.provider.trim();
+	if (typeof raw.limitId === 'string' && raw.limitId.trim()) schedule.limitId = raw.limitId.trim();
+	if (notBefore !== undefined) schedule.notBefore = notBefore;
+	if (raw.missed === true) schedule.missed = true;
+	return schedule;
+}
+
+export function normalizeTaskResume(value: unknown): TaskResume | undefined {
+	if (!value || typeof value !== 'object') return undefined;
+	const raw = value as Record<string, unknown>;
+	if (typeof raw.sessionId !== 'string' || !raw.sessionId.trim()) return undefined;
+	const resume: TaskResume = { sessionId: raw.sessionId.trim() };
+	if (typeof raw.laneId === 'string' && raw.laneId.trim()) resume.laneId = raw.laneId.trim();
+	return resume;
 }
 
 export interface ProjectTaskFile {
@@ -356,8 +436,9 @@ export function sanitizeLoadedTasks(tasks: StudioTask[], defaultProjectPath?: st
 				};
 			}
 
-			return {
-				...task,
+			const { schedule: rawSchedule, resume: rawResume, ...rest } = task;
+			const sanitized: StudioTask = {
+				...rest,
 				options,
 				// Il file e' scritto anche da TUI e tool: un titolo malformato si
 				// scarta, il task resta.
@@ -366,6 +447,13 @@ export function sanitizeLoadedTasks(tasks: StudioTask[], defaultProjectPath?: st
 				projectPath: task.projectPath ?? defaultProjectPath ?? '',
 				status: task.status === 'dispatching' ? ('queued' as const) : task.status
 			};
+			// Programmazione e ripresa: si tengono solo se valide, e una chiave
+			// assente resta assente (niente `schedule: undefined` nel record).
+			const schedule = normalizeTaskSchedule(rawSchedule);
+			if (schedule) sanitized.schedule = schedule;
+			const resume = normalizeTaskResume(rawResume);
+			if (resume) sanitized.resume = resume;
+			return sanitized;
 		});
 }
 

@@ -60,6 +60,8 @@
 	import { normalizeProjectPath, projectStore, type AgentState, type Project } from '$lib/stores/projects.svelte';
 	import { taskStore, formatTaskPrompt, type StudioTask, type TaskRunLaneContext } from '$lib/stores/tasks.svelte';
 	import { taskLabel } from '$lib/stores/taskTitle';
+	import { nextAutoDispatchTask } from '$lib/quota/scheduleQueue';
+	import { parkSessionUntilReset, scheduleRunner } from '$lib/stores/scheduleRunner.svelte';
 	import { laneStore, type LaneRecord } from '$lib/stores/lanes.svelte';
 	import { laneOrchestrator, type TerminalMetaEntry } from '$lib/lanes/laneOrchestrator.svelte';
 	import { describeLaneProcess } from '$lib/lanes/processSupervisor';
@@ -984,6 +986,16 @@
 			handleDismissQuotaBlocked(event.payload.projectId, event.payload.laneId);
 		}));
 
+		register(listen<{ projectId: string; laneId?: string }>('studio-wait-quota-reset', (event) => {
+			handleWaitQuotaReset(event.payload.projectId, event.payload.laneId);
+		}));
+		const onWaitQuotaReset = (event: Event) => {
+			const detail = (event as CustomEvent<{ projectId: string; laneId?: string }>).detail;
+			if (detail?.projectId) handleWaitQuotaReset(detail.projectId, detail.laneId);
+		};
+		window.addEventListener('studio-quota-wait-reset', onWaitQuotaReset);
+		register(Promise.resolve(() => window.removeEventListener('studio-quota-wait-reset', onWaitQuotaReset)));
+
 		register(listen<{ projectId: string; taskId: string; follow?: boolean }>('studio-run-task', (event) => {
 			const { projectId, taskId, follow } = event.payload;
 			void handleRunTask(projectId, taskId, { follow: follow ?? false });
@@ -1190,6 +1202,12 @@
 		const project = projectStore.projects.find((candidate) => candidate.id === projectId);
 		const task = taskStore.taskById(taskId);
 		if (!project?.canonicalProjectPath || !task) return;
+
+		// Voce di ripresa (Gate R3X-coda-reset): torna nella sua sessione.
+		if (task.resume) {
+			await dispatchResumeTask(project, task);
+			return;
+		}
 
 		if (options.newLane) {
 			await dispatchInNewLane(project, task, options);
@@ -1550,10 +1568,12 @@
 	}
 
 	function autoDispatchCandidateFor(project: Project): AutoDispatchCandidate | null {
+		// Task programmati (Gate R3X-coda-reset): passano per primi e partono
+		// anche con l'auto-avvio spento, dallo stesso arbitro (scheduleRunner).
+		const scheduled = scheduleRunner.candidateFor(project, scheduleRouteDeps);
+		if (scheduled) return { projectId: project.id, ...scheduled };
 		if (!project.autoDispatch || !project.canonicalProjectPath) return null;
-		const next = taskStore
-			.tasksFor(project.canonicalProjectPath)
-			.find((task) => task.status === 'queued' && !autoDispatchFailed.has(task.id));
+		const next = nextAutoDispatchTask(taskStore.tasksFor(project.canonicalProjectPath), autoDispatchFailed);
 		if (!next) return null;
 		const decision = decideAutoDispatch({
 			lanes: laneOrchestrator.laneDispatchSnapshots(project),
@@ -1567,6 +1587,16 @@
 		}
 		return { projectId: project.id, taskId: next.id, newLane: decision.kind === 'new-lane' };
 	}
+
+	const scheduleRouteDeps = {
+		route: (project: Project) =>
+			decideAutoDispatch({
+				lanes: laneOrchestrator.laneDispatchSnapshots(project),
+				worktreeCapable: Boolean(project.canonicalProjectPath)
+			}).kind,
+		laneReady: (projectId: string, laneId: string) => automationGate(projectId, laneId).autoDispatchReady
+	};
+	onMount(() => scheduleRunner.start(() => projectStore.projects));
 
 	const autoDispatchArbiter = new AutoDispatchArbiter({
 		now: () => Date.now(),
@@ -1595,6 +1625,13 @@
 			);
 		},
 		verify: async (candidate) => {
+			// Programmato: reset confermato su usage fresco; la ripresa di una
+			// corsia secondaria guarda il cancello di quella corsia.
+			if (!(await scheduleRunner.verify(candidate.taskId))) return false;
+			const resumeLane = scheduleRunner.resumeLaneOf(candidate.taskId);
+			if (resumeLane && resumeLane !== MAIN_LANE_ID) {
+				return automationGate(candidate.projectId, resumeLane).autoDispatchReady;
+			}
 			// Una corsia nuova nasce per questo task: non c'e' nulla da sorprendere.
 			if (candidate.newLane) return true;
 			const project = projectStore.projects.find((p) => p.id === candidate.projectId);
@@ -1636,6 +1673,75 @@
 	});
 
 	onDestroy(() => autoDispatchArbiter.dispose());
+
+	/**
+	 * Voce di ripresa: riapre la sessione fermata dal limite (se non e' gia'
+	 * quella aperta nella corsia) e ci manda `/retry`. Nel terminale passa dal
+	 * PTY come la spedizione (`/resume <id>`, poi `/retry`). La voce sparisce
+	 * a consegna avvenuta; in caso di errore torna in coda con il motivo a vista.
+	 */
+	async function dispatchResumeTask(project: Project, task: StudioTask): Promise<boolean> {
+		const resume = task.resume;
+		if (!resume) return false;
+		const lane = laneOf(project, resume.laneId ?? MAIN_LANE_ID);
+		if (!lane) {
+			scheduleRunner.markFailed(task.id);
+			agentErrors[runtimeKey(project)] = m.schedule_resume_lane_missing();
+			return false;
+		}
+		const key = runtimeKey(project, lane.laneId);
+		terminalBusy[key] = true;
+		agentErrors[key] = null;
+		taskStore.markDispatching(task.id);
+		try {
+			const isVisibleLane = projectStore.activeId === project.id && project.lane.laneId === lane.laneId;
+			const surface = isVisibleLane ? project.lane.surface : lane.surface;
+			if (surface === 'gui') {
+				const session = agentSessionFor(project, lane);
+				if (session.isOpen && session.sessionId !== resume.sessionId) await session.close();
+				await session.ensureOpen(resume.sessionId);
+				session.dismissBlockedQuota();
+				const delivery = await session.prompt('/retry');
+				if (delivery === 'failed' || delivery === 'empty') {
+					throw new Error(m.ui_ts_session_prompt_non_inviato_la_sessione_omp_e_f327());
+				}
+			} else {
+				const term = terminalSessionFor(project, lane.laneId);
+				if (!term) throw new Error(m.ui__page_terminale_non_pronto_6be5());
+				await term.resumeSession(resume.sessionId);
+				await term.sendRunCommand('/retry');
+			}
+			taskStore.deleteTask(task.id);
+			companionStore.clearAttentionRequest(project.id, lane.laneId);
+			window.dispatchEvent(new CustomEvent('studio-sessions-refresh', {
+				detail: { projectPath: project.canonicalProjectPath, sessionId: resume.sessionId }
+			}));
+			return true;
+		} catch (error) {
+			taskStore.rollbackDispatch(task.id);
+			// Niente secondo giro automatico: errore a vista, «Avvia» resta li'.
+			scheduleRunner.markFailed(task.id);
+			agentErrors[key] = error instanceof Error ? error.message : String(error);
+			return false;
+		} finally {
+			terminalBusy[key] = false;
+		}
+	}
+
+	/** «Aspetta il prossimo reset» dal blocco di quota (vassoio della chat o Companion). */
+	function handleWaitQuotaReset(projectId: string, laneId?: string) {
+		const project = projectStore.projects.find((candidate) => candidate.id === projectId);
+		if (!project?.canonicalProjectPath) return;
+		const targetLaneId = laneId ?? project.lane.laneId;
+		const session = registeredSessionFor(project, targetLaneId);
+		if (!session) return;
+		const lane = laneOf(project, targetLaneId);
+		const queue = resolveQueueRoot(project, lane?.workspacePath ?? project.canonicalProjectPath);
+		if (!queue.path) return;
+		if (parkSessionUntilReset(session, queue.path, targetLaneId)) {
+			companionStore.clearAttentionRequest(projectId, targetLaneId);
+		}
+	}
 
 	async function handleResumeSession(projectId: string, sessionId: string, laneId?: string) {
 		const project = projectStore.projects.find((candidate) => candidate.id === projectId);

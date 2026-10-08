@@ -14,6 +14,8 @@ import {
 	type StudioTask,
 	type TaskSessionOrigin,
 	type PersistedTaskState,
+	type TaskSchedule,
+	type TaskResume,
 	parsePersistedState,
 	sanitizeLoadedTasks,
 	applyTaskModeDirectives,
@@ -28,7 +30,7 @@ import { QueueHydration, mergeHydratedTasks, mergeReloadedTasks } from './taskHy
 import { resolveDroppedTask, type InFlightTask } from './taskRecovery';
 import { windowLabel } from './windowBridge';
 import { m as msg } from '$lib/paraglide/messages.js';
-import { taskLabel } from './taskTitle';
+import { taskLabel, promptHash } from './taskTitle';
 
 export type {
 	AgentView,
@@ -36,7 +38,9 @@ export type {
 	StudioTaskOptions,
 	StudioTask,
 	TaskSessionOrigin,
-	PersistedTaskState
+	PersistedTaskState,
+	TaskSchedule,
+	TaskResume
 };
 export { parsePersistedState, sanitizeLoadedTasks };
 
@@ -406,6 +410,93 @@ class TaskStore {
 		task.title = title;
 		task.titleHash = hash;
 		this.saveProject(task.projectPath);
+	}
+
+	/**
+	 * Programma un task o ne toglie la programmazione (`undefined`). Non e'
+	 * una modifica del prompt: titolo e `updatedAt` restano dove sono.
+	 */
+	setSchedule(id: string, schedule: TaskSchedule | undefined) {
+		const task = this.taskById(id);
+		if (!task) return;
+		if (schedule) task.schedule = { ...schedule };
+		else delete task.schedule;
+		this.saveProject(task.projectPath);
+	}
+
+	/**
+	 * Banner del reset perso: `missed` ferma i task finche' l'utente non
+	 * sceglie. «Avvia ora» toglie il segno (partono dal percorso dell'auto-
+	 * avvio), «Lasciali in coda» toglie la programmazione.
+	 */
+	setScheduleMissed(ids: readonly string[], missed: boolean) {
+		const paths = new Set<string>();
+		for (const id of ids) {
+			const task = this.taskById(id);
+			if (!task?.schedule) continue;
+			if (missed) task.schedule.missed = true;
+			else delete task.schedule.missed;
+			paths.add(task.projectPath);
+		}
+		for (const path of paths) this.saveProject(path);
+	}
+
+	clearSchedules(ids: readonly string[]) {
+		const paths = new Set<string>();
+		for (const id of ids) {
+			const task = this.taskById(id);
+			if (!task?.schedule) continue;
+			delete task.schedule;
+			paths.add(task.projectPath);
+		}
+		for (const path of paths) this.saveProject(path);
+	}
+
+	/**
+	 * Voce di ripresa di una sessione fermata dal limite di quota: `/retry`
+	 * nella stessa sessione, in testa alla coda, al reset. Una sola voce per
+	 * sessione: chiederla due volte aggiorna quella che c'e'.
+	 */
+	createResumeTask(
+		projectPath: string,
+		resume: TaskResume,
+		schedule: TaskSchedule,
+		title: string,
+		options?: StudioTaskOptions
+	): StudioTask {
+		const key = projectKey(projectPath);
+		const existing = this.tasks.find(
+			(task) => task.projectPath === key && task.status === 'queued' && task.resume?.sessionId === resume.sessionId
+		);
+		if (existing) {
+			existing.schedule = { ...schedule };
+			existing.resume = { ...resume };
+			this.saveProject(existing.projectPath);
+			return existing;
+		}
+		const now = Date.now();
+		const prompt = '/retry';
+		const task: StudioTask = {
+			id: crypto.randomUUID(),
+			projectPath: key,
+			prompt,
+			images: [],
+			position: -1,
+			createdAt: now,
+			updatedAt: now,
+			status: 'queued',
+			// Titolo legato all'impronta di `/retry`: niente richiesta al modello leggero.
+			title,
+			titleHash: promptHash(prompt),
+			// Solo il modello fermato: dice al giudizio del reset quale famiglia guardare.
+			options: options ? { ...options } : undefined,
+			schedule: { ...schedule },
+			resume: { ...resume }
+		};
+		this.tasks.push(task);
+		this.reindex(key);
+		this.saveProject(key);
+		return task;
 	}
 
 	deleteTask(id: string) {

@@ -16,6 +16,7 @@
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { motionReduced } from '../motionState.svelte';
 	import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
+	import { scheduleStore } from '$lib/stores/schedule.svelte';
 	import Tooltip from '$lib/ui/Tooltip.svelte';
 	import { getCurrentWebview } from '@tauri-apps/api/webview';
 	import { dropSummary, physicalToCssPoint } from '../chatDrop';
@@ -123,9 +124,27 @@
 				  }
 				: undefined,
 			onChooseModel: () => modelSettingsStore.openModal('catalog'),
-			onDismiss: () => session.dismissBlockedQuota()
+			onDismiss: () => session.dismissBlockedQuota(),
+			// Coda al reset (Gate R3X-coda-reset): la sessione si rimette in testa
+			// alla coda e riprende con `/retry` quando il provider si resetta.
+			waitResetLabel:
+				bq.reasonKind === 'quota_exhausted' && session.sessionId && !session.labConfig
+					? waitResetLabel(bq.failedSelector)
+					: undefined,
+			onWaitReset: () =>
+				window.dispatchEvent(
+					new CustomEvent('studio-quota-wait-reset', {
+						detail: { projectId: session.projectKey, laneId: session.laneId ?? 'main' }
+					})
+				)
 		};
 	});
+
+	function waitResetLabel(selector: string | undefined): string {
+		const fallback = session.usageLimit?.resetsAtSec ? session.usageLimit.resetsAtSec * 1000 : undefined;
+		const when = scheduleStore.previewResetWhen(selector, fallback);
+		return when ? m.schedule_quota_wait_reset({ when }) : m.schedule_quota_wait_reset_plain();
+	}
 
 	let lastScrollTop = 0;
 	// Soglia in pixel per considerare l'utente "al fondo" (tolleranza subpixel e font scaling).

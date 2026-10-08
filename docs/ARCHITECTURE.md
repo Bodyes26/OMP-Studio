@@ -353,6 +353,18 @@ interface StudioTask {
   createdAt: number;
   updatedAt: number;
   status: 'queued' | 'running' | 'completed' | 'cancelled';
+  // Gate R3X-coda-reset: alla radice, non in `options` (che la GUI ricostruisce
+  // con chiavi fisse). Validati campo per campo; malformati = assenti.
+  schedule?: {
+    kind: 'reset' | 'at';
+    provider?: string;     // fissato alla scelta dal ruolo/modello del task
+    limitId?: string;      // finestra che bloccava (informativa)
+    notBefore?: number;    // 'at': orario; 'reset': reset letto alla scelta (solo stima)
+    origin: 'user' | 'recovery';
+    setAt: number;         // separa i reset passati a Studio chiuso
+    missed?: boolean;      // fermo nel banner «Avvia ora / Lasciali in coda»
+  };
+  resume?: { sessionId: string; laneId?: string }; // voce di ripresa: `/retry` in quella sessione
 }
 ```
 
@@ -380,6 +392,17 @@ Reti di sicurezza: `awaitingRun` scade dopo 30 s senza `agent_start` (non durant
 
 Nel terminale lo stato viene dal titolo OSC (`π >` idle, `π :` working, `π !` attention, `tui.titleState`). In omp 18.8 il titolo diventa `working` su `agent_start` e torna `idle` solo su un `agent_end` terminale, su un `agent_end` non terminale con `awaitingAsyncWork`, o quando una continuazione programmata non parte: **non** scatta fra un tool e l'altro, ne' durante retry o compattazione che continua il run. I buchi erano due: dopo che Studio scrive il task nel PTY il titolo resta `idle` finche' omp non avvia il run (ora `awaitingStart`, fino al primo `working`/`attention` o 30 s), e il vecchio `assertAutomationReady` passava. Limiti che restano: un job in background (subagente asincrono, bash in background) porta il titolo a `idle` e il terminale non ha un segnale di quiete; la compattazione a riposo non tocca il titolo. Se l'utente accende `terminal.showProgress` in omp, la barra OSC 9;4 copre compattazione e run e Studio la legge (`progressActive`). Per code con lavoro in background la superficie consigliata e' la GUI.
 
+
+#### 5.3.2 Task programmati: coda al reset della quota (Gate R3X-coda-reset)
+
+Un task con `schedule` non e' preso dall'auto-avvio classico: ha il suo candidato e passa dallo **stesso** arbitro (§5.3, stabilita', ri-verifica, lock, slot unico di R27). Differenza voluta: parte anche con `autoDispatch` spento, perche' la programmazione e' gia' il gesto esplicito. «Avvia» resta sempre li' e la scavalca.
+
+- **Da ruolo a finestra** (`src/lib/quota/scheduleTarget.ts`, puro): `options.modelSelector` o `modelRoles[role]` → `provider/model` → report di `omp usage --json` di quel provider (tutti gli account; vale quello che si libera prima) → `familyLimits`. Con finestre ferme (≤ 10%) il task aspetta il reset piu' lontano fra quelle (la 7 giorni, se e' lei a bloccare); senza finestre ferme aspetta il reset della finestra scelta o il suo cambio di finestra. `resetsAt` si rilegge a ogni giro; `notBefore` salvato vale solo come «stima» quando usage non risponde. Provider senza limiti in usage: nessun reset da aspettare.
+- **Orologio** (`src/lib/quota/scheduleClock.ts`, `src/lib/stores/schedule.svelte.ts`): passo di 30 s, giro al fuoco e al ritorno visibile, risveglio dallo standby riconosciuto da un salto fra due giri (rilegge usage). Niente `setTimeout` lunghi.
+- **Candidato e conferma** (`src/lib/stores/scheduleRunner.svelte.ts`): `autoDispatchCandidateFor` in `+page.svelte` chiede prima `scheduleRunner.candidateFor(project)` (riprese in testa, poi ordine di coda; la ripresa torna nella sua corsia). Nella `verify` dell'arbitro un task «al reset» chiede `usage_snapshot(force=true)` e parte solo se il reset e' confermato (al massimo una conferma al minuto per task). L'auto-avvio classico salta i task programmati e si ferma davanti a una ripresa in attesa (`nextAutoDispatchTask`).
+- **Ripresa** («Aspetta il prossimo reset» nel vassoio della chat e nella Companion): `parkSessionUntilReset` crea in testa alla coda un task `/retry` con `resume` e `schedule{kind:'reset', origin:'recovery'}`, archivia l'avviso di quota e lo dice in chat. Alla partenza: GUI riapre la sessione se non e' quella aperta nella corsia e invia `/retry`; terminale `/resume <id>` e `/retry` dal PTY (`sendRunCommand`, con l'attesa del run come per `startTask`). Una ripresa fallita non si ritenta da sola.
+- **Studio chiuso al reset**: ogni task si giudica una volta per avvio, al primo verdetto certo. Se e' gia' dovuto e la programmazione e' piu' vecchia dell'avvio, prende `missed` e va nel banner (coda, cassetto, card della Companion): «Avvia ora» toglie il segno e lo rimette nel percorso dell'arbitro, «Lasciali in coda» toglie la programmazione. Mai partenza automatica, nemmeno con l'auto-avvio acceso.
+- **Estensione**: `/tasks` mostra `[al reset ~HH:MM]`, `[dopo HH:MM]`, `[riprendi]`; Invio toglie la programmazione. `project_tasks` accetta `schedule: reset|at|none` e `scheduleAt` (`HH:MM` o ISO). Un «al reset» scritto dal tool arriva senza provider: Studio lo completa dal ruolo al primo giro.
 
 ### 5.4 Corsie di lavoro (Gate R27)
 

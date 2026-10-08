@@ -19,6 +19,10 @@ released: items are closed into a version via `npm run release -- <version>`.
 - The status lines and small panels that `omp` extensions show in the terminal now appear in the chat too: status as an entry of the row below the composer, text panels above or below the composer, with colors reduced to the theme's.
 - The footer of every turn that changed files shows the `+N −M` balance of lines added and removed; a click opens the diff of the first changed file.
 - When the agent has answered but is still working in the background (async subagents, background commands, queued messages), the row below the composer says so with "in background".
+- Queue that starts when the quota resets: the clock on every queued task (and in the task screen) schedules it "When the quota resets", "Not before 19:00" or at a chosen time. The task starts on its own at the right moment even with auto-start off, as long as Studio is open; the reset time is read again and again from `omp` usage limits. In the queue a chip with a clock says when it starts and how long is left, the Companion shows the time on the row and the quota chip counts the waiting tasks.
+- When a session stops because the quota ran out, next to "Switch to…" there is "Wait for the next reset": the session goes back to the top of the queue and resumes on its own at the reset, with the same work.
+- If a reset or a scheduled time passes while Studio is closed, the tasks do not start on their own when it opens: a box asks whether to start them now or keep them queued.
+- `/tasks` and the `project_tasks` tool show the schedule (`[al reset]`, `[dopo 19:00]`) and the tool accepts it, so the agent can put a task "at reset"; Enter in `/tasks` starts a scheduled task right away and removes its schedule.
 
 ### Changed
 - Fewer background processes: the top bar Git status is read with a single `git` command instead of five, Git and usage-limit checks slow down when Studio is not in the foreground and stop when it is minimized, and looking up `omp`, `gh` and VS Code no longer starts external processes. The difference is most noticeable on Windows with an active antivirus.

@@ -537,6 +537,25 @@
 	--icon-size: 14px;
 }
 
+/* Orario di un task programmato (al reset o non prima di): neutro e tabulare. */
+.queue-row-when {
+	display: inline-flex;
+	flex: none;
+	align-items: center;
+	gap: 3px;
+	font-size: var(--text-caption);
+	font-variant-numeric: tabular-nums;
+	color: var(--ink-faint);
+	--icon-size: 11px;
+}
+
+.queue-schedule-line {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	--icon-size: 11px;
+}
+
 .queue-more,
 .queue-blocked {
 	margin: 0;
