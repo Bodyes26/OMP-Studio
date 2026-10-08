@@ -38,6 +38,29 @@ export interface TaskOptions {
 	[extra: string]: unknown;
 }
 
+/**
+ * Programmazione del task, alla radice (non in `options`): la scrive Studio
+ * dall'orologio della coda e questo tool. `reset` parte quando la quota del
+ * provider del ruolo torna disponibile (Studio rilegge il reset da
+ * `omp usage`); `at` non parte prima di `notBefore` (epoch ms). Parte solo
+ * con Studio aperto, anche con l'auto-avvio del progetto spento.
+ */
+export interface TaskSchedule {
+	kind: "reset" | "at";
+	provider?: string;
+	limitId?: string;
+	notBefore?: number;
+	origin: "user" | "recovery";
+	setAt: number;
+	missed?: boolean;
+}
+
+/** Voce di ripresa (`/retry` nella sessione fermata dal limite di quota). */
+export interface TaskResume {
+	sessionId: string;
+	laneId?: string;
+}
+
 export interface ProjectTask {
 	id: string;
 	prompt: string;
@@ -46,6 +69,8 @@ export interface ProjectTask {
 	createdAt: number;
 	updatedAt: number;
 	options?: TaskOptions;
+	schedule?: TaskSchedule;
+	resume?: TaskResume;
 	// Campi di Studio (immagini, titolo generato, ...): conservati cosi' come sono.
 	[extra: string]: unknown;
 }
@@ -229,6 +254,78 @@ export function composeTaskPrompt(prompt: string, options?: TaskOptions): string
 	return res;
 }
 
+/** Valida una programmazione letta da `tasks.json`; malformata = assente. */
+export function normalizeTaskSchedule(value: unknown): TaskSchedule | undefined {
+	if (!value || typeof value !== "object") return undefined;
+	const raw = value as Record<string, unknown>;
+	if (raw.kind !== "reset" && raw.kind !== "at") return undefined;
+	const notBefore =
+		typeof raw.notBefore === "number" && Number.isFinite(raw.notBefore) && raw.notBefore > 0
+			? raw.notBefore
+			: undefined;
+	if (raw.kind === "at" && notBefore === undefined) return undefined;
+	const schedule: TaskSchedule = {
+		kind: raw.kind,
+		origin: raw.origin === "recovery" ? "recovery" : "user",
+		setAt: typeof raw.setAt === "number" && Number.isFinite(raw.setAt) ? raw.setAt : 0
+	};
+	if (typeof raw.provider === "string" && raw.provider.trim()) schedule.provider = raw.provider.trim();
+	if (typeof raw.limitId === "string" && raw.limitId.trim()) schedule.limitId = raw.limitId.trim();
+	if (notBefore !== undefined) schedule.notBefore = notBefore;
+	if (raw.missed === true) schedule.missed = true;
+	return schedule;
+}
+
+function pad2(value: number): string {
+	return String(value).padStart(2, "0");
+}
+
+/** «14:05», o «11/10 08:00» se non e' oggi. */
+function formatScheduleTime(at: number, now = Date.now()): string {
+	const date = new Date(at);
+	const today = new Date(now);
+	const time = `${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+	const sameDay =
+		date.getFullYear() === today.getFullYear() &&
+		date.getMonth() === today.getMonth() &&
+		date.getDate() === today.getDate();
+	return sameDay ? time : `${pad2(date.getDate())}/${pad2(date.getMonth() + 1)} ${time}`;
+}
+
+/** Etichetta per `/tasks` e per il tool: `[al reset 14:05]`, `[dopo 19:00]`, `[riprendi]`. */
+export function scheduleTag(task: Pick<ProjectTask, "schedule" | "resume">, now = Date.now()): string {
+	const parts: string[] = [];
+	if (task.resume) parts.push("[riprendi]");
+	const schedule = task.schedule;
+	if (schedule?.kind === "at" && schedule.notBefore) {
+		parts.push(`[dopo ${formatScheduleTime(schedule.notBefore, now)}]`);
+	} else if (schedule?.kind === "reset") {
+		// Per `reset` l'orario salvato e' solo la stima della scelta: lo dice.
+		parts.push(schedule.notBefore ? `[al reset ~${formatScheduleTime(schedule.notBefore, now)}]` : "[al reset]");
+	}
+	return parts.join(" ");
+}
+
+/**
+ * Orario per `scheduleAt` del tool: «HH:MM» (prossima occorrenza locale) o
+ * una data ISO 8601. `null` se non si legge.
+ */
+export function parseScheduleAt(value: string, now = Date.now()): number | null {
+	const trimmed = value.trim();
+	const clock = /^(\d{1,2})[:.](\d{2})$/.exec(trimmed);
+	if (clock) {
+		const hours = Number(clock[1]);
+		const minutes = Number(clock[2]);
+		if (hours > 23 || minutes > 59) return null;
+		const date = new Date(now);
+		date.setHours(hours, minutes, 0, 0);
+		if (date.getTime() <= now) date.setDate(date.getDate() + 1);
+		return date.getTime();
+	}
+	const parsed = Date.parse(trimmed);
+	return Number.isFinite(parsed) ? parsed : null;
+}
+
 /**
  * Assicura che la directory `.omp` esista e che `.omp/.gitignore` escluda `tasks.json`.
  */
@@ -309,6 +406,14 @@ export function loadProjectTasks(cwd: string): ProjectTask[] {
 				updatedAt: typeof t.updatedAt === "number" ? t.updatedAt : Date.now(),
 				options: normalizeTaskOptions(t.options as TaskOptions | undefined)
 			}))
+			// La programmazione malformata si scarta, il task resta. Una chiave
+			// assente resta assente: niente `schedule: undefined` nel record.
+			.map((t) => {
+				const schedule = normalizeTaskSchedule(t.schedule);
+				if (schedule) return { ...t, schedule };
+				const { schedule: _dropped, ...rest } = t;
+				return rest as ProjectTask;
+			})
 			.sort((a, b) => a.position - b.position || a.createdAt - b.createdAt);
 	} catch (err) {
 		if ((err as NodeJS.ErrnoException)?.code === "ENOENT") return [];
@@ -474,6 +579,9 @@ class TasksTuiOverlay {
 					if (task.options?.minimalMode) optBadges.push("[ponytail]");
 					if (task.options?.researchMode) optBadges.push("[web]");
 				}
+				// Programmazione: accanto allo stato, cosi' si legge prima delle opzioni.
+				const tag = task.status === "queued" ? scheduleTag(task) : "";
+				if (tag) optBadges.unshift(tag);
 				const badgeStr = optBadges.length > 0 ? " " + c.fg("accent", optBadges.join(" ")) : "";
 
 				const firstLine = task.prompt.split(/\r?\n/).find((l) => l.trim())?.trim() || "(prompt vuoto)";
@@ -643,6 +751,9 @@ class TasksTuiOverlay {
 			if (task) {
 				task.status = "in_progress";
 				task.updatedAt = Date.now();
+				// Invio e' il gesto esplicito: scavalca e toglie la programmazione,
+				// altrimenti Studio lo rilancerebbe al reset.
+				delete task.schedule;
 				saveProjectTasks(this.cwd, this.tasks);
 
 				// Invia il prompt a OMP applicando le direttive
@@ -751,6 +862,23 @@ interface TaskToolParams {
 	researchMode?: boolean;
 	prewalk?: boolean;
 	targetPosition?: number;
+	schedule?: "reset" | "at" | "none";
+	scheduleAt?: string;
+}
+
+/**
+ * Programmazione chiesta dal tool. `reset` resta senza provider: Studio lo
+ * ricava dal ruolo del task e completa orario e finestra da `omp usage`.
+ * `undefined` = parametro assente; `null` = da togliere; errore come stringa.
+ */
+function scheduleFromParams(params: TaskToolParams): TaskSchedule | null | undefined | string {
+	if (params.schedule === undefined) return undefined;
+	if (params.schedule === "none") return null;
+	const now = Date.now();
+	if (params.schedule === "reset") return { kind: "reset", origin: "user", setAt: now };
+	const at = params.scheduleAt ? parseScheduleAt(params.scheduleAt, now) : null;
+	if (at === null) return "Error: schedule 'at' requires scheduleAt as 'HH:MM' or an ISO 8601 date.";
+	return { kind: "at", notBefore: at, origin: "user", setAt: now };
 }
 
 function textResult(text: string, details?: Record<string, unknown>): ToolResult {
@@ -776,7 +904,9 @@ export default function studioTasksExtension(pi: StudioTasksApi): void {
 			"Use this tool to view the project queue, add new tasks discovered during planning/execution, " +
 			"update task status (queued, in_progress, completed, abandoned), configure options (role, thinking, directives, prewalk), reorder, or delete tasks. " +
 			"Changes are automatically saved to disk and synchronized with OMP Studio GUI and TUI in real time. " +
-			"Note: The prewalk option is persisted and honored by Studio dispatches; pressing Enter in the interactive TUI /tasks overlay runs in the current session without arming prewalk.",
+			"Note: The prewalk option is persisted and honored by Studio dispatches; pressing Enter in the interactive TUI /tasks overlay runs in the current session without arming prewalk. " +
+			"Scheduling: set schedule='reset' to start the task when the quota of its role's provider resets, or schedule='at' with scheduleAt ('HH:MM' or ISO date) to start it not before that time; schedule='none' removes it. " +
+			"Scheduled tasks start on their own only while OMP Studio is open, even if the project's auto-start is off.",
 		parameters: z.object({
 			action: z
 				.enum(["list", "add", "update", "delete", "reorder", "get"])
@@ -802,7 +932,15 @@ export default function studioTasksExtension(pi: StudioTasksApi): void {
 				.describe(
 					"Enable preliminary exploratory phase with @smol (persisted for Studio dispatch; direct TUI /tasks Enter does not arm)."
 				),
-			targetPosition: z.number().optional().describe("Target index position for reordering.")
+			targetPosition: z.number().optional().describe("Target index position for reordering."),
+			schedule: z
+				.enum(["reset", "at", "none"])
+				.optional()
+				.describe("Schedule the start: 'reset' = when the provider quota resets, 'at' = not before scheduleAt, 'none' = remove."),
+			scheduleAt: z
+				.string()
+				.optional()
+				.describe("For schedule='at': local time 'HH:MM' (next occurrence) or an ISO 8601 date.")
 		}),
 		approval: "read",
 		async execute(_toolCallId, params: TaskToolParams, _signal, _onUpdate, ctx) {
@@ -819,7 +957,12 @@ export default function studioTasksExtension(pi: StudioTasksApi): void {
 
 					return textResult(
 						`Project tasks (${total} total: ${completed} completed, ${inProgress} in progress, ${queued} queued):\n` +
-							tasks.map((t, idx) => `[${idx}] [${t.status}] ${t.id}: ${t.prompt.split("\n")[0]}`).join("\n"),
+							tasks
+								.map((t, idx) => {
+									const tag = t.status === "queued" ? scheduleTag(t) : "";
+									return `[${idx}] [${t.status}]${tag ? ` ${tag}` : ""} ${t.id}: ${t.prompt.split("\n")[0]}`;
+								})
+								.join("\n"),
 						{ tasks, total, completed, inProgress, queued }
 					);
 				}
@@ -831,7 +974,8 @@ export default function studioTasksExtension(pi: StudioTasksApi): void {
 						return errorResult(`Error: Task with ID '${id}' not found.`);
 					}
 					return textResult(
-						`Task ${found.id}:\nStatus: ${found.status}\nPrompt: ${found.prompt}\nOptions: ${JSON.stringify(found.options || {})}`,
+						`Task ${found.id}:\nStatus: ${found.status}\nPrompt: ${found.prompt}\nOptions: ${JSON.stringify(found.options || {})}` +
+							(found.schedule ? `\nSchedule: ${JSON.stringify(found.schedule)}` : ""),
 						{ task: found }
 					);
 				}
@@ -851,6 +995,9 @@ export default function studioTasksExtension(pi: StudioTasksApi): void {
 						prewalk: params.prewalk
 					});
 
+					const schedule = scheduleFromParams(params);
+					if (typeof schedule === "string") return errorResult(schedule);
+
 					const newTask: ProjectTask = {
 						id: randomUUID(),
 						prompt,
@@ -860,6 +1007,7 @@ export default function studioTasksExtension(pi: StudioTasksApi): void {
 						updatedAt: Date.now(),
 						options
 					};
+					if (schedule) newTask.schedule = schedule;
 
 					tasks.push(newTask);
 					saveProjectTasks(cwd, tasks);
@@ -876,8 +1024,12 @@ export default function studioTasksExtension(pi: StudioTasksApi): void {
 						return errorResult(`Error: Task with ID '${id}' not found.`);
 					}
 
+					const schedule = scheduleFromParams(params);
+					if (typeof schedule === "string") return errorResult(schedule);
 					if (params.prompt !== undefined) task.prompt = String(params.prompt);
 					if (params.status !== undefined) task.status = params.status;
+					if (schedule === null) delete task.schedule;
+					else if (schedule) task.schedule = schedule;
 					if (
 						task.options ||
 						params.role !== undefined ||
