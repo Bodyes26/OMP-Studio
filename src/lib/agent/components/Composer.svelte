@@ -79,6 +79,11 @@
 	import ComposerNoticeStrip from './ComposerNoticeStrip.svelte';
 	import ComposerStatusLine from './ComposerStatusLine.svelte';
 	import ComposerPinnedItem from './ComposerPinnedItem.svelte';
+	import LabNotesQueue from '$lib/lab/LabNotesQueue.svelte';
+	import { labVisualNotesFor } from '$lib/lab/visualNotesStore.svelte';
+	import { appendLabNotes, formatLabNotesBlock, type LabNote } from '$lib/lab/visualNotes';
+	import { labNotesLabels } from '$lib/lab/visualNotesLabels';
+	import { renderAnnotatedFrame } from '$lib/lab/annotateFrame';
 	import { resolveLayout, itemsInZone } from '$lib/agent/commandCatalog/layout';
 	import { COMMAND_MANIFEST } from '$lib/agent/commandCatalog/manifest/index';
 	import type { CommandManifestEntry } from '$lib/agent/commandCatalog/types';
@@ -130,6 +135,9 @@
 	let activeMenu = $state<MenuKind>(null);
 
 	let attachments = $state<ComposerAttachment[]>([]);
+	// Note visive del Laboratorio («Indica e disegna»): solo nelle corsie Lab.
+	const labNotes = $derived(session.labConfig ? labVisualNotesFor(session) : null);
+	const labNoteCount = $derived(labNotes?.notes.length ?? 0);
 	let draftRevision = $state(0);
 	let availableModels = $state<ModelInfo[]>([]);
 
@@ -389,11 +397,15 @@
 		for (const att of attachments) {
 			total += att.tokens;
 		}
+		// Note visive: ~80 token di testo per nota piu' il fotogramma (~1600).
+		if (labNoteCount > 0) total += 1600 + labNoteCount * 80;
 		return total;
 	});
 
 	// Avviso visivo quando il modello non supporta immagini ma sono presenti immagini o video
-	const hasVisualAttachments = $derived(attachments.some((a) => a.kind === 'image' || a.kind === 'video'));
+	const hasVisualAttachments = $derived(
+		labNoteCount > 0 || attachments.some((a) => a.kind === 'image' || a.kind === 'video')
+	);
 	const visualNoVisionWarning = $derived(hasVisualAttachments && !modelSupportsImages(session.model));
 
 	// Aggiunta file generici e immagini
@@ -748,6 +760,32 @@
 				return;
 			}
 			const sent = [...attachments];
+			// Note visive: un blocco compatto in coda al testo e un solo fotogramma
+			// annotato. Se la cattura non c'e' (o il modello non vede), solo testo.
+			const sentNotes = labNotes && labNotes.notes.length > 0 ? labNotes : null;
+			let notesImage: ImageContent | null = null;
+			if (sentNotes) {
+				const noteList = $state.snapshot(sentNotes.notes) as LabNote[];
+				const wantsImage = modelSupportsImages(session.model);
+				const frame = wantsImage ? await sentNotes.frameForSend() : null;
+				if (frame) {
+					try {
+						const img = await renderAnnotatedFrame(frame, noteList);
+						notesImage = { type: 'image', data: img.data, mimeType: img.mimeType };
+					} catch {
+						notesImage = null;
+					}
+				}
+				if (wantsImage && !notesImage) session.flashNotice('warning', m.lab_notes_frame_failed_notice());
+				wireText = appendLabNotes(
+					wireText,
+					formatLabNotesBlock(noteList, {
+						labels: labNotesLabels(),
+						viewport: sentNotes.viewport,
+						imageAttached: notesImage !== null
+					})
+				);
+			}
 			const stagedNonImages = sent.filter((a) => a.path && a.kind !== 'image');
 			if (stagedNonImages.length > 0) {
 				const pathsBlock = stagedNonImages.map((a) => `- ${a.path}`).join('\n');
@@ -758,10 +796,14 @@
 			const imagesToSend: ImageContent[] = sent
 				.filter((a) => a.kind === 'image' && a.base64)
 				.map((a) => ({ type: 'image', data: a.base64!, mimeType: a.mimeType || 'image/jpeg' }));
+			if (notesImage) imagesToSend.push(notesImage);
 			let behavior: StreamingBehavior = sendBehaviorChoice;
 			if (isAlt) behavior = behavior === 'steer' ? 'followUp' : 'steer';
 			const result = await session.prompt(wireText, imagesToSend, behavior);
-			if (result === 'sent' || result === 'deferred') clearAfterSend(sent);
+			if (result === 'sent' || result === 'deferred') {
+				clearAfterSend(sent);
+				sentNotes?.clear();
+			}
 		} catch (error) {
 			session.flashNotice(
 				'error',
@@ -773,7 +815,7 @@
 	}
 
 	export function isDraftEmpty(): boolean {
-		return (!editorRef || editorRef.getIsEmpty()) && attachments.length === 0;
+		return (!editorRef || editorRef.getIsEmpty()) && attachments.length === 0 && labNoteCount === 0;
 	}
 
 
@@ -835,7 +877,11 @@
 		focus();
 	}
 
-	const canSend = $derived(currentSegments.some((s) => s.t !== 'text' || s.s.trim().length > 0) || attachments.length > 0);
+	const canSend = $derived(
+		currentSegments.some((s) => s.t !== 'text' || s.s.trim().length > 0) ||
+			attachments.length > 0 ||
+			labNoteCount > 0
+	);
 	const placeholderText = $derived(
 		session.isStreaming
 			? m.chat_v2_composer_placeholder_busy()
@@ -913,6 +959,11 @@
 					<span class="cmd-strip-hint font-mono">‹{activeCmdDef.input.hint}›</span>
 				{/if}
 			</div>
+		{/if}
+
+		<!-- Note visive del Laboratorio (Punta / Riquadro nell'anteprima) -->
+		{#if labNotes && labNoteCount > 0}
+			<LabNotesQueue notes={labNotes} />
 		{/if}
 
 		<!-- Riquadro allegati (miniature immagini, video e file) -->

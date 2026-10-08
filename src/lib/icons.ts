@@ -156,6 +156,8 @@ export { default as IconSlowMode } from '@lucide/svelte/icons/turtle';
 export { default as IconPause } from '@lucide/svelte/icons/pause';
 // Inspector e Browser Live.
 export { default as IconInspect } from '@lucide/svelte/icons/mouse-pointer-click';
+// Laboratorio «Indica e disegna»: riquadro che raccoglie gli elementi di un'area.
+export { default as IconAreaSelect } from '@lucide/svelte/icons/square-dashed-mouse-pointer';
 export { default as IconNetwork } from '@lucide/svelte/icons/activity';
 export { default as IconHistory } from '@lucide/svelte/icons/history';
 export { default as IconSend } from '@lucide/svelte/icons/send';
