@@ -22,6 +22,7 @@ import './lanes-cleanup.test.ts';
 import './terminal-task-config.test.ts';
 import './wire-omp.test.ts';
 import './session-tree.test.ts';
+import './guided-goal.test.ts';
 import './rpc-open-lifecycle.test.ts';
 import './rpc-hang-report.test.ts';
 import './editor-context.test.ts';
