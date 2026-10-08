@@ -1719,3 +1719,38 @@ Nei turni lunghi la cosa importante (un test fallito e lasciato lì, una modific
 - Nelle sessioni terminale (PTY) la card non esiste: la TUI mostra la chiamata `studio_headsup` come un tool qualsiasi, e companion e notifica non ricevono la frase.
 - Il modello può chiamare `studio_headsup` anche quando non serve: la descrizione lo vieta esplicitamente, ma l'effetto va osservato sull'uso reale.
 
+---
+
+## Gate R3X-diario: diario di bordo e documenti di progetto tenuti dall'agente
+
+**Data:** 2026-10-08
+**Esito:** IMPLEMENTATO (variante A del prototipo `diario-progetto.html`; numero del Gate da assegnare al merge)
+
+### Il problema
+
+1. Cio' che si decide in una sessione (scelte, motivi, strade scartate, dubbi) resta nel transcript: la sessione successiva, un'altra corsia o un altro modello non lo sanno, e Maurizio deve rispiegarlo.
+2. `AGENTS.md` e le regole dicono all'agente *come* lavorare, non *cosa* e' il progetto e *perche'* e' fatto cosi'; mescolarci la storia farebbe crescere il contesto di ogni turno.
+3. Chiedere all'utente di approvare ogni riga di diario (schede da confermare) trasforma un aiuto in un compito: Maurizio vuole che l'agente lo tenga quasi interamente da solo.
+
+### Decisioni
+
+1. **Un'estensione, un tool, un comando.** `extensions/studio-docs.ts` si carica con `-e` nelle sessioni di progetto PTY e RPC (non nel Laboratorio), come `studio-tasks` e `studio-lanes`. Registra il tool `project_docs` (`list`, `read`, `search`, `update`, `sources`, `init`) e il comando `/diario` (`init [locale]`, `aggiorna`, `locale`, `repo`, `<domanda>`). Il prompt di sistema riceve **una sola riga** (~60 token, hook `before_agent_start`) e solo nei progetti col diario attivo: documenti e diario si leggono su richiesta.
+2. **Dove vivono i file: nel repo, per default.** Diario mensile in `docs/diario/AAAA-MM.md`, documenti tematici in `docs/progetto/{scopo,uso,decisioni,storia,domande-aperte}.md`, manifest in `.omp/progetto.json`. Motivazione della cartella:
+   - il diario e' conoscenza del progetto, non della macchina: deve viaggiare col codice (clone, altro PC, collaboratori, revisione nelle PR) e git ne conserva data e autore gratis; in `~/.omp` andrebbe perso cambiando macchina e mescolerebbe i progetti;
+   - `docs/` e' dove gli esseri umani e gli agenti cercano gia' la documentazione; `.omp/` e' spesso ignorato da git e nascosto negli editor;
+   - due sottocartelle distinte perche' sono due forme diverse: `diario/` e' cronologico e cresce solo in coda, `progetto/` descrive lo stato attuale per tema e si riscrive;
+   - un file per mese tiene i file corti (leggibili a colpo d'occhio, poco contesto quando l'agente li apre) e limita i conflitti di merge al mese corrente;
+   - nomi in italiano come il resto del lavoro di Maurizio; il manifest permette di mapparli su documenti gia' esistenti (es. `decisioni -> docs/DECISIONS.md`) invece di duplicarli.
+3. **Opzione per progetto fuori da git.** `/diario init locale`, `/diario locale` e il pulsante «Inizializza fuori da git» usano `storage: "local"`: tutto in `.omp/progetto/`, escluso con `.omp/.gitignore` (lo stesso file di `tasks.json`). Serve per repository di clienti o pubblici. `/diario repo` lo riporta in `docs/`. I documenti mappati su file dell'utente non si spostano mai. Lo stato macchina (impronte delle sezioni scritte dall'agente) sta sempre in `.omp/progetto-stato.json`, fuori da git.
+4. **L'agente scrive da solo, citando la fonte.** A fine task con contenuto durevole (decisioni e perche', cosa cambia per chi usa il progetto, tappe, domande aperte) l'agente aggiorna diario e documenti con `project_docs update` senza chiedere; ogni riga porta la fonte (`[sessione 1a2b3c4d]`, `[commit abc1234]`). Nessuna scheda da approvare.
+5. **Le righe scritte a mano sono dell'utente.** `replace_section` riscrive una sezione solo se il corpo e' ancora identico all'impronta lasciata dall'agente; altrimenti rifiuta e l'agente deve chiedere (`force` solo dopo il si'). `append` e `add_section` non toccano il testo esistente.
+6. **`/diario init` legge prima di chiedere.** Se il progetto ha materiale (documentazione, piu' di qualche commit, sessioni passate) l'agente ricava i documenti da README/AGENTS/docs/CHANGELOG, `git log` e storico delle sessioni (`history.db` e transcript `.jsonl` di omp, **in sola lettura**) e mette cio' che non trova in `domande-aperte`. Su un progetto nuovo fa un'intervista breve: una domanda per messaggio, al massimo 6-8. Dalla GUI l'inizializzazione parte come un task normale, cosi' segue l'instradamento della coda e resta nello storico.
+7. **Un diario per progetto, anche nelle corsie.** La radice e' il checkout principale (`git rev-parse --git-common-dir`): scriverlo nel worktree lo spezzerebbe in rami che si scontrano al merge.
+8. **Scheda «Progetto» in sola lettura.** Il pannello Agente guadagna la quarta sottoscheda: documenti, ultime voci del diario, apertura nell'editor per correggere a mano, e «Chiedi al diario» con una chiamata effimera al modello leggero (`project_docs_ask`, stesso schema dei suggerimenti: `omp -p --no-session --no-tools`, 60 s). Il frontend sceglie gli estratti pertinenti e li passa come contesto; Rust non legge il disco, quindi il comando non puo' uscire dal progetto.
+
+### Rischi accettati
+
+- Lavorando in una corsia, l'agente scrive il diario nel checkout principale: le modifiche compaiono li' come file non committati finche' qualcuno non le committa.
+- `history.db` si legge con `bun:sqlite`: fuori da Bun (test con Node) l'elenco dei prompt e' vuoto e l'init si basa su documenti, git e transcript.
+- Se `.omp/` e' ignorato dal `.gitignore` di radice, il manifest (e quindi le mappature) resta solo su questa macchina; l'agente lo segnala in una riga all'init.
+- «Chiedi al diario» risponde solo dagli estratti scelti per parole: una domanda formulata con parole diverse puo' non trovarli; in chat `/diario <domanda>` usa l'agente completo.

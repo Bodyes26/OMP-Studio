@@ -1224,6 +1224,22 @@
 	}
 
 	/**
+	 * Diario di progetto (Gate R3X-diario): l'inizializzazione e' un task come
+	 * gli altri, cosi' passa dallo stesso instradamento (principale o corsia,
+	 * GUI o terminale) e resta nello storico delle sessioni. Il prompt e' il
+	 * comando dell'estensione, senza direttive: un prefisso lo romperebbe.
+	 */
+	async function handleInitJournal(projectId: string, storage: 'repo' | 'local') {
+		const project = projectStore.projects.find((candidate) => candidate.id === projectId);
+		if (!project?.canonicalProjectPath) return;
+		const task = taskStore.createTask(project.canonicalProjectPath);
+		taskStore.updateTask(task.id, storage === 'local' ? '/diario init locale' : '/diario init', [], {
+			role: task.options?.role
+		});
+		await handleRunTask(projectId, task.id);
+	}
+
+	/**
 	 * Routing deterministico della coda (Gate R27 / PLAN W09).
 	 *
 	 * Il bersaglio non e' mai la corsia semplicemente visibile: o `Principale`
@@ -3382,6 +3398,8 @@
 								void handleTerminalOpenFile(proj.id, relPath, null);
 								closeActiveSurface();
 							}}
+							agentBusy={proj.lane.agentState === 'working' || proj.lane.agentState === 'attention'}
+							onInitJournal={(storage) => void handleInitJournal(proj.id, storage)}
 						/>
 					{/if}
 				{/if}

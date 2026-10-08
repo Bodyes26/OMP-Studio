@@ -859,6 +859,8 @@ pub async fn rpc_open(
         crate::pty::write_extension("studio-goal.ts", crate::pty::GOAL_EXTENSION_TS);
     let headsup_extension =
         crate::pty::write_extension("studio-headsup.ts", crate::pty::HEADSUP_EXTENSION_TS);
+    let docs_extension =
+        crate::pty::write_extension("studio-docs.ts", crate::pty::DOCS_EXTENSION_TS);
 
     // Progetto senza cartella (chat temporanea): stesso trattamento del PTY,
     // sessione effimera e nessun `--cwd`.
@@ -901,6 +903,9 @@ pub async fn rpc_open(
         command.arg("-e").arg(path);
     }
     if let Some(path) = &headsup_extension {
+        command.arg("-e").arg(path);
+    }
+    if let Some(path) = &docs_extension {
         command.arg("-e").arg(path);
     }
     // Applica resume (se sessione valida) oppure continue_last

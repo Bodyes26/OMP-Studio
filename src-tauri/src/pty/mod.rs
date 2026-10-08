@@ -309,6 +309,8 @@ pub const LOOP_EXTENSION_TS: &str = include_str!("../../../extensions/studio-loo
 pub const GOAL_EXTENSION_TS: &str = include_str!("../../../extensions/studio-goal.ts");
 /// Tool `studio_headsup` (Gate R3X-heads-up): una frase di fine turno dall'agente.
 pub const HEADSUP_EXTENSION_TS: &str = include_str!("../../../extensions/studio-headsup.ts");
+/// Tool `project_docs` e comando `/diario` (Gate R3X-diario): diario e documenti di progetto.
+pub const DOCS_EXTENSION_TS: &str = include_str!("../../../extensions/studio-docs.ts");
 
 /// Unica direttiva aggiunta all'avvio: tenerla qui evita divergenze tra GUI,
 /// Laboratorio e TUI senza salvarla nei messaggi o nel transcript.
@@ -502,6 +504,7 @@ pub async fn pty_open(
     let plan_extension_arg = write_extension("studio-plan.ts", PLAN_EXTENSION_TS);
     let loop_extension_arg = write_extension("studio-loop.ts", LOOP_EXTENSION_TS);
     let headsup_extension_arg = write_extension("studio-headsup.ts", HEADSUP_EXTENSION_TS);
+    let docs_extension_arg = write_extension("studio-docs.ts", DOCS_EXTENSION_TS);
 
     // Il `--resume` arriva dal frontend con l'id della sessione da cui si sta
     // passando: se quella sessione non ha ancora un transcript, omp esce con
@@ -538,6 +541,10 @@ pub async fn pty_open(
             launch_args.push(ext.clone());
         }
         if let Some(ext) = &headsup_extension_arg {
+            launch_args.push("-e".to_string());
+            launch_args.push(ext.clone());
+        }
+        if let Some(ext) = &docs_extension_arg {
             launch_args.push("-e".to_string());
             launch_args.push(ext.clone());
         }
@@ -617,6 +624,10 @@ pub async fn pty_open(
             launch.push_str(&sh_quote(ext));
         }
         if let Some(ext) = &headsup_extension_arg {
+            launch.push_str(" -e ");
+            launch.push_str(&sh_quote(ext));
+        }
+        if let Some(ext) = &docs_extension_arg {
             launch.push_str(" -e ");
             launch.push_str(&sh_quote(ext));
         }

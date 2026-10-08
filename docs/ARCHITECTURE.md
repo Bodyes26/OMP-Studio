@@ -134,6 +134,7 @@ omp_ops.rs              Query protette SQLite (usage, storico sessioni), verific
 rules_ops.rs            Censimento regole di contesto e skill, analisi attrito in sola lettura su history.db
 models_ops.rs           Gestione catalogo modelli, ruoli operativi, catene di fallback e raccomandazioni
 suggestions_ops.rs      Comando generate_prompt_suggestions: chiamata effimera a omp -p con ruolo smol, parsing JSON (anche headsUp), fallimento silenzioso
+journal_ops.rs          Comando project_docs_ask (Gate R3X-diario): «Chiedi al diario», chiamata effimera a omp -p --no-session --no-tools col modello leggero sugli estratti passati dal frontend, nessuna lettura di disco
 setup.rs                SetupWizard: download resiliente OMP, verifica SHA-256 nativa, installazione font Nerd
 studio_updater.rs       Updater applicazione: canali Stable/Nightly, verifica integrità SHA-256
 alerts.rs               Notifiche OS, registrazione AUMID Windows (sh.omp.studio), attenzione Dock/Taskbar
@@ -167,6 +168,9 @@ lib/
     suggestions.svelte.ts Controller per sessione dei suggerimenti dinamici: trigger agent_end, chiave di turno, invalidazione, timeout
     turnHeadsUp.ts      Heads-up di fine turno: fatti certi del turno, frase dai fatti, priorità agente > smol > fatti, digest per smol
     headsUpSeen.svelte.ts Heads-up già visti (localStorage, chiave sessione + hash della frase)
+  projectDocs/
+    projectDocs.ts      Diario di progetto (Gate R3X-diario): manifest, percorsi di default, parsing del diario, scelta degli estratti per «Chiedi al diario» (funzioni pure, contratto con l'estensione)
+    projectDocsStore.svelte.ts Stato della scheda Progetto: lettura con file_read, rilettura a fine lavoro dell'agente, domanda con project_docs_ask
   agent/
     client.ts           OmpRpcClient: correlazione richieste/risposte, timeout dinamici, channel listener
     session.svelte.ts   AgentSession: riduttore reattivo di stato, gestione streaming, cronologia transcript
@@ -207,8 +211,9 @@ lib/
     LaneProfileDialog.svelte Consenso una tantum sui file locali del worktree
     FileTree.svelte     Albero file pigro con filtro incrementale
     GitPanel.svelte     Pannello Git: branch, diff modifiche, commit recenti e sessioni
-    AgentPanel.svelte   Tre viste del progetto: coda task, storico sessioni e regole/skill
+    AgentPanel.svelte   Quattro viste del progetto: coda task, storico sessioni, regole/skill e diario di progetto
     RulesPanel.svelte   Ispettore regole di contesto e skill, con proposte nate dall'attrito
+    ProjectDocsPanel.svelte Scheda Progetto: documenti, ultime voci del diario, «Chiedi al diario», inizializzazione
     TaskEditor.svelte   Editor a sezioni: prompt, ruoli, slider thinking, toggle speciali, immagini
     QueueDrawer.svelte  Cassetto aggregato delle code di tutti i progetti con avvio diretto
     UsagePopover.svelte Popover quote, breakdown costi, trend e countdown al reset
@@ -318,6 +323,9 @@ clear_app_attention() -> Result<(), String>;
 
 // --- Suggerimenti Prompt ---
 generate_prompt_suggestions(last_assistant: String, last_user: String, model_selector: Option<String>, max_items: u8) -> Result<Vec<String>, String>;
+
+// --- Diario di progetto (Gate R3X-diario) ---
+project_docs_ask(question: String, context: String, model_selector: Option<String>) -> Result<Option<String>, String>;
 ```
 ---
 
@@ -439,6 +447,20 @@ Un progetto resta una tessera. Una corsia (`AgentLane`) e' il workspace su cui g
 - **Persistenza.** `lanes.json` vive nella directory dati dell'app, chiave `laneState`. `lanes_store_write_atomic` serializza le webview e sostituisce il file con scrittura atomica. Il plugin store viene aperto e chiuso subito: la sua `save` usa `fs::write` e non deve riscrivere questo file in uscita. All'avvio Studio riconcilia il registro con `git worktree list --porcelain`: un worktree assente o `prunable` archivia il record con causa, un worktree Studio non registrato viene recuperato senza cancellare nulla.
 
 Comandi IPC aggiunti: `worktree_inspect`, `worktree_create`, `worktree_list`, `worktree_remove`, `worktree_profile_scan`, `worktree_apply_allowlist`, `worktree_review_inspect`, `worktree_land`, `worktree_undo_land`, `worktree_delete_lane_branch`, `lanes_store_read`, `lanes_store_write_atomic`, `lane_processes_list`, `lane_processes_stop`, `lane_bridge_respond`.
+
+### 5.5 Diario di progetto (Gate R3X-diario)
+
+Il diario di bordo e i documenti di progetto li scrive l'agente dentro `omp`; Studio li mostra e li interroga senza scriverli.
+
+- **Estensione `extensions/studio-docs.ts`.** Incorporata con `include_str!` (`pty::DOCS_EXTENSION_TS`), scritta nella cartella temporanea da `write_extension` e passata con `-e` sia da `pty_open` (Windows e POSIX) sia da `rpc_open`; il Laboratorio non la carica. Registra il tool `project_docs` (`list`, `read`, `search`, `update`, `sources`, `init`, approvazione `read`), il comando `/diario` e l'hook `before_agent_start`, che aggiunge al prompt di sistema una riga (~60 token) solo se `.omp/progetto.json` esiste nella radice.
+- **Radice.** `resolveProjectRoot` usa `git rev-parse --git-common-dir`: in una corsia (worktree) il diario e' quello del checkout principale. Fuori da git vale la cartella corrente. Ogni percorso passa da `safeRel` (niente assoluti, niente `..`) e si scrive in modo atomico (file temporaneo + `rename`).
+- **File.** Manifest `.omp/progetto.json` (`version`, `storage: repo|local`, `diaryDir`, ruolo -> file). Default `repo`: `docs/diario/AAAA-MM.md` e `docs/progetto/<ruolo>.md`; `local`: tutto sotto `.omp/progetto/`, escluso con `.omp/.gitignore`. All'init i documenti gia' presenti che corrispondono a un ruolo (es. `docs/DECISIONS.md`) vengono mappati invece di duplicati; `switchStorage` sposta solo i file di default. Lo stato `.omp/progetto-stato.json` (sempre fuori da git) conserva l'impronta (SHA-1 troncato, solo confronto) di ogni sezione scritta dall'agente: `replace_section` rifiuta se la sezione e' cambiata a mano, salvo `force`.
+- **Fonti.** Ogni voce porta `[sessione <id8>]` (default: la sessione corrente) o `[commit <sha7>]`. `sources` elenca documentazione esistente, riepilogo di `git log`, transcript `.jsonl` della cartella in `~/.omp/agent` (o `PI_CODING_AGENT_DIR`) e i prompt di `history.db` letti con `bun:sqlite` in sola lettura (fuori da Bun l'elenco e' vuoto). Nessuna scrittura sotto `~/.omp`.
+- **Init dalla GUI.** La scheda Progetto chiama `handleInitJournal` in `+page.svelte`, che crea un task col prompt `/diario init` (o `/diario init locale`) e lo manda con `handleRunTask`: stesso instradamento della coda (Principale o corsia) e traccia nello storico.
+- **Scheda Progetto.** `projectDocsStore` legge manifest, documenti e diario del mese (e del precedente) con `file_read` relativo al progetto, all'apertura e quando l'agente del progetto passa da al lavoro a fermo. «Chiedi al diario» spezza i file in sezioni (`chunkMarkdown`), sceglie quelle con piu' parole della domanda entro 16.000 caratteri (`buildAskContext`) e chiama `project_docs_ask`, che riusa `run_ephemeral_omp` con il modello leggero (timeout 60 s, contesto tagliato a 24.000 caratteri, domanda a 600). La vista `project` e' la quarta di `AGENT_VIEWS`.
+- **Contratto.** `src/lib/projectDocs/projectDocs.ts` ripete ruoli, percorsi e parsing del manifest perche' l'estensione usa `node:fs` e non si importa nel webview; `test/project-docs.test.ts` verifica che restino allineati e che l'estensione sia caricata con `-e`. `test/studio-docs.test.ts` copre manifest, scrittura con fonti, protezione delle righe a mano, spostamento fuori da git, corsie e prompt.
+
+Comando IPC aggiunto: `project_docs_ask` (permesso `allow-project-docs`).
 
 
 ---

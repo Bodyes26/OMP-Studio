@@ -19,7 +19,7 @@ import {
 	workspacePath as toWorkspacePath,
 	type TaskRunRecord
 } from '../types/lanes.ts';
-export const AGENT_VIEWS = ['queue', 'sessions', 'rules'] as const;
+export const AGENT_VIEWS = ['queue', 'sessions', 'rules', 'project'] as const;
 export type AgentView = (typeof AGENT_VIEWS)[number];
 
 export type StudioTaskStatus = 'queued' | 'dispatching' | 'in_progress' | 'completed' | 'abandoned';
