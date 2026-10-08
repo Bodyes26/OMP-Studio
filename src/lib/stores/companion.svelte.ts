@@ -373,6 +373,12 @@ class CompanionStore {
 		});
 	}
 
+	/** Rimette la sessione in coda: riprende con `/retry` al reset della quota. */
+	async waitQuotaReset(projectId: string, laneId?: string | null) {
+		this.clearAttentionRequest(projectId, laneId);
+		await emit('studio-wait-quota-reset', { projectId, laneId: laneId ?? undefined });
+	}
+
 	/** Archivia l'avviso di blocco quota senza eseguire switch o ripresa. */
 	async dismissQuotaBlocked(projectId: string, laneId?: string | null) {
 		this.clearAttentionRequest(projectId, laneId);

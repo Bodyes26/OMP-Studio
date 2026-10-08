@@ -27,6 +27,7 @@
 	import type { CompanionAskHandlers } from './companionAsk';
 	import CompanionAskBody from './CompanionAskBody.svelte';
 	import CompanionProjectQueue from './CompanionProjectQueue.svelte';
+	import MissedScheduleBanner from '../schedule/MissedScheduleBanner.svelte';
 	import { IconArrowLeft, IconChevronRight, IconPlus } from '$lib/icons';
 
 	let {
@@ -210,6 +211,7 @@
 				onQuickReplyText={ask.onQuickReplyText}
 				onResolveQuotaBlocked={ask.onResolveQuotaBlocked}
 				onDismissQuotaBlocked={ask.onDismissQuotaBlocked}
+				onWaitQuotaReset={ask.onWaitQuotaReset}
 				wantsText={ask.wantsText}
 			/>
 		</div>
@@ -247,6 +249,7 @@
 				</div>
 			{/if}
 			{#if queued.length > 0}
+				<MissedScheduleBanner tasks={queued} compact />
 				<CompanionProjectQueue
 					projectName={name}
 					tasks={queued}

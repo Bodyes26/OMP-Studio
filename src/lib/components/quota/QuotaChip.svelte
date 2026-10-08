@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { QuotaSemanticStatus, QuotaLongWindowAlert } from '$lib/quota/projectQuota';
-	import { IconWarning, IconQuota } from '$lib/icons';
+	import { IconWarning, IconQuota, IconSchedule } from '$lib/icons';
 	import Tooltip from '$lib/ui/Tooltip.svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	import { motionReduced } from '$lib/agent/motionState.svelte';
@@ -18,7 +18,8 @@
 		onclick,
 		interactive = true,
 		class: className = '',
-		longWindowAlert = null
+		longWindowAlert = null,
+		scheduledCount = 0
 	} = $props<{
 		showProvider?: boolean;
 		alwaysShowPct?: boolean;
@@ -33,6 +34,8 @@
 		interactive?: boolean;
 		class?: string;
 		longWindowAlert?: QuotaLongWindowAlert | null;
+		/** Task programmati in attesa (Gate R3X-coda-reset): «⏱2» accanto alla quota. */
+		scheduledCount?: number;
 	}>();
 
 	// Calcoli geometrici per l'anello circolare SVG (raggio = 6.5px, perimetro = ~40.84px).
@@ -157,6 +160,10 @@
 			<span class="pct-value">{remainingPct}%</span>
 		{/if}
 
+		{#if scheduledCount > 0}
+			<span class="scheduled-count" aria-hidden="true"><IconSchedule />{scheduledCount}</span>
+		{/if}
+
 		{#if longWindowAlert}
 			<span
 				class="secondary-alert-dot alert-{longWindowAlert.status}"
@@ -197,6 +204,16 @@
 
 	.quota-chip:disabled {
 		cursor: default;
+	}
+
+	.scheduled-count {
+		display: inline-flex;
+		align-items: center;
+		gap: 2px;
+		margin-left: 2px;
+		color: var(--ink-faint);
+		font-variant-numeric: tabular-nums;
+		--icon-size: 11px;
 	}
 
 	.chip-label {

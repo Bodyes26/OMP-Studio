@@ -13,6 +13,7 @@
 	import { rvLift } from '$lib/agent/motion';
 	import StatusMark, { type StatusMarkType } from '$lib/ui/StatusMark.svelte';
 	import QueueTaskItem from './QueueTaskItem.svelte';
+	import MissedScheduleBanner from './schedule/MissedScheduleBanner.svelte';
 
 	let {
 		open = false,
@@ -274,6 +275,7 @@
 						{:else if gate.note}
 							<div class="gate-note" role="status">{gate.note}</div>
 						{/if}
+						<MissedScheduleBanner tasks={group.tasks} />
 						<div class="task-list" class:queue-cards={isCardView} role="list" aria-label={m.queue_drawer_project_tasks_aria({ project: group.project.name })}>
 							{#each group.tasks as task (task.id)}
 								<div class="task-row" role="listitem">

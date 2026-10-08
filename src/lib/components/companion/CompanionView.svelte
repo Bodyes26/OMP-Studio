@@ -6,6 +6,7 @@
 	import { companionStore, type AttentionRequest, type QuickTaskAiParsed } from '$lib/stores/companion.svelte';
 	import { projectStore, type Project } from '$lib/stores/projects.svelte';
 	import { quotaStore } from '$lib/stores/quota.svelte';
+	import { scheduleStore } from '$lib/stores/schedule.svelte';
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { modelSettingsStore, STANDARD_ROLES, resolveCatalogModel } from '$lib/stores/modelSettings.svelte';
 	import { themeStore } from '$lib/stores/theme.svelte';
@@ -283,6 +284,8 @@
 		void companionStore.init();
 		refreshCompanionState();
 		void quotaStore.init();
+		// Orologio delle etichette dei task programmati (solo lettura qui).
+		scheduleStore.init();
 		void settingsStore.init();
 		// Cataloghi completi in background: il salvataggio di un task non deve
 		// mai aspettarli, ma le menzioni `!ruolo` e `!modello` li vogliono.
@@ -644,6 +647,8 @@
 			companionStore.resolveQuotaBlocked(projectId, selector, undefined, laneId),
 		onDismissQuotaBlocked: (projectId: string, laneId?: string | null) =>
 			companionStore.dismissQuotaBlocked(projectId, laneId),
+		onWaitQuotaReset: (projectId: string, laneId?: string | null) =>
+			companionStore.waitQuotaReset(projectId, laneId),
 		draftFor,
 		wantsText
 	});

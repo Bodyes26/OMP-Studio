@@ -154,6 +154,8 @@ export { default as IconFlame } from '@lucide/svelte/icons/flame';
 export { default as IconFastMode } from '@lucide/svelte/icons/zap';
 export { default as IconSlowMode } from '@lucide/svelte/icons/turtle';
 export { default as IconPause } from '@lucide/svelte/icons/pause';
+// Task programmati: al reset della quota o non prima di un orario.
+export { default as IconSchedule } from '@lucide/svelte/icons/clock';
 // Inspector e Browser Live.
 export { default as IconInspect } from '@lucide/svelte/icons/mouse-pointer-click';
 export { default as IconNetwork } from '@lucide/svelte/icons/activity';

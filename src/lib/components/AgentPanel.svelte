@@ -9,6 +9,7 @@
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { isLaneRoutable, type AutomationBlock, type AutomationGate } from '$lib/agent/automationGate';
 	import QueueTaskItem from './QueueTaskItem.svelte';
+	import MissedScheduleBanner from './schedule/MissedScheduleBanner.svelte';
 	import { chatReveal, revealEase } from '$lib/agent/motion';
 	import { motionReduced, Lingering } from '$lib/agent/motionState.svelte';
 	import { IconPlus } from '$lib/icons';
@@ -184,6 +185,9 @@
 					</div>
 				{/if}
 			</div>
+
+			<!-- Reset passato a Studio chiuso: i task programmati aspettano una scelta. -->
+			<MissedScheduleBanner {tasks} />
 
 			<ul class="queue-list" class:queue-cards={isCardView} aria-label={m.queue_drawer_heading()}>
 				{#if tasks.length === 0}
