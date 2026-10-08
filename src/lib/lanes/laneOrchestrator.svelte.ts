@@ -31,6 +31,10 @@ import type { TerminalSession } from '$lib/terminal/terminal';
 export interface TerminalMetaEntry {
 	inputPending: boolean;
 	sessionId: string | null;
+	/** Task scritto nel PTY, titolo non ancora `working` (vedi `terminalActivity.ts`). */
+	awaitingStart?: boolean;
+	/** Barra di avanzamento OSC 9;4 di omp attiva. */
+	progressActive?: boolean;
 }
 
 export class LaneOrchestrator {
@@ -99,8 +103,18 @@ export class LaneOrchestrator {
 		const current = this.terminalMeta[key];
 		const inputPending = patch.inputPending ?? current?.inputPending ?? false;
 		const sessionId = patch.sessionId !== undefined ? patch.sessionId : (current?.sessionId ?? null);
-		if (current && current.inputPending === inputPending && current.sessionId === sessionId) return;
-		this.terminalMeta[key] = { inputPending, sessionId };
+		const awaitingStart = patch.awaitingStart ?? current?.awaitingStart ?? false;
+		const progressActive = patch.progressActive ?? current?.progressActive ?? false;
+		if (
+			current &&
+			current.inputPending === inputPending &&
+			current.sessionId === sessionId &&
+			(current.awaitingStart ?? false) === awaitingStart &&
+			(current.progressActive ?? false) === progressActive
+		) {
+			return;
+		}
+		this.terminalMeta[key] = { inputPending, sessionId, awaitingStart, progressActive };
 	}
 
 	handleTerminalState(project: Project, laneId: string, state: AgentState): void {
@@ -285,7 +299,10 @@ export class LaneOrchestrator {
 			const session = sessionRegistry.getLaneSession(project.id, laneId);
 			if (!session) return 'unknown';
 			if (session.pendingUi) return 'attention';
-			if (session.isStreaming || session.isCompacting) return 'working';
+			// Il run vivo (fra un giro di tool e l'altro `isStreaming` e' spento)
+			// e il prompt appena ammesso contano come lavoro: senza, la coda
+			// vedeva `Principale` libera nelle pause del run.
+			if (session.isStreaming || session.isCompacting || session.settle.running || session.awaitingRun) return 'working';
 			// Solo le corsie non in vista possono essere "da leggere": quella
 			// aperta a schermo e' gia' letta, e la barra di stato resta ferma.
 			if (
