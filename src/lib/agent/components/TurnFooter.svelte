@@ -3,7 +3,9 @@
 	// Piè del turno dell'agente (Gate R32 - C07).
 	// Mostrato a turno concluso (da messaggio utente ad agent_end):
 	// Copia testo dell'assistente, N chiamate tool, durata, modello, costo totale.
-	import { IconCopy, IconCheck } from '$lib/icons';
+	import { IconCopy, IconCheck, IconFork } from '$lib/icons';
+	import { agentUiHooks } from '../ui-context';
+	import Tooltip from '$lib/ui/Tooltip.svelte';
 
 	export interface TurnFooterData {
 		assistantText: string;
@@ -12,9 +14,24 @@
 		model?: string;
 		cost?: number;
 		subagentCost?: number;
+		/** Messaggio utente che apre il turno (id del transcript), se c'e'. */
+		userTranscriptId?: number | null;
+		/** `messageTs` dell'ultima risposta del turno: lega il turno al file di omp. */
+		assistantTs?: number | null;
 	}
 
 	let { data }: { data: TurnFooterData } = $props();
+
+	const branch = agentUiHooks().branch;
+	const canBranch = $derived(branch ? branch.canBranch() : false);
+	const branchTooltip = $derived(
+		branch && !canBranch ? (branch.blockedReason() ?? m.branch_action_fork_after_hint()) : m.branch_action_fork_after_hint()
+	);
+
+	function forkAfterTurn() {
+		if (!branch || !canBranch) return;
+		branch.afterTurn({ userTranscriptId: data.userTranscriptId ?? null, assistantTs: data.assistantTs ?? null });
+	}
 
 	let copied = $state(false);
 	let copyTimer: number | null = null;
@@ -90,6 +107,21 @@
 		</button>
 	{/if}
 
+	{#if branch}
+		<Tooltip text={branchTooltip} placement="top" offset={4}>
+			<button
+				type="button"
+				class="copy-btn"
+				onclick={forkAfterTurn}
+				aria-disabled={canBranch ? undefined : 'true'}
+				class:is-disabled={!canBranch}
+			>
+				<span class="icon" aria-hidden="true"><IconFork /></span>
+				<span>{m.branch_action_fork_here()}</span>
+			</button>
+		</Tooltip>
+	{/if}
+
 	<div class="meta-row">
 		{#if toolCallsLabel}
 			<span class="meta-item">{toolCallsLabel}</span>
@@ -145,6 +177,16 @@
 	.copy-btn:focus-visible {
 		outline: 2px solid var(--brand);
 		outline-offset: 1px;
+	}
+
+	.copy-btn.is-disabled {
+		opacity: 0.5;
+		cursor: default;
+	}
+
+	.copy-btn.is-disabled:hover {
+		background: transparent;
+		color: var(--ink-faint);
 	}
 
 	.copy-btn .icon {

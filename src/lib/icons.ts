@@ -144,6 +144,11 @@ export { default as IconPrewalk } from '@lucide/svelte/icons/footprints';
 export { default as IconGrip } from '@lucide/svelte/icons/grip-vertical';
 export { default as IconPencil } from '@lucide/svelte/icons/pencil';
 
+// Diramazioni della sessione (menu dei messaggi, pannello Rami).
+export { default as IconMore } from '@lucide/svelte/icons/ellipsis';
+export { default as IconFork } from '@lucide/svelte/icons/git-fork';
+export { default as IconEditRetry } from '@lucide/svelte/icons/pencil-line';
+
 // Varie.
 export { default as IconDiamond } from '@lucide/svelte/icons/diamond';
 export { default as IconSubagents } from '@lucide/svelte/icons/split';

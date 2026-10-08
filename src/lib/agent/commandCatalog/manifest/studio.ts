@@ -94,6 +94,10 @@ export const STUDIO_ENTRIES: readonly CommandManifestEntry[] = [
 					{
 						command: '/resume ses_123abc',
 						note: 'Carica direttamente la sessione con l’identificativo indicato'
+					},
+					{
+						command: '/sessions',
+						note: 'Alias equivalente: apre l’elenco delle sessioni del progetto'
 					}
 				],
 				whenToUse:
@@ -115,6 +119,10 @@ export const STUDIO_ENTRIES: readonly CommandManifestEntry[] = [
 					{
 						command: '/resume ses_123abc',
 						note: 'Directly switches to and loads the session with the specified ID'
+					},
+					{
+						command: '/sessions',
+						note: 'Equivalent alias: opens the project session list'
 					}
 				],
 				whenToUse:
@@ -662,7 +670,7 @@ export const STUDIO_ENTRIES: readonly CommandManifestEntry[] = [
 		id: 'tree',
 		origin: 'studio',
 		category: 'session',
-		icon: 'IconSubagents',
+		icon: 'IconGitBranch',
 		control: 'panel',
 		supported: [
 			{ zone: 'statusLine', form: 'chip' },
@@ -671,46 +679,38 @@ export const STUDIO_ENTRIES: readonly CommandManifestEntry[] = [
 		defaultPlacement: null,
 		text: {
 			it: {
-				title: 'Albero sessioni',
-				summary: 'Mostra l’albero e la cronologia delle sessioni del progetto nella barra laterale.',
+				title: 'Rami della sessione',
+				summary: 'Apre il pannello Rami: l’albero delle diramazioni della sessione aperta, con il ramo attivo evidenziato.',
 				benefits: [
-					'Visualizzazione gerarchica delle sessioni e delle rispettive diramazioni (fork).',
-					'Permette di navigare facilmente tra flussi di lavoro paralleli o passati.',
-					'Facilita il passaggio rapido a conversazioni precedenti con un clic.'
+					'Mostra dove la conversazione si è divisa (rewind, «Modifica e riprova», diramazioni) con un nodo per ogni tuo messaggio.',
+					'Un clic su un ramo lo apre come nuova sessione, fino al suo ultimo messaggio, senza toccare quella di partenza.',
+					'Da un nodo puoi anche diramare da prima del messaggio o rimetterlo nel composer per riprovarlo.'
 				],
 				examples: [
 					{
 						command: '/tree',
-						note: 'Apre la vista ad albero delle sessioni nella barra laterale sinistra'
-					},
-					{
-						command: '/sessions',
-						note: 'Alias equivalente per accedere allo storico delle sessioni'
+						note: 'Apre il pannello Rami sopra la chat della corsia attiva'
 					}
 				],
 				whenToUse:
-					'Quando vuoi consultare la struttura complessiva delle conversazioni e passare a un altro ramo di lavoro.'
+					'Quando vuoi capire da dove arriva la conversazione o riprendere un tentativo lasciato su un altro ramo. L’elenco delle sessioni è /sessions.'
 			},
 			en: {
-				title: 'Session tree',
-				summary: 'Displays the tree and timeline of project sessions in the sidebar.',
+				title: 'Session branches',
+				summary: 'Opens the Branches panel: the fork tree of the open session, with the active branch highlighted.',
 				benefits: [
-					'Hierarchical visualization of sessions and their branched forks.',
-					'Easily navigate between parallel or historical work streams.',
-					'Enables one-click switching to any prior conversation.'
+					'Shows where the conversation split (rewinds, “Edit and retry”, forks) with one node per message you sent.',
+					'Clicking a branch opens it as a new session, up to its last message, leaving the original untouched.',
+					'From a node you can also branch from before the message or put it back in the composer to retry it.'
 				],
 				examples: [
 					{
 						command: '/tree',
-						note: 'Opens the session tree view in the left sidebar'
-					},
-					{
-						command: '/sessions',
-						note: 'Equivalent alias to access the session history view'
+						note: 'Opens the Branches panel over the active lane’s chat'
 					}
 				],
 				whenToUse:
-					'When surveying multi-branch session structures or hopping across separate conversation threads.'
+					'When you want to see where the conversation came from or pick up an attempt left on another branch. The session list is /sessions.'
 			}
 		}
 	},
@@ -728,37 +728,37 @@ export const STUDIO_ENTRIES: readonly CommandManifestEntry[] = [
 		text: {
 			it: {
 				title: 'Dirama sessione (Fork)',
-				summary: 'Crea una nuova sessione derivata clonando la cronologia corrente fino a questo punto.',
+				summary: 'Copia l’intera sessione corrente, cronologia e artefatti compresi, in una nuova sessione e prosegue sulla copia.',
 				benefits: [
-					'Permette di sperimentare soluzioni alternative senza perdere la cronologia originale.',
-					'Isola tentativi rischiosi in un ramo separato preservando la conversazione madre.',
-					'Passa immediatamente alla nuova sessione derivata pronta per il prompt.'
+					'Permette di sperimentare un’alternativa senza toccare la conversazione di partenza, che resta nell’elenco sessioni.',
+					'La copia conserva tutto il contesto: l’agente continua da dove eri, senza ripartire da zero.',
+					'Per ripartire da un punto precedente usa «Dirama da qui» o «Modifica e riprova» nel menu di un messaggio.'
 				],
 				examples: [
 					{
 						command: '/fork',
-						note: 'Dirama la sessione corrente e passa al nuovo ramo duplicato'
+						note: 'Copia la sessione e passa subito alla copia; funziona solo ad agente fermo'
 					}
 				],
 				whenToUse:
-					'Quando intendi provare un refactoring o un approccio alternativo mantenendo intatta la chat di partenza.'
+					'Quando vuoi provare un refactoring o un approccio rischioso mantenendo intatta la chat di partenza.'
 			},
 			en: {
 				title: 'Fork session',
-				summary: 'Creates a branched session by cloning current conversation history up to this turn.',
+				summary: 'Copies the whole current session, history and artifacts included, into a new session and continues on the copy.',
 				benefits: [
-					'Safely experiment with alternative implementations without losing original conversation state.',
-					'Isolates risky changes to a separate branch while keeping parent chat intact.',
-					'Switches immediately to the newly branched session ready for input.'
+					'Try an alternative without touching the original conversation, which stays in the session list.',
+					'The copy keeps the full context: the agent carries on from where you were instead of starting over.',
+					'To restart from an earlier point use “Branch from here” or “Edit and retry” in a message’s menu.'
 				],
 				examples: [
 					{
 						command: '/fork',
-						note: 'Forks active session and switches immediately to the cloned branch'
+						note: 'Copies the session and switches to the copy right away; works only while the agent is idle'
 					}
 				],
 				whenToUse:
-					'When testing a divergent architecture or risky approach while preserving the original discussion intact.'
+					'When testing a refactor or a risky approach while keeping the original conversation intact.'
 			}
 		}
 	},

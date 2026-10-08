@@ -67,7 +67,6 @@
   "page_modal_restart_sub": "Per applicare le modifiche a tutti i terminali attivi dell'applicazione, è consigliato ricaricare l'interfaccia.",
   "page_modal_restart_btn_close": "Chiudi",
   "page_modal_restart_btn_restart": "Riavvia applicazione",
-  "page_slash_cmd_fork_success": "Sessione ramificata in un nuovo branch: {id}",
   "page_slash_cmd_fork_error": "Errore durante il fork: {error}",
   "page_slash_cmd_drop_hint": "Usa il menu contestuale nella lista sessioni a sinistra per archiviare o eliminare un ramo.",
   "page_slash_cmd_copy_success": "Trascrizione della sessione copiata negli appunti.",
@@ -1589,7 +1588,7 @@
   "ui__page_completa_il_testo_nel_terminale_a985": "Completa il testo nel terminale",
   "ui__page_terminale_non_pronto_6be5": "Terminale non pronto",
   "ui__page_new_clear_avvia_una_nuova_sessione_f67b": "/new, /clear — avvia una nuova sessione",
-  "ui__page_resume_id_riprende_una_sessione_o_apre_97fd": "/resume [id] — riprende una sessione, o apre lo storico",
+  "ui__page_resume_id_riprende_una_sessione_o_apre_97fd": "/resume [id], /sessions — riprende una sessione, o apre l'elenco delle sessioni",
   "ui__page_handoff_istruzioni_passa_il_testimone_a_una_1f1b": "/handoff [istruzioni] — passa il testimone a una sessione nuova",
   "ui__page_model_next_apre_le_impostazioni_modelli_o_70f9": "/model [next] — apre le impostazioni modelli o cicla",
   "ui__page_name_titolo_rinomina_la_sessione_0a14": "/name <titolo> — rinomina la sessione",
@@ -2048,7 +2047,7 @@
   "ui_ts_platform_mostra_in_esplora_file_4e18": "Mostra in Esplora file",
   "ui_ts_platform_mostra_nel_gestore_file_0511": "Mostra nel gestore file",
   "ui_ts_commands_avvia_una_nuova_sessione_pulita_fa61": "Avvia una nuova sessione pulita",
-  "ui_ts_commands_riprende_una_sessione_precedente_o_apre_lo_d684": "Riprende una sessione precedente o apre lo storico",
+  "ui_ts_commands_riprende_una_sessione_precedente_o_apre_lo_d684": "Riprende una sessione precedente o apre l'elenco delle sessioni",
   "ui_ts_commands_compatta_la_cronologia_e_il_contesto_della_2157": "Compatta la cronologia e il contesto della sessione",
   "ui_ts_commands_passa_il_riassunto_a_una_nuova_sessione_8ecf": "Passa il riassunto a una nuova sessione pulita",
   "ui_ts_commands_imposta_il_livello_di_ragionamento_del_modello_7da6": "Imposta il livello di ragionamento del modello",
@@ -2067,8 +2066,8 @@
   "ui_ts_commands_passa_alla_visualizzazione_terminale_tui_d812": "Passa alla visualizzazione terminale TUI",
   "ui_ts_commands_mostra_i_comandi_disponibili_nella_superficie_gui_88cd": "Mostra i comandi disponibili nella superficie GUI",
   "ui_ts_commands_copia_l_intera_trascrizione_della_sessione_corrente_e2a0": "Copia l'intera trascrizione della sessione corrente negli appunti",
-  "ui_ts_commands_mostra_l_albero_e_lo_storico_delle_0376": "Mostra l'albero e lo storico delle sessioni del progetto",
-  "ui_ts_commands_crea_una_nuova_diramazione_fork_della_sessione_8343": "Crea una nuova diramazione (fork) della sessione corrente",
+  "ui_ts_commands_mostra_l_albero_e_lo_storico_delle_0376": "Apre il pannello Rami: l'albero delle diramazioni della sessione aperta",
+  "ui_ts_commands_crea_una_nuova_diramazione_fork_della_sessione_8343": "Copia l'intera sessione corrente in una nuova sessione (fork) e prosegue sulla copia",
   "ui_ts_commands_apre_lo_storico_per_gestire_ed_eliminare_f7c8": "Apre lo storico per gestire ed eliminare rami di sessione",
   "ui_ts_commands_azzera_la_vista_attiva_e_avvia_una_1f33": "Azzera la vista attiva e avvia una nuova sessione pulita",
   "ui_ts_studioupdater_errore_imprevisto_0405": "Errore imprevisto",
@@ -2799,5 +2798,55 @@
   "lab_preview_viewport_aria": "Dimensioni viewport",
    "lab_preview_frame_title": "Laboratorio Anteprima",
    "lab_preview_errors_aria": "Errori anteprima",
-   "chat_v2_composer_status_overflow": "Altri comandi di stato"
+   "chat_v2_composer_status_overflow": "Altri comandi di stato",
+  "branch_fork_done": "Sessione diramata con tutta la cronologia: continui sulla copia, l'originale resta nelle sessioni.",
+  "branch_fork_point_done": "Nuova sessione diramata da questo punto: l'originale resta nelle sessioni.",
+  "branch_edit_done": "Ramo creato dal punto precedente: il messaggio è tornato nel composer, modificalo e invialo.",
+  "branch_switch_done": "Ramo aperto come nuova sessione: l'originale resta nelle sessioni.",
+  "branch_busy": "Non si può diramare mentre l'agente lavora o aspetta una risposta: attendi la fine del turno o fermalo.",
+  "branch_in_progress": "Una diramazione è già in corso.",
+  "branch_not_ready": "La sessione non è ancora pronta: riprova tra un attimo.",
+  "branch_cancelled": "Diramazione annullata: un'estensione l'ha impedita oppure la sessione non è salvata su disco.",
+  "branch_unmapped": "Non trovo questo messaggio nella cronologia salvata di omp: riapri la sessione e riprova.",
+  "branch_lab_unavailable": "I prototipi del Laboratorio usano un'unica sessione continua: la diramazione non è disponibile.",
+  "branch_action_fork_here": "Dirama da qui",
+  "branch_action_fork_here_hint": "Nuova sessione con la conversazione fino a prima di questo messaggio",
+  "branch_action_fork_after_hint": "Nuova sessione con la conversazione fino a questa risposta",
+  "branch_action_edit_retry": "Modifica e riprova",
+  "branch_action_edit_retry_hint": "Nuova sessione da prima di questo messaggio, con il testo nel composer",
+  "branch_action_switch": "Passa a questo ramo",
+  "branch_action_switch_hint": "Apre questo ramo come nuova sessione, fino al suo ultimo messaggio",
+  "branch_action_copy": "Copia testo",
+  "branch_message_menu_aria": "Azioni sul messaggio",
+  "branch_message_menu_label": "Messaggio",
+  "branch_panel_title": "Rami",
+  "branch_panel_aria": "Rami della sessione",
+  "branch_panel_refresh": "Aggiorna",
+  "branch_panel_close": "Chiudi",
+  "branch_panel_loading": "Carico l'albero della sessione…",
+  "branch_panel_error": "Albero non disponibile: {error}",
+  "branch_panel_empty": "Nessun messaggio in questa sessione.",
+  "branch_panel_linear": "Nessuna biforcazione: la conversazione è un unico ramo. Usa «Dirama da qui» o «Modifica e riprova» su un messaggio per aprirne uno; le sessioni diramate compaiono anche nell'elenco sessioni.",
+  "branch_panel_summary": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
+      "match": {
+        "countPlural=one": "{count} punto di diramazione",
+        "countPlural=other": "{count} punti di diramazione"
+      }
+    }
+  ],
+  "branch_panel_current": "sei qui",
+  "branch_panel_forks": "{count} rami",
+  "branch_panel_note": "Aprire un ramo crea una nuova sessione: omp non sposta la conversazione aperta da un ramo all'altro senza il Terminale. Per navigare nello stesso file usa /tree nel Terminale.",
+  "branch_panel_open_in_terminal": "Passa al Terminale",
+  "branch_panel_selected_actions": "Azioni sul ramo selezionato",
+  "page_gui_help_fork": "/fork — copia la sessione intera in una nuova e prosegue sulla copia",
+  "page_gui_help_tree": "/tree — apre il pannello Rami della sessione aperta"
 }

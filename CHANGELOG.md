@@ -14,6 +14,8 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 ### Added
 - Nuova voce «Comandi» nelle Impostazioni: il catalogo dei comandi di `omp` e di Studio, raggruppati per categoria, con ricerca, spiegazione, vantaggi, esempi e quando conviene usarli, così scopri funzioni come prewalk senza doverle conoscere. Ogni comando si può fissare nel composer, sulla barra interna o sotto il composer, nella forma che preferisci, riordinare con il trascinamento (o `Alt+←/→`) e ripristinare al layout predefinito. Allegato, ruolo, modello e thinking restano sempre presenti; `@` e contesto si possono mostrare dove vuoi. I comandi nuovi che `omp` aggiunge dopo un aggiornamento compaiono in una sezione «Nuovi» finché Studio non li descrive.
 - La riga sotto il composer manda le voci che non entrano in un menu «…».
+- «Dirama da qui» e «Modifica e riprova» nel menu «…» di ogni tuo messaggio nella chat (anche con il tasto destro): aprono una nuova sessione con la conversazione fino a prima di quel messaggio, e con «Modifica e riprova» il testo torna nel composer per correggerlo e reinviarlo. Sotto ogni risposta conclusa «Dirama da qui» apre una nuova sessione che finisce con quel turno. La sessione di partenza resta intatta nell'elenco sessioni.
+- Pannello «Rami» (`/tree`, o fissato nel composer): l'albero della sessione aperta con un nodo per ogni tuo messaggio, il ramo attivo evidenziato e i rami alternativi rientrati dove si staccano. Un clic su un ramo lo apre come nuova sessione fino al suo ultimo messaggio; dal menu di un nodo puoi anche diramare da prima del messaggio o riprovarlo.
 
 ### Changed
 - Meno processi in background: lo stato Git della barra superiore si legge con un solo comando `git` invece di cinque, i controlli di Git e dei limiti d'uso rallentano quando Studio non è in primo piano e si fermano quando è ridotto a icona, e la ricerca di `omp`, `gh` e VS Code non avvia più processi esterni. Su Windows con l'antivirus attivo la differenza si sente di più.
@@ -22,9 +24,11 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Le chat dei progetti non visibili non vengono più ridisegnate, i terminali ricevono l'output a blocchi e l'anello di attenzione che respira non impegna più la CPU.
 - Le operazioni Git e le ricerche nei file non rallentano più le altre richieste dell'interfaccia.
 - Il registro diagnostico del fuoco (`focus-trace.log`) non viene più scritto se non lo si attiva.
+- `/tree` nella chat GUI apre il pannello «Rami», come il `/tree` di `omp`, invece dell'elenco sessioni: l'elenco resta su `/sessions` e `/resume`.
 
 ### Fixed
 - Studio non consuma più CPU di continuo a riposo: per ogni sessione senza un account fissato la ricerca dell'account si ripeteva senza sosta scorrendo tutte le sessioni su disco (oltre il 150% di CPU su Mac).
+- `/fork` nella chat GUI copia davvero la sessione, cronologia e artefatti compresi, e prosegue sulla copia: prima apriva una chat vuota. Se l'agente sta lavorando o aspetta una risposta, Studio lo dice e lascia tutto com'era.
 
 ## [1.7.2] - 2026-10-07
 

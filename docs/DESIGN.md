@@ -1001,6 +1001,15 @@ Una piccola Studio sempre in primo piano: voce per scrivere e leggere, officina 
 - **Bolla:** a destra, larga al massimo l'80%, `--bg-raised`, bordo `--line`, `16px 16px 6px 16px`, padding `10px 14px`, voce chat. Entra con `rv-lift`.
 - **Allegati:** miniature da 56 px sopra la bolla.
 - **Contesto dell'editor:** tag `--bg-base` in didascalia sotto la bolla; il file attivo ha bordo accento al 40%.
+- **Azioni del messaggio:** pulsante «…» da 24×20 px sotto la bolla, allineato a destra, `--ink-faint` (hover `--bg-hover`/`--ink-muted`), visibile solo al passaggio o con il fuoco nel messaggio, come il piè del turno. Apre il `ContextMenu` con «Dirama da qui», «Modifica e riprova» e «Copia testo»; lo stesso menu si apre col tasto destro sulla bolla, tranne quando c'è una selezione (vince «Copia»). Le voci di ramo non spariscono a metà turno: restano disabilitate con il motivo nel suggerimento.
+- **Piè del turno:** accanto a «Copia» compare «Dirama da qui» con `IconFork`, stessa didascalia; disabilitato al 50% con il motivo nel `Tooltip`.
+
+### Pannello «Rami»
+
+- **Superficie:** la stessa del cassetto dei subagenti: dialog laterale a destra sopra la chat (85%, massimo 520 px), `--bg-overlay`, `--shadow-overlay`, fondale `--backdrop`, `rv-lift` 240 ms con blur 3 px, Esc chiude e il fuoco torna al composer. Testata 13 px con `IconGitBranch` `--brand-ink`, titolo in etichetta 12/600, conteggio dei punti di diramazione in `.ui-count`, Aggiorna e Chiudi iconici da 28 px con `Tooltip`.
+- **Righe:** traccia 12,5/1.45 (è un ispettore, come `SubagentDrawer`), padding `6px 8px`, `--radius-md`, hover `--bg-hover`. Un nodo per messaggio utente: punto da 9 px vuoto (`--ink-faint`) fuori dal ramo attivo, pieno `--brand` sul ramo attivo; «sei qui» in `--brand-ink` e fondo `--bg-active` sull'ultimo nodo del ramo attivo. Ora in meta tabulare a destra, label di omp in chip mono `--bg-hover`.
+- **Rami:** il ramo attivo è una rotaia verticale dritta da 1 px (`--brand` al 55% su `--line`); i rami alternativi rientrano di 16 px e si staccano con un gomito arrotondato in `--line`. Nessun colore per ramo: la posizione dice il ramo, il riempimento dice quello attivo.
+- **Interazione:** `role="tree"` con roving tabindex (frecce, Home/End, `Shift+F10` o tasto menu per le azioni). Clic su un ramo inattivo = lo apre come nuova sessione; sul ramo attivo apre il menu delle azioni; «…» per riga al passaggio. Piede `--bg-surface` con la nota in meta che aprire un ramo crea una sessione nuova e «Passa al Terminale» `.ui-button-ghost`.
 
 ### Testo dell'agente
 
