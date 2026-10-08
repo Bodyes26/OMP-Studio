@@ -37,6 +37,9 @@ Le scorciatoie globali catturate dall'app vivono dietro il modificatore **`Ctrl+
 | `Ctrl+C` | Superficie GUI | Interrompe la risposta in streaming (quando non c'è testo evidenziato); se l'agente non si ferma, una seconda pressione forza l'arresto |
 | `Alt+E` | Superficie GUI | Mette a fuoco il campo di scrittura del Composer |
 | `Alt+N` | Superficie GUI | Apre una nuova chat nel progetto attivo |
+| `Alt+Maiusc+P` | Superficie GUI | Accende e spegne la modalita' Piano della chat (come `/plan` e la pillola «Piano» del composer; nel Terminale vale l'`app.plan.toggle` di omp). Su Mac `Ctrl+Opzione+Maiusc+P`. Non attiva nel Laboratorio |
+| `1` … `4` | Scheda di approvazione del Piano | Sceglie la strada di esecuzione (nuova sessione, nuova corsia, compatta e continua, mantieni il contesto) |
+| `Ctrl+Invio` | Scheda di approvazione del Piano | «Approva ed esegui» sulla strada scelta |
 | `/` | Composer GUI | Apre la palette dei comandi slash disponibili |
 | `@` | Composer GUI, editor task, Companion | Apre la palette dei file del progetto; nella Companion dopo `#progetto` |
 | `#` | Companion | Sceglie il progetto di destinazione del task |

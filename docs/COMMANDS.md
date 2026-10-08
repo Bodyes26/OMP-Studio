@@ -21,6 +21,7 @@ Il manifesto risiede in `src/lib/agent/commandCatalog/manifest/` ed e' suddiviso
 - `omp-session.ts`: gestione sessione, strumenti, contesto e utilita' di `omp` (es. `compact`, `handoff`, `session`, `mcp`, `ssh`, `tools`). Origin: `'omp'`.
 - `studio.ts`: comandi esclusivi del guscio Studio (es. `/tasks`, `/lanes`, `/lab`). Origin: `'studio'`. Se un comando esiste gia' come builtin di omp, la voce e' unica ed e' gestita nei file `omp-*.ts`.
   `fork` e `tree` sono voci Studio anche se omp ha comandi con lo stesso nome: in omp sono solo-TUI (non arrivano da `get_available_commands`), nella GUI Studio li serve con i comandi RPC `fork` e `get_tree` (Gate R33). `/sessions` e' alias di `/resume`; l'instradamento di questi comandi sta in `src/lib/agent/slashRouter.ts`.
+  Anche `plan` e `plan-review` sono voci Studio: in omp sono solo-TUI, nella GUI li serve l'estensione `studio-plan` (Gate R3X-plan). Il comando di trasporto `/studio-plan` e' nascosto dalla palette (`HIDDEN_EXTENSION_COMMANDS` in `commands.ts`) e non ha voce nel catalogo.
 
 Ogni voce rispetta il tipo `CommandManifestEntry`:
 - `id`: nome dello slash senza barra per i comandi (es. `prewalk`); prefisso `ctl.*` per i controlli del composer.
@@ -128,7 +129,20 @@ Dopo aver ricevuto l'ok:
 
 ---
 
-## 4. Flag di Emergenza (`--skip-command-check`)
+## 4. Testi copiati da omp da ricontrollare a ogni release
+
+Alcune funzioni della GUI replicano un flusso che omp offre solo nella TUI e ne copiano i prompt. Il gate dei comandi non li vede: a ogni release (o nightly) che aggiorna la versione di riferimento di omp, confronta questi file con il sorgente upstream e riallinea le copie.
+
+| Copia in Studio | Originale in oh-my-pi (`packages/coding-agent/src/`) | Versione copiata |
+| --- | --- | --- |
+| `PLAN_MODE_ACTIVE_PROMPT` in `extensions/studio-plan.ts` | `prompts/system/plan-mode-active.md` (adattato: `resolve { action: "apply" }` → `studio_plan_submit`) | 18.8.4 |
+| `PLAN_MODE_SUBAGENT_PROMPT` in `extensions/studio-plan.ts` | `prompts/system/plan-mode-subagent.md` | 18.8.4 |
+| prompt d'esecuzione e istruzioni di compattazione in `src/lib/agent/planMode.ts` | `prompts/system/plan-mode-approved.md`, `plan-mode-compact-instructions.md` | 18.8.4 |
+| `planSaveFileName` (estensione e `planMode.ts`), `normalizePlanSlug` e `resolveLocalRoot` (estensione) | `plan-mode/plan-autosave.ts`, `plan-mode/plan-files.ts`, radice di `local://` | 18.8.4 |
+
+Procedura: `git diff` dei file upstream tra la versione copiata e quella nuova; se cambiano, aggiorna la copia mantenendo l'adattamento, aggiorna la colonna «Versione copiata» qui e nell'intestazione dei file, rilancia `test/plan-mode.test.ts`. Se omp introduce un comando RPC `plan` (o una richiesta UI `plan_review`), apri invece una decisione per sostituire l'estensione.
+
+## 5. Flag di Emergenza (`--skip-command-check`)
 
 In casi straordinari in cui e' necessario pubblicare immediatamente una fix critica senza aggiornare contestualmente il catalogo, sia `publish-nightly.mjs` che `release.mjs` accettano il flag:
 

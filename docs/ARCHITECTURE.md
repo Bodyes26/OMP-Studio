@@ -93,6 +93,7 @@ graph TB
 - **Coalescenza dei delta di streaming:** gli eventi `assistantMessageEvent` ad alta frequenza vengono coalesciati all'interno di una finestra temporale di **8 ms** (`DELTA_WINDOW`), evitando il costo $O(n^2)$ di passaggi IPC per risposte lunghe in streaming.
 - **Buffer circolare stderr:** conserva le ultime 200 righe di output stderr del processo per offrire diagnostica dettagliata ed immediata in caso di crash o errori di configurazione all'avvio.
 - **Canale di interruzione prioritario:** i comandi di stop (`abort`, `abort_bash`) operano con timeout rapido a 4 secondi (`FAST_COMMAND_TIMEOUT_MS`) e cancellazione locale immediata dei buffer, garantendo reattività istantanea alla pressione del pulsante di stop o `Alt+C`.
+- **Modalita' Piano della GUI:** il processo RPC riceve `-e studio-plan.ts` e `OMP_STUDIO_PLAN=gui`; il PTY riceve la stessa estensione senza la variabile, e li' resta inerte (vale il `/plan` nativo). Dettagli in §6.6.
 
 ### 2.3 Worker Asincroni e Database SQLite
 - Tutte le interrogazioni su `stats.db`, `history.db` e `agent.db` vengono eseguite all'interno di `tokio::task::spawn_blocking` con connessioni aperte in modalità `OpenFlags::SQLITE_OPEN_READ_ONLY`, `PRAGMA query_only = ON` e `PRAGMA busy_timeout = 3000`, evitando di bloccare l'event loop di Tauri.
@@ -476,6 +477,15 @@ I metodi senza risposta (`notify`, `setStatus`, `setWidget`, `setTitle`, `open_u
 | `get_state` | `isSettled` (con `isStreaming`) riallinea chi si attacca a meta'; la sua presenza accende `aware` |
 
 `running` e' anche il «run vivo» del cancello della coda (§5.3): `turn_end` spegne `isStreaming` a ogni giro di tool, `running` resta acceso fino allo yield. `backgroundPending = aware && !settled && !running && !streaming`. In quello stato `agentState` resta `working` (tessera, companion e `finished` aspettano la quiete), `automationSnapshot.backgroundWork` e' vero (blocco `background` in `automationGate.ts`, instradabile in corsia) e la riga di stato mostra «in background». Mentre si aspetta, un `get_state` ogni 15 s fa da rete per un `session_settled` perso. Con un omp che non riporta la quiete (`aware` mai acceso) lo yield vale come quiete: il comportamento precedente.
+
+
+### 6.6 Modalita' Piano nella chat GUI (Gate R3X-plan)
+
+- **Trasporto:** `extensions/studio-plan.ts` (comando nascosto `/studio-plan on|off|status|review`, hook `before_agent_start` e `tool_call`, strumento `studio_plan_submit`). Studio manda `/studio-plan <op>` come `prompt` senza bolla nel transcript; `mergeCommands` lo nasconde dalla palette. Lo stato torna con `setStatus` sulla chiave `studio-plan` (JSON) e sopravvive al resume come voce custom `studio-plan-state`.
+- **Revisione:** `extension_ui_request` `editor` con titolo `studio-plan-review:<meta>` e piano precompilato. `AgentSession` la intercetta prima delle domande generiche e la passa a `PlanController.openReview`; un `cancel` di omp la chiude. La risposta `extension_ui_response` porta la decisione JSON (`encodePlanDecision`).
+- **Moduli:** `src/lib/agent/planMode.ts` (puro: parser della richiesta e dello stato, sezioni `##`, ricomposizione, strade e tasti, passi del passaggio, prompt d'esecuzione, `reanchorEntries`); `src/lib/agent/planController.svelte.ts` (stato reattivo per sessione, `planCards` condiviso tra sessioni, orchestrazione del passaggio, ruoli); `PlanHost` registrato da `+page.svelte` per creare la corsia e riprendere la sessione di pianificazione. Componenti: `PlanApprovalCard` (al posto del composer durante la revisione), `PlanDocCard`, `PlanHandoffCard`, `PlanApprovedCard`, `PlanTray` (piano in costruzione), `PlanEntryView`.
+- **Transcript:** le voci `PlanEntry` (`enter | exit | doc | handoff`) sono del solo client, ancorate al `messageTs` dell'ultimo messaggio; dopo una ricostruzione con `get_messages_page` `reanchorEntries` le rimette dopo il loro messaggio.
+- **Passaggio:** risposta `approve` → fine turno (`waitForIdle`) → strada (`new_session` | corsia | `compact` con istruzioni | stessa sessione) → ruolo → `prompt` con il piano approvato. Un errore ferma il passaggio sulla card con il passo fallito.
 
 ---
 

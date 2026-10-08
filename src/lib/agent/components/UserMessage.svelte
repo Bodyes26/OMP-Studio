@@ -16,7 +16,8 @@
 	import { contextMenu, type ContextMenuEntry } from '$lib/contextMenu.svelte';
 	import Tooltip from '$lib/ui/Tooltip.svelte';
 
-	let { entry }: { entry: UserEntry } = $props();
+	// `planBadge`: messaggio mandato in modalita' Piano (badge «Piano» come nel prototipo).
+	let { entry, planBadge = false }: { entry: UserEntry; planBadge?: boolean } = $props();
 
 	const hooks = agentUiHooks();
 	const isNonStandardAttribution = $derived(
@@ -145,6 +146,7 @@
 	<div class="user-bubble rv-lift" oncontextmenu={handleBubbleContextMenu}>
 		{#if displayMessage}
 			<div class="content">
+				{#if planBadge}<span class="plan-badge-inline font-mono">{m.plan_badge()}</span>{/if}
 				<MarkdownInline tokens={inlineTokens} />
 			</div>
 		{/if}
@@ -338,6 +340,15 @@
 		width: 56px;
 		height: 56px;
 		object-fit: cover;
+	}
+
+	.plan-badge-inline {
+		font-size: 0.84em;
+		background: var(--ink);
+		color: var(--bg-base);
+		border-radius: var(--radius-md);
+		padding: 1px 6px;
+		margin-right: 4px;
 	}
 
 	.user-bubble {

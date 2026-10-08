@@ -30,6 +30,8 @@
 	import SubagentDrawer from './SubagentDrawer.svelte';
 	import SuggestionChips from './SuggestionChips.svelte';
 	import Transcript from './Transcript.svelte';
+	import PlanTray from './PlanTray.svelte';
+	import PlanApprovalCard from './PlanApprovalCard.svelte';
 
 	let {
 		session,
@@ -440,6 +442,9 @@
 				chips={composerRef?.visibleSuggestionChips() ?? []}
 				onSelect={(prompt) => composerRef?.applySuggestionChip(prompt)}
 			/>
+			{#if session.plan.building}
+				<PlanTray outline={session.plan.outline} planFilePath={session.plan.planFilePath} />
+			{/if}
 			<ComposerTray
 				quota={quotaInfo}
 				phases={session.todoPhases}
@@ -462,17 +467,23 @@
 						}
 					: undefined}
 			/>
-			{#if session.pendingUi && !askMinimized}
+			{#if session.plan.approvalOpen}
+				<!-- Revisione del Piano: la scheda prende il posto del composer. -->
+				<PlanApprovalCard {session} {visible} />
+			{/if}
+			{#if session.pendingUi && !askMinimized && !session.plan.approvalOpen}
 				{@const cardKey = `${session.pendingUi.toolCallId ?? session.pendingUi.requestId}:${session.pendingUi.questions?.length ?? 0}:${session.pendingUi.questionIndex ?? 0}`}
 				{#key cardKey}
 					<AskCard {session} pending={session.pendingUi} {visible} onMinimize={minimizeAsk} />
 				{/key}
 			{/if}
-			<div class:composer-under-ask={session.pendingUi !== null && !askMinimized}>
+			<div
+				class:composer-under-ask={(session.pendingUi !== null && !askMinimized) || session.plan.approvalOpen || session.plan.handingOff}
+			>
 				<Composer
 					bind:this={composerRef}
 					{session}
-					visible={visible && (session.pendingUi === null || askMinimized)}
+					visible={visible && (session.pendingUi === null || askMinimized) && !session.plan.approvalOpen && !session.plan.handingOff}
 					dropTarget={isDraggingColumn}
 					onSlashCommand={(cmd: string) => (onSlashCommand ? onSlashCommand(cmd) : false)}
 					{onNewChat}

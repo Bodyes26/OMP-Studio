@@ -847,6 +847,8 @@ pub async fn rpc_open(
         crate::pty::write_extension("studio-tasks.ts", crate::pty::TASKS_EXTENSION_TS);
     let lanes_extension =
         crate::pty::write_extension("studio-lanes.ts", crate::pty::LANES_EXTENSION_TS);
+    let plan_extension =
+        crate::pty::write_extension("studio-plan.ts", crate::pty::PLAN_EXTENSION_TS);
 
     // Progetto senza cartella (chat temporanea): stesso trattamento del PTY,
     // sessione effimera e nessun `--cwd`.
@@ -877,6 +879,9 @@ pub async fn rpc_open(
     if let Some(path) = &lanes_extension {
         command.arg("-e").arg(path);
     }
+    if let Some(path) = &plan_extension {
+        command.arg("-e").arg(path);
+    }
     // Applica resume (se sessione valida) oppure continue_last
     let mut session_args = Vec::new();
     apply_resume_or_continue(
@@ -895,6 +900,9 @@ pub async fn rpc_open(
     command
         .current_dir(&launch_cwd)
         .env("OMP_STUDIO", "1")
+        // Accende `studio-plan.ts`: il Piano della chat GUI. Nel PTY la
+        // variabile manca e l'estensione resta inerte (vale il `/plan` nativo).
+        .env("OMP_STUDIO_PLAN", "gui")
         // Come per il PTY: nessun wizard dentro una sessione di lavoro.
         .env("OMP_SKIP_SETUP", "1");
     if let Some(lane) = &lane_id {

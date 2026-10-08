@@ -83,3 +83,4 @@ import './command-layout.test.ts';
 import './command-manifest.test.ts';
 import './extension-ui-settle.test.ts';
 import './auto-dispatch-stability.test.ts';
+import './plan-mode.test.ts';

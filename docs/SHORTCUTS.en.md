@@ -37,6 +37,9 @@ Global shortcuts captured by the application live behind the **`Ctrl+Alt`** modi
 | `Ctrl+C` | GUI Surface | Interrupt streaming response (when no text is selected); if the agent does not stop, pressing again forces it to stop |
 | `Alt+E` | GUI Surface | Focus Composer input field |
 | `Alt+N` | GUI Surface | Open new chat in active project |
+| `Alt+Shift+P` | GUI Surface | Toggle the chat Plan mode (same as `/plan` and the composer "Plan" pill; in the Terminal omp's own `app.plan.toggle` applies). On Mac `Ctrl+Option+Shift+P`. Not available in the Lab |
+| `1` … `4` | Plan approval panel | Pick the execution path (new session, new lane, compact and continue, keep context) |
+| `Ctrl+Enter` | Plan approval panel | "Approve and run" on the selected path |
 | `/` | GUI Composer | Open available slash command palette |
 | `@` | GUI Composer, task editor, Companion | Open the project file palette; in the Companion after `#project` |
 | `#` | Companion | Pick the task's destination project |

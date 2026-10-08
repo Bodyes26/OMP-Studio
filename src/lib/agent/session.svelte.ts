@@ -165,6 +165,8 @@ import {
 	type ContextReport
 } from './contextReport';
 import { m as messages } from '$lib/paraglide/messages.js';
+import { PlanController } from './planController.svelte';
+import { PLAN_STATUS_KEY, parsePlanReviewRequest, reanchorEntries } from './planMode';
 /** Stato dell'agente per la barra dei progetti: stessa semantica del PTY. */
 export type AgentSurfaceState = 'idle' | 'working' | 'attention' | 'unknown';
 
@@ -313,6 +315,21 @@ export interface LaneLandingEntry {
 	landingId: string;
 }
 
+/**
+ * Voce del solo client per la modalita' Piano (Gate R3X-plan): riga d'entrata
+ * o d'uscita, card del piano in revisione, card del passaggio di compito.
+ * `refId` punta allo stato in `planCards`; `anchorTs` e `sessionId` la
+ * rimettono al suo posto dopo una ricostruzione del transcript.
+ */
+export interface PlanEntry {
+	id: number;
+	kind: 'plan';
+	variant: 'enter' | 'exit' | 'doc' | 'handoff';
+	refId: string;
+	anchorTs: number | null;
+	sessionId: string | null;
+}
+
 export type TranscriptEntry =
 	| UserEntry
 	| AssistantEntry
@@ -324,7 +341,8 @@ export type TranscriptEntry =
 	| SubagentResultEntry
 	| IrcEntry
 	| SystemChipEntry
-	| LaneLandingEntry;
+	| LaneLandingEntry
+	| PlanEntry;
 /** Una voce della coda di omp: testo opaco del chip e coda di provenienza. */
 export interface QueuedMessage {
 	text: string;
@@ -658,6 +676,8 @@ export class AgentSession {
 	slowModeScope = $state<'session' | 'global' | null>(null);
 	usageLimit = $state<UsageLimitState | null>(null);
 	goal = $state<GoalModeState | null>(null);
+	/** Modalita' Piano della chat GUI: revisione e passaggio di compito. */
+	readonly plan: PlanController = new PlanController(this);
 	cacheWarmingInFlight = $state<CacheWarmingInFlight | null>(null);
 	cacheWarmingLast = $state<CacheWarmingLast | null>(null);
 
@@ -728,6 +748,8 @@ export class AgentSession {
 	private abortFallbackTimer: number | null = null;
 	/** Prompt scritti subito dopo uno Stop che aspettano la fine dell'interruzione. */
 	private abortSettledWaiters: Array<() => void> = [];
+	/** Chi aspetta la fine del turno (passaggio di compito del Piano). */
+	private idleWaiters: Array<() => void> = [];
 	private unsubscribeEvent: (() => void) | null = null;
 	private deltaBatcher = new StreamBatcher((items) => {
 		for (const item of items) {
@@ -1810,7 +1832,11 @@ export class AgentSession {
 				} while (cursor);
 
 				if (failed === null) {
-					this.entries = this.mapHistory(collected);
+					// Le card del Piano non sono nella storia di omp: tornano al loro posto.
+					const planEntries = this.entries.filter(
+						(entry): entry is PlanEntry => entry.kind === 'plan' && entry.sessionId === this.sessionId
+					);
+					this.entries = reanchorEntries(this.mapHistory(collected), planEntries);
 					// Le card ricostruite devono restare aggiornabili dalla diretta:
 					// nella mappa vanno le istanze reattive, prese dopo l'assegnazione.
 					this.toolEntries.clear();
@@ -2209,6 +2235,7 @@ export class AgentSession {
 				this.activeAssistantId = null;
 				this.runEndSeq += 1;
 				this.agentState = this.resolveSettledState();
+				this.releaseIdleWaiters();
 				void this.reconcile();
 				this.captureAssistantActivity();
 				notifyGitStatusRefresh(this.cwd);
@@ -3275,6 +3302,11 @@ export class AgentSession {
 
 		if (method === 'cancel') {
 			const target = typeof event.targetId === 'string' ? event.targetId : null;
+			// Revisione del Piano ritirata da omp (turno interrotto): via la scheda.
+			if (target && this.plan.closeReview(target)) {
+				this.settleAttention();
+				return;
+			}
 			if (!target || this.pendingUi?.requestId === target) {
 				const cancelId = target ?? this.pendingUi?.requestId;
 				if (cancelId && promptBus.hasPending(cancelId)) {
@@ -3290,6 +3322,14 @@ export class AgentSession {
 			const body = text ?? title;
 			// omp manda il livello in `notifyType`; `level` resta per i frame vecchi.
 			if (body) this.pushNotice(this.noticeLevel(event.notifyType ?? event.level), body, 'estensione');
+			return;
+		}
+		// Le chiavi riservate di Studio portano stato strutturato (JSON) per la
+		// GUI: si intercettano prima del ramo generico, cosi' non compaiono mai
+		// come voce di stato o widget dell'estensione.
+		if (method === 'setStatus' && event.statusKey === PLAN_STATUS_KEY) {
+			// Lo stato del Piano arriva su una chiave sua: non e' testo per la riga di stato.
+			this.plan.applyStatus(event.statusText);
 			return;
 		}
 		if (method === 'setStatus' || method === 'setWidget') {
@@ -3322,6 +3362,17 @@ export class AgentSession {
 			return;
 		}
 		if (ANSWERABLE_UI_METHODS[method] !== true) return;
+
+		// Revisione del Piano: `editor` con titolo `studio-plan-review:`. Non e'
+		// una domanda generica: la decide la scheda di approvazione.
+		if (method === 'editor') {
+			const review = parsePlanReviewRequest(title, event.prefill);
+			if (review) {
+				this.plan.openReview(id, review);
+				this.agentState = 'attention';
+				return;
+			}
+		}
 
 		if (method === 'ask') {
 			const questions: AskQuestion[] = Array.isArray(event.questions)
@@ -3476,7 +3527,7 @@ export class AgentSession {
 	 * l'anello di attenzione nella barra progetti e l'allerta sull'icona.
 	 */
 	private markWorking() {
-		if (this.pendingUi) return;
+		if (this.pendingUi || this.plan.review) return;
 		this.inferredAttention = null;
 		this.blockedQuotaState = null;
 		this.agentState = 'working';
@@ -4272,6 +4323,7 @@ export class AgentSession {
 	 * contenga la sessione di arrivo.
 	 */
 	private resetLiveSessionState(): void {
+		this.plan.onSessionReset();
 		this.entries = [];
 		this.toolEntries.clear();
 		this.clearStreamAsk();
@@ -4292,6 +4344,60 @@ export class AgentSession {
 		this.applyRunActivity(runActivityReset(this.runActivity, Date.now()));
 		this.visibleCount = RENDER_WINDOW;
 		this.ompEntries.invalidate();
+	}
+
+	/** Voce del Piano nel transcript, ancorata all'ultimo messaggio di omp. */
+	pushPlanEntry(variant: PlanEntry['variant'], refId: string): PlanEntry {
+		let anchorTs: number | null = null;
+		for (let index = this.entries.length - 1; index >= 0; index--) {
+			const entry = this.entries[index];
+			if ((entry.kind === 'user' || entry.kind === 'assistant') && entry.messageTs !== undefined) {
+				anchorTs = entry.messageTs;
+				break;
+			}
+			// Un'altra voce del Piano ha gia' il suo ancoraggio: si va dopo di lei.
+			if (entry.kind === 'plan') {
+				anchorTs = entry.anchorTs;
+				break;
+			}
+		}
+		return this.push<PlanEntry>({
+			id: this.nextEntryId++,
+			kind: 'plan',
+			variant,
+			refId,
+			anchorTs,
+			sessionId: this.sessionId
+		});
+	}
+
+	/** Si risolve quando il turno in corso finisce (o subito, a sessione ferma). */
+	waitForIdle(timeoutMs = 60_000): Promise<boolean> {
+		if (!this.isStreaming) return Promise.resolve(true);
+		return new Promise<boolean>((resolve) => {
+			const timer = window.setTimeout(() => {
+				this.idleWaiters = this.idleWaiters.filter((waiter) => waiter !== done);
+				resolve(false);
+			}, timeoutMs);
+			const done = () => {
+				window.clearTimeout(timer);
+				resolve(true);
+			};
+			this.idleWaiters.push(done);
+		});
+	}
+
+	private releaseIdleWaiters(): void {
+		const waiters = this.idleWaiters;
+		this.idleWaiters = [];
+		for (const resolve of waiters) resolve();
+	}
+
+	/** Chiusa una richiesta interattiva del Piano, l'anello d'attenzione si spegne. */
+	settleAttention(): void {
+		if (this.agentState === 'attention' && !this.pendingUi) {
+			this.agentState = this.isStreaming ? 'working' : 'idle';
+		}
 	}
 
 	async newSession(): Promise<string | null> {

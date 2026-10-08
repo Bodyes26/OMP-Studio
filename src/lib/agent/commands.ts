@@ -153,6 +153,17 @@ export const STUDIO_SLASH_COMMANDS: AvailableCommand[] = [
 		source: 'studio'
 	},
 	{
+		name: 'plan',
+		get description() { return msg.plan_command_description(); },
+		source: 'studio',
+		input: { hint: '[testo]' }
+	},
+	{
+		name: 'plan-review',
+		get description() { return msg.plan_review_command_description(); },
+		source: 'studio'
+	},
+	{
 		name: 'drop',
 		get description() { return msg.ui_ts_commands_apre_lo_storico_per_gestire_ed_eliminare_f7c8(); },
 		source: 'studio'
@@ -164,6 +175,9 @@ export const STUDIO_SLASH_COMMANDS: AvailableCommand[] = [
 		source: 'studio'
 	}
 ];
+
+/** `/studio-plan` e' il trasporto di `/plan` nella chat (Gate R3X-plan). */
+const HIDDEN_EXTENSION_COMMANDS = new Set(['studio-plan']);
 
 /**
  * Unisce i comandi nativi del guscio con quelli dinamici ricevuti da omp.
@@ -186,6 +200,8 @@ export function mergeCommands(
 	}
 
 	for (const cmd of ompCommands) {
+		// Comandi interni delle estensioni di Studio: li manda il guscio, non l'utente.
+		if (HIDDEN_EXTENSION_COMMANDS.has(cmd.name.toLowerCase())) continue;
 		const isSkill = cmd.source === 'skill' || cmd.name.startsWith('skill:');
 		const cleanName = isSkill ? cmd.name.replace(/^skill:/, '') : cmd.name;
 		const lowerClean = cleanName.toLowerCase();

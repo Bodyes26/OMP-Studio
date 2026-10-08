@@ -53,3 +53,17 @@ export function routeSessionSlash(raw: string): SessionSlashAction | null {
 			return null;
 	}
 }
+
+/**
+ * Modalita' Piano (Gate R3X-plan): `/plan [testo]` accende/spegne il Piano (con un
+ * testo entra e lo manda), `/plan-review` riapre la revisione. Il `/plan` di omp
+ * e' solo TUI: nella chat lo serve Studio con l'estensione `studio-plan`.
+ */
+export type PlanSlashAction = { kind: 'plan'; argument: string } | { kind: 'plan-review' };
+
+export function routePlanSlash(raw: string): PlanSlashAction | null {
+	const { lower, argument } = parseSlash(raw);
+	if (lower === '/plan') return { kind: 'plan', argument };
+	if (lower === '/plan-review') return { kind: 'plan-review' };
+	return null;
+}

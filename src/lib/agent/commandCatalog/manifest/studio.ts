@@ -1,4 +1,4 @@
-// Voci del catalogo per i comandi slash nativi di OMP Studio (16 comandi guscio).
+// Voci del catalogo per i comandi slash nativi di OMP Studio (18 comandi guscio).
 //
 // Questi comandi vengono intercettati localmente dal guscio GUI di Studio
 // (in handleGuiSlashCommand) e non sono builtin inoltrati a omp via RPC.
@@ -857,6 +857,87 @@ export const STUDIO_ENTRIES: readonly CommandManifestEntry[] = [
 				],
 				whenToUse:
 					'When finishing work in the current session and resetting the chat surface.'
+			}
+		}
+	},
+	{
+		id: 'plan',
+		origin: 'studio',
+		category: 'modes',
+		icon: 'IconPlan',
+		control: 'toggle',
+		supported: [
+			{ zone: 'statusLine', form: 'chip' },
+			{ zone: 'statusLine', form: 'icon' }
+		],
+		defaultPlacement: null,
+		argsHint: '[testo]',
+		text: {
+			it: {
+				title: 'Modalità Piano',
+				summary:
+					'Accende o spegne la modalità Piano nella chat: l’agente esplora in sola lettura, scrive il piano e te lo propone per l’approvazione.',
+				benefits: [
+					'Il progetto resta intatto: write ed edit funzionano solo sul file del piano (local://) e su .omp/plans/.',
+					'Il piano arriva come card a sezioni: commenti, modifichi o elimini ogni sezione prima di decidere.',
+					'All’approvazione Studio passa il compito: nuova sessione pulita, nuova corsia, compattazione o cronologia completa, con il ruolo scelto.'
+				],
+				examples: [
+					{ command: '/plan', note: 'Accende la modalità Piano (di nuovo per uscirne)' },
+					{ command: '/plan aggiungi l’export CSV', note: 'Entra in Piano e manda subito la richiesta' }
+				],
+				whenToUse:
+					'Prima di un cambiamento che tocca più file o che vuoi far eseguire a un agente con contesto pulito. Nel Terminale resta il /plan nativo di omp.'
+			},
+			en: {
+				title: 'Plan mode',
+				summary:
+					'Turns plan mode on or off in the chat: the agent explores read-only, writes the plan and proposes it for approval.',
+				benefits: [
+					'The project stays untouched: write and edit only work on the plan file (local://) and on .omp/plans/.',
+					'The plan arrives as a sectioned card: comment on, edit or delete each section before deciding.',
+					'On approval Studio hands the task off: fresh session, new lane, compaction or full history, with the chosen role.'
+				],
+				examples: [
+					{ command: '/plan', note: 'Turns plan mode on (again to leave it)' },
+					{ command: '/plan add the CSV export', note: 'Enters plan mode and sends the request right away' }
+				],
+				whenToUse:
+					'Before a change that touches several files or that you want an agent to execute with a clean context. In the Terminal omp’s native /plan stays.'
+			}
+		}
+	},
+	{
+		id: 'plan-review',
+		origin: 'studio',
+		category: 'modes',
+		icon: 'IconPlan',
+		control: 'panel',
+		supported: [
+			{ zone: 'statusLine', form: 'chip' },
+			{ zone: 'statusLine', form: 'icon' }
+		],
+		defaultPlacement: null,
+		text: {
+			it: {
+				title: 'Rivedi il piano',
+				summary: 'Riapre la revisione dell’ultimo piano della sessione, anche dopo averla chiusa.',
+				benefits: [
+					'Ritrovi la card del piano e la scheda di approvazione senza far riscrivere nulla all’agente.',
+					'Commenti, modifiche e strade di esecuzione funzionano come alla prima proposta.'
+				],
+				examples: [{ command: '/plan-review', note: 'Riapre la revisione del piano proposto' }],
+				whenToUse: 'Quando hai chiuso la revisione o sei uscito dal Piano e vuoi decidere sul piano già scritto.'
+			},
+			en: {
+				title: 'Review the plan',
+				summary: 'Reopens the review of the session’s latest plan, even after closing it.',
+				benefits: [
+					'Brings back the plan card and the approval sheet without the agent rewriting anything.',
+					'Comments, edits and execution paths work as on the first proposal.'
+				],
+				examples: [{ command: '/plan-review', note: 'Reopens the review of the proposed plan' }],
+				whenToUse: 'When you closed the review or left plan mode and want to decide on the plan already written.'
 			}
 		}
 	}

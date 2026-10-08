@@ -177,3 +177,9 @@ export { default as IconPanelLeftClose } from '@lucide/svelte/icons/panel-left-c
 
 // Laboratorio prototipi.
 export { default as IconLab } from '@lucide/svelte/icons/flask-conical';
+
+// Modalita' Piano della chat GUI: pillola, card del piano, strade di esecuzione.
+export { default as IconPlan } from '@lucide/svelte/icons/clipboard-list';
+export { default as IconComment } from '@lucide/svelte/icons/message-square';
+export { default as IconCompact } from '@lucide/svelte/icons/fold-vertical';
+export { default as IconKeepHistory } from '@lucide/svelte/icons/list';
