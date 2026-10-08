@@ -53,3 +53,17 @@ export function routeSessionSlash(raw: string): SessionSlashAction | null {
 			return null;
 	}
 }
+
+/**
+ * `/btw [domanda]`: domanda a margine nel riquadro sopra il composer. Senza
+ * domanda apre il riquadro (con lo storico a portata, come il `/btw` della
+ * TUI); con la domanda la manda subito. Studio la intercetta sempre: inoltrata
+ * a omp come prompt arriverebbe al modello principale come testo normale,
+ * perche' in RPC `/btw` e' solo un comando della TUI.
+ */
+export function routeBtwSlash(raw: string): { kind: 'btw'; question: string } | null {
+	const { command, lower } = parseSlash(raw);
+	if (lower !== '/btw') return null;
+	// Il testo resta com'e' (a capo compresi): `parseSlash` lo ricompatta in una riga.
+	return { kind: 'btw', question: raw.trim().slice(command.length).trim() };
+}

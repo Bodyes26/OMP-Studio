@@ -51,7 +51,9 @@ const FAST_COMMANDS: Record<string, true> = {
 	abort: true,
 	abort_bash: true,
 	abort_and_restore_queue: true,
-	negotiate_capabilities: true
+	negotiate_capabilities: true,
+	// omp lo esegue fuori dalla coda dei comandi e risponde subito.
+	btw_cancel: true
 };
 
 /** Un rapporto di blocco al massimo ogni tanto: un blocco fa scadere in
