@@ -10,7 +10,8 @@
 	import Chat from '$lib/agent/components/Chat.svelte';
 	import { AgentSession } from '$lib/agent/session.svelte';
 	import { laneSessionKey, sessionRegistry, type UiResponsePayload } from '$lib/agent/sessionRegistry';
-	import { routeSessionSlash } from '$lib/agent/slashRouter';
+	import { routeGoalSlash, routeSessionSlash, type GoalSlashAction } from '$lib/agent/slashRouter';
+	import { goalTitle } from '$lib/agent/guidedGoal';
 	import type { RpcCommand, ThinkingLevel } from '$lib/agent/wire';
 	import ImageModal from '$lib/agent/components/ImageModal.svelte';
 	import { IconNewChat, IconCircleAlert, IconClose } from '$lib/icons';
@@ -1737,6 +1738,13 @@
 			}
 			return true;
 		}
+		// Obiettivo (goal mode): `/guided-goal` e `/goal` in omp esistono solo nel
+		// terminale; qui li serve Studio con l'intervista e l'RPC `goal`.
+		const goalAction = routeGoalSlash(trimmed);
+		if (goalAction) {
+			handleGoalSlash(session, goalAction);
+			return true;
+		}
 		if (lowerCmd === '/drop') {
 			const targetLane = laneOf(project, laneId);
 			if (targetLane?.kind === 'lab') {
@@ -1988,6 +1996,46 @@
 		}
 	}
 
+	function handleGoalSlash(session: AgentSession, action: GoalSlashAction) {
+		const goal = session.goal?.goal ?? null;
+		switch (action.kind) {
+			case 'interview':
+				session.startGuidedGoal(action.idea);
+				return;
+			case 'default':
+			case 'show':
+				if (goal) {
+					session.flashNotice('info', m.goal_slash_status({ status: goal.status, title: goalTitle(goal.objective) }));
+				} else if (action.kind === 'default') {
+					session.startGuidedGoal('');
+				} else {
+					session.flashNotice('info', m.goal_slash_none());
+				}
+				return;
+			case 'create':
+				if (goal && goal.status !== 'complete' && goal.status !== 'dropped') {
+					session.flashNotice('warning', m.guided_goal_already_active());
+					return;
+				}
+				void session.createGoal(action.objective).then((created) => {
+					if (created) session.flashNotice('info', m.goal_slash_created());
+				});
+				return;
+			case 'pause':
+			case 'resume':
+			case 'drop':
+				if (!goal) {
+					session.flashNotice('info', m.goal_slash_none());
+					return;
+				}
+				void session.setGoalOp(action.kind);
+				return;
+			case 'budget':
+				session.flashNotice('info', m.goal_slash_budget_unavailable());
+				return;
+		}
+	}
+
 	function guiHelpText(session: AgentSession): string {
 		const lines = [
 			m.page_gui_help_title(),
@@ -1995,6 +2043,7 @@
 			m.ui__page_resume_id_riprende_una_sessione_o_apre_97fd(),
 			m.page_gui_help_fork(),
 			m.page_gui_help_tree(),
+			m.page_gui_help_goal(),
 			m.page_gui_help_compact(),
 			m.ui__page_handoff_istruzioni_passa_il_testimone_a_una_1f1b(),
 			'/thinking <off|minimal|low|medium|high|xhigh|max>',

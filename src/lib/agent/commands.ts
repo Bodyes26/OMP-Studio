@@ -153,6 +153,24 @@ export const STUDIO_SLASH_COMMANDS: AvailableCommand[] = [
 		source: 'studio'
 	},
 	{
+		name: 'guided-goal',
+		get description() { return msg.commands_guided_goal_desc(); },
+		source: 'studio',
+		input: { hint: '[idea]' }
+	},
+	{
+		name: 'goal',
+		get description() { return msg.commands_goal_desc(); },
+		source: 'studio',
+		input: { hint: '[obiettivo]' },
+		subcommands: [
+			{ name: 'show', get description() { return msg.commands_goal_show(); } },
+			{ name: 'pause', get description() { return msg.commands_goal_pause(); } },
+			{ name: 'resume', get description() { return msg.commands_goal_resume(); } },
+			{ name: 'drop', get description() { return msg.commands_goal_drop(); } }
+		]
+	},
+	{
 		name: 'drop',
 		get description() { return msg.ui_ts_commands_apre_lo_storico_per_gestire_ed_eliminare_f7c8(); },
 		source: 'studio'

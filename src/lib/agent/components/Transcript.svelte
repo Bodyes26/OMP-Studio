@@ -35,6 +35,7 @@
 	import AskTrace from './AskTrace.svelte';
 	import IrcMessageCard from './IrcMessageCard.svelte';
 	import LaneLandingCard from './LaneLandingCard.svelte';
+	import GuidedGoalEntry from './GuidedGoalEntry.svelte';
 	import SystemChip from './SystemChip.svelte';
 	import NoticeGroup from './NoticeGroup.svelte';
 	import ActivityIndicator from './ActivityIndicator.svelte';
@@ -360,6 +361,13 @@
 		if (item.kind === 'todo-trace' || item.kind === 'subagent-trace' || item.kind === 'ask-trace') return 'content';
 		const k = item.entry.kind;
 		if (k === 'user') return 'user';
+		// Le risposte dell'intervista dell'obiettivo sono bolle dell'utente.
+		if (k === 'guided-goal') {
+			const part = item.entry.part;
+			if (part === 'command' || part === 'answer') return 'user';
+			if (part === 'started' || part === 'note') return 'system';
+			return 'content';
+		}
 		if (k === 'notice' || k === 'system-chip' || k === 'compaction' || k === 'retry' || k === 'ttsr') return 'system';
 		if (k === 'subagent-result' || k === 'irc') return 'content';
 		return 'content';
@@ -502,6 +510,8 @@
 					<TtsrRow entry={item.entry} fresh={!disableAnimations} />
 				{:else if item.entry.kind === 'lane-landing'}
 					<LaneLandingCard entry={item.entry} />
+				{:else if item.entry.kind === 'guided-goal'}
+					<GuidedGoalEntry entry={item.entry} {session} />
 				{/if}
 			</div>
 			{#if turnFootersByIndex.get(i)}

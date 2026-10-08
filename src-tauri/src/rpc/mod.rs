@@ -199,8 +199,12 @@ impl RpcManager {
 
 
 /// Riscrive in modo atomico il file di configurazione overlay GUI,
-/// preservando la base (`tools.approvalMode: yolo`, `read.defaultLimit: 1200`)
-/// e aggiornando il valore di `prewalk.enabled`.
+/// preservando la base (`tools.approvalMode: yolo`, `read.defaultLimit: 1200`,
+/// `goal.continuationModes` con `rpc`) e aggiornando il valore di `prewalk.enabled`.
+///
+/// `goal.continuationModes`: di default omp fa proseguire da solo un obiettivo
+/// (goal mode) solo nel terminale (`interactive`). Senza `rpc` un obiettivo
+/// creato dalla chat GUI farebbe un turno e poi si fermerebbe.
 /// Rifiuta la riscrittura se il percorso appartiene a una configurazione del Laboratorio.
 pub(crate) fn set_gui_overlay_prewalk(
     config_path: &std::path::Path,
@@ -210,9 +214,9 @@ pub(crate) fn set_gui_overlay_prewalk(
         return Err("Rifiutata modifica prewalk su configurazione Laboratorio".to_string());
     }
     let content: &[u8] = if enabled {
-        b"tools:\n  approvalMode: yolo\nread:\n  defaultLimit: 1200\nprewalk:\n  enabled: true\n"
+        b"tools:\n  approvalMode: yolo\nread:\n  defaultLimit: 1200\ngoal:\n  continuationModes:\n    - interactive\n    - rpc\nprewalk:\n  enabled: true\n"
     } else {
-        b"tools:\n  approvalMode: yolo\nread:\n  defaultLimit: 1200\nprewalk:\n  enabled: false\n"
+        b"tools:\n  approvalMode: yolo\nread:\n  defaultLimit: 1200\ngoal:\n  continuationModes:\n    - interactive\n    - rpc\nprewalk:\n  enabled: false\n"
     };
     crate::fs_atomic::atomic_write(config_path, content)
 }
@@ -847,6 +851,8 @@ pub async fn rpc_open(
         crate::pty::write_extension("studio-tasks.ts", crate::pty::TASKS_EXTENSION_TS);
     let lanes_extension =
         crate::pty::write_extension("studio-lanes.ts", crate::pty::LANES_EXTENSION_TS);
+    let goal_extension =
+        crate::pty::write_extension("studio-goal.ts", crate::pty::GOAL_EXTENSION_TS);
 
     // Progetto senza cartella (chat temporanea): stesso trattamento del PTY,
     // sessione effimera e nessun `--cwd`.
@@ -875,6 +881,11 @@ pub async fn rpc_open(
         command.arg("-e").arg(path);
     }
     if let Some(path) = &lanes_extension {
+        command.arg("-e").arg(path);
+    }
+    // Proposte dell'agente per l'obiettivo guidato (`/guided-goal`): facoltativa,
+    // senza file l'intervista resta con le proposte fisse.
+    if let Some(path) = &goal_extension {
         command.arg("-e").arg(path);
     }
     // Applica resume (se sessione valida) oppure continue_last
@@ -1873,6 +1884,29 @@ mod tests {
         assert!(overlay.read.summarize.is_none());
         assert!(!overlay.prewalk.enabled);
 
+        let _ = std::fs::remove_file(overlay_path);
+    }
+
+    #[test]
+    fn overlay_gui_abilita_la_continuazione_dei_goal_in_rpc() {
+        #[derive(Deserialize)]
+        struct OverlayGoalOnly {
+            goal: OverlayGoal,
+        }
+        #[derive(Deserialize)]
+        struct OverlayGoal {
+            #[serde(rename = "continuationModes")]
+            continuation_modes: Vec<String>,
+        }
+
+        let rpc_id = 99006;
+        let overlay_path = write_gui_overlay(rpc_id).expect("overlay GUI generato");
+        for enabled in [true, false] {
+            set_gui_overlay_prewalk(&overlay_path, enabled).expect("riscrittura overlay riuscita");
+            let content = std::fs::read_to_string(&overlay_path).expect("overlay leggibile");
+            let parsed: OverlayGoalOnly = serde_yaml::from_str(&content).expect("overlay YAML valido");
+            assert_eq!(parsed.goal.continuation_modes, vec!["interactive", "rpc"]);
+        }
         let _ = std::fs::remove_file(overlay_path);
     }
 

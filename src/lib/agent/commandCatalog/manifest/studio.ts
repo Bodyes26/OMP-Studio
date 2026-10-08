@@ -6,12 +6,64 @@
 // switch, changelog, compact, handoff) sono esclusi da qui e gestiti con origin
 // 'omp' nei rispettivi file del manifesto.
 //
-// Nessun comando del guscio ha defaultPlacement attivo: di fabbrica restano
-// non fissati e possono essere aggiunti dall'utente alla riga di stato (statusLine).
+// Di fabbrica i comandi del guscio restano non fissati e possono essere aggiunti
+// dall'utente alla riga di stato (statusLine). Unica eccezione `guided-goal`:
+// il pulsante «Obiettivo» nella barra del composer e' l'ingresso dell'obiettivo
+// guidato (prototipo approvato, variante B).
 
 import type { CommandManifestEntry } from '../types';
 
 export const STUDIO_ENTRIES: readonly CommandManifestEntry[] = [
+	{
+		id: 'guided-goal',
+		origin: 'studio',
+		category: 'modes',
+		icon: 'IconTarget',
+		control: 'action',
+		supported: [
+			{ zone: 'toolbar', form: 'chip' },
+			{ zone: 'toolbar', form: 'icon' },
+			{ zone: 'statusLine', form: 'chip' }
+		],
+		defaultPlacement: { zone: 'toolbar', form: 'chip' },
+		argsHint: '[idea]',
+		text: {
+			it: {
+				title: 'Obiettivo',
+				summary:
+					'Definisce un obiettivo con cinque domande in chat (criteri, verifica, tetto, confini, stop) e lo avvia in goal mode.',
+				benefits: [
+					'Trasforma un’idea vaga in criteri che danno un sì o un no, con il criterio vago segnalato prima di partire.',
+					'Fissa un tetto di tentativi e di token: l’agente lavora da solo ma non gira a vuoto.',
+					'Segui l’avanzamento nel banner in cima alla chat, con Pausa, Riprendi e Stop.'
+				],
+				examples: [
+					{ command: '/guided-goal', note: 'Apre l’intervista: prima domanda «cosa vuoi ottenere?»' },
+					{ command: '/guided-goal rendi più veloce l’avvio', note: 'Parte dall’idea e chiede subito i criteri' },
+					{ command: '/goal pause', note: 'Mette in pausa l’obiettivo attivo (anche resume, drop, show)' }
+				],
+				whenToUse:
+					'Quando un lavoro va portato avanti per più turni fino a un risultato verificabile, senza guidarlo passo per passo.'
+			},
+			en: {
+				title: 'Goal',
+				summary:
+					'Defines a goal through five questions in chat (criteria, verification, cap, boundaries, stop) and starts it in goal mode.',
+				benefits: [
+					'Turns a vague idea into yes/no criteria, flagging a vague criterion before anything starts.',
+					'Sets an attempt and token cap: the agent works on its own without spinning in circles.',
+					'Follow progress in the banner at the top of the chat, with Pause, Resume and Stop.'
+				],
+				examples: [
+					{ command: '/guided-goal', note: 'Opens the interview, starting with “what do you want to achieve?”' },
+					{ command: '/guided-goal make startup faster', note: 'Starts from the idea and asks for the criteria right away' },
+					{ command: '/goal pause', note: 'Pauses the active goal (also resume, drop, show)' }
+				],
+				whenToUse:
+					'When a piece of work should run over several turns until a verifiable result, without steering it step by step.'
+			}
+		}
+	},
 	{
 		id: 'new',
 		origin: 'studio',

@@ -297,6 +297,9 @@ fn write_overlay() -> std::path::PathBuf {
 pub const DIAGRAM_EXTENSION_TS: &str = include_str!("../../../extensions/studio-diagram.ts");
 pub const TASKS_EXTENSION_TS: &str = include_str!("../../../extensions/studio-tasks.ts");
 pub const LANES_EXTENSION_TS: &str = include_str!("../../../extensions/studio-lanes.ts");
+/// Estensione dell'obiettivo guidato: proposte dell'agente con un turno a margine.
+/// Caricata solo dalla chat GUI (`rpc_open`), non dal terminale.
+pub const GOAL_EXTENSION_TS: &str = include_str!("../../../extensions/studio-goal.ts");
 
 /// Unica direttiva aggiunta all'avvio: tenerla qui evita divergenze tra GUI,
 /// Laboratorio e TUI senza salvarla nei messaggi o nel transcript.
