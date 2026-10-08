@@ -162,9 +162,12 @@ lib/
     session.svelte.ts   AgentSession: riduttore reattivo di stato, gestione streaming, cronologia transcript
     wire.ts             Tipi TypeScript e mapping del protocollo RPC NDJSON v2
     sessionTree.ts      Diramazioni: copia incrementale di get_entries, mappatura transcript -> entry, righe del pannello Rami (Gate R33)
-    slashRouter.ts      Instradamento puro dei comandi slash di sessione (/resume, /sessions, /tree, /fork)
+    slashRouter.ts      Instradamento puro dei comandi slash di sessione (/resume, /sessions, /tree, /fork) e di /btw
+    btw.ts              Domande a margine: record e turni di /btw, delta, citazione per il composer, riconoscimento di omp senza RPC btw (Gate R3X-btw)
+    btwState.svelte.ts  SessionBtw: stato del riquadro «A margine» per sessione (storico, argomento aperto, bozza, citazione)
     components/
       Chat.svelte       Pannello chat principale della superficie GUI
+      BtwPopover.svelte Riquadro «A margine» (/btw) sopra il composer: streaming, approfondimenti, Storico
       Composer.svelte   Input prompt con autocomplete slash (/), drag&drop immagini, ciclo ruoli
       SuggestionChips.svelte Riga di chip nel composer per suggerimenti prompt fissi e dinamici
       Transcript.svelte Lista messaggi con autoscroll resiliente e virtualizzazione progressiva
@@ -414,6 +417,15 @@ Quando l'agente o un tool (es. `ask`) richiede una scelta interattiva, OMP invia
 - Mappatura transcript -> entry: `UserEntry`/`AssistantEntry` portano `messageTs` (`message.timestamp` di omp, identico nel file). `OmpEntryCache` (`src/lib/agent/sessionTree.ts`) tiene la copia di `get_entries`, aggiornata con `since`; `activePath` risale dalla foglia, `resolveUserEntryId`/`resolveTurnEndEntryId` scelgono l'entry, con ripiego per posizione e testo.
 - Il pannello `BranchPanel.svelte` legge `get_tree` e lo proietta con `buildBranchTree` (solo messaggi utente, ramo attivo dritto, alternativi rientrati, iterativo). Il clic su un ramo inattivo fa `fork` sulla sua punta (`branchTipEntryId`): via RPC omp non ha lo spostamento di foglia nello stesso file della TUI.
 - Gli hook di ramo arrivano ai componenti del transcript via `AgentUiHooks.branch` (contesto impostato da `Chat.svelte`); fuori dalla chat le voci non compaiono.
+
+### 6.4b Domande a margine `/btw` (Gate R3X-btw)
+
+- Comandi RPC di omp (18.6.3+, `docs/rpc.md` «Side questions»): `btw { question, recordId? }` → `{ record }`, `btw_cancel { recordId? }` → `{ cancelled }` (in `FAST_COMMANDS`: omp lo esegue fuori coda), `get_btw_history` → `{ records }` dal piu' recente. Frame: `btw_record` (record intero a ogni cambio di stato, l'ultimo vince) e `btw_delta { recordId, delta }` (testo dell'ultimo turno). Il primo `btw_record` arriva **prima** della risposta a `btw`; tutti i delta dopo.
+- `AgentSession.btw` (`SessionBtw`, `src/lib/agent/btwState.svelte.ts`) riceve i frame dal riduttore e non tocca mai `entries`: niente finisce nel transcript. La logica pura (parsing tollerante, `applyBtwDelta`, `upsertBtwRecord`, citazione) sta in `btw.ts` con test in Node.
+- Supporto: `get_btw_history` parte a fine insediamento e fa da sonda. `Unknown command` (o un errore `parse` senza id, `uncorrelated`) mette `supported = false`: il pulsante «A margine» sparisce e `/btw`/`Ctrl+B` lasciano un avviso che spiega come aggiornare omp, senza rimandi al terminale. Un processo nuovo (`ready`) risonda.
+- Ingressi: pulsante nel composer (tra le azioni di sinistra e la striscia ruolo/modello), `Ctrl+B` (ascoltato sulla finestra dal composer; ferma anche il grassetto del contenteditable), `/btw [domanda]` intercettato in `handleGuiSlashCommand` con `routeBtwSlash` (mai inoltrato come prompt). Il riquadro (`BtwPopover.svelte`) e' assoluto nel piede della chat sopra vassoio e composer; a riquadro chiuso l'argomento aperto resta una riga di `ComposerTray` con «Apri».
+- Una domanda per volta per sessione (regola di omp): Studio non manda la seconda e lo dice. Cambio di sessione (nuova chat, ripresa, fork, ramo): omp annulla la domanda in corso; Studio azzera storico e selezione quando `get_state` porta un `sessionId` diverso, e conserva bozza e citazione.
+- «Usa nel messaggio»: `SessionBtw.quote` (domanda + ultima risposta in blockquote markdown) compare come chip nel composer e viene anteposta al testo solo all'invio riuscito (`withBtwQuote`); con un comando slash resta per il messaggio successivo. Il *branch* della TUI (promuovere lo scambio nella sessione) non ha un comando RPC.
 
 ### 6.5 Prewalk per chat e task
 

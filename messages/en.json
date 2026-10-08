@@ -2893,5 +2893,6 @@
   "btw_quote_remove": "Remove the quote",
   "btw_quote_aria": "Quote from the side question",
   "ui_ts_commands_btw_description": "Side question: answers without stopping the agent or entering the context",
-  "page_gui_help_btw": "/btw [question] — side question: answers without stopping the agent or entering the context (also Ctrl+B)"
+  "page_gui_help_btw": "/btw [question] — side question: answers without stopping the agent or entering the context (also Ctrl+B)",
+  "shortcuts_item_btw": "Side question (/btw): opens and closes the box above the composer"
 }

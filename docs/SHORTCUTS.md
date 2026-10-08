@@ -29,6 +29,7 @@ Le scorciatoie globali catturate dall'app vivono dietro il modificatore **`Ctrl+
 | `Ctrl+Alt+Freccia Sinistra` | Globale | Se il progetto attivo ha corsie secondarie, passa alla corsia precedente; altrimenti al progetto aperto precedente |
 | `Ctrl+Alt+Maiusc+Freccia` | Globale | Sposta la tessera del progetto attivo a destra o a sinistra (ordinamento manuale) |
 | `Ctrl+P` | Superficie GUI | Cicla sequenzialmente tra i ruoli configurati (`default` → `plan` → `smol`...) |
+| `Ctrl+B` | Superficie GUI, riquadro «A margine» | Apre e chiude il riquadro delle domande a margine (`/btw`) sopra il composer; nel riquadro `Invio` invia, `Maiusc+Invio` va a capo, `Esc` chiude e la domanda continua nel vassoio. Su macOS anche `⌘B` |
 | `Alt+R` | Superficie GUI | Apre il menu rapido di selezione del ruolo con filtro e navigazione |
 | `Alt+P` | Superficie GUI | Apre il catalogo modelli con filtro rapido e navigazione tastiera |
 | `Alt+M` | Superficie GUI | Apre il menu di selezione del livello di thinking (ragionamento) |

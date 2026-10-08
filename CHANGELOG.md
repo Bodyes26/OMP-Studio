@@ -16,6 +16,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - La riga sotto il composer manda le voci che non entrano in un menu «…».
 - «Dirama da qui» e «Modifica e riprova» nel menu «…» di ogni tuo messaggio nella chat (anche con il tasto destro): aprono una nuova sessione con la conversazione fino a prima di quel messaggio, e con «Modifica e riprova» il testo torna nel composer per correggerlo e reinviarlo. Sotto ogni risposta conclusa «Dirama da qui» apre una nuova sessione che finisce con quel turno. La sessione di partenza resta intatta nell'elenco sessioni.
 - Pannello «Rami» (`/tree`, o fissato nel composer): l'albero della sessione aperta con un nodo per ogni tuo messaggio, il ramo attivo evidenziato e i rami alternativi rientrati dove si staccano. Un clic su un ramo lo apre come nuova sessione fino al suo ultimo messaggio; dal menu di un nodo puoi anche diramare da prima del messaggio o riprovarlo.
+- Domande a margine nella chat GUI (`/btw`): il pulsante «A margine» nel composer, `Ctrl+B` o `/btw <domanda>` aprono un riquadro sopra il composer dove fai una domanda veloce sulla sessione mentre l'agente continua a lavorare. Risponde il modello senza strumenti, la risposta scorre nel riquadro e non entra nella conversazione. Gli approfondimenti si scrivono nello stesso campo, lo «Storico» (condiviso con il `/btw` del terminale) riapre gli argomenti precedenti, `Esc` chiude lasciando una riga nel vassoio con «Apri», e «Usa nel messaggio» mette domanda e risposta nel composer come citazione, che entra nel contesto solo se invii. Richiede `omp` 18.6.3 o successivo: con una versione precedente il pulsante non compare e `/btw` spiega come aggiornare.
 
 ### Changed
 - Meno processi in background: lo stato Git della barra superiore si legge con un solo comando `git` invece di cinque, i controlli di Git e dei limiti d'uso rallentano quando Studio non è in primo piano e si fermano quando è ridotto a icona, e la ricerca di `omp`, `gh` e VS Code non avvia più processi esterni. Su Windows con l'antivirus attivo la differenza si sente di più.
@@ -25,6 +26,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Le operazioni Git e le ricerche nei file non rallentano più le altre richieste dell'interfaccia.
 - Il registro diagnostico del fuoco (`focus-trace.log`) non viene più scritto se non lo si attiva.
 - `/tree` nella chat GUI apre il pannello «Rami», come il `/tree` di `omp`, invece dell'elenco sessioni: l'elenco resta su `/sessions` e `/resume`.
+- `/btw` scritto nella chat GUI non arriva più al modello principale come testo normale: lo gestisce Studio con il riquadro «A margine».
 
 ### Fixed
 - Studio non consuma più CPU di continuo a riposo: per ogni sessione senza un account fissato la ricerca dell'account si ripeteva senza sosta scorrendo tutte le sessioni su disco (oltre il 150% di CPU su Mac).

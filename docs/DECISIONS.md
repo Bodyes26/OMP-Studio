@@ -1446,3 +1446,38 @@ locali e il `queuedMessageCount` di omp potevano divergere, e un crash prima di
 - **`branch` per «Dirama da qui» su ogni messaggio utente.** Ripartirebbe dal genitore del messaggio come `fork`, ma senza copiare gli artefatti: i risultati tool conservati che citano `artifact://N` non si risolverebbero piu'.
 - **Pilotare `/tree` nel PTY dalla GUI.** E' l'esatto motivo dello scarto di `IDEAS.md` e resta escluso.
 - **Spostare la foglia nello stesso file con `branch` + `new_session`.** Non esiste un comando RPC che lo faccia; simularlo creerebbe comunque file nuovi con un nome che non lo dice.
+
+---
+
+## Gate R3X-btw: domande a margine (`/btw`) nella chat GUI con i comandi RPC di omp
+
+**Data:** 2026-10-08
+**Esito:** IMPLEMENTATO (variante A del prototipo `btw.html`: riquadro effimero sopra il composer)
+
+### Il problema
+
+1. In omp `/btw` ha solo il gestore della TUI: in RPC il dispatcher dei builtin lo salta e il testo arriva a `session.prompt`. Scritto nella chat GUI, `/btw perché…` diventava un messaggio normale al modello principale, entrava nel contesto e, ad agente occupato, finiva in coda.
+2. Non c'era un modo di chiedere qualcosa sulla sessione **mentre** l'agente lavora senza interromperlo (steer) o accodare un messaggio (follow-up).
+3. omp (dalla 18.6.3) espone invece la funzione completa come comandi RPC dichiarati: `btw`, `btw_cancel`, `get_btw_history` e i frame `btw_record`/`btw_delta` (`docs/rpc.md`, «Side questions»), con lo storico salvato accanto alla sessione e condiviso con la TUI.
+
+### Decisioni
+
+1. **Riquadro effimero sopra il composer (variante A).** Il gesto piu' rapido e la chat resta pulita; il pannello laterale (variante B) toglierebbe larghezza alla chat e la bolla nel transcript (C) rischia di confondere cio' che e' nel contesto con cio' che non lo e'. Lo Storico sta in una tendina del riquadro: se servira' sempre a portata, il riquadro puo' evolvere in B senza cambiare lo stato (`SessionBtw`).
+2. **Tre ingressi, un solo stato.** Pulsante «A margine» nel composer, `Ctrl+B` (`⌘B` su Mac) e `/btw [domanda]`. Studio intercetta sempre `/btw` nel guscio (`routeBtwSlash`): non va mai a omp come prompt. Senza domanda apre il riquadro; con la domanda la manda subito.
+3. **Niente nel transcript.** I frame `btw_*` vanno a `AgentSession.btw` e mai a `entries`. Esc chiude il riquadro ma la domanda continua: l'argomento aperto resta una riga del vassoio («sta rispondendo» / «risposta pronta» · «Apri»); la X della riga la toglie senza annullare.
+4. **Approfondimenti nello stesso argomento.** Dopo una risposta il campo del riquadro approfondisce (`recordId`); «Nuova domanda» apre un argomento nuovo. Una domanda per volta per sessione, come impone omp: Studio non manda la seconda e lo dice invece di mostrare l'errore di omp.
+5. **«Usa nel messaggio» = citazione, non promozione.** Domanda e ultima risposta diventano un chip nel composer e un blockquote anteposto al testo **solo all'invio**: entrano nel contesto solo se l'utente invia. Il *branch* della TUI (promuovere lo scambio nella sessione) non ha un comando RPC; resta una richiesta upstream (`btw_branch`).
+6. **omp senza `/btw`.** `get_btw_history` a fine insediamento fa da sonda: `Unknown command` (o un `parse` senza id) nasconde il pulsante, e `/btw` o `Ctrl+B` lasciano un avviso che chiede di aggiornare omp dalla barra di stato. Nessun rimando al terminale. Un processo nuovo risonda.
+7. **Cambio di sessione.** omp annulla la domanda in corso su nuova chat, ripresa, fork e ramo; Studio azzera storico e argomento aperto quando `get_state` porta un altro `sessionId`. Bozza del riquadro e citazione restano: sono testo dell'utente.
+8. **Suggerimenti statici.** Il prototipo mostrava domande legate alla sessione; per non spendere una chiamata al modello all'apertura il riquadro propone tre domande generiche (cosa sta facendo, quanto manca, riassunto delle decisioni).
+
+### Alternative scartate
+
+- **Lasciare `/btw` a omp.** In RPC diventa un prompt: e' esattamente il difetto da correggere.
+- **Estensione Studio che intercetta `/btw`.** Inutile: i comandi RPC coprono domanda, approfondimenti, annullamento, storico e streaming.
+- **Un pin del layout per il pulsante.** Il layout salvato non riceve le voci nuove (vanno in «Nuovi»): il pulsante e' fisso nel composer e la voce `btw` del catalogo resta fissabile sotto il composer.
+
+### Rischi accettati
+
+- Con il protocollo v1 lo storico non e' paginato: uno storico molto grande puo' superare il limite del trasporto (con la v2 omp lo spezza in chunk, che Studio gia' ricompone).
+- Il riquadro copre l'ultima parte del transcript finche' e' aperto; Esc lo chiude senza perdere la risposta.

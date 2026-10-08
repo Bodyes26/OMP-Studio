@@ -2893,5 +2893,6 @@
   "btw_quote_remove": "Togli la citazione",
   "btw_quote_aria": "Citazione dalla domanda a margine",
   "ui_ts_commands_btw_description": "Domanda a margine: risponde senza fermare l'agente e senza entrare nel contesto",
-  "page_gui_help_btw": "/btw [domanda] — domanda a margine: risponde senza fermare l'agente e senza entrare nel contesto (anche Ctrl+B)"
+  "page_gui_help_btw": "/btw [domanda] — domanda a margine: risponde senza fermare l'agente e senza entrare nel contesto (anche Ctrl+B)",
+  "shortcuts_item_btw": "Domanda a margine (/btw): apre e chiude il riquadro sopra il composer"
 }

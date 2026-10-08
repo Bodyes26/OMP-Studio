@@ -805,6 +805,15 @@ Lo stato vivo del turno, agganciato sopra il composer.
 - **Avanzamento dei todo:** anello da 18 px `--ink` su `--line-strong`; a lista completata resta `--ink` chiuso, mai verde.
 - **Annunci:** una sola regione `aria-live="polite"` per sezione che riassume, mai un annuncio per riga.
 
+### Riquadro «A margine» (BtwPopover, `/btw`)
+
+- **Posizione:** galleggia sopra vassoio e composer, ancorato al piede della chat (8 px sopra, sporge di 4 px per lato rispetto al composer); `--bg-overlay`, bordo `--line-strong`, `--radius-2xl`, `--shadow-overlay`, altezza massima `min(58vh, 520px)`, entrata `rv-lift` 220 ms.
+- **Testata:** glifo `--brand-ink`, titolo 600, badge «fuori contesto» (pillola con bordo `--line-strong`), «non ferma l'agente» in `--ink-faint`, a destra «Storico N» (scelto: `--bg-active`) e chiudi. Lo Storico e' una tendina sotto la testata: pallino di stato (in corso `--warn` pulsante, pronta `--success`, altro `--ink-faint`), domanda troncata, quando e numero di turni.
+- **Corpo:** domande in 12,5/500 `--ink-muted` (gli approfondimenti con la freccia d'angolo), risposte in markdown 14/22 `--ink` con caret durante lo streaming; vuoto: spiegazione e tre `.ui-chip` di suggerimento. Azioni sotto il corpo: in corso spinner neutro e «Annulla»; conclusa «Copia», «Usa nel messaggio», a destra «Nuova domanda».
+- **Campo:** textarea mono 13 px su `--bg-sunken`, bordo `--line-strong`, a fuoco `--brand`; invio tondo `--ink` su `--bg-base` come quello del composer.
+- **Pulsante nel composer:** pillola «A margine» con bordo `--line-strong`; aperto, fondo `--brand` al 12% e bordo al 60% con glifo `--brand-ink` (stesso trattamento della modalita' attiva del prototipo); un pallino `--warn` pulsante se una risposta arriva a riquadro chiuso. Sotto i 270 px di composer resta solo il glifo.
+- **Riga nel vassoio** a riquadro chiuso: pallino di stato, glifo, «A margine», domanda in `--ink-muted` troncata, stato in `--ink-faint`, «Apri» secondario e X. **Citazione nel composer:** chip `--bg-hover` sopra l'editor con glifo virgolette, «A margine», domanda e anteprima della risposta, X per toglierla.
+
 ### Segni di stato operativi (StatusMark e GitStatusMark)
 
 Vocabolario semantico unificato per todo, subagenti, chiamate tool e stato versioni Git,
