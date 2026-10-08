@@ -225,7 +225,9 @@ l'ordine MRU corrente: nessuno si ritrova le tessere rimescolate al primo avvio.
 `markDispatching`, cioè lo stato che l'effetto di auto-avvio legge per decidere. Scrivere
 dentro l'effetto che ha appena letto quello stato è il difetto che in questo stesso file
 aveva già prodotto `effect_update_depth_exceeded` (commento in `routes/+page.svelte`): la
-spedizione passa da `queueMicrotask` e da un lock per progetto.
+spedizione passa da `queueMicrotask` e da un lock per progetto. *Aggiornato da
+«Gate R3X-auto-avvio-stabile»: il microtask diventa un timer di stabilita' con
+ri-verifica, la prontezza dell'auto-avvio diventa «ferma e stabile».*
 
 **Perimetro di scrittura.** Una sola chiave nuova, `studioSettings` in
 `%APPDATA%\omp-studio\settings.json`, più due campi per progetto (`autoDispatch`,
@@ -1445,3 +1447,38 @@ locali e il `queuedMessageCount` di omp potevano divergere, e un crash prima di
 - `rpc-types.ts`: `RpcPromptResultFrame`, `RpcSessionSettledFrame`, `RpcSessionState.isSettled`/`hasPendingAsyncWork`, `RpcExtensionUIRequest` (`setStatus`, `setWidget`, `setTitle`).
 - `rpc-mode.ts`: `setWidget` inoltra solo array di stringhe; i widget disegnati da factory TUI (dashboard `autoresearch`) arrivano solo come rimozione.
 
+---
+
+## Gate R3X-auto-avvio-stabile: l'auto-avvio parte solo a sessione ferma e stabile
+
+**Data:** 2026-10-08  
+**Esito:** IMPLEMENTATO  
+**Aggiorna:** Gate R12 (condizione di prontezza dell'auto-avvio e uscita dall'effetto)
+
+### Il problema riportato
+
+Con l'interruttore acceso i task in coda partivano uno dopo l'altro senza aspettare la fine del precedente, anche mentre l'agente era solo in pausa fra un tool e l'altro. Per questo l'auto-avvio non veniva mai usato.
+
+### Cause trovate (con evidenza)
+
+1. **`turn_end` fra un giro di tool e l'altro (GUI, causa principale).** `AgentSession` spegne `isStreaming` e riporta `agentState` a `idle` (`resolveSettledState`) a ogni `turn_end`; `turn_start` lo riaccende. Il cancello leggeva solo quei due campi: nella fixture reale `tools-real.ndjson` si apre quattro volte dentro un solo run. L'effetto spediva al primo frame con un `queueMicrotask` e `dispatchTaskInLane` chiamava `newSession()` sopra il run vivo.
+2. **Prompt ammesso, run non ancora partito (GUI).** In omp 18.8 (`rpc-mode.ts`, `#promptWithMessage`) la risposta al comando `prompt` parte su `onPromptAdmitted`, prima di preflight, controllo della chiave, compattazione pre-prompt e `agent_start`. Dopo la consegna `newSession()` aveva lasciato `agentState = idle` e `terminalBusy` tornava falso: il task successivo partiva subito, con un altro `new_session` sopra il prompt appena inviato.
+3. **Retry e compattazione che continuano il run.** Passano da un `agent_end` non terminale (`yielded: false`): Studio lo ignorava giustamente, ma il `turn_end` precedente aveva gia' aperto il cancello, per tutta la durata del backoff (secondi) o della compattazione.
+4. **Coda nativa di omp.** Steer/follow-up accodati faranno partire un altro turno; con un omp senza quiete nessun campo lo diceva al cancello.
+5. **Terminale: stesso buco di (2).** Il titolo resta `π >` finche' omp non avvia il run; `assertAutomationReady` guardava solo il titolo e il secondo task scriveva `/new` sopra il primo. Il titolo invece **non** va a `idle` fra i tool, ne' durante retry e compattazione che continua il run (verificato in `event-controller.ts` di omp 18.8).
+6. **Nessuna stabilita' ne' ri-verifica.** Un singolo frame `ready` bastava; un fallimento su Principale veniva ritentato in un ciclo stretto.
+
+### Decisioni
+
+1. **Il cancello conosce il run, non il giro di tool.** `GuiGateSnapshot` aggiunge `runActive` (`settle.running`), `awaitingRun`, `retrying`, `nativeQueue`, `subagentsRunning` (solo omp senza quiete). Run vivo, attesa del run e retry danno `working`; coda nativa e subagenti danno `background`. Entrambi restano instradabili in corsia. Logica pura in `src/lib/agent/runActivity.ts`.
+2. **Stabilita' continuata e ri-verifica autorevole.** `AutoDispatchArbiter` (`src/lib/lanes/autoDispatchArbiter.ts`): 2,5 s di idoneita' continuata (3 s nel terminale), in GUI anche 2,5 s dall'ultimo evento del ciclo di vita; poi `get_state` (GUI) o lo stato del PTY (terminale) e una seconda lettura del cancello. Se non e' quieto, nuovo tentativo dopo 5 s senza `get_state` a raffica. 2,5 s sono molto piu' delle pause fra i giri di tool (millisecondi) e restano impercettibili rispetto alla durata di un task.
+3. **Lock per progetto** dalla ri-verifica alla consegna; spedizione da timer, fuori dall'effetto. Fallimento su Principale: pausa di 30 s per quel task.
+4. **Le voci di stato delle estensioni non sono attivita'.** Un'estensione che aggiorna la riga di stato a vuoto non deve tenere ferma la coda per sempre.
+5. **Terminale: il segnale piu' affidabile e' il titolo, piu' l'attesa del run.** Dopo la scrittura del task Studio ignora `idle` fino al primo `working`/`attention` (o 30 s). La barra OSC 9;4 si legge quando c'e' (`terminal.showProgress` in omp), ma non si attiva da Studio: cambierebbe le preferenze dell'utente. Limite dichiarato: un job in background porta il titolo a `idle`; per code con subagenti asincroni la superficie consigliata e' la GUI.
+6. **Reti di sicurezza contro il blocco opposto.** `awaitingRun` scade dopo 30 s senza `agent_start` (non durante una compattazione); con un omp senza quiete un run senza eventi da 20 s si chiude se `get_state.isStreaming` e' falso; errori, uscita del processo e rete dello Stop chiudono il run.
+
+### Alternative scartate
+
+- **Solo debounce.** Copre le pause fra i tool, non il backoff dei retry ne' la finestra prima di `agent_start` con preflight lente.
+- **Aspettare il `prompt_result` del task precedente.** Esiste solo con omp 18.8 e non copre il terminale.
+- **Forzare `TERM_PROGRAM=tern` nel PTY per avere sempre la barra OSC 9;4.** Cambia anche titolo e capability della TUI.

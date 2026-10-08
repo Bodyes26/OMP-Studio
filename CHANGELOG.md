@@ -27,6 +27,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Il registro diagnostico del fuoco (`focus-trace.log`) non viene più scritto se non lo si attiva.
 
 ### Fixed
+- L'avvio automatico della coda non fa più partire i task uno dopo l'altro: aspetta che l'agente sia fermo davvero (non solo in pausa fra un tool e l'altro, durante un nuovo tentativo o una compattazione, o subito dopo aver ricevuto il task precedente), che non ci siano messaggi in coda in `omp`, e che la quiete duri qualche secondo; prima di partire ricontrolla lo stato con `omp`. Nel terminale aspetta che `omp` abbia davvero iniziato il task appena inviato.
 - La notifica «ha finito» e l'avvio automatico del task successivo aspettano che l'agente abbia finito davvero, anche il lavoro in background, invece di scattare alla prima risposta (richiede `omp` 18.8; con versioni precedenti resta il comportamento di prima).
 - Un errore del provider a fine turno (per esempio un sovraccarico o un limite) ora compare in chat con provider, codice HTTP e l'indicazione se si può riprovare.
 - Gli avvisi delle estensioni mantengono il loro livello (avviso, errore) invece di comparire sempre come informazione.

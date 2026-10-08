@@ -161,6 +161,7 @@ lib/
     client.ts           OmpRpcClient: correlazione richieste/risposte, timeout dinamici, channel listener
     session.svelte.ts   AgentSession: riduttore reattivo di stato, gestione streaming, cronologia transcript
     settle.ts           Yield contro quiete (`session_settled`): funzioni pure per lo stato «in background»
+    runActivity.ts      Attivita' del run per l'auto-avvio: prompt ammesso, retry, ultimo evento, verifica di `get_state`
     extensionUi.ts      Stato e widget delle estensioni (`setStatus`/`setWidget`), pulizia e colori ANSI
     turnDiff.ts         Bilancio `+N −M` del turno dalle card edit/write per il piè di turno
     wire.ts             Tipi TypeScript e mapping del protocollo RPC NDJSON v2
@@ -205,6 +206,7 @@ lib/
   terminal/
     Terminal.svelte     Componente xterm.js per sessione PTY
     terminal.ts         Configurazione addon, tema, fit e invio comandi di ripresa
+    terminalActivity.ts Titolo OSC di omp, barra OSC 9;4 e attesa del run dopo un task scritto nel PTY
 ```
 
 ---
@@ -361,10 +363,19 @@ Al momento del dispatch, la funzione `formatTaskPrompt` arricchisce il prompt ap
   - `researchMode`: direttiva all'approfondimento della documentazione online e best practice.
 
 ### 5.3 Meccanismo di Auto-Dispatch
-L'avvio automatico dei task in coda è configurabile per singolo progetto (`autoDispatch: true`). Per evitare loop di reattività e race condition:
-1. Lo stato dell'agente viene validato (`automationReason() === 'Pronto'`: agente idle, nessun input pendente, nessuna transizione di cambio scheda in corso). Con omp 18.8 «idle» significa sessione quieta (`session_settled`, vedi §6.5): un turno concluso con lavoro ancora in background blocca con il motivo `background`.
-2. L'invio viene eseguito all'interno di un `queueMicrotask` protetto da un lock per progetto (`dispatchingProjects`).
-3. Con le corsie, il bersaglio non e' la corsia visibile: Principale se libera, altrimenti al massimo una corsia worktree automatica (vedi §5.4).
+L'avvio automatico dei task in coda è configurabile per singolo progetto (`autoDispatch: true`). Un task parte solo quando la sessione e' ferma **e stabile**:
+
+1. **Cancello** (`automationGate.ts`, `autoDispatchReady`). GUI: nessuna domanda `ask`, nessuna quota, sessione pronta, nessun run vivo e nessuna attesa. Oltre a `isStreaming` (che `turn_end` spegne fra un giro di tool e l'altro) contano `runActive` (`settle.running`, da `agent_start` allo yield: copre le pause fra i tool, l'attesa di un nuovo tentativo e la compattazione che continua il run), `awaitingRun` (prompt ammesso da omp, `agent_start` non ancora arrivato: omp risponde a `prompt` all'ammissione), `retrying` (`auto_retry_start` aperto), `compacting`, `nativeQueue` (steer/follow-up nella coda di omp) e `backgroundWork` (yield senza quiete, §6.5). Con un omp senza quiete anche i subagenti in corsa. Analisi post-turno e domande dedotte sospendono solo l'auto-avvio. Terminale: titolo `idle` (§5.3.1), nessun testo nel prompt, nessun task appena scritto in attesa del run (`awaitingStart`), nessuna barra OSC 9;4.
+2. **Stabilita'** (`src/lib/lanes/autoDispatchArbiter.ts`). L'effetto in `+page.svelte` passa all'arbitro i candidati idonei *adesso*; l'arbitro li spedisce solo dopo 2,5 s di idoneita' continuata (3 s nel terminale). Ogni chiusura del cancello azzera il conto; in GUI la quiete conta dall'ultimo evento del ciclo di vita del run (`AgentSession.quietForMs()`; le voci di stato delle estensioni non contano).
+3. **Ri-verifica.** Allo scadere: GUI `get_state` (`AgentSession.verifyQuietForDispatch()`: `isStreaming`, `isCompacting`, `queuedMessageCount`, `isSettled`, `hasPendingAsyncWork`), terminale `TerminalSession.isAutomationQuiet()`; poi il cancello si rilegge. Se non e' quieto non parte nulla e si riprova dopo 5 s.
+4. **Lock per progetto** dalla ri-verifica alla consegna; il rilascio chiede un nuovo giro all'effetto. La spedizione parte da un timer, fuori dall'effetto (`handleRunTask` scrive lo stato che l'effetto legge). Una consegna fallita su Principale riprova dopo 30 s; un fallimento in una corsia nuova non si ritenta da solo.
+5. Con le corsie, il bersaglio non e' la corsia visibile: Principale se libera, altrimenti al massimo una corsia worktree automatica (vedi §5.4). `laneAgentState` conta anche `settle.running` e `awaitingRun`, cosi' Principale non sembra libera nelle pause del run.
+
+Reti di sicurezza: `awaitingRun` scade dopo 30 s senza `agent_start` (non durante una compattazione); con un omp senza quiete un run «vivo» senza eventi per 20 s viene chiuso se `get_state` dice `isStreaming: false`; `error`/`agent_error`, uscita del processo e la rete dello Stop chiudono il run.
+
+#### 5.3.1 Terminale: cosa dice il titolo di omp
+
+Nel terminale lo stato viene dal titolo OSC (`π >` idle, `π :` working, `π !` attention, `tui.titleState`). In omp 18.8 il titolo diventa `working` su `agent_start` e torna `idle` solo su un `agent_end` terminale, su un `agent_end` non terminale con `awaitingAsyncWork`, o quando una continuazione programmata non parte: **non** scatta fra un tool e l'altro, ne' durante retry o compattazione che continua il run. I buchi erano due: dopo che Studio scrive il task nel PTY il titolo resta `idle` finche' omp non avvia il run (ora `awaitingStart`, fino al primo `working`/`attention` o 30 s), e il vecchio `assertAutomationReady` passava. Limiti che restano: un job in background (subagente asincrono, bash in background) porta il titolo a `idle` e il terminale non ha un segnale di quiete; la compattazione a riposo non tocca il titolo. Se l'utente accende `terminal.showProgress` in omp, la barra OSC 9;4 copre compattazione e run e Studio la legge (`progressActive`). Per code con lavoro in background la superficie consigliata e' la GUI.
 
 
 ### 5.4 Corsie di lavoro (Gate R27)
@@ -431,7 +442,7 @@ I metodi senza risposta (`notify`, `setStatus`, `setWidget`, `setTitle`, `open_u
 | `session_settled` | **quiete**: `settled = true`, `agentState` da `working` a `idle`/`attention` |
 | `get_state` | `isSettled` (con `isStreaming`) riallinea chi si attacca a meta'; la sua presenza accende `aware` |
 
-`backgroundPending = aware && !settled && !running && !streaming`. In quello stato `agentState` resta `working` (tessera, companion e `finished` aspettano la quiete), `automationSnapshot.backgroundWork` e' vero (blocco `background` in `automationGate.ts`, instradabile in corsia) e la riga di stato mostra «in background». Mentre si aspetta, un `get_state` ogni 15 s fa da rete per un `session_settled` perso. Con un omp che non riporta la quiete (`aware` mai acceso) lo yield vale come quiete: il comportamento precedente.
+`running` e' anche il «run vivo» del cancello della coda (§5.3): `turn_end` spegne `isStreaming` a ogni giro di tool, `running` resta acceso fino allo yield. `backgroundPending = aware && !settled && !running && !streaming`. In quello stato `agentState` resta `working` (tessera, companion e `finished` aspettano la quiete), `automationSnapshot.backgroundWork` e' vero (blocco `background` in `automationGate.ts`, instradabile in corsia) e la riga di stato mostra «in background». Mentre si aspetta, un `get_state` ogni 15 s fa da rete per un `session_settled` perso. Con un omp che non riporta la quiete (`aware` mai acceso) lo yield vale come quiete: il comportamento precedente.
 
 ---
 
