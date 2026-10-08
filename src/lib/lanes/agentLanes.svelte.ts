@@ -8,7 +8,7 @@
 // `lane_bridge_respond`, tranne `proponi`, che resta aperta finche' l'utente
 // non clicca una delle due scelte sulla card in chat.
 //
-// Decisioni (DECISIONS.md, Gate R33):
+// Decisioni (DECISIONS.md, Gate R43):
 // - l'agente non tocca mai git: nessun percorso di worktree o comando nei testi;
 // - integrazione pulita automatica; con conflitti la corsia passa all'utente
 //   (revisione aperta), l'agente non risolve nulla;

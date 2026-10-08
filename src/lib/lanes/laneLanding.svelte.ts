@@ -644,7 +644,7 @@ export class LaneLandingService {
 				worktreePath: outcome.worktreePath
 			});
 
-			// Nessuna istruzione git all'agente (Gate R33): i conflitti li vede
+			// Nessuna istruzione git all'agente (Gate R43): i conflitti li vede
 			// l'utente nella revisione, che Studio gli apre.
 			const fileList = outcome.files.map((f) => `- ${f}`).join('\n');
 			const agentText = `Integrazione non eseguita: il merge con ${outcome.targetBranch} ha conflitti.\nFile in conflitto:\n${fileList}\nStudio ha segnato la corsia come in attesa dell'utente e gli ha aperto la revisione. Non risolvere i conflitti, non usare git e non ritentare: riferisci all'utente.`;

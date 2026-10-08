@@ -1,5 +1,5 @@
 /**
- * Tool `corsia_*` guidati dall'agente (Gate R33).
+ * Tool `corsia_*` guidati dall'agente (Gate R43).
  *
  * Contratti verificati:
  * 1. Permessi per chiamante: dentro una corsia solo `fatto` e `stato`, nel
@@ -79,7 +79,7 @@ function register(env: CorsieEnvironment): Map<string, RegisteredTool> {
 	return tools;
 }
 
-describe('Gate R33 — tool corsia_* guidati dall\'agente', () => {
+describe('Gate R43 — tool corsia_* guidati dall\'agente', () => {
 	describe('1. Permessi per chiamante', () => {
 		it('la Principale vede tutti i verbi tranne fatto', () => {
 			const tools = corsiaToolsFor({ ...BRIDGE, laneId: 'main' });

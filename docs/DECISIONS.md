@@ -1780,7 +1780,7 @@ Nei turni lunghi la cosa importante (un test fallito e lasciato lì, una modific
 
 ---
 
-## Gate R33: le corsie le guida l'agente con un tool per verbo, il "come" resta a Studio
+## Gate R43: le corsie le guida l'agente con un tool per verbo, il "come" resta a Studio
 
 **Data:** 2026-10-07
 **Esito:** APPROVATO (estende il Gate R29 e rivede il punto 9; rivede il punto 5 sui conflitti)
