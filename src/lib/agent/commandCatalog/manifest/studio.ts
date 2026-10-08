@@ -1,4 +1,4 @@
-// Voci del catalogo per i comandi slash nativi di OMP Studio (18 comandi guscio).
+// Voci del catalogo per i comandi slash nativi di OMP Studio (19 comandi guscio).
 //
 // Questi comandi vengono intercettati localmente dal guscio GUI di Studio
 // (in handleGuiSlashCommand) e non sono builtin inoltrati a omp via RPC.
@@ -663,6 +663,51 @@ export const STUDIO_ENTRIES: readonly CommandManifestEntry[] = [
 				],
 				whenToUse:
 					'When sharing a conversation, pasting an excerpt into documentation, or archiving text logs.'
+			}
+		}
+	},
+	{
+		id: 'btw',
+		origin: 'studio',
+		category: 'context',
+		icon: 'IconAside',
+		control: 'panel',
+		supported: [
+			{ zone: 'statusLine', form: 'chip' },
+			{ zone: 'statusLine', form: 'icon' }
+		],
+		defaultPlacement: null,
+		argsHint: '[domanda]',
+		text: {
+			it: {
+				title: 'A margine',
+				summary: 'Fa una domanda veloce sulla sessione in un riquadro sopra il composer: risponde il modello senza strumenti, l’agente non si ferma e la domanda non entra nel contesto.',
+				benefits: [
+					'Chiarisci un dubbio mentre l’agente lavora, senza interromperlo né mettere in coda un messaggio.',
+					'La risposta scorre nel riquadro; gli approfondimenti restano nello stesso argomento e lo Storico è condiviso con il /btw del terminale.',
+					'«Usa nel messaggio» porta domanda e risposta nel composer come citazione: entra nel contesto solo se invii.'
+				],
+				examples: [
+					{ command: '/btw perché quotaStore usa una Map?', note: 'Apre il riquadro e manda subito la domanda' },
+					{ command: '/btw', note: 'Apre il riquadro con i suggerimenti e lo Storico (anche Ctrl+B o il pulsante «A margine»)' }
+				],
+				whenToUse:
+					'Quando ti serve una spiegazione o un promemoria sulla sessione senza fermare l’agente né sporcare la conversazione. Richiede omp 18.6.3 o successivo.'
+			},
+			en: {
+				title: 'Aside',
+				summary: 'Asks a quick question about the session in a box above the composer: the model answers without tools, the agent keeps going and the question never enters the context.',
+				benefits: [
+					'Clear up a doubt while the agent works, without interrupting it or queuing a message.',
+					'The answer streams in the box; follow-ups stay in the same topic and the History is shared with the terminal /btw.',
+					'“Use in message” puts the question and answer in the composer as a quote: it enters the context only if you send it.'
+				],
+				examples: [
+					{ command: '/btw why does quotaStore use a Map?', note: 'Opens the box and sends the question right away' },
+					{ command: '/btw', note: 'Opens the box with suggestions and the History (also Ctrl+B or the “Aside” button)' }
+				],
+				whenToUse:
+					'When you need an explanation or a reminder about the session without stopping the agent or cluttering the conversation. Needs omp 18.6.3 or later.'
 			}
 		}
 	},

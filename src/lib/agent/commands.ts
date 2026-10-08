@@ -143,6 +143,12 @@ export const STUDIO_SLASH_COMMANDS: AvailableCommand[] = [
 		source: 'studio'
 	},
 	{
+		name: 'btw',
+		get description() { return msg.ui_ts_commands_btw_description(); },
+		source: 'studio',
+		input: { hint: '[domanda]' }
+	},
+	{
 		name: 'tree',
 		get description() { return msg.ui_ts_commands_mostra_l_albero_e_lo_storico_delle_0376(); },
 		source: 'studio'

@@ -38,6 +38,10 @@ export type RpcCommand =
 	| { type: 'branch'; entryId: string }
 	| { type: 'get_entries'; since?: string }
 	| { type: 'get_tree' }
+	// Domande a margine (omp 18.6.3+): risposta in streaming con `btw_delta`/`btw_record`.
+	| { type: 'btw'; question: string; recordId?: string }
+	| { type: 'btw_cancel'; recordId?: string }
+	| { type: 'get_btw_history' }
 	| { type: 'get_state' }
 	| { type: 'get_available_commands' }
 	| { type: 'get_messages_page'; cursor?: string; limit?: number }
@@ -528,6 +532,10 @@ export interface AgentSessionEvent {
 	followUp?: string[];
 	/** `cache_warming_start` / `cache_warming_end` */
 	phase?: CacheWarmingPhase;
+	/** `btw_record`: record intero della domanda a margine (vedi `btw.ts`). */
+	record?: unknown;
+	/** `btw_delta`: argomento a cui appartiene `delta`. */
+	recordId?: string;
 	provider?: string;
 	outcome?: CacheWarmingOutcome;
 	warmingStopReason?: string;

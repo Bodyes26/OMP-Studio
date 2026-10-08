@@ -29,6 +29,7 @@ Global shortcuts captured by the application live behind the **`Ctrl+Alt`** modi
 | `Ctrl+Alt+Arrow Left` | Global | If the active project has secondary lanes, switch to the previous lane; otherwise switch to the previous open project |
 | `Ctrl+Alt+Shift+Arrow` | Global | Move active project tile left or right (manual reordering) |
 | `Ctrl+P` | GUI Surface | Sequentially cycle through configured roles (`default` → `plan` → `smol`...) |
+| `Ctrl+B` | GUI Surface, "Aside" box | Opens and closes the side question box (`/btw`) above the composer; in the box `Enter` sends, `Shift+Enter` adds a line, `Esc` closes it and the question carries on in the tray. On macOS also `⌘B` |
 | `Alt+R` | GUI Surface | Open quick role selector with filter and navigation |
 | `Alt+P` | GUI Surface | Open model catalog with quick filter and keyboard navigation |
 | `Alt+M` | GUI Surface | Open thinking (reasoning) level selector menu |

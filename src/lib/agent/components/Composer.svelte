@@ -93,8 +93,11 @@
 		IconChevronUp,
 		IconSparkles,
 		IconPlan,
-		IconClose
+		IconAside,
+		IconClose,
+		IconQuote
 	} from '$lib/icons';
+	import { btwQuotePreview, withBtwQuote } from '$lib/agent/btw';
 
 	let {
 		session,
@@ -684,6 +687,13 @@
 		if (chord === 'letter' && yieldsToShellShortcut(key, IS_MAC, insideComposer)) return;
 
 		if (ctrlOnly) {
+			if (key === 'b') {
+				// Domanda a margine. Nel composer (contenteditable) Ctrl+B
+				// farebbe il grassetto: il default va fermato in ogni caso.
+				e.preventDefault();
+				session.btw.toggle();
+				return;
+			}
 			if (key === 'p') {
 				// Senza preventDefault la WebView apre la stampa.
 				e.preventDefault();
@@ -758,6 +768,10 @@
 				return;
 			}
 			const sent = [...attachments];
+			// «Usa nel messaggio»: la citazione della domanda a margine entra
+			// nel contesto solo adesso, in testa al messaggio inviato.
+			const quote = session.btw.quote;
+			if (quote) wireText = withBtwQuote(quote.markdown, wireText);
 			const stagedNonImages = sent.filter((a) => a.path && a.kind !== 'image');
 			if (stagedNonImages.length > 0) {
 				const pathsBlock = stagedNonImages.map((a) => `- ${a.path}`).join('\n');
@@ -773,7 +787,10 @@
 			// In Piano la bolla prende il badge «Piano».
 			if (session.plan.active) session.plan.notePlanPrompt(wireText);
 			const result = await session.prompt(wireText, imagesToSend, behavior);
-			if (result === 'sent' || result === 'deferred') clearAfterSend(sent);
+			if (result === 'sent' || result === 'deferred') {
+				clearAfterSend(sent);
+				if (quote && session.btw.quote === quote) session.btw.clearQuote();
+			}
 		} catch (error) {
 			session.flashNotice(
 				'error',
@@ -785,7 +802,7 @@
 	}
 
 	export function isDraftEmpty(): boolean {
-		return (!editorRef || editorRef.getIsEmpty()) && attachments.length === 0;
+		return (!editorRef || editorRef.getIsEmpty()) && attachments.length === 0 && !session.btw.quote;
 	}
 
 
@@ -847,7 +864,13 @@
 		focus();
 	}
 
-	const canSend = $derived(currentSegments.some((s) => s.t !== 'text' || s.s.trim().length > 0) || attachments.length > 0);
+	const canSend = $derived(
+		currentSegments.some((s) => s.t !== 'text' || s.s.trim().length > 0) ||
+			attachments.length > 0 ||
+			session.btw.quote !== null
+	);
+	/** Il pulsante «A margine» c'e' solo se omp sa rispondere (18.6.3+); lo sondano l'avvio e il primo uso. */
+	const showBtwButton = $derived(session.isReady && session.btw.supported !== false);
 	const placeholderText = $derived(
 		session.plan.active
 			? m.plan_composer_placeholder()
@@ -928,6 +951,27 @@
 				{#if activeCmdDef.input?.hint}
 					<span class="cmd-strip-hint font-mono">‹{activeCmdDef.input.hint}›</span>
 				{/if}
+			</div>
+		{/if}
+
+		<!-- Citazione da «A margine»: entra nel contesto solo all'invio -->
+		{#if session.btw.quote}
+			{@const quote = session.btw.quote}
+			<div class="btw-quote-row">
+				<div class="btw-quote-chip rv-blur" style="--dur: 200ms; --blur: 3px;" role="note" aria-label={m.btw_quote_aria()}>
+					<span class="btw-quote-icon" aria-hidden="true"><IconQuote /></span>
+					<strong>{m.btw_title()}</strong>
+					<span class="btw-quote-text" title={quote.answer}>«{quote.question}» — {btwQuotePreview(quote.answer)}</span>
+					<button
+						type="button"
+						class="btw-quote-remove"
+						aria-label={m.btw_quote_remove()}
+						title={m.btw_quote_remove()}
+						onclick={() => session.btw.clearQuote()}
+					>
+						<IconClose />
+					</button>
+				</div>
 			</div>
 		{/if}
 
@@ -1019,6 +1063,26 @@
 
 			{#if toolbarLeftPins.length > 0}
 				<span class="toolbar-divider" aria-hidden="true"></span>
+			{/if}
+
+			<!-- Domanda a margine (/btw, Ctrl+B): riquadro sopra il composer -->
+			{#if showBtwButton}
+				<Tooltip text={m.btw_button_tooltip()} placement="top" offset={6}>
+					<button
+						type="button"
+						class="btw-pill"
+						class:on={session.btw.open}
+						aria-pressed={session.btw.open}
+						aria-label={m.btw_button_tooltip()}
+						onclick={() => session.btw.toggle()}
+					>
+						<IconAside aria-hidden="true" />
+						<span class="btw-pill-label">{m.btw_title()}</span>
+						{#if session.btw.busy && !session.btw.open}
+							<span class="btw-pill-live" aria-hidden="true"></span>
+						{/if}
+					</button>
+				</Tooltip>
 			{/if}
 
 			<!-- Striscia controlli sessione a scorrimento orizzontale (ruolo, modello, thinking
@@ -1510,6 +1574,103 @@
 		flex-shrink: 0;
 	}
 
+	.btw-pill {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		height: 28px;
+		padding: 0 10px;
+		flex-shrink: 0;
+		border: 1px solid var(--line-strong);
+		border-radius: var(--radius-full);
+		background: transparent;
+		color: var(--ink-muted);
+		font-family: var(--font-ui);
+		font-size: var(--text-sm);
+		white-space: nowrap;
+		cursor: pointer;
+		--icon-size: 14px;
+		transition:
+			background-color var(--dur-fast) var(--ease-out),
+			color var(--dur-fast) var(--ease-out),
+			border-color var(--dur-fast) var(--ease-out);
+	}
+	.btw-pill:hover {
+		background: var(--bg-hover);
+		color: var(--ink);
+	}
+	.btw-pill.on {
+		border-color: color-mix(in oklch, var(--brand) 60%, transparent);
+		background: color-mix(in oklch, var(--brand) 12%, transparent);
+		color: var(--ink);
+		font-weight: 600;
+	}
+	.btw-pill.on :global(svg) {
+		color: var(--brand-ink);
+	}
+	.btw-pill-live {
+		width: 7px;
+		height: 7px;
+		border-radius: 50%;
+		background: var(--warn);
+		animation: state-pulse 1.2s ease-in-out infinite;
+	}
+
+	.btw-quote-row {
+		display: flex;
+		padding: 8px 14px 0;
+		min-width: 0;
+	}
+	.btw-quote-chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		max-width: 100%;
+		min-width: 0;
+		padding: 4px 6px 4px 8px;
+		border-radius: var(--radius-md);
+		background: var(--bg-hover);
+		font-family: var(--font-ui);
+		font-size: var(--text-sm);
+		color: var(--ink-muted);
+	}
+	.btw-quote-chip strong {
+		color: var(--ink);
+		font-weight: 600;
+		white-space: nowrap;
+		flex: none;
+	}
+	.btw-quote-icon {
+		display: inline-flex;
+		color: var(--ink-faint);
+		--icon-size: 12px;
+		flex: none;
+	}
+	.btw-quote-text {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.btw-quote-remove {
+		display: grid;
+		place-items: center;
+		width: 18px;
+		height: 18px;
+		flex: none;
+		padding: 0;
+		border: 0;
+		border-radius: var(--radius-sm);
+		background: transparent;
+		color: var(--ink-faint);
+		cursor: pointer;
+		--icon-size: 11px;
+	}
+	.btw-quote-remove:hover {
+		color: var(--ink);
+		background: var(--bg-active);
+	}
+
 	.toolbar-divider {
 		width: 1px;
 		height: 16px;
@@ -1568,6 +1729,9 @@
 			display: none;
 		}
 		.toolbar-divider {
+			display: none;
+		}
+		.btw-pill-label {
 			display: none;
 		}
 	}

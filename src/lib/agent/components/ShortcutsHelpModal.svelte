@@ -68,6 +68,7 @@
 			title: m.shortcuts_cat_composer(),
 			column: 1,
 			items: [
+				{ keys: [IS_MAC ? '⌘B' : 'Ctrl+B'], description: m.shortcuts_item_btw() },
 				{ keys: ['Invio'], description: m.ui_shortcutshelpmodal_invia_il_messaggio_o_seleziona_il_comando_af10() },
 				{ keys: ['Alt+Invio'], description: m.ui_shortcutshelpmodal_invia_con_la_modalita_di_accodamento_alternativa_4022() },
 				{ keys: ['Shift+Invio', 'Ctrl+Invio'], description: m.ui_shortcutshelpmodal_inserisce_una_nuova_riga_nel_campo_di_6250() },
