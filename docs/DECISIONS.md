@@ -1416,3 +1416,32 @@ locali e il `queuedMessageCount` di omp potevano divergere, e un crash prima di
 2. **Generazione e verifica assistita per gli agenti:** Quando il gate di release (`scripts/check-commands.mjs`) rileva comandi nuovi da `omp`, l'agente può generare una singola bozza `CommandManifestEntry` completa, sottoporla all'utente con il tool `ask` e inserirla nel file appropriato (`omp-modes.ts` o `omp-session.ts`) con una sola operazione atomica.
 3. **Controllo dei tipi a tempo di compilazione:** I contratti di `CommandText` (`CommandTexts = { it: CommandText, en: CommandText }`) impongono staticamente che entrambe le lingue contengano tutti i campi obbligatori (`title`, `summary`, `benefits`, `examples`), evitando chiavi mancanti o disallineate che in JSON richiederebbero controlli a runtime o linter aggiuntivi.
 4. **Perimetro Paraglide preservato:** Le etichette strutturali dell'interfaccia utente (titoli delle sezioni, pulsanti di azione, messaggi di stato, attributi aria) restano interamente gestite tramite Paraglide (`messages/*.json`), mantenendo la coerenza applicativa per tutti gli elementi del guscio.
+
+---
+
+## Fine lavoro «vera» (`session_settled`) e stato/widget delle estensioni (omp 18.8 RPC)
+
+**Data:** 2026-10-08  
+**Esito:** IMPLEMENTATO
+
+### Il problema
+
+- Lo stato della sessione GUI tornava `idle` su `agent_end`. Con subagenti asincroni, bash in background o follow-up in coda l'agente si risveglia dopo: notifica «ha finito» e auto-avvio della coda potevano scattare sopra lavoro ancora in volo.
+- `setStatus` leggeva `event.message`, ma omp manda `statusKey`/`statusText`; `setWidget` e `setTitle` erano ignorati. Lo stato delle estensioni non compariva mai.
+
+### Decisioni
+
+1. **Yield e quiete sono due momenti.** Lo yield (`agent_end` terminale, oppure non terminale con `awaitingAsyncWork: true`) libera il composer e chiude il turno: piè di turno, suggerimenti, `runEndSeq`. La quiete (`session_settled`, `prompt_result.sessionSettled: true`, `get_state.isSettled`) e' la fine del lavoro: solo li' `agentState` passa da `working` a `idle`, quindi `finished`, annuncio e companion. La logica pura sta in `src/lib/agent/settle.ts`.
+2. **Il background resta `working` per tessere e notifiche, ma ha un motivo suo nel cancello.** `GuiGateSnapshot.backgroundWork` produce il blocco `background` («Lavoro in background»): non pronto, niente auto-avvio, ma instradabile verso un'altra corsia come `working`. Nel composer una voce discreta «in background» nella riga di stato.
+3. **Compatibilita' per capability, non per versione.** Finche' omp non mostra `isSettled` o `session_settled` (`settle.aware === false`) lo yield vale come quiete: con omp precedenti il comportamento e' identico a prima. Una fine non terminale con `awaitingAsyncWork` e' trattata come yield solo quando omp riporta la quiete; altrimenti resta l'attesa del prossimo `agent_end`.
+4. **Rete di sicurezza.** Mentre si aspetta la quiete, `get_state` ogni 15 s riallinea `isSettled` nel caso un `session_settled` vada perso. Un processo nuovo (`ready`), un'uscita o la chiusura azzerano quiete e stato delle estensioni.
+5. **`prompt_result.status === "error"`** con `agentInvoked: true` diventa un avviso in chat con provider, modello, HTTP e «si puo' riprovare» (`error.retryable`). Non si duplica con la riga della quota nel vassoio ne' con la risposta d'errore legacy dei prompt rifiutati prima dell'agente.
+6. **Estensioni.** `extensionStatus` (per `statusKey`; testo vuoto o assente toglie la voce) e `extensionWidgets` (`widgetKey` → righe + `aboveEditor`/`belowEditor`; righe assenti tolgono il widget). Le voci di stato sono chip nella riga di stato del composer (overflow nel menu «…»), i widget blocchi monospazio sopra o sotto il composer. I colori ANSI si riducono ai toni semantici del tema (`--danger`, `--success`, `--warn`, `--brand-ink`, `--ink`, `--ink-faint`): la palette a sedici colori resta del terminale (Sacred Terminal Rule). La logica pura e' in `src/lib/agent/extensionUi.ts`.
+7. **`setTitle` ignorato di proposito.** E' il titolo del terminale, che omp in RPC sopprime senza `PI_RPC_EMIT_TITLE=1`; il nome della chat Studio lo genera e lo salva da se'.
+
+### Vincoli verificati su `omp` 18.8.4
+
+- `docs/rpc.md` § «Yield vs settled», `prompt` payload, forma di `agent_end` (`isTerminal`, `yielded`, `awaitingAsyncWork`).
+- `rpc-types.ts`: `RpcPromptResultFrame`, `RpcSessionSettledFrame`, `RpcSessionState.isSettled`/`hasPendingAsyncWork`, `RpcExtensionUIRequest` (`setStatus`, `setWidget`, `setTitle`).
+- `rpc-mode.ts`: `setWidget` inoltra solo array di stringhe; i widget disegnati da factory TUI (dashboard `autoresearch`) arrivano solo come rimozione.
+

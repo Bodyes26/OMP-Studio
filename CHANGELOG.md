@@ -14,6 +14,9 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 ### Added
 - Nuova voce «Comandi» nelle Impostazioni: il catalogo dei comandi di `omp` e di Studio, raggruppati per categoria, con ricerca, spiegazione, vantaggi, esempi e quando conviene usarli, così scopri funzioni come prewalk senza doverle conoscere. Ogni comando si può fissare nel composer, sulla barra interna o sotto il composer, nella forma che preferisci, riordinare con il trascinamento (o `Alt+←/→`) e ripristinare al layout predefinito. Allegato, ruolo, modello e thinking restano sempre presenti; `@` e contesto si possono mostrare dove vuoi. I comandi nuovi che `omp` aggiunge dopo un aggiornamento compaiono in una sezione «Nuovi» finché Studio non li descrive.
 - La riga sotto il composer manda le voci che non entrano in un menu «…».
+- Le righe di stato e i piccoli pannelli che le estensioni di `omp` mostrano nel terminale ora compaiono anche nella chat: lo stato come voce della riga sotto il composer, i pannelli di testo sopra o sotto il composer, con i colori ridotti a quelli del tema.
+- Nel piè di ogni turno che ha modificato file compare il bilancio `+N −M` delle righe aggiunte e rimosse; un clic apre il confronto del primo file modificato.
+- Quando l'agente ha risposto ma lavora ancora in background (subagenti asincroni, comandi in background, messaggi in coda), la riga sotto il composer lo dice con «in background».
 
 ### Changed
 - Meno processi in background: lo stato Git della barra superiore si legge con un solo comando `git` invece di cinque, i controlli di Git e dei limiti d'uso rallentano quando Studio non è in primo piano e si fermano quando è ridotto a icona, e la ricerca di `omp`, `gh` e VS Code non avvia più processi esterni. Su Windows con l'antivirus attivo la differenza si sente di più.
@@ -24,6 +27,9 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Il registro diagnostico del fuoco (`focus-trace.log`) non viene più scritto se non lo si attiva.
 
 ### Fixed
+- La notifica «ha finito» e l'avvio automatico del task successivo aspettano che l'agente abbia finito davvero, anche il lavoro in background, invece di scattare alla prima risposta (richiede `omp` 18.8; con versioni precedenti resta il comportamento di prima).
+- Un errore del provider a fine turno (per esempio un sovraccarico o un limite) ora compare in chat con provider, codice HTTP e l'indicazione se si può riprovare.
+- Gli avvisi delle estensioni mantengono il loro livello (avviso, errore) invece di comparire sempre come informazione.
 - Studio non consuma più CPU di continuo a riposo: per ogni sessione senza un account fissato la ricerca dell'account si ripeteva senza sosta scorrendo tutte le sessioni su disco (oltre il 150% di CPU su Mac).
 
 ## [1.7.2] - 2026-10-07

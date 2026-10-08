@@ -160,6 +160,9 @@ lib/
   agent/
     client.ts           OmpRpcClient: correlazione richieste/risposte, timeout dinamici, channel listener
     session.svelte.ts   AgentSession: riduttore reattivo di stato, gestione streaming, cronologia transcript
+    settle.ts           Yield contro quiete (`session_settled`): funzioni pure per lo stato «in background»
+    extensionUi.ts      Stato e widget delle estensioni (`setStatus`/`setWidget`), pulizia e colori ANSI
+    turnDiff.ts         Bilancio `+N −M` del turno dalle card edit/write per il piè di turno
     wire.ts             Tipi TypeScript e mapping del protocollo RPC NDJSON v2
     components/
       Chat.svelte       Pannello chat principale della superficie GUI
@@ -359,7 +362,7 @@ Al momento del dispatch, la funzione `formatTaskPrompt` arricchisce il prompt ap
 
 ### 5.3 Meccanismo di Auto-Dispatch
 L'avvio automatico dei task in coda è configurabile per singolo progetto (`autoDispatch: true`). Per evitare loop di reattività e race condition:
-1. Lo stato dell'agente viene validato (`automationReason() === 'Pronto'`: agente idle, nessun input pendente, nessuna transizione di cambio scheda in corso).
+1. Lo stato dell'agente viene validato (`automationReason() === 'Pronto'`: agente idle, nessun input pendente, nessuna transizione di cambio scheda in corso). Con omp 18.8 «idle» significa sessione quieta (`session_settled`, vedi §6.5): un turno concluso con lavoro ancora in background blocca con il motivo `background`.
 2. L'invio viene eseguito all'interno di un `queueMicrotask` protetto da un lock per progetto (`dispatchingProjects`).
 3. Con le corsie, il bersaglio non e' la corsia visibile: Principale se libera, altrimenti al massimo una corsia worktree automatica (vedi §5.4).
 
@@ -405,6 +408,8 @@ Quando l'agente o un tool (es. `ask`) richiede una scelta interattiva, OMP invia
 - Convalida del fuoco per evitare invii accidentali tramite `Enter`.
 - Risposta tipizzata `extension_ui_response` inviata tramite `rpc_send`.
 
+I metodi senza risposta (`notify`, `setStatus`, `setWidget`, `setTitle`, `open_url`) passano dallo stesso riduttore. `setStatus { statusKey, statusText }` e `setWidget { widgetKey, widgetLines, widgetPlacement }` aggiornano `AgentSession.extensionStatus` ed `extensionWidgets` tramite le funzioni pure di `src/lib/agent/extensionUi.ts` (testo o righe assenti tolgono la voce); la riga di stato del composer mostra le voci, `ExtensionWidgets.svelte` i widget sopra o sotto il composer. `notify` legge il livello da `notifyType`. `setTitle` e' ignorato (titolo del terminale, non della chat). Entrambe le mappe si azzerano a ogni `ready` e all'uscita del processo.
+
 ### 6.4 Prewalk per chat e task
 
 - Il modello attivo pianifica; omp risolve `@smol` all'armo e passa una sola volta dopo la prima chiamata `edit`/`write` successiva a una chiamata `todo` riuscita. Studio non modifica `modelRoles.smol` né `fallbackChains.smol`.
@@ -414,6 +419,19 @@ Quando l'agente o un tool (es. `ask`) richiede una scelta interattiva, OMP invia
 - `StudioTaskOptions.prewalk` è un booleano opzionale in `.omp/tasks.json`. Il dispatch GUI arma dopo modello/thinking e prima del prompt: se l'armo fallisce, il task resta in coda. Il dispatch PTY invia `/prewalk` dopo `/new` e la conferma della nuova sessione, prima del prompt incollato.
 - `project_tasks` conserva l'opzione in add/update e `/tasks` la mostra con `[prewalk]`. Invio nell'overlay TUI non la applica: il prewalk del task viene applicato da Studio quando lo avvia.
 
+### 6.5 Fine del turno e quiete della sessione
+
+`AgentSession` distingue due momenti (logica pura in `src/lib/agent/settle.ts`, stato in `settle: { aware, settled, running }`):
+
+| Evento | Effetto |
+|---|---|
+| `agent_start` | `running = true`, `settled = false`, `agentState = working` |
+| `agent_end` terminale, o non terminale con `awaitingAsyncWork` (solo se `aware`) | **yield**: `isStreaming = false`, `runEndSeq++`, piè di turno e suggerimenti; `running = false`; senza `aware` anche `settled = true` |
+| `prompt_result` | `sessionSettled: true` → quiete; `status: "error"` con `agentInvoked` → avviso con provider/HTTP/`retryable` |
+| `session_settled` | **quiete**: `settled = true`, `agentState` da `working` a `idle`/`attention` |
+| `get_state` | `isSettled` (con `isStreaming`) riallinea chi si attacca a meta'; la sua presenza accende `aware` |
+
+`backgroundPending = aware && !settled && !running && !streaming`. In quello stato `agentState` resta `working` (tessera, companion e `finished` aspettano la quiete), `automationSnapshot.backgroundWork` e' vero (blocco `background` in `automationGate.ts`, instradabile in corsia) e la riga di stato mostra «in background». Mentre si aspetta, un `get_state` ogni 15 s fa da rete per un `session_settled` perso. Con un omp che non riporta la quiete (`aware` mai acceso) lo yield vale come quiete: il comportamento precedente.
 
 ---
 

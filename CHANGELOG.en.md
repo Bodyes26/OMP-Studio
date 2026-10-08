@@ -14,6 +14,9 @@ released: items are closed into a version via `npm run release -- <version>`.
 ### Added
 - New "Commands" entry in Settings: the catalog of `omp` and Studio commands, grouped by category, with search, explanation, benefits, examples and when to use each one, so you can discover features like prewalk without having to know them. Each command can be pinned in the composer, on the inner bar or below the composer, in the form you prefer, reordered by dragging (or `Alt+←/→`) and reset to the default layout. Attach, role, model and thinking are always present; `@` and context can be shown wherever you want. New commands that `omp` adds after an update appear in a "New" section until Studio describes them.
 - The row below the composer moves entries that don't fit into a "…" menu.
+- The status lines and small panels that `omp` extensions show in the terminal now appear in the chat too: status as an entry of the row below the composer, text panels above or below the composer, with colors reduced to the theme's.
+- The footer of every turn that changed files shows the `+N −M` balance of lines added and removed; a click opens the diff of the first changed file.
+- When the agent has answered but is still working in the background (async subagents, background commands, queued messages), the row below the composer says so with "in background".
 
 ### Changed
 - Fewer background processes: the top bar Git status is read with a single `git` command instead of five, Git and usage-limit checks slow down when Studio is not in the foreground and stop when it is minimized, and looking up `omp`, `gh` and VS Code no longer starts external processes. The difference is most noticeable on Windows with an active antivirus.
@@ -24,6 +27,9 @@ released: items are closed into a version via `npm run release -- <version>`.
 - The focus diagnostics log (`focus-trace.log`) is no longer written unless you enable it.
 
 ### Fixed
+- The "finished" notice and the automatic start of the next task wait until the agent has really finished, background work included, instead of firing at the first answer (requires `omp` 18.8; with earlier versions the previous behavior stays).
+- A provider error at the end of a turn (for example an overload or a limit) now shows up in the chat with the provider, HTTP code and whether you can try again.
+- Extension notices keep their level (warning, error) instead of always showing as information.
 - Studio no longer burns CPU continuously while idle: for every session without a pinned account, the account lookup repeated endlessly, scanning every session on disk (over 150% CPU on Mac).
 
 ## [1.7.2] - 2026-10-07
