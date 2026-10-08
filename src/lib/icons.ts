@@ -165,6 +165,8 @@ export { default as IconSchedule } from '@lucide/svelte/icons/clock';
 export { default as IconRepeat } from '@lucide/svelte/icons/repeat';
 // Inspector e Browser Live.
 export { default as IconInspect } from '@lucide/svelte/icons/mouse-pointer-click';
+// Laboratorio «Indica e disegna»: riquadro che raccoglie gli elementi di un'area.
+export { default as IconAreaSelect } from '@lucide/svelte/icons/square-dashed-mouse-pointer';
 export { default as IconNetwork } from '@lucide/svelte/icons/activity';
 export { default as IconHistory } from '@lucide/svelte/icons/history';
 // Domande a margine (/btw): riquadro, approfondimento, citazione nel composer.

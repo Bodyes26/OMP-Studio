@@ -51,6 +51,7 @@ Global shortcuts captured by the application live behind the **`Ctrl+Alt`** modi
 | `Esc` | GUI Composer | Close palette/menu/help modal |
 | `Enter` | Composer in repeat mode (`/loop`) | Start the repeat (`Shift+Enter` adds a line) |
 | `Esc` | Composer in repeat mode (`/loop`) | Close the pill menu or leave repeat mode; once started, pause the repeat at the end of the round |
+| `Alt+I` | Lab preview | Toggle "Point" (Point and draw); `Shift+click` adds the element to the open note, `Esc` exits |
 | `Ctrl+0` | Focused Diagram | Fit diagram to window |
 | `Ctrl+S` | Editor | Save current file and notify |
 | `Ctrl+W` | Editor | Close current file |

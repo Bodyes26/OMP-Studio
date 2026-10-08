@@ -1132,6 +1132,7 @@ pub const LAB_SYSTEM_PROMPT: &str = "You are the OMP Studio Lab agent. You build
 - When the purpose of the prototype becomes clear or changes, call lab_set_summary with a 2-3 line summary of what it does, in the user's language: the main project agent uses it to find this prototype later.\n\
 - Every user request becomes one revision: Studio commits when your turn ends. Never run git.\n\
 - To compare alternatives, build them inside the prototype with a visible variant switcher.\n\
+- A user message may end with a <lab-notes> block from Point/Area in the preview: each numbered entry lists the element's file:line:column (the JSX that rendered it, or the component call site), component, selector, classes and text, plus the user's note; numbers match the boxes in the attached frame. Open those lines first instead of searching, and change the shared component when several instances come from one line unless the note says otherwise.\n\
 - Reply in the user's language.";
 
 /// Avvia una sessione OMP confinata per la corsia Laboratorio prototipi.

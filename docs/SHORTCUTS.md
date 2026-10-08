@@ -52,6 +52,7 @@ Le scorciatoie globali catturate dall'app vivono dietro il modificatore **`Ctrl+
 | `Esc` | Composer GUI | Chiude palette/menu/modale aiuto |
 | `Invio` | Composer in ripetizione (`/loop`) | Avvia la ripetizione (`Maiusc+Invio` va a capo) |
 | `Esc` | Composer in ripetizione (`/loop`) | Chiude il menu della pillola o esce dalla modalità ripetizione; a ripetizione avviata la mette in pausa a fine giro |
+| `Alt+I` | Anteprima del Laboratorio | Attiva o spegne «Punta» (Indica e disegna); `Maiusc+clic` aggiunge l'elemento alla nota aperta, `Esc` esce |
 | `Ctrl+0` | Diagramma a fuoco | Adatta il diagramma alla finestra |
 | `Ctrl+S` | Editor | Salva il file corrente e lo notifica |
 | `Ctrl+W` | Editor | Chiude il file corrente |
