@@ -20,6 +20,7 @@ Il manifesto risiede in `src/lib/agent/commandCatalog/manifest/` ed e' suddiviso
 - `omp-modes.ts`: modalita' operative, modelli ed esecuzione di `omp` (es. `fast`, `slow`, `prewalk`, `ratchet`, `advisor`, `effort`, `model`). Origin: `'omp'`.
 - `omp-session.ts`: gestione sessione, strumenti, contesto e utilita' di `omp` (es. `compact`, `handoff`, `session`, `mcp`, `ssh`, `tools`). Origin: `'omp'`.
 - `studio.ts`: comandi esclusivi del guscio Studio (es. `/tasks`, `/lanes`, `/lab`). Origin: `'studio'`. Se un comando esiste gia' come builtin di omp, la voce e' unica ed e' gestita nei file `omp-*.ts`.
+  `guided-goal` e' una voce Studio (fissata di fabbrica nella barra del composer come «Obiettivo»): in omp `/guided-goal` e `/goal` sono solo-TUI; nella GUI Studio serve `/guided-goal [idea]` con l'intervista e `/goal [show|pause|resume|drop|stop|set <obiettivo>|<obiettivo>]` con l'RPC `goal` (Gate R3X-guided-goal). `/goal budget` non ha un RPC e risponde con una spiegazione. Il comando `studio-goal` dell'estensione omonima e' interno (proposte dell'agente per l'intervista) e non ha voce nel catalogo.
   `fork` e `tree` sono voci Studio anche se omp ha comandi con lo stesso nome: in omp sono solo-TUI (non arrivano da `get_available_commands`), nella GUI Studio li serve con i comandi RPC `fork` e `get_tree` (Gate R33). `/sessions` e' alias di `/resume`; l'instradamento di questi comandi sta in `src/lib/agent/slashRouter.ts`.
 
 Ogni voce rispetta il tipo `CommandManifestEntry`:

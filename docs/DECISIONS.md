@@ -1446,3 +1446,36 @@ locali e il `queuedMessageCount` di omp potevano divergere, e un crash prima di
 - **`branch` per «Dirama da qui» su ogni messaggio utente.** Ripartirebbe dal genitore del messaggio come `fork`, ma senza copiare gli artefatti: i risultati tool conservati che citano `artifact://N` non si risolverebbero piu'.
 - **Pilotare `/tree` nel PTY dalla GUI.** E' l'esatto motivo dello scarto di `IDEAS.md` e resta escluso.
 - **Spostare la foglia nello stesso file con `branch` + `new_session`.** Non esiste un comando RPC che lo faccia; simularlo creerebbe comunque file nuovi con un nome che non lo dice.
+
+---
+
+## Gate R3X-guided-goal: obiettivo guidato nella chat GUI (intervista, variante B)
+
+**Data:** 2026-10-08
+**Esito:** IMPLEMENTATO (prototipo `guided-goal.html`, variante B approvata)
+
+### Il problema
+
+1. In omp `/goal` e `/guided-goal` hanno solo la versione TUI. Nella chat GUI (`omp --mode rpc-ui`) il testo arrivava al modello come prompt normale: niente obiettivo, contesto sporcato.
+2. Il goal mode era raggiungibile via RPC (`goal {op}` + `goal_updated`) e Studio aveva gia' il vassoio con Pausa/Riprendi/Elimina, ma **nessun punto di creazione**.
+3. Via RPC un obiettivo **non prosegue da solo**: `goal.continuationModes` vale `["interactive"]` di default, quindi in Studio faceva un turno e si fermava.
+4. omp applica solo il `token_budget`: il «tetto di tentativi» dell'intervista di omp e' testo nell'obiettivo.
+
+### Decisioni
+
+1. **Intervista in chat, una domanda alla volta (variante B).** Cinque campi come l'intervista di omp (criteri binari, verifica, tetto, confini, stop). La domanda corrente si risponde da una scheda a scelte che prende il posto del composer (grammatica di AskCard, «Altro…» per la risposta libera, Salta, Annulla con Esc); una striscia in cima alla chat mostra i cinque campi che si spuntano. Alla fine la bozza arriva come card nel transcript, modificabile sul posto.
+2. **Il flusso e' di Studio ed e' deterministico.** Domande e risposte proposte sono fisse (`src/lib/agent/guidedGoal.ts`), le risposte libere si interpretano con parser puri; nessun turno del modello e' necessario. Le entry dell'intervista sono locali al transcript: non vanno a omp e non entrano nel contesto (il «contro» della variante B, «occupa la sessione per 5 turni», non c'e').
+3. **L'agente puo' affinare le proposte, senza occupare la sessione.** Estensione `extensions/studio-goal.ts` (solo GUI): comando `/studio-goal suggest {…}` mandato come prompt (i comandi delle estensioni partono prima di tutto e anche a turno in corso), lettura dei comandi del progetto, `ctx.runEphemeralTurn({tools:false})` come `/btw`, risposta con `setStatus("studio.goal", json)` subito azzerato. Le proposte sostituiscono solo le domande non ancora risposte e possono riformulare l'obiettivo in modo misurabile. Senza estensione, con omp senza turni a margine o con un errore, nulla cambia nel flusso.
+4. **Controlli prima dell'avvio.** «Avvia obiettivo» resta spento con obiettivo vuoto, nessun criterio, un criterio vago («più veloce», «più pulito», «faster» senza numero, comando, exit code o test), nessuna verifica o tetto incompleto. Confini e stop mancanti sono consigli non bloccanti. Il criterio vago e' segnalato gia' nella scheda (risposta libera) e in giallo nella striscia e nella bozza.
+5. **`goal create` con markdown a sezioni fisse** e `token_budget` dal tetto; il tetto di tentativi entra nelle condizioni di stop (`Stop after N attempts and ask the user how to proceed.`) e **Studio lo fa rispettare**: conta un tentativo per ogni `agent_start` con l'obiettivo attivo e fa `goal pause` all'`agent_end` terminale che raggiunge il tetto, con un avviso. Il conteggio vive in Studio: dopo un riavvio riparte da zero (il tetto si rilegge dal testo).
+6. **Continuazione abilitata da Studio, senza voce nelle Impostazioni.** L'overlay GUI per-sessione aggiunge `goal.continuationModes: [interactive, rpc]`. Vale solo per i processi `rpc-ui` lanciati da Studio; la config dell'utente e il terminale non cambiano.
+7. **Banner fisso in cima alla chat** per ogni obiettivo della sessione (anche creato con `/goal` o dallo strumento `goal` dell'agente): titolo, stato, tentativi contro il tetto a segmenti, budget con barra, tempo, Pausa/Riprendi/Stop (Stop = `drop` con conferma), criteri e verifica a scomparsa. Sostituisce la sezione obiettivo del vassoio: l'obiettivo e' la cornice della sessione, non un'attivita' accanto al composer. Completato resta verde e chiudibile.
+8. **La coda considera la chat occupata** finche' l'obiettivo e' attivo o in definizione (`goalHold` nel cancello, `laneBusy` nel routing): fra un tentativo e l'altro l'agente risulta fermo ma omp sta per ripartire.
+9. **Ingressi.** Pulsante «Obiettivo» fissato di fabbrica nella barra del composer (voce `guided-goal` del catalogo, unica eccezione alla regola «comandi del guscio non fissati»), `/guided-goal [idea]`, `/goal` senza argomenti (intervista se non c'e' un obiettivo, stato se c'e'), `/goal <obiettivo>` crea subito come in omp, `/goal pause|resume|drop|stop|show`. `/goal budget` non ha un RPC: Studio lo spiega. Mai rimandi al terminale. In Laboratorio non e' disponibile.
+
+### Alternative scartate
+
+- **Kickoff nascosto con il prompt `guided-goal-interview.md` di omp** (l'agente intervista nella sessione): servirebbero `prompt synthetic` e `set_active_tools` via RPC, che non esistono; ogni domanda sarebbe un turno nel contesto e l'intervista non funzionerebbe senza modello.
+- **Domande generate dall'agente con `ask`**: stessa occupazione della sessione e nessun flusso deterministico.
+- **Voce in Impostazioni per `goal.continuationModes`**: senza continuazione un obiettivo creato dalla GUI non serve a nulla; non e' una preferenza.
+- **Tetto di tentativi applicato da omp**: non esiste il campo; resta la richiesta upstream (insieme a un'op `goal interview`).

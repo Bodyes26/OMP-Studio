@@ -162,13 +162,16 @@ lib/
     session.svelte.ts   AgentSession: riduttore reattivo di stato, gestione streaming, cronologia transcript
     wire.ts             Tipi TypeScript e mapping del protocollo RPC NDJSON v2
     sessionTree.ts      Diramazioni: copia incrementale di get_entries, mappatura transcript -> entry, righe del pannello Rami (Gate R33)
-    slashRouter.ts      Instradamento puro dei comandi slash di sessione (/resume, /sessions, /tree, /fork)
+    slashRouter.ts      Instradamento puro dei comandi slash di sessione (/resume, /sessions, /tree, /fork) e dell'obiettivo (/guided-goal, /goal)
+    guidedGoal.ts       Obiettivo guidato: domande e proposte fisse, risposte libere, bozza, controlli (criterio vago, tetto), markdown per `goal create`, proposte dell'agente (Gate R3X-guided-goal)
     components/
       Chat.svelte       Pannello chat principale della superficie GUI
       Composer.svelte   Input prompt con autocomplete slash (/), drag&drop immagini, ciclo ruoli
       SuggestionChips.svelte Riga di chip nel composer per suggerimenti prompt fissi e dinamici
       Transcript.svelte Lista messaggi con autoscroll resiliente e virtualizzazione progressiva
       BranchPanel.svelte Pannello «Rami»: albero di get_tree, ramo attivo evidenziato, apertura di un ramo come nuova sessione
+      GoalBanner.svelte Banner fisso dell'obiettivo in cima alla chat: stato, tentativi/tetto, budget, tempo, Pausa/Riprendi/Stop
+      GuidedGoalStrip.svelte / GuidedGoalAskCard.svelte / GuidedGoalDraftCard.svelte / GuidedGoalEntry.svelte  Intervista dell'obiettivo guidato
       AskCard.svelte    Card di risposta interattiva con roving tabindex
       ThinkingBlock.svelte Accordion per blocchi di ragionamento con indicatore tempo
       TodoStrip.svelte  Visualizzatore fasi e task del tool todo
@@ -415,7 +418,17 @@ Quando l'agente o un tool (es. `ask`) richiede una scelta interattiva, OMP invia
 - Il pannello `BranchPanel.svelte` legge `get_tree` e lo proietta con `buildBranchTree` (solo messaggi utente, ramo attivo dritto, alternativi rientrati, iterativo). Il clic su un ramo inattivo fa `fork` sulla sua punta (`branchTipEntryId`): via RPC omp non ha lo spostamento di foglia nello stesso file della TUI.
 - Gli hook di ramo arrivano ai componenti del transcript via `AgentUiHooks.branch` (contesto impostato da `Chat.svelte`); fuori dalla chat le voci non compaiono.
 
-### 6.5 Prewalk per chat e task
+### 6.5 Obiettivo guidato e goal mode (Gate R3X-guided-goal)
+
+- In omp `/goal` e `/guided-goal` hanno solo `handleTui`: inoltrati come prompt in `rpc-ui` arrivano al modello come testo. Studio li intercetta (`routeGoalSlash` in `slashRouter.ts`, chiamato da `handleGuiSlashCommand`) e usa l'RPC `goal {op: get|create|resume|pause|drop, objective, token_budget}` con l'evento `goal_updated` (`modes/rpc/rpc-goal.ts`).
+- **Intervista in Studio, deterministica.** `AgentSession.startGuidedGoal` crea un `GoalInterview` (`guidedGoal.ts`): cinque domande fisse con tre risposte proposte, una consigliata, e risposta libera interpretata (`parseCap`, `parseBoundaries`, `splitItems`). Domande e risposte sono entry locali `kind: 'guided-goal'` del transcript: non vanno a omp e non entrano nel contesto. `Chat.svelte` mette `GuidedGoalAskCard` al posto del composer e `GuidedGoalStrip` in cima; alla fine una entry `draft` disegna `GuidedGoalDraftCard`. `draftIssues` blocca «Avvia» (obiettivo, criteri vaghi o assenti, verifica, tetto); confini e stop mancanti sono consigli. Una ricostruzione del transcript rimette in coda la domanda o la bozza aperta.
+- **Proposte dell'agente (facoltative).** Se `get_available_commands` contiene `studio-goal` (estensione `extensions/studio-goal.ts`, caricata con `-e` solo da `rpc_open`), Studio manda il prompt `/studio-goal suggest {requestId, idea, locale}`: in omp i comandi delle estensioni partono prima di tutto, anche durante un turno, e non entrano nel transcript. L'estensione legge i comandi del progetto (`package.json`, `Cargo.toml`…) e fa un `ctx.runEphemeralTurn({tools: false})` (lo stesso turno a margine di `/btw`); risponde con `ctx.ui.setStatus("studio.goal", json)`, che arriva come `extension_ui_request` `setStatus` con `statusKey` e viene consumato da `applyStudioGoalStatus` senza toccare la riga di stato. Le proposte sostituiscono solo le domande non ancora risposte; senza risposta entro 60 s l'intervista resta sulle proposte fisse.
+- **`goal create`.** L'obiettivo e' markdown a sezioni fisse (`## Objective / ## Success criteria / ## Verification / ## Boundaries / ## Stop conditions`, come `prompts/goals/guided-goal-interview.md`), `token_budget` dal tetto. Il tetto di tentativi non e' un campo di omp: sta nel testo (`Stop after N attempts…`, riletto da `parseAttemptCap` anche dopo un riavvio) e Studio conta i tentativi (un `agent_start` con l'obiettivo attivo) e fa `goal pause` al `agent_end` terminale che raggiunge il tetto.
+- **Continuazione via RPC.** omp fa proseguire un obiettivo da solo solo nei modi elencati in `goal.continuationModes` (default `["interactive"]`): l'overlay GUI per-sessione (`write_gui_overlay`/`set_gui_overlay_prewalk` in `src-tauri/src/rpc/mod.rs`) scrive `goal.continuationModes: [interactive, rpc]`. La config dell'utente non viene toccata e il terminale non cambia.
+- **Banner.** `GoalBanner.svelte` in cima a `Chat.svelte` mostra ogni obiettivo della sessione (creato da Studio, con `/goal` o dallo strumento `goal` dell'agente) e sostituisce la sezione obiettivo del vassoio (`GoalTray` non e' piu' montato). Un obiettivo completato resta verde e chiudibile dopo che omp lo toglie dallo stato.
+- **Coda.** `AgentSession.goalHoldsSession` (obiettivo attivo o intervista aperta) entra in `GuiGateSnapshot.goalHold` -> blocco `working` «Obiettivo attivo» in `resolveAutomationGate`, e in `laneBusy` del `laneOrchestrator`: fra un tentativo e l'altro `isStreaming` e' falso ma omp sta per ripartire, quindi l'auto-avvio non manda task in quella chat.
+
+### 6.6 Prewalk per chat e task
 
 - Il modello attivo pianifica; omp risolve `@smol` all'armo e passa una sola volta dopo la prima chiamata `edit`/`write` successiva a una chiamata `todo` riuscita. Studio non modifica `modelRoles.smol` né `fallbackChains.smol`.
 - `AgentSession.prewalk` distingue `off`, `armed` e `handedOff`; i notice di sorgente `prewalk` confermano armo, disarmo e modello effettivo. `model_changed` può arrivare senza payload: il notice `switched to …` e `get_state` aggiornano il modello, mentre `thinking_level_changed` aggiorna il thinking.

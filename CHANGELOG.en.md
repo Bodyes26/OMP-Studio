@@ -15,6 +15,8 @@ released: items are closed into a version via `npm run release -- <version>`.
 - New "Commands" entry in Settings: the catalog of `omp` and Studio commands, grouped by category, with search, explanation, benefits, examples and when to use each one, so you can discover features like prewalk without having to know them. Each command can be pinned in the composer, on the inner bar or below the composer, in the form you prefer, reordered by dragging (or `Alt+←/→`) and reset to the default layout. Attach, role, model and thinking are always present; `@` and context can be shown wherever you want. New commands that `omp` adds after an update appear in a "New" section until Studio describes them.
 - The row below the composer moves entries that don't fit into a "…" menu.
 - "Branch from here" and "Edit and retry" in the "…" menu of each of your messages in the chat (also on right-click): they open a new session with the conversation up to just before that message, and with "Edit and retry" its text goes back into the composer so you can fix it and resend. Under each finished answer, "Branch from here" opens a new session ending with that turn. The original session stays untouched in the session list.
+- Guided goal in the chat: with "Goal" in the composer, `/guided-goal [idea]` or `/goal`, Studio pins the goal down with five questions, one at a time (criteria, verification, cap, boundaries, stop), answered from a choice card that takes the composer's place, or by writing your own answer. A strip at the top shows the five fields filling in; a vague criterion like "faster" without a threshold is flagged. At the end the draft arrives as an editable card in the chat, and "Start goal" stays disabled while there are problems or the cap is missing. Once started, the goal lives in a fixed banner at the top of the chat with attempts, token budget, time and Pause, Resume and Stop; it pauses itself when the attempt cap is reached. When the agent is available, the questions and suggested answers adapt to the project.
+- `/goal pause`, `/goal resume`, `/goal drop`, `/goal show` and `/goal <objective>` work in the GUI chat instead of reaching the model as text.
 - "Branches" panel (`/tree`, or pinned in the composer): the tree of the open session with one node per message you sent, the active branch highlighted and alternative branches indented where they split off. Clicking a branch opens it as a new session up to its last message; a node's menu also lets you branch from before the message or retry it.
 
 ### Changed
@@ -24,10 +26,13 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Chats of projects that are not visible are no longer redrawn, terminals receive output in batches, and the breathing attention ring no longer keeps the CPU busy.
 - Git operations and file searches no longer slow down the interface's other requests.
 - The focus diagnostics log (`focus-trace.log`) is no longer written unless you enable it.
+- The session goal is no longer in the tray above the composer: it is the banner at the top of the chat.
+- With a goal active, or being defined, the queue's auto-start treats the chat as busy even between one attempt and the next.
 - `/tree` in the GUI chat opens the "Branches" panel, like `omp`'s `/tree`, instead of the session list: the list stays on `/sessions` and `/resume`.
 
 ### Fixed
 - Studio no longer burns CPU continuously while idle: for every session without a pinned account, the account lookup repeated endlessly, scanning every session on disk (over 150% CPU on Mac).
+- A goal created in the GUI chat continues on its own, one attempt after another, as in the terminal: it used to stop after the first turn.
 - `/fork` in the GUI chat now really copies the session, history and artifacts included, and continues on the copy: it used to open an empty chat. If the agent is working or waiting for an answer, Studio says so and leaves everything as it was.
 
 ## [1.7.2] - 2026-10-07
