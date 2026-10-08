@@ -46,6 +46,7 @@ Le scorciatoie globali catturate dall'app vivono dietro il modificatore **`Ctrl+
 | `Alt+Freccia Su` | Composer GUI, bozza vuota | Richiama nell'editor l'ultimo messaggio in coda (prima i follow-up, poi gli steer) |
 | `Maiusc+Invio` / `Ctrl+Invio` | Composer GUI | Inserisce una nuova riga |
 | `Esc` | Composer GUI | Chiude palette/menu/modale aiuto |
+| `Alt+I` | Anteprima del Laboratorio | Attiva o spegne «Punta» (Indica e disegna); `Maiusc+clic` aggiunge l'elemento alla nota aperta, `Esc` esce |
 | `Ctrl+0` | Diagramma a fuoco | Adatta il diagramma alla finestra |
 | `Ctrl+S` | Editor | Salva il file corrente e lo notifica |
 | `Ctrl+W` | Editor | Chiude il file corrente |

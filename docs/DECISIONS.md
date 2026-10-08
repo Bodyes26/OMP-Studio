@@ -876,7 +876,7 @@ APPROVATO, non ancora superato (manca S47).
 ### Architettura di sicurezza e confini tecnici (ricerca/laboratorio-prototipi-piano.md §§ 5-9)
 
 1. **Broker di scrittura confinata (`extensions/studio-lab.ts`):** estensione autonoma iniettata per-sessione con hook `tool_call` fail-closed; allowlist stretta di soli 8 tool ammessi (`lab_write_file`, `lab_read_file`, `lab_list_files`, `lab_delete_file`, `task`, `hub`, `todo`, `ask`); blocco immediato per difetto di shell (`bash`), interpreti (`eval`), scritture generiche (`write`, `edit`), browser host, debugger e server MCP; validazione dei percorsi con `realpathSync` contro traversal `..`, percorsi assoluti, collisioni tra prototipi e symlink/junction esterni.
-2. **Isolamento del renderer:** esecuzione in processo Chromium dedicato e versionato (Chrome for Testing) con profilo temporaneo privo di dati personali; origine virtuale `http://lab.virtual` senza porte di rete esposte sull'host; assenza totale del bridge nativo Tauri `window.__TAURI__`; controller CDP con policy di rete attiva che intercetta e blocca tentativi di navigazione `location.href` e richieste esterne con errore `BlockedByClient`.
+2. **Isolamento del renderer** *(superato dal Gate R30: l'anteprima e' un iframe sandbox a origine opaca nella WebView di Studio, servito dal server loopback `lab/preview_server.rs`; niente Chromium dedicato, CDP o watchdog. Il testo resta come registro della decisione originale)*: esecuzione in processo Chromium dedicato e versionato (Chrome for Testing) con profilo temporaneo privo di dati personali; origine virtuale `http://lab.virtual` senza porte di rete esposte sull'host; assenza totale del bridge nativo Tauri `window.__TAURI__`; controller CDP con policy di rete attiva che intercetta e blocca tentativi di navigazione `location.href` e richieste esterne con errore `BlockedByClient`.
 3. **Watchdog runtime e crash recovery:** interruzione immediata dei cicli sincroni infiniti in meno di 2 ms tramite `Runtime.terminateExecution`; riciclo del target CDP (`Target.closeTarget` e `Target.createTarget`) in caso di stallo, garantendo il recupero della piena reattività senza terminare l'agente principale o Studio.
 4. **Esecuzione offline senza CDN (`static/lab/`):** catalogo dipendenze a versioni fissate (React 19.2.8, Tailwind v4.3.3, Lucide 1.42.0, Radix Dialog 1.1.23, Recharts 3.10.1, Motion 13.2.0, esbuild-wasm 0.28.2); bundle fidati precompilati in locale che consentono l'avvio immediato e la riapertura dei prototipi anche in assenza totale di connettività internet.
 5. **Contesto stabile e rilevamento deriva (drift):** acquisizione congelata del working tree (comprese modifiche non committate dell'utente); esclusione categorica di credenziali, file `.env*` e chiavi private; verifica di coerenza a più passaggi; rilevamento del drift senza rigenerazione automatica del prototipo e aggiornamento solo su richiesta esplicita dell'utente con storico tracciato.
@@ -1416,3 +1416,27 @@ locali e il `queuedMessageCount` di omp potevano divergere, e un crash prima di
 2. **Generazione e verifica assistita per gli agenti:** Quando il gate di release (`scripts/check-commands.mjs`) rileva comandi nuovi da `omp`, l'agente può generare una singola bozza `CommandManifestEntry` completa, sottoporla all'utente con il tool `ask` e inserirla nel file appropriato (`omp-modes.ts` o `omp-session.ts`) con una sola operazione atomica.
 3. **Controllo dei tipi a tempo di compilazione:** I contratti di `CommandText` (`CommandTexts = { it: CommandText, en: CommandText }`) impongono staticamente che entrambe le lingue contengano tutti i campi obbligatori (`title`, `summary`, `benefits`, `examples`), evitando chiavi mancanti o disallineate che in JSON richiederebbero controlli a runtime o linter aggiuntivi.
 4. **Perimetro Paraglide preservato:** Le etichette strutturali dell'interfaccia utente (titoli delle sezioni, pulsanti di azione, messaggi di stato, attributi aria) restano interamente gestite tramite Paraglide (`messages/*.json`), mantenendo la coerenza applicativa per tutti gli elementi del guscio.
+
+---
+
+## Gate R3X-lab-indica: «Indica e disegna» nel Laboratorio (versione semplificata)
+
+**Data:** 2026-10-08
+**Esito:** IMPLEMENTATO (da collaudare su Windows, macOS e Linux con omp reale)
+
+### Decisioni di Maurizio
+
+1. **Solo due modalita':** *Punta* (clic su un elemento, Maiusc+clic per aggiungerne altri alla stessa nota) e *Riquadro* (si trascina un rettangolo e si raccolgono gli elementi DOM significativi al suo interno, raggruppati per componente e `file:riga`). Niente penna, niente ritocco diretto: sostituiscono il vecchio pulsante «Seleziona».
+2. **Note numerate in una coda nel composer:** ogni selezione ha numero e nota facoltativa; un componente nuovo (`LabNotesQueue.svelte`), non `ComposerPinnedItem` (che e' il pulsante dei comandi fissati). All'invio diventano un blocco compatto `<lab-notes>`.
+3. **Un solo fotogramma annotato per messaggio**, allegato come immagine con il meccanismo degli allegati del composer.
+4. **Cattura multipiattaforma senza codice nativo:** niente `CapturePreview` di WebView2. Il DOM si rasterizza dentro l'iframe (tecnica di modern-screenshot/html-to-image: clone con stili calcolati → SVG `foreignObject` → canvas, immagini e font come data URL), implementata come modulo vendorizzato nello script ispettore, senza dipendenze npm. Fallback: solo testo con avviso.
+5. **Riaggancio dopo la ricompilazione** tramite `data-lab-loc` + indice d'istanza + selettore; una nota il cui elemento sparisce resta, marcata «superata».
+6. **Scorciatoia `Alt+I` solo nel Laboratorio** (Ctrl+Opzione+I su macOS, come le altre scorciatoie a lettera della GUI).
+
+### Motivazioni tecniche
+
+- **Mappa sorgente al momento della compilazione.** React 19 ha tolto `_debugSource` e il bundle vendorizzato e' di produzione: l'unica fonte affidabile di `file:riga` e' esbuild con `jsxDev`, che passa `{fileName, lineNumber, columnNumber}` allo shim. Costo: un attributo per elemento host, trascurabile in locale.
+- **Rasterizzazione nell'iframe invece della cattura nativa.** Il parent non puo' leggere i pixel di un iframe a origine opaca; la cattura nativa richiederebbe tre implementazioni (WebView2, WKWebView, WebKitGTK) non compilabili qui e andrebbe ritagliata per non includere la chat. Il clone del DOM resta dentro il prototipo, e' identico sui tre sistemi e non tocca Rust. Limiti accettati: canvas WebGL, video e iframe annidati diventano segnaposto; immagini e font di altre origini senza CORS vengono sostituiti; la resa di WebKit puo' differire di qualche pixel.
+- **Sicurezza.** Nessun `allow-same-origin`; il parent accetta solo messaggi dal proprio iframe. Il prototipo potrebbe falsificare un messaggio dell'ispettore, ma l'effetto massimo e' una nota visibile nella coda, che non parte senza l'invio dell'utente.
+- **Gate R24 aggiornato:** il punto «Isolamento del renderer» descriveva il Chromium dedicato con origine `lab.virtual`, superato dal Gate R30; ora lo dice esplicitamente.
+

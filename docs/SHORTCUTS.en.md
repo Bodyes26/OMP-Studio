@@ -45,6 +45,7 @@ Global shortcuts captured by the application live behind the **`Ctrl+Alt`** modi
 | `Alt+Enter` | GUI Composer | Send with alternate queueing mode (opposite of default) |
 | `Shift+Enter` / `Ctrl+Enter` | GUI Composer | Insert new line |
 | `Esc` | GUI Composer | Close palette/menu/help modal |
+| `Alt+I` | Lab preview | Toggle "Point" (Point and draw); `Shift+click` adds the element to the open note, `Esc` exits |
 | `Ctrl+0` | Focused Diagram | Fit diagram to window |
 | `Ctrl+S` | Editor | Save current file and notify |
 | `Ctrl+W` | Editor | Close current file |
