@@ -400,6 +400,9 @@
 	function handleWindowKeydown(e: KeyboardEvent): void {
 		if (!visible) return;
 		// Alt+I (Ctrl+Opzione+I su macOS, come le altre scorciatoie a lettera).
+		// Anche il Browser Live ascolta Alt+I sulla finestra (selettore): se l'ha
+		// gia' consumato lui, qui non si accende «Punta» nello stesso colpo.
+		if (e.altKey && e.defaultPrevented) return;
 		if (e.altKey && !e.metaKey && e.code === 'KeyI' && (!e.ctrlKey || IS_MAC)) {
 			e.preventDefault();
 			toggleInspect();

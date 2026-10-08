@@ -69,6 +69,7 @@
 			column: 1,
 			items: [
 				{ keys: [IS_MAC ? '⌘B' : 'Ctrl+B'], description: m.shortcuts_item_btw() },
+				{ keys: [`${L}+Shift+P`], description: m.shortcuts_item_plan() },
 				{ keys: ['Invio'], description: m.ui_shortcutshelpmodal_invia_il_messaggio_o_seleziona_il_comando_af10() },
 				{ keys: ['Alt+Invio'], description: m.ui_shortcutshelpmodal_invia_con_la_modalita_di_accodamento_alternativa_4022() },
 				{ keys: ['Shift+Invio', 'Ctrl+Invio'], description: m.ui_shortcutshelpmodal_inserisce_una_nuova_riga_nel_campo_di_6250() },
@@ -93,6 +94,7 @@
 				{ keys: ['Ctrl+Alt+N'], description: m.ui_shortcutshelpmodal_nuovo_progetto_apre_il_selettore_cartella_01ff() },
 				{ keys: ['Ctrl+Alt+S'], description: m.shortcuts_item_scratchpad() },
 				{ keys: ['Ctrl+Alt+P'], description: m.shortcuts_item_lab_prototype() },
+				{ keys: [`${L}+I`], description: m.shortcuts_item_lab_point() },
 				{ keys: ['Ctrl+Alt+U'], description: m.shortcuts_item_usage_panel() },
 				{ keys: ['Ctrl+Alt+M'], description: m.ui_shortcutshelpmodal_apre_le_impostazioni_modelli_ruoli_catalogo_provider_9786() },
 				{ keys: ['Ctrl+Alt+,'], description: m.ui_shortcutshelpmodal_apre_le_impostazioni_generali_di_studio_0d93() },

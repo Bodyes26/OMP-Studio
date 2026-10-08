@@ -93,7 +93,7 @@ graph TB
 - **Coalescenza dei delta di streaming:** gli eventi `assistantMessageEvent` ad alta frequenza vengono coalesciati all'interno di una finestra temporale di **8 ms** (`DELTA_WINDOW`), evitando il costo $O(n^2)$ di passaggi IPC per risposte lunghe in streaming.
 - **Buffer circolare stderr:** conserva le ultime 200 righe di output stderr del processo per offrire diagnostica dettagliata ed immediata in caso di crash o errori di configurazione all'avvio.
 - **Canale di interruzione prioritario:** i comandi di stop (`abort`, `abort_bash`) operano con timeout rapido a 4 secondi (`FAST_COMMAND_TIMEOUT_MS`) e cancellazione locale immediata dei buffer, garantendo reattività istantanea alla pressione del pulsante di stop o `Alt+C`.
-- **Modalita' Piano della GUI:** il processo RPC riceve `-e studio-plan.ts` e `OMP_STUDIO_PLAN=gui`; il PTY riceve la stessa estensione senza la variabile, e li' resta inerte (vale il `/plan` nativo). Dettagli in §6.6.
+- **Modalita' Piano della GUI:** il processo RPC riceve `-e studio-plan.ts` e `OMP_STUDIO_PLAN=gui`; il PTY riceve la stessa estensione senza la variabile, e li' resta inerte (vale il `/plan` nativo). Dettagli in §6.10.
 
 ### 2.3 Worker Asincroni e Database SQLite
 - Tutte le interrogazioni su `stats.db`, `history.db` e `agent.db` vengono eseguite all'interno di `tokio::task::spawn_blocking` con connessioni aperte in modalità `OpenFlags::SQLITE_OPEN_READ_ONLY`, `PRAGMA query_only = ON` e `PRAGMA busy_timeout = 3000`, evitando di bloccare l'event loop di Tauri.
@@ -406,7 +406,7 @@ Al momento del dispatch, la funzione `formatTaskPrompt` arricchisce il prompt ap
 ### 5.3 Meccanismo di Auto-Dispatch
 L'avvio automatico dei task in coda è configurabile per singolo progetto (`autoDispatch: true`). Un task parte solo quando la sessione e' ferma **e stabile**:
 
-1. **Cancello** (`automationGate.ts`, `autoDispatchReady`). GUI: nessuna domanda `ask`, nessuna quota, sessione pronta, nessun run vivo e nessuna attesa. Oltre a `isStreaming` (che `turn_end` spegne fra un giro di tool e l'altro) contano `runActive` (`settle.running`, da `agent_start` allo yield: copre le pause fra i tool, l'attesa di un nuovo tentativo e la compattazione che continua il run), `awaitingRun` (prompt ammesso da omp, `agent_start` non ancora arrivato: omp risponde a `prompt` all'ammissione), `retrying` (`auto_retry_start` aperto), `compacting`, `nativeQueue` (steer/follow-up nella coda di omp) e `backgroundWork` (yield senza quiete, §6.7). Con un omp senza quiete anche i subagenti in corsa. Analisi post-turno e domande dedotte sospendono solo l'auto-avvio. Terminale: titolo `idle` (§5.3.1), nessun testo nel prompt, nessun task appena scritto in attesa del run (`awaitingStart`), nessuna barra OSC 9;4.
+1. **Cancello** (`automationGate.ts`, `autoDispatchReady`). GUI: nessuna domanda `ask`, nessuna quota, sessione pronta, nessun run vivo e nessuna attesa. Oltre a `isStreaming` (che `turn_end` spegne fra un giro di tool e l'altro) contano `runActive` (`settle.running`, da `agent_start` allo yield: copre le pause fra i tool, l'attesa di un nuovo tentativo e la compattazione che continua il run), `awaitingRun` (prompt ammesso da omp, `agent_start` non ancora arrivato: omp risponde a `prompt` all'ammissione), `retrying` (`auto_retry_start` aperto), `compacting`, `nativeQueue` (steer/follow-up nella coda di omp) e `backgroundWork` (yield senza quiete, §6.9). Con un omp senza quiete anche i subagenti in corsa. Analisi post-turno e domande dedotte sospendono solo l'auto-avvio. Terminale: titolo `idle` (§5.3.1), nessun testo nel prompt, nessun task appena scritto in attesa del run (`awaitingStart`), nessuna barra OSC 9;4.
 2. **Stabilita'** (`src/lib/lanes/autoDispatchArbiter.ts`). L'effetto in `+page.svelte` passa all'arbitro i candidati idonei *adesso*; l'arbitro li spedisce solo dopo 2,5 s di idoneita' continuata (3 s nel terminale). Ogni chiusura del cancello azzera il conto; in GUI la quiete conta dall'ultimo evento del ciclo di vita del run (`AgentSession.quietForMs()`; le voci di stato delle estensioni non contano).
 3. **Ri-verifica.** Allo scadere: GUI `get_state` (`AgentSession.verifyQuietForDispatch()`: `isStreaming`, `isCompacting`, `queuedMessageCount`, `isSettled`, `hasPendingAsyncWork`), terminale `TerminalSession.isAutomationQuiet()`; poi il cancello si rilegge. Se non e' quieto non parte nulla e si riprova dopo 5 s.
 4. **Lock per progetto** dalla ri-verifica alla consegna; il rilascio chiede un nuovo giro all'effetto. La spedizione parte da un timer, fuori dall'effetto (`handleRunTask` scrive lo stato che l'effetto legge). Una consegna fallita su Principale riprova dopo 30 s; un fallimento in una corsia nuova non si ritenta da solo.
@@ -494,7 +494,7 @@ I metodi senza risposta (`notify`, `setStatus`, `setWidget`, `setTitle`, `open_u
 - Il pannello `BranchPanel.svelte` legge `get_tree` e lo proietta con `buildBranchTree` (solo messaggi utente, ramo attivo dritto, alternativi rientrati, iterativo). Il clic su un ramo inattivo fa `fork` sulla sua punta (`branchTipEntryId`): via RPC omp non ha lo spostamento di foglia nello stesso file della TUI.
 - Gli hook di ramo arrivano ai componenti del transcript via `AgentUiHooks.branch` (contesto impostato da `Chat.svelte`); fuori dalla chat le voci non compaiono.
 
-### 6.4b Domande a margine `/btw` (Gate R3X-btw)
+### 6.5 Domande a margine `/btw` (Gate R3X-btw)
 
 - Comandi RPC di omp (18.6.3+, `docs/rpc.md` «Side questions»): `btw { question, recordId? }` → `{ record }`, `btw_cancel { recordId? }` → `{ cancelled }` (in `FAST_COMMANDS`: omp lo esegue fuori coda), `get_btw_history` → `{ records }` dal piu' recente. Frame: `btw_record` (record intero a ogni cambio di stato, l'ultimo vince) e `btw_delta { recordId, delta }` (testo dell'ultimo turno). Il primo `btw_record` arriva **prima** della risposta a `btw`; tutti i delta dopo.
 - `AgentSession.btw` (`SessionBtw`, `src/lib/agent/btwState.svelte.ts`) riceve i frame dal riduttore e non tocca mai `entries`: niente finisce nel transcript. La logica pura (parsing tollerante, `applyBtwDelta`, `upsertBtwRecord`, citazione) sta in `btw.ts` con test in Node.
@@ -503,14 +503,14 @@ I metodi senza risposta (`notify`, `setStatus`, `setWidget`, `setTitle`, `open_u
 - Una domanda per volta per sessione (regola di omp): Studio non manda la seconda e lo dice. Cambio di sessione (nuova chat, ripresa, fork, ramo): omp annulla la domanda in corso; Studio azzera storico e selezione quando `get_state` porta un `sessionId` diverso, e conserva bozza e citazione.
 - «Usa nel messaggio»: `SessionBtw.quote` (domanda + ultima risposta in blockquote markdown) compare come chip nel composer e viene anteposta al testo solo all'invio riuscito (`withBtwQuote`); con un comando slash resta per il messaggio successivo. Il *branch* della TUI (promuovere lo scambio nella sessione) non ha un comando RPC.
 
-### 6.5 /loop nella chat (Gate R3X-loop)
+### 6.6 /loop nella chat (Gate R3X-loop)
 
 - Motore: `extensions/studio-loop.ts`, caricata con `-e` in `rpc/mod.rs` e `pty/mod.rs` ma attiva solo con `--mode rpc-ui` sulla sessione principale. L'handler `input` consuma `/loop …` e `/studio-loop <op>` prima dei builtin; `agent_end` chiude il giro e `sendUserMessage` avvia il successivo dopo 800 ms. La condizione `--until/--while` gira con `pi.exec` nella shell che sceglierebbe omp (Git Bash, poi PATH, poi `cmd.exe`), con timeout di 30 s, fuori dal contesto.
 - Stato: `ctx.ui.setStatus("studio.loop", json)` → `AgentSession.applyLoopStatus` → `session.loop` / `session.loopProbe`. Persistenza con `appendEntry("studio-loop")`; al resume un loop vivo torna in pausa. Dopo l'insediamento Studio chiede `/studio-loop status`. Il comando registrato `studio-loop` dice a Studio che il motore c'e'.
 - GUI: `loopMode.ts` (puro: bozza delle pillole, riga `/loop`, instradamento di `/loop`, segmenti, ripiegamento dei giri), `LoopComposer.svelte` (pillole e pannello, al posto della sagoma del `Composer` via `shellOverride`), `LoopTranscriptRow.svelte` (bolla `/loop`, separatore, giro ripiegato, riga finale). `UserEntry.loopGiro` marca il prompt ripetuto; `UserEntry.loopStart` la bolla d'avvio.
 - Occupazione: `GuiGateSnapshot.loopActive` (blocco `loop` del cancello della coda) e `laneBusy`/`laneAgentState` tengono la corsia occupata finche' il loop e' attivo, pausa compresa. `--between reset`: il motore aspetta in `resetting`, Studio manda `new_session`, il giro riparte su `session_switch`.
 
-### 6.5b Obiettivo guidato e goal mode (Gate R3X-guided-goal)
+### 6.7 Obiettivo guidato e goal mode (Gate R3X-guided-goal)
 
 - In omp `/goal` e `/guided-goal` hanno solo `handleTui`: inoltrati come prompt in `rpc-ui` arrivano al modello come testo. Studio li intercetta (`routeGoalSlash` in `slashRouter.ts`, chiamato da `handleGuiSlashCommand`) e usa l'RPC `goal {op: get|create|resume|pause|drop, objective, token_budget}` con l'evento `goal_updated` (`modes/rpc/rpc-goal.ts`).
 - **Intervista in Studio, deterministica.** `AgentSession.startGuidedGoal` crea un `GoalInterview` (`guidedGoal.ts`): cinque domande fisse con tre risposte proposte, una consigliata, e risposta libera interpretata (`parseCap`, `parseBoundaries`, `splitItems`). Domande e risposte sono entry locali `kind: 'guided-goal'` del transcript: non vanno a omp e non entrano nel contesto. `Chat.svelte` mette `GuidedGoalAskCard` al posto del composer e `GuidedGoalStrip` in cima; alla fine una entry `draft` disegna `GuidedGoalDraftCard`. `draftIssues` blocca «Avvia» (obiettivo, criteri vaghi o assenti, verifica, tetto); confini e stop mancanti sono consigli. Una ricostruzione del transcript rimette in coda la domanda o la bozza aperta.
@@ -520,7 +520,7 @@ I metodi senza risposta (`notify`, `setStatus`, `setWidget`, `setTitle`, `open_u
 - **Banner.** `GoalBanner.svelte` in cima a `Chat.svelte` mostra ogni obiettivo della sessione (creato da Studio, con `/goal` o dallo strumento `goal` dell'agente) e sostituisce la sezione obiettivo del vassoio (`GoalTray` non e' piu' montato). Un obiettivo completato resta verde e chiudibile dopo che omp lo toglie dallo stato.
 - **Coda.** `AgentSession.goalHoldsSession` (obiettivo attivo o intervista aperta) entra in `GuiGateSnapshot.goalHold` -> blocco `working` «Obiettivo attivo» in `resolveAutomationGate`, e in `laneBusy` del `laneOrchestrator`: fra un tentativo e l'altro `isStreaming` e' falso ma omp sta per ripartire, quindi l'auto-avvio non manda task in quella chat.
 
-### 6.6 Prewalk per chat e task
+### 6.8 Prewalk per chat e task
 
 - Il modello attivo pianifica; omp risolve `@smol` all'armo e passa una sola volta dopo la prima chiamata `edit`/`write` successiva a una chiamata `todo` riuscita. Studio non modifica `modelRoles.smol` né `fallbackChains.smol`.
 - `AgentSession.prewalk` distingue `off`, `armed` e `handedOff`; i notice di sorgente `prewalk` confermano armo, disarmo e modello effettivo. `model_changed` può arrivare senza payload: il notice `switched to …` e `get_state` aggiornano il modello, mentre `thinking_level_changed` aggiorna il thinking.
@@ -529,7 +529,7 @@ I metodi senza risposta (`notify`, `setStatus`, `setWidget`, `setTitle`, `open_u
 - `StudioTaskOptions.prewalk` è un booleano opzionale in `.omp/tasks.json`. Il dispatch GUI arma dopo modello/thinking e prima del prompt: se l'armo fallisce, il task resta in coda. Il dispatch PTY invia `/prewalk` dopo `/new` e la conferma della nuova sessione, prima del prompt incollato.
 - `project_tasks` conserva l'opzione in add/update e `/tasks` la mostra con `[prewalk]`. Invio nell'overlay TUI non la applica: il prewalk del task viene applicato da Studio quando lo avvia.
 
-### 6.7 Fine del turno e quiete della sessione
+### 6.9 Fine del turno e quiete della sessione
 
 `AgentSession` distingue due momenti (logica pura in `src/lib/agent/settle.ts`, stato in `settle: { aware, settled, running }`):
 
@@ -544,7 +544,7 @@ I metodi senza risposta (`notify`, `setStatus`, `setWidget`, `setTitle`, `open_u
 `running` e' anche il «run vivo» del cancello della coda (§5.3): `turn_end` spegne `isStreaming` a ogni giro di tool, `running` resta acceso fino allo yield. `backgroundPending = aware && !settled && !running && !streaming`. In quello stato `agentState` resta `working` (tessera, companion e `finished` aspettano la quiete), `automationSnapshot.backgroundWork` e' vero (blocco `background` in `automationGate.ts`, instradabile in corsia) e la riga di stato mostra «in background». Mentre si aspetta, un `get_state` ogni 15 s fa da rete per un `session_settled` perso. Con un omp che non riporta la quiete (`aware` mai acceso) lo yield vale come quiete: il comportamento precedente.
 
 
-### 6.6 Modalita' Piano nella chat GUI (Gate R3X-plan)
+### 6.10 Modalita' Piano nella chat GUI (Gate R3X-plan)
 
 - **Trasporto:** `extensions/studio-plan.ts` (comando nascosto `/studio-plan on|off|status|review`, hook `before_agent_start` e `tool_call`, strumento `studio_plan_submit`). Studio manda `/studio-plan <op>` come `prompt` senza bolla nel transcript; `mergeCommands` lo nasconde dalla palette. Lo stato torna con `setStatus` sulla chiave `studio-plan` (JSON) e sopravvive al resume come voce custom `studio-plan-state`.
 - **Revisione:** `extension_ui_request` `editor` con titolo `studio-plan-review:<meta>` e piano precompilato. `AgentSession` la intercetta prima delle domande generiche e la passa a `PlanController.openReview`; un `cancel` di omp la chiude. La risposta `extension_ui_response` porta la decisione JSON (`encodePlanDecision`).

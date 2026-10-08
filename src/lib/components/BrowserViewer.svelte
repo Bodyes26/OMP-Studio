@@ -830,7 +830,9 @@
 			return;
 		}
 
-		if ((e.altKey && (e.key === 'i' || e.key === 'I')) || (e.ctrlKey && e.shiftKey && (e.key === 'c' || e.key === 'C'))) {
+		// `defaultPrevented`: Alt+I e' anche «Punta» dell'anteprima del Laboratorio;
+		// un solo ascoltatore per colpo.
+		if (!e.defaultPrevented && ((e.altKey && (e.key === 'i' || e.key === 'I')) || (e.ctrlKey && e.shiftKey && (e.key === 'c' || e.key === 'C')))) {
 			e.preventDefault();
 			togglePicker();
 			return;

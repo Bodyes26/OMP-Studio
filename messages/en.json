@@ -3351,5 +3351,7 @@
   "commands_goal_show": "Show the goal status",
   "commands_goal_pause": "Pause the goal",
   "commands_goal_resume": "Resume the paused goal",
-  "commands_goal_drop": "Stop and delete the goal"
+  "commands_goal_drop": "Stop and delete the goal",
+  "shortcuts_item_plan": "Plan mode: turns the chat's Plan on and off (like /plan; not in the Lab)",
+  "shortcuts_item_lab_point": "Lab preview: toggles \"Point\" (Point and draw)"
 }

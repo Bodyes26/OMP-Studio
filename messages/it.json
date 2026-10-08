@@ -3351,5 +3351,7 @@
   "commands_goal_show": "Mostra lo stato dell'obiettivo",
   "commands_goal_pause": "Mette in pausa l'obiettivo",
   "commands_goal_resume": "Riprende l'obiettivo in pausa",
-  "commands_goal_drop": "Ferma ed elimina l'obiettivo"
+  "commands_goal_drop": "Ferma ed elimina l'obiettivo",
+  "shortcuts_item_plan": "Modalità Piano: accende e spegne il Piano della chat (come /plan; non nel Laboratorio)",
+  "shortcuts_item_lab_point": "Anteprima del Laboratorio: attiva o spegne «Punta» (Indica e disegna)"
 }
