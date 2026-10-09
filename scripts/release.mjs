@@ -166,7 +166,7 @@ export function runCli(argv = process.argv.slice(2)) {
 		console.warn('\nATTENZIONE: verifica allineamento comandi omp saltata (--skip-command-check).');
 	} else {
 		console.log('Verifico l\'allineamento dei comandi omp con il catalogo...');
-		const cmdCheck = spawnSync(process.execPath, [join(ROOT, 'scripts', 'check-commands.mjs')], {
+		const cmdCheck = spawnSync(process.execPath, ['--no-warnings', '--experimental-strip-types', join(ROOT, 'scripts', 'check-commands.mjs')], {
 			cwd: ROOT,
 			stdio: 'inherit'
 		});

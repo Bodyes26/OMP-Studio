@@ -5,7 +5,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 
 import {
@@ -363,7 +363,7 @@ describe('Estensione studio-plan: utilita\'', () => {
 	});
 
 	it('radice di local:// come omp, corta su Windows con percorsi lunghi', () => {
-		assert.equal(resolveLocalRoot('/a/b', 's1', 'linux'), join('/a/b', 'local'));
+		assert.equal(resolveLocalRoot('/a/b', 's1', 'linux'), resolve('/a/b', 'local'));
 		const long = `C:/${'x'.repeat(200)}`;
 		assert.equal(resolveLocalRoot(long, 'sess:1', 'win32'), join(tmpdir(), 'omp-local', 'sess_1'));
 	});

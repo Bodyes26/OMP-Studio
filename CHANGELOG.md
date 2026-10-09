@@ -56,6 +56,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - La notifica «ha finito» e l'avvio automatico del task successivo aspettano che l'agente abbia finito davvero, anche il lavoro in background, invece di scattare alla prima risposta (richiede `omp` 18.8; con versioni precedenti resta il comportamento di prima).
 - Un errore del provider a fine turno (per esempio un sovraccarico o un limite) ora compare in chat con provider, codice HTTP e l'indicazione se si può riprovare.
 - Gli avvisi delle estensioni mantengono il loro livello (avviso, errore) invece di comparire sempre come informazione.
+- I suggerimenti di risposta sopra il composer non compaiono più alla prima apertura della chat, con la schermata iniziale: appaiono solo dopo che l'agente ha risposto.
 - Studio non consuma più CPU di continuo a riposo: per ogni sessione senza un account fissato la ricerca dell'account si ripeteva senza sosta scorrendo tutte le sessioni su disco (oltre il 150% di CPU su Mac).
 - Un obiettivo creato nella chat GUI prosegue da solo un tentativo dopo l'altro, come nel terminale: prima si fermava dopo il primo turno.
 - `/fork` nella chat GUI copia davvero la sessione, cronologia e artefatti compresi, e prosegue sulla copia: prima apriva una chat vuota. Se l'agente sta lavorando o aspetta una risposta, Studio lo dice e lascia tutto com'era.

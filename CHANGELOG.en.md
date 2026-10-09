@@ -56,6 +56,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - The "finished" notice and the automatic start of the next task wait until the agent has really finished, background work included, instead of firing at the first answer (requires `omp` 18.8; with earlier versions the previous behavior stays).
 - A provider error at the end of a turn (for example an overload or a limit) now shows up in the chat with the provider, HTTP code and whether you can try again.
 - Extension notices keep their level (warning, error) instead of always showing as information.
+- Reply suggestions above the composer no longer show on a fresh chat with the start screen: they appear only after the agent has replied.
 - Studio no longer burns CPU continuously while idle: for every session without a pinned account, the account lookup repeated endlessly, scanning every session on disk (over 150% CPU on Mac).
 - A goal created in the GUI chat continues on its own, one attempt after another, as in the terminal: it used to stop after the first turn.
 - `/fork` in the GUI chat now really copies the session, history and artifacts included, and continues on the copy: it used to open an empty chat. If the agent is working or waiting for an answer, Studio says so and leaves everything as it was.

@@ -11,7 +11,7 @@
     "check": "node node_modules/@inlang/paraglide-js/bin/run.js compile --project ./project.inlang --outdir ./src/lib/paraglide --strategy baseLocale --emit-ts-declarations --disable-async-local-storage && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "check:icons": "node scripts/check-icons.mjs",
-    "check:commands": "node scripts/check-commands.mjs",
+    "check:commands": "node --no-warnings --experimental-strip-types scripts/check-commands.mjs",
     "logo": "node scripts/generate-logo.mjs",
     "tauri": "tauri",
     "tauri:cdp": "set \"WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222\" && tauri dev",

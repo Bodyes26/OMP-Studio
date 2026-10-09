@@ -4,7 +4,7 @@
 	 * Editor contenteditable a badge per @file e /comando, barra strumenti con
 	 * allegati, @, ruolo, modello, thinking, anello di contesto e pulsante Invio/Stop.
 	 */
-	import type { AgentSession, QueuedMessage } from '$lib/agent/session.svelte';
+	import type { AgentSession, QueuedMessage, TranscriptEntry } from '$lib/agent/session.svelte';
 	import type { ImageContent, ModelInfo, ThinkingLevel, AvailableCommand, RestoredQueuedMessage } from '$lib/agent/wire';
 	import { restoreBesideDraft, restoredQueueImages, restoredQueueText } from '$lib/agent/queueRestore';
 	import { modelSupportsImages, modelSupportsReasoning } from '$lib/agent/wire';
@@ -928,8 +928,15 @@
 			settingsStore.suggestions.maxDynamic
 		)
 	);
+	// Nessun chip all'avvio (hero): hanno senso solo dopo una risposta dell'agente.
+	const hasAssistantTurn = $derived(session.entries.some((e: TranscriptEntry) => e.kind === 'assistant'));
 	const showSuggestionChips = $derived(
-		visible && !session.isStreaming && !canSend && !currentTrigger && displayedSuggestions.length > 0
+		visible &&
+			hasAssistantTurn &&
+			!session.isStreaming &&
+			!canSend &&
+			!currentTrigger &&
+			displayedSuggestions.length > 0
 	);
 
 	/**
