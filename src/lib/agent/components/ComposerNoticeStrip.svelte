@@ -1,6 +1,6 @@
 <script lang="ts">
 	/**
-	 * Esito dell'ultimo comando di Studio, sovrapposto al bordo superiore del
+	 * Esito dell'ultimo comando (di Studio o di omp), sovrapposto al bordo superiore del
 	 * composer. Sta fuori dal flusso: comparire e sparire non sposta il transcript
 	 * e non toglie l'hero di una chat vuota.
 	 */

@@ -2570,7 +2570,9 @@ export class AgentSession {
 					this.contextReportCapture = output;
 					return;
 				}
-				if (output) this.pushNotice('info', output, 'comando');
+				// Come gli esiti dei comandi di Studio: etichetta sopra il composer,
+				// non voce del transcript.
+				if (output) this.flashNotice('info', output);
 				return;
 			}
 

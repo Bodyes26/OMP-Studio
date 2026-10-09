@@ -50,6 +50,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - `/btw` typed in the GUI chat no longer reaches the main model as plain text: Studio handles it with the "Aside" box.
 - When the agent integrates a lane and there are conflicts, it no longer tries to resolve them: the lane is handed to you with the list of files and the review opens. A clean merge still integrates on its own.
 - If you ask the agent to discard a lane with work that was never integrated, or a prototype, Studio deletes nothing and asks for your confirmation in its own dialog.
+- The output of `omp` commands (for example `/computer`) shows in the label above the composer, like Studio's own commands, instead of as a "[comando]" notice in the chat.
 
 ### Fixed
 - The queue's automatic start no longer launches tasks one after another: it waits until the agent has really stopped (not just paused between two tools, during a retry or a compaction, or right after receiving the previous task), until no messages are queued in `omp`, and until the quiet lasts a few seconds; before starting it checks the state with `omp` again. In the terminal it waits until `omp` has actually started the task it just sent.

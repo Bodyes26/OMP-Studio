@@ -50,6 +50,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - `/btw` scritto nella chat GUI non arriva più al modello principale come testo normale: lo gestisce Studio con il riquadro «A margine».
 - Quando l'agente integra una corsia e ci sono conflitti, non prova più a risolverli: la corsia passa a te con l'elenco dei file e si apre la revisione. Un merge pulito si integra da solo come prima.
 - Se chiedi all'agente di scartare una corsia con lavoro mai integrato, o un prototipo, Studio non cancella nulla e ti chiede conferma nella sua finestra.
+- L'esito dei comandi di `omp` (per esempio `/computer`) compare nell'etichetta sopra il composer, come quello dei comandi di Studio, invece che come avviso «[comando]» nella chat.
 
 ### Fixed
 - L'avvio automatico della coda non fa più partire i task uno dopo l'altro: aspetta che l'agente sia fermo davvero (non solo in pausa fra un tool e l'altro, durante un nuovo tentativo o una compattazione, o subito dopo aver ricevuto il task precedente), che non ci siano messaggi in coda in `omp`, e che la quiete duri qualche secondo; prima di partire ricontrolla lo stato con `omp`. Nel terminale aspetta che `omp` abbia davvero iniziato il task appena inviato.
