@@ -148,6 +148,10 @@ pub struct ModelConfigDto {
     pub cycle_order: Vec<String>,
     pub disabled_providers: Vec<String>,
     pub fallback_chains: HashMap<String, Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback_on: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extra_context_files: Option<Vec<String>>,
     pub default_thinking_level: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_warming: Option<String>,
@@ -303,6 +307,81 @@ pub struct AuthAccountDto {
 pub const THINKING_LEVELS: [&str; 8] = [
     "auto", "off", "minimal", "low", "medium", "high", "xhigh", "max",
 ];
+pub const FALLBACK_ON_MODES: [&str; 3] = ["any", "usage-limit", "except-usage-limit"];
+
+pub const BUILTIN_CONTEXT_FILES: [&str; 4] = [
+    "agents.md",
+    "claude.md",
+    "gemini.md",
+    "copilot-instructions.md",
+];
+
+/// Valida `retry.fallbackOn` secondo lo schema omp 18.9.0 (`any` | `usage-limit` | `except-usage-limit`),
+/// evitando di scrivere valori che omp ignorerebbe al caricamento di `config.yml`.
+pub fn validate_fallback_on(value: &str, path: Option<&Path>) -> Result<String, String> {
+    let trimmed = value.trim();
+    if FALLBACK_ON_MODES.contains(&trimmed) {
+        return Ok(trimmed.to_string());
+    }
+    match path {
+        Some(p) => Err(format!(
+            "Campo retry.fallbackOn non valido in {}: '{}' (atteso any, usage-limit o except-usage-limit)",
+            p.display(),
+            value
+        )),
+        None => Err(format!(
+            "Valore retry.fallbackOn non valido: '{}' (atteso any, usage-limit o except-usage-limit)",
+            value
+        )),
+    }
+}
+
+/// Valida `contextFiles.extra` replicando i vincoli di omp (`custom-context-files.ts`):
+/// accetta solo nomi di file semplici non vuoti e rifiuta percorsi o file predefiniti
+/// (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `copilot-instructions.md`).
+pub fn validate_extra_context_files(
+    entries: &[String],
+    path: Option<&Path>,
+) -> Result<Vec<String>, String> {
+    let loc = path
+        .map(|p| format!(" in {}", p.display()))
+        .unwrap_or_default();
+    let mut normalized = Vec::with_capacity(entries.len());
+    for raw in entries {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return Err(format!(
+                "Campo contextFiles.extra non valido{}: le voci non possono essere vuote",
+                loc
+            ));
+        }
+        let lower = trimmed.to_ascii_lowercase();
+        if BUILTIN_CONTEXT_FILES.contains(&lower.as_str()) {
+            return Err(format!(
+                "Campo contextFiles.extra non valido{}: '{}' e un file di contesto predefinito di omp",
+                loc, trimmed
+            ));
+        }
+        if trimmed == "."
+            || trimmed == ".."
+            || trimmed.contains('/')
+            || trimmed.contains('\\')
+            || trimmed.contains('\0')
+        {
+            return Err(format!(
+                "Campo contextFiles.extra non valido{}: '{}' deve essere un nome di file, non un percorso",
+                loc, trimmed
+            ));
+        }
+        if !normalized
+            .iter()
+            .any(|existing: &String| existing == trimmed)
+        {
+            normalized.push(trimmed.to_string());
+        }
+    }
+    Ok(normalized)
+}
 
 /// Separa `provider/model[:livelloThinking]`.
 /// Nel catalogo reale esistono id che contengono `:` (58 in `kilo`, 108 in `nanogpt`,
@@ -386,6 +465,8 @@ fn default_model_config() -> ModelConfigDto {
         ],
         disabled_providers: Vec::new(),
         fallback_chains: HashMap::new(),
+        fallback_on: Some("any".into()),
+        extra_context_files: Some(Vec::new()),
         default_thinking_level: Some("auto".into()),
         cache_warming: Some("idle".into()),
     }
@@ -451,6 +532,7 @@ fn model_config_from_mapping(
     config.disabled_providers =
         parse_yaml_field(mapping, "disabledProviders", path)?.unwrap_or_default();
 
+    let mut parsed_fallback_on: Option<String> = None;
     if let Some(retry_value) = mapping.get(yaml_key("retry")) {
         let retry = retry_value.as_mapping().ok_or_else(|| {
             format!(
@@ -460,8 +542,32 @@ fn model_config_from_mapping(
         })?;
         config.fallback_chains =
             parse_yaml_field(retry, "fallbackChains", path)?.unwrap_or_default();
+        if let Some(fallback_on) = parse_yaml_field::<String>(retry, "fallbackOn", path)? {
+            parsed_fallback_on = Some(validate_fallback_on(&fallback_on, Some(path))?);
+        }
     }
+    if parsed_fallback_on.is_none() {
+        if let Some(fallback_on) = parse_yaml_field::<String>(mapping, "retry.fallbackOn", path)? {
+            parsed_fallback_on = Some(validate_fallback_on(&fallback_on, Some(path))?);
+        }
+    }
+    config.fallback_on = Some(parsed_fallback_on.unwrap_or_else(|| "any".into()));
 
+    if let Some(cf_value) = mapping.get(yaml_key("contextFiles")) {
+        let cf_map = cf_value.as_mapping().ok_or_else(|| {
+            format!(
+                "Campo contextFiles non valido in {} (atteso dizionario)",
+                path.display()
+            )
+        })?;
+        if let Some(extra) = parse_yaml_field::<Vec<String>>(cf_map, "extra", path)? {
+            config.extra_context_files = Some(validate_extra_context_files(&extra, Some(path))?);
+        }
+    } else if let Some(extra) =
+        parse_yaml_field::<Vec<String>>(mapping, "contextFiles.extra", path)?
+    {
+        config.extra_context_files = Some(validate_extra_context_files(&extra, Some(path))?);
+    }
     if let Some(level) = parse_yaml_field::<Option<String>>(mapping, "defaultThinkingLevel", path)?
     {
         config.default_thinking_level = level;
@@ -498,6 +604,15 @@ fn save_model_config_locked(path: &Path, config: &ModelConfigDto) -> Result<(), 
         .map_err(|error| format!("Serializzazione disabledProviders: {}", error))?;
     mapping.insert(yaml_key("disabledProviders"), disabled);
 
+    let validated_fallback_on = match &config.fallback_on {
+        Some(mode) => Some(validate_fallback_on(mode, Some(path))?),
+        None => None,
+    };
+    let validated_extra_context_files = match &config.extra_context_files {
+        Some(entries) => Some(validate_extra_context_files(entries, Some(path))?),
+        None => None,
+    };
+
     let retry_key = yaml_key("retry");
     let mut retry = match mapping.get(&retry_key) {
         Some(value) => value.as_mapping().cloned().ok_or_else(|| {
@@ -511,8 +626,34 @@ fn save_model_config_locked(path: &Path, config: &ModelConfigDto) -> Result<(), 
     let fallbacks = serde_yaml::to_value(&config.fallback_chains)
         .map_err(|error| format!("Serializzazione fallbackChains: {}", error))?;
     retry.insert(yaml_key("fallbackChains"), fallbacks);
+    if let Some(fallback_on) = validated_fallback_on {
+        retry.insert(
+            yaml_key("fallbackOn"),
+            serde_yaml::Value::String(fallback_on),
+        );
+        mapping.remove(yaml_key("retry.fallbackOn"));
+    }
     mapping.insert(retry_key, serde_yaml::Value::Mapping(retry));
 
+    if let Some(extra_files) = validated_extra_context_files {
+        let cf_key = yaml_key("contextFiles");
+        let had_flat = mapping.remove(yaml_key("contextFiles.extra")).is_some();
+        let mut cf_map = match mapping.get(&cf_key) {
+            Some(value) => value.as_mapping().cloned().ok_or_else(|| {
+                format!(
+                    "Campo contextFiles non valido in {} (atteso dizionario)",
+                    path.display()
+                )
+            })?,
+            None => serde_yaml::Mapping::new(),
+        };
+        if !extra_files.is_empty() || mapping.contains_key(&cf_key) || had_flat {
+            let extra_val = serde_yaml::to_value(&extra_files)
+                .map_err(|error| format!("Serializzazione contextFiles.extra: {}", error))?;
+            cf_map.insert(yaml_key("extra"), extra_val);
+            mapping.insert(cf_key, serde_yaml::Value::Mapping(cf_map));
+        }
+    }
     if let Some(level) = &config.default_thinking_level {
         mapping.insert(
             yaml_key("defaultThinkingLevel"),
@@ -526,7 +667,10 @@ fn save_model_config_locked(path: &Path, config: &ModelConfigDto) -> Result<(), 
             Some(value) => value.as_mapping().cloned().unwrap_or_default(),
             None => serde_yaml::Mapping::new(),
         };
-        providers_map.insert(yaml_key("cacheWarming"), serde_yaml::Value::String(cw.clone()));
+        providers_map.insert(
+            yaml_key("cacheWarming"),
+            serde_yaml::Value::String(cw.clone()),
+        );
         mapping.insert(providers_key, serde_yaml::Value::Mapping(providers_map));
     }
 
@@ -3654,6 +3798,129 @@ mod tests {
                 .get(yaml_key("unknownRoot"))
                 .and_then(serde_yaml::Value::as_str),
             Some("keep")
+        );
+    }
+
+    #[test]
+    fn fallback_on_and_extra_context_files_roundtrip_preserving_unrelated_keys() {
+        let dir = TestDir::new("fallback-on-context-extra");
+        let path = dir.path().join("config.yml");
+        fs::write(
+            &path,
+            "unknownRoot:\n  keep: true\nretry:\n  backoffMs: 250\n  maxRetries: 4\n  fallbackOn: usage-limit\n  fallbackChains:\n    default: [openai/gpt-4o]\ncontextFiles:\n  keepNested: 42\n  extra:\n    - AGENTS.local.md\nmodelRoles:\n  default: anthropic/claude-sonnet-4-5\n",
+        )
+        .expect("scrittura fixture");
+
+        let mut config = read_model_config_path(&path).expect("lettura config iniziale");
+        assert_eq!(config.fallback_on.as_deref(), Some("usage-limit"));
+        assert_eq!(
+            config.extra_context_files.as_deref(),
+            Some(&["AGENTS.local.md".to_string()][..])
+        );
+
+        config.fallback_on = Some("except-usage-limit".to_string());
+        config.extra_context_files = Some(vec![
+            "AGENTS.local.md".to_string(),
+            "  TEAM.instructions.md  ".to_string(),
+            "AGENTS.local.md".to_string(),
+        ]);
+        save_model_config_path(&path, &config).expect("salvataggio config aggiornata");
+
+        let reloaded = read_model_config_path(&path).expect("rilettura config");
+        assert_eq!(reloaded.fallback_on.as_deref(), Some("except-usage-limit"));
+        assert_eq!(
+            reloaded.extra_context_files.as_deref(),
+            Some(
+                &[
+                    "AGENTS.local.md".to_string(),
+                    "TEAM.instructions.md".to_string()
+                ][..]
+            )
+        );
+
+        let mapping = read_yaml_mapping(&path)
+            .expect("lettura YAML")
+            .expect("config presente");
+        assert_eq!(
+            mapping
+                .get(yaml_key("unknownRoot"))
+                .and_then(|v| v.get("keep"))
+                .and_then(serde_yaml::Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            mapping
+                .get(yaml_key("retry"))
+                .and_then(|v| v.get("backoffMs"))
+                .and_then(serde_yaml::Value::as_u64),
+            Some(250)
+        );
+        assert_eq!(
+            mapping
+                .get(yaml_key("retry"))
+                .and_then(|v| v.get("maxRetries"))
+                .and_then(serde_yaml::Value::as_u64),
+            Some(4)
+        );
+        assert_eq!(
+            mapping
+                .get(yaml_key("contextFiles"))
+                .and_then(|v| v.get("keepNested"))
+                .and_then(serde_yaml::Value::as_u64),
+            Some(42)
+        );
+
+        // Svuotando la lista, `contextFiles.extra` diventa `[]` preservando le altre chiavi.
+        let mut cleared = reloaded;
+        cleared.extra_context_files = Some(Vec::new());
+        save_model_config_path(&path, &cleared).expect("salvataggio lista vuota");
+        let after_clear = read_model_config_path(&path).expect("rilettura dopo svuotamento");
+        assert_eq!(after_clear.extra_context_files, Some(Vec::new()));
+    }
+
+    #[test]
+    fn invalid_fallback_on_and_extra_context_files_are_rejected_without_corrupting_file() {
+        let dir = TestDir::new("invalid-fallback-context");
+        let path = dir.path().join("config.yml");
+        let initial_yaml =
+            "retry:\n  fallbackOn: any\ncontextFiles:\n  extra:\n    - AGENTS.local.md\n";
+        fs::write(&path, initial_yaml).expect("scrittura fixture");
+
+        let base = read_model_config_path(&path).expect("lettura base");
+
+        let mut bad_fallback = base.clone();
+        bad_fallback.fallback_on = Some("invalid-mode".to_string());
+        let err_fb = save_model_config_path(&path, &bad_fallback)
+            .expect_err("modalita fallbackOn non valida deve fallire");
+        assert!(err_fb.contains("retry.fallbackOn non valido"));
+
+        for invalid_entry in [
+            "",
+            "   ",
+            "AGENTS.md",
+            "claude.md",
+            "../secret.md",
+            "sub/file.md",
+            "sub\\file.md",
+        ] {
+            let mut bad_extra = base.clone();
+            bad_extra.extra_context_files = Some(vec![invalid_entry.to_string()]);
+            let err_extra = save_model_config_path(&path, &bad_extra)
+                .expect_err("voce contextFiles.extra non valida deve fallire");
+            assert!(
+                err_extra.contains("contextFiles.extra non valido"),
+                "atteso errore italiano per '{}', ottenuto: {}",
+                invalid_entry,
+                err_extra
+            );
+        }
+
+        // Il file su disco non deve essere stato alterato dai tentativi falliti.
+        let intact = read_model_config_path(&path).expect("rilettura dopo errori");
+        assert_eq!(intact.fallback_on.as_deref(), Some("any"));
+        assert_eq!(
+            intact.extra_context_files.as_deref(),
+            Some(&["AGENTS.local.md".to_string()][..])
         );
     }
 }

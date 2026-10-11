@@ -19,8 +19,10 @@
 	import { activeQuotaStore } from '$lib/stores/activeQuota.svelte';
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import QuotaLimitRow from './quota/QuotaLimitRow.svelte';
+	import UsageResetCard from './quota/UsageResetCard.svelte';
+	import type { AccountResetSummary, ResetPromptCandidate } from '$lib/quota/usageResets';
 	import { limitTone } from '$lib/quota/resolve';
-	import { IconRefresh, IconClose, IconWarning, IconSchedule } from '$lib/icons';
+	import { IconRefresh, IconClose, IconWarning, IconSchedule, IconSparkles } from '$lib/icons';
 	import { scheduleStore } from '$lib/stores/schedule.svelte';
 	import { taskStore } from '$lib/stores/tasks.svelte';
 	import { projectStore } from '$lib/stores/projects.svelte';
@@ -44,6 +46,7 @@
 	let popoverEl = $state<HTMLDivElement | null>(null);
 	let previousFocus: HTMLElement | null = null;
 	let now = $state(Date.now());
+	let manualRedeemSummary = $state<AccountResetSummary | null>(null);
 
 	/* Preferenze colore semaforo del popover quote */
 	const popover = $derived(settingsStore.appearance.quotaPopover);
@@ -61,6 +64,26 @@
 		const rank = (report: QuotaReport) =>
 			!providersMatch(report.provider, provider) ? 2 : email && report.metadata?.email === email ? 0 : 1;
 		return [...quotaStore.reports].sort((a, b) => rank(a) - rank(b));
+	});
+
+	const autoResetCandidate = $derived(
+		quotaStore.activeResetCandidate({
+			activeProvider: activeQuotaStore.activeProvider,
+			activeAccountEmail: activeQuotaStore.info.accountEmail
+		})
+	);
+
+	const popoverResetCandidate = $derived.by<ResetPromptCandidate | null>(() => {
+		if (manualRedeemSummary) {
+			return {
+				episodeKey: `manual:${manualRedeemSummary.accountKey}`,
+				reason: manualRedeemSummary.isRateLimited ? 'rate_limited' : 'expiring',
+				summary: manualRedeemSummary,
+				mode: 'prompt',
+				willBeLostWithoutManualRedeem: false
+			};
+		}
+		return autoResetCandidate;
 	});
 
 	function formatAge(ts: number | undefined) {
@@ -102,6 +125,9 @@
 			return () => {
 				clearInterval(timer);
 			};
+		} else {
+			manualRedeemSummary = null;
+			quotaStore.clearLastRedeemOutcome();
 		}
 	});
 
@@ -301,6 +327,30 @@
 				</div>
 			{/if}
 
+			{#if popoverResetCandidate}
+				<UsageResetCard
+					candidate={popoverResetCandidate}
+					{now}
+					startConfirming={manualRedeemSummary !== null}
+					redeeming={quotaStore.redeemingTarget !== null}
+					outcome={quotaStore.lastRedeemOutcome}
+					onConfirm={async (target) => {
+						const res = await quotaStore.redeemReset(target);
+						if (res.ok) {
+							manualRedeemSummary = null;
+						}
+					}}
+					onDismiss={() => {
+						if (manualRedeemSummary) {
+							manualRedeemSummary = null;
+						} else if (popoverResetCandidate) {
+							quotaStore.dismissResetEpisode(popoverResetCandidate.episodeKey);
+						}
+						quotaStore.clearLastRedeemOutcome();
+					}}
+				/>
+			{/if}
+
 			{#if quotaStore.loading && !quotaStore.rawJson}
 				<div class="loading-state">
 					<StatusMark status="running" />
@@ -318,6 +368,7 @@
 								.map((host) => host.project || host.host)
 								.filter((label) => Boolean(label)))]}
 							{@const waitingHere = scheduleStore.waitingSummary(scheduledTasks, (provider) => providersMatch(provider, report.provider))}
+							{@const resetSummary = quotaStore.findResetSummary(report)}
 							<div class="provider-section">
 								<h4>
 									<span>{report.provider}</span>
@@ -353,6 +404,71 @@
 										delayIndex={limitIndex}
 									/>
 								{/each}
+								{#if resetSummary && resetSummary.bankedCount > 0}
+									{@const expCountdown = formatReset(resetSummary.soonestExpiryMs)}
+									{@const expExact = resetSummary.soonestExpiryMs
+										? i18n.formatDate(resetSummary.soonestExpiryMs, { dateStyle: 'short', timeStyle: 'short' })
+										: ''}
+									<div
+										class="saved-resets-row"
+										class:expiring-soon={resetSummary.expiryTier === 'soon'}
+										class:expiring-imminent={resetSummary.expiryTier === 'imminent'}
+									>
+										<div class="saved-resets-main">
+											<span class="saved-resets-icon" aria-hidden="true">
+												{#if resetSummary.expiryTier === 'imminent' || resetSummary.expiryTier === 'soon'}
+													<IconWarning />
+												{:else}
+													<IconSparkles />
+												{/if}
+											</span>
+											<span class="saved-resets-count">
+												{m.quota_reset_saved_count({ count: resetSummary.bankedCount })}
+											</span>
+											{#if resetSummary.redeemableCount !== resetSummary.bankedCount}
+												<span class="saved-resets-sub">
+													· {m.quota_reset_usable_now({ count: resetSummary.redeemableCount })}
+												</span>
+											{/if}
+											{#if resetSummary.expiryTier === 'imminent'}
+												<span class="expiry-badge imminent">{m.quota_reset_expiring_imminent_badge()}</span>
+											{:else if resetSummary.expiryTier === 'soon'}
+												<span class="expiry-badge soon">{m.quota_reset_expiring_soon_badge()}</span>
+											{/if}
+											{#if resetSummary.canRedeemNow}
+												<button
+													type="button"
+													class="ui-button ui-button-secondary redeem-open-btn"
+													onclick={() => {
+														quotaStore.clearLastRedeemOutcome();
+														manualRedeemSummary = resetSummary;
+													}}
+												>
+													{m.quota_reset_use_btn()}
+												</button>
+											{/if}
+										</div>
+										<div class="saved-resets-meta">
+											{#if expCountdown}
+												<span title={expExact || undefined}>
+													{m.quota_reset_expires_in({ when: expCountdown })}{expExact ? ` (${expExact})` : ''}
+												</span>
+											{/if}
+											{#if resetSummary.autoRedeem === 'yes'}
+												<span>· {m.quota_reset_auto_redeem_yes()}</span>
+											{:else if resetSummary.autoRedeem === 'no'}
+												<span>· {m.quota_reset_auto_redeem_no()}</span>
+											{/if}
+											{#if resetSummary.redeemableCount === 0 && resetSummary.unavailableReason}
+												<span>
+													· {resetSummary.unavailableReason === 'not_at_wall'
+														? m.quota_reset_unavailable_not_at_wall()
+														: m.quota_reset_unavailable_generic({ reason: resetSummary.unavailableReason })}
+												</span>
+											{/if}
+										</div>
+									</div>
+								{/if}
 								{#if waitingHere.count > 0}
 									<div class="schedule-waiting">
 										<IconSchedule aria-hidden="true" />
@@ -679,6 +795,95 @@
 	.host-usage {
 		margin-top: calc(-1 * var(--space-1));
 		font-size: var(--text-caption);
+		color: var(--ink-faint);
+	}
+
+	.saved-resets-row {
+		display: flex;
+		flex-direction: column;
+		gap: 3px;
+		margin-top: 2px;
+		padding: 6px 8px;
+		border-radius: var(--radius-md);
+		background: var(--bg-sunken);
+		border: 1px solid var(--line);
+		font-size: var(--text-xs);
+	}
+
+	.saved-resets-row.expiring-soon {
+		border-color: color-mix(in oklch, var(--warn) 45%, var(--line));
+		background: color-mix(in oklch, var(--warn) 8%, var(--bg-sunken));
+	}
+
+	.saved-resets-row.expiring-imminent {
+		border-color: color-mix(in oklch, var(--danger) 50%, var(--line));
+		background: color-mix(in oklch, var(--danger) 10%, var(--bg-sunken));
+	}
+
+	.saved-resets-main {
+		display: flex;
+		align-items: center;
+		gap: 5px;
+		flex-wrap: wrap;
+	}
+
+	.saved-resets-icon {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		color: var(--brand-ink);
+		--icon-size: 13px;
+	}
+
+	.saved-resets-row.expiring-soon .saved-resets-icon {
+		color: var(--warn);
+	}
+
+	.saved-resets-row.expiring-imminent .saved-resets-icon {
+		color: var(--danger);
+	}
+
+	.saved-resets-count {
+		font-weight: 600;
+		color: var(--ink);
+	}
+
+	.saved-resets-sub {
+		color: var(--ink-muted);
+	}
+
+	.expiry-badge {
+		font-size: 10.5px;
+		font-weight: 600;
+		padding: 1px 6px;
+		border-radius: var(--radius-full);
+		line-height: 1.3;
+	}
+
+	.expiry-badge.soon {
+		background: color-mix(in oklch, var(--warn) 18%, transparent);
+		color: var(--warn);
+	}
+
+	.expiry-badge.imminent {
+		background: color-mix(in oklch, var(--danger) 20%, transparent);
+		color: var(--danger);
+	}
+
+	.redeem-open-btn {
+		margin-left: auto;
+		font-size: 11px;
+		padding: 2px 8px;
+		height: 22px;
+	}
+
+	.saved-resets-meta {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		flex-wrap: wrap;
+		font-size: var(--text-caption);
+		font-variant-numeric: tabular-nums;
 		color: var(--ink-faint);
 	}
 </style>

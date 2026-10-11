@@ -4,6 +4,7 @@
 		modelSettingsStore,
 		resolveCatalogModel,
 		STANDARD_ROLES,
+		type FallbackOnMode,
 		type ModelDto,
 		type RoleSuggestionsResponse,
 		type SuggestedModelItem
@@ -37,6 +38,8 @@
 	let toggleCycleBtn = $state<HTMLButtonElement | null>(null);
 	let currentSuggestions = $state<RoleSuggestionsResponse | null>(null);
 	let isFetchingSuggestions = $state(false);
+	let newExtraContextFile = $state('');
+	let extraContextFileError = $state<string | null>(null);
 
 	const selectedRole = $derived(
 		STANDARD_ROLES.find((r) => r.id === selectedRoleId) || STANDARD_ROLES[0]
@@ -89,6 +92,12 @@
 		return supported ? (['auto', ...supported] as const) : undefined;
 	});
 	const selectedRoleFallbacks = $derived(getFallbacks(selectedRole.id));
+	const fallbackOnMode = $derived<FallbackOnMode>(
+		modelSettingsStore.draftConfig?.fallbackOn ?? 'any'
+	);
+	const extraContextFiles = $derived<string[]>(
+		modelSettingsStore.draftConfig?.extraContextFiles ?? []
+	);
 	const selectedRolePrimaryFinding = $derived(
 		modelSettingsStore.findingFor(selectedRole.id, 'primary')
 	);
@@ -164,6 +173,38 @@
 			...modelSettingsStore.draftConfig.fallbackChains,
 			[roleId]: list
 		};
+	}
+
+	function handleFallbackOnChange(mode: FallbackOnMode) {
+		modelSettingsStore.setFallbackOn(mode);
+	}
+
+	function handleAddExtraContextFile() {
+		const result = modelSettingsStore.addExtraContextFile(newExtraContextFile);
+		if (!result.ok) {
+			switch (result.reason) {
+				case 'empty':
+					extraContextFileError = m.roles_tab_extra_context_err_empty();
+					break;
+				case 'builtin':
+					extraContextFileError = m.roles_tab_extra_context_err_builtin({ name: result.value });
+					break;
+				case 'path':
+					extraContextFileError = m.roles_tab_extra_context_err_path({ name: result.value });
+					break;
+				case 'duplicate':
+					extraContextFileError = m.roles_tab_extra_context_err_duplicate({ name: result.value });
+					break;
+			}
+			return;
+		}
+		newExtraContextFile = '';
+		extraContextFileError = null;
+	}
+
+	function handleRemoveExtraContextFile(index: number) {
+		modelSettingsStore.removeExtraContextFile(index);
+		extraContextFileError = null;
 	}
 	function formatContextTokens(tokens?: number) {
 		if (!tokens) return '';
@@ -689,6 +730,118 @@
 								{/if}
 							{/each}
 						</div>
+					</div>
+				{/if}
+
+				<!-- Condizione di attivazione riserve (retry.fallbackOn) -->
+				<div class="fallback-on-card">
+					<div class="fallback-on-copy">
+						<label for="roles-fallback-on-select" class="fallback-on-label">
+							{m.roles_tab_fallback_on_label()}
+						</label>
+						<span class="fallback-on-desc">
+							{m.roles_tab_fallback_on_desc()}
+						</span>
+						<span class="fallback-on-active-hint">
+							{#if fallbackOnMode === 'usage-limit'}
+								{m.roles_tab_fallback_on_usage_limit_desc()}
+							{:else if fallbackOnMode === 'except-usage-limit'}
+								{m.roles_tab_fallback_on_except_usage_limit_desc()}
+							{:else}
+								{m.roles_tab_fallback_on_any_desc()}
+							{/if}
+						</span>
+					</div>
+					<div class="fallback-on-control">
+						<select
+							id="roles-fallback-on-select"
+							class="ui-select"
+							value={fallbackOnMode}
+							onchange={(e) => handleFallbackOnChange((e.currentTarget as HTMLSelectElement).value as FallbackOnMode)}
+						>
+							<option value="any">{m.roles_tab_fallback_on_any()}</option>
+							<option value="usage-limit">{m.roles_tab_fallback_on_usage_limit()}</option>
+							<option value="except-usage-limit">{m.roles_tab_fallback_on_except_usage_limit()}</option>
+						</select>
+					</div>
+				</div>
+			</section>
+
+			<!-- Sezione 4: File di contesto aggiuntivi (contextFiles.extra) -->
+			<section class="config-section">
+				<div class="section-heading">
+					<div class="section-title-row">
+						<h3 class="section-title">{m.roles_tab_extra_context_title()}</h3>
+						{#if extraContextFiles.length > 0}
+							<span class="badge-count">{extraContextFiles.length}</span>
+						{/if}
+					</div>
+					<span class="section-subtitle">
+						{m.roles_tab_extra_context_desc()}
+					</span>
+				</div>
+
+				<div class="fallbacks-list">
+					{#each extraContextFiles as fileName, idx (fileName)}
+						<div class="fallback-row">
+							<span class="fb-order">#{idx + 1}</span>
+							<div class="fb-info">
+								<div class="fb-name-line">
+									<span class="fb-name">{fileName}</span>
+								</div>
+							</div>
+							<div class="fb-actions">
+								<Tooltip text={m.roles_tab_extra_context_remove_aria({ name: fileName })}>
+									<button
+										type="button"
+										class="btn-fb-action delete"
+										onclick={() => handleRemoveExtraContextFile(idx)}
+										aria-label={m.roles_tab_extra_context_remove_aria({ name: fileName })}
+									>
+										<IconTrash />
+									</button>
+								</Tooltip>
+							</div>
+						</div>
+					{/each}
+
+					{#if extraContextFiles.length === 0}
+						<div class="empty-context-files-hint">
+							<span>{m.roles_tab_extra_context_empty()}</span>
+						</div>
+					{/if}
+				</div>
+
+				<div class="extra-context-add-row">
+					<input
+						type="text"
+						class="ui-input extra-context-input"
+						bind:value={newExtraContextFile}
+						placeholder={m.roles_tab_extra_context_placeholder()}
+						aria-label={m.roles_tab_extra_context_title()}
+						oninput={() => {
+							if (extraContextFileError) extraContextFileError = null;
+						}}
+						onkeydown={(e) => {
+							if (e.key === 'Enter') {
+								e.preventDefault();
+								handleAddExtraContextFile();
+							}
+						}}
+					/>
+					<button
+						type="button"
+						class="ui-button ui-button-secondary"
+						onclick={handleAddExtraContextFile}
+					>
+						{m.roles_tab_extra_context_add()}
+					</button>
+				</div>
+
+				{#if extraContextFileError}
+					<div class="extra-context-error" role="alert">
+						<IconWarning />
+						<span>{extraContextFileError}</span>
 					</div>
 				{/if}
 			</section>
@@ -1573,5 +1726,77 @@
 
 	.mt-2 {
 		margin-top: 8px;
+	}
+
+	.fallback-on-card {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		padding: 10px 12px;
+		margin-top: 4px;
+		background: var(--bg-base);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
+		flex-wrap: wrap;
+	}
+
+	.fallback-on-copy {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		min-width: 200px;
+		flex: 1;
+	}
+
+	.fallback-on-label {
+		font-size: var(--text-meta);
+		font-weight: 600;
+		color: var(--ink);
+	}
+
+	.fallback-on-desc {
+		font-size: var(--text-caption);
+		color: var(--ink-muted);
+	}
+
+	.fallback-on-active-hint {
+		font-size: var(--text-caption);
+		color: var(--ink-faint);
+	}
+
+	.fallback-on-control {
+		flex-shrink: 0;
+	}
+
+	.empty-context-files-hint {
+		padding: 8px 12px;
+		background: var(--bg-base);
+		border: 1px dashed var(--line);
+		border-radius: var(--radius-md);
+		font-size: var(--text-caption);
+		color: var(--ink-faint);
+	}
+
+	.extra-context-add-row {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+
+	.extra-context-input {
+		flex: 1;
+		min-width: 0;
+		font-family: var(--font-mono);
+		font-size: var(--text-meta);
+	}
+
+	.extra-context-error {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		font-size: var(--text-caption);
+		color: var(--danger);
+		--icon-size: 13px;
 	}
 </style>

@@ -400,9 +400,13 @@ export interface AssistantMessageEvent {
 	partial?: AgentMessage;
 }
 
+export type AsyncJobStatus = 'running' | 'completed' | 'failed' | 'cancelled';
+
 export interface AgentProgress {
 	index?: number;
 	id?: string;
+	/** ID effettivo del job nell'AsyncJobManager; differisce da `id` se la registrazione risolve una collisione. */
+	jobId?: string;
 	agent?: string;
 	agentSource?: string;
 	modelRole?: string;
@@ -445,6 +449,10 @@ export interface SubagentProgressPayload extends SubagentLifecyclePayload {
 export interface AsyncResultJobDetails {
 	jobId: string;
 	type?: 'bash' | 'task' | 'eval';
+	/** Stato nativo del job (omp >= 18.9.0): evita di dedurlo dal testo dell'envelope. */
+	status?: AsyncJobStatus;
+	/** Identita' del subagente figlio nel registro (omp >= 18.9.0); resta invariata anche quando `jobId` riceve un suffisso anti-collisione. */
+	agentId?: string;
 	label?: string;
 	durationMs?: number;
 }

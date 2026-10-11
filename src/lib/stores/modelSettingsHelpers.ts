@@ -309,11 +309,65 @@ export const STANDARD_ROLE_METAS: readonly RoleDefinition[] = [
 	{ id: 'advisor', label: 'Advisor (Reviewer)', abbr: 'AD', desc: 'Modello di revisione e controllo passivo di qualita' }
 ];
 
+export type FallbackOnMode = 'any' | 'usage-limit' | 'except-usage-limit';
+
+export const FALLBACK_ON_MODES: readonly FallbackOnMode[] = [
+	'any',
+	'usage-limit',
+	'except-usage-limit'
+] as const;
+
+export const BUILTIN_CONTEXT_FILES: readonly string[] = [
+	'agents.md',
+	'claude.md',
+	'gemini.md',
+	'copilot-instructions.md'
+] as const;
+
+export type ExtraContextFileValidationError = 'empty' | 'builtin' | 'path' | 'duplicate';
+
+export type ExtraContextFileValidationResult =
+	| { ok: true; name: string }
+	| { ok: false; reason: ExtraContextFileValidationError; value: string };
+
+/**
+ * Valida un nome di file per `contextFiles.extra` replicando i vincoli di omp
+ * (`custom-context-files.ts`): solo nomi di file semplici non vuoti, mai percorsi
+ * o file di contesto predefiniti (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `copilot-instructions.md`).
+ */
+export function validateExtraContextFileName(
+	raw: string,
+	existing: readonly string[] = []
+): ExtraContextFileValidationResult {
+	const trimmed = raw.trim();
+	if (!trimmed) {
+		return { ok: false, reason: 'empty', value: '' };
+	}
+	if (BUILTIN_CONTEXT_FILES.includes(trimmed.toLowerCase())) {
+		return { ok: false, reason: 'builtin', value: trimmed };
+	}
+	if (
+		trimmed === '.' ||
+		trimmed === '..' ||
+		trimmed.includes('/') ||
+		trimmed.includes('\\') ||
+		trimmed.includes('\0')
+	) {
+		return { ok: false, reason: 'path', value: trimmed };
+	}
+	if (existing.some((entry) => entry.trim() === trimmed)) {
+		return { ok: false, reason: 'duplicate', value: trimmed };
+	}
+	return { ok: true, name: trimmed };
+}
+
 export interface ModelConfigDto {
 	modelRoles: Record<string, string>;
 	cycleOrder: string[];
 	disabledProviders: string[];
 	fallbackChains: Record<string, string[]>;
+	fallbackOn?: FallbackOnMode;
+	extraContextFiles?: string[];
 	defaultThinkingLevel?: string;
 }
 

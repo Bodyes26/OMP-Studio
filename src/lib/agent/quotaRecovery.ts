@@ -236,6 +236,7 @@ export function hasEffectiveReserves(
 	config: ModelConfigDto | null
 ): boolean {
 	if (!config || !config.fallbackChains) return false;
+	if (config.fallbackOn === 'except-usage-limit') return false;
 	const chains = config.fallbackChains;
 
 	// 1. Catena associata al ruolo attivo

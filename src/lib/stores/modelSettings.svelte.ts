@@ -19,7 +19,10 @@ import type {
 	ModelDto,
 	AuthAccount,
 	ProviderSummary,
-	ThinkingLevel
+	ThinkingLevel,
+	FallbackOnMode,
+	ExtraContextFileValidationError,
+	ExtraContextFileValidationResult
 } from './modelSettingsHelpers';
 import {
 	mergeProviderIntoCatalog,
@@ -27,7 +30,10 @@ import {
 	getProviderEnvVarHint,
 	resolveCatalogModel,
 	sanitizeMaxDynamic,
-	splitModelSelector
+	splitModelSelector,
+	FALLBACK_ON_MODES,
+	BUILTIN_CONTEXT_FILES,
+	validateExtraContextFileName
 } from './modelSettingsHelpers';
 import { m as msg } from '$lib/paraglide/messages.js';
 
@@ -37,7 +43,10 @@ export type {
 	ModelDto,
 	AuthAccount,
 	ProviderSummary,
-	ThinkingLevel
+	ThinkingLevel,
+	FallbackOnMode,
+	ExtraContextFileValidationError,
+	ExtraContextFileValidationResult
 };
 export {
 	mergeProviderIntoCatalog,
@@ -45,7 +54,10 @@ export {
 	getProviderEnvVarHint,
 	resolveCatalogModel,
 	sanitizeMaxDynamic,
-	splitModelSelector
+	splitModelSelector,
+	FALLBACK_ON_MODES,
+	BUILTIN_CONTEXT_FILES,
+	validateExtraContextFileName
 };
 export interface CustomModelDef {
 	id: string;
@@ -73,6 +85,8 @@ export interface ModelConfigDto {
 	cycleOrder: string[];
 	disabledProviders: string[];
 	fallbackChains: Record<string, string[]>;
+	fallbackOn?: FallbackOnMode;
+	extraContextFiles?: string[];
 	defaultThinkingLevel?: string;
 	cacheWarming?: string;
 }
@@ -871,6 +885,27 @@ class ModelSettingsStore {
 			...this.draftConfig.fallbackChains,
 			[role]: list
 		};
+	}
+
+	setFallbackOn(mode: FallbackOnMode) {
+		if (!this.draftConfig) return;
+		this.draftConfig.fallbackOn = mode;
+	}
+
+	addExtraContextFile(filename: string): ExtraContextFileValidationResult {
+		const current = this.draftConfig?.extraContextFiles ?? [];
+		const result = validateExtraContextFileName(filename, current);
+		if (!result.ok || !this.draftConfig) return result;
+		this.draftConfig.extraContextFiles = [...current, result.name];
+		return result;
+	}
+
+	removeExtraContextFile(index: number) {
+		if (!this.draftConfig) return;
+		const current = [...(this.draftConfig.extraContextFiles ?? [])];
+		if (index < 0 || index >= current.length) return;
+		current.splice(index, 1);
+		this.draftConfig.extraContextFiles = current;
 	}
 
 	toggleProviderDisabled(provider: string) {

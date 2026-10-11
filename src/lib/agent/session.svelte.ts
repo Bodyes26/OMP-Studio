@@ -3134,25 +3134,36 @@ export class AgentSession {
 	 */
 	private reconcileSubagentsFromJobs(jobs: JobResult[]) {
 		for (const job of jobs) {
-			if (!job.envelope) continue;
+			if (job.jobType !== 'task' && !job.agentId && !job.envelope) continue;
 			const env = job.envelope;
-			const key = env.id;
+			const key = job.agentId ?? env?.id;
 			if (!key) continue;
 
+			const effectiveKind =
+				job.statusKind && job.statusKind !== 'unknown'
+					? job.statusKind
+					: env?.statusKind;
 			const mappedStatus: AgentProgress['status'] | undefined =
-				env.statusKind === 'completed'
+				effectiveKind === 'completed'
 					? 'completed'
-					: env.statusKind === 'failed'
+					: effectiveKind === 'failed'
 						? 'failed'
-						: env.statusKind === 'aborted'
+						: effectiveKind === 'aborted'
 							? 'aborted'
-							: undefined;
+							: effectiveKind === 'running'
+								? 'running'
+								: undefined;
 
-			const existing = this.subagents.findIndex((candidate) => candidate.id === key);
+			const existing = this.subagents.findIndex(
+				(candidate) =>
+					candidate.id === key ||
+					(Boolean(job.jobId) && candidate.jobId === job.jobId)
+			);
 			if (existing === -1) {
 				const entry: AgentProgress = {
 					id: key,
-					agent: env.agent,
+					jobId: job.jobId && job.jobId !== 'unknown' ? job.jobId : undefined,
+					agent: env?.agent,
 					status: mappedStatus ?? 'completed'
 				};
 				if (typeof job.durationMs === 'number') {
@@ -3163,6 +3174,9 @@ export class AgentSession {
 				const current = this.subagents[existing];
 				this.subagents[existing] = {
 					...current,
+					id: current.id ?? key,
+					jobId: job.jobId && job.jobId !== 'unknown' ? job.jobId : current.jobId,
+					agent: current.agent ?? env?.agent,
 					status: mappedStatus ?? current.status,
 					durationMs: typeof job.durationMs === 'number' ? job.durationMs : current.durationMs
 				};

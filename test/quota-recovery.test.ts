@@ -11,7 +11,11 @@ import {
 	buildAttentionRequest,
 	sameAttentionRequest
 } from '../src/lib/stores/companionAttention.ts';
-import type { ModelConfigDto, ModelDto } from '../src/lib/stores/modelSettingsHelpers.ts';
+import {
+	validateExtraContextFileName,
+	type ModelConfigDto,
+	type ModelDto
+} from '../src/lib/stores/modelSettingsHelpers.ts';
 
 test('classifyFailureReason riconosce codici ufficiali di quota e crediti', () => {
 	// OpenAI
@@ -110,6 +114,18 @@ test('hasEffectiveReserves verifica correttamente la copertura delle fallbackCha
 
 	// Non coperto (modello custom isolato senza catena)
 	assert.equal(hasEffectiveReserves('ollama/llama-3-8b', null, configWithChains), false);
+
+	// Con fallbackOn = 'usage-limit', la copertura resta attiva per errori di quota
+	assert.equal(
+		hasEffectiveReserves('openai/gpt-4o', null, { ...configWithChains, fallbackOn: 'usage-limit' }),
+		true
+	);
+
+	// Con fallbackOn = 'except-usage-limit', omp non cambia modello sui limiti di quota
+	assert.equal(
+		hasEffectiveReserves('openai/gpt-4o', null, { ...configWithChains, fallbackOn: 'except-usage-limit' }),
+		false
+	);
 });
 
 test('buildAttentionRequest e sameAttentionRequest gestiscono quota_blocked in modo convergente', () => {
@@ -166,4 +182,41 @@ test('buildAttentionRequest e sameAttentionRequest gestiscono quota_blocked in m
 		}
 	);
 	assert.equal(dismissedReq, null);
+});
+
+test('validateExtraContextFileName valida nomi di file contextFiles.extra secondo le regole di omp', () => {
+	assert.deepEqual(validateExtraContextFileName('  AGENTS.local.md  '), {
+		ok: true,
+		name: 'AGENTS.local.md'
+	});
+	assert.deepEqual(validateExtraContextFileName('   '), {
+		ok: false,
+		reason: 'empty',
+		value: ''
+	});
+	assert.deepEqual(validateExtraContextFileName('AGENTS.md'), {
+		ok: false,
+		reason: 'builtin',
+		value: 'AGENTS.md'
+	});
+	assert.deepEqual(validateExtraContextFileName('claude.md'), {
+		ok: false,
+		reason: 'builtin',
+		value: 'claude.md'
+	});
+	assert.deepEqual(validateExtraContextFileName('../AGENTS.local.md'), {
+		ok: false,
+		reason: 'path',
+		value: '../AGENTS.local.md'
+	});
+	assert.deepEqual(validateExtraContextFileName('docs/AGENTS.local.md'), {
+		ok: false,
+		reason: 'path',
+		value: 'docs/AGENTS.local.md'
+	});
+	assert.deepEqual(validateExtraContextFileName('AGENTS.local.md', ['AGENTS.local.md']), {
+		ok: false,
+		reason: 'duplicate',
+		value: 'AGENTS.local.md'
+	});
 });

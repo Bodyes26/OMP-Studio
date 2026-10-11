@@ -18,6 +18,10 @@
 	import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
 	import { scheduleStore } from '$lib/stores/schedule.svelte';
 	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import { quotaStore } from '$lib/stores/quota.svelte';
+	import { activeQuotaStore } from '$lib/stores/activeQuota.svelte';
+	import { isAutoRedeemSessionPrompt } from '$lib/quota/usageResets';
+	import UsageResetCard from '$lib/components/quota/UsageResetCard.svelte';
 	import { getCurrentWebview } from '@tauri-apps/api/webview';
 	import { dropSummary, physicalToCssPoint } from '../chatDrop';
 
@@ -191,6 +195,21 @@
 					})
 				)
 		};
+	});
+	const resetCandidate = $derived.by(() => {
+		const bq = session.blockedQuotaState;
+		const blockedProvider =
+			bq && !bq.dismissed && bq.reasonKind === 'quota_exhausted'
+				? bq.failedProvider
+				: session.usageLimit?.stage === 'wrap_up'
+					? session.model?.provider
+					: undefined;
+		return quotaStore.activeResetCandidate({
+			activeProvider: session.model?.provider ?? activeQuotaStore.activeProvider,
+			activeAccountEmail: activeQuotaStore.info.accountEmail,
+			activeBlockedProvider: blockedProvider,
+			suppressForSessionPrompt: isAutoRedeemSessionPrompt(session.pendingUi?.title)
+		});
 	});
 
 	function waitResetLabel(selector: string | undefined): string {
@@ -529,6 +548,27 @@
 			/>
 			{#if session.plan.building}
 				<PlanTray outline={session.plan.outline} planFilePath={session.plan.planFilePath} />
+			{/if}
+			{#if resetCandidate && !(resetCandidate.mode === 'auto_informed' && session.isStreaming)}
+				<div class="reset-card-slot">
+					<UsageResetCard
+						candidate={resetCandidate}
+						redeeming={quotaStore.redeemingTarget !== null}
+						outcome={quotaStore.lastRedeemOutcome}
+						onConfirm={async (target) => {
+							const res = await quotaStore.redeemReset(target);
+							if (res.ok && session.blockedQuotaState) {
+								session.dismissBlockedQuota();
+							}
+						}}
+						onDismiss={() => {
+							if (resetCandidate) {
+								quotaStore.dismissResetEpisode(resetCandidate.episodeKey);
+							}
+							quotaStore.clearLastRedeemOutcome();
+						}}
+					/>
+				</div>
 			{/if}
 			<ComposerTray
 				quota={quotaInfo}

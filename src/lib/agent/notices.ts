@@ -3,11 +3,16 @@
  * Modulo puro: nessun import da Svelte, nessun accesso a store, nessun side effect.
  */
 
-import type { AsyncResultDetails, IrcAutoreplyDetails, IrcIncomingDetails } from './wire.ts';
+import type {
+	AsyncJobStatus,
+	AsyncResultDetails,
+	IrcAutoreplyDetails,
+	IrcIncomingDetails
+} from './wire.ts';
 import { m as msg } from '$lib/paraglide/messages.js';
 
 export type JobType = 'bash' | 'task' | 'eval' | 'unknown';
-
+export type JobStatusKind = 'completed' | 'failed' | 'aborted' | 'running' | 'unknown';
 export interface TaskResultEnvelope {
 	id: string;
 	agent?: string;
@@ -25,11 +30,18 @@ export interface TaskResultEnvelope {
 	summaryLine: string;
 	abortReason?: string;
 	mergeSummary?: string;
+	error?: string;
 }
 
 export interface JobResult {
 	jobId: string;
 	jobType: JobType;
+	/** Stato nativo dal metadato strutturato di omp >= 18.9.0 (`details.jobs[].status`). */
+	status?: AsyncJobStatus;
+	/** Stato normalizzato per la UI: priorita' al metadato nativo di omp >= 18.9.0, fallback sull'envelope XML per sessioni piu' vecchie. */
+	statusKind: JobStatusKind;
+	/** Identita' del subagente figlio (`details.jobs[].agentId` in omp >= 18.9.0, con fallback su `envelope.id` per omp < 18.9). */
+	agentId?: string;
 	label?: string;
 	durationMs?: number;
 	/** Presente solo su jobType 'task' con envelope valido. */
@@ -277,7 +289,12 @@ export function parseTaskResultEnvelope(text: string): TaskResultEnvelope | null
 		mergeSummary = mergeM[1].trim();
 	}
 
-	// <preview full-output="...">...</preview> oppure <output>...</output>.
+	// <error>...</error>
+	let error: string | undefined;
+	const errorM = inner.match(/<error>([\s\S]*?)<\/error>/);
+	if (errorM) {
+		error = errorM[1].trim();
+	}
 	// Il tag di chiusura puo' mancare quando il frame arriva tagliato: in quel
 	// caso si prende tutto cio' che resta, invece di restituire un corpo vuoto.
 	let body = '';
@@ -297,7 +314,7 @@ export function parseTaskResultEnvelope(text: string): TaskResultEnvelope | null
 		}
 	}
 
-	const summaryCandidate = extractSummary(body);
+	const summaryCandidate = extractSummary(body) || (error ? extractSummary(error) : '');
 
 	// Collassa gli spazi bianchi e tronca a 200 caratteri con ellissi
 	let summaryLine = summaryCandidate.replace(/\s+/g, ' ').trim();
@@ -317,7 +334,8 @@ export function parseTaskResultEnvelope(text: string): TaskResultEnvelope | null
 		body,
 		summaryLine,
 		abortReason,
-		mergeSummary
+		mergeSummary,
+		...(error ? { error } : {})
 	};
 }
 
@@ -329,18 +347,37 @@ function normalizeDetailsJobs(details: unknown): AsyncResultDetails['jobs'] {
 		return [];
 	}
 	const maybe = details as Record<string, unknown>;
-	if (!Array.isArray(maybe.jobs)) {
+	const rawJobs: unknown[] = Array.isArray(maybe.jobs)
+		? maybe.jobs
+		: typeof maybe.jobId === 'string' && maybe.jobId.trim().length > 0
+			? [maybe]
+			: [];
+	if (rawJobs.length === 0) {
 		return [];
 	}
 	const res: AsyncResultDetails['jobs'] = [];
-	for (const item of maybe.jobs) {
+	for (const item of rawJobs) {
 		if (item && typeof item === 'object') {
 			const j = item as Record<string, unknown>;
+			const rawStatus = j.status;
+			const status: AsyncJobStatus | undefined =
+				rawStatus === 'running' ||
+				rawStatus === 'completed' ||
+				rawStatus === 'failed' ||
+				rawStatus === 'cancelled'
+					? rawStatus
+					: undefined;
+			const agentId =
+				typeof j.agentId === 'string' && j.agentId.trim().length > 0
+					? j.agentId.trim()
+					: undefined;
 			res.push({
 				jobId: typeof j.jobId === 'string' ? j.jobId : String(j.jobId ?? ''),
 				// Un `type` fuori dai tre valori noti resta `undefined`: meglio
 				// dedurlo dal contenuto che propagare una stringa inventata.
 				type: j.type === 'bash' || j.type === 'task' || j.type === 'eval' ? j.type : undefined,
+				status,
+				agentId,
 				label: typeof j.label === 'string' ? j.label : undefined,
 				durationMs: typeof j.durationMs === 'number' ? j.durationMs : undefined
 			});
@@ -395,7 +432,10 @@ export function parseAsyncResult(content: string, details: unknown): JobResult[]
 		let raw = segmentText;
 		let envelope: TaskResultEnvelope | undefined;
 
-		const isTask = jobMeta?.type === 'task' || (!jobMeta?.type && segmentText.includes('<task-result'));
+		const isTask =
+			jobMeta?.type === 'task' ||
+			Boolean(jobMeta?.agentId) ||
+			(!jobMeta?.type && segmentText.includes('<task-result'));
 		if (isTask) {
 			const parsedEnv = parseTaskResultEnvelope(segmentText);
 			if (parsedEnv) {
@@ -406,15 +446,38 @@ export function parseAsyncResult(content: string, details: unknown): JobResult[]
 		let jobType: JobType = 'unknown';
 		if (jobMeta?.type) {
 			jobType = jobMeta.type;
-		} else if (envelope) {
+		} else if (jobMeta?.agentId || envelope) {
 			jobType = 'task';
 		}
 
 		const jobId = jobMeta?.jobId || envelope?.id || 'unknown';
+		const status = jobMeta?.status;
+		// Lo stato nativo esposto da omp >= 18.9.0 ha sempre priorita' sull'attributo
+		// testuale dell'envelope XML (che resta solo come fallback per sessioni legacy).
+		const statusKind: JobStatusKind =
+			status === 'completed'
+				? 'completed'
+				: status === 'failed'
+					? 'failed'
+					: status === 'cancelled'
+						? 'aborted'
+						: status === 'running'
+							? 'running'
+							: envelope?.statusKind ?? 'unknown';
+
+		// `agentId` dai metadati strutturati di omp >= 18.9.0 preserva l'identita'
+		// del subagente anche quando `jobId` viene disambiguato con suffisso (es. Foo-2 -> Foo).
+		// Fallback su `envelope.id` o `jobMeta.jobId` solo per sessioni omp < 18.9.0.
+		const agentId =
+			jobMeta?.agentId ||
+			(jobType === 'task' ? envelope?.id || jobMeta?.jobId || undefined : undefined);
 
 		results.push({
 			jobId,
 			jobType,
+			status,
+			statusKind,
+			agentId,
 			label: jobMeta?.label,
 			durationMs: jobMeta?.durationMs,
 			envelope,

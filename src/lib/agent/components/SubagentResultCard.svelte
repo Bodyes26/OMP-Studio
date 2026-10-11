@@ -24,6 +24,18 @@
 	function resolveStatusKind(
 		job: JobResult
 	): 'completed' | 'failed' | 'aborted' | 'running' | 'pending' {
+		if (
+			job.statusKind === 'completed' ||
+			job.statusKind === 'failed' ||
+			job.statusKind === 'aborted' ||
+			job.statusKind === 'running'
+		) {
+			return job.statusKind;
+		}
+		if (job.status === 'completed') return 'completed';
+		if (job.status === 'failed') return 'failed';
+		if (job.status === 'cancelled') return 'aborted';
+		if (job.status === 'running') return 'running';
 		if (job.envelope?.statusKind) {
 			const sk = job.envelope.statusKind;
 			if (sk === 'completed' || sk === 'failed' || sk === 'aborted') return sk;
@@ -88,8 +100,12 @@
 	}
 
 	function buildTaskRowModel(job: JobResult, idx: number): TaskRowModel {
-		const key = job.jobId || job.envelope?.id || String(idx);
-		const jobName = job.envelope?.id || job.jobId || `job-${idx + 1}`;
+		const subagentId =
+			job.agentId ??
+			job.envelope?.id ??
+			(job.jobType === 'task' && job.jobId && job.jobId !== 'unknown' ? job.jobId : undefined);
+		const key = job.jobId || subagentId || String(idx);
+		const jobName = subagentId || job.jobId || `job-${idx + 1}`;
 		const statusKind = resolveStatusKind(job);
 		const duration = resolveDuration(job);
 		const summary = resolveSummary(job);
@@ -113,10 +129,21 @@
 				job.envelope?.mergeSummary ||
 				job.jobType === 'task' ||
 				job.jobType === 'bash' ||
+				Boolean(subagentId) ||
 				metaSize
 		);
 
-		const subtitle = job.envelope?.agent ? `[${job.envelope.agent}]` : undefined;
+		const distinctJobId =
+			job.jobId && job.jobId !== 'unknown' && subagentId && job.jobId !== subagentId
+				? job.jobId
+				: undefined;
+		const subtitle = job.envelope?.agent
+			? distinctJobId
+				? `[${job.envelope.agent}] · ${distinctJobId}`
+				: `[${job.envelope.agent}]`
+			: distinctJobId
+				? `job ${distinctJobId}`
+				: undefined;
 
 		return {
 			...base,
@@ -143,8 +170,12 @@
 	{/if}
 
 	<div class="jobs-list" role="list">
-		{#each entry.jobs as job, idx (job.jobId || job.envelope?.id || idx)}
+		{#each entry.jobs as job, idx (job.jobId || job.agentId || job.envelope?.id || idx)}
 			{@const model = buildTaskRowModel(job, idx)}
+			{@const subagentId =
+				job.agentId ??
+				job.envelope?.id ??
+				(job.jobType === 'task' && job.jobId && job.jobId !== 'unknown' ? job.jobId : undefined)}
 			{@const bodyContent = job.envelope?.body || job.raw}
 			{@const metaSize = resolveMetaSize(job.envelope?.lines, job.envelope?.size)}
 			<div
@@ -175,13 +206,13 @@
 						</div>
 					{/if}
 
-					{#if job.jobType === 'task' || job.jobType === 'bash'}
+					{#if subagentId || job.jobType === 'bash'}
 						<div class="job-actions">
-							{#if job.jobType === 'task'}
+							{#if subagentId}
 								<button
 									type="button"
 									class="action-btn"
-									onclick={() => hooks.openSubagent(job.envelope?.id ?? job.jobId)}
+									onclick={() => hooks.openSubagent(subagentId)}
 								>
 									<IconFile aria-hidden="true" />
 									<span>{m.ui_subagentresultcard_apri_transcript_e1cb()}</span>

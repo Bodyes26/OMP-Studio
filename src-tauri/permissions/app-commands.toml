@@ -123,6 +123,8 @@ identifier = "allow-usage-and-sessions"
 description = "Pannello consumi e storico sessioni in sola lettura dai database di omp"
 commands.allow = [
     "usage_snapshot",
+    "usage_reset_list",
+    "usage_reset_redeem",
     "sessions_list",
     "sessions_search",
     "provider_hosts",

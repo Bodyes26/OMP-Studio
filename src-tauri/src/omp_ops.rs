@@ -440,9 +440,264 @@ pub async fn usage_snapshot(force: bool) -> Result<UsageReport, String> {
         .map_err(|e| format!("Task usage_snapshot: {}", e))??;
     let extra = extra_usage_reports().await;
     merge_extra_reports(&mut report.raw_json, extra, now_ms());
+    if let Some(obj) = report.raw_json.as_object_mut() {
+        obj.insert("resetSettings".to_string(), read_reset_settings_sync());
+    }
     *USAGE_CACHE.lock() = Some((Instant::now(), report.raw_json.clone()));
     Ok(report)
 }
+
+// --- Reset di rate limit salvati (Codex e Claude, omp 18.9+) ---
+//
+// In omp 18.9.0 il protocollo RPC non espone comandi dedicati per elencare o
+// riscattare i reset salvati; la superficie strutturata ufficiale e' la CLI
+// `omp usage reset --json` (sola lettura) e `omp usage reset <provider>/<id>`
+// (riscatto protetto da file lock cross-processo). Studio invoca il binario
+// direttamente con argomenti separati senza passare da alcuna shell.
+
+static USAGE_RESET_CACHE: LazyLock<Mutex<Option<(Instant, serde_json::Value)>>> =
+    LazyLock::new(|| Mutex::new(None));
+static USAGE_RESET_FETCH: LazyLock<tokio::sync::Mutex<()>> =
+    LazyLock::new(|| tokio::sync::Mutex::new(()));
+
+fn cached_usage_resets(max_age: Duration) -> Option<serde_json::Value> {
+    let guard = USAGE_RESET_CACHE.lock();
+    let (at, value) = guard.as_ref()?;
+    (at.elapsed() <= max_age).then(|| value.clone())
+}
+
+fn normalize_auto_redeem_value(val: Option<&serde_yaml::Value>) -> &'static str {
+    match val {
+        Some(serde_yaml::Value::Bool(true)) => "yes",
+        Some(serde_yaml::Value::Bool(false)) => "no",
+        Some(serde_yaml::Value::String(s)) => match s.trim().to_ascii_lowercase().as_str() {
+            "yes" | "true" => "yes",
+            "no" | "false" => "no",
+            _ => "unset",
+        },
+        _ => "unset",
+    }
+}
+
+fn yaml_u64_field(
+    root: &serde_yaml::Value,
+    section: &str,
+    field: &str,
+    default: u64,
+) -> u64 {
+    let dotted = format!("{}.{}", section, field);
+    let val = root
+        .get(section)
+        .and_then(|s| s.get(field))
+        .or_else(|| root.get(dotted.as_str()));
+    val.and_then(|v| v.as_u64()).unwrap_or(default)
+}
+
+fn parse_provider_reset_policy(root: &serde_yaml::Value, section: &str) -> serde_json::Value {
+    let dotted_auto = format!("{}.autoRedeem", section);
+    let auto_val = root
+        .get(section)
+        .and_then(|s| s.get("autoRedeem"))
+        .or_else(|| root.get(dotted_auto.as_str()));
+    let auto_redeem = normalize_auto_redeem_value(auto_val);
+    let min_blocked_minutes = yaml_u64_field(root, section, "minBlockedMinutes", 60);
+    let keep_credits = yaml_u64_field(root, section, "keepCredits", 0);
+    let salvage_horizon_hours = yaml_u64_field(root, section, "salvageHorizonHours", 12);
+    serde_json::json!({
+        "autoRedeem": auto_redeem,
+        "minBlockedMinutes": min_blocked_minutes,
+        "keepCredits": keep_credits,
+        "salvageHorizonHours": salvage_horizon_hours,
+    })
+}
+
+/// Estrae le politiche `codexResets.*` e `claudeResets.*` da `config.yml`,
+/// tollerando sia la forma annidata sia le chiavi puntate e il booleano legacy.
+fn parse_reset_settings_yaml(text: &str) -> serde_json::Value {
+    let root = serde_yaml::from_str::<serde_yaml::Value>(text)
+        .unwrap_or(serde_yaml::Value::Null);
+    serde_json::json!({
+        "openai-codex": parse_provider_reset_policy(&root, "codexResets"),
+        "anthropic": parse_provider_reset_policy(&root, "claudeResets"),
+    })
+}
+
+fn read_reset_settings_sync() -> serde_json::Value {
+    let Some(mut path) = agent_dir() else {
+        return parse_reset_settings_yaml("");
+    };
+    path.push("config.yml");
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    parse_reset_settings_yaml(&text)
+}
+
+/// Valida e normalizza il target `<provider>/<credentialId>` prima di passarlo
+/// a `omp usage reset <target>`. Accetta solo provider Codex/Claude e un ID
+/// numerico intero, impedendo qualsiasi iniezione di flag o target invalidi.
+fn validate_reset_target(raw: &str) -> Result<String, String> {
+    let trimmed = raw.trim();
+    let Some((raw_provider, raw_id)) = trimmed.split_once('/') else {
+        return Err(
+            "Target reset non valido: usa il formato <provider>/<credential-id>".to_string(),
+        );
+    };
+    let provider = match raw_provider.trim().to_ascii_lowercase().as_str() {
+        "openai-codex" | "codex" => "openai-codex",
+        "anthropic" | "claude" => "anthropic",
+        other => {
+            return Err(format!(
+                "Provider reset non supportato: '{}'. Usa openai-codex o anthropic.",
+                other
+            ))
+        }
+    };
+    let id_str = raw_id.trim();
+    if id_str.is_empty()
+        || id_str.len() > 12
+        || !id_str.bytes().all(|b| b.is_ascii_digit())
+    {
+        return Err(format!(
+            "ID credenziale non valido in '{}': deve essere il numero elencato da omp usage reset.",
+            trimmed
+        ));
+    }
+    let cred_id: u64 = id_str
+        .parse()
+        .map_err(|_| "ID credenziale fuori intervallo".to_string())?;
+    Ok(format!("{}/{}", provider, cred_id))
+}
+
+fn strip_ansi_codes(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut chars = input.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\x1b' {
+            if chars.peek() == Some(&'[') {
+                let _ = chars.next();
+                for c in chars.by_ref() {
+                    if ('@'..='~').contains(&c) {
+                        break;
+                    }
+                }
+            }
+            continue;
+        }
+        out.push(ch);
+    }
+    out
+}
+
+fn usage_reset_list_sync() -> Result<UsageReport, String> {
+    let omp_path = get_omp_binary();
+
+    let mut cmd = Command::new(&omp_path);
+    cmd.arg("usage").arg("reset").arg("--json");
+
+    #[cfg(target_os = "windows")]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    let _span = crate::perf_trace::span(
+        "poll",
+        crate::perf_trace::command_label(&omp_path, ["usage", "reset", "--json"]),
+    );
+    let output = omp_capture(cmd).map_err(|e| e.to_string())?;
+    if output.status.success() {
+        let json_str = String::from_utf8_lossy(&output.stdout);
+        let mut parsed: serde_json::Value =
+            serde_json::from_str(&json_str).map_err(|e| e.to_string())?;
+        if let Some(obj) = parsed.as_object_mut() {
+            obj.insert("resetSettings".to_string(), read_reset_settings_sync());
+        }
+        Ok(UsageReport { raw_json: parsed })
+    } else {
+        Err(strip_ansi_codes(&String::from_utf8_lossy(&output.stderr))
+            .trim()
+            .to_string())
+    }
+}
+
+#[command]
+pub async fn usage_reset_list(force: bool) -> Result<UsageReport, String> {
+    let max_age = if force {
+        USAGE_FORCE_FLOOR
+    } else {
+        USAGE_CACHE_TTL
+    };
+    if let Some(raw_json) = cached_usage_resets(max_age) {
+        return Ok(UsageReport { raw_json });
+    }
+
+    let _serializzato = USAGE_RESET_FETCH.lock().await;
+    if let Some(raw_json) = cached_usage_resets(max_age) {
+        return Ok(UsageReport { raw_json });
+    }
+
+    let report = tokio::task::spawn_blocking(usage_reset_list_sync)
+        .await
+        .map_err(|e| format!("Task usage_reset_list: {}", e))??;
+    *USAGE_RESET_CACHE.lock() = Some((Instant::now(), report.raw_json.clone()));
+    Ok(report)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageResetRedeemResult {
+    pub ok: bool,
+    pub target: String,
+    pub message: String,
+}
+
+fn usage_reset_redeem_sync(canonical_target: String) -> Result<UsageResetRedeemResult, String> {
+    let omp_path = get_omp_binary();
+
+    let mut cmd = Command::new(&omp_path);
+    cmd.arg("usage").arg("reset").arg(&canonical_target);
+
+    #[cfg(target_os = "windows")]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    let _span = crate::perf_trace::span(
+        "action",
+        crate::perf_trace::command_label(&omp_path, ["usage", "reset", canonical_target.as_str()]),
+    );
+    let output = omp_capture(cmd).map_err(|e| e.to_string())?;
+    let stdout = strip_ansi_codes(&String::from_utf8_lossy(&output.stdout))
+        .trim()
+        .to_string();
+    let stderr = strip_ansi_codes(&String::from_utf8_lossy(&output.stderr))
+        .trim()
+        .to_string();
+    let ok = output.status.success();
+    let message = if ok {
+        if stdout.is_empty() { stderr } else { stdout }
+    } else if stderr.is_empty() {
+        stdout
+    } else {
+        stderr
+    };
+    Ok(UsageResetRedeemResult {
+        ok,
+        target: canonical_target,
+        message,
+    })
+}
+
+#[command]
+pub async fn usage_reset_redeem(target: String) -> Result<UsageResetRedeemResult, String> {
+    let canonical = validate_reset_target(&target)?;
+    let result = tokio::task::spawn_blocking(move || usage_reset_redeem_sync(canonical))
+        .await
+        .map_err(|e| format!("Task usage_reset_redeem: {}", e))??;
+    // Svuota subito entrambe le cache cosi' il refresh immediatamente successivo
+    // legge le quote e il saldo reset aggiornati senza aspettare USAGE_FORCE_FLOOR.
+    *USAGE_CACHE.lock() = None;
+    *USAGE_RESET_CACHE.lock() = None;
+    Ok(result)
+ }
 
 // --- Sorgenti di quota aggiuntive ---
 //
@@ -3043,5 +3298,55 @@ riga_non_json_che_viene_ignorata
         assert!(!session_folder_might_match("--D--altro--", progetto));
         let legacy = format!("home-altro-{}", "a".repeat(64));
         assert!(!session_folder_might_match(&legacy, progetto));
+    }
+
+    #[test]
+    fn valida_target_reset_usage() {
+        assert_eq!(
+            validate_reset_target("openai-codex/5").as_deref(),
+            Ok("openai-codex/5")
+        );
+        assert_eq!(
+            validate_reset_target("  codex/12 ").as_deref(),
+            Ok("openai-codex/12")
+        );
+        assert_eq!(
+            validate_reset_target("anthropic/10").as_deref(),
+            Ok("anthropic/10")
+        );
+        assert_eq!(
+            validate_reset_target("Claude/0").as_deref(),
+            Ok("anthropic/0")
+        );
+
+        // Rifiuta active (non supportato fuori sessione su CLI), provider ignoti e metacaratteri
+        assert!(validate_reset_target("anthropic/active").is_err());
+        assert!(validate_reset_target("google/5").is_err());
+        assert!(validate_reset_target("openai-codex/5;rm").is_err());
+        assert!(validate_reset_target("openai-codex/-1").is_err());
+        assert!(validate_reset_target("openai-codex/").is_err());
+        assert!(validate_reset_target("5").is_err());
+    }
+
+    #[test]
+    fn interpreta_impostazioni_reset_da_yaml() {
+        let vuoto = parse_reset_settings_yaml("");
+        assert_eq!(vuoto["openai-codex"]["autoRedeem"], "unset");
+        assert_eq!(vuoto["openai-codex"]["salvageHorizonHours"], 12);
+        assert_eq!(vuoto["anthropic"]["autoRedeem"], "unset");
+
+        let annidato = parse_reset_settings_yaml(
+            "codexResets:\n  autoRedeem: yes\n  keepCredits: 1\n  salvageHorizonHours: 24\nclaudeResets:\n  autoRedeem: false\n",
+        );
+        assert_eq!(annidato["openai-codex"]["autoRedeem"], "yes");
+        assert_eq!(annidato["openai-codex"]["keepCredits"], 1);
+        assert_eq!(annidato["openai-codex"]["salvageHorizonHours"], 24);
+        assert_eq!(annidato["anthropic"]["autoRedeem"], "no");
+
+        let puntato = parse_reset_settings_yaml(
+            "\"codexResets.autoRedeem\": no\n\"claudeResets.autoRedeem\": true\n",
+        );
+        assert_eq!(puntato["openai-codex"]["autoRedeem"], "no");
+        assert_eq!(puntato["anthropic"]["autoRedeem"], "yes");
     }
 }

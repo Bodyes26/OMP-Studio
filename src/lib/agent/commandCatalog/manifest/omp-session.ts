@@ -143,33 +143,33 @@ export const OMP_ENTRIES_SESSION: readonly CommandManifestEntry[] = [
 		text: {
 			it: {
 				title: 'Quote e consumi',
-				summary: 'Apre il pannello delle quote e consumi di Studio o interroga i contatori di token dei provider.',
+				summary: 'Apre il pannello delle quote e dei reset salvati di Studio o interroga e riscatta i reset di rate limit dei provider.',
 				benefits: [
-					'Apre direttamente il pannello visuale delle quote in Studio',
-					'Consente di monitorare i consumi per ciascun provider e modello',
-					'Permette di azzerare i contatori di rate limit salvati quando supportato'
+					'Apre direttamente il pannello visuale delle quote e dei reset salvati in Studio',
+					'Consente di monitorare i consumi e le finestre di quota per ciascun provider e account',
+					'Elenca e riscatta i reset di rate limit salvati per gli account Codex e Claude (con scadenza e avvisi)'
 				],
 				examples: [
-					{ command: '/usage', note: 'Apre la visualizzazione quote e consumi in OMP Studio' },
-					{ command: '/usage show', note: 'Mostra i consumi dettagliati da riga di comando' },
-					{ command: '/usage reset anthropic/active', note: 'Azzera il contatore di rate limit salvato per il provider attivo' }
+					{ command: '/usage', note: 'Apre la visualizzazione quote, consumi e reset salvati in OMP Studio' },
+					{ command: '/usage reset', note: 'Elenca i reset di rate limit salvati per gli account Codex e Claude con il relativo ID credenziale' },
+					{ command: '/usage reset openai-codex/5', note: 'Riscatta un reset salvato per la credenziale indicata (oppure anthropic/active per l’account attivo)' }
 				],
-				whenToUse: 'Quando vuoi controllare quanti token hai speso o verificare i limiti di chiamata dei provider.'
+				whenToUse: 'Quando vuoi controllare le quote residue, verificare i reset salvati in scadenza o sbloccare un rate limit Codex o Claude.'
 			},
 			en: {
 				title: 'Usage & Quotas',
-				summary: 'Open the usage and quota panel in Studio or query provider token counters and limits.',
+				summary: 'Open the usage, quota, and saved resets panel in Studio or list and redeem provider rate-limit resets.',
 				benefits: [
-					'Directly opens the visual quota and consumption panel in Studio',
-					'Tracks token spend across providers and configured models',
-					'Allows resetting saved rate-limit cooldown timers when supported'
+					'Directly opens the visual quota and saved resets panel in Studio',
+					'Tracks usage windows and quota limits across providers and configured accounts',
+					'Lists and redeems saved Codex and Claude rate-limit resets per account (with expiry warnings)'
 				],
 				examples: [
-					{ command: '/usage', note: 'Open the usage and quota panel in OMP Studio' },
-					{ command: '/usage show', note: 'Print detailed provider usage and limits to output' },
-					{ command: '/usage reset anthropic/active', note: 'Reset the saved rate limit reset counter for the active provider' }
+					{ command: '/usage', note: 'Open the usage, quota, and saved resets panel in OMP Studio' },
+					{ command: '/usage reset', note: 'List saved rate-limit resets for Codex and Claude accounts with their credential IDs' },
+					{ command: '/usage reset openai-codex/5', note: 'Redeem one saved reset for the specified credential (or anthropic/active for the active account)' }
 				],
-				whenToUse: 'When you want to track token spend or check if you are approaching provider rate limits.'
+				whenToUse: 'When you want to inspect remaining quota, check expiring saved resets, or immediately clear a Codex or Claude rate limit.'
 			}
 		}
 	},

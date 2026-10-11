@@ -55,7 +55,12 @@
 	let errorText = $state<string | null>(null);
 
 
-	const subagent = $derived(session.subagents.find((s: AgentProgress) => s.id === subagentId));
+	// Cerca sia per identita' del subagente (`id`) sia per `jobId` del manager,
+	// cosi' un clic partito da un job con suffisso anti-collisione risolve comunque il transcript del figlio.
+	const subagent = $derived(
+		session.subagents.find((s: AgentProgress) => s.id === subagentId || s.jobId === subagentId)
+	);
+	const resolvedSubagentId = $derived(subagent?.id ?? subagentId);
 	const isRunning = $derived(subagent?.status === 'running');
 	const isPending = $derived(subagent?.status === 'pending');
 	const canStop = $derived(isRunning || isPending);
@@ -68,7 +73,7 @@
 		if (isStopping || !canStop) return;
 		isStopping = true;
 		try {
-			await session.cancelSubagent(subagentId);
+			await session.cancelSubagent(resolvedSubagentId);
 		} finally {
 			isStopping = false;
 		}
@@ -79,7 +84,7 @@
 		if (!text || isSteering || !isRunning) return;
 		isSteering = true;
 		try {
-			const ok = await session.steerSubagent(subagentId, text);
+			const ok = await session.steerSubagent(resolvedSubagentId, text);
 			if (ok) {
 				steerMessage = '';
 			}
@@ -181,9 +186,25 @@
 				}
 
 				if (classified.kind === 'subagent-result') {
-					const body = classified.jobs.length > 0
-						? classified.jobs.map((j) => j.envelope?.summaryLine ?? j.label ?? j.jobId).join(' | ')
-						: stripNoticeWrapper(text);
+					const body =
+						classified.jobs.length > 0
+							? classified.jobs
+									.map((j) => {
+										const idLabel = j.agentId ?? j.envelope?.id ?? j.jobId;
+										const statusTag =
+											j.status ??
+											(j.statusKind !== 'unknown' ? j.statusKind : undefined);
+										const summary = j.envelope?.summaryLine ?? j.label ?? idLabel;
+										if (statusTag && summary && summary !== idLabel) {
+											return `${idLabel} [${statusTag}]: ${summary}`;
+										}
+										if (statusTag) {
+											return `${idLabel} [${statusTag}]`;
+										}
+										return summary;
+									})
+									.join(' | ')
+							: stripNoticeWrapper(text);
 					items.push({
 						type: 'system',
 						id: i,
@@ -228,7 +249,8 @@
 
 	// Polling con guardia di concorrenza, reset al cambio di subagentId e pulizia al dismount.
 	$effect(() => {
-		const currentId = subagentId;
+		const currentId = resolvedSubagentId;
+		const currentSessionFile = subagent?.sessionFile;
 		let fromByte = 0;
 		let isPolling = false;
 		let destroyed = false;
@@ -254,6 +276,7 @@
 				const res: SubagentMessagesResponse = await session.client.send({
 					type: 'get_subagent_messages',
 					subagentId: currentId,
+					...(currentSessionFile ? { sessionFile: currentSessionFile } : {}),
 					fromByte
 				});
 				if (destroyed) return;
@@ -323,7 +346,7 @@
 	<div class="drawer-head">
 		<div class="head-info">
 			<span class="glyph"><IconSubagents aria-hidden="true" /></span>
-			<span class="title">{subagentId}</span>
+			<span class="title">{resolvedSubagentId}</span>
 		</div>
 		<div class="head-actions">
 			{#if canStop}

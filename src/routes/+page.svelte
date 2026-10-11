@@ -2136,6 +2136,13 @@
 			return true;
 		}
 		if (lowerCmd === '/usage' || lowerCmd === '/quota') {
+			if (lowerCmd === '/usage' && /^reset\s+\S+/i.test(argument)) {
+				window.setTimeout(() => void quotaStore.refresh(true), 1500);
+				return false;
+			}
+			if (argument.toLowerCase() === 'reset') {
+				void quotaStore.refresh(true);
+			}
 			usageOpen = true;
 			return true;
 		}

@@ -5,6 +5,7 @@
   modello e durata tabulari, la tabella KeyValue degli argomenti e l'output testuale in OutputBlock.
 -->
 <script lang="ts">
+	import { agentUiHooks } from '../../ui-context';
 	import KeyValue from '../parts/KeyValue.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
 	import StatusMark, { type StatusMarkType } from '$lib/ui/StatusMark.svelte';
@@ -21,6 +22,7 @@
 
 	let { args, result }: ToolRenderProps = $props();
 
+	const hooks = agentUiHooks();
 	const details = $derived(asRecord(result?.details));
 	const op = $derived(str(details?.op) ?? str(args.op) ?? 'hub');
 	const jobs = $derived(recordList(details?.jobs));
@@ -77,17 +79,33 @@
 	{#if jobs.length > 0}
 		<div class="jobs-list">
 			{#each jobs as job, index (index)}
-				{@const jobId = str(job.id) ?? `job-${index}`}
+				{@const jobId = str(job.id) ?? str(job.jobId) ?? `job-${index}`}
 				{@const jobType = str(job.type) ?? 'task'}
-				{@const jobStatus = str(job.status) ?? 'pending'}
+				{@const explicitAgentId = str(job.agentId) ?? str(job.agentUrlId)}
+				{@const agentId =
+					explicitAgentId ?? (jobType === 'task' ? str(job.id) ?? str(job.jobId) : undefined)}
+				{@const jobStatus = str(job.status) ?? str(job.state) ?? 'pending'}
 				{@const model = str(job.resolvedModel)}
 				{@const dur = formatDuration(num(job.durationMs))}
-				{@const jobResText = str(job.resultText)}
+				{@const jobResText = str(job.resultText) ?? str(job.errorText)}
 
 				<div class="job-card">
 					<div class="job-header">
 						<span class="glyph"><StatusMark status={toStatusMarkStatus(jobStatus)} /></span>
-						<span class="job-id">{jobId}</span>
+						{#if agentId}
+							<button
+								type="button"
+								class="job-id-btn"
+								onclick={() => hooks.openSubagent(agentId)}
+							>
+								{agentId}
+							</button>
+							{#if jobId !== agentId}
+								<span class="job-id-sub">({jobId})</span>
+							{/if}
+						{:else}
+							<span class="job-id">{jobId}</span>
+						{/if}
 						<span class="job-type">{jobType}</span>
 						{#if model}
 							<span class="job-model">[{model}]</span>
@@ -158,6 +176,30 @@
 		font-variant-numeric: tabular-nums;
 	}
 
+	.job-id-btn {
+		background: none;
+		border: none;
+		padding: 0;
+		font-family: var(--font-mono);
+		font-size: var(--text-meta);
+		color: var(--ink);
+		font-variant-numeric: tabular-nums;
+		cursor: pointer;
+		text-decoration: underline;
+		text-decoration-color: var(--line);
+		text-underline-offset: 2px;
+	}
+
+	.job-id-btn:hover {
+		color: var(--accent, var(--ink));
+		text-decoration-color: currentColor;
+	}
+
+	.job-id-sub {
+		font-family: var(--font-mono);
+		font-size: var(--text-meta);
+		color: var(--ink-faint);
+	}
 	.job-type {
 		font-family: var(--font-ui);
 		font-size: var(--text-caption);

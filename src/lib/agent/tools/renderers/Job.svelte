@@ -7,6 +7,7 @@
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages.js';
+	import { agentUiHooks } from '../../ui-context';
 	import KeyValue from '../parts/KeyValue.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
 	import StatusMark, { type StatusMarkType } from '$lib/ui/StatusMark.svelte';
@@ -23,7 +24,10 @@
 
 	let { args, result }: ToolRenderProps = $props();
 
-	const op = $derived(str(args.op) ?? str(args.action) ?? str(args.command) ?? '');
+	const hooks = agentUiHooks();
+	const op = $derived(
+		str(args.op) ?? str(args.action) ?? str(args.command) ?? str(asRecord(result?.details)?.op) ?? ''
+	);
 	const singleId = $derived(str(args.id) ?? str(args.jobId) ?? str(args.name) ?? '');
 	const idsList = $derived(strList(args.ids));
 	const targetIds = $derived(singleId ? [singleId] : idsList);
@@ -33,6 +37,7 @@
 
 	interface JobEntry {
 		id: string;
+		agentId?: string;
 		status?: string;
 		type?: string;
 		label?: string;
@@ -43,6 +48,12 @@
 
 	const rawJobs = $derived.by(() => {
 		if (details?.jobs) return recordList(details.jobs);
+		const proc = asRecord(details?.proc);
+		if (proc?.jobs) return recordList(proc.jobs);
+		if (proc?.job) {
+			const single = asRecord(proc.job);
+			if (single) return [single];
+		}
 		if (Array.isArray(result?.details)) return recordList(result.details);
 		return [];
 	});
@@ -52,14 +63,21 @@
 		for (const rec of rawJobs) {
 			const jid = str(rec.id) ?? str(rec.jobId) ?? str(rec.name);
 			if (!jid) continue;
+			const type = str(rec.type);
+			// omp >= 18.9 espone `agentId` (nei dettagli async-result / snapshot)
+			// o `agentUrlId` (negli snapshot di wait/jobs/proc); per i job `task`
+			// legacy ripiega sull'ID del job.
+			const explicitAgentId = str(rec.agentId) ?? str(rec.agentUrlId);
+			const agentId = explicitAgentId ?? (type === 'task' ? jid : undefined);
 			out.push({
 				id: jid,
+				agentId,
 				status: str(rec.status) ?? str(rec.state),
-				type: str(rec.type),
+				type,
 				label: str(rec.label) ?? str(rec.task),
 				duration: formatDuration(num(rec.durationMs)),
 				model: str(rec.resolvedModel) ?? str(rec.model),
-				jobText: str(rec.resultText)
+				jobText: str(rec.resultText) ?? str(rec.errorText)
 			});
 		}
 		return out;
@@ -119,7 +137,22 @@
 				<tbody>
 					{#each jobList as item (item.id)}
 						<tr>
-							<td class="id-cell">{item.id}</td>
+							<td class="id-cell">
+								{#if item.agentId}
+									<button
+										type="button"
+										class="agent-id-btn"
+										onclick={() => hooks.openSubagent(item.agentId!)}
+									>
+										{item.agentId}
+									</button>
+									{#if item.id !== item.agentId}
+										<span class="job-id-sub">({item.id})</span>
+									{/if}
+								{:else}
+									{item.id}
+								{/if}
+							</td>
 							<td class="status-cell">
 								{#if item.status}
 									<span class="status-wrap" title={item.status}>
@@ -196,6 +229,29 @@
 		font-size: var(--text-meta);
 		color: var(--ink);
 		font-variant-numeric: tabular-nums;
+	}
+
+	.agent-id-btn {
+		background: none;
+		border: none;
+		padding: 0;
+		font-family: var(--font-mono);
+		font-size: var(--text-meta);
+		color: var(--ink);
+		cursor: pointer;
+		text-decoration: underline;
+		text-decoration-color: var(--line);
+		text-underline-offset: 2px;
+	}
+
+	.agent-id-btn:hover {
+		color: var(--accent, var(--ink));
+		text-decoration-color: currentColor;
+	}
+
+	.job-id-sub {
+		margin-left: var(--space-1);
+		color: var(--ink-faint);
 	}
 
 	.status-wrap {

@@ -2,6 +2,15 @@ import { invoke } from '@tauri-apps/api/core';
 import { accountPinHash, shortestWindowLimit, remainingFractionOf } from '../quota/resolve';
 import { m as msg } from '$lib/paraglide/messages.js';
 import { createAdaptivePoller, type AdaptivePoller } from '$lib/utils/windowActivity.svelte';
+import {
+	buildAccountResetSummaries,
+	findResetSummaryForReport,
+	selectResetPromptCandidate,
+	type AccountResetSummary,
+	type ResetProviderPolicy,
+	type ResetPromptCandidate,
+	type UsageResetListRaw
+} from '../quota/usageResets';
 
 export type ProviderHost = {
 	provider: string;
@@ -79,10 +88,23 @@ export interface QuotaReport {
 	notes?: string[];
 	resetCredits?: {
 		availableCount?: number;
+		redeemableCount?: number;
+		eligible?: boolean;
+		reason?: string;
+		nextCreditId?: string;
 		credits?: Array<{
+			id?: string;
+			title?: string;
+			program?: string;
+			status?: string;
+			remainingCount?: number;
+			usable?: boolean;
+			requiresLimit?: boolean;
+			clears?: string[];
+			blocking?: string[];
+			usedFractions?: Record<string, number>;
 			grantedAt?: string;
 			expiresAt?: string;
-			status?: string;
 		}>;
 	};
 }
@@ -107,6 +129,7 @@ export interface QuotaSnapshotRaw {
 	disabledCredentials?: DisabledCredential[];
 	accountsWithoutUsage?: AccountWithoutUsage[];
 	capacity?: Record<string, unknown>;
+	resetSettings?: Partial<Record<string, Partial<ResetProviderPolicy>>>;
 	[key: string]: unknown;
 }
 
@@ -129,6 +152,18 @@ class QuotaStore {
 	reports = $derived<QuotaReport[]>(this.rawJson?.reports ?? []);
 	disabledCredentials = $derived<DisabledCredential[]>(this.rawJson?.disabledCredentials ?? []);
 	accountsWithoutUsage = $derived<AccountWithoutUsage[]>(this.rawJson?.accountsWithoutUsage ?? []);
+	resetListRaw = $state<UsageResetListRaw | null>(null);
+	dismissedResetEpisodes = $state<string[]>([]);
+	redeemingTarget = $state<string | null>(null);
+	lastRedeemOutcome = $state<{ ok: boolean; target: string; message: string; at: number } | null>(null);
+
+	resetSummaries = $derived.by<AccountResetSummary[]>(() =>
+		buildAccountResetSummaries({
+			reports: this.reports,
+			resetAccounts: this.resetListRaw?.accounts,
+			resetSettings: this.resetListRaw?.resetSettings ?? this.rawJson?.resetSettings
+		})
+	);
 
 	// Testo senza glifi: l'icona la mette il chip nella barra (IconQuota),
 	// cosi' l'etichetta resta leggibile anche dentro un aria-label.
@@ -243,13 +278,17 @@ class QuotaStore {
 	private async doRefresh(force: boolean): Promise<void> {
 		this.loading = true;
 		try {
-			const [usage, hosts] = await Promise.all([
+			const [usage, hosts, resets] = await Promise.all([
 				invoke<{ raw_json: QuotaSnapshotRaw }>('usage_snapshot', { force }),
-				invoke<ProviderHost[]>('provider_hosts').catch(() => [] as ProviderHost[])
+				invoke<ProviderHost[]>('provider_hosts').catch(() => [] as ProviderHost[]),
+				invoke<{ raw_json: UsageResetListRaw }>('usage_reset_list', { force }).catch(() => null)
 			]);
 
 			this.rawJson = usage.raw_json;
 			this.providerHosts = hosts || [];
+			if (resets?.raw_json) {
+				this.resetListRaw = resets.raw_json;
+			}
 			this.lastFetchedAt = Date.now();
 			this.error = null;
 
@@ -283,6 +322,57 @@ class QuotaStore {
 			}
 		}
 		return undefined;
+	}
+
+	findResetSummary(report: QuotaReport): AccountResetSummary | undefined {
+		return findResetSummaryForReport(report, this.resetSummaries);
+	}
+
+	activeResetCandidate(options?: {
+		activeProvider?: string;
+		activeAccountEmail?: string;
+		activeBlockedProvider?: string;
+		suppressForSessionPrompt?: boolean;
+	}): ResetPromptCandidate | null {
+		return selectResetPromptCandidate({
+			summaries: this.resetSummaries,
+			activeProvider: options?.activeProvider,
+			activeAccountEmail: options?.activeAccountEmail,
+			activeBlockedProvider: options?.activeBlockedProvider,
+			dismissedKeys: new Set(this.dismissedResetEpisodes),
+			suppressForSessionPrompt: options?.suppressForSessionPrompt
+		});
+	}
+
+	dismissResetEpisode(episodeKey: string) {
+		if (!episodeKey || this.dismissedResetEpisodes.includes(episodeKey)) return;
+		this.dismissedResetEpisodes = [...this.dismissedResetEpisodes, episodeKey];
+	}
+
+	clearLastRedeemOutcome() {
+		this.lastRedeemOutcome = null;
+	}
+
+	async redeemReset(target: string): Promise<{ ok: boolean; target: string; message: string }> {
+		if (this.redeemingTarget) {
+			return { ok: false, target, message: 'Riscatto gia in corso' };
+		}
+		this.redeemingTarget = target;
+		try {
+			const res = await invoke<{ ok: boolean; target: string; message: string }>('usage_reset_redeem', {
+				target
+			});
+			this.lastRedeemOutcome = { ...res, at: Date.now() };
+			await this.refresh(true);
+			return res;
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			const failed = { ok: false, target, message };
+			this.lastRedeemOutcome = { ...failed, at: Date.now() };
+			return failed;
+		} finally {
+			this.redeemingTarget = null;
+		}
 	}
 
 	private async updateReportPinHashes(reports: QuotaReport[]): Promise<void> {

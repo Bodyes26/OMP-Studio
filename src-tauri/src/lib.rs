@@ -42,7 +42,8 @@ mod omp_ops;
 use omp_ops::{
     check_omp_update, get_omp_changelog_status, get_omp_version, mark_omp_changelog_seen,
     omp_user_theme, provider_hosts, run_omp_update, session_credential_pins, sessions_list,
-    sessions_search, sweep_stale_logs, theme_apply, usage_snapshot,
+    sessions_search, sweep_stale_logs, theme_apply, usage_reset_list, usage_reset_redeem,
+    usage_snapshot,
 };
 mod studio_updater;
 use studio_updater::{
@@ -239,6 +240,8 @@ pub fn run() {
             lanes_store_write_atomic,
             lanes_store_backup,
             usage_snapshot,
+            usage_reset_list,
+            usage_reset_redeem,
             sessions_list,
             sessions_search,
             session_credential_pins,
