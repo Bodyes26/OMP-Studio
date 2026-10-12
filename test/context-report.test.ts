@@ -4,8 +4,7 @@ import {
 	applyDraftToContextReserve,
 	categoryTokenSum,
 	isContextReportText,
-	parseContextReport,
-	reportMatchesUsage
+	parseContextReport
 } from '../src/lib/agent/contextReport.ts';
 
 /** Stessa riga di `buildContextReportText`: etichetta a 16 colonne, barra, token. */
@@ -68,13 +67,6 @@ describe('rapporto /context', () => {
 		assert.equal(parseContextReport('niente'), null);
 	});
 
-	it('considera aggiornato solo il rapporto con gli stessi token di get_state', () => {
-		const report = parseContextReport(REPORT);
-		assert.equal(reportMatchesUsage(report, { tokens: 25_000, contextWindow: 100_000 }), true);
-		assert.equal(reportMatchesUsage(report, { tokens: 26_000, contextWindow: 100_000 }), false);
-		assert.equal(reportMatchesUsage(report, { tokens: 25_000, contextWindow: 200_000 }), false);
-		assert.equal(reportMatchesUsage(null, { tokens: 0 }), false);
-	});
 
 	it('scala la bozza prima dal libero e poi dalla riserva', () => {
 		assert.deepEqual(applyDraftToContextReserve(40, 80, 10), { free: 30, buffer: 80 });

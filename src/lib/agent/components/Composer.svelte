@@ -372,21 +372,6 @@
 		return allCommands.find((c) => c.name.toLowerCase() === clean.toLowerCase()) ?? null;
 	});
 
-	// Il rapporto di /context si chiede solo a pannello aperto: e' un prompt
-	// locale sulla coda RPC e non deve partire a ogni turno.
-	$effect(() => {
-		if (!visible || activeMenu !== 'context') return;
-		void session.isReady;
-		void session.isAttached;
-		void session.isStreaming;
-		void session.isCompacting;
-		void session.sessionId;
-		void session.model?.id;
-		void session.contextUsage?.tokens;
-		void session.contextUsage?.contextWindow;
-		void session.availableCommands;
-		void session.refreshContextReport();
-	});
 
 	// Stima token della bozza corrente
 	const draftTokensEstimate = $derived.by(() => {
@@ -1351,14 +1336,8 @@
 								{/snippet}
 								{#snippet children()}
 									<ContextPanel
-										model={session.model}
-										contextUsage={session.contextUsage}
-										report={session.contextReport}
+										{session}
 										draftTokens={draftTokensEstimate}
-										sessionCost={session.sessionCost}
-										subagentCost={session.subagentCost}
-										cacheWarmingInFlight={session.cacheWarmingInFlight}
-										cacheWarmingLast={session.cacheWarmingLast}
 										onCompact={() => {
 											activeMenu = null;
 											void session.compact();

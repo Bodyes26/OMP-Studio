@@ -102,6 +102,12 @@ export interface RpcResponse {
 
 /* ------------------------------------------------------------------ stato */
 
+/** Durata nominale in secondi delle fasce di prompt cache dichiarate dal catalogo del modello. */
+export interface ModelPromptCache {
+	short?: number;
+	long?: number;
+}
+
 export interface ModelInfo {
 	id?: string;
 	name?: string;
@@ -115,6 +121,7 @@ export interface ModelInfo {
 	api?: string;
 	serviceTiers?: string[];
 	identity?: { class?: string };
+	promptCache?: ModelPromptCache;
 }
 
 /** Verifica se il modello supporta l'elaborazione di immagini. */
@@ -291,12 +298,19 @@ export interface UsageCost {
 	total?: number;
 }
 
+/** Ripartizione per durata dei token scritti in prompt cache (es. Anthropic `cache_creation`). */
+export interface MessageUsageCttl {
+	ephemeral5m?: number;
+	ephemeral1h?: number;
+}
+
 export interface MessageUsage {
 	input?: number;
 	output?: number;
 	cacheRead?: number;
 	cacheWrite?: number;
 	totalTokens?: number;
+	cttl?: MessageUsageCttl;
 	cost?: UsageCost;
 }
 
@@ -339,6 +353,7 @@ export interface AgentMessage {
 	display?: boolean;
 	/** I messaggi `custom` portano una stringa, non blocchi. */
 	content?: ContentBlock[] | string;
+	provider?: string;
 	model?: string;
 	usage?: MessageUsage;
 	stopReason?: string;
@@ -547,6 +562,7 @@ export interface AgentSessionEvent {
 	provider?: string;
 	outcome?: CacheWarmingOutcome;
 	warmingStopReason?: string;
+	usage?: MessageUsage;
 	/** `goal_updated` */
 	goal?: Goal | null;
 	state?: GoalModeState;

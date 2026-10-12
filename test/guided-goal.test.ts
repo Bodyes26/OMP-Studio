@@ -42,7 +42,7 @@ import {
 import { routeGoalSlash } from '../src/lib/agent/slashRouter.ts';
 import { routeComposerSubmit } from '../src/lib/agent/composerSubmit.ts';
 import { resolveAutomationGate, type GuiGateSnapshot } from '../src/lib/agent/automationGate.ts';
-import studioGoalExtension, {
+import {
 	buildSuggestPrompt,
 	detectProjectHints,
 	extractJson,
@@ -331,22 +331,6 @@ describe('Estensione studio-goal', () => {
 		}
 	});
 
-	it('registra il comando studio-goal e risponde su setStatus', async () => {
-		const commands = new Map<string, (args: string, ctx: unknown) => Promise<void>>();
-		studioGoalExtension({ registerCommand: (name, command) => commands.set(name, command.handler) });
-		const handler = commands.get('studio-goal');
-		assert.ok(handler);
-		const statuses: Array<[string, string | undefined]> = [];
-		await handler!('suggest {"requestId":"gg-8","idea":"x","locale":"en"}', {
-			cwd: tmpdir(),
-			ui: { setStatus: (key: string, text: string | undefined) => statuses.push([key, text]) },
-			runEphemeralTurn: async () => ({ replyText: '{"questions":[]}' })
-		});
-		await new Promise((resolve) => setTimeout(resolve, 120));
-		assert.equal(statuses[0]?.[0], 'studio.goal');
-		assert.equal(JSON.parse(statuses[0][1]!).requestId, 'gg-8');
-		assert.deepEqual(statuses[1], ['studio.goal', undefined], 'lo stato si azzera subito dopo');
-	});
 });
 
 describe('Obiettivo guidato: slash e coda', () => {

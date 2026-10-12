@@ -40,6 +40,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - A lane's agent, Lab included, reports when it is done and leaves a summary; the lane becomes ready for review and Main reads it without opening it.
 
 ### Changed
+- The context panel highlights cache reuse for the next send: age of the last model call, cached share of input and estimated validity when omp reports a lifetime, including resumed chats. Cache warming is always visible with its configured mode and latest observed attempt; compaction stays manual and explains why cache expiration alone does not guarantee savings.
 - Background job result cards, the subagent drawer and the `task`/`job`/`hub` tool views read the structured async job metadata of `omp` 18.9.0 (native status and child-agent identity): each job links to its subagent transcript even when the ID carries a collision suffix or the `<task-result>` envelope is missing.
 - Fewer background processes: the top bar Git status is read with a single `git` command instead of five, Git and usage-limit checks slow down when Studio is not in the foreground and stop when it is minimized, and looking up `omp`, `gh` and VS Code no longer starts external processes. The difference is most noticeable on Windows with an active antivirus.
 - Faster startup: `omp --version` runs only once, the `omp` update check starts after the sessions open, and the editor and diagrams load only when needed instead of when the window opens.
@@ -56,6 +57,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - The output of `omp` commands (for example `/computer`) shows in the label above the composer, like Studio's own commands, instead of as a "[comando]" notice in the chat.
 
 ### Fixed
+- The context breakdown loads from the status-line control too and no longer disappears when category estimates differ from the provider total; loading, errors and unavailable details are explicit, with Retry.
 - The queue's automatic start no longer launches tasks one after another: it waits until the agent has really stopped (not just paused between two tools, during a retry or a compaction, or right after receiving the previous task), until no messages are queued in `omp`, and until the quiet lasts a few seconds; before starting it checks the state with `omp` again. In the terminal it waits until `omp` has actually started the task it just sent.
 - The "finished" notice and the automatic start of the next task wait until the agent has really finished, background work included, instead of firing at the first answer (requires `omp` 18.8; with earlier versions the previous behavior stays).
 - A provider error at the end of a turn (for example an overload or a limit) now shows up in the chat with the provider, HTTP code and whether you can try again.

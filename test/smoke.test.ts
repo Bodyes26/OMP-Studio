@@ -36,6 +36,7 @@ import './context-menu-and-tree.test.ts';
 import './ask-tool.test.ts';
 import './composer-doc.test.ts';
 import './context-report.test.ts';
+import './prompt-cache.test.ts';
 import './external-url.test.ts';
 import './platform.test.ts';
 import './resume-errors.test.ts';

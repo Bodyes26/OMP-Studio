@@ -482,14 +482,8 @@
 						{/snippet}
 						{#snippet children()}
 							<ContextPanel
-								model={session.model}
-								contextUsage={session.contextUsage}
-								report={session.contextReport}
+								{session}
 								{draftTokens}
-								sessionCost={session.sessionCost}
-								subagentCost={session.subagentCost}
-								cacheWarmingInFlight={session.cacheWarmingInFlight}
-								cacheWarmingLast={session.cacheWarmingLast}
 								onCompact={() => {
 									contextMenuOpen = false;
 									void session.compact();

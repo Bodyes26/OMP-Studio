@@ -159,7 +159,6 @@ import {
 	type GoalResult,
 	type UsageLimitState,
 	type CacheWarmingPhase,
-	type CacheWarmingOutcome,
 	type CacheWarmingMode,
 	type AskDialogAnswer,
 	type AskDialogQuestion,
@@ -213,6 +212,11 @@ import {
 	parseContextReport,
 	type ContextReport
 } from './contextReport';
+import {
+	cacheObservationFromMessage,
+	latestPromptCacheObservation,
+	type PromptCacheObservation
+} from './promptCache';
 import { m as messages } from '$lib/paraglide/messages.js';
 import { PlanController } from './planController.svelte';
 import { PLAN_STATUS_KEY, parsePlanReviewRequest, reanchorEntries } from './planMode';
@@ -665,21 +669,19 @@ export class AgentSession {
 	 */
 	lastPickedRole = $state<string | null>(null);
 	contextUsage = $state<ContextUsage | null>(null);
-	/**
-	 * Ripartizione di `/context`. Resta null finche' omp non risponde, e il
-	 * pannello non la mostra se i token non coincidono piu' con `contextUsage`.
-	 */
+	/** Ripartizione locale di omp, associata allo snapshot per cui e' stata richiesta. */
 	contextReport = $state<ContextReport | null>(null);
+	contextReportStatus = $state<'idle' | 'loading' | 'ready' | 'unavailable' | 'error'>('idle');
+	promptCacheObservation = $state<PromptCacheObservation | null>(null);
+	promptCacheContextChanged = $state(false);
+	private contextReportRevision = $state(0);
 	/** Ultimo esito di un comando di Studio, mostrato sopra il composer. */
 	composerNotice = $state<ComposerNotice | null>(null);
 	private composerNoticeSeq = 0;
-	private contextReportStamp = '';
-	/**
-	 * Ultimo stato gia' sondato con `/context`, riuscito o no. Se il rapporto
-	 * non torna con `get_state` (omp conta in modo diverso) risondare lo
-	 * stesso stato darebbe lo stesso esito e terrebbe occupata la coda RPC.
-	 */
+	private contextReportStamp = $state('');
+	// Una sola sonda per snapshot; un errore si ritenta solo su richiesta esplicita.
 	private contextProbedStamp = '';
+	private contextProbeInvokesAgent = false;
 	private contextReportWanted = '';
 	private contextReportInflight: Promise<void> | null = null;
 	private capturingContextReport = false;
@@ -1397,14 +1399,21 @@ export class AgentSession {
 		this.applyState(state);
 	}
 
-	/**
-	 * Chiede a omp il rapporto di `/context` e lo tiene se i token coincidono
-	 * con `get_state`. Il comando e' locale: se omp lo tratta come un messaggio
-	 * al modello, non si ritenta.
-	 */
-	async refreshContextReport(): Promise<void> {
+	/** Le categorie sono stime locali: la freschezza dipende dalla richiesta, non dalla loro somma. */
+	get currentContextReport(): ContextReport | null {
+		if (!this.isReady || !this.isAttached || this.isStreaming || this.isCompacting) return null;
+		return this.contextReportStamp === this.contextStamp() ? this.contextReport : null;
+	}
+	get contextReportVersion(): number {
+		return this.contextReportRevision;
+	}
+
+
+	/** Chiede il rapporto locale, senza avviare il modello; `force` e' il tentativo manuale. */
+	async refreshContextReport(force = false): Promise<void> {
 		if (!this.canProbeContext()) return;
 		const stamp = this.contextStamp();
+		if (force && !this.contextReportInflight) this.contextProbedStamp = '';
 		if (this.contextProbedStamp === stamp) return;
 		this.contextReportWanted = stamp;
 		if (this.contextReportInflight) return this.contextReportInflight;
@@ -1412,7 +1421,15 @@ export class AgentSession {
 		return this.contextReportInflight;
 	}
 
+	private invalidateContextReport(): void {
+		this.contextReport = null;
+		this.contextReportStamp = '';
+		this.contextReportStatus = 'idle';
+		this.contextReportRevision++;
+	}
+
 	private canProbeContext(): boolean {
+		if (this.contextProbeInvokesAgent) return false;
 		if (!this.isReady || !this.isAttached || this.exited) return false;
 		if (this.isStreaming || this.isCompacting || this.isAborting || this.pendingUi) return false;
 		return this.availableCommands.some(
@@ -1422,7 +1439,14 @@ export class AgentSession {
 
 	private contextStamp(): string {
 		const usage = this.contextUsage;
-		return [this.sessionId ?? '', this.model?.id ?? '', usage?.contextWindow ?? '', usage?.tokens ?? ''].join(':');
+		return [
+			this.sessionId ?? '',
+			this.model?.provider ?? '',
+			this.model?.id ?? '',
+			usage?.contextWindow ?? '',
+			usage?.tokens ?? '',
+			this.contextReportRevision
+		].join(':');
 	}
 
 	private async drainContextReport(): Promise<void> {
@@ -1448,6 +1472,7 @@ export class AgentSession {
 
 	private async probeContextReport(stamp: string, sessionId: string | null): Promise<void> {
 		this.contextProbedStamp = stamp;
+		this.contextReportStatus = 'loading';
 		this.contextReportCapture = null;
 		this.capturingContextReport = true;
 		try {
@@ -1455,17 +1480,25 @@ export class AgentSession {
 				type: 'prompt',
 				message: '/context'
 			});
-			if (this.sessionId !== sessionId) return;
+			if (this.sessionId !== sessionId || this.contextStamp() !== stamp) return;
 			if (data?.agentInvoked === true) {
+				this.contextProbeInvokesAgent = true;
+				this.contextReportStatus = 'unavailable';
 				this.flashNotice('warning', messages.chat_v2_composer_context_probe_sent());
 				return;
 			}
 			const parsed = this.contextReportCapture ? parseContextReport(this.contextReportCapture) : null;
-			if (!parsed) return;
+			if (!parsed) {
+				this.contextReportStatus = 'unavailable';
+				return;
+			}
 			this.contextReport = parsed;
 			this.contextReportStamp = stamp;
+			this.contextReportStatus = 'ready';
 		} catch {
-			// Senza rapporto il pannello resta sulla cifra unica di get_state.
+			if (this.sessionId === sessionId && this.contextStamp() === stamp) {
+				this.contextReportStatus = 'error';
+			}
 		} finally {
 			this.capturingContextReport = false;
 			this.contextReportCapture = null;
@@ -1857,9 +1890,14 @@ export class AgentSession {
 		if (typeof state.sessionId === 'string' && state.sessionId !== this.sessionId) {
 			// Lo storico `/btw` vive accanto al file di sessione: con la sessione cambia.
 			if (this.sessionId !== null) this.btw.resetForSession();
-			this.contextReport = null;
-			this.contextReportStamp = '';
+			this.invalidateContextReport();
+			this.contextProbedStamp = '';
+			this.contextProbeInvokesAgent = false;
 			this.contextReportWanted = '';
+			this.promptCacheObservation = null;
+			this.promptCacheContextChanged = false;
+			this.cacheWarmingInFlight = null;
+			this.cacheWarmingLast = null;
 		}
 		if (typeof state.sessionId === 'string') this.sessionId = state.sessionId;
 		if (typeof state.sessionFile === 'string') {
@@ -2031,6 +2069,9 @@ export class AgentSession {
 						(entry): entry is PlanEntry => entry.kind === 'plan' && entry.sessionId === this.sessionId
 					);
 					this.entries = reanchorEntries(this.mapHistory(collected), planEntries);
+					const cacheHistory = latestPromptCacheObservation(collected);
+					this.promptCacheObservation = cacheHistory.observation;
+					this.promptCacheContextChanged = cacheHistory.contextChanged;
 					// Le card ricostruite devono restare aggiornabili dalla diretta:
 					// nella mappa vanno le istanze reattive, prese dopo l'assegnazione.
 					this.toolEntries.clear();
@@ -2335,6 +2376,12 @@ export class AgentSession {
 			case 'message_end': {
 				const message = this.asMessage(event.message);
 				if (!message || message.role !== 'assistant') return;
+				const cacheObservation = cacheObservationFromMessage(message);
+				if (cacheObservation) {
+					this.promptCacheObservation = cacheObservation;
+					this.promptCacheContextChanged = false;
+				}
+				this.invalidateContextReport();
 				this.liveAssistantTs = undefined;
 				if (this.assistantEntry) {
 					this.assistantEntry.usage = message.usage;
@@ -2418,6 +2465,7 @@ export class AgentSession {
 
 			case 'agent_start':
 				if (this.isAborting) return;
+				this.invalidateContextReport();
 				if (this.turnStartedAt === null) this.turnStartedAt = Date.now();
 				this.suggestions.invalidate();
 				this.settle = settleOnAgentStart(this.settle);
@@ -2583,6 +2631,11 @@ export class AgentSession {
 
 			case 'auto_compaction_end': {
 				this.isCompacting = false;
+				if (!event.aborted && !event.error) {
+					this.promptCacheContextChanged = true;
+					this.cacheWarmingLast = null;
+					this.invalidateContextReport();
+				}
 				const last = this.lastOfKind('compaction');
 				if (last) {
 					last.running = false;
@@ -2676,11 +2729,15 @@ export class AgentSession {
 				return;
 
 			case 'thinking_level_changed':
+				this.promptCacheContextChanged = true;
+				this.cacheWarmingLast = null;
+				this.invalidateContextReport();
 				if (typeof event.thinkingLevel === 'string') this.thinkingLevel = event.thinkingLevel;
 				return;
 
 			case 'config_update':
 			case 'session_info_update':
+				this.invalidateContextReport();
 				void this.refreshState();
 				return;
 
@@ -2717,7 +2774,8 @@ export class AgentSession {
 
 			case 'cache_warming_end': {
 				this.cacheWarmingInFlight = null;
-				const outcome = (event.outcome as CacheWarmingOutcome) ?? 'hit';
+				const outcome = event.outcome;
+				if (outcome !== 'hit' && outcome !== 'miss' && outcome !== 'error' && outcome !== 'aborted') return;
 				const phase = event.phase as CacheWarmingPhase | undefined;
 				const provider = typeof event.provider === 'string' ? event.provider : undefined;
 				const model = typeof event.model === 'string' ? event.model : undefined;
@@ -5040,6 +5098,9 @@ export class AgentSession {
 
 			await this.rebuildTranscript();
 			await this.refreshState();
+			this.promptCacheContextChanged = true;
+			this.cacheWarmingLast = null;
+			this.invalidateContextReport();
 			void this.refreshCost();
 			this.pushNotice('info', messages.ui_ts_session_compattazione_del_contesto_completata_con_successo_fb0e(), 'studio');
 			return true;

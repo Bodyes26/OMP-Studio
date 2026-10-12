@@ -40,6 +40,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - L'agente di una corsia, anche del Laboratorio, segnala quando ha finito e lascia un riassunto; la corsia diventa pronta per la revisione e la Principale lo legge senza aprirla.
 
 ### Changed
+- Il pannello del contesto mette in evidenza la cache del prossimo invio: età dell'ultima chiamata, quota di input letta dalla cache e validità stimata quando omp comunica la durata, anche nelle chat riprese. Il riscaldamento resta sempre visibile con impostazione e ultimo tentativo osservato; la compattazione resta manuale e spiega perché la scadenza della cache, da sola, non garantisce risparmio.
 - Le schede dei risultati in background, il cassetto del subagente e le viste dei tool `task`, `job` e `hub` leggono i metadati strutturati dei job asincroni di `omp` 18.9.0 (stato nativo e identità del subagente figlio): ogni job si collega al transcript del subagente anche quando l'ID ha un suffisso anti-collisione o manca l'envelope `<task-result>`.
 - Meno processi in background: lo stato Git della barra superiore si legge con un solo comando `git` invece di cinque, i controlli di Git e dei limiti d'uso rallentano quando Studio non è in primo piano e si fermano quando è ridotto a icona, e la ricerca di `omp`, `gh` e VS Code non avvia più processi esterni. Su Windows con l'antivirus attivo la differenza si sente di più.
 - Avvio più rapido: `omp --version` viene eseguito una sola volta, il controllo degli aggiornamenti di `omp` parte dopo l'apertura delle sessioni, e l'editor e i diagrammi si caricano solo quando servono invece che all'apertura della finestra.
@@ -56,6 +57,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - L'esito dei comandi di `omp` (per esempio `/computer`) compare nell'etichetta sopra il composer, come quello dei comandi di Studio, invece che come avviso «[comando]» nella chat.
 
 ### Fixed
+- La ripartizione del contesto si carica anche dal controllo nella riga di stato e non scompare quando le stime per categoria differiscono dal totale del provider; caricamento, errore e dettaglio non disponibile sono espliciti, con «Riprova».
 - L'avvio automatico della coda non fa più partire i task uno dopo l'altro: aspetta che l'agente sia fermo davvero (non solo in pausa fra un tool e l'altro, durante un nuovo tentativo o una compattazione, o subito dopo aver ricevuto il task precedente), che non ci siano messaggi in coda in `omp`, e che la quiete duri qualche secondo; prima di partire ricontrolla lo stato con `omp`. Nel terminale aspetta che `omp` abbia davvero iniziato il task appena inviato.
 - La notifica «ha finito» e l'avvio automatico del task successivo aspettano che l'agente abbia finito davvero, anche il lavoro in background, invece di scattare alla prima risposta (richiede `omp` 18.8; con versioni precedenti resta il comportamento di prima).
 - Un errore del provider a fine turno (per esempio un sovraccarico o un limite) ora compare in chat con provider, codice HTTP e l'indicazione se si può riprovare.

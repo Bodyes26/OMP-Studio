@@ -106,26 +106,6 @@ export function categoryTokenSum(report: ContextReport): number {
 	return report.categories.reduce((total, row) => total + row.tokens, 0);
 }
 
-/**
- * Il rapporto e' ancora quello di `contextUsage`: stessa finestra e stesso
- * totale. Un turno nuovo cambia i token e il rapporto precedente non va
- * mostrato come se fosse aggiornato.
- */
-export function reportMatchesUsage(
-	report: ContextReport | null | undefined,
-	usage: { tokens?: number; contextWindow?: number } | null | undefined
-): report is ContextReport {
-	if (!report) return false;
-	if (
-		typeof usage?.contextWindow === 'number' &&
-		usage.contextWindow > 0 &&
-		usage.contextWindow !== report.contextWindow
-	) {
-		return false;
-	}
-	if (typeof usage?.tokens === 'number' && categoryTokenSum(report) !== usage.tokens) return false;
-	return true;
-}
 
 export function resolveContextWindow(
 	usage: { contextWindow?: number } | null | undefined,
