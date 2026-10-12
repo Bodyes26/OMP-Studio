@@ -1792,8 +1792,8 @@
 			const surface = isVisibleLane ? project.lane.surface : lane.surface;
 			if (surface === 'gui') {
 				const session = agentSessionFor(project, lane);
-				if (session.isOpen && session.sessionId !== resume.sessionId) await session.close();
-				await session.ensureOpen(resume.sessionId);
+				if (session.isOpen && session.sessionId !== resume.sessionId) await session.reopen(resume.sessionId);
+				else await session.ensureOpen(resume.sessionId);
 				session.dismissBlockedQuota();
 				const delivery = await session.prompt('/retry');
 				if (delivery === 'failed' || delivery === 'empty') {
@@ -1852,8 +1852,7 @@
 				// avvierebbe un processo sulla sessione precedente proprio mentre
 				// la stiamo chiudendo per riprenderne un'altra.
 				const session = agentSessionFor(project, lane);
-				await session.close();
-				await session.open(sessionId);
+				await session.reopen(sessionId);
 				taskStore.setView(project.canonicalProjectPath, 'sessions');
 				window.dispatchEvent(new CustomEvent('studio-sessions-refresh', {
 					detail: { projectPath: project.canonicalProjectPath, sessionId }

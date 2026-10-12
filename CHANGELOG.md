@@ -57,6 +57,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - L'esito dei comandi di `omp` (per esempio `/computer`) compare nell'etichetta sopra il composer, come quello dei comandi di Studio, invece che come avviso «[comando]» nella chat.
 
 ### Fixed
+- Riprendere una sessione dall'elenco Sessioni della chat GUI la apre davvero: prima Studio, mentre chiudeva la sessione corrente, ne riavviava una nuova e la ripresa scelta veniva ignorata senza avvisi. Vale anche per il «Riprova» di un task fermato da un limite di quota.
 - La ripartizione del contesto si carica anche dal controllo nella riga di stato e non scompare quando le stime per categoria differiscono dal totale del provider; caricamento, errore e dettaglio non disponibile sono espliciti, con «Riprova».
 - L'avvio automatico della coda non fa più partire i task uno dopo l'altro: aspetta che l'agente sia fermo davvero (non solo in pausa fra un tool e l'altro, durante un nuovo tentativo o una compattazione, o subito dopo aver ricevuto il task precedente), che non ci siano messaggi in coda in `omp`, e che la quiete duri qualche secondo; prima di partire ricontrolla lo stato con `omp`. Nel terminale aspetta che `omp` abbia davvero iniziato il task appena inviato.
 - La notifica «ha finito» e l'avvio automatico del task successivo aspettano che l'agente abbia finito davvero, anche il lavoro in background, invece di scattare alla prima risposta (richiede `omp` 18.8; con versioni precedenti resta il comportamento di prima).

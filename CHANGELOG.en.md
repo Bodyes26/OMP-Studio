@@ -57,6 +57,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - The output of `omp` commands (for example `/computer`) shows in the label above the composer, like Studio's own commands, instead of as a "[comando]" notice in the chat.
 
 ### Fixed
+- Resuming a session from the GUI chat's Sessions list now actually opens it: previously, while closing the current session, Studio restarted a new one and the chosen session was silently ignored. The same applies to Retry on a task stopped by a quota limit.
 - The context breakdown loads from the status-line control too and no longer disappears when category estimates differ from the provider total; loading, errors and unavailable details are explicit, with Retry.
 - The queue's automatic start no longer launches tasks one after another: it waits until the agent has really stopped (not just paused between two tools, during a retry or a compaction, or right after receiving the previous task), until no messages are queued in `omp`, and until the quiet lasts a few seconds; before starting it checks the state with `omp` again. In the terminal it waits until `omp` has actually started the task it just sent.
 - The "finished" notice and the automatic start of the next task wait until the agent has really finished, background work included, instead of firing at the first answer (requires `omp` 18.8; with earlier versions the previous behavior stays).

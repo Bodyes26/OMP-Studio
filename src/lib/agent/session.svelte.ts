@@ -855,6 +855,13 @@ export class AgentSession {
 	 * «un'altra sessione, che deve prendere il posto di questa».
 	 */
 	private openTarget: string | null = null;
+	/**
+	 * Cambio di sessione in corso (`reopen`). Copre anche la `close()`: in
+	 * quella finestra `opening` e' gia' vuoto e il processo chiuso, e senza
+	 * questa guardia `ensureOpen` riaprirebbe l'ultima sessione conosciuta
+	 * prima che `reopen` arrivi a chiedere quella scelta.
+	 */
+	private reopening: Promise<void> | null = null;
 	private recoveredResume: string | null = null;
 	private attachEventQueue: AgentSessionEvent[] = [];
 	/**
@@ -1149,12 +1156,41 @@ export class AgentSession {
 	 * dall'ultima sessione conosciuta.
 	 */
 	async ensureOpen(resume?: string | null) {
+		if (this.reopening) {
+			await this.reopening;
+			return;
+		}
 		if (this.client.isOpen) return;
 		if (this.opening) {
 			await this.opening;
 			return;
 		}
 		await this.open(resume);
+	}
+
+	/**
+	 * Sostituisce il processo con uno sulla sessione indicata (`null` =
+	 * sessione nuova). `close()` attende l'uscita di omp, fino a qualche
+	 * secondo: chiusura e apertura separate lasciavano agli `$effect` il tempo
+	 * di riaprire la sessione precedente, e la `open()` successiva trovava il
+	 * processo vivo e non riprendeva nulla.
+	 */
+	async reopen(resume: string | null): Promise<void> {
+		// La chiusura parte dopo l'assegnazione della guardia: chi reagisce
+		// alla `close()` deve gia' trovarla.
+		const reopening: Promise<void> = Promise.resolve().then(async () => {
+			await this.close();
+			// Un cambio chiesto dopo questo ha gia' chiuso e aperto la sua
+			// sessione: riaprire qui rimetterebbe la scelta precedente.
+			if (this.reopening !== reopening) return;
+			await this.open(resume);
+		});
+		this.reopening = reopening;
+		try {
+			await reopening;
+		} finally {
+			if (this.reopening === reopening) this.reopening = null;
+		}
 	}
 
 	async open(resume?: string | null, opts?: { modelOverride?: string | null }) {
