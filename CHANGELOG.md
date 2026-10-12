@@ -55,6 +55,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Quando l'agente integra una corsia e ci sono conflitti, non prova più a risolverli: la corsia passa a te con l'elenco dei file e si apre la revisione. Un merge pulito si integra da solo come prima.
 - Se chiedi all'agente di scartare una corsia con lavoro mai integrato, o un prototipo, Studio non cancella nulla e ti chiede conferma nella sua finestra.
 - L'esito dei comandi di `omp` (per esempio `/computer`) compare nell'etichetta sopra il composer, come quello dei comandi di Studio, invece che come avviso «[comando]» nella chat.
+- Le anteprime delle domande dell'agente stanno su un tabellone sopra la scheda, a tutta larghezza, invece che in una colonna accanto alle risposte. Il tabellone è in negativo rispetto al tema (scuro sui temi chiari, chiaro su quelli scuri) con l'accento del tema; mostra l'opzione scelta e, passando a un'altra, girano solo i caratteri che cambiano, come le palette di un tabellone delle partenze. L'occhio su ogni risposta mostra il suo disegno senza sceglierla; il disegno non va più a capo e si rimpicciolisce fino a stare nella larghezza, con «100%» per vederlo a dimensione reale.
 
 ### Fixed
 - Riprendere una sessione dall'elenco Sessioni della chat GUI la apre davvero: prima Studio, mentre chiudeva la sessione corrente, ne riavviava una nuova e la ripresa scelta veniva ignorata senza avvisi. Vale anche per il «Riprova» di un task fermato da un limite di quota.

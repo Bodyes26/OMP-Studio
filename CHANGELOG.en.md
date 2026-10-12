@@ -55,6 +55,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - When the agent integrates a lane and there are conflicts, it no longer tries to resolve them: the lane is handed to you with the list of files and the review opens. A clean merge still integrates on its own.
 - If you ask the agent to discard a lane with work that was never integrated, or a prototype, Studio deletes nothing and asks for your confirmation in its own dialog.
 - The output of `omp` commands (for example `/computer`) shows in the label above the composer, like Studio's own commands, instead of as a "[comando]" notice in the chat.
+- Previews in the agent's questions sit on a board above the card, at full width, instead of in a column next to the answers. The board is the negative of the theme (dark on light themes, light on dark ones) with the theme's accent; it shows the chosen option and, when you switch to another, only the characters that change flip over, like the flaps of a departure board. The eye on each answer shows its drawing without choosing it; drawings no longer wrap and shrink to fit the width, with "100%" to see them at actual size.
 
 ### Fixed
 - Resuming a session from the GUI chat's Sessions list now actually opens it: previously, while closing the current session, Studio restarted a new one and the chosen session was silently ignored. The same applies to Retry on a task stopped by a quota limit.

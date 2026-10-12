@@ -2,7 +2,7 @@
 	import { m } from '$lib/paraglide/messages.js';
 	// Scheda domanda v2 (Gate R32 C17): compatta, al posto del composer.
 	// Una domanda per volta con stepper, scelta 1…N, consigliata, multipla,
-	// "Altro…" in linea, nota (N), anteprima al passaggio del mouse,
+	// "Altro…" in linea, nota (N), anteprime su un tabellone sopra la scheda,
 	// "Decidi tu" (testo libero convenzionale in `askAnswers.ts`), avanti/
 	// indietro/invia con conferma esplicita e conto alla rovescia del timeout.
 	// Il protocollo resta sequenziale: il
@@ -24,8 +24,10 @@
 		IconChevronDown,
 		IconNote,
 		IconPlus,
-		IconRename
+		IconRename,
+		IconViewPreview
 	} from '$lib/icons';
+	import AskPreviewBoard from './AskPreviewBoard.svelte';
 	import type { AgentSession, PendingAsk } from '../session.svelte';
 	import {
 		buildAskDialogAnswers,
@@ -275,6 +277,8 @@
 	const multiSteps = $derived(sentQuestions.length + questions.length > 1);
 
 	let cardEl = $state<HTMLElement | null>(null);
+	// Tabellone e card: i tasti valgono anche col fuoco sul tabellone (100%).
+	let stackEl = $state<HTMLElement | null>(null);
 	let noteInputEl = $state<HTMLInputElement | null>(null);
 	let customTextareaEl = $state<HTMLTextAreaElement | null>(null);
 	let plainInputEl = $state<HTMLInputElement | null>(null);
@@ -283,7 +287,8 @@
 	let plainInputValue = $state('');
 	let plainEditorValue = $state('');
 	let submitting = $state(false);
-	let hoverIdx = $state<number | null>(null);
+	// Opzione sbirciata con l'occhio senza sceglierla; ogni scelta la azzera.
+	let peekIdx = $state<number | null>(null);
 
 	// Solo una richiesta nuova azzera i campi: dipendere anche da `visible` o
 	// dagli elementi cancellava il testo gia' scritto quando la card tornava visibile.
@@ -337,23 +342,59 @@
 		return currentQuestion.options.filter((o) => !o.isDoneSentinel);
 	});
 
-	// Anteprima affiancata: quella sotto il mouse, altrimenti la scelta,
-	// altrimenti la consigliata. Solo se almeno un'opzione ne ha una.
+	// Tabellone sopra la scheda: l'opzione sbirciata con l'occhio, altrimenti
+	// l'ultima scelta, altrimenti la consigliata con disegno, altrimenti il
+	// primo disegno. Niente hover: col giro delle palette ogni passaggio del
+	// mouse farebbe girare il tabellone.
 	const hasPreview = $derived.by(
 		() => !!currentQuestion && currentQuestion.options.some((o) => !!o.preview)
 	);
-	const previewIdx = $derived.by(() => {
-		if (!currentQuestion) return 0;
-		if (hoverIdx !== null && hoverIdx < visibleOptions.length) return hoverIdx;
-		const firstSelected = visibleOptions.findIndex((o) =>
-			currentQuestion!.selectedOptions.has(o.cleanLabel)
-		);
-		if (firstSelected >= 0) return firstSelected;
-		const rec = currentQuestion.recommended;
-		if (typeof rec === 'number' && rec >= 0 && rec < visibleOptions.length) return rec;
-		return 0;
+	const shownIdx = $derived.by(() => {
+		const q = currentQuestion;
+		if (!q || !hasPreview) return -1;
+		const total = visibleOptions.length;
+		if (peekIdx !== null && peekIdx < total) return peekIdx;
+		if (q.isCustom && !q.decideForMe) {
+			const other = visibleOptions.findIndex((o) => o.isOther);
+			if (other >= 0) return other;
+		}
+		let last = -1;
+		for (const label of q.selectedOptions) {
+			const idx = visibleOptions.findIndex((o) => !o.isOther && o.cleanLabel === label);
+			if (idx >= 0) last = idx;
+		}
+		if (last >= 0) return last;
+		const rec = q.recommended;
+		if (typeof rec === 'number' && rec >= 0 && rec < total && visibleOptions[rec].preview) return rec;
+		return Math.max(0, visibleOptions.findIndex((o) => !!o.preview));
 	});
-	const previewOption = $derived(visibleOptions[previewIdx]);
+	// Scala comune ai disegni della domanda quando le larghezze sono vicine:
+	// passando da un'opzione all'altra il tabellone non cambia misura.
+	const boardMetrics = $derived.by(() => {
+		const drawings = visibleOptions.flatMap((o) => (o.preview ? [o.preview.split('\n')] : []));
+		const widths = drawings.map((ls) => Math.max(...ls.map((l) => [...l].length)));
+		const cols = Math.max(1, ...widths);
+		return {
+			cols,
+			lines: Math.min(40, Math.max(1, ...drawings.map((ls) => ls.length))),
+			uniform: widths.length > 0 && Math.min(...widths) >= cols / 1.4
+		};
+	});
+	// Un'opzione senza disegno ha un messaggio della stessa misura, che gira
+	// come ogni altro disegno.
+	const boardText = $derived.by(() => {
+		const opt = visibleOptions[shownIdx];
+		if (!opt) return '';
+		if (opt.preview) return opt.preview;
+		const { cols, lines, uniform } = boardMetrics;
+		const message = m.chat_v2_ask_preview_none();
+		const pad = ' '.repeat(Math.max(0, Math.floor((cols - message.length) / 2)));
+		const above = Math.max(0, Math.floor(((uniform ? lines : 3) - 1) / 2));
+		return [...Array<string>(above).fill(''), pad + message].join('\n');
+	});
+	const showBoard = $derived(
+		(pending.method === 'select' || pending.method === 'ask') && !isReviewStep && shownIdx >= 0
+	);
 	const noteShown = $derived(!!currentQuestion && (currentQuestion.showNoteInput || !!currentQuestion.note));
 
 	function optionAccessibleName(opt: WizardOption): string {
@@ -403,6 +444,7 @@
 
 	function applyChoice(opt: WizardOption, focusCustom: boolean) {
 		if (!currentQuestion) return;
+		peekIdx = null;
 		currentQuestion.touched = true;
 		currentQuestion.visited = true;
 		currentQuestion.decideForMe = false;
@@ -455,7 +497,7 @@
 
 	async function goToStep(stepIndex: number) {
 		if (stepIndex < 0 || stepIndex > lastStep) return;
-		hoverIdx = null;
+		peekIdx = null;
 		activeStep = stepIndex;
 		const target = questions[stepIndex];
 		if (target) target.visited = true;
@@ -680,10 +722,21 @@
 	}
 </script>
 
-<svelte:window onkeydown={(e) => { if (cardEl && cardEl.contains(document.activeElement)) handleCardKeydown(e); }} />
+<svelte:window onkeydown={(e) => { if (stackEl && stackEl.contains(document.activeElement)) handleCardKeydown(e); }} />
 
+<div class="ask-stack" bind:this={stackEl}>
+{#if showBoard}
+	<AskPreviewBoard
+		text={boardText}
+		index={shownIdx}
+		label={visibleOptions[shownIdx].cleanLabel}
+		fitCols={boardMetrics.uniform ? boardMetrics.cols : undefined}
+		minLines={boardMetrics.uniform ? boardMetrics.lines : undefined}
+	/>
+{/if}
 <div
 	class="ask-card"
+	class:with-board={showBoard}
 	role="region"
 	aria-label={parsedTitle.text || m.chat_v2_ask_title_single()}
 	tabindex="-1"
@@ -827,80 +880,82 @@
 				{/if}
 			</div>
 
-			<div class="ask-main" class:with-preview={hasPreview && !!previewOption?.preview}>
-				<div
-					class="ask-options"
-					role="listbox"
-					tabindex="-1"
-					aria-labelledby={`${uid}-q`}
-					aria-multiselectable={currentQuestion.multi}
-					onmouseleave={() => (hoverIdx = null)}
-				>
-					<span id={`${uid}-q`} class="sr-only">{currentQuestion.question}</span>
-					{#each visibleOptions as opt, i}
-						{@const selected = currentQuestion.decideForMe
-							? false
-							: currentQuestion.isCustom
-								? opt.isOther
-								: currentQuestion.selectedOptions.has(opt.cleanLabel)}
-						{@const focused = currentQuestion.cursorIndex === i}
-						<div
-							bind:this={optionEls[i]}
-							class="ask-opt"
-							class:selected
-							class:focused
-							role="option"
-							aria-selected={selected}
-							aria-label={optionAccessibleName(opt)}
-							aria-describedby={opt.description ? `${uid}-opt-${i}-desc` : undefined}
-							tabindex={focused ? 0 : -1}
-							onclick={() => selectAt(i)}
-							onmouseenter={() => {
-								if (hasPreview) hoverIdx = i;
-							}}
-							onfocus={() => {
-								if (currentQuestion) currentQuestion.cursorIndex = i;
-							}}
-							onkeydown={(e) => {
-								if (e.key === ' ') {
-									e.preventDefault();
-									e.stopPropagation();
-									selectAt(i);
-								}
-							}}
-						>
-							<span class="ask-box" class:multi={currentQuestion.multi} aria-hidden="true">
-								{#if selected}
-									{#if currentQuestion.multi}<IconCheck />{:else}<span class="ask-dot"></span>{/if}
-								{/if}
-							</span>
-							<span class="ask-opt-body">
-								<span class="ask-opt-label">
-									{opt.cleanLabel}
-									{#if opt.isRecommended}
-										<span class="ask-rec">{m.chat_v2_ask_recommended()}</span>
-									{/if}
-								</span>
-								{#if opt.description}
-									<span class="ask-opt-desc" id={`${uid}-opt-${i}-desc`}>{opt.description}</span>
-								{/if}
-							</span>
-							{#if i < 9}
-								<kbd class="ui-kbd" aria-hidden="true">{i + 1}</kbd>
+			<div
+				class="ask-options"
+				role="listbox"
+				tabindex="-1"
+				aria-labelledby={`${uid}-q`}
+				aria-multiselectable={currentQuestion.multi}
+			>
+				<span id={`${uid}-q`} class="sr-only">{currentQuestion.question}</span>
+				{#each visibleOptions as opt, i}
+					{@const selected = currentQuestion.decideForMe
+						? false
+						: currentQuestion.isCustom
+							? opt.isOther
+							: currentQuestion.selectedOptions.has(opt.cleanLabel)}
+					{@const focused = currentQuestion.cursorIndex === i}
+					<div
+						bind:this={optionEls[i]}
+						class="ask-opt"
+						class:selected
+						class:focused
+						role="option"
+						aria-selected={selected}
+						aria-label={optionAccessibleName(opt)}
+						aria-describedby={opt.description ? `${uid}-opt-${i}-desc` : undefined}
+						tabindex={focused ? 0 : -1}
+						onclick={() => selectAt(i)}
+						onfocus={() => {
+							if (currentQuestion) currentQuestion.cursorIndex = i;
+						}}
+						onkeydown={(e) => {
+							if (e.key === ' ') {
+								e.preventDefault();
+								e.stopPropagation();
+								selectAt(i);
+							}
+						}}
+					>
+						<span class="ask-box" class:multi={currentQuestion.multi} aria-hidden="true">
+							{#if selected}
+								{#if currentQuestion.multi}<IconCheck />{:else}<span class="ask-dot"></span>{/if}
 							{/if}
-						</div>
-					{/each}
-				</div>
-
-				{#if hasPreview && previewOption?.preview}
-					<div class="ask-preview" aria-live="off">
-						<div class="ask-preview-head">
-							<span>{m.chat_v2_ask_preview()}</span>
-							<span class="ask-preview-label">{previewOption.cleanLabel}</span>
-						</div>
-						<pre class="ask-preview-code"><code>{previewOption.preview}</code></pre>
+						</span>
+						<span class="ask-opt-body">
+							<span class="ask-opt-label">
+								{opt.cleanLabel}
+								{#if opt.isRecommended}
+									<span class="ask-rec">{m.chat_v2_ask_recommended()}</span>
+								{/if}
+							</span>
+							{#if opt.description}
+								<span class="ask-opt-desc" id={`${uid}-opt-${i}-desc`}>{opt.description}</span>
+							{/if}
+						</span>
+						<!-- L'occhio mostra il disegno sul tabellone senza scegliere: per la
+						     tastiera bastano le frecce, che a scelta singola selezionano. -->
+						{#if opt.preview}
+							<button
+								type="button"
+								class="ask-peek"
+								tabindex="-1"
+								aria-pressed={shownIdx === i}
+								aria-label={m.chat_v2_ask_preview_show({ label: opt.cleanLabel })}
+								title={m.chat_v2_ask_preview_show({ label: opt.cleanLabel })}
+								onclick={(e) => {
+									e.stopPropagation();
+									peekIdx = i;
+								}}
+							>
+								<IconViewPreview />
+							</button>
+						{/if}
+						{#if i < 9}
+							<kbd class="ui-kbd" aria-hidden="true">{i + 1}</kbd>
+						{/if}
 					</div>
-				{/if}
+				{/each}
 			</div>
 
 			{#if currentQuestion.isCustom && !currentQuestion.decideForMe}
@@ -1099,8 +1154,17 @@
 		</div>
 	{/if}
 </div>
+</div>
 
 <style>
+	/* Tabellone delle anteprime sopra la scheda, a tutta larghezza. */
+	.ask-stack {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		min-width: 0;
+	}
+
 	.ask-card {
 		display: flex;
 		flex-direction: column;
@@ -1116,6 +1180,11 @@
 		overflow-y: auto;
 		outline: none;
 		box-shadow: var(--shadow-raise);
+	}
+	/* Col tabellone sopra (al massimo 34vh) la scheda cede spazio: insieme
+	   devono lasciare in vista la fine della conversazione. */
+	.ask-card.with-board {
+		max-height: 46vh;
 	}
 	/* Nella scheda che scorre i figli non devono comprimersi: con overflow
 	   proprio (la barra delle schede) un figlio flex si schiaccerebbe a zero. */
@@ -1268,18 +1337,6 @@
 		color: var(--ink-faint);
 	}
 
-	.ask-main {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-2);
-		min-width: 0;
-	}
-	.ask-main.with-preview {
-		display: grid;
-		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-		align-items: start;
-	}
-
 	/* Indicatore disegnato: cerchio per la scelta singola, quadrato per la
 	   multipla, pieno del colore del marchio quando e' scelto. */
 	.ask-box {
@@ -1309,44 +1366,31 @@
 		background: var(--on-brand);
 	}
 
-	.ask-preview {
-		display: flex;
-		flex-direction: column;
-		min-width: 0;
-		overflow: hidden;
-		border: 1px solid var(--line);
+	/* Occhio: porta il disegno sul tabellone senza scegliere. Mostrato = in
+	   negativo, come la scheda corrente dello stepper. */
+	.ask-peek {
+		display: inline-grid;
+		place-items: center;
+		width: 22px;
+		height: 22px;
+		margin-top: -2px;
+		flex-shrink: 0;
+		background: transparent;
+		border: none;
 		border-radius: var(--radius-sm);
-		background: var(--bg-sunken);
-		position: sticky;
-		top: 4px;
-	}
-	.ask-preview-head {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: var(--space-2);
-		padding: 4px 10px;
-		font-size: var(--text-caption);
-		text-transform: uppercase;
-		letter-spacing: 0.5px;
 		color: var(--ink-faint);
-		border-bottom: 1px solid var(--line);
+		cursor: pointer;
+		--icon-size: 14px;
+		transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 	}
-	.ask-preview-label {
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		text-transform: none;
-		letter-spacing: normal;
-	}
-	.ask-preview-code {
-		margin: 0;
-		padding: var(--space-2) 10px;
-		overflow-x: auto;
-		font-family: var(--font-mono);
-		font-size: var(--text-mono);
-		line-height: 1.5;
+	.ask-peek:hover {
+		background: var(--bg-hover);
 		color: var(--ink);
+	}
+	.ask-peek[aria-pressed='true'],
+	.ask-peek[aria-pressed='true']:hover {
+		background: var(--ink);
+		color: var(--bg-base);
 	}
 
 	/* "Altro…" si scrive sotto la sua riga, allineato alle etichette. */
