@@ -1,0 +1,10 @@
+**/node_modules
+web/dist
+data
+test
+web/test
+*.md
+.env
+.env.*
+compose*.yml
+compose*.yaml

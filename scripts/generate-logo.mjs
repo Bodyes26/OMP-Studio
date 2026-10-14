@@ -201,6 +201,33 @@ function tileSvg(size, tone) {
 	);
 }
 
+/**
+ * Pi su fondo pieno per icone maskable PWA (W3C / Android): il sistema operativo
+ * applica la propria maschera (cerchio o squircle) entro la safe zone circolare
+ * dell'80% (r = 40%). Fondo pieno senza trasparenze e glifo scalato con padding.
+ */
+function tileMaskableSvg(size, tone = 'dark') {
+	const k = size / 1024;
+	const c = size / 2;
+	const dark = tone === 'dark';
+	const bg = dark
+		? '<stop offset="0" stop-color="#202228"/><stop offset="1" stop-color="#0E0F12"/>'
+		: '<stop offset="0" stop-color="#FBFBFC"/><stop offset="1" stop-color="#E7E8EC"/>';
+	const hi = dark ? 'rgba(255,255,255,0.025)' : 'rgba(255,255,255,0.5)';
+	const padK = k * 0.78;
+	const half = 412 * padK;
+	const t = (824 * padK * 0.6) / 6;
+	const id = `tile-maskable-${tone}`;
+	return svg(
+		size,
+		size,
+		`<defs><linearGradient id="${id}-bg" x1="0" y1="0" x2="0" y2="1">${bg}</linearGradient></defs>` +
+			`<rect width="${size}" height="${size}" fill="url(#${id}-bg)"/>` +
+			`<ellipse cx="${fmt(c)}" cy="${fmt(c - half * 0.9)}" rx="${fmt(half * 1.1)}" ry="${fmt(half * 0.7)}" fill="${hi}"/>` +
+			glyphSvg({ x0: c - 3 * t, y0: c - 2.5 * t, t, variant: dark ? 'onDark' : 'onLight', id })
+	);
+}
+
 /** Monocolore in `currentColor`: lo stesso disegno di src/lib/ui/BrandMark.svelte. */
 function monoSvg() {
 	const t = 16;
@@ -338,6 +365,12 @@ try {
 
 	console.log('Webview');
 	out('static/favicon.png', rasterize(tile, 96));
+
+	console.log('PWA');
+	out('relay/web/public/icons/icon-192.png', rasterize(tile, 192));
+	out('relay/web/public/icons/icon-512.png', tilePng.get(512));
+	out('relay/web/public/icons/maskable-512.png', rasterize(tileMaskableSvg(1024, 'dark'), 512));
+	out('relay/web/public/icons/apple-touch-icon.png', rasterize(tile, 180));
 } finally {
 	rmSync(work, { recursive: true, force: true });
 }

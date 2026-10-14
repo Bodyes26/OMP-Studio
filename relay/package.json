@@ -1,0 +1,22 @@
+{
+  "name": "omp-studio-relay",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun run src/server.ts",
+    "test": "bun test",
+    "check": "tsc --noEmit",
+    "dev:web": "vite dev web",
+    "build:web": "vite build web",
+    "check:web": "svelte-check --tsconfig web/tsconfig.json --config web/vite.config.ts"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^5.0.0",
+    "@types/bun": "^1.3.0",
+    "svelte": "^5.0.0",
+    "svelte-check": "^4.0.0",
+    "typescript": "^5.9.0",
+    "vite": "^6.0.3"
+  }
+}

@@ -1034,6 +1034,68 @@ graph LR
 
 ---
 
+## Piano Controllo remoto — Gate R44
+
+**Stato:** pianificato (2026-10-13). Attua il Gate R44 di `DECISIONS.md`. Il repository contiene solo codice e guida generici: indirizzi, domini e configurazione di un'installazione concreta restano fuori (per lo sviluppo, negli appunti locali di `ricerca/`).
+
+### Metodo
+
+- Un solo step attivo alla volta; ogni step chiude con il proprio test comportamentale e, lato Studio, con `npm run check`, `npm test` e `cargo test`; lato relay con `bun test` e `bun run check` in `relay/`.
+- Il binario desktop non si avvia (`AGENTS.md`): Studio si prova con `npm run dev` e con i test, il relay in locale e poi sul server di chi sviluppa.
+- Nessun indirizzo predefinito nel codice, nei test o nella documentazione: gli esempi usano `localhost` o `relay.example.com`.
+
+### Fase 0 — Relay di base e prova di rete
+
+- [ ] **R0 — Relay di base, installazione e prova di rete** (`relay/`)
+  Servizio Bun con `/healthz` e pagina `/diag` (WebSocket con battito ed eco, aperta solo con `RELAY_ADMIN_TOKEN`), Dockerfile, `compose.example.yml` sulla rete del reverse proxy senza porte pubblicate, guida d'installazione su un proprio server. Prove sul server di chi sviluppa: WebSocket aperta 30 minuti dal browser del Mac, del PC di lavoro (rete aziendale) e del telefono; raggiungibilità HTTPS diretta dal PC di lavoro, senza proxy, come farà il bridge Rust.
+  **Accettazione:** `bun test` copre token mancante, errato, in ritardo e valido; gli esiti delle prove di rete sono annotati qui, senza indirizzi.
+  **Esiti (2026-10-13):** relay installato su un VPS dietro Nginx Proxy Manager, nome in solo DNS. Dal Mac su rete domestica: HTTPS e CSP corretti, token errato chiuso con 4401, WebSocket tenuta 31 minuti senza cadute (74 battiti, RTT medio 64 ms, massimo 347 ms). Da fare: PC di lavoro (browser 30 minuti e `curl.exe` diretto) e telefono.
+
+### Fase 1 — Fondamenta
+
+- [x] **R1 — Abbinamento e ruoli** (`relay/`)
+  Dispositivi e macchine, codici monouso a scadenza con tentativi limitati, sessioni in cookie, credenziali delle macchine legate all'`hostId`, revoca, ultimo stato per macchina, instradamento dei comandi con esito, SQLite su volume.
+  **Accettazione:** una credenziale di macchina non manda comandi e non legge un'altra macchina; un codice usato o scaduto è rifiutato; l'ultimo stato sopravvive al riavvio del container.
+  **Esito (2026-10-13):** `relay/src/` (store SQLite, API, socket, limiti); 52 test in `relay/test/`, compresi i sei casi della revisione di sicurezza (`hardening.test.ts`: socket pre-`hello` chiusi alla rotazione, codici di un dispositivo revocato, abbinamenti concorrenti, riconnessioni legittime mai bloccate da tentativi anonimi, ID di instradamento del relay, tetti a socket, comandi e codici).
+- [x] **R2 — Bridge Rust e impostazioni** (`src-tauri/src/remote/`, Impostazioni)
+  Interruttore, URL del relay senza valore predefinito, nome della macchina, abbinamento con codice, credenziale fuori da `settings.json`; connessione TLS, battito, riconnessione con attesa crescente e casuale, coda limitata; indicatore di collegamento.
+  **Accettazione:** con l'interruttore spento non parte nessuna connessione; dopo una caduta di rete Studio si ricollega da solo.
+  **Esito (2026-10-13):** test in-process con un relay locale (Bearer, `hello`, pong, comando consegnato una volta, stato rimandato dopo la riconnessione, 401 alla stretta → `revoked`, watchdog col solo traffico in uscita, abbinamento in volo che non riaccende dopo lo spegnimento, avvio fuori da un runtime Tokio); `clippy -D warnings` pulito. Proxy HTTP espliciti in uscita non gestiti.
+- [x] **R3 — Protocollo condiviso** (`relay/src/protocol.ts`, alias `$remote-protocol` in Studio, import relativo nella PWA)
+  Frame, negoziazione della versione con la gamma `MIN_HOST_PROTOCOL_VERSION`..`PROTOCOL.version`, istantanea completa numerata dello stato, comandi con esito, `/healthz` con versione e protocollo.
+  **Accettazione:** test su versioni fuori gamma, istantanee vecchie scartate, comandi senza funzione negoziata.
+- [ ] **R12 — Immagine pubblicata e aggiornamenti del relay** (`.github/workflows/`, `relay/Dockerfile`, `compose.example.yml`, updater di Studio) — *in parte*
+  Workflow che costruisce e pubblica l'immagine multi-architettura sul registro dei pacchetti GitHub (`X.Y.Z` e `latest` ai tag stabili, `nightly` dal ramo principale quando cambia `relay/`), versione passata come argomento di build. `compose.example.yml` usa l'immagine; la guida spiega l'aggiornamento e la costruzione dai sorgenti. Manifest delle release (stabile e `nightly.json`) con il protocollo richiesto; il modal d'aggiornamento di Studio avvisa se il relay collegato non lo copre.
+  **Accettazione:** un tag di prova pubblica l'immagine con la versione giusta in `/healthz`; con un relay simulato più vecchio il modal mostra l'avviso e il comando per aggiornarlo.
+  **Fatto:** `relay-image.yml` (prova dell'immagine amd64 su `/healthz` prima della pubblicazione), Dockerfile multi-stadio con la PWA e la versione, `compose.example.yml` con immagine e volume, guida bilingue, versione e gamma del relay in `/healthz`, Studio e PWA. **Manca:** prima pubblicazione (richiede il push su `main` e la visibilità pubblica del pacchetto, da impostare una volta su GitHub), protocollo richiesto nei manifest e avviso nel modal d'aggiornamento: serve solo dal primo cambio di versione del protocollo.
+
+### Fase 2 — Quadro e comandi
+
+- [x] **R4 — Proiezione in sola lettura** (`src/lib/remote/`, PWA)
+  Progetti, stato di agenti e corsie, richieste di attenzione, code con programmazione, quote, costruiti dagli store esistenti come per la Companion. PWA: macchine, progetti per macchina, code, quote; ogni elemento porta il nome della macchina.
+- [ ] **R5 — Comandi** — *in parte*
+  Rispondere alle domande (`promptBus`, vale la prima risposta), avviare un task, creare, modificare, programmare ed eliminare task, interrompere, scrivere alla sessione; registro delle azioni remote in Studio.
+  **Accettazione:** una domanda risposta dal telefono si chiude anche in Studio e nella Companion.
+  **Fatto:** `respond_ui` (solo sulla richiesta esatta), `run_task` (task del progetto, in coda, esito reale di `handleRunTask`), attesa del reset e archiviazione dei blocchi di quota, avviso locale con il nome del dispositivo. Prova in produzione con una macchina simulata: risposta a una domanda `ask` a due quesiti e avvio di un task dalla PWA. **Manca:** gestione dei task (creare, modificare, programmare, eliminare), interrompere, scrivere alla sessione.
+- [ ] **R6 — Chat dal vivo**
+  Flusso degli eventi della sessione seguita e storico con `get_messages_page`.
+- [ ] **R7 — Aprire e creare progetti**
+  Elenco delle cartelle sotto la radice dei progetti; creazione con il flusso esistente di `github/repos.rs` (cartella + `git init`, repo GitHub facoltativo).
+
+### Fase 3 — Artefatti, notifiche, Studio come client
+
+- [ ] **R8 — Artefatti**
+  Diagrammi; anteprime `studio_preview` e prototipi del Laboratorio sull'origine separata, con token a scadenza. Browser Live resta fuori da questo piano.
+- [ ] **R9 — Notifiche Web Push** (VAPID)
+  Domande dell'agente, fine lavoro, blocco di quota; il testo nomina sempre la macchina.
+- [ ] **R10 — «Altre macchine» in Studio (L1)**
+  Finestra senza capability che carica l'URL del relay configurato, con navigazione bloccata a quell'origine.
+  **Accettazione:** un test ACL fallisce se quella finestra riceve un permesso.
+- [ ] **R11 — Collaudo e documentazione**
+  Matrice con due macchine, telefono e browser; `PRODUCT.md`, `ARCHITECTURE.md`, guida del relay in italiano e in inglese, changelog bilingue.
+
+---
+
 ## Cosa NON entra in questo piano
 
 In linea con i principi di `PRODUCT.md`:

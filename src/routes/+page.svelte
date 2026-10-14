@@ -65,6 +65,9 @@
 	import { taskLabel } from '$lib/stores/taskTitle';
 	import { nextAutoDispatchTask } from '$lib/quota/scheduleQueue';
 	import { parkSessionUntilReset, scheduleRunner } from '$lib/stores/scheduleRunner.svelte';
+	import { remoteStore } from '$lib/remote/remoteStore.svelte';
+	import { startRemoteProjection } from '$lib/remote/projection.svelte';
+	import { setupRemoteCommands, type RunTaskOutcome } from '$lib/remote/commands';
 	import { laneStore, type LaneRecord } from '$lib/stores/lanes.svelte';
 	import { laneOrchestrator, type TerminalMetaEntry } from '$lib/lanes/laneOrchestrator.svelte';
 	import { describeLaneProcess } from '$lib/lanes/processSupervisor';
@@ -743,6 +746,11 @@
 
 		// Finestra nascosta: non si trasmette nulla e i digest si azzerano, cosi'
 		// alla riapertura il primo giro pubblica lo stato completo.
+		const remoteActive = remoteStore.status.enabled && remoteStore.status.paired;
+		if (remoteActive && !companionVisible) {
+			companionStore.projectRuntimes = runtimes;
+		}
+
 		if (!companionVisible) {
 			if (runtimeBroadcastTimer) {
 				clearTimeout(runtimeBroadcastTimer);
@@ -1046,10 +1054,32 @@
 		register(listen<{ projectId: string }>('studio-focus-project', (event) => {
 			void notificationManager.handleNotificationClick(event.payload.projectId);
 		}));
+		void remoteStore.init();
+		const stopProjection = startRemoteProjection({
+			getCandidateTaskId: (pId) => {
+				const p = projectStore.projects.find((candidate) => candidate.id === pId);
+				return p ? autoDispatchCandidateFor(p)?.taskId ?? null : null;
+			}
+		});
+		register(Promise.resolve(stopProjection));
+		register(
+			setupRemoteCommands(
+				{
+					runTask: (pId, tId, opts) => handleRunTask(pId, tId, opts),
+					waitQuotaReset: handleWaitQuotaReset,
+					dismissQuotaBlocked: handleDismissQuotaBlocked
+				},
+				{
+					clearAttentionRequest: (pId, lId) => companionStore.clearAttentionRequest(pId, lId)
+				}
+			)
+		);
+
 
 		return () => {
 			disposed = true;
 			for (const unlisten of unlistens) unlisten();
+			remoteStore.destroy();
 		};
 	});
 	// Heads-up di fine turno nella notifica di sistema (Gate R40).
@@ -1272,26 +1302,47 @@
 	 * (se libera), o una corsia creata apposta per quel task. `Shift` + click
 	 * salta il dialog; il dialog compare solo quando `Principale` lavora.
 	 */
-	async function handleRunTask(projectId: string, taskId: string, options: RunTaskOptions = {}) {
+	async function handleRunTask(projectId: string, taskId: string, options: RunTaskOptions = {}): Promise<RunTaskOutcome> {
 		const project = projectStore.projects.find((candidate) => candidate.id === projectId);
 		const task = taskStore.taskById(taskId);
-		if (!project?.canonicalProjectPath || !task) return;
+		if (!project?.canonicalProjectPath || !task) {
+			return { kind: 'failed', message: 'Progetto o task non trovato' };
+		}
 
 		// Voce di ripresa (Gate R35): torna nella sua sessione.
 		if (task.resume) {
-			await dispatchResumeTask(project, task);
-			return;
+			const delivered = await dispatchResumeTask(project, task);
+			if (!delivered) {
+				const key = runtimeKey(project, task.resume.laneId ?? MAIN_LANE_ID);
+				const reason = agentErrors[key] ?? agentErrors[runtimeKey(project)];
+				return { kind: 'failed', message: reason || 'Ripresa del task fallita' };
+			}
+			return { kind: 'started' };
 		}
 
 		if (options.newLane) {
-			await dispatchInNewLane(project, task, options);
-			return;
+			const outcome = await dispatchInNewLane(project, task, options);
+			if (outcome.kind === 'started') return { kind: 'started' };
+			if (outcome.kind === 'awaiting-consent') {
+				return { kind: 'needs_confirmation', message: 'Consenso profilo richiesto sulla macchina' };
+			}
+			return { kind: 'failed', message: outcome.message || 'Creazione corsia fallita' };
 		}
 		if (options.laneId) {
 			const lane = laneOrchestrator.laneRecord(project, options.laneId);
-			if (!lane) return;
-			await dispatchTaskInLane(project, lane, task, options);
-			return;
+			if (!lane) return { kind: 'failed', message: 'Corsia non trovata' };
+			if (!options.force) {
+				const gate = automationGate(project.id, lane.laneId);
+				if (!gate.ready) {
+					return { kind: 'blocked', reason: gate.label || 'Automazione bloccata' };
+				}
+			}
+			const delivered = await dispatchTaskInLane(project, lane, task, options);
+			if (!delivered) {
+				const reason = agentErrors[runtimeKey(project, lane.laneId)];
+				return { kind: 'failed', message: reason || 'Spedizione nella corsia fallita' };
+			}
+			return { kind: 'started' };
 		}
 
 		const lanes = laneOrchestrator.laneDispatchSnapshots(project);
@@ -1302,19 +1353,35 @@
 		});
 
 		if (route.kind === 'main') {
-			await dispatchTaskInLane(project, laneOrchestrator.mainLaneRecord(project), task, options);
-			return;
+			const mainLane = laneOrchestrator.mainLaneRecord(project);
+			if (!options.force) {
+				const gate = automationGate(project.id, mainLane.laneId);
+				if (!gate.ready) {
+					return { kind: 'blocked', reason: gate.label || 'Automazione bloccata' };
+				}
+			}
+			const delivered = await dispatchTaskInLane(project, mainLane, task, options);
+			if (!delivered) {
+				const reason = agentErrors[runtimeKey(project, mainLane.laneId)];
+				return { kind: 'failed', message: reason || 'Spedizione sulla Principale fallita' };
+			}
+			return { kind: 'started' };
 		}
 		if (route.kind === 'blocked') {
-			agentErrors[runtimeKey(project)] = m.lane_dispatch_blocked_detail();
-			return;
+			const reason = m.lane_dispatch_blocked_detail();
+			agentErrors[runtimeKey(project)] = reason;
+			return { kind: 'blocked', reason };
 		}
 		// `Shift` + click e' gia' la conferma esplicita: il dialog serve solo
 		// oltre il soft-cap. Senza questo ramo la richiesta cadeva nel prompt
 		// "Agenti simultanei" con un conteggio senza senso ("1° agente").
 		if (route.kind === 'new-lane' && !route.confirmConcurrency) {
-			await dispatchInNewLane(project, task, options);
-			return;
+			const outcome = await dispatchInNewLane(project, task, options);
+			if (outcome.kind === 'started') return { kind: 'started' };
+			if (outcome.kind === 'awaiting-consent') {
+				return { kind: 'needs_confirmation', message: 'Consenso profilo richiesto sulla macchina' };
+			}
+			return { kind: 'failed', message: outcome.message || 'Creazione corsia fallita' };
 		}
 		laneDispatchPrompt = {
 			projectId,
@@ -1327,6 +1394,12 @@
 				route.kind === 'prompt'
 					? { laneId: project.lane.laneId, title: project.lane.title }
 					: null
+		};
+		return {
+			kind: 'needs_confirmation',
+			message: route.confirmConcurrency
+				? 'Conferma concorrenza agenti richiesta sulla macchina'
+				: 'Conferma avvio su nuova corsia richiesta sulla macchina'
 		};
 	}
 

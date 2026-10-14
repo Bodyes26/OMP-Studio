@@ -1,0 +1,135 @@
+name: Immagine del relay
+
+# Pubblica l'immagine del relay del controllo remoto (Gate R44, punto 14) sul
+# registro dei pacchetti GitHub. Tag stabile `vX.Y.Z` -> `X.Y.Z` e `latest`;
+# release candidate -> solo `X.Y.Z-rc.N`; ramo principale con modifiche in
+# `relay/` -> `nightly`. La versione entra nell'immagine come argomento di build
+# e il relay la dichiara in `/healthz`: il controllo prima della pubblicazione
+# legge proprio quella.
+
+on:
+  push:
+    branches: [main]
+    # I filtri sui percorsi non valgono per i tag: ogni rilascio pubblica l'immagine.
+    paths:
+      - "relay/**"
+      - ".github/workflows/relay-image.yml"
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: relay-image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Installa Node.js
+        uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4
+        with:
+          node-version: 22
+
+      - name: Installa Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      - name: Test e tipi del relay e della PWA
+        working-directory: relay
+        run: |
+          bun install --frozen-lockfile
+          bun test
+          bun run check
+          bun run check:web
+
+      - name: Versione e nome dell'immagine
+        id: meta-version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="$(node scripts/nightly-version.mjs --print-version)"
+          fi
+          # Il registro accetta solo nomi minuscoli.
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/omp-studio-relay"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+
+      - name: Etichette dell'immagine
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ steps.meta-version.outputs.image }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=raw,value=nightly,enable={{is_default_branch}}
+          labels: |
+            org.opencontainers.image.title=OMP Studio relay
+            org.opencontainers.image.version=${{ steps.meta-version.outputs.version }}
+
+      - name: QEMU per arm64
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+
+      - name: Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Immagine di prova (amd64)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: relay
+          platforms: linux/amd64
+          load: true
+          tags: omp-studio-relay:ci
+          build-args: RELAY_VERSION=${{ steps.meta-version.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Prova dell'immagine
+        shell: bash
+        env:
+          EXPECTED_VERSION: ${{ steps.meta-version.outputs.version }}
+        run: |
+          set -euo pipefail
+          docker run -d --name relay-ci -p 8787:8787 \
+            -e RELAY_ADMIN_TOKEN="$(openssl rand -hex 32)" omp-studio-relay:ci
+          trap 'docker logs relay-ci; docker rm -f relay-ci >/dev/null' EXIT
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8787/healthz -o health.json; then break; fi
+            sleep 1
+          done
+          node -e '
+            const health = JSON.parse(require("fs").readFileSync("health.json", "utf8"));
+            if (health.version !== process.env.EXPECTED_VERSION) {
+              throw new Error(`versione ${health.version}, attesa ${process.env.EXPECTED_VERSION}`);
+            }
+            console.log(`relay ${health.version}, protocollo ${health.protocol.min}..${health.protocol.max}`);
+          '
+          curl -fsS -o /dev/null http://127.0.0.1:8787/
+
+      - name: Accesso al registro
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pubblica (amd64 e arm64)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: relay
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: RELAY_VERSION=${{ steps.meta-version.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

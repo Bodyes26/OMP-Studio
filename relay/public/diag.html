@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta name="robots" content="noindex" />
+		<title>OMP Studio relay · diagnostics</title>
+		<link rel="stylesheet" href="/diag.css" />
+		<script src="/diag.js" defer></script>
+	</head>
+	<body>
+		<main>
+			<h1>Relay diagnostics</h1>
+			<p class="hint">
+				Checks that this server, and the reverse proxy in front of it, keep a WebSocket open.
+				Paste the relay admin token (<code>RELAY_ADMIN_TOKEN</code>): it travels only over this
+				connection and is never stored. Leave the page open to see how long the connection lasts.
+			</p>
+			<form id="connect">
+				<label for="token">Admin token</label>
+				<input id="token" type="password" autocomplete="off" spellcheck="false" required />
+				<div class="actions">
+					<button type="submit" id="connect-btn">Connect</button>
+					<button type="button" id="disconnect-btn" disabled>Disconnect</button>
+				</div>
+			</form>
+			<dl>
+				<dt>Status</dt>
+				<dd id="status">idle</dd>
+				<dt>Connected for</dt>
+				<dd id="uptime">–</dd>
+				<dt>Heartbeats received</dt>
+				<dd id="beats">0</dd>
+				<dt>Last round trip</dt>
+				<dd id="rtt">–</dd>
+			</dl>
+			<ol id="log" aria-live="polite"></ol>
+		</main>
+	</body>
+</html>

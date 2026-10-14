@@ -119,7 +119,7 @@ lui, e quanta quota AI resta.
 
 ### Piattaforma
 
-Desktop Windows 11 x64 (NSIS, WebView2), macOS su Apple Silicon (chip M, DMG, WebKit WKWebView) e Linux x64 (.deb, AppImage, WebKitGTK). Nessun mobile, nessuna versione browser, nessun server. L'app gira al 100% in locale e parla solo con il filesystem, con `git` e con `omp` installati sulla macchina. L'interfaccia è web dentro una WebView (Svelte 5 + Tauri): `Platform: web` indica il linguaggio di design, non un sito.
+Desktop Windows 11 x64 (NSIS, WebView2), macOS su Apple Silicon (chip M, DMG, WebKit WKWebView) e Linux x64 (.deb, AppImage, WebKitGTK). Nessuna app mobile, nessun servizio ospitato dal progetto. L'app gira al 100% in locale e parla solo con il filesystem, con `git` e con `omp` installati sulla macchina. L'unica eccezione è facoltativa e spenta per default: il controllo remoto (Gate R44) si collega in uscita a un relay che l'utente ospita sul proprio server, e da lì una PWA sul telefono o nel browser segue e guida le sue macchine. L'interfaccia è web dentro una WebView (Svelte 5 + Tauri): `Platform: web` indica il linguaggio di design, non un sito.
 
 ## Capabilities and Constraints
 
@@ -139,8 +139,9 @@ Desktop Windows 11 x64 (NSIS, WebView2), macOS su Apple Silicon (chip M, DMG, We
 - **Non è un generatore full-stack.** Il Laboratorio prototipi è dedicato all'esplorazione
   frontend in React + Tailwind v4 con dati simulati in-memory: non genera server applicativi,
   database, autenticazioni reali o integrazioni operative con backend di produzione.
-- **Non è un servizio cloud né un dashboard di analytics.** Nessun server remoto, nessun
-  account obbligatorio oltre a quelli configurati in `omp`. L'usage risponde a "quanto resta e
+- **Non è un servizio cloud né un dashboard di analytics.** Nessun server del progetto, nessun
+  account obbligatorio oltre a quelli configurati in `omp`; il relay del controllo remoto è
+  dell'utente e serve solo a raggiungere le sue macchine. L'usage risponde a "quanto resta e
   quando si resetta", non produce reportistica aziendale.
 
 ### Vincoli

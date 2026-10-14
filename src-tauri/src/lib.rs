@@ -116,6 +116,11 @@ pub mod chat_attachments;
 use chat_attachments::{
     chat_attachment_read_image, cleanup_chat_attachments, stage_chat_attachment,
 };
+pub mod remote;
+use remote::{
+    remote_command_result, remote_get_status, remote_pair, remote_publish_state,
+    remote_set_enabled, remote_set_machine_name, remote_unpair,
+};
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
@@ -339,6 +344,13 @@ pub fn run() {
             stage_chat_attachment,
             cleanup_chat_attachments,
             chat_attachment_read_image,
+            remote_get_status,
+            remote_pair,
+            remote_set_enabled,
+            remote_set_machine_name,
+            remote_unpair,
+            remote_publish_state,
+            remote_command_result,
         ])
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::Destroyed => {
@@ -390,6 +402,7 @@ pub fn run() {
             if let Ok(dir) = app.path().app_local_data_dir() {
                 lab::paths::init(dir);
             }
+            remote::init(app.handle().clone());
             Ok(())
         })
         .build(tauri::generate_context!())

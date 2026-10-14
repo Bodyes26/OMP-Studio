@@ -477,6 +477,18 @@ Il diario di bordo e i documenti di progetto li scrive l'agente dentro `omp`; St
 
 Comando IPC aggiunto: `project_docs_ask` (permesso `allow-project-docs`).
 
+### 5.6 Controllo remoto (Gate R44)
+
+Studio pubblica lo stato delle sue macchine su un relay ospitato dall'utente e riceve comandi dai dispositivi abbinati. Nessuna macchina accetta connessioni: Studio si collega in uscita.
+
+- **Contratto unico.** `relay/src/protocol.ts` definisce frame WebSocket, stato della macchina (`HostState`), comandi, API HTTP, codici di chiusura e codici di abbinamento. Studio lo importa con l'alias `$remote-protocol` (`svelte.config.js`), la PWA per percorso relativo. `src/lib/remote/bridge.ts` è il confine WebView ↔ Rust.
+- **Rust trasporta** (`src-tauri/src/remote/`): configurazione in `app_local_data_dir/remote.json` (0600, scrittura atomica, `hostId` UUID stabile, credenziale mai restituita alla WebView), abbinamento con `POST /v1/pair/host`, connessione `wss://…/v1/host` con `Authorization: Bearer`, `hello` con protocollo e funzioni, battito, watchdog d'ingresso a 70 s, riconnessione 1-60 s con jitter, ultimo stato rimandato dopo ogni `welcome`. Il task parte con `tauri::async_runtime::spawn`, anche dal setup; un'epoca d'operazione impedisce che un abbinamento in volo riaccenda il controllo dopo uno spegnimento. 401/403 e chiusura 4401/4403 → `revoked`; 4426 → `incompatible`, con `/healthz` per dire chi va aggiornato.
+- **La WebView decide** (`src/lib/remote/`): `remoteStore` segue `RemoteStatus`; `projection.ts` (puro) e `projection.svelte.ts` costruiscono `HostState` dagli store esistenti (progetti, corsie, sessioni GUI e stato del terminale, richieste di attenzione, code di tutti i progetti, quote) solo con controllo acceso e abbinato, accorpano per circa 400 ms e scartano le istantanee identiche; `commands.ts` esegue `respond_ui` (solo sulla richiesta esatta, mai sull'unica pendente), `run_task` (task del progetto indicato e in coda; esito strutturato di `handleRunTask`) e le azioni di quota, con gli stessi gestori della Companion. Ogni azione remota lascia un avviso locale col nome del dispositivo.
+- **Superfici.** Impostazioni > Controllo remoto (`RemoteSection.svelte`) e indicatore in `TopBar` con i dispositivi collegati.
+- **Relay** (`relay/`, Bun): API di abbinamento con codici monouso Crockford a scadenza, sessioni in cookie `HttpOnly`/`SameSite=Strict`, controllo `Origin`, limite dei tentativi di abbinamento separato da quello delle riconnessioni, ruoli macchina/dispositivo separati, ID di instradamento dei comandi generati dal relay, tetti a socket e comandi pendenti, SQLite su volume, PWA (`relay/web/`, Svelte 5) servita con CSP propria. Immagine pubblicata da `.github/workflows/relay-image.yml`.
+
+Comandi IPC aggiunti: `remote_get_status`, `remote_pair`, `remote_set_enabled`, `remote_set_machine_name`, `remote_unpair`, `remote_publish_state`, `remote_command_result` (permesso `allow-remote`).
+
 
 ---
 

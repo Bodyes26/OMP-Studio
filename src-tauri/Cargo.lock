@@ -2611,6 +2611,7 @@ dependencies = [
  "tokio",
  "tokio-tungstenite",
  "trash",
+ "uuid",
  "windows-sys 0.59.0",
 ]
 
@@ -4595,7 +4596,11 @@ checksum = "7a9daff607c6d2bf6c16fd681ccb7eecc83e4e2cdc1ca067ffaadfca5de7f084"
 dependencies = [
  "futures-util",
  "log",
+ "rustls",
+ "rustls-native-certs",
+ "rustls-pki-types",
  "tokio",
+ "tokio-rustls",
  "tungstenite",
 ]
 
@@ -4864,6 +4869,8 @@ dependencies = [
  "httparse",
  "log",
  "rand 0.9.5",
+ "rustls",
+ "rustls-pki-types",
  "sha1",
  "thiserror 2.0.19",
  "utf-8",

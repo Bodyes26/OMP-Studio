@@ -12,6 +12,10 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const PREFIX = '$lib/';
 
 export async function resolve(specifier, context, nextResolve) {
+	if (specifier === '$remote-protocol') {
+		const target = join(ROOT, 'relay', 'src', 'protocol.ts');
+		return nextResolve(pathToFileURL(target).href, context);
+	}
 	if (specifier.startsWith(PREFIX)) {
 		let target = join(ROOT, 'src', 'lib', specifier.slice(PREFIX.length));
 		if (!existsSync(target) && existsSync(target + '.ts')) {

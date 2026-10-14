@@ -1,0 +1,96 @@
+:root {
+	color-scheme: light dark;
+	--ink: #1b1b1f;
+	--muted: #5c5c66;
+	--line: #d8d8de;
+	--surface: #f6f6f8;
+	font: 15px/1.5 system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--ink: #ececf1;
+		--muted: #a0a0ab;
+		--line: #34343c;
+		--surface: #17171b;
+	}
+}
+
+body {
+	margin: 0;
+	background: var(--surface);
+	color: var(--ink);
+}
+
+main {
+	max-width: 40rem;
+	margin: 0 auto;
+	padding: 2rem 1.25rem;
+}
+
+h1 {
+	font-size: 1.4rem;
+	margin: 0 0 0.5rem;
+}
+
+.hint {
+	color: var(--muted);
+}
+
+form {
+	display: grid;
+	gap: 0.5rem;
+	margin: 1.5rem 0;
+}
+
+input {
+	font: inherit;
+	padding: 0.6rem 0.75rem;
+	border: 1px solid var(--line);
+	border-radius: 8px;
+	background: transparent;
+	color: inherit;
+}
+
+.actions {
+	display: flex;
+	gap: 0.5rem;
+}
+
+button {
+	font: inherit;
+	padding: 0.6rem 1rem;
+	min-height: 44px;
+	border: 1px solid var(--line);
+	border-radius: 8px;
+	background: transparent;
+	color: inherit;
+}
+
+button:disabled {
+	opacity: 0.5;
+}
+
+dl {
+	display: grid;
+	grid-template-columns: max-content 1fr;
+	gap: 0.25rem 1rem;
+	margin: 0 0 1.5rem;
+}
+
+dt {
+	color: var(--muted);
+}
+
+dd {
+	margin: 0;
+	font-variant-numeric: tabular-nums;
+}
+
+ol {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	font: 13px/1.6 ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+	color: var(--muted);
+}

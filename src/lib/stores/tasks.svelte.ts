@@ -104,6 +104,10 @@ class TaskStore {
 	}
 
 	private async init() {
+		if (!this.isTauri) {
+			this.initialized = true;
+			return;
+		}
 		await settingsStore.init();
 		this.store = await load('tasks.json', { autoSave: false });
 		const persisted = parsePersistedState(await this.store.get<unknown>('taskState'));

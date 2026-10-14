@@ -118,6 +118,10 @@ class ProjectStore {
 	 * salvati (per esempio il contratto di setup all'avvio).
 	 */
 	init(): Promise<void> {
+		if (typeof window === 'undefined') {
+			this.ready = true;
+			return Promise.resolve();
+		}
 		if (!this.initPromise) {
 			this.initPromise = this.initStore().catch((err) => {
 				const errorMsg = err instanceof Error ? err.message : String(err);

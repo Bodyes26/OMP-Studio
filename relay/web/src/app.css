@@ -1,0 +1,195 @@
+/* Tokens e stili globali di OMP Studio Remote (conformi a docs/DESIGN.md) */
+
+:root {
+	color-scheme: dark;
+
+	/* Ancore dark mode */
+	--bg-sunken: oklch(0.155 0 0);
+	--bg-base: oklch(0.185 0 0);
+	--ink: oklch(0.970 0 0);
+	--ink-muted: oklch(0.760 0 0);
+	--ink-faint: oklch(0.655 0 0);
+
+	--bg-raised: color-mix(in oklab, var(--bg-base) 95%, var(--ink));
+	--bg-overlay: color-mix(in oklab, var(--bg-base) 90%, var(--ink));
+
+	--bg-hover: color-mix(in srgb, var(--ink) 8%, transparent);
+	--bg-active: color-mix(in srgb, var(--ink) 14%, transparent);
+	--line: color-mix(in srgb, var(--ink) 12%, transparent);
+	--line-strong: color-mix(in srgb, var(--ink) 24%, transparent);
+
+	/* Colori semantici */
+	--brand: oklch(0.620 0.190 355);
+	--on-brand: var(--bg-sunken);
+
+	--warn: oklch(0.780 0.150 75);
+	--warn-dim: oklch(0.560 0.120 75);
+	--warn-bg: color-mix(in srgb, var(--warn) 15%, transparent);
+
+	--danger: oklch(0.680 0.185 27);
+	--danger-dim: oklch(0.380 0.148 27);
+	--danger-bg: color-mix(in srgb, var(--danger) 15%, transparent);
+
+	--success: oklch(0.740 0.180 145);
+
+	/* Tipografia */
+	--font-ui: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+	--font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+
+	/* Raggi */
+	--radius-sm: 4px;
+	--radius-md: 6px;
+	--radius-lg: 10px;
+	--radius-full: 9999px;
+
+	/* Transizioni */
+	--dur-fast: 120ms;
+	--dur-base: 180ms;
+	--ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-color-scheme: light) {
+	:root {
+		color-scheme: light;
+
+		--bg-sunken: #ffffff;
+		--bg-base: #f4f4f6;
+		--ink: oklch(0.240 0 0);
+		--ink-muted: oklch(0.400 0 0);
+		--ink-faint: oklch(0.460 0 0);
+
+		--bg-raised: color-mix(in oklab, var(--bg-base) 96%, var(--ink));
+		--bg-overlay: #ffffff;
+
+		--bg-hover: color-mix(in srgb, var(--ink) 6%, transparent);
+		--bg-active: color-mix(in srgb, var(--ink) 10%, transparent);
+		--line: color-mix(in srgb, var(--ink) 12%, transparent);
+		--line-strong: color-mix(in srgb, var(--ink) 25%, transparent);
+
+		--on-brand: #ffffff;
+		--warn: oklch(0.540 0.150 75);
+		--danger: oklch(0.520 0.185 27);
+		--success: oklch(0.460 0.180 145);
+	}
+}
+
+*, *::before, *::after {
+	box-sizing: border-box;
+	margin: 0;
+	padding: 0;
+}
+
+html, body {
+	height: 100%;
+	background: var(--bg-sunken);
+	color: var(--ink);
+	font-family: var(--font-ui);
+	font-size: 14px;
+	line-height: 1.45;
+	-webkit-font-smoothing: antialiased;
+	-webkit-text-size-adjust: 100%;
+	user-select: none;
+	-webkit-user-select: none;
+	touch-action: manipulation;
+}
+
+input, textarea, button, select {
+	font: inherit;
+	color: inherit;
+}
+
+/* Touch targets >= 44px */
+button, input, select, .touch-target {
+	min-height: 44px;
+}
+
+/* Scrollbars */
+::-webkit-scrollbar {
+	width: 6px;
+	height: 6px;
+}
+::-webkit-scrollbar-thumb {
+	background: var(--line-strong);
+	border-radius: var(--radius-full);
+}
+
+/* Stili controlli riutilizzabili */
+.btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	padding: 8px 16px;
+	border-radius: var(--radius-md);
+	font-weight: 550;
+	font-size: 13px;
+	border: 1px solid transparent;
+	background: transparent;
+	cursor: pointer;
+	transition: background var(--dur-fast), border-color var(--dur-fast), opacity var(--dur-fast);
+	touch-action: manipulation;
+}
+
+.btn:disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+
+.btn-primary {
+	background: var(--brand);
+	color: var(--on-brand);
+	border-color: var(--brand);
+}
+.btn-primary:not(:disabled):hover {
+	opacity: 0.92;
+}
+
+.btn-secondary {
+	background: var(--bg-raised);
+	border-color: var(--line-strong);
+	color: var(--ink);
+}
+.btn-secondary:not(:disabled):hover {
+	background: var(--bg-hover);
+}
+
+.btn-ghost {
+	background: transparent;
+	color: var(--ink-muted);
+}
+.btn-ghost:not(:disabled):hover {
+	background: var(--bg-hover);
+	color: var(--ink);
+}
+
+.btn-danger {
+	background: var(--danger-bg);
+	border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+	color: var(--danger);
+}
+.btn-danger:not(:disabled):hover {
+	background: color-mix(in srgb, var(--danger) 25%, transparent);
+}
+
+.input-field {
+	width: 100%;
+	padding: 10px 12px;
+	background: var(--bg-sunken);
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius-md);
+	color: var(--ink);
+	font-size: 14px;
+	outline: none;
+	transition: border-color var(--dur-fast);
+}
+.input-field:focus {
+	border-color: var(--brand);
+}
+
+/* Safe areas */
+.safe-top {
+	padding-top: max(12px, env(safe-area-inset-top));
+}
+.safe-bottom {
+	padding-bottom: max(16px, env(safe-area-inset-bottom));
+}

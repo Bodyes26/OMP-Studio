@@ -332,6 +332,19 @@ commands.allow = [
     "run_studio_doctor"
 ]
 
+[[permission]]
+identifier = "allow-remote"
+description = "Controllo remoto: stato, abbinamento, credenziali, pubblicazione dello stato della macchina e gestione comandi"
+commands.allow = [
+    "remote_get_status",
+    "remote_pair",
+    "remote_set_enabled",
+    "remote_set_machine_name",
+    "remote_unpair",
+    "remote_publish_state",
+    "remote_command_result"
+]
+
 [[set]]
 identifier = "studio-app"
 description = "Comandi nativi del guscio Studio, escluso l'updater che ha un set dedicato"
@@ -361,5 +374,6 @@ permissions = [
     "allow-github",
     "allow-lab",
     "allow-chat-attachments",
-    "allow-doctor"
+    "allow-doctor",
+    "allow-remote"
 ]

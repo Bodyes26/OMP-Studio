@@ -19,6 +19,7 @@
 	import ProjectPopover from './ProjectPopover.svelte';
 	import GitDiffBadge from './GitDiffBadge.svelte';
 	import { companionStore } from '$lib/stores/companion.svelte';
+	import { remoteStore } from '$lib/remote/remoteStore.svelte';
 	import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
 	import { perfSpan } from '$lib/perf';
 	import {
@@ -41,7 +42,8 @@
 		IconLab,
 		IconGitBranch,
 		IconTrash,
-		IconDownload
+		IconDownload,
+		IconRemote
 	} from '$lib/icons';
 	import { laneStore } from '$lib/stores/lanes.svelte';
 	import { MAIN_LANE_ID, type ProjectId } from '$lib/types/lanes';
@@ -1112,6 +1114,20 @@
 			</button>
 			</Tooltip>
 		{/if}
+
+		{#if remoteStore.status.connection === 'connected' && remoteStore.status.clients.length > 0}
+			{@const deviceNames = remoteStore.status.clients.map((c) => c.name).join(', ')}
+			<Tooltip text={m.topbar_remote_chip_aria({ count: remoteStore.status.clients.length, devices: deviceNames })} placement="bottom">
+				<button
+					class="settings-chip remote-chip"
+					onclick={(e) => { e.stopPropagation(); onSettingsClick?.('remote'); }}
+					aria-label={m.topbar_remote_chip_aria({ count: remoteStore.status.clients.length, devices: deviceNames })}
+				>
+					<IconRemote />
+					<span>{m.topbar_remote_chip_label({ count: remoteStore.status.clients.length })}</span>
+				</button>
+			</Tooltip>
+		{/if}
 		<QuotaChip
 			showProvider={settingsStore.appearance.quotaChip.showProvider}
 			alwaysShowPct={settingsStore.appearance.quotaChip.alwaysShowPct}
@@ -1819,6 +1835,16 @@
 		border-color: color-mix(in srgb, var(--brand) 40%, var(--line-strong));
 		background: color-mix(in oklch, var(--brand) 12%, transparent);
 	}
+	.remote-chip {
+		border-color: var(--brand-dim);
+		color: var(--brand-ink);
+	}
+
+	.remote-chip:hover {
+		border-color: var(--brand);
+		background: var(--bg-hover);
+	}
+
 
 	.queue-chip {
 		background: transparent;

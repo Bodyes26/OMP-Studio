@@ -12,6 +12,11 @@ const config = {
     adapter: adapter({
       fallback: "index.html",
     }),
+    // Il contratto del controllo remoto vive col relay (Gate R44): Studio lo
+    // importa da li', cosi' relay, PWA e WebView condividono gli stessi tipi.
+    alias: {
+      "$remote-protocol": "relay/src/protocol.ts",
+    },
   },
 };
 

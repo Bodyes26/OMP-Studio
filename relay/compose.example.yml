@@ -1,0 +1,26 @@
+# Copy to compose.yaml next to a .env made from .env.example, then run:
+#   docker compose up -d
+# Update to the latest release:
+#   docker compose pull && docker compose up -d
+services:
+  studio-relay:
+    # Stable releases: `latest` or a pinned `X.Y.Z`; `nightly` follows the main branch.
+    image: ghcr.io/bodyes26/omp-studio-relay:latest
+    # To build from source instead, comment `image` above and uncomment:
+    # build: .
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - relay-data:/data
+    # No published ports: the reverse proxy reaches the container on its own
+    # Docker network, as studio-relay:8787.
+    networks:
+      - proxy
+
+volumes:
+  relay-data:
+
+networks:
+  proxy:
+    external: true
+    name: ${PROXY_NETWORK:?Set PROXY_NETWORK in .env to the Docker network of your reverse proxy}

@@ -23,6 +23,7 @@
 	import GithubSection from './GithubSection.svelte';
 	import DoctorSection from './DoctorSection.svelte';
 	import CommandsSection from './CommandsSection.svelte';
+	import RemoteSection from './RemoteSection.svelte';
 	import { doctorStore } from '$lib/stores/doctor.svelte';
 
 	// Navigazione di primo livello: ogni voce apre una sezione del centro
@@ -40,7 +41,8 @@
 		{ id: 'commands', label: m.settings_nav_commands() },
 		{ id: 'models', label: m.settings_nav_models() },
 		{ id: 'github', label: 'GitHub' },
-		{ id: 'doctor', label: m.settings_nav_doctor() }
+		{ id: 'doctor', label: m.settings_nav_doctor() },
+		{ id: 'remote', label: m.settings_nav_remote() }
 	]);
 
 	const MODEL_TABS = $derived([
@@ -290,6 +292,8 @@
 						<GithubSection />
 					{:else if settingsStore.section === 'doctor'}
 						<DoctorSection />
+					{:else if settingsStore.section === 'remote'}
+						<RemoteSection />
 					{/if}
 				</div>
 			{/if}
