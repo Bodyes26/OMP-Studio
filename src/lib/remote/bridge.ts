@@ -1,6 +1,13 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import type { CommandError, DeviceInfo, HostState, RemoteCommand } from '$remote-protocol';
+import type {
+	CommandError,
+	DeviceInfo,
+	HostState,
+	RemoteChatEvent,
+	RemoteCommand,
+	RemoteLaneRef
+} from '$remote-protocol';
 
 /**
  * Contratto fra la WebView e il bridge Rust del controllo remoto
@@ -57,7 +64,7 @@ export interface RemoteCommandEvent {
 
 export const REMOTE_STATUS_EVENT = 'remote://status';
 export const REMOTE_COMMAND_EVENT = 'remote://command';
-
+export const REMOTE_CHAT_WATCH_EVENT = 'remote://chat_watch';
 /** Unico punto d'accesso ai comandi `remote_*` di Tauri. */
 export const remoteBridge = {
 	status: () => invoke<RemoteStatus>('remote_get_status'),
@@ -66,12 +73,18 @@ export const remoteBridge = {
 	setEnabled: (enabled: boolean) => invoke<RemoteStatus>('remote_set_enabled', { enabled }),
 	setMachineName: (machineName: string) => invoke<RemoteStatus>('remote_set_machine_name', { machineName }),
 	unpair: () => invoke<RemoteStatus>('remote_unpair'),
+	openMachinesWindow: () => invoke<void>('remote_open_machines_window'),
 	/** Ultimo stato della macchina: Rust lo tiene e lo rimanda a ogni riconnessione. */
 	publishState: (state: HostState) => invoke<void>('remote_publish_state', { state }),
-	commandResult: (commandId: string, ok: boolean, error?: CommandError) =>
-		invoke<void>('remote_command_result', { commandId, ok, error: error ?? null }),
+	/** `data` segue `RemoteCommandData` per il tipo del comando. */
+	commandResult: (commandId: string, ok: boolean, error?: CommandError, data?: unknown) =>
+		invoke<void>('remote_command_result', { commandId, ok, error: error ?? null, data: data ?? null }),
 	onStatus: (handler: (status: RemoteStatus) => void): Promise<UnlistenFn> =>
 		listen<RemoteStatus>(REMOTE_STATUS_EVENT, (event) => handler(event.payload)),
 	onCommand: (handler: (event: RemoteCommandEvent) => void): Promise<UnlistenFn> =>
-		listen<RemoteCommandEvent>(REMOTE_COMMAND_EVENT, (event) => handler(event.payload))
+		listen<RemoteCommandEvent>(REMOTE_COMMAND_EVENT, (event) => handler(event.payload)),
+	publishChatEvent: (projectId: string, laneId: string, event: RemoteChatEvent) =>
+		invoke<void>('remote_publish_chat_event', { projectId, laneId, event }),
+	onChatWatch: (handler: (event: { lanes: RemoteLaneRef[] }) => void): Promise<UnlistenFn> =>
+		listen<{ lanes: RemoteLaneRef[] }>(REMOTE_CHAT_WATCH_EVENT, (event) => handler(event.payload))
 };

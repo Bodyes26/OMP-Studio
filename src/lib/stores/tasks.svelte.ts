@@ -554,6 +554,20 @@ class TaskStore {
 		if (target) this.moveTask(id, target.id);
 	}
 
+	moveTaskToIndex(id: string, toIndex: number) {
+		const source = this.taskById(id);
+		if (!source) return;
+		const ordered = this.tasksFor(source.projectPath).filter((task) => task.status === 'queued');
+		const from = ordered.findIndex((task) => task.id === id);
+		if (from < 0) return;
+		const clamped = Math.max(0, Math.min(ordered.length - 1, toIndex));
+		if (from === clamped) return;
+		const [moved] = ordered.splice(from, 1);
+		ordered.splice(clamped, 0, moved);
+		ordered.forEach((task, index) => (task.position = index));
+		this.saveProject(source.projectPath);
+	}
+
 	markDispatching(id: string) {
 		const task = this.taskById(id);
 		if (!task) return;

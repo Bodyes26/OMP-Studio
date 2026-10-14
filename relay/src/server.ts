@@ -10,6 +10,9 @@ import { RateLimiter } from './ratelimit.ts';
 import { CLOSE_UNAUTHORIZED, SocketHub, type RelayWsData } from './sockets.ts';
 import { RelayStore } from './store.ts';
 
+import { PushSender } from './pushSender.ts';
+import { HostSnapshotTriggerDetector } from './triggers.ts';
+import { getOrCreateVapidKeys } from './vapid.ts';
 export { CLOSE_UNAUTHORIZED };
 
 export type RelayServer = Server<RelayWsData>;
@@ -39,13 +42,36 @@ export function startRelay(config: RelayConfigInput): RelayServer {
 
 	const store = new RelayStore(dataDir);
 	const rateLimiter = new RateLimiter();
-	const socketHub = new SocketHub(resolvedConfig, store);
 
+	const vapidKeysPromise = getOrCreateVapidKeys(store);
+	let pushSender: PushSender | null = null;
+	vapidKeysPromise
+		.then((keys) => {
+			pushSender = new PushSender(store, keys);
+		})
+		.catch((err) => {
+			console.error('Impossibile inizializzare chiavi VAPID:', err);
+		});
+
+	let socketHub: SocketHub;
+	const triggerDetector = new HostSnapshotTriggerDetector(store, {
+		onNotification(payload) {
+			if (pushSender) {
+				const skipDeviceIds = socketHub.getActiveVisibleDeviceIds();
+				pushSender.send(payload, { skipDeviceIds }).catch(() => {});
+			}
+		}
+	});
+
+	socketHub = new SocketHub(resolvedConfig, store, (hostId, hostName, state) => {
+		triggerDetector.processSnapshot(hostId, hostName, state);
+	});
 	const server = Bun.serve<RelayWsData>({
 		port: resolvedConfig.port,
 		hostname: resolvedConfig.hostname,
-		fetch(req, s) {
-			return handleRequest(req, s, resolvedConfig, store, rateLimiter, socketHub);
+		async fetch(req, s) {
+			const vapidKeys = await vapidKeysPromise.catch(() => undefined);
+			return handleRequest(req, s, resolvedConfig, store, rateLimiter, socketHub, vapidKeys);
 		},
 		websocket: {
 			maxPayloadLength: MAX_FRAME_BYTES,
@@ -65,8 +91,8 @@ export function startRelay(config: RelayConfigInput): RelayServer {
 
 	const originalStop = server.stop.bind(server);
 	server.stop = (closeActive?: boolean) => {
+		triggerDetector.destroy();
 		socketHub.stop();
-		store.close();
 		return originalStop(closeActive);
 	};
 

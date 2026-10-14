@@ -26,13 +26,13 @@ use crate::remote::config::{
     load_or_create_config, save_config, validate_and_normalize_relay_url, RemoteConfig,
 };
 use crate::remote::connection::{
-    backoff_base_secs, backoff_delay_ms_with_jitter, compute_backoff_delay_ms, map_close_code,
-    run_single_session, start_connection_task, stop_connection_task, CloseOutcome,
-    ConnectionContext,
+    attempt_after_session, backoff_base_secs, backoff_delay_ms_with_jitter,
+    compute_backoff_delay_ms, map_close_code, run_single_session, start_connection_task,
+    stop_connection_task, CloseOutcome, ConnectionContext,
 };
 use crate::remote::protocol::{
     close_code, HealthResponse, HostFrame, HostInfo, ProtocolId, RelayToHostFrame,
-    RemoteCommandEvent, RemoteConnection, FEATURES, PROTOCOL_NAME, PROTOCOL_VERSION,
+    RemoteCommandEvent, RemoteConnection, RemoteLaneRef, FEATURES, PROTOCOL_NAME, PROTOCOL_VERSION,
 };
 use crate::remote::RemoteManager;
 #[test]
@@ -120,6 +120,16 @@ fn test_backoff_bounds_and_jitter_range() {
             );
         }
     }
+}
+
+#[test]
+fn test_backoff_restarts_after_a_healthy_session() {
+    // Una sessione durata almeno quanto il watchdog era collegata: si riparte da 1 s.
+    assert_eq!(attempt_after_session(5, Duration::from_secs(70)), 0);
+    assert_eq!(attempt_after_session(5, Duration::from_secs(3 * 3600)), 0);
+    // Cadute rapide in fila (relay giu', rete assente) continuano a salire.
+    assert_eq!(attempt_after_session(5, Duration::from_secs(69)), 5);
+    assert_eq!(attempt_after_session(2, Duration::from_millis(300)), 2);
 }
 
 #[test]
@@ -242,12 +252,14 @@ fn test_frame_json_shapes() {
         command_id: "cmd-uuid-1".to_string(),
         ok: true,
         error: None,
+        data: None,
     };
     let cmd_json = serde_json::to_value(&cmd_res).unwrap();
     assert_eq!(cmd_json["type"], "command_result");
     assert_eq!(cmd_json["commandId"], "cmd-uuid-1");
     assert_eq!(cmd_json["ok"], true);
     assert!(cmd_json.get("error").is_none());
+    assert!(cmd_json.get("data").is_none());
 
     // 4. RelayToHostFrame::Welcome
     let welcome_raw = serde_json::json!({
@@ -288,6 +300,78 @@ fn test_frame_json_shapes() {
     assert!(health.ok);
     assert_eq!(health.version, "1.2.0");
     assert_eq!(health.protocol.max, 2);
+
+    // 6. HostFrame::ChatEvent
+    let chat_ev = HostFrame::ChatEvent {
+        project_id: "proj-1".to_string(),
+        lane_id: "lane-a".to_string(),
+        event: serde_json::json!({
+            "kind": "delta",
+            "messageId": "msg-123",
+            "text": "ciao da studio"
+        }),
+    };
+    let chat_json = serde_json::to_value(&chat_ev).unwrap();
+    assert_eq!(chat_json["type"], "chat_event");
+    assert_eq!(chat_json["projectId"], "proj-1");
+    assert_eq!(chat_json["laneId"], "lane-a");
+    assert_eq!(chat_json["event"]["kind"], "delta");
+    assert_eq!(chat_json["event"]["text"], "ciao da studio");
+
+    // 7. RelayToHostFrame::ChatWatch
+    let watch_raw = serde_json::json!({
+        "type": "chat_watch",
+        "lanes": [
+            { "projectId": "proj-1", "laneId": "main" },
+            { "projectId": "proj-2", "laneId": "lane-b" }
+        ]
+    });
+    let watch: RelayToHostFrame = serde_json::from_value(watch_raw).unwrap();
+    match watch {
+        RelayToHostFrame::ChatWatch { lanes } => {
+            assert_eq!(lanes.len(), 2);
+            assert_eq!(lanes[0].project_id, "proj-1");
+            assert_eq!(lanes[0].lane_id, "main");
+            assert_eq!(lanes[1].project_id, "proj-2");
+            assert_eq!(lanes[1].lane_id, "lane-b");
+        }
+        _ => panic!("Atteso frame ChatWatch"),
+    }
+}
+
+#[tokio::test]
+async fn test_chat_watch_and_chat_event_queue() {
+    let cfg = RemoteConfig {
+        host_id: "test-host".to_string(),
+        machine_name: "TestMachine".to_string(),
+        relay_url: Some("http://127.0.0.1:18790".to_string()),
+        credential: Some("cred".to_string()),
+        enabled: true,
+    };
+    let ctx = ConnectionContext::new(None, cfg);
+
+    // 1. Hook per chat_watch
+    let received_lanes = Arc::new(parking_lot::Mutex::new(Vec::new()));
+    let rl_clone = received_lanes.clone();
+    *ctx.chat_watch_hook.lock() = Some(Arc::new(move |lanes| {
+        *rl_clone.lock() = lanes;
+    }));
+
+    ctx.emit_chat_watch_event(vec![RemoteLaneRef {
+        project_id: "p1".to_string(),
+        lane_id: "main".to_string(),
+    }]);
+    assert_eq!(received_lanes.lock().len(), 1);
+    assert_eq!(received_lanes.lock()[0].project_id, "p1");
+
+    // 2. Queue chat event quando connesso
+    ctx.status.lock().connection = RemoteConnection::Connected;
+    ctx.queue_chat_event(
+        "p1".to_string(),
+        "main".to_string(),
+        serde_json::json!({ "kind": "message", "text": "hello" }),
+    );
+    assert_eq!(ctx.chat_events.lock().len(), 1);
 }
 
 #[tokio::test]
@@ -522,7 +606,12 @@ async fn test_in_process_local_relay_integration() {
     assert_eq!(received_cmd.device.name, "iPhone");
 
     // 6. Invia il risultato del comando tramite remote_command_result
-    ctx.queue_command_result("cmd-42".to_string(), true, None);
+    ctx.queue_command_result(
+        "cmd-42".to_string(),
+        true,
+        None,
+        Some(serde_json::json!({ "taskId": "t-1" })),
+    );
 
     let cr_val = tokio::time::timeout(Duration::from_secs(2), cmd_result_rx)
         .await
@@ -531,6 +620,7 @@ async fn test_in_process_local_relay_integration() {
     assert_eq!(cr_val["type"], "command_result");
     assert_eq!(cr_val["commandId"], "cmd-42");
     assert_eq!(cr_val["ok"], true);
+    assert_eq!(cr_val["data"]["taskId"], "t-1");
 
     // Aggiorna lo stato della macchina prima della riconnessione
     *ctx.latest_state.lock() = Some(serde_json::json!({ "state": "updated_snapshot" }));
@@ -989,4 +1079,120 @@ fn test_connection_task_startup_outside_tokio_runtime() {
 
     manager.stop_connection();
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_remote_machines_window_has_no_capabilities() {
+    use std::fs;
+    use std::path::{Path, PathBuf};
+
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let capabilities_dir = manifest_dir.join("capabilities");
+
+    assert!(
+        capabilities_dir.is_dir(),
+        "Cartella capabilities non trovata: {:?}",
+        capabilities_dir
+    );
+
+    let mut capability_files = Vec::new();
+
+    fn collect_files(dir: &Path, files: &mut Vec<PathBuf>) {
+        if let Ok(entries) = fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    collect_files(&path, files);
+                } else if let Some(ext) = path.extension() {
+                    if ext == "json" || ext == "toml" {
+                        files.push(path);
+                    }
+                }
+            }
+        }
+    }
+
+    collect_files(&capabilities_dir, &mut capability_files);
+    assert!(
+        !capability_files.is_empty(),
+        "Nessun file capability trovato in {:?}",
+        capabilities_dir
+    );
+
+    let mut checked_files = 0;
+
+    for path in &capability_files {
+        let content = fs::read_to_string(path)
+            .unwrap_or_else(|e| panic!("Impossibile leggere file {:?}: {}", path, e));
+
+        let json: serde_json::Value = if path.extension().and_then(|s| s.to_str()) == Some("json") {
+            serde_json::from_str(&content)
+                .unwrap_or_else(|e| panic!("JSON non valido in {:?}: {}", path, e))
+        } else {
+            continue;
+        };
+
+        let cap_id = json
+            .get("identifier")
+            .and_then(|v| v.as_str())
+            .unwrap_or("<unknown>");
+
+        for key in ["windows", "webviews"] {
+            if let Some(list) = json.get(key).and_then(|v| v.as_array()) {
+                for item in list {
+                    if let Some(pattern_str) = item.as_str() {
+                        let pattern = glob::Pattern::new(pattern_str).unwrap_or_else(|e| {
+                            panic!(
+                                "Pattern glob non valido {:?} in {:?}: {}",
+                                pattern_str, path, e
+                            )
+                        });
+
+                        assert!(
+                            !pattern.matches(crate::remote::MACHINES_WINDOW_LABEL),
+                            "VIOLAZIONE SICUREZZA ACL: La capability {:?} nel file {:?} applica il pattern {:?} ({}) alla finestra confinata {:?}!",
+                            cap_id,
+                            path.file_name().unwrap_or_default(),
+                            pattern_str,
+                            key,
+                            crate::remote::MACHINES_WINDOW_LABEL
+                        );
+                    }
+                }
+            }
+        }
+
+        checked_files += 1;
+    }
+
+    assert!(
+        checked_files > 0,
+        "Almeno un file di capability deve essere stato verificato"
+    );
+}
+
+#[test]
+fn test_acl_checker_catches_broad_globs_and_exact_matches() {
+    let label = crate::remote::MACHINES_WINDOW_LABEL;
+
+    // Il checker deve riconoscere wildcard universale
+    let wildcard = glob::Pattern::new("*").unwrap();
+    assert!(wildcard.matches(label));
+
+    // Wildcard con prefisso
+    let prefix_wildcard = glob::Pattern::new("remote-*").unwrap();
+    assert!(prefix_wildcard.matches(label));
+
+    // Match esatto
+    let exact = glob::Pattern::new("remote-machines").unwrap();
+    assert!(exact.matches(label));
+
+    // Finestre legittime di Studio NON devono corrispondere alla nuova finestra
+    let main_pat = glob::Pattern::new("main").unwrap();
+    assert!(!main_pat.matches(label));
+    assert!(main_pat.matches("main"));
+
+    let companion_pat = glob::Pattern::new("companion").unwrap();
+    assert!(!companion_pat.matches(label));
+    assert!(companion_pat.matches("companion"));
 }

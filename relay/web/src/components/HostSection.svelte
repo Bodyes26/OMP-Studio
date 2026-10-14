@@ -5,7 +5,7 @@
 	import { sortProjects } from '../projectSort.ts';
 	import QuotaCard from './QuotaCard.svelte';
 	import ProjectCard from './ProjectCard.svelte';
-
+	import ProjectSheet from './ProjectSheet.svelte';
 	let {
 		host,
 		snapshot
@@ -13,6 +13,7 @@
 		host: HostSummary;
 		snapshot?: { seq: number; receivedAt: number; state: HostState };
 	}>();
+	let showProjectSheet = $state(false);
 
 	const sortedProjects = $derived.by(() => {
 		if (!snapshot?.state.projects) return [];
@@ -41,7 +42,7 @@
 	});
 </script>
 
-<section class="host-section" class:is-offline={!host.online}>
+<section class="host-section" id={`host-${host.id}`} class:is-offline={!host.online}>
 	<div class="host-header">
 		<div class="host-identity">
 			<span class="platform-icon" title={host.platform}>
@@ -56,9 +57,20 @@
 			<h2 class="host-name">{host.name}</h2>
 		</div>
 
-		<div class="host-status">
-			<span class="status-dot" class:online={host.online}></span>
-			<span class="status-label">{statusText}</span>
+		<div class="host-status-wrap">
+			{#if host.online && host.features.includes('projects')}
+				<button
+					type="button"
+					class="btn btn-ghost btn-sm open-project-trigger"
+					onclick={() => (showProjectSheet = true)}
+				>
+					+ {t('openOrCreateProject')}
+				</button>
+			{/if}
+			<div class="host-status">
+				<span class="status-dot" class:online={host.online}></span>
+				<span class="status-label">{statusText}</span>
+			</div>
 		</div>
 	</div>
 
@@ -89,6 +101,15 @@
 			{:else}
 				<div class="empty-projects">
 					<p>{t('noProjects')}</p>
+					{#if host.online && host.features.includes('projects')}
+						<button
+							type="button"
+							class="btn btn-secondary btn-sm empty-create-btn"
+							onclick={() => (showProjectSheet = true)}
+						>
+							{t('openOrCreateProject')}
+						</button>
+					{/if}
 				</div>
 			{/if}
 		</div>
@@ -99,6 +120,10 @@
 			</div>
 		{/snippet}
 	</svelte:boundary>
+
+	{#if showProjectSheet}
+		<ProjectSheet {host} onClose={() => (showProjectSheet = false)} />
+	{/if}
 </section>
 
 <style>
@@ -143,6 +168,26 @@
 		color: var(--ink);
 	}
 
+	.host-status-wrap {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+	}
+
+	.open-project-trigger {
+		font-size: 12px;
+		padding: 4px 8px;
+		height: auto;
+		color: var(--ink-muted);
+	}
+
+	.open-project-trigger:hover {
+		color: var(--ink);
+	}
+
+	.empty-create-btn {
+		margin-top: 10px;
+	}
 	.host-status {
 		display: flex;
 		align-items: center;

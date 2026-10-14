@@ -62,7 +62,8 @@ commands.allow = [
     "file_read_bytes",
     "file_write",
     "preview_file",
-    "resolve_project_file"
+    "resolve_project_file",
+    "project_canonicalize_child_dir"
 ]
 
 [[permission]]
@@ -342,7 +343,9 @@ commands.allow = [
     "remote_set_machine_name",
     "remote_unpair",
     "remote_publish_state",
-    "remote_command_result"
+    "remote_command_result",
+    "remote_publish_chat_event",
+    "remote_open_machines_window"
 ]
 
 [[set]]

@@ -33,3 +33,28 @@ export function formatScheduleLabel(schedule: RemoteTaskSchedule | null): string
 	}
 	return null;
 }
+
+/** Calcola l'epoch ms per un orario HH:MM relativo a oggi o domani. */
+export function calculateScheduleEpoch(
+	timeStr: string,
+	day: 'today' | 'tomorrow' = 'today',
+	now: number = Date.now()
+): number | null {
+	const match = /^(\d{1,2}):(\d{2})$/.exec(timeStr.trim());
+	if (!match) return null;
+	const hours = parseInt(match[1], 10);
+	const minutes = parseInt(match[2], 10);
+	if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+	const d = new Date(now);
+	d.setHours(hours, minutes, 0, 0);
+	if (day === 'tomorrow') {
+		d.setDate(d.getDate() + 1);
+	}
+	return d.getTime();
+}
+
+/** Restituisce l'orario HH:MM predefinito (un'ora da adesso arrotondata). */
+export function defaultScheduleTime(now: number = Date.now()): string {
+	const d = new Date(now + 3600_000);
+	return `${String(d.getHours()).padStart(2, '0')}:00`;
+}

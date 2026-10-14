@@ -6,11 +6,13 @@
 	import PairingView from './components/PairingView.svelte';
 	import Dashboard from './components/Dashboard.svelte';
 	import SettingsSheet from './components/SettingsSheet.svelte';
+	import { initNotificationRouting } from './notificationRouting.ts';
 
 	let showSettings = $state(false);
 
 	$effect(() => {
 		connection.init();
+		initNotificationRouting();
 	});
 </script>
 

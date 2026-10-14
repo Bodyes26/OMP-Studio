@@ -19,7 +19,9 @@ import {
 	type Platform,
 	type RelayToClientFrame,
 	type RelayToHostFrame,
-	type RemoteCommand
+	type RemoteChatEvent,
+	type RemoteCommand,
+	type RemoteLaneRef
 } from './protocol.ts';
 import type { RelayStore } from './store.ts';
 
@@ -28,7 +30,7 @@ export const MAX_CLIENT_SOCKETS_PER_DEVICE = 5;
 export const MAX_TOTAL_CLIENT_SOCKETS = 100;
 export const MAX_PENDING_COMMANDS_PER_DEVICE = 20;
 export const MAX_GLOBAL_PENDING_COMMANDS = 500;
-
+export const MAX_CHAT_SUBSCRIPTIONS_PER_SOCKET = 4;
 
 export interface DiagSession {
 	kind: 'diag';
@@ -65,6 +67,7 @@ export interface ClientWsSession {
 	authed: boolean;
 	helloReceived: boolean;
 	pingSeq: number;
+	visible?: boolean;
 	helloTimer?: Timer;
 }
 
@@ -101,12 +104,15 @@ export class SocketHub {
 	private readonly activeHosts = new Map<string, ServerWebSocket<RelayWsData>>();
 	private readonly activeClients = new Set<ServerWebSocket<RelayWsData>>();
 	private readonly pendingCommands = new Map<string, PendingCommand>();
+	private readonly clientSubscriptions = new Map<ServerWebSocket<RelayWsData>, Set<string>>();
+	private readonly chatWatchers = new Map<string, Set<ServerWebSocket<RelayWsData>>>();
 	private diagSessions = 0;
 	private heartbeatInterval?: Timer;
 
 	constructor(
 		private readonly config: RelayConfig,
-		private readonly store: RelayStore
+		private readonly store: RelayStore,
+		private readonly onHostSnapshot?: (hostId: string, hostName: string, state: HostState) => void
 	) {
 		this.startHeartbeat();
 	}
@@ -121,6 +127,8 @@ export class SocketHub {
 			clearTimeout(pending.timer);
 		}
 		this.pendingCommands.clear();
+		this.clientSubscriptions.clear();
+		this.chatWatchers.clear();
 	}
 
 	// ---------------------------------------------------------------------------
@@ -268,6 +276,9 @@ export class SocketHub {
 				}
 			}
 
+			// Pulisce le iscrizioni chat e aggiorna le macchine interessate.
+			this.cleanupClientChatSubscriptions(ws);
+
 			// Se il client era gia' autenticato, aggiorna l'elenco dei dispositivi connessi verso le macchine.
 			if (data.helloReceived) {
 				this.broadcastClientsToHosts();
@@ -313,6 +324,10 @@ export class SocketHub {
 
 		if (msg.type === 'command_result') {
 			this.processHostCommandResult(ws, conn, msg);
+			return;
+		}
+		if (msg.type === 'chat_event') {
+			this.processHostChatEvent(ws, conn, msg);
 			return;
 		}
 
@@ -408,6 +423,10 @@ export class SocketHub {
 		if (summary) {
 			this.broadcastToClients({ type: 'host_status', host: summary });
 		}
+
+		if (conn.features.includes('chat')) {
+			this.notifyHostChatWatch(conn.hostId);
+		}
 	}
 
 	private processHostSnapshot(
@@ -457,8 +476,10 @@ export class SocketHub {
 			receivedAt: conn.stateReceivedAt,
 			state
 		});
-	}
 
+		const hostName = this.store.getHost(conn.hostId)?.name ?? conn.hostId;
+		this.onHostSnapshot?.(conn.hostId, hostName, state);
+	}
 	private processHostCommandResult(
 		ws: ServerWebSocket<RelayWsData>,
 		conn: HostWsSession,
@@ -486,11 +507,61 @@ export class SocketHub {
 			hostId: conn.hostId,
 			commandId: pending.clientCommandId,
 			ok: msg.ok,
-			error: msg.error as CommandError | undefined
+			error: msg.error as CommandError | undefined,
+			data: msg.data
 		});
 
 		const outcome = msg.ok ? 'ok' : ((msg.error as CommandError | undefined)?.code ?? 'failed');
 		this.store.logCommand(Date.now(), pending.deviceId, conn.hostId, pending.kind, outcome);
+	}
+
+	private processHostChatEvent(
+		ws: ServerWebSocket<RelayWsData>,
+		conn: HostWsSession,
+		msg: Record<string, unknown>
+	): void {
+		const projectId = msg.projectId;
+		const laneId = msg.laneId;
+		const event = msg.event as Record<string, unknown> | undefined;
+
+		if (
+			typeof projectId !== 'string' ||
+			!projectId ||
+			projectId.length > 256 ||
+			typeof laneId !== 'string' ||
+			!laneId ||
+			laneId.length > 128 ||
+			!event ||
+			typeof event !== 'object' ||
+			typeof event.kind !== 'string' ||
+			!['message', 'delta', 'reset'].includes(event.kind)
+		) {
+			ws.close(CloseCode.protocolError, 'invalid chat_event frame');
+			return;
+		}
+
+		const key = `${conn.hostId}\0${projectId}\0${laneId}`;
+		const subscribers = this.chatWatchers.get(key);
+		if (!subscribers || subscribers.size === 0) {
+			// Nessun client segue questa corsia: frame scartato.
+			return;
+		}
+
+		const outFrame: RelayToClientFrame = {
+			type: 'chat_event',
+			hostId: conn.hostId,
+			projectId,
+			laneId,
+			event: event as unknown as RemoteChatEvent
+		};
+		const payload = JSON.stringify(outFrame);
+		for (const clientWs of subscribers) {
+			try {
+				clientWs.send(payload);
+			} catch {
+				// Client disconnesso nel frattempo
+			}
+		}
 	}
 
 	// ---------------------------------------------------------------------------
@@ -511,7 +582,7 @@ export class SocketHub {
 		conn.lastInboundAt = Date.now();
 
 		// Protezione da confusione di ruolo: i frame della macchina non sono ammessi sul canale client.
-		if (msg.type === 'snapshot' || msg.type === 'command_result' || 'host' in msg) {
+		if (msg.type === 'snapshot' || msg.type === 'command_result' || msg.type === 'chat_event' || 'host' in msg) {
 			ws.close(CloseCode.protocolError, 'host-only frame on client socket');
 			return;
 		}
@@ -540,7 +611,22 @@ export class SocketHub {
 			return;
 		}
 
+		if (msg.type === 'chat_subscribe') {
+			this.processClientChatSubscribe(ws, conn, msg);
+			return;
+		}
+
+		if (msg.type === 'chat_unsubscribe') {
+			this.processClientChatUnsubscribe(ws, conn, msg);
+			return;
+		}
+
 		if (msg.type === 'pong') {
+			return;
+		}
+
+		if (msg.type === 'visibility' && typeof msg.visible === 'boolean') {
+			conn.visible = msg.visible;
 			return;
 		}
 
@@ -785,6 +871,163 @@ export class SocketHub {
 		}
 	}
 
+	private processClientChatSubscribe(
+		ws: ServerWebSocket<RelayWsData>,
+		_conn: ClientWsSession,
+		msg: Record<string, unknown>
+	): void {
+		const hostId = msg.hostId;
+		const projectId = msg.projectId;
+		const laneId = msg.laneId;
+
+		if (
+			typeof hostId !== 'string' ||
+			!hostId ||
+			hostId.length > 128 ||
+			typeof projectId !== 'string' ||
+			!projectId ||
+			projectId.length > 256 ||
+			typeof laneId !== 'string' ||
+			!laneId ||
+			laneId.length > 128
+		) {
+			ws.close(CloseCode.protocolError, 'invalid chat_subscribe frame');
+			return;
+		}
+
+		let subs = this.clientSubscriptions.get(ws);
+		if (!subs) {
+			subs = new Set<string>();
+			this.clientSubscriptions.set(ws, subs);
+		}
+
+		const key = `${hostId}\0${projectId}\0${laneId}`;
+		if (subs.has(key)) {
+			return;
+		}
+
+		if (subs.size >= MAX_CHAT_SUBSCRIPTIONS_PER_SOCKET) {
+			// Tetto massimo per socket raggiunto: ignora ulteriori iscrizioni
+			return;
+		}
+
+		subs.add(key);
+
+		let watchers = this.chatWatchers.get(key);
+		if (!watchers) {
+			watchers = new Set<ServerWebSocket<RelayWsData>>();
+			this.chatWatchers.set(key, watchers);
+		}
+		watchers.add(ws);
+
+		if (watchers.size === 1) {
+			this.notifyHostChatWatch(hostId);
+		}
+	}
+
+	private processClientChatUnsubscribe(
+		ws: ServerWebSocket<RelayWsData>,
+		_conn: ClientWsSession,
+		msg: Record<string, unknown>
+	): void {
+		const hostId = msg.hostId;
+		const projectId = msg.projectId;
+		const laneId = msg.laneId;
+
+		if (
+			typeof hostId !== 'string' ||
+			!hostId ||
+			hostId.length > 128 ||
+			typeof projectId !== 'string' ||
+			!projectId ||
+			projectId.length > 256 ||
+			typeof laneId !== 'string' ||
+			!laneId ||
+			laneId.length > 128
+		) {
+			ws.close(CloseCode.protocolError, 'invalid chat_unsubscribe frame');
+			return;
+		}
+
+		const subs = this.clientSubscriptions.get(ws);
+		const key = `${hostId}\0${projectId}\0${laneId}`;
+		if (!subs || !subs.has(key)) {
+			return;
+		}
+
+		subs.delete(key);
+		if (subs.size === 0) {
+			this.clientSubscriptions.delete(ws);
+		}
+
+		const watchers = this.chatWatchers.get(key);
+		if (watchers) {
+			watchers.delete(ws);
+			if (watchers.size === 0) {
+				this.chatWatchers.delete(key);
+				this.notifyHostChatWatch(hostId);
+			}
+		}
+	}
+
+	private cleanupClientChatSubscriptions(ws: ServerWebSocket<RelayWsData>): void {
+		const subs = this.clientSubscriptions.get(ws);
+		if (!subs || subs.size === 0) {
+			this.clientSubscriptions.delete(ws);
+			return;
+		}
+
+		const affectedHostIds = new Set<string>();
+		for (const key of subs) {
+			const sepIdx = key.indexOf('\0');
+			const hostId = sepIdx >= 0 ? key.slice(0, sepIdx) : key;
+			const watchers = this.chatWatchers.get(key);
+			if (watchers) {
+				watchers.delete(ws);
+				if (watchers.size === 0) {
+					this.chatWatchers.delete(key);
+					affectedHostIds.add(hostId);
+				}
+			}
+		}
+		this.clientSubscriptions.delete(ws);
+
+		for (const hostId of affectedHostIds) {
+			this.notifyHostChatWatch(hostId);
+		}
+	}
+
+	private notifyHostChatWatch(hostId: string): void {
+		const hostWs = this.activeHosts.get(hostId);
+		if (!hostWs) return;
+		const hostData = hostWs.data as HostWsSession | undefined;
+		if (!hostData || !hostData.helloReceived) return;
+		if (!hostData.features.includes('chat')) return;
+
+		const prefix = `${hostId}\0`;
+		const lanes: RemoteLaneRef[] = [];
+		for (const key of this.chatWatchers.keys()) {
+			if (key.startsWith(prefix)) {
+				const rest = key.slice(prefix.length);
+				const sep = rest.indexOf('\0');
+				if (sep >= 0) {
+					const projectId = rest.slice(0, sep);
+					const laneId = rest.slice(sep + 1);
+					lanes.push({ projectId, laneId });
+				}
+			}
+		}
+
+		const frame: RelayToHostFrame = {
+			type: 'chat_watch',
+			lanes
+		};
+		try {
+			hostWs.send(JSON.stringify(frame));
+		} catch {
+			// Host disconnesso nel frattempo
+		}
+	}
 	// ---------------------------------------------------------------------------
 	// Diagnostica
 	// ---------------------------------------------------------------------------
@@ -910,6 +1153,18 @@ export class SocketHub {
 			if (data.deviceId === deviceId && data.helloReceived) return true;
 		}
 		return false;
+	}
+
+	/** Restituisce l'insieme degli identificativi dei dispositivi che hanno almeno un socket client attivo e visibile. */
+	getActiveVisibleDeviceIds(): Set<string> {
+		const visible = new Set<string>();
+		for (const ws of this.activeClients) {
+			const data = ws.data as ClientWsSession;
+			if (data.helloReceived && data.visible !== false) {
+				visible.add(data.deviceId);
+			}
+		}
+		return visible;
 	}
 
 	/** Verifica se una macchina ha una connessione WebSocket aperta. */

@@ -58,7 +58,7 @@
 
 	const canQuotaAction = $derived(hostFeatures.includes('quota_actions'));
 
-	async function runAction(actionFn: () => Promise<void>): Promise<void> {
+	async function runAction(actionFn: () => Promise<unknown>): Promise<void> {
 		if (isSubmitting) return;
 		isSubmitting = true;
 		errorMessage = null;
@@ -156,7 +156,7 @@
 	}
 </script>
 
-<div class="attention-card">
+<div class="attention-card" id={`attention-${attention.requestId}`}>
 	<div class="attention-header">
 		<div class="badge-row">
 			<span class="attention-badge">

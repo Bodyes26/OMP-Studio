@@ -11,6 +11,8 @@
 		hostName,
 		hostFeatures,
 		projectId,
+		taskIndex,
+		totalTasks,
 		canRunTask,
 		runBlockReason
 	} = $props<{
@@ -19,6 +21,8 @@
 		hostName: string;
 		hostFeatures: Feature[];
 		projectId: string;
+		taskIndex?: number;
+		totalTasks?: number;
 		canRunTask: boolean;
 		runBlockReason: string | null;
 	}>();
@@ -90,7 +94,12 @@
 {#if showDetail}
 	<TaskDetailModal
 		{task}
+		{hostId}
 		{hostName}
+		{hostFeatures}
+		{projectId}
+		{taskIndex}
+		{totalTasks}
 		{canRun}
 		{runBlockReason}
 		onClose={() => (showDetail = false)}

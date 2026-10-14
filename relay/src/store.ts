@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import type { Feature, HostState, PairingKind, Platform } from './protocol.ts';
 export const MAX_ACTIVE_CODES_PER_DEVICE = 10;
 export const PAIRING_CODE_SWEEP_MS = 60_000;
-
+export const MAX_PUSH_SUBSCRIPTIONS_PER_DEVICE = 5;
 
 export interface HostRecord {
 	id: string;
@@ -26,6 +26,17 @@ export interface DeviceRecord {
 	lastSeenAt: number | null;
 	sessionHash: string;
 	revoked: boolean;
+}
+
+export interface PushSubscriptionRecord {
+	id: string;
+	deviceId: string;
+	endpoint: string;
+	p256dh: string;
+	auth: string;
+	userAgent: string | null;
+	createdAt: number;
+	lastUsedAt: number | null;
 }
 
 interface RawHostRow {
@@ -73,7 +84,7 @@ export class RelayStore {
 	private initSchema(): void {
 		const versionRow = this.db.query<{ user_version: number }, []>('PRAGMA user_version;').get();
 		const currentVersion = versionRow?.user_version ?? 0;
-		if (currentVersion === 0) {
+		if (currentVersion < 1) {
 			this.db.run(`
 				CREATE TABLE IF NOT EXISTS devices (
 					id TEXT PRIMARY KEY,
@@ -116,6 +127,29 @@ export class RelayStore {
 			`);
 			this.db.run('PRAGMA user_version = 1;');
 		}
+		if (currentVersion < 2) {
+			this.db.run(`
+				CREATE TABLE IF NOT EXISTS vapid_keys (
+					id TEXT PRIMARY KEY,
+					public_key TEXT NOT NULL,
+					private_key TEXT NOT NULL,
+					created_at INTEGER NOT NULL
+				);
+				CREATE TABLE IF NOT EXISTS push_subscriptions (
+					id TEXT PRIMARY KEY,
+					device_id TEXT NOT NULL,
+					endpoint TEXT NOT NULL UNIQUE,
+					p256dh TEXT NOT NULL,
+					auth TEXT NOT NULL,
+					user_agent TEXT,
+					created_at INTEGER NOT NULL,
+					last_used_at INTEGER
+				);
+				CREATE INDEX IF NOT EXISTS idx_push_subs_device ON push_subscriptions (device_id);
+				CREATE INDEX IF NOT EXISTS idx_push_subs_endpoint ON push_subscriptions (endpoint);
+			`);
+			this.db.run('PRAGMA user_version = 2;');
+		}
 	}
 
 	/** Registra un nuovo dispositivo client abbinato. */
@@ -157,6 +191,8 @@ export class RelayStore {
 		if (res.changes > 0) {
 			// Invalida e rimuove immediatamente i codici non utilizzati emessi dal dispositivo revocato
 			this.db.query('DELETE FROM pairing_codes WHERE created_by_device = ? AND used_at IS NULL;').run(id);
+			// Rimuove anche le sottoscrizioni push associate al dispositivo revocato
+			this.db.query('DELETE FROM push_subscriptions WHERE device_id = ?;').run(id);
 			return true;
 		}
 		return false;
@@ -312,6 +348,121 @@ export class RelayStore {
 			.run();
 	}
 
+
+	/** Recupera la coppia di chiavi VAPID salvata in SQLite. */
+	getVapidKeys(): { publicKey: string; privateKey: string } | null {
+		if (this.closed) return null;
+		const row = this.db
+			.query<{ public_key: string; private_key: string }, [string]>(
+				'SELECT public_key, private_key FROM vapid_keys WHERE id = ? LIMIT 1;'
+			)
+			.get('default');
+		if (!row) return null;
+		return { publicKey: row.public_key, privateKey: row.private_key };
+	}
+
+	/** Salva o aggiorna la coppia di chiavi VAPID in SQLite. */
+	saveVapidKeys(publicKey: string, privateKey: string, now: number): void {
+		if (this.closed) return;
+		this.db
+			.query(
+				'INSERT OR REPLACE INTO vapid_keys (id, public_key, private_key, created_at) VALUES (?, ?, ?, ?);'
+			)
+			.run('default', publicKey, privateKey, now);
+	}
+
+	/** Salva una sottoscrizione push per un dispositivo rispettando il tetto per dispositivo. */
+	savePushSubscription(
+		deviceId: string,
+		endpoint: string,
+		p256dh: string,
+		auth: string,
+		userAgent: string | null,
+		now: number
+	): string {
+		const existing = this.db
+			.query<{ id: string }, [string]>('SELECT id FROM push_subscriptions WHERE endpoint = ? LIMIT 1;')
+			.get(endpoint);
+
+		if (existing) {
+			this.db
+				.query(
+					'UPDATE push_subscriptions SET device_id = ?, p256dh = ?, auth = ?, user_agent = ?, last_used_at = ? WHERE id = ?;'
+				)
+				.run(deviceId, p256dh, auth, userAgent, now, existing.id);
+			return existing.id;
+		}
+
+		// Controllo quota per dispositivo: rimuove la piu' vecchia se eccede il tetto
+		const countRow = this.db
+			.query<{ count: number }, [string]>(
+				'SELECT COUNT(*) as count FROM push_subscriptions WHERE device_id = ?;'
+			)
+			.get(deviceId);
+		if ((countRow?.count ?? 0) >= MAX_PUSH_SUBSCRIPTIONS_PER_DEVICE) {
+			this.db
+				.query(
+					`DELETE FROM push_subscriptions WHERE id IN (
+						SELECT id FROM push_subscriptions WHERE device_id = ? ORDER BY created_at ASC LIMIT 1
+					);`
+				)
+				.run(deviceId);
+		}
+
+		const id = randomUUID();
+		this.db
+			.query(
+				'INSERT INTO push_subscriptions (id, device_id, endpoint, p256dh, auth, user_agent, created_at, last_used_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?);'
+			)
+			.run(id, deviceId, endpoint, p256dh, auth, userAgent, now, now);
+		return id;
+	}
+
+	/** Elimina una specifica sottoscrizione push tramite l'endpoint. */
+	deletePushSubscription(endpoint: string): boolean {
+		if (this.closed) return false;
+		const res = this.db.query('DELETE FROM push_subscriptions WHERE endpoint = ?;').run(endpoint);
+		return res.changes > 0;
+	}
+
+	/** Elimina le sottoscrizioni push di un dispositivo (opzionalmente filtrando per endpoint). */
+	deletePushSubscriptionsForDevice(deviceId: string, endpoint?: string): number {
+		if (this.closed) return 0;
+		if (endpoint) {
+			const res = this.db
+				.query('DELETE FROM push_subscriptions WHERE device_id = ? AND endpoint = ?;')
+				.run(deviceId, endpoint);
+			return res.changes;
+		}
+		const res = this.db.query('DELETE FROM push_subscriptions WHERE device_id = ?;').run(deviceId);
+		return res.changes;
+	}
+
+	/** Elenca tutte le sottoscrizioni push attive per un dato dispositivo. */
+	getPushSubscriptionsForDevice(deviceId: string): PushSubscriptionRecord[] {
+		if (this.closed) return [];
+		return this.db
+			.query<
+				PushSubscriptionRecord,
+				[string]
+			>(
+				'SELECT id, device_id as deviceId, endpoint, p256dh, auth, user_agent as userAgent, created_at as createdAt, last_used_at as lastUsedAt FROM push_subscriptions WHERE device_id = ?;'
+			)
+			.all(deviceId);
+	}
+
+	/** Elenca tutte le sottoscrizioni push di tutti i dispositivi non revocati. */
+	getAllPushSubscriptions(): PushSubscriptionRecord[] {
+		if (this.closed) return [];
+		return this.db
+			.query<PushSubscriptionRecord, []>(
+				`SELECT p.id, p.device_id as deviceId, p.endpoint, p.p256dh, p.auth, p.user_agent as userAgent, p.created_at as createdAt, p.last_used_at as lastUsedAt
+				 FROM push_subscriptions p
+				 INNER JOIN devices d ON d.id = p.device_id
+				 WHERE d.revoked = 0;`
+			)
+			.all();
+	}
 	close(): void {
 		this.closed = true;
 		clearInterval(this.sweepTimer);

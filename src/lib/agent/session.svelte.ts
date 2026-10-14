@@ -23,6 +23,7 @@ import {
 	type HeadsUpPhrases,
 	type TurnHeadsUp
 } from './turnHeadsUp';
+import type { RemoteChatEvent } from '$remote-protocol';
 
 let firstComposerReadyMarked = false;
 // Stato della superficie GUI: un'istanza per progetto.
@@ -571,7 +572,24 @@ export class AgentSession {
 	private queueRestoreHandlers = new Set<(entries: readonly RestoredQueuedMessage[]) => void>();
 	/** Input ritirato senza compositore montato: consegnato al primo che si registra. */
 	private pendingQueueRestore: RestoredQueuedMessage[] = [];
+	private remoteChatListeners = new Set<(event: RemoteChatEvent) => void>();
 
+	subscribeRemoteChat(listener: (event: RemoteChatEvent) => void): () => void {
+		this.remoteChatListeners.add(listener);
+		return () => {
+			this.remoteChatListeners.delete(listener);
+		};
+	}
+
+	emitRemoteChat(event: RemoteChatEvent): void {
+		for (const listener of this.remoteChatListeners) {
+			try {
+				listener(event);
+			} catch {
+				// ignora errori nei listener remoti
+			}
+		}
+	}
 	registerComposerInsertHandler(handler: (text: string) => void): () => void {
 		this.composerInsertHandlers.add(handler);
 		return () => this.composerInsertHandlers.delete(handler);
@@ -2117,6 +2135,9 @@ export class AgentSession {
 					this.optimisticUser = null;
 					this.visibleCount = RENDER_WINDOW;
 					this.restoreGuidedGoalEntries();
+					if (this.remoteChatListeners.size > 0) {
+						this.emitRemoteChat({ kind: 'reset' });
+					}
 					return;
 				}
 				if (failed === 'fatal') break;
@@ -2374,7 +2395,7 @@ export class AgentSession {
 						if (loopGiro !== undefined) pending.loopGiro = loopGiro;
 						return;
 					}
-					this.push({
+					const createdUser = this.push({
 						id: this.nextEntryId++,
 						kind: 'user',
 						content,
@@ -2382,6 +2403,16 @@ export class AgentSession {
 						attribution: message.attribution,
 						messageTs: message.timestamp,
 						loopGiro
+					});
+					this.emitRemoteChat({
+						kind: 'message',
+						message: {
+							id: String(createdUser.id),
+							role: 'user',
+							text: content,
+							toolName: null,
+							timestamp: message.timestamp ?? Date.now()
+						}
 					});
 				} else if (message.role === 'assistant') {
 					if (!this.isStreaming || this.isAborting) return;
@@ -2426,6 +2457,17 @@ export class AgentSession {
 					if (!this.assistantEntry.stopReason) {
 						this.assistantEntry.stopReason = message.stopReason;
 					}
+					const text = assistantEntryText(this.assistantEntry);
+					this.emitRemoteChat({
+						kind: 'message',
+						message: {
+							id: String(this.assistantEntry.id),
+							role: 'assistant',
+							text,
+							toolName: null,
+							timestamp: message.timestamp ?? Date.now()
+						}
+					});
 					this.assistantEntry = null;
 				}
 				this.activeAssistantId = null;
@@ -2453,7 +2495,16 @@ export class AgentSession {
 				// Stessa ragione dell'entry assistant: nella mappa va l'istanza
 				// reattiva, non quella grezza appena costruita.
 				this.toolEntries.set(event.toolCallId, this.push(entry) as ToolEntry);
-				this.markWorking();
+				this.emitRemoteChat({
+					kind: 'message',
+					message: {
+						id: event.toolCallId,
+						role: 'tool',
+						text: event.intent?.trim() || event.toolName,
+						toolName: event.toolName,
+						timestamp: entry.startedAt
+					}
+				});
 				// Riga di attivita' per la companion: l'intento dichiarato dice
 				// cosa sta facendo l'agente, il nome del tool e' il ripiego.
 				this.activityLine = {
@@ -2478,6 +2529,16 @@ export class AgentSession {
 					if (event.result && (!entry.result || !entry.result.isError)) entry.result = event.result;
 					entry.running = false;
 					entry.endedAt = Date.now();
+					this.emitRemoteChat({
+						kind: 'message',
+						message: {
+							id: entry.toolCallId,
+							role: 'tool',
+							text: entry.intent?.trim() || entry.toolName,
+							toolName: entry.toolName,
+							timestamp: entry.startedAt
+						}
+					});
 				}
 				if (
 					entry &&
@@ -3553,11 +3614,17 @@ export class AgentSession {
 		const existing = entry.blocks[index];
 		if (existing && existing.type === kind) {
 			existing.text += delta;
-			return;
+		} else {
+			this.setBlock(index, { type: kind, text: delta });
 		}
-		this.setBlock(index, { type: kind, text: delta });
+		if (kind === 'text' && this.remoteChatListeners.size > 0) {
+			this.emitRemoteChat({
+				kind: 'delta',
+				messageId: String(entry.id),
+				text: delta
+			});
+		}
 	}
-
 	private ensureAssistant(): AssistantEntry {
 		if (this.assistantEntry) return this.assistantEntry;
 		this.assistantEntry = this.push({
@@ -4371,6 +4438,16 @@ export class AgentSession {
 				content: fullMessage,
 				images: images.map((image) => ({ data: image.data, mimeType: image.mimeType }))
 			}) as UserEntry;
+			this.emitRemoteChat({
+				kind: 'message',
+				message: {
+					id: String(entryId),
+					role: 'user',
+					text: fullMessage,
+					toolName: null,
+					timestamp: Date.now()
+				}
+			});
 		}
 		// Un prompt a sessione ferma avvia un run, ma omp risponde gia'
 		// all'ammissione, prima di `agent_start`: fino ad allora la sessione
@@ -4810,7 +4887,7 @@ export class AgentSession {
 		this.turnStartedAt = null;
 		this.isCompacting = false;
 		this.agentState = 'idle';
-		this.applyRunActivity(runActivityReset(this.runActivity, Date.now()));
+		this.emitRemoteChat({ kind: 'reset' });
 		this.visibleCount = RENDER_WINDOW;
 		this.ompEntries.invalidate();
 	}

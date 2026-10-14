@@ -5,6 +5,7 @@
 	import Switch from '$lib/ui/Switch.svelte';
 	import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
 	import StatusMark from '$lib/ui/StatusMark.svelte';
+	import { IconRemote } from '$lib/icons';
 
 	let relayUrlInput = $state(remoteStore.status.relayUrl ?? '');
 	let machineNameInput = $state(remoteStore.status.machineName ?? '');
@@ -203,6 +204,28 @@
 					</div>
 				</div>
 
+				<!-- Accesso ad Altre macchine -->
+				<div class="form-row">
+					<div class="form-row-copy">
+						<span class="form-row-label">
+							{m.settings_remote_machines_title()}
+						</span>
+						<span class="form-row-desc">
+							{m.settings_remote_machines_desc()}
+						</span>
+					</div>
+					<div class="form-row-control">
+						<button
+							type="button"
+							class="ui-button ui-button-secondary machines-btn"
+							onclick={() => void remoteStore.openMachinesWindow()}
+						>
+							<IconRemote size={16} />
+							<span>{m.settings_remote_open_machines()}</span>
+						</button>
+					</div>
+				</div>
+
 				<div class="form-row action-row">
 					<button
 						type="button"
@@ -394,5 +417,11 @@
 
 	.error-row {
 		margin-top: var(--space-1);
+	}
+
+	.machines-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-2);
 	}
 </style>

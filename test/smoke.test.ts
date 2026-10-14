@@ -97,3 +97,6 @@ import './corsie-agente.test.ts';
 import './usage-resets.test.ts';
 import './remote-projection.test.ts';
 import './remote-commands.test.ts';
+import './project-commands.test.ts';
+import './remote-task-commands.test.ts';
+import './remote-chat.test.ts';

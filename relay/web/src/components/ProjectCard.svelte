@@ -1,9 +1,10 @@
 <script lang="ts">
-	import type { RemoteProject, Feature } from '../../../src/protocol.ts';
+	import type { RemoteProject, Feature, RemoteLane, RemoteTask } from '../../../src/protocol.ts';
 	import { t } from '../i18n.ts';
 	import AttentionCard from './AttentionCard.svelte';
 	import TaskRow from './TaskRow.svelte';
-
+	import NewTaskModal from './NewTaskModal.svelte';
+	import LaneChatModal from './LaneChatModal.svelte';
 	let {
 		project,
 		hostId,
@@ -16,6 +17,8 @@
 		hostFeatures: Feature[];
 	}>();
 
+	let showNewTask = $state(false);
+	let activeChatLane = $state<RemoteLane | null>(null);
 	function getLaneKindLabel(kind: 'main' | 'worktree' | 'lab'): string {
 		if (kind === 'main') return t('laneMain');
 		if (kind === 'worktree') return t('laneWorktree');
@@ -34,7 +37,7 @@
 	}
 </script>
 
-<div class="project-card" class:active-card={project.active}>
+<div class="project-card" id={`project-${project.id}`} class:active-card={project.active}>
 	<div class="project-header">
 		<div class="title-left">
 			<span class="hue-dot" style:background="hsl({project.hue}, 70%, 55%)"></span>
@@ -65,6 +68,16 @@
 					>
 						{getAgentStateLabel(lane.agent.state)}
 					</span>
+					{#if hostFeatures.includes('chat')}
+						<button
+							class="btn-lane-chat"
+							onclick={() => (activeChatLane = lane)}
+							aria-label={t('openChat')}
+							title={t('openChat')}
+						>
+							💬
+						</button>
+					{/if}
 				</div>
 
 				{#if lane.agent.activity}
@@ -99,25 +112,62 @@
 	{/if}
 
 	<!-- Coda task -->
-	{#if project.tasks && project.tasks.length > 0}
+	{#if (project.tasks && project.tasks.length > 0) || hostFeatures.includes('task_edit')}
 		<div class="tasks-section">
 			<div class="tasks-header">
-				<span class="tasks-title">{t('tasksTitle')} ({project.tasks.length})</span>
+				<span class="tasks-title">{t('tasksTitle')} ({project.tasks?.length ?? 0})</span>
+				{#if hostFeatures.includes('task_edit')}
+					<button
+						type="button"
+						class="btn-new-task"
+						onclick={() => (showNewTask = true)}
+					>
+						+ {t('newTask')}
+					</button>
+				{/if}
 			</div>
-			<div class="tasks-list">
-				{#each project.tasks as task (task.id)}
-					<TaskRow
-						{task}
-						{hostId}
-						{hostName}
-						{hostFeatures}
-						projectId={project.id}
-						canRunTask={project.canRunTask}
-						runBlockReason={project.runBlockReason}
-					/>
-				{/each}
-			</div>
+			{#if project.tasks && project.tasks.length > 0}
+				{@const queuedTasks = (project.tasks || []).filter((t: RemoteTask) => t.status === 'queued')}
+				<div class="tasks-list">
+					{#each project.tasks as task (task.id)}
+						{@const queuedIndex = task.status === 'queued' ? queuedTasks.findIndex((t: RemoteTask) => t.id === task.id) : undefined}
+						<TaskRow
+							{task}
+							{hostId}
+							{hostName}
+							{hostFeatures}
+							projectId={project.id}
+							taskIndex={queuedIndex}
+							totalTasks={queuedTasks.length}
+							canRunTask={project.canRunTask}
+							runBlockReason={project.runBlockReason}
+						/>
+					{/each}
+				</div>
+			{/if}
 		</div>
+	{/if}
+
+	{#if showNewTask}
+		<NewTaskModal
+			{hostId}
+			{hostName}
+			projectId={project.id}
+			projectName={project.name}
+			onClose={() => (showNewTask = false)}
+		/>
+	{/if}
+
+	{#if activeChatLane}
+		<LaneChatModal
+			{hostId}
+			{hostName}
+			{hostFeatures}
+			projectId={project.id}
+			projectTitle={project.name}
+			lane={activeChatLane}
+			onClose={() => (activeChatLane = null)}
+		/>
 	{/if}
 </div>
 
@@ -278,15 +328,53 @@
 	}
 
 	.tasks-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
 		font-size: 11px;
 		font-weight: 700;
 		text-transform: uppercase;
 		color: var(--ink-faint);
 	}
 
+	.btn-new-task {
+		font-size: 0.76rem;
+		font-weight: 500;
+		padding: 3px 8px;
+		background: var(--bg-sunken);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+		color: var(--ink);
+		cursor: pointer;
+	}
+
+	.btn-new-task:hover {
+		background: var(--bg-raised);
+		color: var(--ink);
+	}
 	.tasks-list {
 		display: flex;
 		flex-direction: column;
 		gap: 6px;
+	}
+
+	.btn-lane-chat {
+		background: transparent;
+		border: 1px solid var(--line);
+		border-radius: 4px;
+		cursor: pointer;
+		padding: 2px 6px;
+		font-size: 13px;
+		line-height: 1;
+		color: var(--ink);
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		transition: background 0.15s;
+		margin-left: auto;
+	}
+
+	.btn-lane-chat:hover {
+		background: var(--line);
 	}
 </style>

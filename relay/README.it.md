@@ -46,6 +46,20 @@ Non esiste un relay condiviso o predefinito. Ognuno ospita il proprio, Studio ne
 
 Hai perso un dispositivo o dismesso una macchina? Revocali da *Impostazioni*: le loro connessioni si chiudono subito.
 
+## Notifiche Web Push
+
+Il relay invia notifiche native Web Push (cifratura RFC 8291 aes128gcm, VAPID RFC 8292) ai dispositivi abbinati quando:
+- Un agente fa una domanda o chiede conferma (`<macchina> · <progetto>: domanda`).
+- Una corsia incontra un blocco di quota.
+- Un agente in una corsia termina il turno di lavoro (passaggio a idle, con debounce anti-flapping).
+
+Le notifiche push richiedono HTTPS.
+- Su **Android / Chrome / Firefox / Safari desktop**, attiva le notifiche dalle *Impostazioni* del quadro.
+- Su **iOS / iPadOS (16.4+)**, Apple richiede di installare la PWA sulla Schermata Home (*Condividi > Aggiungi alla schermata Home*) per poter abilitare il Web Push.
+- La coppia di chiavi VAPID viene generata al primo avvio e memorizzata nel database SQLite (`data/relay.db`), sopravvivendo ai riavvii del container.
+- I dispositivi con una finestra del quadro aperta e visibile in primo piano non ricevono notifiche push per evitare avvisi ridondanti.
+- Gli endpoint delle sottoscrizioni vengono convalidati rispetto a un'allowlist dei servizi push ufficiali (`fcm.googleapis.com`, `android.googleapis.com`, `*.push.services.mozilla.com`, `*.push.apple.com`, `*.notify.windows.com`) sia alla registrazione sia all'invio, e le chiamate HTTP non seguono reindirizzamenti (`redirect: 'error'`) per prevenire attacchi SSRF.
+
 ## Aggiornamento
 
 ```sh

@@ -32,7 +32,7 @@ use projects::{
     path_create_file, path_rename, path_trash, preview_file, project_content_search,
     project_files_list, project_files_search, project_git_ignored, project_git_status,
     project_tasks_read, project_tasks_unwatch, project_tasks_watch, project_tasks_write,
-    resolve_project_file, tree_read, worktree_apply_allowlist, worktree_create,
+    project_canonicalize_child_dir, resolve_project_file, tree_read, worktree_apply_allowlist, worktree_create,
     worktree_delete_lane_branch,
     worktree_inspect, worktree_land, worktree_list, worktree_profile_scan, worktree_remove,
     worktree_review_inspect, worktree_undo_land,
@@ -118,8 +118,9 @@ use chat_attachments::{
 };
 pub mod remote;
 use remote::{
-    remote_command_result, remote_get_status, remote_pair, remote_publish_state,
-    remote_set_enabled, remote_set_machine_name, remote_unpair,
+    remote_command_result, remote_get_status, remote_open_machines_window, remote_pair,
+    remote_publish_chat_event, remote_publish_state, remote_set_enabled, remote_set_machine_name,
+    remote_unpair,
 };
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -226,6 +227,7 @@ pub fn run() {
             project_tasks_write,
             project_tasks_watch,
             project_tasks_unwatch,
+            project_canonicalize_child_dir,
             resolve_project_file,
             worktree_inspect,
             worktree_create,
@@ -351,6 +353,8 @@ pub fn run() {
             remote_unpair,
             remote_publish_state,
             remote_command_result,
+            remote_publish_chat_event,
+            remote_open_machines_window,
         ])
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::Destroyed => {

@@ -15,7 +15,18 @@ pub const PROTOCOL_VERSION: u32 = 1;
 pub const MIN_HOST_PROTOCOL_VERSION: u32 = 1;
 
 /// Funzioni offerte da Studio: specchio di `FEATURES` in `protocol.ts`.
-pub const FEATURES: &[&str] = &["respond_ui", "run_task", "quota_actions"];
+pub const FEATURES: &[&str] = &[
+    "respond_ui",
+    "run_task",
+    "quota_actions",
+    "task_edit",
+    "session_control",
+    "chat",
+    "projects",
+];
+
+/// Tetto di un frame JSON (`MAX_FRAME_BYTES` in `protocol.ts`): oltre, il relay chiude la connessione.
+pub const MAX_FRAME_BYTES: usize = 512 * 1024;
 
 /// Timeout d'inattivita' prima di considerare la connessione caduta (70 s).
 pub const HEARTBEAT_TIMEOUT_MS: u64 = 70_000;
@@ -105,6 +116,20 @@ pub struct RemoteCommandEvent {
     pub command: serde_json::Value,
 }
 
+/// Riferimento a una corsia di un progetto (`RemoteLaneRef` in `protocol.ts`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteLaneRef {
+    pub project_id: String,
+    pub lane_id: String,
+}
+
+/// Evento emesso alla finestra principale quando cambia l'elenco delle corsie seguite (`remote://chat_watch`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteChatWatchEvent {
+    pub lanes: Vec<RemoteLaneRef>,
+}
 /// Identificatore del protocollo scambiato nel frame `hello` / `welcome`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -158,9 +183,20 @@ pub enum HostFrame {
         ok: bool,
         #[serde(skip_serializing_if = "Option::is_none")]
         error: Option<CommandError>,
+        /// Dati del comando (`RemoteCommandData` in `protocol.ts`): Rust li inoltra senza leggerli.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        data: Option<serde_json::Value>,
     },
     #[serde(rename = "pong")]
     Pong { seq: u64 },
+    #[serde(rename = "chat_event")]
+    ChatEvent {
+        #[serde(rename = "projectId")]
+        project_id: String,
+        #[serde(rename = "laneId")]
+        lane_id: String,
+        event: serde_json::Value,
+    },
 }
 
 /// Frame inviati dal relay a Studio (Relay -> Host).
@@ -191,8 +227,9 @@ pub enum RelayToHostFrame {
         #[serde(default)]
         t: u64,
     },
+    #[serde(rename = "chat_watch")]
+    ChatWatch { lanes: Vec<RemoteLaneRef> },
 }
-
 /// Risposta pubblica di `/healthz`.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

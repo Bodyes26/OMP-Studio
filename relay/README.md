@@ -46,6 +46,20 @@ There is no shared or default relay. You host your own, Studio asks for its addr
 
 Lost a device or retired a machine? Revoke it from *Settings*: its connections close immediately.
 
+## Web Push notifications
+
+The relay sends native Web Push notifications (RFC 8291 aes128gcm payload encryption, RFC 8292 VAPID) to paired devices when:
+- An agent asks a question or asks for confirmation (`<machine> · <project>: domanda`).
+- A lane gets blocked by quota.
+- An agent in a lane finishes work (transitions to idle, with debounce against flapping).
+
+Push notifications require HTTPS.
+- On **Android / desktop Chrome / Firefox / Safari**, enable notifications from *Settings* in the dashboard.
+- On **iOS / iPadOS (16.4+)**, Apple requires installing the PWA to the Home Screen (*Share > Add to Home Screen*) before Web Push can be activated.
+- VAPID keys are generated automatically on first start and persisted in the SQLite database (`data/relay.db`), surviving container restarts.
+- Devices with an active client window currently visible do not receive push notifications to avoid redundant alerts.
+- Endpoints are strictly validated against an allowlist of legitimate push services (`fcm.googleapis.com`, `android.googleapis.com`, `*.push.services.mozilla.com`, `*.push.apple.com`, `*.notify.windows.com`) both at subscription time and at delivery time, and requests do not follow HTTP redirects (`redirect: 'error'`), preventing SSRF attacks.
+
 ## Updating
 
 ```sh

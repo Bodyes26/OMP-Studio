@@ -193,3 +193,19 @@ button, input, select, .touch-target {
 .safe-bottom {
 	padding-bottom: max(16px, env(safe-area-inset-bottom));
 }
+
+/* Evidenziazione elemento da notifica push */
+@keyframes notification-highlight {
+	0% {
+		outline: 2px solid var(--brand);
+		outline-offset: 2px;
+	}
+	100% {
+		outline: 2px solid transparent;
+		outline-offset: 6px;
+	}
+}
+
+.highlight-focus {
+	animation: notification-highlight 1.8s ease-out;
+}

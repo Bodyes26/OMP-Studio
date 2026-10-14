@@ -27,8 +27,9 @@ use tokio_tungstenite::tungstenite::Message;
 use crate::remote::config::{validate_and_normalize_relay_url, RemoteConfig};
 use crate::remote::protocol::{
     close_code, current_platform, CommandError, HealthResponse, HostFrame, HostInfo, ProtocolId,
-    RelayProtocolRange, RelayToHostFrame, RemoteCommandEvent, RemoteConnection, RemoteStatus,
-    UpdateNeeded, FEATURES, HEARTBEAT_TIMEOUT_MS, PROTOCOL_NAME, PROTOCOL_VERSION,
+    RelayProtocolRange, RelayToHostFrame, RemoteChatWatchEvent, RemoteCommandEvent,
+    RemoteConnection, RemoteLaneRef, RemoteStatus, UpdateNeeded, FEATURES, HEARTBEAT_TIMEOUT_MS,
+    MAX_FRAME_BYTES, PROTOCOL_NAME, PROTOCOL_VERSION,
 };
 
 /// Tabella dei ritardi base di backoff (in secondi).
@@ -74,6 +75,30 @@ pub fn compute_backoff_delay_ms(attempt: usize) -> u64 {
     backoff_delay_ms_with_jitter(attempt, jitter_frac)
 }
 
+/// Una sessione rimasta su piu' a lungo del watchdog era sana: la caduta successiva
+/// riparte dal primo ritardo invece di sommarsi ai tentativi falliti di giorni prima.
+pub fn attempt_after_session(attempt: usize, session_lasted: Duration) -> usize {
+    if session_lasted >= Duration::from_millis(HEARTBEAT_TIMEOUT_MS) {
+        0
+    } else {
+        attempt
+    }
+}
+
+/// Un'istantanea oltre il tetto del relay farebbe cadere la connessione, e alla
+/// riconnessione ripartirebbe la stessa: si salta e lo stato dice perche'.
+fn snapshot_fits(ctx: &ConnectionContext, json: &str) -> bool {
+    if json.len() <= MAX_FRAME_BYTES {
+        return true;
+    }
+    ctx.status.lock().last_error = Some(format!(
+        "Stato della macchina troppo grande per il relay ({} KB): i dispositivi vedono l'ultimo ricevuto",
+        json.len() / 1024
+    ));
+    ctx.emit_status_update();
+    false
+}
+
 /// Azione risultante dalla chiusura o caduta della connessione.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CloseOutcome {
@@ -115,11 +140,21 @@ pub struct PendingCommandResult {
     pub command_id: String,
     pub ok: bool,
     pub error: Option<CommandError>,
+    pub data: Option<serde_json::Value>,
+}
+
+/// Evento di chat da inoltrare al relay.
+#[derive(Clone, Debug)]
+pub struct PendingChatEvent {
+    pub project_id: String,
+    pub lane_id: String,
+    pub event: serde_json::Value,
 }
 
 /// Hook di test per catturare gli eventi in memoria senza WebView.
 pub type CommandHook = Arc<dyn Fn(RemoteCommandEvent) + Send + Sync>;
 pub type StatusHook = Arc<dyn Fn(RemoteStatus) + Send + Sync>;
+pub type ChatWatchHook = Arc<dyn Fn(Vec<RemoteLaneRef>) + Send + Sync>;
 
 /// Stato condiviso del gestore della connessione.
 pub struct ConnectionContext {
@@ -137,6 +172,9 @@ pub struct ConnectionContext {
     pub operation_epoch: AtomicU64,
     pub command_hook: Mutex<Option<CommandHook>>,
     pub status_hook: Mutex<Option<StatusHook>>,
+    pub chat_watch_hook: Mutex<Option<ChatWatchHook>>,
+    pub chat_events: Mutex<VecDeque<PendingChatEvent>>,
+    pub chat_event_notify: Arc<Notify>,
     pub http_client: reqwest::Client,
 }
 
@@ -181,6 +219,9 @@ impl ConnectionContext {
             operation_epoch: AtomicU64::new(0),
             command_hook: Mutex::new(None),
             status_hook: Mutex::new(None),
+            chat_watch_hook: Mutex::new(None),
+            chat_events: Mutex::new(VecDeque::with_capacity(64)),
+            chat_event_notify: Arc::new(Notify::new()),
             http_client: reqwest::Client::builder()
                 .timeout(Duration::from_secs(10))
                 .build()
@@ -224,9 +265,52 @@ impl ConnectionContext {
         }
     }
 
+    /// Emette l'evento `remote://chat_watch` verso la finestra principale.
+    pub fn emit_chat_watch_event(&self, lanes: Vec<RemoteLaneRef>) {
+        let event = RemoteChatWatchEvent {
+            lanes: lanes.clone(),
+        };
+        if let Some(app) = &self.app {
+            let _ = app.emit_to("main", "remote://chat_watch", &event);
+        }
+        if let Some(hook) = self.chat_watch_hook.lock().as_ref() {
+            hook(lanes);
+        }
+    }
+
+    /// Accoda un evento di chat verso il relay nella coda limitata a 64 elementi.
+    pub fn queue_chat_event(&self, project_id: String, lane_id: String, event: serde_json::Value) {
+        let is_connected = self.status.lock().connection == RemoteConnection::Connected;
+        if !is_connected {
+            return;
+        }
+
+        let mut queue = self.chat_events.lock();
+        if queue.len() >= 64 {
+            if let Some(dropped) = queue.pop_front() {
+                eprintln!(
+                    "[remote] Coda chat piena (64): scartato evento per corsia {}:{}",
+                    dropped.project_id, dropped.lane_id
+                );
+            }
+        }
+        queue.push_back(PendingChatEvent {
+            project_id,
+            lane_id,
+            event,
+        });
+        drop(queue);
+        self.chat_event_notify.notify_one();
+    }
     /// Accoda il risultato di un comando nella coda limitata a 64 elementi.
     /// Se non si e' connessi, il risultato viene scartato perche' il relay e' gia' andato in timeout.
-    pub fn queue_command_result(&self, command_id: String, ok: bool, error: Option<CommandError>) {
+    pub fn queue_command_result(
+        &self,
+        command_id: String,
+        ok: bool,
+        error: Option<CommandError>,
+        data: Option<serde_json::Value>,
+    ) {
         let is_connected = self.status.lock().connection == RemoteConnection::Connected;
         if !is_connected {
             // Drop immediato: il relay ha gia' chiuso la finestra del comando
@@ -246,6 +330,7 @@ impl ConnectionContext {
             command_id,
             ok,
             error,
+            data,
         });
         drop(queue);
         self.command_result_notify.notify_one();
@@ -255,6 +340,7 @@ impl ConnectionContext {
 /// Interrompe la connessione in corso, abortisce il task ed incrementa l'identificatore di sessione.
 pub fn stop_connection_task(ctx: &ConnectionContext) {
     ctx.session_id.fetch_add(1, Ordering::SeqCst);
+    ctx.chat_events.lock().clear();
     if let Some(sender) = ctx.shutdown_sender.lock().take() {
         let _ = sender.send(true);
     }
@@ -360,6 +446,7 @@ async fn connection_loop(
         }
 
         // Tentativo di connessione WebSocket
+        let session_started = std::time::Instant::now();
         let session_result = run_single_session(
             &ctx,
             &normalized.ws_url,
@@ -437,6 +524,7 @@ async fn connection_loop(
                     attempt = 0;
                 }
                 CloseOutcome::Backoff(err_msg) => {
+                    attempt = attempt_after_session(attempt, session_started.elapsed());
                     let delay_ms = compute_backoff_delay_ms(attempt);
                     let now_ms = SystemTime::now()
                         .duration_since(UNIX_EPOCH)
@@ -671,7 +759,10 @@ pub(crate) async fn run_single_session(
         }
         let snapshot_frame = HostFrame::Snapshot { seq, state };
         seq += 1;
-        if let Ok(json) = serde_json::to_string(&snapshot_frame) {
+        if let Some(json) = serde_json::to_string(&snapshot_frame)
+            .ok()
+            .filter(|json| snapshot_fits(ctx, json))
+        {
             tokio::select! {
                 biased;
                 _ = shutdown_rx.changed() => {
@@ -764,6 +855,11 @@ pub(crate) async fn run_single_session(
                                             ctx.emit_command_event(event);
                                         }
                                     }
+                                    Ok(RelayToHostFrame::ChatWatch { lanes }) => {
+                                        if ctx.is_session_current(session_id) {
+                                            ctx.emit_chat_watch_event(lanes);
+                                        }
+                                    }
                                     Ok(RelayToHostFrame::Welcome { relay, clients, .. }) => {
                                         if ctx.is_session_current(session_id) {
                                             let mut st = ctx.status.lock();
@@ -804,7 +900,10 @@ pub(crate) async fn run_single_session(
                 if let Some(state) = latest {
                     let snapshot_frame = HostFrame::Snapshot { seq, state };
                     seq += 1;
-                    if let Ok(json) = serde_json::to_string(&snapshot_frame) {
+                    if let Some(json) = serde_json::to_string(&snapshot_frame)
+                        .ok()
+                        .filter(|json| snapshot_fits(ctx, json))
+                    {
                         let _ = write_half.send(Message::Text(json.into())).await;
                     }
                 }
@@ -817,14 +916,96 @@ pub(crate) async fn run_single_session(
                     queue.drain(..).collect()
                 };
                 for pending in pending_items {
+                    let command_id = pending.command_id;
                     let frame = HostFrame::CommandResult {
-                        command_id: pending.command_id,
+                        command_id: command_id.clone(),
                         ok: pending.ok,
                         error: pending.error,
+                        data: pending.data,
                     };
-                    if let Ok(json) = serde_json::to_string(&frame) {
-                        let _ = write_half.send(Message::Text(json.into())).await;
+                    let Ok(mut json) = serde_json::to_string(&frame) else { continue };
+                    // Un frame oltre il tetto il relay lo chiude come errore di protocollo e
+                    // cade la connessione: al dispositivo arriva un rifiuto, non il silenzio.
+                    if json.len() > MAX_FRAME_BYTES {
+                        let refused = HostFrame::CommandResult {
+                            command_id,
+                            ok: false,
+                            error: Some(CommandError {
+                                code: "failed".to_string(),
+                                message: format!(
+                                    "Risultato troppo grande per il relay ({} KB)",
+                                    json.len() / 1024
+                                ),
+                            }),
+                            data: None,
+                        };
+                        let Ok(refused_json) = serde_json::to_string(&refused) else { continue };
+                        json = refused_json;
                     }
+                    let _ = write_half.send(Message::Text(json.into())).await;
+                }
+            }
+
+            // Notifica di eventi di chat da inviare al relay
+            _ = ctx.chat_event_notify.notified() => {
+                let pending_items: Vec<PendingChatEvent> = {
+                    let mut queue = ctx.chat_events.lock();
+                    queue.drain(..).collect()
+                };
+                for pending in pending_items {
+                    let event_val = pending.event;
+                    let is_delta = event_val.get("kind").and_then(|k| k.as_str()) == Some("delta");
+                    if is_delta {
+                        let text = event_val.get("text").and_then(|t| t.as_str()).unwrap_or("");
+                        let message_id = event_val.get("messageId").and_then(|m| m.as_str()).unwrap_or("");
+
+                        // Dividi il delta in blocchi sicuri di massimo 64 KB di testo
+                        const CHUNK_CHAR_LIMIT: usize = 64 * 1024;
+                        if text.len() > CHUNK_CHAR_LIMIT {
+                            let mut remainder = text;
+                            while !remainder.is_empty() {
+                                let mut cut = remainder.len().min(CHUNK_CHAR_LIMIT);
+                                while cut > 0 && !remainder.is_char_boundary(cut) {
+                                    cut -= 1;
+                                }
+                                if cut == 0 {
+                                    break;
+                                }
+                                let (chunk, rest) = remainder.split_at(cut);
+                                remainder = rest;
+                                let chunk_frame = HostFrame::ChatEvent {
+                                    project_id: pending.project_id.clone(),
+                                    lane_id: pending.lane_id.clone(),
+                                    event: serde_json::json!({
+                                        "kind": "delta",
+                                        "messageId": message_id,
+                                        "text": chunk,
+                                    }),
+                                };
+                                if let Ok(chunk_json) = serde_json::to_string(&chunk_frame) {
+                                    if chunk_json.len() <= MAX_FRAME_BYTES {
+                                        let _ = write_half.send(Message::Text(chunk_json.into())).await;
+                                    }
+                                }
+                            }
+                            continue;
+                        }
+                    }
+
+                    let frame = HostFrame::ChatEvent {
+                        project_id: pending.project_id.clone(),
+                        lane_id: pending.lane_id.clone(),
+                        event: event_val,
+                    };
+                    let Ok(json) = serde_json::to_string(&frame) else { continue };
+                    if json.len() > MAX_FRAME_BYTES {
+                        eprintln!(
+                            "[remote] Frame chat_event troppo grande ({} KB) scartato per proteggere la connessione",
+                            json.len() / 1024
+                        );
+                        continue;
+                    }
+                    let _ = write_half.send(Message::Text(json.into())).await;
                 }
             }
         }

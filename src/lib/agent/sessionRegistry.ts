@@ -63,6 +63,7 @@ export interface AgentSessionLike {
 	/** L'esito della consegna interessa solo la coda dei task: qui basta attendere. */
 	prompt?(message: string, images?: unknown[], behavior?: unknown): Promise<unknown>;
 	pushLaneLanding?(landingId: string): unknown;
+	subscribeRemoteChat?(listener: (event: unknown) => void): () => void;
 }
 
 export type SessionFactory<T extends AgentSessionLike> = (config: AgentSessionConfig) => T;
@@ -70,7 +71,7 @@ export type SessionFactory<T extends AgentSessionLike> = (config: AgentSessionCo
 export class SessionRegistry<T extends AgentSessionLike = AgentSession> {
 	private sessions = new Map<string, T>();
 	private factory: SessionFactory<T> | null = null;
-
+	private sessionCreatedListeners = new Set<(session: T) => void>();
 	// La mappa resta non reattiva: `getOrCreate*` viene chiamato anche dentro
 	// i template (Chat), dove scrivere stato Svelte lancerebbe
 	// `state_unsafe_mutation`. Le letture si iscrivono invece a un segnale che
@@ -103,6 +104,12 @@ export class SessionRegistry<T extends AgentSessionLike = AgentSession> {
 		this.factory = factory;
 	}
 
+	onSessionCreated(listener: (session: T) => void): () => void {
+		this.sessionCreatedListeners.add(listener);
+		return () => {
+			this.sessionCreatedListeners.delete(listener);
+		};
+	}
 	/**
 	 * Restituisce la sessione della corsia, creandola se manca. La chiave
 	 * logica e il workspace devono restare stabili per tutta la sua vita.
@@ -140,6 +147,9 @@ export class SessionRegistry<T extends AgentSessionLike = AgentSession> {
 			});
 			this.sessions.set(key, session);
 			this.membershipChanged();
+			for (const listener of this.sessionCreatedListeners) {
+				listener(session);
+			}
 		}
 		return session;
 	}

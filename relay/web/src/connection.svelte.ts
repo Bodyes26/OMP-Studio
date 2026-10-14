@@ -18,7 +18,8 @@ import {
 	type CommandError,
 	type CreateCodeResponse,
 	type PairingKind,
-	type RelayInfo
+	type RelayInfo,
+	type RemoteChatEvent
 } from '../../src/protocol.ts';
 import { calculateBackoffDelay, OFFLINE_BANNER_THRESHOLD } from './backoff.ts';
 
@@ -29,7 +30,7 @@ export interface PendingCommandState {
 	hostId: string;
 	command: RemoteCommand;
 	startedAt: number;
-	resolve: () => void;
+	resolve: (data: unknown) => void;
 	reject: (err: CommandError) => void;
 }
 
@@ -50,14 +51,17 @@ class RemoteConnectionManager {
 	private watchdogTimer: number | null = null;
 	private backoffTimer: number | null = null;
 	private pendingMap = new Map<string, PendingCommandState>();
-
+	private chatListeners = new Map<string, Set<(event: RemoteChatEvent) => void>>();
+	private activeChatSubscriptions = new Set<string>();
 	init(): void {
 		if (typeof window === 'undefined') return;
 
 		this.checkSession();
 
 		document.addEventListener('visibilitychange', () => {
-			if (document.visibilityState === 'visible' && this.status !== 'connected' && this.status !== 'unpaired') {
+			const isVisible = document.visibilityState === 'visible';
+			this.sendVisibility(isVisible);
+			if (isVisible && this.status !== 'connected' && this.status !== 'unpaired') {
 				this.reconnectImmediate();
 			}
 		});
@@ -210,6 +214,8 @@ class RemoteConnectionManager {
 				this.relayInfo = frame.relay;
 				this.hosts = frame.hosts;
 				sessionStorage.removeItem('omp_version_reloaded');
+				this.sendVisibility(typeof document !== 'undefined' ? document.visibilityState === 'visible' : true);
+				this.resubscribeChat();
 				break;
 			}
 			case 'hosts': {
@@ -217,12 +223,17 @@ class RemoteConnectionManager {
 				break;
 			}
 			case 'host_status': {
+				const prevHost = this.hosts.find((h) => h.id === frame.host.id);
+				const wasOffline = prevHost && !prevHost.online;
 				const idx = this.hosts.findIndex((h) => h.id === frame.host.id);
 				if (idx >= 0) {
 					this.hosts[idx] = frame.host;
 					this.hosts = [...this.hosts];
 				} else {
 					this.hosts = [...this.hosts, frame.host];
+				}
+				if (wasOffline && frame.host.online) {
+					this.notifyChatResetForHost(frame.host.id);
 				}
 				break;
 			}
@@ -240,7 +251,7 @@ class RemoteConnectionManager {
 					this.pendingMap.delete(frame.commandId);
 					delete this.pendingCommands[frame.commandId];
 					if (frame.ok) {
-						pending.resolve();
+						pending.resolve(frame.data);
 					} else {
 						pending.reject(frame.error || { code: 'failed', message: 'Comando fallito' });
 					}
@@ -251,6 +262,20 @@ class RemoteConnectionManager {
 				if (this.ws && this.ws.readyState === WebSocket.OPEN) {
 					const pongFrame: ClientFrame = { type: 'pong', seq: frame.seq };
 					this.ws.send(JSON.stringify(pongFrame));
+				}
+				break;
+			}
+			case 'chat_event': {
+				const key = `${frame.hostId}\0${frame.projectId}\0${frame.laneId}`;
+				const listeners = this.chatListeners.get(key);
+				if (listeners) {
+					for (const listener of listeners) {
+						try {
+							listener(frame.event);
+						} catch {
+							// ignora errori nei listener
+						}
+					}
 				}
 				break;
 			}
@@ -303,14 +328,18 @@ class RemoteConnectionManager {
 		}
 	}
 
-	async sendCommand(hostId: string, command: RemoteCommand): Promise<void> {
+	/**
+	 * Esito del comando: si risolve con `data` (vedi `RemoteCommandData`), che i
+	 * comandi senza dati lasciano `undefined`.
+	 */
+	async sendCommand(hostId: string, command: RemoteCommand): Promise<unknown> {
 		if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
 			throw { code: 'host_offline', message: 'Relay non connesso' } as CommandError;
 		}
 
 		const commandId = crypto.randomUUID();
 
-		return new Promise<void>((resolve, reject) => {
+		return new Promise<unknown>((resolve, reject) => {
 			const timeoutTimer = setTimeout(() => {
 				this.pendingMap.delete(commandId);
 				delete this.pendingCommands[commandId];
@@ -322,9 +351,9 @@ class RemoteConnectionManager {
 				hostId,
 				command,
 				startedAt: Date.now(),
-				resolve: () => {
+				resolve: (data) => {
 					clearTimeout(timeoutTimer);
-					resolve();
+					resolve(data);
 				},
 				reject: (err) => {
 					clearTimeout(timeoutTimer);
@@ -370,6 +399,154 @@ class RemoteConnectionManager {
 		});
 		if (!res.ok) throw new Error(`HTTP ${res.status}`);
 		return (await res.json()) as CreateCodeResponse;
+	}
+
+	sendVisibility(visible: boolean): void {
+		if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+			const frame: ClientFrame = { type: 'visibility', visible };
+			try {
+				this.ws.send(JSON.stringify(frame));
+			} catch {}
+		}
+	}
+
+	async fetchVapidPublicKey(): Promise<string> {
+		const res = await fetch(API.pushVapidPublicKey);
+		if (!res.ok) throw new Error(`HTTP ${res.status}`);
+		const data = (await res.json()) as { publicKey: string };
+		return data.publicKey;
+	}
+
+	async savePushSubscription(subscription: PushSubscription, userAgent?: string): Promise<string> {
+		const rawKey = subscription.getKey('p256dh');
+		const rawAuth = subscription.getKey('auth');
+		if (!rawKey || !rawAuth) {
+			throw new Error('Sottoscrizione priva di chiavi crittografiche');
+		}
+
+		const p256dh = btoa(String.fromCharCode(...new Uint8Array(rawKey)))
+			.replace(/\+/g, '-')
+			.replace(/\//g, '_')
+			.replace(/=+$/, '');
+		const auth = btoa(String.fromCharCode(...new Uint8Array(rawAuth)))
+			.replace(/\+/g, '-')
+			.replace(/\//g, '_')
+			.replace(/=+$/, '');
+
+		const res = await fetch(API.pushSubscriptions, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				subscription: {
+					endpoint: subscription.endpoint,
+					keys: { p256dh, auth }
+				},
+				userAgent
+			})
+		});
+		if (!res.ok) throw new Error(`HTTP ${res.status}`);
+		const data = (await res.json()) as { ok: boolean; subscriptionId: string };
+		return data.subscriptionId;
+	}
+
+	async deletePushSubscription(endpoint?: string): Promise<void> {
+		const res = await fetch(API.pushSubscriptions, {
+			method: 'DELETE',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ endpoint })
+		});
+		if (!res.ok) throw new Error(`HTTP ${res.status}`);
+	}
+
+	subscribeChat(
+		hostId: string,
+		projectId: string,
+		laneId: string,
+		listener: (event: RemoteChatEvent) => void
+	): () => void {
+		const key = `${hostId}\0${projectId}\0${laneId}`;
+		let set = this.chatListeners.get(key);
+		if (!set) {
+			set = new Set();
+			this.chatListeners.set(key, set);
+		}
+		set.add(listener);
+
+		if (!this.activeChatSubscriptions.has(key)) {
+			this.activeChatSubscriptions.add(key);
+			if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+				const frame: ClientFrame = {
+					type: 'chat_subscribe',
+					hostId,
+					projectId,
+					laneId
+				};
+				this.ws.send(JSON.stringify(frame));
+			}
+		}
+
+		return () => {
+			const listeners = this.chatListeners.get(key);
+			if (listeners) {
+				listeners.delete(listener);
+				if (listeners.size === 0) {
+					this.chatListeners.delete(key);
+					this.activeChatSubscriptions.delete(key);
+					if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+						const frame: ClientFrame = {
+							type: 'chat_unsubscribe',
+							hostId,
+							projectId,
+							laneId
+						};
+						this.ws.send(JSON.stringify(frame));
+					}
+				}
+			}
+		};
+	}
+
+	private resubscribeChat(): void {
+		if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+		for (const key of this.activeChatSubscriptions) {
+			const parts = key.split('\0');
+			if (parts.length === 3) {
+				const frame: ClientFrame = {
+					type: 'chat_subscribe',
+					hostId: parts[0],
+					projectId: parts[1],
+					laneId: parts[2]
+				};
+				this.ws.send(JSON.stringify(frame));
+
+				// Dopo una riconnessione la chat aperta deve rileggere lo storico (#10)
+				const listeners = this.chatListeners.get(key);
+				if (listeners) {
+					for (const listener of listeners) {
+						try {
+							listener({ kind: 'reset' });
+						} catch {
+							// ignora errori nei listener
+						}
+					}
+				}
+			}
+		}
+	}
+
+	private notifyChatResetForHost(hostId: string): void {
+		const prefix = `${hostId}\0`;
+		for (const [key, listeners] of this.chatListeners.entries()) {
+			if (key.startsWith(prefix)) {
+				for (const listener of listeners) {
+					try {
+						listener({ kind: 'reset' });
+					} catch {
+						// ignora errori nei listener
+					}
+				}
+			}
+		}
 	}
 }
 

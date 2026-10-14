@@ -27,8 +27,23 @@ export interface ProtocolId {
 /**
  * Funzioni facoltative: ogni macchina dichiara le sue nel `hello`, il relay
  * tiene l'intersezione con le proprie e la PWA mostra solo i comandi coperti.
+ * Una funzione nuova non chiede di alzare `PROTOCOL.version`: le macchine che
+ * non la dichiarano non ricevono i suoi comandi ne' i suoi frame.
+ *
+ * - `task_edit`: creare, modificare, programmare, spostare ed eliminare task;
+ * - `session_control`: interrompere l'agente e scrivere alla sessione;
+ * - `chat`: storico della conversazione e flusso dal vivo (`chat_*`);
+ * - `projects`: elenco delle cartelle dei progetti, apertura e creazione.
  */
-export const FEATURES = ['respond_ui', 'run_task', 'quota_actions'] as const;
+export const FEATURES = [
+	'respond_ui',
+	'run_task',
+	'quota_actions',
+	'task_edit',
+	'session_control',
+	'chat',
+	'projects'
+] as const;
 export type Feature = (typeof FEATURES)[number];
 
 /** Battito del relay verso entrambi i lati; resta sotto i timeout di proxy e CDN. */
@@ -242,19 +257,128 @@ export type RemoteAnswer =
 	| { action: 'ask'; answers: { id: string; selectedOptions: string[]; customInput?: string }[] }
 	| { action: 'cancel' };
 
+/**
+ * Programmazione scelta da remoto. Il provider del reset lo risolve Studio dal
+ * ruolo o dal modello del task, come quando la scelta si fa nella GUI.
+ */
+export type RemoteScheduleChoice = { kind: 'reset' } | { kind: 'at'; notBefore: number };
+
+/** Corsia di un progetto: `main` per la Principale. */
+export interface RemoteLaneRef {
+	projectId: string;
+	laneId: string;
+}
+
 export type RemoteCommand =
 	| { kind: 'respond_ui'; projectId: string; laneId: string | null; requestId: string; answer: RemoteAnswer }
 	| { kind: 'run_task'; projectId: string; taskId: string }
 	| { kind: 'wait_quota_reset'; projectId: string; laneId: string | null }
-	| { kind: 'dismiss_quota_blocked'; projectId: string; laneId: string | null };
+	| { kind: 'dismiss_quota_blocked'; projectId: string; laneId: string | null }
+	/** Task in coda in fondo, con le impostazioni predefinite del progetto. */
+	| { kind: 'create_task'; projectId: string; prompt: string; schedule: RemoteScheduleChoice | null }
+	/** Campo assente = invariato; `schedule: null` toglie la programmazione. Solo task in coda. */
+	| {
+			kind: 'update_task';
+			projectId: string;
+			taskId: string;
+			prompt?: string;
+			schedule?: RemoteScheduleChoice | null;
+	  }
+	| { kind: 'delete_task'; projectId: string; taskId: string }
+	/** `toIndex` e' la posizione fra i task in coda del progetto, da 0. */
+	| { kind: 'move_task'; projectId: string; taskId: string; toIndex: number }
+	/** Come Stop in Studio: interrompe il turno della corsia. */
+	| { kind: 'abort'; projectId: string; laneId: string | null }
+	/**
+	 * Messaggio alla sessione della corsia. Ad agente fermo e' un nuovo turno;
+	 * mentre lavora entra nella coda di `omp` come `steer` o `follow_up`.
+	 */
+	| {
+			kind: 'send_prompt';
+			projectId: string;
+			laneId: string | null;
+			text: string;
+			whileBusy: 'steer' | 'follow_up';
+	  }
+	/** Pagina di storico, dalla piu' recente indietro; `before` e' il cursore della pagina precedente. */
+	| { kind: 'chat_history'; projectId: string; laneId: string | null; before: string | null; limit: number }
+	| { kind: 'list_project_folders' }
+	/** Solo cartelle sotto la radice dei progetti di Studio, come nel selettore della GUI. */
+	| { kind: 'open_project'; path: string }
+	/** Cartella nuova sotto la radice, `git init`, repository GitHub facoltativo. */
+	| { kind: 'create_project'; name: string; github: { visibility: 'private' | 'public' } | null };
 
 /** Funzione che una macchina deve dichiarare perche' il comando le arrivi. */
 export const COMMAND_FEATURE: Record<RemoteCommand['kind'], Feature> = {
 	respond_ui: 'respond_ui',
 	run_task: 'run_task',
 	wait_quota_reset: 'quota_actions',
-	dismiss_quota_blocked: 'quota_actions'
+	dismiss_quota_blocked: 'quota_actions',
+	create_task: 'task_edit',
+	update_task: 'task_edit',
+	delete_task: 'task_edit',
+	move_task: 'task_edit',
+	abort: 'session_control',
+	send_prompt: 'session_control',
+	chat_history: 'chat',
+	list_project_folders: 'projects',
+	open_project: 'projects',
+	create_project: 'projects'
 };
+
+export interface RemoteChatMessage {
+	/** Stabile nella sessione: un evento `message` con lo stesso id sostituisce il precedente. */
+	id: string;
+	role: 'user' | 'assistant' | 'tool' | 'system';
+	/** Markdown per utente e assistente; riassunto di una riga per i tool. */
+	text: string;
+	toolName: string | null;
+	timestamp: number | null;
+}
+
+export interface RemoteChatPage {
+	/** In ordine cronologico. */
+	messages: RemoteChatMessage[];
+	/** Cursore per la pagina precedente; `null` all'inizio della sessione. */
+	before: string | null;
+}
+
+/**
+ * Evento dal vivo della corsia seguita:
+ * - `message`: messaggio nuovo o completato (sostituisce per `id`);
+ * - `delta`: testo in streaming da accodare al messaggio `messageId`;
+ * - `reset`: la corsia ha cambiato sessione, lo storico va riletto.
+ */
+export type RemoteChatEvent =
+	| { kind: 'message'; message: RemoteChatMessage }
+	| { kind: 'delta'; messageId: string; text: string }
+	| { kind: 'reset' };
+
+export interface RemoteFolder {
+	name: string;
+	/** Percorso assoluto sulla macchina. */
+	path: string;
+	/** Progetto gia' aperto in Studio su quella cartella. */
+	openProjectId: string | null;
+	git: boolean;
+}
+
+export interface RemoteFolderList {
+	/** Radice dei progetti configurata in Studio; `null` se manca. */
+	root: string | null;
+	folders: RemoteFolder[];
+	/** GitHub autenticato su questa macchina (Gate R44 R7). */
+	githubAvailable?: boolean;
+}
+
+/** Dati restituiti in `command_result.data` dai comandi che ne hanno. */
+export interface RemoteCommandData {
+	create_task: { taskId: string };
+	chat_history: RemoteChatPage;
+	list_project_folders: RemoteFolderList;
+	open_project: { projectId: string };
+	create_project: { projectId: string };
+}
 
 export type CommandErrorCode =
 	| 'host_offline'
@@ -284,7 +408,10 @@ export type HostFrame =
 	  }
 	/** `seq` cresce dentro una connessione; il relay accetta la prima istantanea di ogni connessione. */
 	| { type: 'snapshot'; seq: number; state: HostState }
-	| { type: 'command_result'; commandId: string; ok: boolean; error?: CommandError }
+	/** `data` segue `RemoteCommandData` per il tipo del comando. */
+	| { type: 'command_result'; commandId: string; ok: boolean; error?: CommandError; data?: unknown }
+	/** Solo per le corsie elencate nell'ultimo `chat_watch`. */
+	| { type: 'chat_event'; projectId: string; laneId: string; event: RemoteChatEvent }
 	| { type: 'pong'; seq: number };
 
 /** Relay -> Studio. */
@@ -300,6 +427,11 @@ export type RelayToHostFrame =
 	/** Dispositivi collegati in questo momento: alimentano l'indicatore di Studio. */
 	| { type: 'clients'; clients: DeviceInfo[] }
 	| { type: 'command'; commandId: string; device: DeviceInfo; command: RemoteCommand }
+	/**
+	 * Corsie che almeno un dispositivo segue adesso; sostituisce l'elenco precedente.
+	 * Lo ricevono solo le macchine con `chat`: le altre non conoscono il frame.
+	 */
+	| { type: 'chat_watch'; lanes: RemoteLaneRef[] }
 	| { type: 'ping'; seq: number; t: number };
 
 /** PWA -> relay, su `API.clientSocket` con il cookie di sessione. */
@@ -308,7 +440,11 @@ export type ClientFrame =
 	/** `commandId` lo genera il client (UUID) e torna nel risultato. */
 	| { type: 'command'; commandId: string; hostId: string; command: RemoteCommand }
 	| { type: 'resync'; hostId: string }
-	| { type: 'pong'; seq: number };
+	/** Inizia o smette di seguire la chat di una corsia (`laneId` `main` per la Principale). */
+	| { type: 'chat_subscribe'; hostId: string; projectId: string; laneId: string }
+	| { type: 'chat_unsubscribe'; hostId: string; projectId: string; laneId: string }
+	| { type: 'pong'; seq: number }
+	| { type: 'visibility'; visible: boolean };
 
 /** Relay -> PWA. */
 export type RelayToClientFrame =
@@ -324,7 +460,15 @@ export type RelayToClientFrame =
 	| { type: 'hosts'; hosts: HostSummary[] }
 	| { type: 'host_status'; host: HostSummary }
 	| { type: 'host_snapshot'; hostId: string; seq: number; receivedAt: number; state: HostState }
-	| { type: 'command_result'; hostId: string; commandId: string; ok: boolean; error?: CommandError }
+	| {
+			type: 'command_result';
+			hostId: string;
+			commandId: string;
+			ok: boolean;
+			error?: CommandError;
+			data?: unknown;
+	  }
+	| { type: 'chat_event'; hostId: string; projectId: string; laneId: string; event: RemoteChatEvent }
 	| { type: 'ping'; seq: number; t: number };
 
 // ---------------------------------------------------------------------------
@@ -358,7 +502,9 @@ export const API = {
 	devices: '/v1/devices',
 	hosts: '/v1/hosts',
 	hostSocket: '/v1/host',
-	clientSocket: '/v1/client'
+	clientSocket: '/v1/client',
+	pushVapidPublicKey: '/v1/push/vapid-public-key',
+	pushSubscriptions: '/v1/push/subscriptions',
 } as const;
 
 /** Cookie di sessione dei dispositivi: `HttpOnly`, `SameSite=Strict`, `Secure` in HTTPS. */
@@ -453,4 +599,53 @@ export function normalizePairingCode(input: string): string | null {
 /** `ABCD1234` -> `ABCD-1234`, per mostrarlo e dettarlo. */
 export function formatPairingCode(code: string): string {
 	return `${code.slice(0, 4)}-${code.slice(4)}`;
+}
+
+// ---------------------------------------------------------------------------
+// Notifiche Web Push (Gate R44 - R9)
+// ---------------------------------------------------------------------------
+
+export interface VapidPublicKeyResponse {
+	publicKey: string;
+}
+
+export interface PushSubscriptionKeys {
+	p256dh: string;
+	auth: string;
+}
+
+export interface PushSubscriptionData {
+	endpoint: string;
+	keys: PushSubscriptionKeys;
+	expirationTime?: number | null;
+}
+
+export interface SavePushSubscriptionRequest {
+	subscription: PushSubscriptionData;
+	userAgent?: string;
+}
+
+export interface SavePushSubscriptionResponse {
+	ok: boolean;
+	subscriptionId: string;
+}
+
+export interface DeletePushSubscriptionRequest {
+	endpoint?: string;
+}
+
+export interface PushNotificationPayload {
+	title: string;
+	body: string;
+	icon?: string;
+	badge?: string;
+	tag?: string;
+	data?: {
+		hostId?: string;
+		projectId?: string;
+		laneId?: string;
+		requestId?: string;
+		type?: 'attention' | 'quota' | 'idle' | string;
+		url?: string;
+	};
 }

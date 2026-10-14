@@ -2415,6 +2415,67 @@ pub async fn resolve_project_file(
         .map_err(|e| e.to_string())?
 }
 
+/// Canonicalizza e verifica che `candidate` sia una cartella esistente e figlia
+/// diretta di `root` sul filesystem reale, dereferenziando link simbolici e junction.
+#[command]
+pub async fn project_canonicalize_child_dir(
+    root: String,
+    candidate: String,
+) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || project_canonicalize_child_dir_sync(&root, &candidate))
+        .await
+        .map_err(|e| format!("Task canonicalize: {e}"))?
+}
+
+pub fn project_canonicalize_child_dir_sync(root: &str, candidate: &str) -> Result<String, String> {
+    let root_path = Path::new(root);
+    if !root_path.exists() {
+        return Err(format!("La radice dei progetti '{}' non esiste.", root));
+    }
+    if !root_path.is_dir() {
+        return Err(format!(
+            "La radice dei progetti '{}' non e' una cartella.",
+            root
+        ));
+    }
+    let canonical_root = root_path
+        .canonicalize()
+        .map_err(|e| format!("Impossibile risolvere la radice dei progetti: {e}"))?;
+
+    let candidate_path = Path::new(candidate);
+    let target = if candidate_path.is_absolute() {
+        candidate_path.to_path_buf()
+    } else {
+        root_path.join(candidate_path)
+    };
+
+    if !target.exists() {
+        return Err("La cartella specificata non esiste.".to_string());
+    }
+
+    let canonical_target = target
+        .canonicalize()
+        .map_err(|e| format!("Impossibile risolvere il percorso della cartella: {e}"))?;
+
+    if !canonical_target.is_dir() {
+        return Err("Il percorso specificato non e' una cartella.".to_string());
+    }
+
+    if canonical_target.parent() != Some(&canonical_root) {
+        return Err(
+            "La cartella deve trovarsi direttamente sotto la radice dei progetti.".to_string(),
+        );
+    }
+
+    let result_str = canonical_target.to_string_lossy().to_string();
+    #[cfg(target_os = "windows")]
+    if let Some(stripped) = result_str.strip_prefix(r"\\?\") {
+        return Ok(stripped.to_string());
+    }
+
+    Ok(result_str)
+}
+
 #[cfg(test)]
 mod tests {
     #[cfg(windows)]
@@ -2423,9 +2484,10 @@ mod tests {
         content_search_within, count_untracked_text_lines, file_git_rev, fuzzy_match_str,
         git_diff_stats_sync, git_last_commit, git_recent_commits, merge_name_status_numstat,
         parse_git_diff_stats, path_create_directory, path_create_file, path_rename,
-        project_files_list, project_files_search, project_git_ignored, rename_via_temp,
-        resolve_existing_entry, resolve_new_destination, resolve_path, resolve_project_file_sync,
-        split_rel_path, validate_basename, Dirent, ProjectContentSearchResult,
+        project_canonicalize_child_dir_sync, project_files_list, project_files_search,
+        project_git_ignored, rename_via_temp, resolve_existing_entry, resolve_new_destination,
+        resolve_path, resolve_project_file_sync, split_rel_path, validate_basename, Dirent,
+        ProjectContentSearchResult,
     };
     use std::collections::HashSet;
     use std::fs;
@@ -2438,6 +2500,79 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn canonicalize_child_dir_accetta_figlio_diretto() {
+        let root = temp_dir("canon-valid");
+        let proj = root.join("mio-progetto");
+        fs::create_dir_all(&proj).unwrap();
+
+        let res =
+            project_canonicalize_child_dir_sync(root.to_str().unwrap(), proj.to_str().unwrap());
+        assert!(res.is_ok());
+        let canonical = res.unwrap();
+        assert!(canonical.ends_with("mio-progetto"));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn canonicalize_child_dir_rifiuta_percorso_inesistente() {
+        let root = temp_dir("canon-nonexistent");
+        let res = project_canonicalize_child_dir_sync(
+            root.to_str().unwrap(),
+            root.join("inesistente").to_str().unwrap(),
+        );
+        assert!(res.is_err());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn canonicalize_child_dir_rifiuta_file_regolare() {
+        let root = temp_dir("canon-file");
+        let file = root.join("app.txt");
+        fs::write(&file, "test").unwrap();
+
+        let res =
+            project_canonicalize_child_dir_sync(root.to_str().unwrap(), file.to_str().unwrap());
+        assert!(res.is_err());
+        assert!(res.unwrap_err().contains("non e' una cartella"));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn canonicalize_child_dir_rifiuta_radice_stessa_e_annidati() {
+        let root = temp_dir("canon-nested");
+        let nested = root.join("a").join("b");
+        fs::create_dir_all(&nested).unwrap();
+
+        let res_root =
+            project_canonicalize_child_dir_sync(root.to_str().unwrap(), root.to_str().unwrap());
+        assert!(res_root.is_err());
+
+        let res_nested =
+            project_canonicalize_child_dir_sync(root.to_str().unwrap(), nested.to_str().unwrap());
+        assert!(res_nested.is_err());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn canonicalize_child_dir_rifiuta_symlink_verso_esterno() {
+        let root = temp_dir("canon-symlink-root");
+        let outside = temp_dir("canon-symlink-outside");
+        let link = root.join("link_esterno");
+
+        std::os::unix::fs::symlink(&outside, &link).unwrap();
+
+        let res =
+            project_canonicalize_child_dir_sync(root.to_str().unwrap(), link.to_str().unwrap());
+        assert!(res.is_err());
+        assert!(res.unwrap_err().contains("direttamente sotto la radice"));
+
+        let _ = fs::remove_file(&link);
+        let _ = fs::remove_dir_all(&root);
+        let _ = fs::remove_dir_all(&outside);
     }
 
     #[test]
@@ -2681,7 +2816,10 @@ mod tests {
             .block_on(project_git_ignored(root.to_string_lossy().to_string()))
             .unwrap();
         ignored.sort();
-        assert_eq!(ignored, vec!["build".to_string(), "src/app.log".to_string()]);
+        assert_eq!(
+            ignored,
+            vec!["build".to_string(), "src/app.log".to_string()]
+        );
 
         let outside = temp_dir("git-ignored-fuori-repo");
         let none = rt

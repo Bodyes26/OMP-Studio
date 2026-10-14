@@ -152,6 +152,18 @@ export class RemoteStore {
 		}
 	}
 
+	async openMachinesWindow(): Promise<boolean> {
+		this.actionError = null;
+		try {
+			await this.bridge.openMachinesWindow();
+			return true;
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			this.actionError = message;
+			return false;
+		}
+	}
+
 	destroy(): void {
 		// Invalida qualsiasi init() in volo per impedire l'installazione di ascoltatori orfani
 		this.initGeneration++;

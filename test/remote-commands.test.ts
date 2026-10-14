@@ -11,18 +11,36 @@ import { remoteBridge } from '../src/lib/remote/bridge.ts';
 describe('remote command handling', () => {
 	const dummyDevice = { id: 'dev-1', name: 'iPhone' };
 
-	function createContext(overrides: Partial<CommandContext> = {}): {
+	type ContextOverrides = Omit<Partial<CommandContext>, 'executor'> & {
+		executor?: Partial<RemoteCommandExecutor>;
+	};
+
+	function createContext({ executor: executorOverrides, ...overrides }: ContextOverrides = {}): {
 		ctx: CommandContext;
-		results: Array<{ commandId: string; ok: boolean; error?: CommandError }>;
+		results: Array<{ commandId: string; ok: boolean; error?: CommandError; data?: unknown }>;
 		notifications: Array<{ deviceName: string; projectName: string; kind: string }>;
 	} {
-		const results: Array<{ commandId: string; ok: boolean; error?: CommandError }> = [];
+		const results: Array<{ commandId: string; ok: boolean; error?: CommandError; data?: unknown }> = [];
 		const notifications: Array<{ deviceName: string; projectName: string; kind: string }> = [];
+		const unused = async (): Promise<never> => {
+			throw new Error('esecutore non previsto dal test');
+		};
 
 		const executor: RemoteCommandExecutor = {
 			runTask: async () => {},
 			waitQuotaReset: async () => {},
-			dismissQuotaBlocked: async () => {}
+			dismissQuotaBlocked: async () => {},
+			createTask: unused,
+			updateTask: unused,
+			deleteTask: unused,
+			moveTask: unused,
+			abort: unused,
+			sendPrompt: unused,
+			chatHistory: unused,
+			listProjectFolders: unused,
+			openProject: unused,
+			createProject: unused,
+			...executorOverrides
 		};
 
 		const ctx: CommandContext = {
@@ -31,8 +49,8 @@ describe('remote command handling', () => {
 			findTask: (id) => (id === 't1' ? { id: 't1', projectPath: '/dev/p1', status: 'queued' } : undefined),
 			executor,
 			resolvePrompt: async () => true,
-			reportResult: async (commandId, ok, error) => {
-				results.push({ commandId, ok, error });
+			reportResult: async (commandId, ok, error, data) => {
+				results.push({ commandId, ok, error, data });
 			},
 			notify: (dev, proj, kind) => {
 				notifications.push({ deviceName: dev.name, projectName: proj.name, kind });

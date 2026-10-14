@@ -1036,7 +1036,7 @@ graph LR
 
 ## Piano Controllo remoto — Gate R44
 
-**Stato:** pianificato (2026-10-13). Attua il Gate R44 di `DECISIONS.md`. Il repository contiene solo codice e guida generici: indirizzi, domini e configurazione di un'installazione concreta restano fuori (per lo sviluppo, negli appunti locali di `ricerca/`).
+**Stato:** in corso (2026-10-14): fatti R1-R7, R9 e R10; restano le prove di rete di R0 dal PC di lavoro e dal telefono, R8, R11 e la parte di R12 legata al primo cambio di protocollo. Attua il Gate R44 di `DECISIONS.md`. Il repository contiene solo codice e guida generici: indirizzi, domini e configurazione di un'installazione concreta restano fuori (per lo sviluppo, negli appunti locali di `ricerca/`).
 
 ### Metodo
 
@@ -1073,24 +1073,28 @@ graph LR
 
 - [x] **R4 — Proiezione in sola lettura** (`src/lib/remote/`, PWA)
   Progetti, stato di agenti e corsie, richieste di attenzione, code con programmazione, quote, costruiti dagli store esistenti come per la Companion. PWA: macchine, progetti per macchina, code, quote; ogni elemento porta il nome della macchina.
-- [ ] **R5 — Comandi** — *in parte*
+- [x] **R5 — Comandi**
   Rispondere alle domande (`promptBus`, vale la prima risposta), avviare un task, creare, modificare, programmare ed eliminare task, interrompere, scrivere alla sessione; registro delle azioni remote in Studio.
   **Accettazione:** una domanda risposta dal telefono si chiude anche in Studio e nella Companion.
-  **Fatto:** `respond_ui` (solo sulla richiesta esatta), `run_task` (task del progetto, in coda, esito reale di `handleRunTask`), attesa del reset e archiviazione dei blocchi di quota, avviso locale con il nome del dispositivo. Prova in produzione con una macchina simulata: risposta a una domanda `ask` a due quesiti e avvio di un task dalla PWA. **Manca:** gestione dei task (creare, modificare, programmare, eliminare), interrompere, scrivere alla sessione.
-- [ ] **R6 — Chat dal vivo**
+  **Esito (2026-10-14):** `respond_ui` (solo sulla richiesta esatta), `run_task`, azioni di quota; `create_task`/`update_task`/`delete_task`/`move_task` (funzione `task_edit`, prompt fino a 20.000 caratteri, orari validati, reset risolto come nel menu dell'orologio, spostamento fra i soli task in coda); `abort` e `send_prompt` (funzione `session_control`: ad agente fermo un turno, mentre lavora `steer` o `follow_up` come il composer; Principale risolta in modo canonico, corsie del Laboratorio mai aperte senza la loro configurazione). Validazioni comuni in `handleRemoteCommand`, rifiuti con codice (`RemoteCommandFailure`), avviso locale col nome del dispositivo. Prove: test con contesti iniettati e PWA contro una macchina simulata.
+- [x] **R6 — Chat dal vivo**
   Flusso degli eventi della sessione seguita e storico con `get_messages_page`.
-- [ ] **R7 — Aprire e creare progetti**
+  **Esito (2026-10-14):** funzione `chat`. Il relay tiene le iscrizioni per socket (al massimo 4 corsie), manda alla macchina `chat_watch` con l'elenco aggregato e inoltra `chat_event` solo a chi segue quella corsia. Studio emette `message`/`delta`/`reset` solo per le corsie seguite (costo nullo senza osservatori, delta accorpati a ~150 ms), storico a pagine con identita' stabili e tetto di 200 KB per pagina; Rust spezza i delta per stare sotto i 512 KB del frame. La PWA ricarica lo storico dopo ogni riconnessione e mostra un sottoinsieme sicuro di markdown. Le corsie su terminale rispondono `unsupported`. Prova: PWA con storico, streaming, invio e Stop contro una macchina simulata.
+- [x] **R7 — Aprire e creare progetti**
   Elenco delle cartelle sotto la radice dei progetti; creazione con il flusso esistente di `github/repos.rs` (cartella + `git init`, repo GitHub facoltativo).
+  **Esito (2026-10-14):** funzione `projects`. Apertura solo di figli diretti della radice, verificati prima sul testo e poi sul filesystem reale in Rust (`project_canonicalize_child_dir`: cartella esistente, symlink e junction risolti); nomi validati (separatori, `..`, nomi riservati di Windows); GitHub facoltativo se disponibile sulla macchina.
 
 ### Fase 3 — Artefatti, notifiche, Studio come client
 
 - [ ] **R8 — Artefatti**
   Diagrammi; anteprime `studio_preview` e prototipi del Laboratorio sull'origine separata, con token a scadenza. Browser Live resta fuori da questo piano.
-- [ ] **R9 — Notifiche Web Push** (VAPID)
+- [x] **R9 — Notifiche Web Push** (VAPID)
   Domande dell'agente, fine lavoro, blocco di quota; il testo nomina sempre la macchina.
-- [ ] **R10 — «Altre macchine» in Studio (L1)**
+  **Esito (2026-10-14):** chiavi VAPID generate al primo avvio e salvate in SQLite, cifratura RFC 8291 verificata sul vettore della specifica, firma RFC 8292. Eventi ricavati dalle istantanee che il relay riceve gia' (nessun avviso al riavvio), anti-ripetizione per richiesta, limite per dispositivo, niente invio ai dispositivi con la PWA aperta e visibile. Destinazioni ammesse solo verso i servizi push dei browser, senza redirect. Il clic sulla notifica porta alla macchina e al progetto. Consegna reale da provare sul telefono.
+- [x] **R10 — «Altre macchine» in Studio (L1)**
   Finestra senza capability che carica l'URL del relay configurato, con navigazione bloccata a quell'origine.
   **Accettazione:** un test ACL fallisce se quella finestra riceve un permesso.
+  **Esito (2026-10-14):** finestra `remote-machines` da Impostazioni > Controllo remoto e dal menu del chip; link esterni nel browser di sistema, altri schemi bloccati. Il test ACL legge tutte le capability e fallisce se una si applica all'etichetta (provato aggiungendola a `default.json`). Da provare sull'app reale: apertura, primo abbinamento, geometria ricordata.
 - [ ] **R11 — Collaudo e documentazione**
   Matrice con due macchine, telefono e browser; `PRODUCT.md`, `ARCHITECTURE.md`, guida del relay in italiano e in inglese, changelog bilingue.
 

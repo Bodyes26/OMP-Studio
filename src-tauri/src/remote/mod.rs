@@ -5,7 +5,11 @@
 
 pub mod config;
 pub mod connection;
+pub mod machines_window;
 pub mod protocol;
+pub use machines_window::{
+    remote_open_machines_window, MACHINES_WINDOW_LABEL, MACHINES_WINDOW_TITLE,
+};
 
 #[cfg(test)]
 mod tests;
@@ -336,8 +340,23 @@ pub async fn remote_command_result(
     command_id: String,
     ok: bool,
     error: Option<CommandError>,
+    data: Option<serde_json::Value>,
 ) -> Result<(), String> {
     let manager = app.state::<RemoteManager>();
-    manager.ctx.queue_command_result(command_id, ok, error);
+    manager
+        .ctx
+        .queue_command_result(command_id, ok, error, data);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn remote_publish_chat_event(
+    app: AppHandle,
+    project_id: String,
+    lane_id: String,
+    event: serde_json::Value,
+) -> Result<(), String> {
+    let manager = app.state::<RemoteManager>();
+    manager.ctx.queue_chat_event(project_id, lane_id, event);
     Ok(())
 }

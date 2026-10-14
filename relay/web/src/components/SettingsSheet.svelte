@@ -4,6 +4,7 @@
 	import { formatHHMM } from '../schedule.ts';
 	import { connection } from '../connection.svelte.ts';
 	import CodeModal from './CodeModal.svelte';
+	import PushNotificationToggle from './PushNotificationToggle.svelte';
 
 	let { onClose } = $props<{ onClose: () => void }>();
 
@@ -118,6 +119,11 @@
 						{t('relayVersion', { version: connection.relayInfo.version })}
 					</div>
 				{/if}
+			</section>
+
+			<!-- Notifiche push -->
+			<section class="settings-section">
+				<PushNotificationToggle />
 			</section>
 
 			<!-- Azioni di abbinamento -->

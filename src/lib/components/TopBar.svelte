@@ -1121,6 +1121,25 @@
 				<button
 					class="settings-chip remote-chip"
 					onclick={(e) => { e.stopPropagation(); onSettingsClick?.('remote'); }}
+					oncontextmenu={(e) => {
+						e.preventDefault();
+						e.stopPropagation();
+						contextMenu.open(e, {
+							label: m.settings_remote_machines_title(),
+							items: [
+								{
+									kind: 'item',
+									label: m.topbar_remote_chip_open_machines(),
+									run: () => void remoteStore.openMachinesWindow()
+								},
+								{
+									kind: 'item',
+									label: m.topbar_remote_chip_settings(),
+									run: () => onSettingsClick?.('remote')
+								}
+							]
+						});
+					}}
 					aria-label={m.topbar_remote_chip_aria({ count: remoteStore.status.clients.length, devices: deviceNames })}
 				>
 					<IconRemote />

@@ -21,8 +21,13 @@ import {
 	type DevicesResponse,
 	type HostsResponse,
 	type PairingKind,
-	type Platform
+	type Platform,
+	type SavePushSubscriptionRequest,
+	type SavePushSubscriptionResponse,
+	type DeletePushSubscriptionRequest,
+	type VapidPublicKeyResponse
 } from './protocol.ts';
+import { isValidAuth, isValidP256dh, isValidPushEndpoint, type VapidKeyPair } from './vapid.ts';
 import { extractClientKey, type RateLimiter } from './ratelimit.ts';
 import type { RelayWsData, SocketHub } from './sockets.ts';
 import { servePwa } from './static.ts';
@@ -114,7 +119,8 @@ export async function handleRequest(
 	config: RelayConfig,
 	store: RelayStore,
 	rateLimiter: RateLimiter,
-	socketHub: SocketHub
+	socketHub: SocketHub,
+	vapidKeys?: VapidKeyPair
 ): Promise<Response> {
 	const url = new URL(req.url);
 	const pathname = url.pathname;
@@ -477,6 +483,68 @@ export async function handleRequest(
 		if (!deleted) return apiError('not_found', 'Host not found', 404);
 
 		socketHub.broadcastToClients({ type: 'hosts', hosts: socketHub.getAllHostSummaries() });
+		return Response.json({ ok: true }, { headers: BASE_HEADERS });
+	}
+
+	// Recupero chiave pubblica VAPID per Web Push.
+	if (pathname === API.pushVapidPublicKey) {
+		if (req.method !== 'GET') return new Response('Method not allowed', { status: 405, headers: BASE_HEADERS });
+		const device = authenticateDevice(req, store);
+		if (!device) return apiError('unauthorized', 'Unauthorized session', 401);
+
+		if (!vapidKeys) {
+			return apiError('service_unavailable', 'VAPID keys not ready', 503);
+		}
+
+		const resBody: VapidPublicKeyResponse = { publicKey: vapidKeys.publicKey };
+		return Response.json(resBody, { headers: BASE_HEADERS });
+	}
+
+	// Registrazione di una sottoscrizione Web Push.
+	if (pathname === API.pushSubscriptions && req.method === 'POST') {
+		if (!isSameOrigin(req)) return apiError('forbidden_origin', 'Invalid Origin header', 403);
+
+		const device = authenticateDevice(req, store);
+		if (!device) return apiError('unauthorized', 'Unauthorized session', 401);
+
+		const body = await parseBody<SavePushSubscriptionRequest>(req);
+		if (
+			!body ||
+			!body.subscription ||
+			!isValidPushEndpoint(body.subscription.endpoint) ||
+			!isValidP256dh(body.subscription.keys?.p256dh) ||
+			!isValidAuth(body.subscription.keys?.auth)
+		) {
+			return apiError('bad_request', 'Invalid push subscription parameters', 400);
+		}
+
+		const userAgent = typeof body.userAgent === 'string'
+			? body.userAgent.slice(0, 500)
+			: (req.headers.get('user-agent')?.slice(0, 500) ?? null);
+
+		const subscriptionId = store.savePushSubscription(
+			device.id,
+			body.subscription.endpoint,
+			body.subscription.keys.p256dh,
+			body.subscription.keys.auth,
+			userAgent,
+			Date.now()
+		);
+
+		const resBody: SavePushSubscriptionResponse = { ok: true, subscriptionId };
+		return Response.json(resBody, { headers: BASE_HEADERS });
+	}
+
+	// Cancellazione di una o tutte le sottoscrizioni Web Push del dispositivo.
+	if (pathname === API.pushSubscriptions && req.method === 'DELETE') {
+		if (!isSameOrigin(req)) return apiError('forbidden_origin', 'Invalid Origin header', 403);
+
+		const device = authenticateDevice(req, store);
+		if (!device) return apiError('unauthorized', 'Unauthorized session', 401);
+
+		const body = await parseBody<DeletePushSubscriptionRequest>(req);
+		store.deletePushSubscriptionsForDevice(device.id, body?.endpoint);
+
 		return Response.json({ ok: true }, { headers: BASE_HEADERS });
 	}
 

@@ -65,9 +65,14 @@
 	import { taskLabel } from '$lib/stores/taskTitle';
 	import { nextAutoDispatchTask } from '$lib/quota/scheduleQueue';
 	import { parkSessionUntilReset, scheduleRunner } from '$lib/stores/scheduleRunner.svelte';
+	import { scheduleStore } from '$lib/stores/schedule.svelte';
 	import { remoteStore } from '$lib/remote/remoteStore.svelte';
 	import { startRemoteProjection } from '$lib/remote/projection.svelte';
 	import { setupRemoteCommands, type RunTaskOutcome } from '$lib/remote/commands';
+	import { createTaskCommands } from '$lib/remote/taskCommands';
+	import { abortRemoteLane, sendRemotePrompt } from '$lib/remote/sessionCommands';
+	import { initRemoteChat, remoteChatHistory } from '$lib/remote/chat';
+	import { listRemoteProjectFolders, openRemoteProject, createRemoteProject } from '$lib/remote/projectCommands';
 	import { laneStore, type LaneRecord } from '$lib/stores/lanes.svelte';
 	import { laneOrchestrator, type TerminalMetaEntry } from '$lib/lanes/laneOrchestrator.svelte';
 	import { describeLaneProcess } from '$lib/lanes/processSupervisor';
@@ -1062,19 +1067,32 @@
 			}
 		});
 		register(Promise.resolve(stopProjection));
+		const remoteTasks = createTaskCommands({
+			buildResetSchedule: (t) => scheduleStore.buildReset(t, 'user')
+		});
 		register(
 			setupRemoteCommands(
 				{
 					runTask: (pId, tId, opts) => handleRunTask(pId, tId, opts),
 					waitQuotaReset: handleWaitQuotaReset,
-					dismissQuotaBlocked: handleDismissQuotaBlocked
+					dismissQuotaBlocked: handleDismissQuotaBlocked,
+					createTask: remoteTasks.createRemoteTask,
+					updateTask: remoteTasks.updateRemoteTask,
+					deleteTask: remoteTasks.deleteRemoteTask,
+					moveTask: remoteTasks.moveRemoteTask,
+					abort: abortRemoteLane,
+					sendPrompt: sendRemotePrompt,
+					chatHistory: remoteChatHistory,
+					listProjectFolders: listRemoteProjectFolders,
+					openProject: openRemoteProject,
+					createProject: createRemoteProject
 				},
 				{
 					clearAttentionRequest: (pId, lId) => companionStore.clearAttentionRequest(pId, lId)
 				}
 			)
 		);
-
+		register(initRemoteChat());
 
 		return () => {
 			disposed = true;

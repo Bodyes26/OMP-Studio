@@ -2589,6 +2589,7 @@ version = "1.7.2"
 dependencies = [
  "base64 0.22.1",
  "futures-util",
+ "glob",
  "notify",
  "parking_lot",
  "portable-pty",
@@ -2611,6 +2612,7 @@ dependencies = [
  "tokio",
  "tokio-tungstenite",
  "trash",
+ "url",
  "uuid",
  "windows-sys 0.59.0",
 ]
