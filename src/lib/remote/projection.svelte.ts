@@ -29,7 +29,8 @@ export interface RemoteProjectionOptions {
  */
 export function startRemoteProjection(options: RemoteProjectionOptions = {}): () => void {
 	let lastPublishedJson = '';
-	let debounceTimer: number | NodeJS.Timeout | null = null;
+	// Codice della WebView: il timer e' quello del browser, non il tipo di Node.
+	let debounceTimer: number | null = null;
 
 	const cleanupRoot = $effect.root(() => {
 		$effect(() => {
@@ -38,7 +39,7 @@ export function startRemoteProjection(options: RemoteProjectionOptions = {}): ()
 
 			// Attivo solo quando il controllo remoto e' abilitato e abbinato
 			if (!enabled || !paired) {
-				clearTimeout(debounceTimer ?? undefined);
+				window.clearTimeout(debounceTimer ?? undefined);
 				debounceTimer = null;
 				lastPublishedJson = '';
 				return;
@@ -124,8 +125,8 @@ export function startRemoteProjection(options: RemoteProjectionOptions = {}): ()
 			const json = JSON.stringify(hostState);
 			if (json === lastPublishedJson) return;
 
-			clearTimeout(debounceTimer ?? undefined);
-			debounceTimer = setTimeout(async () => {
+			window.clearTimeout(debounceTimer ?? undefined);
+			debounceTimer = window.setTimeout(async () => {
 				debounceTimer = null;
 				lastPublishedJson = json;
 				try {
@@ -136,14 +137,14 @@ export function startRemoteProjection(options: RemoteProjectionOptions = {}): ()
 			}, 400);
 
 			return () => {
-				clearTimeout(debounceTimer ?? undefined);
+				window.clearTimeout(debounceTimer ?? undefined);
 				debounceTimer = null;
 			};
 		});
 	});
 
 	return () => {
-		clearTimeout(debounceTimer ?? undefined);
+		window.clearTimeout(debounceTimer ?? undefined);
 		debounceTimer = null;
 		cleanupRoot();
 	};
