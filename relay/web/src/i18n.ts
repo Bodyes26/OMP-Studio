@@ -70,6 +70,7 @@ const DICT = {
 		// Projects & Lanes
 		projectsTitle: 'Progetti',
 		noProjects: 'Nessun progetto aperto',
+		hostRenderError: 'Non riesco a mostrare lo stato di questa macchina: aggiorna Studio e il relay.',
 		activeProject: 'in primo piano',
 		laneMain: 'Principale',
 		laneWorktree: 'Worktree',
@@ -182,6 +183,7 @@ const DICT = {
 		// Projects & Lanes
 		projectsTitle: 'Projects',
 		noProjects: 'No active projects',
+		hostRenderError: "Can't display this machine's state: update Studio and the relay.",
 		activeProject: 'active',
 		laneMain: 'Main',
 		laneWorktree: 'Worktree',

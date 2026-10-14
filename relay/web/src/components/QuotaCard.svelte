@@ -10,7 +10,9 @@
 	<div class="quota-container">
 		<h4 class="quota-header">{t('quotaTitle')}</h4>
 		<div class="providers-list">
-			{#each quota.providers as p (p.provider)}
+			<!-- Chiavi per posizione: piu' account dello stesso provider ripetono `provider` e Svelte
+			     interrompe il rendering su una chiave doppia. -->
+			{#each quota.providers as p, idx (idx)}
 				<div class="provider-block">
 					<div class="provider-head">
 						<div class="provider-name-group">
@@ -20,6 +22,9 @@
 								class:status-danger={p.status === 'exhausted'}
 							></span>
 							<span class="provider-name">{p.provider}</span>
+							{#if p.account}
+								<span class="provider-account">{p.account}</span>
+							{/if}
 						</div>
 						{#if p.status === 'exhausted'}
 							<span class="provider-status-badge exhausted">{t('quotaExhausted')}</span>
@@ -29,7 +34,7 @@
 					</div>
 
 					<div class="windows-list">
-						{#each p.windows as win (win.id)}
+						{#each p.windows as win, winIdx (winIdx)}
 							<div class="window-row">
 								<div class="window-meta">
 									<span class="window-label">{win.label}</span>
@@ -119,6 +124,15 @@
 		font-size: 13px;
 		font-weight: 600;
 		color: var(--ink);
+	}
+
+	.provider-account {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: 11px;
+		color: var(--ink-faint);
 	}
 
 	.provider-status-badge {

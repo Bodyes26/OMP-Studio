@@ -244,7 +244,7 @@
 
 		{:else if attention.method === 'select'}
 			<div class="options-vertical">
-				{#each attention.options as opt (opt.label)}
+				{#each attention.options as opt, optIdx (optIdx)}
 					<button
 						class="btn btn-secondary option-btn"
 						disabled={isSubmitting}
@@ -301,7 +301,7 @@
 
 		{:else if attention.method === 'ask'}
 			<div class="ask-form">
-				{#each attention.questions as q (q.id)}
+				{#each attention.questions as q, qIdx (qIdx)}
 					<div class="question-block">
 						{#if q.header}
 							<div class="q-header">{q.header}</div>
@@ -309,7 +309,7 @@
 						<div class="q-title">{q.question}</div>
 
 						<div class="q-options">
-							{#each q.options as opt, optIdx (opt.label)}
+							{#each q.options as opt, optIdx (optIdx)}
 								{@const isSelected = askState[q.id]?.selectedOptions.includes(opt.label)}
 								{@const isRecommended = q.recommended === optIdx}
 

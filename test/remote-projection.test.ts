@@ -288,6 +288,28 @@ describe('buildHostState projection', () => {
 		assert.equal(google.status, 'ok');
 		assert.equal(google.windows[0].usedFraction, 0.1);
 	});
+
+	it('keeps two accounts of the same provider apart by account', () => {
+		const state = buildHostState({
+			projects: [],
+			quotaReports: [
+				{ provider: 'openai-codex', metadata: { email: 'work@example.com' }, limits: [] },
+				{ provider: 'openai-codex', metadata: { accountId: 'acct-2' }, limits: [] },
+				{ provider: 'anthropic', limits: [] }
+			]
+		});
+
+		assert.ok(state.quota);
+		assert.deepEqual(
+			state.quota.providers.map((p) => [p.provider, p.account]),
+			[
+				['openai-codex', 'work@example.com'],
+				['openai-codex', 'acct-2'],
+				['anthropic', null]
+			]
+		);
+	});
+
 	it('projects terminal-surface lane from terminal state without GUI session', () => {
 		const input: BuildHostStateInput = {
 			projects: [{ id: 'p1', name: 'Project 1' }],

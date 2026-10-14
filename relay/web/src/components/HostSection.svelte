@@ -29,6 +29,16 @@
 		}
 		return t('offline');
 	});
+
+	// Il reset del boundary fallito: ogni istantanea nuova ritenta il rendering, cosi' la
+	// sezione torna da sola quando la macchina manda dati che la pagina sa mostrare.
+	let resetFailedBoundary: (() => void) | null = null;
+	$effect(() => {
+		void snapshot?.receivedAt;
+		const reset = resetFailedBoundary;
+		resetFailedBoundary = null;
+		reset?.();
+	});
 </script>
 
 <section class="host-section" class:is-offline={!host.online}>
@@ -52,28 +62,43 @@
 		</div>
 	</div>
 
-	<!-- Quote per macchina -->
-	{#if snapshot?.state.quota}
-		<QuotaCard quota={snapshot.state.quota} />
-	{/if}
-
-	<!-- Progetti della macchina -->
-	<div class="projects-container">
-		{#if sortedProjects.length > 0}
-			{#each sortedProjects as project (project.id)}
-				<ProjectCard
-					{project}
-					hostId={host.id}
-					hostName={host.name}
-					hostFeatures={host.features}
-				/>
-			{/each}
-		{:else}
-			<div class="empty-projects">
-				<p>{t('noProjects')}</p>
-			</div>
+	<!-- Lo stato arriva da un'altra macchina, forse di un'altra versione: un dato che questa
+	     pagina non sa mostrare deve spegnere solo questa sezione, non l'intera dashboard. -->
+	<svelte:boundary
+		onerror={(error, reset) => {
+			console.error('[host]', host.name, error);
+			resetFailedBoundary = reset;
+		}}
+	>
+		<!-- Quote per macchina -->
+		{#if snapshot?.state.quota}
+			<QuotaCard quota={snapshot.state.quota} />
 		{/if}
-	</div>
+
+		<!-- Progetti della macchina -->
+		<div class="projects-container">
+			{#if sortedProjects.length > 0}
+				{#each sortedProjects as project (project.id)}
+					<ProjectCard
+						{project}
+						hostId={host.id}
+						hostName={host.name}
+						hostFeatures={host.features}
+					/>
+				{/each}
+			{:else}
+				<div class="empty-projects">
+					<p>{t('noProjects')}</p>
+				</div>
+			{/if}
+		</div>
+
+		{#snippet failed()}
+			<div class="empty-projects">
+				<p>{t('hostRenderError')}</p>
+			</div>
+		{/snippet}
+	</svelte:boundary>
 </section>
 
 <style>

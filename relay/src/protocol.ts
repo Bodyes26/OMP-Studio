@@ -193,6 +193,12 @@ export interface RemoteQuotaWindow {
 
 export interface RemoteQuotaProvider {
 	provider: string;
+	/**
+	 * Account del provider (email, organizzazione o id). Con piu' account dello stesso
+	 * provider `provider` si ripete: e' l'account a distinguerli. Assente dagli host
+	 * pubblicati prima del campo, quindi opzionale.
+	 */
+	account?: string | null;
 	status: 'ok' | 'warning' | 'exhausted' | 'unknown';
 	windows: RemoteQuotaWindow[];
 }

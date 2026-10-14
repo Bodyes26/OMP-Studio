@@ -466,8 +466,15 @@ function mapQuota(reports?: QuotaReport[], fetchedAt?: number | null): RemoteQuo
 			}
 		}
 
+		const meta = report.metadata;
+		const account =
+			[meta?.email, meta?.orgName, meta?.accountId].find(
+				(value): value is string => typeof value === 'string' && value.trim() !== ''
+			) ?? null;
+
 		return {
 			provider: report.provider,
+			account,
 			status,
 			windows
 		};
