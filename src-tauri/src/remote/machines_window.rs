@@ -106,13 +106,10 @@ pub async fn remote_open_machines_window(app: AppHandle) -> Result<(), String> {
     .build()
     .map_err(|e| format!("Creazione finestra altre macchine fallita: {e}"))?;
 
-    // 4. Ripristino geometria salvata, se disponibile.
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    {
-        use tauri_plugin_window_state::{StateFlags, WindowExt};
-        let _ = window.restore_state(StateFlags::all() & !StateFlags::DECORATIONS);
-    }
-
+    // 4. La geometria salvata la ripristina gia' il plugin window-state alla
+    //    creazione della finestra. Richiamare `restore_state` qui da un comando
+    //    async blocca l'app: tiene la cache del plugin mentre attende il thread
+    //    UI, che intanto aspetta la stessa cache negli eventi Moved/Resized.
     let _ = window.show();
     let _ = window.set_focus();
 
