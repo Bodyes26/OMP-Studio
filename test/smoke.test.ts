@@ -100,3 +100,4 @@ import './remote-commands.test.ts';
 import './project-commands.test.ts';
 import './remote-task-commands.test.ts';
 import './remote-chat.test.ts';
+import './remote-lane-config.test.ts';

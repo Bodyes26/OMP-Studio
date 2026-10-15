@@ -13,6 +13,7 @@ import type {
 	RemoteAnswer,
 	RemoteChatPage,
 	RemoteCommand,
+	RemoteComposerCatalog,
 	RemoteFolderList,
 	RemoteScheduleChoice
 } from '$remote-protocol';
@@ -91,6 +92,16 @@ export interface RemoteCommandExecutor {
 		name: string,
 		github: { visibility: 'private' | 'public' } | null
 	) => Promise<{ projectId: string }>;
+	newSession: (projectId: string, laneId: string | null) => Promise<void>;
+	composerCatalog: (projectId: string, laneId: string | null) => Promise<RemoteComposerCatalog>;
+	setLaneRole: (projectId: string, laneId: string | null, roleId: string) => Promise<void>;
+	setLaneModel: (
+		projectId: string,
+		laneId: string | null,
+		provider: string,
+		modelId: string
+	) => Promise<void>;
+	setLaneThinking: (projectId: string, laneId: string | null, level: string) => Promise<void>;
 }
 
 export interface CommandProjectInfo {
@@ -156,15 +167,20 @@ const ACTION_LABELS: Record<RemoteCommand['kind'], string> = {
 	chat_history: 'letto la chat',
 	list_project_folders: 'letto le cartelle',
 	open_project: 'aperto il progetto',
-	create_project: 'creato il progetto'
+	create_project: 'creato il progetto',
+	new_session: 'avviato una nuova sessione',
+	composer_catalog: 'richiesto il catalogo del composer',
+	set_lane_role: 'impostato il ruolo',
+	set_lane_model: 'impostato il modello',
+	set_lane_thinking: 'impostato il livello di ragionamento'
 };
 
 /** Le letture non lasciano traccia: avvisano solo le azioni che cambiano qualcosa. */
 const SILENT_KINDS: Partial<Record<RemoteCommand['kind'], true>> = {
 	chat_history: true,
-	list_project_folders: true
+	list_project_folders: true,
+	composer_catalog: true
 };
-
 /**
  * Notifica in-app dell'avvenuta esecuzione di un comando remoto, registrata
  * sul transcript della sessione e segnalata sul composer (senza notifiche di sistema).
@@ -347,6 +363,36 @@ export async function handleRemoteCommand(
 					command.before,
 					command.limit
 				);
+				break;
+
+			case 'new_session':
+				laneId = command.laneId;
+				await ctx.executor.newSession(command.projectId, command.laneId);
+				break;
+
+			case 'composer_catalog':
+				laneId = command.laneId;
+				data = await ctx.executor.composerCatalog(command.projectId, command.laneId);
+				break;
+
+			case 'set_lane_role':
+				laneId = command.laneId;
+				await ctx.executor.setLaneRole(command.projectId, command.laneId, command.roleId);
+				break;
+
+			case 'set_lane_model':
+				laneId = command.laneId;
+				await ctx.executor.setLaneModel(
+					command.projectId,
+					command.laneId,
+					command.provider,
+					command.modelId
+				);
+				break;
+
+			case 'set_lane_thinking':
+				laneId = command.laneId;
+				await ctx.executor.setLaneThinking(command.projectId, command.laneId, command.level);
 				break;
 		}
 

@@ -13,6 +13,7 @@
 		RemoteChatEvent,
 		RemoteChatMessage,
 		RemoteChatPage,
+		RemoteComposerCatalog,
 		RemoteLane,
 		RemoteProject
 	} from '../../../../src/protocol.ts';
@@ -22,7 +23,7 @@
 	import ComposerTray from './ComposerTray.svelte';
 	import AttentionCard from '../AttentionCard.svelte';
 	import StatusMark from '../StatusMark.svelte';
-	import { IconArrowLeft, IconChevronDown, IconChevronUp } from '../../icons.ts';
+	import { IconArrowLeft, IconChevronDown, IconChevronUp, IconNewChat } from '../../icons.ts';
 
 	let { route }: { route: ChatRoute } = $props();
 
@@ -51,6 +52,156 @@
 	const isWorking = $derived(lane?.agent.state === 'working');
 	const canSessionControl = $derived(hostFeatures.includes('session_control'));
 	const canChat = $derived(hostFeatures.includes('chat'));
+	const canLaneConfig = $derived(hostFeatures.includes('lane_config'));
+	const isLab = $derived(lane?.kind === 'lab');
+	const showNewChat = $derived(canLaneConfig && !isLab);
+
+	const agentState = $derived(lane?.agent.state ?? 'offline');
+	const isBusy = $derived(agentState === 'working' || agentState === 'background' || agentState === 'attention');
+	const canStartNewChat = $derived(showNewChat && !isBusy && connection.status === 'connected');
+	const newChatTooltip = $derived(isBusy ? t('newChatDisabledBusy') : t('newChat'));
+
+	// Catalogo del composer per ruoli, modelli e ragionamento
+	let catalog = $state<RemoteComposerCatalog | null>(null);
+	const catalogCache: Record<string, RemoteComposerCatalog> = {};
+
+	// Override ottimistici locali durante la selezione
+	let optimisticRole = $state<string | null>(null);
+	let optimisticModelLabel = $state<string | null>(null);
+	let optimisticModelId = $state<string | null>(null);
+	let optimisticProvider = $state<string | null>(null);
+	let optimisticThinking = $state<string | null>(null);
+
+	const activeRole = $derived(optimisticRole ?? lane?.agent.role ?? 'default');
+	const activeThinking = $derived(optimisticThinking ?? lane?.agent.thinkingLevel ?? 'off');
+	const activeModelLabel = $derived(optimisticModelLabel ?? lane?.agent.modelLabel ?? lane?.agent.modelId ?? null);
+	const activeModelId = $derived(optimisticModelId ?? lane?.agent.modelId ?? null);
+	const activeProvider = $derived(optimisticProvider ?? lane?.agent.provider ?? null);
+
+	$effect(() => {
+		if (lane?.agent.role && lane.agent.role === optimisticRole) {
+			optimisticRole = null;
+		}
+		if (lane?.agent.modelId && lane.agent.modelId === optimisticModelId) {
+			optimisticModelId = null;
+			optimisticModelLabel = null;
+			optimisticProvider = null;
+		}
+		if (lane?.agent.thinkingLevel && lane.agent.thinkingLevel === optimisticThinking) {
+			optimisticThinking = null;
+		}
+	});
+
+	async function fetchComposerCatalog(force = false): Promise<void> {
+		if (!canLaneConfig || connection.status !== 'connected') return;
+		const cacheKey = `${route.hostId}:${route.projectId}:${route.laneId}`;
+		if (!force && catalogCache[cacheKey]) {
+			catalog = catalogCache[cacheKey];
+			return;
+		}
+
+		try {
+			const res = (await connection.sendCommand(route.hostId, {
+				kind: 'composer_catalog',
+				projectId: route.projectId,
+				laneId: route.laneId === 'main' ? null : route.laneId
+			})) as RemoteComposerCatalog | undefined;
+
+			if (res) {
+				catalog = res;
+				catalogCache[cacheKey] = res;
+			}
+		} catch (err: unknown) {
+			console.warn('[ChatView] Errore caricamento catalogo:', err);
+		}
+	}
+
+	async function handleNewSession(): Promise<void> {
+		if (!canStartNewChat) return;
+		errorMessage = null;
+		try {
+			await connection.sendCommand(route.hostId, {
+				kind: 'new_session',
+				projectId: route.projectId,
+				laneId: route.laneId === 'main' ? null : route.laneId
+			});
+		} catch (err: unknown) {
+			const e = err as { message?: string };
+			errorMessage = e?.message || t('newChatError');
+		}
+	}
+
+	async function handleSetRole(roleId: string): Promise<void> {
+		if (!canLaneConfig) return;
+		optimisticRole = roleId;
+		const roleOpt = catalog?.roles.find((r) => r.id === roleId);
+		if (roleOpt?.model) {
+			const [p, m] = roleOpt.model.split('/');
+			optimisticProvider = p;
+			optimisticModelId = m;
+			optimisticModelLabel = roleOpt.modelLabel ?? m;
+			if (roleOpt.thinking) {
+				optimisticThinking = roleOpt.thinking;
+			}
+		}
+		errorMessage = null;
+		try {
+			await connection.sendCommand(route.hostId, {
+				kind: 'set_lane_role',
+				projectId: route.projectId,
+				laneId: route.laneId === 'main' ? null : route.laneId,
+				roleId
+			});
+			void fetchComposerCatalog(true);
+		} catch (err: unknown) {
+			optimisticRole = null;
+			const e = err as { message?: string };
+			errorMessage = e?.message || 'Errore impostazione ruolo';
+		}
+	}
+
+	async function handleSetModel(provider: string, modelId: string): Promise<void> {
+		if (!canLaneConfig) return;
+		optimisticProvider = provider;
+		optimisticModelId = modelId;
+		const modelOpt = catalog?.models.find((m) => m.provider === provider && m.id === modelId);
+		optimisticModelLabel = modelOpt?.name ?? modelId;
+		errorMessage = null;
+		try {
+			await connection.sendCommand(route.hostId, {
+				kind: 'set_lane_model',
+				projectId: route.projectId,
+				laneId: route.laneId === 'main' ? null : route.laneId,
+				provider,
+				modelId
+			});
+			void fetchComposerCatalog(true);
+		} catch (err: unknown) {
+			optimisticModelId = null;
+			optimisticModelLabel = null;
+			optimisticProvider = null;
+			const e = err as { message?: string };
+			errorMessage = e?.message || 'Errore impostazione modello';
+		}
+	}
+
+	async function handleSetThinking(level: string): Promise<void> {
+		if (!canLaneConfig) return;
+		optimisticThinking = level;
+		errorMessage = null;
+		try {
+			await connection.sendCommand(route.hostId, {
+				kind: 'set_lane_thinking',
+				projectId: route.projectId,
+				laneId: route.laneId === 'main' ? null : route.laneId,
+				level
+			});
+		} catch (err: unknown) {
+			optimisticThinking = null;
+			const e = err as { message?: string };
+			errorMessage = e?.message || 'Errore impostazione thinking';
+		}
+	}
 
 	const laneKindLabel = $derived.by(() => {
 		const kind = lane?.kind;
@@ -159,7 +310,10 @@
 
 	function handleIncomingChatEvent(event: RemoteChatEvent): void {
 		if (event.kind === 'reset') {
+			messages = [];
+			beforeCursor = null;
 			void loadInitialHistory();
+			void fetchComposerCatalog(true);
 			return;
 		}
 		messages = applyChatEvent(messages, event);
@@ -203,6 +357,7 @@
 	$effect(() => {
 		if (connection.status !== 'connected') return;
 		void loadInitialHistory();
+		void fetchComposerCatalog();
 		const unlisten = connection.subscribeChat(
 			route.hostId,
 			route.projectId,
@@ -247,6 +402,19 @@
 		</div>
 
 		<div class="header-right">
+			{#if showNewChat}
+				<button
+					type="button"
+					class="composer-icon-btn new-chat-btn"
+					disabled={!canStartNewChat}
+					onclick={handleNewSession}
+					title={newChatTooltip}
+					aria-label={newChatTooltip}
+				>
+					<IconNewChat />
+				</button>
+			{/if}
+
 			{#if lane}
 				<span class="agent-mark-wrapper" class:pulse={isWorking}>
 					<StatusMark
@@ -261,7 +429,7 @@
 				</span>
 			{/if}
 
-			{#if modelLabel}
+			{#if !canLaneConfig && modelLabel}
 				<span class="header-model-label font-mono">{modelLabel}</span>
 			{/if}
 
@@ -327,20 +495,29 @@
 				{/if}
 				<ComposerTray todos={latestTodos} />
 				<Composer
-					{isWorking}
+					isWorking={lane?.agent.state === 'working'}
 					disabled={Boolean(disabledReason)}
 					{disabledReason}
 					{canSessionControl}
-					{modelLabel}
+					hasLaneConfig={canLaneConfig}
+					role={activeRole}
+					modelLabel={activeModelLabel}
+					modelId={activeModelId}
+					provider={activeProvider}
+					thinkingLevel={activeThinking}
 					machineName={hostName}
+					{catalog}
 					onSend={handleSend}
 					onStop={handleStop}
+					onSetRole={handleSetRole}
+					onSetModel={handleSetModel}
+					onSetThinking={handleSetThinking}
+					onNewSession={handleNewSession}
 				/>
 			{/if}
 		</div>
 	</footer>
 </div>
-
 <style>
 	.chat-view-container {
 		position: relative;

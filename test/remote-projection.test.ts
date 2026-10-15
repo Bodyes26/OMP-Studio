@@ -380,4 +380,63 @@ describe('buildHostState projection', () => {
 		});
 		assert.deepEqual(stateWithTheme.theme, theme);
 	});
+
+	it('includes role and thinkingLevel for GUI lanes and null for terminal-surface lanes', () => {
+		const rolesMap = {
+			default: 'anthropic/claude-3-7-sonnet',
+			plan: 'anthropic/claude-opus-4:high',
+			smol: 'openai/gpt-4o-mini'
+		};
+		const knownSelectors = new Set([
+			'anthropic/claude-3-7-sonnet',
+			'anthropic/claude-opus-4',
+			'openai/gpt-4o-mini'
+		]);
+
+		const sessions = new Map<string, SessionInput>([
+			[
+				'p1:main',
+				{
+					isOpen: true,
+					agentState: 'idle',
+					surface: 'gui',
+					model: { provider: 'anthropic', id: 'claude-opus-4', name: 'Claude Opus 4' },
+					thinkingLevel: 'high',
+					lastPickedRole: 'plan'
+				}
+			],
+			[
+				'p1:feat-term',
+				{
+					isOpen: true,
+					agentState: 'idle',
+					surface: 'terminal',
+					model: { provider: 'anthropic', id: 'claude-3-7-sonnet', name: 'Sonnet' },
+					thinkingLevel: 'medium'
+				}
+			]
+		]);
+
+		const input: BuildHostStateInput = {
+			projects: [{ id: 'p1', name: 'Project 1', canonicalProjectPath: '/dev/p1', hue: 120 }],
+			lanes: [
+				{ projectId: 'p1', laneId: 'main', kind: 'main', surface: 'gui', title: 'Principale' },
+				{ projectId: 'p1', laneId: 'feat-term', kind: 'worktree', surface: 'terminal', title: 'Term Lane' }
+			],
+			sessions,
+			rolesMap,
+			knownSelectors
+		};
+
+		const state = buildHostState(input);
+		const lanes = state.projects[0].lanes;
+
+		// Main lane (GUI)
+		assert.equal(lanes[0].agent.role, 'plan');
+		assert.equal(lanes[0].agent.thinkingLevel, 'high');
+
+		// Terminal lane
+		assert.equal(lanes[1].agent.role, null);
+		assert.equal(lanes[1].agent.thinkingLevel, null);
+	});
 });

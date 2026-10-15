@@ -48,7 +48,6 @@
 	import { ompChangelogStore } from '$lib/stores/ompChangelog.svelte';
 	import OmpChangelogModal from '$lib/components/OmpChangelogModal.svelte';
 	import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
-	import { parseRoleSelector, resolveActiveRole, nextCycleRole } from '$lib/stores/modelSettingsHelpers';
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { projectOrder } from '$lib/stores/projectOrder.svelte';
 	import { notificationManager } from '$lib/stores/notifications.svelte';
@@ -73,6 +72,8 @@
 	import { abortRemoteLane, sendRemotePrompt } from '$lib/remote/sessionCommands';
 	import { initRemoteChat, remoteChatHistory } from '$lib/remote/chat';
 	import { listRemoteProjectFolders, openRemoteProject, createRemoteProject } from '$lib/remote/projectCommands';
+	import { createLaneConfigCommands } from '$lib/remote/laneConfigCommands';
+	import { applyRoleToSession, RoleApplyError } from '$lib/agent/laneRole';
 	import { laneStore, type LaneRecord } from '$lib/stores/lanes.svelte';
 	import { laneOrchestrator, type TerminalMetaEntry } from '$lib/lanes/laneOrchestrator.svelte';
 	import { describeLaneProcess } from '$lib/lanes/processSupervisor';
@@ -1070,6 +1071,12 @@
 		const remoteTasks = createTaskCommands({
 			buildResetSchedule: (t) => scheduleStore.buildReset(t, 'user')
 		});
+		const remoteLaneConfig = createLaneConfigCommands({
+			ensureLoaded: () => modelSettingsStore.ensureLoaded(),
+			getModelConfig: () => modelSettingsStore.config || modelSettingsStore.draftConfig,
+			getAssignableCatalog: () => modelSettingsStore.assignableCatalog,
+			getKnownSelectors: () => modelSettingsStore.knownSelectors
+		});
 		register(
 			setupRemoteCommands(
 				{
@@ -1085,7 +1092,12 @@
 					chatHistory: remoteChatHistory,
 					listProjectFolders: listRemoteProjectFolders,
 					openProject: openRemoteProject,
-					createProject: createRemoteProject
+					createProject: createRemoteProject,
+					newSession: remoteLaneConfig.newRemoteSession,
+					composerCatalog: remoteLaneConfig.getRemoteComposerCatalog,
+					setLaneRole: remoteLaneConfig.setRemoteLaneRole,
+					setLaneModel: remoteLaneConfig.setRemoteLaneModel,
+					setLaneThinking: remoteLaneConfig.setRemoteLaneThinking
 				},
 				{
 					clearAttentionRequest: (pId, lId) => companionStore.clearAttentionRequest(pId, lId)
@@ -2278,38 +2290,34 @@
 			}
 			const arg = argument.trim().toLowerCase();
 			void (async () => {
-				await modelSettingsStore.ensureLoaded();
-				const cfg = modelSettingsStore.config || modelSettingsStore.draftConfig;
-				const rolesMap = cfg?.modelRoles || {};
-				const known = modelSettingsStore.knownSelectors;
-
-				let role = arg;
-				if (arg === 'next' || arg === 'cycle') {
-					const current = resolveActiveRole(rolesMap, session.model, session.thinkingLevel, session.lastPickedRole, known);
-					const next = nextCycleRole(cfg?.cycleOrder ?? [], rolesMap, current);
-					if (!next) {
-						session.flashNotice('warning', m.page_slash_cmd_no_configured_roles());
+				try {
+					const result = await applyRoleToSession(session, arg, {
+						ensureLoaded: () => modelSettingsStore.ensureLoaded(),
+						getModelConfig: () => modelSettingsStore.config || modelSettingsStore.draftConfig,
+						getKnownSelectors: () => modelSettingsStore.knownSelectors
+					});
+					session.flashNotice(
+						'info',
+						m.page_slash_cmd_active_role({
+							role: result.role,
+							model: session.model?.name || result.modelId
+						})
+					);
+				} catch (err) {
+					// Stessi messaggi localizzati di prima dell'estrazione: il motivo arriva tipizzato.
+					if (err instanceof RoleApplyError) {
+						session.flashNotice(
+							'warning',
+							err.reason === 'no_configured_roles'
+								? m.page_slash_cmd_no_configured_roles()
+								: m.page_slash_cmd_unconfigured_role({ role: err.role })
+						);
 						return;
 					}
-					role = next;
-				}
-
-				const full = rolesMap[role];
-				if (!full) {
-					session.flashNotice('warning', m.page_slash_cmd_unconfigured_role({ role }));
-					return;
-				}
-				const { provider, modelId, thinking } = parseRoleSelector(full, known);
-				try {
-					await session.client.send({ type: 'set_model', provider: provider || session.model?.provider || '', modelId });
-					if (thinking && thinking !== 'auto') {
-						await session.client.send({ type: 'set_thinking_level', level: thinking as ThinkingLevel });
-					}
-					session.lastPickedRole = role;
-					await session.refreshState();
-					session.flashNotice('info', m.page_slash_cmd_active_role({ role, model: session.model?.name || modelId }));
-				} catch (err) {
-					session.flashNotice('warning', `/role ${role}: ${err instanceof Error ? err.message : String(err)}`);
+					session.flashNotice(
+						'warning',
+						`/role ${arg}: ${err instanceof Error ? err.message : String(err)}`
+					);
 				}
 			})();
 			return true;

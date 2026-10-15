@@ -238,8 +238,10 @@ fn test_frame_json_shapes() {
     assert_eq!(json_val["host"]["name"], "MacBook-Pro");
     assert_eq!(json_val["host"]["appVersion"], "1.7.2");
     assert!(FEATURES.contains(&"chat_rich"));
+    assert!(FEATURES.contains(&"lane_config"));
     let features_arr = json_val["features"].as_array().unwrap();
     assert!(features_arr.iter().any(|f| f == "chat_rich"));
+    assert!(features_arr.iter().any(|f| f == "lane_config"));
 
     // 2. HostFrame::Snapshot
     let snapshot = HostFrame::Snapshot {

@@ -40,6 +40,11 @@ describe('remote command handling', () => {
 			listProjectFolders: unused,
 			openProject: unused,
 			createProject: unused,
+			newSession: unused,
+			composerCatalog: unused,
+			setLaneRole: unused,
+			setLaneModel: unused,
+			setLaneThinking: unused,
 			...executorOverrides
 		};
 

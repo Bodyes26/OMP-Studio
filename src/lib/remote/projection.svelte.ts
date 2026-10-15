@@ -17,9 +17,10 @@ import { taskStore } from '$lib/stores/tasks.svelte';
 import { scheduleStore } from '$lib/stores/schedule.svelte';
 import { quotaStore } from '$lib/stores/quota.svelte';
 import { sessionRegistry } from '$lib/agent/sessionRegistry';
+import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
 import { onThemeChange, getCurrentAnchors } from '$lib/theme';
+
 export interface RemoteProjectionOptions {
-	/** Funzione che restituisce il prossimo task candidato per l'arbitro di un progetto. */
 	getCandidateTaskId?: (projectId: string) => string | null;
 }
 
@@ -59,6 +60,11 @@ export function startRemoteProjection(options: RemoteProjectionOptions = {}): ()
 			const quotaReports = quotaStore.reports;
 			const quotaFetchedAt = quotaStore.lastFetchedAt;
 			const theme = themeAnchors;
+			const rolesMap =
+				modelSettingsStore.config?.modelRoles ||
+				modelSettingsStore.draftConfig?.modelRoles ||
+				{};
+			const knownSelectors = modelSettingsStore.knownSelectors;
 			const hostState = buildHostState({
 				projects: projects.map((p) => ({
 					id: p.id,
@@ -86,7 +92,9 @@ export function startRemoteProjection(options: RemoteProjectionOptions = {}): ()
 							agentState: s.agentState,
 							model: s.model,
 							activityLine: s.activityLine,
-							headsUp: s.headsUp
+							headsUp: s.headsUp,
+							thinkingLevel: s.thinkingLevel,
+							lastPickedRole: s.lastPickedRole
 						};
 					}
 
@@ -123,7 +131,9 @@ export function startRemoteProjection(options: RemoteProjectionOptions = {}): ()
 				},
 				quotaReports,
 				quotaFetchedAt,
-				theme
+				theme,
+				rolesMap,
+				knownSelectors
 			});
 
 			const json = JSON.stringify(hostState);

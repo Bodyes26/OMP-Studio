@@ -23,6 +23,7 @@ import type {
 	RemoteAgentState,
 	RemoteTheme
 } from '$remote-protocol';
+import { resolveActiveRole } from '$lib/stores/modelSettingsHelpers';
 import { taskLabel } from '$lib/stores/taskTitle';
 import type { AttentionRequest, CompanionProjectRuntime } from '$lib/stores/companion.svelte';
 import type { StudioTask } from '$lib/stores/tasks.svelte';
@@ -55,8 +56,10 @@ export interface SessionInput {
 	activityLine?: { text: string; at: number; kind: 'intent' | 'assistant' } | null;
 	activity?: { text: string; at: number; kind: 'intent' | 'assistant' } | null;
 	headsUp?: { text: string } | string | null;
+	thinkingLevel?: string | null;
+	lastPickedRole?: string | null;
+	role?: string | null;
 }
-
 export interface ScheduleTargetOutput {
 	dueAt?: number;
 	provider?: string;
@@ -81,8 +84,9 @@ export interface BuildHostStateInput {
 	quotaReports?: QuotaReport[];
 	quotaFetchedAt?: number | null;
 	theme?: RemoteTheme | null;
+	rolesMap?: Readonly<Record<string, string>>;
+	knownSelectors?: ReadonlySet<string>;
 }
-
 export function mapAgentState(session?: SessionInput | null): RemoteAgentState {
 	if (!session || session.isOpen === false || session.exited === true) {
 		return 'offline';
@@ -132,7 +136,9 @@ function mapLanes(
 	project: ProjectInput,
 	lanes: LaneInput[],
 	inputSessions: BuildHostStateInput['sessions'],
-	runtime?: CompanionProjectRuntime
+	runtime?: CompanionProjectRuntime,
+	rolesMap?: Readonly<Record<string, string>>,
+	knownSelectors?: ReadonlySet<string>
 ): RemoteLane[] {
 	// Assicura che esista almeno la corsia principale
 	const hasMain = lanes.some((l) => l.laneId === 'main');
@@ -227,6 +233,27 @@ function mapLanes(
 		}
 
 		const surface = lane.surface ?? (session?.surface ?? null);
+		const isTerminal = surface === 'terminal';
+		let role: string | null = null;
+		let thinkingLevel: string | null = null;
+
+		if (!isTerminal) {
+			if (session?.role !== undefined) {
+				role = session.role;
+			} else if (rolesMap) {
+				const effectiveModel =
+					session?.model ??
+					(modelId ? { provider: provider ?? undefined, id: modelId } : null);
+				role = resolveActiveRole(
+					rolesMap,
+					effectiveModel,
+					session?.thinkingLevel,
+					session?.lastPickedRole,
+					knownSelectors
+				);
+			}
+			thinkingLevel = session?.thinkingLevel ?? null;
+		}
 
 		const agent: RemoteAgent = {
 			state: agentState,
@@ -235,9 +262,10 @@ function mapLanes(
 			modelId,
 			modelLabel,
 			activity,
-			headsUp
+			headsUp,
+			role,
+			thinkingLevel
 		};
-
 		return {
 			id,
 			title,
@@ -495,7 +523,14 @@ export function buildHostState(input: BuildHostStateInput): HostState {
 	const projects: RemoteProject[] = input.projects.map((p) => {
 		const runtime = input.runtimes?.find((r) => r.projectId === p.id);
 		const lanes = resolveLanes(input, p.id);
-		const remoteLanes = mapLanes(p, lanes, input.sessions, runtime);
+		const remoteLanes = mapLanes(
+			p,
+			lanes,
+			input.sessions,
+			runtime,
+			input.rolesMap,
+			input.knownSelectors
+		);
 		const attention = mapAttention(input.attentionRequests || [], p.id);
 		const tasks = mapTasks(resolveTasks(input, p), input, p.id);
 

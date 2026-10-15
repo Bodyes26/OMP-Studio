@@ -36,7 +36,9 @@ export interface ProtocolId {
  * - `projects`: elenco delle cartelle dei progetti, apertura e creazione;
  * - `chat_rich`: la PWA servita dal relay disegna i blocchi `thinking` in
  *   streaming. Studio manda i delta di ragionamento solo se il `welcome` la
- *   elenca: una PWA vecchia li accoderebbe al testo della risposta.
+ *   elenca: una PWA vecchia li accoderebbe al testo della risposta;
+ * - `lane_config`: nuova chat, ruolo, modello e ragionamento della corsia, e
+ *   catalogo del composer (comandi, skill, modelli, ruoli).
  */
 export const FEATURES = [
 	'respond_ui',
@@ -46,7 +48,8 @@ export const FEATURES = [
 	'session_control',
 	'chat',
 	'projects',
-	'chat_rich'
+	'chat_rich',
+	'lane_config'
 ] as const;
 export type Feature = (typeof FEATURES)[number];
 
@@ -127,6 +130,10 @@ export interface RemoteAgent {
 	activity: RemoteActivity | null;
 	/** Heads-up dell'ultimo turno (Gate R40), finche' non e' visto. */
 	headsUp: string | null;
+	/** Ruolo attivo della sessione (`default`, `plan`...). Assente dagli host precedenti. */
+	role?: string | null;
+	/** Livello di ragionamento della sessione (`off`...`max`). Assente dagli host precedenti. */
+	thinkingLevel?: string | null;
 }
 
 export interface RemoteLane {
@@ -328,7 +335,18 @@ export type RemoteCommand =
 	/** Solo cartelle sotto la radice dei progetti di Studio, come nel selettore della GUI. */
 	| { kind: 'open_project'; path: string }
 	/** Cartella nuova sotto la radice, `git init`, repository GitHub facoltativo. */
-	| { kind: 'create_project'; name: string; github: { visibility: 'private' | 'public' } | null };
+	| { kind: 'create_project'; name: string; github: { visibility: 'private' | 'public' } | null }
+	/**
+	 * Nuova sessione della corsia, come «Nuova chat» in Studio. Solo ad agente
+	 * fermo: mentre lavora la macchina risponde `rejected`. Mai sulle corsie Lab.
+	 */
+	| { kind: 'new_session'; projectId: string; laneId: string | null }
+	/** Comandi, skill, modelli e ruoli per il composer della corsia (vedi `RemoteComposerCatalog`). */
+	| { kind: 'composer_catalog'; projectId: string; laneId: string | null }
+	/** Applica alla sessione il modello e il ragionamento assegnati al ruolo. */
+	| { kind: 'set_lane_role'; projectId: string; laneId: string | null; roleId: string }
+	| { kind: 'set_lane_model'; projectId: string; laneId: string | null; provider: string; modelId: string }
+	| { kind: 'set_lane_thinking'; projectId: string; laneId: string | null; level: string };
 
 /** Funzione che una macchina deve dichiarare perche' il comando le arrivi. */
 export const COMMAND_FEATURE: Record<RemoteCommand['kind'], Feature> = {
@@ -345,7 +363,12 @@ export const COMMAND_FEATURE: Record<RemoteCommand['kind'], Feature> = {
 	chat_history: 'chat',
 	list_project_folders: 'projects',
 	open_project: 'projects',
-	create_project: 'projects'
+	create_project: 'projects',
+	new_session: 'lane_config',
+	composer_catalog: 'lane_config',
+	set_lane_role: 'lane_config',
+	set_lane_model: 'lane_config',
+	set_lane_thinking: 'lane_config'
 };
 
 export interface RemoteChatMessage {
@@ -453,6 +476,46 @@ export interface RemoteFolderList {
 	githubAvailable?: boolean;
 }
 
+/**
+ * Comando del composer che la sessione esegue se arriva come testo del prompt:
+ * i comandi di `omp` e delle sue estensioni e le skill. Quelli che Studio
+ * gestisce in casa (`/loop`, `/goal`...) restano fuori, perche' `send_prompt`
+ * li manderebbe al modello come testo.
+ */
+export interface RemoteSlashCommand {
+	/** Senza `/`; per le skill il nome da scrivere dopo `/skill:`. */
+	name: string;
+	kind: 'command' | 'skill';
+	description: string | null;
+	/** Suggerimento per l'argomento, se il comando ne prende uno. */
+	hint: string | null;
+}
+
+export interface RemoteModelOption {
+	provider: string;
+	id: string;
+	name: string;
+}
+
+export interface RemoteRoleOption {
+	/** `default`, `plan`, `smol`, `slow`, ... */
+	id: string;
+	label: string;
+	/** Modello assegnato (`provider/id`), `null` se il ruolo non ne ha. */
+	model: string | null;
+	modelLabel: string | null;
+	thinking: string | null;
+}
+
+export interface RemoteComposerCatalog {
+	commands: RemoteSlashCommand[];
+	/** Modelli assegnabili: provider configurati con credenziali valide. */
+	models: RemoteModelOption[];
+	roles: RemoteRoleOption[];
+	/** Livelli di ragionamento supportati dal modello attuale, dal piu' basso. */
+	thinkingLevels: string[];
+}
+
 /** Dati restituiti in `command_result.data` dai comandi che ne hanno. */
 export interface RemoteCommandData {
 	create_task: { taskId: string };
@@ -460,6 +523,7 @@ export interface RemoteCommandData {
 	list_project_folders: RemoteFolderList;
 	open_project: { projectId: string };
 	create_project: { projectId: string };
+	composer_catalog: RemoteComposerCatalog;
 }
 
 export type CommandErrorCode =
