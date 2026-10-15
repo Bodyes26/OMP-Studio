@@ -1337,6 +1337,7 @@
 								{#snippet children()}
 									<ContextPanel
 										{session}
+										cacheWarmingMode={settingsStore.general.cacheWarming}
 										draftTokens={draftTokensEstimate}
 										onCompact={() => {
 											activeMenu = null;

@@ -483,6 +483,7 @@
 						{#snippet children()}
 							<ContextPanel
 								{session}
+								cacheWarmingMode={settingsStore.general.cacheWarming}
 								{draftTokens}
 								onCompact={() => {
 									contextMenuOpen = false;

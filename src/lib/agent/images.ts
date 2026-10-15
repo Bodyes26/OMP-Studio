@@ -151,7 +151,10 @@ function getBase64(canvas: HTMLCanvasElement, mimeType: string, quality?: number
 	return stripDataPrefix(dataUrl);
 }
 
-export async function prepareImage(file: File | Blob): Promise<ImageContent | { error: string }> {
+export async function prepareImage(
+	file: File | Blob,
+	maxBase64Length = MAX_BASE64_LENGTH
+): Promise<ImageContent | { error: string }> {
 	let source: DecodedImageSource | null = null;
 	try {
 		source = await loadDecodedSource(file);
@@ -185,7 +188,7 @@ export async function prepareImage(file: File | Blob): Promise<ImageContent | { 
 
 			// 1. Prova PNG
 			const png = getBase64(canvas, 'image/png');
-			if (png.length <= MAX_BASE64_LENGTH) {
+			if (png.length <= maxBase64Length) {
 				return {
 					type: 'image',
 					data: png,
@@ -196,7 +199,7 @@ export async function prepareImage(file: File | Blob): Promise<ImageContent | { 
 			// 2. Prova JPEG con qualita' decrescente (0.85, 0.7, 0.6)
 			for (const quality of JPEG_QUALITIES) {
 				const jpeg = getBase64(canvas, 'image/jpeg', quality);
-				if (jpeg.length <= MAX_BASE64_LENGTH) {
+				if (jpeg.length <= maxBase64Length) {
 					return {
 						type: 'image',
 						data: jpeg,

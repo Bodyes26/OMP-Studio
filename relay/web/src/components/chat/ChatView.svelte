@@ -14,6 +14,7 @@
 		RemoteChatMessage,
 		RemoteChatPage,
 		RemoteComposerCatalog,
+		RemotePromptImage,
 		RemoteLane,
 		RemoteProject
 	} from '../../../../src/protocol.ts';
@@ -23,7 +24,8 @@
 	import ComposerTray from './ComposerTray.svelte';
 	import AttentionCard from '../AttentionCard.svelte';
 	import StatusMark from '../StatusMark.svelte';
-	import { IconArrowLeft, IconChevronDown, IconChevronUp, IconNewChat } from '../../icons.ts';
+	import { IconArrowLeft, IconChevronDown, IconChevronUp, IconClose, IconNewChat } from '../../icons.ts';
+	import type { RemoteComposerAttachment } from '../../chat/remoteAttachments.svelte.ts';
 
 	let { route }: { route: ChatRoute } = $props();
 
@@ -34,7 +36,19 @@
 	let errorMessage = $state<string | null>(null);
 	let transcriptRef = $state<ReturnType<typeof Transcript> | null>(null);
 	let askMinimized = $state(false);
+	let activeImageModal = $state<{ url: string; mimeType?: string } | null>(null);
+	let imageDialogEl = $state<HTMLDialogElement | null>(null);
+	$effect(() => {
+		if (imageDialogEl && !imageDialogEl.open) imageDialogEl.showModal();
+	});
 
+	function openImageModal(url: string, mimeType?: string): void {
+		activeImageModal = { url, mimeType };
+	}
+
+	function closeImageModal(): void {
+		activeImageModal = null;
+	}
 	// Risoluzione reattiva di macchina, stato, progetto e corsia
 	const host = $derived(connection.hosts.find((h) => h.id === route.hostId));
 	const hostName = $derived(host?.name ?? 'Macchina');
@@ -256,6 +270,34 @@
 		return null;
 	});
 
+	async function handleRefreshContext(force = false): Promise<void> {
+		if (!canSessionControl || disabledReason) return;
+		try {
+			await connection.sendCommand(route.hostId, {
+				kind: 'refresh_context',
+				projectId: route.projectId,
+				laneId: route.laneId === 'main' ? null : route.laneId,
+				force
+			});
+		} catch (err: unknown) {
+			errorMessage = err instanceof Error ? err.message : (err as { message?: string })?.message ?? String(err);
+		}
+	}
+
+	async function handleCompactContext(): Promise<void> {
+		if (!canSessionControl || disabledReason) return;
+		errorMessage = null;
+		try {
+			await connection.sendCommand(route.hostId, {
+				kind: 'compact_context',
+				projectId: route.projectId,
+				laneId: route.laneId === 'main' ? null : route.laneId
+			});
+		} catch (err: unknown) {
+			errorMessage = err instanceof Error ? err.message : (err as { message?: string })?.message ?? String(err);
+		}
+	}
+
 	async function loadInitialHistory(): Promise<void> {
 		if (!canChat) return;
 		loadingHistory = true;
@@ -319,15 +361,68 @@
 		messages = applyChatEvent(messages, event);
 	}
 
-	async function handleSend(text: string, whileBusy: 'steer' | 'follow_up'): Promise<void> {
+	async function handleSend(
+		text: string,
+		whileBusy: 'steer' | 'follow_up',
+		attachments?: RemoteComposerAttachment[]
+	): Promise<void> {
 		errorMessage = null;
 		try {
+			const effectiveAttachments = attachments ? [...attachments] : [];
+			const stillStaging = effectiveAttachments.some((a) => a.status === 'staging');
+			if (stillStaging) {
+				throw new Error('Salvataggio allegati ancora in corso sull\'host, attendi...');
+			}
+			const hasError = effectiveAttachments.some((a) => a.status === 'error');
+			if (hasError) {
+				throw new Error('Uno o più allegati non sono stati salvati correttamente. Rimuovili o riprova.');
+			}
+
+			const stagedNonImages = effectiveAttachments.filter((a) => a.kind !== 'image' && a.stagedPath);
+
+			let totalInlineBytes = 0;
+			const imagesToSend: RemotePromptImage[] = [];
+			let totalPhysicalImageBytes = 0;
+			for (const att of effectiveAttachments) {
+				if (att.kind === 'image') {
+					if (att.stagedPath) {
+						imagesToSend.push({
+							type: 'image',
+							path: att.stagedPath,
+							mimeType: att.mimeType || 'image/jpeg'
+						});
+					} else if (att.base64) {
+						totalInlineBytes += att.base64.length;
+						imagesToSend.push({
+							type: 'image',
+							data: att.base64,
+							mimeType: att.mimeType || 'image/jpeg'
+						});
+					}
+					if (att.base64) {
+						totalPhysicalImageBytes += att.base64.length;
+					}
+				}
+			}
+
+			if (totalInlineBytes > 400_000) {
+				throw new Error('Il payload complessivo delle immagini inline supera il limite del frame remoto (512 KiB). Attendi il completamento dello staging.');
+			}
+
+			if (totalPhysicalImageBytes + text.length > 700_000) {
+				throw new Error('Il payload complessivo delle immagini supera il limite massimo supportato dal modello (700 KB base64). Riduci le immagini allegate.');
+			}
+
 			await connection.sendCommand(route.hostId, {
 				kind: 'send_prompt',
 				projectId: route.projectId,
 				laneId: route.laneId === 'main' ? null : route.laneId,
-				text,
-				whileBusy
+				text: text.trim(),
+				whileBusy,
+				images: imagesToSend.length > 0 ? imagesToSend : undefined,
+				attachments: stagedNonImages.length > 0
+					? stagedNonImages.map((a) => ({ path: a.stagedPath!, name: a.name }))
+					: undefined
 			});
 			queueMicrotask(() => {
 				transcriptRef?.scrollToBottom(true);
@@ -454,6 +549,7 @@
 			{isWorking}
 			agentActivityText={lane?.agent.activity?.text}
 			agentActivityStartedAt={lane?.agent.activity?.at}
+			onOpenImage={openImageModal}
 		/>
 	</main>
 
@@ -507,18 +603,89 @@
 					thinkingLevel={activeThinking}
 					machineName={hostName}
 					{catalog}
+					context={lane?.agent.context ?? null}
+					onRefreshContext={handleRefreshContext}
+					onCompactContext={handleCompactContext}
 					onSend={handleSend}
 					onStop={handleStop}
 					onSetRole={handleSetRole}
 					onSetModel={handleSetModel}
 					onSetThinking={handleSetThinking}
 					onNewSession={handleNewSession}
+					onOpenImage={openImageModal}
+					hostId={route.hostId}
+					projectId={route.projectId}
+					laneId={route.laneId === 'main' ? null : route.laneId}
+					{connection}
+					onNotice={(type, msg) => {
+						errorMessage = msg;
+					}}
 				/>
 			{/if}
 		</div>
 	</footer>
+	{#if activeImageModal}
+		<dialog bind:this={imageDialogEl} class="image-modal-backdrop"
+			aria-label={t('chatImageCountSingular')}
+			onclick={(event) => { if (event.target === event.currentTarget) closeImageModal(); }}
+			onclose={closeImageModal} oncancel={closeImageModal}>
+			<button type="button" class="image-modal-close" onclick={closeImageModal} aria-label={t('close')}>
+				<IconClose />
+			</button>
+			<img src={activeImageModal.url} alt={t('chatImageCountSingular')} class="image-modal-img" />
+		</dialog>
+	{/if}
 </div>
 <style>
+	.image-modal-backdrop {
+		position: fixed;
+		inset: 0;
+		z-index: 9999;
+		background: rgba(0, 0, 0, 0.82);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: var(--space-4);
+		width: 100vw;
+		height: 100dvh;
+		max-width: none;
+		max-height: none;
+		border: 0;
+		margin: 0;
+		box-sizing: border-box;
+		backdrop-filter: blur(4px);
+	}
+
+	.image-modal-close {
+		position: absolute;
+		top: var(--space-4);
+		right: var(--space-4);
+		width: 40px;
+		height: 40px;
+		border-radius: 50%;
+		background: rgba(255, 255, 255, 0.15);
+		border: none;
+		color: #fff;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		cursor: pointer;
+		transition: background 120ms ease;
+		--icon-size: 20px;
+	}
+
+	.image-modal-close:hover {
+		background: rgba(255, 255, 255, 0.3);
+	}
+
+	.image-modal-img {
+		max-width: 90vw;
+		max-height: 85vh;
+		object-fit: contain;
+		border-radius: var(--radius-md);
+		box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+	}
+
 	.chat-view-container {
 		position: relative;
 		width: 100%;

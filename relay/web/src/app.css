@@ -1,9 +1,7 @@
 /* Token e grammatica visiva di OMP Studio (`src/app.css`), portati nella PWA.
-   La PWA e' compilata dal solo contesto `relay/` (Dockerfile), quindi non puo'
-   importare il file di Studio: questa copia ne segue i valori uno a uno e va
-   aggiornata insieme a lui. Restano fuori solo le parti del desktop (terminale,
-   Monaco, gutter git). Le ancore del tema le scrive `theme.ts` su :root,
-   come `applyAnchors` in Studio. */
+   La PWA ha accesso al contesto di Studio (`src/lib`) sia nello sviluppo locale sia
+   nella build Docker tramite alias `$lib`. Questa copia include i token specifici
+   della PWA; le ancore del tema le scrive `theme.ts` su :root, come `applyAnchors` in Studio. */
 
 @import "@fontsource-variable/inter";
 @import "@fontsource-variable/jetbrains-mono";

@@ -8,8 +8,9 @@
     "test": "bun test",
     "check": "tsc --noEmit",
     "dev:web": "vite dev web",
-    "build:web": "vite build web",
-    "check:web": "svelte-check --tsconfig web/tsconfig.json --config web/vite.config.ts"
+    "build:web": "bun run compile:i18n && vite build web",
+    "check:web": "bun run compile:i18n && svelte-check --tsconfig web/tsconfig.json --config web/svelte.config.js",
+    "compile:i18n": "bun scripts/compile-i18n.mjs"
   },
   "devDependencies": {
     "@fontsource-variable/inter": "^5.3.0",
@@ -21,6 +22,11 @@
     "svelte": "^5.0.0",
     "svelte-check": "^4.0.0",
     "typescript": "^5.9.0",
+    "monaco-editor": "^0.56.0",
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-opener": "^2",
+    "@inlang/paraglide-js": "^2.25.1",
+    "@inlang/plugin-message-format": "^4.4.0",
     "vite": "^6.0.3"
   }
 }

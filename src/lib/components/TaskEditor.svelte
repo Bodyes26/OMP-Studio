@@ -22,8 +22,8 @@
 	import { rankFrequentTaskModelConfigurations } from '$lib/stores/taskSerialization';
 	import { taskLabel } from '$lib/stores/taskTitle';
 	import { requestTaskTitle } from '$lib/stores/taskTitles';
-	import { modelSettingsStore, STANDARD_ROLES, THINKING_LEVELS } from '$lib/stores/modelSettings.svelte';
-	import { supportedThinkingLevels } from '$lib/stores/modelSettingsHelpers';
+	import { modelSettingsStore, STANDARD_ROLES } from '$lib/stores/modelSettings.svelte';
+	import { supportedThinkingLevels, THINKING_LEVEL_ITEMS } from '$lib/stores/modelSettingsHelpers';
 	import { quotaStore, providersMatch, type ProviderHost } from '$lib/stores/quota.svelte';
 	import type { AgentSession } from '$lib/agent/session.svelte';
 	import type { AvailableCommand, ImageContent } from '$lib/agent/wire';
@@ -449,7 +449,7 @@
 	}
 
 	function thinkingLabel(level: string): string {
-		return THINKING_LEVELS.find((candidate) => candidate.id === level)?.label ?? level;
+		return THINKING_LEVEL_ITEMS.find((candidate) => candidate.id === level)?.label ?? level;
 	}
 
 	function toggleDirective(item: TaskDirective | TaskDirectiveSnapshot) {

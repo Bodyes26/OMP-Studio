@@ -12,6 +12,10 @@ Non esiste un relay condiviso o predefinito. Ognuno ospita il proprio, Studio ne
 - Risponde alle domande dell'agente.
 - Avvia un task in coda dopo averti mostrato il prompt completo.
 - Mette in attesa del reset della quota o archivia un blocco di quota.
+- Apre le chat e invia prompt con gli stessi componenti della GUI per editor, ruoli, modelli, ragionamento e finestra di contesto.
+- Allega file e immagini da selettore, appunti o trascinamento; i file sono caricati sulla macchina della corsia, non letti da percorsi locali del telefono.
+
+Gli allegati generici possono arrivare a 50 MiB ciascuno e viaggiano in blocchi. Le immagini usano la stessa preparazione della GUI; testo e immagini restano entro il budget del comando RPC (700.000 caratteri complessivi prima dell'envelope). Se il limite viene superato o l'invio fallisce, il composer conserva la bozza. Le anteprime nella cronologia remota sono incluse solo negli aggiornamenti live piccoli; ricaricando lo storico resta il conteggio delle immagini.
 
 ## Requisiti
 
@@ -74,7 +78,7 @@ Il relay non si aggiorna da solo: gli servirebbe il socket Docker, che sul serve
 
 ## Costruire dai sorgenti
 
-In `compose.yaml` commenta la riga `image` e togli il commento a `build: .`, tieni accanto i file di questa cartella, poi lancia `docker compose up -d --build`. Con `--build-arg RELAY_VERSION=<versione>` dai un'etichetta alla build.
+Clona l'intero repository: la build include i componenti condivisi di `src/lib` e compila i messaggi Paraglide. Con `compose.yaml` nella cartella `relay/`, commenta `image` e usa `build: { context: .., dockerfile: relay/Dockerfile }`, poi esegui `docker compose up -d --build`. Il contesto è relativo al file Compose, non alla cartella del terminale: se conservi Compose altrove, indica come `context` il percorso della radice del clone. Con `--build-arg RELAY_VERSION=<versione>` dai un'etichetta alla build.
 
 ## Note di sicurezza
 

@@ -8,12 +8,10 @@
 	// sul livello a cui omp lo riporta, senza riscriverlo: tornando a un modello
 	// che lo accetta riappare com'era.
 	import { m } from '$lib/paraglide/messages.js';
-	import { THINKING_LEVELS } from '$lib/stores/modelSettings.svelte';
-	import { clampThinkingLevel } from '$lib/stores/modelSettingsHelpers';
+	import { THINKING_LEVEL_ITEMS, clampThinkingLevel } from '$lib/stores/modelSettingsHelpers';
 	import Slider from '$lib/ui/Slider.svelte';
 
-	type LevelId = (typeof THINKING_LEVELS)[number]['id'];
-
+	type LevelId = (typeof THINKING_LEVEL_ITEMS)[number]['id'];
 	let {
 		value = 'auto',
 		levels,
@@ -27,7 +25,7 @@
 	}>();
 
 	const offered = $derived(
-		levels ? THINKING_LEVELS.filter((level) => levels.includes(level.id)) : THINKING_LEVELS
+		levels ? THINKING_LEVEL_ITEMS.filter((level) => levels.includes(level.id)) : THINKING_LEVEL_ITEMS
 	);
 	const lastIndex = $derived(offered.length - 1);
 

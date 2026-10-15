@@ -8,6 +8,9 @@
  * con `CloseCode.incompatible`, non un errore silenzioso.
  */
 
+import type { RemoteContextSnapshot } from '../../src/lib/agent/contextPanelState';
+export type { RemoteContextSnapshot };
+
 export const PROTOCOL = { name: 'omp-studio-remote', version: 1 } as const;
 
 /**
@@ -134,6 +137,8 @@ export interface RemoteAgent {
 	role?: string | null;
 	/** Livello di ragionamento della sessione (`off`...`max`). Assente dagli host precedenti. */
 	thinkingLevel?: string | null;
+	/** Dati osservati della finestra di contesto e della cache; null sul terminale. */
+	context?: RemoteContextSnapshot | null;
 }
 
 export interface RemoteLane {
@@ -328,6 +333,8 @@ export type RemoteCommand =
 			laneId: string | null;
 			text: string;
 			whileBusy: 'steer' | 'follow_up';
+			images?: RemotePromptImage[];
+			attachments?: Array<{ path: string; name: string }>;
 	  }
 	/** Pagina di storico, dalla piu' recente indietro; `before` e' il cursore della pagina precedente. */
 	| { kind: 'chat_history'; projectId: string; laneId: string | null; before: string | null; limit: number }
@@ -346,7 +353,19 @@ export type RemoteCommand =
 	/** Applica alla sessione il modello e il ragionamento assegnati al ruolo. */
 	| { kind: 'set_lane_role'; projectId: string; laneId: string | null; roleId: string }
 	| { kind: 'set_lane_model'; projectId: string; laneId: string | null; provider: string; modelId: string }
-	| { kind: 'set_lane_thinking'; projectId: string; laneId: string | null; level: string };
+	| { kind: 'set_lane_thinking'; projectId: string; laneId: string | null; level: string }
+	| {
+			kind: 'stage_attachment';
+			projectId: string;
+			laneId: string | null;
+			fileName: string;
+			data: string;
+			chunkIndex?: number;
+			totalChunks?: number;
+			stageId?: string;
+	  }
+	| { kind: 'refresh_context'; projectId: string; laneId: string | null; force?: boolean }
+	| { kind: 'compact_context'; projectId: string; laneId: string | null };
 
 /** Funzione che una macchina deve dichiarare perche' il comando le arrivi. */
 export const COMMAND_FEATURE: Record<RemoteCommand['kind'], Feature> = {
@@ -368,7 +387,10 @@ export const COMMAND_FEATURE: Record<RemoteCommand['kind'], Feature> = {
 	composer_catalog: 'lane_config',
 	set_lane_role: 'lane_config',
 	set_lane_model: 'lane_config',
-	set_lane_thinking: 'lane_config'
+	set_lane_thinking: 'lane_config',
+	stage_attachment: 'session_control',
+	refresh_context: 'session_control',
+	compact_context: 'session_control'
 };
 
 export interface RemoteChatMessage {
@@ -386,9 +408,10 @@ export interface RemoteChatMessage {
 	blocks?: RemoteChatBlock[];
 	/** Assistente: modello che ha risposto. */
 	model?: string | null;
-	/** Utente: immagini allegate (solo il numero: le immagini non viaggiano). */
+	/** Utente: immagini allegate (conteggio per fallback). */
 	images?: number;
-	/** Tool: sintesi della chiamata come la mostra il gruppo di strumenti di Studio. */
+	/** Miniature base64 delle immagini inviate dall'utente per rendering fedele nel transcript. */
+	imagePreviews?: Array<{ data: string; mimeType: string }>;
 	tool?: RemoteToolCall;
 }
 
@@ -495,6 +518,12 @@ export interface RemoteModelOption {
 	provider: string;
 	id: string;
 	name: string;
+	contextWindow?: number;
+	maxTokens?: number;
+	reasoning?: boolean;
+	thinking?: boolean | string[] | { mode?: string; efforts?: string[] };
+	input?: string[];
+	promptCache?: boolean;
 }
 
 export interface RemoteRoleOption {
@@ -524,6 +553,16 @@ export interface RemoteCommandData {
 	open_project: { projectId: string };
 	create_project: { projectId: string };
 	composer_catalog: RemoteComposerCatalog;
+	stage_attachment: { path: string; name: string; size: number };
+	refresh_context: { success: true };
+	compact_context: { success: true };
+}
+
+export interface RemotePromptImage {
+	type: 'image';
+	data?: string;
+	path?: string;
+	mimeType: string;
 }
 
 export type CommandErrorCode =

@@ -9,10 +9,17 @@ const __dirname = dirname(__filename);
 export default defineConfig({
 	plugins: [svelte()],
 	root: __dirname,
+	resolve: {
+		alias: {
+			'$lib': resolve(__dirname, '../../src/lib'),
+			'$remote-protocol': resolve(__dirname, '../src/protocol.ts')
+		},
+		dedupe: ['svelte']
+	},
 	server: {
 		port: 5173,
 		fs: {
-			allow: [resolve(__dirname, '..')]
+			allow: [resolve(__dirname, '../..')]
 		},
 		proxy: {
 			'/v1': {

@@ -13,7 +13,7 @@ import {
 	truncateDiff,
 	truncateTail
 } from '../src/lib/remote/chatProjection.ts';
-import { abortRemoteLane, sendRemotePrompt } from '../src/lib/remote/sessionCommands.ts';
+import { abortRemoteLane, sendRemotePrompt, stageRemoteAttachment } from '../src/lib/remote/sessionCommands.ts';
 import { projectStore, type Project } from '../src/lib/stores/projects.svelte.ts';
 import { laneStore, type LaneRecord } from '../src/lib/stores/lanes.svelte.ts';
 import { sessionRegistry } from '../src/lib/agent/sessionRegistry.ts';
@@ -29,6 +29,46 @@ import type {
 } from '../src/lib/agent/session.svelte.ts';
 
 describe('remote chat history & session commands', () => {
+	it('reassembles a binary upload before staging and rejects mixed upload metadata', async (t) => {
+		const previousProjects = projectStore.projects;
+		const windowDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'window');
+		const projectId = 'p-chunked-upload';
+		let stagedBytes: Uint8Array | null = null;
+		t.after(() => {
+			projectStore.projects = previousProjects;
+			sessionRegistry.removeLaneSession(projectId, 'main');
+			if (windowDescriptor) Object.defineProperty(globalThis, 'window', windowDescriptor);
+			else Reflect.deleteProperty(globalThis, 'window');
+		});
+		projectStore.projects = [{
+			id: projectId, name: 'Upload', canonicalProjectPath: '/tmp/upload',
+			lane: { laneId: 'main', surface: 'gui', workspacePath: '/tmp/upload' }
+		} as unknown as Project];
+		sessionRegistry.setLaneSession(projectId, 'main', { sessionKey: 'upload-session' } as unknown as AgentSession);
+		Object.defineProperty(globalThis, 'window', { configurable: true, value: {
+			__TAURI_INTERNALS__: {
+				invoke: async (command: string, body: unknown) => {
+					assert.equal(command, 'stage_chat_attachment');
+					assert.ok(body instanceof Uint8Array);
+					stagedBytes = body;
+					return { path: '/staged/payload.bin', name: 'payload.bin', size: body.byteLength };
+				}
+			}
+		} });
+		const bytes = Uint8Array.from({ length: 450_124 }, (_, index) => index % 251);
+		const first = Buffer.from(bytes.subarray(0, 196_608)).toString('base64');
+		const rest = Buffer.from(bytes.subarray(196_608)).toString('base64');
+		await stageRemoteAttachment(projectId, null, 'payload.bin', first, 0, 2, 'upload');
+		assert.equal(stagedBytes, null, 'an incomplete upload must not reach the filesystem');
+		await assert.rejects(
+			stageRemoteAttachment(projectId, null, 'other.bin', rest, 1, 2, 'upload'),
+			(error: unknown) => error instanceof RemoteCommandFailure && error.code === 'rejected'
+		);
+		await stageRemoteAttachment(projectId, null, 'payload.bin', first, 0, 2, 'upload');
+		await stageRemoteAttachment(projectId, null, 'payload.bin', rest, 1, 2, 'upload');
+		assert.deepEqual(stagedBytes, bytes, 'padding and chunk boundaries must preserve every byte');
+	});
+
 	it('remoteChatHistory: not found for missing project', async () => {
 		await assert.rejects(
 			async () => {

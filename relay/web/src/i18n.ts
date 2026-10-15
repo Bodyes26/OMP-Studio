@@ -1,3 +1,5 @@
+import { setLocale } from '$lib/paraglide/runtime.js';
+
 /**
  * Dizionario bilingue italiano/inglese per la PWA di controllo remoto.
  * La lingua e' scelta in base a navigator.language (italiano se inizia con 'it').
@@ -24,6 +26,7 @@ const DICT = {
 		yes: 'Sì',
 		no: 'No',
 		send: 'Invia',
+		attachFile: 'Allega file',
 		submit: 'Invia risposte',
 		run: 'Avvia',
 		runOn: 'Avvia su {machine}',
@@ -302,6 +305,7 @@ const DICT = {
 		yes: 'Yes',
 		no: 'No',
 		send: 'Send',
+		attachFile: 'Attach file',
 		submit: 'Submit answers',
 		run: 'Run',
 		runOn: 'Run on {machine}',
@@ -574,9 +578,19 @@ const DICT = {
 export type MessageKey = keyof typeof DICT['it'];
 
 let currentLang: Language = detectLanguage();
+try {
+	setLocale(currentLang, { reload: false });
+} catch {
+	// Paraglide optional fallback
+}
 
 export function setLanguage(lang: Language): void {
 	currentLang = lang;
+	try {
+		setLocale(lang, { reload: false });
+	} catch {
+		// Paraglide optional fallback
+	}
 }
 
 export function getLanguage(): Language {

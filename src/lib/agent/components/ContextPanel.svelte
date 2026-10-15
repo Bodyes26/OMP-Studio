@@ -10,7 +10,7 @@
 	 * l'azione manuale di compattazione con spiegazione del compromesso.
 	 */
 	import { untrack } from 'svelte';
-	import type { AgentSession } from '$lib/agent/session.svelte';
+	import type { ContextPanelSession } from '$lib/agent/contextPanelState';
 	import type { CacheWarmingMode, CacheWarmingOutcome } from '$lib/agent/wire';
 	import {
 		applyDraftToContextReserve,
@@ -21,7 +21,6 @@
 	import { assessPromptCache, type PromptCacheReason } from '$lib/agent/promptCache';
 	import { formatRelativeTime } from '$lib/agent/sessionModes';
 	import { formatTokens } from '$lib/utils/format';
-	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { IconFlame, IconRefresh, IconWarning } from '$lib/icons';
 	import StatusMark from '$lib/ui/StatusMark.svelte';
 	import { m } from '$lib/paraglide/messages.js';
@@ -29,11 +28,13 @@
 	let {
 		session,
 		draftTokens = 0,
-		onCompact
+		onCompact,
+		cacheWarmingMode = 'off'
 	} = $props<{
-		session: AgentSession;
+		session: ContextPanelSession;
 		draftTokens?: number;
 		onCompact: () => void;
+		cacheWarmingMode?: CacheWarmingMode;
 	}>();
 
 	let now = $state(Date.now());
@@ -86,8 +87,7 @@
 		void session.isAttached;
 		void session.isStreaming;
 		void session.isCompacting;
-		void session.isAborting;
-		void session.pendingUi;
+		void session.isContextBusy;
 		void session.sessionId;
 		void session.model?.id;
 		void session.model?.provider;
@@ -102,10 +102,7 @@
 	const contextUsage = $derived(session.contextUsage);
 	const report: ContextReport | null = $derived(session.currentContextReport ?? null);
 	const reportStatus = $derived(session.contextReportStatus ?? 'idle');
-	const isAborting = $derived(session.isAborting);
-	const isBusy = $derived(
-		session.isStreaming || session.isCompacting || isAborting || session.pendingUi !== null
-	);
+	const isBusy = $derived(session.isContextBusy);
 	const canInteract = $derived(session.isReady && session.isAttached && !isBusy);
 
 	const maxCtx = $derived(resolveContextWindow(contextUsage ?? report, model?.contextWindow));
@@ -131,7 +128,7 @@
 	const contextChanged = $derived(Boolean(session.promptCacheContextChanged));
 	const cacheWarmingInFlight = $derived(session.cacheWarmingInFlight);
 	const cacheWarmingLast = $derived(session.cacheWarmingLast);
-	const warmingMode = $derived(settingsStore.general.cacheWarming);
+	const warmingMode = $derived(cacheWarmingMode);
 
 	const cacheAssessment = $derived(
 		assessPromptCache({

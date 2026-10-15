@@ -156,18 +156,6 @@ export const STANDARD_ROLES = [
 	{ id: 'commit', label: 'Git Commit', icon: IconRoleCommit, abbr: 'CM', get desc() { return msg.ui_ts_modelsettings_modello_per_generazione_messaggi_di_commit_e_44fc(); } },
 	{ id: 'advisor', label: 'Advisor (Reviewer)', icon: IconRoleAdvisor, abbr: 'AD', get desc() { return msg.ui_ts_modelsettings_modello_di_revisione_e_controllo_passivo_di_f294(); } }
 ] as const;
-
-export const THINKING_LEVELS = [
-	{ id: 'auto', label: 'Auto', get desc() { return msg.ui_ts_modelsettings_deciso_dal_modello_a27c(); } },
-	{ id: 'off', label: 'Off', get desc() { return msg.ui_ts_modelsettings_disabilitato_de7e(); } },
-	{ id: 'minimal', label: 'Minimal', desc: 'Ragionamento minimo' },
-	{ id: 'low', label: 'Low', desc: 'Ragionamento basso' },
-	{ id: 'medium', label: 'Medium', desc: 'Ragionamento medio' },
-	{ id: 'high', label: 'High', desc: 'Ragionamento alto' },
-	{ id: 'xhigh', label: 'Extra High', desc: 'Ragionamento molto alto' },
-	{ id: 'max', label: 'Max', desc: 'Ragionamento massimo' }
-] as const;
-
 export interface SuggestedModelItem {
 	selector: string;
 	reason: string;

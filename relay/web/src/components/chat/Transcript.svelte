@@ -12,8 +12,8 @@
 	import AssistantText from './AssistantText.svelte';
 	import ToolGroup from './ToolGroup.svelte';
 	import CompactionRow from './CompactionRow.svelte';
-	import TurnFooter from './TurnFooter.svelte';
-	import ActivityIndicator from './ActivityIndicator.svelte';
+	import TurnFooter from '$lib/agent/components/TurnFooter.svelte';
+	import ActivityIndicator from '$lib/agent/components/ActivityIndicator.svelte';
 	import { IconArrowDown } from '../../icons.ts';
 
 	let {
@@ -23,7 +23,8 @@
 		onLoadOlder,
 		isWorking = false,
 		agentActivityText = null,
-		agentActivityStartedAt = null
+		agentActivityStartedAt = null,
+		onOpenImage
 	}: {
 		messages: RemoteChatMessage[];
 		loadingOlder?: boolean;
@@ -32,6 +33,7 @@
 		isWorking?: boolean;
 		agentActivityText?: string | null;
 		agentActivityStartedAt?: number | null;
+		onOpenImage?: (dataUrl: string, mimeType?: string) => void;
 	} = $props();
 
 	let scrollEl = $state<HTMLDivElement | null>(null);
@@ -132,9 +134,9 @@
 					class:system-tight={isSystemTight}
 				>
 					{#if item.kind === 'user'}
-						<UserMessage message={item.message} />
+						<UserMessage message={item.message} {onOpenImage} />
 					{:else if item.kind === 'assistant'}
-						<AssistantText message={item.message} />
+						<AssistantText message={item.message} streaming={isWorking && messages.at(-1)?.id === item.id} />
 					{:else if item.kind === 'tool-group'}
 						<ToolGroup messages={item.messages} summary={item.summary} />
 					{:else if item.kind === 'system'}
@@ -144,7 +146,7 @@
 
 				{@const footer = turnFooters.get(i)}
 				{#if footer}
-					<TurnFooter data={footer} />
+					<TurnFooter data={{ ...footer, diff: footer.diff ? { ...footer.diff, files: [] } : undefined }} />
 				{/if}
 			{/each}
 

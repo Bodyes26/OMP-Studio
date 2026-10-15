@@ -174,12 +174,23 @@ function buildRemoteToolCall(entry: ToolEntry): RemoteToolCall {
  * Converte una TranscriptEntry di Studio in un RemoteChatMessage.
  * Restituisce `null` per le entry interne che non fanno parte della conversazione remota.
  */
-export function entryToRemoteMessage(entry: TranscriptEntry): RemoteChatMessage | null {
+export function entryToRemoteMessage(
+	entry: TranscriptEntry,
+	options: { live?: boolean } = {}
+): RemoteChatMessage | null {
 	const durableId = remoteMessageId(entry);
 
 	if (entry.kind === 'user') {
 		const user = entry as UserEntry;
 		const imgCount = user.images?.length ?? 0;
+		let imagePreviews: Array<{ data: string; mimeType: string }> | undefined = undefined;
+		// imagePreviews vengono inclusi solo per eventi live, per proteggere il budget delle pagine chat_history
+		if (options.live && user.images && user.images.length > 0) {
+			const totalSize = user.images.reduce((acc, img) => acc + (img.data?.length ?? 0), 0);
+			if (totalSize <= 250_000) {
+				imagePreviews = user.images.map((img) => ({ data: img.data, mimeType: img.mimeType }));
+			}
+		}
 		return {
 			id: durableId,
 			role: 'user',
@@ -188,7 +199,8 @@ export function entryToRemoteMessage(entry: TranscriptEntry): RemoteChatMessage 
 			text: stripEditorContext(user.content ?? '').slice(0, MAX_PROSE_TEXT_CHARS),
 			toolName: null,
 			timestamp: user.messageTs ?? null,
-			images: imgCount > 0 ? imgCount : undefined
+			images: imgCount > 0 ? imgCount : undefined,
+			imagePreviews
 		};
 	}
 

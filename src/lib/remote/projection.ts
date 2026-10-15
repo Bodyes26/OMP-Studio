@@ -59,6 +59,7 @@ export interface SessionInput {
 	thinkingLevel?: string | null;
 	lastPickedRole?: string | null;
 	role?: string | null;
+	context?: RemoteAgent['context'];
 }
 export interface ScheduleTargetOutput {
 	dueAt?: number;
@@ -264,7 +265,8 @@ function mapLanes(
 			activity,
 			headsUp,
 			role,
-			thinkingLevel
+			thinkingLevel,
+			context: isTerminal ? null : session?.context ?? null
 		};
 		return {
 			id,

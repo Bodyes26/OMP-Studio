@@ -1,6 +1,9 @@
 import { prefersReducedMotion } from 'svelte/motion';
-import { settingsStore } from '$lib/stores/settings.svelte';
 
+let customReducedCheck: (() => boolean) | null = null;
+export function setReducedMotionResolver(fn: () => boolean): void {
+	customReducedCheck = fn;
+}
 /** Durata dell'uscita del vassoio: allineata a --dur-tray in app.css. */
 export const TRAY_EXIT_MS = 420;
 
@@ -12,7 +15,9 @@ export const FAST_EXIT_MS = 120;
 
 /** Vero quando l'utente ha chiesto meno movimento (sistema o impostazioni di Studio). */
 export function motionReduced(): boolean {
-	return prefersReducedMotion.current || !settingsStore.accessibility.animations;
+	if (prefersReducedMotion.current) return true;
+	if (customReducedCheck) return customReducedCheck();
+	return false;
 }
 
 /**

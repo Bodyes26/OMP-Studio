@@ -6,12 +6,18 @@
 <script lang="ts">
 	import { t } from '../../i18n.ts';
 	import type { RemoteChatMessage } from '../../../../src/protocol.ts';
-	import { lexMarkdownInline } from '../../chat/markdown.ts';
-	import MarkdownInline from './MarkdownInline.svelte';
+	import { lexMarkdownInline } from '$lib/agent/markdown';
+	import MarkdownInline from '$lib/agent/components/MarkdownInline.svelte';
 	import { IconImage } from '../../icons.ts';
+	import { m } from '$lib/paraglide/messages.js';
 
-	let { message }: { message: RemoteChatMessage } = $props();
-
+	let {
+		message,
+		onOpenImage
+	}: {
+		message: RemoteChatMessage;
+		onOpenImage?: (dataUrl: string, mimeType?: string) => void;
+	} = $props();
 	const tokens = $derived(lexMarkdownInline(message.text));
 	const imageCount = $derived(message.images ?? 0);
 	const imageLabel = $derived(
@@ -22,7 +28,24 @@
 </script>
 
 <div class="user-message-container">
-	{#if imageCount > 0}
+	{#if message.imagePreviews && message.imagePreviews.length > 0}
+		<div class="images-strip">
+			{#each message.imagePreviews as img, i (i)}
+				<button
+					type="button"
+					class="image-thumb-btn"
+					onclick={() => onOpenImage?.(`data:${img.mimeType};base64,${img.data}`, img.mimeType)}
+					title={m.attachment_thumb_open({ name: imageLabel })}
+				>
+					<img
+						src={`data:${img.mimeType};base64,${img.data}`}
+						alt="Allegato {i + 1}"
+						class="user-image-thumb"
+					/>
+				</button>
+			{/each}
+		</div>
+	{:else if imageCount > 0}
 		<div class="images-strip">
 			<span class="image-chip" title={imageLabel}>
 				<IconImage aria-hidden="true" />
@@ -30,7 +53,6 @@
 			</span>
 		</div>
 	{/if}
-
 	<div class="user-bubble rv-lift">
 		<div class="content">
 			<MarkdownInline {tokens} />
@@ -67,6 +89,32 @@
 		font-size: var(--text-caption);
 		color: var(--ink-muted);
 		--icon-size: 13px;
+	}
+	.image-thumb-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		padding: 0;
+		margin: 0;
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
+		overflow: hidden;
+		background: var(--bg-raised);
+		cursor: pointer;
+		box-shadow: var(--shadow-dock);
+		transition: transform 120ms ease, border-color 120ms ease;
+	}
+
+	.image-thumb-btn:hover {
+		border-color: var(--line-active, #666);
+		transform: scale(1.03);
+	}
+
+	.user-image-thumb {
+		width: 56px;
+		height: 56px;
+		object-fit: cover;
+		display: block;
 	}
 
 	.user-bubble {

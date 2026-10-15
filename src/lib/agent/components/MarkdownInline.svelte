@@ -6,7 +6,7 @@
 	import { isAllowedExternalUrl } from '$lib/utils/externalUrl';
 	import { openExternalUrl } from '$lib/utils/openExternal';
 	import type { Token } from '../markdown';
-	import { agentUiHooks } from '../ui-context';
+	import { agentUiHooks, hasAgentUiHooks } from '../ui-context';
 	import MarkdownInline from './MarkdownInline.svelte';
 	import FileMentionChip from './FileMentionChip.svelte';
 
@@ -20,6 +20,7 @@
 	}: { tokens?: Token[]; onOpenFile?: (path: string) => void } = $props();
 
 	const hooks = agentUiHooks();
+	const hasFileActions = hasAgentUiHooks();
 
 	function handleLink(e: MouseEvent, href: string) {
 		e.preventDefault();
@@ -61,12 +62,16 @@
 	{:else if token.type === 'del'}
 		<del><MarkdownInline tokens={token.tokens} {onOpenFile} /></del>
 	{:else if token.type === 'fileMention'}
-		<FileMentionChip path={token.path} onOpen={onOpenFile} />
+		{#if onOpenFile || hasFileActions}
+			<FileMentionChip path={token.path} onOpen={onOpenFile} />
+		{:else}
+			<code class="codespan">{token.path}</code>
+		{/if}
 	{:else if token.type === 'commandMention'}
 		<span class="chat-badge chat-badge--cmd">/{token.name}</span>
 	{:else if token.type === 'codespan'}
 		{@const isFileLike = token.text.includes('/') || token.text.includes('\\') || /\.[a-zA-Z0-9_-]+(?::\d+)?$/.test(token.text.trim())}
-		{#if isFileLike}
+		{#if isFileLike && (onOpenFile || hasFileActions)}
 			<button
 				type="button"
 				class="codespan-btn"
@@ -79,6 +84,7 @@
 			<code class="codespan">{token.text}</code>
 		{/if}
 	{:else if token.type === 'link'}
+		{#if isAllowedExternalUrl(token.href) || onOpenFile || hasFileActions}
 		<a
 			href={token.href}
 			title={token.title ?? undefined}
@@ -86,11 +92,14 @@
 			class="link"
 		>
 			{#if token.tokens && token.tokens.length > 0}
-				<MarkdownInline tokens={token.tokens} />
+				<MarkdownInline tokens={token.tokens} {onOpenFile} />
 			{:else}
 				{token.text}
 			{/if}
 		</a>
+		{:else}
+			{token.text}
+		{/if}
 	{:else if token.type === 'image'}
 		<img src={token.href} alt={token.text} title={token.title ?? undefined} class="inline-img" />
 	{:else if token.type === 'br'}

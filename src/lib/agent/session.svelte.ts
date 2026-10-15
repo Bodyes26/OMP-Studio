@@ -1466,6 +1466,11 @@ export class AgentSession {
 		return this.contextReportRevision;
 	}
 
+	/** Stato pubblico per i controlli del contesto, anche nelle superfici remote. */
+	get isContextBusy(): boolean {
+		return this.isStreaming || this.isCompacting || this.isAborting || this.pendingUi !== null;
+	}
+
 
 	/** Chiede il rapporto locale, senza avviare il modello; `force` e' il tentativo manuale. */
 	async refreshContextReport(force = false): Promise<void> {
@@ -2408,7 +2413,7 @@ export class AgentSession {
 						messageTs: message.timestamp,
 						loopGiro
 					});
-					const userMsg = entryToRemoteMessage(createdUser);
+					const userMsg = entryToRemoteMessage(createdUser, { live: true });
 					if (userMsg) {
 						this.emitRemoteChat({
 							kind: 'message',
@@ -4436,7 +4441,7 @@ export class AgentSession {
 				images: images.map((image) => ({ data: image.data, mimeType: image.mimeType })),
 				messageTs: Date.now()
 			}) as UserEntry;
-			const optimisticUserMsg = entryToRemoteMessage(this.optimisticUser);
+			const optimisticUserMsg = entryToRemoteMessage(this.optimisticUser, { live: true });
 			if (optimisticUserMsg) {
 				this.emitRemoteChat({
 					kind: 'message',

@@ -14,6 +14,7 @@ import type {
 	RemoteChatPage,
 	RemoteCommand,
 	RemoteComposerCatalog,
+	RemotePromptImage,
 	RemoteFolderList,
 	RemoteScheduleChoice
 } from '$remote-protocol';
@@ -77,8 +78,21 @@ export interface RemoteCommandExecutor {
 		projectId: string,
 		laneId: string | null,
 		text: string,
-		whileBusy: 'steer' | 'follow_up'
+		whileBusy: 'steer' | 'follow_up',
+		images?: RemotePromptImage[],
+		attachments?: Array<{ path: string; name: string }>
 	) => Promise<void>;
+	stageAttachment: (
+		projectId: string,
+		laneId: string | null,
+		fileName: string,
+		data: string,
+		chunkIndex?: number,
+		totalChunks?: number,
+		stageId?: string
+	) => Promise<{ path: string; name: string; size: number }>;
+	refreshContext: (projectId: string, laneId: string | null, force?: boolean) => Promise<{ success: true }>;
+	compactContext: (projectId: string, laneId: string | null) => Promise<{ success: true }>;
 	chatHistory: (
 		projectId: string,
 		laneId: string | null,
@@ -172,14 +186,18 @@ const ACTION_LABELS: Record<RemoteCommand['kind'], string> = {
 	composer_catalog: 'richiesto il catalogo del composer',
 	set_lane_role: 'impostato il ruolo',
 	set_lane_model: 'impostato il modello',
-	set_lane_thinking: 'impostato il livello di ragionamento'
+	set_lane_thinking: 'impostato il livello di ragionamento',
+	stage_attachment: 'salvato un allegato',
+	refresh_context: 'aggiornato il contesto',
+	compact_context: 'compattato il contesto'
 };
 
 /** Le letture non lasciano traccia: avvisano solo le azioni che cambiano qualcosa. */
 const SILENT_KINDS: Partial<Record<RemoteCommand['kind'], true>> = {
 	chat_history: true,
 	list_project_folders: true,
-	composer_catalog: true
+	composer_catalog: true,
+	stage_attachment: true
 };
 /**
  * Notifica in-app dell'avvenuta esecuzione di un comando remoto, registrata
@@ -353,7 +371,37 @@ export async function handleRemoteCommand(
 
 			case 'send_prompt':
 				laneId = command.laneId;
-				await ctx.executor.sendPrompt(command.projectId, command.laneId, command.text, command.whileBusy);
+				await ctx.executor.sendPrompt(
+					command.projectId,
+					command.laneId,
+					command.text,
+					command.whileBusy,
+					command.images,
+					command.attachments
+				);
+				break;
+
+			case 'stage_attachment':
+				laneId = command.laneId;
+				data = await ctx.executor.stageAttachment(
+					command.projectId,
+					command.laneId,
+					command.fileName,
+					command.data,
+					command.chunkIndex,
+					command.totalChunks,
+					command.stageId
+				);
+				break;
+
+			case 'refresh_context':
+				laneId = command.laneId;
+				data = await ctx.executor.refreshContext(command.projectId, command.laneId, command.force);
+				break;
+
+			case 'compact_context':
+				laneId = command.laneId;
+				data = await ctx.executor.compactContext(command.projectId, command.laneId);
 				break;
 
 			case 'chat_history':

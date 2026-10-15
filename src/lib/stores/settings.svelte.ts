@@ -20,6 +20,7 @@ import { m as msg } from '$lib/paraglide/messages.js';
 import { broadcastToWindows, listenFromWindows } from './windowBridge';
 import type { ComposerLayout, PinnedCommand, ComposerZone, ComposerForm } from '$lib/agent/commandCatalog/types';
 
+import { setReducedMotionResolver } from '$lib/agent/motionState.svelte';
 /** Annuncio inter-finestra di un salvataggio delle impostazioni. */
 const SETTINGS_CHANGED_EVENT = 'studio-settings-changed';
 
@@ -992,3 +993,4 @@ class SettingsStore {
 }
 
 export const settingsStore = new SettingsStore();
+setReducedMotionResolver(() => !settingsStore.accessibility.animations);

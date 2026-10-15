@@ -5,7 +5,7 @@
 	// sintattica Monaco, intestazione a fisarmonica (accordion) e copia rapida.
 	// Il codice scorre con il transcript (nessun tetto di altezza interno).
 	import { colorizeCode, getCachedColorizedCode, detectFilePathBlock, type FilePathItem } from '../markdown';
-	import { agentUiHooks } from '../ui-context';
+	import { agentUiHooks, hasAgentUiHooks } from '../ui-context';
 	import { IconChevronRight, IconCheck, IconFile, IconCopy } from '$lib/icons';
 	import { Lingering } from '../motionState.svelte';
 	let {
@@ -36,6 +36,7 @@
 		openLinger.dispose();
 	});
 	const hooks = agentUiHooks();
+	const hasFileActions = hasAgentUiHooks();
 	const normalizedLang = $derived((lang ?? '').trim().toLowerCase());
 	const displayLang = $derived(normalizedLang || m.code_block_fallback_lang());
 	// Conteggio righe rapido con indexOf('\n') senza allocare array di stringhe
@@ -49,7 +50,7 @@
 		return count;
 	});
 	const lineLabel = $derived(m.chat_lines_count({ count: lineCount }));
-	const filePathItems = $derived(detectFilePathBlock(text, normalizedLang));
+	const filePathItems = $derived(onOpenFile || hasFileActions ? detectFilePathBlock(text, normalizedLang) : null);
 
 	// Evidenziazione asincrona tramite Monaco:
 	// - se gia' in cache LRU, applica immediatamente senza attese;

@@ -48,6 +48,11 @@ export function setAgentUiHooks(hooks: AgentUiHooks) {
 	setContext(KEY, hooks);
 }
 
+/** Consente ai renderer condivisi di non offrire azioni native senza un host. */
+export function hasAgentUiHooks(): boolean {
+	return getContext<AgentUiHooks | undefined>(KEY) !== undefined;
+}
+
 /**
  * I ganci mancano solo se una card viene montata fuori dal transcript (nei
  * test, per esempio): in quel caso i clic non fanno niente invece di

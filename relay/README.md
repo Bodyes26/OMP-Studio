@@ -12,6 +12,10 @@ There is no shared or default relay. You host your own, Studio asks for its addr
 - Answers the agent's questions.
 - Starts a queued task after showing you its full prompt.
 - Waits for a quota reset or dismisses a quota block.
+- Opens chats and sends prompts using the GUI's actual editor, role, model, reasoning and context-window components.
+- Attaches files and images using the picker, clipboard or drag and drop; files are uploaded to the lane's host, not read from local paths on the phone.
+
+Generic attachments support up to 50 MiB each and are transferred in chunks. Images use the same preparation as the GUI; text and images must fit the RPC command budget (700,000 characters combined before the envelope). If that limit is exceeded or sending fails, the composer keeps the draft. Remote history includes image previews only in small live updates; reloading history retains the image count.
 
 ## Requirements
 
@@ -74,7 +78,7 @@ The relay never updates itself: it would need the Docker socket, which is admini
 
 ## Build from source
 
-In `compose.yaml` comment the `image` line and uncomment `build: .`, keep this folder's files next to it, then run `docker compose up -d --build`. Add `--build-arg RELAY_VERSION=<version>` to label the build.
+Clone the entire repository: the build includes shared `src/lib` components and compiles Paraglide messages. With `compose.yaml` inside `relay/`, comment out `image` and use `build: { context: .., dockerfile: relay/Dockerfile }`, then run `docker compose up -d --build`. Context paths are relative to the Compose file, not the terminal's working directory: if you keep Compose elsewhere, set `context` to the root of your clone. Add `--build-arg RELAY_VERSION=<version>` to label the build.
 
 ## Security notes
 

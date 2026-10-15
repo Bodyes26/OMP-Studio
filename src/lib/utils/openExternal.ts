@@ -6,6 +6,7 @@
  * sistema operativo.
  */
 
+import { isTauri } from '@tauri-apps/api/core';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { isAllowedExternalUrl } from './externalUrl';
 
@@ -18,6 +19,13 @@ export async function openExternalUrl(raw: unknown): Promise<boolean> {
 	if (!isAllowedExternalUrl(raw)) {
 		console.warn('Apertura esterna bloccata: protocollo non ammesso', raw);
 		return false;
+	}
+	if (!isTauri()) {
+		const opened = window.open('', '_blank');
+		if (!opened) return false;
+		opened.opener = null;
+		opened.location.href = raw;
+		return true;
 	}
 	try {
 		await openUrl(raw);

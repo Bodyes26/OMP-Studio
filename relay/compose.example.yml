@@ -6,8 +6,11 @@ services:
   studio-relay:
     # Stable releases: `latest` or a pinned `X.Y.Z`; `nightly` follows the main branch.
     image: ghcr.io/bodyes26/omp-studio-relay:latest
-    # To build from source instead, comment `image` above and uncomment:
-    # build: .
+    # To build from source instead, comment `image` above and configure:
+    # build:
+    #   context: ..
+    #   dockerfile: relay/Dockerfile
+    # Context is relative to this Compose file: `..` assumes it is inside relay/.
     restart: unless-stopped
     env_file: .env
     volumes:

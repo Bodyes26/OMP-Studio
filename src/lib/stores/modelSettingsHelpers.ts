@@ -4,6 +4,8 @@
  * Mantiene la logica di merge, filtri di visualizzazione e sanitizzazione isolata
  * da dipendenze runtime SvelteKit / Tauri per consentire test di unità deterministici.
  */
+import { m as msg } from '$lib/paraglide/messages.js';
+
 
 export interface ModelCost {
 	input?: number;
@@ -124,6 +126,22 @@ export const THINKING_LEVELS = [
 
 export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
 
+export interface ThinkingLevelItem {
+	id: ThinkingLevel;
+	label: string;
+	readonly desc: string;
+}
+
+export const THINKING_LEVEL_ITEMS: readonly ThinkingLevelItem[] = [
+	{ id: 'auto', label: 'Auto', get desc() { return msg.ui_ts_modelsettings_deciso_dal_modello_a27c(); } },
+	{ id: 'off', label: 'Off', get desc() { return msg.ui_ts_modelsettings_disabilitato_de7e(); } },
+	{ id: 'minimal', label: 'Minimal', desc: 'Ragionamento minimo' },
+	{ id: 'low', label: 'Low', desc: 'Ragionamento basso' },
+	{ id: 'medium', label: 'Medium', desc: 'Ragionamento medio' },
+	{ id: 'high', label: 'High', desc: 'Ragionamento alto' },
+	{ id: 'xhigh', label: 'Extra High', desc: 'Ragionamento molto alto' },
+	{ id: 'max', label: 'Max', desc: 'Ragionamento massimo' }
+] as const;
 /** Quanto basta di un modello per leggerne gli sforzi: `ModelInfo` di sessione o `ModelDto` di catalogo. */
 export interface ThinkingCapableModel {
 	reasoning?: boolean;

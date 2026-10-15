@@ -19,6 +19,7 @@ import { quotaStore } from '$lib/stores/quota.svelte';
 import { sessionRegistry } from '$lib/agent/sessionRegistry';
 import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
 import { onThemeChange, getCurrentAnchors } from '$lib/theme';
+import { settingsStore } from '$lib/stores/settings.svelte';
 
 export interface RemoteProjectionOptions {
 	getCandidateTaskId?: (projectId: string) => string | null;
@@ -94,7 +95,33 @@ export function startRemoteProjection(options: RemoteProjectionOptions = {}): ()
 							activityLine: s.activityLine,
 							headsUp: s.headsUp,
 							thinkingLevel: s.thinkingLevel,
-							lastPickedRole: s.lastPickedRole
+							lastPickedRole: s.lastPickedRole,
+							context: {
+								model: s.model ? {
+									id: s.model.id,
+									name: s.model.name,
+									provider: s.model.provider,
+									contextWindow: s.model.contextWindow,
+									promptCache: s.model.promptCache
+								} : null,
+								contextUsage: s.contextUsage,
+								currentContextReport: s.currentContextReport,
+								contextReportStatus: s.contextReportStatus,
+								isReady: s.isReady,
+								isAttached: s.isAttached,
+								isStreaming: s.isStreaming,
+								isCompacting: s.isCompacting,
+								isContextBusy: s.isContextBusy,
+								sessionId: s.sessionId,
+								contextReportVersion: s.contextReportVersion,
+								sessionCost: s.sessionCost,
+								subagentCost: s.subagentCost,
+								promptCacheObservation: s.promptCacheObservation,
+								promptCacheContextChanged: s.promptCacheContextChanged,
+								cacheWarmingInFlight: s.cacheWarmingInFlight,
+								cacheWarmingLast: s.cacheWarmingLast,
+								cacheWarmingMode: settingsStore.general.cacheWarming
+							}
 						};
 					}
 

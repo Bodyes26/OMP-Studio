@@ -13,6 +13,11 @@ on:
     # I filtri sui percorsi non valgono per i tag: ogni rilascio pubblica l'immagine.
     paths:
       - "relay/**"
+      - "src/lib/**"
+      - "src/tsconfig.json"
+      - "messages/**"
+      - "project.inlang/**"
+      - ".dockerignore"
       - ".github/workflows/relay-image.yml"
     tags:
       - "v*"
@@ -45,10 +50,10 @@ jobs:
         working-directory: relay
         run: |
           bun install --frozen-lockfile
+          bun run compile:i18n
           bun test
           bun run check
           bun run check:web
-
       - name: Versione e nome dell'immagine
         id: meta-version
         shell: bash
@@ -85,7 +90,8 @@ jobs:
       - name: Immagine di prova (amd64)
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
-          context: relay
+          context: .
+          file: relay/Dockerfile
           platforms: linux/amd64
           load: true
           tags: omp-studio-relay:ci
@@ -125,7 +131,8 @@ jobs:
       - name: Pubblica (amd64 e arm64)
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
-          context: relay
+          context: .
+          file: relay/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}

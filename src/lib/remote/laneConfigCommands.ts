@@ -173,7 +173,12 @@ export function createLaneConfigCommands(deps: LaneConfigDeps) {
 		const models: RemoteModelOption[] = assignable.slice(0, 600).map((m) => ({
 			provider: m.provider,
 			id: m.id,
-			name: m.name
+			name: m.name,
+			contextWindow: m.contextWindow,
+			maxTokens: m.maxTokens,
+			reasoning: m.reasoning,
+			thinking: m.thinking,
+			input: m.input
 		}));
 
 		// 3. Ruoli standard con assegnazioni da configurazione

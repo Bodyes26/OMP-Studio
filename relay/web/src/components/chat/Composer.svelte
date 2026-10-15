@@ -1,29 +1,47 @@
 <!--
   Composer.svelte — Riquadro di immissione comandi e prompt ancorato in basso.
   Auto-growing textarea nella sagoma .composer-shell, pulsante di invio, stop di emergenza,
-  selettore steer/follow-up durante il turno, barra dei chip (ruolo, modello, thinking) e autocompletamento.
-  Fedele a src/lib/agent/components/Composer.svelte di Studio.
+  selettore steer/follow-up durante il turno, barra dei chip e autocompletamento.
+
+  Adotta i componenti reali condivisi di Studio Desktop:
+  - ModelPickerList (ricerca veloce, grouping per provider, navigazione da tastiera, badge contesto e capacità)
+  - ReasoningSlider (slider a gradini con livelli supportati dal modello)
+  - ThinkingMeter (indicatore a barre del livello di ragionamento)
+  - MenuButton (popover ancorati con top-layer e dismiss accessibile)
+  - ContextControl (anello consumi finestra di contesto e ContextPanel condiviso)
+  - ComposerAttachments e AttachButton (gestione allegati immagini/file)
 -->
 <script lang="ts">
-	import type { RemoteComposerCatalog, RemoteSlashCommand } from '../../../../src/protocol.ts';
+	import type { RemoteComposerCatalog, RemoteSlashCommand, RemoteContextSnapshot } from '../../../../src/protocol.ts';
+	import type { RemoteAttachmentTransport } from '../../chat/remoteAttachments.svelte.ts';
 	import { t } from '../../i18n.ts';
 	import { IconArrowUp, IconChevronUp, IconStop } from '../../icons.ts';
-	import { ROLE_HUES } from '../../chat/roleHues.ts';
+	import { ROLE_HUES } from '$lib/agent/roleHues';
 	import {
 		commandSuggestions,
-		getCurrentSlashToken,
-		replaceSlashToken,
 		suggestKeyAction,
-		type CommandSuggestionItem,
-		type SlashTokenMatch
+		type CommandSuggestionItem
 	} from '../../chat/suggest.ts';
+	import {
+		createRemoteAttachmentManager,
+		type RemoteComposerAttachment
+	} from '../../chat/remoteAttachments.svelte.ts';
 	import ComposerStatusLine from './ComposerStatusLine.svelte';
-	import ThinkingMeter from './ThinkingMeter.svelte';
-	import PickerOverlay from './PickerOverlay.svelte';
-	import RolePicker from './RolePicker.svelte';
-	import ModelPicker from './ModelPicker.svelte';
-	import ThinkingPicker from './ThinkingPicker.svelte';
 	import SuggestTray from './SuggestTray.svelte';
+	import RoleMenu from '$lib/agent/components/RoleMenu.svelte';
+	import ComposerAttachments from './ComposerAttachments.svelte';
+	import AttachButton from './AttachButton.svelte';
+	import ContextControl from './ContextControl.svelte';
+	import ComposerEditor from '$lib/agent/components/ComposerEditor.svelte';
+	import { createCommandBadgeElement, type ComposerTrigger } from '$lib/agent/composerDoc';
+	import { THINKING_LEVEL_ITEMS } from '$lib/stores/modelSettingsHelpers';
+
+	// Componenti GUI reali condivisi di Studio Desktop:
+	import ModelPickerList from '$lib/components/models/ModelPickerList.svelte';
+	import ReasoningSlider from '$lib/components/models/ReasoningSlider.svelte';
+	import ThinkingMeter from '$lib/agent/components/ThinkingMeter.svelte';
+	import MenuButton from '$lib/ui/MenuButton.svelte';
+	import { m } from '$lib/paraglide/messages.js';
 
 	let {
 		isWorking = false,
@@ -38,6 +56,15 @@
 		thinkingLevel = 'off',
 		machineName = '',
 		catalog = null,
+		hostId = '',
+		projectId = '',
+		laneId = null,
+		connection = null,
+		context = null,
+		onNotice,
+		onRefreshContext,
+		onCompactContext,
+		onOpenImage,
 		onSend,
 		onStop,
 		onSetRole,
@@ -57,7 +84,16 @@
 		thinkingLevel?: string | null;
 		machineName?: string;
 		catalog?: RemoteComposerCatalog | null;
-		onSend: (text: string, whileBusy: 'steer' | 'follow_up') => Promise<void>;
+		hostId?: string;
+		projectId?: string;
+		laneId?: string | null;
+		connection?: RemoteAttachmentTransport | null;
+		context?: RemoteContextSnapshot | null;
+		onNotice?: (variant: 'info' | 'warning' | 'error', message: string) => void;
+		onRefreshContext?: (force?: boolean) => Promise<void>;
+		onCompactContext?: () => Promise<void>;
+		onOpenImage?: (url: string, mimeType?: string) => void;
+		onSend: (text: string, whileBusy: 'steer' | 'follow_up', attachments?: RemoteComposerAttachment[]) => Promise<void>;
 		onStop: () => Promise<void>;
 		onSetRole?: (roleId: string) => Promise<void>;
 		onSetModel?: (provider: string, modelId: string) => Promise<void>;
@@ -69,21 +105,52 @@
 	let whileBusy = $state<'steer' | 'follow_up'>('steer');
 	let isSending = $state(false);
 	let isStopping = $state(false);
-	let textareaEl = $state<HTMLTextAreaElement | null>(null);
+	let editorRef = $state<ReturnType<typeof ComposerEditor> | null>(null);
+	const submitWithModifier = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches;
+	let isDragOver = $state(false);
 
-	// Selettori attivi e riferimenti DOM per l'ancoraggio
-	let activePicker = $state<'role' | 'model' | 'thinking' | null>(null);
-	let roleChipEl = $state<HTMLButtonElement | null>(null);
-	let modelChipEl = $state<HTMLButtonElement | null>(null);
-	let thinkingChipEl = $state<HTMLButtonElement | null>(null);
+	// Menu popover aperto (esclusivo)
+	let activeMenu = $state<'role' | 'model' | 'thinking' | null>(null);
+
+	// Gestore allegati del composer
+	const attachmentMgr = createRemoteAttachmentManager({
+		getHostId: () => hostId,
+		getProjectId: () => projectId,
+		getLaneId: () => laneId,
+		getConnection: () => connection,
+		onNotice: (variant, message) => onNotice?.(variant, message)
+	});
+
+	// Token draft stimati per l'indicatore della finestra di contesto
+	const draftTokenCount = $derived.by(() => {
+		const textTokens = Math.round(inputText.length / 4);
+		const attTokens = attachmentMgr.attachments.reduce((sum, a) => sum + (a.tokens || 0), 0);
+		return textTokens + attTokens;
+	});
 
 	// Stato autocompletamento slash
-	let slashToken = $state<SlashTokenMatch | null>(null);
+	let slashToken = $state<ComposerTrigger | null>(null);
 	let suggestIndex = $state(0);
 
 	const currentRole = $derived(role || 'default');
 	const currentModelLabel = $derived(modelLabel || modelId || 'Modello');
-	const currentThinking = $derived(thinkingLevel || 'off');
+
+	const activeModelValue = $derived.by(() => {
+		if (provider && modelId) return `${provider}/${modelId}`;
+		return modelId || '';
+	});
+
+	// Livelli di ragionamento offerti dalla corsia escludendo 'auto' (riservato a ruoli/task)
+	const chatThinkingLevels = $derived.by(() => {
+		const raw = catalog?.thinkingLevels ?? ['off'];
+		return THINKING_LEVEL_ITEMS.flatMap((level) => level.id !== 'auto' && raw.includes(level.id) ? [level.id] : []);
+	});
+	const currentThinking = $derived(chatThinkingLevels.find((level) => level === thinkingLevel) ?? 'off');
+
+	const canReason = $derived.by(() => {
+		const levels = chatThinkingLevels;
+		return levels.length > 1 || (levels.length === 1 && levels[0] !== 'off');
+	});
 
 	// Catalogo con aggiunta del comando locale /new se lane_config e' attivo
 	const availableCommands = $derived.by(() => {
@@ -106,70 +173,49 @@
 
 	const showSuggestions = $derived(slashToken !== null);
 
-	function updateSlashToken(): void {
-		if (!textareaEl) {
-			slashToken = null;
-			return;
-		}
-		const pos = textareaEl.selectionStart;
-		const match = getCurrentSlashToken(inputText, pos);
-		slashToken = match;
-		suggestIndex = 0;
-	}
 
 	function handleSelectSuggestion(item: CommandSuggestionItem): void {
-		if (!slashToken) return;
-		const { nextText, nextCaret } = replaceSlashToken(
-			inputText,
-			slashToken,
-			item.command.name,
-			item.isSkill
-		);
-		inputText = nextText;
+		if (!slashToken || !editorRef) return;
+		editorRef.replaceTrigger(createCommandBadgeElement(item.command.name), slashToken);
 		slashToken = null;
-		queueMicrotask(() => {
-			if (textareaEl) {
-				textareaEl.focus();
-				textareaEl.setSelectionRange(nextCaret, nextCaret);
-				adjustHeight();
-			}
-		});
+		editorRef.focus();
 	}
 
-	const canSubmit = $derived(!disabled && !isSending && inputText.trim().length > 0 && canSessionControl);
+	const canSubmit = $derived(
+		!disabled &&
+		!isSending &&
+		!attachmentMgr.isStaging &&
+		attachmentMgr.attachments.every((attachment) => attachment.status === 'ready') &&
+		canSessionControl &&
+		(inputText.trim().length > 0 || attachmentMgr.hasAttachments)
+	);
 
-	function adjustHeight(): void {
-		if (!textareaEl) return;
-		textareaEl.style.height = 'auto';
-		const next = Math.min(textareaEl.scrollHeight, 180);
-		textareaEl.style.height = `${next}px`;
-	}
 
 	async function handleSubmit(): Promise<void> {
 		const text = inputText.trim();
-		if (!text || isSending || disabled || !canSessionControl) return;
+		const currentAttachments = [...attachmentMgr.attachments];
+		if (!canSubmit) {
+			return;
+		}
 
-		// Intercetta /new e /clear digitati da soli nel composer per avviare una nuova chat
-		if (hasLaneConfig && (text === '/new' || text === '/clear')) {
+		// Intercetta /new e /clear digitati da soli per avviare una nuova chat
+		if (hasLaneConfig && (text === '/new' || text === '/clear') && currentAttachments.length === 0) {
 			inputText = '';
 			slashToken = null;
-			if (textareaEl) {
-				textareaEl.style.height = 'auto';
-			}
-			if (onNewSession) {
-				await onNewSession();
-			}
+			editorRef?.clear();
+			if (onNewSession) await onNewSession();
 			return;
 		}
 
 		isSending = true;
 		try {
-			await onSend(text, whileBusy);
+			await onSend(text, whileBusy, currentAttachments);
 			inputText = '';
 			slashToken = null;
-			if (textareaEl) {
-				textareaEl.style.height = 'auto';
-			}
+			attachmentMgr.clear();
+			editorRef?.clear();
+		} catch (error) {
+			onNotice?.('error', error instanceof Error ? error.message : String(error));
 		} finally {
 			isSending = false;
 		}
@@ -185,8 +231,7 @@
 		}
 	}
 
-	function handleKeydown(e: KeyboardEvent): void {
-		// Gestione della palette dei suggerimenti se aperta
+	function handleKeydown(e: KeyboardEvent): boolean {
 		if (showSuggestions && suggestions.length > 0) {
 			const action = suggestKeyAction(e, suggestions.length, suggestIndex);
 			if (action) {
@@ -197,28 +242,36 @@
 				} else if (action.kind === 'dismiss') {
 					slashToken = null;
 				}
-				return;
+				return true;
 			}
 		}
+		return false;
+	}
 
-		// Cmd+Enter o Ctrl+Enter inviano sempre
-		if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+	function handleDragOver(e: DragEvent): void {
+		if (disabled || !canSessionControl || isSending) return;
+		if (e.dataTransfer?.types?.includes('Files')) {
 			e.preventDefault();
-			void handleSubmit();
-			return;
+			isDragOver = true;
 		}
+	}
 
-		// Su desktop (senza puntatore coarse): Invio invia, Shift+Invio va a capo
-		const isCoarsePointer = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches;
-		if (e.key === 'Enter' && !e.shiftKey && !isCoarsePointer) {
-			e.preventDefault();
-			void handleSubmit();
+	function handleDragLeave(e: DragEvent): void {
+		e.preventDefault();
+		isDragOver = false;
+	}
+
+	function handleDrop(e: DragEvent): void {
+		e.preventDefault();
+		isDragOver = false;
+		if (disabled || !canSessionControl || isSending) return;
+		if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
+			void attachmentMgr.addFiles(e.dataTransfer.files);
 		}
 	}
 </script>
 
 <div class="composer-root">
-	<!-- Palette dei suggerimenti per comandi e skill ancorata subito sopra il composer -->
 	{#if showSuggestions}
 		<SuggestTray
 			items={suggestions}
@@ -228,85 +281,159 @@
 		/>
 	{/if}
 
-	<div class="composer-shell" class:disabled>
+	<div
+		class="composer-shell"
+		class:disabled
+		class:drag-over={isDragOver}
+		ondragover={handleDragOver}
+		ondragleave={handleDragLeave}
+		ondrop={handleDrop}
+		role="region"
+		aria-label={t('appTitle')}
+	>
 		{#if disabled && disabledReason}
 			<div class="disabled-notice" role="alert">
 				<span>{disabledReason}</span>
 			</div>
 		{/if}
 
-		<textarea
-			bind:this={textareaEl}
-			bind:value={inputText}
-			oninput={() => {
-				adjustHeight();
-				updateSlashToken();
-			}}
-			onclick={updateSlashToken}
-			onkeyup={(e) => {
-				if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
-					updateSlashToken();
-				}
-			}}
-			onkeydown={handleKeydown}
-			disabled={disabled || !canSessionControl}
+		{#if attachmentMgr.hasAttachments}
+			<ComposerAttachments
+				attachments={attachmentMgr.attachments}
+				onRemove={(id) => attachmentMgr.removeAttachment(id)}
+				{onOpenImage}
+			/>
+		{/if}
+
+		<ComposerEditor
+			bind:this={editorRef}
+			disabled={disabled || !canSessionControl || isSending}
 			placeholder={disabled ? (disabledReason ?? t('composerDisabled')) : t('chatInputPlaceholder')}
-			rows={1}
-			class="composer-textarea"
-			aria-label={t('chatInputPlaceholder')}
-		></textarea>
+			ariaLabel={t('chatInputPlaceholder')}
+			{submitWithModifier}
+			triggers={['/']}
+			onSend={() => void handleSubmit()}
+			onFilesPaste={(files) => { if (!disabled && canSessionControl && !isSending) void attachmentMgr.addFiles(files); }}
+			onInput={() => { inputText = editorRef?.getWireText((name) => availableCommands.some((command) => command.name === name && command.kind === 'skill')) ?? ''; }}
+			onTriggerChange={(trigger) => { slashToken = trigger; suggestIndex = 0; }}
+			onKeydownFilter={handleKeydown}
+		/>
 
 		<div class="composer-toolbar">
-			<!-- Chip di configurazione corsia (ruolo, modello, thinking) quando lane_config e' presente -->
-			{#if hasLaneConfig}
-				<div class="toolbar-chips">
-					<!-- Chip Ruolo -->
-					<button
-						bind:this={roleChipEl}
-						type="button"
-						class="ui-chip composer-chip"
-						disabled={isWorking}
-						aria-pressed={activePicker === 'role'}
-						onclick={() => (activePicker = activePicker === 'role' ? null : 'role')}
-						title={isWorking ? t('configDisabledBusy') : t('roleChipTitle')}
-					>
-						<span
-							class="role-dot"
-							class:has-hue={ROLE_HUES[currentRole] !== undefined}
-							style={ROLE_HUES[currentRole] !== undefined ? `--role-h: ${ROLE_HUES[currentRole]}` : undefined}
-						></span>
-						<span class="role-name font-mono">{currentRole}</span>
-					</button>
+			<div class="toolbar-left">
+				<AttachButton
+					onFiles={(files) => void attachmentMgr.addFiles(files)}
+					disabled={disabled || !canSessionControl || isSending}
+					title={t('attachFile')}
+				/>
 
-					<!-- Chip Modello -->
-					<button
-						bind:this={modelChipEl}
-						type="button"
-						class="ui-chip composer-chip"
-						disabled={isWorking}
-						aria-pressed={activePicker === 'model'}
-						onclick={() => (activePicker = activePicker === 'model' ? null : 'model')}
-						title={isWorking ? t('configDisabledBusy') : t('modelChipTitle')}
-					>
-						<span class="model-name-label">{currentModelLabel}</span>
-						<span class="chevron-indicator"><IconChevronUp /></span>
-					</button>
+				{#if hasLaneConfig}
+					<div class="toolbar-chips">
+						<!-- Selettore Ruolo via MenuButton condiviso -->
+						<MenuButton
+							open={activeMenu === 'role'}
+							title={isWorking ? t('configDisabledBusy') : t('roleChipTitle')}
+							hasPopup="listbox"
+							contentRole="dialog"
+							width="360px"
+							disabled={isWorking}
+							className="ui-chip composer-chip"
+							onToggle={() => (activeMenu = activeMenu === 'role' ? null : 'role')}
+							onClose={() => (activeMenu = null)}
+						>
+							{#snippet trigger()}
+								<span
+									class="role-dot"
+									class:has-hue={ROLE_HUES[currentRole] !== undefined}
+									style={ROLE_HUES[currentRole] !== undefined ? `--role-h: ${ROLE_HUES[currentRole]}` : undefined}
+								></span>
+								<span class="role-name font-mono">{currentRole}</span>
+							{/snippet}
+							{#snippet children()}
+								<RoleMenu
+									assignments={Object.fromEntries((catalog?.roles ?? []).map((role) => [role.id, { model: role.modelLabel ?? role.model ?? undefined, thinking: role.thinking ?? undefined }]))}
+									activeRole={currentRole}
+									onPick={(roleId) => {
+										activeMenu = null;
+										onSetRole?.(roleId);
+									}}
+								/>
+							{/snippet}
+						</MenuButton>
 
-					<!-- Chip Thinking -->
-					<button
-						bind:this={thinkingChipEl}
-						type="button"
-						class="ui-chip composer-chip"
-						disabled={isWorking}
-						aria-pressed={activePicker === 'thinking'}
-						onclick={() => (activePicker = activePicker === 'thinking' ? null : 'thinking')}
-						title={isWorking ? t('configDisabledBusy') : t('thinkingChipTitle')}
-					>
-						<ThinkingMeter level={currentThinking} />
-						<span class="thinking-label font-mono">{currentThinking}</span>
-					</button>
-				</div>
-			{/if}
+						<!-- Selettore Modello reale condiviso (ModelPickerList) via MenuButton -->
+						<MenuButton
+							open={activeMenu === 'model'}
+							title={isWorking ? t('configDisabledBusy') : t('modelChipTitle')}
+							hasPopup="dialog"
+							contentRole="dialog"
+							width="400px"
+							disabled={isWorking}
+							className="ui-chip composer-chip"
+							onToggle={() => (activeMenu = activeMenu === 'model' ? null : 'model')}
+							onClose={() => (activeMenu = null)}
+						>
+							{#snippet trigger()}
+								<span class="model-name-label">{currentModelLabel}</span>
+								<span class="chevron-indicator"><IconChevronUp /></span>
+							{/snippet}
+							{#snippet children()}
+								<ModelPickerList
+									catalog={catalog?.models ?? []}
+									value={activeModelValue}
+									placeholder={m.chat_v2_composer_model_search()}
+									showFooter
+									onSelect={(selector, mod) => {
+										activeMenu = null;
+										const targetProvider = mod.provider || (selector.includes('/') ? selector.split('/')[0] : '');
+										const targetModelId = mod.id || (selector.includes('/') ? selector.split('/')[1] : selector);
+										if (targetProvider && targetModelId) {
+											onSetModel?.(targetProvider, targetModelId);
+										}
+									}}
+									onClose={() => (activeMenu = null)}
+								/>
+							{/snippet}
+						</MenuButton>
+
+						<!-- Selettore Thinking reale condiviso (ReasoningSlider + ThinkingMeter) -->
+						<MenuButton
+							open={activeMenu === 'thinking'}
+							title={isWorking ? t('configDisabledBusy') : t('thinkingChipTitle')}
+							hasPopup="dialog"
+							contentRole="dialog"
+							width="320px"
+							disabled={isWorking}
+							className="ui-chip composer-chip"
+							onToggle={() => (activeMenu = activeMenu === 'thinking' ? null : 'thinking')}
+							onClose={() => (activeMenu = null)}
+						>
+							{#snippet trigger()}
+								<ThinkingMeter level={currentThinking} />
+								<span class="thinking-label font-mono">{currentThinking}</span>
+							{/snippet}
+							{#snippet children()}
+								<div class="thinking-popover">
+									{#if canReason}
+										<ReasoningSlider
+											value={currentThinking}
+											levels={chatThinkingLevels}
+											onChange={(level) => {
+												onSetThinking?.(level);
+											}}
+										/>
+									{:else}
+										<p class="thinking-unsupported">
+											{m.chat_v2_composer_thinking_unsupported({ model: currentModelLabel })}
+										</p>
+									{/if}
+								</div>
+							{/snippet}
+						</MenuButton>
+
+					</div>
+				{/if}
+			</div>
 
 			{#if isWorking && canSessionControl}
 				<div class="steer-segmented" role="radiogroup" aria-label="Modalita di invio turno">
@@ -363,65 +490,25 @@
 		</div>
 	</div>
 
-	<!-- Selettori popup / bottom-sheet ancorati ai chip -->
-	{#if hasLaneConfig}
-		<PickerOverlay
-			open={activePicker === 'role'}
-			title={t('rolePickerTitle')}
-			triggerEl={roleChipEl}
-			width="380px"
-			onClose={() => (activePicker = null)}
-		>
-			<RolePicker
-				roles={catalog?.roles ?? []}
-				activeRole={currentRole}
-				onSelect={(roleId) => {
-					activePicker = null;
-					void onSetRole?.(roleId);
-				}}
-			/>
-		</PickerOverlay>
-
-		<PickerOverlay
-			open={activePicker === 'model'}
-			title={t('modelPickerTitle')}
-			triggerEl={modelChipEl}
-			width="380px"
-			onClose={() => (activePicker = null)}
-		>
-			<ModelPicker
-				models={catalog?.models ?? []}
-				activeProvider={provider}
-				activeModelId={modelId}
-				onSelect={(p, m) => {
-					activePicker = null;
-					void onSetModel?.(p, m);
-				}}
-			/>
-		</PickerOverlay>
-
-		<PickerOverlay
-			open={activePicker === 'thinking'}
-			title={t('thinkingPickerTitle')}
-			triggerEl={thinkingChipEl}
-			width="340px"
-			onClose={() => (activePicker = null)}
-		>
-			<ThinkingPicker
-				levels={catalog?.thinkingLevels}
-				activeLevel={currentThinking}
-				onSelect={(lvl) => {
-					activePicker = null;
-					void onSetThinking?.(lvl);
-				}}
-			/>
-		</PickerOverlay>
-	{/if}
-
-	<ComposerStatusLine modelLabel={hasLaneConfig ? null : modelLabel} {machineName} />
+	<div class="composer-status-row">
+		<ComposerStatusLine modelLabel={hasLaneConfig ? null : modelLabel} {machineName} />
+		{#if context}
+			<ContextControl {context} draftTokens={draftTokenCount}
+				disabled={disabled || isWorking}
+				onRefresh={onRefreshContext} onCompact={onCompactContext} />
+		{/if}
+	</div>
 </div>
 
 <style>
+	.composer-status-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-2);
+		min-width: 0;
+	}
+
 	.composer-root {
 		position: relative;
 		width: 100%;
@@ -449,6 +536,11 @@
 		border-color: var(--line-strong);
 	}
 
+	.composer-shell.drag-over {
+		border-color: var(--brand-ink);
+		box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand-ink) 25%, transparent);
+	}
+
 	.composer-shell.disabled {
 		opacity: 0.75;
 		background: var(--bg-sunken);
@@ -462,29 +554,6 @@
 		color: var(--warn);
 	}
 
-	.composer-textarea {
-		width: 100%;
-		min-height: 44px;
-		max-height: 180px;
-		padding: 12px 14px 6px;
-		background: transparent;
-		border: none;
-		outline: none;
-		resize: none;
-		font-family: var(--font-ui);
-		font-size: var(--text-chat);
-		line-height: 22px;
-		color: var(--ink);
-		box-sizing: border-box;
-	}
-
-	.composer-textarea::placeholder {
-		color: var(--ink-faint);
-	}
-
-	.composer-textarea:disabled {
-		cursor: not-allowed;
-	}
 
 	.composer-toolbar {
 		display: flex;
@@ -493,6 +562,15 @@
 		padding: 4px 10px 10px;
 		gap: var(--space-2);
 		min-width: 0;
+	}
+
+	.toolbar-left {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		min-width: 0;
+		flex: 1;
+		overflow: hidden;
 	}
 
 	.toolbar-chips {
@@ -510,7 +588,7 @@
 		display: none;
 	}
 
-	.composer-chip {
+	.composer-root :global(.composer-chip) {
 		height: 26px;
 		padding: 0 6px;
 		font-size: var(--text-xs);
@@ -529,79 +607,84 @@
 			color var(--dur-fast) var(--ease-out);
 	}
 
-	.composer-chip:hover:not(:disabled) {
+	.composer-root :global(.composer-chip:hover:not(:disabled)) {
 		background: var(--bg-hover);
-		border-color: var(--line-strong);
 		color: var(--ink);
 	}
 
-	.composer-chip[aria-pressed='true'] {
+	:global(.composer-chip.active) {
 		background: var(--bg-hover);
+		color: var(--ink);
 		border-color: var(--line);
-		color: var(--ink);
-	}
-
-	.composer-chip:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
 	}
 
 	.role-dot {
 		width: 7px;
 		height: 7px;
-		border-radius: var(--radius-full);
-		background: var(--brand-ink);
+		border-radius: 50%;
+		background: var(--ink-faint);
 		flex-shrink: 0;
 	}
 
 	.role-dot.has-hue {
-		background: oklch(var(--proj-l-ink) var(--proj-c-ink) var(--role-h, 260));
+		background: hsl(var(--role-h) 70% 55%);
 	}
 
 	.role-name {
-		font-weight: 500;
+		font-weight: 550;
+		color: var(--ink);
 	}
 
 	.model-name-label {
 		max-width: 140px;
-		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
-		font-weight: 500;
+		white-space: nowrap;
+		color: var(--ink);
 	}
 
 	.chevron-indicator {
-		display: grid;
-		place-items: center;
-		--icon-size: 13px;
+		display: inline-flex;
+		align-items: center;
 		color: var(--ink-faint);
-		margin-left: -1px;
+		--icon-size: 12px;
 	}
 
 	.thinking-label {
 		font-size: var(--text-caption);
+	}
+
+	.thinking-popover {
+		padding: var(--space-3) var(--space-4) var(--space-4);
+		--slider-ring: var(--bg-raised);
+	}
+
+	.thinking-unsupported {
+		margin: 0;
+		font-size: var(--text-label);
+		line-height: 1.4;
 		color: var(--ink-muted);
 	}
 
 	.steer-segmented {
 		display: inline-flex;
 		align-items: center;
-		gap: 4px;
-		padding: 2px;
-		background: var(--bg-hover);
+		background: var(--bg-sunken);
+		border: 1px solid var(--line);
 		border-radius: var(--radius-full);
+		padding: 2px;
+		gap: 2px;
 		flex-shrink: 0;
 	}
 
 	.segment-chip {
-		height: 24px;
-		padding: 0 10px;
-		border-radius: var(--radius-full);
-		font-size: var(--text-caption);
-		font-weight: 500;
-		color: var(--ink-faint);
+		height: 22px;
+		padding: 0 8px;
+		font-size: var(--text-xs);
 		background: transparent;
 		border: none;
+		border-radius: var(--radius-full);
+		color: var(--ink-faint);
 		cursor: pointer;
 		transition:
 			background-color var(--dur-fast) var(--ease-out),
@@ -611,35 +694,60 @@
 	.segment-chip.active {
 		background: var(--bg-raised);
 		color: var(--ink);
-		box-shadow: var(--shadow-overlay);
+		font-weight: 550;
+		box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
 	}
 
 	.toolbar-actions {
-		margin-left: auto;
 		display: flex;
 		align-items: center;
 		gap: 6px;
 		flex-shrink: 0;
 	}
 
-	.stop-btn {
-		background: var(--danger) !important;
-		color: var(--on-danger, #ffffff) !important;
+	.composer-send-btn {
+		width: 32px;
+		height: 32px;
+		border-radius: var(--radius-full);
+		border: none;
+		background: var(--brand-ink);
+		color: var(--bg-base);
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		cursor: pointer;
+		transition:
+			opacity var(--dur-fast) var(--ease-out),
+			transform var(--dur-fast) var(--ease-out);
+		flex-shrink: 0;
+		--icon-size: 16px;
 	}
 
-	.stop-btn:hover:not(:disabled) {
-		background: color-mix(in oklch, var(--danger) 85%, black) !important;
+	.composer-send-btn:hover:not(:disabled) {
+		opacity: 0.9;
 	}
 
-	@media (pointer: coarse) {
-		.composer-chip {
-			min-height: 32px;
-			padding: 0 10px;
-		}
+	.composer-send-btn:active:not(:disabled) {
+		transform: scale(0.95);
+	}
 
-		.segment-chip {
-			min-height: 32px;
-			padding: 0 12px;
+	.composer-send-btn:disabled {
+		opacity: 0.35;
+		cursor: not-allowed;
+	}
+
+	.composer-send-btn.stop-btn {
+		background: var(--danger);
+		color: #ffffff;
+	}
+
+	@media (max-width: 480px) {
+		.composer-toolbar { flex-wrap: wrap; }
+		.toolbar-left { flex-basis: 100%; }
+		.toolbar-chips { flex-wrap: wrap; overflow: visible; }
+		.toolbar-actions { margin-left: auto; }
+		.model-name-label {
+			max-width: 90px;
 		}
 	}
 </style>

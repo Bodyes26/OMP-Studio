@@ -11,7 +11,13 @@
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "verbatimModuleSyntax": true,
-    "isolatedModules": true
+    "isolatedModules": true,
+    "baseUrl": ".",
+    "paths": {
+      "$lib/*": ["../../src/lib/*"],
+      "$lib": ["../../src/lib"],
+      "$remote-protocol": ["../src/protocol.ts"]
+    }
   },
   "include": [
     "src/**/*.d.ts",

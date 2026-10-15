@@ -9,8 +9,9 @@
 	import type { RemoteChatMessage, RemoteToolCategory } from '../../../../src/protocol.ts';
 	import type { ToolGroupSummary } from '../../chat/types.ts';
 	import CategoryIcon from './CategoryIcon.svelte';
-	import Diff from './Diff.svelte';
-	import OutputBlock from './OutputBlock.svelte';
+	import Diff from '$lib/agent/tools/parts/Diff.svelte';
+	import OutputBlock from '$lib/agent/tools/parts/OutputBlock.svelte';
+	import ThinkingBlock from '$lib/agent/components/ThinkingBlock.svelte';
 	import StatusMark from '../StatusMark.svelte';
 	import { IconCheck, IconClose, IconChevronRight } from '../../icons.ts';
 
@@ -122,6 +123,9 @@
 	{#if isFullListOpen}
 		<div class="full-list-container">
 			{#each messages as msg (msg.id)}
+				{#if msg.role === 'assistant'}
+					<ThinkingBlock text={(msg.blocks ?? []).filter((block) => block.type === 'thinking').map((block) => block.text).join('\n\n')} />
+				{:else}
 				{@const tool = msg.tool}
 				{@const isRowOpen = Boolean(expandedRows[msg.id])}
 				<div class="row-container">
@@ -207,6 +211,7 @@
 						</div>
 					{/if}
 				</div>
+				{/if}
 			{/each}
 		</div>
 	{/if}

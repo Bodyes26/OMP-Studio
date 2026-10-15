@@ -69,7 +69,7 @@
 	import { startRemoteProjection } from '$lib/remote/projection.svelte';
 	import { setupRemoteCommands, type RunTaskOutcome } from '$lib/remote/commands';
 	import { createTaskCommands } from '$lib/remote/taskCommands';
-	import { abortRemoteLane, sendRemotePrompt } from '$lib/remote/sessionCommands';
+	import { abortRemoteLane, sendRemotePrompt, stageRemoteAttachment, refreshRemoteContext, compactRemoteContext } from '$lib/remote/sessionCommands';
 	import { initRemoteChat, remoteChatHistory } from '$lib/remote/chat';
 	import { listRemoteProjectFolders, openRemoteProject, createRemoteProject } from '$lib/remote/projectCommands';
 	import { createLaneConfigCommands } from '$lib/remote/laneConfigCommands';
@@ -1089,6 +1089,9 @@
 					moveTask: remoteTasks.moveRemoteTask,
 					abort: abortRemoteLane,
 					sendPrompt: sendRemotePrompt,
+					stageAttachment: stageRemoteAttachment,
+					refreshContext: refreshRemoteContext,
+					compactContext: compactRemoteContext,
 					chatHistory: remoteChatHistory,
 					listProjectFolders: listRemoteProjectFolders,
 					openProject: openRemoteProject,
