@@ -277,6 +277,27 @@ describe('tool grouping and turn footers', () => {
 		expect(footer?.model).toBe('Claude 3.5');
 		expect(footer?.diff).toEqual({ added: 3, removed: 1 });
 	});
+
+	it('keeps one group across the empty assistant step that precedes each tool call', () => {
+		const tool = (id: string): RemoteChatMessage => ({ id, role: 'tool', text: 'Leggi', toolName: 'read', timestamp: 1 });
+		const silent = (id: string): RemoteChatMessage => ({ id, role: 'assistant', text: '', toolName: null, timestamp: 1 });
+		const messages: RemoteChatMessage[] = [
+			{ id: 'u1', role: 'user', text: 'Controlla', toolName: null, timestamp: 1 },
+			silent('a1'),
+			tool('t1'),
+			silent('a2'),
+			tool('t2'),
+			{ id: 'a3', role: 'assistant', text: '', toolName: null, timestamp: 1, blocks: [{ type: 'thinking', text: 'ragiono' }] },
+			tool('t3'),
+			{ id: 'a4', role: 'assistant', text: 'Fatto', toolName: null, timestamp: 2, blocks: [{ type: 'text', text: 'Fatto' }] }
+		];
+
+		const { items } = groupMessages(messages);
+
+		expect(items.map((item) => item.kind)).toEqual(['user', 'tool-group', 'assistant']);
+		const group = items[1];
+		expect(group.kind === 'tool-group' && group.messages.map((m) => m.id)).toEqual(['t1', 't2', 'a3', 't3']);
+	});
 });
 
 describe('omp diff parser', () => {

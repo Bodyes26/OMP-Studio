@@ -255,17 +255,15 @@ export function calculateToolGroupSummary(messages: RemoteChatMessage[]): ToolGr
 }
 
 /**
- * Verifica se un messaggio dell'assistente contiene solo passaggi interni (thinking)
- * senza testo narrativo per l'utente, da includere nel flusso operativo.
+ * Messaggio dell'assistente senza testo per l'utente: solo ragionamento, oppure
+ * niente del tutto (il passo che contiene solo chiamate ai tool). Non spezza il
+ * gruppo di strumenti: altrimenti ogni chiamata, preceduta dal suo passo vuoto,
+ * diventava un gruppo a se' da «1 chiamata».
  */
-function isThinkingOnlyAssistant(message: RemoteChatMessage): boolean {
+function isSilentAssistant(message: RemoteChatMessage): boolean {
 	if (message.role !== 'assistant') return false;
 	if (message.text && message.text.trim().length > 0) return false;
-	const blocks = message.blocks ?? [];
-	return (
-		blocks.length > 0 &&
-		blocks.every((b) => b.type === 'thinking' || (b.type === 'text' && !b.text.trim()))
-	);
+	return (message.blocks ?? []).every((b) => b.type === 'thinking' || !b.text.trim());
 }
 
 /**
@@ -294,8 +292,13 @@ export function groupMessages(messages: RemoteChatMessage[]): {
 	for (const raw of messages) {
 		const msg = normalizeMessage(raw);
 
-		if (msg.role === 'tool' || isThinkingOnlyAssistant(msg)) {
+		if (msg.role === 'tool') {
 			currentToolBatch.push(msg);
+			continue;
+		}
+		if (isSilentAssistant(msg)) {
+			// Il ragionamento resta nel gruppo come in Studio; il passo vuoto non si disegna.
+			if (msg.blocks?.some((b) => b.type === 'thinking' && b.text.trim())) currentToolBatch.push(msg);
 			continue;
 		}
 

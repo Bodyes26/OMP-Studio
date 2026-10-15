@@ -63,6 +63,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 ### Fixed
 - In the remote control PWA, multi-question agent prompts are answered one at a time, with steps and a review before sending as in Studio; choices no longer reset on every machine update.
 - The remote chat and question cards no longer show the context Studio appends to the prompt for the model (`[Source Hints]`, `[Git Context]`, `[Editor Context]`): you only see what you wrote. The same applies to recent messages in the Companion.
+- The remote chat groups a working step's tool calls into a single group again, as in Studio, instead of showing a row of "1 call" groups.
 - "Other machines" no longer freezes Studio when the window opens (macOS and Windows).
 - Resuming a session from the GUI chat's Sessions list now actually opens it: previously, while closing the current session, Studio restarted a new one and the chosen session was silently ignored. The same applies to Retry on a task stopped by a quota limit.
 - The context breakdown loads from the status-line control too and no longer disappears when category estimates differ from the provider total; loading, errors and unavailable details are explicit, with Retry.

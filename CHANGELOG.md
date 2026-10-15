@@ -63,6 +63,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 ### Fixed
 - Nella PWA del controllo remoto le domande multiple dell'agente si rispondono una alla volta, con gli step e il riepilogo prima dell'invio come in Studio; le scelte fatte non si azzerano più a ogni aggiornamento della macchina.
 - La chat remota e le card delle domande non mostrano più il contesto che Studio aggiunge al prompt per il modello (`[Source Hints]`, `[Git Context]`, `[Editor Context]`): si vede solo il testo che hai scritto. Lo stesso vale per i messaggi recenti nella Companion.
+- La chat remota raggruppa di nuovo le chiamate ai tool di un passo di lavoro in un solo gruppo, come in Studio, invece di mostrare una fila di gruppi da «1 chiamata».
 - «Altre macchine» non blocca più Studio all'apertura della finestra (macOS e Windows).
 - Riprendere una sessione dall'elenco Sessioni della chat GUI la apre davvero: prima Studio, mentre chiudeva la sessione corrente, ne riavviava una nuova e la ripresa scelta veniva ignorata senza avvisi. Vale anche per il «Riprova» di un task fermato da un limite di quota.
 - La ripartizione del contesto si carica anche dal controllo nella riga di stato e non scompare quando le stime per categoria differiscono dal totale del provider; caricamento, errore e dettaglio non disponibile sono espliciti, con «Riprova».
