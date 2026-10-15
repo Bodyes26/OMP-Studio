@@ -1,10 +1,17 @@
+<!--
+  SettingsSheet.svelte — Centro impostazioni della PWA.
+  Presentazione dialog Studio / bottom sheet su telefoni: superficie bg-overlay,
+  ombra overlay, sezioni allineate a Studio Settings, controlli .ui-* e icone Lucide.
+-->
 <script lang="ts">
 	import type { DeviceListItem, HostSummary, CreateCodeResponse } from '../../../src/protocol.ts';
 	import { t } from '../i18n.ts';
 	import { formatHHMM } from '../schedule.ts';
 	import { connection } from '../connection.svelte.ts';
+	import { IconClose, IconPlus, IconLogout, IconTrash, IconLaptop, IconMachine, IconPhone } from '../icons.ts';
 	import CodeModal from './CodeModal.svelte';
 	import PushNotificationToggle from './PushNotificationToggle.svelte';
+	import StatusMark from './StatusMark.svelte';
 
 	let { onClose } = $props<{ onClose: () => void }>();
 
@@ -17,7 +24,7 @@
 	let isRevoking = $state(false);
 
 	$effect(() => {
-		loadData();
+		void loadData();
 	});
 
 	async function loadData(): Promise<void> {
@@ -81,13 +88,13 @@
 </script>
 
 <div
-	class="settings-backdrop"
+	class="sheet-backdrop"
 	onclick={onClose}
 	onkeydown={(e) => { if (e.key === 'Escape') onClose(); }}
 	role="presentation"
 >
 	<div
-		class="settings-sheet"
+		class="sheet-surface rv-lift"
 		onclick={(e) => e.stopPropagation()}
 		onkeydown={(e) => e.stopPropagation()}
 		role="dialog"
@@ -96,8 +103,13 @@
 	>
 		<div class="sheet-header safe-top">
 			<h2 class="sheet-title">{t('settingsTitle')}</h2>
-			<button class="btn btn-ghost close-icon-btn" onclick={onClose} aria-label={t('close')}>
-				✕
+			<button
+				type="button"
+				class="ui-button ui-button-ghost close-icon-btn"
+				onclick={onClose}
+				aria-label={t('close')}
+			>
+				<IconClose />
 			</button>
 		</div>
 
@@ -105,13 +117,18 @@
 			<!-- Questo dispositivo -->
 			<section class="settings-section">
 				<h3 class="section-title">{t('thisDevice')}</h3>
-				<div class="device-card current">
+				<div class="device-card">
 					<div class="device-info">
 						<span class="device-name">{connection.device?.name || 'Questo dispositivo'}</span>
-						<span class="device-badge">{t('currentDeviceBadge')}</span>
+						<span class="ui-chip current-chip">{t('currentDeviceBadge')}</span>
 					</div>
-					<button class="btn btn-danger logout-btn" onclick={handleLogout}>
-						{t('logout')}
+					<button
+						type="button"
+						class="ui-button ui-button-danger logout-btn"
+						onclick={handleLogout}
+					>
+						<IconLogout />
+						<span>{t('logout')}</span>
 					</button>
 				</div>
 				{#if connection.relayInfo?.version}
@@ -129,32 +146,60 @@
 			<!-- Azioni di abbinamento -->
 			<section class="settings-section">
 				<div class="actions-grid">
-					<button class="btn btn-primary action-btn" onclick={handleAddDevice}>
-						{t('addDeviceBtn')}
+					<button
+						type="button"
+						class="ui-button ui-button-primary action-btn"
+						onclick={handleAddDevice}
+					>
+						<IconPlus />
+						<span>{t('addDeviceBtn')}</span>
 					</button>
-					<button class="btn btn-secondary action-btn" onclick={handlePairHost}>
-						{t('pairHostBtn')}
+					<button
+						type="button"
+						class="ui-button ui-button-secondary action-btn"
+						onclick={handlePairHost}
+					>
+						<IconPlus />
+						<span>{t('pairHostBtn')}</span>
 					</button>
 				</div>
 			</section>
 
 			<!-- Macchine abbinate -->
 			<section class="settings-section">
-				<h3 class="section-title">{t('machinesList')}</h3>
+				<div class="section-title-row">
+					<h3 class="section-title">{t('machinesList')}</h3>
+					<span class="ui-count">{connection.hosts.length}</span>
+				</div>
+
 				<div class="items-list">
 					{#each connection.hosts as host (host.id)}
 						<div class="item-row">
 							<div class="item-meta">
-								<span class="item-name">{host.name}</span>
-								<span class="item-detail">
-									{host.platform} · {host.online ? t('online') : (host.lastSeenAt ? formatHHMM(host.lastSeenAt) : t('offline'))}
-								</span>
+								<div class="name-line">
+									<span class="platform-icon" aria-hidden="true">
+										{#if host.platform === 'macos'}
+											<IconLaptop />
+										{:else}
+											<IconMachine />
+										{/if}
+									</span>
+									<span class="item-name">{host.name}</span>
+								</div>
+								<div class="item-status-line">
+									<StatusMark status={host.online ? 'completed' : 'pending'} active={false} />
+									<span class="status-desc">
+										{host.platform} · {host.online ? t('online') : (host.lastSeenAt ? formatHHMM(host.lastSeenAt) : t('offline'))}
+									</span>
+								</div>
 							</div>
 							<button
-								class="btn btn-danger btn-sm"
+								type="button"
+								class="ui-button ui-button-ghost revoke-btn"
 								onclick={() => (hostToRevoke = host)}
 							>
-								{t('revoke')}
+								<IconTrash />
+								<span>{t('revoke')}</span>
 							</button>
 						</div>
 					{/each}
@@ -166,15 +211,19 @@
 
 			<!-- Dispositivi autorizzati -->
 			<section class="settings-section">
-				<h3 class="section-title">{t('devicesList')}</h3>
+				<div class="section-title-row">
+					<h3 class="section-title">{t('devicesList')}</h3>
+					<span class="ui-count">{devices.length}</span>
+				</div>
+
 				<div class="items-list">
 					{#each devices as dev (dev.id)}
 						<div class="item-row" class:is-current={dev.current}>
 							<div class="item-meta">
-								<div class="name-with-badge">
+								<div class="name-line">
 									<span class="item-name">{dev.name}</span>
 									{#if dev.current}
-										<span class="badge-mini">{t('currentDeviceBadge')}</span>
+										<span class="ui-chip current-chip">{t('currentDeviceBadge')}</span>
 									{/if}
 								</div>
 								<span class="item-detail">
@@ -183,10 +232,12 @@
 							</div>
 							{#if !dev.current}
 								<button
-									class="btn btn-danger btn-sm"
+									type="button"
+									class="ui-button ui-button-ghost revoke-btn"
 									onclick={() => (deviceToRevoke = dev)}
 								>
-									{t('revoke')}
+									<IconTrash />
+									<span>{t('revoke')}</span>
 								</button>
 							{/if}
 						</div>
@@ -199,15 +250,25 @@
 
 <!-- Modal conferma revoca macchina -->
 {#if hostToRevoke}
-	<div class="confirm-backdrop" role="presentation">
-		<div class="confirm-box" role="dialog">
+	<div class="sheet-backdrop confirm-backdrop" role="presentation">
+		<div class="confirm-surface rv-lift" role="dialog" aria-modal="true">
 			<h4 class="confirm-title">{t('revokeMachine')}</h4>
 			<p class="confirm-text">{t('revokeMachineConfirm', { name: hostToRevoke.name })}</p>
 			<div class="confirm-buttons">
-				<button class="btn btn-secondary" disabled={isRevoking} onclick={() => (hostToRevoke = null)}>
+				<button
+					type="button"
+					class="ui-button ui-button-secondary"
+					disabled={isRevoking}
+					onclick={() => (hostToRevoke = null)}
+				>
 					{t('cancel')}
 				</button>
-				<button class="btn btn-danger" disabled={isRevoking} onclick={confirmRevokeHostAction}>
+				<button
+					type="button"
+					class="ui-button ui-button-danger"
+					disabled={isRevoking}
+					onclick={confirmRevokeHostAction}
+				>
 					{t('revoke')}
 				</button>
 			</div>
@@ -217,15 +278,25 @@
 
 <!-- Modal conferma revoca dispositivo -->
 {#if deviceToRevoke}
-	<div class="confirm-backdrop" role="presentation">
-		<div class="confirm-box" role="dialog">
+	<div class="sheet-backdrop confirm-backdrop" role="presentation">
+		<div class="confirm-surface rv-lift" role="dialog" aria-modal="true">
 			<h4 class="confirm-title">{t('revoke')}</h4>
 			<p class="confirm-text">{t('revokeConfirm')}</p>
 			<div class="confirm-buttons">
-				<button class="btn btn-secondary" disabled={isRevoking} onclick={() => (deviceToRevoke = null)}>
+				<button
+					type="button"
+					class="ui-button ui-button-secondary"
+					disabled={isRevoking}
+					onclick={() => (deviceToRevoke = null)}
+				>
 					{t('cancel')}
 				</button>
-				<button class="btn btn-danger" disabled={isRevoking} onclick={confirmRevokeDeviceAction}>
+				<button
+					type="button"
+					class="ui-button ui-button-danger"
+					disabled={isRevoking}
+					onclick={confirmRevokeDeviceAction}
+				>
 					{t('revoke')}
 				</button>
 			</div>
@@ -239,79 +310,104 @@
 {/if}
 
 <style>
-	.settings-backdrop {
+	.sheet-backdrop {
 		position: fixed;
 		inset: 0;
-		background: oklch(0 0 0 / 0.65);
-		backdrop-filter: blur(4px);
+		background: var(--backdrop);
+		backdrop-filter: blur(8px);
+		-webkit-backdrop-filter: blur(8px);
+		z-index: 200;
 		display: flex;
-		justify-content: flex-end;
-		z-index: 150;
+		align-items: flex-end;
+		justify-content: center;
+		padding: 0;
 	}
 
-	.settings-sheet {
+	@media (min-width: 640px) {
+		.sheet-backdrop {
+			align-items: center;
+			padding: var(--space-4);
+		}
+	}
+
+	.sheet-surface {
 		width: 100%;
-		max-width: 480px;
-		height: 100%;
-		background: var(--bg-base);
-		border-left: 1px solid var(--line);
+		max-width: 580px;
+		background: var(--bg-overlay);
+		border: 1px solid var(--line-strong);
+		box-shadow: var(--shadow-overlay);
+		border-radius: var(--radius-xl) var(--radius-xl) 0 0;
 		display: flex;
 		flex-direction: column;
-		box-shadow: -4px 0 24px oklch(0 0 0 / 0.4);
+		max-height: 90vh;
+		overflow: hidden;
+	}
+
+	@media (min-width: 640px) {
+		.sheet-surface {
+			border-radius: var(--radius-xl);
+		}
 	}
 
 	.sheet-header {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: 16px 20px;
+		padding: var(--space-4);
 		border-bottom: 1px solid var(--line);
-		background: var(--bg-base);
 	}
 
 	.sheet-title {
-		font-size: 17px;
-		font-weight: 700;
+		font-size: var(--text-label);
+		font-weight: 600;
 		color: var(--ink);
+		margin: 0;
+		letter-spacing: -0.01em;
 	}
 
 	.close-icon-btn {
-		width: 36px;
-		height: 36px;
-		font-size: 16px;
+		width: 32px;
+		height: 32px;
+		--icon-size: 16px;
 	}
 
 	.sheet-body {
-		flex: 1;
-		overflow-y: auto;
-		padding: 20px;
+		padding: var(--space-4);
 		display: flex;
 		flex-direction: column;
-		gap: 24px;
+		gap: var(--space-5);
+		overflow-y: auto;
 	}
 
 	.settings-section {
 		display: flex;
 		flex-direction: column;
-		gap: 10px;
+		gap: var(--space-2);
+	}
+
+	.section-title-row {
+		display: flex;
+		align-items: center;
+		gap: 6px;
 	}
 
 	.section-title {
-		font-size: 11px;
-		font-weight: 700;
+		font-size: var(--text-meta);
+		font-weight: 600;
+		color: var(--ink-muted);
 		text-transform: uppercase;
-		letter-spacing: 0.5px;
-		color: var(--ink-faint);
+		letter-spacing: 0.04em;
+		margin: 0;
 	}
 
 	.device-card {
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		padding: 12px 14px;
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
+		padding: 10px 14px;
+		background: var(--bg-sunken);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-lg);
 	}
 
 	.device-info {
@@ -321,136 +417,168 @@
 	}
 
 	.device-name {
-		font-size: 14px;
-		font-weight: 600;
+		font-size: var(--text-caption);
+		font-weight: 500;
 		color: var(--ink);
 	}
 
-	.device-badge, .badge-mini {
-		font-size: 10px;
-		font-weight: 700;
-		text-transform: uppercase;
-		background: var(--bg-active);
-		color: var(--ink);
-		padding: 2px 6px;
-		border-radius: var(--radius-sm);
+	.current-chip {
+		height: 18px;
+		padding: 0 6px;
+		font-size: var(--text-meta);
 	}
 
 	.logout-btn {
-		min-height: 36px;
-		padding: 6px 12px;
-		font-size: 12px;
+		height: 28px;
+		padding: 0 10px;
+		font-size: var(--text-meta);
+		gap: 4px;
+		--icon-size: 12px;
 	}
 
 	.relay-version-meta {
-		font-size: 11px;
-		color: var(--ink-faint);
-		padding-left: 2px;
 		font-family: var(--font-mono);
+		font-size: var(--text-meta);
+		color: var(--ink-faint);
+		padding: 0 var(--space-1);
 	}
 
 	.actions-grid {
-		display: flex;
-		gap: 10px;
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: var(--space-2);
 	}
 
 	.action-btn {
-		flex: 1;
-		height: 44px;
-		font-size: 13px;
+		height: 36px;
+		font-size: var(--text-caption);
+		gap: 6px;
+		--icon-size: 14px;
 	}
 
 	.items-list {
 		display: flex;
 		flex-direction: column;
-		gap: 8px;
+		border: 1px solid var(--line);
+		border-radius: var(--radius-lg);
+		background: var(--bg-sunken);
+		overflow: hidden;
 	}
 
 	.item-row {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
 		padding: 10px 12px;
+		border-bottom: 1px solid var(--line);
+		gap: var(--space-2);
+	}
+
+	.item-row:last-child {
+		border-bottom: none;
 	}
 
 	.item-meta {
 		display: flex;
 		flex-direction: column;
 		gap: 2px;
+		min-width: 0;
 	}
 
-	.name-with-badge {
+	.name-line {
 		display: flex;
 		align-items: center;
 		gap: 6px;
 	}
 
+	.platform-icon {
+		color: var(--ink-muted);
+		--icon-size: 14px;
+		display: grid;
+		place-items: center;
+	}
+
 	.item-name {
-		font-size: 13px;
-		font-weight: 600;
+		font-size: var(--text-caption);
+		font-weight: 500;
 		color: var(--ink);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 
+	.item-status-line {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+
+	.status-desc,
 	.item-detail {
-		font-size: 11px;
-		color: var(--ink-faint);
+		font-size: var(--text-meta);
+		color: var(--ink-muted);
+		font-variant-numeric: tabular-nums;
 	}
 
-	.btn-sm {
-		min-height: 32px;
-		padding: 4px 10px;
-		font-size: 11px;
+	.revoke-btn {
+		height: 26px;
+		padding: 0 8px;
+		font-size: var(--text-meta);
+		color: var(--danger);
+		gap: 4px;
+		--icon-size: 12px;
+	}
+
+	.revoke-btn:hover {
+		color: var(--danger);
+		background: color-mix(in oklab, var(--danger) 10%, transparent);
 	}
 
 	.empty-list {
-		font-size: 13px;
+		padding: var(--space-4);
+		text-align: center;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
-		padding: 12px 0;
 	}
 
-	/* Dialog di conferma */
 	.confirm-backdrop {
-		position: fixed;
-		inset: 0;
-		background: oklch(0 0 0 / 0.6);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		padding: 20px;
 		z-index: 220;
+		align-items: center;
+		padding: var(--space-4);
 	}
 
-	.confirm-box {
+	.confirm-surface {
 		width: 100%;
-		max-width: 360px;
-		background: var(--bg-base);
+		max-width: 400px;
+		background: var(--bg-overlay);
 		border: 1px solid var(--line-strong);
-		border-radius: var(--radius-lg);
-		padding: 20px;
+		box-shadow: var(--shadow-overlay);
+		border-radius: var(--radius-xl);
+		padding: var(--space-5);
 		display: flex;
 		flex-direction: column;
-		gap: 12px;
+		gap: var(--space-3);
 	}
 
 	.confirm-title {
-		font-size: 15px;
-		font-weight: 700;
+		font-size: var(--text-label);
+		font-weight: 600;
 		color: var(--ink);
+		margin: 0;
 	}
 
 	.confirm-text {
-		font-size: 13px;
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
-		line-height: 1.4;
+		line-height: 1.45;
+		margin: 0;
 	}
 
 	.confirm-buttons {
 		display: flex;
+		align-items: center;
 		justify-content: flex-end;
-		gap: 8px;
-		margin-top: 8px;
+		gap: var(--space-2);
+		margin-top: var(--space-2);
 	}
 </style>

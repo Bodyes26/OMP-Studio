@@ -1,9 +1,15 @@
+<!--
+  NewTaskModal.svelte — Creazione di un nuovo task per un progetto.
+  Presentazione dialog Studio / bottom sheet su telefoni: superficie bg-overlay,
+  ombra overlay, raggio xl, campi .ui-input e pulsanti .ui-button-*.
+-->
 <script lang="ts">
 	import type { RemoteScheduleChoice, CommandError } from '../../../src/protocol.ts';
 	import { t } from '../i18n.ts';
 	import { connection } from '../connection.svelte.ts';
 	import { formatCommandError } from '../errors.ts';
 	import { calculateScheduleEpoch, defaultScheduleTime } from '../schedule.ts';
+	import { IconClose } from '../icons.ts';
 
 	let {
 		hostId,
@@ -76,13 +82,13 @@
 </script>
 
 <div
-	class="modal-backdrop"
+	class="sheet-backdrop"
 	onclick={onClose}
 	onkeydown={(e) => { if (e.key === 'Escape') onClose(); }}
 	role="presentation"
 >
 	<div
-		class="modal-sheet"
+		class="sheet-surface rv-lift"
 		onclick={(e) => e.stopPropagation()}
 		onkeydown={(e) => e.stopPropagation()}
 		role="dialog"
@@ -90,16 +96,27 @@
 		tabindex="-1"
 		aria-labelledby="new-task-title"
 	>
-		<div class="modal-header">
-			<div class="badge-row">
-				<span class="machine-badge">{hostName}</span>
+		<div class="sheet-header">
+			<div class="header-main">
+				<div class="badge-row">
+					<span class="ui-chip">{hostName}</span>
+				</div>
+				<h3 id="new-task-title" class="sheet-title">
+					{t('newTaskTitle', { project: projectName })}
+				</h3>
 			</div>
-			<h3 id="new-task-title" class="task-title">
-				{t('newTaskTitle', { project: projectName })}
-			</h3>
+
+			<button
+				type="button"
+				class="ui-button ui-button-ghost close-btn"
+				onclick={onClose}
+				aria-label={t('close')}
+			>
+				<IconClose />
+			</button>
 		</div>
 
-		<div class="modal-body">
+		<div class="sheet-body">
 			{#if errorMessage}
 				<div class="error-banner" role="alert">
 					{errorMessage}
@@ -110,7 +127,7 @@
 				<label class="form-label" for="new-task-prompt">{t('fullPrompt')}</label>
 				<textarea
 					id="new-task-prompt"
-					class="prompt-textarea"
+					class="ui-input prompt-textarea"
 					rows="5"
 					placeholder={t('promptPlaceholder')}
 					bind:value={prompt}
@@ -120,11 +137,11 @@
 
 			<div class="form-group">
 				<span class="form-label">{t('scheduleLabel')}</span>
-				<div class="schedule-options">
+				<div class="schedule-chips">
 					<button
 						type="button"
-						class="schedule-pill"
-						class:active={scheduleType === 'none'}
+						class="ui-chip"
+						aria-pressed={scheduleType === 'none'}
 						onclick={() => (scheduleType = 'none')}
 						disabled={isSubmitting}
 					>
@@ -132,8 +149,8 @@
 					</button>
 					<button
 						type="button"
-						class="schedule-pill"
-						class:active={scheduleType === 'reset'}
+						class="ui-chip"
+						aria-pressed={scheduleType === 'reset'}
 						onclick={() => (scheduleType = 'reset')}
 						disabled={isSubmitting}
 					>
@@ -141,8 +158,8 @@
 					</button>
 					<button
 						type="button"
-						class="schedule-pill"
-						class:active={scheduleType === 'at'}
+						class="ui-chip"
+						aria-pressed={scheduleType === 'at'}
 						onclick={() => (scheduleType = 'at')}
 						disabled={isSubmitting}
 					>
@@ -157,18 +174,18 @@
 							<input
 								id="schedule-time-input"
 								type="time"
-								class="time-input"
+								class="ui-input"
 								bind:value={atTime}
 								disabled={isSubmitting}
 							/>
 						</div>
 						<div class="day-toggle-wrap">
 							<span class="sub-label">{t('scheduleLabel')}</span>
-							<div class="day-pills">
+							<div class="schedule-chips">
 								<button
 									type="button"
-									class="day-pill"
-									class:active={atDay === 'today'}
+									class="ui-chip"
+									aria-pressed={atDay === 'today'}
 									onclick={() => (atDay = 'today')}
 									disabled={isSubmitting}
 								>
@@ -176,8 +193,8 @@
 								</button>
 								<button
 									type="button"
-									class="day-pill"
-									class:active={atDay === 'tomorrow'}
+									class="ui-chip"
+									aria-pressed={atDay === 'tomorrow'}
 									onclick={() => (atDay = 'tomorrow')}
 									disabled={isSubmitting}
 								>
@@ -190,12 +207,18 @@
 			</div>
 		</div>
 
-		<div class="modal-footer">
-			<button class="btn btn-secondary" onclick={onClose} disabled={isSubmitting}>
+		<div class="sheet-footer">
+			<button
+				type="button"
+				class="ui-button ui-button-secondary"
+				onclick={onClose}
+				disabled={isSubmitting}
+			>
 				{t('cancel')}
 			</button>
 			<button
-				class="btn btn-primary"
+				type="button"
+				class="ui-button ui-button-primary"
 				onclick={handleSubmit}
 				disabled={isSubmitting || isPromptEmpty}
 			>
@@ -206,76 +229,91 @@
 </div>
 
 <style>
-	.modal-backdrop {
+	.sheet-backdrop {
 		position: fixed;
 		inset: 0;
-		background: oklch(0 0 0 / 0.65);
-		backdrop-filter: blur(4px);
+		background: var(--backdrop);
+		backdrop-filter: blur(8px);
+		-webkit-backdrop-filter: blur(8px);
+		z-index: 200;
 		display: flex;
 		align-items: flex-end;
 		justify-content: center;
-		z-index: 200;
+		padding: 0;
 	}
 
-	.modal-sheet {
+	@media (min-width: 600px) {
+		.sheet-backdrop {
+			align-items: center;
+			padding: var(--space-4);
+		}
+	}
+
+	.sheet-surface {
 		width: 100%;
 		max-width: 520px;
-		max-height: 85vh;
-		background: var(--bg-base);
+		background: var(--bg-overlay);
 		border: 1px solid var(--line-strong);
-		border-top-left-radius: var(--radius-lg);
-		border-top-right-radius: var(--radius-lg);
-		padding: 20px;
+		box-shadow: var(--shadow-overlay);
+		border-radius: var(--radius-xl) var(--radius-xl) 0 0;
 		display: flex;
 		flex-direction: column;
-		gap: 16px;
-		box-shadow: 0 -4px 24px oklch(0 0 0 / 0.5);
-		overflow-y: auto;
+		max-height: 90vh;
+		overflow: hidden;
 	}
 
-	.modal-header {
+	@media (min-width: 600px) {
+		.sheet-surface {
+			border-radius: var(--radius-xl);
+		}
+	}
+
+	.sheet-header {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		padding: var(--space-4) var(--space-4) var(--space-3) var(--space-4);
+		border-bottom: 1px solid var(--line);
+		gap: var(--space-2);
+	}
+
+	.header-main {
 		display: flex;
 		flex-direction: column;
 		gap: 6px;
+		min-width: 0;
 	}
 
-	.badge-row {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-	}
-
-	.machine-badge {
-		font-size: 0.72rem;
-		padding: 2px 7px;
-		background: var(--bg-raised);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		color: var(--ink-muted);
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-	}
-
-	.task-title {
-		margin: 0;
-		font-size: 1.05rem;
+	.sheet-title {
+		font-size: var(--text-label);
 		font-weight: 600;
 		color: var(--ink);
+		margin: 0;
+		letter-spacing: -0.01em;
 	}
 
-	.modal-body {
+	.close-btn {
+		width: 32px;
+		height: 32px;
+		--icon-size: 16px;
+		flex-shrink: 0;
+	}
+
+	.sheet-body {
+		padding: var(--space-4);
 		display: flex;
 		flex-direction: column;
-		gap: 14px;
+		gap: var(--space-4);
+		overflow-y: auto;
 	}
 
 	.error-banner {
 		padding: 8px 12px;
-		background: var(--danger-bg);
-		border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
-		border-radius: var(--radius-sm);
+		background: color-mix(in oklab, var(--danger) 12%, transparent);
+		border: 1px solid color-mix(in oklab, var(--danger) 30%, transparent);
+		border-radius: var(--radius-md);
 		color: var(--danger);
-		font-size: 0.85rem;
+		font-size: var(--text-caption);
 	}
 
 	.form-group {
@@ -285,121 +323,64 @@
 	}
 
 	.form-label {
-		font-size: 0.78rem;
+		font-size: var(--text-meta);
 		font-weight: 500;
 		color: var(--ink-muted);
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
 	}
 
 	.sub-label {
-		font-size: 0.72rem;
-		color: var(--ink-muted);
+		font-size: var(--text-meta);
+		color: var(--ink-faint);
 	}
 
 	.prompt-textarea {
 		width: 100%;
-		padding: 10px 12px;
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		color: var(--ink);
-		font-family: inherit;
-		font-size: 0.9rem;
-		line-height: 1.4;
+		min-height: 100px;
+		height: auto;
 		resize: vertical;
-		box-sizing: border-box;
+		padding: 8px 10px;
+		line-height: 1.45;
+		font-size: var(--text-chat);
+		border-radius: var(--radius-md);
 	}
 
-	.prompt-textarea:focus {
-		outline: none;
-		border-color: var(--brand);
-	}
-
-	.schedule-options {
+	.schedule-chips {
 		display: flex;
-		flex-wrap: wrap;
+		align-items: center;
 		gap: 6px;
-	}
-
-	.schedule-pill {
-		padding: 6px 12px;
-		font-size: 0.82rem;
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		color: var(--ink-muted);
-		cursor: pointer;
-		transition: all 0.15s ease;
-	}
-
-	.schedule-pill:hover:not(:disabled) {
-		background: var(--bg-raised);
-		color: var(--ink);
-	}
-
-	.schedule-pill.active {
-		background: color-mix(in srgb, var(--brand) 14%, transparent);
-		border-color: var(--brand);
-		color: var(--ink);
-		font-weight: 500;
+		flex-wrap: wrap;
 	}
 
 	.time-picker-row {
 		display: flex;
-		align-items: center;
-		gap: 16px;
-		margin-top: 6px;
-		padding: 10px;
+		align-items: flex-start;
+		gap: var(--space-3);
+		padding: var(--space-3);
 		background: var(--bg-sunken);
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		border: 1px solid var(--line);
+		margin-top: 4px;
 	}
 
-	.time-input-wrap,
+	.time-input-wrap {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+
 	.day-toggle-wrap {
 		display: flex;
 		flex-direction: column;
 		gap: 4px;
 	}
 
-	.time-input {
-		padding: 5px 8px;
-		background: var(--bg-base);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		color: var(--ink);
-		font-family: inherit;
-		font-size: 0.88rem;
-	}
-
-	.day-pills {
-		display: flex;
-		gap: 4px;
-	}
-
-	.day-pill {
-		padding: 5px 10px;
-		font-size: 0.8rem;
-		background: var(--bg-base);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		color: var(--ink-muted);
-		cursor: pointer;
-	}
-
-	.day-pill.active {
-		background: color-mix(in srgb, var(--brand) 14%, transparent);
-		border-color: var(--brand);
-		color: var(--ink);
-		font-weight: 500;
-	}
-
-	.modal-footer {
+	.sheet-footer {
 		display: flex;
 		align-items: center;
 		justify-content: flex-end;
-		gap: 10px;
-		padding-top: 4px;
+		gap: var(--space-2);
+		padding: var(--space-3) var(--space-4);
+		border-top: 1px solid var(--line);
+		background: var(--bg-base);
 	}
 </style>

@@ -357,4 +357,27 @@ describe('buildHostState projection', () => {
 		assert.equal(lanes[2].agent.surface, 'terminal');
 		assert.equal(lanes[2].agent.state, 'offline');
 	});
+
+	it('includes theme anchors in HostState when provided, null otherwise', () => {
+		const baseInput: BuildHostStateInput = {
+			projects: [{ id: 'p1', name: 'Project 1', canonicalProjectPath: '/dev/p1', hue: 120 }]
+		};
+		const stateWithoutTheme = buildHostState(baseInput);
+		assert.equal(stateWithoutTheme.theme, null);
+
+		const theme = {
+			bgBase: '#131313',
+			bgSunken: '#0c0c0c',
+			brandH: 355,
+			brandC: 0.19,
+			warnH: 75,
+			warnC: 0.15,
+			isLight: false
+		};
+		const stateWithTheme = buildHostState({
+			...baseInput,
+			theme
+		});
+		assert.deepEqual(stateWithTheme.theme, theme);
+	});
 });

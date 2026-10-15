@@ -3,30 +3,46 @@
  * e flusso degli eventi verso le corsie seguite dai dispositivi client.
  */
 
-import type { RemoteChatEvent, RemoteChatMessage, RemoteChatPage, RemoteLaneRef } from '$remote-protocol';
+import type {
+	RemoteChatBlock,
+	RemoteChatEvent,
+	RemoteChatMessage,
+	RemoteChatPage,
+	RemoteLaneRef
+} from '$remote-protocol';
 import { projectStore } from '$lib/stores/projects.svelte';
 import { laneOrchestrator } from '$lib/lanes/laneOrchestrator.svelte';
 import { sessionRegistry } from '$lib/agent/sessionRegistry';
 import { remoteBridge } from './bridge';
 import { RemoteCommandFailure } from './commands';
+import { remoteStore } from './remoteStore.svelte';
+import { entryToRemoteMessage } from './chatProjection';
 import type { TranscriptEntry } from '$lib/agent/session.svelte';
 
-interface PendingDelta {
+export interface PendingDelta {
 	projectId: string;
 	laneId: string;
 	messageId: string;
+	block: RemoteChatBlock['type'];
+	index: number;
 	text: string;
-	timer: ReturnType<typeof setTimeout> | null;
+	timer: number | NodeJS.Timeout | null;
 }
 
 const watchedLanes = new Map<string, () => void>();
 const pendingDeltas = new Map<string, PendingDelta>();
 
-function deltaKey(projectId: string, laneId: string, messageId: string): string {
-	return `${projectId}:${laneId}:${messageId}`;
+function deltaKey(
+	projectId: string,
+	laneId: string,
+	messageId: string,
+	block: RemoteChatBlock['type'],
+	index: number
+): string {
+	return `${projectId}:${laneId}:${messageId}:${block}:${index}`;
 }
 
-function flushDeltaByKey(key: string): void {
+export function flushDeltaByKey(key: string): void {
 	const pending = pendingDeltas.get(key);
 	if (!pending) return;
 	if (pending.timer !== null) {
@@ -38,12 +54,23 @@ function flushDeltaByKey(key: string): void {
 		void remoteBridge.publishChatEvent(pending.projectId, pending.laneId, {
 			kind: 'delta',
 			messageId: pending.messageId,
-			text: pending.text
+			text: pending.text,
+			block: pending.block,
+			index: pending.index
 		});
 	}
 }
 
-function flushAllDeltasForLane(projectId: string, laneId: string): void {
+export function flushDeltasForMessage(projectId: string, laneId: string, messageId: string): void {
+	const prefix = `${projectId}:${laneId}:${messageId}:`;
+	for (const key of Array.from(pendingDeltas.keys())) {
+		if (key.startsWith(prefix)) {
+			flushDeltaByKey(key);
+		}
+	}
+}
+
+export function flushAllDeltasForLane(projectId: string, laneId: string): void {
 	const prefix = `${projectId}:${laneId}:`;
 	for (const key of Array.from(pendingDeltas.keys())) {
 		if (key.startsWith(prefix)) {
@@ -52,7 +79,7 @@ function flushAllDeltasForLane(projectId: string, laneId: string): void {
 	}
 }
 
-function clearAllWatchersAndDeltas(): void {
+export function clearAllWatchersAndDeltas(): void {
 	for (const unlisten of watchedLanes.values()) {
 		unlisten();
 	}
@@ -66,14 +93,28 @@ function clearAllWatchersAndDeltas(): void {
 	pendingDeltas.clear();
 }
 
-function queueDelta(projectId: string, laneId: string, messageId: string, text: string): void {
-	const key = deltaKey(projectId, laneId, messageId);
+export function queueDelta(
+	projectId: string,
+	laneId: string,
+	messageId: string,
+	text: string,
+	block: RemoteChatBlock['type'] = 'text',
+	index = 0
+): void {
+	// Delta thinking inviati solo se il relay dichiara chat_rich
+	if (block === 'thinking' && !remoteStore.status.relayFeatures?.includes('chat_rich')) {
+		return;
+	}
+
+	const key = deltaKey(projectId, laneId, messageId, block, index);
 	let pending = pendingDeltas.get(key);
 	if (!pending) {
 		pending = {
 			projectId,
 			laneId,
 			messageId,
+			block,
+			index,
 			text: '',
 			timer: null
 		};
@@ -99,14 +140,20 @@ function attachSessionWatcher(projectId: string, laneId: string): () => void {
 
 	return session.subscribeRemoteChat((event: RemoteChatEvent) => {
 		if (event.kind === 'delta') {
-			queueDelta(projectId, effectiveLaneId, event.messageId, event.text);
+			queueDelta(
+				projectId,
+				effectiveLaneId,
+				event.messageId,
+				event.text,
+				event.block ?? 'text',
+				event.index ?? 0
+			);
 			return;
 		}
 
 		if (event.kind === 'message') {
 			// Se ci sono delta accumulati per questo messaggio, inviali prima del messaggio conclusivo
-			const key = deltaKey(projectId, effectiveLaneId, event.message.id);
-			flushDeltaByKey(key);
+			flushDeltasForMessage(projectId, effectiveLaneId, event.message.id);
 			void remoteBridge.publishChatEvent(projectId, effectiveLaneId, event);
 			return;
 		}
@@ -182,65 +229,7 @@ export async function initRemoteChat(): Promise<() => void> {
 	};
 }
 
-function mapEntryToRemoteMessage(entry: TranscriptEntry): RemoteChatMessage | null {
-	// Identita' durevole basata su toolCallId o messageTs (stabile tra rebuild/compaction, #9)
-	const durableId =
-		entry.kind === 'tool' && entry.toolCallId
-			? entry.toolCallId
-			: ('messageTs' in entry && typeof entry.messageTs === 'number')
-				? `ts_${entry.messageTs}`
-				: `e_${entry.id}`;
 
-	if (entry.kind === 'user') {
-		return {
-			id: durableId,
-			role: 'user',
-			text: (entry.content ?? '').slice(0, 30_000),
-			toolName: null,
-			timestamp: entry.messageTs ?? null
-		};
-	}
-
-	if (entry.kind === 'assistant') {
-		const text = (entry.blocks ?? [])
-			.filter((b) => b.type === 'text')
-			.map((b) => b.text)
-			.filter(Boolean)
-			.join('\n')
-			.trim()
-			.slice(0, 30_000);
-		return {
-			id: durableId,
-			role: 'assistant',
-			text,
-			toolName: null,
-			timestamp: entry.messageTs ?? null
-		};
-	}
-
-	if (entry.kind === 'tool') {
-		const summary = entry.intent || entry.toolName;
-		return {
-			id: durableId,
-			role: 'tool',
-			text: summary.slice(0, 500),
-			toolName: entry.toolName,
-			timestamp: entry.startedAt ?? null
-		};
-	}
-
-	if (entry.kind === 'notice' || entry.kind === 'compaction') {
-		return {
-			id: durableId,
-			role: 'system',
-			text: (entry.message ?? '').slice(0, 500),
-			toolName: null,
-			timestamp: null
-		};
-	}
-
-	return null;
-}
 
 /**
  * Restituisce una pagina di storico della chat per una corsia, limitata
@@ -287,7 +276,7 @@ export async function remoteChatHistory(
 
 	const allMessages: RemoteChatMessage[] = [];
 	for (const entry of session.entries) {
-		const msg = mapEntryToRemoteMessage(entry);
+		const msg = entryToRemoteMessage(entry);
 		if (msg) allMessages.push(msg);
 	}
 

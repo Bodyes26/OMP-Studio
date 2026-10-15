@@ -32,7 +32,8 @@ use crate::remote::connection::{
 };
 use crate::remote::protocol::{
     close_code, HealthResponse, HostFrame, HostInfo, ProtocolId, RelayToHostFrame,
-    RemoteCommandEvent, RemoteConnection, RemoteLaneRef, FEATURES, PROTOCOL_NAME, PROTOCOL_VERSION,
+    RemoteCommandEvent, RemoteConnection, RemoteLaneRef, RemoteStatus, FEATURES, PROTOCOL_NAME,
+    PROTOCOL_VERSION,
 };
 use crate::remote::RemoteManager;
 #[test]
@@ -236,6 +237,9 @@ fn test_frame_json_shapes() {
     assert_eq!(json_val["protocol"]["version"], 1);
     assert_eq!(json_val["host"]["name"], "MacBook-Pro");
     assert_eq!(json_val["host"]["appVersion"], "1.7.2");
+    assert!(FEATURES.contains(&"chat_rich"));
+    let features_arr = json_val["features"].as_array().unwrap();
+    assert!(features_arr.iter().any(|f| f == "chat_rich"));
 
     // 2. HostFrame::Snapshot
     let snapshot = HostFrame::Snapshot {
@@ -279,12 +283,14 @@ fn test_frame_json_shapes() {
             relay,
             heartbeat_ms,
             clients,
+            features,
             ..
         } => {
             assert_eq!(relay.version, "1.2.0");
             assert_eq!(heartbeat_ms, 25000);
             assert_eq!(clients.len(), 1);
             assert_eq!(clients[0].name, "Phone");
+            assert_eq!(features, vec!["respond_ui"]);
         }
         _ => panic!("Atteso frame Welcome"),
     }
@@ -1195,4 +1201,50 @@ fn test_acl_checker_catches_broad_globs_and_exact_matches() {
     let companion_pat = glob::Pattern::new("companion").unwrap();
     assert!(!companion_pat.matches(label));
     assert!(companion_pat.matches("companion"));
+}
+
+#[test]
+fn test_remote_status_relay_features_lifecycle() {
+    // 1. Serde di default: campo relayFeatures opzionale in JSON vecchio
+    let raw_status = serde_json::json!({
+        "enabled": true,
+        "relayUrl": "https://relay.example.com",
+        "machineName": "Test",
+        "hostId": "host-1",
+        "paired": true,
+        "connection": "connected",
+        "lastError": null,
+        "retryAt": null,
+        "clients": [],
+        "relayVersion": "1.2.0",
+        "relayProtocol": null,
+        "updateNeeded": null
+    });
+    let status: RemoteStatus = serde_json::from_value(raw_status).unwrap();
+    assert_eq!(status.relay_features, Vec::<String>::new());
+
+    // 2. Serde con relayFeatures popolato
+    let raw_status_with_features = serde_json::json!({
+        "enabled": true,
+        "relayUrl": "https://relay.example.com",
+        "machineName": "Test",
+        "hostId": "host-1",
+        "paired": true,
+        "connection": "connected",
+        "lastError": null,
+        "retryAt": null,
+        "clients": [],
+        "relayVersion": "1.2.0",
+        "relayProtocol": null,
+        "updateNeeded": null,
+        "relayFeatures": ["respond_ui", "chat_rich"]
+    });
+    let status_rich: RemoteStatus = serde_json::from_value(raw_status_with_features).unwrap();
+    assert_eq!(status_rich.relay_features, vec!["respond_ui", "chat_rich"]);
+
+    let serialized = serde_json::to_value(&status_rich).unwrap();
+    assert_eq!(
+        serialized["relayFeatures"],
+        serde_json::json!(["respond_ui", "chat_rich"])
+    );
 }

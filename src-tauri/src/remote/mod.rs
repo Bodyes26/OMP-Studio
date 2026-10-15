@@ -179,6 +179,7 @@ impl RemoteManager {
             st.connection = RemoteConnection::Disabled;
             st.retry_at = None;
             st.clients.clear();
+            st.relay_features.clear();
             drop(st);
             self.ctx.emit_status_update();
         } else {
@@ -228,6 +229,7 @@ impl RemoteManager {
                 RemoteConnection::Disabled
             };
             st.clients.clear();
+            st.relay_features.clear();
             st.retry_at = None;
             st.last_error = None;
         }

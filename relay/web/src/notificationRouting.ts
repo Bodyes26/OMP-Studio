@@ -2,6 +2,7 @@
  * Instradamento delle notifiche Web Push verso l'elemento visivo corretto nella PWA
  * (scroll automatico e focus su macchina, progetto, richiesta di attenzione o corsia).
  */
+import { navigation } from './navigation.svelte.ts';
 
 export interface NotificationTarget {
 	hostId?: string;
@@ -16,6 +17,16 @@ export interface NotificationTarget {
  */
 export function navigateToNotificationTarget(target: NotificationTarget, attempts = 15): void {
 	if (typeof document === 'undefined') return;
+
+	// Notifica su una corsia senza richiesta di attenzione: apre la chat a tutto schermo
+	if (target.hostId && target.projectId && target.laneId && !target.requestId) {
+		navigation.openChat({
+			hostId: target.hostId,
+			projectId: target.projectId,
+			laneId: target.laneId
+		});
+		return;
+	}
 
 	const findTargetElement = (): HTMLElement | null => {
 		if (target.requestId) {
@@ -63,7 +74,7 @@ export function initNotificationRouting(): void {
 	const laneId = params.get('lane') ?? undefined;
 	const requestId = params.get('request') ?? undefined;
 
-	if (hostId || projectId || requestId) {
+	if (hostId || projectId || requestId || laneId) {
 		navigateToNotificationTarget({ hostId, projectId, laneId, requestId });
 
 		// Pulisce la query string per non rieseguire lo scroll ai successivi refresh

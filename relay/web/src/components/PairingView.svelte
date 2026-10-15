@@ -1,8 +1,14 @@
+<!--
+  PairingView.svelte — Schermata di abbinamento dispositivo.
+  Linguaggio Studio: BrandMark in currentColor, card su bg-base bordata,
+  controlli .ui-input e pulsanti .ui-button-*, zero classi legacy.
+-->
 <script lang="ts">
 	import { t } from '../i18n.ts';
 	import { normalizePairingCode } from '../../../src/protocol.ts';
 	import { detectDefaultDeviceName } from '../deviceDetect.ts';
 	import { connection } from '../connection.svelte.ts';
+	import BrandMark from './BrandMark.svelte';
 
 	let deviceName = $state(detectDefaultDeviceName());
 	let useSecret = $state(false);
@@ -60,8 +66,10 @@
 </script>
 
 <div class="pairing-container safe-top safe-bottom">
-	<div class="card pairing-card">
-		<div class="logo-circle">π</div>
+	<div class="pairing-card">
+		<div class="logo-slot" aria-hidden="true">
+			<BrandMark class="brand-logo" />
+		</div>
 		<h2 class="title">{t('pairTitle')}</h2>
 		<p class="subtitle">{t('pairSubtitle')}</p>
 
@@ -77,7 +85,7 @@
 				<input
 					id="device-name"
 					type="text"
-					class="input-field"
+					class="ui-input"
 					placeholder={t('deviceNamePlaceholder')}
 					bind:value={deviceName}
 					required
@@ -90,7 +98,7 @@
 					<input
 						id="pairing-code"
 						type="text"
-						class="input-field code-input"
+						class="ui-input code-input"
 						placeholder={t('pairingCodePlaceholder')}
 						value={pairingCodeRaw}
 						oninput={handleCodeInput}
@@ -105,7 +113,7 @@
 					<input
 						id="admin-token"
 						type="password"
-						class="input-field"
+						class="ui-input"
 						placeholder={t('adminSecretPlaceholder')}
 						bind:value={adminToken}
 						autocomplete="current-password"
@@ -115,7 +123,7 @@
 
 			<button
 				type="button"
-				class="toggle-mode-btn btn btn-ghost"
+				class="ui-button ui-button-ghost toggle-mode-btn"
 				onclick={() => {
 					useSecret = !useSecret;
 					errorMessage = null;
@@ -126,7 +134,7 @@
 
 			<button
 				type="submit"
-				class="btn btn-primary submit-btn"
+				class="ui-button ui-button-primary submit-btn"
 				disabled={!isFormValid || isSubmitting}
 			>
 				{isSubmitting ? t('pairingInProgress') : t('pairButton')}
@@ -141,60 +149,65 @@
 		align-items: center;
 		justify-content: center;
 		min-height: calc(100vh - 80px);
-		padding: 24px 16px;
+		padding: var(--space-6) var(--space-4);
 	}
 
 	.pairing-card {
 		width: 100%;
-		max-width: 420px;
+		max-width: 400px;
 		background: var(--bg-base);
 		border: 1px solid var(--line);
-		border-radius: var(--radius-lg);
-		padding: 28px 24px;
+		border-radius: var(--radius-xl);
+		box-shadow: var(--shadow-dock);
+		padding: var(--space-6) var(--space-5);
 		display: flex;
 		flex-direction: column;
 		align-items: center;
 		text-align: center;
 	}
 
-	.logo-circle {
-		width: 52px;
-		height: 52px;
+	.logo-slot {
+		width: 48px;
+		height: 48px;
 		border-radius: var(--radius-lg);
 		background: var(--bg-sunken);
 		border: 1px solid var(--line-strong);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		font-size: 26px;
-		font-weight: 700;
-		color: var(--brand);
-		margin-bottom: 16px;
+		display: grid;
+		place-items: center;
+		margin-bottom: var(--space-4);
+		color: var(--ink);
+	}
+
+	:global(.logo-slot .brand-logo) {
+		width: 26px;
+		height: 22px;
 	}
 
 	.title {
-		font-size: 18px;
-		font-weight: 650;
+		font-size: var(--text-heading);
+		font-weight: 600;
 		color: var(--ink);
-		margin-bottom: 8px;
+		margin: 0 0 var(--space-2) 0;
+		letter-spacing: -0.015em;
 	}
 
 	.subtitle {
-		font-size: 13px;
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
-		margin-bottom: 20px;
-		line-height: 1.4;
+		margin: 0 0 var(--space-5) 0;
+		line-height: 1.5;
 	}
 
 	.error-banner {
 		width: 100%;
-		padding: 10px 14px;
-		background: var(--danger-bg);
-		border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+		box-sizing: border-box;
+		padding: 8px 12px;
+		background: color-mix(in oklab, var(--danger) 12%, transparent);
+		border: 1px solid color-mix(in oklab, var(--danger) 30%, transparent);
 		border-radius: var(--radius-md);
 		color: var(--danger);
-		font-size: 13px;
-		margin-bottom: 16px;
+		font-size: var(--text-caption);
+		margin-bottom: var(--space-4);
 		text-align: left;
 	}
 
@@ -202,7 +215,7 @@
 		width: 100%;
 		display: flex;
 		flex-direction: column;
-		gap: 16px;
+		gap: var(--space-4);
 		text-align: left;
 	}
 
@@ -213,28 +226,33 @@
 	}
 
 	.field label {
-		font-size: 12px;
-		font-weight: 600;
+		font-size: var(--text-meta);
+		font-weight: 500;
 		color: var(--ink-muted);
+	}
+
+	.field :global(.ui-input) {
+		width: 100%;
 	}
 
 	.code-input {
 		font-family: var(--font-mono);
-		font-size: 18px;
+		font-size: 16px;
 		letter-spacing: 2px;
 		text-align: center;
 		font-weight: 600;
 	}
 
 	.toggle-mode-btn {
-		font-size: 12px;
+		font-size: var(--text-caption);
 		align-self: center;
-		padding: 4px 8px;
+		height: 28px;
+		padding: 0 var(--space-2);
 	}
 
 	.submit-btn {
-		margin-top: 8px;
+		margin-top: var(--space-2);
 		width: 100%;
-		height: 44px;
+		height: 38px;
 	}
 </style>

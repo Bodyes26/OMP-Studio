@@ -33,7 +33,10 @@ export interface ProtocolId {
  * - `task_edit`: creare, modificare, programmare, spostare ed eliminare task;
  * - `session_control`: interrompere l'agente e scrivere alla sessione;
  * - `chat`: storico della conversazione e flusso dal vivo (`chat_*`);
- * - `projects`: elenco delle cartelle dei progetti, apertura e creazione.
+ * - `projects`: elenco delle cartelle dei progetti, apertura e creazione;
+ * - `chat_rich`: la PWA servita dal relay disegna i blocchi `thinking` in
+ *   streaming. Studio manda i delta di ragionamento solo se il `welcome` la
+ *   elenca: una PWA vecchia li accoderebbe al testo della risposta.
  */
 export const FEATURES = [
 	'respond_ui',
@@ -42,7 +45,8 @@ export const FEATURES = [
 	'task_edit',
 	'session_control',
 	'chat',
-	'projects'
+	'projects',
+	'chat_rich'
 ] as const;
 export type Feature = (typeof FEATURES)[number];
 
@@ -240,9 +244,27 @@ export interface RemoteProject {
 	runBlockReason: string | null;
 }
 
+/**
+ * Ancore del tema di Studio (`src/lib/theme.ts`, `ThemeAnchors`): la PWA ne
+ * deriva gli stessi token, cosi' il telefono ha i colori della macchina.
+ */
+export interface RemoteTheme {
+	/** Superficie dell'app, colore CSS. */
+	bgBase: string;
+	/** Pozzo di terminale ed editor, colore CSS. */
+	bgSunken: string;
+	brandH: number;
+	brandC: number;
+	warnH: number;
+	warnC: number;
+	isLight: boolean;
+}
+
 export interface HostState {
 	projects: RemoteProject[];
 	quota: RemoteQuota | null;
+	/** Assente dagli host pubblicati prima del campo. */
+	theme?: RemoteTheme | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -334,6 +356,64 @@ export interface RemoteChatMessage {
 	text: string;
 	toolName: string | null;
 	timestamp: number | null;
+	/**
+	 * Campi ricchi: assenti dagli host pubblicati prima, che la PWA disegna
+	 * con `text` e `toolName`. Assistente: blocchi nell'ordine del messaggio.
+	 */
+	blocks?: RemoteChatBlock[];
+	/** Assistente: modello che ha risposto. */
+	model?: string | null;
+	/** Utente: immagini allegate (solo il numero: le immagini non viaggiano). */
+	images?: number;
+	/** Tool: sintesi della chiamata come la mostra il gruppo di strumenti di Studio. */
+	tool?: RemoteToolCall;
+}
+
+export interface RemoteChatBlock {
+	type: 'text' | 'thinking';
+	text: string;
+}
+
+/** Categorie visuali dei tool di Studio (`src/lib/agent/tools/categories.ts`). */
+export type RemoteToolCategory =
+	| 'read'
+	| 'search'
+	| 'run'
+	| 'edit'
+	| 'web'
+	| 'think'
+	| 'other'
+	| 'task'
+	| 'todo'
+	| 'ask';
+
+export interface RemoteTodoItem {
+	text: string;
+	status: 'pending' | 'in_progress' | 'completed' | 'abandoned';
+}
+
+export interface RemoteToolCall {
+	category: RemoteToolCategory;
+	/** Verbo gia' nella lingua di Studio («Modifica», «Cerca»...). */
+	label: string;
+	/** Oggetto della chiamata: percorso, comando, pattern, url. */
+	detail: string | null;
+	/** Esito sintetico: «5 in 2 file», «28 righe», «exit 1». */
+	meta: string | null;
+	/** Intento dichiarato dall'agente. */
+	intent: string | null;
+	status: 'running' | 'ok' | 'error';
+	errorReason: string | null;
+	startedAt: number;
+	endedAt: number | null;
+	/** Righe aggiunte e rimosse dalle modifiche. */
+	diffStats: [number, number] | null;
+	/** Diff nel formato di omp (`<segno><riga>|<testo>`), troncato. */
+	diff: string | null;
+	/** Coda dell'output testuale, troncata. */
+	output: string | null;
+	/** Tool `todo`: lista aggiornata dopo la chiamata. */
+	todos: RemoteTodoItem[] | null;
 }
 
 export interface RemoteChatPage {
@@ -346,12 +426,14 @@ export interface RemoteChatPage {
 /**
  * Evento dal vivo della corsia seguita:
  * - `message`: messaggio nuovo o completato (sostituisce per `id`);
- * - `delta`: testo in streaming da accodare al messaggio `messageId`;
+ * - `delta`: testo in streaming da accodare al messaggio `messageId`. `block`
+ *   e `index` dicono a quale blocco dell'assistente va (assenti: testo); i
+ *   delta `thinking` arrivano solo con la funzione `chat_rich`;
  * - `reset`: la corsia ha cambiato sessione, lo storico va riletto.
  */
 export type RemoteChatEvent =
 	| { kind: 'message'; message: RemoteChatMessage }
-	| { kind: 'delta'; messageId: string; text: string }
+	| { kind: 'delta'; messageId: string; text: string; block?: RemoteChatBlock['type']; index?: number }
 	| { kind: 'reset' };
 
 export interface RemoteFolder {

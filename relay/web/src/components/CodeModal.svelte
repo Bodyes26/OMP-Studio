@@ -1,7 +1,13 @@
+<!--
+  CodeModal.svelte — Mostra il codice di abbinamento generato per host o dispositivo.
+  Linguaggio Studio: superficie bg-overlay, ombra overlay, codice in JetBrains Mono
+  a spaziatura allargata, controlli .ui-* e icone Lucide.
+-->
 <script lang="ts">
 	import type { CreateCodeResponse } from '../../../src/protocol.ts';
 	import { formatPairingCode } from '../../../src/protocol.ts';
 	import { t } from '../i18n.ts';
+	import { IconCopy, IconCheck, IconClose } from '../icons.ts';
 
 	let {
 		codeData,
@@ -52,57 +58,87 @@
 </script>
 
 <div
-	class="modal-backdrop"
+	class="sheet-backdrop"
 	onclick={onClose}
 	onkeydown={(e) => { if (e.key === 'Escape') onClose(); }}
 	role="presentation"
 >
 	<div
-		class="modal-sheet"
+		class="sheet-surface rv-lift"
 		onclick={(e) => e.stopPropagation()}
 		onkeydown={(e) => e.stopPropagation()}
 		role="dialog"
 		aria-modal="true"
 		tabindex="-1"
 	>
-		<div class="modal-header">
-			<h3 class="title">
-				{codeData.kind === 'device' ? t('deviceCodeTitle') : t('hostCodeTitle')}
-			</h3>
-			<p class="desc">
-				{codeData.kind === 'device' ? t('deviceCodeDesc') : t('hostCodeDesc')}
-			</p>
-		</div>
-
-		{#if codeData.kind === 'host'}
-			<div class="relay-url-box">
-				<span class="url-text">{relayOrigin}</span>
-				<button
-					class="btn btn-secondary copy-btn"
-					onclick={() => copyToClipboard(relayOrigin, true)}
-				>
-					{copiedUrl ? t('copied') : t('copyUrl')}
-				</button>
+		<div class="sheet-header">
+			<div class="header-main">
+				<h3 class="sheet-title">
+					{codeData.kind === 'device' ? t('deviceCodeTitle') : t('hostCodeTitle')}
+				</h3>
+				<p class="sheet-desc">
+					{codeData.kind === 'device' ? t('deviceCodeDesc') : t('hostCodeDesc')}
+				</p>
 			</div>
-			<p class="desc step2">{t('hostCodeStep2')}</p>
-		{/if}
-
-		<div class="code-display">
-			<span class="code-text">{formattedCode}</span>
 			<button
-				class="btn btn-primary copy-code-btn"
-				onclick={() => copyToClipboard(formattedCode, false)}
+				type="button"
+				class="ui-button ui-button-ghost close-icon-btn"
+				onclick={onClose}
+				aria-label={t('close')}
 			>
-				{copiedCode ? t('copied') : t('copyCode')}
+				<IconClose />
 			</button>
 		</div>
 
-		<div class="countdown">
-			{t('codeExpiresIn', { time: formattedTime })}
+		<div class="sheet-body">
+			{#if codeData.kind === 'host'}
+				<div class="relay-url-box">
+					<span class="url-text">{relayOrigin}</span>
+					<button
+						type="button"
+						class="ui-button ui-button-secondary copy-btn"
+						onclick={() => copyToClipboard(relayOrigin, true)}
+					>
+						{#if copiedUrl}
+							<IconCheck />
+							<span>{t('copied')}</span>
+						{:else}
+							<IconCopy />
+							<span>{t('copyUrl')}</span>
+						{/if}
+					</button>
+				</div>
+				<p class="step2-desc">{t('hostCodeStep2')}</p>
+			{/if}
+
+			<div class="code-box">
+				<span class="code-text">{formattedCode}</span>
+				<button
+					type="button"
+					class="ui-button ui-button-primary copy-code-btn"
+					onclick={() => copyToClipboard(formattedCode, false)}
+				>
+					{#if copiedCode}
+						<IconCheck />
+						<span>{t('copied')}</span>
+					{:else}
+						<IconCopy />
+						<span>{t('copyCode')}</span>
+					{/if}
+				</button>
+			</div>
+
+			<div class="countdown">
+				{t('codeExpiresIn', { time: formattedTime })}
+			</div>
 		</div>
 
-		<div class="modal-footer">
-			<button class="btn btn-secondary close-btn" onclick={onClose}>
+		<div class="sheet-footer">
+			<button
+				type="button"
+				class="ui-button ui-button-secondary"
+				onclick={onClose}
+			>
 				{t('close')}
 			</button>
 		</div>
@@ -110,117 +146,157 @@
 </div>
 
 <style>
-	.modal-backdrop {
+	.sheet-backdrop {
 		position: fixed;
 		inset: 0;
-		background: oklch(0 0 0 / 0.65);
-		backdrop-filter: blur(4px);
+		background: var(--backdrop);
+		backdrop-filter: blur(8px);
+		-webkit-backdrop-filter: blur(8px);
+		z-index: 210;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		padding: 16px;
-		z-index: 210;
+		padding: var(--space-4);
 	}
 
-	.modal-sheet {
+	.sheet-surface {
 		width: 100%;
 		max-width: 440px;
-		background: var(--bg-base);
+		background: var(--bg-overlay);
 		border: 1px solid var(--line-strong);
-		border-radius: var(--radius-lg);
-		padding: 24px;
+		box-shadow: var(--shadow-overlay);
+		border-radius: var(--radius-xl);
 		display: flex;
 		flex-direction: column;
-		gap: 16px;
-		text-align: center;
-		box-shadow: 0 8px 32px oklch(0 0 0 / 0.6);
+		overflow: hidden;
 	}
 
-	.modal-header {
+	.sheet-header {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		padding: var(--space-4);
+		border-bottom: 1px solid var(--line);
+		gap: var(--space-2);
+	}
+
+	.header-main {
 		display: flex;
 		flex-direction: column;
-		gap: 6px;
+		gap: 4px;
+		min-width: 0;
 	}
 
-	.title {
-		font-size: 17px;
-		font-weight: 700;
+	.sheet-title {
+		font-size: var(--text-label);
+		font-weight: 600;
 		color: var(--ink);
+		margin: 0;
+		letter-spacing: -0.01em;
 	}
 
-	.desc {
-		font-size: 13px;
+	.sheet-desc {
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
-		line-height: 1.4;
+		margin: 0;
+		line-height: 1.45;
 	}
-	.desc.step2 {
-		margin-top: 4px;
+
+	.close-icon-btn {
+		width: 32px;
+		height: 32px;
+		--icon-size: 16px;
+		flex-shrink: 0;
+	}
+
+	.sheet-body {
+		padding: var(--space-5) var(--space-4);
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-4);
+		align-items: center;
+		text-align: center;
 	}
 
 	.relay-url-box {
+		width: 100%;
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		gap: 8px;
+		padding: 6px 10px;
 		background: var(--bg-sunken);
 		border: 1px solid var(--line);
 		border-radius: var(--radius-md);
-		padding: 8px 12px;
+		gap: 8px;
+		box-sizing: border-box;
 	}
 
 	.url-text {
 		font-family: var(--font-mono);
-		font-size: 12px;
+		font-size: var(--text-caption);
 		color: var(--ink);
+		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
-		white-space: nowrap;
 	}
 
 	.copy-btn {
-		min-height: 32px;
-		padding: 4px 10px;
-		font-size: 11px;
+		height: 28px;
+		padding: 0 8px;
+		font-size: var(--text-meta);
+		gap: 4px;
+		--icon-size: 12px;
 		flex-shrink: 0;
 	}
 
-	.code-display {
+	.step2-desc {
+		font-size: var(--text-caption);
+		color: var(--ink-muted);
+		margin: 0;
+	}
+
+	.code-box {
+		width: 100%;
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-		gap: 10px;
+		gap: var(--space-3);
+		padding: var(--space-5) var(--space-4);
 		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		padding: 16px;
+		border: 1px solid var(--line-strong);
+		border-radius: var(--radius-lg);
+		box-sizing: border-box;
 	}
 
 	.code-text {
 		font-family: var(--font-mono);
-		font-size: 28px;
+		font-size: 26px;
 		font-weight: 700;
-		letter-spacing: 3px;
-		color: var(--brand);
+		letter-spacing: 4px;
+		color: var(--ink);
+		user-select: all;
 	}
 
 	.copy-code-btn {
-		width: 100%;
-		max-width: 200px;
+		height: 34px;
+		padding: 0 var(--space-4);
+		font-size: var(--text-caption);
+		gap: 6px;
+		--icon-size: 14px;
 	}
 
 	.countdown {
-		font-size: 12px;
+		font-size: var(--text-meta);
 		color: var(--ink-faint);
-		font-family: var(--font-mono);
+		font-variant-numeric: tabular-nums;
 	}
 
-	.modal-footer {
+	.sheet-footer {
 		display: flex;
-		justify-content: center;
-		margin-top: 4px;
-	}
-
-	.close-btn {
-		width: 100%;
+		align-items: center;
+		justify-content: flex-end;
+		padding: var(--space-3) var(--space-4);
+		border-top: 1px solid var(--line);
+		background: var(--bg-base);
 	}
 </style>

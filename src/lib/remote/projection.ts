@@ -20,7 +20,8 @@ import type {
 	RemoteQuota,
 	RemoteQuotaProvider,
 	RemoteQuotaWindow,
-	RemoteAgentState
+	RemoteAgentState,
+	RemoteTheme
 } from '$remote-protocol';
 import { taskLabel } from '$lib/stores/taskTitle';
 import type { AttentionRequest, CompanionProjectRuntime } from '$lib/stores/companion.svelte';
@@ -79,6 +80,7 @@ export interface BuildHostStateInput {
 	nextCandidateTaskIds?: Set<string> | Map<string, string>;
 	quotaReports?: QuotaReport[];
 	quotaFetchedAt?: number | null;
+	theme?: RemoteTheme | null;
 }
 
 export function mapAgentState(session?: SessionInput | null): RemoteAgentState {
@@ -515,6 +517,7 @@ export function buildHostState(input: BuildHostStateInput): HostState {
 
 	return {
 		projects,
-		quota
+		quota,
+		theme: input.theme ?? null
 	};
 }

@@ -17,7 +17,7 @@ import { taskStore } from '$lib/stores/tasks.svelte';
 import { scheduleStore } from '$lib/stores/schedule.svelte';
 import { quotaStore } from '$lib/stores/quota.svelte';
 import { sessionRegistry } from '$lib/agent/sessionRegistry';
-
+import { onThemeChange, getCurrentAnchors } from '$lib/theme';
 export interface RemoteProjectionOptions {
 	/** Funzione che restituisce il prossimo task candidato per l'arbitro di un progetto. */
 	getCandidateTaskId?: (projectId: string) => string | null;
@@ -31,7 +31,10 @@ export function startRemoteProjection(options: RemoteProjectionOptions = {}): ()
 	let lastPublishedJson = '';
 	// Codice della WebView: il timer e' quello del browser, non il tipo di Node.
 	let debounceTimer: number | null = null;
-
+	let themeAnchors = $state(getCurrentAnchors());
+	const unlistenTheme = onThemeChange(() => {
+		themeAnchors = getCurrentAnchors();
+	});
 	const cleanupRoot = $effect.root(() => {
 		$effect(() => {
 			const enabled = remoteStore.status.enabled;
@@ -55,7 +58,7 @@ export function startRemoteProjection(options: RemoteProjectionOptions = {}): ()
 			const now = scheduleStore.now;
 			const quotaReports = quotaStore.reports;
 			const quotaFetchedAt = quotaStore.lastFetchedAt;
-
+			const theme = themeAnchors;
 			const hostState = buildHostState({
 				projects: projects.map((p) => ({
 					id: p.id,
@@ -119,7 +122,8 @@ export function startRemoteProjection(options: RemoteProjectionOptions = {}): ()
 					return options.getCandidateTaskId?.(projId) ?? null;
 				},
 				quotaReports,
-				quotaFetchedAt
+				quotaFetchedAt,
+				theme
 			});
 
 			const json = JSON.stringify(hostState);
@@ -147,5 +151,6 @@ export function startRemoteProjection(options: RemoteProjectionOptions = {}): ()
 		window.clearTimeout(debounceTimer ?? undefined);
 		debounceTimer = null;
 		cleanupRoot();
+		unlistenTheme();
 	};
 }

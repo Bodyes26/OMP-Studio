@@ -1,7 +1,14 @@
+<!--
+  ProjectSheet.svelte — Foglio di apertura o creazione progetto su una macchina.
+  Presentazione dialog Studio / bottom sheet su telefoni: superficie bg-overlay,
+  ombra overlay, raggio xl, controlli .ui-* e icone Lucide (zero emoji).
+-->
 <script lang="ts">
 	import type { HostSummary, RemoteFolder, RemoteFolderList, CommandError } from '../../../src/protocol.ts';
 	import { t } from '../i18n.ts';
 	import { connection } from '../connection.svelte.ts';
+	import { IconClose, IconFolder, IconGitBranch, IconChevronRight, IconRefresh } from '../icons.ts';
+	import StatusMark from './StatusMark.svelte';
 
 	let {
 		host,
@@ -93,7 +100,7 @@
 	role="presentation"
 >
 	<div
-		class="sheet-card"
+		class="sheet-surface rv-lift"
 		onclick={(e) => e.stopPropagation()}
 		onkeydown={(e) => e.stopPropagation()}
 		role="dialog"
@@ -101,7 +108,7 @@
 		tabindex="-1"
 	>
 		<div class="sheet-header">
-			<div class="header-title-wrap">
+			<div class="header-main">
 				<h2 class="sheet-title">{t('projectSheetTitle', { machine: host.name })}</h2>
 				{#if folderList?.root}
 					<span class="root-hint" title={folderList.root}>{folderList.root}</span>
@@ -109,15 +116,27 @@
 					<span class="root-hint warning">{t('projectsRootUnset')}</span>
 				{/if}
 			</div>
-			<button class="btn btn-ghost close-btn" onclick={onClose} aria-label={t('close')}>
-				✕
+
+			<button
+				type="button"
+				class="ui-button ui-button-ghost close-btn"
+				onclick={onClose}
+				aria-label={t('close')}
+			>
+				<IconClose />
 			</button>
 		</div>
 
 		{#if actionError}
 			<div class="error-banner" role="alert">
 				<span class="error-text">{actionError}</span>
-				<button class="dismiss-btn" onclick={() => (actionError = null)}>✕</button>
+				<button
+					type="button"
+					class="ui-button ui-button-ghost dismiss-btn"
+					onclick={() => (actionError = null)}
+				>
+					<IconClose />
+				</button>
 			</div>
 		{/if}
 
@@ -127,18 +146,22 @@
 				<div class="section-header">
 					<h3 class="section-title">{t('foldersSectionTitle')}</h3>
 					{#if folderList}
-						<span class="count-badge">{folderList.folders.length}</span>
+						<span class="ui-count">{folderList.folders.length}</span>
 					{/if}
 				</div>
 
 				{#if loading}
 					<div class="loading-state">
-						<span class="spinner"></span>
+						<StatusMark status="running" />
+						<span class="text-shimmer">{t('openingProject')}</span>
 					</div>
 				{:else if fetchError}
 					<div class="error-box">
-						<p>{fetchError}</p>
-						<button class="btn btn-secondary btn-sm" onclick={loadFolders}>Riprova</button>
+						<p class="error-text">{fetchError}</p>
+						<button type="button" class="ui-button ui-button-secondary" onclick={loadFolders}>
+							<IconRefresh />
+							<span>Riprova</span>
+						</button>
 					</div>
 				{:else if !folderList?.root}
 					<p class="empty-hint">{t('projectsRootUnset')}</p>
@@ -156,19 +179,28 @@
 								onclick={() => handleOpen(folder)}
 							>
 								<div class="folder-info">
-									<span class="folder-icon">📁</span>
+									<span class="folder-icon" aria-hidden="true"><IconFolder /></span>
 									<span class="folder-name">{folder.name}</span>
 								</div>
 								<div class="folder-badges">
 									{#if folder.git}
-										<span class="badge git-badge">{t('folderIsGit')}</span>
+										<span class="ui-chip git-chip">
+											<IconGitBranch />
+											<span>{t('folderIsGit')}</span>
+										</span>
 									{/if}
 									{#if folder.openProjectId}
-										<span class="badge open-badge">{t('folderAlreadyOpen')}</span>
+										<span class="ui-chip open-chip">{t('folderAlreadyOpen')}</span>
 									{:else if openingPath === folder.path}
-										<span class="badge loading-badge">{t('openingProject')}</span>
+										<span class="ui-chip loading-chip">
+											<StatusMark status="running" />
+											<span>{t('openingProject')}</span>
+										</span>
 									{:else}
-										<span class="open-action">{t('openFolderAction')} →</span>
+										<span class="open-action">
+											<span>{t('openFolderAction')}</span>
+											<IconChevronRight />
+										</span>
 									{/if}
 								</div>
 							</button>
@@ -186,7 +218,7 @@
 						<input
 							id="new-project-name"
 							type="text"
-							class="input-field"
+							class="ui-input"
 							placeholder={t('projectNamePlaceholder')}
 							bind:value={newName}
 							disabled={isCreating || Boolean(openingPath)}
@@ -197,45 +229,51 @@
 					<div class="field">
 						<span class="field-label">{t('githubVisibilityLabel')}</span>
 						<div class="radio-group">
-							<label class="radio-option" class:active={visibility === 'local'}>
-								<input
-									type="radio"
-									name="visibility"
-									value="local"
-									bind:group={visibility}
-									disabled={isCreating}
-								/>
-								<span>{t('githubVisibilityNone')}</span>
+							<label class="ui-choice radio-option" class:active={visibility === 'local'}>
+								<div class="choice-row">
+									<input
+										type="radio"
+										name="visibility"
+										value="local"
+										bind:group={visibility}
+										disabled={isCreating}
+									/>
+									<span>{t('githubVisibilityNone')}</span>
+								</div>
 							</label>
 
 							<label
-								class="radio-option"
+								class="ui-choice radio-option"
 								class:active={visibility === 'private'}
 								class:disabled={folderList !== null && !folderList.githubAvailable}
 							>
-								<input
-									type="radio"
-									name="visibility"
-									value="private"
-									bind:group={visibility}
-									disabled={isCreating || (folderList !== null && !folderList.githubAvailable)}
-								/>
-								<span>{t('githubVisibilityPrivate')}</span>
+								<div class="choice-row">
+									<input
+										type="radio"
+										name="visibility"
+										value="private"
+										bind:group={visibility}
+										disabled={isCreating || (folderList !== null && !folderList.githubAvailable)}
+									/>
+									<span>{t('githubVisibilityPrivate')}</span>
+								</div>
 							</label>
 
 							<label
-								class="radio-option"
+								class="ui-choice radio-option"
 								class:active={visibility === 'public'}
 								class:disabled={folderList !== null && !folderList.githubAvailable}
 							>
-								<input
-									type="radio"
-									name="visibility"
-									value="public"
-									bind:group={visibility}
-									disabled={isCreating || (folderList !== null && !folderList.githubAvailable)}
-								/>
-								<span>{t('githubVisibilityPublic')}</span>
+								<div class="choice-row">
+									<input
+										type="radio"
+										name="visibility"
+										value="public"
+										bind:group={visibility}
+										disabled={isCreating || (folderList !== null && !folderList.githubAvailable)}
+									/>
+									<span>{t('githubVisibilityPublic')}</span>
+								</div>
 							</label>
 						</div>
 						{#if folderList !== null && !folderList.githubAvailable}
@@ -245,7 +283,7 @@
 
 					<button
 						type="submit"
-						class="btn btn-primary submit-btn"
+						class="ui-button ui-button-primary submit-btn"
 						disabled={!newName.trim() || isCreating || Boolean(openingPath)}
 					>
 						{#if isCreating}
@@ -264,162 +302,167 @@
 	.sheet-backdrop {
 		position: fixed;
 		inset: 0;
-		background: oklch(0 0 0 / 0.65);
-		backdrop-filter: blur(4px);
+		background: var(--backdrop);
+		backdrop-filter: blur(8px);
+		-webkit-backdrop-filter: blur(8px);
+		z-index: 200;
 		display: flex;
-		justify-content: flex-end;
-		z-index: 150;
+		align-items: flex-end;
+		justify-content: center;
+		padding: 0;
 	}
 
-	.sheet-card {
+	@media (min-width: 640px) {
+		.sheet-backdrop {
+			align-items: center;
+			padding: var(--space-4);
+		}
+	}
+
+	.sheet-surface {
 		width: 100%;
-		max-width: 480px;
-		height: 100%;
-		background: var(--bg-base);
-		border-left: 1px solid var(--line);
+		max-width: 580px;
+		background: var(--bg-overlay);
+		border: 1px solid var(--line-strong);
+		box-shadow: var(--shadow-overlay);
+		border-radius: var(--radius-xl) var(--radius-xl) 0 0;
 		display: flex;
 		flex-direction: column;
-		box-shadow: -4px 0 24px oklch(0 0 0 / 0.4);
+		max-height: 90vh;
+		overflow: hidden;
+	}
+
+	@media (min-width: 640px) {
+		.sheet-surface {
+			border-radius: var(--radius-xl);
+		}
 	}
 
 	.sheet-header {
 		display: flex;
-		align-items: center;
+		align-items: flex-start;
 		justify-content: space-between;
-		padding: 16px 20px;
+		padding: var(--space-4) var(--space-4) var(--space-3) var(--space-4);
 		border-bottom: 1px solid var(--line);
-		background: var(--bg-base);
-		gap: 12px;
+		gap: var(--space-2);
 	}
 
-	.header-title-wrap {
+	.header-main {
 		display: flex;
 		flex-direction: column;
-		gap: 2px;
-		overflow: hidden;
+		gap: 4px;
+		min-width: 0;
 	}
 
 	.sheet-title {
-		font-size: 16px;
-		font-weight: 700;
+		font-size: var(--text-label);
+		font-weight: 600;
 		color: var(--ink);
+		margin: 0;
+		letter-spacing: -0.01em;
 	}
 
 	.root-hint {
-		font-size: 11px;
+		font-family: var(--font-mono);
+		font-size: var(--text-meta);
 		color: var(--ink-faint);
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
-		font-family: monospace;
 	}
 
 	.root-hint.warning {
-		color: var(--brand);
+		color: var(--warn);
 	}
 
 	.close-btn {
-		width: 36px;
-		height: 36px;
-		font-size: 16px;
+		width: 32px;
+		height: 32px;
+		--icon-size: 16px;
 		flex-shrink: 0;
 	}
 
 	.error-banner {
-		background: var(--danger-bg);
-		border-bottom: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
-		padding: 10px 16px;
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		gap: 8px;
-	}
-
-	.error-text {
+		padding: 8px 12px;
+		background: color-mix(in oklab, var(--danger) 12%, transparent);
+		border-bottom: 1px solid color-mix(in oklab, var(--danger) 30%, transparent);
 		color: var(--danger);
-		font-size: 13px;
-		line-height: 1.4;
+		font-size: var(--text-caption);
 	}
 
 	.dismiss-btn {
-		background: transparent;
-		border: none;
-		color: var(--ink-faint);
-		cursor: pointer;
-		font-size: 14px;
-		padding: 2px 6px;
+		width: 24px;
+		height: 24px;
+		--icon-size: 14px;
 	}
 
 	.sheet-body {
-		flex: 1;
-		overflow-y: auto;
-		padding: 20px;
+		padding: var(--space-4);
 		display: flex;
 		flex-direction: column;
-		gap: 24px;
+		gap: var(--space-5);
+		overflow-y: auto;
 	}
 
 	.section {
 		display: flex;
 		flex-direction: column;
-		gap: 12px;
+		gap: var(--space-3);
 	}
 
 	.section-header {
 		display: flex;
 		align-items: center;
-		justify-content: space-between;
+		gap: 6px;
 	}
 
 	.section-title {
-		font-size: 13px;
-		font-weight: 700;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-		color: var(--ink-faint);
-	}
-
-	.count-badge {
-		font-size: 11px;
+		font-size: var(--text-meta);
 		font-weight: 600;
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		padding: 2px 7px;
-		border-radius: var(--radius-full);
 		color: var(--ink-muted);
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		margin: 0;
 	}
 
 	.loading-state {
 		display: flex;
+		align-items: center;
 		justify-content: center;
-		padding: 24px;
+		gap: 8px;
+		padding: var(--space-5);
+		font-size: var(--text-caption);
+		color: var(--ink-muted);
 	}
 
-	.spinner {
-		width: 24px;
-		height: 24px;
-		border: 2px solid var(--line);
-		border-top-color: var(--ink);
-		border-radius: 50%;
-		animation: spin 0.8s linear infinite;
-	}
-
-	@keyframes spin {
-		to {
-			transform: rotate(360deg);
-		}
+	.error-box {
+		padding: var(--space-3);
+		background: var(--bg-sunken);
+		border-radius: var(--radius-md);
+		border: 1px solid var(--line);
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		align-items: flex-start;
 	}
 
 	.empty-hint {
-		font-size: 13px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
-		padding: 12px 0;
+		margin: 0;
+		padding: var(--space-2) 0;
 	}
 
 	.folder-list {
 		display: flex;
 		flex-direction: column;
-		gap: 6px;
+		border: 1px solid var(--line);
+		border-radius: var(--radius-lg);
+		background: var(--bg-sunken);
+		overflow: hidden;
 		max-height: 260px;
 		overflow-y: auto;
 	}
@@ -428,48 +471,49 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: 10px 12px;
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
+		padding: 8px 12px;
+		background: transparent;
+		border: none;
+		border-bottom: 1px solid var(--line);
+		color: var(--ink);
 		cursor: pointer;
+		font-family: inherit;
 		text-align: left;
-		transition: background var(--dur-base), border-color var(--dur-base);
-		gap: 8px;
+		transition: background-color var(--dur-fast) var(--ease-out);
+		gap: var(--space-2);
+	}
+
+	.folder-item:last-child {
+		border-bottom: none;
 	}
 
 	.folder-item:hover:not(:disabled) {
 		background: var(--bg-hover);
-		border-color: var(--line-strong, var(--ink-faint));
 	}
 
-	.folder-item.is-open {
+	.folder-item:disabled {
+		opacity: 0.6;
 		cursor: default;
-		opacity: 0.75;
-		border-color: var(--line);
-	}
-
-	.folder-item:disabled:not(.is-open) {
-		opacity: 0.5;
-		cursor: not-allowed;
 	}
 
 	.folder-info {
 		display: flex;
 		align-items: center;
 		gap: 8px;
-		overflow: hidden;
+		min-width: 0;
 	}
 
 	.folder-icon {
-		font-size: 16px;
+		color: var(--ink-muted);
+		--icon-size: 16px;
+		display: grid;
+		place-items: center;
 		flex-shrink: 0;
 	}
 
 	.folder-name {
-		font-size: 13px;
-		font-weight: 600;
-		color: var(--ink);
+		font-size: var(--text-caption);
+		font-weight: 500;
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -482,82 +526,57 @@
 		flex-shrink: 0;
 	}
 
-	.badge {
-		font-size: 11px;
-		font-weight: 600;
-		padding: 2px 6px;
-		border-radius: var(--radius-sm);
+	.git-chip {
+		height: 20px;
+		padding: 0 6px;
+		font-size: var(--text-meta);
+		--icon-size: 11px;
 	}
 
-	.git-badge {
+	.open-chip {
+		height: 20px;
+		padding: 0 6px;
+		font-size: var(--text-meta);
 		color: var(--ink-muted);
-		background: var(--bg-base);
-		border: 1px solid var(--line);
 	}
 
-	.open-badge {
-		color: var(--success);
-		background: color-mix(in srgb, var(--success) 14%, transparent);
-		border: 1px solid color-mix(in srgb, var(--success) 30%, transparent);
-	}
-
-	.loading-badge {
-		background: var(--bg-base);
-		color: var(--ink-faint);
+	.loading-chip {
+		height: 20px;
+		padding: 0 6px;
+		font-size: var(--text-meta);
 	}
 
 	.open-action {
-		font-size: 12px;
-		color: var(--brand);
-		font-weight: 600;
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		font-size: var(--text-meta);
+		color: var(--ink-muted);
+		--icon-size: 13px;
 	}
 
 	.create-section {
 		border-top: 1px solid var(--line);
-		padding-top: 20px;
+		padding-top: var(--space-4);
 	}
 
 	.create-form {
 		display: flex;
 		flex-direction: column;
-		gap: 16px;
+		gap: var(--space-3);
 	}
 
 	.field {
 		display: flex;
 		flex-direction: column;
-		gap: 6px;
+		gap: 4px;
 	}
 
 	.field label,
 	.field-label {
-		font-size: 12px;
-		font-weight: 600;
+		font-size: var(--text-meta);
+		font-weight: 500;
 		color: var(--ink-muted);
-	}
-
-	.field-hint {
-		font-size: 11px;
-		color: var(--ink-faint);
-	}
-
-	.field-hint.warning {
-		color: var(--brand);
-	}
-
-	.input-field {
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		padding: 10px 12px;
-		color: var(--ink);
-		font-size: 14px;
-		outline: none;
-		transition: border-color var(--dur-base);
-	}
-
-	.input-field:focus {
-		border-color: var(--ink-muted);
 	}
 
 	.radio-group {
@@ -567,33 +586,34 @@
 	}
 
 	.radio-option {
+		padding: 8px 10px;
+		border-radius: var(--radius-md);
+		border: 1px solid var(--line);
+		background: var(--bg-sunken);
+		cursor: pointer;
+	}
+
+	.choice-row {
 		display: flex;
 		align-items: center;
 		gap: 8px;
-		padding: 8px 10px;
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		cursor: pointer;
-		font-size: 13px;
+		font-size: var(--text-caption);
 		color: var(--ink);
-		transition: background var(--dur-base), border-color var(--dur-base);
-	}
-
-	.radio-option.active {
-		border-color: var(--ink-muted);
-		background: var(--bg-hover);
 	}
 
 	.radio-option.disabled {
-		opacity: 0.5;
+		opacity: 0.45;
 		cursor: not-allowed;
+	}
+
+	.field-hint.warning {
+		font-size: var(--text-meta);
+		color: var(--warn);
 	}
 
 	.submit-btn {
 		margin-top: 4px;
-		padding: 12px;
-		font-weight: 600;
-		font-size: 14px;
+		width: 100%;
+		height: 38px;
 	}
 </style>

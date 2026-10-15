@@ -1,3 +1,8 @@
+<!--
+  TaskDetailModal.svelte — Dettaglio, modifica, riordino e avvio di un task.
+  Presentazione dialog Studio / bottom sheet su telefoni: superficie bg-overlay,
+  ombra overlay, raggio xl, campi .ui-input e pulsanti .ui-button-*.
+-->
 <script lang="ts">
 	import type { RemoteTask, Feature, RemoteScheduleChoice, CommandError } from '../../../src/protocol.ts';
 	import { t } from '../i18n.ts';
@@ -8,6 +13,16 @@
 		calculateScheduleEpoch,
 		defaultScheduleTime
 	} from '../schedule.ts';
+	import {
+		IconClose,
+		IconArrowUp,
+		IconArrowDown,
+		IconPlay,
+		IconPencil,
+		IconSchedule,
+		IconTrash
+	} from '../icons.ts';
+	import StatusMark, { type StatusMarkType } from './StatusMark.svelte';
 
 	let {
 		task,
@@ -67,6 +82,17 @@
 	);
 
 	const scheduleText = $derived(formatScheduleLabel(task.schedule));
+
+	function toStatusMarkStatus(status: string): StatusMarkType {
+		switch (status) {
+			case 'running': return 'running';
+			case 'completed':
+			case 'done': return 'completed';
+			case 'failed':
+			case 'aborted': return 'failed';
+			default: return 'pending';
+		}
+	}
 
 	function startEditSchedule() {
 		if (task.schedule?.kind === 'reset') {
@@ -221,13 +247,13 @@
 </script>
 
 <div
-	class="modal-backdrop"
+	class="sheet-backdrop"
 	onclick={onClose}
 	onkeydown={(e) => { if (e.key === 'Escape') onClose(); }}
 	role="presentation"
 >
 	<div
-		class="modal-sheet"
+		class="sheet-surface rv-lift"
 		onclick={(e) => e.stopPropagation()}
 		onkeydown={(e) => e.stopPropagation()}
 		role="dialog"
@@ -235,136 +261,152 @@
 		tabindex="-1"
 		aria-labelledby="modal-title"
 	>
-		<div class="modal-header">
-			<div class="badge-row">
-				<span class="machine-badge">{hostName}</span>
-				{#if task.next}
-					<span class="marker-badge">{t('nextMarker')}</span>
-				{/if}
-				{#if task.resume}
-					<span class="marker-badge resume">{t('resumeMarker')}</span>
-				{/if}
-				{#if typeof taskIndex === 'number'}
-					<span class="position-badge">#{taskIndex + 1}</span>
-				{/if}
-			</div>
+		<div class="sheet-header">
+			<div class="header-main">
+				<div class="badge-row">
+					<StatusMark status={toStatusMarkStatus(task.status)} />
+					<span class="ui-chip">{hostName}</span>
+					{#if task.next}
+						<span class="next-tag">{t('nextMarker')}</span>
+					{/if}
+					{#if task.resume}
+						<span class="resume-tag">{t('resumeMarker')}</span>
+					{/if}
+				</div>
 
-			<div class="title-reorder-row">
-				<h3 id="modal-title" class="task-title">{task.title}</h3>
-				{#if canEdit}
-					<div class="reorder-btn-group">
-						<button
-							type="button"
-							class="icon-btn"
-							onclick={() => handleMove(-1)}
-							disabled={!canMoveUp || isBusy}
-							title={t('moveUp')}
-							aria-label={t('moveUp')}
-						>
-							↑
-						</button>
-						<button
-							type="button"
-							class="icon-btn"
-							onclick={() => handleMove(1)}
-							disabled={!canMoveDown || isBusy}
-							title={t('moveDown')}
-							aria-label={t('moveDown')}
-						>
-							↓
-						</button>
+				<div class="title-row">
+					<h3 id="modal-title" class="sheet-title">{task.title}</h3>
+
+					{#if canEdit}
+						<div class="reorder-btns">
+							<button
+								type="button"
+								class="ui-button ui-button-ghost icon-btn"
+								disabled={!canMoveUp || isBusy}
+								onclick={() => handleMove(-1)}
+								aria-label={t('moveUp')}
+								title={t('moveUp')}
+							>
+								<IconArrowUp />
+							</button>
+							<button
+								type="button"
+								class="ui-button ui-button-ghost icon-btn"
+								disabled={!canMoveDown || isBusy}
+								onclick={() => handleMove(1)}
+								aria-label={t('moveDown')}
+								title={t('moveDown')}
+							>
+								<IconArrowDown />
+							</button>
+						</div>
+					{/if}
+				</div>
+
+				{#if scheduleText}
+					<div class="schedule-display">
+						<IconSchedule />
+						<span>{scheduleText}</span>
 					</div>
 				{/if}
 			</div>
 
-			{#if scheduleText}
-				<div class="schedule-info">{scheduleText}</div>
-			{/if}
+			<button
+				type="button"
+				class="ui-button ui-button-ghost close-btn"
+				onclick={onClose}
+				aria-label={t('close')}
+			>
+				<IconClose />
+			</button>
 		</div>
 
-		<div class="modal-body">
+		<div class="sheet-body">
 			{#if errorMessage}
 				<div class="error-banner" role="alert">
 					{errorMessage}
 				</div>
 			{/if}
 
-			<!-- Prompt Section -->
+			<!-- Sezione Prompt -->
 			<div class="section-block">
-				<div class="section-header">
-					<label class="prompt-label" for="task-prompt-input">{t('fullPrompt')}</label>
+				<div class="section-head">
+					<span class="section-label">{t('fullPrompt')}</span>
 					{#if canEdit && !isEditingPrompt}
 						<button
 							type="button"
-							class="link-action-btn"
+							class="ui-button ui-button-ghost edit-link-btn"
 							onclick={() => {
 								editedPrompt = task.prompt;
 								isEditingPrompt = true;
 							}}
 							disabled={isBusy}
 						>
-							{t('editPrompt')}
+							<IconPencil />
+							<span>{t('editPrompt')}</span>
 						</button>
 					{/if}
 				</div>
 
 				{#if isEditingPrompt}
-					<textarea
-						id="task-prompt-input"
-						class="prompt-textarea"
-						rows="5"
-						bind:value={editedPrompt}
-						disabled={isBusy}
-					></textarea>
-					<div class="edit-actions-row">
-						<button
-							type="button"
-							class="btn btn-secondary btn-sm"
-							onclick={() => (isEditingPrompt = false)}
+					<div class="edit-prompt-area">
+						<textarea
+							class="ui-input prompt-textarea"
+							rows="6"
+							bind:value={editedPrompt}
 							disabled={isBusy}
-						>
-							{t('cancel')}
-						</button>
-						<button
-							type="button"
-							class="btn btn-primary btn-sm"
-							onclick={handleSavePrompt}
-							disabled={isBusy || editedPrompt.trim().length === 0}
-						>
-							{isBusy ? t('savingPrompt') : t('savePrompt')}
-						</button>
+						></textarea>
+						<div class="action-row-end">
+							<button
+								type="button"
+								class="ui-button ui-button-ghost"
+								disabled={isBusy}
+								onclick={() => (isEditingPrompt = false)}
+							>
+								{t('cancel')}
+							</button>
+							<button
+								type="button"
+								class="ui-button ui-button-primary"
+								disabled={isBusy || !editedPrompt.trim()}
+								onclick={handleSavePrompt}
+							>
+								{isBusy ? t('savingPrompt') : t('savePrompt')}
+							</button>
+						</div>
 					</div>
 				{:else}
-					<div id="task-prompt-display" class="prompt-box">
+					<div class="prompt-text-display">
 						{task.prompt}
 					</div>
 				{/if}
 			</div>
 
-			<!-- Schedule Section -->
+			<!-- Sezione Programmazione -->
 			{#if canEdit}
 				<div class="section-block">
-					<div class="section-header">
-						<span class="prompt-label">{t('scheduleLabel')}</span>
+					<div class="section-head">
+						<span class="section-label">{t('scheduleLabel')}</span>
 						{#if !isEditingSchedule}
 							<button
 								type="button"
-								class="link-action-btn"
+								class="ui-button ui-button-ghost edit-link-btn"
 								onclick={startEditSchedule}
 								disabled={isBusy}
 							>
-								{t('scheduleChange')}
+								<IconPencil />
+								<span>{t('scheduleChange')}</span>
 							</button>
 						{/if}
 					</div>
 
 					{#if isEditingSchedule}
-						<div class="schedule-editor-box">
-							<div class="schedule-options">
+						<div class="edit-schedule-area">
+							<div class="schedule-chips">
 								<button
 									type="button"
-									class="schedule-pill"
-									class:active={scheduleType === 'none'}
+									class="ui-chip"
+									aria-pressed={scheduleType === 'none'}
 									onclick={() => (scheduleType = 'none')}
 									disabled={isBusy}
 								>
@@ -372,8 +414,8 @@
 								</button>
 								<button
 									type="button"
-									class="schedule-pill"
-									class:active={scheduleType === 'reset'}
+									class="ui-chip"
+									aria-pressed={scheduleType === 'reset'}
 									onclick={() => (scheduleType = 'reset')}
 									disabled={isBusy}
 								>
@@ -381,8 +423,8 @@
 								</button>
 								<button
 									type="button"
-									class="schedule-pill"
-									class:active={scheduleType === 'at'}
+									class="ui-chip"
+									aria-pressed={scheduleType === 'at'}
 									onclick={() => (scheduleType = 'at')}
 									disabled={isBusy}
 								>
@@ -393,22 +435,22 @@
 							{#if scheduleType === 'at'}
 								<div class="time-picker-row">
 									<div class="time-input-wrap">
-										<label class="sub-label" for="edit-schedule-time">{t('scheduleTime')}</label>
+										<label class="sub-label" for="detail-time-input">{t('scheduleTime')}</label>
 										<input
-											id="edit-schedule-time"
+											id="detail-time-input"
 											type="time"
-											class="time-input"
+											class="ui-input"
 											bind:value={atTime}
 											disabled={isBusy}
 										/>
 									</div>
 									<div class="day-toggle-wrap">
 										<span class="sub-label">{t('scheduleLabel')}</span>
-										<div class="day-pills">
+										<div class="schedule-chips">
 											<button
 												type="button"
-												class="day-pill"
-												class:active={atDay === 'today'}
+												class="ui-chip"
+												aria-pressed={atDay === 'today'}
 												onclick={() => (atDay = 'today')}
 												disabled={isBusy}
 											>
@@ -416,8 +458,8 @@
 											</button>
 											<button
 												type="button"
-												class="day-pill"
-												class:active={atDay === 'tomorrow'}
+												class="ui-chip"
+												aria-pressed={atDay === 'tomorrow'}
 												onclick={() => (atDay = 'tomorrow')}
 												disabled={isBusy}
 											>
@@ -428,108 +470,103 @@
 								</div>
 							{/if}
 
-							<div class="edit-actions-row">
-								<button
-									type="button"
-									class="btn btn-secondary btn-sm"
-									onclick={() => (isEditingSchedule = false)}
-									disabled={isBusy}
-								>
-									{t('cancel')}
-								</button>
+							<div class="action-row-end">
 								{#if task.schedule}
 									<button
 										type="button"
-										class="btn btn-secondary btn-sm"
-										onclick={handleRemoveSchedule}
+										class="ui-button ui-button-ghost"
 										disabled={isBusy}
+										onclick={handleRemoveSchedule}
 									>
 										{t('scheduleRemove')}
 									</button>
 								{/if}
 								<button
 									type="button"
-									class="btn btn-primary btn-sm"
-									onclick={handleSaveSchedule}
+									class="ui-button ui-button-ghost"
 									disabled={isBusy}
+									onclick={() => (isEditingSchedule = false)}
 								>
-									{t('scheduleSave')}
+									{t('cancel')}
 								</button>
-							</div>
-						</div>
-					{:else}
-						<div class="schedule-status-row">
-							<span class="schedule-status-text">
-								{scheduleText || t('scheduleNone')}
-							</span>
-							{#if task.schedule}
 								<button
 									type="button"
-									class="btn-remove-schedule"
-									onclick={handleRemoveSchedule}
+									class="ui-button ui-button-primary"
 									disabled={isBusy}
+									onclick={handleSaveSchedule}
 								>
-									{t('scheduleRemove')}
+									{isBusy ? t('running') : t('scheduleSave')}
 								</button>
-							{/if}
+							</div>
 						</div>
 					{/if}
 				</div>
 			{/if}
 
 			{#if runBlockReason}
-				<div class="block-reason">
+				<div class="block-reason-banner">
 					{runBlockReason}
 				</div>
 			{/if}
 
-			<!-- Delete Section -->
+			<!-- Sezione Eliminazione -->
 			{#if canEdit}
 				<div class="delete-section">
-					{#if isConfirmingDelete}
-						<div class="delete-confirm-box">
-							<span class="delete-confirm-title">{t('deleteTaskConfirmTitle')}</span>
-							<span class="delete-confirm-desc">{t('deleteTaskConfirmDesc')}</span>
-							<div class="delete-confirm-actions">
+					{#if !isConfirmingDelete}
+						<button
+							type="button"
+							class="ui-button ui-button-ghost delete-btn"
+							disabled={isBusy}
+							onclick={() => (isConfirmingDelete = true)}
+						>
+							<IconTrash />
+							<span>{t('deleteTask')}</span>
+						</button>
+					{:else}
+						<div class="confirm-delete-box">
+							<p class="confirm-delete-desc">{t('deleteTaskConfirmDesc')}</p>
+							<div class="action-row-end">
 								<button
 									type="button"
-									class="btn btn-secondary btn-sm"
-									onclick={() => (isConfirmingDelete = false)}
+									class="ui-button ui-button-ghost"
 									disabled={isBusy}
+									onclick={() => (isConfirmingDelete = false)}
 								>
 									{t('cancel')}
 								</button>
 								<button
 									type="button"
-									class="btn btn-danger btn-sm"
-									onclick={handleDelete}
+									class="ui-button ui-button-danger"
 									disabled={isBusy}
+									onclick={handleDelete}
 								>
 									{isBusy ? t('deletingTask') : t('confirmDelete')}
 								</button>
 							</div>
 						</div>
-					{:else}
-						<button
-							type="button"
-							class="btn-delete-trigger"
-							onclick={() => (isConfirmingDelete = true)}
-							disabled={isBusy}
-						>
-							{t('deleteTask')}
-						</button>
 					{/if}
 				</div>
 			{/if}
 		</div>
 
-		<div class="modal-footer">
-			<button class="btn btn-secondary" onclick={onClose} disabled={isBusy}>
+		<div class="sheet-footer">
+			<button
+				type="button"
+				class="ui-button ui-button-secondary"
+				onclick={onClose}
+				disabled={isBusy}
+			>
 				{t('close')}
 			</button>
-			{#if canRun && task.status === 'queued'}
-				<button class="btn btn-primary" onclick={handleConfirmRun} disabled={isBusy}>
-					{isBusy ? t('running') : t('runOn', { machine: hostName })}
+			{#if canRun}
+				<button
+					type="button"
+					class="ui-button ui-button-primary"
+					disabled={isBusy}
+					onclick={handleConfirmRun}
+				>
+					<IconPlay />
+					<span>{t('runOn', { machine: hostName })}</span>
 				</button>
 			{/if}
 		</div>
@@ -537,37 +574,60 @@
 </div>
 
 <style>
-	.modal-backdrop {
+	.sheet-backdrop {
 		position: fixed;
 		inset: 0;
-		background: oklch(0 0 0 / 0.65);
-		backdrop-filter: blur(4px);
+		background: var(--backdrop);
+		backdrop-filter: blur(8px);
+		-webkit-backdrop-filter: blur(8px);
+		z-index: 200;
 		display: flex;
 		align-items: flex-end;
 		justify-content: center;
-		z-index: 200;
+		padding: 0;
 	}
 
-	.modal-sheet {
+	@media (min-width: 600px) {
+		.sheet-backdrop {
+			align-items: center;
+			padding: var(--space-4);
+		}
+	}
+
+	.sheet-surface {
 		width: 100%;
-		max-width: 520px;
-		max-height: 85vh;
-		background: var(--bg-base);
+		max-width: 560px;
+		background: var(--bg-overlay);
 		border: 1px solid var(--line-strong);
-		border-top-left-radius: var(--radius-lg);
-		border-top-right-radius: var(--radius-lg);
-		padding: 20px;
+		box-shadow: var(--shadow-overlay);
+		border-radius: var(--radius-xl) var(--radius-xl) 0 0;
 		display: flex;
 		flex-direction: column;
-		gap: 16px;
-		box-shadow: 0 -4px 24px oklch(0 0 0 / 0.5);
-		overflow-y: auto;
+		max-height: 90vh;
+		overflow: hidden;
 	}
 
-	.modal-header {
+	@media (min-width: 600px) {
+		.sheet-surface {
+			border-radius: var(--radius-xl);
+		}
+	}
+
+	.sheet-header {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		padding: var(--space-4) var(--space-4) var(--space-3) var(--space-4);
+		border-bottom: 1px solid var(--line);
+		gap: var(--space-2);
+	}
+
+	.header-main {
 		display: flex;
 		flex-direction: column;
 		gap: 6px;
+		min-width: 0;
+		flex: 1;
 	}
 
 	.badge-row {
@@ -576,103 +636,80 @@
 		gap: 6px;
 	}
 
-	.machine-badge {
-		font-size: 0.72rem;
-		padding: 2px 7px;
-		background: var(--bg-raised);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
+	.next-tag {
+		font-family: var(--font-mono);
+		font-size: var(--text-meta);
+		font-weight: 700;
+		color: var(--brand-ink);
+	}
+
+	.resume-tag {
+		font-family: var(--font-mono);
+		font-size: var(--text-meta);
 		color: var(--ink-muted);
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
 	}
 
-	.position-badge {
-		font-size: 0.72rem;
-		padding: 2px 6px;
-		background: var(--bg-sunken);
-		border-radius: var(--radius-sm);
-		color: var(--ink-muted);
-		font-weight: 600;
-	}
-
-	.marker-badge {
-		font-size: 0.72rem;
-		font-weight: 600;
-		padding: 2px 7px;
-		background: var(--brand);
-		color: var(--on-brand);
-		border-radius: var(--radius-sm);
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-	}
-
-	.marker-badge.resume {
-		background: var(--warn);
-		color: var(--on-brand);
-	}
-
-	.title-reorder-row {
+	.title-row {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		gap: 12px;
+		gap: var(--space-2);
 	}
 
-	.task-title {
-		margin: 0;
-		font-size: 1.05rem;
+	.sheet-title {
+		font-size: var(--text-label);
 		font-weight: 600;
 		color: var(--ink);
-		flex: 1;
+		margin: 0;
+		letter-spacing: -0.01em;
+		word-break: break-word;
 	}
 
-	.reorder-btn-group {
+	.reorder-btns {
 		display: flex;
-		gap: 4px;
+		align-items: center;
+		gap: 2px;
+		flex-shrink: 0;
 	}
 
 	.icon-btn {
-		width: 30px;
-		height: 30px;
-		display: flex;
+		width: 28px;
+		height: 28px;
+		padding: 0;
+		--icon-size: 14px;
+	}
+
+	.schedule-display {
+		display: inline-flex;
 		align-items: center;
-		justify-content: center;
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		color: var(--ink);
-		font-size: 0.95rem;
-		cursor: pointer;
-		transition: background 0.15s ease;
-	}
-
-	.icon-btn:hover:not(:disabled) {
-		background: var(--bg-raised);
-	}
-	.icon-btn:disabled {
-		opacity: 0.35;
-		cursor: not-allowed;
-	}
-
-	.schedule-info {
-		font-size: 0.8rem;
+		gap: 5px;
+		font-size: var(--text-meta);
 		color: var(--ink-muted);
+		--icon-size: 13px;
 	}
 
-	.modal-body {
+	.close-btn {
+		width: 32px;
+		height: 32px;
+		--icon-size: 16px;
+		flex-shrink: 0;
+	}
+
+	.sheet-body {
+		padding: var(--space-4);
 		display: flex;
 		flex-direction: column;
-		gap: 14px;
+		gap: var(--space-4);
+		overflow-y: auto;
 	}
 
 	.error-banner {
 		padding: 8px 12px;
-		background: var(--danger-bg);
-		border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
-		border-radius: var(--radius-sm);
+		background: color-mix(in oklab, var(--danger) 12%, transparent);
+		border: 1px solid color-mix(in oklab, var(--danger) 30%, transparent);
+		border-radius: var(--radius-md);
 		color: var(--danger);
-		font-size: 0.85rem;
+		font-size: var(--text-caption);
 	}
 
 	.section-block {
@@ -681,142 +718,94 @@
 		gap: 6px;
 	}
 
-	.section-header {
+	.section-head {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
 	}
 
-	.prompt-label {
-		font-size: 0.78rem;
-		font-weight: 500;
+	.section-label {
+		font-size: var(--text-meta);
+		font-weight: 600;
 		color: var(--ink-muted);
 		text-transform: uppercase;
 		letter-spacing: 0.04em;
 	}
 
-	.link-action-btn {
-		background: none;
-		border: none;
-		color: var(--brand);
-		font-size: 0.78rem;
-		font-weight: 500;
-		cursor: pointer;
-		padding: 2px 4px;
+	.edit-link-btn {
+		height: 24px;
+		padding: 0 6px;
+		font-size: var(--text-meta);
+		gap: 4px;
+		--icon-size: 11px;
 	}
 
-	.link-action-btn:hover:not(:disabled) {
-		text-decoration: underline;
-	}
-
-	.prompt-box {
-		padding: 12px;
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		font-size: 0.88rem;
-		line-height: 1.45;
-		color: var(--ink);
-		white-space: pre-wrap;
-		word-break: break-word;
-		max-height: 180px;
-		overflow-y: auto;
-	}
-
-	.prompt-textarea {
-		width: 100%;
+	.prompt-text-display {
 		padding: 10px 12px;
 		background: var(--bg-sunken);
 		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
+		font-size: var(--text-chat);
 		color: var(--ink);
-		font-family: inherit;
-		font-size: 0.88rem;
-		line-height: 1.4;
-		resize: vertical;
-		box-sizing: border-box;
+		line-height: 1.5;
+		white-space: pre-wrap;
+		word-break: break-word;
 	}
 
-	.prompt-textarea:focus {
-		outline: none;
-		border-color: var(--brand);
-	}
-
-	.edit-actions-row {
-		display: flex;
-		justify-content: flex-end;
-		gap: 8px;
-		margin-top: 6px;
-	}
-
-	.schedule-status-row {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: 8px 12px;
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-	}
-
-	.schedule-status-text {
-		font-size: 0.84rem;
-		color: var(--ink);
-	}
-
-	.btn-remove-schedule {
-		background: none;
-		border: none;
-		color: var(--danger);
-		font-size: 0.76rem;
-		cursor: pointer;
-		padding: 2px 4px;
-	}
-
-	.schedule-editor-box {
-		padding: 10px;
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
+	.edit-prompt-area {
 		display: flex;
 		flex-direction: column;
 		gap: 8px;
 	}
 
-	.schedule-options {
+	.prompt-textarea {
+		width: 100%;
+		min-height: 100px;
+		height: auto;
+		resize: vertical;
+		padding: 8px 10px;
+		line-height: 1.45;
+		font-size: var(--text-chat);
+		border-radius: var(--radius-md);
+	}
+
+	.action-row-end {
 		display: flex;
-		flex-wrap: wrap;
-		gap: 6px;
+		align-items: center;
+		justify-content: flex-end;
+		gap: var(--space-2);
 	}
 
-	.schedule-pill {
-		padding: 5px 10px;
-		font-size: 0.8rem;
-		background: var(--bg-base);
+	.edit-schedule-area {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		padding: var(--space-3);
+		background: var(--bg-sunken);
+		border-radius: var(--radius-md);
 		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		color: var(--ink-muted);
-		cursor: pointer;
 	}
 
-	.schedule-pill.active {
-		background: color-mix(in srgb, var(--brand) 14%, transparent);
-		border-color: var(--brand);
-		color: var(--ink);
-		font-weight: 500;
+	.schedule-chips {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		flex-wrap: wrap;
 	}
 
 	.time-picker-row {
 		display: flex;
-		align-items: center;
-		gap: 14px;
-		padding: 8px 10px;
-		background: var(--bg-base);
-		border-radius: var(--radius-sm);
-		border: 1px solid var(--line);
+		align-items: flex-start;
+		gap: var(--space-3);
+		margin-top: 4px;
 	}
 
-	.time-input-wrap,
+	.time-input-wrap {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+
 	.day-toggle-wrap {
 		display: flex;
 		flex-direction: column;
@@ -824,111 +813,54 @@
 	}
 
 	.sub-label {
-		font-size: 0.7rem;
-		color: var(--ink-muted);
+		font-size: var(--text-meta);
+		color: var(--ink-faint);
 	}
 
-	.time-input {
-		padding: 4px 8px;
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		color: var(--ink);
-		font-family: inherit;
-		font-size: 0.85rem;
-	}
-
-	.day-pills {
-		display: flex;
-		gap: 4px;
-	}
-
-	.day-pill {
-		padding: 4px 8px;
-		font-size: 0.78rem;
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		color: var(--ink-muted);
-		cursor: pointer;
-	}
-
-	.day-pill.active {
-		background: color-mix(in srgb, var(--brand) 14%, transparent);
-		border-color: var(--brand);
-		color: var(--ink);
-		font-weight: 500;
-	}
-
-	.block-reason {
+	.block-reason-banner {
 		padding: 8px 12px;
-		background: var(--warn-bg);
-		border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent);
-		border-radius: var(--radius-sm);
-		font-size: 0.8rem;
-		color: var(--warn);
+		background: var(--bg-sunken);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
+		color: var(--ink-muted);
+		font-size: var(--text-caption);
 	}
 
 	.delete-section {
 		border-top: 1px solid var(--line);
-		padding-top: 12px;
+		padding-top: var(--space-3);
+		margin-top: var(--space-2);
+	}
+
+	.delete-btn {
+		color: var(--danger);
+		gap: 6px;
+		--icon-size: 14px;
+	}
+
+	.confirm-delete-box {
 		display: flex;
 		flex-direction: column;
 		gap: 8px;
-	}
-
-	.btn-delete-trigger {
-		align-self: flex-start;
-		background: none;
-		border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
-		color: var(--danger);
-		border-radius: var(--radius-sm);
-		padding: 5px 10px;
-		font-size: 0.8rem;
-		cursor: pointer;
-		transition: background 0.15s ease;
-	}
-
-	.btn-delete-trigger:hover:not(:disabled) {
-		background: var(--danger-bg);
-	}
-
-	.delete-confirm-box {
 		padding: 10px 12px;
-		background: var(--danger-bg);
-		border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
-		border-radius: var(--radius-sm);
-		display: flex;
-		flex-direction: column;
-		gap: 8px;
+		background: color-mix(in oklab, var(--danger) 8%, transparent);
+		border: 1px solid color-mix(in oklab, var(--danger) 25%, transparent);
+		border-radius: var(--radius-md);
 	}
 
-	.delete-confirm-title {
-		font-size: 0.85rem;
-		font-weight: 600;
-		color: var(--danger);
+	.confirm-delete-desc {
+		margin: 0;
+		font-size: var(--text-caption);
+		color: var(--ink);
 	}
 
-	.delete-confirm-desc {
-		font-size: 0.78rem;
-		color: var(--ink-muted);
-	}
-	.delete-confirm-actions {
-		display: flex;
-		justify-content: flex-end;
-		gap: 8px;
-	}
-
-	.modal-footer {
+	.sheet-footer {
 		display: flex;
 		align-items: center;
 		justify-content: flex-end;
-		gap: 10px;
-		padding-top: 4px;
-	}
-	.btn-sm {
-		min-height: 32px;
-		padding: 4px 10px;
-		font-size: 12px;
+		gap: var(--space-2);
+		padding: var(--space-3) var(--space-4);
+		border-top: 1px solid var(--line);
+		background: var(--bg-base);
 	}
 </style>

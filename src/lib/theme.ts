@@ -301,6 +301,9 @@ let currentAnchors: ThemeAnchors = {
 	isLight: false
 };
 
+export function getCurrentAnchors(): ThemeAnchors {
+	return currentAnchors;
+}
 const listeners = new Set<() => void>();
 
 /** Il tema cambia raramente: chi dipinge su canvas si iscrive e ridipinge. */

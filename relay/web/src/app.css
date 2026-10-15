@@ -1,197 +1,1116 @@
-/* Tokens e stili globali di OMP Studio Remote (conformi a docs/DESIGN.md) */
+/* Token e grammatica visiva di OMP Studio (`src/app.css`), portati nella PWA.
+   La PWA e' compilata dal solo contesto `relay/` (Dockerfile), quindi non puo'
+   importare il file di Studio: questa copia ne segue i valori uno a uno e va
+   aggiornata insieme a lui. Restano fuori solo le parti del desktop (terminale,
+   Monaco, gutter git). Le ancore del tema le scrive `theme.ts` su :root,
+   come `applyAnchors` in Studio. */
+
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/jetbrains-mono";
 
 :root {
-	color-scheme: dark;
+  /* --- Ancore -------------------------------------------------------------
+     Due sole superfici sono scelte a mano: il pozzo (terminale, editor) e la
+     base dell'app. Tutto il resto e' derivato mescolando --ink nell'ancora.
+     La rampa di testo cambia con la luminanza del tema per tenere lo stesso
+     contrasto sia sui temi scuri sia su quelli chiari. */
+  --bg-sunken:   oklch(0.155 0 0);
+  --bg-base:     oklch(0.185 0 0);
 
-	/* Ancore dark mode */
-	--bg-sunken: oklch(0.155 0 0);
-	--bg-base: oklch(0.185 0 0);
-	--ink: oklch(0.970 0 0);
-	--ink-muted: oklch(0.760 0 0);
-	--ink-faint: oklch(0.655 0 0);
+  /* Testo: i valori chiari sono il default scuro; `applyAnchors` sostituisce
+     la rampa con una scura quando il tema scelto ha superfici chiare. */
+  --ink:         oklch(0.970 0 0);
+  --ink-muted:   oklch(0.760 0 0);
+  --ink-faint:   oklch(0.655 0 0);
 
-	--bg-raised: color-mix(in oklab, var(--bg-base) 95%, var(--ink));
-	--bg-overlay: color-mix(in oklab, var(--bg-base) 90%, var(--ink));
+  /* Superfici opache: elevazione = luminanza, mai ombra. */
+  --bg-raised:   color-mix(in oklab, var(--bg-base) 96%, var(--ink));
+  --bg-overlay:  color-mix(in oklab, var(--bg-base) 92%, var(--ink));
 
-	--bg-hover: color-mix(in srgb, var(--ink) 8%, transparent);
-	--bg-active: color-mix(in srgb, var(--ink) 14%, transparent);
-	--line: color-mix(in srgb, var(--ink) 12%, transparent);
-	--line-strong: color-mix(in srgb, var(--ink) 24%, transparent);
+  /* Stati e bordi: traslucidi, non opachi. La stessa riga deve funzionare
+     sopra --bg-base, --bg-sunken e --bg-overlay senza un valore per
+     superficie. */
+  --bg-hover:    color-mix(in srgb, var(--ink) 10%, transparent);
+  --bg-active:   color-mix(in srgb, var(--ink) 15%, transparent);
+  --line:        color-mix(in srgb, var(--ink) 11%, transparent);
+  --line-strong: color-mix(in srgb, var(--ink) 23%, transparent);
 
-	/* Colori semantici */
-	--brand: oklch(0.620 0.190 355);
-	--on-brand: var(--bg-sunken);
+  /* Accento — brand non è mai colore di testo.
+     Tinta e croma arrivano dal tema di omp (`lib/theme.ts`). La luminanza
+     cambia per il testo accentato e per le superfici quando il tema è chiaro. */
+  --brand-h:     355;
+  --brand-c:     0.190;
+  --brand:       oklch(0.620 var(--brand-c) var(--brand-h));
+  --brand-ink-l: 0.720;
+  --brand-ink:   oklch(var(--brand-ink-l) calc(var(--brand-c) * 0.895) var(--brand-h));
+  --brand-dim-l: 0.440;
+  --brand-dim:   oklch(var(--brand-dim-l) calc(var(--brand-c) * 0.737) var(--brand-h));
+  --on-brand:    var(--bg-sunken);
+  --on-project:  var(--bg-sunken);
 
-	--warn: oklch(0.780 0.150 75);
-	--warn-dim: oklch(0.560 0.120 75);
-	--warn-bg: color-mix(in srgb, var(--warn) 15%, transparent);
 
-	--danger: oklch(0.680 0.185 27);
-	--danger-dim: oklch(0.380 0.148 27);
-	--danger-bg: color-mix(in srgb, var(--danger) 15%, transparent);
+  /* Focus semantico */
+  --focus:       var(--brand);
+  --focus-ring:  0 0 0 2px var(--brand);
+  --focus-inset: inset 0 0 0 2px var(--brand);
+  /* Successo — parametrico come `--warn`, tinta verde fissa (145) */
+  --success-h:     145;
+  --success-c:     0.180;
+  --success-l:     0.740;
+  --success:       oklch(var(--success-l) var(--success-c) var(--success-h));
+  --success-dim-l: 0.520;
+  --success-dim:   oklch(var(--success-dim-l) calc(var(--success-c) * 0.800) var(--success-h));
+  --on-success:    var(--bg-sunken);
 
-	--success: oklch(0.740 0.180 145);
+  /* Attenzione */
+  --warn-h:      75;
+  --warn-c:      0.150;
+  --warn-l:      0.780;
+  --warn:        oklch(var(--warn-l) var(--warn-c) var(--warn-h));
+  --warn-dim-l:  0.560;
+  --warn-dim:    oklch(var(--warn-dim-l) calc(var(--warn-c) * 0.800) var(--warn-h));
+  --color-amber: var(--warn);
 
-	/* Tipografia */
-	--font-ui: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-	--font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  /* Errore — distinto da `--warn`: l'attenzione avverte, l'errore dice che
+     qualcosa non e' avvenuto. Tinta rossa fissa, indipendente dal tema di
+     omp: il brand puo' essere rosso o verde, un errore no. */
+  --danger-h:      27;
+  --danger-c:      0.185;
+  --danger-l:      0.680;
+  --danger:        oklch(var(--danger-l) var(--danger-c) var(--danger-h));
+  /* Il glifo --danger sul disco attenuato deve superare 3:1 anche in scuro. */
+  --danger-dim-l:  0.380;
+  --danger-dim:    oklch(var(--danger-dim-l) calc(var(--danger-c) * 0.800) var(--danger-h));
+  --on-danger:     var(--bg-sunken);
+  /* Identità progetto: tinta dall'hash del path. Due soli usi: la lettera
+     della tessera a riposo, il riempimento della tessera attiva. Un solo
+     progetto per volta e' colorato pieno, gli altri sono neutri. */
+  --proj-l-ink: 0.78;  --proj-c-ink: 0.115;
+  --proj-l-fill: 0.62; --proj-c-fill: 0.160;
 
-	/* Raggi */
-	--radius-sm: 4px;
-	--radius-md: 6px;
-	--radius-lg: 10px;
-	--radius-full: 9999px;
 
-	/* Transizioni */
-	--dur-fast: 120ms;
-	--dur-base: 180ms;
-	--ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  /* Tipografia */
+  --font-ui:   "Inter Variable", "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrainsMono Nerd Font", "JetBrains Mono NF", "JetBrainsMonoNerdFont", "CaskaydiaCove Nerd Font", "CaskaydiaMono Nerd Font", "CaskaydiaCove NF", "Cascadia Code NF", "CascadiaMono NF", "Symbols Nerd Font Mono", "Symbols Nerd Font", "FiraCode Nerd Font", "MesloLGS NF", "Hack Nerd Font", "JetBrains Mono Variable", "JetBrains Mono", "Cascadia Code", "Cascadia Mono", Consolas, monospace;
+  --text-xs: 11px; --text-sm: 12px; --text-base: 13px;
+  --text-md: 14px; --text-lg: 16px; --text-xl: 20px;
+
+  /* Due registri: questi nomi esprimono il ruolo, non una taglia generica. */
+  --text-prose: 15px; --text-chat: 15px; --text-trace: 12.5px; --text-meta: 11.5px;
+  --text-prose-h1: 20px; --text-prose-h2: 17px; --text-prose-h3: 15px;
+  --text-title: 16px; --text-body: 13px; --text-label: 12px;
+  --text-caption: 11px; --text-group-label: 11px; --text-mono: 12px;
+
+  /* Spazio */
+  --space-1: 4px; --space-2: 8px;  --space-3: 12px; --space-4: 16px;
+  --space-5: 24px; --space-6: 32px; --space-8: 48px;
+
+  /* Raggi: la costante resta 10px; il ruolo determina gli scarti. */
+  --radius:    10px;
+  --radius-sm: calc(var(--radius) - 6px);
+  --radius-md: calc(var(--radius) - 4px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 2px);
+  --radius-2xl: calc(var(--radius) + 6px);
+  --radius-full: 999px;
+
+  /* Tre ombre funzionali: aggancio, decisione sollevata, galleggiamento. */
+  --shadow-dock: 0 2px 10px -2px oklch(0 0 0 / 0.15);
+  --shadow-raise: 0 8px 30px -10px oklch(0 0 0 / 0.20);
+  --shadow-overlay: 0 8px 24px -8px oklch(0 0 0 / 0.7),
+                    0 2px  6px -2px oklch(0 0 0 / 0.5);
+  --backdrop: oklch(0 0 0 / 0.55);
+
+  /* Movimento */
+  --dur-instant: 0ms; --dur-fast: 120ms; --dur-base: 180ms;
+  --dur-slow: 240ms;  --dur-pulse: 1800ms;
+  --dur-menu: 150ms; --dur-row: 210ms; --dur-reveal: 700ms;
+  --dur-breathing: 1.9s;
+  /* Due durate lunghe, e solo per la barra progetti: il cambio di stato di un
+     agente non e' un hover, e a 120ms sarebbe uno scatto che l'occhio legge
+     come un errore di rendering invece che come un evento. */
+  --dur-calm: 480ms;  --dur-flash: 600ms;
+  --ease-out:      cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.30, 1);
+  --ease-in-out:   cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-breathing: cubic-bezier(0.4, 0, 0.2, 1);
+  /* Chat v2: curva unica della rivelazione e durata del vassoio. */
+  --ease-reveal: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --dur-tray: 420ms;
+
+  /* Z-index semantico */
+  --z-base: 0;     --z-splitter: 10; --z-sticky: 20; --z-topbar: 30;
+  --z-backdrop: 40; --z-overlay: 50; --z-dialog: 60; --z-toast: 70; --z-tooltip: 80;
 }
 
+/* Senza un tema ricevuto da una macchina la PWA segue il sistema, con la
+   rampa chiara che `applyAnchors` usa per i temi chiari di Studio. */
 @media (prefers-color-scheme: light) {
-	:root {
-		color-scheme: light;
-
-		--bg-sunken: #ffffff;
-		--bg-base: #f4f4f6;
-		--ink: oklch(0.240 0 0);
-		--ink-muted: oklch(0.400 0 0);
-		--ink-faint: oklch(0.460 0 0);
-
-		--bg-raised: color-mix(in oklab, var(--bg-base) 96%, var(--ink));
-		--bg-overlay: #ffffff;
-
-		--bg-hover: color-mix(in srgb, var(--ink) 6%, transparent);
-		--bg-active: color-mix(in srgb, var(--ink) 10%, transparent);
-		--line: color-mix(in srgb, var(--ink) 12%, transparent);
-		--line-strong: color-mix(in srgb, var(--ink) 25%, transparent);
-
-		--on-brand: #ffffff;
-		--warn: oklch(0.540 0.150 75);
-		--danger: oklch(0.520 0.185 27);
-		--success: oklch(0.460 0.180 145);
-	}
+  :root:not([data-theme]) {
+    color-scheme: light;
+    --bg-sunken: oklch(0.985 0 0);
+    --bg-base: oklch(0.965 0.002 260);
+    --ink: oklch(0.240 0 0);
+    --ink-muted: oklch(0.400 0 0);
+    --ink-faint: oklch(0.460 0 0);
+    --brand-ink-l: 0.400;
+    --brand-dim-l: 0.880;
+    --warn-l: 0.420;
+    --warn-dim-l: 0.880;
+    --success-c: 0.160;
+    --success-l: 0.420;
+    --success-dim-l: 0.880;
+    --danger-l: 0.420;
+    --danger-c: 0.150;
+    --danger-dim-l: 0.880;
+    --on-brand: var(--ink);
+    --on-project: var(--ink);
+    --proj-l-ink: 0.430;
+    --proj-l-fill: 0.600;
+  }
 }
 
+:root {
+  color-scheme: dark;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation: none !important;
+    transition-duration: 1ms !important;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes slide-fade-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 5px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+/* Unico movimento persistente dell'app: il respiro dello stato "al lavoro".
+   Duty-cycle con steps(): il compositor aggiorna 12 frame discreti per ciclo
+   invece di uno per vsync. Su GPU integrata la differenza e' misurabile. */
+@keyframes state-pulse {
+  0%, 38%   { opacity: 1;    animation-timing-function: steps(6); }
+  50%, 88%  { opacity: 0.35; animation-timing-function: steps(6); }
+  100%      { opacity: 1; }
+}
+
+/* Respiro dell'anello ambra nello stato 'attention' (attesa input utente / ask).
+   Curva sinusoidale organica (breathing easing). L'anello e' un box-shadow
+   statico sul pseudo-elemento e qui varia solo l'opacita': animare il
+   box-shadow costringeva a ridisegnare l'anello a ogni frame sulla CPU,
+   l'opacita' la compone la GPU. */
+@keyframes breathing-amber-ring {
+  0%, 100% {
+    opacity: 0.35;
+    animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  50% {
+    opacity: 1;
+    animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+}
+
+
+@keyframes shimmer-text {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* Eccezione deliberata alla convenzione CSS-scoped: usata in modo identico
+   sia nell'indicatore globale che nell'header dei tool group, duplicarla
+   garantirebbe divergenza stilistica. */
+.text-shimmer {
+  background: linear-gradient(90deg, var(--ink-muted) 35%, var(--ink) 50%, var(--ink-muted) 65%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer-text 1.4s linear infinite;
+}
+
+@supports not ((background-clip: text) or (-webkit-background-clip: text)) {
+  .text-shimmer {
+    color: var(--ink-muted);
+    -webkit-text-fill-color: currentColor;
+  }
+}
+
+/* Il testo non deve restare trasparente quando il gradiente e' fermo:
+   la soppressione globale del movimento conserva il colore naturale. */
+@media (prefers-reduced-motion: reduce) {
+  .text-shimmer {
+    animation: none !important;
+    color: var(--ink-muted);
+    -webkit-text-fill-color: currentColor;
+  }
+}
+
+:root[data-animations="false"] .text-shimmer {
+  animation: none !important;
+  color: var(--ink-muted);
+  -webkit-text-fill-color: currentColor;
+}
+
+/* ---- Chat v2 (Gate R32): rivelazione blur-fade, vassoio, ghost line ----
+   Solo keyframe "from": lo stato finale e' quello naturale dell'elemento, cosi'
+   con le animazioni azzerate (regole globali sopra) il contenuto e' subito leggibile.
+   --dur e --blur si regolano per elemento; i default sono quelli del prototipo. */
+@keyframes rv-blur-in {
+  from {
+    opacity: 0;
+    filter: blur(var(--blur, 10px));
+  }
+}
+
+@keyframes rv-lift-in {
+  from {
+    opacity: 0;
+    filter: blur(var(--blur, 10px));
+    transform: translate3d(0, 8px, 0);
+  }
+}
+
+.rv-blur {
+  animation: rv-blur-in var(--dur, var(--dur-reveal)) var(--ease-reveal) backwards;
+}
+
+.rv-lift {
+  animation: rv-lift-in var(--dur, var(--dur-reveal)) var(--ease-reveal) backwards;
+}
+
+/* Apertura/chiusura in altezza con grid-template-rows: il figlio diretto deve
+   avere min-height: 0 e overflow: hidden (classe .tray-fold-inner). */
+@keyframes tray-in {
+  from {
+    grid-template-rows: 0fr;
+    opacity: 0;
+    filter: blur(6px);
+  }
+}
+
+@keyframes tray-out {
+  to {
+    grid-template-rows: 0fr;
+    opacity: 0;
+    filter: blur(6px);
+  }
+}
+
+.tray-in {
+  display: grid;
+  grid-template-rows: 1fr;
+  animation: tray-in var(--dur-tray) var(--ease-reveal) backwards;
+}
+
+.tray-out {
+  display: grid;
+  grid-template-rows: 1fr;
+  animation: tray-out var(--dur-tray) var(--ease-reveal) forwards;
+}
+
+.tray-fold-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Segnaposto del testo in arrivo: riga sfocata che luccica. */
+.ghost-line {
+  height: 0.55rem;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklch, var(--ink-faint) 18%, transparent) 0%,
+    color-mix(in oklch, var(--ink-faint) 38%, transparent) 50%,
+    color-mix(in oklch, var(--ink-faint) 18%, transparent) 100%
+  );
+  background-size: 200% 100%;
+  filter: blur(2.5px);
+  animation: shimmer-text 1.6s linear infinite;
+  transition: width 0.45s var(--ease-reveal);
+}
+
+:root[data-animations="false"] .ghost-line {
+  animation: none !important;
+  filter: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ghost-line {
+    animation: none !important;
+    filter: none;
+  }
+}
+
+/* Badge condivisi fra l'editor del composer (DOM creato a mano, niente scope
+   Svelte) e i messaggi resi nel transcript: devono essere identici. */
+.chat-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 260px;
+  margin: 0 1px;
+  padding: 0 6px;
+  vertical-align: 1px;
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 0.84em;
+  line-height: 1.6;
+  white-space: nowrap;
+  user-select: all;
+}
+
+.chat-badge > .chat-badge-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chat-badge > svg,
+.chat-badge > .chat-badge-glyph {
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+  opacity: 0.7;
+}
+
+.chat-badge--file {
+  background: color-mix(in oklch, var(--brand) 12%, transparent);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--brand) 28%, transparent);
+}
+
+.chat-badge--cmd {
+  background: var(--ink);
+  color: var(--bg-base);
+}
+
+/* Badge del companion: progetto e ruolo sono identita', non esiti. Fondo
+   neutro, anello --line e un pallino nella tinta (progetto: --badge-h dalla
+   rampa di riempimento delle tessere; ruolo: rampa d'inchiostro come nel menu
+   dei ruoli). Senza tinta (modello) il pallino non c'e'. */
+.chat-badge--project,
+.chat-badge--role {
+  background: var(--bg-hover);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.chat-badge > .chat-badge-dot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-full);
+}
+
+.chat-badge--project > .chat-badge-dot {
+  background: oklch(var(--proj-l-fill) var(--proj-c-fill) var(--badge-h, 260));
+}
+
+.chat-badge--role > .chat-badge-dot {
+  background: oklch(var(--proj-l-ink) var(--proj-c-ink) var(--badge-h, 260));
+}
+
+.chat-badge--role > .chat-badge-dot.is-default {
+  background: var(--brand-ink);
+}
+
+/* Cerchio d'invio condiviso dagli editor di prompt (chat e companion):
+   --ink pieno con freccia --bg-base, disabilitato a 0,35. */
+.composer-send-btn {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: var(--ink);
+  color: var(--bg-base);
+  border: none;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  --icon-size: 16px;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+
+.composer-send-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* Parti della scheda domanda condivise fra AskCard (chat) e companion:
+   domanda in voce chat, dettaglio in etichetta, opzioni a 6 px con hover
+   neutro e bordo --brand riservato alla scelta, «Consigliata» in --success. */
+.ask-text {
+  margin: 0;
+  font-size: var(--text-chat);
+  font-weight: 500;
+  color: var(--ink);
+  line-height: 1.45;
+}
+
+.ask-detail {
+  margin: 0;
+  font-size: var(--text-label);
+  color: var(--ink-muted);
+  line-height: 1.4;
+}
+
+.ask-counter {
+  font-size: var(--text-meta);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-faint);
+}
+
+.ask-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ask-opt {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  width: 100%;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 9px 12px;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  user-select: none;
+  transition: border-color var(--dur-fast) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-out);
+}
+
+.ask-opt:hover,
+.ui-choice:hover {
+  background: color-mix(in oklab, var(--bg-hover) 60%, transparent);
+  border-color: var(--line-strong);
+}
+
+.ask-opt.focused,
+.ask-opt:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: -2px;
+}
+
+/* Scelta: stessa grammatica per le opzioni della domanda, per le card di scelta
+   delle impostazioni e per una riga scelta o in modifica (`.ui-selected`, su un
+   elemento che ha gia' un bordo da 1 px): bordo --brand, anello inset, fondo
+   accento al 7%. */
+.ask-opt.selected,
+.ui-choice:has(input[type='radio']:checked),
+.ui-selected {
+  border-color: var(--brand);
+  box-shadow: inset 0 0 0 1px var(--brand);
+  background: color-mix(in oklab, var(--brand) 7%, transparent);
+}
+
+.ask-opt-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.ask-opt-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  font-size: var(--text-label);
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.ask-rec {
+  background: color-mix(in oklab, var(--success) 14%, transparent);
+  color: var(--success);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--success) 25%, transparent);
+  border-radius: var(--radius-md);
+  padding: 0 6px;
+  font-size: var(--text-caption);
+  font-weight: 500;
+  line-height: 18px;
+}
+
+.ask-opt-desc {
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+  line-height: 1.45;
+  margin-top: 2px;
+}
+
+/* Tasto: piatto (Flat-By-Default Rule), lo stesso nella scheda domanda, nella
+   guida scorciatoie e nelle testate. Dove il tasto e' il contenuto il consumatore
+   alza solo il colore del testo. */
+.ui-kbd {
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+  color: var(--ink-faint);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 0 5px;
+  white-space: nowrap;
+}
 *, *::before, *::after {
-	box-sizing: border-box;
-	margin: 0;
-	padding: 0;
+  box-sizing: border-box;
 }
 
 html, body {
-	height: 100%;
-	background: var(--bg-sunken);
-	color: var(--ink);
-	font-family: var(--font-ui);
-	font-size: 14px;
-	line-height: 1.45;
-	-webkit-font-smoothing: antialiased;
-	-webkit-text-size-adjust: 100%;
-	user-select: none;
-	-webkit-user-select: none;
-	touch-action: manipulation;
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+  background-color: var(--bg-base);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
 input, textarea, button, select {
-	font: inherit;
-	color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
 }
 
-/* Touch targets >= 44px */
-button, input, select, .touch-target {
-	min-height: 44px;
+button {
+  cursor: pointer;
 }
 
-/* Scrollbars */
+/* iOS ingrandisce la pagina sui campi sotto i 16px: sui touch la taglia sale
+   solo nei controlli, il resto dell'interfaccia resta nella scala di Studio. */
+@media (pointer: coarse) {
+  input, textarea, select {
+    font-size: 16px !important;
+  }
+}
+
+/* Radio button personalizzati di Studio (non standard del browser):
+   cerchio rifinito a mano con anello reattivo e dot interno centrato
+   sintonizzato sulla tinta del tema attivo (--brand). */
+input[type='radio'] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
+  min-height: 16px;
+  margin: 0;
+  padding: 0;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 50%;
+  background-color: var(--bg-sunken);
+  display: inline-grid;
+  place-content: center;
+  position: relative;
+  cursor: pointer;
+  vertical-align: middle;
+  flex-shrink: 0;
+  outline: none;
+  transition: border-color var(--dur-fast) var(--ease-out),
+              background-color var(--dur-fast) var(--ease-out),
+              box-shadow var(--dur-fast) var(--ease-out);
+}
+
+input[type='radio']::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: var(--brand);
+  transform: scale(0);
+  opacity: 0;
+  transition: transform var(--dur-fast) var(--ease-out),
+              opacity var(--dur-fast) var(--ease-out);
+}
+
+input[type='radio']:hover:not(:disabled) {
+  border-color: var(--ink-muted);
+  background-color: var(--bg-hover);
+}
+
+input[type='radio']:checked {
+  border-color: var(--brand);
+  background-color: var(--bg-sunken);
+}
+
+input[type='radio']:checked::before {
+  transform: scale(1);
+  opacity: 1;
+}
+
+input[type='radio']:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+input[type='radio']:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Icone: un solo set (Lucide, via src/lib/icons.ts) e una sola misura.
+   La dimensione arriva da una custom property, cosi' un contenitore puo'
+   ingrandire tutte le icone che contiene con una riga (--icon-size: 16px)
+   invece di passare una prop a ogni chiamata. Lo spessore resta quello
+   nativo del set: a 14px vale 1.17px ottici, in linea con gli hairline. */
+svg.lucide {
+  width: var(--icon-size, 14px);
+  height: var(--icon-size, 14px);
+  flex: 0 0 auto;
+}
+
+/* Scrollbar restyling for webkit */
 ::-webkit-scrollbar {
-	width: 6px;
-	height: 6px;
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-	background: var(--line-strong);
-	border-radius: var(--radius-full);
+  /* Il pollice e' traslucido: la traccia resta trasparente e la barra
+     funziona sopra qualsiasi colonna senza un valore per superficie. */
+  background: var(--line-strong);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  border-radius: var(--radius-sm);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--ink-faint);
+  background-clip: padding-box;
 }
 
-/* Stili controlli riutilizzabili */
-.btn {
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	gap: 8px;
-	padding: 8px 16px;
-	border-radius: var(--radius-md);
-	font-weight: 550;
-	font-size: 13px;
-	border: 1px solid transparent;
-	background: transparent;
-	cursor: pointer;
-	transition: background var(--dur-fast), border-color var(--dur-fast), opacity var(--dur-fast);
-	touch-action: manipulation;
+/* Accessibilità: indicatore di focus da tastiera conforme WCAG AA */
+:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+  border-radius: inherit;
 }
 
-.btn:disabled {
-	opacity: 0.45;
-	cursor: not-allowed;
+/* Utility visivamente nascosta per screen reader (WCAG 2.1 compliant) */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
-.btn-primary {
-	background: var(--brand);
-	color: var(--on-brand);
-	border-color: var(--brand);
+/*
+   Opt-in per superficie ai colori semaforo della quota:
+   rimappa --quota-ok sul verde del tema (--success).
+   I livelli warn e danger usano direttamente i token normativi (--warn, --danger).
+*/
+.quota-semantic {
+	--quota-ok: var(--success);
 }
-.btn-primary:not(:disabled):hover {
-	opacity: 0.92;
-}
-
-.btn-secondary {
-	background: var(--bg-raised);
-	border-color: var(--line-strong);
-	color: var(--ink);
-}
-.btn-secondary:not(:disabled):hover {
-	background: var(--bg-hover);
-}
-
-.btn-ghost {
-	background: transparent;
-	color: var(--ink-muted);
-}
-.btn-ghost:not(:disabled):hover {
-	background: var(--bg-hover);
-	color: var(--ink);
-}
-
-.btn-danger {
-	background: var(--danger-bg);
-	border-color: color-mix(in srgb, var(--danger) 40%, transparent);
-	color: var(--danger);
-}
-.btn-danger:not(:disabled):hover {
-	background: color-mix(in srgb, var(--danger) 25%, transparent);
+/* Form opt-in: non alterano i controlli ospitati da Monaco, xterm o i canvas. */
+.ui-input,
+.ui-select {
+  box-sizing: border-box;
+  height: 30px;
+  min-width: 0;
+  padding: 0 var(--space-2);
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  font-weight: 450;
+  line-height: 1.45;
+  color: var(--ink);
+  background: var(--bg-sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  caret-color: var(--ink);
+  transition: border-color var(--dur-fast) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-out);
 }
 
-.input-field {
-	width: 100%;
-	padding: 10px 12px;
-	background: var(--bg-sunken);
-	border: 1px solid var(--line-strong);
-	border-radius: var(--radius-md);
-	color: var(--ink);
-	font-size: 14px;
-	outline: none;
-	transition: border-color var(--dur-fast);
-}
-.input-field:focus {
-	border-color: var(--brand);
+.ui-input::placeholder {
+  color: var(--ink-faint);
+  opacity: 1;
 }
 
-/* Safe areas */
+.ui-input:hover:not(:disabled),
+.ui-select:hover:not(:disabled) {
+  border-color: var(--line-strong);
+}
+
+.ui-input:focus-visible,
+.ui-select:focus-visible {
+  border-color: var(--brand);
+}
+
+.ui-input:disabled,
+.ui-select:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.ui-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: 5px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  font-family: var(--font-ui);
+  font-size: var(--text-caption);
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--ink);
+  background: transparent;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+
+.ui-button-secondary:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--line-strong);
+}
+
+/* Fantasma: azione secondaria accanto a una primaria piena (piede della scheda
+   domanda, schede di proposta). Nessun bordo, cosi' l'unico oggetto pieno resta
+   la primaria. */
+.ui-button-ghost {
+  border-color: transparent;
+  color: var(--ink-muted);
+}
+
+.ui-button-ghost:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--ink);
+}
+
+.ui-button-primary {
+  background: var(--brand);
+  border-color: transparent;
+  color: var(--on-brand);
+  font-weight: 600;
+}
+
+.ui-button-primary:hover:not(:disabled) {
+  border-color: var(--on-brand);
+}
+
+.ui-button-danger {
+  background: var(--danger);
+  border-color: transparent;
+  color: var(--on-danger);
+  font-weight: 600;
+}
+
+.ui-button-danger:hover:not(:disabled) {
+  border-color: var(--on-danger);
+}
+
+.ui-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Chip: pillola in didascalia per scelte rapide accanto a un campo (suggerimenti
+   del composer, configurazioni usate spesso, direttive del task). Lo stato scelto
+   e' neutro (Neutral-Active Rule): fondo --bg-active, testo --ink, la spunta la
+   porta il contenuto; mai un fondo brand. */
+.ui-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  max-width: 100%;
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-full);
+  background: var(--bg-raised);
+  color: var(--ink-muted);
+  font-family: var(--font-ui);
+  font-size: var(--text-caption);
+  font-weight: 500;
+  line-height: 1.4;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+
+.ui-chip:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+
+.ui-chip[aria-pressed='true'] {
+  background: var(--bg-active);
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+
+.ui-chip:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Contatore: pillola meta tabulare (conteggi di Segmented, voci della navigazione
+   delle impostazioni). Neutro eredita il colore del contenitore; `attention` e'
+   l'attesa in ambra con testo --ink, AA su ogni tema. */
+.ui-count {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: var(--radius-full);
+  background: var(--bg-hover);
+  color: inherit;
+  font-size: var(--text-meta);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.ui-count.attention {
+  background: color-mix(in oklab, var(--warn) 22%, transparent);
+  color: var(--ink);
+}
+
+/* Casella di selezione multipla (file da copiare, correzioni da applicare): resta
+   un checkbox nativo, quindi tastiera e `indeterminate` arrivano dal browser.
+   L'anello di fuoco e' quello globale. Il bordo a riposo e' --ink-faint: con
+   --line-strong la casella vuota scendeva a 2,1:1 (scuro) e 1,6:1 (Alabaster). */
+.ui-checkbox {
+  appearance: none;
+  flex-shrink: 0;
+  display: inline-grid;
+  place-content: center;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  border: 1px solid var(--ink-faint);
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
+}
+
+.ui-checkbox::before {
+  content: '';
+  width: 10px;
+  height: 10px;
+  background: var(--on-brand);
+  clip-path: polygon(14% 52%, 0 66%, 38% 100%, 100% 22%, 86% 8%, 38% 72%);
+  transform: scale(0);
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+.ui-checkbox:hover:not(:disabled) {
+  border-color: var(--ink-muted);
+}
+
+.ui-checkbox:checked,
+.ui-checkbox:indeterminate {
+  background: var(--brand);
+  border-color: var(--brand);
+}
+
+.ui-checkbox:checked::before {
+  transform: scale(1);
+}
+
+.ui-checkbox:indeterminate::before {
+  height: 2px;
+  clip-path: none;
+  border-radius: 1px;
+  transform: scale(1);
+}
+
+.ui-checkbox:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Capacita' di un modello (contesto, visione, thinking): chip neutra con icona.
+   Non e' identita' ne' esito: niente tinte, il significato lo porta l'icona. */
+.ui-cap {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg-base);
+  color: var(--ink-muted);
+  font-size: var(--text-caption);
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+  --icon-size: 11px;
+}
+
+.ui-cap small {
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.ui-cap.ctx {
+  color: var(--ink-faint);
+}
+
+/* Card di scelta con anteprima (impostazioni): una label che contiene il radio
+   globale. Lo stato scelto e l'hover li condivide con `.ask-opt`. */
+.ui-choice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  user-select: none;
+  transition: border-color var(--dur-fast) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-out);
+}
+
+/* Sagoma del composer: la condividono tutti gli editor di prompt a badge (chat e
+   Task Editor), cosi' scrivere un prompt ha ovunque la stessa superficie. */
+.composer-shell {
+  position: relative;
+  width: 100%;
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-2xl);
+  box-shadow: var(--shadow-dock);
+  transition: border-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
+}
+
+.composer-shell:focus-within {
+  border-color: var(--line-strong);
+}
+
+.composer-shell.dragging {
+  border-color: var(--brand-ink);
+  box-shadow: 0 0 0 2px color-mix(in oklch, var(--brand) 25%, transparent);
+}
+
+/* Ultimo figlio della sagoma: copre editor e barra senza z-index. */
+.composer-drop-overlay {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-2xl);
+  --icon-size: 16px;
+  background: color-mix(in oklch, var(--bg-raised) 90%, var(--brand) 10%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  font-size: var(--text-label);
+  font-weight: 500;
+  color: var(--brand-ink);
+  pointer-events: none;
+}
+
+.composer-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 8px 8px;
+}
+
+.composer-icon-btn {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-md);
+  background: transparent;
+  border: none;
+  color: var(--ink-muted);
+  cursor: pointer;
+  --icon-size: 15px;
+  transition: background-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+
+.composer-icon-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--ink);
+}
+
+.composer-icon-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* Interruttore iconico attivo (puntina del companion): stato neutro come il
+   Segmented, mai una tinta brand. */
+.composer-icon-btn[aria-pressed='true'] {
+  background: var(--bg-active);
+  color: var(--ink);
+}
+
+/* Bersagli tattili: stessa sagoma di Studio, altezza da dito sui touch. */
+@media (pointer: coarse) {
+  .ui-button,
+  .ui-input,
+  .ui-select {
+    height: auto;
+    min-height: 40px;
+  }
+  .composer-icon-btn {
+    width: 36px;
+    height: 36px;
+  }
+}
+
+/* Aree sicure dei telefoni con notch e barra home. */
 .safe-top {
-	padding-top: max(12px, env(safe-area-inset-top));
+  padding-top: env(safe-area-inset-top);
 }
 .safe-bottom {
-	padding-bottom: max(16px, env(safe-area-inset-bottom));
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 /* Evidenziazione elemento da notifica push */

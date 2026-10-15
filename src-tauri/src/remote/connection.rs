@@ -202,6 +202,7 @@ impl ConnectionContext {
             relay_version: None,
             relay_protocol: None,
             update_needed: None,
+            relay_features: Vec::new(),
         };
 
         Arc::new(Self {
@@ -396,6 +397,7 @@ async fn connection_loop(
                 st.connection = RemoteConnection::Disabled;
                 st.retry_at = None;
                 st.clients.clear();
+                st.relay_features.clear();
                 drop(st);
                 ctx.emit_status_update();
             }
@@ -411,6 +413,7 @@ async fn connection_loop(
                     st.paired = false;
                     st.retry_at = None;
                     st.clients.clear();
+                    st.relay_features.clear();
                     drop(st);
                     ctx.emit_status_update();
                 }
@@ -476,6 +479,7 @@ async fn connection_loop(
                         st.last_error = Some(reason);
                         st.retry_at = None;
                         st.clients.clear();
+                        st.relay_features.clear();
                         drop(st);
                         ctx.emit_status_update();
                     }
@@ -489,6 +493,7 @@ async fn connection_loop(
                         st.last_error = Some(reason);
                         st.retry_at = None;
                         st.clients.clear();
+                        st.relay_features.clear();
                         drop(st);
                         ctx.emit_status_update();
                     }
@@ -511,6 +516,7 @@ async fn connection_loop(
                             Some("Sessione sostituita da un'altra connessione".to_string());
                         st.retry_at = Some(retry_at);
                         st.clients.clear();
+                        st.relay_features.clear();
                         drop(st);
                         ctx.emit_status_update();
                     }
@@ -537,6 +543,7 @@ async fn connection_loop(
                         st.last_error = Some(err_msg);
                         st.retry_at = Some(retry_at);
                         st.clients.clear();
+                        st.relay_features.clear();
                         drop(st);
                         ctx.emit_status_update();
                     }
@@ -699,10 +706,10 @@ pub(crate) async fn run_single_session(
             Ok(RelayToHostFrame::Welcome {
                 protocol: _,
                 relay,
-                features: _,
+                features,
                 heartbeat_ms: _,
                 clients,
-            }) => (relay, clients),
+            }) => (relay, clients, features),
             Ok(other) => {
                 return Err(CloseOutcome::Backoff(format!(
                     "Frame iniziale inatteso: {:?}",
@@ -742,6 +749,7 @@ pub(crate) async fn run_single_session(
             min: welcome_frame.0.protocol.min,
             max: welcome_frame.0.protocol.max,
         });
+        st.relay_features = welcome_frame.2;
         st.update_needed = None;
         st.last_error = None;
         st.retry_at = None;
@@ -860,7 +868,7 @@ pub(crate) async fn run_single_session(
                                             ctx.emit_chat_watch_event(lanes);
                                         }
                                     }
-                                    Ok(RelayToHostFrame::Welcome { relay, clients, .. }) => {
+                                    Ok(RelayToHostFrame::Welcome { relay, clients, features, .. }) => {
                                         if ctx.is_session_current(session_id) {
                                             let mut st = ctx.status.lock();
                                             st.clients = clients;
@@ -869,6 +877,7 @@ pub(crate) async fn run_single_session(
                                                 min: relay.protocol.min,
                                                 max: relay.protocol.max,
                                             });
+                                            st.relay_features = features;
                                             drop(st);
                                             ctx.emit_status_update();
                                         }

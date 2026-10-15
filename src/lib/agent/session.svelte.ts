@@ -24,6 +24,8 @@ import {
 	type TurnHeadsUp
 } from './turnHeadsUp';
 import type { RemoteChatEvent } from '$remote-protocol';
+import { entryToRemoteMessage, remoteMessageId } from '$lib/remote/chatProjection';
+import { remoteStore } from '$lib/remote/remoteStore.svelte';
 
 let firstComposerReadyMarked = false;
 // Stato della superficie GUI: un'istanza per progetto.
@@ -2404,16 +2406,13 @@ export class AgentSession {
 						messageTs: message.timestamp,
 						loopGiro
 					});
-					this.emitRemoteChat({
-						kind: 'message',
-						message: {
-							id: String(createdUser.id),
-							role: 'user',
-							text: content,
-							toolName: null,
-							timestamp: message.timestamp ?? Date.now()
-						}
-					});
+					const userMsg = entryToRemoteMessage(createdUser);
+					if (userMsg) {
+						this.emitRemoteChat({
+							kind: 'message',
+							message: userMsg
+						});
+					}
 				} else if (message.role === 'assistant') {
 					if (!this.isStreaming || this.isAborting) return;
 					// `push` restituisce l'istanza dentro l'array reattivo: tenere
@@ -2458,16 +2457,13 @@ export class AgentSession {
 						this.assistantEntry.stopReason = message.stopReason;
 					}
 					const text = assistantEntryText(this.assistantEntry);
-					this.emitRemoteChat({
-						kind: 'message',
-						message: {
-							id: String(this.assistantEntry.id),
-							role: 'assistant',
-							text,
-							toolName: null,
-							timestamp: message.timestamp ?? Date.now()
-						}
-					});
+					const assistantMsg = entryToRemoteMessage(this.assistantEntry);
+					if (assistantMsg) {
+						this.emitRemoteChat({
+							kind: 'message',
+							message: assistantMsg
+						});
+					}
 					this.assistantEntry = null;
 				}
 				this.activeAssistantId = null;
@@ -2495,16 +2491,13 @@ export class AgentSession {
 				// Stessa ragione dell'entry assistant: nella mappa va l'istanza
 				// reattiva, non quella grezza appena costruita.
 				this.toolEntries.set(event.toolCallId, this.push(entry) as ToolEntry);
-				this.emitRemoteChat({
-					kind: 'message',
-					message: {
-						id: event.toolCallId,
-						role: 'tool',
-						text: event.intent?.trim() || event.toolName,
-						toolName: event.toolName,
-						timestamp: entry.startedAt
-					}
-				});
+				const startToolMsg = entryToRemoteMessage(entry);
+				if (startToolMsg) {
+					this.emitRemoteChat({
+						kind: 'message',
+						message: startToolMsg
+					});
+				}
 				// Riga di attivita' per la companion: l'intento dichiarato dice
 				// cosa sta facendo l'agente, il nome del tool e' il ripiego.
 				this.activityLine = {
@@ -2529,16 +2522,13 @@ export class AgentSession {
 					if (event.result && (!entry.result || !entry.result.isError)) entry.result = event.result;
 					entry.running = false;
 					entry.endedAt = Date.now();
-					this.emitRemoteChat({
-						kind: 'message',
-						message: {
-							id: entry.toolCallId,
-							role: 'tool',
-							text: entry.intent?.trim() || entry.toolName,
-							toolName: entry.toolName,
-							timestamp: entry.startedAt
-						}
-					});
+					const endToolMsg = entryToRemoteMessage(entry);
+					if (endToolMsg) {
+						this.emitRemoteChat({
+							kind: 'message',
+							message: endToolMsg
+						});
+					}
 				}
 				if (
 					entry &&
@@ -3617,12 +3607,17 @@ export class AgentSession {
 		} else {
 			this.setBlock(index, { type: kind, text: delta });
 		}
-		if (kind === 'text' && this.remoteChatListeners.size > 0) {
-			this.emitRemoteChat({
-				kind: 'delta',
-				messageId: String(entry.id),
-				text: delta
-			});
+		if (this.remoteChatListeners.size > 0) {
+			const isRich = remoteStore.status.relayFeatures?.includes('chat_rich');
+			if (kind === 'text' || (kind === 'thinking' && isRich)) {
+				this.emitRemoteChat({
+					kind: 'delta',
+					messageId: remoteMessageId(entry),
+					text: delta,
+					block: kind as 'text' | 'thinking',
+					index
+				});
+			}
 		}
 	}
 	private ensureAssistant(): AssistantEntry {
@@ -4436,18 +4431,16 @@ export class AgentSession {
 				id: entryId,
 				kind: 'user',
 				content: fullMessage,
-				images: images.map((image) => ({ data: image.data, mimeType: image.mimeType }))
+				images: images.map((image) => ({ data: image.data, mimeType: image.mimeType })),
+				messageTs: Date.now()
 			}) as UserEntry;
-			this.emitRemoteChat({
-				kind: 'message',
-				message: {
-					id: String(entryId),
-					role: 'user',
-					text: fullMessage,
-					toolName: null,
-					timestamp: Date.now()
-				}
-			});
+			const optimisticUserMsg = entryToRemoteMessage(this.optimisticUser);
+			if (optimisticUserMsg) {
+				this.emitRemoteChat({
+					kind: 'message',
+					message: optimisticUserMsg
+				});
+			}
 		}
 		// Un prompt a sessione ferma avvia un run, ma omp risponde gia'
 		// all'ammissione, prima di `agent_start`: fino ad allora la sessione

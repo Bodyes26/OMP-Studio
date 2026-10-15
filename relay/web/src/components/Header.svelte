@@ -1,11 +1,26 @@
+<!--
+  Header.svelte — Barra superiore della PWA allineata alla TopBar di Studio.
+  BrandMark geometrico, titolo dell'app, chip remoto e pulsante impostazioni.
+-->
 <script lang="ts">
 	import { t } from '../i18n.ts';
 	import { connection } from '../connection.svelte.ts';
+	import { IconSettings, IconRemote } from '../icons.ts';
+	import BrandMark from './BrandMark.svelte';
 
 	let { onOpenSettings } = $props<{ onOpenSettings: () => void }>();
 
+	const onlineCount = $derived(
+		connection.hosts.filter((h) => h.online).length
+	);
+
 	const statusLabel = $derived.by(() => {
-		if (connection.status === 'connected') return t('online');
+		if (connection.status === 'connected') {
+			if (onlineCount > 0) {
+				return onlineCount === 1 ? t('machinesCountOne') : t('machinesCount', { count: onlineCount });
+			}
+			return t('online');
+		}
 		if (connection.status === 'connecting') return '...';
 		return t('offline');
 	});
@@ -13,24 +28,32 @@
 
 <header class="header safe-top">
 	<div class="brand">
-		<div class="logo-mark">π</div>
-		<div class="title-group">
-			<h1 class="app-title">{t('appTitle')}</h1>
-			<div class="status-indicator">
-				<span class="status-dot" class:online={connection.status === 'connected'} class:connecting={connection.status === 'connecting'}></span>
-				<span class="status-text">{statusLabel}</span>
-			</div>
-		</div>
+		<BrandMark class="brand-logo" />
+		<span class="app-title">{t('shortTitle')}</span>
 	</div>
 
-	{#if connection.status !== 'unpaired' && connection.status !== 'checking'}
-		<button class="settings-btn" onclick={onOpenSettings} aria-label={t('settings')}>
-			<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-				<circle cx="12" cy="12" r="3"></circle>
-				<path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
-			</svg>
-		</button>
-	{/if}
+	<div class="actions">
+		<div
+			class="remote-chip"
+			class:connected={connection.status === 'connected'}
+			class:connecting={connection.status === 'connecting'}
+			title={statusLabel}
+		>
+			<IconRemote />
+			<span class="chip-label">{statusLabel}</span>
+		</div>
+
+		{#if connection.status !== 'unpaired' && connection.status !== 'checking'}
+			<button
+				type="button"
+				class="settings-btn"
+				onclick={onOpenSettings}
+				aria-label={t('settings')}
+			>
+				<IconSettings />
+			</button>
+		{/if}
+	</div>
 </header>
 
 <style>
@@ -38,8 +61,9 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: 12px 16px;
-		background: var(--bg-base);
+		height: 44px;
+		padding: 0 var(--space-4);
+		background: var(--bg-sunken);
 		border-bottom: 1px solid var(--line);
 		position: sticky;
 		top: 0;
@@ -49,69 +73,82 @@
 	.brand {
 		display: flex;
 		align-items: center;
-		gap: 12px;
+		gap: 8px;
+		color: var(--ink);
 	}
 
-	.logo-mark {
-		width: 32px;
-		height: 32px;
-		border-radius: var(--radius-md);
-		background: var(--bg-sunken);
-		border: 1px solid var(--line-strong);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		font-weight: 700;
-		font-size: 16px;
-		color: var(--brand);
-	}
-
-	.title-group {
-		display: flex;
-		flex-direction: column;
+	:global(.brand-logo) {
+		width: 20px;
+		height: 17px;
+		color: var(--ink);
 	}
 
 	.app-title {
-		font-size: 15px;
-		font-weight: 650;
+		font-size: var(--text-label);
+		font-weight: 600;
+		letter-spacing: -0.01em;
 		color: var(--ink);
-		line-height: 1.2;
 	}
 
-	.status-indicator {
+	.actions {
 		display: flex;
 		align-items: center;
-		gap: 6px;
-		font-size: 11px;
-		color: var(--ink-faint);
+		gap: var(--space-2);
 	}
 
-	.status-dot {
-		width: 7px;
-		height: 7px;
-		border-radius: var(--radius-full);
-		background: var(--ink-faint);
+	.remote-chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		height: 28px;
+		padding: 0 10px;
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
+		background: transparent;
+		color: var(--ink-muted);
+		font-size: var(--text-caption);
+		--icon-size: 13px;
 	}
-	.status-dot.online {
-		background: var(--success);
+
+	.remote-chip.connected {
+		color: var(--ink);
 	}
-	.status-dot.connecting {
-		background: var(--warn);
+
+	.remote-chip.connecting {
+		color: var(--warn);
+		border-color: color-mix(in oklab, var(--warn) 30%, var(--line));
+	}
+
+	.chip-label {
+		font-variant-numeric: tabular-nums;
 	}
 
 	.settings-btn {
-		width: 44px;
-		height: 44px;
+		display: inline-grid;
+		place-items: center;
+		width: 32px;
+		height: 32px;
 		border-radius: var(--radius-md);
-		border: 1px solid var(--line);
-		background: var(--bg-raised);
-		color: var(--ink);
-		display: flex;
-		align-items: center;
-		justify-content: center;
+		border: 1px solid transparent;
+		background: transparent;
+		color: var(--ink-muted);
 		cursor: pointer;
+		--icon-size: 16px;
+		transition: background-color var(--dur-fast) var(--ease-out),
+		            color var(--dur-fast) var(--ease-out),
+		            border-color var(--dur-fast) var(--ease-out);
 	}
+
 	.settings-btn:hover {
 		background: var(--bg-hover);
+		color: var(--ink);
+		border-color: var(--line);
+	}
+
+	@media (pointer: coarse) {
+		.settings-btn {
+			width: 40px;
+			height: 40px;
+		}
 	}
 </style>

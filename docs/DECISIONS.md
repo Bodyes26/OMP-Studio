@@ -1869,3 +1869,11 @@ Vincoli. Le macchine con Studio non accettano connessioni in ingresso, e su un P
 - Rete aziendale: un proxy può bloccare i WebSocket o ispezionare il TLS (Studio si fida dei certificati di sistema), e `tokio-tungstenite` non attraversa un proxy esplicito. La fase R0 lo misura prima di costruire.
 - Il relay è esposto a Internet: la superficie prima dell'autenticazione (abbinamento, file statici, diagnosi) resta minima e limitata nei tentativi; tenerlo aggiornato è compito di chi lo ospita.
 - Chat e codice dei progetti transitano dal server di chi ospita il relay.
+
+### Aggiunta (2026-10-15): la PWA parla la lingua visiva di Studio
+
+La prima PWA aveva una grafica propria (card dentro card, emoji, font di sistema). Ora segue `DESIGN.md` come il desktop.
+
+1. **Porting, non import.** L'immagine del relay si costruisce dal solo contesto `relay/`, e i componenti della chat di Studio dipendono da `AgentSession`, Paraglide, Tauri e Monaco. La PWA ne porta struttura e CSS in componenti propri (`relay/web/src/components/chat/`); i token stanno in `relay/web/src/app.css`, copia di `src/app.css` da tenere allineata, e le icone in `relay/web/src/icons.ts` con gli stessi nomi di Studio.
+2. **Il tema arriva dalla macchina.** `HostState.theme` porta le ancore di `src/lib/theme.ts`; la PWA ne deriva gli stessi token (`relay/web/src/theme.ts`) e li conserva per il primo paint. Senza macchine abbinate segue il tema del sistema.
+3. **Chat ricca, additiva.** `RemoteChatMessage` acquista campi facoltativi (blocchi di ragionamento, sintesi dei tool con diff, output e todo, modello, immagini): un host vecchio manda solo `text` e la PWA lo disegna come prima. I delta di ragionamento passano solo se il relay dichiara la funzione `chat_rich`, perché la PWA servita da un relay vecchio li accoderebbe alla risposta.

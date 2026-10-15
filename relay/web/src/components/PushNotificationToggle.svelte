@@ -1,6 +1,13 @@
+<!--
+  PushNotificationToggle.svelte — Controllo sottoscrizione notifiche push.
+  Linguaggio Studio: chip di stato semantico (.ui-chip),
+  testo in --ink-muted, pulsante azione .ui-button-*.
+-->
 <script lang="ts">
 	import { t } from '../i18n.ts';
 	import { connection } from '../connection.svelte.ts';
+	import { IconBell, IconBellOff, IconRefresh } from '../icons.ts';
+	import StatusMark from './StatusMark.svelte';
 
 	type PushState = 'checking' | 'active' | 'inactive' | 'denied' | 'unsupported' | 'unregistered';
 
@@ -24,7 +31,7 @@
 		'Notification' in window;
 
 	$effect(() => {
-		checkPushStatus();
+		void checkPushStatus();
 	});
 
 	async function checkPushStatus(): Promise<void> {
@@ -45,7 +52,6 @@
 				pushState = 'inactive';
 				return;
 			}
-			// Riconcilia la sottoscrizione esistente del browser con il relay (re-POST)
 			try {
 				await connection.savePushSubscription(sub, navigator.userAgent);
 				pushState = 'active';
@@ -135,20 +141,29 @@
 		<div class="push-title-row">
 			<span class="push-title">{t('notificationsTitle')}</span>
 			{#if pushState === 'active'}
-				<span class="status-badge badge-active">{t('notificationsActive')}</span>
+				<span class="ui-chip status-active">
+					<StatusMark status="completed" />
+					<span>{t('notificationsActive')}</span>
+				</span>
 			{:else if pushState === 'unregistered'}
-				<span class="status-badge badge-unregistered">{t('notificationsUnregistered')}</span>
+				<span class="ui-chip status-warn">
+					<StatusMark status="attention" />
+					<span>{t('notificationsUnregistered')}</span>
+				</span>
 			{:else if pushState === 'denied'}
-				<span class="status-badge badge-denied">{t('notificationsDenied')}</span>
+				<span class="ui-chip status-denied">
+					<StatusMark status="failed" />
+					<span>{t('notificationsDenied')}</span>
+				</span>
 			{:else if pushState === 'unsupported'}
-				<span class="status-badge badge-unsupported">{t('notificationsUnsupported')}</span>
+				<span class="ui-chip status-unsupported">{t('notificationsUnsupported')}</span>
 			{/if}
 		</div>
 		<p class="push-desc">{t('notificationsDesc')}</p>
 	</div>
 
 	{#if errorMessage}
-		<div class="push-error">{errorMessage}</div>
+		<div class="push-error" role="alert">{errorMessage}</div>
 	{/if}
 
 	{#if isIos && !isStandalone && pushState === 'unsupported'}
@@ -157,27 +172,33 @@
 		</div>
 	{:else if pushState === 'active'}
 		<button
-			class="btn btn-secondary btn-sm push-action-btn"
+			type="button"
+			class="ui-button ui-button-secondary push-action-btn"
 			onclick={handleDisablePush}
 			disabled={loading}
 		>
-			{loading ? t('notificationsEnabling') : t('disableNotifications')}
+			<IconBellOff />
+			<span>{loading ? t('notificationsEnabling') : t('disableNotifications')}</span>
 		</button>
 	{:else if pushState === 'unregistered'}
 		<button
-			class="btn btn-primary btn-sm push-action-btn"
+			type="button"
+			class="ui-button ui-button-primary push-action-btn"
 			onclick={handleEnablePush}
 			disabled={loading}
 		>
-			{loading ? t('notificationsEnabling') : t('retrySync')}
+			<IconRefresh />
+			<span>{loading ? t('notificationsEnabling') : t('retrySync')}</span>
 		</button>
 	{:else if pushState === 'inactive'}
 		<button
-			class="btn btn-primary btn-sm push-action-btn"
+			type="button"
+			class="ui-button ui-button-primary push-action-btn"
 			onclick={handleEnablePush}
 			disabled={loading}
 		>
-			{loading ? t('notificationsEnabling') : t('enableNotifications')}
+			<IconBell />
+			<span>{loading ? t('notificationsEnabling') : t('enableNotifications')}</span>
 		</button>
 	{/if}
 </div>
@@ -186,73 +207,56 @@
 	.push-section {
 		display: flex;
 		flex-direction: column;
-		gap: 0.75rem;
-		padding: 0.875rem 1rem;
+		gap: var(--space-3);
+		padding: var(--space-3);
 		background: var(--bg-sunken);
-		border-radius: 0.625rem;
+		border-radius: var(--radius-lg);
 		border: 1px solid var(--line);
 	}
 
 	.push-header {
 		display: flex;
 		flex-direction: column;
-		gap: 0.25rem;
+		gap: 4px;
 	}
 
 	.push-title-row {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
+		gap: var(--space-2);
 	}
 
 	.push-title {
-		font-size: 0.9375rem;
+		font-size: var(--text-label);
 		font-weight: 600;
 		color: var(--ink);
 	}
 
 	.push-desc {
-		font-size: 0.8125rem;
-		color: var(--ink-faint);
-		line-height: 1.35;
+		font-size: var(--text-caption);
+		color: var(--ink-muted);
+		line-height: 1.45;
 		margin: 0;
 	}
 
-	.status-badge {
-		font-size: 0.75rem;
-		font-weight: 500;
-		padding: 0.125rem 0.5rem;
-		border-radius: 9999px;
-	}
-
-	.badge-active {
-		background: color-mix(in srgb, var(--success) 15%, transparent);
-		color: var(--success);
-	}
-
-	.badge-unregistered {
-		background: var(--warn-bg);
-		color: var(--warn);
-	}
-
-	.badge-denied {
-		background: var(--danger-bg);
+	.push-error {
+		padding: 6px 10px;
+		background: color-mix(in oklab, var(--danger) 10%, transparent);
+		border: 1px solid color-mix(in oklab, var(--danger) 25%, transparent);
+		border-radius: var(--radius-md);
 		color: var(--danger);
-	}
-
-	.badge-unsupported {
-		background: var(--bg-hover);
-		color: var(--ink-faint);
+		font-size: var(--text-caption);
 	}
 
 	.ios-hint {
-		padding: 0.625rem 0.75rem;
+		padding: 8px 10px;
 		background: var(--bg-base);
+		border-radius: var(--radius-md);
 		border: 1px solid var(--line);
-		border-radius: 0.5rem;
-		font-size: 0.8125rem;
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
-		line-height: 1.35;
+		line-height: 1.45;
 	}
 
 	.ios-hint p {
@@ -261,14 +265,31 @@
 
 	.push-action-btn {
 		align-self: flex-start;
-		margin-top: 0.25rem;
+		height: 32px;
+		padding: 0 12px;
+		font-size: var(--text-caption);
+		gap: 6px;
+		--icon-size: 14px;
 	}
 
-	.push-error {
-		font-size: 0.8125rem;
+	.status-active,
+	.status-warn,
+	.status-denied,
+	.status-unsupported {
+		height: 22px;
+		padding: 0 8px;
+		font-size: var(--text-meta);
+	}
+
+	.status-warn {
+		color: var(--warn);
+	}
+
+	.status-denied {
 		color: var(--danger);
-		padding: 0.375rem 0.5rem;
-		background: var(--danger-bg);
-		border-radius: 0.375rem;
+	}
+
+	.status-unsupported {
+		color: var(--ink-faint);
 	}
 </style>

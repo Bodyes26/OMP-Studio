@@ -1,9 +1,17 @@
+<!--
+  AttentionCard.svelte — Scheda richiesta di attenzione dell'agente.
+  Port fedele di Studio AskCard: superficie bg-raised, ombra raise, raggio xl,
+  voce chat in .ask-text (15px/24px 500), opzioni .ask-opt con .ask-rec,
+  countdown in mono tabulare e azioni ghost + primary nel piede.
+-->
 <script lang="ts">
 	import type { RemoteAttention, Feature } from '../../../src/protocol.ts';
 	import { t } from '../i18n.ts';
 	import { connection } from '../connection.svelte.ts';
 	import { initializeAskState, toggleOptionSelection, buildAskAnswer, type QuestionAnswerState } from '../askAnswers.ts';
 	import { formatCommandError } from '../errors.ts';
+	import { IconChevronDown, IconChevronUp } from '../icons.ts';
+	import StatusMark from './StatusMark.svelte';
 
 	let {
 		hostId,
@@ -33,6 +41,7 @@
 		textValue = attention.prefill || '';
 		askState = initializeAskState(attention.questions || []);
 	});
+
 	// Scadenza live
 	let now = $state(Date.now());
 	$effect(() => {
@@ -154,29 +163,32 @@
 			})
 		);
 	}
+
+	// Con una sola domanda e senza titolo la domanda e' il titolo, come in AskCard:
+	// ripeterla in piccolo sotto «Richiesta dell'agente» la faceva sembrare secondaria.
+	const singleQuestion = $derived(attention.method === 'ask' && attention.questions.length === 1 && !attention.title);
+	const headline = $derived(
+		singleQuestion ? attention.questions[0].question : attention.title || attention.message || t('attentionFallbackTitle')
+	);
 </script>
 
-<div class="attention-card" id={`attention-${attention.requestId}`}>
-	<div class="attention-header">
+<div class="attention-card ask-card-root rv-lift" id={`attention-${attention.requestId}`}>
+	<div class="card-lead">
 		<div class="badge-row">
-			<span class="attention-badge">
-				<span class="badge-dot"></span>
-				{#if attention.laneTitle}
-					{attention.laneTitle}
-				{:else}
-					{hostName}
-				{/if}
+			<span class="lane-tag">
+				<StatusMark status="attention" />
+				<span class="lane-label">{attention.laneTitle || hostName}</span>
 			</span>
 			{#if formattedDeadline}
-				<span class="deadline-pill">
-					{t('expiresIn', { time: formattedDeadline })}
+				<span class="ask-counter">
+					{remainingSecs === 0 ? t('expired') : t('expiresIn', { time: formattedDeadline })}
 				</span>
 			{/if}
 		</div>
 
-		<h3 class="attention-title">{attention.title || attention.message || t('attentionFallbackTitle')}</h3>
+		<h3 class="ask-text">{headline}</h3>
 		{#if attention.message && attention.title && attention.message !== attention.title}
-			<p class="attention-message">{attention.message}</p>
+			<p class="ask-detail">{attention.message}</p>
 		{/if}
 	</div>
 
@@ -190,11 +202,18 @@
 	{#if attention.recentMessages && attention.recentMessages.length > 0}
 		<div class="recent-context-block">
 			<button
-				class="context-toggle-btn btn btn-ghost"
+				type="button"
+				class="context-toggle-btn ui-button ui-button-ghost"
 				onclick={() => (showRecentContext = !showRecentContext)}
 			>
 				<span>{t('recentContext')} ({attention.recentMessages.length})</span>
-				<span class="chevron">{showRecentContext ? '▲' : '▼'}</span>
+				<span class="chevron" aria-hidden="true">
+					{#if showRecentContext}
+						<IconChevronUp />
+					{:else}
+						<IconChevronDown />
+					{/if}
+				</span>
 			</button>
 
 			{#if showRecentContext}
@@ -214,83 +233,96 @@
 	<div class="action-body">
 		{#if attention.quotaBlocked}
 			<div class="quota-blocked-content">
-				<p class="quota-reason">
-					{attention.quotaBlocked.reason === 'quota_exhausted'
-						? 'Quota esaurita per il modello'
-						: 'Errore provider'}
+				<p class="ask-detail">
+					{attention.quotaBlocked.reason === 'quota_exhausted' ? t('quotaBlockedTitle') : t('providerErrorTitle')}
 					{#if attention.quotaBlocked.provider}
 						({attention.quotaBlocked.provider})
 					{/if}
 				</p>
 				{#if canQuotaAction}
-					<div class="btn-group">
+					<div class="ask-footer">
 						<button
-							class="btn btn-primary"
-							disabled={isSubmitting}
-							onclick={handleWaitQuota}
-						>
-							{t('waitQuotaReset')}
-						</button>
-						<button
-							class="btn btn-secondary"
+							type="button"
+							class="ui-button ui-button-secondary"
 							disabled={isSubmitting}
 							onclick={handleDismissQuota}
 						>
 							{t('dismissQuotaBlocked')}
+						</button>
+						<button
+							type="button"
+							class="ui-button ui-button-primary"
+							disabled={isSubmitting}
+							onclick={handleWaitQuota}
+						>
+							{t('waitQuotaReset')}
 						</button>
 					</div>
 				{/if}
 			</div>
 
 		{:else if attention.method === 'select'}
-			<div class="options-vertical">
+			<div class="ask-options">
 				{#each attention.options as opt, optIdx (optIdx)}
 					<button
-						class="btn btn-secondary option-btn"
+						type="button"
+						class="ask-opt"
 						disabled={isSubmitting}
 						onclick={() => handleSelectOption(opt.label)}
 					>
-						<span class="opt-label">{opt.label}</span>
-						{#if opt.description}
-							<span class="opt-desc">{opt.description}</span>
-						{/if}
+						<div class="ask-opt-body">
+							<div class="ask-opt-label">
+								<span>{opt.label}</span>
+							</div>
+							{#if opt.description}
+								<div class="ask-opt-desc">{opt.description}</div>
+							{/if}
+						</div>
 					</button>
 				{/each}
 			</div>
 
 		{:else if attention.method === 'confirm'}
-			<div class="btn-group">
+			<div class="ask-footer">
 				<button
-					class="btn btn-primary confirm-btn"
-					disabled={isSubmitting}
-					onclick={() => handleConfirm(true)}
-				>
-					{t('yes')}
-				</button>
-				<button
-					class="btn btn-secondary confirm-btn"
+					type="button"
+					class="ui-button ui-button-secondary"
 					disabled={isSubmitting}
 					onclick={() => handleConfirm(false)}
 				>
 					{t('no')}
+				</button>
+				<button
+					type="button"
+					class="ui-button ui-button-primary"
+					disabled={isSubmitting}
+					onclick={() => handleConfirm(true)}
+				>
+					{t('yes')}
 				</button>
 			</div>
 
 		{:else if attention.method === 'input' || attention.method === 'editor'}
 			<div class="text-input-form">
 				<textarea
-					class="input-field text-area"
+					class="ui-input text-area"
 					rows={attention.method === 'editor' ? 5 : 2}
 					placeholder={attention.placeholder || ''}
 					bind:value={textValue}
 					disabled={isSubmitting}
 				></textarea>
-				<div class="btn-group-end">
-					<button class="btn btn-ghost" disabled={isSubmitting} onclick={handleCancel}>
+				<div class="ask-footer">
+					<button
+						type="button"
+						class="ui-button ui-button-ghost"
+						disabled={isSubmitting}
+						onclick={handleCancel}
+					>
 						{t('cancel')}
 					</button>
 					<button
-						class="btn btn-primary"
+						type="button"
+						class="ui-button ui-button-primary"
 						disabled={isSubmitting || !textValue.trim()}
 						onclick={handleTextInputSubmit}
 					>
@@ -304,18 +336,20 @@
 				{#each attention.questions as q, qIdx (qIdx)}
 					<div class="question-block">
 						{#if q.header}
-							<div class="q-header">{q.header}</div>
+							<div class="ask-counter">{q.header}</div>
 						{/if}
-						<div class="q-title">{q.question}</div>
+						{#if !singleQuestion}
+							<div class="q-title">{q.question}</div>
+						{/if}
 
-						<div class="q-options">
+						<div class="ask-options">
 							{#each q.options as opt, optIdx (optIdx)}
 								{@const isSelected = askState[q.id]?.selectedOptions.includes(opt.label)}
 								{@const isRecommended = q.recommended === optIdx}
 
 								<button
 									type="button"
-									class="q-opt-btn"
+									class="ask-opt"
 									class:selected={isSelected}
 									onclick={() => {
 										if (!askState[q.id]) {
@@ -326,24 +360,26 @@
 										askState[q.id].selectedOptions = toggleOptionSelection(curr, opt.label, q.multi);
 									}}
 								>
-									<div class="q-opt-main">
-										<span class="opt-check">{isSelected ? '✓' : '○'}</span>
-										<span class="opt-label">{opt.label}</span>
-										{#if isRecommended}
-											<span class="recommended-tag">{t('recommendedBadge')}</span>
+									<span class="opt-indicator" class:selected={isSelected} aria-hidden="true"></span>
+									<div class="ask-opt-body">
+										<div class="ask-opt-label">
+											<span>{opt.label}</span>
+											{#if isRecommended}
+												<span class="ask-rec">{t('recommendedBadge')}</span>
+											{/if}
+										</div>
+										{#if opt.description}
+											<div class="ask-opt-desc">{opt.description}</div>
 										{/if}
 									</div>
-									{#if opt.description}
-										<div class="opt-desc">{opt.description}</div>
-									{/if}
 								</button>
 							{/each}
 
 							<!-- Opzione Altro/customInput -->
-							<div class="custom-input-row">
+							<div class="custom-input-wrap">
 								<input
 									type="text"
-									class="input-field"
+									class="ui-input other-input"
 									placeholder={t('otherOption')}
 									value={askState[q.id]?.customInput || ''}
 									oninput={(e) => {
@@ -361,11 +397,21 @@
 					</div>
 				{/each}
 
-				<div class="btn-group-end">
-					<button class="btn btn-ghost" disabled={isSubmitting} onclick={handleCancel}>
+				<div class="ask-footer">
+					<button
+						type="button"
+						class="ui-button ui-button-ghost"
+						disabled={isSubmitting}
+						onclick={handleCancel}
+					>
 						{t('cancel')}
 					</button>
-					<button class="btn btn-primary" disabled={isSubmitting} onclick={handleAskSubmit}>
+					<button
+						type="button"
+						class="ui-button ui-button-primary"
+						disabled={isSubmitting}
+						onclick={handleAskSubmit}
+					>
 						{isSubmitting ? t('running') : t('submit')}
 					</button>
 				</div>
@@ -377,16 +423,17 @@
 <style>
 	.attention-card {
 		background: var(--bg-raised);
-		border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--line));
-		border-radius: var(--radius-lg);
-		padding: 16px;
+		border: 1px solid var(--line-strong);
+		border-radius: var(--radius-xl);
+		box-shadow: var(--shadow-raise);
+		padding: var(--space-4);
 		display: flex;
 		flex-direction: column;
-		gap: 14px;
-		box-shadow: 0 2px 8px color-mix(in srgb, var(--bg-sunken) 80%, transparent);
+		gap: var(--space-3);
+		position: relative;
 	}
 
-	.attention-header {
+	.card-lead {
 		display: flex;
 		flex-direction: column;
 		gap: 6px;
@@ -396,233 +443,146 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
+		gap: var(--space-2);
 	}
 
-	.attention-badge {
+	.lane-tag {
 		display: inline-flex;
 		align-items: center;
 		gap: 6px;
-		font-size: 11px;
-		font-weight: 600;
-		color: var(--warn);
-		background: var(--warn-bg);
-		padding: 3px 8px;
-		border-radius: var(--radius-full);
-	}
-
-	.badge-dot {
-		width: 6px;
-		height: 6px;
-		border-radius: var(--radius-full);
-		background: var(--warn);
-	}
-
-	.deadline-pill {
-		font-size: 11px;
-		font-family: var(--font-mono);
-		color: var(--warn);
-	}
-
-	.attention-title {
-		font-size: 14px;
-		font-weight: 650;
-		color: var(--ink);
-		line-height: 1.3;
-	}
-
-	.attention-message {
-		font-size: 13px;
+		font-size: var(--text-meta);
 		color: var(--ink-muted);
-		line-height: 1.4;
+	}
+
+	.lane-label {
+		font-weight: 500;
 	}
 
 	.error-line {
-		font-size: 12px;
 		color: var(--danger);
-		background: var(--danger-bg);
-		padding: 6px 10px;
-		border-radius: var(--radius-sm);
+		font-size: var(--text-caption);
+		line-height: 1.4;
 	}
 
-	/* Contesto recente */
 	.recent-context-block {
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		overflow: hidden;
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
 	}
 
 	.context-toggle-btn {
-		width: 100%;
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: 8px 12px;
-		font-size: 12px;
-		border-radius: 0;
+		font-size: var(--text-caption);
+		align-self: flex-start;
+		height: 26px;
+		padding: 0 6px;
+		gap: 4px;
+	}
+
+	.chevron {
+		--icon-size: 12px;
+		display: grid;
+		place-items: center;
 	}
 
 	.messages-stream {
-		max-height: 200px;
-		overflow-y: auto;
-		padding: 8px 12px;
 		display: flex;
 		flex-direction: column;
-		gap: 8px;
-		border-top: 1px solid var(--line);
+		gap: 6px;
+		padding: 8px 10px;
+		background: var(--bg-sunken);
+		border-radius: var(--radius-md);
+		border: 1px solid var(--line);
+		max-height: 180px;
+		overflow-y: auto;
 	}
 
 	.chat-line {
 		display: flex;
 		flex-direction: column;
 		gap: 2px;
-		font-size: 12px;
 	}
 
 	.role-badge {
-		font-size: 10px;
-		text-transform: uppercase;
-		font-weight: 700;
+		font-size: var(--text-meta);
 		color: var(--ink-faint);
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
 	}
 
 	.msg-text {
+		margin: 0;
+		font-size: var(--text-caption);
 		color: var(--ink);
+		line-height: 1.4;
 		white-space: pre-wrap;
-		word-break: break-word;
 	}
 
-	/* Azioni */
 	.action-body {
 		display: flex;
 		flex-direction: column;
-		gap: 10px;
+		gap: var(--space-3);
 	}
 
-	.btn-group {
+	.ask-footer {
 		display: flex;
-		gap: 8px;
-	}
-
-	.btn-group-end {
-		display: flex;
+		align-items: center;
 		justify-content: flex-end;
-		gap: 8px;
-		margin-top: 6px;
-	}
-
-	.confirm-btn {
-		flex: 1;
-	}
-
-	.options-vertical {
-		display: flex;
-		flex-direction: column;
-		gap: 8px;
-	}
-
-	.option-btn {
-		display: flex;
-		flex-direction: column;
-		align-items: flex-start;
-		text-align: left;
-		padding: 10px 14px;
-		gap: 2px;
-	}
-
-	.opt-label {
-		font-size: 13px;
-		font-weight: 600;
-		color: var(--ink);
-	}
-
-	.opt-desc {
-		font-size: 11px;
-		color: var(--ink-faint);
+		gap: var(--space-2);
+		margin-top: var(--space-2);
 	}
 
 	.text-input-form {
 		display: flex;
 		flex-direction: column;
-		gap: 8px;
+		gap: var(--space-2);
 	}
 
 	.text-area {
+		width: 100%;
+		min-height: 60px;
+		height: auto;
 		resize: vertical;
-		font-family: var(--font-ui);
-	}
-
-	/* Ask form */
-	.ask-form {
-		display: flex;
-		flex-direction: column;
-		gap: 16px;
+		padding: 8px 10px;
+		line-height: 1.45;
+		font-size: var(--text-chat);
+		border-radius: var(--radius-md);
 	}
 
 	.question-block {
 		display: flex;
 		flex-direction: column;
-		gap: 8px;
-	}
-
-	.q-header {
-		font-size: 11px;
-		font-weight: 700;
-		text-transform: uppercase;
-		color: var(--ink-faint);
+		gap: var(--space-2);
 	}
 
 	.q-title {
-		font-size: 13px;
-		font-weight: 600;
+		font-size: var(--text-label);
+		font-weight: 500;
 		color: var(--ink);
 	}
 
-	.q-options {
-		display: flex;
-		flex-direction: column;
-		gap: 6px;
-	}
-
-	.q-opt-btn {
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		padding: 10px 12px;
-		text-align: left;
-		cursor: pointer;
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
-		transition: border-color var(--dur-fast), background var(--dur-fast);
-	}
-
-	.q-opt-btn.selected {
-		border-color: var(--brand);
-		background: color-mix(in srgb, var(--brand) 10%, var(--bg-sunken));
-	}
-
-	.q-opt-main {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-	}
-
-	.opt-check {
-		font-size: 13px;
-		color: var(--brand);
-	}
-
-	.recommended-tag {
-		font-size: 10px;
-		font-weight: 650;
-		color: var(--success);
-		background: color-mix(in srgb, var(--success) 14%, transparent);
-		padding: 2px 6px;
+	.opt-indicator {
+		width: 14px;
+		height: 14px;
 		border-radius: var(--radius-full);
+		border: 1.5px solid var(--line-strong);
+		flex-shrink: 0;
+		margin-top: 3px;
+		box-sizing: border-box;
+		transition: border-color var(--dur-fast) var(--ease-out),
+		            background-color var(--dur-fast) var(--ease-out);
 	}
 
-	.custom-input-row {
+	.opt-indicator.selected {
+		border-color: var(--brand);
+		background: var(--brand);
+		box-shadow: inset 0 0 0 2px var(--bg-base);
+	}
+
+	.custom-input-wrap {
 		margin-top: 4px;
+	}
+
+	.other-input {
+		width: 100%;
 	}
 </style>

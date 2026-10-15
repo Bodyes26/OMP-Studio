@@ -23,6 +23,7 @@ pub const FEATURES: &[&str] = &[
     "session_control",
     "chat",
     "projects",
+    "chat_rich",
 ];
 
 /// Tetto di un frame JSON (`MAX_FRAME_BYTES` in `protocol.ts`): oltre, il relay chiude la connessione.
@@ -105,6 +106,8 @@ pub struct RemoteStatus {
     pub relay_version: Option<String>,
     pub relay_protocol: Option<RelayProtocolRange>,
     pub update_needed: Option<UpdateNeeded>,
+    #[serde(default)]
+    pub relay_features: Vec<String>,
 }
 
 /// Evento di comando inviato alla finestra principale (`remote://command`).

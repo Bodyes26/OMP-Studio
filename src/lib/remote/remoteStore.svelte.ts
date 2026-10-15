@@ -14,7 +14,8 @@ export const DEFAULT_REMOTE_STATUS: RemoteStatus = {
 	clients: [],
 	relayVersion: null,
 	relayProtocol: null,
-	updateNeeded: null
+	updateNeeded: null,
+	relayFeatures: []
 };
 
 /**
@@ -26,6 +27,10 @@ export class RemoteStore {
 	status = $state<RemoteStatus>(DEFAULT_REMOTE_STATUS);
 	loading = $state(false);
 	actionError = $state<string | null>(null);
+
+	hasRelayFeature(name: string): boolean {
+		return this.status.relayFeatures?.includes(name) ?? false;
+	}
 
 	private unlisten: UnlistenFn | null = null;
 	private initGeneration = 0;

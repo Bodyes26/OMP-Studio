@@ -54,6 +54,8 @@ export interface RemoteStatus {
 	 * vecchio del minimo. `null` quando sono compatibili o non si sa.
 	 */
 	updateNeeded: 'relay' | 'studio' | null;
+	/** Funzioni supportate dal relay restituite nel `welcome`. */
+	relayFeatures: string[];
 }
 
 export interface RemoteCommandEvent {
