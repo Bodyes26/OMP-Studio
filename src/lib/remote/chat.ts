@@ -26,7 +26,7 @@ export interface PendingDelta {
 	block: RemoteChatBlock['type'];
 	index: number;
 	text: string;
-	timer: number | NodeJS.Timeout | null;
+	timer: number | null;
 }
 
 const watchedLanes = new Map<string, () => void>();
@@ -122,7 +122,7 @@ export function queueDelta(
 	}
 	pending.text += text;
 	if (pending.timer === null) {
-		pending.timer = setTimeout(() => {
+		pending.timer = window.setTimeout(() => {
 			flushDeltaByKey(key);
 		}, 150);
 	}
