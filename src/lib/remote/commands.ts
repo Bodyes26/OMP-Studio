@@ -106,7 +106,7 @@ export interface RemoteCommandExecutor {
 		name: string,
 		github: { visibility: 'private' | 'public' } | null
 	) => Promise<{ projectId: string }>;
-	newSession: (projectId: string, laneId: string | null) => Promise<void>;
+	newSession: (projectId: string, laneId: string | null, interrupt?: boolean) => Promise<void>;
 	composerCatalog: (projectId: string, laneId: string | null) => Promise<RemoteComposerCatalog>;
 	setLaneRole: (projectId: string, laneId: string | null, roleId: string) => Promise<void>;
 	setLaneModel: (
@@ -415,7 +415,7 @@ export async function handleRemoteCommand(
 
 			case 'new_session':
 				laneId = command.laneId;
-				await ctx.executor.newSession(command.projectId, command.laneId);
+				await ctx.executor.newSession(command.projectId, command.laneId, command.interrupt === true);
 				break;
 
 			case 'composer_catalog':

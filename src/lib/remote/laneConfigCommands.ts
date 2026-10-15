@@ -88,7 +88,7 @@ export function createLaneConfigCommands(deps: LaneConfigDeps) {
 		getKnownSelectors: deps.getKnownSelectors
 	};
 
-	async function newRemoteSession(projectId: string, laneId: string | null): Promise<void> {
+	async function newRemoteSession(projectId: string, laneId: string | null, interrupt = false): Promise<void> {
 		const { project, lane, isMain, effectiveLaneId, surface } = resolveTargetLane(projectId, laneId);
 
 		if (surface === 'terminal') {
@@ -113,7 +113,9 @@ export function createLaneConfigCommands(deps: LaneConfigDeps) {
 			session = laneOrchestrator.getOrCreateAgentSession(project, lane ?? project.lane);
 		}
 
-		if (session.isStreaming || session.backgroundPending || session.agentState === 'working') {
+		const busy = session.isStreaming || session.backgroundPending ||
+			session.agentState === 'working' || session.agentState === 'attention' || session.isCompacting;
+		if (busy && !interrupt) {
 			throw new RemoteCommandFailure(
 				'rejected',
 				"Impossibile avviare una nuova chat mentre l'agente sta lavorando o ha compiti in background."
@@ -124,6 +126,8 @@ export function createLaneConfigCommands(deps: LaneConfigDeps) {
 			await session.open(null);
 		}
 
+		// Non aspetta lo stato idle: puo' essere proprio lo stato rimasto bloccato.
+		if (interrupt) await session.abort();
 		await session.newSession();
 	}
 

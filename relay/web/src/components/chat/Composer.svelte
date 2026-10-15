@@ -1,7 +1,7 @@
 <!--
   Composer.svelte — Riquadro di immissione comandi e prompt ancorato in basso.
   Auto-growing textarea nella sagoma .composer-shell, pulsante di invio, stop di emergenza,
-  selettore steer/follow-up durante il turno, barra dei chip e autocompletamento.
+  menu steer/follow-up sul pulsante invio durante il turno, barra dei chip e autocompletamento.
 
   Adotta i componenti reali condivisi di Studio Desktop:
   - ModelPickerList (ricerca veloce, grouping per provider, navigazione da tastiera, badge contesto e capacità)
@@ -110,7 +110,7 @@
 	let isDragOver = $state(false);
 
 	// Menu popover aperto (esclusivo)
-	let activeMenu = $state<'role' | 'model' | 'thinking' | null>(null);
+	let activeMenu = $state<'role' | 'model' | 'thinking' | 'sendMode' | null>(null);
 
 	// Gestore allegati del composer
 	const attachmentMgr = createRemoteAttachmentManager({
@@ -271,6 +271,22 @@
 	}
 </script>
 
+{#snippet thinkingControl()}
+	<div class="thinking-popover">
+		{#if canReason}
+			<ReasoningSlider
+				value={currentThinking}
+				levels={chatThinkingLevels}
+				onChange={(level) => { onSetThinking?.(level); }}
+			/>
+		{:else}
+			<p class="thinking-unsupported">
+				{m.chat_v2_composer_thinking_unsupported({ model: currentModelLabel })}
+			</p>
+		{/if}
+	</div>
+{/snippet}
+
 <div class="composer-root">
 	{#if showSuggestions}
 		<SuggestTray
@@ -369,12 +385,13 @@
 							contentRole="dialog"
 							width="400px"
 							disabled={isWorking}
-							className="ui-chip composer-chip"
+							className="ui-chip composer-chip model-chip"
 							onToggle={() => (activeMenu = activeMenu === 'model' ? null : 'model')}
 							onClose={() => (activeMenu = null)}
 						>
 							{#snippet trigger()}
 								<span class="model-name-label">{currentModelLabel}</span>
+								<span class="mobile-thinking-label"><span aria-hidden="true">·</span> {currentThinking}</span>
 								<span class="chevron-indicator"><IconChevronUp /></span>
 							{/snippet}
 							{#snippet children()}
@@ -384,7 +401,7 @@
 									placeholder={m.chat_v2_composer_model_search()}
 									showFooter
 									onSelect={(selector, mod) => {
-										activeMenu = null;
+										if (!window.matchMedia('(max-width: 480px)').matches) activeMenu = null;
 										const targetProvider = mod.provider || (selector.includes('/') ? selector.split('/')[0] : '');
 										const targetModelId = mod.id || (selector.includes('/') ? selector.split('/')[1] : selector);
 										if (targetProvider && targetModelId) {
@@ -393,6 +410,9 @@
 									}}
 									onClose={() => (activeMenu = null)}
 								/>
+								<div class="mobile-thinking-panel">
+									{@render thinkingControl()}
+								</div>
 							{/snippet}
 						</MenuButton>
 
@@ -404,7 +424,7 @@
 							contentRole="dialog"
 							width="320px"
 							disabled={isWorking}
-							className="ui-chip composer-chip"
+							className="ui-chip composer-chip thinking-chip"
 							onToggle={() => (activeMenu = activeMenu === 'thinking' ? null : 'thinking')}
 							onClose={() => (activeMenu = null)}
 						>
@@ -413,54 +433,13 @@
 								<span class="thinking-label font-mono">{currentThinking}</span>
 							{/snippet}
 							{#snippet children()}
-								<div class="thinking-popover">
-									{#if canReason}
-										<ReasoningSlider
-											value={currentThinking}
-											levels={chatThinkingLevels}
-											onChange={(level) => {
-												onSetThinking?.(level);
-											}}
-										/>
-									{:else}
-										<p class="thinking-unsupported">
-											{m.chat_v2_composer_thinking_unsupported({ model: currentModelLabel })}
-										</p>
-									{/if}
-								</div>
+								{@render thinkingControl()}
 							{/snippet}
 						</MenuButton>
 
 					</div>
 				{/if}
 			</div>
-
-			{#if isWorking && canSessionControl}
-				<div class="steer-segmented" role="radiogroup" aria-label="Modalita di invio turno">
-					<button
-						type="button"
-						class="ui-chip segment-chip"
-						class:active={whileBusy === 'steer'}
-						role="radio"
-						aria-checked={whileBusy === 'steer'}
-						onclick={() => (whileBusy = 'steer')}
-						title={t('chatSteerHint')}
-					>
-						{t('steerOption')}
-					</button>
-					<button
-						type="button"
-						class="ui-chip segment-chip"
-						class:active={whileBusy === 'follow_up'}
-						role="radio"
-						aria-checked={whileBusy === 'follow_up'}
-						onclick={() => (whileBusy = 'follow_up')}
-						title={t('chatFollowUpHint')}
-					>
-						{t('followUpOption')}
-					</button>
-				</div>
-			{/if}
 
 			<div class="toolbar-actions">
 				{#if isWorking && canSessionControl}
@@ -476,16 +455,51 @@
 					</button>
 				{/if}
 
-				<button
-					type="button"
-					class="composer-send-btn"
-					disabled={!canSubmit}
-					onclick={handleSubmit}
-					title={t('send')}
-					aria-label={t('send')}
-				>
-					<IconArrowUp />
-				</button>
+				<div class="send-split-group">
+					<button
+						type="button"
+						class="composer-send-btn"
+						disabled={!canSubmit}
+						onclick={handleSubmit}
+						title={isWorking ? `${t('send')} — ${whileBusy === 'steer' ? m.chat_v2_composer_send_steer() : m.chat_v2_composer_send_followup()}` : t('send')}
+						aria-label={t('send')}
+					>
+						<IconArrowUp />
+					</button>
+					{#if isWorking && canSessionControl}
+						<MenuButton
+							open={activeMenu === 'sendMode'}
+							title={m.chat_v2_composer_send_mode_title()}
+							hasPopup="menu"
+							align="right"
+							width="240px"
+							className="send-mode-trigger"
+							disabled={disabled || isSending}
+							onToggle={() => (activeMenu = activeMenu === 'sendMode' ? null : 'sendMode')}
+							onClose={() => (activeMenu = null)}
+						>
+							{#snippet trigger()}
+								<IconChevronUp />
+							{/snippet}
+							{#snippet children()}
+								<div class="send-mode-menu">
+									<button type="button" role="menuitemradio"
+										aria-checked={whileBusy === 'steer'} class:selected={whileBusy === 'steer'}
+										onclick={() => { whileBusy = 'steer'; activeMenu = null; }}>
+										<span>{m.chat_v2_composer_send_steer()}</span>
+										<small>{t('chatSteerHint')}</small>
+									</button>
+									<button type="button" role="menuitemradio"
+										aria-checked={whileBusy === 'follow_up'} class:selected={whileBusy === 'follow_up'}
+										onclick={() => { whileBusy = 'follow_up'; activeMenu = null; }}>
+										<span>{m.chat_v2_composer_send_followup()}</span>
+										<small>{t('chatFollowUpHint')}</small>
+									</button>
+								</div>
+							{/snippet}
+						</MenuButton>
+					{/if}
+				</div>
 			</div>
 		</div>
 	</div>
@@ -666,36 +680,58 @@
 		color: var(--ink-muted);
 	}
 
-	.steer-segmented {
-		display: inline-flex;
+	.mobile-thinking-label,
+	.mobile-thinking-panel {
+		display: none;
+	}
+
+	.send-split-group {
+		display: flex;
 		align-items: center;
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
+		background: var(--brand-ink);
 		border-radius: var(--radius-full);
-		padding: 2px;
-		gap: 2px;
-		flex-shrink: 0;
 	}
 
-	.segment-chip {
-		height: 22px;
-		padding: 0 8px;
-		font-size: var(--text-xs);
-		background: transparent;
+	.composer-root :global(.menu-button.send-mode-trigger) {
+		height: 32px;
+		padding: 0 8px 0 5px;
 		border: none;
-		border-radius: var(--radius-full);
-		color: var(--ink-faint);
-		cursor: pointer;
-		transition:
-			background-color var(--dur-fast) var(--ease-out),
-			color var(--dur-fast) var(--ease-out);
+		border-left: 1px solid color-mix(in oklch, var(--bg-base) 30%, transparent);
+		border-radius: 0 var(--radius-full) var(--radius-full) 0;
+		background: transparent;
+		color: var(--bg-base);
+		--icon-size: 12px;
 	}
 
-	.segment-chip.active {
-		background: var(--bg-raised);
+	.send-mode-menu {
+		display: flex;
+		flex-direction: column;
+		padding: var(--space-1);
+	}
+
+	.send-mode-menu button {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 4px;
+		padding: var(--space-3);
+		border: none;
+		border-radius: var(--radius-md);
+		background: transparent;
 		color: var(--ink);
-		font-weight: 550;
-		box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+		font: inherit;
+		cursor: pointer;
+		text-align: left;
+	}
+
+	.send-mode-menu button:hover,
+	.send-mode-menu button.selected {
+		background: var(--bg-hover);
+	}
+
+	.send-mode-menu small {
+		color: var(--ink-muted);
+		font-size: var(--text-caption);
 	}
 
 	.toolbar-actions {
@@ -742,12 +778,17 @@
 	}
 
 	@media (max-width: 480px) {
-		.composer-toolbar { flex-wrap: wrap; }
-		.toolbar-left { flex-basis: 100%; }
-		.toolbar-chips { flex-wrap: wrap; overflow: visible; }
-		.toolbar-actions { margin-left: auto; }
-		.model-name-label {
-			max-width: 90px;
+		.toolbar-left { overflow: visible; }
+		.toolbar-chips { overflow: visible; flex: 1; }
+		.composer-root :global(.thinking-chip),
+		.chevron-indicator { display: none; }
+		.composer-root :global(.model-chip) { min-width: 0; flex-shrink: 1; }
+		.model-name-label { max-width: 120px; min-width: 0; }
+		.mobile-thinking-label { display: inline; white-space: nowrap; }
+		.mobile-thinking-panel {
+			display: block;
+			border-top: 1px solid var(--line);
+			padding-top: var(--space-3);
 		}
 	}
 </style>

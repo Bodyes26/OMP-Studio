@@ -344,10 +344,10 @@ export type RemoteCommand =
 	/** Cartella nuova sotto la radice, `git init`, repository GitHub facoltativo. */
 	| { kind: 'create_project'; name: string; github: { visibility: 'private' | 'public' } | null }
 	/**
-	 * Nuova sessione della corsia, come «Nuova chat» in Studio. Solo ad agente
-	 * fermo: mentre lavora la macchina risponde `rejected`. Mai sulle corsie Lab.
+	 * Nuova sessione della corsia, come «Nuova chat» in Studio. Mentre lavora
+	 * richiede `interrupt: true`, dopo conferma sul dispositivo. Mai sulle corsie Lab.
 	 */
-	| { kind: 'new_session'; projectId: string; laneId: string | null }
+	| { kind: 'new_session'; projectId: string; laneId: string | null; interrupt?: boolean }
 	/** Comandi, skill, modelli e ruoli per il composer della corsia (vedi `RemoteComposerCatalog`). */
 	| { kind: 'composer_catalog'; projectId: string; laneId: string | null }
 	/** Applica alla sessione il modello e il ragionamento assegnati al ruolo. */

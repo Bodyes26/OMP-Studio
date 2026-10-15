@@ -72,8 +72,9 @@
 
 	const agentState = $derived(lane?.agent.state ?? 'offline');
 	const isBusy = $derived(agentState === 'working' || agentState === 'background' || agentState === 'attention');
-	const canStartNewChat = $derived(showNewChat && !isBusy && connection.status === 'connected');
-	const newChatTooltip = $derived(isBusy ? t('newChatDisabledBusy') : t('newChat'));
+	let startingNewChat = $state(false);
+	const canStartNewChat = $derived(showNewChat && !startingNewChat && connection.status === 'connected');
+	const newChatTooltip = $derived(t('newChat'));
 
 	// Catalogo del composer per ruoli, modelli e ragionamento
 	let catalog = $state<RemoteComposerCatalog | null>(null);
@@ -132,16 +133,22 @@
 
 	async function handleNewSession(): Promise<void> {
 		if (!canStartNewChat) return;
+		const interrupt = isBusy;
+		if (interrupt && !window.confirm(t('newChatConfirmInterrupt'))) return;
+		startingNewChat = true;
 		errorMessage = null;
 		try {
 			await connection.sendCommand(route.hostId, {
 				kind: 'new_session',
 				projectId: route.projectId,
-				laneId: route.laneId === 'main' ? null : route.laneId
+				laneId: route.laneId === 'main' ? null : route.laneId,
+				interrupt
 			});
 		} catch (err: unknown) {
 			const e = err as { message?: string };
 			errorMessage = e?.message || t('newChatError');
+		} finally {
+			startingNewChat = false;
 		}
 	}
 

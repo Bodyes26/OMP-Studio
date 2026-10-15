@@ -162,6 +162,38 @@ describe('remote lane config commands (Gate R44, lane_config)', () => {
 			await newRemoteSession('p-config', 'main');
 			assert.equal(newSessionCalled, true);
 		});
+
+		for (const state of ['working', 'background', 'attention'] as const) {
+			it(`starts a clean conversation after confirmed interruption with stale ${state} status`, async () => {
+				let releaseAbort!: () => void;
+				const abortFinished = new Promise<void>((resolve) => { releaseAbort = resolve; });
+				let sessionId = 'old-session';
+				let abortStarted = false;
+				const session = {
+					isOpen: true,
+					isStreaming: state === 'working',
+					backgroundPending: state === 'background',
+					agentState: state,
+					abort: async () => {
+						abortStarted = true;
+						await abortFinished;
+						// Lo stato obsoleto resta occupato anche dopo la risposta all'abort.
+					},
+					newSession: async () => {
+						sessionId = 'new-session';
+						return sessionId;
+					}
+				} as unknown as AgentSession;
+				sessionRegistry.setLaneSession('p-config', 'main', session);
+
+				const starting = newRemoteSession('p-config', 'main', true);
+				assert.equal(abortStarted, true);
+				assert.equal(sessionId, 'old-session');
+				releaseAbort();
+				await starting;
+				assert.equal(sessionId, 'new-session');
+			});
+		}
 	});
 
 	describe('set_lane_role', () => {

@@ -45,6 +45,8 @@ released: items are closed into a version via `npm run release -- <version>`.
 - A lane's agent, Lab included, reports when it is done and leaves a summary; the lane becomes ready for review and Main reads it without opening it.
 
 ### Changed
+- On phones, model and reasoning level share a single icon-free “model · level” chip: its popover combines model selection with the reasoning slider below a divider.
+- In remote chat, choose steer or follow-up from the menu next to Send, as in the GUI, without the switch taking up the composer toolbar.
 - The remote composer uses the actual GUI components: badge editor with IME handling, roles, model search and popovers with capability badges, reasoning slider restricted to supported levels and attachment thumbnails. Context usage stays visible on phones and opens the same usage, cache and manual compaction panel; chat thinking, Markdown, code, diffs, output and turn footers share Studio's renderers instead of maintaining separate copies.
 - The context panel highlights cache reuse for the next send: age of the last model call, cached share of input and estimated validity when omp reports a lifetime, including resumed chats. Cache warming is always visible with its configured mode and latest observed attempt; compaction stays manual and explains why cache expiration alone does not guarantee savings.
 - Background job result cards, the subagent drawer and the `task`/`job`/`hub` tool views read the structured async job metadata of `omp` 18.9.0 (native status and child-agent identity): each job links to its subagent transcript even when the ID carries a collision suffix or the `<task-result>` envelope is missing.
@@ -64,6 +66,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Previews in the agent's questions sit on a board above the card, at full width, instead of in a column next to the answers. The board is the negative of the theme (dark on light themes, light on dark ones) with the theme's accent; it shows the chosen option and, when you switch to another, only the characters that change flip over, like the flaps of a departure board. The eye on each answer shows its drawing without choosing it; drawings no longer wrap and shrink to fit the width, with "100%" to see them at actual size.
 
 ### Fixed
+- “New chat” in remote control stays available even when the agent still appears busy: after confirmation it interrupts the previous execution and opens a new conversation, without getting stuck on stale running status.
 - In the remote control PWA, multi-question agent prompts are answered one at a time, with steps and a review before sending as in Studio; choices no longer reset on every machine update.
 - The remote chat and question cards no longer show the context Studio appends to the prompt for the model (`[Source Hints]`, `[Git Context]`, `[Editor Context]`): you only see what you wrote. The same applies to recent messages in the Companion.
 - The remote chat groups a working step's tool calls into a single group again, as in Studio, instead of showing a row of "1 call" groups.
