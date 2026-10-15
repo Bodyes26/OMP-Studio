@@ -9,8 +9,8 @@ COPY messages ./messages
 COPY src ./src
 COPY relay ./relay
 RUN ln -sf /build/node_modules /build/relay/node_modules
-RUN bun --cwd relay run compile:i18n
-RUN bun --cwd relay run build:web
+WORKDIR /build/relay
+RUN bun run build:web
 
 FROM oven/bun:1.3-alpine
 # Versione del relay mostrata da /healthz, Studio e PWA. Vuota = package.json.
