@@ -40,6 +40,16 @@ export function toggleOptionSelection(currentOptions: string[], optionLabel: str
 }
 
 /**
+ * Una domanda e' risposta con almeno una scelta o con testo libero non vuoto:
+ * la stessa regola di `isQuestionAnswered` in Studio, che non lascia partire
+ * l'invio finche' una domanda resta vuota.
+ */
+export function isQuestionAnswered(state: QuestionAnswerState | undefined): boolean {
+	if (!state) return false;
+	return state.selectedOptions.length > 0 || Boolean(state.customInput?.trim());
+}
+
+/**
  * Costruisce il frame canonico RemoteAnswer di tipo 'ask' da inviare al relay.
  * Include l'eventuale testo libero `customInput` solo se non vuoto.
  */

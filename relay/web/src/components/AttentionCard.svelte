@@ -5,12 +5,19 @@
   countdown in mono tabulare e azioni ghost + primary nel piede.
 -->
 <script lang="ts">
-	import type { RemoteAttention, Feature } from '../../../src/protocol.ts';
+	import type { RemoteAttention, RemoteAskQuestion, Feature } from '../../../src/protocol.ts';
 	import { t } from '../i18n.ts';
 	import { connection } from '../connection.svelte.ts';
-	import { initializeAskState, toggleOptionSelection, buildAskAnswer, type QuestionAnswerState } from '../askAnswers.ts';
+	import { untrack } from 'svelte';
+	import {
+		initializeAskState,
+		toggleOptionSelection,
+		buildAskAnswer,
+		isQuestionAnswered,
+		type QuestionAnswerState
+	} from '../askAnswers.ts';
 	import { formatCommandError } from '../errors.ts';
-	import { IconChevronDown, IconChevronUp } from '../icons.ts';
+	import { IconCheck, IconChevronDown, IconChevronUp } from '../icons.ts';
 	import StatusMark from './StatusMark.svelte';
 
 	let {
@@ -36,11 +43,36 @@
 
 	// Per ask
 	let askState = $state<Record<string, QuestionAnswerState>>({});
+	// Una domanda per volta, come AskCard; `questions.length` e' il riepilogo.
+	let step = $state(0);
 
+	// Ogni istantanea della macchina porta un oggetto `attention` nuovo: lo stato
+	// delle risposte si azzera solo quando cambia la richiesta, altrimenti le
+	// scelte fatte sparirebbero mentre l'agente lavora su un'altra corsia.
+	let initializedFor: string | null = null;
 	$effect(() => {
-		textValue = attention.prefill || '';
-		askState = initializeAskState(attention.questions || []);
+		const requestId = attention.requestId;
+		if (requestId === initializedFor) return;
+		initializedFor = requestId;
+		untrack(() => {
+			textValue = attention.prefill || '';
+			askState = initializeAskState(attention.questions || []);
+			step = 0;
+		});
 	});
+
+	const multiSteps = $derived(attention.method === 'ask' && attention.questions.length > 1);
+	const isReviewStep = $derived(multiSteps && step >= attention.questions.length);
+	const currentQuestion = $derived(isReviewStep ? undefined : attention.questions[step]);
+	const allAnswered = $derived(attention.questions.every((q: RemoteAskQuestion) => isQuestionAnswered(askState[q.id])));
+
+	function answerSummary(q: RemoteAskQuestion): string {
+		const s = askState[q.id];
+		const parts = [...(s?.selectedOptions ?? [])];
+		const custom = s?.customInput?.trim();
+		if (custom) parts.push(custom);
+		return parts.join(', ');
+	}
 
 	// Scadenza live
 	let now = $state(Date.now());
@@ -164,11 +196,20 @@
 		);
 	}
 
-	// Con una sola domanda e senza titolo la domanda e' il titolo, come in AskCard:
+	// Nelle domande di `ask` il titolo e' la domanda corrente, come in AskCard:
 	// ripeterla in piccolo sotto «Richiesta dell'agente» la faceva sembrare secondaria.
-	const singleQuestion = $derived(attention.method === 'ask' && attention.questions.length === 1 && !attention.title);
+	const isAsk = $derived(attention.method === 'ask' && attention.questions.length > 0);
 	const headline = $derived(
-		singleQuestion ? attention.questions[0].question : attention.title || attention.message || t('attentionFallbackTitle')
+		isAsk
+			? (currentQuestion?.question ?? t('askReviewTitle'))
+			: attention.title || attention.message || t('attentionFallbackTitle')
+	);
+	const detail = $derived(
+		isAsk
+			? attention.title || null
+			: attention.message && attention.title && attention.message !== attention.title
+				? attention.message
+				: null
 	);
 </script>
 
@@ -186,9 +227,44 @@
 			{/if}
 		</div>
 
+		{#if multiSteps}
+			<nav class="ask-steps" aria-label={t('askStepsAria')}>
+				{#each attention.questions as q, idx (q.id)}
+					{@const done = isQuestionAnswered(askState[q.id])}
+					{@const cur = step === idx}
+					<button
+						type="button"
+						class="ask-step"
+						class:cur
+						class:done={done && !cur}
+						onclick={() => (step = idx)}
+						title={q.question}
+						aria-current={cur ? 'step' : undefined}
+					>
+						<span class="ask-step-badge" aria-hidden="true">
+							{#if done && !cur}<IconCheck />{:else}{idx + 1}{/if}
+						</span>
+						<span class="ask-step-label">{q.header || t('askCounter', { current: idx + 1, total: attention.questions.length })}</span>
+					</button>
+				{/each}
+				<button
+					type="button"
+					class="ask-step review"
+					class:cur={isReviewStep}
+					onclick={() => (step = attention.questions.length)}
+					aria-current={isReviewStep ? 'step' : undefined}
+				>
+					<span class="ask-step-badge" aria-hidden="true"><IconCheck /></span>
+					<span class="ask-step-label">{t('askReviewTab')}</span>
+				</button>
+			</nav>
+		{:else if currentQuestion?.header}
+			<span class="ask-counter">{currentQuestion.header}</span>
+		{/if}
+
 		<h3 class="ask-text">{headline}</h3>
-		{#if attention.message && attention.title && attention.message !== attention.title}
-			<p class="ask-detail">{attention.message}</p>
+		{#if detail}
+			<p class="ask-detail">{detail}</p>
 		{/if}
 	</div>
 
@@ -333,69 +409,73 @@
 
 		{:else if attention.method === 'ask'}
 			<div class="ask-form">
-				{#each attention.questions as q, qIdx (qIdx)}
-					<div class="question-block">
-						{#if q.header}
-							<div class="ask-counter">{q.header}</div>
-						{/if}
-						{#if !singleQuestion}
-							<div class="q-title">{q.question}</div>
-						{/if}
+				{#if isReviewStep}
+					<div class="ask-review">
+						{#each attention.questions as q, idx (q.id)}
+							{@const summary = answerSummary(q)}
+							<button type="button" class="ask-review-row" onclick={() => (step = idx)}>
+								<span class="ask-review-q" title={q.question}>{q.header || q.question}</span>
+								<span class="ask-review-a">
+									{#if summary}{summary}{:else}<span class="ask-missing">—</span>{/if}
+								</span>
+							</button>
+						{/each}
+					</div>
+				{:else if currentQuestion}
+					{@const q = currentQuestion}
+					<div class="ask-options">
+						{#each q.options as opt, optIdx (optIdx)}
+							{@const isSelected = askState[q.id]?.selectedOptions.includes(opt.label)}
+							{@const isRecommended = q.recommended === optIdx}
 
-						<div class="ask-options">
-							{#each q.options as opt, optIdx (optIdx)}
-								{@const isSelected = askState[q.id]?.selectedOptions.includes(opt.label)}
-								{@const isRecommended = q.recommended === optIdx}
-
-								<button
-									type="button"
-									class="ask-opt"
-									class:selected={isSelected}
-									onclick={() => {
-										if (!askState[q.id]) {
-											askState[q.id] = { selectedOptions: [opt.label], customInput: '' };
-											return;
-										}
-										const curr = askState[q.id].selectedOptions || [];
-										askState[q.id].selectedOptions = toggleOptionSelection(curr, opt.label, q.multi);
-									}}
-								>
-									<span class="opt-indicator" class:selected={isSelected} aria-hidden="true"></span>
-									<div class="ask-opt-body">
-										<div class="ask-opt-label">
-											<span>{opt.label}</span>
-											{#if isRecommended}
-												<span class="ask-rec">{t('recommendedBadge')}</span>
-											{/if}
-										</div>
-										{#if opt.description}
-											<div class="ask-opt-desc">{opt.description}</div>
+							<button
+								type="button"
+								class="ask-opt"
+								class:selected={isSelected}
+								onclick={() => {
+									if (!askState[q.id]) {
+										askState[q.id] = { selectedOptions: [opt.label], customInput: '' };
+										return;
+									}
+									const curr = askState[q.id].selectedOptions || [];
+									askState[q.id].selectedOptions = toggleOptionSelection(curr, opt.label, q.multi);
+								}}
+							>
+								<span class="opt-indicator" class:multi={q.multi} class:selected={isSelected} aria-hidden="true"></span>
+								<div class="ask-opt-body">
+									<div class="ask-opt-label">
+										<span>{opt.label}</span>
+										{#if isRecommended}
+											<span class="ask-rec">{t('recommendedBadge')}</span>
 										{/if}
 									</div>
-								</button>
-							{/each}
+									{#if opt.description}
+										<div class="ask-opt-desc">{opt.description}</div>
+									{/if}
+								</div>
+							</button>
+						{/each}
 
-							<!-- Opzione Altro/customInput -->
-							<div class="custom-input-wrap">
-								<input
-									type="text"
-									class="ui-input other-input"
-									placeholder={t('otherOption')}
-									value={askState[q.id]?.customInput || ''}
-									oninput={(e) => {
-										const val = (e.target as HTMLInputElement).value;
-										if (!askState[q.id]) {
-											askState[q.id] = { selectedOptions: [], customInput: val };
-										} else {
-											askState[q.id].customInput = val;
-										}
-									}}
-									disabled={isSubmitting}
-								/>
-							</div>
+						<!-- Opzione Altro/customInput -->
+						<div class="custom-input-wrap">
+							<input
+								type="text"
+								class="ui-input other-input"
+								placeholder={t('otherOption')}
+								value={askState[q.id]?.customInput || ''}
+								oninput={(e) => {
+									const val = e.currentTarget.value;
+									if (!askState[q.id]) {
+										askState[q.id] = { selectedOptions: [], customInput: val };
+									} else {
+										askState[q.id].customInput = val;
+									}
+								}}
+								disabled={isSubmitting}
+							/>
 						</div>
 					</div>
-				{/each}
+				{/if}
 
 				<div class="ask-footer">
 					<button
@@ -406,14 +486,31 @@
 					>
 						{t('cancel')}
 					</button>
-					<button
-						type="button"
-						class="ui-button ui-button-primary"
-						disabled={isSubmitting}
-						onclick={handleAskSubmit}
-					>
-						{isSubmitting ? t('running') : t('submit')}
-					</button>
+					{#if multiSteps && step > 0}
+						<button type="button" class="ui-button ui-button-secondary" onclick={() => (step -= 1)}>
+							{t('askBack')}
+						</button>
+					{/if}
+					{#if multiSteps && !isReviewStep}
+						<!-- L'ultima domanda porta al riepilogo: l'invio parte solo da li', come in AskCard. -->
+						<button
+							type="button"
+							class="ui-button ui-button-primary"
+							disabled={!currentQuestion || !isQuestionAnswered(askState[currentQuestion.id])}
+							onclick={() => (step += 1)}
+						>
+							{t('askNext')}
+						</button>
+					{:else}
+						<button
+							type="button"
+							class="ui-button ui-button-primary"
+							disabled={isSubmitting || !allAnswered}
+							onclick={handleAskSubmit}
+						>
+							{isSubmitting ? t('running') : t('submit')}
+						</button>
+					{/if}
 				</div>
 			</div>
 		{/if}
@@ -548,16 +645,104 @@
 		border-radius: var(--radius-md);
 	}
 
-	.question-block {
+	/* Stepper e riepilogo: valori di AskCard in Studio. */
+	.ask-steps {
 		display: flex;
-		flex-direction: column;
-		gap: var(--space-2);
+		align-items: center;
+		gap: 4px;
+		overflow-x: auto;
+		padding-bottom: 2px;
 	}
 
-	.q-title {
-		font-size: var(--text-label);
-		font-weight: 500;
+	.ask-step {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		flex-shrink: 0;
+		background: transparent;
+		border: none;
+		border-radius: var(--radius-md);
+		padding: 4px 10px;
+		font-size: var(--text-xs);
+		color: var(--ink-muted);
+		cursor: pointer;
+		white-space: nowrap;
+	}
+	.ask-step:hover {
+		background: var(--bg-hover);
 		color: var(--ink);
+	}
+	/* Scheda corrente in negativo: si vede a colpo d'occhio a che punto si e'. */
+	.ask-step.cur,
+	.ask-step.cur:hover {
+		background: var(--ink);
+		color: var(--bg-base);
+	}
+	.ask-step.cur .ask-step-badge {
+		opacity: 0.6;
+	}
+	.ask-step.done .ask-step-badge {
+		color: var(--success);
+	}
+	.ask-step.review {
+		margin-left: auto;
+	}
+	.ask-step-badge {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		font-family: var(--font-mono);
+		font-size: var(--text-caption);
+		--icon-size: 11px;
+		font-variant-numeric: tabular-nums;
+		min-width: 14px;
+	}
+	.ask-step-label {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		max-width: 140px;
+	}
+
+	.ask-review {
+		display: flex;
+		flex-direction: column;
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+		overflow: hidden;
+	}
+	.ask-review-row {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		width: 100%;
+		padding: 6px 10px;
+		border: none;
+		background: transparent;
+		color: inherit;
+		font-size: var(--text-sm);
+		text-align: left;
+		cursor: pointer;
+	}
+	.ask-review-row:hover {
+		background: var(--bg-hover);
+	}
+	.ask-review-row + .ask-review-row {
+		border-top: 1px solid var(--line);
+	}
+	.ask-review-q {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		color: var(--ink-faint);
+	}
+	.ask-review-a {
+		color: var(--ink);
+		text-align: right;
+	}
+	.ask-missing {
+		color: var(--warn);
 	}
 
 	.opt-indicator {
@@ -570,6 +755,11 @@
 		box-sizing: border-box;
 		transition: border-color var(--dur-fast) var(--ease-out),
 		            background-color var(--dur-fast) var(--ease-out);
+	}
+
+	/* Scelta multipla: casella quadrata, come le caselle di Studio; il cerchio resta alla scelta singola. */
+	.opt-indicator.multi {
+		border-radius: var(--radius-sm);
 	}
 
 	.opt-indicator.selected {

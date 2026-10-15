@@ -377,6 +377,16 @@ describe('remote chat history & session commands', () => {
 		assert.equal(entryToRemoteMessage(notice)!.id, 'e_24');
 	});
 
+	it('entryToRemoteMessage: user text hides the context Studio appends for the model', () => {
+		const user: UserEntry = {
+			id: 31,
+			kind: 'user',
+			content: 'Sistema il login\n\n[Source Hints]\nsrc/auth.ts:12 export function login()\n\n[Git Context]\nbranch main',
+			images: []
+		};
+		assert.equal(entryToRemoteMessage(user)!.text, 'Sistema il login');
+	});
+
 	it('per-block delta batching order preserves FIFO without mixing blocks', () => {
 		const published: { projectId: string; laneId: string; event: RemoteChatEvent }[] = [];
 		const origPublish = remoteBridge.publishChatEvent;

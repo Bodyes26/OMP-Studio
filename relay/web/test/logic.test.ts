@@ -4,7 +4,8 @@ import { formatScheduleLabel } from '../src/schedule.ts';
 import {
 	initializeAskState,
 	toggleOptionSelection,
-	buildAskAnswer
+	buildAskAnswer,
+	isQuestionAnswered
 } from '../src/askAnswers.ts';
 import { sortProjects, getProjectPriority } from '../src/projectSort.ts';
 import { formatCommandError } from '../src/errors.ts';
@@ -145,6 +146,13 @@ describe('ask answer building', () => {
 				{ id: 'q2', selectedOptions: ['Flag 1', 'Flag 3'] }
 			]
 		});
+	});
+
+	it('treats a question as answered only with a choice or non-blank custom text', () => {
+		expect(isQuestionAnswered(undefined)).toBe(false);
+		expect(isQuestionAnswered({ selectedOptions: [], customInput: '   ' })).toBe(false);
+		expect(isQuestionAnswered({ selectedOptions: ['Approccio A'] })).toBe(true);
+		expect(isQuestionAnswered({ selectedOptions: [], customInput: 'altro' })).toBe(true);
 	});
 });
 

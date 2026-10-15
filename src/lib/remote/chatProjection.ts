@@ -22,6 +22,7 @@ import type {
 import { categorizeTool } from '$lib/agent/tools/categories';
 import { asRecord, resultText, str, recordList } from '$lib/agent/tools/types';
 import { extractPhasesFromCall } from '$lib/agent/todoTrace';
+import { stripEditorContext } from '$lib/editor/editorContextParsing';
 
 export const MAX_DIFF_LINES = 300;
 export const MAX_DIFF_BYTES = 24 * 1024; // 24 KB
@@ -182,7 +183,9 @@ export function entryToRemoteMessage(entry: TranscriptEntry): RemoteChatMessage 
 		return {
 			id: durableId,
 			role: 'user',
-			text: (user.content ?? '').slice(0, MAX_PROSE_TEXT_CHARS),
+			// Come UserMessage in Studio: [Source Hints], [Git Context] ed
+			// [Editor Context] sono per il modello, non testo dell'utente.
+			text: stripEditorContext(user.content ?? '').slice(0, MAX_PROSE_TEXT_CHARS),
 			toolName: null,
 			timestamp: user.messageTs ?? null,
 			images: imgCount > 0 ? imgCount : undefined

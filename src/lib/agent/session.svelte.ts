@@ -1,4 +1,4 @@
-import { attachEditorContext, splitMessageAndEditorContext } from '$lib/editor/editorContext';
+import { attachEditorContext, splitMessageAndEditorContext, stripEditorContext } from '$lib/editor/editorContext';
 import { invoke } from '@tauri-apps/api/core';
 import { orchestratePromptPreflight, type PromptPreflightDeps } from './promptPreflight';
 import { settingsStore } from '$lib/stores/settings.svelte';
@@ -1079,7 +1079,9 @@ export class AgentSession {
 			if (entry.kind === 'user') {
 				result.unshift({
 					role: 'user',
-					text: tailOfText(entry.content, RECENT_MESSAGE_MAX_CHARS)
+					// Il contesto aggiunto al prompt (Source Hints, Git, editor) non e'
+					// del messaggio: la companion e la PWA mostrano solo cio' che si e' scritto.
+					text: tailOfText(stripEditorContext(entry.content), RECENT_MESSAGE_MAX_CHARS)
 				});
 			} else if (entry.kind === 'assistant') {
 				const text = assistantEntryText(entry);

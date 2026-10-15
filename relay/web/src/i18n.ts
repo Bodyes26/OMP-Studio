@@ -242,7 +242,13 @@ const DICT = {
 		chatNoSessionControl: 'Controllo sessione non supportato da questa macchina',
 		chatLaneDisappeared: 'Corsia non più disponibile',
 		chatAskMinimize: 'Riduci la domanda',
-		chatAskReopen: 'Rispondi'
+		chatAskReopen: 'Rispondi',
+		askStepsAria: 'Domande',
+		askCounter: 'Domanda {current} di {total}',
+		askReviewTab: 'Riepilogo',
+		askReviewTitle: 'Controlla le risposte prima di inviarle',
+		askBack: 'Indietro',
+		askNext: 'Avanti'
 	},
 	en: {
 		appTitle: 'OMP Studio Remote',
@@ -473,7 +479,13 @@ const DICT = {
 		chatNoSessionControl: 'Session control not supported by this machine',
 		chatLaneDisappeared: 'Lane no longer available',
 		chatAskMinimize: 'Minimize the question',
-		chatAskReopen: 'Answer'
+		chatAskReopen: 'Answer',
+		askStepsAria: 'Questions',
+		askCounter: 'Question {current} of {total}',
+		askReviewTab: 'Review',
+		askReviewTitle: 'Check your answers before sending',
+		askBack: 'Back',
+		askNext: 'Next'
 	}
 } as const;
 
