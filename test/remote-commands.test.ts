@@ -48,6 +48,10 @@ describe('remote command handling', () => {
 			stageAttachment: unused,
 			refreshContext: unused,
 			compactContext: unused,
+			listSessions: unused,
+			sessionHistory: unused,
+			createLane: unused,
+			markSessionSeen: unused,
 			...executorOverrides
 		};
 
@@ -370,8 +374,6 @@ describe('remote command handling', () => {
 
 		await promptBus.cancelRequest('prompt-main-lane');
 	});
-
-
 	it('taskBelongsToProject correctly matches id and canonicalProjectPath across formats', () => {
 		const project = { id: 'p1', name: 'Project 1', canonicalProjectPath: '/Users/dev/OMP-Studio' };
 

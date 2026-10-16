@@ -52,6 +52,11 @@
 		});
 	}
 
+	export function isAtBottom(): boolean {
+		if (!scrollEl) return true;
+		return !userScrolledUp;
+	}
+
 	function handleScroll(): void {
 		if (!scrollEl) return;
 		const distance = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight;

@@ -21,7 +21,8 @@ import type {
 	RemoteQuotaProvider,
 	RemoteQuotaWindow,
 	RemoteAgentState,
-	RemoteTheme
+	RemoteTheme,
+	RemoteSessionSnapshot
 } from '$remote-protocol';
 import { resolveActiveRole } from '$lib/stores/modelSettingsHelpers';
 import { taskLabel } from '$lib/stores/taskTitle';
@@ -60,6 +61,7 @@ export interface SessionInput {
 	lastPickedRole?: string | null;
 	role?: string | null;
 	context?: RemoteAgent['context'];
+	session?: RemoteSessionSnapshot | null;
 }
 export interface ScheduleTargetOutput {
 	dueAt?: number;
@@ -272,7 +274,8 @@ function mapLanes(
 			id,
 			title,
 			kind,
-			agent
+			agent,
+			...(session && 'session' in session ? { session: session.session } : {})
 		};
 	});
 }

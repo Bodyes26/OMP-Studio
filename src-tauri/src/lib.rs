@@ -41,9 +41,9 @@ use projects::{
 mod omp_ops;
 use omp_ops::{
     check_omp_update, get_omp_changelog_status, get_omp_version, mark_omp_changelog_seen,
-    omp_user_theme, provider_hosts, run_omp_update, session_credential_pins, sessions_list,
-    sessions_search, sweep_stale_logs, theme_apply, usage_reset_list, usage_reset_redeem,
-    usage_snapshot,
+    omp_user_theme, provider_hosts, read_historical_session_messages, run_omp_update,
+    session_credential_pins, sessions_list, sessions_search, sweep_stale_logs, theme_apply,
+    usage_reset_list, usage_reset_redeem, usage_snapshot,
 };
 mod studio_updater;
 use studio_updater::{
@@ -253,6 +253,7 @@ pub fn run() {
             sessions_search,
             session_credential_pins,
             session_subagent_cost,
+            read_historical_session_messages,
             get_omp_version,
             check_omp_update,
             run_omp_update,

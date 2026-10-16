@@ -252,6 +252,16 @@ export function entryToRemoteMessage(
 		};
 	}
 
+	if (entry.kind === 'system-chip' && !entry.internal) {
+		return {
+			id: durableId,
+			role: 'system',
+			text: `${entry.title}\n${entry.body}`.trim().slice(0, MAX_PROSE_TEXT_CHARS),
+			toolName: null,
+			timestamp: null
+		};
+	}
+
 	if (entry.kind === 'notice' || entry.kind === 'compaction') {
 		return {
 			id: durableId,

@@ -52,7 +52,8 @@ export const FEATURES = [
 	'chat',
 	'projects',
 	'chat_rich',
-	'lane_config'
+	'lane_config',
+	'fleet'
 ] as const;
 export type Feature = (typeof FEATURES)[number];
 
@@ -147,6 +148,31 @@ export interface RemoteLane {
 	title: string;
 	kind: 'main' | 'worktree' | 'lab';
 	agent: RemoteAgent;
+	session?: RemoteSessionSnapshot | null;
+}
+
+export interface RemoteSessionSnapshot {
+	id: string | null;
+	title: string | null;
+	updatedAt: number | null;
+	completion: { id: string; at: number; seen: boolean } | null;
+	progress: { done: number; total: number; items: Array<{ content: string; status: string }> } | null;
+	subagents: Array<{ id: string; name: string; task: string | null; status: string }>;
+	jobs: Array<{ id: string; label: string; status: string }>;
+}
+
+export interface RemoteSessionSummary {
+	sessionId: string;
+	title: string | null;
+	prompt: string;
+	createdAt: number;
+	laneId: string | null;
+	laneTitle: string | null;
+}
+
+export interface RemoteSessionPage {
+	sessions: RemoteSessionSummary[];
+	before: string | null;
 }
 
 export interface RemoteAskQuestion {
@@ -365,7 +391,11 @@ export type RemoteCommand =
 			stageId?: string;
 	  }
 	| { kind: 'refresh_context'; projectId: string; laneId: string | null; force?: boolean }
-	| { kind: 'compact_context'; projectId: string; laneId: string | null };
+	| { kind: 'compact_context'; projectId: string; laneId: string | null }
+	| { kind: 'list_sessions'; projectId: string; before: string | null; limit: number; query?: string }
+	| { kind: 'session_history'; projectId: string; sessionId: string; before: string | null; limit: number }
+	| { kind: 'create_lane'; projectId: string; title: string; prompt: string }
+	| { kind: 'mark_session_seen'; projectId: string; laneId: string | null; sessionId: string; completionId: string };
 
 /** Funzione che una macchina deve dichiarare perche' il comando le arrivi. */
 export const COMMAND_FEATURE: Record<RemoteCommand['kind'], Feature> = {
@@ -390,7 +420,11 @@ export const COMMAND_FEATURE: Record<RemoteCommand['kind'], Feature> = {
 	set_lane_thinking: 'lane_config',
 	stage_attachment: 'session_control',
 	refresh_context: 'session_control',
-	compact_context: 'session_control'
+	compact_context: 'session_control',
+	list_sessions: 'fleet',
+	session_history: 'fleet',
+	create_lane: 'fleet',
+	mark_session_seen: 'fleet'
 };
 
 export interface RemoteChatMessage {
@@ -556,6 +590,10 @@ export interface RemoteCommandData {
 	stage_attachment: { path: string; name: string; size: number };
 	refresh_context: { success: true };
 	compact_context: { success: true };
+	list_sessions: RemoteSessionPage;
+	session_history: RemoteChatPage;
+	create_lane: { laneId: string };
+	mark_session_seen: { success: true };
 }
 
 export interface RemotePromptImage {

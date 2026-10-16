@@ -2051,6 +2051,208 @@ pub async fn session_credential_pins(session_id: String) -> HashMap<String, Stri
         .unwrap_or_default()
 }
 
+fn read_session_messages_from_path(
+    file_path: &Path,
+    project_path: &str,
+    session_id: &str,
+    known_worktree_paths: &[String],
+) -> Result<Vec<serde_json::Value>, String> {
+    let mtime = std::fs::metadata(file_path)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+
+    let Some(header) = read_session_header(file_path, mtime) else {
+        return Err("Impossibile leggere l'intestazione della sessione".to_string());
+    };
+
+    // Controllo rigoroso di autorizzazione sul percorso canonico e worktree
+    let header_cwd_norm = normalize_path_for_compare(&header.cwd);
+    let project_path_norm = normalize_path_for_compare(project_path);
+    let mut authorized = header_cwd_norm == project_path_norm;
+
+    if !authorized {
+        for wt in known_worktree_paths {
+            if header_cwd_norm == normalize_path_for_compare(wt) {
+                authorized = true;
+                break;
+            }
+        }
+    }
+
+    if !authorized {
+        if let Ok(conn) = open_readonly_db("history.db") {
+            let path_backslash = project_path.replace('/', "\\");
+            let path_slash = project_path.replace('\\', "/");
+            let target_norm = normalize_path_for_compare(project_path);
+            if let Ok(mut stmt) = conn.prepare(
+                "SELECT 1 FROM history WHERE session_id = ?1 AND (cwd = ?2 OR cwd = ?3 OR replace(cwd, '\\', '/') = ?4) LIMIT 1",
+            ) {
+                if stmt
+                    .exists(rusqlite::params![session_id, path_backslash, path_slash, target_norm])
+                    .unwrap_or(false)
+                {
+                    authorized = true;
+                }
+            }
+            if !authorized {
+                for wt in known_worktree_paths {
+                    let wt_backslash = wt.replace('/', "\\");
+                    let wt_slash = wt.replace('\\', "/");
+                    let wt_norm = normalize_path_for_compare(wt);
+                    if let Ok(mut stmt) = conn.prepare(
+                        "SELECT 1 FROM history WHERE session_id = ?1 AND (cwd = ?2 OR cwd = ?3 OR replace(cwd, '\\', '/') = ?4) LIMIT 1",
+                    ) {
+                        if stmt
+                            .exists(rusqlite::params![session_id, wt_backslash, wt_slash, wt_norm])
+                            .unwrap_or(false)
+                        {
+                            authorized = true;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if !authorized {
+        return Err(format!(
+            "Accesso negato: la sessione '{}' non appartiene al progetto '{}'",
+            session_id, project_path
+        ));
+    }
+
+    let file = File::open(file_path).map_err(|e| format!("Apertura del file di sessione fallita: {}", e))?;
+    let reader = BufReader::new(file);
+
+    let mut nodes: HashMap<String, (Option<String>, serde_json::Value)> = HashMap::new();
+    let mut last_id: Option<String> = None;
+    let mut fallback_linear: Vec<serde_json::Value> = Vec::new();
+
+    for line_result in reader.lines() {
+        let line = line_result.map_err(|e| format!("Errore di lettura del transcript: {}", e))?;
+        let trimmed_line = line.trim();
+        if trimmed_line.is_empty() {
+            continue;
+        }
+        let Ok(val) = serde_json::from_str::<serde_json::Value>(trimmed_line) else {
+            // Righe incomplete a fine file possono capitare durante la scrittura di omp
+            continue;
+        };
+
+        let node_id = val.get("id").and_then(|i| i.as_str()).map(|s| s.to_string());
+        if let Some(id_str) = node_id {
+            let parent_id = val.get("parentId").and_then(|p| p.as_str()).map(|s| s.to_string());
+            last_id = Some(id_str.clone());
+            nodes.insert(id_str, (parent_id, val));
+        } else {
+            fallback_linear.push(val);
+        }
+    }
+
+    // Ricostruzione del ramo attivo risalendo da last_id lungo parentId
+    let mut active_path = Vec::new();
+    if let Some(tip) = last_id {
+        let mut curr = Some(tip);
+        let mut visited = HashSet::new();
+        while let Some(id) = curr {
+            if !visited.insert(id.clone()) {
+                break; // Protezione da cicli accidentali
+            }
+            active_path.push(id.clone());
+            curr = nodes.get(&id).and_then(|(p, _)| p.clone());
+        }
+        active_path.reverse();
+    }
+
+    let mut messages = Vec::new();
+    for id in active_path {
+        if let Some((_, val)) = nodes.remove(&id) {
+            let (msg_type, mut val_map) = match val {
+                serde_json::Value::Object(map) => {
+                    let t = map.get("type").and_then(|t| t.as_str()).unwrap_or("").to_string();
+                    (t, map)
+                }
+                _ => ("".to_string(), serde_json::Map::new()),
+            };
+
+            if msg_type == "message" {
+                let mut msg_obj = match val_map.remove("message") {
+                    Some(serde_json::Value::Object(map)) => map,
+                    _ => serde_json::Map::new(),
+                };
+                if !msg_obj.contains_key("id") {
+                    msg_obj.insert("id".to_string(), serde_json::Value::String(id));
+                }
+                if !msg_obj.contains_key("timestamp") {
+                    if let Some(ts_val) = val_map.remove("timestamp") {
+                        msg_obj.insert("timestamp".to_string(), ts_val);
+                    }
+                }
+                messages.push(serde_json::Value::Object(msg_obj));
+            } else if msg_type == "compaction" || msg_type == "custom" {
+                messages.push(serde_json::Value::Object(val_map));
+            }
+        }
+    }
+
+    if messages.is_empty() && !fallback_linear.is_empty() {
+        for mut val in fallback_linear {
+            if val.get("type").and_then(|t| t.as_str()) == Some("message") {
+                if let Some(msg_obj) = val.get_mut("message") {
+                    messages.push(msg_obj.take());
+                }
+            }
+        }
+    }
+
+    Ok(messages)
+}
+
+fn read_historical_session_messages_sync(
+    _app: tauri::AppHandle,
+    project_path: String,
+    session_id: String,
+    known_worktree_paths: Vec<String>,
+) -> Result<Vec<serde_json::Value>, String> {
+    let trimmed_id = session_id.trim();
+    if trimmed_id.is_empty() {
+        return Err("Session ID cannot be empty".to_string());
+    }
+    if trimmed_id.contains('/') || trimmed_id.contains('\\') || trimmed_id.contains("..") {
+        return Err("Invalid session ID format".to_string());
+    }
+
+    let Some(agent) = agent_dir() else {
+        return Err("Could not locate agent directory".to_string());
+    };
+    let sessions_root = agent.join("sessions");
+    let Some(file_path) = find_session_file_in(&sessions_root, trimmed_id) else {
+        return Err(format!("Session transcript not found for id '{}'", trimmed_id));
+    };
+
+    read_session_messages_from_path(&file_path, &project_path, trimmed_id, &known_worktree_paths)
+}
+
+/// Recupero in sola lettura dello storico dei messaggi di una sessione persistita.
+/// Verifica che la sessione appartenga al progetto indicato prima di leggerla.
+#[command]
+pub async fn read_historical_session_messages(
+    app: tauri::AppHandle,
+    project_path: String,
+    session_id: String,
+    known_worktree_paths: Vec<String>,
+) -> Result<Vec<serde_json::Value>, String> {
+    tokio::task::spawn_blocking(move || {
+        read_historical_session_messages_sync(app, project_path, session_id, known_worktree_paths)
+    })
+    .await
+    .map_err(|e| format!("Task read_historical_session_messages: {}", e))?
+}
+
 /// Versioni di omp in cache, per binario e mtime. Una cache globale senza chiave
 /// restava valida anche dopo che omp era stato sostituito (aggiornamento esterno,
 /// altro percorso nel PATH) e mostrava la versione vecchia.
@@ -3348,5 +3550,77 @@ riga_non_json_che_viene_ignorata
         );
         assert_eq!(puntato["openai-codex"]["autoRedeem"], "no");
         assert_eq!(puntato["anthropic"]["autoRedeem"], "yes");
+    }
+
+    #[test]
+    fn test_read_historical_session_cross_project_denial() {
+        let temp_dir = std::env::temp_dir().join(format!("omp-test-cross-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let session_file = temp_dir.join("test_session.jsonl");
+
+        let content = "{\"type\":\"session\",\"version\":3,\"id\":\"s-100\",\"cwd\":\"/Users/dev/other-project\"}\n{\"type\":\"message\",\"id\":\"m1\",\"parentId\":null,\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hello\"}]}}\n";
+        std::fs::write(&session_file, content).unwrap();
+
+        let res = read_session_messages_from_path(
+            &session_file,
+            "/Users/dev/my-project",
+            "s-100",
+            &[],
+        );
+        assert!(res.is_err());
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_read_historical_session_branches() {
+        let temp_dir = std::env::temp_dir().join(format!("omp-test-branch-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let session_file = temp_dir.join("test_branch.jsonl");
+
+        // Simula una sessione con una ramificazione (turn rigenerato):
+        // m1 (root) -> m2a (abbandonata)
+        //          \-> m2b (attiva) -> m3b (attiva, tip)
+        let content = "{\"type\":\"session\",\"version\":3,\"id\":\"s-200\",\"cwd\":\"/Users/dev/my-project\"}\n{\"type\":\"message\",\"id\":\"m1\",\"parentId\":null,\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"start\"}]}}\n{\"type\":\"message\",\"id\":\"m2a\",\"parentId\":\"m1\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"abandoned reply\"}]}}\n{\"type\":\"message\",\"id\":\"m2b\",\"parentId\":\"m1\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"active reply\"}]}}\n{\"type\":\"message\",\"id\":\"m3b\",\"parentId\":\"m2b\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"followup\"}]}}\n";
+        std::fs::write(&session_file, content).unwrap();
+
+        let res = read_session_messages_from_path(
+            &session_file,
+            "/Users/dev/my-project",
+            "s-200",
+            &[],
+        );
+        assert!(res.is_ok());
+        let messages = res.unwrap();
+        assert_eq!(messages.len(), 3);
+        assert_eq!(messages[0]["id"], "m1");
+        assert_eq!(messages[1]["id"], "m2b");
+        assert_eq!(messages[2]["id"], "m3b");
+        assert!(!messages.iter().any(|m| m["id"] == "m2a"));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_read_historical_session_authorized_worktree() {
+        let temp_dir = std::env::temp_dir().join(format!("omp-test-wt-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let session_file = temp_dir.join("test_wt.jsonl");
+
+        let content = "{\"type\":\"session\",\"version\":3,\"id\":\"s-300\",\"cwd\":\"/Users/dev/my-project/.omp/worktrees/feat\"}\n{\"type\":\"message\",\"id\":\"m1\",\"parentId\":null,\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"worktree task\"}]}}\n";
+        std::fs::write(&session_file, content).unwrap();
+
+        let res = read_session_messages_from_path(
+            &session_file,
+            "/Users/dev/my-project",
+            "s-300",
+            &["/Users/dev/my-project/.omp/worktrees/feat".to_string()],
+        );
+        assert!(res.is_ok());
+        let messages = res.unwrap();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0]["id"], "m1");
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }

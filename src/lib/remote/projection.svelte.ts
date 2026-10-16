@@ -20,6 +20,7 @@ import { sessionRegistry } from '$lib/agent/sessionRegistry';
 import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
 import { onThemeChange, getCurrentAnchors } from '$lib/theme';
 import { settingsStore } from '$lib/stores/settings.svelte';
+import { buildRemoteSessionSnapshot } from './completion.svelte';
 
 export interface RemoteProjectionOptions {
 	getCandidateTaskId?: (projectId: string) => string | null;
@@ -96,6 +97,7 @@ export function startRemoteProjection(options: RemoteProjectionOptions = {}): ()
 							headsUp: s.headsUp,
 							thinkingLevel: s.thinkingLevel,
 							lastPickedRole: s.lastPickedRole,
+							session: buildRemoteSessionSnapshot(s),
 							context: {
 								model: s.model ? {
 									id: s.model.id,

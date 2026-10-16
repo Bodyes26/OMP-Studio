@@ -13,6 +13,7 @@ import { laneStore, type LaneArchiveOutcome, type LaneRecord } from '$lib/stores
 import { laneRecordFromAgentLane, type LaneArchiveReason } from '$lib/stores/lanePersistence';
 import { sessionRegistry, laneSessionKey } from '$lib/agent/sessionRegistry';
 import type { AgentSession } from '$lib/agent/session.svelte';
+import { sessionCompletions } from '$lib/agent/completion.svelte';
 import { taskStore } from '$lib/stores/tasks.svelte';
 import type { LaneDispatchSnapshot } from './queueDispatch';
 import { applyProfileToLane } from './laneProfile';
@@ -42,17 +43,6 @@ export class LaneOrchestrator {
 	terminalBusy = $state<Record<string, boolean>>({});
 	switchingSurface = $state<Record<string, boolean>>({});
 	agentErrors = $state<Record<string, string | null>>({});
-	/**
-	 * Ultimo `runEndSeq` visto dall'utente per ciascuna sessione GUI. La sessione
-	 * GUI non conosce lo stato "finito": senza questo confronto una corsia che
-	 * ha chiuso il turno mentre guardavi altrove sarebbe indistinguibile da una
-	 * ferma, e l'anello "da leggere" della barra corsie non comparirebbe mai.
-	 * La chiave e' la sessione e non la corsia: una corsia chiusa e riaperta
-	 * riparte con un contatore da zero che un valore vecchio nasconderebbe.
-	 * Non serve reattivita': si scrive solo nello switch, che cambia gia'
-	 * `project.lane` e rilegge questo stato.
-	 */
-	private seenRunEnd = new WeakMap<AgentSession, number>();
 
 	// Riferimenti alle sessioni terminale vive per ciascuna corsia (laneSessionKey)
 	terminalSessions = new Map<string, TerminalSession>();
@@ -207,11 +197,6 @@ export class LaneOrchestrator {
 
 		if (!targetLane) return;
 
-		// L'ingresso nella corsia e l'uscita da quella corrente valgono come
-		// lettura: l'anello "finito" sparisce su chi entra e non compare su chi
-		// esce per un turno chiuso sotto gli occhi dell'utente.
-		this.markRunEndSeen(projectId, project.lane.laneId);
-		this.markRunEndSeen(projectId, targetLaneId);
 		if (targetLane.agentState === 'finished') {
 			targetLane.agentState = 'idle';
 			void laneStore.updateLane(projectId, targetLaneId, { agentState: 'idle' }).catch(() => undefined);
@@ -221,11 +206,6 @@ export class LaneOrchestrator {
 		projectStore.setProjectLane(projectId, targetLane);
 	}
 
-	private markRunEndSeen(projectId: string, laneId: string): void {
-		const session = sessionRegistry.getLaneSession(projectId, laneId);
-		if (!session) return;
-		this.seenRunEnd.set(session, session.runEndSeq);
-	}
 	/**
 	 * Navigazione ciclica tra corsie attive (es. Ctrl+Alt+Freccia).
 	 */
@@ -305,12 +285,12 @@ export class LaneOrchestrator {
 			if (session.isStreaming || session.isCompacting || session.settle.running || session.awaitingRun) return 'working';
 			// Fra due giri di un /loop omp e' fermo per un attimo: la corsia resta al lavoro.
 			if (session.loop && session.loop.status !== 'paused' && session.loopActive) return 'working';
-			// Solo le corsie non in vista possono essere "da leggere": quella
-			// aperta a schermo e' gia' letta, e la barra di stato resta ferma.
+			// Lo stesso risultato resta da leggere su Studio e su tutti i client
+			// remoti finche' una superficie visibile ne mostra davvero la risposta.
 			if (
 				session.agentState === 'idle' &&
-				project.lane.laneId !== laneId &&
-				session.runEndSeq > (this.seenRunEnd.get(session) ?? 0)
+				!session.backgroundPending &&
+				sessionCompletions.get(session.sessionId)?.seen === false
 			) {
 				return 'finished';
 			}

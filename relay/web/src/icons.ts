@@ -77,6 +77,7 @@ export { default as IconSparkles } from '@lucide/svelte/icons/sparkles';
 export { default as IconListTodo } from '@lucide/svelte/icons/list-todo';
 export { default as IconAsk } from '@lucide/svelte/icons/message-circle-question-mark';
 export { default as IconSubagents } from '@lucide/svelte/icons/split';
+export { default as IconBot } from '@lucide/svelte/icons/bot';
 export { default as IconFollowUp } from '@lucide/svelte/icons/corner-down-right';
 export { default as IconSend } from '@lucide/svelte/icons/send';
 export { default as IconStop } from '@lucide/svelte/icons/square';

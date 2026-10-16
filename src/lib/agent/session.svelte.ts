@@ -26,6 +26,8 @@ import {
 import type { RemoteChatEvent } from '$remote-protocol';
 import { entryToRemoteMessage, remoteMessageId } from '$lib/remote/chatProjection';
 import { remoteStore } from '$lib/remote/remoteStore.svelte';
+import { sessionCompletions } from './completion.svelte';
+import { observeSessionJobs, finishSessionJobs, type SessionJob } from './jobActivity';
 
 let firstComposerReadyMarked = false;
 // Stato della superficie GUI: un'istanza per progetto.
@@ -656,6 +658,7 @@ export class AgentSession {
 	// dell'utente. `isStreaming` non basta, perche `turn_end` lo spegne dopo
 	// ogni giro di tool e resta spento fino alla riconciliazione.
 	runEndSeq = $state(0);
+	private pendingCompletion: { sessionId: string; id: string; at: number } | null = null;
 	// Ancora del cronometro di attesa mostrato in chat; misura il turno intero,
 	// non la singola tratta, perche l'indicatore appare e sparisce piu volte
 	// mentre l'agente alterna pensiero, testo e tool.
@@ -748,6 +751,7 @@ export class AgentSession {
 
 	todoPhases = $state<TodoPhase[]>([]);
 	subagents = $state<AgentProgress[]>([]);
+	backgroundJobs = $state<SessionJob[]>([]);
 	todoReminder = $state<{ attempt: number; max: number } | null>(null);
 	availableCommands = $state<AvailableCommand[]>([]);
 	pendingUi = $state<PendingUiRequest | null>(null);
@@ -1953,6 +1957,7 @@ export class AgentSession {
 		if (typeof state.sessionId === 'string' && state.sessionId !== this.sessionId) {
 			// Lo storico `/btw` vive accanto al file di sessione: con la sessione cambia.
 			if (this.sessionId !== null) this.btw.resetForSession();
+			this.pendingCompletion = null;
 			this.invalidateContextReport();
 			this.contextProbedStamp = '';
 			this.contextProbeInvokesAgent = false;
@@ -2267,6 +2272,7 @@ export class AgentSession {
 				if (entry) {
 					entry.result = result;
 					entry.endedAt = message.timestamp;
+					this.backgroundJobs = observeSessionJobs(this.backgroundJobs, entry.toolName, entry.args, result.details);
 					continue;
 				}
 				// Risultato senza chiamata: la sessione e' stata compattata o
@@ -2529,6 +2535,7 @@ export class AgentSession {
 					if (event.result && (!entry.result || !entry.result.isError)) entry.result = event.result;
 					entry.running = false;
 					entry.endedAt = Date.now();
+					this.backgroundJobs = observeSessionJobs(this.backgroundJobs, entry.toolName, entry.args, entry.result?.details);
 					const endToolMsg = entryToRemoteMessage(entry);
 					if (endToolMsg) {
 						this.emitRemoteChat({
@@ -2558,6 +2565,7 @@ export class AgentSession {
 			}
 
 			case 'agent_start':
+				this.pendingCompletion = null;
 				if (this.isAborting) return;
 				this.invalidateContextReport();
 				if (this.turnStartedAt === null) this.turnStartedAt = Date.now();
@@ -2589,6 +2597,13 @@ export class AgentSession {
 				this.activeAssistantId = null;
 				this.runEndSeq += 1;
 				this.agentState = this.resolveSettledState();
+				if (!wasAborting && this.sessionId) {
+					const at = Date.now();
+					this.pendingCompletion = { sessionId: this.sessionId, id: `${at}:${this.runEndSeq}`, at };
+					if (this.settle.settled) this.captureCompletion();
+				} else {
+					this.pendingCompletion = null;
+				}
 				this.releaseIdleWaiters();
 				this.noteGoalAttemptEnd(wasAborting);
 				void this.reconcile();
@@ -2614,9 +2629,10 @@ export class AgentSession {
 			// yield e, in caso di errore del provider, il messaggio pulito.
 			case 'prompt_result': {
 				const wasSettled = this.settle.settled;
+				const failure = promptResultError(event);
+				if (failure) this.pendingCompletion = null;
 				this.settle = settleOnPromptResult(this.settle, event);
 				if (!wasSettled && this.settle.settled) this.onSettled();
-				const failure = promptResultError(event);
 				// La quota ha gia' la sua riga nel vassoio con le azioni di recupero.
 				if (failure && !(this.blockedQuotaState && !this.blockedQuotaState.dismissed)) {
 					this.pushNotice('error', this.promptFailureText(failure), 'provider');
@@ -3230,6 +3246,7 @@ export class AgentSession {
 		switch (classified.kind) {
 			case 'subagent-result': {
 				this.reconcileSubagentsFromJobs(classified.jobs);
+				this.backgroundJobs = finishSessionJobs(this.backgroundJobs, classified.jobs);
 				return {
 					id: this.nextEntryId++,
 					kind: 'subagent-result',
@@ -3372,6 +3389,23 @@ export class AgentSession {
 		this.stopSettlePoll();
 		if (this.isStreaming || this.isCompacting) return;
 		if (this.agentState === 'working') this.agentState = this.resolveSettledState();
+		this.captureCompletion();
+	}
+
+	private captureCompletion(): void {
+		const completion = this.pendingCompletion;
+		if (!completion || completion.sessionId !== this.sessionId || !this.settle.settled) return;
+		this.pendingCompletion = null;
+		// Un abort o un errore prima della risposta non sono un risultato da leggere.
+		for (let index = this.entries.length - 1; index >= 0; index--) {
+			const answer = this.entries[index];
+			if (answer.kind === 'user') return;
+			if (answer.kind !== 'assistant') continue;
+			if (answer.stopReason === 'error' || answer.stopReason === 'aborted') return;
+			if (!answer.blocks.some((block) => block.type === 'text' && block.text.trim())) continue;
+			sessionCompletions.complete(completion.sessionId, completion.id, completion.at);
+			return;
+		}
 	}
 
 	/**
@@ -4868,6 +4902,8 @@ export class AgentSession {
 	 */
 	private resetLiveSessionState(): void {
 		this.plan.onSessionReset();
+		this.pendingCompletion = null;
+		this.backgroundJobs = [];
 		this.entries = [];
 		this.clearGuidedGoal();
 		this.toolEntries.clear();

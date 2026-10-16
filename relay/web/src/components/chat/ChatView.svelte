@@ -5,7 +5,8 @@
 -->
 <script lang="ts">
 	import { t } from '../../i18n.ts';
-	import { navigation, type ChatRoute } from '../../navigation.svelte.ts';
+	import { tick } from 'svelte';
+	import { navigation, type LiveChatRoute } from '../../navigation.svelte.ts';
 	import { connection } from '../../connection.svelte.ts';
 	import type {
 		Feature,
@@ -24,10 +25,11 @@
 	import ComposerTray from './ComposerTray.svelte';
 	import AttentionCard from '../AttentionCard.svelte';
 	import StatusMark from '../StatusMark.svelte';
-	import { IconArrowLeft, IconChevronDown, IconChevronUp, IconClose, IconNewChat } from '../../icons.ts';
+	import OperationalDetails from '../inbox/OperationalDetails.svelte';
+	import { IconArrowLeft, IconChevronDown, IconChevronUp, IconClose, IconNewChat, IconInfo } from '../../icons.ts';
 	import type { RemoteComposerAttachment } from '../../chat/remoteAttachments.svelte.ts';
 
-	let { route }: { route: ChatRoute } = $props();
+	let { route }: { route: LiveChatRoute } = $props();
 
 	let messages = $state<RemoteChatMessage[]>([]);
 	let beforeCursor = $state<string | null>(null);
@@ -38,6 +40,20 @@
 	let askMinimized = $state(false);
 	let activeImageModal = $state<{ url: string; mimeType?: string } | null>(null);
 	let imageDialogEl = $state<HTMLDialogElement | null>(null);
+	let showOperationalSheet = $state(false);
+	let operationalDialogEl = $state<HTMLDialogElement | null>(null);
+	let pageVisible = $state(false);
+	let historyReady = $state(false);
+	$effect(() => {
+		if (operationalDialogEl && !operationalDialogEl.open) operationalDialogEl.showModal();
+	});
+	$effect(() => {
+		const update = () => { pageVisible = document.visibilityState === 'visible'; };
+		update();
+		document.addEventListener('visibilitychange', update);
+		return () => document.removeEventListener('visibilitychange', update);
+	});
+
 	$effect(() => {
 		if (imageDialogEl && !imageDialogEl.open) imageDialogEl.showModal();
 	});
@@ -105,6 +121,61 @@
 		if (lane?.agent.thinkingLevel && lane.agent.thinkingLevel === optimisticThinking) {
 			optimisticThinking = null;
 		}
+	});
+	const sessionSnapshot = $derived(lane?.session);
+	const conversationTitle = $derived(
+		sessionSnapshot?.title || lane?.title || route.laneId
+	);
+
+	const operationalChips = $derived.by<string[]>(() => {
+		const list: string[] = [];
+		if (sessionSnapshot?.progress && sessionSnapshot.progress.total > 0) {
+			list.push(`${sessionSnapshot.progress.done}/${sessionSnapshot.progress.total} todo`);
+		}
+		if (sessionSnapshot?.subagents && sessionSnapshot.subagents.length > 0) {
+			list.push(`${sessionSnapshot.subagents.length} sub-agent`);
+		}
+		if (sessionSnapshot?.jobs && sessionSnapshot.jobs.length > 0) {
+			list.push(`${sessionSnapshot.jobs.length} job`);
+		}
+		if (project?.tasks && project.tasks.length > 0) {
+			list.push(`+${project.tasks.length} in coda`);
+		}
+		return list;
+	});
+
+	// Ogni tentativo riguarda il risultato esatto gia' disegnato, non il prossimo turno.
+	const attemptedCompletions = new Set<string>();
+	$effect(() => {
+		const completion = sessionSnapshot?.completion;
+		const sessionId = sessionSnapshot?.id;
+		if (!pageVisible || !hostOnline || connection.status !== 'connected' ||
+			!hostFeatures.includes('fleet') || !historyReady || loadingHistory ||
+			!transcriptRef?.isAtBottom() || !sessionId || !completion || completion.seen) return;
+		const exactKey = `${sessionId}:${completion.id}`;
+		if (attemptedCompletions.has(exactKey)) return;
+		let cancelled = false;
+		let frame = 0;
+		void tick().then(() => {
+			if (cancelled) return;
+			frame = requestAnimationFrame(() => {
+				if (cancelled || document.visibilityState !== 'visible' || !transcriptRef?.isAtBottom()) return;
+				attemptedCompletions.add(exactKey);
+				void connection.sendCommand(route.hostId, {
+					kind: 'mark_session_seen',
+					projectId: route.projectId,
+					laneId: route.laneId === 'main' ? null : route.laneId,
+					sessionId,
+					completionId: completion.id
+				}).catch((error: unknown) => {
+					errorMessage = error instanceof Error ? error.message : (error as { message?: string })?.message ?? t('errFailed');
+				});
+			});
+		});
+		return () => {
+			cancelled = true;
+			cancelAnimationFrame(frame);
+		};
 	});
 
 	async function fetchComposerCatalog(force = false): Promise<void> {
@@ -307,6 +378,7 @@
 
 	async function loadInitialHistory(): Promise<void> {
 		if (!canChat) return;
+		historyReady = false;
 		loadingHistory = true;
 		errorMessage = null;
 		try {
@@ -322,6 +394,7 @@
 				const merged = applyChatPage(messages, res, 'replace');
 				messages = merged.messages;
 				beforeCursor = merged.before;
+				historyReady = true;
 			}
 		} catch (err: unknown) {
 			const e = err as { message?: string };
@@ -488,19 +561,28 @@
 		</button>
 
 		<div class="header-titles">
-			{#if project}
-				<span
-					class="project-hue-dot"
-					style:background="hsl({project.hue}, 70%, 55%)"
-				></span>
-				<span class="project-name">{project.name}</span>
-				<span class="header-sep">/</span>
-			{/if}
-
-			<span class="lane-title">{lane?.title ?? route.laneId}</span>
-			{#if laneKindLabel}
-				<span class="lane-kind-badge">{laneKindLabel}</span>
-			{/if}
+			<div class="header-context-line">
+				{#if project}
+					<span
+						class="project-hue-dot"
+						style:background="hsl({project.hue}, 70%, 55%)"
+					></span>
+					<span class="context-project">{project.name}</span>
+					<span class="header-sep">/</span>
+				{/if}
+				<span class="context-host">{hostName}</span>
+				{#if laneKindLabel}
+					<span class="header-sep">/</span>
+					<span class="lane-kind-badge">{laneKindLabel}</span>
+				{/if}
+				{#if lane?.title}
+					<span class="header-sep">/</span>
+					<span class="context-lane">{lane.title}</span>
+				{/if}
+			</div>
+			<div class="header-title-line">
+				<h1 class="chat-conversation-title">{conversationTitle}</h1>
+			</div>
 		</div>
 
 		<div class="header-right">
@@ -534,10 +616,31 @@
 			{#if !canLaneConfig && modelLabel}
 				<span class="header-model-label font-mono">{modelLabel}</span>
 			{/if}
-
+			<button
+				type="button"
+				class="composer-icon-btn op-info-btn"
+				onclick={() => (showOperationalSheet = !showOperationalSheet)}
+				title={t('operationalDetailsTitle')}
+				aria-label={t('operationalDetailsTitle')}
+			>
+				<IconInfo />
+			</button>
 			<span class="header-host-name">{hostName}</span>
 		</div>
 	</header>
+	{#if operationalChips.length > 0}
+		<button
+			type="button"
+			class="chat-operational-chips-bar"
+			onclick={() => (showOperationalSheet = true)}
+			aria-label={t('operationalDetailsTitle')}
+		>
+			{#each operationalChips as chip (chip)}
+				<span class="op-chip font-mono">{chip}</span>
+			{/each}
+		</button>
+	{/if}
+
 
 	{#if errorMessage}
 		<div class="chat-error-banner" role="alert">
@@ -545,6 +648,8 @@
 		</div>
 	{/if}
 
+	<div class="chat-content-split">
+		<div class="chat-stream-column">
 	<!-- Trascrizione centrale dei turni -->
 	<main class="chat-main">
 		<Transcript
@@ -631,6 +736,42 @@
 			{/if}
 		</div>
 	</footer>
+		</div>
+
+		{#if project}
+			<aside class="chat-operational-sidebar">
+				<OperationalDetails
+					hostId={route.hostId}
+					{hostName}
+					{hostFeatures}
+					{project}
+					{lane}
+				/>
+			</aside>
+		{/if}
+	</div>
+
+	{#if showOperationalSheet && project}
+		<dialog
+			bind:this={operationalDialogEl}
+			class="mobile-operational-backdrop"
+			onclick={(event) => { if (event.target === event.currentTarget) showOperationalSheet = false; }}
+			oncancel={() => (showOperationalSheet = false)}
+			onclose={() => (showOperationalSheet = false)}
+			aria-label={t('operationalDetailsTitle')}
+		>
+			<div class="mobile-operational-sheet">
+				<OperationalDetails
+					hostId={route.hostId}
+					{hostName}
+					{hostFeatures}
+					{project}
+					{lane}
+					onClose={() => (showOperationalSheet = false)}
+				/>
+			</div>
+		</dialog>
+	{/if}
 	{#if activeImageModal}
 		<dialog bind:this={imageDialogEl} class="image-modal-backdrop"
 			aria-label={t('chatImageCountSingular')}
@@ -710,8 +851,8 @@
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
-		height: 48px;
-		padding: 0 var(--space-3);
+		min-height: 56px;
+		padding: 6px var(--space-3);
 		background: var(--bg-raised);
 		border-bottom: 1px solid var(--line);
 		flex-shrink: 0;
@@ -742,12 +883,148 @@
 
 	.header-titles {
 		display: flex;
-		align-items: center;
-		gap: 6px;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 3px;
 		min-width: 0;
 		overflow: hidden;
 		flex: 1;
 	}
+	.header-context-line {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		width: 100%;
+		min-width: 0;
+		white-space: nowrap;
+		overflow: hidden;
+		font-size: var(--text-mini, 11px);
+		color: var(--ink-muted);
+		line-height: 1.2;
+	}
+
+	.context-project,
+	.context-host,
+	.context-lane {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.header-title-line {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		min-width: 0;
+		width: 100%;
+	}
+
+	.chat-conversation-title {
+		font-size: var(--text-label, 14px);
+		font-weight: 600;
+		color: var(--ink);
+		margin: 0;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.chat-operational-chips-bar {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		padding: 5px 12px;
+		background: var(--bg-sunken);
+		border-bottom: 1px solid var(--line);
+		overflow-x: auto;
+		cursor: pointer;
+		border-top: none;
+		border-left: none;
+		border-right: none;
+		text-align: left;
+		flex-shrink: 0;
+	}
+
+	.op-chip {
+		display: inline-flex;
+		align-items: center;
+		padding: 2px 8px;
+		border-radius: var(--radius-sm, 6px);
+		background: var(--bg-base);
+		border: 1px solid var(--line);
+		font-size: var(--text-mini, 11px);
+		color: var(--ink-muted);
+		white-space: nowrap;
+		flex-shrink: 0;
+	}
+
+	.op-info-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.chat-content-split {
+		flex: 1;
+		min-height: 0;
+		display: flex;
+		flex-direction: row;
+		overflow: hidden;
+	}
+
+	.chat-stream-column {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		height: 100%;
+		overflow: hidden;
+	}
+
+	.chat-operational-sidebar {
+		width: 320px;
+		flex-shrink: 0;
+		border-left: 1px solid var(--line);
+		display: none;
+		background: var(--bg-base);
+		overflow: hidden;
+	}
+
+	@media (min-width: 1200px) {
+		.chat-operational-sidebar {
+			display: flex;
+		}
+	}
+
+	.mobile-operational-backdrop {
+		position: fixed;
+		inset: 0;
+		margin: 0;
+		padding: 0;
+		border: 0;
+		width: 100%;
+		height: 100dvh;
+		max-width: none;
+		max-height: none;
+		box-sizing: border-box;
+		z-index: 200;
+		background: rgba(0, 0, 0, 0.45);
+		display: flex;
+		flex-direction: column;
+		justify-content: flex-end;
+	}
+
+	.mobile-operational-sheet {
+		max-height: 80vh;
+		background: var(--bg-base);
+		border-radius: var(--radius-xl, 16px) var(--radius-xl, 16px) 0 0;
+		overflow: hidden;
+		display: flex;
+		flex-direction: column;
+		box-shadow: var(--shadow-dock);
+		border-top: 1px solid var(--line);
+	}
+
 
 	.project-hue-dot {
 		width: 8px;
@@ -756,14 +1033,6 @@
 		flex-shrink: 0;
 	}
 
-	.project-name {
-		font-size: var(--text-label);
-		font-weight: 500;
-		color: var(--ink-muted);
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
 
 	.header-sep {
 		color: var(--ink-faint);
@@ -771,14 +1040,6 @@
 		flex-shrink: 0;
 	}
 
-	.lane-title {
-		font-size: var(--text-label);
-		font-weight: 600;
-		color: var(--ink);
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
 
 	.lane-kind-badge {
 		padding: 1px 6px;

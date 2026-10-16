@@ -73,6 +73,10 @@
 	import { initRemoteChat, remoteChatHistory } from '$lib/remote/chat';
 	import { listRemoteProjectFolders, openRemoteProject, createRemoteProject } from '$lib/remote/projectCommands';
 	import { createLaneConfigCommands } from '$lib/remote/laneConfigCommands';
+	import { sessionCompletions } from '$lib/agent/completion.svelte';
+	import { listRemoteSessions, remoteSessionHistory } from '$lib/remote/historicalCommands';
+	import { createRemoteLane } from '$lib/remote/worktreeCommands';
+	import { markRemoteSessionSeen } from '$lib/remote/completion.svelte';
 	import { applyRoleToSession, RoleApplyError } from '$lib/agent/laneRole';
 	import { laneStore, type LaneRecord } from '$lib/stores/lanes.svelte';
 	import { laneOrchestrator, type TerminalMetaEntry } from '$lib/lanes/laneOrchestrator.svelte';
@@ -984,7 +988,10 @@
 			const candidateStates: string[] = [];
 			for (const s of sessionsToCheck) {
 				if (s.agentState && s.agentState !== 'unknown') {
-					candidateStates.push(s.agentState);
+					candidateStates.push(
+						s.agentState === 'idle' && !s.backgroundPending &&
+						sessionCompletions.get(s.sessionId)?.seen === false ? 'finished' : s.agentState
+					);
 				}
 			}
 			if (p.lane.surface === 'terminal' && terminalMeta[runtimeKey(p)]?.inputPending) {
@@ -1004,6 +1011,9 @@
 
 			if (candidateStates.length > 0) {
 				projectStore.setAgentState(p.id, aggregateState);
+				if (aggregateState === 'idle' && p.lane.surface === 'gui') {
+					projectStore.acknowledgeFinished(p.id);
+				}
 			}
 		}
 	});
@@ -1100,7 +1110,11 @@
 					composerCatalog: remoteLaneConfig.getRemoteComposerCatalog,
 					setLaneRole: remoteLaneConfig.setRemoteLaneRole,
 					setLaneModel: remoteLaneConfig.setRemoteLaneModel,
-					setLaneThinking: remoteLaneConfig.setRemoteLaneThinking
+					setLaneThinking: remoteLaneConfig.setRemoteLaneThinking,
+					listSessions: listRemoteSessions,
+					sessionHistory: remoteSessionHistory,
+					createLane: createRemoteLane,
+					markSessionSeen: markRemoteSessionSeen
 				},
 				{
 					clearAttentionRequest: (pId, lId) => companionStore.clearAttentionRequest(pId, lId)

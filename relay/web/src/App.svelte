@@ -1,7 +1,9 @@
 <!--
-  App.svelte — Radice della PWA Studio Remote.
-  Layout a una colonna centrato (mobile o senza chat) oppure a due colonne
-  (su desktop >= 960px con chat aperta: dashboard a sinistra, chat a destra).
+  App.svelte — Radice della PWA Studio Remote (Fleet Hub).
+  Layout a due colonne persistente su desktop (>=960px) solo quando abbinato:
+  lista persistente a sinistra (390px), chat o riepilogo vuoto (FleetOverview) a destra.
+  In stato non abbinato o verifica: layout a colonna piena centrato senza controlli macchina.
+  Su mobile (<960px): lista o chat a tutto schermo con tasto Indietro nativo del browser preservato.
 -->
 <script lang="ts">
 	import './app.css';
@@ -13,10 +15,16 @@
 	import Dashboard from './components/Dashboard.svelte';
 	import SettingsSheet from './components/SettingsSheet.svelte';
 	import ChatView from './components/chat/ChatView.svelte';
+	import HistoryChatView from './components/inbox/HistoryChatView.svelte';
+	import FleetOverview from './components/inbox/FleetOverview.svelte';
+	import NewChatModal from './components/inbox/NewChatModal.svelte';
 	import { initNotificationRouting } from './notificationRouting.ts';
 	import { applyTheme, pickTheme } from './theme.ts';
 
 	let showSettings = $state(false);
+	let showNewChatModal = $state(false);
+	let newChatHostId = $state<string | undefined>(undefined);
+	let newChatProjectId = $state<string | undefined>(undefined);
 
 	$effect(() => {
 		connection.init();
@@ -33,9 +41,16 @@
 	});
 
 	const hasChat = $derived(Boolean(navigation.chat));
+	const isPaired = $derived(connection.status !== 'unpaired' && connection.status !== 'checking');
+
+	function handleStartNewChat(hostId?: string, projectId?: string) {
+		newChatHostId = hostId;
+		newChatProjectId = projectId;
+		showNewChatModal = true;
+	}
 </script>
 
-<div class="app-layout" class:has-chat={hasChat}>
+<div class="app-layout" class:has-chat={hasChat} class:is-paired={isPaired}>
 	<div class="shell-content">
 		<Header onOpenSettings={() => (showSettings = true)} />
 		<OfflineBanner />
@@ -55,35 +70,90 @@
 		{#if showSettings}
 			<SettingsSheet onClose={() => (showSettings = false)} />
 		{/if}
+
+		{#if showNewChatModal}
+			<NewChatModal
+				initialHostId={newChatHostId}
+				initialProjectId={newChatProjectId}
+				onClose={() => {
+					showNewChatModal = false;
+					newChatHostId = undefined;
+					newChatProjectId = undefined;
+				}}
+			/>
+		{/if}
 	</div>
 
-	{#if navigation.chat}
-		<div class="chat-pane" role="region" aria-label={navigation.chat.laneId}>
-			<ChatView route={navigation.chat} />
-		</div>
+	<!-- Area destra: Chat attiva, Trascrizione storica o Riepilogo macchine (SOLO quando abbinato) -->
+	{#if isPaired}
+		{#if navigation.chat}
+			<div
+				class="chat-pane"
+				role="region"
+				aria-label={navigation.chat.isHistory ? (navigation.chat.sessionTitle || 'Cronologia') : navigation.chat.laneId}
+			>
+				{#if navigation.chat.isHistory}
+					<HistoryChatView route={navigation.chat} />
+				{:else}
+					{#key `${navigation.chat.hostId}:${navigation.chat.projectId}:${navigation.chat.laneId}`}
+						<ChatView route={navigation.chat} />
+					{/key}
+				{/if}
+			</div>
+		{:else}
+			<div class="desktop-right-pane" role="region" aria-label="Riepilogo macchine">
+				<FleetOverview onStartNewChat={handleStartNewChat} />
+			</div>
+		{/if}
 	{/if}
 </div>
 
 <style>
 	.app-layout {
 		min-height: 100vh;
+		min-height: 100dvh;
 		display: flex;
 		flex-direction: column;
 		background: var(--bg-sunken);
 		position: relative;
 	}
 
+	.app-layout.is-paired {
+		height: 100vh;
+		height: 100dvh;
+		overflow: hidden;
+	}
+
 	.shell-content {
 		display: flex;
 		flex-direction: column;
 		min-height: 100vh;
+		min-height: 100dvh;
 		flex: 1;
+	}
+
+	.app-layout.is-paired .shell-content {
+		height: 100vh;
+		height: 100dvh;
+		min-height: 0;
+		overflow: hidden;
 	}
 
 	.main-content {
 		flex: 1;
 		display: flex;
 		flex-direction: column;
+		min-height: 0;
+	}
+
+	.app-layout.is-paired .main-content {
+		overflow: hidden;
+	}
+
+	.app-layout:not(.is-paired) .shell-content,
+	.app-layout:not(.is-paired) .main-content {
+		overflow-y: auto;
+		height: auto;
 	}
 
 	.checking-state {
@@ -109,6 +179,11 @@
 		}
 	}
 
+	/* Su mobile (<960px): riepilogo desktop nascosto */
+	.desktop-right-pane {
+		display: none;
+	}
+
 	/* Su mobile (<960px): .chat-pane e' a tutto schermo in overlay fisso */
 	.chat-pane {
 		position: fixed;
@@ -118,25 +193,34 @@
 		display: flex;
 		flex-direction: column;
 		overflow: hidden;
+		height: 100vh;
+		height: 100dvh;
 	}
-
-	/* Su desktop (>=960px): layout a due colonne quando la chat e' aperta */
+	/* Su desktop (>=960px): SEMPRE a due colonne SOLO quando is-paired */
 	@media (min-width: 960px) {
-		.app-layout.has-chat {
+		.app-layout.is-paired {
 			display: grid;
-			grid-template-columns: 380px 1fr;
+			grid-template-columns: 390px 1fr;
 			height: 100vh;
 			overflow: hidden;
 		}
 
-		.app-layout.has-chat .shell-content {
+		.app-layout.is-paired .shell-content {
 			height: 100vh;
 			min-height: 0;
-			overflow-y: auto;
+			overflow-y: hidden;
 			border-right: 1px solid var(--line);
 		}
 
-		.app-layout.has-chat .chat-pane {
+		.desktop-right-pane {
+			display: flex;
+			position: relative;
+			height: 100vh;
+			overflow: hidden;
+			z-index: 1;
+		}
+
+		.chat-pane {
 			position: relative;
 			inset: auto;
 			z-index: 1;

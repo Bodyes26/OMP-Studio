@@ -17,6 +17,7 @@ import { remoteBridge } from './bridge';
 import { RemoteCommandFailure } from './commands';
 import { remoteStore } from './remoteStore.svelte';
 import { entryToRemoteMessage } from './chatProjection';
+import { paginateRemoteMessages } from './chatPaging';
 import type { TranscriptEntry } from '$lib/agent/session.svelte';
 
 export interface PendingDelta {
@@ -280,32 +281,5 @@ export async function remoteChatHistory(
 		if (msg) allMessages.push(msg);
 	}
 
-	const clampedLimit = Math.max(1, Math.min(limit || 50, 100));
-	const MAX_PAGE_BYTES = 200 * 1024; // 200 KB per restare ben sotto il tetto di 512 KB
-
-	let endIndex = allMessages.length;
-	if (before !== null) {
-		const targetIndex = allMessages.findIndex((m) => m.id === before);
-		if (targetIndex <= 0) {
-			return { messages: [], before: null };
-		}
-		endIndex = targetIndex;
-	}
-
-	// Scansiona all'indietro conteggiando sia il limite messaggi che i byte serializzati
-	let startIndex = endIndex;
-	let currentBytes = 0;
-	while (startIndex > 0 && (endIndex - startIndex) < clampedLimit) {
-		const candidate = allMessages[startIndex - 1];
-		const candidateBytes = JSON.stringify(candidate).length + 2;
-		if (currentBytes + candidateBytes > MAX_PAGE_BYTES && startIndex < endIndex) {
-			break;
-		}
-		currentBytes += candidateBytes;
-		startIndex--;
-	}
-
-	const page = allMessages.slice(startIndex, endIndex);
-	const nextBefore = startIndex > 0 ? page[0].id : null;
-	return { messages: page, before: nextBefore };
+	return paginateRemoteMessages(allMessages, before, limit);
 }

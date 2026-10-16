@@ -16,7 +16,8 @@ import type {
 	RemoteComposerCatalog,
 	RemotePromptImage,
 	RemoteFolderList,
-	RemoteScheduleChoice
+	RemoteScheduleChoice,
+	RemoteSessionPage
 } from '$remote-protocol';
 import { remoteBridge, type RemoteCommandEvent } from './bridge';
 import { remoteStore } from './remoteStore.svelte';
@@ -116,6 +117,29 @@ export interface RemoteCommandExecutor {
 		modelId: string
 	) => Promise<void>;
 	setLaneThinking: (projectId: string, laneId: string | null, level: string) => Promise<void>;
+	listSessions: (
+		projectId: string,
+		before: string | null,
+		limit: number,
+		query?: string
+	) => Promise<RemoteSessionPage>;
+	sessionHistory: (
+		projectId: string,
+		sessionId: string,
+		before: string | null,
+		limit: number
+	) => Promise<RemoteChatPage>;
+	createLane: (
+		projectId: string,
+		title: string,
+		prompt: string
+	) => Promise<{ laneId: string }>;
+	markSessionSeen: (
+		projectId: string,
+		laneId: string | null,
+		sessionId: string,
+		completionId: string
+	) => Promise<void>;
 }
 
 export interface CommandProjectInfo {
@@ -189,7 +213,11 @@ const ACTION_LABELS: Record<RemoteCommand['kind'], string> = {
 	set_lane_thinking: 'impostato il livello di ragionamento',
 	stage_attachment: 'salvato un allegato',
 	refresh_context: 'aggiornato il contesto',
-	compact_context: 'compattato il contesto'
+	compact_context: 'compattato il contesto',
+	list_sessions: 'richiesto lo storico delle sessioni',
+	session_history: 'letto la sessione storica',
+	create_lane: 'creato una nuova corsia',
+	mark_session_seen: 'aggiornato lo stato di completamento'
 };
 
 /** Le letture non lasciano traccia: avvisano solo le azioni che cambiano qualcosa. */
@@ -197,7 +225,10 @@ const SILENT_KINDS: Partial<Record<RemoteCommand['kind'], true>> = {
 	chat_history: true,
 	list_project_folders: true,
 	composer_catalog: true,
-	stage_attachment: true
+	stage_attachment: true,
+	list_sessions: true,
+	session_history: true,
+	mark_session_seen: true
 };
 /**
  * Notifica in-app dell'avvenuta esecuzione di un comando remoto, registrata
@@ -441,6 +472,51 @@ export async function handleRemoteCommand(
 			case 'set_lane_thinking':
 				laneId = command.laneId;
 				await ctx.executor.setLaneThinking(command.projectId, command.laneId, command.level);
+				break;
+
+			case 'list_sessions':
+				data = await ctx.executor.listSessions(
+					command.projectId,
+					command.before,
+					command.limit,
+					command.query
+				);
+				break;
+
+			case 'session_history':
+				data = await ctx.executor.sessionHistory(
+					command.projectId,
+					command.sessionId,
+					command.before,
+					command.limit
+				);
+				break;
+
+			case 'create_lane':
+				data = await ctx.executor.createLane(
+					command.projectId,
+					command.title,
+					command.prompt
+				);
+				if (
+					data &&
+					typeof data === 'object' &&
+					'laneId' in data &&
+					typeof (data as { laneId: string }).laneId === 'string'
+				) {
+					laneId = (data as { laneId: string }).laneId;
+				}
+				break;
+
+			case 'mark_session_seen':
+				laneId = command.laneId;
+				await ctx.executor.markSessionSeen(
+					command.projectId,
+					command.laneId,
+					command.sessionId,
+					command.completionId
+				);
+				data = { success: true };
 				break;
 		}
 

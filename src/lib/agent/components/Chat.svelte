@@ -24,6 +24,7 @@
 	import UsageResetCard from '$lib/components/quota/UsageResetCard.svelte';
 	import { getCurrentWebview } from '@tauri-apps/api/webview';
 	import { dropSummary, physicalToCssPoint } from '../chatDrop';
+	import { sessionCompletions } from '../completion.svelte';
 
 	import AskCard from './AskCard.svelte';
 	import AskStreamPreview from './AskStreamPreview.svelte';
@@ -98,6 +99,41 @@
 	let scrollEl: HTMLElement | null = $state(null);
 	let contentEl: HTMLElement | null = $state(null);
 	let userScrolledUp = $state(false);
+	let windowVisible = $state(false);
+	$effect(() => {
+		const update = () => { windowVisible = document.visibilityState === 'visible' && document.hasFocus(); };
+		update();
+		document.addEventListener('visibilitychange', update);
+		window.addEventListener('focus', update);
+		window.addEventListener('blur', update);
+		return () => {
+			document.removeEventListener('visibilitychange', update);
+			window.removeEventListener('focus', update);
+			window.removeEventListener('blur', update);
+		};
+	});
+	$effect(() => {
+		const sessionId = session.sessionId;
+		const completion = sessionCompletions.get(sessionId);
+		if (!sessionId || !completion || completion.seen || !visible || !windowVisible ||
+			userScrolledUp || !scrollEl || session.isStreaming || session.backgroundPending ||
+			session.isRebuildingTranscript) return;
+		let cancelled = false;
+		let frame = 0;
+		void svelteTick().then(() => {
+			if (cancelled) return;
+			frame = requestAnimationFrame(() => {
+				if (cancelled || !scrollEl || document.visibilityState !== 'visible' || !document.hasFocus()) return;
+				if (scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight <= SCROLL_THRESHOLD) {
+					sessionCompletions.markSeen(sessionId, completion.id);
+				}
+			});
+		});
+		return () => {
+			cancelled = true;
+			cancelAnimationFrame(frame);
+		};
+	});
 	let pinned = true;
 	let rafId = 0;
 	let askMinimizedRequestId = $state<string | null>(null);

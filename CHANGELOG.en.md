@@ -12,6 +12,11 @@ released: items are closed into a version via `npm run release -- <version>`.
 ## [Unreleased]
 
 ### Added
+- Studio Remote’s Inbox brings conversations from all machines together: filter by machine and group by urgency or project, with side-by-side list and chat on desktop and full-screen navigation on phones.
+- Browse past conversations on the web in read-only mode, with search and pagination, without interrupting or replacing the active session.
+- Start a new chat by choosing its project and destination: Main, an existing lane or a new isolated worktree; interrupting a busy lane requires confirmation.
+- Open remote chat details to follow observed progress, subagents and background jobs and manage the project queue, kept separate from conversation follow-ups.
+- Results awaiting review synchronize between Studio and remote browsers: reading a visible reply marks it read on other devices without consuming a newer result.
 - Attach files and images in remote chat using the picker, clipboard or drag and drop, including steers and follow-ups while the agent works. Files reach the lane's host machine; failed sends keep both text and attachments in the composer.
 - Remote control (off by default): in Settings > Remote control you pair Studio with a relay you host on your own server and, from your phone or any browser, follow projects, lanes, agent questions, queues and quotas, account by account, of all your machines, each under its own name. From the relay's PWA you answer questions, start queued tasks after reading their prompt and handle quota blocks. No machine opens a port: Studio connects out. When a device is connected, the top bar shows it. The relay and its install guide live in the `relay/` folder.
 - From remote control you now follow each lane's chat live, write to the agent (even while it works, as a steer or a follow-up) and stop it with Stop; create, edit, schedule, move and delete queued tasks; open project folders and create new projects, with a GitHub repository too. Push notifications tell you when an agent asks a question, finishes or runs out of quota, always naming the machine; on iPhone they need iOS 16.4 or later and the PWA added to the Home Screen. In Studio, "Other machines" opens your relay's PWA in a separate window with no access to Studio: the first time you pair it as a device.

@@ -130,7 +130,8 @@ commands.allow = [
     "sessions_search",
     "provider_hosts",
     "session_credential_pins",
-    "session_subagent_cost"
+    "session_subagent_cost",
+    "read_historical_session_messages"
 ]
 
 [[permission]]
