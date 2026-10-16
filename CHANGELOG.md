@@ -45,6 +45,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - L'agente di una corsia, anche del Laboratorio, segnala quando ha finito e lascia un riassunto; la corsia diventa pronta per la revisione e la Principale lo legge senza aprirla.
 
 ### Changed
+- Nella chat remota su telefono il selettore modello è più ampio, con righe comode da toccare, ricerca in basso e thinking sempre visibile: scorre solo l'elenco dei modelli e la tastiera non si apre da sola.
 - Sul telefono modello e livello di ragionamento condividono un solo chip «modello · livello», senza icone: il popover riunisce la selezione del modello e, sotto un divisore, lo slider del ragionamento.
 - Nella chat remota scegli correzione o messaggio successivo dal menu accanto al pulsante Invio, come nella GUI, senza lo switch che occupava la barra del composer.
 - Il composer remoto usa i componenti reali della GUI: editor con badge e gestione IME, ruoli, ricerca e popover dei modelli con le loro capacità, slider del ragionamento limitato ai livelli supportati e miniature degli allegati. La finestra di contesto resta visibile anche sul telefono e apre lo stesso pannello di consumi, cache e compattazione manuale; ragionamento, Markdown, codice, diff, output e piè di turno della chat condividono i renderer di Studio invece di mantenerne copie separate.
@@ -66,6 +67,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Le anteprime delle domande dell'agente stanno su un tabellone sopra la scheda, a tutta larghezza, invece che in una colonna accanto alle risposte. Il tabellone è in negativo rispetto al tema (scuro sui temi chiari, chiaro su quelli scuri) con l'accento del tema; mostra l'opzione scelta e, passando a un'altra, girano solo i caratteri che cambiano, come le palette di un tabellone delle partenze. L'occhio su ogni risposta mostra il suo disegno senza sceglierla; il disegno non va più a capo e si rimpicciolisce fino a stare nella larghezza, con «100%» per vederlo a dimensione reale.
 
 ### Fixed
+- Il composer della chat remota usa testo di almeno 16 px sui telefoni e sui dispositivi touch per evitare lo zoom automatico quando inizi a scrivere, senza disabilitare lo zoom manuale.
 - «Nuova chat» nel controllo remoto resta disponibile anche se l'agente risulta ancora occupato: dopo una conferma interrompe l'esecuzione precedente e apre una nuova conversazione, senza restare bloccato da uno stato di esecuzione obsoleto.
 - Nella PWA del controllo remoto le domande multiple dell'agente si rispondono una alla volta, con gli step e il riepilogo prima dell'invio come in Studio; le scelte fatte non si azzerano più a ogni aggiornamento della macchina.
 - La chat remota e le card delle domande non mostrano più il contesto che Studio aggiunge al prompt per il modello (`[Source Hints]`, `[Git Context]`, `[Editor Context]`): si vede solo il testo che hai scritto. Lo stesso vale per i messaggi recenti nella Companion.

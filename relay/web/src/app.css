@@ -605,8 +605,9 @@ button {
 
 /* iOS ingrandisce la pagina sui campi sotto i 16px: sui touch la taglia sale
    solo nei controlli, il resto dell'interfaccia resta nella scala di Studio. */
-@media (pointer: coarse) {
-  input, textarea, select {
+@media (pointer: coarse), (max-width: 480px) {
+  input, textarea, select, [contenteditable='true'],
+  .composer-editor-wrapper .editor-placeholder {
     font-size: 16px !important;
   }
 }

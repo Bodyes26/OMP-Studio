@@ -45,6 +45,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - A lane's agent, Lab included, reports when it is done and leaves a summary; the lane becomes ready for review and Main reads it without opening it.
 
 ### Changed
+- In remote chat on phones, the model picker is larger, with touch-friendly rows, search at the bottom and thinking always visible: only the model list scrolls, and the keyboard no longer opens automatically.
 - On phones, model and reasoning level share a single icon-free “model · level” chip: its popover combines model selection with the reasoning slider below a divider.
 - In remote chat, choose steer or follow-up from the menu next to Send, as in the GUI, without the switch taking up the composer toolbar.
 - The remote composer uses the actual GUI components: badge editor with IME handling, roles, model search and popovers with capability badges, reasoning slider restricted to supported levels and attachment thumbnails. Context usage stays visible on phones and opens the same usage, cache and manual compaction panel; chat thinking, Markdown, code, diffs, output and turn footers share Studio's renderers instead of maintaining separate copies.
@@ -66,6 +67,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Previews in the agent's questions sit on a board above the card, at full width, instead of in a column next to the answers. The board is the negative of the theme (dark on light themes, light on dark ones) with the theme's accent; it shows the chosen option and, when you switch to another, only the characters that change flip over, like the flaps of a departure board. The eye on each answer shows its drawing without choosing it; drawings no longer wrap and shrink to fit the width, with "100%" to see them at actual size.
 
 ### Fixed
+- The remote chat composer uses text of at least 16 px on phones and touch devices to avoid automatic zoom when you start typing, without disabling manual zoom.
 - “New chat” in remote control stays available even when the agent still appears busy: after confirmation it interrupts the previous execution and opens a new conversation, without getting stuck on stale running status.
 - In the remote control PWA, multi-question agent prompts are answered one at a time, with steps and a review before sending as in Studio; choices no longer reset on every machine update.
 - The remote chat and question cards no longer show the context Studio appends to the prompt for the model (`[Source Hints]`, `[Git Context]`, `[Editor Context]`): you only see what you wrote. The same applies to recent messages in the Companion.

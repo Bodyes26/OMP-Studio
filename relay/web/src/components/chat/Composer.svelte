@@ -395,23 +395,26 @@
 								<span class="chevron-indicator"><IconChevronUp /></span>
 							{/snippet}
 							{#snippet children()}
-								<ModelPickerList
-									catalog={catalog?.models ?? []}
-									value={activeModelValue}
-									placeholder={m.chat_v2_composer_model_search()}
-									showFooter
-									onSelect={(selector, mod) => {
-										if (!window.matchMedia('(max-width: 480px)').matches) activeMenu = null;
-										const targetProvider = mod.provider || (selector.includes('/') ? selector.split('/')[0] : '');
-										const targetModelId = mod.id || (selector.includes('/') ? selector.split('/')[1] : selector);
-										if (targetProvider && targetModelId) {
-											onSetModel?.(targetProvider, targetModelId);
-										}
-									}}
-									onClose={() => (activeMenu = null)}
-								/>
-								<div class="mobile-thinking-panel">
-									{@render thinkingControl()}
+								<div class="remote-model-picker">
+									<ModelPickerList
+										catalog={catalog?.models ?? []}
+										value={activeModelValue}
+										placeholder={m.chat_v2_composer_model_search()}
+										autoFocus={!window.matchMedia('(max-width: 480px), (pointer: coarse)').matches}
+										showFooter
+										onSelect={(selector, mod) => {
+											if (!window.matchMedia('(max-width: 480px)').matches) activeMenu = null;
+											const targetProvider = mod.provider || (selector.includes('/') ? selector.split('/')[0] : '');
+											const targetModelId = mod.id || (selector.includes('/') ? selector.split('/')[1] : selector);
+											if (targetProvider && targetModelId) {
+												onSetModel?.(targetProvider, targetModelId);
+											}
+										}}
+										onClose={() => (activeMenu = null)}
+									/>
+									<div class="mobile-thinking-panel">
+										{@render thinkingControl()}
+									</div>
 								</div>
 							{/snippet}
 						</MenuButton>
@@ -785,10 +788,45 @@
 		.composer-root :global(.model-chip) { min-width: 0; flex-shrink: 1; }
 		.model-name-label { max-width: 120px; min-width: 0; }
 		.mobile-thinking-label { display: inline; white-space: nowrap; }
+		/* Scorre solo il catalogo: thinking e ricerca restano sempre raggiungibili. */
+		.composer-root :global(.menu-popover:has(.remote-model-picker)) {
+			width: calc(100vw - 24px) !important;
+			max-height: calc(100dvh - 24px);
+			overflow: hidden;
+		}
+		.remote-model-picker {
+			display: flex;
+			flex-direction: column;
+			height: min(560px, calc(100dvh - 48px));
+			min-height: 0;
+		}
+		.remote-model-picker :global(.model-picker-list) { display: contents; }
+		.remote-model-picker :global(.results-list) {
+			order: 0;
+			max-height: none;
+			overscroll-behavior-y: contain;
+			padding: var(--space-2);
+		}
+		.remote-model-picker :global(.model-option) {
+			min-height: 48px;
+			padding: var(--space-2) var(--space-3);
+			font-size: var(--text-label);
+		}
+		.remote-model-picker :global(.search-box) {
+			order: 2;
+			border-top: 1px solid var(--line);
+			border-bottom: 0;
+			padding: var(--space-3);
+		}
+		.remote-model-picker :global(.search-input) { min-height: 44px; padding-left: 32px; }
+		.remote-model-picker :global(.search-icon) { left: 24px; --icon-size: 16px; }
+		.remote-model-picker :global(.clear-btn) { right: 16px; min-width: 44px; min-height: 44px; --icon-size: 16px; }
+		.remote-model-picker :global(.menu-footer) { display: none; }
 		.mobile-thinking-panel {
 			display: block;
+			order: 1;
+			flex-shrink: 0;
 			border-top: 1px solid var(--line);
-			padding-top: var(--space-3);
 		}
 	}
 </style>
