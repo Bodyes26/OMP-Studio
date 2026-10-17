@@ -255,7 +255,7 @@
 	<div
 		class="sheet-surface rv-lift"
 		onclick={(e) => e.stopPropagation()}
-		onkeydown={(e) => e.stopPropagation()}
+		onkeydown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } else { e.stopPropagation(); } }}
 		role="dialog"
 		aria-modal="true"
 		tabindex="-1"

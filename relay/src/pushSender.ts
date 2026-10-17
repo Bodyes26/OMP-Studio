@@ -42,7 +42,11 @@ export class PushSender {
 	/**
 	 * Verifica se l'invio verso un dispositivo e' consentito dal rate limiter.
 	 */
-	private checkDeviceRateLimit(deviceId: string, now: number): boolean {
+	private checkDeviceRateLimit(deviceId: string, now: number, isHighPriority: boolean): boolean {
+		if (isHighPriority) {
+			this.lastPushPerDevice.set(deviceId, now);
+			return true;
+		}
 		const lastSent = this.lastPushPerDevice.get(deviceId) ?? 0;
 		if (now - lastSent < MIN_DEVICE_PUSH_INTERVAL_MS) {
 			return false;
@@ -77,13 +81,14 @@ export class PushSender {
 
 		const jsonPayload = JSON.stringify(payload);
 
+		const isHighPriority = payload.data?.type === 'attention' || payload.data?.type === 'quota';
 		// Valuta idoneita' di ciascun dispositivo una sola volta per notifica
 		const deviceEligibility = new Map<string, boolean>();
 		for (const sub of subscriptions) {
 			if (!deviceEligibility.has(sub.deviceId)) {
 				if (skipDeviceIds.has(sub.deviceId)) {
 					deviceEligibility.set(sub.deviceId, false);
-				} else if (!this.checkDeviceRateLimit(sub.deviceId, now)) {
+				} else if (!this.checkDeviceRateLimit(sub.deviceId, now, isHighPriority)) {
 					deviceEligibility.set(sub.deviceId, false);
 					result.rateLimited++;
 				} else {

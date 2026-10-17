@@ -191,6 +191,7 @@ class ModelSettingsStore {
 	availableCatalogLoaded = $state(false);
 	customProviders = $state<Record<string, CustomProviderDef>>({});
 	draftCustomProviders = $state<Record<string, CustomProviderDef>>({});
+	customProvidersLoaded = $state(false);
 	providers = $state<ProviderSummary[]>([]);
 	authAccounts = $state<AuthAccount[]>([]);
 	selectedProviderId = $state<string | null>(null);
@@ -350,6 +351,7 @@ class ModelSettingsStore {
 			this.availableCatalogLoaded = true;
 			this.customProviders = custom.providers || {};
 			this.draftCustomProviders = JSON.parse(JSON.stringify(custom.providers || {}));
+			this.customProvidersLoaded = true;
 		} catch (e) {
 			console.error('Failed to load model settings:', e);
 			this.showToast(msg.ui_ts_modelsettings_errore_caricamento_impostazioni_value1_1361({ value1: String(e) }));
@@ -440,17 +442,21 @@ class ModelSettingsStore {
 			this.providersRequested = true;
 			void this.loadProviders();
 		}
-		if (this.config && this.catalog.length > 0 && this.availableCatalogLoaded) return;
+		if (this.config && this.catalog.length > 0 && this.availableCatalogLoaded && this.customProvidersLoaded) return;
 		if (this.ensureLoadedPromise) return this.ensureLoadedPromise;
 
 		this.ensureLoadedPromise = (async () => {
 			try {
-				const [cfg, cat, available] = await Promise.all([
+				const [cfg, cat, available, custom] = await Promise.all([
 					invoke<ModelConfigDto>('get_model_config'),
 					invoke<ModelDto[]>('get_models_catalog'),
 					invoke<ModelDto[]>('get_available_models_catalog').catch((error) => {
 						console.warn('Available models catalog:', error);
 						return [];
+					}),
+					invoke<CustomProvidersFile>('get_custom_providers').catch((error) => {
+						console.warn('Custom providers:', error);
+						return { providers: {} };
 					})
 				]);
 				if (!this.config) {
@@ -462,6 +468,11 @@ class ModelSettingsStore {
 				}
 				this.availableCatalog = available;
 				this.availableCatalogLoaded = true;
+				if (!this.customProvidersLoaded) {
+					this.customProviders = custom.providers || {};
+					this.draftCustomProviders = JSON.parse(JSON.stringify(custom.providers || {}));
+					this.customProvidersLoaded = true;
+				}
 			} catch (e) {
 				console.error('ensureLoaded failed:', e);
 			} finally {
@@ -517,11 +528,10 @@ class ModelSettingsStore {
 				this.config = JSON.parse(JSON.stringify(this.draftConfig));
 			}
 
-			if (customChanged) {
+			if (customChanged && this.customProvidersLoaded) {
 				await invoke('save_custom_providers', { data: { providers: this.draftCustomProviders } });
 				this.customProviders = JSON.parse(JSON.stringify(this.draftCustomProviders));
 			}
-
 			if (customChanged || cfgChanged) {
 				const cat = await invoke<ModelDto[]>('refresh_models_catalog');
 				this.catalog = cat;

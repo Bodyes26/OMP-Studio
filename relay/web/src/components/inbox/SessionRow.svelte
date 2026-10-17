@@ -129,7 +129,7 @@
 				<span class="context-sep">·</span>
 			{/if}
 			<MachineBadge name={item.hostName} online={item.hostOnline} short />
-			{#if item.lane.kind !== 'main' || item.lane.title !== 'Principale'}
+			{#if item.lane.kind !== 'main'}
 				<span class="context-sep">·</span>
 				<span class="lane-name font-mono">{item.lane.title}</span>
 			{/if}

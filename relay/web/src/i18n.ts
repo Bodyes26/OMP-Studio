@@ -8,6 +8,11 @@ import { setLocale } from '$lib/paraglide/runtime.js';
 export type Language = 'it' | 'en';
 
 export function detectLanguage(): Language {
+	if (typeof window !== 'undefined' && window.location) {
+		const params = new URLSearchParams(window.location.search);
+		const langParam = params.get('lang')?.toLowerCase();
+		if (langParam === 'it' || langParam === 'en') return langParam;
+	}
 	if (typeof navigator !== 'undefined' && navigator.language) {
 		return navigator.language.toLowerCase().startsWith('it') ? 'it' : 'en';
 	}
@@ -345,6 +350,10 @@ const DICT = {
 		agoHours: '{count}h fa',
 		agoDays: '{count}g fa',
 		todoCount: '{done}/{total} todo',
+		mainLane: 'Principale',
+		machine: 'Macchina',
+		subagent: 'sub-agent',
+		inQueue: 'in coda',
 	},
 	en: {
 		appTitle: 'OMP Studio Remote',
@@ -676,6 +685,10 @@ const DICT = {
 		agoHours: '{count}h ago',
 		agoDays: '{count}d ago',
 		todoCount: '{done}/{total} todo',
+		mainLane: 'Main',
+		machine: 'Machine',
+		subagent: 'sub-agent',
+		inQueue: 'queued',
 	}
 } as const;
 

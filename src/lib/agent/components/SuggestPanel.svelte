@@ -1,15 +1,6 @@
-<script lang="ts">
-	/**
-	 * Tendina dei suggerimenti per menzioni file (@) e comandi slash (/) nel composer (C20);
-	 * nel companion anche progetti (#), direttive (/) e ruoli o modelli (!).
-	 * Si posiziona sopra il cursore usando le coordinate del Range rettangolo del caret.
-	 */
+<script module lang="ts">
 	import type { AvailableCommand } from '$lib/agent/wire';
 	import type { RankedFileItem } from '$lib/agent/fileMention';
-	import type { ComposerTriggerKind } from '$lib/agent/composerDoc';
-	import { IconFile, IconEditor, IconHistory, IconSparkles } from '$lib/icons';
-	import { formatTokens } from '$lib/utils/format';
-	import { m } from '$lib/paraglide/messages.js';
 
 	/** Voce del companion: valore inserito nel badge, nome leggibile e dettaglio in mono. */
 	interface NamedSuggestion {
@@ -26,7 +17,18 @@
 		| ({ kind: 'directive' } & NamedSuggestion)
 		| ({ kind: 'role'; hue?: number } & NamedSuggestion)
 		| ({ kind: 'model' } & NamedSuggestion);
+</script>
 
+<script lang="ts">
+	/**
+	 * Tendina dei suggerimenti per menzioni file (@) e comandi slash (/) nel composer (C20);
+	 * nel companion anche progetti (#), direttive (/) e ruoli o modelli (!).
+	 * Si posiziona sopra il cursore usando le coordinate del Range rettangolo del caret.
+	 */
+	import type { ComposerTriggerKind } from '$lib/agent/composerDoc';
+	import { IconFile, IconEditor, IconHistory, IconSparkles } from '$lib/icons';
+	import { formatTokens } from '$lib/utils/format';
+	import { m } from '$lib/paraglide/messages.js';
 	let {
 		kind = '@',
 		query = '',

@@ -43,7 +43,7 @@ pub fn decide_navigation(target: &url::Url, allowed_origin: &url::Origin) -> Nav
 /// Costruisce l'URL della PWA remota garantendo lo slash finale sull'origine del relay.
 pub fn build_machines_url(relay_url: &str) -> Result<url::Url, String> {
     let normalized = validate_and_normalize_relay_url(relay_url)?;
-    let url_str = format!("{}/", normalized.http_url.trim_end_matches('/'));
+    let url_str = format!("{}/?lang=it", normalized.http_url.trim_end_matches('/'));
     url::Url::parse(&url_str).map_err(|e| format!("URL relay non valido per la finestra: {e}"))
 }
 

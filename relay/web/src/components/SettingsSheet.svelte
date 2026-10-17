@@ -96,7 +96,7 @@
 	<div
 		class="sheet-surface rv-lift"
 		onclick={(e) => e.stopPropagation()}
-		onkeydown={(e) => e.stopPropagation()}
+		onkeydown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } else { e.stopPropagation(); } }}
 		role="dialog"
 		aria-modal="true"
 		tabindex="-1"
@@ -353,7 +353,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: var(--space-4);
+		padding: calc(var(--space-4) + env(safe-area-inset-top, 0px)) var(--space-4) var(--space-4);
 		border-bottom: 1px solid var(--line);
 	}
 
@@ -372,7 +372,7 @@
 	}
 
 	.sheet-body {
-		padding: var(--space-4);
+		padding: var(--space-4) var(--space-4) calc(var(--space-4) + env(safe-area-inset-bottom, 0px));
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-5);

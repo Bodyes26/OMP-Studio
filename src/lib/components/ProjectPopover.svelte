@@ -1755,9 +1755,9 @@
 	}
 
 	.git-pill.up-to-date {
-		background: color-mix(in srgb, var(--ok) 12%, transparent);
-		color: var(--ok);
-		border: 1px solid color-mix(in srgb, var(--ok) 25%, transparent);
+		background: color-mix(in srgb, var(--success) 12%, transparent);
+		color: var(--success);
+		border: 1px solid color-mix(in srgb, var(--success) 25%, transparent);
 	}
 
 	.git-error-banner {
@@ -1787,9 +1787,9 @@
 		gap: 6px;
 		padding: 5px var(--space-2);
 		border-radius: var(--radius-sm);
-		background: color-mix(in srgb, var(--ok) 10%, transparent);
-		border: 1px solid color-mix(in srgb, var(--ok) 25%, transparent);
-		color: var(--ok);
+		background: color-mix(in srgb, var(--success) 10%, transparent);
+		border: 1px solid color-mix(in srgb, var(--success) 25%, transparent);
+		color: var(--success);
 		font-size: var(--text-xs);
 		margin: 2px var(--space-2);
 	}

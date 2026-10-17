@@ -1112,7 +1112,7 @@
 		display: flex;
 		flex-direction: column;
 		background: var(--bg-sunken);
-		padding-bottom: var(--space-3);
+		padding-bottom: calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
 		min-width: 0;
 		z-index: var(--z-sticky);
 	}

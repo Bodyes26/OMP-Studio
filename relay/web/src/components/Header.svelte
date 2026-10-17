@@ -61,8 +61,10 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		height: 44px;
-		padding: 0 var(--space-4);
+		min-height: 44px;
+		height: calc(44px + env(safe-area-inset-top, 0px));
+		padding: env(safe-area-inset-top, 0px) var(--space-4) 0;
+		box-sizing: border-box;
 		background: var(--bg-sunken);
 		border-bottom: 1px solid var(--line);
 		position: sticky;

@@ -107,7 +107,9 @@
 		void route.hostId;
 		void route.projectId;
 		void route.sessionId;
-		loadHistoryInitial();
+		if (connection.status === 'connected') {
+			loadHistoryInitial();
+		}
 	});
 </script>
 
@@ -129,7 +131,7 @@
 					<span class="project-name">{project.name}</span>
 					<span class="header-sep">/</span>
 				{/if}
-				<span class="header-host">{hostName}</span>
+				<span class="header-host">{hostName || t('machine')}</span>
 			</div>
 			<div class="header-session-title">
 				<span class="title-text">{route.sessionTitle || t('historyTitle')}</span>

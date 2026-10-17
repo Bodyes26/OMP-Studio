@@ -1,12 +1,4 @@
-<script lang="ts">
-	/**
-	 * Menu di selezione del ruolo attivo per l'agente.
-	 * Mostra per ciascun ruolo il modello e il livello di thinking associati.
-	 */
-	import { IconCheck } from '$lib/icons';
-	import { m } from '$lib/paraglide/messages.js';
-	import { ROLE_HUES } from '$lib/agent/roleHues';
-
+<script module lang="ts">
 	export interface RoleDefinition {
 		id: string;
 		label: string;
@@ -18,7 +10,16 @@
 		model?: string;
 		thinking?: string;
 	}
+</script>
 
+<script lang="ts">
+	/**
+	 * Menu di selezione del ruolo attivo per l'agente.
+	 * Mostra per ciascun ruolo il modello e il livello di thinking associati.
+	 */
+	import { IconCheck } from '$lib/icons';
+	import { m } from '$lib/paraglide/messages.js';
+	import { ROLE_HUES } from '$lib/agent/roleHues';
 	let {
 		activeRole = 'default',
 		assignments = {},

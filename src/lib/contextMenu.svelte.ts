@@ -421,6 +421,12 @@ export function installContextMenuHandling(): () => void {
 		// il click puo' cadere su un'icona SVG, che non ha `isContentEditable`.
 		const node = event.target;
 		if (!(node instanceof Element)) return;
+		// Se il click avviene dentro un dialogo modale (<dialog[open]>), non sopprimere
+		// il menu contestuale nativo del browser/webview: un popover montato all'esterno
+		// (in +layout) verrebbe reso inerte da showModal(), bloccando i click o chiudendo il dialog.
+		if (node.closest('dialog[open]')) {
+			return;
+		}
 
 		// Se il click avviene dentro il menu contestuale aperto, sopprimi senza ricreare
 		if (node.closest('.context-menu')) {

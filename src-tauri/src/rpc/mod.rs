@@ -569,7 +569,7 @@ fn reader_loop(args: ReaderLoopArgs) {
     // in %TEMP% per sempre.
     let removed = sessions.lock().remove(&rpc_id);
     if let Some(session) = removed {
-        session.remove_config_file();
+        session.kill_tree();
     }
     crate::lane_bridge::revoke_owner("agent", rpc_id);
     let _ = stats.send(

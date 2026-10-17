@@ -93,9 +93,9 @@
 		display: inline-flex;
 		align-items: center;
 		padding: 2px;
-		background: var(--bg-surface-raised, rgba(255, 255, 255, 0.04));
-		border: 1px solid var(--line-subtle, rgba(255, 255, 255, 0.08));
-		border-radius: var(--radius-sm, 6px);
+		background: var(--bg-sunken);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
 		gap: 2px;
 	}
 
@@ -120,7 +120,7 @@
 
 	.tab-btn.active {
 		color: var(--ink);
-		background: var(--bg-overlay, rgba(255, 255, 255, 0.1));
+		background: var(--bg-raised);
 		font-weight: 500;
 	}
 
@@ -128,9 +128,9 @@
 		padding: 1px 5px;
 		font-size: 10px;
 		font-weight: 600;
-		color: var(--accent);
-		background: var(--accent-subtle, rgba(248, 79, 204, 0.15));
-		border-radius: 9999px;
+		color: var(--brand-ink);
+		background: color-mix(in srgb, var(--brand) 15%, transparent);
+		border-radius: var(--radius-full);
 	}
 
 	.changelog-container {

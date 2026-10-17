@@ -267,7 +267,9 @@ pub fn init(app: AppHandle) {
 
 #[tauri::command]
 pub async fn remote_get_status(app: AppHandle) -> Result<RemoteStatus, String> {
-    let manager = app.state::<RemoteManager>();
+    let manager = app
+        .try_state::<RemoteManager>()
+        .ok_or_else(|| "Modulo di controllo remoto non inizializzato".to_string())?;
     let status = manager.ctx.status.lock().clone();
     Ok(status)
 }
@@ -279,13 +281,17 @@ pub async fn remote_pair(
     code: String,
     machine_name: String,
 ) -> Result<RemoteStatus, String> {
-    let manager = app.state::<RemoteManager>();
+    let manager = app
+        .try_state::<RemoteManager>()
+        .ok_or_else(|| "Modulo di controllo remoto non inizializzato".to_string())?;
     manager.pair(&relay_url, &code, &machine_name).await
 }
 
 #[tauri::command]
 pub async fn remote_set_enabled(app: AppHandle, enabled: bool) -> Result<RemoteStatus, String> {
-    let manager = app.state::<RemoteManager>();
+    let manager = app
+        .try_state::<RemoteManager>()
+        .ok_or_else(|| "Modulo di controllo remoto non inizializzato".to_string())?;
     manager.set_enabled(enabled)
 }
 
@@ -294,7 +300,9 @@ pub async fn remote_set_machine_name(
     app: AppHandle,
     machine_name: String,
 ) -> Result<RemoteStatus, String> {
-    let manager = app.state::<RemoteManager>();
+    let manager = app
+        .try_state::<RemoteManager>()
+        .ok_or_else(|| "Modulo di controllo remoto non inizializzato".to_string())?;
     let trimmed = machine_name.trim().to_string();
     if trimmed.is_empty() {
         return Err("Il nome della macchina non puo' essere vuoto".to_string());
@@ -324,13 +332,17 @@ pub async fn remote_set_machine_name(
 
 #[tauri::command]
 pub async fn remote_unpair(app: AppHandle) -> Result<RemoteStatus, String> {
-    let manager = app.state::<RemoteManager>();
+    let manager = app
+        .try_state::<RemoteManager>()
+        .ok_or_else(|| "Modulo di controllo remoto non inizializzato".to_string())?;
     manager.unpair()
 }
 
 #[tauri::command]
 pub async fn remote_publish_state(app: AppHandle, state: serde_json::Value) -> Result<(), String> {
-    let manager = app.state::<RemoteManager>();
+    let manager = app
+        .try_state::<RemoteManager>()
+        .ok_or_else(|| "Modulo di controllo remoto non inizializzato".to_string())?;
     *manager.ctx.latest_state.lock() = Some(state);
     manager.ctx.snapshot_notify.notify_one();
     Ok(())
@@ -344,7 +356,9 @@ pub async fn remote_command_result(
     error: Option<CommandError>,
     data: Option<serde_json::Value>,
 ) -> Result<(), String> {
-    let manager = app.state::<RemoteManager>();
+    let manager = app
+        .try_state::<RemoteManager>()
+        .ok_or_else(|| "Modulo di controllo remoto non inizializzato".to_string())?;
     manager
         .ctx
         .queue_command_result(command_id, ok, error, data);
@@ -358,7 +372,9 @@ pub async fn remote_publish_chat_event(
     lane_id: String,
     event: serde_json::Value,
 ) -> Result<(), String> {
-    let manager = app.state::<RemoteManager>();
+    let manager = app
+        .try_state::<RemoteManager>()
+        .ok_or_else(|| "Modulo di controllo remoto non inizializzato".to_string())?;
     manager.ctx.queue_chat_event(project_id, lane_id, event);
     Ok(())
 }

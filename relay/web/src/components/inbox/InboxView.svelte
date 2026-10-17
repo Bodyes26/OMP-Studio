@@ -94,7 +94,7 @@
 						stateValue = 'idle';
 					}
 
-					const title = session?.title || lane.title || (lane.kind === 'main' ? 'Principale' : lane.id);
+					const title = session?.title || lane.title || (lane.kind === 'main' ? t('mainLane') : lane.id);
 					const preview =
 						att?.questions?.[0]?.question ||
 						att?.title ||

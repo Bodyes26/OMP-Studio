@@ -18,12 +18,12 @@ export interface NotificationTarget {
 export function navigateToNotificationTarget(target: NotificationTarget, attempts = 15): void {
 	if (typeof document === 'undefined') return;
 
-	// Notifica su una corsia senza richiesta di attenzione: apre la chat a tutto schermo
-	if (target.hostId && target.projectId && target.laneId && !target.requestId) {
+	// Notifica su una corsia (con o senza domanda): apre la chat della corsia
+	if (target.hostId && target.projectId) {
 		navigation.openChat({
 			hostId: target.hostId,
 			projectId: target.projectId,
-			laneId: target.laneId
+			laneId: target.laneId ?? 'main'
 		});
 		return;
 	}

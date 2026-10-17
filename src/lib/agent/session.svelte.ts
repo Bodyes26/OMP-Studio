@@ -1324,6 +1324,11 @@ export class AgentSession {
 		this.isReady = false;
 		this.isAttached = false;
 		this.isAttaching = false;
+		this.isStreaming = false;
+		this.isCompacting = false;
+		this.agentState = 'unknown';
+		this.subagents = [];
+		this.backgroundJobs = [];
 		this.attachGeneration++;
 		this.isRebuildingTranscript = false;
 		this.requestedResume = null;
@@ -2651,7 +2656,7 @@ export class AgentSession {
 				this.isCompacting = false;
 				this.assistantEntry = null;
 				this.activeAssistantId = null;
-				this.agentState = this.resolveSettledState();
+				this.agentState = this.settle.running ? 'working' : this.resolveSettledState();
 				this.scheduleRunWatch();
 				void this.reconcile();
 				this.captureAssistantActivity();
@@ -3492,10 +3497,10 @@ export class AgentSession {
 		this.stopSettlePoll();
 		this.stopRunWatch();
 		this.settle = { ...INITIAL_SETTLE };
+		this.subagents = [];
+		this.backgroundJobs = [];
 		this.applyRunActivity(runActivityReset(this.runActivity, Date.now()));
 		const empty = emptyExtensionUi();
-		this.extensionStatus = empty.status;
-		this.extensionWidgets = empty.widgets;
 	}
 
 	/** Messaggio d'errore di un `prompt_result`: provider, modello, HTTP e se si puo' riprovare. */
@@ -4444,6 +4449,12 @@ export class AgentSession {
 		if (seed) {
 			this.seededPrompt = null;
 			this.startupPhase = 'ready';
+		}
+
+		// Se il processo omp e' terminato o in crash, riapri prima di accodare il messaggio
+		if (this.exited) {
+			this.exited = false;
+			void this.ensureOpen(this.sessionId ?? null);
 		}
 
 		// Se OMP e' ancora in fase di avvio, accoda il messaggio e mostra subito l'entry ottimistica

@@ -72,6 +72,21 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Le anteprime delle domande dell'agente stanno su un tabellone sopra la scheda, a tutta larghezza, invece che in una colonna accanto alle risposte. Il tabellone è in negativo rispetto al tema (scuro sui temi chiari, chiaro su quelli scuri) con l'accento del tema; mostra l'opzione scelta e, passando a un'altra, girano solo i caratteri che cambiano, come le palette di un tabellone delle partenze. L'occhio su ogni risposta mostra il suo disegno senza sceglierla; il disegno non va più a capo e si rimpicciolisce fino a stare nella larghezza, con «100%» per vederlo a dimensione reale.
 
 ### Fixed
+- Nelle Impostazioni Modelli, l'apertura tramite navigazione o scorciatoia e il salvataggio di un provider personalizzato non cancellano più i provider custom già salvati in `models.json` e `models.yml`.
+- Il menu contestuale tematizzato non intercetta più i click destri dentro i dialoghi modali, ripristinando il taglia/copia/incolla nativo ed evitando la chiusura accidentale del dialogo per click-through sul velo.
+- L'invio di un messaggio dopo un'uscita inaspettata o un crash del processo `omp` riavvia automaticamente la sessione invece di accodare il testo a vuoto nel composer svuotato.
+- Nella PWA di controllo remoto l'intestazione e la barra del composer rispettano le safe area di iOS per evitare sovrapposizioni con notch, Dynamic Island e barra di navigazione Home.
+- Toccando le notifiche push di domande dell'agente o blocchi di quota sul telefono si viene portati direttamente alla chat della corsia corrispondente.
+- Il ricaricamento di una pagina di sessione storica nel controllo remoto attende la connessione del WebSocket prima di richiedere lo storico, evitando errori permanenti al reload.
+- Le notifiche push urgenti (domande dell'agente e blocchi quota) non vengono più scartate dal limitatore di frequenza dopo una notifica di fine turno.
+- Alla disconnessione del WebSocket del controllo remoto i comandi pendenti vengono rigettati immediatamente, senza bloccare l'interfaccia per 30 secondi.
+- I trasferimenti di allegati da 50 MiB rinnovano la scadenza a ogni blocco ricevuto, prevenendo fallimenti su connessioni mobili o lente.
+- I fogli modali del controllo remoto (Impostazioni, Progetto, Nuovo task, Dettaglio task, Codici) si chiudono correttamente alla pressione del tasto Escape.
+- Risolto il flicker dello stato di progetto «finito» tra i turni intermedi dello stesso run e ripulito lo stato delle sessioni GUI chiuse per evitare disallineamenti con il terminale.
+- In caso di chiusura imprevista del processo agente su macOS e Linux, l'intero albero dei processi figli viene terminato, prevenendo processi orfani o porte di rete bloccate.
+- Il ripristino dei valori predefiniti della sezione Generale salva subito la modalità di cache warming in `config.yml`.
+- I comandi nativi del controllo remoto gestiscono in sicurezza l'eventuale assenza della configurazione senza mandare in panic il backend Rust.
+- Il composer e le notifiche di Studio non mostrano più errori di compilazione e tipi Svelte 5 dopo il passaggio delle definizioni nei blocchi `<script module>`.
 - Il composer della chat remota usa testo di almeno 16 px sui telefoni e sui dispositivi touch per evitare lo zoom automatico quando inizi a scrivere, senza disabilitare lo zoom manuale.
 - «Nuova chat» nel controllo remoto resta disponibile anche se l'agente risulta ancora occupato: dopo una conferma interrompe l'esecuzione precedente e apre una nuova conversazione, senza restare bloccato da uno stato di esecuzione obsoleto.
 - Nella PWA del controllo remoto le domande multiple dell'agente si rispondono una alla volta, con gli step e il riepilogo prima dell'invio come in Studio; le scelte fatte non si azzerano più a ogni aggiornamento della macchina.

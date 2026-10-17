@@ -1,11 +1,4 @@
-<script lang="ts">
-	/**
-	 * Miniatura di un allegato (immagine, video o file generico) nella barra del composer.
-	 */
-	import { IconClose, IconPlay } from '$lib/icons';
-	import { formatTokens } from '$lib/utils/format';
-	import { m } from '$lib/paraglide/messages.js';
-
+<script module lang="ts">
 	export interface ComposerAttachment {
 		id: string | number;
 		kind: 'image' | 'video' | 'file';
@@ -18,6 +11,15 @@
 		duration?: number;
 		tokens: number;
 	}
+</script>
+
+<script lang="ts">
+	/**
+	 * Miniatura di un allegato (immagine, video o file generico) nella barra del composer.
+	 */
+	import { IconClose, IconPlay } from '$lib/icons';
+	import { formatTokens } from '$lib/utils/format';
+	import { m } from '$lib/paraglide/messages.js';
 
 	let {
 		attachment,

@@ -72,6 +72,21 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Previews in the agent's questions sit on a board above the card, at full width, instead of in a column next to the answers. The board is the negative of the theme (dark on light themes, light on dark ones) with the theme's accent; it shows the chosen option and, when you switch to another, only the characters that change flip over, like the flaps of a departure board. The eye on each answer shows its drawing without choosing it; drawings no longer wrap and shrink to fit the width, with "100%" to see them at actual size.
 
 ### Fixed
+- In Model Settings, opening via navigation or shortcut and saving a custom provider no longer wipes existing custom providers from `models.json` and `models.yml`.
+- The themed context menu no longer intercepts right-clicks inside modal dialogs, restoring native cut/copy/paste and preventing accidental dialog dismissals from backdrop click-through.
+- Sending a prompt after an unexpected `omp` exit or crash automatically restarts the session instead of silently dropping the prompt into an emptied composer.
+- In the remote control PWA, the header and composer bar respect iOS safe areas to prevent overlap with notches, the Dynamic Island and the Home indicator.
+- Tapping push notifications for agent questions or quota blocks now routes directly to the corresponding lane's chat.
+- Reloading a historical session view in remote control waits for the WebSocket connection before requesting history, preventing permanent load errors on refresh.
+- High-priority push notifications (agent questions and quota blocks) are no longer dropped by the device rate limiter after a lane-finished notice.
+- On remote control WebSocket disconnections, pending client commands reject immediately instead of hanging the interface for 30 seconds.
+- 50 MiB attachment uploads renew their expiration with each received chunk, preventing timeouts on slow or mobile connections.
+- Remote control modal sheets (Settings, Project, New task, Task detail, Codes) now close properly on Escape key press.
+- Fixed the project "finished" state flicker between intermediate turns of the same run and cleaned up closed GUI session states to prevent desync with the terminal.
+- When an agent process exits unexpectedly on macOS and Linux, its entire child process tree is terminated, preventing orphaned background jobs or held ports.
+- Resetting General settings to default now persists the cache warming mode to `config.yml` immediately.
+- Remote control native commands handle missing or uninitialized configuration safely without panicking the Rust backend.
+- Studio's composer and notifications no longer produce Svelte 5 type errors after moving type declarations into `<script module>` blocks.
 - The remote chat composer uses text of at least 16 px on phones and touch devices to avoid automatic zoom when you start typing, without disabling manual zoom.
 - “New chat” in remote control stays available even when the agent still appears busy: after confirmation it interrupts the previous execution and opens a new conversation, without getting stuck on stale running status.
 - In the remote control PWA, multi-question agent prompts are answered one at a time, with steps and a review before sending as in Studio; choices no longer reset on every machine update.

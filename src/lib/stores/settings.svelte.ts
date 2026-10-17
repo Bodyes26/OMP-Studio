@@ -969,7 +969,10 @@ class SettingsStore {
 			this.promptSuggestions = sanitizeSuggestionsCatalog(DEFAULT_SETTINGS.promptSuggestions);
 			this.suggestions = { ...DEFAULT_SETTINGS.suggestions };
 		}
-		if (!section || section === 'general') this.general = { ...DEFAULT_SETTINGS.general };
+		if (!section || section === 'general') {
+			this.general = { ...DEFAULT_SETTINGS.general };
+			void invoke('set_cache_warming_setting', { mode: DEFAULT_SETTINGS.general.cacheWarming }).catch(() => {});
+		}
 		if (!section || section === 'notifications') this.notifications = { ...DEFAULT_SETTINGS.notifications };
 		if (!section || section === 'accessibility') this.accessibility = { ...DEFAULT_SETTINGS.accessibility };
 		if (!section || section === 'appearance') {

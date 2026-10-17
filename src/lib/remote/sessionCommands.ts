@@ -284,6 +284,8 @@ export async function stageRemoteAttachment(
 				expiresAt: now + 5 * 60 * 1000
 			};
 			pendingUploads.set(uploadKey, upload);
+		} else {
+			upload.expiresAt = now + 5 * 60 * 1000;
 		}
 		if (upload.total !== totalChunks || upload.fileName !== fileName) {
 			pendingUploads.delete(uploadKey);

@@ -171,7 +171,7 @@ class RemoteConnectionManager {
 				if (this.ws !== socket) return;
 				this.ws = null;
 				this.clearWatchdog();
-
+				this.rejectPendingCommandsOnDisconnect();
 				if (event.code === CloseCode.unauthorized || event.code === CloseCode.revoked) {
 					this.device = null;
 					this.status = 'unpaired';
@@ -325,7 +325,17 @@ class RemoteConnectionManager {
 			const s = this.ws;
 			this.ws = null;
 			s.close();
+			this.rejectPendingCommandsOnDisconnect();
 		}
+	}
+
+	private rejectPendingCommandsOnDisconnect(): void {
+		const err: CommandError = { code: 'host_offline', message: 'Connessione relay interrotta' };
+		for (const [id, pending] of this.pendingMap.entries()) {
+			pending.reject(err);
+			this.pendingMap.delete(id);
+		}
+		this.pendingCommands = {};
 	}
 
 	/**
