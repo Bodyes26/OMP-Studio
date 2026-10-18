@@ -872,6 +872,7 @@ export class AgentSession {
 	private renderedCustomKeys = new Set<string>();
 	readonly cwd: string;
 	private stateRefresh: Promise<void> | null = null;
+	private reconcilePending = false;
 	private opening: Promise<void> | null = null;
 	/**
 	 * Sessione che l'apertura in volo sta riprendendo (`null` = sessione
@@ -2036,8 +2037,14 @@ export class AgentSession {
 			this.settle = { ...this.settle, running: false };
 		}
 		if (typeof state.isStreaming === 'boolean') {
-			this.isStreaming = state.isStreaming;
-			if (!state.isStreaming && this.agentState === 'working' && !this.backgroundPending) {
+			// Se il turno ha gia' ceduto (non in corsa o quieto), uno snapshot get_state
+			// obsoleto partito prima di agent_end/turn_end non deve resuscitare isStreaming a true.
+			const shouldIgnoreStreamingResurrection =
+				state.isStreaming && !this.settle.running && !this.backgroundPending;
+			if (!shouldIgnoreStreamingResurrection) {
+				this.isStreaming = state.isStreaming;
+			}
+			if (!this.isStreaming && this.agentState === 'working' && !this.backgroundPending) {
 				this.agentState = this.pendingUi ? 'attention' : 'idle';
 				this.assistantEntry = null;
 				this.activeAssistantId = null;
@@ -2625,6 +2632,8 @@ export class AgentSession {
 			// omp 18.8+: la sessione e' quieta, nulla la risveglera'. E' qui, non
 			// su `agent_end`, che il lavoro e' davvero finito.
 			case 'session_settled': {
+				this.isStreaming = false;
+				this.isCompacting = false;
 				this.settle = settleOnSessionSettled();
 				this.onSettled();
 				return;
@@ -3392,7 +3401,8 @@ export class AgentSession {
 	/** Il lavoro in background e' finito: lo stato torna quello di un turno concluso. */
 	private onSettled() {
 		this.stopSettlePoll();
-		if (this.isStreaming || this.isCompacting) return;
+		this.isStreaming = false;
+		this.isCompacting = false;
 		if (this.agentState === 'working') this.agentState = this.resolveSettledState();
 		this.captureCompletion();
 	}
@@ -5363,15 +5373,23 @@ export class AgentSession {
 
 	/** Riallinea i chip locali al conteggio autorevole del server. */
 	private async reconcile() {
-		if (this.stateRefresh) return;
+		if (this.stateRefresh) {
+			this.reconcilePending = true;
+			await this.stateRefresh;
+			return;
+		}
 		this.stateRefresh = (async () => {
 			try {
-				await this.refreshState();
+				do {
+					this.reconcilePending = false;
+					await this.refreshState();
+				} while (this.reconcilePending);
 			} catch {
 				// Un get_state perso non e' un errore da mostrare: il prossimo
 				// evento ne provoca un altro.
 			} finally {
 				this.stateRefresh = null;
+				this.reconcilePending = false;
 			}
 		})();
 		await this.stateRefresh;

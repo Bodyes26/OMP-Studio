@@ -329,7 +329,11 @@
 			e.preventDefault();
 			const isAlt = e.altKey;
 			onSend?.(isAlt);
+			return;
 		}
+
+		// Sincronizzazione preventiva ad ogni pressione di tasto
+		setTimeout(sync, 0);
 	}
 </script>
 
@@ -351,8 +355,14 @@
 		class="composer-editable"
 		class:disabled
 		oninput={sync}
+		onkeyup={sync}
+		onbeforeinput={() => setTimeout(sync, 0)}
+		oncut={() => setTimeout(sync, 0)}
 		onblur={() => onTriggerChange?.(null)}
-		onfocus={() => onTriggerChange?.(readTrigger())}
+		onfocus={() => {
+			sync();
+			onTriggerChange?.(readTrigger());
+		}}
 		onpaste={handlePaste}
 		onkeydown={handleKeyDown}
 		oncompositionstart={() => (isComposing = true)}
@@ -385,6 +395,11 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		user-select: none;
+	}
+
+	.composer-editor-wrapper:has(.composer-editable:not(:empty)) .editor-placeholder,
+	.composer-editor-wrapper:has(:global([data-kind])) .editor-placeholder {
+		display: none !important;
 	}
 
 	/* Altezza regolabile dal consumatore: la chat resta 24-240 px, il Task Editor

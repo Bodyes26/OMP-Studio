@@ -72,6 +72,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Previews in the agent's questions sit on a board above the card, at full width, instead of in a column next to the answers. The board is the negative of the theme (dark on light themes, light on dark ones) with the theme's accent; it shows the chosen option and, when you switch to another, only the characters that change flip over, like the flaps of a departure board. The eye on each answer shows its drawing without choosing it; drawings no longer wrap and shrink to fit the width, with "100%" to see them at actual size.
 
 ### Fixed
+- After an agent run finishes, the GUI chat properly restores the composer and send states: fixed a race condition in omp reconciliation that left the session in a streaming state, restored comprehensive typing event handling in the contenteditable editor, and eliminated visual placeholder overlap with typed text.
 - In Model Settings, opening via navigation or shortcut and saving a custom provider no longer wipes existing custom providers from `models.json` and `models.yml`.
 - The themed context menu no longer intercepts right-clicks inside modal dialogs, restoring native cut/copy/paste and preventing accidental dialog dismissals from backdrop click-through.
 - Sending a prompt after an unexpected `omp` exit or crash automatically restarts the session instead of silently dropping the prompt into an emptied composer.
