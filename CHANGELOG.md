@@ -50,6 +50,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - L'agente di una corsia, anche del Laboratorio, segnala quando ha finito e lascia un riassunto; la corsia diventa pronta per la revisione e la Principale lo legge senza aprirla.
 
 ### Changed
+- Barra inferiore rifinita con bordo superiore definito, spaziatura curata e separatore visivo; badge di aggiornamento per Studio e OMP con pillole semantiche traslucide e pulsazione discreta in presenza di novità; comparsa e scomparsa fluide di badge e indicatori di caricamento senza scatti nel layout dei pulsanti.
 - Nella chat remota su telefono il selettore modello è più ampio, con righe comode da toccare, ricerca in basso e thinking sempre visibile: scorre solo l'elenco dei modelli e la tastiera non si apre da sola.
 - Sul telefono modello e livello di ragionamento condividono un solo chip «modello · livello», senza icone: il popover riunisce la selezione del modello e, sotto un divisore, lo slider del ragionamento.
 - Nella chat remota scegli correzione o messaggio successivo dal menu accanto al pulsante Invio, come nella GUI, senza lo switch che occupava la barra del composer.

@@ -50,6 +50,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - A lane's agent, Lab included, reports when it is done and leaves a summary; the lane becomes ready for review and Main reads it without opening it.
 
 ### Changed
+- Refined bottom bar with crisp top border, tuned spacing and visual separator; semantic translucent update badges with subtle breathing pulse for Studio and OMP updates; smooth animated entrance and exit for badges and spinners without layout jumps.
 - In remote chat on phones, the model picker is larger, with touch-friendly rows, search at the bottom and thinking always visible: only the model list scrolls, and the keyboard no longer opens automatically.
 - On phones, model and reasoning level share a single icon-free “model · level” chip: its popover combines model selection with the reasoning slider below a divider.
 - In remote chat, choose steer or follow-up from the menu next to Send, as in the GUI, without the switch taking up the composer toolbar.

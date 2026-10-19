@@ -119,3 +119,53 @@ export function trayFold(node: Element, { delay = 0 }: { delay?: number } = {}):
 		duration: durationToken(getComputedStyle(node), '--dur-tray', 420)
 	});
 }
+
+export interface BadgeRevealParams {
+	delay?: number;
+	duration?: number;
+	blur?: number;
+	scale?: number;
+}
+
+/**
+ * Reveal orizzontale compatto per badge, pillole e indicatori in linea (es. barra di stato).
+ * Espande dolcemente larghezza, padding e opacita' evitando salti bruschi
+ * nel layout del pulsante o della barra.
+ */
+export function badgeReveal(
+	node: Element,
+	{
+		delay = 0,
+		duration,
+		blur = 3,
+		scale = 0.82
+	}: BadgeRevealParams = {}
+): TransitionConfig {
+	const style = getComputedStyle(node);
+	const targetWidth = (node as HTMLElement).offsetWidth || (node as HTMLElement).scrollWidth || pixels(style.width);
+	const paddingLeft = pixels(style.paddingLeft);
+	const paddingRight = pixels(style.paddingRight);
+	const marginLeft = pixels(style.marginLeft);
+	const marginRight = pixels(style.marginRight);
+	const opacity = pixels(style.opacity) || 1;
+	const reduced = motionReduced();
+
+	return {
+		delay: reduced ? 0 : delay,
+		duration: reduced ? 0 : (duration ?? durationToken(style, '--dur-row', 210)),
+		easing: revealEase,
+		css: (t, u) => `
+			overflow: clip;
+			max-width: ${t * (targetWidth + 2)}px;
+			padding-left: ${t * paddingLeft}px;
+			padding-right: ${t * paddingRight}px;
+			margin-left: ${t * marginLeft}px;
+			margin-right: ${t * marginRight}px;
+			opacity: ${t * opacity};
+			filter: blur(${u * blur}px);
+			transform: scale(${scale + (1 - scale) * t});
+			transform-origin: center;
+			white-space: nowrap;
+		`
+	};
+}

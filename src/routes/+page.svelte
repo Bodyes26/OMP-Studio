@@ -25,7 +25,7 @@
 	import StatusMark from '$lib/ui/StatusMark.svelte';
 	import Tooltip from '$lib/ui/Tooltip.svelte';
 	import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
-	import { rvLift } from '$lib/agent/motion';
+	import { rvLift, badgeReveal } from '$lib/agent/motion';
 	import UsagePopover, { type ProviderHost } from '$lib/components/UsagePopover.svelte';
 	import ProjectPicker from '$lib/components/ProjectPicker.svelte';
 	import GitPanel from '$lib/components/GitPanel.svelte';
@@ -3788,6 +3788,7 @@
 			<Tooltip text={studioUpdaterStore.currentVersion ? m.page_statusbar_studio_version_title({ version: studioUpdaterStore.currentVersion }) : m.page_statusbar_studio_version_check()}>
 			<button 
 				class="version-btn"
+				class:has-update={studioUpdaterStore.hasUpdate}
 				aria-busy={studioUpdaterStore.isChecking || studioUpdaterStore.isDownloading}
 				onclick={() => {
 					if (studioUpdaterStore.hasUpdate) {
@@ -3799,17 +3800,26 @@
 				aria-label={m.ui__page_verifica_aggiornamenti_omp_studio_e895()}
 			>
 				{#if studioUpdaterStore.isChecking || studioUpdaterStore.isDownloading}
-					<StatusMark status="running" />
+					<span class="btn-spinner" transition:badgeReveal={{ duration: 160, blur: 2 }}>
+						<StatusMark status="running" />
+					</span>
 				{/if}
-				{studioUpdaterStore.currentVersion ? `Studio ${formatVersion(studioUpdaterStore.currentVersion, { prefix: true, compact: true })}` : 'Studio'}
+				<span class="version-label">
+					{studioUpdaterStore.currentVersion ? `Studio ${formatVersion(studioUpdaterStore.currentVersion, { prefix: true, compact: true })}` : 'Studio'}
+				</span>
 				{#if studioUpdaterStore.updateBadge}
 					<span 
 						class="update-chip" 
 						class:warn={studioUpdaterStore.badgeType === 'warn'} 
 						class:success={studioUpdaterStore.badgeType === 'success'} 
 						class:error={studioUpdaterStore.badgeType === 'error'}
+						class:info={studioUpdaterStore.badgeType === 'info'}
+						transition:badgeReveal
 					>
-						{studioUpdaterStore.updateBadge}
+						{#if studioUpdaterStore.badgeType === 'warn'}
+							<span class="chip-dot" aria-hidden="true"></span>
+						{/if}
+						<span class="chip-text">{studioUpdaterStore.updateBadge}</span>
 					</span>
 				{/if}
 			</button>
@@ -3817,26 +3827,37 @@
 			<Tooltip text={m.page_statusbar_omp_version_check()}>
 			<button 
 				class="version-btn"
+				class:has-update={Boolean(pendingUpdateCheck?.has_update)}
 				aria-busy={isCheckingUpdate || isInstallingUpdate}
 				onclick={handleCheckUpdate}
 				aria-label={m.ui__page_verifica_aggiornamenti_omp_cli_c90f()}
 			>
 				{#if isCheckingUpdate || isInstallingUpdate}
-					<StatusMark status="running" />
+					<span class="btn-spinner" transition:badgeReveal={{ duration: 160, blur: 2 }}>
+						<StatusMark status="running" />
+					</span>
 				{/if}
-				{ompVersionStore.current ? `OMP v${ompVersionStore.current}` : 'OMP'}
+				<span class="version-label">
+					{ompVersionStore.current ? `OMP v${ompVersionStore.current}` : 'OMP'}
+				</span>
 				{#if updateMessage}
 					<span
 						class="update-chip"
 						class:warn={ompBadgeType === 'warn'}
 						class:success={ompBadgeType === 'success'}
 						class:error={ompBadgeType === 'error'}
+						class:info={ompBadgeType === null}
+						transition:badgeReveal
 					>
-						{updateMessage}
+						{#if ompBadgeType === 'warn'}
+							<span class="chip-dot" aria-hidden="true"></span>
+						{/if}
+						<span class="chip-text">{updateMessage}</span>
 					</span>
 				{/if}
 			</button>
 			</Tooltip>
+			<span class="statusbar-divider" aria-hidden="true"></span>
 			<div
 				class="status-indicator"
 				role="status"
@@ -3846,7 +3867,7 @@
 					status={activeLaneState === 'working' ? 'running' : activeLaneState === 'finished' ? 'completed' : activeLaneState === 'attention' ? 'attention' : 'pending'}
 					active={activeLaneState === 'working' || activeLaneState === 'attention'}
 				/>
-				<span>{agentStateLabel(activeLaneState)}</span>
+				<span class="status-label">{agentStateLabel(activeLaneState)}</span>
 			</div>
 		</div>
 	</footer>
@@ -4197,7 +4218,7 @@
 	.statusbar {
 		height: 26px;
 		background-color: var(--bg-raised);
-		/* Separata per luminanza dal pozzo, come la topbar. */
+		border-top: 1px solid var(--line);
 		display: flex;
 		align-items: center;
 		justify-content: flex-end;
@@ -4205,31 +4226,42 @@
 		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		z-index: var(--z-sticky);
+		user-select: none;
 	}
 
 	.statusbar-right {
 		display: flex;
 		align-items: center;
-		gap: var(--space-3);
+		gap: var(--space-2);
 	}
 
+	.statusbar-divider {
+		width: 1px;
+		height: 12px;
+		background-color: var(--line);
+		margin: 0 2px;
+		flex-shrink: 0;
+	}
 
 	.version-btn {
 		background: transparent;
 		border: 1px solid transparent;
 		color: var(--ink-faint);
-		font-size: var(--text-caption);
+		font-size: 11px;
 		font-family: var(--font-mono);
 		font-variant-numeric: tabular-nums;
-		padding: 2px 6px;
+		height: 20px;
+		padding: 0 6px;
 		border-radius: var(--radius-md);
 		cursor: pointer;
-		display: flex;
+		display: inline-flex;
 		align-items: center;
 		gap: 6px;
 		transition: color var(--dur-fast) var(--ease-out),
 			background-color var(--dur-fast) var(--ease-out),
-			border-color var(--dur-fast) var(--ease-out);
+			border-color var(--dur-fast) var(--ease-out),
+			box-shadow var(--dur-fast) var(--ease-out);
+		white-space: nowrap;
 	}
 
 	.version-btn:hover {
@@ -4238,37 +4270,129 @@
 		border-color: var(--line);
 	}
 
+	.version-btn:focus-visible {
+		outline: none;
+		border-color: var(--brand);
+		box-shadow: 0 0 0 1px var(--brand);
+	}
+
+	.version-btn.has-update {
+		color: var(--ink-muted);
+		border-color: color-mix(in oklch, var(--warn) 25%, transparent);
+		background: color-mix(in oklch, var(--warn) 6%, transparent);
+	}
+
+	.version-btn.has-update:hover {
+		color: var(--ink);
+		border-color: color-mix(in oklch, var(--warn) 45%, transparent);
+		background: color-mix(in oklch, var(--warn) 12%, transparent);
+	}
+
+	.btn-spinner {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
+	}
+
+	.version-label {
+		line-height: 1;
+		letter-spacing: -0.01em;
+	}
 
 	.update-chip {
-		font-size: var(--text-caption);
-		padding: 1px var(--space-1);
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		font-family: var(--font-mono);
+		font-size: 10px;
+		font-weight: 600;
+		line-height: 1;
+		letter-spacing: 0.02em;
+		padding: 2px 6px;
 		border-radius: var(--radius-full);
 		background: var(--bg-active);
 		color: var(--ink);
-		font-weight: 600;
+		box-shadow: inset 0 0 0 1px var(--line);
+		flex-shrink: 0;
+		transition: background-color var(--dur-fast) var(--ease-out),
+			color var(--dur-fast) var(--ease-out),
+			box-shadow var(--dur-fast) var(--ease-out);
 	}
 
 	.update-chip.warn {
-		background: var(--warn);
-		color: var(--bg-sunken);
+		background: color-mix(in oklch, var(--warn) 15%, transparent);
+		color: var(--warn);
+		box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--warn) 35%, transparent);
 	}
 
 	.update-chip.success {
-		background: var(--success);
-		color: var(--on-success);
+		background: color-mix(in oklch, var(--success) 14%, transparent);
+		color: var(--success);
+		box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--success) 30%, transparent);
 	}
 
 	.update-chip.error {
-		background: var(--danger);
-		color: var(--on-danger);
+		background: color-mix(in oklch, var(--danger) 14%, transparent);
+		color: var(--danger);
+		box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--danger) 32%, transparent);
+	}
+
+	.update-chip.info {
+		background: color-mix(in srgb, var(--ink) 8%, transparent);
+		color: var(--ink-muted);
+		box-shadow: inset 0 0 0 1px var(--line);
+	}
+
+	.chip-dot {
+		width: 5px;
+		height: 5px;
+		border-radius: var(--radius-full);
+		flex-shrink: 0;
+		background-color: currentColor;
+	}
+
+	.update-chip.warn .chip-dot {
+		box-shadow: 0 0 5px var(--warn);
+		animation: badge-pulse 2s var(--ease-breathing) infinite;
+	}
+
+	@keyframes badge-pulse {
+		0%, 100% {
+			transform: scale(1);
+			opacity: 1;
+		}
+		50% {
+			transform: scale(1.25);
+			opacity: 0.7;
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.update-chip.warn .chip-dot {
+			animation: none;
+		}
+	}
+
+	:root[data-animations="false"] .update-chip.warn .chip-dot {
+		animation: none;
 	}
 
 	.status-indicator {
-		display: flex;
+		display: inline-flex;
 		align-items: center;
 		gap: 6px;
+		font-size: 11px;
 		font-weight: 500;
 		color: var(--ink-muted);
+		padding: 0 4px;
+		height: 20px;
+		line-height: 1;
+	}
+
+	.status-label {
+		font-family: var(--font-ui);
+		letter-spacing: -0.01em;
 	}
 
 
