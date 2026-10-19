@@ -7,7 +7,9 @@
 	import { m } from '$lib/paraglide/messages.js';
 	import { doctorStore, type DoctorCategory, type DoctorItem } from '$lib/stores/doctor.svelte';
 	import { projectStore } from '$lib/stores/projects.svelte';
-	import { IconWarning, IconRefresh, IconCopy, IconArrowRight } from '$lib/icons';
+	import { IconWarning, IconRefresh, IconCopy, IconArrowRight, IconFolderOpen } from '$lib/icons';
+	import { invoke } from '@tauri-apps/api/core';
+	import { revealItemInDir } from '@tauri-apps/plugin-opener';
 	import StatusMark from '$lib/ui/StatusMark.svelte';
 	import Segmented from '$lib/ui/Segmented.svelte';
 	import {
@@ -35,6 +37,16 @@
 
 	function handleCopy() {
 		void doctorStore.copyReport();
+	}
+
+	// Il registro di vita (`studio.log`) e' cio' che serve allegare a una
+	// segnalazione: si apre la cartella con il file gia' selezionato.
+	async function handleOpenLogs() {
+		try {
+			await revealItemInDir(await invoke<string>('studio_log_path'));
+		} catch (error) {
+			console.warn('Apertura della cartella dei log non riuscita:', error);
+		}
 	}
 
 	const categoryTitles: Record<DoctorCategory, string> = {
@@ -101,6 +113,16 @@
 		</div>
 
 		<div class="header-actions">
+			<button
+				type="button"
+				class="ui-button ui-button-secondary"
+				onclick={handleOpenLogs}
+				title={m.settings_doctor_open_logs_title()}
+			>
+				<IconFolderOpen />
+				<span>{m.settings_doctor_open_logs()}</span>
+			</button>
+
 			<button
 				type="button"
 				class="ui-button ui-button-secondary"

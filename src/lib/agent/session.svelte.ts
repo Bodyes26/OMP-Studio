@@ -8,6 +8,7 @@ import { notifyGitStatusRefresh } from '$lib/stores/gitDiff.svelte';
 import { nameExistingPrototypeIfLong, nameLaneFromPrompt } from '$lib/lanes/laneNaming';
 import { projectStore } from '$lib/stores/projects.svelte';
 import { perfMark, perfSpan } from '$lib/perf';
+import { studioLog } from '$lib/diagnostics/studioLog';
 import { generateSessionTitle } from '$lib/stores/sessionTitles';
 import {
 	agentHeadsUp,
@@ -1237,6 +1238,7 @@ export class AgentSession {
 		const projectName = projectStore.projects.find((p) => p.id === this.projectKey)?.name ?? this.projectKey;
 		const lane = this.laneId ?? 'main';
 		this.openReadySpanEnd = perfSpan('session', `rpc_open->ready ${projectName} ${lane}`);
+		studioLog.info('session', `apertura ${projectName} ${lane} ripresa=${requestedResume ?? 'nuova'}`);
 
 		if (this.opening) {
 			// Stessa sessione e nessun override: una sola apertura basta.
@@ -1281,6 +1283,7 @@ export class AgentSession {
 					});
 				}
 			} catch (error) {
+				studioLog.warn('session', `apertura non riuscita ${projectName} ${lane}: ${this.reason(error)}`);
 				if (this.openReadySpanEnd) {
 					this.openReadySpanEnd('errore');
 					this.openReadySpanEnd = null;
@@ -1304,6 +1307,7 @@ export class AgentSession {
 	}
 
 	async close() {
+		studioLog.info('session', `chiusura ${projectStore.projects.find((p) => p.id === this.projectKey)?.name ?? this.projectKey} ${this.laneId ?? 'main'}`);
 		this.clearPrewalkState();
 		this.unsubscribeEvent?.();
 		this.unsubscribeEvent = null;
@@ -1388,6 +1392,7 @@ export class AgentSession {
 			// Sonda e storico insieme: un omp senza `/btw` nasconde il pulsante.
 			void this.btw.loadHistory();
 			endAttachSpan('ok');
+			studioLog.info('session', `insediata ${projectName} ${lane}`);
 		} catch (error) {
 			endAttachSpan('errore');
 			this.pushNotice('error', messages.ui_ts_session_insediamento_della_sessione_non_completato_value1_bce4({ value1: this.reason(error) }));
@@ -5399,6 +5404,12 @@ export class AgentSession {
 	}
 
 	pushNotice(level: 'info' | 'warning' | 'error', message: string, source?: string, offerTerminal = false) {
+		// Gli avvisi mostrati all'utente vanno anche nel registro: sono la parte
+		// del racconto che l'utente ha visto e sapra' indicare.
+		if (level !== 'info') {
+			const name = projectStore.projects.find((p) => p.id === this.projectKey)?.name ?? this.projectKey;
+			studioLog.warn('notice', `${name} ${this.laneId ?? 'main'} ${level}: ${message}${source ? ` (${source})` : ''}`);
+		}
 		this.push({ id: this.nextEntryId++, kind: 'notice', level, message, source, offerTerminal });
 	}
 

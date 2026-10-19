@@ -67,6 +67,8 @@ use focus_trace::{focus_trace_append, focus_trace_path};
 mod window_icon;
 mod perf_trace;
 use perf_trace::{perf_trace_append, perf_trace_path};
+mod studio_log;
+use studio_log::{studio_log_append, studio_log_path};
 mod external;
 use external::open_project_external;
 mod rules_ops;
@@ -176,6 +178,8 @@ pub fn run() {
             focus_trace_path,
             perf_trace_append,
             perf_trace_path,
+            studio_log_append,
+            studio_log_path,
             pty_open,
             pty_write,
             pty_resize,
@@ -359,6 +363,7 @@ pub fn run() {
         ])
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::Destroyed => {
+                studio_log::info("window", format!("{} distrutta", window.label()));
                 if window.label() == "main" {
                     if let Some(pty_manager) = window.try_state::<PtyManager>() {
                         pty_manager.close_all();
@@ -382,12 +387,26 @@ pub fn run() {
             }
             // La taskbar puo' cambiare colore senza che cambi il tema delle app:
             // il focus e' l'occasione piu' vicina per accorgersene.
-            tauri::WindowEvent::ThemeChanged(_) | tauri::WindowEvent::Focused(true) => {
+            tauri::WindowEvent::ThemeChanged(_) => {
                 window_icon::sync(window);
+            }
+            // Il fuoco nativo si registra: se la finestra lo ha ma l'interfaccia
+            // non riceve input, il problema sta nella webview e non nel sistema.
+            tauri::WindowEvent::Focused(focused) => {
+                if window.label() == "main" {
+                    studio_log::info("window", format!("main fuoco nativo={}", focused));
+                }
+                if *focused {
+                    window_icon::sync(window);
+                }
+            }
+            tauri::WindowEvent::CloseRequested { .. } => {
+                studio_log::info("window", format!("{} chiusura richiesta", window.label()));
             }
             _ => {}
         })
         .setup(|app| {
+            studio_log::init(app.handle());
             perf_trace::init(app.handle());
             init_windows_aumid();
             if let Some(main) = app.get_webview_window("main") {
@@ -414,6 +433,9 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|app_handle, event| {
             if let tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit = event {
+                if matches!(event, tauri::RunEvent::Exit) {
+                    studio_log::info("app", "uscita");
+                }
                 if let Some(pty_manager) = app_handle.try_state::<PtyManager>() {
                     pty_manager.close_all();
                 }

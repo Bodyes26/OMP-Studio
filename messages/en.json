@@ -940,6 +940,8 @@
   "settings_doctor_desc": "Real-time health check of all Studio operational prerequisites and AI providers.",
   "settings_doctor_run": "Re-run Diagnostics",
   "settings_doctor_copy_report": "Copy Diagnostic Report",
+  "settings_doctor_open_logs": "Open logs folder",
+  "settings_doctor_open_logs_title": "Opens the folder with the Studio log (studio.log), to attach when reporting a problem",
   "settings_doctor_copied": "Report copied to clipboard!",
   "settings_doctor_status_ok": "All operational prerequisites are satisfied",
   "settings_doctor_status_warn": "Non-blocking environmental warnings detected",

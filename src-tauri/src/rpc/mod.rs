@@ -569,7 +569,20 @@ fn reader_loop(args: ReaderLoopArgs) {
     // in %TEMP% per sempre.
     let removed = sessions.lock().remove(&rpc_id);
     if let Some(session) = removed {
+        // Una sessione ancora registrata significa che nessuno l'ha chiusa:
+        // e' l'uscita che l'utente non ha chiesto e che va spiegata.
+        crate::studio_log::warn(
+            "rpc",
+            format!(
+                "omp terminato da solo rpc={} codice={:?} stderr={}",
+                rpc_id,
+                code,
+                tail.last().map(String::as_str).unwrap_or("-")
+            ),
+        );
         session.kill_tree();
+    } else {
+        crate::studio_log::info("rpc", format!("omp chiuso rpc={} codice={:?}", rpc_id, code));
     }
     crate::lane_bridge::revoke_owner("agent", rpc_id);
     let _ = stats.send(
@@ -1005,11 +1018,16 @@ pub async fn rpc_open(
             if bridge_creds.is_some() {
                 crate::lane_bridge::revoke_owner("agent", rpc_id);
             }
+            crate::studio_log::warn("rpc", format!("avvio di omp fallito rpc={} cwd={}: {}", rpc_id, launch_cwd, error));
             return Err(format!("Avvio di omp in modalita' RPC: {}", error));
         }
     };
 
     let pid = child.id();
+    crate::studio_log::info(
+        "rpc",
+        format!("omp avviato rpc={} pid={} cwd={} resume={}", rpc_id, pid, launch_cwd, resume.as_deref().unwrap_or("-")),
+    );
     #[cfg(target_os = "windows")]
     let job = match crate::process_tree::WindowsJob::create_for_process(pid) {
         Ok(j) => Some(Arc::new(j)),
@@ -1317,11 +1335,16 @@ pub async fn rpc_open_lab(
             if lab_bridge.is_some() {
                 crate::lane_bridge::revoke_owner("agent", rpc_id);
             }
+            crate::studio_log::warn("rpc", format!("avvio di omp Laboratorio fallito rpc={}: {}", rpc_id, error));
             return Err(format!("Avvio di omp per sessione Laboratorio: {}", error));
         }
     };
 
     let pid = child.id();
+    crate::studio_log::info(
+        "rpc",
+        format!("omp Laboratorio avviato rpc={} pid={} cwd={}", rpc_id, pid, workspace_path),
+    );
     #[cfg(target_os = "windows")]
     let job = match crate::process_tree::WindowsJob::create_for_process(pid) {
         Ok(j) => Some(Arc::new(j)),
@@ -1664,7 +1687,11 @@ pub async fn rpc_diagnostics(
 pub async fn rpc_write_hang_report(report: String, app: tauri::AppHandle) -> Result<String, String> {
     use tauri::Manager;
     let dir = app.path().app_log_dir().map_err(|error| error.to_string())?;
-    diag::write_hang_report(&dir, &report).map(|path| path.to_string_lossy().into_owned())
+    let path = diag::write_hang_report(&dir, &report).map(|path| path.to_string_lossy().into_owned());
+    if let Ok(path) = &path {
+        crate::studio_log::warn("rpc", format!("comando senza risposta, rapporto {}", path));
+    }
+    path
 }
 
 /// Versione di protocollo effettivamente negoziata: serve al frontend per

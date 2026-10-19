@@ -16,6 +16,7 @@ import {
 } from '$lib/types/lanes';
 import { labApi } from '$lib/lab/api';
 import type { LabIndexEntry } from '$lib/lab/types';
+import { noteProjectSwitch, studioLog } from '$lib/diagnostics/studioLog';
 
 import { isWindows, normalizeProjectPath, joinProjectPath, pathKey } from '$lib/utils/paths';
 import {
@@ -515,6 +516,11 @@ class ProjectStore {
 		const idx = this.projects.findIndex(p => p.id === id);
 		if (idx === -1) return;
 		const p = this.projects[idx];
+		if (this.activeId !== id) {
+			const from = this.projects.find((x) => x.id === this.activeId)?.name ?? '-';
+			noteProjectSwitch(from, p.name);
+			studioLog.info('project', `attivo: ${from} -> ${p.name} agente=${p.lane.agentState} corsia=${p.lane.laneId}`);
+		}
 		p.lastOpened = Date.now();
 		if (p.lane.agentState === 'finished') {
 			p.lane.agentState = 'idle';

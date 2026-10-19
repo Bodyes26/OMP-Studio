@@ -125,6 +125,7 @@
 	import { listen } from '@tauri-apps/api/event';
 	import { onMount, untrack } from 'svelte';
 	import { startFocusTracer } from '$lib/focusTracer';
+	import { registerSnapshotProvider } from '$lib/diagnostics/studioLog';
 
 	let leftSection = $state<'files' | 'git' | 'agent'>('files');
 	const currentLaneSurface = $derived.by(() => {
@@ -314,6 +315,34 @@
 		const state = laneOrchestrator.laneAgentState(project, project.lane.laneId);
 		return state === 'unknown' ? 'idle' : state;
 	});
+
+	// Cosa raccontare nel registro di Studio quando fotografa un'anomalia:
+	// progetto attivo, stato della sua sessione e dialoghi del guscio aperti.
+	$effect(() =>
+		registerSnapshotProvider('studio', () => {
+			const p = projectStore.activeProject;
+			if (!p) return 'nessun progetto attivo';
+			const s = registeredSessionFor(p);
+			const session = s
+				? `pronta=${s.isReady} insediata=${s.isAttached} insediamento=${s.isAttaching} uscita=${s.exited} agente=${s.agentState}`
+				: 'nessuna';
+			const modals = Object.entries({
+				settings: settingsStore.open,
+				setup: setupOpen,
+				usage: usageOpen,
+				picker: pickerOpen,
+				queue: queueOpen,
+				closeConfirm: closeConfirmModalState.open,
+				laneReview: reviewingLane !== null,
+				image: viewingImage !== null,
+				restart: showRestartModal,
+				updatePrompt: showUpdatePromptModal
+			})
+				.filter(([, open]) => open)
+				.map(([name]) => name);
+			return `progetto=${p.name} corsia=${p.lane.laneId} superficie=${p.lane.surface} stato=${p.lane.agentState} sessione[${session}] dialoghi=${modals.join(',') || 'nessuno'}`;
+		})
+	);
 
 	onMount(() => {
 		void startFocusTracer();

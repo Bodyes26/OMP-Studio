@@ -5,6 +5,7 @@ import { openExternalUrl } from '$lib/utils/openExternal';
 import { formatVersion, type FormatVersionOptions } from '$lib/utils/version';
 import { m as msg } from '$lib/paraglide/messages.js';
 import { installOutcomeKeepsRunning, installOutcomeNotice } from './studioInstallOutcome';
+import { studioLog } from '$lib/diagnostics/studioLog';
 
 export { formatVersion, type FormatVersionOptions };
 
@@ -271,6 +272,7 @@ class StudioUpdaterStore {
 		this.isInstalling = true;
 		this.errorMessage = null;
 		this.installNotice = null;
+		studioLog.info('update', `installazione dell'aggiornamento ${this.updateInfo?.tag_name ?? ''} e riavvio`);
 		try {
 			const outcome = await invoke<unknown>('install_studio_update_and_restart');
 			if (installOutcomeKeepsRunning(outcome)) {
@@ -288,6 +290,7 @@ class StudioUpdaterStore {
 		} catch (e: unknown) {
 			this.isInstalling = false;
 			const errStr = extractErrorMessage(e);
+			studioLog.warn('update', `installazione non riuscita: ${errStr}`);
 			this.errorMessage = errStr;
 		}
 	}

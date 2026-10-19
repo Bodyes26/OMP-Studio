@@ -940,6 +940,8 @@
   "settings_doctor_desc": "Verifica in tempo reale la salute di tutti i prerequisiti operativi di Studio e dei provider AI.",
   "settings_doctor_run": "Riesegui Diagnostica",
   "settings_doctor_copy_report": "Copia Report Diagnostico",
+  "settings_doctor_open_logs": "Apri cartella dei log",
+  "settings_doctor_open_logs_title": "Apre la cartella con il registro di Studio (studio.log), da allegare quando segnali un problema",
   "settings_doctor_copied": "Report copiato negli appunti!",
   "settings_doctor_status_ok": "Tutti i prerequisiti operativi sono soddisfatti",
   "settings_doctor_status_warn": "Rilevate anomalie non bloccanti nell'ambiente",

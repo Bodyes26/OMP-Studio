@@ -8,6 +8,7 @@
  */
 
 import './paths.test.ts';
+import './studio-log.test.ts';
 import './tasks-store.test.ts';
 import './lanes-store.test.ts';
 import './lanes-concurrency.test.ts';

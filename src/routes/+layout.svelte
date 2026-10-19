@@ -5,8 +5,12 @@
 	import { i18n } from '$lib/i18n/i18n.svelte';
 	import { installContextMenuHandling } from '$lib/contextMenu.svelte';
 	import ContextMenu from '$lib/components/ContextMenu.svelte';
+	import { installStudioLogCapture } from '$lib/diagnostics/capture.svelte';
 
 	let { children } = $props();
+
+	// Prima di tutto: un errore durante l'avvio dei pannelli va gia' registrato.
+	installStudioLogCapture();
 
 	// Prima di qualunque pannello: il guscio deve nascere gia' del colore
 	// giusto, senza un fotogramma con i token di default.

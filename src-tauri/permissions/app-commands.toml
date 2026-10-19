@@ -205,6 +205,14 @@ commands.allow = [
 ]
 
 [[permission]]
+identifier = "allow-studio-log"
+description = "Registro di vita di Studio: scrittura del file studio.log e lettura del suo percorso"
+commands.allow = [
+    "studio_log_append",
+    "studio_log_path"
+]
+
+[[permission]]
 identifier = "allow-external-open"
 description = "Apertura della cartella di progetto in un terminale o in un editor esterno"
 commands.allow = [
@@ -366,6 +374,7 @@ permissions = [
     "allow-attention",
     "allow-focus-trace",
     "allow-perf-trace",
+    "allow-studio-log",
     "allow-external-open",
     "allow-rules-and-skills",
     "allow-task-directives",
