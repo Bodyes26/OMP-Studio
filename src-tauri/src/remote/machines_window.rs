@@ -123,7 +123,7 @@ mod tests {
     #[test]
     fn test_build_machines_url_valid_https() {
         let url = build_machines_url("https://relay.example.com").expect("url valido");
-        assert_eq!(url.as_str(), "https://relay.example.com/");
+        assert_eq!(url.as_str(), "https://relay.example.com/?lang=it");
         assert_eq!(
             url.origin().ascii_serialization(),
             "https://relay.example.com"
@@ -131,18 +131,18 @@ mod tests {
 
         let url_trailing =
             build_machines_url("https://relay.example.com/").expect("url valido con slash");
-        assert_eq!(url_trailing.as_str(), "https://relay.example.com/");
+        assert_eq!(url_trailing.as_str(), "https://relay.example.com/?lang=it");
     }
 
     #[test]
     fn test_build_machines_url_localhost() {
         let url = build_machines_url("http://127.0.0.1:18795").expect("url loopback valido");
-        assert_eq!(url.as_str(), "http://127.0.0.1:18795/");
+        assert_eq!(url.as_str(), "http://127.0.0.1:18795/?lang=it");
         assert_eq!(url.origin().ascii_serialization(), "http://127.0.0.1:18795");
 
         let url_localhost =
             build_machines_url("http://localhost:18795/").expect("url localhost valido");
-        assert_eq!(url_localhost.as_str(), "http://localhost:18795/");
+        assert_eq!(url_localhost.as_str(), "http://localhost:18795/?lang=it");
     }
 
     #[test]
