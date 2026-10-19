@@ -2655,6 +2655,9 @@ export class AgentSession {
 			}
 			case 'turn_start':
 				if (this.isAborting) return;
+				// Un run contiene piu' giri di tool: turn_end spegne lo streaming,
+				// ma agent_start non viene ripetuto prima del giro successivo.
+				this.isStreaming = true;
 				if (this.turnStartedAt === null) this.turnStartedAt = Date.now();
 				this.suggestions.invalidate();
 				this.markWorking();
