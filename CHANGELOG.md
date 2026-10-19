@@ -108,6 +108,9 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Studio non consuma più CPU di continuo a riposo: per ogni sessione senza un account fissato la ricerca dell'account si ripeteva senza sosta scorrendo tutte le sessioni su disco (oltre il 150% di CPU su Mac).
 - Un obiettivo creato nella chat GUI prosegue da solo un tentativo dopo l'altro, come nel terminale: prima si fermava dopo il primo turno.
 - `/fork` nella chat GUI copia davvero la sessione, cronologia e artefatti compresi, e prosegue sulla copia: prima apriva una chat vuota. Se l'agente sta lavorando o aspetta una risposta, Studio lo dice e lascia tutto com'era.
+- Un errore in un pannello (editor, chat o barra laterale) non blocca più tutta l'interfaccia di Studio: il pannello mostra l'errore con «Riprova», mentre il resto dell'app e gli agenti continuano a funzionare. Prima Studio restava disegnato ma non rispondeva più a clic e tasti, e bisognava riavviarlo.
+- Aprire un file dall'editor dopo un'apertura fallita, o dopo un cambio di disposizione senza file aperto, non manda più in errore l'editor bloccando Studio.
+- I link ai file nei messaggi dell'agente aprono anche i file con caratteri speciali nel nome (per esempio parentesi quadre o spazi), invece di cercare il nome codificato come URL e non trovarlo.
 
 ## [1.7.2] - 2026-10-07
 

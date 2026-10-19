@@ -22,6 +22,7 @@
 	import AgentPanel from '$lib/components/AgentPanel.svelte';
 	import ColumnTabs from '$lib/ui/ColumnTabs.svelte';
 	import Segmented from '$lib/ui/Segmented.svelte';
+	import SurfaceBoundary from '$lib/ui/SurfaceBoundary.svelte';
 	import StatusMark from '$lib/ui/StatusMark.svelte';
 	import Tooltip from '$lib/ui/Tooltip.svelte';
 	import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
@@ -3545,6 +3546,7 @@
 					aria-labelledby={`sidebar-tab-${leftSection}`}
 					tabindex="0"
 				>
+					<SurfaceBoundary name="sidebar">
 					{#if projectStore.activeProject}
 						{@const proj = projectStore.activeProject}
 					{#if !proj.lane.workspacePath}
@@ -3600,6 +3602,7 @@
 						/>
 					{/if}
 				{/if}
+					</SurfaceBoundary>
 				</div>
 			</div>
 		</aside>
@@ -3670,20 +3673,22 @@
 							onClose={() => closeActiveSurface()}
 						/>
 					{:else if EditorComponent}
-						<EditorComponent
-							projectPath={projectStore.activeProject.lane.workspacePath ?? ''}
-							filePaths={projectStore.activeProject.lane.openFiles}
-							filePath={projectStore.activeProject.lane.activeFile}
-							openFileRequest={terminalOpenRequest?.projectId === projectStore.activeProject.id ? terminalOpenRequest : null}
-							editorDiffRequest={editorDiffRequest}
-							onDirtyFilesChange={(paths: string[]) => (activeDirtyFiles = paths)}
-							onPreviewRequest={(fp: string) => {
-								openPreview(fp);
-							}}
-							onFileSaved={() => {
-								window.dispatchEvent(new CustomEvent('git-status-refresh'));
-							}}
-						/>
+						<SurfaceBoundary name="editor">
+							<EditorComponent
+								projectPath={projectStore.activeProject.lane.workspacePath ?? ''}
+								filePaths={projectStore.activeProject.lane.openFiles}
+								filePath={projectStore.activeProject.lane.activeFile}
+								openFileRequest={terminalOpenRequest?.projectId === projectStore.activeProject.id ? terminalOpenRequest : null}
+								editorDiffRequest={editorDiffRequest}
+								onDirtyFilesChange={(paths: string[]) => (activeDirtyFiles = paths)}
+								onPreviewRequest={(fp: string) => {
+									openPreview(fp);
+								}}
+								onFileSaved={() => {
+									window.dispatchEvent(new CustomEvent('git-status-refresh'));
+								}}
+							/>
+						</SurfaceBoundary>
 					{/if}
 				{/if}
 				</div>
@@ -3772,16 +3777,18 @@
 						{@const isLaneActive = p.id === projectStore.activeId && p.lane.laneId === lane.laneId}
 						{@const currentSurface = isLaneActive ? p.lane.surface : lane.surface}
 						{#if lane.kind === 'lab' || currentSurface === 'gui'}
-							<Chat
-								session={laneOrchestrator.getOrCreateAgentSession(p, lane)}
-								visible={isLaneActive}
-								onOpenFile={(filePath, line) => handleTerminalOpenFile(p.id, filePath, line ?? null)}
-								onOpenDiff={lane.kind === 'lab' ? undefined : (filePath) => void handleChatOpenDiff(p.id, filePath)}
-								onOpenImage={(data, mimeType) => (viewingImage = { data, mimeType })}
-								onSwitchToTerminal={lane.kind === 'lab' ? undefined : () => void switchSurface(p.id, 'terminal')}
-								onSlashCommand={(raw) => handleGuiSlashCommand(p.id, lane.laneId, raw)}
-								onNewChat={lane.kind === 'lab' ? undefined : () => void handleNewChat(p.id, lane.laneId)}
-							/>
+							<SurfaceBoundary name="chat">
+								<Chat
+									session={laneOrchestrator.getOrCreateAgentSession(p, lane)}
+									visible={isLaneActive}
+									onOpenFile={(filePath, line) => handleTerminalOpenFile(p.id, filePath, line ?? null)}
+									onOpenDiff={lane.kind === 'lab' ? undefined : (filePath) => void handleChatOpenDiff(p.id, filePath)}
+									onOpenImage={(data, mimeType) => (viewingImage = { data, mimeType })}
+									onSwitchToTerminal={lane.kind === 'lab' ? undefined : () => void switchSurface(p.id, 'terminal')}
+									onSlashCommand={(raw) => handleGuiSlashCommand(p.id, lane.laneId, raw)}
+									onNewChat={lane.kind === 'lab' ? undefined : () => void handleNewChat(p.id, lane.laneId)}
+								/>
+							</SurfaceBoundary>
 						{:else}
 							<Terminal
 								cwd={lane.workspacePath ?? p.canonicalProjectPath ?? ''}

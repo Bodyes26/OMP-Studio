@@ -22,15 +22,28 @@
 	const hooks = agentUiHooks();
 	const hasFileActions = hasAgentUiHooks();
 
+	// Gli agenti scrivono i link markdown con il percorso codificato come URL
+	// (`%5B` per `[`, `%20` per lo spazio): il file su disco ha il nome in chiaro.
+	function decodeFileHref(href: string): string {
+		try {
+			return decodeURIComponent(href);
+		} catch {
+			return href;
+		}
+	}
+
 	function handleLink(e: MouseEvent, href: string) {
 		e.preventDefault();
 		if (!href) return;
 		if (isAllowedExternalUrl(href)) {
 			void openExternalUrl(href);
-		} else if (onOpenFile) {
-			onOpenFile(href);
+			return;
+		}
+		const path = decodeFileHref(href);
+		if (onOpenFile) {
+			onOpenFile(path);
 		} else {
-			hooks.openFile(href, null);
+			hooks.openFile(path, null);
 		}
 	}
 

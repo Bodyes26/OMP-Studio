@@ -108,6 +108,9 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Studio no longer burns CPU continuously while idle: for every session without a pinned account, the account lookup repeated endlessly, scanning every session on disk (over 150% CPU on Mac).
 - A goal created in the GUI chat continues on its own, one attempt after another, as in the terminal: it used to stop after the first turn.
 - `/fork` in the GUI chat now really copies the session, history and artifacts included, and continues on the copy: it used to open an empty chat. If the agent is working or waiting for an answer, Studio says so and leaves everything as it was.
+- An error in one panel (editor, chat or sidebar) no longer freezes the whole Studio interface: the panel shows the error with “Retry” while the rest of the app and the agents keep running. Before, Studio stayed on screen but stopped reacting to clicks and keys, and had to be restarted.
+- Opening a file in the editor after a failed open, or after a layout change with no file open, no longer crashes the editor and freezes Studio.
+- File links in agent messages also open files with special characters in the name (for example square brackets or spaces), instead of looking for the URL-encoded name and not finding it.
 
 ## [1.7.2] - 2026-10-07
 

@@ -142,12 +142,17 @@ export function getEditorInstance(container: HTMLElement) {
 		if (pending && activePath) attachModel(activePath, pending);
 	} else if (editorInstance.getContainerDomNode() !== container) {
 		clearGutterDebounce();
-		const currentModel = editorInstance.getModel();
+		// Passa al nuovo editor solo un modello di file nostro. Senza file
+		// agganciato (apertura fallita, nessun file ancora) Monaco tiene un
+		// modello vuoto proprio che `dispose()` distrugge insieme all'editor:
+		// ripassarlo a `create` lancia "Model is disposed!" dentro l'effetto
+		// Svelte, e Svelte smette di aggiornare tutta l'interfaccia.
 		const carriedPath = attachedPath;
+		const carriedModel = carriedPath ? (models.get(carriedPath) ?? null) : null;
 		stashViewState();
 		editorInstance.dispose();
 		editorInstance = monaco.editor.create(container, {
-			model: currentModel,
+			model: carriedModel,
 			...editorSettingsOptions(),
 			theme: 'omp-studio',
 			lineHeight: 1.2,
@@ -164,9 +169,15 @@ export function getEditorInstance(container: HTMLElement) {
 			lineNumbersMinChars: 3,
 			folding: true
 		});
-		attachedPath = carriedPath;
-		const carriedState = carriedPath ? viewStates.get(carriedPath) : undefined;
-		if (carriedState) editorInstance.restoreViewState(carriedState);
+		if (carriedModel && carriedPath) {
+			attachedPath = carriedPath;
+			const carriedState = viewStates.get(carriedPath);
+			if (carriedState) editorInstance.restoreViewState(carriedState);
+		} else {
+			attachedPath = null;
+			const pending = activePath ? models.get(activePath) : undefined;
+			if (pending && activePath) attachModel(activePath, pending);
+		}
 	}
 	return editorInstance;
 }
