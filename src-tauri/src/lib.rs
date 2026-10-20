@@ -126,6 +126,50 @@ use remote::{
 
 use tauri::Manager;
 
+/// Riporta la finestra principale al minimo dichiarato in `tauri.conf.json`.
+/// Il minimo nativo limita solo il trascinamento dei bordi: il ripristino da
+/// massimizzata applica il rettangolo salvato da window-state anche se e' piu'
+/// piccolo (es. 486x240 dopo un trascinamento accidentale della topbar).
+fn enforce_main_min_size(window: &tauri::Window) {
+    let app = window.app_handle();
+    let Some((min_w, min_h)) = app
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|w| w.label == "main")
+        .and_then(|w| Some((w.min_width?, w.min_height?)))
+    else {
+        return;
+    };
+    let window = window.clone();
+    // Differito al giro successivo del loop: dentro l'evento Resized, e nel ciclo
+    // modale di spostamento, un set_size sincrono rientrerebbe nei gestori
+    // (incluso quello di window-state) mentre sono ancora attivi.
+    let _ = app.run_on_main_thread(move || {
+        if window.is_maximized().unwrap_or(true)
+            || window.is_minimized().unwrap_or(true)
+            || window.is_fullscreen().unwrap_or(true)
+        {
+            return;
+        }
+        let (Ok(size), Ok(scale)) = (window.inner_size(), window.scale_factor()) else {
+            return;
+        };
+        if size.width == 0 || size.height == 0 {
+            return;
+        }
+        let logical = size.to_logical::<f64>(scale);
+        if logical.width + 0.5 >= min_w && logical.height + 0.5 >= min_h {
+            return;
+        }
+        let _ = window.set_size(tauri::LogicalSize::new(
+            logical.width.max(min_w),
+            logical.height.max(min_h),
+        ));
+    });
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -374,6 +418,12 @@ pub fn run() {
                 if window.label() == "companion" =>
             {
                 track_companion_geometry(window);
+            }
+            // Il minimo di config vale solo per il ridimensionamento col mouse:
+            // uscendo dalla massimizzazione (anche trascinando la topbar) Windows
+            // riapplica il rettangolo salvato, che puo' essere piu' piccolo.
+            tauri::WindowEvent::Resized(_) if window.label() == "main" => {
+                enforce_main_min_size(window);
             }
             // La taskbar puo' cambiare colore senza che cambi il tema delle app:
             // il focus e' l'occasione piu' vicina per accorgersene.
