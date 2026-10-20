@@ -47,12 +47,11 @@ import type { LaneId, ProjectId } from '$lib/types/lanes';
 import { splitModelSelector } from '$lib/stores/modelSettingsHelpers';
 import { handOffPrewalk, isPrewalkHandOff, parsePrewalkNotice, reducePrewalkNotice, type PrewalkState } from './prewalk';
 import {
-	parseAskQuestions,
 	normalizePromptAnswer,
 	type AskQuestion,
 	type PromptAnswer
 } from './askAnswers';
-import { AskStreamTracker, streamToAskQuestions, type StreamAskState } from './askStream';
+import { AskStreamTracker, type StreamAskState } from './askStream';
 import { queueChips } from './queueRestore';
 import { canRestorePrompt, promptBus, type PromptRequest } from './promptBus';
 import { laneSessionKey } from './sessionKeys';
@@ -66,7 +65,6 @@ import {
 } from '$lib/stores/companionText';
 import type { GuiGateSnapshot } from './automationGate';
 import {
-	emptyExtensionUi,
 	reduceExtensionUi,
 	type ExtensionStatusMap,
 	type ExtensionWidgetMap
@@ -160,7 +158,6 @@ import {
 	type ThinkingLevel,
 	type TodoPhase,
 	type FastModeResult,
-	type Goal,
 	type GoalModeState,
 	type GoalResult,
 	type UsageLimitState,
@@ -200,7 +197,7 @@ import {
 	type BrowserTabState,
 	connectBrowserLive
 } from './browser-live';
-import { classifySystemMessage, noticeDedupKey, type JobResult, type ClassifiedNotice } from './notices';
+import { classifySystemMessage, noticeDedupKey, type JobResult } from './notices';
 import {
 	OmpEntryCache,
 	activePath,
@@ -713,8 +710,6 @@ export class AgentSession {
 	sessionId = $state<string | null>(null);
 	sessionFile = $state<string | null>(null);
 	sessionName = $state<string | null>(null);
-	/** Modello richiesto come override per startup (--model) */
-	private requestedModelOverride: string | null = null;
 	/** Modello non disponibile rilevato su resume fallito */
 	private unavailableResumeModel: string | null = null;
 	/** Modello fallback applicato durante la ripresa automatica */
@@ -1225,7 +1220,6 @@ export class AgentSession {
 		if (this.client.isOpen) return;
 		const requestedResume = resume ?? null;
 		const modelOverride = opts?.modelOverride ?? null;
-		this.requestedModelOverride = modelOverride;
 
 		if (this.openTarget !== requestedResume) {
 			this.resumeFallbackAttempted = false;
@@ -1339,7 +1333,6 @@ export class AgentSession {
 		this.requestedResume = null;
 		this.sessionId = null;
 		this.sessionFile = null;
-		this.requestedModelOverride = null;
 		this.expectingSessionTransition = false;
 		this.endAborting();
 		this.pendingStartupPrompts = [];
@@ -2486,7 +2479,6 @@ export class AgentSession {
 					if (!this.assistantEntry.stopReason) {
 						this.assistantEntry.stopReason = message.stopReason;
 					}
-					const text = assistantEntryText(this.assistantEntry);
 					const assistantMsg = entryToRemoteMessage(this.assistantEntry);
 					if (assistantMsg) {
 						this.emitRemoteChat({
@@ -3518,7 +3510,6 @@ export class AgentSession {
 		this.subagents = [];
 		this.backgroundJobs = [];
 		this.applyRunActivity(runActivityReset(this.runActivity, Date.now()));
-		const empty = emptyExtensionUi();
 	}
 
 	/** Messaggio d'errore di un `prompt_result`: provider, modello, HTTP e se si puo' riprovare. */

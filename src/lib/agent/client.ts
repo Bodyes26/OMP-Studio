@@ -110,10 +110,6 @@ export class OmpRpcClient {
 	 *  quelli spediti da Rust dicono se il Channel si e' fermato. */
 	private tally: ClientTally = newTally();
 	private lastHangReportAt = 0;
-	get currentAbortEpoch(): number {
-		return this.abortEpoch;
-	}
-
 	get id(): number | null {
 		return this.rpcId;
 	}
@@ -132,10 +128,6 @@ export class OmpRpcClient {
 				this.eventHandler = null;
 			}
 		};
-	}
-
-	clearEventHandler() {
-		this.eventHandler = null;
 	}
 
 	async open(
@@ -368,17 +360,6 @@ export class OmpRpcClient {
 			console.warn('abort_and_restore_queue non disponibile, ripiego su abort:', error);
 			void this.abort();
 			return null;
-		}
-	}
-
-	async stderrTail(): Promise<string[]> {
-		if (this.rpcId === null) return [];
-		try {
-			return await invoke<string[]>('rpc_stderr', { rpcId: this.rpcId });
-		} catch {
-			// La sessione e' gia' fuori dalla mappa: le righe sono arrivate
-			// dentro `studio_exit`.
-			return [];
 		}
 	}
 

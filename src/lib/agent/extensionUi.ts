@@ -74,7 +74,7 @@ function clip(text: string, max: number): string {
 }
 
 /** Testo di una voce di stato: una riga, senza ANSI, spazi compressi. */
-export function normalizeStatusText(raw: unknown): string | null {
+function normalizeStatusText(raw: unknown): string | null {
 	if (typeof raw !== 'string') return null;
 	const text = stripAnsi(raw).replace(/\s+/g, ' ').trim();
 	if (!text) return null;

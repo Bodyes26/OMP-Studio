@@ -48,8 +48,6 @@ export function buildEditorContext(projectPath?: string): string | null {
 	const activeFile = activeProj.lane.activeFile;
 	const editorInfo = getActiveEditorInfo();
 
-	const hasOpenFiles = openFiles.length > 0;
-	const hasActiveFile = Boolean(activeFile);
 	const selection = editorInfo?.selection;
 	const hasSelection = Boolean(selection && selection.selectionText && selection.selectionText.trim().length > 0);
 

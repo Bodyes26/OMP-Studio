@@ -59,13 +59,9 @@ pub struct RpcSession {
     pub job: Option<Arc<crate::process_tree::WindowsJob>>,
     killed: Arc<AtomicBool>,
     #[allow(dead_code)]
-    pub cwd: String,
-    #[allow(dead_code)]
     pub scope: String,
     #[allow(dead_code)]
     pub prototype_id: Option<String>,
-    #[allow(dead_code)]
-    pub project_key: Option<String>,
     #[allow(dead_code)]
     pub session_id: Arc<Mutex<Option<String>>>,
     stats: Arc<RpcStats>,
@@ -1083,10 +1079,8 @@ pub async fn rpc_open(
             #[cfg(target_os = "windows")]
             job,
             killed: Arc::new(AtomicBool::new(false)),
-            cwd: cwd.clone(),
             scope: "main".to_string(),
             prototype_id: None,
-            project_key: None,
             session_id: session_id_slot.clone(),
             stats: stats.clone(),
         },
@@ -1398,14 +1392,8 @@ pub async fn rpc_open_lab(
         #[cfg(target_os = "windows")]
         job,
         killed: Arc::new(AtomicBool::new(false)),
-        cwd: workspace_path.clone(),
         scope: "lane".to_string(),
         prototype_id: Some(prototype_id.clone()),
-        project_key: if clean_project_path.is_empty() {
-            None
-        } else {
-            Some(clean_project_path.to_string())
-        },
         session_id: session_id_slot.clone(),
         stats: stats.clone(),
     };
@@ -1607,24 +1595,6 @@ pub async fn force_kill_session(
     Err("Specificare rpc_id o pty_id per force_kill_session".to_string())
 }
 
-/// Ultime righe di stderr di una sessione **viva**: serve quando il processo
-/// e' appeso e non morto. Alla morte le stesse righe arrivano dentro
-/// `studio_exit`, perche' a quel punto la sessione non e' piu' nella mappa.
-#[tauri::command]
-pub async fn rpc_stderr(
-    rpc_id: u64,
-    manager: State<'_, RpcManager>,
-) -> Result<Vec<String>, String> {
-    let tail = {
-        let sessions = manager.sessions.lock();
-        let session = sessions
-            .get(&rpc_id)
-            .ok_or_else(|| format!("Sessione RPC {} non disponibile", rpc_id))?;
-        session.stderr_tail.clone()
-    };
-    let lines: Vec<String> = tail.lock().iter().cloned().collect();
-    Ok(lines)
-}
 
 /// Fotografia del trasporto di una sessione viva, per il rapporto di blocco
 /// che il frontend scrive quando un comando resta senza risposta. Arriva per
@@ -1694,18 +1664,6 @@ pub async fn rpc_write_hang_report(report: String, app: tauri::AppHandle) -> Res
     path
 }
 
-/// Versione di protocollo effettivamente negoziata: serve al frontend per
-/// sapere se un frame gigante arrivera' riassemblato o come errore.
-#[tauri::command]
-pub async fn rpc_protocol(rpc_id: u64, manager: State<'_, RpcManager>) -> Result<u8, String> {
-    let sessions = manager.sessions.lock();
-    let protocol = sessions
-        .get(&rpc_id)
-        .ok_or_else(|| format!("Sessione RPC {} non disponibile", rpc_id))?
-        .protocol
-        .load(Ordering::Relaxed);
-    Ok(protocol)
-}
 
 #[cfg(test)]
 mod tests {
@@ -1863,10 +1821,8 @@ mod tests {
             #[cfg(target_os = "windows")]
             job: None,
             killed: Arc::new(AtomicBool::new(false)),
-            cwd: "C:/progetto-principale".to_string(),
             scope: "main".to_string(),
             prototype_id: None,
-            project_key: None,
             session_id: Arc::new(Mutex::new(Some("session-main-1".to_string()))),
             stats: Arc::new(RpcStats::default()),
         };
@@ -1913,10 +1869,8 @@ mod tests {
                 #[cfg(target_os = "windows")]
                 job: None,
                 killed: Arc::new(AtomicBool::new(false)),
-                cwd: String::new(),
                 scope: "main".to_string(),
                 prototype_id: None,
-                project_key: None,
                 session_id: session_id.clone(),
                 stats: stats.clone(),
             },

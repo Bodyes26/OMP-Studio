@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { emit, listen } from '@tauri-apps/api/event';
 import { load, type Store } from '@tauri-apps/plugin-store';
 import { debounce } from 'lodash-es';
 import { normalizeProjectPath, projectStore } from './projects.svelte';
@@ -91,8 +91,6 @@ class TaskStore {
 	private readonly hydration = new QueueHydration();
 	/** Ultimo contenuto scritto per progetto: evita riscritture identiche. */
 	private readonly lastWritten = new Map<string, string>();
-	private unlistenTasksChanged: UnlistenFn | null = null;
-	private unlistenOriginsChanged: UnlistenFn | null = null;
 	private pendingProjectSaves = new Map<string, ReturnType<typeof setTimeout>>();
 
 	constructor() {
@@ -129,7 +127,7 @@ class TaskStore {
 		// dalle altre finestre di Studio.
 		if (this.isTauri) {
 			try {
-				this.unlistenTasksChanged = await listen<{ projectPath: string; source?: string }>(
+				await listen<{ projectPath: string; source?: string }>(
 					'project-tasks-changed',
 					async (event) => {
 						const path = event.payload?.projectPath;
@@ -146,7 +144,7 @@ class TaskStore {
 			}
 
 			try {
-				this.unlistenOriginsChanged = await listen<TaskSessionOrigin[]>(
+				await listen<TaskSessionOrigin[]>(
 					'studio-task-origins-update',
 					(event) => {
 						this.absorbOrigins(event.payload ?? []);

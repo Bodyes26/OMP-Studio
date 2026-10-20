@@ -64,9 +64,9 @@ export interface RemoteCommandEvent {
 	command: RemoteCommand;
 }
 
-export const REMOTE_STATUS_EVENT = 'remote://status';
-export const REMOTE_COMMAND_EVENT = 'remote://command';
-export const REMOTE_CHAT_WATCH_EVENT = 'remote://chat_watch';
+const REMOTE_STATUS_EVENT = 'remote://status';
+const REMOTE_COMMAND_EVENT = 'remote://command';
+const REMOTE_CHAT_WATCH_EVENT = 'remote://chat_watch';
 /** Unico punto d'accesso ai comandi `remote_*` di Tauri. */
 export const remoteBridge = {
 	status: () => invoke<RemoteStatus>('remote_get_status'),

@@ -2,8 +2,6 @@ import { describe, expect, it } from 'bun:test';
 import type { RemoteSlashCommand } from '../../src/protocol.ts';
 import {
 	commandSuggestions,
-	getCurrentSlashToken,
-	replaceSlashToken,
 	suggestKeyAction
 } from '../src/chat/suggest.ts';
 
@@ -117,46 +115,5 @@ describe('suggestKeyAction', () => {
 		const e = createKeyEvent('a');
 		expect(suggestKeyAction(e, 3, 1)).toBeNull();
 		expect(e.defaultPrevented).toBe(false);
-	});
-});
-
-describe('getCurrentSlashToken', () => {
-	it('detects slash at start of line', () => {
-		const token = getCurrentSlashToken('/comp', 5);
-		expect(token).toEqual({ query: 'comp', start: 0, end: 5 });
-	});
-
-	it('detects slash after whitespace', () => {
-		const token = getCurrentSlashToken('ciao /tree', 10);
-		expect(token).toEqual({ query: 'tree', start: 5, end: 10 });
-	});
-
-	it('detects bare slash at caret', () => {
-		const token = getCurrentSlashToken('/', 1);
-		expect(token).toEqual({ query: '', start: 0, end: 1 });
-	});
-
-	it('ignores slash in the middle of words or URLs', () => {
-		const token = getCurrentSlashToken('https://example.com', 10);
-		expect(token).toBeNull();
-	});
-
-	it('returns null if caret is outside token', () => {
-		const token = getCurrentSlashToken('/compact poi altro', 15);
-		expect(token).toBeNull();
-	});
-});
-
-describe('replaceSlashToken', () => {
-	it('replaces token with slash command and appends space', () => {
-		const result = replaceSlashToken('ciao /com qui', { start: 5, end: 9 }, 'compact', false);
-		expect(result.nextText).toBe('ciao /compact  qui');
-		expect(result.nextCaret).toBe(14);
-	});
-
-	it('replaces token with skill and appends space', () => {
-		const result = replaceSlashToken('/imp', { start: 0, end: 4 }, 'impeccable', true);
-		expect(result.nextText).toBe('/skill:impeccable ');
-		expect(result.nextCaret).toBe('/skill:impeccable '.length);
 	});
 });

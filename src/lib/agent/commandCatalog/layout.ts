@@ -238,5 +238,3 @@ export function layoutToSave(
 		known: [...known]
 	};
 }
-/** Alias retrocompatibile di `layoutToSave`. */
-export const mergeWithOrphans = layoutToSave;

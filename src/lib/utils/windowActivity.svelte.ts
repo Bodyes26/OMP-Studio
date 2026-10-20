@@ -29,16 +29,6 @@ export interface AdaptivePoller {
 	getLastRunAt: () => number;
 }
 
-export function isWindowVisible(): boolean {
-	if (typeof document === 'undefined') return false;
-	return document.visibilityState === 'visible';
-}
-
-export function isWindowFocused(): boolean {
-	if (typeof document === 'undefined') return false;
-	return document.visibilityState === 'visible' && (typeof document.hasFocus === 'function' ? document.hasFocus() : true);
-}
-
 export function createAdaptivePoller(options: AdaptivePollerOptions): AdaptivePoller {
 	if (typeof window === 'undefined' || typeof document === 'undefined') {
 		return {

@@ -273,7 +273,6 @@ export class LaneLandingService {
 
 	private enqueue(
 		item: QueuedLaneLanding,
-		project: Project,
 		laneTitle: string,
 		targetBranch: string
 	): LandResult {
@@ -492,7 +491,6 @@ export class LaneLandingService {
 					queuedAt: Date.now(),
 					confirmed: opts.confirmed
 				},
-				project,
 				lane.title,
 				targetBranch
 			);
@@ -664,7 +662,6 @@ export class LaneLandingService {
 					.updateLane(project.id as ProjectId, laneId, { status: previousStatus })
 					.catch(() => undefined);
 			}
-
 			return this.enqueue(
 				{
 					projectId: project.id,
@@ -675,7 +672,6 @@ export class LaneLandingService {
 					queuedAt: Date.now(),
 					confirmed: opts.confirmed
 				},
-				project,
 				lane.title,
 				targetBranch
 			);

@@ -33,13 +33,3 @@ export function hasEarlierEntries(total: number, visibleCount: number): boolean 
 	return total > visibleCount;
 }
 
-/**
- * Calcola l'adattamento dello scroll (delta) da applicare al contenitore per
- * preservare la viewport quando vengono inseriti nuovi elementi in cima.
- */
-export function computeViewportScrollDelta(
-	prevScrollHeight: number,
-	newScrollHeight: number
-): number {
-	return Math.max(0, newScrollHeight - prevScrollHeight);
-}

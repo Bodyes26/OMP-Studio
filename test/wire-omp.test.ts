@@ -13,10 +13,7 @@ import {
 } from '../src/lib/agent/wire.ts';
 import {
 	STUDIO_SLASH_COMMANDS,
-	mergeCommands,
-	extractSlashQueryAtCursor,
-	shouldOpenSlashPaletteAtCursor,
-	insertSlashCommandAtCursor
+	mergeCommands
 } from '../src/lib/agent/commands.ts';
 import { formatTokens } from '../src/lib/utils/format.ts';
 
@@ -218,61 +215,6 @@ describe('Wire OMP e comandi', () => {
 				assert.ok(skillCmd);
 				assert.equal(skillCmd.source, 'skill');
 				assert.ok(skillCmd.aliases?.includes('skill:review'));
-			});
-		});
-
-		describe('extractSlashQueryAtCursor', () => {
-			it('estrae il comando a inizio riga', () => {
-				const text = '/thin';
-				const match = extractSlashQueryAtCursor(text, 5);
-				assert.ok(match);
-				assert.equal(match.query, 'thin');
-				assert.equal(match.startIndex, 0);
-				assert.equal(match.endIndex, 5);
-			});
-
-			it('estrae il comando preceduto da spazio', () => {
-				const text = 'Esegui /mode';
-				const match = extractSlashQueryAtCursor(text, 12);
-				assert.ok(match);
-				assert.equal(match.query, 'mode');
-				assert.equal(match.startIndex, 7);
-			});
-
-			it('ignora slash all\'interno di URL o percorsi file', () => {
-				assert.equal(extractSlashQueryAtCursor('https://github.com', 10), null);
-				assert.equal(extractSlashQueryAtCursor('src/lib/agent', 8), null);
-			});
-
-			it('ignora slash se c\'è un ritorno a capo tra slash e cursore', () => {
-				const text = '/test\naltro testo';
-				assert.equal(extractSlashQueryAtCursor(text, 10), null);
-			});
-		});
-
-		describe('shouldOpenSlashPaletteAtCursor', () => {
-			it('apre la palette per match semplice senza spazio', () => {
-				const match = { query: 'mod', startIndex: 0, endIndex: 4 };
-				assert.equal(shouldOpenSlashPaletteAtCursor(match, STUDIO_SLASH_COMMANDS), true);
-			});
-
-			it('apre la palette con sottocomandi per comandi che li supportano', () => {
-				const match = { query: 'thinking ', startIndex: 0, endIndex: 9 };
-				assert.equal(shouldOpenSlashPaletteAtCursor(match, STUDIO_SLASH_COMMANDS), true);
-			});
-
-			it('non apre se il comando con spazio non ha sottocomandi', () => {
-				const match = { query: 'new ', startIndex: 0, endIndex: 4 };
-				assert.equal(shouldOpenSlashPaletteAtCursor(match, STUDIO_SLASH_COMMANDS), false);
-			});
-		});
-
-		describe('insertSlashCommandAtCursor', () => {
-			it('sostituisce il token e posiziona il cursore dopo il comando con spazio', () => {
-				const text = 'Prima /thi dopo';
-				const res = insertSlashCommandAtCursor(text, 6, 10, 'thinking');
-				assert.equal(res.newText, 'Prima /thinking  dopo');
-				assert.equal(res.newCursorPos, 16);
 			});
 		});
 	});

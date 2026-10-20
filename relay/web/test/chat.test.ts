@@ -6,7 +6,6 @@ import {
 	deduceToolCategory,
 	groupMessages,
 	normalizeMessage,
-	parseOmpDiff
 } from '../src/chat/merge.ts';
 
 describe('chat message normalization & old host fallback', () => {
@@ -297,19 +296,6 @@ describe('tool grouping and turn footers', () => {
 		expect(items.map((item) => item.kind)).toEqual(['user', 'tool-group', 'assistant']);
 		const group = items[1];
 		expect(group.kind === 'tool-group' && group.messages.map((m) => m.id)).toEqual(['t1', 't2', 'a3', 't3']);
-	});
-});
-
-describe('omp diff parser', () => {
-	it('parses valid omp diff lines with +/- and counts adds/dels', () => {
-		const raw = [' 1|<script>', '-2|  import old from "./old";', '+2|  import newPkg from "./new";', ' 3|</script>'].join('\n');
-		const result = parseOmpDiff(raw);
-
-		expect(result.added).toBe(1);
-		expect(result.removed).toBe(1);
-		expect(result.rows.length).toBe(4);
-		expect(result.rows[1]).toEqual({ sign: '-', line: 2, text: '  import old from "./old";' });
-		expect(result.rows[2]).toEqual({ sign: '+', line: 2, text: '  import newPkg from "./new";' });
 	});
 });
 

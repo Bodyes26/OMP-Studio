@@ -221,12 +221,6 @@ export class SessionRegistry<T extends AgentSessionLike = AgentSession> {
 		return this.getAllSessions().filter((session) => session.scope === 'lane' || session.scope === 'main');
 	}
 
-	getMainSessions(): T[] {
-		return this.getAllSessions().filter(
-			(session) => session.scope === 'main' || session.laneId === 'main'
-		);
-	}
-
 	/**
 	 * Restituisce tutte le sessioni legate a un determinato progetto:
 	 * ogni corsia e gli eventuali prototipi attivi.

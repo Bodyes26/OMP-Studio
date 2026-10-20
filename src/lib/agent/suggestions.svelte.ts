@@ -75,7 +75,6 @@ export class SessionSuggestions {
 	/** Analisi post-turno in corso: l'auto-dispatch aspetta il verdetto. */
 	isAnalyzing = $state(false);
 	private session: AgentSession;
-	private visible = true;
 	private requestToken = 0;
 	private currentTurnKey: string | null = null;
 	private generatedTurnKey: string | null = null;
@@ -91,7 +90,6 @@ export class SessionSuggestions {
 	 * la generazione viene avviata (lazy generation).
 	 */
 	setVisible(visible: boolean) {
-		this.visible = visible;
 		if (visible && this.pendingTurnKey && this.pendingTurnKey !== this.generatedTurnKey) {
 			void this.generate(this.pendingTurnKey);
 		}

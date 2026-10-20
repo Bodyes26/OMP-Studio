@@ -2113,31 +2113,6 @@ pub async fn git_branch_create(project_path: String, name: String) -> Result<(),
     .map_err(|e| format!("Task git_branch_create: {e}"))?
 }
 
-#[command]
-pub async fn git_branch_merge(project_path: String, name: String) -> Result<String, String> {
-    let status = project_git_status(project_path.clone()).await?;
-    if !status.statuses.is_empty() {
-        return Err("Ci sono modifiche non committate: committale prima di fare merge".to_string());
-    }
-    tokio::task::spawn_blocking(move || {
-        let mut cmd = Command::new("git");
-        cmd.current_dir(&project_path);
-        cmd.args(["merge", "--no-ff", &name]);
-        #[cfg(target_os = "windows")]
-        cmd.creation_flags(0x08000000);
-        let out = cmd.output().map_err(|e| e.to_string())?;
-        let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        if !out.status.success() {
-            let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
-            // Conflitto: git lascia il repo in merge parziale. L'utente risolve
-            // a mano; qui si segnala senza nascondere nulla.
-            return Err(if stderr.is_empty() { stdout } else { stderr });
-        }
-        Ok(stdout)
-    })
-    .await
-    .map_err(|e| format!("Task git_branch_merge: {e}"))?
-}
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedFile {

@@ -12,7 +12,6 @@ import {
 	clampVisibleCount,
 	sliceVisibleEntries,
 	hasEarlierEntries,
-	computeViewportScrollDelta
 } from '../src/lib/agent/transcriptWindow.ts';
 import {
 	isShortcutsHelpKey,
@@ -146,17 +145,6 @@ describe('Transcript Windowing: 299, 300, 301, 600, 601 entry', () => {
 		assert.equal(visible3.length, 601);
 		assert.equal(visible3[0].id, 1);
 		assert.equal(visible3[600].id, 601);
-	});
-
-	it('calcola correttamente il delta di scroll per preservare la viewport durante il prepend', () => {
-		// Prima del caricamento: altezza totale 12000px
-		// Dopo il caricamento: altezza totale 25000px (13000px aggiunti in cima)
-		const delta = computeViewportScrollDelta(12000, 25000);
-		assert.equal(delta, 13000);
-
-		// Nessuna crescita: delta 0
-		assert.equal(computeViewportScrollDelta(10000, 10000), 0);
-		assert.equal(computeViewportScrollDelta(10000, 8000), 0);
 	});
 });
 

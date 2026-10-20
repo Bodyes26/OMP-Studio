@@ -21,9 +21,7 @@ export { default as IconExternalLink } from '@lucide/svelte/icons/external-link'
 export { default as IconRefresh } from '@lucide/svelte/icons/refresh-cw';
 export { default as IconSearch } from '@lucide/svelte/icons/search';
 export { default as IconGlobe } from '@lucide/svelte/icons/globe';
-export { default as IconLock } from '@lucide/svelte/icons/lock';
 export { default as IconCopy } from '@lucide/svelte/icons/copy';
-export { default as IconMore } from '@lucide/svelte/icons/ellipsis';
 
 // Guscio, macchine e dispositivi.
 export { default as IconSettings } from '@lucide/svelte/icons/settings';
@@ -38,59 +36,28 @@ export { default as IconOffline } from '@lucide/svelte/icons/wifi-off';
 export { default as IconBell } from '@lucide/svelte/icons/bell';
 export { default as IconBellOff } from '@lucide/svelte/icons/bell-off';
 export { default as IconLogout } from '@lucide/svelte/icons/log-out';
-export { default as IconKey } from '@lucide/svelte/icons/key-round';
 
 // Progetti, corsie e file.
 export { default as IconFolder } from '@lucide/svelte/icons/folder';
-export { default as IconFolderOpen } from '@lucide/svelte/icons/folder-open';
-export { default as IconFolderPlus } from '@lucide/svelte/icons/folder-plus';
 export { default as IconFile } from '@lucide/svelte/icons/file';
-export { default as IconFileCode } from '@lucide/svelte/icons/file-code';
 export { default as IconGitBranch } from '@lucide/svelte/icons/git-branch';
-export { default as IconGithub } from './icons/IconGithub.svelte';
-export { default as IconLab } from '@lucide/svelte/icons/flask-conical';
 export { default as IconNewChat } from '@lucide/svelte/icons/message-square-plus';
-export { default as IconComment } from '@lucide/svelte/icons/message-square';
 
 // Task e coda.
 export { default as IconPlay } from '@lucide/svelte/icons/play';
 export { default as IconQueue } from '@lucide/svelte/icons/list';
-export { default as IconAuto } from '@lucide/svelte/icons/zap';
 export { default as IconSchedule } from '@lucide/svelte/icons/clock';
 export { default as IconTrash } from '@lucide/svelte/icons/trash-2';
 export { default as IconPencil } from '@lucide/svelte/icons/pencil';
-export { default as IconGrip } from '@lucide/svelte/icons/grip-vertical';
-
-// Stato: le stesse quattro forme per task, job, subagent e todo.
-export { default as IconStatusPending } from '@lucide/svelte/icons/circle';
-export { default as IconStatusRunning } from '@lucide/svelte/icons/circle-dot';
-export { default as IconStatusDone } from '@lucide/svelte/icons/check';
-export { default as IconStatusFailed } from '@lucide/svelte/icons/circle-x';
-export { default as IconCircleAlert } from '@lucide/svelte/icons/circle-alert';
-export { default as IconCircleCheck } from '@lucide/svelte/icons/circle-check';
 
 // Chat: categorie degli strumenti, ragionamento, composer.
 export { default as IconTerminal } from '@lucide/svelte/icons/square-terminal';
-export { default as IconEditor } from '@lucide/svelte/icons/code';
-export { default as IconBrain } from '@lucide/svelte/icons/brain';
 export { default as IconSparkles } from '@lucide/svelte/icons/sparkles';
-export { default as IconListTodo } from '@lucide/svelte/icons/list-todo';
 export { default as IconAsk } from '@lucide/svelte/icons/message-circle-question-mark';
 export { default as IconSubagents } from '@lucide/svelte/icons/split';
 export { default as IconBot } from '@lucide/svelte/icons/bot';
-export { default as IconFollowUp } from '@lucide/svelte/icons/corner-down-right';
-export { default as IconSend } from '@lucide/svelte/icons/send';
 export { default as IconStop } from '@lucide/svelte/icons/square';
 export { default as IconAttach } from '@lucide/svelte/icons/paperclip';
 export { default as IconImage } from '@lucide/svelte/icons/image';
 export { default as IconHistory } from '@lucide/svelte/icons/history';
 
-// Ruoli dei modelli (allineati a src/lib/icons.ts di Studio).
-export { default as IconRoleDefault } from '@lucide/svelte/icons/message-circle';
-export { default as IconRolePlan } from '@lucide/svelte/icons/diamond';
-export { default as IconRoleSmol } from '@lucide/svelte/icons/zap';
-export { default as IconRoleSlow } from '@lucide/svelte/icons/infinity';
-export { default as IconRoleVision } from '@lucide/svelte/icons/eye';
-export { default as IconRoleTask } from '@lucide/svelte/icons/split';
-export { default as IconRoleCommit } from '@lucide/svelte/icons/git-commit-horizontal';
-export { default as IconRoleAdvisor } from '@lucide/svelte/icons/shield-check';

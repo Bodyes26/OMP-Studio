@@ -34,13 +34,6 @@ export function registerActiveEditorProvider(provider: () => ActiveEditorInfo): 
 }
 
 /**
- * Aggiorna direttamente le informazioni memorizzate dell'editor attivo.
- */
-export function setActiveEditorInfo(info: ActiveEditorInfo): void {
-	currentActiveEditorInfo = info;
-}
-
-/**
  * Ritorna le informazioni correnti sull'editor attivo e la selezione.
  * Se un provider e' registrato (Monaco attivo), interroga direttamente il provider;
  * altrimenti restituisce lo snapshot memorizzato.

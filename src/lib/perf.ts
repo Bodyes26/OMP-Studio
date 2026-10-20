@@ -65,19 +65,6 @@ export function perfSpan(scope: string, label: string): (outcome?: string) => vo
 	};
 }
 
-/** Misura una promessa senza cambiarne il risultato. */
-export async function perfAsync<T>(scope: string, label: string, run: () => Promise<T>): Promise<T> {
-	const end = perfSpan(scope, label);
-	try {
-		const value = await run();
-		end('ok');
-		return value;
-	} catch (err) {
-		end('errore');
-		throw err;
-	}
-}
-
 if (typeof window !== 'undefined') {
 	window.addEventListener('beforeunload', flush);
 }

@@ -24,9 +24,7 @@ import {
 	applyTabTrash,
 	buildProjectMetadata,
 	createProjectMetadataMap,
-	isPathUnder,
 	pruneProjectMetadata,
-	remapPath,
 	reorderItemsList,
 	resolveProjectTabInfo,
 	shiftItemList,
@@ -34,7 +32,7 @@ import {
 	type ProjectLayout,
 	type StoredProjectMetadata
 } from './projectTabHelpers';
-export { normalizeProjectPath, joinProjectPath, pathKey, isWindows, isPathUnder, remapPath };
+export { normalizeProjectPath, joinProjectPath, pathKey, isWindows };
 export type { ProjectColorMode, ProjectLayout, StoredProjectMetadata };
 
 export type { AgentState } from '$lib/types/lanes';
@@ -614,14 +612,6 @@ class ProjectStore {
 		if (from === -1 || to === -1) return;
 		p.lane.openFiles.splice(from, 1);
 		p.lane.openFiles.splice(to, 0, file);
-	}
-
-	private isPathUnder(filePath: string, targetPath: string, isDir: boolean): boolean {
-		return isPathUnder(filePath, targetPath, isDir);
-	}
-
-	private remapPath(filePath: string, from: string, to: string, isDir: boolean): string | null {
-		return remapPath(filePath, from, to, isDir);
 	}
 
 	/**

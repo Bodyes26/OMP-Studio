@@ -10,7 +10,6 @@ import type {
 	RemoteToolCategory
 } from '../../../src/protocol.ts';
 import type {
-	DiffRow,
 	DisplayItem,
 	ToolGroupSummary,
 	TurnDiffTotals,
@@ -413,40 +412,6 @@ export function groupMessages(messages: RemoteChatMessage[]): {
 	}
 
 	return { items, turnFootersByIndex };
-}
-
-const DIFF_LINE_REGEX = /^([-+ ])(\d*)\|(.*)$/;
-
-/**
- * Parsa il formato diff di omp (<segno><numero>|<testo>) a colonna singola.
- */
-export function parseOmpDiff(diffText: string | null | undefined): {
-	rows: DiffRow[];
-	added: number;
-	removed: number;
-} {
-	if (!diffText) return { rows: [], added: 0, removed: 0 };
-	const rows: DiffRow[] = [];
-	let added = 0;
-	let removed = 0;
-
-	for (const raw of diffText.split('\n')) {
-		const match = DIFF_LINE_REGEX.exec(raw);
-		if (!match) {
-			rows.push({ sign: ' ', line: null, text: raw });
-			continue;
-		}
-		const sign = match[1] === '+' || match[1] === '-' ? match[1] : ' ';
-		const line = match[2] ? Number(match[2]) : null;
-		const text = match[3];
-
-		if (sign === '+') added++;
-		else if (sign === '-') removed++;
-
-		rows.push({ sign, line, text });
-	}
-
-	return { rows, added, removed };
 }
 
 /**

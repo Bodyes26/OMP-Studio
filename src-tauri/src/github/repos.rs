@@ -477,7 +477,6 @@ fn gh_create_repo(
 }
 
 /// Crea un nuovo repository su GitHub.
-#[tauri::command]
 pub async fn github_create_repo(
     name: String,
     description: Option<String>,

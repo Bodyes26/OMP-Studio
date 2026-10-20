@@ -265,17 +265,6 @@ async function fetchProjectFiles(
 }
 
 /**
- * Invalida la cache dei file del progetto (es. dopo creazione/cancellazione).
- */
-export function invalidateProjectFilesCache(projectPath?: string) {
-	if (projectPath) {
-		projectFilesCache.delete(projectPath);
-	} else {
-		projectFilesCache.clear();
-	}
-}
-
-/**
  * Calcola la coordinata orizzontale relativa dell'ancora per la palette di menzione
  * basandosi sul rettangolo restituito dal Range del cursore nel DOM anziché su textarea specchio.
  */

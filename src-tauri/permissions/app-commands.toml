@@ -27,10 +27,8 @@ commands.allow = [
     "rpc_send",
     "rpc_close",
     "rpc_set_prewalk",
-    "rpc_stderr",
     "rpc_diagnostics",
     "rpc_write_hang_report",
-    "rpc_protocol",
     "rpc_abort",
     "rpc_force_kill",
     "force_kill_session"
@@ -81,8 +79,7 @@ commands.allow = [
     "git_diff_stats",
     "git_branch_list",
     "git_branch_checkout",
-    "git_branch_create",
-    "git_branch_merge"
+    "git_branch_create"
 ]
 
 [[permission]]
@@ -138,7 +135,6 @@ commands.allow = [
 identifier = "allow-omp-runtime"
 description = "Versione, aggiornamento, changelog e tema del runtime omp"
 commands.allow = [
-    "greet",
     "get_omp_version",
     "check_omp_update",
     "run_omp_update",
@@ -291,7 +287,6 @@ commands.allow = [
     "project_detect_github_remotes",
     "github_list_remote_repos",
     "github_clone_repo",
-    "github_create_repo",
     "project_create_new",
     "git_upstream_status",
     "git_sync_repo",

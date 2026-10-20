@@ -4,7 +4,6 @@
 import { laneStore } from '$lib/stores/lanes.svelte';
 import { projectStore, type Project } from '$lib/stores/projects.svelte';
 import { laneOrchestrator } from './laneOrchestrator.svelte';
-import { sessionRegistry } from '$lib/agent/sessionRegistry';
 import { labApi } from '$lib/lab/api';
 import type { LabIndexEntry } from '$lib/lab/types';
 import { gitDiffStore } from '$lib/stores/gitDiff.svelte';
@@ -12,7 +11,6 @@ import { reviewProjectProfile } from './laneProfile';
 import {
 	laneId,
 	MAIN_LANE_ID,
-	projectId,
 	workspacePath,
 	type LaneId,
 	type ProjectId

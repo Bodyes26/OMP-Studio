@@ -254,8 +254,6 @@ pty_session_info(pty_id: u64) -> Result<Option<PtySessionInfo>, String>;
 rpc_open(cwd: String, resume: Option<String>, on_event: Channel<String>) -> Result<u64, String>;
 rpc_send(rpc_id: u64, message: String) -> Result<(), String>;
 rpc_close(rpc_id: u64) -> Result<(), String>;
-rpc_stderr(rpc_id: u64) -> Result<Vec<String>, String>;
-rpc_protocol(rpc_id: u64) -> Result<u8, String>;
 
 // --- Filesystem e Git ---
 tree_read(project_path: String, rel: String) -> Result<Vec<Dirent>, String>;
@@ -273,7 +271,6 @@ git_working_numstat(project_path: String) -> Result<GitWorkingStats, String>;
 git_branch_list(project_path: String) -> Result<Vec<GitBranchInfo>, String>;
 git_branch_checkout(project_path: String, name: String) -> Result<(), String>;
 git_branch_create(project_path: String, name: String, start_point: Option<String>) -> Result<(), String>;
-git_branch_merge(project_path: String, branch: String) -> Result<(), String>;
 
 // --- OMP, Database e Temi ---
 usage_snapshot(force: bool) -> Result<UsageReport, String>;   // omp usage --json + sorgenti aggiuntive (Gate R21)

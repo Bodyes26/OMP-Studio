@@ -2,7 +2,7 @@ import { remoteBridge, type RemoteStatus } from '$lib/remote/bridge';
 import { normalizePairingCode } from '$remote-protocol';
 import type { UnlistenFn } from '@tauri-apps/api/event';
 
-export const DEFAULT_REMOTE_STATUS: RemoteStatus = {
+const DEFAULT_REMOTE_STATUS: RemoteStatus = {
 	enabled: false,
 	relayUrl: null,
 	machineName: '',

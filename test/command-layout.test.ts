@@ -6,7 +6,7 @@ import {
 	defaultLayout,
 	isSupported,
 	itemsInZone,
-	mergeWithOrphans,
+	layoutToSave,
 	movePin,
 	partitionToolbar,
 	pin,
@@ -270,7 +270,7 @@ test('Command Layout — movePin e renumber', () => {
 	assert.deepEqual(invalidMove, withCompact, 'Move verso posizione non supportata lascia il layout invariato');
 });
 
-test('Command Layout — mergeWithOrphans conserva i pin orfani salvati', () => {
+test('Command Layout — layoutToSave conserva i pin orfani salvati', () => {
 	const saved: ComposerLayout = {
 		version: 1,
 		pinned: [
@@ -287,7 +287,7 @@ test('Command Layout — mergeWithOrphans conserva i pin orfani salvati', () => 
 		]
 	};
 
-	const merged = mergeWithOrphans(edited, saved, SYNTHETIC_MANIFEST);
+	const merged = layoutToSave(edited, saved, SYNTHETIC_MANIFEST);
 	const ids = merged.pinned.map((p) => p.id);
 	assert.ok(ids.includes('ctl.attach'));
 	assert.ok(ids.includes('ctl.model'));

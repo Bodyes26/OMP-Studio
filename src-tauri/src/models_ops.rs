@@ -2335,39 +2335,28 @@ fn get_model_benchmark_profile(model_id: &str, model_name: &str) -> (Intelligenc
 #[derive(Debug, Clone)]
 struct ModelPerfStat {
     pub tokens_per_sec: f64,
-    #[allow(dead_code)]
-    pub avg_ttft_ms: u64,
 }
 
 fn get_models_perf_map() -> HashMap<String, ModelPerfStat> {
     let mut map = HashMap::new();
     if let Ok(conn) = open_readonly_db("agent.db") {
-        if let Ok(mut stmt) = conn.prepare("SELECT model_key, samples, output_tokens, gen_ms, ttft_samples, ttft_ms FROM model_perf") {
+        if let Ok(mut stmt) = conn.prepare("SELECT model_key, output_tokens, gen_ms FROM model_perf") {
             let rows = stmt.query_map([], |row| {
                 let key: String = row.get(0)?;
-                let _samples: f64 = row.get(1).unwrap_or(0.0);
-                let out_tokens: f64 = row.get(2).unwrap_or(0.0);
-                let gen_ms: f64 = row.get(3).unwrap_or(0.0);
-                let ttft_samples: f64 = row.get(4).unwrap_or(0.0);
-                let ttft_ms: f64 = row.get(5).unwrap_or(0.0);
-                Ok((key, out_tokens, gen_ms, ttft_samples, ttft_ms))
+                let out_tokens: f64 = row.get(1).unwrap_or(0.0);
+                let gen_ms: f64 = row.get(2).unwrap_or(0.0);
+                Ok((key, out_tokens, gen_ms))
             });
             if let Ok(mapped) = rows {
                 for r in mapped.flatten() {
-                    let (key, out_tokens, gen_ms, ttft_samples, ttft_ms) = r;
+                    let (key, out_tokens, gen_ms) = r;
                     let tok_per_sec = if gen_ms > 0.0 {
                         out_tokens / (gen_ms / 1000.0)
                     } else {
                         0.0
                     };
-                    let avg_ttft_ms = if ttft_samples > 0.0 {
-                        (ttft_ms / ttft_samples) as u64
-                    } else {
-                        0
-                    };
                     map.insert(key, ModelPerfStat {
                         tokens_per_sec: tok_per_sec,
-                        avg_ttft_ms,
                     });
                 }
             }

@@ -26,7 +26,6 @@ import {
 	todoPhaseToTaskRow,
 	agentProgressToTaskRow,
 	asyncJobToTaskRow,
-	aggregateTaskRowStats,
 	type TaskRowStatus
 } from '../src/lib/agent/taskRow.ts';
 import type { TodoPhase, AgentProgress } from '../src/lib/agent/wire.ts';
@@ -337,31 +336,5 @@ describe('Adattatori TaskRow — asyncJobToTaskRow', () => {
 		const row = asyncJobToTaskRow(job);
 		assert.equal(row.status, 'abandoned');
 		assert.equal(row.expandable, false);
-	});
-});
-
-describe('Adattatori TaskRow — aggregateTaskRowStats', () => {
-	it('calcola correttamente i totali per ogni stato', () => {
-		const rows = [
-			{ key: '1', label: '1', status: 'completed', expandable: false },
-			{ key: '2', label: '2', status: 'completed', expandable: false },
-			{ key: '3', label: '3', status: 'running', expandable: false },
-			{ key: '4', label: '4', status: 'failed', expandable: false },
-			{ key: '5', label: '5', status: 'blocked', expandable: false },
-			{ key: '6', label: '6', status: 'abandoned', expandable: false },
-			{ key: '7', label: '7', status: 'aborted', expandable: false },
-			{ key: '8', label: '8', status: 'pending', expandable: false }
-		];
-
-		const stats = aggregateTaskRowStats(rows);
-
-		assert.equal(stats.total, 8);
-		assert.equal(stats.completed, 2);
-		assert.equal(stats.running, 1);
-		assert.equal(stats.failed, 1);
-		assert.equal(stats.blocked, 1);
-		assert.equal(stats.abandoned, 1);
-		assert.equal(stats.aborted, 1);
-		assert.equal(stats.pending, 1);
 	});
 });

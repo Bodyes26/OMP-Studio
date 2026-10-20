@@ -4,7 +4,6 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { projectStore, type Project } from './projects.svelte';
 import { settingsStore } from './settings.svelte';
 import { modelSettingsStore, STANDARD_ROLES, splitModelSelector } from './modelSettings.svelte';
-import { quotaStore, providersMatch } from './quota.svelte';
 import { parseProjectTasksFile, serializeProjectTasksFile, type StudioTask, type StudioTaskOptions } from './taskSerialization';
 import { createDirectiveSnapshot, directiveDisplayName, directiveDisplayDescription } from './taskDirectives';
 import { removeAttentionRequest, upsertAttentionRequest } from './companionAttention';

@@ -11,6 +11,9 @@ released: items are closed into a version via `npm run release -- <version>`.
 
 ## [Unreleased]
 
+### Changed
+- Studio and remote control remove obsolete code and resources, reducing unnecessary work and shipped content without removing available features.
+
 ### Fixed
 - Composer completions, including in Companion, keep the arrow-key selection instead of resetting it to the first row.
 

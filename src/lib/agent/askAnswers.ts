@@ -186,7 +186,7 @@ export function normalizePromptAnswer(answer: PromptAnswer): NormalizedPromptAns
 }
 
 /** Etichetta originale dell'opzione scelta, o la chiave se non si ritrova. */
-export function originalLabel(question: AnswerableQuestion, key: string): string {
+function originalLabel(question: AnswerableQuestion, key: string): string {
 	return question.options.find((option) => option.cleanLabel === key || option.label === key)?.label ?? key;
 }
 

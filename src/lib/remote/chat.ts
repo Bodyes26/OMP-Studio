@@ -18,9 +18,8 @@ import { RemoteCommandFailure } from './commands';
 import { remoteStore } from './remoteStore.svelte';
 import { entryToRemoteMessage } from './chatProjection';
 import { paginateRemoteMessages } from './chatPaging';
-import type { TranscriptEntry } from '$lib/agent/session.svelte';
 
-export interface PendingDelta {
+interface PendingDelta {
 	projectId: string;
 	laneId: string;
 	messageId: string;
@@ -43,7 +42,7 @@ function deltaKey(
 	return `${projectId}:${laneId}:${messageId}:${block}:${index}`;
 }
 
-export function flushDeltaByKey(key: string): void {
+function flushDeltaByKey(key: string): void {
 	const pending = pendingDeltas.get(key);
 	if (!pending) return;
 	if (pending.timer !== null) {
@@ -71,7 +70,7 @@ export function flushDeltasForMessage(projectId: string, laneId: string, message
 	}
 }
 
-export function flushAllDeltasForLane(projectId: string, laneId: string): void {
+function flushAllDeltasForLane(projectId: string, laneId: string): void {
 	const prefix = `${projectId}:${laneId}:`;
 	for (const key of Array.from(pendingDeltas.keys())) {
 		if (key.startsWith(prefix)) {

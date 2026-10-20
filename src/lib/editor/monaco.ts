@@ -23,7 +23,7 @@ export function initMonaco() {
 		perfMark('editor', 'monaco init');
 	}
 	self.MonacoEnvironment = {
-		getWorker: function (moduleId, label) {
+		getWorker: function (_moduleId, label) {
 			if (label === 'json') {
 				return new JsonWorker();
 			}

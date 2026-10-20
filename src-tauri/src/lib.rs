@@ -6,8 +6,7 @@ pub mod lane_bridge;
 use lane_bridge::lane_bridge_respond;
 mod github;
 use github::{
-    git_sync_repo, git_upstream_status, github_clone_repo, github_create_repo,
-    project_create_new,
+    git_sync_repo, git_upstream_status, github_clone_repo, project_create_new,
     github_get_actions_status, github_get_status, github_install_cli, github_list_remote_repos,
     github_logout, github_set_token, github_use_gh_cli, project_detect_github_remotes,
 };
@@ -21,13 +20,13 @@ use pty::{
 mod rpc;
 use rpc::{
     force_kill_session, rpc_abort, rpc_close, rpc_diagnostics, rpc_force_kill, rpc_open,
-    rpc_open_lab, rpc_protocol, rpc_send, rpc_set_prewalk, rpc_stderr, rpc_write_hang_report,
+    rpc_open_lab, rpc_send, rpc_set_prewalk, rpc_write_hang_report,
     RpcManager,
 };
 mod projects;
 use projects::{
     file_git_head, file_git_rev, file_read, file_read_bytes, file_write, git_branch_checkout,
-    git_branch_create, git_branch_list, git_branch_merge, git_current_branch, git_diff_stats,
+    git_branch_create, git_branch_list, git_current_branch, git_diff_stats,
     git_last_commit, git_recent_commits, git_working_numstat, path_create_directory,
     path_create_file, path_rename, path_trash, preview_file, project_content_search,
     project_files_list, project_files_search, project_git_ignored, project_git_status,
@@ -124,10 +123,6 @@ use remote::{
     remote_publish_chat_event, remote_publish_state, remote_set_enabled, remote_set_machine_name,
     remote_unpair,
 };
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
 
 use tauri::Manager;
 
@@ -172,7 +167,6 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
-            greet,
             lane_bridge_respond,
             focus_trace_append,
             focus_trace_path,
@@ -191,10 +185,8 @@ pub fn run() {
             rpc_send,
             rpc_close,
             rpc_set_prewalk,
-            rpc_stderr,
             rpc_diagnostics,
             rpc_write_hang_report,
-            rpc_protocol,
             rpc_abort,
             rpc_force_kill,
             force_kill_session,
@@ -225,7 +217,6 @@ pub fn run() {
             git_branch_list,
             git_branch_checkout,
             git_branch_create,
-            git_branch_merge,
             preview_file,
             project_tasks_read,
             project_tasks_write,
@@ -321,7 +312,6 @@ pub fn run() {
             project_detect_github_remotes,
             github_list_remote_repos,
             github_clone_repo,
-            github_create_repo,
             project_create_new,
             git_upstream_status,
             git_sync_repo,

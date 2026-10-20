@@ -254,7 +254,6 @@ Linee guida e convenzioni per gli agenti che operano su questo repository.
   completato il lavoro.
 "#;
 
-#[command]
 /// Crea il file `AGENTS.md` nella radice del progetto in modo sicuro e sincrono:
 /// valida il contenimento canonico del genitore, rifiuta collegamenti e symlink
 /// dangling, e usa `create_new` per prevenire scritture fuori dallo spazio di lavoro.
