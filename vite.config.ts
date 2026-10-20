@@ -2,12 +2,14 @@
 import { defineConfig } from "vite";
 import { sveltekit } from "@sveltejs/kit/vite";
 import { paraglideVitePlugin } from "@inlang/paraglide-js";
+import { svelteLoopProbe } from "./scripts/svelte-loop-probe.js";
 
 const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
 export default defineConfig(({ isSsrBuild }) => ({
   plugins: [
+    svelteLoopProbe(),
     sveltekit(),
     paraglideVitePlugin({
       project: "./project.inlang",

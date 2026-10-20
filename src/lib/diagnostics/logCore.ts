@@ -138,7 +138,16 @@ export function describeError(error: unknown): string {
 			.map((line) => line.trim())
 			.filter((line) => line.startsWith('at '))
 			.slice(0, MAX_STACK_FRAMES);
-		return frames.length > 0 ? `${head} | ${frames.join(' | ')}` : head;
+		const base = frames.length > 0 ? `${head} | ${frames.join(' | ')}` : head;
+		// Allegato da scripts/svelte-loop-probe.js agli errori di ciclo tra
+		// effetti: e' l'unico indizio su quale effetto girava in tondo.
+		const loop = (error as Error & { studioLoop?: unknown }).studioLoop;
+		if (loop === undefined) return base;
+		try {
+			return `${base} | effetti nel ciclo: ${JSON.stringify(loop)}`;
+		} catch {
+			return base;
+		}
 	}
 	if (typeof error === 'string') return error;
 	try {
