@@ -74,6 +74,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Le anteprime delle domande dell'agente stanno su un tabellone sopra la scheda, a tutta larghezza, invece che in una colonna accanto alle risposte. Il tabellone è in negativo rispetto al tema (scuro sui temi chiari, chiaro su quelli scuri) con l'accento del tema; mostra l'opzione scelta e, passando a un'altra, girano solo i caratteri che cambiano, come le palette di un tabellone delle partenze. L'occhio su ogni risposta mostra il suo disegno senza sceglierla; il disegno non va più a capo e si rimpicciolisce fino a stare nella larghezza, con «100%» per vederlo a dimensione reale.
 
 ### Fixed
+- Studio non si blocca più quando una chat termina con un risultato ancora da leggere: il ritorno del fuoco o il cambio scheda non entrano più in conflitto con lo stato di lettura della risposta.
 - La chat continua ad aggiornarsi dopo ogni giro di strumenti dello stesso lavoro: i messaggi e le chiamate successive non vengono più scartati mentre Studio mostra «In esecuzione».
 - Allineate le asserzioni dei test unitari della finestra «Altre macchine» al parametro di lingua (?lang=it).
 - A fine lavoro la chat GUI ripristina correttamente lo stato del composer e dell'invio: risolta una race condition nella sincronizzazione con omp che lasciava la sessione in streaming, ripristinati l'ascolto completo degli eventi di digitazione nel contenteditable ed eliminata la sovrapposizione visiva del testo con il placeholder.

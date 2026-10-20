@@ -133,9 +133,9 @@ class NotificationManager {
 
 	/**
 	 * Verifica se il progetto attivo e' in attention e, se la finestra ha il focus,
-	 * lo marca come riconosciuto. Alla stessa condizione chiude lo stato "ha
-	 * finito": se stai guardando il progetto, il segnale ha esaurito il suo
-	 * scopo e la companion non deve piu' proporlo come lavoro da leggere.
+	 * lo marca come riconosciuto. Solo il terminale chiude anche "ha finito":
+	 * la chat conferma la lettura dal transcript. Azzerarla qui contrasta con
+	 * l'aggregazione dei risultati non letti e rischedula gli effetti senza fine.
 	 */
 	checkFocusAcknowledgement() {
 		const isAppFocused = typeof document !== 'undefined' && document.hasFocus();
@@ -148,7 +148,9 @@ class NotificationManager {
 		if (activeProject && activeProject.lane.agentState === 'attention') {
 			this.acknowledge(activeId);
 		}
-		projectStore.acknowledgeFinished(activeId);
+		if (activeProject?.lane.surface === 'terminal') {
+			projectStore.acknowledgeFinished(activeId);
+		}
 	}
 
 	/** Gli aggiornamenti Git restano distinti dalle richieste dell'agente. */

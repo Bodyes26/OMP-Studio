@@ -522,7 +522,8 @@ class ProjectStore {
 			studioLog.info('project', `attivo: ${from} -> ${p.name} agente=${p.lane.agentState} corsia=${p.lane.laneId}`);
 		}
 		p.lastOpened = Date.now();
-		if (p.lane.agentState === 'finished') {
+		// La chat conferma la lettura dal transcript visibile, non dal cambio scheda.
+		if (p.lane.surface === 'terminal' && p.lane.agentState === 'finished') {
 			p.lane.agentState = 'idle';
 		}
 		this.activeId = id;

@@ -2,6 +2,9 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { SessionCompletionStore } from '../src/lib/agent/completion.svelte.ts';
 import { observeSessionJobs, finishSessionJobs } from '../src/lib/agent/jobActivity.ts';
+import { projectStore, type Project } from '../src/lib/stores/projects.svelte.ts';
+import { notificationManager } from '../src/lib/stores/notifications.svelte.ts';
+import { createMainLane, projectId } from '../src/lib/types/lanes.ts';
 
 describe('shared session completion reading', () => {
 	it('a stale acknowledgement cannot consume a newer result', () => {
@@ -31,6 +34,41 @@ describe('shared session completion reading', () => {
 		store.markSeen('first-conversation', 'same-turn-id');
 		assert.equal(store.get('other-conversation')?.seen, false);
 		assert.equal(store.get('first-conversation')?.seen, true);
+	});
+
+	it('focus and tab selection preserve unread GUI results but acknowledge terminal results', (t) => {
+		const previousProjects = projectStore.projects;
+		const previousActiveId = projectStore.activeId;
+		const documentDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'document');
+		t.after(() => {
+			projectStore.projects = previousProjects;
+			projectStore.activeId = previousActiveId;
+			if (documentDescriptor) Object.defineProperty(globalThis, 'document', documentDescriptor);
+			else Reflect.deleteProperty(globalThis, 'document');
+		});
+		Object.defineProperty(globalThis, 'document', {
+			configurable: true, value: { hasFocus: () => true }
+		});
+		const id = projectId('completion-focus');
+		const project: Project = {
+			id, name: 'Completion', label: null, canonicalProjectPath: null,
+			hue: 220, colorMode: 'auto', lane: createMainLane(id, null, 'gui'),
+			layout: { left: 300, center: 0.6, leftSection: 'files', editorOpen: false },
+			lastOpened: 0, autoDispatch: false, taskDefaults: null, worktreeResumeChat: true
+		};
+		projectStore.projects = [project];
+		projectStore.activeId = id;
+		project.lane.agentState = 'finished';
+		notificationManager.checkFocusAcknowledgement();
+		assert.equal(project.lane.agentState, 'finished', 'focus is not proof of reading the chat');
+		projectStore.setActive(id);
+		assert.equal(project.lane.agentState, 'finished', 'selecting a tab must not erase an unread result');
+		project.lane.surface = 'terminal';
+		notificationManager.checkFocusAcknowledgement();
+		assert.equal(project.lane.agentState, 'idle', 'terminal focus still acknowledges completion');
+		project.lane.agentState = 'finished';
+		projectStore.setActive(id);
+		assert.equal(project.lane.agentState, 'idle', 'terminal tab selection still acknowledges completion');
 	});
 });
 

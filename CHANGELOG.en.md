@@ -74,6 +74,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Previews in the agent's questions sit on a board above the card, at full width, instead of in a column next to the answers. The board is the negative of the theme (dark on light themes, light on dark ones) with the theme's accent; it shows the chosen option and, when you switch to another, only the characters that change flip over, like the flaps of a departure board. The eye on each answer shows its drawing without choosing it; drawings no longer wrap and shrink to fit the width, with "100%" to see them at actual size.
 
 ### Fixed
+- Studio no longer freezes when a chat finishes with an unread result: restoring window focus or selecting a tab no longer conflicts with the reply's read state.
 - Chat keeps updating after each tool round within the same run: subsequent messages and tool calls are no longer discarded while Studio shows “Running”.
 - Aligned unit test assertions for the "Other machines" window with the language query parameter (?lang=it).
 - After an agent run finishes, the GUI chat properly restores the composer and send states: fixed a race condition in omp reconciliation that left the session in a streaming state, restored comprehensive typing event handling in the contenteditable editor, and eliminated visual placeholder overlap with typed text.
