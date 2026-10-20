@@ -13,6 +13,8 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ### Changed
 - Studio e il controllo remoto eliminano codice e risorse obsolete, riducendo le elaborazioni superflue e il contenuto distribuito senza rimuovere funzionalità disponibili.
+- La finestra di Studio non si restringe più sotto 1024×640: uscendo per sbaglio dallo schermo intero resta utilizzabile.
+- Le sezioni Todo e Subagenti sopra il composer partono chiuse e si aprono e chiudono con un'animazione.
 
 ### Fixed
 - Nei completamenti del composer, anche nel Companion, le frecce mantengono la voce selezionata invece di riportarla alla prima riga.

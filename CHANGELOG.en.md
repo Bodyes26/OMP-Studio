@@ -13,6 +13,8 @@ released: items are closed into a version via `npm run release -- <version>`.
 
 ### Changed
 - Studio and remote control remove obsolete code and resources, reducing unnecessary work and shipped content without removing available features.
+- The Studio window no longer shrinks below 1024×640, so accidentally leaving full screen keeps it usable.
+- The Todo and Subagents sections above the composer start collapsed and animate when opening and closing.
 
 ### Fixed
 - Composer completions, including in Companion, keep the arrow-key selection instead of resetting it to the first row.

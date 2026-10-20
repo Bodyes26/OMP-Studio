@@ -2,10 +2,10 @@
   ComposerTray.svelte (Gate R32 — C13/C14).
 
   Vassoio sopra il composer: stato vivo del turno (todo, subagenti, coda, domanda ridotta).
-  Una sola sezione aperta alla volta (priorita': subagenti > todo > coda); con domanda
-  aperta le altre sezioni si compattano. La scelta manuale vale finche' la regola
-  automatica non cambia (AutoOpen con sync). Uscita con chiusura in altezza
-  (Lingering + classi .tray-in/.tray-out + .tray-fold-inner). Annunci aria-live mantenuti.
+  Todo e subagenti partono chiusi e si aprono solo a mano: aperti d'ufficio rubavano
+  spazio al transcript a ogni turno. La coda si apre da sola se e' l'unica sezione
+  (AutoOpen con sync); con domanda aperta le sezioni si compattano. Apertura e chiusura
+  in altezza (Lingering + classi .tray-in/.tray-out + .tray-fold-inner). Annunci aria-live mantenuti.
 -->
 <script lang="ts">
 	import type { Snippet } from 'svelte';
@@ -173,20 +173,14 @@
 		return parts.join(' · ');
 	});
 
-	// Priorita' automatica: subagenti > todo > coda
-	const autoPriority: 'subagents' | 'todo' | 'queue' | null = $derived(
-		hasSubs ? 'subagents' : hasTodo ? 'todo' : hasQueue ? 'queue' : null
-	);
-
-	// AutoOpen per sezione: la regola e' "sono la priorita' automatica E non c'e' domanda aperta"
-	const subsOpen = new AutoOpen(false);
-	const todoOpen = new AutoOpen(false);
+	// Todo e subagenti: solo scelta manuale, chiusi di default.
+	let subsOpen = $state(false);
+	let todoOpen = $state(false);
+	// La coda si apre da sola quando e' l'unica sezione e non c'e' domanda aperta.
 	const queueOpen = new AutoOpen(false);
 
 	$effect.pre(() => {
-		subsOpen.sync(autoPriority === 'subagents' && !asking);
-		todoOpen.sync(autoPriority === 'todo' && !asking);
-		queueOpen.sync(autoPriority === 'queue' && !asking);
+		queueOpen.sync(hasQueue && !hasSubs && !hasTodo && !asking);
 	});
 
 	// Lingering per uscita con chiusura in altezza
@@ -196,6 +190,15 @@
 	const queueLinger = new Lingering<number>();
 	const askLinger = new Lingering<QuestionMinimized>();
 	const btwLinger = new Lingering<BtwTrayInfo>();
+	// Corpo delle sezioni: resta montato per l'animazione di chiusura.
+	const todoBodyLinger = new Lingering<true>();
+	const subsBodyLinger = new Lingering<true>();
+	$effect(() => {
+		todoBodyLinger.update(todoOpen ? true : undefined);
+	});
+	$effect(() => {
+		subsBodyLinger.update(subsOpen ? true : undefined);
+	});
 	$effect(() => {
 		goalLinger.update(hasGoal && goal ? goal : undefined);
 		todoLinger.update(hasTodo ? phases : undefined);
@@ -219,6 +222,8 @@
 		queueLinger.dispose();
 		askLinger.dispose();
 		btwLinger.dispose();
+		todoBodyLinger.dispose();
+		subsBodyLinger.dispose();
 	});
 
 	const anyShown = $derived(
@@ -400,8 +405,8 @@
 								<button
 									type="button"
 									class="tray-header"
-									aria-expanded={todoOpen.open}
-									onclick={() => todoOpen.toggle()}
+									aria-expanded={todoOpen}
+									onclick={() => (todoOpen = !todoOpen)}
 								>
 									<svg viewBox="0 0 18 18" class="ring" aria-hidden="true">
 										<circle cx="9" cy="9" r="7" fill="none" class="ring-bg" />
@@ -417,7 +422,7 @@
 									</svg>
 									<span class="tray-title">{m.chat_v2_tray_todo_title()}</span>
 									<span class="tray-count">{completedCount}/{totalCount}</span>
-									{#if !todoOpen.open}
+									{#if !todoOpen}
 										<span class="tray-current">{currentTodo}</span>
 									{/if}
 									{#if hasBlocked}
@@ -435,11 +440,13 @@
 											{reminder.attempt}/{reminder.max}
 										</span>
 									{/if}
-									<span class="tray-chevron" class:open={todoOpen.open} aria-hidden="true">
+									<span class="tray-chevron" class:open={todoOpen} aria-hidden="true">
 										<IconChevronUp />
 									</span>
 								</button>
-								{#if todoOpen.open}
+								{#if todoBodyLinger.shown !== undefined}
+									<div class={todoBodyLinger.leaving ? 'tray-out' : 'tray-in'}>
+									<div class="tray-fold-inner">
 									<div class="tray-body">
 										{#each todoLinger.shown as phase, pIdx (phase.id ?? phase.name ?? pIdx)}
 											<div class="todo-phase">
@@ -466,6 +473,8 @@
 											</div>
 										{/each}
 									</div>
+									</div>
+									</div>
 								{/if}
 							</section>
 						</div>
@@ -481,8 +490,8 @@
 								<button
 									type="button"
 									class="tray-header"
-									aria-expanded={subsOpen.open}
-									onclick={() => subsOpen.toggle()}
+									aria-expanded={subsOpen}
+									onclick={() => (subsOpen = !subsOpen)}
 								>
 									<span class="tray-icon" aria-hidden="true"><IconSubagents /></span>
 									<span class="tray-title">
@@ -499,11 +508,13 @@
 										</span>
 									{/if}
 									<span class="tray-meta">{m.chat_v2_tray_subagents_calls({ calls: subCalls })}{#if subTotalMs > 0} · {fmtDuration(subTotalMs)}{/if}</span>
-									<span class="tray-chevron" class:open={subsOpen.open} aria-hidden="true">
+									<span class="tray-chevron" class:open={subsOpen} aria-hidden="true">
 										<IconChevronUp />
 									</span>
 								</button>
-								{#if subsOpen.open}
+								{#if subsBodyLinger.shown !== undefined}
+									<div class={subsBodyLinger.leaving ? 'tray-out' : 'tray-in'}>
+									<div class="tray-fold-inner">
 									<div class="tray-body tray-body-agents">
 										{#each subsLinger.shown as sub, idx (sub.id ?? sub.index ?? idx)}
 											{@const activity = currentActivity(sub)}
@@ -569,6 +580,8 @@
 												{/if}
 											</div>
 										{/each}
+									</div>
+									</div>
 									</div>
 								{/if}
 							</section>

@@ -7,8 +7,8 @@
         "title": "OMP Studio",
         "width": 1200,
         "height": 800,
-        "minWidth": 800,
-        "minHeight": 600,
+        "minWidth": 1024,
+        "minHeight": 640,
         "decorations": false
       },
       {
