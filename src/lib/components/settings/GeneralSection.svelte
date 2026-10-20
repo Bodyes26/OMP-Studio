@@ -157,24 +157,6 @@
 	<div class="section-group">
 		<div class="form-row">
 			<div class="form-row-copy">
-				<span id="settings-lab-alpha-label" class="form-row-label">{m.settings_general_lab_alpha_title()}</span>
-				<span id="settings-lab-alpha-desc" class="form-row-desc">{m.settings_general_lab_alpha_desc()}</span>
-			</div>
-			<div class="form-row-control">
-				<Switch
-					id="settings-lab-alpha"
-					checked={settingsStore.general.labAlphaEnabled}
-					ariaLabelledBy="settings-lab-alpha-label"
-					ariaDescribedBy="settings-lab-alpha-desc"
-					onChange={(checked) => settingsStore.patchGeneral({ labAlphaEnabled: checked })}
-				/>
-			</div>
-		</div>
-	</div>
-
-	<div class="section-group">
-		<div class="form-row">
-			<div class="form-row-copy">
 				<span id="settings-sidebar-collapsed-label" class="form-row-label">{m.settings_general_sidebar_title()}</span>
 				<span id="settings-sidebar-collapsed-desc" class="form-row-desc">{m.settings_general_sidebar_desc()}</span>
 			</div>

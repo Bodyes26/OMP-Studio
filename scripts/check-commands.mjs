@@ -312,6 +312,72 @@ export async function loadManifestOmpEntries(rootDir = ROOT) {
 	return entries;
 }
 
+// La GUI usa yolo: le autorizzazioni ricordate da Ask non governano l'accesso.
+// Le esclusioni restano puntuali e visibili; ogni altro comando nuovo blocca il gate.
+export const EXCLUDED_BUILTIN_COMMANDS = Object.freeze({
+	'forget-approvals': {
+		reason:
+			'Studio opera con tools.approvalMode: yolo (src-tauri/src/rpc/mod.rs:217-219); le approvazioni persistenti di file/cartelle registrate da Ask non vengono utilizzate nel normale flusso GUI.'
+	}
+});
+
+
+/**
+ * Se un comando e' censito nel manifesto, non viene contato tra le esclusioni.
+ */
+export function reconcileCommands(builtinCommands, manifestEntries) {
+	const manifestMap = new Map(manifestEntries.map((e) => [e.id, e]));
+	const builtinMap = new Map(builtinCommands.map((c) => [c.name, c]));
+
+	const excludedCommands = [];
+	const newCommands = [];
+
+	for (const cmd of builtinCommands) {
+		// Se il manifesto lo contiene gia', il manifesto prevale
+		if (manifestMap.has(cmd.name)) {
+			continue;
+		}
+
+		const reason = Object.hasOwn(EXCLUDED_BUILTIN_COMMANDS, cmd.name)
+			? EXCLUDED_BUILTIN_COMMANDS[cmd.name].reason
+			: null;
+		if (reason !== null) {
+			excludedCommands.push({
+				name: cmd.name,
+				reason
+			});
+			continue;
+		}
+
+		// Altrimenti e' un comando nuovo non censito
+		newCommands.push({
+			name: cmd.name,
+			description: cmd.description || '',
+			input: cmd.input || {},
+			subcommands: Array.isArray(cmd.subcommands) ? cmd.subcommands : []
+		});
+	}
+
+	// Voci con origin 'omp' nel manifesto ma non piu' esposte come builtin da omp
+	const missingCommands = manifestEntries
+		.filter((e) => !builtinMap.has(e.id))
+		.map((e) => ({
+			id: e.id,
+			entry: e
+		}));
+
+	const isAligned = newCommands.length === 0 && missingCommands.length === 0;
+
+	return {
+		ok: isAligned,
+		totalBuiltins: builtinCommands.length,
+		totalManifestOmp: manifestEntries.length,
+		excludedCommands,
+		newCommands,
+		missingCommands
+	};
+}
+
 /**
  * Esegue il confronto tra i comandi builtin di omp e le voci del catalogo.
  */
@@ -328,39 +394,20 @@ export async function checkCommands(options = {}) {
 	const builtinCommands = rawCommands.filter((cmd) => cmd.source === 'builtin');
 
 	const manifestEntries = await loadManifestOmpEntries(ROOT);
-	const manifestMap = new Map(manifestEntries.map((e) => [e.id, e]));
-	const builtinMap = new Map(builtinCommands.map((c) => [c.name, c]));
-
-	// Comandi esposti da omp come builtin ma non presenti nel manifesto
-	const newCommands = builtinCommands
-		.filter((c) => !manifestMap.has(c.name))
-		.map((c) => ({
-			name: c.name,
-			description: c.description || '',
-			input: c.input || {},
-			subcommands: Array.isArray(c.subcommands) ? c.subcommands : []
-		}));
-
-	// Voci con origin 'omp' nel manifesto ma non piu' esposte come builtin da omp
-	const missingCommands = manifestEntries
-		.filter((e) => !builtinMap.has(e.id))
-		.map((e) => ({
-			id: e.id,
-			entry: e
-		}));
-
-	const isAligned = newCommands.length === 0 && missingCommands.length === 0;
+	const reconciliation = reconcileCommands(builtinCommands, manifestEntries);
 
 	return {
-		ok: isAligned,
+		ok: reconciliation.ok,
 		ompBin,
 		ompVersion,
-		totalBuiltins: builtinCommands.length,
-		totalManifestOmp: manifestEntries.length,
-		newCommands,
-		missingCommands
+		totalBuiltins: reconciliation.totalBuiltins,
+		totalManifestOmp: reconciliation.totalManifestOmp,
+		excludedCommands: reconciliation.excludedCommands,
+		newCommands: reconciliation.newCommands,
+		missingCommands: reconciliation.missingCommands
 	};
 }
+
 
 async function main() {
 	const opts = parseArgs(process.argv.slice(2));
@@ -392,9 +439,19 @@ async function main() {
 		if (opts.json) {
 			console.log(JSON.stringify(result, null, 2));
 		} else {
+			const excludedNote =
+				result.excludedCommands && result.excludedCommands.length > 0
+					? ` (${result.excludedCommands.length} escluso/i intenzionalmente: ${result.excludedCommands.map((c) => `/${c.name}`).join(', ')})`
+					: '';
 			console.log(
-				`\n[PASS] Catalogo comandi allineato a omp (${result.ompVersion}): ${result.totalBuiltins} comandi builtin verificati.\n`
+				`\n[PASS] Catalogo comandi allineato a omp (${result.ompVersion}): ${result.totalBuiltins} comandi builtin verificati${excludedNote}.\n`
 			);
+			if (result.excludedCommands && result.excludedCommands.length > 0) {
+				for (const c of result.excludedCommands) {
+					console.log(`       - /${c.name}: ${c.reason}`);
+				}
+				console.log('');
+			}
 		}
 		process.exit(0);
 	}
@@ -411,9 +468,11 @@ async function main() {
 		summary: {
 			totalBuiltins: result.totalBuiltins,
 			totalManifestOmp: result.totalManifestOmp,
+			excludedCount: result.excludedCommands?.length ?? 0,
 			newCount: result.newCommands.length,
 			missingCount: result.missingCommands.length
 		},
+		excludedCommands: result.excludedCommands ?? [],
 		newCommands: result.newCommands,
 		missingCommands: result.missingCommands
 	};
@@ -430,6 +489,15 @@ async function main() {
 		console.error(`Comandi builtin omp:   ${result.totalBuiltins}`);
 		console.error(`Voci 'omp' manifesto:  ${result.totalManifestOmp}`);
 
+		if (result.excludedCommands && result.excludedCommands.length > 0) {
+			console.error(
+				`\nComandi builtin esclusi intenzionalmente (${result.excludedCommands.length}):`
+			);
+			for (const cmd of result.excludedCommands) {
+				console.error(`  - /${cmd.name}`);
+				console.error(`      Motivo: ${cmd.reason}`);
+			}
+		}
 		if (result.newCommands.length > 0) {
 			console.error(`\nNuovi comandi omp non presenti nel manifesto (${result.newCommands.length}):`);
 			for (const cmd of result.newCommands) {

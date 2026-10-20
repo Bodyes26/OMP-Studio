@@ -25,7 +25,6 @@ import { sessionRegistry } from '$lib/agent/sessionRegistry';
 import { laneOrchestrator } from './laneOrchestrator.svelte';
 import { openLabEntry } from './laneActions';
 import { labApi } from '$lib/lab/api';
-import { settingsStore } from '$lib/stores/settings.svelte';
 import { m } from '$lib/paraglide/messages.js';
 import {
 	fetchUnintegratedLoss,
@@ -66,7 +65,7 @@ function isTauri(): boolean {
 
 /**
  * Elenca le corsie chiuse (Git e Lab) ordinate per data di chiusura decrescente.
- * Le corsie Lab compaiono solo se labAlphaEnabled e' attivo e il progetto ha radice canonica.
+ * Le corsie Lab compaiono se il progetto ha radice canonica.
  * I prototipi gia' aperti come tab (status non closed/archived) sono esclusi.
  */
 export async function listClosedLanes(project: Project): Promise<ClosedLaneEntry[]> {
@@ -88,7 +87,7 @@ export async function listClosedLanes(project: Project): Promise<ClosedLaneEntry
 	}
 
 	// 2. Corsie Lab chiuse / non ancora aperte
-	if (settingsStore.general.labAlphaEnabled && project.canonicalProjectPath) {
+	if (project.canonicalProjectPath) {
 		try {
 			const indexEntries = await labApi.listIndex(project.canonicalProjectPath);
 			for (const entry of indexEntries) {

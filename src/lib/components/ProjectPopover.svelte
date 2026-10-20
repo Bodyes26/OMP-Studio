@@ -268,7 +268,6 @@
 	$effect(() => {
 		const canList = Boolean(project.canonicalProjectPath) && !project.labDraft;
 		void closedLanesKey;
-		void settingsStore.general.labAlphaEnabled;
 		const request = ++closedLanesRequest;
 		if (!canList) {
 			closedLanes = [];
@@ -964,15 +963,13 @@
 					>
 						<IconPlus /> <span>{m.lanestrip_new_worktree()}</span>
 					</button>
-					{#if settingsStore.general.labAlphaEnabled}
-						<button
-							type="button"
-							class="row-btn"
-							onclick={() => void handleCreateLabPrototype()}
-						>
-							<IconLab /> <span>{m.lanestrip_new_prototype()}</span>
-						</button>
-					{/if}
+					<button
+						type="button"
+						class="row-btn"
+						onclick={() => void handleCreateLabPrototype()}
+					>
+						<IconLab /> <span>{m.lanestrip_new_prototype()}</span>
+					</button>
 				</div>
 
 				{#if closedLanes.length > 0}

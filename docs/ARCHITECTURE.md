@@ -637,7 +637,7 @@ I diagrammi Mermaid (`studio_diagram`) e le anteprime statiche SVG vengono rende
 3. **Iframe Sandboxing:** l'anteprima risiede all'interno di un `<iframe sandbox="">` privo di `allow-scripts` e `allow-same-origin`, con origine `null`. Il motore del browser disabilita l'esecuzione JavaScript alla radice e impedisce qualunque accesso a `window.parent` o alle API privilegiate Tauri `window.__TAURI__`.
 
 #### 7.3.2 Confinamento del Laboratorio Prototipi React (Gate R30)
-Il Laboratorio esegue codice JavaScript reale (React 19, Tailwind v4 e le dipendenze dichiarate dal prototipo). È una funzione sperimentale, spenta per impostazione predefinita (Impostazioni → flag alpha). La sicurezza è a strati:
+Il Laboratorio esegue codice JavaScript reale (React 19, Tailwind v4 e le dipendenze dichiarate dal prototipo). La sicurezza è a strati:
 1. **Workspace fuori dal progetto:** ogni prototipo vive in `<app_local_data_dir>/lab/prototypes/<id>` (Windows `%LOCALAPPDATA%\sh.omp.studio\lab`, macOS `~/Library/Application Support/sh.omp.studio/lab`, Linux `~/.local/share/sh.omp.studio/lab`) con un repository Git interno indipendente; i comandi `lab_*` verificano che il percorso resti confinato sotto `prototypes/` e il Git interno non esegue hook né firme dell'utente.
 2. **Compilazione locale:** il bundle è prodotto da `esbuild-wasm` in un Web Worker; le dipendenze esterne arrivano da esm.sh con versioni fissate nel `package.json` del prototipo.
 3. **Server di anteprima loopback:** `lab/preview_server.rs` ascolta solo su `127.0.0.1` con porta casuale, serve i file dalla memoria (nessun accesso al disco, nessun path traversal) dietro un token casuale da 128 bit e con una CSP propria che ammette solo esm.sh.

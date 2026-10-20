@@ -20,7 +20,6 @@ import { invoke } from '@tauri-apps/api/core';
 import { laneStore, type LaneRecord } from '$lib/stores/lanes.svelte';
 import { projectStore, type Project } from '$lib/stores/projects.svelte';
 import { taskStore } from '$lib/stores/tasks.svelte';
-import { settingsStore } from '$lib/stores/settings.svelte';
 import { modelSettingsStore, STANDARD_ROLES } from '$lib/stores/modelSettings.svelte';
 import { roleConfigFromSelector } from '$lib/components/taskRoleConfig';
 import { sessionRegistry } from '$lib/agent/sessionRegistry';
@@ -388,9 +387,6 @@ class AgentLaneService {
 	}
 
 	private async avviaLab(project: Project, obiettivo: string, profilo: string | null): Promise<BridgeResponse> {
-		if (!settingsStore.general?.labAlphaEnabled) {
-			return { ok: false, text: "Il Laboratorio e' disattivato nelle Impostazioni di Studio: chiedi all'utente di attivarlo." };
-		}
 		if (!project.canonicalProjectPath) return { ok: false, text: 'Il progetto non ha una cartella.' };
 		if (profilo) {
 			// Il Laboratorio ha la sua configurazione confinata: il ruolo non si applica.

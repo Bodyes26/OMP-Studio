@@ -82,10 +82,6 @@
 	}>();
 
 	async function handleGhostButtonClick(event: MouseEvent) {
-		if (!settingsStore.general.labAlphaEnabled) {
-			projectStore.openScratchpad();
-			return;
-		}
 		event.preventDefault();
 		event.stopPropagation();
 		const drafts = await labApi.listIndex(null).catch(() => []);

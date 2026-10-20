@@ -68,10 +68,28 @@ Lo script `scripts/check-commands.mjs`:
 4. Filtra i comandi con `source: "builtin"`.
 5. Carica tutte le voci con `origin: 'omp'` dal manifesto (`src/lib/agent/commandCatalog/manifest/index.ts`).
 6. Identifica:
-   - **Nuovi**: comandi builtin di `omp` senza corrispondente voce nel manifesto.
+   - **Nuovi**: comandi builtin di `omp` privi di voce nel manifesto e non compresi nelle esclusioni motivate.
    - **Spariti**: voci con `origin: 'omp'` nel manifesto che `omp` non espone piu'.
-7. Se allineato: termina con codice `0`.
+   - **Esclusi intenzionalmente**: comandi builtin di `omp` esclusi motivatamente dal catalogo GUI.
+7. Se allineato (nessun nuovo comando e nessuna voce mancante): termina con codice `0`.
 8. Se disallineato: termina con codice `1`, stampa un riepilogo nel terminale e scrive il report completo in `ricerca/commands-pending.json`.
+
+### Politica di Esclusione dei Comandi Builtin
+
+Non tutti i comandi builtin di `omp` sono necessariamente rilevanti o applicabili all'interno della GUI di Studio.
+Quando un comando builtin non deve essere esposto all'utente (ad esempio perche' legato a meccanismi CLI/TUI superati dalle impostazioni fisse di Studio), il comando **non viene bypassato genericamente**, bensi' registrato esplicitamente nella mappa `EXCLUDED_BUILTIN_COMMANDS` in `scripts/check-commands.mjs` con la relativa motivazione tecnica documentata.
+
+Regole della politica di esclusione:
+1. **Nessun bypass generale:** Il gate continua a fallire per qualunque comando builtin sconosciuto o voce del catalogo rimossa a monte. L'esclusione e' puntuale per singolo comando.
+2. **Motivazione obbligatoria:** Ogni voce in `EXCLUDED_BUILTIN_COMMANDS` deve riportare chiaramente la causa tecnica per cui il comando non e' esposto nella GUI.
+3. **Visibilita' nel report:** I comandi esclusi sono sempre riportati esplicitamente nel log (sia in caso di esito `[PASS]` che di `[FAIL]`) e nel payload JSON, per evitare sparizioni silenziose.
+4. **Prevalenza del catalogo:** Se un comando presente nel manifesto coincide con una voce esclusa, la presenza nel manifesto ha la precedenza.
+
+#### Comandi attualmente esclusi
+
+| Comando | Descrizione omp | Motivo dell'esclusione dalla GUI |
+| --- | --- | --- |
+| `/forget-approvals` | Forget every file and folder approval Ask and remember has recorded | Studio opera con `tools.approvalMode: yolo` (`src-tauri/src/rpc/mod.rs:217-219`), concedendo approvazione automatica agli strumenti. Le approvazioni persistenti di singoli file o cartelle (funzione di `Ask and remember` nella TUI/CLI) non vengono registrate ne' utilizzate nel normale flusso della GUI; pertanto il comando non e' esposto nel catalogo comandi e non blocca il rilascio. |
 
 ---
 
@@ -113,6 +131,8 @@ Presenta la proposta all'utente usando il tool `ask` per ottenere la conferma:
 - Mostra il riepilogo dei comandi nuovi e spariti.
 - Riassumi le posizioni proposte (`supported` e `defaultPlacement`) e l'esempio principale.
 - Chiedi conferma esplicita prima di modificare il codice sorgente del manifesto.
+
+*Nota sulle esclusioni motivate:* Se il nuovo comando riguarda esclusivamente flussi TUI/CLI non applicabili alla GUI o superati dalla configurazione di Studio (es. `approvalMode: yolo`), l'alternativa autorizzata all'inserimento nel catalogo e' registrarlo in `EXCLUDED_BUILTIN_COMMANDS` in `scripts/check-commands.mjs` documentandone la motivazione, previa conferma dell'utente o coordinatore.
 
 ### Passo E — Aggiornamento del manifesto
 Dopo aver ricevuto l'ok:

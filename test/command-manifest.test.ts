@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 import { COMMAND_MANIFEST } from '../src/lib/agent/commandCatalog/manifest/index.ts';
 import type { CommandManifestEntry } from '../src/lib/agent/commandCatalog/types.ts';
+import { reconcileCommands } from '../scripts/check-commands.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -161,4 +162,76 @@ test('Command Manifest — controlli locked circoscritti a attach/role/model/thi
 			`Il controllo locked "${entry.id}" deve avere origin 'control'`
 		);
 	}
+});
+
+test('Command Gate — riconciliazione comandi builtin, esclusioni e manifesto', () => {
+	// 1. Builtin allineati + comando escluso: il gate ha esito positivo (ok: true) e riporta l esclusione
+	const alignedResult = reconcileCommands(
+		[
+			{ name: 'compact', description: 'Compact history' },
+			{ name: 'forget-approvals', description: 'Forget approvals' }
+		],
+		[{ id: 'compact', origin: 'omp' }]
+	);
+
+	assert.strictEqual(alignedResult.ok, true, 'Con solo comandi mappati ed esclusi il gate deve passare');
+	assert.strictEqual(alignedResult.newCommands.length, 0, 'newCommands deve essere vuoto');
+	assert.strictEqual(alignedResult.missingCommands.length, 0, 'missingCommands deve essere vuoto');
+	assert.strictEqual(alignedResult.excludedCommands.length, 1, 'Deve rilevare 1 comando escluso');
+	assert.strictEqual(alignedResult.excludedCommands[0].name, 'forget-approvals');
+
+	// 2. Builtin sconosciuto non censito: il gate DEVE fallire (ok: false)
+	const unknownResult = reconcileCommands(
+		[
+			{ name: 'compact' },
+			{ name: 'forget-approvals' },
+			{ name: 'brand-new-command', description: 'Nuovo comando da omp' }
+		],
+		[{ id: 'compact', origin: 'omp' }]
+	);
+
+	assert.strictEqual(unknownResult.ok, false, 'Un comando sconosciuto deve far fallire il gate');
+	assert.strictEqual(
+		unknownResult.newCommands.length,
+		1,
+		'newCommands deve contenere il comando sconosciuto'
+	);
+	assert.strictEqual(unknownResult.newCommands[0].name, 'brand-new-command');
+	assert.strictEqual(
+		unknownResult.excludedCommands.length,
+		1,
+		'L esclusione deve comunque essere tracciata'
+	);
+
+	// 3. Voce del manifesto sparita da omp: il gate DEVE fallire (ok: false)
+	const missingResult = reconcileCommands(
+		[{ name: 'forget-approvals' }],
+		[{ id: 'compact', origin: 'omp' }]
+	);
+
+	assert.strictEqual(
+		missingResult.ok,
+		false,
+		'Un comando del manifesto mancante deve far fallire il gate'
+	);
+	assert.strictEqual(
+		missingResult.missingCommands.length,
+		1,
+		'missingCommands deve contenere la voce mancante'
+	);
+	assert.strictEqual(missingResult.missingCommands[0].id, 'compact');
+
+	// 4. Prevalenza: se un comando e presente nel manifesto, il manifesto prevale sull esclusione
+	const overrideResult = reconcileCommands(
+		[{ name: 'forget-approvals' }],
+		[{ id: 'forget-approvals', origin: 'omp' }]
+	);
+
+	assert.strictEqual(overrideResult.ok, true);
+	assert.strictEqual(
+		overrideResult.excludedCommands.length,
+		0,
+		'Se presente nel manifesto, il comando e regolarmente mappato e non escluso'
+	);
+	assert.strictEqual(overrideResult.newCommands.length, 0);
 });

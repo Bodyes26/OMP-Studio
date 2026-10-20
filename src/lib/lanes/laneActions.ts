@@ -7,7 +7,6 @@ import { laneOrchestrator } from './laneOrchestrator.svelte';
 import { sessionRegistry } from '$lib/agent/sessionRegistry';
 import { labApi } from '$lib/lab/api';
 import type { LabIndexEntry } from '$lib/lab/types';
-import { settingsStore } from '$lib/stores/settings.svelte';
 import { gitDiffStore } from '$lib/stores/gitDiff.svelte';
 import { reviewProjectProfile } from './laneProfile';
 import {
@@ -293,8 +292,8 @@ export async function projectLaneActions(
 		}
 	});
 
-	// 2. Nuovo prototipo (visibile solo se alpha attiva)
-	if (settingsStore.general.labAlphaEnabled && project.canonicalProjectPath) {
+	// 2. Nuovo prototipo
+	if (project.canonicalProjectPath) {
 		items.push({
 			kind: 'item',
 			label: m.lanestrip_new_prototype(),

@@ -11,6 +11,8 @@ released: items are closed into a version via `npm run release -- <version>`.
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-10-20
+
 ### Added
 - Studio Remote’s Inbox brings conversations from all machines together: filter by machine and group by urgency or project, with side-by-side list and chat on desktop and full-screen navigation on phones.
 - Browse past conversations on the web in read-only mode, with search and pagination, without interrupting or replacing the active session.
@@ -51,6 +53,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Always-on Studio log (`studio.log` in the logs folder, with the previous portion in `studio.prev.log`, surviving the restart after a freeze): launches and exits, windows and focus, project switches, `omp` session starts and exits, notices shown in chat, updates, JavaScript and `console` errors, backend panics, long tasks on the UI thread. When the interface stops updating, or when you click the same spot repeatedly or type without any field receiving the keys, Studio records what lies under the pointer, which element has focus, which dialogs are open and the state of the active project. If the interface freezes because an update keeps repeating itself, the log also names the part of the code that was repeating it. Open it from Settings > Doctor > "Open logs folder".
 
 ### Changed
+- The prototype Lab leaves alpha and is always available: create and reopen prototypes from projects or the Scratchpad menu, and use `Ctrl+Alt+P` for a new free prototype without enabling an option in Settings.
 - Refined bottom bar with crisp top border, tuned spacing and visual separator; semantic translucent update badges with subtle breathing pulse for Studio and OMP updates; smooth animated entrance and exit for badges and spinners without layout jumps.
 - In remote chat on phones, the model picker is larger, with touch-friendly rows, search at the bottom and thinking always visible: only the model list scrolls, and the keyboard no longer opens automatically.
 - On phones, model and reasoning level share a single icon-free “model · level” chip: its popover combines model selection with the reasoning slider below a divider.
@@ -112,7 +115,6 @@ released: items are closed into a version via `npm run release -- <version>`.
 - An error in one panel (editor, chat or sidebar) no longer freezes the whole Studio interface: the panel shows the error with “Retry” while the rest of the app and the agents keep running. Before, Studio stayed on screen but stopped reacting to clicks and keys, and had to be restarted.
 - Opening a file in the editor after a failed open, or after a layout change with no file open, no longer crashes the editor and freezes Studio.
 - File links in agent messages also open files with special characters in the name (for example square brackets or spaces), instead of looking for the URL-encoded name and not finding it.
-
 ## [1.7.2] - 2026-10-07
 
 ### Fixed

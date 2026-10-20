@@ -11,6 +11,8 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-10-20
+
 ### Added
 - In Studio Remote, l’Inbox riunisce le conversazioni di tutte le macchine: filtra per macchina e raggruppa per urgenza o progetto, con elenco e chat affiancati sul desktop e navigazione a tutto schermo sul telefono.
 - Consulta lo storico delle conversazioni da web in sola lettura, con ricerca e paginazione, senza interrompere o sostituire la sessione attiva.
@@ -51,6 +53,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Registro di Studio sempre attivo (`studio.log` nella cartella dei log, con la porzione precedente in `studio.prev.log`, che sopravvive al riavvio dopo un blocco): avvii e uscite, finestre e fuoco, cambi di progetto, aperture e uscite delle sessioni `omp`, avvisi mostrati in chat, aggiornamenti, errori JavaScript e `console`, panic del backend, compiti lunghi del thread dell'interfaccia. Quando l'interfaccia smette di aggiornarsi, o quando clicchi più volte nello stesso punto o scrivi senza che un campo riceva i tasti, Studio annota cosa c'è sotto il puntatore, chi ha il fuoco, quali dialoghi sono aperti e lo stato del progetto attivo. Se l'interfaccia si blocca per un aggiornamento che si ripete all'infinito, il registro riporta anche quale parte del codice lo stava ripetendo. Si apre da Impostazioni > Doctor > «Apri cartella dei log».
 
 ### Changed
+- Il Laboratorio prototipi esce da alpha ed è sempre disponibile: crei e riapri prototipi dai progetti o dal menu Scratchpad, e `Ctrl+Alt+P` apre un nuovo prototipo libero senza attivare opzioni nelle Impostazioni.
 - Barra inferiore rifinita con bordo superiore definito, spaziatura curata e separatore visivo; badge di aggiornamento per Studio e OMP con pillole semantiche traslucide e pulsazione discreta in presenza di novità; comparsa e scomparsa fluide di badge e indicatori di caricamento senza scatti nel layout dei pulsanti.
 - Nella chat remota su telefono il selettore modello è più ampio, con righe comode da toccare, ricerca in basso e thinking sempre visibile: scorre solo l'elenco dei modelli e la tastiera non si apre da sola.
 - Sul telefono modello e livello di ragionamento condividono un solo chip «modello · livello», senza icone: il popover riunisce la selezione del modello e, sotto un divisore, lo slider del ragionamento.
@@ -112,7 +115,6 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Un errore in un pannello (editor, chat o barra laterale) non blocca più tutta l'interfaccia di Studio: il pannello mostra l'errore con «Riprova», mentre il resto dell'app e gli agenti continuano a funzionare. Prima Studio restava disegnato ma non rispondeva più a clic e tasti, e bisognava riavviarlo.
 - Aprire un file dall'editor dopo un'apertura fallita, o dopo un cambio di disposizione senza file aperto, non manda più in errore l'editor bloccando Studio.
 - I link ai file nei messaggi dell'agente aprono anche i file con caratteri speciali nel nome (per esempio parentesi quadre o spazi), invece di cercare il nome codificato come URL e non trovarlo.
-
 ## [1.7.2] - 2026-10-07
 
 ### Fixed

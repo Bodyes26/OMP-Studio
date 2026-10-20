@@ -156,26 +156,6 @@
 	let labCenterView = $state<'preview' | 'editor'>('preview');
 	const isLabLane = $derived(projectStore.activeProject?.lane.kind === 'lab');
 
-	/**
-	 * Con il Laboratorio spento la scorciatoia porta all'interruttore che lo
-	 * accende: un tasto che non fa nulla non dice all'utente cosa manca.
-	 */
-	function openLabFlagSetting() {
-		settingsStore.openSection('general');
-		let attempts = 0;
-		const focusSwitch = () => {
-			const target = document.getElementById('settings-lab-alpha');
-			if (target) {
-				target.scrollIntoView({ block: 'center' });
-				target.focus({ preventScroll: true });
-				return;
-			}
-			// La modale monta la sezione al frame successivo: pochi tentativi bastano.
-			if (++attempts < 20) requestAnimationFrame(focusSwitch);
-		};
-		requestAnimationFrame(focusSwitch);
-	}
-
 	async function handleNewFreeDraft() {
 		try {
 			const entry = await labApi.createPrototype(null);
@@ -3319,11 +3299,7 @@
 			settingsStore.cycleLayoutMode();
 		} else if (e.key.toLowerCase() === 'p') {
 			e.preventDefault();
-			if (settingsStore.general.labAlphaEnabled) {
-				void handleNewFreeDraft();
-			} else {
-				openLabFlagSetting();
-			}
+			void handleNewFreeDraft();
 		} else if (e.key.toLowerCase() === 'c' || e.key.toLowerCase() === 'r') {
 			e.preventDefault();
 			void companionStore.toggleCompanion();
