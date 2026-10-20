@@ -61,6 +61,7 @@
 	let isComposing = $state(false);
 	let isBlank = $state(true);
 	let dismissedTrigger = $state<{ node: Node; start: number } | null>(null);
+	let lastTrigger: ComposerTrigger | null = null;
 
 	export function focus(): void {
 		editorEl?.focus();
@@ -225,7 +226,7 @@
 
 	export function dismissCurrentTrigger(trigger: { node: Text; start: number }): void {
 		dismissedTrigger = { node: trigger.node, start: trigger.start };
-		onTriggerChange?.(null);
+		publishTrigger(null);
 	}
 
 	/**
@@ -273,6 +274,21 @@
 		};
 	}
 
+	function publishTrigger(trigger: ComposerTrigger | null) {
+		// Il keyup delle frecce non cambia il trigger: ripubblicarlo ricrea la
+		// palette nel parent e riporta la selezione alla prima voce.
+		if (
+			trigger?.kind === lastTrigger?.kind &&
+			trigger?.query === lastTrigger?.query &&
+			trigger?.node === lastTrigger?.node &&
+			trigger?.start === lastTrigger?.start &&
+			trigger?.caretRect.left === lastTrigger?.caretRect.left &&
+			trigger?.caretRect.top === lastTrigger?.caretRect.top
+		) return;
+		lastTrigger = trigger;
+		onTriggerChange?.(trigger);
+	}
+
 	function sync() {
 		if (!editorEl) return;
 		// Pulizia nodi vuoti residui
@@ -283,8 +299,7 @@
 		isBlank = !editorEl.textContent && !editorEl.querySelector('[data-kind]');
 		onInput?.();
 
-		const trigger = readTrigger();
-		onTriggerChange?.(trigger);
+		publishTrigger(readTrigger());
 	}
 
 	function handlePaste(e: ClipboardEvent) {
@@ -358,11 +373,8 @@
 		onkeyup={sync}
 		onbeforeinput={() => setTimeout(sync, 0)}
 		oncut={() => setTimeout(sync, 0)}
-		onblur={() => onTriggerChange?.(null)}
-		onfocus={() => {
-			sync();
-			onTriggerChange?.(readTrigger());
-		}}
+		onblur={() => publishTrigger(null)}
+		onfocus={sync}
 		onpaste={handlePaste}
 		onkeydown={handleKeyDown}
 		oncompositionstart={() => (isComposing = true)}

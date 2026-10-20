@@ -11,6 +11,9 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ## [Unreleased]
 
+### Fixed
+- Nei completamenti del composer, anche nel Companion, le frecce mantengono la voce selezionata invece di riportarla alla prima riga.
+
 ## [1.8.0] - 2026-10-20
 
 ### Added

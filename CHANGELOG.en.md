@@ -11,6 +11,9 @@ released: items are closed into a version via `npm run release -- <version>`.
 
 ## [Unreleased]
 
+### Fixed
+- Composer completions, including in Companion, keep the arrow-key selection instead of resetting it to the first row.
+
 ## [1.8.0] - 2026-10-20
 
 ### Added
