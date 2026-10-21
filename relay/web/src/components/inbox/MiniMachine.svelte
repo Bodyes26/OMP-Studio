@@ -70,7 +70,7 @@
 	.mini-machine-btn.is-active {
 		background: var(--bg-raised);
 		border-color: var(--brand);
-		box-shadow: 0 0 0 1px var(--brand);
+		box-shadow: inset 0 0 0 1px var(--brand);
 	}
 
 	.status-indicator {

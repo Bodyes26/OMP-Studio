@@ -18,6 +18,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 
 ### Fixed
 - Composer completions, including in Companion, keep the arrow-key selection instead of resetting it to the first row.
+- In Studio desktop and Remote, selection, focus and drag rings stay inside controls, so scrolling bars, cards and lists no longer clip their edges.
 
 ## [1.8.0] - 2026-10-20
 

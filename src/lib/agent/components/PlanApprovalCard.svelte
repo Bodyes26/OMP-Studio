@@ -271,7 +271,7 @@
 		border-color: var(--line-strong);
 	}
 	.pa-opt:focus-visible {
-		box-shadow: var(--focus-ring);
+		box-shadow: var(--focus-inset);
 	}
 	.pa-opt.sel {
 		border-color: var(--brand);

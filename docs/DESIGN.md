@@ -1168,7 +1168,7 @@ un'icona, mai un'emoji.
 - **Do** usare `tabular-nums` su ogni numero che cambia.
 - **Do** scegliere il raggio dal ruolo della superficie (16 conversazione, 12 agganciato, 10 galleggiante/dialog, 6 controllo, 4 in linea).
 - **Do** annunciare i cambi di stato con una sola regione `aria-live="polite"` aggregata.
-- **Do** mantenere un fuoco visibile su ogni controllo: contorno da 2 px `--brand`, distanza 2 px.
+- **Do** mantenere un fuoco visibile su ogni controllo: contorno da 2 px `--brand`, offset -2 px dentro il box, anche negli override locali. Gli anelli di selezione e trascinamento usano bordi o ombre `inset`: gli overflow necessari a scorrimento e troncamento non devono tagliarli, né vanno rimossi per mostrarli. Vale per desktop e Remote.
 - **Do** usare un disco neutro (`--ink`) con spunta `--bg-raised` da 10 px per lo stato completato (D1).
 - **Do** animare spinner e segni di stato solo se visibili, attivi, nello schermo e nel documento attivo (The Alive-and-Visible Rule).
 - **Do** usare un indicatore lineare singolo da 2 px `--brand` sul bordo superiore o inferiore per le schede orizzontali senza maiuscolo spaziato (D2).

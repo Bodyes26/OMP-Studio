@@ -245,7 +245,7 @@
 	.session-row.is-active {
 		border-color: var(--brand);
 		background: var(--bg-raised);
-		box-shadow: 0 0 0 1px var(--brand);
+		box-shadow: inset 0 0 0 1px var(--brand);
 	}
 
 	.session-row.is-attention {
@@ -254,7 +254,8 @@
 	}
 
 	.session-row:focus-within {
-		box-shadow: 0 0 0 2px var(--brand);
+		border-color: var(--brand);
+		box-shadow: inset 0 0 0 1px var(--brand);
 	}
 
 	.row-lead {

@@ -1411,7 +1411,7 @@
 	.tab:focus-visible,
 	.tab-add:focus-visible {
 		outline: 2px solid var(--brand);
-		outline-offset: 2px;
+		outline-offset: -2px;
 	}
 	/* La tessera non ha piu' una larghezza massima: si allarga quando il suo
 	   progetto viene aperto e si stringe quando un altro prende il posto. Il
@@ -1940,7 +1940,7 @@
 
 	.win-btn:focus-visible {
 		outline: 2px solid var(--brand);
-		outline-offset: 2px;
+		outline-offset: -2px;
 	}
 
 	.win-btn.close:hover {

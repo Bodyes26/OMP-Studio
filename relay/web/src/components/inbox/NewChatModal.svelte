@@ -577,7 +577,7 @@
 	.project-chip.selected {
 		background: var(--bg-raised);
 		border-color: var(--brand);
-		box-shadow: 0 0 0 1px var(--brand);
+		box-shadow: inset 0 0 0 1px var(--brand);
 		font-weight: 600;
 	}
 
@@ -774,7 +774,7 @@
 
 	.prompt-textarea:focus {
 		border-color: var(--brand);
-		box-shadow: 0 0 0 1px var(--brand);
+		box-shadow: inset 0 0 0 1px var(--brand);
 	}
 
 	/* Consent alert */

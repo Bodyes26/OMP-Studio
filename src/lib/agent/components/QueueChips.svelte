@@ -46,5 +46,5 @@
 	.message { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--ink); font-size: var(--text-trace); }
 	button { flex-shrink: 0; border: 0; background: transparent; color: var(--brand-ink); font-size: var(--text-trace); cursor: pointer; padding: var(--space-1); border-radius: var(--radius-md); }
 	button:hover { background: var(--bg-hover); }
-	button:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+	button:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
 </style>

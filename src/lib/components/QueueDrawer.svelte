@@ -515,7 +515,7 @@
 
 	button.group-reason:focus-visible {
 		outline: 2px solid var(--brand);
-		outline-offset: 2px;
+		outline-offset: -2px;
 	}
 
 	.run-first {
@@ -529,7 +529,7 @@
 
 	.run-first:focus-visible {
 		outline: 2px solid var(--brand);
-		outline-offset: 2px;
+		outline-offset: -2px;
 	}
 
 	.run-first.blocked {
@@ -607,7 +607,7 @@
 
 	.gate-actions button:focus-visible {
 		outline: 2px solid var(--brand);
-		outline-offset: 2px;
+		outline-offset: -2px;
 	}
 
 	.gate-note {

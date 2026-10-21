@@ -57,7 +57,6 @@
 
   /* Focus semantico */
   --focus:       var(--brand);
-  --focus-ring:  0 0 0 2px var(--brand);
   --focus-inset: inset 0 0 0 2px var(--brand);
   /* Successo — parametrico come `--warn`, tinta verde fissa (145) */
   --success-h:     145;
@@ -641,7 +640,7 @@ input[type='radio']:checked::before {
 
 input[type='radio']:focus-visible {
   outline: 2px solid var(--brand);
-  outline-offset: 2px;
+  outline-offset: -2px;
 }
 
 input[type='radio']:disabled {
@@ -681,10 +680,10 @@ svg.lucide {
   background-clip: padding-box;
 }
 
-/* Accessibilità: indicatore di focus da tastiera conforme WCAG AA */
+/* Il focus resta nel box: liste e barre scorrevoli non ne tagliano i lati. */
 :focus-visible {
   outline: 2px solid var(--brand);
-  outline-offset: 2px;
+  outline-offset: -2px;
   border-radius: inherit;
 }
 
@@ -1026,7 +1025,7 @@ svg.lucide {
 
 .composer-shell.dragging {
   border-color: var(--brand-ink);
-  box-shadow: 0 0 0 2px color-mix(in oklch, var(--brand) 25%, transparent);
+  box-shadow: inset 0 0 0 2px color-mix(in oklch, var(--brand) 25%, transparent);
 }
 
 /* Ultimo figlio della sagoma: copre editor e barra senza z-index. */

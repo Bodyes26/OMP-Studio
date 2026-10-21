@@ -455,7 +455,7 @@
 	.read-more:focus-visible,
 	.action:focus-visible {
 		outline: 2px solid var(--brand);
-		outline-offset: 2px;
+		outline-offset: -2px;
 	}
 
 	.content {

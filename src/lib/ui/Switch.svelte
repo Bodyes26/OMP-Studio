@@ -124,7 +124,7 @@
 
 	.switch-input:focus-visible ~ .switch-track {
 		outline: 2px solid var(--brand);
-		outline-offset: 2px;
+		outline-offset: -2px;
 	}
 
 	.switch-label {

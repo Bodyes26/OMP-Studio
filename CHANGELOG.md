@@ -18,6 +18,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ### Fixed
 - Nei completamenti del composer, anche nel Companion, le frecce mantengono la voce selezionata invece di riportarla alla prima riga.
+- In Studio desktop e Remote, gli anelli di selezione, focus e trascinamento restano dentro i controlli: barre scorrevoli, schede e liste non ne tagliano più i lati.
 
 ## [1.8.0] - 2026-10-20
 

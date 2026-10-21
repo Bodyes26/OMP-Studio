@@ -233,8 +233,8 @@
 		flex-wrap: nowrap;
 		align-items: center;
 		gap: var(--space-2);
-		padding: 3px 6px;
-		margin-left: -4px;
+		padding: 3px 2px;
+		margin-left: 0;
 		border: none;
 		border-radius: var(--radius-sm);
 		background: transparent;
@@ -255,7 +255,7 @@
 
 	.summary-btn:focus-visible {
 		outline: 2px solid var(--brand);
-		outline-offset: 1px;
+		outline-offset: -2px;
 	}
 
 	.summary-lead {
@@ -375,7 +375,7 @@
 
 	.tool-row:focus-visible {
 		outline: 2px solid var(--brand);
-		outline-offset: 1px;
+		outline-offset: -2px;
 	}
 
 	.row-icon-slot {

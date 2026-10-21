@@ -555,7 +555,7 @@
 
 	.composer-shell.drag-over {
 		border-color: var(--brand-ink);
-		box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand-ink) 25%, transparent);
+		box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--brand-ink) 25%, transparent);
 	}
 
 	.composer-shell.disabled {
