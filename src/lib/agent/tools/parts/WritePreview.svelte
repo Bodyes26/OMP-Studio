@@ -3,14 +3,12 @@
   Mermaid (.mmd, .mermaid) come diagramma.
 
   L'SVG scritto dall'agente e' contenuto arbitrario: va nell'iframe sandbox di
-  SvgPreview. Il diagramma Mermaid e' generato da Mermaid in modalita' strict e
-  sanificato, quindi sta inline come nella whiteboard dei diagrammi.
+  SvgPreview. Il diagramma Mermaid lo disegna MermaidDiagram.
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages.js';
 	import SvgPreview from '$lib/editor/SvgPreview.svelte';
-	import { renderMermaidSvg } from '$lib/mermaidSvg';
-	import { onThemeChange } from '$lib/theme';
+	import MermaidDiagram from '$lib/agent/components/MermaidDiagram.svelte';
 	import ToolFileHeader from './ToolFileHeader.svelte';
 
 	let {
@@ -25,34 +23,7 @@
 
 	const name = $derived(path.split(/[\\/]/).pop() ?? path);
 
-	let mermaidSvg = $state('');
 	let mermaidError = $state<string | null>(null);
-	// I colori sono cotti nell'SVG al render: al cambio tema si ridisegna.
-	let themeEpoch = $state(0);
-
-	$effect(() => onThemeChange(() => themeEpoch++));
-
-	$effect(() => {
-		if (kind !== 'mermaid') return;
-		const source = content;
-		void themeEpoch;
-		let stale = false;
-		renderMermaidSvg(source).then(
-			(svg) => {
-				if (stale) return;
-				mermaidSvg = svg;
-				mermaidError = null;
-			},
-			(error: unknown) => {
-				if (stale) return;
-				mermaidSvg = '';
-				mermaidError = error instanceof Error ? error.message : String(error);
-			}
-		);
-		return () => {
-			stale = true;
-		};
-	});
 </script>
 
 <figure class="write-preview">
@@ -61,11 +32,11 @@
 		<div class="svg-frame">
 			<SvgPreview {content} title={name} />
 		</div>
-	{:else if mermaidError}
-		<div class="mermaid-error" role="alert">{m.ui_diagramviewer_errore_mermaid_d820()} {mermaidError}</div>
-	{:else if mermaidSvg}
-		<!-- SVG di Mermaid (securityLevel strict) passato da sanitizeSvg. -->
-		<div class="mermaid-host">{@html mermaidSvg}</div>
+	{:else}
+		<MermaidDiagram source={content} bind:error={mermaidError} />
+		{#if mermaidError}
+			<div class="mermaid-error" role="alert">{m.ui_diagramviewer_errore_mermaid_d820()} {mermaidError}</div>
+		{/if}
 	{/if}
 </figure>
 
@@ -86,19 +57,6 @@
 	   l'SVG si adatta dentro mantenendo le proporzioni. */
 	.svg-frame {
 		height: 240px;
-	}
-
-	.mermaid-host {
-		display: flex;
-		justify-content: center;
-		overflow: auto;
-	}
-
-	.mermaid-host :global(svg) {
-		display: block;
-		max-width: 100%;
-		max-height: 360px;
-		height: auto;
 	}
 
 	.mermaid-error {

@@ -2508,6 +2508,8 @@
   "code_block_fallback_lang": "testo",
   "code_block_expand": "Espandi blocco di codice",
   "code_block_collapse": "Comprimi blocco di codice",
+  "code_block_show_code": "Codice",
+  "code_block_show_diagram": "Diagramma",
   "chat_v2_composer_model_fallback": "Il modello attivo",
   "chat_v2_composer_model_label": "Modello",
   "chat_v2_composer_send_mode_title": "Modalità invio",

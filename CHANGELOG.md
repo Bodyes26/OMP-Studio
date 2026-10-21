@@ -11,6 +11,9 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ## [Unreleased]
 
+### Added
+- I blocchi di codice Mermaid nelle risposte dell'agente compaiono come diagramma, con i colori del tema; il pulsante «Codice» nell'intestazione mostra la sorgente e «Diagramma» torna al disegno. Finché il blocco è in scrittura o contiene errori resta visibile il codice.
+
 ### Changed
 - Studio e il controllo remoto eliminano codice e risorse obsolete, riducendo le elaborazioni superflue e il contenuto distribuito senza rimuovere funzionalità disponibili.
 - La finestra di Studio non si restringe più sotto 1024×640: uscendo per sbaglio dallo schermo intero resta utilizzabile.

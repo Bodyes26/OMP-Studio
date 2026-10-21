@@ -11,6 +11,9 @@ released: items are closed into a version via `npm run release -- <version>`.
 
 ## [Unreleased]
 
+### Added
+- Mermaid code blocks in agent replies show up as a diagram in the theme colors; the «Code» button in the header shows the source and «Diagram» switches back to the drawing. While the block is still streaming or has errors, the code stays visible.
+
 ### Changed
 - Studio and remote control remove obsolete code and resources, reducing unnecessary work and shipped content without removing available features.
 - The Studio window no longer shrinks below 1024×640, so accidentally leaving full screen keeps it usable.
