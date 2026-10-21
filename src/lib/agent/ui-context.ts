@@ -26,6 +26,8 @@ export interface AgentUiHooks {
 	cancelSubagent?(subagentId: string): void;
 	/** Passa alla scheda TERMINAL di questo progetto. */
 	switchToTerminal(): void;
+	/** Apre un diagramma Mermaid sulla Whiteboard centrale di Studio. */
+	openDiagram?(diagram: { title?: string; mermaid: string }): void;
 	/**
 	 * Diramazioni dai messaggi del transcript. Opzionali: fuori dalla chat
 	 * (cassetto dei subagenti, test) le voci di menu non compaiono.
@@ -65,7 +67,8 @@ export function agentUiHooks(): AgentUiHooks {
 			openImage: () => {},
 			openSubagent: () => {},
 			cancelSubagent: () => {},
-			switchToTerminal: () => {}
+			switchToTerminal: () => {},
+			openDiagram: () => {}
 		}
 	);
 }

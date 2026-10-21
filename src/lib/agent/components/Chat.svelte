@@ -51,6 +51,7 @@
 		onOpenFile,
 		onOpenDiff,
 		onOpenImage,
+		onOpenDiagram,
 		onSwitchToTerminal,
 		onSlashCommand,
 		onNewChat
@@ -61,6 +62,7 @@
 		onOpenDiff?: (path: string) => void;
 		onOpenImage?: (data: string, mimeType: string) => void;
 		onSwitchToTerminal?: () => void;
+		onOpenDiagram?: (diagram: { title?: string; mermaid: string }) => void;
 		onSlashCommand?: (raw: string) => boolean;
 		onNewChat?: () => void;
 	}>();
@@ -83,6 +85,7 @@
 			void session.cancelSubagent(id);
 		},
 		switchToTerminal: () => onSwitchToTerminal?.(),
+		openDiagram: (diagram) => onOpenDiagram?.(diagram),
 		branch: {
 			canBranch: () => session.canBranch,
 			blockedReason: () => session.branchBlockedReason(),

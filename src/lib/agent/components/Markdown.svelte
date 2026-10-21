@@ -7,6 +7,21 @@
 	import CodeBlock from './CodeBlock.svelte';
 	import Markdown from './Markdown.svelte';
 	import MarkdownInline from './MarkdownInline.svelte';
+	import SmartTable from '../intelligent-ui/SmartTable.svelte';
+	import CalloutCard from '../intelligent-ui/CalloutCard.svelte';
+	import MetricGrid from '../intelligent-ui/MetricGrid.svelte';
+	import InteractiveTabs from '../intelligent-ui/InteractiveTabs.svelte';
+	import AccordionCard from '../intelligent-ui/AccordionCard.svelte';
+	import ProcessStepper from '../intelligent-ui/ProcessStepper.svelte';
+	import CompareSlider from '../intelligent-ui/CompareSlider.svelte';
+	import {
+		parseCallout,
+		parseMetricBlock,
+		parseTabsBlock,
+		parseStepsBlock,
+		parseCompareBlock,
+		parseAccordionBlock
+	} from '../intelligent-ui/parsers';
 
 	let {
 		tokens = [],
@@ -35,11 +50,58 @@
 	{:else if token.type === 'paragraph'}
 		<p class="paragraph"><MarkdownInline tokens={token.tokens} {onOpenFile} /></p>
 	{:else if token.type === 'code'}
-		<CodeBlock lang={token.lang} text={token.text} {onOpenFile} />
+		{@const lang = (token.lang || '').trim().toLowerCase()}
+		{#if lang === 'ui:metric' || lang === 'ui:stat'}
+			{@const metrics = parseMetricBlock(token.text)}
+			{#if metrics}
+				<MetricGrid items={metrics} />
+			{:else}
+				<CodeBlock lang={token.lang} text={token.text} {onOpenFile} />
+			{/if}
+		{:else if lang === 'ui:tabs'}
+			{@const tabs = parseTabsBlock(token.text)}
+			{#if tabs}
+				<InteractiveTabs {tabs} {onOpenFile} />
+			{:else}
+				<CodeBlock lang={token.lang} text={token.text} {onOpenFile} />
+			{/if}
+		{:else if lang === 'ui:steps'}
+			{@const steps = parseStepsBlock(token.text)}
+			{#if steps}
+				<ProcessStepper {steps} />
+			{:else}
+				<CodeBlock lang={token.lang} text={token.text} {onOpenFile} />
+			{/if}
+		{:else if lang === 'ui:compare'}
+			{@const comp = parseCompareBlock(token.text)}
+			{#if comp}
+				<CompareSlider {...comp} />
+			{:else}
+				<CodeBlock lang={token.lang} text={token.text} {onOpenFile} />
+			{/if}
+		{:else if lang === 'ui:accordion'}
+			{@const acc = parseAccordionBlock(token.text)}
+			{#if acc}
+				<AccordionCard title={acc.title} badge={acc.badge}>
+					<p class="paragraph">{acc.content}</p>
+				</AccordionCard>
+			{:else}
+				<CodeBlock lang={token.lang} text={token.text} {onOpenFile} />
+			{/if}
+		{:else}
+			<CodeBlock lang={token.lang} text={token.text} {onOpenFile} />
+		{/if}
 	{:else if token.type === 'blockquote'}
-		<blockquote class="blockquote">
-			<Markdown tokens={token.tokens} {onOpenFile} />
-		</blockquote>
+		{@const callout = parseCallout(token)}
+		{#if callout}
+			<CalloutCard kind={callout.kind} title={callout.title}>
+				<Markdown tokens={callout.bodyTokens} {onOpenFile} />
+			</CalloutCard>
+		{:else}
+			<blockquote class="blockquote">
+				<Markdown tokens={token.tokens} {onOpenFile} />
+			</blockquote>
+		{/if}
 	{:else if token.type === 'list'}
 		{#if token.ordered}
 			<ol start={typeof token.start === 'number' ? token.start : 1} class="list ordered">
@@ -69,30 +131,7 @@
 			</ul>
 		{/if}
 	{:else if token.type === 'table'}
-		<div class="table-wrap">
-			<table class="table">
-				<thead>
-					<tr>
-						{#each token.header as cell, ci (`${ci}:th`)}
-							<th style={cell.align ? `text-align: ${cell.align}` : undefined}>
-								<MarkdownInline tokens={cell.tokens} {onOpenFile} />
-							</th>
-						{/each}
-					</tr>
-				</thead>
-				<tbody>
-					{#each token.rows as row, ri (`${ri}:tr`)}
-						<tr>
-							{#each row as cell, ci (`${ci}:td`)}
-								<td style={cell.align ? `text-align: ${cell.align}` : undefined}>
-									<MarkdownInline tokens={cell.tokens} {onOpenFile} />
-								</td>
-							{/each}
-						</tr>
-					{/each}
-				</tbody>
-			</table>
-		</div>
+		<SmartTable header={token.header} rows={token.rows} {onOpenFile} />
 	{:else if token.type === 'hr'}
 		<hr class="hr" />
 	{:else if token.type === 'html'}
@@ -196,38 +235,6 @@
 		min-width: 0;
 	}
 
-
-	.table-wrap {
-		overflow-x: auto;
-		margin: var(--space-2) 0;
-	}
-
-	.table {
-		width: 100%;
-		border-collapse: collapse;
-		font-size: var(--text-label);
-		line-height: 1.4;
-	}
-
-	.table th {
-		text-align: left;
-		padding: var(--space-1) var(--space-2);
-		color: var(--ink-faint);
-		font-weight: 500;
-		border-bottom: 1px solid var(--line-strong);
-		font-size: var(--text-caption);
-		white-space: nowrap;
-	}
-
-	.table td {
-		padding: var(--space-1) var(--space-2);
-		color: var(--ink);
-		border-bottom: 1px solid var(--line);
-	}
-
-	.table tr:hover td {
-		background: var(--bg-hover);
-	}
 
 	.hr {
 		border: none;

@@ -12,7 +12,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 ## [Unreleased]
 
 ### Added
-- Mermaid code blocks in agent replies show up as a diagram in the theme colors; the «Code» button in the header shows the source and «Diagram» switches back to the drawing. While the block is still streaming or has errors, the code stays visible.
+- Intelligent UI and diagram viewer: Mermaid diagrams in chat now use an interactive card with expandable lightbox and a button to project them onto the central Whiteboard with pan and zoom. Fixed the empty whiteboard rendering race condition and added SVG and PNG export. Introduced native in-chat Intelligent UI micro-components: dynamic smart tables with live search, column sorting, pagination, and CSV export; GitHub-style semantic callouts (> [!NOTE], [!TIP], [!WARNING], etc.); KPI and metric grids (ui:metric); interactive tabs (ui:tabs); collapsible accordions (ui:accordion); phased plan steppers (ui:steps), and before/after comparison sliders (ui:compare).
 
 ### Changed
 - Studio and remote control remove obsolete code and resources, reducing unnecessary work and shipped content without removing available features.

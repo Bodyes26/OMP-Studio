@@ -4,7 +4,7 @@
 	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 	import { renderMermaidSvg } from '$lib/mermaidSvg';
 	import { normalizeRoutingPath } from '$lib/agent/laneRouting';
-	import { IconClose, IconZoomIn, IconZoomOut } from '$lib/icons';
+	import { IconClose, IconZoomIn, IconZoomOut, IconDownload, IconFileImage, IconCheck } from '$lib/icons';
 	import { onThemeChange } from '$lib/theme';
 	import Tooltip from '$lib/ui/Tooltip.svelte';
 	import StatusMark from '$lib/ui/StatusMark.svelte';
@@ -46,6 +46,7 @@
 	let svgHost = $state<HTMLElement>();
 	let containerEl = $state<HTMLElement>();
 	let pointerOver = $state(false);
+	let copiedPng = $state(false);
 
 	let unlisten: UnlistenFn | null = null;
 
@@ -76,7 +77,9 @@
 					svgEl.style.height = `${box.height}px`;
 				}
 			}
-			fitToView();
+			requestAnimationFrame(() => {
+				fitToView();
+			});
 		} catch (e) {
 			renderError = e instanceof Error ? e.message : String(e);
 			svgHost.innerHTML = '';
@@ -164,15 +167,85 @@
 	$effect(() => {
 		if (initialDiagram && initialDiagram.id !== diagram?.id) {
 			diagram = initialDiagram;
-			void render(initialDiagram.mermaid);
 		}
 	});
 
+	// Renderizza affidabilmente non appena svgHost e' montato nel DOM
+	$effect(() => {
+		const currentMermaid = diagram?.mermaid;
+		if (svgHost && currentMermaid) {
+			void render(currentMermaid);
+		}
+	});
+
+	// Mantiene centrato il diagramma al ridimensionamento dei pannelli
+	$effect(() => {
+		if (!viewportEl) return;
+		const ro = new ResizeObserver(() => {
+			if (svgHost?.querySelector('svg')) {
+				fitToView();
+			}
+		});
+		ro.observe(viewportEl);
+		return () => ro.disconnect();
+	});
+
+	function exportSvg() {
+		if (!svgHost) return;
+		const svgEl = svgHost.querySelector('svg');
+		if (!svgEl) return;
+		const svgData = new XMLSerializer().serializeToString(svgEl);
+		const blob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+		const url = URL.createObjectURL(blob);
+		const a = document.createElement('a');
+		a.href = url;
+		a.download = `${(diagram?.title || 'diagram').replace(/[^a-zA-Z0-9_-]/g, '_')}.svg`;
+		a.click();
+		URL.revokeObjectURL(url);
+	}
+
+	async function exportPng() {
+		if (!svgHost) return;
+		const svgEl = svgHost.querySelector('svg');
+		if (!svgEl) return;
+		const box = svgEl.viewBox.baseVal;
+		const vbW = box && box.width ? box.width : svgEl.clientWidth || 800;
+		const vbH = box && box.height ? box.height : svgEl.clientHeight || 600;
+		const canvas = document.createElement('canvas');
+		const dpr = 2;
+		canvas.width = vbW * dpr;
+		canvas.height = vbH * dpr;
+		const ctx = canvas.getContext('2d');
+		if (!ctx) return;
+
+		const svgData = new XMLSerializer().serializeToString(svgEl);
+		const img = new Image();
+		const blob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+		const url = URL.createObjectURL(blob);
+		img.onload = () => {
+			const computedBg = getComputedStyle(document.documentElement).getPropertyValue('--bg-base').trim();
+			ctx.fillStyle = computedBg || '#ffffff';
+			ctx.fillRect(0, 0, canvas.width, canvas.height);
+			ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+			URL.revokeObjectURL(url);
+
+			canvas.toBlob((pngBlob) => {
+				if (!pngBlob) return;
+				const pngUrl = URL.createObjectURL(pngBlob);
+				const a = document.createElement('a');
+				a.href = pngUrl;
+				a.download = `${(diagram?.title || 'diagram').replace(/[^a-zA-Z0-9_-]/g, '_')}.png`;
+				a.click();
+				URL.revokeObjectURL(pngUrl);
+				copiedPng = true;
+				setTimeout(() => (copiedPng = false), 2000);
+			}, 'image/png');
+		};
+		img.src = url;
+	}
+
 	onMount(() => {
 		let disposed = false;
-		if (diagram) {
-			void render(diagram.mermaid);
-		}
 		// I colori sono cotti nell'SVG al momento del render: al cambio di
 		// tema il diagramma va ridisegnato con i nuovi esadecimali.
 		const offTheme = onThemeChange(() => {
@@ -192,7 +265,7 @@
 				if (from && active && from !== active && !from.startsWith(`${active}/`)) return;
 			}
 			diagram = payload;
-			void render(payload.mermaid);
+			// Il render parte automaticamente dall'$effect su svgHost e diagram.mermaid
 		}).then((fn) => {
 			if (disposed) fn();
 			else unlisten = fn;
@@ -240,6 +313,22 @@
 					onclick={() => (scale = clampScale(scale * 1.25))}
 					aria-label={m.viewer_zoom_in()}
 				><IconZoomIn /></button>
+			</Tooltip>
+			<Tooltip text={m.diagram_export_svg()} placement="bottom">
+				<button
+					type="button"
+					class="icon-btn"
+					onclick={exportSvg}
+					aria-label={m.diagram_export_svg()}
+				><IconDownload /></button>
+			</Tooltip>
+			<Tooltip text={copiedPng ? m.diagram_copied() : m.diagram_export_png()} placement="bottom">
+				<button
+					type="button"
+					class="icon-btn"
+					onclick={exportPng}
+					aria-label={m.diagram_export_png()}
+				>{#if copiedPng}<IconCheck />{:else}<IconFileImage />{/if}</button>
 			</Tooltip>
 		{/if}
 		<button

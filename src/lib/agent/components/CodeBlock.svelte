@@ -8,7 +8,7 @@
 	import { agentUiHooks, hasAgentUiHooks } from '../ui-context';
 	import { IconChevronRight, IconCheck, IconFile, IconCopy } from '$lib/icons';
 	import { Lingering } from '../motionState.svelte';
-	import MermaidDiagram from './MermaidDiagram.svelte';
+	import MermaidCard from './MermaidCard.svelte';
 	let {
 		lang = '',
 		text = '',
@@ -56,10 +56,6 @@
 	// I blocchi ```mermaid si mostrano come diagramma. Finche' la sorgente non
 	// si disegna (streaming in corso o sintassi errata) resta visibile il codice.
 	const isMermaid = $derived(normalizedLang === 'mermaid' || normalizedLang === 'mmd');
-	let mermaidReady = $state(false);
-	let showSource = $state(false);
-	const diagramShown = $derived(isMermaid && mermaidReady && !showSource);
-
 	// Evidenziazione asincrona tramite Monaco:
 	// - se gia' in cache LRU, applica immediatamente senza attese;
 	// - altrimenti applica throttle trailing (~250ms) per non ricolorare
@@ -131,7 +127,9 @@
 	}
 </script>
 
-{#if filePathItems}
+{#if isMermaid}
+	<MermaidCard {text} />
+{:else if filePathItems}
 	<div class="file-chips-block">
 		{#each filePathItems as item, idx}
 			<div class="file-chip-row">
@@ -182,16 +180,6 @@
 		</button>
 
 		<div class="header-right">
-			{#if isMermaid && mermaidReady}
-				<button
-					type="button"
-					class="copy-btn"
-					onclick={(e) => { e.stopPropagation(); showSource = !showSource; }}
-					aria-pressed={showSource}
-				>
-					{showSource ? m.code_block_show_diagram() : m.code_block_show_code()}
-				</button>
-			{/if}
 			<button
 				type="button"
 				class="copy-btn"
@@ -211,20 +199,11 @@
 		<div class={!hasToggled ? undefined : (openLinger.leaving ? 'tray-out' : 'tray-in')}>
 			<div class="tray-fold-inner">
 				<div class="code-body-wrap">
-					{#if isMermaid}
-						<!-- Resta montato anche con il codice in vista: tornare al
-						     diagramma non deve ridisegnarlo. -->
-						<div class="mermaid-wrap" hidden={!diagramShown}>
-							<MermaidDiagram source={text} bind:ready={mermaidReady} />
-						</div>
-					{/if}
-					{#if !diagramShown}
 						{#if colorizedHtml}
 							<pre class="code-pre colorized">{@html colorizedHtml}</pre>
 						{:else}
 							<pre class="code-pre">{text}</pre>
 						{/if}
-					{/if}
 				</div>
 			</div>
 		</div>

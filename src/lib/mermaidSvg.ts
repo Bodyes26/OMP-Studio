@@ -37,9 +37,29 @@ export async function renderMermaidSvg(source: string): Promise<string> {
 			primaryColor: tokenHex('--bg-overlay'),
 			primaryTextColor: tokenHex('--ink'),
 			primaryBorderColor: tokenHex('--brand'),
-			lineColor: tokenHex('--ink-faint'),
+			lineColor: tokenHex('--ink-muted'),
 			secondaryColor: tokenHex('--bg-raised'),
-			tertiaryColor: tokenHex('--bg-base')
+			tertiaryColor: tokenHex('--bg-base'),
+			mainBkg: tokenHex('--bg-overlay'),
+			nodeBorder: tokenHex('--brand'),
+			clusterBkg: tokenHex('--bg-raised'),
+			clusterBorder: tokenHex('--line'),
+			defaultLinkColor: tokenHex('--ink-muted'),
+			titleColor: tokenHex('--ink'),
+			edgeLabelBackground: tokenHex('--bg-raised'),
+			actorBkg: tokenHex('--bg-overlay'),
+			actorBorder: tokenHex('--brand'),
+			actorTextColor: tokenHex('--ink'),
+			actorLineColor: tokenHex('--line'),
+			signalColor: tokenHex('--ink'),
+			signalTextColor: tokenHex('--ink'),
+			labelBoxBkgColor: tokenHex('--bg-overlay'),
+			labelBoxBorderColor: tokenHex('--brand'),
+			labelTextColor: tokenHex('--ink'),
+			loopTextColor: tokenHex('--ink'),
+			noteBorderColor: tokenHex('--line'),
+			noteBkgColor: tokenHex('--bg-base'),
+			noteTextColor: tokenHex('--ink')
 		}
 	});
 	const { svg } = await mermaidApi.render(`studio-mermaid-${++renderSeq}`, source);

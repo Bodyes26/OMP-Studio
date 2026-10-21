@@ -2733,6 +2733,22 @@
 		}
 		handleGitPanelDiff(targetPath, 'working');
 	}
+	function handleChatOpenDiagram(projectId: string, laneId: string, diagram: { title?: string; mermaid: string }) {
+		if (projectStore.activeId !== projectId) projectStore.setActive(projectId);
+		const proj = projectStore.projects.find((p) => p.id === projectId);
+		const targetLane = proj ? laneOrchestrator.getMountedLanes(proj).find((l) => l.laneId === laneId) : null;
+		const workspacePath = targetLane?.workspacePath ?? proj?.canonicalProjectPath ?? '';
+		laneSurfaceStore.setLaneDiagram(projectId, laneId, {
+			id: `chat-diagram-${Date.now()}`,
+			title: diagram.title || 'Diagram',
+			mermaid: diagram.mermaid,
+			cwd: workspacePath,
+			session_id: 'chat',
+			lane_id: laneId,
+			project_id: projectId
+		});
+	}
+
 
 	// Chip @file nelle anteprime dei task (coda, popover di progetto): apre il
 	// file nel progetto del task e toglie di mezzo la superficie sopra l'editor.
@@ -3763,6 +3779,7 @@
 									onSwitchToTerminal={lane.kind === 'lab' ? undefined : () => void switchSurface(p.id, 'terminal')}
 									onSlashCommand={(raw) => handleGuiSlashCommand(p.id, lane.laneId, raw)}
 									onNewChat={lane.kind === 'lab' ? undefined : () => void handleNewChat(p.id, lane.laneId)}
+									onOpenDiagram={(diagram) => handleChatOpenDiagram(p.id, lane.laneId, diagram)}
 								/>
 							</SurfaceBoundary>
 						{:else}

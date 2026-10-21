@@ -40,6 +40,7 @@ export { default as IconAttach } from '@lucide/svelte/icons/paperclip';
 export { default as IconPin } from '@lucide/svelte/icons/pin';
 export { default as IconPinned } from '@lucide/svelte/icons/pin-off';
 export { default as IconSparkles } from '@lucide/svelte/icons/sparkles';
+export { default as IconMaximize } from '@lucide/svelte/icons/maximize-2';
 
 // Barra dei progetti e guscio.
 export { default as IconGhost } from '@lucide/svelte/icons/ghost';
