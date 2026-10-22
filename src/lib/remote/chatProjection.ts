@@ -20,6 +20,7 @@ import type {
 	ToolEntry
 } from '$lib/agent/session.svelte';
 import { categorizeTool } from '$lib/agent/tools/categories';
+import { artifactForToolEntry } from './artifacts';
 import { asRecord, resultText, str, recordList } from '$lib/agent/tools/types';
 import { extractPhasesFromCall } from '$lib/agent/todoTrace';
 import { stripEditorContext } from '$lib/editor/editorContextParsing';
@@ -148,6 +149,7 @@ function buildRemoteToolCall(entry: ToolEntry): RemoteToolCall {
 	}
 
 	const todos = entry.toolName === 'todo' ? extractRemoteTodos(entry) : null;
+	const artifact = artifactForToolEntry(entry);
 
 	const now = Date.now();
 	const startedAt = typeof entry.startedAt === 'number' ? entry.startedAt : now;
@@ -166,7 +168,9 @@ function buildRemoteToolCall(entry: ToolEntry): RemoteToolCall {
 		diffStats: summary.diff ?? null,
 		diff,
 		output,
-		todos
+		todos,
+		// Solo quando c'e': i tool senza anteprima non pagano un campo in piu' per messaggio.
+		...(artifact ? { artifact } : {})
 	};
 }
 

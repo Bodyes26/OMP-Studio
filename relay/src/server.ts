@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import pkg from '../package.json' with { type: 'json' };
 import { handleRequest } from './api.ts';
 import { loadConfig, type RelayConfig, type RelayConfigInput } from './config.ts';
+import { PreviewStore } from './previews.ts';
 import { MAX_FRAME_BYTES } from './protocol.ts';
 import { RateLimiter } from './ratelimit.ts';
 import { CLOSE_UNAUTHORIZED, SocketHub, type RelayWsData } from './sockets.ts';
@@ -42,6 +43,7 @@ export function startRelay(config: RelayConfigInput): RelayServer {
 
 	const store = new RelayStore(dataDir);
 	const rateLimiter = new RateLimiter();
+	const previews = new PreviewStore();
 
 	const vapidKeysPromise = getOrCreateVapidKeys(store);
 	let pushSender: PushSender | null = null;
@@ -71,7 +73,7 @@ export function startRelay(config: RelayConfigInput): RelayServer {
 		hostname: resolvedConfig.hostname,
 		async fetch(req, s) {
 			const vapidKeys = await vapidKeysPromise.catch(() => undefined);
-			return handleRequest(req, s, resolvedConfig, store, rateLimiter, socketHub, vapidKeys);
+			return handleRequest(req, s, resolvedConfig, store, rateLimiter, socketHub, previews, vapidKeys);
 		},
 		websocket: {
 			maxPayloadLength: MAX_FRAME_BYTES,

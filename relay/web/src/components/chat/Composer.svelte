@@ -829,4 +829,21 @@
 			border-top: 1px solid var(--line);
 		}
 	}
+
+	/* Bersagli da dito (44px consigliati da Apple): invio, selettore e chip. */
+	@media (pointer: coarse) {
+		.composer-send-btn {
+			width: 40px;
+			height: 40px;
+			--icon-size: 18px;
+		}
+		.composer-root :global(.menu-button.send-mode-trigger) {
+			height: 40px;
+			padding: 0 10px 0 7px;
+		}
+		.composer-root :global(.composer-chip) {
+			height: 36px;
+			padding: 0 var(--space-2);
+		}
+	}
 </style>

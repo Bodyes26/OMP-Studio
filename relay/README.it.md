@@ -17,6 +17,8 @@ Non esiste un relay condiviso o predefinito. Ognuno ospita il proprio, Studio ne
 
 Gli allegati generici possono arrivare a 50 MiB ciascuno e viaggiano in blocchi. Le immagini usano la stessa preparazione della GUI; testo e immagini restano entro il budget del comando RPC (700.000 caratteri complessivi prima dell'envelope). Se il limite viene superato o l'invio fallisce, il composer conserva la bozza. Le anteprime nella cronologia remota sono incluse solo negli aggiornamenti live piccoli; ricaricando lo storico resta il conteggio delle immagini.
 
+Le anteprime visive compaiono come card nella chat: apri diagrammi Mermaid, SVG e prototipi HTML/TSX accanto alla conversazione sul desktop o a schermo intero sul telefono. I diagrammi supportano trascinamento, pinch e comandi di zoom. Servono Studio e relay/PWA aggiornati, con la funzione `artifacts` dichiarata dalla macchina; il telefono non si collega mai al server di anteprima loopback dell'host. I documenti dei prototipi restano temporaneamente nella memoria del relay (fino a due ore); riaprirli li ripubblica.
+
 ## Requisiti
 
 - Un server raggiungibile da Internet, con Docker e Docker Compose.

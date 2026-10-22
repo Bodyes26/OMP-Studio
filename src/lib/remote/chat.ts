@@ -4,6 +4,7 @@
  */
 
 import type {
+	RemoteArtifact,
 	RemoteChatBlock,
 	RemoteChatEvent,
 	RemoteChatMessage,
@@ -16,7 +17,8 @@ import { sessionRegistry } from '$lib/agent/sessionRegistry';
 import { remoteBridge } from './bridge';
 import { RemoteCommandFailure } from './commands';
 import { remoteStore } from './remoteStore.svelte';
-import { entryToRemoteMessage } from './chatProjection';
+import { entryToRemoteMessage, remoteMessageId } from './chatProjection';
+import { fullArtifactForToolEntry } from './artifacts';
 import { paginateRemoteMessages } from './chatPaging';
 
 interface PendingDelta {
@@ -232,15 +234,10 @@ export async function initRemoteChat(): Promise<() => void> {
 
 
 /**
- * Restituisce una pagina di storico della chat per una corsia, limitata
- * sia per numero che per budget di byte (max 200 KB) per rimanere sempre sotto MAX_FRAME_BYTES (#8).
+ * Sessione della corsia seguita da un dispositivo, con gli stessi controlli di
+ * esistenza e di superficie per storico e anteprime.
  */
-export async function remoteChatHistory(
-	projectId: string,
-	laneId: string | null,
-	before: string | null,
-	limit: number
-): Promise<RemoteChatPage> {
+function resolveLaneSession(projectId: string, laneId: string | null) {
 	const project = projectStore.projects.find((p) => p.id === projectId);
 	if (!project) {
 		throw new RemoteCommandFailure('not_found', `Progetto "${projectId}" non trovato`);
@@ -266,9 +263,22 @@ export async function remoteChatHistory(
 		);
 	}
 
-	const session = isMain
+	return isMain
 		? sessionRegistry.getMainSession(projectId)
 		: sessionRegistry.getLaneSession(projectId, effectiveLaneId);
+}
+
+/**
+ * Restituisce una pagina di storico della chat per una corsia, limitata
+ * sia per numero che per budget di byte (max 200 KB) per rimanere sempre sotto MAX_FRAME_BYTES (#8).
+ */
+export async function remoteChatHistory(
+	projectId: string,
+	laneId: string | null,
+	before: string | null,
+	limit: number
+): Promise<RemoteChatPage> {
+	const session = resolveLaneSession(projectId, laneId);
 
 	if (!session || !session.entries || session.entries.length === 0) {
 		return { messages: [], before: null };
@@ -281,4 +291,23 @@ export async function remoteChatHistory(
 	}
 
 	return paginateRemoteMessages(allMessages, before, limit);
+}
+
+/**
+ * Anteprima completa di un messaggio tool della corsia (`get_artifact`): quella
+ * che nel messaggio e' rimasta fuori per dimensione.
+ */
+export async function remoteGetArtifact(
+	projectId: string,
+	laneId: string | null,
+	messageId: string
+): Promise<{ artifact: RemoteArtifact }> {
+	const session = resolveLaneSession(projectId, laneId);
+	const entry = session?.entries?.find(
+		(candidate) => candidate.kind === 'tool' && remoteMessageId(candidate) === messageId
+	);
+	if (!entry || entry.kind !== 'tool') {
+		throw new RemoteCommandFailure('not_found', `Messaggio "${messageId}" non trovato nella corsia`);
+	}
+	return { artifact: fullArtifactForToolEntry(entry) };
 }

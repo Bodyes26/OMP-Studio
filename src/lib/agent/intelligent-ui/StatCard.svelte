@@ -65,9 +65,11 @@
 		display: flex;
 		flex-direction: column;
 		gap: 4px;
-		min-width: 130px;
+		/* min-width: 0 permette alle card di restringersi fluidamente nella griglia senza provocare overflow */
+		min-width: 0;
 		flex: 1;
 		transition: border-color var(--dur-fast) var(--ease-out);
+		overflow: hidden;
 	}
 
 	.stat-card:hover {
@@ -87,6 +89,7 @@
 		color: var(--ink-muted);
 		text-transform: uppercase;
 		letter-spacing: 0.04em;
+		overflow-wrap: anywhere;
 	}
 
 	.stat-change {
@@ -119,6 +122,8 @@
 		color: var(--ink);
 		letter-spacing: -0.02em;
 		line-height: 1.2;
+		overflow-wrap: anywhere;
+		word-break: break-word;
 	}
 
 	.stat-subtext {
@@ -139,5 +144,15 @@
 	}
 	.tone-brand {
 		border-left: 3px solid var(--brand-ink);
+	}
+
+	@container (max-width: 480px) {
+		.stat-card {
+			padding: 8px 10px;
+		}
+
+		.stat-value {
+			font-size: var(--text-xl, 18px);
+		}
 	}
 </style>

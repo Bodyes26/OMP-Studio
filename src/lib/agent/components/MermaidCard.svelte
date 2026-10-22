@@ -11,6 +11,7 @@
 	import { agentUiHooks } from '../ui-context';
 	import MermaidDiagram from './MermaidDiagram.svelte';
 	import Dialog from '$lib/ui/Dialog.svelte';
+	import PanZoom from '$lib/ui/PanZoom.svelte';
 	import Tooltip from '$lib/ui/Tooltip.svelte';
 	import {
 		IconExternalLink,
@@ -33,11 +34,9 @@
 	let copied = $state(false);
 	let lightboxOpen = $state(false);
 
-	// Zoom e pan per il lightbox modale
+	// PanZoom per il lightbox modale (gesti touch, pinch, rotella e doppio tocco)
+	let panZoom = $state<ReturnType<typeof PanZoom> | null>(null);
 	let modalScale = $state(1);
-	let modalPanX = $state(0);
-	let modalPanY = $state(0);
-
 	// Estrazione tipo e titolo dal sorgente Mermaid
 	const info = $derived.by(() => {
 		const lines = text.trim().split('\n');
@@ -99,14 +98,12 @@
 	}
 
 	function resetModalView() {
-		modalScale = 1;
-		modalPanX = 0;
-		modalPanY = 0;
+		panZoom?.reset();
 	}
 
 	$effect(() => {
 		if (lightboxOpen) {
-			resetModalView();
+			panZoom?.reset();
 		}
 	});
 </script>
@@ -216,54 +213,58 @@
 		onClose={() => (lightboxOpen = false)}
 		size="wide"
 		flush
+		class="mermaid-lightbox-dialog"
 	>
 		{#snippet actions()}
 			<div class="modal-actions">
 				<button
 					type="button"
-					class="ui-button ui-button-ghost"
-					onclick={() => (modalScale = Math.max(0.4, modalScale / 1.25))}
-					title="Zoom out"
+					class="ui-button ui-button-ghost modal-btn"
+					onclick={() => panZoom?.zoomOut()}
+					title={m.viewer_zoom_out()}
+					aria-label={m.viewer_zoom_out()}
 				>
 					<IconZoomOut />
 				</button>
 				<span class="scale-label">{Math.round(modalScale * 100)}%</span>
 				<button
 					type="button"
-					class="ui-button ui-button-ghost"
-					onclick={() => (modalScale = Math.min(3, modalScale * 1.25))}
-					title="Zoom in"
+					class="ui-button ui-button-ghost modal-btn"
+					onclick={() => panZoom?.zoomIn()}
+					title={m.viewer_zoom_in()}
+					aria-label={m.viewer_zoom_in()}
 				>
 					<IconZoomIn />
 				</button>
 				<button
 					type="button"
-					class="ui-button ui-button-ghost"
+					class="ui-button ui-button-ghost modal-btn"
 					onclick={resetModalView}
+					title={m.viewer_fit()}
 				>
 					{m.viewer_fit()}
 				</button>
 				<button
 					type="button"
-					class="ui-button ui-button-ghost"
+					class="ui-button ui-button-ghost modal-btn modal-whiteboard-btn"
 					onclick={() => {
 						openInWhiteboard();
 						lightboxOpen = false;
 					}}
+					title={m.diagram_open_whiteboard()}
 				>
 					<IconExternalLink />
-					<span>{m.diagram_open_whiteboard()}</span>
+					<span class="btn-text">{m.diagram_open_whiteboard()}</span>
 				</button>
 			</div>
 		{/snippet}
 
 		<div class="modal-viewer">
-			<div
-				class="modal-canvas"
-				style:transform="translate({modalPanX}px, {modalPanY}px) scale({modalScale})"
-			>
-				<MermaidDiagram source={text} />
-			</div>
+			<PanZoom bind:this={panZoom} bind:scale={modalScale} label={info.title}>
+				<div class="modal-diagram-host">
+					<MermaidDiagram source={text} />
+				</div>
+			</PanZoom>
 		</div>
 	</Dialog>
 {/if}
@@ -276,6 +277,8 @@
 		background: var(--bg-base);
 		overflow: hidden;
 		transition: border-color var(--dur-fast) var(--ease-out);
+		/* Container query per adattare azioni e testata sulla larghezza chat */
+		container-type: inline-size;
 	}
 
 	.mermaid-card:hover {
@@ -395,6 +398,7 @@
 		cursor: zoom-in;
 		position: relative;
 		overflow-x: auto;
+		-webkit-overflow-scrolling: touch;
 	}
 
 	.stage-hint {
@@ -456,18 +460,119 @@
 		width: 100%;
 		height: 70vh;
 		background: var(--bg-sunken);
-		overflow: auto;
+		overflow: hidden;
 		display: flex;
 		align-items: center;
 		justify-content: center;
+	}
+	.modal-diagram-host {
 		padding: var(--space-4);
+		display: flex;
+		align-items: center;
+		justify-content: center;
 	}
 
-	.modal-canvas {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		transition: transform var(--dur-fast) var(--ease-out);
-		transform-origin: center center;
+	.modal-diagram-host :global(.mermaid-host) {
+		overflow: visible;
+	}
+
+	.modal-diagram-host :global(.mermaid-host svg) {
+		max-height: none;
+		max-width: none;
+	}
+
+	/* Affordance di ingrandimento visibile al tocco senza bisogno di hover */
+	@media (hover: none), (pointer: coarse) {
+		.stage-hint {
+			opacity: 0.85;
+		}
+	}
+
+	/* Collasso dei pulsanti della testata a sola icona >=40px su schermi touch o contenitore stretto */
+	@media (pointer: coarse) {
+		.card-header {
+			min-height: 44px;
+			padding: 4px 8px;
+		}
+
+		.action-btn {
+			min-height: 40px;
+			min-width: 40px;
+			padding: 0 8px;
+			justify-content: center;
+			--icon-size: 16px;
+		}
+
+		.action-btn .btn-text {
+			display: none;
+		}
+	}
+
+	@container (max-width: 500px) {
+		.card-header {
+			min-height: 44px;
+			padding: 4px 8px;
+		}
+
+		.action-btn {
+			min-height: 40px;
+			min-width: 40px;
+			padding: 0 8px;
+			justify-content: center;
+			--icon-size: 16px;
+		}
+
+		.action-btn .btn-text {
+			display: none;
+		}
+	}
+
+	/* Lightbox: su schermi mobili (<640px) usa 100dvh e safe-area-inset per aggirare notch e barre di sistema iOS */
+	@media (max-width: 640px) {
+		:global(.dialog-surface.mermaid-lightbox-dialog) {
+			position: fixed !important;
+			inset: 0 !important;
+			width: 100vw !important;
+			max-width: 100vw !important;
+			height: 100dvh !important;
+			height: var(--app-height, 100dvh) !important;
+			max-height: none !important;
+			border-radius: 0 !important;
+			border: none !important;
+			padding-top: env(safe-area-inset-top, 0px);
+			padding-bottom: env(safe-area-inset-bottom, 0px);
+			padding-left: env(safe-area-inset-left, 0px);
+			padding-right: env(safe-area-inset-right, 0px);
+		}
+
+		:global(.mermaid-lightbox-dialog .dialog-header) {
+			padding: 8px 12px;
+		}
+
+		:global(.mermaid-lightbox-dialog .dialog-close-btn) {
+			min-width: 40px;
+			min-height: 40px;
+		}
+
+		.modal-viewer {
+			height: 100% !important;
+			min-height: 0;
+			flex: 1;
+			padding: 0;
+		}
+
+		.modal-actions {
+			gap: 4px;
+		}
+
+		.modal-actions :global(.modal-btn) {
+			min-height: 40px;
+			min-width: 40px;
+			padding: 0 8px;
+		}
+
+		.modal-whiteboard-btn .btn-text {
+			display: none;
+		}
 	}
 </style>

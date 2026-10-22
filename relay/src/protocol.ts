@@ -41,7 +41,9 @@ export interface ProtocolId {
  *   streaming. Studio manda i delta di ragionamento solo se il `welcome` la
  *   elenca: una PWA vecchia li accoderebbe al testo della risposta;
  * - `lane_config`: nuova chat, ruolo, modello e ragionamento della corsia, e
- *   catalogo del composer (comandi, skill, modelli, ruoli).
+ *   catalogo del composer (comandi, skill, modelli, ruoli);
+ * - `artifacts`: anteprime dei tool (`RemoteToolCall.artifact`) e comando
+ *   `get_artifact` per i contenuti oltre il tetto inline.
  */
 export const FEATURES = [
 	'respond_ui',
@@ -53,7 +55,8 @@ export const FEATURES = [
 	'projects',
 	'chat_rich',
 	'lane_config',
-	'fleet'
+	'fleet',
+	'artifacts'
 ] as const;
 export type Feature = (typeof FEATURES)[number];
 
@@ -395,7 +398,9 @@ export type RemoteCommand =
 	| { kind: 'list_sessions'; projectId: string; before: string | null; limit: number; query?: string }
 	| { kind: 'session_history'; projectId: string; sessionId: string; before: string | null; limit: number }
 	| { kind: 'create_lane'; projectId: string; title: string; prompt: string }
-	| { kind: 'mark_session_seen'; projectId: string; laneId: string | null; sessionId: string; completionId: string };
+	| { kind: 'mark_session_seen'; projectId: string; laneId: string | null; sessionId: string; completionId: string }
+	/** Contenuto completo dell'anteprima del messaggio `messageId` (tool con `artifact.content: null`). */
+	| { kind: 'get_artifact'; projectId: string; laneId: string | null; messageId: string };
 
 /** Funzione che una macchina deve dichiarare perche' il comando le arrivi. */
 export const COMMAND_FEATURE: Record<RemoteCommand['kind'], Feature> = {
@@ -424,7 +429,8 @@ export const COMMAND_FEATURE: Record<RemoteCommand['kind'], Feature> = {
 	list_sessions: 'fleet',
 	session_history: 'fleet',
 	create_lane: 'fleet',
-	mark_session_seen: 'fleet'
+	mark_session_seen: 'fleet',
+	get_artifact: 'artifacts'
 };
 
 export interface RemoteChatMessage {
@@ -494,6 +500,32 @@ export interface RemoteToolCall {
 	output: string | null;
 	/** Tool `todo`: lista aggiornata dopo la chiamata. */
 	todos: RemoteTodoItem[] | null;
+	/** Anteprima prodotta dal tool (diagramma, SVG, prototipo): vedi `RemoteArtifact`. */
+	artifact?: RemoteArtifact | null;
+}
+
+/** Tipi di anteprima che la PWA sa aprire nella superficie dedicata. */
+export type RemoteArtifactKind = 'mermaid' | 'svg' | 'html';
+
+/** Oltre questa dimensione il contenuto non viaggia nel messaggio: va chiesto con `get_artifact`. */
+export const ARTIFACT_INLINE_MAX_BYTES = 24 * 1024;
+/** Tetto assoluto di un contenuto servito da `get_artifact`: resta sotto `MAX_FRAME_BYTES`. */
+export const ARTIFACT_MAX_BYTES = 384 * 1024;
+
+/**
+ * Anteprima visuale di una chiamata a tool. `mermaid`: sorgente del diagramma
+ * (`studio_diagram`, file `.mmd`); `svg`: markup (file `.svg`, da sanificare
+ * lato PWA); `html`: codice HTML/TSX di un prototipo (`studio_preview`), che la
+ * PWA avvolge e pubblica sul relay (`POST /v1/preview`) per mostrarlo in un
+ * iframe isolato.
+ */
+export interface RemoteArtifact {
+	kind: RemoteArtifactKind;
+	title: string;
+	/** Dimensione in byte UTF-8 del contenuto completo. */
+	bytes: number;
+	/** `null` quando supera `ARTIFACT_INLINE_MAX_BYTES`: la PWA lo chiede con `get_artifact`. */
+	content: string | null;
 }
 
 export interface RemoteChatPage {
@@ -594,6 +626,7 @@ export interface RemoteCommandData {
 	session_history: RemoteChatPage;
 	create_lane: { laneId: string };
 	mark_session_seen: { success: true };
+	get_artifact: { artifact: RemoteArtifact };
 }
 
 export interface RemotePromptImage {
@@ -728,7 +761,23 @@ export const API = {
 	clientSocket: '/v1/client',
 	pushVapidPublicKey: '/v1/push/vapid-public-key',
 	pushSubscriptions: '/v1/push/subscriptions',
+	preview: '/v1/preview'
 } as const;
+
+/** Percorso con cui il relay serve un prototipo pubblicato: `/p/<id>/`. */
+export const PREVIEW_PATH_PREFIX = '/p/';
+
+/** Tetto del documento HTML di un prototipo pubblicato con `POST /v1/preview`, in byte UTF-8. */
+export const PREVIEW_MAX_HTML_BYTES = 1024 * 1024;
+
+export interface PublishPreviewRequest {
+	html: string;
+}
+
+export interface PublishPreviewResponse {
+	/** Percorso relativo da mettere in un `<iframe sandbox="allow-scripts">`. */
+	url: string;
+}
 
 /** Cookie di sessione dei dispositivi: `HttpOnly`, `SameSite=Strict`, `Secure` in HTTPS. */
 export const SESSION_COOKIE = 'relay_session';

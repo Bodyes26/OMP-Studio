@@ -187,14 +187,14 @@
 	/* Su mobile (<960px): .chat-pane e' a tutto schermo in overlay fisso */
 	.chat-pane {
 		position: fixed;
-		inset: 0;
+		inset: var(--app-top, 0px) 0 auto 0;
 		z-index: 100;
 		background: var(--bg-base);
 		display: flex;
 		flex-direction: column;
 		overflow: hidden;
 		height: 100vh;
-		height: 100dvh;
+		height: var(--app-height, 100dvh);
 	}
 	/* Su desktop (>=960px): SEMPRE a due colonne SOLO quando is-paired */
 	@media (min-width: 960px) {

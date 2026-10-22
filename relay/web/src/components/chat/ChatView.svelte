@@ -28,6 +28,9 @@
 	import OperationalDetails from '../inbox/OperationalDetails.svelte';
 	import { IconArrowLeft, IconChevronDown, IconChevronUp, IconClose, IconNewChat, IconInfo } from '../../icons.ts';
 	import type { RemoteComposerAttachment } from '../../chat/remoteAttachments.svelte.ts';
+	import { setAgentUiHooks } from '$lib/agent/ui-context';
+	import { PreviewStore, setPreviewContext } from '../../preview.svelte.ts';
+	import PreviewSurface from './PreviewSurface.svelte';
 
 	let { route }: { route: LiveChatRoute } = $props();
 
@@ -44,6 +47,49 @@
 	let operationalDialogEl = $state<HTMLDialogElement | null>(null);
 	let pageVisible = $state(false);
 	let historyReady = $state(false);
+
+	const preview = new PreviewStore();
+	setPreviewContext(preview);
+
+	$effect(() => {
+		preview.setRouteContext({
+			hostId: route.hostId,
+			projectId: route.projectId,
+			laneId: route.laneId === 'main' ? null : route.laneId,
+			isHistory: false
+		});
+	});
+
+	setAgentUiHooks({
+		openDiagram: (diagram) => {
+			if (!hostFeatures.includes('artifacts')) return;
+			void preview.open({
+				kind: 'mermaid',
+				title: diagram.title || 'Diagram',
+				content: diagram.mermaid
+			});
+		},
+		openImage: (data, mimeType) => {
+			openImageModal(data.startsWith('data:') ? data : `data:${mimeType};base64,${data}`, mimeType);
+		},
+		openFile: () => {},
+		openSubagent: () => {},
+		switchToTerminal: () => {}
+	});
+
+	let isDesktop = $state(
+		typeof window !== 'undefined' ? window.matchMedia('(min-width: 960px)').matches : true
+	);
+	$effect(() => {
+		if (typeof window === 'undefined') return;
+		const mql = window.matchMedia('(min-width: 960px)');
+		const handler = (e: MediaQueryListEvent) => {
+			isDesktop = e.matches;
+		};
+		mql.addEventListener('change', handler);
+		isDesktop = mql.matches;
+		return () => mql.removeEventListener('change', handler);
+	});
 	$effect(() => {
 		if (operationalDialogEl && !operationalDialogEl.open) operationalDialogEl.showModal();
 	});
@@ -648,7 +694,7 @@
 		</div>
 	{/if}
 
-	<div class="chat-content-split">
+	<div class="chat-content-split" class:has-preview={preview.isOpen}>
 		<div class="chat-stream-column">
 	<!-- Trascrizione centrale dei turni -->
 	<main class="chat-main">
@@ -662,11 +708,16 @@
 			agentActivityText={lane?.agent.activity?.text}
 			agentActivityStartedAt={lane?.agent.activity?.at}
 			onOpenImage={openImageModal}
+			{hostFeatures}
+			hostId={route.hostId}
+			projectId={route.projectId}
+			laneId={route.laneId === 'main' ? null : route.laneId}
+			isHistory={false}
 		/>
 	</main>
 
 	<!-- Riquadro inferiore: AttentionCard o Composer docked -->
-	<footer class="footer-stack safe-bottom">
+	<footer class="footer-stack">
 		<div class="footer-inner readable">
 			{#if pendingAttention && !askMinimized}
 				<!-- La richiesta di attenzione prende il posto del composer come AskCard in Studio -->
@@ -737,8 +788,11 @@
 		</div>
 	</footer>
 		</div>
+		{#if preview.isOpen}
+			<PreviewSurface {preview} />
+		{/if}
 
-		{#if project}
+		{#if project && (!preview.isOpen || !isDesktop)}
 			<aside class="chat-operational-sidebar">
 				<OperationalDetails
 					hostId={route.hostId}
@@ -829,6 +883,7 @@
 	.image-modal-img {
 		max-width: 90vw;
 		max-height: 85vh;
+		max-height: 85dvh;
 		object-fit: contain;
 		border-radius: var(--radius-md);
 		box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
@@ -965,6 +1020,7 @@
 	}
 
 	.chat-content-split {
+		position: relative;
 		flex: 1;
 		min-height: 0;
 		display: flex;
@@ -980,6 +1036,14 @@
 		height: 100%;
 		overflow: hidden;
 	}
+	@media (min-width: 960px) {
+		/* Su mobile la containment cambierebbe il riferimento del foglio fixed. */
+		.chat-content-split { container-type: inline-size; }
+		.chat-stream-column {
+			min-width: 360px;
+		}
+	}
+
 
 	.chat-operational-sidebar {
 		width: 320px;
@@ -1016,6 +1080,8 @@
 
 	.mobile-operational-sheet {
 		max-height: 80vh;
+		max-height: 80dvh;
+		padding-bottom: env(safe-area-inset-bottom, 0px);
 		background: var(--bg-base);
 		border-radius: var(--radius-xl, 16px) var(--radius-xl, 16px) 0 0;
 		overflow: hidden;
@@ -1112,7 +1178,7 @@
 		display: flex;
 		flex-direction: column;
 		background: var(--bg-sunken);
-		padding-bottom: calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
+		padding-bottom: calc(var(--space-3) + var(--safe-bottom));
 		min-width: 0;
 		z-index: var(--z-sticky);
 	}
@@ -1134,6 +1200,19 @@
 
 	.attention-dock-slot {
 		width: 100%;
+	}
+
+	/*
+	 * La domanda scorre dentro un'area propria: senza tetto la scheda cresce oltre
+	 * il pannello (che e' overflow:hidden) e il pulsante di conferma finisce sotto
+	 * la barra di Safari, irraggiungibile.
+	 */
+	.attention-scroll-area {
+		max-height: min(calc(var(--app-height, 100dvh) * 0.72), max(80px, calc(var(--app-height, 100dvh) - 180px - env(safe-area-inset-top, 0px) - var(--safe-bottom, 0px))));
+		overflow-y: auto;
+		overscroll-behavior-y: contain;
+		-webkit-overflow-scrolling: touch;
+		border-radius: var(--radius-xl);
 	}
 
 	/* La riduzione sta sopra la scheda, a destra, come la freccia di AskCard. */
@@ -1185,8 +1264,8 @@
 			display: none;
 		}
 		.header-back-btn {
-			width: 40px;
-			height: 40px;
+			width: 44px;
+			height: 44px;
 		}
 	}
 </style>

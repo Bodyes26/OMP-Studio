@@ -42,6 +42,16 @@
 		const pct = Math.max(10, Math.min(90, (x / rect.width) * 100));
 		splitPercent = pct;
 	}
+
+	function handleKeyDown(e: KeyboardEvent) {
+		if (e.key === 'ArrowLeft') {
+			splitPercent = Math.max(10, splitPercent - 5);
+			e.preventDefault();
+		} else if (e.key === 'ArrowRight') {
+			splitPercent = Math.min(90, splitPercent + 5);
+			e.preventDefault();
+		}
+	}
 </script>
 
 <div class="compare-card" bind:this={containerEl}>
@@ -69,6 +79,7 @@
 			aria-valuenow={Math.round(splitPercent)}
 			aria-label="Regola divisione confronto"
 			tabindex="0"
+			onkeydown={handleKeyDown}
 		>
 			<div class="handle-pill">
 				<IconChevronLeft />
@@ -90,6 +101,8 @@
 		border-radius: var(--radius-lg);
 		background: var(--bg-base);
 		overflow: hidden;
+		/* Container query per maniglia e layout su colonna chat stretta */
+		container-type: inline-size;
 	}
 
 	.compare-header {
@@ -135,6 +148,7 @@
 		max-height: 400px;
 		background: var(--bg-sunken);
 		user-select: text;
+		touch-action: pan-y;
 	}
 
 	.pane {
@@ -169,10 +183,22 @@
 		cursor: col-resize;
 		transform: translateX(-50%);
 		z-index: 10;
-		touch-action: none;
+		/* touch-action: pan-y permette alla pagina/chat di scorrere verticalmente al tocco */
+		touch-action: pan-y;
 		display: flex;
 		align-items: center;
 		justify-content: center;
+	}
+
+	/* Hitbox touch allargata ad almeno 44px lungo l'intera altezza del divisore */
+	.divider-handle::before {
+		content: '';
+		position: absolute;
+		top: 0;
+		bottom: 0;
+		left: 50%;
+		width: 44px;
+		transform: translateX(-50%);
 	}
 
 	.handle-pill {
@@ -187,5 +213,24 @@
 		box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
 		color: var(--ink);
 		--icon-size: 11px;
+		position: relative;
+		z-index: 1;
+	}
+
+	/* Su touch screen e contenitori stretti la pillola ha bersaglio >=44px */
+	@media (pointer: coarse) {
+		.handle-pill {
+			width: 44px;
+			height: 44px;
+			--icon-size: 14px;
+		}
+	}
+
+	@container (max-width: 480px) {
+		.handle-pill {
+			width: 44px;
+			height: 44px;
+			--icon-size: 14px;
+		}
 	}
 </style>

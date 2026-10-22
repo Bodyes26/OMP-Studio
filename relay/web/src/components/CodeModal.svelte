@@ -168,6 +168,8 @@
 		border-radius: var(--radius-xl);
 		display: flex;
 		flex-direction: column;
+		max-height: calc(var(--app-height, 100dvh) - 32px);
+		padding-bottom: var(--safe-bottom, env(safe-area-inset-bottom, 0px));
 		overflow: hidden;
 	}
 
@@ -210,6 +212,8 @@
 	}
 
 	.sheet-body {
+		min-height: 0;
+		overflow-y: auto;
 		padding: var(--space-5) var(--space-4);
 		display: flex;
 		flex-direction: column;

@@ -77,6 +77,8 @@
 		border: 1px solid var(--line);
 		border-radius: var(--radius-lg);
 		background: var(--bg-base);
+		/* Container query per layout e target di tocco su colonna chat stretta */
+		container-type: inline-size;
 	}
 
 	.stepper-list {
@@ -163,6 +165,8 @@
 		font-size: var(--text-label);
 		font-weight: 600;
 		color: var(--ink);
+		overflow-wrap: anywhere;
+		word-break: break-word;
 	}
 
 	.step-pending .step-title {
@@ -190,5 +194,44 @@
 		padding: 6px 10px;
 		background: var(--bg-raised);
 		border-radius: var(--radius-sm);
+		overflow-wrap: anywhere;
+		word-break: break-word;
+	}
+
+	/* Su schermi touch o colonne chat strette target di tocco >=44px */
+	@media (pointer: coarse) {
+		.step-header {
+			min-height: 44px;
+		}
+
+		.step-indicator {
+			margin-top: 9px;
+		}
+
+		.step-line {
+			top: 35px;
+		}
+	}
+
+	@container (max-width: 480px) {
+		.stepper-card {
+			padding: 10px;
+		}
+
+		.step-item {
+			gap: var(--space-2);
+		}
+
+		.step-header {
+			min-height: 44px;
+		}
+
+		.step-indicator {
+			margin-top: 9px;
+		}
+
+		.step-line {
+			top: 35px;
+		}
 	}
 </style>

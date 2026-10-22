@@ -12,10 +12,12 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 ## [Unreleased]
 
 ### Added
+- Apri diagrammi Mermaid, SVG e prototipi HTML/TSX dalla chat di Studio Remote in un'anteprima interattiva: affiancata alla conversazione sul desktop, a schermo intero sul telefono.
 - Intelligent UI e visualizzatore diagrammi: i diagrammi Mermaid in chat ora usano una card interattiva con lightbox espandibile e pulsante per proiettarli sulla Whiteboard centrale con pan e zoom. Risolto il rendering vuoto della Whiteboard centrale e aggiunta l'esportazione in SVG e PNG. Introdotta la suite di micro-componenti nativi in chat: tabelle intelligenti dinamiche con ricerca live, ordinamento colonne, paginazione ed export CSV; callout semantici stile GitHub (> [!NOTE], [!TIP], [!WARNING], ecc.); griglie di metriche e KPI (ui:metric); schede a tab (ui:tabs); sezioni ripiegabili (ui:accordion); stepper a fasi per piani d'azione (ui:steps) e slider di confronto prima/dopo (ui:compare).
 - Dalla Companion invia un seguito o un comando direttamente nella conversazione letta, senza trasformarlo in un nuovo task.
 
 ### Changed
+- Su touch, Intelligent UI adatta tabelle, schede, metriche e confronti agli schermi stretti, con controlli più facili da premere e diagrammi ingrandibili con le dita.
 - Studio e il controllo remoto eliminano codice e risorse obsolete, riducendo le elaborazioni superflue e il contenuto distribuito senza rimuovere funzionalità disponibili.
 - La finestra di Studio non si restringe più sotto 1024×640: uscendo per sbaglio dallo schermo intero resta utilizzabile.
 - Le sezioni Todo e Subagenti sopra il composer partono chiuse e si aprono e chiudono con un'animazione.
@@ -24,6 +26,8 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Finestra Companion ottimizzata: la card centrale è chiudibile manualmente e si chiude da sola non appena una domanda riceve risposta da qualsiasi finestra, senza lasciare messaggi di stato residui; all'apertura non compare alcuna card centrale a meno che non vi sia una domanda o una risposta da leggere. I progetti fermi sono consultabili senza generare card vuote. Nelle domande la grafica adotta sfondo neutro e bordo standard senza anelli ambrati, distingue le chiamate del tool ask dalle proposte di risposta, include sempre l'opzione «Altro...» e il campo note, e rende il testo con Intelligent UI permettendo di consultare il messaggio intero o caricare i messaggi precedenti. Nella lettura delle risposte il composer usa dimensione del testo standard, integra i suggerimenti per @ e / e chiude automaticamente la card dopo un secondo dalla conferma di invio.
 
 ### Fixed
+- Su iPhone le domande lunghe scorrono fino ai pulsanti di risposta; chat e finestre rispettano tastiera, barre del browser e aree sicure, anche in orizzontale.
+- La build del relay include le dipendenze e i tipi necessari ai diagrammi della chat e torna a superare il controllo della PWA.
 - Nei completamenti del composer, anche nel Companion, le frecce mantengono la voce selezionata invece di riportarla alla prima riga.
 - In Studio desktop e Remote, gli anelli di selezione, focus e trascinamento restano dentro i controlli: barre scorrevoli, schede e liste non ne tagliano più i lati.
 - Domande e completamenti degli altri progetti non sostituiscono la lettura aperta: bozze e scorrimenti restano al loro posto, e un errore di invio non cancella il messaggio.

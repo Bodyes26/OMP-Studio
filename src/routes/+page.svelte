@@ -72,7 +72,7 @@
 	import { setupRemoteCommands, type RunTaskOutcome } from '$lib/remote/commands';
 	import { createTaskCommands } from '$lib/remote/taskCommands';
 	import { abortRemoteLane, sendRemotePrompt, stageRemoteAttachment, refreshRemoteContext, compactRemoteContext } from '$lib/remote/sessionCommands';
-	import { initRemoteChat, remoteChatHistory } from '$lib/remote/chat';
+	import { initRemoteChat, remoteChatHistory, remoteGetArtifact } from '$lib/remote/chat';
 	import { listRemoteProjectFolders, openRemoteProject, createRemoteProject } from '$lib/remote/projectCommands';
 	import { createLaneConfigCommands } from '$lib/remote/laneConfigCommands';
 	import { sessionCompletions } from '$lib/agent/completion.svelte';
@@ -1123,6 +1123,7 @@
 					refreshContext: refreshRemoteContext,
 					compactContext: compactRemoteContext,
 					chatHistory: remoteChatHistory,
+					getArtifact: remoteGetArtifact,
 					listProjectFolders: listRemoteProjectFolders,
 					openProject: openRemoteProject,
 					createProject: createRemoteProject,

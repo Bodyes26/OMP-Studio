@@ -1087,8 +1087,8 @@ svg.lucide {
     min-height: 40px;
   }
   .composer-icon-btn {
-    width: 36px;
-    height: 36px;
+    width: 44px;
+    height: 44px;
   }
 }
 
@@ -1114,4 +1114,34 @@ svg.lucide {
 
 .highlight-focus {
 	animation: notification-highlight 1.8s ease-out;
+}
+
+/*
+ * Mobile. `--safe-bottom` e' l'area sicura della barra home; con la tastiera
+ * aperta (viewport.ts) non esiste piu' e non si somma al padding del composer.
+ */
+:root {
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+:root[data-keyboard] {
+  --safe-bottom: 0px;
+}
+
+/* Niente rimbalzo della pagina e scroll che trapela dai contenitori annidati
+   (card, sheet, trascrizione) nella pagina sotto. */
+html, body {
+  overscroll-behavior: none;
+}
+* {
+  overscroll-behavior-y: contain;
+}
+
+/* Scala tipografica da telefono: la scala di Studio (11-13px) e' pensata per
+   un monitor; su touch le didascalie e le etichette restano leggibili. */
+@media (pointer: coarse) and (max-width: 767px) {
+  :root {
+    --text-xs: 12px; --text-sm: 13px; --text-base: 14px;
+    --text-meta: 12.5px; --text-caption: 12.5px; --text-label: 13px;
+    --text-body: 14px; --text-group-label: 12px; --text-trace: 13px;
+  }
 }

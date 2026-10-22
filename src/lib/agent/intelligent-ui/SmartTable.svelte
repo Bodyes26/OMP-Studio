@@ -297,6 +297,8 @@
 		background: var(--bg-base);
 		overflow: hidden;
 		transition: border-color var(--dur-fast) var(--ease-out);
+		/* Abilita container queries per adattare controlli e prima colonna fissa alla larghezza reale della chat */
+		container-type: inline-size;
 	}
 
 	.smart-table-card:hover {
@@ -398,6 +400,8 @@
 		max-height: 480px;
 		overflow: auto;
 		background: var(--bg-sunken);
+		-webkit-overflow-scrolling: touch;
+		scrollbar-width: thin;
 	}
 
 	.data-table {
@@ -523,5 +527,101 @@
 	.page-nav-btn:disabled {
 		opacity: 0.35;
 		cursor: not-allowed;
+	}
+
+	/* Adattamenti mobile: container query per chat stretta e media query per puntatori touch */
+	@container (max-width: 520px) {
+		.table-toolbar {
+			flex-wrap: wrap;
+			gap: 8px;
+			padding: 8px 10px;
+		}
+
+		.search-box {
+			width: 100%;
+			min-height: 40px;
+			padding: 0 10px;
+		}
+
+		.search-input {
+			/* 16px impedisce a iOS Safari lo zoom indesiderato al focus dell'input */
+			font-size: 16px;
+		}
+
+		.toolbar-actions {
+			gap: 6px;
+		}
+
+		.tool-btn {
+			min-height: 40px;
+			min-width: 40px;
+			padding: 0 8px;
+			border-radius: var(--radius-md);
+		}
+
+		.th-sortable {
+			padding: 10px 12px;
+		}
+
+		.table-pagination {
+			min-height: 48px;
+			padding: 8px 12px;
+		}
+
+		.page-nav-btn {
+			width: 40px;
+			height: 40px;
+			min-width: 40px;
+			min-height: 40px;
+			border-radius: var(--radius-md);
+		}
+
+		/* Prima colonna fissa con ombra di stacco per mantenere il contesto durante lo scorrimento */
+		.data-table th:first-child,
+		.data-table td:first-child {
+			position: sticky;
+			left: 0;
+			z-index: 2;
+			background: var(--bg-raised);
+			box-shadow: 2px 0 6px -2px rgba(0, 0, 0, 0.15);
+		}
+
+		.data-table td:first-child {
+			background: var(--bg-base);
+		}
+
+		.data-table tr.striped td:first-child {
+			background: var(--bg-surface-alt, var(--bg-base));
+		}
+
+		.data-table tr:hover td:first-child {
+			background: var(--bg-hover);
+		}
+
+		.data-table th:first-child {
+			z-index: 3;
+		}
+	}
+
+	/* Per dispositivi touch indipendentemente dalla larghezza del contenitore */
+	@media (pointer: coarse) {
+		.search-input {
+			font-size: 16px;
+		}
+
+		.tool-btn {
+			min-height: 40px;
+			min-width: 40px;
+		}
+
+		.page-nav-btn {
+			min-width: 40px;
+			min-height: 40px;
+		}
+
+		.th-sortable {
+			min-height: 40px;
+			padding: 10px 12px;
+		}
 	}
 </style>

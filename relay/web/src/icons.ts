@@ -61,3 +61,12 @@ export { default as IconAttach } from '@lucide/svelte/icons/paperclip';
 export { default as IconImage } from '@lucide/svelte/icons/image';
 export { default as IconHistory } from '@lucide/svelte/icons/history';
 
+// Anteprime e diagrammi
+export { default as IconZoomIn } from '@lucide/svelte/icons/zoom-in';
+export { default as IconZoomOut } from '@lucide/svelte/icons/zoom-out';
+export { default as IconReset } from '@lucide/svelte/icons/rotate-ccw';
+export { default as IconTablet } from '@lucide/svelte/icons/tablet';
+export { default as IconViewCode } from '@lucide/svelte/icons/code';
+export { default as IconViewPreview } from '@lucide/svelte/icons/eye';
+export { default as IconWorkflow } from '@lucide/svelte/icons/workflow';
+

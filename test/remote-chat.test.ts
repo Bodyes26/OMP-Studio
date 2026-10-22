@@ -5,6 +5,7 @@ import {
 	remoteChatHistory,
 	queueDelta,
 	flushDeltasForMessage,
+	remoteGetArtifact,
 	clearAllWatchersAndDeltas
 } from '../src/lib/remote/chat.ts';
 import {
@@ -509,5 +510,90 @@ describe('remote chat history & session commands', () => {
 			clearAllWatchersAndDeltas();
 			remoteBridge.publishChatEvent = origPublish;
 		}
+	});
+
+	describe('anteprime dei tool (artifact)', () => {
+		const tool = (over: Partial<ToolEntry> & { toolName: string; args: Record<string, unknown> }): ToolEntry => ({
+			id: 900,
+			kind: 'tool',
+			toolCallId: 'call_art',
+			running: false,
+			startedAt: 1000,
+			endedAt: 1100,
+			...over
+		});
+
+		it('porta nel messaggio il contenuto di diagrammi, SVG e prototipi, e solo di quelli riusciti', () => {
+			const diagram = entryToRemoteMessage(
+				tool({ toolName: 'studio_diagram', args: { title: 'Flusso', mermaid: 'graph TD; A-->B' } })
+			)!;
+			assert.deepEqual(diagram.tool?.artifact, {
+				kind: 'mermaid',
+				title: 'Flusso',
+				bytes: 15,
+				content: 'graph TD; A-->B'
+			});
+
+			const svg = entryToRemoteMessage(
+				tool({ toolName: 'write', args: { path: 'img/logo.svg', content: '<svg xmlns="http://www.w3.org/2000/svg"/>' } })
+			)!;
+			assert.equal(svg.tool?.artifact?.kind, 'svg');
+			assert.equal(svg.tool?.artifact?.title, 'logo.svg');
+
+			const html = entryToRemoteMessage(
+				tool({ toolName: 'studio_preview', args: { title: 'Card', code: '<div>ciao</div>' } })
+			)!;
+			assert.equal(html.tool?.artifact?.kind, 'html');
+
+			// Non ha prodotto niente da mostrare: in corso, fallito, o file di altro tipo.
+			const running = tool({ toolName: 'studio_diagram', running: true, args: { mermaid: 'graph TD; A-->B' } });
+			const failed = tool({
+				toolName: 'studio_diagram',
+				args: { mermaid: 'graph TD; A-->B' },
+				result: { isError: true, content: [] }
+			});
+			const plain = tool({ toolName: 'write', args: { path: 'src/a.ts', content: 'export {}' } });
+			for (const entry of [running, failed, plain]) {
+				assert.equal(entryToRemoteMessage(entry)!.tool?.artifact, undefined);
+			}
+		});
+
+		it('lascia fuori dal messaggio i contenuti grandi e li serve con get_artifact', async () => {
+			const big = 'graph TD;\n' + 'A-->B;\n'.repeat(5_000);
+			const entry = tool({ toolName: 'studio_diagram', toolCallId: 'call_big', args: { title: 'Grande', mermaid: big } });
+			const artifact = entryToRemoteMessage(entry)!.tool!.artifact!;
+			assert.equal(artifact.content, null);
+			assert.equal(artifact.bytes, big.length);
+
+			projectStore.projects = [
+				{
+					id: 'p-artifact',
+					name: 'Artifact',
+					canonicalProjectPath: '/tmp/artifact',
+					lane: { laneId: 'main', surface: 'gui', workspacePath: '/tmp/artifact' }
+				} as unknown as Project
+			];
+			sessionRegistry.setLaneSession('p-artifact', 'main', { entries: [entry] } as unknown as AgentSession);
+			try {
+				const full = await remoteGetArtifact('p-artifact', null, 'call_big');
+				assert.equal(full.artifact.content, big);
+
+				await assert.rejects(
+					() => remoteGetArtifact('p-artifact', null, 'call_assente'),
+					(err: unknown) => err instanceof RemoteCommandFailure && err.code === 'not_found'
+				);
+
+				const huge = 'x'.repeat(400 * 1024);
+				sessionRegistry.setLaneSession('p-artifact', 'main', {
+					entries: [tool({ toolName: 'studio_diagram', toolCallId: 'call_huge', args: { mermaid: huge } })]
+				} as unknown as AgentSession);
+				await assert.rejects(
+					() => remoteGetArtifact('p-artifact', null, 'call_huge'),
+					(err: unknown) => err instanceof RemoteCommandFailure && err.code === 'rejected'
+				);
+			} finally {
+				sessionRegistry.removeLaneSession('p-artifact', 'main');
+			}
+		});
 	});
 });

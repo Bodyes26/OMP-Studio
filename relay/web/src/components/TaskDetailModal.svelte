@@ -604,6 +604,8 @@
 		display: flex;
 		flex-direction: column;
 		max-height: 90vh;
+		max-height: 90dvh;
+		padding-bottom: env(safe-area-inset-bottom, 0px);
 		overflow: hidden;
 	}
 

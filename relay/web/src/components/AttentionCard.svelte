@@ -620,12 +620,26 @@
 		gap: var(--space-3);
 	}
 
+	/* Resta ancorato al fondo dell'area scorrevole: la conferma non esce mai dallo schermo. */
 	.ask-footer {
 		display: flex;
 		align-items: center;
 		justify-content: flex-end;
 		gap: var(--space-2);
 		margin-top: var(--space-2);
+		position: sticky;
+		bottom: 0;
+		padding: var(--space-2) 0 var(--space-4);
+		margin-bottom: calc(var(--space-4) * -1);
+		background: linear-gradient(to bottom, transparent, var(--bg-raised) var(--space-2));
+		z-index: 1;
+	}
+
+	@media (pointer: coarse) {
+		.context-toggle-btn {
+			height: 36px;
+			padding: 0 var(--space-2);
+		}
 	}
 
 	.text-input-form {

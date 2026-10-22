@@ -56,6 +56,8 @@
 		background: var(--bg-base);
 		overflow: hidden;
 		transition: border-color var(--dur-fast) var(--ease-out);
+		/* Container query per adattare le dimensioni di tocco dell'intestazione */
+		container-type: inline-size;
 	}
 
 	.accordion-card:hover {
@@ -96,6 +98,8 @@
 
 	.accordion-title {
 		flex: 1;
+		overflow-wrap: anywhere;
+		word-break: break-word;
 	}
 
 	.accordion-badge {
@@ -114,5 +118,20 @@
 		border-top: 1px solid var(--line);
 		font-size: var(--text-body);
 		line-height: 1.5;
+	}
+
+	/* Intestazione >=44px su schermi touch o colonne strette per accessibilita' tocco */
+	@media (pointer: coarse) {
+		.accordion-trigger {
+			min-height: 44px;
+			padding: 10px 12px;
+		}
+	}
+
+	@container (max-width: 520px) {
+		.accordion-trigger {
+			min-height: 44px;
+			padding: 10px 12px;
+		}
 	}
 </style>

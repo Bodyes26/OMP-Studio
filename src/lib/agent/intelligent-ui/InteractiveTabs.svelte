@@ -61,6 +61,8 @@
 		border-radius: var(--radius-lg);
 		background: var(--bg-base);
 		overflow: hidden;
+		/* Container query per adattare i pulsanti e lo scorrimento dei tab */
+		container-type: inline-size;
 	}
 
 	.tabs-header {
@@ -71,9 +73,15 @@
 		background: var(--bg-raised);
 		border-bottom: 1px solid var(--line);
 		overflow-x: auto;
+		/* Scorrimento orizzontale fluido con snap per non troncare o mandare a capo i tab */
+		scroll-snap-type: x mandatory;
+		-webkit-overflow-scrolling: touch;
+		scrollbar-width: thin;
 	}
 
 	.tab-btn {
+		flex-shrink: 0;
+		scroll-snap-align: start;
 		padding: 6px 12px;
 		background: transparent;
 		border: none;
@@ -111,5 +119,20 @@
 		line-height: 1.5;
 		color: var(--ink);
 		white-space: pre-wrap;
+	}
+
+	/* Su touch screen e contenitori stretti altezza tocco >=40px */
+	@media (pointer: coarse) {
+		.tab-btn {
+			min-height: 40px;
+			padding: 8px 14px;
+		}
+	}
+
+	@container (max-width: 480px) {
+		.tab-btn {
+			min-height: 40px;
+			padding: 8px 12px;
+		}
 	}
 </style>

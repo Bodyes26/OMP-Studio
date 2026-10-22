@@ -12,10 +12,12 @@ released: items are closed into a version via `npm run release -- <version>`.
 ## [Unreleased]
 
 ### Added
+- Open Mermaid diagrams, SVGs and HTML/TSX prototypes from Studio Remote chat in an interactive preview: beside the conversation on desktop, full screen on phones.
 - Intelligent UI and diagram viewer: Mermaid diagrams in chat now use an interactive card with expandable lightbox and a button to project them onto the central Whiteboard with pan and zoom. Fixed the empty whiteboard rendering race condition and added SVG and PNG export. Introduced native in-chat Intelligent UI micro-components: dynamic smart tables with live search, column sorting, pagination, and CSV export; GitHub-style semantic callouts (> [!NOTE], [!TIP], [!WARNING], etc.); KPI and metric grids (ui:metric); interactive tabs (ui:tabs); collapsible accordions (ui:accordion); phased plan steppers (ui:steps), and before/after comparison sliders (ui:compare).
 - Send a follow-up or a command from Companion directly to the conversation being read, without turning it into a new task.
 
 ### Changed
+- On touch devices, Intelligent UI adapts tables, tabs, metrics and comparisons to narrow screens, with easier-to-tap controls and pinch-to-zoom diagrams.
 - Studio and remote control remove obsolete code and resources, reducing unnecessary work and shipped content without removing available features.
 - The Studio window no longer shrinks below 1024×640, so accidentally leaving full screen keeps it usable.
 - The Todo and Subagents sections above the composer start collapsed and animate when opening and closing.
@@ -24,6 +26,8 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Optimized Companion window: the central project card is explicitly dismissible and closes automatically as soon as a question is answered from any window without lingering resolved notices; by default no central card is opened unless there is a question or unread reply. Parked projects are informative and no longer open empty cards. Question cards adopt neutral background styling and standard borders without amber rings, clearly distinguish ask tool calls from message proposals, always provide "Other..." and note fields, render question text with Intelligent UI, and allow expanding full messages or loading previous context. In the reply reader, the composer uses standard text sizing, includes @ and / autocomplete suggestions, and auto-dismisses one second after reply confirmation.
 
 ### Fixed
+- On iPhone, long questions scroll to their answer buttons; chat and dialogs respect the keyboard, browser bars and safe areas, including landscape orientation.
+- The relay build includes the dependencies and types required by chat diagrams and passes the PWA checks again.
 - Composer completions, including in Companion, keep the arrow-key selection instead of resetting it to the first row.
 - In Studio desktop and Remote, selection, focus and drag rings stay inside controls, so scrolling bars, cards and lists no longer clip their edges.
 - Questions and completions from other projects no longer replace the open reader: drafts and scroll positions stay in place, and a failed send does not erase the message.

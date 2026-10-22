@@ -11,6 +11,7 @@ import type {
 	CommandErrorCode,
 	DeviceInfo,
 	RemoteAnswer,
+	RemoteArtifact,
 	RemoteChatPage,
 	RemoteCommand,
 	RemoteComposerCatalog,
@@ -94,6 +95,11 @@ export interface RemoteCommandExecutor {
 	) => Promise<{ path: string; name: string; size: number }>;
 	refreshContext: (projectId: string, laneId: string | null, force?: boolean) => Promise<{ success: true }>;
 	compactContext: (projectId: string, laneId: string | null) => Promise<{ success: true }>;
+	getArtifact: (
+		projectId: string,
+		laneId: string | null,
+		messageId: string
+	) => Promise<{ artifact: RemoteArtifact }>;
 	chatHistory: (
 		projectId: string,
 		laneId: string | null,
@@ -217,7 +223,8 @@ const ACTION_LABELS: Record<RemoteCommand['kind'], string> = {
 	list_sessions: 'richiesto lo storico delle sessioni',
 	session_history: 'letto la sessione storica',
 	create_lane: 'creato una nuova corsia',
-	mark_session_seen: 'aggiornato lo stato di completamento'
+	mark_session_seen: 'aggiornato lo stato di completamento',
+	get_artifact: 'aperto un\'anteprima'
 };
 
 /** Le letture non lasciano traccia: avvisano solo le azioni che cambiano qualcosa. */
@@ -228,7 +235,8 @@ const SILENT_KINDS: Partial<Record<RemoteCommand['kind'], true>> = {
 	stage_attachment: true,
 	list_sessions: true,
 	session_history: true,
-	mark_session_seen: true
+	mark_session_seen: true,
+	get_artifact: true
 };
 /**
  * Notifica in-app dell'avvenuta esecuzione di un comando remoto, registrata
@@ -442,6 +450,11 @@ export async function handleRemoteCommand(
 					command.before,
 					command.limit
 				);
+				break;
+
+			case 'get_artifact':
+				laneId = command.laneId;
+				data = await ctx.executor.getArtifact(command.projectId, command.laneId, command.messageId);
 				break;
 
 			case 'new_session':

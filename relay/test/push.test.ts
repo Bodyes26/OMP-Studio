@@ -17,6 +17,7 @@ import { decryptPushPayload, encryptPushPayload } from '../src/pushCrypto.ts';
 import { PushSender } from '../src/pushSender.ts';
 import { RateLimiter } from '../src/ratelimit.ts';
 import { SocketHub } from '../src/sockets.ts';
+import { PreviewStore } from '../src/previews.ts';
 import type { RelayWsData } from '../src/sockets.ts';
 
 const dummyServer = {
@@ -221,11 +222,12 @@ describe('API Sottoscrizioni Push e Autorizzazione', () => {
 			const store = new RelayStore(dir);
 			const rateLimiter = new RateLimiter();
 			const socketHub = new SocketHub(config, store);
+			const previews = new PreviewStore();
 			const vapid = await getOrCreateVapidKeys(store);
 
 			// 1. GET vapid-public-key senza cookie di sessione
 			const req1 = new Request(`http://127.0.0.1:8787${API.pushVapidPublicKey}`);
-			const res1 = await handleRequest(req1, dummyServer, config, store, rateLimiter, socketHub, vapid);
+			const res1 = await handleRequest(req1, dummyServer, config, store, rateLimiter, socketHub, previews, vapid);
 			expect(res1.status).toBe(401);
 
 			// 2. POST subscriptions senza Origin
@@ -239,7 +241,7 @@ describe('API Sottoscrizioni Push e Autorizzazione', () => {
 				},
 				body: JSON.stringify({ subscription: { endpoint: 'https://push.example.com' } })
 			});
-			const res2 = await handleRequest(req2, dummyServer, config, store, rateLimiter, socketHub, vapid);
+			const res2 = await handleRequest(req2, dummyServer, config, store, rateLimiter, socketHub, previews, vapid);
 			expect(res2.status).toBe(403);
 
 			socketHub.stop();
@@ -256,6 +258,7 @@ describe('API Sottoscrizioni Push e Autorizzazione', () => {
 			const store = new RelayStore(dir);
 			const rateLimiter = new RateLimiter();
 			const socketHub = new SocketHub(config, store);
+			const previews = new PreviewStore();
 			const vapid = await getOrCreateVapidKeys(store);
 
 			const token = 'session-token-test-1234567890abcdef';
@@ -265,7 +268,7 @@ describe('API Sottoscrizioni Push e Autorizzazione', () => {
 			const reqKey = new Request(`http://127.0.0.1:8787${API.pushVapidPublicKey}`, {
 				headers: { cookie: `${SESSION_COOKIE}=${token}` }
 			});
-			const resKey = await handleRequest(reqKey, dummyServer, config, store, rateLimiter, socketHub, vapid);
+			const resKey = await handleRequest(reqKey, dummyServer, config, store, rateLimiter, socketHub, previews, vapid);
 			expect(resKey.status).toBe(200);
 			const keyJson = (await resKey.json()) as { publicKey: string };
 			expect(keyJson.publicKey).toBe(vapid.publicKey);
@@ -292,7 +295,7 @@ describe('API Sottoscrizioni Push e Autorizzazione', () => {
 						}
 					})
 				});
-				const resSub = await handleRequest(reqSub, dummyServer, config, store, rateLimiter, socketHub, vapid);
+				const resSub = await handleRequest(reqSub, dummyServer, config, store, rateLimiter, socketHub, previews, vapid);
 				expect(resSub.status).toBe(200);
 			}
 
@@ -313,7 +316,7 @@ describe('API Sottoscrizioni Push e Autorizzazione', () => {
 					}
 				})
 			});
-			const resSub6 = await handleRequest(reqSub6, dummyServer, config, store, rateLimiter, socketHub, vapid);
+			const resSub6 = await handleRequest(reqSub6, dummyServer, config, store, rateLimiter, socketHub, previews, vapid);
 			expect(resSub6.status).toBe(200);
 			const subsAfter6 = store.getPushSubscriptionsForDevice(dev.id);
 			expect(subsAfter6.length).toBe(5);
@@ -330,7 +333,7 @@ describe('API Sottoscrizioni Push e Autorizzazione', () => {
 				},
 				body: JSON.stringify({ endpoint: 'https://fcm.googleapis.com/sub/6' })
 			});
-			const resDelOne = await handleRequest(reqDelOne, dummyServer, config, store, rateLimiter, socketHub, vapid);
+			const resDelOne = await handleRequest(reqDelOne, dummyServer, config, store, rateLimiter, socketHub, previews, vapid);
 			expect(resDelOne.status).toBe(200);
 			expect(store.getPushSubscriptionsForDevice(dev.id).length).toBe(4);
 

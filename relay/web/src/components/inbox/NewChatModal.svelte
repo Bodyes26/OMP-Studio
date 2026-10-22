@@ -466,6 +466,8 @@
 		width: 100%;
 		max-width: 540px;
 		max-height: 90vh;
+		max-height: 90dvh;
+		padding-bottom: env(safe-area-inset-bottom, 0px);
 		background: var(--bg-base);
 		border-radius: var(--radius-xl) var(--radius-xl) 0 0;
 		box-shadow: var(--shadow-dock);

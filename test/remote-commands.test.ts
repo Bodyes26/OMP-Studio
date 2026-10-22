@@ -37,6 +37,7 @@ describe('remote command handling', () => {
 			abort: unused,
 			sendPrompt: unused,
 			chatHistory: unused,
+			getArtifact: unused,
 			listProjectFolders: unused,
 			openProject: unused,
 			createProject: unused,

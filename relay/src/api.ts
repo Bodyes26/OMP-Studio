@@ -25,11 +25,16 @@ import {
 	type SavePushSubscriptionRequest,
 	type SavePushSubscriptionResponse,
 	type DeletePushSubscriptionRequest,
-	type VapidPublicKeyResponse
+	type VapidPublicKeyResponse,
+	type PublishPreviewRequest,
+	type PublishPreviewResponse,
+	PREVIEW_MAX_HTML_BYTES,
+	PREVIEW_PATH_PREFIX
 } from './protocol.ts';
 import { isValidAuth, isValidP256dh, isValidPushEndpoint, type VapidKeyPair } from './vapid.ts';
 import { extractClientKey, type RateLimiter } from './ratelimit.ts';
 import type { RelayWsData, SocketHub } from './sockets.ts';
+import { PreviewStore, servePreview } from './previews.ts';
 import { servePwa } from './static.ts';
 import { MAX_ACTIVE_CODES_PER_DEVICE, type DeviceRecord, type RelayStore } from './store.ts';
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -120,6 +125,7 @@ export async function handleRequest(
 	store: RelayStore,
 	rateLimiter: RateLimiter,
 	socketHub: SocketHub,
+	previews: PreviewStore,
 	vapidKeys?: VapidKeyPair
 ): Promise<Response> {
 	const url = new URL(req.url);
@@ -379,6 +385,7 @@ export async function handleRequest(
 		if (!device) return apiError('unauthorized', 'Unauthorized session', 401);
 
 		store.revokeDevice(device.id);
+		previews.removeForDevice(device.id);
 		socketHub.revokeDeviceSockets(device.id);
 
 		const isHttps = isRequestHttps(req);
@@ -453,6 +460,7 @@ export async function handleRequest(
 
 		const targetId = pathname.slice('/v1/devices/'.length);
 		const revoked = store.revokeDevice(targetId);
+		previews.removeForDevice(targetId);
 		if (!revoked) return apiError('not_found', 'Device not found', 404);
 
 		socketHub.revokeDeviceSockets(targetId);
@@ -546,6 +554,62 @@ export async function handleRequest(
 		store.deletePushSubscriptionsForDevice(device.id, body?.endpoint);
 
 		return Response.json({ ok: true }, { headers: BASE_HEADERS });
+	}
+
+	// Pubblicazione di un prototipo HTML dalla PWA: il relay lo serve poi con una CSP
+	// propria (vedi `servePreview`), che la PWA stessa non ammette per i suoi script.
+	if (pathname === API.preview) {
+		if (req.method !== 'POST') return new Response('Method not allowed', { status: 405, headers: BASE_HEADERS });
+		if (!isSameOrigin(req)) return apiError('forbidden_origin', 'Invalid Origin header', 403);
+
+		const device = authenticateDevice(req, store);
+		if (!device) return apiError('unauthorized', 'Unauthorized session', 401);
+
+		// HTTP/2 e proxy possono omettere Content-Length: il limite si applica
+		// ai byte letti, non a un'intestazione controllata dal chiamante.
+		const maxBodyBytes = PREVIEW_MAX_HTML_BYTES * 6 + 1024;
+		const reader = req.body?.getReader();
+		if (!reader) return apiError('bad_request', 'html required', 400);
+		const decoder = new TextDecoder();
+		let json = '';
+		let received = 0;
+		try {
+			while (true) {
+				const { value, done } = await reader.read();
+				if (done) break;
+				received += value.byteLength;
+				if (received > maxBodyBytes) {
+					await reader.cancel();
+					return apiError('payload_too_large', 'Preview too large', 413);
+				}
+				json += decoder.decode(value, { stream: true });
+			}
+			json += decoder.decode();
+		} catch {
+			return apiError('bad_request', 'Invalid request body', 400);
+		} finally {
+			reader.releaseLock();
+		}
+		let body: PublishPreviewRequest | null = null;
+		try {
+			body = JSON.parse(json);
+		} catch {
+			return apiError('bad_request', 'Invalid JSON', 400);
+		}
+		if (!body || typeof body.html !== 'string' || body.html.length === 0) {
+			return apiError('bad_request', 'html required', 400);
+		}
+		const id = previews.put(device.id, body.html, Date.now());
+		if (!id) return apiError('payload_too_large', 'Preview too large', 413);
+
+		const resBody: PublishPreviewResponse = { url: `${PREVIEW_PATH_PREFIX}${id}/` };
+		return Response.json(resBody, { headers: BASE_HEADERS });
+	}
+
+	// Lettura tramite id segreto: il documento isolato non dipende dalla sessione
+	// della PWA e non riceve nessuna credenziale nel contenuto pubblicato.
+	if (pathname.startsWith(PREVIEW_PATH_PREFIX)) {
+		return servePreview(req, pathname.slice(PREVIEW_PATH_PREFIX.length), previews);
 	}
 
 	// Qualsiasi percorso sotto /v1/ non gestito e' un endpoint API sconosciuto.

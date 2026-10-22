@@ -11,6 +11,8 @@
 	import { navigation } from '../../navigation.svelte.ts';
 	import Transcript from '../chat/Transcript.svelte';
 	import { IconArrowLeft, IconClose } from '../../icons.ts';
+	import { PreviewStore, setPreviewContext } from '../../preview.svelte.ts';
+	import PreviewSurface from '../chat/PreviewSurface.svelte';
 
 	let { route }: { route: HistoryChatRoute } = $props();
 
@@ -22,6 +24,18 @@
 	let loadOlderError = $state<string | null>(null);
 	let activeImageModal = $state<{ url: string; mimeType?: string } | null>(null);
 	let imageDialogEl = $state<HTMLDialogElement | null>(null);
+
+	const preview = new PreviewStore();
+	setPreviewContext(preview);
+
+	$effect(() => {
+		preview.setRouteContext({
+			hostId: route.hostId,
+			projectId: route.projectId,
+			laneId: null,
+			isHistory: true
+		});
+	});
 
 	// Contatore di generazione per proteggere dai ritorni asincroni stantii
 	let activeGeneration = 0;
@@ -152,6 +166,8 @@
 		</div>
 	{/if}
 
+	<div class="history-content-split">
+	<div class="history-stream-column">
 	<main class="chat-main">
 		{#if isLoading}
 			<div class="loading-state">
@@ -165,6 +181,11 @@
 				onLoadOlder={loadOlderMessages}
 				isWorking={false}
 				onOpenImage={openImageModal}
+				hostFeatures={host?.features ?? []}
+				hostId={route.hostId}
+				projectId={route.projectId}
+				laneId={null}
+				isHistory={true}
 			/>
 		{/if}
 	</main>
@@ -178,6 +199,12 @@
 			</div>
 		</div>
 	</footer>
+	</div>
+
+	{#if preview.isOpen}
+		<PreviewSurface {preview} />
+	{/if}
+	</div>
 
 	{#if activeImageModal}
 		<dialog
@@ -299,6 +326,27 @@
 		border-bottom: 1px solid color-mix(in oklch, var(--warn) 30%, transparent);
 		color: var(--warn);
 	}
+	.history-content-split {
+		position: relative;
+		flex: 1;
+		min-height: 0;
+		display: flex;
+		overflow: hidden;
+	}
+
+	.history-stream-column {
+		flex: 1;
+		min-width: 0;
+		min-height: 0;
+		display: flex;
+		flex-direction: column;
+	}
+
+	@media (min-width: 960px) {
+		.history-content-split { container-type: inline-size; }
+		.history-stream-column { min-width: 360px; }
+	}
+
 	.chat-main {
 		flex: 1;
 		min-height: 0;
@@ -380,6 +428,7 @@
 	.image-modal-img {
 		max-width: 90vw;
 		max-height: 85vh;
+		max-height: 85dvh;
 		object-fit: contain;
 		border-radius: var(--radius-md);
 	}

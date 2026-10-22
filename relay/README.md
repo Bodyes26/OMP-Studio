@@ -17,6 +17,8 @@ There is no shared or default relay. You host your own, Studio asks for its addr
 
 Generic attachments support up to 50 MiB each and are transferred in chunks. Images use the same preparation as the GUI; text and images must fit the RPC command budget (700,000 characters combined before the envelope). If that limit is exceeded or sending fails, the composer keeps the draft. Remote history includes image previews only in small live updates; reloading history retains the image count.
 
+Visual previews appear as cards in chat: open Mermaid diagrams, SVGs and HTML/TSX prototypes beside the conversation on desktop or full screen on phones. Diagrams support drag, pinch and zoom controls. This requires an updated Studio host advertising the `artifacts` feature and an updated relay/PWA; the phone never connects to the host's loopback preview server. Prototype documents are stored temporarily in relay memory (up to two hours); reopening republishes them.
+
 ## Requirements
 
 - A server reachable from the internet, with Docker and Docker Compose.

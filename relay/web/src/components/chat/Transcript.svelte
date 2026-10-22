@@ -6,7 +6,7 @@
 -->
 <script lang="ts">
 	import { t } from '../../i18n.ts';
-	import type { RemoteChatMessage } from '../../../../src/protocol.ts';
+	import type { Feature, RemoteChatMessage } from '../../../../src/protocol.ts';
 	import { groupMessages } from '../../chat/merge.ts';
 	import UserMessage from './UserMessage.svelte';
 	import AssistantText from './AssistantText.svelte';
@@ -24,7 +24,12 @@
 		isWorking = false,
 		agentActivityText = null,
 		agentActivityStartedAt = null,
-		onOpenImage
+		onOpenImage,
+		hostFeatures = [],
+		hostId = '',
+		projectId = '',
+		laneId = null,
+		isHistory = false
 	}: {
 		messages: RemoteChatMessage[];
 		loadingOlder?: boolean;
@@ -34,6 +39,11 @@
 		agentActivityText?: string | null;
 		agentActivityStartedAt?: number | null;
 		onOpenImage?: (dataUrl: string, mimeType?: string) => void;
+		hostFeatures?: Feature[];
+		hostId?: string;
+		projectId?: string;
+		laneId?: string | null;
+		isHistory?: boolean;
 	} = $props();
 
 	let scrollEl = $state<HTMLDivElement | null>(null);
@@ -143,7 +153,15 @@
 					{:else if item.kind === 'assistant'}
 						<AssistantText message={item.message} streaming={isWorking && messages.at(-1)?.id === item.id} />
 					{:else if item.kind === 'tool-group'}
-						<ToolGroup messages={item.messages} summary={item.summary} />
+						<ToolGroup
+							messages={item.messages}
+							summary={item.summary}
+							{hostFeatures}
+							{hostId}
+							{projectId}
+							{laneId}
+							{isHistory}
+						/>
 					{:else if item.kind === 'system'}
 						<CompactionRow message={item.message} />
 					{/if}

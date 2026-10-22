@@ -89,6 +89,9 @@
 		border-top: 1px solid var(--line-faint, var(--line));
 		border-right: 1px solid var(--line-faint, var(--line));
 		border-bottom: 1px solid var(--line-faint, var(--line));
+		min-width: 0;
+		/* Container query per adattare margini e spezzamento testo su larghezze ridotte */
+		container-type: inline-size;
 	}
 
 	.callout-header {
@@ -115,6 +118,8 @@
 		font-size: var(--text-body);
 		line-height: 1.55;
 		color: var(--ink);
+		overflow-wrap: anywhere;
+		word-break: break-word;
 	}
 
 	.callout-body :global(p:last-child) {
@@ -145,5 +150,16 @@
 	.callout-success {
 		--accent-color: var(--success, #10b981);
 		--bg-surface: var(--bg-raised);
+	}
+
+	@container (max-width: 400px) {
+		.callout-card {
+			padding: 10px;
+		}
+
+		.callout-title {
+			overflow-wrap: anywhere;
+			word-break: break-word;
+		}
 	}
 </style>

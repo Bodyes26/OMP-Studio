@@ -6,21 +6,32 @@
 <script lang="ts">
 	import { t, getLanguage } from '../../i18n.ts';
 	import { formatDurationSecs } from '../../chat/merge.ts';
-	import type { RemoteChatMessage, RemoteToolCategory } from '../../../../src/protocol.ts';
+	import type { RemoteChatMessage, RemoteToolCategory, Feature } from '../../../../src/protocol.ts';
 	import type { ToolGroupSummary } from '../../chat/types.ts';
+	import ArtifactCard from './ArtifactCard.svelte';
 	import CategoryIcon from './CategoryIcon.svelte';
 	import Diff from '$lib/agent/tools/parts/Diff.svelte';
 	import OutputBlock from '$lib/agent/tools/parts/OutputBlock.svelte';
 	import ThinkingBlock from '$lib/agent/components/ThinkingBlock.svelte';
 	import StatusMark from '../StatusMark.svelte';
-	import { IconCheck, IconClose, IconChevronRight } from '../../icons.ts';
+	import { IconCheck, IconClose, IconChevronRight, IconWorkflow, IconImage, IconViewPreview } from '../../icons.ts';
 
 	let {
 		messages = [],
-		summary
+		summary,
+		hostFeatures = [],
+		hostId = '',
+		projectId = '',
+		laneId = null,
+		isHistory = false
 	}: {
 		messages: RemoteChatMessage[];
 		summary: ToolGroupSummary;
+		hostFeatures?: Feature[];
+		hostId?: string;
+		projectId?: string;
+		laneId?: string | null;
+		isHistory?: boolean;
 	} = $props();
 
 	let isFullListOpen = $state(false);
@@ -58,6 +69,12 @@
 
 	const durationLabel = $derived.by(() => {
 		return formatDurationSecs(summary.durationMs, getLanguage());
+	});
+
+	const supportsArtifacts = $derived(hostFeatures.includes('artifacts'));
+	const artifactMessages = $derived.by(() => {
+		if (!supportsArtifacts) return [];
+		return messages.filter((m) => m.tool?.artifact != null);
 	});
 </script>
 
@@ -120,6 +137,24 @@
 		{/if}
 	</button>
 
+	{#if artifactMessages.length > 0}
+		<div class="tool-artifacts-tray">
+			{#each artifactMessages as msg (msg.id)}
+				{#if msg.tool?.artifact}
+					<ArtifactCard
+						artifact={msg.tool.artifact}
+						messageId={msg.id}
+						toolName={msg.toolName}
+						{hostId}
+						{projectId}
+						{laneId}
+						{isHistory}
+					/>
+				{/if}
+			{/each}
+		</div>
+	{/if}
+
 	{#if isFullListOpen}
 		<div class="full-list-container">
 			{#each messages as msg (msg.id)}
@@ -140,13 +175,21 @@
 								<span class="spinner" aria-label="In esecuzione"></span>
 							{:else if tool?.status === 'error'}
 								<span class="fail-icon"><IconClose /></span>
+							{:else if tool?.artifact && supportsArtifacts}
+								{#if tool.artifact.kind === 'mermaid'}
+									<IconWorkflow class="cat-icon" />
+								{:else if tool.artifact.kind === 'svg'}
+									<IconImage class="cat-icon" />
+								{:else}
+									<IconViewPreview class="cat-icon" />
+								{/if}
 							{:else}
 								<CategoryIcon category={tool?.category ?? 'other'} class="cat-icon" />
 							{/if}
 						</span>
 
 						<span class="row-label" class:text-shimmer={tool?.status === 'running'}>
-							{tool?.label ?? msg.toolName ?? 'Strumento'}
+							{tool?.artifact?.title || tool?.label || msg.toolName || 'Strumento'}
 						</span>
 
 						{#if tool?.detail}
@@ -170,6 +213,19 @@
 
 					{#if isRowOpen}
 						<div class="inline-body">
+							{#if tool?.artifact && supportsArtifacts}
+								<div class="inline-artifact-slot">
+									<ArtifactCard
+										artifact={tool.artifact}
+										messageId={msg.id}
+										toolName={msg.toolName}
+										{hostId}
+										{projectId}
+										{laneId}
+										{isHistory}
+									/>
+								</div>
+							{/if}
 							{#if tool?.errorReason}
 								<div class="error-reason-box">
 									{tool.errorReason}
@@ -218,6 +274,17 @@
 </div>
 
 <style>
+	.tool-artifacts-tray {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2, 8px);
+		margin-top: var(--space-2, 8px);
+	}
+
+	.inline-artifact-slot {
+		margin-bottom: var(--space-2, 8px);
+	}
+
 	.tool-group {
 		display: flex;
 		flex-direction: column;

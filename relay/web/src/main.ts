@@ -1,5 +1,8 @@
 import { mount } from 'svelte';
 import App from './App.svelte';
+import { initViewportSync } from './viewport.ts';
+
+initViewportSync();
 
 const target = document.getElementById('app');
 if (target) {
