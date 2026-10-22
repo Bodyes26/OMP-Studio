@@ -13,15 +13,19 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ### Added
 - Intelligent UI e visualizzatore diagrammi: i diagrammi Mermaid in chat ora usano una card interattiva con lightbox espandibile e pulsante per proiettarli sulla Whiteboard centrale con pan e zoom. Risolto il rendering vuoto della Whiteboard centrale e aggiunta l'esportazione in SVG e PNG. Introdotta la suite di micro-componenti nativi in chat: tabelle intelligenti dinamiche con ricerca live, ordinamento colonne, paginazione ed export CSV; callout semantici stile GitHub (> [!NOTE], [!TIP], [!WARNING], ecc.); griglie di metriche e KPI (ui:metric); schede a tab (ui:tabs); sezioni ripiegabili (ui:accordion); stepper a fasi per piani d'azione (ui:steps) e slider di confronto prima/dopo (ui:compare).
+- Dalla Companion invia un seguito o un comando direttamente nella conversazione letta, senza trasformarlo in un nuovo task.
 
 ### Changed
 - Studio e il controllo remoto eliminano codice e risorse obsolete, riducendo le elaborazioni superflue e il contenuto distribuito senza rimuovere funzionalità disponibili.
 - La finestra di Studio non si restringe più sotto 1024×640: uscendo per sbaglio dallo schermo intero resta utilizzabile.
 - Le sezioni Todo e Subagenti sopra il composer partono chiuse e si aprono e chiudono con un'animazione.
+- Companion 2.0 sostituisce la griglia con una lettura centrale e una colonna con domande, risposte da leggere, lavori in corso e coda globale; i progetti fermi restano separati al fondo.
+- Le nuove richieste catturate dalla Companion restano in coda fino all'avvio esplicito, anche nei progetti con auto-avvio attivo; una programmazione scelta esplicitamente continua a essere rispettata.
 
 ### Fixed
 - Nei completamenti del composer, anche nel Companion, le frecce mantengono la voce selezionata invece di riportarla alla prima riga.
 - In Studio desktop e Remote, gli anelli di selezione, focus e trascinamento restano dentro i controlli: barre scorrevoli, schede e liste non ne tagliano più i lati.
+- Domande e completamenti degli altri progetti non sostituiscono la lettura aperta: bozze e scorrimenti restano al loro posto, e un errore di invio non cancella il messaggio.
 
 ## [1.8.0] - 2026-10-20
 

@@ -44,6 +44,8 @@ Le scorciatoie globali catturate dall'app vivono dietro il modificatore **`Ctrl+
 | `/` | Composer GUI | Apre la palette dei comandi slash disponibili |
 | `@` | Composer GUI, editor task, Companion | Apre la palette dei file del progetto; nella Companion dopo `#progetto` |
 | `#` | Companion | Sceglie il progetto di destinazione del task |
+| `Ctrl+Invio` / `⌘+Invio` | Campo superiore della Companion | Accoda la richiesta al progetto indicato; non invia un seguito nella conversazione |
+| `Ctrl+Invio` / `⌘+Invio` | Campo sotto la risposta nella Companion | Invia il messaggio alla conversazione letta; non accoda il testo del campo superiore |
 | `Alt+1` … `Alt+6` | Composer GUI | Precompila il composer con il suggerimento in quella posizione (non invia) |
 | `Invio` | Composer GUI | Invia con la modalità predefinita; con la palette aperta seleziona il comando evidenziato |
 | `Alt+Invio` | Composer GUI | Invia con la modalità di accodamento alternativa (opposta al default) |

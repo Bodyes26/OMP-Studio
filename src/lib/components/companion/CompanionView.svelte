@@ -1,7 +1,7 @@
 <script lang="ts">
 	import './companion.css';
 	import { m } from '$lib/paraglide/messages.js';
-	import { onMount, tick } from 'svelte';
+	import { onMount, tick, untrack } from 'svelte';
 	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 	import { companionStore, type AttentionRequest, type QuickTaskAiParsed } from '$lib/stores/companion.svelte';
 	import { projectStore, type Project } from '$lib/stores/projects.svelte';
@@ -12,8 +12,9 @@
 	import { themeStore } from '$lib/stores/theme.svelte';
 	import { THEMES, automaticProjectHue } from '$lib/theme';
 	import UsagePopover from '$lib/components/UsagePopover.svelte';
-	import { taskStore } from '$lib/stores/tasks.svelte';
+	import { taskStore, type StudioTask } from '$lib/stores/tasks.svelte';
 	import { rankFrequentTaskModels } from '$lib/stores/taskSerialization';
+	import { taskLabel } from '$lib/stores/taskTitle';
 	import { isImageFile, prepareImage } from '$lib/agent/images';
 	import type { ImageContent } from '$lib/agent/wire';
 	import type { ComposerSegment } from '$lib/agent/composerDoc';
@@ -24,20 +25,33 @@
 	import { directiveDisplayName } from '$lib/stores/taskDirectives';
 	import CompanionShell from './CompanionShell.svelte';
 	import CompanionComposer, { type CompanionSuggestSources } from './CompanionComposer.svelte';
-	import CompanionMonitor from './CompanionMonitor.svelte';
+	import CompanionCenterReader from './CompanionCenterReader.svelte';
+	import CompanionRightRail, { type RailProjectItem } from './CompanionRightRail.svelte';
 	import type { CompanionAskHandlers } from './companionAsk';
 	import { promptBus } from '$lib/agent/promptBus';
-
-	const STATE_RANK: Record<string, number> = {
-		attention: 0,
-		working: 1,
-		finished: 2,
-		idle: 3,
-		unknown: 4
-	};
+	import {
+		createInitialPresentationState,
+		selectProject,
+		returnToPreviousSelection,
+		setConversationSnapshot,
+		toggleConversationExpanded,
+		setConversationDraft,
+		startSendingReply,
+		markReplySent,
+		setSendReplyError,
+		isProjectUnread,
+		buildGlobalQueueItems,
+		conversationKey,
+		getOrCreateConversation,
+		type CompanionPresentationState,
+		type CompanionViewMode
+	} from '$lib/companion/companionPresentation';
+	import type { CompanionConversationTarget } from '$lib/companion/conversation';
 
 	let editor = $state<ComposerEditor | null>(null);
 	let fileInputEl = $state<HTMLInputElement | null>(null);
+	let workspaceEl = $state<HTMLElement | null>(null);
+
 	/** Testo wire dell'editor: i badge diventano `#progetto`, `/direttiva`, `!ruolo`, `@file`. */
 	let taskInput = $state('');
 	let aiParsed = $state<QuickTaskAiParsed | null>(null);
@@ -56,6 +70,10 @@
 	let bodyEl = $state<HTMLElement | null>(null);
 	let contentEl = $state<HTMLElement | null>(null);
 	let autoHideTimer: ReturnType<typeof setTimeout> | null = null;
+
+	const presentation = $state<CompanionPresentationState>(createInitialPresentationState());
+	const conversationLoads = new Map<string, number>();
+	const laneTitles = $state<Record<string, string>>({});
 
 	function cancelAutoHide() {
 		if (autoHideTimer) {
@@ -173,14 +191,228 @@
 		return projectPath ? [] : [m.companion_missing_project_hint()];
 	});
 
-	const monitorProjects = $derived.by<Project[]>(() => {
-		const list = knownProjects.filter((p) => p.canonicalProjectPath);
-		return [...list].sort((a, b) => {
-			const ra = STATE_RANK[a.lane.agentState] ?? 9;
-			const rb = STATE_RANK[b.lane.agentState] ?? 9;
-			if (ra !== rb) return ra - rb;
-			return (a.label?.trim() || a.name).localeCompare(b.label?.trim() || b.name);
+	const selectedProject = $derived.by<Project | null>(() => {
+		if (presentation.selectedProjectId) {
+			const found = knownProjects.find(
+				(p) => p.id.toLowerCase() === presentation.selectedProjectId?.toLowerCase()
+			);
+			if (found) return found;
+		}
+		return knownProjects.find((p) => p.id === projectStore.activeId) ?? knownProjects[0] ?? null;
+	});
+
+	$effect(() => {
+		if (!presentation.selectedProjectId && selectedProject) {
+			presentation.selectedProjectId = selectedProject.id;
+		}
+	});
+
+	async function loadConversationForSelected(projectId: string, laneId = 'main', refresh = false) {
+		const conv = getOrCreateConversation(presentation, projectId, laneId);
+		if (!refresh && (conv.snapshot || conv.isLoading)) return;
+		const key = conversationKey(projectId, laneId);
+		const request = (conversationLoads.get(key) ?? 0) + 1;
+		conversationLoads.set(key, request);
+		conv.isLoading = true;
+		conv.loadError = null;
+		try {
+			const snapshot = await companionStore.loadConversation(projectId, laneId);
+			if (conversationLoads.get(key) === request) {
+				setConversationSnapshot(presentation, snapshot);
+				await tick();
+				if (workspaceEl && presentation.selectedProjectId === projectId &&
+					presentation.selectedLaneId === laneId && presentation.viewMode === 'answer') {
+					workspaceEl.scrollTop = getOrCreateConversation(presentation, projectId, laneId).scroll;
+				}
+			}
+		} catch (error) {
+			if (conversationLoads.get(key) === request) {
+				conv.loadError = error instanceof Error ? error.message : String(error);
+			}
+		} finally {
+			if (conversationLoads.get(key) === request) conv.isLoading = false;
+		}
+	}
+
+	$effect(() => {
+		const pid = presentation.selectedProjectId;
+		const laneId = presentation.selectedLaneId;
+		if (pid && presentation.viewMode === 'answer') {
+			untrack(() => void loadConversationForSelected(pid, laneId));
+		}
+	});
+
+	const currentConvState = $derived.by(() => {
+		const pid = presentation.selectedProjectId;
+		return pid ? presentation.conversations[conversationKey(pid, presentation.selectedLaneId)] ?? null : null;
+	});
+
+	const currentAttention = $derived.by<AttentionRequest | null>(() => {
+		const pid = presentation.selectedProjectId ?? selectedProject?.id;
+		if (!pid) return null;
+		return (
+			attentionList.find((a) =>
+				a.projectId.toLowerCase() === pid.toLowerCase() &&
+				(a.laneId ?? 'main').toLowerCase() === presentation.selectedLaneId.toLowerCase() &&
+				a.pendingUi.requestId === presentation.selectedRequestId
+			) ?? null
+		);
+	});
+
+	$effect(() => {
+		if (presentation.viewMode === 'question' && presentation.selectedRequestId && !currentAttention) {
+			presentation.selectedRequestId = null;
+		}
+	});
+
+	const currentLaneLabel = $derived(
+		presentation.selectedLaneId === 'main'
+			? m.companion_lane_main()
+			: laneTitles[conversationKey(presentation.selectedProjectId ?? '', presentation.selectedLaneId)] ||
+				currentAttention?.laneTitle ||
+				(selectedProject?.lane.laneId === presentation.selectedLaneId ? selectedProject.lane.title : presentation.selectedLaneId)
+	);
+
+	const queuedForSelected = $derived.by<number>(() => {
+		if (!selectedProject?.canonicalProjectPath) return 0;
+		return taskStore.tasksFor(selectedProject.canonicalProjectPath).filter(
+			(t) => t.status === 'queued'
+		).length;
+	});
+
+	const previousProjectName = $derived.by<string | null>(() => {
+		if (!presentation.previousSelection) return null;
+		const prevId = presentation.previousSelection.projectId;
+		const p = knownProjects.find((proj) => proj.id.toLowerCase() === prevId.toLowerCase());
+		return p ? p.label?.trim() || p.name : prevId;
+	});
+
+	const topDestinationName = $derived.by<string | null>(() => {
+		return local.projectName || aiParsed?.projectName || null;
+	});
+
+	const attentionProjectIds = $derived(
+		new Set(attentionList.map((a) => a.projectId.toLowerCase()))
+	);
+
+	const unreadProjectIds = $derived.by(() => {
+		const set = new Set<string>();
+		const runtimes = companionStore.projectRuntimes;
+		const runtimesMap = new Map(runtimes.map((r) => [r.projectId.toLowerCase(), r]));
+
+		for (const p of knownProjects) {
+			const runtime = runtimesMap.get(p.id.toLowerCase());
+			const hasAtt = attentionProjectIds.has(p.id.toLowerCase());
+			const unread = isProjectUnread(
+				presentation,
+				p.id,
+				runtime?.latestAssistant?.laneId ?? p.lane.laneId,
+				p.lane.agentState,
+				hasAtt,
+				runtime?.latestAssistant
+			);
+			if (unread) {
+				set.add(p.id.toLowerCase());
+			}
+		}
+		return set;
+	});
+
+	const globalQueueItems = $derived.by(() => {
+		const runtimesMap: Record<string, { canRunTask?: boolean; runBlockReason?: string }> = {};
+		for (const r of companionStore.projectRuntimes) {
+			runtimesMap[r.projectId] = r;
+		}
+
+		const tasksMap: Record<string, StudioTask[]> = {};
+		for (const p of knownProjects) {
+			if (p.canonicalProjectPath) {
+				tasksMap[p.canonicalProjectPath] = taskStore.tasksFor(p.canonicalProjectPath);
+			}
+		}
+
+		return buildGlobalQueueItems(
+			knownProjects,
+			tasksMap,
+			runtimesMap,
+			attentionProjectIds,
+			unreadProjectIds,
+			(t) => taskLabel(t) || t.prompt || m.queue_drawer_title_only_images(),
+			{
+				question: m.companion_badge_question(),
+				busy: m.companion_state_working(),
+				unread: m.companion_rail_unread(),
+				idle: m.companion_state_idle(),
+				reasonAttention: m.companion_reason_attention(),
+				reasonBusy: m.companion_reason_busy(),
+				reasonBlockedDefault: m.companion_reason_blocked_default()
+			}
+		);
+	});
+
+	const railQuestions = $derived.by<RailProjectItem[]>(() => {
+		return attentionList.flatMap((req) => {
+			const project = knownProjects.find((p) => p.id.toLowerCase() === req.projectId.toLowerCase());
+			if (!project) return [];
+			return [{
+				project,
+				laneId: req.laneId ?? 'main',
+				requestId: req.pendingUi.requestId,
+				name: req.laneTitle ? `${req.projectName} · ${req.laneTitle}` : req.projectName,
+				hue: req.projectHue
+			}];
 		});
+	});
+
+	const railUnread = $derived.by<RailProjectItem[]>(() => {
+		return knownProjects
+			.filter((p) => unreadProjectIds.has(p.id.toLowerCase()))
+			.map((p) => {
+				const runtime = companionStore.projectRuntimes.find((r) => r.projectId === p.id);
+				const laneId = runtime?.latestAssistant?.laneId ?? p.lane.laneId;
+				const conv = presentation.conversations[conversationKey(p.id, laneId)];
+				return {
+					project: p,
+					laneId,
+					name: p.label?.trim() || p.name,
+					hue: projectHues.get(p.id) ?? p.hue,
+					activityText: runtime?.headsUp,
+					hasDraft: Boolean(conv?.draft?.trim())
+				};
+			});
+	});
+
+	const railWorking = $derived.by<RailProjectItem[]>(() => {
+		return knownProjects
+			.filter((p) => p.lane.agentState === 'working')
+			.map((p) => {
+				const rt = companionStore.projectRuntimes.find((r) => r.projectId === p.id);
+				return {
+					project: p,
+					laneId: p.lane.laneId,
+					name: p.label?.trim() || p.name,
+					hue: projectHues.get(p.id) ?? p.hue,
+					activityText: rt?.headsUp || rt?.activity?.text
+				};
+			});
+	});
+
+	const railParked = $derived.by<RailProjectItem[]>(() => {
+		return knownProjects
+			.filter((p) => {
+				const pid = p.id.toLowerCase();
+				return (
+					p.lane.agentState !== 'working' &&
+					!attentionProjectIds.has(pid) &&
+					!unreadProjectIds.has(pid)
+				);
+			})
+			.map((p) => ({
+				project: p,
+				laneId: 'main',
+				name: p.label?.trim() || p.name,
+				hue: projectHues.get(p.id) ?? p.hue
+			}));
 	});
 
 	$effect(() => {
@@ -193,13 +425,6 @@
 
 	/**
 	 * Altezza della finestra in modalita' a scomparsa: la decide il contenuto.
-	 *
-	 * Si misura il contenuto (non il corpo che scorre: la sua altezza e' quella
-	 * della finestra e non scenderebbe mai) e si chiede a Rust di ridimensionare
-	 * senza ricentrare: la finestra cresce verso il basso come una barra di
-	 * ricerca di sistema. Una richiesta per fotogramma, senza accodarne: mentre
-	 * una sezione si piega l'altezza della finestra la segue in modo continuo.
-	 * La palette dei suggerimenti sta fuori dal flusso e si somma a parte.
 	 */
 	$effect(() => {
 		const body = bodyEl;
@@ -220,7 +445,6 @@
 					panel.getBoundingClientRect().bottom - content.getBoundingClientRect().top + 12;
 				height = Math.max(height, panelBottom);
 			}
-			// Testata (fissata) e bordi del guscio: tutto cio' che non e' corpo.
 			return height + (window.innerHeight - body.clientHeight);
 		};
 
@@ -247,8 +471,6 @@
 
 		const resizeObserver = new ResizeObserver(measure);
 		resizeObserver.observe(content);
-		// La palette (assoluta) non cambia l'altezza del contenuto: la sua
-		// comparsa si coglie dalle mutazioni del sottoalbero.
 		const mutationObserver = new MutationObserver(measure);
 		mutationObserver.observe(content, { childList: true, subtree: true });
 		measure();
@@ -261,9 +483,6 @@
 
 	function refreshCompanionState() {
 		companionStore.requestSync();
-		// La finestra resta viva ma nascosta: mentre non e' visibile puo' aver
-		// perso una scrittura di Studio (il watcher Rust scarta le auto-eco).
-		// Al summon si rilegge il file, non la cache d'idratazione iniziale.
 		for (const project of knownProjects) {
 			if (project.canonicalProjectPath) {
 				void taskStore.reloadProject(project.canonicalProjectPath);
@@ -273,8 +492,6 @@
 
 	function trackListener(registration: Promise<UnlistenFn>) {
 		void registration.then((fn) => {
-			// La registrazione e' asincrona: se la vista e' gia' smontata il
-			// listener va chiuso subito, altrimenti resterebbe appeso.
 			if (viewDisposed) fn();
 			else unlisteners.push(fn);
 		});
@@ -284,22 +501,14 @@
 		void companionStore.init();
 		refreshCompanionState();
 		void quotaStore.init();
-		// Orologio delle etichette dei task programmati (solo lettura qui).
 		scheduleStore.init();
 		void settingsStore.init();
-		// Cataloghi completi in background: il salvataggio di un task non deve
-		// mai aspettarli, ma le menzioni `!ruolo` e `!modello` li vogliono.
 		void modelSettingsStore.ensureLoaded();
 		void tick().then(() => {
-			// Il campo del task e' la prima cosa e prende sempre il fuoco:
-			// qualunque cosa ci sia sotto (una domanda, una coda pronta), il
-			// punto dove si scrive non cambia mai sotto le mani.
 			editor?.focusEnd();
 		});
 		playOpenAnimation();
 
-		// Uscita breve prima di `hide()`: la finestra si dissolve invece di
-		// sparire di colpo. Con il movimento ridotto si nasconde subito.
 		companionStore.setExitAnimation({
 			play: () => {
 				if (motionReduced()) return Promise.resolve();
@@ -318,7 +527,6 @@
 				void tick().then(() => editor?.focusEnd());
 			})
 		);
-		// La scorciatoia globale non nasconde da Rust: chiede l'uscita animata.
 		trackListener(listen('companion-dismiss', () => void companionStore.hideCompanion()));
 
 		const handleBlur = () => {
@@ -348,8 +556,6 @@
 	});
 
 	function playOpenAnimation() {
-		// La finestra torna a vista ancora dissolta dall'uscita: l'ingresso
-		// riparte da li', senza un fotogramma pieno in mezzo.
 		leaving = false;
 		justOpened = false;
 		void tick().then(() => {
@@ -359,8 +565,6 @@
 
 	function handleKeydown(e: KeyboardEvent) {
 		if (e.key === 'Escape') {
-			// Escape consumato da un campo (palette, risposta libera) chiude solo
-			// quello, mai la finestra nello stesso gesto.
 			if (e.defaultPrevented) return;
 			e.preventDefault();
 			if (usageOpen) {
@@ -368,9 +572,6 @@
 				return;
 			}
 			void companionStore.hideCompanion();
-		} else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-			e.preventDefault();
-			void handleSaveTask();
 		}
 	}
 
@@ -469,17 +670,118 @@
 				attachedImages = [];
 				aiParsed = null;
 				cancelAutoHide();
-				autoHideTimer = setTimeout(() => {
-					autoHideTimer = null;
-					successNotice = null;
-					if (!companionStore.isPinned && taskInput.trim().length === 0) {
-						void companionStore.hideCompanion();
-					}
-				}, 1200);
+
+				if (!companionStore.isPinned) {
+					autoHideTimer = setTimeout(() => {
+						autoHideTimer = null;
+						successNotice = null;
+						if (!companionStore.isPinned && taskInput.trim().length === 0) {
+							void companionStore.hideCompanion();
+						}
+					}, 1200);
+				} else {
+					autoHideTimer = setTimeout(() => {
+						autoHideTimer = null;
+						successNotice = null;
+					}, 2400);
+				}
 			}
 		} finally {
 			isSaving = false;
 		}
+	}
+
+	function handleSelectProject(projectId: string, laneId = 'main', mode: CompanionViewMode = 'answer', requestId?: string) {
+		const scroll = workspaceEl?.scrollTop ?? 0;
+		selectProject(presentation, projectId, laneId, mode, scroll);
+		presentation.selectedRequestId = requestId ?? null;
+		const project = knownProjects.find((p) => p.id.toLowerCase() === projectId.toLowerCase());
+		const request = attentionList.find((a) => a.pendingUi.requestId === requestId && a.projectId.toLowerCase() === projectId.toLowerCase());
+		const title = request?.laneTitle || (project?.lane.laneId === laneId ? project.lane.title : null);
+		if (title) laneTitles[conversationKey(projectId, laneId)] = title;
+		if (mode === 'answer') void loadConversationForSelected(projectId, laneId, true);
+		void tick().then(() => {
+			const targetConv = getOrCreateConversation(presentation, projectId, laneId);
+			if (workspaceEl) {
+				workspaceEl.scrollTop = mode === 'question' ? targetConv.questionScroll : targetConv.scroll;
+			}
+		});
+	}
+
+	function handleReturnToPrevious() {
+		const scroll = workspaceEl?.scrollTop ?? 0;
+		const prev = presentation.previousSelection;
+		if (prev) {
+			returnToPreviousSelection(presentation, scroll);
+			void loadConversationForSelected(prev.projectId, prev.laneId);
+			void tick().then(() => {
+				const targetConv = getOrCreateConversation(presentation, prev.projectId, prev.laneId);
+				if (workspaceEl) {
+					workspaceEl.scrollTop = prev.viewMode === 'question' ? targetConv.questionScroll : targetConv.scroll;
+				}
+			});
+		}
+	}
+
+	function handleReloadConversation() {
+		const projectId = presentation.selectedProjectId;
+		if (!projectId) return;
+		presentation.viewMode = 'answer';
+		presentation.selectedRequestId = null;
+		void loadConversationForSelected(projectId, presentation.selectedLaneId, true);
+	}
+
+	function handleToggleExpanded() {
+		const projectId = presentation.selectedProjectId;
+		if (!projectId) return;
+		const conv = getOrCreateConversation(presentation, projectId, presentation.selectedLaneId);
+		if (toggleConversationExpanded(presentation, projectId, presentation.selectedLaneId, workspaceEl?.scrollTop ?? 0)) {
+			void tick().then(() => {
+				if (workspaceEl) workspaceEl.scrollTop = conv.scroll;
+			});
+		}
+	}
+
+	function rememberReadingScroll() {
+		if (!workspaceEl || !currentConvState) return;
+		if (presentation.viewMode === 'question') currentConvState.questionScroll = workspaceEl.scrollTop;
+		else if (currentConvState.expanded) currentConvState.scroll = workspaceEl.scrollTop;
+	}
+
+	async function handleSendReply() {
+		const projectId = presentation.selectedProjectId;
+		const laneId = presentation.selectedLaneId;
+		if (!projectId) return;
+
+		const conv = getOrCreateConversation(presentation, projectId, laneId);
+		const text = conv.draft.trim();
+		if (!text || conv.isSending || conv.isLoading || conv.loadError || conv.snapshot?.canSend === false) return;
+
+		if (!conv.snapshot?.sessionId) {
+			setSendReplyError(presentation, projectId, laneId, m.companion_no_active_session());
+			return;
+		}
+
+		const target: CompanionConversationTarget = {
+			projectId,
+			laneId,
+			sessionId: conv.snapshot.sessionId
+		};
+		const repliedMessageId = conv.snapshot.message?.id ?? null;
+
+		startSendingReply(presentation, projectId, laneId);
+		try {
+			await companionStore.sendConversation(target, text);
+			markReplySent(presentation, projectId, laneId, text, repliedMessageId, target.sessionId);
+		} catch (err: unknown) {
+			const message = err instanceof Error ? err.message : String(err);
+			conv.isSending = false;
+			conv.sendError = message;
+		}
+	}
+
+	function handleRunTask(projectId: string, taskId: string) {
+		void companionStore.runTask(projectId, taskId, false);
 	}
 
 	async function handleQuickReplySelect(
@@ -602,11 +904,6 @@
 		return pending.method === 'input' || pending.method === 'editor';
 	}
 
-	/**
-	 * Precompila il campo con il badge del progetto e riporta il fuoco:
-	 * accodare al progetto che stai guardando non deve costare la digitazione
-	 * del suo nome. Un badge di progetto gia' in testa viene sostituito.
-	 */
 	function prefillProject(project: Project) {
 		if (!editor) return;
 		const segments = editor.getSegments();
@@ -669,16 +966,14 @@
 		<UsagePopover open={usageOpen} onClose={() => (usageOpen = false)} />
 	{/if}
 
-	<main class="companion-body" bind:this={bodyEl}>
-		<!-- Il campo del nuovo task e' sempre la prima cosa e sempre grande:
-		     e' la ragione per cui la finestra si apre. Domande, code e stato
-		     dei progetti stanno sotto, dentro le card. -->
+	<main class="companion-body priority-body" class:pinned={companionStore.isPinned} bind:this={bodyEl}>
 		<div class="companion-content" bind:this={contentEl}>
 			<CompanionComposer
 				bind:editor
 				{attachedImages}
 				sources={suggestSources}
 				fileProjectPath={local.projectPath}
+				destinationName={topDestinationName}
 				{canSave}
 				{statusText}
 				{successNotice}
@@ -691,19 +986,46 @@
 				onOpenFileDialog={triggerFileInput}
 			/>
 
-			<CompanionMonitor
-				projects={monitorProjects}
-				hues={projectHues}
-				runtimes={companionStore.projectRuntimes}
-				{attentionList}
-				ask={askHandlers}
-				onFocusProject={(projectId) => void companionStore.focusProject(projectId)}
-				onNewTask={prefillProject}
-				onRunTask={(projectId, taskId) => void companionStore.runTask(projectId, taskId)}
-				onToggleUsage={() => (usageOpen = !usageOpen)}
-			/>
+			{#if selectedProject && currentConvState}
+				<section class="priority-workspace" aria-label={m.companion_cards_aria()}>
+					<div class="priority-reader-scroll" bind:this={workspaceEl} onscroll={rememberReadingScroll}>
+					<CompanionCenterReader
+						project={selectedProject}
+						hue={projectHues.get(selectedProject.id) ?? selectedProject.hue}
+						viewMode={presentation.viewMode}
+						convState={currentConvState}
+						attention={currentAttention}
+						queuedCount={queuedForSelected}
+						laneLabel={currentLaneLabel}
+						{previousProjectName}
+						ask={askHandlers}
+						onFocusProject={(projectId) => void companionStore.focusProject(projectId)}
+						onNewTask={prefillProject}
+						onToggleExpanded={handleToggleExpanded}
+						onDraftChange={(text) => setConversationDraft(presentation, selectedProject.id, presentation.selectedLaneId, text)}
+						onSendReply={() => void handleSendReply()}
+						onReload={handleReloadConversation}
+						onReturnToPrevious={handleReturnToPrevious}
+					/>
+					</div>
 
-			{#if monitorProjects.length === 0}
+					<CompanionRightRail
+						selectedProjectId={presentation.selectedProjectId}
+						selectedLaneId={presentation.selectedLaneId}
+						selectedRequestId={presentation.selectedRequestId}
+						viewMode={presentation.viewMode}
+						questions={railQuestions}
+						unread={railUnread}
+						working={railWorking}
+						globalQueue={globalQueueItems}
+						parked={railParked}
+						parkedOpen={presentation.parkedOpen}
+						onToggleParked={() => (presentation.parkedOpen = !presentation.parkedOpen)}
+						onSelectProject={handleSelectProject}
+						onRunTask={handleRunTask}
+					/>
+				</section>
+			{:else}
 				<p class="companion-empty">{m.companion_empty()}</p>
 			{/if}
 		</div>
@@ -713,7 +1035,6 @@
 </CompanionShell>
 
 <style>
-	/* La finestra e' trasparente su Windows (Mica): il fondo lo dipinge il guscio. */
 	:global(body) {
 		margin: 0;
 		padding: 0;

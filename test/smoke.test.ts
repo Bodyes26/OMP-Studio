@@ -104,3 +104,5 @@ import './remote-chat.test.ts';
 import './remote-lane-config.test.ts';
 import './session-completion.test.ts';
 import './remote-fleet.test.ts';
+import './companion-conversation.test.ts';
+import './companion-presentation.test.ts';

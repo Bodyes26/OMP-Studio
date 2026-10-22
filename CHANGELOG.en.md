@@ -13,15 +13,19 @@ released: items are closed into a version via `npm run release -- <version>`.
 
 ### Added
 - Intelligent UI and diagram viewer: Mermaid diagrams in chat now use an interactive card with expandable lightbox and a button to project them onto the central Whiteboard with pan and zoom. Fixed the empty whiteboard rendering race condition and added SVG and PNG export. Introduced native in-chat Intelligent UI micro-components: dynamic smart tables with live search, column sorting, pagination, and CSV export; GitHub-style semantic callouts (> [!NOTE], [!TIP], [!WARNING], etc.); KPI and metric grids (ui:metric); interactive tabs (ui:tabs); collapsible accordions (ui:accordion); phased plan steppers (ui:steps), and before/after comparison sliders (ui:compare).
+- Send a follow-up or a command from Companion directly to the conversation being read, without turning it into a new task.
 
 ### Changed
 - Studio and remote control remove obsolete code and resources, reducing unnecessary work and shipped content without removing available features.
 - The Studio window no longer shrinks below 1024×640, so accidentally leaving full screen keeps it usable.
 - The Todo and Subagents sections above the composer start collapsed and animate when opening and closing.
+- Companion 2.0 replaces the grid with a central reader and a sidebar for questions, replies to read, ongoing work, and the global queue; idle projects stay separate at the bottom.
+- New requests captured in Companion stay queued until explicitly started, even in projects with auto-dispatch enabled; an explicitly chosen schedule is still respected.
 
 ### Fixed
 - Composer completions, including in Companion, keep the arrow-key selection instead of resetting it to the first row.
 - In Studio desktop and Remote, selection, focus and drag rings stay inside controls, so scrolling bars, cards and lists no longer clip their edges.
+- Questions and completions from other projects no longer replace the open reader: drafts and scroll positions stay in place, and a failed send does not erase the message.
 
 ## [1.8.0] - 2026-10-20
 

@@ -12,6 +12,20 @@ import type { ImageContent } from '$lib/agent/wire';
 import { m as messages } from '$lib/paraglide/messages.js';
 import { promptBus, type PromptRequest } from '$lib/agent/promptBus';
 import type { PromptAnswer } from '$lib/agent/askAnswers';
+import {
+	CompanionConversationError,
+	type CompanionAssistantReference,
+	type CompanionConversationSnapshot,
+	type CompanionConversationTarget,
+	type CompanionConversationFailureCode
+} from '$lib/companion/conversation';
+interface ConversationHostResponse {
+	correlationId: string;
+	snapshot?: CompanionConversationSnapshot;
+	ok?: boolean;
+	error?: { code: CompanionConversationFailureCode; message: string };
+}
+
 export interface RecentChatMessage {
 	role: 'user' | 'assistant' | 'tool';
 	text: string;
@@ -100,6 +114,8 @@ export interface CompanionProjectRuntime {
 	activity?: { text: string; at: number; kind: 'intent' | 'assistant' };
 	/** Heads-up dell'ultimo turno (Gate R40): una frase, finche' non e' vista. */
 	headsUp?: string;
+	/** Riferimento all'ultimo messaggio completato dell'assistente per Companion 2.0. */
+	latestAssistant?: CompanionAssistantReference;
 }
 
 export interface CompanionRunTaskPayload {
@@ -507,6 +523,83 @@ class CompanionStore {
 		await emit('studio-run-task', { projectId, taskId, follow });
 	}
 
+	private requestConversation<T>(
+		kind: 'load' | 'send',
+		payload: Record<string, unknown>,
+		decode: (response: ConversationHostResponse) => T
+	): Promise<T> {
+		const { promise, resolve, reject } = Promise.withResolvers<T>();
+		const correlationId = crypto.randomUUID();
+		let unlisten: UnlistenFn | null = null;
+		let settled = false;
+		const cleanup = () => {
+			clearTimeout(timer);
+			unlisten?.();
+		};
+		const fail = (error: unknown) => {
+			if (settled) return;
+			settled = true;
+			cleanup();
+			reject(error instanceof CompanionConversationError
+				? error
+				: new CompanionConversationError('failed', error instanceof Error ? error.message : String(error)));
+		};
+		const timer = setTimeout(() => fail(new CompanionConversationError(
+			'unavailable',
+			kind === 'send'
+				? "Studio non ha confermato l'invio. Non reinviare: il messaggio potrebbe essere gia' stato consegnato."
+				: 'Richiesta di conversazione scaduta'
+		)), kind === 'send' ? 180_000 : 10_000);
+
+		void listen<ConversationHostResponse>(`companion-${kind}-conversation-res`, (event) => {
+			const response = event.payload;
+			if (settled || response?.correlationId !== correlationId) return;
+			if (response.error) {
+				fail(new CompanionConversationError(response.error.code, response.error.message));
+				return;
+			}
+			try {
+				const result = decode(response);
+				settled = true;
+				cleanup();
+				resolve(result);
+			} catch (error) {
+				fail(error);
+			}
+		}).then((listener) => {
+			// Un listener arrivato dopo la scadenza non deve consegnare il messaggio.
+			if (settled) {
+				listener();
+				return;
+			}
+			unlisten = listener;
+			return emit(`companion-${kind}-conversation-req`, { ...payload, correlationId });
+		}).catch(fail);
+		return promise;
+	}
+
+	/**
+	 * Carica lo snapshot della conversazione (ultimo messaggio assistente e capacita' di invio)
+	 * per la corsia del progetto indicato. L'host principale risponde via IPC correlato;
+	 * la webview Companion non carica il registro delle sessioni o l'orchestratore.
+	 */
+	async loadConversation(projectId: string, laneId = 'main'): Promise<CompanionConversationSnapshot> {
+		return this.requestConversation('load', { projectId, laneId }, (response) => {
+			if (!response.snapshot) throw new CompanionConversationError('failed', 'Risposta vuota da Studio');
+			return response.snapshot;
+		});
+	}
+
+	/**
+	 * Invia un messaggio o comando alla sessione della conversazione letta.
+	 * Rifiuta rigorosamente l'invio se la sessione attiva e' cambiata o ambigua.
+	 */
+	async sendConversation(target: CompanionConversationTarget, text: string): Promise<void> {
+		return this.requestConversation('send', { target, text }, (response) => {
+			if (response.ok !== true) throw new CompanionConversationError('failed', 'Invio non confermato da Studio');
+		});
+	}
+
 	/**
 	 * Porta la finestra principale in primo piano sul progetto indicato.
 	 *
@@ -681,7 +774,8 @@ class CompanionStore {
 				position: existingTasks.length,
 				createdAt: now,
 				updatedAt: now,
-				status: 'queued'
+				status: 'queued',
+				manualStartOnly: true
 			};
 
 			existingTasks.push(newTask);

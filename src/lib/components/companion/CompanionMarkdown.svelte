@@ -46,6 +46,32 @@
 				{/each}
 			</ul>
 		{/if}
+	{:else if token.type === 'table'}
+		{@const table = token as Tokens.Table}
+		<div class="cmd-table-wrap">
+			<table class="cmd-table">
+				<thead>
+					<tr>
+						{#each table.header as cell, cIdx (cIdx)}
+							<th style={cell.align ? `text-align: ${cell.align}` : undefined}>
+								<MarkdownInline tokens={cell.tokens ?? []} />
+							</th>
+						{/each}
+					</tr>
+				</thead>
+				<tbody>
+					{#each table.rows as row, rIdx (rIdx)}
+						<tr>
+							{#each row as cell, cIdx (cIdx)}
+								<td style={cell.align ? `text-align: ${cell.align}` : undefined}>
+									<MarkdownInline tokens={cell.tokens ?? []} />
+								</td>
+							{/each}
+						</tr>
+					{/each}
+				</tbody>
+			</table>
+		</div>
 	{:else if token.type === 'hr'}
 		<hr class="cmd-rule" />
 	{:else if token.type === 'space'}

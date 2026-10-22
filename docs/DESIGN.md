@@ -999,16 +999,17 @@ Sostituisce il composer quando l'agente chiede, e ne prende la sagoma.
 
 ### Finestra companion
 
-Una piccola Studio sempre in primo piano: voce per scrivere e leggere, officina per card e coda.
+Una regia dei lavori, non un secondo editor: una sola conversazione alla volta, stato e coda di tutti i progetti a destra.
 
-- **Superficie (D4):** opaca, tela `--bg-sunken`, bordo `--line-strong`, `--radius-lg`. Nessuna trasparenza sopra il desktop.
-- **Modalità:** a scomparsa la finestra adatta l'altezza al contenuto e la puntina resta sempre a vista (`--ink-faint`, 28 px, `Tooltip`); fissata compare la testata da 32 px della cornice con logo, contatore d'attenzione (schema della riga di attenzione, meta tabulare) e la puntina attiva neutra (`aria-pressed`, `--bg-active`/`--ink`). Il bordo non cambia: la modalità la dice la puntina.
-- **Movimento:** evocazione `rv-lift` 240 ms con blur 3 px; uscita di 120 ms (`opacity` e blur 3 px) prima di `hide()`, per Esc, blur, auto-hide, chiusura, focus progetto e scorciatoia globale; con il movimento ridotto si nasconde subito. Le sezioni interne si piegano con `trayFold` a `--dur-tray`, e la finestra segue l'altezza del contenuto a ogni fotogramma.
-- **Composer:** la sagoma del composer ridotta: `ComposerEditor` 15/24, allegati e `@`, suggerimenti `#` `/` `!` in `.ui-chip`, invio `.composer-send-btn`; niente modello né thinking (il ruolo si sceglie con `!`). Badge `#progetto` e `!ruolo` neutri (`--bg-hover`, anello `--line`) con pallino d'identità da 7 px (progetto dalla rampa di riempimento, ruolo da quella d'inchiostro, `default` `--brand-ink`); un modello non ha pallino. Stato, esiti ed errori sono righe di traccia sotto la sagoma con il solo colore sull'icona.
-- **Card:** lastra `--bg-base`, bordo `--line`, `--radius-lg`; con una domanda aperta prende la sagoma della scheda domanda (`--bg-raised`, `--line-strong`, `--radius-2xl`, `--shadow-raise`) e respira in ambra. Stato con `StatusMark`; il colore del progetto resta nel punto d'identità (D1). Entrano con `chatReveal` e si riordinano con `flip` a 210 ms.
-- **Heads-up:** ad agente fermo, la stessa frase della chat apre il corpo della card (sopra l'estratto): riga di prosa `--text-trace` `--ink` senza cornice, etichetta «Heads up» `--ink-muted`, icona `IconWarning` 13 px in `--warn`, al massimo tre righe. Il clic porta in primo piano il progetto; sparisce quando la frase è segnata come vista o parte il turno successivo.
-- **Coda:** titolo inerte e «Avvia» iconico sempre visibile (Read-Before-Run Rule), indice in meta tabulare, il prossimo in `--brand-ink`. Un task programmato porta l'orario con l'orologio in didascalia `--ink-faint` e non prende l'accento di «prossimo»; sotto l'elenco una riga dice quando parte il primo e che Studio deve restare aperto.
-- **Domanda:** parti condivise di `AskCard`; le opzioni inviano al click, quindi niente radio e indice in meta (non una scorciatoia); contesto in traccia 12,5/1.5 con Markdown denso.
+- **Superficie (D4):** opaca, tela `--bg-sunken`, bordo `--line-strong`, `--radius-lg`. Segue tema, font, icone e controlli di Studio; il riferimento validato è Alabaster chiaro, non una palette separata.
+- **Composizione:** nel formato largo fissato 16:9 il lettore occupa lo spazio principale e la colonna destra misura 288 px. Il lettore scorre indipendentemente; sotto 768 px le due parti si dispongono in colonna.
+- **Modalità:** fissata conserva la testata da 32 px con logo, contatore d'attenzione e puntina neutra; accodare non la nasconde. A scomparsa restano maniglia e puntina, e l'altezza segue il contenuto entro lo spazio disponibile.
+- **Movimento e fuoco:** apertura e uscita mantengono il movimento di Studio. Nessun arrivo inserisce una card sopra la risposta aperta, rimonta il campo del seguito o cambia argomento; il cambio avviene solo al click. Il ritorno conserva bozza e scorrimento.
+- **Due campi distinti:** in alto `ComposerEditor`, badge `#progetto`, `@file`, `/direttiva`, `!ruolo` e azione «Aggiungi alla coda», con destinazione dichiarata. Sotto la risposta, campo «Invia messaggio» con progetto e corsia della conversazione. Le scorciatoie appartengono al rispettivo campo.
+- **Lettura:** una lastra `--bg-base`, `--line`, `--radius-lg` con testo completo in Markdown, tabelle semantiche e codice leggero senza Monaco. «Riduci risposta» non è «Segna letta»: la risposta rimane in sospeso fino al seguito riuscito.
+- **Colonna destra:** ordine Domande, Da leggere, Lavori in corso, Coda globale. I Fermi sono una sezione distinta ancorata al fondo, con elenco compatto espandibile. Le liste lunghe restano nei propri spazi, senza far scorrere l'intera colonna.
+- **Coda:** titolo del task prioritario, 13 px/peso 550; progetto e stato riuniti sotto, 11 px/peso 400; «Avvia» secondario esplicito e sempre riconoscibile. La lista usa lo spazio residuo e scorre senza spostare lettura o footer. Motivi di blocco, orari programmati e reset persi restano disponibili.
+- **Domande e heads-up:** le domande riusano `CompanionAskBody` e le parti di `AskCard`, con selezione della richiesta esatta e ritorno alla lettura precedente. Gli heads-up compaiono accanto al progetto nelle righe Da leggere o Lavori in corso, non vengono aggiunti al testo centrale mentre lo si legge.
 
 ### Bolla dell'utente
 
@@ -1328,6 +1329,8 @@ Allineati al 2026-10-05 lo switch della colonna destra e la cornice di `Terminal
 ### K. Finestra companion: a scomparsa e fissata (Task 12)
 
 Allineata al 2026-10-05 la finestra companion (`CompanionShell`, `CompanionView`, `CompanionComposer`, `CompanionAskBody`, `CompanionMarkdown`, `CompanionProjectCard`, `CompanionProjectQueue`, `CompanionMonitor`, `companion.css`). Decisioni:
+
+Questa sezione conserva il resoconto storico del Task 12; la composizione corrente è quella di Companion 2.0 descritta in «Finestra companion», con `CompanionCenterReader` e `CompanionRightRail` al posto della griglia.
 
 1. **D4 — superficie:** finestra opaca, tela `--bg-sunken` come la chat (via il fondo al 94% e il vetro Mica che lasciava passare); composer `--bg-raised`, card `--bg-base`.
 2. **Composer ridotto su `ComposerEditor`:** sagoma `.composer-shell`, editor 15/24, `SuggestPanel` esteso a progetti, direttive, ruoli e modelli; `FileMentionPalette` e `FileMentionController` eliminati. Badge `#progetto` e `!ruolo` d'identità neutri con pallino, `/direttiva` in negativo come `/comando`; invio sul cerchio condiviso `.composer-send-btn`, salvataggio come riga di traccia con `StatusMark`.

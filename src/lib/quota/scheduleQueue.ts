@@ -9,7 +9,7 @@
 import type { StudioTask } from '../stores/taskSerialization.ts';
 import type { ScheduleState } from './scheduleTarget.ts';
 
-type QueueTask = Pick<StudioTask, 'id' | 'status' | 'position' | 'createdAt' | 'schedule' | 'resume'>;
+type QueueTask = Pick<StudioTask, 'id' | 'status' | 'position' | 'createdAt' | 'schedule' | 'resume' | 'manualStartOnly'>;
 
 function byQueueOrder(left: QueueTask, right: QueueTask): number {
 	return left.position - right.position || left.createdAt - right.createdAt;
@@ -29,7 +29,7 @@ export function nextAutoDispatchTask<T extends QueueTask>(
 	return (
 		[...tasks]
 			.sort(byQueueOrder)
-			.find((task) => task.status === 'queued' && !task.schedule && !excluded.has(task.id)) ?? null
+			.find((task) => task.status === 'queued' && !task.schedule && task.manualStartOnly !== true && !excluded.has(task.id)) ?? null
 	);
 }
 

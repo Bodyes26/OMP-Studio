@@ -46,6 +46,7 @@
 		attachedImages,
 		sources,
 		fileProjectPath,
+		destinationName = null,
 		canSave,
 		statusText,
 		successNotice,
@@ -62,6 +63,8 @@
 		sources: CompanionSuggestSources;
 		/** Progetto da cui prendere i file per `@`; vuoto finche' manca `#progetto`. */
 		fileProjectPath: string | null;
+		/** Nome del progetto di destinazione del task, se noto. */
+		destinationName?: string | null;
 		canSave: boolean;
 		/** Salvataggio, interpretazione AI o immagini in preparazione. */
 		statusText: string | null;
@@ -201,6 +204,12 @@
 	}
 
 	function handleEditorKeydown(e: KeyboardEvent): boolean {
+		if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !currentTrigger) {
+			e.preventDefault();
+			e.stopPropagation();
+			onSave();
+			return true;
+		}
 		if (!currentTrigger) return false;
 		// Escape chiude la palette anche quando e' vuota: mai la finestra nello
 		// stesso gesto.
@@ -321,15 +330,19 @@
 						</Tooltip>
 					{/each}
 				</div>
+				{#if destinationName}
+					<span class="capture-destination">{m.companion_destination_queue({ project: destinationName })}</span>
+				{/if}
 				<Tooltip text={m.ui_companionview_salva_il_task_invio_maiusc_invio_va_7235()} placement="top">
 					<button
 						type="button"
-						class="composer-send-btn"
+						class="ui-button ui-button-secondary action-submit"
 						disabled={!canSave}
-						aria-label={m.companion_save_task()}
+						aria-label={m.companion_add_to_queue()}
 						onclick={() => onSave()}
 					>
 						<IconArrowUp />
+						<span>{m.companion_add_to_queue()}</span>
 					</button>
 				</Tooltip>
 			</div>

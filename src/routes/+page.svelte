@@ -55,6 +55,7 @@
 	import { headsUpSeen } from '$lib/agent/headsUpSeen.svelte';
 	import { companionStore, type CompanionProjectRuntime } from '$lib/stores/companion.svelte';
 	import { buildAttentionRequest } from '$lib/stores/companionAttention';
+	import { resolveLatestAssistantReference, setupCompanionConversationHost } from '$lib/companion/hostConversation';
 	import { askQuestionText } from '$lib/agent/askTitle';
 	import { activeQuotaStore } from '$lib/stores/activeQuota.svelte';
 	import { resolveAutomationGate, type AutomationGate } from '$lib/agent/automationGate';
@@ -738,6 +739,7 @@
 				laneSession?.headsUp && !laneSession.isStreaming && !headsUpSeen.isSeen(laneSession.sessionId, laneSession.headsUp.text)
 					? laneSession.headsUp.text
 					: undefined;
+			const latestAssistant = laneSession ? resolveLatestAssistantReference(laneSession) : undefined;
 			return {
 				projectId: p.id,
 				provider,
@@ -749,7 +751,8 @@
 				// altrimenti resta con un'etichetta che non dice cosa fare.
 				runBlockReason: gate.ready ? undefined : `${gate.detail} ${gate.hint}`.trim(),
 				activity: activity ? { ...activity } : undefined,
-				headsUp
+				headsUp,
+				latestAssistant
 			};
 		});
 
@@ -758,7 +761,7 @@
 		// e tinta ci stanno perche' la companion disegna anche quelli: senza, un
 		// progetto rinominato restava col vecchio nome fino al riavvio.
 		const structural = projectStore.projects
-			.map((p, i) => `${p.id}:${p.name}:${p.label ?? ''}:${p.hue}:${p.colorMode}:${p.lane.agentState}:${runtimes[i].provider ?? ''}:${runtimes[i].modelId ?? ''}:${runtimes[i].credentialPin ?? ''}:${runtimes[i].canRunTask ?? false}:${runtimes[i].runBlockReason ?? ''}:${runtimes[i].headsUp ?? ''}`)
+			.map((p, i) => `${p.id}:${p.name}:${p.label ?? ''}:${p.hue}:${p.colorMode}:${p.lane.agentState}:${runtimes[i].provider ?? ''}:${runtimes[i].modelId ?? ''}:${runtimes[i].credentialPin ?? ''}:${runtimes[i].canRunTask ?? false}:${runtimes[i].runBlockReason ?? ''}:${runtimes[i].headsUp ?? ''}:${runtimes[i].latestAssistant ? `${runtimes[i].latestAssistant.sessionId}:${runtimes[i].latestAssistant.messageId}` : ''}`)
 			.join('|');
 		const activityOnly = runtimes
 			.map((r) => (r.activity ? `${r.activity.kind}:${r.activity.at}` : ''))
@@ -1080,6 +1083,13 @@
 		register(listen<{ projectId: string }>('studio-focus-project', (event) => {
 			void notificationManager.handleNotificationClick(event.payload.projectId);
 		}));
+
+		// Companion 2.0 host: serve le richieste di snapshot conversazione e invio messaggi
+		const cleanupCompanionHost = setupCompanionConversationHost({
+			registry: sessionRegistry,
+			onSlashCommand: (pId, lId, raw) => handleGuiSlashCommand(pId, lId, raw)
+		});
+		register(Promise.resolve(cleanupCompanionHost));
 		void remoteStore.init();
 		const stopProjection = startRemoteProjection({
 			getCandidateTaskId: (pId) => {

@@ -84,6 +84,8 @@ export interface StudioTask {
 	createdAt: number;
 	updatedAt: number;
 	status: StudioTaskStatus;
+	/** Cattura dalla Companion: resta in coda fino ad Avvia o a una programmazione esplicita. */
+	manualStartOnly?: true;
 	/**
 	 * Etichetta sintetica generata dal modello leggero. Vale solo finche'
 	 * `titleHash` coincide con l'impronta del prompt: una modifica fatta da
@@ -436,7 +438,7 @@ export function sanitizeLoadedTasks(tasks: StudioTask[], defaultProjectPath?: st
 				};
 			}
 
-			const { schedule: rawSchedule, resume: rawResume, ...rest } = task;
+			const { schedule: rawSchedule, resume: rawResume, manualStartOnly, ...rest } = task;
 			const sanitized: StudioTask = {
 				...rest,
 				options,
@@ -453,6 +455,7 @@ export function sanitizeLoadedTasks(tasks: StudioTask[], defaultProjectPath?: st
 			if (schedule) sanitized.schedule = schedule;
 			const resume = normalizeTaskResume(rawResume);
 			if (resume) sanitized.resume = resume;
+			if (manualStartOnly === true) sanitized.manualStartOnly = true;
 			return sanitized;
 		});
 }

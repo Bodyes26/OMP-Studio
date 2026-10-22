@@ -78,6 +78,8 @@ Le corsie si governano anche a parole. L'agente della Principale ha un tool per 
 
 **10. Esplorare e iterare UX/UI con frontend React reali senza sporcare il progetto.** Creare prototipi interattivi non richiede di alterare l'albero sorgente del progetto o di allestire toolchain esterne. Il Laboratorio è una corsia del progetto: il prototipo React 19 + Tailwind v4 vive in una cartella dell'app con Git interno, ogni richiesta diventa una revisione recuperabile e l'anteprima live si aggiorna a ogni modifica. L'agente del Laboratorio legge il progetto originale per riprenderne stile e componenti, ma scrive solo nel prototipo. Per chiedere una modifica basta indicarla: con «Punta» si clicca un elemento dell'anteprima, con «Riquadro» si circonda un'area, si aggiunge una nota e l'agente riceve file e riga di codice di ogni elemento più un fotogramma con i riquadri numerati, senza dover descrivere dove sta. Le bozze libere nascono senza progetto e si associano a uno in seguito.
 
+**11. Governare i lavori senza entrare nell'editor di ogni progetto.** Companion 2.0 mostra una sola conversazione al centro e riunisce a destra domande, risposte da leggere, lavori in corso e task di tutti i progetti; i progetti fermi restano al fondo. Gli arrivi non sostituiscono ciò che stai leggendo: scegli tu quando cambiare argomento e puoi tornare alla risposta precedente con bozza e scorrimento conservati. Il campo superiore cattura nuove richieste nella coda, quello sotto la risposta invia un seguito nella stessa conversazione; «Avvia» fa partire una riga precisa senza spostare la lettura.
+
 ### Successo
 
 Passare da progetto a progetto non richiede di ricordare
