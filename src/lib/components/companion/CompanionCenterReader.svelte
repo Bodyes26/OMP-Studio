@@ -11,8 +11,16 @@
 		IconCheck,
 		IconChevronDown,
 		IconCircleAlert,
+		IconClose,
 		IconPlus
 	} from '$lib/icons';
+	import ComposerEditor from '$lib/agent/components/ComposerEditor.svelte';
+	import SuggestPanel, { type SuggestionItem } from '$lib/agent/components/SuggestPanel.svelte';
+	import { createCommandBadgeElement, createFileBadgeElement, type ComposerTrigger } from '$lib/agent/composerDoc';
+	import { computeCaretAnchorLeft, loadProjectFiles, rankFileCandidates } from '$lib/agent/fileMention';
+	import { SUGGEST_WIDTH, fileSuggestions } from '$lib/agent/suggestItems';
+	import { settingsStore } from '$lib/stores/settings.svelte';
+	import { directiveDisplayName } from '$lib/stores/taskDirectives';
 	import type { Project } from '$lib/stores/projects.svelte';
 	import type { AttentionRequest } from '$lib/stores/companion.svelte';
 	import type { ConversationViewState } from '$lib/companion/companionPresentation';
@@ -36,7 +44,8 @@
 		onDraftChange,
 		onSendReply,
 		onReload,
-		onReturnToPrevious
+		onReturnToPrevious,
+		onCloseCard
 	}: {
 		project: Project;
 		hue: number;
@@ -54,9 +63,77 @@
 		onSendReply: () => void;
 		onReload: () => void;
 		onReturnToPrevious: () => void;
+		onCloseCard: () => void;
 	} = $props();
 
-	let replyInputEl = $state<HTMLTextAreaElement | null>(null);
+	let replyEditor = $state<ComposerEditor | null>(null);
+	let replyShellEl = $state<HTMLDivElement | null>(null);
+	let currentTrigger = $state<ComposerTrigger | null>(null);
+	let suggestItems = $state<SuggestionItem[]>([]);
+	let suggestIndex = $state(0);
+
+	const knownDirectives = $derived(settingsStore.taskDirectives.filter((d) => !d.hidden));
+
+	$effect(() => {
+		const trigger = currentTrigger;
+		suggestIndex = 0;
+		if (!trigger) {
+			suggestItems = [];
+			return;
+		}
+		const query = trigger.query.toLowerCase();
+		if (trigger.kind === '/') {
+			suggestItems = knownDirectives
+				.filter((d) => !query || directiveDisplayName(d).toLowerCase().includes(query) || (d.tag ?? '').toLowerCase().includes(query))
+				.map((d) => ({
+					kind: 'directive' as const,
+					value: (d.tag ?? directiveDisplayName(d)).replace(/^\//, ''),
+					label: directiveDisplayName(d),
+					hint: d.tag
+				}));
+		} else if (trigger.kind === '@' && project.canonicalProjectPath) {
+			const projectPath = project.canonicalProjectPath;
+			suggestItems = [];
+			void loadProjectFiles(projectPath).then((files) => {
+				if (currentTrigger !== trigger) return;
+				suggestItems = fileSuggestions(rankFileCandidates(trigger.query, files, {}));
+			});
+		} else {
+			suggestItems = [];
+		}
+	});
+
+	const suggestAnchor = $derived.by(() => {
+		if (!currentTrigger || !replyShellEl) return { left: 0, top: 0 };
+		const rect = replyShellEl.getBoundingClientRect();
+		return {
+			left: computeCaretAnchorLeft(currentTrigger.caretRect, rect, SUGGEST_WIDTH),
+			top: currentTrigger.caretRect.top - rect.top + 24 + 6
+		};
+	});
+
+	function pickSuggestion(item: SuggestionItem) {
+		if (!currentTrigger || !replyEditor) return;
+		let badge: HTMLElement;
+		if (item.kind === 'file') {
+			badge = createFileBadgeElement(item.item.path);
+		} else if (item.kind === 'cmd') {
+			badge = createCommandBadgeElement(item.command.name);
+		} else if (item.kind === 'directive') {
+			badge = createCommandBadgeElement(item.value);
+		} else {
+			return;
+		}
+		replyEditor.replaceTrigger(badge, currentTrigger);
+		currentTrigger = null;
+		onDraftChange(replyEditor.getWireText());
+	}
+
+	$effect(() => {
+		if (!convState.draft && replyEditor && replyEditor.getWireText()) {
+			replyEditor.clear();
+		}
+	});
 
 	const name = $derived(project.label?.trim() || project.name);
 
@@ -93,9 +170,8 @@
 			onToggleExpanded();
 		}
 		void tick().then(() => {
-			if (replyInputEl) {
-				replyInputEl.focus();
-				replyInputEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+			if (replyEditor) {
+				replyEditor.focusEnd();
 			}
 		});
 	}
@@ -114,7 +190,7 @@
 <div class="priority-main">
 	<p class="focus-section-label">
 		{#if viewMode === 'question'}
-			{attention ? m.companion_label_question_for({ project: name }) : m.companion_question_resolved()}
+			{attention ? (attention.pendingUi.kind === 'ask' ? m.companion_kind_ask_tool() : m.companion_kind_message_proposals()) : ''}
 		{:else if isWorking}
 			{m.companion_label_open_conversation()}
 		{:else if convState.expanded}
@@ -126,7 +202,7 @@
 
 	{#if isAsking && attention}
 		<article
-			class="project-card asking attention question-card focus-card"
+			class="project-card question-card focus-card"
 			style="--proj-hue: {hue}"
 			data-project-id={project.id}
 		>
@@ -153,6 +229,16 @@
 							<IconPlus />
 						</button>
 					</Tooltip>
+					<Tooltip text={m.companion_card_close_title()} placement="top">
+						<button
+							type="button"
+							class="composer-icon-btn close-card-btn"
+							aria-label={m.companion_card_close_title()}
+							onclick={onCloseCard}
+						>
+							<IconClose />
+						</button>
+					</Tooltip>
 				</div>
 				<div class="card-row-meta">
 					{#if queuedCount > 0}
@@ -160,7 +246,7 @@
 					{/if}
 					<span class="p-state">
 						<span class="p-dot" style="background: var(--warn)"></span>
-						{m.ui_companionview_chiede_risposta_de18()}
+						{attention.pendingUi.kind === 'ask' ? m.companion_kind_ask_tool() : m.companion_kind_message_proposals()}
 					</span>
 				</div>
 			</header>
@@ -197,17 +283,7 @@
 			{/if}
 		</article>
 	{:else if viewMode === 'question'}
-		<article class="project-card focus-card" data-project-id={project.id}>
-			<div class="card-body">
-				<p>{m.companion_question_resolved()}</p>
-				<button type="button" class="ui-button ui-button-ghost" onclick={previousProjectName ? onReturnToPrevious : onReload}>
-					<IconArrowLeft />
-					<span>{previousProjectName
-						? m.companion_rail_return_to({ project: previousProjectName })
-						: m.companion_rail_open_conversation({ project: name })}</span>
-				</button>
-			</div>
-		</article>
+		<!-- Domanda non più presente: si chiude automaticamente -->
 	{:else}
 		<article
 			class="project-card focus-card"
@@ -234,7 +310,16 @@
 							aria-label={m.companion_card_new_task_title({ project: name })}
 							onclick={() => onNewTask(project)}
 						>
-							<IconPlus />
+						</button>
+					</Tooltip>
+					<Tooltip text={m.companion_card_close_title()} placement="top">
+						<button
+							type="button"
+							class="composer-icon-btn close-card-btn"
+							aria-label={m.companion_card_close_title()}
+							onclick={onCloseCard}
+						>
+							<IconClose />
 						</button>
 					</Tooltip>
 				</div>
@@ -296,11 +381,6 @@
 						</div>
 
 						<section class="followup" aria-label={m.companion_reply_agent()}>
-							<div class="followup-label">
-								<label id="reply-label" for="reply-input">{m.companion_reply_agent()}</label>
-								<span class="target">{name} · {laneLabel}</span>
-							</div>
-
 							{#if convState.lastSent}
 								<div class="reply-sent">
 									<IconCheck />
@@ -322,39 +402,55 @@
 									<button type="button" class="ui-button ui-button-ghost" onclick={onReload}>{m.companion_conversation_reload()}</button>
 								</p>
 							{/if}
-							<div class="composer-shell">
-								<div class="composer-editor-wrapper">
-									<textarea
-										id="reply-input"
-										class="reply-textarea"
-										bind:this={replyInputEl}
-										value={convState.draft}
-										oninput={(e) => onDraftChange(e.currentTarget.value)}
-										onkeydown={handleReplyKeydown}
-										disabled={!convState.snapshot?.sessionId}
-										placeholder={m.companion_reply_placeholder()}
-										rows="2"
-										aria-labelledby="reply-label"
-									></textarea>
-								</div>
-								<div class="composer-toolbar">
-									<span class="send-explanation">{m.companion_reply_scope_note()}</span>
-									<Tooltip
-										text={convState.snapshot?.canSend === false
-											? convState.snapshot.sendBlockReason || m.companion_reason_blocked_default()
-											: m.companion_send_message()}
-										placement="top"
-									>
-										<button
-											type="button"
-											class="ui-button ui-button-secondary send-message-btn"
-											disabled={!canSendReply}
-											onclick={onSendReply}
+
+							<div class="composer-area">
+								{#if currentTrigger && suggestItems.length > 0}
+									<SuggestPanel
+										kind={currentTrigger.kind}
+										query={currentTrigger.query}
+										items={suggestItems}
+										selectedIndex={suggestIndex}
+										left={suggestAnchor.left}
+										bottom={0}
+										top={suggestAnchor.top}
+										onPick={pickSuggestion}
+										onHover={(index) => (suggestIndex = index)}
+									/>
+								{/if}
+
+								<div class="composer-shell" bind:this={replyShellEl}>
+									<div class="composer-editor-wrapper">
+										<ComposerEditor
+											bind:this={replyEditor}
+											placeholder={m.companion_reply_placeholder()}
+											ariaLabel={m.companion_reply_agent()}
+											disabled={!convState.snapshot?.sessionId}
+											triggers={['@', '/']}
+											onTriggerChange={(t) => (currentTrigger = t)}
+											onInput={() => onDraftChange(replyEditor?.getWireText() ?? '')}
+											onSend={() => {
+												if (canSendReply) onSendReply();
+											}}
+										/>
+									</div>
+									<div class="composer-toolbar">
+										<Tooltip
+											text={convState.snapshot?.canSend === false
+												? convState.snapshot.sendBlockReason || m.companion_reason_blocked_default()
+												: m.companion_send_message()}
+											placement="top"
 										>
-											<IconArrowRight />
-											<span>{m.companion_send_message()}</span>
-										</button>
-									</Tooltip>
+											<button
+												type="button"
+												class="composer-send-btn send-message-btn"
+												disabled={!canSendReply}
+												onclick={onSendReply}
+												aria-label={m.companion_send_message()}
+											>
+												<IconArrowRight />
+											</button>
+										</Tooltip>
+									</div>
 								</div>
 							</div>
 						</section>
@@ -377,54 +473,32 @@
 		transform: rotate(-90deg);
 	}
 
-	.reply-textarea {
-		width: 100%;
-		min-height: 52px;
-		max-height: 160px;
-		padding: 8px 12px;
-		box-sizing: border-box;
-		background: transparent;
-		color: var(--ink);
-		border: none;
-		outline: none;
-		resize: vertical;
-		font-family: var(--font-ui);
-		font-size: var(--text-label);
-		line-height: 1.45;
+	.composer-area {
+		position: relative;
 	}
 
-	.reply-textarea::placeholder {
-		color: var(--ink-faint);
-	}
-
-	.reply-sent,
-	.reply-error {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		margin-bottom: 8px;
-		font-size: var(--text-caption);
-		padding: 4px 8px;
+	:global(.followup .composer-shell) {
+		background: var(--bg-sunken);
+		border: 1px solid var(--line);
 		border-radius: var(--radius-md);
+		padding: var(--space-2);
 	}
 
-	.reply-sent {
-		background: color-mix(in oklch, var(--success) 12%, transparent);
-		color: var(--success);
+	:global(.followup .composer-editor) {
+		font-size: var(--text-body) !important;
+		line-height: 1.45;
+		min-height: 48px;
 	}
 
-	.reply-error {
-		background: color-mix(in oklch, var(--danger) 12%, transparent);
-		color: var(--danger);
+	.composer-toolbar {
+		display: flex;
+		justify-content: flex-end;
+		align-items: center;
+		margin-top: var(--space-2);
 	}
 
 	.send-message-btn {
-		min-height: 28px;
-		padding: 4px 10px;
-		gap: 6px;
-		font-size: var(--text-label);
-		white-space: nowrap;
-		flex: none;
+		margin-left: auto;
 	}
 
 	.companion-empty-session {

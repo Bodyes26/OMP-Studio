@@ -191,19 +191,39 @@
 		return projectPath ? [] : [m.companion_missing_project_hint()];
 	});
 
+	let hasAppliedInitialSelection = false;
+
 	const selectedProject = $derived.by<Project | null>(() => {
 		if (presentation.selectedProjectId) {
-			const found = knownProjects.find(
-				(p) => p.id.toLowerCase() === presentation.selectedProjectId?.toLowerCase()
+			return (
+				knownProjects.find(
+					(p) => p.id.toLowerCase() === presentation.selectedProjectId?.toLowerCase()
+				) ?? null
 			);
-			if (found) return found;
 		}
-		return knownProjects.find((p) => p.id === projectStore.activeId) ?? knownProjects[0] ?? null;
+		return null;
 	});
 
 	$effect(() => {
-		if (!presentation.selectedProjectId && selectedProject) {
-			presentation.selectedProjectId = selectedProject.id;
+		if (hasAppliedInitialSelection) return;
+		if (!presentation.selectedProjectId) {
+			if (railQuestions.length > 0) {
+				const firstQ = railQuestions[0];
+				presentation.selectedProjectId = firstQ.project.id;
+				presentation.selectedLaneId = firstQ.laneId;
+				presentation.viewMode = 'question';
+				presentation.selectedRequestId = firstQ.requestId ?? null;
+				hasAppliedInitialSelection = true;
+			} else if (railUnread.length > 0) {
+				const firstU = railUnread[0];
+				presentation.selectedProjectId = firstU.project.id;
+				presentation.selectedLaneId = firstU.laneId;
+				presentation.viewMode = 'answer';
+				presentation.selectedRequestId = null;
+				hasAppliedInitialSelection = true;
+			} else if (knownProjects.length > 0) {
+				hasAppliedInitialSelection = true;
+			}
 		}
 	});
 
@@ -260,8 +280,10 @@
 	});
 
 	$effect(() => {
-		if (presentation.viewMode === 'question' && presentation.selectedRequestId && !currentAttention) {
+		if (presentation.viewMode === 'question' && !currentAttention) {
 			presentation.selectedRequestId = null;
+			presentation.selectedProjectId = null;
+			presentation.viewMode = 'answer';
 		}
 	});
 
@@ -525,6 +547,13 @@
 				refreshCompanionState();
 				playOpenAnimation();
 				void tick().then(() => editor?.focusEnd());
+				if (!presentation.selectedProjectId) {
+					if (railQuestions.length > 0) {
+						handleSelectProject(railQuestions[0].project.id, railQuestions[0].laneId, 'question', railQuestions[0].requestId);
+					} else if (railUnread.length > 0) {
+						handleSelectProject(railUnread[0].project.id, railUnread[0].laneId, 'answer');
+					}
+				}
 			})
 		);
 		trackListener(listen('companion-dismiss', () => void companionStore.hideCompanion()));
@@ -773,6 +802,10 @@
 		try {
 			await companionStore.sendConversation(target, text);
 			markReplySent(presentation, projectId, laneId, text, repliedMessageId, target.sessionId);
+			setTimeout(() => {
+				presentation.selectedProjectId = null;
+				presentation.selectedRequestId = null;
+			}, 1000);
 		} catch (err: unknown) {
 			const message = err instanceof Error ? err.message : String(err);
 			conv.isSending = false;
@@ -788,7 +821,8 @@
 		projectId: string,
 		value: string,
 		laneId?: string | null,
-		requestId?: string | null
+		requestId?: string | null,
+		note?: string
 	) {
 		delete replyDrafts[projectId];
 		delete customReplyProjects[projectId];
@@ -797,13 +831,22 @@
 		);
 		const targetReqId = requestId ?? targetReq?.pendingUi?.requestId;
 
+		presentation.selectedProjectId = null;
+		presentation.selectedRequestId = null;
+
 		if (targetReq?.pendingUi?.method === 'ask') {
 			const questions = targetReq.pendingUi.questions as Array<{ id?: string }> | undefined;
 			const qId = questions?.[0]?.id ?? 'q1';
-			const answer = {
-				action: 'wizard' as const,
-				answers: [{ id: qId, selectedOptions: [value] }]
-			};
+			const trimmedNote = note?.trim();
+			const answer = trimmedNote
+				? {
+						action: 'wizard' as const,
+						answers: [{ id: qId, selectedOptions: [], customInput: `${value} (nota: ${trimmedNote})` }]
+				  }
+				: {
+						action: 'wizard' as const,
+						answers: [{ id: qId, selectedOptions: [value] }]
+				  };
 			if (targetReqId) {
 				const handled = await companionStore.respondPrompt(targetReqId, answer, laneId);
 				if (handled) return;
@@ -812,11 +855,13 @@
 			return;
 		}
 
+		const trimmedNote = note?.trim();
+		const finalValue = trimmedNote ? `${value} (nota: ${trimmedNote})` : value;
 		if (targetReqId) {
-			const handled = await companionStore.respondPrompt(targetReqId, { action: 'select', value }, laneId);
+			const handled = await companionStore.respondPrompt(targetReqId, { action: 'select', value: finalValue }, laneId);
 			if (handled) return;
 		}
-		await companionStore.respondUi(projectId, { action: 'select', value }, laneId, targetReqId);
+		await companionStore.respondUi(projectId, { action: 'select', value: finalValue }, laneId, targetReqId);
 	}
 
 	async function handleQuickReplyConfirm(
@@ -825,7 +870,8 @@
 		laneId?: string | null,
 		requestId?: string | null
 	) {
-		delete replyDrafts[projectId];
+		presentation.selectedProjectId = null;
+		presentation.selectedRequestId = null;
 		delete customReplyProjects[projectId];
 		const targetReqId =
 			requestId ??
@@ -844,7 +890,8 @@
 		laneId?: string | null,
 		requestId?: string | null
 	) {
-		delete replyDrafts[projectId];
+		presentation.selectedProjectId = null;
+		presentation.selectedRequestId = null;
 		delete customReplyProjects[projectId];
 		const targetReqId =
 			requestId ??
@@ -862,16 +909,23 @@
 	async function handleQuickReplyText(
 		projectId: string,
 		laneId?: string | null,
-		requestId?: string | null
+		requestId?: string | null,
+		note?: string
 	) {
 		const request = companionStore.attentionRequests.find(
 			(req) => req.projectId === projectId && (!laneId || (req.laneId ?? 'main') === laneId)
 		);
-		const value = (replyDrafts[projectId] ?? request?.pendingUi.prefill ?? '').trim();
+		let value = (replyDrafts[projectId] ?? request?.pendingUi.prefill ?? '').trim();
+		if (note?.trim()) {
+			value = value ? `${value} (nota: ${note.trim()})` : note.trim();
+		}
 		if (!value) return;
 		delete replyDrafts[projectId];
 		delete customReplyProjects[projectId];
 		const targetReqId = requestId ?? request?.pendingUi?.requestId;
+
+		presentation.selectedProjectId = null;
+		presentation.selectedRequestId = null;
 
 		if (request?.pendingUi?.method === 'ask') {
 			const questions = request.pendingUi.questions as Array<{ id?: string }> | undefined;
@@ -940,12 +994,21 @@
 		onQuickReplyConfirm: handleQuickReplyConfirm,
 		onQuickReplyCancel: handleQuickReplyCancel,
 		onQuickReplyText: handleQuickReplyText,
-		onResolveQuotaBlocked: (projectId: string, selector: string, laneId?: string | null) =>
-			companionStore.resolveQuotaBlocked(projectId, selector, undefined, laneId),
-		onDismissQuotaBlocked: (projectId: string, laneId?: string | null) =>
-			companionStore.dismissQuotaBlocked(projectId, laneId),
-		onWaitQuotaReset: (projectId: string, laneId?: string | null) =>
-			companionStore.waitQuotaReset(projectId, laneId),
+		onResolveQuotaBlocked: (projectId: string, selector: string, laneId?: string | null) => {
+			presentation.selectedProjectId = null;
+			presentation.selectedRequestId = null;
+			return companionStore.resolveQuotaBlocked(projectId, selector, undefined, laneId);
+		},
+		onDismissQuotaBlocked: (projectId: string, laneId?: string | null) => {
+			presentation.selectedProjectId = null;
+			presentation.selectedRequestId = null;
+			return companionStore.dismissQuotaBlocked(projectId, laneId);
+		},
+		onWaitQuotaReset: (projectId: string, laneId?: string | null) => {
+			presentation.selectedProjectId = null;
+			presentation.selectedRequestId = null;
+			return companionStore.waitQuotaReset(projectId, laneId);
+		},
 		draftFor,
 		wantsText
 	});
@@ -986,27 +1049,33 @@
 				onOpenFileDialog={triggerFileInput}
 			/>
 
-			{#if selectedProject && currentConvState}
+			{#if knownProjects.length > 0}
 				<section class="priority-workspace" aria-label={m.companion_cards_aria()}>
 					<div class="priority-reader-scroll" bind:this={workspaceEl} onscroll={rememberReadingScroll}>
-					<CompanionCenterReader
-						project={selectedProject}
-						hue={projectHues.get(selectedProject.id) ?? selectedProject.hue}
-						viewMode={presentation.viewMode}
-						convState={currentConvState}
-						attention={currentAttention}
-						queuedCount={queuedForSelected}
-						laneLabel={currentLaneLabel}
-						{previousProjectName}
-						ask={askHandlers}
-						onFocusProject={(projectId) => void companionStore.focusProject(projectId)}
-						onNewTask={prefillProject}
-						onToggleExpanded={handleToggleExpanded}
-						onDraftChange={(text) => setConversationDraft(presentation, selectedProject.id, presentation.selectedLaneId, text)}
-						onSendReply={() => void handleSendReply()}
-						onReload={handleReloadConversation}
-						onReturnToPrevious={handleReturnToPrevious}
-					/>
+						{#if selectedProject && currentConvState}
+							<CompanionCenterReader
+								project={selectedProject}
+								hue={projectHues.get(selectedProject.id) ?? selectedProject.hue}
+								viewMode={presentation.viewMode}
+								convState={currentConvState}
+								attention={currentAttention}
+								queuedCount={queuedForSelected}
+								laneLabel={currentLaneLabel}
+								{previousProjectName}
+								ask={askHandlers}
+								onFocusProject={(projectId) => void companionStore.focusProject(projectId)}
+								onNewTask={prefillProject}
+								onCloseCard={() => {
+									presentation.selectedProjectId = null;
+									presentation.selectedRequestId = null;
+								}}
+								onToggleExpanded={handleToggleExpanded}
+								onDraftChange={(text) => setConversationDraft(presentation, selectedProject.id, presentation.selectedLaneId, text)}
+								onSendReply={() => void handleSendReply()}
+								onReload={handleReloadConversation}
+								onReturnToPrevious={handleReturnToPrevious}
+							/>
+						{/if}
 					</div>
 
 					<CompanionRightRail

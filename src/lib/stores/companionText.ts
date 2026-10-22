@@ -56,7 +56,7 @@ export const ACTIVITY_FRESH_MS = 3 * 60 * 60 * 1000;
 export const ACTIVITY_MAX_CHARS = 300;
 
 /** Tetto di sicurezza per messaggio nello storico inviato via IPC. */
-export const RECENT_MESSAGE_MAX_CHARS = 8 * 1024;
+export const RECENT_MESSAGE_MAX_CHARS = 32 * 1024;
 
 /** Taglio visivo del contesto chat nella card: si legge la coda, non il tema. */
 export const CONTEXT_VISIBLE_CHARS = 1500;

@@ -253,3 +253,25 @@ test('captured tasks stay queued after reload even with project auto-dispatch, w
 	tasks[0].schedule = { kind: 'at', origin: 'user', setAt: 2, notBefore: 3 };
 	assert.equal(nextDueScheduledTask(tasks, () => 'due', new Set())?.id, 'captured');
 });
+test('createInitialPresentationState defaults to null project selection', () => {
+	const state = createInitialPresentationState();
+	assert.equal(state.selectedProjectId, null);
+	assert.equal(state.selectedRequestId, null);
+	assert.equal(state.viewMode, 'answer');
+});
+
+test('closing card clears selectedProjectId and selectedRequestId', () => {
+	const state = createInitialPresentationState('proj-1');
+	state.selectedRequestId = 'req-1';
+	state.viewMode = 'question';
+	assert.equal(state.selectedProjectId, 'proj-1');
+
+	// Simulazione chiusura manuale o automatica alla risposta
+	state.selectedProjectId = null;
+	state.selectedRequestId = null;
+	state.viewMode = 'answer';
+
+	assert.equal(state.selectedProjectId, null);
+	assert.equal(state.selectedRequestId, null);
+	assert.equal(state.viewMode, 'answer');
+});

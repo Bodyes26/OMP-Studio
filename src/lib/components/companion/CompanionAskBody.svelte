@@ -44,10 +44,10 @@
 		customReplyOpen?: boolean;
 		onCustomReplyToggle: (projectId: string, open: boolean) => void;
 		onReplyDraftChange: (projectId: string, value: string) => void;
-		onQuickReplySelect: (projectId: string, value: string, laneId?: string | null, requestId?: string | null) => void | Promise<void>;
+		onQuickReplySelect: (projectId: string, value: string, laneId?: string | null, requestId?: string | null, note?: string) => void | Promise<void>;
 		onQuickReplyConfirm: (projectId: string, confirmed: boolean, laneId?: string | null, requestId?: string | null) => void | Promise<void>;
 		onQuickReplyCancel: (projectId: string, laneId?: string | null, requestId?: string | null) => void | Promise<void>;
-		onQuickReplyText: (projectId: string, laneId?: string | null, requestId?: string | null) => void | Promise<void>;
+		onQuickReplyText: (projectId: string, laneId?: string | null, requestId?: string | null, note?: string) => void | Promise<void>;
 		onResolveQuotaBlocked: (projectId: string, selector: string, laneId?: string | null) => void | Promise<void>;
 		onDismissQuotaBlocked: (projectId: string, laneId?: string | null) => void | Promise<void>;
 		onWaitQuotaReset: (projectId: string, laneId?: string | null) => void | Promise<void>;
@@ -63,27 +63,41 @@
 	// «1/1»; le altre forme (selezioni multiple) restano.
 	const counter = $derived(parsed.counter && !/^\d+\/1$/.test(parsed.counter) ? parsed.counter : null);
 
+	let showFullMessage = $state(false);
+	let messageLimit = $state(2);
+	let noteText = $state('');
+	let showNoteInput = $state(false);
+	let noteInputEl = $state<HTMLInputElement | null>(null);
+
 	/**
-	 * I messaggi di contesto: gli ultimi due, o tutti se l'utente ha chiesto lo
-	 * storico. Ogni testo e' tagliato dalla coda e reso come markdown: prima
-	 * arrivava grezzo (`**grassetto**`, `- elenco`) e il riquadro nasceva
-	 * scorrendo dall'inizio di un messaggio lungo, cioe' dalla parte che meno
-	 * serve per rispondere.
+	 * I messaggi di contesto: gli ultimi due (o più se espansi), resi come markdown.
 	 */
 	const contextMessages = $derived.by(() => {
 		const all = req.recentMessages ?? [];
-		const shown = historyExpanded ? all : all.slice(-2);
-		return shown.map((msg: { role: string; text: string }) => ({
-			role: msg.role,
-			tokens: lexMarkdown(tailOfText(msg.text, CONTEXT_VISIBLE_CHARS))
-		}));
+		const shown = historyExpanded ? all : all.slice(-messageLimit);
+		return shown.map((msg: { role: string; text: string }) => {
+			const isLong = msg.text.length > CONTEXT_VISIBLE_CHARS;
+			const text = (showFullMessage || !isLong) ? msg.text : tailOfText(msg.text, CONTEXT_VISIBLE_CHARS);
+			return {
+				role: msg.role,
+				isLong,
+				tokens: lexMarkdown(text)
+			};
+		});
 	});
+
+	const hasOtherOptionInList = $derived(
+		Boolean(req.pendingUi.options?.some((opt: string) => isOtherOption(opt)))
+	);
+	const hasLongContextMessage = $derived(
+		contextMessages.some((item: { isLong: boolean }) => item.isLong)
+	);
+
 
 	let replyEl = $state<HTMLTextAreaElement | null>(null);
 	let contextEl = $state<HTMLDivElement | null>(null);
 	/** Vero finche' l'utente non risale il riquadro: solo allora si smette di inseguire la coda. */
 	let followTail = true;
-
 	// Il riquadro mostra la fine della conversazione. Si insegue la coda solo
 	// se l'utente non e' risalito a leggere: strapparlo indietro mentre legge
 	// sarebbe peggio del difetto che questo effetto risolve.
@@ -107,7 +121,7 @@
 		if (e.key === 'Enter' && (e.ctrlKey || e.metaKey || !e.shiftKey)) {
 			e.preventDefault();
 			e.stopPropagation();
-			void onQuickReplyText(req.projectId, req.laneId, req.pendingUi.requestId);
+			void onQuickReplyText(req.projectId, req.laneId, req.pendingUi.requestId, noteText.trim() || undefined);
 		} else if (closeOnEscape && e.key === 'Escape') {
 			e.preventDefault();
 			e.stopPropagation();
@@ -130,28 +144,52 @@
 		{/each}
 	</div>
 
-	{#if (req.recentMessages?.length ?? 0) > 2}
-		<button type="button" class="history-toggle-btn" onclick={() => onToggleHistory(req.projectId)}>
-			{historyExpanded
-				? m.ui_companionview_mostra_meno_contesto_560a()
-				: m.ui_companionview_mostra_altri_value1_messaggi_90ae({
-						value1: (req.recentMessages?.length ?? 0) - 2
-					})}
-		</button>
-	{/if}
+	<div class="history-controls-row">
+		{#if (req.recentMessages?.length ?? 0) > messageLimit && !historyExpanded}
+			<button type="button" class="history-toggle-btn" onclick={() => (messageLimit += 2)}>
+				{m.companion_load_previous_message()}
+			</button>
+		{/if}
+		{#if (req.recentMessages?.length ?? 0) > 2}
+			<button type="button" class="history-toggle-btn" onclick={() => onToggleHistory(req.projectId)}>
+				{historyExpanded
+					? m.ui_companionview_mostra_meno_contesto_560a()
+					: m.ui_companionview_mostra_altri_value1_messaggi_90ae({
+							value1: (req.recentMessages?.length ?? 0) - messageLimit
+					  })}
+			</button>
+		{/if}
+		{#if hasLongContextMessage}
+			<button type="button" class="history-toggle-btn" onclick={() => (showFullMessage = !showFullMessage)}>
+				{showFullMessage ? m.companion_show_truncated_message() : m.companion_show_full_message()}
+			</button>
+		{/if}
+	</div>
 {/if}
 
 <div class="ask-box">
+	<div class="ask-kind-header">
+		<span class="ask-kind-chip" class:is-tool={req.pendingUi.kind === 'ask'}>
+			{#if req.pendingUi.kind === 'ask'}
+				{m.companion_kind_ask_tool()}
+			{:else}
+				{m.companion_kind_message_proposals()}
+			{/if}
+		</span>
+	</div>
 	<div class="ask-head">
-		<p class="ask-text">{askQuestionText(req.pendingUi, m.ui_companionview_seleziona_un_opzione_d398())}</p>
+		<div class="ask-text-markdown">
+			<CompanionMarkdown tokens={lexMarkdown(askQuestionText(req.pendingUi, m.ui_companionview_seleziona_un_opzione_d398()))} />
+		</div>
 		{#if counter}
 			<span class="ask-counter">{counter}</span>
 		{/if}
 	</div>
 	{#if detail}
-		<p class="ask-detail">{detail}</p>
+		<div class="ask-detail-markdown">
+			<CompanionMarkdown tokens={lexMarkdown(detail)} />
+		</div>
 	{/if}
-
 	{#if req.pendingUi.kind === 'quota_blocked'}
 		{@const bq = req.pendingUi.blockedQuota}
 		{@const suggested = bq?.suggestedModel}
@@ -234,7 +272,7 @@
 						type="button"
 						class="ui-button ui-button-primary"
 						disabled={!draft.trim()}
-						onclick={() => void onQuickReplyText(req.projectId, req.laneId, req.pendingUi.requestId)}
+						onclick={() => void onQuickReplyText(req.projectId, req.laneId, req.pendingUi.requestId, noteText.trim() || undefined)}
 					>
 						<IconArrowUp />
 						{m.ui_askcard_invia_f401()}
@@ -258,7 +296,7 @@
 								onCustomReplyToggle(req.projectId, true);
 								void tick().then(() => replyEl?.focus());
 							} else {
-								void onQuickReplySelect(req.projectId, opt, req.laneId, req.pendingUi.requestId);
+								void onQuickReplySelect(req.projectId, opt, req.laneId, req.pendingUi.requestId, noteText.trim() || undefined);
 							}
 						}}
 					>
@@ -278,6 +316,49 @@
 						</span>
 					</button>
 				{/each}
+				{#if !hasOtherOptionInList}
+					<button
+						type="button"
+						class="ask-opt ask-opt-other"
+						onclick={() => {
+							onCustomReplyToggle(req.projectId, true);
+							void tick().then(() => replyEl?.focus());
+						}}
+					>
+						<span class="ask-opt-index" aria-hidden="true">
+							<IconPencil />
+						</span>
+						<span class="ask-opt-body">
+							<span class="ask-opt-label">{m.ui_askcard_altro_scrivi_la_tua_risposta_3c62()}</span>
+							<span class="ask-opt-desc">{m.ui_askcard_inserisci_una_risposta_personalizzata_f9dc()}</span>
+						</span>
+					</button>
+				{/if}
+			</div>
+			<div class="ask-note-section">
+				{#if showNoteInput || noteText.trim()}
+					<div class="ask-note-wrap">
+						<input
+							type="text"
+							class="ui-input ask-note-input"
+							placeholder={m.companion_ask_note_placeholder()}
+							bind:value={noteText}
+							bind:this={noteInputEl}
+						/>
+					</div>
+				{:else}
+					<button
+						type="button"
+						class="ui-button ui-button-ghost ask-note-btn"
+						onclick={() => {
+							showNoteInput = true;
+							void tick().then(() => noteInputEl?.focus());
+						}}
+					>
+						<IconPencil />
+						<span>{m.companion_ask_note()}</span>
+					</button>
+				{/if}
 			</div>
 		{/if}
 	{:else if req.pendingUi.method === 'confirm'}

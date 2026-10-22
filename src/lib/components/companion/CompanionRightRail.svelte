@@ -253,14 +253,10 @@
 		{#if parkedOpen && parked.length > 0}
 			<div class="parked-list">
 				{#each parked as p (p.project.id)}
-					<button
-						type="button"
-						class="priority-project"
-						onclick={() => onSelectProject(p.project.id, 'main', 'answer')}
-					>
-						<span class="p-dot lit" style="--proj-hue: {p.hue}"></span>
+					<div class="priority-project is-parked">
+						<span class="p-dot" style="--proj-hue: {p.hue}"></span>
 						<span class="project-choice-name">{p.name}</span>
-					</button>
+					</div>
 				{/each}
 			</div>
 		{/if}

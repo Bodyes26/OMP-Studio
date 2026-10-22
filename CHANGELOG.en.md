@@ -21,6 +21,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - The Todo and Subagents sections above the composer start collapsed and animate when opening and closing.
 - Companion 2.0 replaces the grid with a central reader and a sidebar for questions, replies to read, ongoing work, and the global queue; idle projects stay separate at the bottom.
 - New requests captured in Companion stay queued until explicitly started, even in projects with auto-dispatch enabled; an explicitly chosen schedule is still respected.
+- Optimized Companion window: the central project card is explicitly dismissible and closes automatically as soon as a question is answered from any window without lingering resolved notices; by default no central card is opened unless there is a question or unread reply. Parked projects are informative and no longer open empty cards. Question cards adopt neutral background styling and standard borders without amber rings, clearly distinguish ask tool calls from message proposals, always provide "Other..." and note fields, render question text with Intelligent UI, and allow expanding full messages or loading previous context. In the reply reader, the composer uses standard text sizing, includes @ and / autocomplete suggestions, and auto-dismisses one second after reply confirmation.
 
 ### Fixed
 - Composer completions, including in Companion, keep the arrow-key selection instead of resetting it to the first row.

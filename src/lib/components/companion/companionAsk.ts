@@ -16,10 +16,10 @@ export interface CompanionAskHandlers {
 	onToggleHistory: (projectId: string) => void;
 	onCustomReplyToggle: (projectId: string, open: boolean) => void;
 	onReplyDraftChange: (projectId: string, value: string) => void;
-	onQuickReplySelect: (projectId: string, value: string, laneId?: string | null, requestId?: string | null) => void | Promise<void>;
+	onQuickReplySelect: (projectId: string, value: string, laneId?: string | null, requestId?: string | null, note?: string) => void | Promise<void>;
 	onQuickReplyConfirm: (projectId: string, confirmed: boolean, laneId?: string | null, requestId?: string | null) => void | Promise<void>;
 	onQuickReplyCancel: (projectId: string, laneId?: string | null, requestId?: string | null) => void | Promise<void>;
-	onQuickReplyText: (projectId: string, laneId?: string | null, requestId?: string | null) => void | Promise<void>;
+	onQuickReplyText: (projectId: string, laneId?: string | null, requestId?: string | null, note?: string) => void | Promise<void>;
 	onResolveQuotaBlocked: (projectId: string, selector: string, laneId?: string | null) => void | Promise<void>;
 	onDismissQuotaBlocked: (projectId: string, laneId?: string | null) => void | Promise<void>;
 	/** «Al reset 14:05»: la sessione riprende con `/retry` al reset della quota. */
