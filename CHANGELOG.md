@@ -17,6 +17,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Dalla Companion invia un seguito o un comando direttamente nella conversazione letta, senza trasformarlo in un nuovo task.
 
 ### Changed
+- Gli esempi del comando MCP includono `/mcp reauth` per rinnovare l’autenticazione OAuth di un server senza riavviare la sessione.
 - La finestra di aggiornamento di Studio mette in primo piano versione e novità in Markdown, senza riquadri annidati; canale compatto, dettagli tecnici richiudibili e azioni semplificate.
 - La colonna Git usa una testata compatta e una cronologia senza card: nomi file prioritari, percorsi separati e commit espandibili; le sessioni restano nel pannello Agente.
 - Su touch, Intelligent UI adatta tabelle, schede, metriche e confronti agli schermi stretti, con controlli più facili da premere e diagrammi ingrandibili con le dita.

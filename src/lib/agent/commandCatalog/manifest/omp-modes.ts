@@ -912,6 +912,10 @@ export const OMP_ENTRIES_MODES: readonly CommandManifestEntry[] = [
 						note: 'Verifica la connessione e la risposta del server MCP specificato'
 					},
 					{
+						command: '/mcp reauth github',
+						note: 'Rinnova l’autenticazione OAuth del server MCP specificato e lo ricollega senza riavviare la sessione'
+					},
+					{
 						command: '/mcp reload',
 						note: 'Forza la ricarica a caldo dei tool da tutti i server MCP attivi'
 					}
@@ -936,6 +940,10 @@ export const OMP_ENTRIES_MODES: readonly CommandManifestEntry[] = [
 					{
 						command: '/mcp test github',
 						note: 'Test communication and health of the specified MCP server'
+					},
+					{
+						command: '/mcp reauth github',
+						note: 'Renew OAuth authentication for the specified MCP server and reconnect it without restarting the session'
 					},
 					{
 						command: '/mcp reload',
