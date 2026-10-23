@@ -51,6 +51,7 @@
 </script>
 
 <div class="app-layout" class:has-chat={hasChat} class:is-paired={isPaired}>
+	<div class="status-bar-backdrop" aria-hidden="true"></div>
 	<div class="shell-content">
 		<Header onOpenSettings={() => (showSettings = true)} />
 		<OfflineBanner />
@@ -137,6 +138,36 @@
 		height: 100dvh;
 		min-height: 0;
 		overflow: hidden;
+	}
+
+	/* App installata: `100dvh` esclude le aree sicure (WebKit 254868) e lascia
+	   una fascia vuota in fondo; viewport.ts misura l'altezza vera, che come
+	   `100dvh` non segue la tastiera. */
+	:global(:root[data-standalone]) .app-layout.is-paired,
+	:global(:root[data-standalone]) .app-layout.is-paired .shell-content {
+		height: var(--app-layout-height, 100dvh);
+	}
+
+	/*
+	 * App installata: senza un elemento fisso a tutta larghezza in cima, iOS
+	 * sfuma la barra di stato con una sfocatura che scende sotto l'area sicura e
+	 * copre intestazione e pulsanti. Con questa fascia la barra prende il colore
+	 * pieno del fondo (basta che sia alta almeno 6px, larga oltre l'80% e a meno
+	 * di 4px dal bordo).
+	 */
+	.status-bar-backdrop {
+		display: none;
+	}
+	:global(:root[data-standalone]) .status-bar-backdrop {
+		display: block;
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		height: max(6px, env(safe-area-inset-top, 0px));
+		background: var(--bg-sunken);
+		z-index: 150;
+		pointer-events: none;
 	}
 
 	.main-content {
