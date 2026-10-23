@@ -1493,7 +1493,14 @@ fn spawn_relaunch_after_exit(bundle: &Path, cleanup: &[&Path]) -> Result<(), Str
     const SCRIPT: &str = r#"pid="$1"; app="$2"; shift 2
 i=0
 while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 600 ]; do sleep 0.1; i=$((i+1)); done
-/usr/bin/open "$app"
+# Il pid sparisce prima che LaunchServices smetta di considerare l'app in
+# esecuzione: un `open` immediato riattiverebbe l'istanza morente e non
+# lancerebbe nulla. Pausa, poi `-n` (nuova istanza) con qualche tentativo.
+sleep 1
+j=0
+until /usr/bin/open -n "$app" 2>/dev/null; do
+  j=$((j+1)); [ "$j" -ge 10 ] && break; sleep 0.5
+done
 /bin/rm -rf "$@""#;
 
     Command::new("/bin/sh")
