@@ -87,6 +87,7 @@ import './chat-drop.test.ts';
 import './tool-group-34.test.ts';
 import './todo-trace.test.ts';
 import './tooltip-behavior.test.ts';
+import './switch-dissolve.test.ts';
 import './companion-settings.test.ts';
 import './session-modes.test.ts';
 import './command-layout.test.ts';

@@ -142,6 +142,8 @@
   /* Chat v2: curva unica della rivelazione e durata del vassoio. */
   --ease-reveal: cubic-bezier(0.22, 0.61, 0.36, 1);
   --dur-tray: 420ms;
+  /* Dissolvenza mirata dello switch di progetto/corsia (src/lib/switchDissolve.ts). */
+  --dur-dissolve: 300ms;
 
   /* Z-index semantico */
   --z-base: 0;     --z-splitter: 10; --z-sticky: 20; --z-topbar: 30;
@@ -279,6 +281,46 @@
 .rv-lift {
   animation: rv-lift-in var(--dur, var(--dur-reveal)) var(--ease-reveal) backwards;
 }
+
+/* Dissolvenza mirata dello switch di progetto/corsia: solo la fase `from`, come ogni
+   ingresso. `dissolve()` mette la classe e la toglie a fine animazione; il ritardo
+   della cascata arriva da --sw-delay. */
+@keyframes sw-dissolve-in {
+  from {
+    opacity: 0;
+    filter: blur(2px);
+    transform: translateY(4px);
+  }
+}
+
+.sw-dissolve {
+  animation: sw-dissolve-in var(--dur-dissolve) var(--ease-reveal) var(--sw-delay, 0ms) backwards;
+}
+
+/* Righe di testo di Monaco (decorazioni inline): un inline non ha translate, quindi
+   solo opacita' e sfocatura. La cascata usa dodici classi: 12 x 35ms = 385ms. */
+@keyframes sw-dissolve-text-in {
+  from {
+    opacity: 0;
+    filter: blur(2px);
+  }
+}
+
+.sw-dissolve-text {
+  animation: sw-dissolve-text-in var(--dur-dissolve) var(--ease-reveal) backwards;
+}
+.sw-l0 { animation-delay: 0ms; }
+.sw-l1 { animation-delay: 35ms; }
+.sw-l2 { animation-delay: 70ms; }
+.sw-l3 { animation-delay: 105ms; }
+.sw-l4 { animation-delay: 140ms; }
+.sw-l5 { animation-delay: 175ms; }
+.sw-l6 { animation-delay: 210ms; }
+.sw-l7 { animation-delay: 245ms; }
+.sw-l8 { animation-delay: 280ms; }
+.sw-l9 { animation-delay: 315ms; }
+.sw-l10 { animation-delay: 350ms; }
+.sw-l11 { animation-delay: 385ms; }
 
 /* Apertura/chiusura in altezza con grid-template-rows: il figlio diretto deve
    avere min-height: 0 e overflow: hidden (classe .tray-fold-inner). */

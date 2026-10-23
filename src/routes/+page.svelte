@@ -128,8 +128,26 @@
 	import { onMount, untrack } from 'svelte';
 	import { startFocusTracer } from '$lib/focusTracer';
 	import { registerSnapshotProvider } from '$lib/diagnostics/studioLog';
+	import { markSwitch } from '$lib/switchDissolve';
 
 	let leftSection = $state<'files' | 'git' | 'agent'>('files');
+
+	// Switch di progetto o di corsia: PRIMA che colonne e chat cambino (`$effect.pre`
+	// precede il template e gli effetti dei figli) le regioni fotografano cio' che
+	// mostrano, cosi' la dissolvenza mirata anima solo cio' che risulta diverso.
+	// Il primo valore e il caricamento iniziale dei progetti non sono uno switch.
+	let lastSwitchKey: string | null = null;
+	let lastSwitchProject: string | null = null;
+	$effect.pre(() => {
+		const projectId = projectStore.activeId;
+		const laneId = projectStore.activeProject?.lane.laneId ?? null;
+		const key = `${projectId}:${laneId}`;
+		if (lastSwitchProject !== null && projectId !== null && key !== lastSwitchKey) {
+			markSwitch(projectId !== lastSwitchProject ? 'project' : 'lane');
+		}
+		lastSwitchKey = key;
+		lastSwitchProject = projectId;
+	});
 	const currentLaneSurface = $derived.by(() => {
 		const proj = projectStore.activeProject;
 		if (!proj) {
@@ -3382,10 +3400,7 @@
 		onOpenFile={openMentionedFile}
 	/>
 	{#if projectStore.activeProject && projectStore.activeProject.canonicalProjectPath}
-		{@const secondaryLanes = laneStore.lanesFor(projectStore.activeProject.id as ProjectId).filter((l) => l.laneId !== MAIN_LANE_ID && l.status !== 'archived' && l.status !== 'closed')}
-		{#if secondaryLanes.length > 0}
-			<LaneStrip project={projectStore.activeProject} onReviewLane={(lane) => (reviewingLane = lane)} />
-		{/if}
+		<LaneStrip project={projectStore.activeProject} onReviewLane={(lane) => (reviewingLane = lane)} />
 	{/if}
 	<SetupModal open={setupOpen} startAt={setupStartAt} onClose={closeSetup} />
 	<UsagePopover open={usageOpen} anchor={usageAnchor} onClose={() => usageOpen = false} {guiHosts} />

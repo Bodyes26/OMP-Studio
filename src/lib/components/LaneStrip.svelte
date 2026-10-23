@@ -48,6 +48,7 @@
 	} from '$lib/lanes/laneProfile';
 	import type { LaneProcessInfo } from '$lib/lanes/processSupervisor';
 	import { agentLanes } from '$lib/lanes/agentLanes.svelte';
+	import { badgeReveal } from '$lib/agent/motion';
 
 	let {
 		project,
@@ -510,7 +511,7 @@
 			</div>
 
 			<!-- Corsie secondarie -->
-			{#each secondaryLanes as lane (lane.laneId)}
+			{#each secondaryLanes as lane, laneIndex (lane.laneId)}
 				{@const laneState = classifyLaneState(lane)}
 				{@const isSelected = activeLaneId === lane.laneId}
 				{@const pendingCleanup =
@@ -522,6 +523,8 @@
 					class:selected={isSelected}
 					class:attention={laneState === 'attention' || laneState === 'conflict'}
 					class:finished={!isSelected && (laneState === 'finished' || laneState === 'review_ready')}
+					in:badgeReveal={{ duration: 300, blur: 2, delay: laneIndex * 40 }}
+					out:badgeReveal={{ duration: 210, blur: 2 }}
 				>
 					<button
 						type="button"

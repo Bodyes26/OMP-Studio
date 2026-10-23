@@ -12,8 +12,11 @@
 		updateGutterDecorations,
 		applyEditorSettings,
 		clearGutterDebounce,
-		scheduleGutterDecorations
+		scheduleGutterDecorations,
+		getAttachedLines,
+		dissolveChangedLines
 	} from './monaco';
+	import { registerSnapshot, pendingSwitch, switchSnapshot, dissolve } from '$lib/switchDissolve';
 	import { perfSpan } from '$lib/perf';
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import ImageViewer from './ImageViewer.svelte';
@@ -333,11 +336,51 @@
 			);
 			setTimeout(() => editor?.layout(), 10);
 		}
+		dissolveSwitchedLines();
 		if (pendingDiffFile === path) {
 			pendingDiffFile = null;
 			showDiff = true;
 		}
 	}
+
+	// Dissolvenza mirata dello switch di progetto/corsia: prima dello switch l'editor
+	// fotografa le righe a schermo e le schede aperte; dopo, rientrano a cascata solo
+	// le righe visibili e le schede che sono diverse. Tra progetti e' tutto nuovo.
+	interface EditorSwitchSnapshot {
+		lines: string[] | null;
+		tabs: string[];
+	}
+	let linesSwitchHandled = 0;
+	let tabsSwitchHandled = 0;
+
+	$effect(() =>
+		registerSnapshot('editor', (): EditorSwitchSnapshot => ({
+			lines: getAttachedLines(),
+			tabs: [...filePaths]
+		}))
+	);
+
+	function dissolveSwitchedLines() {
+		const sw = pendingSwitch();
+		if (!sw || sw.epoch === linesSwitchHandled) return;
+		linesSwitchHandled = sw.epoch;
+		const before = sw.kind === 'lane' ? switchSnapshot<EditorSwitchSnapshot>('editor') : undefined;
+		// Il frame dopo, quando layout e vista ripristinata dicono quali righe sono visibili.
+		requestAnimationFrame(() => dissolveChangedLines(before?.lines ?? null));
+	}
+
+	$effect(() => {
+		void projectPath;
+		void filePaths.length;
+		const sw = pendingSwitch();
+		if (!sw || sw.epoch === tabsSwitchHandled || !tabsTrackEl) return;
+		tabsSwitchHandled = sw.epoch;
+		const before = sw.kind === 'lane' ? switchSnapshot<EditorSwitchSnapshot>('editor')?.tabs : undefined;
+		const labels = [...tabsTrackEl.querySelectorAll<HTMLElement>('.editor-tab-file')]
+			.filter((tab) => !before?.includes(tab.title))
+			.map((tab) => tab.querySelector<HTMLElement>('.tab-label') ?? tab);
+		dissolve(labels);
+	});
 
 	async function fetchGitHeadInBackground(project: string, path: string, key: string, targetState: FileState) {
 		const endHead = perfSpan('editor', `head ${path}`);

@@ -19,6 +19,8 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Send a follow-up or a command from Companion directly to the conversation being read, without turning it into a new task.
 
 ### Changed
+- The lane row is always visible under the project bar, showing just "Main" and the "+" when a project has no other lanes: switching between projects no longer makes the columns jump. Lane tabs animate in and out.
+- Switching project or lane now fades in only what changed, leaving fixed labels, the composer and the terminal still: new files in the tree, differing code lines in the editor, new tabs and the visible chat messages, in a 300 ms cascade.
 - Primary buttons redesigned: no more solid fill with a dark border on hover, but a soft tint of the theme colour with readable text (Git column Pull/Push, update modal, all dialogs).
 - Project tabs: on macOS the thick border after a click is replaced by a thin hairline.
 - Project and lane tab status redesigned without a border ring: "needs an answer" is an amber ring breathing around the project dot (an amber badge on the icon in lanes), "finished" is the same mark in grey and still. No more muddy double border on macOS.

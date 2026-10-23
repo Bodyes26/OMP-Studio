@@ -152,6 +152,7 @@ routes/
   +page.svelte          Layout orchestratore principale a 3 colonne, gestione modali e drawer
 lib/
   focusTrap.ts          Utility WAI-ARIA per gestione focus trap e navigazione tastiera
+  switchDissolve.ts     Dissolvenza mirata dello switch di progetto/corsia: fotografie per regione prima dello switch e cascata `dissolve()`
   stores/
     projects.svelte.ts  Stato reattivo progetti aperti, attivo, configurazioni per-progetto
     lanes.svelte.ts     Corsie del progetto: creazione, riconciliazione Git, archiviazione
@@ -206,7 +207,7 @@ lib/
       renderers/        30+ card dedicate (Bash, Edit, Write, Read, Lsp, AstEdit, Eval, Debug, Browser, Ask, Task, Hub, Job, WebSearch...)
   components/
     TopBar.svelte       Barra progetti con tessere riordinabili, badge coda, chip usage e setup
-    LaneStrip.svelte    Riga corsie, visibile solo con almeno una corsia secondaria
+    LaneStrip.svelte    Riga corsie, sempre visibile (con la sola Principale se non ci sono corsie secondarie); le schede entrano e escono con `badgeReveal`
     LaneReviewModal.svelte Revisione e integrazione di una corsia isolata
     LaneDispatchDialog.svelte Conferma di corsia, soft-cap e arresto processi
     LaneProfileDialog.svelte Consenso una tantum sui file locali del worktree

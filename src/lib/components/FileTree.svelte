@@ -5,6 +5,7 @@
 	import { Lingering, ROW_EXIT_MS } from '$lib/agent/motionState.svelte';
 	import { setContext, getContext, tick } from 'svelte';
 	import FileTree from './FileTree.svelte';
+	import { registerSnapshot, pendingSwitch, switchSnapshot, dissolve } from '$lib/switchDissolve';
 	import {
 		IconChevronRight,
 		IconClose,
@@ -150,6 +151,38 @@
 	setContext('gitStatusesCtx', getGitStatuses);
 	let gitStatuses = $derived(getGitStatuses());
 
+	// Dissolvenza mirata dello switch: la radice fotografa le righe a schermo prima
+	// che il genitore la rimonti ({#key} in +page.svelte); a caricamento finito
+	// dissolve solo le righe che prima non c'erano. Tra progetti sono tutte nuove,
+	// tra corsie dello stesso progetto cambiano solo i file diversi fra i worktree.
+	$effect(() => {
+		if (level !== 0) return;
+		return registerSnapshot('fileTree', () => {
+			const keys = new Set<string>();
+			nodeEl?.querySelectorAll<HTMLElement>('.tree-row[data-tree-key]').forEach((row) => {
+				keys.add(row.dataset.treeKey ?? '');
+			});
+			return keys;
+		});
+	});
+	let switchHandled = 0;
+	async function dissolveSwitchedRows() {
+		const sw = pendingSwitch();
+		if (!sw || sw.epoch === switchHandled) return;
+		switchHandled = sw.epoch;
+		await tick();
+		if (!nodeEl) return;
+		const before = sw.kind === 'lane' ? switchSnapshot<Set<string>>('fileTree') : undefined;
+		const targets: HTMLElement[] = [];
+		nodeEl.querySelectorAll<HTMLElement>('.tree-row[data-tree-key]').forEach((row) => {
+			const key = row.dataset.treeKey ?? '';
+			if (before?.has(key)) return;
+			// La radice porta il nome del progetto: si dissolve il testo, non la riga intera.
+			targets.push(key === 'row:' ? (row.querySelector<HTMLElement>('.name') ?? row) : row);
+		});
+		dissolve(targets);
+	}
+
 	async function loadEntries(force = false) {
 		if (loaded && !force) return;
 		loadError = null;
@@ -157,6 +190,7 @@
 		try {
 			entries = await invoke('tree_read', { projectPath, rel: relPath });
 			loaded = true;
+			if (level === 0) void dissolveSwitchedRows();
 			await nav.syncActive();
 			if (hadFocus) {
 				await nav.focusKey(activeKey);

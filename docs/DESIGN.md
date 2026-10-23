@@ -401,9 +401,9 @@ base), cromaticamente muta e precisa, e accompagna la voce senza competere.
 
 Muta non vuol dire immobile. La cornice tace di colore, non di movimento: pannelli,
 popover, righe e sezioni che si aprono parlano con la stessa grammatica fluida della
-chat (sfocatura che si dissolve, altezza che si piega, una sola curva). Restano fermi
-solo due oggetti, per ragioni di prodotto: la viewport del terminale e il contenuto
-delle colonne durante lo switch di progetto.
+chat (sfocatura che si dissolve, altezza che si piega, una sola curva). Resta ferma
+solo la viewport del terminale, per ragioni di prodotto; allo switch di progetto o di
+corsia le colonne dissolvono soltanto ciò che è cambiato (Targeted-Dissolve Rule).
 
 La scelta strutturale che regge tutto viene dal prototipo: **lo stato vivo sta vicino
 al punto d'azione, la storia resta leggera.** Todo, subagenti, coda e domande vivono
@@ -431,6 +431,7 @@ non in mezzo al racconto.
 | `--dur-row` | 210 ms | Righe che entrano in una lista (`chatReveal`: blur 5 px, 3 px di corsa, altezza da 0, curva `--ease-reveal`). Piegatura delle cartelle dell'albero file (`tray-in`/`tray-out` con `--dur-tray` ridotto a `--dur-row`). |
 | `--dur-slow` | 240 ms | Pannelli e finestre modali (`Dialog` tramite `rvLift` con blur 3 px). |
 | `--dur-tray` | 420 ms | Sezioni che si piegano in altezza (`tray-in`/`tray-out`, blur 6 px). |
+| `--dur-dissolve` | 300 ms | Dissolvenza mirata allo switch di progetto/corsia: righe nuove dell'albero, righe diverse dell'editor, schede nuove, righe visibili della chat (translate 4 px, blur 2 px, cascata da 35 ms con tetto a 420 ms). Le schede della riga corsie entrano a questa durata con scarto di 40 ms ed escono a `--dur-row`. |
 | `--dur-reveal` | 700 ms | Unità di testo dell'agente (`rv-blur`, blur 10 px). |
 
 Le primitive vivono in `src/app.css` e nei moduli di motion dedicati:
@@ -473,9 +474,26 @@ stato finale è quello naturale dell'elemento, quindi con le animazioni azzerate
 
 Riepiloghi chiusi, sezioni collassate e stati conclusi sono fermi.
 
-**The Still-Room Rule.** Non si animano mai la viewport del terminale né il contenuto
-delle colonne durante lo switch di progetto. Il terminale viene disegnato già pronto;
-cambiare progetto è cambiare stanza.
+**The Still-Room Rule.** Non si animano mai la viewport del terminale né la sua
+superficie allo switch di progetto o di corsia: il terminale viene disegnato già pronto.
+Le colonne non si animano per intero: vale la regola seguente.
+
+**The Targeted-Dissolve Rule.** Allo switch di progetto o di corsia si dissolve solo ciò
+che è cambiato e che si vede, in `--dur-dissolve` con `--ease-reveal`, a cascata:
+
+- **Albero file:** le righe che nello switch non c'erano; tra progetti sono tutte, nome
+  della radice compreso, tra corsie solo i file diversi fra i worktree.
+- **Editor:** il testo delle righe visibili diverse da quelle che stavano nella stessa
+  posizione prima (tra progetti tutte), solo opacità e sfocatura, e le etichette delle
+  schede che prima non c'erano.
+- **Chat GUI:** le righe visibili del transcript della chat che torna a schermo.
+- **Riga corsie:** le schede delle corsie che compaiono e scompaiono.
+
+Non si muovono mai etichette fisse (File/Git/Agente, Terminale/GUI), composer, vassoio,
+righe invariate e terminale. Vale la From-Only Rule: la classe `.sw-dissolve` dichiara
+solo la partenza e viene tolta a fine animazione. Con movimento ridotto non si anima
+nulla. Le regioni fotografano ciò che mostrano prima dello switch
+(`src/lib/switchDissolve.ts`): senza fotografia, tutto conta come nuovo.
 
 ## Colors
 
@@ -673,6 +691,7 @@ costi, contatori) usa `tabular-nums`.
 - **Officina.** Le tre colonne, la barra progetti e le larghezze per progetto restano
   quelle di `PRODUCT.md`. Il ritmo resta sulla scala a 4 px: righe `4px 8px`,
   pannelli 12 px, popover 16 px, gruppi in popover 24 px.
+- **Riga corsie.** Sempre presente sotto la barra progetti, alta 34 px: nei progetti senza corsie secondarie mostra la sola «Principale» e il «+», così passare da un progetto all'altro non sposta le colonne. Le schede delle corsie secondarie entrano e escono con `badgeReveal` (300 ms con scarto di 40 ms in ingresso, `--dur-row` in uscita, blur 2 px).
 **The Fused-Header Rule (D7).** Le testate delle viste della colonna centrale (Editor, TaskEditor, PreviewViewer, DiagramViewer) sono alte 32 px, sul pozzo (`--bg-sunken`), con bordo inferiore da 1 px (`--line`) e trigger/pulsanti a 28 px. Non si impilano sopra un `.col-header`: prendono il suo posto e allineano la fascia superiore dell'app alle colonne laterali (`ColumnTabs` e switch TERMINAL/GUI a 32 px). Nelle corsie Laboratorio resta una testata da 32 px dedicata allo switch Anteprima/Editor con `Segmented` in modalità `tablist`.
 **The Action-Point Rule.** Ciò che è vivo adesso sta dove l'utente agisce. Il racconto
 ne conserva una riga sola, espandibile su richiesta.
@@ -842,7 +861,7 @@ valido nel vassoio, nel transcript e nelle viste di dettaglio.
 - **Icone dei file (modello VS Code):** forma Lucide per famiglia e tinta per linguaggio. Forme: `IconFileCode` per sorgenti e markup, `IconFileBraces` per JSON, `IconFileText` per testo, Markdown e PDF, `IconFileCog` per configurazioni e progetti (`toml`, `yaml`, `.env`, `csproj`, `.gitignore`), `IconFileTerminal` per script, `IconFileLock` per i lockfile, `IconFileImage`, `IconFileMusic`, `IconFileVideo`, `IconFileArchive`, `IconFileSpreadsheet`, `IconDatabase` per SQL, `IconFile` di default. La tinta è `oklch(var(--proj-l-ink) var(--proj-c-ink) <hue>)`: la rampa d'inchiostro dei progetti, abbassata sui temi chiari da `applyAnchors`, quindi stessa leggibilità per ogni linguaggio (TS 245, JS 95, JSON 90, Svelte 35, Rust 55, HTML 50, CSS 215…). File senza tinta e cartelle: `--ink-muted`.
 - **Struttura:** i file hanno uno spazio vuoto largo quanto la freccia, così il loro nome si allinea a quello delle cartelle sorelle. Sotto la freccia di ogni cartella aperta (radice esclusa) una guida verticale da 1 px in `--line-strong` mostra fin dove arriva il contenuto; diventa `--ink-faint` quando puntatore o fuoco stanno su un figlio diretto.
 - **Esclusi da Git:** `project_git_ignored` (`git ls-files --others --ignored --exclude-standard --directory`) restituisce i percorsi ignorati, con le cartelle ignorate per intero ridotte a una voce; un nodo è escluso se lo è lui o un antenato. Righe escluse e cartelle rumorose (`bin`, `obj`, `node_modules`) hanno il nome `--ink-faint` e l'icona a opacità 0,55.
-- **Cartelle:** si aprono con `tray-in`/`tray-out` a `--dur-row`; la radice che nasce aperta e il cambio di progetto restano fermi (Still-Room Rule).
+- **Cartelle:** si aprono con `tray-in`/`tray-out` a `--dur-row`; la radice che nasce aperta resta ferma. Allo switch di progetto o di corsia dissolvono solo le righe nuove (Targeted-Dissolve Rule).
 - **Ricerca:** lettere trovate sottolineate in `--warn` da 2 px, peso 700, testo `--ink`; l'anello da 2 px lo porta l'involucro del campo.
 - **Pannello Git:** testata piatta con branch su `MenuButton`, sincronizzazione e CI, separata dalle modifiche da una sola linea `--line`; nessuna scheda annidata. Pull, Push e Sync sono `.ui-button-primary` solo quando c'è lavoro da fare, Fetch è `.ui-button-secondary`; i conteggi ↓/↑ sono neutri. Le modifiche hanno nome file prioritario e percorso attenuato su una seconda riga, troncati indipendentemente, con statistiche tabulari a destra. Ultimo commit e cronologia sono righe senza card, chiuse inizialmente, con chevron e `aria-expanded`; i file compaiono solo espandendo il commit. Le sessioni restano nel pannello Agente. L'esito CI è icona più testo meta senza fondo (`--success`, `--danger`; in corso con `StatusMark`). Le righe entrano con `chatReveal` solo per chiavi nuove: montaggio, cambio di scheda e polling non le rianimano.
 - **`GitDiffBadge`:** `+N` in `--success`, `−N` (U+2212) in `--danger`; meta 11,5 px (alto 18 px), compatto in didascalia 11 px (alto 16 px).
@@ -1190,7 +1209,8 @@ un'icona, mai un'emoji.
 
 ### Don't:
 
-- **Don't** animare la viewport del terminale né il contenuto delle colonne durante lo switch di progetto.
+- **Don't** animare la viewport del terminale.
+- **Don't** dissolvere per intero le colonne allo switch di progetto o di corsia: solo ciò che è cambiato (Targeted-Dissolve Rule).
 - **Don't** sovrapporre controlli, banner o veli alla viewport del terminale: lo Stop sta nella testata, gli errori del provider li mostra la TUI (Clear-Viewport Rule).
 - **Don't** lasciare in movimento qualcosa che non è più vivo o che sta in un contenitore chiuso.
 - **Don't** usare loop infiniti da 1 ms per reduced-motion: usare `animation: none`.

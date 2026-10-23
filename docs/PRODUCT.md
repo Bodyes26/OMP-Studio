@@ -25,7 +25,7 @@ Una sola finestra, tre colonne flessibili:
 - **Sinistra**: Albero dei file, pannello Git (branch, diff, commit, history) e Agente (Coda task, Storico sessioni con ricerca full-text e scheda Regole con censimento di regole di contesto e skill più proposte nate dall'attrito ricorrente).
 - **Centro**: Editor Monaco multi-modello (con visualizzatore diff affiancato, sintassi estesa, ripristino cursore/scroll), Browser Studio live integrato per visualizzare e controllare Chromium gestito o Chrome Relay senza finestre esterne (con takeover immediato, modalità privata, gestione dialoghi/file e inspector mirato), Laboratorio prototipi frontend React 19 + Tailwind v4 come corsia del progetto con anteprima live e revisioni Git interne, Whiteboard per diagrammi Mermaid (`studio_diagram`), Anteprima prototipi UI HTML/SVG in sandbox isolata (`studio_preview`), e Task Editor a sezioni con ruoli, thinking effort, direttive speciali e allegati visivi.
 
-In alto, la barra dei progetti permette lo switch istantaneo tra workspace con ordine manuale stabile o per priorità/MRU/alfabetico, badge numerico della coda e indicatore di stato reattivo per ogni agente. Se il progetto ha almeno una corsia oltre a Principale, sotto la barra compare la riga delle corsie: file, Git, editor e agente seguono il worktree selezionato e le altre corsie restano nel loro.
+In alto, la barra dei progetti permette lo switch istantaneo tra workspace con ordine manuale stabile o per priorità/MRU/alfabetico, badge numerico della coda e indicatore di stato reattivo per ogni agente. Sotto la barra c'è sempre la riga delle corsie, con la sola Principale se il progetto non ne ha altre: file, Git, editor e agente seguono il worktree selezionato e le altre corsie restano nel loro.
 
 ### I problemi che risolve
 
@@ -202,10 +202,11 @@ silenzioso, preciso**.
    decorata, sovrapposta né animata. Nessun overlay dell'app può coprirla mentre
    l'agente scrive.
 
-2. **Lo switch di progetto è istantaneo, quindi non si anima.** Cambiare progetto è
-   cambiare stanza, non navigare una pagina. Le tre colonne appaiono senza transizione:
-   si muove solo l'indicatore di tessera attiva. Animare lo swap aggiungerebbe latenza
-   percepita a gratis.
+2. **Lo switch di progetto cambia stanza, non naviga una pagina.** Le colonne non
+   sfumano per intero e non c'è transizione di pagina: si muove l'indicatore di tessera
+   attiva e si dissolve, in 300 ms, soltanto ciò che è davvero cambiato (righe nuove
+   dell'albero, righe visibili di editor e chat, schede nuove). Il terminale e le
+   etichette fisse non si muovono mai.
 
 3. **Lo stato di un progetto si legge dalla tessera, sempre.** Tre stati dell'agente e
    non uno di più: inattivo, sta lavorando, aspetta te. Ogni tessera li porta anche

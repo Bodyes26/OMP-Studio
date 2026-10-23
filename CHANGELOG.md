@@ -19,6 +19,8 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Dalla Companion invia un seguito o un comando direttamente nella conversazione letta, senza trasformarlo in un nuovo task.
 
 ### Changed
+- La riga delle corsie è sempre visibile sotto la barra dei progetti, con la sola «Principale» e il «+» se il progetto non ha altre corsie: passando da un progetto all'altro le colonne non saltano più. Le schede delle corsie compaiono e scompaiono con un'animazione.
+- Cambiando progetto o corsia si dissolve soltanto ciò che è cambiato, senza muovere etichette fisse, composer e terminale: i file nuovi dell'albero, le righe di codice diverse dell'editor, le schede nuove e i messaggi visibili della chat, a cascata in 300 ms.
 - Pulsanti primari ridisegnati: niente più riempimento pieno con bordo scuro all'hover, ma fondo tenue del colore del tema e testo leggibile (Pull/Push della colonna Git, finestra aggiornamenti e tutte le finestre di dialogo).
 - Tessere dei progetti: su macOS il bordo spesso dopo il click è sostituito da un filetto sottile.
 - Stato delle tessere progetto e corsia ridisegnato senza anello sul bordo: «serve una risposta» è un anello ambra che respira attorno al punto del progetto (un segnalino ambra sull'icona nelle corsie), «finito» è lo stesso segno in grigio e fermo. Niente più doppio bordo sporco su macOS.

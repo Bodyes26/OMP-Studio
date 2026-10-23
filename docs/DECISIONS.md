@@ -1054,6 +1054,7 @@ Fino alla versione 1.2, OMP Studio applicava il principio "un progetto = una car
 2. **Esperienza visiva a corsie annidate e riga contestuale:**
    - La TopBar conserva una sola tessera per progetto con stato aggregato (`attention` > `working` > `finished` > `idle`) e contatore globale della coda.
    - Quando un progetto possiede una o più corsie worktree attive o da revisionare, sotto la TopBar compare una riga contestuale compatta: prima tab fissa `Principale`, seguita dalle tab delle corsie per obiettivo con titolo, badge di stato e anello ambra in caso di richiesta input (`ask`). Nello scenario ordinario a singolo agente la riga non compare.
+   - *Rivisto dal Gate R45: la riga è sempre presente, con la sola Principale se non ci sono corsie secondarie.*
 3. **Switch atomico di workspace:**
    - La selezione di una corsia riorienta istantaneamente e simultaneamente: albero dei file, pannello Git, modelli e tab aperti dell'editor Monaco, superficie dell'agente (Terminale PTY o Chat GUI), Browser Studio e anteprima sandbox.
    - La geometria delle tre colonne (larghezze, stato di collasso) e le preferenze d'interfaccia restano invece proprietà del Progetto, evitando salti visivi di layout durante il passaggio tra corsie.
@@ -1877,3 +1878,32 @@ La prima PWA aveva una grafica propria (card dentro card, emoji, font di sistema
 1. **Porting, non import.** L'immagine del relay si costruisce dal solo contesto `relay/`, e i componenti della chat di Studio dipendono da `AgentSession`, Paraglide, Tauri e Monaco. La PWA ne porta struttura e CSS in componenti propri (`relay/web/src/components/chat/`); i token stanno in `relay/web/src/app.css`, copia di `src/app.css` da tenere allineata, e le icone in `relay/web/src/icons.ts` con gli stessi nomi di Studio.
 2. **Il tema arriva dalla macchina.** `HostState.theme` porta le ancore di `src/lib/theme.ts`; la PWA ne deriva gli stessi token (`relay/web/src/theme.ts`) e li conserva per il primo paint. Senza macchine abbinate segue il tema del sistema.
 3. **Chat ricca, additiva.** `RemoteChatMessage` acquista campi facoltativi (blocchi di ragionamento, sintesi dei tool con diff, output e todo, modello, immagini): un host vecchio manda solo `text` e la PWA lo disegna come prima. I delta di ragionamento passano solo se il relay dichiara la funzione `chat_rich`, perché la PWA servita da un relay vecchio li accoderebbe alla risposta.
+
+## Gate R45: la riga corsie è sempre presente e lo switch dissolve solo ciò che cambia
+
+**Data:** 2026-10-23
+**Esito:** APPROVATO (rivede il punto 2 del Gate R29, il principio 2 di `PRODUCT.md` e la Still-Room Rule di `DESIGN.md`)
+
+### Il problema
+
+1. Passando da un progetto con corsie a uno senza, la `LaneStrip` compariva o spariva di colpo: le colonne saltavano di 34 px e il terminale si ridimensionava nello stesso istante.
+2. Cambiare progetto o corsia sostituiva albero, editor e chat senza nessun segnale su cosa fosse davvero diverso.
+
+### Decisioni
+
+1. **La riga corsie è sempre presente** (34 px) per ogni progetto con cartella: con la sola «Principale» e il «+» quando non ci sono corsie secondarie. Le schede secondarie entrano (300 ms, scarto di 40 ms) e escono (`--dur-row`) con `badgeReveal`. Nessuna animazione di altezza: niente salto, e nessun ridimensionamento del terminale.
+2. **Lo switch dissolve solo ciò che cambia** (Targeted-Dissolve Rule in `DESIGN.md`): 300 ms, `--ease-reveal`, 4 px di corsa, blur 2 px, cascata da 35 ms con tetto a 420 ms. Albero file: righe che prima non c'erano (tra progetti tutte). Editor: testo delle righe visibili diverse da quelle nella stessa posizione prima, e schede nuove. Chat GUI: righe visibili del transcript che torna a schermo. Etichette fisse, composer, vassoio e terminale non si muovono.
+3. **Fotografia prima dello switch.** `+page.svelte` chiama `markSwitch` da un `$effect.pre` quando cambia progetto o corsia attiva (il primo valore e il caricamento iniziale non sono switch). Ogni regione registra con `registerSnapshot` come fotografarsi (`src/lib/switchDissolve.ts`): l'albero le chiavi delle righe, l'editor righe e schede. Ogni regione reagisce una sola volta per switch e solo entro 1,5 s: un montaggio qualunque non anima.
+4. **Editor via decorazioni Monaco.** Le righe da dissolvere ricevono una decorazione inline con classi globali (`sw-dissolve-text`, cascata `sw-l0`...`sw-l11`), tolta a fine animazione. Un inline non ha translate: per il testo dell'editor solo opacità e sfocatura.
+
+### Perché non le alternative
+
+- **Piegare la riga in altezza (`tray`):** ridimensiona il terminale a ogni fotogramma.
+- **Dissolvere le colonne per intero:** muove anche ciò che non è cambiato, comprese le etichette fisse.
+- **Confrontare i messaggi della chat per `id`:** gli `id` ripartono da 1 in ogni sessione e collidono tra corsie; si anima ciò che è visibile.
+
+### Rischi accettati
+
+- Il confronto dell'editor è per posizione: una riga inserita in cima segna come cambiate tutte quelle che seguono.
+- Il pannello Git non partecipa: si rimonta a ogni switch e ha già il suo ingresso per chiavi nuove.
+- I progetti senza cartella (bozze del Laboratorio) non hanno la riga corsie e mantengono il salto.

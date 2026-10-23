@@ -12,6 +12,8 @@ import {
 	type EditorSelectionInfo,
 	type ActiveEditorInfo
 } from './activeEditor';
+import { motionReduced } from '$lib/agent/motionState.svelte';
+import { DISSOLVE_MAX_DELAY_MS, DISSOLVE_MS } from '$lib/switchDissolve';
 
 export type { EditorSelectionInfo, ActiveEditorInfo };
 
@@ -397,4 +399,49 @@ export function updateGutterDecorations(
 	}
 
 	return editor.deltaDecorations(oldDecorationIds, newDecorations);
+}
+
+/** Righe del modello agganciato: la fotografia che lo switch confronta col file che arriva. */
+export function getAttachedLines(): string[] | null {
+	const model = editorInstance?.getModel();
+	return model ? model.getLinesContent() : null;
+}
+
+/** Ultima classe di cascata definita in app.css (`.sw-l0` ... `.sw-l11`). */
+const DISSOLVE_LAST_STAGGER_CLASS = 11;
+
+/**
+ * Dissolvenza mirata dello switch: il testo delle righe visibili che differiscono
+ * da `previousLines` (stessa posizione, contenuto diverso) rientra a cascata.
+ * Con `previousLines` nullo tutte le righe visibili sono nuove. Le righe uguali,
+ * quelle vuote e il resto dell'editor restano fermi. Sono decorazioni inline con
+ * classi globali, tolte a fine animazione: il modello resta com'era.
+ */
+export function dissolveChangedLines(previousLines: string[] | null): void {
+	const editor = editorInstance;
+	const model = editor?.getModel();
+	if (!editor || !model || motionReduced()) return;
+
+	const decorations: monaco.editor.IModelDeltaDecoration[] = [];
+	let order = 0;
+	for (const range of editor.getVisibleRanges()) {
+		for (let line = range.startLineNumber; line <= range.endLineNumber; line++) {
+			const maxColumn = model.getLineMaxColumn(line);
+			if (maxColumn <= 1) continue;
+			if (previousLines && previousLines[line - 1] === model.getLineContent(line)) continue;
+			decorations.push({
+				range: new monaco.Range(line, 1, line, maxColumn),
+				options: {
+					inlineClassName: `sw-dissolve-text sw-l${Math.min(order, DISSOLVE_LAST_STAGGER_CLASS)}`
+				}
+			});
+			order += 1;
+		}
+	}
+	if (decorations.length === 0) return;
+
+	const ids = model.deltaDecorations([], decorations);
+	window.setTimeout(() => {
+		if (!model.isDisposed()) model.deltaDecorations(ids, []);
+	}, DISSOLVE_MS + DISSOLVE_MAX_DELAY_MS + 120);
 }

@@ -15,6 +15,7 @@
 	import { IconArrowDown, IconAt } from '$lib/icons';
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { motionReduced } from '../motionState.svelte';
+	import { pendingSwitch, dissolve } from '$lib/switchDissolve';
 	import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
 	import { scheduleStore } from '$lib/stores/schedule.svelte';
 	import Tooltip from '$lib/ui/Tooltip.svelte';
@@ -364,6 +365,36 @@
 		}
 		lastSessionId = currentSessionId;
 	});
+
+	// Dissolvenza mirata dello switch di progetto/corsia: quando questa chat diventa
+	// quella a schermo, rientrano a cascata le sole righe del transcript visibili.
+	// Composer, vassoio e intestazioni restano fermi; una chat che nasce gia' visibile
+	// (nuova corsia, avvio) non e' uno switch e non anima.
+	let wasVisible: boolean | null = null;
+	let switchHandled = 0;
+	$effect(() => {
+		const nowVisible = visible;
+		const justShown = nowVisible && wasVisible === false;
+		wasVisible = nowVisible;
+		if (!justShown) return;
+		const sw = pendingSwitch();
+		if (!sw || sw.epoch === switchHandled) return;
+		switchHandled = sw.epoch;
+		void dissolveVisibleRows();
+	});
+
+	async function dissolveVisibleRows() {
+		// Il frame dopo: la chat appena scoperta deve avere il layout per sapere cosa si vede.
+		await svelteTick();
+		await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+		if (!scrollEl) return;
+		const view = scrollEl.getBoundingClientRect();
+		const rows = [...scrollEl.querySelectorAll<HTMLElement>('.entry-row')].filter((row) => {
+			const box = row.getBoundingClientRect();
+			return box.bottom > view.top && box.top < view.bottom;
+		});
+		dissolve(rows);
+	}
 
 	// Quando viene seminato un nuovo prompt (lancio da coda), garantisce l'ancoraggio in fondo.
 	$effect(() => {
