@@ -166,8 +166,18 @@ import {
 	type AskDialogAnswer,
 	type AskDialogQuestion,
 	type CancelSubagentResult,
+	modelSupportsImages,
 	StreamBatcher
 } from './wire';
+import {
+	compactCommandLine,
+	needsCompactChoice,
+	parseCompactArgs,
+	parseCompactOutput,
+	type CompactMode,
+	type CompactResult
+} from './compactMode';
+import { generationMs } from './turnStats';
 import type { CacheWarmingInFlight, CacheWarmingLast } from './sessionModes';
 import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
 import { computeQuotaInfo } from '$lib/quota/projectQuota';
@@ -266,6 +276,8 @@ export interface AssistantEntry {
 	stopReason?: string;
 	/** Come `UserEntry.messageTs`; condiviso dai pezzi di uno stesso messaggio. */
 	messageTs?: number;
+	/** Tempo di sola generazione in ms (`duration - ttft`), per i token al secondo del turno. */
+	genMs?: number;
 }
 
 export interface ToolEntry {
@@ -662,6 +674,8 @@ export class AgentSession {
 	// mentre l'agente alterna pensiero, testo e tool.
 	turnStartedAt: number | null = $state(null);
 	isCompacting = $state(false);
+	/** Scheda di scelta della modalita' di compattazione aperta sopra il composer. */
+	compactChoiceOpen = $state(false);
 	isReady = $state(false);
 	isAttached = $state(false);
 	isAttaching = $state(false);
@@ -707,6 +721,8 @@ export class AgentSession {
 	private contextReportInflight: Promise<void> | null = null;
 	private capturingContextReport = false;
 	private contextReportCapture: string | null = null;
+	// Righe `command_output` raccolte mentre una compattazione passa dal comando slash.
+	private compactCapture: string[] | null = null;
 	sessionId = $state<string | null>(null);
 	sessionFile = $state<string | null>(null);
 	sessionName = $state<string | null>(null);
@@ -2235,6 +2251,7 @@ export class AgentSession {
 						blocks: [...currentBlocks],
 						model: message.model,
 						usage: isLast ? message.usage : undefined,
+						genMs: isLast ? generationMs(message) : undefined,
 						stopReason: isLast ? message.stopReason : undefined,
 						messageTs: message.timestamp
 					});
@@ -2474,6 +2491,7 @@ export class AgentSession {
 				this.liveAssistantTs = undefined;
 				if (this.assistantEntry) {
 					this.assistantEntry.usage = message.usage;
+					this.assistantEntry.genMs = generationMs(message);
 					this.assistantEntry.model = message.model;
 					if (typeof message.timestamp === 'number') this.assistantEntry.messageTs = message.timestamp;
 					if (!this.assistantEntry.stopReason) {
@@ -2738,6 +2756,10 @@ export class AgentSession {
 							: typeof event.message === 'string'
 								? event.message
 								: '';
+				if (output && this.compactCapture) {
+					this.compactCapture.push(output);
+					return;
+				}
 				if (output && this.capturingContextReport && isContextReportText(output)) {
 					this.contextReportCapture = output;
 					return;
@@ -5223,8 +5245,45 @@ export class AgentSession {
 		return this.forkAtEntry(entryId);
 	}
 
+	/**
+	 * Ingresso di `/compact` e dei pulsanti. Con un modello che legge le
+	 * immagini e senza modalita' ne' focus c'e' una vera scelta (snapcompact,
+	 * soft, remote): apre la scheda invece di decidere al posto dell'utente.
+	 */
+	async requestCompact(args = ''): Promise<boolean> {
+		if (this.isCompacting) return false;
+		const parsed = parseCompactArgs(args);
+		if ('error' in parsed) {
+			this.flashNotice('warning', parsed.error);
+			return false;
+		}
+		if (needsCompactChoice(parsed, this.model != null && modelSupportsImages(this.model))) {
+			this.compactChoiceOpen = true;
+			return true;
+		}
+		return this.compact(parsed.instructions, parsed.mode);
+	}
+
+	/**
+	 * L'RPC `compact` non porta la modalita': per forzarla si manda a omp la
+	 * riga slash `/compact <modo>`, che omp risolve come nella TUI. L'esito
+	 * arriva come `command_output` (anche il fallimento, non come errore RPC).
+	 */
+	private async compactWithMode(mode: CompactMode, instructions?: string) {
+		this.compactCapture = [];
+		try {
+			await this.client.send({ type: 'prompt', message: compactCommandLine(mode, instructions) });
+			const outcome = parseCompactOutput(this.compactCapture.join('\n'));
+			if (outcome.failed) throw new Error(outcome.failed);
+			return outcome;
+		} finally {
+			this.compactCapture = null;
+		}
+	}
+
 	/** Compatta la cronologia e il contesto della sessione attiva. */
-	async compact(customInstructions?: string): Promise<boolean> {
+	async compact(customInstructions?: string, mode?: CompactMode): Promise<boolean> {
+		this.compactChoiceOpen = false;
 		if (this.isCompacting) return false;
 		this.isCompacting = true;
 		const entryId = this.nextEntryId++;
@@ -5236,16 +5295,12 @@ export class AgentSession {
 		});
 
 		try {
-			const res = await this.client.send<{
-				summary?: string;
-				shortSummary?: string;
-				tokensBefore?: number;
-				tokensAfter?: number;
-				firstKeptEntryId?: string;
-			}>({
-				type: 'compact',
-				customInstructions: customInstructions || undefined
-			});
+			const res: CompactResult = mode
+				? await this.compactWithMode(mode, customInstructions)
+				: await this.client.send<CompactResult>({
+						type: 'compact',
+						customInstructions: customInstructions || undefined
+					});
 
 			entry.running = false;
 			let msg = 'Contesto compattato';

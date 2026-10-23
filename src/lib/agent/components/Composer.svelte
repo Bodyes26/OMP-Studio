@@ -1341,7 +1341,7 @@
 										draftTokens={draftTokensEstimate}
 										onCompact={() => {
 											activeMenu = null;
-											void session.compact();
+											void session.requestCompact();
 										}}
 									/>
 								{/snippet}

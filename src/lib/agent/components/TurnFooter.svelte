@@ -6,6 +6,7 @@
 	// Con modifiche ai file, il bilancio `+N −M` del turno: il clic apre il
 	// diff del primo file toccato (lo stesso diff con HEAD del pannello Git).
 	import { IconCopy, IconCheck, IconFork } from '$lib/icons';
+	import { formatTokensPerSecond } from '../turnStats';
 	import Tooltip from '$lib/ui/Tooltip.svelte';
 	import { agentUiHooks } from '../ui-context';
 	import type { TurnDiffStats } from '../turnDiff';
@@ -14,6 +15,8 @@
 		assistantText: string;
 		toolCallsCount: number;
 		durationMs: number;
+		/** Token al secondo della sola generazione, sul turno intero. */
+		tokensPerSecond?: number;
 		model?: string;
 		cost?: number;
 		subagentCost?: number;
@@ -101,6 +104,9 @@
 				: m.chat_v2_turn_calls_count({ count: data.toolCallsCount }))
 			: null
 	);
+	const tpsLabel = $derived(
+		typeof data.tokensPerSecond === 'number' ? m.chat_v2_turn_tps({ value: formatTokensPerSecond(data.tokensPerSecond) }) : null
+	);
 </script>
 
 <div class="turn-footer rv-blur" style="--dur: 400ms; --blur: 4px;">
@@ -162,7 +168,7 @@
 					<span class="diff-del">−{data.diff.removed}</span>
 				</span>
 			{/if}
-			{#if toolCallsLabel || durationLabel || data.model || costLabel}<span class="sep">·</span>{/if}
+			{#if toolCallsLabel || durationLabel || tpsLabel || data.model || costLabel}<span class="sep">·</span>{/if}
 		{/if}
 		{#if toolCallsLabel}
 			<span class="meta-item">{toolCallsLabel}</span>
@@ -171,12 +177,16 @@
 			{#if toolCallsLabel}<span class="sep">·</span>{/if}
 			<span class="meta-item">{durationLabel}</span>
 		{/if}
-		{#if data.model}
+		{#if tpsLabel}
 			{#if toolCallsLabel || durationLabel}<span class="sep">·</span>{/if}
+			<span class="meta-item" title={m.chat_v2_turn_tps_tooltip()}>{tpsLabel}</span>
+		{/if}
+		{#if data.model}
+			{#if toolCallsLabel || durationLabel || tpsLabel}<span class="sep">·</span>{/if}
 			<span class="meta-item model">{data.model}</span>
 		{/if}
 		{#if costLabel}
-			{#if toolCallsLabel || durationLabel || data.model}<span class="sep">·</span>{/if}
+			{#if toolCallsLabel || durationLabel || tpsLabel || data.model}<span class="sep">·</span>{/if}
 			<span class="meta-item cost" title={costTooltip}>{costLabel}</span>
 		{/if}
 	</div>

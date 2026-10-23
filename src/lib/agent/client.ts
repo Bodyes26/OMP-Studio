@@ -225,10 +225,12 @@ export class OmpRpcClient {
 	async send<T = unknown>(command: RpcCommand): Promise<T> {
 		if (this.rpcId === null || this.closed) throw rpcError('Sessione RPC non aperta', command.type);
 		const id = `s${++this.seq}`;
+		// `/compact <modo>` passa da `prompt` ma fa la stessa chiamata al modello di `compact`.
+		const slowPrompt = command.type === 'prompt' && /^\/compact(\s|$)/.test(command.message);
 		const timeoutMs =
 			command.type === 'login'
 				? LOGIN_TIMEOUT_MS
-				: SLOW_COMMANDS[command.type] === true
+				: SLOW_COMMANDS[command.type] === true || slowPrompt
 					? SLOW_COMMAND_TIMEOUT_MS
 					: FAST_COMMANDS[command.type] === true
 						? FAST_COMMAND_TIMEOUT_MS

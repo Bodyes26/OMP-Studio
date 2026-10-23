@@ -32,6 +32,7 @@
 	import CompactionRow from './CompactionRow.svelte';
 	import NoticeRow from './NoticeRow.svelte';
 	import RetryRow from './RetryRow.svelte';
+	import { TurnSpeed } from '../turnStats';
 	import TtsrRow from './TtsrRow.svelte';
 	import UserMessage from './UserMessage.svelte';
 	import SubagentResultCard from './SubagentResultCard.svelte';
@@ -397,6 +398,7 @@
 		let currentTurnAssistantTexts: string[] = [];
 		let currentTurnToolCalls = 0;
 		let currentTurnCost = 0;
+		let currentTurnSpeed = new TurnSpeed();
 		let currentTurnModel: string | undefined;
 		let currentTurnStartMs = 0;
 		let currentTurnEndMs = 0;
@@ -419,6 +421,7 @@
 					if (entry.usage?.cost?.total) {
 						currentTurnCost += entry.usage.cost.total;
 					}
+					currentTurnSpeed.add(entry.usage?.output, entry.genMs);
 					if (entry.model) {
 						currentTurnModel = entry.model;
 					}
@@ -451,6 +454,7 @@
 						durationMs: duration,
 						model: currentTurnModel,
 						cost: currentTurnCost > 0 ? currentTurnCost : undefined,
+						tokensPerSecond: currentTurnSpeed.tokensPerSecond,
 						userTranscriptId: currentTurnUserId,
 						assistantTs: currentTurnAssistantTs,
 						diff: turnDiffOrUndefined(),
@@ -462,6 +466,7 @@
 				currentTurnAssistantTexts = [];
 				currentTurnToolCalls = 0;
 				currentTurnCost = 0;
+				currentTurnSpeed = new TurnSpeed();
 				currentTurnModel = undefined;
 				currentTurnStartMs = 0;
 				currentTurnEndMs = 0;
@@ -495,6 +500,7 @@
 				durationMs: duration,
 				model: currentTurnModel,
 				cost: currentTurnCost > 0 ? currentTurnCost : undefined,
+				tokensPerSecond: currentTurnSpeed.tokensPerSecond,
 				userTranscriptId: currentTurnUserId,
 				assistantTs: currentTurnAssistantTs,
 				diff: turnDiffOrUndefined(),

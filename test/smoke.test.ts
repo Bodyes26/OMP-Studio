@@ -36,6 +36,8 @@ import './acl-coverage.test.ts';
 import './context-menu-and-tree.test.ts';
 import './ask-tool.test.ts';
 import './composer-doc.test.ts';
+import './compact-mode.test.ts';
+import './turn-stats.test.ts';
 import './context-report.test.ts';
 import './prompt-cache.test.ts';
 import './external-url.test.ts';

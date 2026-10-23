@@ -23,7 +23,7 @@ export const STUDIO_SLASH_COMMANDS: AvailableCommand[] = [
 		name: 'compact',
 		get description() { return msg.ui_ts_commands_compatta_la_cronologia_e_il_contesto_della_2157(); },
 		source: 'studio',
-		input: { hint: '[istruzioni]' }
+		input: { hint: '[soft|remote|snapcompact] [istruzioni]' }
 	},
 	{
 		name: 'handoff',

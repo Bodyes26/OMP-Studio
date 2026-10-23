@@ -358,6 +358,9 @@ export interface AgentMessage {
 	usage?: MessageUsage;
 	stopReason?: string;
 	timestamp?: number;
+	/** Solo messaggi assistente: durata della richiesta e attesa del primo token, in ms. */
+	duration?: number;
+	ttft?: number;
 	attribution?: string;
 	/** Presente sui messaggi `toolResult`: identifica la card da riempire. */
 	toolCallId?: string;

@@ -3472,5 +3472,16 @@
   "chat_v2_composer_context_compact_heading": "Compattazione",
   "chat_v2_composer_context_compact_tradeoff": "Il riepilogo usa una richiesta al modello e cambia il prefisso in cache. Riduce il contesto futuro, ma la scadenza della cache, da sola, non garantisce risparmio.",
   "chat_v2_composer_context_cache_reason_no_cache_observed": "Nessuna lettura o scrittura in cache osservata sull'ultima risposta (cache non attiva, implicita o non riportata dal provider).",
-  "chat_v2_composer_context_cache_reason_identity_unknown": "Identità del modello o del provider incompleta sull'osservazione: impossibile associare una durata TTL dal catalogo."
+  "chat_v2_composer_context_cache_reason_identity_unknown": "Identità del modello o del provider incompleta sull'osservazione: impossibile associare una durata TTL dal catalogo.",
+  "compact_choice_title": "Come vuoi compattare il contesto?",
+  "compact_choice_desc": "Il modello legge le immagini: snapcompact è il più veloce.",
+  "compact_choice_snapcompact": "Snapcompact",
+  "compact_choice_snapcompact_desc": "Archivia la cronologia in immagini, senza chiamate al modello. Istantaneo.",
+  "compact_choice_soft": "Soft",
+  "compact_choice_soft_desc": "Riepilogo locale con il modello attivo.",
+  "compact_choice_remote": "Remote",
+  "compact_choice_remote_desc": "Riepilogo sul server del provider, se disponibile.",
+  "compact_choice_cancel": "Annulla",
+  "chat_v2_turn_tps": "{value} t/s",
+  "chat_v2_turn_tps_tooltip": "Token al secondo in generazione (esclusa l'attesa del primo token)"
 }

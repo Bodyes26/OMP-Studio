@@ -12,6 +12,8 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 ## [Unreleased]
 
 ### Added
+- Il piè di ogni risposta dell'agente mostra i token al secondo della generazione (esclusa l'attesa del primo token), accanto a durata, modello e costo.
+- `/compact` e il pulsante «Compatta ora» chiedono come compattare quando il modello legge le immagini: Snapcompact (istantaneo, senza chiamate al modello), Soft o Remote, con una scheda a un clic. Anche `/compact soft|remote|snapcompact` sceglie la modalità direttamente.
 - Apri diagrammi Mermaid, SVG e prototipi HTML/TSX dalla chat di Studio Remote in un'anteprima interattiva: affiancata alla conversazione sul desktop, a schermo intero sul telefono.
 - Intelligent UI e visualizzatore diagrammi: i diagrammi Mermaid in chat ora usano una card interattiva con lightbox espandibile e pulsante per proiettarli sulla Whiteboard centrale con pan e zoom. Risolto il rendering vuoto della Whiteboard centrale e aggiunta l'esportazione in SVG e PNG. Introdotta la suite di micro-componenti nativi in chat: tabelle intelligenti dinamiche con ricerca live, ordinamento colonne, paginazione ed export CSV; callout semantici stile GitHub (> [!NOTE], [!TIP], [!WARNING], ecc.); griglie di metriche e KPI (ui:metric); schede a tab (ui:tabs); sezioni ripiegabili (ui:accordion); stepper a fasi per piani d'azione (ui:steps) e slider di confronto prima/dopo (ui:compare).
 - Dalla Companion invia un seguito o un comando direttamente nella conversazione letta, senza trasformarlo in un nuovo task.

@@ -12,6 +12,8 @@ released: items are closed into a version via `npm run release -- <version>`.
 ## [Unreleased]
 
 ### Added
+- The footer of each agent reply shows generation speed in tokens per second (excluding the wait for the first token), next to duration, model and cost.
+- `/compact` and the "Compact now" button ask how to compact when the model reads images: Snapcompact (instant, no model call), Soft or Remote, with a one-click card. `/compact soft|remote|snapcompact` also picks the mode directly.
 - Open Mermaid diagrams, SVGs and HTML/TSX prototypes from Studio Remote chat in an interactive preview: beside the conversation on desktop, full screen on phones.
 - Intelligent UI and diagram viewer: Mermaid diagrams in chat now use an interactive card with expandable lightbox and a button to project them onto the central Whiteboard with pan and zoom. Fixed the empty whiteboard rendering race condition and added SVG and PNG export. Introduced native in-chat Intelligent UI micro-components: dynamic smart tables with live search, column sorting, pagination, and CSV export; GitHub-style semantic callouts (> [!NOTE], [!TIP], [!WARNING], etc.); KPI and metric grids (ui:metric); interactive tabs (ui:tabs); collapsible accordions (ui:accordion); phased plan steppers (ui:steps), and before/after comparison sliders (ui:compare).
 - Send a follow-up or a command from Companion directly to the conversation being read, without turning it into a new task.

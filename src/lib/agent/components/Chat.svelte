@@ -44,6 +44,7 @@
 	import Transcript from './Transcript.svelte';
 	import PlanTray from './PlanTray.svelte';
 	import PlanApprovalCard from './PlanApprovalCard.svelte';
+	import CompactChoiceCard from './CompactChoiceCard.svelte';
 
 	let {
 		session,
@@ -637,6 +638,9 @@
 				{#key cardKey}
 					<AskCard {session} pending={session.pendingUi} {visible} onMinimize={minimizeAsk} />
 				{/key}
+			{/if}
+			{#if session.compactChoiceOpen}
+				<CompactChoiceCard {session} {visible} />
 			{/if}
 			{#if guidedAsking && session.guidedGoal}
 				<GuidedGoalAskCard {session} interview={session.guidedGoal} {visible} />

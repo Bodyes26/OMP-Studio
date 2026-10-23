@@ -487,7 +487,7 @@
 								{draftTokens}
 								onCompact={() => {
 									contextMenuOpen = false;
-									void session.compact();
+									void session.requestCompact();
 								}}
 							/>
 						{/snippet}

@@ -3472,5 +3472,16 @@
   "chat_v2_composer_context_compact_heading": "Compaction",
   "chat_v2_composer_context_compact_tradeoff": "The summary uses a model request and changes the cached prefix. It reduces future context, but cache expiration alone does not guarantee savings.",
   "chat_v2_composer_context_cache_reason_no_cache_observed": "No cache read or write observed on the last response (caching may be disabled, implicit, or unreported by the provider).",
-  "chat_v2_composer_context_cache_reason_identity_unknown": "Incomplete model or provider identity on the observation: cannot safely apply a catalog TTL."
+  "chat_v2_composer_context_cache_reason_identity_unknown": "Incomplete model or provider identity on the observation: cannot safely apply a catalog TTL.",
+  "compact_choice_title": "How do you want to compact the context?",
+  "compact_choice_desc": "The model reads images: snapcompact is the fastest.",
+  "compact_choice_snapcompact": "Snapcompact",
+  "compact_choice_snapcompact_desc": "Archives the history as images, no model call. Instant.",
+  "compact_choice_soft": "Soft",
+  "compact_choice_soft_desc": "Local summary with the active model.",
+  "compact_choice_remote": "Remote",
+  "compact_choice_remote_desc": "Summary on the provider server, when available.",
+  "compact_choice_cancel": "Cancel",
+  "chat_v2_turn_tps": "{value} t/s",
+  "chat_v2_turn_tps_tooltip": "Tokens per second while generating (excluding wait for the first token)"
 }

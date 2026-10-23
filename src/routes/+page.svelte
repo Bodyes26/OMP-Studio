@@ -2302,7 +2302,7 @@
 
 		// --- comandi con una RPC corrispondente -------------------------------
 		if (lowerCmd === '/compact') {
-			void session.compact(argument || undefined);
+			void session.requestCompact(argument);
 			return true;
 		}
 		if (lowerCmd === '/handoff') {
