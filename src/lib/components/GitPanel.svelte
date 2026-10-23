@@ -2,7 +2,6 @@
 	import { m } from '$lib/paraglide/messages.js';
 	import { i18n } from '$lib/i18n/i18n.svelte';
 	import { invoke } from '@tauri-apps/api/core';
-	import { fetchSessionsList, type SessionEntry } from '$lib/agent/sessionsList';
 	import {
 		IconArrowDown,
 		IconArrowUp,
@@ -10,7 +9,6 @@
 		IconChevronDown,
 		IconClose,
 		IconCloud,
-		IconDiamond,
 		IconExternalLink,
 		IconGitBranch,
 		IconPlus
@@ -29,20 +27,12 @@
 
 	let {
 		projectPath,
-		agentState,
 		onOpenWorkingDiff,
-		onOpenCommitDiff,
-		onResumeSession,
-		canResume = true,
-		resumeReason = ''
+		onOpenCommitDiff
 	}: {
 		projectPath: string;
-		agentState?: string;
 		onOpenWorkingDiff?: (path: string) => void;
 		onOpenCommitDiff?: (path: string, hash: string, short: string) => void;
-		onResumeSession?: (sessionId: string) => void;
-		canResume?: boolean;
-		resumeReason?: string;
 	} = $props();
 
 	interface CommitFileEntry {
@@ -79,7 +69,6 @@
 	let notRepo = $state(false);
 	let refreshError = $state<string | null>(null);
 	let isRefreshing = $state(false);
-	let sessions = $state<SessionEntry[]>([]);
 	let actionError = $state<string | null>(null);
 	let syncMessage = $state<string | null>(null);
 	let showIncomingCommits = $state(false);
@@ -237,7 +226,6 @@
 		if (!projectPath) return;
 		void refresh('boot', true);
 		void loadBranches();
-		void loadSessions();
 
 		const poller = createAdaptivePoller({
 			focusedIntervalMs: 15_000,
@@ -290,19 +278,6 @@
 		}
 	}
 
-	async function loadSessions() {
-		const targetPath = projectPath;
-		if (!targetPath) return;
-		try {
-			const res = await fetchSessionsList(targetPath);
-			if (projectPath !== targetPath) return;
-			sessions = res;
-		} catch {
-			// Se la lista sessioni fallisce, degrada a vuoto
-			if (projectPath !== targetPath) return;
-			sessions = [];
-		}
-	}
 
 
 	async function checkout(name: string) {
@@ -340,62 +315,65 @@
 			<button type="button" class="retry-btn" onclick={() => void refresh('manual', true)}>{m.git_btn_retry()}</button>
 		</div>
 	{:else}
-		<div class="branch-row">
-			<MenuButton
-				open={branchMenuOpen}
-				ariaLabel={`${m.git_change_branch()}: ${branch || '—'}`}
-				tooltip={m.git_change_branch()}
-				width="260px"
-				className="branch-trigger"
-				onToggle={() => (branchMenuOpen = !branchMenuOpen)}
-				onClose={() => (branchMenuOpen = false)}
-			>
-				{#snippet trigger()}
-					<span class="branch-icon" aria-hidden="true"><IconGitBranch /></span>
-					<span class="branch-name">{branch || '—'}</span>
-					<span class="branch-caret" aria-hidden="true"><IconChevronDown /></span>
-				{/snippet}
-				{#each branches as b (b.name)}
-					<button
-						type="button"
-						class="branch-item"
-						role="menuitemradio"
-						aria-checked={b.current}
-						disabled={b.current}
-						onclick={() => checkout(b.name)}
-					>
-						<span class="branch-check" aria-hidden="true">{#if b.current}<IconCheck />{/if}</span>
-						<span class="branch-item-name">{b.name}</span>
-					</button>
-				{/each}
-				<div class="branch-new">
-					<input
-						class="ui-input branch-input"
-						placeholder={m.ui_gitpanel_feature_nuova_idea_d0a3()}
-						aria-label={m.git_btn_create_branch()}
-						bind:value={newBranchName}
-						onkeydown={(e) => {
-							if (e.key === 'Enter') void createBranch();
-						}}
-					/>
-					<Tooltip text={m.git_btn_create_branch()}>
+		<div class="git-top">
+			<div class="branch-row">
+				<MenuButton
+					open={branchMenuOpen}
+					ariaLabel={`${m.git_change_branch()}: ${branch || '—'}`}
+					tooltip={m.git_change_branch()}
+					width="260px"
+					className="branch-trigger"
+					onToggle={() => (branchMenuOpen = !branchMenuOpen)}
+					onClose={() => (branchMenuOpen = false)}
+				>
+					{#snippet trigger()}
+						<span class="branch-icon" aria-hidden="true"><IconGitBranch /></span>
+						<span class="branch-name">{branch || '—'}</span>
+						<span class="branch-caret" aria-hidden="true"><IconChevronDown /></span>
+					{/snippet}
+					{#each branches as b (b.name)}
 						<button
 							type="button"
-							class="ui-button ui-button-secondary branch-create"
-							aria-label={m.git_btn_create_branch()}
-							onclick={() => void createBranch()}
+							class="branch-item"
+							role="menuitemradio"
+							aria-checked={b.current}
+							disabled={b.current}
+							onclick={() => checkout(b.name)}
 						>
-							<IconPlus />
+							<span class="branch-check" aria-hidden="true">{#if b.current}<IconCheck />{/if}</span>
+							<span class="branch-item-name">{b.name}</span>
 						</button>
-					</Tooltip>
-				</div>
-			</MenuButton>
-		</div>
+					{/each}
+					<div class="branch-new">
+						<input
+							class="ui-input branch-input"
+							placeholder={m.ui_gitpanel_feature_nuova_idea_d0a3()}
+							aria-label={m.git_btn_create_branch()}
+							bind:value={newBranchName}
+							onkeydown={(e) => {
+								if (e.key === 'Enter') void createBranch();
+							}}
+						/>
+						<Tooltip text={m.git_btn_create_branch()}>
+							<button
+								type="button"
+								class="ui-button ui-button-secondary branch-create"
+								aria-label={m.git_btn_create_branch()}
+								onclick={() => void createBranch()}
+							>
+								<IconPlus />
+							</button>
+						</Tooltip>
+					</div>
+				</MenuButton>
+			</div>
 
-		<!-- Sezione GitHub Sync & Upstream -->
-		{#if upstream && upstream.isGit}
-			<div class="sync-card">
-				<div class="sync-status-row">
+			{#if actionError}
+				<div class="action-error" role="alert" title={actionError}>{actionError}</div>
+			{/if}
+
+			{#if upstream && upstream.isGit}
+				<div class="sync-row">
 					<div class="sync-info">
 						{#if upstream.upstream}
 							<span class="upstream-name" title={`Traccia ${upstream.upstream}`}>
@@ -478,7 +456,6 @@
 					<div class="sync-feedback">{syncMessage}</div>
 				{/if}
 
-				<!-- Commit in arrivo espandibili -->
 				{#if showIncomingCommits && upstream.incomingCommits.length > 0}
 					<div class="incoming-commits-list">
 						<div class="incoming-head">{m.git_incoming_commits()}</div>
@@ -492,7 +469,6 @@
 					</div>
 				{/if}
 
-				<!-- GitHub Actions CI Status: esito con icona e testo, senza fondo -->
 				{#if latestAction}
 					{@const ci =
 						latestAction.conclusion === 'success'
@@ -524,8 +500,8 @@
 						</Tooltip>
 					</div>
 				{/if}
-			</div>
-		{/if}
+			{/if}
+		</div>
 
 		<div class="section-label">
 			{m.git_uncommitted()}
@@ -537,13 +513,19 @@
 		{:else}
 			{#each workingFiles as f (f.path)}
 				<button
-					class="row"
+					type="button"
+					class="file-row"
 					in:chatReveal={{ duration: freshKeys.has(f.path) ? undefined : 0 }}
 					title="{f.path} — clicca per il diff con HEAD"
 					onclick={() => onOpenWorkingDiff?.(f.path)}
 				>
-					<GitStatusMark status={f.status} />
-					<span class="name"><span class="dir">{dirName(f.path)}</span>{baseName(f.path)}</span>
+					<span class="file-status"><GitStatusMark status={f.status} /></span>
+					<div class="file-info">
+						<span class="file-name">{baseName(f.path)}</span>
+						{#if dirName(f.path)}
+							<span class="file-dir">{dirName(f.path)}</span>
+						{/if}
+					</div>
 					{#if f.insertions !== null || f.deletions !== null}
 						<span class="nums">
 							{#if f.insertions}<span class="ins">+{f.insertions}</span>{/if}
@@ -554,74 +536,103 @@
 			{/each}
 		{/if}
 
-		<div class="section-label">{m.git_recent_sessions()}</div>
-		{#if sessions.length === 0}
-			<div class="empty">{m.git_no_sessions()}</div>
-		{:else}
-			{#each sessions.slice(0, 8) as s (s.id)}
-				<button
-					class="row session-row"
-					disabled={!canResume}
-					title={canResume ? m.ui_gitpanel_value1_clicca_per_riprendere_questa_sessione_968c({ value1: s.title ?? s.prompt }) : resumeReason}
-					onclick={() => onResumeSession?.(s.id)}
-				>
-					<span class="session-badge" aria-hidden="true"><IconDiamond /></span>
-					<span class="name">{s.title || s.prompt || m.session_list_untitled()}</span>
-					<span class="nums"><span class="session-time">{relTime(s.created_at)}</span></span>
-				</button>
-			{/each}
-		{/if}
-		{#if actionError}
-			<div class="action-error" title={actionError}>{actionError}</div>
-		{/if}
 		{#if lastCommit}
 			<div class="section-label">{m.git_last_commit()}</div>
-			<div class="commit-card">
-				<button class="commit-head" title={lastCommit.hash} onclick={() => toggleCommit(lastCommit!.hash)}>
-					<span class="subject">{lastCommit.subject}</span>
-					<span class="meta">{lastCommit.short} · {lastCommit.author} · {relTime(lastCommit.time)}</span>
-				</button>
-				{#each lastCommit.files as f (f.path)}
-					<button
-						class="row sub"
-						title="{f.path} — diff di questo commit"
-						onclick={() => onOpenCommitDiff?.(f.path, lastCommit!.hash, lastCommit!.short)}
-					>
-						<GitStatusMark status={f.status} />
-						<span class="name"><span class="dir">{dirName(f.path)}</span>{baseName(f.path)}</span>
-						{#if f.insertions !== null || f.deletions !== null}
-							<span class="nums">
-								{#if f.insertions}<span class="ins">+{f.insertions}</span>{/if}
-								{#if f.deletions}<span class="del">−{f.deletions}</span>{/if}
-							</span>
-						{/if}
-					</button>
-				{/each}
-			</div>
+			<button
+				type="button"
+				class="commit-row"
+				aria-expanded={expandedCommit === lastCommit.hash}
+				onclick={() => toggleCommit(lastCommit!.hash)}
+				title={lastCommit.hash}
+			>
+				<span class="commit-chevron" class:expanded={expandedCommit === lastCommit.hash} aria-hidden="true">
+					<IconChevronDown />
+				</span>
+				<div class="commit-info">
+					<span class="commit-subject">{lastCommit.subject}</span>
+					<div class="commit-meta">
+						<span class="commit-hash">{lastCommit.short}</span>
+						<span class="commit-author">· {lastCommit.author}</span>
+						<span class="commit-time">· {relTime(lastCommit.time)}</span>
+					</div>
+				</div>
+			</button>
+			{#if expandedCommit === lastCommit.hash}
+				<div class="commit-files">
+					{#each lastCommit.files as f (f.path)}
+						<button
+							type="button"
+							class="file-row sub"
+							title="{f.path} — diff di questo commit"
+							onclick={() => onOpenCommitDiff?.(f.path, lastCommit!.hash, lastCommit!.short)}
+						>
+							<span class="file-status"><GitStatusMark status={f.status} /></span>
+							<div class="file-info">
+								<span class="file-name">{baseName(f.path)}</span>
+								{#if dirName(f.path)}
+									<span class="file-dir">{dirName(f.path)}</span>
+								{/if}
+							</div>
+							{#if f.insertions !== null || f.deletions !== null}
+								<span class="nums">
+									{#if f.insertions}<span class="ins">+{f.insertions}</span>{/if}
+									{#if f.deletions}<span class="del">−{f.deletions}</span>{/if}
+								</span>
+							{/if}
+						</button>
+					{/each}
+				</div>
+			{/if}
 		{/if}
 
 		{#if commits.length > 1}
 			<div class="section-label">{m.git_history()}</div>
 			{#each commits.slice(1) as c (c.hash)}
-				<div class="commit-card" in:chatReveal={{ duration: freshKeys.has(c.hash) ? undefined : 0 }}>
-					<button class="commit-head" title={c.hash} onclick={() => toggleCommit(c.hash)}>
-						<span class="dot" aria-hidden="true"></span>
-						<span class="subject">{c.subject}</span>
-						<span class="meta">{c.short} · {relTime(c.time)}</span>
-					</button>
-					{#if expandedCommit === c.hash}
+				<button
+					type="button"
+					class="commit-row"
+					in:chatReveal={{ duration: freshKeys.has(c.hash) ? undefined : 0 }}
+					aria-expanded={expandedCommit === c.hash}
+					onclick={() => toggleCommit(c.hash)}
+					title={c.hash}
+				>
+					<span class="commit-chevron" class:expanded={expandedCommit === c.hash} aria-hidden="true">
+						<IconChevronDown />
+					</span>
+					<div class="commit-info">
+						<span class="commit-subject">{c.subject}</span>
+						<div class="commit-meta">
+							<span class="commit-hash">{c.short}</span>
+							<span class="commit-time">· {relTime(c.time)}</span>
+						</div>
+					</div>
+				</button>
+				{#if expandedCommit === c.hash}
+					<div class="commit-files">
 						{#each c.files as f (f.path)}
 							<button
-								class="row sub"
+								type="button"
+								class="file-row sub"
 								title="{f.path} — diff di questo commit"
 								onclick={() => onOpenCommitDiff?.(f.path, c.hash, c.short)}
 							>
-								<GitStatusMark status={f.status} />
-								<span class="name"><span class="dir">{dirName(f.path)}</span>{baseName(f.path)}</span>
+								<span class="file-status"><GitStatusMark status={f.status} /></span>
+								<div class="file-info">
+									<span class="file-name">{baseName(f.path)}</span>
+									{#if dirName(f.path)}
+										<span class="file-dir">{dirName(f.path)}</span>
+									{/if}
+								</div>
+								{#if f.insertions !== null || f.deletions !== null}
+									<span class="nums">
+										{#if f.insertions}<span class="ins">+{f.insertions}</span>{/if}
+										{#if f.deletions}<span class="del">−{f.deletions}</span>{/if}
+									</span>
+								{/if}
 							</button>
 						{/each}
-					{/if}
-				</div>
+					</div>
+				{/if}
 			{/each}
 		{/if}
 	{/if}
@@ -633,12 +644,21 @@
 		font-family: var(--font-ui);
 	}
 
+	.git-top {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		padding: 0 var(--space-2) var(--space-2);
+		border-bottom: 1px solid var(--line);
+		margin-bottom: var(--space-1);
+	}
+
 	/* Il trigger del menu branch occupa tutta la riga: MenuButton e Tooltip
 	   nascono inline, qui si allargano. */
 	.branch-row {
 		display: flex;
 		align-items: center;
-		padding: 0 var(--space-2);
+		width: 100%;
 	}
 
 	.branch-row :global(.tooltip-wrapper),
@@ -674,27 +694,6 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-	}
-
-	/* Etichetta di sezione in frase: niente maiuscolo spaziato sotto le schede. */
-	.section-label {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		padding: var(--space-3) var(--space-3) var(--space-1);
-		color: var(--ink-muted);
-		font-size: var(--text-label);
-		font-weight: 500;
-	}
-
-	.count {
-		background: var(--bg-active);
-		color: var(--ink-muted);
-		border-radius: var(--radius-full);
-		padding: 0 6px;
-		line-height: 16px;
-		font-size: var(--text-meta);
-		font-variant-numeric: tabular-nums;
 	}
 
 	/* Righe del menu branch: stesso passo delle righe di MenuButton. */
@@ -758,72 +757,295 @@
 		padding: 0 var(--space-2);
 	}
 
-	/* Errore d'azione: esito in testo meta, senza fondo. */
+	/* Errore d'azione: esito in testo meta, vicino ai controlli pertinenti. */
 	.action-error {
-		margin: var(--space-1) var(--space-3);
 		color: var(--danger);
 		font-size: var(--text-meta);
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
+		line-height: 1.3;
+		word-break: break-word;
 	}
 
-	.session-badge {
+	/* Area di sincronizzazione compatta e piatta, senza bordi a scheda. */
+	.sync-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-2);
+		min-width: 0;
+	}
+
+	.sync-info {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		min-width: 0;
+		flex: 1;
+	}
+
+	.upstream-name {
 		display: inline-flex;
-		width: 14px;
-		justify-content: center;
-		flex-shrink: 0;
-		color: var(--brand-ink);
+		align-items: center;
+		gap: 4px;
+		font-family: var(--font-mono);
+		font-size: var(--text-meta);
+		color: var(--ink-muted);
+		max-width: 120px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 		--icon-size: 12px;
 	}
 
-	.session-time {
+	.upstream-icon {
+		display: inline-flex;
 		color: var(--ink-faint);
 	}
 
-	.row {
+	.upstream-none {
+		font-size: var(--text-meta);
+		color: var(--ink-faint);
+		font-style: italic;
+	}
+
+	.sync-aligned {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		font-size: var(--text-meta);
+		color: var(--ink-muted);
+		--icon-size: 12px;
+	}
+
+	.divergence-pills {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		flex-shrink: 0;
+	}
+
+	/* Conteggi ahead/behind neutri: la freccia dice la direzione. */
+	.div-pill {
+		display: inline-flex;
+		align-items: center;
+		gap: 2px;
+		height: 18px;
+		padding: 0 6px 0 4px;
+		border: 1px solid var(--line);
+		border-radius: var(--radius-full);
+		background: transparent;
+		color: var(--ink-muted);
+		font-family: var(--font-ui);
+		font-size: var(--text-meta);
+		font-variant-numeric: tabular-nums;
+		--icon-size: 12px;
+	}
+
+	.div-pill.clickable {
+		cursor: pointer;
+		transition:
+			background-color var(--dur-fast) var(--ease-out),
+			color var(--dur-fast) var(--ease-out);
+	}
+
+	.div-pill.clickable:hover {
+		background: var(--bg-hover);
+		color: var(--ink);
+	}
+
+	.sync-actions {
+		display: flex;
+		align-items: center;
+		flex-shrink: 0;
+	}
+
+	.btn-sync {
+		height: 22px;
+		padding: 0 var(--space-2);
+		font-size: var(--text-caption);
+		white-space: nowrap;
+	}
+
+	.sync-feedback {
+		font-size: var(--text-meta);
+		color: var(--ink-muted);
+		line-height: 1.3;
+	}
+
+	.incoming-commits-list {
+		display: flex;
+		flex-direction: column;
+		gap: 3px;
+		padding-top: var(--space-1);
+		border-top: 1px solid var(--line);
+	}
+
+	.incoming-head {
+		font-size: var(--text-caption);
+		font-weight: 500;
+		color: var(--ink-muted);
+	}
+
+	.incoming-commit-row {
+		display: flex;
+		align-items: baseline;
+		gap: var(--space-2);
+		font-size: var(--text-meta);
+	}
+
+	.commit-hash {
+		font-family: var(--font-mono);
+		color: var(--ink-faint);
+		flex-shrink: 0;
+	}
+
+	.incoming-commit-row .commit-subject {
+		font-size: var(--text-meta);
+	}
+
+	.actions-status-row {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		padding-top: var(--space-1);
+		border-top: 1px solid var(--line);
+		font-size: var(--text-meta);
+		min-width: 0;
+	}
+
+	.ci-label {
+		font-weight: 500;
+		color: var(--ink-muted);
+		flex-shrink: 0;
+	}
+
+	/* Esito CI come testo con icona, mai una pillola piena. */
+	.ci-outcome {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		flex-shrink: 0;
+		--icon-size: 12px;
+	}
+
+	.ci-outcome.success { color: var(--success); }
+	.ci-outcome.failure { color: var(--danger); }
+	.ci-outcome.running { color: var(--ink-muted); }
+
+	.ci-name {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		color: var(--ink);
+	}
+
+	.ci-link {
+		display: flex;
+		align-items: center;
+		padding: 2px;
+		background: none;
+		border: none;
+		border-radius: var(--radius-md);
+		color: var(--ink-muted);
+		cursor: pointer;
+		flex-shrink: 0;
+		transition: color var(--dur-fast) var(--ease-out);
+	}
+
+	.ci-link:hover {
+		color: var(--ink);
+	}
+
+	/* Etichetta di sezione in frase: niente maiuscolo spaziato sotto le schede. */
+	.section-label {
 		display: flex;
 		align-items: center;
 		gap: 6px;
-		width: 100%;
-		height: 24px;
-		padding: 0 var(--space-3);
+		padding: var(--space-2) var(--space-2) var(--space-1);
+		color: var(--ink-muted);
+		font-size: var(--text-label);
+		font-weight: 500;
+	}
+
+	.count {
+		background: var(--bg-active);
+		color: var(--ink-muted);
+		border-radius: var(--radius-full);
+		padding: 0 6px;
+		line-height: 16px;
+		font-size: var(--text-meta);
+		font-variant-numeric: tabular-nums;
+	}
+
+	/* Righe file unificate per modifiche di lavoro e file di commit */
+	.file-row {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		width: calc(100% - var(--space-2) * 2);
+		margin: 1px var(--space-2);
+		padding: 3px var(--space-1);
+		min-height: 26px;
 		background: transparent;
 		border: none;
+		border-radius: var(--radius-sm);
 		color: var(--ink);
-		font-size: var(--text-body);
 		cursor: pointer;
 		text-align: left;
-		white-space: nowrap;
-		overflow: hidden;
+		transition: background-color var(--dur-fast) var(--ease-out);
 	}
 
-	/* Le righe stanno in un contenitore che taglia: l'anello va all'interno. */
-	.row:focus-visible,
-	.commit-head:focus-visible {
-		outline-offset: -2px;
-	}
-
-	.row:hover:not(:disabled) {
+	.file-row:hover:not(:disabled) {
 		background: var(--bg-hover);
 	}
 
-	.row:disabled {
+	.file-row:focus-visible,
+	.commit-row:focus-visible {
+		outline: 2px solid var(--accent);
+		outline-offset: -2px;
+	}
+
+	.file-row:disabled {
 		cursor: default;
 	}
 
-	.row.sub {
+	.file-row.sub {
 		padding-left: var(--space-4);
 	}
 
-	.name {
-		flex: 1;
-		overflow: hidden;
-		text-overflow: ellipsis;
+	.file-status {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
+		width: 14px;
 	}
 
-	.dir {
+	.file-info {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		justify-content: center;
+		line-height: 1.25;
+	}
+
+	.file-name {
+		font-size: var(--text-body);
+		color: var(--ink);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.file-dir {
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		line-height: 1.15;
 	}
 
 	.nums {
@@ -833,56 +1055,67 @@
 		flex-shrink: 0;
 		display: inline-flex;
 		gap: 4px;
+		align-self: center;
 	}
 
 	/* Esito del diff: verde e rosso sempre con il segno + e −. */
 	.ins { color: var(--success); }
 	.del { color: var(--danger); }
 
-	.commit-card {
-		margin: 0 var(--space-2) var(--space-1);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		overflow: hidden;
-	}
-
-	.commit-head {
+	/* Righe commit piatte senza card né bordi impilati */
+	.commit-row {
 		display: flex;
-		flex-direction: column;
-		align-items: stretch;
-		gap: 1px;
-		width: 100%;
-		padding: 5px var(--space-2);
+		align-items: flex-start;
+		gap: 6px;
+		width: calc(100% - var(--space-2) * 2);
+		margin: 1px var(--space-2);
+		padding: 4px var(--space-1);
 		background: transparent;
 		border: none;
+		border-radius: var(--radius-sm);
 		cursor: pointer;
 		text-align: left;
+		transition: background-color var(--dur-fast) var(--ease-out);
 	}
 
-	.commit-head:hover {
+	.commit-row:hover {
 		background: var(--bg-hover);
 	}
 
-	.subject {
+	.commit-chevron {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		margin-top: 2px;
+		color: var(--ink-faint);
+		--icon-size: 14px;
+		flex-shrink: 0;
+		transform: rotate(-90deg);
+		transition: transform var(--dur-fast) var(--ease-out);
+	}
+
+	.commit-chevron.expanded {
+		transform: rotate(0deg);
+	}
+
+	.commit-info {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 1px;
+	}
+
+	.commit-subject {
 		color: var(--ink);
 		font-size: var(--text-body);
+		line-height: 1.25;
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
-		display: flex;
-		align-items: center;
-		gap: 6px;
 	}
 
-	.dot {
-		width: 6px;
-		height: 6px;
-		border-radius: var(--radius-full);
-		background: var(--ink-faint);
-		flex-shrink: 0;
-	}
-
-	.meta {
+	.commit-meta {
 		color: var(--ink-faint);
 		font-size: var(--text-meta);
 		font-family: var(--font-mono);
@@ -890,6 +1123,12 @@
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
+		line-height: 1.2;
+	}
+
+	.commit-files {
+		display: flex;
+		flex-direction: column;
 	}
 
 	.empty {
@@ -934,200 +1173,6 @@
 
 	.git-error .retry-btn:hover {
 		background: var(--bg-hover);
-		color: var(--ink);
-	}
-
-	/* Scheda di sincronizzazione: superficie neutra, solo il bordo la separa. */
-	.sync-card {
-		margin: var(--space-2);
-		padding: var(--space-2) var(--space-3);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-2);
-	}
-
-	.sync-status-row {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: var(--space-2);
-	}
-
-	.sync-info {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		flex-wrap: wrap;
-		min-width: 0;
-	}
-
-	.upstream-name {
-		display: inline-flex;
-		align-items: center;
-		gap: 4px;
-		font-family: var(--font-mono);
-		font-size: var(--text-meta);
-		color: var(--ink-muted);
-		--icon-size: 12px;
-	}
-
-	.upstream-icon {
-		display: inline-flex;
-		color: var(--ink-faint);
-	}
-
-	.upstream-none {
-		font-size: var(--text-meta);
-		color: var(--ink-faint);
-		font-style: italic;
-	}
-
-	.sync-aligned {
-		display: inline-flex;
-		align-items: center;
-		gap: 4px;
-		font-size: var(--text-meta);
-		color: var(--ink-muted);
-		--icon-size: 12px;
-	}
-
-	.divergence-pills {
-		display: inline-flex;
-		align-items: center;
-		gap: 4px;
-	}
-
-	/* Conteggi ahead/behind neutri: la freccia dice la direzione. */
-	.div-pill {
-		display: inline-flex;
-		align-items: center;
-		gap: 2px;
-		height: 18px;
-		padding: 0 6px 0 4px;
-		border: 1px solid var(--line);
-		border-radius: var(--radius-full);
-		background: transparent;
-		color: var(--ink-muted);
-		font-family: var(--font-ui);
-		font-size: var(--text-meta);
-		font-variant-numeric: tabular-nums;
-		--icon-size: 12px;
-	}
-
-	.div-pill.clickable {
-		cursor: pointer;
-		transition:
-			background-color var(--dur-fast) var(--ease-out),
-			color var(--dur-fast) var(--ease-out);
-	}
-
-	.div-pill.clickable:hover {
-		background: var(--bg-hover);
-		color: var(--ink);
-	}
-
-	.btn-sync {
-		white-space: nowrap;
-	}
-
-	.sync-feedback {
-		font-size: var(--text-meta);
-		color: var(--ink-muted);
-		line-height: 1.3;
-	}
-
-	.incoming-commits-list {
-		display: flex;
-		flex-direction: column;
-		gap: 3px;
-		padding-top: var(--space-1);
-		border-top: 1px solid var(--line);
-	}
-
-	.incoming-head {
-		font-size: var(--text-caption);
-		font-weight: 500;
-		color: var(--ink-muted);
-	}
-
-	.incoming-commit-row {
-		display: flex;
-		align-items: baseline;
-		gap: var(--space-2);
-		font-size: var(--text-meta);
-	}
-
-	.commit-hash {
-		font-family: var(--font-mono);
-		color: var(--ink-faint);
-		flex-shrink: 0;
-	}
-
-	.commit-subject {
-		flex: 1;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		color: var(--ink);
-	}
-
-	.commit-date {
-		color: var(--ink-faint);
-		font-variant-numeric: tabular-nums;
-		flex-shrink: 0;
-	}
-
-	.actions-status-row {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		padding-top: var(--space-1);
-		border-top: 1px solid var(--line);
-		font-size: var(--text-meta);
-	}
-
-	.ci-label {
-		font-weight: 500;
-		color: var(--ink-muted);
-	}
-
-	/* Esito CI come testo con icona, mai una pillola piena. */
-	.ci-outcome {
-		display: inline-flex;
-		align-items: center;
-		gap: 4px;
-		flex-shrink: 0;
-		--icon-size: 12px;
-	}
-
-	.ci-outcome.success { color: var(--success); }
-	.ci-outcome.failure { color: var(--danger); }
-	.ci-outcome.running { color: var(--ink-muted); }
-
-	.ci-name {
-		flex: 1;
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		color: var(--ink);
-	}
-
-	.ci-link {
-		display: flex;
-		align-items: center;
-		padding: 2px;
-		background: none;
-		border: none;
-		border-radius: var(--radius-md);
-		color: var(--ink-muted);
-		cursor: pointer;
-		transition: color var(--dur-fast) var(--ease-out);
-	}
-
-	.ci-link:hover {
 		color: var(--ink);
 	}
 </style>

@@ -3578,12 +3578,8 @@
 						{#key `${proj.id}:${proj.lane.laneId}:${proj.lane.workspacePath}`}
 							<GitPanel
 								projectPath={proj.lane.workspacePath}
-								agentState={proj.lane.agentState}
 								onOpenWorkingDiff={(p) => handleGitPanelDiff(p, 'working')}
 								onOpenCommitDiff={(p, hash) => handleGitPanelDiff(p, 'commit', hash)}
-								onResumeSession={(sid) => handleResumeSession(proj.id, sid)}
-								canResume={canAutomate(proj.id)}
-								resumeReason={automationReason(proj.id)}
 							/>
 						{/key}
 					{:else if proj.canonicalProjectPath}

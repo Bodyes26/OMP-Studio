@@ -17,6 +17,8 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Dalla Companion invia un seguito o un comando direttamente nella conversazione letta, senza trasformarlo in un nuovo task.
 
 ### Changed
+- La finestra di aggiornamento di Studio mette in primo piano versione e novità in Markdown, senza riquadri annidati; canale compatto, dettagli tecnici richiudibili e azioni semplificate.
+- La colonna Git usa una testata compatta e una cronologia senza card: nomi file prioritari, percorsi separati e commit espandibili; le sessioni restano nel pannello Agente.
 - Su touch, Intelligent UI adatta tabelle, schede, metriche e confronti agli schermi stretti, con controlli più facili da premere e diagrammi ingrandibili con le dita.
 - Studio e il controllo remoto eliminano codice e risorse obsolete, riducendo le elaborazioni superflue e il contenuto distribuito senza rimuovere funzionalità disponibili.
 - La finestra di Studio non si restringe più sotto 1024×640: uscendo per sbaglio dallo schermo intero resta utilizzabile.

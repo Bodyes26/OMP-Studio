@@ -17,6 +17,8 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Send a follow-up or a command from Companion directly to the conversation being read, without turning it into a new task.
 
 ### Changed
+- Studio's update dialog prioritizes the version and Markdown release notes without nested panels, with compact channel selection, collapsible technical details and simpler actions.
+- The Git sidebar uses a compact header and card-free history: prominent file names, separate paths and expandable commits; sessions remain in the Agent panel.
 - On touch devices, Intelligent UI adapts tables, tabs, metrics and comparisons to narrow screens, with easier-to-tap controls and pinch-to-zoom diagrams.
 - Studio and remote control remove obsolete code and resources, reducing unnecessary work and shipped content without removing available features.
 - The Studio window no longer shrinks below 1024×640, so accidentally leaving full screen keeps it usable.
