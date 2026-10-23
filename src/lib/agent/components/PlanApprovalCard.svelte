@@ -346,8 +346,8 @@
 		line-height: 16px;
 	}
 	.pa-kbd.on-brand {
-		color: var(--on-brand);
-		border-color: color-mix(in srgb, var(--on-brand) 40%, transparent);
+		color: inherit;
+		border-color: color-mix(in srgb, currentColor 40%, transparent);
 	}
 	.pa-sub {
 		display: flex;

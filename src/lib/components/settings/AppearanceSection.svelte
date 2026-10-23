@@ -9,15 +9,12 @@
 	} from '$lib/stores/settings.svelte';
 	import { activeQuotaStore } from '$lib/stores/activeQuota.svelte';
 	import { THEME_GROUPS, THEMES, swatchesFor, anchorsFor, type ThemeMode } from '$lib/theme';
-	import { IconCheck, IconSparkles, IconSearch, IconClose } from '$lib/icons';
+	import { IconCheck, IconSearch, IconClose } from '$lib/icons';
 	import Switch from '$lib/ui/Switch.svelte';
 	import Segmented from '$lib/ui/Segmented.svelte';
 	import QuotaChip from '../quota/QuotaChip.svelte';
 	import QuotaLimitRow from '../quota/QuotaLimitRow.svelte';
-	import IconInspectorModal from './IconInspectorModal.svelte';
 	let filterQuery = $state('');
-	let isIconInspectorOpen = $state(false);
-
 	const activeGroup = $derived(
 		THEME_GROUPS.find((group) => group.mode === themeStore.pickerMode) ?? THEME_GROUPS[0]
 	);
@@ -512,31 +509,6 @@
 			{/each}
 		</div>
 	</div>
-
-	<!-- SEPARATORE TRA BLOCCHI -->
-	<div class="block-divider"></div>
-
-	<!-- BLOCCO: REGISTRO & CONTROLLO QUALITÀ ICONE -->
-	<div class="section-block">
-		<div class="block-head-row">
-			<div class="block-titles">
-				<h4>{m.settings_appearance_icons_title()}</h4>
-				<span class="block-desc">
-					{m.settings_appearance_icons_desc()}
-				</span>
-			</div>
-			<button
-				type="button"
-				class="ui-button ui-button-secondary"
-				onclick={() => (isIconInspectorOpen = true)}
-			>
-				<IconSparkles />
-				<span>{m.settings_appearance_icons_open()}</span>
-			</button>
-		</div>
-	</div>
-
-	<IconInspectorModal open={isIconInspectorOpen} onClose={() => (isIconInspectorOpen = false)} />
 </div>
 
 <style>

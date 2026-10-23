@@ -292,6 +292,17 @@ async function main() {
 		}
 	}
 
+	// Gate icone: import diretti dal pacchetto Lucide o registro rotto bloccano la pubblicazione.
+	console.log('\nVerifico il registro icone...');
+	const iconCheck = spawnSync(process.execPath, [join(ROOT, 'scripts', 'check-icons.mjs'), '--strict'], {
+		cwd: ROOT,
+		stdio: 'inherit'
+	});
+	if (iconCheck.status !== 0) {
+		console.error('\nPubblicazione interrotta: violazioni del registro icone (src/lib/icons.ts).');
+		process.exit(1);
+	}
+
 	assertCleanWorkingTree(opts);
 	const commitSha = getCommitSha();
 	const platform = getPlatformConfig();

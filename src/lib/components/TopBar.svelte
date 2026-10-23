@@ -1408,10 +1408,13 @@
 		padding: 0;
 	}
 
+	/* Tessera in focus da tastiera: filetto interno sottile come quello del
+	   pannello aperto. L'outline da 2px della regola globale su WebKit (macOS)
+	   compare anche dopo il click, perche' il fuoco torna alla tessera da script. */
 	.tab:focus-visible,
 	.tab-add:focus-visible {
-		outline: 2px solid var(--brand);
-		outline-offset: -2px;
+		outline: none;
+		box-shadow: inset 0 0 0 1px var(--ink-faint);
 	}
 	/* La tessera non ha piu' una larghezza massima: si allarga quando il suo
 	   progetto viene aperto e si stringe quando un altro prende il posto. Il

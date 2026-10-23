@@ -810,14 +810,15 @@ svg.lucide {
 }
 
 .ui-button-primary {
-  background: var(--brand);
-  border-color: transparent;
-  color: var(--on-brand);
+  background: color-mix(in oklch, var(--brand) 16%, transparent);
+  border-color: color-mix(in oklch, var(--brand) 45%, var(--line));
+  color: var(--brand-ink);
   font-weight: 600;
 }
 
 .ui-button-primary:hover:not(:disabled) {
-  border-color: var(--on-brand);
+  background: color-mix(in oklch, var(--brand) 26%, transparent);
+  border-color: color-mix(in oklch, var(--brand) 60%, var(--line));
 }
 
 .ui-button-danger {
@@ -828,7 +829,7 @@ svg.lucide {
 }
 
 .ui-button-danger:hover:not(:disabled) {
-  border-color: var(--on-danger);
+  filter: brightness(1.1);
 }
 
 .ui-button:disabled {

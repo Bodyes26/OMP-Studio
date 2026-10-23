@@ -177,6 +177,17 @@ export function runCli(argv = process.argv.slice(2)) {
 			process.exit(1);
 		}
 	}
+
+	// Gate icone: import diretti dal pacchetto Lucide o registro rotto bloccano il rilascio.
+	console.log('Verifico il registro icone...');
+	const iconCheck = spawnSync(process.execPath, [join(ROOT, 'scripts', 'check-icons.mjs'), '--strict'], {
+		cwd: ROOT,
+		stdio: 'inherit'
+	});
+	if (iconCheck.status !== 0) {
+		console.error('\nRelease interrotta: violazioni del registro icone (src/lib/icons.ts).');
+		process.exit(1);
+	}
 // Validazione preliminare fondamentale: i 4 file devono essere allineati prima del bump!
 const preCheck = checkVersionAlignment({ silent: false });
 if (!preCheck.ok) {

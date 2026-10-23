@@ -17,6 +17,9 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Dalla Companion invia un seguito o un comando direttamente nella conversazione letta, senza trasformarlo in un nuovo task.
 
 ### Changed
+- Pulsanti primari ridisegnati: niente più riempimento pieno con bordo scuro all'hover, ma fondo tenue del colore del tema e testo leggibile (Pull/Push della colonna Git, finestra aggiornamenti e tutte le finestre di dialogo).
+- Tessere dei progetti: su macOS il bordo spesso dopo il click è sostituito da un filetto sottile.
+- Rimossa da «Impostazioni → Aspetto» la sezione «Icone & Qualità Visiva»: il controllo delle icone gira ora in automatico (`npm run check:icons --strict`) prima di Nightly e rilascio.
 - Gli esempi del comando MCP includono `/mcp reauth` per rinnovare l’autenticazione OAuth di un server senza riavviare la sessione.
 - La finestra di aggiornamento di Studio mette in primo piano versione e novità in Markdown, senza riquadri annidati; canale compatto, dettagli tecnici richiudibili e azioni semplificate.
 - La colonna Git usa una testata compatta e una cronologia senza card: nomi file prioritari, percorsi separati e commit espandibili; le sessioni restano nel pannello Agente.
