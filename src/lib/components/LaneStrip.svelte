@@ -814,39 +814,42 @@
 		font-weight: 500;
 	}
 
-	/* Anelli di stato: mutuati da TopBar */
-	.lane-tab-item.attention::after,
-	.lane-tab-item.finished::after {
+	/* Stato: un segnalino sull'icona della corsia, non un anello sul bordo.
+	   Il filetto della corsia scelta resta quello neutro. Si muove solo il
+	   segnalino che chiede una risposta. */
+	.lane-tab-item.attention .lane-type-icon::after,
+	.lane-tab-item.finished .lane-type-icon::after {
 		content: '';
 		position: absolute;
-		inset: 0;
-		border-radius: inherit;
+		top: -3px;
+		right: -4px;
+		width: 6px;
+		height: 6px;
+		border-radius: var(--radius-full);
+		background-color: var(--warn);
+		box-shadow: 0 0 0 1.5px var(--bg-base);
 		pointer-events: none;
-		z-index: 2;
 	}
 
-	.lane-tab-item.attention::after {
-		box-shadow: inset 0 0 0 1.5px var(--warn);
+	.lane-tab-item.attention .lane-type-icon::after {
 		animation: breathing-amber-ring var(--dur-breathing, 1.9s) var(--ease-breathing, cubic-bezier(0.4, 0, 0.2, 1)) infinite;
 		will-change: opacity;
 	}
 
-	.lane-tab-item.finished::after {
-		box-shadow: inset 0 0 0 1.5px var(--line-strong);
+	.lane-tab-item.finished .lane-type-icon::after {
+		background-color: var(--ink-faint);
 	}
 
 	@media (prefers-reduced-motion: reduce) {
-		.lane-tab-item.attention::after {
+		.lane-tab-item.attention .lane-type-icon::after {
 			animation: none;
 			opacity: 1;
-			box-shadow: inset 0 0 0 1.5px var(--warn);
 		}
 	}
 
-	:global(:root[data-animations="false"]) .lane-tab-item.attention::after {
+	:global(:root[data-animations="false"]) .lane-tab-item.attention .lane-type-icon::after {
 		animation: none;
 		opacity: 1;
-		box-shadow: inset 0 0 0 1.5px var(--warn);
 	}
 
 	.lane-tab {
@@ -877,6 +880,7 @@
 		justify-content: center;
 		color: var(--ink-faint);
 		flex-shrink: 0;
+		position: relative;
 	}
 
 	.lane-type-icon :global(svg) {

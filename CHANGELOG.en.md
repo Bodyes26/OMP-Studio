@@ -19,6 +19,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 ### Changed
 - Primary buttons redesigned: no more solid fill with a dark border on hover, but a soft tint of the theme colour with readable text (Git column Pull/Push, update modal, all dialogs).
 - Project tabs: on macOS the thick border after a click is replaced by a thin hairline.
+- Project and lane tab status redesigned without a border ring: "needs an answer" is an amber ring breathing around the project dot (an amber badge on the icon in lanes), "finished" is the same mark in grey and still. No more muddy double border on macOS.
 - Removed the "Icons & Visual Quality" section from "Settings → Appearance": the icon check now runs automatically (`npm run check:icons --strict`) before Nightly and release.
 - MCP command examples include `/mcp reauth` to renew a server’s OAuth authentication without restarting the session.
 - Studio's update dialog prioritizes the version and Markdown release notes without nested panels, with compact channel selection, collapsible technical details and simpler actions.

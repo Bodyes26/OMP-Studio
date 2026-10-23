@@ -1712,35 +1712,33 @@
 	}
 
 
-	/* Stato: un anello, mai un alone. L'unico anello che si muove e' quello che
-	   chiede una risposta, perche' il movimento serve a chiamare qualcuno e
-	   "sta lavorando" non chiama nessuno. */
-	.tab.attention::after,
-	.tab.finished::after {
+	/* Stato: sul punto d'identita', mai sul perimetro della tessera. L'anello
+	   attorno al punto non tocca il bordo, quindi non ha angoli da sporcare ne'
+	   un filetto da raddoppiare. Si muove solo quello che chiede una risposta:
+	   "sta lavorando" non chiama nessuno, "finito" e' un fatto. */
+	.tab.attention .tab-dot::after,
+	.tab.finished .tab-dot::after {
 		content: '';
 		position: absolute;
-		inset: 0;
-		border-radius: inherit;
+		inset: -4px;
+		border-radius: var(--radius-full);
+		border: 1.5px solid var(--warn);
 		pointer-events: none;
-		z-index: 2;
 	}
 
-	.tab.attention::after {
-		box-shadow: inset 0 0 0 1.5px var(--warn);
+	.tab.attention .tab-dot::after {
 		animation: breathing-amber-ring var(--dur-breathing, 1.9s) var(--ease-breathing, cubic-bezier(0.4, 0, 0.2, 1)) infinite;
 		will-change: opacity;
 	}
 
-	.tab.finished::after {
-		box-shadow: inset 0 0 0 1.5px var(--warn);
+	.tab.finished .tab-dot::after {
+		border-color: var(--ink-faint);
 	}
 
-
 	@media (prefers-reduced-motion: reduce) {
-		.tab.attention::after {
+		.tab.attention .tab-dot::after {
 			animation: none;
 			opacity: 1;
-			box-shadow: inset 0 0 0 1.5px var(--warn);
 		}
 		.tab-dot.working {
 			animation: none;
@@ -1749,10 +1747,9 @@
 		}
 	}
 
-	:global(:root[data-animations="false"]) .tab.attention::after {
+	:global(:root[data-animations="false"]) .tab.attention .tab-dot::after {
 		animation: none;
 		opacity: 1;
-		box-shadow: inset 0 0 0 1.5px var(--warn);
 	}
 	:global(:root[data-animations="false"]) .tab-dot.working {
 		animation: none;
