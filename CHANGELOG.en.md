@@ -35,6 +35,8 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Optimized Companion window: the central project card is explicitly dismissible and closes automatically as soon as a question is answered from any window without lingering resolved notices; by default no central card is opened unless there is a question or unread reply. Parked projects are informative and no longer open empty cards. Question cards adopt neutral background styling and standard borders without amber rings, clearly distinguish ask tool calls from message proposals, always provide "Other..." and note fields, render question text with Intelligent UI, and allow expanding full messages or loading previous context. In the reply reader, the composer uses standard text sizing, includes @ and / autocomplete suggestions, and auto-dismisses one second after reply confirmation.
 
 ### Fixed
+- In the quota popover, Google Antigravity's "Claude & GPT (shared)" limit now appears once per window instead of duplicated per family; credit balances (e.g. Command Code) show as a value instead of a 100% bar.
+- Settings · AI Models: the number next to "Catalog" now matches the models actually listed for configured providers.
 - On macOS, "Restart and install" now reopens Studio by itself after the update, with no manual launch needed.
 - On iPhone, long questions scroll to their answer buttons; chat and dialogs respect the keyboard, browser bars and safe areas, including landscape orientation.
 - The relay build includes the dependencies and types required by chat diagrams and passes the PWA checks again.

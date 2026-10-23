@@ -21,7 +21,7 @@
 	import QuotaLimitRow from './quota/QuotaLimitRow.svelte';
 	import UsageResetCard from './quota/UsageResetCard.svelte';
 	import type { AccountResetSummary, ResetPromptCandidate } from '$lib/quota/usageResets';
-	import { limitTone } from '$lib/quota/resolve';
+	import { limitTone, dedupeSharedLimits } from '$lib/quota/resolve';
 	import { IconRefresh, IconClose, IconWarning, IconSchedule, IconSparkles } from '$lib/icons';
 	import { scheduleStore } from '$lib/stores/schedule.svelte';
 	import { taskStore } from '$lib/stores/tasks.svelte';
@@ -379,7 +379,7 @@
 								{#if projectLabels.length > 0}
 									<div class="host-usage">In uso da: {projectLabels.join(', ')}</div>
 								{/if}
-								{#each report.limits as limit, limitIndex}
+								{#each dedupeSharedLimits(report.limits) as limit, limitIndex}
 									{@const rawUsed = typeof limit.amount?.usedFraction === 'number' ? limit.amount.usedFraction : null}
 									{@const rawRem = typeof limit.amount?.remainingFraction === 'number' ? limit.amount.remainingFraction : null}
 									{@const usedFrac = Math.max(0, Math.min(1, rawUsed ?? (rawRem !== null ? 1 - rawRem : 0)))}
@@ -388,12 +388,15 @@
 									{@const resetsAt = limit.window?.resetsAt ?? limit.resetsAt}
 									{@const resetCountdown = formatReset(resetsAt)}
 									{@const resetExact = resetsAt ? i18n.formatDate(resetsAt, { dateStyle: 'short', timeStyle: 'medium' }) : ''}
+									{@const isBalance = rawUsed === null && rawRem === null && typeof limit.amount?.remaining === 'number'}
 									{@const valueText =
-										limit.amount?.unit === 'usd' && typeof limit.amount?.remaining === 'number' && typeof limit.amount?.limit === 'number'
-											? `${remainingPercent}% ($${limit.amount.remaining.toFixed(2)} / $${limit.amount.limit.toFixed(2)})`
-											: limit.amount?.unit === 'usd' && typeof limit.amount?.remaining === 'number'
-												? `${remainingPercent}% ($${limit.amount.remaining.toFixed(2)})`
-												: `${remainingPercent}%`}
+										isBalance
+											? `${Number(limit.amount?.remaining).toLocaleString(undefined, { maximumFractionDigits: 2 })}${limit.amount?.unit === 'usd' ? ' $' : limit.amount?.unit ? ` ${limit.amount.unit}` : ''}`
+											: limit.amount?.unit === 'usd' && typeof limit.amount?.remaining === 'number' && typeof limit.amount?.limit === 'number'
+												? `${remainingPercent}% ($${limit.amount.remaining.toFixed(2)} / $${limit.amount.limit.toFixed(2)})`
+												: limit.amount?.unit === 'usd' && typeof limit.amount?.remaining === 'number'
+													? `${remainingPercent}% ($${limit.amount.remaining.toFixed(2)})`
+													: `${remainingPercent}%`}
 									<QuotaLimitRow
 										label={limit.label}
 										{remainingPercent}
@@ -401,6 +404,7 @@
 										{resetCountdown}
 										{resetExact}
 										{valueText}
+										plain={isBalance}
 										delayIndex={limitIndex}
 									/>
 								{/each}

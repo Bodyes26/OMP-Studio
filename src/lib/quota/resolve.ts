@@ -95,6 +95,22 @@ export function familyLimits(limits: QuotaLimit[], family: ModelFamily): QuotaLi
 }
 
 /**
+ * Unisce i limiti condivisi tra famiglie (es. google-antigravity riporta
+ * "Claude & GPT (shared)" una volta per famiglia anthropic e openai, con lo
+ * stesso `sharedGroup`): ne tiene uno solo, come fa la TUI di OMP.
+ */
+export function dedupeSharedLimits(limits: QuotaLimit[]): QuotaLimit[] {
+	const seen = new Set<string>();
+	return limits.filter((limit) => {
+		const group = limit.scope?.sharedGroup;
+		if (!group) return true;
+		if (seen.has(group)) return false;
+		seen.add(group);
+		return true;
+	});
+}
+
+/**
  * Trova il limite con la finestra piu' breve in base a `window.durationMs`.
  * I limiti senza durationMs valido valgono Infinity; a parita' vince il primo in ordine.
  */

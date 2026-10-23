@@ -8,7 +8,8 @@
 		resetCountdown = '',
 		resetExact = '',
 		valueText = '',
-		delayIndex = 0
+		delayIndex = 0,
+		plain = false
 	} = $props<{
 		label?: string;
 		remainingPercent?: number;
@@ -17,6 +18,8 @@
 		resetExact?: string;
 		valueText?: string;
 		delayIndex?: number;
+		/** Valore senza barra ne' stato (es. saldo crediti, che non ha un massimo). */
+		plain?: boolean;
 	}>();
 
 	const fillScale = $derived(Math.max(0, Math.min(100, remainingPercent)) / 100);
@@ -42,23 +45,27 @@
 	<div class="limit-top">
 		<span class="limit-label" title={label}>{label}</span>
 		<span class="limit-readout">
-			<span class="status-token">{statusText}</span>
-			<span class="separator" aria-hidden="true"> · </span>
+			{#if !plain}
+				<span class="status-token">{statusText}</span>
+				<span class="separator" aria-hidden="true"> · </span>
+			{/if}
 			<span class="value-token">{displayValue}</span>
 		</span>
 	</div>
 
-	<div
-		class="limit-bar"
-		role="meter"
-		aria-valuenow={remainingPercent}
-		aria-valuemin={0}
-		aria-valuemax={100}
-		aria-label={meterAriaLabel}
-		aria-valuetext={meterAriaValueText}
-	>
-		<span class="limit-fill" aria-hidden="true"></span>
-	</div>
+	{#if !plain}
+		<div
+			class="limit-bar"
+			role="meter"
+			aria-valuenow={remainingPercent}
+			aria-valuemin={0}
+			aria-valuemax={100}
+			aria-label={meterAriaLabel}
+			aria-valuetext={meterAriaValueText}
+		>
+			<span class="limit-fill" aria-hidden="true"></span>
+		</div>
+	{/if}
 
 	{#if resetCountdown}
 		<div class="limit-bottom" title={resetExact || undefined}>

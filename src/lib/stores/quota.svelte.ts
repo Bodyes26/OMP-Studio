@@ -50,6 +50,7 @@ export interface QuotaLimit {
 		projectId?: string;
 		windowId?: string;
 		shared?: boolean;
+		sharedGroup?: string;
 	};
 	window?: {
 		id?: string;

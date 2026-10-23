@@ -47,7 +47,7 @@
 
 	const MODEL_TABS = $derived([
 		{ id: 'roles', label: m.settings_models_tab_roles() },
-		{ id: 'catalog', label: m.settings_models_tab_catalog({ count: modelSettingsStore.catalog.length }) },
+		{ id: 'catalog', label: m.settings_models_tab_catalog({ count: (modelSettingsStore.availableCatalog.length > 0 ? modelSettingsStore.availableCatalog : modelSettingsStore.catalog).length }) },
 		{ id: 'providers', label: m.settings_models_tab_providers() }
 	]);
 

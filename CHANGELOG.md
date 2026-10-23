@@ -35,6 +35,8 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Finestra Companion ottimizzata: la card centrale è chiudibile manualmente e si chiude da sola non appena una domanda riceve risposta da qualsiasi finestra, senza lasciare messaggi di stato residui; all'apertura non compare alcuna card centrale a meno che non vi sia una domanda o una risposta da leggere. I progetti fermi sono consultabili senza generare card vuote. Nelle domande la grafica adotta sfondo neutro e bordo standard senza anelli ambrati, distingue le chiamate del tool ask dalle proposte di risposta, include sempre l'opzione «Altro...» e il campo note, e rende il testo con Intelligent UI permettendo di consultare il messaggio intero o caricare i messaggi precedenti. Nella lettura delle risposte il composer usa dimensione del testo standard, integra i suggerimenti per @ e / e chiude automaticamente la card dopo un secondo dalla conferma di invio.
 
 ### Fixed
+- Nel popover della quota il limite «Claude & GPT (shared)» di Google Antigravity compare una volta sola per finestra, non più duplicato per famiglia; il saldo crediti (es. Command Code) è mostrato come valore, non come barra al 100%.
+- Impostazioni · Modelli AI: il numero accanto a «Catalogo» coincide con i modelli effettivamente elencati dei provider configurati.
 - Su macOS «Riavvia e installa» riapre Studio da solo dopo l'aggiornamento, senza doverlo avviare a mano.
 - Su iPhone le domande lunghe scorrono fino ai pulsanti di risposta; chat e finestre rispettano tastiera, barre del browser e aree sicure, anche in orizzontale.
 - La build del relay include le dipendenze e i tipi necessari ai diagrammi della chat e torna a superare il controllo della PWA.
