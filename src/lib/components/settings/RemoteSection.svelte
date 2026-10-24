@@ -5,13 +5,15 @@
 	import Switch from '$lib/ui/Switch.svelte';
 	import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
 	import StatusMark from '$lib/ui/StatusMark.svelte';
-	import { IconRemote } from '$lib/icons';
+	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import { IconRemote, IconCopy, IconExternalLink, IconWarning } from '$lib/icons';
 
 	let relayUrlInput = $state(remoteStore.status.relayUrl ?? '');
 	let machineNameInput = $state(remoteStore.status.machineName ?? '');
 	let codeInput = $state('');
 	let codeError = $state<string | null>(null);
 	let confirmUnpairOpen = $state(false);
+	let copied: string | null = $state(null);
 
 	$effect(() => {
 		if (remoteStore.status.relayUrl && !relayUrlInput) {
@@ -59,229 +61,180 @@
 			await remoteStore.setMachineName(machineNameInput.trim());
 		}
 	}
+
+	async function copy(text: string, key: string) {
+		try {
+			await navigator.clipboard.writeText(text);
+			copied = key;
+			setTimeout(() => { if (copied === key) copied = null; }, 1600);
+		} catch {}
+	}
 </script>
 
-<div class="settings-section">
+<div class="settings-section remote-section">
 	<div class="section-header">
 		<h4>{m.settings_remote_title()}</h4>
+		<span class="section-header-sub">{m.settings_remote_desc()}</span>
 	</div>
 
-	<p class="section-desc">{m.settings_remote_desc()}</p>
+	<!-- Abilitazione -->
+	<div class="remote-card">
+		<div class="card-head">
+			<span class="card-title">{m.settings_remote_enable_title()}</span>
+			<Switch
+				id="settings-remote-enable"
+				checked={remoteStore.status.enabled}
+				ariaLabelledBy="settings-remote-enable-label"
+				onChange={(checked: boolean) => void remoteStore.setEnabled(checked)}
+			/>
+		</div>
+		<p id="settings-remote-enable-desc" class="card-desc">{m.settings_remote_enable_desc()}</p>
+	</div>
 
-	<div class="section-group">
-		<!-- 1. Interruttore abilitazione -->
-		<div class="form-row">
-			<div class="form-row-copy">
-				<label for="settings-remote-enable" id="settings-remote-enable-label" class="form-row-label">
-					{m.settings_remote_enable_title()}
-				</label>
-				<span id="settings-remote-enable-desc" class="form-row-desc">
-					{m.settings_remote_enable_desc()}
-				</span>
+	{#if remoteStore.status.enabled}
+		<!-- Stato connessione -->
+		<div class="remote-card">
+			<div class="card-title-row">
+				<span class="card-title">Stato connessione</span>
+				{#if remoteStore.status.relayVersion}
+					<span class="version-chip">relay {remoteStore.status.relayVersion}</span>
+				{/if}
 			</div>
-			<div class="form-row-control">
-				<Switch
-					id="settings-remote-enable"
-					checked={remoteStore.status.enabled}
-					ariaLabelledBy="settings-remote-enable-label"
-					onChange={(checked: boolean) => void remoteStore.setEnabled(checked)}
-				/>
+
+			<div class="status-block">
+				{#if remoteStore.status.connection === 'connected'}
+					<div class="status-line ok">
+						<StatusMark status="completed" />
+						<span class="status-text">
+							{#if remoteStore.status.clients.length > 0}
+								{m.settings_remote_status_connected_with_devices({
+									count: remoteStore.status.clients.length,
+									devices: remoteStore.status.clients.map((c) => c.name).join(', ')
+								})}
+							{:else}
+								{m.settings_remote_status_connected_no_devices()}
+							{/if}
+						</span>
+					</div>
+				{:else if remoteStore.status.connection === 'waiting'}
+					<div class="status-line warn">
+						<StatusMark status="running" />
+						<span class="status-text">{m.settings_remote_status_waiting()}</span>
+					</div>
+				{:else if remoteStore.status.connection === 'revoked'}
+					<div class="status-line error">
+						<StatusMark status="failed" />
+						<span class="status-text">{m.settings_remote_status_revoked()}</span>
+					</div>
+				{:else if remoteStore.status.connection === 'incompatible'}
+					<div class="status-line error">
+						<StatusMark status="failed" />
+						<span class="status-text">{m.settings_remote_status_incompatible()}</span>
+					</div>
+				{:else if remoteStore.status.paired}
+					<div class="status-line">
+						<StatusMark status="pending" />
+						<span class="status-text">In collegamento...</span>
+					</div>
+				{:else}
+					<div class="status-line">
+						<StatusMark status="pending" />
+						<span class="status-text">{m.settings_remote_status_unpaired()}</span>
+					</div>
+				{/if}
+
+				{#if remoteStore.status.updateNeeded === 'relay'}
+					<div class="callout warn">
+						<IconWarning />
+						<span>{m.settings_remote_update_relay_hint()}</span>
+					</div>
+				{:else if remoteStore.status.updateNeeded === 'studio'}
+					<div class="callout warn">
+						<IconWarning />
+						<span>{m.settings_remote_update_studio_hint()}</span>
+					</div>
+				{/if}
+
+				{#if remoteStore.status.lastError}
+					<span class="last-error-text">{m.settings_remote_last_error({ error: remoteStore.status.lastError })}</span>
+				{/if}
+				{#if remoteStore.actionError}
+					<span class="last-error-text">{remoteStore.actionError}</span>
+				{/if}
 			</div>
 		</div>
 
-		{#if remoteStore.status.enabled}
-			<!-- 2. Riga di stato connessione -->
-			<div class="form-row status-summary-row">
-				<div class="form-row-copy">
-					<span class="form-row-label">Stato connessione</span>
-					<div class="remote-status-detail">
-						{#if remoteStore.status.connection === 'connected'}
-							<div class="status-line ok">
-								<StatusMark status="completed" />
-								<span>
-									{#if remoteStore.status.clients.length > 0}
-										{m.settings_remote_status_connected_with_devices({
-											count: remoteStore.status.clients.length,
-											devices: remoteStore.status.clients.map((c) => c.name).join(', ')
-										})}
-									{:else}
-										{m.settings_remote_status_connected_no_devices()}
-									{/if}
-								</span>
-							</div>
-						{:else if remoteStore.status.connection === 'waiting'}
-							<div class="status-line warn">
-								<StatusMark status="running" />
-								<span>{m.settings_remote_status_waiting()}</span>
-							</div>
-						{:else if remoteStore.status.connection === 'revoked'}
-							<div class="status-line error">
-								<StatusMark status="failed" />
-								<span>{m.settings_remote_status_revoked()}</span>
-							</div>
-						{:else if remoteStore.status.connection === 'incompatible'}
-							<div class="status-line error">
-								<StatusMark status="failed" />
-								<span>{m.settings_remote_status_incompatible()}</span>
-							</div>
-						{:else if remoteStore.status.paired}
-							<div class="status-line">
-								<StatusMark status="pending" />
-								<span>In collegamento...</span>
-							</div>
-						{:else}
-							<div class="status-line">
-								<StatusMark status="pending" />
-								<span>{m.settings_remote_status_unpaired()}</span>
-							</div>
-						{/if}
+		{#if remoteStore.status.paired}
+			<!-- Macchina -->
+			<div class="remote-card">
+				<div class="card-title-row">
+					<span class="card-title">{m.settings_remote_machine_name_title()}</span>
+				</div>
+				<p class="card-desc">{m.settings_remote_machine_name_desc()}</p>
+				<div class="field-row">
+					<input
+						id="settings-remote-name"
+						type="text"
+						class="ui-input"
+						bind:value={machineNameInput}
+						onblur={handleSaveMachineName}
+						placeholder="OMP Studio"
+					/>
+				</div>
 
-						{#if remoteStore.status.relayVersion}
-							<span class="relay-version-meta">
-								{m.settings_remote_relay_version({ version: remoteStore.status.relayVersion })}
-							</span>
-						{/if}
-
-						{#if remoteStore.status.updateNeeded === 'relay'}
-							<p class="update-hint-box warn">
-								{m.settings_remote_update_relay_hint()}
-							</p>
-						{:else if remoteStore.status.updateNeeded === 'studio'}
-							<p class="update-hint-box warn">
-								{m.settings_remote_update_studio_hint()}
-							</p>
-						{/if}
-
-						{#if remoteStore.status.lastError}
-							<span class="last-error-text">
-								{m.settings_remote_last_error({ error: remoteStore.status.lastError })}
-							</span>
-						{/if}
-
-						{#if remoteStore.actionError}
-							<span class="last-error-text">{remoteStore.actionError}</span>
-						{/if}
+				<div class="field-row with-copy">
+					<div class="field-label-col">
+						<span class="field-label">{m.settings_remote_relay_url_title()}</span>
+						<span class="field-hint">{m.settings_remote_relay_url_desc()}</span>
 					</div>
+					<div class="copy-field">
+						<input type="text" class="ui-input" value={remoteStore.status.relayUrl ?? ''} readonly />
+						<Tooltip text={copied === 'url' ? 'Copiato' : 'Copia'}>
+							<button type="button" class="ui-button ui-button-ghost icon-btn" onclick={() => copy(remoteStore.status.relayUrl ?? '', 'url')} aria-label="Copia URL">
+								<IconCopy />
+							</button>
+						</Tooltip>
+					</div>
+				</div>
+
+				<div class="card-actions">
+					<button type="button" class="ui-button ui-button-secondary" onclick={() => void remoteStore.openMachinesWindow()}>
+						<IconRemote size={16} />
+						<span>{m.settings_remote_open_machines()}</span>
+						<IconExternalLink size={12} />
+					</button>
 				</div>
 			</div>
 
-			{#if remoteStore.status.paired}
-				<!-- Stato Abbinato: Indirizzo e Nome Macchina -->
-				<div class="form-row">
-					<div class="form-row-copy">
-						<label for="settings-remote-url" class="form-row-label">
-							{m.settings_remote_relay_url_title()}
-						</label>
-						<span class="form-row-desc">{m.settings_remote_relay_url_desc()}</span>
-					</div>
-					<div class="form-row-control">
-						<input
-							id="settings-remote-url"
-							type="text"
-							class="ui-input"
-							value={remoteStore.status.relayUrl ?? ''}
-							readonly
-							disabled
-						/>
-					</div>
+			<!-- Zona pericolosa -->
+			<div class="remote-card danger-card">
+				<div class="card-title-row">
+					<span class="card-title">Zona pericolosa</span>
 				</div>
+				<p class="card-desc">Rimuove l'abbinamento di questa macchina. Dovrai generare un nuovo codice dal relay.</p>
+				<button type="button" class="ui-button ui-button-danger" disabled={remoteStore.loading} onclick={() => (confirmUnpairOpen = true)}>
+					{m.settings_remote_forget_button()}
+				</button>
+			</div>
+		{:else}
+			<!-- Abbinamento -->
+			<div class="remote-card">
+				<div class="card-title-row">
+					<span class="card-title">Abbina questa macchina</span>
+				</div>
+				<p class="card-desc">Incolla l'URL del tuo relay e il codice di abbinamento generato nella dashboard del relay.</p>
 
-				<div class="form-row">
-					<div class="form-row-copy">
-						<label for="settings-remote-name" class="form-row-label">
-							{m.settings_remote_machine_name_title()}
-						</label>
-						<span class="form-row-desc">{m.settings_remote_machine_name_desc()}</span>
-					</div>
-					<div class="form-row-control">
-						<input
-							id="settings-remote-name"
-							type="text"
-							class="ui-input"
-							bind:value={machineNameInput}
-							onblur={handleSaveMachineName}
-						/>
-					</div>
-				</div>
+				<div class="field-stack">
+					<label class="field-label" for="settings-remote-pair-url">{m.settings_remote_relay_url_title()}</label>
+					<input id="settings-remote-pair-url" type="text" class="ui-input" placeholder="https://relay.example.com" bind:value={relayUrlInput} />
+					<span class="field-hint">{m.settings_remote_relay_url_desc()}</span>
 
-				<!-- Accesso ad Altre macchine -->
-				<div class="form-row">
-					<div class="form-row-copy">
-						<span class="form-row-label">
-							{m.settings_remote_machines_title()}
-						</span>
-						<span class="form-row-desc">
-							{m.settings_remote_machines_desc()}
-						</span>
-					</div>
-					<div class="form-row-control">
-						<button
-							type="button"
-							class="ui-button ui-button-secondary machines-btn"
-							onclick={() => void remoteStore.openMachinesWindow()}
-						>
-							<IconRemote size={16} />
-							<span>{m.settings_remote_open_machines()}</span>
-						</button>
-					</div>
-				</div>
+					<label class="field-label" for="settings-remote-pair-name">{m.settings_remote_machine_name_title()}</label>
+					<input id="settings-remote-pair-name" type="text" class="ui-input" placeholder="OMP Studio" bind:value={machineNameInput} />
+					<span class="field-hint">{m.settings_remote_machine_name_desc()}</span>
 
-				<div class="form-row action-row">
-					<button
-						type="button"
-						class="ui-button ui-button-danger"
-						disabled={remoteStore.loading}
-						onclick={() => (confirmUnpairOpen = true)}
-					>
-						{m.settings_remote_forget_button()}
-					</button>
-				</div>
-			{:else}
-				<!-- Stato Non Abbinato: Modulo di configurazione e abbinamento -->
-				<div class="form-row">
-					<div class="form-row-copy">
-						<label for="settings-remote-pair-url" class="form-row-label">
-							{m.settings_remote_relay_url_title()}
-						</label>
-						<span class="form-row-desc">{m.settings_remote_relay_url_desc()}</span>
-					</div>
-					<div class="form-row-control">
-						<input
-							id="settings-remote-pair-url"
-							type="text"
-							class="ui-input"
-							placeholder="https://relay.example.com"
-							bind:value={relayUrlInput}
-						/>
-					</div>
-				</div>
-
-				<div class="form-row">
-					<div class="form-row-copy">
-						<label for="settings-remote-pair-name" class="form-row-label">
-							{m.settings_remote_machine_name_title()}
-						</label>
-						<span class="form-row-desc">{m.settings_remote_machine_name_desc()}</span>
-					</div>
-					<div class="form-row-control">
-						<input
-							id="settings-remote-pair-name"
-							type="text"
-							class="ui-input"
-							placeholder="OMP Studio"
-							bind:value={machineNameInput}
-						/>
-					</div>
-				</div>
-
-				<div class="form-row">
-					<div class="form-row-copy">
-						<label for="settings-remote-pair-code" class="form-row-label">
-							{m.settings_remote_pairing_code_title()}
-						</label>
-						<span class="form-row-desc">{m.settings_remote_pairing_code_desc()}</span>
-					</div>
-					<div class="form-row-control pair-code-control">
+					<label class="field-label" for="settings-remote-pair-code">{m.settings_remote_pairing_code_title()}</label>
+					<div class="pair-row">
 						<input
 							id="settings-remote-pair-code"
 							type="text"
@@ -289,6 +242,8 @@
 							placeholder="XXXX-XXXX"
 							value={codeInput}
 							oninput={handleCodeInput}
+							autocomplete="off"
+							spellcheck={false}
 						/>
 						<button
 							type="button"
@@ -303,16 +258,14 @@
 							{/if}
 						</button>
 					</div>
+					<span class="field-hint">{m.settings_remote_pairing_code_desc()}</span>
+					{#if codeError}
+						<span class="field-error">{codeError}</span>
+					{/if}
 				</div>
-
-				{#if codeError}
-					<div class="form-row error-row">
-						<span class="last-error-text">{codeError}</span>
-					</div>
-				{/if}
-			{/if}
+			</div>
 		{/if}
-	</div>
+	{/if}
 </div>
 
 <ConfirmDialog
@@ -331,23 +284,87 @@
 />
 
 <style>
-	.section-desc {
-		margin: 0 0 var(--space-4) 0;
-		font-size: var(--text-body);
-		color: var(--ink-muted);
-		line-height: 1.5;
-	}
-
-	.status-summary-row {
-		border-left: 2px solid var(--line-strong);
-		padding-left: var(--space-3);
-	}
-
-	.remote-status-detail {
+	.remote-section {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-1);
-		margin-top: var(--space-1);
+		gap: var(--space-3);
+	}
+
+	.section-header {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		margin-bottom: var(--space-1);
+	}
+
+	.section-header h4 {
+		margin: 0;
+		font-size: var(--text-title);
+		font-weight: 650;
+	}
+
+	.section-header-sub {
+		font-size: var(--text-body);
+		color: var(--ink-muted);
+		line-height: 1.45;
+	}
+
+	.remote-card {
+		background: var(--bg-base);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-lg);
+		padding: var(--space-3) var(--space-4);
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+	}
+
+	.danger-card {
+		border-color: color-mix(in oklab, var(--danger) 22%, var(--line));
+		background: color-mix(in oklab, var(--danger) 4%, var(--bg-base));
+	}
+
+	.card-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-3);
+	}
+
+	.card-title-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-2);
+	}
+
+	.card-title {
+		font-size: var(--text-label);
+		font-weight: 600;
+		color: var(--ink);
+	}
+
+	.card-desc {
+		margin: 0;
+		font-size: var(--text-caption);
+		color: var(--ink-muted);
+		line-height: 1.45;
+	}
+
+	.version-chip {
+		font-family: var(--font-mono);
+		font-size: var(--text-caption);
+		padding: 1px 6px;
+		border-radius: var(--radius-full);
+		background: var(--bg-raised);
+		border: 1px solid var(--line);
+		color: var(--ink-muted);
+	}
+
+	.status-block {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
 	}
 
 	.status-line {
@@ -358,45 +375,110 @@
 		color: var(--ink);
 	}
 
-	.status-line.ok {
-		color: var(--ink);
-	}
+	.status-line.ok { color: var(--ink); }
+	.status-line.warn { color: var(--warn); }
+	.status-line.error { color: var(--danger); }
 
-	.status-line.warn {
-		color: var(--warn);
-	}
+	.status-text { line-height: 1.4; }
 
-	.status-line.error {
-		color: var(--danger);
-	}
-
-	.relay-version-meta {
-		font-size: var(--text-caption);
-		color: var(--ink-muted);
-		font-family: var(--font-mono);
-	}
-
-	.update-hint-box {
-		margin: var(--space-1) 0;
+	.callout {
+		display: flex;
+		align-items: flex-start;
+		gap: var(--space-2);
 		padding: var(--space-2) var(--space-3);
-		border-radius: var(--radius-sm);
-		background: var(--bg-hover);
+		border-radius: var(--radius-md);
 		border: 1px solid var(--line);
+		background: var(--bg-raised);
 		font-size: var(--text-caption);
 		line-height: 1.45;
+		--icon-size: 14px;
 	}
 
-	.update-hint-box.warn {
+	.callout.warn {
 		border-color: var(--warn-dim);
 		color: var(--warn);
+		background: color-mix(in oklab, var(--warn) 8%, var(--bg-raised));
 	}
 
 	.last-error-text {
 		font-size: var(--text-caption);
 		color: var(--danger);
+		line-height: 1.4;
 	}
 
-	.pair-code-control {
+	.field-row {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+
+	.field-row.with-copy {
+		gap: var(--space-2);
+	}
+
+	.field-label-col {
+		display: flex;
+		flex-direction: column;
+		gap: 1px;
+	}
+
+	.field-label {
+		font-size: var(--text-label);
+		font-weight: 600;
+		color: var(--ink);
+	}
+
+	.field-hint {
+		font-size: var(--text-caption);
+		color: var(--ink-faint);
+		line-height: 1.35;
+	}
+
+	.field-error {
+		font-size: var(--text-caption);
+		color: var(--danger);
+	}
+
+	.copy-field {
+		display: flex;
+		gap: var(--space-2);
+		align-items: center;
+	}
+
+	.copy-field .ui-input {
+		flex: 1;
+		min-width: 0;
+		font-family: var(--font-mono);
+		font-size: var(--text-caption);
+	}
+
+	.icon-btn {
+		width: 32px;
+		height: 32px;
+		padding: 0;
+		display: grid;
+		place-items: center;
+		flex-shrink: 0;
+		--icon-size: 14px;
+	}
+
+	.card-actions {
+		display: flex;
+		gap: var(--space-2);
+		margin-top: var(--space-1);
+	}
+
+	.field-stack {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
+	}
+
+	.field-stack .ui-input {
+		width: 100%;
+	}
+
+	.pair-row {
 		display: flex;
 		gap: var(--space-2);
 		align-items: center;
@@ -405,23 +487,9 @@
 	.pair-code-input {
 		font-family: var(--font-mono);
 		font-weight: 600;
-		letter-spacing: 0.1em;
-		max-width: 160px;
+		letter-spacing: 0.12em;
 		text-align: center;
-	}
-
-	.action-row {
-		justify-content: flex-end;
-		margin-top: var(--space-3);
-	}
-
-	.error-row {
-		margin-top: var(--space-1);
-	}
-
-	.machines-btn {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-2);
+		max-width: 180px;
+		text-transform: uppercase;
 	}
 </style>

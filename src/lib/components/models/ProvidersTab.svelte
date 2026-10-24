@@ -5,6 +5,7 @@
 		modelSettingsStore,
 		isAuthAccountActive,
 		getProviderEnvVarHint,
+		OAUTH_PROVIDER_ALIASES,
 		type ProviderSummary,
 		type AuthAccount
 	} from '$lib/stores/modelSettings.svelte';
@@ -77,10 +78,18 @@
 		displayProviders.find((p) => p.id === modelSettingsStore.selectedProviderId) ?? null
 	);
 
+	function canonicalFor(provider: string): string {
+		return OAUTH_PROVIDER_ALIASES[provider] ?? provider;
+	}
+	function accountMatchesSelected(a: AuthAccount, sel: string | null): boolean {
+		if (!sel || !isAuthAccountActive(a)) return false;
+		if (a.provider === sel) return true;
+		// Alias storico: `openai-codex-device` / `zai-coding-plan` salvati canonical.
+		if (canonicalFor(a.provider) === canonicalFor(sel)) return true;
+		return false;
+	}
 	const selectedAccounts = $derived(
-		modelSettingsStore.authAccounts.filter(
-			(a) => a.provider === modelSettingsStore.selectedProviderId && isAuthAccountActive(a)
-		)
+		modelSettingsStore.authAccounts.filter((a) => accountMatchesSelected(a, modelSettingsStore.selectedProviderId))
 	);
 
 	// `hasOauth`/`authOrigin` contano solo le credenziali attive: quando l'unico
@@ -119,9 +128,7 @@
 
 	function activeAccountCountFor(p: ProviderSummary): number {
 		if (p.source === 'custom') return 0;
-		return modelSettingsStore.authAccounts.filter(
-			(a) => a.provider === p.id && isAuthAccountActive(a)
-		).length;
+		return modelSettingsStore.authAccounts.filter((a) => accountMatchesSelected(a, p.id)).length;
 	}
 
 	function sourceLabel(source: string): string {
@@ -200,11 +207,23 @@
 	function pickUnconfiguredProvider(id: string) {
 		selectProvider(id);
 		closeAddMenu();
+		// Provider non configurato -> porta subito al login OAuth / env hint
+		const summary = displayProviders.find((p) => p.id === id);
+		const isOAuth = summary?.hasOauth || summary?.authOrigin === 'oauth';
+		// Anche i non-OAuth beneficiano del dettaglio con istruzione env copiabile.
+		if (isOAuth) handleLoginAction(id);
 	}
 
 	function handleCreateCustomProvider() {
-		const name = newProviderName.trim().toLowerCase().replace(/[^a-z0-9-_]/g, '-');
-		if (!name) return;
+		let name = newProviderName.trim().toLowerCase().replace(/[^a-z0-9-_]/g, '-').replace(/^-+|-+$/g, '').replace(/--+/g, '-');
+		if (!name) {
+			modelSettingsStore.showToast(m.ui_providerstab_un_provider_con_questo_identificativo_esiste_gia_5fdf());
+			return;
+		}
+		if (name.length < 2) {
+			modelSettingsStore.showToast('Identificativo troppo corto (min 2).');
+			return;
+		}
 		if (displayProviders.some((p) => p.id === name)) {
 			modelSettingsStore.showToast(m.ui_providerstab_un_provider_con_questo_identificativo_esiste_gia_5fdf());
 			return;
@@ -332,8 +351,12 @@
 	}
 
 	async function closeLogin() {
+		const pid = loginTarget?.id ?? null;
 		loginTarget = null;
 		await Promise.all([modelSettingsStore.loadAccounts(), modelSettingsStore.loadProviders()]);
+		if (pid) {
+			try { await modelSettingsStore.refreshCatalog(pid); } catch {}
+		}
 	}
 
 	async function handleCopyEnvHint(envVar: string) {
@@ -572,8 +595,9 @@
 								<input
 									type="text"
 									class="ui-input"
-									bind:value={pDef.baseUrl}
+									value={pDef.baseUrl}
 									placeholder="https://api.openai.com/v1"
+									oninput={(e) => modelSettingsStore.updateDraftCustomProvider(selectedProvider.id, { baseUrl: (e.currentTarget as HTMLInputElement).value })}
 								/>
 							</label>
 
@@ -582,14 +606,19 @@
 								<input
 									type="password"
 									class="ui-input"
-									bind:value={pDef.apiKey}
+									value={pDef.apiKey ?? ''}
 									placeholder="sk-..."
+									oninput={(e) => modelSettingsStore.updateDraftCustomProvider(selectedProvider.id, { apiKey: (e.currentTarget as HTMLInputElement).value })}
 								/>
 							</label>
 
 							<label class="form-field">
 								<span class="field-label">{m.providers_tab_api_format()}</span>
-								<select class="ui-select" bind:value={pDef.api}>
+								<select
+									class="ui-select"
+									value={pDef.api ?? 'openai-completions'}
+									onchange={(e) => modelSettingsStore.updateDraftCustomProvider(selectedProvider.id, { api: (e.currentTarget as HTMLSelectElement).value })}
+								>
 									<option value="openai-completions">openai-completions (Standard)</option>
 									<option value="openai-responses">openai-responses (Codex)</option>
 									<option value="anthropic-messages">anthropic-messages (Claude)</option>
@@ -615,34 +644,38 @@
 										<input
 											type="text"
 											class="ui-input inp-id"
-											bind:value={model.id}
+											value={model.id}
 											placeholder={m.ui_providerstab_id_modello_es_qwen2_5_coder_aa8f()}
 											aria-label={m.ui_providerstab_id_modello_a333()}
+											oninput={(e) => modelSettingsStore.updateDraftCustomModel(selectedProvider.id, mIdx, { id: (e.currentTarget as HTMLInputElement).value })}
 										/>
 										<input
 											type="text"
 											class="ui-input inp-name"
-											bind:value={model.name}
+											value={model.name}
 											placeholder={m.providers_tab_display_name_placeholder()}
 											aria-label={m.ui_providerstab_nome_visualizzato_modello_9a65()}
+											oninput={(e) => modelSettingsStore.updateDraftCustomModel(selectedProvider.id, mIdx, { name: (e.currentTarget as HTMLInputElement).value })}
 										/>
 										<input
 											type="number"
 											class="ui-input inp-num"
-											bind:value={model.contextWindow}
+											value={model.contextWindow ?? ''}
 											placeholder={m.providers_tab_context_placeholder()}
 											aria-label={m.providers_tab_context_window_aria()}
+											oninput={(e) => { const v = (e.currentTarget as HTMLInputElement).value; modelSettingsStore.updateDraftCustomModel(selectedProvider.id, mIdx, { contextWindow: v ? Number(v) : undefined }); }}
 										/>
 										<input
 											type="number"
 											class="ui-input inp-num"
-											bind:value={model.maxTokens}
+											value={model.maxTokens ?? ''}
 											placeholder={m.providers_tab_max_tokens_placeholder()}
 											aria-label={m.providers_tab_max_output_tokens_aria()}
+											oninput={(e) => { const v = (e.currentTarget as HTMLInputElement).value; modelSettingsStore.updateDraftCustomModel(selectedProvider.id, mIdx, { maxTokens: v ? Number(v) : undefined }); }}
 										/>
 										<Tooltip text={m.providers_tab_reasoning_tooltip()}>
 											<label class="chk-cap">
-												<input type="checkbox" class="ui-checkbox" bind:checked={model.reasoning} />
+												<input type="checkbox" class="ui-checkbox" checked={!!model.reasoning} onchange={(e) => modelSettingsStore.updateDraftCustomModel(selectedProvider.id, mIdx, { reasoning: (e.currentTarget as HTMLInputElement).checked })} />
 												<span class="chk-label">{m.providers_tab_reasoning()}</span>
 											</label>
 										</Tooltip>

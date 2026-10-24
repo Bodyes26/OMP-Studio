@@ -1100,6 +1100,13 @@ fn merge_custom_providers(
             desired_mapping,
             &["baseUrl", "apiKey", "api"],
         );
+        // Conserva chiavi extra non gestite da Studio (es. timeout, headers) per non troncare config manuali.
+        for (k, v) in desired_mapping {
+            let ks = k.as_str().unwrap_or("");
+            if !["baseUrl", "apiKey", "api", "models"].contains(&ks) && !provider_mapping.contains_key(k) {
+                provider_mapping.insert(k.clone(), v.clone());
+            }
+        }
         let models_key = yaml_key("models");
         let desired_models = desired_mapping
             .get(&models_key)
@@ -1325,18 +1332,29 @@ fn build_auth_account_dto(
     }
 }
 
+fn canonical_provider_id(provider: &str) -> &str {
+    match provider {
+        "openai-codex-device" => "openai-codex",
+        "zai-coding-plan" => "zai",
+        _ => provider,
+    }
+}
+
 #[command]
 pub async fn get_auth_accounts(provider_id: Option<String>) -> Result<Vec<AuthAccountDto>, String> {
     let conn = open_readonly_db("agent.db")?;
+    // Alias-aware: se il filtro e' l'alias storico, cerca anche il canonical.
+    let normalized = provider_id.as_deref().map(canonical_provider_id).map(str::to_string);
+    let alias_needs = provider_id.as_deref().zip(normalized.as_deref()).is_some_and(|(a, b)| a != b);
     let mut stmt = conn
         .prepare(
             "SELECT id, provider, credential_type, identity_key, disabled_cause, data, created_at, updated_at \
-             FROM auth_credentials WHERE ?1 IS NULL OR provider = ?1 ORDER BY provider, id",
+             FROM auth_credentials WHERE ?1 IS NULL OR provider = ?1 OR (?2 = 1 AND provider = ?3) ORDER BY provider, id",
         )
         .map_err(|e| e.to_string())?;
 
     let rows = stmt
-        .query_map(rusqlite::params![provider_id], |row| {
+        .query_map(rusqlite::params![provider_id, alias_needs.then_some(1).unwrap_or(0), normalized], |row| {
             let id: i64 = row.get(0)?;
             let provider: String = row.get(1)?;
             let credential_type: String = row.get(2)?;
@@ -1387,24 +1405,32 @@ pub async fn get_auth_accounts(provider_id: Option<String>) -> Result<Vec<AuthAc
 #[command]
 pub async fn remove_auth_account(provider: String, credential_id: i64) -> Result<(), String> {
     let conn = open_readwrite_db("agent.db")?;
-    // Disattivazione soft: stesso meccanismo di `disabled_cause` che `omp`
-    // usa gia' per le credenziali scadute o non valide. La riga resta per
-    // storia/diagnostica, ma smette immediatamente di essere utilizzabile.
-    let changed = conn
-        .execute(
-            "UPDATE auth_credentials SET disabled_cause = ?1, updated_at = CAST(strftime('%s','now') AS INTEGER) \
-             WHERE id = ?2 AND provider = ?3",
-            rusqlite::params!["deleted by user", credential_id, provider],
-        )
-        .map_err(|e| format!("Rimozione credenziale: {}", e))?;
-
-    if changed == 0 {
-        return Err(format!(
-            "Nessuna credenziale con id {} per il provider '{}'",
-            credential_id, provider
-        ));
+    let target = canonical_provider_id(&provider).to_string();
+    // Prova canonical + originale + alias inverso per i buggati storici.
+    let aliases: Vec<String> = {
+        let mut v = vec![target.clone()];
+        if provider != target { v.push(provider.clone()); }
+        for (alias, canon) in [("openai-codex-device", "openai-codex"), ("zai-coding-plan", "zai")] {
+            if canon == target && alias != provider { v.push(alias.to_string()); }
+        }
+        v
+    };
+    let mut last_err = String::new();
+    for cand in aliases {
+        let changed = conn
+            .execute(
+                "UPDATE auth_credentials SET disabled_cause = ?1, updated_at = CAST(strftime('%s','now') AS INTEGER) \
+                 WHERE id = ?2 AND provider = ?3",
+                rusqlite::params!["deleted by user", credential_id, cand],
+            )
+            .map_err(|e| format!("Rimozione credenziale: {}", e))?;
+        if changed > 0 { return Ok(()); }
+        last_err = cand;
     }
-    Ok(())
+    Err(format!(
+        "Nessuna credenziale con id {} per il provider '{}' (tentati: {})",
+        credential_id, provider, last_err
+    ))
 }
 
 // -----------------------------------------------------------------------------

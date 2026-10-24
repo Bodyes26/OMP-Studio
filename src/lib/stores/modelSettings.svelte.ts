@@ -339,9 +339,10 @@ class ModelSettingsStore {
 					console.warn('Available models catalog:', error);
 					return [];
 				}),
-				invoke<CustomProvidersFile>('get_custom_providers'),
-				this.loadProviders(),
-				this.loadAccounts()
+				invoke<CustomProvidersFile>('get_custom_providers').catch((error) => {
+					console.warn('Custom providers:', error);
+					return { providers: {} };
+				})
 			]);
 
 			this.config = cfg;
@@ -352,6 +353,7 @@ class ModelSettingsStore {
 			this.customProviders = custom.providers || {};
 			this.draftCustomProviders = JSON.parse(JSON.stringify(custom.providers || {}));
 			this.customProvidersLoaded = true;
+			await Promise.all([this.loadProviders(), this.loadAccounts()]);
 		} catch (e) {
 			console.error('Failed to load model settings:', e);
 			this.showToast(msg.ui_ts_modelsettings_errore_caricamento_impostazioni_value1_1361({ value1: String(e) }));
@@ -388,37 +390,51 @@ class ModelSettingsStore {
 		}
 	}
 
-	/** Rimuove un account di autenticazione e ricarica accounts/providers. */
+	/** Rimuove un account con ottimismo + fallback alias-aware su DB lock. */
 	async removeAccount(provider: string, credentialId: number) {
 		const canonicalProvider = OAUTH_PROVIDER_ALIASES[provider] ?? provider;
+		const aliasProvider = Object.entries(OAUTH_PROVIDER_ALIASES).find(([, v]) => v === provider)?.[0] ?? null;
+		// Optimistic splice immediato per i buggati (disabledCause giallo/rosso).
+		const prev = this.authAccounts;
+		this.authAccounts = prev.filter((a) => a.id !== credentialId);
 		try {
-			// Cerca una sessione RPC attiva e pronta: se disponibile, usiamo il comando `logout`
-			// di OMP che aggiorna lo store delle credenziali in memoria e invalida i modelli del provider.
-			const readySession = sessionRegistry
-				.getAllSessions()
-				.find((s) => s.isReady && !s.exited);
-
+			const readySession = sessionRegistry.getAllSessions().find((s) => s.isReady && !s.exited);
 			if (readySession && readySession.logout) {
-				const result = await readySession.logout(canonicalProvider, credentialId);
-				await Promise.all([this.loadAccounts(), this.loadProviders()]);
-				if (result?.remainingSource) {
-					this.showToast(
-						msg.providers_tab_account_removed_remaining_source_toast({
-							source: result.remainingSource
-						})
-					);
-				} else {
-					this.showToast(msg.providers_tab_account_removed_toast());
+				try {
+					const result = await readySession.logout(canonicalProvider, credentialId);
+					await Promise.all([this.loadAccounts(), this.loadProviders()]);
+					if (result?.remainingSource) {
+						this.showToast(msg.providers_tab_account_removed_remaining_source_toast({ source: result.remainingSource }));
+					} else {
+						this.showToast(msg.providers_tab_account_removed_toast());
+					}
+					return;
+				} catch (e) {
+					// Se il runtime non conosce il comando, ripiega sul DB.
+					const msg_e = String(e);
+					if (!msg_e.includes('unknown') && !msg_e.includes('logout')) throw e;
 				}
-			} else {
-				// Senza processi OMP in esecuzione con una sessione pronta, la scrittura diretta
-				// su agent.db e' l'unico modo per disattivare la riga prima del prossimo avvio.
-				await invoke('remove_auth_account', { provider: canonicalProvider, credentialId });
-				await Promise.all([this.loadAccounts(), this.loadProviders()]);
-				this.showToast(msg.providers_tab_account_removed_toast());
 			}
+			// Tentativo canonicale + tentativi su alias storico se il primo non matcha.
+			try {
+				await invoke('remove_auth_account', { provider: canonicalProvider, credentialId });
+			} catch (err) {
+				const m = String(err);
+				const notFound = m.includes('Nessuna credenziale') || m.includes('No credential');
+				if (notFound && provider !== canonicalProvider) {
+					await invoke('remove_auth_account', { provider, credentialId });
+				} else if (notFound && aliasProvider) {
+					await invoke('remove_auth_account', { provider: aliasProvider, credentialId });
+				} else {
+					throw err;
+				}
+			}
+			await Promise.all([this.loadAccounts(), this.loadProviders()]);
+			this.showToast(msg.providers_tab_account_removed_toast());
 		} catch (e) {
 			console.error('Failed to remove auth account:', e);
+			this.authAccounts = prev;
+			await this.loadAccounts();
 			this.showToast(msg.ui_ts_modelsettings_errore_rimozione_account_value1_077a({ value1: String(e) }));
 		}
 	}
@@ -435,15 +451,12 @@ class ModelSettingsStore {
 
 	/** Carica la configurazione e i cataloghi in background senza mostrare toast o bloccare l'interfaccia. */
 	async ensureLoaded() {
-		// L'elenco provider serve a `assignableCatalog` quando `omp models`
-		// non risponde: senza di esso il ripiego non saprebbe quali provider
-		// hanno credenziali e mostrerebbe il catalogo intero.
+		if (this.config && this.catalog.length > 0 && this.availableCatalogLoaded && this.customProvidersLoaded) return;
+		if (this.ensureLoadedPromise) return this.ensureLoadedPromise;
 		if (!this.providersRequested) {
 			this.providersRequested = true;
 			void this.loadProviders();
 		}
-		if (this.config && this.catalog.length > 0 && this.availableCatalogLoaded && this.customProvidersLoaded) return;
-		if (this.ensureLoadedPromise) return this.ensureLoadedPromise;
 
 		this.ensureLoadedPromise = (async () => {
 			try {
@@ -516,6 +529,23 @@ class ModelSettingsStore {
 		return this.configCatalogPromise;
 	}
 
+	updateDraftCustomProvider(name: string, patch: Partial<CustomProviderDef>) {
+		const cur = this.draftCustomProviders[name];
+		if (!cur) return;
+		this.draftCustomProviders = { ...this.draftCustomProviders, [name]: { ...cur, ...patch } };
+	}
+
+	updateDraftCustomModel(providerName: string, modelIndex: number, patch: Partial<CustomModelDef>) {
+		const prov = this.draftCustomProviders[providerName];
+		if (!prov || !prov.models[modelIndex]) return;
+		const models = [...prov.models];
+		models[modelIndex] = { ...models[modelIndex], ...patch };
+		this.draftCustomProviders = {
+			...this.draftCustomProviders,
+			[providerName]: { ...prov, models }
+		};
+	}
+
 	async saveConfig() {
 		if (!this.draftConfig) return false;
 		this.saving = true;
@@ -532,10 +562,19 @@ class ModelSettingsStore {
 				await invoke('save_custom_providers', { data: { providers: this.draftCustomProviders } });
 				this.customProviders = JSON.parse(JSON.stringify(this.draftCustomProviders));
 			}
-			if (customChanged || cfgChanged) {
+			if (customChanged) {
+				// Solo i custom non richiedono un refresh globale costoso: aggiorniamo localmente.
+				const customCat = this.buildLocalCustomCatalog();
+				// Se abbiamo un catalogo caricato, fondiamo i custom locali senza troncare gli altri provider.
+				this.catalog = this.mergeLocalCatalog(this.catalog, customCat);
+				this.availableCatalog = this.mergeLocalCatalog(this.availableCatalog, customCat);
+				this.availableCatalogLoaded = true;
+				// Allineiamo comunque i provider senza avviare `omp models refresh`.
+				void this.loadProviders();
+			} else if (cfgChanged) {
 				const cat = await invoke<ModelDto[]>('refresh_models_catalog');
 				this.catalog = cat;
-				this.availableCatalog = await invoke<ModelDto[]>('get_available_models_catalog');
+				this.availableCatalog = await invoke<ModelDto[]>('get_available_models_catalog').catch(() => cat);
 				this.availableCatalogLoaded = true;
 			}
 			this.clearSuggestionsCache();
@@ -548,6 +587,38 @@ class ModelSettingsStore {
 		} finally {
 			this.saving = false;
 		}
+	}
+
+	private buildLocalCustomCatalog(): ModelDto[] {
+		const out: ModelDto[] = [];
+		for (const [provider, def] of Object.entries(this.draftCustomProviders)) {
+			for (const m of def.models) {
+				out.push({
+					id: m.id,
+					name: m.name,
+					provider,
+					selector: `${provider}/${m.id}`,
+					contextWindow: m.contextWindow,
+					maxTokens: m.maxTokens,
+					reasoning: m.reasoning,
+					thinking: null,
+					input: m.input,
+					cost: null,
+					isCustom: true
+				} as unknown as ModelDto);
+			}
+		}
+		return out;
+	}
+
+	private mergeLocalCatalog(base: ModelDto[], customCat: ModelDto[]): ModelDto[] {
+		if (base.length === 0) return customCat;
+		const customProviders = new Set(Object.keys(this.draftCustomProviders));
+		const kept = base.filter((m) => !customProviders.has(m.provider) || m.isCustom === false);
+		// Evita duplicati con selector già presenti da non-custom.
+		const seen = new Set(kept.map((m) => m.selector));
+		for (const m of customCat) if (!seen.has(m.selector)) { kept.push(m); seen.add(m.selector); }
+		return kept;
 	}
 
 	async refreshCatalog(providerId?: string) {
@@ -594,6 +665,8 @@ class ModelSettingsStore {
 		const updated = { ...this.draftCustomProviders };
 		delete updated[name];
 		this.draftCustomProviders = updated;
+		if (this.selectedProviderId === name) this.selectedProviderId = null;
+		if (this.catalogFilterProviderId === name) this.catalogFilterProviderId = null;
 	}
 
 	addDraftCustomModel(providerName: string, model: CustomModelDef) {
@@ -953,6 +1026,10 @@ class ModelSettingsStore {
 		}
 		if (this.customProviders) {
 			this.draftCustomProviders = JSON.parse(JSON.stringify(this.customProviders));
+		}
+		// Se il provider selezionato era un draft cancellato, azzera.
+		if (this.selectedProviderId && !(this.providers.some((p) => p.id === this.selectedProviderId) || this.draftCustomProviders[this.selectedProviderId])) {
+			this.selectedProviderId = null;
 		}
 	}
 	clearSuggestionsCache() {
