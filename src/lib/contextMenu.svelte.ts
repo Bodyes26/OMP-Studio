@@ -128,6 +128,11 @@ class ContextMenuState {
 		this.#nonce++;
 		this.#isOpen = true;
 	}
+	updateItems(items: ContextMenuEntry[]): void {
+		if (!this.#isOpen) return;
+		this.#items = items;
+	}
+
 
 	close(): void {
 		if (!this.#isOpen) return;

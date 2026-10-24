@@ -73,6 +73,7 @@ interface StoredLaneV1 {
 	labPrototypeId?: string | null;
 	closedAt?: number | null;
 	titleLocked?: boolean;
+	adopted?: boolean;
 	agentSummary?: string | null;
 	agentSummaryAt?: number | null;
 }
@@ -128,6 +129,7 @@ export interface WorktreeInfo {
 	targetBranch?: string | null;
 	lockedReason?: string | null;
 	prunableReason?: string | null;
+	adopted?: boolean;
 }
 
 export interface LaneReconciliationResult {
@@ -239,6 +241,7 @@ function parseStoredLane(value: unknown): LaneRecord | null {
 	const labPrototypeId = nullableString(source.labPrototypeId) ?? null;
 	const closedAt = source.closedAt === undefined ? null : nullableTimestamp(source.closedAt);
 	const titleLocked = typeof source.titleLocked === 'boolean' ? source.titleLocked : false;
+	const adopted = typeof source.adopted === 'boolean' ? source.adopted : false;
 	// Campi arrivati con i tool `corsia_*`: assenti nei registri precedenti.
 	// Un valore malformato non invalida la corsia, si perde solo il riassunto.
 	const agentSummary = typeof source.agentSummary === 'string' && source.agentSummary.trim() ? source.agentSummary : null;
@@ -305,7 +308,8 @@ function parseStoredLane(value: unknown): LaneRecord | null {
 			closedAt: closedAt ?? null,
 			titleLocked,
 			agentSummary,
-			agentSummaryAt
+			agentSummaryAt,
+			adopted
 		};
 	} catch {
 		return null;
@@ -498,6 +502,7 @@ export function serializeLaneStoreDocument(
 			labPrototypeId: lane.labPrototypeId ?? null,
 			closedAt: lane.closedAt ?? null,
 			titleLocked: lane.titleLocked ?? false,
+			adopted: lane.adopted ?? false,
 			agentSummary: lane.agentSummary ?? null,
 			agentSummaryAt: lane.agentSummaryAt ?? null
 		})),
@@ -543,6 +548,7 @@ export function laneRecordFromAgentLane(lane: AgentLane, sessionId: string | nul
 		labPrototypeId: lane.labPrototypeId ?? null,
 		closedAt: (lane as Partial<LaneRecord>).closedAt ?? null,
 		titleLocked: lane.titleLocked ?? false,
+		adopted: lane.adopted ?? false,
 		agentSummary: (lane as Partial<LaneRecord>).agentSummary ?? null,
 		agentSummaryAt: (lane as Partial<LaneRecord>).agentSummaryAt ?? null
 	};
@@ -554,7 +560,8 @@ function sameGitMetadata(lane: LaneRecord, worktree: WorktreeInfo): boolean {
 		lane.branch === (worktree.branch ?? null) &&
 		lane.headCommit === (worktree.commit ?? null) &&
 		lane.baseCommit === (worktree.baseCommit ?? null) &&
-		lane.targetBranch === (worktree.targetBranch ?? null)
+		lane.targetBranch === (worktree.targetBranch ?? null) &&
+		(worktree.adopted === undefined || (lane.adopted ?? false) === worktree.adopted)
 	);
 }
 
@@ -566,7 +573,8 @@ function applyGitMetadata(lane: LaneRecord, worktree: WorktreeInfo): LaneRecord 
 		branch: worktree.branch ?? null,
 		headCommit: worktree.commit ?? null,
 		baseCommit: worktree.baseCommit ?? null,
-		targetBranch: worktree.targetBranch ?? null
+		targetBranch: worktree.targetBranch ?? null,
+		adopted: worktree.adopted !== undefined ? worktree.adopted : (lane.adopted ?? false)
 	};
 }
 
@@ -667,7 +675,8 @@ export function reconcileProjectLanes(
 			kind: 'git',
 			labPrototypeId: null,
 			closedAt: null,
-			titleLocked: false
+			titleLocked: false,
+			adopted: worktree.adopted ?? false
 		});
 	}
 

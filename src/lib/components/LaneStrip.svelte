@@ -33,11 +33,10 @@
 	} from '$lib/lanes/laneLifecycle';
 	import { renameLane, LANE_TITLE_MAX } from '$lib/lanes/laneNaming';
 	import {
-		activeLanes,
-		buildConcurrencyWarning,
-		shouldWarnConcurrency,
-		type ConcurrencyWarning
-	} from '$lib/lanes/queueDispatch';
+		fetchWorktreeBranches,
+		type WorktreeBranchEntry,
+		type ProjectLaneActionsOptions
+	} from '$lib/lanes/laneActions';
 	import LaneDispatchDialog from './LaneDispatchDialog.svelte';
 	import LaneProfileDialog from './LaneProfileDialog.svelte';
 	import Dialog from '$lib/ui/Dialog.svelte';
@@ -64,8 +63,7 @@
 	let canScrollLeft = $state(false);
 	let canScrollRight = $state(false);
 
-	/** Riepilogo del soft-cap in attesa di conferma, se la corsia sarebbe la terza. */
-	let concurrencyWarning = $state<ConcurrencyWarning | null>(null);
+	let pendingAdoptBranch = $state<WorktreeBranchEntry | null>(null);
 	/** Profilo tecnico in attesa del consenso una tantum sui file locali (W10). */
 	let profileReview = $state<ProjectProfileReview | null>(null);
 	/**
@@ -89,6 +87,7 @@
 		branch?: string;
 		prototypeId?: string;
 		loss?: LaneUnintegratedLoss | null;
+		adopted?: boolean;
 	} | null>(null);
 	/** Ultimo cleanup fallito per lock o rifiuto di Git, per corsia. */
 	let cleanupPending = $state<Record<string, string>>({});
@@ -172,9 +171,20 @@
 		}
 	}
 
-	async function requestDeleteWorktree(targetLaneId: LaneId, title: string, branch?: string) {
+	async function requestDeleteWorktree(
+		targetLaneId: LaneId,
+		title: string,
+		branch?: string,
+		adopted?: boolean
+	) {
 		const loss = await inspectUnintegratedWork(project.id as ProjectId, targetLaneId);
-		deleteConfirmTarget = { laneId: targetLaneId, title, branch, loss };
+		deleteConfirmTarget = {
+			laneId: targetLaneId,
+			title,
+			branch,
+			loss,
+			adopted: adopted ?? false
+		};
 	}
 
 	function requestDeletePrototype(targetLaneId: LaneId, title: string, prototypeId: string) {
@@ -194,7 +204,7 @@
 		if (lane.kind === 'lab' && lane.labPrototypeId) {
 			requestDeletePrototype(lane.laneId, lane.title, lane.labPrototypeId);
 		} else {
-			void requestDeleteWorktree(lane.laneId, lane.title, lane.branch ?? undefined);
+			void requestDeleteWorktree(lane.laneId, lane.title, lane.branch ?? undefined, lane.adopted);
 		}
 	});
 
@@ -334,11 +344,18 @@
 			items.push({ kind: 'separator' });
 			items.push({
 				kind: 'item',
-				label: m.lanestrip_action_delete_worktree(),
+				label: lane.adopted
+					? 'Scarta corsia'
+					: m.lanestrip_action_delete_worktree(),
 				icon: IconTrash,
 				danger: true,
 				run: () => {
-					void requestDeleteWorktree(lane.laneId, lane.title, lane.branch ?? undefined);
+					void requestDeleteWorktree(
+						lane.laneId,
+						lane.title,
+						lane.branch ?? undefined,
+						lane.adopted
+					);
 				}
 			});
 		}
@@ -353,8 +370,11 @@
 	async function handleOpenNewMenu(event: MouseEvent) {
 		event.preventDefault();
 		event.stopPropagation();
-		const items = await projectLaneActions(project, {
+		const invoker = event.currentTarget as HTMLElement;
+
+		const actionOptions: ProjectLaneActionsOptions = {
 			onCreateWorktree: () => void handleCreateNewLane(),
+			onOpenBranch: (branch) => void handleOpenBranch(branch),
 			onRequestDelete: (entry) => {
 				if (entry.kind === 'lab') {
 					requestDeletePrototype(entry.laneId, entry.title, entry.prototypeId);
@@ -365,30 +385,88 @@
 			onProfileReview: (review) => {
 				profileReview = review as ProjectProfileReview;
 			}
+		};
+
+		if (!project.canonicalProjectPath || project.labDraft) {
+			const items = await projectLaneActions(project, actionOptions);
+			contextMenu.open(event, {
+				label: m.lanestrip_tab_new(),
+				items,
+				invoker
+			});
+			return;
+		}
+
+		// Mostra subito il menu con lo stato di caricamento dei branch
+		const initialItems = await projectLaneActions(project, {
+			...actionOptions,
+			branchesState: { loading: true, error: null, data: null }
 		});
 		contextMenu.open(event, {
 			label: m.lanestrip_tab_new(),
-			items,
-			invoker: event.currentTarget as HTMLElement
+			items: initialItems,
+			invoker
 		});
-	}
 
-	async function handleCreateNewLane() {
-		if (isCreating) return;
-		const lanes = laneOrchestrator.laneDispatchSnapshots(project);
-		if (shouldWarnConcurrency(activeLanes(lanes).length)) {
-			concurrencyWarning = buildConcurrencyWarning(lanes);
-			return;
+		// Carica i branch asincronamente e aggiorna il menu in tempo reale
+		try {
+			const branchesData = await fetchWorktreeBranches(project.canonicalProjectPath);
+			const updatedItems = await projectLaneActions(project, {
+				...actionOptions,
+				branchesState: { loading: false, error: null, data: branchesData }
+			});
+			contextMenu.updateItems(updatedItems);
+		} catch (err) {
+			console.warn('Caricamento branch fallito per il menu:', err);
+			const errorItems = await projectLaneActions(project, {
+				...actionOptions,
+				branchesState: { loading: false, error: String(err), data: null }
+			});
+			contextMenu.updateItems(errorItems);
 		}
-		await prepareAndCreateLane();
 	}
 
-	async function prepareAndCreateLane() {
-		concurrencyWarning = null;
+	async function handleOpenBranch(branch: WorktreeBranchEntry) {
+		if (isCreating) return;
 		try {
 			const review = await reviewProjectProfile(project);
 			if (review?.needsConsent) {
 				profileReview = review;
+				pendingAdoptBranch = branch;
+				return;
+			}
+		} catch (error) {
+			console.error('Analisi del profilo di progetto fallita:', error);
+		}
+		await openBranch(branch);
+	}
+
+	async function openBranch(branch: WorktreeBranchEntry) {
+		isCreating = true;
+		try {
+			const record = await laneOrchestrator.openBranchLane(project, {
+				branch: branch.name,
+				kind: branch.kind
+			});
+			rovingLaneId = record.laneId;
+		} catch (error) {
+			console.error('Apertura branch fallita:', error);
+		} finally {
+			isCreating = false;
+		}
+	}
+
+	async function handleCreateNewLane() {
+		if (isCreating) return;
+		await prepareAndCreateLane();
+	}
+
+	async function prepareAndCreateLane() {
+		try {
+			const review = await reviewProjectProfile(project);
+			if (review?.needsConsent) {
+				profileReview = review;
+				pendingAdoptBranch = null;
 				return;
 			}
 		} catch (error) {
@@ -400,6 +478,8 @@
 	async function confirmProfile(accepted: string[]) {
 		const review = profileReview;
 		profileReview = null;
+		const branchToAdopt = pendingAdoptBranch;
+		pendingAdoptBranch = null;
 		if (review) {
 			try {
 				await recordAllowlistDecision(project, {
@@ -410,11 +490,14 @@
 				console.error('Registrazione del consenso sui file locali fallita:', error);
 			}
 		}
-		await createLane();
+		if (branchToAdopt) {
+			await openBranch(branchToAdopt);
+		} else {
+			await createLane();
+		}
 	}
 
 	async function createLane() {
-		concurrencyWarning = null;
 		isCreating = true;
 		try {
 			const record = await laneOrchestrator.createNewLane(project);
@@ -662,15 +745,21 @@
 	onClose={() => (deleteConfirmTarget = null)}
 	title={deleteConfirmTarget?.prototypeId
 		? m.lab_delete_dialog_title()
-		: m.lanestrip_delete_dialog_title()}
+		: deleteConfirmTarget?.adopted
+			? 'Scarta corsia'
+			: m.lanestrip_delete_dialog_title()}
 	ariaDescribedBy="lane-delete-desc"
 >
 	{#snippet body()}
 		{#if deleteConfirmTarget}
 			<p id="lane-delete-desc" class="lane-dialog-desc">
-				{deleteConfirmTarget.prototypeId
-					? m.lab_delete_dialog_message({ name: deleteConfirmTarget.title })
-					: m.lanestrip_delete_dialog_message({ name: deleteConfirmTarget.title })}
+				{#if deleteConfirmTarget.prototypeId}
+					{m.lab_delete_dialog_message({ name: deleteConfirmTarget.title })}
+				{:else if deleteConfirmTarget.adopted}
+					Vuoi davvero scartare la corsia "{deleteConfirmTarget.title}"? Il worktree verra' rimosso, mentre il branch Git restera' intatto.
+				{:else}
+					{m.lanestrip_delete_dialog_message({ name: deleteConfirmTarget.title })}
+				{/if}
 			</p>
 			{#if !deleteConfirmTarget.prototypeId && deleteConfirmTarget.loss}
 				<p class="lane-dialog-desc lane-dialog-loss" role="alert">
@@ -695,18 +784,11 @@
 			class="ui-button ui-button-danger"
 			onclick={() => void executeDelete()}
 		>
-			{m.lanestrip_delete_dialog_confirm()}
+			{deleteConfirmTarget?.adopted ? 'Scarta' : m.lanestrip_delete_dialog_confirm()}
 		</button>
 	{/snippet}
 </Dialog>
 
-<LaneDispatchDialog
-	open={concurrencyWarning !== null}
-	mode="concurrency"
-	warning={concurrencyWarning}
-	onConfirm={() => void prepareAndCreateLane()}
-	onCancel={() => (concurrencyWarning = null)}
-/>
 
 <LaneDispatchDialog
 	open={processBlock !== null}
@@ -722,7 +804,10 @@
 	detection={profileReview?.detection ?? null}
 	candidates={profileReview?.pendingCandidates ?? []}
 	onConfirm={(accepted) => void confirmProfile(accepted)}
-	onCancel={() => (profileReview = null)}
+	onCancel={() => {
+		profileReview = null;
+		pendingAdoptBranch = null;
+	}}
 />
 
 <style>

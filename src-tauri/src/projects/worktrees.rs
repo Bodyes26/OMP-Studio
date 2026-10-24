@@ -174,6 +174,47 @@ pub struct WorktreeInfo {
     pub locked_reason: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prunable_reason: Option<String>,
+    #[serde(default)]
+    pub adopted: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BranchKind {
+    Local,
+    Remote,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BranchEntry {
+    pub name: String,
+    pub kind: BranchKind,
+    pub checked_out_path: Option<String>,
+    pub is_primary_checkout: bool,
+    pub managed_lane_id: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BranchListOutcome {
+    pub primary_branch: String,
+    pub branches: Vec<BranchEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ListBranchesArgs {
+    pub project_path: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AttachWorktreeArgs {
+    pub project_path: String,
+    pub branch: String,
+    pub lane_id: String,
+    pub kind: BranchKind,
 }
 
 #[derive(Debug, Deserialize)]
@@ -260,22 +301,22 @@ pub struct WorktreeReviewInspectArgs {
 }
 
 #[derive(Clone, Debug)]
-struct RepositoryContext {
-    opened_path: PathBuf,
-    repository_root: PathBuf,
-    relative_subpath: PathBuf,
-    parent: PathBuf,
-    repository_name: String,
+pub(crate) struct RepositoryContext {
+    pub(crate) opened_path: PathBuf,
+    pub(crate) repository_root: PathBuf,
+    pub(crate) relative_subpath: PathBuf,
+    pub(crate) parent: PathBuf,
+    pub(crate) repository_name: String,
 }
 
 #[derive(Clone, Debug, Default)]
-struct PorcelainWorktree {
-    path: PathBuf,
-    commit: Option<String>,
-    branch: Option<String>,
-    detached: bool,
-    locked_reason: Option<String>,
-    prunable_reason: Option<String>,
+pub(crate) struct PorcelainWorktree {
+    pub(crate) path: PathBuf,
+    pub(crate) commit: Option<String>,
+    pub(crate) branch: Option<String>,
+    pub(crate) detached: bool,
+    pub(crate) locked_reason: Option<String>,
+    pub(crate) prunable_reason: Option<String>,
 }
 
 fn git_args(args: &[&str]) -> Vec<OsString> {
@@ -595,6 +636,16 @@ fn validate_base_commit(context: &RepositoryContext, value: &str) -> Result<Stri
     Ok(resolved)
 }
 
+fn resolve_head_commit(cwd: &Path) -> Result<String, WorktreeError> {
+    let output = require_git(
+        cwd,
+        &git_args(&["rev-parse", "--verify", "HEAD^{commit}"]),
+        WorktreeErrorCode::GitCommandFailed,
+        "Impossibile determinare il commit HEAD",
+    )?;
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
 fn validate_target_branch(
     context: &RepositoryContext,
     value: &str,
@@ -710,7 +761,7 @@ fn branch_config_key(branch: &str, suffix: &str) -> String {
     format!("branch.{}.{}", branch, suffix)
 }
 
-fn config_get(
+pub(crate) fn config_get(
     context: &RepositoryContext,
     branch: &str,
     suffix: &str,
@@ -739,7 +790,7 @@ fn config_get(
     ))
 }
 
-fn config_set(
+pub(crate) fn config_set(
     context: &RepositoryContext,
     branch: &str,
     suffix: &str,
@@ -760,7 +811,7 @@ fn config_set(
     Ok(())
 }
 
-fn config_unset(context: &RepositoryContext, branch: &str, suffix: &str) {
+pub(crate) fn config_unset(context: &RepositoryContext, branch: &str, suffix: &str) {
     let key = branch_config_key(branch, suffix);
     let _ = run_git(
         &context.repository_root,
@@ -773,13 +824,14 @@ fn config_unset(context: &RepositoryContext, branch: &str, suffix: &str) {
     );
 }
 
-fn clear_registration(context: &RepositoryContext, branch: &str) {
+pub(crate) fn clear_registration(context: &RepositoryContext, branch: &str) {
     for suffix in [
         "ompStudioManaged",
         "ompStudioLaneId",
         "ompStudioBaseCommit",
         "ompStudioTargetBranch",
         "ompStudioWorktree",
+        "ompStudioAdopted",
         ALLOWLIST_KEY,
     ] {
         config_unset(context, branch, suffix);
@@ -897,18 +949,19 @@ fn blocking_changes(worktree: &Path, allowlisted: &[String]) -> Result<Vec<Strin
 
 /// Registrazione Studio di un branch, letta dalla config locale.
 #[derive(Clone, Debug, Default)]
-struct BranchRegistration {
-    managed: Option<String>,
-    lane_id: Option<String>,
-    base_commit: Option<String>,
-    target_branch: Option<String>,
-    worktree: Option<String>,
+pub(crate) struct BranchRegistration {
+    pub(crate) managed: Option<String>,
+    pub(crate) lane_id: Option<String>,
+    pub(crate) base_commit: Option<String>,
+    pub(crate) target_branch: Option<String>,
+    pub(crate) worktree: Option<String>,
+    pub(crate) adopted: Option<String>,
 }
 
 /// Tutte le registrazioni Studio con un solo `git config`: `worktree_list` ne
 /// avrebbe altrimenti lanciati cinque per ogni worktree. Le chiavi tornano con
 /// il nome della variabile in minuscolo e il nome del branch intatto.
-fn branch_registrations(
+pub(crate) fn branch_registrations(
     context: &RepositoryContext,
 ) -> Result<std::collections::HashMap<String, BranchRegistration>, WorktreeError> {
     let output = run_git(
@@ -952,6 +1005,7 @@ fn branch_registrations(
             "ompstudiobasecommit" => entry.base_commit = value,
             "ompstudiotargetbranch" => entry.target_branch = value,
             "ompstudioworktree" => entry.worktree = value,
+            "ompstudioadopted" => entry.adopted = value,
             _ => {}
         }
     }
@@ -1062,6 +1116,13 @@ fn worktree_info(
         Some(branch) => registered_values_from(registrations.get(branch), &canonical_path),
         None => (false, None, None, None),
     };
+    let adopted = match raw.branch.as_deref() {
+        Some(branch) => registrations
+            .get(branch)
+            .and_then(|reg| reg.adopted.as_deref())
+            .is_some_and(|value| value.eq_ignore_ascii_case("true")),
+        None => false,
+    };
 
     Ok(WorktreeInfo {
         worktree_path: path_string(&canonical_path)?,
@@ -1076,6 +1137,7 @@ fn worktree_info(
         target_branch,
         locked_reason: raw.locked_reason,
         prunable_reason: raw.prunable_reason,
+        adopted,
     })
 }
 
@@ -1087,6 +1149,102 @@ fn list_sync(project_path: &str) -> Result<Vec<WorktreeInfo>, WorktreeError> {
         .into_iter()
         .map(|raw| worktree_info(&context, &registrations, raw))
         .collect()
+}
+
+fn list_branches_sync(args: ListBranchesArgs) -> Result<BranchListOutcome, WorktreeError> {
+    let context = discover_repository(&args.project_path)?;
+    ensure_repository_has_commit(&context)?;
+    let inspection = inspect_sync(&args.project_path)?;
+    let primary_branch = inspection
+        .current_branch
+        .clone()
+        .unwrap_or_else(|| "main".to_string());
+    let worktrees = porcelain_worktrees(&context)?;
+    let registrations = branch_registrations(&context)?;
+
+    // Branch locali
+    let local_output = require_git(
+        &context.repository_root,
+        &git_args(&["for-each-ref", "--format=%(refname:short)", "refs/heads"]),
+        WorktreeErrorCode::GitCommandFailed,
+        "Impossibile elencare i branch locali",
+    )?;
+    let local_text = String::from_utf8_lossy(&local_output.stdout);
+    let local_names: Vec<String> = local_text
+        .lines()
+        .map(|l| l.trim_end_matches('\r').trim().to_string())
+        .filter(|l| !l.is_empty())
+        .collect();
+
+    // Branch remoti da origin
+    let remote_output = run_git(
+        &context.repository_root,
+        &git_args(&["for-each-ref", "--format=%(refname:short)", "refs/remotes/origin"]),
+    )?;
+    let remote_names: Vec<String> = if remote_output.status.success() {
+        let text = String::from_utf8_lossy(&remote_output.stdout);
+        text.lines()
+            .map(|l| l.trim_end_matches('\r').trim().to_string())
+            .filter(|name| {
+                if name.is_empty() || name == "origin/HEAD" || name.ends_with("/HEAD") {
+                    return false;
+                }
+                if let Some(short) = name.strip_prefix("origin/") {
+                    !local_names.iter().any(|loc| loc == short)
+                } else {
+                    true
+                }
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    let mut branches = Vec::new();
+
+    for name in local_names {
+        let wt = worktrees
+            .iter()
+            .find(|entry| entry.branch.as_deref() == Some(&name));
+        let (checked_out_path, is_primary_checkout) = match wt {
+            Some(entry) => {
+                let canon = entry.path.canonicalize().unwrap_or_else(|_| entry.path.clone());
+                let is_primary = same_path(&canon, &context.repository_root);
+                (Some(path_string(&canon)?), is_primary)
+            }
+            None => (None, false),
+        };
+        let managed_lane_id = registrations.get(&name).and_then(|reg| {
+            if reg.managed.as_deref().is_some_and(|v| v.eq_ignore_ascii_case("true")) {
+                reg.lane_id.clone()
+            } else {
+                None
+            }
+        });
+
+        branches.push(BranchEntry {
+            name,
+            kind: BranchKind::Local,
+            checked_out_path,
+            is_primary_checkout,
+            managed_lane_id,
+        });
+    }
+
+    for name in remote_names {
+        branches.push(BranchEntry {
+            name,
+            kind: BranchKind::Remote,
+            checked_out_path: None,
+            is_primary_checkout: false,
+            managed_lane_id: None,
+        });
+    }
+
+    Ok(BranchListOutcome {
+        primary_branch,
+        branches,
+    })
 }
 
 fn branch_exists(context: &RepositoryContext, branch: &str) -> Result<bool, WorktreeError> {
@@ -1263,7 +1421,255 @@ fn create_sync(args: CreateWorktreeArgs) -> Result<WorktreeInfo, WorktreeError> 
         target_branch: Some(target_branch),
         locked_reason: None,
         prunable_reason: None,
+        adopted: false,
     })
+}
+
+fn attach_sync(args: AttachWorktreeArgs) -> Result<WorktreeInfo, WorktreeError> {
+    let _mutation = worktree_mutation_lock();
+    let context = discover_repository(&args.project_path)?;
+    ensure_repository_has_commit(&context)?;
+    let inspection = inspect_sync(&args.project_path)?;
+    if inspection.head_state == RepositoryHeadState::Detached {
+        return Err(WorktreeError::new(
+            WorktreeErrorCode::DetachedHead,
+            "Il repository e' in detached HEAD: selezionare un branch target prima di adottare il branch",
+        ));
+    }
+    if inspection.head_state == RepositoryHeadState::Unborn {
+        return Err(WorktreeError::new(
+            WorktreeErrorCode::NoCommits,
+            "Il repository non contiene ancora alcun commit",
+        ));
+    }
+
+    let target_branch = inspection
+        .current_branch
+        .clone()
+        .unwrap_or_else(|| "main".to_string());
+    let target_branch = validate_target_branch(&context, &target_branch)?;
+    let lane_id = validate_lane_id(&args.lane_id)?.to_string();
+
+    let local_branch = match args.kind {
+        BranchKind::Remote => args
+            .branch
+            .strip_prefix("origin/")
+            .unwrap_or(&args.branch)
+            .to_string(),
+        BranchKind::Local => args.branch.clone(),
+    };
+
+    require_git(
+        &context.repository_root,
+        &[
+            OsString::from("check-ref-format"),
+            OsString::from("--branch"),
+            OsString::from(&local_branch),
+        ],
+        WorktreeErrorCode::InvalidLaneId,
+        "Il nome del branch non e' un ref Git valido",
+    )?;
+
+    if local_branch == target_branch {
+        return Err(WorktreeError::new(
+            WorktreeErrorCode::WorktreeInUse,
+            "Impossibile adottare il branch principale del repository",
+        ));
+    }
+
+    if inspection.current_branch.as_deref() == Some(&local_branch) {
+        return Err(WorktreeError::new(
+            WorktreeErrorCode::WorktreeInUse,
+            "Il branch e' gia' aperto nel checkout principale",
+        ));
+    }
+
+    let registrations = branch_registrations(&context)?;
+    if let Some(reg) = registrations.get(&local_branch) {
+        if reg.managed.as_deref().is_some_and(|v| v.eq_ignore_ascii_case("true")) {
+            return Err(WorktreeError::new(
+                WorktreeErrorCode::BranchCollision,
+                format!("Il branch '{}' e' gia' gestito in un'altra corsia Studio", local_branch),
+            ));
+        }
+    }
+
+    let worktrees = porcelain_worktrees(&context)?;
+    let existing_wt = worktrees
+        .into_iter()
+        .find(|wt| wt.branch.as_deref() == Some(&local_branch));
+
+    if let Some(existing) = existing_wt {
+        // Adozione in-place di un worktree esterno gia' presente
+        let canonical_path = existing.path.canonicalize().unwrap_or_else(|_| existing.path.clone());
+        if same_path(&canonical_path, &context.repository_root) {
+            return Err(WorktreeError::new(
+                WorktreeErrorCode::WorktreeInUse,
+                "Il branch e' aperto nel checkout principale",
+            ));
+        }
+        let workspace_path = canonical_path.join(&context.relative_subpath);
+        if !workspace_path.is_dir() {
+            return Err(WorktreeError::new(
+                WorktreeErrorCode::MissingProjectSubpath,
+                "Il worktree esistente non contiene la sottocartella aperta in Studio",
+            ));
+        }
+        let base_commit = resolve_head_commit(&canonical_path)?;
+        register_worktree(
+            &context,
+            &local_branch,
+            &lane_id,
+            &base_commit,
+            &target_branch,
+            &canonical_path,
+        )?;
+        config_set(&context, &local_branch, "ompStudioAdopted", "true")?;
+
+        Ok(WorktreeInfo {
+            worktree_path: path_string(&canonical_path)?,
+            workspace_path: path_string(&workspace_path)?,
+            commit: Some(base_commit.clone()),
+            branch: Some(local_branch),
+            detached: false,
+            is_current: false,
+            managed_by_studio: true,
+            lane_id: Some(lane_id),
+            base_commit: Some(base_commit),
+            target_branch: Some(target_branch),
+            locked_reason: existing.locked_reason,
+            prunable_reason: existing.prunable_reason,
+            adopted: true,
+        })
+    } else {
+        // Creazione di un nuovo worktree isolato sotto context.parent
+        let path = context.parent.join(format!(
+            "{}{}-{}",
+            WORKTREE_PREFIX,
+            repository_slug(&context.repository_name),
+            lane_id
+        ));
+        if path.symlink_metadata().is_ok() {
+            return Err(WorktreeError::new(
+                WorktreeErrorCode::PathCollision,
+                format!("La destinazione '{}' esiste gia'", path_string(&path)?),
+            ));
+        }
+
+        match args.kind {
+            BranchKind::Local => {
+                if !branch_exists(&context, &local_branch)? {
+                    return Err(WorktreeError::new(
+                        WorktreeErrorCode::InvalidPath,
+                        format!("Il branch locale '{}' non esiste", local_branch),
+                    ));
+                }
+                require_git(
+                    &context.repository_root,
+                    &[
+                        OsString::from("worktree"),
+                        OsString::from("add"),
+                        git_path_arg(&path),
+                        OsString::from(&local_branch),
+                    ],
+                    WorktreeErrorCode::GitCommandFailed,
+                    "Git non ha creato il worktree per il branch locale",
+                )?;
+            }
+            BranchKind::Remote => {
+                if branch_exists(&context, &local_branch)? {
+                    return Err(WorktreeError::new(
+                        WorktreeErrorCode::BranchCollision,
+                        format!("Il branch locale '{}' esiste gia'", local_branch),
+                    ));
+                }
+                require_git(
+                    &context.repository_root,
+                    &[
+                        OsString::from("worktree"),
+                        OsString::from("add"),
+                        OsString::from("--track"),
+                        OsString::from("-b"),
+                        OsString::from(&local_branch),
+                        git_path_arg(&path),
+                        OsString::from(&args.branch),
+                    ],
+                    WorktreeErrorCode::GitCommandFailed,
+                    "Git non ha creato il worktree per il branch remoto",
+                )?;
+            }
+        }
+
+        let canonical_path = match path.canonicalize() {
+            Ok(p) => p,
+            Err(error) => {
+                let _ = run_git(&context.repository_root, &[OsString::from("worktree"), OsString::from("remove"), OsString::from("--force"), git_path_arg(&path)]);
+                let _ = prune_worktrees(&context);
+                return Err(WorktreeError::with_detail(
+                    WorktreeErrorCode::InvalidPath,
+                    "Il worktree creato non e' canonicalizzabile",
+                    error.to_string(),
+                ));
+            }
+        };
+
+        if !same_path(
+            canonical_path.parent().unwrap_or(&canonical_path),
+            &context.parent,
+        ) {
+            let _ = run_git(&context.repository_root, &[OsString::from("worktree"), OsString::from("remove"), OsString::from("--force"), git_path_arg(&canonical_path)]);
+            let _ = prune_worktrees(&context);
+            return Err(WorktreeError::new(
+                WorktreeErrorCode::UnsafeWorktreePath,
+                "Git ha creato il worktree fuori dal parent consentito",
+            ));
+        }
+
+        let workspace_path = canonical_path.join(&context.relative_subpath);
+        if !workspace_path.is_dir() {
+            let _ = run_git(&context.repository_root, &[OsString::from("worktree"), OsString::from("remove"), OsString::from("--force"), git_path_arg(&canonical_path)]);
+            let _ = prune_worktrees(&context);
+            return Err(WorktreeError::new(
+                WorktreeErrorCode::MissingProjectSubpath,
+                "Il branch non contiene la sottocartella aperta in Studio",
+            ));
+        }
+
+        let base_commit = resolve_head_commit(&canonical_path)?;
+        if let Err(error) = register_worktree(
+            &context,
+            &local_branch,
+            &lane_id,
+            &base_commit,
+            &target_branch,
+            &canonical_path,
+        ) {
+            let _ = run_git(&context.repository_root, &[OsString::from("worktree"), OsString::from("remove"), OsString::from("--force"), git_path_arg(&canonical_path)]);
+            let _ = prune_worktrees(&context);
+            return Err(error);
+        }
+        if let Err(error) = config_set(&context, &local_branch, "ompStudioAdopted", "true") {
+            let _ = run_git(&context.repository_root, &[OsString::from("worktree"), OsString::from("remove"), OsString::from("--force"), git_path_arg(&canonical_path)]);
+            let _ = prune_worktrees(&context);
+            return Err(error);
+        }
+
+        Ok(WorktreeInfo {
+            worktree_path: path_string(&canonical_path)?,
+            workspace_path: path_string(&workspace_path)?,
+            commit: Some(base_commit.clone()),
+            branch: Some(local_branch),
+            detached: false,
+            is_current: false,
+            managed_by_studio: true,
+            lane_id: Some(lane_id),
+            base_commit: Some(base_commit),
+            target_branch: Some(target_branch),
+            locked_reason: None,
+            prunable_reason: None,
+            adopted: true,
+        })
+    }
 }
 
 fn has_parent_component(path: &Path) -> bool {
@@ -1274,24 +1680,55 @@ fn has_parent_component(path: &Path) -> bool {
 /// Worktree registrato da Studio, validato per ogni operazione che ci scrive
 /// dentro o lo rimuove: percorso assoluto, senza traversal, fratello diretto
 /// del repository, noto a Git e marcato dalla registrazione di Studio.
-fn resolve_managed_worktree(
+pub(crate) fn resolve_managed_worktree(
     context: &RepositoryContext,
     supplied_path: &str,
 ) -> Result<(PathBuf, PorcelainWorktree), WorktreeError> {
-    let canonical_path = confined_lane_root(context, supplied_path)?;
-    let entry = listed_worktree(context, &canonical_path)?.ok_or_else(not_listed_error)?;
-    let lane_id = managed_lane_id(context, &canonical_path, &entry)?;
-    let expected_name = format!(
-        "{}{}-{}",
-        WORKTREE_PREFIX,
-        repository_slug(&context.repository_name),
-        lane_id
-    );
-    if canonical_path.file_name().and_then(|name| name.to_str()) != Some(expected_name.as_str()) {
+    let supplied = validate_supplied_path(supplied_path)?;
+    let supplied_canonical = canonical_directory(supplied, "Percorso worktree")?;
+    let worktrees = porcelain_worktrees(context)?;
+    let entry = worktrees
+        .into_iter()
+        .find(|wt| {
+            let wt_canon = wt.path.canonicalize().unwrap_or_else(|_| wt.path.clone());
+            same_path(&wt_canon, &supplied_canonical) || supplied_canonical.starts_with(&wt_canon)
+        })
+        .ok_or_else(not_listed_error)?;
+
+    let canonical_path = entry.path.canonicalize().unwrap_or_else(|_| entry.path.clone());
+    if same_path(&canonical_path, &context.repository_root) {
         return Err(WorktreeError::new(
-            WorktreeErrorCode::UnsafeWorktreePath,
-            "Il nome del worktree non corrisponde alla registrazione Studio",
+            WorktreeErrorCode::UnmanagedWorktree,
+            "Il checkout principale non e' una corsia",
         ));
+    }
+    let lane_id = managed_lane_id(context, &canonical_path, &entry)?;
+    let branch = entry.branch.as_deref().unwrap_or_default();
+    let is_adopted = config_get(context, branch, "ompStudioAdopted")?
+        .is_some_and(|v| v.eq_ignore_ascii_case("true"));
+
+    if !is_adopted {
+        let expected_name = format!(
+            "{}{}-{}",
+            WORKTREE_PREFIX,
+            repository_slug(&context.repository_name),
+            lane_id
+        );
+        if canonical_path.file_name().and_then(|name| name.to_str()) != Some(expected_name.as_str()) {
+            return Err(WorktreeError::new(
+                WorktreeErrorCode::UnsafeWorktreePath,
+                "Il nome del worktree non corrisponde alla registrazione Studio",
+            ));
+        }
+        if !canonical_path
+            .parent()
+            .is_some_and(|parent| same_path(parent, &context.parent))
+        {
+            return Err(WorktreeError::new(
+                WorktreeErrorCode::UnsafeWorktreePath,
+                "Il worktree non e' un fratello diretto del repository",
+            ));
+        }
     }
     Ok((canonical_path, entry))
 }
@@ -1682,11 +2119,17 @@ fn remove_sync(args: RemoveWorktreeArgs) -> Result<(), WorktreeError> {
         args.worktree_path.clone()
     };
 
-    let root = confined_lane_root(&context, &worktree_path)?;
-    if listed_worktree(&context, &root)?.is_none() {
-        return remove_orphan_folder(&context, &root, args.stop_processes);
-    }
-    let (canonical_path, entry) = resolve_managed_worktree(&context, &worktree_path)?;
+    let (canonical_path, entry) = match resolve_managed_worktree(&context, &worktree_path) {
+        Ok(resolved) => resolved,
+        Err(err) => {
+            if let Ok(root) = confined_lane_root(&context, &worktree_path) {
+                if listed_worktree(&context, &root)?.is_none() {
+                    return remove_orphan_folder(&context, &root, args.stop_processes);
+                }
+            }
+            return Err(err);
+        }
+    };
     if entry.locked_reason.is_some() {
         return Err(WorktreeError::with_detail(
             WorktreeErrorCode::WorktreeLocked,
@@ -2962,6 +3405,24 @@ pub async fn worktree_lane_integration_state(
     tokio::task::spawn_blocking(move || lane_integrate::lane_integration_state_sync(args))
         .await
         .map_err(|error| task_join_error("worktree_lane_integration_state", error))?
+}
+
+#[command]
+pub async fn worktree_list_branches(
+    args: ListBranchesArgs,
+) -> Result<BranchListOutcome, WorktreeError> {
+    tokio::task::spawn_blocking(move || list_branches_sync(args))
+        .await
+        .map_err(|error| task_join_error("worktree_list_branches", error))?
+}
+
+#[command]
+pub async fn worktree_attach_branch(
+    args: AttachWorktreeArgs,
+) -> Result<WorktreeInfo, WorktreeError> {
+    tokio::task::spawn_blocking(move || attach_sync(args))
+        .await
+        .map_err(|error| task_join_error("worktree_attach_branch", error))?
 }
 
 #[cfg(test)]
@@ -4619,5 +5080,356 @@ mod tests {
             crate::process_tree::LaneProcessKind::Terminal,
             7712,
         );
+    }
+
+    #[test]
+    fn attach_ramo_locale_esistente() {
+        let repo = repository(true);
+        test_git(&repo.root, &["branch", "feat-x"]);
+
+        let args = AttachWorktreeArgs {
+            project_path: path_string(&repo.nested).unwrap(),
+            branch: "feat-x".to_string(),
+            lane_id: "at01".to_string(),
+            kind: BranchKind::Local,
+        };
+        let created = attach_sync(args).unwrap();
+        assert!(created.adopted);
+        assert_eq!(created.branch.as_deref(), Some("feat-x"));
+        assert_eq!(created.target_branch.as_deref(), Some("main"));
+        assert!(created.managed_by_studio);
+        assert!(created.worktree_path.contains(".omp-wt-repo-con-spazi-at01"));
+        assert!(Path::new(&created.worktree_path).exists());
+
+        let context = discover_repository(&path_string(&repo.nested).unwrap()).unwrap();
+        assert_eq!(
+            config_get(&context, "feat-x", "ompStudioAdopted").unwrap().as_deref(),
+            Some("true")
+        );
+        assert_eq!(
+            config_get(&context, "feat-x", "ompStudioLaneId").unwrap().as_deref(),
+            Some("at01")
+        );
+    }
+
+    #[test]
+    fn attach_ramo_solo_remoto_crea_tracking() {
+        let repo = repository(true);
+        let remote_bare = repo.container.join("bare_remote.git");
+        test_git(&repo.container, &["init", "--bare", "bare_remote.git"]);
+        let remote_str = path_string(&remote_bare).unwrap();
+        test_git(&repo.root, &["remote", "add", "origin", &remote_str]);
+        test_git(&repo.root, &["push", "-u", "origin", "main"]);
+
+        test_git(&repo.root, &["checkout", "-b", "feat-remote"]);
+        commit_file(&repo.root, "rem.txt", "remote\n", "remote commit");
+        test_git(&repo.root, &["push", "-u", "origin", "feat-remote"]);
+        test_git(&repo.root, &["checkout", "main"]);
+        test_git(&repo.root, &["branch", "-D", "feat-remote"]);
+
+        let args = AttachWorktreeArgs {
+            project_path: path_string(&repo.nested).unwrap(),
+            branch: "origin/feat-remote".to_string(),
+            lane_id: "at02".to_string(),
+            kind: BranchKind::Remote,
+        };
+        let created = attach_sync(args).unwrap();
+        assert!(created.adopted);
+        assert_eq!(created.branch.as_deref(), Some("feat-remote"));
+        let context = discover_repository(&path_string(&repo.root).unwrap()).unwrap();
+        assert!(branch_exists(&context, "feat-remote").unwrap());
+        assert!(Path::new(&created.worktree_path).exists());
+    }
+
+    #[test]
+    fn adozione_in_place_worktree_esterno() {
+        let repo = repository(true);
+        test_git(&repo.root, &["branch", "feat-ext"]);
+        let ext_dir = repo.container.join("external-wt");
+        test_git(
+            &repo.root,
+            &[
+                "worktree",
+                "add",
+                path_string(&ext_dir).unwrap().as_str(),
+                "feat-ext",
+            ],
+        );
+
+        let args = AttachWorktreeArgs {
+            project_path: path_string(&repo.nested).unwrap(),
+            branch: "feat-ext".to_string(),
+            lane_id: "at03".to_string(),
+            kind: BranchKind::Local,
+        };
+        let created = attach_sync(args).unwrap();
+        assert!(created.adopted);
+        assert_eq!(created.branch.as_deref(), Some("feat-ext"));
+        let expected_path = ext_dir.canonicalize().unwrap();
+        assert_eq!(Path::new(&created.worktree_path), expected_path);
+
+        remove_sync(RemoveWorktreeArgs {
+            project_path: path_string(&repo.root).unwrap(),
+            worktree_path: created.worktree_path.clone(),
+            stop_processes: false,
+        })
+        .unwrap();
+        assert!(!ext_dir.exists());
+
+        let context = discover_repository(&path_string(&repo.root).unwrap()).unwrap();
+        assert!(branch_exists(&context, "feat-ext").unwrap());
+    }
+
+    #[test]
+    fn land_corsia_adottata_fast_forward() {
+        let repo = repository(true);
+        test_git(&repo.root, &["branch", "feat-ff"]);
+        let created = attach_sync(AttachWorktreeArgs {
+            project_path: path_string(&repo.root).unwrap(),
+            branch: "feat-ff".to_string(),
+            lane_id: "at04".to_string(),
+            kind: BranchKind::Local,
+        })
+        .unwrap();
+        let worktree = PathBuf::from(&created.worktree_path);
+        commit_file(&worktree, "ff1.txt", "1\n", "feat commit 1");
+        commit_file(&worktree, "ff2.txt", "2\n", "feat commit 2");
+        let lane_tip = sha_of(&worktree);
+
+        let outcome = lane_integrate::land_sync(land_request(
+            &repo,
+            &created.worktree_path,
+            "at04",
+            "integrazione ff",
+        ))
+        .unwrap();
+        let commit = match outcome {
+            WorktreeLandOutcome::Integrated { commit, .. } => commit,
+            other => panic!("Atteso Integrated, ottenuto {:?}", other),
+        };
+        assert_eq!(commit, lane_tip);
+        assert_eq!(sha_of(&repo.root), lane_tip);
+        assert!(repo.root.join("ff1.txt").exists());
+        assert!(repo.root.join("ff2.txt").exists());
+
+        remove_sync(RemoveWorktreeArgs {
+            project_path: path_string(&repo.root).unwrap(),
+            worktree_path: created.worktree_path.clone(),
+            stop_processes: false,
+        })
+        .unwrap();
+        lane_integrate::delete_lane_branch_sync(lane_integrate::DeleteLaneBranchArgs {
+            project_path: path_string(&repo.root).unwrap(),
+            lane_id: "at04".to_string(),
+            confirm: true,
+            discard_unintegrated: false,
+        })
+        .unwrap();
+        let context = discover_repository(&path_string(&repo.root).unwrap()).unwrap();
+        assert!(!branch_exists(&context, "feat-ff").unwrap());
+    }
+
+    #[test]
+    fn land_corsia_adottata_true_merge_commit() {
+        let repo = repository(true);
+        test_git(&repo.root, &["branch", "feat-merge"]);
+        let created = attach_sync(AttachWorktreeArgs {
+            project_path: path_string(&repo.root).unwrap(),
+            branch: "feat-merge".to_string(),
+            lane_id: "at05".to_string(),
+            kind: BranchKind::Local,
+        })
+        .unwrap();
+        let worktree = PathBuf::from(&created.worktree_path);
+        commit_file(&worktree, "lane-work.txt", "lane\n", "lane work");
+        let lane_tip = sha_of(&worktree);
+
+        commit_file(&repo.root, "main-work.txt", "main\n", "main divergent work");
+        let main_tip = sha_of(&repo.root);
+
+        let outcome = lane_integrate::land_sync(land_request(
+            &repo,
+            &created.worktree_path,
+            "at05",
+            "integrazione merge",
+        ))
+        .unwrap();
+        let (merge_commit, prev_target) = match outcome {
+            WorktreeLandOutcome::Integrated {
+                commit,
+                previous_target,
+                ..
+            } => (commit, previous_target),
+            other => panic!("Atteso Integrated, ottenuto {:?}", other),
+        };
+        assert_eq!(prev_target, main_tip);
+        assert_ne!(merge_commit, lane_tip);
+        assert_ne!(merge_commit, main_tip);
+
+        let parents_raw = String::from_utf8_lossy(
+            &test_git(
+                &repo.root,
+                &["log", "-1", "--format=%P", &merge_commit],
+            )
+            .stdout,
+        )
+        .trim()
+        .to_string();
+        let parents: Vec<&str> = parents_raw.split_whitespace().collect();
+        assert_eq!(parents.len(), 2);
+        assert_eq!(parents[0], main_tip);
+        assert_eq!(parents[1], lane_tip);
+
+        let log_out = test_git(
+            &repo.root,
+            &["log", "-1", "--format=%B", &merge_commit],
+        );
+        let body = String::from_utf8_lossy(&log_out.stdout);
+        assert!(body.contains("OMP-Lane-Id: at05"));
+        assert!(repo.root.join("lane-work.txt").exists());
+        assert!(repo.root.join("main-work.txt").exists());
+    }
+
+    #[test]
+    fn scarta_corsia_adottata_mantiene_il_branch() {
+        let repo = repository(true);
+        test_git(&repo.root, &["branch", "feat-disc"]);
+        let created = attach_sync(AttachWorktreeArgs {
+            project_path: path_string(&repo.root).unwrap(),
+            branch: "feat-disc".to_string(),
+            lane_id: "at06".to_string(),
+            kind: BranchKind::Local,
+        })
+        .unwrap();
+        let worktree = PathBuf::from(&created.worktree_path);
+        commit_file(
+            &worktree,
+            "non-integrato.txt",
+            "perso?\n",
+            "commit non integrato",
+        );
+
+        remove_sync(RemoveWorktreeArgs {
+            project_path: path_string(&repo.root).unwrap(),
+            worktree_path: created.worktree_path.clone(),
+            stop_processes: false,
+        })
+        .unwrap();
+        assert!(!worktree.exists());
+
+        let refused = lane_integrate::delete_lane_branch_sync(
+            lane_integrate::DeleteLaneBranchArgs {
+                project_path: path_string(&repo.root).unwrap(),
+                lane_id: "at06".to_string(),
+                confirm: true,
+                discard_unintegrated: false,
+            },
+        )
+        .unwrap_err();
+        assert_eq!(refused.code, WorktreeErrorCode::ConfirmationRequired);
+
+        lane_integrate::delete_lane_branch_sync(lane_integrate::DeleteLaneBranchArgs {
+            project_path: path_string(&repo.root).unwrap(),
+            lane_id: "at06".to_string(),
+            confirm: true,
+            discard_unintegrated: true,
+        })
+        .unwrap();
+
+        let context = discover_repository(&path_string(&repo.root).unwrap()).unwrap();
+        assert!(
+            branch_exists(&context, "feat-disc").unwrap(),
+            "Il branch Git non deve mai essere cancellato allo scarto"
+        );
+    }
+
+    #[test]
+    fn cancellazione_remota_differita_registrata_ed_eseguita() {
+        let repo = repository(true);
+        let remote_bare = repo.container.join("bare_del.git");
+        test_git(&repo.container, &["init", "--bare", "bare_del.git"]);
+        let remote_str = path_string(&remote_bare).unwrap();
+        test_git(&repo.root, &["remote", "add", "origin", &remote_str]);
+        test_git(&repo.root, &["push", "-u", "origin", "main"]);
+
+        test_git(&repo.root, &["branch", "feat-del"]);
+        test_git(&repo.root, &["push", "-u", "origin", "feat-del"]);
+
+        let created = attach_sync(AttachWorktreeArgs {
+            project_path: path_string(&repo.root).unwrap(),
+            branch: "feat-del".to_string(),
+            lane_id: "at07".to_string(),
+            kind: BranchKind::Local,
+        })
+        .unwrap();
+        let worktree = PathBuf::from(&created.worktree_path);
+        commit_file(&worktree, "del.txt", "data\n", "del commit");
+
+        let outcome = lane_integrate::land_sync(land_request(
+            &repo,
+            &created.worktree_path,
+            "at07",
+            "land del",
+        ))
+        .unwrap();
+        match outcome {
+            WorktreeLandOutcome::Integrated {
+                pending_remote_delete,
+                ..
+            } => {
+                assert!(pending_remote_delete.contains(&"feat-del".to_string()));
+            }
+            other => panic!("Atteso Integrated, ottenuto {:?}", other),
+        };
+
+        let context = discover_repository(&path_string(&repo.root).unwrap()).unwrap();
+        let pending = lane_integrate::get_pending_remote_deletions(&context).unwrap();
+        assert!(pending.contains(&"feat-del".to_string()));
+
+        crate::github::sync::execute_pending_remote_deletions(&repo.root);
+
+        let pending_after = lane_integrate::get_pending_remote_deletions(&context).unwrap();
+        assert!(!pending_after.contains(&"feat-del".to_string()));
+    }
+
+    #[test]
+    fn list_branches_elenca_locali_e_remoti() {
+        let repo = repository(true);
+        let remote_bare = repo.container.join("bare_list.git");
+        test_git(&repo.container, &["init", "--bare", "bare_list.git"]);
+        let remote_str = path_string(&remote_bare).unwrap();
+        test_git(&repo.root, &["remote", "add", "origin", &remote_str]);
+        test_git(&repo.root, &["push", "-u", "origin", "main"]);
+
+        test_git(&repo.root, &["branch", "local-only"]);
+        test_git(&repo.root, &["checkout", "-b", "remote-only"]);
+        commit_file(&repo.root, "ro.txt", "ro\n", "ro commit");
+        test_git(&repo.root, &["push", "-u", "origin", "remote-only"]);
+        test_git(&repo.root, &["checkout", "main"]);
+        test_git(&repo.root, &["branch", "-D", "remote-only"]);
+
+        let outcome = list_branches_sync(ListBranchesArgs {
+            project_path: path_string(&repo.root).unwrap(),
+        })
+        .unwrap();
+
+        assert_eq!(outcome.primary_branch, "main");
+        let main_entry = outcome.branches.iter().find(|b| b.name == "main").unwrap();
+        assert_eq!(main_entry.kind, BranchKind::Local);
+        assert!(main_entry.is_primary_checkout);
+        assert!(main_entry.checked_out_path.is_some());
+
+        let local_entry = outcome.branches.iter().find(|b| b.name == "local-only").unwrap();
+        assert_eq!(local_entry.kind, BranchKind::Local);
+        assert!(!local_entry.is_primary_checkout);
+        assert!(local_entry.checked_out_path.is_none());
+
+        let remote_entry = outcome
+            .branches
+            .iter()
+            .find(|b| b.name == "origin/remote-only")
+            .unwrap();
+        assert_eq!(remote_entry.kind, BranchKind::Remote);
+        assert!(remote_entry.checked_out_path.is_none());
     }
 }

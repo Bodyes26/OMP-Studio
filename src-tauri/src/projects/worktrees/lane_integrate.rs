@@ -45,6 +45,8 @@ const MAX_MESSAGE_BYTES: usize = 65_536;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum IntegrateStrategy {
     Squash,
+    FastForward,
+    Merge,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -57,13 +59,16 @@ pub enum WorktreeLandOutcome {
         target_branch: String,
         lane_head: String,
         files: Vec<String>,
+        #[serde(default)]
+        pending_remote_delete: Vec<String>,
     },
     #[serde(rename_all = "camelCase")]
     AlreadyIntegrated {
         commit: String,
         target_branch: String,
+        #[serde(default)]
+        pending_remote_delete: Vec<String>,
     },
-    #[serde(rename_all = "camelCase")]
     Conflicts {
         files: Vec<String>,
         worktree_path: String,
@@ -473,6 +478,8 @@ fn write_receipt(
     super::config_set(context, branch, RECEIPT_SOURCE, &receipt.source)?;
     let strategy = match receipt.strategy {
         IntegrateStrategy::Squash => "squash",
+        IntegrateStrategy::FastForward => "fast_forward",
+        IntegrateStrategy::Merge => "merge",
     };
     super::config_set(context, branch, RECEIPT_STRATEGY, strategy)
 }
@@ -480,6 +487,8 @@ fn write_receipt(
 fn parse_strategy(value: &str) -> Option<IntegrateStrategy> {
     match value {
         "squash" => Some(IntegrateStrategy::Squash),
+        "fast_forward" => Some(IntegrateStrategy::FastForward),
+        "merge" => Some(IntegrateStrategy::Merge),
         _ => None,
     }
 }
@@ -629,23 +638,26 @@ fn squash_message(user: &str, lane_id: &str, lane_sha: &str) -> String {
     format!("{user}\n\nOMP-Lane-Id: {lane_id}\nOMP-Lane-Head: {lane_sha}\nOMP-Strategy: squash\n")
 }
 
-fn commit_tree(
+fn commit_tree_parents(
     cwd: &Path,
     tree: &str,
-    parent: &str,
+    parents: &[&str],
     message: &str,
 ) -> Result<String, WorktreeError> {
+    let mut args: Vec<&str> = vec![
+        "-c",
+        "commit.gpgsign=false",
+        "commit-tree",
+        tree,
+    ];
+    for p in parents {
+        args.push("-p");
+        args.push(*p);
+    }
     let mut command = Command::new("git");
     command
         .current_dir(cwd)
-        .args([
-            "-c",
-            "commit.gpgsign=false",
-            "commit-tree",
-            tree,
-            "-p",
-            parent,
-        ])
+        .args(&args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -695,6 +707,65 @@ fn commit_tree(
         WorktreeErrorCode::GitCommandFailed,
         "Git ha restituito un commit di integrazione non valido",
     )
+}
+
+fn commit_tree(
+    cwd: &Path,
+    tree: &str,
+    parent: &str,
+    message: &str,
+) -> Result<String, WorktreeError> {
+    commit_tree_parents(cwd, tree, &[parent], message)
+}
+
+fn ref_exists(cwd: &Path, reference: &str) -> Result<bool, WorktreeError> {
+    let output = run_git(cwd, &git_args(&["rev-parse", "-q", "--verify", reference]))?;
+    Ok(output.status.success())
+}
+
+pub(crate) const PENDING_REMOTE_DELETE_KEY: &str = "omp-studio.pendingRemoteDelete";
+
+pub(crate) fn get_pending_remote_deletions(
+    context: &super::RepositoryContext,
+) -> Result<Vec<String>, WorktreeError> {
+    let output = run_git(
+        &context.repository_root,
+        &git_args(&["config", "--local", "--get-all", PENDING_REMOTE_DELETE_KEY]),
+    )?;
+    if output.status.code() == Some(1) {
+        return Ok(Vec::new());
+    }
+    if !output.status.success() {
+        return Ok(Vec::new());
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    Ok(text
+        .lines()
+        .map(|l| l.trim_end_matches('\r').trim().to_string())
+        .filter(|l| !l.is_empty())
+        .collect())
+}
+
+pub(crate) fn add_pending_remote_delete(
+    context: &super::RepositoryContext,
+    branch: &str,
+) -> Result<(), WorktreeError> {
+    let existing = get_pending_remote_deletions(context)?;
+    if existing.iter().any(|b| b == branch) {
+        return Ok(());
+    }
+    let output = run_git(
+        &context.repository_root,
+        &git_args(&["config", "--local", "--add", PENDING_REMOTE_DELETE_KEY, branch]),
+    )?;
+    if !output.status.success() {
+        return Err(WorktreeError::with_detail(
+            WorktreeErrorCode::GitCommandFailed,
+            "Impossibile registrare la cancellazione remota differita",
+            output_detail(&output),
+        ));
+    }
+    Ok(())
 }
 
 /// Sincronizzazione del checkout fallita. `touched` dice se il working tree
@@ -1243,12 +1314,24 @@ pub(crate) fn land_sync(args: WorktreeLandArgs) -> Result<WorktreeLandOutcome, W
             "La corsia non ha un branch",
         )
     })?;
-    let expected_branch = format!("{LANE_BRANCH_PREFIX}{lane_id}");
-    if lane_branch != expected_branch {
-        return Err(WorktreeError::new(
-            WorktreeErrorCode::InvalidLaneId,
-            "Il branch della corsia non corrisponde all'identificatore confermato",
-        ));
+    let is_adopted = super::config_get(&context, &lane_branch, "ompStudioAdopted")?
+        .is_some_and(|v| v.eq_ignore_ascii_case("true"));
+    if is_adopted {
+        let reg_lane_id = super::config_get(&context, &lane_branch, "ompStudioLaneId")?;
+        if reg_lane_id.as_deref() != Some(lane_id.as_str()) {
+            return Err(WorktreeError::new(
+                WorktreeErrorCode::InvalidLaneId,
+                "Il branch della corsia non corrisponde all'identificatore confermato",
+            ));
+        }
+    } else {
+        let expected_branch = format!("{LANE_BRANCH_PREFIX}{lane_id}");
+        if lane_branch != expected_branch {
+            return Err(WorktreeError::new(
+                WorktreeErrorCode::InvalidLaneId,
+                "Il branch della corsia non corrisponde all'identificatore confermato",
+            ));
+        }
     }
     let target_branch = resolve_target_name(
         &context,
@@ -1292,6 +1375,11 @@ pub(crate) fn land_sync(args: WorktreeLandArgs) -> Result<WorktreeLandOutcome, W
                 return Ok(WorktreeLandOutcome::AlreadyIntegrated {
                     commit: receipt.commit,
                     target_branch,
+                    pending_remote_delete: if is_adopted {
+                        get_pending_remote_deletions(&context)?
+                    } else {
+                        Vec::new()
+                    },
                 });
             }
         }
@@ -1345,54 +1433,111 @@ pub(crate) fn land_sync(args: WorktreeLandArgs) -> Result<WorktreeLandOutcome, W
             return Ok(WorktreeLandOutcome::AlreadyIntegrated {
                 commit: receipt.commit,
                 target_branch,
+                pending_remote_delete: if is_adopted {
+                    get_pending_remote_deletions(&context)?
+                } else {
+                    Vec::new()
+                },
             });
         }
     }
 
-    // Merge in memoria tramite git merge-tree
-    let mut retried_clean = false;
-    let (merged_tree, final_lane_head) = loop {
-        match merge_tree_write(&context.repository_root, &target_sha, &lane_head)? {
-            MergeTreeResult::Clean { tree } => break (tree, lane_head),
-            MergeTreeResult::Conflicts => {
-                match merge_target_into_lane(&context, &worktree, &target_branch)? {
-                    MergeLaneOutcome::Conflicted(files) => {
-                        return Ok(WorktreeLandOutcome::Conflicts {
-                            files,
-                            worktree_path: path_string(&worktree)?,
-                            target_branch,
-                        });
-                    }
-                    MergeLaneOutcome::Clean => {
-                        if retried_clean {
-                            return Err(WorktreeError::new(
-                                WorktreeErrorCode::Internal,
-                                "Conflitto inaspettato dopo il merge del target nella corsia",
-                            ));
+    let (new_commit, strategy, merged_tree) = if is_adopted {
+        if lane_head == target_sha {
+            return Ok(WorktreeLandOutcome::Nothing { target_branch });
+        }
+        let is_ff = is_ancestor(&context.repository_root, &target_sha, &lane_head)?;
+        if is_ff {
+            let tree = resolve_tree(&context.repository_root, &lane_head)?;
+            (lane_head.clone(), IntegrateStrategy::FastForward, tree)
+        } else {
+            let mut retried_clean = false;
+            let (merged_tree, final_lane_head) = loop {
+                match merge_tree_write(&context.repository_root, &target_sha, &lane_head)? {
+                    MergeTreeResult::Clean { tree } => break (tree, lane_head),
+                    MergeTreeResult::Conflicts => {
+                        match merge_target_into_lane(&context, &worktree, &target_branch)? {
+                            MergeLaneOutcome::Conflicted(files) => {
+                                return Ok(WorktreeLandOutcome::Conflicts {
+                                    files,
+                                    worktree_path: path_string(&worktree)?,
+                                    target_branch,
+                                });
+                            }
+                            MergeLaneOutcome::Clean => {
+                                if retried_clean {
+                                    return Err(WorktreeError::new(
+                                        WorktreeErrorCode::Internal,
+                                        "Conflitto inaspettato dopo il merge del target nella corsia",
+                                    ));
+                                }
+                                retried_clean = true;
+                                lane_head = resolve_commit(&worktree, "HEAD")?;
+                            }
                         }
-                        retried_clean = true;
-                        lane_head = resolve_commit(&worktree, "HEAD")?;
+                    }
+                }
+            };
+            lane_head = final_lane_head;
+
+            let target_tree = resolve_tree(&context.repository_root, &target_sha)?;
+            if merged_tree == target_tree {
+                return Ok(WorktreeLandOutcome::Nothing { target_branch });
+            }
+
+            let merge_msg = format!("{message}\n\nOMP-Lane-Id: {lane_id}\n");
+            let commit = commit_tree_parents(
+                &context.repository_root,
+                &merged_tree,
+                &[&target_sha, &lane_head],
+                &merge_msg,
+            )?;
+            (commit, IntegrateStrategy::Merge, merged_tree)
+        }
+    } else {
+        let mut retried_clean = false;
+        let (merged_tree, final_lane_head) = loop {
+            match merge_tree_write(&context.repository_root, &target_sha, &lane_head)? {
+                MergeTreeResult::Clean { tree } => break (tree, lane_head),
+                MergeTreeResult::Conflicts => {
+                    match merge_target_into_lane(&context, &worktree, &target_branch)? {
+                        MergeLaneOutcome::Conflicted(files) => {
+                            return Ok(WorktreeLandOutcome::Conflicts {
+                                files,
+                                worktree_path: path_string(&worktree)?,
+                                target_branch,
+                            });
+                        }
+                        MergeLaneOutcome::Clean => {
+                            if retried_clean {
+                                return Err(WorktreeError::new(
+                                    WorktreeErrorCode::Internal,
+                                    "Conflitto inaspettato dopo il merge del target nella corsia",
+                                ));
+                            }
+                            retried_clean = true;
+                            lane_head = resolve_commit(&worktree, "HEAD")?;
+                        }
                     }
                 }
             }
+        };
+        lane_head = final_lane_head;
+
+        let target_tree = resolve_tree(&context.repository_root, &target_sha)?;
+        if merged_tree == target_tree {
+            return Ok(WorktreeLandOutcome::Nothing { target_branch });
         }
+
+        let squash_msg = squash_message(&message, &lane_id, &lane_head);
+        let commit = commit_tree(
+            &context.repository_root,
+            &merged_tree,
+            &target_sha,
+            &squash_msg,
+        )?;
+        (commit, IntegrateStrategy::Squash, merged_tree)
     };
-    lane_head = final_lane_head;
-
-    // Se merged_tree == tree(target_sha) non ci sono modifiche da integrare
-    let target_tree = resolve_tree(&context.repository_root, &target_sha)?;
-    if merged_tree == target_tree {
-        return Ok(WorktreeLandOutcome::Nothing { target_branch });
-    }
-
-    // Creazione del commit di squash in memoria
-    let squash_msg = squash_message(&message, &lane_id, &lane_head);
-    let new_commit = commit_tree(
-        &context.repository_root,
-        &merged_tree,
-        &target_sha,
-        &squash_msg,
-    )?;
 
     // Verifica stato del checkout principale
     if attached_branch(&context.repository_root)?.as_deref() != Some(&target_branch) {
@@ -1431,7 +1576,7 @@ pub(crate) fn land_sync(args: WorktreeLandArgs) -> Result<WorktreeLandOutcome, W
     let receipt = IntegrationReceipt {
         commit: new_commit.clone(),
         source: lane_head.clone(),
-        strategy: IntegrateStrategy::Squash,
+        strategy,
     };
     if let Err(error) = write_receipt(&context, &lane_branch, &receipt) {
         let _ = rollback_ref(
@@ -1515,12 +1660,23 @@ pub(crate) fn land_sync(args: WorktreeLandArgs) -> Result<WorktreeLandOutcome, W
         ));
     }
 
+    let pending_remote_delete = if is_adopted {
+        let remote_ref = format!("refs/remotes/origin/{lane_branch}");
+        if ref_exists(&context.repository_root, &remote_ref)? {
+            add_pending_remote_delete(&context, &lane_branch)?;
+        }
+        get_pending_remote_deletions(&context)?
+    } else {
+        Vec::new()
+    };
+
     Ok(WorktreeLandOutcome::Integrated {
         commit: new_commit,
         previous_target: target_sha,
         target_branch,
         lane_head,
         files: changed,
+        pending_remote_delete,
     })
 }
 
@@ -1694,31 +1850,64 @@ struct LaneBranchState {
     receipt: Option<IntegrationReceipt>,
     /// Ricevuta valida, tip == sorgente della ricevuta e commit sul target.
     integrated: bool,
+    adopted: bool,
 }
 
-/// `None` se il branch `omp/lane-<id>` non esiste.
+/// `None` se il branch `omp/lane-<id>` o il branch adottato non esiste.
 fn lane_branch_state(
     context: &super::RepositoryContext,
     lane_id: &str,
 ) -> Result<Option<LaneBranchState>, WorktreeError> {
-    let branch = format!("{LANE_BRANCH_PREFIX}{lane_id}");
-    if !super::branch_exists(context, &branch)? {
-        return Ok(None);
-    }
+    let default_branch = format!("{LANE_BRANCH_PREFIX}{lane_id}");
+    let (branch, adopted) = if super::branch_exists(context, &default_branch)? {
+        (default_branch, false)
+    } else {
+        let registrations = super::branch_registrations(context)?;
+        let adopted_entry = registrations.into_iter().find(|(name, reg)| {
+            reg.lane_id.as_deref() == Some(lane_id)
+                && reg
+                    .managed
+                    .as_deref()
+                    .is_some_and(|v| v.eq_ignore_ascii_case("true"))
+                && super::branch_exists(context, name).unwrap_or(false)
+        });
+        match adopted_entry {
+            Some((name, reg)) => {
+                let is_adopted = reg
+                    .adopted
+                    .as_deref()
+                    .is_some_and(|v| v.eq_ignore_ascii_case("true"));
+                (name, is_adopted)
+            }
+            None => return Ok(None),
+        }
+    };
+
     let tip = resolve_commit(&context.repository_root, &format!("refs/heads/{branch}"))?;
     let target = super::config_get(context, &branch, "ompStudioTargetBranch")?
         .unwrap_or_else(|| "main".to_string());
     let receipt = read_config_receipt(context, &branch)?;
+    let target_exists = super::branch_exists(context, &target)?;
     let integrated = match &receipt {
         Some(receipt) if receipt.source == tip => {
-            super::branch_exists(context, &target)?
+            target_exists
                 && is_ancestor(
                     &context.repository_root,
                     &receipt.commit,
                     &format!("refs/heads/{target}"),
                 )?
         }
-        _ => false,
+        _ => {
+            if adopted && target_exists {
+                is_ancestor(
+                    &context.repository_root,
+                    &tip,
+                    &format!("refs/heads/{target}"),
+                )?
+            } else {
+                false
+            }
+        }
     };
     Ok(Some(LaneBranchState {
         branch,
@@ -1726,6 +1915,7 @@ fn lane_branch_state(
         target,
         receipt,
         integrated,
+        adopted,
     }))
 }
 
@@ -1905,8 +2095,36 @@ pub(crate) fn delete_lane_branch_sync(args: DeleteLaneBranchArgs) -> Result<(), 
             "Il branch e' ancora checked out: nessun force e' stato usato",
         ));
     }
+    if state.adopted {
+        if state.integrated {
+            let output = run_git(
+                &context.repository_root,
+                &git_args(&["branch", "-d", &branch]),
+            )?;
+            if !output.status.success() {
+                return Err(WorktreeError::with_detail(
+                    WorktreeErrorCode::GitCommandFailed,
+                    "Git non ha eliminato il branch con branch -d",
+                    output_detail(&output),
+                ));
+            }
+            clear_receipt(&context, &branch);
+            super::clear_registration(&context, &branch);
+            return Ok(());
+        } else {
+            let safe = lane_has_no_own_work(&context, &state)?;
+            if !safe && !args.discard_unintegrated {
+                return Err(WorktreeError::new(
+                    WorktreeErrorCode::ConfirmationRequired,
+                    "Il branch non ha un'integrazione riconosciuta e non viene forzato",
+                ));
+            }
+            clear_receipt(&context, &branch);
+            super::clear_registration(&context, &branch);
+            return Ok(());
+        }
+    }
 
-    // Lavoro gia' al sicuro: integrato (squash, che per Git non risulta
     // "merged") oppure nessun commit proprio. Si prova `-d` e solo per questi
     // casi si ripiega su `-D`: il tip non contiene nulla che andrebbe perso.
     let safe = state.integrated || lane_has_no_own_work(&context, &state)?;

@@ -12,6 +12,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 ## [Unreleased]
 
 ### Added
+- Il «+» della riga delle corsie elenca anche i branch Git esistenti («Apri branch»): aprire un branch locale, uno solo sul remoto o uno già in un worktree creato fuori da Studio ne fa una corsia con il nome reale del branch. Integrandola, Studio fa fast-forward o un merge commit (senza squash), rimuove il worktree ed elimina il branch locale; `origin/<branch>` viene eliminato al prossimo push dal pannello Git, mai in automatico. Scartarla rimuove solo il worktree e lascia il branch.
 - Il piè di ogni risposta dell'agente mostra i token al secondo della generazione (esclusa l'attesa del primo token), accanto a durata, modello e costo.
 - `/compact` e il pulsante «Compatta ora» chiedono come compattare quando il modello legge le immagini: Snapcompact (istantaneo, senza chiamate al modello), Soft o Remote, con una scheda a un clic. Anche `/compact soft|remote|snapcompact` sceglie la modalità direttamente.
 - Apri diagrammi Mermaid, SVG e prototipi HTML/TSX dalla chat di Studio Remote in un'anteprima interattiva: affiancata alla conversazione sul desktop, a schermo intero sul telefono.
@@ -19,6 +20,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Dalla Companion invia un seguito o un comando direttamente nella conversazione letta, senza trasformarlo in un nuovo task.
 
 ### Changed
+- L'avviso «dal terzo agente contemporaneo» compare solo quando avvii un task dalla coda: creare o aprire una corsia dal «+» non lo mostra più.
 - La riga delle corsie è sempre visibile sotto la barra dei progetti, con la sola «Principale» e il «+» se il progetto non ha altre corsie: passando da un progetto all'altro le colonne non saltano più. Le schede delle corsie compaiono e scompaiono con un'animazione.
 - Cambiando progetto o corsia si dissolve soltanto ciò che è cambiato, senza muovere etichette fisse, composer e terminale: i file nuovi dell'albero, le righe di codice diverse dell'editor, le schede nuove e i messaggi visibili della chat, a cascata in 300 ms.
 - Pulsanti primari ridisegnati: niente più riempimento pieno con bordo scuro all'hover, ma fondo tenue del colore del tema e testo leggibile (Pull/Push della colonna Git, finestra aggiornamenti e tutte le finestre di dialogo).

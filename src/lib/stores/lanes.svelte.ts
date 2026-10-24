@@ -535,6 +535,98 @@ class LaneStore {
 		if (options.activate !== false) projectStore.setProjectLane(project.id, record);
 		return record;
 	}
+	async openBranchLane(
+		project: Project,
+		options: {
+			branch: string;
+			kind: 'local' | 'remote';
+			origin?: LaneOrigin;
+			surface?: AgentSurface;
+			activate?: boolean;
+		}
+	): Promise<LaneRecord> {
+		await this.init();
+		this.assertWritable();
+		if (!project.canonicalProjectPath) {
+			throw new Error(m.lane_error_create_without_path());
+		}
+
+		const existing = this.lanesFor(project.id);
+		let maxNum = 0;
+		for (const l of existing) {
+			const matchTitle = l.title.match(/^Worktree\s+(\d+)$/i);
+			if (matchTitle) {
+				const n = parseInt(matchTitle[1], 10);
+				if (!isNaN(n) && n > maxNum) maxNum = n;
+			}
+			const matchId = l.laneId.match(/^wt-(\d+)$/i);
+			if (matchId) {
+				const n = parseInt(matchId[1], 10);
+				if (!isNaN(n) && n > maxNum) maxNum = n;
+			}
+		}
+		let nextNum = maxNum + 1;
+		let targetLaneId = laneId(`wt-${nextNum}`);
+		while (existing.some((l) => l.laneId === targetLaneId)) {
+			nextNum += 1;
+			targetLaneId = laneId(`wt-${nextNum}`);
+		}
+
+		const cleanBranchName = options.branch.replace(/^origin\//, '');
+		let wsPath: string;
+		let branch = cleanBranchName;
+		let baseCommit = 'HEAD';
+		let targetBranch = 'main';
+
+		if (this.isTauri) {
+			const info = await invoke<WorktreeInfo>('worktree_attach_branch', {
+				args: {
+					projectPath: project.canonicalProjectPath,
+					branch: options.branch,
+					laneId: targetLaneId,
+					kind: options.kind
+				}
+			});
+			wsPath = info.workspacePath;
+			branch = info.branch ?? cleanBranchName;
+			if (info.baseCommit) baseCommit = info.baseCommit;
+			if (info.targetBranch) targetBranch = info.targetBranch;
+		} else {
+			wsPath = `${project.canonicalProjectPath}/.mock-wt-${targetLaneId}`;
+		}
+
+		const record: LaneRecord = {
+			projectId: project.id,
+			laneId: targetLaneId,
+			title: branch,
+			workspacePath: workspacePath(wsPath),
+			branch,
+			baseCommit,
+			targetBranch,
+			createdAt: Date.now(),
+			status: 'active',
+			origin: options.origin ?? 'manual',
+			agentState: 'idle',
+			openFiles: [],
+			activeFile: null,
+			surface: options.surface ?? project.lane.surface,
+			sessionId: null,
+			headCommit: baseCommit,
+			recoveryState: 'registered',
+			archiveReason: null,
+			archivedAt: null,
+			recoveredAt: null,
+			kind: 'git',
+			labPrototypeId: null,
+			closedAt: null,
+			titleLocked: true,
+			adopted: true
+		};
+
+		await this.upsertLane(record);
+		if (options.activate !== false) projectStore.setProjectLane(project.id, record);
+		return record;
+	}
 
 	/**
 	 * Archiviazione di una corsia secondaria. `reason` distingue integrazione e

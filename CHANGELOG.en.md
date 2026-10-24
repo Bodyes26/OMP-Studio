@@ -12,6 +12,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 ## [Unreleased]
 
 ### Added
+- The lane row's "+" also lists existing Git branches ("Open branch"): opening a local branch, a remote-only one or one already in a worktree created outside Studio turns it into a lane with the branch's real name. Integrating it does a fast-forward or a merge commit (no squash), removes the worktree and deletes the local branch; `origin/<branch>` is deleted on the next push from the Git panel, never automatically. Discarding it removes only the worktree and keeps the branch.
 - The footer of each agent reply shows generation speed in tokens per second (excluding the wait for the first token), next to duration, model and cost.
 - `/compact` and the "Compact now" button ask how to compact when the model reads images: Snapcompact (instant, no model call), Soft or Remote, with a one-click card. `/compact soft|remote|snapcompact` also picks the mode directly.
 - Open Mermaid diagrams, SVGs and HTML/TSX prototypes from Studio Remote chat in an interactive preview: beside the conversation on desktop, full screen on phones.
@@ -19,6 +20,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Send a follow-up or a command from Companion directly to the conversation being read, without turning it into a new task.
 
 ### Changed
+- The "third concurrent agent" notice appears only when you start a task from the queue: creating or opening a lane from "+" no longer shows it.
 - The lane row is always visible under the project bar, showing just "Main" and the "+" when a project has no other lanes: switching between projects no longer makes the columns jump. Lane tabs animate in and out.
 - Switching project or lane now fades in only what changed, leaving fixed labels, the composer and the terminal still: new files in the tree, differing code lines in the editor, new tabs and the visible chat messages, in a 300 ms cascade.
 - Primary buttons redesigned: no more solid fill with a dark border on hover, but a soft tint of the theme colour with readable text (Git column Pull/Push, update modal, all dialogs).

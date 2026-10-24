@@ -12,6 +12,7 @@ import {
 	laneId,
 	MAIN_LANE_ID,
 	workspacePath,
+	type AgentLane,
 	type LaneId,
 	type ProjectId
 } from '$lib/types/lanes';
@@ -22,13 +23,50 @@ import { m } from '$lib/paraglide/messages.js';
 import { getLocale } from '$lib/paraglide/runtime.js';
 import { message } from '@tauri-apps/plugin-dialog';
 import { listClosedLanes, reopenLane, type ClosedLaneEntry } from './laneLifecycle';
+export {
+	filterOpenableBranches,
+	fetchWorktreeBranches,
+	type WorktreeBranchEntry,
+	type WorktreeListBranchesOutcome,
+	type BranchesMenuState
+} from './branchFilter';
+import {
+	filterOpenableBranches,
+	fetchWorktreeBranches,
+	type WorktreeBranchEntry,
+	type BranchesMenuState
+} from './branchFilter';
 
 export interface ProjectLaneActionsOptions {
 	onCreateWorktree?: () => void | Promise<void>;
 	onCreatePrototype?: () => void | Promise<void>;
+	onOpenBranch?: (branch: WorktreeBranchEntry) => void | Promise<void>;
 	onReopenLane?: (entry: ClosedLaneEntry) => void | Promise<void>;
 	onRequestDelete?: (entry: ClosedLaneEntry) => void | Promise<void>;
 	onProfileReview?: (review: unknown) => void;
+	branchesState?: BranchesMenuState;
+}
+
+export async function startOpenBranchFlow(
+	project: Project,
+	branch: WorktreeBranchEntry,
+	callbacks?: {
+		onProfileReview?: (review: unknown) => void;
+	}
+): Promise<void> {
+	try {
+		const review = await reviewProjectProfile(project);
+		if (review?.needsConsent) {
+			callbacks?.onProfileReview?.(review);
+			return;
+		}
+	} catch (err) {
+		console.error('Analisi profilo fallita:', err);
+	}
+	await laneOrchestrator.openBranchLane(project, {
+		branch: branch.name,
+		kind: branch.kind
+	});
 }
 
 /**
@@ -309,6 +347,74 @@ export async function projectLaneActions(
 				}
 			}
 		});
+	}
+
+	// 3. Sezione "Apri branch" per repository Git
+	if (isGitRepo && project.canonicalProjectPath) {
+		items.push({ kind: 'separator' });
+		items.push({ kind: 'header', label: 'Apri branch' });
+
+		if (options?.branchesState?.loading) {
+			items.push({
+				kind: 'item',
+				label: 'Caricamento branch in corso...',
+				disabled: true,
+				run: () => {}
+			});
+		} else if (options?.branchesState?.error) {
+			items.push({
+				kind: 'item',
+				label: 'Impossibile leggere i branch',
+				disabled: true,
+				run: () => {}
+			});
+		} else {
+			try {
+				const outcome =
+					options?.branchesState?.data ??
+					(await fetchWorktreeBranches(project.canonicalProjectPath));
+				const openLanes = laneStore.lanesFor(project.id as ProjectId);
+				const openable = filterOpenableBranches(outcome, openLanes);
+				if (openable.length === 0) {
+					items.push({
+						kind: 'item',
+						label: 'Nessun branch da aprire',
+						disabled: true,
+						run: () => {}
+					});
+				} else {
+					for (const branch of openable) {
+						items.push({
+							kind: 'item',
+							label: branch.name,
+							icon: IconGitBranch,
+							detail: branch.checkedOutPath
+								? 'worktree esterno'
+								: branch.kind === 'remote'
+									? 'remoto'
+									: undefined,
+							run: async () => {
+								if (options?.onOpenBranch) {
+									await options.onOpenBranch(branch);
+									return;
+								}
+								await startOpenBranchFlow(project, branch, {
+									onProfileReview: options?.onProfileReview
+								});
+							}
+						});
+					}
+				}
+			} catch (err) {
+				console.warn('Lettura branch fallita per il menu:', err);
+				items.push({
+					kind: 'item',
+					label: 'Impossibile leggere i branch',
+					disabled: true,
+					run: () => {}
+				});
+			}
+		}
 	}
 
 	// 3. Corsie chiuse (riapertura unificata Git + Lab)

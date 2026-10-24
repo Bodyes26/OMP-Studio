@@ -16,6 +16,11 @@ import {
 	type LaneRecord,
 	type WorktreeInfo
 } from '../src/lib/stores/lanePersistence.ts';
+import {
+	filterOpenableBranches,
+	type WorktreeListBranchesOutcome,
+	type WorktreeBranchEntry
+} from '../src/lib/lanes/branchFilter.ts';
 
 const PROJECT_ID = projectId('project-1');
 
@@ -133,6 +138,36 @@ describe('lanes.json: parser versionato', () => {
 		assert.equal(parseLaneStoreDocument({ ...document, schemaVersion: 2 }), null);
 		assert.equal(parseLaneStoreDocument({ ...document, lanes: 'nope' }), null);
 	});
+	it('rilegge record legacy senza il campo adopted impostando adopted a false', () => {
+		const document = serializeLaneStoreDocument([mainLane(), secondaryLane('lane-a', '/repos/a')], [], 1);
+		// Simula un JSON salvato prima dell'introduzione del campo adopted
+		const legacyJson = JSON.parse(JSON.stringify(document));
+		delete legacyJson.lanes[0].adopted;
+		delete legacyJson.lanes[1].adopted;
+
+		const parsed = parseLaneStoreDocument(legacyJson);
+		assert.ok(parsed);
+		assert.equal(parsed.lanes[0].adopted, false);
+		assert.equal(parsed.lanes[1].adopted, false);
+	});
+
+	it('preserva adopted: true nel round-trip di serializzazione', () => {
+		const adoptedLane: LaneRecord = {
+			...secondaryLane('wt-1', '/repos/feat-x'),
+			title: 'feat-x',
+			branch: 'feat-x',
+			titleLocked: true,
+			adopted: true
+		};
+		const document = serializeLaneStoreDocument([mainLane(), adoptedLane], [], 2);
+		assert.equal(document.lanes[1].adopted, true);
+
+		const parsed = parseLaneStoreDocument(document);
+		assert.ok(parsed);
+		assert.equal(parsed.lanes[1].adopted, true);
+		assert.equal(parsed.lanes[1].titleLocked, true);
+	});
+
 
 	it('scarta solo i record corrotti o duplicati e carica gli altri (D10)', () => {
 		const document = serializeLaneStoreDocument(
@@ -247,5 +282,44 @@ describe('riconciliazione crash-safe con Git', () => {
 		);
 		assert.equal(result.lanes[1].status, 'archived');
 		assert.equal(result.lanes[1].archiveReason, 'worktree_missing');
+	});
+});
+describe('filtro branch per il menu Apri branch (filterOpenableBranches)', () => {
+	const sampleOutcome: WorktreeListBranchesOutcome = {
+		primaryBranch: 'main',
+		branches: [
+			{ name: 'HEAD', kind: 'local', checkedOutPath: null, isPrimaryCheckout: false, managedLaneId: null },
+			{ name: 'origin/HEAD', kind: 'remote', checkedOutPath: null, isPrimaryCheckout: false, managedLaneId: null },
+			{ name: 'main', kind: 'local', checkedOutPath: '/repos/app', isPrimaryCheckout: true, managedLaneId: null },
+			{ name: 'origin/main', kind: 'remote', checkedOutPath: null, isPrimaryCheckout: false, managedLaneId: null },
+			{ name: 'feat-studio-managed', kind: 'local', checkedOutPath: '/repos/wt-1', isPrimaryCheckout: false, managedLaneId: 'wt-1' },
+			{ name: 'feat-already-open', kind: 'local', checkedOutPath: '/repos/wt-2', isPrimaryCheckout: false, managedLaneId: null },
+			{ name: 'feat-local-available', kind: 'local', checkedOutPath: null, isPrimaryCheckout: false, managedLaneId: null },
+			{ name: 'origin/feat-remote-available', kind: 'remote', checkedOutPath: null, isPrimaryCheckout: false, managedLaneId: null },
+			{ name: 'feat-external-worktree', kind: 'local', checkedOutPath: '/other/path/wt-ext', isPrimaryCheckout: false, managedLaneId: null }
+		]
+	};
+
+	it('esclude HEAD, checkout primario, branch target e branch gia aperti', () => {
+		const openLanes = [
+			secondaryLane('wt-2', '/repos/wt-2')
+		];
+		// Imposta il branch della corsia aperta
+		openLanes[0].branch = 'feat-already-open';
+
+		const openable = filterOpenableBranches(sampleOutcome, openLanes);
+		const names = openable.map((b) => b.name);
+
+		assert.ok(!names.includes('HEAD'), 'HEAD deve essere escluso');
+		assert.ok(!names.includes('origin/HEAD'), 'origin/HEAD deve essere escluso');
+		assert.ok(!names.includes('main'), 'main primario deve essere escluso');
+		assert.ok(!names.includes('origin/main'), 'origin/main target deve essere escluso');
+		assert.ok(!names.includes('feat-studio-managed'), 'managedLaneId non nullo deve essere escluso');
+		assert.ok(!names.includes('feat-already-open'), 'branch aperto in un altra corsia deve essere escluso');
+
+		assert.ok(names.includes('feat-local-available'), 'branch locale libero deve essere incluso');
+		assert.ok(names.includes('origin/feat-remote-available'), 'branch remoto libero deve essere incluso');
+		assert.ok(names.includes('feat-external-worktree'), 'worktree esterno adottabile deve essere incluso');
+		assert.equal(openable.length, 3);
 	});
 });

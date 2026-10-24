@@ -160,6 +160,17 @@
 					</ul>
 				{/if}
 
+				{#if record.pendingRemoteDelete && record.pendingRemoteDelete.length > 0}
+					<div class="pending-remote-delete-banner">
+						<span class="remote-delete-icon"><IconGitBranch /></span>
+						<div class="pending-remote-delete-list">
+							{#each record.pendingRemoteDelete as branch}
+								<span>origin/{branch} verra' eliminato al prossimo push</span>
+							{/each}
+						</div>
+					</div>
+				{/if}
+
 				<div class="card-actions">
 					<button
 						type="button"
@@ -292,6 +303,31 @@
 		display: flex;
 		flex-direction: column;
 		margin: 10px 0;
+	}
+
+	.pending-remote-delete-banner {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		margin: 8px 0;
+		padding: 6px 10px;
+		background: var(--bg-hover);
+		border-radius: var(--radius-sm);
+		font-size: var(--text-trace);
+		color: var(--ink-muted);
+	}
+
+	.pending-remote-delete-banner .remote-delete-icon {
+		--icon-size: 13px;
+		display: flex;
+		align-items: center;
+		flex-shrink: 0;
+	}
+
+	.pending-remote-delete-list {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
 	}
 
 	.card-header {

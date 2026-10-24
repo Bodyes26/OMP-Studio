@@ -52,6 +52,7 @@ export type LandResult =
 			laneHead: string;
 			files: string[];
 			agentText: string;
+			pendingRemoteDelete?: string[];
 	  }
 	| {
 			kind: 'already_integrated';
@@ -96,6 +97,7 @@ export interface WorktreeLandOutcomeIntegrated {
 	targetBranch: string;
 	laneHead: string;
 	files: string[];
+	pendingRemoteDelete?: string[];
 }
 
 export interface WorktreeLandOutcomeAlreadyIntegrated {
@@ -164,6 +166,7 @@ export interface LaneLandingRecord {
 	commit?: string;
 	previousTarget?: string;
 	files?: string[];
+	pendingRemoteDelete?: string[];
 	error?: WorktreeErrorPayload;
 	isUndoing?: boolean;
 	undoError?: string;
@@ -396,6 +399,7 @@ export class LaneLandingService {
 		commit?: string;
 		previousTarget?: string;
 		files?: string[];
+		pendingRemoteDelete?: string[];
 		error?: WorktreeErrorPayload;
 		reason?: 'target_overlap' | 'main_busy';
 		message?: string;
@@ -414,6 +418,7 @@ export class LaneLandingService {
 			previousTarget: params.previousTarget,
 			files: params.files,
 			error: params.error,
+			pendingRemoteDelete: params.pendingRemoteDelete,
 			reason: params.reason,
 			message: params.message,
 			worktreePath: params.worktreePath
@@ -580,11 +585,18 @@ export class LaneLandingService {
 				kind: 'integrated',
 				commit: outcome.commit,
 				previousTarget: outcome.previousTarget,
-				files: outcome.files
+				files: outcome.files,
+				pendingRemoteDelete: outcome.pendingRemoteDelete
 			});
 
 			const shortCommit = outcome.commit.slice(0, 7);
-			const agentText = `Corsia integrata con successo nel branch ${outcome.targetBranch} (commit ${shortCommit}). File integrati: ${outcome.files.length}.`;
+			let agentText = `Corsia integrata con successo nel branch ${outcome.targetBranch} (commit ${shortCommit}). File integrati: ${outcome.files.length}.`;
+			if (outcome.pendingRemoteDelete && outcome.pendingRemoteDelete.length > 0) {
+				const remoteNotices = outcome.pendingRemoteDelete
+					.map((b) => `origin/${b} verra' eliminato al prossimo push`)
+					.join(', ');
+				agentText += ` (${remoteNotices})`;
+			}
 
 			return {
 				kind: 'integrated',
@@ -593,6 +605,7 @@ export class LaneLandingService {
 				targetBranch: outcome.targetBranch,
 				laneHead: outcome.laneHead,
 				files: outcome.files,
+				pendingRemoteDelete: outcome.pendingRemoteDelete,
 				agentText
 			};
 		}

@@ -592,6 +592,7 @@ pub async fn git_sync_repo(project_path: String, action: String) -> Result<Strin
             "pull" => pull_rebase_autostash(path),
             "push" => {
                 let push_res = run_git_in(path, &["push"])?;
+                execute_pending_remote_deletions(path);
                 Ok(if push_res.is_empty() {
                     "Push completato con successo".to_string()
                 } else {
@@ -608,6 +609,7 @@ pub async fn git_sync_repo(project_path: String, action: String) -> Result<Strin
 
                 // 3. Push
                 let push_res = run_git_in(path, &["push"])?;
+                execute_pending_remote_deletions(path);
                 Ok(format!("Sincronizzazione completata: {push_res}"))
             }
             _ => Err(format!(
@@ -617,6 +619,53 @@ pub async fn git_sync_repo(project_path: String, action: String) -> Result<Strin
     })
     .await
     .map_err(|e| format!("Task git sync: {e}"))?
+}
+
+pub(crate) fn execute_pending_remote_deletions(repo_dir: &Path) {
+    let output = match run_git_in(
+        repo_dir,
+        &["config", "--local", "--get-all", "omp-studio.pendingRemoteDelete"],
+    ) {
+        Ok(out) => out,
+        Err(_) => return,
+    };
+    let branches: Vec<String> = output
+        .lines()
+        .map(|l| l.trim_end_matches('\r').trim().to_string())
+        .filter(|l| !l.is_empty())
+        .collect();
+    if branches.is_empty() {
+        return;
+    }
+
+    let mut remaining = Vec::new();
+    for branch in branches {
+        match run_git_in(repo_dir, &["push", "origin", "--delete", &branch]) {
+            Ok(_) => {}
+            Err(err) => {
+                let err_lower = err.to_ascii_lowercase();
+                if err_lower.contains("remote ref does not exist")
+                    || (err_lower.contains("unable to delete") && err_lower.contains("remote ref"))
+                {
+                    // Branch gia' rimosso sul remote
+                } else {
+                    eprintln!("Warning: eliminazione remota differita fallita per '{branch}': {err}");
+                    remaining.push(branch);
+                }
+            }
+        }
+    }
+
+    let _ = run_git_in(
+        repo_dir,
+        &["config", "--local", "--unset-all", "omp-studio.pendingRemoteDelete"],
+    );
+    for branch in remaining {
+        let _ = run_git_in(
+            repo_dir,
+            &["config", "--local", "--add", "omp-studio.pendingRemoteDelete", &branch],
+        );
+    }
 }
 
 #[cfg(test)]

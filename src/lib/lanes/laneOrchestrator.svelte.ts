@@ -389,6 +389,29 @@ export class LaneOrchestrator {
 		}
 		return record;
 	}
+	async openBranchLane(
+		project: Project,
+		options: {
+			branch: string;
+			kind: 'local' | 'remote';
+			surface?: AgentSurface;
+			origin?: LaneOrigin;
+			activate?: boolean;
+		}
+	): Promise<LaneRecord> {
+		await this.saveLaneSnapshot(project).catch(() => undefined);
+		const record = await laneStore.openBranchLane(project, options);
+		try {
+			const outcomes = await applyProfileToLane(project, record);
+			const rejected = outcomes.filter((outcome) => outcome.status === 'rejected');
+			if (rejected.length > 0) {
+				console.warn('File locali non copiati nella corsia adottata:', rejected);
+			}
+		} catch (error) {
+			console.error('Copia dei file locali nella corsia adottata fallita:', error);
+		}
+		return record;
+	}
 
 	/**
 	 * Archiviazione di una corsia secondaria. La vista torna a Principale solo

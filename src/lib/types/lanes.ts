@@ -44,6 +44,8 @@ export interface AgentLane {
 	labPrototypeId?: string | null;
 	/** Indica se il titolo e' stato bloccato manualmente dall'utente. */
 	titleLocked?: boolean;
+	/** Indica se la corsia e' associata a un branch git preesistente adottato. */
+	adopted?: boolean;
 }
 
 export type ProjectStack = 'aspnet' | 'dotnet' | 'vite' | 'svelte' | 'node' | 'static';
@@ -155,6 +157,7 @@ export function createMainLane(
 		activeFile: null,
 		surface,
 		kind: options?.kind ?? 'git',
-		labPrototypeId: options?.labPrototypeId ?? null
+		labPrototypeId: options?.labPrototypeId ?? null,
+		adopted: false
 	};
 }

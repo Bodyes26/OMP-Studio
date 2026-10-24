@@ -36,6 +36,7 @@ use projects::{
     worktree_inspect, worktree_land, worktree_list, worktree_profile_scan, worktree_remove,
     worktree_review_inspect, worktree_undo_land,
     worktree_lane_integration_state, worktree_lane_unintegrated_summary,
+    worktree_attach_branch, worktree_list_branches,
 };
 mod omp_ops;
 use omp_ops::{
@@ -280,6 +281,8 @@ pub fn run() {
             worktree_delete_lane_branch,
             worktree_lane_unintegrated_summary,
             worktree_lane_integration_state,
+            worktree_attach_branch,
+            worktree_list_branches,
             lane_processes_list,
             lane_processes_stop,
             lanes_store_read,
