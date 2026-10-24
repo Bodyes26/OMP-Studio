@@ -12,6 +12,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 ## [Unreleased]
 
 ### Added
+- "Ctrl+Shift+Tab" switches to the active project's next lane, "Ctrl+Tab" to the next open project. To go backwards, use "Ctrl+Alt+←/→".
 - The lane row's "+" also lists existing Git branches ("Open branch"): opening a local branch, a remote-only one or one already in a worktree created outside Studio turns it into a lane with the branch's real name. Integrating it does a fast-forward or a merge commit (no squash), removes the worktree and deletes the local branch; `origin/<branch>` is deleted on the next push from the Git panel, never automatically. Discarding it removes only the worktree and keeps the branch.
 - The footer of each agent reply shows generation speed in tokens per second (excluding the wait for the first token), next to duration, model and cost.
 - `/compact` and the "Compact now" button ask how to compact when the model reads images: Snapcompact (instant, no model call), Soft or Remote, with a one-click card. `/compact soft|remote|snapcompact` also picks the mode directly.
@@ -20,6 +21,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Send a follow-up or a command from Companion directly to the conversation being read, without turning it into a new task.
 
 ### Changed
+- While the agent is working, lane tabs show a spinning ring in place of the icon and the project tab's dot becomes a ring in the project's hue. The breathing amber stays reserved for "needs an answer".
 - The "third concurrent agent" notice appears only when you start a task from the queue: creating or opening a lane from "+" no longer shows it.
 - The lane row is always visible under the project bar, showing just "Main" and the "+" when a project has no other lanes: switching between projects no longer makes the columns jump. Lane tabs animate in and out.
 - Switching project or lane now fades in only what changed, leaving fixed labels, the composer and the terminal still: new files in the tree, differing code lines in the editor, new tabs and the visible chat messages, in a 300 ms cascade.
@@ -39,6 +41,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Optimized Companion window: the central project card is explicitly dismissible and closes automatically as soon as a question is answered from any window without lingering resolved notices; by default no central card is opened unless there is a question or unread reply. Parked projects are informative and no longer open empty cards. Question cards adopt neutral background styling and standard borders without amber rings, clearly distinguish ask tool calls from message proposals, always provide "Other..." and note fields, render question text with Intelligent UI, and allow expanding full messages or loading previous context. In the reply reader, the composer uses standard text sizing, includes @ and / autocomplete suggestions, and auto-dismisses one second after reply confirmation.
 
 ### Fixed
+- "Ctrl+Tab" now switches project even with the cursor in the composer or a text field, and "Ctrl+Shift+Tab" no longer changes the thinking level.
 - Studio Remote opened from the iPhone Home Screen: the status bar has a solid colour instead of the blur that covered the chat title and buttons, and the composer reaches the bottom of the screen, with no empty strip below it, also with the keyboard open.
 - In the quota popover, Google Antigravity's "Claude & GPT (shared)" limit now appears once per window instead of duplicated per family; credit balances (e.g. Command Code) show as a value instead of a 100% bar.
 - Settings · AI Models: the number next to "Catalog" now matches the models actually listed for configured providers.

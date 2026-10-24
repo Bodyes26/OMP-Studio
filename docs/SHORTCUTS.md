@@ -23,8 +23,8 @@ Le scorciatoie globali catturate dall'app vivono dietro il modificatore **`Ctrl+
 | `Ctrl+Alt+B` | Globale | Mostra o nasconde la barra laterale sinistra (File, Git, Agente) |
 | `Ctrl+Alt+L` | Globale | Cicla la modalita di layout della finestra (`Auto` → `Orizzontale` → `Verticale`) |
 | `Ctrl+Alt+C` / `Ctrl+Alt+R` | Globale | Apre e chiude la finestra Companion |
-| `Ctrl+Tab` | Globale | Passa al progetto aperto successivo, nell'ordine mostrato in barra |
-| `Ctrl+Shift+Tab` | Globale | Passa al progetto aperto precedente, nell'ordine mostrato in barra |
+| `Ctrl+Tab` | Globale | Passa al progetto aperto successivo, nell'ordine mostrato in barra. Vale anche col cursore nel composer |
+| `Ctrl+Shift+Tab` | Globale | Passa alla corsia successiva del progetto attivo (Principale, poi le secondarie, poi di nuovo Principale). Vale anche col cursore nel composer |
 | `Ctrl+Alt+Freccia Destra` | Globale | Se il progetto attivo ha corsie secondarie, passa alla corsia successiva; altrimenti al progetto aperto successivo |
 | `Ctrl+Alt+Freccia Sinistra` | Globale | Se il progetto attivo ha corsie secondarie, passa alla corsia precedente; altrimenti al progetto aperto precedente |
 | `Ctrl+Alt+Maiusc+Freccia` | Globale | Sposta la tessera del progetto attivo a destra o a sinistra (ordinamento manuale) |

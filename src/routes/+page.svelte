@@ -41,7 +41,7 @@
 	import SetupModal from '$lib/components/SetupModal.svelte';
 	import ShortcutsHelpModal from '$lib/agent/components/ShortcutsHelpModal.svelte';
 	import { shortcutsModalStore } from '$lib/stores/shortcutsModal.svelte';
-	import { isShortcutsHelpKey, isProjectCycleShortcut } from '$lib/shortcuts/shortcutMatch';
+	import { isShortcutsHelpKey, isProjectCycleShortcut, isLaneCycleShortcut } from '$lib/shortcuts/shortcutMatch';
 	import TaskEditor from '$lib/components/TaskEditor.svelte';
 	import EmptyState from '$lib/components/EmptyState.svelte';
 	import { studioUpdaterStore, formatVersion } from '$lib/stores/studioUpdater.svelte';
@@ -3274,8 +3274,11 @@
 			return;
 		}
 
-		// Ctrl+Tab / Ctrl+Shift+Tab: passa al progetto aperto successivo o precedente
-		if (isProjectCycleShortcut(e)) {
+		// Ctrl+Tab: progetto aperto successivo. Ctrl+Shift+Tab: corsia successiva
+		// del progetto attivo. Il tasto non scrive nulla, quindi vale anche col
+		// cursore nel composer o in un campo: niente guard sui campi di testo.
+		const projectCycle = isProjectCycleShortcut(e);
+		if (projectCycle || isLaneCycleShortcut(e)) {
 			const hasOpenModal =
 				settingsStore.open ||
 				shortcutsModalStore.isOpen ||
@@ -3287,18 +3290,13 @@
 				showRestartModal ||
 				showUpdatePromptModal;
 
-			const target = e.target;
-			const isTargetEditable =
-				target instanceof HTMLInputElement ||
-				target instanceof HTMLTextAreaElement ||
-				(target instanceof HTMLElement &&
-					(target.isContentEditable || Boolean(target.closest('.monaco-editor'))));
-
-			if (hasOpenModal || isTargetEditable) {
-				return;
-			}
+			if (hasOpenModal) return;
 			e.preventDefault();
-			cycleProject(e.shiftKey ? -1 : 1);
+			if (projectCycle) {
+				cycleProject(1);
+			} else if (projectStore.activeProject) {
+				void laneOrchestrator.cycleLane(projectStore.activeProject.id as ProjectId, 'next');
+			}
 			return;
 		}
 

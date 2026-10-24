@@ -622,7 +622,9 @@
 						oncontextmenu={(e) => handleTabContextMenu(e, lane)}
 					>
 						<span class="lane-type-icon" aria-hidden="true">
-							{#if isLab}
+							{#if laneState === 'working'}
+								<span class="lane-work-ring"></span>
+							{:else if isLab}
 								<IconLab />
 							{:else}
 								<IconGitBranch />
@@ -938,6 +940,29 @@
 	:global(:root[data-animations="false"]) .lane-tab-item.attention .lane-type-icon::after {
 		animation: none;
 		opacity: 1;
+	}
+
+	/* Agente al lavoro: l'anello prende il posto dell'icona. Cambia la forma,
+	   non solo il colore, e non chiama nessuno: l'unico che respira in ambra
+	   resta "serve una risposta". Il quarto in ink e' lo stesso di StatusMark. */
+	.lane-work-ring {
+		box-sizing: border-box;
+		width: 12px;
+		height: 12px;
+		border-radius: var(--radius-full);
+		border: 1.5px solid var(--line-strong);
+		border-top-color: var(--ink);
+		animation: spin 0.9s linear infinite;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.lane-work-ring {
+			animation: none;
+		}
+	}
+
+	:global(:root[data-animations="false"]) .lane-work-ring {
+		animation: none;
 	}
 
 	.lane-tab {

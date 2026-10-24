@@ -11,7 +11,7 @@ import { isAllowedExternalUrl } from '$lib/utils/externalUrl';
 import { openExternalUrl } from '$lib/utils/openExternal';
 import { canvasColors, onThemeChange } from '$lib/theme';
 import { settingsStore, withFontFamily } from '$lib/stores/settings.svelte';
-import { isShortcutsHelpKey, isGlobalShellShortcut, isProjectCycleShortcut } from '$lib/shortcuts/shortcutMatch';
+import { isShortcutsHelpKey, isGlobalShellShortcut, isProjectCycleShortcut, isLaneCycleShortcut } from '$lib/shortcuts/shortcutMatch';
 import {
 	describeConfigurationMismatch,
 	type TerminalTaskConfiguration
@@ -203,8 +203,8 @@ export class TerminalSession {
 				if (isGlobalShellShortcut(event)) {
 					return false;
 				}
-				// Ctrl+Tab / Ctrl+Shift+Tab: cambio progetto aperto (gestita da +page.svelte)
-				if (isProjectCycleShortcut(event)) {
+				// Ctrl+Tab (progetto) e Ctrl+Shift+Tab (corsia): gestite da +page.svelte
+				if (isProjectCycleShortcut(event) || isLaneCycleShortcut(event)) {
 					return false;
 				}
 			}

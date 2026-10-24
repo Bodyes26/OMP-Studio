@@ -12,6 +12,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 ## [Unreleased]
 
 ### Added
+- «Ctrl+Shift+Tab» passa alla corsia successiva del progetto attivo, «Ctrl+Tab» al progetto aperto successivo. Per tornare indietro restano «Ctrl+Alt+←/→».
 - Il «+» della riga delle corsie elenca anche i branch Git esistenti («Apri branch»): aprire un branch locale, uno solo sul remoto o uno già in un worktree creato fuori da Studio ne fa una corsia con il nome reale del branch. Integrandola, Studio fa fast-forward o un merge commit (senza squash), rimuove il worktree ed elimina il branch locale; `origin/<branch>` viene eliminato al prossimo push dal pannello Git, mai in automatico. Scartarla rimuove solo il worktree e lascia il branch.
 - Il piè di ogni risposta dell'agente mostra i token al secondo della generazione (esclusa l'attesa del primo token), accanto a durata, modello e costo.
 - `/compact` e il pulsante «Compatta ora» chiedono come compattare quando il modello legge le immagini: Snapcompact (istantaneo, senza chiamate al modello), Soft o Remote, con una scheda a un clic. Anche `/compact soft|remote|snapcompact` sceglie la modalità direttamente.
@@ -20,6 +21,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Dalla Companion invia un seguito o un comando direttamente nella conversazione letta, senza trasformarlo in un nuovo task.
 
 ### Changed
+- Quando l'agente è al lavoro, nelle schede delle corsie l'icona diventa un anello che gira e nella tessera del progetto il punto diventa un anello nella tinta del progetto. L'ambra che respira resta solo per «serve una risposta».
 - L'avviso «dal terzo agente contemporaneo» compare solo quando avvii un task dalla coda: creare o aprire una corsia dal «+» non lo mostra più.
 - La riga delle corsie è sempre visibile sotto la barra dei progetti, con la sola «Principale» e il «+» se il progetto non ha altre corsie: passando da un progetto all'altro le colonne non saltano più. Le schede delle corsie compaiono e scompaiono con un'animazione.
 - Cambiando progetto o corsia si dissolve soltanto ciò che è cambiato, senza muovere etichette fisse, composer e terminale: i file nuovi dell'albero, le righe di codice diverse dell'editor, le schede nuove e i messaggi visibili della chat, a cascata in 300 ms.
@@ -39,6 +41,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Finestra Companion ottimizzata: la card centrale è chiudibile manualmente e si chiude da sola non appena una domanda riceve risposta da qualsiasi finestra, senza lasciare messaggi di stato residui; all'apertura non compare alcuna card centrale a meno che non vi sia una domanda o una risposta da leggere. I progetti fermi sono consultabili senza generare card vuote. Nelle domande la grafica adotta sfondo neutro e bordo standard senza anelli ambrati, distingue le chiamate del tool ask dalle proposte di risposta, include sempre l'opzione «Altro...» e il campo note, e rende il testo con Intelligent UI permettendo di consultare il messaggio intero o caricare i messaggi precedenti. Nella lettura delle risposte il composer usa dimensione del testo standard, integra i suggerimenti per @ e / e chiude automaticamente la card dopo un secondo dalla conferma di invio.
 
 ### Fixed
+- «Ctrl+Tab» ora cambia progetto anche col cursore nel composer o in un campo di testo, e «Ctrl+Shift+Tab» non cambia più il livello di thinking.
 - Studio Remote aperto dalla schermata Home dell'iPhone: la barra di stato ha un colore pieno invece della sfocatura che copriva titolo e pulsanti della chat, e il composer arriva fino al fondo dello schermo, senza la fascia vuota sotto e con la tastiera aperta.
 - Nel popover della quota il limite «Claude & GPT (shared)» di Google Antigravity compare una volta sola per finestra, non più duplicato per famiglia; il saldo crediti (es. Command Code) è mostrato come valore, non come barra al 100%.
 - Impostazioni · Modelli AI: il numero accanto a «Catalogo» coincide con i modelli effettivamente elencati dei provider configurati.

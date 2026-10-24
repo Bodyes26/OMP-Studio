@@ -17,6 +17,7 @@ import {
 	isShortcutsHelpKey,
 	isGlobalShellShortcut,
 	isProjectCycleShortcut,
+	isLaneCycleShortcut,
 	type KeyboardEventLike
 } from '../src/lib/shortcuts/shortcutMatch.ts';
 import { askConfirmKeyAction, isImeComposing, shouldAutoFocusAskCard, isTypingSurface } from '../src/lib/agent/askFocus.ts';
@@ -217,16 +218,20 @@ describe('Shortcuts: unico owner globale e prevenzione doppi toggle', () => {
 		assert.equal(toggleCount, 1, 'Il conteggio dei toggle non deve cambiare');
 	});
 
-	it('riconosce correttamente Ctrl+Tab, Ctrl+Shift+Tab e Cmd+Tab come cambio progetto', () => {
+	it('Ctrl/Cmd+Tab cambia progetto, Ctrl/Cmd+Shift+Tab cambia corsia, mai entrambi', () => {
 		const ctrlTab: KeyboardEventLike = { key: 'Tab', code: 'Tab', altKey: false, ctrlKey: true, metaKey: false, shiftKey: false };
 		const ctrlShiftTab: KeyboardEventLike = { key: 'Tab', code: 'Tab', altKey: false, ctrlKey: true, metaKey: false, shiftKey: true };
 		const cmdTab: KeyboardEventLike = { key: 'Tab', code: 'Tab', altKey: false, ctrlKey: false, metaKey: true, shiftKey: false };
 		const cmdShiftTab: KeyboardEventLike = { key: 'Tab', code: 'Tab', altKey: false, ctrlKey: false, metaKey: true, shiftKey: true };
 
 		assert.equal(isProjectCycleShortcut(ctrlTab), true);
-		assert.equal(isProjectCycleShortcut(ctrlShiftTab), true);
 		assert.equal(isProjectCycleShortcut(cmdTab), true);
-		assert.equal(isProjectCycleShortcut(cmdShiftTab), true);
+		assert.equal(isProjectCycleShortcut(ctrlShiftTab), false);
+		assert.equal(isProjectCycleShortcut(cmdShiftTab), false);
+		assert.equal(isLaneCycleShortcut(ctrlShiftTab), true);
+		assert.equal(isLaneCycleShortcut(cmdShiftTab), true);
+		assert.equal(isLaneCycleShortcut(ctrlTab), false);
+		assert.equal(isLaneCycleShortcut(cmdTab), false);
 	});
 
 	it('non confonde Tab ordinario o Alt+Tab con il cambio progetto', () => {
@@ -236,59 +241,47 @@ describe('Shortcuts: unico owner globale e prevenzione doppi toggle', () => {
 		const ctrlAltTab: KeyboardEventLike = { key: 'Tab', code: 'Tab', altKey: true, ctrlKey: true, metaKey: false, shiftKey: false };
 
 		assert.equal(isProjectCycleShortcut(plainTab), false);
-		assert.equal(isProjectCycleShortcut(plainShiftTab), false);
 		assert.equal(isProjectCycleShortcut(altTab), false);
 		assert.equal(isProjectCycleShortcut(ctrlAltTab), false);
+		assert.equal(isLaneCycleShortcut(plainShiftTab), false);
+		assert.equal(isLaneCycleShortcut(altTab), false);
 	});
 
-	it('simula propagazione terminale -> window per Ctrl+Tab e ciclo progetti successivo/precedente', () => {
+	it('terminale cede Ctrl+Tab e Ctrl+Shift+Tab al window handler', () => {
 		const projects = ['proj-a', 'proj-b', 'proj-c'];
 		let activeId = 'proj-a';
-
-		function cycleProject(direction: 1 | -1) {
-			if (projects.length < 2) return;
-			const idx = projects.indexOf(activeId);
-			const currentIdx = idx >= 0 ? idx : 0;
-			const nextIdx = direction === 1
-				? (currentIdx + 1) % projects.length
-				: (currentIdx - 1 + projects.length) % projects.length;
-			activeId = projects[nextIdx];
-		}
+		let lane = 'main';
 
 		function terminalCustomKeyHandler(event: KeyboardEventLike): boolean {
 			if (isShortcutsHelpKey(event)) return false;
 			if (isGlobalShellShortcut(event)) return false;
-			if (isProjectCycleShortcut(event)) return false;
+			if (isProjectCycleShortcut(event) || isLaneCycleShortcut(event)) return false;
 			return true;
 		}
 
 		function windowKeyHandler(event: KeyboardEventLike): boolean {
 			if (isProjectCycleShortcut(event)) {
-				cycleProject(event.shiftKey ? -1 : 1);
+				activeId = projects[(projects.indexOf(activeId) + 1) % projects.length];
+				return true;
+			}
+			if (isLaneCycleShortcut(event)) {
+				lane = lane === 'main' ? 'feat' : 'main';
 				return true;
 			}
 			return false;
 		}
 
-		// 1. Pressione Ctrl+Tab mentre il terminale ha il focus
-		const ctrlTabEvent: KeyboardEventLike = { key: 'Tab', code: 'Tab', altKey: false, ctrlKey: true, metaKey: false, shiftKey: false };
-		assert.equal(terminalCustomKeyHandler(ctrlTabEvent), false, 'Il terminale deve cedere Ctrl+Tab al window handler');
-		assert.equal(windowKeyHandler(ctrlTabEvent), true);
-		assert.equal(activeId, 'proj-b', 'Deve passare al progetto successivo (B)');
+		const ctrlTab: KeyboardEventLike = { key: 'Tab', code: 'Tab', altKey: false, ctrlKey: true, metaKey: false, shiftKey: false };
+		const ctrlShiftTab: KeyboardEventLike = { key: 'Tab', code: 'Tab', altKey: false, ctrlKey: true, metaKey: false, shiftKey: true };
 
-		// 2. Altro Ctrl+Tab -> passa al terzo
-		assert.equal(windowKeyHandler(ctrlTabEvent), true);
-		assert.equal(activeId, 'proj-c', 'Deve passare al progetto successivo (C)');
-
-		// 3. Altro Ctrl+Tab -> wrap-around ciclico al primo
-		assert.equal(windowKeyHandler(ctrlTabEvent), true);
-		assert.equal(activeId, 'proj-a', 'Deve tornare al primo progetto (A)');
-
-		// 4. Ctrl+Shift+Tab -> ciclo all\'indietro
-		const ctrlShiftTabEvent: KeyboardEventLike = { key: 'Tab', code: 'Tab', altKey: false, ctrlKey: true, metaKey: false, shiftKey: true };
-		assert.equal(terminalCustomKeyHandler(ctrlShiftTabEvent), false, 'Il terminale deve cedere Ctrl+Shift+Tab');
-		assert.equal(windowKeyHandler(ctrlShiftTabEvent), true);
-		assert.equal(activeId, 'proj-c', 'Deve passare all\'ultimo progetto (C) con shift');
+		assert.equal(terminalCustomKeyHandler(ctrlTab), false);
+		assert.equal(terminalCustomKeyHandler(ctrlShiftTab), false);
+		windowKeyHandler(ctrlTab);
+		assert.equal(activeId, 'proj-b');
+		assert.equal(lane, 'main', 'Ctrl+Tab non tocca la corsia');
+		windowKeyHandler(ctrlShiftTab);
+		assert.equal(lane, 'feat');
+		assert.equal(activeId, 'proj-b', 'Ctrl+Shift+Tab non tocca il progetto');
 	});
 
 	it('con ordinamento Attività recente (mru), Ctrl+Tab scorre tutti i progetti senza oscillare tra i primi due', () => {

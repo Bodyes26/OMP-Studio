@@ -36,9 +36,15 @@ export function isGlobalShellShortcut(e: KeyboardEventLike): boolean {
 }
 
 /**
- * Riconosce la scorciatoia per passare al progetto aperto successivo o precedente:
- * Ctrl+Tab (o Cmd+Tab) / Ctrl+Shift+Tab (o Cmd+Shift+Tab).
+ * Ctrl+Tab (o Cmd+Tab): passa al progetto aperto successivo.
  */
 export function isProjectCycleShortcut(e: KeyboardEventLike): boolean {
-	return !e.altKey && (e.ctrlKey || e.metaKey) && (e.key === 'Tab' || e.code === 'Tab');
+	return !e.altKey && !e.shiftKey && (e.ctrlKey || e.metaKey) && (e.key === 'Tab' || e.code === 'Tab');
+}
+
+/**
+ * Ctrl+Shift+Tab (o Cmd+Shift+Tab): passa alla corsia successiva del progetto attivo.
+ */
+export function isLaneCycleShortcut(e: KeyboardEventLike): boolean {
+	return !e.altKey && e.shiftKey && (e.ctrlKey || e.metaKey) && (e.key === 'Tab' || e.code === 'Tab');
 }

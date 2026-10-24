@@ -2780,6 +2780,8 @@
   "shortcuts_item_lab_prototype": "Open a new free prototype in the Lab",
   "shortcuts_item_usage_panel": "Toggle the usage and quota panel",
   "shortcuts_item_doctor": "Open Studio Doctor (environment and provider diagnostics)",
+  "shortcuts_item_next_project": "Switch to the next open project, in project bar order",
+  "shortcuts_item_next_lane": "Switch to the next lane of the active project (works while typing in the composer)",
   "shortcuts_item_close_all_tabs": "Close all editor tabs",
   "shortcuts_key_middle_click": "Middle click",
   "shortcuts_item_middle_click_close": "Close the editor tab under the pointer",

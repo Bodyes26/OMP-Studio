@@ -1588,19 +1588,18 @@
 		            opacity var(--dur-calm) var(--ease-out);
 	}
 
+	/* Agente al lavoro: il punto diventa un anello con un quarto in tinta
+	   del progetto che gira. Stessa forma delle corsie. Occupa 10px con
+	   margine negativo, cosi' la tessera non si sposta. */
 	.tab-dot.working {
-		animation: dot-breathing 1.6s ease-in-out infinite;
-	}
-
-	@keyframes dot-breathing {
-		0%, 100% {
-			transform: scale(0.85);
-			opacity: 0.65;
-		}
-		50% {
-			transform: scale(1.15);
-			opacity: 1;
-		}
+		box-sizing: border-box;
+		width: 10px;
+		height: 10px;
+		margin: -1px;
+		background-color: transparent;
+		border: 1.5px solid var(--line-strong);
+		border-top-color: oklch(var(--proj-l-fill) var(--proj-c-fill) var(--proj-hue));
+		animation: spin 0.9s linear infinite;
 	}
 
 	.tab-ghost {

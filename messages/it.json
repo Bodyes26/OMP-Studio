@@ -2780,6 +2780,8 @@
   "shortcuts_item_lab_prototype": "Apre un nuovo prototipo libero nel Laboratorio",
   "shortcuts_item_usage_panel": "Apre e chiude il pannello consumi e quote",
   "shortcuts_item_doctor": "Apre Studio Doctor (diagnosi di ambiente e provider)",
+  "shortcuts_item_next_project": "Passa al progetto aperto successivo, nell'ordine mostrato in barra",
+  "shortcuts_item_next_lane": "Passa alla corsia successiva del progetto attivo (vale anche mentre scrivi nel composer)",
   "shortcuts_item_close_all_tabs": "Chiude tutte le schede dell'editor",
   "shortcuts_key_middle_click": "Clic centrale",
   "shortcuts_item_middle_click_close": "Chiude la scheda dell'editor sotto il puntatore",

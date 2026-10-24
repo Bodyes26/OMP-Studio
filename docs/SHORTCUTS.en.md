@@ -23,8 +23,8 @@ Global shortcuts captured by the application live behind the **`Ctrl+Alt`** modi
 | `Ctrl+Alt+B` | Global | Toggle left sidebar (Files, Git, Agent) |
 | `Ctrl+Alt+L` | Global | Cycle window layout mode (`Auto` → `Horizontal` → `Vertical`) |
 | `Ctrl+Alt+C` / `Ctrl+Alt+R` | Global | Open and close the Companion window |
-| `Ctrl+Tab` | Global | Switch to next open project, in project bar order |
-| `Ctrl+Shift+Tab` | Global | Switch to previous open project, in project bar order |
+| `Ctrl+Tab` | Global | Switch to next open project, in project bar order. Works with the cursor in the composer |
+| `Ctrl+Shift+Tab` | Global | Switch to the next lane of the active project (Main, then the secondary lanes, then Main again). Works with the cursor in the composer |
 | `Ctrl+Alt+Arrow Right` | Global | If the active project has secondary lanes, switch to the next lane; otherwise switch to the next open project |
 | `Ctrl+Alt+Arrow Left` | Global | If the active project has secondary lanes, switch to the previous lane; otherwise switch to the previous open project |
 | `Ctrl+Alt+Shift+Arrow` | Global | Move active project tile left or right (manual reordering) |

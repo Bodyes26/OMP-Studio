@@ -644,6 +644,10 @@
 			if (action) return true;
 		}
 
+		// Ctrl+Tab e Ctrl+Shift+Tab sono del guscio (progetto / corsia): ne' i
+		// suggerimenti ne' il livello di thinking devono mangiarseli.
+		if (e.key === 'Tab' && (e.ctrlKey || e.metaKey)) return false;
+
 		if (e.key === 'Tab' && e.shiftKey) {
 			e.preventDefault();
 			cycleThinkingLevel();
