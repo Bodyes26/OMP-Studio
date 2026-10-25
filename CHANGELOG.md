@@ -12,11 +12,14 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 ## [Unreleased]
 
 ### Fixed
+- OpenAI e OpenAI Codex usano il classico logo ChatGPT, senza riquadro o gradiente Codex.
+- OpenRouter mostra il proprio logo ufficiale anziché quello di Cursor.
 - Impostazioni → Modelli → Provider: aggiungere un provider avvia subito il login, la chiusura del terminale aggiorna il catalogo modelli, i provider custom hanno validazione e salvataggio senza refresh globale, e la rimozione di un account buggato è immediata con fallback sugli alias storici.
 - Impostazioni → Controllo remoto ridisegnato a card con stato, azioni di copia/apertura e zona pericolosa.
 
 ### Added
-- Riconosci i provider dai loro loghi nelle quote, nelle impostazioni Modelli AI, nei selettori del composer e dei task e nelle informazioni sui modelli di Studio, Companion e Studio Remote: Claude per Anthropic, Codex per OpenAI e Antigravity per il relativo provider, con un simbolo neutro per gli endpoint personalizzati.
+- I provider Cursor, OpenCode Go e Zen, Tavily, Devin, Z.ai, llama.cpp, LM Studio, Command Code, TokenRouter e xKiro mostrano i propri loghi; le icone sono disponibili anche offline e leggibili nei temi chiaro e scuro.
+- Riconosci i provider dai loro loghi nelle quote, nelle impostazioni Modelli AI, nei selettori del composer e dei task e nelle informazioni sui modelli di Studio, Companion e Studio Remote: Claude per Anthropic, ChatGPT per OpenAI e Antigravity per il relativo provider, con un simbolo neutro per gli endpoint personalizzati.
 - «Ctrl+Shift+Tab» passa alla corsia successiva del progetto attivo, «Ctrl+Tab» al progetto aperto successivo. Per tornare indietro restano «Ctrl+Alt+←/→».
 - Il «+» della riga delle corsie elenca anche i branch Git esistenti («Apri branch»): aprire un branch locale, uno solo sul remoto o uno già in un worktree creato fuori da Studio ne fa una corsia con il nome reale del branch. Integrandola, Studio fa fast-forward o un merge commit (senza squash), rimuove il worktree ed elimina il branch locale; `origin/<branch>` viene eliminato al prossimo push dal pannello Git, mai in automatico. Scartarla rimuove solo il worktree e lascia il branch.
 - Il piè di ogni risposta dell'agente mostra i token al secondo della generazione (esclusa l'attesa del primo token), accanto a durata, modello e costo.

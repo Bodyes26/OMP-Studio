@@ -12,11 +12,14 @@ released: items are closed into a version via `npm run release -- <version>`.
 ## [Unreleased]
 
 ### Fixed
+- OpenAI and OpenAI Codex use the classic ChatGPT logo, without the Codex tile or gradient.
+- OpenRouter shows its official logo instead of Cursor's.
 - Settings → Models → Providers: adding a provider opens login immediately, closing the terminal refreshes the model catalog, custom providers validate and save without a global refresh, and removing a buggy account is immediate with fallback on historic aliases.
 - Settings → Remote control redesigned as cards with status, copy/open actions and a danger zone.
 
 ### Added
-- Recognize providers by their logos in quotas, AI Model settings, composer and task pickers, and model information across Studio, Companion and Studio Remote: Claude for Anthropic, Codex for OpenAI and Antigravity for its provider, with a neutral symbol for custom endpoints.
+- Cursor, OpenCode Go and Zen, Tavily, Devin, Z.ai, llama.cpp, LM Studio, Command Code, TokenRouter and xKiro show their own logos; icons are available offline and remain legible in light and dark themes.
+- Recognize providers by their logos in quotas, AI Model settings, composer and task pickers, and model information across Studio, Companion and Studio Remote: Claude for Anthropic, ChatGPT for OpenAI and Antigravity for its provider, with a neutral symbol for custom endpoints.
 - "Ctrl+Shift+Tab" switches to the active project's next lane, "Ctrl+Tab" to the next open project. To go backwards, use "Ctrl+Alt+←/→".
 - The lane row's "+" also lists existing Git branches ("Open branch"): opening a local branch, a remote-only one or one already in a worktree created outside Studio turns it into a lane with the branch's real name. Integrating it does a fast-forward or a merge commit (no squash), removes the worktree and deletes the local branch; `origin/<branch>` is deleted on the next push from the Git panel, never automatically. Discarding it removes only the worktree and keeps the branch.
 - The footer of each agent reply shows generation speed in tokens per second (excluding the wait for the first token), next to duration, model and cost.

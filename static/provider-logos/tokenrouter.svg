@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 140" fill="none">
+  <style>
+    :root { color: #0a0a0a; }
+    @media (prefers-color-scheme: dark) { :root { color: #fafafa; } }
+    path { fill: currentColor; }
+  </style>
+  <path
+    fill-rule="evenodd"
+    clip-rule="evenodd"
+    d="M70 0C88.5652 0 106.37 7.37498 119.497 20.5025C132.625 33.6301 140 51.4348 140 70C140 88.5652 132.625 106.37 119.497 119.497C106.37 132.625 88.5652 140 70 140C51.4348 140 33.6301 132.625 20.5025 119.497C7.37498 106.37 0 88.5652 0 70C0 51.4348 7.37498 33.6301 20.5025 20.5025C33.6301 7.37498 51.4348 0 70 0ZM98 42L126 70L98 98L88.2 88.2L106.4 70L88.2 51.8L98 42Z"
+    fill="currentColor"
+  />
+</svg>

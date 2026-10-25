@@ -5,7 +5,7 @@
  *
  * Requisiti e policy di matching:
  * - Claude sunburst per Anthropic
- * - Codex per OpenAI / openai-codex (non il knot OpenAI indistinto)
+ * - Logo ChatGPT per OpenAI / openai-codex
  * - Antigravity per google-antigravity (indipendentemente dalla famiglia del modello veicolato)
  * - Distinzione provider/account rispetto alla famiglia modello
  * - Whitelist esatta di alias/identificativi noti per evitare falsi positivi su custom (es. "anthropic-proxy-mio")
@@ -20,6 +20,16 @@
 export type KnownProviderId =
 	| 'anthropic'
 	| 'openai-codex'
+	| 'cursor'
+	| 'opencode'
+	| 'tavily'
+	| 'devin'
+	| 'zai'
+	| 'llama.cpp'
+	| 'lm-studio'
+	| 'commandcode'
+	| 'tokenrouter'
+	| 'xkiro'
 	| 'google-antigravity'
 	| 'gemini'
 	| 'google'
@@ -53,11 +63,27 @@ const KNOWN_PROVIDERS = new Map<string, KnownProviderId>([
 	['anthropic', 'anthropic'],
 	['claude', 'anthropic'],
 
-	// OpenAI / Codex (utente richiede esplicitamente logo Codex per OpenAI)
+	// OpenAI / Codex condividono il logo ChatGPT.
 	['openai', 'openai-codex'],
 	['openai-codex', 'openai-codex'],
 	['openai-codex-device', 'openai-codex'],
 	['codex', 'openai-codex'],
+
+	// Cursor
+	['cursor', 'cursor'],
+
+	// Provider curati e plugin con identita' verificata; niente match per prefisso.
+	['opencode-go', 'opencode'],
+	['opencode-zen', 'opencode'],
+	['tavily', 'tavily'],
+	['devin', 'devin'],
+	['zai', 'zai'],
+	['zai-coding-plan', 'zai'],
+	['llama.cpp', 'llama.cpp'],
+	['lm-studio', 'lm-studio'],
+	['commandcode', 'commandcode'],
+	['tokenrouter', 'tokenrouter'],
+	['xkiro', 'xkiro'],
 
 	// Google Antigravity
 	['google-antigravity', 'google-antigravity'],

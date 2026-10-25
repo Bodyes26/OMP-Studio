@@ -50,3 +50,34 @@ All brand icons, trademarks, and registered trademarks belong to their respectiv
 - Fireworks AI is a trademark of Fireworks AI.
 - GitLab is a trademark of GitLab, Inc.
 - Hugging Face is a trademark of Hugging Face, Inc.
+
+## Locally bundled provider marks
+
+The following assets in `static/provider-logos/` are obtained from the providers'
+official websites or brand repositories and are used only to identify their services.
+They remain the property of their respective owners; this application's MIT license
+does not relicense these marks or imply endorsement.
+
+| Asset | Official source |
+| --- | --- |
+| OpenCode (Go and Zen) | https://opencode.ai/favicon.svg |
+| Tavily | https://tavily.com/icon.svg |
+| Devin / Cognition | https://devin.ai/favicon.svg |
+| Z.ai / Zhipu AI | https://z-cdn.chatglm.cn/z-ai/static/logo.svg |
+| OpenRouter | https://mintcdn.com/openrouter-d02e98a0/n3IgkjAMQY8SgOLX/assets/favicon-v2.svg (linked by https://openrouter.ai/docs) |
+| llama.cpp | https://github.com/ggml-org/llama.brand — `icon/icon-light.svg` |
+| LM Studio | https://lmstudio.ai/assets/marketing/brand/download/logos/lm-studio-icon-color.svg |
+| Command Code | https://commandcode.ai/logos/command-code-light.svg |
+| TokenRouter | https://www.tokenrouter.io/favicon.svg |
+| xKiro (distinct from Kiro) | https://xkiro.com/images/logo/logo-xt-green.svg |
+
+Technical adaptations: unused metadata removed; Command Code's mark is cropped
+from its wordmark; monochrome marks use the interface text color through CSS masks.
+Brand shapes are not redrawn.
+
+The llama.cpp mark is from **ggml-org/llama.brand**, licensed under
+[CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/), without warranties.
+Its [brand usage permission](https://github.com/ggml-org/llama.brand/blob/master/BRAND-USAGE.md)
+additionally permits redistribution, including commercial software distributions,
+for identifying Llama.app and Llama.cpp, with technical adaptations including
+rescaling and monochrome rendering. Attribution is provided here as requested.
