@@ -193,3 +193,6 @@ export { default as IconPlan } from '@lucide/svelte/icons/clipboard-list';
 export { default as IconComment } from '@lucide/svelte/icons/message-square';
 export { default as IconCompact } from '@lucide/svelte/icons/fold-vertical';
 export { default as IconKeepHistory } from '@lucide/svelte/icons/list';
+
+// Loghi provider di inferenza
+export { default as ProviderLogo } from './components/models/ProviderLogo.svelte';

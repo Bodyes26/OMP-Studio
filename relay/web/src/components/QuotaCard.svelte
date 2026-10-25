@@ -7,7 +7,7 @@
 	import type { RemoteQuota } from '../../../src/protocol.ts';
 	import { t } from '../i18n.ts';
 	import { formatHHMM } from '../schedule.ts';
-	import { IconQuota, IconChevronDown, IconChevronUp } from '../icons.ts';
+	import { IconQuota, IconChevronDown, IconChevronUp, ProviderLogo } from '../icons.ts';
 
 	let { quota } = $props<{ quota: RemoteQuota | null }>();
 
@@ -60,6 +60,7 @@
 					<div class="provider-group">
 						<div class="provider-header">
 							<div class="provider-id">
+								<ProviderLogo provider={p.provider} size={14} />
 								<span class="provider-name">{p.provider}</span>
 								{#if p.account}
 									<span class="provider-account">{p.account}</span>
@@ -210,7 +211,7 @@
 
 	.provider-id {
 		display: flex;
-		align-items: baseline;
+		align-items: center;
 		gap: var(--space-2);
 	}
 

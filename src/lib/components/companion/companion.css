@@ -933,6 +933,19 @@
 	min-width: 0;
 }
 
+.p-model {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	font-family: var(--font-mono);
+	font-size: var(--text-caption);
+	color: var(--ink-muted);
+	max-width: 140px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
 /* Il nome apre la finestra principale su quel progetto: e' l'unica via rapida
    da "ha finito" a "fammi vedere cosa ha fatto". */
 .card-identity {

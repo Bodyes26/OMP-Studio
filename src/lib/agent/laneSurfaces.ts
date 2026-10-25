@@ -41,6 +41,7 @@ export interface LaneSurfaceState {
 	surface: LaneCenterSurface;
 	diagramPayload: LaneDiagramPayload | null;
 	previewFile: string | null;
+	previewRevision: number;
 }
 
 export function surfaceKey(projectId: string, laneId: string): string {
@@ -51,7 +52,8 @@ export function createDefaultLaneSurface(): LaneSurfaceState {
 	return {
 		surface: 'editor',
 		diagramPayload: null,
-		previewFile: null
+		previewFile: null,
+		previewRevision: 0
 	};
 }
 
@@ -87,19 +89,23 @@ export class LaneSurfaceManager {
 
 	setLaneDiagram(projectId: string, laneId: string, payload: LaneDiagramPayload): void {
 		const key = surfaceKey(projectId, laneId);
+		const current = this.getLaneSurface(projectId, laneId);
 		this.surfaces[key] = {
 			surface: 'diagram',
 			diagramPayload: payload,
-			previewFile: null
+			previewFile: null,
+			previewRevision: current.previewRevision ?? 0
 		};
 	}
 
 	setLanePreview(projectId: string, laneId: string, filePath: string): void {
 		const key = surfaceKey(projectId, laneId);
+		const current = this.getLaneSurface(projectId, laneId);
 		this.surfaces[key] = {
 			surface: 'preview',
 			diagramPayload: null,
-			previewFile: filePath
+			previewFile: filePath,
+			previewRevision: (current.previewRevision ?? 0) + 1
 		};
 	}
 

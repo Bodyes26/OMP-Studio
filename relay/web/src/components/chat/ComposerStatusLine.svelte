@@ -4,11 +4,14 @@
   Fedele a src/lib/agent/components/ComposerStatusLine.svelte di Studio.
 -->
 <script lang="ts">
+	import { ProviderLogo } from '../../icons.ts';
 	let {
 		modelLabel = null,
+		provider = null,
 		machineName = ''
 	}: {
 		modelLabel?: string | null;
+		provider?: string | null;
 		machineName?: string;
 	} = $props();
 </script>
@@ -21,7 +24,10 @@
 	{/if}
 	{#if modelLabel}
 		<span class="status-entry">
-			<span class="status-item model">{modelLabel}</span>
+			<span class="status-item model">
+				<ProviderLogo provider={provider || modelLabel} size={11} />
+				<span>{modelLabel}</span>
+			</span>
 		</span>
 	{/if}
 </div>

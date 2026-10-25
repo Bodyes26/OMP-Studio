@@ -49,6 +49,7 @@
 	import SuggestPanel, { type SuggestionItem } from '$lib/agent/components/SuggestPanel.svelte';
 	import AttachmentThumb, { type ComposerAttachment } from '$lib/agent/components/AttachmentThumb.svelte';
 	import ModelField from '$lib/components/models/ModelField.svelte';
+	import ProviderLogo from '$lib/components/models/ProviderLogo.svelte';
 	import ReasoningSlider from '$lib/components/models/ReasoningSlider.svelte';
 	import MenuButton from '$lib/ui/MenuButton.svelte';
 	import Segmented from '$lib/ui/Segmented.svelte';
@@ -824,6 +825,7 @@
 												onclick={() => applyFrequentConfiguration(configuration.modelSelector, configuration.thinkingLevel)}
 											>
 												{#if active}<span class="chip-check"><IconCheck /></span>{/if}
+												<ProviderLogo provider={configuration.model.provider} size={12} />
 												<span class="chip-text">{configuration.model.name}</span>
 												<span class="chip-meta font-mono">{thinkingLabel(configuration.thinkingLevel)}</span>
 											</button>

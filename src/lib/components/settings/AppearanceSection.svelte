@@ -14,6 +14,7 @@
 	import Segmented from '$lib/ui/Segmented.svelte';
 	import QuotaChip from '../quota/QuotaChip.svelte';
 	import QuotaLimitRow from '../quota/QuotaLimitRow.svelte';
+	import ProviderLogo from '../models/ProviderLogo.svelte';
 	let filterQuery = $state('');
 	const activeGroup = $derived(
 		THEME_GROUPS.find((group) => group.mode === themeStore.pickerMode) ?? THEME_GROUPS[0]
@@ -369,7 +370,10 @@
 					inert
 				>
 					<div class="mini-provider-head">
-						<span class="mini-provider-name">anthropic</span>
+						<span class="mini-provider-identity">
+							<ProviderLogo provider="anthropic" size={12} />
+							<span class="mini-provider-name">anthropic</span>
+						</span>
 						<span class="mini-provider-email">user@example.com</span>
 					</div>
 					<div class="mini-limits-list">
@@ -660,6 +664,12 @@
 		gap: var(--space-2);
 	}
 
+
+	.mini-provider-identity {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+	}
 	.mini-provider-name {
 		font-family: var(--font-ui, var(--font-sans));
 		font-size: var(--text-caption);

@@ -46,7 +46,8 @@ function isSubpath(parent: string, child: string): boolean {
 // formato delle icone, e ha rotto da un giorno all'altro ogni prototipo con icone.
 function wrapPrototypeCode(title: string, code: string): string {
 	const raw = code.trim();
-	if (raw.startsWith("<!DOCTYPE") || raw.startsWith("<html") || (raw.includes("<head") && raw.includes("<body"))) {
+	const lower = raw.toLowerCase();
+	if (lower.startsWith("<!doctype") || lower.startsWith("<html") || (lower.includes("<head") && lower.includes("<body"))) {
 		return code;
 	}
 
@@ -83,6 +84,9 @@ function wrapPrototypeCode(title: string, code: string): string {
 		compName = funcMatch[1];
 	} else if (constMatch && constMatch[1]) {
 		compName = constMatch[1];
+	} else if (!cleanedCode.includes("function ") && !cleanedCode.includes("class ") && !cleanedCode.includes("=>")) {
+		cleanedCode = `function App() {\n  return (\n    <>\n${cleanedCode}\n    </>\n  );\n}`;
+		compName = "App";
 	}
 
 	return `<!DOCTYPE html>

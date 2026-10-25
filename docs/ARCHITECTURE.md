@@ -631,13 +631,20 @@ I file `stats.db`, `history.db` e `agent.db` contengono informazioni sensibili s
 - Pragma forzato `PRAGMA query_only = ON;`.
 - Query validate per garantire che non contengano istruzioni di mutazione (`INSERT`, `UPDATE`, `DELETE`, `DROP`).
 
-### 7.3 Sandbox e Isolamento: Anteprime Vettoriali vs Laboratorio Prototipi
+### 7.3 Sandbox e Isolamento: Anteprime Vettoriali e Prototipi vs Laboratorio Prototipi
 
-OMP Studio distingue nettamente due superfici di anteprima con requisiti di sicurezza differenti:
+OMP Studio distingue nettamente due superfici di anteprima con requisiti architetturali e di sicurezza differenti:
 
-#### 7.3.1 Sandbox per Anteprime Vettoriali e Prototipi `studio_preview`
-I prototipi HTML/TSX di `studio_preview` non usano `srcdoc`: un iframe `srcdoc` eredita la CSP dell'app (`script-src 'self'`) e i CDN di React, Babel e Tailwind non caricherebbero. `PreviewViewer.svelte` li pubblica con `studio_preview_publish` sul server di anteprima loopback del Laboratorio (`lab/preview_server.rs`), che li serve con una CSP dedicata (script inline più `https://unpkg.com` e `https://cdn.tailwindcss.com`, nessuna `connect-src`) in un `<iframe sandbox="allow-scripts">` senza `allow-same-origin`: origine opaca, nessun accesso a `window.parent` né all'IPC Tauri. La CSP del Laboratorio resta separata (solo esm.sh).
+#### 7.3.1 Sandbox per Anteprime Vettoriali e Prototipi (`PreviewViewer.svelte` e `studio_preview`)
+`PreviewViewer.svelte` è la superficie centrale (`surface: 'preview'`) per l'anteprima istantanea di prototipi UI generati dall'agente con il tool `studio_preview` (`proto/*.html`), pagine web statiche (`.html`, `.htm`), componenti React standalone (`.tsx`, `.jsx`) aperti dall'Editor e file vettoriali SVG.
 
+1. **Isolamento e CSP dedicata:** i documenti HTML e TSX/JSX non usano `srcdoc` (che erediterebbe la rigida CSP dell'app impedendo il caricamento di React, Babel e Tailwind UMD). Vengono invece pubblicati con `studio_preview_publish` in memoria sul server di anteprima loopback (`lab/preview_server.rs`), che li serve con una CSP dedicata `StudioPreview` (script inline più `https://unpkg.com` e `https://cdn.tailwindcss.com`, nessuna `connect-src` per bloccare fetch e WebSocket non autorizzati).
+2. **Iframe Sandboxing:** l'anteprima risiede in un `<iframe sandbox="allow-scripts">` (o `sandbox=""` privo di script per SVG) senza `allow-same-origin`: origine opaca `null`, nessun accesso a `window.parent`, al DOM dell'applicazione o all'IPC nativo Tauri (`window.__TAURI__`).
+3. **Ciclo di Aggiornamento Reattivo Affidabile:**
+   - **Instradamento per corsia:** le chiamate ripetute dell'agente a `studio_preview` incrementano deterministamente `previewRevision` in `laneSurfaceStore`, propagando l'aggiornamento alla corsia proprietaria attiva senza interferire con altre corsie.
+   - **Rilevamento modifiche file:** `PreviewViewer` intercetta gli eventi `git-status-refresh` (emessi al termine di chiamate `edit`/`write`, a fine turno dell'agente o al salvataggio manuale da Monaco Editor) e il focus della finestra.
+   - **Anti-flicker e anti-race:** l'aggiornamento automatico è raggruppato con debounce a 150 ms; legge il contenuto su disco e verifica se differisce da `rawContent` prima di invocare la ripubblicazione, evitando sfarfallii o reload inutili quando vengono modificati altri file del progetto. Il pulsante manuale «Ricarica» forza sempre la ripubblicazione e il re-render.
+   - **Gestione sicura del ciclo di vita:** il server ritira la chiave (`lab_preview_unpublish`) esclusivamente quando il file/target visualizzato cambia o il visualizzatore viene smontato, eliminando condizioni di corsa durante i refresh consecutivi dello stesso prototipo.
 I diagrammi Mermaid (`studio_diagram`) e le anteprime statiche SVG vengono renderizzati tramite `PreviewViewer.svelte` e `svgSandbox.ts`:
 1. **Sanitizzazione primaria:** passaggio su `DOMPurify` per eliminare tag `<script>`, `<foreignObject>`, `<iframe>`, attributi `on*` e URI `javascript:`.
 2. **Content Security Policy ermetica:**

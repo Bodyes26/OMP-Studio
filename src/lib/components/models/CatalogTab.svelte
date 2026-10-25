@@ -23,6 +23,7 @@
 		IconContextWindow
 	} from '$lib/icons';
 	import { matchesLooseQuery } from '$lib/looseSearch';
+	import ProviderLogo from './ProviderLogo.svelte';
 
 	let searchQuery = $state('');
 	let filterVision = $state(false);
@@ -185,7 +186,10 @@
 						class:active={modelSettingsStore.catalogFilterProviderId === p.id}
 						onclick={() => selectScopeProvider(p.id)}
 					>
-						<span class="scope-label">{p.name}</span>
+						<span class="scope-label">
+							<ProviderLogo provider={p.id} size={13} />
+							<span>{p.name}</span>
+						</span>
 						<span class="scope-count">{p.count}</span>
 					</button>
 				</Tooltip>
@@ -287,7 +291,10 @@
 						<div class="model-meta-cell">
 							<div class="name-row">
 								<span class="m-name">{mDto.name}</span>
-								<span class="m-provider">{providerName(mDto.provider)}</span>
+								<span class="m-provider">
+									<ProviderLogo provider={mDto.provider} size={11} />
+									<span>{providerName(mDto.provider)}</span>
+								</span>
 								{#if mDto.isCustom}
 									<span class="m-custom-badge">{m.catalog_tab_custom_badge()}</span>
 								{/if}
@@ -489,6 +496,9 @@
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
 	}
 
 	.scope-count {
@@ -711,6 +721,9 @@
 		padding: 1px 5px;
 		border-radius: var(--radius-sm);
 		border: 1px solid var(--line);
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
 	}
 
 	.m-custom-badge {

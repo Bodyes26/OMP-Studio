@@ -3,6 +3,7 @@
 	import type { ModelDto } from '$lib/stores/modelSettings.svelte';
 	import { splitModelSelector, resolveCatalogModel } from '$lib/stores/modelSettingsHelpers';
 	import { IconChevronDown } from '$lib/icons';
+	import ProviderLogo from './ProviderLogo.svelte';
 	import MenuButton from '$lib/ui/MenuButton.svelte';
 	import ModelPickerList from './ModelPickerList.svelte';
 
@@ -84,9 +85,11 @@
 	>
 		{#snippet trigger()}
 			{#if selectedModel}
+				<ProviderLogo provider={selectedModel.provider} size={14} />
 				<span class="model-name font-mono">{selectedModel.name || selectedModel.id}</span>
 				<span class="model-provider">{selectedModel.provider}</span>
 			{:else if cleanSelector || value}
+				<ProviderLogo provider={cleanSelector || value} size={14} />
 				<span class="model-name font-mono">{cleanSelector || value}</span>
 			{:else}
 				<span class="model-placeholder">{placeholder}</span>

@@ -41,6 +41,7 @@
 	import ReasoningSlider from '$lib/components/models/ReasoningSlider.svelte';
 	import ThinkingMeter from '$lib/agent/components/ThinkingMeter.svelte';
 	import MenuButton from '$lib/ui/MenuButton.svelte';
+	import ProviderLogo from '$lib/components/models/ProviderLogo.svelte';
 	import { m } from '$lib/paraglide/messages.js';
 
 	let {
@@ -390,6 +391,9 @@
 							onClose={() => (activeMenu = null)}
 						>
 							{#snippet trigger()}
+								{#if provider}
+									<ProviderLogo {provider} size={13} />
+								{/if}
 								<span class="model-name-label">{currentModelLabel}</span>
 								<span class="mobile-thinking-label"><span aria-hidden="true">·</span> {currentThinking}</span>
 								<span class="chevron-indicator"><IconChevronUp /></span>
@@ -508,7 +512,7 @@
 	</div>
 
 	<div class="composer-status-row">
-		<ComposerStatusLine modelLabel={hasLaneConfig ? null : modelLabel} {machineName} />
+		<ComposerStatusLine modelLabel={hasLaneConfig ? null : modelLabel} provider={hasLaneConfig ? null : provider} {machineName} />
 		{#if context}
 			<ContextControl {context} draftTokens={draftTokenCount}
 				disabled={disabled || isWorking}

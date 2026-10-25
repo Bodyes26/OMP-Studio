@@ -6,6 +6,7 @@
 	// Con modifiche ai file, il bilancio `+N −M` del turno: il clic apre il
 	// diff del primo file toccato (lo stesso diff con HEAD del pannello Git).
 	import { IconCopy, IconCheck, IconFork } from '$lib/icons';
+	import ProviderLogo from '$lib/components/models/ProviderLogo.svelte';
 	import { formatTokensPerSecond } from '../turnStats';
 	import Tooltip from '$lib/ui/Tooltip.svelte';
 	import { agentUiHooks } from '../ui-context';
@@ -18,6 +19,7 @@
 		/** Token al secondo della sola generazione, sul turno intero. */
 		tokensPerSecond?: number;
 		model?: string;
+		provider?: string;
 		cost?: number;
 		subagentCost?: number;
 		/** Messaggio utente che apre il turno (id del transcript), se c'e'. */
@@ -183,7 +185,10 @@
 		{/if}
 		{#if data.model}
 			{#if toolCallsLabel || durationLabel || tpsLabel}<span class="sep">·</span>{/if}
-			<span class="meta-item model">{data.model}</span>
+			<span class="meta-item model">
+				<ProviderLogo provider={data.provider || data.model} size={11} />
+				<span>{data.model}</span>
+			</span>
 		{/if}
 		{#if costLabel}
 			{#if toolCallsLabel || durationLabel || tpsLabel || data.model}<span class="sep">·</span>{/if}
@@ -303,6 +308,9 @@
 
 	.model {
 		font-family: var(--font-mono);
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
 	}
 
 	.cost {

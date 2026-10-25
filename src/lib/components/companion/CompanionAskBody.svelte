@@ -20,6 +20,7 @@
 	import CompanionMarkdown from './CompanionMarkdown.svelte';
 	import { IconArrowUp, IconCheck, IconClose, IconPencil, IconSchedule, IconSparkles } from '$lib/icons';
 	import { scheduleStore } from '$lib/stores/schedule.svelte';
+	import ProviderLogo from '$lib/components/models/ProviderLogo.svelte';
 
 	let {
 		req,
@@ -209,7 +210,12 @@
 								onclick={() => void onResolveQuotaBlocked(req.projectId, alt.selector, req.laneId)}
 							>
 								<span class="ask-opt-body">
-									<span class="ask-opt-label">{alt.modelName}</span>
+									<span class="ask-opt-label">
+										{#if alt.provider}
+											<ProviderLogo provider={alt.provider} size={13} />
+										{/if}
+										<span>{alt.modelName}</span>
+									</span>
 									{#if alt.roleLabel}
 										<span class="ask-opt-desc">{alt.roleLabel}</span>
 									{/if}

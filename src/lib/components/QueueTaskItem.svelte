@@ -26,6 +26,7 @@
 	import Tooltip from '$lib/ui/Tooltip.svelte';
 	import ScheduleChip from './schedule/ScheduleChip.svelte';
 	import ScheduleMenu from './schedule/ScheduleMenu.svelte';
+	import ProviderLogo from './models/ProviderLogo.svelte';
 
 	/**
 	 * Un task della coda, condiviso da pannello Agente e cassetto globale.
@@ -298,7 +299,14 @@
 				</span>
 			{/if}
 			{#if isQueued && task.schedule}<ScheduleChip {task} />{/if}
-			{#if role && (!showHeadline || !text.headline)}<span class="chip role">{role}</span>{/if}
+			{#if task.options?.modelSelector}
+				<span class="chip model">
+					<ProviderLogo provider={task.options.modelSelector} size={11} />
+					<span>{task.options.modelSelector.split('/')[1] || task.options.modelSelector}</span>
+				</span>
+			{:else if role && (!showHeadline || !text.headline)}
+				<span class="chip role">{role}</span>
+			{/if}
 			{#each directives.slice(0, maxDirectives) as d (d.id)}
 				<span class="chip mode">{directiveDisplayName(d)}</span>
 			{/each}
@@ -667,6 +675,15 @@
 		background: var(--brand-dim);
 		color: var(--ink);
 		font-weight: 600;
+	}
+
+	.chip.model {
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
+		font-family: var(--font-mono);
+		background: var(--bg-hover);
+		color: var(--ink-muted);
 	}
 
 	.chip.mode {

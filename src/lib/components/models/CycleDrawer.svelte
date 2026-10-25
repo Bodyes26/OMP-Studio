@@ -12,6 +12,7 @@
 	} from '$lib/icons';
 	import Tooltip from '$lib/ui/Tooltip.svelte';
 	import ModelField from './ModelField.svelte';
+	import ProviderLogo from './ProviderLogo.svelte';
 
 	let {
 		open = true,
@@ -117,7 +118,10 @@
 						<div class="item-info">
 							<span class="item-name">{model?.name || item.split('/')[1] || item}</span>
 							{#if model}
-								<span class="item-provider">{model.provider}</span>
+								<span class="item-provider">
+									<ProviderLogo provider={model.provider} size={11} />
+									<span>{model.provider}</span>
+								</span>
 							{/if}
 						</div>
 
@@ -395,6 +399,9 @@
 		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		text-transform: capitalize;
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
 	}
 
 	.item-actions {

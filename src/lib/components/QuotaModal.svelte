@@ -19,6 +19,7 @@
 	import { activeQuotaStore } from '$lib/stores/activeQuota.svelte';
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import QuotaLimitRow from './quota/QuotaLimitRow.svelte';
+	import ProviderLogo from './models/ProviderLogo.svelte';
 	import UsageResetCard from './quota/UsageResetCard.svelte';
 	import type { AccountResetSummary, ResetPromptCandidate } from '$lib/quota/usageResets';
 	import { limitTone, dedupeSharedLimits } from '$lib/quota/resolve';
@@ -371,7 +372,10 @@
 							{@const resetSummary = quotaStore.findResetSummary(report)}
 							<div class="provider-section">
 								<h4>
-									<span>{report.provider}</span>
+									<span class="provider-heading">
+										<ProviderLogo provider={report.provider} size={15} />
+										<span>{report.provider}</span>
+									</span>
 									{#if report.metadata?.email}
 										<span class="meta">{report.metadata.email}</span>
 									{/if}
@@ -788,6 +792,12 @@
 		display: flex;
 		justify-content: space-between;
 		align-items: baseline;
+	}
+
+	.provider-heading {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
 	}
 
 	.meta {

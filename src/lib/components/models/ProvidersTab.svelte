@@ -18,6 +18,7 @@
 		IconTrash,
 		IconPlug
 	} from '$lib/icons';
+	import ProviderLogo from './ProviderLogo.svelte';
 	import Terminal from '$lib/terminal/Terminal.svelte';
 	import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
 	import Dialog from '$lib/ui/Dialog.svelte';
@@ -416,7 +417,10 @@
 					onclick={() => selectProvider(p.id)}
 				>
 					<div class="provider-item-top">
-						<span class="provider-item-name">{p.name}</span>
+						<span class="provider-item-title">
+							<ProviderLogo provider={p.id} size={15} />
+							<span class="provider-item-name">{p.name}</span>
+						</span>
 						<span class="origin-badge origin-{p.source}">
 							{#if p.source === 'plugin'}
 								<IconPlug />
@@ -483,7 +487,10 @@
 									class="add-menu-item"
 									onclick={() => pickUnconfiguredProvider(p.id)}
 								>
-									<span class="add-menu-item-name">{p.name}</span>
+									<span class="add-menu-item-title">
+										<ProviderLogo provider={p.id} size={14} />
+										<span class="add-menu-item-name">{p.name}</span>
+									</span>
 									<span class="origin-badge origin-{p.source}">
 										{#if p.source === 'plugin'}
 											<IconPlug />
@@ -545,6 +552,7 @@
 			<header class="detail-header">
 				<div class="detail-header-info">
 					<div class="detail-title-line">
+						<ProviderLogo provider={selectedProvider.id} size={20} />
 						<h2 class="detail-title">{selectedProvider.name}</h2>
 						<span class="origin-badge origin-{selectedProvider.source}">
 							{#if selectedProvider.source === 'plugin'}
@@ -1019,6 +1027,14 @@
 		gap: 6px;
 	}
 
+	.provider-item-title {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		min-width: 0;
+		overflow: hidden;
+	}
+
 	.provider-item-name {
 		font-size: var(--text-meta);
 		font-weight: 500;
@@ -1163,6 +1179,14 @@
 		cursor: pointer;
 		transition: background-color var(--dur-fast) var(--ease-out),
 			border-color var(--dur-fast) var(--ease-out);
+	}
+
+	.add-menu-item-title {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		min-width: 0;
+		overflow: hidden;
 	}
 
 	.add-menu-item:hover {

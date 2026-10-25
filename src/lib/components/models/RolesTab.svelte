@@ -29,6 +29,7 @@
 	import ModelField from './ModelField.svelte';
 	import ReasoningSlider from './ReasoningSlider.svelte';
 	import CycleDrawer from './CycleDrawer.svelte';
+	import ProviderLogo from './ProviderLogo.svelte';
 
 	let selectedRoleId = $state<string>(STANDARD_ROLES[0].id);
 	let roleFilterQuery = $state('');
@@ -450,7 +451,10 @@
 				<!-- Metadati modello selezionato -->
 				{#if selectedRoleModelDto}
 					<div class="model-meta-row">
-						<span class="meta-badge provider">{selectedRoleModelDto.provider}</span>
+						<span class="meta-badge provider">
+							<ProviderLogo provider={selectedRoleModelDto.provider} size={12} />
+							<span>{selectedRoleModelDto.provider}</span>
+						</span>
 						{#if selectedRoleModelDto.contextWindow}
 							<Tooltip text={m.roles_tab_context_window_tooltip({ tokens: selectedRoleModelDto.contextWindow.toLocaleString() })}>
 								<span class="ui-cap ctx">
@@ -522,7 +526,10 @@
 										class:active-choice={isAlreadySelected}
 										onclick={() => handleApplyPrimarySuggestion(sug)}
 									>
-										<span class="sug-provider">{modelDto?.provider || (sugSlash >= 0 ? sugClean.slice(0, sugSlash) : '')}</span>
+										<span class="sug-provider">
+											<ProviderLogo provider={modelDto?.provider || (sugSlash >= 0 ? sugClean.slice(0, sugSlash) : '')} size={11} />
+											<span>{modelDto?.provider || (sugSlash >= 0 ? sugClean.slice(0, sugSlash) : '')}</span>
+										</span>
 										<span class="sug-name">{modelDto?.name || (sugSlash >= 0 ? sugClean.slice(sugSlash + 1) : sugClean)}</span>
 										{#if sug.badge}
 											<span class="sug-badge" class:elo-badge={sug.badge.includes('ELO')} class:speed-badge={sug.badge.includes('tok/s')}>{sug.badge}</span>
@@ -597,7 +604,10 @@
 									{/if}
 									<span class="fb-name">{fallbackDisplayName}</span>
 									{#if fbModel}
-										<span class="fb-provider-tag">{fbModel.provider}</span>
+										<span class="fb-provider-tag">
+											<ProviderLogo provider={fbModel.provider} size={11} />
+											<span>{fbModel.provider}</span>
+										</span>
 									{/if}
 								</div>
 								{#if fbFinding}
@@ -720,7 +730,10 @@
 											class="suggestion-chip"
 											onclick={() => handleAddFallback(selectedRole.id, sug.selector)}
 										>
-											<span class="sug-provider">{fbModel?.provider || (sugSlash >= 0 ? sugClean.slice(0, sugSlash) : '')}</span>
+											<span class="sug-provider">
+												<ProviderLogo provider={fbModel?.provider || (sugSlash >= 0 ? sugClean.slice(0, sugSlash) : '')} size={11} />
+												<span>{fbModel?.provider || (sugSlash >= 0 ? sugClean.slice(0, sugSlash) : '')}</span>
+											</span>
 											<span class="sug-name">{fbModel?.name || (sugSlash >= 0 ? sugClean.slice(sugSlash + 1) : sugClean)}</span>
 											{#if sug.badge}
 												<span class="sug-badge fallback-badge" class:free-badge={sug.badge.includes('Zero-Cost') || sug.isFree}>{sug.badge}</span>
@@ -1365,6 +1378,9 @@
 		color: var(--brand-ink);
 		background: color-mix(in srgb, var(--brand) 8%, var(--bg-base));
 		text-transform: capitalize;
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
 	}
 
 	.suggestions-row {
@@ -1470,6 +1486,9 @@
 		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		text-transform: capitalize;
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
 	}
 
 	.sug-name {
@@ -1625,6 +1644,9 @@
 		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		text-transform: capitalize;
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
 	}
 
 	.fb-actions {

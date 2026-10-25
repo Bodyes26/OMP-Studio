@@ -22,7 +22,8 @@
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { directiveDisplayName } from '$lib/stores/taskDirectives';
 	import type { Project } from '$lib/stores/projects.svelte';
-	import type { AttentionRequest } from '$lib/stores/companion.svelte';
+	import { companionStore, type AttentionRequest } from '$lib/stores/companion.svelte';
+	import ProviderLogo from '$lib/components/models/ProviderLogo.svelte';
 	import type { ConversationViewState } from '$lib/companion/companionPresentation';
 	import type { CompanionAskHandlers } from './companionAsk';
 	import CompanionAskBody from './CompanionAskBody.svelte';
@@ -139,6 +140,15 @@
 
 	const isWorking = $derived(project.lane.agentState === 'working');
 	const isAsking = $derived(viewMode === 'question' && Boolean(attention));
+	const runtime = $derived(
+		companionStore.projectRuntimes.find(
+			(r) => r.projectId.toLowerCase() === project.id.toLowerCase()
+		)
+	);
+	const activeModelLabel = $derived(
+		runtime?.modelLabel || runtime?.modelId || attention?.modelName || null
+	);
+	const activeProvider = $derived(runtime?.provider || null);
 
 	const agentStatus = $derived.by<{ mark: StatusMarkType; label: string }>(() => {
 		switch (project.lane.agentState) {
@@ -241,6 +251,12 @@
 					</Tooltip>
 				</div>
 				<div class="card-row-meta">
+					{#if activeModelLabel}
+						<span class="p-model">
+							<ProviderLogo provider={activeProvider || activeModelLabel} size={11} />
+							<span>{activeModelLabel}</span>
+						</span>
+					{/if}
 					{#if queuedCount > 0}
 						<span class="p-queue-count">{queuedCount}</span>
 					{/if}
@@ -324,6 +340,12 @@
 					</Tooltip>
 				</div>
 				<div class="card-row-meta">
+					{#if activeModelLabel}
+						<span class="p-model">
+							<ProviderLogo provider={activeProvider || activeModelLabel} size={11} />
+							<span>{activeModelLabel}</span>
+						</span>
+					{/if}
 					{#if queuedCount > 0}
 						<span class="p-queue-count">{queuedCount}</span>
 					{/if}

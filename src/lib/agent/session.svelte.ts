@@ -273,6 +273,7 @@ export interface AssistantEntry {
 	blocks: Block[];
 	usage?: MessageUsage;
 	model?: string;
+	provider?: string;
 	stopReason?: string;
 	/** Come `UserEntry.messageTs`; condiviso dai pezzi di uno stesso messaggio. */
 	messageTs?: number;
@@ -2493,6 +2494,7 @@ export class AgentSession {
 					this.assistantEntry.usage = message.usage;
 					this.assistantEntry.genMs = generationMs(message);
 					this.assistantEntry.model = message.model;
+					this.assistantEntry.provider = message.provider || this.model?.provider;
 					if (typeof message.timestamp === 'number') this.assistantEntry.messageTs = message.timestamp;
 					if (!this.assistantEntry.stopReason) {
 						this.assistantEntry.stopReason = message.stopReason;

@@ -24,6 +24,7 @@
 	import { IconFlame, IconRefresh, IconWarning } from '$lib/icons';
 	import StatusMark from '$lib/ui/StatusMark.svelte';
 	import { m } from '$lib/paraglide/messages.js';
+	import ProviderLogo from '$lib/components/models/ProviderLogo.svelte';
 
 	let {
 		session,
@@ -306,7 +307,10 @@
 				<span class="model-name">{modelLabel}</span>
 				{#if providerLabel}
 					<span class="model-sep" aria-hidden="true">·</span>
-					<span class="model-provider">{providerLabel}</span>
+					<span class="model-provider-wrap">
+						<ProviderLogo provider={providerLabel} size={12} />
+						<span class="model-provider">{providerLabel}</span>
+					</span>
 				{/if}
 			</div>
 		</div>
@@ -604,6 +608,13 @@
 
 	.model-provider,
 	.model-sep {
+		flex-shrink: 0;
+	}
+
+	.model-provider-wrap {
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
 		flex-shrink: 0;
 	}
 

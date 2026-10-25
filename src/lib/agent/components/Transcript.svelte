@@ -400,6 +400,7 @@
 		let currentTurnCost = 0;
 		let currentTurnSpeed = new TurnSpeed();
 		let currentTurnModel: string | undefined;
+		let currentTurnProvider: string | undefined;
 		let currentTurnStartMs = 0;
 		let currentTurnEndMs = 0;
 		let currentTurnUserId: number | null = null;
@@ -424,6 +425,7 @@
 					currentTurnSpeed.add(entry.usage?.output, entry.genMs);
 					if (entry.model) {
 						currentTurnModel = entry.model;
+						currentTurnProvider = entry.provider || session.model?.provider || undefined;
 					}
 					if (typeof entry.messageTs === 'number') {
 						currentTurnAssistantTs = entry.messageTs;
@@ -453,6 +455,7 @@
 						toolCallsCount: currentTurnToolCalls,
 						durationMs: duration,
 						model: currentTurnModel,
+						provider: currentTurnProvider || session.model?.provider || undefined,
 						cost: currentTurnCost > 0 ? currentTurnCost : undefined,
 						tokensPerSecond: currentTurnSpeed.tokensPerSecond,
 						userTranscriptId: currentTurnUserId,
@@ -499,6 +502,7 @@
 				toolCallsCount: currentTurnToolCalls,
 				durationMs: duration,
 				model: currentTurnModel,
+				provider: currentTurnProvider || session.model?.provider || undefined,
 				cost: currentTurnCost > 0 ? currentTurnCost : undefined,
 				tokensPerSecond: currentTurnSpeed.tokensPerSecond,
 				userTranscriptId: currentTurnUserId,

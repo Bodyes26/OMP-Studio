@@ -16,6 +16,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Settings → Remote control redesigned as cards with status, copy/open actions and a danger zone.
 
 ### Added
+- Recognize providers by their logos in quotas, AI Model settings, composer and task pickers, and model information across Studio, Companion and Studio Remote: Claude for Anthropic, Codex for OpenAI and Antigravity for its provider, with a neutral symbol for custom endpoints.
 - "Ctrl+Shift+Tab" switches to the active project's next lane, "Ctrl+Tab" to the next open project. To go backwards, use "Ctrl+Alt+←/→".
 - The lane row's "+" also lists existing Git branches ("Open branch"): opening a local branch, a remote-only one or one already in a worktree created outside Studio turns it into a lane with the branch's real name. Integrating it does a fast-forward or a merge commit (no squash), removes the worktree and deletes the local branch; `origin/<branch>` is deleted on the next push from the Git panel, never automatically. Discarding it removes only the worktree and keeps the branch.
 - The footer of each agent reply shows generation speed in tokens per second (excluding the wait for the first token), next to duration, model and cost.
@@ -45,6 +46,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Optimized Companion window: the central project card is explicitly dismissible and closes automatically as soon as a question is answered from any window without lingering resolved notices; by default no central card is opened unless there is a question or unread reply. Parked projects are informative and no longer open empty cards. Question cards adopt neutral background styling and standard borders without amber rings, clearly distinguish ask tool calls from message proposals, always provide "Other..." and note fields, render question text with Intelligent UI, and allow expanding full messages or loading previous context. In the reply reader, the composer uses standard text sizing, includes @ and / autocomplete suggestions, and auto-dismisses one second after reply confirmation.
 
 ### Fixed
+- Quick Preview updates automatically when the agent edits the file or invokes `studio_preview` again on the same path, without reloading unchanged content. Open React JSX/TSX components from the editor too; HTML documents with a lowercase doctype are recognized correctly.
 - "Ctrl+Tab" now switches project even with the cursor in the composer or a text field, and "Ctrl+Shift+Tab" no longer changes the thinking level.
 - Studio Remote opened from the iPhone Home Screen: the status bar has a solid colour instead of the blur that covered the chat title and buttons, and the composer reaches the bottom of the screen, with no empty strip below it, also with the keyboard open.
 - In the quota popover, Google Antigravity's "Claude & GPT (shared)" limit now appears once per window instead of duplicated per family; credit balances (e.g. Command Code) show as a value instead of a 100% bar.

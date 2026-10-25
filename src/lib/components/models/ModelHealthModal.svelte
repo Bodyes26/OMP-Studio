@@ -12,6 +12,7 @@
 	import AlertBanner from '$lib/components/AlertBanner.svelte';
 	import Dialog from '$lib/ui/Dialog.svelte';
 	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import ProviderLogo from './ProviderLogo.svelte';
 
 	let selectedKeys = $state<string[]>([]);
 
@@ -236,7 +237,10 @@
 									<IconWarning />
 								</span>
 								<span class="slot-badge" class:fallback={finding.kind === 'fallback'}>{slotLabel}</span>
-								<span class="provider-tag">{finding.currentProvider}</span>
+								<span class="provider-tag">
+									<ProviderLogo provider={finding.currentProvider} size={11} />
+									<span>{finding.currentProvider}</span>
+								</span>
 								<span
 									class="action-tag"
 									class:replace={Boolean(finding.suggestedSelector)}
@@ -345,7 +349,10 @@
 								<span class="role-abbr-badge">{roleMeta.abbr}</span>
 								<span class="role-name">{roleMeta.label}</span>
 								<span class="slot-badge" class:fallback={finding.kind === 'fallback'}>{slotLabel}</span>
-								<span class="provider-tag">{finding.currentProvider}</span>
+								<span class="provider-tag">
+									<ProviderLogo provider={finding.currentProvider} size={11} />
+									<span>{finding.currentProvider}</span>
+								</span>
 								<span class="action-tag replace">{m.model_health_action_upgrade()}</span>
 							</div>
 
@@ -609,8 +616,10 @@
 		padding: 1px 5px;
 		border-radius: var(--radius-sm);
 		border: 1px solid var(--line);
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
 	}
-
 	.action-tag {
 		font-size: var(--text-caption);
 		font-weight: 600;

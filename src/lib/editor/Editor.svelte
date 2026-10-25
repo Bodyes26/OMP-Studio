@@ -76,8 +76,8 @@
 		onPreviewRequest?: (filePath: string) => void;
 		onDirtyFilesChange?: (paths: string[]) => void;
 	}>();
-	function isHtmlFile(path: string): boolean {
-		return ['html', 'htm'].includes(path.split('.').pop()?.toLowerCase() || '');
+	function isSandboxPreviewable(path: string): boolean {
+		return ['html', 'htm', 'jsx', 'tsx'].includes(path.split('.').pop()?.toLowerCase() || '');
 	}
 
 	type FileLoadError = 'too_large' | 'binary' | 'generic';
@@ -1339,7 +1339,7 @@
 						><IconDiff /></button>
 					</Tooltip>
 				{/if}
-				{#if isHtmlFile(filePath) && !activeFileError}
+				{#if isSandboxPreviewable(filePath) && !activeFileError}
 					<Tooltip text={m.ui_editor_apri_anteprima_live_in_sandbox_d6b9()} placement="bottom">
 						<button
 							type="button"

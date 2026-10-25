@@ -17,7 +17,7 @@
 		type QuestionAnswerState
 	} from '../askAnswers.ts';
 	import { formatCommandError } from '../errors.ts';
-	import { IconCheck, IconChevronDown, IconChevronUp } from '../icons.ts';
+	import { IconCheck, IconChevronDown, IconChevronUp, ProviderLogo } from '../icons.ts';
 	import StatusMark from './StatusMark.svelte';
 
 	let {
@@ -312,7 +312,10 @@
 				<p class="ask-detail">
 					{attention.quotaBlocked.reason === 'quota_exhausted' ? t('quotaBlockedTitle') : t('providerErrorTitle')}
 					{#if attention.quotaBlocked.provider}
-						({attention.quotaBlocked.provider})
+						<span class="quota-provider-badge">
+							<ProviderLogo provider={attention.quotaBlocked.provider} size={13} />
+							<span>({attention.quotaBlocked.provider})</span>
+						</span>
 					{/if}
 				</p>
 				{#if canQuotaAction}
@@ -579,6 +582,13 @@
 		--icon-size: 12px;
 		display: grid;
 		place-items: center;
+	}
+
+	.quota-provider-badge {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		vertical-align: middle;
 	}
 
 	.messages-stream {

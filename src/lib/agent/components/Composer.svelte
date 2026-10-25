@@ -71,6 +71,7 @@
 	import ThinkingMeter from './ThinkingMeter.svelte';
 	import ReasoningSlider from '$lib/components/models/ReasoningSlider.svelte';
 	import ModelPickerList from '$lib/components/models/ModelPickerList.svelte';
+	import ProviderLogo from '$lib/components/models/ProviderLogo.svelte';
 	import RoleMenu, { type RoleAssignment } from './RoleMenu.svelte';
 	import ContextPanel from './ContextPanel.svelte';
 	import AttachMenu from './AttachMenu.svelte';
@@ -1206,6 +1207,9 @@
 								onClose={() => (activeMenu = null)}
 							>
 								{#snippet trigger()}
+									{#if session.model?.provider}
+										<ProviderLogo provider={session.model.provider} size={13} />
+									{/if}
 									<span class="model-name-label">{session.model?.name || session.model?.id || m.chat_v2_composer_model_label()}</span>
 									<span class="chevron-indicator"><IconChevronUp /></span>
 								{/snippet}

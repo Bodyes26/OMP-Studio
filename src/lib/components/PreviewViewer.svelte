@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack, onDestroy } from 'svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	import { invoke } from '@tauri-apps/api/core';
 	import { wrapPrototypeCode } from '$lib/prototype/wrapper';
@@ -12,10 +13,12 @@
 	let {
 		projectPath,
 		filePath,
+		revision = 0,
 		onClose
 	}: {
 		projectPath: string;
 		filePath: string;
+		revision?: number;
 		onClose?: () => void;
 	} = $props();
 
@@ -87,15 +90,32 @@
 	// lo stato e non ripubblica la chiave vecchia (vedi previewLoad.ts).
 	let loadSeq = 0;
 	let activeKey = '';
+	let publishedKey: string | null = null;
+	let lastLoadedKey = '';
+	let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
-	async function load() {
+	function scheduleAutoRefresh() {
+		if (refreshTimer) clearTimeout(refreshTimer);
+		refreshTimer = setTimeout(() => {
+			refreshTimer = null;
+			void load(false);
+		}, 150);
+	}
+
+	async function load(force = false) {
 		const seq = ++loadSeq;
 		const isCurrent = () => seq === loadSeq;
 		const targetProject = projectPath;
 		const targetFile = filePath;
 		const key = `studio-preview:${targetProject}:${targetFile}`;
-		loading = true;
-		missing = false;
+
+		const currentRaw = rawContent;
+		const currentFrameUrl = frameUrl;
+		const currentHtmlDoc = htmlDoc;
+
+		if (force || (!currentRaw && !currentFrameUrl && !currentHtmlDoc)) {
+			loading = true;
+		}
 		loadError = null;
 		try {
 			const result = await loadPreview({
@@ -105,15 +125,20 @@
 				readFile: () => invoke('preview_file', { projectPath: targetProject, rel: targetFile }),
 				isSvg: (content) => isSvgFileName(targetFile) || isSvgContent(content),
 				publish: async (publishKey, content) => {
+					if (!force && content === currentRaw && currentFrameUrl) {
+						return currentFrameUrl;
+					}
 					const title =
 						targetFile.split('/').pop()?.replace(/\.[^/.]+$/, '') || m.preview_default_doc_title();
 					const { url } = await invoke<{ url: string }>('studio_preview_publish', {
 						key: publishKey,
 						html: wrapPrototypeCode(title, content)
 					});
+					publishedKey = publishKey;
 					return url;
 				},
 				unpublish: (staleKey) => {
+					if (publishedKey === staleKey) publishedKey = null;
 					void invoke('lab_preview_unpublish', { key: staleKey }).catch(() => {});
 				}
 			});
@@ -124,10 +149,18 @@
 				htmlDoc = '';
 				frameUrl = '';
 			} else if (result.kind === 'svg') {
+				if (!force && result.content === currentRaw && currentHtmlDoc) {
+					return;
+				}
+				missing = false;
 				rawContent = result.content;
 				htmlDoc = buildSandboxedSvgDocument(result.content);
 				frameUrl = '';
 			} else {
+				if (!force && result.content === currentRaw && currentFrameUrl) {
+					return;
+				}
+				missing = false;
 				rawContent = result.content;
 				htmlDoc = '';
 				frameUrl = result.url;
@@ -143,6 +176,33 @@
 		} finally {
 			if (isCurrent()) loading = false;
 		}
+	}
+
+	function normalizePath(p: string): string {
+		return p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+	}
+
+	function handleGitRefresh(e: Event) {
+		const detail = (e as CustomEvent<{ projectPath?: string; filePath?: string }>)?.detail;
+		if (detail?.projectPath) {
+			const normDetailProj = normalizePath(detail.projectPath);
+			const normProj = normalizePath(projectPath);
+			if (normDetailProj !== normProj && !normProj.startsWith(normDetailProj) && !normDetailProj.startsWith(normProj)) {
+				return;
+			}
+		}
+		if (detail?.filePath) {
+			const normDetailFile = detail.filePath.replace(/\\/g, '/').toLowerCase();
+			const normTargetFile = filePath.replace(/\\/g, '/').toLowerCase();
+			if (!normDetailFile.endsWith(normTargetFile) && !normTargetFile.endsWith(normDetailFile)) {
+				return;
+			}
+		}
+		scheduleAutoRefresh();
+	}
+
+	function handleWindowFocus() {
+		scheduleAutoRefresh();
 	}
 
 	async function copyCode() {
@@ -168,16 +228,51 @@
 		}
 	}
 	$effect(() => {
-		if (!projectPath || !filePath) return;
-		const key = `studio-preview:${projectPath}:${filePath}`;
+		const pPath = projectPath;
+		const fPath = filePath;
+		const rev = revision;
+		if (!pPath || !fPath) return;
+
+		const key = `studio-preview:${pPath}:${fPath}`;
 		activeKey = key;
-		void load();
+
+		const isNewKey = key !== lastLoadedKey;
+		const prevKeyToUnpublish = isNewKey && publishedKey && publishedKey !== key ? publishedKey : null;
+		if (prevKeyToUnpublish) {
+			void invoke('lab_preview_unpublish', { key: prevKeyToUnpublish }).catch(() => {});
+			publishedKey = null;
+		}
+		lastLoadedKey = key;
+
+		untrack(() => {
+			void load(isNewKey);
+		});
+
+		window.addEventListener('git-status-refresh', handleGitRefresh);
+		window.addEventListener('focus', handleWindowFocus);
+
 		return () => {
-			// Il caricamento in volo diventa superato: non ripubblica `key`.
+			if (refreshTimer) {
+				clearTimeout(refreshTimer);
+				refreshTimer = null;
+			}
+			window.removeEventListener('git-status-refresh', handleGitRefresh);
+			window.removeEventListener('focus', handleWindowFocus);
 			loadSeq++;
-			activeKey = '';
-			void invoke('lab_preview_unpublish', { key }).catch(() => {});
 		};
+	});
+
+	onDestroy(() => {
+		if (refreshTimer) {
+			clearTimeout(refreshTimer);
+			refreshTimer = null;
+		}
+		loadSeq++;
+		activeKey = '';
+		if (publishedKey) {
+			void invoke('lab_preview_unpublish', { key: publishedKey }).catch(() => {});
+			publishedKey = null;
+		}
 	});
 </script>
 
@@ -217,7 +312,7 @@
 			</button>
 		</Tooltip>
 		<Tooltip text={m.preview_reload_aria()} placement="bottom">
-			<button type="button" class="ui-button ui-button-ghost" onclick={() => void load()}>
+			<button type="button" class="ui-button ui-button-ghost" onclick={() => void load(true)}>
 				{m.preview_reload()}
 			</button>
 		</Tooltip>
@@ -239,7 +334,7 @@
 	{:else if loadError}
 		<div class="center-note error" role="alert">
 			<span>{loadError}</span>
-			<button type="button" class="ui-button ui-button-secondary" onclick={() => void load()}>
+			<button type="button" class="ui-button ui-button-secondary" onclick={() => void load(true)}>
 				{m.preview_retry()}
 			</button>
 		</div>

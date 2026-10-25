@@ -151,7 +151,7 @@
 	const currentLaneSurface = $derived.by(() => {
 		const proj = projectStore.activeProject;
 		if (!proj) {
-			return { surface: 'editor' as const, diagramPayload: null, previewFile: null };
+			return laneSurfaceStore.getLaneSurface('', '');
 		}
 		return laneSurfaceStore.getLaneSurface(proj.id, proj.lane.laneId);
 	});
@@ -3676,6 +3676,7 @@
 						<PreviewViewer
 							projectPath={projectStore.activeProject.lane.workspacePath ?? ''}
 							filePath={previewFile}
+							revision={currentLaneSurface.previewRevision}
 							onClose={() => closeActiveSurface()}
 						/>
 					{:else if browserOpen}

@@ -1,6 +1,7 @@
 <script lang="ts" generics="T extends SharedModelItem = SharedModelItem">
 	import { m } from '$lib/paraglide/messages.js';
 	import { IconContextWindow, IconRoleSlow, IconRoleVision, IconCheck, IconSearch, IconClose } from '$lib/icons';
+	import ProviderLogo from './ProviderLogo.svelte';
 	import Tooltip from '$lib/ui/Tooltip.svelte';
 	import {
 		type SharedModelItem,
@@ -171,7 +172,10 @@
 			{#each groupedModels as [provider, models] (provider)}
 				<div class="provider-group">
 					<div class="group-header">
-						<span class="group-provider-name">{provider}</span>
+						<span class="group-provider-title">
+							<ProviderLogo {provider} size={13} />
+							<span class="group-provider-name">{provider}</span>
+						</span>
 						<span class="group-count">{models.length}</span>
 					</div>
 					<div class="group-items">
@@ -349,6 +353,12 @@
 		color: var(--ink-faint);
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
+	}
+
+	.group-provider-title {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
 	}
 
 	.group-items {
