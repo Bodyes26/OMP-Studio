@@ -62,6 +62,8 @@
 	import { quotaStore, providersMatch } from '#lib/stores/quota.svelte.ts';
 	import { onDestroy } from 'svelte';
 	import { normalizeProjectPath, projectStore, type AgentState, type Project } from '#lib/stores/projects.svelte.ts';
+	import { githubStore } from '#lib/stores/github.svelte.ts';
+	import { PANEL_SPLIT as SPLIT, panelScope, panelMetrics, resizePanel, panelKeyValue, type PanelGeometry, type SplitterAxis } from '#lib/panelGeometry.ts';
 	import { taskStore, formatTaskPrompt, type StudioTask, type TaskRunLaneContext } from '#lib/stores/tasks.svelte.ts';
 	import { taskLabel } from '#lib/stores/taskTitle.ts';
 	import { nextAutoDispatchTask } from '#lib/quota/scheduleQueue.ts';
@@ -3046,17 +3048,12 @@
 	function handleRestartApp() {
 		window.location.reload();
 	}
-	const SPLIT = 6;
-	const MIN_COL = 160;
-	const MIN_ROW = 120;
 	let columnsEl = $state<HTMLElement | null>(null);
-	let leftWidth = $state(260);
-	// 0 = non ancora misurata: il centro resta elastico finche' non si trascina.
-	let centerWidth = $state(0);
-	// 0 = proporzionale 50/50: l'altezza top resta elastica finche' non si trascina.
-	let topHeight = $state(0);
+	let columnsWidth = $state(0);
+	let columnsHeight = $state(0);
 	let dragging = $state(false);
-	let draggingWhich = $state<'left' | 'center' | null>(null);
+	let draggingWhich = $state<SplitterAxis | null>(null);
+	let stopPanelDrag: (() => void) | null = null;
 
 	let windowWidth = $state(typeof window !== 'undefined' ? window.innerWidth : 1200);
 	let windowHeight = $state(typeof window !== 'undefined' ? window.innerHeight : 800);
@@ -3084,6 +3081,42 @@
 			? settingsStore.general.labSidebarCollapsed
 			: settingsStore.general.sidebarCollapsed
 	);
+
+	// Il branch viene dalla cache gia' aggiornata dalla topbar, senza un secondo poller.
+	const geometryScope = $derived.by(() => {
+		const p = projectStore.activeProject;
+		if (!p) return '';
+		if (p.lane.kind === 'lab') return panelScope('lab', p.lane.labPrototypeId ?? p.lane.laneId);
+		const status = p.lane.workspacePath
+			? githubStore.upstreamByPath[normalizeProjectPath(p.lane.workspacePath).toLowerCase()]
+			: undefined;
+		return panelScope('git', status?.branch ?? p.lane.branch ?? '');
+	});
+	const geometryOwner = $derived(JSON.stringify([projectStore.activeId, geometryScope]));
+	const geometry = $derived<PanelGeometry>(
+		projectStore.activeProject?.layout.panelGeometry?.[geometryScope] ?? {
+			left: projectStore.activeProject?.layout.left ?? 260, centerRatio: 0.5, topRatio: 0.5
+		}
+	);
+	const panelBounds = $derived(panelMetrics(
+		geometry, columnsWidth || windowWidth, columnsHeight || windowHeight,
+		effectiveLayout === 'vertical', isSidebarCollapsed
+	));
+	const leftWidth = $derived(panelBounds.left);
+	const centerValue = $derived(effectiveLayout === 'vertical' ? panelBounds.top : panelBounds.center);
+	const centerMin = $derived(effectiveLayout === 'vertical' ? panelBounds.topMin : panelBounds.centerMin);
+	const centerMax = $derived(effectiveLayout === 'vertical' ? panelBounds.topMax : panelBounds.centerMax);
+
+	$effect(() => {
+		const p = projectStore.activeProject;
+		const path = p?.lane.kind === 'git' ? p.lane.workspacePath : null;
+		if (path) untrack(() => { void githubStore.loadUpstreamStatus(path); });
+	});
+
+	$effect(() => {
+		void geometryOwner;
+		untrack(() => stopPanelDrag?.());
+	});
 
 	const sidebarTabs = $derived([
 		{ id: 'files', label: m.page_tabs_files_panel(), ariaLabel: m.page_tabs_files_panel_label() },
@@ -3127,120 +3160,107 @@
 	});
 
 	const gridColumns = $derived.by(() => {
-		const sideW = isSidebarCollapsed ? 0 : leftWidth;
 		const splitW = isSidebarCollapsed ? 0 : SPLIT;
 		if (effectiveLayout === 'vertical') {
-			return `${sideW}px ${splitW}px minmax(0, 1fr)`;
+			return `${leftWidth}px ${splitW}px minmax(0, 1fr)`;
 		}
-		const center = centerWidth > 0 ? `${centerWidth}px` : 'minmax(0, 1fr)';
-		return `${sideW}px ${splitW}px ${center} ${SPLIT}px minmax(0, 1fr)`;
+		return `${leftWidth}px ${splitW}px ${panelBounds.center}px ${SPLIT}px minmax(0, 1fr)`;
 	});
-	const gridRows = $derived.by(() => {
-		if (effectiveLayout === 'vertical') {
-			const top = topHeight > 0 ? `${topHeight}px` : 'minmax(0, 1fr)';
-			return `${top} ${SPLIT}px minmax(0, 1fr)`;
-		}
-		return '1fr';
-	});
+	const gridRows = $derived(effectiveLayout === 'vertical'
+		? `${panelBounds.top}px ${SPLIT}px minmax(0, 1fr)` : '1fr');
 
-	const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi);
-
-	function maxCenter() {
-		if (!columnsEl) return MIN_COL;
-		const sideW = isSidebarCollapsed ? 0 : leftWidth;
-		const splitW = isSidebarCollapsed ? 0 : SPLIT;
-		return Math.max(MIN_COL, columnsEl.clientWidth - sideW - splitW - SPLIT - MIN_COL);
+	function savePanelGeometry(value: PanelGeometry) {
+		const p = projectStore.activeProject;
+		if (!p || !projectStore.ready) return;
+		projectStore.updateLayout(p.id, (layout) => {
+			layout.panelGeometry ??= {};
+			layout.panelGeometry[geometryScope] = value;
+		});
 	}
 
-	function maxTop() {
-		if (!columnsEl) return MIN_ROW;
-		return Math.max(MIN_ROW, columnsEl.clientHeight - SPLIT - MIN_ROW);
+	function setPanelSize(which: SplitterAxis, value: number) {
+		savePanelGeometry(resizePanel(geometry, which, value, columnsWidth, columnsHeight,
+			effectiveLayout === 'vertical', isSidebarCollapsed));
 	}
 
-	function startDrag(e: PointerEvent, which: 'left' | 'center') {
-		if (!columnsEl) return;
-		const el = columnsEl;
+	function handlePanelKey(e: KeyboardEvent, which: SplitterAxis) {
+		if (e.altKey || e.ctrlKey || e.metaKey) return;
+		if (e.key === 'Enter') {
+			e.preventDefault();
+			e.stopPropagation();
+			resetSplit(which);
+			return;
+		}
+		const value = panelKeyValue(e.key,
+			which === 'left' ? leftWidth : centerValue,
+			which === 'left' ? panelBounds.leftMin : centerMin,
+			which === 'left' ? panelBounds.leftMax : centerMax,
+			which === 'center' && effectiveLayout === 'vertical', e.shiftKey);
+		if (value === null) return;
+		e.preventDefault();
+		e.stopPropagation();
+		setPanelSize(which, value);
+	}
+
+	function startDrag(e: PointerEvent, which: SplitterAxis) {
+		if (!columnsEl || e.button !== 0) return;
+		stopPanelDrag?.();
 		const handle = e.currentTarget as HTMLElement;
+		const owner = geometryOwner;
+		const vertical = effectiveLayout === 'vertical';
+		const start = which === 'left' ? leftWidth : centerValue;
+		const coordinate = which === 'center' && vertical ? e.clientY : e.clientX;
+		handle.focus();
 		handle.setPointerCapture(e.pointerId);
 		dragging = true;
 		draggingWhich = which;
 
-		const startX = e.clientX;
-		const startY = e.clientY;
-		const startLeft = leftWidth;
-		const isVertical = effectiveLayout === 'vertical';
-
-		// Al primo trascinamento il centro va congelato alla dimensione reale,
-		// altrimenti passerebbe da elastico a un valore arbitrario.
-		const startCenter = centerWidth > 0
-			? centerWidth
-			: (el.querySelector('.col-center')?.getBoundingClientRect().width ?? MIN_COL);
-		const startTop = topHeight > 0
-			? topHeight
-			: (el.querySelector('.col-center')?.getBoundingClientRect().height ?? MIN_ROW);
-
 		const onMove = (ev: PointerEvent) => {
-			const totalW = el.clientWidth;
-			if (which === 'left') {
-				const dx = ev.clientX - startX;
-				leftWidth = clamp(startLeft + dx, MIN_COL, totalW - 2 * SPLIT - 2 * MIN_COL);
-				if (!isVertical && centerWidth > 0) {
-					centerWidth = clamp(startCenter, MIN_COL, maxCenter());
-				}
-			} else {
-				if (isVertical) {
-					const dy = ev.clientY - startY;
-					topHeight = clamp(startTop + dy, MIN_ROW, maxTop());
-				} else {
-					const dx = ev.clientX - startX;
-					centerWidth = clamp(startCenter + dx, MIN_COL, maxCenter());
-				}
+			if (owner !== geometryOwner || vertical !== (effectiveLayout === 'vertical')) {
+				onUp();
+				return;
 			}
+			setPanelSize(which, start + (which === 'center' && vertical ? ev.clientY : ev.clientX) - coordinate);
 		};
-
 		const onUp = () => {
 			dragging = false;
 			draggingWhich = null;
 			handle.removeEventListener('pointermove', onMove);
 			handle.removeEventListener('pointerup', onUp);
 			handle.removeEventListener('pointercancel', onUp);
+			handle.removeEventListener('lostpointercapture', onUp);
+			if (handle.hasPointerCapture(e.pointerId)) handle.releasePointerCapture(e.pointerId);
+			stopPanelDrag = null;
 		};
-
+		stopPanelDrag = onUp;
 		handle.addEventListener('pointermove', onMove);
 		handle.addEventListener('pointerup', onUp);
 		handle.addEventListener('pointercancel', onUp);
+		handle.addEventListener('lostpointercapture', onUp);
 	}
 
-	function resetSplit(which: 'left' | 'center') {
-		if (which === 'left') {
-			leftWidth = 260;
-		} else {
-			if (effectiveLayout === 'vertical') {
-				topHeight = 0;
-			} else {
-				centerWidth = 0;
-			}
-		}
+	function resetSplit(which: SplitterAxis) {
+		savePanelGeometry(which === 'left'
+			? { ...geometry, left: 260 }
+			: effectiveLayout === 'vertical'
+				? { ...geometry, topRatio: 0.5 }
+				: { ...geometry, centerRatio: 0.5 });
 	}
 
-	// Se la finestra si restringe, le dimensioni fisse potrebbero schiacciare le
-	// sezioni flessibili a zero: vanno riclampate.
+	// Il resize limita soltanto la resa: non distrugge le preferenze del monitor piu' grande.
 	$effect(() => {
 		if (!columnsEl) return;
 		const el = columnsEl;
-		const ro = new ResizeObserver(() => {
-			const totalW = el.clientWidth;
-			const totalH = el.clientHeight;
-			if (totalW < 3 * MIN_COL + 2 * SPLIT) return;
-			leftWidth = clamp(leftWidth, MIN_COL, totalW - 2 * SPLIT - 2 * MIN_COL);
-			if (centerWidth > 0) centerWidth = clamp(centerWidth, MIN_COL, maxCenter());
-			if (topHeight > 0 && totalH > 2 * MIN_ROW + SPLIT) {
-				topHeight = clamp(topHeight, MIN_ROW, maxTop());
-			}
-		});
+		const measure = () => {
+			columnsWidth = el.clientWidth;
+			columnsHeight = el.clientHeight;
+		};
+		measure();
+		const ro = new ResizeObserver(measure);
 		ro.observe(el);
 		return () => {
 			ro.disconnect();
+			stopPanelDrag?.();
 		};
 	});
 
@@ -3540,6 +3560,7 @@
 	>
 		<aside
 			class="col-left"
+			id="workspace-files-panel"
 			inert={isSidebarCollapsed}
 			style:--sidebar-width="{leftWidth}px"
 		>
@@ -3624,11 +3645,18 @@
 			role="separator"
 			aria-orientation="vertical"
 			aria-label={m.page_splitter_files_resize()}
+			tabindex={isSidebarCollapsed ? -1 : 0}
+			aria-controls="workspace-files-panel"
+			aria-valuemin={Math.round(panelBounds.leftMin)}
+			aria-valuemax={Math.round(panelBounds.leftMax)}
+			aria-valuenow={Math.round(leftWidth)}
+			aria-valuetext={`${Math.round(leftWidth)} px`}
+			onkeydown={(e) => handlePanelKey(e, 'left')}
 			onpointerdown={(e) => startDrag(e, 'left')}
 			ondblclick={() => resetSplit('left')}
 		></div>
 
-		<section class="col-center">
+		<section class="col-center" id="workspace-editor-panel">
 			<!-- Ogni vista porta la propria barra da 32 px al posto di questa (D7):
 			     resta solo nelle corsie Lab, per lo switch Anteprima/Editor. -->
 			{#if isLabLane}
@@ -3748,6 +3776,13 @@
 			role="separator"
 			aria-orientation={effectiveLayout === 'vertical' ? 'horizontal' : 'vertical'}
 			aria-label={effectiveLayout === 'vertical' ? m.page_splitter_editor_resize_vertical() : m.page_splitter_editor_resize_horizontal()}
+			tabindex="0"
+			aria-controls="workspace-editor-panel"
+			aria-valuemin={Math.round(centerMin)}
+			aria-valuemax={Math.round(centerMax)}
+			aria-valuenow={Math.round(centerValue)}
+			aria-valuetext={`${Math.round(centerValue)} px`}
+			onkeydown={(e) => handlePanelKey(e, 'center')}
 			onpointerdown={(e) => startDrag(e, 'center')}
 			ondblclick={() => resetSplit('center')}
 		></div>
@@ -4257,7 +4292,13 @@
 		z-index: var(--z-splitter);
 	}
 
+	.splitter:focus-visible {
+		outline: 1px solid var(--brand);
+		outline-offset: -1px;
+	}
+
 	.splitter:hover,
+	.splitter:focus-visible,
 	.columns.dragging .splitter:active {
 		background-image: linear-gradient(var(--brand), var(--brand));
 		background-size: 1px 100%;

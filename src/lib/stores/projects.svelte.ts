@@ -17,6 +17,7 @@ import {
 import { labApi } from '#lib/lab/api.ts';
 import type { LabIndexEntry } from '#lib/lab/types.ts';
 import { noteProjectSwitch, studioLog } from '#lib/diagnostics/studioLog.ts';
+import { readPanelGeometries } from '#lib/panelGeometry.ts';
 
 import { isWindows, normalizeProjectPath, joinProjectPath, pathKey } from '#lib/utils/paths.ts';
 import {
@@ -193,7 +194,8 @@ class ProjectStore {
 							left: typeof p.layout?.left === 'number' ? p.layout.left : 260,
 							center: typeof p.layout?.center === 'number' ? p.layout.center : 0.5,
 							leftSection: 'files',
-							editorOpen: false
+							editorOpen: false,
+							panelGeometry: readPanelGeometries(p.layout?.panelGeometry)
 						},
 						lastOpened: typeof p.lastOpened === 'number' ? p.lastOpened : 0,
 						autoDispatch: false,
@@ -234,7 +236,8 @@ class ProjectStore {
 						left: typeof p.layout?.left === 'number' ? p.layout.left : 260,
 						center: typeof p.layout?.center === 'number' ? p.layout.center : 0.5,
 						leftSection: p.layout?.leftSection === 'sessions' ? 'sessions' : 'files',
-						editorOpen: p.layout?.editorOpen !== false
+						editorOpen: p.layout?.editorOpen !== false,
+						panelGeometry: readPanelGeometries(p.layout?.panelGeometry)
 					},
 					lastOpened: typeof p.lastOpened === 'number' ? p.lastOpened : 0,
 					autoDispatch: p.autoDispatch === true,

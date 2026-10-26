@@ -3485,5 +3485,9 @@
   "compact_choice_remote_desc": "Summary on the provider server, when available.",
   "compact_choice_cancel": "Cancel",
   "chat_v2_turn_tps": "{value} t/s",
-  "chat_v2_turn_tps_tooltip": "Tokens per second while generating (excluding wait for the first token)"
+  "chat_v2_turn_tps_tooltip": "Tokens per second while generating (excluding wait for the first token)",
+  "switch_surface_confirm_title": "Switch surface?",
+  "switch_surface_confirm_message": "The chat will resume, but running work will be stopped and in-memory tool, kernel, or browser state may not be preserved.",
+  "switch_surface_confirm_ok": "Switch surface",
+  "switch_surface_confirm_cancel": "Cancel"
 }

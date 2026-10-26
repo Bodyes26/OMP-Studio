@@ -1,5 +1,6 @@
 import { isWindows, normalizeProjectPath, pathKey } from '../utils/paths.ts';
 import type { TaskDefaults } from './settings.svelte.ts';
+import { readPanelGeometries, type PanelGeometries } from '../panelGeometry.ts';
 
 export type ProjectColorMode = 'auto' | 'custom';
 
@@ -8,6 +9,7 @@ export interface ProjectLayout {
 	center: number;
 	leftSection: 'files' | 'sessions';
 	editorOpen: boolean;
+	panelGeometry?: PanelGeometries;
 }
 
 export interface StoredProjectMetadata {
@@ -197,6 +199,7 @@ export function buildProjectMetadata(p: {
 	if (!p.canonicalProjectPath) return null;
 	const normPath = normalizeProjectPath(p.canonicalProjectPath);
 	if (!normPath) return null;
+	const panels = readPanelGeometries(p.layout?.panelGeometry);
 
 	return {
 		id: p.id,
@@ -210,7 +213,8 @@ export function buildProjectMetadata(p: {
 					left: typeof p.layout.left === 'number' ? p.layout.left : 260,
 					center: typeof p.layout.center === 'number' ? p.layout.center : 0.5,
 					leftSection: p.layout.leftSection === 'sessions' ? 'sessions' : 'files',
-					editorOpen: p.layout.editorOpen !== false
+					editorOpen: p.layout.editorOpen !== false,
+					...(panels ? { panelGeometry: panels } : {})
 				}
 			: undefined,
 		lastOpened: typeof p.lastOpened === 'number' ? p.lastOpened : Date.now(),
@@ -239,6 +243,7 @@ export function resolveProjectTabInfo(
 	const label = typeof meta?.label === 'string' && meta.label.trim() ? meta.label.trim() : null;
 	const hue = typeof meta?.hue === 'number' ? meta.hue : defaultHue;
 	const colorMode: ProjectColorMode = meta?.colorMode === 'custom' ? 'custom' : 'auto';
+	const panels = readPanelGeometries(meta?.layout?.panelGeometry);
 
 	return {
 		id: meta?.id,
@@ -250,7 +255,8 @@ export function resolveProjectTabInfo(
 			left: typeof meta?.layout?.left === 'number' ? meta.layout.left : 260,
 			center: typeof meta?.layout?.center === 'number' ? meta.layout.center : 0.5,
 			leftSection: meta?.layout?.leftSection === 'sessions' ? 'sessions' : 'files',
-			editorOpen: meta?.layout?.editorOpen !== false
+			editorOpen: meta?.layout?.editorOpen !== false,
+			...(panels ? { panelGeometry: panels } : {})
 		},
 		autoDispatch: meta?.autoDispatch === true,
 		taskDefaults:

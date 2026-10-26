@@ -3485,5 +3485,9 @@
   "compact_choice_remote_desc": "Riepilogo sul server del provider, se disponibile.",
   "compact_choice_cancel": "Annulla",
   "chat_v2_turn_tps": "{value} t/s",
-  "chat_v2_turn_tps_tooltip": "Token al secondo in generazione (esclusa l'attesa del primo token)"
+  "chat_v2_turn_tps_tooltip": "Token al secondo in generazione (esclusa l'attesa del primo token)",
+  "switch_surface_confirm_title": "Cambiare superficie?",
+  "switch_surface_confirm_message": "La chat viene ripresa, ma il lavoro in corso verrà interrotto e lo stato in memoria di tool, kernel o browser potrebbe non essere mantenuto.",
+  "switch_surface_confirm_ok": "Cambia superficie",
+  "switch_surface_confirm_cancel": "Annulla"
 }

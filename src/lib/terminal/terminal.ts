@@ -125,6 +125,10 @@ export class TerminalSession {
 		return this.currentSession;
 	}
 
+	get hasProcess(): boolean {
+		return !this.disposed && this.ptyId !== null;
+	}
+
 	constructor(
 		container: HTMLElement,
 		cwd: string,

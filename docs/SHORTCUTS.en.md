@@ -22,6 +22,8 @@ Global shortcuts captured by the application live behind the **`Ctrl+Alt`** modi
 | `Ctrl+Alt+A` | Global | Switch between TERMINAL and GUI surfaces preserving the session |
 | `Ctrl+Alt+B` | Global | Toggle left sidebar (Files, Git, Agent) |
 | `Ctrl+Alt+L` | Global | Cycle window layout mode (`Auto` → `Horizontal` → `Vertical`) |
+| `Tab`, then `←` / `→` or `↑` / `↓` | Focused panel separator | Resize by 10 px along the separator's axis; `Shift` increases the step to 40 px |
+| `Home` / `End` / `Enter` | Focused panel separator | Minimum / maximum / default size (same as double-click) |
 | `Ctrl+Alt+C` / `Ctrl+Alt+R` | Global | Open and close the Companion window |
 | `Ctrl+Tab` | Global | Switch to next open project, in project bar order. Works with the cursor in the composer |
 | `Ctrl+Shift+Tab` | Global | Switch to the next lane of the active project (Main, then the secondary lanes, then Main again). Works with the cursor in the composer |
@@ -69,3 +71,7 @@ Global shortcuts captured by the application live behind the **`Ctrl+Alt`** modi
 *Note: inside the terminal, `Ctrl+S`, `Ctrl+W`, and `Ctrl+F4` do not handle editor files: they are passed through to the agent if supported, or remain subject to native terminal behavior.*
 
 *Note on prompt suggestions: `Alt+1` … `Alt+6` numbering is positional: fixed suggestions occupy the first slots, model-generated suggestions are appended, and on-screen chips never shift numbers when new dynamic suggestions arrive.*
+
+Panel sizes are saved per project and Git branch; each Lab prototype has its own profile. Horizontal and vertical proportions remain independent. Shrinking the window adapts the display without overwriting preferred sizes.
+
+Switching between Terminal and GUI resumes chat history but restarts the process. A live process or pending input requires confirmation because running work and in-memory tool, kernel, or browser state may be lost. Cancel does not interrupt the session.

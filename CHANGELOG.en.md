@@ -12,6 +12,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 ## [Unreleased]
 
 ### Fixed
+- Remember panel sizes separately for each project and Git branch and each Lab prototype, including after restart; smaller windows do not overwrite preferred proportions.
 - Restore Nightly publishing by updating vulnerable frontend dependencies and migrating Studio and shared components to SvelteKit 3.
 - OpenAI and OpenAI Codex use the classic ChatGPT logo, without the Codex tile or gradient.
 - OpenRouter shows its official logo instead of Cursor's.
@@ -19,6 +20,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Settings → Remote control redesigned as cards with status, copy/open actions and a danger zone.
 
 ### Added
+- Resize panel separators with the keyboard: arrow keys move by 10 px, Shift by 40 px, Home/End reach the limits, and Enter restores the default size.
 - Cursor, OpenCode Go and Zen, Tavily, Devin, Z.ai, llama.cpp, LM Studio, Command Code, TokenRouter and xKiro show their own logos; icons are available offline and remain legible in light and dark themes.
 - Recognize providers by their logos in quotas, AI Model settings, composer and task pickers, and model information across Studio, Companion and Studio Remote: Claude for Anthropic, ChatGPT for OpenAI and Antigravity for its provider, with a neutral symbol for custom endpoints.
 - "Ctrl+Shift+Tab" switches to the active project's next lane, "Ctrl+Tab" to the next open project. To go backwards, use "Ctrl+Alt+←/→".
@@ -30,6 +32,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Send a follow-up or a command from Companion directly to the conversation being read, without turning it into a new task.
 
 ### Changed
+- Before switching between Terminal and GUI with a live process, confirm that running work stops and in-memory state may be lost; Cancel leaves the session untouched.
 - While the agent is working, lane tabs show a spinning ring in place of the icon and the project tab's dot becomes a ring in the project's hue. The breathing amber stays reserved for "needs an answer".
 - The "third concurrent agent" notice appears only when you start a task from the queue: creating or opening a lane from "+" no longer shows it.
 - The lane row is always visible under the project bar, showing just "Main" and the "+" when a project has no other lanes: switching between projects no longer makes the columns jump. Lane tabs animate in and out.

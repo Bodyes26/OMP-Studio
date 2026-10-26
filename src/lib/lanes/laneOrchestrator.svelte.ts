@@ -3,7 +3,7 @@
 // Invarianti del Gate R27 / PLAN W08:
 // 1. Al cambio corsia, si riorientano sincronizzati: radice FileTree, stato GitPanel,
 //    modelli/tab Monaco, viewport agente (Terminale o Chat) e superfici contestuali (Diagrammi/Preview).
-// 2. Geometria tre colonne invariata (larghezza pannello sinistro, colonna centrale, stato editor).
+// 2. Geometria tre colonne confinata per progetto/branch/Lab (larghezza pannello sinistro, colonna centrale, stato editor).
 // 3. I terminali e le sessioni xterm delle corsie in background restano montati e vivi in memoria:
 //    nessun restart, nessun crossfade, nessun processo chiuso dallo switch.
 // 4. File aperti, file attivo, cursore/scroll e dirty buffer sono confinati per corsia.
@@ -28,6 +28,8 @@ import {
 	createMainLane
 } from '#lib/types/lanes.ts';
 import type { TerminalSession } from '#lib/terminal/terminal.ts';
+import { ask } from '@tauri-apps/plugin-dialog';
+import * as m from '#lib/paraglide/messages.js';
 
 export interface TerminalMetaEntry {
 	inputPending: boolean;
@@ -428,6 +430,23 @@ export class LaneOrchestrator {
 	}
 
 	/**
+	 * Verifica se la superficie corrente della corsia ospita una sessione o un
+	 * processo omp vivo. Al primo avvio o su una corsia senza processi non c'e'
+	 * nulla da interrompere ne' stato da perdere, quindi non serve dialogo.
+	 */
+	private hasLiveSessionOrProcess(project: Project, laneId: string): boolean {
+		const key = this.runtimeKey(project.id, laneId);
+		if (this.terminalBusy[key] || this.laneBusy(project, project.lane)) return true;
+		if (project.lane.surface === 'gui') {
+			const session = this.getLaneSession(project.id, laneId);
+			return Boolean(session?.isOpen || session?.isOpening || session?.isStreaming || session?.isCompacting);
+		}
+		const meta = this.terminalMeta[key];
+		return Boolean(this.getTerminalSession(key)?.hasProcess ||
+			meta?.inputPending || meta?.awaitingStart || meta?.progressActive);
+	}
+
+	/**
 	 * Commuta la superficie di input tra 'terminal' e 'gui' per la corsia attiva.
 	 */
 	async switchSurface(projectId: string, target: 'terminal' | 'gui'): Promise<void> {
@@ -438,18 +457,54 @@ export class LaneOrchestrator {
 			return;
 		}
 
-		const key = this.runtimeKey(project.id, project.lane.laneId);
+		const initialLaneId = project.lane.laneId;
+		const initialSurface = project.lane.surface;
+		const key = this.runtimeKey(project.id, initialLaneId);
 		if (this.switchingSurface[key]) return;
 		this.switchingSurface[key] = true;
+		const initialLane = project.lane;
+		const initialRpc = this.getLaneSession(project.id, initialLaneId);
+		const initialTerminal = this.getTerminalSession(key);
+		const initialRpcId = initialRpc?.sessionId;
+		const initialTerminalId = initialTerminal?.currentSessionInfo?.sessionId;
+		const initialMetaId = this.terminalMeta[key]?.sessionId;
 
 		try {
+			if (this.hasLiveSessionOrProcess(project, initialLaneId)) {
+				const confirmed = await ask(m.switch_surface_confirm_message(), {
+					title: m.switch_surface_confirm_title(),
+					kind: 'warning',
+					okLabel: m.switch_surface_confirm_ok(),
+					cancelLabel: m.switch_surface_confirm_cancel()
+				});
+
+				if (!confirmed) {
+					return;
+				}
+			}
+
+			// Ri-validazione proprietaria post-await: se mentre il dialogo era aperto
+			// il progetto e' stato chiuso, la corsia e' cambiata o la superficie e' gia'
+			// quella richiesta, non tocchiamo ne' chiudiamo la nuova sessione.
+			const currentProject = projectStore.projects.find((candidate) => candidate.id === projectId);
+			if (currentProject !== project || currentProject.lane !== initialLane) return;
+			if (this.getLaneSession(project.id, initialLaneId) !== initialRpc ||
+				this.getTerminalSession(key) !== initialTerminal ||
+				initialRpc?.sessionId !== initialRpcId ||
+				initialTerminal?.currentSessionInfo?.sessionId !== initialTerminalId ||
+				this.terminalMeta[key]?.sessionId !== initialMetaId) return;
+			if (currentProject.lane.surface !== initialSurface || currentProject.lane.surface === target) return;
+			if (currentProject.lane.kind === 'lab' && target === 'terminal') {
+				return;
+			}
+
 			const currentSessionId =
 				this.terminalMeta[key]?.sessionId ??
-				this.getLaneSession(project.id, project.lane.laneId)?.sessionId ??
+				this.getLaneSession(currentProject.id, currentProject.lane.laneId)?.sessionId ??
 				null;
 
-			if (project.lane.surface === 'gui') {
-				const session = this.getLaneSession(project.id, project.lane.laneId);
+			if (currentProject.lane.surface === 'gui') {
+				const session = this.getLaneSession(currentProject.id, currentProject.lane.laneId);
 				if (session) {
 					if (session.isStreaming) {
 						await session.abort();
@@ -464,16 +519,18 @@ export class LaneOrchestrator {
 				await this.getTerminalSession(key)?.release();
 			}
 
+			if (!projectStore.projects.includes(project) || project.lane !== initialLane) return;
+
 			this.updateTerminalMeta(key, { sessionId: currentSessionId });
 			projectStore.setSurface(projectId, target);
 
 			// Aggiorna anche laneStore per persistenza del cambio superficie
 			void laneStore
-				.updateLane(project.id as ProjectId, project.lane.laneId, { surface: target })
+				.updateLane(currentProject.id as ProjectId, initialLaneId, { surface: target })
 				.catch(() => undefined);
 
 			if (target === 'gui') {
-				const session = this.getOrCreateAgentSession(project, project.lane);
+				const session = this.getOrCreateAgentSession(currentProject, currentProject.lane);
 				await session.open(currentSessionId);
 			}
 		} catch (error) {

@@ -22,6 +22,8 @@ Le scorciatoie globali catturate dall'app vivono dietro il modificatore **`Ctrl+
 | `Ctrl+Alt+A` | Globale | Passa tra la superficie TERMINAL e la superficie GUI conservando la sessione |
 | `Ctrl+Alt+B` | Globale | Mostra o nasconde la barra laterale sinistra (File, Git, Agente) |
 | `Ctrl+Alt+L` | Globale | Cicla la modalita di layout della finestra (`Auto` → `Orizzontale` → `Verticale`) |
+| `Tab`, poi `←` / `→` o `↑` / `↓` | Divisore dei pannelli a fuoco | Regola di 10 px lungo l'asse del divisore; `Maiusc` aumenta il passo a 40 px |
+| `Home` / `End` / `Invio` | Divisore dei pannelli a fuoco | Dimensione minima / massima / ripristino predefinito (come doppio clic) |
 | `Ctrl+Alt+C` / `Ctrl+Alt+R` | Globale | Apre e chiude la finestra Companion |
 | `Ctrl+Tab` | Globale | Passa al progetto aperto successivo, nell'ordine mostrato in barra. Vale anche col cursore nel composer |
 | `Ctrl+Shift+Tab` | Globale | Passa alla corsia successiva del progetto attivo (Principale, poi le secondarie, poi di nuovo Principale). Vale anche col cursore nel composer |
@@ -71,3 +73,7 @@ Le scorciatoie globali catturate dall'app vivono dietro il modificatore **`Ctrl+
 *Nota: all'interno del terminale `Ctrl+S`, `Ctrl+W` e `Ctrl+F4` non gestiscono i file dell'editor: vengono inviati all'agente se supportati, o restano soggetti al comportamento del terminale nativo.*
 
 *Nota sui suggerimenti di prompt: la numerazione `Alt+1` … `Alt+6` e' posizionale: i suggerimenti fissi occupano le prime posizioni, quelli generati dal modello si accodano, e nessuna chip a schermo cambia numero quando arrivano i nuovi suggerimenti dinamici.*
+
+Le dimensioni dei pannelli sono salvate per progetto e branch Git; ogni prototipo del Laboratorio ha un profilo separato. Le proporzioni orizzontali e verticali restano indipendenti. Restringere la finestra adatta la resa senza cancellare le dimensioni preferite.
+
+Il passaggio Terminale/GUI riprende la cronologia della chat, ma riavvia il processo: con un processo attivo o input da conservare chiede conferma, perche' lavoro in corso e stato in memoria di tool, kernel o browser potrebbero andare persi. Annulla non interrompe la sessione.
