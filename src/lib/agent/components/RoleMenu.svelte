@@ -8,6 +8,7 @@
 
 	export interface RoleAssignment {
 		model?: string;
+		provider?: string;
 		thinking?: string;
 	}
 </script>
@@ -20,6 +21,7 @@
 	import { IconCheck } from '#lib/icons.ts';
 	import { m } from '#lib/paraglide/messages.js';
 	import { ROLE_HUES } from '#lib/agent/roleHues.ts';
+	import ProviderLogo from '#lib/components/models/ProviderLogo.svelte';
 	let {
 		activeRole = 'default',
 		assignments = {},
@@ -40,6 +42,15 @@
 		{ id: 'commit', label: 'commit', description: 'Generazione di messaggi di commit e revisione patch', hue: ROLE_HUES.commit },
 		{ id: 'advisor', label: 'advisor', description: 'Revisione del codice, sicurezza e best practice', hue: ROLE_HUES.advisor }
 	];
+
+	function getProvider(assign?: RoleAssignment): string {
+		if (assign?.provider) return assign.provider;
+		const m = assign?.model;
+		if (!m || m === 'default') return '';
+		const slash = m.indexOf('/');
+		if (slash !== -1) return m.slice(0, slash);
+		return '';
+	}
 </script>
 
 <div class="role-menu-container">
@@ -53,6 +64,7 @@
 			{@const assign = assignments[role.id]}
 			{@const modelName = assign?.model || 'default'}
 			{@const thinkingLevel = assign?.thinking || 'auto'}
+			{@const provider = getProvider(assign)}
 			<button
 				type="button"
 				role="option"
@@ -71,7 +83,10 @@
 					<div class="role-top">
 						<span class="role-name">{role.id}</span>
 						<span class="role-meta">
-							{modelName} · {thinkingLevel}
+							{#if provider}
+								<ProviderLogo {provider} size={11} />
+							{/if}
+							<span class="role-meta-text">{modelName} · {thinkingLevel}</span>
 						</span>
 					</div>
 					<span class="role-desc">{role.description}</span>
@@ -82,10 +97,6 @@
 				{/if}
 			</button>
 		{/each}
-	</div>
-
-	<div class="menu-footer">
-		<span>{m.chat_v2_composer_role_footer()}</span>
 	</div>
 </div>
 
@@ -108,7 +119,7 @@
 
 	.role-list {
 		padding: var(--space-1);
-		max-height: 320px;
+		max-height: min(var(--anchored-space, calc(100vh - 80px)), 560px);
 		overflow-y: auto;
 		display: flex;
 		flex-direction: column;
@@ -177,6 +188,13 @@
 	.role-meta {
 		font-size: var(--text-caption);
 		color: var(--ink-faint);
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		min-width: 0;
+	}
+
+	.role-meta-text {
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -197,14 +215,4 @@
 		--icon-size: 14px;
 	}
 
-	.menu-footer {
-		padding: var(--space-2) var(--space-3);
-		border-top: 1px solid var(--line);
-		background: var(--bg-base);
-		font-size: var(--text-caption);
-		line-height: 1.4;
-		color: var(--ink-faint);
-		border-bottom-left-radius: var(--radius-lg);
-		border-bottom-right-radius: var(--radius-lg);
-	}
 </style>

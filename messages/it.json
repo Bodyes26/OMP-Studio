@@ -2304,6 +2304,7 @@
   "chat_v2_composer_model_vision": "legge immagini",
   "chat_v2_composer_model_reasoning": "ragiona",
   "chat_v2_composer_model_context": "finestra di contesto",
+  "chat_v2_composer_model_recent": "Recenti",
   "chat_v2_composer_thinking_title": "Livello di thinking (Maiusc+Tab)",
   "chat_v2_composer_thinking_unsupported": "{model} non ha un livello di thinking regolabile. Scegli un altro modello per attivarlo.",
   "chat_v2_composer_status_label": "Modalità e stato della sessione",

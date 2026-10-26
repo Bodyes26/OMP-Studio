@@ -1,6 +1,6 @@
 <script lang="ts" generics="T extends SharedModelItem = SharedModelItem">
 	import { m } from '#lib/paraglide/messages.js';
-	import { IconContextWindow, IconRoleSlow, IconRoleVision, IconCheck, IconSearch, IconClose } from '#lib/icons.ts';
+	import { IconContextWindow, IconRoleSlow, IconRoleVision, IconCheck, IconSearch, IconClose, IconChevronDown, IconHistory } from '#lib/icons.ts';
 	import ProviderLogo from './ProviderLogo.svelte';
 	import Tooltip from '#lib/ui/Tooltip.svelte';
 	import {
@@ -13,6 +13,8 @@
 		formatContextTokens,
 		filterAndGroupModels
 	} from './modelPicker';
+	import { recentModelsStore, resolveRecentModels } from './recentModels.svelte';
+	import { matchesLooseQuery } from '../../looseSearch.ts';
 
 	let {
 		catalog = [],
@@ -36,6 +38,14 @@
 	let highlightedIndex = $state(0);
 	let searchInputEl = $state<HTMLInputElement | null>(null);
 	let listEl = $state<HTMLDivElement | null>(null);
+	let collapsedProviders = $state<Record<string, boolean>>({});
+	let isRecentCollapsed = $state(false);
+
+	$effect(() => {
+		if (value && recentModelsStore.selectors.length === 0) {
+			recentModelsStore.record(value);
+		}
+	});
 
 	$effect(() => {
 		if (autoFocus) {
@@ -44,10 +54,67 @@
 		}
 	});
 
-	const groupedResult = $derived(filterAndGroupModels<T>(catalog, searchQuery));
-	const groupedModels = $derived(groupedResult.groupedModels);
-	const visibleModels = $derived(groupedResult.visibleModels);
+	const q = $derived(searchQuery.trim());
+	const resolvedRecent = $derived(resolveRecentModels<T>(catalog, recentModelsStore.selectors));
 
+	// Modelli recenti che corrispondono alla query
+	const matchingRecent = $derived.by(() => {
+		if (resolvedRecent.length === 0) return [];
+		if (!q) return resolvedRecent;
+		return resolvedRecent.filter((m) =>
+			matchesLooseQuery(
+				q,
+				m.name,
+				m.id,
+				m.provider,
+				m.selector || (m.provider && m.id ? `${m.provider}/${m.id}` : m.id)
+			)
+		);
+	});
+
+	// Se stiamo cercando, escludiamo dai provider gli elementi gia mostrati nei recenti
+	const catalogForProviders = $derived.by(() => {
+		if (!q || matchingRecent.length === 0) return catalog;
+		return catalog.filter((m: T) => !matchingRecent.some((r: T) => isSameModel(r, m)));
+	});
+
+	const groupedResult = $derived(filterAndGroupModels<T>(catalogForProviders, q));
+	const groupedModels = $derived(groupedResult.groupedModels);
+
+	// Modelli effettivamente visibili a schermo per navigazione con frecce
+	const visibleModels = $derived.by(() => {
+		const result: T[] = [];
+		if (matchingRecent.length > 0 && (!isRecentCollapsed || q)) {
+			result.push(...matchingRecent);
+		}
+		for (const [provider, models] of groupedModels) {
+			const isCollapsed = Boolean(collapsedProviders[provider]) && !q;
+			if (!isCollapsed) {
+				result.push(...models);
+			}
+		}
+		return result;
+	});
+
+	// Mappa indice opzione -> indice in visibleModels per keyboard & scroll
+	const modelIndexMap = $derived.by(() => {
+		const map = new Map<string, number>();
+		let idx = 0;
+		if (matchingRecent.length > 0 && (!isRecentCollapsed || q)) {
+			for (const m of matchingRecent) {
+				map.set(`recent:${getEffectiveSelector(m)}`, idx++);
+			}
+		}
+		for (const [provider, models] of groupedModels) {
+			const isCollapsed = Boolean(collapsedProviders[provider]) && !q;
+			if (!isCollapsed) {
+				for (const m of models) {
+					map.set(`${provider}:${getEffectiveSelector(m)}`, idx++);
+				}
+			}
+		}
+		return map;
+	});
 	// Scorrimento automatico per rivelare la voce attiva nella lista
 	$effect(() => {
 		if (!listEl) return;
@@ -88,7 +155,12 @@
 
 	function chooseModel(model: T) {
 		const selector = getEffectiveSelector(model);
+		recentModelsStore.record(model);
 		onSelect?.(selector, model);
+	}
+
+	function toggleProvider(provider: string) {
+		collapsedProviders[provider] = !collapsedProviders[provider];
 	}
 
 	function handleKeydown(e: KeyboardEvent) {
@@ -169,89 +241,61 @@
 				{m.chat_v2_composer_model_empty()}
 			</div>
 		{:else}
-			{#each groupedModels as [provider, models] (provider)}
-				<div class="provider-group">
-					<div class="group-header">
+			{#if matchingRecent.length > 0}
+				{@const isCollapsed = isRecentCollapsed && !q}
+				<div class="provider-group recent-group">
+					<button
+						type="button"
+						class="group-header"
+						onclick={() => (isRecentCollapsed = !isRecentCollapsed)}
+						aria-expanded={!isCollapsed}
+					>
 						<span class="group-provider-title">
+							<span class="group-collapse-icon" class:collapsed={isCollapsed}>
+								<IconChevronDown />
+							</span>
+							<span class="recent-icon"><IconHistory /></span>
+							<span class="group-provider-name">{m.chat_v2_composer_model_recent()}</span>
+						</span>
+						<span class="group-count">{matchingRecent.length}</span>
+					</button>
+					{#if !isCollapsed}
+						<div class="group-items">
+							{#each matchingRecent as model (getEffectiveSelector(model))}
+								{@const idx = modelIndexMap.get(`recent:${getEffectiveSelector(model)}`) ?? -1}
+								{@render modelOption(model, idx, true)}
+							{/each}
+						</div>
+					{/if}
+				</div>
+			{/if}
+
+			{#each groupedModels as [provider, models] (provider)}
+				{@const isCollapsed = Boolean(collapsedProviders[provider]) && !q}
+				<div class="provider-group">
+					<button
+						type="button"
+						class="group-header"
+						onclick={() => toggleProvider(provider)}
+						aria-expanded={!isCollapsed}
+					>
+						<span class="group-provider-title">
+							<span class="group-collapse-icon" class:collapsed={isCollapsed}>
+								<IconChevronDown />
+							</span>
 							<ProviderLogo {provider} size={13} />
 							<span class="group-provider-name">{provider}</span>
 						</span>
 						<span class="group-count">{models.length}</span>
-					</div>
-					<div class="group-items">
-						{#each models as model (getEffectiveSelector(model))}
-							{@const selected = isSelected(model)}
-							{@const idx = visibleModels.findIndex((x) => isSameModel(x, model))}
-							{@const isHighlighted = highlightedIndex === idx}
-							<button
-								type="button"
-								role="option"
-								data-index={idx}
-								aria-selected={selected}
-								class="model-option"
-								class:selected
-								class:highlighted={isHighlighted}
-								onclick={() => chooseModel(model)}
-								onmouseenter={() => {
-									if (idx !== -1) highlightedIndex = idx;
-								}}
-							>
-								<div class="option-main">
-									<span class="option-name">{model.name || model.id}</span>
-									{#if model.id && model.name && model.id !== model.name}
-										<span class="option-id">{model.id}</span>
-									{:else if model.selector && model.selector !== model.name}
-										<span class="option-id">{model.selector}</span>
-									{/if}
-								</div>
-
-								<div class="option-badges">
-									{#if model.contextWindow}
-										<Tooltip text={m.model_picker_list_context_tooltip({ tokens: formatContextTokens(model.contextWindow) })} placement="top">
-											<span
-												class="ui-cap ctx"
-												role="img"
-												aria-label={m.model_picker_list_context_aria({ tokens: formatContextTokens(model.contextWindow) })}
-											>
-												<IconContextWindow />
-												<small>{formatContextTokens(model.contextWindow)}</small>
-											</span>
-										</Tooltip>
-									{/if}
-									{#if modelSupportsVision(model)}
-										<Tooltip text={m.chat_v2_composer_model_vision()} placement="top">
-											<span
-												class="ui-cap"
-												role="img"
-												aria-label={m.chat_v2_composer_model_vision()}
-											>
-												<IconRoleVision />
-											</span>
-										</Tooltip>
-									{/if}
-									{#if modelSupportsReasoning(model)}
-										<Tooltip text={thinkingTitle(model)} placement="top">
-											<span
-												class="ui-cap"
-												role="img"
-												aria-label={thinkingTitle(model)}
-											>
-												<IconRoleSlow />
-											</span>
-										</Tooltip>
-									{/if}
-									{#if model.isCustom}
-										<span class="custom-chip">{m.model_picker_list_custom_badge()}</span>
-									{/if}
-									{#if selected}
-										<span class="check-icon" aria-hidden="true">
-											<IconCheck />
-										</span>
-									{/if}
-								</div>
-							</button>
-						{/each}
-					</div>
+					</button>
+					{#if !isCollapsed}
+						<div class="group-items">
+							{#each models as model (getEffectiveSelector(model))}
+								{@const idx = modelIndexMap.get(`${provider}:${getEffectiveSelector(model)}`) ?? -1}
+								{@render modelOption(model, idx, false)}
+							{/each}
+						</div>
+					{/if}
 				</div>
 			{/each}
 		{/if}
@@ -261,10 +305,87 @@
 		<div class="menu-footer">
 			<span class="legend-item"><IconRoleVision /> {m.chat_v2_composer_model_vision()}</span>
 			<span class="legend-item"><IconRoleSlow /> {m.chat_v2_composer_model_reasoning()}</span>
-			<span class="legend-item">· {m.chat_v2_composer_model_context()}</span>
+			<span class="legend-item"><IconContextWindow /> {m.chat_v2_composer_model_context()}</span>
 		</div>
 	{/if}
 </div>
+{#snippet modelOption(model: T, idx: number, isRecent: boolean)}
+	{@const selected = isSelected(model)}
+	{@const isHighlighted = highlightedIndex === idx}
+	<button
+		type="button"
+		role="option"
+		data-index={idx}
+		aria-selected={selected}
+		class="model-option"
+		class:selected
+		class:highlighted={isHighlighted}
+		onclick={() => chooseModel(model)}
+		onmouseenter={() => {
+			if (idx !== -1) highlightedIndex = idx;
+		}}
+	>
+		<div class="option-main">
+			<span class="option-name">
+				{#if isRecent && model.provider}
+					<ProviderLogo provider={model.provider} size={12} />
+				{/if}
+				<span>{model.name || model.id}</span>
+			</span>
+			{#if model.id && model.name && model.id !== model.name}
+				<span class="option-id">{model.id}</span>
+			{:else if model.selector && model.selector !== model.name}
+				<span class="option-id">{model.selector}</span>
+			{/if}
+		</div>
+
+		<div class="option-badges">
+			{#if model.contextWindow}
+				<Tooltip text={m.model_picker_list_context_tooltip({ tokens: formatContextTokens(model.contextWindow) })} placement="top">
+					<span
+						class="ui-cap ctx"
+						role="img"
+						aria-label={m.model_picker_list_context_aria({ tokens: formatContextTokens(model.contextWindow) })}
+					>
+						<IconContextWindow />
+						<small>{formatContextTokens(model.contextWindow)}</small>
+					</span>
+				</Tooltip>
+			{/if}
+			{#if modelSupportsVision(model)}
+				<Tooltip text={m.chat_v2_composer_model_vision()} placement="top">
+					<span
+						class="ui-cap"
+						role="img"
+						aria-label={m.chat_v2_composer_model_vision()}
+					>
+						<IconRoleVision />
+					</span>
+				</Tooltip>
+			{/if}
+			{#if modelSupportsReasoning(model)}
+				<Tooltip text={thinkingTitle(model)} placement="top">
+					<span
+						class="ui-cap"
+						role="img"
+						aria-label={thinkingTitle(model)}
+					>
+						<IconRoleSlow />
+					</span>
+				</Tooltip>
+			{/if}
+			{#if model.isCustom}
+				<span class="custom-chip">{m.model_picker_list_custom_badge()}</span>
+			{/if}
+			{#if selected}
+				<span class="check-icon" aria-hidden="true">
+					<IconCheck />
+				</span>
+			{/if}
+		</div>
+	</button>
+{/snippet}
+
 
 <style>
 	.model-picker-list {
@@ -281,14 +402,15 @@
 		display: flex;
 		align-items: center;
 		position: relative;
-		padding: var(--space-2);
+		height: 38px;
+		padding: 0 10px;
 		border-bottom: 1px solid var(--line);
 		background: var(--bg-base);
 	}
 
 	.search-icon {
 		position: absolute;
-		left: 14px;
+		left: 12px;
 		color: var(--ink-faint);
 		pointer-events: none;
 		display: inline-flex;
@@ -298,24 +420,27 @@
 
 	.search-input {
 		width: 100%;
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		padding: 4px 24px 4px 26px;
+		height: 100%;
+		background: transparent;
+		border: none;
+		border-radius: 0;
+		padding: 0 28px 0 28px;
 		font-family: inherit;
 		font-size: var(--text-xs);
 		color: var(--ink);
+		outline: none;
 	}
 
+	.search-input:focus,
 	.search-input:focus-visible {
-		border-color: var(--brand);
-		outline: 2px solid var(--brand);
-		outline-offset: -1px;
+		outline: none;
+		box-shadow: none;
+		border: none;
 	}
 
 	.clear-btn {
 		position: absolute;
-		right: 12px;
+		right: 10px;
 		background: transparent;
 		border: none;
 		color: var(--ink-faint);
@@ -329,7 +454,7 @@
 	.results-list {
 		flex: 1;
 		min-height: 0;
-		max-height: 280px;
+		max-height: 360px;
 		overflow-y: auto;
 		padding: 4px;
 		display: flex;
@@ -347,12 +472,46 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: 3px 6px;
+		padding: 4px 6px;
+		background: transparent;
+		border: none;
+		border-radius: var(--radius-sm);
+		font-family: inherit;
 		font-size: var(--text-group-label);
 		font-weight: 600;
 		color: var(--ink-faint);
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
+		cursor: pointer;
+		width: 100%;
+		text-align: left;
+		transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+	}
+
+	.group-header:hover {
+		background: var(--bg-hover);
+		color: var(--ink);
+	}
+
+	.group-collapse-icon {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		--icon-size: 11px;
+		color: var(--ink-faint);
+		transition: transform var(--dur-fast) var(--ease-out);
+	}
+
+	.group-collapse-icon.collapsed {
+		transform: rotate(-90deg);
+	}
+
+	.recent-icon {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		--icon-size: 13px;
+		color: var(--brand-ink);
 	}
 
 	.group-provider-title {
@@ -416,6 +575,9 @@
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
 	}
 
 	.option-id {

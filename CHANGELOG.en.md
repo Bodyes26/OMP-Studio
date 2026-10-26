@@ -35,6 +35,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Send a follow-up or a command from Companion directly to the conversation being read, without turning it into a new task.
 
 ### Changed
+- Polished role and model popovers across GUI composer, Task Editor, and Remote: removed the explanatory footer from the roles menu with full visibility of all roles without scrollbars on standard windows and provider icon next to each model; in the model popover removed the focus outline from search with full-height input, collapsible provider sections with chevron toggles, restored context window icon in the footer legend, and added a recent models section sorted by usage with priority in search matches.
 - The Companion queue composer separates project, directives and role into removable badges outside the message: Enter inserts a line, Ctrl+Enter queues the task, and windows at least 700 px tall start with two lines.
 - The Companion queue groups tasks under collapsible projects, with a line from the project dot, bold titles, animated title-generation status and expandable text before starting.
 - Companion cards remove redundant labels and “+” buttons; “Reply” floats over the text until the composer is visible, while questions show the full latest message using the GUI's own renderers and expandable complete history.

@@ -40,7 +40,7 @@
 		type SuggestionChipItem
 	} from '#lib/stores/promptSuggestions.ts';
 	import { modelSettingsStore } from '#lib/stores/modelSettings.svelte.ts';
-	import { splitModelSelector, resolveActiveRole, supportedThinkingLevels } from '#lib/stores/modelSettingsHelpers.ts';
+	import { splitModelSelector, resolveActiveRole, supportedThinkingLevels, resolveCatalogModel } from '#lib/stores/modelSettingsHelpers.ts';
 	import { shortcutsModalStore } from '#lib/stores/shortcutsModal.svelte.ts';
 	import { isTypingSurface } from '#lib/agent/askFocus.ts';
 	import { resolveContextWindow } from '#lib/agent/contextReport.ts';
@@ -292,7 +292,9 @@
 		for (const [rId, sel] of Object.entries(rolesMap)) {
 			if (typeof sel === 'string') {
 				const { base, thinking } = splitModelSelector(sel, modelSettingsStore.knownSelectors);
-				out[rId] = { model: base, thinking: thinking ?? undefined };
+				const catalogMatch = resolveCatalogModel(modelSettingsStore.catalog, base);
+				const provider = catalogMatch?.provider || (base.includes('/') ? base.split('/')[0] : '');
+				out[rId] = { model: base, provider: provider || undefined, thinking: thinking ?? undefined };
 			}
 		}
 		return out;

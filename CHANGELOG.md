@@ -35,6 +35,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Dalla Companion invia un seguito o un comando direttamente nella conversazione letta, senza trasformarlo in un nuovo task.
 
 ### Changed
+- Popover dei ruoli e dei modelli rifinito su composer GUI, Task Editor e Remote: rimosso il testo esplicativo dal menu dei ruoli con visualizzazione completa dei ruoli senza barre di scorrimento su finestre standard e icona del provider accanto a ciascun modello; nel popover dei modelli rimossa la cornice blu dalla ricerca con campo a tutta altezza, sezioni dei provider collassabili con freccia, icona della finestra di contesto ripristinata nella legenda in basso e sezione dei modelli recenti ordinati per utilizzo con priorità nei risultati di ricerca.
 - Il composer di coda Companion separa progetto, direttive e ruolo in badge rimovibili fuori dal messaggio: Invio va a capo, Ctrl+Invio accoda e le finestre alte almeno 700 px partono da due righe.
 - La coda Companion raggruppa i task sotto progetti richiudibili, con una linea dal pallino del progetto, titoli in grassetto, stato animato durante la generazione e testo espandibile prima dell'avvio.
 - Le card Companion eliminano etichette e pulsanti «+» ridondanti; «Rispondi» fluttua sopra il testo finché il composer non è visibile e le domande mostrano l'ultimo messaggio completo con gli stessi renderer della GUI e lo storico completo espandibile.

@@ -2304,6 +2304,7 @@
   "chat_v2_composer_model_vision": "reads images",
   "chat_v2_composer_model_reasoning": "reasons",
   "chat_v2_composer_model_context": "context window",
+  "chat_v2_composer_model_recent": "Recent",
   "chat_v2_composer_thinking_title": "Thinking level (Shift+Tab)",
   "chat_v2_composer_thinking_unsupported": "{model} does not support configurable thinking. Choose another model to enable it.",
   "chat_v2_composer_status_label": "Session modes and status",

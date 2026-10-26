@@ -22,6 +22,7 @@
 		tooltip,
 		hasPopup = 'menu',
 		contentRole,
+		maxHeight,
 		width = '320px',
 		align = 'left',
 		className = '',
@@ -37,6 +38,7 @@
 		tooltip?: string;
 		hasPopup?: 'menu' | 'dialog' | 'listbox' | 'tree' | 'grid';
 		contentRole?: string;
+		maxHeight?: string;
 		width?: string;
 		align?: 'left' | 'right';
 		className?: string;
@@ -218,7 +220,7 @@
 			id={popoverId}
 			class="menu-popover rv-lift"
 			class:align-right={align === 'right'}
-			style="width: {width};"
+			style="width: {width}; {maxHeight ? `--menu-max-height: ${maxHeight};` : ''}"
 			role={computedRole}
 			aria-label={computedRole === 'dialog' ? accessibleName : undefined}
 			tabindex="-1"
@@ -227,6 +229,7 @@
 				anchor: triggerBtnEl,
 				placement: align === 'right' ? 'top-end' : 'top-start',
 				offset: 8,
+				constrainHeight: true,
 				motion: true
 			}}
 			onkeydown={handlePopoverKeyDown}
@@ -288,7 +291,7 @@
 		margin: 0;
 		z-index: var(--z-overlay);
 		max-width: calc(100vw - 24px);
-		max-height: 380px;
+		max-height: min(var(--anchored-space, calc(100vh - 24px)), var(--menu-max-height, 560px));
 		overflow-x: hidden;
 		overflow-y: auto;
 		background: var(--bg-raised);

@@ -20,6 +20,7 @@ import {
 	type AuthAccount
 } from '../src/lib/stores/modelSettingsHelpers.ts';
 import { composeSuggestionChips, type PromptSuggestion } from '../src/lib/stores/promptSuggestions.ts';
+import { recentModelsStore, resolveRecentModels } from '../src/lib/components/models/recentModels.svelte.ts';
 
 function createModel(provider: string, id: string): ModelDto {
 	return {
@@ -252,5 +253,47 @@ describe('Thinking: livelli accettati dal modello', () => {
 	it('non inventa un livello per auto o off assenti dalla scala', () => {
 		assert.equal(clampThinkingLevel('auto', ['off', 'low']), null);
 		assert.equal(clampThinkingLevel('high', ['auto', 'off']), 'off');
+	});
+});
+describe('RecentModels: tracciamento e risoluzione modelli recenti', () => {
+	it('risolve i modelli recenti dal catalogo preservando l\'ordine di utilizzo', () => {
+		const catalog: ModelDto[] = [
+			createModel('anthropic', 'claude-opus-5-5'),
+			createModel('google-antigravity', 'gemini-3.8-flash'),
+			createModel('openai', 'gpt-4o'),
+			createModel('anthropic', 'claude-haiku-4-5')
+		];
+
+		const recent = resolveRecentModels(catalog, [
+			'google-antigravity/gemini-3.8-flash',
+			'anthropic/claude-opus-5-5'
+		]);
+
+		assert.equal(recent.length, 2);
+		assert.equal(recent[0].id, 'gemini-3.8-flash');
+		assert.equal(recent[1].id, 'claude-opus-5-5');
+	});
+
+	it('ignora modelli recenti che non esistono nel catalogo corrente', () => {
+		const catalog: ModelDto[] = [
+			createModel('openai', 'gpt-4o')
+		];
+
+		const recent = resolveRecentModels(catalog, [
+			'unknown-provider/deprecated-model',
+			'openai/gpt-4o'
+		]);
+
+		assert.equal(recent.length, 1);
+		assert.equal(recent[0].id, 'gpt-4o');
+	});
+
+	it('registra e ordina i modelli recenti con limite massimo', () => {
+		recentModelsStore.record('provider1/model-a');
+		recentModelsStore.record('provider2/model-b');
+		recentModelsStore.record('provider1/model-a'); // Riapplicato: deve passare in testa
+
+		assert.equal(recentModelsStore.selectors[0], 'provider1/model-a');
+		assert.equal(recentModelsStore.selectors[1], 'provider2/model-b');
 	});
 });

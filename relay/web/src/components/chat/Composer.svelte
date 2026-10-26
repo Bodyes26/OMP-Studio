@@ -368,7 +368,12 @@
 							{/snippet}
 							{#snippet children()}
 								<RoleMenu
-									assignments={Object.fromEntries((catalog?.roles ?? []).map((role) => [role.id, { model: role.modelLabel ?? role.model ?? undefined, thinking: role.thinking ?? undefined }]))}
+									assignments={Object.fromEntries((catalog?.roles ?? []).map((role) => {
+										const model = role.modelLabel ?? role.model ?? undefined;
+										const match = (catalog?.models ?? []).find((m) => m.id === model || m.selector === model);
+										const provider = role.provider ?? match?.provider ?? (model && model.includes('/') ? model.split('/')[0] : undefined);
+										return [role.id, { model, provider, thinking: role.thinking ?? undefined }];
+									}))}
 									activeRole={currentRole}
 									onPick={(roleId) => {
 										activeMenu = null;
