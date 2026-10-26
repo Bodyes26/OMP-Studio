@@ -2,8 +2,8 @@
 	// Renderizza un testo semplice sostituendo le menzioni `@file` e `@"file con spazi"`
 	// con `FileMentionChip` inline. Preserva il testo circostante e il comportamento di
 	// clamping/ellipsis delle righe nelle anteprime (coda, pannello agente, popover).
-	import { findFileMentions } from '$lib/agent/fileMentionSyntax';
-	import FileMentionChip from '$lib/agent/components/FileMentionChip.svelte';
+	import { findFileMentions } from '#lib/agent/fileMentionSyntax.ts';
+	import FileMentionChip from '#lib/agent/components/FileMentionChip.svelte';
 
 	let {
 		text = '',

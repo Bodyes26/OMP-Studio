@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
-	import { stripEditorContext } from '$lib/editor/editorContext';
+	import { m } from '#lib/paraglide/messages.js';
+	import { stripEditorContext } from '#lib/editor/editorContext.ts';
 	import type { QueuedMessage } from '../session.svelte';
 
 	let {

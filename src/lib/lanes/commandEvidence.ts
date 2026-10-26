@@ -5,8 +5,8 @@
 // 2. Mostra exit code reale e durata misurata.
 // 3. Vietato inventare o sintetizzare stati "passed" o test fittizi.
 
-import type { TranscriptEntry, ToolEntry } from '$lib/agent/session.svelte';
-import { asRecord, num, str, resultText } from '$lib/agent/tools/types';
+import type { TranscriptEntry, ToolEntry } from '#lib/agent/session.svelte.ts';
+import { asRecord, num, str, resultText } from '#lib/agent/tools/types.ts';
 
 export interface CommandEvidence {
 	id: number;

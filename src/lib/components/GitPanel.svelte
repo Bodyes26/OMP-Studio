@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
-	import { i18n } from '$lib/i18n/i18n.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { i18n } from '#lib/i18n/i18n.svelte.ts';
 	import { invoke } from '@tauri-apps/api/core';
 	import {
 		IconArrowDown,
@@ -12,18 +12,18 @@
 		IconExternalLink,
 		IconGitBranch,
 		IconPlus
-	} from '$lib/icons';
-	import { chatReveal } from '$lib/agent/motion';
-	import GitStatusMark from '$lib/ui/GitStatusMark.svelte';
-	import MenuButton from '$lib/ui/MenuButton.svelte';
-	import StatusMark from '$lib/ui/StatusMark.svelte';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
-	import { perfSpan } from '$lib/perf';
-	import { notifyGitStatusRefresh, type GitStatusRefreshDetail } from '$lib/stores/gitDiff.svelte';
-	import { githubStore } from '$lib/stores/github.svelte';
-	import { normalizeProjectPath } from '$lib/stores/projects.svelte';
+	} from '#lib/icons.ts';
+	import { chatReveal } from '#lib/agent/motion.ts';
+	import GitStatusMark from '#lib/ui/GitStatusMark.svelte';
+	import MenuButton from '#lib/ui/MenuButton.svelte';
+	import StatusMark from '#lib/ui/StatusMark.svelte';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
+	import { perfSpan } from '#lib/perf.ts';
+	import { notifyGitStatusRefresh, type GitStatusRefreshDetail } from '#lib/stores/gitDiff.svelte.ts';
+	import { githubStore } from '#lib/stores/github.svelte.ts';
+	import { normalizeProjectPath } from '#lib/stores/projects.svelte.ts';
 	import { openUrl } from '@tauri-apps/plugin-opener';
-	import { createAdaptivePoller } from '$lib/utils/windowActivity.svelte';
+	import { createAdaptivePoller } from '#lib/utils/windowActivity.svelte.ts';
 
 	let {
 		projectPath,

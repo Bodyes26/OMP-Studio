@@ -4,21 +4,21 @@
 	// bottoni .ui-button, select .ui-select, input .ui-input e StatusMark per gli stati.
 	import { onMount } from 'svelte';
 	import { openUrl } from '@tauri-apps/plugin-opener';
-	import { m } from '$lib/paraglide/messages.js';
-	import { githubStore } from '$lib/stores/github.svelte';
-	import { settingsStore } from '$lib/stores/settings.svelte';
-	import { projectStore } from '$lib/stores/projects.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { githubStore } from '#lib/stores/github.svelte.ts';
+	import { settingsStore } from '#lib/stores/settings.svelte.ts';
+	import { projectStore } from '#lib/stores/projects.svelte.ts';
 	import {
 		IconGithub,
 		IconRefresh,
 		IconExternalLink,
 		IconFolderOpen
-	} from '$lib/icons';
-	import Switch from '$lib/ui/Switch.svelte';
-	import StatusMark from '$lib/ui/StatusMark.svelte';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
-	import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
-	import { IS_MAC, IS_WINDOWS } from '$lib/utils/platform';
+	} from '#lib/icons.ts';
+	import Switch from '#lib/ui/Switch.svelte';
+	import StatusMark from '#lib/ui/StatusMark.svelte';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
+	import ConfirmDialog from '#lib/ui/ConfirmDialog.svelte';
+	import { IS_MAC, IS_WINDOWS } from '#lib/utils/platform.ts';
 
 	let tokenInput = $state('');
 	let tokenError = $state<string | null>(null);

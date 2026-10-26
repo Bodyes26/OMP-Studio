@@ -5,8 +5,8 @@
   in KeyValue e la risposta completa in OutputBlock.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
-	import { i18n } from '$lib/i18n/i18n.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { i18n } from '#lib/i18n/i18n.svelte.ts';
 	import KeyValue from '../parts/KeyValue.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
 	import {

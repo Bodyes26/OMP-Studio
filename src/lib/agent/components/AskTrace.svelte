@@ -2,8 +2,8 @@
 	// Traccia del tool `ask` nella chat. La scheda interattiva sta sopra il
 	// composer (AskCard): qui, finche' la domanda e' aperta, resta solo il
 	// richiamo; dopo l'invio, il riepilogo compatto delle risposte.
-	import { m } from '$lib/paraglide/messages.js';
-	import { IconAsk, IconCheck, IconNote } from '$lib/icons';
+	import { m } from '#lib/paraglide/messages.js';
+	import { IconAsk, IconCheck, IconNote } from '#lib/icons.ts';
 	import type { ToolEntry } from '../session.svelte';
 	import { parseAskToolCall, summarizeAskAnswer } from '../askResult';
 

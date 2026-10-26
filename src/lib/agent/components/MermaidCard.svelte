@@ -7,12 +7,12 @@
   - Toggle codice sorgente / anteprima
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	import { agentUiHooks } from '../ui-context';
 	import MermaidDiagram from './MermaidDiagram.svelte';
-	import Dialog from '$lib/ui/Dialog.svelte';
-	import PanZoom from '$lib/ui/PanZoom.svelte';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import Dialog from '#lib/ui/Dialog.svelte';
+	import PanZoom from '#lib/ui/PanZoom.svelte';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
 	import {
 		IconExternalLink,
 		IconMaximize,
@@ -22,7 +22,7 @@
 		IconZoomIn,
 		IconZoomOut,
 		IconSparkles
-	} from '$lib/icons';
+	} from '#lib/icons.ts';
 
 	let { text }: { text: string } = $props();
 

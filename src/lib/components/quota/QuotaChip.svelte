@@ -1,9 +1,9 @@
 <script lang="ts">
-	import type { QuotaSemanticStatus, QuotaLongWindowAlert } from '$lib/quota/projectQuota';
-	import { IconWarning, IconQuota, IconSchedule } from '$lib/icons';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
-	import { m } from '$lib/paraglide/messages.js';
-	import { motionReduced } from '$lib/agent/motionState.svelte';
+	import type { QuotaSemanticStatus, QuotaLongWindowAlert } from '#lib/quota/projectQuota.ts';
+	import { IconWarning, IconQuota, IconSchedule } from '#lib/icons.ts';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { motionReduced } from '#lib/agent/motionState.svelte.ts';
 
 	let {
 		showProvider = true,

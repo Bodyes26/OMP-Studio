@@ -7,8 +7,8 @@
   Sparisce da sola alla scelta o con Esc; il composer resta usabile.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
-	import { IconClose } from '$lib/icons';
+	import { m } from '#lib/paraglide/messages.js';
+	import { IconClose } from '#lib/icons.ts';
 	import { COMPACT_MODES, type CompactMode } from '../compactMode';
 	import type { AgentSession } from '../session.svelte';
 

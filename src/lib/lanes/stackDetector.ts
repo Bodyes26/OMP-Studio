@@ -5,7 +5,7 @@
 // gia' fatto e produce il profilo tecnico con l'evidenza che lo giustifica,
 // cosi' la classificazione e' verificabile su fixture.
 
-import type { NativeCacheRecord, ProjectStack, RestoreMode } from '$lib/types/lanes';
+import type { NativeCacheRecord, ProjectStack, RestoreMode } from '#lib/types/lanes.ts';
 
 export type ManifestKind =
 	| 'solution'

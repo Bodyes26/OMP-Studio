@@ -4,8 +4,8 @@
 	// modificarla e mostra il blocco esatto che ricevera' l'agente.
 	// Componente proprio: ComposerPinnedItem e' il pulsante dei comandi fissati.
 
-	import { m } from '$lib/paraglide/messages.js';
-	import { IconClose, IconWarning, IconInspect } from '$lib/icons';
+	import { m } from '#lib/paraglide/messages.js';
+	import { IconClose, IconWarning, IconInspect } from '#lib/icons.ts';
 	import type { LabVisualNotes } from './visualNotesStore.svelte';
 	import { formatLabNote, shortTargetLabel, type LabNote } from './visualNotes';
 	import { labNotesLabels } from './visualNotesLabels';

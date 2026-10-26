@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	// Accorpamento di righe di sistema consecutive (SystemChip e NoticeRow).
 	// Linguaggio v2: traccia leggera (12.5px, --ink-muted, icona 14px, chevron espandibile).
 	import type { SystemChipEntry, NoticeEntry } from '../session.svelte';
 	import SystemChip from './SystemChip.svelte';
 	import NoticeRow from './NoticeRow.svelte';
-	import { IconChevronRight } from '$lib/icons';
+	import { IconChevronRight } from '#lib/icons.ts';
 
 	let { entries, fresh = false }: { entries: (SystemChipEntry | NoticeEntry)[]; fresh?: boolean } = $props();
 

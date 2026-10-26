@@ -3,8 +3,8 @@
 	// L'HTML non e' mai interpretato: viene reso come testo grezzo.
 	// I link web aprono il browser esterno via Tauri; se il link o codespan
 	// e' un percorso di file valido del progetto, viene aperto nell'editor.
-	import { isAllowedExternalUrl } from '$lib/utils/externalUrl';
-	import { openExternalUrl } from '$lib/utils/openExternal';
+	import { isAllowedExternalUrl } from '#lib/utils/externalUrl.ts';
+	import { openExternalUrl } from '#lib/utils/openExternal.ts';
 	import type { Token } from '../markdown';
 	import { agentUiHooks, hasAgentUiHooks } from '../ui-context';
 	import MarkdownInline from './MarkdownInline.svelte';

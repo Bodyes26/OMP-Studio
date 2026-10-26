@@ -16,7 +16,7 @@ import { dirname, join } from 'node:path';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const TEST_FILE = join(ROOT, 'test', 'smoke.test.ts');
-// L'alias `$lib` dei moduli localizzati non esiste per Node: va registrato prima dei test.
+// Shim delle rune Svelte 5 e hook di risoluzione ($remote-protocol e import relativi TypeScript) prima dei test.
 const ALIAS_REGISTER = pathToFileURL(join(ROOT, 'test', 'register-alias.mjs')).href;
 
 // Ogni file di test va importato dall'aggregatore: un test dimenticato non

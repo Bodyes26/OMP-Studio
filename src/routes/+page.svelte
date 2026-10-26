@@ -1,134 +1,134 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
-	import { attachEditorContext } from '$lib/editor/editorContext';
-	import { perfMark } from '$lib/perf';
-	import { promptBus } from '$lib/agent/promptBus';
-	import Terminal from '$lib/terminal/Terminal.svelte';
-	import TerminalStopButton from '$lib/terminal/TerminalStopButton.svelte';
-	import type { TerminalStopControl } from '$lib/terminal/stopControl.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { attachEditorContext } from '#lib/editor/editorContext.ts';
+	import { perfMark } from '#lib/perf.ts';
+	import { promptBus } from '#lib/agent/promptBus.ts';
+	import Terminal from '#lib/terminal/Terminal.svelte';
+	import TerminalStopButton from '#lib/terminal/TerminalStopButton.svelte';
+	import type { TerminalStopControl } from '#lib/terminal/stopControl.svelte.ts';
 	import { SvelteMap } from 'svelte/reactivity';
-	import Chat from '$lib/agent/components/Chat.svelte';
-	import { AgentSession } from '$lib/agent/session.svelte';
-	import { laneSessionKey, sessionRegistry, type UiResponsePayload } from '$lib/agent/sessionRegistry';
-	import { routeBtwSlash, routeGoalSlash, routePlanSlash, routeSessionSlash, type GoalSlashAction } from '$lib/agent/slashRouter';
-	import { setPlanHost } from '$lib/agent/planController.svelte';
-	import { goalTitle } from '$lib/agent/guidedGoal';
-	import type { RpcCommand, ThinkingLevel } from '$lib/agent/wire';
-	import ImageModal from '$lib/agent/components/ImageModal.svelte';
-	import { IconNewChat, IconCircleAlert, IconClose } from '$lib/icons';
-	import TopBar from '$lib/components/TopBar.svelte';
-	import FileTree from '$lib/components/FileTree.svelte';
-	import type EditorSurface from '$lib/editor/Editor.svelte';
-	import AgentPanel from '$lib/components/AgentPanel.svelte';
-	import ColumnTabs from '$lib/ui/ColumnTabs.svelte';
-	import Segmented from '$lib/ui/Segmented.svelte';
-	import SurfaceBoundary from '$lib/ui/SurfaceBoundary.svelte';
-	import StatusMark from '$lib/ui/StatusMark.svelte';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
-	import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
-	import { rvLift, badgeReveal } from '$lib/agent/motion';
-	import UsagePopover, { type ProviderHost } from '$lib/components/UsagePopover.svelte';
-	import ProjectPicker from '$lib/components/ProjectPicker.svelte';
-	import GitPanel from '$lib/components/GitPanel.svelte';
-	import DiagramViewer from '$lib/components/DiagramViewer.svelte';
-	import PreviewViewer from '$lib/components/PreviewViewer.svelte';
-	import BrowserViewer from '$lib/components/BrowserViewer.svelte';
-	import StudioUpdateModal from '$lib/components/StudioUpdateModal.svelte';
-	import SettingsModal from '$lib/components/settings/SettingsModal.svelte';
-	import CloseConfirmModal, { type ProjectCloseTarget } from '$lib/components/CloseConfirmModal.svelte';
+	import Chat from '#lib/agent/components/Chat.svelte';
+	import { AgentSession } from '#lib/agent/session.svelte.ts';
+	import { laneSessionKey, sessionRegistry, type UiResponsePayload } from '#lib/agent/sessionRegistry.ts';
+	import { routeBtwSlash, routeGoalSlash, routePlanSlash, routeSessionSlash, type GoalSlashAction } from '#lib/agent/slashRouter.ts';
+	import { setPlanHost } from '#lib/agent/planController.svelte.ts';
+	import { goalTitle } from '#lib/agent/guidedGoal.ts';
+	import type { RpcCommand, ThinkingLevel } from '#lib/agent/wire.ts';
+	import ImageModal from '#lib/agent/components/ImageModal.svelte';
+	import { IconNewChat, IconCircleAlert, IconClose } from '#lib/icons.ts';
+	import TopBar from '#lib/components/TopBar.svelte';
+	import FileTree from '#lib/components/FileTree.svelte';
+	import type EditorSurface from '#lib/editor/Editor.svelte';
+	import AgentPanel from '#lib/components/AgentPanel.svelte';
+	import ColumnTabs from '#lib/ui/ColumnTabs.svelte';
+	import Segmented from '#lib/ui/Segmented.svelte';
+	import SurfaceBoundary from '#lib/ui/SurfaceBoundary.svelte';
+	import StatusMark from '#lib/ui/StatusMark.svelte';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
+	import ConfirmDialog from '#lib/ui/ConfirmDialog.svelte';
+	import { rvLift, badgeReveal } from '#lib/agent/motion.ts';
+	import UsagePopover, { type ProviderHost } from '#lib/components/UsagePopover.svelte';
+	import ProjectPicker from '#lib/components/ProjectPicker.svelte';
+	import GitPanel from '#lib/components/GitPanel.svelte';
+	import DiagramViewer from '#lib/components/DiagramViewer.svelte';
+	import PreviewViewer from '#lib/components/PreviewViewer.svelte';
+	import BrowserViewer from '#lib/components/BrowserViewer.svelte';
+	import StudioUpdateModal from '#lib/components/StudioUpdateModal.svelte';
+	import SettingsModal from '#lib/components/settings/SettingsModal.svelte';
+	import CloseConfirmModal, { type ProjectCloseTarget } from '#lib/components/CloseConfirmModal.svelte';
 	import { getCurrentWindow } from '@tauri-apps/api/window';
-	import QueueDrawer from '$lib/components/QueueDrawer.svelte';
-	import SetupModal from '$lib/components/SetupModal.svelte';
-	import ShortcutsHelpModal from '$lib/agent/components/ShortcutsHelpModal.svelte';
-	import { shortcutsModalStore } from '$lib/stores/shortcutsModal.svelte';
-	import { isShortcutsHelpKey, isProjectCycleShortcut, isLaneCycleShortcut } from '$lib/shortcuts/shortcutMatch';
-	import TaskEditor from '$lib/components/TaskEditor.svelte';
-	import EmptyState from '$lib/components/EmptyState.svelte';
-	import { studioUpdaterStore, formatVersion } from '$lib/stores/studioUpdater.svelte';
-	import { ompVersionStore } from '$lib/stores/ompVersion.svelte';
-	import { ompChangelogStore } from '$lib/stores/ompChangelog.svelte';
-	import OmpChangelogModal from '$lib/components/OmpChangelogModal.svelte';
-	import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
-	import { settingsStore } from '$lib/stores/settings.svelte';
-	import { projectOrder } from '$lib/stores/projectOrder.svelte';
-	import { notificationManager } from '$lib/stores/notifications.svelte';
-	import { headsUpSeen } from '$lib/agent/headsUpSeen.svelte';
-	import { companionStore, type CompanionProjectRuntime } from '$lib/stores/companion.svelte';
-	import { buildAttentionRequest } from '$lib/stores/companionAttention';
-	import { resolveLatestAssistantReference, setupCompanionConversationHost } from '$lib/companion/hostConversation';
-	import { askQuestionText } from '$lib/agent/askTitle';
-	import { activeQuotaStore } from '$lib/stores/activeQuota.svelte';
-	import { resolveAutomationGate, type AutomationGate } from '$lib/agent/automationGate';
-	import { quotaStore, providersMatch } from '$lib/stores/quota.svelte';
+	import QueueDrawer from '#lib/components/QueueDrawer.svelte';
+	import SetupModal from '#lib/components/SetupModal.svelte';
+	import ShortcutsHelpModal from '#lib/agent/components/ShortcutsHelpModal.svelte';
+	import { shortcutsModalStore } from '#lib/stores/shortcutsModal.svelte.ts';
+	import { isShortcutsHelpKey, isProjectCycleShortcut, isLaneCycleShortcut } from '#lib/shortcuts/shortcutMatch.ts';
+	import TaskEditor from '#lib/components/TaskEditor.svelte';
+	import EmptyState from '#lib/components/EmptyState.svelte';
+	import { studioUpdaterStore, formatVersion } from '#lib/stores/studioUpdater.svelte.ts';
+	import { ompVersionStore } from '#lib/stores/ompVersion.svelte.ts';
+	import { ompChangelogStore } from '#lib/stores/ompChangelog.svelte.ts';
+	import OmpChangelogModal from '#lib/components/OmpChangelogModal.svelte';
+	import { modelSettingsStore } from '#lib/stores/modelSettings.svelte.ts';
+	import { settingsStore } from '#lib/stores/settings.svelte.ts';
+	import { projectOrder } from '#lib/stores/projectOrder.svelte.ts';
+	import { notificationManager } from '#lib/stores/notifications.svelte.ts';
+	import { headsUpSeen } from '#lib/agent/headsUpSeen.svelte.ts';
+	import { companionStore, type CompanionProjectRuntime } from '#lib/stores/companion.svelte.ts';
+	import { buildAttentionRequest } from '#lib/stores/companionAttention.ts';
+	import { resolveLatestAssistantReference, setupCompanionConversationHost } from '#lib/companion/hostConversation.ts';
+	import { askQuestionText } from '#lib/agent/askTitle.ts';
+	import { activeQuotaStore } from '#lib/stores/activeQuota.svelte.ts';
+	import { resolveAutomationGate, type AutomationGate } from '#lib/agent/automationGate.ts';
+	import { quotaStore, providersMatch } from '#lib/stores/quota.svelte.ts';
 	import { onDestroy } from 'svelte';
-	import { normalizeProjectPath, projectStore, type AgentState, type Project } from '$lib/stores/projects.svelte';
-	import { taskStore, formatTaskPrompt, type StudioTask, type TaskRunLaneContext } from '$lib/stores/tasks.svelte';
-	import { taskLabel } from '$lib/stores/taskTitle';
-	import { nextAutoDispatchTask } from '$lib/quota/scheduleQueue';
-	import { parkSessionUntilReset, scheduleRunner } from '$lib/stores/scheduleRunner.svelte';
-	import { scheduleStore } from '$lib/stores/schedule.svelte';
-	import { remoteStore } from '$lib/remote/remoteStore.svelte';
-	import { startRemoteProjection } from '$lib/remote/projection.svelte';
-	import { setupRemoteCommands, type RunTaskOutcome } from '$lib/remote/commands';
-	import { createTaskCommands } from '$lib/remote/taskCommands';
-	import { abortRemoteLane, sendRemotePrompt, stageRemoteAttachment, refreshRemoteContext, compactRemoteContext } from '$lib/remote/sessionCommands';
-	import { initRemoteChat, remoteChatHistory, remoteGetArtifact } from '$lib/remote/chat';
-	import { listRemoteProjectFolders, openRemoteProject, createRemoteProject } from '$lib/remote/projectCommands';
-	import { createLaneConfigCommands } from '$lib/remote/laneConfigCommands';
-	import { sessionCompletions } from '$lib/agent/completion.svelte';
-	import { listRemoteSessions, remoteSessionHistory } from '$lib/remote/historicalCommands';
-	import { createRemoteLane } from '$lib/remote/worktreeCommands';
-	import { markRemoteSessionSeen } from '$lib/remote/completion.svelte';
-	import { applyRoleToSession, RoleApplyError } from '$lib/agent/laneRole';
-	import { laneStore, type LaneRecord } from '$lib/stores/lanes.svelte';
-	import { laneOrchestrator, type TerminalMetaEntry } from '$lib/lanes/laneOrchestrator.svelte';
-	import { describeLaneProcess } from '$lib/lanes/processSupervisor';
-	import { laneBranchDeleteArgs } from '$lib/lanes/laneCleanup';
+	import { normalizeProjectPath, projectStore, type AgentState, type Project } from '#lib/stores/projects.svelte.ts';
+	import { taskStore, formatTaskPrompt, type StudioTask, type TaskRunLaneContext } from '#lib/stores/tasks.svelte.ts';
+	import { taskLabel } from '#lib/stores/taskTitle.ts';
+	import { nextAutoDispatchTask } from '#lib/quota/scheduleQueue.ts';
+	import { parkSessionUntilReset, scheduleRunner } from '#lib/stores/scheduleRunner.svelte.ts';
+	import { scheduleStore } from '#lib/stores/schedule.svelte.ts';
+	import { remoteStore } from '#lib/remote/remoteStore.svelte.ts';
+	import { startRemoteProjection } from '#lib/remote/projection.svelte.ts';
+	import { setupRemoteCommands, type RunTaskOutcome } from '#lib/remote/commands.ts';
+	import { createTaskCommands } from '#lib/remote/taskCommands.ts';
+	import { abortRemoteLane, sendRemotePrompt, stageRemoteAttachment, refreshRemoteContext, compactRemoteContext } from '#lib/remote/sessionCommands.ts';
+	import { initRemoteChat, remoteChatHistory, remoteGetArtifact } from '#lib/remote/chat.ts';
+	import { listRemoteProjectFolders, openRemoteProject, createRemoteProject } from '#lib/remote/projectCommands.ts';
+	import { createLaneConfigCommands } from '#lib/remote/laneConfigCommands.ts';
+	import { sessionCompletions } from '#lib/agent/completion.svelte.ts';
+	import { listRemoteSessions, remoteSessionHistory } from '#lib/remote/historicalCommands.ts';
+	import { createRemoteLane } from '#lib/remote/worktreeCommands.ts';
+	import { markRemoteSessionSeen } from '#lib/remote/completion.svelte.ts';
+	import { applyRoleToSession, RoleApplyError } from '#lib/agent/laneRole.ts';
+	import { laneStore, type LaneRecord } from '#lib/stores/lanes.svelte.ts';
+	import { laneOrchestrator, type TerminalMetaEntry } from '#lib/lanes/laneOrchestrator.svelte.ts';
+	import { describeLaneProcess } from '#lib/lanes/processSupervisor.ts';
+	import { laneBranchDeleteArgs } from '#lib/lanes/laneCleanup.ts';
 	import {
 		buildConcurrencyWarning,
 		decideAutoDispatch,
 		decideQueueRoute,
 		resolveQueueRoot,
 		type ConcurrencyWarning
-	} from '$lib/lanes/queueDispatch';
+	} from '#lib/lanes/queueDispatch.ts';
 	import {
 		AUTO_DISPATCH_STABLE_MS,
 		AUTO_DISPATCH_STABLE_MS_TERMINAL,
 		AutoDispatchArbiter,
 		type AutoDispatchCandidate
-	} from '$lib/lanes/autoDispatchArbiter';
-	import { routeLoopSlash } from '$lib/agent/loopMode';
-	import LaneStrip from '$lib/components/LaneStrip.svelte';
-	import LaneDispatchDialog from '$lib/components/LaneDispatchDialog.svelte';
-	import LaneProfileDialog from '$lib/components/LaneProfileDialog.svelte';
-	import LaneReviewModal from '$lib/components/LaneReviewModal.svelte';
-	import { laneLanding } from '$lib/lanes/laneLanding.svelte';
+	} from '#lib/lanes/autoDispatchArbiter.ts';
+	import { routeLoopSlash } from '#lib/agent/loopMode.ts';
+	import LaneStrip from '#lib/components/LaneStrip.svelte';
+	import LaneDispatchDialog from '#lib/components/LaneDispatchDialog.svelte';
+	import LaneProfileDialog from '#lib/components/LaneProfileDialog.svelte';
+	import LaneReviewModal from '#lib/components/LaneReviewModal.svelte';
+	import { laneLanding } from '#lib/lanes/laneLanding.svelte.ts';
 	import {
 		agentLanes,
 		type AgentLaneDispatchOutcome,
 		type CorsieBridgePayload
-	} from '$lib/lanes/agentLanes.svelte';
+	} from '#lib/lanes/agentLanes.svelte.ts';
 	import {
 		recordAllowlistDecision,
 		reviewProjectProfile,
 		type ProjectProfileReview
-	} from '$lib/lanes/laneProfile';
-	import { MAIN_LANE_ID, type AgentLane, type ProjectId } from '$lib/types/lanes';
+	} from '#lib/lanes/laneProfile.ts';
+	import { MAIN_LANE_ID, type AgentLane, type ProjectId } from '#lib/types/lanes.ts';
 	import {
 		laneSurfaceStore,
 		type LaneDiagramPayload,
 		type LanePreviewPayload
-	} from '$lib/stores/laneSurfaces.svelte';
-	import LabPreview from '$lib/lab/LabPreview.svelte';
-	import { openLabEntry } from '$lib/lanes/laneActions';
-	import { labApi } from '$lib/lab/api';
-	import type { TerminalSessionInfo } from '$lib/terminal/terminal';
+	} from '#lib/stores/laneSurfaces.svelte.ts';
+	import LabPreview from '#lib/lab/LabPreview.svelte';
+	import { openLabEntry } from '#lib/lanes/laneActions.ts';
+	import { labApi } from '#lib/lab/api.ts';
+	import type { TerminalSessionInfo } from '#lib/terminal/terminal.ts';
 	import { invoke } from '@tauri-apps/api/core';
 	import { listen } from '@tauri-apps/api/event';
 	import { onMount, untrack } from 'svelte';
-	import { startFocusTracer } from '$lib/focusTracer';
-	import { registerSnapshotProvider } from '$lib/diagnostics/studioLog';
-	import { markSwitch } from '$lib/switchDissolve';
+	import { startFocusTracer } from '#lib/focusTracer.ts';
+	import { registerSnapshotProvider } from '#lib/diagnostics/studioLog.ts';
+	import { markSwitch } from '#lib/switchDissolve.ts';
 
 	let leftSection = $state<'files' | 'git' | 'agent'>('files');
 
@@ -260,7 +260,7 @@
 	let EditorComponent = $state<typeof EditorSurface | null>(null);
 	$effect(() => {
 		if (EditorComponent) return;
-		void import('$lib/editor/Editor.svelte').then((module) => {
+		void import('#lib/editor/Editor.svelte').then((module) => {
 			EditorComponent = module.default;
 		});
 	});

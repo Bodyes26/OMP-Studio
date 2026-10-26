@@ -16,7 +16,7 @@
 	import type { RemoteAttachmentTransport } from '../../chat/remoteAttachments.svelte.ts';
 	import { t } from '../../i18n.ts';
 	import { IconArrowUp, IconChevronUp, IconStop } from '../../icons.ts';
-	import { ROLE_HUES } from '$lib/agent/roleHues';
+	import { ROLE_HUES } from '#lib/agent/roleHues.ts';
 	import {
 		commandSuggestions,
 		suggestKeyAction,
@@ -28,21 +28,21 @@
 	} from '../../chat/remoteAttachments.svelte.ts';
 	import ComposerStatusLine from './ComposerStatusLine.svelte';
 	import SuggestTray from './SuggestTray.svelte';
-	import RoleMenu from '$lib/agent/components/RoleMenu.svelte';
+	import RoleMenu from '#lib/agent/components/RoleMenu.svelte';
 	import ComposerAttachments from './ComposerAttachments.svelte';
 	import AttachButton from './AttachButton.svelte';
 	import ContextControl from './ContextControl.svelte';
-	import ComposerEditor from '$lib/agent/components/ComposerEditor.svelte';
-	import { createCommandBadgeElement, type ComposerTrigger } from '$lib/agent/composerDoc';
-	import { THINKING_LEVEL_ITEMS } from '$lib/stores/modelSettingsHelpers';
+	import ComposerEditor from '#lib/agent/components/ComposerEditor.svelte';
+	import { createCommandBadgeElement, type ComposerTrigger } from '#lib/agent/composerDoc.ts';
+	import { THINKING_LEVEL_ITEMS } from '#lib/stores/modelSettingsHelpers.ts';
 
 	// Componenti GUI reali condivisi di Studio Desktop:
-	import ModelPickerList from '$lib/components/models/ModelPickerList.svelte';
-	import ReasoningSlider from '$lib/components/models/ReasoningSlider.svelte';
-	import ThinkingMeter from '$lib/agent/components/ThinkingMeter.svelte';
-	import MenuButton from '$lib/ui/MenuButton.svelte';
-	import ProviderLogo from '$lib/components/models/ProviderLogo.svelte';
-	import { m } from '$lib/paraglide/messages.js';
+	import ModelPickerList from '#lib/components/models/ModelPickerList.svelte';
+	import ReasoningSlider from '#lib/components/models/ReasoningSlider.svelte';
+	import ThinkingMeter from '#lib/agent/components/ThinkingMeter.svelte';
+	import MenuButton from '#lib/ui/MenuButton.svelte';
+	import ProviderLogo from '#lib/components/models/ProviderLogo.svelte';
+	import { m } from '#lib/paraglide/messages.js';
 
 	let {
 		isWorking = false,

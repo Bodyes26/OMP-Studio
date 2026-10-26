@@ -10,8 +10,8 @@
 	 * tinta. Qui si sceglie l'unica cosa che il sistema sa rappresentare, e
 	 * ogni colore mostrato e' esattamente il colore che prendera' la tessera.
 	 */
-	import { PRESET_HUES } from '$lib/stores/projects.svelte';
-	import { IconCheck } from '$lib/icons';
+	import { PRESET_HUES } from '#lib/stores/projects.svelte.ts';
+	import { IconCheck } from '#lib/icons.ts';
 
 	let { hue, mode, autoHue, onhue, onauto } = $props<{
 		/** Tinta scelta a mano, in gradi. */

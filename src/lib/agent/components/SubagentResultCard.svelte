@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { flip } from 'svelte/animate';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	// Tessera per i risultati dei job eseguiti in background (task, bash, eval).
 	// Permette di leggere lo stato, la durata e il sommario di ogni operazione
 	// asincrona tramite il primitivo unificato TaskRow.
@@ -15,7 +15,7 @@
 		type AsyncJobData,
 		type TaskRowModel
 	} from '../taskRow';
-	import { IconFile, IconTerminal } from '$lib/icons';
+	import { IconFile, IconTerminal } from '#lib/icons.ts';
 
 	let { entry }: { entry: SubagentResultEntry } = $props();
 

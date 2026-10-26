@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
-	import { m } from '$lib/paraglide/messages.js';
-	import { IconChevronDown, IconQueue } from '$lib/icons';
-	import StatusMark from '$lib/ui/StatusMark.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { IconChevronDown, IconQueue } from '#lib/icons.ts';
+	import StatusMark from '#lib/ui/StatusMark.svelte';
 	import { Lingering } from '../motionState.svelte';
 	import type { TodoTraceItem } from '../todoTrace';
 

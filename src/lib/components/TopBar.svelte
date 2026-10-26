@@ -1,34 +1,34 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
-	import { projectStore, type Project } from '$lib/stores/projects.svelte';
-	import { projectOrder } from '$lib/stores/projectOrder.svelte';
-	import { taskStore } from '$lib/stores/tasks.svelte';
-	import { settingsStore, type ProjectBarOrder, type SettingsSection } from '$lib/stores/settings.svelte';
-	import { themeStore } from '$lib/stores/theme.svelte';
-	import { automaticProjectHue, THEMES } from '$lib/theme';
+	import { m } from '#lib/paraglide/messages.js';
+	import { projectStore, type Project } from '#lib/stores/projects.svelte.ts';
+	import { projectOrder } from '#lib/stores/projectOrder.svelte.ts';
+	import { taskStore } from '#lib/stores/tasks.svelte.ts';
+	import { settingsStore, type ProjectBarOrder, type SettingsSection } from '#lib/stores/settings.svelte.ts';
+	import { themeStore } from '#lib/stores/theme.svelte.ts';
+	import { automaticProjectHue, THEMES } from '#lib/theme.ts';
 	import { getCurrentWindow } from '@tauri-apps/api/window';
 	import { onMount } from 'svelte';
-	import { trapFocus } from '$lib/focusTrap';
-	import { IS_MAC, IS_WINDOWS } from '$lib/utils/platform';
-	import { quotaStore } from '$lib/stores/quota.svelte';
-	import { activeQuotaStore } from '$lib/stores/activeQuota.svelte';
+	import { trapFocus } from '#lib/focusTrap.ts';
+	import { IS_MAC, IS_WINDOWS } from '#lib/utils/platform.ts';
+	import { quotaStore } from '#lib/stores/quota.svelte.ts';
+	import { activeQuotaStore } from '#lib/stores/activeQuota.svelte.ts';
 	import QuotaChip from './quota/QuotaChip.svelte';
-	import { scheduleStore } from '$lib/stores/schedule.svelte';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
-	import BrandMark from '$lib/ui/BrandMark.svelte';
+	import { scheduleStore } from '#lib/stores/schedule.svelte.ts';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
+	import BrandMark from '#lib/ui/BrandMark.svelte';
 	import ProjectPopover from './ProjectPopover.svelte';
 	import GitDiffBadge from './GitDiffBadge.svelte';
-	import { companionStore } from '$lib/stores/companion.svelte';
-	import { remoteStore } from '$lib/remote/remoteStore.svelte';
-	import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
-	import { perfSpan } from '$lib/perf';
+	import { companionStore } from '#lib/stores/companion.svelte.ts';
+	import { remoteStore } from '#lib/remote/remoteStore.svelte.ts';
+	import { modelSettingsStore } from '#lib/stores/modelSettings.svelte.ts';
+	import { perfSpan } from '#lib/perf.ts';
 	import {
 		gitDiffStore,
 		hasGitChanges,
 		type GitStatusRefreshDetail
-	} from '$lib/stores/gitDiff.svelte';
-	import { githubStore } from '$lib/stores/github.svelte';
-	import { normalizeProjectPath } from '$lib/stores/projects.svelte';
+	} from '#lib/stores/gitDiff.svelte.ts';
+	import { githubStore } from '#lib/stores/github.svelte.ts';
+	import { normalizeProjectPath } from '#lib/stores/projects.svelte.ts';
 	import {
 		IconChevronDown,
 		IconChevronLeft,
@@ -44,16 +44,16 @@
 		IconTrash,
 		IconDownload,
 		IconRemote
-	} from '$lib/icons';
-	import { laneStore } from '$lib/stores/lanes.svelte';
-	import { MAIN_LANE_ID, type ProjectId } from '$lib/types/lanes';
-	import { sessionRegistry } from '$lib/agent/sessionRegistry';
-	import { contextMenu, type ContextMenuEntry } from '$lib/contextMenu.svelte';
-	import { labApi } from '$lib/lab/api';
-	import { openLabEntry, reportLabDeleteFailure } from '$lib/lanes/laneActions';
-	import { deleteLabPrototype } from '$lib/lanes/laneLifecycle';
+	} from '#lib/icons.ts';
+	import { laneStore } from '#lib/stores/lanes.svelte.ts';
+	import { MAIN_LANE_ID, type ProjectId } from '#lib/types/lanes.ts';
+	import { sessionRegistry } from '#lib/agent/sessionRegistry.ts';
+	import { contextMenu, type ContextMenuEntry } from '#lib/contextMenu.svelte.ts';
+	import { labApi } from '#lib/lab/api.ts';
+	import { openLabEntry, reportLabDeleteFailure } from '#lib/lanes/laneActions.ts';
+	import { deleteLabPrototype } from '#lib/lanes/laneLifecycle.ts';
 	import { ask } from '@tauri-apps/plugin-dialog';
-	import { createAdaptivePoller } from '$lib/utils/windowActivity.svelte';
+	import { createAdaptivePoller } from '#lib/utils/windowActivity.svelte.ts';
 
 	let {
 		onUsageClick, onNewProject, onSettingsClick, onSetupClick, onQueueClick,

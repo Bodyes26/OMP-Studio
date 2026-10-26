@@ -8,11 +8,11 @@
     automaticamente senza doppio prompt bloccante.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
-	import { i18n } from '$lib/i18n/i18n.svelte';
-	import { IconSparkles, IconWarning, IconClose, IconInfo } from '$lib/icons';
-	import StatusMark from '$lib/ui/StatusMark.svelte';
-	import type { ResetPromptCandidate } from '$lib/quota/usageResets';
+	import { m } from '#lib/paraglide/messages.js';
+	import { i18n } from '#lib/i18n/i18n.svelte.ts';
+	import { IconSparkles, IconWarning, IconClose, IconInfo } from '#lib/icons.ts';
+	import StatusMark from '#lib/ui/StatusMark.svelte';
+	import type { ResetPromptCandidate } from '#lib/quota/usageResets.ts';
 
 	let {
 		candidate,

@@ -10,13 +10,13 @@
 -->
 <script lang="ts">
 	import { tick } from 'svelte';
-	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale } from '$lib/paraglide/runtime.js';
+	import { m } from '#lib/paraglide/messages.js';
+	import { getLocale } from '#lib/paraglide/runtime.js';
 	import type { SessionBtw } from '../btwState.svelte';
 	import { btwLatestTurn, btwTurns, btwWhen, isBtwRunning, type BtwRecord, type BtwTurn } from '../btw';
 	import { lexMarkdown } from '../markdown';
 	import Markdown from './Markdown.svelte';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
 	import {
 		IconArrowUp,
 		IconAside,
@@ -26,7 +26,7 @@
 		IconHistory,
 		IconPlus,
 		IconQuote
-	} from '$lib/icons';
+	} from '#lib/icons.ts';
 
 	let {
 		btw,

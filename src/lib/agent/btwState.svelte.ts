@@ -5,7 +5,7 @@
 // composer leggono da qui. Le dipendenze arrivano dal costruttore, cosi' i test
 // la esercitano in Node con un `send` finto (le rune sono lo shim identita').
 
-import { m as messages } from '$lib/paraglide/messages.js';
+import { m as messages } from '#lib/paraglide/messages.js';
 import {
 	applyBtwDelta,
 	btwCopyText,

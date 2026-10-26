@@ -4,9 +4,9 @@
 	// Il clic sulla riga espande la disclosure dei dettagli.
 	// L'apertura del transcript avviene esplicitamente dal dettaglio tramite hook.
 	import { agentUiHooks } from '../../ui-context';
-	import { m } from '$lib/paraglide/messages.js';
-	import { IconStop } from '$lib/icons';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { IconStop } from '#lib/icons.ts';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
 	import type { AgentProgress } from '../../wire';
 	import { formatDuration } from '../types';
 	import { agentProgressToTaskRow, type TaskRowModel } from '../../taskRow';

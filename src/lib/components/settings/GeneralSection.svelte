@@ -11,12 +11,12 @@
 		type InterruptMode,
 		type CacheWarmingMode,
 		type LanguagePreference
-	} from '$lib/stores/settings.svelte';
-	import { projectStore } from '$lib/stores/projects.svelte';
-	import { studioUpdaterStore } from '$lib/stores/studioUpdater.svelte';
-	import { m } from '$lib/paraglide/messages.js';
-	import Switch from '$lib/ui/Switch.svelte';
-	import Segmented from '$lib/ui/Segmented.svelte';
+	} from '#lib/stores/settings.svelte.ts';
+	import { projectStore } from '#lib/stores/projects.svelte.ts';
+	import { studioUpdaterStore } from '#lib/stores/studioUpdater.svelte.ts';
+	import { m } from '#lib/paraglide/messages.js';
+	import Switch from '#lib/ui/Switch.svelte';
+	import Segmented from '#lib/ui/Segmented.svelte';
 
 	async function browseProjectRoot() {
 		const sel = await openDialog({ directory: true, defaultPath: projectStore.projectRoot });

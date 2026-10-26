@@ -15,12 +15,12 @@ import {
 	sanitizeSuggestionsCatalog,
 	getFactorySuggestion
 } from './promptSuggestions';
-import type { StreamingBehavior, QueueMode, InterruptMode, CacheWarmingMode } from '$lib/agent/wire';
-import { m as msg } from '$lib/paraglide/messages.js';
+import type { StreamingBehavior, QueueMode, InterruptMode, CacheWarmingMode } from '#lib/agent/wire.ts';
+import { m as msg } from '#lib/paraglide/messages.js';
 import { broadcastToWindows, listenFromWindows } from './windowBridge';
-import type { ComposerLayout, PinnedCommand, ComposerZone, ComposerForm } from '$lib/agent/commandCatalog/types';
+import type { ComposerLayout, PinnedCommand, ComposerZone, ComposerForm } from '#lib/agent/commandCatalog/types.ts';
 
-import { setReducedMotionResolver } from '$lib/agent/motionState.svelte';
+import { setReducedMotionResolver } from '#lib/agent/motionState.svelte.ts';
 /** Annuncio inter-finestra di un salvataggio delle impostazioni. */
 const SETTINGS_CHANGED_EVENT = 'studio-settings-changed';
 

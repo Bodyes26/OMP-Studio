@@ -1,5 +1,5 @@
 <script module lang="ts">
-	export type { ProviderHost } from '$lib/stores/quota.svelte';
+	export type { ProviderHost } from '#lib/stores/quota.svelte.ts';
 
 	// Task programmati dei progetti aperti: il popover dice quanti aspettano
 	// il reset di ciascun provider (Gate R35).
@@ -11,24 +11,24 @@
 </script>
 
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
-	import { i18n } from '$lib/i18n/i18n.svelte';
-	import { rvLift } from '$lib/agent/motion';
-	import { anchoredPopover } from '$lib/anchoredPopover';
-	import { quotaStore, providersMatch, type ProviderHost, type QuotaLimit, type QuotaReport } from '$lib/stores/quota.svelte';
-	import { activeQuotaStore } from '$lib/stores/activeQuota.svelte';
-	import { settingsStore } from '$lib/stores/settings.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { i18n } from '#lib/i18n/i18n.svelte.ts';
+	import { rvLift } from '#lib/agent/motion.ts';
+	import { anchoredPopover } from '#lib/anchoredPopover.ts';
+	import { quotaStore, providersMatch, type ProviderHost, type QuotaLimit, type QuotaReport } from '#lib/stores/quota.svelte.ts';
+	import { activeQuotaStore } from '#lib/stores/activeQuota.svelte.ts';
+	import { settingsStore } from '#lib/stores/settings.svelte.ts';
 	import QuotaLimitRow from './quota/QuotaLimitRow.svelte';
 	import ProviderLogo from './models/ProviderLogo.svelte';
 	import UsageResetCard from './quota/UsageResetCard.svelte';
-	import type { AccountResetSummary, ResetPromptCandidate } from '$lib/quota/usageResets';
-	import { limitTone, dedupeSharedLimits } from '$lib/quota/resolve';
-	import { IconRefresh, IconClose, IconWarning, IconSchedule, IconSparkles } from '$lib/icons';
-	import { scheduleStore } from '$lib/stores/schedule.svelte';
-	import { taskStore } from '$lib/stores/tasks.svelte';
-	import { projectStore } from '$lib/stores/projects.svelte';
-	import StatusMark from '$lib/ui/StatusMark.svelte';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import type { AccountResetSummary, ResetPromptCandidate } from '#lib/quota/usageResets.ts';
+	import { limitTone, dedupeSharedLimits } from '#lib/quota/resolve.ts';
+	import { IconRefresh, IconClose, IconWarning, IconSchedule, IconSparkles } from '#lib/icons.ts';
+	import { scheduleStore } from '#lib/stores/schedule.svelte.ts';
+	import { taskStore } from '#lib/stores/tasks.svelte.ts';
+	import { projectStore } from '#lib/stores/projects.svelte.ts';
+	import StatusMark from '#lib/ui/StatusMark.svelte';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
 
 	let {
 		open = false,

@@ -7,9 +7,9 @@
   alla sessione di pianificazione.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
-	import { IconArrowLeft, IconArrowRight, IconCheck } from '$lib/icons';
-	import { formatTokens } from '$lib/utils/format';
+	import { m } from '#lib/paraglide/messages.js';
+	import { IconArrowLeft, IconArrowRight, IconCheck } from '#lib/icons.ts';
+	import { formatTokens } from '#lib/utils/format.ts';
 	import type { PlanController, PlanHandoffState } from '../planController.svelte';
 	import type { PlanHandoffStepId } from '../planMode';
 

@@ -7,7 +7,7 @@
 	renderer lancia, un campo mancante e' una riga omessa.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	import {
 		IconCheck,
 		IconChevronDown,
@@ -18,12 +18,12 @@
 		IconQueue,
 		IconRefresh,
 		IconWarning
-	} from '$lib/icons';
-	import { projectStore } from '$lib/stores/projects.svelte';
-	import { laneOrchestrator } from '$lib/lanes/laneOrchestrator.svelte';
-	import { agentLanes } from '$lib/lanes/agentLanes.svelte';
-	import { corsiaVerboOf, type AgentLaneState } from '$lib/lanes/agentLaneRoutes';
-	import type { LaneId, ProjectId } from '$lib/types/lanes';
+	} from '#lib/icons.ts';
+	import { projectStore } from '#lib/stores/projects.svelte.ts';
+	import { laneOrchestrator } from '#lib/lanes/laneOrchestrator.svelte.ts';
+	import { agentLanes } from '#lib/lanes/agentLanes.svelte.ts';
+	import { corsiaVerboOf, type AgentLaneState } from '#lib/lanes/agentLaneRoutes.ts';
+	import type { LaneId, ProjectId } from '#lib/types/lanes.ts';
 	import { asRecord, num, recordList, resultText, str, strList, type ToolRenderProps } from '../types';
 
 	let { name, args, result, running }: ToolRenderProps = $props();

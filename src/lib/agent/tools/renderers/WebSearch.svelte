@@ -6,8 +6,8 @@
   e snippet testuali separati da linea neutra (Anti-Nesting Rule).
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
-	import { openExternalUrl } from '$lib/utils/openExternal';
+	import { m } from '#lib/paraglide/messages.js';
+	import { openExternalUrl } from '#lib/utils/openExternal.ts';
 	import MarkdownInline from '../../components/MarkdownInline.svelte';
 	import { lexMarkdownInline } from '../../markdown';
 	import CountBadge from '../parts/CountBadge.svelte';

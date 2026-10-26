@@ -11,7 +11,7 @@ import {
 	isOtherOption
 } from './askAnswers.ts';
 import { asRecord, bool, recordList, str, strList } from './tools/types.ts';
-import { m as msg } from '$lib/paraglide/messages.js';
+import { m as msg } from '#lib/paraglide/messages.js';
 
 export interface AskResultOption {
 	label: string;

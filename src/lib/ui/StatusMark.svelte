@@ -14,8 +14,8 @@
   - Rispetta prefers-reduced-motion e impostazione disattivazione animazioni
 -->
 <script lang="ts">
-	import { IconCheck, IconClose } from '$lib/icons';
-	import { motionReduced } from '$lib/agent/motionState.svelte';
+	import { IconCheck, IconClose } from '#lib/icons.ts';
+	import { motionReduced } from '#lib/agent/motionState.svelte.ts';
 
 	export type StatusMarkType =
 		| 'pending'

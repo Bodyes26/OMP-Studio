@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	import {
 		modelSettingsStore,
 		resolveCatalogModel,
@@ -8,8 +8,8 @@
 		type ModelDto,
 		type RoleSuggestionsResponse,
 		type SuggestedModelItem
-	} from '$lib/stores/modelSettings.svelte';
-	import { splitModelSelector, supportedThinkingLevels } from '$lib/stores/modelSettingsHelpers';
+	} from '#lib/stores/modelSettings.svelte.ts';
+	import { splitModelSelector, supportedThinkingLevels } from '#lib/stores/modelSettingsHelpers.ts';
 	import {
 		IconClose,
 		IconWarning,
@@ -23,9 +23,9 @@
 		IconContextWindow,
 		IconRoleSlow,
 		IconRoleVision
-	} from '$lib/icons';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
-	import StatusMark from '$lib/ui/StatusMark.svelte';
+	} from '#lib/icons.ts';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
+	import StatusMark from '#lib/ui/StatusMark.svelte';
 	import ModelField from './ModelField.svelte';
 	import ReasoningSlider from './ReasoningSlider.svelte';
 	import CycleDrawer from './CycleDrawer.svelte';

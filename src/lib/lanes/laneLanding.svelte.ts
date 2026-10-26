@@ -12,13 +12,13 @@
 // `agentLanes.svelte.ts`: qui arriva solo `land()` per `corsia_integra`.
 
 import { invoke } from '@tauri-apps/api/core';
-import { laneStore } from '$lib/stores/lanes.svelte';
-import { projectStore, type Project } from '$lib/stores/projects.svelte';
-import { sessionRegistry } from '$lib/agent/sessionRegistry';
-import { laneOrchestrator } from '$lib/lanes/laneOrchestrator.svelte';
-import type { ProjectId, LaneId } from '$lib/types/lanes';
-import type { AgentSession } from '$lib/agent/session.svelte';
-import { m } from '$lib/paraglide/messages.js';
+import { laneStore } from '#lib/stores/lanes.svelte.ts';
+import { projectStore, type Project } from '#lib/stores/projects.svelte.ts';
+import { sessionRegistry } from '#lib/agent/sessionRegistry.ts';
+import { laneOrchestrator } from '#lib/lanes/laneOrchestrator.svelte.ts';
+import type { ProjectId, LaneId } from '#lib/types/lanes.ts';
+import type { AgentSession } from '#lib/agent/session.svelte.ts';
+import { m } from '#lib/paraglide/messages.js';
 import { laneBranchDeleteArgs, worktreeErrorMessage } from './laneCleanup';
 import { landingNeedsUserConfirm } from './integrationGate';
 

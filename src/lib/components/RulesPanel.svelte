@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	// Ispettore delle regole di contesto e delle skill dell'agente, piu' le
 	// proposte nate dall'attrito ricorrente nei prompt recenti.
 	//
@@ -19,11 +19,11 @@
 		IconRename,
 		IconRule,
 		IconSkill
-	} from '$lib/icons';
-	import StatusMark from '$lib/ui/StatusMark.svelte';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
-	import { chatReveal } from '$lib/agent/motion';
-	import { rulesStore, type ContextRuleItem, type RuleSuggestion, type SkillItem } from '$lib/stores/rules.svelte';
+	} from '#lib/icons.ts';
+	import StatusMark from '#lib/ui/StatusMark.svelte';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
+	import { chatReveal } from '#lib/agent/motion.ts';
+	import { rulesStore, type ContextRuleItem, type RuleSuggestion, type SkillItem } from '#lib/stores/rules.svelte.ts';
 
 	let {
 		projectPath,

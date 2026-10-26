@@ -11,7 +11,7 @@ import {
 } from '@tauri-apps/plugin-notification';
 import { projectStore } from './projects.svelte';
 import { settingsStore } from './settings.svelte';
-import { m } from '$lib/paraglide/messages.js';
+import { m } from '#lib/paraglide/messages.js';
 
 class NotificationManager {
 	/** Progetti per cui l'utente ha preso visione portando il progetto a fuoco. */

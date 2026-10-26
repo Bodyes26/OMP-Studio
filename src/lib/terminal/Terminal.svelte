@@ -1,12 +1,12 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	import { onMount, onDestroy } from 'svelte';
 	import { TerminalSession, type TerminalAgentState, type TerminalSessionInfo } from './terminal';
-	import { settingsStore } from '$lib/stores/settings.svelte';
-	import { contextMenu, type ContextMenuEntry } from '$lib/contextMenu.svelte';
-	import { IconCopy, IconPaste, IconSelectAll, IconClear, IconStop } from '$lib/icons';
+	import { settingsStore } from '#lib/stores/settings.svelte.ts';
+	import { contextMenu, type ContextMenuEntry } from '#lib/contextMenu.svelte.ts';
+	import { IconCopy, IconPaste, IconSelectAll, IconClear, IconStop } from '#lib/icons.ts';
 	import { TerminalStopControl } from './stopControl.svelte';
-	import { IS_MAC as isMac, MOD_LABEL as mod } from '$lib/utils/platform';
+	import { IS_MAC as isMac, MOD_LABEL as mod } from '#lib/utils/platform.ts';
 	import '@xterm/xterm/css/xterm.css';
 
 	let {

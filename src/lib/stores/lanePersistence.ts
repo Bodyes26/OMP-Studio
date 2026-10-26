@@ -14,8 +14,8 @@ import {
 	type ProjectStack,
 	type ProjectWorktreeProfile,
 	type RestoreMode
-} from '$lib/types/lanes';
-import { m } from '$lib/paraglide/messages.js';
+} from '#lib/types/lanes.ts';
+import { m } from '#lib/paraglide/messages.js';
 
 export const LANE_STORE_SCHEMA_VERSION = 1 as const;
 

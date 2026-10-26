@@ -1,10 +1,10 @@
 <script lang="ts">
 	import type { RemoteContextSnapshot } from '../../../../src/protocol.ts';
-	import ContextPanel from '$lib/agent/components/ContextPanel.svelte';
-	import MenuButton from '$lib/ui/MenuButton.svelte';
-	import { categoryTokenSum, resolveContextWindow } from '$lib/agent/contextReport';
-	import { formatTokens } from '$lib/utils/format';
-	import { m } from '$lib/paraglide/messages.js';
+	import ContextPanel from '#lib/agent/components/ContextPanel.svelte';
+	import MenuButton from '#lib/ui/MenuButton.svelte';
+	import { categoryTokenSum, resolveContextWindow } from '#lib/agent/contextReport.ts';
+	import { formatTokens } from '#lib/utils/format.ts';
+	import { m } from '#lib/paraglide/messages.js';
 
 	let { context, draftTokens = 0, disabled = false, onRefresh, onCompact }: {
 		context: RemoteContextSnapshot;

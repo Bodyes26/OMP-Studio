@@ -1,13 +1,13 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	import { onMount } from 'svelte';
 	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-	import { renderMermaidSvg } from '$lib/mermaidSvg';
-	import { normalizeRoutingPath } from '$lib/agent/laneRouting';
-	import { IconClose, IconZoomIn, IconZoomOut, IconDownload, IconFileImage, IconCheck } from '$lib/icons';
-	import { onThemeChange } from '$lib/theme';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
-	import StatusMark from '$lib/ui/StatusMark.svelte';
+	import { renderMermaidSvg } from '#lib/mermaidSvg.ts';
+	import { normalizeRoutingPath } from '#lib/agent/laneRouting.ts';
+	import { IconClose, IconZoomIn, IconZoomOut, IconDownload, IconFileImage, IconCheck } from '#lib/icons.ts';
+	import { onThemeChange } from '#lib/theme.ts';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
+	import StatusMark from '#lib/ui/StatusMark.svelte';
 
 	let {
 		projectPath,

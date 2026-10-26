@@ -11,8 +11,8 @@
  */
 
 import type { AgentToolResult } from '../wire';
-import { m as msg } from '$lib/paraglide/messages.js';
-import { getLocale } from '$lib/paraglide/runtime.js';
+import { m as msg } from '#lib/paraglide/messages.js';
+import { getLocale } from '#lib/paraglide/runtime.js';
 import {
 	asRecord,
 	extractToolErrorReason,

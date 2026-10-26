@@ -15,8 +15,8 @@
 //    mettono in pausa l'auto-avvio.
 // 5. Soft-cap: dal terzo agente simultaneo la creazione richiede conferma.
 
-import { normalizeProjectPath } from '$lib/utils/paths';
-import { MAIN_LANE_ID, type LaneOrigin, type LaneStatus } from '$lib/types/lanes';
+import { normalizeProjectPath } from '#lib/utils/paths.ts';
+import { MAIN_LANE_ID, type LaneOrigin, type LaneStatus } from '#lib/types/lanes.ts';
 
 /** Agenti simultanei oltre i quali la creazione chiede conferma esplicita. */
 export const CONCURRENCY_SOFT_CAP = 2;

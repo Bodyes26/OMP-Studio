@@ -5,13 +5,13 @@
 	// qui si guardano, si aprono nell'editor per correggerli a mano e si
 	// interrogano. Nessuna proposta da approvare, nessun pulsante per
 	// scrivere: l'unico gesto che parte dall'agente e' l'inizializzazione.
-	import { m } from '$lib/paraglide/messages.js';
-	import { IconFile, IconHistory, IconNote, IconRefresh, IconSend } from '$lib/icons';
-	import StatusMark from '$lib/ui/StatusMark.svelte';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
-	import { chatReveal } from '$lib/agent/motion';
-	import { projectDocsStore } from '$lib/projectDocs/projectDocsStore.svelte';
-	import { PROMPT_LINE_TOKENS, isDefaultDoc, latestEntries, type DocRole } from '$lib/projectDocs/projectDocs';
+	import { m } from '#lib/paraglide/messages.js';
+	import { IconFile, IconHistory, IconNote, IconRefresh, IconSend } from '#lib/icons.ts';
+	import StatusMark from '#lib/ui/StatusMark.svelte';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
+	import { chatReveal } from '#lib/agent/motion.ts';
+	import { projectDocsStore } from '#lib/projectDocs/projectDocsStore.svelte.ts';
+	import { PROMPT_LINE_TOKENS, isDefaultDoc, latestEntries, type DocRole } from '#lib/projectDocs/projectDocs.ts';
 
 	let {
 		projectPath,

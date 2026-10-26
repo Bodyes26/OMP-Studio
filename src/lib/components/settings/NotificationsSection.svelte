@@ -1,10 +1,10 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	import { isPermissionGranted, requestPermission } from '@tauri-apps/plugin-notification';
-	import { settingsStore, type NotificationStyle } from '$lib/stores/settings.svelte';
-	import { notificationManager } from '$lib/stores/notifications.svelte';
-	import AlertBanner from '$lib/components/AlertBanner.svelte';
-	import Switch from '$lib/ui/Switch.svelte';
+	import { settingsStore, type NotificationStyle } from '#lib/stores/settings.svelte.ts';
+	import { notificationManager } from '#lib/stores/notifications.svelte.ts';
+	import AlertBanner from '#lib/components/AlertBanner.svelte';
+	import Switch from '#lib/ui/Switch.svelte';
 
 	let permissionStatus = $state<'granted' | 'denied' | 'default' | 'unknown'>('unknown');
 	let testResult = $state<{ ok: boolean; message: string; diagnostic?: string } | null>(null);

@@ -3,7 +3,7 @@
 // integrazione. Il trasporto (invoke di Tauri) arriva come parametro, cosi'
 // gli smoke test lo sostituiscono con un mock senza caricare il runtime.
 
-import { m } from '$lib/paraglide/messages.js';
+import { m } from '#lib/paraglide/messages.js';
 
 export type LaneCommandInvoker = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
 

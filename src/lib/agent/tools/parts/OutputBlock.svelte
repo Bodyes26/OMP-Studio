@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	// Output monospazio con troncamento: l'output di un tool puo' essere
 	// arbitrariamente lungo e la colonna e' larga ~820px su 1920.
 	// Evita text.split('\n') per non allocare array di stringhe enormi

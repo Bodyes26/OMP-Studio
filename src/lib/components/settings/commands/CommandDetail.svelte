@@ -4,20 +4,20 @@
   badge origine e controlli di posizionamento/fissaggio nel composer.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
-	import type { CommandManifestEntry, CommandPlacement, ComposerLayout, ComposerZone, ComposerForm } from '$lib/agent/commandCatalog/types';
-	import { resolveCommandText } from '$lib/agent/commandCatalog/text';
+	import { m } from '#lib/paraglide/messages.js';
+	import type { CommandManifestEntry, CommandPlacement, ComposerLayout, ComposerZone, ComposerForm } from '#lib/agent/commandCatalog/types.ts';
+	import { resolveCommandText } from '#lib/agent/commandCatalog/text.ts';
 	import CommandIcon from './CommandIcon.svelte';
-	import Switch from '$lib/ui/Switch.svelte';
-	import Segmented from '$lib/ui/Segmented.svelte';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import Switch from '#lib/ui/Switch.svelte';
+	import Segmented from '#lib/ui/Segmented.svelte';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
 	import {
 		IconLock,
 		IconCopy,
 		IconCheck,
 		IconInfo,
 		IconSparkles
-	} from '$lib/icons';
+	} from '#lib/icons.ts';
 
 	let {
 		entry,

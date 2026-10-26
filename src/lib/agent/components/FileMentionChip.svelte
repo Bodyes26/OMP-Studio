@@ -2,7 +2,7 @@
 	// Menzione `@percorso` resa nel punto del testo in cui e' stata scritta.
 	// Stesso aspetto del chip "Editor" in fondo alla bolla, ma inline: sta
 	// dentro la riga e ne segue l'altezza.
-	import { IconFile } from '$lib/icons';
+	import { IconFile } from '#lib/icons.ts';
 	import { baseName } from '../tools/types';
 	import { agentUiHooks } from '../ui-context';
 

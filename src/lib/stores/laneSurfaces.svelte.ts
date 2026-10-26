@@ -14,7 +14,7 @@ import {
 	type LaneDiagramPayload,
 	type LanePreviewPayload,
 	type LaneSurfaceState
-} from '$lib/agent/laneSurfaces';
+} from '#lib/agent/laneSurfaces.ts';
 
 export type {
 	LaneCenterSurface,

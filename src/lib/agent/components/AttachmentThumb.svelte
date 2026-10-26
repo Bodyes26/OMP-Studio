@@ -17,9 +17,9 @@
 	/**
 	 * Miniatura di un allegato (immagine, video o file generico) nella barra del composer.
 	 */
-	import { IconClose, IconPlay } from '$lib/icons';
-	import { formatTokens } from '$lib/utils/format';
-	import { m } from '$lib/paraglide/messages.js';
+	import { IconClose, IconPlay } from '#lib/icons.ts';
+	import { formatTokens } from '#lib/utils/format.ts';
+	import { m } from '#lib/paraglide/messages.js';
 
 	let {
 		attachment,

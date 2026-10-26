@@ -6,10 +6,10 @@
 	 * (uno alla volta, con lock e corsie come sempre), «Lasciali in coda»
 	 * toglie la programmazione e li lascia come task normali.
 	 */
-	import { m } from '$lib/paraglide/messages.js';
-	import { taskStore, type StudioTask } from '$lib/stores/tasks.svelte';
-	import { missedTasks } from '$lib/quota/scheduleQueue';
-	import StatusMark from '$lib/ui/StatusMark.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { taskStore, type StudioTask } from '#lib/stores/tasks.svelte.ts';
+	import { missedTasks } from '#lib/quota/scheduleQueue.ts';
+	import StatusMark from '#lib/ui/StatusMark.svelte';
 
 	let { tasks, compact = false }: { tasks: StudioTask[]; compact?: boolean } = $props();
 

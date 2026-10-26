@@ -1,14 +1,14 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	// Piè del turno dell'agente (Gate R32 - C07).
 	// Mostrato a turno concluso (da messaggio utente ad agent_end):
 	// Copia testo dell'assistente, N chiamate tool, durata, modello, costo totale.
 	// Con modifiche ai file, il bilancio `+N −M` del turno: il clic apre il
 	// diff del primo file toccato (lo stesso diff con HEAD del pannello Git).
-	import { IconCopy, IconCheck, IconFork } from '$lib/icons';
-	import ProviderLogo from '$lib/components/models/ProviderLogo.svelte';
+	import { IconCopy, IconCheck, IconFork } from '#lib/icons.ts';
+	import ProviderLogo from '#lib/components/models/ProviderLogo.svelte';
 	import { formatTokensPerSecond } from '../turnStats';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
 	import { agentUiHooks } from '../ui-context';
 	import type { TurnDiffStats } from '../turnDiff';
 

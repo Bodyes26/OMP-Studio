@@ -6,7 +6,7 @@
   Segnala se l'elenco e' stato troncato a monte dal server tramite EmptyNotice.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	import EmptyNotice from '../parts/EmptyNotice.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
 	import PathChip from '../parts/PathChip.svelte';

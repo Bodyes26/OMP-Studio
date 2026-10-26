@@ -1,5 +1,5 @@
 import { matchesLooseQuery } from '../../looseSearch.ts';
-import { m } from '$lib/paraglide/messages.js';
+import { m } from '#lib/paraglide/messages.js';
 
 /**
  * Rappresentazione unificata di un modello usata da tutti i selettori

@@ -6,11 +6,11 @@
   separati da linea neutra (Anti-Nesting Rule), e l'output testuale in OutputBlock.
 -->
 <script lang="ts">
-	import { openExternalUrl } from '$lib/utils/openExternal';
-	import { m } from '$lib/paraglide/messages.js';
+	import { openExternalUrl } from '#lib/utils/openExternal.ts';
+	import { m } from '#lib/paraglide/messages.js';
 	import KeyValue from '../parts/KeyValue.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
-	import { IconExternalLink } from '$lib/icons';
+	import { IconExternalLink } from '#lib/icons.ts';
 	import {
 		asRecord,
 		recordList,

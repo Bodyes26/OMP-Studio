@@ -4,7 +4,7 @@
  * Ripristina automaticamente il focus all'elemento precedentemente attivo alla chiusura.
  */
 
-import { traceFocus } from '$lib/focusTracer';
+import { traceFocus } from '#lib/focusTracer.ts';
 
 export interface FocusTrapOptions {
 	/** Callback invocata quando l'utente preme il tasto Escape all'interno dell'elemento */

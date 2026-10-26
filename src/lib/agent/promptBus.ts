@@ -6,7 +6,7 @@ import {
 	windowBridgeAvailable,
 	PROMPT_BUS_EVENTS,
 	windowLabel
-} from '$lib/stores/windowBridge.ts';
+} from '#lib/stores/windowBridge.ts';
 
 export type PromptMethod = 'select' | 'confirm' | 'input' | 'editor' | 'ask';
 

@@ -8,17 +8,17 @@ import { parseProjectTasksFile, serializeProjectTasksFile, type StudioTask, type
 import { createDirectiveSnapshot, directiveDisplayName, directiveDisplayDescription } from './taskDirectives';
 import { removeAttentionRequest, upsertAttentionRequest } from './companionAttention';
 import { broadcastToWindows, listenFromWindows } from './windowBridge';
-import type { ImageContent } from '$lib/agent/wire';
-import { m as messages } from '$lib/paraglide/messages.js';
-import { promptBus, type PromptRequest } from '$lib/agent/promptBus';
-import type { PromptAnswer } from '$lib/agent/askAnswers';
+import type { ImageContent } from '#lib/agent/wire.ts';
+import { m as messages } from '#lib/paraglide/messages.js';
+import { promptBus, type PromptRequest } from '#lib/agent/promptBus.ts';
+import type { PromptAnswer } from '#lib/agent/askAnswers.ts';
 import {
 	CompanionConversationError,
 	type CompanionAssistantReference,
 	type CompanionConversationSnapshot,
 	type CompanionConversationTarget,
 	type CompanionConversationFailureCode
-} from '$lib/companion/conversation';
+} from '#lib/companion/conversation.ts';
 interface ConversationHostResponse {
 	correlationId: string;
 	snapshot?: CompanionConversationSnapshot;

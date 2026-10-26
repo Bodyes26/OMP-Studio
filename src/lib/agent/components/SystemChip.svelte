@@ -1,10 +1,10 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	// Riga singola per messaggi di sistema senza tessera propria.
 	// Linguaggio v2: traccia leggera (12.5px, --ink-muted, icona 14px, chevron espandibile).
 	import type { SystemChipEntry } from '../session.svelte';
 	import OutputBlock from '../tools/parts/OutputBlock.svelte';
-	import { IconChevronRight, IconInfo } from '$lib/icons';
+	import { IconChevronRight, IconInfo } from '#lib/icons.ts';
 
 	let { entry, fresh = false }: { entry: SystemChipEntry; fresh?: boolean } = $props();
 

@@ -7,8 +7,8 @@
 	 * con trigger monospazio compatto con ellissi («…»).
 	 */
 	import type { Snippet } from 'svelte';
-	import MenuButton from '$lib/ui/MenuButton.svelte';
-	import { m } from '$lib/paraglide/messages.js';
+	import MenuButton from '#lib/ui/MenuButton.svelte';
+	import { m } from '#lib/paraglide/messages.js';
 
 	let {
 		open = false,

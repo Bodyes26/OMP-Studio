@@ -11,11 +11,11 @@
   7. Accessibilita' APG: dialog modale, trapFocus, navigazione tastiera, contrasti WCAG AA.
 -->
 <script lang="ts">
-	import { unintegratedWarning } from '$lib/lanes/laneCleanup';
+	import { unintegratedWarning } from '#lib/lanes/laneCleanup.ts';
 	import { invoke } from '@tauri-apps/api/core';
-	import { m } from '$lib/paraglide/messages.js';
-	import Dialog from '$lib/ui/Dialog.svelte';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import Dialog from '#lib/ui/Dialog.svelte';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
 	import {
 		IconWarning,
 		IconCheck,
@@ -27,32 +27,32 @@
 		IconRoleCommit,
 		IconTerminal,
 		IconClose
-	} from '$lib/icons';
-	import type { AgentLane, ProjectId } from '$lib/types/lanes';
-	import type { LaneRecord } from '$lib/stores/lanePersistence';
-	import type { Project } from '$lib/stores/projects.svelte';
-	import { laneStore } from '$lib/stores/lanes.svelte';
-	import { sessionRegistry } from '$lib/agent/sessionRegistry';
-	import { laneLanding } from '$lib/lanes/laneLanding.svelte';
+	} from '#lib/icons.ts';
+	import type { AgentLane, ProjectId } from '#lib/types/lanes.ts';
+	import type { LaneRecord } from '#lib/stores/lanePersistence.ts';
+	import type { Project } from '#lib/stores/projects.svelte.ts';
+	import { laneStore } from '#lib/stores/lanes.svelte.ts';
+	import { sessionRegistry } from '#lib/agent/sessionRegistry.ts';
+	import { laneLanding } from '#lib/lanes/laneLanding.svelte.ts';
 	import {
 		deleteWorktreeLane,
 		inspectUnintegratedWork,
 		type LaneUnintegratedLoss
-	} from '$lib/lanes/laneLifecycle';
+	} from '#lib/lanes/laneLifecycle.ts';
 	import {
 		listLaneProcesses,
 		laneProcessesFor,
 		type LaneProcessInfo
-	} from '$lib/lanes/processSupervisor';
+	} from '#lib/lanes/processSupervisor.ts';
 	import {
 		extractCommandEvidence,
 		type CommandEvidence
-	} from '$lib/lanes/commandEvidence';
+	} from '#lib/lanes/commandEvidence.ts';
 	import {
 		evaluateIntegrationGate,
 		type IntegrationGateResult
-	} from '$lib/lanes/integrationGate';
-	import { formatDuration } from '$lib/agent/tools/types';
+	} from '#lib/lanes/integrationGate.ts';
+	import { formatDuration } from '#lib/agent/tools/types.ts';
 
 	export interface ReviewCommitInfo {
 		hash: string;
@@ -338,7 +338,7 @@
 				// montato dalla pagina principale e lo trascinerebbe (editor e worker)
 				// nel bundle iniziale, anche per chi non apre mai una revisione.
 				const { createDiffEditorInstance, applyEditorSettings, languageForFile } =
-					await import('$lib/editor/monaco');
+					await import('#lib/editor/monaco.ts');
 				if (!active) return;
 				if (!container || !filePath) return;
 				cleanupDiff();

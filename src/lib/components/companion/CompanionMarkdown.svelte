@@ -9,15 +9,15 @@
 	// L'inline (grassetto, corsivo, `code`, link) lo rende `MarkdownInline`
 	// della chat: e' lo stesso vocabolario visivo e i suoi ganci hanno
 	// ripieghi innocui fuori dal transcript (`agentUiHooks`).
-	import type { Token, Tokens } from '$lib/agent/markdown';
-	import MarkdownInline from '$lib/agent/components/MarkdownInline.svelte';
-	import SmartTable from '$lib/agent/intelligent-ui/SmartTable.svelte';
-	import CalloutCard from '$lib/agent/intelligent-ui/CalloutCard.svelte';
-	import MetricGrid from '$lib/agent/intelligent-ui/MetricGrid.svelte';
-	import InteractiveTabs from '$lib/agent/intelligent-ui/InteractiveTabs.svelte';
-	import AccordionCard from '$lib/agent/intelligent-ui/AccordionCard.svelte';
-	import ProcessStepper from '$lib/agent/intelligent-ui/ProcessStepper.svelte';
-	import CompareSlider from '$lib/agent/intelligent-ui/CompareSlider.svelte';
+	import type { Token, Tokens } from '#lib/agent/markdown.ts';
+	import MarkdownInline from '#lib/agent/components/MarkdownInline.svelte';
+	import SmartTable from '#lib/agent/intelligent-ui/SmartTable.svelte';
+	import CalloutCard from '#lib/agent/intelligent-ui/CalloutCard.svelte';
+	import MetricGrid from '#lib/agent/intelligent-ui/MetricGrid.svelte';
+	import InteractiveTabs from '#lib/agent/intelligent-ui/InteractiveTabs.svelte';
+	import AccordionCard from '#lib/agent/intelligent-ui/AccordionCard.svelte';
+	import ProcessStepper from '#lib/agent/intelligent-ui/ProcessStepper.svelte';
+	import CompareSlider from '#lib/agent/intelligent-ui/CompareSlider.svelte';
 	import {
 		parseCallout,
 		parseMetricBlock,
@@ -25,7 +25,7 @@
 		parseStepsBlock,
 		parseCompareBlock,
 		parseAccordionBlock
-	} from '$lib/agent/intelligent-ui/parsers';
+	} from '#lib/agent/intelligent-ui/parsers.ts';
 	import CompanionMarkdown from './CompanionMarkdown.svelte';
 
 	let {

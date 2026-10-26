@@ -14,16 +14,16 @@ import {
 	type RemoteArtifact,
 	type RemoteArtifactKind
 } from '$remote-protocol';
-import type { ToolEntry } from '$lib/agent/session.svelte';
-import { asRecord, str } from '$lib/agent/tools/types';
-import { isSvgContent, isSvgFileName } from '$lib/editor/svgSandbox';
+import type { ToolEntry } from '#lib/agent/session.svelte.ts';
+import { asRecord, str } from '#lib/agent/tools/types.ts';
+import { isSvgContent, isSvgFileName } from '#lib/editor/svgSandbox.ts';
 import { RemoteCommandFailure } from './commands';
 
 const encoder = new TextEncoder();
 
 /**
- * Stessa regola di `isMermaidFileName` (`$lib/mermaidSvg`), che qui non si puo'
- * importare: `mermaidSvg` tira dentro `$lib/theme`, che usa `import.meta.glob`
+ * Stessa regola di `isMermaidFileName` (`#lib/mermaidSvg.ts`), che qui non si puo'
+ * importare: `mermaidSvg` tira dentro `#lib/theme.ts`, che usa `import.meta.glob`
  * e non gira nei test su Node.
  */
 function isMermaidPath(path: string): boolean {

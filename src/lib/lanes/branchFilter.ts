@@ -2,8 +2,8 @@
 // Il modulo e' puro: nessun import di icone o componenti Svelte,
 // per poter essere testato negli unit test di Node.
 
-import type { AgentLane } from '$lib/types/lanes';
-import type { LaneRecord } from '$lib/stores/lanePersistence';
+import type { AgentLane } from '#lib/types/lanes.ts';
+import type { LaneRecord } from '#lib/stores/lanePersistence.ts';
 import { invoke } from '@tauri-apps/api/core';
 
 export interface WorktreeBranchEntry {

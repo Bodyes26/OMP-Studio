@@ -1,9 +1,9 @@
 import type { RemoteSessionSnapshot } from '$remote-protocol';
-import type { AgentSession } from '$lib/agent/session.svelte';
-import { sessionRegistry } from '$lib/agent/sessionRegistry';
-import { sessionCompletions } from '$lib/agent/completion.svelte';
+import type { AgentSession } from '#lib/agent/session.svelte.ts';
+import { sessionRegistry } from '#lib/agent/sessionRegistry.ts';
+import { sessionCompletions } from '#lib/agent/completion.svelte.ts';
 import { RemoteCommandFailure } from './commands';
-import { stripEditorContext } from '$lib/editor/editorContextParsing';
+import { stripEditorContext } from '#lib/editor/editorContextParsing.ts';
 
 /** Lo snapshot non ricostruisce il transcript a ogni token: usa gli stati osservati. */
 export function buildRemoteSessionSnapshot(session: AgentSession): RemoteSessionSnapshot {

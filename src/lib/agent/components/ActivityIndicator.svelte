@@ -1,8 +1,8 @@
 <script lang="ts">
 	// Indicatore di attivita dell'agente con StatusMark animato,
 	// label testuale con effetto shimmer e cronometro del tempo trascorso.
-	import { m } from '$lib/paraglide/messages.js';
-	import StatusMark from '$lib/ui/StatusMark.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import StatusMark from '#lib/ui/StatusMark.svelte';
 	import { formatElapsed } from '../tools/types';
 
 	let { startedAt = null, label = null }: { startedAt?: number | null; label?: string | null } = $props();

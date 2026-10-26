@@ -8,7 +8,7 @@
 -->
 <script lang="ts">
 	import { untrack } from 'svelte';
-	import ComposerEditor from '$lib/agent/components/ComposerEditor.svelte';
+	import ComposerEditor from '#lib/agent/components/ComposerEditor.svelte';
 	import { escapeDismiss } from './escapeDismiss';
 
 	interface PromptFieldProps {

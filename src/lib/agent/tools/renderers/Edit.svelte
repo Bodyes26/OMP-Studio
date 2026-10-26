@@ -7,7 +7,7 @@
   e LiveNotice se l'operazione e' in corso.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	import Diff from '../parts/Diff.svelte';
 	import JsonBlock from '../parts/JsonBlock.svelte';
 	import KeyValue from '../parts/KeyValue.svelte';

@@ -1,17 +1,17 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	import { onMount } from 'svelte';
-	import { themeStore } from '$lib/stores/theme.svelte';
+	import { themeStore } from '#lib/stores/theme.svelte.ts';
 	import {
 		settingsStore,
 		type LayoutMode,
 		type QueueViewVariant,
-	} from '$lib/stores/settings.svelte';
-	import { activeQuotaStore } from '$lib/stores/activeQuota.svelte';
-	import { THEME_GROUPS, THEMES, swatchesFor, anchorsFor, type ThemeMode } from '$lib/theme';
-	import { IconCheck, IconSearch, IconClose } from '$lib/icons';
-	import Switch from '$lib/ui/Switch.svelte';
-	import Segmented from '$lib/ui/Segmented.svelte';
+	} from '#lib/stores/settings.svelte.ts';
+	import { activeQuotaStore } from '#lib/stores/activeQuota.svelte.ts';
+	import { THEME_GROUPS, THEMES, swatchesFor, anchorsFor, type ThemeMode } from '#lib/theme.ts';
+	import { IconCheck, IconSearch, IconClose } from '#lib/icons.ts';
+	import Switch from '#lib/ui/Switch.svelte';
+	import Segmented from '#lib/ui/Segmented.svelte';
 	import QuotaChip from '../quota/QuotaChip.svelte';
 	import QuotaLimitRow from '../quota/QuotaLimitRow.svelte';
 	import ProviderLogo from '../models/ProviderLogo.svelte';

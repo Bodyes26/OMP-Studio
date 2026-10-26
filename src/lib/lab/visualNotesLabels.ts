@@ -1,5 +1,5 @@
 // Etichette localizzate del pacchetto note visive (Gate R42).
-import { m } from '$lib/paraglide/messages.js';
+import { m } from '#lib/paraglide/messages.js';
 import type { LabNotesLabels } from './visualNotes';
 
 export function labNotesLabels(): LabNotesLabels {

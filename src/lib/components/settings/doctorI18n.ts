@@ -2,8 +2,8 @@
  * Localizzazione dinamica dei controlli diagnostici di Studio Doctor.
  * Mappa gli ID stabili e le frasi fisse generate dal backend Rust sui messaggi Paraglide.
  */
-import { m } from '$lib/paraglide/messages.js';
-import type { DoctorItem } from '$lib/stores/doctor.svelte';
+import { m } from '#lib/paraglide/messages.js';
+import type { DoctorItem } from '#lib/stores/doctor.svelte.ts';
 
 export function getDoctorCheckName(item: DoctorItem): string {
 	switch (item.id) {

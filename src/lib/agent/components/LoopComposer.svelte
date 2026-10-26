@@ -10,7 +10,7 @@
 	 * l'estensione `studio-loop.ts` in omp: qui si legge `session.loop` e si
 	 * mandano comandi, nessuno stato del loop vive nel componente.
 	 */
-	import type { AgentSession } from '$lib/agent/session.svelte';
+	import type { AgentSession } from '#lib/agent/session.svelte.ts';
 	import {
 		LOOP_LIMIT_PRESETS,
 		draftCommand,
@@ -23,10 +23,10 @@
 		type LoopDraft,
 		type LoopLimitDraft,
 		type LoopState
-	} from '$lib/agent/loopMode';
-	import { IconRepeat, IconChevronDown, IconCheck, IconClose, IconPause, IconPlay, IconStop } from '$lib/icons';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
-	import { m } from '$lib/paraglide/messages.js';
+	} from '#lib/agent/loopMode.ts';
+	import { IconRepeat, IconChevronDown, IconCheck, IconClose, IconPause, IconPlay, IconStop } from '#lib/icons.ts';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
+	import { m } from '#lib/paraglide/messages.js';
 
 	let { session, visible = true } = $props<{ session: AgentSession; visible?: boolean }>();
 

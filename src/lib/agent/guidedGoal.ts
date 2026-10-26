@@ -15,7 +15,7 @@
 // («Stop after N attempts») e Studio lo fa rispettare mettendo in pausa
 // l'obiettivo quando i tentativi lo raggiungono.
 
-import { m } from '$lib/paraglide/messages.js';
+import { m } from '#lib/paraglide/messages.js';
 
 export type GoalFieldKey = 'criteria' | 'verification' | 'cap' | 'boundaries' | 'stop';
 

@@ -3,8 +3,8 @@
 	 * ImageModal — Visualizzatore modale per immagini (Design v2).
 	 * Usa la primitiva Dialog accessibile con testata, rvLift e top-layer nativo.
 	 */
-	import Dialog from '$lib/ui/Dialog.svelte';
-	import { m } from '$lib/paraglide/messages.js';
+	import Dialog from '#lib/ui/Dialog.svelte';
+	import { m } from '#lib/paraglide/messages.js';
 
 	let {
 		data,

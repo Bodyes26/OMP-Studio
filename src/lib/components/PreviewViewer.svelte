@@ -1,14 +1,14 @@
 <script lang="ts">
 	import { untrack, onDestroy } from 'svelte';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	import { invoke } from '@tauri-apps/api/core';
-	import { wrapPrototypeCode } from '$lib/prototype/wrapper';
-	import { buildSandboxedSvgDocument, isSvgFileName, isSvgContent } from '$lib/editor/svgSandbox';
-	import { colorizeCode } from '$lib/agent/markdown';
-	import Segmented from '$lib/ui/Segmented.svelte';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
-	import StatusMark from '$lib/ui/StatusMark.svelte';
-	import { IconCheck, IconClose, IconCopy } from '$lib/icons';
+	import { wrapPrototypeCode } from '#lib/prototype/wrapper.ts';
+	import { buildSandboxedSvgDocument, isSvgFileName, isSvgContent } from '#lib/editor/svgSandbox.ts';
+	import { colorizeCode } from '#lib/agent/markdown.ts';
+	import Segmented from '#lib/ui/Segmented.svelte';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
+	import StatusMark from '#lib/ui/StatusMark.svelte';
+	import { IconCheck, IconClose, IconCopy } from '#lib/icons.ts';
 	import { loadPreview } from './previewLoad';
 	let {
 		projectPath,

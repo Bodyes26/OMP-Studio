@@ -1,21 +1,21 @@
 <script lang="ts">
 	import { flip } from 'svelte/animate';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	import SessionList from './SessionList.svelte';
 	import RulesPanel from './RulesPanel.svelte';
 	import ProjectDocsPanel from './ProjectDocsPanel.svelte';
 	import EmptyState from './EmptyState.svelte';
-	import { taskStore, type AgentView } from '$lib/stores/tasks.svelte';
-	import { rulesStore } from '$lib/stores/rules.svelte';
-	import { settingsStore } from '$lib/stores/settings.svelte';
-	import { isLaneRoutable, type AutomationBlock, type AutomationGate } from '$lib/agent/automationGate';
+	import { taskStore, type AgentView } from '#lib/stores/tasks.svelte.ts';
+	import { rulesStore } from '#lib/stores/rules.svelte.ts';
+	import { settingsStore } from '#lib/stores/settings.svelte.ts';
+	import { isLaneRoutable, type AutomationBlock, type AutomationGate } from '#lib/agent/automationGate.ts';
 	import QueueTaskItem from './QueueTaskItem.svelte';
 	import MissedScheduleBanner from './schedule/MissedScheduleBanner.svelte';
-	import { chatReveal, revealEase } from '$lib/agent/motion';
-	import { motionReduced, Lingering } from '$lib/agent/motionState.svelte';
-	import { IconPlus } from '$lib/icons';
-	import Segmented, { type SegmentedOption } from '$lib/ui/Segmented.svelte';
-	import StatusMark from '$lib/ui/StatusMark.svelte';
+	import { chatReveal, revealEase } from '#lib/agent/motion.ts';
+	import { motionReduced, Lingering } from '#lib/agent/motionState.svelte.ts';
+	import { IconPlus } from '#lib/icons.ts';
+	import Segmented, { type SegmentedOption } from '#lib/ui/Segmented.svelte';
+	import StatusMark from '#lib/ui/StatusMark.svelte';
 
 	let {
 		projectPath,

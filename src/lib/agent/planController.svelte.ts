@@ -6,8 +6,8 @@
 // fatto con i comandi RPC che Studio usa gia': `new_session`, `compact`,
 // `set_model`, `prompt`, e le corsie del `laneOrchestrator` per la strada worktree.
 
-import { m as messages } from '$lib/paraglide/messages.js';
-import { parseRoleSelector } from '$lib/stores/modelSettingsHelpers';
+import { m as messages } from '#lib/paraglide/messages.js';
+import { parseRoleSelector } from '#lib/stores/modelSettingsHelpers.ts';
 import type { AgentSession, PlanEntry, ToolEntry, UserEntry } from './session.svelte';
 import type { ThinkingLevel } from './wire';
 import {
@@ -103,7 +103,7 @@ async function loadRoleSource(): Promise<PlanRoleSource | null> {
 	if (roleSource) return roleSource;
 	try {
 		// Import differito: lo store delle impostazioni porta con se' Tauri e le icone.
-		const { modelSettingsStore } = await import('$lib/stores/modelSettings.svelte');
+		const { modelSettingsStore } = await import('#lib/stores/modelSettings.svelte.ts');
 		roleSource = {
 			ensureLoaded: () => modelSettingsStore.ensureLoaded(),
 			roles: () => modelSettingsStore.config?.modelRoles ?? modelSettingsStore.draftConfig?.modelRoles ?? {},

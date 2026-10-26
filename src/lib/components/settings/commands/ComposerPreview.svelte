@@ -9,26 +9,26 @@
   - Rimozione tramite pulsante × o trascinamento all'esterno.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	import type {
 		ComposerLayout,
 		PinnedCommand,
 		ComposerZone,
 		ComposerForm,
 		CommandManifestEntry
-	} from '$lib/agent/commandCatalog/types';
+	} from '#lib/agent/commandCatalog/types.ts';
 	import {
 		itemsInZone,
 		partitionToolbar,
 		suggestedPlacement,
 		type Manifest
-	} from '$lib/agent/commandCatalog/layout';
-	import { resolveCommandText } from '$lib/agent/commandCatalog/text';
+	} from '#lib/agent/commandCatalog/layout.ts';
+	import { resolveCommandText } from '#lib/agent/commandCatalog/text.ts';
 	import CommandIcon from './CommandIcon.svelte';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
 	import { flip } from 'svelte/animate';
 	import { scale } from 'svelte/transition';
-	import { motionReduced } from '$lib/agent/motionState.svelte';
+	import { motionReduced } from '#lib/agent/motionState.svelte.ts';
 	import {
 		IconClose,
 		IconLock,
@@ -40,7 +40,7 @@
 		IconAside,
 		IconChevronUp,
 		IconGrip
-	} from '$lib/icons';
+	} from '#lib/icons.ts';
 
 	let {
 		layout,

@@ -3,7 +3,7 @@
 	 * Indicatore grafico a barre per il livello di reasoning / thinking.
 	 * 5 barre di altezza crescente (da 5px a 12px).
 	 */
-	import type { ThinkingLevel } from '$lib/agent/wire';
+	import type { ThinkingLevel } from '#lib/agent/wire.ts';
 
 	let {
 		level = 'off',

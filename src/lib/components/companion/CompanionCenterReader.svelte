@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { tick } from 'svelte';
-	import { m } from '$lib/paraglide/messages.js';
-	import { lexMarkdown } from '$lib/agent/markdown';
-	import StatusMark, { type StatusMarkType } from '$lib/ui/StatusMark.svelte';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { lexMarkdown } from '#lib/agent/markdown.ts';
+	import StatusMark, { type StatusMarkType } from '#lib/ui/StatusMark.svelte';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
 	import {
 		IconArrowDown,
 		IconArrowLeft,
@@ -13,18 +13,18 @@
 		IconCircleAlert,
 		IconClose,
 		IconPlus
-	} from '$lib/icons';
-	import ComposerEditor from '$lib/agent/components/ComposerEditor.svelte';
-	import SuggestPanel, { type SuggestionItem } from '$lib/agent/components/SuggestPanel.svelte';
-	import { createCommandBadgeElement, createFileBadgeElement, type ComposerTrigger } from '$lib/agent/composerDoc';
-	import { computeCaretAnchorLeft, loadProjectFiles, rankFileCandidates } from '$lib/agent/fileMention';
-	import { SUGGEST_WIDTH, fileSuggestions } from '$lib/agent/suggestItems';
-	import { settingsStore } from '$lib/stores/settings.svelte';
-	import { directiveDisplayName } from '$lib/stores/taskDirectives';
-	import type { Project } from '$lib/stores/projects.svelte';
-	import { companionStore, type AttentionRequest } from '$lib/stores/companion.svelte';
-	import ProviderLogo from '$lib/components/models/ProviderLogo.svelte';
-	import type { ConversationViewState } from '$lib/companion/companionPresentation';
+	} from '#lib/icons.ts';
+	import ComposerEditor from '#lib/agent/components/ComposerEditor.svelte';
+	import SuggestPanel, { type SuggestionItem } from '#lib/agent/components/SuggestPanel.svelte';
+	import { createCommandBadgeElement, createFileBadgeElement, type ComposerTrigger } from '#lib/agent/composerDoc.ts';
+	import { computeCaretAnchorLeft, loadProjectFiles, rankFileCandidates } from '#lib/agent/fileMention.ts';
+	import { SUGGEST_WIDTH, fileSuggestions } from '#lib/agent/suggestItems.ts';
+	import { settingsStore } from '#lib/stores/settings.svelte.ts';
+	import { directiveDisplayName } from '#lib/stores/taskDirectives.ts';
+	import type { Project } from '#lib/stores/projects.svelte.ts';
+	import { companionStore, type AttentionRequest } from '#lib/stores/companion.svelte.ts';
+	import ProviderLogo from '#lib/components/models/ProviderLogo.svelte';
+	import type { ConversationViewState } from '#lib/companion/companionPresentation.ts';
 	import type { CompanionAskHandlers } from './companionAsk';
 	import CompanionAskBody from './CompanionAskBody.svelte';
 	import CompanionMarkdown from './CompanionMarkdown.svelte';

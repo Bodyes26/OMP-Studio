@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
-	import { m } from '$lib/paraglide/messages.js';
-	import { IconChevronDown, IconSubagents } from '$lib/icons';
-	import StatusMark from '$lib/ui/StatusMark.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { IconChevronDown, IconSubagents } from '#lib/icons.ts';
+	import StatusMark from '#lib/ui/StatusMark.svelte';
 	import { Lingering } from '../motionState.svelte';
 	import { agentUiHooks } from '../ui-context';
 	import type { ToolEntry } from '../session.svelte';

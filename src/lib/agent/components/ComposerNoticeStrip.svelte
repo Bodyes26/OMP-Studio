@@ -4,10 +4,10 @@
 	 * composer. Sta fuori dal flusso: comparire e sparire non sposta il transcript
 	 * e non toglie l'hero di una chat vuota.
 	 */
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	import type { AgentSession, ComposerNotice } from '../session.svelte';
 	import { Lingering, ROW_EXIT_MS } from '../motionState.svelte';
-	import { IconInfo, IconWarning, IconStatusFailed, IconClose } from '$lib/icons';
+	import { IconInfo, IconWarning, IconStatusFailed, IconClose } from '#lib/icons.ts';
 
 	let { session }: { session: AgentSession } = $props();
 

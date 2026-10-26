@@ -1,8 +1,8 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
-	import { contextMenu, type ContextMenuItem } from '$lib/contextMenu.svelte';
-	import { anchoredPopover, type AnchoredOptions } from '$lib/anchoredPopover';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { contextMenu, type ContextMenuItem } from '#lib/contextMenu.svelte.ts';
+	import { anchoredPopover, type AnchoredOptions } from '#lib/anchoredPopover.ts';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
 
 	let menuEl = $state<HTMLElement | null>(null);
 

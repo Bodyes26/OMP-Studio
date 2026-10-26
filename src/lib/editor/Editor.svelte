@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	import { onDestroy } from 'svelte';
 	import * as monaco from 'monaco-editor';
 	import {
@@ -16,21 +16,21 @@
 		getAttachedLines,
 		dissolveChangedLines
 	} from './monaco';
-	import { registerSnapshot, pendingSwitch, switchSnapshot, dissolve } from '$lib/switchDissolve';
-	import { perfSpan } from '$lib/perf';
-	import { settingsStore } from '$lib/stores/settings.svelte';
+	import { registerSnapshot, pendingSwitch, switchSnapshot, dissolve } from '#lib/switchDissolve.ts';
+	import { perfSpan } from '#lib/perf.ts';
+	import { settingsStore } from '#lib/stores/settings.svelte.ts';
 	import ImageViewer from './ImageViewer.svelte';
 	import SvgPreview from './SvgPreview.svelte';
-	import Markdown from '$lib/agent/components/Markdown.svelte';
-	import Segmented, { type SegmentedOption } from '$lib/ui/Segmented.svelte';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
-	import StatusMark from '$lib/ui/StatusMark.svelte';
-	import { lexMarkdown } from '$lib/agent/markdown';
-	import { projectStore, joinProjectPath, isWindows } from '$lib/stores/projects.svelte';
-	import { IS_MAC, REVEAL_LABEL } from '$lib/utils/platform';
+	import Markdown from '#lib/agent/components/Markdown.svelte';
+	import Segmented, { type SegmentedOption } from '#lib/ui/Segmented.svelte';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
+	import StatusMark from '#lib/ui/StatusMark.svelte';
+	import { lexMarkdown } from '#lib/agent/markdown.ts';
+	import { projectStore, joinProjectPath, isWindows } from '#lib/stores/projects.svelte.ts';
+	import { IS_MAC, REVEAL_LABEL } from '#lib/utils/platform.ts';
 	import { invoke } from '@tauri-apps/api/core';
 	import { revealItemInDir } from '@tauri-apps/plugin-opener';
-	import { contextMenu, type ContextMenuEntry } from '$lib/contextMenu.svelte';
+	import { contextMenu, type ContextMenuEntry } from '#lib/contextMenu.svelte.ts';
 	import {
 		IconChevronLeft,
 		IconChevronRight,
@@ -50,7 +50,7 @@
 		IconViewSplit,
 		IconZoomIn,
 		IconZoomOut
-	} from '$lib/icons';
+	} from '#lib/icons.ts';
 
 	let {
 		projectPath,

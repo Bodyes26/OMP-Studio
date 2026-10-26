@@ -17,15 +17,15 @@ import {
 	laneId,
 	type LaneId,
 	type ProjectId
-} from '$lib/types/lanes';
-import { laneStore } from '$lib/stores/lanes.svelte';
-import type { LaneRecord } from '$lib/stores/lanePersistence';
-import { projectStore, type Project } from '$lib/stores/projects.svelte';
-import { sessionRegistry } from '$lib/agent/sessionRegistry';
+} from '#lib/types/lanes.ts';
+import { laneStore } from '#lib/stores/lanes.svelte.ts';
+import type { LaneRecord } from '#lib/stores/lanePersistence.ts';
+import { projectStore, type Project } from '#lib/stores/projects.svelte.ts';
+import { sessionRegistry } from '#lib/agent/sessionRegistry.ts';
 import { laneOrchestrator } from './laneOrchestrator.svelte';
 import { openLabEntry } from './laneActions';
-import { labApi } from '$lib/lab/api';
-import { m } from '$lib/paraglide/messages.js';
+import { labApi } from '#lib/lab/api.ts';
+import { m } from '#lib/paraglide/messages.js';
 import {
 	fetchUnintegratedLoss,
 	laneBranchDeleteArgs,
@@ -367,7 +367,7 @@ export async function deleteWorktreeLane(
 async function stopLabWatch(ownerProjectId: string, targetLaneId: string): Promise<void> {
 	// Caricamento dinamico: evita che l'albero di TopBar.svelte trascini
 	// il runtime del Laboratorio prima dell'uso effettivo di una corsia Lab.
-	const { disposeLabRuntime } = await import('$lib/lab/runtime.svelte');
+	const { disposeLabRuntime } = await import('#lib/lab/runtime.svelte.ts');
 	await disposeLabRuntime(ownerProjectId, targetLaneId).catch(() => undefined);
 	await labApi.watchStop(`${ownerProjectId}:${targetLaneId}`).catch(() => undefined);
 }

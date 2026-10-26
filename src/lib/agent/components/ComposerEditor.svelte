@@ -13,10 +13,10 @@
 		type ComposerSegment,
 		type ComposerTrigger,
 		type ComposerTriggerKind
-	} from '$lib/agent/composerDoc';
-	import { isImeComposing } from '$lib/agent/askFocus';
-	import { choosePasteContent } from '$lib/agent/composerSubmit';
-	import { m } from '$lib/paraglide/messages.js';
+	} from '#lib/agent/composerDoc.ts';
+	import { isImeComposing } from '#lib/agent/askFocus.ts';
+	import { choosePasteContent } from '#lib/agent/composerSubmit.ts';
+	import { m } from '#lib/paraglide/messages.js';
 
 	// Testo prima del caret che apre ciascuna palette: il carattere a inizio
 	// testo o dopo uno spazio, cosi' un / dentro un percorso o un # dentro una

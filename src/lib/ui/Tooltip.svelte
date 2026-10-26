@@ -18,7 +18,7 @@
 	 * - Stile basato su token di sistema: --bg-raised, --ink, --radius-md, --z-tooltip.
 	 */
 	import type { Snippet } from 'svelte';
-	import { anchoredPopover, type AnchorPlacement } from '$lib/anchoredPopover';
+	import { anchoredPopover, type AnchorPlacement } from '#lib/anchoredPopover.ts';
 
 	let {
 		text,

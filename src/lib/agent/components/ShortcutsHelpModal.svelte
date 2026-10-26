@@ -3,12 +3,12 @@
 	 * ShortcutsHelpModal — Guida completa alle scorciatoie da tastiera (Design v2).
 	 * Usa la primitiva Dialog accessibile con testata, ricerca rapida e top-layer.
 	 */
-	import { m } from '$lib/paraglide/messages.js';
-	import Dialog from '$lib/ui/Dialog.svelte';
-	import { shortcutsModalStore } from '$lib/stores/shortcutsModal.svelte';
-	import { IconClose, IconKeyboard, IconSearch } from '$lib/icons';
-	import { IS_MAC } from '$lib/utils/platform';
-	import { letterChordLabel } from '$lib/agent/composerShortcuts';
+	import { m } from '#lib/paraglide/messages.js';
+	import Dialog from '#lib/ui/Dialog.svelte';
+	import { shortcutsModalStore } from '#lib/stores/shortcutsModal.svelte.ts';
+	import { IconClose, IconKeyboard, IconSearch } from '#lib/icons.ts';
+	import { IS_MAC } from '#lib/utils/platform.ts';
+	import { letterChordLabel } from '#lib/agent/composerShortcuts.ts';
 
 	// Scorciatoie a lettera del composer: Alt su Windows/Linux, Ctrl+Opzione su
 	// Mac, dove Opzione da sola scrive caratteri (€ ç ñ).

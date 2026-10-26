@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { QuotaTone } from '$lib/quota/resolve';
+	import type { QuotaTone } from '#lib/quota/resolve.ts';
 
 	let {
 		label = '',

@@ -6,7 +6,7 @@
   e gli eventuali errori di parsing.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	import CountBadge from '../parts/CountBadge.svelte';
 	import KeyValue from '../parts/KeyValue.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';

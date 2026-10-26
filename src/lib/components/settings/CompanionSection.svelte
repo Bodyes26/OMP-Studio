@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
-	import { settingsStore, type CompanionSpotlightDismiss } from '$lib/stores/settings.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { settingsStore, type CompanionSpotlightDismiss } from '#lib/stores/settings.svelte.ts';
 
 	const SPOTLIGHT_OPTIONS: {
 		id: CompanionSpotlightDismiss;

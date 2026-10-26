@@ -5,10 +5,10 @@
 </script>
 
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	import { lexMarkdown } from '../markdown';
 	import Markdown from './Markdown.svelte';
-	import { IconChevronRight } from '$lib/icons';
+	import { IconChevronRight } from '#lib/icons.ts';
 
 	let {
 		text = '',

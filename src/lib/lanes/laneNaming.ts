@@ -9,11 +9,11 @@
 //    sintetizzati una tantum a partire dal summary all'apertura della corsia.
 
 import { invoke } from '@tauri-apps/api/core';
-import { projectStore } from '$lib/stores/projects.svelte';
-import { laneStore } from '$lib/stores/lanes.svelte';
-import { labApi } from '$lib/lab/api';
-import { syncLabTitle } from '$lib/lanes/laneActions';
-import { MAIN_LANE_ID, type LaneId, type ProjectId } from '$lib/types/lanes';
+import { projectStore } from '#lib/stores/projects.svelte.ts';
+import { laneStore } from '#lib/stores/lanes.svelte.ts';
+import { labApi } from '#lib/lab/api.ts';
+import { syncLabTitle } from '#lib/lanes/laneActions.ts';
+import { MAIN_LANE_ID, type LaneId, type ProjectId } from '#lib/types/lanes.ts';
 
 export { LANE_TITLE_MAX, isPlaceholderLaneTitle } from './laneTitle';
 import { LANE_TITLE_MAX, isPlaceholderLaneTitle } from './laneTitle';

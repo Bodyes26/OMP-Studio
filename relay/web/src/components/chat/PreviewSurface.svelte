@@ -7,9 +7,9 @@
 -->
 <script lang="ts">
 	import { t } from '../../i18n.ts';
-	import { buildSandboxedSvgDocument } from '$lib/editor/svgSandbox';
-	import PanZoom from '$lib/ui/PanZoom.svelte';
-	import MermaidDiagram from '$lib/agent/components/MermaidDiagram.svelte';
+	import { buildSandboxedSvgDocument } from '#lib/editor/svgSandbox.ts';
+	import PanZoom from '#lib/ui/PanZoom.svelte';
+	import MermaidDiagram from '#lib/agent/components/MermaidDiagram.svelte';
 	import {
 		IconClose,
 		IconChevronLeft,

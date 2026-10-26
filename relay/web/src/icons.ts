@@ -71,5 +71,5 @@ export { default as IconViewPreview } from '@lucide/svelte/icons/eye';
 export { default as IconWorkflow } from '@lucide/svelte/icons/workflow';
 
 // Loghi provider di inferenza
-export { default as ProviderLogo } from '$lib/components/models/ProviderLogo.svelte';
+export { default as ProviderLogo } from '#lib/components/models/ProviderLogo.svelte';
 

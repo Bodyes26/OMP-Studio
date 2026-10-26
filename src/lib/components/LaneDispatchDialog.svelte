@@ -9,12 +9,12 @@
 	//    e le corsie con un processo omp ancora vivo prima di confermare.
 	// 3. Cleanup bloccato: la corsia ha processi vivi; l'unica via avanti e'
 	//    arrestarli esplicitamente.
-	import { m } from '$lib/paraglide/messages.js';
-	import Dialog from '$lib/ui/Dialog.svelte';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
-	import { IconClose, IconWarning, IconPlus, IconGitBranch } from '$lib/icons';
-	import type { ConcurrencyWarning } from '$lib/lanes/queueDispatch';
-	import { describeLaneProcess, type LaneProcessInfo } from '$lib/lanes/processSupervisor';
+	import { m } from '#lib/paraglide/messages.js';
+	import Dialog from '#lib/ui/Dialog.svelte';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
+	import { IconClose, IconWarning, IconPlus, IconGitBranch } from '#lib/icons.ts';
+	import type { ConcurrencyWarning } from '#lib/lanes/queueDispatch.ts';
+	import { describeLaneProcess, type LaneProcessInfo } from '#lib/lanes/processSupervisor.ts';
 
 	let {
 		open = false,

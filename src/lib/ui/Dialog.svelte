@@ -10,10 +10,10 @@
 -->
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import { trapFocus, type FocusTrapOptions } from '$lib/focusTrap';
-	import { rvLift } from '$lib/agent/motion';
-	import { IconClose } from '$lib/icons';
-	import { m } from '$lib/paraglide/messages.js';
+	import { trapFocus, type FocusTrapOptions } from '#lib/focusTrap.ts';
+	import { rvLift } from '#lib/agent/motion.ts';
+	import { IconClose } from '#lib/icons.ts';
+	import { m } from '#lib/paraglide/messages.js';
 
 	export interface DialogProps {
 		open?: boolean;

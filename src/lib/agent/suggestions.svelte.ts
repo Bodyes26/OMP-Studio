@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import { settingsStore } from '$lib/stores/settings.svelte';
+import { settingsStore } from '#lib/stores/settings.svelte.ts';
 import type { AgentSession, TranscriptEntry } from './session.svelte';
 
 /**

@@ -9,7 +9,7 @@
  *    non esiste nessun ripiego silenzioso.
  */
 
-import { m as msg } from '$lib/paraglide/messages.js';
+import { m as msg } from '#lib/paraglide/messages.js';
 import type { AskDialogAnswer } from './wire';
 
 /**

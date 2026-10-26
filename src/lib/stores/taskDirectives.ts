@@ -8,7 +8,7 @@
  * - Un task memorizza uno snapshot immutabile delle direttive attive al momento della creazione/modifica.
  */
 
-import { m } from '$lib/paraglide/messages.js';
+import { m } from '#lib/paraglide/messages.js';
 export type DirectivePlacement = 'before' | 'after';
 export type FactoryDirectiveKey = 'plan' | 'discussion' | 'minimal' | 'research';
 

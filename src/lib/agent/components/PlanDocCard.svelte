@@ -7,10 +7,10 @@
   approvazione. Dopo la decisione la card resta come documento in sola lettura.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	import { tick } from 'svelte';
-	import { IconClose, IconComment, IconExternalLink, IconPencil, IconPlan, IconTrash, IconUndo } from '$lib/icons';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import { IconClose, IconComment, IconExternalLink, IconPencil, IconPlan, IconTrash, IconUndo } from '#lib/icons.ts';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
 	import { lexMarkdown } from '../markdown';
 	import { agentUiHooks } from '../ui-context';
 	import type { PlanController, PlanDocState } from '../planController.svelte';

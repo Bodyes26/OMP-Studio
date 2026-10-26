@@ -5,7 +5,7 @@
  * l'agente con il tool `project_docs`, o l'utente a mano nell'editor.
  */
 import { invoke } from '@tauri-apps/api/core';
-import { settingsStore } from '$lib/stores/settings.svelte';
+import { settingsStore } from '#lib/stores/settings.svelte.ts';
 import {
 	DOC_ROLES,
 	MANIFEST_REL,

@@ -1,15 +1,15 @@
-import { attachEditorContext, splitMessageAndEditorContext, stripEditorContext } from '$lib/editor/editorContext';
+import { attachEditorContext, splitMessageAndEditorContext, stripEditorContext } from '#lib/editor/editorContext.ts';
 import { invoke } from '@tauri-apps/api/core';
 import { orchestratePromptPreflight, type PromptPreflightDeps } from './promptPreflight';
-import { settingsStore } from '$lib/stores/settings.svelte';
-import { formatTokens } from '$lib/utils/format';
-import { traceAgent } from '$lib/focusTracer';
-import { notifyGitStatusRefresh } from '$lib/stores/gitDiff.svelte';
-import { nameExistingPrototypeIfLong, nameLaneFromPrompt } from '$lib/lanes/laneNaming';
-import { projectStore } from '$lib/stores/projects.svelte';
-import { perfMark, perfSpan } from '$lib/perf';
-import { studioLog } from '$lib/diagnostics/studioLog';
-import { generateSessionTitle } from '$lib/stores/sessionTitles';
+import { settingsStore } from '#lib/stores/settings.svelte.ts';
+import { formatTokens } from '#lib/utils/format.ts';
+import { traceAgent } from '#lib/focusTracer.ts';
+import { notifyGitStatusRefresh } from '#lib/stores/gitDiff.svelte.ts';
+import { nameExistingPrototypeIfLong, nameLaneFromPrompt } from '#lib/lanes/laneNaming.ts';
+import { projectStore } from '#lib/stores/projects.svelte.ts';
+import { perfMark, perfSpan } from '#lib/perf.ts';
+import { studioLog } from '#lib/diagnostics/studioLog.ts';
+import { generateSessionTitle } from '#lib/stores/sessionTitles.ts';
 import {
 	agentHeadsUp,
 	buildTurnDigest,
@@ -25,8 +25,8 @@ import {
 	type TurnHeadsUp
 } from './turnHeadsUp';
 import type { RemoteChatEvent } from '$remote-protocol';
-import { entryToRemoteMessage, remoteMessageId } from '$lib/remote/chatProjection';
-import { remoteStore } from '$lib/remote/remoteStore.svelte';
+import { entryToRemoteMessage, remoteMessageId } from '#lib/remote/chatProjection.ts';
+import { remoteStore } from '#lib/remote/remoteStore.svelte.ts';
 import { sessionCompletions } from './completion.svelte';
 import { observeSessionJobs, finishSessionJobs, type SessionJob } from './jobActivity';
 
@@ -38,13 +38,13 @@ let firstComposerReadyMarked = false;
 // Studio, non di omp: e' quello che permette a replay e diretta di passare
 // dallo stesso rendering (`ricerca/TOOL-DETAILS.md`).
 
-import { isAllowedExternalUrl } from '$lib/utils/externalUrl';
-import { openExternalUrl } from '$lib/utils/openExternal';
+import { isAllowedExternalUrl } from '#lib/utils/externalUrl.ts';
+import { openExternalUrl } from '#lib/utils/openExternal.ts';
 import { OmpRpcClient } from './client';
 import { isMissingSessionError, parseUnavailableResumeModel } from './resumeErrors';
-import { laneStore } from '$lib/stores/lanes.svelte';
-import type { LaneId, ProjectId } from '$lib/types/lanes';
-import { splitModelSelector } from '$lib/stores/modelSettingsHelpers';
+import { laneStore } from '#lib/stores/lanes.svelte.ts';
+import type { LaneId, ProjectId } from '#lib/types/lanes.ts';
+import { splitModelSelector } from '#lib/stores/modelSettingsHelpers.ts';
 import { handOffPrewalk, isPrewalkHandOff, parsePrewalkNotice, reducePrewalkNotice, type PrewalkState } from './prewalk';
 import {
 	normalizePromptAnswer,
@@ -57,12 +57,12 @@ import { canRestorePrompt, promptBus, type PromptRequest } from './promptBus';
 import { laneSessionKey } from './sessionKeys';
 import { SessionSuggestions } from './suggestions.svelte';
 import { askQuestionText } from './askTitle';
-import type { RecentChatMessage } from '$lib/stores/companion.svelte';
+import type { RecentChatMessage } from '#lib/stores/companion.svelte.ts';
 import {
 	ACTIVITY_MAX_CHARS,
 	RECENT_MESSAGE_MAX_CHARS,
 	tailOfText
-} from '$lib/stores/companionText';
+} from '#lib/stores/companionText.ts';
 import type { GuiGateSnapshot } from './automationGate';
 import {
 	reduceExtensionUi,
@@ -128,7 +128,7 @@ import {
 	type GoalFieldKey,
 	type GoalInterview
 } from './guidedGoal';
-import { getLocale } from '$lib/paraglide/runtime.js';
+import { getLocale } from '#lib/paraglide/runtime.js';
 import {
 	RENDER_WINDOW,
 	clampVisibleCount,
@@ -179,8 +179,8 @@ import {
 } from './compactMode';
 import { generationMs } from './turnStats';
 import type { CacheWarmingInFlight, CacheWarmingLast } from './sessionModes';
-import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
-import { computeQuotaInfo } from '$lib/quota/projectQuota';
+import { modelSettingsStore } from '#lib/stores/modelSettings.svelte.ts';
+import { computeQuotaInfo } from '#lib/quota/projectQuota.ts';
 import {
 	type BlockedQuotaState,
 	classifyFailureReason,
@@ -230,7 +230,7 @@ import {
 	latestPromptCacheObservation,
 	type PromptCacheObservation
 } from './promptCache';
-import { m as messages } from '$lib/paraglide/messages.js';
+import { m as messages } from '#lib/paraglide/messages.js';
 import { PlanController } from './planController.svelte';
 import { PLAN_STATUS_KEY, parsePlanReviewRequest, reanchorEntries } from './planMode';
 import { SessionBtw } from './btwState.svelte';

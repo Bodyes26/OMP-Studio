@@ -220,7 +220,7 @@ if (jsonMode) {
 	console.log(`  - Grafica di contesto / indicatori:   \x1b[37m${visualGraphicSvgs.length}\x1b[0m (anelli radiali, badge linguaggi, controlli OS)`);
 
 	if (actionCandidateSvgs.length > 0) {
-		console.log('\n\x1b[1mTop candidati per aggiornamento a standard alta qualità ($lib/icons):\x1b[0m');
+		console.log('\n\x1b[1mTop candidati per aggiornamento a standard alta qualità (#lib/icons.ts):\x1b[0m');
 		for (const cand of actionCandidateSvgs) {
 			const hintStr = cand.hint ? `\x1b[32m[Suggerito: ${cand.hint}]\x1b[0m` : '';
 			console.log(`  • ${cand.file}:${cand.line} ${hintStr}`);

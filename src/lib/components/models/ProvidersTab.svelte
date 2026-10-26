@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
-	import { i18n } from '$lib/i18n/i18n.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { i18n } from '#lib/i18n/i18n.svelte.ts';
 	import {
 		modelSettingsStore,
 		isAuthAccountActive,
@@ -8,7 +8,7 @@
 		OAUTH_PROVIDER_ALIASES,
 		type ProviderSummary,
 		type AuthAccount
-	} from '$lib/stores/modelSettings.svelte';
+	} from '#lib/stores/modelSettings.svelte.ts';
 	import {
 		IconClose,
 		IconPlus,
@@ -17,15 +17,15 @@
 		IconModels,
 		IconTrash,
 		IconPlug
-	} from '$lib/icons';
+	} from '#lib/icons.ts';
 	import ProviderLogo from './ProviderLogo.svelte';
-	import Terminal from '$lib/terminal/Terminal.svelte';
-	import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
-	import Dialog from '$lib/ui/Dialog.svelte';
-	import MenuButton from '$lib/ui/MenuButton.svelte';
-	import Switch from '$lib/ui/Switch.svelte';
-	import StatusMark from '$lib/ui/StatusMark.svelte';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import Terminal from '#lib/terminal/Terminal.svelte';
+	import ConfirmDialog from '#lib/ui/ConfirmDialog.svelte';
+	import Dialog from '#lib/ui/Dialog.svelte';
+	import MenuButton from '#lib/ui/MenuButton.svelte';
+	import Switch from '#lib/ui/Switch.svelte';
+	import StatusMark from '#lib/ui/StatusMark.svelte';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
 
 	let searchQuery = $state('');
 	let listRootEl = $state<HTMLDivElement | null>(null);

@@ -13,23 +13,23 @@ import type {
 	RemoteModelOption,
 	RemoteRoleOption
 } from '$remote-protocol';
-import { projectStore, type Project } from '$lib/stores/projects.svelte';
-import { laneOrchestrator } from '$lib/lanes/laneOrchestrator.svelte';
-import type { LaneRecord } from '$lib/stores/lanes.svelte';
-import type { AgentLane } from '$lib/types/lanes';
-import { sessionRegistry } from '$lib/agent/sessionRegistry';
+import { projectStore, type Project } from '#lib/stores/projects.svelte.ts';
+import { laneOrchestrator } from '#lib/lanes/laneOrchestrator.svelte.ts';
+import type { LaneRecord } from '#lib/stores/lanes.svelte.ts';
+import type { AgentLane } from '#lib/types/lanes.ts';
+import { sessionRegistry } from '#lib/agent/sessionRegistry.ts';
 import {
 	parseRoleSelector,
 	resolveCatalogModel,
 	supportedThinkingLevels,
 	STANDARD_ROLE_METAS,
 	type ModelDto
-} from '$lib/stores/modelSettingsHelpers';
-import type { ThinkingLevel } from '$lib/agent/wire';
-import { STUDIO_SLASH_COMMANDS, mergeCommands } from '$lib/agent/commands';
-import { isSkillName } from '$lib/agent/suggestItems';
-import { routeComposerSubmit } from '$lib/agent/composerSubmit';
-import { applyRoleToSession, RoleApplyError, type RoleSettingsContext } from '$lib/agent/laneRole';
+} from '#lib/stores/modelSettingsHelpers.ts';
+import type { ThinkingLevel } from '#lib/agent/wire.ts';
+import { STUDIO_SLASH_COMMANDS, mergeCommands } from '#lib/agent/commands.ts';
+import { isSkillName } from '#lib/agent/suggestItems.ts';
+import { routeComposerSubmit } from '#lib/agent/composerSubmit.ts';
+import { applyRoleToSession, RoleApplyError, type RoleSettingsContext } from '#lib/agent/laneRole.ts';
 import { RemoteCommandFailure } from './commands';
 
 const DEFAULT_THINKING_LEVELS = [

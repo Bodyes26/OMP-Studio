@@ -1,9 +1,9 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	// Riga TTSR (Turn-by-Turn System Prompt Rules / Regole di contesto).
 	// Linguaggio v2: traccia leggera (12.5px, --ink-muted, icona 14px).
 	import type { TtsrEntry } from '../session.svelte';
-	import { IconRule } from '$lib/icons';
+	import { IconRule } from '#lib/icons.ts';
 
 	let { entry, fresh = false }: { entry: TtsrEntry; fresh?: boolean } = $props();
 </script>

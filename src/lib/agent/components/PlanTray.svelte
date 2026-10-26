@@ -6,8 +6,8 @@
   Le sezioni extra scritte dall'agente si accodano.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
-	import { IconCheck, IconPlan } from '$lib/icons';
+	import { m } from '#lib/paraglide/messages.js';
+	import { IconCheck, IconPlan } from '#lib/icons.ts';
 	import type { ExpectedSectionId, OutlineItem } from '../planMode';
 
 	let { outline, planFilePath = null } = $props<{

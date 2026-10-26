@@ -5,7 +5,7 @@
   CSP ermetica (default-src 'none') e pre-sanitizzazione con DOMPurify.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	import { buildSandboxedSvgDocument } from './svgSandbox';
 
 	let {

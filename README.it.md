@@ -144,7 +144,7 @@ Tutte le combinazioni di tasti del terminale vengono inoltrate direttamente al P
 ## 🛠️ Sviluppo locale
 
 ### Prerequisiti
-- Node.js (v18+) o [Bun](https://bun.sh/)
+- Node.js **22.17+** e [Bun](https://bun.sh/)
 - Toolchain Rust (`stable`)
 - Strumenti di compilazione C++ della piattaforma (Visual Studio C++ su Windows / Strumenti da riga di comando Xcode su macOS)
 

@@ -1,8 +1,8 @@
 <script lang="ts" generics="T extends SharedModelItem = SharedModelItem">
-	import { m } from '$lib/paraglide/messages.js';
-	import { IconContextWindow, IconRoleSlow, IconRoleVision, IconCheck, IconSearch, IconClose } from '$lib/icons';
+	import { m } from '#lib/paraglide/messages.js';
+	import { IconContextWindow, IconRoleSlow, IconRoleVision, IconCheck, IconSearch, IconClose } from '#lib/icons.ts';
 	import ProviderLogo from './ProviderLogo.svelte';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
 	import {
 		type SharedModelItem,
 		getEffectiveSelector,

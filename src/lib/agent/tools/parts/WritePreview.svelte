@@ -6,9 +6,9 @@
   SvgPreview. Il diagramma Mermaid lo disegna MermaidDiagram.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
-	import SvgPreview from '$lib/editor/SvgPreview.svelte';
-	import MermaidDiagram from '$lib/agent/components/MermaidDiagram.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import SvgPreview from '#lib/editor/SvgPreview.svelte';
+	import MermaidDiagram from '#lib/agent/components/MermaidDiagram.svelte';
 	import ToolFileHeader from './ToolFileHeader.svelte';
 
 	let {

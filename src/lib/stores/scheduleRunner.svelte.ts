@@ -17,15 +17,15 @@
  *   banner «Avvia ora / Lasciali in coda».
  */
 
-import { m } from '$lib/paraglide/messages.js';
-import { MAIN_LANE_ID } from '$lib/types/lanes';
+import { m } from '#lib/paraglide/messages.js';
+import { MAIN_LANE_ID } from '#lib/types/lanes.ts';
 import type { Project } from './projects.svelte';
 import { quotaStore } from './quota.svelte';
 import { taskStore, type StudioTask, type TaskSchedule } from './tasks.svelte';
 import { scheduleStore } from './schedule.svelte';
-import { detectMissedSchedules, nextDueScheduledTask } from '$lib/quota/scheduleQueue';
-import { canConfirmNow } from '$lib/quota/scheduleClock';
-import type { AgentSession } from '$lib/agent/session.svelte';
+import { detectMissedSchedules, nextDueScheduledTask } from '#lib/quota/scheduleQueue.ts';
+import { canConfirmNow } from '#lib/quota/scheduleClock.ts';
+import type { AgentSession } from '#lib/agent/session.svelte.ts';
 
 export interface ScheduledCandidate {
 	taskId: string;

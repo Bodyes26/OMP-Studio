@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	// Contenuto della colonna destra in modalita' GUI.
 	//
 	// Autoscroll ancorato in basso: se l'utente si allontana dal fondo,
@@ -8,21 +8,21 @@
 
 	import type { AgentSession, QueuedMessage } from '../session.svelte';
 	import type { RestoredQueuedMessage } from '../wire';
-	import type { SuggestionChipItem } from '$lib/stores/promptSuggestions';
+	import type { SuggestionChipItem } from '#lib/stores/promptSuggestions.ts';
 	import { setContext, tick as svelteTick } from 'svelte';
 	import { chatReveal } from '../motion';
 	import { setAgentUiHooks } from '../ui-context';
-	import { IconArrowDown, IconAt } from '$lib/icons';
-	import { settingsStore } from '$lib/stores/settings.svelte';
+	import { IconArrowDown, IconAt } from '#lib/icons.ts';
+	import { settingsStore } from '#lib/stores/settings.svelte.ts';
 	import { motionReduced } from '../motionState.svelte';
-	import { pendingSwitch, dissolve } from '$lib/switchDissolve';
-	import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
-	import { scheduleStore } from '$lib/stores/schedule.svelte';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
-	import { quotaStore } from '$lib/stores/quota.svelte';
-	import { activeQuotaStore } from '$lib/stores/activeQuota.svelte';
-	import { isAutoRedeemSessionPrompt } from '$lib/quota/usageResets';
-	import UsageResetCard from '$lib/components/quota/UsageResetCard.svelte';
+	import { pendingSwitch, dissolve } from '#lib/switchDissolve.ts';
+	import { modelSettingsStore } from '#lib/stores/modelSettings.svelte.ts';
+	import { scheduleStore } from '#lib/stores/schedule.svelte.ts';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
+	import { quotaStore } from '#lib/stores/quota.svelte.ts';
+	import { activeQuotaStore } from '#lib/stores/activeQuota.svelte.ts';
+	import { isAutoRedeemSessionPrompt } from '#lib/quota/usageResets.ts';
+	import UsageResetCard from '#lib/components/quota/UsageResetCard.svelte';
 	import { getCurrentWebview } from '@tauri-apps/api/webview';
 	import { dropSummary, physicalToCssPoint } from '../chatDrop';
 	import { sessionCompletions } from '../completion.svelte';

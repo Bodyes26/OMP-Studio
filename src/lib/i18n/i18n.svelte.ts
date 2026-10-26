@@ -1,4 +1,4 @@
-import { getTextDirection, overwriteGetLocale } from '$lib/paraglide/runtime.js';
+import { getTextDirection, overwriteGetLocale } from '#lib/paraglide/runtime.js';
 import {
 	resolveAppLocale,
 	resolveFormatLocale,

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import AttachmentThumb from '$lib/agent/components/AttachmentThumb.svelte';
+	import AttachmentThumb from '#lib/agent/components/AttachmentThumb.svelte';
 	import type { RemoteComposerAttachment } from '../../chat/remoteAttachments.svelte.ts';
 
 	let { attachments, onRemove, onOpenImage }: {

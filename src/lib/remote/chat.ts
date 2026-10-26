@@ -11,9 +11,9 @@ import type {
 	RemoteChatPage,
 	RemoteLaneRef
 } from '$remote-protocol';
-import { projectStore } from '$lib/stores/projects.svelte';
-import { laneOrchestrator } from '$lib/lanes/laneOrchestrator.svelte';
-import { sessionRegistry } from '$lib/agent/sessionRegistry';
+import { projectStore } from '#lib/stores/projects.svelte.ts';
+import { laneOrchestrator } from '#lib/lanes/laneOrchestrator.svelte.ts';
+import { sessionRegistry } from '#lib/agent/sessionRegistry.ts';
 import { remoteBridge } from './bridge';
 import { RemoteCommandFailure } from './commands';
 import { remoteStore } from './remoteStore.svelte';

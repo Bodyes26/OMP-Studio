@@ -3,8 +3,8 @@
 	 * Menu a tendina per l'aggiunta di file e cartelle nel composer: il
 	 * selettore nativo restituisce percorsi, che diventano menzioni `@`.
 	 */
-	import { IconAttach, IconFolder } from '$lib/icons';
-	import { m } from '$lib/paraglide/messages.js';
+	import { IconAttach, IconFolder } from '#lib/icons.ts';
+	import { m } from '#lib/paraglide/messages.js';
 
 	let {
 		onPickFiles,

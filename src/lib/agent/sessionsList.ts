@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import { perfSpan } from '$lib/perf';
+import { perfSpan } from '#lib/perf.ts';
 
 export interface SessionEntry {
 	id: string;

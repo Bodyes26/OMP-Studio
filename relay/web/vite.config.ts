@@ -11,7 +11,7 @@ export default defineConfig({
 	root: __dirname,
 	resolve: {
 		alias: {
-			'$lib': resolve(__dirname, '../../src/lib'),
+			'#lib': resolve(__dirname, '../../src/lib'),
 			'$remote-protocol': resolve(__dirname, '../src/protocol.ts')
 		},
 		dedupe: ['svelte']

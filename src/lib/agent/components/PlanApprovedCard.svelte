@@ -6,8 +6,8 @@
   e «Mostra piano» per leggerlo.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
-	import { IconPlan } from '$lib/icons';
+	import { m } from '#lib/paraglide/messages.js';
+	import { IconPlan } from '#lib/icons.ts';
 	import { lexMarkdown } from '../markdown';
 	import type { ApprovedPlanMessage } from '../planMode';
 	import Markdown from './Markdown.svelte';

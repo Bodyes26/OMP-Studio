@@ -3,7 +3,7 @@ import {
 	SOURCE_HINTS_MARKER,
 	GIT_CONTEXT_MARKER,
 	EDITOR_CONTEXT_MARKER
-} from '$lib/editor/editorContextParsing.ts';
+} from '#lib/editor/editorContextParsing.ts';
 
 export { SOURCE_HINTS_MARKER, GIT_CONTEXT_MARKER, EDITOR_CONTEXT_MARKER };
 

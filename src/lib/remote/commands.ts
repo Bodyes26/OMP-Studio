@@ -22,11 +22,11 @@ import type {
 } from '$remote-protocol';
 import { remoteBridge, type RemoteCommandEvent } from './bridge';
 import { remoteStore } from './remoteStore.svelte';
-import { projectStore } from '$lib/stores/projects.svelte';
-import { taskStore } from '$lib/stores/tasks.svelte';
-import { promptBus } from '$lib/agent/promptBus';
-import type { PromptAnswer } from '$lib/agent/askAnswers';
-import { sessionRegistry } from '$lib/agent/sessionRegistry';
+import { projectStore } from '#lib/stores/projects.svelte.ts';
+import { taskStore } from '#lib/stores/tasks.svelte.ts';
+import { promptBus } from '#lib/agent/promptBus.ts';
+import type { PromptAnswer } from '#lib/agent/askAnswers.ts';
+import { sessionRegistry } from '#lib/agent/sessionRegistry.ts';
 import type { UnlistenFn } from '@tauri-apps/api/event';
 /** Esito strutturato dell'avvio di un task condiviso tra GUI, Companion e Controllo Remoto. */
 export type RunTaskOutcome =

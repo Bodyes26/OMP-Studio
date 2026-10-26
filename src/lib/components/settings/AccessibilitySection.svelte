@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
-	import { settingsStore } from '$lib/stores/settings.svelte';
-	import Switch from '$lib/ui/Switch.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { settingsStore } from '#lib/stores/settings.svelte.ts';
+	import Switch from '#lib/ui/Switch.svelte';
 </script>
 
 <div class="settings-section">

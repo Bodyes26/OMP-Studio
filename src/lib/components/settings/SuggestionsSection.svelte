@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { tick } from 'svelte';
-	import { m } from '$lib/paraglide/messages.js';
-	import { settingsStore } from '$lib/stores/settings.svelte';
-	import { modelSettingsStore, type ModelDto } from '$lib/stores/modelSettings.svelte';
-	import type { PromptSuggestion, FactorySuggestionKey } from '$lib/stores/promptSuggestions';
+	import { m } from '#lib/paraglide/messages.js';
+	import { settingsStore } from '#lib/stores/settings.svelte.ts';
+	import { modelSettingsStore, type ModelDto } from '#lib/stores/modelSettings.svelte.ts';
+	import type { PromptSuggestion, FactorySuggestionKey } from '#lib/stores/promptSuggestions.ts';
 	import {
 		IconPlus,
 		IconRename,
@@ -14,12 +14,12 @@
 		IconClose,
 		IconChevronUp,
 		IconChevronDown
-	} from '$lib/icons';
-	import Switch from '$lib/ui/Switch.svelte';
-	import PromptField from '$lib/ui/PromptField.svelte';
-	import { escapeDismiss } from '$lib/ui/escapeDismiss';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
-	import { trayFold } from '$lib/agent/motion';
+	} from '#lib/icons.ts';
+	import Switch from '#lib/ui/Switch.svelte';
+	import PromptField from '#lib/ui/PromptField.svelte';
+	import { escapeDismiss } from '#lib/ui/escapeDismiss.ts';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
+	import { trayFold } from '#lib/agent/motion.ts';
 
 	// Il caricamento lo fa lo store, una volta: `assignableCatalog` contiene
 	// solo i modelli raggiungibili con le credenziali presenti, quindi la

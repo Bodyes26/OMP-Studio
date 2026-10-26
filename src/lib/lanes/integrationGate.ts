@@ -9,7 +9,7 @@
 // La pipeline Rust gestisce autonomamente corsia sporca, target avanzato,
 // target sporco e processi dell'agente chiamante.
 
-import type { LaneStatus } from '$lib/types/lanes';
+import type { LaneStatus } from '#lib/types/lanes.ts';
 
 export interface IntegrationGateInput {
 	laneStatus: LaneStatus;

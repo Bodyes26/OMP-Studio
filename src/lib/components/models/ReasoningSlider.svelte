@@ -7,9 +7,9 @@
 	// che il modello scelto non accetta. Un valore salvato fuori scala si mostra
 	// sul livello a cui omp lo riporta, senza riscriverlo: tornando a un modello
 	// che lo accetta riappare com'era.
-	import { m } from '$lib/paraglide/messages.js';
-	import { THINKING_LEVEL_ITEMS, clampThinkingLevel } from '$lib/stores/modelSettingsHelpers';
-	import Slider from '$lib/ui/Slider.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { THINKING_LEVEL_ITEMS, clampThinkingLevel } from '#lib/stores/modelSettingsHelpers.ts';
+	import Slider from '#lib/ui/Slider.svelte';
 
 	type LevelId = (typeof THINKING_LEVEL_ITEMS)[number]['id'];
 	let {

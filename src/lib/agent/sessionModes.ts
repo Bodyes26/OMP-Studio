@@ -4,7 +4,7 @@
  */
 
 import type { CacheWarmingPhase, CacheWarmingOutcome, MessageUsage, ModelInfo, UsageLimitState } from './wire';
-import { m } from '$lib/paraglide/messages.js';
+import { m } from '#lib/paraglide/messages.js';
 
 export interface CacheWarmingInFlight {
 	phase: CacheWarmingPhase;

@@ -1,5 +1,5 @@
 // Risoluzione dei testi localizzati del catalogo comandi con fallback su inglese.
-import { getLocale } from '$lib/paraglide/runtime.js';
+import { getLocale } from '#lib/paraglide/runtime.js';
 import type { CommandManifestEntry, CommandText } from './types';
 
 /**

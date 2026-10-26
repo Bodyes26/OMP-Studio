@@ -4,10 +4,10 @@
 	 * tra 1h 12m», «Non prima delle 19:00», «Pronto: reset avvenuto». Testo
 	 * neutro e conto alla rovescia tabulare: e' un'informazione, non un allarme.
 	 */
-	import type { StudioTask } from '$lib/stores/tasks.svelte';
-	import { scheduleStore } from '$lib/stores/schedule.svelte';
-	import { IconSchedule } from '$lib/icons';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import type { StudioTask } from '#lib/stores/tasks.svelte.ts';
+	import { scheduleStore } from '#lib/stores/schedule.svelte.ts';
+	import { IconSchedule } from '#lib/icons.ts';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
 
 	let { task }: { task: Pick<StudioTask, 'options' | 'schedule' | 'resume'> } = $props();
 

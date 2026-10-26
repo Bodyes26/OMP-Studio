@@ -4,9 +4,9 @@
 	e permette l'annullamento (undo) o l'interazione con l'agente.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	import type { LaneLandingEntry } from '../session.svelte';
-	import { laneLanding } from '$lib/lanes/laneLanding.svelte';
+	import { laneLanding } from '#lib/lanes/laneLanding.svelte.ts';
 	import {
 		IconCheck,
 		IconWarning,
@@ -17,7 +17,7 @@
 		IconChevronRight,
 		IconChevronDown,
 		IconFile
-	} from '$lib/icons';
+	} from '#lib/icons.ts';
 
 	let { entry }: { entry: LaneLandingEntry } = $props();
 

@@ -4,12 +4,12 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
-import { projectStore } from '$lib/stores/projects.svelte';
-import { laneOrchestrator } from '$lib/lanes/laneOrchestrator.svelte';
-import { sessionRegistry } from '$lib/agent/sessionRegistry';
-import { stageAttachmentHeaders, type DroppedImage } from '$lib/agent/chatDrop';
+import { projectStore } from '#lib/stores/projects.svelte.ts';
+import { laneOrchestrator } from '#lib/lanes/laneOrchestrator.svelte.ts';
+import { sessionRegistry } from '#lib/agent/sessionRegistry.ts';
+import { stageAttachmentHeaders, type DroppedImage } from '#lib/agent/chatDrop.ts';
 import type { RemotePromptImage } from '$remote-protocol';
-import type { ImageContent } from '$lib/agent/wire';
+import type { ImageContent } from '#lib/agent/wire.ts';
 import { RemoteCommandFailure } from './commands';
 /**
  * Interrompe il turno della corsia remota come farebbe il pulsante Stop di Studio.

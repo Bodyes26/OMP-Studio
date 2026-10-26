@@ -6,17 +6,17 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { SearchAddon } from '@xterm/addon-search';
 import { ClipboardAddon } from '@xterm/addon-clipboard';
 import { invoke, Channel } from '@tauri-apps/api/core';
-import { IS_MAC } from '$lib/utils/platform';
-import { isAllowedExternalUrl } from '$lib/utils/externalUrl';
-import { openExternalUrl } from '$lib/utils/openExternal';
-import { canvasColors, onThemeChange } from '$lib/theme';
-import { settingsStore, withFontFamily } from '$lib/stores/settings.svelte';
-import { isShortcutsHelpKey, isGlobalShellShortcut, isProjectCycleShortcut, isLaneCycleShortcut } from '$lib/shortcuts/shortcutMatch';
+import { IS_MAC } from '#lib/utils/platform.ts';
+import { isAllowedExternalUrl } from '#lib/utils/externalUrl.ts';
+import { openExternalUrl } from '#lib/utils/openExternal.ts';
+import { canvasColors, onThemeChange } from '#lib/theme.ts';
+import { settingsStore, withFontFamily } from '#lib/stores/settings.svelte.ts';
+import { isShortcutsHelpKey, isGlobalShellShortcut, isProjectCycleShortcut, isLaneCycleShortcut } from '#lib/shortcuts/shortcutMatch.ts';
 import {
 	describeConfigurationMismatch,
 	type TerminalTaskConfiguration
 } from './taskConfiguration';
-import { m as msg } from '$lib/paraglide/messages.js';
+import { m as msg } from '#lib/paraglide/messages.js';
 import {
 	TERMINAL_START_TIMEOUT_MS,
 	holdExpired,

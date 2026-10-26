@@ -9,7 +9,7 @@ import {
 	laneId,
 	workspacePath,
 	createMainLane
-} from '$lib/types/lanes';
+} from '#lib/types/lanes.ts';
 import { projectStore, type Project } from './projects.svelte';
 import {
 	lanePatchTouchesPersistedFields,
@@ -28,16 +28,16 @@ import {
 	recoverInterruptedIntegrations,
 	worktreeErrorMessage,
 	type InterruptedIntegration
-} from '$lib/lanes/laneCleanup';
-import { m } from '$lib/paraglide/messages.js';
-import { labApi } from '$lib/lab/api';
+} from '#lib/lanes/laneCleanup.ts';
+import { m } from '#lib/paraglide/messages.js';
+import { labApi } from '#lib/lab/api.ts';
 import {
 	classifyWorktreeRemovalError,
 	laneProcessesFor,
 	listLaneProcesses,
 	type LaneCleanupDiagnosis,
 	type LaneProcessInfo
-} from '$lib/lanes/processSupervisor';
+} from '#lib/lanes/processSupervisor.ts';
 
 /**
  * Esito dell'archiviazione di una corsia. Non e' una formalita': solo

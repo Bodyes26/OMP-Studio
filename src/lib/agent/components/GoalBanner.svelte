@@ -8,9 +8,9 @@
 	 * Sostituisce il vecchio riquadro nel vassoio del composer: l'obiettivo non
 	 * e' una cosa da fare adesso ma la cornice di tutta la sessione.
 	 */
-	import { m } from '$lib/paraglide/messages.js';
-	import { IconTarget, IconPause, IconPlay, IconStop, IconCheck, IconClose, IconChevronDown, IconChevronUp } from '$lib/icons';
-	import { formatTokens } from '$lib/utils/format';
+	import { m } from '#lib/paraglide/messages.js';
+	import { IconTarget, IconPause, IconPlay, IconStop, IconCheck, IconClose, IconChevronDown, IconChevronUp } from '#lib/icons.ts';
+	import { formatTokens } from '#lib/utils/format.ts';
 	import { formatTrayDuration } from '../subagentActivity';
 	import type { Goal } from '../wire';
 	import { goalSection, goalTitle } from '../guidedGoal';

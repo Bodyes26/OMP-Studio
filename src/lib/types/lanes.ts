@@ -1,4 +1,4 @@
-import { normalizeProjectPath } from '$lib/utils/paths';
+import { normalizeProjectPath } from '#lib/utils/paths.ts';
 
 declare const projectIdBrand: unique symbol;
 declare const laneIdBrand: unique symbol;

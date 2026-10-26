@@ -4,8 +4,8 @@ import { load, type Store } from '@tauri-apps/plugin-store';
 import { debounce } from 'lodash-es';
 import { normalizeProjectPath, projectStore } from './projects.svelte';
 import { settingsStore, type TaskDefaults } from './settings.svelte';
-import type { ImageContent } from '$lib/agent/wire';
-import { attachEditorContext } from '$lib/editor/editorContext';
+import type { ImageContent } from '#lib/agent/wire.ts';
+import { attachEditorContext } from '#lib/editor/editorContext.ts';
 import { createDirectiveSnapshot, type TaskDirectiveSnapshot } from './taskDirectives';
 import {
 	type AgentView,
@@ -25,11 +25,11 @@ import {
 	mergeOriginRecords,
 	taskRunFromOrigin
 } from './taskSerialization';
-import type { TaskRunRecord } from '$lib/types/lanes';
+import type { TaskRunRecord } from '#lib/types/lanes.ts';
 import { QueueHydration, mergeHydratedTasks, mergeReloadedTasks } from './taskHydration';
 import { resolveDroppedTask, type InFlightTask } from './taskRecovery';
 import { windowLabel } from './windowBridge';
-import { m as msg } from '$lib/paraglide/messages.js';
+import { m as msg } from '#lib/paraglide/messages.js';
 import { taskLabel, promptHash } from './taskTitle';
 
 export type {

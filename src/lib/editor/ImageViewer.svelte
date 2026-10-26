@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { invoke } from '@tauri-apps/api/core';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 
 	// Solo la tela: nome, misure e zoom stanno nella barra dell'editor (una
 	// sola barra da 32 px, D7). L'editor legge `scale` e `info` e comanda lo

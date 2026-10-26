@@ -10,21 +10,21 @@
  * fa partire i task, la Companion legge etichette e conteggi.
  */
 
-import { m } from '$lib/paraglide/messages.js';
-import { i18n } from '$lib/i18n/i18n.svelte';
+import { m } from '#lib/paraglide/messages.js';
+import { i18n } from '#lib/i18n/i18n.svelte.ts';
 import { quotaStore, providersMatch } from './quota.svelte';
 import { modelSettingsStore } from './modelSettings.svelte';
 import type { StudioTask, TaskSchedule, TaskScheduleOrigin } from './taskSerialization';
-import { formatProviderShortName } from '$lib/quota/projectQuota';
+import { formatProviderShortName } from '#lib/quota/projectQuota.ts';
 import {
 	buildResetSchedule,
 	countdownParts,
 	isOtherDay,
 	resolveScheduleTarget,
 	type ScheduleTarget
-} from '$lib/quota/scheduleTarget';
-import { waitingScheduled } from '$lib/quota/scheduleQueue';
-import { createScheduleClock, type ScheduleClock, type ScheduleTickReason } from '$lib/quota/scheduleClock';
+} from '#lib/quota/scheduleTarget.ts';
+import { waitingScheduled } from '#lib/quota/scheduleQueue.ts';
+import { createScheduleClock, type ScheduleClock, type ScheduleTickReason } from '#lib/quota/scheduleClock.ts';
 
 export interface ScheduleLabel {
 	/** Testo della chip: «Al reset · Anthropic · 14:05». */

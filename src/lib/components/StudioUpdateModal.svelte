@@ -4,23 +4,23 @@
 	 * Layout piatto e tipografico: versione/stato in evidenza, changelog Markdown,
 	 * dettagli installer in disclosure nativa, selettore canale compatto e footer responsive.
 	 */
-	import { m } from '$lib/paraglide/messages.js';
-	import { i18n } from '$lib/i18n/i18n.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { i18n } from '#lib/i18n/i18n.svelte.ts';
 	import {
 		studioUpdaterStore,
 		formatBytes,
 		formatSpeed,
 		formatVersion
-	} from '$lib/stores/studioUpdater.svelte';
-	import Dialog from '$lib/ui/Dialog.svelte';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
-	import { lexMarkdown } from '$lib/agent/markdown';
-	import Markdown from '$lib/agent/components/Markdown.svelte';
+	} from '#lib/stores/studioUpdater.svelte.ts';
+	import Dialog from '#lib/ui/Dialog.svelte';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
+	import { lexMarkdown } from '#lib/agent/markdown.ts';
+	import Markdown from '#lib/agent/components/Markdown.svelte';
 	import {
 		IconRefresh,
 		IconCircleCheck,
 		IconExternalLink
-	} from '$lib/icons';
+	} from '#lib/icons.ts';
 
 	function formatDate(dateStr?: string): string {
 		if (!dateStr) return '';

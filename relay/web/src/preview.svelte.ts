@@ -5,7 +5,7 @@
 import { getContext, setContext } from 'svelte';
 import { t } from './i18n.ts';
 import { connection } from './connection.svelte.ts';
-import { wrapPrototypeCode } from '$lib/prototype/wrapper';
+import { wrapPrototypeCode } from '#lib/prototype/wrapper.ts';
 import {
 	API,
 	PREVIEW_MAX_HTML_BYTES,

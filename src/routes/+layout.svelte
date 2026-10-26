@@ -1,11 +1,11 @@
 <script lang="ts">
 	import '../app.css';
-	import { themeStore } from '$lib/stores/theme.svelte';
-	import { settingsStore } from '$lib/stores/settings.svelte';
-	import { i18n } from '$lib/i18n/i18n.svelte';
-	import { installContextMenuHandling } from '$lib/contextMenu.svelte';
-	import ContextMenu from '$lib/components/ContextMenu.svelte';
-	import { installStudioLogCapture } from '$lib/diagnostics/capture.svelte';
+	import { themeStore } from '#lib/stores/theme.svelte.ts';
+	import { settingsStore } from '#lib/stores/settings.svelte.ts';
+	import { i18n } from '#lib/i18n/i18n.svelte.ts';
+	import { installContextMenuHandling } from '#lib/contextMenu.svelte.ts';
+	import ContextMenu from '#lib/components/ContextMenu.svelte';
+	import { installStudioLogCapture } from '#lib/diagnostics/capture.svelte.ts';
 
 	let { children } = $props();
 

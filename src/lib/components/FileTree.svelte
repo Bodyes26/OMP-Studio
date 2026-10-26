@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	import { invoke } from '@tauri-apps/api/core';
 	import { revealItemInDir } from '@tauri-apps/plugin-opener';
-	import { Lingering, ROW_EXIT_MS } from '$lib/agent/motionState.svelte';
+	import { Lingering, ROW_EXIT_MS } from '#lib/agent/motionState.svelte.ts';
 	import { setContext, getContext, tick } from 'svelte';
 	import FileTree from './FileTree.svelte';
-	import { registerSnapshot, pendingSwitch, switchSnapshot, dissolve } from '$lib/switchDissolve';
+	import { registerSnapshot, pendingSwitch, switchSnapshot, dissolve } from '#lib/switchDissolve.ts';
 	import {
 		IconChevronRight,
 		IconClose,
@@ -34,13 +34,13 @@
 		IconNewFile,
 		IconNewFolder,
 		IconSearch
-	} from '$lib/icons';
-	import GitStatusMark from '$lib/ui/GitStatusMark.svelte';
-	import StatusMark from '$lib/ui/StatusMark.svelte';
-	import { contextMenu, type ContextMenuEntry } from '$lib/contextMenu.svelte';
-	import { joinProjectPath, isWindows, normalizeProjectPath } from '$lib/utils/paths';
-	import type { GitStatusRefreshDetail } from '$lib/stores/gitDiff.svelte';
-	import { REVEAL_LABEL } from '$lib/utils/platform';
+	} from '#lib/icons.ts';
+	import GitStatusMark from '#lib/ui/GitStatusMark.svelte';
+	import StatusMark from '#lib/ui/StatusMark.svelte';
+	import { contextMenu, type ContextMenuEntry } from '#lib/contextMenu.svelte.ts';
+	import { joinProjectPath, isWindows, normalizeProjectPath } from '#lib/utils/paths.ts';
+	import type { GitStatusRefreshDetail } from '#lib/stores/gitDiff.svelte.ts';
+	import { REVEAL_LABEL } from '#lib/utils/platform.ts';
 
 	let {
 		projectPath,

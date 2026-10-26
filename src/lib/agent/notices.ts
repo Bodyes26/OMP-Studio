@@ -9,7 +9,7 @@ import type {
 	IrcAutoreplyDetails,
 	IrcIncomingDetails
 } from './wire.ts';
-import { m as msg } from '$lib/paraglide/messages.js';
+import { m as msg } from '#lib/paraglide/messages.js';
 
 export type JobType = 'bash' | 'task' | 'eval' | 'unknown';
 export type JobStatusKind = 'completed' | 'failed' | 'aborted' | 'running' | 'unknown';

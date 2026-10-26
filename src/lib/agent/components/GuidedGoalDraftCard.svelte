@@ -5,9 +5,9 @@
 	 * tetto mancante, verifica assente) tengono spento «Avvia obiettivo» finche'
 	 * non sono risolti; confini e stop mancanti sono solo consigli.
 	 */
-	import { m } from '$lib/paraglide/messages.js';
-	import { IconTarget, IconPencil, IconCheck, IconWarning, IconInfo } from '$lib/icons';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { IconTarget, IconPencil, IconCheck, IconWarning, IconInfo } from '#lib/icons.ts';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
 	import type { AgentSession } from '../session.svelte';
 	import {
 		canLaunch,

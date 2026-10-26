@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
-	import { i18n } from '$lib/i18n/i18n.svelte';
-	import type { AgentSession } from '$lib/agent/session.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { i18n } from '#lib/i18n/i18n.svelte.ts';
+	import type { AgentSession } from '#lib/agent/session.svelte.ts';
 	import {
 		type BrowserFrameMeta,
 		type BrowserInputEvent,
@@ -32,11 +32,11 @@
 		type BrowserRelayProbe,
 		type BrowserRelayTarget,
 		BROWSER_CAPABILITIES
-	} from '$lib/agent/browser-live';
+	} from '#lib/agent/browser-live.ts';
 	import { untrack } from 'svelte';
 	import { revealItemInDir } from '@tauri-apps/plugin-opener';
-	import { traceFocus } from '$lib/focusTracer';
-	import { projectStore } from '$lib/stores/projects.svelte';
+	import { traceFocus } from '#lib/focusTracer.ts';
+	import { projectStore } from '#lib/stores/projects.svelte.ts';
 	import {
 		IconArrowLeft,
 		IconArrowRight,
@@ -58,15 +58,15 @@
 		IconChevronDown,
 		IconChevronRight,
 		IconPlus
-	} from '$lib/icons';
-	import StatusMark from '$lib/ui/StatusMark.svelte';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
-	import MenuButton from '$lib/ui/MenuButton.svelte';
-	import Dialog from '$lib/ui/Dialog.svelte';
-	import ColumnTabs, { type ColumnTabItem } from '$lib/ui/ColumnTabs.svelte';
-	import Segmented from '$lib/ui/Segmented.svelte';
-	import { motionReduced } from '$lib/agent/motionState.svelte';
-	import { rvLift } from '$lib/agent/motion';
+	} from '#lib/icons.ts';
+	import StatusMark from '#lib/ui/StatusMark.svelte';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
+	import MenuButton from '#lib/ui/MenuButton.svelte';
+	import Dialog from '#lib/ui/Dialog.svelte';
+	import ColumnTabs, { type ColumnTabItem } from '#lib/ui/ColumnTabs.svelte';
+	import Segmented from '#lib/ui/Segmented.svelte';
+	import { motionReduced } from '#lib/agent/motionState.svelte.ts';
+	import { rvLift } from '#lib/agent/motion.ts';
 	let {
 		session,
 		projectPath,

@@ -6,7 +6,7 @@
   i parametri tecnici in KeyValue e l'eventuale output testuale.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	import ImageBlock from '../parts/ImageBlock.svelte';
 	import KeyValue from '../parts/KeyValue.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';

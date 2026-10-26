@@ -7,18 +7,18 @@
 	 * La programmazione e' l'azione esplicita: il task parte da solo anche con
 	 * l'auto-avvio del progetto spento. «Avvia» resta sempre li' e la scavalca.
 	 */
-	import { m } from '$lib/paraglide/messages.js';
-	import { taskStore, type StudioTask } from '$lib/stores/tasks.svelte';
-	import { scheduleStore } from '$lib/stores/schedule.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { taskStore, type StudioTask } from '#lib/stores/tasks.svelte.ts';
+	import { scheduleStore } from '#lib/stores/schedule.svelte.ts';
 	import {
 		buildAtSchedule,
 		isOtherDay,
 		nextOccurrence,
 		parseClockTime,
 		schedulePresets
-	} from '$lib/quota/scheduleTarget';
-	import { IconClose, IconSchedule } from '$lib/icons';
-	import MenuButton from '$lib/ui/MenuButton.svelte';
+	} from '#lib/quota/scheduleTarget.ts';
+	import { IconClose, IconSchedule } from '#lib/icons.ts';
+	import MenuButton from '#lib/ui/MenuButton.svelte';
 
 	let {
 		task,

@@ -6,7 +6,7 @@
 // prop ripetute su due componenti, e li tiene tipizzati (un `Record` di
 // callback avrebbe perso proprio cio' che serve a non sbagliare argomento).
 
-import type { AttentionRequest } from '$lib/stores/companion.svelte';
+import type { AttentionRequest } from '#lib/stores/companion.svelte.ts';
 
 export interface CompanionAskHandlers {
 	/** Storico esteso per progetto: chiave `projectId`. */

@@ -1,8 +1,8 @@
 // Sorgente Mermaid -> SVG sanificato, condiviso dalla whiteboard dei diagrammi
 // e dalle anteprime dei file scritti dall'agente.
 
-import { sanitizeSvg } from '$lib/editor/svgSandbox';
-import { tokenHex } from '$lib/theme';
+import { sanitizeSvg } from '#lib/editor/svgSandbox.ts';
+import { tokenHex } from '#lib/theme.ts';
 
 // Mermaid crea un elemento temporaneo con questo id: due render concorrenti
 // (piu' anteprime montate insieme) non devono condividerlo.

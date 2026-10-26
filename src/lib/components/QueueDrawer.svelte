@@ -1,17 +1,17 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
-	import { taskStore, type StudioTask } from '$lib/stores/tasks.svelte';
-	import { projectOrder } from '$lib/stores/projectOrder.svelte';
-	import { themeStore } from '$lib/stores/theme.svelte';
-	import { automaticProjectHue, THEMES } from '$lib/theme';
-	import type { Project } from '$lib/stores/projects.svelte';
-	import { settingsStore } from '$lib/stores/settings.svelte';
-	import { IconClose, IconWarning } from '$lib/icons';
-	import { isLaneRoutable, type AutomationGate } from '$lib/agent/automationGate';
-	import { taskLabel } from '$lib/stores/taskTitle';
-	import { anchoredPopover } from '$lib/anchoredPopover';
-	import { rvLift } from '$lib/agent/motion';
-	import StatusMark, { type StatusMarkType } from '$lib/ui/StatusMark.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { taskStore, type StudioTask } from '#lib/stores/tasks.svelte.ts';
+	import { projectOrder } from '#lib/stores/projectOrder.svelte.ts';
+	import { themeStore } from '#lib/stores/theme.svelte.ts';
+	import { automaticProjectHue, THEMES } from '#lib/theme.ts';
+	import type { Project } from '#lib/stores/projects.svelte.ts';
+	import { settingsStore } from '#lib/stores/settings.svelte.ts';
+	import { IconClose, IconWarning } from '#lib/icons.ts';
+	import { isLaneRoutable, type AutomationGate } from '#lib/agent/automationGate.ts';
+	import { taskLabel } from '#lib/stores/taskTitle.ts';
+	import { anchoredPopover } from '#lib/anchoredPopover.ts';
+	import { rvLift } from '#lib/agent/motion.ts';
+	import StatusMark, { type StatusMarkType } from '#lib/ui/StatusMark.svelte';
 	import QueueTaskItem from './QueueTaskItem.svelte';
 	import MissedScheduleBanner from './schedule/MissedScheduleBanner.svelte';
 

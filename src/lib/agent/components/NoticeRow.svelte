@@ -1,10 +1,10 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	// Riga di avviso (notifica di sistema, errore di runtime o warning).
 	// Traccia leggera nel linguaggio v2 (12.5px, --ink-muted, icona 14px, colori semantici).
 	import { agentUiHooks } from '../ui-context';
 	import type { NoticeEntry } from '../session.svelte';
-	import { IconInfo, IconWarning, IconStatusFailed, IconTerminal, IconChevronRight } from '$lib/icons';
+	import { IconInfo, IconWarning, IconStatusFailed, IconTerminal, IconChevronRight } from '#lib/icons.ts';
 
 	let { entry, fresh = false }: { entry: NoticeEntry; fresh?: boolean } = $props();
 

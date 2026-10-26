@@ -20,8 +20,8 @@
  * aveva chiuso con "vuoi che faccia anche questo?".
  */
 
-import { m } from '$lib/paraglide/messages.js';
-import type { AgentState } from '$lib/stores/projects.svelte';
+import { m } from '#lib/paraglide/messages.js';
+import type { AgentState } from '#lib/stores/projects.svelte.ts';
 
 export type AutomationBlock =
 	| 'ready'

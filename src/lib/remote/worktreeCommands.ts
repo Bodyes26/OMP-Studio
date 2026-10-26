@@ -9,14 +9,14 @@
  * - Rollback pulito con archiviazione e rimozione in caso di mancata consegna.
  */
 
-import { projectStore } from '$lib/stores/projects.svelte';
-import { laneOrchestrator } from '$lib/lanes/laneOrchestrator.svelte';
-import { sessionRegistry } from '$lib/agent/sessionRegistry';
-import { reviewProjectProfile } from '$lib/lanes/laneProfile';
-import { activeLanes, shouldWarnConcurrency } from '$lib/lanes/queueDispatch';
+import { projectStore } from '#lib/stores/projects.svelte.ts';
+import { laneOrchestrator } from '#lib/lanes/laneOrchestrator.svelte.ts';
+import { sessionRegistry } from '#lib/agent/sessionRegistry.ts';
+import { reviewProjectProfile } from '#lib/lanes/laneProfile.ts';
+import { activeLanes, shouldWarnConcurrency } from '#lib/lanes/queueDispatch.ts';
 import { RemoteCommandFailure } from './commands';
-import type { ProjectId } from '$lib/types/lanes';
-import type { LaneRecord } from '$lib/stores/lanes.svelte';
+import type { ProjectId } from '#lib/types/lanes.ts';
+import type { LaneRecord } from '#lib/stores/lanes.svelte.ts';
 
 export async function createRemoteLane(
 	projectId: string,

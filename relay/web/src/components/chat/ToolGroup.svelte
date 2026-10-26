@@ -10,9 +10,9 @@
 	import type { ToolGroupSummary } from '../../chat/types.ts';
 	import ArtifactCard from './ArtifactCard.svelte';
 	import CategoryIcon from './CategoryIcon.svelte';
-	import Diff from '$lib/agent/tools/parts/Diff.svelte';
-	import OutputBlock from '$lib/agent/tools/parts/OutputBlock.svelte';
-	import ThinkingBlock from '$lib/agent/components/ThinkingBlock.svelte';
+	import Diff from '#lib/agent/tools/parts/Diff.svelte';
+	import OutputBlock from '#lib/agent/tools/parts/OutputBlock.svelte';
+	import ThinkingBlock from '#lib/agent/components/ThinkingBlock.svelte';
 	import StatusMark from '../StatusMark.svelte';
 	import { IconCheck, IconClose, IconChevronRight, IconWorkflow, IconImage, IconViewPreview } from '../../icons.ts';
 

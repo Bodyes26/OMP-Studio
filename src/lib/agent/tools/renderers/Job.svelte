@@ -6,11 +6,11 @@
   durata formattata tabulare ed etichetta, e il blocco OutputBlock del risultato testuale.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	import { agentUiHooks } from '../../ui-context';
 	import KeyValue from '../parts/KeyValue.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
-	import StatusMark, { type StatusMarkType } from '$lib/ui/StatusMark.svelte';
+	import StatusMark, { type StatusMarkType } from '#lib/ui/StatusMark.svelte';
 	import {
 		asRecord,
 		formatDuration,

@@ -9,10 +9,10 @@
 	 * `statusLine` adotta l'aspetto monospazio discreto delle voci di stato della chat).
 	 */
 	import type { Component } from 'svelte';
-	import type { CommandManifestEntry, ComposerForm, ComposerZone } from '$lib/agent/commandCatalog/types';
-	import { resolveCommandText } from '$lib/agent/commandCatalog/text';
-	import * as icons from '$lib/icons';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import type { CommandManifestEntry, ComposerForm, ComposerZone } from '#lib/agent/commandCatalog/types.ts';
+	import { resolveCommandText } from '#lib/agent/commandCatalog/text.ts';
+	import * as icons from '#lib/icons.ts';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
 
 	let {
 		entry,

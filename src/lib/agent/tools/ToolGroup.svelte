@@ -14,9 +14,9 @@
   - Clic su qualsiasi riga (dal vivo o nel riepilogo) espande inline il corpo del renderer esistente.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	import type { AssistantEntry, ToolEntry } from '../session.svelte';
-	import { IconCheck, IconChevronRight, IconClose } from '$lib/icons';
+	import { IconCheck, IconChevronRight, IconClose } from '#lib/icons.ts';
 	import { rendererFor } from './registry';
 	import { stopwatchNow, subscribeStopwatch } from './stopwatch.svelte';
 	import {
@@ -29,8 +29,8 @@
 	import CategoryIcon from './parts/CategoryIcon.svelte';
 	import WritePreview from './parts/WritePreview.svelte';
 	import { asRecord, str } from './types';
-	import { isSvgFileName } from '$lib/editor/svgSandbox';
-	import { isMermaidFileName } from '$lib/mermaidSvg';
+	import { isSvgFileName } from '#lib/editor/svgSandbox.ts';
+	import { isMermaidFileName } from '#lib/mermaidSvg.ts';
 
 	export type ToolGroupEntry = ToolEntry | AssistantEntry;
 

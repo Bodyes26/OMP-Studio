@@ -15,9 +15,9 @@
 	import { onDestroy, tick, untrack } from 'svelte';
 	import { openUrl } from '@tauri-apps/plugin-opener';
 	import { open } from '@tauri-apps/plugin-dialog';
-	import { m } from '$lib/paraglide/messages.js';
-	import type { AgentSession } from '$lib/agent/session.svelte';
-	import { openLabEntry } from '$lib/lanes/laneActions';
+	import { m } from '#lib/paraglide/messages.js';
+	import type { AgentSession } from '#lib/agent/session.svelte.ts';
+	import { openLabEntry } from '#lib/lanes/laneActions.ts';
 	import { labApi } from './api';
 	import {
 		disposeLabRuntime,
@@ -40,14 +40,14 @@
 		IconClose,
 		IconInspect,
 		IconAreaSelect
-	} from '$lib/icons';
-	import AlertBanner from '$lib/components/AlertBanner.svelte';
-	import StatusMark from '$lib/ui/StatusMark.svelte';
-	import MenuButton from '$lib/ui/MenuButton.svelte';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
-	import { Lingering, ROW_EXIT_MS } from '$lib/agent/motionState.svelte';
-	import { IS_MAC } from '$lib/utils/platform';
-	import { letterChordLabel } from '$lib/agent/composerShortcuts';
+	} from '#lib/icons.ts';
+	import AlertBanner from '#lib/components/AlertBanner.svelte';
+	import StatusMark from '#lib/ui/StatusMark.svelte';
+	import MenuButton from '#lib/ui/MenuButton.svelte';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
+	import { Lingering, ROW_EXIT_MS } from '#lib/agent/motionState.svelte.ts';
+	import { IS_MAC } from '#lib/utils/platform.ts';
+	import { letterChordLabel } from '#lib/agent/composerShortcuts.ts';
 
 	const INSPECT_SHORTCUT = `${letterChordLabel(IS_MAC)}+I`;
 

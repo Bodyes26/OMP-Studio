@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
-	import { IconCircleAlert, IconFolderPlus, IconListTodo, IconWarning } from '$lib/icons';
+	import { m } from '#lib/paraglide/messages.js';
+	import { IconCircleAlert, IconFolderPlus, IconListTodo, IconWarning } from '#lib/icons.ts';
 	export interface EmptyStateAction {
 		label: string;
 		shortcut?: string;

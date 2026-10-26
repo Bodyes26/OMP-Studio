@@ -10,7 +10,7 @@
 //    chiuso e non sostituisce la superficie attiva.
 // 4. Ripiego su legacy single-lane solo quando la corsia e' univoca nel sistema.
 
-import { isWindows } from '$lib/utils/paths';
+import { isWindows } from '#lib/utils/paths.ts';
 
 export interface LaneEventTarget {
 	projectId?: string | null;

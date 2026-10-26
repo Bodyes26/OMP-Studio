@@ -12,7 +12,7 @@
  * macOS, WebView2 su Windows), quindi la stringa non e' ambigua.
  */
 
-import { m as msg } from '$lib/paraglide/messages.js';
+import { m as msg } from '#lib/paraglide/messages.js';
 
 export type ShellPlatform = 'macos' | 'windows' | 'other';
 

@@ -16,9 +16,9 @@ import {
 	IconCopy,
 	IconPaste,
 	IconSelectAll
-} from '$lib/icons';
-import { IS_MAC, MOD_LABEL as MOD } from '$lib/utils/platform';
-import { m } from '$lib/paraglide/messages.js';
+} from '#lib/icons.ts';
+import { IS_MAC, MOD_LABEL as MOD } from '#lib/utils/platform.ts';
+import { m } from '#lib/paraglide/messages.js';
 
 export interface ContextMenuHeader {
 	kind: 'header';

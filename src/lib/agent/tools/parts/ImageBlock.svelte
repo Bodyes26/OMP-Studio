@@ -2,7 +2,7 @@
 	// Miniature delle immagini nei blocchi `content`. Il clic apre il
 	// visualizzatore esistente: nessun lightbox nuovo.
 	import { agentUiHooks } from '../../ui-context';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 
 	let { images } = $props<{ images: { data: string; mimeType: string }[] }>();
 

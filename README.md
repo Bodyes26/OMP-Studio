@@ -144,7 +144,7 @@ All terminal keybindings pass directly through to the PTY. Global Studio actions
 ## 🛠️ Local Development
 
 ### Prerequisites
-- Node.js (v18+) or [Bun](https://bun.sh/)
+- Node.js **22.17+** and [Bun](https://bun.sh/)
 - Rust toolchain (`stable`)
 - Platform C++ build tools (Visual Studio C++ on Windows / Xcode Command Line Tools on macOS)
 

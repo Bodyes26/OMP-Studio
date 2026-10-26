@@ -6,10 +6,10 @@
 <script lang="ts">
 	import { t } from '../../i18n.ts';
 	import type { RemoteChatMessage } from '../../../../src/protocol.ts';
-	import { lexMarkdownInline } from '$lib/agent/markdown';
-	import MarkdownInline from '$lib/agent/components/MarkdownInline.svelte';
+	import { lexMarkdownInline } from '#lib/agent/markdown.ts';
+	import MarkdownInline from '#lib/agent/components/MarkdownInline.svelte';
 	import { IconImage } from '../../icons.ts';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 
 	let {
 		message,

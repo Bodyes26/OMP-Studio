@@ -14,7 +14,7 @@ import type { AgentSession, AgentSessionConfig } from './session.svelte';
 import type { AskDialogAnswer, CacheWarmingMode } from './wire';
 import { promptBus } from './promptBus.ts';
 import { laneSessionKey } from './sessionKeys';
-import { m as msg } from '$lib/paraglide/messages.js';
+import { m as msg } from '#lib/paraglide/messages.js';
 import { createSubscriber } from 'svelte/reactivity';
 import { invoke } from '@tauri-apps/api/core';
 

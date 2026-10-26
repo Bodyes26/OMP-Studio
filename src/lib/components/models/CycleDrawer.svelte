@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
-	import { modelSettingsStore, resolveCatalogModel, type ModelDto } from '$lib/stores/modelSettings.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { modelSettingsStore, resolveCatalogModel, type ModelDto } from '#lib/stores/modelSettings.svelte.ts';
 	import {
 		IconArrowRight,
 		IconLoop,
@@ -9,8 +9,8 @@
 		IconArrowUp,
 		IconArrowDown,
 		IconTrash
-	} from '$lib/icons';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
+	} from '#lib/icons.ts';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
 	import ModelField from './ModelField.svelte';
 	import ProviderLogo from './ProviderLogo.svelte';
 

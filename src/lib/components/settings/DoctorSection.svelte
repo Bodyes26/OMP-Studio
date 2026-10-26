@@ -4,14 +4,14 @@
 	// usa `.settings-section` per il padding esterno, `.section-header` per l'intestazione,
 	// `.section-block` e `.section-group` per i raggruppamenti, e `.form-row` per ogni verifica.
 	import { onMount } from 'svelte';
-	import { m } from '$lib/paraglide/messages.js';
-	import { doctorStore, type DoctorCategory, type DoctorItem } from '$lib/stores/doctor.svelte';
-	import { projectStore } from '$lib/stores/projects.svelte';
-	import { IconWarning, IconRefresh, IconCopy, IconArrowRight, IconFolderOpen } from '$lib/icons';
+	import { m } from '#lib/paraglide/messages.js';
+	import { doctorStore, type DoctorCategory, type DoctorItem } from '#lib/stores/doctor.svelte.ts';
+	import { projectStore } from '#lib/stores/projects.svelte.ts';
+	import { IconWarning, IconRefresh, IconCopy, IconArrowRight, IconFolderOpen } from '#lib/icons.ts';
 	import { invoke } from '@tauri-apps/api/core';
 	import { revealItemInDir } from '@tauri-apps/plugin-opener';
-	import StatusMark from '$lib/ui/StatusMark.svelte';
-	import Segmented from '$lib/ui/Segmented.svelte';
+	import StatusMark from '#lib/ui/StatusMark.svelte';
+	import Segmented from '#lib/ui/Segmented.svelte';
 	import {
 		getDoctorCheckName,
 		getDoctorCheckValue,

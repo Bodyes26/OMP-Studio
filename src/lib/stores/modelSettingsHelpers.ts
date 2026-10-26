@@ -4,7 +4,7 @@
  * Mantiene la logica di merge, filtri di visualizzazione e sanitizzazione isolata
  * da dipendenze runtime SvelteKit / Tauri per consentire test di unità deterministici.
  */
-import { m as msg } from '$lib/paraglide/messages.js';
+import { m as msg } from '#lib/paraglide/messages.js';
 
 
 export interface ModelCost {

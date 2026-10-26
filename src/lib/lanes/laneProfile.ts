@@ -11,15 +11,15 @@
 //    le corsie successive riusano la decisione registrata.
 
 import { invoke } from '@tauri-apps/api/core';
-import { laneStore } from '$lib/stores/lanes.svelte';
-import type { LaneRecord } from '$lib/stores/lanePersistence';
-import type { Project } from '$lib/stores/projects.svelte';
+import { laneStore } from '#lib/stores/lanes.svelte.ts';
+import type { LaneRecord } from '#lib/stores/lanePersistence.ts';
+import type { Project } from '#lib/stores/projects.svelte.ts';
 import {
 	canonicalProjectPath,
 	type AgentLane,
 	type ProjectId,
 	type ProjectWorktreeProfile
-} from '$lib/types/lanes';
+} from '#lib/types/lanes.ts';
 import {
 	detectStack,
 	type StackDetection,

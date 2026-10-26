@@ -12,6 +12,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 ## [Unreleased]
 
 ### Fixed
+- Ripristina la pubblicazione Nightly aggiornando le dipendenze frontend vulnerabili e migrando Studio e i componenti condivisi a SvelteKit 3.
 - OpenAI e OpenAI Codex usano il classico logo ChatGPT, senza riquadro o gradiente Codex.
 - OpenRouter mostra il proprio logo ufficiale anziché quello di Cursor.
 - Impostazioni → Modelli → Provider: aggiungere un provider avvia subito il login, la chiusura del terminale aggiorna il catalogo modelli, i provider custom hanno validazione e salvataggio senza refresh globale, e la rimozione di un account buggato è immediata con fallback sugli alias storici.

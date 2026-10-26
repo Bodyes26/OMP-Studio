@@ -1,15 +1,15 @@
 <script lang="ts">
-	import { unintegratedWarning } from '$lib/lanes/laneCleanup';
-	import { m } from '$lib/paraglide/messages.js';
-	import { projectStore, type Project } from '$lib/stores/projects.svelte';
-	import { laneStore, type LaneRecord } from '$lib/stores/lanes.svelte';
-	import { laneOrchestrator } from '$lib/lanes/laneOrchestrator.svelte';
+	import { unintegratedWarning } from '#lib/lanes/laneCleanup.ts';
+	import { m } from '#lib/paraglide/messages.js';
+	import { projectStore, type Project } from '#lib/stores/projects.svelte.ts';
+	import { laneStore, type LaneRecord } from '#lib/stores/lanes.svelte.ts';
+	import { laneOrchestrator } from '#lib/lanes/laneOrchestrator.svelte.ts';
 	import {
 		MAIN_LANE_ID,
 		type LaneId,
 		type ProjectId,
 		type AgentLane
-	} from '$lib/types/lanes';
+	} from '#lib/types/lanes.ts';
 	import {
 		IconGitBranch,
 		IconLab,
@@ -21,33 +21,33 @@
 		IconWarning,
 		IconRename,
 		IconTrash
-	} from '$lib/icons';
-	import { contextMenu, type ContextMenuEntry } from '$lib/contextMenu.svelte';
-	import { projectLaneActions, reportLabDeleteFailure } from '$lib/lanes/laneActions';
+	} from '#lib/icons.ts';
+	import { contextMenu, type ContextMenuEntry } from '#lib/contextMenu.svelte.ts';
+	import { projectLaneActions, reportLabDeleteFailure } from '#lib/lanes/laneActions.ts';
 	import {
 		closeLane,
 		deleteLabPrototype,
 		deleteWorktreeLane,
 		inspectUnintegratedWork,
 		type LaneUnintegratedLoss
-	} from '$lib/lanes/laneLifecycle';
-	import { renameLane, LANE_TITLE_MAX } from '$lib/lanes/laneNaming';
+	} from '#lib/lanes/laneLifecycle.ts';
+	import { renameLane, LANE_TITLE_MAX } from '#lib/lanes/laneNaming.ts';
 	import {
 		fetchWorktreeBranches,
 		type WorktreeBranchEntry,
 		type ProjectLaneActionsOptions
-	} from '$lib/lanes/laneActions';
+	} from '#lib/lanes/laneActions.ts';
 	import LaneDispatchDialog from './LaneDispatchDialog.svelte';
 	import LaneProfileDialog from './LaneProfileDialog.svelte';
-	import Dialog from '$lib/ui/Dialog.svelte';
+	import Dialog from '#lib/ui/Dialog.svelte';
 	import {
 		recordAllowlistDecision,
 		reviewProjectProfile,
 		type ProjectProfileReview
-	} from '$lib/lanes/laneProfile';
-	import type { LaneProcessInfo } from '$lib/lanes/processSupervisor';
-	import { agentLanes } from '$lib/lanes/agentLanes.svelte';
-	import { badgeReveal } from '$lib/agent/motion';
+	} from '#lib/lanes/laneProfile.ts';
+	import type { LaneProcessInfo } from '#lib/lanes/processSupervisor.ts';
+	import { agentLanes } from '#lib/lanes/agentLanes.svelte.ts';
+	import { badgeReveal } from '#lib/agent/motion.ts';
 
 	let {
 		project,

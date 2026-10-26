@@ -1,13 +1,13 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import { ask } from '@tauri-apps/plugin-dialog';
-	import { m } from '$lib/paraglide/messages.js';
-	import { taskStore, type StudioTask } from '$lib/stores/tasks.svelte';
-	import { settingsStore } from '$lib/stores/settings.svelte';
-	import { roleBadge, splitTaskText, taskLabel } from '$lib/stores/taskTitle';
-	import { requestTaskTitle } from '$lib/stores/taskTitles';
-	import { directiveDisplayName } from '$lib/stores/taskDirectives';
-	import { contextMenu, type ContextMenuEntry } from '$lib/contextMenu.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { taskStore, type StudioTask } from '#lib/stores/tasks.svelte.ts';
+	import { settingsStore } from '#lib/stores/settings.svelte.ts';
+	import { roleBadge, splitTaskText, taskLabel } from '#lib/stores/taskTitle.ts';
+	import { requestTaskTitle } from '#lib/stores/taskTitles.ts';
+	import { directiveDisplayName } from '#lib/stores/taskDirectives.ts';
+	import { contextMenu, type ContextMenuEntry } from '#lib/contextMenu.svelte.ts';
 	import {
 		IconArrowDown,
 		IconArrowUp,
@@ -19,11 +19,11 @@
 		IconPencil,
 		IconPlay,
 		IconTrash
-	} from '$lib/icons';
-	import Markdown from '$lib/agent/components/Markdown.svelte';
-	import { lexMarkdownWithMentions } from '$lib/agent/markdown';
-	import StatusMark from '$lib/ui/StatusMark.svelte';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
+	} from '#lib/icons.ts';
+	import Markdown from '#lib/agent/components/Markdown.svelte';
+	import { lexMarkdownWithMentions } from '#lib/agent/markdown.ts';
+	import StatusMark from '#lib/ui/StatusMark.svelte';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
 	import ScheduleChip from './schedule/ScheduleChip.svelte';
 	import ScheduleMenu from './schedule/ScheduleMenu.svelte';
 	import ProviderLogo from './models/ProviderLogo.svelte';

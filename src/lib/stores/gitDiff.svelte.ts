@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import { pathKey } from '$lib/utils/paths';
+import { pathKey } from '#lib/utils/paths.ts';
 
 export interface GitDiffStats {
 	additions: number;

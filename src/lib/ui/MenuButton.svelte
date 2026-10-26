@@ -11,8 +11,8 @@
 	 * - Frecce e Home/End navigano le voci senza interferire con campi input/ricerca.
 	 */
 	import type { Snippet } from 'svelte';
-	import { anchoredPopover } from '$lib/anchoredPopover';
-	import { isElementFocusable } from '$lib/focusTrap';
+	import { anchoredPopover } from '#lib/anchoredPopover.ts';
+	import { isElementFocusable } from '#lib/focusTrap.ts';
 	import Tooltip from './Tooltip.svelte';
 
 	let {

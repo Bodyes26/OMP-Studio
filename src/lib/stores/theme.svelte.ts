@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { load, type Store } from '@tauri-apps/plugin-store';
 import { broadcastToWindows, listenFromWindows } from './windowBridge';
-import { DEFAULT_THEME, THEMES, THEME_NAMES, anchorsFor, applyAnchors, type ThemeMode } from '$lib/theme';
+import { DEFAULT_THEME, THEMES, THEME_NAMES, anchorsFor, applyAnchors, type ThemeMode } from '#lib/theme.ts';
 
 /** Annuncio inter-finestra del tema scelto. */
 const THEME_CHANGED_EVENT = 'studio-theme-changed';

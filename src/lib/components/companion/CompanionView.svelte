@@ -1,34 +1,34 @@
 <script lang="ts">
 	import './companion.css';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	import { onMount, tick, untrack } from 'svelte';
 	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-	import { companionStore, type AttentionRequest, type QuickTaskAiParsed } from '$lib/stores/companion.svelte';
-	import { projectStore, type Project } from '$lib/stores/projects.svelte';
-	import { quotaStore } from '$lib/stores/quota.svelte';
-	import { scheduleStore } from '$lib/stores/schedule.svelte';
-	import { settingsStore } from '$lib/stores/settings.svelte';
-	import { modelSettingsStore, STANDARD_ROLES, resolveCatalogModel } from '$lib/stores/modelSettings.svelte';
-	import { themeStore } from '$lib/stores/theme.svelte';
-	import { THEMES, automaticProjectHue } from '$lib/theme';
-	import UsagePopover from '$lib/components/UsagePopover.svelte';
-	import { taskStore, type StudioTask } from '$lib/stores/tasks.svelte';
-	import { rankFrequentTaskModels } from '$lib/stores/taskSerialization';
-	import { taskLabel } from '$lib/stores/taskTitle';
-	import { isImageFile, prepareImage } from '$lib/agent/images';
-	import type { ImageContent } from '$lib/agent/wire';
-	import type { ComposerSegment } from '$lib/agent/composerDoc';
-	import type ComposerEditor from '$lib/agent/components/ComposerEditor.svelte';
-	import { ROLE_HUES } from '$lib/agent/roleHues';
-	import { FAST_EXIT_MS, motionReduced } from '$lib/agent/motionState.svelte';
-	import { parseQuickTaskLocal, type LocalQuickTask } from '$lib/companion/quickTaskLocal';
-	import { directiveDisplayName } from '$lib/stores/taskDirectives';
+	import { companionStore, type AttentionRequest, type QuickTaskAiParsed } from '#lib/stores/companion.svelte.ts';
+	import { projectStore, type Project } from '#lib/stores/projects.svelte.ts';
+	import { quotaStore } from '#lib/stores/quota.svelte.ts';
+	import { scheduleStore } from '#lib/stores/schedule.svelte.ts';
+	import { settingsStore } from '#lib/stores/settings.svelte.ts';
+	import { modelSettingsStore, STANDARD_ROLES, resolveCatalogModel } from '#lib/stores/modelSettings.svelte.ts';
+	import { themeStore } from '#lib/stores/theme.svelte.ts';
+	import { THEMES, automaticProjectHue } from '#lib/theme.ts';
+	import UsagePopover from '#lib/components/UsagePopover.svelte';
+	import { taskStore, type StudioTask } from '#lib/stores/tasks.svelte.ts';
+	import { rankFrequentTaskModels } from '#lib/stores/taskSerialization.ts';
+	import { taskLabel } from '#lib/stores/taskTitle.ts';
+	import { isImageFile, prepareImage } from '#lib/agent/images.ts';
+	import type { ImageContent } from '#lib/agent/wire.ts';
+	import type { ComposerSegment } from '#lib/agent/composerDoc.ts';
+	import type ComposerEditor from '#lib/agent/components/ComposerEditor.svelte';
+	import { ROLE_HUES } from '#lib/agent/roleHues.ts';
+	import { FAST_EXIT_MS, motionReduced } from '#lib/agent/motionState.svelte.ts';
+	import { parseQuickTaskLocal, type LocalQuickTask } from '#lib/companion/quickTaskLocal.ts';
+	import { directiveDisplayName } from '#lib/stores/taskDirectives.ts';
 	import CompanionShell from './CompanionShell.svelte';
 	import CompanionComposer, { type CompanionSuggestSources } from './CompanionComposer.svelte';
 	import CompanionCenterReader from './CompanionCenterReader.svelte';
 	import CompanionRightRail, { type RailProjectItem } from './CompanionRightRail.svelte';
 	import type { CompanionAskHandlers } from './companionAsk';
-	import { promptBus } from '$lib/agent/promptBus';
+	import { promptBus } from '#lib/agent/promptBus.ts';
 	import {
 		createInitialPresentationState,
 		selectProject,
@@ -45,8 +45,8 @@
 		getOrCreateConversation,
 		type CompanionPresentationState,
 		type CompanionViewMode
-	} from '$lib/companion/companionPresentation';
-	import type { CompanionConversationTarget } from '$lib/companion/conversation';
+	} from '#lib/companion/companionPresentation.ts';
+	import type { CompanionConversationTarget } from '#lib/companion/conversation.ts';
 
 	let editor = $state<ComposerEditor | null>(null);
 	let fileInputEl = $state<HTMLInputElement | null>(null);

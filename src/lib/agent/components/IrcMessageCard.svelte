@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	// Tessera per i messaggi IRC scambiati tra agenti (in entrata o risposta automatica in uscita).
 	// Rende leggibile la comunicazione tra peer con mittente, destinatario, direzione e formattazione
 	// markdown invece di stampare XML grezzo o blocchi opachi nella chat.
@@ -7,7 +7,7 @@
 	import type { IrcEntry } from '../session.svelte';
 	import { lexMarkdown } from '../markdown';
 	import Markdown from './Markdown.svelte';
-	import { IconArrowLeft, IconArrowRight, IconChevronRight } from '$lib/icons';
+	import { IconArrowLeft, IconArrowRight, IconChevronRight } from '#lib/icons.ts';
 
 	let { entry }: { entry: IrcEntry } = $props();
 

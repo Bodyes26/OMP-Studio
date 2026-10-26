@@ -5,11 +5,11 @@
 
 import type { RemoteFolder, RemoteFolderList } from '$remote-protocol';
 import { RemoteCommandFailure } from './commands';
-import { isWindows, joinProjectPath, pathKey, normalizeProjectPath } from '$lib/utils/paths';
+import { isWindows, joinProjectPath, pathKey, normalizeProjectPath } from '#lib/utils/paths.ts';
 import { invoke } from '@tauri-apps/api/core';
-import { projectStore } from '$lib/stores/projects.svelte';
-import { githubStore } from '$lib/stores/github.svelte';
-import { settingsStore } from '$lib/stores/settings.svelte';
+import { projectStore } from '#lib/stores/projects.svelte.ts';
+import { githubStore } from '#lib/stores/github.svelte.ts';
+import { settingsStore } from '#lib/stores/settings.svelte.ts';
 
 export interface ProjectFolderEntry {
 	name: string;

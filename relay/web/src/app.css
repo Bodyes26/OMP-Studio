@@ -1,6 +1,6 @@
 /* Token e grammatica visiva di OMP Studio (`src/app.css`), portati nella PWA.
    La PWA ha accesso al contesto di Studio (`src/lib`) sia nello sviluppo locale sia
-   nella build Docker tramite alias `$lib`. Questa copia include i token specifici
+   nella build Docker tramite alias `#lib`. Questa copia include i token specifici
    della PWA; le ancore del tema le scrive `theme.ts` su :root, come `applyAnchors` in Studio. */
 
 @import "@fontsource-variable/inter";

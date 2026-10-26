@@ -14,7 +14,7 @@
 		IconQueue,
 		IconRoleDefault,
 		IconPlay
-	} from '$lib/icons';
+	} from '#lib/icons.ts';
 
 	let {
 		category,

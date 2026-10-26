@@ -17,9 +17,9 @@
 	 * Menu di selezione del ruolo attivo per l'agente.
 	 * Mostra per ciascun ruolo il modello e il livello di thinking associati.
 	 */
-	import { IconCheck } from '$lib/icons';
-	import { m } from '$lib/paraglide/messages.js';
-	import { ROLE_HUES } from '$lib/agent/roleHues';
+	import { IconCheck } from '#lib/icons.ts';
+	import { m } from '#lib/paraglide/messages.js';
+	import { ROLE_HUES } from '#lib/agent/roleHues.ts';
 	let {
 		activeRole = 'default',
 		assignments = {},

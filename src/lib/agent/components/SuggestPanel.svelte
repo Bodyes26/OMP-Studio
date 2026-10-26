@@ -1,6 +1,6 @@
 <script module lang="ts">
-	import type { AvailableCommand } from '$lib/agent/wire';
-	import type { RankedFileItem } from '$lib/agent/fileMention';
+	import type { AvailableCommand } from '#lib/agent/wire.ts';
+	import type { RankedFileItem } from '#lib/agent/fileMention.ts';
 
 	/** Voce del companion: valore inserito nel badge, nome leggibile e dettaglio in mono. */
 	interface NamedSuggestion {
@@ -25,10 +25,10 @@
 	 * nel companion anche progetti (#), direttive (/) e ruoli o modelli (!).
 	 * Si posiziona sopra il cursore usando le coordinate del Range rettangolo del caret.
 	 */
-	import type { ComposerTriggerKind } from '$lib/agent/composerDoc';
-	import { IconFile, IconEditor, IconHistory, IconSparkles } from '$lib/icons';
-	import { formatTokens } from '$lib/utils/format';
-	import { m } from '$lib/paraglide/messages.js';
+	import type { ComposerTriggerKind } from '#lib/agent/composerDoc.ts';
+	import { IconFile, IconEditor, IconHistory, IconSparkles } from '#lib/icons.ts';
+	import { formatTokens } from '#lib/utils/format.ts';
+	import { m } from '#lib/paraglide/messages.js';
 	let {
 		kind = '@',
 		query = '',

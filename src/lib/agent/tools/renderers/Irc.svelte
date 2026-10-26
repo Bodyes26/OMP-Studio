@@ -5,7 +5,7 @@
   la tabella KeyValue con gli argomenti della trasmissione e l'output testuale in OutputBlock.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	import KeyValue from '../parts/KeyValue.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
 	import PromptBlock from '../parts/PromptBlock.svelte';

@@ -1,10 +1,10 @@
 <!--
   CommandIcon.svelte — Risolve dinamicamente un'icona del catalogo comandi
-  da quelle esportate in `$lib/icons`.
+  da quelle esportate in `#lib/icons.ts`.
 -->
 <script lang="ts">
-	import * as icons from '$lib/icons';
-	import { IconTerminal } from '$lib/icons';
+	import * as icons from '#lib/icons.ts';
+	import { IconTerminal } from '#lib/icons.ts';
 
 	let {
 		icon,

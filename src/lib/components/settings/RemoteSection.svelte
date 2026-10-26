@@ -1,12 +1,12 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
-	import { remoteStore } from '$lib/remote/remoteStore.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { remoteStore } from '#lib/remote/remoteStore.svelte.ts';
 	import { normalizePairingCode, formatPairingCode } from '$remote-protocol';
-	import Switch from '$lib/ui/Switch.svelte';
-	import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
-	import StatusMark from '$lib/ui/StatusMark.svelte';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
-	import { IconRemote, IconCopy, IconExternalLink, IconWarning } from '$lib/icons';
+	import Switch from '#lib/ui/Switch.svelte';
+	import ConfirmDialog from '#lib/ui/ConfirmDialog.svelte';
+	import StatusMark from '#lib/ui/StatusMark.svelte';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
+	import { IconRemote, IconCopy, IconExternalLink, IconWarning } from '#lib/icons.ts';
 
 	let relayUrlInput = $state(remoteStore.status.relayUrl ?? '');
 	let machineNameInput = $state(remoteStore.status.machineName ?? '');

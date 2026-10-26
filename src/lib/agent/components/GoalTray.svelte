@@ -4,7 +4,7 @@
 	 * Mostra l'obiettivo bloccato a due righe, il badge di stato, i token,
 	 * il tempo trascorso e i controlli Pausa / Riprendi / Elimina con conferma inline.
 	 */
-	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
 	import {
 		IconTarget,
 		IconPause,
@@ -12,10 +12,10 @@
 		IconTrash,
 		IconCheck,
 		IconClose
-	} from '$lib/icons';
-	import { formatTokens } from '$lib/utils/format';
+	} from '#lib/icons.ts';
+	import { formatTokens } from '#lib/utils/format.ts';
 	import { formatTrayDuration } from '../subagentActivity';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	import type { Goal } from '../wire';
 
 	let {

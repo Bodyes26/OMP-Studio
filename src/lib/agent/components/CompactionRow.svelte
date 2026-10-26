@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	// Riga di compattazione della sessione.
 	// Linguaggio v2: traccia leggera (12.5px, --ink-muted, icona 14px).
 	// Stato vivo: 'Compattazione…' con shimmer; a conclusione: riepilogo token liberati ed espansione.
 	import type { CompactionEntry } from '../session.svelte';
-	import { formatTokens } from '$lib/utils/format';
-	import { IconContextWindow, IconChevronRight, IconRefresh } from '$lib/icons';
+	import { formatTokens } from '#lib/utils/format.ts';
+	import { IconContextWindow, IconChevronRight, IconRefresh } from '#lib/icons.ts';
 
 	let { entry, fresh = false }: { entry: CompactionEntry; fresh?: boolean } = $props();
 	let expanded = $state(false);

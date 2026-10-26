@@ -3,15 +3,15 @@
 		m,
 		ui_catalogtab_aggiungi_come_fallback_6dd1 as addAsFallbackLabel,
 		ui_catalogtab_costo_1m_7226 as costPerMillionLabel
-	} from '$lib/paraglide/messages.js';
+	} from '#lib/paraglide/messages.js';
 	import {
 		modelSettingsStore,
 		STANDARD_ROLES,
 		splitModelSelector,
 		type ModelDto
-	} from '$lib/stores/modelSettings.svelte';
-	import MenuButton from '$lib/ui/MenuButton.svelte';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
+	} from '#lib/stores/modelSettings.svelte.ts';
+	import MenuButton from '#lib/ui/MenuButton.svelte';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
 	import {
 		IconSearch,
 		IconClose,
@@ -21,8 +21,8 @@
 		IconRoleVision,
 		IconRoleSlow,
 		IconContextWindow
-	} from '$lib/icons';
-	import { matchesLooseQuery } from '$lib/looseSearch';
+	} from '#lib/icons.ts';
+	import { matchesLooseQuery } from '#lib/looseSearch.ts';
 	import ProviderLogo from './ProviderLogo.svelte';
 
 	let searchQuery = $state('');

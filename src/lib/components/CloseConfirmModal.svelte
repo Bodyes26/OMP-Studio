@@ -1,9 +1,9 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
-	import Dialog from '$lib/ui/Dialog.svelte';
-	import StatusMark from '$lib/ui/StatusMark.svelte';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
-	import { IconClose, IconWarning, IconQueue, IconCheck } from '$lib/icons';
+	import { m } from '#lib/paraglide/messages.js';
+	import Dialog from '#lib/ui/Dialog.svelte';
+	import StatusMark from '#lib/ui/StatusMark.svelte';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
+	import { IconClose, IconWarning, IconQueue, IconCheck } from '#lib/icons.ts';
 
 	export interface ProjectCloseTarget {
 		id: string;

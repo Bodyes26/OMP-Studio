@@ -1,6 +1,8 @@
 // @ts-nocheck
 import { defineConfig } from "vite";
 import { sveltekit } from "@sveltejs/kit/vite";
+import { vitePreprocess } from "@sveltejs/vite-plugin-svelte";
+import adapter from "@sveltejs/adapter-static";
 import { paraglideVitePlugin } from "@inlang/paraglide-js";
 import { svelteLoopProbe } from "./scripts/svelte-loop-probe.js";
 
@@ -10,7 +12,13 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(({ isSsrBuild }) => ({
   plugins: [
     svelteLoopProbe(),
-    sveltekit(),
+    sveltekit({
+      preprocess: vitePreprocess(),
+      // Tauri serve solo file statici: anche le route secondarie usano la SPA.
+      adapter: adapter({ fallback: "index.html" }),
+      // Desktop e relay condividono il contratto del controllo remoto.
+      alias: { "$remote-protocol": "relay/src/protocol.ts" },
+    }),
     paraglideVitePlugin({
       project: "./project.inlang",
       outdir: "./src/lib/paraglide",
@@ -22,7 +30,7 @@ export default defineConfig(({ isSsrBuild }) => ({
 
   build: {
     chunkSizeWarningLimit: 1000,
-    rollupOptions: {
+    rolldownOptions: {
       output: isSsrBuild
         ? {}
         : {

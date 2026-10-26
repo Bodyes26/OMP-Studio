@@ -6,12 +6,12 @@
 	scelta (anche quando il risultato del tool e' ormai arrivato).
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
-	import { IconCheck, IconGitBranch, IconRefresh, IconWarning } from '$lib/icons';
-	import { agentLanes } from '$lib/lanes/agentLanes.svelte';
-	import { projectStore } from '$lib/stores/projects.svelte';
-	import { laneOrchestrator } from '$lib/lanes/laneOrchestrator.svelte';
-	import type { LaneId, ProjectId } from '$lib/types/lanes';
+	import { m } from '#lib/paraglide/messages.js';
+	import { IconCheck, IconGitBranch, IconRefresh, IconWarning } from '#lib/icons.ts';
+	import { agentLanes } from '#lib/lanes/agentLanes.svelte.ts';
+	import { projectStore } from '#lib/stores/projects.svelte.ts';
+	import { laneOrchestrator } from '#lib/lanes/laneOrchestrator.svelte.ts';
+	import type { LaneId, ProjectId } from '#lib/types/lanes.ts';
 	import { asRecord, resultText, str, type ToolRenderProps } from '../types';
 
 	let { args, result, running, toolCallId }: ToolRenderProps = $props();

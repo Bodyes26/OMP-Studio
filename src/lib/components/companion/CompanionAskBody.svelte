@@ -8,19 +8,19 @@
 	//
 	// Le opzioni inviano al click: non c'e' una scelta da confermare, quindi
 	// niente radio; l'indice e' un dato, non una scorciatoia.
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	import { tick } from 'svelte';
-	import { askQuestionText, parseAskTitle, sanitizeAskDetail } from '$lib/agent/askTitle';
-	import { cleanOptionLabel, isOtherOption } from '$lib/agent/askAnswers';
-	import { lexMarkdown } from '$lib/agent/markdown';
-	import { trayFold } from '$lib/agent/motion';
-	import type { AttentionRequest } from '$lib/stores/companion.svelte';
-	import { CONTEXT_VISIBLE_CHARS, tailOfText } from '$lib/stores/companionText';
-	import StatusMark from '$lib/ui/StatusMark.svelte';
+	import { askQuestionText, parseAskTitle, sanitizeAskDetail } from '#lib/agent/askTitle.ts';
+	import { cleanOptionLabel, isOtherOption } from '#lib/agent/askAnswers.ts';
+	import { lexMarkdown } from '#lib/agent/markdown.ts';
+	import { trayFold } from '#lib/agent/motion.ts';
+	import type { AttentionRequest } from '#lib/stores/companion.svelte.ts';
+	import { CONTEXT_VISIBLE_CHARS, tailOfText } from '#lib/stores/companionText.ts';
+	import StatusMark from '#lib/ui/StatusMark.svelte';
 	import CompanionMarkdown from './CompanionMarkdown.svelte';
-	import { IconArrowUp, IconCheck, IconClose, IconPencil, IconSchedule, IconSparkles } from '$lib/icons';
-	import { scheduleStore } from '$lib/stores/schedule.svelte';
-	import ProviderLogo from '$lib/components/models/ProviderLogo.svelte';
+	import { IconArrowUp, IconCheck, IconClose, IconPencil, IconSchedule, IconSparkles } from '#lib/icons.ts';
+	import { scheduleStore } from '#lib/stores/schedule.svelte.ts';
+	import ProviderLogo from '#lib/components/models/ProviderLogo.svelte';
 
 	let {
 		req,

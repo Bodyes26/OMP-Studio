@@ -10,13 +10,13 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import { onDestroy } from 'svelte';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	import { AutoOpen, Lingering } from '../motionState.svelte';
 	import type { AgentProgress, Goal, TodoItem, TodoPhase } from '../wire';
 	import { describeSubagentActivity, formatTrayDuration } from '../subagentActivity';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
 	import GoalTray from './GoalTray.svelte';
-	import StatusMark from '$lib/ui/StatusMark.svelte';
+	import StatusMark from '#lib/ui/StatusMark.svelte';
 	import {
 		IconAside,
 		IconChevronRight,
@@ -27,7 +27,7 @@
 		IconSchedule,
 		IconSubagents,
 		IconStop,
-	} from '$lib/icons';
+	} from '#lib/icons.ts';
 
 	export interface QuestionMinimized {
 		title: string;

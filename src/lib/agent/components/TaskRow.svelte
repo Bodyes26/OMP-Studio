@@ -7,15 +7,15 @@
 	 * pillola di stato terminale/bloccato, metrica tabulare e dettagli generici.
 	 */
 	import { getContext, onDestroy, type Snippet } from 'svelte';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	import {
 		IconChevronRight,
 		IconFile
-	} from '$lib/icons';
-	import StatusMark from '$lib/ui/StatusMark.svelte';
+	} from '#lib/icons.ts';
+	import StatusMark from '#lib/ui/StatusMark.svelte';
 	import { Lingering } from '../motionState.svelte';
-	import GitDiffBadge from '$lib/components/GitDiffBadge.svelte';
-	import { gitDiffStore, hasGitChanges } from '$lib/stores/gitDiff.svelte';
+	import GitDiffBadge from '#lib/components/GitDiffBadge.svelte';
+	import { gitDiffStore, hasGitChanges } from '#lib/stores/gitDiff.svelte.ts';
 	import {
 		type TaskRowModel,
 		type TaskRowStatus,

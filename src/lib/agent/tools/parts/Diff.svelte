@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	// Diff a colonna singola.
 	//
 	// Il formato di `EditToolDetails.diff` **non** e' un diff unificato,

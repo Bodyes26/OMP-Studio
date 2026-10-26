@@ -3,7 +3,7 @@
 // in routes/+page.svelte e non vengono inoltrati a omp come prompt.
 
 import type { AvailableCommand } from './wire';
-import { m as msg } from '$lib/paraglide/messages.js';
+import { m as msg } from '#lib/paraglide/messages.js';
 
 export const STUDIO_SLASH_COMMANDS: AvailableCommand[] = [
 	{

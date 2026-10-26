@@ -18,12 +18,12 @@ import type {
 	UserEntry,
 	AssistantEntry,
 	ToolEntry
-} from '$lib/agent/session.svelte';
-import { categorizeTool } from '$lib/agent/tools/categories';
+} from '#lib/agent/session.svelte.ts';
+import { categorizeTool } from '#lib/agent/tools/categories.ts';
 import { artifactForToolEntry } from './artifacts';
-import { asRecord, resultText, str, recordList } from '$lib/agent/tools/types';
-import { extractPhasesFromCall } from '$lib/agent/todoTrace';
-import { stripEditorContext } from '$lib/editor/editorContextParsing';
+import { asRecord, resultText, str, recordList } from '#lib/agent/tools/types.ts';
+import { extractPhasesFromCall } from '#lib/agent/todoTrace.ts';
+import { stripEditorContext } from '#lib/editor/editorContextParsing.ts';
 
 export const MAX_DIFF_LINES = 300;
 export const MAX_DIFF_BYTES = 24 * 1024; // 24 KB

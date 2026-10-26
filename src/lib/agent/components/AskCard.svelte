@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	// Scheda domanda v2 (Gate R32 C17): compatta, al posto del composer.
 	// Una domanda per volta con stepper, scelta 1…N, consigliata, multipla,
 	// "Altro…" in linea, nota (N), anteprime su un tabellone sopra la scheda,
@@ -15,7 +15,7 @@
 
 	import { tick, untrack } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
-	import { traceFocus } from '$lib/focusTracer';
+	import { traceFocus } from '#lib/focusTracer.ts';
 	import {
 		IconArrowLeft,
 		IconArrowRight,
@@ -26,7 +26,7 @@
 		IconPlus,
 		IconRename,
 		IconViewPreview
-	} from '$lib/icons';
+	} from '#lib/icons.ts';
 	import AskPreviewBoard from './AskPreviewBoard.svelte';
 	import type { AgentSession, PendingAsk } from '../session.svelte';
 	import {

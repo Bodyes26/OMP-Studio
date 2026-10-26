@@ -4,9 +4,9 @@
 -->
 <script lang="ts">
 	import type { RemoteChatMessage } from '../../../../src/protocol.ts';
-	import { lexMarkdown } from '$lib/agent/markdown';
-	import Markdown from '$lib/agent/components/Markdown.svelte';
-	import ThinkingBlock from '$lib/agent/components/ThinkingBlock.svelte';
+	import { lexMarkdown } from '#lib/agent/markdown.ts';
+	import Markdown from '#lib/agent/components/Markdown.svelte';
+	import ThinkingBlock from '#lib/agent/components/ThinkingBlock.svelte';
 
 	let {
 		message,

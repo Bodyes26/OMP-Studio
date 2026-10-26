@@ -6,11 +6,11 @@
 </script>
 
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
-	import { i18n } from '$lib/i18n/i18n.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { i18n } from '#lib/i18n/i18n.svelte.ts';
 	import { onDestroy, tick, untrack } from 'svelte';
-	import { taskStore, type StudioTask, type StudioTaskOptions } from '$lib/stores/tasks.svelte';
-	import { settingsStore } from '$lib/stores/settings.svelte';
+	import { taskStore, type StudioTask, type StudioTaskOptions } from '#lib/stores/tasks.svelte.ts';
+	import { settingsStore } from '#lib/stores/settings.svelte.ts';
 	import {
 		createDirectiveSnapshot,
 		compareDirectiveRevision,
@@ -18,44 +18,44 @@
 		directiveDisplayDescription,
 		type TaskDirective,
 		type TaskDirectiveSnapshot
-	} from '$lib/stores/taskDirectives';
-	import { rankFrequentTaskModelConfigurations } from '$lib/stores/taskSerialization';
-	import { taskLabel } from '$lib/stores/taskTitle';
-	import { requestTaskTitle } from '$lib/stores/taskTitles';
-	import { modelSettingsStore, STANDARD_ROLES } from '$lib/stores/modelSettings.svelte';
-	import { supportedThinkingLevels, THINKING_LEVEL_ITEMS } from '$lib/stores/modelSettingsHelpers';
-	import { quotaStore, providersMatch, type ProviderHost } from '$lib/stores/quota.svelte';
-	import type { AgentSession } from '$lib/agent/session.svelte';
-	import type { AvailableCommand, ImageContent } from '$lib/agent/wire';
-	import { prepareImage, isImageFile } from '$lib/agent/images';
-	import { STUDIO_SLASH_COMMANDS, mergeCommands } from '$lib/agent/commands';
+	} from '#lib/stores/taskDirectives.ts';
+	import { rankFrequentTaskModelConfigurations } from '#lib/stores/taskSerialization.ts';
+	import { taskLabel } from '#lib/stores/taskTitle.ts';
+	import { requestTaskTitle } from '#lib/stores/taskTitles.ts';
+	import { modelSettingsStore, STANDARD_ROLES } from '#lib/stores/modelSettings.svelte.ts';
+	import { supportedThinkingLevels, THINKING_LEVEL_ITEMS } from '#lib/stores/modelSettingsHelpers.ts';
+	import { quotaStore, providersMatch, type ProviderHost } from '#lib/stores/quota.svelte.ts';
+	import type { AgentSession } from '#lib/agent/session.svelte.ts';
+	import type { AvailableCommand, ImageContent } from '#lib/agent/wire.ts';
+	import { prepareImage, isImageFile } from '#lib/agent/images.ts';
+	import { STUDIO_SLASH_COMMANDS, mergeCommands } from '#lib/agent/commands.ts';
 	import {
 		loadProjectFiles,
 		rankFileCandidates,
 		extractTouchedFilesFromTranscript,
 		computeCaretAnchorLeft
-	} from '$lib/agent/fileMention';
-	import { createFileBadgeElement, createCommandBadgeElement, type ComposerTrigger } from '$lib/agent/composerDoc';
+	} from '#lib/agent/fileMention.ts';
+	import { createFileBadgeElement, createCommandBadgeElement, type ComposerTrigger } from '#lib/agent/composerDoc.ts';
 	import {
 		SUGGEST_WIDTH,
 		commandSuggestions,
 		fileSuggestions,
 		isSkillName,
 		suggestKeyAction
-	} from '$lib/agent/suggestItems';
-	import { rvLift } from '$lib/agent/motion';
-	import { projectStore, pathKey } from '$lib/stores/projects.svelte';
-	import ComposerEditor from '$lib/agent/components/ComposerEditor.svelte';
-	import SuggestPanel, { type SuggestionItem } from '$lib/agent/components/SuggestPanel.svelte';
-	import AttachmentThumb, { type ComposerAttachment } from '$lib/agent/components/AttachmentThumb.svelte';
-	import ModelField from '$lib/components/models/ModelField.svelte';
-	import ProviderLogo from '$lib/components/models/ProviderLogo.svelte';
-	import ReasoningSlider from '$lib/components/models/ReasoningSlider.svelte';
-	import MenuButton from '$lib/ui/MenuButton.svelte';
-	import Segmented from '$lib/ui/Segmented.svelte';
-	import Switch from '$lib/ui/Switch.svelte';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
-	import StatusMark from '$lib/ui/StatusMark.svelte';
+	} from '#lib/agent/suggestItems.ts';
+	import { rvLift } from '#lib/agent/motion.ts';
+	import { projectStore, pathKey } from '#lib/stores/projects.svelte.ts';
+	import ComposerEditor from '#lib/agent/components/ComposerEditor.svelte';
+	import SuggestPanel, { type SuggestionItem } from '#lib/agent/components/SuggestPanel.svelte';
+	import AttachmentThumb, { type ComposerAttachment } from '#lib/agent/components/AttachmentThumb.svelte';
+	import ModelField from '#lib/components/models/ModelField.svelte';
+	import ProviderLogo from '#lib/components/models/ProviderLogo.svelte';
+	import ReasoningSlider from '#lib/components/models/ReasoningSlider.svelte';
+	import MenuButton from '#lib/ui/MenuButton.svelte';
+	import Segmented from '#lib/ui/Segmented.svelte';
+	import Switch from '#lib/ui/Switch.svelte';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
+	import StatusMark from '#lib/ui/StatusMark.svelte';
 	import { roleConfigFromSelector } from './taskRoleConfig';
 	import ScheduleMenu from './schedule/ScheduleMenu.svelte';
 	import ScheduleChip from './schedule/ScheduleChip.svelte';
@@ -68,7 +68,7 @@
 		IconGitBranch,
 		IconPlay,
 		IconTrash
-	} from '$lib/icons';
+	} from '#lib/icons.ts';
 
 	let {
 		task,

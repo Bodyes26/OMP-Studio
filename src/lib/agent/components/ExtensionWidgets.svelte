@@ -8,7 +8,7 @@
 	 * ANSI diventano i toni semantici di Studio (`parseAnsiLine`): la palette
 	 * a sedici colori appartiene al terminale e al tema di omp.
 	 */
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	import {
 		parseAnsiLine,
 		widgetsAt,

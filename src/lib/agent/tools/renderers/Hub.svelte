@@ -8,7 +8,7 @@
 	import { agentUiHooks } from '../../ui-context';
 	import KeyValue from '../parts/KeyValue.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
-	import StatusMark, { type StatusMarkType } from '$lib/ui/StatusMark.svelte';
+	import StatusMark, { type StatusMarkType } from '#lib/ui/StatusMark.svelte';
 	import {
 		asRecord,
 		formatDuration,

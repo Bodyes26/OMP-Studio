@@ -12,6 +12,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 ## [Unreleased]
 
 ### Fixed
+- Restore Nightly publishing by updating vulnerable frontend dependencies and migrating Studio and shared components to SvelteKit 3.
 - OpenAI and OpenAI Codex use the classic ChatGPT logo, without the Codex tile or gradient.
 - OpenRouter shows its official logo instead of Cursor's.
 - Settings → Models → Providers: adding a provider opens login immediately, closing the terminal refreshes the model catalog, custom providers validate and save without a global refresh, and removing a buggy account is immediate with fallback on historic aliases.

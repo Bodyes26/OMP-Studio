@@ -8,7 +8,7 @@
 //  - Consultazione storica e ripristino di revisioni precedenti.
 
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import type { AgentSession } from '$lib/agent/session.svelte';
+import type { AgentSession } from '#lib/agent/session.svelte.ts';
 import { labApi } from './api';
 import { compileLabPrototypeInWorker } from './compiler';
 import { buildLabPreviewHtml } from './preview-builder';

@@ -5,9 +5,9 @@
 </script>
 
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
-	import { ompVersionStore } from '$lib/stores/ompVersion.svelte';
-	import { ompChangelogStore } from '$lib/stores/ompChangelog.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { ompVersionStore } from '#lib/stores/ompVersion.svelte.ts';
+	import { ompChangelogStore } from '#lib/stores/ompChangelog.svelte.ts';
 	import { motionReduced } from '../motionState.svelte';
 
 	let { visible = true, loading = false }: { visible?: boolean; loading?: boolean } = $props();

@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { accountPinHash, shortestWindowLimit, remainingFractionOf } from '../quota/resolve';
-import { m as msg } from '$lib/paraglide/messages.js';
-import { createAdaptivePoller, type AdaptivePoller } from '$lib/utils/windowActivity.svelte';
+import { m as msg } from '#lib/paraglide/messages.js';
+import { createAdaptivePoller, type AdaptivePoller } from '#lib/utils/windowActivity.svelte.ts';
 import {
 	buildAccountResetSummaries,
 	findResetSummaryForReport,

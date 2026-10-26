@@ -2,15 +2,15 @@
  * Gestione degli allegati nel composer remoto (Gate R44, C23).
  *
  * Supporta:
- * - Immagini: preparazione tramite shared `$lib/agent/images` con anteprima immediata
+ * - Immagini: preparazione tramite shared `#lib/agent/images.ts` con anteprima immediata
  *   e staging sull'host remoto per non superare il tetto dei frame WebSocket (512 KiB).
  * - File generici e video: staging sul filesystem reale dell'host (%LOCALAPPDATA%/sh.omp.studio/attachments)
  *   tramite `stage_attachment` a chunk di max 192 KiB.
  */
 
 import type { RemoteCommand } from '../../../src/protocol.ts';
-import { isImageFile, prepareImage } from '$lib/agent/images';
-import { base64ToBlob } from '$lib/agent/chatDrop';
+import { isImageFile, prepareImage } from '#lib/agent/images.ts';
+import { base64ToBlob } from '#lib/agent/chatDrop.ts';
 
 /** Limite massimo per singolo allegato: 50 MiB. */
 export const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024;

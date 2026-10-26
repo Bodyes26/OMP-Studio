@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	// Tabellone delle anteprime della scheda domanda (prototipo Lab
 	// «QuestionView Lab», variante «sopra la domanda»). Sta sopra la card, a
 	// tutta larghezza, su una superficie in negativo rispetto al tema: chiaro

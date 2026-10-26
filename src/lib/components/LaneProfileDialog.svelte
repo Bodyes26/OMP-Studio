@@ -5,16 +5,16 @@
 	// Il dialogo mostra lo stack rilevato con la sua evidenza, gli avvisi sul
 	// restore e i file candidati. Niente viene copiato finche' l'utente non
 	// conferma; la decisione vale anche per le corsie successive.
-	import { m } from '$lib/paraglide/messages.js';
-	import Dialog from '$lib/ui/Dialog.svelte';
-	import { IconPlus, IconGitBranch, IconWarning } from '$lib/icons';
-	import type { ProjectStack, RestoreMode } from '$lib/types/lanes';
+	import { m } from '#lib/paraglide/messages.js';
+	import Dialog from '#lib/ui/Dialog.svelte';
+	import { IconPlus, IconGitBranch, IconWarning } from '#lib/icons.ts';
+	import type { ProjectStack, RestoreMode } from '#lib/types/lanes.ts';
 	import type {
 		CandidateRule,
 		ProfileWarning,
 		StackDetection,
 		UntrackedCandidate
-	} from '$lib/lanes/stackDetector';
+	} from '#lib/lanes/stackDetector.ts';
 
 	let {
 		open = false,

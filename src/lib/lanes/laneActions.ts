@@ -1,12 +1,12 @@
 // Azioni sulle corsie e gestione del ciclo di vita dei prototipi Laboratorio (contratto §7).
 // Unica sorgente di verita' per le azioni corsia usate da ProjectPopover e LaneStrip (+ ▾).
 
-import { laneStore } from '$lib/stores/lanes.svelte';
-import { projectStore, type Project } from '$lib/stores/projects.svelte';
+import { laneStore } from '#lib/stores/lanes.svelte.ts';
+import { projectStore, type Project } from '#lib/stores/projects.svelte.ts';
 import { laneOrchestrator } from './laneOrchestrator.svelte';
-import { labApi } from '$lib/lab/api';
-import type { LabIndexEntry } from '$lib/lab/types';
-import { gitDiffStore } from '$lib/stores/gitDiff.svelte';
+import { labApi } from '#lib/lab/api.ts';
+import type { LabIndexEntry } from '#lib/lab/types.ts';
+import { gitDiffStore } from '#lib/stores/gitDiff.svelte.ts';
 import { reviewProjectProfile } from './laneProfile';
 import {
 	laneId,
@@ -15,12 +15,12 @@ import {
 	type AgentLane,
 	type LaneId,
 	type ProjectId
-} from '$lib/types/lanes';
-import type { LaneRecord } from '$lib/stores/lanePersistence';
-import type { ContextMenuEntry } from '$lib/contextMenu.svelte';
-import { IconGitBranch, IconLab, IconTrash } from '$lib/icons';
-import { m } from '$lib/paraglide/messages.js';
-import { getLocale } from '$lib/paraglide/runtime.js';
+} from '#lib/types/lanes.ts';
+import type { LaneRecord } from '#lib/stores/lanePersistence.ts';
+import type { ContextMenuEntry } from '#lib/contextMenu.svelte.ts';
+import { IconGitBranch, IconLab, IconTrash } from '#lib/icons.ts';
+import { m } from '#lib/paraglide/messages.js';
+import { getLocale } from '#lib/paraglide/runtime.js';
 import { message } from '@tauri-apps/plugin-dialog';
 import { listClosedLanes, reopenLane, type ClosedLaneEntry } from './laneLifecycle';
 export {

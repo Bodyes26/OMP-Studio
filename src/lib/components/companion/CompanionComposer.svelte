@@ -14,24 +14,24 @@
 	// ridotto a cio' che serve per accodare: niente modello ne' thinking, il
 	// ruolo si sceglie con il badge `!`. In piu' rispetto alla chat il companion
 	// conosce `#progetto` e `!ruolo`, che diventano badge d'identita'.
-	import { m } from '$lib/paraglide/messages.js';
-	import type { ImageContent } from '$lib/agent/wire';
-	import ComposerEditor from '$lib/agent/components/ComposerEditor.svelte';
-	import SuggestPanel, { type SuggestionItem } from '$lib/agent/components/SuggestPanel.svelte';
-	import AttachmentThumb, { type ComposerAttachment } from '$lib/agent/components/AttachmentThumb.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import type { ImageContent } from '#lib/agent/wire.ts';
+	import ComposerEditor from '#lib/agent/components/ComposerEditor.svelte';
+	import SuggestPanel, { type SuggestionItem } from '#lib/agent/components/SuggestPanel.svelte';
+	import AttachmentThumb, { type ComposerAttachment } from '#lib/agent/components/AttachmentThumb.svelte';
 	import {
 		createCommandBadgeElement,
 		createFileBadgeElement,
 		createProjectBadgeElement,
 		createRoleBadgeElement,
 		type ComposerTrigger
-	} from '$lib/agent/composerDoc';
-	import { computeCaretAnchorLeft, loadProjectFiles, rankFileCandidates } from '$lib/agent/fileMention';
-	import { SUGGEST_WIDTH, fileSuggestions, suggestKeyAction } from '$lib/agent/suggestItems';
-	import { matchesLooseQuery } from '$lib/looseSearch';
-	import { trayFold } from '$lib/agent/motion';
-	import StatusMark from '$lib/ui/StatusMark.svelte';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
+	} from '#lib/agent/composerDoc.ts';
+	import { computeCaretAnchorLeft, loadProjectFiles, rankFileCandidates } from '#lib/agent/fileMention.ts';
+	import { SUGGEST_WIDTH, fileSuggestions, suggestKeyAction } from '#lib/agent/suggestItems.ts';
+	import { matchesLooseQuery } from '#lib/looseSearch.ts';
+	import { trayFold } from '#lib/agent/motion.ts';
+	import StatusMark from '#lib/ui/StatusMark.svelte';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
 	import {
 		IconArrowUp,
 		IconAt,
@@ -39,7 +39,7 @@
 		IconCircleAlert,
 		IconCircleCheck,
 		IconWarning
-	} from '$lib/icons';
+	} from '#lib/icons.ts';
 
 	let {
 		editor = $bindable(null as ComposerEditor | null),

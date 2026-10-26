@@ -5,8 +5,8 @@
 	 * la riga «Obiettivo avviato». Vive solo in Studio: niente di questo arriva
 	 * a omp finche' non si preme «Avvia obiettivo».
 	 */
-	import { m } from '$lib/paraglide/messages.js';
-	import { IconTarget, IconClose } from '$lib/icons';
+	import { m } from '#lib/paraglide/messages.js';
+	import { IconTarget, IconClose } from '#lib/icons.ts';
 	import type { AgentSession, GuidedGoalEntry } from '../session.svelte';
 	import GuidedGoalDraftCard from './GuidedGoalDraftCard.svelte';
 

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	// Pannello «Rami»: l'albero della sessione aperta (`get_tree`), un nodo per
 	// ogni messaggio dell'utente, il ramo attivo dritto a sinistra e i rami
 	// alternativi rientrati nel punto in cui si staccano.
@@ -17,14 +17,14 @@
 		type BranchTree
 	} from '../sessionTree';
 	import { agentUiHooks } from '../ui-context';
-	import { IconClose, IconEditRetry, IconFork, IconGitBranch, IconMore, IconRefresh } from '$lib/icons';
-	import { contextMenu, type ContextMenuEntry } from '$lib/contextMenu.svelte';
-	import { i18n } from '$lib/i18n/i18n.svelte';
+	import { IconClose, IconEditRetry, IconFork, IconGitBranch, IconMore, IconRefresh } from '#lib/icons.ts';
+	import { contextMenu, type ContextMenuEntry } from '#lib/contextMenu.svelte.ts';
+	import { i18n } from '#lib/i18n/i18n.svelte.ts';
 	import { rvLift } from '../motion';
 	import { motionReduced } from '../motionState.svelte';
 	import { fade } from 'svelte/transition';
-	import { trapFocus } from '$lib/focusTrap';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import { trapFocus } from '#lib/focusTrap.ts';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
 	import { untrack } from 'svelte';
 
 	let { session, onClose } = $props<{ session: AgentSession; onClose: () => void }>();

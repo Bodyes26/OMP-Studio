@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import { sessionRegistry } from '$lib/agent/sessionRegistry';
+import { sessionRegistry } from '#lib/agent/sessionRegistry.ts';
 import { load, type Store } from '@tauri-apps/plugin-store';
 import { restartOmpTerminals } from '../terminal/terminal';
 import { settingsStore } from './settings.svelte';
@@ -35,7 +35,7 @@ import {
 	BUILTIN_CONTEXT_FILES,
 	validateExtraContextFileName
 } from './modelSettingsHelpers';
-import { m as msg } from '$lib/paraglide/messages.js';
+import { m as msg } from '#lib/paraglide/messages.js';
 
 export type {
 	ModelCost,

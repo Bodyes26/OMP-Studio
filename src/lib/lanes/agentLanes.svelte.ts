@@ -17,20 +17,20 @@
 // - scartare lavoro mai integrato chiede sempre conferma nella finestra della GUI.
 
 import { invoke } from '@tauri-apps/api/core';
-import { laneStore, type LaneRecord } from '$lib/stores/lanes.svelte';
-import { projectStore, type Project } from '$lib/stores/projects.svelte';
-import { taskStore } from '$lib/stores/tasks.svelte';
-import { modelSettingsStore, STANDARD_ROLES } from '$lib/stores/modelSettings.svelte';
-import { roleConfigFromSelector } from '$lib/components/taskRoleConfig';
-import { sessionRegistry } from '$lib/agent/sessionRegistry';
+import { laneStore, type LaneRecord } from '#lib/stores/lanes.svelte.ts';
+import { projectStore, type Project } from '#lib/stores/projects.svelte.ts';
+import { taskStore } from '#lib/stores/tasks.svelte.ts';
+import { modelSettingsStore, STANDARD_ROLES } from '#lib/stores/modelSettings.svelte.ts';
+import { roleConfigFromSelector } from '#lib/components/taskRoleConfig.ts';
+import { sessionRegistry } from '#lib/agent/sessionRegistry.ts';
 import { laneOrchestrator } from './laneOrchestrator.svelte';
 import { laneLanding, type LandCaller } from './laneLanding.svelte';
 import { closeLane, deleteWorktreeLane, inspectUnintegratedWork } from './laneLifecycle';
 import { activeLanes, shouldWarnConcurrency } from './queueDispatch';
-import { labApi } from '$lib/lab/api';
-import type { LabIndexEntry } from '$lib/lab/types';
-import { peekLabRuntime } from '$lib/lab/runtime.svelte';
-import { laneId as toLaneId, workspacePath, MAIN_LANE_ID, type LaneId, type ProjectId } from '$lib/types/lanes';
+import { labApi } from '#lib/lab/api.ts';
+import type { LabIndexEntry } from '#lib/lab/types.ts';
+import { peekLabRuntime } from '#lib/lab/runtime.svelte.ts';
+import { laneId as toLaneId, workspacePath, MAIN_LANE_ID, type LaneId, type ProjectId } from '#lib/types/lanes.ts';
 import {
 	buildLabHandoffPackage,
 	callerIsMain,

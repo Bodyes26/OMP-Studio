@@ -7,8 +7,8 @@ import {
 	parseRoleSelector,
 	resolveActiveRole,
 	nextCycleRole
-} from '$lib/stores/modelSettingsHelpers';
-import type { RpcCommand, ThinkingLevel } from '$lib/agent/wire';
+} from '#lib/stores/modelSettingsHelpers.ts';
+import type { RpcCommand, ThinkingLevel } from '#lib/agent/wire.ts';
 
 /**
  * Ruolo non applicabile. Il motivo e' un codice e non un testo: la GUI lo

@@ -1,17 +1,17 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
-	import { i18n } from '$lib/i18n/i18n.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { i18n } from '#lib/i18n/i18n.svelte.ts';
 	import { untrack } from 'svelte';
 	import {
 		modelSettingsStore,
 		STANDARD_ROLES,
 		type ModelFinding,
 		type ModelFixItem
-	} from '$lib/stores/modelSettings.svelte';
-	import { IconArrowRight, IconWarning } from '$lib/icons';
-	import AlertBanner from '$lib/components/AlertBanner.svelte';
-	import Dialog from '$lib/ui/Dialog.svelte';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
+	} from '#lib/stores/modelSettings.svelte.ts';
+	import { IconArrowRight, IconWarning } from '#lib/icons.ts';
+	import AlertBanner from '#lib/components/AlertBanner.svelte';
+	import Dialog from '#lib/ui/Dialog.svelte';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
 	import ProviderLogo from './ProviderLogo.svelte';
 
 	let selectedKeys = $state<string[]>([]);

@@ -11,7 +11,7 @@
 // solo dentro `SWITCH_WINDOW_MS`: un montaggio qualunque, fuori da uno switch, non
 // anima mai. Il terminale non partecipa (Still-Room Rule, docs/DESIGN.md).
 
-import { motionReduced } from '$lib/agent/motionState.svelte';
+import { motionReduced } from '#lib/agent/motionState.svelte.ts';
 
 export type SwitchKind = 'project' | 'lane';
 

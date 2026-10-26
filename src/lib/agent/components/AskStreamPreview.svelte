@@ -2,8 +2,8 @@
 	// Scheda della domanda mentre il modello la sta ancora scrivendo: stessa
 	// forma di AskCard, con le parti non ancora arrivate come righe fantasma.
 	// Mostra la domanda piu' recente: e' quella che si sta formando.
-	import { m } from '$lib/paraglide/messages.js';
-	import { IconAsk } from '$lib/icons';
+	import { m } from '#lib/paraglide/messages.js';
+	import { IconAsk } from '#lib/icons.ts';
 	import type { StreamAskState } from '../askStream';
 
 	let { state } = $props<{ state: StreamAskState }>();

@@ -6,8 +6,8 @@
 	 * «Consigliata», tasti 1–9, Invio), ma tutto resta in Studio.
 	 */
 	import { tick } from 'svelte';
-	import { m } from '$lib/paraglide/messages.js';
-	import { IconTarget, IconArrowRight, IconWarning, IconSparkles } from '$lib/icons';
+	import { m } from '#lib/paraglide/messages.js';
+	import { IconTarget, IconArrowRight, IconWarning, IconSparkles } from '#lib/icons.ts';
 	import type { AgentSession } from '../session.svelte';
 	import { currentQuestion, isVagueCriterion, GOAL_FIELDS, type GoalInterview } from '../guidedGoal';
 	import { isImeComposing } from '../askFocus';

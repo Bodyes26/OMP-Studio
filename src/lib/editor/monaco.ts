@@ -4,16 +4,16 @@ import JsonWorker from 'monaco-editor/language/json/json.worker?worker';
 import CssWorker from 'monaco-editor/language/css/css.worker?worker';
 import HtmlWorker from 'monaco-editor/language/html/html.worker?worker';
 import TsWorker from 'monaco-editor/language/typescript/ts.worker?worker';
-import { canvasColors, onThemeChange } from '$lib/theme';
-import { settingsStore, withFontFamily } from '$lib/stores/settings.svelte';
-import { perfMark } from '$lib/perf';
+import { canvasColors, onThemeChange } from '#lib/theme.ts';
+import { settingsStore, withFontFamily } from '#lib/stores/settings.svelte.ts';
+import { perfMark } from '#lib/perf.ts';
 import {
 	registerActiveEditorProvider,
 	type EditorSelectionInfo,
 	type ActiveEditorInfo
 } from './activeEditor';
-import { motionReduced } from '$lib/agent/motionState.svelte';
-import { DISSOLVE_MAX_DELAY_MS, DISSOLVE_MS } from '$lib/switchDissolve';
+import { motionReduced } from '#lib/agent/motionState.svelte.ts';
+import { DISSOLVE_MAX_DELAY_MS, DISSOLVE_MS } from '#lib/switchDissolve.ts';
 
 export type { EditorSelectionInfo, ActiveEditorInfo };
 

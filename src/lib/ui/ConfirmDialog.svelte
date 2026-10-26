@@ -11,7 +11,7 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import Dialog from './Dialog.svelte';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 
 	let {
 		open = false,

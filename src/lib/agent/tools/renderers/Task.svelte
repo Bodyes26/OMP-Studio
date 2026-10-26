@@ -8,7 +8,7 @@
 -->
 <script lang="ts">
 	import { agentUiHooks } from '../../ui-context';
-	import StatusMark, { type StatusMarkType } from '$lib/ui/StatusMark.svelte';
+	import StatusMark, { type StatusMarkType } from '#lib/ui/StatusMark.svelte';
 	import AgentLink from '../parts/AgentLink.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
 	import {

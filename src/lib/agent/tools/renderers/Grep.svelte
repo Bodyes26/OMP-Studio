@@ -5,7 +5,7 @@
   il blocco di output formattato e l'eventuale EmptyNotice se i risultati superano i limiti.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	import CountBadge from '../parts/CountBadge.svelte';
 	import EmptyNotice from '../parts/EmptyNotice.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';

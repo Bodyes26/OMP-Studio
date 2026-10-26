@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { unintegratedWarning } from '$lib/lanes/laneCleanup';
-	import { m } from '$lib/paraglide/messages.js';
+	import { unintegratedWarning } from '#lib/lanes/laneCleanup.ts';
+	import { m } from '#lib/paraglide/messages.js';
 	/**
 	 * Pannello di una tessera progetto: anteprima al passaggio del mouse e menu
 	 * contestuale sul click destro, con lo stesso contenuto.
@@ -16,13 +16,13 @@
 	 * tooltip che contengono elementi attivabili, e qui dentro ci sono campi,
 	 * bottoni e un selettore di tinta.
 	 */
-	import { projectStore, normalizeProjectPath, type Project } from '$lib/stores/projects.svelte';
-	import { taskStore, type StudioTask } from '$lib/stores/tasks.svelte';
-	import { taskLabel as sharedTaskLabel } from '$lib/stores/taskTitle';
-	import { settingsStore } from '$lib/stores/settings.svelte';
-	import { anchoredPopover } from '$lib/anchoredPopover';
-	import { companionStore } from '$lib/stores/companion.svelte';
-	import { askQuestionText } from '$lib/agent/askTitle';
+	import { projectStore, normalizeProjectPath, type Project } from '#lib/stores/projects.svelte.ts';
+	import { taskStore, type StudioTask } from '#lib/stores/tasks.svelte.ts';
+	import { taskLabel as sharedTaskLabel } from '#lib/stores/taskTitle.ts';
+	import { settingsStore } from '#lib/stores/settings.svelte.ts';
+	import { anchoredPopover } from '#lib/anchoredPopover.ts';
+	import { companionStore } from '#lib/stores/companion.svelte.ts';
+	import { askQuestionText } from '#lib/agent/askTitle.ts';
 	import HuePicker from './HuePicker.svelte';
 	import GitDiffBadge from './GitDiffBadge.svelte';
 	import MentionText from './MentionText.svelte';
@@ -50,12 +50,12 @@
 		IconDownload,
 		IconArrowUp,
 		IconRefresh
-	} from '$lib/icons';
-	import StatusMark from '$lib/ui/StatusMark.svelte';
-	import { laneStore } from '$lib/stores/lanes.svelte';
-	import { sessionRegistry } from '$lib/agent/sessionRegistry';
-	import { githubStore } from '$lib/stores/github.svelte';
-	import { labApi } from '$lib/lab/api';
+	} from '#lib/icons.ts';
+	import StatusMark from '#lib/ui/StatusMark.svelte';
+	import { laneStore } from '#lib/stores/lanes.svelte.ts';
+	import { sessionRegistry } from '#lib/agent/sessionRegistry.ts';
+	import { githubStore } from '#lib/stores/github.svelte.ts';
+	import { labApi } from '#lib/lab/api.ts';
 	import {
 		openLabEntry,
 		associateDraftToProject,
@@ -63,7 +63,7 @@
 		formatRelativeDate,
 		reportLabDeleteFailure,
 		reportLaneDeleteFailure
-	} from '$lib/lanes/laneActions';
+	} from '#lib/lanes/laneActions.ts';
 	import {
 		listClosedLanes,
 		reopenLane,
@@ -72,12 +72,12 @@
 		inspectUnintegratedWork,
 		type ClosedLaneEntry,
 		type LaneUnintegratedLoss
-	} from '$lib/lanes/laneLifecycle';
-	import { describeLaneProcess } from '$lib/lanes/processSupervisor';
+	} from '#lib/lanes/laneLifecycle.ts';
+	import { describeLaneProcess } from '#lib/lanes/processSupervisor.ts';
 	import { untrack } from 'svelte';
-	import { MAIN_LANE_ID, type ProjectId } from '$lib/types/lanes';
+	import { MAIN_LANE_ID, type ProjectId } from '#lib/types/lanes.ts';
 	import { invoke } from '@tauri-apps/api/core';
-	import { gitDiffStore, hasGitChanges, notifyGitStatusRefresh } from '$lib/stores/gitDiff.svelte';
+	import { gitDiffStore, hasGitChanges, notifyGitStatusRefresh } from '#lib/stores/gitDiff.svelte.ts';
 	import { revealItemInDir } from '@tauri-apps/plugin-opener';
 
 	interface Props {

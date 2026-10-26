@@ -8,9 +8,9 @@
 	// Colore: superficie neutra; l'ambra sta solo nell'icona (Outcome-Only
 	// Color Rule). La provenienza (agente, smol, fatti) e' nel tooltip, cosi'
 	// una sintesi dedotta non si spaccia per un fatto (Principio 7).
-	import { m } from '$lib/paraglide/messages.js';
-	import { IconClose, IconWarning } from '$lib/icons';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { IconClose, IconWarning } from '#lib/icons.ts';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
 	import type { TurnHeadsUp } from '../turnHeadsUp';
 
 	let {

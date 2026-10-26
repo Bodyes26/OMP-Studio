@@ -1,10 +1,10 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
-	import type { ModelDto } from '$lib/stores/modelSettings.svelte';
-	import { splitModelSelector, resolveCatalogModel } from '$lib/stores/modelSettingsHelpers';
-	import { IconChevronDown } from '$lib/icons';
+	import { m } from '#lib/paraglide/messages.js';
+	import type { ModelDto } from '#lib/stores/modelSettings.svelte.ts';
+	import { splitModelSelector, resolveCatalogModel } from '#lib/stores/modelSettingsHelpers.ts';
+	import { IconChevronDown } from '#lib/icons.ts';
 	import ProviderLogo from './ProviderLogo.svelte';
-	import MenuButton from '$lib/ui/MenuButton.svelte';
+	import MenuButton from '#lib/ui/MenuButton.svelte';
 	import ModelPickerList from './ModelPickerList.svelte';
 
 	let {

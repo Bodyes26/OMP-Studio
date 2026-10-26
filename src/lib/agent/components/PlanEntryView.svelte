@@ -5,8 +5,8 @@
   card del passaggio di compito. Lo stato vive in `planCards`.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
-	import { IconLock, IconPlan } from '$lib/icons';
+	import { m } from '#lib/paraglide/messages.js';
+	import { IconLock, IconPlan } from '#lib/icons.ts';
 	import type { AgentSession, PlanEntry } from '../session.svelte';
 	import { planCards } from '../planController.svelte';
 	import PlanDocCard from './PlanDocCard.svelte';

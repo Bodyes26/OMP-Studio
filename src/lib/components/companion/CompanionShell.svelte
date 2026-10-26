@@ -2,10 +2,10 @@
 	// Guscio della finestra companion. Fissata ha la testata da 32 px della
 	// cornice con la puntina attiva; a scomparsa resta solo la maniglia di
 	// trascinamento e la puntina, sempre a vista.
-	import { m } from '$lib/paraglide/messages.js';
-	import { IconClose, IconPin } from '$lib/icons';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
-	import BrandMark from '$lib/ui/BrandMark.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { IconClose, IconPin } from '#lib/icons.ts';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
+	import BrandMark from '#lib/ui/BrandMark.svelte';
 	import type { Snippet } from 'svelte';
 
 	let {

@@ -5,7 +5,7 @@
   la tabella KeyValue con gli altri parametri e l'eventuale output testuale.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	import KeyValue from '../parts/KeyValue.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
 	import PromptBlock from '../parts/PromptBlock.svelte';

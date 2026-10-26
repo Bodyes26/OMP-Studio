@@ -1,12 +1,12 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	import {
 		settingsStore,
 		type ProjectBarOrder,
 		type QueueBadgeStyle
-	} from '$lib/stores/settings.svelte';
-	import Segmented from '$lib/ui/Segmented.svelte';
-	import Switch from '$lib/ui/Switch.svelte';
+	} from '#lib/stores/settings.svelte.ts';
+	import Segmented from '#lib/ui/Segmented.svelte';
+	import Switch from '#lib/ui/Switch.svelte';
 
 	// Ogni opzione di ordinamento porta con se' la sua spiegazione: l'utente
 	// deve capire l'effetto prima di cambiarlo, non scoprirlo per tentativi.

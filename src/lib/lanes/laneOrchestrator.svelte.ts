@@ -8,13 +8,13 @@
 //    nessun restart, nessun crossfade, nessun processo chiuso dallo switch.
 // 4. File aperti, file attivo, cursore/scroll e dirty buffer sono confinati per corsia.
 
-import { projectStore, type Project } from '$lib/stores/projects.svelte';
-import { laneStore, type LaneArchiveOutcome, type LaneRecord } from '$lib/stores/lanes.svelte';
-import { laneRecordFromAgentLane, type LaneArchiveReason } from '$lib/stores/lanePersistence';
-import { sessionRegistry, laneSessionKey } from '$lib/agent/sessionRegistry';
-import type { AgentSession } from '$lib/agent/session.svelte';
-import { sessionCompletions } from '$lib/agent/completion.svelte';
-import { taskStore } from '$lib/stores/tasks.svelte';
+import { projectStore, type Project } from '#lib/stores/projects.svelte.ts';
+import { laneStore, type LaneArchiveOutcome, type LaneRecord } from '#lib/stores/lanes.svelte.ts';
+import { laneRecordFromAgentLane, type LaneArchiveReason } from '#lib/stores/lanePersistence.ts';
+import { sessionRegistry, laneSessionKey } from '#lib/agent/sessionRegistry.ts';
+import type { AgentSession } from '#lib/agent/session.svelte.ts';
+import { sessionCompletions } from '#lib/agent/completion.svelte.ts';
+import { taskStore } from '#lib/stores/tasks.svelte.ts';
 import type { LaneDispatchSnapshot } from './queueDispatch';
 import { applyProfileToLane } from './laneProfile';
 import {
@@ -26,8 +26,8 @@ import {
 	type AgentState,
 	type AgentSurface,
 	createMainLane
-} from '$lib/types/lanes';
-import type { TerminalSession } from '$lib/terminal/terminal';
+} from '#lib/types/lanes.ts';
+import type { TerminalSession } from '#lib/terminal/terminal.ts';
 
 export interface TerminalMetaEntry {
 	inputPending: boolean;

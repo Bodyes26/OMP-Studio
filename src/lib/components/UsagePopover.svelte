@@ -1,10 +1,10 @@
 <script module lang="ts">
-	export type { ProviderHost } from '$lib/stores/quota.svelte';
+	export type { ProviderHost } from '#lib/stores/quota.svelte.ts';
 </script>
 
 <script lang="ts">
 	import QuotaModal from './QuotaModal.svelte';
-	import type { ProviderHost } from '$lib/stores/quota.svelte';
+	import type { ProviderHost } from '#lib/stores/quota.svelte.ts';
 
 	let {
 		open = false,

@@ -7,10 +7,10 @@
 	 *   controllo, durata); un clic lo apre o lo richiude;
 	 * - `end`: la riga tratteggiata con l'esito della ripetizione.
 	 */
-	import type { LoopState } from '$lib/agent/loopMode';
-	import { formatElapsed, giroDurationMs, isLoopActive } from '$lib/agent/loopMode';
-	import { IconChevronRight, IconRepeat, IconCheck, IconStop, IconWarning } from '$lib/icons';
-	import { m } from '$lib/paraglide/messages.js';
+	import type { LoopState } from '#lib/agent/loopMode.ts';
+	import { formatElapsed, giroDurationMs, isLoopActive } from '#lib/agent/loopMode.ts';
+	import { IconChevronRight, IconRepeat, IconCheck, IconStop, IconWarning } from '#lib/icons.ts';
+	import { m } from '#lib/paraglide/messages.js';
 
 	let {
 		kind,

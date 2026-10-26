@@ -1,12 +1,12 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
-	import { IconRefresh, IconSearch, IconSettings } from '$lib/icons';
-	import { settingsStore, type SettingsSection } from '$lib/stores/settings.svelte';
-	import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
-	import Dialog from '$lib/ui/Dialog.svelte';
-	import ColumnTabs from '$lib/ui/ColumnTabs.svelte';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
-	import StatusMark from '$lib/ui/StatusMark.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { IconRefresh, IconSearch, IconSettings } from '#lib/icons.ts';
+	import { settingsStore, type SettingsSection } from '#lib/stores/settings.svelte.ts';
+	import { modelSettingsStore } from '#lib/stores/modelSettings.svelte.ts';
+	import Dialog from '#lib/ui/Dialog.svelte';
+	import ColumnTabs from '#lib/ui/ColumnTabs.svelte';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
+	import StatusMark from '#lib/ui/StatusMark.svelte';
 	import RolesTab from '../models/RolesTab.svelte';
 	import CatalogTab from '../models/CatalogTab.svelte';
 	import ProvidersTab from '../models/ProvidersTab.svelte';
@@ -24,7 +24,7 @@
 	import DoctorSection from './DoctorSection.svelte';
 	import CommandsSection from './CommandsSection.svelte';
 	import RemoteSection from './RemoteSection.svelte';
-	import { doctorStore } from '$lib/stores/doctor.svelte';
+	import { doctorStore } from '#lib/stores/doctor.svelte.ts';
 
 	// Navigazione di primo livello: ogni voce apre una sezione del centro
 	// impostazioni. "Modelli" e' l'unica con le tre schede orizzontali storiche.

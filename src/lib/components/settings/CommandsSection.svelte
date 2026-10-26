@@ -6,20 +6,20 @@
   3. Pannello di dettaglio laterale con documentazione completa, esempi e selettore forma.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
-	import { settingsStore } from '$lib/stores/settings.svelte';
-	import { projectStore } from '$lib/stores/projects.svelte';
-	import { sessionRegistry } from '$lib/agent/sessionRegistry';
-	import type { AgentSession } from '$lib/agent/session.svelte';
-	import type { AvailableCommand } from '$lib/agent/wire';
-	import { COMMAND_MANIFEST } from '$lib/agent/commandCatalog/manifest/index';
+	import { m } from '#lib/paraglide/messages.js';
+	import { settingsStore } from '#lib/stores/settings.svelte.ts';
+	import { projectStore } from '#lib/stores/projects.svelte.ts';
+	import { sessionRegistry } from '#lib/agent/sessionRegistry.ts';
+	import type { AgentSession } from '#lib/agent/session.svelte.ts';
+	import type { AvailableCommand } from '#lib/agent/wire.ts';
+	import { COMMAND_MANIFEST } from '#lib/agent/commandCatalog/manifest/index.ts';
 	import type {
 		CommandManifestEntry,
 		CommandPlacement,
 		ComposerLayout,
 		ComposerZone,
 		PinnedCommand
-	} from '$lib/agent/commandCatalog/types';
+	} from '#lib/agent/commandCatalog/types.ts';
 	import {
 		resolveLayout,
 		pin,
@@ -29,14 +29,14 @@
 		layoutToSave,
 		suggestedPlacement,
 		itemsInZone
-	} from '$lib/agent/commandCatalog/layout';
-	import { resolveCommandText } from '$lib/agent/commandCatalog/text';
+	} from '#lib/agent/commandCatalog/layout.ts';
+	import { resolveCommandText } from '#lib/agent/commandCatalog/text.ts';
 	import ComposerPreview from './commands/ComposerPreview.svelte';
 	import CommandPalette from './commands/CommandPalette.svelte';
 	import CommandDetail from './commands/CommandDetail.svelte';
 	import CommandIcon from './commands/CommandIcon.svelte';
-	import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
-	import { IconLock, IconGrip } from '$lib/icons';
+	import ConfirmDialog from '#lib/ui/ConfirmDialog.svelte';
+	import { IconLock, IconGrip } from '#lib/icons.ts';
 
 	// Stato ricerca e selezione
 	let searchQuery = $state('');

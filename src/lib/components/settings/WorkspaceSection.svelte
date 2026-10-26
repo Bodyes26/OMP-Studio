@@ -1,15 +1,15 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	import {
 		settingsStore,
 		EDITOR_FONT_SIZE_RANGE,
 		TERMINAL_FONT_SIZE_RANGE,
 		SCROLLBACK_RANGE,
 		TAB_SIZE_RANGE
-	} from '$lib/stores/settings.svelte';
-	import { projectStore } from '$lib/stores/projects.svelte';
-	import { i18n } from '$lib/i18n/i18n.svelte';
-	import Switch from '$lib/ui/Switch.svelte';
+	} from '#lib/stores/settings.svelte.ts';
+	import { projectStore } from '#lib/stores/projects.svelte.ts';
+	import { i18n } from '#lib/i18n/i18n.svelte.ts';
+	import Switch from '#lib/ui/Switch.svelte';
 
 	const activeProject = $derived(projectStore.projects.find((p) => p.id === projectStore.activeId) ?? null);
 

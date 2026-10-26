@@ -1,4 +1,4 @@
-import { remoteBridge, type RemoteStatus } from '$lib/remote/bridge';
+import { remoteBridge, type RemoteStatus } from '#lib/remote/bridge.ts';
 import { normalizePairingCode } from '$remote-protocol';
 import type { UnlistenFn } from '@tauri-apps/api/event';
 

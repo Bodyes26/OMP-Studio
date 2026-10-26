@@ -1,17 +1,17 @@
 <script lang="ts">
 	import { tick } from 'svelte';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	import { invoke } from '@tauri-apps/api/core';
-	import { settingsStore } from '$lib/stores/settings.svelte';
-	import { projectStore } from '$lib/stores/projects.svelte';
-	import { STANDARD_ROLES } from '$lib/stores/modelSettings.svelte';
+	import { settingsStore } from '#lib/stores/settings.svelte.ts';
+	import { projectStore } from '#lib/stores/projects.svelte.ts';
+	import { STANDARD_ROLES } from '#lib/stores/modelSettings.svelte.ts';
 	import {
 		type TaskDirective,
 		type DirectivePlacement,
 		getFactoryDirective,
 		directiveDisplayName,
 		directiveDisplayDescription
-	} from '$lib/stores/taskDirectives';
+	} from '#lib/stores/taskDirectives.ts';
 	import {
 		IconCheck,
 		IconClose,
@@ -24,13 +24,13 @@
 		IconSkill,
 		IconChevronUp,
 		IconChevronDown
-	} from '$lib/icons';
-	import Switch from '$lib/ui/Switch.svelte';
-	import PromptField from '$lib/ui/PromptField.svelte';
-	import { escapeDismiss } from '$lib/ui/escapeDismiss';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
-	import StatusMark from '$lib/ui/StatusMark.svelte';
-	import { trayFold } from '$lib/agent/motion';
+	} from '#lib/icons.ts';
+	import Switch from '#lib/ui/Switch.svelte';
+	import PromptField from '#lib/ui/PromptField.svelte';
+	import { escapeDismiss } from '#lib/ui/escapeDismiss.ts';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
+	import StatusMark from '#lib/ui/StatusMark.svelte';
+	import { trayFold } from '#lib/agent/motion.ts';
 
 	// Livelli di thinking supportati nei default dei task
 	const THINKING_LEVEL_OPTIONS = [

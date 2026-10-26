@@ -10,16 +10,16 @@
 import { buildHostState } from './projection';
 import { remoteStore } from './remoteStore.svelte';
 import { remoteBridge } from './bridge';
-import { projectStore } from '$lib/stores/projects.svelte';
-import { laneStore } from '$lib/stores/lanes.svelte';
-import { companionStore } from '$lib/stores/companion.svelte';
-import { taskStore } from '$lib/stores/tasks.svelte';
-import { scheduleStore } from '$lib/stores/schedule.svelte';
-import { quotaStore } from '$lib/stores/quota.svelte';
-import { sessionRegistry } from '$lib/agent/sessionRegistry';
-import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
-import { onThemeChange, getCurrentAnchors } from '$lib/theme';
-import { settingsStore } from '$lib/stores/settings.svelte';
+import { projectStore } from '#lib/stores/projects.svelte.ts';
+import { laneStore } from '#lib/stores/lanes.svelte.ts';
+import { companionStore } from '#lib/stores/companion.svelte.ts';
+import { taskStore } from '#lib/stores/tasks.svelte.ts';
+import { scheduleStore } from '#lib/stores/schedule.svelte.ts';
+import { quotaStore } from '#lib/stores/quota.svelte.ts';
+import { sessionRegistry } from '#lib/agent/sessionRegistry.ts';
+import { modelSettingsStore } from '#lib/stores/modelSettings.svelte.ts';
+import { onThemeChange, getCurrentAnchors } from '#lib/theme.ts';
+import { settingsStore } from '#lib/stores/settings.svelte.ts';
 import { buildRemoteSessionSnapshot } from './completion.svelte';
 
 export interface RemoteProjectionOptions {

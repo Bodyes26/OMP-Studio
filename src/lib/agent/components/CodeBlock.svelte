@@ -1,12 +1,12 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	// CodeBlock: blocco di codice per le risposte dell'assistente con evidenziazione
 	// sintattica Monaco, intestazione a fisarmonica (accordion) e copia rapida.
 	// Il codice scorre con il transcript (nessun tetto di altezza interno).
 	import { colorizeCode, getCachedColorizedCode, detectFilePathBlock, type FilePathItem } from '../markdown';
 	import { agentUiHooks, hasAgentUiHooks } from '../ui-context';
-	import { IconChevronRight, IconCheck, IconFile, IconCopy } from '$lib/icons';
+	import { IconChevronRight, IconCheck, IconFile, IconCopy } from '#lib/icons.ts';
 	import { Lingering } from '../motionState.svelte';
 	import MermaidCard from './MermaidCard.svelte';
 	let {

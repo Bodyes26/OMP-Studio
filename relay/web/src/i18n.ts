@@ -1,4 +1,4 @@
-import { setLocale } from '$lib/paraglide/runtime.js';
+import { setLocale } from '#lib/paraglide/runtime.js';
 
 /**
  * Dizionario bilingue italiano/inglese per la PWA di controllo remoto.

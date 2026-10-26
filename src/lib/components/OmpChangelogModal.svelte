@@ -3,11 +3,11 @@
   Usa Dialog accessibile, rendering Markdown nativo e schede non viste / completo.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
-	import Dialog from '$lib/ui/Dialog.svelte';
-	import { ompChangelogStore } from '$lib/stores/ompChangelog.svelte';
-	import { lexMarkdown } from '$lib/agent/markdown';
-	import Markdown from '$lib/agent/components/Markdown.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import Dialog from '#lib/ui/Dialog.svelte';
+	import { ompChangelogStore } from '#lib/stores/ompChangelog.svelte.ts';
+	import { lexMarkdown } from '#lib/agent/markdown.ts';
+	import Markdown from '#lib/agent/components/Markdown.svelte';
 
 	const activeMarkdown = $derived(
 		ompChangelogStore.showFull || !ompChangelogStore.unseenMarkdown

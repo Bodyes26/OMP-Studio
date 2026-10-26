@@ -4,7 +4,7 @@
 // movimento ridotto. La logica di temporizzazione vive nel motore.
 
 import { motionReduced } from './motionState.svelte';
-import { settingsStore } from '$lib/stores/settings.svelte';
+import { settingsStore } from '#lib/stores/settings.svelte.ts';
 import { RevealEngine, type RevealEngineMode } from './revealEngine';
 import type { RevealResult } from './reveal';
 export type RevealMode = RevealEngineMode;

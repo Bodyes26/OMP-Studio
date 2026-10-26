@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	// Testo dell'assistente nel transcript (Gate R32 - C05).
 	// Rivelazione per frasi (variante blur) con scheduler a 140ms,
 	// ghost lines per testo in arrivo, lexing a 20fps con cache LRU.

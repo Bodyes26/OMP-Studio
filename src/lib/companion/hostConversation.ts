@@ -6,11 +6,11 @@ import {
 	type CompanionConversationTarget,
 	type CompanionConversationFailureCode
 } from './conversation';
-import type { TranscriptEntry, AssistantEntry } from '$lib/agent/session.svelte';
-import type { SessionRegistry, AgentSessionLike } from '$lib/agent/sessionRegistry';
-import { sessionRegistry } from '$lib/agent/sessionRegistry';
-import { projectStore } from '$lib/stores/projects.svelte';
-import { laneOrchestrator } from '$lib/lanes/laneOrchestrator.svelte';
+import type { TranscriptEntry, AssistantEntry } from '#lib/agent/session.svelte.ts';
+import type { SessionRegistry, AgentSessionLike } from '#lib/agent/sessionRegistry.ts';
+import { sessionRegistry } from '#lib/agent/sessionRegistry.ts';
+import { projectStore } from '#lib/stores/projects.svelte.ts';
+import { laneOrchestrator } from '#lib/lanes/laneOrchestrator.svelte.ts';
 import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event';
 
 export interface CompanionHostOptions {

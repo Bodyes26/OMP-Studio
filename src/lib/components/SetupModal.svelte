@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	/**
 	 * Primo avvio guidato (docs/PLAN.md Fase 8, docs/DECISIONS.md Gate R11).
 	 *
@@ -15,17 +15,17 @@
 	import { invoke } from '@tauri-apps/api/core';
 	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 	import { open as openDialog } from '@tauri-apps/plugin-dialog';
-	import { rvLift } from '$lib/agent/motion';
-	import StatusMark from '$lib/ui/StatusMark.svelte';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
-	import Terminal from '$lib/terminal/Terminal.svelte';
-	import { projectStore, joinProjectPath } from '$lib/stores/projects.svelte';
-	import { themeStore } from '$lib/stores/theme.svelte';
-	import type { TerminalSession } from '$lib/terminal/terminal';
-	import AlertBanner from '$lib/components/AlertBanner.svelte';
-	import { trapFocus } from '$lib/focusTrap';
-	import { IconRefresh, IconGithub } from '$lib/icons';
-	import { githubStore } from '$lib/stores/github.svelte';
+	import { rvLift } from '#lib/agent/motion.ts';
+	import StatusMark from '#lib/ui/StatusMark.svelte';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
+	import Terminal from '#lib/terminal/Terminal.svelte';
+	import { projectStore, joinProjectPath } from '#lib/stores/projects.svelte.ts';
+	import { themeStore } from '#lib/stores/theme.svelte.ts';
+	import type { TerminalSession } from '#lib/terminal/terminal.ts';
+	import AlertBanner from '#lib/components/AlertBanner.svelte';
+	import { trapFocus } from '#lib/focusTrap.ts';
+	import { IconRefresh, IconGithub } from '#lib/icons.ts';
+	import { githubStore } from '#lib/stores/github.svelte.ts';
 
 	export type Step = 'install' | 'wizard' | 'project';
 

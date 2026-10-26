@@ -12,7 +12,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
-import type { SessionEntry } from '$lib/agent/sessionsList';
+import type { SessionEntry } from '#lib/agent/sessionsList.ts';
 import { settingsStore } from './settings.svelte';
 import { windowLabel } from './windowBridge';
 

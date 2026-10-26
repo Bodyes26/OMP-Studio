@@ -12,8 +12,8 @@
 	import AssistantText from './AssistantText.svelte';
 	import ToolGroup from './ToolGroup.svelte';
 	import CompactionRow from './CompactionRow.svelte';
-	import TurnFooter from '$lib/agent/components/TurnFooter.svelte';
-	import ActivityIndicator from '$lib/agent/components/ActivityIndicator.svelte';
+	import TurnFooter from '#lib/agent/components/TurnFooter.svelte';
+	import ActivityIndicator from '#lib/agent/components/ActivityIndicator.svelte';
 	import { IconArrowDown } from '../../icons.ts';
 
 	let {

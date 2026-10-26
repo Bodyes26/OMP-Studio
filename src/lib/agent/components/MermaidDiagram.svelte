@@ -6,8 +6,8 @@
   (`renderMermaidSvg`), quindi sta inline come nella whiteboard dei diagrammi.
 -->
 <script lang="ts">
-	import { renderMermaidSvg } from '$lib/mermaidSvg';
-	import { onThemeChange } from '$lib/theme';
+	import { renderMermaidSvg } from '#lib/mermaidSvg.ts';
+	import { onThemeChange } from '#lib/theme.ts';
 
 	let {
 		source,

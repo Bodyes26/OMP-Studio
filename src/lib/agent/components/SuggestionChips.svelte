@@ -4,7 +4,7 @@
 	// Mostra i preset configurati e i suggerimenti leggeri proposti dal modello
 	// alla fine del turno. Cliccare o premere Alt+N precompila il composer.
 
-	import type { SuggestionChipItem } from '$lib/stores/promptSuggestions';
+	import type { SuggestionChipItem } from '#lib/stores/promptSuggestions.ts';
 
 	let {
 		chips,

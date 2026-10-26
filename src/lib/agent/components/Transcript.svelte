@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	import { tick } from 'svelte';
-	import { perfMark } from '$lib/perf';
+	import { perfMark } from '#lib/perf.ts';
 	// assegnato all'inserimento, mai l'indice). Delega il rendering per `kind`.
 	//
 	// Rendering a finestre: se ci sono piu' di 300 entry mostra le ultime 300
@@ -20,7 +20,7 @@
 	import OmpWelcome from './OmpWelcome.svelte';
 	import ToolGroup, { type ToolGroupEntry } from '../tools/ToolGroup.svelte';
 	import { groupsInExecution, rendererFor } from '../tools/registry';
-	import { isCorsiaTool } from '$lib/lanes/agentLaneRoutes';
+	import { isCorsiaTool } from '#lib/lanes/agentLaneRoutes.ts';
 	import { categoryForTool } from '../tools/categories';
 	import { TodoTraceTracker, type TodoTraceItem } from '../todoTrace';
 	import AssistantText from './AssistantText.svelte';
@@ -48,7 +48,7 @@
 	import SystemChip from './SystemChip.svelte';
 	import NoticeGroup from './NoticeGroup.svelte';
 	import ActivityIndicator from './ActivityIndicator.svelte';
-	import { settingsStore } from '$lib/stores/settings.svelte';
+	import { settingsStore } from '#lib/stores/settings.svelte.ts';
 	import LoopTranscriptRow from './LoopTranscriptRow.svelte';
 	import { foldLoopItems, giroHeadline, isGiroClosed, isLoopActive } from '../loopMode';
 

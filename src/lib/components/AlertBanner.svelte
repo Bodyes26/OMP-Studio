@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	import { onDestroy, type Snippet } from 'svelte';
 	import {
 		IconChevronRight,
@@ -8,9 +8,9 @@
 		IconClose,
 		IconInfo,
 		IconWarning
-	} from '$lib/icons';
-	import { chatReveal } from '$lib/agent/motion';
-	import { Lingering } from '$lib/agent/motionState.svelte';
+	} from '#lib/icons.ts';
+	import { chatReveal } from '#lib/agent/motion.ts';
+	import { Lingering } from '#lib/agent/motionState.svelte.ts';
 
 	export type AlertVariant = 'error' | 'warning' | 'info' | 'success';
 

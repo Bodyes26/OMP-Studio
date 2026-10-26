@@ -6,10 +6,10 @@
 
 import type { RemoteScheduleChoice } from '$remote-protocol';
 import { RemoteCommandFailure, type RemoteTaskPatch } from './commands';
-import { projectStore } from '$lib/stores/projects.svelte';
-import { taskStore, type StudioTask, type TaskSchedule } from '$lib/stores/tasks.svelte';
-import { buildAtSchedule } from '$lib/quota/scheduleTarget';
-import { requestTaskTitle } from '$lib/stores/taskTitles';
+import { projectStore } from '#lib/stores/projects.svelte.ts';
+import { taskStore, type StudioTask, type TaskSchedule } from '#lib/stores/tasks.svelte.ts';
+import { buildAtSchedule } from '#lib/quota/scheduleTarget.ts';
+import { requestTaskTitle } from '#lib/stores/taskTitles.ts';
 
 const MAX_PROMPT_LENGTH = 20_000;
 /** Margine di tolleranza per sfasamento orologio client/host (60 secondi). */

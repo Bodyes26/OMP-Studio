@@ -4,8 +4,8 @@
 	 * campi dell'intervista si spuntano man mano; un campo saltato o con un
 	 * problema (criterio vago, tetto mancante) resta in giallo.
 	 */
-	import { m } from '$lib/paraglide/messages.js';
-	import { IconCheck, IconWarning } from '$lib/icons';
+	import { m } from '#lib/paraglide/messages.js';
+	import { IconCheck, IconWarning } from '#lib/icons.ts';
 	import { fieldStates, GOAL_FIELDS, type GoalFieldKey, type GoalInterview } from '../guidedGoal';
 
 	let { interview } = $props<{ interview: GoalInterview }>();

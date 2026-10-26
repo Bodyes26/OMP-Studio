@@ -7,7 +7,7 @@
   «Salva ed esci», «Chiedi modifiche (n)» e «Approva ed esegui» (Ctrl+Invio).
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	import type { Component } from 'svelte';
 	import {
 		IconCheck,
@@ -17,12 +17,12 @@
 		IconPlan,
 		IconPlus,
 		IconSave
-	} from '$lib/icons';
-	import Segmented from '$lib/ui/Segmented.svelte';
-	import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
-	import { parseRoleSelector } from '$lib/stores/modelSettingsHelpers';
-	import { formatTokens } from '$lib/utils/format';
-	import { IS_MAC } from '$lib/utils/platform';
+	} from '#lib/icons.ts';
+	import Segmented from '#lib/ui/Segmented.svelte';
+	import { modelSettingsStore } from '#lib/stores/modelSettings.svelte.ts';
+	import { parseRoleSelector } from '#lib/stores/modelSettingsHelpers.ts';
+	import { formatTokens } from '#lib/utils/format.ts';
+	import { IS_MAC } from '#lib/utils/platform.ts';
 	import type { AgentSession } from '../session.svelte';
 	import { PLAN_EXEC_MODES, availableExecRoles, execModeForKey, type PlanExecMode } from '../planMode';
 

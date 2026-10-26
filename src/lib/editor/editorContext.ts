@@ -1,4 +1,4 @@
-import { projectStore, normalizeProjectPath } from '$lib/stores/projects.svelte';
+import { projectStore, normalizeProjectPath } from '#lib/stores/projects.svelte.ts';
 import { getActiveEditorInfo } from './activeEditor';
 
 export interface EditorContextOptions {

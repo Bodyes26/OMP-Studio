@@ -7,9 +7,9 @@
 	// Va messo solo attorno a superfici che si possono smontare senza effetti
 	// collaterali (niente processi o terminali legati al loro ciclo di vita).
 	import type { Snippet } from 'svelte';
-	import { m } from '$lib/paraglide/messages.js';
-	import { describeError } from '$lib/diagnostics/logCore';
-	import { studioLog } from '$lib/diagnostics/studioLog';
+	import { m } from '#lib/paraglide/messages.js';
+	import { describeError } from '#lib/diagnostics/logCore.ts';
+	import { studioLog } from '#lib/diagnostics/studioLog.ts';
 
 	let { name, children }: { name: string; children: Snippet } = $props();
 

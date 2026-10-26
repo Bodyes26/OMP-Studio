@@ -4,47 +4,47 @@
 	 * Editor contenteditable a badge per @file e /comando, barra strumenti con
 	 * allegati, @, ruolo, modello, thinking, anello di contesto e pulsante Invio/Stop.
 	 */
-	import type { AgentSession, QueuedMessage, TranscriptEntry } from '$lib/agent/session.svelte';
-	import type { ImageContent, ModelInfo, ThinkingLevel, AvailableCommand, RestoredQueuedMessage } from '$lib/agent/wire';
-	import { restoreBesideDraft, restoredQueueImages, restoredQueueText } from '$lib/agent/queueRestore';
-	import { modelSupportsImages, modelSupportsReasoning } from '$lib/agent/wire';
-	import { STUDIO_SLASH_COMMANDS, mergeCommands } from '$lib/agent/commands';
+	import type { AgentSession, QueuedMessage, TranscriptEntry } from '#lib/agent/session.svelte.ts';
+	import type { ImageContent, ModelInfo, ThinkingLevel, AvailableCommand, RestoredQueuedMessage } from '#lib/agent/wire.ts';
+	import { restoreBesideDraft, restoredQueueImages, restoredQueueText } from '#lib/agent/queueRestore.ts';
+	import { modelSupportsImages, modelSupportsReasoning } from '#lib/agent/wire.ts';
+	import { STUDIO_SLASH_COMMANDS, mergeCommands } from '#lib/agent/commands.ts';
 	import {
 		SUGGEST_WIDTH,
 		commandSuggestions,
 		fileSuggestions,
 		isSkillName,
 		suggestKeyAction
-	} from '$lib/agent/suggestItems';
+	} from '#lib/agent/suggestItems.ts';
 	import {
 		loadProjectFiles,
 		rankFileCandidates,
 		extractTouchedFilesFromTranscript,
 		computeCaretAnchorLeft,
 		type RankedFileItem
-	} from '$lib/agent/fileMention';
+	} from '#lib/agent/fileMention.ts';
 	import {
 		parsePlainTextToSegments,
 		createFileBadgeElement,
 		createCommandBadgeElement,
 		type ComposerSegment,
 		type ComposerTrigger
-	} from '$lib/agent/composerDoc';
-	import { prepareImage, isImageFile } from '$lib/agent/images';
-	import { projectStore } from '$lib/stores/projects.svelte';
-	import { settingsStore, type StreamingBehavior } from '$lib/stores/settings.svelte';
+	} from '#lib/agent/composerDoc.ts';
+	import { prepareImage, isImageFile } from '#lib/agent/images.ts';
+	import { projectStore } from '#lib/stores/projects.svelte.ts';
+	import { settingsStore, type StreamingBehavior } from '#lib/stores/settings.svelte.ts';
 	import {
 		visibleSuggestions,
 		composeSuggestionChips,
 		MAX_STATIC_CHIPS,
 		type SuggestionChipItem
-	} from '$lib/stores/promptSuggestions';
-	import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
-	import { splitModelSelector, resolveActiveRole, supportedThinkingLevels } from '$lib/stores/modelSettingsHelpers';
-	import { shortcutsModalStore } from '$lib/stores/shortcutsModal.svelte';
-	import { isTypingSurface } from '$lib/agent/askFocus';
-	import { resolveContextWindow } from '$lib/agent/contextReport';
-	import { formatTokens } from '$lib/utils/format';
+	} from '#lib/stores/promptSuggestions.ts';
+	import { modelSettingsStore } from '#lib/stores/modelSettings.svelte.ts';
+	import { splitModelSelector, resolveActiveRole, supportedThinkingLevels } from '#lib/stores/modelSettingsHelpers.ts';
+	import { shortcutsModalStore } from '#lib/stores/shortcutsModal.svelte.ts';
+	import { isTypingSurface } from '#lib/agent/askFocus.ts';
+	import { resolveContextWindow } from '#lib/agent/contextReport.ts';
+	import { formatTokens } from '#lib/utils/format.ts';
 	import { invoke } from '@tauri-apps/api/core';
 	import { open as openDialog } from '@tauri-apps/plugin-dialog';
 	import {
@@ -57,21 +57,21 @@
 		stageAttachmentHeaders,
 		uniquePaths,
 		type DroppedImage
-	} from '$lib/agent/chatDrop';
+	} from '#lib/agent/chatDrop.ts';
 	import { untrack, type Snippet } from 'svelte';
-	import { routeComposerSubmit, remainingAfterSend } from '$lib/agent/composerSubmit';
-	import { TwoStepStop } from '$lib/agent/twoStepStop';
-	import { composerChord, isPlanToggleChord, yieldsToShellShortcut } from '$lib/agent/composerShortcuts';
-	import { IS_MAC } from '$lib/utils/platform';
-	import { m } from '$lib/paraglide/messages.js';
+	import { routeComposerSubmit, remainingAfterSend } from '#lib/agent/composerSubmit.ts';
+	import { TwoStepStop } from '#lib/agent/twoStepStop.ts';
+	import { composerChord, isPlanToggleChord, yieldsToShellShortcut } from '#lib/agent/composerShortcuts.ts';
+	import { IS_MAC } from '#lib/utils/platform.ts';
+	import { m } from '#lib/paraglide/messages.js';
 
 	import ComposerEditor from './ComposerEditor.svelte';
-	import MenuButton from '$lib/ui/MenuButton.svelte';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import MenuButton from '#lib/ui/MenuButton.svelte';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
 	import ThinkingMeter from './ThinkingMeter.svelte';
-	import ReasoningSlider from '$lib/components/models/ReasoningSlider.svelte';
-	import ModelPickerList from '$lib/components/models/ModelPickerList.svelte';
-	import ProviderLogo from '$lib/components/models/ProviderLogo.svelte';
+	import ReasoningSlider from '#lib/components/models/ReasoningSlider.svelte';
+	import ModelPickerList from '#lib/components/models/ModelPickerList.svelte';
+	import ProviderLogo from '#lib/components/models/ProviderLogo.svelte';
 	import RoleMenu, { type RoleAssignment } from './RoleMenu.svelte';
 	import ContextPanel from './ContextPanel.svelte';
 	import AttachMenu from './AttachMenu.svelte';
@@ -81,17 +81,17 @@
 	import ComposerStatusLine from './ComposerStatusLine.svelte';
 	import ExtensionWidgets from './ExtensionWidgets.svelte';
 	import ComposerPinnedItem from './ComposerPinnedItem.svelte';
-	import LabNotesQueue from '$lib/lab/LabNotesQueue.svelte';
-	import { labVisualNotesFor } from '$lib/lab/visualNotesStore.svelte';
-	import { appendLabNotes, formatLabNotesBlock, type LabNote } from '$lib/lab/visualNotes';
-	import { labNotesLabels } from '$lib/lab/visualNotesLabels';
-	import { renderAnnotatedFrame } from '$lib/lab/annotateFrame';
-	import { resolveLayout, itemsInZone, partitionToolbar } from '$lib/agent/commandCatalog/layout';
-	import { COMMAND_MANIFEST } from '$lib/agent/commandCatalog/manifest/index';
-	import type { CommandManifestEntry } from '$lib/agent/commandCatalog/types';
+	import LabNotesQueue from '#lib/lab/LabNotesQueue.svelte';
+	import { labVisualNotesFor } from '#lib/lab/visualNotesStore.svelte.ts';
+	import { appendLabNotes, formatLabNotesBlock, type LabNote } from '#lib/lab/visualNotes.ts';
+	import { labNotesLabels } from '#lib/lab/visualNotesLabels.ts';
+	import { renderAnnotatedFrame } from '#lib/lab/annotateFrame.ts';
+	import { resolveLayout, itemsInZone, partitionToolbar } from '#lib/agent/commandCatalog/layout.ts';
+	import { COMMAND_MANIFEST } from '#lib/agent/commandCatalog/manifest/index.ts';
+	import type { CommandManifestEntry } from '#lib/agent/commandCatalog/types.ts';
 	import { flip } from 'svelte/animate';
 	import { scale } from 'svelte/transition';
-	import { motionReduced } from '$lib/agent/motionState.svelte';
+	import { motionReduced } from '#lib/agent/motionState.svelte.ts';
 	import {
 		IconAttach,
 		IconAt,
@@ -104,8 +104,8 @@
 		IconAside,
 		IconClose,
 		IconQuote
-	} from '$lib/icons';
-	import { btwQuotePreview, withBtwQuote } from '$lib/agent/btw';
+	} from '#lib/icons.ts';
+	import { btwQuotePreview, withBtwQuote } from '#lib/agent/btw.ts';
 
 	let {
 		session,

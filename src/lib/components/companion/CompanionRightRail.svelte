@@ -1,15 +1,15 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
-	import { IconChevronDown, IconExternalLink, IconPlay, IconSchedule } from '$lib/icons';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
-	import type { Project } from '$lib/stores/projects.svelte';
-	import { scheduleStore } from '$lib/stores/schedule.svelte';
-	import type { StudioTask } from '$lib/stores/taskSerialization';
-	import MissedScheduleBanner from '$lib/components/schedule/MissedScheduleBanner.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { IconChevronDown, IconExternalLink, IconPlay, IconSchedule } from '#lib/icons.ts';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
+	import type { Project } from '#lib/stores/projects.svelte.ts';
+	import { scheduleStore } from '#lib/stores/schedule.svelte.ts';
+	import type { StudioTask } from '#lib/stores/taskSerialization.ts';
+	import MissedScheduleBanner from '#lib/components/schedule/MissedScheduleBanner.svelte';
 	import type {
 		CompanionViewMode,
 		GlobalQueueItemState
-	} from '$lib/companion/companionPresentation';
+	} from '#lib/companion/companionPresentation.ts';
 
 	export interface RailProjectItem {
 		project: Project;

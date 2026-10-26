@@ -17,7 +17,7 @@ import {
 	splitModelSelector,
 	resolveCatalogModel
 } from '../stores/modelSettingsHelpers.ts';
-import { m as msg } from '$lib/paraglide/messages.js';
+import { m as msg } from '#lib/paraglide/messages.js';
 
 export type BlockedQuotaReason = 'quota_exhausted' | 'provider_error';
 

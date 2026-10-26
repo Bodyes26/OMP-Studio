@@ -24,11 +24,11 @@ import type {
 	RemoteTheme,
 	RemoteSessionSnapshot
 } from '$remote-protocol';
-import { resolveActiveRole } from '$lib/stores/modelSettingsHelpers';
-import { taskLabel } from '$lib/stores/taskTitle';
-import type { AttentionRequest, CompanionProjectRuntime } from '$lib/stores/companion.svelte';
-import type { StudioTask } from '$lib/stores/tasks.svelte';
-import type { QuotaReport, QuotaLimit } from '$lib/stores/quota.svelte';
+import { resolveActiveRole } from '#lib/stores/modelSettingsHelpers.ts';
+import { taskLabel } from '#lib/stores/taskTitle.ts';
+import type { AttentionRequest, CompanionProjectRuntime } from '#lib/stores/companion.svelte.ts';
+import type { StudioTask } from '#lib/stores/tasks.svelte.ts';
+import type { QuotaReport, QuotaLimit } from '#lib/stores/quota.svelte.ts';
 
 export interface ProjectInput {
 	id: string;

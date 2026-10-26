@@ -24,11 +24,11 @@
 	import { statusEntries } from '../extensionUi';
 	import { resolveLayout, itemsInZone } from '../commandCatalog/layout';
 	import { COMMAND_MANIFEST } from '../commandCatalog/manifest/index';
-	import { settingsStore } from '$lib/stores/settings.svelte';
-	import { modelSettingsStore } from '$lib/stores/modelSettings.svelte';
+	import { settingsStore } from '#lib/stores/settings.svelte.ts';
+	import { modelSettingsStore } from '#lib/stores/modelSettings.svelte.ts';
 	import { modelSupportsFastMode, usageLimitDetail, usageLimitLabel } from '../sessionModes';
 	import { resolveContextWindow } from '../contextReport';
-	import { formatTokens } from '$lib/utils/format';
+	import { formatTokens } from '#lib/utils/format.ts';
 	import {
 		IconFastMode,
 		IconSlowMode,
@@ -37,17 +37,17 @@
 		IconWarning,
 		IconAt,
 		IconLock
-	} from '$lib/icons';
-	import { m } from '$lib/paraglide/messages.js';
+	} from '#lib/icons.ts';
+	import { m } from '#lib/paraglide/messages.js';
 
-	import Tooltip from '$lib/ui/Tooltip.svelte';
-	import MenuButton from '$lib/ui/MenuButton.svelte';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
+	import MenuButton from '#lib/ui/MenuButton.svelte';
 	import ContextPanel from './ContextPanel.svelte';
 	import ComposerPinnedItem from './ComposerPinnedItem.svelte';
 	import ComposerOverflowMenu from './ComposerOverflowMenu.svelte';
 	import { flip } from 'svelte/animate';
 	import { scale } from 'svelte/transition';
-	import { motionReduced } from '$lib/agent/motionState.svelte';
+	import { motionReduced } from '#lib/agent/motionState.svelte.ts';
 	let {
 		session,
 		activeRole,

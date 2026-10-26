@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	// Cassetto del transcript di un subagent.
 	//
 	// Lettura incrementale: invia `get_subagent_messages { subagentId, fromByte }`,
@@ -11,7 +11,7 @@
 	// costoso durante un fan-out a 32 worker.
 	import type { AgentSession, SystemChipEntry } from '../session.svelte';
 	import type { AgentMessage, AgentProgress } from '../wire';
-	import { IconSubagents, IconClose } from '$lib/icons';
+	import { IconSubagents, IconClose } from '#lib/icons.ts';
 	import { classifySystemMessage, stripNoticeWrapper } from '../notices';
 	import SystemChip from './SystemChip.svelte';
 	import Markdown from './Markdown.svelte';
@@ -19,8 +19,8 @@
 	import { rvLift } from '../motion';
 	import { motionReduced } from '../motionState.svelte';
 	import { fade } from 'svelte/transition';
-	import { trapFocus } from '$lib/focusTrap';
-	import { settingsStore } from '$lib/stores/settings.svelte';
+	import { trapFocus } from '#lib/focusTrap.ts';
+	import { settingsStore } from '#lib/stores/settings.svelte.ts';
 	// Etichette di ruolo in italiano. Ruoli di sistema (custom e developer)
 	// vengono gestiti separatamente come chip e non passano da qui.
 	const ROLE_LABEL: Record<string, string> = {

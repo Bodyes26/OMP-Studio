@@ -2,9 +2,9 @@
 	// Stop del terminale nella testata della colonna (D6): fuori dalla viewport,
 	// con la sagoma dello Stop del composer. Armato, il cerchio diventa una
 	// pillola che dice cosa fara' il secondo clic, senza bagliori animati.
-	import { m } from '$lib/paraglide/messages.js';
-	import { IconStop } from '$lib/icons';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import { IconStop } from '#lib/icons.ts';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
 	import type { TerminalStopControl } from './stopControl.svelte';
 
 	let { control }: { control: TerminalStopControl } = $props();

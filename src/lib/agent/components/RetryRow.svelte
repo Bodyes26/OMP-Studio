@@ -2,7 +2,7 @@
 	// Riga di retry: notifica di un tentativo ripetuto del modello o del tool.
 	// Linguaggio v2: traccia leggera (12.5px, --ink-muted, icona 14px).
 	import type { RetryEntry } from '../session.svelte';
-	import { IconRefresh } from '$lib/icons';
+	import { IconRefresh } from '#lib/icons.ts';
 
 	let { entry, fresh = false }: { entry: RetryEntry; fresh?: boolean } = $props();
 </script>

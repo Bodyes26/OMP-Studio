@@ -10,21 +10,21 @@
 	 * l'azione manuale di compattazione con spiegazione del compromesso.
 	 */
 	import { untrack } from 'svelte';
-	import type { ContextPanelSession } from '$lib/agent/contextPanelState';
-	import type { CacheWarmingMode, CacheWarmingOutcome } from '$lib/agent/wire';
+	import type { ContextPanelSession } from '#lib/agent/contextPanelState.ts';
+	import type { CacheWarmingMode, CacheWarmingOutcome } from '#lib/agent/wire.ts';
 	import {
 		applyDraftToContextReserve,
 		categoryTokenSum,
 		resolveContextWindow,
 		type ContextReport
-	} from '$lib/agent/contextReport';
-	import { assessPromptCache, type PromptCacheReason } from '$lib/agent/promptCache';
-	import { formatRelativeTime } from '$lib/agent/sessionModes';
-	import { formatTokens } from '$lib/utils/format';
-	import { IconFlame, IconRefresh, IconWarning } from '$lib/icons';
-	import StatusMark from '$lib/ui/StatusMark.svelte';
-	import { m } from '$lib/paraglide/messages.js';
-	import ProviderLogo from '$lib/components/models/ProviderLogo.svelte';
+	} from '#lib/agent/contextReport.ts';
+	import { assessPromptCache, type PromptCacheReason } from '#lib/agent/promptCache.ts';
+	import { formatRelativeTime } from '#lib/agent/sessionModes.ts';
+	import { formatTokens } from '#lib/utils/format.ts';
+	import { IconFlame, IconRefresh, IconWarning } from '#lib/icons.ts';
+	import StatusMark from '#lib/ui/StatusMark.svelte';
+	import { m } from '#lib/paraglide/messages.js';
+	import ProviderLogo from '#lib/components/models/ProviderLogo.svelte';
 
 	let {
 		session,

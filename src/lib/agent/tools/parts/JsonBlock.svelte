@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
-	import { IconChevronRight } from '$lib/icons';
+	import { m } from '#lib/paraglide/messages.js';
+	import { IconChevronRight } from '#lib/icons.ts';
 	// JSON pieghevole: il ripiego quando non c'e' niente di meglio da dire su
 	// un payload. Usato da `Generic` e dai renderer per gli argomenti che non
 	// hanno una forma propria.

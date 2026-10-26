@@ -14,12 +14,12 @@ Documento tecnico. Le versioni, i contratti IPC, gli schemi di persistenza e le 
 | Backend | Rust (edizione 2021) | `stable-x86_64-pc-windows-msvc` / `stable-*-apple-darwin` / `stable-x86_64-unknown-linux-gnu` | PTY nativo, I/O filesystem con canonicalize, SQLite con thread pool bloccante, isolamento processi con Windows Job Objects o segnali POSIX |
 | PTY | `portable-pty` | **0.9.0** | ConPTY nativo su Windows 10/11, POSIX PTY su macOS e Linux |
 | RPC OMP | `omp --mode rpc-ui` su stdio | NDJSON Protocol v2 | Seconda superficie GUI: streaming asincrono bidirezionale, riassemblaggio chunk fino a 64 MiB, coalescenza delta |
-| Frontend | Svelte 5 + Vite (template `svelte-ts`) | Svelte **5.56.8** | Reattività nativa con Runes (`$state`, `$derived`, `$effect`, `$props`), nessun framework server, zero overhead di virtual DOM |
+| Frontend | Svelte 5 + SvelteKit 3 + Vite 8 | Svelte **5.57.2**, Kit **3.1.0**, TypeScript **6.x** | Reattività nativa con Runes (`$state`, `$derived`, `$effect`, `$props`), SPA statica tramite adapter-static 4, zero overhead di virtual DOM |
 | Terminale | `@xterm/xterm` | **6.0.0** | Renderer DOM (vedi §1.1); addon fit, ligatures, unicode11, web-links, search, clipboard |
 | Editor | `monaco-editor` | **0.56.0** | Istanza Monaco singola multi-modello, visualizzatore diff Git affiancato, sintassi estesa |
 | Diagrammi & Whiteboard | `mermaid` | **11.x** | Rendering SVG interattivo zoomabile/panorabile per il tool agente `studio_diagram` |
 | Sandbox & Sanitizzazione | `dompurify` | **3.x** | Difesa in profondità per anteprime vettoriali SVG e prototipi UI isolati in iframe sandbox privi di script |
-| Runtime di build JS | Bun / Node | Bun **1.3.14**, Node **22.x** | Installazione dipendenze e dev server ultra-rapido |
+| Runtime di build JS | Bun / Node | Node **>=22.17** | Dipendenze installate con Bun; configurazione SvelteKit nel plugin di `vite.config.ts`, subpath imports `#lib/*` con estensioni esplicite in `package.json`, TypeScript estende `$app/tsconfig` |
 
 ### Plugin Tauri registrati
 

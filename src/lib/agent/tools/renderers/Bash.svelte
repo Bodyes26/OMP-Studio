@@ -6,7 +6,7 @@
   directory di lavoro (cwd) e flag pty/async se configurati.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	import EmptyNotice from '../parts/EmptyNotice.svelte';
 	import KeyValue from '../parts/KeyValue.svelte';
 	import LiveNotice from '../parts/LiveNotice.svelte';

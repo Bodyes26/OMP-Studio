@@ -4,19 +4,19 @@
   trascinamento verso il composer finto (pointer events drag).
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
-	import type { CommandCategory, CommandManifestEntry } from '$lib/agent/commandCatalog/types';
-	import type { AvailableCommand } from '$lib/agent/wire';
-	import { resolveCommandText, matchesCommandSearch } from '$lib/agent/commandCatalog/text';
+	import { m } from '#lib/paraglide/messages.js';
+	import type { CommandCategory, CommandManifestEntry } from '#lib/agent/commandCatalog/types.ts';
+	import type { AvailableCommand } from '#lib/agent/wire.ts';
+	import { resolveCommandText, matchesCommandSearch } from '#lib/agent/commandCatalog/text.ts';
 	import CommandIcon from './CommandIcon.svelte';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
 	import {
 		IconSearch,
 		IconClose,
 		IconPlus,
 		IconGrip,
 		IconSparkles
-	} from '$lib/icons';
+	} from '#lib/icons.ts';
 
 	let {
 		manifest,

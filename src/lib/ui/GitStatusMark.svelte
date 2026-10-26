@@ -8,7 +8,7 @@
   - Accessibile con classe globale .sr-only e aria-hidden sul glifo visivo
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 
 	export type GitStatusCode = 'M' | 'A' | 'D' | 'R' | 'C' | 'U' | '?' | '!' | string;
 

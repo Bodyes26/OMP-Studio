@@ -28,7 +28,7 @@
 	import OperationalDetails from '../inbox/OperationalDetails.svelte';
 	import { IconArrowLeft, IconChevronDown, IconChevronUp, IconClose, IconNewChat, IconInfo } from '../../icons.ts';
 	import type { RemoteComposerAttachment } from '../../chat/remoteAttachments.svelte.ts';
-	import { setAgentUiHooks } from '$lib/agent/ui-context';
+	import { setAgentUiHooks } from '#lib/agent/ui-context.ts';
 	import { PreviewStore, setPreviewContext } from '../../preview.svelte.ts';
 	import PreviewSurface from './PreviewSurface.svelte';
 

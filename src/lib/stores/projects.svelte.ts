@@ -2,7 +2,7 @@ import { load, type Store } from '@tauri-apps/plugin-store';
 import { homeDir } from '@tauri-apps/api/path';
 import { debounce } from 'lodash-es';
 import { settingsStore, type TaskDefaults } from './settings.svelte';
-import { extractOrigin, isLocalOrigin } from '$lib/agent/browser-live';
+import { extractOrigin, isLocalOrigin } from '#lib/agent/browser-live.ts';
 import {
 	canonicalProjectPath,
 	createMainLane,
@@ -13,12 +13,12 @@ import {
 	type CanonicalProjectPath,
 	type ProjectId,
 	workspacePath
-} from '$lib/types/lanes';
-import { labApi } from '$lib/lab/api';
-import type { LabIndexEntry } from '$lib/lab/types';
-import { noteProjectSwitch, studioLog } from '$lib/diagnostics/studioLog';
+} from '#lib/types/lanes.ts';
+import { labApi } from '#lib/lab/api.ts';
+import type { LabIndexEntry } from '#lib/lab/types.ts';
+import { noteProjectSwitch, studioLog } from '#lib/diagnostics/studioLog.ts';
 
-import { isWindows, normalizeProjectPath, joinProjectPath, pathKey } from '$lib/utils/paths';
+import { isWindows, normalizeProjectPath, joinProjectPath, pathKey } from '#lib/utils/paths.ts';
 import {
 	applyTabRename,
 	applyTabTrash,
@@ -35,7 +35,7 @@ import {
 export { normalizeProjectPath, joinProjectPath, pathKey, isWindows };
 export type { ProjectColorMode, ProjectLayout, StoredProjectMetadata };
 
-export type { AgentState } from '$lib/types/lanes';
+export type { AgentState } from '#lib/types/lanes.ts';
 
 export interface Project {
 	id: ProjectId;

@@ -6,7 +6,7 @@
   con segnalazione semantica mirata (Outcome-Only Color Rule).
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	import JsonBlock from '../parts/JsonBlock.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
 	import {

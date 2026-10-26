@@ -1,11 +1,11 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { load, type Store } from '@tauri-apps/plugin-store';
-import { openExternalUrl } from '$lib/utils/openExternal';
-import { formatVersion, type FormatVersionOptions } from '$lib/utils/version';
-import { m as msg } from '$lib/paraglide/messages.js';
+import { openExternalUrl } from '#lib/utils/openExternal.ts';
+import { formatVersion, type FormatVersionOptions } from '#lib/utils/version.ts';
+import { m as msg } from '#lib/paraglide/messages.js';
 import { installOutcomeKeepsRunning, installOutcomeNotice } from './studioInstallOutcome';
-import { studioLog } from '$lib/diagnostics/studioLog';
+import { studioLog } from '#lib/diagnostics/studioLog.ts';
 
 export { formatVersion, type FormatVersionOptions };
 

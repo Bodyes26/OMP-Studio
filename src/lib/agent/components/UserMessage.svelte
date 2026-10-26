@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	// Messaggio dell'utente nel transcript (Gate R32 - C08).
 	// Allineato a destra, bolla --bg-raised con raggio 16px (in basso a destra 6px),
 	// max-width 80%, tipografia 15px / 24px.
@@ -10,11 +10,11 @@
 	import { lexMarkdownInlineWithMentions } from '../markdown';
 	import type { UserEntry } from '../session.svelte';
 	import MarkdownInline from './MarkdownInline.svelte';
-	import { splitMessageAndEditorContext } from '$lib/editor/editorContext';
+	import { splitMessageAndEditorContext } from '#lib/editor/editorContext.ts';
 	import { baseName } from '../tools/types';
-	import { IconClose, IconCopy, IconEditRetry, IconFile, IconFork, IconMore } from '$lib/icons';
-	import { contextMenu, type ContextMenuEntry } from '$lib/contextMenu.svelte';
-	import Tooltip from '$lib/ui/Tooltip.svelte';
+	import { IconClose, IconCopy, IconEditRetry, IconFile, IconFork, IconMore } from '#lib/icons.ts';
+	import { contextMenu, type ContextMenuEntry } from '#lib/contextMenu.svelte.ts';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
 
 	// `planBadge`: messaggio mandato in modalita' Piano (badge «Piano» come nel prototipo).
 	let { entry, planBadge = false }: { entry: UserEntry; planBadge?: boolean } = $props();

@@ -14,15 +14,15 @@ import type {
 	RemoteSessionPage,
 	RemoteSessionSummary
 } from '$remote-protocol';
-import { projectStore } from '$lib/stores/projects.svelte';
-import { laneStore } from '$lib/stores/lanes.svelte';
-import { sessionRegistry } from '$lib/agent/sessionRegistry';
-import { taskStore, type TaskSessionOrigin } from '$lib/stores/tasks.svelte';
-import { fetchSessionsList, type SessionEntry } from '$lib/agent/sessionsList';
-import { classifySystemMessage } from '$lib/agent/notices';
+import { projectStore } from '#lib/stores/projects.svelte.ts';
+import { laneStore } from '#lib/stores/lanes.svelte.ts';
+import { sessionRegistry } from '#lib/agent/sessionRegistry.ts';
+import { taskStore, type TaskSessionOrigin } from '#lib/stores/tasks.svelte.ts';
+import { fetchSessionsList, type SessionEntry } from '#lib/agent/sessionsList.ts';
+import { classifySystemMessage } from '#lib/agent/notices.ts';
 import { RemoteCommandFailure } from './commands';
 import { entryToRemoteMessage } from './chatProjection';
-import type { ProjectId } from '$lib/types/lanes';
+import type { ProjectId } from '#lib/types/lanes.ts';
 import type {
 	TranscriptEntry,
 	UserEntry,
@@ -33,8 +33,8 @@ import type {
 	SubagentResultEntry,
 	SystemChipEntry,
 	Block
-} from '$lib/agent/session.svelte';
-import type { AgentToolResult, MessageUsage } from '$lib/agent/wire';
+} from '#lib/agent/session.svelte.ts';
+import type { AgentToolResult, MessageUsage } from '#lib/agent/wire.ts';
 import { paginateRemoteMessages } from './chatPaging';
 function textOf(content: unknown): string {
 	if (typeof content === 'string') return content;

@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { projectStore, normalizeProjectPath, joinProjectPath } from './projects.svelte';
 import { settingsStore } from './settings.svelte';
 import { notificationManager } from './notifications.svelte';
-import { m } from '$lib/paraglide/messages.js';
+import { m } from '#lib/paraglide/messages.js';
 import { ActionsPollGate } from './actionsPollGate';
 
 export interface GithubAuthStatus {

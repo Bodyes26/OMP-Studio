@@ -1,5 +1,5 @@
 
-import { m as msg } from '$lib/paraglide/messages.js';/**
+import { m as msg } from '#lib/paraglide/messages.js';/**
  * Confronto tra la configurazione richiesta da un task e quella pubblicata
  * dalla sessione del terminale.
  *

@@ -5,7 +5,7 @@
   i metadati della sorgente e l'anteprima del contenuto letto in OutputBlock.
 -->
 <script lang="ts">
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	import KeyValue from '../parts/KeyValue.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
 	import ToolFileHeader from '../parts/ToolFileHeader.svelte';

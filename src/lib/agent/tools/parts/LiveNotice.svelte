@@ -6,7 +6,7 @@
 	 * Conforme alla The Alive-and-Visible Rule: usa spinner due toni StatusMark
 	 * e testo che luccica (.text-shimmer).
 	 */
-	import StatusMark from '$lib/ui/StatusMark.svelte';
+	import StatusMark from '#lib/ui/StatusMark.svelte';
 
 	let {
 		label,

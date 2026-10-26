@@ -1,13 +1,13 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
-	import { m } from '$lib/paraglide/messages.js';
+	import { m } from '#lib/paraglide/messages.js';
 	import { invoke } from '@tauri-apps/api/core';
 	import { open as openDialog } from '@tauri-apps/plugin-dialog';
-	import { projectStore, joinProjectPath, type ProjectColorMode } from '$lib/stores/projects.svelte';
-	import { githubStore, type GithubRemoteRepo, type DetectedGithubRemote } from '$lib/stores/github.svelte';
-	import { settingsStore } from '$lib/stores/settings.svelte';
-	import { trapFocus } from '$lib/focusTrap';
-	import { IconGithub, IconFolderOpen, IconPlus, IconGlobe, IconLock, IconArrowLeft } from '$lib/icons';
+	import { projectStore, joinProjectPath, type ProjectColorMode } from '#lib/stores/projects.svelte.ts';
+	import { githubStore, type GithubRemoteRepo, type DetectedGithubRemote } from '#lib/stores/github.svelte.ts';
+	import { settingsStore } from '#lib/stores/settings.svelte.ts';
+	import { trapFocus } from '#lib/focusTrap.ts';
+	import { IconGithub, IconFolderOpen, IconPlus, IconGlobe, IconLock, IconArrowLeft } from '#lib/icons.ts';
 
 	let { open = false, onClose } = $props<{ open?: boolean; onClose?: () => void }>();
 
