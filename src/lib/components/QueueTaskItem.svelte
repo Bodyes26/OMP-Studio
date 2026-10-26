@@ -4,8 +4,8 @@
 	import { m } from '#lib/paraglide/messages.js';
 	import { taskStore, type StudioTask } from '#lib/stores/tasks.svelte.ts';
 	import { settingsStore } from '#lib/stores/settings.svelte.ts';
-	import { roleBadge, splitTaskText, taskLabel } from '#lib/stores/taskTitle.ts';
-	import { requestTaskTitle } from '#lib/stores/taskTitles.ts';
+	import { splitTaskText, taskLabel } from '#lib/stores/taskTitle.ts';
+	import { requestTaskTitle } from '#lib/stores/taskTitles.svelte.ts';
 	import { directiveDisplayName } from '#lib/stores/taskDirectives.ts';
 	import { contextMenu, type ContextMenuEntry } from '#lib/contextMenu.svelte.ts';
 	import {
@@ -27,6 +27,8 @@
 	import ScheduleChip from './schedule/ScheduleChip.svelte';
 	import ScheduleMenu from './schedule/ScheduleMenu.svelte';
 	import ProviderLogo from './models/ProviderLogo.svelte';
+	import { modelSettingsStore } from '#lib/stores/modelSettings.svelte.ts';
+	import { splitModelSelector, resolveCatalogModel } from '#lib/stores/modelSettingsHelpers.ts';
 
 	/**
 	 * Un task della coda, condiviso da pannello Agente e cassetto globale.
@@ -71,12 +73,40 @@
 	const isCards = $derived((settingsStore.appearance.queueView ?? 'compact') === 'cards');
 	const text = $derived(splitTaskText(task));
 	const label = $derived(taskLabel(task) || m.queue_drawer_title_new_task());
-	const role = $derived(roleBadge(task.options?.role));
 	const imageCount = $derived(task.images?.length ?? 0);
 	const launchDisabled = $derived(!task.prompt.trim() && imageCount === 0);
 	const isQueued = $derived(task.status === 'queued');
 	const finished = $derived(task.status === 'completed' || task.status === 'abandoned');
 	const directives = $derived(task.options?.directives ?? []);
+	const modelBadge = $derived.by(() => {
+		const rawSelector = task.options?.modelSelector?.trim();
+		if (rawSelector) {
+			const { base } = splitModelSelector(rawSelector, modelSettingsStore.knownSelectors);
+			const catModel = resolveCatalogModel(modelSettingsStore.catalog, base);
+			const slashIdx = base.indexOf('/');
+			const provider = catModel?.provider || (slashIdx >= 0 ? base.slice(0, slashIdx) : '');
+			if (catModel?.name) {
+				return {
+					label: catModel.name,
+					provider,
+					tooltip: rawSelector,
+					isSession: false
+				};
+			}
+			return {
+				label: m.queue_task_assigned_model(),
+				provider,
+				tooltip: m.queue_task_assigned_model_tooltip({ selector: rawSelector }),
+				isSession: false
+			};
+		}
+		return {
+			label: m.queue_task_session_model(),
+			provider: '',
+			tooltip: m.queue_task_session_model_tooltip(),
+			isSession: true
+		};
+	});
 	// Mostra un'intestazione separata solo se il titolo e' stato generato dall'IA
 	// e quindi non fa parte del testo del prompt. Se invece l'utente ha scritto
 	// un titolo markdown (# ...) o una prima riga, l'intero prompt viene reso in un
@@ -223,18 +253,36 @@
 	class:blocked={blocked && isQueued}
 	oncontextmenu={openMenu}
 >
-	{#if reorderable}
-		<Tooltip text={m.agent_panel_reorder_handle_title()} placement="top" offset={6}>
+	<div class="side-left">
+		{#if reorderable}
+			<Tooltip text={m.agent_panel_reorder_handle_title()} placement="top" offset={6}>
+				<button
+					type="button"
+					class="grip"
+					aria-label={m.agent_panel_reorder_handle_aria({ title: label })}
+					onkeydown={handleMoveKey}
+				>
+					<IconGrip />
+				</button>
+			</Tooltip>
+		{/if}
+
+		<Tooltip text={m.queue_drawer_edit_btn_title()} placement="top" offset={6}>
 			<button
 				type="button"
-				class="grip"
-				aria-label={m.agent_panel_reorder_handle_aria({ title: label })}
-				onkeydown={handleMoveKey}
+				class="edit"
+				onclick={onEdit}
+				aria-label={m.agent_panel_edit_task_aria({ title: label })}
 			>
-				<IconGrip />
+				<IconPencil />
 			</button>
 		</Tooltip>
-	{/if}
+
+		<!-- Orologio: programma l'avvio (al reset della quota, non prima di un orario). -->
+		{#if isQueued}
+			<ScheduleMenu {task} align="left" />
+		{/if}
+	</div>
 
 	<div class="content">
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -248,7 +296,14 @@
 					<span class="headline" class:finished>
 						{text.headline}
 					</span>
-					{#if role}<span class="chip role">{role}</span>{/if}
+					<Tooltip text={modelBadge.tooltip} placement="top" offset={4}>
+						<span class="chip model" class:session={modelBadge.isSession}>
+							{#if modelBadge.provider}
+								<ProviderLogo provider={modelBadge.provider} size={11} />
+							{/if}
+							<span>{modelBadge.label}</span>
+						</span>
+					</Tooltip>
 				</div>
 			{/if}
 
@@ -299,13 +354,15 @@
 				</span>
 			{/if}
 			{#if isQueued && task.schedule}<ScheduleChip {task} />{/if}
-			{#if task.options?.modelSelector}
-				<span class="chip model">
-					<ProviderLogo provider={task.options.modelSelector} size={11} />
-					<span>{task.options.modelSelector.split('/')[1] || task.options.modelSelector}</span>
-				</span>
-			{:else if role && (!showHeadline || !text.headline)}
-				<span class="chip role">{role}</span>
+			{#if !showHeadline || !text.headline}
+				<Tooltip text={modelBadge.tooltip} placement="top" offset={4}>
+					<span class="chip model" class:session={modelBadge.isSession}>
+						{#if modelBadge.provider}
+							<ProviderLogo provider={modelBadge.provider} size={11} />
+						{/if}
+						<span>{modelBadge.label}</span>
+					</span>
+				</Tooltip>
 			{/if}
 			{#each directives.slice(0, maxDirectives) as d (d.id)}
 				<span class="chip mode">{directiveDisplayName(d)}</span>
@@ -352,21 +409,6 @@
 			</div>
 		{/if}
 	</div>
-
-	<div class="side">
-		<Tooltip text={m.queue_drawer_edit_btn_title()} placement="top" offset={6}>
-			<button
-				type="button"
-				class="edit"
-				onclick={onEdit}
-				aria-label={m.agent_panel_edit_task_aria({ title: label })}
-			>
-				<IconPencil />
-			</button>
-		</Tooltip>
-		<!-- Orologio: programma l'avvio (al reset della quota, non prima di un orario). -->
-		{#if isQueued}<ScheduleMenu {task} />{/if}
-	</div>
 </div>
 
 <style>
@@ -375,16 +417,11 @@
 		--queue-task-hover: color-mix(in srgb, var(--ink) 10%, var(--queue-task-surface, var(--bg-base)));
 		position: relative;
 		display: grid;
-		grid-template-columns: minmax(0, 1fr) 26px;
-		gap: var(--space-1);
-		padding: var(--space-2) var(--space-1) var(--space-2) var(--space-2);
+		grid-template-columns: 24px minmax(0, 1fr);
+		gap: var(--space-2);
+		padding: var(--space-2);
 		border-bottom: 1px solid var(--line);
 		border-radius: var(--radius-md);
-	}
-
-	.queue-task:has(.grip) {
-		grid-template-columns: 18px minmax(0, 1fr) 26px;
-		padding-left: var(--space-1);
 	}
 
 	.queue-task:hover,
@@ -414,12 +451,13 @@
 		font: inherit;
 	}
 
-	.side {
+	.side-left {
 		align-self: start;
 		display: flex;
 		flex-direction: column;
 		align-items: center;
 		gap: 2px;
+		width: 24px;
 	}
 
 	.grip,
@@ -429,6 +467,7 @@
 		align-items: center;
 		justify-content: center;
 		height: 22px;
+		width: 24px;
 		padding: 0;
 		border: 1px solid transparent;
 		border-radius: var(--radius-md);
@@ -436,7 +475,6 @@
 	}
 
 	.grip {
-		width: 18px;
 		cursor: grab;
 		--icon-size: 14px;
 	}
@@ -446,11 +484,9 @@
 	}
 
 	.edit {
-		width: 24px;
 		cursor: pointer;
 		--icon-size: 13px;
 	}
-
 	.grip:hover,
 	.edit:hover {
 		color: var(--ink);
@@ -515,7 +551,7 @@
 	   del testo (nessun ingrandimento a --text-chat). */
 	.body {
 		margin: 0;
-		max-height: calc(3 * 1.5em);
+		max-height: calc(2 * 1.5em);
 		overflow: hidden;
 		color: var(--ink-muted);
 		font-size: var(--text-caption);
@@ -525,6 +561,7 @@
 	}
 
 	.cards .body {
+		max-height: calc(4 * 1.5em);
 		font-size: var(--text-label);
 	}
 
@@ -533,8 +570,13 @@
 	}
 
 	.body.overflowing {
-		-webkit-mask-image: linear-gradient(to bottom, var(--ink) calc(100% - 1.5em), transparent);
-		mask-image: linear-gradient(to bottom, var(--ink) calc(100% - 1.5em), transparent);
+		-webkit-mask-image: linear-gradient(to bottom, var(--ink) calc(100% - 1.2em), transparent);
+		mask-image: linear-gradient(to bottom, var(--ink) calc(100% - 1.2em), transparent);
+	}
+
+	.cards .body.overflowing {
+		-webkit-mask-image: linear-gradient(to bottom, var(--ink) calc(3 * 1.5em), transparent 100%);
+		mask-image: linear-gradient(to bottom, var(--ink) calc(3 * 1.5em), transparent 100%);
 	}
 
 	.body.placeholder {
@@ -670,20 +712,24 @@
 		white-space: nowrap;
 	}
 
-	.chip.role {
+	.head :global(.tooltip-trigger) {
 		flex-shrink: 0;
-		background: var(--brand-dim);
-		color: var(--ink);
-		font-weight: 600;
 	}
 
 	.chip.model {
 		display: inline-flex;
 		align-items: center;
 		gap: 3px;
-		font-family: var(--font-mono);
+		font-family: inherit;
+		font-weight: 500;
 		background: var(--bg-hover);
 		color: var(--ink-muted);
+	}
+
+	.chip.model.session {
+		color: var(--ink-faint);
+		background: var(--bg-sunken);
+		font-weight: 400;
 	}
 
 	.chip.mode {
@@ -712,23 +758,18 @@
 		color: var(--danger);
 	}
 
-	.actions {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		gap: var(--space-1);
-		margin-top: 2px;
-	}
-
+	.actions,
 	.cards .actions {
 		display: grid;
 		grid-template-columns: 1fr 1fr;
 		gap: var(--space-1);
+		width: 100%;
 		margin-top: 2px;
 	}
 
 	.action {
 		min-width: 0;
+		width: 100%;
 		height: 22px;
 		padding: 0 var(--space-2);
 		display: inline-flex;

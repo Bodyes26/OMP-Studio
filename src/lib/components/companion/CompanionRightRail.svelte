@@ -1,5 +1,8 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
+	import { fade } from 'svelte/transition';
+	import { splitTaskText } from '#lib/stores/taskTitle.ts';
+	import { isTaskTitleGenerating } from '#lib/stores/taskTitles.svelte.ts';
 	import { IconChevronDown, IconExternalLink, IconPlay, IconSchedule } from '#lib/icons.ts';
 	import Tooltip from '#lib/ui/Tooltip.svelte';
 	import type { Project } from '#lib/stores/projects.svelte.ts';
@@ -51,6 +54,26 @@
 		onRunTask: (projectId: string, taskId: string) => void;
 	} = $props();
 
+	let collapsedProjects = $state<string[]>([]);
+	let expandedTasks = $state<string[]>([]);
+	const queueGroups = $derived.by(() => {
+		const groups = new Map<string, GlobalQueueItemState<StudioTask>[]>();
+		for (const item of globalQueue) {
+			const key = item.projectId.toLowerCase();
+			const group = groups.get(key);
+			if (group) group.push(item);
+			else groups.set(key, [item]);
+		}
+		return [...groups.entries()];
+	});
+	function toggleProject(key: string) {
+		collapsedProjects = collapsedProjects.includes(key)
+			? collapsedProjects.filter((id) => id !== key) : [...collapsedProjects, key];
+	}
+	function toggleTask(key: string) {
+		expandedTasks = expandedTasks.includes(key)
+			? expandedTasks.filter((id) => id !== key) : [...expandedTasks, key];
+	}
 
 	// Un conteggio di progetti, non una seconda coda o un esecutore globale.
 	const queueProjectCount = $derived.by(() => {
@@ -177,11 +200,28 @@
 		>
 			<MissedScheduleBanner tasks={globalQueue.map((item) => item.task)} compact />
 			{#if globalQueue.length > 0}
-				<ol class="global-queue-list">
-					{#each globalQueue as item (item.projectId + ':' + item.taskId)}
+				<div class="queue-groups">
+					{#each queueGroups as [projectKey, items] (projectKey)}
+						<div class="queue-project-group">
+							<button type="button" class="queue-group-heading" aria-expanded={!collapsedProjects.includes(projectKey)} onclick={() => toggleProject(projectKey)}>
+								<span class="queue-group-dot" style:background={`hsl(${items[0].projectHue} 45% 48%)`}></span>
+								<span>{items[0].projectName}</span>
+								<span class="rail-count">{items.length}</span>
+								<span class:rotated={collapsedProjects.includes(projectKey)} class="parked-chevron"><IconChevronDown /></span>
+							</button>
+							{#if !collapsedProjects.includes(projectKey)}
+							<ol class="global-queue-list queue-group-tasks">
+					{#each items as item (item.projectId + ':' + item.taskId)}
 						{@const schedule = scheduleStore.labelFor(item.task)}
+						{@const text = splitTaskText(item.task)}
+						{@const taskKey = item.projectId + ':' + item.taskId}
 						<li class="global-queue-item" data-queue-project={item.projectId} data-queue-task={item.taskId}>
-							<p class="global-queue-title">{item.taskTitle}</p>
+							<button type="button" class="queue-task-preview" aria-expanded={expandedTasks.includes(taskKey)} onclick={() => toggleTask(taskKey)}>
+								{#key isTaskTitleGenerating(item.taskId) ? 'generating' : text.headline}
+									<strong class="global-queue-title" class:generating={isTaskTitleGenerating(item.taskId)} in:fade={{ duration: 180 }}>{isTaskTitleGenerating(item.taskId) ? m.companion_title_generating() : text.headline || item.taskTitle}</strong>
+								{/key}
+								<span class="queue-task-body" class:expanded={expandedTasks.includes(taskKey)}>{item.task.prompt}</span>
+							</button>
 							{#if schedule}
 								<p class="queue-schedule-line" title={schedule.tooltip}>
 									<IconSchedule />
@@ -190,14 +230,6 @@
 							{/if}
 							<div class="global-queue-footer">
 								<div class="global-queue-context">
-									<button
-										type="button"
-										class="global-queue-project"
-										onclick={() => onSelectProject(item.projectId, 'main', 'answer')}
-									>
-										{item.projectName}
-									</button>
-									<span class="queue-context-separator">·</span>
 									<span
 										class="queue-project-state"
 										class:is-question={item.statusKey === 'question'}
@@ -227,7 +259,11 @@
 							{/if}
 						</li>
 					{/each}
-				</ol>
+							</ol>
+							{/if}
+						</div>
+					{/each}
+				</div>
 			{:else}
 				<p class="global-queue-empty">{m.companion_rail_queue_empty()}</p>
 			{/if}
@@ -264,6 +300,17 @@
 </aside>
 
 <style>
+	.queue-group-heading { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; background: none; color: var(--ink); padding: 12px 0 4px; text-align: left; font-size: 12px; font-weight: 600; cursor: pointer; }
+	.queue-group-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+	.queue-group-tasks { margin-left: 3px; padding-left: 15px; border-left: 1px solid var(--line); }
+	.queue-task-preview { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 0; color: var(--ink); cursor: pointer; }
+	.queue-task-preview .global-queue-title { display: block; font-weight: 650; }
+	.queue-task-body { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--ink-muted); font-size: 12px; line-height: 1.5; margin-bottom: 6px; }
+	.queue-task-body.expanded { white-space: pre-wrap; overflow-wrap: anywhere; }
+	.queue-group-heading:focus-visible, .queue-task-preview:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+	.generating { animation: title-pulse 1.4s ease-in-out infinite; color: var(--ink-muted); }
+	@keyframes title-pulse { 50% { opacity: .45; } }
+	@media (prefers-reduced-motion: reduce) { .generating { animation: none; } }
 	.parked-chevron {
 		display: inline-flex;
 		transition: transform var(--dur-fast) var(--ease-out);

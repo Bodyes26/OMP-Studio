@@ -564,26 +564,6 @@
 	color: var(--ink-muted);
 }
 
-.global-queue-project {
-	background: none;
-	border: 0;
-	padding: 0;
-	min-width: 0;
-	color: inherit;
-	font: inherit;
-	text-align: left;
-	cursor: pointer;
-}
-
-.global-queue-project:hover {
-	color: var(--ink);
-	text-decoration: underline;
-	text-underline-offset: 3px;
-}
-
-.queue-context-separator {
-	color: var(--ink-faint);
-}
 
 .queue-project-state {
 	font-size: inherit;

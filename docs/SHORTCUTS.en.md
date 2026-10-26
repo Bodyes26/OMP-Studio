@@ -12,6 +12,7 @@ Global shortcuts captured by the application live behind the **`Ctrl+Alt`** modi
 |---|---|---|
 | `Alt+H` / `Alt+K` / `F1` | Global | Opens the keyboard shortcuts cheat sheet with 2-column layout and search filter |
 | `Ctrl+Alt+N` | Global | New project (opens folder picker) |
+| `Ctrl+Alt+K` | Global | New task in active project |
 | `Ctrl+Alt+S` | Global | Open a Scratchpad chat (temporary, `--no-session`) |
 | `Ctrl+Alt+P` | Global | New free-idea Lab prototype |
 | `Ctrl+Alt+U` | Global | Toggle quota & token usage panel |

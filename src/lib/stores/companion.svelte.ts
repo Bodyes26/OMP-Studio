@@ -8,7 +8,7 @@ import { parseProjectTasksFile, serializeProjectTasksFile, type StudioTask, type
 import { createDirectiveSnapshot, directiveDisplayName, directiveDisplayDescription } from './taskDirectives';
 import { removeAttentionRequest, upsertAttentionRequest } from './companionAttention';
 import { broadcastToWindows, listenFromWindows } from './windowBridge';
-import type { ImageContent } from '#lib/agent/wire.ts';
+import type { AvailableCommand, ImageContent } from '#lib/agent/wire.ts';
 import { m as messages } from '#lib/paraglide/messages.js';
 import { promptBus, type PromptRequest } from '#lib/agent/promptBus.ts';
 import type { PromptAnswer } from '#lib/agent/askAnswers.ts';
@@ -116,6 +116,7 @@ export interface CompanionProjectRuntime {
 	headsUp?: string;
 	/** Riferimento all'ultimo messaggio completato dell'assistente per Companion 2.0. */
 	latestAssistant?: CompanionAssistantReference;
+	availableCommands?: AvailableCommand[];
 }
 
 export interface CompanionRunTaskPayload {

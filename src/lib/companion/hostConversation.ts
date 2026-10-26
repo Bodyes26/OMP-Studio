@@ -171,7 +171,9 @@ export async function readConversationSnapshot(
 		sessionId,
 		message,
 		canSend,
-		sendBlockReason
+		sendBlockReason,
+		availableCommands: session?.availableCommands ? [...session.availableCommands] : [],
+		entries: session?.entries ? [...session.entries] : []
 	};
 }
 

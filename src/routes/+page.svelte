@@ -760,6 +760,7 @@
 					? laneSession.headsUp.text
 					: undefined;
 			const latestAssistant = laneSession ? resolveLatestAssistantReference(laneSession) : undefined;
+			const availableCommands = laneSession?.availableCommands ? [...laneSession.availableCommands] : undefined;
 			return {
 				projectId: p.id,
 				provider,
@@ -772,16 +773,21 @@
 				runBlockReason: gate.ready ? undefined : `${gate.detail} ${gate.hint}`.trim(),
 				activity: activity ? { ...activity } : undefined,
 				headsUp,
-				latestAssistant
+				latestAssistant,
+				availableCommands
 			};
 		});
 
 		// Digest sui soli campi che la companion mostra: durante lo streaming lo stato
 		// sfarfalla e senza confronto si inonderebbe l'IPC a ogni token. Nome, etichetta
 		// e tinta ci stanno perche' la companion disegna anche quelli: senza, un
-		// progetto rinominato restava col vecchio nome fino al riavvio.
 		const structural = projectStore.projects
-			.map((p, i) => `${p.id}:${p.name}:${p.label ?? ''}:${p.hue}:${p.colorMode}:${p.lane.agentState}:${runtimes[i].provider ?? ''}:${runtimes[i].modelId ?? ''}:${runtimes[i].credentialPin ?? ''}:${runtimes[i].canRunTask ?? false}:${runtimes[i].runBlockReason ?? ''}:${runtimes[i].headsUp ?? ''}:${runtimes[i].latestAssistant ? `${runtimes[i].latestAssistant.sessionId}:${runtimes[i].latestAssistant.messageId}` : ''}`)
+			.map((p, i) => {
+				const cmds = runtimes[i].availableCommands
+					? runtimes[i].availableCommands.map((c) => `${c.name}:${c.source ?? ''}:${c.description ?? ''}`).join(',')
+					: '';
+				return `${p.id}:${p.name}:${p.label ?? ''}:${p.hue}:${p.colorMode}:${p.lane.laneId}:${p.lane.agentState}:${runtimes[i].provider ?? ''}:${runtimes[i].modelId ?? ''}:${runtimes[i].credentialPin ?? ''}:${runtimes[i].canRunTask ?? false}:${runtimes[i].runBlockReason ?? ''}:${runtimes[i].headsUp ?? ''}:${runtimes[i].latestAssistant ? `${runtimes[i].latestAssistant.sessionId}:${runtimes[i].latestAssistant.messageId}` : ''}:${cmds}`;
+			})
 			.join('|');
 		const activityOnly = runtimes
 			.map((r) => (r.activity ? `${r.activity.kind}:${r.activity.at}` : ''))
@@ -3339,6 +3345,13 @@
 		} else if (e.key.toLowerCase() === 'n') {
 			e.preventDefault();
 			pickerOpen = true;
+		} else if (e.key.toLowerCase() === 'k') {
+			e.preventDefault();
+			const activeProj = projectStore.activeProject;
+			if (activeProj?.canonicalProjectPath) {
+				leftSection = 'agent';
+				openNewTask(activeProj.canonicalProjectPath);
+			}
 		} else if (e.key.toLowerCase() === 'u') {
 			e.preventDefault();
 			usageOpen = !usageOpen;

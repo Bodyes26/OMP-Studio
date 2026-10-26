@@ -250,6 +250,30 @@ export function markReplySent(
 		: repliedMessageId;
 }
 
+export function markConversationStateRead(
+	conv: ConversationViewState,
+	repliedMessageId?: string | null
+): void {
+	conv.lastRepliedMessageId = repliedMessageId === undefined
+		? conv.snapshot?.message?.id ?? null
+		: repliedMessageId;
+}
+
+export function markConversationRead(
+	state: CompanionPresentationState,
+	projectId: string,
+	laneId = 'main',
+	repliedMessageId?: string | null,
+	repliedSessionId?: string
+): void {
+	const active = getOrCreateConversation(state, projectId, laneId);
+	const conv = repliedSessionId && active.snapshot?.sessionId !== repliedSessionId
+		? state.archivedConversations[sessionConversationKey(projectId, laneId, repliedSessionId)]
+		: active;
+	if (!conv) return;
+	markConversationStateRead(conv, repliedMessageId);
+}
+
 export function setSendReplyError(
 	state: CompanionPresentationState,
 	projectId: string,
@@ -268,7 +292,8 @@ export function isProjectUnread(
 	laneId = 'main',
 	agentState: string,
 	hasAttention: boolean,
-	latestAssistant?: CompanionAssistantReference | null
+	latestAssistant?: CompanionAssistantReference | null,
+	isSeenFn?: (sessionId: string, messageId: string) => boolean
 ): boolean {
 	if (hasAttention || agentState === 'working') return false;
 
@@ -280,6 +305,11 @@ export function isProjectUnread(
 		: active;
 	const assistantMessageId =
 		latestAssistant?.messageId ?? conv?.snapshot?.message?.id ?? null;
+	const sessionId = latestAssistant?.sessionId ?? conv?.snapshot?.sessionId ?? null;
+
+	if (sessionId && assistantMessageId && isSeenFn?.(sessionId, assistantMessageId)) {
+		return false;
+	}
 
 	return Boolean(assistantMessageId && conv?.lastRepliedMessageId !== assistantMessageId);
 }

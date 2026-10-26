@@ -829,6 +829,7 @@
 			{/if}
 			<button type="button" class="row" onclick={newTask}>
 				<IconPlus /> <span class="row-label">{m.project_popover_new_task()}</span>
+				<kbd>Ctrl+Alt+K</kbd>
 			</button>
 			<button type="button" class="row" onclick={openQueue}>
 				<IconQueue /> <span class="row-label">{m.project_popover_all_projects_queue()}</span>

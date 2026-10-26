@@ -291,6 +291,7 @@ describe('Companion 2.0 Conversation Backend', () => {
 
 			const snapshot = await readConversationSnapshot('p-gui', 'main', registry);
 			assert.equal(snapshot.canSend, false);
+			assert.equal(snapshot.entries?.length, 2);
 		});
 
 	});

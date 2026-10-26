@@ -1,10 +1,31 @@
 <script lang="ts" module>
+	export interface SelectedProjectMeta {
+		name: string;
+		label: string;
+		hue?: number;
+		path?: string;
+	}
+
+	export interface SelectedDirectiveMeta {
+		id: string;
+		name: string;
+		tag?: string;
+	}
+
+	export interface SelectedRoleMeta {
+		kind: 'role' | 'model';
+		value: string;
+		label: string;
+		hue?: number;
+	}
+
 	/** Voci che la vista passa alla palette: i dati restano della vista, il filtro qui. */
 	export interface CompanionSuggestSources {
-		projects: { name: string; label: string; hue: number }[];
-		directives: { value: string; label: string; hint?: string }[];
+		projects: { name: string; label: string; hue: number; path?: string }[];
+		directives: { id?: string; value: string; label: string; hint?: string }[];
 		roles: { value: string; label: string; hint?: string; hue?: number }[];
 		models: { value: string; label: string; hint: string; search: string }[];
+		commands?: AvailableCommand[];
 	}
 </script>
 
@@ -15,7 +36,7 @@
 	// ruolo si sceglie con il badge `!`. In piu' rispetto alla chat il companion
 	// conosce `#progetto` e `!ruolo`, che diventano badge d'identita'.
 	import { m } from '#lib/paraglide/messages.js';
-	import type { ImageContent } from '#lib/agent/wire.ts';
+	import type { AvailableCommand, ImageContent } from '#lib/agent/wire.ts';
 	import ComposerEditor from '#lib/agent/components/ComposerEditor.svelte';
 	import SuggestPanel, { type SuggestionItem } from '#lib/agent/components/SuggestPanel.svelte';
 	import AttachmentThumb, { type ComposerAttachment } from '#lib/agent/components/AttachmentThumb.svelte';
@@ -27,7 +48,7 @@
 		type ComposerTrigger
 	} from '#lib/agent/composerDoc.ts';
 	import { computeCaretAnchorLeft, loadProjectFiles, rankFileCandidates } from '#lib/agent/fileMention.ts';
-	import { SUGGEST_WIDTH, fileSuggestions, suggestKeyAction } from '#lib/agent/suggestItems.ts';
+	import { SUGGEST_WIDTH, commandSuggestions, fileSuggestions, suggestKeyAction } from '#lib/agent/suggestItems.ts';
 	import { matchesLooseQuery } from '#lib/looseSearch.ts';
 	import { trayFold } from '#lib/agent/motion.ts';
 	import StatusMark from '#lib/ui/StatusMark.svelte';
@@ -38,6 +59,7 @@
 		IconAttach,
 		IconCircleAlert,
 		IconCircleCheck,
+		IconClose,
 		IconWarning
 	} from '#lib/icons.ts';
 
@@ -47,6 +69,9 @@
 		sources,
 		fileProjectPath,
 		destinationName = null,
+		selectedProject = null,
+		selectedDirectives = [],
+		selectedRole = null,
 		canSave,
 		statusText,
 		successNotice,
@@ -56,7 +81,13 @@
 		onSave,
 		onFilesAdd,
 		onRemoveImage,
-		onOpenFileDialog
+		onOpenFileDialog,
+		onSelectProject,
+		onRemoveProject,
+		onAddDirective,
+		onRemoveDirective,
+		onSelectRole,
+		onRemoveRole
 	} = $props<{
 		editor?: ComposerEditor | null;
 		attachedImages: ImageContent[];
@@ -65,6 +96,9 @@
 		fileProjectPath: string | null;
 		/** Nome del progetto di destinazione del task, se noto. */
 		destinationName?: string | null;
+		selectedProject?: SelectedProjectMeta | null;
+		selectedDirectives?: SelectedDirectiveMeta[];
+		selectedRole?: SelectedRoleMeta | null;
 		canSave: boolean;
 		/** Salvataggio, interpretazione AI o immagini in preparazione. */
 		statusText: string | null;
@@ -77,6 +111,12 @@
 		onFilesAdd: (files: FileList | File[]) => void;
 		onRemoveImage: (index: number) => void;
 		onOpenFileDialog: () => void;
+		onSelectProject?: (proj: SelectedProjectMeta) => void;
+		onRemoveProject?: () => void;
+		onAddDirective?: (dir: SelectedDirectiveMeta) => void;
+		onRemoveDirective?: (id: string) => void;
+		onSelectRole?: (role: SelectedRoleMeta) => void;
+		onRemoveRole?: () => void;
 	}>();
 
 	const TOKEN_HINTS = $derived([
@@ -89,11 +129,11 @@
 	const MAX_PROJECT_ITEMS = 6;
 
 	let shellEl = $state<HTMLDivElement | null>(null);
+	let windowHeight = $state(typeof window !== 'undefined' ? window.innerHeight : 800);
 	let isDragging = $state(false);
 	let currentTrigger = $state<ComposerTrigger | null>(null);
 	let suggestItems = $state<SuggestionItem[]>([]);
 	let suggestIndex = $state(0);
-
 	const attachments = $derived<ComposerAttachment[]>(
 		attachedImages.map((img: ImageContent, index: number) => ({
 			id: index,
@@ -133,11 +173,15 @@
 					hue: p.hue
 				}));
 		} else if (trigger.kind === '/') {
-			suggestItems = sources.directives
+			const directiveItems: SuggestionItem[] = sources.directives
 				.filter((d: CompanionSuggestSources['directives'][number]) =>
 					!query || d.label.toLowerCase().includes(query) || d.value.toLowerCase().includes(query)
 				)
 				.map((d: CompanionSuggestSources['directives'][number]): SuggestionItem => ({ kind: 'directive', ...d }));
+			const cmdItems: SuggestionItem[] = sources.commands
+				? commandSuggestions(sources.commands, trigger.query)
+				: [];
+			suggestItems = [...directiveItems, ...cmdItems];
 		} else if (trigger.kind === '!') {
 			suggestItems = [
 				...sources.roles
@@ -178,35 +222,66 @@
 
 	function pickSuggestion(item: SuggestionItem) {
 		if (!currentTrigger || !editor) return;
-		let badge: HTMLElement;
 		switch (item.kind) {
-			case 'file':
-				badge = createFileBadgeElement(item.item.path);
+			case 'file': {
+				const badge = createFileBadgeElement(item.item.path);
+				editor.replaceTrigger(badge, currentTrigger);
 				break;
-			case 'cmd':
-				badge = createCommandBadgeElement(item.command.name);
+			}
+			case 'cmd': {
+				const badge = createCommandBadgeElement(item.command.name);
+				editor.replaceTrigger(badge, currentTrigger);
 				break;
-			case 'project':
-				badge = createProjectBadgeElement(item.value, item.label, item.hue);
+			}
+			case 'project': {
+				editor.replaceTrigger(null, currentTrigger);
+				const foundProj = sources.projects.find((p: CompanionSuggestSources['projects'][number]) => p.name === item.value);
+				onSelectProject?.({
+					name: item.value,
+					label: item.label,
+					hue: item.hue,
+					path: foundProj?.path
+				});
 				break;
-			case 'directive':
-				badge = createCommandBadgeElement(item.value);
+			}
+			case 'directive': {
+				editor.replaceTrigger(null, currentTrigger);
+				const dirItem = item as SuggestionItem & { id?: string; hint?: string };
+				onAddDirective?.({
+					id: dirItem.id ?? item.value,
+					name: item.label,
+					tag: dirItem.hint ?? `/${item.value}`
+				});
 				break;
-			case 'role':
-				badge = createRoleBadgeElement(item.value, item.label, item.hue);
+			}
+			case 'role': {
+				editor.replaceTrigger(null, currentTrigger);
+				onSelectRole?.({
+					kind: 'role',
+					value: item.value,
+					label: item.label,
+					hue: item.hue
+				});
 				break;
-			case 'model':
-				badge = createRoleBadgeElement(item.value, item.label);
+			}
+			case 'model': {
+				editor.replaceTrigger(null, currentTrigger);
+				onSelectRole?.({
+					kind: 'model',
+					value: item.value,
+					label: item.label
+				});
 				break;
+			}
 		}
-		editor.replaceTrigger(badge, currentTrigger);
 		currentTrigger = null;
 	}
 
 	function handleEditorKeydown(e: KeyboardEvent): boolean {
-		if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !currentTrigger) {
+		if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
 			e.preventDefault();
 			e.stopPropagation();
+			currentTrigger = null;
 			onSave();
 			return true;
 		}
@@ -234,6 +309,8 @@
 		editor?.focusEnd();
 	}
 </script>
+
+<svelte:window bind:innerHeight={windowHeight} />
 
 <section class="quick-task-section">
 	<div
@@ -276,7 +353,14 @@
 		<!-- Il clic sulla sagoma porta il fuoco nell'editor: comodita' del puntatore,
 		     la tastiera ci arriva gia' con Tab. -->
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
-		<div class="composer-shell" class:dragging={isDragging} bind:this={shellEl} role="presentation" onclick={handleShellClick}>
+		<div
+			class="composer-shell"
+			class:dragging={isDragging}
+			bind:this={shellEl}
+			role="presentation"
+			style:--editor-min-height="{windowHeight >= 700 ? '48px' : '24px'}"
+			onclick={handleShellClick}
+		>
 			{#if attachments.length > 0}
 				<div class="composer-attachments" role="list" aria-label={m.task_editor_images_aria()}>
 					{#each attachments as attachment, index (attachment.id)}
@@ -292,6 +376,7 @@
 				placeholder={m.companion_composer_placeholder()}
 				ariaLabel={m.companion_composer_aria()}
 				triggers={['@', '#', '/', '!']}
+				submitWithModifier={true}
 				onSend={() => onSave()}
 				onFilesPaste={(files) => onFilesAdd(files)}
 				onTriggerChange={(trigger) => (currentTrigger = trigger)}
@@ -330,9 +415,55 @@
 						</Tooltip>
 					{/each}
 				</div>
-				{#if destinationName}
-					<span class="capture-destination">{m.companion_destination_queue({ project: destinationName })}</span>
-				{/if}
+				<div class="composer-metadata-badges" role="list">
+					{#if selectedProject}
+						<span class="chat-badge chat-badge--project metadata-badge" style:--badge-h={selectedProject.hue} role="listitem">
+							<span class="chat-badge-dot"></span>
+							<span class="chat-badge-name">{m.companion_destination_queue({ project: selectedProject.label || selectedProject.name })}</span>
+							<button
+								type="button"
+								class="metadata-badge-remove"
+								aria-label={m.companion_card_close_title()}
+								onclick={(e) => { e.stopPropagation(); onRemoveProject?.(); }}
+							>
+								<IconClose />
+							</button>
+						</span>
+					{:else if destinationName}
+						<span class="capture-destination">{m.companion_destination_queue({ project: destinationName })}</span>
+					{/if}
+
+					{#each selectedDirectives as directive (directive.id)}
+						<span class="chat-badge chat-badge--cmd metadata-badge" role="listitem">
+							<span class="chat-badge-name">{directive.tag ?? `/${directive.name}`}</span>
+							<button
+								type="button"
+								class="metadata-badge-remove"
+								aria-label={m.companion_card_close_title()}
+								onclick={(e) => { e.stopPropagation(); onRemoveDirective?.(directive.id); }}
+							>
+								<IconClose />
+							</button>
+						</span>
+					{/each}
+
+					{#if selectedRole}
+						<span class="chat-badge chat-badge--role metadata-badge" style:--badge-h={selectedRole.hue} role="listitem">
+							{#if selectedRole.hue !== undefined}
+								<span class="chat-badge-dot" class:is-default={selectedRole.value === 'default'}></span>
+							{/if}
+							<span class="chat-badge-name">!{selectedRole.label}</span>
+							<button
+								type="button"
+								class="metadata-badge-remove"
+								aria-label={m.companion_card_close_title()}
+								onclick={(e) => { e.stopPropagation(); onRemoveRole?.(); }}
+							>
+								<IconClose />
+							</button>
+						</span>
+					{/if}
+				</div>
 				<Tooltip text={m.ui_companionview_salva_il_task_invio_maiusc_invio_va_7235()} placement="top">
 					<button
 						type="button"
@@ -383,3 +514,53 @@
 		{/each}
 	</div>
 </section>
+
+<style>
+	.composer-metadata-badges {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: var(--space-1);
+		margin-left: auto;
+		margin-right: 8px;
+	}
+
+	.metadata-badge {
+		position: relative;
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		padding: 2px 6px;
+		border-radius: var(--radius-sm);
+		font-size: var(--text-caption);
+		line-height: 1.4;
+		max-width: 220px;
+	}
+
+	.metadata-badge-remove {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 14px;
+		height: 14px;
+		padding: 0;
+		margin-left: 2px;
+		border: none;
+		background: transparent;
+		color: inherit;
+		opacity: 0.6;
+		cursor: pointer;
+		border-radius: var(--radius-full);
+		transition: opacity var(--transition-fast), background-color var(--transition-fast);
+	}
+
+	.metadata-badge-remove:hover {
+		opacity: 1;
+		background: color-mix(in oklch, currentColor 15%, transparent);
+	}
+
+	.metadata-badge-remove :global(svg) {
+		width: 10px;
+		height: 10px;
+	}
+</style>

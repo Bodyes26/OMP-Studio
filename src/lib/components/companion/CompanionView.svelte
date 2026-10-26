@@ -16,7 +16,7 @@
 	import { rankFrequentTaskModels } from '#lib/stores/taskSerialization.ts';
 	import { taskLabel } from '#lib/stores/taskTitle.ts';
 	import { isImageFile, prepareImage } from '#lib/agent/images.ts';
-	import type { ImageContent } from '#lib/agent/wire.ts';
+	import type { AvailableCommand, ImageContent } from '#lib/agent/wire.ts';
 	import type { ComposerSegment } from '#lib/agent/composerDoc.ts';
 	import type ComposerEditor from '#lib/agent/components/ComposerEditor.svelte';
 	import { ROLE_HUES } from '#lib/agent/roleHues.ts';
@@ -24,8 +24,16 @@
 	import { parseQuickTaskLocal, type LocalQuickTask } from '#lib/companion/quickTaskLocal.ts';
 	import { directiveDisplayName } from '#lib/stores/taskDirectives.ts';
 	import CompanionShell from './CompanionShell.svelte';
-	import CompanionComposer, { type CompanionSuggestSources } from './CompanionComposer.svelte';
+	import CompanionComposer, {
+		type CompanionSuggestSources,
+		type SelectedProjectMeta,
+		type SelectedDirectiveMeta,
+		type SelectedRoleMeta
+	} from './CompanionComposer.svelte';
 	import CompanionCenterReader from './CompanionCenterReader.svelte';
+	import { sessionRegistry } from '#lib/agent/sessionRegistry.ts';
+	import { STUDIO_SLASH_COMMANDS, mergeCommands } from '#lib/agent/commands.ts';
+	import { sessionCompletions } from '#lib/agent/completion.svelte.ts';
 	import CompanionRightRail, { type RailProjectItem } from './CompanionRightRail.svelte';
 	import type { CompanionAskHandlers } from './companionAsk';
 	import { promptBus } from '#lib/agent/promptBus.ts';
@@ -70,7 +78,35 @@
 	let bodyEl = $state<HTMLElement | null>(null);
 	let contentEl = $state<HTMLElement | null>(null);
 	let autoHideTimer: ReturnType<typeof setTimeout> | null = null;
+	let selectedProjectMeta = $state<SelectedProjectMeta | null>(null);
+	let selectedDirectives = $state<SelectedDirectiveMeta[]>([]);
+	let selectedRole = $state<SelectedRoleMeta | null>(null);
 
+	function handleSelectProjectMeta(proj: SelectedProjectMeta) {
+		selectedProjectMeta = proj;
+	}
+
+	function handleRemoveProjectMeta() {
+		selectedProjectMeta = null;
+	}
+
+	function handleAddDirective(dir: SelectedDirectiveMeta) {
+		if (!selectedDirectives.some((d) => d.id === dir.id)) {
+			selectedDirectives = [...selectedDirectives, dir];
+		}
+	}
+
+	function handleRemoveDirective(id: string) {
+		selectedDirectives = selectedDirectives.filter((d) => d.id !== id);
+	}
+
+	function handleSelectRole(role: SelectedRoleMeta) {
+		selectedRole = role;
+	}
+
+	function handleRemoveRole() {
+		selectedRole = null;
+	}
 	const presentation = $state<CompanionPresentationState>(createInitialPresentationState());
 	const conversationLoads = new Map<string, number>();
 	const laneTitles = $state<Record<string, string>>({});
@@ -141,11 +177,34 @@
 		modelSelectors: modelSettingsStore.assignableCatalog.map((model) => model.selector)
 	});
 
+	const allAvailableCommands = $derived.by(() => {
+		const commandsMap = new Map<string, AvailableCommand>();
+		for (const runtime of companionStore.projectRuntimes) {
+			if (runtime.availableCommands) {
+				for (const cmd of runtime.availableCommands) {
+					commandsMap.set(cmd.name, cmd);
+				}
+			}
+		}
+		if (currentConvState?.snapshot?.availableCommands) {
+			for (const cmd of currentConvState.snapshot.availableCommands) {
+				commandsMap.set(cmd.name, cmd);
+			}
+		}
+		return mergeCommands(STUDIO_SLASH_COMMANDS, Array.from(commandsMap.values()));
+	});
+
 	const suggestSources = $derived<CompanionSuggestSources>({
 		projects: knownProjects
 			.filter((p) => p.canonicalProjectPath)
-			.map((p) => ({ name: p.name, label: p.label?.trim() || p.name, hue: projectHues.get(p.id) ?? p.hue })),
+			.map((p) => ({
+				name: p.name,
+				label: p.label?.trim() || p.name,
+				hue: projectHues.get(p.id) ?? p.hue,
+				path: p.canonicalProjectPath ?? undefined
+			})),
 		directives: knownDirectives.map((d) => ({
+			id: d.id,
 			value: (d.tag ?? directiveDisplayName(d)).replace(/^\//, ''),
 			label: directiveDisplayName(d),
 			hint: d.tag
@@ -164,7 +223,8 @@
 					? m.companion_model_uses_one({ provider: model.provider })
 					: m.companion_model_uses_other({ provider: model.provider, count }),
 			search: `${model.selector} ${model.name} ${model.provider}`.toLowerCase()
-		}))
+		})),
+		commands: allAvailableCommands
 	});
 
 	const local = $derived<LocalQuickTask>(parseQuickTaskLocal(taskInput, parseInput));
@@ -187,7 +247,7 @@
 		if (!taskInput.trim() && attachedImages.length === 0) return [];
 		const ambiguities = aiParsed?.ambiguities ?? [];
 		if (ambiguities.length > 0) return ambiguities;
-		const projectPath = aiParsed ? aiParsed.projectPath : local.projectPath;
+		const projectPath = selectedProjectMeta?.path ?? (aiParsed ? aiParsed.projectPath : local.projectPath);
 		return projectPath ? [] : [m.companion_missing_project_hint()];
 	});
 
@@ -309,8 +369,12 @@
 		return p ? p.label?.trim() || p.name : prevId;
 	});
 
+	const effectiveProjectPath = $derived(
+		selectedProjectMeta?.path ?? local.projectPath ?? null
+	);
+
 	const topDestinationName = $derived.by<string | null>(() => {
-		return local.projectName || aiParsed?.projectName || null;
+		return selectedProjectMeta?.label || selectedProjectMeta?.name || local.projectName || aiParsed?.projectName || null;
 	});
 
 	const attentionProjectIds = $derived(
@@ -331,7 +395,8 @@
 				runtime?.latestAssistant?.laneId ?? p.lane.laneId,
 				p.lane.agentState,
 				hasAtt,
-				runtime?.latestAssistant
+				runtime?.latestAssistant,
+				(sessionId, messageId) => sessionCompletions.get(sessionId)?.id === messageId && sessionCompletions.get(sessionId)?.seen === true
 			);
 			if (unread) {
 				set.add(p.id.toLowerCase());
@@ -605,7 +670,6 @@
 	}
 
 	function handleInput() {
-		cancelAutoHide();
 		taskInput = editor?.getWireText() ?? '';
 		aiParsed = null;
 		companionStore.parseError = null;
@@ -650,10 +714,17 @@
 	}
 
 	async function handleSaveTask() {
-		cancelAutoHide();
 		const text = taskInput.trim();
 		if ((!text && attachedImages.length === 0) || isBusy) return;
-		if (!text && local.needsAi) {
+
+		const targetProjectPath = selectedProjectMeta?.path ?? local.projectPath;
+		const targetProjectName = selectedProjectMeta?.name ?? local.projectName;
+		const targetRole = selectedRole?.kind === 'role' ? selectedRole.value : local.role;
+		const targetModelSelector = selectedRole?.kind === 'model' ? selectedRole.value : local.modelSelector;
+		const confirmedDirectiveIds = selectedDirectives.map((d) => d.id);
+		const targetDirectiveIds = [...new Set([...confirmedDirectiveIds, ...local.directiveIds])];
+
+		if (!text && !targetProjectPath) {
 			companionStore.parseError = m.ui_companionview_indica_il_progetto_con_prima_di_salvare_4185();
 			return;
 		}
@@ -662,14 +733,14 @@
 		try {
 			let toSave: QuickTaskAiParsed | null = null;
 
-			if (!local.needsAi && local.projectPath) {
+			if (targetProjectPath) {
 				toSave = {
-					projectPath: local.projectPath,
-					projectName: local.projectName,
-					taskPrompt: local.taskPrompt,
-					role: local.role,
-					modelSelector: local.modelSelector,
-					directiveIds: local.directiveIds,
+					projectPath: targetProjectPath,
+					projectName: targetProjectName,
+					taskPrompt: local.taskPrompt || text,
+					role: targetRole,
+					modelSelector: targetModelSelector,
+					directiveIds: targetDirectiveIds,
 					ambiguities: []
 				};
 			} else {
@@ -681,9 +752,9 @@
 				aiParsed = res;
 				toSave = {
 					...res,
-					role: local.role ?? res.role,
-					modelSelector: local.modelSelector ?? res.modelSelector,
-					directiveIds: [...new Set([...res.directiveIds, ...local.directiveIds])]
+					role: targetRole ?? res.role,
+					modelSelector: targetModelSelector ?? res.modelSelector,
+					directiveIds: [...new Set([...res.directiveIds, ...targetDirectiveIds])]
 				};
 			}
 
@@ -698,22 +769,19 @@
 				taskInput = '';
 				attachedImages = [];
 				aiParsed = null;
+				selectedProjectMeta = null;
+				selectedDirectives = [];
+				selectedRole = null;
 				cancelAutoHide();
 
-				if (!companionStore.isPinned) {
-					autoHideTimer = setTimeout(() => {
-						autoHideTimer = null;
-						successNotice = null;
-						if (!companionStore.isPinned && taskInput.trim().length === 0) {
-							void companionStore.hideCompanion();
-						}
-					}, 1200);
-				} else {
-					autoHideTimer = setTimeout(() => {
-						autoHideTimer = null;
-						successNotice = null;
-					}, 2400);
-				}
+				// Conferma temporanea per 5 secondi completi, con timer indipendente
+				autoHideTimer = setTimeout(() => {
+					autoHideTimer = null;
+					successNotice = null;
+					if (!companionStore.isPinned && taskInput.trim().length === 0) {
+						void companionStore.hideCompanion();
+					}
+				}, 5000);
 			}
 		} finally {
 			isSaving = false;
@@ -959,22 +1027,13 @@
 	}
 
 	function prefillProject(project: Project) {
-		if (!editor) return;
-		const segments = editor.getSegments();
-		const rest = segments[0]?.t === 'project' ? segments.slice(1) : segments;
-		const badge: ComposerSegment = {
-			t: 'project',
+		selectedProjectMeta = {
 			name: project.name,
 			label: project.label?.trim() || project.name,
-			hue: projectHues.get(project.id) ?? project.hue
+			hue: projectHues.get(project.id) ?? project.hue,
+			path: project.canonicalProjectPath ?? undefined
 		};
-		const head = rest[0];
-		editor.setSegments(
-			head?.t === 'text'
-				? [badge, { t: 'text', s: ` ${head.s.trimStart()}` }, ...rest.slice(1)]
-				: [badge, ...rest]
-		);
-		editor.focusEnd();
+		editor?.focusEnd();
 		handleInput();
 	}
 
@@ -1035,8 +1094,11 @@
 				bind:editor
 				{attachedImages}
 				sources={suggestSources}
-				fileProjectPath={local.projectPath}
+				fileProjectPath={effectiveProjectPath}
 				destinationName={topDestinationName}
+				selectedProject={selectedProjectMeta}
+				{selectedDirectives}
+				{selectedRole}
 				{canSave}
 				{statusText}
 				{successNotice}
@@ -1047,6 +1109,12 @@
 				onFilesAdd={(files) => void handleProcessFiles(files)}
 				onRemoveImage={(index) => (attachedImages = attachedImages.filter((_, i) => i !== index))}
 				onOpenFileDialog={triggerFileInput}
+				onSelectProject={handleSelectProjectMeta}
+				onRemoveProject={handleRemoveProjectMeta}
+				onAddDirective={handleAddDirective}
+				onRemoveDirective={handleRemoveDirective}
+				onSelectRole={handleSelectRole}
+				onRemoveRole={handleRemoveRole}
 			/>
 
 			{#if knownProjects.length > 0}

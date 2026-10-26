@@ -69,6 +69,7 @@
 		}
 		if (variant === 'no-tasks') {
 			return [
+				{ key: 'Ctrl+Alt+K', label: m.agent_panel_new_task_btn() },
 				{ key: 'Alt+E', label: m.empty_state_shortcut_composer() }
 			];
 		}

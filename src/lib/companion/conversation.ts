@@ -1,3 +1,5 @@
+import type { AvailableCommand } from '#lib/agent/wire.ts';
+import type { TranscriptEntry } from '#lib/agent/session.svelte.ts';
 // Il testo completo viaggia su richiesta: il monitor riceve soltanto il riferimento.
 // L'identita' della sessione resta legata alla risposta letta, non alla selezione di Studio.
 export interface CompanionConversationTarget {
@@ -26,6 +28,8 @@ export interface CompanionConversationSnapshot {
 	message: CompanionAssistantMessage | null;
 	canSend: boolean;
 	sendBlockReason?: string;
+	availableCommands?: AvailableCommand[];
+	entries?: TranscriptEntry[];
 }
 
 export type CompanionConversationFailureCode =

@@ -79,9 +79,3 @@ export function taskLabel(task: Pick<StudioTask, 'prompt' | 'title' | 'titleHash
 	return task.prompt.split(/\r?\n/).find((line) => line.trim())?.trim() || null;
 }
 
-/** Ruoli con un badge in coda; gli altri valori non si mostrano. */
-const ROLE_BADGES: Record<string, true> = { smol: true, slow: true, plan: true, custom: true, default: true };
-
-export function roleBadge(role?: string): string | null {
-	return role && ROLE_BADGES[role] === true ? role : null;
-}

@@ -12,6 +12,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 ## [Unreleased]
 
 ### Fixed
+- In Companion, i suggerimenti delle skill sono disponibili anche nelle risposte e tutta la superficie libera del composer mette a fuoco il campo; la conferma di accodamento scompare dopo cinque secondi senza interferire con gli accodamenti successivi.
 - Ricorda le dimensioni dei pannelli separatamente per progetto e branch Git e per ogni prototipo Lab, anche dopo il riavvio; le finestre più piccole non cancellano le proporzioni preferite.
 - Ripristina la pubblicazione Nightly aggiornando le dipendenze frontend vulnerabili e migrando Studio e i componenti condivisi a SvelteKit 3.
 - OpenAI e OpenAI Codex usano il classico logo ChatGPT, senza riquadro o gradiente Codex.
@@ -20,6 +21,8 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Impostazioni → Controllo remoto ridisegnato a card con stato, azioni di copia/apertura e zona pericolosa.
 
 ### Added
+- Apri «Nuovo task» da qualsiasi pannello con Ctrl+Alt+K, indicato anche sui pulsanti di creazione.
+- In Companion, «OK» segna come letta la risposta visualizzata e chiude la scheda senza inviare messaggi; una nuova risposta torna da leggere e le domande in attesa restano da rispondere.
 - Regola i divisori dei pannelli anche da tastiera: frecce per spostamenti di 10 px, Maiusc per 40 px, Home/End per i limiti e Invio per ripristinare la dimensione predefinita.
 - I provider Cursor, OpenCode Go e Zen, Tavily, Devin, Z.ai, llama.cpp, LM Studio, Command Code, TokenRouter e xKiro mostrano i propri loghi; le icone sono disponibili anche offline e leggibili nei temi chiaro e scuro.
 - Riconosci i provider dai loro loghi nelle quote, nelle impostazioni Modelli AI, nei selettori del composer e dei task e nelle informazioni sui modelli di Studio, Companion e Studio Remote: Claude per Anthropic, ChatGPT per OpenAI e Antigravity per il relativo provider, con un simbolo neutro per gli endpoint personalizzati.
@@ -32,6 +35,11 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Dalla Companion invia un seguito o un comando direttamente nella conversazione letta, senza trasformarlo in un nuovo task.
 
 ### Changed
+- Il composer di coda Companion separa progetto, direttive e ruolo in badge rimovibili fuori dal messaggio: Invio va a capo, Ctrl+Invio accoda e le finestre alte almeno 700 px partono da due righe.
+- La coda Companion raggruppa i task sotto progetti richiudibili, con una linea dal pallino del progetto, titoli in grassetto, stato animato durante la generazione e testo espandibile prima dell'avvio.
+- Le card Companion eliminano etichette e pulsanti «+» ridondanti; «Rispondi» fluttua sopra il testo finché il composer non è visibile e le domande mostrano l'ultimo messaggio completo con gli stessi renderer della GUI e lo storico completo espandibile.
+- I task in coda spostano modifica e programmazione sotto la maniglia, estendono il contenuto e dividono le azioni di avvio a metà larghezza; i badge distinguono il nome del modello assegnato dal modello della sessione, senza cambiare l'esecuzione.
+- La scheda «Nuovo task» mantiene il titolo fino alla generazione, riunisce programmazione e avvio nel menu Salva, rende leggibile Salva, anima la conferma di eliminazione e allinea modello e thinking; Prewalk e contesto editor diventano capsule attivabili su tutta la superficie.
 - Prima di passare tra Terminale e GUI con un processo attivo, conferma l'interruzione del lavoro e la possibile perdita dello stato in memoria; Annulla lascia invariata la sessione.
 - Quando l'agente è al lavoro, nelle schede delle corsie l'icona diventa un anello che gira e nella tessera del progetto il punto diventa un anello nella tinta del progetto. L'ambra che respira resta solo per «serve una risposta».
 - L'avviso «dal terzo agente contemporaneo» compare solo quando avvii un task dalla coda: creare o aprire una corsia dal «+» non lo mostra più.

@@ -20,11 +20,19 @@
 		type TaskDirectiveSnapshot
 	} from '#lib/stores/taskDirectives.ts';
 	import { rankFrequentTaskModelConfigurations } from '#lib/stores/taskSerialization.ts';
-	import { taskLabel } from '#lib/stores/taskTitle.ts';
-	import { requestTaskTitle } from '#lib/stores/taskTitles.ts';
+	import { freshGeneratedTitle } from '#lib/stores/taskTitle.ts';
+	import { requestTaskTitle } from '#lib/stores/taskTitles.svelte.ts';
 	import { modelSettingsStore, STANDARD_ROLES } from '#lib/stores/modelSettings.svelte.ts';
 	import { supportedThinkingLevels, THINKING_LEVEL_ITEMS } from '#lib/stores/modelSettingsHelpers.ts';
 	import { quotaStore, providersMatch, type ProviderHost } from '#lib/stores/quota.svelte.ts';
+	import { scheduleStore } from '#lib/stores/schedule.svelte.ts';
+	import {
+		buildAtSchedule,
+		isOtherDay,
+		nextOccurrence,
+		parseClockTime,
+		schedulePresets
+	} from '#lib/quota/scheduleTarget.ts';
 	import type { AgentSession } from '#lib/agent/session.svelte.ts';
 	import type { AvailableCommand, ImageContent } from '#lib/agent/wire.ts';
 	import { prepareImage, isImageFile } from '#lib/agent/images.ts';
@@ -57,7 +65,6 @@
 	import Tooltip from '#lib/ui/Tooltip.svelte';
 	import StatusMark from '#lib/ui/StatusMark.svelte';
 	import { roleConfigFromSelector } from './taskRoleConfig';
-	import ScheduleMenu from './schedule/ScheduleMenu.svelte';
 	import ScheduleChip from './schedule/ScheduleChip.svelte';
 	import {
 		IconAttach,
@@ -67,6 +74,7 @@
 		IconClose,
 		IconGitBranch,
 		IconPlay,
+		IconSchedule,
 		IconTrash
 	} from '#lib/icons.ts';
 
@@ -87,8 +95,8 @@
 		onOpenImage?: (data: string, mimeType: string) => void;
 	} = $props();
 
-	type RoleChoice = 'smol' | 'default' | 'slow' | 'plan' | 'custom';
-	const ROLE_CHOICES: RoleChoice[] = ['smol', 'default', 'slow', 'plan', 'custom'];
+	type RoleChoice = 'default' | 'smol' | 'plan' | 'slow' | 'custom';
+	const ROLE_CHOICES: RoleChoice[] = ['default', 'smol', 'plan', 'slow', 'custom'];
 	const DEFAULT_OPTIONS: StudioTaskOptions = { role: 'default', thinkingLevel: 'auto', includeEditorContext: true };
 
 	let prompt = $state('');
@@ -120,17 +128,13 @@
 	const allCommands = $derived(mergeCommands(STUDIO_SLASH_COMMANDS, session?.availableCommands ?? []));
 	const isSkill = (name: string) => isSkillName(allCommands, name);
 	const title = $derived(
-		taskLabel({ prompt, title: task.title, titleHash: task.titleHash }) || m.agent_panel_new_task_btn()
+		freshGeneratedTitle({ prompt, title: task.title, titleHash: task.titleHash }) || m.agent_panel_new_task_btn()
 	);
 	const hasContent = $derived(prompt.trim().length > 0 || attachedImages.length > 0);
 	const activeRole = $derived<RoleChoice>(
 		ROLE_CHOICES.includes(options.role as RoleChoice) ? (options.role as RoleChoice) : 'custom'
 	);
-	const roleOptions = $derived(ROLE_CHOICES.map((id) => ({ value: id, label: id })));
-	const roleDescription = $derived.by(() => {
-		if (activeRole === 'custom') return m.task_editor_role_custom_desc();
-		return STANDARD_ROLES.find((role) => role.id === activeRole)?.desc ?? '';
-	});
+	const roleOptions = $derived(ROLE_CHOICES.map((id) => ({ value: id, label: id === 'default' ? 'Default' : id })));
 	const attachments = $derived<ComposerAttachment[]>(
 		attachedImages.map((img, index) => ({
 			id: index,
@@ -507,13 +511,77 @@
 		saveTask();
 	}
 
+	let customOpen = $state(false);
+	let customValue = $state('');
+	let customError = $state(false);
+
+	const resetDetail = $derived(activeMenu === 'run' ? scheduleStore.resetMenuDetail(task) : null);
+	const presets = $derived(activeMenu === 'run' ? schedulePresets(scheduleStore.now) : []);
+
+	function presetLabel(at: number): string {
+		const time = scheduleStore.formatWhen(at, at);
+		return m.schedule_menu_at({ time });
+	}
+
+	function presetDay(at: number): string {
+		return isOtherDay(at, scheduleStore.now) ? m.schedule_menu_tomorrow() : m.schedule_menu_today();
+	}
+
+	function chooseReset() {
+		const schedule = scheduleStore.buildReset(task, 'user');
+		if (!schedule) return;
+		taskStore.setSchedule(task.id, schedule);
+		activeMenu = null;
+		customOpen = false;
+	}
+
+	function chooseAt(at: number) {
+		taskStore.setSchedule(task.id, buildAtSchedule(at, Date.now()));
+		activeMenu = null;
+		customOpen = false;
+	}
+
+	function openCustom() {
+		customOpen = true;
+		customError = false;
+		const base = task.schedule?.kind === 'at' && task.schedule.notBefore ? task.schedule.notBefore : Date.now() + 3_600_000;
+		const date = new Date(base);
+		customValue = `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+	}
+
+	function confirmCustom(event: SubmitEvent) {
+		event.preventDefault();
+		const parsed = parseClockTime(customValue);
+		if (!parsed) {
+			customError = true;
+			return;
+		}
+		chooseAt(nextOccurrence(parsed.hours, parsed.minutes, Date.now()));
+	}
+
+	function removeSchedule() {
+		taskStore.setSchedule(task.id, undefined);
+		activeMenu = null;
+		customOpen = false;
+	}
+
+	function togglePrewalk() {
+		options.prewalk = options.prewalk ? undefined : true;
+		saveTask();
+	}
+
+	function toggleIncludeEditorContext() {
+		setIncludeEditorContext(options.includeEditorContext === false);
+	}
+
 	function closeEditor() {
 		saveTask();
 		if (!hasContent) taskStore.deleteTask(task.id);
 		presentedTaskId = null;
+		activeMenu = null;
+		customOpen = false;
 		onClose();
 	}
-
 	function runTask(newLane: boolean) {
 		activeMenu = null;
 		saveTask();
@@ -558,24 +626,21 @@
 	<!-- Testata: prende il posto di quella della colonna -->
 	<header class="task-header">
 		<h2 class="task-title">{title}</h2>
-		<span class="save-state">{m.task_editor_state_saved()}</span>
 		<div class="header-actions">
-			{#if deleteArmed}
-				<button type="button" class="ui-button ui-button-danger" onclick={requestDelete}>
-					{m.ui_taskeditor_conferma_eliminazione_task_43a9()}
-				</button>
-			{:else}
-				<Tooltip text={m.ui_taskeditor_elimina_questo_task_867e()} placement="bottom">
-					<button
-						type="button"
-						class="header-icon-btn"
-						aria-label={m.ui_taskeditor_elimina_task_f0ee()}
-						onclick={requestDelete}
-					>
-						<IconTrash />
-					</button>
-				</Tooltip>
-			{/if}
+			<button
+				type="button"
+				class="delete-btn"
+				class:armed={deleteArmed}
+				aria-label={deleteArmed ? m.ui_taskeditor_conferma_eliminazione_task_43a9() : m.ui_taskeditor_elimina_task_f0ee()}
+				title={deleteArmed ? undefined : m.ui_taskeditor_elimina_questo_task_867e()}
+				onclick={requestDelete}
+			>
+				<span class="delete-icon"><IconTrash /></span>
+				<span class="delete-confirm-text">{m.ui_taskeditor_conferma_eliminazione_task_43a9()}</span>
+				{#if deleteArmed}
+					<span class="delete-progress" aria-hidden="true"></span>
+				{/if}
+			</button>
 			<button
 				type="button"
 				class="header-icon-btn"
@@ -675,38 +740,41 @@
 							</button>
 						</Tooltip>
 						<!-- Orologio: parte da solo al reset della quota o non prima di un orario. -->
-						{#if task.status === 'queued'}
-							<ScheduleMenu {task} align="left" size="toolbar" />
-							{#if task.schedule}<span class="schedule-chip-slot"><ScheduleChip {task} /></span>{/if}
+						{#if task.schedule}
+							<span class="schedule-chip-slot"><ScheduleChip {task} /></span>
 						{/if}
 
-						<!-- Salva e' l'azione principale; avviare e' una scelta esplicita nel menu -->
+						<!-- Salva e' l'azione principale; avviare e programmare sono nel menu -->
 						<div class="save-split">
 							<button
 								type="button"
-								class="ui-button ui-button-primary save-main"
+								class="ui-button save-main"
 								onclick={closeEditor}
 								aria-label={m.task_editor_save_close_aria()}
 							>
 								{m.task_editor_save_close_btn()}
 								<kbd>Ctrl+↵</kbd>
 							</button>
-							{#if onRunTask}
-								<MenuButton
-									open={activeMenu === 'run'}
-									title={m.task_editor_run_menu_title()}
-									hasPopup="menu"
-									align="right"
-									width="260px"
-									className="save-split-trigger"
-									onToggle={() => (activeMenu = activeMenu === 'run' ? null : 'run')}
-									onClose={() => (activeMenu = null)}
-								>
-									{#snippet trigger()}
-										<span class="split-chevron"><IconChevronUp /></span>
-									{/snippet}
-									{#snippet children()}
-										<div class="run-menu">
+							<MenuButton
+								open={activeMenu === 'run'}
+								title={m.task_editor_run_menu_title()}
+								hasPopup="menu"
+								align="right"
+								width="280px"
+								className="save-split-trigger"
+								onToggle={() => (activeMenu = activeMenu === 'run' ? null : 'run')}
+								onClose={() => {
+									activeMenu = null;
+									customOpen = false;
+									customError = false;
+								}}
+							>
+								{#snippet trigger()}
+									<span class="split-chevron"><IconChevronUp /></span>
+								{/snippet}
+								{#snippet children()}
+									<div class="run-menu">
+										{#if onRunTask}
 											<button
 												type="button"
 												role="menuitem"
@@ -715,10 +783,7 @@
 												onclick={() => runTask(false)}
 											>
 												<span class="run-icon"><IconPlay /></span>
-												<span class="run-text">
-													<span class="run-title">{m.task_editor_run_now_btn()}</span>
-													<span class="run-sub">{m.task_editor_run_now_desc()}</span>
-												</span>
+												<span class="run-title">{m.task_editor_run_now_btn()}</span>
 											</button>
 											<button
 												type="button"
@@ -728,15 +793,84 @@
 												onclick={() => runTask(true)}
 											>
 												<span class="run-icon"><IconGitBranch /></span>
-												<span class="run-text">
-													<span class="run-title">{m.task_editor_run_new_lane_btn()}</span>
-													<span class="run-sub">{m.task_editor_run_new_lane_desc()}</span>
-												</span>
+												<span class="run-title">{m.task_editor_run_new_lane_btn()}</span>
 											</button>
-										</div>
-									{/snippet}
-								</MenuButton>
-							{/if}
+										{/if}
+
+										{#if task.status === 'queued'}
+											{#if onRunTask}
+												<div class="separator" role="separator"></div>
+											{/if}
+											<div class="group-title">{m.schedule_menu_title()}</div>
+											<button
+												type="button"
+												role="menuitem"
+												class="run-option"
+												disabled={!resetDetail?.available}
+												onclick={chooseReset}
+											>
+												<span class="run-icon"><IconSchedule /></span>
+												<span class="run-title">{m.schedule_menu_reset()}</span>
+												{#if resetDetail?.detail}
+													<span class="option-detail">{resetDetail.detail}</span>
+												{/if}
+											</button>
+											{#each presets as at (at)}
+												<button
+													type="button"
+													role="menuitem"
+													class="run-option"
+													onclick={() => chooseAt(at)}
+												>
+													<span class="run-icon"><IconSchedule /></span>
+													<span class="run-title">{presetLabel(at)}</span>
+													<span class="option-detail">{presetDay(at)}</span>
+												</button>
+											{/each}
+											{#if customOpen}
+												<form class="custom" onsubmit={confirmCustom}>
+													<label class="custom-label">
+														<span>{m.schedule_menu_custom_label()}</span>
+														<!-- svelte-ignore a11y_autofocus -->
+														<input
+															type="time"
+															class="custom-input"
+															bind:value={customValue}
+															aria-invalid={customError}
+															autofocus
+														/>
+													</label>
+													<button type="submit" class="ui-button ui-button-primary custom-ok">
+														{m.schedule_menu_custom_confirm()}
+													</button>
+												</form>
+											{:else}
+												<button
+													type="button"
+													role="menuitem"
+													class="run-option"
+													onclick={openCustom}
+												>
+													<span class="run-icon"><IconSchedule /></span>
+													<span class="run-title">{m.schedule_menu_custom()}</span>
+												</button>
+											{/if}
+											{#if task.schedule}
+												<div class="separator" role="separator"></div>
+												<button
+													type="button"
+													role="menuitem"
+													class="run-option option-remove"
+													onclick={removeSchedule}
+												>
+													<span class="run-icon"><IconClose /></span>
+													<span class="run-title">{m.schedule_menu_remove()}</span>
+												</button>
+											{/if}
+										{/if}
+									</div>
+								{/snippet}
+							</MenuButton>
 						</div>
 					</div>
 
@@ -762,9 +896,7 @@
 			</div>
 
 			<!-- Esecuzione: con che cosa gira il task, tutto visibile senza menu -->
-			<section class="task-section" aria-labelledby="task-run-heading">
-				<h3 id="task-run-heading" class="section-title">{m.task_editor_run_heading()}</h3>
-
+			<section class="task-section" aria-label={m.task_editor_run_heading()}>
 				<div class="field">
 					<span class="field-label" id="task-role-label">{m.task_editor_role_label()}</span>
 					<Segmented
@@ -774,7 +906,6 @@
 						fill
 						onChange={selectRole}
 					/>
-					<p class="field-help">{roleDescription}</p>
 				</div>
 
 				<div class="run-grid">
@@ -804,36 +935,6 @@
 								{/if}
 							</p>
 						{/if}
-						{#if frequentModelConfigurations.length > 0}
-							<div class="frequent" role="group" aria-labelledby="task-frequent-label">
-								<span class="frequent-label" id="task-frequent-label">{m.task_editor_frequent_label()}</span>
-								<div class="chip-row">
-									{#each frequentModelConfigurations as configuration (`${configuration.modelSelector}:${configuration.thinkingLevel}`)}
-										{@const active = options.modelSelector === configuration.modelSelector && (options.thinkingLevel || 'auto') === configuration.thinkingLevel}
-										<Tooltip
-											text={m.task_editor_frequent_chip_title({
-												provider: configuration.model.provider,
-												model: configuration.model.name,
-												thinking: thinkingLabel(configuration.thinkingLevel),
-												count: configuration.count
-											})}
-										>
-											<button
-												type="button"
-												class="ui-chip"
-												aria-pressed={active}
-												onclick={() => applyFrequentConfiguration(configuration.modelSelector, configuration.thinkingLevel)}
-											>
-												{#if active}<span class="chip-check"><IconCheck /></span>{/if}
-												<ProviderLogo provider={configuration.model.provider} size={12} />
-												<span class="chip-text">{configuration.model.name}</span>
-												<span class="chip-meta font-mono">{thinkingLabel(configuration.thinkingLevel)}</span>
-											</button>
-										</Tooltip>
-									{/each}
-								</div>
-							</div>
-						{/if}
 					</div>
 
 					<div class="field">
@@ -848,33 +949,62 @@
 					</div>
 				</div>
 
-				<div class="switch-row">
-					<div class="switch-text">
-						<span class="switch-title" id="task-prewalk-label">{m.task_editor_prewalk_title()}</span>
-						<span class="field-help" id="task-prewalk-desc">{m.task_editor_prewalk_desc()}</span>
+				{#if frequentModelConfigurations.length > 0}
+					<div class="frequent" role="group" aria-labelledby="task-frequent-label">
+						<span class="frequent-label" id="task-frequent-label">{m.task_editor_frequent_label()}</span>
+						<div class="chip-row">
+							{#each frequentModelConfigurations as configuration (`${configuration.modelSelector}:${configuration.thinkingLevel}`)}
+								{@const active = options.modelSelector === configuration.modelSelector && (options.thinkingLevel || 'auto') === configuration.thinkingLevel}
+								<Tooltip
+									text={m.task_editor_frequent_chip_title({
+										provider: configuration.model.provider,
+										model: configuration.model.name,
+										thinking: thinkingLabel(configuration.thinkingLevel),
+										count: configuration.count
+									})}
+								>
+									<button
+										type="button"
+										class="ui-chip"
+										aria-pressed={active}
+										onclick={() => applyFrequentConfiguration(configuration.modelSelector, configuration.thinkingLevel)}
+									>
+										{#if active}<span class="chip-check"><IconCheck /></span>{/if}
+										<ProviderLogo provider={configuration.model.provider} size={12} />
+										<span class="chip-text">{configuration.model.name}</span>
+										<span class="chip-meta font-mono">{thinkingLabel(configuration.thinkingLevel)}</span>
+									</button>
+								</Tooltip>
+							{/each}
+						</div>
 					</div>
-					<Switch
-						checked={Boolean(options.prewalk)}
-						ariaLabelledBy="task-prewalk-label"
-						ariaDescribedBy="task-prewalk-desc"
-						onChange={(checked) => {
-							options.prewalk = checked ? true : undefined;
-							saveTask();
-						}}
-					/>
-				</div>
+				{/if}
 
-				<div class="switch-row">
-					<div class="switch-text">
-						<span class="switch-title" id="task-context-label">{m.task_editor_context_editor_title()}</span>
-						<span class="field-help" id="task-context-desc">{m.task_editor_context_editor_desc()}</span>
-					</div>
-					<Switch
-						checked={options.includeEditorContext !== false}
-						ariaLabelledBy="task-context-label"
-						ariaDescribedBy="task-context-desc"
-						onChange={setIncludeEditorContext}
-					/>
+				<!-- B12: Capsule grandi per Prewalk e Contesto Editor -->
+				<div class="capsules-row">
+					<Tooltip text={m.task_editor_prewalk_desc()}>
+						<button
+							type="button"
+							class="option-capsule"
+							class:active={Boolean(options.prewalk)}
+							aria-pressed={Boolean(options.prewalk)}
+							onclick={togglePrewalk}
+						>
+							<span class="capsule-label">Prewalk</span>
+						</button>
+					</Tooltip>
+
+					<Tooltip text={m.task_editor_context_editor_desc()}>
+						<button
+							type="button"
+							class="option-capsule"
+							class:active={options.includeEditorContext !== false}
+							aria-pressed={options.includeEditorContext !== false}
+							onclick={toggleIncludeEditorContext}
+						>
+							<span class="capsule-label">{m.task_editor_context_editor_title()}</span>
+						</button>
+					</Tooltip>
 				</div>
 			</section>
 
@@ -964,17 +1094,109 @@
 		color: var(--ink);
 	}
 
-	.save-state {
-		flex-shrink: 0;
-		font-size: var(--text-meta);
-		color: var(--ink-faint);
-	}
-
 	.header-actions {
 		margin-left: auto;
 		display: flex;
 		align-items: center;
-		gap: 2px;
+		gap: 4px;
+	}
+
+	.delete-btn {
+		position: relative;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		height: 28px;
+		width: 28px;
+		max-width: 28px;
+		padding: 0;
+		border: none;
+		border-radius: var(--radius-md);
+		background: transparent;
+		color: var(--ink-muted);
+		cursor: pointer;
+		--icon-size: 14px;
+		overflow: hidden;
+		white-space: nowrap;
+		transition: max-width 240ms cubic-bezier(0.16, 1, 0.3, 1),
+			width 240ms cubic-bezier(0.16, 1, 0.3, 1),
+			padding 240ms cubic-bezier(0.16, 1, 0.3, 1),
+			background-color var(--dur-fast) var(--ease-out),
+			color var(--dur-fast) var(--ease-out);
+	}
+
+	.delete-btn:hover:not(.armed) {
+		background: color-mix(in oklab, var(--danger) 12%, transparent);
+		color: var(--danger);
+	}
+
+	.delete-btn.armed {
+		width: auto;
+		max-width: 260px;
+		padding: 0 10px 0 8px;
+		gap: 6px;
+		background: var(--danger);
+		color: var(--on-danger);
+	}
+
+	.delete-icon {
+		display: grid;
+		place-items: center;
+		width: 14px;
+		height: 14px;
+		flex-shrink: 0;
+	}
+
+	.delete-btn.armed .delete-icon {
+		color: var(--on-danger);
+	}
+
+	.delete-confirm-text {
+		display: inline-block;
+		font-family: var(--font-ui);
+		font-size: var(--text-label);
+		font-weight: 600;
+		white-space: nowrap;
+		overflow: hidden;
+		max-width: 0;
+		opacity: 0;
+		color: var(--on-danger);
+		transition: max-width 240ms cubic-bezier(0.16, 1, 0.3, 1),
+			opacity 180ms var(--ease-out);
+	}
+
+	.delete-btn.armed .delete-confirm-text {
+		max-width: 220px;
+		opacity: 1;
+	}
+
+	.delete-progress {
+		position: absolute;
+		left: 0;
+		bottom: 0;
+		height: 2px;
+		width: 100%;
+		background: color-mix(in oklch, var(--on-danger) 65%, transparent);
+		transform-origin: left;
+		animation: delete-countdown 4000ms linear forwards;
+	}
+
+	@keyframes delete-countdown {
+		from {
+			transform: scaleX(1);
+		}
+		to {
+			transform: scaleX(0);
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.delete-btn,
+		.delete-confirm-text,
+		.delete-progress {
+			transition: none !important;
+			animation: none !important;
+		}
 	}
 
 	.header-icon-btn {
@@ -1033,11 +1255,32 @@
 		align-items: center;
 		border-radius: var(--radius-md);
 		background: var(--brand);
+		box-shadow: 0 1px 2px color-mix(in oklch, var(--brand) 25%, transparent);
 	}
 
 	.save-main {
 		height: 28px;
+		padding: 0 10px;
 		gap: var(--space-2);
+		background: transparent;
+		border: 1px solid transparent;
+		color: var(--on-brand);
+		font-weight: 600;
+		font-size: var(--text-label);
+		cursor: pointer;
+		display: inline-flex;
+		align-items: center;
+		transition: background-color var(--dur-fast) var(--ease-out);
+	}
+
+	.save-main:hover:not(:disabled) {
+		background: color-mix(in oklch, var(--on-brand) 12%, transparent);
+		color: var(--on-brand);
+	}
+
+	.save-main:active:not(:disabled) {
+		background: color-mix(in oklch, var(--on-brand) 20%, transparent);
+		color: var(--on-brand);
 	}
 
 	.save-split:has(:global(.save-split-trigger)) .save-main {
@@ -1048,24 +1291,32 @@
 	.save-main kbd {
 		font-family: var(--font-mono);
 		font-size: var(--text-caption);
-		font-weight: 500;
+		font-weight: 600;
+		color: var(--on-brand);
+		background: color-mix(in oklch, var(--on-brand) 16%, transparent);
+		border: 1px solid color-mix(in oklch, var(--on-brand) 32%, transparent);
+		border-radius: var(--radius-sm);
+		padding: 1px 4px;
+		line-height: 1.2;
 	}
 
 	:global(.menu-button.save-split-trigger) {
 		height: 28px;
 		padding: 0 8px 0 6px;
-		background: var(--brand);
+		background: transparent;
 		color: var(--on-brand);
 		border: 1px solid transparent;
-		border-left-color: color-mix(in oklch, var(--on-brand) 25%, transparent);
+		border-left: 1px solid color-mix(in oklch, var(--on-brand) 25%, transparent);
 		border-radius: 0 var(--radius-md) var(--radius-md) 0;
+		transition: background-color var(--dur-fast) var(--ease-out);
 	}
 
 	:global(.menu-button.save-split-trigger:hover:not(:disabled)),
 	:global(.menu-button.save-split-trigger.active) {
-		background: var(--brand);
+		background: color-mix(in oklch, var(--on-brand) 12%, transparent);
 		color: var(--on-brand);
-		border-color: var(--on-brand);
+		border-color: transparent;
+		border-left-color: color-mix(in oklch, var(--on-brand) 25%, transparent);
 	}
 
 	.split-chevron {
@@ -1088,9 +1339,9 @@
 
 	.run-option {
 		display: flex;
-		align-items: flex-start;
+		align-items: center;
 		gap: var(--space-2);
-		padding: 7px 8px;
+		padding: 6px 8px;
 		border: none;
 		border-radius: var(--radius-md);
 		background: transparent;
@@ -1098,7 +1349,9 @@
 		text-align: left;
 		cursor: pointer;
 		font-family: var(--font-ui);
+		font-size: var(--text-body);
 		transition: background-color var(--dur-fast) var(--ease-out);
+		width: 100%;
 	}
 
 	.run-option:hover:not(:disabled) {
@@ -1112,15 +1365,11 @@
 
 	.run-icon {
 		display: inline-flex;
-		padding-top: 2px;
+		align-items: center;
+		justify-content: center;
 		color: var(--ink-muted);
 		--icon-size: 14px;
-	}
-
-	.run-text {
-		display: flex;
-		flex-direction: column;
-		gap: 1px;
+		flex-shrink: 0;
 	}
 
 	.run-title {
@@ -1128,9 +1377,72 @@
 		font-weight: 450;
 	}
 
-	.run-sub {
+	.group-title {
+		padding: 4px 8px 2px;
+		font-size: var(--text-xs);
+		color: var(--ink-faint);
+		font-weight: 500;
+	}
+
+	.separator {
+		height: 1px;
+		margin: 3px 4px;
+		background: var(--line);
+	}
+
+	.option-detail {
+		margin-left: auto;
+		font-family: var(--font-mono);
 		font-size: var(--text-caption);
 		color: var(--ink-faint);
+		font-variant-numeric: tabular-nums;
+	}
+
+	.custom {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		padding: 4px 8px;
+	}
+
+	.custom-label {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		flex: 1;
+		font-size: var(--text-xs);
+		color: var(--ink-muted);
+	}
+
+	.custom-input {
+		height: 26px;
+		padding: 0 6px;
+		border: 1px solid var(--line-strong);
+		border-radius: var(--radius-md);
+		background: var(--bg-base);
+		color: var(--ink);
+		font: inherit;
+		font-size: var(--text-xs);
+		font-variant-numeric: tabular-nums;
+	}
+
+	.custom-input[aria-invalid='true'] {
+		border-color: var(--danger);
+	}
+
+	.custom-ok {
+		height: 26px;
+		align-self: flex-end;
+		font-size: var(--text-xs);
+	}
+
+	.option-remove:hover:not(:disabled) {
+		background: color-mix(in oklab, var(--danger) 10%, transparent);
+		color: var(--danger);
+	}
+
+	.option-remove .run-icon {
+		color: var(--danger);
 	}
 
 	.task-section {
@@ -1175,12 +1487,6 @@
 		color: var(--ink-muted);
 	}
 
-	.field-help {
-		margin: 0;
-		font-size: var(--text-label);
-		line-height: 1.4;
-		color: var(--ink-muted);
-	}
 
 	.run-grid {
 		display: grid;
@@ -1213,6 +1519,7 @@
 		display: flex;
 		flex-direction: column;
 		gap: 6px;
+		width: 100%;
 		margin-top: 2px;
 	}
 
@@ -1251,32 +1558,79 @@
 	}
 
 	.thinking-field {
-		padding-top: 2px;
+		position: relative;
+		display: flex;
+		align-items: center;
+		height: 30px;
 		--slider-ring: var(--bg-sunken);
 	}
 
-	.switch-row {
+	.thinking-field :global(.reasoning-slider) {
+		width: 100%;
+		gap: 0;
+	}
+
+	.thinking-field :global(.level-name) {
+		position: absolute;
+		right: 0;
+		bottom: calc(100% + 6px);
+		font-size: var(--text-label);
+		line-height: inherit;
+	}
+
+	.capsules-row {
 		display: flex;
+		flex-wrap: wrap;
 		align-items: center;
-		justify-content: space-between;
-		gap: var(--space-4);
+		gap: var(--space-2);
 		padding-top: var(--space-3);
 		border-top: 1px solid var(--line);
 	}
 
-	.switch-text {
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-		min-width: 0;
+	.option-capsule {
+		flex: 0 1 auto;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		height: 30px;
+		padding: 0 14px;
+		border: 1px solid var(--line);
+		border-radius: var(--radius-full);
+		background: var(--bg-base);
+		color: var(--ink-muted);
+		cursor: pointer;
+		font-family: var(--font-ui);
+		font-size: var(--text-label);
+		font-weight: 500;
+		white-space: nowrap;
+		transition: background-color var(--dur-fast) var(--ease-out),
+			border-color var(--dur-fast) var(--ease-out),
+			color var(--dur-fast) var(--ease-out);
 	}
 
-	.switch-title {
-		font-size: var(--text-body);
-		font-weight: 450;
+	.option-capsule:hover {
+		background: var(--bg-hover);
+		border-color: var(--line-strong);
 		color: var(--ink);
 	}
 
+	.option-capsule.active {
+		background: color-mix(in oklch, var(--brand) 14%, var(--bg-base));
+		border-color: color-mix(in oklch, var(--brand) 55%, var(--line));
+		color: var(--brand-ink);
+		font-weight: 550;
+	}
+
+	.option-capsule.active:hover {
+		background: color-mix(in oklch, var(--brand) 20%, var(--bg-base));
+		border-color: color-mix(in oklch, var(--brand) 70%, var(--line));
+		color: var(--brand-ink);
+	}
+
+	.capsule-label {
+		display: inline-block;
+		white-space: nowrap;
+	}
 	.directive-notice {
 		display: flex;
 		align-items: center;
@@ -1293,9 +1647,4 @@
 		color: var(--ink-muted);
 	}
 
-	@media (max-width: 800px) {
-		.save-state {
-			display: none;
-		}
-	}
 </style>

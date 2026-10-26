@@ -152,8 +152,11 @@
 		<div id="panel-agent-queue" role="tabpanel" aria-labelledby="tab-agent-queue" class="panel-tab-body">
 			<div class="queue-toolbar">
 				<button type="button" class="new-task" onclick={onCreateTask} aria-label={m.ui_agentpanel_crea_nuovo_task_eca5()}>
-					<IconPlus />
-					{m.agent_panel_new_task_btn()}
+					<span class="new-task-main">
+						<IconPlus />
+						<span class="new-task-text">{m.agent_panel_new_task_btn()}</span>
+					</span>
+					<kbd class="new-task-kbd">Ctrl+Alt+K</kbd>
 				</button>
 				{#if !gate.ready}
 					<button
@@ -208,6 +211,7 @@
 							compact={true}
 							primaryAction={{
 								label: m.agent_panel_new_task_btn(),
+								shortcut: 'Ctrl+Alt+K',
 								onClick: onCreateTask
 							}}
 						/>
@@ -307,7 +311,7 @@
 		padding: 0 var(--space-2);
 		display: inline-flex;
 		align-items: center;
-		justify-content: center;
+		justify-content: space-between;
 		gap: var(--space-1);
 		border: 1px solid var(--line-strong);
 		border-radius: var(--radius-md);
@@ -320,8 +324,38 @@
 		cursor: pointer;
 	}
 
+	.new-task-main {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-1);
+		min-width: 0;
+	}
+
+	.new-task-text {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.new-task-kbd {
+		font-family: var(--font-mono);
+		font-size: var(--text-caption);
+		font-variant-numeric: tabular-nums;
+		color: var(--ink-faint);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+		padding: 0 4px;
+		line-height: 1.3;
+		flex-shrink: 0;
+	}
+
 	.new-task:hover {
 		background: var(--bg-hover);
+	}
+
+	.new-task:hover .new-task-kbd {
+		color: var(--ink-muted);
+		border-color: var(--line-strong);
 	}
 
 	.new-task:active {

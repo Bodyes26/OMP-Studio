@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { tick } from 'svelte';
+	import { fade } from 'svelte/transition';
 	import { m } from '#lib/paraglide/messages.js';
 	import { lexMarkdown } from '#lib/agent/markdown.ts';
+	import { trayFold } from '#lib/agent/motion.ts';
 	import StatusMark, { type StatusMarkType } from '#lib/ui/StatusMark.svelte';
 	import Tooltip from '#lib/ui/Tooltip.svelte';
 	import {
@@ -11,24 +13,24 @@
 		IconCheck,
 		IconChevronDown,
 		IconCircleAlert,
-		IconClose,
-		IconPlus
+		IconClose
 	} from '#lib/icons.ts';
 	import ComposerEditor from '#lib/agent/components/ComposerEditor.svelte';
 	import SuggestPanel, { type SuggestionItem } from '#lib/agent/components/SuggestPanel.svelte';
 	import { createCommandBadgeElement, createFileBadgeElement, type ComposerTrigger } from '#lib/agent/composerDoc.ts';
 	import { computeCaretAnchorLeft, loadProjectFiles, rankFileCandidates } from '#lib/agent/fileMention.ts';
-	import { SUGGEST_WIDTH, fileSuggestions } from '#lib/agent/suggestItems.ts';
+	import { SUGGEST_WIDTH, commandSuggestions, fileSuggestions } from '#lib/agent/suggestItems.ts';
+	import { STUDIO_SLASH_COMMANDS, mergeCommands } from '#lib/agent/commands.ts';
+	import { sessionCompletions } from '#lib/agent/completion.svelte.ts';
 	import { settingsStore } from '#lib/stores/settings.svelte.ts';
 	import { directiveDisplayName } from '#lib/stores/taskDirectives.ts';
 	import type { Project } from '#lib/stores/projects.svelte.ts';
 	import { companionStore, type AttentionRequest } from '#lib/stores/companion.svelte.ts';
 	import ProviderLogo from '#lib/components/models/ProviderLogo.svelte';
-	import type { ConversationViewState } from '#lib/companion/companionPresentation.ts';
+	import { markConversationStateRead, type ConversationViewState } from '#lib/companion/companionPresentation.ts';
 	import type { CompanionAskHandlers } from './companionAsk';
 	import CompanionAskBody from './CompanionAskBody.svelte';
 	import CompanionMarkdown from './CompanionMarkdown.svelte';
-
 	let {
 		project,
 		hue,
@@ -84,14 +86,30 @@
 		}
 		const query = trigger.query.toLowerCase();
 		if (trigger.kind === '/') {
-			suggestItems = knownDirectives
-				.filter((d) => !query || directiveDisplayName(d).toLowerCase().includes(query) || (d.tag ?? '').toLowerCase().includes(query))
+			const laneCmds =
+				convState.snapshot?.availableCommands ??
+				companionStore.projectRuntimes.find(
+					(r) => r.projectId.toLowerCase() === project.id.toLowerCase()
+				)?.availableCommands ??
+				[];
+			const allCmds = mergeCommands(STUDIO_SLASH_COMMANDS, laneCmds);
+			const cmdSuggests = commandSuggestions(allCmds, trigger.query);
+
+			const directiveSuggests: SuggestionItem[] = knownDirectives
+				.filter(
+					(d) =>
+						!query ||
+						directiveDisplayName(d).toLowerCase().includes(query) ||
+						(d.tag ?? '').toLowerCase().includes(query)
+				)
 				.map((d) => ({
 					kind: 'directive' as const,
 					value: (d.tag ?? directiveDisplayName(d)).replace(/^\//, ''),
 					label: directiveDisplayName(d),
 					hint: d.tag
 				}));
+
+			suggestItems = [...cmdSuggests, ...directiveSuggests];
 		} else if (trigger.kind === '@' && project.canonicalProjectPath) {
 			const projectPath = project.canonicalProjectPath;
 			suggestItems = [];
@@ -136,7 +154,49 @@
 		}
 	});
 
-	const name = $derived(project.label?.trim() || project.name);
+	const name = $derived(project.name?.trim() || project.label?.trim() || project.id);
+	let isComposerVisible = $state(false);
+	let composerObserver: IntersectionObserver | null = null;
+
+	$effect(() => {
+		const el = replyShellEl;
+		if (!el) {
+			isComposerVisible = false;
+			return;
+		}
+		composerObserver?.disconnect();
+		composerObserver = new IntersectionObserver(
+			(entries) => {
+				const entry = entries[0];
+				if (entry) {
+					isComposerVisible = entry.isIntersecting;
+				}
+			},
+			{ threshold: 0.1 }
+		);
+		composerObserver.observe(el);
+
+		return () => {
+			composerObserver?.disconnect();
+			composerObserver = null;
+		};
+	});
+
+	function handleAcknowledge() {
+		if (viewMode === 'question' || Boolean(attention)) {
+			return;
+		}
+		const msg = convState.snapshot?.message;
+		const shownMessageId = msg?.id ?? null;
+		const shownSessionId = convState.snapshot?.sessionId ?? null;
+		const shownAt = msg?.at ?? 0;
+		if (shownMessageId && shownSessionId) {
+			markConversationStateRead(convState, shownMessageId);
+			sessionCompletions.complete(shownSessionId, shownMessageId, shownAt);
+			sessionCompletions.markSeen(shownSessionId, shownMessageId);
+		}
+		onCloseCard();
+	}
 
 	const isWorking = $derived(project.lane.agentState === 'working');
 	const isAsking = $derived(viewMode === 'question' && Boolean(attention));
@@ -180,6 +240,9 @@
 			onToggleExpanded();
 		}
 		void tick().then(() => {
+			if (replyShellEl) {
+				replyShellEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+			}
 			if (replyEditor) {
 				replyEditor.focusEnd();
 			}
@@ -200,7 +263,7 @@
 <div class="priority-main">
 	<p class="focus-section-label">
 		{#if viewMode === 'question'}
-			{attention ? (attention.pendingUi.kind === 'ask' ? m.companion_kind_ask_tool() : m.companion_kind_message_proposals()) : ''}
+			{name}
 		{:else if isWorking}
 			{m.companion_label_open_conversation()}
 		{:else if convState.expanded}
@@ -215,6 +278,7 @@
 			class="project-card question-card focus-card"
 			style="--proj-hue: {hue}"
 			data-project-id={project.id}
+			transition:trayFold
 		>
 			<header class="card-top">
 				<div class="card-row-name">
@@ -227,18 +291,11 @@
 						>
 							<span class="p-dot" style="background: var(--warn)"></span>
 							<span class="p-name">{name}</span>
+							{#if project.label && project.label !== name}
+								<span class="p-sigla-badge">{project.label}</span>
+							{/if}
 						</button>
 					</div>
-					<Tooltip text={m.companion_card_new_task_title({ project: name })} placement="top">
-						<button
-							type="button"
-							class="composer-icon-btn"
-							aria-label={m.companion_card_new_task_title({ project: name })}
-							onclick={() => onNewTask(project)}
-						>
-							<IconPlus />
-						</button>
-					</Tooltip>
 					<Tooltip text={m.companion_card_close_title()} placement="top">
 						<button
 							type="button"
@@ -261,8 +318,8 @@
 						<span class="p-queue-count">{queuedCount}</span>
 					{/if}
 					<span class="p-state">
-						<span class="p-dot" style="background: var(--warn)"></span>
-						{attention.pendingUi.kind === 'ask' ? m.companion_kind_ask_tool() : m.companion_kind_message_proposals()}
+						<StatusMark status="attention" />
+						<span>{m.ui_companionview_chiede_risposta_de18()}</span>
 					</span>
 				</div>
 			</header>
@@ -317,17 +374,11 @@
 						>
 							<span class="p-dot lit" class:is-working={isWorking}></span>
 							<span class="p-name">{name}</span>
+							{#if project.label && project.label !== name}
+								<span class="p-sigla-badge">{project.label}</span>
+							{/if}
 						</button>
 					</div>
-					<Tooltip text={m.companion_card_new_task_title({ project: name })} placement="top">
-						<button
-							type="button"
-							class="composer-icon-btn"
-							aria-label={m.companion_card_new_task_title({ project: name })}
-							onclick={() => onNewTask(project)}
-						>
-						</button>
-					</Tooltip>
 					<Tooltip text={m.companion_card_close_title()} placement="top">
 						<button
 							type="button"
@@ -373,11 +424,13 @@
 					</button>
 					<button
 						type="button"
-						class="ui-button ui-button-ghost"
-						onclick={focusReply}
+						class="ui-button ui-button-ghost ack-btn"
+						onclick={handleAcknowledge}
+						title={m.companion_acknowledge()}
+						aria-label={m.companion_acknowledge()}
 					>
-						<span>{m.companion_reply_action()}</span>
-						<IconArrowDown />
+						<IconCheck />
+						<span>OK</span>
 					</button>
 				</div>
 
@@ -440,7 +493,18 @@
 									/>
 								{/if}
 
-								<div class="composer-shell" bind:this={replyShellEl}>
+								<div
+									class="composer-shell"
+									role="presentation"
+									bind:this={replyShellEl}
+									onpointerdown={(e) => {
+										const target = e.target as HTMLElement | null;
+										if (target?.closest('button, input, select, textarea, a, .chat-badge, .suggest-panel, [role="button"], [contenteditable="true"]')) return;
+										// Il default del puntatore sullo spazio vuoto toglierebbe il fuoco appena dato.
+										e.preventDefault();
+										replyEditor?.focusEnd();
+									}}
+								>
 									<div class="composer-editor-wrapper">
 										<ComposerEditor
 											bind:this={replyEditor}
@@ -479,6 +543,19 @@
 					</div>
 				{:else}
 					<p class="card-reduced-notice">{m.companion_reduced_notice()}</p>
+				{/if}
+				{#if convState.expanded && !isComposerVisible}
+					<div class="floating-reply-pill-wrap" transition:fade={{ duration: 150 }}>
+						<button
+							type="button"
+							class="floating-reply-btn"
+							onclick={focusReply}
+							aria-label={m.companion_reply_action()}
+						>
+							<IconArrowDown />
+							<span>{m.companion_reply_action()}</span>
+						</button>
+					</div>
 				{/if}
 			</div>
 		</article>
@@ -528,5 +605,76 @@
 		font-size: var(--text-label);
 		color: var(--ink-muted);
 		font-style: italic;
+	}
+	.p-sigla-badge {
+		font-size: var(--text-xs);
+		font-weight: 600;
+		color: var(--ink-muted);
+		background: var(--bg-sunken);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-xs);
+		padding: 1px 4px;
+		letter-spacing: 0.04em;
+		margin-left: var(--space-1);
+		align-self: center;
+	}
+
+	.ack-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-1);
+		font-weight: 500;
+	}
+
+	.floating-reply-pill-wrap {
+		position: sticky;
+		bottom: var(--space-4);
+		align-self: flex-end;
+		z-index: 25;
+		pointer-events: none;
+		display: flex;
+		justify-content: flex-end;
+		align-items: flex-end;
+		min-height: 32px;
+		margin-top: -36px;
+		padding-right: var(--space-4);
+	}
+
+	.floating-reply-btn {
+		pointer-events: auto;
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-1);
+		min-height: 32px;
+		padding: 0 var(--space-3);
+		border-radius: var(--radius-full);
+		background: var(--bg-surface);
+		color: var(--ink);
+		border: 1px solid var(--line-strong);
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.16), 0 1px 3px rgba(0, 0, 0, 0.08);
+		font-size: var(--text-label);
+		font-weight: 500;
+		cursor: pointer;
+		backdrop-filter: blur(8px);
+		transition:
+			background var(--dur-fast) var(--ease-out),
+			border-color var(--dur-fast) var(--ease-out),
+			box-shadow var(--dur-fast) var(--ease-out),
+			transform var(--dur-fast) var(--ease-out);
+	}
+
+	.floating-reply-btn:hover {
+		background: var(--bg-hover);
+		border-color: var(--brand);
+		box-shadow: 0 6px 16px rgba(0, 0, 0, 0.22);
+		transform: translateY(-1px);
+	}
+
+	.floating-reply-btn:active {
+		transform: translateY(1px);
+	}
+
+	:global(.followup .composer-shell) {
+		cursor: text;
 	}
 </style>

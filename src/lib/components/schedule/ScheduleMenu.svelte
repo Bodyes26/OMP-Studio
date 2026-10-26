@@ -161,7 +161,6 @@
 					<span class="option-text">{m.schedule_menu_remove()}</span>
 				</button>
 			{/if}
-			<p class="note">{m.schedule_menu_note()}</p>
 		</div>
 	{/snippet}
 </MenuButton>
@@ -283,9 +282,4 @@
 		background: var(--line);
 	}
 
-	.note {
-		margin: 2px 8px 4px;
-		font-size: var(--text-xs);
-		color: var(--ink-faint);
-	}
 </style>

@@ -92,6 +92,7 @@
 				{ keys: ['Alt+H', 'Alt+K', 'F1'], description: m.shortcuts_item_open_guide() },
 				{ keys: ['Ctrl+Alt+A'], description: m.ui_shortcutshelpmodal_passa_tra_la_superficie_gui_chat_e_0c21() },
 				{ keys: ['Ctrl+Alt+N'], description: m.ui_shortcutshelpmodal_nuovo_progetto_apre_il_selettore_cartella_01ff() },
+				{ keys: ['Ctrl+Alt+K'], description: m.shortcuts_item_new_task() },
 				{ keys: ['Ctrl+Alt+S'], description: m.shortcuts_item_scratchpad() },
 				{ keys: ['Ctrl+Alt+P'], description: m.shortcuts_item_lab_prototype() },
 				{ keys: [`${L}+I`], description: m.shortcuts_item_lab_point() },

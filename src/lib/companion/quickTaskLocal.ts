@@ -343,8 +343,10 @@ export function parseQuickTaskLocal(text: string, input: LocalParseInput): Local
 		cleanedText = cleanedText.slice(0, span.start) + ' ' + cleanedText.slice(span.end);
 	}
 
-	// Collassiamo gli spazi bianchi e rimuoviamo i bordi
-	const taskPrompt = cleanedText.replace(/\s+/g, ' ').trim();
+	// Gli a capo fanno parte del messaggio composto con Invio, non dei metadati.
+	const taskPrompt = nonOverlappingSpans.length === 0
+		? rawText.trim()
+		: cleanedText.replace(/[^\S\r\n]+/g, ' ').trim();
 
 	return {
 		projectId: finalProject?.id ?? null,

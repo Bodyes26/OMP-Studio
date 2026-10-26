@@ -267,3 +267,12 @@ test('Parser locale: il token # non scatta su titoli markdown o in mezzo alle pa
 	const midWord = parseQuickTaskLocal('chiudi issue#12 e il fix C# del modulo', PARSE_INPUT);
 	assert.equal(midWord.taskPrompt, 'chiudi issue#12 e il fix C# del modulo');
 });
+
+test('Parser locale: conserva righe e indentazione del messaggio composto', () => {
+	const prompt = 'Prima riga\n\n    codice indentato\nUltima riga';
+	assert.equal(parseQuickTaskLocal(prompt, PARSE_INPUT).taskPrompt, prompt);
+	assert.equal(
+		parseQuickTaskLocal('#flotta Prima riga\nSeconda riga', PARSE_INPUT).taskPrompt,
+		'Prima riga\nSeconda riga'
+	);
+});

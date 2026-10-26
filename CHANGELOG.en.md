@@ -12,6 +12,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 ## [Unreleased]
 
 ### Fixed
+- In Companion, skill suggestions are available in replies and the composer's empty surface focuses the field; queue confirmations disappear after five seconds without interfering with subsequent additions.
 - Remember panel sizes separately for each project and Git branch and each Lab prototype, including after restart; smaller windows do not overwrite preferred proportions.
 - Restore Nightly publishing by updating vulnerable frontend dependencies and migrating Studio and shared components to SvelteKit 3.
 - OpenAI and OpenAI Codex use the classic ChatGPT logo, without the Codex tile or gradient.
@@ -20,6 +21,8 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Settings → Remote control redesigned as cards with status, copy/open actions and a danger zone.
 
 ### Added
+- Open “New task” from any panel with Ctrl+Alt+K, also shown on task creation buttons.
+- In Companion, “OK” marks the displayed answer as read and closes its card without sending a message; new answers become unread again and pending questions still require an answer.
 - Resize panel separators with the keyboard: arrow keys move by 10 px, Shift by 40 px, Home/End reach the limits, and Enter restores the default size.
 - Cursor, OpenCode Go and Zen, Tavily, Devin, Z.ai, llama.cpp, LM Studio, Command Code, TokenRouter and xKiro show their own logos; icons are available offline and remain legible in light and dark themes.
 - Recognize providers by their logos in quotas, AI Model settings, composer and task pickers, and model information across Studio, Companion and Studio Remote: Claude for Anthropic, ChatGPT for OpenAI and Antigravity for its provider, with a neutral symbol for custom endpoints.
@@ -32,6 +35,11 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Send a follow-up or a command from Companion directly to the conversation being read, without turning it into a new task.
 
 ### Changed
+- The Companion queue composer separates project, directives and role into removable badges outside the message: Enter inserts a line, Ctrl+Enter queues the task, and windows at least 700 px tall start with two lines.
+- The Companion queue groups tasks under collapsible projects, with a line from the project dot, bold titles, animated title-generation status and expandable text before starting.
+- Companion cards remove redundant labels and “+” buttons; “Reply” floats over the text until the composer is visible, while questions show the full latest message using the GUI's own renderers and expandable complete history.
+- Queued tasks move editing and scheduling below the drag handle, widen the content and split launch actions equally; badges distinguish assigned model names from the session model without changing execution.
+- “New task” keeps its title until generation, groups scheduling and launch options in the Save menu, improves Save contrast, animates deletion confirmation and aligns model and thinking; Prewalk and editor context become fully clickable capsules.
 - Before switching between Terminal and GUI with a live process, confirm that running work stops and in-memory state may be lost; Cancel leaves the session untouched.
 - While the agent is working, lane tabs show a spinning ring in place of the icon and the project tab's dot becomes a ring in the project's hue. The breathing amber stays reserved for "needs an answer".
 - The "third concurrent agent" notice appears only when you start a task from the queue: creating or opening a lane from "+" no longer shows it.

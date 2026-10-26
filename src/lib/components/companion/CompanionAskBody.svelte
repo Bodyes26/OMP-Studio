@@ -14,11 +14,21 @@
 	import { cleanOptionLabel, isOtherOption } from '#lib/agent/askAnswers.ts';
 	import { lexMarkdown } from '#lib/agent/markdown.ts';
 	import { trayFold } from '#lib/agent/motion.ts';
-	import type { AttentionRequest } from '#lib/stores/companion.svelte.ts';
-	import { CONTEXT_VISIBLE_CHARS, tailOfText } from '#lib/stores/companionText.ts';
+	import { companionStore, type AttentionRequest } from '#lib/stores/companion.svelte.ts';
 	import StatusMark from '#lib/ui/StatusMark.svelte';
 	import CompanionMarkdown from './CompanionMarkdown.svelte';
-	import { IconArrowUp, IconCheck, IconClose, IconPencil, IconSchedule, IconSparkles } from '#lib/icons.ts';
+	import UserMessage from '#lib/agent/components/UserMessage.svelte';
+	import AssistantText from '#lib/agent/components/AssistantText.svelte';
+	import type { TranscriptEntry, UserEntry, AssistantEntry } from '#lib/agent/session.svelte.ts';
+	import {
+		IconArrowUp,
+		IconCheck,
+		IconChevronDown,
+		IconClose,
+		IconPencil,
+		IconSchedule,
+		IconSparkles
+	} from '#lib/icons.ts';
 	import { scheduleStore } from '#lib/stores/schedule.svelte.ts';
 	import ProviderLogo from '#lib/components/models/ProviderLogo.svelte';
 
@@ -64,60 +74,92 @@
 	// «1/1»; le altre forme (selezioni multiple) restano.
 	const counter = $derived(parsed.counter && !/^\d+\/1$/.test(parsed.counter) ? parsed.counter : null);
 
-	let showFullMessage = $state(false);
-	let messageLimit = $state(2);
 	let noteText = $state('');
 	let showNoteInput = $state(false);
 	let noteInputEl = $state<HTMLInputElement | null>(null);
+	const contextKey = $derived(`${req.projectId}:${req.laneId ?? 'main'}:${req.pendingUi.requestId}`);
+	let currentContextKey = $state('');
+	let fullEntries = $state<TranscriptEntry[] | null>(null);
+	let isLoadingEntries = $state(false);
+	let loadError = $state<string | null>(null);
+	let activeFetchId = 0;
 
-	/**
-	 * I messaggi di contesto: gli ultimi due (o più se espansi), resi come markdown.
-	 */
-	const contextMessages = $derived.by(() => {
-		const all = req.recentMessages ?? [];
-		const shown = historyExpanded ? all : all.slice(-messageLimit);
-		return shown.map((msg: { role: string; text: string }) => {
-			const isLong = msg.text.length > CONTEXT_VISIBLE_CHARS;
-			const text = (showFullMessage || !isLong) ? msg.text : tailOfText(msg.text, CONTEXT_VISIBLE_CHARS);
-			return {
-				role: msg.role,
-				isLong,
-				tokens: lexMarkdown(text)
-			};
-		});
+	async function fetchEntriesForContext() {
+		const fetchId = ++activeFetchId;
+		isLoadingEntries = true;
+		loadError = null;
+		fullEntries = null;
+
+		try {
+			const snapshot = await companionStore.loadConversation(req.projectId, req.laneId ?? 'main');
+			if (fetchId !== activeFetchId) return;
+
+			if (snapshot && Array.isArray(snapshot.entries)) {
+				fullEntries = snapshot.entries;
+			} else {
+				loadError = m.companion_conversation_loading();
+			}
+		} catch (err: unknown) {
+			if (fetchId !== activeFetchId) return;
+			loadError = err instanceof Error ? err.message : String(err);
+		} finally {
+			if (fetchId === activeFetchId) {
+				isLoadingEntries = false;
+			}
+		}
+	}
+
+	$effect(() => {
+		const key = contextKey;
+		if (key !== currentContextKey) {
+			currentContextKey = key;
+			void fetchEntriesForContext();
+		}
 	});
+
+	function handleToggleFullHistory() {
+		onToggleHistory(req.projectId);
+	}
+
+	type HistoryItem =
+		| { kind: 'user'; entry: UserEntry }
+		| { kind: 'assistant'; entry: AssistantEntry };
+
+	const allItems = $derived.by<HistoryItem[]>(() => {
+		if (!fullEntries) return [];
+		const items: HistoryItem[] = [];
+		for (const entry of fullEntries) {
+			if (entry.kind === 'user') {
+				items.push({ kind: 'user', entry });
+			} else if (entry.kind === 'assistant') {
+				if (entry.blocks.some((b) => b.type === 'text' && /\S/.test(b.text))) {
+					items.push({ kind: 'assistant', entry });
+				}
+			}
+		}
+		return items;
+	});
+
+	// L'ultimo messaggio dell'assistente completo da mostrare per default senza label
+	const lastAssistantIndex = $derived.by(() => {
+		for (let i = allItems.length - 1; i >= 0; i--) {
+			if (allItems[i].kind === 'assistant') return i;
+		}
+		return -1;
+	});
+
+	const lastItem = $derived(
+		lastAssistantIndex >= 0 ? allItems[lastAssistantIndex] : null
+	);
+
+	const priorItems = $derived(
+		lastAssistantIndex > 0 ? allItems.slice(0, lastAssistantIndex) : []
+	);
 
 	const hasOtherOptionInList = $derived(
 		Boolean(req.pendingUi.options?.some((opt: string) => isOtherOption(opt)))
 	);
-	const hasLongContextMessage = $derived(
-		contextMessages.some((item: { isLong: boolean }) => item.isLong)
-	);
-
-
 	let replyEl = $state<HTMLTextAreaElement | null>(null);
-	let contextEl = $state<HTMLDivElement | null>(null);
-	/** Vero finche' l'utente non risale il riquadro: solo allora si smette di inseguire la coda. */
-	let followTail = true;
-	// Il riquadro mostra la fine della conversazione. Si insegue la coda solo
-	// se l'utente non e' risalito a leggere: strapparlo indietro mentre legge
-	// sarebbe peggio del difetto che questo effetto risolve.
-	$effect(() => {
-		const el = contextEl;
-		const _messages = contextMessages;
-		if (!el) return;
-		void tick().then(() => {
-			if (!followTail) return;
-			el.scrollTop = el.scrollHeight;
-		});
-	});
-
-	function handleContextScroll() {
-		const el = contextEl;
-		if (!el) return;
-		followTail = el.scrollHeight - el.clientHeight - el.scrollTop <= 8;
-	}
-
 	function handleReplyKeydown(e: KeyboardEvent & { currentTarget: HTMLTextAreaElement }, closeOnEscape: boolean) {
 		if (e.key === 'Enter' && (e.ctrlKey || e.metaKey || !e.shiftKey)) {
 			e.preventDefault();
@@ -131,53 +173,71 @@
 	}
 </script>
 
-{#if contextMessages.length > 0}
-	<div class="chat-context" bind:this={contextEl} onscroll={handleContextScroll}>
-		{#each contextMessages as msg, i (i)}
-			<div class="context-bubble">
-				<span class="role-tag">
-					{msg.role === 'user' ? m.companion_role_user() : m.companion_role_agent()}
-				</span>
-				<div class="bubble-text">
-					<CompanionMarkdown tokens={msg.tokens} />
-				</div>
-			</div>
-		{/each}
+{#if isLoadingEntries}
+	<div class="ask-loading-wrap" role="status">
+		<p>{m.companion_conversation_loading()}</p>
 	</div>
+{:else if loadError}
+	<div class="reply-error ask-error-wrap" role="alert">
+		<span>{loadError}</span>
+		<button type="button" class="ui-button ui-button-ghost" onclick={fetchEntriesForContext}>
+			{m.companion_conversation_reload()}
+		</button>
+	</div>
+{:else if allItems.length > 0}
+	<div class="ask-chat-thread">
+		{#if priorItems.length > 0}
+			<div class="history-load-wrap">
+				<button
+					type="button"
+					class="history-load-btn"
+					onclick={handleToggleFullHistory}
+				>
+					<span class="chevron-icon" class:rotated={historyExpanded}>
+						<IconChevronDown />
+					</span>
+					<span>
+						{historyExpanded
+							? m.ui_companionview_mostra_meno_contesto_560a()
+							: m.companion_load_previous_message()}
+					</span>
+				</button>
+			</div>
 
-	<div class="history-controls-row">
-		{#if (req.recentMessages?.length ?? 0) > messageLimit && !historyExpanded}
-			<button type="button" class="history-toggle-btn" onclick={() => (messageLimit += 2)}>
-				{m.companion_load_previous_message()}
-			</button>
+			{#if historyExpanded}
+				<div class="prior-messages" transition:trayFold>
+					{#each priorItems as item, i (item.entry.id ?? i)}
+						{#if item.kind === 'user'}
+							<div class="msg-row user-row">
+								<UserMessage entry={item.entry} />
+							</div>
+						{:else}
+							<div class="msg-row assistant-row">
+								<AssistantText entry={item.entry} streaming={false} />
+							</div>
+						{/if}
+					{/each}
+				</div>
+			{/if}
 		{/if}
-		{#if (req.recentMessages?.length ?? 0) > 2}
-			<button type="button" class="history-toggle-btn" onclick={() => onToggleHistory(req.projectId)}>
-				{historyExpanded
-					? m.ui_companionview_mostra_meno_contesto_560a()
-					: m.ui_companionview_mostra_altri_value1_messaggi_90ae({
-							value1: (req.recentMessages?.length ?? 0) - messageLimit
-					  })}
-			</button>
-		{/if}
-		{#if hasLongContextMessage}
-			<button type="button" class="history-toggle-btn" onclick={() => (showFullMessage = !showFullMessage)}>
-				{showFullMessage ? m.companion_show_truncated_message() : m.companion_show_full_message()}
-			</button>
+
+		{#if lastItem}
+			<div class="latest-message">
+				{#if lastItem.kind === 'user'}
+					<div class="msg-row user-row">
+						<UserMessage entry={lastItem.entry} />
+					</div>
+				{:else}
+					<div class="msg-row assistant-row">
+						<AssistantText entry={lastItem.entry} streaming={false} />
+					</div>
+				{/if}
+			</div>
 		{/if}
 	</div>
 {/if}
 
 <div class="ask-box">
-	<div class="ask-kind-header">
-		<span class="ask-kind-chip" class:is-tool={req.pendingUi.kind === 'ask'}>
-			{#if req.pendingUi.kind === 'ask'}
-				{m.companion_kind_ask_tool()}
-			{:else}
-				{m.companion_kind_message_proposals()}
-			{/if}
-		</span>
-	</div>
 	<div class="ask-head">
 		<div class="ask-text-markdown">
 			<CompanionMarkdown tokens={lexMarkdown(askQuestionText(req.pendingUi, m.ui_companionview_seleziona_un_opzione_d398()))} />
@@ -429,3 +489,81 @@
 		</div>
 	{/if}
 </div>
+<style>
+	.ask-chat-thread {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-3);
+		min-width: 0;
+		margin-bottom: var(--space-3);
+	}
+
+	.history-load-wrap {
+		display: flex;
+		justify-content: center;
+		padding: var(--space-1) 0;
+	}
+
+	.history-load-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-1);
+		background: none;
+		border: none;
+		color: var(--brand-ink, var(--ink-muted));
+		font-size: var(--text-label);
+		cursor: pointer;
+		padding: var(--space-1) var(--space-2);
+		border-radius: var(--radius-sm);
+		transition:
+			color var(--dur-fast) var(--ease-out),
+			background-color var(--dur-fast) var(--ease-out);
+	}
+
+	.history-load-btn:hover {
+		color: var(--ink);
+		background: var(--bg-hover);
+	}
+
+	.chevron-icon {
+		display: inline-flex;
+		transition: transform var(--dur-fast) var(--ease-out);
+	}
+
+	.chevron-icon.rotated {
+		transform: rotate(180deg);
+	}
+
+	.prior-messages {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-3);
+		min-width: 0;
+	}
+
+	.msg-row {
+		min-width: 0;
+	}
+	.assistant-row {
+		min-width: 0;
+	}
+	.ask-loading-wrap {
+		padding: var(--space-2) var(--space-1);
+		color: var(--ink-muted);
+		font-size: var(--text-label);
+		font-style: italic;
+	}
+
+	.ask-error-wrap {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-2);
+		padding: var(--space-2);
+		margin-bottom: var(--space-3);
+		border-radius: var(--radius-sm);
+		background: color-mix(in srgb, var(--danger) 10%, transparent);
+		color: var(--danger);
+		font-size: var(--text-label);
+	}
+</style>

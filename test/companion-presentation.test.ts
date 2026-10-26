@@ -10,6 +10,8 @@ import {
 	setConversationDraft,
 	startSendingReply,
 	markReplySent,
+	markConversationRead,
+	markConversationStateRead,
 	setSendReplyError,
 	isProjectUnread,
 	buildGlobalQueueItems,
@@ -102,6 +104,39 @@ test('isProjectUnread lifecycle: stays pending until replied, then pending on ne
 		laneId: 'main',
 		sessionId: 'sess-pdr',
 		message: { id: 'msg-pdr-2', text: 'Aggiornamento completato', at: 2000 },
+		canSend: true
+	};
+	setConversationSnapshot(state, newSnapshot);
+	assert.equal(isProjectUnread(state, 'pdr', 'main', 'idle', false), true);
+});
+
+test('markConversationRead (presa visione OK): marks unread as read without sending reply, stays read for same message', () => {
+	const state = createInitialPresentationState('pdr');
+	const snapshot: CompanionConversationSnapshot = {
+		projectId: 'pdr',
+		laneId: 'main',
+		sessionId: 'sess-pdr',
+		message: { id: 'msg-pdr-1', text: 'Piano pronto', at: 1000 },
+		canSend: true
+	};
+	setConversationSnapshot(state, snapshot);
+
+	assert.equal(isProjectUnread(state, 'pdr', 'main', 'idle', false), true);
+
+	// Presa visione esplicita su stato conversazione (usato da CompanionCenterReader)
+	const conv = state.conversations[conversationKey('pdr', 'main')];
+	markConversationStateRead(conv, 'msg-pdr-1');
+	assert.equal(isProjectUnread(state, 'pdr', 'main', 'idle', false), false);
+
+	// Stessa risposta non torna unread
+	assert.equal(isProjectUnread(state, 'pdr', 'main', 'idle', false), false);
+
+	// Nuovo messaggio torna unread
+	const newSnapshot: CompanionConversationSnapshot = {
+		projectId: 'pdr',
+		laneId: 'main',
+		sessionId: 'sess-pdr',
+		message: { id: 'msg-pdr-2', text: 'Nuovo esito', at: 2000 },
 		canSend: true
 	};
 	setConversationSnapshot(state, newSnapshot);
