@@ -865,7 +865,9 @@
 		scrollbar-width: none;
 		-ms-overflow-style: none;
 		min-width: 0;
-		flex: 1 1 auto;
+		/* Non cresce: il + segue l'ultima corsia invece di finire a destra,
+		   sopra il pulsante della nuova chat. Si restringe solo se le tab traboccano. */
+		flex: 0 1 auto;
 		scroll-behavior: smooth;
 	}
 
@@ -1133,6 +1135,7 @@
 		cursor: pointer;
 		transition: border-color var(--dur-fast), color var(--dur-fast), background-color var(--dur-fast);
 		flex-shrink: 0;
+		margin-left: var(--space-1);
 	}
 
 	.lane-new-btn:hover:not(:disabled) {

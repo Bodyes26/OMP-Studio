@@ -37,6 +37,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Dalla Companion invia un seguito o un comando direttamente nella conversazione letta, senza trasformarlo in un nuovo task.
 
 ### Changed
+- Nella barra delle corsie il pulsante «+» per una nuova corsia sta subito dopo l'ultima corsia, non più all'estremità destra sopra il pulsante della nuova chat.
 - La ricerca del pannello FILE non ha più riquadro, sfondo proprio né anello di focus: tutta la fascia sopra l'albero è il campo di ricerca.
 - Popover dei ruoli e dei modelli rifinito su composer GUI, Task Editor e Remote: rimosso il testo esplicativo dal menu dei ruoli con visualizzazione completa dei ruoli senza barre di scorrimento su finestre standard e icona del provider accanto a ciascun modello; nel popover dei modelli rimossa la cornice blu dalla ricerca con campo a tutta altezza, sezioni dei provider collassabili con freccia, icona della finestra di contesto ripristinata nella legenda in basso e sezione dei modelli recenti ordinati per utilizzo con priorità nei risultati di ricerca.
 - Il composer di coda Companion separa progetto, direttive e ruolo in badge rimovibili fuori dal messaggio: Invio va a capo, Ctrl+Invio accoda e le finestre alte almeno 700 px partono da due righe.
