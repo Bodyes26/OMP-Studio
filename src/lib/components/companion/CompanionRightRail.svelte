@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
 	import { fade } from 'svelte/transition';
+	import { trayFold } from '#lib/agent/motion.ts';
 	import { splitTaskText } from '#lib/stores/taskTitle.ts';
 	import { isTaskTitleGenerating } from '#lib/stores/taskTitles.svelte.ts';
 	import { IconChevronDown, IconExternalLink, IconPlay, IconSchedule } from '#lib/icons.ts';
@@ -89,7 +90,7 @@
 <aside class="priority-rail" aria-label={m.companion_cards_aria()}>
 	<!-- 1. Domande -->
 	{#if questions.length > 0}
-		<section class="rail-section rail-questions">
+		<section class="rail-section rail-questions" transition:trayFold>
 			<h3 class="rail-title">
 				<span>{m.companion_rail_questions()}</span>
 				<span class="rail-count">{questions.length}</span>
@@ -104,6 +105,7 @@
 						type="button"
 						class="priority-project is-question"
 						aria-current={isCurrent}
+						transition:trayFold
 						onclick={() => onSelectProject(q.project.id, q.laneId, 'question', q.requestId)}
 					>
 						<span class="p-dot" style="background: var(--warn)"></span>
@@ -117,7 +119,7 @@
 
 	<!-- 2. Da leggere -->
 	{#if unread.length > 0}
-		<section class="rail-section rail-unread">
+		<section class="rail-section rail-unread" transition:trayFold>
 			<h3 class="rail-title">
 				<span>{m.companion_rail_unread()}</span>
 				<span class="rail-count">{unread.length}</span>
@@ -132,6 +134,7 @@
 						type="button"
 						class="priority-project"
 						aria-current={isCurrent}
+						transition:trayFold
 						onclick={() => onSelectProject(u.project.id, u.laneId, 'answer')}
 					>
 						<span class="p-dot lit" style="--proj-hue: {u.hue}"></span>
@@ -152,14 +155,14 @@
 
 	<!-- 3. Lavori in corso -->
 	{#if working.length > 0}
-		<section class="rail-section progress-section">
+		<section class="rail-section progress-section" transition:trayFold>
 			<h3 class="rail-title">
 				<span>{m.companion_rail_working()}</span>
 				<span class="rail-count">{working.length}</span>
 			</h3>
 			<div class="priority-list">
 				{#each working as w (w.project.id + ':' + w.laneId)}
-					<div class="working-row">
+					<div class="working-row" transition:trayFold>
 						<span class="p-dot is-working lit" style="--proj-hue: {w.hue}"></span>
 						<div class="working-body">
 							<div class="working-name">{w.name}</div>
@@ -202,10 +205,13 @@
 			{#if globalQueue.length > 0}
 				<div class="queue-groups">
 					{#each queueGroups as [projectKey, items] (projectKey)}
-						<div class="queue-project-group">
+						<div class="queue-project-group" transition:trayFold>
 							<button type="button" class="queue-group-heading" aria-expanded={!collapsedProjects.includes(projectKey)} onclick={() => toggleProject(projectKey)}>
 								<span class="queue-group-dot" style:background={`hsl(${items[0].projectHue} 45% 48%)`}></span>
 								<span>{items[0].projectName}</span>
+								{#key items[0].statusKey}
+									<span class="queue-project-state" class:is-question={items[0].statusKey === 'question'} in:fade={{ duration: 180 }}>{items[0].statusLabel}</span>
+								{/key}
 								<span class="rail-count">{items.length}</span>
 								<span class:rotated={collapsedProjects.includes(projectKey)} class="parked-chevron"><IconChevronDown /></span>
 							</button>
@@ -215,7 +221,7 @@
 						{@const schedule = scheduleStore.labelFor(item.task)}
 						{@const text = splitTaskText(item.task)}
 						{@const taskKey = item.projectId + ':' + item.taskId}
-						<li class="global-queue-item" data-queue-project={item.projectId} data-queue-task={item.taskId}>
+						<li class="global-queue-item" data-queue-project={item.projectId} data-queue-task={item.taskId} transition:trayFold>
 							<button type="button" class="queue-task-preview" aria-expanded={expandedTasks.includes(taskKey)} onclick={() => toggleTask(taskKey)}>
 								{#key isTaskTitleGenerating(item.taskId) ? 'generating' : text.headline}
 									<strong class="global-queue-title" class:generating={isTaskTitleGenerating(item.taskId)} in:fade={{ duration: 180 }}>{isTaskTitleGenerating(item.taskId) ? m.companion_title_generating() : text.headline || item.taskTitle}</strong>
@@ -229,15 +235,6 @@
 								</p>
 							{/if}
 							<div class="global-queue-footer">
-								<div class="global-queue-context">
-									<span
-										class="queue-project-state"
-										class:is-question={item.statusKey === 'question'}
-									>
-										{item.statusLabel}
-									</span>
-								</div>
-
 								<Tooltip
 									text={item.disabledReason || m.companion_run_task({ title: item.taskTitle })}
 									placement="top"

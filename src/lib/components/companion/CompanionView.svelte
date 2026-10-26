@@ -31,6 +31,7 @@
 		type SelectedRoleMeta
 	} from './CompanionComposer.svelte';
 	import CompanionCenterReader from './CompanionCenterReader.svelte';
+	import { trayFold } from '#lib/agent/motion.ts';
 	import { sessionRegistry } from '#lib/agent/sessionRegistry.ts';
 	import { STUDIO_SLASH_COMMANDS, mergeCommands } from '#lib/agent/commands.ts';
 	import { sessionCompletions } from '#lib/agent/completion.svelte.ts';
@@ -347,6 +348,31 @@
 		}
 	});
 
+	// Una risposta aperta come "da leggere" e poi letta o superata nella finestra
+	// principale (risposta in chat, nuovo turno, domanda) chiude la card: le due
+	// superfici mostrano lo stesso stato. Una card aperta a mano su una risposta
+	// gia' letta resta aperta, e le chiusure della companion stessa (Letto,
+	// risposta inviata) seguono il proprio percorso.
+	let unreadCardKey: string | null = null;
+	$effect(() => {
+		const pid = presentation.selectedProjectId;
+		if (!pid || presentation.viewMode !== 'answer') {
+			unreadCardKey = null;
+			return;
+		}
+		const key = conversationKey(pid, presentation.selectedLaneId);
+		if (unreadProjectIds.has(pid.toLowerCase())) {
+			unreadCardKey = key;
+			return;
+		}
+		const consumed = unreadCardKey === key;
+		unreadCardKey = null;
+		const conv = presentation.conversations[key];
+		if (!consumed || (conv?.lastRepliedMessageId && conv.lastRepliedMessageId === conv.snapshot?.message?.id)) return;
+		presentation.selectedProjectId = null;
+		presentation.selectedRequestId = null;
+	});
+
 	const currentLaneLabel = $derived(
 		presentation.selectedLaneId === 'main'
 			? m.companion_lane_main()
@@ -366,7 +392,7 @@
 		if (!presentation.previousSelection) return null;
 		const prevId = presentation.previousSelection.projectId;
 		const p = knownProjects.find((proj) => proj.id.toLowerCase() === prevId.toLowerCase());
-		return p ? p.label?.trim() || p.name : prevId;
+		return p ? p.name : prevId;
 	});
 
 	const effectiveProjectPath = $derived(
@@ -374,7 +400,7 @@
 	);
 
 	const topDestinationName = $derived.by<string | null>(() => {
-		return selectedProjectMeta?.label || selectedProjectMeta?.name || local.projectName || aiParsed?.projectName || null;
+		return selectedProjectMeta?.name || local.projectName || aiParsed?.projectName || null;
 	});
 
 	const attentionProjectIds = $derived(
@@ -396,7 +422,13 @@
 				p.lane.agentState,
 				hasAtt,
 				runtime?.latestAssistant,
-				(sessionId, messageId) => sessionCompletions.get(sessionId)?.id === messageId && sessionCompletions.get(sessionId)?.seen === true
+				// La finestra principale e' la fonte del "letto"; lo store locale copre
+				// la conferma data dalla companion prima del giro successivo del digest.
+				(sessionId, messageId) =>
+					(runtime?.latestAssistant?.sessionId === sessionId &&
+						runtime.latestAssistant.messageId === messageId &&
+						runtime.latestAssistant.seen === true) ||
+					(sessionCompletions.get(sessionId)?.id === messageId && sessionCompletions.get(sessionId)?.seen === true)
 			);
 			if (unread) {
 				set.add(p.id.toLowerCase());
@@ -461,7 +493,7 @@
 				return {
 					project: p,
 					laneId,
-					name: p.label?.trim() || p.name,
+					name: p.name,
 					hue: projectHues.get(p.id) ?? p.hue,
 					activityText: runtime?.headsUp,
 					hasDraft: Boolean(conv?.draft?.trim())
@@ -477,7 +509,7 @@
 				return {
 					project: p,
 					laneId: p.lane.laneId,
-					name: p.label?.trim() || p.name,
+					name: p.name,
 					hue: projectHues.get(p.id) ?? p.hue,
 					activityText: rt?.headsUp || rt?.activity?.text
 				};
@@ -497,7 +529,7 @@
 			.map((p) => ({
 				project: p,
 				laneId: 'main',
-				name: p.label?.trim() || p.name,
+				name: p.name,
 				hue: projectHues.get(p.id) ?? p.hue
 			}));
 	});
@@ -1121,28 +1153,32 @@
 				<section class="priority-workspace" aria-label={m.companion_cards_aria()}>
 					<div class="priority-reader-scroll" bind:this={workspaceEl} onscroll={rememberReadingScroll}>
 						{#if selectedProject && currentConvState}
-							<CompanionCenterReader
-								project={selectedProject}
-								hue={projectHues.get(selectedProject.id) ?? selectedProject.hue}
-								viewMode={presentation.viewMode}
-								convState={currentConvState}
-								attention={currentAttention}
-								queuedCount={queuedForSelected}
-								laneLabel={currentLaneLabel}
-								{previousProjectName}
-								ask={askHandlers}
-								onFocusProject={(projectId) => void companionStore.focusProject(projectId)}
-								onNewTask={prefillProject}
-								onCloseCard={() => {
-									presentation.selectedProjectId = null;
-									presentation.selectedRequestId = null;
-								}}
-								onToggleExpanded={handleToggleExpanded}
-								onDraftChange={(text) => setConversationDraft(presentation, selectedProject.id, presentation.selectedLaneId, text)}
-								onSendReply={() => void handleSendReply()}
-								onReload={handleReloadConversation}
-								onReturnToPrevious={handleReturnToPrevious}
-							/>
+							<!-- La lettura entra e se ne va piegandosi: con "Ok" la carta
+								 sparisce senza strappo e la colonna si richiude. -->
+							<div transition:trayFold>
+								<CompanionCenterReader
+									project={selectedProject}
+									hue={projectHues.get(selectedProject.id) ?? selectedProject.hue}
+									viewMode={presentation.viewMode}
+									convState={currentConvState}
+									attention={currentAttention}
+									queuedCount={queuedForSelected}
+									laneLabel={currentLaneLabel}
+									{previousProjectName}
+									ask={askHandlers}
+									onFocusProject={(projectId) => void companionStore.focusProject(projectId)}
+									onNewTask={prefillProject}
+									onCloseCard={() => {
+										presentation.selectedProjectId = null;
+										presentation.selectedRequestId = null;
+									}}
+									onToggleExpanded={handleToggleExpanded}
+									onDraftChange={(text) => setConversationDraft(presentation, selectedProject.id, presentation.selectedLaneId, text)}
+									onSendReply={() => void handleSendReply()}
+									onReload={handleReloadConversation}
+									onReturnToPrevious={handleReturnToPrevious}
+								/>
+							</div>
 						{/if}
 					</div>
 

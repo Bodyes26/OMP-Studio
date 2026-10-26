@@ -419,7 +419,7 @@
 					{#if selectedProject}
 						<span class="chat-badge chat-badge--project metadata-badge" style:--badge-h={selectedProject.hue} role="listitem">
 							<span class="chat-badge-dot"></span>
-							<span class="chat-badge-name">{m.companion_destination_queue({ project: selectedProject.label || selectedProject.name })}</span>
+							<span class="chat-badge-name">{selectedProject.name}</span>
 							<button
 								type="button"
 								class="metadata-badge-remove"

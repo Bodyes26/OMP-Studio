@@ -12,6 +12,8 @@ released: items are closed into a version via `npm run release -- <version>`.
 ## [Unreleased]
 
 ### Fixed
+- Companion and the main window share the “unread” state: replying to or reading an answer in Studio closes the open Companion card, and “OK” in Companion also counts in Studio.
+- Open PDFs in the editor with a local preview, page navigation, zoom and an explicit error for unreadable documents, instead of getting stuck on “Loading...”.
 - In Companion, skill suggestions are available in replies and the composer's empty surface focuses the field; queue confirmations disappear after five seconds without interfering with subsequent additions.
 - Remember panel sizes separately for each project and Git branch and each Lab prototype, including after restart; smaller windows do not overwrite preferred proportions.
 - Restore Nightly publishing by updating vulnerable frontend dependencies and migrating Studio and shared components to SvelteKit 3.
@@ -35,8 +37,10 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Send a follow-up or a command from Companion directly to the conversation being read, without turning it into a new task.
 
 ### Changed
+- The FILE panel search has no box, separate background or focus ring anymore: the whole strip above the tree is the search field.
 - Polished role and model popovers across GUI composer, Task Editor, and Remote: removed the explanatory footer from the roles menu with full visibility of all roles without scrollbars on standard windows and provider icon next to each model; in the model popover removed the focus outline from search with full-height input, collapsible provider sections with chevron toggles, restored context window icon in the footer legend, and added a recent models section sorted by usage with priority in search matches.
 - The Companion queue composer separates project, directives and role into removable badges outside the message: Enter inserts a line, Ctrl+Enter queues the task, and windows at least 700 px tall start with two lines.
+- Companion shows projects by their full name instead of their short code (composer badge without “Queue”, Questions, To read, In progress, global queue); in the global queue the project status sits next to its name instead of under every task; the reading card and right-column entries animate in and out, including when a project moves between In progress, To read and Questions and when an answer is marked OK.
 - The Companion queue groups tasks under collapsible projects, with a line from the project dot, bold titles, animated title-generation status and expandable text before starting.
 - Companion cards remove redundant labels and “+” buttons; “Reply” floats over the text until the composer is visible, while questions show the full latest message using the GUI's own renderers and expandable complete history.
 - Queued tasks move editing and scheduling below the drag handle, widen the content and split launch actions equally; badges distinguish assigned model names from the session model without changing execution.

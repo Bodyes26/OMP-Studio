@@ -549,26 +549,16 @@
 .global-queue-footer {
 	display: flex;
 	align-items: center;
-	justify-content: space-between;
+	justify-content: flex-end;
 	gap: 10px;
 }
 
-.global-queue-context {
-	display: flex;
-	flex-wrap: wrap;
-	align-items: center;
-	gap: 4px 5px;
-	min-width: 0;
-	font-size: var(--text-caption);
-	line-height: 1.5;
-	color: var(--ink-muted);
-}
-
-
+/* Lo stato e' del progetto, non del singolo task: sta una volta sola
+   accanto al nome del gruppo. */
 .queue-project-state {
-	font-size: inherit;
+	font-size: var(--text-caption);
 	font-weight: 400;
-	color: inherit;
+	color: var(--ink-muted);
 	white-space: nowrap;
 }
 

@@ -20,6 +20,7 @@
 	import { perfSpan } from '#lib/perf.ts';
 	import { settingsStore } from '#lib/stores/settings.svelte.ts';
 	import ImageViewer from './ImageViewer.svelte';
+	import PdfViewer from './PdfViewer.svelte';
 	import SvgPreview from './SvgPreview.svelte';
 	import Markdown from '#lib/agent/components/Markdown.svelte';
 	import Segmented, { type SegmentedOption } from '#lib/ui/Segmented.svelte';
@@ -136,6 +137,7 @@
 
 	let isDirty = $derived(filePath ? dirtyFiles[fileKey(projectPath, filePath)] === true : false);
 	let isImage = $derived(filePath ? isImageFile(filePath) : false);
+	let isPdf = $derived(filePath ? isPdfFile(filePath) : false);
 	let isSvg = $derived(filePath ? filePath.split('.').pop()?.toLowerCase() === 'svg' : false);
 	let isMarkdown = $derived(filePath ? ['md', 'markdown'].includes(filePath.split('.').pop()?.toLowerCase() || '') : false);
 
@@ -235,6 +237,10 @@
 
 	function isImageFile(path: string): boolean {
 		return IMAGE_EXTS.includes(path.split('.').pop()?.toLowerCase() || '');
+	}
+
+	function isPdfFile(path: string): boolean {
+		return path.split('.').pop()?.toLowerCase() === 'pdf';
 	}
 
 	function fileName(path: string): string {
@@ -525,7 +531,7 @@
 
 		const key = fileKey(project, path);
 		requestedKey = key;
-		if (isImageFile(path)) {
+		if (isImageFile(path) || isPdfFile(path)) {
 			loadedKey = key;
 			loading = false;
 			return;
@@ -656,7 +662,7 @@
 			showDiff = false;
 			return;
 		}
-		if (isImage || activeFileError) {
+		if (isImage || isPdf || activeFileError) {
 			handledOpenFileRequest = request.id;
 			return;
 		}
@@ -674,7 +680,7 @@
 	});
 
 	async function saveFileByPath(targetPath: string) {
-		if (!targetPath || !projectPath || isImageFile(targetPath)) return;
+		if (!targetPath || !projectPath || isImageFile(targetPath) || isPdfFile(targetPath)) return;
 		const key = fileKey(projectPath, targetPath);
 		// Protezione assoluta: mai salvare file rifiutati (es. troppo grandi o binari)
 		// per evitare sovrascritture distruttive su disco con contenuto vuoto.
@@ -763,7 +769,7 @@
 	}
 
 	function openDiff(path: string) {
-		if (isImageFile(path)) return;
+		if (isImageFile(path) || isPdfFile(path)) return;
 		if (path === filePath) {
 			toggleGitDiff();
 			return;
@@ -773,7 +779,7 @@
 	}
 
 	function toggleGitDiff() {
-		if (isImage || !filePath) return;
+		if (isImage || isPdf || !filePath) return;
 		showDiff = !showDiff;
 		if (!showDiff) {
 			disposeDiff();
@@ -1326,7 +1332,7 @@
 						onChange={setViewMode}
 					/>
 				{/if}
-				{#if !isImage && !activeFileError}
+				{#if !isImage && !isPdf && !activeFileError}
 					{@const diffLabel = showDiff ? m.ui_editor_chiudi_il_confronto_con_head_9d0b() : m.editor_diff_open()}
 					<Tooltip text={diffLabel} placement="bottom">
 						<button
@@ -1395,6 +1401,8 @@
 					{/if}
 				</div>
 			</div>
+		{:else if isPdf}
+			<PdfViewer {projectPath} {filePath} />
 		{:else if isImage}
 			<ImageViewer
 				bind:this={imageViewer}

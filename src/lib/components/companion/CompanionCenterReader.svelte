@@ -362,6 +362,7 @@
 			class="project-card focus-card"
 			style="--proj-hue: {hue}"
 			data-project-id={project.id}
+			transition:trayFold
 		>
 			<header class="card-top">
 				<div class="card-row-name">

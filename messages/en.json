@@ -1504,6 +1504,8 @@
   "svg_preview_default_title": "SVG preview",
   "image_viewer_load_error": "Image not loaded",
   "image_viewer_unsupported": "Format not supported by the webview renderer.",
+  "pdf_previous_page": "Previous page",
+  "pdf_next_page": "Next page",
   "viewer_zoom_in": "Zoom in",
   "viewer_zoom_out": "Zoom out",
   "viewer_fit": "Fit",

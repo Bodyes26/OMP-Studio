@@ -13,6 +13,9 @@ export interface CompanionAssistantReference {
 	sessionId: string;
 	messageId: string;
 	at: number;
+	// Letto nella finestra principale: la companion ha un proprio store, fermo
+	// all'apertura, e senza questo dato vedeva "da leggere" una risposta gia' letta.
+	seen?: boolean;
 }
 
 export interface CompanionAssistantMessage {

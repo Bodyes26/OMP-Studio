@@ -1792,26 +1792,19 @@
 		flex-shrink: 0;
 	}
 
+	/* Nessun riquadro: tutta la fascia sopra l'albero e' il campo di ricerca. */
 	.search-input-wrapper {
 		position: relative;
 		display: flex;
 		align-items: center;
 		width: 100%;
 		height: 26px;
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
+		background: transparent;
+		border: none;
 		color: var(--ink);
 		padding: 0 6px;
 		gap: 6px;
-		transition: border-color var(--dur-fast) var(--ease-out);
-	}
-
-	/* Il campo non disegna l'anello: lo porta l'involucro, a 2 px come ovunque. */
-	.search-input-wrapper:has(.search-input:focus-visible) {
-		border-color: var(--line-strong);
-		outline: 2px solid var(--brand);
-		outline-offset: 2px;
+		cursor: text;
 	}
 
 	.search-icon {

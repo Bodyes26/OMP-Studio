@@ -28,6 +28,15 @@ function load(): Record<string, SessionCompletion> {
 export class SessionCompletionStore {
 	private completions = $state<Record<string, SessionCompletion>>(load());
 
+	constructor() {
+		// Studio e companion sono webview distinte sullo stesso localStorage: la
+		// conferma data in una finestra deve valere subito anche nell'altra.
+		if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return;
+		window.addEventListener('storage', (event) => {
+			if (event.key === STORAGE_KEY) this.completions = load();
+		});
+	}
+
 	get(sessionId: string | null | undefined): SessionCompletion | null {
 		return sessionId ? this.completions[sessionId] ?? null : null;
 	}

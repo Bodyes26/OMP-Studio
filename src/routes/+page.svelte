@@ -759,7 +759,11 @@
 				laneSession?.headsUp && !laneSession.isStreaming && !headsUpSeen.isSeen(laneSession.sessionId, laneSession.headsUp.text)
 					? laneSession.headsUp.text
 					: undefined;
-			const latestAssistant = laneSession ? resolveLatestAssistantReference(laneSession) : undefined;
+			const reference = laneSession ? resolveLatestAssistantReference(laneSession) : undefined;
+			const completion = reference ? sessionCompletions.get(reference.sessionId) : null;
+			const latestAssistant = reference
+				? { ...reference, seen: completion?.id === reference.messageId && completion.seen }
+				: undefined;
 			const availableCommands = laneSession?.availableCommands ? [...laneSession.availableCommands] : undefined;
 			return {
 				projectId: p.id,
@@ -786,7 +790,7 @@
 				const cmds = runtimes[i].availableCommands
 					? runtimes[i].availableCommands.map((c) => `${c.name}:${c.source ?? ''}:${c.description ?? ''}`).join(',')
 					: '';
-				return `${p.id}:${p.name}:${p.label ?? ''}:${p.hue}:${p.colorMode}:${p.lane.laneId}:${p.lane.agentState}:${runtimes[i].provider ?? ''}:${runtimes[i].modelId ?? ''}:${runtimes[i].credentialPin ?? ''}:${runtimes[i].canRunTask ?? false}:${runtimes[i].runBlockReason ?? ''}:${runtimes[i].headsUp ?? ''}:${runtimes[i].latestAssistant ? `${runtimes[i].latestAssistant.sessionId}:${runtimes[i].latestAssistant.messageId}` : ''}:${cmds}`;
+				return `${p.id}:${p.name}:${p.label ?? ''}:${p.hue}:${p.colorMode}:${p.lane.laneId}:${p.lane.agentState}:${runtimes[i].provider ?? ''}:${runtimes[i].modelId ?? ''}:${runtimes[i].credentialPin ?? ''}:${runtimes[i].canRunTask ?? false}:${runtimes[i].runBlockReason ?? ''}:${runtimes[i].headsUp ?? ''}:${runtimes[i].latestAssistant ? `${runtimes[i].latestAssistant.sessionId}:${runtimes[i].latestAssistant.messageId}:${runtimes[i].latestAssistant.seen ?? false}` : ''}:${cmds}`;
 			})
 			.join('|');
 		const activityOnly = runtimes

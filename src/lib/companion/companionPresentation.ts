@@ -391,7 +391,7 @@ export function buildGlobalQueueItems<T extends QueueTask>(
 				taskId: task.id,
 				taskTitle: titleResolver(task),
 				projectId: project.id,
-				projectName: project.label?.trim() || project.name,
+				projectName: project.name,
 				projectHue: project.hue,
 				order: task.createdAt ?? 0,
 				statusKey,
