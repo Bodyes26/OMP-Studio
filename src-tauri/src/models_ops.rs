@@ -1354,7 +1354,7 @@ pub async fn get_auth_accounts(provider_id: Option<String>) -> Result<Vec<AuthAc
         .map_err(|e| e.to_string())?;
 
     let rows = stmt
-        .query_map(rusqlite::params![provider_id, alias_needs.then_some(1).unwrap_or(0), normalized], |row| {
+        .query_map(rusqlite::params![provider_id, i32::from(alias_needs), normalized], |row| {
             let id: i64 = row.get(0)?;
             let provider: String = row.get(1)?;
             let credential_type: String = row.get(2)?;
