@@ -370,8 +370,9 @@
 								<RoleMenu
 									assignments={Object.fromEntries((catalog?.roles ?? []).map((role) => {
 										const model = role.modelLabel ?? role.model ?? undefined;
-										const match = (catalog?.models ?? []).find((m) => m.id === model || m.selector === model);
-										const provider = role.provider ?? match?.provider ?? (model && model.includes('/') ? model.split('/')[0] : undefined);
+										// role.model e' `provider/id`: il provider si ricava dal catalogo, o dal prefisso.
+										const match = (catalog?.models ?? []).find((m) => `${m.provider}/${m.id}` === role.model || m.id === role.model);
+										const provider = match?.provider ?? (role.model?.includes('/') ? role.model.split('/')[0] : undefined);
 										return [role.id, { model, provider, thinking: role.thinking ?? undefined }];
 									}))}
 									activeRole={currentRole}

@@ -11,21 +11,15 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ## [Unreleased]
 
-### Fixed
-- In Companion, l'invio di un messaggio di follow-up chiude immediatamente la scheda di risposta senza mostrare una ricevuta disallineata sotto la vecchia risposta dell'agente.
-- Companion e finestra principale condividono lo stato «da leggere»: rispondere o leggere la risposta in Studio chiude la scheda aperta in Companion, e l'«OK» dato in Companion vale anche in Studio.
-- Apri i PDF nell’editor con anteprima locale, cambio pagina, zoom e un errore esplicito per i documenti illeggibili, senza restare su «Caricamento in corso...».
-- In Companion, i suggerimenti delle skill sono disponibili anche nelle risposte e tutta la superficie libera del composer mette a fuoco il campo; la conferma di accodamento scompare dopo cinque secondi senza interferire con gli accodamenti successivi.
-- Ricorda le dimensioni dei pannelli separatamente per progetto e branch Git e per ogni prototipo Lab, anche dopo il riavvio; le finestre più piccole non cancellano le proporzioni preferite.
-- Ripristina la pubblicazione Nightly aggiornando le dipendenze frontend vulnerabili e migrando Studio e i componenti condivisi a SvelteKit 3.
-- OpenAI e OpenAI Codex usano il classico logo ChatGPT, senza riquadro o gradiente Codex.
-- OpenRouter mostra il proprio logo ufficiale anziché quello di Cursor.
-- Impostazioni → Modelli → Provider: aggiungere un provider avvia subito il login, la chiusura del terminale aggiorna il catalogo modelli, i provider custom hanno validazione e salvataggio senza refresh globale, e la rimozione di un account buggato è immediata con fallback sugli alias storici.
-- Impostazioni → Controllo remoto ridisegnato a card con stato, azioni di copia/apertura e zona pericolosa.
+## [1.9.0] - 2026-10-27
 
 ### Added
 - Apri «Nuovo task» da qualsiasi pannello con Ctrl+Alt+K, indicato anche sui pulsanti di creazione.
 - In Companion, «OK» segna come letta la risposta visualizzata e chiude la scheda senza inviare messaggi; una nuova risposta torna da leggere e le domande in attesa restano da rispondere.
+- Companion e finestra principale condividono lo stato «da leggere»: rispondere o leggere la risposta in Studio chiude la scheda aperta in Companion, e l'«OK» dato in Companion vale anche in Studio.
+- Dalla Companion invia un seguito o un comando direttamente nella conversazione letta, senza trasformarlo in un nuovo task.
+- Apri i PDF nell'editor con anteprima locale, cambio pagina e zoom; un documento illeggibile mostra un errore invece di restare su «Caricamento in corso...».
+- Ricorda le dimensioni dei pannelli separatamente per progetto e branch Git e per ogni prototipo Lab, anche dopo il riavvio; le finestre più piccole non cancellano le proporzioni preferite.
 - Regola i divisori dei pannelli anche da tastiera: frecce per spostamenti di 10 px, Maiusc per 40 px, Home/End per i limiti e Invio per ripristinare la dimensione predefinita.
 - I provider Cursor, OpenCode Go e Zen, Tavily, Devin, Z.ai, llama.cpp, LM Studio, Command Code, TokenRouter e xKiro mostrano i propri loghi; le icone sono disponibili anche offline e leggibili nei temi chiaro e scuro.
 - Riconosci i provider dai loro loghi nelle quote, nelle impostazioni Modelli AI, nei selettori del composer e dei task e nelle informazioni sui modelli di Studio, Companion e Studio Remote: Claude per Anthropic, ChatGPT per OpenAI e Antigravity per il relativo provider, con un simbolo neutro per gli endpoint personalizzati.
@@ -34,52 +28,60 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Il piè di ogni risposta dell'agente mostra i token al secondo della generazione (esclusa l'attesa del primo token), accanto a durata, modello e costo.
 - `/compact` e il pulsante «Compatta ora» chiedono come compattare quando il modello legge le immagini: Snapcompact (istantaneo, senza chiamate al modello), Soft o Remote, con una scheda a un clic. Anche `/compact soft|remote|snapcompact` sceglie la modalità direttamente.
 - Apri diagrammi Mermaid, SVG e prototipi HTML/TSX dalla chat di Studio Remote in un'anteprima interattiva: affiancata alla conversazione sul desktop, a schermo intero sul telefono.
-- Intelligent UI e visualizzatore diagrammi: i diagrammi Mermaid in chat ora usano una card interattiva con lightbox espandibile e pulsante per proiettarli sulla Whiteboard centrale con pan e zoom. Risolto il rendering vuoto della Whiteboard centrale e aggiunta l'esportazione in SVG e PNG. Introdotta la suite di micro-componenti nativi in chat: tabelle intelligenti dinamiche con ricerca live, ordinamento colonne, paginazione ed export CSV; callout semantici stile GitHub (> [!NOTE], [!TIP], [!WARNING], ecc.); griglie di metriche e KPI (ui:metric); schede a tab (ui:tabs); sezioni ripiegabili (ui:accordion); stepper a fasi per piani d'azione (ui:steps) e slider di confronto prima/dopo (ui:compare).
-- Dalla Companion invia un seguito o un comando direttamente nella conversazione letta, senza trasformarlo in un nuovo task.
+- I diagrammi Mermaid in chat si ingrandiscono e si proiettano sulla Whiteboard, con pan, zoom ed esportazione in SVG e PNG.
+- Le risposte dell'agente possono contenere tabelle con ricerca, ordinamento, paginazione ed export CSV, riquadri di nota e avviso (`> [!NOTE]`, `[!TIP]`, `[!WARNING]`…), metriche, schede, sezioni richiudibili, passi di un piano e confronti prima/dopo.
 
 ### Changed
-- Nella barra delle corsie il pulsante «+» per una nuova corsia sta subito dopo l'ultima corsia, non più all'estremità destra sopra il pulsante della nuova chat.
-- La ricerca del pannello FILE non ha più riquadro, sfondo proprio né anello di focus: tutta la fascia sopra l'albero è il campo di ricerca.
-- Popover dei ruoli e dei modelli rifinito su composer GUI, Task Editor e Remote: rimosso il testo esplicativo dal menu dei ruoli con visualizzazione completa dei ruoli senza barre di scorrimento su finestre standard e icona del provider accanto a ciascun modello; nel popover dei modelli rimossa la cornice blu dalla ricerca con campo a tutta altezza, sezioni dei provider collassabili con freccia, icona della finestra di contesto ripristinata nella legenda in basso e sezione dei modelli recenti ordinati per utilizzo con priorità nei risultati di ricerca.
+- Companion 2.0 sostituisce la griglia con una lettura centrale e una colonna con domande, risposte da leggere, lavori in corso e coda globale; i progetti fermi restano separati al fondo.
+- Nella Companion la scheda centrale si apre solo per una domanda o una risposta da leggere e si chiude a mano o da sola quando la domanda riceve risposta da qualsiasi finestra; i progetti fermi non aprono schede vuote. Le domande hanno uno sfondo neutro, distinguono le domande dell'agente dalle proposte di risposta, offrono sempre «Altro...» e il campo note e mostrano il testo con Intelligent UI, con messaggio intero e messaggi precedenti consultabili.
+- Le nuove richieste catturate dalla Companion restano in coda fino all'avvio esplicito, anche nei progetti con auto-avvio attivo; una programmazione scelta esplicitamente continua a essere rispettata.
 - Il composer di coda Companion separa progetto, direttive e ruolo in badge rimovibili fuori dal messaggio: Invio va a capo, Ctrl+Invio accoda e le finestre alte almeno 700 px partono da due righe.
+- In Companion, il composer di risposta usa la dimensione di testo standard e suggerisce skill, @ e /; tutta la superficie libera del composer mette a fuoco il campo e la conferma di accodamento scompare dopo cinque secondi senza interferire con gli accodamenti successivi.
 - In Companion i progetti compaiono col nome completo invece della sigla (badge del composer senza «Coda», Domande, Da leggere, Lavori in corso, coda globale); lo stato del progetto nella coda globale sta accanto al suo nome invece che sotto ogni task; la scheda di lettura e le voci della colonna destra entrano ed escono con un’animazione, anche quando un progetto passa da Lavori in corso a Da leggere o Domande e quando una risposta viene segnata OK.
 - La coda Companion raggruppa i task sotto progetti richiudibili, con una linea dal pallino del progetto, titoli in grassetto, stato animato durante la generazione e testo espandibile prima dell'avvio.
 - Le card Companion eliminano etichette e pulsanti «+» ridondanti; «Rispondi» fluttua sopra il testo finché il composer non è visibile e le domande mostrano l'ultimo messaggio completo con gli stessi renderer della GUI e lo storico completo espandibile.
 - I task in coda spostano modifica e programmazione sotto la maniglia, estendono il contenuto e dividono le azioni di avvio a metà larghezza; i badge distinguono il nome del modello assegnato dal modello della sessione, senza cambiare l'esecuzione.
 - La scheda «Nuovo task» mantiene il titolo fino alla generazione, riunisce programmazione e avvio nel menu Salva, rende leggibile Salva, anima la conferma di eliminazione e allinea modello e thinking; Prewalk e contesto editor diventano capsule attivabili su tutta la superficie.
 - Prima di passare tra Terminale e GUI con un processo attivo, conferma l'interruzione del lavoro e la possibile perdita dello stato in memoria; Annulla lascia invariata la sessione.
-- Quando l'agente è al lavoro, nelle schede delle corsie l'icona diventa un anello che gira e nella tessera del progetto il punto diventa un anello nella tinta del progetto. L'ambra che respira resta solo per «serve una risposta».
-- L'avviso «dal terzo agente contemporaneo» compare solo quando avvii un task dalla coda: creare o aprire una corsia dal «+» non lo mostra più.
+- Nella barra delle corsie il pulsante «+» per una nuova corsia sta subito dopo l'ultima corsia, non più all'estremità destra sopra il pulsante della nuova chat.
 - La riga delle corsie è sempre visibile sotto la barra dei progetti, con la sola «Principale» e il «+» se il progetto non ha altre corsie: passando da un progetto all'altro le colonne non saltano più. Le schede delle corsie compaiono e scompaiono con un'animazione.
-- Cambiando progetto o corsia si dissolve soltanto ciò che è cambiato, senza muovere etichette fisse, composer e terminale: i file nuovi dell'albero, le righe di codice diverse dell'editor, le schede nuove e i messaggi visibili della chat, a cascata in 300 ms.
-- Pulsanti primari ridisegnati: niente più riempimento pieno con bordo scuro all'hover, ma fondo tenue del colore del tema e testo leggibile (Pull/Push della colonna Git, finestra aggiornamenti e tutte le finestre di dialogo).
-- Tessere dei progetti: su macOS il bordo spesso dopo il click è sostituito da un filetto sottile.
+- Quando l'agente è al lavoro, nelle schede delle corsie l'icona diventa un anello che gira e nella tessera del progetto il punto diventa un anello nella tinta del progetto. L'ambra che respira resta solo per «serve una risposta».
 - Stato delle tessere progetto e corsia ridisegnato senza anello sul bordo: «serve una risposta» è un anello ambra che respira attorno al punto del progetto (un segnalino ambra sull'icona nelle corsie), «finito» è lo stesso segno in grigio e fermo. Niente più doppio bordo sporco su macOS.
-- Rimossa da «Impostazioni → Aspetto» la sezione «Icone & Qualità Visiva»: il controllo delle icone gira ora in automatico (`npm run check:icons --strict`) prima di Nightly e rilascio.
-- Gli esempi del comando MCP includono `/mcp reauth` per rinnovare l’autenticazione OAuth di un server senza riavviare la sessione.
+- Tessere dei progetti: su macOS il bordo spesso dopo il click è sostituito da un filetto sottile.
+- L'avviso «dal terzo agente contemporaneo» compare solo quando avvii un task dalla coda: creare o aprire una corsia dal «+» non lo mostra più.
+- Cambiando progetto o corsia si dissolve soltanto ciò che è cambiato, senza muovere etichette fisse, composer e terminale: i file nuovi dell'albero, le righe di codice diverse dell'editor, le schede nuove e i messaggi visibili della chat, a cascata in 300 ms.
+- La ricerca del pannello FILE non ha più riquadro, sfondo proprio né anello di focus: tutta la fascia sopra l'albero è il campo di ricerca.
+- Popover dei ruoli e dei modelli rifinito su composer GUI, Task Editor e Remote: rimosso il testo esplicativo dal menu dei ruoli con visualizzazione completa dei ruoli senza barre di scorrimento su finestre standard e icona del provider accanto a ciascun modello; nel popover dei modelli rimossa la cornice blu dalla ricerca con campo a tutta altezza, sezioni dei provider collassabili con freccia, icona della finestra di contesto ripristinata nella legenda in basso e sezione dei modelli recenti ordinati per utilizzo con priorità nei risultati di ricerca.
+- Pulsanti primari ridisegnati: niente più riempimento pieno con bordo scuro all'hover, ma fondo tenue del colore del tema e testo leggibile (Pull/Push della colonna Git, finestra aggiornamenti e tutte le finestre di dialogo).
 - La finestra di aggiornamento di Studio mette in primo piano versione e novità in Markdown, senza riquadri annidati; canale compatto, dettagli tecnici richiudibili e azioni semplificate.
 - La colonna Git usa una testata compatta e una cronologia senza card: nomi file prioritari, percorsi separati e commit espandibili; le sessioni restano nel pannello Agente.
+- Impostazioni → Controllo remoto ridisegnato a card con stato, azioni di copia/apertura e zona pericolosa.
+- Rimossa da «Impostazioni → Aspetto» la sezione «Icone & Qualità Visiva»: il controllo delle icone gira ora in automatico (`npm run check:icons --strict`) prima di Nightly e rilascio.
+- Gli esempi del comando MCP includono `/mcp reauth` per rinnovare l’autenticazione OAuth di un server senza riavviare la sessione.
 - Su touch, Intelligent UI adatta tabelle, schede, metriche e confronti agli schermi stretti, con controlli più facili da premere e diagrammi ingrandibili con le dita.
 - Studio e il controllo remoto eliminano codice e risorse obsolete, riducendo le elaborazioni superflue e il contenuto distribuito senza rimuovere funzionalità disponibili.
 - La finestra di Studio non si restringe più sotto 1024×640: uscendo per sbaglio dallo schermo intero resta utilizzabile.
 - Le sezioni Todo e Subagenti sopra il composer partono chiuse e si aprono e chiudono con un'animazione.
-- Companion 2.0 sostituisce la griglia con una lettura centrale e una colonna con domande, risposte da leggere, lavori in corso e coda globale; i progetti fermi restano separati al fondo.
-- Le nuove richieste catturate dalla Companion restano in coda fino all'avvio esplicito, anche nei progetti con auto-avvio attivo; una programmazione scelta esplicitamente continua a essere rispettata.
-- Finestra Companion ottimizzata: la card centrale è chiudibile manualmente e si chiude da sola non appena una domanda riceve risposta da qualsiasi finestra, senza lasciare messaggi di stato residui; all'apertura non compare alcuna card centrale a meno che non vi sia una domanda o una risposta da leggere. I progetti fermi sono consultabili senza generare card vuote. Nelle domande la grafica adotta sfondo neutro e bordo standard senza anelli ambrati, distingue le chiamate del tool ask dalle proposte di risposta, include sempre l'opzione «Altro...» e il campo note, e rende il testo con Intelligent UI permettendo di consultare il messaggio intero o caricare i messaggi precedenti. Nella lettura delle risposte il composer usa dimensione del testo standard, integra i suggerimenti per @ e / e chiude automaticamente la card dopo un secondo dalla conferma di invio.
 
 ### Fixed
+- Aggiornate le librerie dell'interfaccia con vulnerabilità note, compresa quella di PDF.js che permetteva di eseguire codice all'apertura di un PDF malevolo.
+- Su Windows salvare impostazioni, coda dei task o configurazione di `omp` non fallisce più se l'antivirus sta esaminando il file in quell'istante.
+- In Companion, l'invio di un messaggio di follow-up chiude immediatamente la scheda di risposta senza mostrare una ricevuta disallineata sotto la vecchia risposta dell'agente.
+- Domande e completamenti degli altri progetti non sostituiscono la lettura aperta: bozze e scorrimenti restano al loro posto, e un errore di invio non cancella il messaggio.
+- OpenAI e OpenAI Codex usano il classico logo ChatGPT, senza riquadro o gradiente Codex.
+- OpenRouter mostra il proprio logo ufficiale anziché quello di Cursor.
+- Impostazioni → Modelli → Provider: aggiungere un provider avvia subito il login, la chiusura del terminale aggiorna il catalogo modelli, i provider custom hanno validazione e salvataggio senza refresh globale, e la rimozione di un account buggato è immediata con fallback sugli alias storici.
+- Impostazioni · Modelli AI: il numero accanto a «Catalogo» coincide con i modelli effettivamente elencati dei provider configurati.
+- Nel popover della quota il limite «Claude & GPT (shared)» di Google Antigravity compare una volta sola per finestra, non più duplicato per famiglia; il saldo crediti (es. Command Code) è mostrato come valore, non come barra al 100%.
+- La Whiteboard centrale non resta più vuota all'apertura di un diagramma.
 - L’Anteprima rapida si aggiorna automaticamente quando l’agente modifica il file o richiama `studio_preview` sullo stesso percorso, senza ricaricare contenuti invariati. Apri anche componenti React JSX/TSX dall’editor; i documenti HTML con doctype minuscolo sono riconosciuti correttamente.
 - «Ctrl+Tab» ora cambia progetto anche col cursore nel composer o in un campo di testo, e «Ctrl+Shift+Tab» non cambia più il livello di thinking.
-- Studio Remote aperto dalla schermata Home dell'iPhone: la barra di stato ha un colore pieno invece della sfocatura che copriva titolo e pulsanti della chat, e il composer arriva fino al fondo dello schermo, senza la fascia vuota sotto e con la tastiera aperta.
-- Nel popover della quota il limite «Claude & GPT (shared)» di Google Antigravity compare una volta sola per finestra, non più duplicato per famiglia; il saldo crediti (es. Command Code) è mostrato come valore, non come barra al 100%.
-- Impostazioni · Modelli AI: il numero accanto a «Catalogo» coincide con i modelli effettivamente elencati dei provider configurati.
-- Su macOS «Riavvia e installa» riapre Studio da solo dopo l'aggiornamento, senza doverlo avviare a mano.
-- Su iPhone le domande lunghe scorrono fino ai pulsanti di risposta; chat e finestre rispettano tastiera, barre del browser e aree sicure, anche in orizzontale.
-- La build del relay include le dipendenze e i tipi necessari ai diagrammi della chat e torna a superare il controllo della PWA.
 - Nei completamenti del composer, anche nel Companion, le frecce mantengono la voce selezionata invece di riportarla alla prima riga.
 - In Studio desktop e Remote, gli anelli di selezione, focus e trascinamento restano dentro i controlli: barre scorrevoli, schede e liste non ne tagliano più i lati.
-- Domande e completamenti degli altri progetti non sostituiscono la lettura aperta: bozze e scorrimenti restano al loro posto, e un errore di invio non cancella il messaggio.
-
+- Su macOS «Riavvia e installa» riapre Studio da solo dopo l'aggiornamento, senza doverlo avviare a mano.
+- Studio Remote aperto dalla schermata Home dell'iPhone: la barra di stato ha un colore pieno invece della sfocatura che copriva titolo e pulsanti della chat, e il composer arriva fino al fondo dello schermo, senza la fascia vuota sotto e con la tastiera aperta.
+- Su iPhone le domande lunghe scorrono fino ai pulsanti di risposta; chat e finestre rispettano tastiera, barre del browser e aree sicure, anche in orizzontale.
+- La build del relay include le dipendenze e i tipi necessari ai diagrammi della chat e torna a superare il controllo della PWA.
 ## [1.8.0] - 2026-10-20
 
 ### Added

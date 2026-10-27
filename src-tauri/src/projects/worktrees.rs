@@ -5165,8 +5165,12 @@ mod tests {
         let created = attach_sync(args).unwrap();
         assert!(created.adopted);
         assert_eq!(created.branch.as_deref(), Some("feat-ext"));
-        let expected_path = ext_dir.canonicalize().unwrap();
-        assert_eq!(Path::new(&created.worktree_path), expected_path);
+        // canonicalize su entrambi i lati: su Windows aggiunge il prefisso `\\?\`
+        // che il percorso restituito alla UI giustamente non ha.
+        assert_eq!(
+            Path::new(&created.worktree_path).canonicalize().unwrap(),
+            ext_dir.canonicalize().unwrap()
+        );
 
         remove_sync(RemoveWorktreeArgs {
             project_path: path_string(&repo.root).unwrap(),

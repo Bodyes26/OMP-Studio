@@ -107,20 +107,32 @@ pub(crate) fn replace_file(temp_path: &Path, target_path: &Path) -> io::Result<(
         .encode_wide()
         .chain(std::iter::once(0))
         .collect();
-    let replaced = unsafe {
-        ReplaceFileW(
-            target.as_ptr(),
-            temp.as_ptr(),
-            std::ptr::null(),
-            0x0000_0001, // REPLACEFILE_WRITE_THROUGH
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-        )
-    };
-    if replaced == 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
+    // Antivirus e indicizzatore aprono per qualche istante il file appena
+    // scritto senza condivisione in cancellazione: ReplaceFileW fallisce con
+    // 1175 (o 32/5) lasciando intatti entrambi i file, quindi riprovare e' sicuro.
+    const TRANSIENT: [i32; 3] = [1175, 32, 5];
+    let mut attempt = 0u64;
+    loop {
+        let replaced = unsafe {
+            ReplaceFileW(
+                target.as_ptr(),
+                temp.as_ptr(),
+                std::ptr::null(),
+                0x0000_0001, // REPLACEFILE_WRITE_THROUGH
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            )
+        };
+        if replaced != 0 {
+            return Ok(());
+        }
+        let error = io::Error::last_os_error();
+        let transient = error.raw_os_error().is_some_and(|code| TRANSIENT.contains(&code));
+        if !transient || attempt == 5 {
+            return Err(error);
+        }
+        attempt += 1;
+        std::thread::sleep(std::time::Duration::from_millis(20 * attempt));
     }
 }
 

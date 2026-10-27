@@ -11,21 +11,15 @@ released: items are closed into a version via `npm run release -- <version>`.
 
 ## [Unreleased]
 
-### Fixed
-- In Companion, sending a follow-up reply immediately closes the answer card instead of displaying an awkward sent receipt beneath the agent's previous message.
-- Companion and the main window share the “unread” state: replying to or reading an answer in Studio closes the open Companion card, and “OK” in Companion also counts in Studio.
-- Open PDFs in the editor with a local preview, page navigation, zoom and an explicit error for unreadable documents, instead of getting stuck on “Loading...”.
-- In Companion, skill suggestions are available in replies and the composer's empty surface focuses the field; queue confirmations disappear after five seconds without interfering with subsequent additions.
-- Remember panel sizes separately for each project and Git branch and each Lab prototype, including after restart; smaller windows do not overwrite preferred proportions.
-- Restore Nightly publishing by updating vulnerable frontend dependencies and migrating Studio and shared components to SvelteKit 3.
-- OpenAI and OpenAI Codex use the classic ChatGPT logo, without the Codex tile or gradient.
-- OpenRouter shows its official logo instead of Cursor's.
-- Settings → Models → Providers: adding a provider opens login immediately, closing the terminal refreshes the model catalog, custom providers validate and save without a global refresh, and removing a buggy account is immediate with fallback on historic aliases.
-- Settings → Remote control redesigned as cards with status, copy/open actions and a danger zone.
+## [1.9.0] - 2026-10-27
 
 ### Added
 - Open “New task” from any panel with Ctrl+Alt+K, also shown on task creation buttons.
 - In Companion, “OK” marks the displayed answer as read and closes its card without sending a message; new answers become unread again and pending questions still require an answer.
+- Companion and the main window share the “unread” state: replying to or reading an answer in Studio closes the open Companion card, and “OK” in Companion also counts in Studio.
+- Send a follow-up or a command from Companion directly to the conversation being read, without turning it into a new task.
+- Open PDFs in the editor with a local preview, page navigation and zoom; an unreadable document shows an error instead of getting stuck on “Loading...”.
+- Remember panel sizes separately for each project and Git branch and each Lab prototype, including after restart; smaller windows do not overwrite preferred proportions.
 - Resize panel separators with the keyboard: arrow keys move by 10 px, Shift by 40 px, Home/End reach the limits, and Enter restores the default size.
 - Cursor, OpenCode Go and Zen, Tavily, Devin, Z.ai, llama.cpp, LM Studio, Command Code, TokenRouter and xKiro show their own logos; icons are available offline and remain legible in light and dark themes.
 - Recognize providers by their logos in quotas, AI Model settings, composer and task pickers, and model information across Studio, Companion and Studio Remote: Claude for Anthropic, ChatGPT for OpenAI and Antigravity for its provider, with a neutral symbol for custom endpoints.
@@ -34,52 +28,60 @@ released: items are closed into a version via `npm run release -- <version>`.
 - The footer of each agent reply shows generation speed in tokens per second (excluding the wait for the first token), next to duration, model and cost.
 - `/compact` and the "Compact now" button ask how to compact when the model reads images: Snapcompact (instant, no model call), Soft or Remote, with a one-click card. `/compact soft|remote|snapcompact` also picks the mode directly.
 - Open Mermaid diagrams, SVGs and HTML/TSX prototypes from Studio Remote chat in an interactive preview: beside the conversation on desktop, full screen on phones.
-- Intelligent UI and diagram viewer: Mermaid diagrams in chat now use an interactive card with expandable lightbox and a button to project them onto the central Whiteboard with pan and zoom. Fixed the empty whiteboard rendering race condition and added SVG and PNG export. Introduced native in-chat Intelligent UI micro-components: dynamic smart tables with live search, column sorting, pagination, and CSV export; GitHub-style semantic callouts (> [!NOTE], [!TIP], [!WARNING], etc.); KPI and metric grids (ui:metric); interactive tabs (ui:tabs); collapsible accordions (ui:accordion); phased plan steppers (ui:steps), and before/after comparison sliders (ui:compare).
-- Send a follow-up or a command from Companion directly to the conversation being read, without turning it into a new task.
+- Mermaid diagrams in chat can be enlarged and projected onto the Whiteboard, with pan, zoom and SVG and PNG export.
+- Agent replies can contain tables with search, sorting, pagination and CSV export, note and warning callouts (`> [!NOTE]`, `[!TIP]`, `[!WARNING]`…), metrics, tabs, collapsible sections, plan steps and before/after comparisons.
 
 ### Changed
-- In the lane bar the "+" button for a new lane sits right after the last lane, no longer at the far right above the new chat button.
-- The FILE panel search has no box, separate background or focus ring anymore: the whole strip above the tree is the search field.
-- Polished role and model popovers across GUI composer, Task Editor, and Remote: removed the explanatory footer from the roles menu with full visibility of all roles without scrollbars on standard windows and provider icon next to each model; in the model popover removed the focus outline from search with full-height input, collapsible provider sections with chevron toggles, restored context window icon in the footer legend, and added a recent models section sorted by usage with priority in search matches.
+- Companion 2.0 replaces the grid with a central reader and a sidebar for questions, replies to read, ongoing work, and the global queue; idle projects stay separate at the bottom.
+- In Companion the central card opens only for a question or an unread reply, and closes manually or by itself once the question is answered from any window; idle projects no longer open empty cards. Questions use a neutral background, tell the agent's questions apart from reply proposals, always offer "Other..." and a note field, and render text with Intelligent UI, with the full message and earlier messages available.
+- New requests captured in Companion stay queued until explicitly started, even in projects with auto-dispatch enabled; an explicitly chosen schedule is still respected.
 - The Companion queue composer separates project, directives and role into removable badges outside the message: Enter inserts a line, Ctrl+Enter queues the task, and windows at least 700 px tall start with two lines.
+- In Companion, the reply composer uses standard text size and suggests skills, @ and /; the composer's empty surface focuses the field and queue confirmations disappear after five seconds without interfering with subsequent additions.
 - Companion shows projects by their full name instead of their short code (composer badge without “Queue”, Questions, To read, In progress, global queue); in the global queue the project status sits next to its name instead of under every task; the reading card and right-column entries animate in and out, including when a project moves between In progress, To read and Questions and when an answer is marked OK.
 - The Companion queue groups tasks under collapsible projects, with a line from the project dot, bold titles, animated title-generation status and expandable text before starting.
 - Companion cards remove redundant labels and “+” buttons; “Reply” floats over the text until the composer is visible, while questions show the full latest message using the GUI's own renderers and expandable complete history.
 - Queued tasks move editing and scheduling below the drag handle, widen the content and split launch actions equally; badges distinguish assigned model names from the session model without changing execution.
 - “New task” keeps its title until generation, groups scheduling and launch options in the Save menu, improves Save contrast, animates deletion confirmation and aligns model and thinking; Prewalk and editor context become fully clickable capsules.
 - Before switching between Terminal and GUI with a live process, confirm that running work stops and in-memory state may be lost; Cancel leaves the session untouched.
-- While the agent is working, lane tabs show a spinning ring in place of the icon and the project tab's dot becomes a ring in the project's hue. The breathing amber stays reserved for "needs an answer".
-- The "third concurrent agent" notice appears only when you start a task from the queue: creating or opening a lane from "+" no longer shows it.
+- In the lane bar the "+" button for a new lane sits right after the last lane, no longer at the far right above the new chat button.
 - The lane row is always visible under the project bar, showing just "Main" and the "+" when a project has no other lanes: switching between projects no longer makes the columns jump. Lane tabs animate in and out.
-- Switching project or lane now fades in only what changed, leaving fixed labels, the composer and the terminal still: new files in the tree, differing code lines in the editor, new tabs and the visible chat messages, in a 300 ms cascade.
-- Primary buttons redesigned: no more solid fill with a dark border on hover, but a soft tint of the theme colour with readable text (Git column Pull/Push, update modal, all dialogs).
-- Project tabs: on macOS the thick border after a click is replaced by a thin hairline.
+- While the agent is working, lane tabs show a spinning ring in place of the icon and the project tab's dot becomes a ring in the project's hue. The breathing amber stays reserved for "needs an answer".
 - Project and lane tab status redesigned without a border ring: "needs an answer" is an amber ring breathing around the project dot (an amber badge on the icon in lanes), "finished" is the same mark in grey and still. No more muddy double border on macOS.
-- Removed the "Icons & Visual Quality" section from "Settings → Appearance": the icon check now runs automatically (`npm run check:icons --strict`) before Nightly and release.
-- MCP command examples include `/mcp reauth` to renew a server’s OAuth authentication without restarting the session.
+- Project tabs: on macOS the thick border after a click is replaced by a thin hairline.
+- The "third concurrent agent" notice appears only when you start a task from the queue: creating or opening a lane from "+" no longer shows it.
+- Switching project or lane now fades in only what changed, leaving fixed labels, the composer and the terminal still: new files in the tree, differing code lines in the editor, new tabs and the visible chat messages, in a 300 ms cascade.
+- The FILE panel search has no box, separate background or focus ring anymore: the whole strip above the tree is the search field.
+- Polished role and model popovers across GUI composer, Task Editor, and Remote: removed the explanatory footer from the roles menu with full visibility of all roles without scrollbars on standard windows and provider icon next to each model; in the model popover removed the focus outline from search with full-height input, collapsible provider sections with chevron toggles, restored context window icon in the footer legend, and added a recent models section sorted by usage with priority in search matches.
+- Primary buttons redesigned: no more solid fill with a dark border on hover, but a soft tint of the theme colour with readable text (Git column Pull/Push, update modal, all dialogs).
 - Studio's update dialog prioritizes the version and Markdown release notes without nested panels, with compact channel selection, collapsible technical details and simpler actions.
 - The Git sidebar uses a compact header and card-free history: prominent file names, separate paths and expandable commits; sessions remain in the Agent panel.
+- Settings → Remote control redesigned as cards with status, copy/open actions and a danger zone.
+- Removed the "Icons & Visual Quality" section from "Settings → Appearance": the icon check now runs automatically (`npm run check:icons --strict`) before Nightly and release.
+- MCP command examples include `/mcp reauth` to renew a server’s OAuth authentication without restarting the session.
 - On touch devices, Intelligent UI adapts tables, tabs, metrics and comparisons to narrow screens, with easier-to-tap controls and pinch-to-zoom diagrams.
 - Studio and remote control remove obsolete code and resources, reducing unnecessary work and shipped content without removing available features.
 - The Studio window no longer shrinks below 1024×640, so accidentally leaving full screen keeps it usable.
 - The Todo and Subagents sections above the composer start collapsed and animate when opening and closing.
-- Companion 2.0 replaces the grid with a central reader and a sidebar for questions, replies to read, ongoing work, and the global queue; idle projects stay separate at the bottom.
-- New requests captured in Companion stay queued until explicitly started, even in projects with auto-dispatch enabled; an explicitly chosen schedule is still respected.
-- Optimized Companion window: the central project card is explicitly dismissible and closes automatically as soon as a question is answered from any window without lingering resolved notices; by default no central card is opened unless there is a question or unread reply. Parked projects are informative and no longer open empty cards. Question cards adopt neutral background styling and standard borders without amber rings, clearly distinguish ask tool calls from message proposals, always provide "Other..." and note fields, render question text with Intelligent UI, and allow expanding full messages or loading previous context. In the reply reader, the composer uses standard text sizing, includes @ and / autocomplete suggestions, and auto-dismisses one second after reply confirmation.
 
 ### Fixed
+- Updated interface libraries with known vulnerabilities, including the PDF.js flaw that allowed code execution when opening a malicious PDF.
+- On Windows, saving settings, the task queue or the `omp` configuration no longer fails when the antivirus is scanning the file at that moment.
+- In Companion, sending a follow-up reply immediately closes the answer card instead of displaying an awkward sent receipt beneath the agent's previous message.
+- Questions and completions from other projects no longer replace the open reader: drafts and scroll positions stay in place, and a failed send does not erase the message.
+- OpenAI and OpenAI Codex use the classic ChatGPT logo, without the Codex tile or gradient.
+- OpenRouter shows its official logo instead of Cursor's.
+- Settings → Models → Providers: adding a provider opens login immediately, closing the terminal refreshes the model catalog, custom providers validate and save without a global refresh, and removing a buggy account is immediate with fallback on historic aliases.
+- Settings · AI Models: the number next to "Catalog" now matches the models actually listed for configured providers.
+- In the quota popover, Google Antigravity's "Claude & GPT (shared)" limit now appears once per window instead of duplicated per family; credit balances (e.g. Command Code) show as a value instead of a 100% bar.
+- The central Whiteboard no longer stays empty when a diagram is opened.
 - Quick Preview updates automatically when the agent edits the file or invokes `studio_preview` again on the same path, without reloading unchanged content. Open React JSX/TSX components from the editor too; HTML documents with a lowercase doctype are recognized correctly.
 - "Ctrl+Tab" now switches project even with the cursor in the composer or a text field, and "Ctrl+Shift+Tab" no longer changes the thinking level.
-- Studio Remote opened from the iPhone Home Screen: the status bar has a solid colour instead of the blur that covered the chat title and buttons, and the composer reaches the bottom of the screen, with no empty strip below it, also with the keyboard open.
-- In the quota popover, Google Antigravity's "Claude & GPT (shared)" limit now appears once per window instead of duplicated per family; credit balances (e.g. Command Code) show as a value instead of a 100% bar.
-- Settings · AI Models: the number next to "Catalog" now matches the models actually listed for configured providers.
-- On macOS, "Restart and install" now reopens Studio by itself after the update, with no manual launch needed.
-- On iPhone, long questions scroll to their answer buttons; chat and dialogs respect the keyboard, browser bars and safe areas, including landscape orientation.
-- The relay build includes the dependencies and types required by chat diagrams and passes the PWA checks again.
 - Composer completions, including in Companion, keep the arrow-key selection instead of resetting it to the first row.
 - In Studio desktop and Remote, selection, focus and drag rings stay inside controls, so scrolling bars, cards and lists no longer clip their edges.
-- Questions and completions from other projects no longer replace the open reader: drafts and scroll positions stay in place, and a failed send does not erase the message.
-
+- On macOS, "Restart and install" now reopens Studio by itself after the update, with no manual launch needed.
+- Studio Remote opened from the iPhone Home Screen: the status bar has a solid colour instead of the blur that covered the chat title and buttons, and the composer reaches the bottom of the screen, with no empty strip below it, also with the keyboard open.
+- On iPhone, long questions scroll to their answer buttons; chat and dialogs respect the keyboard, browser bars and safe areas, including landscape orientation.
+- The relay build includes the dependencies and types required by chat diagrams and passes the PWA checks again.
 ## [1.8.0] - 2026-10-20
 
 ### Added
