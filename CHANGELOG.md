@@ -12,6 +12,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 ## [Unreleased]
 
 ### Fixed
+- In Companion, l'invio di un messaggio di follow-up chiude immediatamente la scheda di risposta senza mostrare una ricevuta disallineata sotto la vecchia risposta dell'agente.
 - Companion e finestra principale condividono lo stato «da leggere»: rispondere o leggere la risposta in Studio chiude la scheda aperta in Companion, e l'«OK» dato in Companion vale anche in Studio.
 - Apri i PDF nell’editor con anteprima locale, cambio pagina, zoom e un errore esplicito per i documenti illeggibili, senza restare su «Caricamento in corso...».
 - In Companion, i suggerimenti delle skill sono disponibili anche nelle risposte e tutta la superficie libera del composer mette a fuoco il campo; la conferma di accodamento scompare dopo cinque secondi senza interferire con gli accodamenti successivi.

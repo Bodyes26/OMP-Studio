@@ -12,6 +12,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 ## [Unreleased]
 
 ### Fixed
+- In Companion, sending a follow-up reply immediately closes the answer card instead of displaying an awkward sent receipt beneath the agent's previous message.
 - Companion and the main window share the “unread” state: replying to or reading an answer in Studio closes the open Companion card, and “OK” in Companion also counts in Studio.
 - Open PDFs in the editor with a local preview, page navigation, zoom and an explicit error for unreadable documents, instead of getting stuck on “Loading...”.
 - In Companion, skill suggestions are available in replies and the composer's empty surface focuses the field; queue confirmations disappear after five seconds without interfering with subsequent additions.

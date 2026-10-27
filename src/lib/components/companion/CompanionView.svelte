@@ -902,10 +902,8 @@
 		try {
 			await companionStore.sendConversation(target, text);
 			markReplySent(presentation, projectId, laneId, text, repliedMessageId, target.sessionId);
-			setTimeout(() => {
-				presentation.selectedProjectId = null;
-				presentation.selectedRequestId = null;
-			}, 1000);
+			presentation.selectedProjectId = null;
+			presentation.selectedRequestId = null;
 		} catch (err: unknown) {
 			const message = err instanceof Error ? err.message : String(err);
 			conv.isSending = false;
