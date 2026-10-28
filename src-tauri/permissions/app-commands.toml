@@ -185,10 +185,12 @@ commands.allow = [
 
 [[permission]]
 identifier = "allow-attention"
-description = "Segnalazione di attenzione su taskbar Windows e Dock macOS"
+description = "Segnalazione di attenzione su taskbar Windows e Dock macOS e notifiche di sistema per progetto"
 commands.allow = [
     "set_app_attention",
-    "clear_app_attention"
+    "clear_app_attention",
+    "send_project_notification",
+    "dismiss_project_notifications"
 ]
 
 [[permission]]

@@ -17,6 +17,7 @@
 	import { anchoredPopover } from '#lib/anchoredPopover.ts';
 	import { quotaStore, type ProviderHost, type QuotaLimit, type QuotaReport } from '#lib/stores/quota.svelte.ts';
 	import { providersMatch } from '#lib/quota/providers.ts';
+	import { reportIndexForHost } from '#lib/quota/accountHosts.ts';
 	import { activeQuotaStore } from '#lib/stores/activeQuota.svelte.ts';
 	import { settingsStore } from '#lib/stores/settings.svelte.ts';
 	import QuotaLimitRow from './quota/QuotaLimitRow.svelte';
@@ -56,15 +57,36 @@
 	/* Host GUI e host noti allo store: usati per l'etichetta "In uso da" */
 	const allHosts = $derived([...guiHosts, ...quotaStore.providerHosts]);
 
+	/* Progetti in uso per ciascun account: con piu' account sullo stesso provider
+	   conta il pin che omp ha registrato per la sessione, non il solo provider. */
+	const hostLabelsByReport = $derived.by(() => {
+		const reports = quotaStore.reports;
+		const labels = new Map<QuotaReport, string[]>();
+		for (const host of allHosts) {
+			const label = host.project || host.host;
+			if (!label) continue;
+			const index = reportIndexForHost(host, reports, quotaStore.reportPinHashes);
+			if (index === undefined) continue;
+			const list = labels.get(reports[index]) ?? [];
+			if (!list.includes(label)) list.push(label);
+			labels.set(reports[index], list);
+		}
+		return labels;
+	});
+
 	/* Il provider del modello in uso (quello della chip) va in cima: e' la quota
 	   che si cerca aprendo il popover. Dentro il gruppo, prima l'account che la
 	   chip ha risolto. Sort stabile: il resto mantiene l'ordine di OMP. */
 	const sortedReports = $derived.by(() => {
 		const provider = activeQuotaStore.activeProvider;
 		if (!provider) return quotaStore.reports;
+		const pin = activeQuotaStore.activeCredentialPin;
+		const pinned = pin ? quotaStore.findReportByPin(provider, pin) : undefined;
 		const email = activeQuotaStore.info.accountEmail;
+		const isActiveAccount = (report: QuotaReport) =>
+			pinned ? report === pinned : Boolean(email) && report.metadata?.email === email;
 		const rank = (report: QuotaReport) =>
-			!providersMatch(report.provider, provider) ? 2 : email && report.metadata?.email === email ? 0 : 1;
+			!providersMatch(report.provider, provider) ? 2 : isActiveAccount(report) ? 0 : 1;
 		return [...quotaStore.reports].sort((a, b) => rank(a) - rank(b));
 	});
 
@@ -365,10 +387,7 @@
 					     chiave sul provider manderebbe in errore il blocco. -->
 					{#each sortedReports as report}
 						{#if report.limits && report.limits.length > 0}
-							{@const projectLabels = [...new Set(allHosts
-								.filter((host) => providersMatch(host.provider, report.provider))
-								.map((host) => host.project || host.host)
-								.filter((label) => Boolean(label)))]}
+							{@const projectLabels = hostLabelsByReport.get(report) ?? []}
 							{@const waitingHere = scheduleStore.waitingSummary(scheduledTasks, (provider) => providersMatch(provider, report.provider))}
 							{@const resetSummary = quotaStore.findResetSummary(report)}
 							<div class="provider-section">

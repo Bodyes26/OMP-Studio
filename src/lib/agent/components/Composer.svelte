@@ -900,6 +900,7 @@
 	);
 	/** Il pulsante «A margine» c'e' solo se omp sa rispondere (18.6.3+); lo sondano l'avvio e il primo uso. */
 	const showBtwButton = $derived(session.isReady && session.btw.supported !== false);
+	const isLab = $derived(Boolean(session.labConfig));
 	const placeholderText = $derived(
 		session.plan.active
 			? (isLab ? m.plan_lab_composer_placeholder() : m.plan_composer_placeholder())
@@ -944,8 +945,6 @@
 		insertComposerText(prompt);
 		focus();
 	}
-
-	const isLab = $derived(Boolean(session.labConfig));
 </script>
 
 <svelte:window onkeydown={handleWindowKeydown} />

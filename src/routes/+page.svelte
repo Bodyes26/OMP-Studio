@@ -548,7 +548,9 @@
 						host: 'OMP Studio',
 						project: projectName,
 						project_path: projectPath,
-						last_active_ms: Date.now()
+						last_active_ms: Date.now(),
+						// Senza pin il popover non sa a quale account attribuire la sessione
+						credential_pin: cachedSessionPin(session.sessionId || session.sessionFile || undefined, provider)
 					});
 				}
 			}
@@ -575,7 +577,17 @@
 	// Memoizzazione dei pin credenziali per le sessioni per non invocare ad ogni tick dell'effetto
 	let sessionPinsCache = $state<Record<string, Record<string, string>>>({});
 	const sessionPinsInFlight = new Set<string>();
+	const sessionPinsRetry = new Map<string, number>();
 	const prevGeneratingBySession = new Map<string, boolean>();
+
+	/** Pin credenziale gia' letto per sessione e provider, senza avviare letture. */
+	function cachedSessionPin(sessionKey: string | undefined, provider: string): string | undefined {
+		const cached = sessionKey ? sessionPinsCache[sessionKey] : undefined;
+		if (!cached) return undefined;
+		if (cached[provider]) return cached[provider];
+		const matchedKey = Object.keys(cached).find((p) => providersMatch(p, provider));
+		return matchedKey ? cached[matchedKey] : undefined;
+	}
 	let postGenerationQuotaDebounceTimer: number | null = null;
 
 	function triggerPostGenerationQuotaRefresh(): void {
@@ -671,12 +683,19 @@
 				}
 
 				const cached = sessionPinsCache[sessionKey];
-				if (cached) {
-					credentialPin = cached[provider];
-					if (!credentialPin) {
-						const matchedKey = Object.keys(cached).find((p) => providersMatch(p, provider));
-						if (matchedKey) credentialPin = cached[matchedKey];
-					}
+				credentialPin = cachedSessionPin(sessionKey, provider);
+				// omp scrive il pin alla fine di ogni risposta riuscita: nel primo turno
+				// di una sessione nuova il file non lo contiene ancora quando lo leggiamo.
+				// Finche' genera senza pin si rilegge a intervalli, altrimenti la chip
+				// resta sull'account indovinato per tutto il turno.
+				if (isGenerating && cached && !credentialPin && !sessionPinsRetry.has(sessionKey)) {
+					sessionPinsRetry.set(
+						sessionKey,
+						window.setTimeout(() => {
+							sessionPinsRetry.delete(sessionKey);
+							delete sessionPinsCache[sessionKey];
+						}, 5000)
+					);
 				}
 				// Una sola lettura per sessione, rinnovata quando la generazione termina.
 				// Il criterio e' l'assenza della voce in cache, non del pin: una sessione
@@ -705,7 +724,7 @@
 					? normalizeProjectPath(project.lane.workspacePath).toLowerCase()
 					: '';
 				const host = quotaStore.providerHosts.find((h) => {
-					if (!providersMatch(h.provider, provider)) return false;
+					if (!h.credential_pin || !providersMatch(h.provider, provider)) return false;
 					const normHostPath = h.project_path ? normalizeProjectPath(h.project_path).toLowerCase() : '';
 					const matchesPath = normActivePath && normHostPath && normActivePath === normHostPath;
 					const matchesName = h.project && (h.project === projectName || h.project === project.name);

@@ -15,12 +15,15 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import studioLanesExtension, {
 	callBridge,
 	corsiaToolsFor,
 	type CorsieEnvironment
 } from '../extensions/studio-lanes.ts';
-import { createLabToolCallHook } from '../extensions/studio-lab.ts';
+import { createLabToolCallHook, normalizePathForBinding } from '../extensions/studio-lab.ts';
 import {
 	buildLabHandoffPackage,
 	classifyAgentLane,
@@ -281,12 +284,40 @@ describe('Gate R43 — tool corsia_* guidati dall\'agente', () => {
 	});
 
 	describe('6. Laboratorio e consegna', () => {
-		it('l\'hook fail-closed ammette corsia_fatto e blocca gli altri verbi', async () => {
-			const hook = createLabToolCallHook({ workspaceDir: '/tmp/lab-ws', projectDir: null });
-			assert.equal(await hook({ toolName: 'corsia_fatto', input: { riassunto: 'ok' } }), undefined);
-			for (const verbo of CORSIA_VERBI.filter((v) => v !== 'fatto')) {
-				const result = await hook({ toolName: `corsia_${verbo}`, input: {} });
-				assert.equal(result?.block, true, `corsia_${verbo} deve restare bloccato`);
+		it('l\'hook fail-closed ammette corsia_fatto solo a brief approvato e blocca gli altri verbi', async () => {
+			const workspace = mkdtempSync(join(tmpdir(), 'lab-ws-'));
+			const previousProto = process.env.OMP_LAB_PROTOTYPE_ID;
+			const previousProject = process.env.OMP_LAB_PROJECT_PATH;
+			delete process.env.OMP_LAB_PROTOTYPE_ID;
+			delete process.env.OMP_LAB_PROJECT_PATH;
+			try {
+				const hook = createLabToolCallHook({ workspaceDir: workspace, projectDir: null });
+				const beforeApproval = await hook({ toolName: 'corsia_fatto', input: { riassunto: 'ok' } });
+				assert.equal(beforeApproval?.block, true, 'senza brief approvato il prototipo non si chiude');
+
+				mkdirSync(join(workspace, '.lab'));
+				writeFileSync(
+					join(workspace, '.lab', '.brief-approved.json'),
+					JSON.stringify({
+						approved: true,
+						approvedAt: '2026-10-28T10:00:00.000Z',
+						slug: 'brief',
+						prototypeId: null,
+						workspaceDir: normalizePathForBinding(workspace),
+						projectDir: null
+					})
+				);
+				assert.equal(await hook({ toolName: 'corsia_fatto', input: { riassunto: 'ok' } }), undefined);
+				for (const verbo of CORSIA_VERBI.filter((v) => v !== 'fatto')) {
+					const result = await hook({ toolName: `corsia_${verbo}`, input: {} });
+					assert.equal(result?.block, true, `corsia_${verbo} deve restare bloccato`);
+				}
+			} finally {
+				if (previousProto === undefined) delete process.env.OMP_LAB_PROTOTYPE_ID;
+				else process.env.OMP_LAB_PROTOTYPE_ID = previousProto;
+				if (previousProject === undefined) delete process.env.OMP_LAB_PROJECT_PATH;
+				else process.env.OMP_LAB_PROJECT_PATH = previousProject;
+				rmSync(workspace, { recursive: true, force: true });
 			}
 		});
 

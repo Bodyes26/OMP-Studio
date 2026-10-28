@@ -30,6 +30,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - In the Companion's global queue a task without a generated title shows "New task" instead of its full text, and the title is generated as soon as you save the task, without opening the project's queue in Studio.
 - A Companion question card shows only the text the agent wrote after your last answer, even when you already answered other questions from Studio; the rest of the conversation, including your answers to earlier questions, opens with "Load previous messages" and folds back for the next question.
 - A task saved from the Companion without a role or model gets the default task role and its model instead of having no role.
+- In the quota popover, with several accounts on the same provider, "In use by" appears only on the account omp actually uses for each session instead of on every account of that provider. The quota chip also recognises the account during the first turn of a new session and in long sessions, without picking up the account of another session in the same project.
 
 ## [1.9.0] - 2026-10-27
 

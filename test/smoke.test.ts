@@ -99,6 +99,7 @@ import './studio-docs.test.ts';
 import './project-docs.test.ts';
 import './corsie-agente.test.ts';
 import './usage-resets.test.ts';
+import './quota-accounts.test.ts';
 import './remote-projection.test.ts';
 import './remote-commands.test.ts';
 import './project-commands.test.ts';

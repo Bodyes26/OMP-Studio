@@ -25,6 +25,7 @@
 			files: m.plan_section_files,
 			verification: m.plan_section_verification,
 			surface: m.plan_section_surface,
+			assumptions: m.plan_section_assumptions,
 			domain: m.plan_section_domain,
 			data: m.plan_section_data,
 			design: m.plan_section_design,

@@ -30,6 +30,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Nella coda globale della Companion un task senza titolo generato mostra «Nuovo task» invece del testo intero, e il titolo viene generato appena salvi il task, senza dover aprire la coda del progetto in Studio.
 - Nella card di una domanda della Companion compare solo il testo che l'agente ha scritto dopo la tua ultima risposta, anche se hai già risposto ad altre domande da Studio; il resto della conversazione, risposte alle domande comprese, si apre con «Carica messaggi precedenti» e torna chiuso alla domanda successiva.
 - Un task salvato dalla Companion senza indicare ruolo o modello prende il ruolo predefinito dei task con il suo modello, invece di restare senza ruolo.
+- Nel popover delle quote, con più account sullo stesso provider, «In uso da» compare solo sull'account che omp usa davvero per ogni sessione, invece che su tutti gli account del provider. La chip della quota riconosce l'account anche durante il primo turno di una sessione nuova e nelle sessioni lunghe, senza prendere l'account di un'altra sessione dello stesso progetto.
 
 ## [1.9.0] - 2026-10-27
 

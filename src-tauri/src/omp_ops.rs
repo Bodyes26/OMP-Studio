@@ -1188,7 +1188,7 @@ fn provider_hosts_sync() -> Result<Vec<ProviderHost>, String> {
         Err(error) => return Err(format!("Lettura sessioni terminale: {}", error)),
     };
 
-    let mut hosts = HashMap::<(String, String), ProviderHost>::new();
+    let mut hosts = HashMap::<(String, String, Option<String>), ProviderHost>::new();
     for entry in entries {
         let entry = match entry {
             Ok(entry) => entry,
@@ -1279,9 +1279,22 @@ fn provider_hosts_sync() -> Result<Vec<ProviderHost>, String> {
 
             let (provider_model, pins) = tail_providers_and_pins(&tail, starts_mid_line);
             if let Some((provider, model)) = provider_model {
-                let credential_pin = pins.get(&provider).cloned();
-                let dedupe_key = (project_path.clone(), provider.clone());
-                let mut candidate = ProviderHost {
+                // Il pin vive solo nel file di questa sessione: omp lega l'account
+                // alla sessione, quindi quello di un'altra sessione dello stesso
+                // progetto puo' essere un altro account. Se il record e' fuori dalla
+                // coda si legge il file intero invece di ereditarlo da altre sessioni.
+                let credential_pin = pins.get(&provider).cloned().or_else(|| {
+                    if starts_mid_line {
+                        extract_credential_pins_from_file(&file_path).remove(&provider)
+                    } else {
+                        None
+                    }
+                });
+                // Due sessioni dello stesso progetto possono usare account diversi:
+                // la chiave include il pin, cosi' il popover attribuisce ciascuna
+                // all'account giusto. A parita' di chiave resta la piu' recente.
+                let dedupe_key = (project_path.clone(), provider.clone(), credential_pin.clone());
+                let candidate = ProviderHost {
                     provider,
                     model,
                     host: host_name.clone(),
@@ -1291,20 +1304,11 @@ fn provider_hosts_sync() -> Result<Vec<ProviderHost>, String> {
                     credential_pin,
                 };
 
-                if let Some(existing) = hosts.get_mut(&dedupe_key) {
-                    if existing.last_active_ms >= candidate.last_active_ms {
-                        // Preserva il pin se l'host esistente piu' recente ne era sprovvisto
-                        // ma la sessione candidata lo contiene nella coda.
-                        if existing.credential_pin.is_none() && candidate.credential_pin.is_some() {
-                            existing.credential_pin = candidate.credential_pin;
-                        }
-                        continue;
-                    }
-                    // Se la nuova sessione non ha il record del pin nella coda ma l'esistente ce l'aveva,
-                    // lo eredita per evitare di perderlo quando la sessione supera la dimensione della coda.
-                    if candidate.credential_pin.is_none() {
-                        candidate.credential_pin = existing.credential_pin.clone();
-                    }
+                if hosts
+                    .get(&dedupe_key)
+                    .is_some_and(|existing| existing.last_active_ms >= candidate.last_active_ms)
+                {
+                    continue;
                 }
                 hosts.insert(dedupe_key, candidate);
             }
@@ -1557,6 +1561,11 @@ fn extract_credential_pins_from_file(path: &Path) -> HashMap<String, String> {
     };
     let reader = BufReader::new(file);
     for line in reader.lines().map_while(Result::ok) {
+        // Filtro testuale prima del parse: i pin sono pochi record in transcript
+        // che arrivano a decine di MB, e il file si rilegge a ogni fine turno.
+        if !line.contains("\"credential_pin\"") {
+            continue;
+        }
         let Ok(val) = serde_json::from_str::<serde_json::Value>(&line) else {
             continue;
         };

@@ -538,7 +538,8 @@ export class PlanController {
 			approvalConfirmed = true;
 			this.active = false;
 			if (isLab) this.briefApproved = true;
-			card.savedPath = savedPath ?? (isLab ? '.lab/brief.md' : null);
+			const defaultPath = isLab ? '.lab/brief.md' : `.omp/plans/${planSaveFileName(doc.request.title)}`;
+			card.savedPath = savedPath ?? (isLab ? defaultPath : null);
 			// Il piano finale lo rilegge l'estensione (anche dopo «Apri nell'editor»).
 			const fromDisk = fromTurn ? this.submitDetails()?.planContent : undefined;
 			const planContent = typeof fromDisk === 'string' && fromDisk.trim() ? fromDisk : content;

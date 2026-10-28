@@ -111,7 +111,9 @@ describe('Piano: richiesta di revisione e stato', () => {
 		assert.deepEqual(parsePlanStatus('{"enabled":true,"planFilePath":"local://a-plan.md","title":"A"}'), {
 			enabled: true,
 			planFilePath: 'local://a-plan.md',
-			title: 'A'
+			title: 'A',
+			kind: undefined,
+			briefApproved: false
 		});
 		assert.equal(parsePlanStatus(undefined), null);
 		assert.equal(parsePlanStatus('non json'), null);
@@ -357,7 +359,7 @@ describe('Estensione studio-plan: utilita\'', () => {
 				{ type: 'message' },
 				{ type: 'custom', customType: PLAN_STATE_ENTRY, data: { enabled: false, planFilePath: 'local://a-plan.md', title: 'A' } }
 			]),
-			{ enabled: false, planFilePath: 'local://a-plan.md', title: 'A' }
+			{ enabled: false, planFilePath: 'local://a-plan.md', title: 'A', kind: undefined, briefApproved: false }
 		);
 		assert.equal(restoreFromEntries(undefined).enabled, false);
 	});
@@ -487,7 +489,13 @@ describe('Estensione studio-plan: flusso con omp finto', () => {
 		assert.ok(readdirSync(join(root, '.omp', 'plans')).length >= 1);
 		assert.equal(planState().enabled, false);
 		assert.ok(!active.includes(PLAN_SUBMIT_TOOL));
-		assert.deepEqual(appended.at(-1), { enabled: false, planFilePath: 'local://export-csv-plan.md', title: 'Export CSV' });
+		assert.deepEqual(appended.at(-1), {
+			enabled: false,
+			planFilePath: 'local://export-csv-plan.md',
+			title: 'Export CSV',
+			kind: undefined,
+			briefApproved: undefined
+		});
 
 		if (previous === undefined) delete process.env.OMP_STUDIO_PLAN;
 		else process.env.OMP_STUDIO_PLAN = previous;

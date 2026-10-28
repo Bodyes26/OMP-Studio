@@ -592,6 +592,10 @@ export function createLabToolCallHook(env?: LabHookEnvironment) {
 		try {
 			const toolName = event.toolName;
 			const input = event.input || {};
+			// Determinazione cartelle di lavoro: prima dei tool liberi, che per
+			// `corsia_fatto` controllano gia' l'approvazione del brief nel workspace.
+			const cwd = env?.getCwd ? env.getCwd() : process.cwd();
+			const workspaceDir = env?.workspaceDir || process.env.OMP_LAB_WORKSPACE || cwd;
 
 			// 1. Tool liberi consentiti senza vincoli di percorso
 			if (FREE_TOOLS[toolName] === true) {
@@ -603,9 +607,6 @@ export function createLabToolCallHook(env?: LabHookEnvironment) {
 				}
 				return undefined;
 			}
-			// Determinazione cartelle di lavoro
-			const cwd = env?.getCwd ? env.getCwd() : process.cwd();
-			const workspaceDir = env?.workspaceDir || process.env.OMP_LAB_WORKSPACE || cwd;
 			const rawProjectDir = env?.projectDir !== undefined ? env.projectDir : (process.env.OMP_LAB_PROJECT_PATH || null);
 			const projectDir = rawProjectDir && rawProjectDir.trim() ? rawProjectDir.trim() : null;
 
