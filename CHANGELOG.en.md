@@ -11,6 +11,17 @@ released: items are closed into a version via `npm run release -- <version>`.
 
 ## [Unreleased]
 
+### Added
+- Background jobs: a single queue in the main window generates task and session titles, maintains the history index, fetches projects from Git and checks for updates without opening their panels. "Settings → Background jobs" has the global switch, a toggle for each job, the model used by AI jobs and the quota floor below which subscription models stop.
+- A bottom-bar icon shows running and pending jobs; its popover lets you interrupt the current job, pause or resume each job, run it now or stop everything.
+
+### Changed
+- Session history uses a persistent local index and opens instantly even after a restart; titles of past sessions are generated without opening the history.
+- Automatic Git fetch covers every open project, not just the active one, and the Studio and omp update check repeats periodically. Toggles that used to live in other Settings sections are now under "Background jobs".
+
+### Fixed
+- In the Companion's global queue a task without a generated title shows "New task" instead of its full text, and the title is generated as soon as you save the task, without opening the project's queue in Studio.
+
 ## [1.9.0] - 2026-10-27
 
 ### Added

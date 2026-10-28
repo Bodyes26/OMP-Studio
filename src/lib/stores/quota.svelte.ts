@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { accountPinHash, shortestWindowLimit, remainingFractionOf } from '../quota/resolve';
+import { providersMatch } from '../quota/providers';
 import { m as msg } from '#lib/paraglide/messages.js';
 import { createAdaptivePoller, type AdaptivePoller } from '#lib/utils/windowActivity.svelte.ts';
 import {
@@ -22,23 +23,6 @@ export type ProviderHost = {
 	credential_pin?: string;
 };
 
-const PROVIDER_FAMILY_BY_ID: Record<string, string> = {
-	openai: 'openai',
-	'openai-codex': 'openai',
-	google: 'google',
-	'google-antigravity': 'google',
-	copilot: 'copilot',
-	'github-copilot': 'copilot',
-	ollama: 'ollama',
-	'ollama-cloud': 'ollama'
-};
-
-export function providersMatch(left: string | undefined, right: string | undefined): boolean {
-	if (!left || !right) return false;
-	const first = left.trim().toLowerCase();
-	const second = right.trim().toLowerCase();
-	return (PROVIDER_FAMILY_BY_ID[first] ?? first) === (PROVIDER_FAMILY_BY_ID[second] ?? second);
-}
 
 export type QuotaStatus = 'idle' | 'loading' | 'ok' | 'warning' | 'exhausted' | 'unconfigured' | 'offline';
 

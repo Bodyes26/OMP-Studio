@@ -111,3 +111,4 @@ import './companion-conversation.test.ts';
 import './companion-presentation.test.ts';
 import './preview-refresh.test.ts';
 import './panel-geometry.test.ts';
+import './background-jobs.test.ts';

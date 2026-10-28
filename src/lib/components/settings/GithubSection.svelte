@@ -317,22 +317,6 @@
 
 			<div class="option-row">
 				<div class="option-info">
-					<span id="github-autofetch-title" class="option-title">{m.settings_github_auto_fetch_title()}</span>
-					<span id="github-autofetch-desc" class="option-desc">{m.settings_github_auto_fetch_desc()}</span>
-				</div>
-				<div class="option-control">
-					<Switch
-						id="github-autofetch"
-						ariaLabelledBy="github-autofetch-title"
-						ariaDescribedBy="github-autofetch-desc"
-						checked={settingsStore.github.autoFetch}
-						onChange={(val) => settingsStore.patchGithub({ autoFetch: val })}
-					/>
-				</div>
-			</div>
-
-			<div class="option-row">
-				<div class="option-info">
 					<span id="github-upstream-badges-title" class="option-title">{m.settings_github_upstream_badges_title()}</span>
 					<span id="github-upstream-badges-desc" class="option-desc">{m.settings_github_upstream_badges_desc()}</span>
 				</div>

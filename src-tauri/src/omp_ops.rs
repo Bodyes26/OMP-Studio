@@ -1321,454 +1321,78 @@ pub async fn provider_hosts() -> Result<Vec<ProviderHost>, String> {
         .map_err(|e| format!("Task provider_hosts: {}", e))?
 }
 
-/// `title` e' quello di omp (indice `session_titles` o intestazione del file)
-/// o, in mancanza, quello generato da Studio; `prompt` e' il primo messaggio
-/// dell'utente. La GUI mostra il titolo e sotto il messaggio, oppure il solo
-/// messaggio quando il titolo manca.
-#[derive(Serialize)]
-pub struct SessionEntry {
-    pub id: String,
-    pub title: Option<String>,
-    pub prompt: String,
-    pub created_at: i64,
-}
-
-fn normalize_path_for_compare(path: &str) -> String {
-    path.replace('\\', "/").trim_end_matches('/').to_lowercase()
-}
-
+pub use crate::session_index::SessionEntry;
+use crate::session_index::{matches_query, normalize_path_for_compare, truncate_title};
+#[cfg(test)]
+use crate::session_index::{session_folder_might_match, SessionIndex};
+#[cfg(test)]
+use std::sync::Arc;
 /// Quante sessioni tornano al massimo alla GUI.
 const SESSION_LIST_LIMIT: usize = 50;
 
-/// Righe iniziali entro cui cercare intestazione e primo prompt.
-const HEADER_LINES: usize = 20;
-
-/// Tetto di byte letti per l'intestazione: `id` e `cwd` stanno nelle prime
-/// centinaia di byte, il resto sarebbe solo un transcript da megabyte.
-const HEADER_BYTES: u64 = 64 * 1024;
-
-/// Tetto di byte letti quando serve il primo prompt come titolo di ripiego.
-const PROMPT_BYTES: u64 = 512 * 1024;
-
-/// Un titolo lungo non si vede comunque nella colonna: oltre questo si taglia.
-const TITLE_CHARS: usize = 200;
-
-/// Intestazione di un transcript. `id` e `cwd` vengono scritti alla creazione
-/// del file e non cambiano piu'. `title` puo' cambiare (omp riscrive lo slot
-/// del titolo sul posto), quindi la voce si rilegge quando cambia `mtime`.
-/// `prompt` e' il primo messaggio dell'utente: una volta trovato non cambia.
-#[derive(Clone)]
-struct CachedSession {
-    id: String,
-    cwd: String,
-    title: Option<String>,
-    prompt: Option<String>,
-    mtime: i64,
+#[cfg(test)]
+pub(crate) struct SessionTitles {
+    pub omp: HashMap<String, String>,
+    pub studio: HashMap<String, String>,
 }
 
-/// Cache di processo delle intestazioni. Senza, ogni cambio progetto e ogni
-/// ritorno di focus rileggeva tutti i transcript di tutti i progetti: con 700
-/// sessioni sono ~70 MB di JSON da parsare, oltre un minuto a freddo.
-static SESSION_HEADERS: LazyLock<Mutex<HashMap<PathBuf, CachedSession>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
-
-fn truncate_title(text: &str) -> String {
-    let trimmed = text.trim();
-    match trimmed.char_indices().nth(TITLE_CHARS) {
-        Some((cut, _)) => trimmed[..cut].to_string(),
-        None => trimmed.to_string(),
-    }
-}
-
-/// Legge le sole righe di intestazione e si ferma appena ha `id` e `cwd`.
-/// Ritorna `None` se il file non e' un transcript riconoscibile.
-fn read_session_header(path: &Path, mtime: i64) -> Option<CachedSession> {
-    let file = File::open(path).ok()?;
-    let reader = BufReader::new(file.take(HEADER_BYTES));
-    let mut header_title = None;
-    let mut session_id = None;
-    let mut session_cwd = None;
-
-    for line in reader.lines().take(HEADER_LINES).map_while(Result::ok) {
-        let Ok(val) = serde_json::from_str::<serde_json::Value>(&line) else {
-            continue;
-        };
-        match val.get("type").and_then(|t| t.as_str()).unwrap_or("") {
-            "title" => {
-                if let Some(t) = val.get("title").and_then(|t| t.as_str()) {
-                    if !t.is_empty() {
-                        header_title = Some(truncate_title(t));
-                    }
-                }
-            }
-            "session" => {
-                session_id = val
-                    .get("id")
-                    .and_then(|i| i.as_str())
-                    .map(|i| i.to_string());
-                session_cwd = val
-                    .get("cwd")
-                    .and_then(|c| c.as_str())
-                    .map(|c| c.to_string());
-                if header_title.is_none() {
-                    if let Some(t) = val.get("title").and_then(|t| t.as_str()) {
-                        if !t.is_empty() {
-                            header_title = Some(truncate_title(t));
-                        }
-                    }
-                }
-                if session_id.is_some() && session_cwd.is_some() {
-                    break;
-                }
-            }
-            _ => {}
-        }
-    }
-
-    Some(CachedSession {
-        id: session_id?,
-        cwd: session_cwd?,
-        title: header_title,
-        prompt: None,
-        mtime,
-    })
-}
-
-fn cached_header_tracked(path: &Path, mtime: i64, files_opened: &mut usize) -> Option<CachedSession> {
-    let previous = SESSION_HEADERS.lock().get(path).cloned();
-    if let Some(hit) = &previous {
-        if hit.mtime == mtime {
-            return previous;
-        }
-    }
-    *files_opened += 1;
-    let mut header = read_session_header(path, mtime)?;
-    header.prompt = previous.and_then(|old| old.prompt);
-    SESSION_HEADERS
-        .lock()
-        .insert(path.to_path_buf(), header.clone());
-    Some(header)
-}
-
-/// Primo messaggio dell'utente. Costa la lettura di parecchie righe di
-/// transcript, quindi si fa solo per le sessioni del progetto cercato e il
-/// risultato resta in cache.
-fn resolve_first_prompt(path: &Path) -> Option<String> {
-    let file = File::open(path).ok()?;
-    let reader = BufReader::new(file.take(PROMPT_BYTES));
-    let mut prompt = None;
-
-    for line in reader.lines().take(HEADER_LINES).map_while(Result::ok) {
-        let Ok(val) = serde_json::from_str::<serde_json::Value>(&line) else {
-            continue;
-        };
-        if val.get("type").and_then(|t| t.as_str()) != Some("message") {
-            continue;
-        }
-        let Some(message) = val.get("message") else {
-            continue;
-        };
-        if message.get("role").and_then(|r| r.as_str()) != Some("user") {
-            continue;
-        }
-        let Some(content) = message.get("content") else {
-            continue;
-        };
-        if let Some(text) = content.as_str() {
-            prompt = Some(truncate_title(text));
-        } else if let Some(arr) = content.as_array() {
-            for part in arr {
-                if part.get("type").and_then(|t| t.as_str()) == Some("text") {
-                    if let Some(txt) = part.get("text").and_then(|t| t.as_str()) {
-                        prompt = Some(truncate_title(txt));
-                        break;
-                    }
-                }
-            }
-        }
-        if prompt.is_some() {
-            break;
-        }
-    }
-
-    let prompt = prompt?;
-    if let Some(entry) = SESSION_HEADERS.lock().get_mut(path) {
-        entry.prompt = Some(prompt.clone());
-    }
-    Some(prompt)
-}
-
-fn scan_sessions_from_disk(
-    project_path: &str,
-    query: Option<&str>,
-    titles: &SessionTitles,
-) -> Vec<SessionEntry> {
-    let Some(agent) = agent_dir() else {
-        return Vec::new();
-    };
-    scan_sessions_in(&agent.join("sessions"), project_path, query, titles)
-}
-
-/// Titoli noti per id sessione, in ordine di precedenza: l'indice di omp
-/// (`history.db`), poi l'intestazione del file (letta dalla scansione), poi
-/// quelli generati da Studio per le sessioni rimaste senza.
-struct SessionTitles {
-    omp: HashMap<String, String>,
-    studio: HashMap<String, String>,
-}
-
-impl SessionTitles {
-    fn load(app: &tauri::AppHandle, conn: Option<&Connection>) -> Self {
-        let mut omp = HashMap::new();
-        if let Some(conn) = conn {
-            if let Ok(mut stmt) = conn.prepare("SELECT session_id, title FROM session_titles") {
-                if let Ok(iter) = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?))) {
-                    omp.extend(iter.flatten());
-                }
-            }
-        }
-        Self {
-            omp,
-            studio: crate::session_titles_store::load(app),
-        }
-    }
-
-    /// Titolo di una sessione nota solo da `history.db`: senza file non c'e'
-    /// intestazione da consultare.
-    fn without_header(&self, id: &str) -> Option<String> {
-        self.omp
-            .get(id)
-            .or_else(|| self.studio.get(id))
-            .map(|t| truncate_title(t))
-    }
-}
-
-fn matches_query(entry: &SessionEntry, query_lower: &str) -> bool {
-    entry
-        .title
-        .as_deref()
-        .is_some_and(|t| t.to_lowercase().contains(query_lower))
-        || entry.prompt.to_lowercase().contains(query_lower)
-        || entry.id.to_lowercase().contains(query_lower)
-}
-
-/// Verifica se il nome della cartella puo' corrispondere al percorso del progetto.
-/// omp codifica la cartella delle sessioni per un dato cwd secondo queste regole:
-/// 1. Sotto la home utente: prefisso '-' seguito dal percorso relativo dove '/', '\\' e ':'
-///    sono sostituiti da '-' (es. `C:\Users\m\source\repos\app` -> `-source-repos-app`).
-/// 2. Sotto la cartella temporanea: prefisso '-tmp' seguito dall'eventuale relativo (es. `-tmp` o `-tmp-probe`).
-/// 3. Assoluto dcs (legacy o percorsi fuori home): `--<disco>--<percorso>--` (es. `--C--tmp--`).
-/// 4. Hashed legacy: `home-<slug>-<sha256>`, `tmp-...`, `abs-...`.
-/// 5. Tolleranza per test o percorsi parziali: il nome cartella termina con `-[basename]`
-///    o `-[basename]--` o corrisponde a `--[basename]--`.
-///
-/// Se la codifica non puo' essere calcolata o nel dubbio, ritorna `true` per non perdere sessioni.
-fn session_folder_might_match(folder_name: &str, project_path: &str) -> bool {
-    let trimmed_proj = project_path.trim_end_matches(['/', '\\']);
-    if trimmed_proj.is_empty() {
-        return true;
-    }
-
-    let folder_lower = folder_name.to_lowercase();
-
-    // 1. Tolleranza sul nome finale del progetto (basename / slug)
-    let normalized_proj = trimmed_proj.replace('\\', "/");
-    if let Some(base) = Path::new(&normalized_proj).file_name().and_then(|b| b.to_str()) {
-        let base_clean = base.trim().to_lowercase();
-        if !base_clean.is_empty() {
-            let suffix1 = format!("-{}", base_clean);
-            let suffix2 = format!("-{}--", base_clean);
-            let exact_dcs = format!("--{}--", base_clean);
-            if folder_lower == exact_dcs
-                || folder_lower.ends_with(&suffix1)
-                || folder_lower.ends_with(&suffix2)
-            {
-                return true;
-            }
-        }
-    }
-
-    // 2. Controllo contro i candidati esatti calcolati da omp
-    let mut candidates = Vec::with_capacity(6);
-
-    // Formato assoluto dcs: `--<disco>--<percorso>--`
-    let abs_raw = trimmed_proj.trim_start_matches(['/', '\\']).replace(['/', '\\', ':'], "-");
-    candidates.push(format!("--{}--", abs_raw).to_lowercase());
-
-    // Se sotto la home utente
-    if let Some(home) = get_user_home() {
-        let home_trimmed = home.trim_end_matches(['/', '\\']);
-        let p_norm = trimmed_proj.replace('\\', "/").to_lowercase();
-        let h_norm = home_trimmed.replace('\\', "/").to_lowercase();
-        if p_norm == h_norm {
-            candidates.push("-".to_string());
-        } else if let Some(rel) = p_norm.strip_prefix(&format!("{}/", h_norm)) {
-            let rel_dash = rel.replace('/', "-");
-            candidates.push(format!("-{}", rel_dash));
-        }
-    }
-
-    // Se sotto la cartella temporanea
-    let temp_dir = std::env::temp_dir();
-    let temp_str = temp_dir.to_string_lossy();
-    let temp_trimmed = temp_str.trim_end_matches(['/', '\\']);
-    let p_norm = trimmed_proj.replace('\\', "/").to_lowercase();
-    let t_norm = temp_trimmed.replace('\\', "/").to_lowercase();
-    if p_norm == t_norm {
-        candidates.push("-tmp".to_string());
-    } else if let Some(rel) = p_norm.strip_prefix(&format!("{}/", t_norm)) {
-        let rel_dash = rel.replace('/', "-");
-        candidates.push(format!("-tmp-{}", rel_dash));
-    }
-
-    // Se il nome cartella e' esattamente uno dei candidati
-    for cand in candidates {
-        if folder_lower == cand {
-            return true;
-        }
-    }
-
-    // Se la cartella inizia per "home-", "tmp-" o "abs-" (formato legacy con sha256)
-    // controlla se contiene lo slug del progetto
-    if (folder_lower.starts_with("home-") || folder_lower.starts_with("tmp-") || folder_lower.starts_with("abs-"))
-        && folder_lower.len() > 64
-    {
-        if let Some(base) = Path::new(trimmed_proj).file_name().and_then(|b| b.to_str()) {
-            let base_lower = base.to_lowercase();
-            if folder_lower.contains(&base_lower) {
-                return true;
-            }
-        }
-    }
-
-    // Si puo' escludere la cartella solo se il suo nome segue una codifica nota
-    // (relativa alla home/tmp o assoluta: inizia con '-'; legacy con hash). Un
-    // formato che nessuna regola riconosce (omp futuro, cartelle rinominate) non
-    // dice nulla sul progetto: nel dubbio true, per non nascondere sessioni.
-    let known_encoding = folder_lower.starts_with('-')
-        || ((folder_lower.starts_with("home-")
-            || folder_lower.starts_with("tmp-")
-            || folder_lower.starts_with("abs-"))
-            && folder_lower.len() > 64);
-    !known_encoding
-}
-
+#[cfg(test)]
 fn scan_sessions_in(
     sessions_root: &Path,
     project_path: &str,
     query: Option<&str>,
     titles: &SessionTitles,
 ) -> Vec<SessionEntry> {
-    let started = Instant::now();
-    let target_norm = normalize_path_for_compare(project_path);
-
-    let Ok(dir_entries) = std::fs::read_dir(sessions_root) else {
-        return Vec::new();
+    static TEST_INDEX: LazyLock<Mutex<Option<Arc<SessionIndex>>>> = LazyLock::new(|| Mutex::new(None));
+    let index = {
+        let mut guard = TEST_INDEX.lock();
+        if guard.is_none() {
+            *guard = Some(Arc::new(SessionIndex::open_in_memory().unwrap()));
+        }
+        guard.as_ref().unwrap().clone()
     };
 
-    let mut folders_skipped = 0usize;
-    let mut files_opened = 0usize;
-
-    // Fase 1: solo le intestazioni. Scartare il transcript di un altro
-    // progetto costa poche centinaia di byte, non l'intero file.
-    let mut candidates: Vec<(PathBuf, CachedSession, i64)> = Vec::new();
-    for folder_entry in dir_entries.flatten() {
-        let folder_path = folder_entry.path();
-        if !folder_path.is_dir() {
-            continue;
-        }
-
-        let folder_name = folder_path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("");
-
-        // Salta le cartelle il cui nome non puo' appartenere a questo progetto
-        // prima di aprire qualsiasi file, risparmiando centinaia di aperture disco.
-        if !session_folder_might_match(folder_name, project_path) {
-            folders_skipped += 1;
-            continue;
-        }
-
-        let Ok(files) = std::fs::read_dir(&folder_path) else {
-            continue;
-        };
-        for file_entry in files.flatten() {
-            let path = file_entry.path();
-            if path.extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
-                continue;
-            }
-            let mtime = file_entry
-                .metadata()
-                .and_then(|m| m.modified())
-                .ok()
-                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-                .map(|d| d.as_secs() as i64)
-                .unwrap_or(0);
-            let Some(header) = cached_header_tracked(&path, mtime, &mut files_opened) else {
-                continue;
-            };
-            if normalize_path_for_compare(&header.cwd) != target_norm {
-                continue;
-            }
-            candidates.push((path, header, mtime));
-        }
+    {
+        let conn = index.conn().lock().unwrap();
+        let _ = conn.execute("UPDATE sessions SET omp_title = NULL, studio_title = NULL;", []);
+    }
+    for (id, t) in &titles.omp {
+        let conn = index.conn().lock().unwrap();
+        let _ = conn.execute(
+            "INSERT INTO sessions (session_id, path, project_path, normalized_project_path, mtime, size, omp_title, created_at)
+             VALUES (?1, '', '', '', 0, 0, ?2, 0)
+             ON CONFLICT(session_id) DO UPDATE SET omp_title = excluded.omp_title;",
+            rusqlite::params![id, t],
+        );
+    }
+    for (id, t) in &titles.studio {
+        let conn = index.conn().lock().unwrap();
+        let _ = conn.execute(
+            "INSERT INTO sessions (session_id, path, project_path, normalized_project_path, mtime, size, studio_title, created_at)
+             VALUES (?1, '', '', '', 0, 0, ?2, 0)
+             ON CONFLICT(session_id) DO UPDATE SET studio_title = excluded.studio_title;",
+            rusqlite::params![id, t],
+        );
     }
 
-    crate::perf_trace::record(
-        "sessions",
-        &format!("list {} files opened {} folders skipped", files_opened, folders_skipped),
-        started.elapsed(),
-    );
-
-    candidates.sort_by_key(|right| std::cmp::Reverse(right.2));
-    // Senza ricerca la GUI mostra le piu' recenti: il titolo va risolto solo
-    // per quelle, non per tutto lo storico del progetto.
-    if query.is_none() {
-        candidates.truncate(SESSION_LIST_LIMIT);
-    }
-
-    let query_lower = query
-        .map(|q| q.trim().to_lowercase())
-        .filter(|q| !q.is_empty());
-
-    // Fase 2: titolo e primo messaggio. Il transcript si rilegge solo per il
-    // messaggio, e solo la prima volta: poi resta nella cache.
-    let mut found = Vec::with_capacity(candidates.len());
-    for (path, header, mtime) in candidates {
-        let title = titles
-            .omp
-            .get(&header.id)
-            .map(|t| truncate_title(t))
-            .or(header.title)
-            .or_else(|| titles.studio.get(&header.id).map(|t| truncate_title(t)));
-        let prompt = header
-            .prompt
-            .or_else(|| resolve_first_prompt(&path))
-            .unwrap_or_default();
-        let entry = SessionEntry {
-            id: header.id,
-            title,
-            prompt,
-            created_at: mtime,
-        };
-        if query_lower.as_deref().is_some_and(|q| !matches_query(&entry, q)) {
-            continue;
-        }
-        found.push(entry);
-    }
-
-    found
+    let _ = index.sync_project_files(sessions_root, project_path);
+    index.list_for_project(project_path, query).unwrap_or_default()
 }
 
 fn sessions_list_sync(
     app: tauri::AppHandle,
     project_path: String,
 ) -> Result<Vec<SessionEntry>, String> {
-    let conn = open_readonly_db("history.db").ok();
-    let titles = SessionTitles::load(&app, conn.as_ref());
-    let mut history_sessions = Vec::new();
+    let index = crate::session_index::get_session_index(&app)?;
 
+    if let Some(agent) = agent_dir() {
+        let sessions_dir = agent.join("sessions");
+        let _ = index.sync_project_files(&sessions_dir, &project_path);
+    }
+
+    let mut sessions = index.list_for_project(&project_path, None)?;
+
+    let conn = open_readonly_db("history.db").ok();
     if let Some(conn) = &conn {
         let path_backslash = project_path.replace('/', "\\");
         let path_slash = project_path.replace('\\', "/");
@@ -1782,27 +1406,26 @@ fn sessions_list_sync(
              ORDER BY created_at DESC 
              LIMIT 50",
         ) {
+            let mut seen: HashSet<String> = sessions.iter().map(|s| s.id.clone()).collect();
             if let Ok(iter) = stmt.query_map(rusqlite::params![path_backslash, path_slash, target_norm], |row| {
                 let id: String = row.get(0)?;
                 let prompt: String = row.get(1)?;
-                Ok(SessionEntry {
-                    title: titles.without_header(&id),
-                    prompt: truncate_title(&prompt),
-                    id,
-                    created_at: row.get(2)?,
-                })
+                let created_at: i64 = row.get(2)?;
+                Ok((id, prompt, created_at))
             }) {
-                history_sessions.extend(iter.flatten());
+                for item in iter.flatten() {
+                    let (id, prompt, created_at) = item;
+                    if seen.insert(id.clone()) {
+                        let title = index.get_title_for_session(&id);
+                        sessions.push(SessionEntry {
+                            id,
+                            title,
+                            prompt: truncate_title(&prompt),
+                            created_at,
+                        });
+                    }
+                }
             }
-        }
-    }
-
-    let mut sessions = scan_sessions_from_disk(&project_path, None, &titles);
-    let mut seen: HashSet<String> = sessions.iter().map(|s| s.id.clone()).collect();
-
-    for h in history_sessions {
-        if seen.insert(h.id.clone()) {
-            sessions.push(h);
         }
     }
 
@@ -1833,11 +1456,20 @@ fn sessions_search_sync(
     query: String,
     project_path: Option<String>,
 ) -> Result<Vec<SessionEntry>, String> {
+    let index = crate::session_index::get_session_index(&app)?;
     let trimmed_query = query.trim().to_string();
-    let conn = open_readonly_db("history.db").ok();
-    let titles = SessionTitles::load(&app, conn.as_ref());
-    let mut history_sessions = Vec::new();
 
+    if let (Some(path), Some(agent)) = (&project_path, agent_dir()) {
+        let _ = index.sync_project_files(&agent.join("sessions"), path);
+    }
+
+    let mut sessions = if let Some(path) = &project_path {
+        index.list_for_project(path, Some(&trimmed_query))?
+    } else {
+        index.search_all(&trimmed_query)?
+    };
+
+    let conn = open_readonly_db("history.db").ok();
     if !trimmed_query.is_empty() {
         if let Some(conn) = &conn {
             let fts_query = sanitize_fts_query(&trimmed_query);
@@ -1856,48 +1488,43 @@ fn sessions_search_sync(
                  GROUP BY h.session_id 
                  ORDER BY h.created_at DESC LIMIT 50"
             };
-            let to_entry = |row: &rusqlite::Row| -> rusqlite::Result<SessionEntry> {
-                let id: String = row.get(0)?;
-                let prompt: String = row.get(1)?;
-                Ok(SessionEntry {
-                    title: titles.without_header(&id),
-                    prompt: truncate_title(&prompt),
-                    id,
-                    created_at: row.get(2)?,
-                })
-            };
+
+            let mut seen: HashSet<String> = sessions.iter().map(|s| s.id.clone()).collect();
+            let query_lower = trimmed_query.to_lowercase();
 
             if let Ok(mut stmt) = conn.prepare(sql) {
-                if let Some(path) = &project_path {
+                let to_entry = |row: &rusqlite::Row| -> rusqlite::Result<(String, String, i64)> {
+                    Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+                };
+                let res: Vec<(String, String, i64)> = if let Some(path) = &project_path {
                     let path_backslash = path.replace('/', "\\");
                     let path_slash = path.replace('\\', "/");
                     let target_norm = normalize_path_for_compare(path);
-                    if let Ok(iter) = stmt.query_map(
-                        rusqlite::params![fts_query, path_backslash, path_slash, target_norm],
-                        to_entry,
-                    ) {
-                        history_sessions.extend(iter.flatten());
+                    stmt.query_map(rusqlite::params![fts_query, path_backslash, path_slash, target_norm], to_entry)
+                        .map(|it| it.flatten().collect())
+                        .unwrap_or_default()
+                } else {
+                    stmt.query_map([&fts_query], to_entry)
+                        .map(|it| it.flatten().collect())
+                        .unwrap_or_default()
+                };
+
+                for (id, prompt, created_at) in res {
+                    if !seen.contains(&id) {
+                        let title = index.get_title_for_session(&id);
+                        let entry = SessionEntry {
+                            id: id.clone(),
+                            title,
+                            prompt: truncate_title(&prompt),
+                            created_at,
+                        };
+                        if matches_query(&entry, &query_lower) {
+                            seen.insert(id);
+                            sessions.push(entry);
+                        }
                     }
-                } else if let Ok(iter) = stmt.query_map([&fts_query], to_entry) {
-                    history_sessions.extend(iter.flatten());
                 }
             }
-        }
-    }
-
-    let mut sessions = if let Some(path) = &project_path {
-        scan_sessions_from_disk(path, Some(&trimmed_query), &titles)
-    } else {
-        Vec::new()
-    };
-
-    let mut seen: HashSet<String> = sessions.iter().map(|s| s.id.clone()).collect();
-    let query_lower = trimmed_query.to_lowercase();
-
-    for h in history_sessions {
-        if !seen.contains(&h.id) && matches_query(&h, &query_lower) {
-            seen.insert(h.id.clone());
-            sessions.push(h);
         }
     }
 
@@ -2057,19 +1684,13 @@ fn read_session_messages_from_path(
     session_id: &str,
     known_worktree_paths: &[String],
 ) -> Result<Vec<serde_json::Value>, String> {
-    let mtime = std::fs::metadata(file_path)
-        .and_then(|m| m.modified())
-        .ok()
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
 
-    let Some(header) = read_session_header(file_path, mtime) else {
+    let Some(info) = crate::session_index::parse_session_file(file_path) else {
         return Err("Impossibile leggere l'intestazione della sessione".to_string());
     };
 
     // Controllo rigoroso di autorizzazione sul percorso canonico e worktree
-    let header_cwd_norm = normalize_path_for_compare(&header.cwd);
+    let header_cwd_norm = normalize_path_for_compare(&info.project_path);
     let project_path_norm = normalize_path_for_compare(project_path);
     let mut authorized = header_cwd_norm == project_path_norm;
 

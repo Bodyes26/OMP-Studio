@@ -35,6 +35,7 @@
 	import BrowserViewer from '#lib/components/BrowserViewer.svelte';
 	import StudioUpdateModal from '#lib/components/StudioUpdateModal.svelte';
 	import SettingsModal from '#lib/components/settings/SettingsModal.svelte';
+	import BackgroundJobsIndicator from '#lib/components/BackgroundJobsIndicator.svelte';
 	import CloseConfirmModal, { type ProjectCloseTarget } from '#lib/components/CloseConfirmModal.svelte';
 	import { getCurrentWindow } from '@tauri-apps/api/window';
 	import QueueDrawer from '#lib/components/QueueDrawer.svelte';
@@ -50,6 +51,7 @@
 	import OmpChangelogModal from '#lib/components/OmpChangelogModal.svelte';
 	import { modelSettingsStore } from '#lib/stores/modelSettings.svelte.ts';
 	import { settingsStore } from '#lib/stores/settings.svelte.ts';
+	import { backgroundJobs } from '#lib/stores/backgroundJobs.svelte.ts';
 	import { projectOrder } from '#lib/stores/projectOrder.svelte.ts';
 	import { notificationManager } from '#lib/stores/notifications.svelte.ts';
 	import { headsUpSeen } from '#lib/agent/headsUpSeen.svelte.ts';
@@ -59,7 +61,8 @@
 	import { askQuestionText } from '#lib/agent/askTitle.ts';
 	import { activeQuotaStore } from '#lib/stores/activeQuota.svelte.ts';
 	import { resolveAutomationGate, type AutomationGate } from '#lib/agent/automationGate.ts';
-	import { quotaStore, providersMatch } from '#lib/stores/quota.svelte.ts';
+	import { quotaStore } from '#lib/stores/quota.svelte.ts';
+	import { providersMatch } from '#lib/quota/providers.ts';
 	import { onDestroy } from 'svelte';
 	import { normalizeProjectPath, projectStore, type AgentState, type Project } from '#lib/stores/projects.svelte.ts';
 	import { githubStore } from '#lib/stores/github.svelte.ts';
@@ -2946,23 +2949,23 @@
 		cleanup = () => window.removeEventListener('studio-active-session-ready', onReady);
 	}
 
-	let updateCheckBootTimer: number | null = null;
-
 	onMount(() => {
 		perfMark('boot', 'app start');
 		// Non lanciamo ompVersionStore.refresh() all'avvio: checkSetupContract()
 		// interroga `setup_status` che popola gia' la versione senza spawnare
 		// un processo `omp --version` separato a vuoto.
-		// Differiamo la verifica degli aggiornamenti a ~30s dall'avvio per non competere
-		// con lo startup delle sessioni.
-		updateCheckBootTimer = window.setTimeout(() => {
-			updateCheckBootTimer = null;
-			void checkOmpUpdateSilently();
-		}, 30_000);
 		scheduleDeferredBootTask(() => void ompChangelogStore.checkStatus());
 		void checkSetupContract();
 		studioUpdaterStore.init();
 		modelSettingsStore.initHealthWatch();
+		backgroundJobs.init({
+			checkOmpUpdate: () => checkOmpUpdateSilently(),
+			getModelConfig: () => ({
+				modelRoles: modelSettingsStore.config?.modelRoles,
+				knownSelectors: modelSettingsStore.knownSelectors,
+				catalog: modelSettingsStore.catalog
+			})
+		});
 	});
 
 	onDestroy(() => {
@@ -2970,12 +2973,9 @@
 			window.clearTimeout(postGenerationQuotaDebounceTimer);
 			postGenerationQuotaDebounceTimer = null;
 		}
-		if (updateCheckBootTimer !== null) {
-			window.clearTimeout(updateCheckBootTimer);
-			updateCheckBootTimer = null;
-		}
 		studioUpdaterStore.destroy();
 		modelSettingsStore.destroyHealthWatch();
+		backgroundJobs.destroy();
 	});
 	async function handleCheckUpdate() {
 		if (isCheckingUpdate || isInstallingUpdate) return;
@@ -3887,6 +3887,10 @@
 
 	<footer class="statusbar">
 		<div class="statusbar-right">
+			<BackgroundJobsIndicator />
+			{#if settingsStore.backgroundJobs?.enabled}
+				<span class="statusbar-divider" aria-hidden="true"></span>
+			{/if}
 			<Tooltip text={studioUpdaterStore.currentVersion ? m.page_statusbar_studio_version_title({ version: studioUpdaterStore.currentVersion }) : m.page_statusbar_studio_version_check()}>
 			<button 
 				class="version-btn"

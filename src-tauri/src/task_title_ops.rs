@@ -26,10 +26,22 @@ Regole TASSATIVE:
 4. Lingua: la stessa del testo del task.
 5. Nessuna frase completa, nessuna punteggiatura finale."#;
 
-/// Genera l'etichetta del task. `None` per prompt vuoto, errore, timeout o
-/// risposta inutilizzabile: il chiamante resta sul titolo euristico.
+/// Cancella un job di generazione in background registrato con `job_id`.
+/// Restituisce `true` se il processo era attivo ed e' stato terminato.
 #[command]
-pub async fn generate_task_title(prompt: String) -> Result<Option<String>, String> {
+pub fn background_job_cancel(job_id: String) -> bool {
+    crate::directives_ops::cancel_background_job(&job_id)
+}
+
+/// Genera l'etichetta del task. `None` per prompt vuoto, errore, timeout o
+/// risposta inutilizzabile. Se cancellato tramite `background_job_cancel`,
+/// restituisce `Err("cancelled")`.
+#[command]
+pub async fn generate_task_title(
+    prompt: String,
+    model: Option<String>,
+    job_id: Option<String>,
+) -> Result<Option<String>, String> {
     let trimmed = prompt.trim();
     if trimmed.is_empty() {
         return Ok(None);
@@ -37,20 +49,32 @@ pub async fn generate_task_title(prompt: String) -> Result<Option<String>, Strin
     let mut context_md = String::from("# Testo del task:\n");
     context_md.extend(trimmed.chars().take(TITLE_PROMPT_MAX_CHARS));
 
-    let resolved_model = crate::directives_ops::resolve_assistant_model(None).await;
+    let resolved_model = crate::directives_ops::resolve_assistant_model(model.as_deref()).await;
     let spawned = tokio::task::spawn_blocking(move || {
-        crate::directives_ops::run_ephemeral_omp(
+        crate::directives_ops::run_ephemeral_omp_cancellable(
             SYSTEM_PROMPT,
             Some(&context_md),
             "Genera l'etichetta rispettando rigorosamente le regole indicate.",
             resolved_model.as_deref(),
             Duration::from_secs(TITLE_TIMEOUT_SECS),
+            job_id.as_deref(),
         )
     })
     .await;
 
     match spawned {
+        Ok(Ok(EphemeralOutcome::Cancelled)) => Err("cancelled".to_string()),
         Ok(Ok(EphemeralOutcome::Ok(text))) => Ok(clean_short_label(&text)),
         _ => Ok(None),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_background_job_cancel_not_found() {
+        assert!(!background_job_cancel("nonexistent_job_123".to_string()));
     }
 }

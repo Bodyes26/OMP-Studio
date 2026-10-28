@@ -127,6 +127,8 @@ commands.allow = [
     "usage_reset_redeem",
     "sessions_list",
     "sessions_search",
+    "session_index_refresh",
+    "session_index_untitled",
     "provider_hosts",
     "session_credential_pins",
     "session_subagent_cost",
@@ -255,6 +257,7 @@ identifier = "allow-task-titles"
 description = "Titoli sintetici di task in coda e sessioni: chiamata effimera al modello leggero configurato e salvataggio dei titoli di sessione generati"
 commands.allow = [
     "generate_task_title",
+    "background_job_cancel",
     "session_title_save"
 ]
 

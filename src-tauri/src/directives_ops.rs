@@ -8,13 +8,15 @@
 
 use crate::omp_ops::{get_omp_binary, open_readonly_db};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::io::Read;
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant};
 use tauri::command;
-
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 
@@ -156,8 +158,36 @@ pub(crate) enum EphemeralOutcome {
     Failed(String),
     /// Il processo non ha risposto entro il tempo massimo ed e' stato terminato.
     TimedOut,
+    /// Il processo e' stato cancellato prima o durante l'esecuzione.
+    Cancelled,
 }
 
+struct ActiveJobHandle {
+    child: Arc<Mutex<std::process::Child>>,
+    cancelled: Arc<AtomicBool>,
+}
+
+static ACTIVE_BACKGROUND_JOBS: LazyLock<Mutex<HashMap<String, ActiveJobHandle>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Interrompe un job in background uccidendone il processo figlio se ancora in esecuzione.
+pub(crate) fn cancel_background_job(job_id: &str) -> bool {
+    let handle = {
+        let mut map = ACTIVE_BACKGROUND_JOBS
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        map.remove(job_id)
+    };
+    if let Some(handle) = handle {
+        handle.cancelled.store(true, Ordering::SeqCst);
+        if let Ok(mut child) = handle.child.lock() {
+            let _ = child.kill();
+        }
+        true
+    } else {
+        false
+    }
+}
 /// Tempo massimo concesso a una chiamata effimera prima della terminazione forzata.
 pub(crate) const EPHEMERAL_TIMEOUT: Duration = Duration::from_secs(90);
 
@@ -177,9 +207,28 @@ pub(crate) fn run_ephemeral_omp(
     model_selector: Option<&str>,
     timeout: Duration,
 ) -> Result<EphemeralOutcome, String> {
+    run_ephemeral_omp_cancellable(
+        system_prompt,
+        context,
+        user_prompt,
+        model_selector,
+        timeout,
+        None,
+    )
+}
+
+/// Esegue una chiamata effimera a `omp` con supporto facoltativo alla cancellazione tramite `job_id`.
+pub(crate) fn run_ephemeral_omp_cancellable(
+    system_prompt: &str,
+    context: Option<&str>,
+    user_prompt: &str,
+    model_selector: Option<&str>,
+    timeout: Duration,
+    job_id: Option<&str>,
+) -> Result<EphemeralOutcome, String> {
     // Guardia difensiva: se la combinazione di system_prompt e user_prompt supera 24.000 byte,
     // restituiamo un errore esplicito in italiano spiegando che il contenuto voluminoso va passato
-    // nel contesto su file temporaneo, anziché far fallire CreateProcessW con os error 206.
+    // nel contesto su file temporaneo, anziche' far fallire CreateProcessW con os error 206.
     if system_prompt.len() + user_prompt.len() > 24_000 {
         return Err(
             "La dimensione combinata di system_prompt e user_prompt supera la soglia di sicurezza (24.000 byte). \
@@ -188,7 +237,7 @@ pub(crate) fn run_ephemeral_omp(
         );
     }
 
-    // Se context è presente, viene scritto in un file temporaneo con nome univoco.
+    // Se context e' presente, viene scritto in un file temporaneo con nome univoco.
     // La guardia TempFileGuard ne assicura la cancellazione automatica su qualsiasi via d'uscita.
     let (_guard, context_file_arg) = if let Some(ctx) = context.filter(|c| !c.trim().is_empty()) {
         let now = std::time::SystemTime::now()
@@ -262,25 +311,87 @@ pub(crate) fn run_ephemeral_omp(
         buf
     });
 
+    let child = Arc::new(Mutex::new(child));
+    let cancelled = Arc::new(AtomicBool::new(false));
+
+    struct JobGuard<'a>(&'a str);
+    impl<'a> Drop for JobGuard<'a> {
+        fn drop(&mut self) {
+            let mut map = ACTIVE_BACKGROUND_JOBS
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            map.remove(self.0);
+        }
+    }
+
+    let _job_guard = if let Some(id) = job_id {
+        let mut map = ACTIVE_BACKGROUND_JOBS
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        map.insert(
+            id.to_string(),
+            ActiveJobHandle {
+                child: Arc::clone(&child),
+                cancelled: Arc::clone(&cancelled),
+            },
+        );
+        Some(JobGuard(id))
+    } else {
+        None
+    };
+
     let deadline = Instant::now() + timeout;
+    let mut was_cancelled = false;
     let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break Some(status),
+        if cancelled.load(Ordering::SeqCst) {
+            was_cancelled = true;
+            if let Ok(mut c) = child.lock() {
+                let _ = c.kill();
+                let _ = c.wait();
+            }
+            break None;
+        }
+
+        let wait_res = match child.lock() {
+            Ok(mut c) => c.try_wait(),
+            Err(e) => return Err(format!("Attesa del processo omp fallita: {}", e)),
+        };
+
+        match wait_res {
+            Ok(Some(status)) => {
+                if cancelled.load(Ordering::SeqCst) {
+                    was_cancelled = true;
+                    break None;
+                }
+                break Some(status);
+            }
             Ok(None) => {
                 if Instant::now() >= deadline {
                     // Terminazione forzata piu' attesa, per non lasciare processi orfani
-                    let _ = child.kill();
-                    let _ = child.wait();
+                    if let Ok(mut c) = child.lock() {
+                        let _ = c.kill();
+                        let _ = c.wait();
+                    }
                     break None;
                 }
                 std::thread::sleep(Duration::from_millis(50));
             }
-            Err(e) => return Err(format!("Attesa del processo omp fallita: {}", e)),
+            Err(e) => {
+                if cancelled.load(Ordering::SeqCst) {
+                    was_cancelled = true;
+                    break None;
+                }
+                return Err(format!("Attesa del processo omp fallita: {}", e));
+            }
         }
     };
 
     let stdout_bytes = stdout_reader.join().unwrap_or_default();
     let stderr_bytes = stderr_reader.join().unwrap_or_default();
+
+    if was_cancelled {
+        return Ok(EphemeralOutcome::Cancelled);
+    }
 
     let Some(status) = status else {
         return Ok(EphemeralOutcome::TimedOut);
@@ -289,7 +400,7 @@ pub(crate) fn run_ephemeral_omp(
     if !status.success() {
         let stderr_msg = String::from_utf8_lossy(&stderr_bytes).trim().to_string();
         return Ok(EphemeralOutcome::Failed(if stderr_msg.is_empty() {
-            format!("omp è terminato con codice di errore {:?}", status.code())
+            format!("omp e' terminato con codice di errore {:?}", status.code())
         } else {
             stderr_msg
         }));
@@ -299,7 +410,6 @@ pub(crate) fn run_ephemeral_omp(
         String::from_utf8_lossy(&stdout_bytes).trim().to_string(),
     ))
 }
-
 /// Variante che considera errore qualunque esito diverso da una risposta valida.
 pub(crate) fn run_ephemeral_omp_raw(
     system_prompt: &str,
@@ -317,9 +427,10 @@ pub(crate) fn run_ephemeral_omp_raw(
         EphemeralOutcome::Ok(out) => Ok(out),
         EphemeralOutcome::Failed(msg) => Err(msg),
         EphemeralOutcome::TimedOut => Err(format!(
-            "omp non ha risposto entro {} secondi ed è stato interrotto",
+            "omp non ha risposto entro {} secondi ed e' stato interrotto",
             EPHEMERAL_TIMEOUT.as_secs()
         )),
+        EphemeralOutcome::Cancelled => Err("Chiamata omp cancellata".to_string()),
     }
 }
 

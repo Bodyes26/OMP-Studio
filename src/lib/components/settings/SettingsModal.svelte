@@ -24,6 +24,7 @@
 	import DoctorSection from './DoctorSection.svelte';
 	import CommandsSection from './CommandsSection.svelte';
 	import RemoteSection from './RemoteSection.svelte';
+	import BackgroundJobsSection from './BackgroundJobsSection.svelte';
 	import { doctorStore } from '#lib/stores/doctor.svelte.ts';
 
 	// Navigazione di primo livello: ogni voce apre una sezione del centro
@@ -39,6 +40,7 @@
 		{ id: 'tasks', label: m.settings_nav_tasks() },
 		{ id: 'suggestions', label: m.settings_nav_suggestions() },
 		{ id: 'commands', label: m.settings_nav_commands() },
+		{ id: 'backgroundJobs', label: m.settings_nav_background_jobs() },
 		{ id: 'models', label: m.settings_nav_models() },
 		{ id: 'github', label: 'GitHub' },
 		{ id: 'doctor', label: m.settings_nav_doctor() },
@@ -288,6 +290,8 @@
 						<SuggestionsSection />
 					{:else if settingsStore.section === 'commands'}
 						<CommandsSection />
+					{:else if settingsStore.section === 'backgroundJobs'}
+						<BackgroundJobsSection />
 					{:else if settingsStore.section === 'github'}
 						<GithubSection />
 					{:else if settingsStore.section === 'doctor'}

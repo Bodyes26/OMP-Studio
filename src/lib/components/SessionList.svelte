@@ -5,7 +5,6 @@
 	import { fetchSessionsList, type SessionEntry } from '#lib/agent/sessionsList.ts';
 	import { onMount, untrack } from 'svelte';
 	import { taskStore } from '#lib/stores/tasks.svelte.ts';
-	import { backfillSessionTitles } from '#lib/stores/sessionTitles.ts';
 	import { IconGitBranch, IconListTodo, IconSearch } from '#lib/icons.ts';
 	import Segmented, { type SegmentedOption } from '#lib/ui/Segmented.svelte';
 	import StatusMark from '#lib/ui/StatusMark.svelte';
@@ -199,13 +198,6 @@
 			sessions = result;
 			lastLoadedAt = Date.now();
 			scheduleReconciliation();
-			// Solo l'elenco completo: i risultati di una ricerca sono un
-			// sottoinsieme casuale, i titoli si generano all'apertura dello storico.
-			if (!q.trim()) {
-				backfillSessionTitles(result, (sessionId, title) => {
-					sessions = sessions.map((session) => (session.id === sessionId ? { ...session, title } : session));
-				});
-			}
 		} catch (error) {
 			if (token !== requestToken || target !== projectPath) return;
 			loadError = m.session_list_history_unavailable({ error: String(error) });
@@ -260,6 +252,7 @@
 	});
 
 	onMount(() => {
+		window.dispatchEvent(new CustomEvent('studio-history-opened'));
 		const refresh = (event: Event) => {
 			const detail = (event as CustomEvent<{ projectPath?: string }>).detail;
 			if (!detail?.projectPath || detail.projectPath.toLowerCase() === projectPath.toLowerCase()) {

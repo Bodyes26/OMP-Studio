@@ -15,7 +15,8 @@
 	import { i18n } from '#lib/i18n/i18n.svelte.ts';
 	import { rvLift } from '#lib/agent/motion.ts';
 	import { anchoredPopover } from '#lib/anchoredPopover.ts';
-	import { quotaStore, providersMatch, type ProviderHost, type QuotaLimit, type QuotaReport } from '#lib/stores/quota.svelte.ts';
+	import { quotaStore, type ProviderHost, type QuotaLimit, type QuotaReport } from '#lib/stores/quota.svelte.ts';
+	import { providersMatch } from '#lib/quota/providers.ts';
 	import { activeQuotaStore } from '#lib/stores/activeQuota.svelte.ts';
 	import { settingsStore } from '#lib/stores/settings.svelte.ts';
 	import QuotaLimitRow from './quota/QuotaLimitRow.svelte';

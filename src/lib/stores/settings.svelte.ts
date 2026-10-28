@@ -19,6 +19,14 @@ import type { StreamingBehavior, QueueMode, InterruptMode, CacheWarmingMode } fr
 import { m as msg } from '#lib/paraglide/messages.js';
 import { broadcastToWindows, listenFromWindows } from './windowBridge';
 import type { ComposerLayout, PinnedCommand, ComposerZone, ComposerForm } from '#lib/agent/commandCatalog/types.ts';
+import {
+	type BackgroundJobId,
+	type BackgroundJobSettings,
+	type BackgroundJobsSettings,
+	DEFAULT_BACKGROUND_JOBS_SETTINGS,
+	parseBackgroundJobsSettings
+} from './backgroundJobsHelpers';
+export type { BackgroundJobId, BackgroundJobSettings, BackgroundJobsSettings };
 
 import { setReducedMotionResolver } from '#lib/agent/motionState.svelte.ts';
 /** Annuncio inter-finestra di un salvataggio delle impostazioni. */
@@ -68,7 +76,7 @@ export type ChatReveal = 'blur' | 'stream' | 'final';
 export type { StreamingBehavior, QueueMode, InterruptMode, CacheWarmingMode };
 
 
-export type SettingsSection = 'general' | 'appearance' | 'accessibility' | 'notifications' | 'projectBar' | 'workspace' | 'tasks' | 'models' | 'suggestions' | 'companion' | 'github' | 'doctor' | 'commands' | 'remote';
+export type SettingsSection = 'general' | 'appearance' | 'accessibility' | 'notifications' | 'projectBar' | 'workspace' | 'tasks' | 'models' | 'suggestions' | 'companion' | 'github' | 'doctor' | 'commands' | 'remote' | 'backgroundJobs';
 /** Stile del messaggio della notifica di sistema. */
 export type NotificationStyle = 'brief' | 'detailed';
 
@@ -85,7 +93,6 @@ export interface NotificationSettings {
 
 export interface GithubSettings {
 	cloneProtocol: 'https' | 'ssh';
-	autoFetch: boolean;
 	showUpstreamBadges: boolean;
 	notifyActionsFailure: boolean;
 }
@@ -154,10 +161,6 @@ export interface TaskDefaults {
 	selectedDirectiveIds: string[];
 }
 
-export interface TaskTitleSettings {
-	/** Etichetta dei task in coda generata dal modello leggero; spento = solo euristica. */
-	autoGenerate: boolean;
-}
 
 export type LanguagePreference = 'system' | 'it' | 'en';
 
@@ -215,7 +218,7 @@ export interface StudioSettings {
 	editor: EditorSettings;
 	terminal: TerminalSettings;
 	taskDefaults: TaskDefaults;
-	taskTitles: TaskTitleSettings;
+	backgroundJobs: BackgroundJobsSettings;
 	taskDirectives: TaskDirective[];
 	promptSuggestions: PromptSuggestion[];
 	suggestions: SuggestionSettings;
@@ -238,7 +241,6 @@ export const DEFAULT_SETTINGS: StudioSettings = {
 	},
 	github: {
 		cloneProtocol: 'https',
-		autoFetch: true,
 		showUpstreamBadges: true,
 		notifyActionsFailure: true
 	},
@@ -263,8 +265,9 @@ export const DEFAULT_SETTINGS: StudioSettings = {
 		includeEditorContext: true,
 		selectedDirectiveIds: []
 	},
-	taskTitles: {
-		autoGenerate: true
+	backgroundJobs: {
+		...DEFAULT_BACKGROUND_JOBS_SETTINGS,
+		jobs: { ...DEFAULT_BACKGROUND_JOBS_SETTINGS.jobs }
 	},
 	taskDirectives: sanitizeDirectivesCatalog(FACTORY_DIRECTIVES),
 	promptSuggestions: sanitizeSuggestionsCatalog(FACTORY_SUGGESTIONS),
@@ -390,7 +393,10 @@ export function parseSettings(value: unknown): StudioSettings {
 	const editor = (record.editor && typeof record.editor === 'object' ? record.editor : {}) as Record<string, unknown>;
 	const terminal = (record.terminal && typeof record.terminal === 'object' ? record.terminal : {}) as Record<string, unknown>;
 	const tasks = (record.taskDefaults && typeof record.taskDefaults === 'object' ? record.taskDefaults : {}) as Record<string, unknown>;
-	const taskTitles = (record.taskTitles && typeof record.taskTitles === 'object' ? record.taskTitles : {}) as Record<string, unknown>;
+	const rawBgJobs = (record.backgroundJobs && typeof record.backgroundJobs === 'object' ? record.backgroundJobs : {}) as Record<string, unknown>;
+	const rawJobs = (rawBgJobs.jobs && typeof rawBgJobs.jobs === 'object' ? rawBgJobs.jobs : {}) as Record<string, unknown>;
+	const legacyTaskTitles = record.taskTitles && typeof record.taskTitles === 'object' ? (record.taskTitles as Record<string, unknown>) : null;
+	const legacyGithub = record.github && typeof record.github === 'object' ? (record.github as Record<string, unknown>) : null;
 	const rawDirectives = record.taskDirectives;
 	const rawPromptSuggestions = record.promptSuggestions;
 	const rawSuggestions = (record.suggestions && typeof record.suggestions === 'object' ? record.suggestions : {}) as Record<string, unknown>;
@@ -439,9 +445,7 @@ export function parseSettings(value: unknown): StudioSettings {
 						...(tasks.researchMode === true ? ['dir_factory_research'] : [])
 					]
 		},
-		taskTitles: {
-			autoGenerate: bool(taskTitles.autoGenerate, d.taskTitles.autoGenerate)
-		},
+		backgroundJobs: parseBackgroundJobsSettings(rawBgJobs, legacyTaskTitles, legacyGithub, d.backgroundJobs),
 		taskDirectives: sanitizeDirectivesCatalog(rawDirectives ?? d.taskDirectives),
 		promptSuggestions: sanitizeSuggestionsCatalog(rawPromptSuggestions ?? d.promptSuggestions),
 		suggestions: {
@@ -481,7 +485,6 @@ export function parseSettings(value: unknown): StudioSettings {
 		},
 		github: {
 			cloneProtocol: pick(github.cloneProtocol, ['https', 'ssh'] as const, d.github.cloneProtocol),
-			autoFetch: bool(github.autoFetch, d.github.autoFetch),
 			showUpstreamBadges: bool(github.showUpstreamBadges, d.github.showUpstreamBadges),
 			notifyActionsFailure: bool(github.notifyActionsFailure, d.github.notifyActionsFailure)
 		},
@@ -536,7 +539,16 @@ class SettingsStore {
 	editor = $state<EditorSettings>({ ...DEFAULT_SETTINGS.editor });
 	terminal = $state<TerminalSettings>({ ...DEFAULT_SETTINGS.terminal });
 	taskDefaults = $state<TaskDefaults>({ ...DEFAULT_SETTINGS.taskDefaults });
-	taskTitles = $state<TaskTitleSettings>({ ...DEFAULT_SETTINGS.taskTitles });
+	backgroundJobs = $state<BackgroundJobsSettings>({
+		...DEFAULT_SETTINGS.backgroundJobs,
+		jobs: {
+			taskTitles: { ...DEFAULT_SETTINGS.backgroundJobs.jobs.taskTitles },
+			sessionTitles: { ...DEFAULT_SETTINGS.backgroundJobs.jobs.sessionTitles },
+			sessionIndex: { ...DEFAULT_SETTINGS.backgroundJobs.jobs.sessionIndex },
+			gitFetch: { ...DEFAULT_SETTINGS.backgroundJobs.jobs.gitFetch },
+			updateCheck: { ...DEFAULT_SETTINGS.backgroundJobs.jobs.updateCheck }
+		}
+	});
 	taskDirectives = $state<TaskDirective[]>(sanitizeDirectivesCatalog(DEFAULT_SETTINGS.taskDirectives));
 	promptSuggestions = $state<PromptSuggestion[]>(sanitizeSuggestionsCatalog(DEFAULT_SETTINGS.promptSuggestions));
 	suggestions = $state<SuggestionSettings>({ ...DEFAULT_SETTINGS.suggestions });
@@ -624,7 +636,7 @@ class SettingsStore {
 		this.editor = parsed.editor;
 		this.terminal = parsed.terminal;
 		this.taskDefaults = parsed.taskDefaults;
-		this.taskTitles = parsed.taskTitles;
+		this.backgroundJobs = parsed.backgroundJobs;
 		this.taskDirectives = parsed.taskDirectives;
 		this.promptSuggestions = parsed.promptSuggestions;
 		this.suggestions = parsed.suggestions;
@@ -644,7 +656,7 @@ class SettingsStore {
 			editor: $state.snapshot(this.editor),
 			terminal: $state.snapshot(this.terminal),
 			taskDefaults: $state.snapshot(this.taskDefaults),
-			taskTitles: $state.snapshot(this.taskTitles),
+			backgroundJobs: $state.snapshot(this.backgroundJobs),
 			taskDirectives: $state.snapshot(this.taskDirectives),
 			promptSuggestions: $state.snapshot(this.promptSuggestions),
 			suggestions: $state.snapshot(this.suggestions),
@@ -691,9 +703,16 @@ class SettingsStore {
 		this.save();
 	}
 
-	patchTaskTitles(patch: Partial<TaskTitleSettings>) {
-		Object.assign(this.taskTitles, patch);
+	updateBackgroundJobs(patch: Partial<Omit<BackgroundJobsSettings, 'jobs'>>) {
+		Object.assign(this.backgroundJobs, patch);
 		this.save();
+	}
+
+	updateBackgroundJob(id: BackgroundJobId, patch: Partial<BackgroundJobSettings>) {
+		if (this.backgroundJobs.jobs[id]) {
+			Object.assign(this.backgroundJobs.jobs[id], patch);
+			this.save();
+		}
 	}
 
 	patchAppearance(patch: Partial<AppearanceSettings>) {
@@ -953,7 +972,6 @@ class SettingsStore {
 		}
 		if (!section || section === 'tasks') {
 			this.taskDefaults = { ...DEFAULT_SETTINGS.taskDefaults };
-			this.taskTitles = { ...DEFAULT_SETTINGS.taskTitles };
 			this.taskDirectives = sanitizeDirectivesCatalog(DEFAULT_SETTINGS.taskDirectives);
 		}
 		if (!section || section === 'suggestions') {
@@ -978,6 +996,18 @@ class SettingsStore {
 			this.appearance.companionSpotlightDismiss = DEFAULT_SETTINGS.appearance.companionSpotlightDismiss;
 		}
 		if (!section || section === 'github') this.github = { ...DEFAULT_SETTINGS.github };
+		if (!section || section === 'backgroundJobs') {
+			this.backgroundJobs = {
+				...DEFAULT_SETTINGS.backgroundJobs,
+				jobs: {
+					taskTitles: { ...DEFAULT_SETTINGS.backgroundJobs.jobs.taskTitles },
+					sessionTitles: { ...DEFAULT_SETTINGS.backgroundJobs.jobs.sessionTitles },
+					sessionIndex: { ...DEFAULT_SETTINGS.backgroundJobs.jobs.sessionIndex },
+					gitFetch: { ...DEFAULT_SETTINGS.backgroundJobs.jobs.gitFetch },
+					updateCheck: { ...DEFAULT_SETTINGS.backgroundJobs.jobs.updateCheck }
+				}
+			};
+		}
 		if (!section || section === 'commands') this.composerLayout = null;
 		this.save();
 	}

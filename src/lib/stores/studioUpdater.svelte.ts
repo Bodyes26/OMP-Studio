@@ -132,8 +132,6 @@ class StudioUpdaterStore {
 			console.error('Impossibile registrare listener per download aggiornamenti', e);
 		}
 
-		// Controllo silenzioso iniziale in background
-		this.checkUpdate(false);
 	}
 
 	setBadge(text: string | null, type: 'info' | 'success' | 'warn' | 'error' = 'info', autoClearMs = 0) {

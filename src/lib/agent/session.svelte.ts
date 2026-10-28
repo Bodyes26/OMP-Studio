@@ -9,7 +9,7 @@ import { nameExistingPrototypeIfLong, nameLaneFromPrompt } from '#lib/lanes/lane
 import { projectStore } from '#lib/stores/projects.svelte.ts';
 import { perfMark, perfSpan } from '#lib/perf.ts';
 import { studioLog } from '#lib/diagnostics/studioLog.ts';
-import { generateSessionTitle } from '#lib/stores/sessionTitles.ts';
+import { generateSessionTitle } from '#lib/stores/backgroundJobs.svelte.ts';
 import {
 	agentHeadsUp,
 	buildTurnDigest,
@@ -4213,7 +4213,7 @@ export class AgentSession {
 	 */
 	private titleSessionFromFirstPrompt(message: string): void {
 		const sessionId = this.sessionId;
-		if (!sessionId || this.sessionName || this.labConfig || !settingsStore.taskTitles.autoGenerate) return;
+		if (!sessionId || this.sessionName || this.labConfig || !settingsStore.backgroundJobs.enabled || !settingsStore.backgroundJobs.jobs.sessionTitles.enabled) return;
 		void generateSessionTitle(sessionId, message).then(async (title) => {
 			// Durante la chiamata l'utente puo' aver cambiato sessione o usato /name.
 			if (!title || this.sessionId !== sessionId || this.sessionName) return;

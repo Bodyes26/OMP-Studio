@@ -12,7 +12,8 @@
 
 import { m } from '#lib/paraglide/messages.js';
 import { i18n } from '#lib/i18n/i18n.svelte.ts';
-import { quotaStore, providersMatch } from './quota.svelte';
+import { quotaStore } from './quota.svelte';
+import { providersMatch } from '../quota/providers';
 import { modelSettingsStore } from './modelSettings.svelte';
 import type { StudioTask, TaskSchedule, TaskScheduleOrigin } from './taskSerialization';
 import { formatProviderShortName } from '#lib/quota/projectQuota.ts';

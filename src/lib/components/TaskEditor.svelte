@@ -21,10 +21,11 @@
 	} from '#lib/stores/taskDirectives.ts';
 	import { rankFrequentTaskModelConfigurations } from '#lib/stores/taskSerialization.ts';
 	import { freshGeneratedTitle } from '#lib/stores/taskTitle.ts';
-	import { requestTaskTitle } from '#lib/stores/taskTitles.svelte.ts';
+	import { requestTaskTitle } from '#lib/stores/backgroundJobs.svelte.ts';
 	import { modelSettingsStore, STANDARD_ROLES } from '#lib/stores/modelSettings.svelte.ts';
 	import { supportedThinkingLevels, THINKING_LEVEL_ITEMS } from '#lib/stores/modelSettingsHelpers.ts';
-	import { quotaStore, providersMatch, type ProviderHost } from '#lib/stores/quota.svelte.ts';
+	import { quotaStore, type ProviderHost } from '#lib/stores/quota.svelte.ts';
+	import { providersMatch } from '#lib/quota/providers.ts';
 	import { scheduleStore } from '#lib/stores/schedule.svelte.ts';
 	import {
 		buildAtSchedule,

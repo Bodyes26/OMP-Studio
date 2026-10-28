@@ -339,15 +339,17 @@ class GithubStore {
 	}
 
 	/** Il controllo remoto non tocca il checkout e non apre prompt di credenziali. */
-	async checkRemote(projectPath: string): Promise<void> {
+	async checkRemote(projectPath: string, force = false): Promise<void> {
 		await settingsStore.init();
 		const key = normalizeProjectPath(projectPath).toLowerCase();
-		if (!key || !settingsStore.github.autoFetch) return;
+		if (!key || !settingsStore.backgroundJobs.enabled || !settingsStore.backgroundJobs.jobs.gitFetch.enabled) return;
 		const pending = this.remotePending.get(key);
 		if (pending) return pending;
 		if (
-			this.isSyncingByPath[key] ||
-			Date.now() - (this.remoteCheckedAt.get(key) ?? 0) < this.REMOTE_CHECK_INTERVAL_MS
+			!force && (
+				this.isSyncingByPath[key] ||
+				Date.now() - (this.remoteCheckedAt.get(key) ?? 0) < this.REMOTE_CHECK_INTERVAL_MS
+			)
 		) return;
 
 		this.remoteCheckedAt.set(key, Date.now());
@@ -355,7 +357,7 @@ class GithubStore {
 			try {
 				const before = await this.loadUpstreamStatus(projectPath);
 				if (!before) throw new Error(m.git_remote_status_error());
-				if (!before.isGit || !settingsStore.github.autoFetch) return;
+				if (!before.isGit || !settingsStore.backgroundJobs.enabled || !settingsStore.backgroundJobs.jobs.gitFetch.enabled) return;
 				await this.syncRepo(projectPath, 'fetch-background');
 				const status = this.upstreamByPath[key];
 				if (!status?.behind) {
@@ -372,7 +374,7 @@ class GithubStore {
 					candidate.canonicalProjectPath &&
 					normalizeProjectPath(candidate.canonicalProjectPath).toLowerCase() === key
 				);
-				if (!project || !settingsStore.github.autoFetch) return;
+				if (!project || !settingsStore.backgroundJobs.enabled || !settingsStore.backgroundJobs.jobs.gitFetch.enabled) return;
 				this.notifiedIncoming.set(key, signature);
 				await notificationManager.notifyGitUpdates(project, status.behind);
 			} catch (error) {

@@ -11,6 +11,17 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ## [Unreleased]
 
+### Added
+- Lavori in background: una sola coda nella finestra principale genera i titoli di task e sessioni, mantiene l'indice dello storico, aggiorna i progetti da Git e controlla gli aggiornamenti senza dover aprire le schede relative. In «Impostazioni → Lavori in background» trovi l'interruttore generale, l'attivazione di ogni lavoro, il modello da usare per i lavori AI e la soglia di quota sotto cui i modelli in abbonamento si fermano.
+- Nella barra inferiore un'icona mostra i lavori in corso e in attesa; dal popover puoi interrompere il lavoro corrente, mettere in pausa o riprendere ogni lavoro, avviarlo subito o fermare tutto.
+
+### Changed
+- Lo storico delle sessioni usa un indice locale persistente e si apre subito anche dopo il riavvio; i titoli delle sessioni passate vengono generati anche senza aprire lo storico.
+- L'aggiornamento automatico da Git riguarda tutti i progetti aperti, non solo quello attivo, e il controllo degli aggiornamenti di Studio e omp si ripete periodicamente. Gli interruttori che prima stavano in altre sezioni delle Impostazioni sono ora in «Lavori in background».
+
+### Fixed
+- Nella coda globale della Companion un task senza titolo generato mostra «Nuovo task» invece del testo intero, e il titolo viene generato appena salvi il task, senza dover aprire la coda del progetto in Studio.
+
 ## [1.9.0] - 2026-10-27
 
 ### Added

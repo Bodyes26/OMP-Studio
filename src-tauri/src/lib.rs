@@ -84,11 +84,12 @@ use suggestions_ops::generate_prompt_suggestions;
 mod lane_naming_ops;
 use lane_naming_ops::generate_lane_name;
 mod task_title_ops;
-use task_title_ops::generate_task_title;
+use task_title_ops::{background_job_cancel, generate_task_title};
 mod journal_ops;
 use journal_ops::project_docs_ask;
+pub mod session_index;
+use session_index::{session_index_refresh, session_index_untitled, session_title_save};
 mod session_titles_store;
-use session_titles_store::session_title_save;
 mod companion_ops;
 use companion_ops::{
     fit_companion_to_content, get_companion_state, hide_companion_window, init_global_shortcut,
@@ -343,7 +344,10 @@ pub fn run() {
             generate_prompt_suggestions,
             generate_lane_name,
             generate_task_title,
+            background_job_cancel,
             project_docs_ask,
+            session_index_refresh,
+            session_index_untitled,
             session_title_save,
             toggle_companion_window,
             hide_companion_window,

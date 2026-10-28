@@ -3,7 +3,7 @@
 	import { fade } from 'svelte/transition';
 	import { trayFold } from '#lib/agent/motion.ts';
 	import { splitTaskText } from '#lib/stores/taskTitle.ts';
-	import { isTaskTitleGenerating } from '#lib/stores/taskTitles.svelte.ts';
+	import { isTaskTitleGenerating } from '#lib/stores/backgroundJobs.svelte.ts';
 	import { IconChevronDown, IconExternalLink, IconPlay, IconSchedule } from '#lib/icons.ts';
 	import Tooltip from '#lib/ui/Tooltip.svelte';
 	import type { Project } from '#lib/stores/projects.svelte.ts';
@@ -224,7 +224,7 @@
 						<li class="global-queue-item" data-queue-project={item.projectId} data-queue-task={item.taskId} transition:trayFold>
 							<button type="button" class="queue-task-preview" aria-expanded={expandedTasks.includes(taskKey)} onclick={() => toggleTask(taskKey)}>
 								{#key isTaskTitleGenerating(item.taskId) ? 'generating' : text.headline}
-									<strong class="global-queue-title" class:generating={isTaskTitleGenerating(item.taskId)} in:fade={{ duration: 180 }}>{isTaskTitleGenerating(item.taskId) ? m.companion_title_generating() : text.headline || item.taskTitle}</strong>
+									<strong class="global-queue-title" class:generating={isTaskTitleGenerating(item.taskId)} in:fade={{ duration: 180 }}>{isTaskTitleGenerating(item.taskId) ? m.companion_title_generating() : text.headline || m.queue_drawer_title_new_task()}</strong>
 								{/key}
 								<span class="queue-task-body" class:expanded={expandedTasks.includes(taskKey)}>{item.task.prompt}</span>
 							</button>

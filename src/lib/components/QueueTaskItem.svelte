@@ -5,7 +5,7 @@
 	import { taskStore, type StudioTask } from '#lib/stores/tasks.svelte.ts';
 	import { settingsStore } from '#lib/stores/settings.svelte.ts';
 	import { splitTaskText, taskLabel } from '#lib/stores/taskTitle.ts';
-	import { requestTaskTitle } from '#lib/stores/taskTitles.svelte.ts';
+	import { requestTaskTitle } from '#lib/stores/backgroundJobs.svelte.ts';
 	import { directiveDisplayName } from '#lib/stores/taskDirectives.ts';
 	import { contextMenu, type ContextMenuEntry } from '#lib/contextMenu.svelte.ts';
 	import {
@@ -127,7 +127,7 @@
 	// mancanti. Si seguono solo i campi di questo task: `taskById` legge
 	// l'intera lista e ogni modifica altrui riavvierebbe l'attesa.
 	$effect(() => {
-		void [task.prompt, task.title, task.titleHash, task.status, settingsStore.taskTitles.autoGenerate];
+		void [task.prompt, task.title, task.titleHash, task.status, settingsStore.backgroundJobs.enabled, settingsStore.backgroundJobs.jobs.taskTitles.enabled];
 		untrack(() => requestTaskTitle(task.id));
 	});
 

@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
 	import type { ModelDto } from '#lib/stores/modelSettings.svelte.ts';
-	import { splitModelSelector, resolveCatalogModel } from '#lib/stores/modelSettingsHelpers.ts';
-	import { IconChevronDown } from '#lib/icons.ts';
-	import ProviderLogo from './ProviderLogo.svelte';
+import { splitModelSelector, resolveCatalogModel } from '#lib/stores/modelSettingsHelpers.ts';
+import { IconChevronDown, IconCheck } from '#lib/icons.ts';
+import ProviderLogo from './ProviderLogo.svelte';
 	import MenuButton from '#lib/ui/MenuButton.svelte';
 	import ModelPickerList from './ModelPickerList.svelte';
 
@@ -14,6 +14,7 @@
 		disabled = false,
 		ariaLabel,
 		className = '',
+		emptyOption,
 		onSelect,
 		onOpenChange
 	} = $props<{
@@ -23,6 +24,7 @@
 		disabled?: boolean;
 		ariaLabel: string;
 		className?: string;
+		emptyOption?: { label: string; value: string };
 		onSelect?: (selector: string, model: ModelDto) => void;
 		onOpenChange?: (open: boolean) => void;
 	}>();
@@ -91,12 +93,29 @@
 			{:else if cleanSelector || value}
 				<ProviderLogo provider={cleanSelector || value} size={14} />
 				<span class="model-name font-mono">{cleanSelector || value}</span>
+			{:else if emptyOption && (!value || value === emptyOption.value)}
+				<span class="model-name">{emptyOption.label}</span>
 			{:else}
 				<span class="model-placeholder">{placeholder}</span>
 			{/if}
 			<span class="model-chevron" aria-hidden="true"><IconChevronDown /></span>
 		{/snippet}
 		{#snippet children()}
+			{#if emptyOption}
+				<div class="empty-option-container">
+					<button
+						type="button"
+						class="empty-option-btn"
+						class:selected={!value || value === emptyOption.value}
+						onclick={() => handleSelect(emptyOption.value, { selector: emptyOption.value, name: emptyOption.label, provider: '', id: emptyOption.value } as ModelDto)}
+					>
+						<span class="empty-option-label">{emptyOption.label}</span>
+						{#if !value || value === emptyOption.value}
+							<span class="empty-option-check" aria-hidden="true"><IconCheck /></span>
+						{/if}
+					</button>
+				</div>
+			{/if}
 			<ModelPickerList
 				{catalog}
 				value={cleanSelector || value || ''}
@@ -182,5 +201,40 @@
 		margin-left: auto;
 		color: var(--ink-faint);
 		--icon-size: 12px;
+	}
+
+	.empty-option-container {
+		padding: var(--space-2) var(--space-2) 0;
+	}
+
+	.empty-option-btn {
+		width: 100%;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 7px 10px;
+		background: transparent;
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
+		color: var(--ink);
+		font-size: var(--text-label);
+		cursor: pointer;
+		transition: background-color var(--dur-fast) var(--ease-out);
+	}
+
+	.empty-option-btn:hover {
+		background: var(--bg-hover);
+	}
+
+	.empty-option-btn.selected {
+		background: var(--bg-active);
+		font-weight: 500;
+	}
+
+	.empty-option-check {
+		display: inline-flex;
+		align-items: center;
+		color: var(--brand-ink);
+		--icon-size: 14px;
 	}
 </style>

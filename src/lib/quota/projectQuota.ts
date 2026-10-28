@@ -1,9 +1,9 @@
 import {
 	quotaStore,
-	providersMatch,
 	type QuotaReport,
 	type QuotaLimit
 } from '../stores/quota.svelte';
+import { providersMatch } from './providers';
 import {
 	modelFamilyFor,
 	familyLimits,
