@@ -108,6 +108,7 @@ import './remote-lane-config.test.ts';
 import './session-completion.test.ts';
 import './remote-fleet.test.ts';
 import './companion-conversation.test.ts';
+import './companion-ask-context.test.ts';
 import './companion-presentation.test.ts';
 import './preview-refresh.test.ts';
 import './panel-geometry.test.ts';

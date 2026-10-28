@@ -153,7 +153,7 @@
 </script>
 
 {#if isManagerEnabled}
-	<Tooltip text={tooltipText} disabled={open} placement="top" offset={6}>
+	<Tooltip text={tooltipText} disabled={open} placement="top-start" offset={6}>
 		<button
 			bind:this={triggerBtnEl}
 			type="button"
@@ -200,7 +200,7 @@
 			popover="manual"
 			use:anchoredPopover={{
 				anchor: triggerBtnEl,
-				placement: 'top-end',
+				placement: 'top-start',
 				offset: 8,
 				constrainHeight: true,
 				motion: true
@@ -398,10 +398,53 @@
 {/if}
 
 <style>
-	.jobs-indicator-btn {
+	.version-btn {
+		background: transparent;
+		border: 1px solid transparent;
+		color: var(--ink-faint);
+		font-size: 11px;
+		font-family: var(--font-mono);
+		font-variant-numeric: tabular-nums;
+		height: 20px;
+		padding: 0 6px;
+		border-radius: var(--radius-md);
+		cursor: pointer;
 		display: inline-flex;
 		align-items: center;
 		gap: 6px;
+		transition: color var(--dur-fast) var(--ease-out),
+			background-color var(--dur-fast) var(--ease-out),
+			border-color var(--dur-fast) var(--ease-out),
+			box-shadow var(--dur-fast) var(--ease-out);
+		white-space: nowrap;
+	}
+
+	.version-btn:hover,
+	.version-btn.active {
+		color: var(--ink);
+		background: var(--bg-hover);
+		border-color: var(--line);
+	}
+
+	.version-btn:focus-visible {
+		outline: none;
+		border-color: var(--brand);
+		box-shadow: 0 0 0 1px var(--brand);
+	}
+
+	.version-btn.has-running {
+		color: var(--ink);
+	}
+
+	.version-btn.is-paused {
+		color: var(--warn);
+	}
+
+	.btn-spinner {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
 	}
 
 	.status-glyph {
@@ -410,18 +453,53 @@
 		justify-content: center;
 		color: var(--ink-faint);
 		--icon-size: 13px;
+		transition: color var(--dur-fast) var(--ease-out);
+	}
+
+	.version-btn:hover .status-glyph:not(.paused),
+	.version-btn.active .status-glyph:not(.paused) {
+		color: var(--ink);
 	}
 
 	.status-glyph.paused {
 		color: var(--warn);
 	}
 
-	.jobs-indicator-btn.has-running {
-		color: var(--ink);
+	.version-label {
+		line-height: 1;
+		letter-spacing: -0.01em;
 	}
 
-	.jobs-indicator-btn.is-paused {
+	.update-chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		font-family: var(--font-mono);
+		font-size: 10px;
+		font-weight: 600;
+		line-height: 1;
+		letter-spacing: 0.02em;
+		padding: 2px 6px;
+		border-radius: var(--radius-full);
+		background: var(--bg-active);
+		color: var(--ink);
+		box-shadow: inset 0 0 0 1px var(--line);
+		flex-shrink: 0;
+		transition: background-color var(--dur-fast) var(--ease-out),
+			color var(--dur-fast) var(--ease-out),
+			box-shadow var(--dur-fast) var(--ease-out);
+	}
+
+	.update-chip.info {
+		background: color-mix(in oklch, var(--brand) 12%, transparent);
+		color: var(--ink);
+		box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--brand) 30%, transparent);
+	}
+
+	.update-chip.warn {
+		background: color-mix(in oklch, var(--warn) 15%, transparent);
 		color: var(--warn);
+		box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--warn) 35%, transparent);
 	}
 
 	/* Popover ancorato nel top layer */

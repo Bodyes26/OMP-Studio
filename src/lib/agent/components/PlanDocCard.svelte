@@ -33,7 +33,7 @@
 			case 'approved':
 				return m.plan_doc_status_approved();
 			case 'saved':
-				return m.plan_doc_status_saved();
+				return plan.isLab ? m.plan_lab_doc_status_saved() : m.plan_doc_status_saved();
 			case 'closed':
 				return m.plan_doc_status_closed();
 			default:

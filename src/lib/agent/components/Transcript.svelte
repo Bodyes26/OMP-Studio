@@ -685,7 +685,11 @@
 					{#if approved}
 						<PlanApprovedCard {approved} />
 					{:else}
-						<UserMessage entry={item.entry} planBadge={session.plan.isPlanPrompt(item.entry)} />
+						<UserMessage
+							entry={item.entry}
+							planBadge={session.plan.isPlanPrompt(item.entry)}
+							planBadgeText={session.plan.isLab ? m.plan_lab_badge() : m.plan_badge()}
+						/>
 					{/if}
 				{:else if item.entry.kind === 'assistant'}
 					<AssistantText

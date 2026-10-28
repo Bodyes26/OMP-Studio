@@ -16,6 +16,7 @@ import {
 	PLAN_EXTENSION_COMMAND,
 	buildApprovedPrompt,
 	buildCompactInstructions,
+	buildLabCompactInstructions,
 	buildPlanOutline,
 	buildRefineFeedback,
 	composePlan,
@@ -48,6 +49,7 @@ export interface PlanDocState {
 	deleted: string[];
 	bodies: Record<string, string>;
 	status: PlanDocStatus;
+	kind?: 'lab';
 }
 
 export type PlanStepState = 'pending' | 'running' | 'done' | 'failed';
@@ -67,6 +69,7 @@ export interface PlanHandoffState {
 	/** Sessione di pianificazione, per «Torna alla sessione di pianificazione». */
 	planningSessionId: string | null;
 	savedPath: string | null;
+	kind?: 'lab';
 }
 
 /**
@@ -150,8 +153,12 @@ export class PlanController {
 	review = $state<{ requestId: string; docId: string; fromTurn: boolean } | null>(null);
 	/** Passaggio in corso: la scheda di approvazione resta chiusa, il composer bloccato. */
 	handingOff = $state(false);
+	kind = $state<'lab' | null>(null);
+	briefApproved = $state(false);
 
-	// Scelte della scheda di approvazione (restano fra un giro di revisione e l'altro).
+	get isLab(): boolean {
+		return Boolean(this.session.labConfig || this.kind === 'lab');
+	}
 	execMode = $state<PlanExecMode>(DEFAULT_PLAN_EXEC_MODE);
 	execRole = $state(DEFAULT_PLAN_EXEC_ROLE);
 	autosave = $state(true);
@@ -167,6 +174,11 @@ export class PlanController {
 
 	constructor(session: AgentSession) {
 		this.session = session;
+		if (session.labConfig) {
+			this.kind = 'lab';
+			this.execMode = 'compact';
+			this.autosave = true;
+		}
 	}
 
 	/* -------------------------------------------------------- stato dal filo */
@@ -178,6 +190,12 @@ export class PlanController {
 		this.active = status.enabled;
 		this.planFilePath = status.planFilePath;
 		this.title = status.title;
+		if (status.kind === 'lab') this.kind = 'lab';
+		if (status.briefApproved !== undefined) this.briefApproved = status.briefApproved;
+		if (this.isLab && this.execMode !== 'keep') {
+			this.execMode = 'compact';
+			this.autosave = true;
+		}
 	}
 
 	/** La sessione e' cambiata (nuova, ripresa): le card del client vanno via con lei. */
@@ -187,6 +205,10 @@ export class PlanController {
 			if (doc && doc.status === 'review') doc.status = 'closed';
 		}
 		this.review = null;
+		if (this.isLab) {
+			this.execMode = 'compact';
+			this.autosave = true;
+		}
 	}
 
 	/* ------------------------------------------------------------- vassoio */
@@ -214,7 +236,7 @@ export class PlanController {
 			if (entry.running) writing.push(...headings);
 			else if (!(entry as ToolEntry).result?.isError) written.push(...headings);
 		}
-		return buildPlanOutline(written, writing);
+		return buildPlanOutline(written, writing, this.isLab);
 	}
 
 	/** Il vassoio «Piano in costruzione» si vede mentre l'agente lavora in Piano. */
@@ -244,10 +266,6 @@ export class PlanController {
 	 */
 	async enter(text?: string): Promise<boolean> {
 		const session = this.session;
-		if (session.labConfig) {
-			session.flashNotice('info', messages.plan_lab_unavailable());
-			return false;
-		}
 		if (!this.active) {
 			if (!(await this.sendCommand('on'))) return false;
 			this.active = true;
@@ -282,6 +300,11 @@ export class PlanController {
 	 * nel file e si riapre con `/plan-review`.
 	 */
 	async exit(): Promise<void> {
+		if (this.isLab) {
+			// Nel Lab la guardia iniziale non si disattiva prima dell'approvazione del brief
+			if (this.review) await this.respond({ action: 'cancel' }, 'closed');
+			return;
+		}
 		if (!this.active && !this.review) return;
 		if (this.review) await this.respond({ action: 'cancel' }, 'closed');
 		if (await this.sendCommand('off')) {
@@ -315,6 +338,7 @@ export class PlanController {
 
 	/** Richiesta `editor` con titolo `studio-plan-review:`: nasce la card del piano. */
 	openReview(requestId: string, request: PlanReviewRequest): void {
+		if (request.kind === 'lab') this.kind = 'lab';
 		const id = cardId('plan');
 		planCards.docs[id] = {
 			id,
@@ -323,7 +347,8 @@ export class PlanController {
 			comments: {},
 			deleted: [],
 			bodies: {},
-			status: 'review'
+			status: 'review',
+			kind: request.kind || (this.isLab ? 'lab' : undefined)
 		};
 		// Il giro precedente, se ancora aperto, e' superato da questo.
 		if (this.review) {
@@ -334,6 +359,10 @@ export class PlanController {
 		this.planFilePath = request.planFilePath;
 		this.title = request.title;
 		this.active = true;
+		if (this.isLab) {
+			if (this.execMode !== 'keep') this.execMode = 'compact';
+			this.autosave = true;
+		}
 		if (!this.laneTitle || this.laneTitle === this.title) this.laneTitle = request.title;
 		this.pushEntry('doc', id);
 	}
@@ -410,7 +439,7 @@ export class PlanController {
 		return sent;
 	}
 
-	/** «Salva ed esci»: copia in `.omp/plans/`, Piano spento, nuova sessione senza eseguire. */
+	/** «Salva ed esci»: copia del piano/brief, Piano spento (salvo Lab), nuova sessione solo fuori dal Lab. */
 	async saveAndQuit(): Promise<void> {
 		const doc = this.openDoc;
 		if (!doc || this.busy) return;
@@ -418,8 +447,16 @@ export class PlanController {
 		try {
 			const fromTurn = this.review?.fromTurn ?? false;
 			if (!(await this.respond({ action: 'save', content: this.editedContent(doc) }, 'saved'))) return;
-			this.active = false;
 			if (fromTurn) await this.session.waitForIdle(60_000);
+			if (this.isLab) {
+				// Nel Lab il salvataggio archivia la bozza non approvata in .lab/brief-draft.md
+				// e lascia la guardia attiva senza aprire una nuova sessione
+				const saved = this.savedPathFromTool() ?? '.lab/brief-draft.md';
+				this.active = true;
+				this.session.flashNotice('info', messages.plan_lab_saved_notice({ path: saved }));
+				return;
+			}
+			this.active = false;
 			await this.restoreModel();
 			const saved = this.savedPathFromTool() ?? `.omp/plans/${planSaveFileName(doc.request.title)}`;
 			await this.session.newSession();
@@ -438,9 +475,14 @@ export class PlanController {
 		this.busy = true;
 		this.handingOff = true;
 		const session = this.session;
-		const mode = this.execMode;
+		const isLab = this.isLab;
+		// Nel Lab si ammettono solo 'compact' e 'keep', con default 'compact'
+		const mode: PlanExecMode = isLab
+			? (this.execMode === 'keep' ? 'keep' : 'compact')
+			: this.execMode;
 		const role = this.execRole;
-		const autosave = this.autosave;
+		// Nel Lab l'archiviazione di .lab/brief.md e' sempre obbligatoria
+		const autosave = isLab ? true : this.autosave;
 		const content = this.finalContent(doc);
 		const handoffId = cardId('handoff');
 		const toTitle =
@@ -458,7 +500,8 @@ export class PlanController {
 			status: 'running',
 			error: null,
 			planningSessionId: session.sessionId,
-			savedPath: null
+			savedPath: null,
+			kind: isLab ? 'lab' : undefined
 		};
 		const card = planCards.handoffs[handoffId];
 		const step = (id: PlanHandoffStepId, state: PlanStepState, detail?: string) => {
@@ -468,7 +511,7 @@ export class PlanController {
 			if (detail !== undefined) target.detail = detail;
 		};
 		this.pushEntry('handoff', handoffId);
-
+		let approvalConfirmed = false;
 		try {
 			const fromTurn = this.review?.fromTurn ?? false;
 			step('save', 'running');
@@ -478,24 +521,37 @@ export class PlanController {
 				'approved'
 			);
 			if (!sent) throw new Error(messages.plan_handoff_not_sent());
-			this.active = false;
 			// L'estensione salva e spegne la guardia dentro lo strumento: il turno
 			// finisce con una frase breve, poi la strada scelta parte da sessione ferma.
 			if (fromTurn) await session.waitForIdle(90_000);
+			const submitEntry = this.lastSubmitEntry();
+			if (submitEntry?.result?.isError) {
+				const errMsg = typeof submitEntry.result.details === 'string'
+					? submitEntry.result.details
+					: messages.plan_handoff_not_sent();
+				throw new Error(errMsg);
+			}
 			const savedPath = this.savedPathFromTool();
-			card.savedPath = savedPath;
+			if (isLab && !savedPath && !this.briefApproved) {
+				throw new Error(messages.plan_handoff_not_sent());
+			}
+			approvalConfirmed = true;
+			this.active = false;
+			if (isLab) this.briefApproved = true;
+			card.savedPath = savedPath ?? (isLab ? '.lab/brief.md' : null);
 			// Il piano finale lo rilegge l'estensione (anche dopo «Apri nell'editor»).
 			const fromDisk = fromTurn ? this.submitDetails()?.planContent : undefined;
 			const planContent = typeof fromDisk === 'string' && fromDisk.trim() ? fromDisk : content;
-			step('save', 'done', savedPath ?? `.omp/plans/${planSaveFileName(doc.request.title)}`);
+			step('save', 'done', savedPath ?? defaultPath);
 			step('exit', 'done', messages.plan_step_exit_detail());
 
 			// Il percorso che resta leggibile anche dopo un cambio di sessione.
-			const durablePath =
-				mode === 'fresh' || mode === 'lane' ? (savedPath ?? doc.request.planFilePath) : doc.request.planFilePath;
+			const durablePath = isLab
+				? (savedPath ?? '.lab/brief.md')
+				: (mode === 'fresh' || mode === 'lane' ? (savedPath ?? doc.request.planFilePath) : doc.request.planFilePath);
 			let target: AgentSession = session;
 
-			if (mode === 'fresh') {
+			if (mode === 'fresh' && !isLab) {
 				step('new-session', 'running');
 				await session.newSession();
 				// `new_session` svuota il transcript: la card del passaggio riparte in cima.
@@ -503,11 +559,14 @@ export class PlanController {
 				step('new-session', 'done', session.sessionId ? session.sessionId.slice(0, 8) : '');
 			} else if (mode === 'compact') {
 				step('compact', 'running');
-				const ok = await session.compact(buildCompactInstructions(doc.request.planFilePath));
+				const instructions = isLab
+					? buildLabCompactInstructions(durablePath)
+					: buildCompactInstructions(doc.request.planFilePath);
+				const ok = await session.compact(instructions);
 				if (!ok) throw new Error(messages.plan_handoff_compact_failed());
 				const after = session.contextUsage?.tokens;
 				step('compact', 'done', after ? messages.plan_step_tokens({ tokens: Math.round(after / 1000) }) : '');
-			} else if (mode === 'lane') {
+			} else if (mode === 'lane' && !isLab) {
 				step('create-lane', 'running');
 				if (!host.createLane) throw new Error(messages.plan_handoff_lane_unavailable());
 				const created = await host.createLane(session, { title: toTitle });
@@ -528,17 +587,31 @@ export class PlanController {
 			const prompt = buildApprovedPrompt({
 				planFilePath: durablePath,
 				planContent,
-				contextPreserved: mode === 'compact' || mode === 'keep'
+				contextPreserved: isLab || mode === 'compact' || mode === 'keep',
+				kind: isLab ? 'lab' : undefined
 			});
 			const delivery = await target.prompt(prompt);
 			if (delivery !== 'sent' && delivery !== 'deferred') throw new Error(messages.plan_handoff_not_sent());
-			step('deliver', 'done', messages.plan_step_deliver_detail());
+			step('deliver', 'done', isLab ? 'brief approvato' : messages.plan_step_deliver_detail());
 			card.status = 'done';
 		} catch (error) {
 			card.status = 'failed';
 			card.error = error instanceof Error ? error.message : String(error);
 			const running = card.steps.find((candidate) => candidate.state === 'running');
 			if (running) running.state = 'failed';
+			if (!approvalConfirmed) {
+				if (isLab) {
+					this.active = true;
+					this.briefApproved = false;
+				}
+				if (doc && doc.status === 'approved') {
+					doc.status = 'closed';
+				}
+				this.review = null;
+				if (!this.review) {
+					void this.sendCommand('review');
+				}
+			}
 			session.pushNotice('error', messages.plan_handoff_failed({ error: card.error }), 'studio');
 		} finally {
 			this.handingOff = false;
@@ -613,6 +686,16 @@ export class PlanController {
 	private savedPathFromTool(): string | null {
 		const savedPath = this.submitDetails()?.savedPath;
 		return typeof savedPath === 'string' ? savedPath : null;
+	}
+	private lastSubmitEntry(): ToolEntry | null {
+		const entries = this.session.entries;
+		for (let index = entries.length - 1; index >= 0; index--) {
+			const entry = entries[index];
+			if (entry.kind === 'tool' && entry.toolName === 'studio_plan_submit') {
+				return entry as ToolEntry;
+			}
+		}
+		return null;
 	}
 
 	private roleModelLabel(role: string): string {

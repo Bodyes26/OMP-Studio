@@ -45,6 +45,8 @@ use omp_ops::{
     session_credential_pins, sessions_list, sessions_search, sweep_stale_logs, theme_apply,
     usage_reset_list, usage_reset_redeem, usage_snapshot,
 };
+mod stats_ops;
+use stats_ops::{stats_open_dashboard, stats_summary, stats_sync};
 mod studio_updater;
 use studio_updater::{
     cancel_studio_update_download, check_studio_update, get_studio_version,
@@ -62,6 +64,8 @@ mod setup;
 use setup::{detect_project_roots, install_nerd_font, install_omp, setup_status};
 mod alerts;
 use alerts::{clear_app_attention, init_windows_aumid, set_app_attention};
+mod project_notifications;
+use project_notifications::{dismiss_project_notifications, send_project_notification};
 mod focus_trace;
 use focus_trace::{focus_trace_append, focus_trace_path};
 mod window_icon;
@@ -401,6 +405,11 @@ pub fn run() {
             remote_command_result,
             remote_publish_chat_event,
             remote_open_machines_window,
+            send_project_notification,
+            dismiss_project_notifications,
+            stats_summary,
+            stats_sync,
+            stats_open_dashboard,
         ])
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::Destroyed => {
@@ -489,6 +498,7 @@ pub fn run() {
                 if let Some(rpc_manager) = app_handle.try_state::<rpc::RpcManager>() {
                     rpc_manager.close_all();
                 }
+                stats_ops::stop_dashboard();
                 // Ultimo istante in cui la geometria della Companion aperta e'
                 // ancora leggibile: senza questo, chi ridimensiona e chiude
                 // l'app senza prima nascondere la finestra perde la dimensione.

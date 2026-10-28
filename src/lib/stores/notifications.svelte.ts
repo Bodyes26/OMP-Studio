@@ -12,6 +12,7 @@ import {
 import { projectStore } from './projects.svelte';
 import { settingsStore } from './settings.svelte';
 import { m } from '#lib/paraglide/messages.js';
+import { IS_WINDOWS } from '#lib/utils/platform.ts';
 
 class NotificationManager {
 	/** Progetti per cui l'utente ha preso visione portando il progetto a fuoco. */
@@ -120,6 +121,15 @@ class NotificationManager {
 		await this.syncNativeAttention(true);
 	}
 
+	private async dismissProjectNotifications(projectId: string) {
+		if (!IS_WINDOWS) return;
+		try {
+			await invoke('dismiss_project_notifications', { projectId });
+		} catch (error) {
+			console.warn('Ritiro notifiche progetto non riuscito:', error);
+		}
+	}
+
 	/**
 	 * Quando l'utente seleziona un progetto o l'app riprende il focus,
 	 * azzera l'alert per quel progetto.
@@ -143,6 +153,8 @@ class NotificationManager {
 
 		const activeId = projectStore.activeId;
 		if (!activeId) return;
+		// Anche Git e heads-up vanno ritirati, non solo le richieste in attention.
+		void this.dismissProjectNotifications(activeId);
 
 		const activeProject = projectStore.projects.find((p) => p.id === activeId);
 		if (activeProject && activeProject.lane.agentState === 'attention') {
@@ -155,20 +167,18 @@ class NotificationManager {
 
 	/** Gli aggiornamenti Git restano distinti dalle richieste dell'agente. */
 	async notifyGitUpdates(project: { id: string; name: string }, count: number): Promise<void> {
-		if (!settingsStore.notifications.enabled) return;
+		if (!settingsStore.notifications.enabled || this.isAppFocused()) return;
 		try {
 			await this.init();
 			let granted = await isPermissionGranted();
 			if (!granted) granted = (await requestPermission()) === 'granted';
 			if (!granted) return;
-			sendNotification({
-				title: settingsStore.notifications.style === 'detailed'
+			await this.sendProjectNotification(
+				project.id,
+				settingsStore.notifications.style === 'detailed'
 					? `OMP Studio · ${project.name}` : 'OMP Studio',
-				body: m.git_remote_notification_body({ name: project.name, count }),
-				channelId: 'omp-studio-alerts',
-				extra: { projectId: project.id },
-				silent: !settingsStore.notifications.sound
-			});
+				m.git_remote_notification_body({ name: project.name, count })
+			);
 		} catch (error) {
 			console.warn('Invio notifica Git non riuscito:', error);
 		}
@@ -181,21 +191,18 @@ class NotificationManager {
 	 */
 	async notifyHeadsUp(project: { id: string; name: string }, text: string): Promise<void> {
 		if (!settingsStore.notifications.enabled) return;
-		const isAppFocused = typeof document !== 'undefined' && document.hasFocus();
-		if (isAppFocused && projectStore.activeId === project.id) return;
+		if (this.isAppFocused()) return;
 		try {
 			await this.init();
 			let granted = await isPermissionGranted();
 			if (!granted) granted = (await requestPermission()) === 'granted';
 			if (!granted) return;
 			const isDetailed = settingsStore.notifications.style === 'detailed';
-			sendNotification({
-				title: isDetailed ? m.headsup_notification_title({ project: project.name }) : 'OMP Studio',
-				body: isDetailed ? text : m.headsup_notification_compact({ project: project.name }),
-				channelId: 'omp-studio-alerts',
-				extra: { projectId: project.id },
-				silent: !settingsStore.notifications.sound
-			});
+			await this.sendProjectNotification(
+				project.id,
+				isDetailed ? m.headsup_notification_title({ project: project.name }) : 'OMP Studio',
+				isDetailed ? text : m.headsup_notification_compact({ project: project.name })
+			);
 		} catch (error) {
 			console.warn('Invio notifica heads-up non riuscito:', error);
 		}
@@ -206,6 +213,7 @@ class NotificationManager {
 	 */
 	private async dispatchOsNotification(project: { id: string; name: string }) {
 		if (!settingsStore.notifications.enabled) return;
+		if (this.isAppFocused()) return;
 
 		// Evita notifiche duplicate a raffica (minimo 5 secondi tra notifiche per lo stesso progetto)
 		const now = Date.now();
@@ -234,15 +242,28 @@ class NotificationManager {
 				title = 'OMP Studio';
 				body = `OMP ha bisogno di te su ${project.name}`;
 			}
-			sendNotification({
-				title,
-				body,
-				channelId: 'omp-studio-alerts',
-				extra: { projectId: project.id },
-				silent: !settingsStore.notifications.sound
-			});
+			await this.sendProjectNotification(project.id, title, body);
 		} catch (err) {
 			console.warn('Invio notifica OS non riuscito:', err);
+		}
+	}
+
+	private isAppFocused(): boolean {
+		return typeof document !== 'undefined' && document.hasFocus();
+	}
+
+	private async sendProjectNotification(projectId: string, title: string, body: string) {
+		// Il permesso puo' arrivare dopo un cambio di focus: ricontrolla prima dell'invio.
+		if (this.isAppFocused()) return;
+		if (IS_WINDOWS) {
+			await invoke('send_project_notification', {
+				projectId, title, body, silent: !settingsStore.notifications.sound, test: false
+			});
+		} else {
+			sendNotification({
+				title, body, channelId: 'omp-studio-alerts',
+				extra: { projectId }, silent: !settingsStore.notifications.sound
+			});
 		}
 	}
 
@@ -303,12 +324,22 @@ class NotificationManager {
 				return { ok: false, error: m.notify_permission_denied() };
 			}
 
-			sendNotification({
-				title: m.notify_test_title(),
-				body: m.notify_test_body(),
-				channelId: 'omp-studio-alerts',
-				silent: !settingsStore.notifications.sound
-			});
+			if (IS_WINDOWS) {
+				await invoke('send_project_notification', {
+					projectId: '__notification_test__',
+					title: m.notify_test_title(),
+					body: m.notify_test_body(),
+					silent: !settingsStore.notifications.sound,
+					test: true
+				});
+			} else {
+				sendNotification({
+					title: m.notify_test_title(),
+					body: m.notify_test_body(),
+					channelId: 'omp-studio-alerts',
+					silent: !settingsStore.notifications.sound
+				});
+			}
 			return { ok: true };
 		} catch (err) {
 			return { ok: false, error: String(err) };

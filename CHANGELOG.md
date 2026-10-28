@@ -14,13 +14,22 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 ### Added
 - Lavori in background: una sola coda nella finestra principale genera i titoli di task e sessioni, mantiene l'indice dello storico, aggiorna i progetti da Git e controlla gli aggiornamenti senza dover aprire le schede relative. In «Impostazioni → Lavori in background» trovi l'interruttore generale, l'attivazione di ogni lavoro, il modello da usare per i lavori AI e la soglia di quota sotto cui i modelli in abbonamento si fermano.
 - Nella barra inferiore un'icona mostra i lavori in corso e in attesa; dal popover puoi interrompere il lavoro corrente, mettere in pausa o riprendere ogni lavoro, avviarlo subito o fermare tutto.
+- Le anteprime del Laboratorio e dei prototipi UI mostrano «Rendering dell'anteprima…» mentre la nuova versione si carica, al posto del riquadro bianco, e confermano con «Anteprima aggiornata» quando l'aggiornamento è pronto.
+- Nuova sezione «Impostazioni → Statistiche»: costo stimato a prezzi API, richieste, token, cache ed errori di tutte le sessioni di omp nelle ultime 24 ore, 7 o 30 giorni, con l'attività nel tempo, i modelli usati (quota, costo, velocità), i progetti per costo con quello aperto in evidenza e la quota di lavoro dei subagenti. «Dashboard completa» apre la dashboard web di omp con richieste, errori, tracce e tool.
+- Laboratorio: prima di costruire, l'agente esplora il progetto e prepara un brief con una breve intervista; puoi commentarlo e correggerlo come un Piano, e Studio sblocca le modifiche solo dopo la tua approvazione. Poi scegli «Compatta e continua» o «Continua così com'è», senza cambiare sessione; vale anche per bozze libere e prototipi precedenti privi di approvazione. (R-LAB-01…04, R-LAB-08)
+- Laboratorio: scegli fra Fedele, Varianti divergenti, Flusso e Libera; le varianti confrontano gli stessi dati e operazioni con un autore distinto per proposta, e il brief accompagna revisioni e consegna alla Principale. Gli screenshot dell'app reale restano allegati manuali facoltativi. (R-LAB-04…06)
 
 ### Changed
 - Lo storico delle sessioni usa un indice locale persistente e si apre subito anche dopo il riavvio; i titoli delle sessioni passate vengono generati anche senza aprire lo storico.
 - L'aggiornamento automatico da Git riguarda tutti i progetti aperti, non solo quello attivo, e il controllo degli aggiornamenti di Studio e omp si ripete periodicamente. Gli interruttori che prima stavano in altre sezioni delle Impostazioni sono ora in «Lavori in background».
+- L'indicatore dei processi in background si sposta all'angolo sinistro della barra inferiore con lo stesso stile e assenza di riquadro dei pulsanti di versione di Studio e omp.
 
 ### Fixed
+- I prototipi associati a un progetto ricevono il percorso reale e i riferimenti ai suoi file, invece di cercare soltanto nello scaffold vuoto: puoi partire da un progetto mai aperto in Studio senza rispiegare il dominio o avere una chat precedente. (R-LAB-01, R-LAB-07)
+- Le notifiche automatiche non mostrano banner mentre lavori in Studio, lasciando visibile il composer; su Windows, aprire un progetto ritira subito le sue notifiche anche senza fare clic sul popup. Badge e indicatori interni restano attivi.
 - Nella coda globale della Companion un task senza titolo generato mostra «Nuovo task» invece del testo intero, e il titolo viene generato appena salvi il task, senza dover aprire la coda del progetto in Studio.
+- Nella card di una domanda della Companion compare solo il testo che l'agente ha scritto dopo la tua ultima risposta, anche se hai già risposto ad altre domande da Studio; il resto della conversazione, risposte alle domande comprese, si apre con «Carica messaggi precedenti» e torna chiuso alla domanda successiva.
+- Un task salvato dalla Companion senza indicare ruolo o modello prende il ruolo predefinito dei task con il suo modello, invece di restare senza ruolo.
 
 ## [1.9.0] - 2026-10-27
 

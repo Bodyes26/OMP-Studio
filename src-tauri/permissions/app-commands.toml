@@ -132,7 +132,10 @@ commands.allow = [
     "provider_hosts",
     "session_credential_pins",
     "session_subagent_cost",
-    "read_historical_session_messages"
+    "read_historical_session_messages",
+    "stats_summary",
+    "stats_sync",
+    "stats_open_dashboard"
 ]
 
 [[permission]]

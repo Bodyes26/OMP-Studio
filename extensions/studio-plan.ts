@@ -25,7 +25,8 @@
 // plan-mode-subagent.md, versione 18.8.4. Vanno riallineati quando upstream li
 // cambia (controllo di release dei comandi, docs/COMMANDS.md).
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
 
@@ -137,6 +138,158 @@ List 3-5 files most critical for implementing this plan:
 - \`path/to/file1.ts\` — Brief reason
 </output>`;
 
+export const LAB_PLAN_MODE_SUBAGENT_PROMPT = `<critical>
+Modalita' Piano attiva nel Laboratorio (OMP Studio).
+Sei un agente di ricognizione in SOLA LETTURA per l'agente Lab.
+- Vietato creare, modificare, rinominare o eliminare file.
+- Vietato invocare comandi shell, build o sottomissione del piano.
+- Esplora il codice sorgente del progetto o la documentazione e riporta fatti precisi all'agente principale.
+</critical>
+
+<output>
+Riporta all'agente principale:
+1. File sorgente rilevanti per la superficie richiesta.
+2. Token di design, stili e convenzioni osservate.
+3. Modelli dei dati e terminologia di dominio riscontrata.
+4. Eventuali lacune o ambiguita' riscontrate.
+</output>`;
+
+export const LAB_EXECUTION_SUBAGENT_PROMPT = `<critical>
+Sei un autore delegato per una variante specifica del prototipo in OMP Studio Lab.
+- Lavora ESCLUSIVAMENTE all'interno del file assegnato per la tua variante nel workspace del prototipo.
+- Importa i dati simulati e le funzioni comuni dai moduli condivisi; NON ridefinire dati mock duplicati o isolati.
+- Rispetta fedelmente l'asse di differenziazione assegnato, il nome e la motivazione della variante.
+- Il progetto ospite e' in sola lettura. Shell, interpreti e accessi esterni sono disabilitati.
+- Non invocare tool riservati all'agente principale (\`corsia_*\`, \`studio_plan_submit\`).
+</critical>`;
+
+export const LAB_RECIPE_EXECUTION_PROMPT = `## OMP Studio Lab — Istruzioni di costruzione e memoria di lavoro
+
+Il brief e' stato approvato in OMP Studio ed e' salvato in \`.lab/brief.md\`.
+Le scritture nel workspace del prototipo sono ora sbloccate.
+
+### 1. Memoria di lavoro (\`.lab/brief.md\`)
+- Consulta regolarmente \`.lab/brief.md\` come fonte di verita' dei requisiti, dei dati mock, della ricetta e dei vincoli di design concordati.
+- Se nei turni successivi l'utente richiede cambi di scopo o modifiche architetturali, aggiorna direttamente \`.lab/brief.md\` per mantenerlo allineato.
+- Le modifiche future a \`.lab/brief.md\` sono consentite senza nuovo blocco, a meno che l'utente non richieda esplicitamente un nuovo Piano (/plan o /studio-plan on).
+- Questo documento sopravvive alle compattazioni di sessione e ai riavvii.
+
+### 2. Regole di costruzione del prototipo
+- **Stack**: Progetto Vite autonomo con React 19 + TypeScript + Tailwind CSS v4 nel workspace del prototipo.
+- **Entry point**: \`src/main.tsx\` e \`src/App.tsx\`. Modifica i file sorgente in \`src/\`, configurazioni e asset necessari.
+- **Dati simulati**: Tutti i dati devono essere simulati/mockati. Nessun accesso a database reali o backend remoti.
+- **Browser anteprima**: Il tool \`browser\` puo' interagire ESCLUSIVAMENTE con l'anteprima locale. Non tentare in nessun caso di navigare verso l'applicazione reale.
+- **Progetto ospite in sola lettura**: Il progetto ospite resta consultabile per riferimento ma non puo' mai essere modificato.
+
+### 3. Esecuzione secondo la ricetta approvata nel brief
+- **Se la ricetta e' "Varianti divergenti"**:
+  1. Definisci prima i dati simulati e le funzioni di utilita' comuni in un modulo condiviso (es. \`src/data/mockData.ts\`). Tutte le alternative devono basarsi sullo stesso dataset comune.
+  2. Separa i file delle varianti (es. \`src/variants/VariantA.tsx\`, \`src/variants/VariantB.tsx\`, ecc.).
+  3. Assegna la costruzione di ogni variante (3–5 varianti) a un sottoagente autore distinto tramite \`task\` (un subagent per variante), specificandone l'asse di differenziazione e il file dedicato.
+  4. Integra le varianti in \`src/App.tsx\` con un selettore visibile (schede, bottoni o menu) che permetta il confronto interattivo immediato sulle stesse prenotazioni/dati.
+  5. Ogni variante deve mostrare nome e motivazione nel selettore. Differenze solo cromatiche non sono ammesse.
+- **Se la ricetta e' "Flusso"**:
+  1. Rendi navigabili tutti i passi del flusso con controlli per avanzare, tornare indietro e reimpostare.
+  2. Implementa e rendi esercitabili gli stati: vuoto (empty), caricamento (loading), errore di validazione e successo.
+  3. Mantieni i dati inseriti o selezionati coerenti fra un passo e l'altro.
+- **Se la ricetta e' "Fedele"**:
+  1. Rispetta convenzioni visive, token e terminologia del progetto ospite.
+  2. Rendi chiaramente identificabili le novita' o i miglioramenti rispetto all'esistente.
+- **Se la ricetta e' "Libera"**:
+  1. Esplora layout moderni ed ergonomici senza il vincolo dei token storici.
+  2. Preserva rigorosamente le regole di business e la terminologia riscontrata nel brief.
+
+### 4. Verifica e completamento
+- Salva un riepilogo conciso di 2-3 righe con il tool \`lab_set_summary\`.
+- Controlla la compilazione e l'assenza di errori con il tool \`lab_preview_status\`.
+- Quando il prototipo e' pronto e funzionante, segnala il completamento con \`corsia_fatto\`.`;
+
+export function buildLabPlanPrompt(projectPath: string | null = process.env.OMP_LAB_PROJECT_PATH || null): string {
+	const hasHostProject = Boolean(projectPath && projectPath.trim());
+	const resolvedHost = hasHostProject ? resolve(projectPath!.trim()) : "";
+
+	const hostReconInstructions = hasHostProject
+		? `1. **Ricognizione mirata del progetto ospite (sola lettura)**:
+   - Percorso reale del progetto ospite: "${resolvedHost}".
+   - Consulta la documentazione di progetto se presente e leggibile: AGENTS.md, DESIGN.md, PRODUCT.md. Non inventare documenti assenti.
+   - Esplora i sorgenti rilevanti per la richiesta: individua la superficie citata (pagine, componenti, route), file sorgente effettivi, token di design, convenzioni stilistiche (CSS/Tailwind), modelli dei dati e terminologia di dominio reale.
+   - Per applicazioni legacy (es. Web Forms): esamina il code-behind e le definizioni di stored procedure presenti nei sorgenti. Nessun accesso a database o backend reali e' necessario o consentito.
+   - Includi nel perimetro di lettura il working tree corrente del progetto, comprese eventuali modifiche non committate pertinenti.
+   - File protetti o sensibili (.git/, credenziali, .env*, chiavi) restano inaccessibili.
+   - Puoi usare sottoagenti read-only (scout) tramite \`task\` per accelerare l'esplorazione.`
+		: `1. **Bozza libera (senza progetto ospite)**:
+   - Questo prototipo e' una bozza libera indipendente: NON esiste un progetto ospite associato.
+   - NON cercare repository o percorsi su disco esterni: ricava tutto il contesto dalla richiesta iniziale dell'utente, da eventuali riferimenti e dall'intervista.`;
+
+	return `<critical>
+Modalita' Piano attiva nel Laboratorio (OMP Studio).
+- Il workspace del prototipo e' in SOLA LETTURA: e' tassativamente vietato creare, modificare, rinominare o eliminare file nel workspace (inclusi \`src/\`, \`package.json\`, \`index.html\`, CSS e asset).
+- Comandi di stato o shell (\`bash\`, \`eval\`, interpreti, pacchetti) sono disabilitati.
+- File del piano: scrivi il brief esclusivamente su \`local://<slug>-plan.md\`.
+- Sottomissione del brief: chiama \`${PLAN_SUBMIT_TOOL}\` con \`slug\` (corrispondente a \`local://<slug>-plan.md\`) e un breve \`title\` leggibile.
+- Approvazione obbligatoria: lo sblocco delle scritture avviene ESCLUSIVAMENTE tramite la decisione di approvazione dell'utente nella scheda di revisione di OMP Studio.
+- Nessun bypass consentito: la presenza di un file su disco, comandi \`/studio-plan off\` o risposte ad \`ask\` NON equivalgono all'approvazione del Piano. I sottoagenti NON possono sottomettere il piano ne' aggirare la guardia.
+</critical>
+
+## Sequenza operativa obbligatoria
+
+${hostReconInstructions}
+
+2. **Intervista adattiva all'utente (\`ask\`)**:
+   - Chiarisci con \`ask\` SOLTANTO decisioni rilevanti che cambiano il risultato: superficie ambigua, operazioni ed esperienze da esplorare, grado di fedelta' al design, ricetta scelta e varianti.
+   - NON fare domande su fatti gia' deducibili dai sorgenti o dalla richiesta.
+   - Screenshot di riferimento manuale:
+     1. Se sono gia' state allegate immagini alla richiesta iniziale, considerale gia' acquisite e procedi senza chiedere screenshot.
+     2. Altrimenti, se la richiesta tocca una superficie visiva esistente ma non ci sono immagini allegate, proponi tramite \`ask\` due opzioni:
+        - "Prosegui senza screenshot" (annota nel brief sotto Assunzioni che la pagina reale non e' stata osservata visivamente);
+        - "Allego screenshot nel prossimo messaggio" (invita l'utente a inviare lo screenshot dal composer nel messaggio successivo).
+     In nessun caso tentare di catturare la pagina reale tramite browser host.
+
+3. **Scelta di una delle quattro ricette testuali**:
+   Studio fornisce quattro ricette ufficiali per guidare la costruzione:
+   - **Fedele**: Riusa token, stili e convenzioni del progetto ospite; modifica la superficie richiesta e rende riconoscibili le differenze rispetto all'esistente.
+   - **Varianti divergenti**: Confronta 3–5 alternative reali con dati mock e funzioni comuni e assi di differenziazione dichiarati (es. densita' informativa, gerarchia visiva, modello di interazione; differenze puramente cromatiche NON sono sufficienti). Assegna la costruzione di ogni variante a un sottoagente autore distinto.
+   - **Flusso**: Rende navigabili passi e stati pertinenti, inclusi stati vuoti (empty), caricamento (loading), errore e successo, con dati coerenti fra i passi.
+   - **Libera**: Esplora senza vincolo del design system esistente, mantenendo validi i fatti di prodotto, la terminologia e i vincoli funzionali documentati.
+   Proponi la ricetta adeguata nell'intervista o recepiscila dalla richiesta, registrandola nel brief.
+
+4. **Stesura del brief (\`local://<slug>-plan.md\`)**:
+   Il brief e' la memoria di lavoro dell'agente. Usa obbligatoriamente le seguenti 6 sezioni con intestazione \`##\` per la revisione in Studio:
+
+   ## 1. Superficie
+   Pagina/componente target e file sorgente di riferimento nel progetto (o scopo per bozze libere).
+
+   ## 2. Dominio e terminologia
+   Entita', concetti di business e vocabolario specifico riscontrato nei sorgenti o concordato.
+
+   ## 3. Dati
+   Forma dei dati reali e simulazioni/mock previsti (modelli, campi, relazioni).
+
+   ## 4. Vincoli di design
+   Token, convenzioni visive, librerie e grado di fedelta' scelto.
+
+   ## 5. Varianti ed esplorazione
+   Ricetta selezionata, obiettivo, interazioni chiave, cosa resta fisso e cosa varia. Per "Varianti divergenti": 3–5 varianti con nome, motivazione e assi di confronto.
+
+   ## 6. Assunzioni
+   Lacune, decisioni non deducibili dai sorgenti e stato dell'osservazione visiva (screenshot disponibile o pagina non osservata).
+
+5. **Sottomissione per revisione**:
+   - Salva il file in \`local://<slug>-plan.md\`.
+   - Invoca \`${PLAN_SUBMIT_TOOL}\` indicando slug e titolo.
+   - Studio mostrera' la scheda di revisione a 6 sezioni. All'approvazione, Studio salvera' \`.lab/brief.md\` nel workspace e sblocchera' la modalita' di costruzione.
+
+<critical>
+Il turno termina ESCLUSIVAMENTE con:
+1. \`ask\` per l'intervista all'utente o richiesta screenshot; OPPURE
+2. \`${PLAN_SUBMIT_TOOL}\` con slug e titolo del brief.
+Se l'utente chiede modifiche (\`refine\`), aggiorna lo stesso file \`local://<slug>-plan.md\` e invoca nuovamente \`${PLAN_SUBMIT_TOOL}\`.
+Se approvato, termina subito con una breve frase di conferma: Studio avviera' la fase di costruzione.
+</critical>`;
+}
+
+export const LAB_PLAN_MODE_ACTIVE_PROMPT = buildLabPlanPrompt();
+
 /* -------------------------------------------------------------- stato del modo */
 
 export interface StudioPlanState {
@@ -145,6 +298,8 @@ export interface StudioPlanState {
 	planFilePath: string | null;
 	/** Titolo dell'ultimo piano proposto. */
 	title: string | null;
+	kind?: "lab";
+	briefApproved?: boolean;
 }
 
 // Lo stato vive a livello di processo: in `rpc-ui` c'e' una sola sessione
@@ -155,7 +310,15 @@ type GlobalWithPlan = typeof globalThis & { [STATE_SYMBOL]?: StudioPlanState };
 
 export function planState(): StudioPlanState {
 	const g = globalThis as GlobalWithPlan;
-	if (!g[STATE_SYMBOL]) g[STATE_SYMBOL] = { enabled: false, planFilePath: null, title: null };
+	if (!g[STATE_SYMBOL]) {
+		g[STATE_SYMBOL] = {
+			enabled: false,
+			planFilePath: null,
+			title: null,
+			kind: isLabSession() ? "lab" : undefined,
+			briefApproved: false
+		};
+	}
 	return g[STATE_SYMBOL]!;
 }
 
@@ -164,6 +327,8 @@ export function resetPlanState(next?: Partial<StudioPlanState>): StudioPlanState
 	state.enabled = next?.enabled ?? false;
 	state.planFilePath = next?.planFilePath ?? null;
 	state.title = next?.title ?? null;
+	state.kind = next?.kind;
+	state.briefApproved = next?.briefApproved;
 	return state;
 }
 
@@ -330,6 +495,136 @@ export function savePlanCopy(cwd: string, title: string, content: string): strin
 	return `.omp/plans/${fallback}`;
 }
 
+/**
+ * Normalizza un percorso per il binding crittograficamente/strutturalmente certo nel marker,
+ * risolvendo percorsi reali (anche symlink/junction) e gestendo case-folding su Windows.
+ */
+export function normalizePathForBinding(pathStr: string | null | undefined): string | null {
+	if (!pathStr || !pathStr.trim()) return null;
+	const trimmed = pathStr.trim();
+	try {
+		const resolved = resolve(trimmed);
+		const real = existsSync(resolved) ? realpathSync(resolved) : resolved;
+		return process.platform === "win32" ? real.toLowerCase() : real;
+	} catch {
+		const resolved = resolve(trimmed);
+		return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+	}
+}
+
+/**
+ * Salva atomicamente il brief approvato in `.lab/brief.md` e il marker
+ * transitorio protetto `.lab/.brief-approved.json` nel workspace del prototipo,
+ * legandolo al workspace e al progetto ospite corrente (se presente).
+ */
+export function saveLabBriefAndMarker(
+	workspaceDir: string,
+	slug: string,
+	content: string,
+	projectPath: string | null = process.env.OMP_LAB_PROJECT_PATH || null
+): string {
+	const labDir = join(workspaceDir, ".lab");
+	mkdirSync(labDir, { recursive: true });
+
+	const targetBrief = join(labDir, "brief.md");
+	const targetMarker = join(labDir, ".brief-approved.json");
+
+	// Invalida subito il vecchio marker prima di modificare il brief per evitare che
+	// un fallimento I/O lasci un'approvazione precedente associata a contenuto parziale
+	try {
+		if (existsSync(targetMarker)) unlinkSync(targetMarker);
+	} catch {}
+
+	// 1. Scrittura atomica di .lab/brief.md (fail closed: temp+rename senza fallback a scrittura diretta)
+	const tempBrief = join(labDir, `brief.${randomUUID()}.tmp`);
+	writeFileSync(tempBrief, content, "utf8");
+	try {
+		try {
+			if (existsSync(targetBrief)) unlinkSync(targetBrief);
+		} catch {}
+		renameSync(tempBrief, targetBrief);
+	} catch (err) {
+		try {
+			if (existsSync(tempBrief)) unlinkSync(tempBrief);
+		} catch {}
+		throw err;
+	}
+
+	// 2. Scrittura atomica del marker transitorio protetto .lab/.brief-approved.json con binding obbligatori
+	const canonicalWorkspace = normalizePathForBinding(workspaceDir);
+	const canonicalProject = normalizePathForBinding(projectPath);
+	const expectedProto =
+		process.env.OMP_LAB_PROTOTYPE_ID && process.env.OMP_LAB_PROTOTYPE_ID.trim()
+			? process.env.OMP_LAB_PROTOTYPE_ID.trim()
+			: null;
+
+	const markerPayload = JSON.stringify(
+		{
+			approved: true,
+			approvedAt: new Date().toISOString(),
+			prototypeId: expectedProto,
+			workspaceDir: canonicalWorkspace,
+			projectDir: canonicalProject,
+			slug
+		},
+		null,
+		2
+	);
+	const tempMarker = join(labDir, `marker.${randomUUID()}.tmp`);
+	writeFileSync(tempMarker, markerPayload, "utf8");
+	try {
+		renameSync(tempMarker, targetMarker);
+	} catch (err) {
+		try {
+			if (existsSync(tempMarker)) unlinkSync(tempMarker);
+		} catch {}
+		throw err;
+	}
+
+	return ".lab/brief.md";
+}
+
+export function isLabBriefApprovedOnDisk(
+	workspaceDir: string,
+	expectedPrototypeId: string | null = process.env.OMP_LAB_PROTOTYPE_ID || null,
+	expectedProjectPath: string | null = process.env.OMP_LAB_PROJECT_PATH || null
+): boolean {
+	try {
+		const markerPath = join(workspaceDir, ".lab", ".brief-approved.json");
+		if (!existsSync(markerPath)) return false;
+		const raw = JSON.parse(readFileSync(markerPath, "utf8"));
+		if (!raw || typeof raw !== "object") return false;
+
+		// 1. Approvazione esplicita e campi informativi obbligatori
+		if (!("approved" in raw) || raw.approved !== true) return false;
+		if (!("approvedAt" in raw) || typeof raw.approvedAt !== "string" || !raw.approvedAt.trim()) return false;
+		if (!("slug" in raw) || typeof raw.slug !== "string" || !raw.slug.trim()) return false;
+
+		// 2. prototypeId deve coincidere esattamente con l'atteso (stringa ID o esplicito null)
+		const expectedProto =
+			expectedPrototypeId && expectedPrototypeId.trim() ? expectedPrototypeId.trim() : null;
+		if (!("prototypeId" in raw)) return false;
+		const protoId = raw.prototypeId === null || typeof raw.prototypeId === "string" ? raw.prototypeId : undefined;
+		if (protoId !== expectedProto) return false;
+
+		// 3. workspaceDir deve essere presente e coincidere esattamente con il workspace canonico normalizzato
+		const currentWorkspace = normalizePathForBinding(workspaceDir);
+		if (!("workspaceDir" in raw) || typeof raw.workspaceDir !== "string" || !currentWorkspace) return false;
+		if (raw.workspaceDir !== currentWorkspace) return false;
+
+		// 4. projectDir deve essere presente e coincidere esattamente (stringa canonica o esplicito null)
+		const currentProject = normalizePathForBinding(expectedProjectPath);
+		if (!("projectDir" in raw)) return false;
+		const boundProject = raw.projectDir === null || typeof raw.projectDir === "string" ? raw.projectDir : undefined;
+		if (boundProject !== currentProject) return false;
+
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+
 /* ------------------------------------------------------- decisione di Studio */
 
 export type PlanExecMode = "fresh" | "lane" | "compact" | "keep";
@@ -369,30 +664,48 @@ export function parseDecision(raw: string | undefined): PlanReviewDecision {
 }
 
 /** Testo che l'agente riceve come risultato di `studio_plan_submit`. */
-export function decisionResultText(decision: PlanReviewDecision, planFilePath: string, savedPath: string | null): string {
+export function decisionResultText(
+	decision: PlanReviewDecision,
+	planFilePath: string,
+	savedPath: string | null,
+	isLab = false
+): string {
 	switch (decision.action) {
 		case "refine":
 			return [
-				"The user reviewed the plan in OMP Studio and requested changes:",
+				`The user reviewed the ${isLab ? "brief" : "plan"} in OMP Studio and requested changes:`,
 				"",
-				decision.feedback?.trim() || "(no comment: re-check the plan for completeness)",
+				decision.feedback?.trim() || `(no comment: re-check the ${isLab ? "brief" : "plan"} for completeness)`,
 				"",
 				`Update ${planFilePath} accordingly (plan mode is still active), then submit it again with ${PLAN_SUBMIT_TOOL}.`
 			].join("\n");
 		case "approve":
+			if (isLab) {
+				return [
+					`Brief approved in OMP Studio (saved to ${savedPath || ".lab/brief.md"}).`,
+					"Plan mode is off and workspace writes are unlocked.",
+					"Reply with one short sentence and wait for execution instructions."
+				].join("\n");
+			}
 			return [
 				`Plan approved in OMP Studio${savedPath ? ` (copy saved to ${savedPath})` : ""}.`,
 				"Plan mode is off. OMP Studio now hands the plan to the executor: STOP NOW. Reply with one short sentence and do not call any other tool."
 			].join("\n");
 		case "save":
+			if (isLab) {
+				return [
+					`The user chose "Save and quit"${savedPath ? `: brief saved to ${savedPath}` : ""}.`,
+					"The brief is saved but NOT approved. Writes remain locked until a brief is approved in Studio. STOP NOW with one short sentence."
+				].join("\n");
+			}
 			return [
 				`The user chose "Save and quit"${savedPath ? `: plan saved to ${savedPath}` : ""}.`,
 				"Plan mode is off and nothing will be executed. STOP NOW with one short sentence."
 			].join("\n");
 		default:
 			return [
-				"The user closed the plan review without a decision. Plan mode is still active.",
-				"STOP NOW and wait: the user can reopen the review with /plan-review or send new instructions."
+				`The user closed the ${isLab ? "brief" : "plan"} review without a decision. Plan mode is still active${isLab ? " and workspace writes remain locked" : ""}.`,
+				`STOP NOW and wait: the user can reopen the review with /plan-review or send new instructions.`
 			].join("\n");
 	}
 }
@@ -494,39 +807,70 @@ function localRootOf(ctx: PlanContext | undefined): string {
  * Studio marca il processo GUI con `OMP_STUDIO_PLAN=gui` (rpc/mod.rs); `--mode`
  * resta come riserva se la variabile si perde.
  */
+export function isLabSession(env: Record<string, string | undefined> = process.env): boolean {
+	return env.OMP_LAB_SESSION === "1" || Boolean(env.OMP_LAB_WORKSPACE && env.OMP_LAB_WORKSPACE.trim());
+}
+
 export function isGuiHost(
 	argv: readonly string[] = process.argv,
 	env: Record<string, string | undefined> = process.env
 ): boolean {
 	if (env.OMP_STUDIO_PLAN === "gui") return true;
 	if (env.OMP_STUDIO_PLAN === "off") return false;
+	if (env.OMP_LAB_SESSION === "1" || Boolean(env.OMP_LAB_WORKSPACE && env.OMP_LAB_WORKSPACE.trim())) return true;
 	const index = argv.indexOf("--mode");
 	if (index >= 0) return argv[index + 1] === "rpc-ui" || argv[index + 1] === "rpc";
 	return argv.some((arg) => arg === "--mode=rpc-ui" || arg === "--mode=rpc");
 }
 
 /** Ultimo stato salvato nella sessione (voce custom `studio-plan-state`). */
-export function restoreFromEntries(entries: unknown[] | undefined): StudioPlanState {
+export function restoreFromEntries(entries: unknown[] | undefined, isLab = false): StudioPlanState {
 	let found: StudioPlanState = { enabled: false, planFilePath: null, title: null };
 	for (const entry of entries ?? []) {
 		if (!entry || typeof entry !== "object") continue;
-		const record = entry as { type?: unknown; customType?: unknown; data?: unknown };
-		if (record.type !== "custom" || record.customType !== PLAN_STATE_ENTRY) continue;
-		const data = (record.data ?? {}) as Partial<StudioPlanState>;
-		found = {
-			enabled: data.enabled === true,
-			planFilePath: typeof data.planFilePath === "string" ? data.planFilePath : null,
-			title: typeof data.title === "string" ? data.title : null
-		};
+		if (!("type" in entry) || !("customType" in entry)) continue;
+		const type = entry.type;
+		const customType = entry.customType;
+		if (type !== "custom" || customType !== PLAN_STATE_ENTRY) continue;
+		const rawData = "data" in entry && entry.data && typeof entry.data === "object" ? entry.data : {};
+		const enabled = "enabled" in rawData && rawData.enabled === true;
+		const planFilePath = "planFilePath" in rawData && typeof rawData.planFilePath === "string" ? rawData.planFilePath : null;
+		const title = "title" in rawData && typeof rawData.title === "string" ? rawData.title : null;
+		const kind = "kind" in rawData && rawData.kind === "lab" ? "lab" : undefined;
+		const briefApproved = "briefApproved" in rawData && rawData.briefApproved === true;
+		found = { enabled, planFilePath, title, kind, briefApproved };
+	}
+	if (isLab) {
+		found.kind = "lab";
+		if (!found.briefApproved) {
+			found.enabled = true;
+		}
 	}
 	return found;
 }
+
 
 /* -------------------------------------------------------------- entrypoint */
 
 export default function studioPlanExtension(pi: StudioPlanApi): void {
 	if (!isGuiHost()) return;
 	const z = pi.zod;
+	const isLab = isLabSession();
+
+	// Nel Laboratorio la guardia parte abilitata finche' non c'e' approvazione confermata
+	if (isLab) {
+		const state = planState();
+		state.kind = "lab";
+		const workspace = process.env.OMP_LAB_WORKSPACE || process.cwd();
+		const approvedOnDisk = isLabBriefApprovedOnDisk(workspace);
+		if (approvedOnDisk) {
+			state.briefApproved = true;
+			state.enabled = false;
+		} else {
+			state.briefApproved = false;
+			state.enabled = true;
+		}
+	}
 
 	const publish = (ctx: PlanContext | undefined) => {
 		const state = planState();
@@ -566,6 +910,17 @@ export default function studioPlanExtension(pi: StudioPlanApi): void {
 
 	const setEnabled = async (ctx: PlanContext | undefined, enabled: boolean) => {
 		const state = planState();
+		if (isLab) {
+			state.kind = "lab";
+			// Nel Lab, se il brief non e' approvato, il Piano non puo' essere disattivato
+			if (!enabled && !state.briefApproved) {
+				state.enabled = true;
+				persist();
+				await syncTools();
+				publish(ctx);
+				return;
+			}
+		}
 		if (state.enabled === enabled) {
 			publish(ctx);
 			return;
@@ -579,7 +934,20 @@ export default function studioPlanExtension(pi: StudioPlanApi): void {
 	const restore = async (ctx: PlanContext) => {
 		if (ctx?.agent?.kind === "sub") return;
 		const entries = ctx?.sessionManager?.getBranch?.() ?? ctx?.sessionManager?.getEntries?.();
-		const restored = restoreFromEntries(entries);
+		const restored = restoreFromEntries(entries, isLab);
+
+		if (isLab) {
+			const cwd = contextCwd(ctx);
+			const workspace = process.env.OMP_LAB_WORKSPACE || cwd;
+			// Verifica rigorosa fail-closed: marker su disco verificato per questo specifico workspace/prototipo
+			const markerApproved = isLabBriefApprovedOnDisk(workspace);
+			// Se il marker non e' presente su disco, qualsiasi vecchia voce di sessione viene invalidata
+			const approved = markerApproved && (restored.briefApproved === true || !(entries && entries.length > 0));
+			restored.kind = "lab";
+			restored.briefApproved = approved;
+			restored.enabled = !approved || restored.enabled;
+		}
+
 		resetPlanState(restored);
 		await syncTools();
 		publish(ctx);
@@ -589,8 +957,29 @@ export default function studioPlanExtension(pi: StudioPlanApi): void {
 	pi.on("session_switch", (_event, ctx) => restore(ctx));
 
 	pi.on("before_agent_start", (event, ctx) => {
-		if (!planState().enabled) return undefined;
+		const state = planState();
 		const base = Array.isArray(event.systemPrompt) ? (event.systemPrompt as string[]) : [];
+
+		if (isLab) {
+			const workspace = process.env.OMP_LAB_WORKSPACE || contextCwd(ctx);
+			const onDisk = isLabBriefApprovedOnDisk(workspace);
+			if (!onDisk) {
+				state.briefApproved = false;
+				state.enabled = true;
+				persist();
+				publish(ctx);
+			}
+
+			if (state.enabled || !state.briefApproved) {
+				const addition = ctx?.agent?.kind === "sub" ? LAB_PLAN_MODE_SUBAGENT_PROMPT : buildLabPlanPrompt();
+				return { systemPrompt: [...base, addition] };
+			} else {
+				const addition = ctx?.agent?.kind === "sub" ? LAB_EXECUTION_SUBAGENT_PROMPT : LAB_RECIPE_EXECUTION_PROMPT;
+				return { systemPrompt: [...base, addition] };
+			}
+		}
+
+		if (!state.enabled) return undefined;
 		const addition = ctx?.agent?.kind === "sub" ? PLAN_MODE_SUBAGENT_PROMPT : PLAN_MODE_ACTIVE_PROMPT;
 		return { systemPrompt: [...base, addition] };
 	});
@@ -617,21 +1006,34 @@ export default function studioPlanExtension(pi: StudioPlanApi): void {
 		const planFilePath = `local://${slug}-plan.md`;
 		const localPath = join(localRootOf(ctx), `${slug}-plan.md`);
 		if (!existsSync(localPath)) {
-			return { error: `Plan file not found: ${planFilePath}. Write the plan there first, then submit again.` };
+			return { error: `Plan file not found: ${planFilePath}. Write the ${isLab ? "brief" : "plan"} there first, then submit again.` };
 		}
 		const content = readFileSync(localPath, "utf8");
-		if (!content.trim()) return { error: `Plan file is empty: ${planFilePath}.` };
+		if (!content.trim()) return { error: `${isLab ? "Brief" : "Plan"} file is empty: ${planFilePath}.` };
 		if (!ctx?.ui) return { error: "No OMP Studio UI is attached to this session." };
 
 		const state = planState();
 		state.planFilePath = planFilePath;
 		state.title = title;
+		if (isLab) {
+			state.kind = "lab";
+		}
 		persist();
 		publish(ctx);
 
-		const meta = { v: 1, slug, title, planFilePath, localPath };
+		const meta: Record<string, unknown> = { v: 1, slug, title, planFilePath, localPath };
+		if (isLab) {
+			meta.kind = "lab";
+		}
 		const raw = await ctx.ui.editor(`${PLAN_REVIEW_TITLE_PREFIX}${JSON.stringify(meta)}`, content, { signal });
 		const decision = parseDecision(raw);
+
+		// Nel Laboratorio sono ammesse soltanto le due modalita' "compact" o "keep" (default "compact")
+		if (isLab) {
+			if (decision.mode !== "keep") {
+				decision.mode = "compact";
+			}
+		}
 
 		// Le modifiche fatte in revisione arrivano subito su disco, come in omp.
 		if (decision.content !== undefined && decision.content !== content && decision.content.trim()) {
@@ -650,8 +1052,48 @@ export default function studioPlanExtension(pi: StudioPlanApi): void {
 		}
 
 		let savedPath: string | null = null;
-		if (decision.action === "approve" || decision.action === "save") {
-			if (decision.action === "save" || decision.autosave !== false) {
+		if (decision.action === "approve") {
+			if (isLab) {
+				const workspaceDir = process.env.OMP_LAB_WORKSPACE || contextCwd(ctx);
+				try {
+					savedPath = saveLabBriefAndMarker(workspaceDir, slug, finalContent, process.env.OMP_LAB_PROJECT_PATH || null);
+					state.briefApproved = true;
+					await setEnabled(ctx, false);
+				} catch (error) {
+					ctx.ui.notify(
+						`Salvataggio brief in .lab/brief.md non riuscito: ${error instanceof Error ? error.message : String(error)}`,
+						"error"
+					);
+				}
+			} else {
+				if (decision.autosave !== false) {
+					try {
+						savedPath = savePlanCopy(contextCwd(ctx), title, finalContent);
+					} catch (error) {
+						ctx.ui.notify(
+							`Copia del piano in .omp/plans non riuscita: ${error instanceof Error ? error.message : String(error)}`,
+							"warning"
+						);
+					}
+				}
+				await setEnabled(ctx, false);
+			}
+		} else if (decision.action === "save") {
+			if (isLab) {
+				// Nel Laboratorio "Salva ed esci" salva la bozza ma mantiene la guardia CHIUSA (non e' approvazione)
+				const workspaceDir = process.env.OMP_LAB_WORKSPACE || contextCwd(ctx);
+				try {
+					const labDir = join(workspaceDir, ".lab");
+					mkdirSync(labDir, { recursive: true });
+					const draftPath = join(labDir, "brief-draft.md");
+					writeFileSync(draftPath, finalContent, "utf8");
+					savedPath = ".lab/brief-draft.md";
+				} catch {}
+				state.briefApproved = false;
+				state.enabled = true;
+				persist();
+				publish(ctx);
+			} else {
 				try {
 					savedPath = savePlanCopy(contextCwd(ctx), title, finalContent);
 				} catch (error) {
@@ -660,39 +1102,52 @@ export default function studioPlanExtension(pi: StudioPlanApi): void {
 						"warning"
 					);
 				}
+				await setEnabled(ctx, false);
 			}
-			await setEnabled(ctx, false);
+		} else if (decision.action === "refine" || decision.action === "cancel") {
+			if (isLab) {
+				state.briefApproved = false;
+				state.enabled = true;
+				persist();
+				publish(ctx);
+			}
 		}
+
 		return { decision, planFilePath, savedPath, content: finalContent };
 	};
 
 	pi.registerTool({
 		name: PLAN_SUBMIT_TOOL,
-		label: "Studio Plan Submit",
-		description:
-			"Submit the plan written to local://<slug>-plan.md for review in OMP Studio. Only available while Studio plan mode is active. " +
-			"Blocks until the user decides: returns requested changes (update the plan and submit again) or approval (stop immediately).",
+		label: isLab ? "Studio Lab Brief Submit" : "Studio Plan Submit",
+		description: isLab
+			? "Submit the brief written to local://<slug>-plan.md for review in OMP Studio. Only available while brief review is pending. Blocks until the user decides: returns requested changes (update the brief and submit again) or approval (stop immediately)."
+			: "Submit the plan written to local://<slug>-plan.md for review in OMP Studio. Only available while Studio plan mode is active. " +
+			  "Blocks until the user decides: returns requested changes (update the plan and submit again) or approval (stop immediately).",
 		parameters: z.object({
 			slug: z.string().describe("Plan slug: the <slug> of local://<slug>-plan.md (letters, numbers, _ and -)."),
 			title: z.string().optional().describe("Short human-readable plan title shown to the user.")
 		}),
 		approval: "read",
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-			if (!planState().enabled) {
-				return text("Studio plan mode is not active: there is nothing to submit.", undefined, true);
+			if (ctx?.agent?.kind === "sub") {
+				return text("Subagents cannot submit plans or brief reviews. Only the main agent can submit.", undefined, true);
+			}
+			const state = planState();
+			if (!state.enabled && (!isLab || state.briefApproved)) {
+				return text(isLab ? "Studio Lab brief review is not active." : "Studio plan mode is not active: there is nothing to submit.", undefined, true);
 			}
 			const slug = normalizePlanSlug(typeof params?.slug === "string" ? params.slug : "");
 			if (!slug) return text("Invalid slug: use letters, numbers, underscores or hyphens.", undefined, true);
 			const title = (typeof params?.title === "string" && params.title.trim()) || slug.replace(/[-_]+/g, " ");
 			const outcome = await review(ctx, slug, title, signal);
 			if ("error" in outcome) return text(outcome.error, undefined, true);
-			return text(decisionResultText(outcome.decision, outcome.planFilePath, outcome.savedPath), {
+			return text(decisionResultText(outcome.decision, outcome.planFilePath, outcome.savedPath, isLab), {
 				action: outcome.decision.action,
 				mode: outcome.decision.mode,
 				role: outcome.decision.role,
 				planFilePath: outcome.planFilePath,
 				savedPath: outcome.savedPath,
-				// `details` non va al modello: Studio ci legge il piano finale.
+				// `details` non va al modello: Studio ci legge il piano/brief finale.
 				planContent: outcome.decision.action === "approve" ? outcome.content : undefined
 			});
 		}
@@ -701,22 +1156,31 @@ export default function studioPlanExtension(pi: StudioPlanApi): void {
 	pi.registerCommand("studio-plan", {
 		description: "OMP Studio: modalita' Piano della chat GUI (on|off|status|review)",
 		handler: async (args, ctx) => {
+			if (ctx?.agent?.kind === "sub") return;
+			const state = planState();
 			const op = args.trim().split(/\s+/)[0]?.toLowerCase() || "status";
 			if (op === "on") {
 				await setEnabled(ctx, true);
 				return;
 			}
 			if (op === "off") {
+				if (isLab && !state.briefApproved) {
+					ctx?.ui?.notify(
+						"Nel Laboratorio la modalita' Piano e' obbligatoria fino all'approvazione del brief.",
+						"warning"
+					);
+					publish(ctx);
+					return;
+				}
 				await setEnabled(ctx, false);
 				return;
 			}
 			if (op === "review") {
 				// Sessione ferma: la revisione non deve tenere bloccata la risposta
 				// di `prompt`, quindi parte senza attendere e applica l'esito dopo.
-				const state = planState();
 				const slug = normalizePlanSlug(state.planFilePath ?? "");
 				if (!slug) {
-					ctx?.ui?.notify("Nessun piano da rivedere in questa sessione.", "info");
+					ctx?.ui?.notify(isLab ? "Nessun brief da rivedere in questa sessione." : "Nessun piano da rivedere in questa sessione.", "info");
 					return;
 				}
 				const title = state.title ?? slug;
@@ -728,7 +1192,7 @@ export default function studioPlanExtension(pi: StudioPlanApi): void {
 					if (outcome.decision.action === "refine") {
 						// Il commento dell'utente apre la bolla (Studio la marca «Piano»);
 						// l'istruzione per l'agente segue su una riga a parte.
-						const feedback = outcome.decision.feedback?.trim() || decisionResultText(outcome.decision, outcome.planFilePath, null);
+						const feedback = outcome.decision.feedback?.trim() || decisionResultText(outcome.decision, outcome.planFilePath, null, isLab);
 						pi.sendUserMessage?.(
 							`${feedback}\n\n(Update ${outcome.planFilePath} and submit it again with ${PLAN_SUBMIT_TOOL}.)`
 						);

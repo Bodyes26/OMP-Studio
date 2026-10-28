@@ -227,8 +227,8 @@ fn walk_snapshot_dir(root: &Path, current: &Path, files: &mut Vec<LabFile>) -> R
     Ok(())
 }
 
-/// Snapshot di tutti i file di testo del workspace (esclusi .git, .lab, node_modules, dist),
-/// con percorsi relativi alla radice e separatori `/`.
+/// Snapshot di tutti i file di testo del workspace (esclusi .git, node_modules, dist,
+/// e l'intera cartella .lab salvo .lab/brief.md), con percorsi relativi alla radice e separatori `/`.
 fn snapshot_workspace(root: &Path) -> Result<Vec<LabFile>, String> {
     if !root.is_dir() {
         return Err(format!(
@@ -239,6 +239,24 @@ fn snapshot_workspace(root: &Path) -> Result<Vec<LabFile>, String> {
 
     let mut files = Vec::new();
     walk_snapshot_dir(root, root, &mut files)?;
+
+    // Include .lab/brief.md come unico file permesso da .lab nello snapshot
+    let brief_path = root.join(".lab").join("brief.md");
+    if brief_path.is_file() {
+        if let Ok(meta) = brief_path.metadata() {
+            if meta.len() <= 1_048_576 {
+                if let Ok(bytes) = fs::read(&brief_path) {
+                    if let Some(content) = decode_snapshot_text(".lab/brief.md", bytes)? {
+                        files.push(LabFile {
+                            path: ".lab/brief.md".to_string(),
+                            content,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
     files.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(files)
 }
@@ -289,7 +307,9 @@ fn copy_dir_filtered(
         if exclude_lab && file_name == ".lab" {
             continue;
         }
-
+        if file_name.starts_with(".brief-approved") || file_name == "preview-status.json" {
+            continue;
+        }
         let target = dst.join(file_name);
         if path.is_dir() {
             copy_dir_filtered(&path, &target, include_git, exclude_lab)?;
@@ -337,6 +357,11 @@ pub async fn lab_prototype_duplicate(
 
         // Copia ricorsiva del workspace (incluso .git, esclusi node_modules e dist)
         copy_dir_filtered(&orig_ws, &new_ws, true, false)?;
+        // Rimuove marker transitori di approvazione per evitare che la copia
+        // erediti lo stato di approvazione del prototipo originale.
+        let _ = fs::remove_file(new_ws.join(".lab").join(".brief-approved.json"));
+        let _ = fs::remove_file(new_ws.join(".lab").join("preview-status.json"));
+
 
         let now = now_iso8601();
         let new_title = format!("{} (copia)", orig_entry.title);

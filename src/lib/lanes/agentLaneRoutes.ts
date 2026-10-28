@@ -228,6 +228,7 @@ export interface LabHandoffInput {
 	workspacePath: string;
 	revision: { sha: string; message: string; date: string } | null;
 	files: readonly string[];
+	brief?: string | null;
 	previewUrl?: string | null;
 	previewErrors?: number;
 }
@@ -248,7 +249,7 @@ export function buildLabHandoffPackage(input: LabHandoffInput): string {
 	const revision = input.revision
 		? `${input.revision.sha.slice(0, 7)} "${input.revision.message}" (${input.revision.date})`
 		: 'nessuna revisione registrata';
-	const sources = input.files.filter((path) => !path.startsWith('.lab/'));
+	const sources = input.files.filter((path) => !path.startsWith('.lab/') || path === '.lab/brief.md');
 	const lines = [
 		`# Consegna prototipo Laboratorio: ${input.title}`,
 		'',
@@ -261,6 +262,11 @@ export function buildLabHandoffPackage(input: LabHandoffInput): string {
 		lines.push(`- Anteprima: ${input.previewUrl}${errors > 0 ? ` (${errors} errori aperti)` : ''}`);
 	}
 	lines.push('', '## Cosa fa', input.summary.trim() || '(nessun riepilogo lasciato dall\'agente del Laboratorio)');
+	lines.push(
+		'',
+		'## Brief del prototipo',
+		input.brief?.trim() || '(nessun brief presente in questa revisione: non presumere un obiettivo approvato)'
+	);
 	lines.push('', '## File del prototipo');
 	lines.push(...(sources.length > 0 ? sources.map((path) => `- ${path}`) : ['- (nessun file)']));
 	lines.push('', '## Limiti delle simulazioni');
@@ -268,9 +274,10 @@ export function buildLabHandoffPackage(input: LabHandoffInput): string {
 	lines.push(
 		'',
 		'## Come procedere',
-		"Leggi i sorgenti indicati e reimplementa l'interfaccia nello stack nativo di questo progetto " +
-			'(componenti, stili e convenzioni esistenti). Non copiare il runtime del prototipo e non ' +
-			'modificare la cartella del prototipo. Se il lavoro e\' rischioso o lungo, proponi una corsia con corsia_proponi.'
+		"Leggi il brief e i sorgenti della revisione indicata, poi reimplementa l'interfaccia nello stack nativo di questo progetto " +
+			'(componenti, stili e convenzioni esistenti). Se il workspace contiene modifiche successive, usa la revisione Git indicata ' +
+			"come riferimento. Non copiare il runtime del prototipo e non modificare la sua cartella. " +
+			"Se il lavoro e' rischioso o lungo, proponi una corsia con corsia_proponi."
 	);
 	return lines.join('\n');
 }

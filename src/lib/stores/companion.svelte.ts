@@ -743,9 +743,11 @@ class CompanionStore {
 			);
 			const defaults = { ...settingsStore.taskDefaults, ...(project?.taskDefaults ?? {}) };
 			const config = modelSettingsStore.config;
-			const configuredRoleSelector = parsed.role
-				? config?.modelRoles?.[parsed.role]?.trim() ?? ''
-				: '';
+			// Senza ruolo scelto vale il ruolo predefinito dei task, risolto nel suo
+			// modello come fa l'editor: senza `modelSelector` il task finiva in coda
+			// senza ruolo, sul modello della sessione.
+			const role = parsed.role || (defaults.role && defaults.role !== 'custom' ? defaults.role : 'default');
+			const configuredRoleSelector = config?.modelRoles?.[role]?.trim() ?? '';
 			const knownModelSelectors = new Set(modelSettingsStore.catalog.map((model) => model.selector));
 			const configuredRole = splitModelSelector(configuredRoleSelector, knownModelSelectors);
 			const explicitModelSelector = parsed.modelSelector?.trim() || '';
@@ -756,7 +758,7 @@ class CompanionStore {
 				.map(createDirectiveSnapshot);
 
 			const options: StudioTaskOptions = {
-				role: explicitModelSelector ? 'custom' : parsed.role || defaults.role,
+				role: explicitModelSelector ? 'custom' : role,
 				modelSelector: explicitModelSelector || configuredRole.base || undefined,
 				thinkingLevel: explicitModelSelector
 					? defaults.thinkingLevel

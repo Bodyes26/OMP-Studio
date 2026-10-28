@@ -19,7 +19,9 @@
 	import CompanionMarkdown from './CompanionMarkdown.svelte';
 	import UserMessage from '#lib/agent/components/UserMessage.svelte';
 	import AssistantText from '#lib/agent/components/AssistantText.svelte';
-	import type { TranscriptEntry, UserEntry, AssistantEntry } from '#lib/agent/session.svelte.ts';
+	import AskTrace from '#lib/agent/components/AskTrace.svelte';
+	import type { TranscriptEntry } from '#lib/agent/session.svelte.ts';
+	import { splitAskContext, type AskContextItem } from '#lib/companion/askContext.ts';
 	import {
 		IconArrowUp,
 		IconCheck,
@@ -34,8 +36,6 @@
 
 	let {
 		req,
-		historyExpanded = false,
-		onToggleHistory,
 		customReplyOpen = false,
 		onCustomReplyToggle,
 		onReplyDraftChange,
@@ -50,8 +50,6 @@
 		wantsText
 	} = $props<{
 		req: AttentionRequest;
-		historyExpanded?: boolean;
-		onToggleHistory: (projectId: string) => void;
 		customReplyOpen?: boolean;
 		onCustomReplyToggle: (projectId: string, open: boolean) => void;
 		onReplyDraftChange: (projectId: string, value: string) => void;
@@ -82,6 +80,9 @@
 	let fullEntries = $state<TranscriptEntry[] | null>(null);
 	let isLoadingEntries = $state(false);
 	let loadError = $state<string | null>(null);
+	// Per domanda, non per progetto: la conversazione aperta su una domanda
+	// gia' risposta non deve restare aperta sulla successiva.
+	let historyExpanded = $state(false);
 	let activeFetchId = 0;
 
 	async function fetchEntriesForContext() {
@@ -113,48 +114,14 @@
 		const key = contextKey;
 		if (key !== currentContextKey) {
 			currentContextKey = key;
+			historyExpanded = false;
 			void fetchEntriesForContext();
 		}
 	});
 
-	function handleToggleFullHistory() {
-		onToggleHistory(req.projectId);
-	}
-
-	type HistoryItem =
-		| { kind: 'user'; entry: UserEntry }
-		| { kind: 'assistant'; entry: AssistantEntry };
-
-	const allItems = $derived.by<HistoryItem[]>(() => {
-		if (!fullEntries) return [];
-		const items: HistoryItem[] = [];
-		for (const entry of fullEntries) {
-			if (entry.kind === 'user') {
-				items.push({ kind: 'user', entry });
-			} else if (entry.kind === 'assistant') {
-				if (entry.blocks.some((b) => b.type === 'text' && /\S/.test(b.text))) {
-					items.push({ kind: 'assistant', entry });
-				}
-			}
-		}
-		return items;
-	});
-
-	// L'ultimo messaggio dell'assistente completo da mostrare per default senza label
-	const lastAssistantIndex = $derived.by(() => {
-		for (let i = allItems.length - 1; i >= 0; i--) {
-			if (allItems[i].kind === 'assistant') return i;
-		}
-		return -1;
-	});
-
-	const lastItem = $derived(
-		lastAssistantIndex >= 0 ? allItems[lastAssistantIndex] : null
-	);
-
-	const priorItems = $derived(
-		lastAssistantIndex > 0 ? allItems.slice(0, lastAssistantIndex) : []
-	);
+	const askContext = $derived(fullEntries ? splitAskContext(fullEntries) : { prior: [], leadIn: [] });
+	const priorItems = $derived<AskContextItem[]>(askContext.prior);
+	const leadInItems = $derived<AskContextItem[]>(askContext.leadIn);
 
 	const hasOtherOptionInList = $derived(
 		Boolean(req.pendingUi.options?.some((opt: string) => isOtherOption(opt)))
@@ -184,14 +151,14 @@
 			{m.companion_conversation_reload()}
 		</button>
 	</div>
-{:else if allItems.length > 0}
+{:else if priorItems.length > 0 || leadInItems.length > 0}
 	<div class="ask-chat-thread">
 		{#if priorItems.length > 0}
 			<div class="history-load-wrap">
 				<button
 					type="button"
 					class="history-load-btn"
-					onclick={handleToggleFullHistory}
+					onclick={() => (historyExpanded = !historyExpanded)}
 				>
 					<span class="chevron-icon" class:rotated={historyExpanded}>
 						<IconChevronDown />
@@ -206,36 +173,34 @@
 
 			{#if historyExpanded}
 				<div class="prior-messages" transition:trayFold>
-					{#each priorItems as item, i (item.entry.id ?? i)}
-						{#if item.kind === 'user'}
-							<div class="msg-row user-row">
-								<UserMessage entry={item.entry} />
-							</div>
-						{:else}
-							<div class="msg-row assistant-row">
-								<AssistantText entry={item.entry} streaming={false} />
-							</div>
-						{/if}
+					{#each priorItems as item (item.entry.id)}
+						{@render contextItem(item)}
 					{/each}
 				</div>
 			{/if}
 		{/if}
 
-		{#if lastItem}
-			<div class="latest-message">
-				{#if lastItem.kind === 'user'}
-					<div class="msg-row user-row">
-						<UserMessage entry={lastItem.entry} />
-					</div>
-				{:else}
-					<div class="msg-row assistant-row">
-						<AssistantText entry={lastItem.entry} streaming={false} />
-					</div>
-				{/if}
-			</div>
-		{/if}
+		{#each leadInItems as item (item.entry.id)}
+			{@render contextItem(item)}
+		{/each}
 	</div>
 {/if}
+
+{#snippet contextItem(item: AskContextItem)}
+	{#if item.kind === 'user'}
+		<div class="msg-row user-row">
+			<UserMessage entry={item.entry} />
+		</div>
+	{:else if item.kind === 'ask'}
+		<div class="msg-row">
+			<AskTrace entry={item.entry} />
+		</div>
+	{:else}
+		<div class="msg-row assistant-row">
+			<AssistantText entry={item.entry} streaming={false} />
+		</div>
+	{/if}
+{/snippet}
 
 <div class="ask-box">
 	<div class="ask-head">

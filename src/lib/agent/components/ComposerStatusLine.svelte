@@ -314,7 +314,7 @@
 			<!-- Modalita' Piano: prima voce, sempre visibile finche' e' accesa. -->
 			<span class="status-entry status-plan" data-pin-id="plan">
 				<span class="status-item on">
-					<span class="status-icon"><IconLock /></span>{m.plan_status_readonly()}
+					<span class="status-icon"><IconLock /></span>{session.plan.isLab ? m.plan_lab_status_readonly() : m.plan_status_readonly()}
 				</span>
 			</span>
 			{#if session.plan.planFilePath}
@@ -322,9 +322,8 @@
 					<span class="status-item">{m.plan_status_file({ path: session.plan.planFilePath })}</span>
 				</span>
 				<span class="status-entry" data-pin-id="plan-review">
-					<Tooltip text={m.plan_status_review_title()} placement="top" offset={6}>
+					<Tooltip text={session.plan.isLab ? m.plan_lab_status_review_title() : m.plan_status_review_title()} placement="top" offset={6}>
 						<button
-							type="button"
 							class="status-item"
 							disabled={session.isStreaming || session.plan.review !== null}
 							onclick={() => void session.plan.reopenReview()}

@@ -17,7 +17,7 @@
 	import Tooltip from '#lib/ui/Tooltip.svelte';
 
 	// `planBadge`: messaggio mandato in modalita' Piano (badge «Piano» come nel prototipo).
-	let { entry, planBadge = false }: { entry: UserEntry; planBadge?: boolean } = $props();
+	let { entry, planBadge = false, planBadgeText = null }: { entry: UserEntry; planBadge?: boolean; planBadgeText?: string | null } = $props();
 
 	const hooks = agentUiHooks();
 	const isNonStandardAttribution = $derived(
@@ -146,7 +146,7 @@
 	<div class="user-bubble rv-lift" oncontextmenu={handleBubbleContextMenu}>
 		{#if displayMessage}
 			<div class="content">
-				{#if planBadge}<span class="plan-badge-inline font-mono">{m.plan_badge()}</span>{/if}
+				{#if planBadge}<span class="plan-badge-inline font-mono">{planBadgeText ?? m.plan_badge()}</span>{/if}
 				<MarkdownInline tokens={inlineTokens} />
 			</div>
 		{/if}

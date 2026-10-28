@@ -41,11 +41,6 @@ Problema reale che risolve: "dove avevo risolto quella cosa?" senza ricordare il
 Costo stimato: 1 giorno.
 Dipende da: Fase 5. L'indice FTS5 di `history.db` copre già tutti i `cwd`, quindi è quasi solo interfaccia.
 
-### Vista costi per progetto nel tempo
-Problema reale che risolve: nessuno immediato. `stats.db` ha i dati e la tentazione di farne un dashboard è forte.
-Costo stimato: 2 giorni.
-Dipende da: Fase 5. `PRODUCT.md` è esplicito: l'usage non è un prodotto di data-viz.
-
 ### Più tab di terminale per progetto
 Problema reale che risolve: far girare due sessioni `omp` sullo stesso progetto, o tenere una shell accanto all'agente.
 Costo stimato: 1-2 giorni.
@@ -288,9 +283,6 @@ Servono a non ridiscuterle fra un mese.
 - **Studio come server MCP per l'agente.** La registrazione passa solo da `mcp.json`
   (progetto o utente): sporca il repo dell'utente o `~/.omp`. La stessa cosa si ottiene
   con `pi.registerTool` nell'estensione-ponte, a costo zero di scritture.
-- **Dashboard costi per progetto nel tempo.** `PRODUCT.md` è esplicito; e comunque
-  `stats.db` risulta fermo al 21/07/2026, quindi prima di costruirci sopra qualsiasi
-  cosa va capito chi lo aggiorna e quando.
 - **Pannello latenza modelli** (`agent.db.model_perf` ha TTFT e ms/token reali).
   Numero interessante, nessuna decisione che cambia.
 - **Elenco di skill, comandi slash, plugin e marketplace.** La TUI li scopre già da

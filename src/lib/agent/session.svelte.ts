@@ -4470,13 +4470,21 @@ export class AgentSession {
 		this.todoReminder = null;
 		this.blockedQuotaState = null;
 		this.suggestions.invalidate();
+		const isLab = Boolean(this.labConfig);
+		if (isLab && !this.plan.briefApproved) {
+			this.plan.notePlanPrompt(trimmed);
+			this.plan.active = true;
+		}
+		const linkedProjectPath = this.labConfig?.projectPath?.trim() || null;
+		const preflightPath = isLab ? (linkedProjectPath ?? undefined) : this.cwd;
 		const enriched = await orchestratePromptPreflight(
 			trimmed,
-			{ images, projectPath: this.cwd },
+			{ images, projectPath: preflightPath },
 			this.preflightDeps ?? undefined
 		);
-		const fullMessage = attachEditorContext(enriched, this.cwd);
-
+		const fullMessage = isLab
+			? (linkedProjectPath ? attachEditorContext(enriched, linkedProjectPath) : enriched)
+			: attachEditorContext(enriched, this.cwd);
 		const seed = this.seededPrompt;
 		const entryId = seed ? seed.id : this.nextEntryId++;
 		if (seed) {

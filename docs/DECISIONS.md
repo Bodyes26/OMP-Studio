@@ -1907,3 +1907,68 @@ La prima PWA aveva una grafica propria (card dentro card, emoji, font di sistema
 - Il confronto dell'editor è per posizione: una riga inserita in cima segna come cambiate tutte quelle che seguono.
 - Il pannello Git non partecipa: si rimonta a ogni switch e ha già il suo ingresso per chiavi nuove.
 - I progetti senza cartella (bozze del Laboratorio) non hanno la riga corsie e mantengono il salto.
+
+## Gate R46: statistiche d'uso native lette da `stats.db`, dashboard completa di omp
+
+**Data:** 2026-10-28
+**Esito:** APPROVATO (rivede il non-obiettivo «dashboard di analytics» di `PRODUCT.md` e gli scarti «Vista/Dashboard costi per progetto» di `IDEAS.md`)
+
+### Il problema
+
+`omp stats` (`/stats` nella TUI) apre una dashboard web ricca su `127.0.0.1:3847`, ma da Studio non era raggiungibile: il `/stats` della GUI mostra solo il banner della sessione corrente. Mancava un colpo d'occhio su costo, modelli, progetti e subagenti nel tempo.
+
+### Decisioni (di Maurizio)
+
+1. **Sezione nativa in Impostazioni con i numeri chiave**: KPI con sparkline (costo stimato, richieste, token, cache, errori) su 24 ore, 7 o 30 giorni; attività per ora o per giorno locale; modelli; progetti per costo con quello aperto evidenziato; agente principale contro subagenti. Tutto il resto (richieste, errori, tracce, tool, frustrazione) resta nella dashboard di omp, aperta dal pulsante «Dashboard completa».
+2. **Fonte: `stats.db` in sola lettura** (`src-tauri/src/stats_ops.rs`). Si rifà l'unione esatta di `packages/stats/src/rollup.ts`: aggregati orari puliti, righe grezze per l'ora parziale d'inizio e per le ore in `rollup_dirty` (se sono al massimo 96). `omp stats --json` è stato scartato come fonte: copre solo le ultime 24 ore e costa circa 1,5 s a lettura.
+3. **Aggiornamento con `omp stats --json`.** Il database lo scrive solo `omp stats`: all'apertura la sezione mostra subito ciò che c'è, poi `stats_sync` lancia `omp stats --json` (ingestione e ricalcolo, al massimo una volta al minuto) e rilegge.
+4. **Dashboard completa**: se qualcosa risponde già sulla 3847 Studio apre l'indirizzo; altrimenti avvia `omp stats --port 3847`, che apre il browser da sé, e lo termina all'uscita.
+5. **Grafica**: SVG scritto a mano, nessuna libreria; serie sulla rampa di `--brand` e dei neutri, niente palette per modello; rosso solo per i falliti. Barre verticali invece della heatmap (vuota con pochi dati, inadatta a token e costo), barre orizzontali invece di torte.
+
+### Rischi accettati
+
+- Lo schema di `stats.db` è interno a omp: se cambia, la query fallisce e la sezione dice «formato non riconosciuto» invece di mostrare numeri sbagliati. La dashboard completa resta disponibile.
+- I costi sono stime a prezzi API pubblici (come in omp); le richieste senza prezzo pubblico si contano a parte.
+- Le cartelle si associano ai progetti di Studio con i nomi che omp dà alle cartelle delle sessioni (`session_folder_candidates`); le cartelle senza progetto aperto mostrano il nome codificato.
+
+## Gate R47: brief del Laboratorio come Piano approvato e requisiti tracciabili
+
+**Data:** 2026-10-28
+**Esito:** IMPLEMENTATO per la consegna Nightly richiesta il 2026-10-28, senza suite di test. Il Gate di accettazione funzionale non è dichiarato superato: gli scenari completi del registro restano non eseguiti.
+**Registro canonico:** [requisiti/laboratorio.md](requisiti/laboratorio.md), R-LAB-01…08.
+**Piano:** «Piano Laboratorio con brief — Gate R47» in [PLAN.md](PLAN.md).
+
+### Il problema
+
+Il prototipo ChronoDash su GestioneFlotta, richiesto per rivedere il calendario della dashboard, è diventato un'agenda personale. L'agente lavorava nello scaffold isolato e non ha trovato la pagina ospite. In `rpc_open_lab` il percorso del progetto è impostato nell'ambiente ma il prompt contiene il testo letterale `$OMP_LAB_PROJECT_PATH`; l'agente, senza shell, non riceve il percorso utilizzabile. Preflight e contesto editor sono riferiti al workspace del prototipo.
+
+La lacuna non è solo quel segnaposto: il Gate R30 ha sostituito l'acquisizione di contesto e l'orchestrazione del Gate R24 con permessi di lettura e istruzioni nel prompt. I vecchi step sono rimasti spuntati, anche dopo la cancellazione dei moduli. Permettere una lettura non garantisce che avvenga; i casi di prova generici non hanno verificato la richiesta su una pagina di un progetto esistente.
+
+### Decisioni approvate
+
+1. Il brief lo scrive **l'agente Lab**, dopo esplorazione mirata del working tree ospite e intervista adattiva. Nessuna dipendenza da chat precedenti o dal principale: funziona anche su un progetto mai aperto in Studio.
+2. Il brief è un **Piano imposto da Studio**, non una convenzione di prompt. Si riusano modalità Piano e revisione a sezioni del Gate R36; scritture applicative bloccate fino all'approvazione esplicita, compresi i sottoagenti. Il brief approvato è salvato in `.lab/brief.md` e incluso nelle revisioni Git interne.
+3. Dopo l'approvazione restano **Compatta e continua** (preselezionata) e **Continua così com'è**. Si conserva la sessione del Lab; niente nuova sessione o corsia. Le richieste successive aggiornano il brief se serve senza ripetere automaticamente il blocco iniziale.
+4. Studio fornisce le quattro ricette testuali concordate e, per le varianti divergenti, autori distinti su dati e funzioni comuni. I contratti esatti e gli scenari sono nel registro, non duplicati qui.
+5. Screenshot **solo manuale** tramite composer, richiesto nell'intervista se manca e la superficie è visiva. Si può proseguire senza; niente apertura dell'app reale o cattura dal Browser della Principale.
+6. Le regole di tracciabilità valgono per tutte le funzioni: registro versionato in `docs/requisiti/`, tabella di impatto per i cutover, conferma dedicata per ogni rimozione, prova del comportamento e confronto del changelog con i requisiti. Le regole operative sono nella sezione 7 di `AGENTS.md`.
+
+### Impatto sui Gate precedenti
+
+| Origine | Esito nel R47 | Destinazione / motivo |
+|---|---|---|
+| R24 Step 11, snapshot congelato | Sostituito | R-LAB-01: ricognizione mirata dello stesso agente sui sorgenti correnti; brief aggiornabile, senza snapshot o drift automatico. |
+| R24 Step 12, orchestrazione di brief e varianti | Ripristinato con nuovo contratto | R-LAB-02, R-LAB-05 e R-LAB-06. |
+| R30, progetto ospite in sola lettura e workspace isolato | Mantenuto e reso utilizzabile | R-LAB-01 e R-LAB-07; R-LAB-02 aggiunge il vincolo prima della costruzione. |
+| R36 punto 7, Lab escluso dal Piano | Sostituito per il Lab | R-LAB-02 e R-LAB-03: riuso del Piano con sezioni e due sole strade specifiche. Il Piano delle altre chat resta invariato. |
+| R42, annotazioni sull'anteprima | Mantenuto | Il brief non sostituisce «Indica e disegna». |
+| R43, consegna del prototipo alla Principale | Mantenuto | La consegna deve poter includere il brief approvato con i sorgenti e la revisione. |
+
+### Alternative scartate e limiti
+
+- **Brief del principale:** crea una dipendenza da un'altra sessione e rischia di duplicare o rendere obsoleta la lettura dei sorgenti.
+- **Solo correggere il percorso o aggiungere una regola al prompt:** rende possibile la ricognizione, ma non impone il passaggio di comprensione e approvazione.
+- **Seconda scheda di approvazione dedicata:** duplica una funzione già disponibile nel Piano.
+- **Browser sull'app ospite:** escluso; nei progetti con dati di produzione anche la navigazione può avere effetti. Si mantiene l'isolamento del Lab.
+- Il brief esplicito non prova da solo che l'agente abbia capito la pagina: la verifica del Gate deve osservare il caso reale R-LAB-01, non soltanto campi o file valorizzati.
+- Il cutover conserva i prototipi preesistenti: senza marker valido la prossima richiesta richiede un brief approvato. Il marker transitorio è legato a identità del prototipo, workspace e progetto ospite ed è escluso da snapshot e revisioni; copie e ripristini non ereditano l'approvazione. Questi comportamenti sono implementati, ma gli scenari completi di ripresa e confinamento restano da collaudare, come registrato nei requisiti.

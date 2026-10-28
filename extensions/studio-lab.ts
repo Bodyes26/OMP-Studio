@@ -167,6 +167,21 @@ function errorResult(text: string, details?: Record<string, unknown>): ToolResul
 
 /* -------------------------------------------------- costanti allowlist */
 
+export const LAB_BRIEF_FILE = ".lab/brief.md";
+export const LAB_BRIEF_APPROVED_MARKER = ".lab/.brief-approved.json";
+
+const STATE_SYMBOL = Symbol.for("omp-studio.plan-state");
+
+export interface StudioPlanState {
+	enabled: boolean;
+	planFilePath: string | null;
+	title: string | null;
+	kind?: "lab";
+	briefApproved?: boolean;
+}
+
+type GlobalWithPlan = typeof globalThis & { [STATE_SYMBOL]?: StudioPlanState };
+
 const FREE_TOOLS: Record<string, true> = {
 	task: true,
 	hub: true,
@@ -176,6 +191,7 @@ const FREE_TOOLS: Record<string, true> = {
 	wait: true,
 	lab_preview_status: true,
 	lab_set_summary: true,
+	studio_plan_submit: true,
 	// Unico tool delle corsie ammesso nel Laboratorio: segnala a Studio la fine
 	// del lavoro tramite il bridge. Gli altri `corsia_*` restano bloccati.
 	corsia_fatto: true
@@ -243,10 +259,112 @@ export function isGitPath(targetPath: string): boolean {
 }
 
 /**
+ * Rileva se il percorso richiesto o risolto tocca file o configurazioni interne
+ * protette del Laboratorio: la cartella `.git/` e qualsiasi file transitorio/marker
+ * protetto sotto `.lab/.*` (es. `.lab/.brief-approved.json`).
+ * Non protegge file documentali come `.lab/brief.md` o `.lab/meta.json`.
+ */
+export function isInternalLabProtectedPath(targetPath: string, workspaceDir?: string): boolean {
+	if (isGitPath(targetPath)) return true;
+	const clean = stripSelector(targetPath).replace(/\\/g, "/").trim();
+	if (/(?:^|\/)\.lab\/\.[^/]+/i.test(clean)) {
+		return true;
+	}
+	if (workspaceDir) {
+		try {
+			const targetAbs = isAbsolute(clean) ? clean : resolve(workspaceDir, clean);
+			const labAbs = resolve(workspaceDir, ".lab");
+			const rel = relative(labAbs, targetAbs).replace(/\\/g, "/");
+			if (rel.startsWith(".") && !rel.startsWith("..") && rel.length > 1) {
+				return true;
+			}
+		} catch {}
+	}
+	return false;
+}
+
+/**
+ * Normalizza un percorso per il confronto dei binding nel marker su disco,
+ * risolvendo i percorsi reali ed eseguendo il case-folding su Windows.
+ */
+export function normalizePathForBinding(pathStr: string | null | undefined): string | null {
+	if (!pathStr || !pathStr.trim()) return null;
+	const trimmed = pathStr.trim();
+	try {
+		const resolved = resolve(trimmed);
+		const real = existsSync(resolved) ? realpathSync(resolved) : resolved;
+		return process.platform === "win32" ? real.toLowerCase() : real;
+	} catch {
+		const resolved = resolve(trimmed);
+		return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+	}
+}
+
+export function isLabBriefApprovedOnDisk(
+	workspaceDir: string,
+	expectedPrototypeId: string | null = process.env.OMP_LAB_PROTOTYPE_ID || null,
+	expectedProjectPath: string | null = process.env.OMP_LAB_PROJECT_PATH || null
+): boolean {
+	try {
+		const markerPath = join(workspaceDir, ".lab", ".brief-approved.json");
+		if (!existsSync(markerPath)) return false;
+		const raw = JSON.parse(readFileSync(markerPath, "utf8"));
+		if (!raw || typeof raw !== "object") return false;
+
+		// 1. Approvazione esplicita e campi informativi obbligatori
+		if (!("approved" in raw) || raw.approved !== true) return false;
+		if (!("approvedAt" in raw) || typeof raw.approvedAt !== "string" || !raw.approvedAt.trim()) return false;
+		if (!("slug" in raw) || typeof raw.slug !== "string" || !raw.slug.trim()) return false;
+
+		// 2. prototypeId deve coincidere esattamente con l'atteso (stringa ID o esplicito null)
+		const expectedProto =
+			expectedPrototypeId && expectedPrototypeId.trim() ? expectedPrototypeId.trim() : null;
+		if (!("prototypeId" in raw)) return false;
+		const protoId = raw.prototypeId === null || typeof raw.prototypeId === "string" ? raw.prototypeId : undefined;
+		if (protoId !== expectedProto) return false;
+
+		// 3. workspaceDir deve essere presente e coincidere esattamente con il workspace canonico normalizzato
+		const currentWorkspace = normalizePathForBinding(workspaceDir);
+		if (!("workspaceDir" in raw) || typeof raw.workspaceDir !== "string" || !currentWorkspace) return false;
+		if (raw.workspaceDir !== currentWorkspace) return false;
+
+		// 4. projectDir deve essere presente e coincidere esattamente (stringa canonica o esplicito null)
+		const currentProject = normalizePathForBinding(expectedProjectPath);
+		if (!("projectDir" in raw)) return false;
+		const boundProject = raw.projectDir === null || typeof raw.projectDir === "string" ? raw.projectDir : undefined;
+		if (boundProject !== currentProject) return false;
+
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+export function isLabBriefApproved(workspaceDir: string): boolean {
+	const globalState = (globalThis as GlobalWithPlan)[STATE_SYMBOL];
+	// Invalidazione a caldo: verifica sempre il marker su disco prima di autorizzare
+	const onDisk = isLabBriefApprovedOnDisk(workspaceDir);
+	if (!onDisk) {
+		if (globalState) {
+			globalState.briefApproved = false;
+			globalState.enabled = true;
+		}
+		return false;
+	}
+	if (globalState) {
+		globalState.briefApproved = true;
+	}
+	return true;
+}
+
+/**
  * Verifica se un percorso richiesto o risolto corrisponde a file sensibili protetti:
  * `.git/`, `.env*`, `web.config`, `Parametri.ini`, `appsettings*.json`, `*.pem`, `*.key`, `id_rsa*`.
  */
 export function isDeniedSensitivePath(targetPath: string): { denied: boolean; pattern?: string } {
+	if (isInternalLabProtectedPath(targetPath)) {
+		return { denied: true, pattern: ".lab/.*" };
+	}
 	const normalized = targetPath.replace(/\\/g, "/");
 	const segments = normalized.split("/").filter(Boolean);
 
@@ -477,9 +595,14 @@ export function createLabToolCallHook(env?: LabHookEnvironment) {
 
 			// 1. Tool liberi consentiti senza vincoli di percorso
 			if (FREE_TOOLS[toolName] === true) {
+				if (toolName === "corsia_fatto" && !isLabBriefApproved(workspaceDir)) {
+					return {
+						block: true,
+						reason: "Operazione negata: non e' possibile completare il prototipo prima dell'approvazione del brief in OMP Studio."
+					};
+				}
 				return undefined;
 			}
-
 			// Determinazione cartelle di lavoro
 			const cwd = env?.getCwd ? env.getCwd() : process.cwd();
 			const workspaceDir = env?.workspaceDir || process.env.OMP_LAB_WORKSPACE || cwd;
@@ -654,17 +777,28 @@ export function createLabToolCallHook(env?: LabHookEnvironment) {
 						reason: "Tool 'write' bloccato: parametro 'path' mancante o non valido."
 					};
 				}
-
-				// Scritture su local:// ammesse per artifact interni
+				// Scritture su local:// ammesse per artifact interni e file del brief
 				if (rawPath.toLowerCase().startsWith("local://")) {
+					if (rawPath.includes("..")) {
+						return {
+							block: true,
+							reason: "Scrittura negata: 'local://' non ammette attraversamenti di directory ('..')."
+						};
+					}
 					return undefined;
 				}
-
 				// Canale QA di omp per segnalare anomalie dei tool: non tocca file.
 				// Solo questo device: gli altri xd:// (ast_edit, debug, ...) eseguono
 				// operazioni che scavalcherebbero il confinamento del workspace.
 				if (rawPath.toLowerCase() === "xd://report_issue") {
 					return undefined;
+				}
+				// Controllo guardia brief nel Laboratorio: workspace in sola lettura prima dell'approvazione
+				if (!isLabBriefApproved(workspaceDir)) {
+					return {
+						block: true,
+						reason: "Scrittura negata: nel Laboratorio il workspace e' in sola lettura finche' il brief non e' approvato in OMP Studio. Scrivi il brief in local://<slug>-plan.md e chiama studio_plan_submit."
+					};
 				}
 
 				// Altri schemi URL negati
@@ -675,20 +809,19 @@ export function createLabToolCallHook(env?: LabHookEnvironment) {
 					};
 				}
 
-				if (isGitPath(rawPath)) {
+				if (isGitPath(rawPath) || isInternalLabProtectedPath(rawPath, workspaceDir)) {
 					return {
 						block: true,
-						reason: "Scrittura negata: la cartella .git/ e' protetta."
+						reason: "Scrittura negata: la cartella .git/ e i marker interni protetti di .lab/ non possono essere modificati."
 					};
 				}
-
 				const targetAbs = resolve(workspaceDir, rawPath);
 				const realPath = resolveNearestRealPath(targetAbs);
 
-				if (isGitPath(realPath)) {
+				if (isGitPath(realPath) || isInternalLabProtectedPath(realPath, workspaceDir)) {
 					return {
 						block: true,
-						reason: "Scrittura negata: il percorso risolto si trova dentro .git/."
+						reason: "Scrittura negata: il percorso risolto tocca file o cartelle protette (.git/ o marker interni)."
 					};
 				}
 
@@ -704,6 +837,13 @@ export function createLabToolCallHook(env?: LabHookEnvironment) {
 
 			// 6. Tool di modifica a blocchi hashline: `edit`
 			if (toolName === "edit") {
+				if (!isLabBriefApproved(workspaceDir)) {
+					return {
+						block: true,
+						reason: "Modifica negata: nel Laboratorio il workspace e' in sola lettura finche' il brief non e' approvato in OMP Studio. Scrivi il brief in local://<slug>-plan.md e chiama studio_plan_submit."
+					};
+				}
+
 				const extractedPaths = extractEditPaths(input.input, input);
 				if (extractedPaths.length === 0) {
 					return {
@@ -720,20 +860,20 @@ export function createLabToolCallHook(env?: LabHookEnvironment) {
 						};
 					}
 
-					if (isGitPath(p)) {
+					if (isGitPath(p) || isInternalLabProtectedPath(p, workspaceDir)) {
 						return {
 							block: true,
-							reason: "Modifica negata: i percorsi dentro .git/ sono protetti."
+							reason: "Modifica negata: i percorsi dentro .git/ e i marker protetti di .lab/ sono protetti."
 						};
 					}
 
 					const targetAbs = resolve(workspaceDir, p);
 					const realPath = resolveNearestRealPath(targetAbs);
 
-					if (isGitPath(realPath)) {
+					if (isGitPath(realPath) || isInternalLabProtectedPath(realPath, workspaceDir)) {
 						return {
 							block: true,
-							reason: "Modifica negata: il percorso risolto tocca la cartella protetta .git/."
+							reason: "Modifica negata: il percorso risolto tocca file o cartelle protette (.git/ o marker interni)."
 						};
 					}
 
@@ -750,6 +890,13 @@ export function createLabToolCallHook(env?: LabHookEnvironment) {
 
 			// 7. Tool di modifica strutturale: `ast_edit`
 			if (toolName === "ast_edit") {
+				if (!isLabBriefApproved(workspaceDir)) {
+					return {
+						block: true,
+						reason: "Modifica AST negata: nel Laboratorio il workspace e' in sola lettura finche' il brief non e' approvato in OMP Studio. Scrivi il brief in local://<slug>-plan.md e chiama studio_plan_submit."
+					};
+				}
+
 				const rawPath = typeof input.path === "string" && input.path.trim()
 					? input.path.trim()
 					: typeof input.filePath === "string" && input.filePath.trim()
@@ -772,20 +919,20 @@ export function createLabToolCallHook(env?: LabHookEnvironment) {
 					};
 				}
 
-				if (isGitPath(rawPath)) {
+				if (isGitPath(rawPath) || isInternalLabProtectedPath(rawPath, workspaceDir)) {
 					return {
 						block: true,
-						reason: "Modifica AST negata: la cartella .git/ e' protetta."
+						reason: "Modifica AST negata: la cartella .git/ e i marker interni di .lab/ sono protetti."
 					};
 				}
 
 				const targetAbs = resolve(workspaceDir, rawPath);
 				const realPath = resolveNearestRealPath(targetAbs);
 
-				if (isGitPath(realPath)) {
+				if (isGitPath(realPath) || isInternalLabProtectedPath(realPath, workspaceDir)) {
 					return {
 						block: true,
-						reason: "Modifica AST negata: il percorso risolto tocca .git/."
+						reason: "Modifica AST negata: il percorso risolto tocca file o cartelle protette."
 					};
 				}
 
@@ -1005,8 +1152,12 @@ export default function studioLabExtension(pi: ExtensionApi): void {
 		approval: "write",
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			const activeWorkspace = ctx?.sessionManager?.getCwd?.() || workspaceDir;
+			if (!isLabBriefApproved(activeWorkspace)) {
+				return errorResult(
+					"Il riepilogo del prototipo potra' essere salvato solo dopo l'approvazione del brief in OMP Studio."
+				);
+			}
 			const summary = typeof params?.summary === "string" ? params.summary.trim() : "";
-
 			if (!summary) {
 				return errorResult("Errore: il parametro 'summary' e' obbligatorio e non puo' essere vuoto.");
 			}

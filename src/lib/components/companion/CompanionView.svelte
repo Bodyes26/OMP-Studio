@@ -66,7 +66,6 @@
 	let aiParsed = $state<QuickTaskAiParsed | null>(null);
 	let isSaving = $state(false);
 	let successNotice = $state<string | null>(null);
-	let expandedHistory = $state<Record<string, boolean>>({});
 	let replyDrafts = $state<Record<string, string>>({});
 	let customReplyProjects = $state<Record<string, boolean>>({});
 	let usageOpen = $state(false);
@@ -1068,11 +1067,7 @@
 	}
 
 	const askHandlers = $derived<CompanionAskHandlers>({
-		expandedHistory,
 		customReplyProjects,
-		onToggleHistory: (projectId: string) => {
-			expandedHistory[projectId] = !expandedHistory[projectId];
-		},
 		onReplyDraftChange: (projectId: string, value: string) => {
 			replyDrafts[projectId] = value;
 		},

@@ -10,9 +10,10 @@
 	import { IconCheck, IconPlan } from '#lib/icons.ts';
 	import type { ExpectedSectionId, OutlineItem } from '../planMode';
 
-	let { outline, planFilePath = null } = $props<{
+	let { outline, planFilePath = null, isLab = false } = $props<{
 		outline: OutlineItem[];
 		planFilePath?: string | null;
+		isLab?: boolean;
 	}>();
 
 	const done = $derived(outline.filter((item: OutlineItem) => item.state === 'done').length);
@@ -23,17 +24,20 @@
 			approach: m.plan_section_approach,
 			files: m.plan_section_files,
 			verification: m.plan_section_verification,
-			assumptions: m.plan_section_assumptions
+			surface: m.plan_section_surface,
+			domain: m.plan_section_domain,
+			data: m.plan_section_data,
+			design: m.plan_section_design,
+			variants: m.plan_section_variants
 		};
-		return item.expected ? expected[item.expected as ExpectedSectionId]() : (item.heading ?? '');
+		return item.expected ? (expected[item.expected as ExpectedSectionId]?.() ?? (item.heading ?? '')) : (item.heading ?? '');
 	}
 </script>
-
-<section class="plan-tray rv-lift" style="--dur: 240ms;" aria-label={m.plan_tray_title()}>
+<section class="plan-tray rv-lift" style="--dur: 240ms;" aria-label={isLab ? m.plan_lab_tray_title() : m.plan_tray_title()}>
 	<div class="sr-only" aria-live="polite">{m.plan_tray_progress({ done, total: outline.length })}</div>
 	<div class="plan-tray-head">
 		<span class="plan-tray-icon" aria-hidden="true"><IconPlan /></span>
-		<span class="plan-tray-title">{m.plan_tray_title()}</span>
+		<span class="plan-tray-title">{isLab ? m.plan_lab_tray_title() : m.plan_tray_title()}</span>
 		<span class="plan-badge live">{m.plan_tray_progress({ done, total: outline.length })}</span>
 		{#if planFilePath}
 			<span class="plan-tray-meta font-mono">{planFilePath}</span>

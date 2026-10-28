@@ -13,22 +13,38 @@
 	import Markdown from './Markdown.svelte';
 
 	let { approved } = $props<{ approved: ApprovedPlanMessage }>();
+	const isLab = $derived(approved.kind === 'lab' || approved.planFilePath.includes('.lab/brief.md'));
 	let open = $state(false);
-</script>
 
+	const title = $derived(
+		isLab
+			? (approved.title
+				? m.plan_lab_approved_title({ title: approved.title })
+				: m.plan_lab_approved_title_plain())
+			: (approved.title
+				? m.plan_approved_title({ title: approved.title })
+				: m.plan_approved_title_plain())
+	);
+
+	const toggleLabel = $derived(
+		open
+			? (isLab ? m.plan_lab_approved_hide() : m.plan_approved_hide())
+			: (isLab ? m.plan_lab_approved_show() : m.plan_approved_show())
+	);
+</script>
 <article class="approved">
 	<div class="ap-row">
 		<span class="ap-icon" aria-hidden="true"><IconPlan /></span>
 		<div class="ap-main">
 			<div class="ap-t">
-				{approved.title ? m.plan_approved_title({ title: approved.title }) : m.plan_approved_title_plain()}
+				{title}
 			</div>
 			<div class="ap-m font-mono">
 				{m.plan_approved_meta({ count: approved.sectionCount, path: approved.planFilePath })}
 			</div>
 		</div>
 		<button type="button" class="ui-button ui-button-secondary" aria-expanded={open} onclick={() => (open = !open)}>
-			{open ? m.plan_approved_hide() : m.plan_approved_show()}
+			{toggleLabel}
 		</button>
 	</div>
 	{#if open}

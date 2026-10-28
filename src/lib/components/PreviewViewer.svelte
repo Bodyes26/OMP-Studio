@@ -10,6 +10,7 @@
 	import StatusMark from '#lib/ui/StatusMark.svelte';
 	import { IconCheck, IconClose, IconCopy } from '#lib/icons.ts';
 	import { loadPreview } from './previewLoad';
+	import PreviewFrameStatus from './PreviewFrameStatus.svelte';
 	let {
 		projectPath,
 		filePath,
@@ -31,6 +32,18 @@
 	// L'URL resta lo stesso a ogni ripubblicazione: senza ricreare l'iframe
 	// «Ricarica» mostrerebbe ancora il documento precedente.
 	let publishSeq = $state(0);
+	// L'iframe ricreato resta vuoto finche' React e Babel dai CDN non hanno
+	// montato il prototipo: `load` dice quando mostrarlo e quando confermare
+	// l'aggiornamento.
+	let frameLoadedSeq = $state(0);
+	let frameUpdatedSeq = $state(0);
+	const frameRendering = $derived(!!frameUrl && frameLoadedSeq !== publishSeq);
+
+	function handleFrameLoad(seq: number) {
+		// Il primo documento di un file e' l'apertura, non un aggiornamento.
+		if (frameLoadedSeq !== 0 && seq !== frameLoadedSeq) frameUpdatedSeq += 1;
+		frameLoadedSeq = seq;
+	}
 	let loading = $state(true);
 	let missing = $state(false);
 	let loadError = $state<string | null>(null);
@@ -243,6 +256,7 @@
 			publishedKey = null;
 		}
 		lastLoadedKey = key;
+		if (isNewKey) frameLoadedSeq = 0;
 
 		untrack(() => {
 			void load(isNewKey);
@@ -360,15 +374,19 @@
 					srcdoc={htmlDoc}
 				></iframe>
 			{:else if frameUrl}
-				{#key publishSeq}
-					<iframe
-						class="preview-frame"
-						style:width={DEVICE_WIDTHS[device]}
-						sandbox="allow-scripts"
-						title={m.preview_frame_title({ path: filePath })}
-						src={frameUrl}
-					></iframe>
-				{/key}
+				<div class="preview-frame-box" style:width={DEVICE_WIDTHS[device]}>
+					{#key publishSeq}
+						<iframe
+							class="preview-frame"
+							class:is-loading={frameRendering}
+							sandbox="allow-scripts"
+							title={m.preview_frame_title({ path: filePath })}
+							src={frameUrl}
+							onload={() => handleFrameLoad(publishSeq)}
+						></iframe>
+					{/key}
+					<PreviewFrameStatus rendering={frameRendering} updatedSeq={frameUpdatedSeq} />
+				</div>
 			{/if}
 		</div>
 	{/if}
@@ -449,6 +467,28 @@
 		border: 1px solid var(--line);
 		border-radius: var(--radius-md);
 		background: var(--bg-base);
+	}
+
+	/* Il riquadro porta bordo e sfondo: l'iframe in caricamento e' trasparente. */
+	.preview-frame-box {
+		position: relative;
+		display: flex;
+		height: 100%;
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
+		background: var(--bg-base);
+		overflow: hidden;
+	}
+
+	.preview-frame-box .preview-frame {
+		width: 100%;
+		border: none;
+		border-radius: 0;
+		transition: opacity var(--dur-fast) var(--ease-out);
+	}
+
+	.preview-frame-box .preview-frame.is-loading {
+		opacity: 0;
 	}
 
 	.code-view {

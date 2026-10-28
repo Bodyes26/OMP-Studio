@@ -15,6 +15,8 @@
 
 	let { plan, card } = $props<{ plan: PlanController; card: PlanHandoffState }>();
 
+	const isLab = $derived(plan.isLab || card.kind === 'lab');
+
 	const statusLabel = $derived(
 		card.status === 'done'
 			? m.plan_handoff_done()
@@ -53,12 +55,12 @@
 			case 'role':
 				return m.plan_step_role({ role: card.role });
 			case 'deliver':
-				return m.plan_step_deliver();
+				return isLab ? m.plan_lab_step_deliver() : m.plan_step_deliver();
 		}
 	}
 
 	const canReturn = $derived(
-		card.status === 'done' && (card.mode === 'fresh' || card.mode === 'lane') && Boolean(card.planningSessionId)
+		!isLab && card.status === 'done' && (card.mode === 'fresh' || card.mode === 'lane') && Boolean(card.planningSessionId)
 	);
 </script>
 
@@ -72,8 +74,7 @@
 	</div>
 	<div class="ho-top">
 		<div class="ho-box">
-			<div class="ho-k">{m.plan_handoff_from()}</div>
-			<div class="ho-v">{m.plan_handoff_from_title()}</div>
+			<div class="ho-v">{isLab ? m.plan_lab_handoff_from_title() : m.plan_handoff_from_title()}</div>
 			<div class="ho-m font-mono">
 				{[card.fromModel, 'plan', card.fromTokens ? `${formatTokens(card.fromTokens)} token` : null]
 					.filter(Boolean)

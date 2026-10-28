@@ -326,9 +326,7 @@
 
 			<CompanionAskBody
 				req={attention}
-				historyExpanded={ask.expandedHistory[project.id]}
 				customReplyOpen={ask.customReplyProjects[project.id]}
-				onToggleHistory={ask.onToggleHistory}
 				onCustomReplyToggle={ask.onCustomReplyToggle}
 				onReplyDraftChange={ask.onReplyDraftChange}
 				onQuickReplySelect={ask.onQuickReplySelect}

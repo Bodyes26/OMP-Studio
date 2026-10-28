@@ -671,7 +671,7 @@
 		if (settingsStore.open || modelSettingsStore.isOpen || shortcutsModalStore.isOpen) return;
 
 		// Modalita' Piano: stessa combinazione del Terminale (app.plan.toggle).
-		if (isPlanToggleChord(e, IS_MAC) && !session.labConfig) {
+		if (isPlanToggleChord(e, IS_MAC)) {
 			e.preventDefault();
 			void session.plan.toggle();
 			return;
@@ -902,7 +902,7 @@
 	const showBtwButton = $derived(session.isReady && session.btw.supported !== false);
 	const placeholderText = $derived(
 		session.plan.active
-			? m.plan_composer_placeholder()
+			? (isLab ? m.plan_lab_composer_placeholder() : m.plan_composer_placeholder())
 			: session.isStreaming
 				? m.chat_v2_composer_placeholder_busy()
 				: m.chat_v2_composer_placeholder_idle()
@@ -1152,26 +1152,26 @@
 								</Tooltip>
 							{/if}
 						{:else if pin.id === 'plan'}
-							{#if !isLab}
-								<Tooltip
-									text={planActive ? m.plan_pill_exit_title() : m.plan_pill_enter_title({ keys: IS_MAC ? '⌃⌥⇧P' : 'Alt+Maiusc+P' })}
-									placement="top"
-									offset={6}
+							<Tooltip
+								text={planActive
+									? (isLab ? m.plan_lab_pill_exit_title() : m.plan_pill_exit_title())
+									: (isLab ? m.plan_lab_pill_enter_title({ keys: IS_MAC ? '⌃⌥⇧P' : 'Alt+Maiusc+P' }) : m.plan_pill_enter_title({ keys: IS_MAC ? '⌃⌥⇧P' : 'Alt+Maiusc+P' }))}
+								placement="top"
+								offset={6}
+							>
+								<button
+									type="button"
+									class="plan-pill"
+									class:on={planActive}
+									aria-pressed={planActive}
+									disabled={session.plan.handingOff}
+									onclick={() => void session.plan.toggle()}
 								>
-									<button
-										type="button"
-										class="plan-pill"
-										class:on={planActive}
-										aria-pressed={planActive}
-										disabled={session.plan.handingOff}
-										onclick={() => void session.plan.toggle()}
-									>
-										<IconPlan aria-hidden="true" />
-										{m.plan_pill_label()}
-										{#if planActive}<span class="plan-pill-x" aria-hidden="true"><IconClose /></span>{/if}
-									</button>
-								</Tooltip>
-							{/if}
+									<IconPlan aria-hidden="true" />
+									{isLab ? m.plan_lab_pill_label() : m.plan_pill_label()}
+									{#if planActive}<span class="plan-pill-x" aria-hidden="true"><IconClose /></span>{/if}
+								</button>
+							</Tooltip>
 						{:else if pin.id === 'ctl.role'}
 							<!-- Menu Ruolo -->
 							<MenuButton

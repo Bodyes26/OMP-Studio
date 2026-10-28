@@ -23,16 +23,21 @@
 	import { parseRoleSelector } from '#lib/stores/modelSettingsHelpers.ts';
 	import { formatTokens } from '#lib/utils/format.ts';
 	import { IS_MAC } from '#lib/utils/platform.ts';
-	import type { AgentSession } from '../session.svelte';
-	import { PLAN_EXEC_MODES, availableExecRoles, execModeForKey, type PlanExecMode } from '../planMode';
-
+import type { AgentSession } from '../session.svelte';
+import {
+	PLAN_EXEC_MODES,
+	LAB_PLAN_EXEC_MODES,
+	availableExecRoles,
+	execModeForKey,
+	type PlanExecMode
+} from '../planMode';
 	let { session, visible = true } = $props<{ session: AgentSession; visible?: boolean }>();
-
 	const plan = $derived(session.plan);
 	const doc = $derived(plan.openDoc);
+	const isLab = $derived(plan.isLab || doc?.request.kind === 'lab');
+	const modes = $derived(isLab ? LAB_PLAN_EXEC_MODES : PLAN_EXEC_MODES);
 	const comments = $derived(doc ? plan.commentCount(doc.id) : 0);
 	const edits = $derived(doc ? doc.deleted.length + Object.keys(doc.bodies).length : 0);
-
 	const roles = $derived<Record<string, string>>(
 		modelSettingsStore.config?.modelRoles ?? modelSettingsStore.draftConfig?.modelRoles ?? {}
 	);
@@ -87,10 +92,36 @@
 						: m.plan_exec_keep_desc();
 		}
 	}
-
 	function pick(mode: PlanExecMode) {
 		if (mode === 'keep' && keepDisabled) return;
 		plan.execMode = mode;
+	}
+
+	function pickNext(currentIndex: number) {
+		for (let offset = 1; offset < modes.length; offset++) {
+			const nextIndex = (currentIndex + offset) % modes.length;
+			const nextMode = modes[nextIndex];
+			if (nextMode === 'keep' && keepDisabled) continue;
+			pick(nextMode);
+			focusOption(nextMode);
+			break;
+		}
+	}
+
+	function pickPrev(currentIndex: number) {
+		for (let offset = 1; offset < modes.length; offset++) {
+			const prevIndex = (currentIndex - offset + modes.length) % modes.length;
+			const prevMode = modes[prevIndex];
+			if (prevMode === 'keep' && keepDisabled) continue;
+			pick(prevMode);
+			focusOption(prevMode);
+			break;
+		}
+	}
+
+	function focusOption(targetMode: PlanExecMode) {
+		if (typeof document === 'undefined') return;
+		document.querySelector<HTMLElement>(`[role="radio"][data-mode="${targetMode}"]`)?.focus();
 	}
 
 	function approve() {
@@ -110,10 +141,11 @@
 			return;
 		}
 		if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
-		const mode = execModeForKey(e.key);
+		const mode = execModeForKey(e.key, isLab);
 		if (mode) {
 			e.preventDefault();
 			pick(mode);
+			focusOption(mode);
 		}
 	}
 </script>
@@ -121,15 +153,15 @@
 <svelte:window onkeydown={handleKeydown} />
 
 {#if doc}
-	<div class="plan-approval rv-lift" style="--dur: 240ms;" role="region" aria-label={m.plan_approval_title()}>
+	<div class="plan-approval rv-lift" style="--dur: 240ms;" role="region" aria-label={isLab ? m.plan_lab_approval_title() : m.plan_approval_title()}>
 		<div class="pa-head">
 			<span class="pa-icon" aria-hidden="true"><IconPlan /></span>
-			<div class="pa-q">{m.plan_approval_title()}</div>
+			<div class="pa-q">{isLab ? m.plan_lab_approval_title() : m.plan_approval_title()}</div>
 		</div>
-		<div class="pa-d">{m.plan_approval_desc()}</div>
+		<div class="pa-d">{isLab ? m.plan_lab_approval_desc() : m.plan_approval_desc()}</div>
 
-		<div class="pa-opts" role="radiogroup" aria-label={m.plan_approval_title()}>
-			{#each PLAN_EXEC_MODES as mode, index (mode)}
+		<div class="pa-opts" role="radiogroup" aria-label={isLab ? m.plan_lab_approval_title() : m.plan_approval_title()}>
+			{#each modes as mode, index (mode)}
 				{@const Icon = icons[mode]}
 				{@const disabled = mode === 'keep' && keepDisabled}
 				<div
@@ -137,6 +169,7 @@
 					class:sel={plan.execMode === mode}
 					class:dis={disabled}
 					role="radio"
+					data-mode={mode}
 					aria-checked={plan.execMode === mode}
 					aria-disabled={disabled}
 					tabindex={plan.execMode === mode ? 0 : -1}
@@ -146,6 +179,12 @@
 							if (e.ctrlKey || e.metaKey) return;
 							e.preventDefault();
 							pick(mode);
+						} else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+							e.preventDefault();
+							pickNext(index);
+						} else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+							e.preventDefault();
+							pickPrev(index);
 						}
 					}}
 				>
@@ -154,7 +193,7 @@
 					<div class="pa-opt-main">
 						<div class="pa-opt-l">
 							{optionLabel(mode)}
-							{#if mode === 'fresh'}<span class="pa-rec">{m.plan_exec_recommended()}</span>{/if}
+							{#if (isLab && mode === 'compact') || (!isLab && mode === 'fresh')}<span class="pa-rec">{m.plan_exec_recommended()}</span>{/if}
 						</div>
 						<div class="pa-opt-dd">{optionDescription(mode)}</div>
 					</div>
@@ -174,7 +213,7 @@
 			{#if roleModel}<span class="pa-model font-mono">{roleModel}</span>{/if}
 		</div>
 
-		{#if plan.execMode === 'lane'}
+		{#if !isLab && plan.execMode === 'lane'}
 			<div class="pa-sub">
 				<span class="pa-lbl">{m.plan_approval_lane()}</span>
 				<input class="pa-input" bind:value={plan.laneTitle} aria-label={m.plan_approval_lane()} />
@@ -184,9 +223,9 @@
 
 		<div class="pa-sub">
 			<span class="pa-lbl">{m.plan_approval_archive()}</span>
-			<label class="pa-chk">
-				<input type="checkbox" bind:checked={plan.autosave} />
-				{m.plan_approval_archive_label()}
+			<label class="pa-chk" class:dis={isLab}>
+				<input type="checkbox" bind:checked={plan.autosave} disabled={isLab} />
+				{isLab ? m.plan_lab_approval_archive_label() : m.plan_approval_archive_label()}
 			</label>
 		</div>
 

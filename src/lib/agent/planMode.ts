@@ -20,7 +20,8 @@ export const PLAN_EXTENSION_COMMAND = '/studio-plan';
 export type PlanExecMode = 'fresh' | 'lane' | 'compact' | 'keep';
 export const PLAN_EXEC_MODES: readonly PlanExecMode[] = ['fresh', 'lane', 'compact', 'keep'];
 export const DEFAULT_PLAN_EXEC_MODE: PlanExecMode = 'fresh';
-
+export const LAB_PLAN_EXEC_MODES: readonly PlanExecMode[] = ['compact', 'keep'];
+export const DEFAULT_LAB_PLAN_EXEC_MODE: PlanExecMode = 'compact';
 /** Ruoli proposti per l'esecuzione, come lo slider della revisione di omp. */
 export const PLAN_EXEC_ROLES: readonly string[] = ['smol', 'default', 'slow', 'task'];
 export const DEFAULT_PLAN_EXEC_ROLE = 'default';
@@ -30,11 +31,12 @@ export function availableExecRoles(roles: Record<string, string | undefined>): s
 	return PLAN_EXEC_ROLES.filter((role) => role === 'default' || Boolean(roles[role]?.trim()));
 }
 
-/** Tasto 1–4 → strada; `null` per ogni altro tasto. */
-export function execModeForKey(key: string): PlanExecMode | null {
+/** Tasto 1–4 → strada (1–2 nel Lab); `null` per ogni altro tasto. */
+export function execModeForKey(key: string, isLab = false): PlanExecMode | null {
 	const index = Number.parseInt(key, 10);
 	if (!Number.isInteger(index) || String(index) !== key) return null;
-	return PLAN_EXEC_MODES[index - 1] ?? null;
+	const modes = isLab ? LAB_PLAN_EXEC_MODES : PLAN_EXEC_MODES;
+	return modes[index - 1] ?? null;
 }
 
 /* ------------------------------------------------------ richiesta di revisione */
@@ -42,11 +44,12 @@ export function execModeForKey(key: string): PlanExecMode | null {
 export interface PlanReviewRequest {
 	slug: string;
 	title: string;
-	/** `local://<slug>-plan.md`. */
+	/** `local://<slug>-plan.md` o `.lab/brief.md`. */
 	planFilePath: string;
 	/** Percorso assoluto su disco del file del piano (radice di `local://`). */
 	localPath: string | null;
 	content: string;
+	kind?: 'lab';
 }
 
 /** `null` se la richiesta non e' una revisione del Piano di Studio. */
@@ -63,12 +66,14 @@ export function parsePlanReviewRequest(title: unknown, prefill: unknown): PlanRe
 	const slug = typeof meta.slug === 'string' ? meta.slug : '';
 	const planFilePath = typeof meta.planFilePath === 'string' ? meta.planFilePath : slug ? `local://${slug}-plan.md` : '';
 	if (!planFilePath) return null;
+	const kind = meta.kind === 'lab' ? 'lab' : undefined;
 	return {
 		slug,
 		title: typeof meta.title === 'string' && meta.title.trim() ? meta.title.trim() : slug || planFilePath,
 		planFilePath,
 		localPath: typeof meta.localPath === 'string' ? meta.localPath : null,
-		content: typeof prefill === 'string' ? prefill : ''
+		content: typeof prefill === 'string' ? prefill : '',
+		...(kind ? { kind } : {})
 	};
 }
 
@@ -77,6 +82,8 @@ export interface PlanStatus {
 	enabled: boolean;
 	planFilePath: string | null;
 	title: string | null;
+	kind?: 'lab';
+	briefApproved?: boolean;
 }
 
 export function parsePlanStatus(raw: unknown): PlanStatus | null {
@@ -86,7 +93,9 @@ export function parsePlanStatus(raw: unknown): PlanStatus | null {
 		return {
 			enabled: parsed.enabled === true,
 			planFilePath: typeof parsed.planFilePath === 'string' ? parsed.planFilePath : null,
-			title: typeof parsed.title === 'string' ? parsed.title : null
+			title: typeof parsed.title === 'string' ? parsed.title : null,
+			kind: parsed.kind === 'lab' ? 'lab' : undefined,
+			briefApproved: parsed.briefApproved === true
 		};
 	} catch {
 		return null;
@@ -303,18 +312,29 @@ export function buildApprovedPrompt(input: {
 	planFilePath: string;
 	planContent: string;
 	contextPreserved: boolean;
+	kind?: 'lab';
 }): string {
-	const lines = ['Plan approved.'];
+	const isLab = input.kind === 'lab';
+	const title = isLab ? 'Brief approved.' : 'Plan approved.';
+	const lines = [title];
 	if (input.contextPreserved) {
-		lines.push('- History usable; the plan below authoritative if it conflicts with earlier exploration.');
+		lines.push(
+			isLab
+				? '- Exploration and interview context usable; the brief below is authoritative if it conflicts with earlier exploration.'
+				: '- History usable; the plan below authoritative if it conflicts with earlier exploration.'
+		);
 	}
 	lines.push(
 		'',
 		'<instruction>',
-		`Full plan inlined below; durable copy at \`${input.planFilePath}\` (identical content).`,
-		'Execute plan step-by-step with full tool access; MUST verify each step before next.',
-		`NEVER re-read \`${input.planFilePath}\` while the inline plan is intact; the path is for subagent handoff and recovery only.`,
-		'Before execution: initialize todo tracking with `todo`. After each completed step: immediately update `todo`.',
+		`Full ${isLab ? 'brief' : 'plan'} inlined below; durable copy at \`${input.planFilePath}\` (identical content).`,
+		isLab
+			? 'Build prototype step-by-step according to the approved brief and chosen recipe; verify each step before next.'
+			: 'Execute plan step-by-step with full tool access; MUST verify each step before next.',
+		`NEVER re-read \`${input.planFilePath}\` while the inline ${isLab ? 'brief' : 'plan'} is intact; the path is for ${isLab ? 'recovery' : 'subagent handoff and recovery'} only.`,
+		isLab
+			? 'Before execution: check mock data, surface references, and recipe axes.'
+			: 'Before execution: initialize todo tracking with `todo`. After each completed step: immediately update `todo`.',
 		'</instruction>',
 		'',
 		`<plan path="${input.planFilePath}">`,
@@ -322,12 +342,32 @@ export function buildApprovedPrompt(input: {
 		'</plan>',
 		'',
 		'<critical>',
-		`Inline plan compressed, expired, or unrecoverable: NEVER stop; read \`${input.planFilePath}\`.`,
+		`Inline ${isLab ? 'brief' : 'plan'} compressed, expired, or unrecoverable: NEVER stop; read \`${input.planFilePath}\`.`,
 		'Read failure: report exact path and error; NEVER guess.',
-		'MUST continue until complete.',
+		`MUST continue until ${isLab ? 'prototype is fully built' : 'complete'}.`,
 		'</critical>'
 	);
 	return lines.join('\n');
+}
+
+/** Istruzioni di compattazione per il brief nel Lab (R-LAB-03). */
+export function buildLabCompactInstructions(briefPath = '.lab/brief.md'): string {
+	return [
+		'Prepare to build approved Lab prototype.',
+		'',
+		'MUST distill brief exploration and interview discussion.',
+		'Preserve:',
+		'- Approved brief requirements, recipe, and design constraints.',
+		'- Discovered host project files, symbols, surface components, data shapes, and terminology.',
+		'- Mock data structures and UI state decisions.',
+		'- User preferences and answers expressed during the interview.',
+		'',
+		'Drop:',
+		'- Raw exploratory file reads, directory scans, and search outputs.',
+		'- Superseded draft variants or temporary hypotheses.',
+		'',
+		`Approved brief file: \`${briefPath}\`; authoritative source of truth. MUST preserve this path; the approved brief is re-inlined for construction after compaction, so NEVER restate it in the summary.`
+	].join('\n');
 }
 
 /** Istruzioni di compattazione per «compatta e continua» (`plan-mode-compact-instructions.md`). */
@@ -401,14 +441,34 @@ export function reanchorEntries<E extends object, C extends AnchoredEntry & E>(
 
 /* ----------------------------------------------------- vassoio in costruzione */
 
-/** Le cinque sezioni del formato fisso del Piano (prompt di omp, adattato). */
-export type ExpectedSectionId = 'context' | 'approach' | 'files' | 'verification' | 'assumptions';
+/** Le sezioni attese: 5 per il Piano ordinario, 6 per il brief del Lab (R-LAB-02). */
+export type ExpectedSectionId =
+	| 'context'
+	| 'approach'
+	| 'files'
+	| 'verification'
+	| 'assumptions'
+	| 'surface'
+	| 'domain'
+	| 'data'
+	| 'design'
+	| 'variants';
+
 const EXPECTED_SECTIONS: readonly { id: ExpectedSectionId; match: RegExp }[] = [
 	{ id: 'context', match: /context|contesto/i },
 	{ id: 'approach', match: /approach|approccio|steps|passi/i },
 	{ id: 'files', match: /critical|file|anchor|ancore/i },
 	{ id: 'verification', match: /verif|test/i },
 	{ id: 'assumptions', match: /assum|ipotes|contingen/i }
+];
+
+export const LAB_EXPECTED_SECTIONS: readonly { id: ExpectedSectionId; match: RegExp }[] = [
+	{ id: 'surface', match: /superficie|surface|pagina|component/i },
+	{ id: 'domain', match: /dominio|terminolog|domain/i },
+	{ id: 'data', match: /dati|forma reale|data|mock/i },
+	{ id: 'design', match: /vincoli di design|design constraints|token|fedelt/i },
+	{ id: 'variants', match: /varianti|esplorazione|variants|exploration/i },
+	{ id: 'assumptions', match: /assunzioni|lacune|assumptions/i }
 ];
 
 export interface OutlineItem {
@@ -418,12 +478,13 @@ export interface OutlineItem {
 	state: 'done' | 'writing' | 'pending';
 }
 
-/** True se lo strumento scrive il file del piano (`local://<slug>-plan.md`). */
+/** True se lo strumento scrive il file del piano (`local://<slug>-plan.md` o `.lab/brief.md`). */
 export function isPlanWriteTool(toolName: string, args: Record<string, unknown>): boolean {
 	if (toolName !== 'write' && toolName !== 'edit') return false;
 	const path = typeof args.path === 'string' ? args.path : '';
 	if (/^\[?local:\/\/.+-plan\.md/i.test(path)) return true;
-	return /local:\/\/[^\s"']+-plan\.md/i.test(JSON.stringify(args));
+	if (/^\[?\.lab\/brief(?:-draft)?\.md/i.test(path)) return true;
+	return /local:\/\/[^\s"']+-plan\.md|\.lab\/brief(?:-draft)?\.md/i.test(JSON.stringify(args));
 }
 
 /** Titoli `##` presenti negli argomenti di una scrittura (contenuto o modifiche). */
@@ -454,14 +515,19 @@ export function headingsFromToolArgs(args: unknown): string[] {
  * titolo scritto le richiama, piu' i titoli extra in coda. `writing` e' il
  * titolo della scrittura in corso.
  */
-export function buildPlanOutline(written: readonly string[], writing: readonly string[]): OutlineItem[] {
-	const items: OutlineItem[] = EXPECTED_SECTIONS.map((section) => ({
+export function buildPlanOutline(
+	written: readonly string[],
+	writing: readonly string[],
+	isLab = false
+): OutlineItem[] {
+	const expectedList = isLab ? LAB_EXPECTED_SECTIONS : EXPECTED_SECTIONS;
+	const items: OutlineItem[] = expectedList.map((section) => ({
 		expected: section.id,
 		heading: null,
 		state: 'pending' as const
 	}));
 	const place = (heading: string, state: 'done' | 'writing') => {
-		const index = EXPECTED_SECTIONS.findIndex((section) => section.match.test(heading));
+		const index = expectedList.findIndex((section) => section.match.test(heading));
 		if (index >= 0) {
 			const item = items[index];
 			if (item.state !== 'done') items[index] = { ...item, heading, state };
@@ -486,22 +552,27 @@ export interface ApprovedPlanMessage {
 	content: string;
 	title: string | null;
 	sectionCount: number;
+	kind?: 'lab';
 }
 
 /**
  * Riconosce il primo messaggio dell'esecuzione (`buildApprovedPrompt`) per
- * disegnarlo come card «Piano approvato» invece di una bolla con tutto il piano.
+ * disegnarlo come card «Piano approvato» / «Brief approvato» invece di una bolla con tutto il testo.
  * Vale anche dopo una ricostruzione: legge il testo, non uno stato del client.
  */
 export function parseApprovedPlanMessage(content: string): ApprovedPlanMessage | null {
-	if (!/^Plan approved\.\s*\n/.test(content)) return null;
+	const isLabPrompt = /^Brief approved\.\s*\n/.test(content);
+	if (!isLabPrompt && !/^Plan approved\.\s*\n/.test(content)) return null;
 	const match = /<plan path="([^"]*)">\n([\s\S]*?)\n<\/plan>/.exec(content);
 	if (!match) return null;
 	const doc = splitPlanSections(match[2]);
+	const planFilePath = match[1];
+	const isLab = isLabPrompt || planFilePath.includes('.lab/brief.md');
 	return {
-		planFilePath: match[1],
+		planFilePath,
 		content: match[2],
 		title: planHeadingTitle(doc),
-		sectionCount: doc.sections.length
+		sectionCount: doc.sections.length,
+		kind: isLab ? 'lab' : undefined
 	};
 }

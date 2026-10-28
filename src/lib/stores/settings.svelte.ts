@@ -76,7 +76,7 @@ export type ChatReveal = 'blur' | 'stream' | 'final';
 export type { StreamingBehavior, QueueMode, InterruptMode, CacheWarmingMode };
 
 
-export type SettingsSection = 'general' | 'appearance' | 'accessibility' | 'notifications' | 'projectBar' | 'workspace' | 'tasks' | 'models' | 'suggestions' | 'companion' | 'github' | 'doctor' | 'commands' | 'remote' | 'backgroundJobs';
+export type SettingsSection = 'general' | 'appearance' | 'accessibility' | 'notifications' | 'projectBar' | 'workspace' | 'tasks' | 'models' | 'suggestions' | 'companion' | 'github' | 'doctor' | 'commands' | 'remote' | 'backgroundJobs' | 'stats';
 /** Stile del messaggio della notifica di sistema. */
 export type NotificationStyle = 'brief' | 'detailed';
 
@@ -964,7 +964,7 @@ class SettingsStore {
 	}
 
 	/** Riporta ai default una sezione, o tutto se non se ne indica una. */
-	reset(section?: Exclude<SettingsSection, 'models' | 'doctor' | 'remote'>) {
+	reset(section?: Exclude<SettingsSection, 'models' | 'doctor' | 'remote' | 'stats'>) {
 		if (!section || section === 'projectBar') this.projectBar = { ...DEFAULT_SETTINGS.projectBar };
 		if (!section || section === 'workspace') {
 			this.editor = { ...DEFAULT_SETTINGS.editor };
@@ -1011,7 +1011,7 @@ class SettingsStore {
 		if (!section || section === 'commands') this.composerLayout = null;
 		this.save();
 	}
-	resetToDefaults(section?: Exclude<SettingsSection, 'models' | 'doctor' | 'remote'>) {
+	resetToDefaults(section?: Exclude<SettingsSection, 'models' | 'doctor' | 'remote' | 'stats'>) {
 		this.reset(section);
 	}
 }

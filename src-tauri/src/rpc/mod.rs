@@ -284,6 +284,7 @@ pub fn write_lab_session_config(
     rpc_id: u64,
     prototype_id: &str,
     lab_extension_path: Option<&str>,
+    plan_extension_path: Option<&str>,
     lanes_extension_path: Option<&str>,
 ) -> Result<std::path::PathBuf, String> {
     let mut config_path = std::env::temp_dir();
@@ -320,13 +321,17 @@ pub fn write_lab_session_config(
     // Disattivazione xdev per esporre direttamente i tool confinati del Laboratorio
     content.push_str("tools:\n  xdev: false\n\n");
 
-    // Caricamento estensione Step 4 (e, se presente, delle corsie). Senza
-    // l'estensione confinata non si carica nient'altro: le corsie da sole
-    // non avrebbero il gate fail-closed attorno.
+    // Caricamento estensione Laboratorio e Piano (e, se presente, delle corsie). Senza
+    // l'estensione confinata non si carica nient'altro: le altre estensioni
+    // da sole non avrebbero il gate fail-closed attorno.
     if let Some(ext_path) = lab_extension_path {
         let normalized = ext_path.replace('\\', "/");
         content.push_str("extensions:\n");
         content.push_str(&format!("  - \"{}\"\n", normalized));
+        if let Some(plan_path) = plan_extension_path {
+            let normalized = plan_path.replace('\\', "/");
+            content.push_str(&format!("  - \"{}\"\n", normalized));
+        }
         if let Some(lanes_path) = lanes_extension_path {
             let normalized = lanes_path.replace('\\', "/");
             content.push_str(&format!("  - \"{}\"\n", normalized));
@@ -1143,16 +1148,47 @@ pub async fn rpc_open(
     Ok(rpc_id)
 }
 
-/// Prompt di sistema per l'agente del Laboratorio prototipi.
-pub const LAB_SYSTEM_PROMPT: &str = "You are the OMP Studio Lab agent. You build an interactive frontend prototype (React 19 + TypeScript + Tailwind CSS v4) inside your working directory, a standalone Vite project owned by the Lab.\n\
-- Write only inside the working directory. The original project at $OMP_LAB_PROJECT_PATH (if set) is read-only reference: study its code and UI to match conventions, terminology and data shapes, never modify it. Shell and interpreters are disabled.\n\
+/// Genera il prompt di sistema per l'agente del Laboratorio prototipi,
+/// interpolando il percorso assoluto reale del progetto ospite in modo sicuro
+/// oppure indicando chiaramente che si tratta di una bozza libera senza progetto.
+/// Non prescrive la vecchia logica del selettore varianti, la cui orchestrazione
+/// e le cui ricette testuali appartengono all'estensione del Laboratorio.
+pub fn build_lab_system_prompt(project_path: Option<&str>) -> String {
+    let host_instruction = match project_path.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(p) => {
+            let quoted = serde_json::to_string(p).unwrap_or_else(|_| format!("\"{p}\""));
+            format!(
+                "- Write only inside the working directory. The original host project at {quoted} is a read-only reference: study its code and UI to match conventions, terminology and data shapes, never modify it. Shell and interpreters are disabled."
+            )
+        }
+        None => {
+            "- Write only inside the working directory. This is a standalone draft prototype without an associated host project: do not search for or access an external project repository. Shell and interpreters are disabled.".to_string()
+        }
+    };
+
+    format!(
+        "You are the OMP Studio Lab agent. You build an interactive frontend prototype (React 19 + TypeScript + Tailwind CSS v4) inside your working directory, a standalone Vite project owned by the Lab.\n\
+{host_instruction}\n\
 - The entry point is src/main.tsx, which imports ./index.css (starting with @import \"tailwindcss\"). Keep it a valid Vite project that runs with npm install && npm run dev.\n\
 - react and react-dom are provided. Any other npm package must be added to package.json \"dependencies\" with an exact version; the preview loads it from esm.sh. Prefer few, well-known packages.\n\
 - All data is mocked: no real backends, authentication or credentials.\n\
 - The preview recompiles after every file write and Studio shows it live to the user in its Preview tab, next to this chat. After changing files call lab_preview_status and fix every compile or runtime error before you finish. You may open the preview URL it returns with the browser tool to inspect or screenshot the result. That URL is for your tools only: never give it to the user or ask them to open a browser; tell them the result is in the Preview tab.\n\
 - When the purpose of the prototype becomes clear or changes, call lab_set_summary with a 2-3 line summary of what it does, in the user's language: the main project agent uses it to find this prototype later.\n\
 - Every user request becomes one revision: Studio commits when your turn ends. Never run git.\n\
-- To compare alternatives, build them inside the prototype with a visible variant switcher.\n\
+- A user message may end with a <lab-notes> block from Point/Area in the preview: each numbered entry lists the element's file:line:column (the JSX that rendered it, or the component call site), component, selector, classes and text, plus the user's note; numbers match the boxes in the attached frame. Open those lines first instead of searching, and change the shared component when several instances come from one line unless the note says otherwise.\n\
+- Reply in the user's language."
+    )
+}
+
+/// Prompt di sistema base per l'agente del Laboratorio prototipi.
+pub const LAB_SYSTEM_PROMPT: &str = "You are the OMP Studio Lab agent. You build an interactive frontend prototype (React 19 + TypeScript + Tailwind CSS v4) inside your working directory, a standalone Vite project owned by the Lab.\n\
+- Write only inside the working directory. The original host project (if associated) is a read-only reference: study its code and UI to match conventions, terminology and data shapes, never modify it. Shell and interpreters are disabled.\n\
+- The entry point is src/main.tsx, which imports ./index.css (starting with @import \"tailwindcss\"). Keep it a valid Vite project that runs with npm install && npm run dev.\n\
+- react and react-dom are provided. Any other npm package must be added to package.json \"dependencies\" with an exact version; the preview loads it from esm.sh. Prefer few, well-known packages.\n\
+- All data is mocked: no real backends, authentication or credentials.\n\
+- The preview recompiles after every file write and Studio shows it live to the user in its Preview tab, next to this chat. After changing files call lab_preview_status and fix every compile or runtime error before you finish. You may open the preview URL it returns with the browser tool to inspect or screenshot the result. That URL is for your tools only: never give it to the user or ask them to open a browser; tell them the result is in the Preview tab.\n\
+- When the purpose of the prototype becomes clear or changes, call lab_set_summary with a 2-3 line summary of what it does, in the user's language: the main project agent uses it to find this prototype later.\n\
+- Every user request becomes one revision: Studio commits when your turn ends. Never run git.\n\
 - A user message may end with a <lab-notes> block from Point/Area in the preview: each numbered entry lists the element's file:line:column (the JSX that rendered it, or the component call site), component, selector, classes and text, plus the user's note; numbers match the boxes in the attached frame. Open those lines first instead of searching, and change the shared component when several instances come from one line unless the note says otherwise.\n\
 - Reply in the user's language.";
 
@@ -1190,13 +1226,19 @@ pub async fn rpc_open_lab(
             workspace_path
         ));
     }
+    let canonical_ws = crate::lab::paths::strip_unc_prefix(
+        ws_path
+            .canonicalize()
+            .unwrap_or_else(|_| ws_path.to_path_buf()),
+    );
+    let resolved_ws_str = canonical_ws.to_string_lossy().to_string();
 
     let clean_project_path = project_path
         .as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .unwrap_or("");
-    if !clean_project_path.is_empty() {
+    let canonical_project_path = if !clean_project_path.is_empty() {
         let p = std::path::Path::new(clean_project_path);
         if !p.is_dir() {
             return Err(format!(
@@ -1204,10 +1246,23 @@ pub async fn rpc_open_lab(
                 clean_project_path
             ));
         }
-    }
+        let canon = crate::lab::paths::strip_unc_prefix(
+            p.canonicalize().unwrap_or_else(|_| p.to_path_buf()),
+        );
+        Some(canon.to_string_lossy().to_string())
+    } else {
+        None
+    };
 
     let omp_path = crate::omp_ops::get_omp_binary();
-    let lab_extension = crate::pty::write_extension("studio-lab.ts", LAB_EXTENSION_TS);
+    let lab_extension = crate::pty::write_extension("studio-lab.ts", LAB_EXTENSION_TS)
+        .ok_or_else(|| {
+            "Impossibile preparare l'estensione del Laboratorio (studio-lab.ts)".to_string()
+        })?;
+    let plan_extension = crate::pty::write_extension("studio-plan.ts", crate::pty::PLAN_EXTENSION_TS)
+        .ok_or_else(|| {
+            "Impossibile preparare l'estensione del Piano (studio-plan.ts)".to_string()
+        })?;
     let lanes_extension =
         crate::pty::write_extension("studio-lanes.ts", crate::pty::LANES_EXTENSION_TS);
 
@@ -1218,30 +1273,32 @@ pub async fn rpc_open_lab(
         id
     };
 
-    let lab_config_path =
-        write_lab_session_config(
-            rpc_id,
-            &prototype_id,
-            lab_extension.as_deref(),
-            lanes_extension.as_deref(),
-        )?;
+    let lab_config_path = write_lab_session_config(
+        rpc_id,
+        &prototype_id,
+        Some(&lab_extension),
+        Some(&plan_extension),
+        lanes_extension.as_deref(),
+    )?;
 
     let mut command = Command::new(&omp_path);
     command.arg("--mode").arg("rpc-ui");
-    command.arg("--cwd").arg(&workspace_path);
+    command.arg("--cwd").arg(&resolved_ws_str);
     command.arg("--config").arg(&lab_config_path);
 
+    let lab_prompt = build_lab_system_prompt(canonical_project_path.as_deref());
     let lab_system_prompt = format!(
         "{}\n\n{}",
         crate::pty::STUDIO_SYSTEM_PROMPT,
-        LAB_SYSTEM_PROMPT
+        lab_prompt
     );
     command.arg("--append-system-prompt").arg(&lab_system_prompt);
 
-    if let Some(path) = &lab_extension {
+    command.arg("-e").arg(&lab_extension);
+    command.arg("-e").arg(&plan_extension);
+    if let Some(path) = &lanes_extension {
         command.arg("-e").arg(path);
     }
-
     let mut session_args = Vec::new();
     apply_resume_or_continue(
         &mut session_args,
@@ -1267,13 +1324,16 @@ pub async fn rpc_open_lab(
         .filter(|s| !s.is_empty())
         .unwrap_or("");
 
+    let effective_project_path = canonical_project_path.as_deref().unwrap_or("");
+
     command
-        .current_dir(&workspace_path)
+        .current_dir(&resolved_ws_str)
         .env("OMP_STUDIO", "1")
+        .env("OMP_STUDIO_PLAN", "gui")
         .env("OMP_SKIP_SETUP", "1")
         .env("OMP_LAB_SESSION", "1")
-        .env("OMP_LAB_WORKSPACE", &workspace_path)
-        .env("OMP_LAB_PROJECT_PATH", clean_project_path)
+        .env("OMP_LAB_WORKSPACE", &resolved_ws_str)
+        .env("OMP_LAB_PROJECT_PATH", effective_project_path)
         .env("OMP_LAB_PROTOTYPE_ID", &prototype_id)
         .env("OMP_LANE_ID", effective_lane_id)
         .env("OMP_PROJECT_ID", effective_project_id)
@@ -1290,7 +1350,7 @@ pub async fn rpc_open_lab(
             owner_id: rpc_id,
             project_id: Some(effective_project_id.to_string()),
             lane_id: Some(effective_lane_id.to_string()),
-            cwd: workspace_path.clone(),
+            cwd: resolved_ws_str.clone(),
         })
     } else {
         None
@@ -1772,6 +1832,7 @@ mod tests {
             999,
             "test-proto-config",
             Some("C:/test/extensions/studio-lab.ts"),
+            Some("C:/test/extensions/studio-plan.ts"),
             Some("C:/test/extensions/studio-lanes.ts"),
         )
         .expect("scrittura configurazione riuscita");
@@ -1789,10 +1850,12 @@ mod tests {
         // Verifica estensione caricata
         assert!(content.contains("extensions:"));
         assert!(content.contains("C:/test/extensions/studio-lab.ts"));
-        // Le corsie entrano solo dopo l'estensione confinata, che ne filtra i tool
+        // Il piano e le corsie entrano solo dopo l'estensione confinata, che ne filtra i tool
         let lab_at = content.find("studio-lab.ts").unwrap();
+        let plan_at = content.find("studio-plan.ts").expect("estensione piano caricata");
         let lanes_at = content.find("studio-lanes.ts").expect("estensione corsie caricata");
-        assert!(lanes_at > lab_at);
+        assert!(plan_at > lab_at);
+        assert!(lanes_at > plan_at);
 
         // Invariante vincolante: NESSUN overlay yolo
         assert!(!content.contains("approvalMode: yolo"));

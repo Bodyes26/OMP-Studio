@@ -16,17 +16,26 @@
 
 	const doc = $derived(entry.variant === 'doc' ? planCards.docs[entry.refId] : undefined);
 	const handoff = $derived(entry.variant === 'handoff' ? planCards.handoffs[entry.refId] : undefined);
+	const isLab = $derived(session.plan.isLab || doc?.kind === 'lab' || handoff?.kind === 'lab');
 </script>
 
 {#if entry.variant === 'enter'}
 	<div class="plan-sysrow" role="status">
 		<span class="plan-sysrow-icon" aria-hidden="true"><IconLock /></span>
-		<span><b>{m.plan_mode_on_title()}</b> {m.plan_mode_on_desc()}</span>
+		<span>
+			<b>{isLab ? m.plan_lab_mode_on_title() : m.plan_mode_on_title()}</b>
+			{' '}
+			{isLab ? m.plan_lab_mode_on_desc() : m.plan_mode_on_desc()}
+		</span>
 	</div>
 {:else if entry.variant === 'exit'}
 	<div class="plan-sysrow muted" role="status">
 		<span class="plan-sysrow-icon" aria-hidden="true"><IconPlan /></span>
-		<span><b>{m.plan_mode_off_title()}</b> {m.plan_mode_off_desc()}</span>
+		<span>
+			<b>{isLab ? m.plan_lab_mode_off_title() : m.plan_mode_off_title()}</b>
+			{' '}
+			{isLab ? m.plan_lab_mode_off_desc() : m.plan_mode_off_desc()}
+		</span>
 	</div>
 {:else if doc}
 	<PlanDocCard plan={session.plan} {doc} />

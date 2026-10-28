@@ -681,11 +681,12 @@ class AgentLaneService {
 		if (!exists) {
 			return { ok: false, text: `La cartella del prototipo ${entry.id} non esiste su questa macchina.` };
 		}
-		const [files, log] = await Promise.all([
-			labApi.snapshot(entry.workspacePath).catch(() => []),
-			labApi.log(entry.workspacePath, 1).catch(() => [])
-		]);
+		const log = await labApi.log(entry.workspacePath, 1);
 		const revision = log[0] ?? entry.lastRevision ?? null;
+		// Brief e sorgenti devono descrivere la stessa revisione, non un turno ancora in corso.
+		const files = revision
+			? await labApi.filesAt(entry.workspacePath, revision.sha)
+			: await labApi.snapshot(entry.workspacePath);
 		const lane = lanes.find((candidate) => candidate.labPrototypeId === entry.id);
 		const runtime = lane ? peekLabRuntime(project.id, lane.laneId) : null;
 		const pacchetto = buildLabHandoffPackage({
@@ -695,6 +696,7 @@ class AgentLaneService {
 			workspacePath: entry.workspacePath,
 			revision,
 			files: files.map((file) => file.path),
+			brief: files.find((file) => file.path === '.lab/brief.md')?.content ?? null,
 			previewUrl: runtime?.url ?? null,
 			previewErrors: runtime?.errors ?? 0
 		});

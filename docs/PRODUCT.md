@@ -144,7 +144,8 @@ Desktop Windows 11 x64 (NSIS, WebView2), macOS su Apple Silicon (chip M, DMG, We
 - **Non è un servizio cloud né un dashboard di analytics.** Nessun server del progetto, nessun
   account obbligatorio oltre a quelli configurati in `omp`; il relay del controllo remoto è
   dell'utente e serve solo a raggiungere le sue macchine. L'usage risponde a "quanto resta e
-  quando si resetta", non produce reportistica aziendale.
+  quando si resetta"; la sezione Statistiche mostra solo i numeri chiave che `omp` già
+  registra in `stats.db` (Gate R46) e rimanda alla dashboard web di `omp` per tutto il resto.
 
 ### Vincoli
 

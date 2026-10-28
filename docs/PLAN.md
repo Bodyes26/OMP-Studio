@@ -577,6 +577,9 @@ Rifondato con il **Gate R30** (2026-09-24) come **corsia specializzata di proget
 con anteprima via server loopback isolato (`127.0.0.1:0`), Git interno per le revisioni, indice locale
 non versionato (`.omp/lab/prototypes.json`), supporto per bozze libere (scratchpad) e confinamento
 rigido dell'agente tramite hook `tool_call`. Sostituisce l'architettura a vista separata del Gate R24.
+
+**Nota storica (2026-10-28):** l'elenco seguente descrive il Gate R24, non la disponibilità attuale delle sue funzioni. Il Gate R30 ha eliminato anche i moduli di contesto e orchestrazione: le spunte degli Step 11 e 12 non attestano il funzionamento attuale. Il recupero dei requisiti è pianificato nel Gate R47, con fonte canonica in [requisiti/laboratorio.md](requisiti/laboratorio.md). La consegna oggi disponibile segue il Gate R43, non il vecchio modulo dello Step 14.
+
 - [x] **Step 1 — Contratti tipizzati** (`src/lib/lab/contracts.ts`)
   Identità dei prototipi, collocazione progetto vs bozza, manifest, contratti delle revisioni
   con stati tipizzati (`rendering-ready`, `verified`, `interrupted`), eventi del renderer,
@@ -1097,6 +1100,53 @@ graph LR
   **Esito (2026-10-14):** finestra `remote-machines` da Impostazioni > Controllo remoto e dal menu del chip; link esterni nel browser di sistema, altri schemi bloccati. Il test ACL legge tutte le capability e fallisce se una si applica all'etichetta (provato aggiungendola a `default.json`). Da provare sull'app reale: apertura, primo abbinamento, geometria ricordata.
 - [ ] **R11 — Collaudo e documentazione**
   Matrice con due macchine, telefono e browser; `PRODUCT.md`, `ARCHITECTURE.md`, guida del relay in italiano e in inglese, changelog bilingue.
+
+---
+
+## Piano Laboratorio con brief — Gate R47
+
+**Stato:** codice LB01–LB06 implementato il 2026-10-28; consegna Nightly richiesta senza suite di test. Le caselle restano aperte perché includono le prove di accettazione, non eseguite: non attestano codice mancante. LB07 non è dichiarato superato.
+**Fonte di verità:** [requisiti/laboratorio.md](requisiti/laboratorio.md), R-LAB-01…08.
+**Motivazione e impatto sui Gate precedenti:** Gate R47 in [DECISIONS.md](DECISIONS.md).
+
+### Metodo
+
+- Gli step elencano dipendenze reali; nessuna spunta si eredita dai Gate R24/R30. Chiudere uno step solo con la prova del comportamento e aggiornare il registro con l'evidenza.
+- Riutilizzare il Piano del Gate R36, senza cambiare il comportamento delle chat non Lab. L'agente del prototipo acquisisce il proprio contesto; la Principale non è un prerequisito.
+- Conservare confinamento del Lab, browser limitato all'anteprima, dati simulati, annotazioni e consegna esistenti. Nessuna scrittura o navigazione sull'app reale per le prove.
+- Per questa Nightly l'utente ha esplicitamente escluso l'esecuzione dei test: non avviare suite locali né il completamento cloud che esegue `cargo test`. Pubblicare con `npm run nightly -- --no-cloud`; documentare compilazione e osservazioni limitate senza attribuire loro il valore di collaudo completo.
+
+### Step operativi
+
+- [ ] **LB01 — Identità e ricognizione del progetto** (R-LAB-01, R-LAB-07)
+  In `rpc_open_lab`, preflight e contesto editor separare percorso ospite e workspace, comunicare il percorso reale senza segnaposto, fornire istruzioni di ricognizione mirata prima della costruzione. Leggere i documenti disponibili e i sorgenti della superficie, segnalando lacune invece di inventare il dominio.
+  **Prova:** progetto senza storico, percorso con spazi e riferimento a un file ospite; l'agente individua il file e la superficie corretti. Verifica mirata del segnaposto irrisolto; prima parte dello scenario GestioneFlotta.
+
+- [ ] **LB02 — Piano obbligatorio e guardia condivisa con il Lab** (R-LAB-02, R-LAB-08; dopo LB01)
+  Abilitare nel Lab l'integrazione del Piano già esistente e il formato a sei sezioni del brief. Consentire la scrittura del documento di pianificazione senza aprire scritture applicative, shell o percorsi esterni. L'approvazione proviene dalla revisione del Piano, non da un file creato dall'agente. Verificare composizione degli hook e confinamento ereditato dai sottoagenti.
+  **Prova:** scritture in sorgenti, configurazione e HTML negate prima dell'approvazione, anche delegate; «Chiedi modifiche» mantiene il blocco; approvazione esplicita lo rimuove solo per il workspace corretto.
+
+- [ ] **LB03 — Persistenza del brief e ciclo di vita dell'approvazione** (R-LAB-01, R-LAB-02, R-LAB-08; dopo LB02)
+  Salvare `.lab/brief.md` all'approvazione e includerlo nelle revisioni Git interne nonostante l'esclusione attuale di `.lab/`, mantenendo esclusi i file transitori. Gestire aggiornamenti successivi del brief e ripresa di una revisione pendente senza perdere la guardia. Prima del cutover definire e documentare l'ingresso nel nuovo flusso dei prototipi già esistenti senza brief, senza presumere un'approvazione mai avvenuta. Rendere il brief disponibile alla consegna con la revisione del prototipo.
+  **Prova:** approvare, costruire, chiudere e riaprire; la revisione contiene il brief approvato. Riaprire durante la revisione non sblocca le scritture. Aggiornamento successivo versionato senza nuovo blocco automatico; consegna con brief e revisione coerenti.
+
+- [ ] **LB04 — Revisione e due strade di esecuzione** (R-LAB-02, R-LAB-03; dopo LB02–LB03)
+  Adattare card, sezioni, commenti e outline del Piano al brief Lab. Proporre soltanto «Compatta e continua», preselezionata, e «Continua così com'è»; conservare sessione, workspace e riferimenti necessari alla costruzione. Aggiornare i testi italiani e inglesi secondo il design system esistente.
+  **Prova:** usare commenti e richiesta di modifica, poi eseguire entrambe le strade; nessuna nuova sessione o corsia, contesto utile conservato e normale revisione del Piano non Lab invariata.
+
+- [ ] **LB05 — Intervista adattiva, screenshot e bozze** (R-LAB-04, R-LAB-08; dopo LB04)
+  Guidare la ricognizione e l'intervista tramite gli strumenti esistenti. Chiedere lo screenshot manuale se manca per una superficie visiva, consentendo di proseguire senza e dichiarando il limite nel brief. Le bozze libere ricavano il brief dall'intervista senza ricercare un progetto inesistente.
+  **Prova:** richiesta ambigua e richiesta già completa, con screenshot, senza screenshot e con rinuncia; bozza libera che passa dalla stessa approvazione senza accesso a un repository ospite.
+
+- [ ] **LB06 — Ricette e autori delle varianti** (R-LAB-05, R-LAB-06; dopo LB04)
+  Fornire le quattro ricette testuali del registro come istruzioni del runtime ufficiale; integrarle nel brief e nell'intervista. Per le varianti assegnare un autore distinto a ciascuna, dati e funzioni comuni, file separati e integrazione del Lab con selettore visibile. Nessun catalogo di codice precostruito.
+  **Prova:** esercitare il contratto di ciascuna ricetta. Per tre varianti osservare tre autori, dati coincidenti, differenze sugli assi approvati, selettore utilizzabile e scritture ospiti negate anche ai delegati.
+
+- [ ] **LB07 — Accettazione del caso reale e chiusura del Gate** (R-LAB-01…08; dopo LB01–LB06)
+  Eseguire gli scenari del registro sul percorso completo: progetto mai aperto in Studio → nuovo prototipo → richiesta sul calendario della dashboard → ricognizione → intervista → revisione/correzione → approvazione → costruzione → confronto delle varianti. Osservare terminologia e funzioni del progetto nel risultato, non un calendario generico. Eseguire anche il percorso bozza libera.
+  **Verifica:** prove comportamentali mirate di guardia, ripresa, contesto e varianti; `npm run check`, `npm test`, `npm run check:commands` e controlli Rust se coinvolto. Smoke della superficie in Vite nel browser, senza avviare una seconda istanza desktop. Registrare separatamente eventuali limiti della prova con runtime reale; non dichiarare completato uno scenario non esercitato. Aggiornare registro, documenti utente, piano e changelog bilingue con gli ID interessati soltanto per le funzionalità effettivamente consegnate.
+
+**Chiusura del Gate:** tutti gli scenari R-LAB-01…08 hanno una prova registrata; nessun requisito è dato per soddisfatto dalla sola esistenza di un tool, di un campo o di una variabile d'ambiente. Le modifiche dell'utente e gli altri lavori parcheggiati restano preservati.
 
 ---
 

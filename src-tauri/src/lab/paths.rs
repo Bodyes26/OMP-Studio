@@ -66,11 +66,22 @@ pub fn drafts_index_path() -> Option<PathBuf> {
     lab_root().map(|root| root.join("drafts").join("prototypes.json"))
 }
 
-/// Risolve il percorso canonico della radice del progetto.
+/// Rimuove l'eventuale prefisso UNC di Windows (`\\?\`) dal percorso canonico.
+pub fn strip_unc_prefix(path: PathBuf) -> PathBuf {
+    let s = path.to_string_lossy();
+    if let Some(stripped) = s.strip_prefix(r"\\?\") {
+        PathBuf::from(stripped)
+    } else {
+        path
+    }
+}
+
+/// Risolve il percorso canonico della radice del progetto, ripulito da prefissi UNC su Windows.
 pub fn canonical_project_path(project_path: &Path) -> PathBuf {
-    project_path
+    let canon = project_path
         .canonicalize()
-        .unwrap_or_else(|_| project_path.to_path_buf())
+        .unwrap_or_else(|_| project_path.to_path_buf());
+    strip_unc_prefix(canon)
 }
 
 /// Percorso dell'indice di progetto (`<canonicalProjectPath>/.omp/lab/prototypes.json`).

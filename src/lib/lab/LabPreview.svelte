@@ -43,6 +43,7 @@
 	} from '#lib/icons.ts';
 	import AlertBanner from '#lib/components/AlertBanner.svelte';
 	import StatusMark from '#lib/ui/StatusMark.svelte';
+	import PreviewFrameStatus from '#lib/components/PreviewFrameStatus.svelte';
 	import MenuButton from '#lib/ui/MenuButton.svelte';
 	import Tooltip from '#lib/ui/Tooltip.svelte';
 	import { Lingering, ROW_EXIT_MS } from '#lib/agent/motionState.svelte.ts';
@@ -86,6 +87,18 @@
 
 	let iframeEl = $state<HTMLIFrameElement | null>(null);
 	let viewportMode = $state<'desktop' | 'tablet' | 'mobile'>('desktop');
+
+	// Ogni pubblicazione ricrea l'iframe: finche' il documento nuovo non emette
+	// `load` resta vuoto, quindi lo nascondiamo sotto il velo di caricamento.
+	let frameLoadedSeq = $state(0);
+	let frameUpdatedSeq = $state(0);
+	const frameRendering = $derived(!!runtime.url && frameLoadedSeq !== runtime.publishSeq);
+
+	function handleFrameLoad(seq: number): void {
+		// Il primo documento di questo pannello e' l'avvio, non un aggiornamento.
+		if (frameLoadedSeq !== 0 && seq !== frameLoadedSeq) frameUpdatedSeq += 1;
+		frameLoadedSeq = seq;
+	}
 
 	// «Indica e disegna»
 	type InspectMode = 'off' | 'point' | 'area';
@@ -765,6 +778,8 @@
 						src={runtime.url}
 						title={m.lab_preview_frame_title()}
 						class="preview-iframe"
+						class:is-loading={frameRendering}
+						onload={() => handleFrameLoad(runtime.publishSeq)}
 					></iframe>
 				{/key}
 			{/if}
@@ -827,12 +842,11 @@
 				</div>
 			{/if}
 
-			{#if runtime.isCompiling && !runtime.isInitialLoading}
-				<div class="compiling-indicator" role="status" aria-live="polite">
-					<StatusMark status="running" label={m.lab_view_compiling()} />
-					<span>{m.lab_view_compiling()}</span>
-				</div>
-			{/if}
+			<PreviewFrameStatus
+				rendering={frameRendering}
+				busyLabel={runtime.isCompiling && !runtime.isInitialLoading ? m.lab_view_compiling() : null}
+				updatedSeq={frameUpdatedSeq}
+			/>
 		</div>
 	</div>
 
@@ -1314,6 +1328,11 @@
 		height: 100%;
 		border: none;
 		background-color: var(--bg-base);
+		transition: opacity var(--dur-fast) var(--ease-out);
+	}
+
+	.preview-iframe.is-loading {
+		opacity: 0;
 	}
 
 	.state-overlay {
@@ -1327,23 +1346,6 @@
 		color: var(--ink-muted);
 		gap: var(--space-2);
 		font-size: var(--text-sm);
-		z-index: var(--z-sticky);
-	}
-
-	.compiling-indicator {
-		position: absolute;
-		bottom: var(--space-3);
-		right: var(--space-3);
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		padding: var(--space-1) var(--space-3);
-		background-color: var(--bg-raised);
-		color: var(--ink);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-full);
-		box-shadow: var(--shadow-raise);
-		font-size: var(--text-caption);
 		z-index: var(--z-sticky);
 	}
 

@@ -2200,10 +2200,6 @@
 		// TUI, nella chat li serve Studio con l'estensione studio-plan.
 		const planAction = routePlanSlash(trimmed);
 		if (planAction) {
-			if (laneOf(project, laneId)?.kind === 'lab') {
-				session.flashNotice('info', m.plan_lab_unavailable());
-				return true;
-			}
 			if (planAction.kind === 'plan-review') void session.plan.reopenReview();
 			else if (planAction.argument) void session.plan.enter(planAction.argument);
 			else void session.plan.toggle();
@@ -3886,11 +3882,10 @@
 	{/if}
 
 	<footer class="statusbar">
-		<div class="statusbar-right">
+		<div class="statusbar-left">
 			<BackgroundJobsIndicator />
-			{#if settingsStore.backgroundJobs?.enabled}
-				<span class="statusbar-divider" aria-hidden="true"></span>
-			{/if}
+		</div>
+		<div class="statusbar-right">
 			<Tooltip text={studioUpdaterStore.currentVersion ? m.page_statusbar_studio_version_title({ version: studioUpdaterStore.currentVersion }) : m.page_statusbar_studio_version_check()}>
 			<button 
 				class="version-btn"
@@ -4333,7 +4328,7 @@
 		border-top: 1px solid var(--line);
 		display: flex;
 		align-items: center;
-		justify-content: flex-end;
+		justify-content: space-between;
 		padding: 0 var(--space-3);
 		font-size: var(--text-caption);
 		color: var(--ink-faint);
@@ -4341,10 +4336,17 @@
 		user-select: none;
 	}
 
+	.statusbar-left {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+	}
+
 	.statusbar-right {
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
+		margin-left: auto;
 	}
 
 	.statusbar-divider {

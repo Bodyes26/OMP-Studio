@@ -60,6 +60,11 @@ windows-sys = { version = "0.59", features = [
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }
+windows = { version = "0.61.3", features = [
+    "Data_Xml_Dom",
+    "Foundation",
+    "UI_Notifications",
+] }
 
 [profile.release]
 # Ottimizzazione massima della velocita' di esecuzione (opt-level 3 per massime prestazioni

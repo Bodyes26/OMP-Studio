@@ -114,6 +114,45 @@ fn get_user_home() -> Option<String> {
     None
 }
 
+/// Nomi (minuscoli) che `omp` puo' dare alla cartella delle sessioni di
+/// `project_path`: relativo alla home, alla cartella temporanea o assoluto.
+/// Li usa anche `stats.db`, che chiama `folder` lo stesso nome.
+pub fn session_folder_candidates(project_path: &str) -> Vec<String> {
+    let trimmed_proj = project_path.trim_end_matches(['/', '\\']);
+    let mut candidates = Vec::with_capacity(3);
+    if trimmed_proj.is_empty() {
+        return candidates;
+    }
+
+    // Formato assoluto dcs: `--<disco>--<percorso>--`
+    let abs_raw = trimmed_proj.trim_start_matches(['/', '\\']).replace(['/', '\\', ':'], "-");
+    candidates.push(format!("--{}--", abs_raw).to_lowercase());
+
+    let p_norm = trimmed_proj.replace('\\', "/").to_lowercase();
+
+    // Se sotto la home utente
+    if let Some(home) = get_user_home() {
+        let h_norm = home.trim_end_matches(['/', '\\']).replace('\\', "/").to_lowercase();
+        if p_norm == h_norm {
+            candidates.push("-".to_string());
+        } else if let Some(rel) = p_norm.strip_prefix(&format!("{}/", h_norm)) {
+            candidates.push(format!("-{}", rel.replace('/', "-")));
+        }
+    }
+
+    // Se sotto la cartella temporanea
+    let temp_dir = std::env::temp_dir();
+    let temp_str = temp_dir.to_string_lossy();
+    let t_norm = temp_str.trim_end_matches(['/', '\\']).replace('\\', "/").to_lowercase();
+    if p_norm == t_norm {
+        candidates.push("-tmp".to_string());
+    } else if let Some(rel) = p_norm.strip_prefix(&format!("{}/", t_norm)) {
+        candidates.push(format!("-tmp-{}", rel.replace('/', "-")));
+    }
+
+    candidates
+}
+
 /// Verifica euristica per evitare di aprire cartelle di sessioni di altri progetti.
 pub fn session_folder_might_match(folder_name: &str, project_path: &str) -> bool {
     let trimmed_proj = project_path.trim_end_matches(['/', '\\']);
@@ -141,43 +180,8 @@ pub fn session_folder_might_match(folder_name: &str, project_path: &str) -> bool
     }
 
     // 2. Controllo contro i candidati esatti calcolati da omp
-    let mut candidates = Vec::with_capacity(6);
-
-    // Formato assoluto dcs: `--<disco>--<percorso>--`
-    let abs_raw = trimmed_proj.trim_start_matches(['/', '\\']).replace(['/', '\\', ':'], "-");
-    candidates.push(format!("--{}--", abs_raw).to_lowercase());
-
-    // Se sotto la home utente
-    if let Some(home) = get_user_home() {
-        let home_trimmed = home.trim_end_matches(['/', '\\']);
-        let p_norm = trimmed_proj.replace('\\', "/").to_lowercase();
-        let h_norm = home_trimmed.replace('\\', "/").to_lowercase();
-        if p_norm == h_norm {
-            candidates.push("-".to_string());
-        } else if let Some(rel) = p_norm.strip_prefix(&format!("{}/", h_norm)) {
-            let rel_dash = rel.replace('/', "-");
-            candidates.push(format!("-{}", rel_dash));
-        }
-    }
-
-    // Se sotto la cartella temporanea
-    let temp_dir = std::env::temp_dir();
-    let temp_str = temp_dir.to_string_lossy();
-    let temp_trimmed = temp_str.trim_end_matches(['/', '\\']);
-    let p_norm = trimmed_proj.replace('\\', "/").to_lowercase();
-    let t_norm = temp_trimmed.replace('\\', "/").to_lowercase();
-    if p_norm == t_norm {
-        candidates.push("-tmp".to_string());
-    } else if let Some(rel) = p_norm.strip_prefix(&format!("{}/", t_norm)) {
-        let rel_dash = rel.replace('/', "-");
-        candidates.push(format!("-tmp-{}", rel_dash));
-    }
-
-    // Se il nome cartella e' esattamente uno dei candidati
-    for cand in candidates {
-        if folder_lower == cand {
-            return true;
-        }
+    if session_folder_candidates(trimmed_proj).contains(&folder_lower) {
+        return true;
     }
 
     // Se la cartella inizia per "home-", "tmp-" o "abs-" (formato legacy con sha256)

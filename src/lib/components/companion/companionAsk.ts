@@ -9,11 +9,8 @@
 import type { AttentionRequest } from '#lib/stores/companion.svelte.ts';
 
 export interface CompanionAskHandlers {
-	/** Storico esteso per progetto: chiave `projectId`. */
-	expandedHistory: Record<string, boolean>;
 	/** Risposta libera aperta al posto delle opzioni, per progetto. */
 	customReplyProjects: Record<string, boolean>;
-	onToggleHistory: (projectId: string) => void;
 	onCustomReplyToggle: (projectId: string, open: boolean) => void;
 	onReplyDraftChange: (projectId: string, value: string) => void;
 	onQuickReplySelect: (projectId: string, value: string, laneId?: string | null, requestId?: string | null, note?: string) => void | Promise<void>;

@@ -14,13 +14,22 @@ released: items are closed into a version via `npm run release -- <version>`.
 ### Added
 - Background jobs: a single queue in the main window generates task and session titles, maintains the history index, fetches projects from Git and checks for updates without opening their panels. "Settings → Background jobs" has the global switch, a toggle for each job, the model used by AI jobs and the quota floor below which subscription models stop.
 - A bottom-bar icon shows running and pending jobs; its popover lets you interrupt the current job, pause or resume each job, run it now or stop everything.
+- Lab and UI prototype previews show "Rendering preview…" while the new version loads, instead of a blank frame, and confirm with "Preview updated" once the update is ready.
+- New "Settings → Statistics" section: API-equivalent cost, requests, tokens, cache and errors across every omp session over the last 24 hours, 7 or 30 days, with activity over time, the models used (share, cost, speed), projects by cost with the open one highlighted and the share of work done by subagents. "Full dashboard" opens omp's web dashboard with requests, errors, traces and tools.
+- Lab: before building, the agent explores the project and prepares a brief with a short interview; comment on and refine it like a Plan, and Studio unlocks changes only after your approval. Then choose “Compact and continue” or “Keep the full context” without changing sessions; the same applies to free drafts and older prototypes without approval. (R-LAB-01…04, R-LAB-08)
+- Lab: choose Faithful, Divergent variants, Flow or Free; variants compare the same data and operations with a distinct author for each proposal, and the brief follows revisions and handoff to Main. Screenshots of the real app remain optional manual attachments. (R-LAB-04…06)
 
 ### Changed
 - Session history uses a persistent local index and opens instantly even after a restart; titles of past sessions are generated without opening the history.
 - Automatic Git fetch covers every open project, not just the active one, and the Studio and omp update check repeats periodically. Toggles that used to live in other Settings sections are now under "Background jobs".
+- The background processes indicator moves to the left corner of the bottom bar, matching the borderless styling and typography of the Studio and omp version buttons.
 
 ### Fixed
+- Project-linked prototypes receive the real project path and references to its files instead of searching only the empty scaffold: start from a project never opened in Studio without explaining its domain again or needing a previous chat. (R-LAB-01, R-LAB-07)
+- Automatic notifications no longer show banners while you work in Studio, keeping the composer visible; on Windows, opening a project immediately dismisses its notifications even without clicking the popup. Badges and in-app indicators stay active.
 - In the Companion's global queue a task without a generated title shows "New task" instead of its full text, and the title is generated as soon as you save the task, without opening the project's queue in Studio.
+- A Companion question card shows only the text the agent wrote after your last answer, even when you already answered other questions from Studio; the rest of the conversation, including your answers to earlier questions, opens with "Load previous messages" and folds back for the next question.
+- A task saved from the Companion without a role or model gets the default task role and its model instead of having no role.
 
 ## [1.9.0] - 2026-10-27
 

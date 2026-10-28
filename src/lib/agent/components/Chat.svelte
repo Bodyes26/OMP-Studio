@@ -618,7 +618,7 @@
 				onSelect={(prompt) => composerRef?.applySuggestionChip(prompt)}
 			/>
 			{#if session.plan.building}
-				<PlanTray outline={session.plan.outline} planFilePath={session.plan.planFilePath} />
+				<PlanTray outline={session.plan.outline} planFilePath={session.plan.planFilePath} isLab={session.plan.isLab} />
 			{/if}
 			{#if resetCandidate && !(resetCandidate.mode === 'auto_informed' && session.isStreaming)}
 				<div class="reset-card-slot">

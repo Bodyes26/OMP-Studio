@@ -174,6 +174,49 @@ pub async fn lab_git_commit(
         add_cmd.args(["add", "-A"]);
         run_git_checked(&mut add_cmd, "add -A")?;
 
+        // Rimuove dall'indice eventuali file transitori o token interni sotto .lab/
+        let _ = git_command(cwd)
+            .args([
+                "rm",
+                "--cached",
+                "-f",
+                "--quiet",
+                "--",
+                ".lab/preview-status.json",
+                ".lab/.brief-approved.json",
+            ])
+            .output();
+
+        if let Ok(entries) = std::fs::read_dir(cwd.join(".lab")) {
+            for entry in entries.flatten() {
+                let name = entry.file_name();
+                let name_str = name.to_string_lossy();
+                if name_str != "brief.md" && name_str != "meta.json" {
+                    let _ = git_command(cwd)
+                        .args([
+                            "rm",
+                            "--cached",
+                            "-f",
+                            "--quiet",
+                            "--",
+                            &format!(".lab/{}", name_str),
+                        ])
+                        .output();
+                }
+            }
+        }
+
+        // Se .lab/brief.md esiste nel workspace, forzane il tracciamento anche se
+        // un .gitignore preesistente ignora l'intera cartella .lab/.
+        if cwd.join(".lab").join("brief.md").is_file() {
+            let mut add_brief = git_command(cwd);
+            add_brief.args(["add", "-f", "--", ".lab/brief.md"]);
+            let _ = add_brief.output();
+        } else {
+            let _ = git_command(cwd)
+                .args(["rm", "--cached", "-f", "--quiet", "--", ".lab/brief.md"])
+                .output();
+        }
         // Verifica se ci sono differenze staged rispetto all'albero attuale
         let mut diff_cmd = git_command(cwd);
         diff_cmd.args(["diff", "--cached", "--quiet"]);
@@ -270,11 +313,11 @@ pub async fn lab_git_files_at(workspace_path: String, sha: String) -> Result<Vec
             }
             let normalized = rel_path.replace('\\', "/");
 
-            // Ignora le directory escluse dal contratto
+            // Ignora le directory escluse dal contratto, consentendo solo .lab/brief.md sotto .lab/
             if normalized == ".git"
                 || normalized.starts_with(".git/")
+                || (normalized.starts_with(".lab/") && normalized != ".lab/brief.md")
                 || normalized == ".lab"
-                || normalized.starts_with(".lab/")
                 || normalized == "node_modules"
                 || normalized.starts_with("node_modules/")
                 || normalized == "dist"
@@ -368,6 +411,8 @@ pub async fn lab_git_restore(workspace_path: String, sha: String) -> Result<LabR
         clean_cmd.args(["clean", "-fd", "-e", ".lab"]);
         let _ = clean_cmd.output();
 
+        // Rimuove eventuali marker transitori di approvazione dopo un ripristino git
+        let _ = std::fs::remove_file(cwd.join(".lab").join(".brief-approved.json"));
         // Registra il commit di ripristino (allow-empty nel caso il tree fosse identico)
         let mut commit_cmd = git_command_with_author(cwd);
         commit_cmd.args(["commit", "--allow-empty", "-m", &restore_message]);
