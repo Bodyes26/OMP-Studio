@@ -724,6 +724,11 @@ export class AgentSession {
 	private contextReportCapture: string | null = null;
 	// Righe `command_output` raccolte mentre una compattazione passa dal comando slash.
 	private compactCapture: string[] | null = null;
+	/**
+	 * Compattazione avviata da `compact()` di Studio: i suoi eventi
+	 * `manual_compaction_*` (omp 18.13.3+) li gestisce gia' la risposta RPC.
+	 */
+	private ownCompaction = false;
 	sessionId = $state<string | null>(null);
 	sessionFile = $state<string | null>(null);
 	sessionName = $state<string | null>(null);
@@ -2788,6 +2793,48 @@ export class AgentSession {
 				if (last) {
 					last.running = false;
 					last.message = 'Contesto compattato';
+				}
+				if (!this.isStreaming) {
+					this.agentState = this.resolveSettledState();
+				}
+				void this.refreshState();
+				void this.rebuildTranscript();
+				void this.refreshCost();
+				return;
+			}
+
+			// omp 18.13.3+: compattazione manuale partita fuori da Studio
+			// (`ctx.compact()` di un'estensione, `/compact` di un altro client).
+			case 'manual_compaction_start': {
+				if (this.ownCompaction) return;
+				this.isCompacting = true;
+				if (!this.lastOfKind('compaction')?.running) {
+					this.push({ id: this.nextEntryId++, kind: 'compaction', message: messages.ui_ts_session_compattazione_del_contesto_in_corso_845b(), running: true });
+				}
+				return;
+			}
+
+			case 'manual_compaction_end': {
+				if (this.ownCompaction) return;
+				this.isCompacting = false;
+				const last = this.lastOfKind('compaction');
+				const result = event.result as CompactResult | undefined;
+				if (last?.running) {
+					if (result && !event.aborted) {
+						this.applyCompactResult(last, result);
+					} else {
+						const idx = this.entries.indexOf(last);
+						if (idx !== -1) this.entries.splice(idx, 1);
+					}
+				}
+				if (result && !event.aborted) {
+					this.promptCacheContextChanged = true;
+					this.cacheWarmingLast = null;
+					this.invalidateContextReport();
+				} else if (event.skipped) {
+					this.flashNotice('info', messages.ui_ts_session_nessun_contenuto_da_compattare_la_sessione_e_322e());
+				} else if (!event.aborted && typeof event.errorMessage === 'string') {
+					this.pushNotice('error', `Compattazione non riuscita: ${event.errorMessage}`, 'studio');
 				}
 				if (!this.isStreaming) {
 					this.agentState = this.resolveSettledState();
@@ -5296,6 +5343,7 @@ export class AgentSession {
 		this.compactChoiceOpen = false;
 		if (this.isCompacting) return false;
 		this.isCompacting = true;
+		this.ownCompaction = true;
 		const entryId = this.nextEntryId++;
 		const entry = this.push<CompactionEntry>({
 			id: entryId,
@@ -5312,23 +5360,7 @@ export class AgentSession {
 						customInstructions: customInstructions || undefined
 					});
 
-			entry.running = false;
-			let msg = 'Contesto compattato';
-			if (typeof res?.tokensBefore === 'number' && typeof res?.tokensAfter === 'number') {
-				const saved = res.tokensBefore - res.tokensAfter;
-				if (saved > 0) {
-					msg = `Contesto compattato (${formatTokens(res.tokensBefore)} → ${formatTokens(res.tokensAfter)} token, -${formatTokens(saved)})`;
-				} else {
-					msg = `Contesto compattato (${formatTokens(res.tokensAfter)} token)`;
-				}
-			} else if (res?.shortSummary) {
-				msg = `Contesto compattato: ${res.shortSummary}`;
-			}
-			entry.message = msg;
-			if (res?.summary) entry.summary = res.summary;
-			if (res?.shortSummary) entry.shortSummary = res.shortSummary;
-			if (typeof res?.tokensBefore === 'number') entry.tokensBefore = res.tokensBefore;
-			if (typeof res?.tokensAfter === 'number') entry.tokensAfter = res.tokensAfter;
+			this.applyCompactResult(entry, res);
 
 			await this.rebuildTranscript();
 			await this.refreshState();
@@ -5352,10 +5384,32 @@ export class AgentSession {
 			return false;
 		} finally {
 			this.isCompacting = false;
+			this.ownCompaction = false;
 			if (!this.isStreaming) {
 				this.agentState = this.pendingUi ? 'attention' : 'idle';
 			}
 		}
+	}
+
+	/** Chiude la voce di compattazione con i token risparmiati o il riassunto breve. */
+	private applyCompactResult(entry: CompactionEntry, res: CompactResult | null | undefined) {
+		entry.running = false;
+		let msg = 'Contesto compattato';
+		if (typeof res?.tokensBefore === 'number' && typeof res?.tokensAfter === 'number') {
+			const saved = res.tokensBefore - res.tokensAfter;
+			if (saved > 0) {
+				msg = `Contesto compattato (${formatTokens(res.tokensBefore)} → ${formatTokens(res.tokensAfter)} token, -${formatTokens(saved)})`;
+			} else {
+				msg = `Contesto compattato (${formatTokens(res.tokensAfter)} token)`;
+			}
+		} else if (res?.shortSummary) {
+			msg = `Contesto compattato: ${res.shortSummary}`;
+		}
+		entry.message = msg;
+		if (res?.summary) entry.summary = res.summary;
+		if (res?.shortSummary) entry.shortSummary = res.shortSummary;
+		if (typeof res?.tokensBefore === 'number') entry.tokensBefore = res.tokensBefore;
+		if (typeof res?.tokensAfter === 'number') entry.tokensAfter = res.tokensAfter;
 	}
 
 	/** Esegue l'handoff della sessione, avviandone una nuova con il riassunto della precedente. */

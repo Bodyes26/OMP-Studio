@@ -25,6 +25,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - The background processes indicator moves to the left corner of the bottom bar, matching the borderless styling and typography of the Studio and omp version buttons.
 
 ### Fixed
+- A manual compaction started outside Studio, for example by an extension, shows up in the chat as "Compacting context" and reports the tokens saved when it ends; the session shows as busy while it runs (requires omp 18.13.3 or later).
 - Project-linked prototypes receive the real project path and references to its files instead of searching only the empty scaffold: start from a project never opened in Studio without explaining its domain again or needing a previous chat. (R-LAB-01, R-LAB-07)
 - Automatic notifications no longer show banners while you work in Studio, keeping the composer visible; on Windows, opening a project immediately dismisses its notifications even without clicking the popup. Badges and in-app indicators stay active.
 - In the Companion's global queue a task without a generated title shows "New task" instead of its full text, and the title is generated as soon as you save the task, without opening the project's queue in Studio.

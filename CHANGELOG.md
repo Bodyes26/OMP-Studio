@@ -25,6 +25,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - L'indicatore dei processi in background si sposta all'angolo sinistro della barra inferiore con lo stesso stile e assenza di riquadro dei pulsanti di versione di Studio e omp.
 
 ### Fixed
+- Una compattazione manuale avviata fuori da Studio, ad esempio da un'estensione, compare nella chat come «Compattazione del contesto in corso» e alla fine mostra i token risparmiati; durante la compattazione la sessione risulta occupata (richiede omp 18.13.3 o successivo).
 - I prototipi associati a un progetto ricevono il percorso reale e i riferimenti ai suoi file, invece di cercare soltanto nello scaffold vuoto: puoi partire da un progetto mai aperto in Studio senza rispiegare il dominio o avere una chat precedente. (R-LAB-01, R-LAB-07)
 - Le notifiche automatiche non mostrano banner mentre lavori in Studio, lasciando visibile il composer; su Windows, aprire un progetto ritira subito le sue notifiche anche senza fare clic sul popup. Badge e indicatori interni restano attivi.
 - Nella coda globale della Companion un task senza titolo generato mostra «Nuovo task» invece del testo intero, e il titolo viene generato appena salvi il task, senza dover aprire la coda del progetto in Studio.
