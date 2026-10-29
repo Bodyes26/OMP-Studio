@@ -24,6 +24,8 @@ pub struct PtySession {
     #[cfg(target_os = "windows")]
     pub job: Option<Arc<WindowsJob>>,
     killed: Arc<AtomicBool>,
+    pub cwd: String,
+    pub project_id: Option<String>,
 }
 
 impl PtySession {
@@ -311,6 +313,9 @@ pub const GOAL_EXTENSION_TS: &str = include_str!("../../../extensions/studio-goa
 pub const HEADSUP_EXTENSION_TS: &str = include_str!("../../../extensions/studio-headsup.ts");
 /// Tool `project_docs` e comando `/diario` (Gate R41): diario e documenti di progetto.
 pub const DOCS_EXTENSION_TS: &str = include_str!("../../../extensions/studio-docs.ts");
+/// Tool `studio_automations` (AUT-086 / AUT-106): gestione e bozze delle automazioni Studio.
+pub const AUTOMATIONS_EXTENSION_TS: &str =
+    include_str!("../../../extensions/studio-automations.ts");
 
 /// Unica direttiva aggiunta all'avvio: tenerla qui evita divergenze tra GUI,
 /// Laboratorio e TUI senza salvarla nei messaggi o nel transcript.
@@ -505,6 +510,8 @@ pub async fn pty_open(
     let loop_extension_arg = write_extension("studio-loop.ts", LOOP_EXTENSION_TS);
     let headsup_extension_arg = write_extension("studio-headsup.ts", HEADSUP_EXTENSION_TS);
     let docs_extension_arg = write_extension("studio-docs.ts", DOCS_EXTENSION_TS);
+    let automations_extension_arg =
+        write_extension("studio-automations.ts", AUTOMATIONS_EXTENSION_TS);
 
     // Il `--resume` arriva dal frontend con l'id della sessione da cui si sta
     // passando: se quella sessione non ha ancora un transcript, omp esce con
@@ -545,6 +552,10 @@ pub async fn pty_open(
             launch_args.push(ext.clone());
         }
         if let Some(ext) = &docs_extension_arg {
+            launch_args.push("-e".to_string());
+            launch_args.push(ext.clone());
+        }
+        if let Some(ext) = &automations_extension_arg {
             launch_args.push("-e".to_string());
             launch_args.push(ext.clone());
         }
@@ -628,6 +639,10 @@ pub async fn pty_open(
             launch.push_str(&sh_quote(ext));
         }
         if let Some(ext) = &docs_extension_arg {
+            launch.push_str(" -e ");
+            launch.push_str(&sh_quote(ext));
+        }
+        if let Some(ext) = &automations_extension_arg {
             launch.push_str(" -e ");
             launch.push_str(&sh_quote(ext));
         }
@@ -754,6 +769,8 @@ pub async fn pty_open(
         #[cfg(target_os = "windows")]
         job,
         killed: Arc::new(AtomicBool::new(false)),
+        cwd: cwd.clone(),
+        project_id: project_id.clone(),
     };
 
     manager.sessions.lock().insert(pty_id, session.clone());
@@ -841,13 +858,52 @@ pub async fn pty_write(
     data: Vec<u8>,
     manager: State<'_, PtyManager>,
 ) -> Result<(), String> {
-    let writer = {
+    // Controllo stop/interrupt (Ctrl-C = 0x03, Ctrl-D = 0x04, SIGQUIT = 0x1c) sempre consentito per arrestare lavori
+    let is_stop_control =
+        data.len() == 1 && (data[0] == 0x03 || data[0] == 0x04 || data[0] == 0x1c);
+
+    let (writer, cwd, project_id) = {
         let sessions = manager.sessions.lock();
         let session = sessions
             .get(&pty_id)
             .ok_or_else(|| format!("PTY {} non disponibile", pty_id))?;
-        session.writer.clone()
+        (
+            session.writer.clone(),
+            session.cwd.clone(),
+            session.project_id.clone(),
+        )
     };
+
+    if !is_stop_control {
+        // Risoluzione canonica della root di progetto via project_id autentico (AUT-042):
+        // la cwd di un worktree fratello potrebbe differire dalla root canonica;
+        // controlliamo e riserviamo la canonical root (con fallback a cwd per sessioni standalone).
+        let target_path = project_id
+            .as_deref()
+            .and_then(crate::automations::project_path_for_id)
+            .unwrap_or_else(|| cwd.clone());
+
+        if !target_path.is_empty() {
+            // AUT-042: Guardia per impedire input che avvii lavoro sul progetto riservato da automazioni
+            if crate::automations::is_project_locked(&target_path, None) {
+                return Err(format!(
+                    "Progetto '{}' riservato da un'automazione in esecuzione: input interattivo bloccato (AUT-042)",
+                    target_path
+                ));
+            }
+
+            // Se l'input invia un comando (Enter), acquisisce l'ammissione interattiva per evitare race con lo scheduler
+            if data.contains(&b'\r') || data.contains(&b'\n') {
+                if let Err(err) = crate::automations::interactive_admission(&target_path) {
+                    return Err(format!(
+                        "Impossibile avviare il comando interattivo: {} (AUT-042)",
+                        err
+                    ));
+                }
+            }
+        }
+    }
+
     tokio::task::spawn_blocking(move || {
         let mut writer = writer.lock();
         writer
@@ -860,7 +916,6 @@ pub async fn pty_write(
     .await
     .map_err(|e| format!("Task pty_write: {}", e))?
 }
-
 #[tauri::command]
 pub async fn pty_resize(
     pty_id: u64,

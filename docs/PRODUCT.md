@@ -253,3 +253,11 @@ Nessuna informazione affidata al solo colore; contrasti conformi WCAG AA (>= 4.5
 supporto navigazione tastiera completa con roving tabindex, focus trap sui modali,
 annunci `aria-live` per i cambi di stato asincroni e pieno rispetto di
 `prefers-reduced-motion`.
+
+## Origine e distribuzione
+
+- Progetto personale di Maurizio Actis. La prima versione (0.1.0, 2026-07-30) è già il guscio multi-progetto per `omp`; il primo commit pubblico la riprende il 2026-07-31 [sessione 019fb1a4] [commit b997871].
+- Pubblicato su GitHub (`Bodyes26/OMP-Studio`) con licenza MIT a nome di Maurizio Actis: il codice è pubblico ma il repository non accetta contributi esterni, chi vuole modificarlo fa una fork; le pull request esterne vengono chiuse in automatico [sessione 019fb378] [commit dc30218].
+- Il repository pubblico non deve contenere riferimenti al lavoro o ai progetti interni dell'autore; gli appunti che non devono diventare pubblici vanno in `ricerca/`, esclusa da git [sessione 019fb378].
+- Studio si sviluppa con `omp` dentro Studio stesso: ogni modifica si prova installando la build Nightly sull'app in uso [sessione 01a033e8].
+- Distribuito come installer per Windows x64, macOS e Linux x64, con aggiornamenti dentro l'app su due canali, stabile e Nightly [commit 1d36d01] [commit 74b7357] [commit ba3354f].

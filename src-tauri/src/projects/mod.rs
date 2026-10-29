@@ -477,6 +477,12 @@ pub async fn path_create_file(
     parent_rel: String,
     name: String,
 ) -> Result<Dirent, String> {
+    if crate::automations::is_project_locked(&project_path, None) {
+        return Err(format!(
+            "Impossibile creare il file: il progetto '{}' e' occupato da un'automazione attiva (AUT-042)",
+            project_path
+        ));
+    }
     tokio::task::spawn_blocking(move || {
         let (dest_path, parent_norm, file_name) =
             resolve_new_destination(&project_path, &parent_rel, &name)?;
@@ -511,6 +517,12 @@ pub async fn path_create_directory(
     parent_rel: String,
     name: String,
 ) -> Result<Dirent, String> {
+    if crate::automations::is_project_locked(&project_path, None) {
+        return Err(format!(
+            "Impossibile creare la cartella: il progetto '{}' e' occupato da un'automazione attiva (AUT-042)",
+            project_path
+        ));
+    }
     tokio::task::spawn_blocking(move || {
         let (dest_path, parent_norm, dir_name) =
             resolve_new_destination(&project_path, &parent_rel, &name)?;
@@ -612,6 +624,12 @@ pub async fn path_rename(
     rel: String,
     new_name: String,
 ) -> Result<Dirent, String> {
+    if crate::automations::is_project_locked(&project_path, None) {
+        return Err(format!(
+            "Impossibile rinominare l'elemento: il progetto '{}' e' occupato da un'automazione attiva (AUT-042)",
+            project_path
+        ));
+    }
     tokio::task::spawn_blocking(move || {
         validate_basename(&new_name)?;
         let (old_path, parent_rel, old_name, is_dir) = resolve_existing_entry(&project_path, &rel)?;
@@ -682,6 +700,12 @@ pub async fn path_rename(
 
 #[command]
 pub async fn path_trash(project_path: String, rel: String) -> Result<(), String> {
+    if crate::automations::is_project_locked(&project_path, None) {
+        return Err(format!(
+            "Impossibile eliminare l'elemento: il progetto '{}' e' occupato da un'automazione attiva (AUT-042)",
+            project_path
+        ));
+    }
     tokio::task::spawn_blocking(move || {
         let (target_path, _, _, _) = resolve_existing_entry(&project_path, &rel)?;
         trash::delete(&target_path)
@@ -1377,6 +1401,12 @@ pub async fn file_read_bytes(project_path: String, rel: String) -> Result<Respon
 
 #[command]
 pub async fn file_write(project_path: String, rel: String, content: String) -> Result<(), String> {
+    if crate::automations::is_project_locked(&project_path, None) {
+        return Err(format!(
+            "Impossibile salvare il file: il progetto '{}' e' occupato da un'automazione attiva (AUT-042)",
+            project_path
+        ));
+    }
     tokio::task::spawn_blocking(move || {
         let target = resolve_path(&project_path, &rel)?;
         fs::write(&target, content).map_err(|e| e.to_string())?;
@@ -2068,6 +2098,12 @@ pub async fn git_branch_list(project_path: String) -> Result<Vec<GitBranch>, Str
 /// mescolerebbe con il branch di destinazione.
 #[command]
 pub async fn git_branch_checkout(project_path: String, name: String) -> Result<(), String> {
+    if crate::automations::is_project_locked(&project_path, None) {
+        return Err(format!(
+            "Impossibile cambiare branch: il progetto '{}' e' occupato da un'automazione attiva (AUT-042)",
+            project_path
+        ));
+    }
     let status = project_git_status(project_path.clone()).await?;
     if !status.statuses.is_empty() {
         return Err(
@@ -2093,6 +2129,12 @@ pub async fn git_branch_checkout(project_path: String, name: String) -> Result<(
 
 #[command]
 pub async fn git_branch_create(project_path: String, name: String) -> Result<(), String> {
+    if crate::automations::is_project_locked(&project_path, None) {
+        return Err(format!(
+            "Impossibile creare il branch: il progetto '{}' e' occupato da un'automazione attiva (AUT-042)",
+            project_path
+        ));
+    }
     let trimmed = name.trim().to_string();
     if trimmed.is_empty() || trimmed.contains("..") || trimmed.starts_with('-') {
         return Err("Nome di branch non valido".to_string());

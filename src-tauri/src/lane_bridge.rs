@@ -131,6 +131,62 @@ pub fn owner_inside_lane(owner: &BridgeOwner) -> bool {
         .is_some_and(|lane| !lane.is_empty() && lane != "main")
 }
 
+/// Route supportate per gli endpoint delle automazioni di Studio (/v1/automations/{action}).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AutomationRoute {
+    List,
+    Get,
+    Runs,
+    ProposeCreate,
+    ProposeUpdate,
+    Projects,
+    Event,
+}
+
+impl AutomationRoute {
+    pub const ALL: [AutomationRoute; 7] = [
+        AutomationRoute::List,
+        AutomationRoute::Get,
+        AutomationRoute::Runs,
+        AutomationRoute::ProposeCreate,
+        AutomationRoute::ProposeUpdate,
+        AutomationRoute::Projects,
+        AutomationRoute::Event,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            AutomationRoute::List => "list",
+            AutomationRoute::Get => "get",
+            AutomationRoute::Runs => "runs",
+            AutomationRoute::ProposeCreate => "propose_create",
+            AutomationRoute::ProposeUpdate => "propose_update",
+            AutomationRoute::Projects => "projects",
+            AutomationRoute::Event => "event",
+        }
+    }
+
+    pub fn from_action(action: &str) -> Option<AutomationRoute> {
+        match action {
+            "list" => Some(AutomationRoute::List),
+            "get" => Some(AutomationRoute::Get),
+            "runs" => Some(AutomationRoute::Runs),
+            "propose_create" => Some(AutomationRoute::ProposeCreate),
+            "propose_update" => Some(AutomationRoute::ProposeUpdate),
+            "projects" => Some(AutomationRoute::Projects),
+            "event" => Some(AutomationRoute::Event),
+            _ => None,
+        }
+    }
+}
+
+/// Destinazione della richiesta HTTP instradata dal bridge: corsia o automazione.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BridgeRouteTarget {
+    Corsia(CorsiaRoute),
+    Automation(AutomationRoute),
+}
+
 /// Payload dell'evento Tauri emesso verso il frontend quando arriva una richiesta HTTP valida.
 /// `lane_id` e `message` restano per i lettori dell'alias storico; il router usa `route` e `body`.
 #[derive(Serialize, Clone, Debug)]
@@ -286,6 +342,7 @@ fn rejection(code: u16, reason: &'static str, text: impl Into<String>) -> Reject
 /// Richiesta autenticata, autorizzata e gia' validata.
 struct BridgeRequest {
     owner: BridgeOwner,
+    target: BridgeRouteTarget,
     route: CorsiaRoute,
     /// Corpo normalizzato: l'alias storico viene riscritto con i nomi italiani.
     body: serde_json::Map<String, serde_json::Value>,
@@ -302,7 +359,7 @@ impl BridgeRequest {
     }
 }
 
-/// Permesso del proprietario del token sul verbo richiesto.
+/// Permesso del proprietario del token sul verbo corsia richiesto.
 fn authorize(route: CorsiaRoute, owner: &BridgeOwner) -> Result<(), Rejection> {
     if owner_inside_lane(owner) && !route.allowed_inside_lane() {
         return Err(rejection(
@@ -312,6 +369,29 @@ fn authorize(route: CorsiaRoute, owner: &BridgeOwner) -> Result<(), Rejection> {
                 "Dentro una corsia sono ammessi solo corsia_fatto e corsia_stato: '{}' spetta alla Principale",
                 route.as_str()
             ),
+        ));
+    }
+    Ok(())
+}
+
+/// Permesso del proprietario del token per consultare o proporre automazioni.
+/// Principale abilitata e normali agenti autorizzati; no sessioni Lab e no helper readonly.
+fn authorize_automations(owner: &BridgeOwner) -> Result<(), Rejection> {
+    if let Some(lane) = &owner.lane_id {
+        let trimmed = lane.trim();
+        if trimmed.starts_with("lab-") || trimmed == "lab" {
+            return Err(rejection(
+                403,
+                "Forbidden",
+                "Le sessioni del Laboratorio non hanno accesso alle automazioni di Studio",
+            ));
+        }
+    }
+    if owner.owner_kind == "automation_readonly" || owner.owner_kind == "readonly" {
+        return Err(rejection(
+            403,
+            "Forbidden",
+            "Gli agenti readonly o helper non possono gestire le automazioni di Studio",
         ));
     }
     Ok(())
@@ -354,15 +434,41 @@ async fn read_request(stream: &mut TcpStream) -> Result<BridgeRequest, Rejection
         request_line.next().unwrap_or_default(),
         request_line.next().unwrap_or_default(),
     );
-    let Some((route, legacy)) = CorsiaRoute::from_path(path) else {
+    let clean_path = path.split('?').next().unwrap_or_default().trim_end_matches('/');
+    let (target, legacy) = if let Some((c_route, leg)) = CorsiaRoute::from_path(path) {
+        (BridgeRouteTarget::Corsia(c_route), leg)
+    } else if let Some(action) = clean_path.strip_prefix("/v1/automations/") {
+        match action {
+            "activate" | "run" | "disable" | "enable" | "delete" | "cancel" | "acknowledge" | "set_state" => {
+                return Err(rejection(
+                    403,
+                    "Forbidden",
+                    format!(
+                        "Azione automazione '{action}' negata: gli agenti possono solo consultare o proporre bozze con revisione utente"
+                    ),
+                ));
+            }
+            _ => {
+                if let Some(a_route) = AutomationRoute::from_action(action) {
+                    (BridgeRouteTarget::Automation(a_route), false)
+                } else {
+                    return Err(rejection(
+                        404,
+                        "Not Found",
+                        format!("Percorso automazione '/v1/automations/{action}' non valido"),
+                    ));
+                }
+            }
+        }
+    } else {
         return Err(rejection(
             404,
             "Not Found",
             format!("Percorso '{path}' non trovato"),
         ));
     };
-    if method != "POST" {
-        return Err(rejection(405, "Method Not Allowed", "Usare POST"));
+    if method != "POST" && method != "GET" {
+        return Err(rejection(405, "Method Not Allowed", "Usare POST o GET"));
     }
 
     let mut content_length = None;
@@ -388,61 +494,161 @@ async fn read_request(stream: &mut TcpStream) -> Result<BridgeRequest, Rejection
             "Token del bridge assente, non valido o revocato",
         )
     })?;
-    authorize(route, &owner)?;
-    let length = content_length
-        .ok_or_else(|| rejection(411, "Length Required", "Header Content-Length obbligatorio"))?;
+
+    match target {
+        BridgeRouteTarget::Corsia(route) => {
+            authorize(route, &owner)?;
+        }
+        BridgeRouteTarget::Automation(_) => {
+            authorize_automations(&owner)?;
+        }
+    }
+
+    let length = match content_length {
+        Some(len) => len,
+        None if method == "GET" => 0,
+        None if matches!(target, BridgeRouteTarget::Automation(_)) => 0,
+        None => {
+            return Err(rejection(
+                411,
+                "Length Required",
+                "Header Content-Length obbligatorio",
+            ));
+        }
+    };
+
     if length > BODY_LIMIT {
         return Err(rejection(413, "Payload Too Large", "Corpo oltre 64 KiB"));
     }
 
-    let mut body = buffer.split_off(header_end + 4);
-    while body.len() < length {
-        let read = stream
-            .read(&mut chunk)
-            .await
-            .map_err(|error| rejection(400, "Bad Request", error.to_string()))?;
-        if read == 0 {
-            return Err(rejection(
-                400,
-                "Bad Request",
-                "Corpo piu' corto di Content-Length",
-            ));
+    let mut fields = serde_json::Map::new();
+    if length > 0 {
+        let mut body = buffer.split_off(header_end + 4);
+        while body.len() < length {
+            let read = stream
+                .read(&mut chunk)
+                .await
+                .map_err(|error| rejection(400, "Bad Request", error.to_string()))?;
+            if read == 0 {
+                return Err(rejection(
+                    400,
+                    "Bad Request",
+                    "Corpo piu' corto di Content-Length",
+                ));
+            }
+            body.extend_from_slice(&chunk[..read]);
         }
-        body.extend_from_slice(&chunk[..read]);
-    }
-    body.truncate(length);
+        body.truncate(length);
 
-    let json: serde_json::Value = serde_json::from_slice(&body)
-        .map_err(|_| rejection(400, "Bad Request", "Il corpo non e' JSON valido"))?;
-    let serde_json::Value::Object(mut fields) = json else {
-        return Err(rejection(
-            400,
-            "Bad Request",
-            "Il corpo deve essere un oggetto JSON",
-        ));
-    };
+        if !body.iter().all(|b| b.is_ascii_whitespace()) {
+            let json: serde_json::Value = serde_json::from_slice(&body)
+                .map_err(|_| rejection(400, "Bad Request", "Il corpo non e' JSON valido"))?;
+            let serde_json::Value::Object(map) = json else {
+                return Err(rejection(
+                    400,
+                    "Bad Request",
+                    "Il corpo deve essere un oggetto JSON",
+                ));
+            };
+            fields = map;
+        }
+    }
+
     if legacy {
         // `/v1/lane/integrate` parlava inglese: si traduce una volta qui, cosi'
         // il frontend conosce un solo vocabolario.
         if let Some(message) = fields.remove("message") {
-            fields.entry("messaggio").or_insert(message);
+            fields.entry("messaggio".to_string()).or_insert(message);
         }
         if let Some(lane) = fields.remove("laneId") {
-            fields.entry("corsia").or_insert(lane);
+            fields.entry("corsia".to_string()).or_insert(lane);
         }
     }
+
+    let corsia_route = match target {
+        BridgeRouteTarget::Corsia(r) => r,
+        BridgeRouteTarget::Automation(_) => CorsiaRoute::Stato,
+    };
     let request = BridgeRequest {
         owner,
-        route,
+        target,
+        route: corsia_route,
         body: fields,
     };
-    if let Some(field) = route.required_field() {
-        if request.text(field).is_none() {
-            return Err(rejection(
-                400,
-                "Bad Request",
-                format!("Campo '{field}' obbligatorio"),
-            ));
+
+    match target {
+        BridgeRouteTarget::Corsia(route) => {
+            if let Some(field) = route.required_field() {
+                if request.text(field).is_none() {
+                    return Err(rejection(
+                        400,
+                        "Bad Request",
+                        format!("Campo '{field}' obbligatorio"),
+                    ));
+                }
+            }
+        }
+        BridgeRouteTarget::Automation(route) => {
+            match route {
+                AutomationRoute::Get => {
+                    if request.text("id").is_none() {
+                        return Err(rejection(400, "Bad Request", "Campo 'id' obbligatorio per get"));
+                    }
+                }
+                AutomationRoute::ProposeUpdate => {
+                    if request.text("id").is_none() {
+                        return Err(rejection(
+                            400,
+                            "Bad Request",
+                            "Campo 'id' obbligatorio per propose_update",
+                        ));
+                    }
+                }
+                AutomationRoute::ProposeCreate => {
+                    if request.text("name").is_none()
+                        && !request.body.contains_key("action")
+                        && request.text("prompt").is_none()
+                        && request.text("command").is_none()
+                        && request.text("message").is_none()
+                    {
+                        return Err(rejection(
+                            400,
+                            "Bad Request",
+                            "propose_create richiede almeno name, prompt, command, action o message",
+                        ));
+                    }
+                }
+                AutomationRoute::Projects => {
+                    let op = request.text("operation");
+                    if let Some(op_str) = op.as_deref() {
+                        if (op_str == "open" || op_str == "close") && request.text("path").is_none() {
+                            return Err(rejection(
+                                400,
+                                "Bad Request",
+                                "Campo 'path' obbligatorio per le operazioni 'open' o 'close' sui progetti",
+                            ));
+                        }
+                    }
+                }
+                AutomationRoute::Event => {
+                    // Solo terminal / processo interattivo reale per emettere eventi agente (AUT-014)
+                    if request.owner.owner_kind != "terminal" && request.owner.owner_kind != "agent" {
+                        return Err(rejection(
+                            403,
+                            "Forbidden",
+                            "Solo i processi terminali/agente possono emettere eventi agente (AUT-014)",
+                        ));
+                    }
+                    if request.text("kind").is_none() {
+                        return Err(rejection(
+                            400,
+                            "Bad Request",
+                            "Campo 'kind' obbligatorio per l'endpoint event (AUT-014)",
+                        ));
+                    }
+                }
+                _ => {}
+            }
         }
     }
     Ok(request)
@@ -470,45 +676,67 @@ async fn handle_connection(mut stream: TcpStream, app: AppHandle) -> Result<(), 
         }
     };
 
-    let request_id = generate_request_id();
-    let (tx, rx) = oneshot::channel::<serde_json::Value>();
-    PENDING_REQUESTS.lock().insert(request_id.clone(), tx);
+    match request.target {
+        BridgeRouteTarget::Corsia(route) => {
+            let request_id = generate_request_id();
+            let (tx, rx) = oneshot::channel::<serde_json::Value>();
+            PENDING_REQUESTS.lock().insert(request_id.clone(), tx);
 
-    let route = request.route;
-    let lane_id = request.text("corsia");
-    let message = request.text("messaggio").unwrap_or_default();
-    let event_payload = LaneBridgeRequestEvent {
-        request_id: request_id.clone(),
-        route: route.as_str().to_string(),
-        owner_kind: request.owner.owner_kind,
-        owner_id: request.owner.owner_id,
-        project_id: request.owner.project_id,
-        caller_lane_id: request.owner.lane_id,
-        cwd: request.owner.cwd,
-        lane_id,
-        message,
-        body: serde_json::Value::Object(request.body),
-    };
-    if let Err(error) = app.emit("lane-bridge://request", &event_payload) {
-        PENDING_REQUESTS.lock().remove(&request_id);
-        let body = serde_json::json!({ "ok": false, "text": format!("Studio non ha ricevuto la richiesta: {error}") });
-        return send_response(&mut stream, 500, "Internal Server Error", &body).await;
-    }
+            let lane_id = request.text("corsia");
+            let message = request.text("messaggio").unwrap_or_default();
+            let event_payload = LaneBridgeRequestEvent {
+                request_id: request_id.clone(),
+                route: route.as_str().to_string(),
+                owner_kind: request.owner.owner_kind,
+                owner_id: request.owner.owner_id,
+                project_id: request.owner.project_id,
+                caller_lane_id: request.owner.lane_id,
+                cwd: request.owner.cwd,
+                lane_id,
+                message,
+                body: serde_json::Value::Object(request.body),
+            };
+            if let Err(error) = app.emit("lane-bridge://request", &event_payload) {
+                PENDING_REQUESTS.lock().remove(&request_id);
+                let body = serde_json::json!({ "ok": false, "text": format!("Studio non ha ricevuto la richiesta: {error}") });
+                return send_response(&mut stream, 500, "Internal Server Error", &body).await;
+            }
 
-    // Il frontend risponde sempre con `lane_bridge_respond`; il timeout copre
-    // solo una finestra ricaricata o bloccata (o, per `proponi`, un utente assente).
-    let outcome = tokio::time::timeout(route.response_timeout(), rx).await;
-    PENDING_REQUESTS.lock().remove(&request_id);
-    match outcome {
-        Ok(Ok(value)) => send_response(&mut stream, 200, "OK", &value).await,
-        Ok(Err(_)) => {
-            let body = serde_json::json!({ "ok": false, "text": "Studio ha chiuso la richiesta senza esito" });
-            send_response(&mut stream, 500, "Internal Server Error", &body).await
+            // Il frontend risponde sempre con `lane_bridge_respond`; il timeout copre
+            // solo una finestra ricaricata o bloccata (o, per `proponi`, un utente assente).
+            let outcome = tokio::time::timeout(route.response_timeout(), rx).await;
+            PENDING_REQUESTS.lock().remove(&request_id);
+            match outcome {
+                Ok(Ok(value)) => send_response(&mut stream, 200, "OK", &value).await,
+                Ok(Err(_)) => {
+                    let body = serde_json::json!({ "ok": false, "text": "Studio ha chiuso la richiesta senza esito" });
+                    send_response(&mut stream, 500, "Internal Server Error", &body).await
+                }
+                Err(_) => {
+                    let body =
+                        serde_json::json!({ "ok": false, "text": "Studio non ha risposto in tempo" });
+                    send_response(&mut stream, 504, "Gateway Timeout", &body).await
+                }
+            }
         }
-        Err(_) => {
-            let body =
-                serde_json::json!({ "ok": false, "text": "Studio non ha risposto in tempo" });
-            send_response(&mut stream, 504, "Gateway Timeout", &body).await
+        BridgeRouteTarget::Automation(route) => {
+            let action = route.as_str();
+            let body_val = serde_json::Value::Object(request.body);
+            match crate::automations::agent_request(&request.owner, action, body_val) {
+                Ok(result_value) => {
+                    send_response(&mut stream, 200, "OK", &result_value).await
+                }
+                Err(err_msg) => {
+                    let err_body = serde_json::json!({
+                        "ok": false,
+                        "text": err_msg,
+                        "details": {
+                            "action": action
+                        }
+                    });
+                    send_response(&mut stream, 400, "Bad Request", &err_body).await
+                }
+            }
         }
     }
 }

@@ -552,6 +552,19 @@ function headsUpPhrases(): HeadsUpPhrases {
 	};
 }
 
+export interface AutomationSessionOptions {
+	id?: string;
+	executionId?: string;
+	runId?: string;
+	readOnly?: boolean;
+	projectPaths?: string[];
+	allowedRoots?: string[];
+	maxCostUsd?: number | null;
+	preventPayg?: boolean;
+	origin?: string;
+	model?: string;
+}
+
 export interface AgentSessionConfig {
 	cwd: string;
 	scope?: 'lane' | 'main';
@@ -560,6 +573,7 @@ export interface AgentSessionConfig {
 	observedRevisionId?: string | null;
 	lab?: { prototypeId: string; projectPath: string | null };
 	client?: OmpRpcClient;
+	automation?: AutomationSessionOptions;
 }
 
 export class AgentSession {
@@ -581,6 +595,28 @@ export class AgentSession {
 	readonly projectKey: string;
 	observedRevisionId = $state<string | null>(null);
 
+	readonly automationConfig?: AutomationSessionOptions;
+	private sessionEventListeners = new Set<(event: AgentSessionEvent) => void>();
+
+	subscribeSessionEvent(listener: (event: AgentSessionEvent) => void): () => void {
+		this.sessionEventListeners.add(listener);
+		return () => this.sessionEventListeners.delete(listener);
+	}
+
+	get blockingQuestionText(): string | null {
+		return this.pendingUi ? askQuestionText(this.pendingUi) : null;
+	}
+
+	get lastAssistantText(): string | null {
+		for (let index = this.entries.length - 1; index >= 0; index--) {
+			const entry = this.entries[index];
+			if (entry.kind === 'assistant') {
+				const text = assistantEntryText(entry);
+				if (text && text.trim()) return text;
+			}
+		}
+		return null;
+	}
 	private composerInsertHandlers = new Set<(text: string) => void>();
 
 	/** Compositori montati che sanno rimettersi in bozza l'input ritirato dalla coda. */
@@ -1056,6 +1092,7 @@ export class AgentSession {
 		this.projectKey = config.projectKey ?? config.cwd;
 		this.observedRevisionId = config.observedRevisionId ?? null;
 		this.unsubscribeEvent = this.client.onEvent((event) => this.reduce(event));
+		this.automationConfig = config.automation;
 	}
 
 	get visibleEntries(): TranscriptEntry[] {
@@ -1295,7 +1332,13 @@ export class AgentSession {
 						laneId: this.laneId ?? null,
 						projectId: this.projectKey ?? null,
 						continueLast,
-						model: modelOverride
+						model: modelOverride ?? this.automationConfig?.model ?? null,
+						automationOrigin: this.automationConfig?.origin ?? (this.automationConfig ? 'automation' : null),
+						readOnly: this.automationConfig?.readOnly,
+						allowedRoots: this.automationConfig?.allowedRoots ?? this.automationConfig?.projectPaths,
+						maxCostUsd: this.automationConfig?.maxCostUsd,
+						preventPayg: this.automationConfig?.preventPayg,
+						executionId: this.automationConfig?.executionId ?? null
 					});
 				}
 			} catch (error) {
@@ -2349,6 +2392,13 @@ export class AgentSession {
 		}
 
 		this.applyRunActivity(reduceRunActivity(this.runActivity, event, Date.now()));
+		for (const listener of this.sessionEventListeners) {
+			try {
+				listener(event);
+			} catch {
+				// non interrompere il riduttore principale
+			}
+		}
 
 		switch (event.type) {
 			case 'ready':
@@ -4113,28 +4163,36 @@ export class AgentSession {
 		}
 	}
 
-	async submitAskAnswers(answers: AskDialogAnswer[]) {
+	async submitAskAnswers(answers: AskDialogAnswer[]): Promise<void> {
 		if (answers.length === 0) {
 			await this.cancelPendingUi();
 			return;
 		}
 		const pending = this.pendingUi;
 		if (!pending) return;
-		await this.respond(pending, { answers });
+		const ok = await this.respond(pending, { answers });
+		if (!ok) {
+			throw new Error('Impossibile inviare la risposta: risorsa non ammessa');
+		}
 	}
 
-	async answerSelect(value: string) {
+	async answerSelect(value: string): Promise<void> {
 		const pending = this.pendingUi;
 		if (!pending) return;
-		await this.respond(pending, { value });
+		const ok = await this.respond(pending, { value });
+		if (!ok) {
+			throw new Error('Impossibile inviare la risposta: risorsa non ammessa');
+		}
 	}
 
-	async answerConfirm(confirmed: boolean) {
+	async answerConfirm(confirmed: boolean): Promise<void> {
 		const pending = this.pendingUi;
 		if (!pending) return;
-		await this.respond(pending, { confirmed });
+		const ok = await this.respond(pending, { confirmed });
+		if (!ok) {
+			throw new Error('Impossibile inviare la risposta: risorsa non ammessa');
+		}
 	}
-
 	async cancelPendingUi(timedOut = false): Promise<boolean> {
 		const pending = this.pendingUi;
 		if (!pending) return true;
@@ -4187,20 +4245,31 @@ export class AgentSession {
 
 		const normalized = normalizePromptAnswer(answer);
 		if ((normalized.action === 'wizard' || normalized.action === 'ask') && normalized.answers) {
-			await this.submitAskAnswers(normalized.answers);
-			return true;
+			try {
+				await this.submitAskAnswers(normalized.answers);
+				return true;
+			} catch {
+				return false;
+			}
 		}
 		if (normalized.action === 'confirm' && typeof normalized.confirmed === 'boolean') {
-			await this.answerConfirm(normalized.confirmed);
-			return true;
+			try {
+				await this.answerConfirm(normalized.confirmed);
+				return true;
+			} catch {
+				return false;
+			}
 		}
 		if (normalized.action === 'cancel') {
-			await this.cancelPendingUi();
-			return true;
+			return await this.cancelPendingUi();
 		}
 		if (typeof normalized.value === 'string') {
-			await this.answerSelect(normalized.value);
-			return true;
+			try {
+				await this.answerSelect(normalized.value);
+				return true;
+			} catch {
+				return false;
+			}
 		}
 		return false;
 	}
@@ -4260,7 +4329,7 @@ export class AgentSession {
 	 */
 	private titleSessionFromFirstPrompt(message: string): void {
 		const sessionId = this.sessionId;
-		if (!sessionId || this.sessionName || this.labConfig || !settingsStore.backgroundJobs.enabled || !settingsStore.backgroundJobs.jobs.sessionTitles.enabled) return;
+		if (!sessionId || this.sessionName || this.labConfig || this.automationConfig || !settingsStore.backgroundJobs.enabled || !settingsStore.backgroundJobs.jobs.sessionTitles.enabled) return;
 		void generateSessionTitle(sessionId, message).then(async (title) => {
 			// Durante la chiamata l'utente puo' aver cambiato sessione o usato /name.
 			if (!title || this.sessionId !== sessionId || this.sessionName) return;
@@ -4272,6 +4341,21 @@ export class AgentSession {
 			}
 			window.dispatchEvent(new CustomEvent('studio-sessions-refresh', { detail: { projectPath: this.cwd } }));
 		});
+	}
+
+	/**
+	 * Imposta manualmente il nome della sessione tramite wire OMP (`set_session_name`).
+	 * Utilizzato per titoli stabili e per le automazioni (AUT-094).
+	 */
+	async setSessionName(name: string): Promise<void> {
+		this.sessionName = name;
+		if (this.client.isOpen) {
+			try {
+				await this.client.send({ type: 'set_session_name', name });
+			} catch (err) {
+				console.warn('Titolo sessione non consegnato via RPC:', err);
+			}
+		}
 	}
 
 	/** Chip della coda di omp: prima gli steer, poi i follow-up. */

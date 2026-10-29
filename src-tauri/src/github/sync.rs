@@ -552,6 +552,15 @@ pub async fn git_sync_repo(project_path: String, action: String) -> Result<Strin
         }
 
         let act = action.trim().to_lowercase();
+        if act != "fetch"
+            && act != "fetch-background"
+            && crate::automations::is_project_locked(&project_path, None)
+        {
+            return Err(format!(
+                "Operazione git sync non consentita: il progetto '{}' e' occupato da un'automazione attiva (AUT-042)",
+                project_path
+            ));
+        }
         match act.as_str() {
             "fetch" => {
                 run_git_in(path, &["fetch", "--prune"])?;

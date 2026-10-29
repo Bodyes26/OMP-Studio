@@ -79,6 +79,8 @@
 	import { invoke } from '@tauri-apps/api/core';
 	import { gitDiffStore, hasGitChanges, notifyGitStatusRefresh } from '#lib/stores/gitDiff.svelte.ts';
 	import { revealItemInDir } from '@tauri-apps/plugin-opener';
+	import { automationsStore } from '#lib/automations/store.svelte.ts';
+	import IconAutomation from './automations/IconAutomation.svelte';
 
 	interface Props {
 		project: Project;
@@ -1071,6 +1073,16 @@
 				</button>
 				<button type="button" class="row" onclick={() => void openExternal('editor')}>
 					<IconEditor /> <span class="row-label">{m.project_popover_open_editor()}</span>
+				</button>
+				<button
+					type="button"
+					class="row"
+					onclick={() => {
+						onClose();
+						automationsStore.open(project.canonicalProjectPath ?? undefined);
+					}}
+				>
+					<IconAutomation size={14} /> <span class="row-label">Automazioni</span>
 				</button>
 			</section>
 

@@ -35,7 +35,19 @@
 	import BrowserViewer from '#lib/components/BrowserViewer.svelte';
 	import StudioUpdateModal from '#lib/components/StudioUpdateModal.svelte';
 	import SettingsModal from '#lib/components/settings/SettingsModal.svelte';
-	import BackgroundJobsIndicator from '#lib/components/BackgroundJobsIndicator.svelte';
+	import AutomationIndicator from '#lib/components/automations/AutomationIndicator.svelte';
+	import AutomationsView from '#lib/components/automations/AutomationsView.svelte';
+	import { automationsStore } from '#lib/automations/store.svelte.ts';
+	import { presenceStore } from '#lib/automations/presence.svelte.ts';
+	import PresenceDialogs from '#lib/components/automations/PresenceDialogs.svelte';
+	import { startAutomationHost, notifyAutomationAgentEvent } from '#lib/automations/host.svelte.ts';
+	import { loadAutomationSession } from '#lib/automations/runtime.svelte.ts';
+	import { getAutomationAssistantActiveCount } from '#lib/automations/assistant.svelte.ts';
+	import { occurrenceNeedsAttention } from '#lib/automations/activity.ts';
+	import { getDirtyEditorPaths } from '#lib/editorActivity.svelte.ts';
+	import { t as automationText, getLocale as automationLocale } from '#lib/automations/i18n.ts';
+	import type { AutomationContext, AutomationProjectRequest } from '#lib/automations/types.ts';
+	import { pathKey } from '#lib/utils/paths.ts';
 	import CloseConfirmModal, { type ProjectCloseTarget } from '#lib/components/CloseConfirmModal.svelte';
 	import { getCurrentWindow } from '@tauri-apps/api/window';
 	import QueueDrawer from '#lib/components/QueueDrawer.svelte';
@@ -91,6 +103,7 @@
 	import { laneBranchDeleteArgs } from '#lib/lanes/laneCleanup.ts';
 	import {
 		buildConcurrencyWarning,
+		CONCURRENCY_SOFT_CAP,
 		decideAutoDispatch,
 		decideQueueRoute,
 		resolveQueueRoot,
@@ -134,6 +147,156 @@
 	import { startFocusTracer } from '#lib/focusTracer.ts';
 	import { registerSnapshotProvider } from '#lib/diagnostics/studioLog.ts';
 	import { markSwitch } from '#lib/switchDissolve.ts';
+
+	let automationSessionId = $state<string | null>(null);
+	let automationSession = $state<AgentSession | null>(null);
+	let automationSessionLoading = $state(false);
+	let automationSessionError = $state<string | null>(null);
+	let pendingAutomationClose = $state<{ id: string; name: string; path: string } | null>(null);
+	let closingAutomationProject = $state(false);
+	const automationWorkspaceOpen = $derived(automationsStore.opened || automationSessionId !== null);
+	const viewedAutomationExecution = $derived(
+		automationsStore.snapshot?.runs.flatMap((run) => run.executions).find((execution) => execution.sessionId === automationSessionId)
+	);
+	const automationSessionReadOnly = $derived(
+		viewedAutomationExecution?.state !== 'running' && viewedAutomationExecution?.state !== 'needsInput'
+	);
+
+	function closeAutomations() {
+		automationSessionId = null;
+		automationSession = null;
+		automationSessionError = null;
+		automationsStore.close();
+	}
+
+	function openAutomations(runId?: string) {
+		automationSessionId = null;
+		automationSession = null;
+		automationsStore.open();
+		if (runId) automationsStore.selectedRunId = runId;
+	}
+
+	async function openAutomationSession(sessionId: string) {
+		const execution = automationsStore.snapshot?.runs.flatMap((run) => run.executions).find((item) => item.sessionId === sessionId);
+		automationSessionId = sessionId;
+		automationSession = null;
+		automationSessionError = null;
+		automationSessionLoading = true;
+		automationsStore.close();
+		try {
+			const loaded = execution ? await loadAutomationSession(execution.id) : undefined;
+			if (automationSessionId !== sessionId) return;
+			automationSession = loaded ?? null;
+			if (!loaded) automationSessionError = automationText('host_session_unavailable');
+		} catch (error) {
+			if (automationSessionId === sessionId) automationSessionError = String(error);
+		} finally {
+			if (automationSessionId === sessionId) automationSessionLoading = false;
+		}
+	}
+
+	function buildAutomationContext(): AutomationContext {
+		const busyPaths = new Set<string>();
+		let interactiveAgentCount = getAutomationAssistantActiveCount();
+		for (const dirtyPath of getDirtyEditorPaths()) busyPaths.add(dirtyPath);
+		for (const project of projectStore.projects) {
+			for (const lane of laneOrchestrator.getMountedLanes(project)) {
+				const gate = automationGate(project.id, lane.laneId, false);
+				if (!gate.ready && gate.block !== 'no-session') {
+					if (project.canonicalProjectPath) busyPaths.add(project.canonicalProjectPath);
+					if (lane.workspacePath) busyPaths.add(lane.workspacePath);
+				}
+				const session = registeredSessionFor(project, lane.laneId);
+				if (session
+					? session.isStreaming || session.automationSnapshot.runActive || session.automationSnapshot.awaitingRun || session.backgroundPending
+					: terminalBusy[runtimeKey(project, lane.laneId)] || laneOrchestrator.laneAgentState(project, lane.laneId) === 'working') {
+					interactiveAgentCount++;
+				}
+			}
+		}
+		return {
+			projects: projectStore.registeredProjectMetadata.map((metadata) => ({
+				id: metadata.id ?? pathKey(metadata.path),
+				path: metadata.path,
+				name: metadata.label?.trim() || metadata.name,
+				open: projectStore.projects.some((project) => project.canonicalProjectPath && pathKey(project.canonicalProjectPath) === pathKey(metadata.path)),
+				workspacePaths: projectStore.projects
+					.filter((project) => project.canonicalProjectPath && pathKey(project.canonicalProjectPath) === pathKey(metadata.path))
+					.flatMap((project) => laneOrchestrator.getMountedLanes(project).flatMap((lane) => lane.workspacePath ? [lane.workspacePath] : []))
+			})),
+			busyPaths: [...busyPaths],
+			interactiveAgentCount,
+			maxAgentCount: CONCURRENCY_SOFT_CAP,
+			interactiveWaiting: laneDispatchPrompt !== null
+		};
+	}
+
+	async function handleAutomationProjectRequest(request: AutomationProjectRequest) {
+		if (request.operation === 'open') {
+			const active = projectStore.activeId;
+			if (!projectStore.openProject(request.path)) throw new Error(automationText('host_session_unavailable'));
+			if (active) projectStore.activeId = active;
+			await projectStore.flushSave();
+			return;
+		}
+		const project = projectStore.projects.find((item) => item.canonicalProjectPath && pathKey(item.canonicalProjectPath) === pathKey(request.path));
+		if (!project) return;
+		const context = buildAutomationContext();
+		if (context.busyPaths.some((path) => pathKey(path) === pathKey(request.path))
+			|| automationsStore.projectIsReserved(request.path)
+			|| taskStore.pendingCountFor(request.path) > 0) {
+			throw new Error(automationText('host_locked_detail'));
+		}
+		projectStore.closeProject(project.id);
+		await projectStore.flushSave();
+	}
+
+	async function finishAutomationProjectClose(stop: boolean) {
+		const target = pendingAutomationClose;
+		if (!target || closingAutomationProject) return;
+		closingAutomationProject = true;
+		try {
+			if (stop) {
+				await Promise.all(automationsStore.activeRunsFor(target.path).map((run) => automationsStore.cancel(run.id)));
+			}
+			pendingAutomationClose = null;
+			handleRequestCloseProject(target.id, true);
+		} catch (error) {
+			automationsStore.error = String(error);
+		} finally {
+			closingAutomationProject = false;
+		}
+	}
+
+	$effect(() => {
+		if (automationsStore.opened) {
+			untrack(() => {
+				automationSessionId = null;
+				automationSession = null;
+			});
+		}
+	});
+
+	const automationContext = $derived.by(() => projectStore.ready ? buildAutomationContext() : null);
+	let presenceActivityDigest = '';
+
+	$effect(() => {
+		const locale = automationLocale();
+		if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) void presenceStore.setLocale(locale);
+	});
+
+	$effect(() => {
+		const snapshot = automationsStore.snapshot;
+		if (!snapshot) return;
+		const attention = snapshot.runs.some(occurrenceNeedsAttention);
+		const active = snapshot.runs.filter((run) => run.executions.some((execution) =>
+			execution.state === 'running' || execution.state === 'needsInput'
+		)).map((run) => run.id).join(',');
+		const digest = `${attention}:${active}:${automationContext?.interactiveAgentCount ?? 0}:${backgroundJobs.running?.id ?? ''}`;
+		if (digest === presenceActivityDigest) return;
+		presenceActivityDigest = digest;
+		void presenceStore.setAttention(attention);
+	});
 
 	let leftSection = $state<'files' | 'git' | 'agent'>('files');
 
@@ -447,6 +610,38 @@
 			if (!owner?.canonicalProjectPath) return;
 			void taskStore.restoreDroppedTask(owner.canonicalProjectPath, session.sessionId);
 		};
+		let ran = false;
+		let quotaBlocked = false;
+		let failed = false;
+		let observationQueued = false;
+		session.subscribeSessionEvent((event) => {
+			if (session.scope !== 'lane' || !session.cwd) return;
+			const root = projectStore.projects.find((project) => project.id === session.projectKey)?.canonicalProjectPath ?? session.cwd;
+			if (event.type === 'agent_start') {
+				ran = true;
+				failed = false;
+			}
+			if (event.type === 'studio_error') {
+				failed = true;
+				void notifyAutomationAgentEvent('agentError', root, event.error);
+			}
+			if (!observationQueued) {
+				observationQueued = true;
+				queueMicrotask(() => {
+					observationQueued = false;
+					const blocked = session.blockedQuotaState !== null;
+					if (blocked && !quotaBlocked) void notifyAutomationAgentEvent('agentQuota', root);
+					quotaBlocked = blocked;
+				});
+			}
+			if (event.type === 'session_settled' && ran) {
+				queueMicrotask(() => {
+					if (session.pendingUi || session.isStreaming || session.backgroundPending) return;
+					if (!failed && !session.blockedQuotaState) void notifyAutomationAgentEvent('agentFinished', root);
+					ran = false;
+				});
+			}
+		});
 		return session;
 	});
 	const terminalMeta = laneOrchestrator.terminalMeta;
@@ -1278,7 +1473,11 @@
 	 * conferma il task non torna piu' in coda: il suo posto e' la sessione.
 	 */
 	function handleTerminalState(project: Project, state: AgentState, laneId = project.lane.laneId) {
+		const previous = laneOrchestrator.laneAgentState(project, laneId);
 		laneOrchestrator.handleTerminalState(project, laneId, state);
+		if (state === 'finished' && previous === 'working') {
+			void notifyAutomationAgentEvent('agentFinished', project.canonicalProjectPath ?? project.lane.workspacePath ?? undefined);
+		}
 	}
 
 	/**
@@ -1289,9 +1488,16 @@
 	 * Il cancello e' per corsia: la coda puo' partire su `Principale` mentre
 	 * una corsia secondaria e' al lavoro, e viceversa.
 	 */
-	function automationGate(projectId: string, targetLaneId?: string): AutomationGate {
+	function automationGate(projectId: string, targetLaneId?: string, includeReservation = true): AutomationGate {
 		const project = projectStore.projects.find((candidate) => candidate.id === projectId);
 		if (!project) return resolveAutomationGate({ surface: 'terminal', busy: false, inputPending: false, agentState: 'unknown' });
+		if (includeReservation && project.canonicalProjectPath && automationsStore.projectIsReserved(project.canonicalProjectPath)) {
+			return {
+				ready: false, autoDispatchReady: false, block: 'busy',
+				label: automationText('host_locked_label'), detail: automationText('host_locked_detail'),
+				hint: automationText('host_locked_hint'), needsAnswer: false, note: null
+			};
+		}
 		const laneId = targetLaneId ?? project.lane.laneId;
 		const isActiveLane = project.lane.laneId === laneId;
 		const lane = isActiveLane ? project.lane : laneOrchestrator.laneRecord(project, laneId);
@@ -1427,6 +1633,9 @@
 		const task = taskStore.taskById(taskId);
 		if (!project?.canonicalProjectPath || !task) {
 			return { kind: 'failed', message: 'Progetto o task non trovato' };
+		}
+		if (automationsStore.projectIsReserved(project.canonicalProjectPath)) {
+			return { kind: 'failed', message: automationText('host_locked_detail') };
 		}
 
 		// Voce di ripresa (Gate R35): torna nella sua sessione.
@@ -2637,9 +2846,15 @@
 		await Promise.allSettled([projectStore.flushSave(), laneStore.flush()]);
 	}
 
-	function handleRequestCloseProject(projectId: string) {
+	function handleRequestCloseProject(projectId: string, automationReviewed = false) {
 		const project = projectStore.projects.find((p) => p.id === projectId);
 		if (!project) return;
+		if (!automationReviewed && project.canonicalProjectPath && automationsStore.activeRunsFor(project.canonicalProjectPath).length > 0) {
+			pendingAutomationClose = {
+				id: project.id, name: project.label?.trim() || project.name, path: project.canonicalProjectPath
+			};
+			return;
+		}
 		// Un task in spedizione non e' ancora una sessione: conta come lavoro
 		// in coda, altrimenti la chiusura lo porta via senza chiedere nulla.
 		const queuedCount = project.canonicalProjectPath
@@ -2702,13 +2917,10 @@
 		let unlistenClose: (() => void) | undefined;
 		if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
 			const appWindow = getCurrentWindow();
-			// Tauri annulla sempre la chiusura nativa quando la webview ha un
-			// ascoltatore di `close-requested`: da qui in poi distruggere la
-			// finestra spetta al wrapper JS, che lo fa appena l'handler
-			// termina senza `preventDefault()`. Quindi l'unica cosa da fare e'
-			// attendere il salvataggio delle code.
-			void appWindow.onCloseRequested(async () => {
-				await persistWorkBeforeQuit();
+			// La chiusura passa dal criterio nativo; la webview non deve distruggersi dopo hide().
+			void appWindow.onCloseRequested(async (event) => {
+				event.preventDefault();
+				await presenceStore.handleCloseRequest();
 			}).then((unlisten) => {
 				unlistenClose = unlisten;
 			});
@@ -2966,6 +3178,18 @@
 
 	onMount(() => {
 		perfMark('boot', 'app start');
+		let disposed = false;
+		let stopHost: (() => void) | undefined;
+		presenceStore.setBeforeExit(persistWorkBeforeQuit);
+		void presenceStore.init();
+		void startAutomationHost({
+			getContext: () => automationContext,
+			handleProjectRequest: handleAutomationProjectRequest,
+			onOpenRun: openAutomations
+		}).then((stop) => {
+			if (disposed) stop();
+			else stopHost = stop;
+		}).catch((error) => { automationsStore.error = String(error); });
 		// Non lanciamo ompVersionStore.refresh() all'avvio: checkSetupContract()
 		// interroga `setup_status` che popola gia' la versione senza spawnare
 		// un processo `omp --version` separato a vuoto.
@@ -2981,6 +3205,12 @@
 				catalog: modelSettingsStore.catalog
 			})
 		});
+		return () => {
+			disposed = true;
+			stopHost?.();
+			presenceStore.destroy();
+			automationsStore.destroy();
+		};
 	});
 
 	onDestroy(() => {
@@ -3185,13 +3415,18 @@
 	});
 
 	const gridColumns = $derived.by(() => {
+		if (automationWorkspaceOpen) {
+			return projectStore.projects.length === 0
+				? '0px 0px minmax(0, 1fr) 0px 0px'
+				: `0px 0px minmax(560px, 1fr) ${SPLIT}px minmax(320px, 0.8fr)`;
+		}
 		const splitW = isSidebarCollapsed ? 0 : SPLIT;
 		if (effectiveLayout === 'vertical') {
 			return `${leftWidth}px ${splitW}px minmax(0, 1fr)`;
 		}
 		return `${leftWidth}px ${splitW}px ${panelBounds.center}px ${SPLIT}px minmax(0, 1fr)`;
 	});
-	const gridRows = $derived(effectiveLayout === 'vertical'
+	const gridRows = $derived(!automationWorkspaceOpen && effectiveLayout === 'vertical'
 		? `${panelBounds.top}px ${SPLIT}px minmax(0, 1fr)` : '1fr');
 
 	function savePanelGeometry(value: PanelGeometry) {
@@ -3456,6 +3691,18 @@
 	<UsagePopover open={usageOpen} anchor={usageAnchor} onClose={() => usageOpen = false} {guiHosts} />
 	<ProjectPicker open={pickerOpen} onClose={() => pickerOpen = false} />
 	<SettingsModal />
+	<PresenceDialogs />
+	<ConfirmDialog
+		open={pendingAutomationClose !== null}
+		title={automationText('host_close_title')}
+		message={automationText('host_close_body', { project: pendingAutomationClose?.name ?? '' })}
+		confirmLabel={automationText('host_close_keep')}
+		secondaryLabel={automationText('host_close_stop')}
+		confirmDisabled={closingAutomationProject}
+		onConfirm={() => void finishAutomationProjectClose(false)}
+		onSecondary={() => void finishAutomationProjectClose(true)}
+		onCancel={() => { if (!closingAutomationProject) pendingAutomationClose = null; }}
+	/>
 	<CloseConfirmModal
 		open={closeConfirmModalState.open}
 		project={closeConfirmModalState.project}
@@ -3548,7 +3795,7 @@
 		     lo sfondo del tema e nient'altro, altrimenti si vede la schermata
 		     «nessun progetto» per tutta la lettura e poi sparire. -->
 		<main class="empty-workspace" aria-busy="true"></main>
-	{:else if projectStore.projects.length === 0}
+	{:else if projectStore.projects.length === 0 && !automationWorkspaceOpen}
 		<main class="empty-workspace">
 			<EmptyState
 				variant="no-projects"
@@ -3579,8 +3826,10 @@
 		class="columns"
 		class:dragging
 		class:dragging-row={dragging && draggingWhich === 'center' && effectiveLayout === 'vertical'}
-		class:layout-vertical={effectiveLayout === 'vertical'}
-		class:sidebar-collapsed={isSidebarCollapsed}
+		class:layout-vertical={!automationWorkspaceOpen && effectiveLayout === 'vertical'}
+		class:sidebar-collapsed={isSidebarCollapsed || automationWorkspaceOpen}
+		class:automation-workspace={automationWorkspaceOpen}
+		class:automation-no-projects={automationWorkspaceOpen && projectStore.projects.length === 0}
 		bind:this={columnsEl}
 		style:grid-template-columns={gridColumns}
 		style:grid-template-rows={gridRows}
@@ -3593,7 +3842,7 @@
 		<aside
 			class="col-left"
 			id="workspace-files-panel"
-			inert={isSidebarCollapsed}
+			inert={isSidebarCollapsed || automationWorkspaceOpen}
 			style:--sidebar-width="{leftWidth}px"
 		>
 			<div class="col-left-inner">
@@ -3691,7 +3940,7 @@
 		<section class="col-center" id="workspace-editor-panel">
 			<!-- Ogni vista porta la propria barra da 32 px al posto di questa (D7):
 			     resta solo nelle corsie Lab, per lo switch Anteprima/Editor. -->
-			{#if isLabLane}
+			{#if isLabLane && !automationWorkspaceOpen}
 				<div class="col-header lab-header">
 					<Segmented
 						mode="tablist"
@@ -3714,7 +3963,36 @@
 					role={isLabLane ? 'tabpanel' : undefined}
 					aria-labelledby={isLabLane ? 'lab-view-tab-editor' : undefined}
 				>
-				{#if projectStore.activeProject}
+				{#if automationsStore.opened}
+					<AutomationsView onClose={closeAutomations} onOpenSession={(id) => void openAutomationSession(id)} />
+				{:else if automationSessionId !== null}
+					<div class="automation-session">
+						<div class="automation-session-header">
+							<button type="button" class="ui-button ui-button-ghost" onclick={() => openAutomations()}>
+								{automationText('host_back')}
+							</button>
+						</div>
+						<div class="automation-session-content" aria-busy={automationSessionLoading}>
+							{#if automationSession}
+								<Chat
+									session={automationSession}
+									readOnly={automationSessionReadOnly}
+									onOpenFile={(path, line) => {
+										if (!automationSession) return;
+										const id = projectStore.openProject(automationSession.cwd);
+										if (id) {
+											closeAutomations();
+											handleTerminalOpenFile(id, path, line ?? null);
+										}
+									}}
+									onOpenImage={(data, mimeType) => (viewingImage = { data, mimeType })}
+								/>
+							{:else if automationSessionError}
+								<p class="automation-session-error" role="alert">{automationSessionError}</p>
+							{/if}
+						</div>
+					</div>
+				{:else if projectStore.activeProject}
 					{#if activeTaskEditor}
 						<TaskEditor
 							task={activeTaskEditor}
@@ -3751,6 +4029,7 @@
 								projectPath={projectStore.activeProject.lane.workspacePath ?? ''}
 								filePaths={projectStore.activeProject.lane.openFiles}
 								filePath={projectStore.activeProject.lane.activeFile}
+								readOnly={Boolean(projectStore.activeProject.canonicalProjectPath && automationsStore.projectIsReserved(projectStore.activeProject.canonicalProjectPath))}
 								openFileRequest={terminalOpenRequest?.projectId === projectStore.activeProject.id ? terminalOpenRequest : null}
 								editorDiffRequest={editorDiffRequest}
 								onDirtyFilesChange={(paths: string[]) => (activeDirtyFiles = paths)}
@@ -3772,7 +4051,7 @@
 					{#each mountedLanes as lane (lane.laneId)}
 						{#if lane.kind === 'lab' && lane.workspacePath && lane.labPrototypeId}
 							{@const isLaneActive = p.id === projectStore.activeId && p.lane.laneId === lane.laneId}
-							{@const visible = isLaneActive && labCenterView === 'preview'}
+							{@const visible = !automationWorkspaceOpen && isLaneActive && labCenterView === 'preview'}
 							<div
 								class="lab-preview-layer"
 								class:visible
@@ -3902,7 +4181,7 @@
 
 	<footer class="statusbar">
 		<div class="statusbar-left">
-			<BackgroundJobsIndicator />
+			<AutomationIndicator onOpenView={() => openAutomations()} onOpenSession={(id) => void openAutomationSession(id)} />
 		</div>
 		<div class="statusbar-right">
 			<Tooltip text={studioUpdaterStore.currentVersion ? m.page_statusbar_studio_version_title({ version: studioUpdaterStore.currentVersion }) : m.page_statusbar_studio_version_check()}>
@@ -4062,6 +4341,39 @@
 		flex: 1;
 		min-height: 0;
 		min-width: 0;
+	}
+
+	.columns.automation-workspace .col-left,
+	.columns.automation-workspace .splitter-left,
+	.columns.automation-no-projects .col-right,
+	.columns.automation-no-projects .splitter-center {
+		visibility: hidden;
+		pointer-events: none;
+	}
+
+	.automation-session {
+		display: flex;
+		flex-direction: column;
+		height: 100%;
+		min-height: 0;
+		min-width: 0;
+		background: var(--bg-sunken);
+	}
+	.automation-session-header {
+		display: flex;
+		align-items: center;
+		padding: var(--space-1) var(--space-2);
+		border-bottom: 1px solid var(--line);
+	}
+	.automation-session-content {
+		position: relative;
+		flex: 1;
+		min-height: 0;
+	}
+	.automation-session-error {
+		margin: var(--space-4);
+		color: var(--danger);
+		font-size: var(--text-body);
 	}
 
 	.columns:not(.dragging) {

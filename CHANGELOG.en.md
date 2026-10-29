@@ -12,6 +12,8 @@ released: items are closed into a version via `npm run release -- <version>`.
 ## [Unreleased]
 
 ### Added
+- New Automations feature: schedule and run AI prompts and script commands triggered by calendar, Git events, or file changes across single or multiple projects. Includes a five-step wizard, read-only AI-assisted creation, draft workflow, dedicated run transcripts, output history, and multi-account quota protection.
+- Native desktop presence: system tray (Windows) and menu bar (macOS) integration to keep runs going while the window is hidden, close behavior management, exit protection during active jobs, and optional launch on login.
 - Background jobs: a single queue in the main window generates task and session titles, maintains the history index, fetches projects from Git and checks for updates without opening their panels. "Settings → Background jobs" has the global switch, a toggle for each job, the model used by AI jobs and the quota floor below which subscription models stop.
 - A bottom-bar icon shows running and pending jobs; its popover lets you interrupt the current job, pause or resume each job, run it now or stop everything.
 - Lab and UI prototype previews show "Rendering preview…" while the new version loads, instead of a blank frame, and confirm with "Preview updated" once the update is ready.
@@ -21,6 +23,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 
 ### Changed
 - Session history uses a persistent local index and opens instantly even after a restart; titles of past sessions are generated without opening the history.
+- The bottom-bar indicator unifies personal automations and background title generation, displaying the highest-urgency state, active occurrences, and waiting runs; internal maintenance tasks (history index, Git fetch, update checks) continue invisibly in the background.
 - Automatic Git fetch covers every open project, not just the active one, and the Studio and omp update check repeats periodically. Toggles that used to live in other Settings sections are now under "Background jobs".
 - The background processes indicator moves to the left corner of the bottom bar, matching the borderless styling and typography of the Studio and omp version buttons.
 

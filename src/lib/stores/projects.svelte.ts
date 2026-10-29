@@ -284,6 +284,25 @@ class ProjectStore {
 		return this.metadata.get(pathKey(normalized));
 	}
 
+	/** Catalogo noto anche per le automazioni: chiudere una scheda non dimentica il progetto. */
+	get registeredProjectMetadata(): StoredProjectMetadata[] {
+		const known = new Map(this.metadata);
+		for (const project of this.projects) {
+			if (!project.canonicalProjectPath) continue;
+			const metadata = buildProjectMetadata({
+				id: project.id,
+				name: project.name,
+				label: project.label,
+				canonicalProjectPath: project.canonicalProjectPath,
+				hue: project.hue,
+				colorMode: project.colorMode,
+				lastOpened: project.lastOpened
+			});
+			if (metadata) known.set(pathKey(project.canonicalProjectPath), metadata);
+		}
+		return [...known.values()];
+	}
+
 	async flushSave(): Promise<void> {
 		await this.save.flush();
 	}

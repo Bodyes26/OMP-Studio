@@ -165,12 +165,15 @@ pub(crate) enum EphemeralOutcome {
 struct ActiveJobHandle {
     child: Arc<Mutex<std::process::Child>>,
     cancelled: Arc<AtomicBool>,
+    pid: u32,
+    #[cfg(target_os = "windows")]
+    job: Option<Arc<crate::process_tree::WindowsJob>>,
 }
 
 static ACTIVE_BACKGROUND_JOBS: LazyLock<Mutex<HashMap<String, ActiveJobHandle>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-/// Interrompe un job in background uccidendone il processo figlio se ancora in esecuzione.
+/// Interrompe un job in background abbattendo l'albero dei processi se ancora in esecuzione.
 pub(crate) fn cancel_background_job(job_id: &str) -> bool {
     let handle = {
         let mut map = ACTIVE_BACKGROUND_JOBS
@@ -180,14 +183,42 @@ pub(crate) fn cancel_background_job(job_id: &str) -> bool {
     };
     if let Some(handle) = handle {
         handle.cancelled.store(true, Ordering::SeqCst);
+        #[cfg(target_os = "windows")]
+        crate::process_tree::kill_process_tree(Some(handle.pid), handle.job.as_deref());
+        #[cfg(not(target_os = "windows"))]
+        crate::process_tree::kill_process_tree(Some(handle.pid));
         if let Ok(mut child) = handle.child.lock() {
             let _ = child.kill();
+            let _ = child.wait();
         }
         true
     } else {
         false
     }
 }
+
+/// Interrompe forzatamente tutti i job in background attivi (es. durante lo shutdown di Studio).
+/// Abbattimento completo dell'albero dei processi gestiti (Windows Job Object / taskkill / SIGKILL).
+pub fn cancel_all_background_jobs() {
+    let handles: Vec<ActiveJobHandle> = {
+        let mut map = ACTIVE_BACKGROUND_JOBS
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        map.drain().map(|(_, h)| h).collect()
+    };
+    for handle in handles {
+        handle.cancelled.store(true, Ordering::SeqCst);
+        #[cfg(target_os = "windows")]
+        crate::process_tree::kill_process_tree(Some(handle.pid), handle.job.as_deref());
+        #[cfg(not(target_os = "windows"))]
+        crate::process_tree::kill_process_tree(Some(handle.pid));
+        if let Ok(mut child) = handle.child.lock() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
 /// Tempo massimo concesso a una chiamata effimera prima della terminazione forzata.
 pub(crate) const EPHEMERAL_TIMEOUT: Duration = Duration::from_secs(90);
 
@@ -291,6 +322,9 @@ pub(crate) fn run_ephemeral_omp_cancellable(
     let mut child = cmd
         .spawn()
         .map_err(|e| format!("Avvio processo omp fallito: {}", e))?;
+    let pid = child.id();
+    #[cfg(target_os = "windows")]
+    let job = crate::process_tree::WindowsJob::create_for_process(pid).ok().map(Arc::new);
 
     // Le pipe si leggono su thread dedicati: riempiendosi bloccherebbero il child
     // prima ancora che possa terminare, e l'attesa non scadrebbe mai.
@@ -333,6 +367,9 @@ pub(crate) fn run_ephemeral_omp_cancellable(
             ActiveJobHandle {
                 child: Arc::clone(&child),
                 cancelled: Arc::clone(&cancelled),
+                pid,
+                #[cfg(target_os = "windows")]
+                job: job.clone(),
             },
         );
         Some(JobGuard(id))
@@ -345,6 +382,10 @@ pub(crate) fn run_ephemeral_omp_cancellable(
     let status = loop {
         if cancelled.load(Ordering::SeqCst) {
             was_cancelled = true;
+            #[cfg(target_os = "windows")]
+            crate::process_tree::kill_process_tree(Some(pid), job.as_deref());
+            #[cfg(not(target_os = "windows"))]
+            crate::process_tree::kill_process_tree(Some(pid));
             if let Ok(mut c) = child.lock() {
                 let _ = c.kill();
                 let _ = c.wait();

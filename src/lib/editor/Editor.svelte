@@ -32,6 +32,7 @@
 	import { invoke } from '@tauri-apps/api/core';
 	import { revealItemInDir } from '@tauri-apps/plugin-opener';
 	import { contextMenu, type ContextMenuEntry } from '#lib/contextMenu.svelte.ts';
+	import { registerEditorDirty } from './editorActivity.svelte.ts';
 	import {
 		IconChevronLeft,
 		IconChevronRight,
@@ -61,7 +62,8 @@
 		openFileRequest,
 		editorDiffRequest,
 		onPreviewRequest,
-		onDirtyFilesChange
+		onDirtyFilesChange,
+		readOnly = false
 	} = $props<{
 		projectPath: string;
 		filePaths: string[];
@@ -76,6 +78,7 @@
 		} | null;
 		onPreviewRequest?: (filePath: string) => void;
 		onDirtyFilesChange?: (paths: string[]) => void;
+		readOnly?: boolean;
 	}>();
 	function isSandboxPreviewable(path: string): boolean {
 		return ['html', 'htm', 'jsx', 'tsx'].includes(path.split('.').pop()?.toLowerCase() || '');
@@ -101,6 +104,7 @@
 	let diffContainer = $state<HTMLElement>();
 	let splitContainer = $state<HTMLElement>();
 	let dirtyFiles = $state<Record<string, boolean>>({});
+	let saveError = $state<string | null>(null);
 	let loadErrors = $state<Record<string, FileLoadError>>({});
 	let loadedKey: string | null = null;
 	let requestedKey: string | null = null;
@@ -274,12 +278,20 @@
 	function setDirty(key: string, value: boolean) {
 		if (dirtyFiles[key] === value) return;
 		dirtyFiles = { ...dirtyFiles, [key]: value };
+		const parts = key.split('\u0000');
+		if (parts.length === 2) {
+			registerEditorDirty(parts[0], parts[1], value);
+		}
 	}
 
 	function clearDirty(key: string) {
 		if (!(key in dirtyFiles)) return;
 		const { [key]: _, ...remaining } = dirtyFiles;
 		dirtyFiles = remaining;
+		const parts = key.split('\u0000');
+		if (parts.length === 2) {
+			registerEditorDirty(parts[0], parts[1], false);
+		}
 	}
 
 	function clearViewMode(key: string) {
@@ -541,6 +553,12 @@
 	});
 
 	$effect(() => {
+		if (editor) {
+			editor.updateOptions({ readOnly });
+		}
+	});
+
+	$effect(() => {
 		const host = container;
 		if (!host) return;
 
@@ -680,6 +698,7 @@
 	});
 
 	async function saveFileByPath(targetPath: string) {
+		if (readOnly) return;
 		if (!targetPath || !projectPath || isImageFile(targetPath) || isPdfFile(targetPath)) return;
 		const key = fileKey(projectPath, targetPath);
 		// Protezione assoluta: mai salvare file rifiutati (es. troppo grandi o binari)
@@ -709,8 +728,10 @@
 				);
 			}
 			onFileSaved?.();
+			saveError = null;
 		} catch (error) {
 			console.error('Save failed', error);
+			saveError = String(error);
 		}
 	}
 
@@ -1019,8 +1040,9 @@
 
 		const isMainEditor = ed === editor;
 		const isReadOnly = Boolean(
-			ed.getOption?.(monaco.editor.EditorOption.readOnly) ??
-			(ed as any).getRawOptions?.()?.readOnly
+			readOnly ||
+			(ed.getOption?.(monaco.editor.EditorOption.readOnly) ??
+			(ed as any).getRawOptions?.()?.readOnly)
 		);
 		const selection = ed.getSelection?.();
 		const hasSelection = selection ? !selection.isEmpty() : false;
@@ -1354,11 +1376,16 @@
 						>{m.editor_open_preview_btn()}</button>
 					</Tooltip>
 				{/if}
-				{#if isDirty && !isImage && !activeFileError}
-					<Tooltip text={m.ui_editor_salva_modifiche_ctrl_s_5f4d()} placement="bottom">
+				{#if readOnly}
+					<span class="readonly-badge" title="Progetto occupato da un'automazione attiva (AUT-042)">
+						{m.ui_editor_file_in_sola_lettura_63b0()}
+					</span>
+				{:else if isDirty && !isImage && !activeFileError}
+					<Tooltip text={saveError ?? m.ui_editor_salva_modifiche_ctrl_s_5f4d()} placement="bottom">
 						<button
 							type="button"
 							class="ui-button ui-button-primary"
+							class:save-failed={Boolean(saveError)}
 							onclick={() => void saveCurrentFile()}
 						>{m.project_popover_btn_save()}</button>
 					</Tooltip>
@@ -1635,6 +1662,19 @@
 	   punto (DESIGN.md: nessuna informazione affidata al solo colore). */
 	.tab-label.unsaved {
 		font-style: italic;
+	}
+
+	.readonly-badge {
+		font-size: var(--text-xs);
+		color: var(--text-muted);
+		padding: 2px 6px;
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius-sm);
+		user-select: none;
+	}
+
+	.save-failed {
+		border-color: var(--status-error);
 	}
 
 	/* Cella di larghezza fissa: il punto e la X vivono nello stesso posto,

@@ -12,6 +12,8 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 ## [Unreleased]
 
 ### Added
+- Nuova funzione Automazioni: pianifica ed esegui prompt AI e comandi script con trigger a calendario, eventi Git e modifiche ai file su progetti singoli o multipli. Include wizard a cinque passi, creazione assistita con AI in sola lettura, gestione bozze, esecuzioni con transcript dedicati, archivio delle uscite e quote protette multi-account.
+- Presenza desktop nativa: icona di sistema (system tray su Windows e menu bar su macOS) per continuare le esecuzioni con finestra nascosta, gestione della chiusura, protezione da uscite accidentali durante lavori in corso e avvio automatico al login opzionale.
 - Lavori in background: una sola coda nella finestra principale genera i titoli di task e sessioni, mantiene l'indice dello storico, aggiorna i progetti da Git e controlla gli aggiornamenti senza dover aprire le schede relative. In «Impostazioni → Lavori in background» trovi l'interruttore generale, l'attivazione di ogni lavoro, il modello da usare per i lavori AI e la soglia di quota sotto cui i modelli in abbonamento si fermano.
 - Nella barra inferiore un'icona mostra i lavori in corso e in attesa; dal popover puoi interrompere il lavoro corrente, mettere in pausa o riprendere ogni lavoro, avviarlo subito o fermare tutto.
 - Le anteprime del Laboratorio e dei prototipi UI mostrano «Rendering dell'anteprima…» mentre la nuova versione si carica, al posto del riquadro bianco, e confermano con «Anteprima aggiornata» quando l'aggiornamento è pronto.
@@ -21,6 +23,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ### Changed
 - Lo storico delle sessioni usa un indice locale persistente e si apre subito anche dopo il riavvio; i titoli delle sessioni passate vengono generati anche senza aprire lo storico.
+- L'indicatore della barra inferiore unifica le automazioni personali e la generazione titoli in background, mostrando lo stato di massima urgenza, le occorrenze in corso e quelle in attesa; le attività di manutenzione interna (indice, fetch da Git, verifica aggiornamenti) proseguono sempre in background in modo invisibile.
 - L'aggiornamento automatico da Git riguarda tutti i progetti aperti, non solo quello attivo, e il controllo degli aggiornamenti di Studio e omp si ripete periodicamente. Gli interruttori che prima stavano in altre sezioni delle Impostazioni sono ora in «Lavori in background».
 - L'indicatore dei processi in background si sposta all'angolo sinistro della barra inferiore con lo stesso stile e assenza di riquadro dei pulsanti di versione di Studio e omp.
 

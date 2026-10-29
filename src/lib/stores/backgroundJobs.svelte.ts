@@ -59,7 +59,10 @@ export interface UntitledSession {
 export const TASK_TITLES_GENERATING_EVENT = 'studio-task-titles-generating';
 export const TASK_TITLES_SYNC_REQUEST_EVENT = 'studio-task-titles-sync-request';
 
-const SETTLE_MS = 1500;
+function getTaskQuietDelayMs(): number {
+	const sec = settingsStore.backgroundJobs.taskTitleQuietSeconds ?? 2;
+	return Math.max(1, Math.min(60, sec)) * 1000;
+}
 const TICK_MS = 60_000;
 const SESSION_INDEX_MIN_INTERVAL_MS = 60_000;
 const GIT_FETCH_MIN_INTERVAL_MS = 5 * 60_000;
@@ -181,6 +184,10 @@ function wantsTaskTitle(taskId: string): boolean {
 	if (!settingsStore.backgroundJobs.enabled || !settingsStore.backgroundJobs.jobs.taskTitles.enabled) return false;
 	const task = taskStore.taskById(taskId);
 	if (!task || task.status !== 'queued' || !task.prompt.trim()) return false;
+	// AUT-093: preserva manuali - se il task ha già un titolo manuale (titleHash === 'manual' o !titleHash con title presente), non rigenerare
+	if (task.title && (!task.titleHash || task.titleHash === 'manual')) {
+		return false;
+	}
 	const hash = promptHash(task.prompt);
 	return (
 		freshGeneratedTitle(task) === null &&
@@ -229,7 +236,7 @@ export function requestTaskTitle(taskId: string): void {
 			taskTitlesQueue.push(taskId);
 			syncGeneratingState();
 			void drain();
-		}, SETTLE_MS)
+		}, getTaskQuietDelayMs())
 	);
 	syncGeneratingState();
 }
@@ -278,16 +285,59 @@ export function generateSessionTitle(sessionId: string, prompt: string): Promise
 	return requestSessionTitle(sessionId, prompt, { topPriority: true });
 }
 
-async function scanUntitledSessions(): Promise<void> {
-	if (windowLabel !== 'main') return;
-	if (!settingsStore.backgroundJobs.enabled || !settingsStore.backgroundJobs.jobs.sessionTitles.enabled) return;
+/**
+ * Rileva se una sessione è un'esecuzione di automazione già titolata con regola/data (AUT-094).
+ */
+export function isSessionAutomationTitled(entry: { sessionId: string; prompt?: string }): boolean {
+	const id = entry.sessionId.toLowerCase();
+	if (id.startsWith('auto-') || id.startsWith('automation-') || id.includes('_automation_')) {
+		return true;
+	}
+	const p = (entry.prompt || '').trim();
+	if (p.startsWith('[Automazione:') || p.startsWith('[Automation:') || p.startsWith('Automazione:')) {
+		return true;
+	}
+	return false;
+}
+
+/**
+ * Conteggio delle sessioni prive di titolo nella cronologia per anteprima backfill manuale (AUT-094).
+ */
+export async function getMissingSessionTitlesCount(): Promise<number> {
+	if (windowLabel !== 'main') return 0;
 	try {
-		// Finestra ampia: con un limite stretto le sessioni fallite in testa
-		// occuperebbero sempre gli stessi posti e le piu' vecchie non verrebbero mai titolate.
-		const untitled = await invoke<UntitledSession[]>('session_index_untitled', { limit: 200 });
-		if (!Array.isArray(untitled)) return;
+		const untitled = await invoke<UntitledSession[]>('session_index_untitled', { limit: 500 });
+		if (!Array.isArray(untitled)) return 0;
+		return untitled.filter((e) => e.sessionId && e.prompt?.trim() && !isSessionAutomationTitled(e)).length;
+	} catch {
+		return 0;
+	}
+}
+
+/**
+ * Anteprima del backfill manuale dei titoli mancanti con verifica cancello di quota.
+ */
+export async function previewSessionTitlesBackfill(): Promise<{
+	count: number;
+	quotaGate: QuotaGateResult;
+}> {
+	const count = await getMissingSessionTitlesCount();
+	const quotaGate = getQuotaGate('sessionTitles');
+	return { count, quotaGate };
+}
+
+/**
+ * Avvia il recupero manuale dei titoli mancanti nella cronologia (AUT-094).
+ * Nessun sweep automatico: l'utente avvia e controlla l'operazione.
+ */
+export async function startSessionTitlesBackfill(): Promise<{ queued: number }> {
+	if (windowLabel !== 'main') return { queued: 0 };
+	try {
+		const untitled = await invoke<UntitledSession[]>('session_index_untitled', { limit: 500 });
+		if (!Array.isArray(untitled)) return { queued: 0 };
+		let queued = 0;
 		for (const entry of untitled) {
-			if (!entry.sessionId || !entry.prompt?.trim()) continue;
+			if (!entry.sessionId || !entry.prompt?.trim() || isSessionAutomationTitled(entry)) continue;
 			const hash = promptHash(entry.prompt);
 			if (
 				failedSessionFor.get(entry.sessionId) === hash ||
@@ -303,11 +353,17 @@ async function scanUntitledSessions(): Promise<void> {
 				prompt: entry.prompt,
 				resolve: () => {}
 			});
+			queued++;
 		}
-		if (sessionTitlesQueue.length > 0) void drain();
+		if (queued > 0) void drain();
+		return { queued };
 	} catch {
-		// Comando nativo non disponibile o fallito: nessun blocco
+		return { queued: 0 };
 	}
+}
+
+async function scanUntitledSessions(): Promise<void> {
+	void startSessionTitlesBackfill();
 }
 
 // === Regole e trigger per gitFetch ===
@@ -385,34 +441,58 @@ function getQuotaGate(jobId: BackgroundJobId): QuotaGateResult {
 		return { paused: false, quota: null };
 	}
 	const cfg = modelConfigGetter?.();
+	const bg = settingsStore.backgroundJobs;
 	return evaluateQuotaGate({
-		modelOverride: settingsStore.backgroundJobs.jobs[jobId]?.model,
+		modelOverride: bg.jobs[jobId]?.model,
 		modelRoles: cfg?.modelRoles,
 		knownSelectors: cfg?.knownSelectors,
 		catalog: cfg?.catalog,
 		reports: quotaStore.reports,
-		quotaFloorPct: settingsStore.backgroundJobs.quotaFloorPct
+		quotaFloorPct: bg.quotaFloorPct ?? 30,
+		quotaShortPct: bg.quotaShortPct ?? bg.quotaFloorPct ?? 30,
+		quotaWeeklyPct: bg.quotaWeeklyPct ?? bg.quotaFloorPct ?? 30,
+		quotaOtherPct: bg.quotaOtherPct ?? bg.quotaFloorPct ?? 30,
+		quotaWindows: bg.quotaWindows
 	});
 }
 
 // === Esecutore dei singoli job ===
-async function executeTaskTitles(): Promise<void> {
-	const taskId = taskTitlesQueue.shift();
-	if (!taskId) return;
-	taskTitlesQueued.delete(taskId);
+async function executeTaskTitles(): Promise<boolean> {
+	const taskId = taskTitlesQueue[0];
+	if (!taskId) return true;
 
 	if (!wantsTaskTitle(taskId)) {
+		taskTitlesQueue.shift();
+		taskTitlesQueued.delete(taskId);
 		syncGeneratingState();
-		return;
+		return true;
 	}
 
 	const task = taskStore.taskById(taskId);
 	if (!task) {
+		taskTitlesQueue.shift();
+		taskTitlesQueued.delete(taskId);
 		syncGeneratingState();
-		return;
+		return true;
 	}
 	const prompt = task.prompt;
 	const hash = promptHash(prompt);
+
+	// AUT-041: acquisizione slot globale prima di dequeue e markrunning
+	const claimId = `task_title_${taskId}`;
+	let claimed = false;
+	try {
+		claimed = await invoke<boolean>('automations_title_claim', { id: claimId });
+	} catch {
+		claimed = true;
+	}
+	if (!claimed) {
+		// Cap generale o precedenza interattiva / automazione personale: resta in attesa senza markrunning o failedFor
+		return false;
+	}
+
+	taskTitlesQueue.shift();
+	taskTitlesQueued.delete(taskId);
 
 	runningTask = { taskId, hash };
 	runningJobId = 'taskTitles';
@@ -447,6 +527,11 @@ async function executeTaskTitles(): Promise<void> {
 	} finally {
 		currentJobId = null;
 		currentCancelFn = null;
+		try {
+			await invoke('automations_title_release', { id: claimId });
+		} catch {
+			// rilascio non bloccante
+		}
 	}
 
 	runningTask = null;
@@ -456,7 +541,7 @@ async function executeTaskTitles(): Promise<void> {
 	const current = taskStore.taskById(taskId);
 	if (!current || promptHash(current.prompt) !== hash) {
 		syncGeneratingState();
-		return;
+		return true;
 	}
 
 	clearTimeout(settling.get(taskId));
@@ -473,15 +558,30 @@ async function executeTaskTitles(): Promise<void> {
 		lastRun.taskTitles = { at: Date.now(), ok: false, detail: 'no title' };
 	}
 	syncGeneratingState();
+	return true;
 }
 
-async function executeSessionTitles(): Promise<void> {
-	const item = sessionTitlesQueue.shift();
-	if (!item) return;
-	sessionTitleQueuedIds.delete(item.sessionId);
+async function executeSessionTitles(): Promise<boolean> {
+	const item = sessionTitlesQueue[0];
+	if (!item) return true;
 
 	const prompt = item.prompt;
 	const hash = promptHash(prompt);
+
+	// AUT-041: acquisizione slot globale prima di dequeue e markrunning
+	const claimId = `session_title_${item.sessionId}`;
+	let claimed = false;
+	try {
+		claimed = await invoke<boolean>('automations_title_claim', { id: claimId });
+	} catch {
+		claimed = true;
+	}
+	if (!claimed) {
+		return false;
+	}
+
+	sessionTitlesQueue.shift();
+	sessionTitleQueuedIds.delete(item.sessionId);
 
 	runningSession = { sessionId: item.sessionId, prompt };
 	runningJobId = 'sessionTitles';
@@ -515,6 +615,11 @@ async function executeSessionTitles(): Promise<void> {
 	} finally {
 		currentJobId = null;
 		currentCancelFn = null;
+		try {
+			await invoke('automations_title_release', { id: claimId });
+		} catch {
+			// rilascio non bloccante
+		}
 	}
 
 	runningSession = null;
@@ -540,7 +645,9 @@ async function executeSessionTitles(): Promise<void> {
 		lastRun.sessionTitles = { at: Date.now(), ok: false, detail: 'no title' };
 		item.resolve(null);
 	}
+	return true;
 }
+
 
 async function executeSessionIndex(): Promise<void> {
 	sessionIndexPending = false;
@@ -555,7 +662,7 @@ async function executeSessionIndex(): Promise<void> {
 			ok: true,
 			detail: stats ? `${stats.scanned} letti, ${stats.updated} agg.` : undefined
 		};
-		void scanUntitledSessions();
+		// AUT-094: nessun sweep automatico dello storico durante l'aggiornamento dell'indice
 	} catch (err) {
 		lastSessionIndexAt = Date.now();
 		lastRun.sessionIndex = { at: Date.now(), ok: false, detail: String(err) };
@@ -620,21 +727,22 @@ async function drain(): Promise<void> {
 	isDraining = true;
 
 	try {
+		let aiSlotBlocked = false;
 		while (true) {
-			if (!settingsStore.backgroundJobs.enabled || allPaused) break;
+			// AUT-090: sessionIndex, gitFetch, updateCheck continuano anche se enabled=false
+			if (allPaused) break;
 
 			const taskGate = getQuotaGate('taskTitles');
 			const sessionGate = getQuotaGate('sessionTitles');
-
 			const jobStates: Record<BackgroundJobId, JobStateForPicker> = {
 				taskTitles: {
-					enabled: settingsStore.backgroundJobs.jobs.taskTitles.enabled,
+					enabled: settingsStore.backgroundJobs.jobs.taskTitles.enabled && !aiSlotBlocked,
 					userPaused: userPaused.has('taskTitles'),
 					quotaPaused: taskGate.paused,
 					pendingCount: taskTitlesQueue.length
 				},
 				sessionTitles: {
-					enabled: settingsStore.backgroundJobs.jobs.sessionTitles.enabled,
+					enabled: settingsStore.backgroundJobs.jobs.sessionTitles.enabled && !aiSlotBlocked,
 					userPaused: userPaused.has('sessionTitles'),
 					quotaPaused: sessionGate.paused,
 					pendingCount: sessionTitlesQueue.length
@@ -668,12 +776,20 @@ async function drain(): Promise<void> {
 			if (!nextJob) break;
 
 			switch (nextJob) {
-				case 'taskTitles':
-					await executeTaskTitles();
+				case 'taskTitles': {
+					const ok = await executeTaskTitles();
+					if (!ok) {
+						aiSlotBlocked = true;
+					}
 					break;
-				case 'sessionTitles':
-					await executeSessionTitles();
+				}
+				case 'sessionTitles': {
+					const ok = await executeSessionTitles();
+					if (!ok) {
+						aiSlotBlocked = true;
+					}
 					break;
+				}
 				case 'sessionIndex':
 					await executeSessionIndex();
 					break;
@@ -698,14 +814,14 @@ function computeView(id: BackgroundJobId): BackgroundJobView {
 	const gate = usesAi ? getQuotaGate(id) : { paused: false, quota: null };
 
 	let pausedReason: JobPauseReason = null;
-	if (!settingsStore.backgroundJobs.enabled) {
+	if (usesAi && !settingsStore.backgroundJobs.enabled) {
 		pausedReason = 'globalOff';
 	} else if (!enabled) {
 		pausedReason = 'disabled';
 	} else if (isUserPaused) {
 		pausedReason = 'userPaused';
 	} else if (usesAi && gate.paused) {
-		pausedReason = 'quotaFloor';
+		pausedReason = gate.reason === 'unknown' ? 'unknown' : gate.reason === 'noUsableAccount' ? 'noUsableAccount' : 'quotaFloor';
 	}
 
 	let pending = 0;
@@ -727,7 +843,7 @@ function computeView(id: BackgroundJobId): BackgroundJobView {
 	};
 }
 
-const INERT_VIEWS: BackgroundJobView[] = BACKGROUND_JOB_ORDER.map((id) => ({
+const INERT_VIEWS: BackgroundJobView[] = BACKGROUND_JOB_ORDER.map((id: BackgroundJobId) => ({
 	id,
 	usesAi: id === 'taskTitles' || id === 'sessionTitles',
 	enabled: false,
@@ -796,8 +912,7 @@ export const backgroundJobs = {
 			sweepUntitledTasks();
 		} else if (id === 'sessionTitles') {
 			cancelledSessionFor.clear();
-			void scanUntitledSessions();
-		} else if (id === 'sessionIndex') {
+			void drain();
 			enqueueSessionIndex(true);
 		} else if (id === 'gitFetch') {
 			enqueueGitFetch(false);
@@ -823,7 +938,6 @@ export const backgroundJobs = {
 		cancelledFor.clear();
 		cancelledSessionFor.clear();
 		sweepUntitledTasks();
-		void scanUntitledSessions();
 		enqueueSessionIndex(false);
 		enqueueGitFetch(false);
 		enqueueUpdateCheck(false);
@@ -842,7 +956,7 @@ export const backgroundJobs = {
 				void drain();
 				break;
 			case 'sessionTitles':
-				void scanUntitledSessions().then(() => drain());
+				void startSessionTitlesBackfill();
 				break;
 			case 'sessionIndex':
 				enqueueSessionIndex(true);
@@ -899,28 +1013,40 @@ export const backgroundJobs = {
 			window.addEventListener('focus', handleFocus);
 			window.addEventListener('studio-history-opened', handleHistoryOpened);
 
+			let unlistenAutomations: (() => void) | null = null;
+			try {
+				void import('@tauri-apps/api/event').then(({ listen }) => {
+					void listen('automations://changed', () => {
+						void drain();
+					}).then((u) => {
+						unlistenAutomations = u;
+					});
+				});
+			} catch {
+				// non-tauri
+			}
+
 			teardownListeners = () => {
 				window.removeEventListener('focus', handleFocus);
 				window.removeEventListener('studio-history-opened', handleHistoryOpened);
+				unlistenAutomations?.();
 			};
 		}
 
-		// Tick periodico da 60 secondi per compiti di manutenzione
+		// Tick periodico da 60 secondi per compiti di manutenzione (AUT-094: nessun sweep automatico sessioni storiche)
 		tickIntervalId = setInterval(() => {
 			sweepUntitledTasks();
-			void scanUntitledSessions();
 			enqueueSessionIndex(false);
 			enqueueGitFetch(false);
 			enqueueUpdateCheck(false);
 			void drain();
 		}, TICK_MS);
 
-		// All'avvio accoda i controlli iniziali
+		// All'avvio accoda i controlli iniziali (AUT-094: nessun sweep automatico sessioni)
 		enqueueUpdateCheck(false);
 		enqueueSessionIndex(false);
 		enqueueGitFetch(false);
 		sweepUntitledTasks();
-		void scanUntitledSessions();
 		void drain();
 	},
 

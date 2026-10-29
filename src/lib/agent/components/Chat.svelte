@@ -50,6 +50,7 @@
 	let {
 		session,
 		visible = true,
+		readOnly = false,
 		onOpenFile,
 		onOpenDiff,
 		onOpenImage,
@@ -60,6 +61,7 @@
 	} = $props<{
 		session: AgentSession;
 		visible?: boolean;
+		readOnly?: boolean;
 		onOpenFile?: (path: string, line?: number | null) => void;
 		onOpenDiff?: (path: string) => void;
 		onOpenImage?: (data: string, mimeType: string) => void;
@@ -89,7 +91,7 @@
 		switchToTerminal: () => onSwitchToTerminal?.(),
 		openDiagram: (diagram) => onOpenDiagram?.(diagram),
 		branch: {
-			canBranch: () => session.canBranch,
+			canBranch: () => !readOnly && session.canBranch,
 			blockedReason: () => session.branchBlockedReason(),
 			fromUserMessage: (transcriptId, mode) => {
 				void session.branchFromUserMessage(transcriptId, mode).then((outcome: { kind: string }) => {
@@ -459,7 +461,7 @@
 	 * passano da qui.
 	 */
 	function isOverThisChat(position: { x: number; y: number }): boolean {
-		if (!visible || !surfaceEl) return false;
+		if (readOnly || !visible || !surfaceEl) return false;
 		const point = physicalToCssPoint(position, window.devicePixelRatio);
 		const target = document.elementFromPoint(point.x, point.y);
 		return target !== null && surfaceEl.contains(target);
@@ -537,7 +539,7 @@
 	style:position="absolute"
 	style:inset="0"
 >
-	{#if bannerGoal}
+	{#if !readOnly && bannerGoal}
 		<GoalBanner
 			goal={bannerGoal}
 			attempts={session.goalAttempts}
@@ -548,7 +550,7 @@
 			onDrop={() => void goalOp(() => session.dropGoal())}
 			onDismiss={session.goal ? undefined : () => (finishedGoal = null)}
 		/>
-	{:else if session.guidedGoal && session.guidedGoalOpen}
+	{:else if !readOnly && session.guidedGoal && session.guidedGoalOpen}
 		<GuidedGoalStrip interview={session.guidedGoal} />
 	{/if}
 	{#if isDraggingColumn}
@@ -581,6 +583,7 @@
 		</div>
 	</div>
 
+	{#if !readOnly}
 	<div class="footer-stack" class:content-below={userScrolledUp}>
 		<div
 			class="footer-inner"
@@ -694,9 +697,10 @@
 			</div>
 		</div>
 	</div>
+	{/if}
 
 
-	{#if session.branchPanelOpen}
+	{#if !readOnly && session.branchPanelOpen}
 		<BranchPanel
 			{session}
 			onClose={() => {

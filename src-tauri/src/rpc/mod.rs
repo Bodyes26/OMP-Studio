@@ -54,6 +54,7 @@ pub struct RpcSession {
     protocol: Arc<AtomicU8>,
     abort_signal: Arc<AtomicBool>,
     config_path: Option<std::path::PathBuf>,
+    pub pool_path: Option<std::path::PathBuf>,
     pub pid: Option<u32>,
     #[cfg(target_os = "windows")]
     pub job: Option<Arc<crate::process_tree::WindowsJob>>,
@@ -64,6 +65,9 @@ pub struct RpcSession {
     pub prototype_id: Option<String>,
     #[allow(dead_code)]
     pub session_id: Arc<Mutex<Option<String>>>,
+    pub cwd: String,
+    pub execution_id: Option<String>,
+    pub project_id: Option<String>,
     stats: Arc<RpcStats>,
 }
 
@@ -114,6 +118,9 @@ impl RpcSession {
     fn remove_config_file(&self) {
         if let Some(config_file) = self.config_path.as_ref() {
             let _ = std::fs::remove_file(config_file);
+        }
+        if let Some(pool_file) = self.pool_path.as_ref() {
+            let _ = std::fs::remove_file(pool_file);
         }
     }
 }
@@ -223,6 +230,117 @@ pub(crate) fn write_gui_overlay(rpc_id: u64) -> Result<std::path::PathBuf, Strin
         std::env::temp_dir().join(format!("omp-studio-gui-overlay-{}.yml", rpc_id));
     set_gui_overlay_prewalk(&overlay_path, false)?;
     Ok(overlay_path)
+}
+
+/// Sorgente dell'estensione OMP per sessioni in sola lettura e assistente automazioni.
+pub const READONLY_EXTENSION_TS: &str = include_str!("../../../extensions/studio-readonly.ts");
+
+/// Prepara un file di pool account temporaneo per la sessione, disattivando le API key a consumo.
+/// Rispetta il file OMP_AUTH_BROKER_ACCOUNT_POOL_FILE eventualmente configurato dall'utente,
+/// intersecando le regole esistenti senza allargare gli account OAuth autorizzati (fail-closed).
+fn prepare_automation_pool_file(rpc_id: u64) -> Result<std::path::PathBuf, String> {
+    let pool_file = std::env::temp_dir().join(format!("omp-auto-pool-{}.json", rpc_id));
+    let existing_pool_env = std::env::var("OMP_AUTH_BROKER_ACCOUNT_POOL_FILE").ok();
+
+    let pool_json = if let Some(path_str) = &existing_pool_env {
+        let content = std::fs::read_to_string(path_str)
+            .map_err(|e| format!("Impossibile leggere il file pool account esistente '{}': {}", path_str, e))?;
+        let mut parsed: serde_json::Value = serde_json::from_str(&content)
+            .map_err(|e| format!("File pool account esistente '{}' non è JSON valido: {}", path_str, e))?;
+
+        if let Some(obj) = parsed.as_object_mut() {
+            if let Some(wild) = obj.get_mut("*") {
+                if wild.is_boolean() {
+                    if wild.as_bool() == Some(true) {
+                        *wild = serde_json::json!({ "apiKeys": false });
+                    }
+                } else if let Some(rule_obj) = wild.as_object_mut() {
+                    rule_obj.insert("apiKeys".to_string(), serde_json::Value::Bool(false));
+                }
+            } else {
+                obj.insert("*".to_string(), serde_json::json!({ "apiKeys": false }));
+            }
+
+            for (_prov, rule) in obj.iter_mut() {
+                if rule.is_array() {
+                    let accounts = rule.clone();
+                    *rule = serde_json::json!({
+                        "accounts": accounts,
+                        "apiKeys": false
+                    });
+                } else if rule.is_boolean() {
+                    if rule.as_bool() == Some(true) {
+                        *rule = serde_json::json!({ "apiKeys": false });
+                    }
+                } else if let Some(rule_obj) = rule.as_object_mut() {
+                    rule_obj.insert("apiKeys".to_string(), serde_json::Value::Bool(false));
+                }
+            }
+        } else {
+            return Err("Struttura del pool account non valida (atteso oggetto JSON)".to_string());
+        }
+        parsed
+    } else {
+        serde_json::json!({
+            "*": { "apiKeys": false }
+        })
+    };
+
+    let data = serde_json::to_vec(&pool_json)
+        .map_err(|e| format!("Serializzazione pool file temporaneo fallita: {}", e))?;
+    std::fs::write(&pool_file, data)
+        .map_err(|e| format!("Scrittura pool file temporaneo fallita: {}", e))?;
+
+    Ok(pool_file)
+}
+
+/// Genera la configurazione per-sessione per automazioni e sola lettura:
+/// disattiva fallback del modello (`retry.modelFallback: false`), azzera le catene di fallback,
+/// disattiva la promozione di contesto (`contextPromotion.enabled: false`),
+/// e per sola lettura disattiva shell, interpreti e MCP.
+pub fn write_automation_session_config(
+    rpc_id: u64,
+    is_read_only: bool,
+    readonly_extension_path: Option<&str>,
+) -> Result<std::path::PathBuf, String> {
+    let mut config_path = std::env::temp_dir();
+    config_path.push(format!("omp-studio-auto-{}.yml", rpc_id));
+
+    let mut content = String::new();
+    content.push_str("# Configurazione per-sessione generata da OMP Studio per automazioni\n");
+    if is_read_only {
+        content.push_str("bash:\n  enabled: false\n\n");
+        content.push_str("eval:\n  py: false\n  js: false\n  rb: false\n  jl: false\n\n");
+        content.push_str("mcp:\n  enableProjectConfig: false\n\n");
+        content.push_str("tools:\n  approvalMode: review\n  xdev: false\n\n");
+    } else {
+        content.push_str("tools:\n  approvalMode: review\n\n");
+    }
+    content.push_str("read:\n  defaultLimit: 1200\n\n");
+    content.push_str("retry:\n  modelFallback: false\n  fallbackChains: {}\n\n");
+    content.push_str("contextPromotion:\n  enabled: false\n\n");
+
+    if let Some(ext_path) = readonly_extension_path {
+        let normalized = ext_path.replace('\\', "/");
+        content.push_str("extensions:\n");
+        content.push_str(&format!("  - \"{}\"\n", normalized));
+    }
+
+    std::fs::write(&config_path, content.as_bytes()).map_err(|e| {
+        format!(
+            "Impossibile generare la configurazione di sessione automazione: {}",
+            e
+        )
+    })?;
+
+    Ok(config_path)
+}
+
+pub fn write_readonly_session_config(
+    rpc_id: u64,
+    readonly_extension_path: Option<&str>,
+) -> Result<std::path::PathBuf, String> {
+    write_automation_session_config(rpc_id, true, readonly_extension_path)
 }
 
 /// Sorgente dell'estensione OMP per il Laboratorio prototipi (broker scrittura confinata).
@@ -858,6 +976,12 @@ pub async fn rpc_open(
     model: Option<String>,
     on_event: Channel<String>,
     manager: State<'_, RpcManager>,
+    automation_origin: Option<String>,
+    read_only: Option<bool>,
+    allowed_roots: Option<Vec<String>>,
+    max_cost_usd: Option<f64>,
+    prevent_payg: Option<bool>,
+    execution_id: Option<String>,
 ) -> Result<u64, String> {
     let rpc_id = {
         let mut guard = manager.next_id.lock();
@@ -867,23 +991,69 @@ pub async fn rpc_open(
     };
 
     let omp_path = crate::omp_ops::get_omp_binary();
-    let overlay_path = write_gui_overlay(rpc_id)?;
-    let diagram_extension =
-        crate::pty::write_extension("studio-diagram.ts", crate::pty::DIAGRAM_EXTENSION_TS);
-    let tasks_extension =
-        crate::pty::write_extension("studio-tasks.ts", crate::pty::TASKS_EXTENSION_TS);
-    let lanes_extension =
-        crate::pty::write_extension("studio-lanes.ts", crate::pty::LANES_EXTENSION_TS);
-    let plan_extension =
-        crate::pty::write_extension("studio-plan.ts", crate::pty::PLAN_EXTENSION_TS);
-    let loop_extension =
-        crate::pty::write_extension("studio-loop.ts", crate::pty::LOOP_EXTENSION_TS);
-    let goal_extension =
-        crate::pty::write_extension("studio-goal.ts", crate::pty::GOAL_EXTENSION_TS);
-    let headsup_extension =
-        crate::pty::write_extension("studio-headsup.ts", crate::pty::HEADSUP_EXTENSION_TS);
-    let docs_extension =
-        crate::pty::write_extension("studio-docs.ts", crate::pty::DOCS_EXTENSION_TS);
+    let is_read_only = read_only.unwrap_or(false);
+
+    let readonly_extension = if is_read_only {
+        crate::pty::write_extension("studio-readonly.ts", READONLY_EXTENSION_TS)
+    } else {
+        None
+    };
+
+    let is_automation_session = is_read_only || execution_id.is_some() || automation_origin.is_some();
+    let overlay_path = if is_automation_session {
+        write_automation_session_config(rpc_id, is_read_only, readonly_extension.as_deref())?
+    } else {
+        write_gui_overlay(rpc_id)?
+    };
+
+    let diagram_extension = if is_read_only {
+        None
+    } else {
+        crate::pty::write_extension("studio-diagram.ts", crate::pty::DIAGRAM_EXTENSION_TS)
+    };
+    let tasks_extension = if is_read_only {
+        None
+    } else {
+        crate::pty::write_extension("studio-tasks.ts", crate::pty::TASKS_EXTENSION_TS)
+    };
+    let lanes_extension = if is_read_only {
+        None
+    } else {
+        crate::pty::write_extension("studio-lanes.ts", crate::pty::LANES_EXTENSION_TS)
+    };
+    let plan_extension = if is_read_only {
+        None
+    } else {
+        crate::pty::write_extension("studio-plan.ts", crate::pty::PLAN_EXTENSION_TS)
+    };
+    let loop_extension = if is_read_only {
+        None
+    } else {
+        crate::pty::write_extension("studio-loop.ts", crate::pty::LOOP_EXTENSION_TS)
+    };
+    let goal_extension = if is_read_only {
+        None
+    } else {
+        crate::pty::write_extension("studio-goal.ts", crate::pty::GOAL_EXTENSION_TS)
+    };
+    let headsup_extension = if is_read_only {
+        None
+    } else {
+        crate::pty::write_extension("studio-headsup.ts", crate::pty::HEADSUP_EXTENSION_TS)
+    };
+    let docs_extension = if is_read_only {
+        None
+    } else {
+        crate::pty::write_extension("studio-docs.ts", crate::pty::DOCS_EXTENSION_TS)
+    };
+    let automations_extension = if is_read_only {
+        None
+    } else {
+        crate::pty::write_extension(
+            "studio-automations.ts",
+            crate::pty::AUTOMATIONS_EXTENSION_TS,
+        )
+    };
 
     // Progetto senza cartella (chat temporanea): stesso trattamento del PTY,
     // sessione effimera e nessun `--cwd`.
@@ -902,9 +1072,21 @@ pub async fn rpc_open(
         command.arg("--cwd").arg(&cwd);
     }
     command.arg("--config").arg(&overlay_path);
+    if is_read_only {
+        // Disabilita discovery estensioni di progetto prima dell'avvio (AUT-086)
+        command.arg("--no-extensions");
+        // Limita i tool nativi a sola lettura e interazione
+        command.arg("--tools").arg("read,grep,glob,todo,ask,web_search");
+    }
+    if let Some(cost) = max_cost_usd {
+        command.arg(format!("--max-cost={}", cost));
+    }
     command
         .arg("--append-system-prompt")
         .arg(crate::pty::main_agent_system_prompt());
+    if let Some(path) = &readonly_extension {
+        command.arg("-e").arg(path);
+    }
     if let Some(path) = &diagram_extension {
         command.arg("-e").arg(path);
     }
@@ -931,6 +1113,9 @@ pub async fn rpc_open(
     if let Some(path) = &docs_extension {
         command.arg("-e").arg(path);
     }
+    if let Some(path) = &automations_extension {
+        command.arg("-e").arg(path);
+    }
     // Applica resume (se sessione valida) oppure continue_last
     let mut session_args = Vec::new();
     apply_resume_or_continue(
@@ -944,6 +1129,9 @@ pub async fn rpc_open(
     }
     if let Some(m) = model.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         command.arg("--model").arg(m);
+        if prevent_payg.unwrap_or(false) {
+            command.arg("--models").arg(m);
+        }
     }
 
     command
@@ -960,18 +1148,45 @@ pub async fn rpc_open(
     if let Some(proj) = &project_id {
         command.env("OMP_PROJECT_ID", proj);
     }
-    let bridge_creds = if let Some(project) = project_id
-        .as_ref()
-        .map(|value| value.trim())
-        .filter(|value| !value.is_empty())
-    {
-        crate::lane_bridge::issue_token(crate::lane_bridge::BridgeOwner {
-            owner_kind: "agent".to_string(),
-            owner_id: rpc_id,
-            project_id: Some(project.to_string()),
-            lane_id: lane_id.clone().filter(|l| !l.trim().is_empty()),
-            cwd: cwd.clone(),
-        })
+    if is_read_only {
+        command.env("OMP_AUTOMATION_READONLY", "1");
+    }
+    if let Some(origin) = &automation_origin {
+        command.env("OMP_AUTOMATION_ORIGIN", origin);
+    }
+    if let Some(roots) = &allowed_roots {
+        command.env("OMP_AUTOMATION_ROOTS", roots.join(";"));
+    }
+    if let Some(max_cost) = max_cost_usd {
+        command.env("OMP_AUTOMATION_MAX_COST", max_cost.to_string());
+    }
+    let owned_pool_path = if prevent_payg.unwrap_or(false) {
+        command.env("OMP_AUTOMATION_NO_PAYG", "1");
+        let pool_file = prepare_automation_pool_file(rpc_id)?;
+        command.env(
+            "OMP_AUTH_BROKER_ACCOUNT_POOL_FILE",
+            pool_file.to_string_lossy().to_string(),
+        );
+        Some(pool_file)
+    } else {
+        None
+    };
+    let bridge_creds = if !is_read_only {
+        if let Some(project) = project_id
+            .as_ref()
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+        {
+            crate::lane_bridge::issue_token(crate::lane_bridge::BridgeOwner {
+                owner_kind: "agent".to_string(),
+                owner_id: rpc_id,
+                project_id: Some(project.to_string()),
+                lane_id: lane_id.clone().filter(|l| !l.trim().is_empty()),
+                cwd: cwd.clone(),
+            })
+        } else {
+            None
+        }
     } else {
         None
     };
@@ -1080,6 +1295,7 @@ pub async fn rpc_open(
             protocol: protocol.clone(),
             abort_signal: abort_signal.clone(),
             config_path: Some(overlay_path),
+            pool_path: owned_pool_path,
             pid: Some(pid),
             #[cfg(target_os = "windows")]
             job,
@@ -1087,6 +1303,17 @@ pub async fn rpc_open(
             scope: "main".to_string(),
             prototype_id: None,
             session_id: session_id_slot.clone(),
+            cwd: launch_cwd.clone(),
+            project_id: project_id.clone(),
+            execution_id: execution_id.clone().or_else(|| {
+                lane_id.as_ref().and_then(|l| {
+                    if l.starts_with("auto-") {
+                        Some(l.trim_start_matches("auto-").to_string())
+                    } else {
+                        None
+                    }
+                })
+            }),
             stats: stats.clone(),
         },
     );
@@ -1436,6 +1663,7 @@ pub async fn rpc_open_lab(
         protocol: protocol.clone(),
         abort_signal: abort_signal.clone(),
         config_path: Some(lab_config_path),
+        pool_path: None,
         pid: Some(pid),
         #[cfg(target_os = "windows")]
         job,
@@ -1443,6 +1671,9 @@ pub async fn rpc_open_lab(
         scope: "lane".to_string(),
         prototype_id: Some(prototype_id.clone()),
         session_id: session_id_slot.clone(),
+        cwd: resolved_ws_str.clone(),
+        project_id: if effective_project_id.is_empty() { None } else { Some(effective_project_id.to_string()) },
+        execution_id: None,
         stats: stats.clone(),
     };
 
@@ -1503,17 +1734,67 @@ pub async fn rpc_send(
     line: String,
     manager: State<'_, RpcManager>,
 ) -> Result<(), String> {
-    let (stdin, abort_signal, stats) = {
+    let (stdin, abort_signal, stats, cwd, execution_id, project_id) = {
         let sessions = manager.sessions.lock();
         let session = sessions
             .get(&rpc_id)
             .ok_or_else(|| format!("Sessione RPC {} non disponibile", rpc_id))?;
-        (session.stdin.clone(), session.abort_signal.clone(), session.stats.clone())
+        (
+            session.stdin.clone(),
+            session.abort_signal.clone(),
+            session.stats.clone(),
+            session.cwd.clone(),
+            session.execution_id.clone(),
+            session.project_id.clone(),
+        )
     };
+
+    // Risoluzione canonical root (AUT-042): previene il bypass di lock nei worktree
+    let canonical_root = project_id
+        .as_deref()
+        .and_then(crate::automations::project_path_for_id)
+        .unwrap_or_else(|| cwd.clone());
 
     if line.contains("\"type\":\"abort\"") || line.contains("\"type\":\"abort_bash\"") {
         abort_signal.store(true, Ordering::SeqCst);
     }
+
+    // AUT-042 / AUT-044: Guardia prima di prompt, retry e risposte interattive (extension_ui_response)
+    let is_prompt_or_retry = line.contains("\"type\":\"prompt\"") || line.contains("\"type\":\"retry\"");
+    let is_ui_response = line.contains("\"type\":\"extension_ui_response\"");
+    let mut auto_admitted_eid: Option<String> = None;
+
+    if (is_prompt_or_retry || is_ui_response) && !canonical_root.is_empty() {
+        if let Some(eid) = &execution_id {
+            // Rifiuta prompt e retry su esecuzioni ormai terminali (nessuna continuazione fuori dallo scheduler)
+            if crate::automations::is_execution_terminal(eid) {
+                return Err(format!(
+                    "Esecuzione '{}' già conclusa: continuazione non consentita fuori dallo scheduler.",
+                    eid
+                ));
+            }
+
+            // Se l'automazione era in needsInput, riacquisisce slot AI e quota prima dell'invio wire
+            let admitted = crate::automations::resume_admission(eid)?;
+            if !admitted {
+                return Err("Slot AI attualmente occupato o quota insufficiente. Risposta conservata, riprova a breve.".to_string());
+            }
+            auto_admitted_eid = Some(eid.clone());
+
+            // Verifica che il progetto non sia conteso da un'altra automazione sulla canonical root
+            if crate::automations::is_project_locked(&canonical_root, Some(eid)) {
+                let _ = crate::automations::resume_release(eid);
+                return Err(format!(
+                    "Progetto '{}' occupato da un'altra automazione attiva (AUT-042)",
+                    canonical_root
+                ));
+            }
+        } else if is_prompt_or_retry {
+            // Sessione interattiva: richiede interactive_admission sulla canonical root
+            crate::automations::interactive_admission(&canonical_root)?;
+        }
+    }
+
     // L'attesa del lock conta come scrittura in corso: se una scrittura
     // precedente e' ferma perche' omp non legge, anche questa lo e'.
     stats.stdin_write_started();
@@ -1529,6 +1810,13 @@ pub async fn rpc_send(
         }
     };
     stats.stdin_write_finished();
+    if result.is_err() {
+        if let Some(eid) = &auto_admitted_eid {
+            let _ = crate::automations::resume_release(eid);
+        } else if is_prompt_or_retry && execution_id.is_none() && !canonical_root.is_empty() {
+            crate::automations::release_interactive_admission(&canonical_root);
+        }
+    }
     result
 }
 
@@ -1538,8 +1826,19 @@ pub async fn rpc_close(rpc_id: u64, manager: State<'_, RpcManager>) -> Result<()
     let Some(session) = manager.sessions.lock().remove(&rpc_id) else {
         return Ok(());
     };
+    let canonical_root = session
+        .project_id
+        .as_deref()
+        .and_then(crate::automations::project_path_for_id)
+        .unwrap_or_else(|| session.cwd.clone());
+    if session.execution_id.is_none() && !canonical_root.is_empty() {
+        crate::automations::release_interactive_admission(&canonical_root);
+    }
     if let Some(config_file) = session.config_path.as_ref() {
         let _ = std::fs::remove_file(config_file);
+    }
+    if let Some(pool_file) = session.pool_path.as_ref() {
+        let _ = std::fs::remove_file(pool_file);
     }
     tokio::task::spawn_blocking(move || {
         // Chiudere stdin e' la via documentata: omp drena i comandi accettati,
@@ -1564,6 +1863,53 @@ pub async fn rpc_close(rpc_id: u64, manager: State<'_, RpcManager>) -> Result<()
     })
     .await
     .map_err(|error| format!("Chiusura della sessione RPC {}: {}", rpc_id, error))
+}
+
+/// Chiude tutte le sessioni RPC di automazione orfane o aperte da host precedenti.
+#[tauri::command]
+pub async fn rpc_cleanup_automation_sessions(manager: State<'_, RpcManager>) -> Result<usize, String> {
+    let ids: Vec<u64> = {
+        let sessions = manager.sessions.lock();
+        sessions
+            .iter()
+            .filter(|(_, s)| s.execution_id.is_some())
+            .map(|(id, _)| *id)
+            .collect()
+    };
+    let count = ids.len();
+    for id in ids {
+        let _ = rpc_close(id, manager.clone()).await;
+    }
+    Ok(count)
+}
+
+/// Chiude selettivamente la sessione RPC di una specifica esecuzione AI.
+/// Usato da NativeCore (engine::cancel, timeout, shutdown) prima di rilasciare i lock.
+pub fn close_automation_execution(app: &tauri::AppHandle, execution_id: &str) -> bool {
+    use tauri::Manager;
+    let manager = app.state::<RpcManager>();
+    let rpc_id = {
+        let sessions = manager.sessions.lock();
+        sessions
+            .iter()
+            .find(|(_, s)| s.execution_id.as_deref() == Some(execution_id))
+            .map(|(id, _)| *id)
+    };
+    if let Some(id) = rpc_id {
+        let session = manager.sessions.lock().remove(&id);
+        if let Some(session) = session {
+            session.kill_tree();
+            if let Some(config_file) = session.config_path.as_ref() {
+                let _ = std::fs::remove_file(config_file);
+            }
+            if let Some(pool_file) = session.pool_path.as_ref() {
+                let _ = std::fs::remove_file(pool_file);
+            }
+            crate::lane_bridge::revoke_owner("agent", id);
+            return true;
+        }
+    }
+    false
 }
 
 /// Abilita o disabilita il prewalk per una sessione RPC attiva, riscrivendo
@@ -1868,6 +2214,7 @@ mod tests {
             protocol: Arc::new(AtomicU8::new(2)),
             abort_signal: Arc::new(AtomicBool::new(false)),
             config_path: None,
+            pool_path: None,
             pid: None,
             #[cfg(target_os = "windows")]
             job: None,
@@ -1875,6 +2222,9 @@ mod tests {
             scope: "main".to_string(),
             prototype_id: None,
             session_id: Arc::new(Mutex::new(Some("session-main-1".to_string()))),
+            cwd: ".".to_string(),
+            execution_id: None,
+            project_id: None,
             stats: Arc::new(RpcStats::default()),
         };
         let _ = session_main; // structure compiles and initializes correctly
@@ -1916,6 +2266,7 @@ mod tests {
                 protocol: protocol.clone(),
                 abort_signal: abort_signal.clone(),
                 config_path: Some(config.clone()),
+                pool_path: None,
                 pid: None,
                 #[cfg(target_os = "windows")]
                 job: None,
@@ -1923,6 +2274,9 @@ mod tests {
                 scope: "main".to_string(),
                 prototype_id: None,
                 session_id: session_id.clone(),
+                cwd: ".".to_string(),
+                execution_id: None,
+                project_id: None,
                 stats: stats.clone(),
             },
         );
@@ -1940,7 +2294,6 @@ mod tests {
             session_id,
             stats,
         });
-
         assert!(sessions.lock().is_empty());
         assert!(!config.exists(), "overlay temporaneo rimasto su disco");
         let _ = child.lock().wait();

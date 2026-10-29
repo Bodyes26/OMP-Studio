@@ -1,14 +1,20 @@
 <script lang="ts">
 	/**
-	 * Sezione Impostazioni: Processi in background.
+	 * Sezione Impostazioni: Titoli AI e Processi in background (AUT-000, AUT-029–032, AUT-090, AUT-093, AUT-094).
 	 *
-	 * Governa l'attivazione globale della coda seriale in background, la soglia di
-	 * sicurezza della quota per i modelli con abbonamento/rate limit, e i singoli
-	 * job con eventuale modello AI dedicato (con fallback sul ruolo smol).
+	 * - La manutenzione ordinaria (sessionIndex, gitFetch, updateCheck) continua sempre
+	 *   internamente e non viene mostrata qui (AUT-000, AUT-090).
+	 * - Qui si configurano solo i titoli AI (task e sessioni), con riserve di quota
+	 *   distinte per finestra (breve e settimanale, default 30%), finestra di quiete task (default 2s)
+	 *   e backfill manuale con anteprima numeri per la cronologia delle sessioni.
 	 */
 	import { settingsStore } from '#lib/stores/settings.svelte.ts';
 	import { modelSettingsStore } from '#lib/stores/modelSettings.svelte.ts';
-	import type { BackgroundJobId } from '#lib/stores/backgroundJobs.svelte.ts';
+	import {
+		type BackgroundJobId,
+		getMissingSessionTitlesCount,
+		startSessionTitlesBackfill
+	} from '#lib/stores/backgroundJobs.svelte.ts';
 	import { m } from '#lib/paraglide/messages.js';
 	import Switch from '#lib/ui/Switch.svelte';
 	import Slider from '#lib/ui/Slider.svelte';
@@ -32,6 +38,7 @@
 		description: () => string;
 	}
 
+	// AUT-000 / AUT-090: solo taskTitles e sessionTitles gestibili dall'utente
 	const JOB_CONFIGS: JobMeta[] = [
 		{
 			id: 'taskTitles',
@@ -44,24 +51,6 @@
 			usesAi: true,
 			title: () => m.settings_background_jobs_session_titles_title(),
 			description: () => m.settings_background_jobs_session_titles_desc()
-		},
-		{
-			id: 'sessionIndex',
-			usesAi: false,
-			title: () => m.settings_background_jobs_session_index_title(),
-			description: () => m.settings_background_jobs_session_index_desc()
-		},
-		{
-			id: 'gitFetch',
-			usesAi: false,
-			title: () => m.settings_background_jobs_git_fetch_title(),
-			description: () => m.settings_background_jobs_git_fetch_desc()
-		},
-		{
-			id: 'updateCheck',
-			usesAi: false,
-			title: () => m.settings_background_jobs_update_check_title(),
-			description: () => m.settings_background_jobs_update_check_desc()
 		}
 	];
 
@@ -69,16 +58,49 @@
 		settingsStore.backgroundJobs ?? {
 			enabled: true,
 			quotaFloorPct: 30,
+			quotaShortPct: 30,
+			quotaWeeklyPct: 30,
+			quotaOtherPct: 30,
+			taskTitleQuietSeconds: 2,
 			jobs: {}
 		}
 	);
 
 	const isGlobalEnabled = $derived(bgSettings.enabled ?? true);
-	const quotaFloor = $derived(bgSettings.quotaFloorPct ?? 30);
+	const quotaShort = $derived(bgSettings.quotaShortPct ?? bgSettings.quotaFloorPct ?? 30);
+	const quotaWeekly = $derived(bgSettings.quotaWeeklyPct ?? bgSettings.quotaFloorPct ?? 30);
+	const taskQuiet = $derived(bgSettings.taskTitleQuietSeconds ?? 2);
 	const jobs = $derived(bgSettings.jobs ?? {});
+
+	let missingSessionCount = $state<number | null>(null);
+	let isBackfilling = $state(false);
+
+	async function refreshMissingCount() {
+		try {
+			missingSessionCount = await getMissingSessionTitlesCount();
+		} catch {
+			missingSessionCount = 0;
+		}
+	}
+
+	$effect(() => {
+		void refreshMissingCount();
+	});
+
+	async function handleBackfill() {
+		if (isBackfilling) return;
+		isBackfilling = true;
+		try {
+			await startSessionTitlesBackfill();
+			await refreshMissingCount();
+		} finally {
+			isBackfilling = false;
+		}
+	}
 
 	function handleReset() {
 		settingsStore.reset('backgroundJobs');
+		void refreshMissingCount();
 	}
 </script>
 
@@ -90,7 +112,7 @@
 		</button>
 	</div>
 
-	<!-- Interruttore generale e soglia quota -->
+	<!-- Interruttore generale titoli AI -->
 	<div class="section-group">
 		<div class="form-row">
 			<div class="form-row-copy">
@@ -112,16 +134,17 @@
 			</div>
 		</div>
 
+		<!-- Riserva finestra breve (AUT-031 / AUT-077: default 30%) -->
 		<div class="form-row quota-row">
 			<div class="form-row-copy">
 				<div class="label-with-value">
-					<label for="bg-quota-floor" id="bg-quota-floor-label" class="form-row-label">
-						{m.settings_background_jobs_quota_floor_label()}
+					<label for="bg-quota-short" id="bg-quota-short-label" class="form-row-label">
+						Riserva minima finestra breve (giornaliera / 5h)
 					</label>
-					<span class="ui-count tabular font-mono">{quotaFloor}%</span>
+					<span class="ui-count tabular font-mono">{quotaShort}%</span>
 				</div>
-				<span id="bg-quota-floor-desc" class="form-row-desc">
-					{m.settings_background_jobs_quota_floor_desc()}
+				<span id="bg-quota-short-desc" class="form-row-desc">
+					Sospende la generazione automatica dei titoli quando la quota residua nelle finestre brevi scende sotto questa soglia.
 				</span>
 			</div>
 			<div class="form-row-control slider-control">
@@ -129,18 +152,74 @@
 					min={0}
 					max={90}
 					step={5}
-					value={quotaFloor}
-					valueText={`${quotaFloor}%`}
+					value={quotaShort}
+					valueText={`${quotaShort}%`}
 					disabled={!isGlobalEnabled}
-					ariaLabelledBy="bg-quota-floor-label"
-					ariaDescribedBy="bg-quota-floor-desc"
-					onChange={(val) => settingsStore.updateBackgroundJobs({ quotaFloorPct: val })}
+					ariaLabelledBy="bg-quota-short-label"
+					ariaDescribedBy="bg-quota-short-desc"
+					onChange={(val) => settingsStore.updateBackgroundJobs({ quotaShortPct: val, quotaFloorPct: val })}
+				/>
+			</div>
+		</div>
+
+		<!-- Riserva finestra settimanale (AUT-030 / AUT-031 / AUT-076: default 30%) -->
+		<div class="form-row quota-row">
+			<div class="form-row-copy">
+				<div class="label-with-value">
+					<label for="bg-quota-weekly" id="bg-quota-weekly-label" class="form-row-label">
+						Riserva minima finestra settimanale
+					</label>
+					<span class="ui-count tabular font-mono">{quotaWeekly}%</span>
+				</div>
+				<span id="bg-quota-weekly-desc" class="form-row-desc">
+					Soglia protetta per la capacità aggregata della finestra settimanale (calcolata sui report multi-account).
+				</span>
+			</div>
+			<div class="form-row-control slider-control">
+				<Slider
+					min={0}
+					max={90}
+					step={5}
+					value={quotaWeekly}
+					valueText={`${quotaWeekly}%`}
+					disabled={!isGlobalEnabled}
+					ariaLabelledBy="bg-quota-weekly-label"
+					ariaDescribedBy="bg-quota-weekly-desc"
+					onChange={(val) => settingsStore.updateBackgroundJobs({ quotaWeeklyPct: val })}
+				/>
+			</div>
+		</div>
+
+		<!-- Finestra di quiete task titoli (AUT-093: default 2s) -->
+		<div class="form-row">
+			<div class="form-row-copy">
+				<div class="label-with-value">
+					<label for="bg-task-quiet" id="bg-task-quiet-label" class="form-row-label">
+						Quiete salvataggio task (secondi)
+					</label>
+					<span class="ui-count tabular font-mono">{taskQuiet}s</span>
+				</div>
+				<span id="bg-task-quiet-desc" class="form-row-desc">
+					Attesa dopo il salvataggio o la digitazione del prompt prima di invocare il modello leggero (preserva titoli manuali).
+				</span>
+			</div>
+			<div class="form-row-control slider-control">
+				<Slider
+					min={1}
+					max={10}
+					step={1}
+					value={taskQuiet}
+					valueText={`${taskQuiet}s`}
+					disabled={!isGlobalEnabled}
+					ariaLabelledBy="bg-task-quiet-label"
+					ariaDescribedBy="bg-task-quiet-desc"
+					onChange={(val) => settingsStore.updateBackgroundJobs({ taskTitleQuietSeconds: val })}
 				/>
 			</div>
 		</div>
 	</div>
 
-	<!-- Righe per singolo job -->
+	<!-- Titoli AI: configurazione per task e sessioni -->
 	<div class="section-group">
 		{#each JOB_CONFIGS as job (job.id)}
 			{@const jobState = jobs[job.id] ?? { enabled: true, model: '' }}
@@ -189,6 +268,33 @@
 				{/if}
 			</div>
 		{/each}
+	</div>
+
+	<!-- Recupero manuale titoli sessioni storiche con anteprima numeri (AUT-094) -->
+	<div class="section-group">
+		<div class="form-row backfill-row">
+			<div class="form-row-copy">
+				<div class="label-with-value">
+					<span class="form-row-label">Titoli mancanti nella cronologia</span>
+					{#if missingSessionCount !== null}
+						<span class="ui-count tabular font-mono">{missingSessionCount}</span>
+					{/if}
+				</div>
+				<span class="form-row-desc">
+					Le nuove sessioni vengono titolate automaticamente al primo messaggio. Per le sessioni pregresse, avvia il recupero manuale senza sweep automatici.
+				</span>
+			</div>
+			<div class="form-row-control">
+				<button
+					type="button"
+					class="ui-button ui-button-secondary"
+					disabled={!isGlobalEnabled || isBackfilling || (missingSessionCount !== null && missingSessionCount === 0)}
+					onclick={handleBackfill}
+				>
+					{isBackfilling ? 'Generazione in corso…' : 'Genera titoli mancanti'}
+				</button>
+			</div>
+		</div>
 	</div>
 </div>
 
@@ -328,5 +434,9 @@
 	.model-row-control {
 		width: 260px;
 		flex-shrink: 0;
+	}
+
+	.backfill-row button {
+		white-space: nowrap;
 	}
 </style>

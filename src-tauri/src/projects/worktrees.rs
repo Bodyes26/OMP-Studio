@@ -3313,6 +3313,15 @@ pub async fn worktree_inspect(
 
 #[command]
 pub async fn worktree_create(args: CreateWorktreeArgs) -> Result<WorktreeInfo, WorktreeError> {
+    if crate::automations::is_project_locked(&args.project_path, None) {
+        return Err(WorktreeError::new(
+            WorktreeErrorCode::WorktreeLocked,
+            format!(
+                "Operazione non consentita: il progetto '{}' e' attualmente occupato da un'automazione attiva (AUT-042)",
+                args.project_path
+            ),
+        ));
+    }
     tokio::task::spawn_blocking(move || create_sync(args))
         .await
         .map_err(|error| task_join_error("worktree_create", error))?
@@ -3327,6 +3336,16 @@ pub async fn worktree_list(args: ListWorktreesArgs) -> Result<Vec<WorktreeInfo>,
 
 #[command]
 pub async fn worktree_remove(args: RemoveWorktreeArgs) -> Result<(), WorktreeError> {
+    if crate::automations::is_project_locked(&args.project_path, None)
+        || crate::automations::is_project_locked(&args.worktree_path, None)
+    {
+        return Err(WorktreeError::new(
+            WorktreeErrorCode::WorktreeLocked,
+            format!(
+                "Operazione non consentita: il progetto o worktree e' attualmente occupato da un'automazione attiva (AUT-042)"
+            ),
+        ));
+    }
     tokio::task::spawn_blocking(move || remove_sync(args))
         .await
         .map_err(|error| task_join_error("worktree_remove", error))?
@@ -3345,6 +3364,15 @@ pub async fn worktree_profile_scan(
 pub async fn worktree_apply_allowlist(
     args: ApplyAllowlistArgs,
 ) -> Result<Vec<AllowlistCopyOutcome>, WorktreeError> {
+    if crate::automations::is_project_locked(&args.project_path, None) {
+        return Err(WorktreeError::new(
+            WorktreeErrorCode::WorktreeLocked,
+            format!(
+                "Operazione non consentita: il progetto '{}' e' attualmente occupato da un'automazione attiva (AUT-042)",
+                args.project_path
+            ),
+        ));
+    }
     tokio::task::spawn_blocking(move || apply_allowlist_sync(args))
         .await
         .map_err(|error| task_join_error("worktree_apply_allowlist", error))?
@@ -3363,6 +3391,16 @@ pub async fn worktree_review_inspect(
 pub async fn worktree_land(
     args: lane_integrate::WorktreeLandArgs,
 ) -> Result<lane_integrate::WorktreeLandOutcome, WorktreeError> {
+    if crate::automations::is_project_locked(&args.project_path, None)
+        || crate::automations::is_project_locked(&args.worktree_path, None)
+    {
+        return Err(WorktreeError::new(
+            WorktreeErrorCode::WorktreeLocked,
+            format!(
+                "Operazione non consentita: il progetto o worktree e' attualmente occupato da un'automazione attiva (AUT-042)"
+            ),
+        ));
+    }
     tokio::task::spawn_blocking(move || lane_integrate::land_sync(args))
         .await
         .map_err(|error| task_join_error("worktree_land", error))?
@@ -3372,6 +3410,15 @@ pub async fn worktree_land(
 pub async fn worktree_undo_land(
     args: lane_integrate::WorktreeUndoLandArgs,
 ) -> Result<lane_integrate::WorktreeUndoLandOutcome, WorktreeError> {
+    if crate::automations::is_project_locked(&args.project_path, None) {
+        return Err(WorktreeError::new(
+            WorktreeErrorCode::WorktreeLocked,
+            format!(
+                "Operazione non consentita: il progetto '{}' e' attualmente occupato da un'automazione attiva (AUT-042)",
+                args.project_path
+            ),
+        ));
+    }
     tokio::task::spawn_blocking(move || lane_integrate::undo_land_sync(args))
         .await
         .map_err(|error| task_join_error("worktree_undo_land", error))?
@@ -3380,6 +3427,15 @@ pub async fn worktree_undo_land(
 pub async fn worktree_delete_lane_branch(
     args: lane_integrate::DeleteLaneBranchArgs,
 ) -> Result<(), WorktreeError> {
+    if crate::automations::is_project_locked(&args.project_path, None) {
+        return Err(WorktreeError::new(
+            WorktreeErrorCode::WorktreeLocked,
+            format!(
+                "Operazione non consentita: il progetto '{}' e' attualmente occupato da un'automazione attiva (AUT-042)",
+                args.project_path
+            ),
+        ));
+    }
     tokio::task::spawn_blocking(move || lane_integrate::delete_lane_branch_sync(args))
         .await
         .map_err(|error| task_join_error("worktree_delete_lane_branch", error))?
@@ -3420,6 +3476,15 @@ pub async fn worktree_list_branches(
 pub async fn worktree_attach_branch(
     args: AttachWorktreeArgs,
 ) -> Result<WorktreeInfo, WorktreeError> {
+    if crate::automations::is_project_locked(&args.project_path, None) {
+        return Err(WorktreeError::new(
+            WorktreeErrorCode::WorktreeLocked,
+            format!(
+                "Operazione non consentita: il progetto '{}' e' attualmente occupato da un'automazione attiva (AUT-042)",
+                args.project_path
+            ),
+        ));
+    }
     tokio::task::spawn_blocking(move || attach_sync(args))
         .await
         .map_err(|error| task_join_error("worktree_attach_branch", error))?

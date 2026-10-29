@@ -1972,3 +1972,19 @@ La lacuna non è solo quel segnaposto: il Gate R30 ha sostituito l'acquisizione 
 - **Browser sull'app ospite:** escluso; nei progetti con dati di produzione anche la navigazione può avere effetti. Si mantiene l'isolamento del Lab.
 - Il brief esplicito non prova da solo che l'agente abbia capito la pagina: la verifica del Gate deve osservare il caso reale R-LAB-01, non soltanto campi o file valorizzati.
 - Il cutover conserva i prototipi preesistenti: senza marker valido la prossima richiesta richiede un brief approvato. Il marker transitorio è legato a identità del prototipo, workspace e progetto ospite ed è escluso da snapshot e revisioni; copie e ripristini non ereditano l'approvazione. Questi comportamenti sono implementati, ma gli scenari completi di ripresa e confinamento restano da collaudare, come registrato nei requisiti.
+
+## Decisioni ricavate dallo storico (diario, 2026-10-28)
+
+Scelte prese nelle conversazioni e nei commit ma non registrate come Gate.
+
+- **Un solo repository.** Codice e documentazione stanno in `omp-studio-app`; la cartella separata `omp-studio`, che conteneva solo file `.md`, è stata assorbita perché non aveva senso tenerli fuori [sessione 019fb2e6].
+- **Versione decisa a fine modifica.** Dopo ogni modifica l'agente chiede cosa fare della versione (bump, parcheggio, altro) [sessione 019fb2e6]. Quando l'utente sceglie il bump, l'agente fa tutto fino alla release GitHub con gli eseguibili, non solo la build locale [sessione 01a01a01].
+- **Storico git azzerato prima della pubblicazione.** Il repository pubblico parte da un unico «primo commit» perché lo storico precedente conteneva riferimenti al lavoro dell'autore; nome e progetto possono essere pubblici [sessione 019fb378] [commit b997871].
+- **Pubblico ma non modificabile da altri.** Le pull request esterne si chiudono da sole; chi vuole cambiare il codice fa una fork [sessione 019fb378] [commit dc30218].
+- **Ogni release ha gli installer di tutte le piattaforme.** Una release fatta dal Mac proponeva il `.dmg` anche a Windows: da allora la release si pubblica solo con tutti gli installer e l'updater sceglie quello del sistema in uso [sessione 01a023ce] [commit 1d36d01].
+- **Due canali, stabile e Nightly.** Fare una release pubblica per ogni prova era scomodo: la Nightly si aggiorna di continuo mentre si lavora, la stabile raccoglie il lavoro finito [sessione 01a033e8] [commit ba3354f].
+- **Nightly compilata in locale e più veloce.** Conta il tempo dalla modifica all'aggiornamento: meglio un installer più pesante se la build dura la metà; la build locale copre Windows e avvia su GitHub gli altri sistemi [sessione 01a0f1ca] [commit 64e43a4] [commit ee0ac61].
+- **Suggerimenti dei modelli: giusti prima che veloci.** Si accetta di aspettare qualche secondo pur di avere una proposta corretta; niente modelli superati, riserve su provider diversi (i fallback scattano quasi sempre per rate limit), principale dal provider in abbonamento con limiti più alti; mai proporre modelli a pagamento fuori abbonamento: meglio un modello gratuito meno capace [sessione 01a01e71] [sessione 01a01e8d].
+- **Ruoli in vista master-detail.** Scelta dopo aver confrontato prototipi diversi del modale ruoli [sessione 01a01e03].
+- **La coda nasce dal lavoro a un agente per progetto.** Ogni progetto lavora su un filo solo, quindi serve un posto dove parcheggiare il prossimo prompt e lanciarlo su una sessione pulita quando l'agente ha finito [sessione 01a03271].
+- **L'agente non chiude né avvia Studio.** Chi sviluppa Studio lo fa da dentro Studio: chiudere l'istanza o aprirne una seconda interrompe il lavoro; le prove passano da test, `npm run dev` o build separate [sessione 01a01f6b] [sessione 01a037e9].

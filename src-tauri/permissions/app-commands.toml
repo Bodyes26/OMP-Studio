@@ -31,7 +31,8 @@ commands.allow = [
     "rpc_write_hang_report",
     "rpc_abort",
     "rpc_force_kill",
-    "force_kill_session"
+    "force_kill_session",
+    "rpc_cleanup_automation_sessions"
 ]
 
 [[permission]]
@@ -362,6 +363,62 @@ commands.allow = [
     "remote_open_machines_window"
 ]
 
+[[permission]]
+identifier = "allow-desktop-presence"
+description = "Presenza desktop nativa: area di notifica, criteri di chiusura, prevenzione uscite e autostart"
+commands.allow = [
+    "desktop_presence_get_state",
+    "desktop_presence_update_settings",
+    "desktop_presence_request_close",
+    "desktop_presence_respond_close",
+    "desktop_presence_request_exit",
+    "desktop_presence_prepare_exit",
+    "desktop_presence_authorize_exit",
+    "desktop_presence_respond_exit",
+    "desktop_presence_show_main",
+    "desktop_presence_hide_main",
+    "desktop_presence_open_automations",
+    "desktop_presence_set_attention",
+    "desktop_presence_get_active_jobs",
+    "desktop_presence_set_locale"
+]
+
+[[permission]]
+identifier = "allow-automations"
+description = "Automazioni locali: bozze, calendario, esecuzioni, output e revisione esplicita"
+commands.allow = [
+    "automations_snapshot",
+    "automations_save_draft",
+    "automations_activate",
+    "automations_set_state",
+    "automations_delete",
+    "automations_run_now",
+    "automations_cancel",
+    "automations_acknowledge",
+    "automations_settings",
+    "automations_update_context",
+    "automations_event",
+    "automations_ai_pending",
+    "automations_ai_update",
+    "automations_output",
+    "automations_preview",
+    "automations_export",
+    "automations_import",
+    "automations_secret_put",
+    "automations_secret_delete",
+    "automations_project_result",
+    "automations_project_pending",
+    "automations_title_claim",
+    "automations_title_release",
+    "automations_resume_admission",
+    "automations_resume_release",
+    "automations_is_execution_terminal",
+    "automations_project_path_for_id",
+    "automations_extend_wait",
+    "automations_canonical_root",
+    "automations_host_handshake"
+]
+
 [[set]]
 identifier = "studio-app"
 description = "Comandi nativi del guscio Studio, escluso l'updater che ha un set dedicato"
@@ -393,5 +450,7 @@ permissions = [
     "allow-lab",
     "allow-chat-attachments",
     "allow-doctor",
-    "allow-remote"
+    "allow-remote",
+    "allow-desktop-presence",
+    "allow-automations"
 ]

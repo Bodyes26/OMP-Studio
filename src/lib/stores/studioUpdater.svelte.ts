@@ -6,6 +6,7 @@ import { formatVersion, type FormatVersionOptions } from '#lib/utils/version.ts'
 import { m as msg } from '#lib/paraglide/messages.js';
 import { installOutcomeKeepsRunning, installOutcomeNotice } from './studioInstallOutcome';
 import { studioLog } from '#lib/diagnostics/studioLog.ts';
+import { presenceStore } from '#lib/automations/presence.svelte.ts';
 
 export { formatVersion, type FormatVersionOptions };
 
@@ -272,8 +273,13 @@ class StudioUpdaterStore {
 		this.installNotice = null;
 		studioLog.info('update', `installazione dell'aggiornamento ${this.updateInfo?.tag_name ?? ''} e riavvio`);
 		try {
+			if (!await presenceStore.authorizeExit('studio_update')) {
+				this.isInstalling = false;
+				return;
+			}
 			const outcome = await invoke<unknown>('install_studio_update_and_restart');
 			if (installOutcomeKeepsRunning(outcome)) {
+				await presenceStore.revokeExitAuthorization();
 				// Studio resta aperto (es. .deb affidato al gestore pacchetti):
 				// si mostra cosa resta da fare invece di attendere una chiusura.
 				this.isInstalling = false;
@@ -282,10 +288,12 @@ class StudioUpdaterStore {
 				// Normalmente l'app si chiude subito dopo; se cosi' non e',
 				// il pulsante torna utilizzabile invece di restare bloccato.
 				window.setTimeout(() => {
+					void presenceStore.revokeExitAuthorization();
 					this.isInstalling = false;
 				}, 10_000);
 			}
 		} catch (e: unknown) {
+			await presenceStore.revokeExitAuthorization();
 			this.isInstalling = false;
 			const errStr = extractErrorMessage(e);
 			studioLog.warn('update', `installazione non riuscita: ${errStr}`);

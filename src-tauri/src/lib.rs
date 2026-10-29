@@ -1,3 +1,23 @@
+pub mod automations;
+mod desktop_presence;
+use automations::{
+    automations_activate, automations_acknowledge, automations_ai_pending, automations_ai_update,
+    automations_canonical_root, automations_cancel, automations_delete, automations_event,
+    automations_export, automations_extend_wait, automations_host_handshake, automations_import,
+    automations_is_execution_terminal, automations_output, automations_preview,
+    automations_project_path_for_id, automations_project_pending, automations_project_result,
+    automations_resume_admission, automations_resume_release, automations_run_now,
+    automations_save_draft, automations_secret_delete, automations_secret_put,
+    automations_set_state, automations_settings, automations_snapshot, automations_title_claim,
+    automations_title_release, automations_update_context,
+};
+use desktop_presence::{
+    desktop_presence_authorize_exit, desktop_presence_get_active_jobs, desktop_presence_get_state,
+    desktop_presence_hide_main, desktop_presence_open_automations, desktop_presence_prepare_exit,
+    desktop_presence_request_close, desktop_presence_request_exit, desktop_presence_respond_close,
+    desktop_presence_respond_exit, desktop_presence_set_attention, desktop_presence_set_locale,
+    desktop_presence_show_main, desktop_presence_update_settings,
+};
 mod diagrams;
 mod fs_atomic;
 mod lanes_store;
@@ -20,7 +40,7 @@ use pty::{
 mod rpc;
 use rpc::{
     force_kill_session, rpc_abort, rpc_close, rpc_diagnostics, rpc_force_kill, rpc_open,
-    rpc_open_lab, rpc_send, rpc_set_prewalk, rpc_write_hang_report,
+    rpc_open_lab, rpc_send, rpc_set_prewalk, rpc_write_hang_report, rpc_cleanup_automation_sessions,
     RpcManager,
 };
 mod projects;
@@ -215,6 +235,10 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec!["--hidden"]),
+        ))
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             lane_bridge_respond,
@@ -410,8 +434,57 @@ pub fn run() {
             stats_summary,
             stats_sync,
             stats_open_dashboard,
+            automations_snapshot,
+            automations_save_draft,
+            automations_activate,
+            automations_set_state,
+            automations_delete,
+            automations_run_now,
+            automations_cancel,
+            automations_acknowledge,
+            automations_settings,
+            automations_update_context,
+            automations_event,
+            automations_ai_pending,
+            automations_ai_update,
+            automations_output,
+            automations_preview,
+            automations_export,
+            automations_import,
+            automations_secret_put,
+            automations_secret_delete,
+            automations_project_result,
+            automations_project_pending,
+            automations_title_claim,
+            automations_title_release,
+            automations_resume_admission,
+            automations_resume_release,
+            automations_is_execution_terminal,
+            automations_project_path_for_id,
+            automations_host_handshake,
+            automations_extend_wait,
+            automations_canonical_root,
+            rpc_cleanup_automation_sessions,
+            desktop_presence_get_state,
+            desktop_presence_update_settings,
+            desktop_presence_request_close,
+            desktop_presence_respond_close,
+            desktop_presence_request_exit,
+            desktop_presence_prepare_exit,
+            desktop_presence_authorize_exit,
+            desktop_presence_respond_exit,
+            desktop_presence_show_main,
+            desktop_presence_hide_main,
+            desktop_presence_open_automations,
+            desktop_presence_set_attention,
+            desktop_presence_get_active_jobs,
+            desktop_presence_set_locale,
         ])
-        .on_window_event(|window, event| match event {
+        .on_window_event(|window, event| {
+            if desktop_presence::on_window_event(window, event) {
+                return;
+            }
+            match event {
             tauri::WindowEvent::Destroyed => {
                 studio_log::info("window", format!("{} distrutta", window.label()));
                 if window.label() == "main" {
@@ -460,11 +533,14 @@ pub fn run() {
                 studio_log::info("window", format!("{} chiusura richiesta", window.label()));
             }
             _ => {}
+            }
         })
         .setup(|app| {
             studio_log::init(app.handle());
             perf_trace::init(app.handle());
             init_windows_aumid();
+            automations::init(app.handle().clone())?;
+            desktop_presence::init(app.handle())?;
             if let Some(main) = app.get_webview_window("main") {
                 window_icon::sync(&main.as_ref().window());
             }
@@ -488,7 +564,12 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
-            if let tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit = event {
+            if desktop_presence::on_run_event(app_handle, &event) {
+                return;
+            }
+            if let tauri::RunEvent::Exit = event {
+                automations::shutdown();
+                directives_ops::cancel_all_background_jobs();
                 if matches!(event, tauri::RunEvent::Exit) {
                     studio_log::info("app", "uscita");
                 }

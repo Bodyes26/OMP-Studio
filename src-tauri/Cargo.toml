@@ -18,7 +18,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["image-png"] }
+tauri = { version = "2", features = ["image-png", "tray-icon"] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -33,6 +33,10 @@ tokio = { version = "1.53.1", features = ["full"] }
 parking_lot = "0.12.5"
 notify = "8.2.0"
 rusqlite = { version = "0.40.1", features = ["bundled"] }
+chrono = { version = "0.4", features = ["clock", "serde"] }
+chrono-tz = "0.10"
+globset = "0.4"
+tauri-plugin-autostart = "=2.5.1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots", "stream"] }
 semver = "1.0"
 futures-util = "0.3"
@@ -49,6 +53,7 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-window-state = "2"
 
 [target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3", features = ["windows-native"] }
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
     "Win32_Graphics_Gdi",
@@ -65,6 +70,12 @@ windows = { version = "0.61.3", features = [
     "Foundation",
     "UI_Notifications",
 ] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", features = ["apple-native"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
 
 [profile.release]
 # Ottimizzazione massima della velocita' di esecuzione (opt-level 3 per massime prestazioni
