@@ -182,7 +182,6 @@
 			type="button"
 			class="version-btn automations-indicator-btn"
 			class:has-attention={attentionRuns.length > 0}
-			class:has-running={hasRunning}
 			class:active={open}
 			aria-expanded={open}
 			aria-haspopup="dialog"
@@ -192,8 +191,10 @@
 		>
 			<!-- Canonical Icon: Terminal + Clock SVG -->
 			{#if hasRunning}
+				<!-- Segno fermo e attenuato: un'automazione in corso e' informazione di
+				     fondo, si legge se la si cerca; il movimento la renderebbe un richiamo. -->
 				<span class="btn-spinner" transition:badgeReveal={{ duration: 160, blur: 2 }}>
-					<StatusMark status="running" active={true} />
+					<StatusMark status="running" active={false} />
 				</span>
 			{:else if attentionRuns.length > 0}
 				<span class="status-glyph warn" aria-hidden="true">
@@ -209,11 +210,7 @@
 				<span class="update-chip warn" transition:badgeReveal>
 					<span class="chip-text">{totalAttention}</span>
 				</span>
-			{:else if totalRunning > 0}
-				<span class="update-chip info" transition:badgeReveal>
-					<span class="chip-text">{totalRunning}</span>
-				</span>
-			{:else if totalWaiting > 0}
+			{:else if totalRunning === 0 && totalWaiting > 0}
 				<span class="update-chip neutral" transition:badgeReveal>
 					<span class="chip-text">{totalWaiting}</span>
 				</span>
@@ -484,13 +481,14 @@
 		background: color-mix(in srgb, var(--warn) 10%, transparent);
 	}
 
-	.automations-indicator-btn.has-running {
-		color: var(--brand-ink);
-	}
-
 	.status-glyph.warn {
 		color: var(--warn);
 		display: inline-flex;
+	}
+
+	.btn-spinner {
+		display: inline-flex;
+		opacity: 0.7;
 	}
 
 	.update-chip {
@@ -508,11 +506,6 @@
 	.update-chip.warn {
 		background: var(--warn);
 		color: #000;
-	}
-
-	.update-chip.info {
-		background: var(--brand);
-		color: #fff;
 	}
 
 	.update-chip.neutral {

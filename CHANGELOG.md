@@ -26,6 +26,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - L'indicatore della barra inferiore unifica le automazioni personali e la generazione titoli in background, mostrando lo stato di massima urgenza, le occorrenze in corso e quelle in attesa; le attività di manutenzione interna (indice, fetch da Git, verifica aggiornamenti) proseguono sempre in background in modo invisibile.
 - L'aggiornamento automatico da Git riguarda tutti i progetti aperti, non solo quello attivo, e il controllo degli aggiornamenti di Studio e omp si ripete periodicamente. Gli interruttori che prima stavano in altre sezioni delle Impostazioni sono ora in «Lavori in background».
 - L'indicatore dei processi in background si sposta all'angolo sinistro della barra inferiore con lo stesso stile e assenza di riquadro dei pulsanti di versione di Studio e omp.
+- Le automazioni in corso restano discrete nella barra inferiore: testo grigio e segno fermo e attenuato, senza colore azzurro né pallino pieno col numero; lo vedi se guardi lì, ma non richiama l'attenzione.
 
 ### Fixed
 - Nei progetti con il diario attivo l'agente parte subito dopo l'invio del messaggio: prima ogni turno restava fermo circa 30 secondi prima di iniziare a ragionare.
@@ -40,6 +41,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Nella card di una domanda della Companion compare solo il testo che l'agente ha scritto dopo la tua ultima risposta, anche se hai già risposto ad altre domande da Studio; il resto della conversazione, risposte alle domande comprese, si apre con «Carica messaggi precedenti» e torna chiuso alla domanda successiva.
 - Un task salvato dalla Companion senza indicare ruolo o modello prende il ruolo predefinito dei task con il suo modello, invece di restare senza ruolo.
 - Nel popover delle quote, con più account sullo stesso provider, «In uso da» compare solo sull'account che omp usa davvero per ogni sessione, invece che su tutti gli account del provider. La chip della quota riconosce l'account anche durante il primo turno di una sessione nuova e nelle sessioni lunghe, senza prendere l'account di un'altra sessione dello stesso progetto.
+- I titoli dei task partono appena salvi il task anche mentre due o più agenti stanno lavorando: prima restavano «in attesa» nell'indicatore Automazioni finché una corsia non si fermava. (AUT-041)
 
 ## [1.9.0] - 2026-10-27
 

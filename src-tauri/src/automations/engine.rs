@@ -120,28 +120,19 @@ impl Engine {
     pub fn claim_title_slot(&self, id: &str) -> bool {
         let ctx = self.context.read().clone();
 
-        // 1. Precedenza interattiva (AUT-041)
-        if ctx.interactive_waiting || (ctx.max_agent_count > 0 && ctx.interactive_agent_count >= ctx.max_agent_count) {
-            return false;
-        }
+        // Precedenza automazioni personali: i titoli attendono solo se ci sono occorrenze AI ammissibili ORA
+        let automation_waiting = self
+            .storage
+            .get_occurrences(20)
+            .map(|occs| {
+                occs.iter()
+                    .any(|o| o.state == "waiting" && self.is_occurrence_admissible_now(o, &ctx))
+            })
+            .unwrap_or(false);
 
-        // 2. Precedenza automazioni personali: i titoli attendono solo se ci sono occorrenze AI ammissibili ORA
-        if let Ok(occs) = self.storage.get_occurrences(20) {
-            let has_admissible_ai = occs.iter().any(|o| {
-                o.state == "waiting" && self.is_occurrence_admissible_now(o, &ctx)
-            });
-            if has_admissible_ai {
-                return false;
-            }
-        }
-
-        // 3. Cap globale AI (CONCURRENCY_SOFT_CAP = 2 o max_agent_count)
-        let global_ai_cap = if ctx.max_agent_count > 0 { ctx.max_agent_count } else { 2 };
         let active_ai = self.running_ai_executions.lock().len();
         let mut titles = self.active_titles.lock();
-        let total_ai_usage = ctx.interactive_agent_count + active_ai + titles.len();
-
-        if total_ai_usage >= global_ai_cap {
+        if !title_slot_admissible(&ctx, active_ai, titles.len(), automation_waiting) {
             return false;
         }
 
@@ -1994,5 +1985,52 @@ pub fn normalize_project_path(path: &str) -> String {
     #[cfg(not(target_os = "windows"))]
     {
         trimmed.to_string()
+    }
+}
+
+/// Regola di ammissione di un titolo AI (AUT-041 rivisto il 2026-10-30).
+///
+/// Gli agenti interattivi non contano: un titolo e' una sola chiamata breve a
+/// un modello leggero, e con due corsie al lavoro, la situazione normale, il
+/// cap agenti lo teneva in attesa finche' una non si fermava. Restano i titoli
+/// seriali, la precedenza delle automazioni AI personali e il loro cap.
+fn title_slot_admissible(
+    ctx: &AutomationContext,
+    active_ai: usize,
+    active_titles: usize,
+    automation_waiting: bool,
+) -> bool {
+    if active_titles > 0 || automation_waiting {
+        return false;
+    }
+    let global_ai_cap = if ctx.max_agent_count > 0 { ctx.max_agent_count } else { 2 };
+    active_ai + active_titles < global_ai_cap
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ctx(interactive: usize, waiting: bool) -> AutomationContext {
+        AutomationContext {
+            interactive_agent_count: interactive,
+            max_agent_count: 2,
+            interactive_waiting: waiting,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn titolo_ammesso_con_agenti_interattivi_al_cap() {
+        assert!(title_slot_admissible(&ctx(2, false), 0, 0, false));
+        assert!(title_slot_admissible(&ctx(5, true), 0, 0, false));
+    }
+
+    #[test]
+    fn titoli_seriali_e_dopo_le_automazioni_ai() {
+        assert!(!title_slot_admissible(&ctx(0, false), 0, 1, false));
+        assert!(!title_slot_admissible(&ctx(0, false), 0, 0, true));
+        assert!(!title_slot_admissible(&ctx(0, false), 2, 0, false));
+        assert!(title_slot_admissible(&ctx(0, false), 1, 0, false));
     }
 }

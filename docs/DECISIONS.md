@@ -1988,3 +1988,5 @@ Scelte prese nelle conversazioni e nei commit ma non registrate come Gate.
 - **Ruoli in vista master-detail.** Scelta dopo aver confrontato prototipi diversi del modale ruoli [sessione 01a01e03].
 - **La coda nasce dal lavoro a un agente per progetto.** Ogni progetto lavora su un filo solo, quindi serve un posto dove parcheggiare il prossimo prompt e lanciarlo su una sessione pulita quando l'agente ha finito [sessione 01a03271].
 - **L'agente non chiude né avvia Studio.** Chi sviluppa Studio lo fa da dentro Studio: chiudere l'istanza o aprirne una seconda interrompe il lavoro; le prove passano da test, `npm run dev` o build separate [sessione 01a01f6b] [sessione 01a037e9].
+
+- 2026-10-30 — I titoli AI (task e sessioni) non attendono gli agenti interattivi: sono una chiamata breve a un modello leggero e con due corsie al lavoro, situazione abituale, restavano in attesa indefinita. Restano seriali, dopo le automazioni AI personali e dentro il loro cap. Scelta dell'utente: «Titoli fuori dal cap agenti» (AUT-041 rivisto). [sessione 01a18c7a]

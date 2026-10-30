@@ -26,6 +26,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - The bottom-bar indicator unifies personal automations and background title generation, displaying the highest-urgency state, active occurrences, and waiting runs; internal maintenance tasks (history index, Git fetch, update checks) continue invisibly in the background.
 - Automatic Git fetch covers every open project, not just the active one, and the Studio and omp update check repeats periodically. Toggles that used to live in other Settings sections are now under "Background jobs".
 - The background processes indicator moves to the left corner of the bottom bar, matching the borderless styling and typography of the Studio and omp version buttons.
+- Running automations stay discreet in the bottom bar: grey text and a still, dimmed mark, with no blue color or filled count bubble; you see it when you look there, but it does not draw attention.
 
 ### Fixed
 - In projects with the journal enabled the agent starts right after you send a message: before, every turn sat idle for about 30 seconds before it began reasoning.
@@ -40,6 +41,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - A Companion question card shows only the text the agent wrote after your last answer, even when you already answered other questions from Studio; the rest of the conversation, including your answers to earlier questions, opens with "Load previous messages" and folds back for the next question.
 - A task saved from the Companion without a role or model gets the default task role and its model instead of having no role.
 - In the quota popover, with several accounts on the same provider, "In use by" appears only on the account omp actually uses for each session instead of on every account of that provider. The quota chip also recognises the account during the first turn of a new session and in long sessions, without picking up the account of another session in the same project.
+- Task titles start as soon as you save the task even while two or more agents are working: before, they stayed "waiting" in the Automations indicator until a lane stopped. (AUT-041)
 
 ## [1.9.0] - 2026-10-27
 
