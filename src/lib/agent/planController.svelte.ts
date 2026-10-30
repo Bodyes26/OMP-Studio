@@ -108,7 +108,7 @@ async function loadRoleSource(): Promise<PlanRoleSource | null> {
 		// Import differito: lo store delle impostazioni porta con se' Tauri e le icone.
 		const { modelSettingsStore } = await import('#lib/stores/modelSettings.svelte.ts');
 		roleSource = {
-			ensureLoaded: () => modelSettingsStore.ensureLoaded(),
+			ensureLoaded: () => modelSettingsStore.ensureConfigAndCatalog(),
 			roles: () => modelSettingsStore.config?.modelRoles ?? modelSettingsStore.draftConfig?.modelRoles ?? {},
 			knownSelectors: () => modelSettingsStore.knownSelectors
 		};

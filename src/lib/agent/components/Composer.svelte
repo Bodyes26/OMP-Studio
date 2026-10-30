@@ -590,14 +590,41 @@
 		supportedThinkingLevels(session.model) ?? CHAT_THINKING_LEVELS
 	);
 
+	// omp esegue i comandi in fila: un `set_thinking_level` + `get_state` per
+	// ogni passo dello slider allungava la coda. Mentre un cambio e' in volo si
+	// tiene solo l'ultimo livello chiesto, e lo stato si rilegge una volta alla fine.
+	let thinkingInFlight = false;
+	let thinkingQueued: ThinkingLevel | null = null;
+	let thinkingRequested: ThinkingLevel | null = null;
+
+	async function applyThinkingLevel(level: ThinkingLevel) {
+		thinkingRequested = level;
+		if (thinkingInFlight) {
+			thinkingQueued = level;
+			return;
+		}
+		thinkingInFlight = true;
+		const target = session;
+		try {
+			let next: ThinkingLevel | null = level;
+			while (next && target === session) {
+				thinkingQueued = null;
+				await target.client.send({ type: 'set_thinking_level', level: next });
+				next = thinkingQueued;
+			}
+			await target.refreshState();
+		} finally {
+			thinkingInFlight = false;
+			thinkingQueued = null;
+			thinkingRequested = null;
+		}
+	}
+
 	function cycleThinkingLevel() {
 		const levels = chatThinkingLevels;
-		const current = session.thinkingLevel || 'off';
+		const current = thinkingRequested ?? session.thinkingLevel ?? 'off';
 		const next = levels[(levels.indexOf(current) + 1) % levels.length];
-		void session.client.send({
-			type: 'set_thinking_level',
-			level: next
-		}).then(() => session.refreshState());
+		void applyThinkingLevel(next);
 	}
 
 	/**
@@ -1260,12 +1287,7 @@
 											<ReasoningSlider
 												value={session.thinkingLevel || 'off'}
 												levels={chatThinkingLevels}
-												onChange={(level) => {
-													void session.client.send({
-														type: 'set_thinking_level',
-														level: level as ThinkingLevel
-													}).then(() => session.refreshState());
-												}}
+												onChange={(level) => void applyThinkingLevel(level as ThinkingLevel)}
 											/>
 										{:else}
 											<p class="thinking-unsupported">

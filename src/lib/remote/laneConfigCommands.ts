@@ -76,6 +76,8 @@ function resolveTargetLane(projectId: string, laneId: string | null): TargetLane
 
 export interface LaneConfigDeps {
 	ensureLoaded: () => Promise<void>;
+	/** Solo `config.yml` e catalogo: applicare un ruolo non richiede `omp models --json`. */
+	ensureRoleConfig: () => Promise<void>;
 	getModelConfig: () => { modelRoles?: Record<string, string>; cycleOrder?: string[] } | null | undefined;
 	getAssignableCatalog: () => ModelDto[];
 	getKnownSelectors?: () => ReadonlySet<string>;
@@ -83,7 +85,7 @@ export interface LaneConfigDeps {
 
 export function createLaneConfigCommands(deps: LaneConfigDeps) {
 	const roleContext: RoleSettingsContext = {
-		ensureLoaded: deps.ensureLoaded,
+		ensureLoaded: deps.ensureRoleConfig,
 		getModelConfig: deps.getModelConfig,
 		getKnownSelectors: deps.getKnownSelectors
 	};

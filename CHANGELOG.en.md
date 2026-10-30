@@ -28,6 +28,9 @@ released: items are closed into a version via `npm run release -- <version>`.
 - The background processes indicator moves to the left corner of the bottom bar, matching the borderless styling and typography of the Studio and omp version buttons.
 
 ### Fixed
+- In projects with the journal enabled the agent starts right after you send a message: before, every turn sat idle for about 30 seconds before it began reasoning.
+- Switching role from the composer (for example from default to smol) is faster: Studio no longer waits for the full list of available models, which took several seconds.
+- Dragging the thinking slider sends only the last chosen level to the agent instead of one command per step: the level updates sooner and no longer slows down the commands that follow.
 - Scratchpads now show the top-bar indicator when the agent is working, waiting for a reply or has finished, while keeping the ghost icon.
 - A manual compaction started outside Studio, for example by an extension, shows up in the chat as "Compacting context" and reports the tokens saved when it ends; the session shows as busy while it runs (requires omp 18.13.3 or later).
 - Project-linked prototypes receive the real project path and references to its files instead of searching only the empty scaffold: start from a project never opened in Studio without explaining its domain again or needing a previous chat. (R-LAB-01, R-LAB-07)

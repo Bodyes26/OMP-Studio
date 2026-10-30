@@ -99,23 +99,44 @@ function toPosix(path: string): string {
  * Radice del diario: il checkout principale, anche quando l'agente lavora in
  * una corsia (worktree). Il diario e' uno per progetto; scriverlo nella
  * corsia lo spezzerebbe in rami che si scontrano al merge.
+ *
+ * Si legge `.git` dal disco invece di chiedere a `git rev-parse`: dentro omp
+ * su Windows un `execFileSync` di git blocca il processo per ~30 s, e questa
+ * funzione gira in `before_agent_start`, cioe' prima di ogni turno.
  */
 export function resolveProjectRoot(cwd: string): string {
-	try {
-		const common = execFileSync("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], {
-			cwd,
-			encoding: "utf8",
-			stdio: ["ignore", "pipe", "ignore"],
-			windowsHide: true
-		}).trim();
-		if (common && toPosix(common).endsWith("/.git")) {
-			const root = dirname(common);
-			if (existsSync(root)) return root;
+	let dir = resolve(cwd);
+	for (;;) {
+		const dotGit = join(dir, ".git");
+		let isDir: boolean | null = null;
+		try {
+			isDir = statSync(dotGit).isDirectory();
+		} catch {
+			// niente `.git` qui: si sale di una cartella
 		}
-	} catch {
-		// Non e' un repository git (o git manca): vale la cartella corrente.
+		if (isDir === true) return dir;
+		if (isDir === false) return worktreeMainRoot(dir, dotGit) ?? cwd;
+		const parent = dirname(dir);
+		if (parent === dir) return cwd;
+		dir = parent;
 	}
-	return cwd;
+}
+
+/**
+ * Corsia (worktree): `.git` e' un file `gitdir: <comune>/worktrees/<nome>` e
+ * `commondir` porta alla `.git` del checkout principale. Un sottomodulo non ha
+ * `commondir` e, come con `--git-common-dir`, resta la cartella corrente.
+ */
+function worktreeMainRoot(dir: string, dotGitFile: string): string | null {
+	const pointer = /^gitdir:\s*(.+?)\s*$/m.exec(readText(dotGitFile) ?? "");
+	if (!pointer) return null;
+	const gitDir = resolve(dir, pointer[1]);
+	const common = readText(join(gitDir, "commondir"))?.trim();
+	if (!common) return null;
+	const commonDir = resolve(gitDir, common);
+	if (!toPosix(commonDir).endsWith("/.git")) return null;
+	const root = dirname(commonDir);
+	return existsSync(root) ? root : null;
 }
 
 /** Percorso relativo sicuro: niente assoluti, niente uscite dalla radice. */

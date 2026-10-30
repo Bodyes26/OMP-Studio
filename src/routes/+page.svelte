@@ -1350,6 +1350,7 @@
 		});
 		const remoteLaneConfig = createLaneConfigCommands({
 			ensureLoaded: () => modelSettingsStore.ensureLoaded(),
+			ensureRoleConfig: () => modelSettingsStore.ensureConfigAndCatalog(),
 			getModelConfig: () => modelSettingsStore.config || modelSettingsStore.draftConfig,
 			getAssignableCatalog: () => modelSettingsStore.assignableCatalog,
 			getKnownSelectors: () => modelSettingsStore.knownSelectors
@@ -2587,7 +2588,7 @@
 			void (async () => {
 				try {
 					const result = await applyRoleToSession(session, arg, {
-						ensureLoaded: () => modelSettingsStore.ensureLoaded(),
+						ensureLoaded: () => modelSettingsStore.ensureConfigAndCatalog(),
 						getModelConfig: () => modelSettingsStore.config || modelSettingsStore.draftConfig,
 						getKnownSelectors: () => modelSettingsStore.knownSelectors
 					});
@@ -2624,7 +2625,7 @@
 			}
 			if (argument.toLowerCase() === 'next' || argument.toLowerCase() === 'cycle') {
 				void (async () => {
-					await modelSettingsStore.ensureLoaded();
+					await modelSettingsStore.ensureConfigAndCatalog();
 					const cfg = modelSettingsStore.config || modelSettingsStore.draftConfig;
 					const rolesMap = cfg?.modelRoles || {};
 					const cycleOrder = cfg?.cycleOrder && cfg.cycleOrder.length > 0 ? cfg.cycleOrder : Object.keys(rolesMap);

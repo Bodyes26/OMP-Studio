@@ -60,6 +60,7 @@ describe('remote lane config commands (Gate R44, lane_config)', () => {
 		setRemoteLaneThinking
 	} = createLaneConfigCommands({
 		ensureLoaded: async () => {},
+		ensureRoleConfig: async () => {},
 		getModelConfig: () => mockConfig,
 		getAssignableCatalog: () => mockCatalog,
 		getKnownSelectors: () => knownSelectors
