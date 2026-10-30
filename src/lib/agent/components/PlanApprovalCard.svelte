@@ -202,16 +202,18 @@ import {
 			{/each}
 		</div>
 
-		<div class="pa-sub">
-			<span class="pa-lbl">{m.plan_approval_role()}</span>
-			<Segmented
-				options={roleOptions}
-				value={plan.execRole}
-				ariaLabel={m.plan_approval_role()}
-				onChange={(value) => (plan.execRole = value)}
-			/>
-			{#if roleModel}<span class="pa-model font-mono">{roleModel}</span>{/if}
-		</div>
+		{#if !isLab}
+			<div class="pa-sub">
+				<span class="pa-lbl">{m.plan_approval_role()}</span>
+				<Segmented
+					options={roleOptions}
+					value={plan.execRole}
+					ariaLabel={m.plan_approval_role()}
+					onChange={(value) => (plan.execRole = value)}
+				/>
+				{#if roleModel}<span class="pa-model font-mono">{roleModel}</span>{/if}
+			</div>
+		{/if}
 
 		{#if !isLab && plan.execMode === 'lane'}
 			<div class="pa-sub">

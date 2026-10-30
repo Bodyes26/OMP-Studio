@@ -480,7 +480,9 @@ export class PlanController {
 		const mode: PlanExecMode = isLab
 			? (this.execMode === 'keep' ? 'keep' : 'compact')
 			: this.execMode;
-		const role = this.execRole;
+		// Nel Lab il modello lo sceglie l'utente (all'avvio o a meta' corsa):
+		// l'approvazione del brief non propone ne' applica un ruolo.
+		const role = isLab ? '' : this.execRole;
 		// Nel Lab l'archiviazione di .lab/brief.md e' sempre obbligatoria
 		const autosave = isLab ? true : this.autosave;
 		const content = this.finalContent(doc);
@@ -495,8 +497,10 @@ export class PlanController {
 			fromModel: modelLabel(session),
 			fromTokens: session.contextUsage?.tokens ?? null,
 			toTitle,
-			toModel: this.roleModelLabel(role),
-			steps: planHandoffSteps(mode, autosave).map((id) => ({ id, state: 'pending', detail: '' })),
+			toModel: isLab ? modelLabel(session) : this.roleModelLabel(role),
+			steps: planHandoffSteps(mode, autosave)
+				.filter((id) => !isLab || id !== 'role')
+				.map((id) => ({ id, state: 'pending', detail: '' })),
 			status: 'running',
 			error: null,
 			planningSessionId: session.sessionId,
@@ -579,10 +583,14 @@ export class PlanController {
 				step('start-lane', 'done', 'rpc-ui');
 			}
 
-			step('role', 'running');
-			const model = await target.plan.applyRole(role, { quiet: true });
-			card.toModel = model || modelLabel(target);
-			step('role', 'done', card.toModel);
+			if (isLab) {
+				card.toModel = modelLabel(target);
+			} else {
+				step('role', 'running');
+				const model = await target.plan.applyRole(role, { quiet: true });
+				card.toModel = model || modelLabel(target);
+				step('role', 'done', card.toModel);
+			}
 
 			step('deliver', 'running');
 			const prompt = buildApprovedPrompt({

@@ -20,6 +20,7 @@ Citazioni dell'utente dalla discussione del 2026-10-28:
 - **F7 — Screenshot:** «va bene solo A», riferito all'allegato manuale, senza apertura dell'app reale o cattura automatica dal Browser di Studio.
 - **F8 — Registro:** «va bene», in risposta al registro R-LAB-01…08, alle regole in AGENTS.md e ai documenti del Gate R47.
 - **F9 — Consegna Nightly senza suite di test:** «procedi con l'implementazione completa» e «Non fare test [...] Quando hai finito il codice mi fai il flow di pubblicazione nightly». Questa autorizzazione riguarda la consegna del codice e la pubblicazione, non attesta il superamento degli scenari di accettazione.
+- **F10 — Modello scelto dall'utente (2026-10-30):** «quando approvo il brief del lab non deve propormi di cambiare modello, deve tenere quello che ho lasciato, sta a me all'inizio del lab impostare il modello che voglio o cambiarlo io a metà corsa quando voglio, non deve forzarmi lì».
 
 Le fonti complete sono nella conversazione di progetto del 2026-10-28. Le citazioni abbreviate sopra conservano il significato della decisione; i dettagli verificabili sono definiti nei requisiti seguenti.
 
@@ -90,16 +91,16 @@ All'approvazione Studio salva `.lab/brief.md` nel workspace e sblocca la costruz
 
 ## R-LAB-03 — Due sole strade dopo l'approvazione
 
-**Fonti:** F5, F8.
+**Fonti:** F5, F8, F10.
 
 La revisione del Piano nel Lab offre solo:
 
 - **Compatta e continua**, preselezionata: conserva brief e informazioni utili dell'esplorazione nella stessa sessione, eliminando il dettaglio grezzo non necessario.
 - **Continua così com'è:** conserva il contesto integrale della stessa sessione.
 
-Non offre nuova sessione o nuova corsia. La scelta non cambia il workspace né interrompe altre corsie.
+Non offre nuova sessione o nuova corsia. La scelta non cambia il workspace né interrompe altre corsie. Non offre la scelta del ruolo di esecuzione e non cambia modello: la costruzione prosegue con il modello attivo al momento dell'approvazione, che l'utente imposta o cambia quando vuole dal selettore della chat (F10, 2026-10-30).
 
-**Accettazione:** approvare una volta per ciascuna strada e costruire il prototipo nella stessa sessione e nello stesso workspace. Dopo compattazione restano disponibili il brief approvato e i riferimenti necessari ai dati e alla superficie; con l'altra strada la cronologia resta integra. Nessuna delle due crea una corsia.
+**Accettazione:** approvare una volta per ciascuna strada e costruire il prototipo nella stessa sessione e nello stesso workspace. Dopo compattazione restano disponibili il brief approvato e i riferimenti necessari ai dati e alla superficie; con l'altra strada la cronologia resta integra. Nessuna delle due crea una corsia. La scheda di approvazione non mostra il selettore del ruolo e il modello dopo l'approvazione è lo stesso di prima.
 
 ## R-LAB-04 — Intervista adattiva e screenshot manuale
 

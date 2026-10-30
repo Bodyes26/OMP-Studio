@@ -798,12 +798,12 @@
 					aria-label={m.topbar_tab_aria_label({ type: p.labDraft ? m.lab_lane_draft_badge() : p.canonicalProjectPath ? m.topbar_tab_project() : m.topbar_tab_scratchpad(), name: p.name, state: AGENT_STATE_LABEL[aggState], queued: queued > 0 ? ` · ${m.topbar_queue_count_label({ count: queued })}` : '' }) + (gitLanesCount > 0 ? ` · ${m.topbar_tab_aria_worktrees({ count: gitLanesCount })}` : '') + (labLanesCount > 0 ? ` · ${m.topbar_tab_aria_prototypes({ count: labLanesCount })}` : '') + gitDiffLabel + upstreamLabel}
 				>
 
+					<span
+						class="tab-dot"
+						class:working={aggState === 'working'}
+						aria-hidden="true"
+					></span>
 					{#if p.canonicalProjectPath}
-						<span
-							class="tab-dot"
-							class:working={aggState === 'working'}
-							aria-hidden="true"
-						></span>
 						<span class="tab-code">{projectCode(p)}</span>
 					{:else if p.labDraft}
 						<span class="tab-ghost" aria-hidden="true"><IconLab /></span>
