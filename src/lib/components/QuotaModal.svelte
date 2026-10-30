@@ -31,6 +31,9 @@
 	import { projectStore } from '#lib/stores/projects.svelte.ts';
 	import StatusMark from '#lib/ui/StatusMark.svelte';
 	import Tooltip from '#lib/ui/Tooltip.svelte';
+	import Dialog from '#lib/ui/Dialog.svelte';
+	import Terminal from '#lib/terminal/Terminal.svelte';
+	import { modelSettingsStore } from '#lib/stores/modelSettings.svelte.ts';
 
 	let {
 		open = false,
@@ -50,6 +53,20 @@
 	let previousFocus: HTMLElement | null = null;
 	let now = $state(Date.now());
 	let manualRedeemSummary = $state<AccountResetSummary | null>(null);
+	let loginTarget = $state<string | null>(null);
+
+	async function closeLogin() {
+		const provider = loginTarget;
+		loginTarget = null;
+		await Promise.all([
+			quotaStore.refresh(true),
+			modelSettingsStore.loadAccounts(),
+			modelSettingsStore.loadProviders()
+		]);
+		if (provider) {
+			try { await modelSettingsStore.refreshCatalog(provider); } catch {}
+		}
+	}
 
 	/* Preferenze colore semaforo del popover quote */
 	const popover = $derived(settingsStore.appearance.quotaPopover);
@@ -189,7 +206,7 @@
 
 	// Chiusura al click esterno (fase di cattura): non ruba il fuoco al target cliccato
 	$effect(() => {
-		if (!open) return;
+		if (!open || loginTarget) return;
 
 		const handlePointerDown = (e: PointerEvent) => {
 			const target = e.target as Node | null;
@@ -216,7 +233,7 @@
 	}
 
 	function handleWindowKeyDown(e: KeyboardEvent) {
-		if (e.key === 'Escape' && open) {
+		if (e.key === 'Escape' && open && !loginTarget) {
 			const t = e.target as HTMLElement | null;
 			if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) {
 				return;
@@ -227,6 +244,7 @@
 	}
 
 	function handleFocusOut(e: FocusEvent) {
+		if (loginTarget) return;
 		const related = e.relatedTarget as Node | null;
 		if (!popoverEl?.contains(related) && !(anchor && anchor.contains(related))) {
 			// Uscita naturale del Tab: chiude senza ripristinare il fuoco sull'ancora
@@ -237,7 +255,7 @@
 
 <svelte:window onkeydown={handleWindowKeyDown} />
 
-{#if open}
+{#if open && !loginTarget}
 	<div
 		bind:this={popoverEl}
 		class="popover"
@@ -345,6 +363,13 @@
 									{/if}
 								</div>
 								<div class="cred-cause" title={cred.cause}>{cred.cause}</div>
+								<button
+									type="button"
+									class="ui-button ui-button-secondary cred-login"
+									onclick={() => { loginTarget = cred.provider; }}
+								>
+									{m.ui_providerstab_accedi_di_nuovo_5726()}
+								</button>
 							</div>
 						{/each}
 					</div>
@@ -514,7 +539,52 @@
 	</div>
 {/if}
 
+<Dialog
+	open={loginTarget !== null}
+	title={loginTarget ? m.ui_providerstab_login_dialog_title({ value1: loginTarget }) : ''}
+	onClose={() => void closeLogin()}
+	size="wide"
+>
+	{#snippet body()}
+		{#if loginTarget}
+			<p class="login-dialog-hint">{m.ui_providerstab_login_dialog_hint()}</p>
+			<div class="login-terminal">
+				{#key loginTarget}
+					<Terminal cwd={''} launchArgs={['login', loginTarget]} />
+				{/key}
+			</div>
+		{/if}
+	{/snippet}
+	{#snippet footer()}
+		<button type="button" class="ui-button ui-button-primary" onclick={() => void closeLogin()}>
+			{m.common_close()}
+		</button>
+	{/snippet}
+</Dialog>
+
 <style>
+	.cred-login {
+		align-self: flex-start;
+		margin-top: var(--space-1);
+	}
+
+	.login-dialog-hint {
+		margin: 0;
+		font-size: var(--text-body);
+		color: var(--ink-muted);
+		line-height: 1.45;
+	}
+
+	.login-terminal {
+		position: relative;
+		height: 420px;
+		min-height: 320px;
+		background: var(--bg-sunken);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
+		overflow: hidden;
+	}
+
 	.schedule-waiting {
 		display: flex;
 		align-items: center;

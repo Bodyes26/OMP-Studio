@@ -29,6 +29,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Le automazioni in corso restano discrete nella barra inferiore: testo grigio e segno fermo e attenuato, senza colore azzurro né pallino pieno col numero; lo vedi se guardi lì, ma non richiama l'attenzione.
 
 ### Fixed
+- Nel popover delle quote, «Accedi di nuovo» avvia il login del provider direttamente da ogni account con credenziali disabilitate o scadute; alla chiusura aggiorna account e quote.
 - Nei progetti con il diario attivo l'agente parte subito dopo l'invio del messaggio: prima ogni turno restava fermo circa 30 secondi prima di iniziare a ragionare.
 - Cambiare ruolo dal composer (per esempio da default a smol) è più rapido: Studio non aspetta più l'elenco completo dei modelli disponibili, che richiedeva diversi secondi.
 - Trascinando lo slider del thinking Studio invia all'agente solo l'ultimo livello scelto invece di un comando per ogni passo: il livello si aggiorna prima e non rallenta i comandi successivi.

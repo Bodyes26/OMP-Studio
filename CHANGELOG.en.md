@@ -29,6 +29,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Running automations stay discreet in the bottom bar: grey text and a still, dimmed mark, with no blue color or filled count bubble; you see it when you look there, but it does not draw attention.
 
 ### Fixed
+- In the quota popover, “Sign in again” starts the provider login directly from each account with disabled or expired credentials; closing it refreshes accounts and quotas.
 - In projects with the journal enabled the agent starts right after you send a message: before, every turn sat idle for about 30 seconds before it began reasoning.
 - Switching role from the composer (for example from default to smol) is faster: Studio no longer waits for the full list of available models, which took several seconds.
 - Dragging the thinking slider sends only the last chosen level to the agent instead of one command per step: the level updates sooner and no longer slows down the commands that follow.
