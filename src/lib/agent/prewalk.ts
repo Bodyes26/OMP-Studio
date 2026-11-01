@@ -6,6 +6,54 @@ export interface PrewalkState {
 	handedOffTo?: string;
 }
 
+/**
+ * `prewalk.into` (destinazione al primo edit) e `prewalk.from` (modello a cui
+ * torna «Ripeti»): un ruolo `@nome` o un selettore `provider/id[:thinking]`.
+ */
+export interface PrewalkTargets {
+	into: string;
+	from: string;
+}
+
+/** Valori predefiniti di omp (18.14.0+) quando `config.yml` non li imposta. */
+export const DEFAULT_PREWALK_TARGETS: Readonly<PrewalkTargets> = { into: '@smol', from: '@default' };
+
+export function normalizePrewalkTargets(raw: Partial<PrewalkTargets> | null | undefined): PrewalkTargets {
+	return {
+		into: raw?.into?.trim() || DEFAULT_PREWALK_TARGETS.into,
+		from: raw?.from?.trim() || DEFAULT_PREWALK_TARGETS.from
+	};
+}
+
+/** Ruolo indicato da un selettore `@ruolo`, altrimenti null (modello esplicito). */
+export function prewalkTargetRole(selector: string): string | null {
+	const trimmed = selector.trim();
+	return trimmed.startsWith('@') && trimmed.length > 1 ? trimmed.slice(1) : null;
+}
+
+export type PrewalkSlashAction =
+	| { kind: 'open' }
+	| { kind: 'arm'; into: string }
+	| { kind: 'off' }
+	| { kind: 'restart'; from?: string; into?: string }
+	| { kind: 'usage' };
+
+/**
+ * Stessa grammatica del `/prewalk` di omp: `[into] | restart [from] [into] | off`.
+ * Senza argomenti la chat apre la scheda (e arma, come omp).
+ */
+export function routePrewalkSlash(argument: string): PrewalkSlashAction {
+	const [verb, ...rest] = argument.trim().split(/\s+/).filter(Boolean);
+	if (!verb) return { kind: 'open' };
+	const keyword = verb.toLowerCase();
+	if (keyword === 'off') return rest.length === 0 ? { kind: 'off' } : { kind: 'usage' };
+	if (keyword === 'restart') {
+		if (rest.length > 2) return { kind: 'usage' };
+		return { kind: 'restart', from: rest[0], into: rest[1] };
+	}
+	return rest.length === 0 ? { kind: 'arm', into: verb } : { kind: 'usage' };
+}
+
 export type PrewalkNotice =
 	| { kind: 'armed'; target?: string }
 	| { kind: 'disarmed' }

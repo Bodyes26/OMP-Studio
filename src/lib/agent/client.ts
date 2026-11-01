@@ -228,10 +228,19 @@ export class OmpRpcClient {
 		return rpcId;
 	}
 
-	/** L'overlay appartiene al processo, non alla configurazione globale di omp. */
-	async setPrewalk(enabled: boolean): Promise<void> {
+	/**
+	 * L'overlay appartiene al processo, non alla configurazione globale di omp.
+	 * `into`/`from` viaggiano con `enabled`: omp risolve la destinazione quando
+	 * `enabled` diventa vero.
+	 */
+	async setPrewalk(enabled: boolean, targets: { into?: string; from?: string } = {}): Promise<void> {
 		if (this.rpcId === null || this.closed) throw rpcError('Sessione RPC non aperta', 'prewalk');
-		await invoke('rpc_set_prewalk', { rpcId: this.rpcId, enabled });
+		await invoke('rpc_set_prewalk', {
+			rpcId: this.rpcId,
+			enabled,
+			into: targets.into ?? null,
+			from: targets.from ?? null
+		});
 	}
 
 	/**

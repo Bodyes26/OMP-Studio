@@ -171,7 +171,13 @@ commands.allow = [
     "apply_model_fixes",
     "get_role_suggestions",
     "get_cache_warming_setting",
-    "set_cache_warming_setting"
+    "set_cache_warming_setting",
+    "get_prewalk_settings",
+    "set_prewalk_settings",
+    "get_subagent_model_settings",
+    "set_subagent_model_settings",
+    "get_agent_model_overrides",
+    "remove_agent_model_override"
 ]
 
 [[permission]]

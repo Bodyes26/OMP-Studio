@@ -39,6 +39,7 @@
 		IconLock
 	} from '#lib/icons.ts';
 	import { m } from '#lib/paraglide/messages.js';
+	import { DEFAULT_PREWALK_TARGETS, prewalkTargetRole } from '../prewalk';
 
 	import Tooltip from '#lib/ui/Tooltip.svelte';
 	import MenuButton from '#lib/ui/MenuButton.svelte';
@@ -77,8 +78,15 @@
 
 	const statusPins = $derived(itemsInZone(resolvedLayout, 'statusLine'));
 
-	const smolConfigured = $derived(modelSettingsStore.config?.modelRoles?.smol?.trim() || '');
-	const smolFallbacks = $derived(modelSettingsStore.config?.fallbackChains?.smol || []);
+	// Destinazione del prewalk: un ruolo (`@smol`, predefinito di omp) o un modello esplicito.
+	const prewalkInto = $derived(session.prewalkTargets?.into ?? DEFAULT_PREWALK_TARGETS.into);
+	const prewalkIntoRole = $derived(prewalkTargetRole(prewalkInto));
+	const prewalkIntoModel = $derived(
+		prewalkIntoRole ? modelSettingsStore.config?.modelRoles?.[prewalkIntoRole]?.trim() || '' : prewalkInto
+	);
+	const prewalkFallbacks = $derived(
+		prewalkIntoRole ? modelSettingsStore.config?.fallbackChains?.[prewalkIntoRole] || [] : []
+	);
 	const prewalkState = $derived(session.prewalk?.state ?? 'off');
 	const prewalkTarget = $derived(session.prewalk?.target || '');
 	const handedOffTo = $derived(
@@ -93,10 +101,15 @@
 		!isLab && (session.fastModeActive || modelSupportsFastMode(session.model))
 	);
 	const showSlow = $derived(!isLab && session.slowModeSupported);
-	// Su smol prewalk non ha dove passare; dopo il passaggio resta per «ripeti».
+	// Senza una destinazione configurata, o gia' sul ruolo di destinazione, prewalk
+	// non ha dove passare; dopo il passaggio resta per «ripeti».
 	const showPrewalk = $derived(
-		!isLab && smolConfigured !== '' && (activeRole !== 'smol' || prewalkState !== 'off')
+		!isLab &&
+			(prewalkState !== 'off' || (prewalkIntoModel !== '' && activeRole !== prewalkIntoRole))
 	);
+	$effect(() => {
+		if (!isLab && session.isReady) void session.ensurePrewalkTargets();
+	});
 	const limit = $derived(session.usageLimit);
 	const totalCost = $derived(session.totalCost);
 
@@ -167,13 +180,14 @@
 	});
 	const prewalkTooltip = $derived.by(() => {
 		if (session.prewalkBusy) return m.chat_v2_composer_prewalk_busy();
-		if (smolFallbacks.length > 0) {
+		const target = prewalkIntoRole ? `${prewalkInto} (${prewalkIntoModel})` : prewalkInto;
+		if (prewalkFallbacks.length > 0) {
 			return m.chat_v2_composer_prewalk_tooltip_with_fallbacks({
-				smol: smolConfigured,
-				fallbacks: smolFallbacks.join(', ')
+				target,
+				fallbacks: prewalkFallbacks.join(', ')
 			});
 		}
-		return m.chat_v2_composer_prewalk_tooltip({ smol: smolConfigured });
+		return m.chat_v2_composer_prewalk_tooltip({ target });
 	});
 	const costTooltip = $derived(
 		session.subagentCost > 0
@@ -210,12 +224,10 @@
 		}
 	}
 
-	async function runPrewalk(action: () => Promise<unknown>) {
-		try {
-			await action();
-		} catch (err) {
-			session.pushNotice('error', err instanceof Error ? err.message : String(err), 'prewalk');
-		}
+	/** Il pulsante arma (se spento) e apre la scheda; con la scheda aperta la chiude. */
+	function togglePrewalkCard() {
+		if (session.prewalkCardOpen) session.closePrewalkCard();
+		else session.openPrewalkCard({ arm: prewalkState === 'off' });
 	}
 
 	// --------------------------------------------------------------------------
@@ -379,14 +391,12 @@
 							class="status-item"
 							class:on={prewalkState !== 'off'}
 							aria-pressed={prewalkState !== 'off'}
+							aria-expanded={session.prewalkCardOpen}
 							aria-label={prewalkState === 'off'
 								? m.chat_v2_composer_prewalk_arm_aria()
-								: m.chat_v2_composer_prewalk_disarm_aria()}
+								: m.chat_v2_composer_prewalk_card_aria()}
 							disabled={prewalkBusy}
-							onclick={() =>
-								void runPrewalk(() =>
-									prewalkState === 'off' ? session.armPrewalk() : session.disarmPrewalk()
-								)}
+							onclick={togglePrewalkCard}
 						>
 							<span class="status-icon"><IconPrewalk /></span>{m.chat_v2_composer_prewalk_title().toLowerCase()}
 							{#if prewalkState === 'armed'}
@@ -397,13 +407,23 @@
 						</button>
 					</Tooltip>
 					{#if prewalkState === 'handedOff'}
-						<Tooltip text={m.chat_v2_composer_prewalk_restart_aria()} placement="top" offset={6}>
+						<Tooltip
+							text={m.chat_v2_composer_prewalk_restart_aria({
+								from: session.prewalkTargets?.from ?? DEFAULT_PREWALK_TARGETS.from,
+								into: prewalkInto
+							})}
+							placement="top"
+							offset={6}
+						>
 							<button
 								type="button"
 								class="status-item"
-								aria-label={m.chat_v2_composer_prewalk_restart_aria()}
+								aria-label={m.chat_v2_composer_prewalk_restart_aria({
+									from: session.prewalkTargets?.from ?? DEFAULT_PREWALK_TARGETS.from,
+									into: prewalkInto
+								})}
 								disabled={prewalkBusy}
-								onclick={() => void runPrewalk(() => session.restartPrewalk())}
+								onclick={() => void session.runPrewalkAction(() => session.restartPrewalk())}
 							>
 								<span class="status-icon"><IconRefresh /></span>{m.chat_v2_composer_prewalk_restart().toLowerCase()}
 							</button>
@@ -564,9 +584,7 @@
 								class:is-active={prewalkState !== 'off'}
 								onclick={() => {
 									overflowOpen = false;
-									void runPrewalk(() =>
-										prewalkState === 'off' ? session.armPrewalk() : session.disarmPrewalk()
-									);
+									togglePrewalkCard();
 								}}
 							>
 								<IconPrewalk />

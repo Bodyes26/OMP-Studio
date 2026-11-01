@@ -75,9 +75,10 @@ use studio_updater::{
 mod models_ops;
 use models_ops::{
     apply_model_fixes, check_model_health, get_auth_accounts, get_available_models_catalog,
-    get_cache_warming_setting, get_custom_providers, get_model_config, get_model_providers,
-    get_models_catalog, get_role_suggestions, refresh_model_provider, refresh_models_catalog,
-    remove_auth_account, save_custom_providers, save_model_config, set_cache_warming_setting,
+    get_agent_model_overrides, get_cache_warming_setting, get_custom_providers, get_model_config, get_model_providers,
+    get_models_catalog, get_prewalk_settings, get_role_suggestions, get_subagent_model_settings,
+    refresh_model_provider, refresh_models_catalog, remove_agent_model_override, remove_auth_account, save_custom_providers,
+    save_model_config, set_cache_warming_setting, set_prewalk_settings, set_subagent_model_settings,
 };
 pub(crate) mod path_lookup;
 mod setup;
@@ -354,6 +355,12 @@ pub fn run() {
             get_role_suggestions,
             get_cache_warming_setting,
             set_cache_warming_setting,
+            get_prewalk_settings,
+            set_prewalk_settings,
+            get_subagent_model_settings,
+            set_subagent_model_settings,
+            get_agent_model_overrides,
+            remove_agent_model_override,
             setup_status,
             run_studio_doctor,
             install_omp,

@@ -201,34 +201,56 @@ impl RpcManager {
 }
 
 
+/// Destinazione (`prewalk.into`) e ripartenza (`prewalk.from`) scelte per la
+/// sessione. Assenti: valgono quelle globali di `config.yml`.
+#[derive(Debug, Default, Clone)]
+pub(crate) struct PrewalkTargets {
+    pub into: Option<String>,
+    pub from: Option<String>,
+}
+
 /// Riscrive in modo atomico il file di configurazione overlay GUI,
 /// preservando la base (`tools.approvalMode: yolo`, `read.defaultLimit: 1200`,
-/// `goal.continuationModes` con `rpc`) e aggiornando il valore di `prewalk.enabled`.
+/// `goal.continuationModes` con `rpc`) e aggiornando `prewalk.enabled` con
+/// destinazione e ripartenza della sessione.
 ///
 /// `goal.continuationModes`: di default omp fa proseguire da solo un obiettivo
 /// (goal mode) solo nel terminale (`interactive`). Senza `rpc` un obiettivo
 /// creato dalla chat GUI farebbe un turno e poi si fermerebbe.
+///
+/// `prewalk.into` sta nello stesso file di `enabled`: il watcher di omp risolve
+/// la destinazione quando `enabled` passa a vero, e una scrittura separata
+/// (o la sola config globale) potrebbe arrivargli dopo.
 /// Rifiuta la riscrittura se il percorso appartiene a una configurazione del Laboratorio.
 pub(crate) fn set_gui_overlay_prewalk(
     config_path: &std::path::Path,
     enabled: bool,
+    targets: &PrewalkTargets,
 ) -> Result<(), String> {
     if config_path.to_string_lossy().contains("omp-studio-lab-") {
         return Err("Rifiutata modifica prewalk su configurazione Laboratorio".to_string());
     }
-    let content: &[u8] = if enabled {
-        b"tools:\n  approvalMode: yolo\nread:\n  defaultLimit: 1200\ngoal:\n  continuationModes:\n    - interactive\n    - rpc\nprewalk:\n  enabled: true\n"
-    } else {
-        b"tools:\n  approvalMode: yolo\nread:\n  defaultLimit: 1200\ngoal:\n  continuationModes:\n    - interactive\n    - rpc\nprewalk:\n  enabled: false\n"
-    };
-    crate::fs_atomic::atomic_write(config_path, content)
+    let mut content = String::from(
+        "tools:\n  approvalMode: yolo\nread:\n  defaultLimit: 1200\ngoal:\n  continuationModes:\n    - interactive\n    - rpc\nprewalk:\n",
+    );
+    content.push_str(if enabled { "  enabled: true\n" } else { "  enabled: false\n" });
+    for (key, value) in [("into", &targets.into), ("from", &targets.from)] {
+        let Some(selector) = value.as_deref().map(str::trim).filter(|v| !v.is_empty()) else {
+            continue;
+        };
+        // Una stringa JSON e' uno scalare YAML tra virgolette: `@smol` non
+        // sarebbe valido come scalare semplice.
+        let quoted = serde_json::to_string(selector).map_err(|e| e.to_string())?;
+        content.push_str(&format!("  {key}: {quoted}\n"));
+    }
+    crate::fs_atomic::atomic_write(config_path, content.as_bytes())
 }
 
 /// Genera la configurazione overlay per-sessione per il percorso GUI con prewalk disabilitato di default.
 pub(crate) fn write_gui_overlay(rpc_id: u64) -> Result<std::path::PathBuf, String> {
     let overlay_path =
         std::env::temp_dir().join(format!("omp-studio-gui-overlay-{}.yml", rpc_id));
-    set_gui_overlay_prewalk(&overlay_path, false)?;
+    set_gui_overlay_prewalk(&overlay_path, false, &PrewalkTargets::default())?;
     Ok(overlay_path)
 }
 
@@ -1915,11 +1937,14 @@ pub fn close_automation_execution(app: &tauri::AppHandle, execution_id: &str) ->
 /// Abilita o disabilita il prewalk per una sessione RPC attiva, riscrivendo
 /// in modo atomico il file di configurazione overlay per-sessione e preservando
 /// i parametri base (tools.approvalMode: yolo, read.defaultLimit: 1200).
+/// `into`/`from` sono la destinazione e la ripartenza scelte per la sessione.
 /// Rifiuta l'operazione su sessioni del Laboratorio prototipi.
 #[tauri::command]
 pub async fn rpc_set_prewalk(
     rpc_id: u64,
     enabled: bool,
+    into: Option<String>,
+    from: Option<String>,
     manager: State<'_, RpcManager>,
 ) -> Result<(), String> {
     let guard = manager.sessions.lock();
@@ -1932,7 +1957,7 @@ pub async fn rpc_set_prewalk(
     let config_path = session.config_path.as_ref()
         .ok_or_else(|| format!("Nessun file di configurazione per la sessione RPC {}", rpc_id))?;
     // La chiusura non puo' cancellare l'overlay fra lettura del percorso e scrittura.
-    set_gui_overlay_prewalk(config_path, enabled)
+    set_gui_overlay_prewalk(config_path, enabled, &PrewalkTargets { into, from })
 }
 
 /// Interrompe la sessione RPC specificata in modo atomico, senza toccare le altre sessioni.
@@ -2354,7 +2379,8 @@ mod tests {
         let rpc_id = 99006;
         let overlay_path = write_gui_overlay(rpc_id).expect("overlay GUI generato");
         for enabled in [true, false] {
-            set_gui_overlay_prewalk(&overlay_path, enabled).expect("riscrittura overlay riuscita");
+            set_gui_overlay_prewalk(&overlay_path, enabled, &PrewalkTargets::default())
+                .expect("riscrittura overlay riuscita");
             let content = std::fs::read_to_string(&overlay_path).expect("overlay leggibile");
             let parsed: OverlayGoalOnly = serde_yaml::from_str(&content).expect("overlay YAML valido");
             assert_eq!(parsed.goal.continuation_modes, vec!["interactive", "rpc"]);
@@ -2381,7 +2407,8 @@ mod tests {
         assert_ne!(path_1, path_2);
 
         // Modifica prewalk solo sulla prima sessione
-        set_gui_overlay_prewalk(&path_1, true).expect("modifica prewalk riuscita");
+        set_gui_overlay_prewalk(&path_1, true, &PrewalkTargets::default())
+            .expect("modifica prewalk riuscita");
 
         let content_1 = std::fs::read_to_string(&path_1).expect("overlay 1 leggibile");
         let content_2 = std::fs::read_to_string(&path_2).expect("overlay 2 leggibile");
@@ -2426,7 +2453,8 @@ mod tests {
         let overlay_path = write_gui_overlay(rpc_id).expect("overlay GUI generato");
 
         // 1. Attiva prewalk: verifica che i parametri base rimangano inalterati
-        set_gui_overlay_prewalk(&overlay_path, true).expect("abilitazione prewalk riuscita");
+        set_gui_overlay_prewalk(&overlay_path, true, &PrewalkTargets::default())
+            .expect("abilitazione prewalk riuscita");
         let content_enabled =
             std::fs::read_to_string(&overlay_path).expect("overlay abilitato leggibile");
         let overlay_enabled: OverlayFull =
@@ -2437,7 +2465,8 @@ mod tests {
         assert!(overlay_enabled.prewalk.enabled);
 
         // 2. Disattiva prewalk: verifica che i parametri base rimangano inalterati
-        set_gui_overlay_prewalk(&overlay_path, false).expect("disabilitazione prewalk riuscita");
+        set_gui_overlay_prewalk(&overlay_path, false, &PrewalkTargets::default())
+            .expect("disabilitazione prewalk riuscita");
         let content_disabled =
             std::fs::read_to_string(&overlay_path).expect("overlay disabilitato leggibile");
         let overlay_disabled: OverlayFull =
@@ -2453,7 +2482,7 @@ mod tests {
     #[test]
     fn overlay_gui_rifiuta_configurazione_laboratorio() {
         let lab_path = std::env::temp_dir().join("omp-studio-lab-99005-prototype.yml");
-        let result = set_gui_overlay_prewalk(&lab_path, true);
+        let result = set_gui_overlay_prewalk(&lab_path, true, &PrewalkTargets::default());
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(
@@ -2461,6 +2490,43 @@ mod tests {
             "Atteso errore su Laboratorio, ottenuto: {}",
             err
         );
+    }
+
+    #[test]
+    fn overlay_gui_prewalk_porta_destinazione_e_ripartenza_della_sessione() {
+        #[derive(Deserialize)]
+        struct OverlayPrewalkOnly {
+            prewalk: OverlayPrewalk,
+        }
+        #[derive(Deserialize)]
+        struct OverlayPrewalk {
+            enabled: bool,
+            into: Option<String>,
+            from: Option<String>,
+        }
+
+        let overlay_path = write_gui_overlay(99007).expect("overlay GUI generato");
+        let targets = PrewalkTargets {
+            into: Some(" @smol ".into()),
+            from: Some("openai-codex/gpt-6.1-sol:high".into()),
+        };
+        set_gui_overlay_prewalk(&overlay_path, true, &targets).expect("armo con destinazione");
+        let content = std::fs::read_to_string(&overlay_path).expect("overlay leggibile");
+        let parsed: OverlayPrewalkOnly = serde_yaml::from_str(&content).expect("overlay YAML valido");
+        assert!(parsed.prewalk.enabled);
+        assert_eq!(parsed.prewalk.into.as_deref(), Some("@smol"));
+        assert_eq!(parsed.prewalk.from.as_deref(), Some("openai-codex/gpt-6.1-sol:high"));
+
+        // Senza scelta di sessione le chiavi spariscono: torna a valere config.yml.
+        let blank = PrewalkTargets { into: Some("  ".into()), from: None };
+        set_gui_overlay_prewalk(&overlay_path, false, &blank).expect("disarmo");
+        let content = std::fs::read_to_string(&overlay_path).expect("overlay leggibile");
+        let parsed: OverlayPrewalkOnly = serde_yaml::from_str(&content).expect("overlay YAML valido");
+        assert!(!parsed.prewalk.enabled);
+        assert!(parsed.prewalk.into.is_none());
+        assert!(parsed.prewalk.from.is_none());
+
+        let _ = std::fs::remove_file(overlay_path);
     }
 
     #[test]

@@ -30,6 +30,7 @@
 	import ReasoningSlider from './ReasoningSlider.svelte';
 	import CycleDrawer from './CycleDrawer.svelte';
 	import ProviderLogo from './ProviderLogo.svelte';
+	import SubagentModelCard from './SubagentModelCard.svelte';
 
 	let selectedRoleId = $state<string>(STANDARD_ROLES[0].id);
 	let roleFilterQuery = $state('');
@@ -778,6 +779,9 @@
 						</select>
 					</div>
 				</div>
+
+				<!-- Modello per singolo subagente (task.perCallModel) -->
+				<SubagentModelCard />
 			</section>
 
 			<!-- Sezione 4: File di contesto aggiuntivi (contextFiles.extra) -->

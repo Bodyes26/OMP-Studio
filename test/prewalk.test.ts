@@ -1,6 +1,14 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { handOffPrewalk, isPrewalkHandOff, parsePrewalkNotice, reducePrewalkNotice, type PrewalkState } from '../src/lib/agent/prewalk.ts';
+import {
+	handOffPrewalk,
+	isPrewalkHandOff,
+	normalizePrewalkTargets,
+	parsePrewalkNotice,
+	reducePrewalkNotice,
+	routePrewalkSlash,
+	type PrewalkState
+} from '../src/lib/agent/prewalk.ts';
 
 const target = 'google-antigravity/gemini-3.8-flash';
 const off: PrewalkState = { state: 'off' };
@@ -76,5 +84,30 @@ describe('Prewalk: cambio modello manuale con prewalk armato', () => {
 		assert.equal(isPrewalkHandOff({ state: 'armed', target: 'gemini-3.8-flash' }, smol as never), true);
 		assert.equal(isPrewalkHandOff({ state: 'armed' }, smol as never), false, 'senza bersaglio noto non si indovina');
 		assert.equal(isPrewalkHandOff(off, smol as never), false);
+	});
+});
+
+describe('Prewalk: /prewalk nella chat segue la grammatica di omp', () => {
+	it('distingue apertura, armo verso una destinazione, restart e off', () => {
+		assert.deepEqual(routePrewalkSlash(''), { kind: 'open' });
+		assert.deepEqual(routePrewalkSlash('  @task '), { kind: 'arm', into: '@task' });
+		assert.deepEqual(routePrewalkSlash('OFF'), { kind: 'off' });
+		assert.deepEqual(routePrewalkSlash('restart'), { kind: 'restart', from: undefined, into: undefined });
+		assert.deepEqual(routePrewalkSlash('restart @slow openai/gpt-6.1-sol'), {
+			kind: 'restart',
+			from: '@slow',
+			into: 'openai/gpt-6.1-sol'
+		});
+	});
+
+	it('rifiuta argomenti in eccesso invece di ignorarli', () => {
+		assert.deepEqual(routePrewalkSlash('off now'), { kind: 'usage' });
+		assert.deepEqual(routePrewalkSlash('@smol @task'), { kind: 'usage' });
+		assert.deepEqual(routePrewalkSlash('restart a b c'), { kind: 'usage' });
+	});
+
+	it('torna ai predefiniti di omp con valori vuoti', () => {
+		assert.deepEqual(normalizePrewalkTargets(null), { into: '@smol', from: '@default' });
+		assert.deepEqual(normalizePrewalkTargets({ into: '  ', from: ' @plan ' }), { into: '@smol', from: '@plan' });
 	});
 });

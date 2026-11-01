@@ -78,6 +78,7 @@
 	import AttachmentThumb, { type ComposerAttachment } from './AttachmentThumb.svelte';
 	import SuggestPanel, { type SuggestionItem } from './SuggestPanel.svelte';
 	import ComposerNoticeStrip from './ComposerNoticeStrip.svelte';
+	import PrewalkCard from './PrewalkCard.svelte';
 	import ComposerStatusLine from './ComposerStatusLine.svelte';
 	import ExtensionWidgets from './ExtensionWidgets.svelte';
 	import ComposerPinnedItem from './ComposerPinnedItem.svelte';
@@ -980,6 +981,9 @@
      Tauri e lo gestisce Chat.svelte (addPaths): i gestori HTML non ricevono file. -->
 <div bind:this={rootEl} class="composer-root" class:hidden={!visible}>
 	<ComposerNoticeStrip {session} />
+	{#if !shellOverride}
+		<PrewalkCard {session} models={availableModels} {roleAssignments} />
+	{/if}
 	<ExtensionWidgets widgets={session.extensionWidgets} placement="aboveEditor" />
 
 	{#if shellOverride}

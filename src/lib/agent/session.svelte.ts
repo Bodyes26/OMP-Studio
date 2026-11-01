@@ -45,7 +45,16 @@ import { isMissingSessionError, parseUnavailableResumeModel } from './resumeErro
 import { laneStore } from '#lib/stores/lanes.svelte.ts';
 import type { LaneId, ProjectId } from '#lib/types/lanes.ts';
 import { splitModelSelector } from '#lib/stores/modelSettingsHelpers.ts';
-import { handOffPrewalk, isPrewalkHandOff, parsePrewalkNotice, reducePrewalkNotice, type PrewalkState } from './prewalk';
+import {
+	handOffPrewalk,
+	isPrewalkHandOff,
+	normalizePrewalkTargets,
+	parsePrewalkNotice,
+	reducePrewalkNotice,
+	type PrewalkSlashAction,
+	type PrewalkState,
+	type PrewalkTargets
+} from './prewalk';
 import {
 	normalizePromptAnswer,
 	type AskQuestion,
@@ -734,6 +743,16 @@ export class AgentSession {
 		timer: number;
 	} | null = null;
 	private prewalkOverlayWrite: Promise<void> = Promise.resolve();
+	/**
+	 * Destinazione e ripartenza del prewalk per questa chat: si leggono da
+	 * `config.yml` al primo uso e viaggiano nell'overlay a ogni scrittura.
+	 */
+	prewalkTargets = $state<PrewalkTargets | null>(null);
+	private prewalkTargetsLoad: Promise<PrewalkTargets> | null = null;
+	/** Scheda del prewalk sopra il composer (pulsante della riga di stato o `/prewalk`). */
+	prewalkCardOpen = $state(false);
+	/** Ultimo errore del prewalk: nella scheda se aperta, altrimenti nell'etichetta del composer. */
+	prewalkError = $state<string | null>(null);
 	/**
 	 * Ultimo ruolo scelto da Studio (menu, `/role`, Ctrl+P). omp non espone il ruolo
 	 * via RPC e piu' ruoli possono condividere lo stesso modello: senza ricordarlo
@@ -2765,18 +2784,27 @@ export class AgentSession {
 				}
 				const prewalkNotice = parsePrewalkNotice(event.source, event.level, text);
 				if (prewalkNotice) {
+					const waiter = this.prewalkConfirmation;
 					this.prewalk = reducePrewalkNotice(this.prewalk, prewalkNotice);
 					if (prewalkNotice.kind === 'armed') this.prewalkRestarting = false;
 					if (prewalkNotice.kind === 'error') {
-						this.prewalkConfirmation?.reject(new Error(prewalkNotice.message));
+						waiter?.reject(new Error(prewalkNotice.message));
 					} else if (
-						(prewalkNotice.kind === 'armed' && this.prewalkConfirmation?.expected === 'armed') ||
-						(prewalkNotice.kind === 'disarmed' && this.prewalkConfirmation?.expected === 'off')
+						(prewalkNotice.kind === 'armed' && waiter?.expected === 'armed') ||
+						(prewalkNotice.kind === 'disarmed' && waiter?.expected === 'off')
 					) {
-						this.prewalkConfirmation?.resolve();
+						waiter?.resolve();
 					}
+					// Armo e disarmo sono stato, non racconto: li mostrano la voce della
+					// riga di stato e la scheda. Nel transcript comparivano due volte.
+					if (prewalkNotice.kind === 'armed' || prewalkNotice.kind === 'disarmed') return;
+					if (prewalkNotice.kind === 'error') {
+						// Con un'operazione in attesa l'errore lo mostra chi l'ha chiesta.
+						if (!waiter) this.reportPrewalkError(prewalkNotice.message);
+						return;
+					}
+					if (prewalkNotice.kind === 'handedOff') this.resetHandedOffOverlay();
 				}
-				if (prewalkNotice?.kind === 'handedOff') this.resetHandedOffOverlay();
 				this.pushNotice(level, text, typeof event.source === 'string' ? event.source : undefined);
 				if (level === 'error') {
 					const hasRunningTools = Array.from(this.toolEntries.values()).some((t) => t.running);
@@ -2819,6 +2847,15 @@ export class AgentSession {
 				}
 				if (output && this.capturingContextReport && isContextReportText(output)) {
 					this.contextReportCapture = output;
+					return;
+				}
+				// Esito di «Ripeti» chiesto da Studio (`/prewalk restart`): lo stato lo
+				// mostra la scheda; «reset» vuol dire che non c'e' nulla da armare.
+				if (output && /^Prewalk (?:restarted|reset):/.test(output)) {
+					if (output.startsWith('Prewalk reset:')) {
+						if (this.prewalkConfirmation) this.prewalkConfirmation.reject(new Error(output));
+						else this.reportPrewalkError(output);
+					}
 					return;
 				}
 				// Come gli esiti dei comandi di Studio: etichetta sopra il composer,
@@ -4932,7 +4969,7 @@ export class AgentSession {
 	private resetHandedOffOverlay(): void {
 		const generation = this.prewalkGeneration;
 		void this.writePrewalkOverlay(false, generation).catch((error) => {
-			if (generation === this.prewalkGeneration) this.pushNotice('error', String(error), 'prewalk');
+			if (generation === this.prewalkGeneration) this.reportPrewalkError(String(error));
 		});
 	}
 
@@ -4951,17 +4988,105 @@ export class AgentSession {
 		this.overlayEnabled = false;
 		this.prewalkBusy = false;
 		this.prewalkRestarting = false;
+		// Una destinazione scelta solo per la chat (`/prewalk <modello>`) non passa alla successiva.
+		this.prewalkTargets = null;
+		this.prewalkCardOpen = false;
+		this.prewalkError = null;
 	}
 
 	private writePrewalkOverlay(enabled: boolean, generation: number): Promise<void> {
 		const write = this.prewalkOverlayWrite.catch(() => {}).then(async () => {
 			if (generation !== this.prewalkGeneration) throw new Error(messages.prewalk_session_changed());
-			await this.client.setPrewalk(enabled);
+			await this.client.setPrewalk(enabled, this.prewalkTargets ?? {});
 			if (generation !== this.prewalkGeneration) throw new Error(messages.prewalk_session_changed());
 			this.overlayEnabled = enabled;
 		});
 		this.prewalkOverlayWrite = write;
 		return write;
+	}
+
+	/** Destinazione e ripartenza predefinite da `config.yml`, lette una volta per chat. */
+	async ensurePrewalkTargets(): Promise<PrewalkTargets> {
+		if (this.prewalkTargets) return this.prewalkTargets;
+		this.prewalkTargetsLoad ??= invoke<Partial<PrewalkTargets>>('get_prewalk_settings')
+			.then(normalizePrewalkTargets)
+			.catch((error) => {
+				console.warn('Lettura destinazione prewalk:', error);
+				return normalizePrewalkTargets(null);
+			})
+			.finally(() => {
+				this.prewalkTargetsLoad = null;
+			});
+		const loaded = await this.prewalkTargetsLoad;
+		// Una scelta fatta mentre la lettura era in volo vince sul valore salvato.
+		this.prewalkTargets ??= loaded;
+		return this.prewalkTargets;
+	}
+
+	/**
+	 * Cambia destinazione o ripartenza. Dalla scheda la scelta diventa anche il
+	 * predefinito di `config.yml` (nuove chat, terminale, TUI); con un armo in
+	 * corso si riarma subito verso la nuova destinazione.
+	 */
+	async setPrewalkTargets(patch: Partial<PrewalkTargets>, options: { persist: boolean }): Promise<void> {
+		const current = await this.ensurePrewalkTargets();
+		const next = normalizePrewalkTargets({ ...current, ...patch });
+		this.prewalkTargets = next;
+		if (options.persist) await invoke('set_prewalk_settings', { settings: next });
+		if (next.into !== current.into && this.prewalk.state === 'armed') await this.armPrewalk();
+	}
+
+	/** Apre la scheda; con `arm` arma se spento, come il `/prewalk` di omp senza argomenti. */
+	openPrewalkCard(options: { arm?: boolean } = {}): void {
+		if (this.labConfig) {
+			this.flashNotice('warning', messages.prewalk_unavailable());
+			return;
+		}
+		this.prewalkCardOpen = true;
+		this.prewalkError = null;
+		void this.ensurePrewalkTargets();
+		if (options.arm && this.prewalk.state === 'off') void this.runPrewalkAction(() => this.armPrewalk());
+	}
+
+	closePrewalkCard(): void {
+		this.prewalkCardOpen = false;
+		this.prewalkError = null;
+	}
+
+	/** Azione della scheda o di `/prewalk`: l'errore resta nella scheda, o nell'etichetta se e' chiusa. */
+	async runPrewalkAction(action: () => Promise<unknown>): Promise<boolean> {
+		this.prewalkError = null;
+		try {
+			await action();
+			return true;
+		} catch (error) {
+			this.reportPrewalkError(this.reason(error));
+			return false;
+		}
+	}
+
+	private reportPrewalkError(message: string): void {
+		this.prewalkError = message;
+		if (!this.prewalkCardOpen) this.flashNotice('warning', message);
+	}
+
+	/** `/prewalk` nella chat: lo serve Studio, cosi' l'esito resta nella scheda e non arriva due volte. */
+	handlePrewalkSlash(action: PrewalkSlashAction): void {
+		if (action.kind === 'usage') {
+			this.flashNotice('warning', messages.prewalk_slash_usage());
+			return;
+		}
+		if (action.kind === 'open') {
+			this.openPrewalkCard({ arm: true });
+			return;
+		}
+		this.openPrewalkCard();
+		if (!this.prewalkCardOpen) return;
+		void this.runPrewalkAction(() => {
+			if (action.kind === 'off') return this.disarmPrewalk();
+			if (action.kind === 'restart') return this.restartPrewalk(action.from, action.into);
+			return this.armPrewalk(action.into);
+		});
 	}
 
 	private async confirmPrewalk(expected: 'armed' | 'off', operation: () => Promise<void>): Promise<void> {
@@ -4997,8 +5122,12 @@ export class AgentSession {
 		}
 	}
 
-	async armPrewalk(): Promise<void> {
+	/** `into`: destinazione solo per questa chat (`/prewalk <modello>`), senza toccare `config.yml`. */
+	async armPrewalk(into?: string): Promise<void> {
 		await this.runPrewalk(async (generation) => {
+			const targets = await this.ensurePrewalkTargets();
+			if (generation !== this.prewalkGeneration) throw new Error(messages.prewalk_session_changed());
+			if (into?.trim()) this.prewalkTargets = { ...targets, into: into.trim() };
 			// Il watcher reagisce al cambio, non alla riscrittura dello stesso valore.
 			if (this.prewalk.state === 'armed') {
 				if (!this.overlayEnabled) {
@@ -5032,8 +5161,13 @@ export class AgentSession {
 		});
 	}
 
-	async restartPrewalk(): Promise<void> {
+	/** `from`/`into` come in `/prewalk restart [from] [into]`: valgono solo per questa chat. */
+	async restartPrewalk(from?: string, into?: string): Promise<void> {
 		await this.runPrewalk(async (generation) => {
+			const targets = await this.ensurePrewalkTargets();
+			if (generation !== this.prewalkGeneration) throw new Error(messages.prewalk_session_changed());
+			const next = { into: into?.trim() || targets.into, from: from?.trim() || targets.from };
+			this.prewalkTargets = next;
 			if (this.prewalk.state === 'armed') {
 				if (!this.overlayEnabled) {
 					await this.writePrewalkOverlay(true, generation);
@@ -5046,7 +5180,7 @@ export class AgentSession {
 			}
 			this.prewalkRestarting = true;
 			await this.confirmPrewalk('armed', async () => {
-				await this.client.send({ type: 'prompt', message: '/prewalk restart' });
+				await this.client.send({ type: 'prompt', message: `/prewalk restart ${next.from} ${next.into}` });
 			});
 			await this.refreshState();
 		});

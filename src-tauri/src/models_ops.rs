@@ -157,6 +157,21 @@ pub struct ModelConfigDto {
     pub cache_warming: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PrewalkSettingsDto {
+    pub into: String,
+    pub from: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SubagentModelSettingsDto {
+    pub per_call_model: String,
+    pub per_call_model_allow: Vec<String>,
+    pub max_effort: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelCost {
@@ -735,6 +750,396 @@ pub async fn set_cache_warming_setting(mode: String) -> Result<(), String> {
     let serialized = serde_yaml::to_string(&serde_yaml::Value::Mapping(mapping))
         .map_err(|error| format!("Serializzazione {}: {}", path.display(), error))?;
     atomic_write(&path, serialized.as_bytes())
+}
+
+// -----------------------------------------------------------------------------
+// Prewalk Settings (prewalk.into / prewalk.from)
+// -----------------------------------------------------------------------------
+
+pub fn get_prewalk_settings_path(path: &Path) -> Result<PrewalkSettingsDto, String> {
+    let mapping = match read_yaml_mapping(path)? {
+        Some(m) => m,
+        None => {
+            return Ok(PrewalkSettingsDto {
+                into: "@smol".to_string(),
+                from: "@default".to_string(),
+            })
+        }
+    };
+
+    let mut into_val = None;
+    let mut from_val = None;
+
+    if let Some(prewalk_val) = mapping.get(yaml_key("prewalk")) {
+        if let Some(prewalk_map) = prewalk_val.as_mapping() {
+            if let Some(val) = prewalk_map.get(yaml_key("into")).and_then(|v| v.as_str()) {
+                let trimmed = val.trim();
+                if !trimmed.is_empty() {
+                    into_val = Some(trimmed.to_string());
+                }
+            }
+            if let Some(val) = prewalk_map.get(yaml_key("from")).and_then(|v| v.as_str()) {
+                let trimmed = val.trim();
+                if !trimmed.is_empty() {
+                    from_val = Some(trimmed.to_string());
+                }
+            }
+        }
+    }
+
+    if into_val.is_none() {
+        if let Some(val) = mapping.get(yaml_key("prewalk.into")).and_then(|v| v.as_str()) {
+            let trimmed = val.trim();
+            if !trimmed.is_empty() {
+                into_val = Some(trimmed.to_string());
+            }
+        }
+    }
+
+    if from_val.is_none() {
+        if let Some(val) = mapping.get(yaml_key("prewalk.from")).and_then(|v| v.as_str()) {
+            let trimmed = val.trim();
+            if !trimmed.is_empty() {
+                from_val = Some(trimmed.to_string());
+            }
+        }
+    }
+
+    Ok(PrewalkSettingsDto {
+        into: into_val.unwrap_or_else(|| "@smol".to_string()),
+        from: from_val.unwrap_or_else(|| "@default".to_string()),
+    })
+}
+
+pub fn set_prewalk_settings_path(path: &Path, settings: PrewalkSettingsDto) -> Result<(), String> {
+    let into = settings.into.trim();
+    let from = settings.from.trim();
+
+    if into.is_empty() {
+        return Err("Il campo prewalk.into non puo essere vuoto".to_string());
+    }
+    if from.is_empty() {
+        return Err("Il campo prewalk.from non puo essere vuoto".to_string());
+    }
+
+    let _guard = mutation_lock()?;
+    let mut mapping = read_yaml_mapping(path)?.unwrap_or_default();
+
+    let prewalk_key = yaml_key("prewalk");
+    let mut prewalk_map = match mapping.get(&prewalk_key) {
+        Some(val) => val.as_mapping().cloned().ok_or_else(|| {
+            format!(
+                "Campo prewalk non valido in {} (atteso dizionario)",
+                path.display()
+            )
+        })?,
+        None => serde_yaml::Mapping::new(),
+    };
+
+    prewalk_map.insert(yaml_key("into"), serde_yaml::Value::String(into.to_string()));
+    prewalk_map.insert(yaml_key("from"), serde_yaml::Value::String(from.to_string()));
+    mapping.insert(prewalk_key, serde_yaml::Value::Mapping(prewalk_map));
+
+    mapping.remove(yaml_key("prewalk.into"));
+    mapping.remove(yaml_key("prewalk.from"));
+
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+
+    let serialized = serde_yaml::to_string(&serde_yaml::Value::Mapping(mapping))
+        .map_err(|error| format!("Serializzazione {}: {}", path.display(), error))?;
+    atomic_write(path, serialized.as_bytes())
+}
+
+#[command]
+pub async fn get_prewalk_settings() -> Result<PrewalkSettingsDto, String> {
+    let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
+    get_prewalk_settings_path(&agent.join("config.yml"))
+}
+
+#[command]
+pub async fn set_prewalk_settings(settings: PrewalkSettingsDto) -> Result<(), String> {
+    let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
+    set_prewalk_settings_path(&agent.join("config.yml"), settings)
+}
+
+// -----------------------------------------------------------------------------
+// Subagent Model Settings (task.perCallModel / perCallModelAllow / maxEffort)
+// -----------------------------------------------------------------------------
+
+pub fn get_subagent_model_settings_path(path: &Path) -> Result<SubagentModelSettingsDto, String> {
+    let mapping = match read_yaml_mapping(path)? {
+        Some(m) => m,
+        None => {
+            return Ok(SubagentModelSettingsDto {
+                per_call_model: "off".to_string(),
+                per_call_model_allow: Vec::new(),
+                max_effort: "max".to_string(),
+            })
+        }
+    };
+
+    let mut per_call_model = None;
+    let mut per_call_model_allow = None;
+    let mut max_effort = None;
+
+    if let Some(task_val) = mapping.get(yaml_key("task")) {
+        if let Some(task_map) = task_val.as_mapping() {
+            if let Some(val) = task_map.get(yaml_key("perCallModel")).and_then(|v| v.as_str()) {
+                let trimmed = val.trim();
+                if ["off", "eval", "on"].contains(&trimmed) {
+                    per_call_model = Some(trimmed.to_string());
+                }
+            }
+            if let Some(val) = task_map.get(yaml_key("perCallModelAllow")) {
+                if let Some(seq) = val.as_sequence() {
+                    let mut list = Vec::new();
+                    for item in seq {
+                        if let Some(s) = item.as_str() {
+                            let trimmed = s.trim();
+                            if !trimmed.is_empty() && !list.contains(&trimmed.to_string()) {
+                                list.push(trimmed.to_string());
+                            }
+                        }
+                    }
+                    per_call_model_allow = Some(list);
+                }
+            }
+            if let Some(val) = task_map.get(yaml_key("maxEffort")).and_then(|v| v.as_str()) {
+                let trimmed = val.trim();
+                if ["minimal", "low", "medium", "high", "xhigh", "max"].contains(&trimmed) {
+                    max_effort = Some(trimmed.to_string());
+                }
+            }
+        }
+    }
+
+    if per_call_model.is_none() {
+        if let Some(val) = mapping.get(yaml_key("task.perCallModel")).and_then(|v| v.as_str()) {
+            let trimmed = val.trim();
+            if ["off", "eval", "on"].contains(&trimmed) {
+                per_call_model = Some(trimmed.to_string());
+            }
+        }
+    }
+
+    if per_call_model_allow.is_none() {
+        if let Some(val) = mapping.get(yaml_key("task.perCallModelAllow")) {
+            if let Some(seq) = val.as_sequence() {
+                let mut list = Vec::new();
+                for item in seq {
+                    if let Some(s) = item.as_str() {
+                        let trimmed = s.trim();
+                        if !trimmed.is_empty() && !list.contains(&trimmed.to_string()) {
+                            list.push(trimmed.to_string());
+                        }
+                    }
+                }
+                per_call_model_allow = Some(list);
+            }
+        }
+    }
+
+    if max_effort.is_none() {
+        if let Some(val) = mapping.get(yaml_key("task.maxEffort")).and_then(|v| v.as_str()) {
+            let trimmed = val.trim();
+            if ["minimal", "low", "medium", "high", "xhigh", "max"].contains(&trimmed) {
+                max_effort = Some(trimmed.to_string());
+            }
+        }
+    }
+
+    Ok(SubagentModelSettingsDto {
+        per_call_model: per_call_model.unwrap_or_else(|| "off".to_string()),
+        per_call_model_allow: per_call_model_allow.unwrap_or_default(),
+        max_effort: max_effort.unwrap_or_else(|| "max".to_string()),
+    })
+}
+
+pub fn set_subagent_model_settings_path(
+    path: &Path,
+    settings: SubagentModelSettingsDto,
+) -> Result<(), String> {
+    let per_call_model = settings.per_call_model.trim();
+    if !["off", "eval", "on"].contains(&per_call_model) {
+        return Err(format!(
+            "Valore task.perCallModel non valido: '{}' (atteso: off, eval, on)",
+            settings.per_call_model
+        ));
+    }
+
+    let max_effort = settings.max_effort.trim();
+    if !["minimal", "low", "medium", "high", "xhigh", "max"].contains(&max_effort) {
+        return Err(format!(
+            "Valore task.maxEffort non valido: '{}' (atteso: minimal, low, medium, high, xhigh, max)",
+            settings.max_effort
+        ));
+    }
+
+    let mut deduped_allow: Vec<String> = Vec::new();
+    for entry in &settings.per_call_model_allow {
+        let trimmed = entry.trim();
+        if trimmed.is_empty() || !trimmed.contains('/') {
+            return Err(format!(
+                "Elemento allowlist non valido: '{}' (deve essere non vuoto e contenere '/')",
+                entry
+            ));
+        }
+        let trimmed_str = trimmed.to_string();
+        if !deduped_allow.contains(&trimmed_str) {
+            deduped_allow.push(trimmed_str);
+        }
+    }
+
+    let _guard = mutation_lock()?;
+    let mut mapping = read_yaml_mapping(path)?.unwrap_or_default();
+
+    let task_key = yaml_key("task");
+    let mut task_map = match mapping.get(&task_key) {
+        Some(val) => val.as_mapping().cloned().ok_or_else(|| {
+            format!(
+                "Campo task non valido in {} (atteso dizionario)",
+                path.display()
+            )
+        })?,
+        None => serde_yaml::Mapping::new(),
+    };
+
+    task_map.insert(
+        yaml_key("perCallModel"),
+        serde_yaml::Value::String(per_call_model.to_string()),
+    );
+    let allow_yaml = serde_yaml::to_value(&deduped_allow)
+        .map_err(|error| format!("Serializzazione task.perCallModelAllow: {}", error))?;
+    task_map.insert(yaml_key("perCallModelAllow"), allow_yaml);
+    task_map.insert(
+        yaml_key("maxEffort"),
+        serde_yaml::Value::String(max_effort.to_string()),
+    );
+
+    mapping.insert(task_key, serde_yaml::Value::Mapping(task_map));
+
+    mapping.remove(yaml_key("task.perCallModel"));
+    mapping.remove(yaml_key("task.perCallModelAllow"));
+    mapping.remove(yaml_key("task.maxEffort"));
+
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+
+    let serialized = serde_yaml::to_string(&serde_yaml::Value::Mapping(mapping))
+        .map_err(|error| format!("Serializzazione {}: {}", path.display(), error))?;
+    atomic_write(path, serialized.as_bytes())
+}
+
+#[command]
+pub async fn get_subagent_model_settings() -> Result<SubagentModelSettingsDto, String> {
+    let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
+    get_subagent_model_settings_path(&agent.join("config.yml"))
+}
+
+#[command]
+pub async fn set_subagent_model_settings(settings: SubagentModelSettingsDto) -> Result<(), String> {
+    let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
+    set_subagent_model_settings_path(&agent.join("config.yml"), settings)
+}
+
+/// Un agente con modello imposto da `task.agentModelOverrides`.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentModelOverrideDto {
+    pub agent: String,
+    pub model: String,
+}
+
+fn agent_model_overrides_value(mapping: &serde_yaml::Mapping) -> Option<&serde_yaml::Value> {
+    mapping
+        .get(yaml_key("task"))
+        .and_then(|task| task.as_mapping())
+        .and_then(|task| task.get(yaml_key("agentModelOverrides")))
+        .or_else(|| mapping.get(yaml_key("task.agentModelOverrides")))
+}
+
+/// Agenti con un modello imposto da `task.agentModelOverrides`. omp rifiuta per
+/// loro il `model` per singola chiamata anche con `task.perCallModel` attivo
+/// («Per-call model conflicts with task.agentModelOverrides»): la GUI lo dice.
+pub fn get_agent_model_overrides_path(path: &Path) -> Result<Vec<AgentModelOverrideDto>, String> {
+    let Some(mapping) = read_yaml_mapping(path)? else {
+        return Ok(Vec::new());
+    };
+    let Some(overrides) = agent_model_overrides_value(&mapping).and_then(|value| value.as_mapping()) else {
+        return Ok(Vec::new());
+    };
+    let mut entries: Vec<AgentModelOverrideDto> = overrides
+        .iter()
+        .filter_map(|(key, value)| {
+            let agent = key.as_str()?.to_string();
+            // Il valore puo' essere un selettore o una lista di ripieghi.
+            let model = match value {
+                serde_yaml::Value::String(selector) => selector.clone(),
+                serde_yaml::Value::Sequence(items) => items
+                    .iter()
+                    .filter_map(|item| item.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                other => serde_yaml::to_string(other).unwrap_or_default().trim().to_string(),
+            };
+            Some(AgentModelOverrideDto { agent, model })
+        })
+        .collect();
+    entries.sort_by(|a, b| a.agent.cmp(&b.agent));
+    Ok(entries)
+}
+
+/// Toglie l'override di un agente (forma annidata e puntata), lasciando gli
+/// altri; la mappa vuota sparisce. Lo chiede l'utente dalla scheda, con conferma.
+pub fn remove_agent_model_override_path(path: &Path, agent: &str) -> Result<(), String> {
+    let agent = agent.trim();
+    if agent.is_empty() {
+        return Err("Nome agente vuoto".to_string());
+    }
+    let _guard = mutation_lock()?;
+    let mut mapping = read_yaml_mapping(path)?
+        .ok_or_else(|| format!("Nessun override per l'agente {agent}"))?;
+    let mut removed = false;
+
+    let task_key = yaml_key("task");
+    if let Some(task_map) = mapping.get_mut(&task_key).and_then(|task| task.as_mapping_mut()) {
+        let overrides_key = yaml_key("agentModelOverrides");
+        if let Some(overrides) = task_map.get_mut(&overrides_key).and_then(|value| value.as_mapping_mut()) {
+            removed |= overrides.remove(yaml_key(agent)).is_some();
+            if overrides.is_empty() {
+                task_map.remove(&overrides_key);
+            }
+        }
+    }
+    let dotted_key = yaml_key("task.agentModelOverrides");
+    if let Some(overrides) = mapping.get_mut(&dotted_key).and_then(|value| value.as_mapping_mut()) {
+        removed |= overrides.remove(yaml_key(agent)).is_some();
+        if overrides.is_empty() {
+            mapping.remove(&dotted_key);
+        }
+    }
+    if !removed {
+        return Err(format!("Nessun override per l'agente {agent}"));
+    }
+
+    let serialized = serde_yaml::to_string(&serde_yaml::Value::Mapping(mapping))
+        .map_err(|error| format!("Serializzazione {}: {}", path.display(), error))?;
+    atomic_write(path, serialized.as_bytes())
+}
+
+#[command]
+pub async fn get_agent_model_overrides() -> Result<Vec<AgentModelOverrideDto>, String> {
+    let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
+    get_agent_model_overrides_path(&agent.join("config.yml"))
+}
+
+#[command]
+pub async fn remove_agent_model_override(agent: String) -> Result<(), String> {
+    let dir = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
+    remove_agent_model_override_path(&dir.join("config.yml"), &agent)
 }
 
 // -----------------------------------------------------------------------------
@@ -3937,5 +4342,342 @@ mod tests {
             intact.extra_context_files.as_deref(),
             Some(&["AGENTS.local.md".to_string()][..])
         );
+    }
+
+    #[test]
+    fn prewalk_settings_defaults_on_missing_file() {
+        let dir = TestDir::new("prewalk-defaults");
+        let path = dir.path().join("config.yml");
+        let settings = get_prewalk_settings_path(&path).expect("lettura default prewalk");
+        assert_eq!(settings.into, "@smol");
+        assert_eq!(settings.from, "@default");
+    }
+
+    #[test]
+    fn prewalk_settings_roundtrip_preserving_unrelated_and_nested_keys() {
+        let dir = TestDir::new("prewalk-roundtrip");
+        let path = dir.path().join("config.yml");
+        fs::write(
+            &path,
+            r#"
+unrelated: "kept"
+prewalk:
+  enabled: true
+  otherKey: 42
+"#,
+        )
+        .expect("scrittura config");
+
+        let initial = get_prewalk_settings_path(&path).expect("lettura prewalk");
+        assert_eq!(initial.into, "@smol");
+        assert_eq!(initial.from, "@default");
+
+        set_prewalk_settings_path(
+            &path,
+            PrewalkSettingsDto {
+                into: "  openai/gpt-4o-mini  ".into(),
+                from: "  @plan  ".into(),
+            },
+        )
+        .expect("salvataggio prewalk");
+
+        let reloaded = get_prewalk_settings_path(&path).expect("rilettura prewalk");
+        assert_eq!(reloaded.into, "openai/gpt-4o-mini");
+        assert_eq!(reloaded.from, "@plan");
+
+        let mapping = read_yaml_mapping(&path).expect("lettura").unwrap();
+        assert_eq!(
+            mapping.get(yaml_key("unrelated")),
+            Some(&serde_yaml::Value::String("kept".into()))
+        );
+        let prewalk_map = mapping
+            .get(yaml_key("prewalk"))
+            .unwrap()
+            .as_mapping()
+            .unwrap();
+        assert_eq!(
+            prewalk_map.get(yaml_key("enabled")),
+            Some(&serde_yaml::Value::Bool(true))
+        );
+        assert_eq!(
+            prewalk_map.get(yaml_key("into")),
+            Some(&serde_yaml::Value::String("openai/gpt-4o-mini".into()))
+        );
+        assert_eq!(
+            prewalk_map.get(yaml_key("from")),
+            Some(&serde_yaml::Value::String("@plan".into()))
+        );
+    }
+
+    #[test]
+    fn prewalk_settings_reads_dotted_and_removes_on_save() {
+        let dir = TestDir::new("prewalk-dotted");
+        let path = dir.path().join("config.yml");
+        fs::write(
+            &path,
+            r#"
+prewalk.into: "anthropic/claude-haiku-3-5"
+prewalk.from: "anthropic/claude-sonnet-4-6"
+"#,
+        )
+        .expect("scrittura config");
+
+        let settings = get_prewalk_settings_path(&path).expect("lettura prewalk puntato");
+        assert_eq!(settings.into, "anthropic/claude-haiku-3-5");
+        assert_eq!(settings.from, "anthropic/claude-sonnet-4-6");
+
+        set_prewalk_settings_path(
+            &path,
+            PrewalkSettingsDto {
+                into: "anthropic/claude-haiku-3-5".into(),
+                from: "anthropic/claude-sonnet-4-6".into(),
+            },
+        )
+        .expect("salvataggio consolidato");
+
+        let mapping = read_yaml_mapping(&path).expect("lettura").unwrap();
+        assert!(mapping.get(yaml_key("prewalk.into")).is_none());
+        assert!(mapping.get(yaml_key("prewalk.from")).is_none());
+        assert!(mapping.get(yaml_key("prewalk")).is_some());
+    }
+
+    #[test]
+    fn prewalk_settings_rejects_empty_without_corrupting_file() {
+        let dir = TestDir::new("prewalk-invalid");
+        let path = dir.path().join("config.yml");
+        fs::write(
+            &path,
+            r#"
+prewalk:
+  into: "original/into"
+  from: "original/from"
+"#,
+        )
+        .expect("scrittura config");
+
+        let err1 = set_prewalk_settings_path(
+            &path,
+            PrewalkSettingsDto {
+                into: "   ".into(),
+                from: "valid/from".into(),
+            },
+        )
+        .expect_err("into vuoto deve fallire");
+        assert!(err1.contains("prewalk.into"));
+
+        let err2 = set_prewalk_settings_path(
+            &path,
+            PrewalkSettingsDto {
+                into: "valid/into".into(),
+                from: "".into(),
+            },
+        )
+        .expect_err("from vuoto deve fallire");
+        assert!(err2.contains("prewalk.from"));
+
+        let intact = get_prewalk_settings_path(&path).expect("rilettura");
+        assert_eq!(intact.into, "original/into");
+        assert_eq!(intact.from, "original/from");
+    }
+
+    #[test]
+    fn subagent_model_settings_defaults_on_missing_file() {
+        let dir = TestDir::new("subagent-defaults");
+        let path = dir.path().join("config.yml");
+        let settings = get_subagent_model_settings_path(&path).expect("lettura default subagenti");
+        assert_eq!(settings.per_call_model, "off");
+        assert!(settings.per_call_model_allow.is_empty());
+        assert_eq!(settings.max_effort, "max");
+    }
+
+    #[test]
+    fn subagent_model_settings_roundtrip_preserving_unrelated_task_keys() {
+        let dir = TestDir::new("subagent-roundtrip");
+        let path = dir.path().join("config.yml");
+        fs::write(
+            &path,
+            r#"
+task:
+  maxConcurrency: 16
+  disabledAgents: ["tester"]
+"#,
+        )
+        .expect("scrittura config");
+
+        set_subagent_model_settings_path(
+            &path,
+            SubagentModelSettingsDto {
+                per_call_model: "on".into(),
+                per_call_model_allow: vec![
+                    " anthropic/claude-sonnet-4-6 ".into(),
+                    "openai/gpt-4o".into(),
+                    "anthropic/claude-sonnet-4-6".into(),
+                ],
+                max_effort: "high".into(),
+            },
+        )
+        .expect("salvataggio subagent settings");
+
+        let reloaded = get_subagent_model_settings_path(&path).expect("rilettura subagenti");
+        assert_eq!(reloaded.per_call_model, "on");
+        assert_eq!(
+            reloaded.per_call_model_allow,
+            vec!["anthropic/claude-sonnet-4-6", "openai/gpt-4o"]
+        );
+        assert_eq!(reloaded.max_effort, "high");
+
+        let mapping = read_yaml_mapping(&path).expect("lettura").unwrap();
+        let task_map = mapping.get(yaml_key("task")).unwrap().as_mapping().unwrap();
+        assert_eq!(
+            task_map.get(yaml_key("maxConcurrency")),
+            Some(&serde_yaml::Value::Number(16.into()))
+        );
+        assert_eq!(
+            task_map.get(yaml_key("perCallModel")),
+            Some(&serde_yaml::Value::String("on".into()))
+        );
+        assert_eq!(
+            task_map.get(yaml_key("maxEffort")),
+            Some(&serde_yaml::Value::String("high".into()))
+        );
+    }
+
+    #[test]
+    fn subagent_model_settings_reads_dotted_and_cleans_on_save() {
+        let dir = TestDir::new("subagent-dotted");
+        let path = dir.path().join("config.yml");
+        fs::write(
+            &path,
+            r#"
+task.perCallModel: "eval"
+task.maxEffort: "medium"
+task.perCallModelAllow:
+  - "google/gemini-2.5-pro"
+"#,
+        )
+        .expect("scrittura config");
+
+        let settings = get_subagent_model_settings_path(&path).expect("lettura dotted");
+        assert_eq!(settings.per_call_model, "eval");
+        assert_eq!(settings.max_effort, "medium");
+        assert_eq!(settings.per_call_model_allow, vec!["google/gemini-2.5-pro"]);
+
+        set_subagent_model_settings_path(&path, settings).expect("salvataggio consolidato");
+
+        let mapping = read_yaml_mapping(&path).expect("lettura").unwrap();
+        assert!(mapping.get(yaml_key("task.perCallModel")).is_none());
+        assert!(mapping.get(yaml_key("task.maxEffort")).is_none());
+        assert!(mapping.get(yaml_key("task.perCallModelAllow")).is_none());
+        assert!(mapping.get(yaml_key("task")).is_some());
+    }
+
+    #[test]
+    fn subagent_model_settings_rejects_invalid_values_without_corrupting_file() {
+        let dir = TestDir::new("subagent-invalid");
+        let path = dir.path().join("config.yml");
+        fs::write(
+            &path,
+            r#"
+task:
+  perCallModel: "off"
+  maxEffort: "max"
+"#,
+        )
+        .expect("scrittura config");
+
+        let bad_mode = set_subagent_model_settings_path(
+            &path,
+            SubagentModelSettingsDto {
+                per_call_model: "invalid_mode".into(),
+                per_call_model_allow: vec![],
+                max_effort: "max".into(),
+            },
+        )
+        .expect_err("modalita perCallModel invalida");
+        assert!(bad_mode.contains("perCallModel non valido"));
+
+        let bad_effort = set_subagent_model_settings_path(
+            &path,
+            SubagentModelSettingsDto {
+                per_call_model: "on".into(),
+                per_call_model_allow: vec![],
+                max_effort: "extreme".into(),
+            },
+        )
+        .expect_err("maxEffort invalido");
+        assert!(bad_effort.contains("maxEffort non valido"));
+
+        let bad_allow_no_slash = set_subagent_model_settings_path(
+            &path,
+            SubagentModelSettingsDto {
+                per_call_model: "on".into(),
+                per_call_model_allow: vec!["no_slash_model".into()],
+                max_effort: "high".into(),
+            },
+        )
+        .expect_err("allowlist senza slash deve fallire");
+        assert!(bad_allow_no_slash.contains("allowlist non valido"));
+
+        let bad_allow_empty = set_subagent_model_settings_path(
+            &path,
+            SubagentModelSettingsDto {
+                per_call_model: "on".into(),
+                per_call_model_allow: vec!["   ".into()],
+                max_effort: "high".into(),
+            },
+        )
+        .expect_err("allowlist con stringa vuota deve fallire");
+        assert!(bad_allow_empty.contains("allowlist non valido"));
+
+        let intact = get_subagent_model_settings_path(&path).expect("rilettura");
+        assert_eq!(intact.per_call_model, "off");
+        assert_eq!(intact.max_effort, "max");
+        assert!(intact.per_call_model_allow.is_empty());
+    }
+
+    #[test]
+    fn agent_model_overrides_read_nested_and_dotted_and_remove_one_agent() {
+        let dir = TestDir::new("agent-overrides");
+        let path = dir.path().join("config.yml");
+        assert!(get_agent_model_overrides_path(&path).expect("file assente").is_empty());
+
+        fs::write(
+            &path,
+            "task:\n  maxConcurrency: 4\n  agentModelOverrides:\n    task: \"@task\"\n    scout:\n      - \"@smol\"\n      - openai/gpt-x\nmodelRoles:\n  smol: a/b\n",
+        )
+        .expect("scrittura config");
+        let entries = get_agent_model_overrides_path(&path).expect("lettura");
+        assert_eq!(
+            entries,
+            vec![
+                AgentModelOverrideDto { agent: "scout".into(), model: "@smol, openai/gpt-x".into() },
+                AgentModelOverrideDto { agent: "task".into(), model: "@task".into() },
+            ]
+        );
+
+        remove_agent_model_override_path(&path, "task").expect("rimozione task");
+        let names: Vec<String> = get_agent_model_overrides_path(&path)
+            .expect("rilettura")
+            .into_iter()
+            .map(|entry| entry.agent)
+            .collect();
+        assert_eq!(names, vec!["scout"]);
+
+        // L'ultimo override toglie la mappa; il resto di `task` e la radice restano.
+        remove_agent_model_override_path(&path, "scout").expect("rimozione scout");
+        let mapping = read_yaml_mapping(&path).expect("lettura").unwrap();
+        let task = mapping.get(yaml_key("task")).and_then(|v| v.as_mapping()).expect("task");
+        assert!(task.get(yaml_key("agentModelOverrides")).is_none());
+        assert_eq!(task.get(yaml_key("maxConcurrency")).and_then(|v| v.as_u64()), Some(4));
+        assert!(mapping.get(yaml_key("modelRoles")).is_some());
+
+        let err = remove_agent_model_override_path(&path, "task").expect_err("agente senza override");
+        assert!(err.contains("Nessun override"));
+
+        fs::write(&path, "task.agentModelOverrides:\n  reviewer: \"@slow\"\n").expect("scrittura config");
+        assert_eq!(get_agent_model_overrides_path(&path).expect("lettura")[0].agent, "reviewer");
+        remove_agent_model_override_path(&path, "reviewer").expect("rimozione puntata");
+        let mapping = read_yaml_mapping(&path).expect("lettura").unwrap();
+        assert!(mapping.get(yaml_key("task.agentModelOverrides")).is_none());
     }
 }

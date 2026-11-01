@@ -1257,7 +1257,7 @@ La prima implementazione del Laboratorio (Gate R24, vista separata `LabView` da 
 ## Prewalk: overlay per sessione, destinazione solo `@smol`, nessun riavvio
 
 **Data:** 2026-10-06
-**Esito:** IMPLEMENTATO
+**Esito:** IMPLEMENTATO; il punto 1 (destinazione solo `@smol`) è superato da «Prewalk: destinazione configurabile e scheda» (2026-11-01)
 
 ### Decisioni
 
@@ -1275,6 +1275,15 @@ La prima implementazione del Laboratorio (Gate R24, vista separata `LabView` da 
 - Se modello e thinking coincidono già con il target, omp risponde `nothing to switch`: non è un armo riuscito e Studio restituisce quel motivo senza attendere il timeout.
 - Composer e `TerminalSession` sono esercitati in Vite con un bridge temporaneo verso processi omp reali, inclusi task chat/PTY e file di risultato. Il bridge sostituisce l'IPC fisico Tauri: lo smoke non equivale a una nuova esecuzione del binario desktop compilato.
 - Il watcher non fornisce una conferma per i no-op: l'intervallo intermedio è una misura empirica, mentre il notice finale entro cinque secondi è il criterio di successo. Un watcher rallentato causa un errore visibile, non un task avviato senza prewalk.
+
+## Prewalk: destinazione configurabile e scheda
+
+**Data:** 2026-11-01
+**Esito:** IMPLEMENTATO (requisiti `docs/requisiti/prewalk.md`)
+
+1. **Destinazione e ripartenza da omp 18.14.0.** `prewalk.into` e `prewalk.from` sono impostazioni di omp: Studio non introduce un ruolo nuovo, le scrive in `config.yml` dalla scheda e le copia nell'overlay della sessione accanto a `prewalk.enabled`, perché il watcher risolve la destinazione nel momento in cui `enabled` cambia.
+2. **`/prewalk` servito da Studio.** Inoltrato a omp come prompt produceva sia un notice (transcript) sia un `command_output` (etichetta): lo stesso avviso due volte. Studio lo intercetta con la stessa grammatica e passa dall'overlay, come il pulsante; armo e disarmo diventano stato (pulsante e scheda), non righe del transcript.
+3. **Scelta dalla scheda persistente, argomenti dello slash solo per la chat.** Chi cambia destinazione dalla scheda la vuole anche nelle chat successive e nel terminale; `/prewalk <modello>` resta un uso puntuale, come in omp.
 
 ## Dialogo `ask` nativo via `set_ask_dialog`
 

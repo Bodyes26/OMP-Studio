@@ -116,6 +116,7 @@
 		type AutoDispatchCandidate
 	} from '#lib/lanes/autoDispatchArbiter.ts';
 	import { routeLoopSlash } from '#lib/agent/loopMode.ts';
+	import { routePrewalkSlash } from '#lib/agent/prewalk.ts';
 	import LaneStrip from '#lib/components/LaneStrip.svelte';
 	import LaneDispatchDialog from '#lib/components/LaneDispatchDialog.svelte';
 	import LaneProfileDialog from '#lib/components/LaneProfileDialog.svelte';
@@ -2460,6 +2461,12 @@
 					session.flashNotice('warning', action.message);
 					break;
 			}
+			return true;
+		}
+		// /prewalk nella chat: lo serve Studio con la scheda sopra il composer
+		// (stato, destinazione); stessa grammatica del comando di omp.
+		if (lowerCmd === '/prewalk') {
+			session.handlePrewalkSlash(routePrewalkSlash(argument));
 			return true;
 		}
 		// Obiettivo (goal mode): `/guided-goal` e `/goal` in omp esistono solo nel

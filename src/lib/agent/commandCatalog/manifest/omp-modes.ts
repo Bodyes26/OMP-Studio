@@ -578,25 +578,29 @@ export const OMP_ENTRIES_MODES: readonly CommandManifestEntry[] = [
 			{ zone: 'statusLine', form: 'icon' }
 		],
 		defaultPlacement: { zone: 'statusLine', form: 'chip' },
-		argsHint: '[restart|off]',
+		argsHint: '[into] | restart [from] [into] | off',
 		text: {
 			it: {
 				title: 'Passaggio rapido (Prewalk)',
 				summary:
-					'Innesca un passaggio automatico dal modello principale al modello rapido (@smol) al primo edit del codice.',
+					'Innesca un passaggio automatico dal modello principale a un modello di destinazione (predefinito @smol) al primo edit del codice. Il pulsante e /prewalk aprono una scheda con stato e destinazione.',
 				benefits: [
 					'Sfrutta l’intelligenza di un modello di punta per esplorare il repository e impostare la checklist todo.',
-					'Passa in automatico al modello economico (@smol) appena inizia la fase di scrittura dei file.',
-					'Ripetibile con restart: alla richiesta successiva ripristina il modello di pianificazione per un nuovo ciclo.'
+					'Passa in automatico al modello scelto (un ruolo come @smol o un modello preciso) appena inizia la fase di scrittura dei file.',
+					'Ripetibile con restart: torna al modello di pianificazione e riarma il passaggio per un nuovo ciclo.'
 				],
 				examples: [
 					{
 						command: '/prewalk',
-						note: 'Attiva il passaggio automatico verso @smol al primo edit'
+						note: 'Attiva il passaggio verso la destinazione salvata e mostra la scheda per cambiarla'
+					},
+					{
+						command: '/prewalk @task',
+						note: 'Attiva il passaggio verso un altro ruolo o modello, solo per questa chat'
 					},
 					{
 						command: '/prewalk restart',
-						note: 'Ritorna al modello predefinito @default e riarma il passaggio verso @smol'
+						note: 'Ritorna al modello di partenza (predefinito @default) e riarma il passaggio'
 					},
 					{
 						command: '/prewalk off',
@@ -609,20 +613,24 @@ export const OMP_ENTRIES_MODES: readonly CommandManifestEntry[] = [
 			en: {
 				title: 'Prewalk handoff',
 				summary:
-					'Arms a one-shot handoff from the planning model to the fast @smol model at the first workspace edit.',
+					'Arms a one-shot handoff from the planning model to a target model (default @smol) at the first workspace edit. The button and /prewalk open a card with its state and target.',
 				benefits: [
 					'Invests a frontier model’s reasoning into repository exploration and task planning.',
-					'Delegates file editing and boilerplate changes to a fast, cost-effective model as soon as editing begins.',
-					'Easily repeatable with restart to return to the planning model for subsequent prompts.'
+					'Hands file editing to the chosen model (a role such as @smol or an exact model) as soon as editing begins.',
+					'Easily repeatable with restart to return to the planning model and re-arm the handoff.'
 				],
 				examples: [
 					{
 						command: '/prewalk',
-						note: 'Arm the one-shot handoff to @smol on first file edit'
+						note: 'Arm the handoff to the saved target and show the card to change it'
+					},
+					{
+						command: '/prewalk @task',
+						note: 'Arm the handoff to another role or model, for this chat only'
 					},
 					{
 						command: '/prewalk restart',
-						note: 'Return to @default planning model and re-arm the handoff to @smol'
+						note: 'Return to the planning model (default @default) and re-arm the handoff'
 					},
 					{
 						command: '/prewalk off',
