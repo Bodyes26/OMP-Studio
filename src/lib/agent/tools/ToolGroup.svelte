@@ -28,6 +28,7 @@
 	} from './categories';
 	import CategoryIcon from './parts/CategoryIcon.svelte';
 	import WritePreview from './parts/WritePreview.svelte';
+	import JsonBlock from './parts/JsonBlock.svelte';
 	import { asRecord, str } from './types';
 	import { isSvgFileName } from '#lib/editor/svgSandbox.ts';
 	import { isMermaidFileName } from '#lib/mermaidSvg.ts';
@@ -166,7 +167,8 @@
 					toolName: entry.toolName,
 					args: entry.args,
 					result: entry.result,
-					running: entry.running
+					running: entry.running,
+					waitContext: entry.waitContext
 				});
 				out.push({
 					id: entry.id,
@@ -195,6 +197,13 @@
 		return out;
 	});
 
+	const runningItems = $derived(rowItems.filter((item) => item.running));
+	const waitingOnly = $derived(
+		!isStreamingThinking && runningItems.length > 0 &&
+		runningItems.every((item) => item.summary.category === 'wait')
+	);
+	const liveLabel = $derived(waitingOnly ? runningItems[0].summary.label : m.chat_v2_tools_working());
+
 	// Raggruppa gli indici/elementi in batch paralleli
 	function makeBatches(items: RowItem[]): RowItem[][] {
 		const batches: RowItem[][] = [];
@@ -213,7 +222,7 @@
 	const fullBatches = $derived(makeBatches(rowItems));
 
 	// Conteggi aggregati per il riepilogo finale
-	const categoryOrder: ToolCategory[] = ['read', 'search', 'web', 'run', 'edit', 'think', 'other'];
+	const categoryOrder: ToolCategory[] = ['read', 'search', 'web', 'run', 'edit', 'think', 'wait', 'other'];
 	const summaryStats = $derived.by(() => {
 		const counts: Partial<Record<ToolCategory, number>> = {};
 		let totalAdd = 0;
@@ -256,6 +265,8 @@
 				return count === 1 ? m.chat_v2_tools_cat_web_one() : m.chat_v2_tools_cat_web_many();
 			case 'think':
 				return count === 1 ? m.chat_v2_tools_cat_think_one() : m.chat_v2_tools_cat_think_many();
+			case 'wait':
+				return m.chat_tool_wait_category();
 			default:
 				return count === 1 ? m.chat_v2_tools_cat_other_one() : m.chat_v2_tools_cat_other_many();
 		}
@@ -327,7 +338,8 @@
 
 {#snippet renderRow(item: RowItem)}
 	{@const isExpanded = expandedRows.has(item.id)}
-	<div class="row-container" class:compact={!isExpanded && !item.running}>
+	{@const isWait = item.summary.category === 'wait'}
+	<div class="row-container" class:compact={!isExpanded && !item.running} class:wait-row={isWait} class:waiting={isWait && item.running}>
 		<button
 			type="button"
 			class="tool-row"
@@ -335,7 +347,9 @@
 			onclick={() => toggleRow(item.id)}
 		>
 			<span class="row-icon-slot">
-				{#if item.running}
+				{#if item.running && isWait}
+					<span class="wait-mark"><CategoryIcon category="wait" /></span>
+				{:else if item.running}
 					<span class="spinner" aria-label={m.chat_v2_tools_running_aria()}></span>
 				{:else if item.fail}
 					<span class="fail-icon"><IconClose /></span>
@@ -344,14 +358,17 @@
 				{/if}
 			</span>
 
-			<span class="row-label" class:text-shimmer={item.running}>{item.summary.label}</span>
+			<span class="row-label" class:text-shimmer={item.running && !isWait} title={item.summary.label}>{item.summary.label}</span>
 
 			{#if item.summary.detail}
 				<span class="row-detail" title={item.summary.detail}>{item.summary.detail}</span>
 			{/if}
 
-			{#if !item.running && (item.summary.meta || item.summary.diff)}
+			{#if isWait || (!item.running && (item.summary.meta || item.summary.diff))}
 				<span class="row-tail">
+					{#if isWait && item.entry.kind === 'tool'}
+						<span class="row-meta tabular-nums">{formatDurationSecs(Math.max(0, (item.entry.running ? stopwatchNow() : item.entry.endedAt ?? item.entry.startedAt) - item.entry.startedAt))}</span>
+					{/if}
 					{#if item.summary.meta}
 						<span class="row-meta" class:meta-fail={item.fail}>{item.summary.meta}</span>
 					{/if}
@@ -363,11 +380,15 @@
 					{/if}
 				</span>
 			{/if}
+			<span class="row-chevron" class:expanded={isExpanded}><IconChevronRight /></span>
 		</button>
 
 		{#if isExpanded}
 			<div class="inline-body">
 				{#if item.entry.kind === 'tool'}
+					{#if item.entry.intent}
+						<p class="tool-intent">{item.entry.intent}</p>
+					{/if}
 					{@const renderer = rendererFor(item.entry.toolName)}
 					<renderer.component
 						name={item.entry.toolName}
@@ -375,7 +396,12 @@
 						result={item.entry.result}
 						running={item.entry.running}
 						toolCallId={item.entry.toolCallId}
+						waitContext={item.entry.waitContext}
 					/>
+					<details class="technical-details">
+						<summary>{m.chat_tool_technical_details()} · {item.entry.toolName}</summary>
+						<JsonBlock value={item.entry.args} />
+					</details>
 				{:else if item.entry.kind === 'assistant'}
 					<div class="thinking-body">
 						<pre class="thinking-text">{getThinkingText(item.entry)}</pre>
@@ -413,7 +439,7 @@
 	>
 		{#if isLive}
 			<span class="summary-lead">
-				<span class="live-status text-shimmer">{m.chat_v2_tools_working()}</span>
+				<span class="live-status" class:text-shimmer={!waitingOnly}>{liveLabel}</span>
 				<span class="summary-text tabular-nums">{callsCountText} · {durationLabel}</span>
 			</span>
 		{:else}
@@ -546,6 +572,55 @@
 		flex-shrink: 0;
 		color: var(--ink-faint);
 	}
+	.wait-mark {
+		display: inline-flex;
+		color: var(--ink-muted);
+		animation: wait-breathe 2.4s ease-in-out infinite;
+	}
+
+	.waiting {
+		background: var(--bg-raised);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
+		padding: var(--space-1);
+	}
+
+	.wait-row .row-label {
+		min-width: 0;
+		flex-shrink: 1;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	@keyframes wait-breathe {
+		50% { opacity: 0.4; }
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.wait-mark, .spinner { animation: none; }
+	}
+
+	.row-chevron {
+		display: inline-flex;
+		color: var(--ink-faint);
+		--icon-size: 12px;
+	}
+
+	.row-chevron.expanded { transform: rotate(90deg); }
+
+	.tool-intent {
+		margin: 0 0 var(--space-2);
+		color: var(--ink-muted);
+		overflow-wrap: anywhere;
+	}
+
+	.technical-details {
+		margin-top: var(--space-2);
+		color: var(--ink-muted);
+	}
+
+	.technical-details summary { cursor: pointer; }
 
 	.spinner {
 		width: 12px;

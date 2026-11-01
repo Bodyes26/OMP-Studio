@@ -13,6 +13,7 @@
 import type { AgentToolResult } from '../wire';
 import { m as msg } from '#lib/paraglide/messages.js';
 import { getLocale } from '#lib/paraglide/runtime.js';
+import { describeWait, type WaitContext } from './wait';
 import {
 	asRecord,
 	extractToolErrorReason,
@@ -30,6 +31,7 @@ export type ToolCategory =
 	| 'web'
 	| 'think'
 	| 'other'
+	| 'wait'
 	| 'task'
 	| 'todo'
 	| 'ask';
@@ -49,6 +51,7 @@ export interface CategorizeToolInput {
 	args?: Record<string, unknown> | null;
 	result?: AgentToolResult | null;
 	running?: boolean;
+	waitContext?: WaitContext;
 }
 
 /**
@@ -128,6 +131,9 @@ export function categoryForTool(toolName: string): ToolCategory {
 
 		case 'ask':
 			return 'ask';
+		case 'wait':
+			return 'wait';
+
 
 		default:
 			return 'other';
@@ -223,6 +229,12 @@ export function categorizeTool(input: CategorizeToolInput): ToolSummary {
 	let diff: [number, number] | undefined;
 
 	switch (canonical) {
+		case 'wait': {
+			const summary = describeWait({
+				args, result, running: input.running, context: input.waitContext
+			});
+			return { ...summary, fail: isError || Boolean(errorReason), errorReason };
+		}
 		case 'read': {
 			label = msg.chat_v2_tool_label_read();
 			const metaRec = asRecord(details?.meta);
@@ -421,7 +433,9 @@ export function categorizeTool(input: CategorizeToolInput): ToolSummary {
 
 		case 'task': {
 			label = msg.chat_v2_tool_label_task();
-			detail = str(args.task) ?? str(args.description);
+			detail = Array.isArray(args.tasks)
+				? args.tasks.map(asRecord).map((task) => str(task?.name) ?? str(task?.agent)).filter(Boolean).join(', ') || undefined
+				: str(args.task) ?? str(args.description);
 			break;
 		}
 

@@ -7,6 +7,7 @@
 
 import type { Component } from 'svelte';
 import type { ContentBlock } from '../wire';
+import type { WaitContext } from './wait';
 
 export interface ToolRenderProps {
 	name: string;
@@ -16,6 +17,7 @@ export interface ToolRenderProps {
 	running?: boolean;
 	/** Id della chiamata: lo usano le card interattive (proposta di corsia). */
 	toolCallId?: string;
+	waitContext?: WaitContext;
 	/** Il corpo espandibile e' l'unica vista renderizzata dal componente (Gate R32 - C10). */
 }
 

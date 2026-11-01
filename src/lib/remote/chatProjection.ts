@@ -131,7 +131,8 @@ function buildRemoteToolCall(entry: ToolEntry): RemoteToolCall {
 		toolName: entry.toolName,
 		args: entry.args,
 		result: entry.result,
-		running: entry.running
+		running: entry.running,
+		waitContext: entry.waitContext
 	});
 
 	const isError = entry.result?.isError === true || summary.fail === true;

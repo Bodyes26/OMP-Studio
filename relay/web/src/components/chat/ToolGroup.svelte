@@ -44,6 +44,7 @@
 		'edit',
 		'web',
 		'think',
+		'wait',
 		'task',
 		'todo',
 		'ask',

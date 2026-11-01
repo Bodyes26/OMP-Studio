@@ -13,6 +13,7 @@
 		IconSubagents,
 		IconQueue,
 		IconAsk,
+		IconSchedule,
 		IconPlay
 	} from '../../icons.ts';
 
@@ -43,6 +44,8 @@
 	<span class="icon-wrap {className}"><IconQueue /></span>
 {:else if category === 'ask'}
 	<span class="icon-wrap {className}"><IconAsk /></span>
+{:else if category === 'wait'}
+	<span class="icon-wrap {className}"><IconSchedule /></span>
 {:else}
 	<span class="icon-wrap {className}"><IconPlay /></span>
 {/if}

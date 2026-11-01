@@ -35,6 +35,7 @@ import Resolve from './renderers/Resolve.svelte';
 import Retain from './renderers/Retain.svelte';
 import Task from './renderers/Task.svelte';
 import Todo from './renderers/Todo.svelte';
+import Wait from './renderers/Wait.svelte';
 import WebSearch from './renderers/WebSearch.svelte';
 import Write from './renderers/Write.svelte';
 import Yield from './renderers/Yield.svelte';
@@ -81,6 +82,7 @@ const REGISTRY: Record<string, ToolRenderer> = {
 	retain: { component: Retain, expandable: true },
 	task: { component: Task, expandable: true },
 	todo: { component: Todo, expandable: true },
+	wait: { component: Wait, expandable: true },
 	web_search: { component: WebSearch, expandable: true },
 	write: { component: Write, expandable: true },
 	yield: { component: Yield, expandable: true }

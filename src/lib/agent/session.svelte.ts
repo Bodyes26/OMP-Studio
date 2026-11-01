@@ -29,6 +29,7 @@ import { entryToRemoteMessage, remoteMessageId } from '#lib/remote/chatProjectio
 import { remoteStore } from '#lib/remote/remoteStore.svelte.ts';
 import { sessionCompletions } from './completion.svelte';
 import { observeSessionJobs, finishSessionJobs, type SessionJob } from './jobActivity';
+import type { WaitContext } from './tools/wait';
 
 let firstComposerReadyMarked = false;
 // Stato della superficie GUI: un'istanza per progetto.
@@ -301,6 +302,8 @@ export interface ToolEntry {
 	running: boolean;
 	startedAt: number;
 	endedAt?: number;
+	/** Contesto catturato per questa attesa, mai ricavato dalle attivita di una sessione successiva. */
+	waitContext?: WaitContext;
 }
 
 export interface NoticeEntry {
@@ -2265,6 +2268,11 @@ export class AgentSession {
 		const entries: TranscriptEntry[] = [];
 		const tools = new Map<string, ToolEntry>();
 		this.toolEntries.clear();
+		const waitContexts = new Map(
+			this.entries.flatMap((entry) =>
+				entry.kind === 'tool' && entry.waitContext ? [[entry.toolCallId, entry.waitContext] as const] : []
+			)
+		);
 
 		for (const message of messages) {
 			if (message.role === 'compactionSummary' || (typeof message.summary === 'string' && !message.role)) {
@@ -2348,7 +2356,10 @@ export class AgentSession {
 							args: stripIntent(block.arguments),
 							intent: block.intent ?? (typeof block.arguments?.i === 'string' ? block.arguments.i : undefined),
 							running: false,
-							startedAt: message.timestamp ?? 0
+							startedAt: message.timestamp ?? 0,
+							...(block.name === 'wait' && waitContexts.has(block.id)
+								? { waitContext: waitContexts.get(block.id) }
+								: {}),
 						};
 						entries.push(entry);
 						tools.set(block.id, entry);
@@ -2600,9 +2611,19 @@ export class AgentSession {
 					toolCallId: event.toolCallId,
 					toolName: event.toolName,
 					args: stripIntent(event.args),
-					intent: event.intent,
+					intent: event.intent ?? (typeof event.args?.i === 'string' ? event.args.i : undefined),
 					running: true,
-					startedAt: Date.now()
+					startedAt: Date.now(),
+					...(event.toolName === 'wait' ? {
+						waitContext: {
+							subagents: this.subagents
+								.filter((sub) => sub.status === 'running' || sub.status === 'pending')
+								.map((sub) => ({ ...sub, recentTools: sub.recentTools?.map((tool) => ({ ...tool })) })),
+							jobs: this.backgroundJobs
+								.filter((job) => ['running', 'pending', 'in_progress'].includes(job.status))
+								.map((job) => ({ ...job }))
+						}
+					} : {})
 				};
 				// Stessa ragione dell'entry assistant: nella mappa va l'istanza
 				// reattiva, non quella grezza appena costruita.
@@ -2639,6 +2660,7 @@ export class AgentSession {
 					entry.running = false;
 					entry.endedAt = Date.now();
 					this.backgroundJobs = observeSessionJobs(this.backgroundJobs, entry.toolName, entry.args, entry.result?.details);
+					this.refreshWaitContexts();
 					const endToolMsg = entryToRemoteMessage(entry);
 					if (endToolMsg) {
 						this.emitRemoteChat({
@@ -3419,6 +3441,7 @@ export class AgentSession {
 			case 'subagent-result': {
 				this.reconcileSubagentsFromJobs(classified.jobs);
 				this.backgroundJobs = finishSessionJobs(this.backgroundJobs, classified.jobs);
+				this.refreshWaitContexts();
 				return {
 					id: this.nextEntryId++,
 					kind: 'subagent-result',
@@ -3882,9 +3905,26 @@ export class AgentSession {
 		const existing = this.subagents.findIndex((candidate) => candidate.id === key);
 		if (existing === -1) this.subagents.push({ ...progress, id: key });
 		else this.subagents[existing] = { ...this.subagents[existing], ...progress, id: key };
+		this.refreshWaitContexts();
 
 		if (progress.status === 'completed' || progress.status === 'failed' || progress.status === 'aborted') {
 			void this.refreshSubagentCost();
+		}
+	}
+
+	/** Aggiorna solo le identita gia presenti nell'attesa; a fine chiamata il contesto resta congelato. */
+	private refreshWaitContexts() {
+		for (const entry of this.toolEntries.values()) {
+			if (!entry.running || !entry.waitContext) continue;
+			entry.waitContext = {
+				subagents: entry.waitContext.subagents?.map((sub) => {
+					const current = this.subagents.find((candidate) => candidate.id === sub.id);
+					return current ? { ...current, recentTools: current.recentTools?.map((tool) => ({ ...tool })) } : sub;
+				}),
+				jobs: entry.waitContext.jobs?.map((job) =>
+					this.backgroundJobs.find((candidate) => candidate.id === job.id) ?? job
+				)
+			};
 		}
 	}
 

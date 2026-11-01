@@ -37,6 +37,7 @@ const TOOL_CATEGORY_BY_NAME: Record<string, RemoteToolCategory> = {
 	fetch: 'web',
 	browser: 'web',
 	think: 'think',
+	wait: 'wait',
 	task: 'task',
 	todo: 'todo',
 	ask: 'ask'

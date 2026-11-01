@@ -468,6 +468,7 @@ export type RemoteToolCategory =
 	| 'edit'
 	| 'web'
 	| 'think'
+	| 'wait'
 	| 'other'
 	| 'task'
 	| 'todo'

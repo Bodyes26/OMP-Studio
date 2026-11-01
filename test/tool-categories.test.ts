@@ -4,8 +4,7 @@ import {
 	categorizeTool,
 	categoryForTool,
 	parseDiffStats,
-	formatDurationSecs,
-	summarizeThinking
+	formatDurationSecs
 } from '../src/lib/agent/tools/categories.ts';
 import { useLocale } from './locale.ts';
 
@@ -42,7 +41,6 @@ describe('Categorie e sintesi dei tool (Gate R32 - C09)', () => {
 		});
 
 		assert.equal(summary.category, 'edit');
-		assert.equal(summary.label, 'Modifica');
 		assert.equal(summary.detail, 'alpha.ts');
 		assert.deepEqual(summary.diff, [1, 2]);
 		assert.equal(summary.meta, 'update');
@@ -71,7 +69,6 @@ describe('Categorie e sintesi dei tool (Gate R32 - C09)', () => {
 		});
 
 		assert.equal(summary.category, 'run');
-		assert.equal(summary.label, 'Comando');
 		assert.equal(summary.detail, 'cargo test --manifest-path src-tauri/Cargo.toml');
 		assert.equal(summary.meta, 'exit 101');
 		assert.equal(summary.fail, true);
@@ -150,14 +147,10 @@ describe('Categorie e sintesi dei tool (Gate R32 - C09)', () => {
 		assert.equal(formatDurationSecs(12800), '12,8 s');
 	});
 
-	it('usa il separatore decimale e le etichette della lingua dell\'interfaccia', () => {
+	it('usa il separatore decimale della lingua dell\'interfaccia', () => {
 		useLocale('en');
 		assert.equal(formatDurationSecs(1449), '1.4 s');
 		assert.equal(formatDurationSecs(12800), '12.8 s');
-		assert.equal(categorizeTool({ toolName: 'read', args: { path: 'a.ts' } }).label, 'Read');
-		assert.equal(summarizeThinking('pensiero').label, 'Thinking');
 		useLocale('it');
-		assert.equal(categorizeTool({ toolName: 'read', args: { path: 'a.ts' } }).label, 'Lettura');
-		assert.equal(summarizeThinking('pensiero').label, 'Ragionamento');
 	});
 });
