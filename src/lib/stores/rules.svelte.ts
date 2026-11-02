@@ -8,13 +8,14 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
+import { m } from '#lib/paraglide/messages.js';
 
 export interface ContextRuleItem {
 	id: string;
 	name: string;
 	path: string;
 	exists: boolean;
-	rule_type: 'agents_md' | 'omp_rule' | 'guidelines';
+	rule_type: 'agents_md' | 'omp_rule' | 'guidelines' | 'preview_rules';
 	description?: string | null;
 }
 
@@ -135,6 +136,39 @@ class RulesStore {
 			const rel = await invoke<string>('create_project_agents_md', { projectPath });
 			await this.loadContext(projectPath, true);
 			return rel;
+		} catch (error) {
+			this.errors[projectPath.toLowerCase()] = `Creazione non riuscita: ${String(error)}`;
+			return null;
+		}
+	}
+
+	async ensurePreviewRules(projectPath: string): Promise<boolean> {
+		if (!projectPath) return false;
+		try {
+			const defaultContent = m.rules_preview_default_template();
+			const created = await invoke<boolean>('ensure_preview_rules', {
+				projectPath,
+				defaultContent
+			});
+			if (created) {
+				await this.loadContext(projectPath, true);
+			}
+			return created;
+		} catch (error) {
+			console.error(`[rules] ensure_preview_rules fallito per ${projectPath}:`, error);
+			return false;
+		}
+	}
+
+	async initPreviewRules(projectPath: string): Promise<string | null> {
+		try {
+			const defaultContent = m.rules_preview_default_template();
+			await invoke<boolean>('ensure_preview_rules', {
+				projectPath,
+				defaultContent
+			});
+			await this.loadContext(projectPath, true);
+			return '.omp/preview.md';
 		} catch (error) {
 			this.errors[projectPath.toLowerCase()] = `Creazione non riuscita: ${String(error)}`;
 			return null;

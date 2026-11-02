@@ -7,7 +7,7 @@
 //! la colonna centrale apre l'anteprima sandbox interattiva (per file SVG
 //! il rendering e' completamente isolato con sandbox restrittivo privo di script).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use notify::{RecursiveMode, Watcher};
@@ -37,6 +37,8 @@ pub struct PreviewPayload {
     pub lane_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub project_id: Option<String>,
+    #[serde(default)]
+    pub snapshot: bool,
 }
 
 fn read_preview(path: &std::path::Path) -> Option<PreviewPayload> {
@@ -78,6 +80,10 @@ fn read_preview(path: &std::path::Path) -> Option<PreviewPayload> {
         .and_then(|v| v.as_str())
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
+    let snapshot = value
+        .get("snapshot")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     Some(PreviewPayload {
         id,
         title,
@@ -86,6 +92,7 @@ fn read_preview(path: &std::path::Path) -> Option<PreviewPayload> {
         session_id,
         lane_id,
         project_id,
+        snapshot,
     })
 }
 
@@ -107,6 +114,10 @@ fn newest_preview(dir: &std::path::Path) -> Option<(PathBuf, u64)> {
     let mut newest: Option<(PathBuf, u64)> = None;
     for entry in entries.flatten() {
         let path = entry.path();
+        let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if file_name.starts_with('.') || file_name.ends_with(".ack.json") {
+            continue;
+        }
         if path.extension().and_then(|e| e.to_str()) != Some("json") {
             continue;
         }
@@ -239,6 +250,81 @@ pub fn spawn_watcher(app: AppHandle) {
     });
 }
 
+/// Scrive atomicamente il file di ack `<id>.ack.json` nella cartella previews.
+/// Valida il charset dell'identificatore per prevenire directory traversal.
+#[tauri::command]
+pub fn studio_preview_ack(id: String, ack: serde_json::Value) -> Result<(), String> {
+    let clean_id = id.trim();
+    if clean_id.is_empty() || clean_id.len() > 128 {
+        return Err("Identificatore preview non valido o troppo lungo".to_string());
+    }
+    if !clean_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+        return Err("Identificatore preview contiene caratteri non ammessi".to_string());
+    }
+
+    let Some(dir) = previews_dir() else {
+        return Err("Impossibile risolvere la cartella delle anteprime".to_string());
+    };
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        return Err(format!("Impossibile creare la cartella delle anteprime: {e}"));
+    }
+    // Un ack arrivato dopo che lo strumento ha smesso di attenderlo non verrebbe mai letto:
+    // si eliminano qui gli ack orfani, cosi' la cartella non cresce senza limite.
+    prune_stale_acks(&dir);
+
+    let ack_file = dir.join(format!("{clean_id}.ack.json"));
+    let tmp_file = dir.join(format!(
+        ".{clean_id}.ack.json.tmp.{}.{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    ));
+
+    let json_bytes = serde_json::to_vec_pretty(&ack)
+        .map_err(|e| format!("Serializzazione ack fallita: {e}"))?;
+
+    std::fs::write(&tmp_file, &json_bytes)
+        .map_err(|e| format!("Scrittura file temporaneo fallita: {e}"))?;
+
+    if let Err(err) = std::fs::rename(&tmp_file, &ack_file) {
+        let _ = std::fs::remove_file(&ack_file);
+        if let Err(e) = std::fs::rename(&tmp_file, &ack_file) {
+            let _ = std::fs::remove_file(&tmp_file);
+            return Err(format!("Rinomina file ack fallita: {e} (tentativo iniziale: {err})"));
+        }
+    }
+
+    Ok(())
+}
+
+fn prune_stale_acks(dir: &Path) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let max_age = std::time::Duration::from_secs(600);
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let is_ack = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.ends_with(".ack.json"));
+        if !is_ack {
+            continue;
+        }
+        let stale = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.elapsed().ok())
+            .is_some_and(|age| age > max_age);
+        if stale {
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -341,5 +427,48 @@ mod tests {
         let (path, _) = pending_preview(&state, &dir).expect("nuova anteprima non rilevata");
         assert_eq!(path, new);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_read_preview_with_snapshot() {
+        let dir = std::env::temp_dir().join(format!("omp-test-prev-snap-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("test_preview_snap.json");
+        let content = serde_json::json!({
+            "id": "prev-snap",
+            "title": "Snap Card",
+            "file_path": "proto/snap.html",
+            "cwd": "C:/repos/portalino",
+            "session_id": "sess-snap",
+            "snapshot": true
+        });
+        std::fs::write(&path, content.to_string()).unwrap();
+        let payload = read_preview(&path).expect("lettura preview snapshot fallita");
+        assert!(payload.snapshot);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_newest_preview_ignores_ack_and_hidden_files() {
+        let dir = std::env::temp_dir().join(format!("omp-test-prev-ack-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let ack_file = dir.join("test1.ack.json");
+        std::fs::write(&ack_file, "{}").unwrap();
+        let tmp_file = dir.join(".tmp_preview.json");
+        std::fs::write(&tmp_file, "{}").unwrap();
+        assert!(newest_preview(&dir).is_none());
+
+        let valid = dir.join("real.json");
+        std::fs::write(&valid, "{}").unwrap();
+        let (path, _) = newest_preview(&dir).expect("real.json deve essere trovato");
+        assert_eq!(path, valid);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_studio_preview_ack_id_validation() {
+        assert!(studio_preview_ack("".to_string(), serde_json::json!({})).is_err());
+        assert!(studio_preview_ack("../bad_id".to_string(), serde_json::json!({})).is_err());
+        assert!(studio_preview_ack("bad id with spaces".to_string(), serde_json::json!({})).is_err());
     }
 }

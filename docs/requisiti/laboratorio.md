@@ -21,6 +21,7 @@ Citazioni dell'utente dalla discussione del 2026-10-28:
 - **F8 — Registro:** «va bene», in risposta al registro R-LAB-01…08, alle regole in AGENTS.md e ai documenti del Gate R47.
 - **F9 — Consegna Nightly senza suite di test:** «procedi con l'implementazione completa» e «Non fare test [...] Quando hai finito il codice mi fai il flow di pubblicazione nightly». Questa autorizzazione riguarda la consegna del codice e la pubblicazione, non attesta il superamento degli scenari di accettazione.
 - **F10 — Modello scelto dall'utente (2026-10-30):** «quando approvo il brief del lab non deve propormi di cambiare modello, deve tenere quello che ho lasciato, sta a me all'inizio del lab impostare il modello che voglio o cambiarlo io a metà corsa quando voglio, non deve forzarmi lì».
+- **F11 — Screenshot nella domanda (2026-11-02):** «al tool ask devo poter allegare un'immagine come nota [...] quando chiede screenshot serve poterlo aggiungere direttamente lì invece di dover rispondere e poi fare nuovo messaggio di steer per l'immagine».
 
 Le fonti complete sono nella conversazione di progetto del 2026-10-28. Le citazioni abbreviate sopra conservano il significato della decisione; i dettagli verificabili sono definiti nei requisiti seguenti.
 
@@ -104,11 +105,13 @@ Non offre nuova sessione o nuova corsia. La scelta non cambia il workspace né i
 
 ## R-LAB-04 — Intervista adattiva e screenshot manuale
 
-**Fonti:** F2, F7, F8.
+**Fonti:** F2, F7, F8, F11.
 
 L'agente usa `ask` per chiarire soltanto decisioni che cambiano il risultato: superficie ambigua, operazioni da esplorare, fedeltà al design, ricetta e varianti. Le risposte deducibili dal progetto si cercano nei sorgenti. Una richiesta precisa evita domande ridondanti ma passa comunque dall'approvazione del Piano.
 
 Per una superficie visiva senza immagine allegata, l'agente chiede uno screenshot come riferimento. L'utente può incollarlo o trascinarlo nel composer; può anche proseguire senza. In tal caso il brief dichiara che la pagina reale non è stata osservata visivamente.
+
+Dal 2026-11-02 lo screenshot si può anche scegliere da file o incollare direttamente nella scheda `ask`, come allegato alla risposta. L'invio della risposta consegna anche le immagini, associate alla rispettiva domanda, senza richiedere un secondo messaggio manuale. Le immagini restano nella bozza riducendo e riaprendo la scheda; non si invia mentre la loro preparazione è ancora in corso.
 
 **Accettazione:** una richiesta ambigua produce domande pertinenti dopo la ricognizione; una richiesta completa non ripete domande già risolte. Allegare uno screenshot lo rende disponibile all'agente; rinunciarvi consente comunque di approvare il brief e costruire sui sorgenti, senza dichiarare una verifica visiva dell'app reale.
 

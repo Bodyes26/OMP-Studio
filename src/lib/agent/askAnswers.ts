@@ -10,7 +10,7 @@
  */
 
 import { m as msg } from '#lib/paraglide/messages.js';
-import type { AskDialogAnswer } from './wire';
+import type { AskDialogAnswer, ImageContent } from './wire';
 
 /**
  * Domanda come l'ha dichiarata l'agente negli argomenti del tool `ask`. Vive
@@ -264,6 +264,24 @@ export function buildAskDialogAnswers(questions: AnswerableQuestion[]): AskDialo
 			customInput: undefined
 		};
 	});
+}
+
+/**
+ * Immagini allegate alle risposte, come messaggi da accodare (steer) subito
+ * dopo la risposta. `extension_ui_response` porta solo testo: le immagini
+ * viaggiano nel messaggio successivo, lo stesso che l'utente scriverebbe a
+ * mano, e omp lo consegna al modello insieme al risultato di `ask`. Uno per
+ * domanda, perche' il modello sappia a quale risposta appartiene ciascuna.
+ */
+export function buildAskImageSteers(
+	questions: readonly { question: string; images: readonly ImageContent[] }[]
+): { message: string; images: ImageContent[] }[] {
+	return questions
+		.filter((question) => question.images.length > 0)
+		.map((question) => ({
+			message: msg.ask_images_steer({ question: question.question.trim() }),
+			images: [...question.images]
+		}));
 }
 
 /**

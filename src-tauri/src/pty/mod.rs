@@ -465,6 +465,40 @@ fn drop_unresumable_resume(args: Vec<String>, resumable: impl Fn(&str) -> bool) 
     kept
 }
 
+/// Risolve la radice del progetto principale. Se `cwd` e' un worktree Git,
+/// legge il puntatore `.git` fino alla radice del checkout principale.
+pub fn resolve_project_root(cwd: &str) -> Option<String> {
+    let mut dir = std::path::PathBuf::from(cwd);
+    loop {
+        let dot_git = dir.join(".git");
+        if dot_git.is_dir() {
+            return Some(dir.to_string_lossy().to_string());
+        } else if dot_git.is_file() {
+            if let Ok(content) = std::fs::read_to_string(&dot_git) {
+                for line in content.lines() {
+                    if let Some(gitdir_rel) = line.strip_prefix("gitdir:") {
+                        let gitdir = dir.join(gitdir_rel.trim());
+                        let commondir_file = gitdir.join("commondir");
+                        if let Ok(common) = std::fs::read_to_string(commondir_file) {
+                            let common_dir = gitdir.join(common.trim());
+                            if let Ok(can) = common_dir.canonicalize() {
+                                if let Some(parent) = can.parent() {
+                                    return Some(parent.to_string_lossy().to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return Some(dir.to_string_lossy().to_string());
+        }
+        if !dir.pop() {
+            break;
+        }
+    }
+    None
+}
+
 #[tauri::command]
 // La firma espone i parametri del comando IPC usati dal frontend.
 #[allow(clippy::too_many_arguments)]
@@ -674,6 +708,12 @@ pub async fn pty_open(
     }
     if let Some(proj) = &project_id {
         cmd.env("OMP_PROJECT_ID", proj);
+    }
+    if let Some(locale) = crate::desktop_presence::get_current_locale() {
+        cmd.env("OMP_STUDIO_LOCALE", locale);
+    }
+    if let Some(root) = resolve_project_root(&cwd) {
+        cmd.env("OMP_STUDIO_PROJECT_ROOT", root);
     }
     let bridge_creds = if let Some(project) = project_id
         .as_ref()

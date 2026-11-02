@@ -4240,7 +4240,10 @@ export class AgentSession {
 		}
 	}
 
-	async submitAskAnswers(answers: AskDialogAnswer[]): Promise<void> {
+	async submitAskAnswers(
+		answers: AskDialogAnswer[],
+		imageSteers: { message: string; images: ImageContent[] }[] = []
+	): Promise<void> {
 		if (answers.length === 0) {
 			await this.cancelPendingUi();
 			return;
@@ -4250,6 +4253,21 @@ export class AgentSession {
 		const ok = await this.respond(pending, { answers });
 		if (!ok) {
 			throw new Error('Impossibile inviare la risposta: risorsa non ammessa');
+		}
+		for (let index = 0; index < imageSteers.length; index++) {
+			try {
+				// Non passa da prompt(): una domanda successiva puo' essere gia'
+				// arrivata e quel percorso la annullerebbe per inviare il messaggio.
+				await this.client.send({ type: 'steer', ...imageSteers[index] });
+			} catch {
+				// La risposta e' partita: conserva gli allegati non accettati nel
+				// composer, anziche' perderli con lo smontaggio della scheda.
+				this.restoreQueueToComposer(
+					imageSteers.slice(index).map(({ message, images }) => ({ text: message, images }))
+				);
+				this.pushNotice('warning', messages.ask_images_send_failed());
+				break;
+			}
 		}
 	}
 

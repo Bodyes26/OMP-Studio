@@ -83,7 +83,19 @@ pub(crate) fn get_project_context_sync(
         description: Some("Linee guida primarie e convenzioni operative del progetto".to_string()),
     });
 
-    // 2. Regole modulari in .omp/rules/*.md
+    // 2. .omp/preview.md: regole di design per le anteprime dell'agente (ANT-001, ANT-002).
+    //    Censito in prima classe come AGENTS.md; etichetta e descrizione localizzate nel frontend.
+    let preview_exists = root.join(".omp").join("preview.md").is_file();
+    rules.push(ContextRuleItem {
+        id: "preview_rules".to_string(),
+        name: "preview.md".to_string(),
+        path: ".omp/preview.md".to_string(),
+        exists: preview_exists,
+        rule_type: "preview_rules".to_string(),
+        description: Some("Design applicato dall'agente alle anteprime".to_string()),
+    });
+
+    // 3. Regole modulari in .omp/rules/*.md
     let mut omp_rules = Vec::new();
     if let Ok(entries) = fs::read_dir(root.join(".omp").join("rules")) {
         for entry in entries.flatten() {
@@ -107,7 +119,7 @@ pub(crate) fn get_project_context_sync(
     omp_rules.sort_by(|left, right| left.name.cmp(&right.name));
     rules.append(&mut omp_rules);
 
-    // 3. File di contesto aggiuntivi nella radice.
+    // 4. File di contesto aggiuntivi nella radice.
     for (filename, desc) in ALT_CONTEXT_FILES {
         if root.join(filename).is_file() {
             rules.push(ContextRuleItem {
@@ -121,7 +133,7 @@ pub(crate) fn get_project_context_sync(
         }
     }
 
-    // 4. Skill di progetto: apribili nell'editor, quindi con percorso relativo.
+    // 5. Skill di progetto: apribili nell'editor, quindi con percorso relativo.
     scan_skills_directory(
         &root.join(".omp").join("skills"),
         "project",
@@ -129,7 +141,7 @@ pub(crate) fn get_project_context_sync(
         &mut skills,
     );
 
-    // 5. Skill globali e managed: sola ispezione dal file manager.
+    // 6. Skill globali e managed: sola ispezione dal file manager.
     if let Some(base_agent) = agent_dir() {
         scan_skills_directory(&base_agent.join("skills"), "global", None, &mut skills);
         scan_skills_directory(
@@ -310,6 +322,140 @@ pub async fn create_project_agents_md(project_path: String) -> Result<String, St
     tokio::task::spawn_blocking(move || create_project_agents_md_sync(&project_path))
         .await
         .map_err(|e| format!("Task create_project_agents_md fallito: {}", e))?
+}
+
+const PREVIEW_RULES_HEADER: &str = "# Regole delle anteprime\n<!-- Linee guida di design applicate dall'agente alle anteprime di Studio. Inizializzato da DESIGN.md/PRODUCT.md; modificabile liberamente e mai sovrascritto da Studio. -->\n\n";
+
+/// Cerca un documento di design o prodotto prima nella radice del progetto, poi in `docs/`.
+/// Rifiuta e non segue collegamenti (symlink) che puntano fuori dalla radice del progetto.
+fn find_and_read_project_doc(base: &Path, base_name: &str) -> Option<(String, String)> {
+    let candidates = [
+        (base_name.to_string(), base.join(base_name)),
+        (base_name.to_lowercase(), base.join(base_name.to_lowercase())),
+        (format!("docs/{}", base_name), base.join("docs").join(base_name)),
+        (format!("docs/{}", base_name.to_lowercase()), base.join("docs").join(base_name.to_lowercase())),
+    ];
+
+    for (rel_label, candidate_path) in candidates {
+        if !candidate_path.is_file() {
+            continue;
+        }
+        if let Ok(canonical) = candidate_path.canonicalize() {
+            if !canonical.starts_with(base) {
+                continue;
+            }
+            if let Ok(content) = fs::read_to_string(&canonical) {
+                return Some((rel_label, content));
+            }
+        }
+    }
+
+    None
+}
+
+/// Assicura che `.omp/preview.md` esista nella radice del progetto (ANT-001).
+/// Se il file esiste gia', non fa nulla e non sovrascrive mai (idempotente).
+/// Altrimenti cerca `DESIGN.md` e `PRODUCT.md` nella radice del progetto, poi in `docs/`:
+/// se presenti, li copia alla lettera preceduti da un'intestazione e separatori con il nome del file sorgente.
+/// Se mancano entrambi, scrive il contenuto predefinito fornito dal frontend (`default_content`).
+pub(crate) fn ensure_preview_rules_sync(
+    project_path: &str,
+    default_content: &str,
+) -> Result<bool, String> {
+    let base = crate::projects::canonical_project_base(project_path)?;
+    let omp_dir = base.join(".omp");
+    let target = omp_dir.join("preview.md");
+
+    // 1. Se il file esiste gia', verifica che non sia un symlink fuori progetto e non toccarlo mai.
+    if let Ok(meta) = fs::symlink_metadata(&target) {
+        if meta.file_type().is_symlink() {
+            let canonical = target
+                .canonicalize()
+                .map_err(|e| format!("Errore risoluzione symlink .omp/preview.md: {}", e))?;
+            if !canonical.starts_with(&base) {
+                return Err(
+                    "Percorso non ammesso: .omp/preview.md e' un collegamento e punta fuori dal progetto"
+                        .to_string(),
+                );
+            }
+        } else if meta.is_dir() {
+            return Err("Percorso non ammesso: .omp/preview.md e' una cartella".to_string());
+        }
+        return Ok(false);
+    }
+
+    // 2. Cartella .omp: se e' un symlink, deve rimanere dentro il progetto.
+    if let Ok(meta) = fs::symlink_metadata(&omp_dir) {
+        if meta.file_type().is_symlink() {
+            let canonical = omp_dir
+                .canonicalize()
+                .map_err(|e| format!("Errore risoluzione symlink .omp: {}", e))?;
+            if !canonical.starts_with(&base) {
+                return Err(
+                    "Percorso non ammesso: .omp e' un collegamento e punta fuori dal progetto"
+                        .to_string(),
+                );
+            }
+        }
+    } else if let Err(e) = fs::create_dir_all(&omp_dir) {
+        return Err(format!("Impossibile creare la cartella .omp: {}", e));
+    }
+
+    // 3. Cerca DESIGN.md e PRODUCT.md nella radice, poi in docs/
+    let design = find_and_read_project_doc(&base, "DESIGN.md");
+    let product = find_and_read_project_doc(&base, "PRODUCT.md");
+
+    let content = if design.is_none() && product.is_none() {
+        default_content.to_string()
+    } else {
+        let mut text = PREVIEW_RULES_HEADER.to_string();
+        if let Some((source_name, doc_content)) = design {
+            text.push_str(&format!("<!-- Fonte: {} -->\n", source_name));
+            text.push_str(&doc_content);
+            if !text.ends_with('\n') {
+                text.push('\n');
+            }
+            text.push('\n');
+        }
+        if let Some((source_name, doc_content)) = product {
+            text.push_str(&format!("<!-- Fonte: {} -->\n", source_name));
+            text.push_str(&doc_content);
+            if !text.ends_with('\n') {
+                text.push('\n');
+            }
+        }
+        text
+    };
+
+    // 4. Creazione atomica esclusiva: `create_new(true)` impedisce sovrascritture concorrenti
+    let mut file = match fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&target)
+    {
+        Ok(f) => f,
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            return Ok(false);
+        }
+        Err(e) => return Err(format!("Errore durante la creazione di .omp/preview.md: {}", e)),
+    };
+
+    file.write_all(content.as_bytes())
+        .map_err(|e| format!("Errore durante la scrittura di .omp/preview.md: {}", e))?;
+    file.flush()
+        .map_err(|e| format!("Errore durante il flush di .omp/preview.md: {}", e))?;
+
+    Ok(true)
+}
+
+#[command]
+pub async fn ensure_preview_rules(
+    project_path: String,
+    default_content: String,
+) -> Result<bool, String> {
+    tokio::task::spawn_blocking(move || ensure_preview_rules_sync(&project_path, &default_content))
+        .await
+        .map_err(|e| format!("Task ensure_preview_rules fallito: {}", e))?
 }
 
 /// Una proposta di regola nata dall'attrito osservato nei prompt recenti.
@@ -545,9 +691,11 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(summary.rules.len(), 1);
+        assert_eq!(summary.rules.len(), 2);
         assert_eq!(summary.rules[0].id, "agents_md");
         assert!(!summary.rules[0].exists);
+        assert_eq!(summary.rules[1].id, "preview_rules");
+        assert!(!summary.rules[1].exists);
     }
 
     #[tokio::test]
@@ -569,12 +717,14 @@ mod tests {
             paths,
             vec![
                 "AGENTS.md",
+                ".omp/preview.md",
                 ".omp/rules/alfa.md",
                 ".omp/rules/zeta.md",
                 "CLAUDE.md"
             ]
         );
         assert!(summary.rules[0].exists);
+        assert!(!summary.rules[1].exists);
     }
 
     #[tokio::test]
@@ -766,5 +916,83 @@ mod tests {
 
         assert!(err.contains("collegamento"), "errore inatteso: {}", err);
         assert_eq!(fs::read_to_string(&secret).unwrap(), "# Fuori\n");
+    }
+
+    #[tokio::test]
+    async fn ensure_preview_rules_crea_da_design_e_product_radice() {
+        let root = temp_root("omp-studio-preview-rules-root");
+        fs::write(root.join("DESIGN.md"), "# Design\nColori primari: blu\n").unwrap();
+        fs::write(root.join("PRODUCT.md"), "# Prodotto\nDashboard gestionale\n").unwrap();
+        let path = root.to_string_lossy().to_string();
+
+        let created = ensure_preview_rules(path.clone(), "default".to_string())
+            .await
+            .unwrap();
+        assert!(created);
+
+        let target = root.join(".omp").join("preview.md");
+        assert!(target.is_file());
+        let text = fs::read_to_string(&target).unwrap();
+        assert!(text.contains("<!-- Fonte: DESIGN.md -->"));
+        assert!(text.contains("# Design\nColori primari: blu\n"));
+        assert!(text.contains("<!-- Fonte: PRODUCT.md -->"));
+        assert!(text.contains("# Prodotto\nDashboard gestionale\n"));
+
+        // Seconda chiamata: non sovrascrive
+        let created_again = ensure_preview_rules(path, "default".to_string())
+            .await
+            .unwrap();
+        assert!(!created_again);
+    }
+
+    #[tokio::test]
+    async fn ensure_preview_rules_crea_da_docs_quando_mancano_nella_radice() {
+        let root = temp_root("omp-studio-preview-rules-docs");
+        fs::create_dir_all(root.join("docs")).unwrap();
+        fs::write(root.join("docs").join("DESIGN.md"), "# Design in docs\n").unwrap();
+        fs::write(root.join("docs").join("PRODUCT.md"), "# Product in docs\n").unwrap();
+        let path = root.to_string_lossy().to_string();
+
+        let created = ensure_preview_rules(path, "default".to_string())
+            .await
+            .unwrap();
+        assert!(created);
+
+        let text = fs::read_to_string(root.join(".omp").join("preview.md")).unwrap();
+        assert!(text.contains("<!-- Fonte: docs/DESIGN.md -->"));
+        assert!(text.contains("# Design in docs\n"));
+        assert!(text.contains("<!-- Fonte: docs/PRODUCT.md -->"));
+        assert!(text.contains("# Product in docs\n"));
+    }
+
+    #[tokio::test]
+    async fn ensure_preview_rules_usa_default_quando_entrambi_mancano() {
+        let root = temp_root("omp-studio-preview-rules-default");
+        let path = root.to_string_lossy().to_string();
+
+        let created = ensure_preview_rules(path, "# Modello default\n".to_string())
+            .await
+            .unwrap();
+        assert!(created);
+
+        let text = fs::read_to_string(root.join(".omp").join("preview.md")).unwrap();
+        assert_eq!(text, "# Modello default\n");
+    }
+
+    #[tokio::test]
+    async fn ensure_preview_rules_non_sovrascrive_file_esistente() {
+        let root = temp_root("omp-studio-preview-rules-esistente");
+        fs::create_dir_all(root.join(".omp")).unwrap();
+        fs::write(root.join(".omp").join("preview.md"), "# File utente esistente\n").unwrap();
+        fs::write(root.join("DESIGN.md"), "# Nuovo design\n").unwrap();
+        let path = root.to_string_lossy().to_string();
+
+        let created = ensure_preview_rules(path, "default".to_string())
+            .await
+            .unwrap();
+        assert!(!created);
+
+        let text = fs::read_to_string(root.join(".omp").join("preview.md")).unwrap();
+        assert_eq!(text, "# File utente esistente\n");
     }
 }

@@ -20,17 +20,22 @@
 		IconArrowLeft,
 		IconArrowRight,
 		IconAsk,
+		IconAttach,
 		IconCheck,
 		IconChevronDown,
 		IconNote,
 		IconPlus,
 		IconRename,
-		IconViewPreview
+		IconViewPreview,
+		IconWarning
 	} from '#lib/icons.ts';
 	import AskPreviewBoard from './AskPreviewBoard.svelte';
+	import AttachmentThumb, { type ComposerAttachment } from './AttachmentThumb.svelte';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
 	import type { AgentSession, PendingAsk } from '../session.svelte';
 	import {
 		buildAskDialogAnswers,
+		buildAskImageSteers,
 		cleanOptionLabel,
 		firstUnansweredIndex,
 		isDoneOption,
@@ -40,7 +45,9 @@
 		type AskQuestion,
 		type AskQuestionOption
 	} from '../askAnswers';
-	import type { AskDialogAnswer } from '../wire';
+	import { modelSupportsImages, type AskDialogAnswer, type ImageContent } from '../wire';
+	import { isImageFile, prepareImage } from '../images';
+	import { agentUiHooks } from '../ui-context';
 	import { parseAskTitle, sanitizeAskDetail } from '../askTitle';
 	import { askConfirmKeyAction, isImeComposing, shouldAutoFocusAskCard } from '../askFocus';
 	import { promptBus } from '../promptBus';
@@ -78,6 +85,12 @@
 		options: WizardOption[];
 		recommended?: number;
 		showNoteInput: boolean;
+		/**
+		 * Immagini allegate alla nota. Non entrano nella risposta (il filo di
+		 * `ask` porta solo testo): partono come steer subito dopo l'invio.
+		 */
+		images: ImageContent[];
+		processingImages: number;
 		cursorIndex: number;
 		/** Numero nella sequenza completa di omp (1-based). */
 		number: number;
@@ -177,6 +190,8 @@
 					recommended: q.recommended,
 					selectedOptions: preselected,
 					note: '',
+					images: [],
+					processingImages: 0,
 					decideForMe: false,
 					showNoteInput: false,
 					customInput: '',
@@ -221,6 +236,8 @@
 				recommended: recIdx >= 0 ? recIdx : undefined,
 				selectedOptions: preselected,
 				note: '',
+				images: [],
+				processingImages: 0,
 				decideForMe: false,
 				showNoteInput: false,
 				customInput: '',
@@ -289,6 +306,8 @@
 	let submitting = $state(false);
 	// Opzione sbirciata con l'occhio senza sceglierla; ogni scelta la azzera.
 	let peekIdx = $state<number | null>(null);
+	let fileInputEl = $state<HTMLInputElement | null>(null);
+	const hooks = agentUiHooks();
 
 	// Solo una richiesta nuova azzera i campi: dipendere anche da `visible` o
 	// dagli elementi cancellava il testo gia' scritto quando la card tornava visibile.
@@ -490,6 +509,68 @@
 		}
 	}
 
+	// Lo screenshot chiesto dall'agente si allega qui, alla domanda, invece di
+	// rispondere e poi scrivere un secondo messaggio solo per l'immagine.
+	async function addImages(files: Iterable<File>) {
+		const target = currentQuestion;
+		if (!target || submitting) return;
+		target.processingImages++;
+		try {
+			for (const file of files) {
+				if (!isImageFile(file)) continue;
+				const prepared = await prepareImage(file);
+				if ('error' in prepared) {
+					session.flashNotice('warning', m.chat_v2_drop_image_failed({ name: file.name || 'clipboard', error: prepared.error }));
+					continue;
+				}
+				target.images.push(prepared);
+				target.touched = true;
+				target.showNoteInput = true;
+			}
+		} finally {
+			target.processingImages--;
+		}
+	}
+
+	function removeImage(index: number) {
+		currentQuestion?.images.splice(index, 1);
+	}
+
+	function attachableHere(): boolean {
+		return (pending.method === 'select' || pending.method === 'ask') && !isReviewStep && !!currentQuestion;
+	}
+
+	// Incollare con il fuoco ovunque sulla scheda (opzioni, nota, "Altro…"):
+	// il testo resta al campo, solo i file immagine diventano allegati.
+	function handlePaste(e: ClipboardEvent) {
+		if (!attachableHere()) return;
+		const files = Array.from(e.clipboardData?.files ?? []).filter((file) => isImageFile(file));
+		if (files.length === 0) return;
+		e.preventDefault();
+		void addImages(files);
+	}
+
+	function onFileInputChange(e: Event) {
+		const input = e.currentTarget as HTMLInputElement;
+		const files = input.files ? Array.from(input.files) : [];
+		input.value = '';
+		if (files.length > 0) void addImages(files);
+	}
+
+	const imageAttachments = $derived<ComposerAttachment[]>(
+		(currentQuestion?.images ?? []).map((img, index) => ({
+			id: index,
+			kind: 'image',
+			name: m.task_editor_image_name({ index: index + 1 }),
+			size: Math.round((img.data.length * 3) / 4),
+			url: `data:${img.mimeType};base64,${img.data}`,
+			mimeType: img.mimeType,
+			tokens: 0
+		}))
+	);
+	const imagesWithoutVision = $derived(imageAttachments.length > 0 && !modelSupportsImages(session.model));
+	const processingImages = $derived(questions.some((q) => q.processingImages > 0));
+
 	// Il riepilogo esiste solo con piu' di una domanda: con una sola, il
 	// passo `questions.length` non avrebbe niente da mostrare.
 	const lastStep = $derived(questions.length > 1 ? questions.length : Math.max(questions.length - 1, 0));
@@ -528,21 +609,31 @@
 	}
 
 	async function submitAllAnswers() {
-		if (submitting) return;
+		if (submitting || processingImages) return;
 		const answers = buildAskDialogAnswers(questions);
 		if (!answers) {
 			if (missingIndex >= 0) void goToStep(missingIndex);
 			return;
 		}
+		const imageSteers = buildAskImageSteers(
+			questions.map((q) => ({ question: q.question, images: $state.snapshot(q.images) }))
+		);
 		submitting = true;
 		try {
-			await submitAnswers(answers);
+			await submitAnswers(answers, imageSteers);
 		} finally {
 			submitting = false;
 		}
 	}
 
-	async function submitAnswers(answers: AskDialogAnswer[]) {
+	async function submitAnswers(
+		answers: AskDialogAnswer[],
+		imageSteers: { message: string; images: ImageContent[] }[]
+	) {
+		if (imageSteers.length > 0) {
+			await session.submitAskAnswers(answers, imageSteers);
+			return;
+		}
 		if (pending.requestId && promptBus.hasPending(pending.requestId)) {
 			const handled = await promptBus.resolveRequest(pending.requestId, { action: 'wizard', answers });
 			if (handled) return;
@@ -724,7 +815,7 @@
 
 <svelte:window onkeydown={(e) => { if (stackEl && stackEl.contains(document.activeElement)) handleCardKeydown(e); }} />
 
-<div class="ask-stack" bind:this={stackEl}>
+<div class="ask-stack" bind:this={stackEl} onpaste={handlePaste}>
 {#if showBoard}
 	<AskPreviewBoard
 		text={boardText}
@@ -853,6 +944,13 @@
 								<span class="ask-missing">—</span>
 							{/if}
 						</span>
+						{#if q.images.length > 0}
+							<span class="ask-review-images" title={m.ask_review_images({ count: q.images.length })}>
+								<IconAttach aria-hidden="true" />
+								<span aria-hidden="true">{q.images.length}</span>
+								<span class="sr-only">{m.ask_review_images({ count: q.images.length })}</span>
+							</span>
+						{/if}
 						<button
 							type="button"
 							class="ask-edit"
@@ -984,11 +1082,52 @@
 						bind:this={noteInputEl}
 						aria-label={m.ask_note_placeholder()}
 					/>
+					<Tooltip text={m.ask_attach_image_title()}>
+						<button
+							type="button"
+							class="ask-attach"
+							disabled={submitting}
+							onclick={() => fileInputEl?.click()}
+							aria-label={m.ask_attach_image()}
+						>
+							<IconAttach />
+						</button>
+					</Tooltip>
 				</div>
 			{:else}
-				<button type="button" class="ask-note-btn" onclick={() => toggleNoteInput()}>
-					<IconPlus aria-hidden="true" /> {m.chat_v2_ask_add_note()} <kbd class="ui-kbd">N</kbd>
-				</button>
+				<div class="ask-note-tools">
+					<button type="button" class="ask-note-btn" onclick={() => toggleNoteInput()}>
+						<IconPlus aria-hidden="true" /> {m.chat_v2_ask_add_note()} <kbd class="ui-kbd">N</kbd>
+					</button>
+					<button type="button" class="ask-note-btn" disabled={submitting} onclick={() => fileInputEl?.click()}>
+						<IconAttach aria-hidden="true" /> {m.ask_attach_image()}
+					</button>
+				</div>
+			{/if}
+			{#if processingImages}
+				<p class="ask-vision-warn" role="status">{m.companion_status_processing_images()}</p>
+			{/if}
+			{#if imageAttachments.length > 0}
+				<div class="ask-images" role="list" aria-label={m.ask_images_aria()}>
+					{#each imageAttachments as attachment, index (attachment.id)}
+						<div role="listitem">
+							<AttachmentThumb
+								{attachment}
+								onOpen={() => {
+									const img = currentQuestion?.images[index];
+									if (img) hooks.openImage(img.data, img.mimeType);
+								}}
+								onRemove={() => removeImage(index)}
+							/>
+						</div>
+					{/each}
+				</div>
+				{#if imagesWithoutVision}
+					<p class="ask-vision-warn">
+						<IconWarning aria-hidden="true" />
+						{m.chat_v2_composer_vision_warning({ model: session.model?.name || session.model?.id || m.chat_v2_composer_model_fallback() })}
+					</p>
+				{/if}
 			{/if}
 		{/if}
 
@@ -1029,7 +1168,7 @@
 					<button
 						type="button"
 						class="ask-btn primary"
-						disabled={submitting}
+						disabled={submitting || processingImages}
 						onclick={() => void submitAllAnswers()}
 					>
 						<IconCheck aria-hidden="true" />
@@ -1154,6 +1293,7 @@
 		</div>
 	{/if}
 </div>
+<input type="file" accept="image/*" multiple hidden bind:this={fileInputEl} onchange={onFileInputChange} />
 </div>
 
 <style>
@@ -1455,6 +1595,47 @@
 		background: var(--bg-hover);
 		color: var(--ink);
 	}
+	/* Nota e allegato affiancati: stessa riga, stesso margine del pulsante singolo. */
+	.ask-note-tools {
+		display: flex;
+		align-items: center;
+		gap: 2px;
+		margin: calc(-1 * var(--space-1)) 0 0 -6px;
+	}
+	.ask-note-tools .ask-note-btn {
+		margin: 0;
+	}
+	.ask-attach {
+		display: inline-grid;
+		place-items: center;
+		width: 26px;
+		height: 26px;
+		flex-shrink: 0;
+		background: transparent;
+		border: none;
+		border-radius: var(--radius-md);
+		color: var(--ink-muted);
+		cursor: pointer;
+		--icon-size: 14px;
+	}
+	.ask-attach:hover {
+		background: var(--bg-hover);
+		color: var(--ink);
+	}
+	.ask-images {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-2);
+	}
+	.ask-vision-warn {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		margin: 0;
+		font-size: var(--text-xs);
+		color: var(--warn);
+		--icon-size: 13px;
+	}
 
 	.ask-review {
 		display: flex;
@@ -1484,6 +1665,15 @@
 	.ask-review-a {
 		color: var(--ink);
 		text-align: right;
+	}
+	.ask-review-images {
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
+		font-size: var(--text-xs);
+		font-variant-numeric: tabular-nums;
+		color: var(--ink-muted);
+		--icon-size: 12px;
 	}
 	.ask-missing {
 		color: var(--warn);

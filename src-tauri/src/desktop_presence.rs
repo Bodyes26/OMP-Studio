@@ -911,3 +911,11 @@ pub fn desktop_presence_set_locale(app: AppHandle, locale: String) -> Result<(),
     update_tray_menu_state(&app);
     Ok(())
 }
+
+/// Restituisce la lingua corrente dell'interfaccia di Studio, se impostata.
+pub fn get_current_locale() -> Option<String> {
+    let lock = STATE.lock();
+    lock.as_ref()
+        .map(|st| st.locale.trim().to_string())
+        .filter(|l| !l.is_empty())
+}

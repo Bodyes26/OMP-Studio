@@ -92,6 +92,12 @@
 		if (rel) onOpenFile(rel);
 	}
 
+	async function initPreviewRules() {
+		actionError = null;
+		const rel = await rulesStore.initPreviewRules(projectPath);
+		if (rel) onOpenFile(rel);
+	}
+
 	async function applySuggestion(suggestion: RuleSuggestion) {
 		actionError = null;
 		applying = suggestion.id;
@@ -193,12 +199,18 @@
 							{#if rule.rule_type === 'guidelines'}<IconFile />{:else}<IconRule />{/if}
 						</span>
 						<span class="row-body">
-							<span class="row-title">{rule.name}</span>
-							{#if rule.description}<span class="row-sub">{rule.description}</span>{/if}
+							<span class="row-title">
+								{rule.rule_type === 'preview_rules' ? m.rules_preview_title() : rule.name}
+							</span>
+							{#if rule.description || rule.rule_type === 'preview_rules'}
+								<span class="row-sub">
+									{rule.rule_type === 'preview_rules' ? m.rules_preview_description() : rule.description}
+								</span>
+							{/if}
 						</span>
 					</button>
 				</div>
-			{:else}
+			{:else if rule.rule_type === 'agents_md'}
 				<div class="missing">
 					<p class="missing-text">
 						{m.ui_rulespanel_questo_progetto_non_ha_ac09()} <code>AGENTS.md</code>{m.ui_rulespanel_l_agente_lavora_senza_convenzioni_scritte_9f6b()}
@@ -206,6 +218,16 @@
 					<button type="button" class="ui-button ui-button-primary" onclick={() => void initAgentsMd()}>
 						<IconPlus />
 						{m.rules_init_agents_md()}
+					</button>
+				</div>
+			{:else if rule.rule_type === 'preview_rules'}
+				<div class="missing">
+					<p class="missing-text">
+						{m.rules_preview_missing_text()} <code>.omp/preview.md</code>
+					</p>
+					<button type="button" class="ui-button ui-button-primary" onclick={() => void initPreviewRules()}>
+						<IconPlus />
+						{m.rules_init_preview_btn()}
 					</button>
 				</div>
 			{/if}

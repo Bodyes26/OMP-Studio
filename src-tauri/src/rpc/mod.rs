@@ -1170,6 +1170,12 @@ pub async fn rpc_open(
     if let Some(proj) = &project_id {
         command.env("OMP_PROJECT_ID", proj);
     }
+    if let Some(locale) = crate::desktop_presence::get_current_locale() {
+        command.env("OMP_STUDIO_LOCALE", locale);
+    }
+    if let Some(root) = crate::pty::resolve_project_root(&cwd) {
+        command.env("OMP_STUDIO_PROJECT_ROOT", root);
+    }
     if is_read_only {
         command.env("OMP_AUTOMATION_READONLY", "1");
     }

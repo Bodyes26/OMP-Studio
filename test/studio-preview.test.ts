@@ -56,6 +56,10 @@ describe('Estensione studio_preview: sicurezza, confinamento e I/O atomico', () 
 			string: () => ({
 				optional: () => mockZod.string(),
 				describe: () => mockZod.string()
+			}),
+			boolean: () => ({
+				optional: () => mockZod.boolean(),
+				describe: () => mockZod.boolean()
 			})
 		};
 
@@ -123,7 +127,8 @@ describe('Estensione studio_preview: sicurezza, confinamento e I/O atomico', () 
 				name: '../../../etc/passwd:hack?*#',
 				code: 'export default function Card() { return <div>Card Content</div>; }'
 			},
-			undefined,
+			// Nessuno Studio scrive l'ack: si interrompe subito l'attesa del riscontro.
+			AbortSignal.timeout(100),
 			undefined,
 			ctx
 		);

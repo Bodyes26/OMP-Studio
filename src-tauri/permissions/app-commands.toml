@@ -238,7 +238,8 @@ commands.allow = [
     "get_project_context",
     "create_project_agents_md",
     "analyze_project_friction",
-    "apply_rule_suggestion"
+    "apply_rule_suggestion",
+    "ensure_preview_rules"
 ]
 
 [[permission]]
@@ -335,7 +336,8 @@ commands.allow = [
     "lab_preview_publish_shared",
     "lab_preview_publish",
     "lab_preview_unpublish",
-    "studio_preview_publish"
+    "studio_preview_publish",
+    "studio_preview_ack"
 ]
 
 [[permission]]

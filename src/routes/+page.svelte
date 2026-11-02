@@ -78,6 +78,7 @@
 	import { onDestroy } from 'svelte';
 	import { normalizeProjectPath, projectStore, type AgentState, type Project } from '#lib/stores/projects.svelte.ts';
 	import { githubStore } from '#lib/stores/github.svelte.ts';
+	import { rulesStore } from '#lib/stores/rules.svelte.ts';
 	import { PANEL_SPLIT as SPLIT, panelScope, panelMetrics, resizePanel, panelKeyValue, type PanelGeometry, type SplitterAxis } from '#lib/panelGeometry.ts';
 	import { taskStore, formatTaskPrompt, type StudioTask, type TaskRunLaneContext } from '#lib/stores/tasks.svelte.ts';
 	import { taskLabel } from '#lib/stores/taskTitle.ts';
@@ -141,6 +142,7 @@
 	} from '#lib/stores/laneSurfaces.svelte.ts';
 	import LabPreview from '#lib/lab/LabPreview.svelte';
 	import { openLabEntry } from '#lib/lanes/laneActions.ts';
+	import PreviewRenderHost from '#lib/prototype/PreviewRenderHost.svelte';
 	import { labApi } from '#lib/lab/api.ts';
 	import type { TerminalSessionInfo } from '#lib/terminal/terminal.ts';
 	import { invoke } from '@tauri-apps/api/core';
@@ -3411,6 +3413,22 @@
 		if (path) untrack(() => { void githubStore.loadUpstreamStatus(path); });
 	});
 
+	// Assicura .omp/preview.md alla prima attivazione del progetto nella sessione (ANT-001)
+	const ensuredPreviewPaths = new Set<string>();
+	$effect(() => {
+		const project = projectStore.activeProject;
+		const path = project?.canonicalProjectPath;
+		if (!path) return;
+		const key = path.toLowerCase();
+		if (ensuredPreviewPaths.has(key)) return;
+		ensuredPreviewPaths.add(key);
+		untrack(() => {
+			void rulesStore.ensurePreviewRules(path).catch((err) => {
+				console.error(`[preview-rules] Inizializzazione fallita per ${path}:`, err);
+			});
+		});
+	});
+
 	$effect(() => {
 		void geometryOwner;
 		untrack(() => stopPanelDrag?.());
@@ -4351,6 +4369,7 @@
 	<StudioUpdateModal />
 	<ShortcutsHelpModal />
 	<OmpChangelogModal />
+	<PreviewRenderHost />
 	{#if viewingImage}
 		<ImageModal
 			data={viewingImage.data}

@@ -115,3 +115,4 @@ import './companion-presentation.test.ts';
 import './preview-refresh.test.ts';
 import './panel-geometry.test.ts';
 import './background-jobs.test.ts';
+import './preview-harness.test.ts';

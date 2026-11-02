@@ -33,6 +33,7 @@ use github::{
 pub mod process_tree;
 use process_tree::{lane_processes_list, lane_processes_stop};
 mod previews;
+use previews::studio_preview_ack;
 mod pty;
 use pty::{
     pty_close, pty_force_kill, pty_open, pty_resize, pty_session_info, pty_write, PtyManager,
@@ -98,7 +99,8 @@ mod external;
 use external::open_project_external;
 mod rules_ops;
 use rules_ops::{
-    analyze_project_friction, apply_rule_suggestion, create_project_agents_md, get_project_context,
+    analyze_project_friction, apply_rule_suggestion, create_project_agents_md, ensure_preview_rules,
+    get_project_context,
 };
 mod directives_ops;
 use directives_ops::{
@@ -373,6 +375,7 @@ pub fn run() {
             create_project_agents_md,
             analyze_project_friction,
             apply_rule_suggestion,
+            ensure_preview_rules,
             generate_task_directive_ai,
             refine_task_directive_ai,
             analyze_task_directives_friction,
@@ -424,6 +427,7 @@ pub fn run() {
             lab_preview_publish,
             lab_preview_unpublish,
             studio_preview_publish,
+            studio_preview_ack,
             stage_chat_attachment,
             cleanup_chat_attachments,
             chat_attachment_read_image,

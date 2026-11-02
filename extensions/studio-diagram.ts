@@ -25,6 +25,7 @@
 //   su enum/union quest'ultimo ordine perde la description nello JSON Schema.
 
 import {
+	existsSync,
 	lstatSync,
 	mkdirSync,
 	readFileSync,
@@ -33,7 +34,8 @@ import {
 	unlinkSync,
 	writeFileSync
 } from "node:fs";
-import { basename, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 
 function isSubpath(parent: string, child: string): boolean {
 	const rel = relative(parent, child);
@@ -227,6 +229,7 @@ interface ZodType {
 interface ZodBuilder {
 	object(shape: Record<string, ZodType>): ZodType;
 	string(): ZodType;
+	boolean(): ZodType;
 }
 
 interface ToolContext {
@@ -236,10 +239,81 @@ interface ToolContext {
 	};
 }
 
+interface TextPart {
+	type: "text";
+	text: string;
+}
+
+interface ImagePart {
+	type: "image";
+	data: string;
+	mimeType: string;
+}
+
+type ToolContentPart = TextPart | ImagePart;
+
 interface ToolResult {
-	content: { type: "text"; text: string }[];
+	content: ToolContentPart[];
 	details?: Record<string, unknown>;
 	isError?: boolean;
+}
+
+function resolveProjectRoot(cwd: string): string {
+	let dir = resolve(cwd);
+	for (;;) {
+		const dotGit = join(dir, ".git");
+		let isDir: boolean | null = null;
+		try {
+			const stat = lstatSync(dotGit, { throwIfNoEntry: false });
+			if (stat) isDir = stat.isDirectory();
+		} catch {}
+		if (isDir === true) return dir;
+		if (isDir === false) {
+			const main = worktreeMainRoot(dir, dotGit);
+			if (main) return main;
+			return cwd;
+		}
+		const parent = dirname(dir);
+		if (parent === dir) return cwd;
+		dir = parent;
+	}
+}
+
+function worktreeMainRoot(dir: string, dotGitFile: string): string | null {
+	try {
+		const text = readFileSync(dotGitFile, "utf8");
+		const pointer = /^gitdir:\s*(.+?)\s*$/m.exec(text);
+		if (!pointer) return null;
+		const gitDir = resolve(dir, pointer[1]);
+		const common = readFileSync(join(gitDir, "commondir"), "utf8").trim();
+		if (!common) return null;
+		const commonDir = resolve(gitDir, common);
+		const norm = commonDir.replace(/\\/g, "/");
+		if (!norm.endsWith("/.git")) return null;
+		const root = dirname(commonDir);
+		return existsSync(root) ? root : null;
+	} catch {
+		return null;
+	}
+}
+
+function getLocaleLanguageName(): string {
+	const code = (process.env.OMP_STUDIO_LOCALE || Intl.DateTimeFormat().resolvedOptions().locale || "en").toLowerCase();
+	try {
+		const dn = new Intl.DisplayNames(["en"], { type: "language" });
+		const primary = code.split(/[-_]/)[0];
+		return dn.of(primary) || (primary === "it" ? "Italian" : "English");
+	} catch {
+		return code.startsWith("it") ? "Italian" : "English";
+	}
+}
+
+// Una corsia worktree senza copia propria (file non ancora committato) usa quella del progetto principale.
+function resolveRulesFile(cwd: string): string {
+	const wtFile = join(cwd, ".omp", "preview.md");
+	if (existsSync(wtFile)) return wtFile;
+	const mainRoot = process.env.OMP_STUDIO_PROJECT_ROOT || resolveProjectRoot(cwd);
+	return join(mainRoot, ".omp", "preview.md");
 }
 
 interface ToolDefinition<TParams> {
@@ -280,6 +354,7 @@ interface PreviewParams {
 	code: string;
 	name?: string;
 	description?: string;
+	snapshot?: boolean;
 }
 
 export default function studioExtension(pi: StudioExtensionApi) {
@@ -369,22 +444,31 @@ export default function studioExtension(pi: StudioExtensionApi) {
 		}
 	});
 
-	// 2. Tool per anteprima live di componenti / prototipi UI (vibecoding)
+	// Il percorso si risolve al caricamento: Studio crea il file all'attivazione del progetto,
+	// quindi puo' comparire dopo l'avvio della sessione; per questo non si dichiara mai assente.
+	const rulesFile = resolveRulesFile(process.cwd());
+	const localeLang = getLocaleLanguageName();
+
+	// 2. Tool per anteprima live di componenti / prototipi UI
 	pi.registerTool({
 		name: "studio_preview",
 		label: "Studio Preview",
 		description:
-			"Render a live interactive UI component prototype in the OMP Studio sandbox instead of only printing code. " +
-			"Use this whenever the user asks for a component, card, mockup, table, dialog, dashboard, form, or visual flow (vibecoding). " +
-			"Provide modern React + Tailwind CSS + Lucide component code (TSX/JSX or full HTML). " +
-			"Interactive state (useState), animations, and responsive layout are fully supported. " +
-			"The prototype is automatically saved into the project's 'proto/' directory (added to .gitignore so it never litters git) " +
-			"and opened immediately in the Studio preview window next to the terminal. Call this repeatedly as the user iterates.",
+			"Render a live interactive UI prototype in the OMP Studio preview, instead of only printing code. " +
+			"Use it whenever the user asks for a component, card, mockup, table, dialog, dashboard, form, or visual flow. " +
+			"The prototype is saved into the project's 'proto/' directory (gitignored) and opened in the Studio preview next to the terminal. Call it again as the user iterates.\n" +
+			`- Before the first preview in a session, read the preview design rules at "${rulesFile}" and apply its tokens, fonts, icons, and rules (if the file is missing, use the project's DESIGN.md and PRODUCT.md).\n` +
+			"- If those rules define design tokens, write plain HTML/CSS using them; otherwise React + Tailwind + Lucide is allowed.\n" +
+			"- When redesigning existing UI, start from the real markup/CSS and show Current vs Proposal side by side or with a switch.\n" +
+			`- Realistic demo data in ${localeLang}, never lorem ipsum.\n` +
+			"- No decorative gradients, glassmorphism, emoji, colored side borders, or pill buttons unless the rules ask for them.\n" +
+			"- Write real characters (\u00e0, \u20ac), never \\uXXXX escapes in JSX/HTML text.\n" +
+			"- The tool result reports whether Studio rendered the preview and any JS errors. Do NOT open a browser, start a server, or take screenshots to check it: tell the user what to look at and ask for feedback. Set snapshot: true only when you genuinely need to see the layout.",
 		parameters: z.object({
 			title: z
 				.string()
 				.describe("Short human title shown above the preview, e.g. 'Quota Usage Card' or 'Billing Filter Dialog'"),
-			code: z.string().describe("React TSX/JSX component code or full HTML prototype"),
+			code: z.string().describe("Component code: plain HTML/CSS when design tokens exist, or React TSX/JSX prototype"),
 			name: z
 				.string()
 				.optional()
@@ -392,10 +476,14 @@ export default function studioExtension(pi: StudioExtensionApi) {
 			description: z
 				.string()
 				.optional()
-				.describe("Optional short summary of what the component does or interactive parts")
+				.describe("Optional short summary of what the component does or interactive parts"),
+			snapshot: z
+				.boolean()
+				.optional()
+				.describe("When true, capture and return an image snapshot of the rendered preview. Use only when you genuinely need to see the visual layout.")
 		}),
 		approval: "write",
-		async execute(toolCallId, params: PreviewParams, _signal, _onUpdate, ctx) {
+		async execute(toolCallId, params: PreviewParams, signal, _onUpdate, ctx) {
 			const title = String(params.title || "Prototype").slice(0, 120);
 			const code = String(params.code || "");
 			if (!code.trim()) {
@@ -575,6 +663,7 @@ export default function studioExtension(pi: StudioExtensionApi) {
 				session_id: sessionId,
 				lane_id: laneId,
 				project_id: projectId,
+				snapshot: Boolean(params.snapshot),
 				tool_call_id: toolCallId,
 				created_at: new Date().toISOString()
 			};
@@ -596,10 +685,101 @@ export default function studioExtension(pi: StudioExtensionApi) {
 				return errorResult(`Error writing preview exchange file: ${msg}`);
 			}
 
-			return textResult(
-				`Prototype "${title}" rendered live in OMP Studio preview sandbox and saved to ${relPath}.`,
-				{ filePath: relPath, studioFile: exchangeFile }
-			);
+			// 5. Polling del file di ack generato dall'host di rendering di Studio (ANT-009, ANT-010)
+			const ackFile = join(base, `${exchangeSlug}.ack.json`);
+			const maxWaitMs = params.snapshot ? 15000 : 8000;
+			const pollIntervalMs = 150;
+			const startTime = Date.now();
+			let ackData: {
+				version: number;
+				id: string;
+				ok: boolean;
+				errors?: Array<{ message: string; source?: string; line?: number; column?: number }>;
+				width?: number;
+				height?: number;
+				snapshot?: { mimeType: string; data: string };
+				snapshotError?: string;
+			} | null = null;
+
+			while (Date.now() - startTime < maxWaitMs) {
+				if (signal?.aborted) break;
+				if (existsSync(ackFile)) {
+					try {
+						const rawAck = readFileSync(ackFile, "utf8");
+						ackData = JSON.parse(rawAck);
+						break;
+					} catch {}
+				}
+				try {
+					await sleep(pollIntervalMs, undefined, { signal });
+				} catch {
+					break;
+				}
+			}
+
+			if (existsSync(ackFile)) {
+				try {
+					unlinkSync(ackFile);
+				} catch {}
+			}
+
+			if (!ackData) {
+				return textResult(
+					`Preview "${title}" saved to ${relPath}, but Studio did not confirm rendering within the timeout (e.g. app busy). Do not verify it in a browser or start a server; ask the user for feedback.`,
+					{ filePath: relPath, timeout: true }
+				);
+			}
+
+			const errors = Array.isArray(ackData.errors) ? ackData.errors : [];
+			if (!ackData.ok || errors.length > 0) {
+				const errorList = errors.length > 0
+					? errors
+							.map((e) => {
+								const loc = e.line != null ? ` (line ${e.line}${e.column != null ? `:${e.column}` : ""})` : "";
+								return `- ${e.message}${loc}`;
+							})
+							.join("\n")
+					: "- Unknown rendering failure";
+				const msg = `Preview "${title}" rendered with errors in Studio and saved to ${relPath}:\n${errorList}\nPlease fix the issues and call studio_preview again. Do not open a browser to check it.`;
+
+				const content: ToolContentPart[] = [{ type: "text", text: msg }];
+				if (ackData.snapshot?.data) {
+					content.push({
+						type: "image",
+						data: ackData.snapshot.data,
+						mimeType: ackData.snapshot.mimeType || "image/png"
+					});
+				}
+				return {
+					content,
+					isError: true,
+					details: { filePath: relPath, errors: ackData.errors }
+				};
+			}
+
+			const w = Math.round(ackData.width || 0);
+			const h = Math.round(ackData.height || 0);
+			let okMsg = `Preview "${title}" rendered in Studio (${w}x${h}, no errors) and saved to ${relPath}. It is open for the user in Studio: do not verify it in a browser; tell the user what to look at.`;
+			if (ackData.snapshotError) {
+				okMsg += ` (Snapshot note: ${ackData.snapshotError})`;
+			}
+			const content: ToolContentPart[] = [{ type: "text", text: okMsg }];
+			if (ackData.snapshot?.data) {
+				content.push({
+					type: "image",
+					data: ackData.snapshot.data,
+					mimeType: ackData.snapshot.mimeType || "image/png"
+				});
+			}
+			return {
+				content,
+				details: {
+					filePath: relPath,
+					width: ackData.width,
+					height: ackData.height,
+					hasSnapshot: Boolean(ackData.snapshot?.data)
+				}
+			};
 		}
 	});
 }

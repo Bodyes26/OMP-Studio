@@ -35,6 +35,7 @@ export interface LanePreviewPayload {
 	session_id: string;
 	lane_id?: string;
 	project_id?: string;
+	snapshot?: boolean;
 }
 
 export interface LaneSurfaceState {
