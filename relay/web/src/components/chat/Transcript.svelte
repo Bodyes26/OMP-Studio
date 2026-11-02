@@ -25,11 +25,14 @@
 		agentActivityText = null,
 		agentActivityStartedAt = null,
 		onOpenImage,
+		subagents = [],
+		jobs = [],
 		hostFeatures = [],
 		hostId = '',
 		projectId = '',
 		laneId = null,
-		isHistory = false
+		isHistory = false,
+		children
 	}: {
 		messages: RemoteChatMessage[];
 		loadingOlder?: boolean;
@@ -39,19 +42,24 @@
 		agentActivityText?: string | null;
 		agentActivityStartedAt?: number | null;
 		onOpenImage?: (dataUrl: string, mimeType?: string) => void;
+		subagents?: Array<{ id: string; name: string; task: string | null; status: string }>;
+		jobs?: Array<{ id: string; label: string; status: string }>;
 		hostFeatures?: Feature[];
 		hostId?: string;
 		projectId?: string;
 		laneId?: string | null;
 		isHistory?: boolean;
+		children?: import('svelte').Snippet;
 	} = $props();
-
 	let scrollEl = $state<HTMLDivElement | null>(null);
 	let userScrolledUp = $state(false);
 
 	const grouped = $derived(groupMessages(messages));
 	const displayItems = $derived(grouped.items);
 	const turnFooters = $derived(grouped.turnFootersByIndex);
+	// Subagenti e job sono lo stato attuale della corsia: li riporta solo l'ultima
+	// riga dei passaggi, non ogni gruppo gia' concluso (R-REM-05).
+	const lastToolGroupIndex = $derived(displayItems.findLastIndex((item) => item.kind === 'tool-group'));
 
 	export function scrollToBottom(smooth = false): void {
 		if (!scrollEl) return;
@@ -156,6 +164,8 @@
 						<ToolGroup
 							messages={item.messages}
 							summary={item.summary}
+							subagents={i === lastToolGroupIndex ? subagents : []}
+							jobs={i === lastToolGroupIndex ? jobs : []}
 							{hostFeatures}
 							{hostId}
 							{projectId}
@@ -182,8 +192,11 @@
 				</div>
 			{/if}
 		</div>
-	</div>
 
+		{#if children}
+			{@render children()}
+		{/if}
+	</div>
 	{#if userScrolledUp}
 		<div class="scroll-bottom-wrap">
 			<button

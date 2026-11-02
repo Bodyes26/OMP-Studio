@@ -11,6 +11,8 @@ import { buildHostState } from './projection';
 import { remoteStore } from './remoteStore.svelte';
 import { remoteBridge } from './bridge';
 import { projectStore } from '#lib/stores/projects.svelte.ts';
+import { projectOrder } from '#lib/stores/projectOrder.svelte.ts';
+import { dispatchConfirmationsStore } from '#lib/lanes/dispatchConfirmations.svelte.ts';
 import { laneStore } from '#lib/stores/lanes.svelte.ts';
 import { companionStore } from '#lib/stores/companion.svelte.ts';
 import { taskStore } from '#lib/stores/tasks.svelte.ts';
@@ -52,7 +54,10 @@ export function startRemoteProjection(options: RemoteProjectionOptions = {}): ()
 			}
 
 			// Registrazione delle dipendenze reattive di Studio
-			const projects = projectStore.projects;
+			const projects = projectOrder.list;
+			// Dipendenze reattive per le conferme di avvio
+			const _pendingConcurrency = dispatchConfirmationsStore.concurrencyPrompt;
+			const _pendingProfile = dispatchConfirmationsStore.profilePrompt;
 			const activeId = projectStore.activeId;
 			const lanes = laneStore.lanes;
 			const runtimes = companionStore.projectRuntimes;
@@ -162,7 +167,8 @@ export function startRemoteProjection(options: RemoteProjectionOptions = {}): ()
 				quotaFetchedAt,
 				theme,
 				rolesMap,
-				knownSelectors
+				knownSelectors,
+				dispatchConfirmationsForProject: (pId) => dispatchConfirmationsStore.getConfirmationsForProject(pId)
 			});
 
 			const json = JSON.stringify(hostState);

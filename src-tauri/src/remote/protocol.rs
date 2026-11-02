@@ -27,6 +27,9 @@ pub const FEATURES: &[&str] = &[
     "lane_config",
     "fleet",
     "artifacts",
+    "task_options",
+    "dispatch_confirm",
+    "quota_refresh",
 ];
 
 /// Tetto di un frame JSON (`MAX_FRAME_BYTES` in `protocol.ts`): oltre, il relay chiude la connessione.

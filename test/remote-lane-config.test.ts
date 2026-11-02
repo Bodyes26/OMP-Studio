@@ -53,7 +53,6 @@ describe('remote lane config commands (Gate R44, lane_config)', () => {
 	]);
 
 	const {
-		newRemoteSession,
 		getRemoteComposerCatalog,
 		setRemoteLaneRole,
 		setRemoteLaneModel,
@@ -78,124 +77,6 @@ describe('remote lane config commands (Gate R44, lane_config)', () => {
 		laneStore.lanes = [];
 	});
 
-	describe('new_session', () => {
-		it('rejects with unsupported when lane is a lab lane', async () => {
-			laneStore.lanes = [
-				{
-					projectId: 'p-config',
-					laneId: 'lab-lane',
-					kind: 'lab',
-					surface: 'gui',
-					title: 'Lab Prototype'
-				} as unknown as LaneRecord
-			];
-
-			await assert.rejects(
-				async () => {
-					await newRemoteSession('p-config', 'lab-lane');
-				},
-				(err: unknown) => {
-					assert.ok(err instanceof RemoteCommandFailure);
-					assert.equal(err.code, 'unsupported');
-					return true;
-				}
-			);
-		});
-
-		it('rejects with rejected when agent session is streaming', async () => {
-			const mockSession = {
-				isOpen: true,
-				isStreaming: true,
-				backgroundPending: false,
-				agentState: 'working',
-				newSession: async () => 'sess-1'
-			} as unknown as AgentSession;
-			sessionRegistry.setLaneSession('p-config', 'main', mockSession);
-
-			await assert.rejects(
-				async () => {
-					await newRemoteSession('p-config', 'main');
-				},
-				(err: unknown) => {
-					assert.ok(err instanceof RemoteCommandFailure);
-					assert.equal(err.code, 'rejected');
-					return true;
-				}
-			);
-		});
-
-		it('rejects with rejected when agent session has background work pending', async () => {
-			const mockSession = {
-				isOpen: true,
-				isStreaming: false,
-				backgroundPending: true,
-				agentState: 'background',
-				newSession: async () => 'sess-1'
-			} as unknown as AgentSession;
-			sessionRegistry.setLaneSession('p-config', 'main', mockSession);
-
-			await assert.rejects(
-				async () => {
-					await newRemoteSession('p-config', 'main');
-				},
-				(err: unknown) => {
-					assert.ok(err instanceof RemoteCommandFailure);
-					assert.equal(err.code, 'rejected');
-					return true;
-				}
-			);
-		});
-
-		it('successfully starts a new session when agent is idle', async () => {
-			let newSessionCalled = false;
-			const mockSession = {
-				isOpen: true,
-				isStreaming: false,
-				backgroundPending: false,
-				agentState: 'idle',
-				newSession: async () => {
-					newSessionCalled = true;
-					return 'sess-new';
-				}
-			} as unknown as AgentSession;
-			sessionRegistry.setLaneSession('p-config', 'main', mockSession);
-
-			await newRemoteSession('p-config', 'main');
-			assert.equal(newSessionCalled, true);
-		});
-
-		for (const state of ['working', 'background', 'attention'] as const) {
-			it(`starts a clean conversation after confirmed interruption with stale ${state} status`, async () => {
-				let releaseAbort!: () => void;
-				const abortFinished = new Promise<void>((resolve) => { releaseAbort = resolve; });
-				let sessionId = 'old-session';
-				let abortStarted = false;
-				const session = {
-					isOpen: true,
-					isStreaming: state === 'working',
-					backgroundPending: state === 'background',
-					agentState: state,
-					abort: async () => {
-						abortStarted = true;
-						await abortFinished;
-						// Lo stato obsoleto resta occupato anche dopo la risposta all'abort.
-					},
-					newSession: async () => {
-						sessionId = 'new-session';
-						return sessionId;
-					}
-				} as unknown as AgentSession;
-				sessionRegistry.setLaneSession('p-config', 'main', session);
-
-				const starting = newRemoteSession('p-config', 'main', true);
-				assert.equal(abortStarted, true);
-				assert.equal(sessionId, 'old-session');
-				releaseAbort();
-				await starting;
-				assert.equal(sessionId, 'new-session');
-			});
-		}
-	});
 
 	describe('set_lane_role', () => {
 		it('applies role model and thinking level via RPC and updates lastPickedRole', async () => {

@@ -86,7 +86,7 @@
 	import { scheduleStore } from '#lib/stores/schedule.svelte.ts';
 	import { remoteStore } from '#lib/remote/remoteStore.svelte.ts';
 	import { startRemoteProjection } from '#lib/remote/projection.svelte.ts';
-	import { setupRemoteCommands, type RunTaskOutcome } from '#lib/remote/commands.ts';
+	import { setupRemoteCommands, toDispatchOutcome, type RunTaskOutcome, RemoteCommandFailure } from '#lib/remote/commands.ts';
 	import { createTaskCommands } from '#lib/remote/taskCommands.ts';
 	import { abortRemoteLane, sendRemotePrompt, stageRemoteAttachment, refreshRemoteContext, compactRemoteContext } from '#lib/remote/sessionCommands.ts';
 	import { initRemoteChat, remoteChatHistory, remoteGetArtifact } from '#lib/remote/chat.ts';
@@ -94,20 +94,21 @@
 	import { createLaneConfigCommands } from '#lib/remote/laneConfigCommands.ts';
 	import { sessionCompletions } from '#lib/agent/completion.svelte.ts';
 	import { listRemoteSessions, remoteSessionHistory } from '#lib/remote/historicalCommands.ts';
-	import { createRemoteLane } from '#lib/remote/worktreeCommands.ts';
 	import { markRemoteSessionSeen } from '#lib/remote/completion.svelte.ts';
+	import { dispatchConfirmationsStore } from '#lib/lanes/dispatchConfirmations.svelte.ts';
 	import { applyRoleToSession, RoleApplyError } from '#lib/agent/laneRole.ts';
 	import { laneStore, type LaneRecord } from '#lib/stores/lanes.svelte.ts';
 	import { laneOrchestrator, type TerminalMetaEntry } from '#lib/lanes/laneOrchestrator.svelte.ts';
 	import { describeLaneProcess } from '#lib/lanes/processSupervisor.ts';
 	import { laneBranchDeleteArgs } from '#lib/lanes/laneCleanup.ts';
 	import {
+		activeLanes,
 		buildConcurrencyWarning,
 		CONCURRENCY_SOFT_CAP,
 		decideAutoDispatch,
 		decideQueueRoute,
 		resolveQueueRoot,
-		type ConcurrencyWarning
+		type QueueRoute
 	} from '#lib/lanes/queueDispatch.ts';
 	import {
 		AUTO_DISPATCH_STABLE_MS,
@@ -228,7 +229,7 @@
 			busyPaths: [...busyPaths],
 			interactiveAgentCount,
 			maxAgentCount: CONCURRENCY_SOFT_CAP,
-			interactiveWaiting: laneDispatchPrompt !== null
+			interactiveWaiting: dispatchConfirmationsStore.concurrencyPrompt !== null
 		};
 	}
 
@@ -652,31 +653,6 @@
 	const agentErrors = laneOrchestrator.agentErrors;
 	let viewingImage = $state<{ data: string; mimeType: string } | null>(null);
 	let taskEditorId = $state<string | null>(null);
-	/**
-	 * Richiesta di conferma per il routing della coda: `Principale` al lavoro
-	 * oppure soft-cap dei tre agenti simultanei superato.
-	 */
-	let laneDispatchPrompt = $state<{
-		projectId: string;
-		taskId: string;
-		mode: 'busy-main' | 'concurrency';
-		taskTitle: string;
-		warning: ConcurrencyWarning | null;
-		follow: boolean;
-		/** Corsia aperta a schermo: l'utente puo' forzare il task li'. */
-		forceLane: { laneId: string; title: string } | null;
-	} | null>(null);
-	/**
-	 * Consenso una tantum sui file locali non versionati prima di aprire il
-	 * worktree (Gate R27 / PLAN W10). Riguarda solo le corsie chieste
-	 * dall'utente: l'auto-avvio non interrompe mai con un dialogo.
-	 */
-	let laneProfilePrompt = $state<{
-		projectId: string;
-		taskId: string;
-		review: ProjectProfileReview;
-		follow: boolean;
-	} | null>(null);
 	let reviewingLane = $state<AgentLane | LaneRecord | null>(null);
 
 	/**
@@ -1347,7 +1323,10 @@
 		});
 		register(Promise.resolve(stopProjection));
 		const remoteTasks = createTaskCommands({
-			buildResetSchedule: (t) => scheduleStore.buildReset(t, 'user')
+			buildResetSchedule: (t) => scheduleStore.buildReset(t, 'user'),
+			roleModels: () => (modelSettingsStore.config || modelSettingsStore.draftConfig)?.modelRoles ?? {},
+			knownSelectors: () => modelSettingsStore.knownSelectors,
+			scheduleTarget: (task) => scheduleStore.targetFor(task)
 		});
 		const remoteLaneConfig = createLaneConfigCommands({
 			ensureLoaded: () => modelSettingsStore.ensureLoaded(),
@@ -1366,6 +1345,44 @@
 					updateTask: remoteTasks.updateRemoteTask,
 					deleteTask: remoteTasks.deleteRemoteTask,
 					moveTask: remoteTasks.moveRemoteTask,
+					getTask: remoteTasks.getRemoteTask,
+					// Stessa conferma dei dialoghi desktop (Gate R48, R-REM-10): chi risponde
+					// per primo la chiude anche sull'altra superficie.
+					respondDispatch: async (projectId, confirmationId, answer) => {
+						const found = dispatchConfirmationsStore.findConfirmation(confirmationId);
+						if (!found || found.prompt.projectId !== projectId) {
+							throw new RemoteCommandFailure('not_found', `Conferma "${confirmationId}" non trovata o gia' risolta`);
+						}
+						if (answer.action === 'cancel') {
+							dispatchConfirmationsStore.clearConfirmation(confirmationId);
+							return undefined;
+						}
+						const expected = found.kind === 'concurrency' ? 'confirm' : 'files';
+						if (answer.action !== expected) {
+							throw new RemoteCommandFailure('rejected', `Risposta "${answer.action}" non valida per questa conferma`);
+						}
+						dispatchConfirmationsStore.clearConfirmation(confirmationId);
+						if (found.kind === 'local_files' && answer.action === 'files') {
+							const project = projectStore.projects.find((p) => p.id === projectId);
+							if (project) {
+								try {
+									await recordAllowlistDecision(project, {
+										accepted: answer.accepted,
+										reviewed: found.prompt.review.pendingCandidates.map((c) => c.relativePath)
+									});
+								} catch (error) {
+									console.error('Registrazione del consenso sui file locali fallita:', error);
+								}
+							}
+						}
+						// Il worktree puo' chiedere a sua volta il consenso sui file: l'esito lo porta.
+						return toDispatchOutcome(
+							await handleRunTask(projectId, found.prompt.taskId, { newLane: true, follow: false })
+						);
+					},
+					refreshQuota: async () => {
+						await quotaStore.refresh(true);
+					},
 					abort: abortRemoteLane,
 					sendPrompt: sendRemotePrompt,
 					stageAttachment: stageRemoteAttachment,
@@ -1376,14 +1393,12 @@
 					listProjectFolders: listRemoteProjectFolders,
 					openProject: openRemoteProject,
 					createProject: createRemoteProject,
-					newSession: remoteLaneConfig.newRemoteSession,
 					composerCatalog: remoteLaneConfig.getRemoteComposerCatalog,
 					setLaneRole: remoteLaneConfig.setRemoteLaneRole,
 					setLaneModel: remoteLaneConfig.setRemoteLaneModel,
 					setLaneThinking: remoteLaneConfig.setRemoteLaneThinking,
 					listSessions: listRemoteSessions,
 					sessionHistory: remoteSessionHistory,
-					createLane: createRemoteLane,
 					markSessionSeen: markRemoteSessionSeen
 				},
 				{
@@ -1591,6 +1606,8 @@
 		 * dice "occupato" ma l'agente per lui ha finito.
 		 */
 		force?: boolean;
+		/** Destinazione richiesta da controllo remoto (`task_options`). */
+		destination?: 'auto' | 'new_lane';
 	}
 
 	function taskTitleOf(task: StudioTask): string {
@@ -1648,14 +1665,14 @@
 				const reason = agentErrors[key] ?? agentErrors[runtimeKey(project)];
 				return { kind: 'failed', message: reason || 'Ripresa del task fallita' };
 			}
-			return { kind: 'started' };
+			return { kind: 'started', laneId: task.resume.laneId ?? MAIN_LANE_ID };
 		}
 
 		if (options.newLane) {
 			const outcome = await dispatchInNewLane(project, task, options);
-			if (outcome.kind === 'started') return { kind: 'started' };
+			if (outcome.kind === 'started') return { kind: 'started', laneId: outcome.lane.laneId };
 			if (outcome.kind === 'awaiting-consent') {
-				return { kind: 'needs_confirmation', message: 'Consenso profilo richiesto sulla macchina' };
+				return { kind: 'needs_confirmation', confirmationId: outcome.confirmationId, message: 'Consenso profilo richiesto sulla macchina' };
 			}
 			return { kind: 'failed', message: outcome.message || 'Creazione corsia fallita' };
 		}
@@ -1673,15 +1690,22 @@
 				const reason = agentErrors[runtimeKey(project, lane.laneId)];
 				return { kind: 'failed', message: reason || 'Spedizione nella corsia fallita' };
 			}
-			return { kind: 'started' };
+			return { kind: 'started', laneId: lane.laneId };
 		}
 
 		const lanes = laneOrchestrator.laneDispatchSnapshots(project);
-		const route = decideQueueRoute({
-			shiftKey: options.shiftKey === true,
+		const queueRoute = decideQueueRoute({
+			// Da remoto «Nuovo worktree» vale come Shift + click: worktree nuovo senza dialogo.
+			shiftKey: options.shiftKey === true || options.destination === 'new_lane',
 			lanes,
 			worktreeCapable: Boolean(project.canonicalProjectPath)
 		});
+		// Da remoto la Principale occupata porta dritto a un worktree nuovo (Gate R48):
+		// il dialogo che offre la corsia aperta a schermo ha senso solo sul computer.
+		const route: QueueRoute =
+			options.destination && queueRoute.kind === 'prompt'
+				? { kind: 'new-lane', confirmConcurrency: queueRoute.confirmConcurrency }
+				: queueRoute;
 
 		if (route.kind === 'main') {
 			const mainLane = laneOrchestrator.mainLaneRecord(project);
@@ -1696,38 +1720,46 @@
 				const reason = agentErrors[runtimeKey(project, mainLane.laneId)];
 				return { kind: 'failed', message: reason || 'Spedizione sulla Principale fallita' };
 			}
-			return { kind: 'started' };
+			return { kind: 'started', laneId: MAIN_LANE_ID };
 		}
 		if (route.kind === 'blocked') {
 			const reason = m.lane_dispatch_blocked_detail();
 			agentErrors[runtimeKey(project)] = reason;
 			return { kind: 'blocked', reason };
 		}
-		// `Shift` + click e' gia' la conferma esplicita: il dialog serve solo
-		// oltre il soft-cap. Senza questo ramo la richiesta cadeva nel prompt
-		// "Agenti simultanei" con un conteggio senza senso ("1° agente").
 		if (route.kind === 'new-lane' && !route.confirmConcurrency) {
 			const outcome = await dispatchInNewLane(project, task, options);
-			if (outcome.kind === 'started') return { kind: 'started' };
+			if (outcome.kind === 'started') return { kind: 'started', laneId: outcome.lane.laneId };
 			if (outcome.kind === 'awaiting-consent') {
-				return { kind: 'needs_confirmation', message: 'Consenso profilo richiesto sulla macchina' };
+				return { kind: 'needs_confirmation', confirmationId: outcome.confirmationId, message: 'Consenso profilo richiesto sulla macchina' };
 			}
 			return { kind: 'failed', message: outcome.message || 'Creazione corsia fallita' };
 		}
-		laneDispatchPrompt = {
+		// Stato e modello degli agenti attivi: Remote li mostra nella conferma.
+		const activeLaneSummaries = activeLanes(lanes).map((lane) => ({
+			laneId: lane.laneId,
+			title: lane.title,
+			modelLabel: lane.model ? [lane.model.provider, lane.model.id].filter(Boolean).join('/') || null : null,
+			state: lane.busy ? ('working' as const) : ('idle' as const)
+		}));
+		const confirmationId = `concurrency:${taskId}`;
+		dispatchConfirmationsStore.setConcurrency({
+			id: confirmationId,
 			projectId,
 			taskId,
 			mode: route.kind === 'prompt' ? 'busy-main' : 'concurrency',
 			taskTitle: taskTitleOf(task),
 			warning: route.confirmConcurrency ? buildConcurrencyWarning(lanes) : null,
+			activeLanes: activeLaneSummaries,
 			follow: options.follow === true,
 			forceLane:
 				route.kind === 'prompt'
 					? { laneId: project.lane.laneId, title: project.lane.title }
 					: null
-		};
+		});
 		return {
 			kind: 'needs_confirmation',
+			confirmationId,
 			message: route.confirmConcurrency
 				? 'Conferma concorrenza agenti richiesta sulla macchina'
 				: 'Conferma avvio su nuova corsia richiesta sulla macchina'
@@ -1751,13 +1783,16 @@
 				return null;
 			});
 			if (review?.needsConsent) {
-				laneProfilePrompt = {
+				const confirmationId = `local_files:${task.id}`;
+				dispatchConfirmationsStore.setProfile({
+					id: confirmationId,
 					projectId: project.id,
 					taskId: task.id,
+					taskTitle: taskTitleOf(task),
 					review,
 					follow: options.follow === true
-				};
-				return { kind: 'awaiting-consent' };
+				});
+				return { kind: 'awaiting-consent', confirmationId };
 			}
 		}
 		let created: LaneRecord;
@@ -1990,9 +2025,9 @@
 	}
 
 	function confirmLaneDispatch() {
-		const request = laneDispatchPrompt;
+		const request = dispatchConfirmationsStore.concurrencyPrompt;
 		if (!request) return;
-		laneDispatchPrompt = null;
+		dispatchConfirmationsStore.clearConcurrency();
 		void handleRunTask(request.projectId, request.taskId, {
 			newLane: true,
 			follow: request.follow
@@ -2001,9 +2036,9 @@
 
 	/** Il task parte nella corsia aperta anche se risulta occupata. */
 	function forceLaneDispatch() {
-		const request = laneDispatchPrompt;
+		const request = dispatchConfirmationsStore.concurrencyPrompt;
 		if (!request?.forceLane) return;
-		laneDispatchPrompt = null;
+		dispatchConfirmationsStore.clearConcurrency();
 		void handleRunTask(request.projectId, request.taskId, {
 			laneId: request.forceLane.laneId,
 			force: true,
@@ -2016,9 +2051,9 @@
 	 * spedizione, che ora trova il profilo confermato e non chiede piu' nulla.
 	 */
 	async function confirmLaneProfile(accepted: string[]) {
-		const request = laneProfilePrompt;
+		const request = dispatchConfirmationsStore.profilePrompt;
 		if (!request) return;
-		laneProfilePrompt = null;
+		dispatchConfirmationsStore.clearProfile();
 		const project = projectStore.projects.find((candidate) => candidate.id === request.projectId);
 		if (!project) return;
 		try {
@@ -3719,21 +3754,21 @@
 		onCancel={handleCancelCloseModal}
 	/>
 	<LaneDispatchDialog
-		open={laneDispatchPrompt !== null}
-		mode={laneDispatchPrompt?.mode ?? 'busy-main'}
-		taskTitle={laneDispatchPrompt?.taskTitle ?? ''}
-		warning={laneDispatchPrompt?.warning ?? null}
-		forceLaneTitle={laneDispatchPrompt?.forceLane?.title ?? ''}
+		open={dispatchConfirmationsStore.concurrencyPrompt !== null}
+		mode={dispatchConfirmationsStore.concurrencyPrompt?.mode ?? 'busy-main'}
+		taskTitle={dispatchConfirmationsStore.concurrencyPrompt?.taskTitle ?? ''}
+		warning={dispatchConfirmationsStore.concurrencyPrompt?.warning ?? null}
+		forceLaneTitle={dispatchConfirmationsStore.concurrencyPrompt?.forceLane?.title ?? ''}
 		onConfirm={confirmLaneDispatch}
-		onForce={laneDispatchPrompt?.forceLane ? forceLaneDispatch : undefined}
-		onCancel={() => (laneDispatchPrompt = null)}
+		onForce={dispatchConfirmationsStore.concurrencyPrompt?.forceLane ? forceLaneDispatch : undefined}
+		onCancel={() => dispatchConfirmationsStore.clearConcurrency()}
 	/>
 	<LaneProfileDialog
-		open={laneProfilePrompt !== null}
-		detection={laneProfilePrompt?.review.detection ?? null}
-		candidates={laneProfilePrompt?.review.pendingCandidates ?? []}
+		open={dispatchConfirmationsStore.profilePrompt !== null}
+		detection={dispatchConfirmationsStore.profilePrompt?.review.detection ?? null}
+		candidates={dispatchConfirmationsStore.profilePrompt?.review.pendingCandidates ?? []}
 		onConfirm={(accepted) => void confirmLaneProfile(accepted)}
-		onCancel={() => (laneProfilePrompt = null)}
+		onCancel={() => dispatchConfirmationsStore.clearProfile()}
 	/>
 	{#if projectStore.activeProject}
 		<LaneReviewModal

@@ -1,5 +1,5 @@
 <!--
-  HistoryChatView.svelte — Vista trascrizione in sola lettura di una sessione passata.
+  HistoryChatView.svelte — Vista trascrizione in sola lettura di una sessione passata (Gate R48, R-REM-15).
   Recupera i messaggi con il comando session_history, supporta paginazione all'indietro,
   nessun composer e nessuna sottoscrizione WebSocket dal vivo.
 -->
@@ -9,10 +9,10 @@
 	import { t } from '../../i18n.ts';
 	import { connection } from '../../connection.svelte.ts';
 	import { navigation } from '../../navigation.svelte.ts';
-	import Transcript from '../chat/Transcript.svelte';
-	import { IconArrowLeft, IconClose } from '../../icons.ts';
+	import Transcript from './Transcript.svelte';
+	import { IconClose } from '../../icons.ts';
 	import { PreviewStore, setPreviewContext } from '../../preview.svelte.ts';
-	import PreviewSurface from '../chat/PreviewSurface.svelte';
+	import PreviewSurface from './PreviewSurface.svelte';
 
 	let { route }: { route: HistoryChatRoute } = $props();
 
@@ -24,6 +24,7 @@
 	let loadOlderError = $state<string | null>(null);
 	let activeImageModal = $state<{ url: string; mimeType?: string } | null>(null);
 	let imageDialogEl = $state<HTMLDialogElement | null>(null);
+	let expandPreview = $state(false);
 
 	const preview = new PreviewStore();
 	setPreviewContext(preview);
@@ -36,6 +37,8 @@
 			isHistory: true
 		});
 	});
+
+	$effect(() => () => preview.destroy());
 
 	// Contatore di generazione per proteggere dai ritorni asincroni stantii
 	let activeGeneration = 0;
@@ -53,7 +56,6 @@
 	}
 
 	const host = $derived(connection.hosts.find((h) => h.id === route.hostId));
-	const hostName = $derived(host?.name ?? 'Macchina');
 	const hostState = $derived(connection.hostStates[route.hostId]?.state);
 	const project = $derived(
 		hostState?.projects.find((p) => p.id === route.projectId)
@@ -73,15 +75,18 @@
 				projectId: route.projectId,
 				sessionId: route.sessionId,
 				before: null,
-				limit: 40
+				limit: 50
 			})) as RemoteChatPage | undefined;
 
 			if (gen !== activeGeneration) return;
-			messages = res?.messages ?? [];
-			beforeCursor = res?.before ?? null;
-		} catch (err: unknown) {
+
+			if (res && Array.isArray(res.messages)) {
+				messages = res.messages;
+				beforeCursor = res.before ?? null;
+			}
+		} catch (err) {
 			if (gen !== activeGeneration) return;
-			errorMessage = (err as { message?: string })?.message || t('chatLoadError');
+			errorMessage = (err as Error)?.message || t('historyLoadError');
 		} finally {
 			if (gen === activeGeneration) {
 				isLoading = false;
@@ -90,26 +95,29 @@
 	}
 
 	async function loadOlderMessages() {
-		if (!route.sessionId || !beforeCursor || loadingOlder) return;
+		if (!beforeCursor || loadingOlder) return;
 		const gen = activeGeneration;
 		loadingOlder = true;
 		loadOlderError = null;
+
 		try {
 			const res = (await connection.sendCommand(route.hostId, {
 				kind: 'session_history',
 				projectId: route.projectId,
 				sessionId: route.sessionId,
 				before: beforeCursor,
-				limit: 40
+				limit: 50
 			})) as RemoteChatPage | undefined;
 
 			if (gen !== activeGeneration) return;
-			const older = res?.messages ?? [];
-			messages = [...older, ...messages];
-			beforeCursor = res?.before ?? null;
-		} catch (err: unknown) {
+
+			if (res && Array.isArray(res.messages)) {
+				messages = [...res.messages, ...messages];
+				beforeCursor = res.before ?? null;
+			}
+		} catch (err) {
 			if (gen !== activeGeneration) return;
-			loadOlderError = (err as { message?: string })?.message || t('chatLoadOlderError');
+			loadOlderError = (err as Error)?.message || t('chatLoadOlderError');
 		} finally {
 			if (gen === activeGeneration) {
 				loadingOlder = false;
@@ -118,40 +126,33 @@
 	}
 
 	$effect(() => {
-		void route.hostId;
-		void route.projectId;
-		void route.sessionId;
 		if (connection.status === 'connected') {
-			loadHistoryInitial();
+			void loadHistoryInitial();
 		}
 	});
 </script>
 
 <div class="history-chat-view safe-top">
-	<header class="chat-header">
+	<!-- Barra superiore a riga singola (allineata a ChatView) -->
+	<header class="chat-bar">
 		<button
 			type="button"
-			class="header-back-btn"
+			class="icon-btn"
 			onclick={() => navigation.closeChat()}
-			aria-label={t('chatBack')}
-			title={t('chatBack')}
+			aria-label={t('close')}
+			title={t('close')}
 		>
-			<IconArrowLeft />
+			<IconClose />
 		</button>
 
-		<div class="header-titles">
-			<div class="header-context">
-				{#if project}
-					<span class="project-name">{project.name}</span>
-					<span class="header-sep">/</span>
-				{/if}
-				<span class="header-host">{hostName || t('machine')}</span>
-			</div>
-			<div class="header-session-title">
-				<span class="title-text">{route.sessionTitle || t('historyTitle')}</span>
-				<span class="readonly-badge">{t('readOnlyBadge')}</span>
-			</div>
+		<div class="bar-title">
+			<strong class="project-title-text">{project?.name ?? ''}</strong>
+			<span class="session-title-text">
+				{route.sessionTitle || t('historyTitle')} · {t('readOnlyBadge')}
+			</span>
 		</div>
+
+		<div class="bar-spacer" aria-hidden="true"></div>
 	</header>
 
 	{#if errorMessage}
@@ -166,44 +167,46 @@
 		</div>
 	{/if}
 
-	<div class="history-content-split">
-	<div class="history-stream-column">
-	<main class="chat-main">
-		{#if isLoading}
-			<div class="loading-state">
-				<div class="spinner"></div>
-			</div>
-		{:else}
-			<Transcript
-				{messages}
-				{loadingOlder}
-				hasOlder={Boolean(beforeCursor)}
-				onLoadOlder={loadOlderMessages}
-				isWorking={false}
-				onOpenImage={openImageModal}
-				hostFeatures={host?.features ?? []}
-				hostId={route.hostId}
-				projectId={route.projectId}
-				laneId={null}
-				isHistory={true}
-			/>
-		{/if}
-	</main>
+	<div class="history-content-split" class:expanded={expandPreview && preview.isOpen}>
+		<div class="history-stream-column">
+			<main class="chat-main">
+				{#if isLoading}
+					<div class="loading-state">
+						<div class="spinner"></div>
+					</div>
+				{:else}
+					<Transcript
+						{messages}
+						{loadingOlder}
+						hasOlder={Boolean(beforeCursor)}
+						onLoadOlder={loadOlderMessages}
+						isWorking={false}
+						onOpenImage={openImageModal}
+						hostFeatures={host?.features ?? []}
+						hostId={route.hostId}
+						projectId={route.projectId}
+						laneId={null}
+						isHistory={true}
+					/>
+				{/if}
+			</main>
 
-	<!-- Footer in sola lettura: nessun composer -->
-	<footer class="history-footer safe-bottom">
-		<div class="footer-inner readable">
-			<div class="readonly-banner">
-				<span class="readonly-tag">{t('readOnlyBadge')}</span>
-				<span class="readonly-desc">{t('archivedSessionBanner')}</span>
-			</div>
+			<!-- Footer in sola lettura: nessun composer -->
+			<footer class="history-footer safe-bottom">
+				<div class="footer-inner readable">
+					<div class="readonly-banner">
+						<span class="readonly-tag">{t('readOnlyBadge')}</span>
+						<span class="readonly-desc">{t('archivedSessionBanner')}</span>
+					</div>
+				</div>
+			</footer>
 		</div>
-	</footer>
-	</div>
 
-	{#if preview.isOpen}
-		<PreviewSurface {preview} />
-	{/if}
+		<PreviewSurface
+			{preview}
+			{expandPreview}
+			onToggleExpand={() => (expandPreview = !expandPreview)}
+		/>
 	</div>
 
 	{#if activeImageModal}
@@ -228,123 +231,97 @@
 		display: flex;
 		flex-direction: column;
 		height: 100%;
-		background: var(--bg-base);
+		background: var(--bg-sunken);
 		position: relative;
 		overflow: hidden;
 	}
 
-	.chat-header {
+	.chat-bar {
 		display: flex;
 		align-items: center;
-		gap: var(--space-2, 8px);
-		height: 48px;
-		padding: 0 var(--space-3, 12px);
-		border-bottom: 1px solid var(--line);
+		justify-content: space-between;
+		padding: 8px 12px;
 		background: var(--bg-raised);
+		border-bottom: 1px solid var(--line);
+		min-height: 48px;
 		flex-shrink: 0;
-		z-index: var(--z-dock, 10);
+		gap: 8px;
 	}
 
-	.header-back-btn {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: 32px;
-		height: 32px;
+	.icon-btn {
+		width: 44px;
+		height: 44px;
+		display: grid;
+		place-items: center;
+		background: transparent;
+		border: none;
 		border-radius: var(--radius-md);
-		border: 1px solid var(--line);
-		background: var(--bg-sunken);
-		color: var(--ink);
+		color: var(--ink-muted);
 		cursor: pointer;
-		flex-shrink: 0;
+		transition: color var(--dur-fast), background var(--dur-fast);
 	}
 
-	.header-back-btn:hover {
-		background: var(--bg-hover, var(--bg-raised));
+	.icon-btn:hover {
+		color: var(--ink);
+		background: var(--bg-hover);
 	}
 
-	.header-titles {
-		min-width: 0;
-		flex: 1;
+	.bar-title {
 		display: flex;
 		flex-direction: column;
-		gap: 2px;
-	}
-
-	.header-context {
-		display: flex;
 		align-items: center;
-		gap: 6px;
-		font-size: var(--text-mini, 11px);
-		color: var(--ink-muted);
-	}
-
-	.header-sep {
-		color: var(--ink-faint);
-	}
-
-	.header-session-title {
-		display: flex;
-		align-items: center;
-		gap: 8px;
+		text-align: center;
+		flex: 1;
 		min-width: 0;
 	}
 
-	.title-text {
-		font-size: var(--text-label, 13px);
-		font-weight: 600;
+	.project-title-text {
+		font-size: 15px;
+		font-weight: 650;
 		color: var(--ink);
-		white-space: nowrap;
+		line-height: 1.2;
 		overflow: hidden;
 		text-overflow: ellipsis;
+		white-space: nowrap;
+		max-width: 100%;
 	}
 
-	.readonly-badge {
-		padding: 1px 6px;
-		border-radius: var(--radius-sm);
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		font-size: var(--text-mini, 10px);
-		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
+	.session-title-text {
+		font-size: 12px;
 		color: var(--ink-muted);
-		flex-shrink: 0;
+		line-height: 1.2;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		max-width: 100%;
 	}
 
-	.chat-error-banner {
-		padding: var(--space-2, 8px) var(--space-3, 12px);
-		background: color-mix(in oklch, var(--danger) 15%, transparent);
-		border-bottom: 1px solid color-mix(in oklch, var(--danger) 30%, transparent);
-		color: var(--danger);
-		font-size: var(--text-sm, 12px);
-		text-align: center;
+	.bar-spacer {
+		width: 44px;
+		height: 44px;
 	}
 
-	.chat-error-banner.warn {
-		background: color-mix(in oklch, var(--warn) 15%, transparent);
-		border-bottom: 1px solid color-mix(in oklch, var(--warn) 30%, transparent);
-		color: var(--warn);
-	}
 	.history-content-split {
-		position: relative;
 		flex: 1;
 		min-height: 0;
 		display: flex;
 		overflow: hidden;
+		position: relative;
 	}
 
 	.history-stream-column {
 		flex: 1;
 		min-width: 0;
-		min-height: 0;
 		display: flex;
 		flex-direction: column;
+		position: relative;
 	}
 
-	@media (min-width: 960px) {
-		.history-content-split { container-type: inline-size; }
-		.history-stream-column { min-width: 360px; }
+	/* Come nella chat dal vivo: l'anteprima si affianca solo quando e' aperta. */
+	@media (min-width: 1024px) {
+		.history-content-split.expanded .history-stream-column {
+			display: none;
+		}
 	}
 
 	.chat-main {
@@ -352,15 +329,13 @@
 		min-height: 0;
 		display: flex;
 		flex-direction: column;
-		position: relative;
 		overflow: hidden;
 	}
 
 	.loading-state {
 		flex: 1;
-		display: flex;
-		align-items: center;
-		justify-content: center;
+		display: grid;
+		place-items: center;
 	}
 
 	.spinner {
@@ -368,84 +343,87 @@
 		height: 24px;
 		border: 2px solid var(--line);
 		border-top-color: var(--brand);
-		border-radius: var(--radius-full);
+		border-radius: 50%;
 		animation: spin 0.8s linear infinite;
 	}
 
 	@keyframes spin {
-		to {
-			transform: rotate(360deg);
-		}
+		to { transform: rotate(360deg); }
+	}
+
+	.chat-error-banner {
+		padding: 8px 16px;
+		background: color-mix(in oklch, var(--danger) 12%, transparent);
+		color: var(--danger);
+		font-size: var(--text-xs);
+		border-bottom: 1px solid color-mix(in oklch, var(--danger) 25%, transparent);
+	}
+
+	.chat-error-banner.warn {
+		background: color-mix(in oklch, var(--warn) 12%, transparent);
+		color: var(--warn);
+		border-bottom-color: color-mix(in oklch, var(--warn) 25%, transparent);
 	}
 
 	.history-footer {
+		background: var(--bg-raised);
 		border-top: 1px solid var(--line);
-		background: var(--bg-sunken);
-		padding: var(--space-3, 12px);
-		flex-shrink: 0;
+		padding: 10px 16px;
 	}
 
-	.footer-inner {
+	.footer-inner.readable {
 		max-width: 720px;
 		margin: 0 auto;
-		width: 100%;
 	}
 
 	.readonly-banner {
 		display: flex;
 		align-items: center;
-		justify-content: center;
 		gap: 8px;
-		padding: 8px 12px;
-		border-radius: var(--radius-lg);
-		background: var(--bg-base);
-		border: 1px dashed var(--line);
-		font-size: var(--text-caption, 12px);
+		font-size: var(--text-xs);
 		color: var(--ink-muted);
 	}
 
 	.readonly-tag {
+		background: var(--bg-sunken);
+		border: 1px solid var(--line);
+		padding: 2px 6px;
+		border-radius: var(--radius-sm);
 		font-weight: 600;
-		color: var(--ink);
 	}
 
 	.image-modal-backdrop {
 		position: fixed;
 		inset: 0;
-		z-index: 300;
-		background: rgba(0, 0, 0, 0.8);
+		background: color-mix(in oklch, var(--ink) 80%, transparent);
 		border: none;
-		padding: 24px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		width: 100%;
-		height: 100%;
-		max-width: none;
-		max-height: none;
-	}
-
-	.image-modal-img {
-		max-width: 90vw;
-		max-height: 85vh;
-		max-height: 85dvh;
-		object-fit: contain;
-		border-radius: var(--radius-md);
+		padding: 0;
+		margin: 0;
+		width: 100vw;
+		height: 100vh;
+		display: grid;
+		place-items: center;
+		z-index: 100;
 	}
 
 	.image-modal-close {
 		position: absolute;
 		top: 16px;
 		right: 16px;
-		width: 36px;
-		height: 36px;
-		border-radius: var(--radius-full);
-		background: rgba(255, 255, 255, 0.2);
-		color: #ffffff;
+		background: transparent;
 		border: none;
+		color: #fff;
 		cursor: pointer;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
+		width: 44px;
+		height: 44px;
+		display: grid;
+		place-items: center;
+	}
+
+	.image-modal-img {
+		max-width: 90vw;
+		max-height: 90vh;
+		object-fit: contain;
+		border-radius: var(--radius-md);
 	}
 </style>

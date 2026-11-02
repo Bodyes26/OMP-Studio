@@ -121,7 +121,7 @@ lui, e quanta quota AI resta.
 
 ### Piattaforma
 
-Desktop Windows 11 x64 (NSIS, WebView2), macOS su Apple Silicon (chip M, DMG, WebKit WKWebView) e Linux x64 (.deb, AppImage, WebKitGTK). Nessuna app mobile, nessun servizio ospitato dal progetto. L'app gira al 100% in locale e parla solo con il filesystem, con `git` e con `omp` installati sulla macchina. L'unica eccezione è facoltativa e spenta per default: il controllo remoto (Gate R44) si collega in uscita a un relay che l'utente ospita sul proprio server, e da lì una PWA sul telefono o nel browser segue e guida le sue macchine. L'interfaccia è web dentro una WebView (Svelte 5 + Tauri): `Platform: web` indica il linguaggio di design, non un sito.
+Desktop Windows 11 x64 (NSIS, WebView2), macOS su Apple Silicon (chip M, DMG, WebKit WKWebView) e Linux x64 (.deb, AppImage, WebKitGTK). Nessuna app mobile, nessun servizio ospitato dal progetto. L'app gira al 100% in locale e parla solo con il filesystem, con `git` e con `omp` installati sulla macchina. L'unica eccezione è facoltativa e spenta per default: il controllo remoto (Gate R44) si collega in uscita a un relay che l'utente ospita sul proprio server, e da lì una PWA sul telefono o nel browser segue e guida le sue macchine. Studio Remote serve a controllare e concludere il lavoro lontano dal computer e ad avviare lavori urgenti, non a riprodurre l'IDE: è pensata prima per il telefono, con un progetto per riga, chat leggibile, anteprime generate e coda gestibile (Gate R48). L'interfaccia è web dentro una WebView (Svelte 5 + Tauri): `Platform: web` indica il linguaggio di design, non un sito.
 
 ## Capabilities and Constraints
 

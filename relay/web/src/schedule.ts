@@ -24,7 +24,7 @@ export function formatScheduleLabel(schedule: RemoteTaskSchedule | null): string
 		if (schedule.notBefore != null) {
 			return t('scheduleReset', { time: formatHHMM(schedule.notBefore) });
 		}
-		return 'al reset';
+		return t('scheduleResetNoTime');
 	}
 	if (schedule.kind === 'at') {
 		if (schedule.notBefore != null) {

@@ -4,13 +4,28 @@
  * progetto, appartenenza del task e stato in coda.
  */
 
-import type { RemoteScheduleChoice } from '$remote-protocol';
+import { invoke } from '@tauri-apps/api/core';
+import type {
+	RemoteScheduleChoice,
+	RemoteTaskOptions,
+	RemotePromptImage,
+	RemoteTaskDetail,
+	RemoteTaskImage,
+	RemoteTaskSchedule
+} from '$remote-protocol';
+import { TASK_DETAIL_MAX_BYTES } from '$remote-protocol';
 import { RemoteCommandFailure, type RemoteTaskPatch } from './commands';
 import { projectStore } from '#lib/stores/projects.svelte.ts';
 import { taskStore, type StudioTask, type TaskSchedule } from '#lib/stores/tasks.svelte.ts';
 import { buildAtSchedule } from '#lib/quota/scheduleTarget.ts';
 import { requestTaskTitle } from '#lib/stores/backgroundJobs.svelte.ts';
-
+import type { DroppedImage } from '#lib/agent/chatDrop.ts';
+import type { ImageContent } from '#lib/agent/wire.ts';
+import type { StudioTaskOptions } from '#lib/stores/taskSerialization.ts';
+import { createDirectiveSnapshot, type TaskDirectiveSnapshot } from '#lib/stores/taskDirectives.ts';
+import { settingsStore } from '#lib/stores/settings.svelte.ts';
+import { STANDARD_ROLE_METAS } from '#lib/stores/modelSettingsHelpers.ts';
+import { roleConfigFromSelector } from '#lib/components/taskRoleConfig.ts';
 const MAX_PROMPT_LENGTH = 20_000;
 /** Margine di tolleranza per sfasamento orologio client/host (60 secondi). */
 const SKEW_TOLERANCE_MS = 60_000;
@@ -18,17 +33,27 @@ const SKEW_TOLERANCE_MS = 60_000;
 const MAX_FUTURE_SCHEDULE_MS = 365 * 24 * 60 * 60 * 1000;
 
 export interface TaskCommandDeps {
-	findProject: (projectId: string) => { id: string; canonicalProjectPath?: string | null } | undefined;
+	findProject: (projectId: string) => { id: string; canonicalProjectPath?: string | null; taskDefaults?: { role?: string } | null } | undefined;
 	loadProject: (projectPath: string) => Promise<boolean>;
 	createTask: (projectPath: string) => StudioTask;
 	taskById: (taskId: string) => StudioTask | undefined;
 	tasksFor: (projectPath: string) => StudioTask[];
+	updateTask: (taskId: string, prompt: string, images?: ImageContent[], options?: StudioTaskOptions) => void;
 	updatePrompt: (taskId: string, prompt: string) => void;
 	deleteTask: (taskId: string) => void;
 	setSchedule: (taskId: string, schedule: TaskSchedule | undefined) => void;
 	moveTaskToIndex: (taskId: string, toIndex: number) => void;
 	buildResetSchedule: (task: Pick<StudioTask, 'options'>) => TaskSchedule | null;
 	requestTaskTitle?: (taskId: string) => void;
+	/**
+	 * Ruoli configurati (`ruolo -> provider/id[:thinking]`) e selettori noti. Li
+	 * passa chi crea i comandi: lo store dei modelli trascina il terminale, che
+	 * qui non serve.
+	 */
+	roleModels?: () => Readonly<Record<string, string>>;
+	knownSelectors?: () => ReadonlySet<string>;
+	/** Orario e provider attuali della programmazione, come nell'istantanea. */
+	scheduleTarget?: (task: StudioTask) => { dueAt?: number; provider?: string } | undefined;
 	now?: () => number;
 }
 
@@ -38,6 +63,8 @@ const defaultDeps: TaskCommandDeps = {
 	createTask: (projectPath: string) => taskStore.createTask(projectPath),
 	taskById: (taskId: string) => taskStore.taskById(taskId),
 	tasksFor: (projectPath: string) => taskStore.tasksFor(projectPath),
+	updateTask: (taskId: string, prompt: string, images?: ImageContent[], options?: StudioTaskOptions) =>
+		taskStore.updateTask(taskId, prompt, images, options),
 	updatePrompt: (taskId: string, prompt: string) => taskStore.updatePrompt(taskId, prompt),
 	deleteTask: (taskId: string) => taskStore.deleteTask(taskId),
 	setSchedule: (taskId: string, schedule: TaskSchedule | undefined) =>
@@ -105,14 +132,178 @@ function resolveSchedule(
 	throw new RemoteCommandFailure('rejected', 'Tipo di programmazione non riconosciuto');
 }
 
+export async function resolvePromptImages(images: RemotePromptImage[]): Promise<ImageContent[]> {
+	const result: ImageContent[] = [];
+	for (const img of images) {
+		if (img.data) {
+			result.push({
+				type: 'image',
+				data: img.data,
+				mimeType: img.mimeType || 'image/jpeg'
+			});
+		} else if (img.path) {
+			try {
+				const dropped = await invoke<DroppedImage>('chat_attachment_read_image', { path: img.path });
+				result.push({
+					type: 'image',
+					data: dropped.base64,
+					mimeType: dropped.mimeType || img.mimeType || 'image/jpeg'
+				});
+			} catch (err) {
+				throw new RemoteCommandFailure(
+					'failed',
+					`Impossibile leggere l'immagine allegata: ${err instanceof Error ? err.message : String(err)}`
+				);
+			}
+		}
+	}
+	return result;
+}
+
+function resolveRoleDefault(project?: { taskDefaults?: { role?: string } | null }): string {
+	return project?.taskDefaults?.role || 'default';
+}
+
+function resolveRoleConfig(deps: TaskCommandDeps, roleId: string): { model: string; thinking: string } {
+	return roleConfigFromSelector(deps.roleModels?.()[roleId] ?? '', deps.knownSelectors?.());
+}
+
+/**
+ * Applica alle opzioni del task quelle arrivate dal dispositivo, con le stesse
+ * regole del TaskEditor: un ruolo nuovo porta il suo modello e ragionamento,
+ * `null` torna al valore del ruolo. Prewalk e contesto editor restano.
+ */
+function validateAndNormalizeOptions(
+	deps: TaskCommandDeps,
+	options: RemoteTaskOptions,
+	defaultRole: string,
+	existingOptions?: StudioTaskOptions
+): StudioTaskOptions {
+	const result: StudioTaskOptions = { ...existingOptions };
+
+	let roleChanged = false;
+	if (options.role !== undefined) {
+		if (options.role === null) {
+			result.role = defaultRole;
+			roleChanged = true;
+		} else {
+			const role = options.role.trim();
+			const knownRoles = new Set(STANDARD_ROLE_METAS.map((r) => r.id));
+			for (const r of Object.keys(deps.roleModels?.() ?? {})) knownRoles.add(r);
+			knownRoles.add('custom');
+			if (!knownRoles.has(role)) {
+				throw new RemoteCommandFailure('rejected', `Ruolo "${role}" sconosciuto`);
+			}
+			result.role = role;
+			roleChanged = true;
+		}
+	}
+
+	const effectiveRole = result.role || defaultRole;
+
+	if (roleChanged && options.modelSelector === undefined && effectiveRole !== 'custom') {
+		const cfg = resolveRoleConfig(deps, effectiveRole);
+		result.modelSelector = cfg.model || undefined;
+		result.thinkingLevel = cfg.thinking || undefined;
+	}
+
+	if (options.modelSelector !== undefined) {
+		if (options.modelSelector === null) {
+			const cfg = resolveRoleConfig(deps, effectiveRole);
+			result.modelSelector = cfg.model || undefined;
+		} else {
+			const selector = options.modelSelector.trim();
+			const slash = selector.indexOf('/');
+			if (slash <= 0 || slash === selector.length - 1) {
+				throw new RemoteCommandFailure('rejected', `Selettore modello non valido: "${selector}"`);
+			}
+			result.modelSelector = selector;
+		}
+	}
+
+	if (options.thinkingLevel !== undefined) {
+		if (options.thinkingLevel === null) {
+			const cfg = resolveRoleConfig(deps, effectiveRole);
+			result.thinkingLevel = cfg.thinking || undefined;
+		} else {
+			result.thinkingLevel = options.thinkingLevel.trim();
+		}
+	}
+
+	if (options.directiveIds !== undefined) {
+		const catalog = settingsStore.taskDirectives || [];
+		const snapshots: TaskDirectiveSnapshot[] = [];
+		for (const id of options.directiveIds) {
+			const found = catalog.find((d) => d.id === id);
+			if (!found) {
+				throw new RemoteCommandFailure('rejected', `Direttiva "${id}" non trovata nel catalogo`);
+			}
+			snapshots.push(createDirectiveSnapshot(found));
+		}
+		result.directives = snapshots.length > 0 ? snapshots : undefined;
+	}
+
+	return result;
+}
 export function createTaskCommands(customDeps?: Partial<TaskCommandDeps>) {
 	const deps: TaskCommandDeps = { ...defaultDeps, ...customDeps };
 
 	return {
+		getRemoteTask: async (projectId: string, taskId: string): Promise<RemoteTaskDetail> => {
+			const task = deps.taskById(taskId);
+			if (!task) {
+				throw new RemoteCommandFailure('not_found', `Task "${taskId}" non trovato`);
+			}
+			const project = deps.findProject(projectId);
+			if (!project) {
+				throw new RemoteCommandFailure('not_found', `Progetto "${projectId}" non trovato`);
+			}
+
+			let accumulatedBytes = 0;
+			const images: RemoteTaskImage[] = (task.images || []).map((img) => {
+				const byteSize = img.data ? img.data.length : 0;
+				if (accumulatedBytes + byteSize <= TASK_DETAIL_MAX_BYTES) {
+					accumulatedBytes += byteSize;
+					return {
+						mimeType: img.mimeType || 'image/jpeg',
+						data: img.data ?? null
+					};
+				}
+				return {
+					mimeType: img.mimeType || 'image/jpeg',
+					data: null
+				};
+			});
+
+			let schedule: RemoteTaskSchedule | null = null;
+			if (task.schedule) {
+				const target = deps.scheduleTarget?.(task);
+				schedule = {
+					kind: task.schedule.kind,
+					provider: target?.provider ?? task.schedule.provider ?? null,
+					notBefore: target?.dueAt ?? task.schedule.notBefore ?? null,
+					missed: Boolean(task.schedule.missed)
+				};
+			}
+
+			return {
+				id: task.id,
+				prompt: task.prompt,
+				role: task.options?.role ?? null,
+				modelSelector: task.options?.modelSelector ?? null,
+				thinkingLevel: task.options?.thinkingLevel ?? null,
+				directives: (task.options?.directives || []).map((d) => ({ id: d.id, name: d.name })),
+				images,
+				schedule
+			};
+		},
+
 		createRemoteTask: async (
 			projectId: string,
 			prompt: string,
-			schedule: RemoteScheduleChoice | null
+			schedule: RemoteScheduleChoice | null,
+			options?: RemoteTaskOptions,
+			images?: RemotePromptImage[]
 		): Promise<{ taskId: string }> => {
 			const validPrompt = validatePrompt(prompt);
 			const currentNow = deps.now ? deps.now() : Date.now();
@@ -128,13 +319,23 @@ export function createTaskCommands(customDeps?: Partial<TaskCommandDeps>) {
 
 			await deps.loadProject(project.canonicalProjectPath);
 
+			const resolvedImages = images && images.length > 0 ? await resolvePromptImages(images) : undefined;
 			const task = deps.createTask(project.canonicalProjectPath);
 			try {
-				deps.updatePrompt(task.id, validPrompt);
+				// Senza opzioni il lavoro tiene le impostazioni predefinite del progetto,
+				// gia' scritte da `createTask`.
+				if (options || resolvedImages) {
+					const studioOptions = options
+						? validateAndNormalizeOptions(deps, options, resolveRoleDefault(project), task.options)
+						: task.options;
+					deps.updateTask(task.id, validPrompt, resolvedImages, studioOptions);
+				} else {
+					deps.updatePrompt(task.id, validPrompt);
+				}
 				deps.requestTaskTitle?.(task.id);
 
 				if (schedule) {
-					const resolvedSchedule = resolveSchedule(schedule, task, deps);
+					const resolvedSchedule = resolveSchedule(schedule, deps.taskById(task.id) ?? task, deps);
 					if (resolvedSchedule) {
 						deps.setSchedule(task.id, resolvedSchedule);
 					}
@@ -157,12 +358,48 @@ export function createTaskCommands(customDeps?: Partial<TaskCommandDeps>) {
 				throw new RemoteCommandFailure('not_found', `Task "${taskId}" non trovato`);
 			}
 
+			let newPrompt = task.prompt;
 			if (patch.prompt !== undefined) {
-				const validPrompt = validatePrompt(patch.prompt);
-				if (validPrompt !== task.prompt) {
-					deps.updatePrompt(task.id, validPrompt);
-					deps.requestTaskTitle?.(task.id);
+				newPrompt = validatePrompt(patch.prompt);
+			}
+
+			let newImages: ImageContent[] | undefined = task.images;
+			if (patch.images !== undefined) {
+				const currentImages = task.images || [];
+				const keepIndices = patch.images.keep;
+				if (!Array.isArray(keepIndices)) {
+					throw new RemoteCommandFailure('rejected', 'keep non valido: atteso un array di indici');
 				}
+				for (const idx of keepIndices) {
+					if (typeof idx !== 'number' || !Number.isInteger(idx) || idx < 0 || idx >= currentImages.length) {
+						throw new RemoteCommandFailure(
+							'rejected',
+							`Indice immagine "${idx}" fuori intervallo (totale immagini: ${currentImages.length})`
+						);
+					}
+				}
+				const kept = keepIndices.map((i) => currentImages[i]);
+				const added = Array.isArray(patch.images.add) ? await resolvePromptImages(patch.images.add) : [];
+				newImages = [...kept, ...added];
+			}
+
+			let newOptions: StudioTaskOptions | undefined = task.options;
+			if (patch.options !== undefined) {
+				const project = deps.findProject(_projectId);
+				const defaultRole = resolveRoleDefault(project);
+				newOptions = validateAndNormalizeOptions(deps, patch.options, defaultRole, task.options);
+			}
+
+			// Prima di scrivere: lo store aggiorna il task sul posto.
+			const promptChanged = newPrompt !== task.prompt;
+			if (patch.images !== undefined || patch.options !== undefined) {
+				deps.updateTask(task.id, newPrompt, newImages, newOptions);
+			} else if (promptChanged) {
+				// Solo il testo: il resto del task resta quello scritto da Studio.
+				deps.updatePrompt(task.id, newPrompt);
+			}
+			if (promptChanged) {
+				deps.requestTaskTitle?.(task.id);
 			}
 
 			if (patch.schedule !== undefined) {
@@ -204,6 +441,7 @@ export function createTaskCommands(customDeps?: Partial<TaskCommandDeps>) {
 }
 
 const defaultCommands = createTaskCommands();
+export const getRemoteTask = defaultCommands.getRemoteTask;
 export const createRemoteTask = defaultCommands.createRemoteTask;
 export const updateRemoteTask = defaultCommands.updateRemoteTask;
 export const deleteRemoteTask = defaultCommands.deleteRemoteTask;

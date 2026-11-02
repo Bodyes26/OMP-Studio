@@ -1150,6 +1150,86 @@ graph LR
 
 ---
 
+## Piano Studio Remote mobile — Gate R48
+
+**Stato:** codice di RM01–RM13 scritto il 2026-11-01 in un unico passaggio, senza test nuovi né prove nel browser, per scelta esplicita dell'utente («non fare test»); per la Nightly del 2026-11-02 sono passati i controlli di tipo e le suite esistenti di Studio, Rust e relay. Le caselle restano aperte: comprendono le prove di accettazione, non eseguite. RM14 resta da fare per gli scenari; documenti utente e changelog sono aggiornati. Attua il Gate R48 di `DECISIONS.md`.
+**Fonte di verità:** [requisiti/remote-mobile.md](requisiti/remote-mobile.md), R-REM-01…16.
+**Anteprima di riferimento:** [requisiti/remote-mobile-anteprima.html](requisiti/remote-mobile-anteprima.html); i riferimenti «anteprima: …» indicano le funzioni del file che mostrano il comportamento. Dati e comandi del file sono simulati e non vanno copiati: si implementa in Svelte 5 con i componenti di `relay/web` e `#lib`.
+
+### Metodo
+
+- Un passo attivo alla volta, nell'ordine delle dipendenze; ogni passo chiude con la propria prova comportamentale. Lato Studio `npm run check` e `npm test`; lato relay e PWA `bun test`, `bun run check` e `bun run check:web` in `relay/`; `cargo check` solo se cambia `src-tauri/`.
+- Il binario desktop non si avvia (`AGENTS.md`). La PWA si prova con `bun run dev:web` e un relay locale; le macchine si simulano con il client di prova del relay (`relay/test/`). Le prove con Studio reale come macchina sono indicate come «prova con l'utente» e si svolgono sulla Nightly.
+- Nuove funzioni del protocollo dichiarate nel `hello` (`COMMAND_FEATURE`), senza alzare `PROTOCOL.version`; la PWA nasconde i controlli non supportati da una macchina.
+- Cutover pulito: i componenti rimossi dal registro si cancellano con i loro testi, stili e test; niente alias o viste nascoste. I componenti condivisi (`RoleMenu`, `ModelPickerList`, `ReasoningSlider`, `ThinkingMeter`, `ProviderLogo`, `ComposerEditor`, `AttachmentThumb`) si riusano, non si duplicano.
+- Ogni passo aggiorna la «Mappa dell'implementazione» del registro con file e funzioni.
+
+### Fase 1 — Contratto e macchina (Studio, `relay/src/protocol.ts`)
+
+- [ ] **RM01 — Progetti e corsie per la nuova vista** (R-REM-02, R-REM-03, R-REM-05, R-REM-08)
+  `src/lib/remote/projection.svelte.ts` pubblica i progetti nell'ordine di `projectOrder.list` (oggi `projectStore.projects`). Verificare che ogni `RemoteLane` porti stato, tipo (Principale, worktree, Lab), provider, modello, ruolo e ragionamento (`RemoteAgent`), conteggi di subagenti e job (`RemoteLane.session`), e che le quote portino `account`. Nessun nuovo dato se già presente: solo test.
+  **Prova:** `test/remote-projection.test.ts` copre ordine dei progetti, corsie Lab, provider per corsia e quote con account.
+
+- [ ] **RM02 — Lavori in coda completi** (R-REM-11, R-REM-12)
+  Nuova funzione `task_options`. `RemoteTask` aggiunge `role`, `modelSelector`, `thinkingLevel`, `directives` (id, nome, tag) e `images` (conteggio e miniature di pochi KB, come `imagePreviews` della chat). Il testo nell'istantanea resta un'anteprima; il nuovo comando `get_task` restituisce testo completo (fino a 20.000 caratteri) e immagini su richiesta, entro il tetto di 384 KiB già usato da `get_artifact`. `create_task` e `update_task` accettano `options` e immagini tramite riferimenti a `stage_attachment`; `src/lib/remote/taskCommands.ts` usa `taskStore.updateTask` preservando `prewalk`, `includeEditorContext`, `manualStartOnly` e le opzioni non inviate. Le direttive si salvano come istantanee del catalogo, come fa il TaskEditor.
+  **Prova:** `test/remote-task-commands.test.ts`: testo di 15.000 caratteri modificato senza troncamento; aggiornamento di ruolo e direttive che conserva prewalk e immagini; immagine aggiunta e tolta; validazioni invariate. `relay/test/remote.test.ts`: una macchina senza `task_options` non riceve i nuovi comandi.
+
+- [ ] **RM03 — Catalogo delle direttive** (R-REM-09, R-REM-12; dopo RM02)
+  Il catalogo di `settingsStore.taskDirectives`, escluse le nascoste, entra in `RemoteComposerCatalog` con id, nome, descrizione e tag, dietro `task_options`.
+  **Prova:** test del catalogo con direttive di fabbrica e dell'utente; direttiva nascosta assente.
+
+- [ ] **RM04 — Avvio con destinazione e conferme dal telefono** (R-REM-09, R-REM-10, R-REM-12)
+  Nuova funzione `dispatch_confirm`. `run_task` accetta `destination: 'auto' | 'new_lane'`, inoltrata a `handleRunTask` (`newLane`). `create_task` accetta `start: { destination }` per creare e avviare con un solo comando (Avvia ora di Nuovo lavoro). Le conferme oggi aperte solo come dialoghi desktop (`laneDispatchPrompt` in modalità `concurrency`, `laneProfilePrompt` con i file candidati) diventano conferme in sospeso pubblicate in `RemoteProject.dispatchConfirmations` (id, lavoro, tipo, rami attivi con modello, file con categoria e dimensione); il comando `respond_dispatch` le risolve con `confirmLaneDispatch`, `confirmLaneProfile` o annullamento. Una sola fonte di verità: rispondere su una superficie chiude il dialogo sull'altra. `commands.ts` restituisce l'id della conferma invece di rifiutare con «Conferma richiesta sulla macchina».
+  **Prova:** `test/remote-commands.test.ts`: avvio in worktree con soglia superata → conferma pubblicata → risposta → avvio; annullo → nessun worktree; consenso ai file registrato nel profilo come dal dialogo desktop. Prova con l'utente sulla Nightly, con i dialoghi desktop aperti.
+
+### Fase 2 — Struttura della PWA (`relay/web/src`)
+
+- [ ] **RM05 — Pagina iniziale, foglio Macchine e rimozioni** (R-REM-01, R-REM-02, R-REM-16; dopo RM01)
+  Nuova pagina iniziale (anteprima: `homeHTML`, `rowHTML`) con selettore della macchina e indicazione delle richieste altrove; foglio Macchine con elenco macchine, apri/crea progetto (`ProjectSheet`) e impostazioni (`SettingsSheet`). Ordinamento e contenuto della riga in funzioni pure testate (rivedere `projectSort.ts`). Rimuovere `Dashboard`, `InboxView`, `SessionRow`, `MiniMachine`, `FleetOverview`, `HostSection`, `ProjectCard`, la scheda `HistoryView` e `OperationalDetails`, con testi e stili; aggiornare `relay/web/test/logic.test.ts`.
+  **Prova:** test dell'ordinamento richieste → al lavoro → fermi con ordine di Studio, dell'indicazione multi-macchina e della riga; build e `check:web` senza riferimenti ai componenti rimossi.
+
+- [ ] **RM06 — Espansione del progetto e navigazione** (R-REM-03, R-REM-04, R-REM-15; dopo RM05)
+  Funzione pura per la destinazione del tocco: richiesta unica, ramo unico senza coda, espansione (anteprima: `openProject`). Espansione con rami (Principale, worktree, Lab), coda (dopo RM12), Nuovo lavoro, Storico (anteprima: `expandHTML`). In `navigation.svelte.ts` chat e anteprima diventano voci della cronologia del browser: il gesto indietro chiude prima l'anteprima, poi la chat, e l'espansione resta com'era. Storico per progetto con `HistoryChatView` e la ricerca di `HistoryView`.
+  **Prova:** test dei tre casi di apertura e della pila di navigazione; prova in browser a 390×844.
+
+- [ ] **RM07 — Cornice della chat** (R-REM-04, R-REM-05, R-REM-13; dopo RM06)
+  Intestazione su una riga (×, progetto, ramo ▾, `⋯`; anteprima: `barHTML`) e menu con Nuovo lavoro, Cambia ramo, Storico, Quote, Contesto e compattazione (`ContextControl` spostato). Riga dei passaggi compressi con subagenti e job; richiamo «Domanda in attesa» adattato; avviso sovrapposto per richieste altrove; stati «Ramo chiuso · sola lettura» con Vai a Principale e «Progetto chiuso su Studio» con Riapri. Rimuovere `ComposerTray` e la nuova sessione.
+  **Prova:** transcript ≥ 700 px a 390×844 e ≥ 520 px a 375×667; chiusura del ramo e del progetto dal client di prova; arrivo di una richiesta altrove senza perdita di bozza o scorrimento.
+
+- [ ] **RM08 — Composer compatto** (R-REM-06; dopo RM07)
+  Il `Composer` esistente mostra a riposo solo allegati, campo e invio; al focus i chip ruolo e modello già presenti, con il pannello mobile di elenco, ragionamento e ricerca in basso, e «In coda | Reindirizza» con In coda predefinito (anteprima: `composerHTML`). Estrarre i due chip in un componente condiviso da chat e Nuovo lavoro, senza duplicare `RoleMenu` e `ModelPickerList`. Il chip modello mostra `ThinkingMeter` senza testo.
+  **Prova:** altezza a riposo ≤ 64 px; cambio di ruolo, modello e ragionamento con i comandi `set_lane_*`; messaggio durante il lavoro inviato come `follow_up` salvo scelta Reindirizza.
+
+- [ ] **RM09 — Quote** (R-REM-08; dopo RM05)
+  Striscia dei provider in uso, ricavati dai provider delle corsie attive, e foglio di tutti i provider con account, finestre, azzeramento, uso per progetto, «Non in uso» e Aggiorna; percentuali nelle righe dei progetti (anteprima: `quotaHeader`, `quotaDetailHTML`). Soglie e `ProviderLogo` di Studio; `QuotaCard` sostituito.
+  **Prova:** test della selezione dei provider in uso; foglio con un provider configurato e inattivo.
+
+- [ ] **RM10 — Anteprime** (R-REM-07; dopo RM07)
+  `PreviewSurface` a schermo intero con ‹ sul telefono e affiancata da 1024 px, con allargamento; stato conservato al ritorno (anteprima: `previewHTML`, `chatScreen`).
+  **Prova:** in browser con un prototipo HTML del client di prova; ritorno con gesto indietro.
+
+- [ ] **RM11 — Pannello Nuovo lavoro** (R-REM-09, R-REM-10; dopo RM02–RM04, RM08)
+  Pannello che sostituisce `NewChatModal` e `NewTaskModal` (anteprima: `nwRender`): testo, immagini (staging di `remoteAttachments`), Direttive · N, Progetto e Nuovo worktree al 50%, riga ruolo | modello, spiegazione della destinazione con le regole di `queueDispatch.ts` applicate ai dati pubblicati, Metti in coda con programmazione e Avvia ora (`create_task` con `start`). Fogli di conferma per soglia agenti e file locali (`respond_dispatch`; anteprima: viste `concurrency`, `consent`). Accesso dalla pagina iniziale, dall'espansione e dal menu della chat. Rimuovere `NewChatModal`, `NewTaskModal` e i testi non più usati.
+  **Prova:** test puro della spiegazione della destinazione; in browser: avvio in Principale, in worktree con entrambe le conferme, messa in coda al reset con ruolo, modello, direttive e immagine.
+
+- [ ] **RM12 — Coda nel progetto e modifica** (R-REM-11, R-REM-12; dopo RM11)
+  Sezione «Coda · N» nell'espansione (anteprima: `taskRowHTML`); il tocco carica il lavoro con `get_task` e apre il pannello come «Lavoro in coda» con Salva, Avvia ora e menu Programmazione, Sposta su/giù, Elimina con conferma (anteprima: `nwRender` con `n.edit`, azioni `taskSave`, `taskMove`, `taskDelete`). Rimuovere `TaskRow` e `TaskDetailModal`.
+  **Prova:** in browser con il client di prova: modifica completa, riordino, eliminazione, avvio in worktree; test del salvataggio che non tronca il testo e conserva le opzioni di Studio.
+
+- [ ] **RM13 — Schermi larghi, testi e accessibilità** (R-REM-14, R-REM-16; dopo RM05–RM12)
+  Da 1024 px elenco a sinistra e chat a destra, stato vuoto «Scegli un progetto», anteprima affiancata (anteprima: `view`). Testi IT/EN in `i18n.ts` per ogni nuova stringa; tema di Studio chiaro e scuro; aree di tocco ≥ 44 px; fuoco visibile; `prefers-reduced-motion`; notifiche push che aprono progetto e ramo nella nuova navigazione.
+  **Prova:** in browser a 320, 390, 768 e 1280 px, in chiaro e scuro; test di `notificationRouting.ts` aggiornato; una macchina simulata senza `task_options` e `dispatch_confirm` non mostra i relativi controlli.
+
+### Fase 3 — Verifica e consegna
+
+- [ ] **RM14 — Accettazione e documentazione** (R-REM-01…16; dopo RM01–RM13)
+  Eseguire gli scenari di accettazione del registro con il client di prova e, con l'utente, con Studio reale sulla Nightly e su iPhone installato dalla schermata Home (tastiera, aree sicure, notifiche). Registrare data, scenario, esito e prova per ogni ID. Aggiornare `docs/ARCHITECTURE.md` §5.6 (sostituire «Fleet / Inbox» e «Lettura condivisa e dettagli operativi»), `docs/PRODUCT.md` dove descrive Remote e il changelog bilingue sotto `[Unreleased]` con gli ID e le voci `Removed` per le funzioni rimosse.
+  **Verifica:** `npm run check`, `npm test`, `npm run check:commands`; in `relay/` `bun test`, `bun run check`, `bun run check:web`, `bun run build:web`.
+
+**Chiusura del Gate:** ogni R-REM ha una prova registrata sul percorso reale; le funzioni rimosse non hanno residui di codice, testi o stili; i controlli che una macchina non supporta non compaiono.
+
+---
+
 ## Cosa NON entra in questo piano
 
 In linea con i principi di `PRODUCT.md`:

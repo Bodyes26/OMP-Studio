@@ -1,30 +1,28 @@
 <!--
-  App.svelte — Radice della PWA Studio Remote (Fleet Hub).
-  Layout a due colonne persistente su desktop (>=960px) solo quando abbinato:
-  lista persistente a sinistra (390px), chat o riepilogo vuoto (FleetOverview) a destra.
-  In stato non abbinato o verifica: layout a colonna piena centrato senza controlli macchina.
-  Su mobile (<960px): lista o chat a tutto schermo con tasto Indietro nativo del browser preservato.
+  App.svelte — Radice della PWA Studio Remote (Gate R48).
+
+  Telefono: la pagina dei progetti resta sempre montata e la chat la copre a
+  tutto schermo, cosi' chiudendola ritrovi l'elenco e l'espansione come li
+  avevi lasciati (R-REM-04). Da 1024px l'elenco resta a sinistra e la chat a
+  destra (R-REM-14). Nuovo lavoro e Lavoro in coda vivono in un unico foglio
+  montato qui, raggiungibile da pagina iniziale, espansione e chat.
 -->
 <script lang="ts">
 	import './app.css';
 	import { connection } from './connection.svelte.ts';
 	import { navigation } from './navigation.svelte.ts';
-	import Header from './components/Header.svelte';
+	import { t } from './i18n.ts';
 	import OfflineBanner from './components/OfflineBanner.svelte';
 	import PairingView from './components/PairingView.svelte';
-	import Dashboard from './components/Dashboard.svelte';
+	import HomeView from './components/HomeView.svelte';
 	import SettingsSheet from './components/SettingsSheet.svelte';
 	import ChatView from './components/chat/ChatView.svelte';
-	import HistoryChatView from './components/inbox/HistoryChatView.svelte';
-	import FleetOverview from './components/inbox/FleetOverview.svelte';
-	import NewChatModal from './components/inbox/NewChatModal.svelte';
+	import HistoryChatView from './components/chat/HistoryChatView.svelte';
+	import WorkSheet from './components/work/WorkSheet.svelte';
 	import { initNotificationRouting } from './notificationRouting.ts';
 	import { applyTheme, pickTheme } from './theme.ts';
 
 	let showSettings = $state(false);
-	let showNewChatModal = $state(false);
-	let newChatHostId = $state<string | undefined>(undefined);
-	let newChatProjectId = $state<string | undefined>(undefined);
 
 	$effect(() => {
 		connection.init();
@@ -40,23 +38,16 @@
 		if (theme) applyTheme(theme);
 	});
 
-	const hasChat = $derived(Boolean(navigation.chat));
 	const isPaired = $derived(connection.status !== 'unpaired' && connection.status !== 'checking');
-
-	function handleStartNewChat(hostId?: string, projectId?: string) {
-		newChatHostId = hostId;
-		newChatProjectId = projectId;
-		showNewChatModal = true;
-	}
+	const chatRoute = $derived(isPaired ? navigation.chat : null);
 </script>
 
-<div class="app-layout" class:has-chat={hasChat} class:is-paired={isPaired}>
+<div class="app-layout" class:is-paired={isPaired} class:has-chat={Boolean(chatRoute)}>
 	<div class="status-bar-backdrop" aria-hidden="true"></div>
-	<div class="shell-content">
-		<Header onOpenSettings={() => (showSettings = true)} />
-		<OfflineBanner />
 
-		<main class="main-content">
+	<div class="list-pane">
+		<OfflineBanner />
+		<div class="list-body">
 			{#if connection.status === 'checking'}
 				<div class="checking-state">
 					<div class="spinner"></div>
@@ -64,48 +55,35 @@
 			{:else if connection.status === 'unpaired'}
 				<PairingView />
 			{:else}
-				<Dashboard onOpenSettings={() => (showSettings = true)} />
+				<HomeView onOpenSettings={() => (showSettings = true)} />
 			{/if}
-		</main>
-
-		{#if showSettings}
-			<SettingsSheet onClose={() => (showSettings = false)} />
-		{/if}
-
-		{#if showNewChatModal}
-			<NewChatModal
-				initialHostId={newChatHostId}
-				initialProjectId={newChatProjectId}
-				onClose={() => {
-					showNewChatModal = false;
-					newChatHostId = undefined;
-					newChatProjectId = undefined;
-				}}
-			/>
-		{/if}
+		</div>
 	</div>
 
-	<!-- Area destra: Chat attiva, Trascrizione storica o Riepilogo macchine (SOLO quando abbinato) -->
 	{#if isPaired}
-		{#if navigation.chat}
-			<div
-				class="chat-pane"
-				role="region"
-				aria-label={navigation.chat.isHistory ? (navigation.chat.sessionTitle || 'Cronologia') : navigation.chat.laneId}
-			>
-				{#if navigation.chat.isHistory}
-					<HistoryChatView route={navigation.chat} />
+		{#if chatRoute}
+			<div class="chat-pane" role="region" aria-label={t('chatRegion')}>
+				{#if chatRoute.isHistory}
+					{#key `${chatRoute.hostId}:${chatRoute.projectId}:${chatRoute.sessionId}`}
+						<HistoryChatView route={chatRoute} />
+					{/key}
 				{:else}
-					{#key `${navigation.chat.hostId}:${navigation.chat.projectId}:${navigation.chat.laneId}`}
-						<ChatView route={navigation.chat} />
+					{#key `${chatRoute.hostId}:${chatRoute.projectId}:${chatRoute.laneId}`}
+						<ChatView route={chatRoute} />
 					{/key}
 				{/if}
 			</div>
 		{:else}
-			<div class="desktop-right-pane" role="region" aria-label="Riepilogo macchine">
-				<FleetOverview onStartNewChat={handleStartNewChat} />
+			<div class="empty-pane" aria-hidden="true">
+				<p>{t('chatEmptyWide')}</p>
 			</div>
 		{/if}
+
+		<WorkSheet />
+	{/if}
+
+	{#if showSettings}
+		<SettingsSheet onClose={() => (showSettings = false)} />
 	{/if}
 </div>
 
@@ -125,26 +103,10 @@
 		overflow: hidden;
 	}
 
-	.shell-content {
-		display: flex;
-		flex-direction: column;
-		min-height: 100vh;
-		min-height: 100dvh;
-		flex: 1;
-	}
-
-	.app-layout.is-paired .shell-content {
-		height: 100vh;
-		height: 100dvh;
-		min-height: 0;
-		overflow: hidden;
-	}
-
 	/* App installata: `100dvh` esclude le aree sicure (WebKit 254868) e lascia
 	   una fascia vuota in fondo; viewport.ts misura l'altezza vera, che come
 	   `100dvh` non segue la tastiera. */
-	:global(:root[data-standalone]) .app-layout.is-paired,
-	:global(:root[data-standalone]) .app-layout.is-paired .shell-content {
+	:global(:root[data-standalone]) .app-layout.is-paired {
 		height: var(--app-layout-height, 100dvh);
 	}
 
@@ -170,21 +132,28 @@
 		pointer-events: none;
 	}
 
-	.main-content {
+	.list-pane {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		min-height: 0;
+		min-width: 0;
+	}
+
+	.list-body {
 		flex: 1;
 		display: flex;
 		flex-direction: column;
 		min-height: 0;
 	}
 
-	.app-layout.is-paired .main-content {
+	.app-layout.is-paired .list-pane,
+	.app-layout.is-paired .list-body {
 		overflow: hidden;
 	}
 
-	.app-layout:not(.is-paired) .shell-content,
-	.app-layout:not(.is-paired) .main-content {
+	.app-layout:not(.is-paired) .list-body {
 		overflow-y: auto;
-		height: auto;
 	}
 
 	.checking-state {
@@ -210,53 +179,54 @@
 		}
 	}
 
-	/* Su mobile (<960px): riepilogo desktop nascosto */
-	.desktop-right-pane {
-		display: none;
-	}
-
-	/* Su mobile (<960px): .chat-pane e' a tutto schermo in overlay fisso */
+	/* Telefono: la chat copre l'elenco, che resta montato sotto. */
 	.chat-pane {
 		position: fixed;
 		inset: var(--app-top, 0px) 0 auto 0;
 		z-index: 100;
-		background: var(--bg-base);
+		background: var(--bg-sunken);
 		display: flex;
 		flex-direction: column;
 		overflow: hidden;
 		height: 100vh;
 		height: var(--app-height, 100dvh);
 	}
-	/* Su desktop (>=960px): SEMPRE a due colonne SOLO quando is-paired */
-	@media (min-width: 960px) {
+
+	.empty-pane {
+		display: none;
+	}
+
+	@media (min-width: 1024px) {
 		.app-layout.is-paired {
 			display: grid;
-			grid-template-columns: 390px 1fr;
-			height: 100vh;
-			overflow: hidden;
+			grid-template-columns: minmax(340px, 400px) minmax(0, 1fr);
 		}
 
-		.app-layout.is-paired .shell-content {
-			height: 100vh;
-			min-height: 0;
-			overflow-y: hidden;
+		.app-layout.is-paired .list-pane {
 			border-right: 1px solid var(--line);
-		}
-
-		.desktop-right-pane {
-			display: flex;
-			position: relative;
-			height: 100vh;
-			overflow: hidden;
-			z-index: 1;
 		}
 
 		.chat-pane {
 			position: relative;
 			inset: auto;
 			z-index: 1;
-			height: 100vh;
-			overflow: hidden;
+			height: 100%;
+		}
+
+		.empty-pane {
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			padding: 32px;
+			color: var(--ink-muted);
+			font-size: var(--text-label);
+			text-align: center;
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.spinner {
+			animation-duration: 2s;
 		}
 	}
 </style>

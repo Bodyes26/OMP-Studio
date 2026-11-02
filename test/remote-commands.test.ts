@@ -41,7 +41,9 @@ describe('remote command handling', () => {
 			listProjectFolders: unused,
 			openProject: unused,
 			createProject: unused,
-			newSession: unused,
+			getTask: unused,
+			respondDispatch: unused,
+			refreshQuota: unused,
 			composerCatalog: unused,
 			setLaneRole: unused,
 			setLaneModel: unused,
@@ -51,7 +53,6 @@ describe('remote command handling', () => {
 			compactContext: unused,
 			listSessions: unused,
 			sessionHistory: unused,
-			createLane: unused,
 			markSessionSeen: unused,
 			...executorOverrides
 		};
@@ -263,27 +264,6 @@ describe('remote command handling', () => {
 		assert.equal(results[0].error?.message, 'Principale occupata');
 	});
 
-	it('maps handler outcome needs_confirmation to rejected with machine confirmation message', async () => {
-		const { ctx, results } = createContext({
-			executor: {
-				runTask: async () => ({ kind: 'needs_confirmation', message: 'Conferma richiesta sulla macchina' }),
-				waitQuotaReset: async () => {},
-				dismissQuotaBlocked: async () => {}
-			}
-		});
-
-		const event: RemoteCommandEvent = {
-			commandId: 'cmd-confirm',
-			device: dummyDevice,
-			command: { kind: 'run_task', projectId: 'p1', taskId: 't1' }
-		};
-
-		await handleRemoteCommand(event, ctx);
-		assert.equal(results.length, 1);
-		assert.equal(results[0].ok, false);
-		assert.equal(results[0].error?.code, 'rejected');
-		assert.match(results[0].error?.message ?? '', /macchina/);
-	});
 
 	it('maps handler outcome failed to failed error code', async () => {
 		const { ctx, results } = createContext({

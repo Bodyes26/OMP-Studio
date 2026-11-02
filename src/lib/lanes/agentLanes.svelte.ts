@@ -74,7 +74,7 @@ interface BridgeResponse {
 /** Esito della spedizione di un task in una corsia nuova (host: +page.svelte). */
 export type AgentLaneDispatchOutcome =
 	| { kind: 'started'; lane: LaneRecord }
-	| { kind: 'awaiting-consent' }
+	| { kind: 'awaiting-consent'; confirmationId?: string }
 	| { kind: 'failed'; message: string };
 
 /**

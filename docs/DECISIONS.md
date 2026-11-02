@@ -1982,6 +1982,47 @@ La lacuna non è solo quel segnaposto: il Gate R30 ha sostituito l'acquisizione 
 - Il brief esplicito non prova da solo che l'agente abbia capito la pagina: la verifica del Gate deve osservare il caso reale R-LAB-01, non soltanto campi o file valorizzati.
 - Il cutover conserva i prototipi preesistenti: senza marker valido la prossima richiesta richiede un brief approvato. Il marker transitorio è legato a identità del prototipo, workspace e progetto ospite ed è escluso da snapshot e revisioni; copie e ripristini non ereditano l'approvazione. Questi comportamenti sono implementati, ma gli scenari completi di ripresa e confinamento restano da collaudare, come registrato nei requisiti.
 
+## Gate R48: Studio Remote mobile first, un progetto per riga e coda gestibile dal telefono
+
+**Data:** 2026-11-01
+**Esito:** APPROVATO (progetto; struttura «B — Elenco espandibile» validata in anteprima, rimozioni confermate con domanda dedicata). Rivede il punto «Fleet / Inbox» del Gate R44.
+**Registro canonico:** [requisiti/remote-mobile.md](requisiti/remote-mobile.md), R-REM-01…16. **Anteprima:** [requisiti/remote-mobile-anteprima.html](requisiti/remote-mobile-anteprima.html).
+**Piano:** «Piano Studio Remote mobile — Gate R48» in [PLAN.md](PLAN.md).
+
+### Il problema
+
+Da telefono la chat di Remote lasciava poche righe leggibili: intestazione, stato, composer e controlli occupavano lo schermo. L'Inbox metteva sessioni storiche accanto ai lavori in corso e mostrava lo stesso progetto su più righe, mentre Studio lavora per progetti. La coda non permetteva di gestire ruolo, modello, immagini e direttive, né di avviare un lavoro in un worktree o di rispondere alle conferme di avvio.
+
+### Decisioni approvate
+
+1. Remote serve a **controllare e concludere il lavoro lontano dal computer e ad avviare lavori urgenti**; non riproduce l'IDE. La verifica avviene sulle anteprime generate, Git e pubblicazione si chiedono all'agente.
+2. **Una macchina alla volta**, con segnalazione delle richieste sulle altre. Elenco dei soli progetti aperti, **un progetto per riga**, ordinato richieste → al lavoro → fermi; rami, coda e azioni si espandono sotto la riga.
+3. **Chat mobile first**: intestazione su una riga, composer a una riga che mostra ruolo, modello e modalità di invio solo mentre si scrive, passaggi compressi; chiusura con ×, anteprima con ‹.
+4. **Nuovo lavoro** segue le regole della coda di Studio (Principale se libera, altrimenti worktree dedicato) e non chiede la conversazione; può essere messo in coda con programmazione. Ruolo, modello e ragionamento usano i componenti già condivisi da Studio e Remote.
+5. **Coda dentro il progetto**, modificabile nello stesso pannello: testo completo, immagini, direttive, ruolo, modello, ragionamento, programmazione, ordine, eliminazione e avvio anche in worktree. Prewalk, solo avvio manuale e contesto editor restano gestiti solo in Studio e non vengono alterati.
+6. Le **conferme di avvio** (soglia agenti, file locali da copiare nel worktree) si rispondono dal telefono.
+7. **Quote**: striscia dei provider in uso; dettaglio di tutti i provider configurati come nel popover di Studio.
+8. Il protocollo cresce per funzioni negoziate, senza alzare `PROTOCOL.version`; le macchine che non le dichiarano mostrano solo i controlli supportati.
+
+### Impatto sui Gate precedenti
+
+| Origine | Esito nel R48 | Destinazione / motivo |
+|---|---|---|
+| R44 «Fleet / Inbox», Inbox A come vista iniziale | Sostituito | R-REM-01…03: progetti per macchina; Inbox, schede, riepilogo flotta e vista Macchine rimossi con conferma |
+| R44 «Lettura condivisa e dettagli operativi» | Ridotto | Dettagli operativi rimossi; subagenti e job nei passaggi compressi (R-REM-05); coda nel progetto (R-REM-11) |
+| R44 «Nuova chat e isolamento» | Sostituito | R-REM-09: regole di avvio della coda di Studio; «continua corsia» e «nuova chat» rimossi |
+| R44 «Storico in sola lettura» | Mantenuto, spostato | R-REM-15: storico per progetto, cronologia globale rimossa |
+| R12/R27 coda e routing in nuova corsia | Mantenuto ed esteso a Remote | R-REM-09, R-REM-10, R-REM-12 |
+| R44 «Anteprime remote» | Mantenuto | R-REM-07 |
+
+### Alternative scartate e limiti
+
+- **Struttura A (percorso lineare)** e **C (spazio di progetto con barra di sezioni)**: provate in anteprima; la C toglie spazio di lettura con una barra fissa e una vista Attività che l'utente non vuole.
+- **Scelta della conversazione in Nuovo lavoro** (continua / nuova chat / nuovo ramo): incoerente con la coda e con le regole di Studio.
+- **Selettore di modello dedicato**: sostituito dal riuso dei componenti esistenti.
+- **App nativa**: non necessaria per questi obiettivi; restano da verificare sul dispositivo tastiera, aree sicure e installazione della PWA.
+- Le immagini dei lavori in coda non entrano nell'istantanea di stato, limitata a 512 KB per frame: Remote riceve conteggi e miniature e scarica il resto a richiesta.
+
 ## Decisioni ricavate dallo storico (diario, 2026-10-28)
 
 Scelte prese nelle conversazioni e nei commit ma non registrate come Gate.

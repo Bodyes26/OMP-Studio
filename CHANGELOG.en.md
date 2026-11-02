@@ -22,6 +22,10 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Lab: choose Faithful, Divergent variants, Flow or Free; variants compare the same data and operations with a distinct author for each proposal, and the brief follows revisions and handoff to Main. Screenshots of the real app remain optional manual attachments. (R-LAB-04…06)
 - Prewalk: the status-line button and `/prewalk` open a card above the composer showing whether prewalk is off, armed (and which model it will switch to) or already switched. From the card you pick the target (a role such as @smol or @task, or an exact model) and the model “Repeat” returns to; the choice also applies to new chats and the terminal. `/prewalk <model>` changes the target for the current chat only (requires omp 18.14.0 or later). (PRW-001…005)
 - Models → Roles: new “Per-subagent model” card. Turn it on and you can write in chat, for example, “use subagents with gpt-6-astra” and the agent spawns them on that model instead of the task role's. Only models already assigned to one of your roles, or the chat's current model, are accepted; you can narrow the list and cap the reasoning effort. When an agent has a fixed model in `task.agentModelOverrides` omp refuses the choice: the card points it out and lets you remove that override, with confirmation (requires omp 18.14.2 or later). (SUB-001…008)
+- Studio Remote: "New work" starts from the text and follows Studio's queue rules: "Start now" uses Main when it is free, otherwise opens a new worktree, and "Add to queue" saves it to start yourself, at the quota reset or at a set time. Pick project, new worktree, role, model, reasoning, directives and images. (R-REM-09)
+- Studio Remote: each project's queue appears under its branches. From the phone you edit a queued job in all its settings without truncating its text, schedule, move, delete or start it, also in a new worktree; prewalk and editor context stay as you set them in Studio. (R-REM-11, R-REM-12)
+- Studio Remote: confirmations for starting a new worktree, too many active agents and local files to copy, can be answered from the phone too; answering on one device closes the question on the other. (R-REM-10)
+- Studio Remote: the quota strip shows the providers in use; tap it to see every configured provider, as in Studio's popover, with the projects using them and the Refresh button. (R-REM-08)
 
 ### Changed
 - Tool calls show clearer actions and expandable technical details. Waits distinguish ongoing work, received messages, interruptions and errors; names come only from available data, with elapsed time and access to subagents, without confusing the end of a wait with the completion of all work. (ATT-001…005)
@@ -30,6 +34,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Automatic Git fetch covers every open project, not just the active one, and the Studio and omp update check repeats periodically. Toggles that used to live in other Settings sections are now under "Background jobs".
 - The background processes indicator moves to the left corner of the bottom bar, matching the borderless styling and typography of the Studio and omp version buttons.
 - Running automations stay discreet in the bottom bar: grey text and a still, dimmed mark, with no blue color or filled count bubble; you see it when you look there, but it does not draw attention.
+- Studio Remote is designed for the phone: the home page shows one machine at a time and each open project only once, first those waiting for you, then those working, then idle ones; tap it to open the chat of the request or branch, or expand it to see branches, queue and history. The chat has a one-line header, the agent's steps collected in one row, a compact input that shows role, model and queued sending only while you type, and full-screen previews. On wide screens list, chat and preview sit side by side. (R-REM-01…07, R-REM-13…16)
 
 ### Fixed
 - In the quota popover, “Sign in again” starts the provider login directly from each account with disabled or expired credentials; closing it refreshes accounts and quotas.
@@ -47,6 +52,9 @@ released: items are closed into a version via `npm run release -- <version>`.
 - A task saved from the Companion without a role or model gets the default task role and its model instead of having no role.
 - In the quota popover, with several accounts on the same provider, "In use by" appears only on the account omp actually uses for each session instead of on every account of that provider. The quota chip also recognises the account during the first turn of a new session and in long sessions, without picking up the account of another session in the same project.
 - Task titles start as soon as you save the task even while two or more agents are working: before, they stayed "waiting" in the Automations indicator until a lane stopped. (AUT-041)
+
+### Removed
+- Studio Remote: removed the all-machines Inbox, the Inbox, History and Machines tabs, the global history, the fleet summary on wide screens, Approve/Reject from the list row, the Operational details view, "Continue lane" and "New chat on Main", and the new session in a branch. Questions and confirmations are answered in the chat, subagents and jobs are in the steps row, history opens inside each project. Removals confirmed on 2026-11-01. (R-REM-01…05, R-REM-09, R-REM-15)
 
 ## [1.9.0] - 2026-10-27
 

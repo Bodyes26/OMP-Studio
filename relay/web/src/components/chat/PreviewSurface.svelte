@@ -32,21 +32,26 @@
 	} from '../../preview.svelte.ts';
 
 	let {
-		preview: propStore
+		preview: propStore,
+		expandPreview = false,
+		onToggleExpand
 	}: {
 		preview?: PreviewStore;
+		expandPreview?: boolean;
+		onToggleExpand?: () => void;
 	} = $props();
 
 	const contextStore = getPreviewContext();
 	const store = $derived(propStore ?? contextStore);
 
+	// Da 1024px l'anteprima si affianca alla chat (R-REM-07, R-REM-14).
 	let isDesktop = $state(
-		typeof window !== 'undefined' ? window.matchMedia('(min-width: 960px)').matches : true
+		typeof window !== 'undefined' ? window.matchMedia('(min-width: 1024px)').matches : true
 	);
 
 	$effect(() => {
 		if (typeof window === 'undefined') return;
-		const mql = window.matchMedia('(min-width: 960px)');
+		const mql = window.matchMedia('(min-width: 1024px)');
 		const handler = (e: MediaQueryListEvent) => {
 			isDesktop = e.matches;
 		};
@@ -149,15 +154,20 @@
 
 <svelte:window onkeydown={handleKeyDown} />
 
-{#if store && store.isOpen && current}
+<!-- Resta montata anche da chiusa: l'iframe conserva lo stato del prototipo fino a
+     una nuova anteprima (R-REM-07). -->
+{#if store && current}
 	<div
 		class="preview-surface"
 		class:desktop={isDesktop}
 		class:mobile={!isDesktop}
+		class:expanded={expandPreview}
+		class:closed={!store.isOpen}
 		class:kind-mermaid={kind === 'mermaid'}
 		class:kind-svg={kind === 'svg'}
 		class:kind-html={kind === 'html'}
 		aria-label="{kindBadge}: {title}"
+		aria-hidden={!store.isOpen}
 	>
 		{#if isDesktop}
 			<!-- ============================================================ -->
@@ -284,6 +294,21 @@
 						</button>
 					{/if}
 
+					{#if onToggleExpand}
+						<button
+							type="button"
+							class="tool-btn expand-btn"
+							onclick={onToggleExpand}
+							title={expandPreview ? t('previewShowChat') : t('previewExpand')}
+							aria-label={expandPreview ? t('previewShowChat') : t('previewExpand')}
+						>
+							{#if expandPreview}
+								<IconZoomOut />
+							{:else}
+								<IconZoomIn />
+							{/if}
+						</button>
+					{/if}
 					<button
 						type="button"
 						class="tool-btn close-btn"
@@ -578,6 +603,15 @@
 		overflow: hidden;
 		position: relative;
 		z-index: 10;
+	}
+
+	.preview-surface.closed {
+		display: none;
+	}
+
+	.preview-surface.desktop.expanded {
+		flex: 1 1 auto;
+		width: 100%;
 	}
 
 	/* La sidebar macchine occupa 390px: nei desktop stretti una seconda

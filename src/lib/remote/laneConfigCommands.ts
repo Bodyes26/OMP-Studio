@@ -1,6 +1,5 @@
 /**
  * Comandi remoti di configurazione della corsia (Gate R44, lane_config):
- * - Nuova sessione (new_session)
  * - Catalogo del composer (composer_catalog)
  * - Impostazione ruolo (set_lane_role)
  * - Impostazione modello (set_lane_model)
@@ -11,8 +10,11 @@ import type {
 	RemoteComposerCatalog,
 	RemoteSlashCommand,
 	RemoteModelOption,
-	RemoteRoleOption
+	RemoteRoleOption,
+	RemoteDirectiveOption
 } from '$remote-protocol';
+import { settingsStore } from '#lib/stores/settings.svelte.ts';
+import { directiveDisplayName, directiveDisplayDescription } from '#lib/stores/taskDirectives.ts';
 import { projectStore, type Project } from '#lib/stores/projects.svelte.ts';
 import { laneOrchestrator } from '#lib/lanes/laneOrchestrator.svelte.ts';
 import type { LaneRecord } from '#lib/stores/lanes.svelte.ts';
@@ -90,48 +92,6 @@ export function createLaneConfigCommands(deps: LaneConfigDeps) {
 		getKnownSelectors: deps.getKnownSelectors
 	};
 
-	async function newRemoteSession(projectId: string, laneId: string | null, interrupt = false): Promise<void> {
-		const { project, lane, isMain, effectiveLaneId, surface } = resolveTargetLane(projectId, laneId);
-
-		if (surface === 'terminal') {
-			throw new RemoteCommandFailure(
-				'unsupported',
-				"La nuova chat non e' disponibile per corsie aperte su terminale."
-			);
-		}
-
-		if (lane?.kind === 'lab') {
-			throw new RemoteCommandFailure(
-				'unsupported',
-				"Le corsie Laboratorio mantengono una conversazione continua e non supportano nuove sessioni."
-			);
-		}
-
-		let session = isMain
-			? sessionRegistry.getMainSession(projectId)
-			: sessionRegistry.getLaneSession(projectId, effectiveLaneId);
-
-		if (!session) {
-			session = laneOrchestrator.getOrCreateAgentSession(project, lane ?? project.lane);
-		}
-
-		const busy = session.isStreaming || session.backgroundPending ||
-			session.agentState === 'working' || session.agentState === 'attention' || session.isCompacting;
-		if (busy && !interrupt) {
-			throw new RemoteCommandFailure(
-				'rejected',
-				"Impossibile avviare una nuova chat mentre l'agente sta lavorando o ha compiti in background."
-			);
-		}
-
-		if (!session.isOpen) {
-			await session.open(null);
-		}
-
-		// Non aspetta lo stato idle: puo' essere proprio lo stato rimasto bloccato.
-		if (interrupt) await session.abort();
-		await session.newSession();
-	}
 
 	async function getRemoteComposerCatalog(
 		projectId: string,
@@ -215,11 +175,22 @@ export function createLaneConfigCommands(deps: LaneConfigDeps) {
 		// 4. Livelli di ragionamento supportati dal modello attivo
 		const thinkingLevels = (supportedThinkingLevels(session.model) ?? DEFAULT_THINKING_LEVELS) as string[];
 
+		// 5. Direttive visibili del catalogo dei task (Gate R48)
+		const directives: RemoteDirectiveOption[] = (settingsStore.taskDirectives || [])
+			.filter((d) => !d.hidden)
+			.sort((a, b) => a.order - b.order || a.name.localeCompare(b.name))
+			.map((d) => ({
+				id: d.id,
+				name: directiveDisplayName(d) || d.name,
+				description: directiveDisplayDescription(d) || d.description || null
+			}));
+
 		return {
 			commands,
 			models,
 			roles,
-			thinkingLevels
+			thinkingLevels,
+			directives
 		};
 	}
 
@@ -365,7 +336,6 @@ export function createLaneConfigCommands(deps: LaneConfigDeps) {
 	}
 
 	return {
-		newRemoteSession,
 		getRemoteComposerCatalog,
 		setRemoteLaneRole,
 		setRemoteLaneModel,

@@ -22,7 +22,8 @@ import type {
 	RemoteQuotaWindow,
 	RemoteAgentState,
 	RemoteTheme,
-	RemoteSessionSnapshot
+	RemoteSessionSnapshot,
+	RemoteDispatchConfirmation
 } from '$remote-protocol';
 import { resolveActiveRole } from '#lib/stores/modelSettingsHelpers.ts';
 import { taskLabel } from '#lib/stores/taskTitle.ts';
@@ -89,6 +90,7 @@ export interface BuildHostStateInput {
 	theme?: RemoteTheme | null;
 	rolesMap?: Readonly<Record<string, string>>;
 	knownSelectors?: ReadonlySet<string>;
+	dispatchConfirmationsForProject?: (projectId: string) => RemoteDispatchConfirmation[] | undefined;
 }
 export function mapAgentState(session?: SessionInput | null): RemoteAgentState {
 	if (!session || session.isOpen === false || session.exited === true) {
@@ -439,7 +441,12 @@ function mapTasks(
 			position: t.position,
 			schedule,
 			resume,
-			next
+			next,
+			role: t.options?.role ?? null,
+			modelSelector: t.options?.modelSelector ?? null,
+			thinkingLevel: t.options?.thinkingLevel ?? null,
+			directives: (t.options?.directives || []).map((d) => ({ id: d.id, name: d.name })),
+			imageCount: t.images?.length ?? 0
 		};
 	});
 }
@@ -503,7 +510,7 @@ function mapQuota(reports?: QuotaReport[], fetchedAt?: number | null): RemoteQuo
 
 		const meta = report.metadata;
 		const account =
-			[meta?.email, meta?.orgName, meta?.accountId].find(
+			[meta?.email, meta?.orgName, meta?.accountId, (meta as Record<string, unknown>)?.account].find(
 				(value): value is string => typeof value === 'string' && value.trim() !== ''
 			) ?? null;
 
@@ -542,6 +549,7 @@ export function buildHostState(input: BuildHostStateInput): HostState {
 		return {
 			id: p.id,
 			name: p.name,
+			path: p.canonicalProjectPath ?? null,
 			hue: typeof p.hue === 'number' ? p.hue : 0,
 			active: Boolean(input.activeProjectId && p.id === input.activeProjectId),
 			lanes: remoteLanes,
@@ -549,7 +557,8 @@ export function buildHostState(input: BuildHostStateInput): HostState {
 			tasks,
 			autoDispatch: Boolean(p.autoDispatch),
 			canRunTask: runtime?.canRunTask ?? false,
-			runBlockReason: runtime?.runBlockReason ?? null
+			runBlockReason: runtime?.runBlockReason ?? null,
+			dispatchConfirmations: input.dispatchConfirmationsForProject?.(p.id)
 		};
 	});
 

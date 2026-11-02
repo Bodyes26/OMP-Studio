@@ -1,0 +1,681 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
+<meta name="theme-color" content="#f8f6f7">
+<title>Remote B — Elenco espandibile</title>
+<style>
+:root{
+  color-scheme:light;
+  --bg:oklch(.982 .003 355);
+  --panel:oklch(.997 .001 355);
+  --sunk:oklch(.958 .005 355);
+  --bubble:oklch(.94 .012 355);
+  --ink:oklch(.23 .012 355);
+  --muted:oklch(.48 .012 355);
+  --faint:oklch(.64 .01 355);
+  --line:oklch(.23 .012 355 / .1);
+  --line-strong:oklch(.23 .012 355 / .2);
+  --accent:oklch(.52 .165 355);
+  --accent-soft:oklch(.52 .165 355 / .08);
+  --on-accent:oklch(.99 .003 355);
+  --good:oklch(.5 .11 150);
+  --warn:oklch(.52 .12 62);
+  --warn-soft:oklch(.965 .035 80);
+  --danger:oklch(.53 .17 27);
+  --app-h:100dvh;
+  --font:"Inter","Inter Variable",-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:16px/1.5 var(--font);-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent;overflow:hidden}
+button,input,textarea,select{font:inherit;color:inherit}
+button{background:none;border:0;padding:0;cursor:pointer;min-height:44px;border-radius:10px}
+button:disabled{opacity:.4;cursor:default}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+h1,h2,h3,p{margin:0}
+.icon{width:44px;height:44px;display:grid;place-items:center;font-size:24px;line-height:1;color:var(--ink)}
+.question-text,.warn-text{color:var(--warn)}.working-text{color:var(--good)}.danger-text{color:var(--danger)}
+
+/* Elenco progetti */
+.home{height:var(--app-h);overflow:auto;overscroll-behavior:contain}
+.home-head{position:sticky;top:0;z-index:2;background:var(--bg);padding:calc(8px + env(safe-area-inset-top)) 8px 4px 16px}
+.home-top{display:flex;align-items:center;justify-content:space-between;gap:4px}
+.home-top h1{font-size:28px;line-height:1.2;font-weight:700;letter-spacing:-.02em;margin-right:auto}
+.new-btn{color:var(--accent);font-weight:600;font-size:15px;padding:0 8px}
+.machine{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.machine button{min-height:36px;font-size:14px;color:var(--muted)}
+.machine .elsewhere{color:var(--warn)}
+.rows{list-style:none;margin:0;padding:4px 0 calc(72px + env(safe-area-inset-bottom))}
+.row{display:grid;grid-template-columns:8px minmax(0,1fr) auto;column-gap:12px;width:100%;text-align:left;padding:12px 12px 12px 16px;border-radius:0;border-bottom:1px solid var(--line);align-items:start}
+.row:active{background:var(--sunk)}
+.row[aria-expanded=true]{background:var(--sunk);border-bottom-color:transparent}
+.dot{width:8px;height:8px;border-radius:50%;margin-top:9px;background:var(--line-strong);flex-shrink:0}
+.dot.question{background:var(--warn)}.dot.working{background:var(--good)}
+.row .name{display:block;font-size:17px;font-weight:600;line-height:1.4}
+.row .meta{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:14px;line-height:1.4;color:var(--muted)}
+.chev{color:var(--faint);font-size:20px;line-height:1.3;transition:transform .18s}
+.chev.rot{transform:rotate(90deg)}
+.empty{padding:24px 16px;color:var(--muted)}
+.expand{padding:0 12px 8px 36px;background:var(--sunk);border-bottom:1px solid var(--line)}
+.expand .links{display:flex;gap:4px;flex-wrap:wrap}
+.expand .links button{color:var(--accent);font-size:14px;font-weight:560;padding:0 8px}
+.queued{font-size:14px;color:var(--muted);padding:8px 4px 0;border-top:1px solid var(--line)}
+.queued b{font-weight:560;color:var(--ink)}
+
+/* Quote */
+.qstrip{display:flex;gap:16px;overflow-x:auto;padding:2px 0 6px;scrollbar-width:none;width:100%;text-align:left;min-height:40px;border-radius:0}
+.qitem{display:flex;flex-direction:column;gap:3px;min-width:96px;font-size:13px;color:var(--muted)}
+.qitem b{font-weight:600;color:var(--ink)}
+.meter{height:4px;border-radius:2px;background:var(--line);overflow:hidden}
+.meter i{display:block;height:100%;background:var(--good);border-radius:2px}
+.meter i.warning{background:var(--warn)}.meter i.exhausted{background:var(--danger)}
+/* Componenti del composer di Remote: RoleMenu, ModelPickerList, ReasoningSlider, ThinkingMeter. */
+.mono{font-family:ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace}
+.plogo{display:inline-flex;flex-shrink:0;color:var(--ink)}.plogo svg{width:100%;height:100%}
+.role-dot{width:8px;height:8px;border-radius:50%;background:var(--accent);flex-shrink:0}
+.role-list{display:flex;flex-direction:column;gap:1px;padding:4px 0}
+.role-item{display:flex;align-items:flex-start;gap:10px;width:100%;text-align:left;padding:10px 8px;border-radius:10px;min-height:52px}
+.role-item.active{background:var(--sunk)}
+.role-item .role-dot{margin-top:7px}
+.role-content{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.role-top{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.role-name{font-weight:600;font-size:14px}
+.role-meta{display:inline-flex;align-items:center;gap:4px;min-width:0;font-size:12px;color:var(--faint)}
+.role-meta span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.role-desc{font-size:13px;line-height:1.35;color:var(--muted)}
+.check-icon{color:var(--accent);flex-shrink:0;display:inline-flex;margin-top:4px}.check-icon svg{width:16px;height:16px}
+.sheet.picker{display:flex;flex-direction:column;height:min(600px,calc(var(--app-h) - 24px));overflow:hidden;padding-bottom:0}
+.results{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;padding:4px 0;display:flex;flex-direction:column;gap:4px}
+.group-header{display:flex;align-items:center;justify-content:space-between;width:100%;min-height:36px;padding:4px 6px;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--faint);border-radius:6px}
+.gh-title{display:inline-flex;align-items:center;gap:6px}
+.gh-chev{display:inline-flex;transition:transform .15s}.gh-chev svg{width:12px;height:12px}.gh-chev.collapsed{transform:rotate(-90deg)}
+.model-option{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;text-align:left;min-height:48px;padding:8px 12px;border:1px solid transparent;border-radius:10px;font-size:14px}
+.model-option.selected{background:var(--sunk);border-color:var(--accent)}
+.option-main{display:flex;flex-direction:column;gap:1px;min-width:0;flex:1}
+.option-name{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.option-id{font-size:11px;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.badges{display:flex;align-items:center;gap:4px;flex-shrink:0;color:var(--muted)}
+.ui-cap{display:inline-flex;align-items:center;gap:3px;font-size:11px;border:1px solid var(--line);border-radius:6px;padding:1px 4px}
+.ui-cap svg{width:12px;height:12px}
+.empty-results{padding:16px 8px;text-align:center;color:var(--faint);font-size:13px}
+.reasoning{flex-shrink:0;border-top:1px solid var(--line);padding:12px 4px 16px;display:flex;flex-direction:column;gap:8px}
+.level-name{align-self:center;font-size:16px;font-weight:550;line-height:1.3;color:var(--accent)}
+.slider{-webkit-appearance:none;appearance:none;width:100%;height:20px;margin:0;border-radius:999px;border:1px solid var(--line);background:linear-gradient(var(--accent),var(--accent)) left/var(--fill) 100% no-repeat,var(--sunk)}
+.slider::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;border-radius:50%;background:var(--ink);border:2px solid var(--panel)}
+.slider::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--ink);border:2px solid var(--panel)}
+.msearch{flex-shrink:0;position:relative;border-top:1px solid var(--line);padding:12px 0 calc(12px + env(safe-area-inset-bottom))}
+.msearch input{width:100%;min-height:44px;border:1px solid var(--line-strong);border-radius:12px;background:var(--bg);padding:0 12px 0 36px;font-size:16px;outline:0}
+.msearch svg{position:absolute;left:12px;top:50%;margin-top:calc(-8px - env(safe-area-inset-bottom) / 2);width:16px;height:16px;color:var(--faint)}
+.quota-block{padding:12px 0;border-bottom:1px solid var(--line)}
+.quota-block:last-child{border-bottom:0}
+.quota-block .ph{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.quota-block .ph strong{font-weight:620}
+.quota-block .ph span{font-size:13px;color:var(--muted)}
+.win{display:grid;grid-template-columns:76px minmax(0,1fr) 40px;gap:10px;align-items:center;font-size:14px;margin-top:8px}
+.win .r{grid-column:2/4;font-size:12.5px;color:var(--muted);margin-top:-6px}
+.win em{font-style:normal;text-align:right;font-variant-numeric:tabular-nums}
+.inuse{font-size:13px;color:var(--muted);margin-top:6px}
+
+/* Barra chat */
+.bar{flex-shrink:0;display:grid;grid-template-columns:44px minmax(0,1fr) 44px;align-items:center;padding:env(safe-area-inset-top) 4px 0;min-height:calc(52px + env(safe-area-inset-top));border-bottom:1px solid var(--line);background:var(--bg)}
+.bar .title{display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:0;line-height:1.25;padding:0 4px}
+.bar .title strong{font-size:16px;font-weight:620;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bar .title span{font-size:13px;color:var(--accent);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bar .title span.plain{color:var(--muted)}
+
+/* Conversazione */
+.screen{height:var(--app-h);display:flex;flex-direction:column;overflow:hidden}
+.chat-col{flex:1;display:flex;flex-direction:column;min-height:0;min-width:0}
+.chat{flex:1;display:flex;flex-direction:column;min-height:0;position:relative}
+.transcript{flex:1;overflow:auto;overscroll-behavior:contain;padding:16px 16px 24px;position:relative}
+.transcript>*{max-width:680px;margin-left:auto;margin-right:auto}
+.agent p{font-size:16px;line-height:1.55;margin:0 0 12px}
+.user-wrap{display:flex;flex-direction:column;align-items:flex-end;margin-top:20px;margin-bottom:20px}
+.user-wrap:first-child{margin-top:0}
+.user{max-width:min(85%,560px);background:var(--bubble);padding:9px 14px;border-radius:18px 18px 6px 18px;font-size:16px;line-height:1.45}
+.tag{font-size:12px;color:var(--muted);margin-top:4px}
+.steps{margin:0 0 12px;font-size:14px;color:var(--muted)}
+.steps summary{min-height:36px;display:flex;align-items:center;gap:8px;cursor:pointer;list-style:none;width:fit-content}
+.steps summary::-webkit-details-marker{display:none}
+.steps summary:before{content:'›';font-size:18px;transition:transform .18s}
+.steps[open] summary:before{transform:rotate(90deg)}
+.steps ol{margin:0 0 4px;padding-left:24px}
+.steps li{padding:2px 0}
+.art{display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:8px 12px 8px 8px;border:1px solid var(--line-strong);border-radius:12px;background:var(--panel);margin:0 0 12px}
+.art .thumb{width:40px;height:40px;border-radius:8px;background:oklch(.93 .03 140);display:grid;place-items:center;color:oklch(.35 .05 150);font-weight:700;flex-shrink:0}
+.art strong{display:block;font-size:15px;font-weight:600;line-height:1.3}
+.art small{font-size:13px;color:var(--muted)}
+.ask{border:1px solid oklch(.78 .09 75);background:var(--warn-soft);border-radius:14px;padding:12px 14px 14px;margin:4px 0 12px}
+.ask h3{font-size:17px;line-height:1.35;font-weight:620;margin-bottom:4px}
+.ask p{font-size:15px;line-height:1.45;margin-bottom:12px}
+.ask .opts{display:grid;gap:8px}
+.ask .opts button{background:var(--panel);border:1px solid var(--line-strong);text-align:left;padding:10px 14px;font-weight:550}
+.ask .opts button:first-child{border-color:var(--accent);color:var(--accent)}
+.sysline{font-size:13px;color:var(--muted);text-align:center;margin-top:16px;margin-bottom:16px}
+.jump{position:absolute;left:50%;transform:translateX(-50%);bottom:12px;z-index:3;min-height:36px;padding:0 14px;border-radius:18px;background:var(--ink);color:var(--bg);font-size:14px;font-weight:550;white-space:nowrap;box-shadow:0 4px 14px oklch(0 0 0 / .16)}
+.notice{position:absolute;top:8px;left:8px;right:8px;z-index:4;max-width:560px;margin:auto;display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--line-strong);border-radius:14px;padding:0 0 0 12px;box-shadow:0 6px 20px oklch(0 0 0 / .1);font-size:14px}
+.notice .dot{margin:0}
+.notice span:not(.dot){flex:1;min-width:0}
+.notice .open{color:var(--accent);font-weight:600;padding:0 8px}
+
+/* Campo di scrittura */
+.composer{flex-shrink:0;padding:6px 8px calc(6px + env(safe-area-inset-bottom));background:var(--bg);border-top:1px solid var(--line)}
+.composer>div{max-width:680px;margin:0 auto}
+.field{display:flex;align-items:flex-end;gap:2px;background:var(--panel);border:1px solid var(--line-strong);border-radius:22px;padding:2px}
+.field textarea{flex:1;min-width:0;border:0;outline:0;background:transparent;resize:none;font-size:16px;line-height:22px;padding:9px 4px;height:40px;max-height:136px}
+.field .icon{width:40px;height:40px;min-height:40px;color:var(--muted);border-radius:50%}
+.send{width:40px;height:40px;min-height:40px;flex-shrink:0;border-radius:50%;background:var(--accent);color:var(--on-accent);display:grid;place-items:center;font-size:19px;font-weight:700}
+.send:disabled{background:var(--line-strong);color:var(--panel);opacity:1}
+.tools{display:none;align-items:center;gap:8px;padding:6px 0 0;overflow-x:auto}
+.composer.open .tools{display:flex}
+.chip{min-height:34px;padding:0 12px;border:1px solid var(--line);border-radius:17px;font-size:13px;color:var(--muted);white-space:nowrap;display:inline-flex;align-items:center;gap:6px}
+.chip[aria-pressed=true]{border-color:var(--accent);color:var(--accent);background:var(--accent-soft);font-weight:560}
+.seg{display:flex;border:1px solid var(--line);border-radius:17px;padding:2px;flex-shrink:0}
+.tools .seg{margin-left:auto}
+.seg button{min-height:30px;padding:0 10px;border-radius:15px;font-size:13px;color:var(--muted);white-space:nowrap;flex:1}
+.seg button[aria-pressed=true]{background:var(--ink);color:var(--bg)}
+.endbar{flex-shrink:0;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:4px 8px calc(4px + env(safe-area-inset-bottom)) 16px;border-top:1px solid var(--line);font-size:14px;color:var(--muted)}
+.endbar button{color:var(--accent);font-weight:600;padding:0 12px}
+
+/* Anteprima */
+.preview{flex:1;display:flex;flex-direction:column;min-height:0;min-width:0}
+.artifact{flex:1;overflow:auto;background:oklch(.965 .012 95);color:oklch(.27 .04 160);padding:28px 24px}
+.artifact small{letter-spacing:.14em;font-size:11px;color:oklch(.45 .04 160)}
+.artifact h2{font-size:32px;line-height:1.1;margin:16px 0 12px;letter-spacing:-.02em}
+.artifact .slots{display:flex;gap:8px;flex-wrap:wrap;margin:24px 0}
+.artifact .slots button{border:1px solid oklch(.75 .03 150);padding:0 18px}
+.artifact .slots button.selected{background:oklch(.3 .04 160);color:oklch(.98 .01 95);border-color:transparent}
+.artifact .cta{background:oklch(.3 .04 160);color:oklch(.98 .01 95);padding:0 18px}
+.artifact .out{margin-top:16px;font-size:15px}
+
+/* Fogli */
+.backdrop{position:fixed;inset:0;z-index:20;background:oklch(.2 .01 355 / .32);display:flex;align-items:flex-end;justify-content:center;animation:fade .16s ease-out}
+.sheet{width:100%;max-width:560px;max-height:min(88dvh,var(--app-h));overflow:auto;background:var(--panel);border-radius:18px 18px 0 0;padding:8px 16px calc(16px + env(safe-area-inset-bottom));animation:up .24s cubic-bezier(.22,1,.36,1)}
+.grip{width:36px;height:5px;border-radius:3px;background:var(--line-strong);margin:0 auto 4px}
+.sheet .head{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.sheet .head .icon:first-child{margin-left:-12px}
+.sheet h2{font-size:18px;font-weight:650}
+.sheet .sub{font-size:14px;color:var(--muted)}
+.list{display:grid}
+.list>button{display:flex;align-items:center;justify-content:space-between;gap:12px;text-align:left;width:100%;padding:10px 4px;border-radius:0;border-bottom:1px solid var(--line);min-height:56px}
+.list>button:last-child{border-bottom:0}
+.list .t{display:block;font-weight:560}
+.list .d{display:block;font-size:14px;color:var(--muted)}
+.check{color:var(--accent);font-weight:700}
+.group-label{font-size:13px;color:var(--muted);margin:16px 4px 4px}
+.lbl{display:block;font-size:13px;color:var(--muted);margin:14px 0 6px}
+.chips{display:flex;gap:8px;overflow-x:auto;padding-bottom:2px;scrollbar-width:none;margin:0 -16px;padding-left:16px;padding-right:16px}
+.chips .chip{color:var(--ink);font-size:14px}
+.hint{font-size:13px;color:var(--muted);margin-top:6px}
+.prompt{width:100%;border:1px solid var(--line-strong);border-radius:12px;background:var(--bg);padding:10px 12px;font-size:16px;line-height:1.45;min-height:84px;max-height:200px;resize:none;outline:0}
+.prompt:focus{border-color:var(--accent)}
+.prompt.big{border:0;background:transparent;padding:8px 0;min-height:120px}
+.pick{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;text-align:left;border:1px solid var(--line);border-radius:12px;padding:6px 12px;margin-top:12px}
+.pick .t{font-size:13px;color:var(--muted)}
+.pick b{display:block;font-weight:560;font-size:15px}
+.actions{display:flex;gap:8px;margin-top:16px}
+.actions button{flex:1;border:1px solid var(--line-strong);font-weight:560}
+.actions .primary{background:var(--accent);color:var(--on-accent);border-color:transparent;font-weight:600}
+/* Progetto e worktree a meta' riga; sotto, ruolo e modello su tutta la riga. */
+.ctx{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:10px 0;border-top:1px solid var(--line)}
+.ctx .chip{color:var(--ink);font-size:13.5px;justify-content:center;min-width:0;padding:0 10px}
+.lbl-trunc{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.cfg-pill{grid-column:1/-1;display:flex;min-height:40px;border:1px solid var(--line);border-radius:20px;overflow:hidden}
+.cfg-pill button{min-width:0;display:flex;align-items:center;gap:6px;padding:0 14px;border-radius:0;font-size:13.5px;color:var(--ink);min-height:40px}
+.cfg-pill .r{flex:0 0 auto}
+.cfg-pill .m{flex:1;justify-content:center;border-left:1px solid var(--line)}
+.tools .chip{color:var(--ink)}
+.thinking-meter{display:inline-flex;align-items:flex-end;gap:2px;height:14px;padding-bottom:1px;flex-shrink:0}
+.thinking-meter i{width:3px;border-radius:2px;background:var(--line-strong)}
+.thinking-meter i.on{background:var(--accent)}
+/* Coda del progetto e pannello del lavoro. */
+.tbar{display:flex;align-items:center;gap:8px;padding:4px 0 8px;overflow-x:auto;scrollbar-width:none}
+.tbar .icon{width:40px;height:40px;min-height:40px;color:var(--muted)}.tbar .icon svg{width:20px;height:20px}
+.thumb-img{position:relative;width:36px;height:36px;border-radius:8px;flex-shrink:0;border:1px solid var(--line)}
+.thumb-img button{position:absolute;top:-6px;right:-6px;width:20px;height:20px;min-height:20px;border-radius:50%;background:var(--ink);color:var(--bg);font-size:12px;line-height:1}
+.task-row .t{display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
+.task-row .d{display:flex;align-items:center;flex-wrap:wrap;gap:4px}
+.next{color:var(--accent);font-weight:600}
+.static-chip{opacity:1;cursor:default}
+.head .icon.more{font-size:20px}
+.lanes{margin:8px 0}
+.lanes div{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line);font-size:14px}
+.lanes div:last-child{border-bottom:0}
+.consent{display:grid;margin:8px 0}
+.consent label{display:flex;align-items:center;gap:12px;min-height:44px;border-bottom:1px solid var(--line);font-size:14px}
+.consent input{width:18px;height:18px;accent-color:var(--accent)}
+.danger-btn .t{color:var(--danger)}
+.sheet p.body{font-size:15px;line-height:1.45;margin:8px 0}
+.form select,.form input[type=time]{width:100%;border:1px solid var(--line-strong);border-radius:12px;background:var(--bg);padding:10px 12px;font-size:16px}
+.toast{position:fixed;left:50%;bottom:calc(76px + env(safe-area-inset-bottom));transform:translateX(-50%);z-index:30;max-width:calc(100% - 32px);background:var(--ink);color:var(--bg);font-size:14px;padding:8px 14px;border-radius:12px;pointer-events:none;animation:fade .16s}
+/* Con un pannello aperto l'avviso sale in alto, per non coprire pulsanti e testo del pannello. */
+body:has(#sheet .backdrop) .toast{bottom:auto;top:calc(12px + env(safe-area-inset-top))}
+@keyframes fade{from{opacity:0}}
+@keyframes up{from{transform:translateY(24px);opacity:.6}}
+@keyframes slide{from{transform:translateY(32px)}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+.b-reader{position:fixed;inset:0;z-index:10;background:var(--bg);animation:slide .24s cubic-bezier(.22,1,.36,1)}
+.b-empty{display:grid;place-items:center;color:var(--muted);padding:24px;text-align:center}
+@media (min-width:1024px){
+  .wide-split{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+  .wide-split>.chat-col{border-right:1px solid var(--line)}
+  .wide-split.expanded{grid-template-columns:minmax(0,1fr)}
+  .wide-split.expanded>.chat-col{display:none}
+  .backdrop{align-items:center}
+  .sheet{border-radius:16px;padding-bottom:16px}
+  .grip{display:none}
+  .b-layout{display:grid;grid-template-columns:360px minmax(0,1fr);height:var(--app-h)}
+  .b-layout>.home{border-right:1px solid var(--line)}
+  .b-layout .b-reader{position:static;animation:none}
+}
+</style>
+</head>
+<body>
+<div id="app"></div><div id="sheet"></div><div id="toast" aria-live="polite"></div>
+<script>
+const app=document.getElementById('app'),sheetRoot=document.getElementById('sheet'),toastRoot=document.getElementById('toast');
+const WIDE=matchMedia('(min-width:1024px)');
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+const M={
+  mac:{name:'MacBook Pro',fetched:'aggiornate 2 min fa',
+    quota:[
+      {id:'anthropic',name:'Claude',account:'maurizio@studio.dev',windows:[{label:'5 ore',used:.62,reset:'tra 1 h 40 min'},{label:'Settimana',used:.41,reset:'giovedì 09:00'}]},
+      {id:'openai',name:'ChatGPT',account:'Pro',windows:[{label:'5 ore',used:.18,reset:'tra 3 h 10 min'},{label:'Settimana',used:.92,reset:'domani 14:00'}]},
+      {id:'google',name:'Gemini',account:'maurizio@gmail.com',windows:[{label:'Giorno',used:.05,reset:'domani 01:00'}]}],
+    projects:[
+      {id:'omp',name:'OMP Studio',branches:[
+        {id:'main',name:'Principale',status:'working',summary:'Esegue i test della PWA',role:'default'},
+        {id:'mobile',name:'mobile-remote',status:'question',summary:'Come ordino i progetti al lavoro?',role:'default'}]},
+      {id:'portal',name:'Portale clienti',branches:[
+        {id:'main',name:'Principale',status:'working',summary:'Aggiorna le traduzioni in tedesco',role:'slow'},
+        {id:'checkout',name:'checkout',status:'working',summary:'Verifica il pagamento con carta',role:'default'}]},
+      {id:'docs',name:'Documentazione',branches:[{id:'main',name:'Principale',status:'idle',summary:'Guida di installazione completata',role:'smol'}]},
+      {id:'site',name:'Sito personale',branches:[{id:'main',name:'Principale',status:'idle',summary:'Ultimo lavoro ieri',role:'default'}]}]},
+  win:{name:'Studio Windows',fetched:'aggiornate 5 min fa',
+    quota:[{id:'anthropic',name:'Claude',account:'team@azienda.it',windows:[{label:'5 ore',used:.35,reset:'tra 4 h'},{label:'Settimana',used:.22,reset:'lunedì 08:00'}]}],
+    projects:[
+      {id:'erp',name:'Gestionale vendite',branches:[{id:'main',name:'Principale',status:'question',summary:'Confermi lo schema delle fatture?',role:'default'}]},
+      {id:'tools',name:'Script interni',branches:[{id:'main',name:'Principale',status:'idle',summary:'Ultimo lavoro lunedì',role:'smol'}]}]}
+};
+/* Catalogo simulato con la forma di RemoteComposerCatalog: modelli per provider e ruoli
+   di omp con modello e ragionamento assegnati. `q` collega il modello alla quota. */
+const CATALOG=[
+  {provider:'anthropic',id:'claude-sonnet-4-5',name:'Claude Sonnet 4.5',ctx:'200K',q:'anthropic'},
+  {provider:'anthropic',id:'claude-opus-4-1',name:'Claude Opus 4.1',ctx:'200K',q:'anthropic'},
+  {provider:'anthropic',id:'claude-haiku-4-5',name:'Claude Haiku 4.5',ctx:'200K',q:'anthropic'},
+  {provider:'openai-codex',id:'gpt-5',name:'GPT-5',ctx:'400K',q:'openai'},
+  {provider:'openai-codex',id:'gpt-5-mini',name:'GPT-5 mini',ctx:'400K',q:'openai'},
+  {provider:'gemini',id:'gemini-2.5-pro',name:'Gemini 2.5 Pro',ctx:'1M',q:'google'}];
+const ROLES=[
+  {id:'default',desc:'Ruolo principale per conversazione e compiti generici',model:'anthropic/claude-sonnet-4-5',thinking:'medium'},
+  {id:'plan',hue:230,desc:'Pianificazione architetturale ad alto livello',model:'anthropic/claude-opus-4-1',thinking:'high'},
+  {id:'smol',hue:140,desc:'Modello veloce per risposte concise e sintetiche',model:'anthropic/claude-haiku-4-5',thinking:'low'},
+  {id:'slow',hue:300,desc:'Modello di massimo ragionamento per problemi complessi',model:'openai-codex/gpt-5',thinking:'xhigh'},
+  {id:'vision',hue:80,desc:'Specializzato nell’analisi di immagini e diagrammi',model:'gemini/gemini-2.5-pro',thinking:'medium'},
+  {id:'task',hue:35,desc:'Esecuzione mirata di sotto-task e automazioni',model:'anthropic/claude-haiku-4-5',thinking:'low'},
+  {id:'commit',hue:180,desc:'Generazione di messaggi di commit e revisione patch',model:'anthropic/claude-haiku-4-5',thinking:'minimal'},
+  {id:'advisor',hue:320,desc:'Revisione del codice, sicurezza e best practice',model:'anthropic/claude-opus-4-1',thinking:'high'}];
+/* Livelli della chat (THINKING_LEVEL_ITEMS senza «Auto»), con le barre di ThinkingMeter. */
+const LEVELS=[['off','Off','Disabilitato',0],['minimal','Minimal','Ragionamento minimo',1],['low','Low','Ragionamento basso',2],['medium','Medium','Ragionamento medio',3],['high','High','Ragionamento alto',4],['xhigh','Extra High','Ragionamento molto alto',5]];
+const PROVIDER_NAME={anthropic:'anthropic','openai-codex':'openai-codex',gemini:'gemini'};
+const LOGO={
+  anthropic:'<svg viewBox="0 0 24 24"><path d="M4.709 15.955l4.72-2.647.08-.23-.08-.128H9.2l-.79-.048-2.698-.073-2.339-.097-2.266-.122-.571-.121L0 11.784l.055-.352.48-.321.686.06 1.52.103 2.278.158 1.652.097 2.449.255h.389l.055-.157-.134-.098-.103-.097-2.358-1.596-2.552-1.688-1.336-.972-.724-.491-.364-.462-.158-1.008.656-.722.881.06.225.061.893.686 1.908 1.476 2.491 1.833.365.304.145-.103.019-.073-.164-.274-1.355-2.446-1.446-2.49-.644-1.032-.17-.619a2.97 2.97 0 01-.104-.729L6.283.134 6.696 0l.996.134.42.364.62 1.414 1.002 2.229 1.555 3.03.456.898.243.832.091.255h.158V9.01l.128-1.706.237-2.095.23-2.695.08-.76.376-.91.747-.492.584.28.48.685-.067.444-.286 1.851-.559 2.903-.364 1.942h.212l.243-.242.985-1.306 1.652-2.064.73-.82.85-.904.547-.431h1.033l.76 1.129-.34 1.166-1.064 1.347-.881 1.142-1.264 1.7-.79 1.36.073.11.188-.02 2.856-.606 1.543-.28 1.841-.315.833.388.091.395-.328.807-1.969.486-2.309.462-3.439.813-.042.03.049.061 1.549.146.662.036h1.622l3.02.225.79.522.474.638-.079.485-1.215.62-1.64-.389-3.829-.91-1.312-.329h-.182v.11l1.093 1.068 2.006 1.81 2.509 2.33.127.578-.322.455-.34-.049-2.205-1.657-.851-.747-1.926-1.62h-.128v.17l.444.649 2.345 3.521.122 1.08-.17.353-.608.213-.668-.122-1.374-1.925-1.415-2.167-1.143-1.943-.14.08-.674 7.254-.316.37-.729.28-.607-.461-.322-.747.322-1.476.389-1.924.315-1.53.286-1.9.17-.632-.012-.042-.14.018-1.434 1.967-2.18 2.945-1.726 1.845-.414.164-.717-.37.067-.662.401-.589 2.388-3.036 1.44-1.882.93-1.086-.006-.158h-.055L4.132 18.56l-1.13.146-.487-.456.061-.746.231-.243 1.908-1.312-.006.006z" fill="#D97757"/></svg>',
+  'openai-codex':'<svg viewBox="0 0 24 24" fill="currentColor" fill-rule="evenodd"><path d="M9.205 8.658v-2.26c0-.19.072-.333.238-.428l4.543-2.616c.619-.357 1.356-.523 2.117-.523 2.854 0 4.662 2.212 4.662 4.566 0 .167 0 .357-.024.547l-4.71-2.759a.797.797 0 00-.856 0l-5.97 3.473zm10.609 8.8V12.06c0-.333-.143-.57-.429-.737l-5.97-3.473 1.95-1.118a.433.433 0 01.476 0l4.543 2.617c1.309.76 2.189 2.378 2.189 3.948 0 1.808-1.07 3.473-2.76 4.163zM7.802 12.703l-1.95-1.142c-.167-.095-.239-.238-.239-.428V5.899c0-2.545 1.95-4.472 4.591-4.472 1 0 1.927.333 2.712.928L8.23 5.067c-.285.166-.428.404-.428.737v6.898zM12 15.128l-2.795-1.57v-3.33L12 8.658l2.795 1.57v3.33L12 15.128zm1.796 7.23c-1 0-1.927-.332-2.712-.927l4.686-2.712c.285-.166.428-.404.428-.737v-6.898l1.974 1.142c.167.095.238.238.238.428v5.233c0 2.545-1.974 4.472-4.614 4.472zm-5.637-5.303l-4.544-2.617c-1.308-.761-2.188-2.378-2.188-3.948A4.482 4.482 0 014.21 6.327v5.423c0 .333.143.571.428.738l5.947 3.449-1.95 1.118a.432.432 0 01-.476 0zm-.262 3.9c-2.688 0-4.662-2.021-4.662-4.519 0-.19.024-.38.047-.57l4.686 2.71c.286.167.571.167.856 0l5.97-3.448v2.26c0 .19-.07.333-.237.428l-4.543 2.616c-.619.357-1.356.523-2.117.523zm5.899 2.83a5.947 5.947 0 005.827-4.756C22.287 18.339 24 15.84 24 13.296c0-1.665-.713-3.282-1.998-4.448.119-.5.19-.999.19-1.498 0-3.401-2.759-5.947-5.946-5.947-.642 0-1.26.095-1.88.31A5.962 5.962 0 0010.205 0a5.947 5.947 0 00-5.827 4.757C1.713 5.447 0 7.945 0 10.49c0 1.666.713 3.283 1.998 4.448-.119.5-.19 1-.19 1.499 0 3.401 2.759 5.946 5.946 5.946.642 0 1.26-.095 1.88-.309a5.96 5.96 0 004.162 1.713z"/></svg>',
+  gemini:'<svg viewBox="0 0 24 24"><path d="M20.616 10.835a14.147 14.147 0 01-4.45-3.001 14.111 14.111 0 01-3.678-6.452.503.503 0 00-.975 0 14.134 14.134 0 01-3.679 6.452 14.155 14.155 0 01-4.45 3.001c-.65.28-1.318.505-2.002.678a.502.502 0 000 .975c.684.172 1.35.397 2.002.677a14.147 14.147 0 014.45 3.001 14.112 14.112 0 013.679 6.453.502.502 0 00.975 0c.172-.685.397-1.351.677-2.003a14.145 14.145 0 013.001-4.45 14.113 14.113 0 016.453-3.678.503.503 0 000-.975 13.245 13.245 0 01-2.003-.678z" fill="#3186FF"/></svg>'};
+/* Icone lucide usate da Studio: check, search, chevron-down, scan-text (contesto), infinity (ragionamento). */
+const ICON={
+  check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
+  search:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.34-4.34"/></svg>',
+  chev:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>',
+  ctx:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 8h8"/><path d="M7 12h10"/><path d="M7 16h6"/></svg>',
+  reason:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16c5 0 7-8 12-8a4 4 0 0 1 0 8c-5 0-7-8-12-8a4 4 0 1 0 0 8"/></svg>'};
+const SEED={
+  'omp/mobile':{u:'Rivedi la chat mobile di Remote: deve restare leggibile anche con la tastiera aperta. Preparami un’anteprima da provare.',
+    a:['Ho ridotto tutto ciò che resta fisso sullo schermo. L’intestazione occupa una sola riga con progetto e ramo, e il campo di scrittura resta compatto finché non lo tocchi.','Quando scrivi compaiono ruolo e modalità di invio; quando leggi, la conversazione usa quasi tutta l’altezza del telefono. I passaggi tecnici restano raccolti in una riga che puoi aprire.','Ho preparato l’anteprima della pagina di prenotazione, così puoi verificare il risultato senza aprire file o differenze.'],
+    steps:['Misurato lo spazio occupato da intestazione e campo di scrittura','Raccolti i passaggi tecnici in una riga','Generata l’anteprima interattiva'],
+    q:{t:'Come ordino i progetti al lavoro?',d:'Le richieste restano sempre in cima. Per gli altri posso mettere prima quelli attivi oppure seguire l’ordine di Studio.',o:['Prima quelli al lavoro','Ordine di Studio']}},
+  'omp/main':{u:'Esegui i test della PWA dopo le modifiche alla navigazione.',a:['Sto eseguendo i test della PWA. Finora la navigazione fra progetti e rami passa senza errori.','Mancano i controlli su tastiera e aree sicure: ti avviso appena finiscono.'],steps:['Compilata la PWA','Eseguiti 42 test di navigazione','Avviati i controlli di impaginazione'],art:false},
+  'portal/checkout':{u:'Sistema il pagamento con carta: dopo la conferma l’utente torna al carrello.',a:['Ho trovato la causa: al ritorno dalla verifica della banca si perdeva il numero dell’ordine, quindi la pagina ripartiva dal carrello.','Ora l’ordine resta associato per tutta la verifica. Sto completando le prove con le carte di test, compresa quella che chiede la conferma aggiuntiva.','Intanto ho preparato l’anteprima della pagina di conferma.'],steps:['Riprodotto il problema con la carta di prova','Corretto il ritorno dalla verifica bancaria','Avviate le prove di pagamento']},
+  'portal/main':{u:'Aggiorna le traduzioni in tedesco del portale.',a:['Sto aggiornando 64 testi. Le pagine del profilo sono complete; mancano quelle delle fatture.'],steps:['Estratti i testi mancanti','Tradotte le pagine del profilo'],art:false}
+};
+const S={machine:'mac',route:'home',pid:null,bid:null,preview:false,expandPreview:false,expanded:null,drafts:{},scroll:{},mode:{},extra:{},fresh:{},closed:{},artifact:{},laneCfg:{},queue:{},notice:null,composing:false,lastKey:null,lastFocus:null,nw:null};
+const STATUS={question:'Aspetta te',working:'Al lavoro',idle:'Fermo'};
+const RANK={question:0,working:1,idle:2};
+
+const machine=()=>M[S.machine];
+const projects=()=>machine().projects.filter(p=>!p.closed);
+const projectById=id=>machine().projects.find(p=>p.id===id);
+const proj=()=>projectById(S.pid);
+const key=()=>S.machine+'/'+S.pid+'/'+S.bid;
+const branch=()=>proj()?.branches.find(b=>b.id===S.bid)||S.closed[key()];
+const pstatus=p=>p.branches.some(b=>b.status==='question')?'question':p.branches.some(b=>b.status==='working')?'working':'idle';
+const ordered=()=>projects().slice().sort((a,b)=>RANK[pstatus(a)]-RANK[pstatus(b)]);
+const seed=()=>SEED[S.pid+'/'+S.bid]||{u:'Riprendi da dove eravamo rimasti.',a:[(branch()?.summary||'Pronto')+'.','Scrivimi quando vuoi continuare.'],steps:null,art:false};
+function otherMachine(){const id=S.machine==='mac'?'win':'mac';return{id,name:M[id].name,n:M[id].projects.filter(p=>!p.closed&&pstatus(p)==='question').length}}
+function toast(t){toastRoot.innerHTML=`<div class="toast">${esc(t)}</div>`;clearTimeout(toast.t);toast.t=setTimeout(()=>toastRoot.innerHTML='',3200)}
+
+/* Quote: ogni provider mostra la finestra piu' consumata, quella che blocca per prima. */
+const quotaOf=(pid,m=machine())=>m.quota.find(q=>q.id===pid);
+const worst=q=>q.windows.reduce((a,w)=>w.used>a.used?w:a);
+const level=u=>u>=.98?'exhausted':u>=.85?'warning':'ok';
+const pct=u=>Math.round(u*100)+'%';
+const roleById=id=>ROLES.find(r=>r.id===id)||ROLES[0];
+const modelBySel=sel=>CATALOG.find(m=>m.provider+'/'+m.id===sel)||CATALOG[0];
+const roleQuota=id=>modelBySel(roleById(id).model).q;
+function laneCfg(b){return S.laneCfg[S.machine+'/'+S.pid+'/'+b.id]||{role:b.role,model:null,thinking:null}}
+/* Il modello scelto a mano prevale su quello del ruolo, come set_lane_model dopo set_lane_role. */
+function cfgLabel(c){const r=roleById(c.role),sel=c.model||r.model,m=modelBySel(sel),t=c.thinking||r.thinking;return{role:r.id,hue:r.hue,sel,model:m.name,provider:m.provider,q:m.q,thinking:t,thinkingLabel:LEVELS.find(l=>l[0]===t)[1]}}
+function workingProviders(p){return [...new Set(p.branches.filter(b=>b.status!=='idle').map(b=>roleQuota(b.role)))]}
+function meter(u){return `<span class="meter" aria-hidden="true"><i class="${level(u)}" style="width:${Math.round(u*100)}%"></i></span>`}
+const logo=(provider,size)=>`<span class="plogo" style="width:${size}px;height:${size}px" aria-hidden="true">${LOGO[provider]||''}</span>`;
+const roleDot=hue=>`<span class="role-dot" aria-hidden="true"${hue!=null?` style="background:oklch(.6 .13 ${hue})"`:''}></span>`;
+function thinkingMeter(t){const on=LEVELS.find(l=>l[0]===t)?.[3]??0;return `<span class="thinking-meter" aria-hidden="true">${[1,2,3,4,5].map(i=>`<i class="${i<=on?'on':''}" style="height:${4.5+i*1.5}px"></i>`).join('')}</span>`}
+
+function projectMeta(p){
+  const st=pstatus(p),q=p.branches.find(b=>b.status==='question'),working=p.branches.filter(b=>b.status==='working'),queued=(S.queue[S.machine+'/'+p.id]||[]).length;
+  const ctx=st==='question'?(p.branches.length>1?q.name+' · ':'')+q.summary:st==='working'?(working.length>1?working.length+' rami al lavoro':working[0].summary):p.branches[0].summary;
+  let h=`<span class="${st}-text">${STATUS[st]}</span> · ${esc(ctx)}`;
+  if(queued)h+=` · ${queued} in coda`;
+  if(st!=='idle')h+=' · '+workingProviders(p).map(id=>{const q=quotaOf(id),w=worst(q);return `<span class="${level(w.used)==='ok'?'':'warn-text'}">${esc(q.name)} ${pct(w.used)}</span>`}).join(', ');
+  return h;
+}
+/* Provider in uso: quelli dei rami non fermi sulla macchina selezionata. */
+function providersInUse(m=machine()){return new Set(m.projects.filter(p=>!p.closed).flatMap(p=>p.branches.filter(b=>b.status!=='idle').map(b=>roleQuota(b.role))))}
+function quotaHeader(){
+  const used=machine().quota.filter(q=>providersInUse().has(q.id));
+  if(!used.length)return `<button class="qstrip" data-act="quota" data-testid="quota"><span class="qitem">Nessun provider in uso · Quote ›</span></button>`;
+  return `<button class="qstrip" data-act="quota" data-testid="quota" aria-label="Quote dei provider in uso. Mostra tutti i provider">${used.map(q=>{const w=worst(q);return `<span class="qitem"><span><b>${esc(q.name)}</b> ${pct(w.used)} · ${esc(w.label.toLowerCase())}</span>${meter(w.used)}</span>`}).join('')}</button>`;
+}
+function quotaDetailHTML(m=machine()){
+  const inuse=providersInUse(m),list=m.quota.slice().sort((a,b)=>inuse.has(b.id)-inuse.has(a.id));
+  return list.map(q=>`<div class="quota-block"><div class="ph"><strong>${esc(q.name)}</strong><span>${esc(q.account)}</span></div>${q.windows.map(w=>`<div class="win"><span>${esc(w.label)}</span>${meter(w.used)}<em class="${level(w.used)==='ok'?'':'warn-text'}">${pct(w.used)}</em><span class="r">Si azzera ${esc(w.reset)}</span></div>`).join('')}${inUse(q.id,m)}</div>`).join('');
+}
+function inUse(provider,m){const list=m.projects.filter(p=>!p.closed).flatMap(p=>p.branches.filter(b=>b.status!=='idle'&&roleQuota(b.role)===provider).map(b=>p.name+(p.branches.length>1?' · '+b.name:'')));return `<p class="inuse">${list.length?'In uso: '+esc(list.join(', ')):'Non in uso'}</p>`}
+
+function homeHTML(){
+  const o=otherMachine(),list=ordered();
+  return `<main class="home"><div class="home-head"><div class="home-top"><h1>Progetti</h1><button class="new-btn" data-act="newWork" data-testid="new-work">+ Nuovo</button></div><div class="machine"><button data-act="machines" data-testid="machine">${esc(machine().name)} ▾</button>${o.n?`<button class="elsewhere" data-act="machines">● ${o.n} ${o.n>1?'richieste':'richiesta'} su ${esc(o.name)}</button>`:''}</div>${quotaHeader()}</div>${list.length?`<ul class="rows">${list.map(rowHTML).join('')}</ul>`:`<p class="empty">Nessun progetto aperto su ${esc(machine().name)}. Aprine uno in Studio per seguirlo da qui.</p>`}</main>`;
+}
+function rowHTML(p){
+  const st=pstatus(p),expandable=p.branches.length>1||qlist(p.id).length>0,open=S.expanded===p.id;
+  return `<li><button class="row" data-act="project" data-pid="${p.id}" data-testid="project-${p.id}" ${expandable?`aria-expanded="${open}"`:''}><span class="dot ${st}" aria-hidden="true"></span><span><span class="name">${esc(p.name)}</span><span class="meta">${projectMeta(p)}</span></span><span class="chev ${open?'rot':''}" aria-hidden="true">›</span></button>${expandable&&open?expandHTML(p):''}</li>`;
+}
+function branchListHTML(p){
+  return `<div class="list">${p.branches.map(b=>`<button data-act="branch" data-pid="${p.id}" data-bid="${b.id}" data-testid="branch-${b.id}"><span><span class="t">${esc(b.name)}</span><span class="d"><span class="${b.status}-text">${STATUS[b.status]}</span> · ${esc(b.summary)}</span></span><span class="chev" aria-hidden="true">›</span></button>`).join('')}</div>`;
+}
+/* La coda vive dentro il progetto: sotto i rami, con il prossimo lavoro in cima. */
+function qlist(pid){return S.queue[S.machine+'/'+pid]||(S.queue[S.machine+'/'+pid]=[])}
+const taskTitle=t=>{const l=t.prompt.split('\n')[0];return l.length>60?l.slice(0,59)+'…':l};
+function scheduleLabel(s,cfg){if(!s)return '';if(s.kind==='at')return 'Alle '+s.at;const q=quotaOf(cfgLabel(cfg).q);return 'Al reset '+(q?q.name:'quota')}
+function taskRowHTML(p,t,i){
+  const c=cfgLabel(t.cfg),sched=scheduleLabel(t.schedule,t.cfg);
+  return `<button class="task-row" data-act="editTask" data-pid="${p.id}" data-tid="${t.id}" data-testid="task-${t.id}"><span style="min-width:0"><span class="t">${esc(taskTitle(t))}</span><span class="d">${i===0?'<span class="next">Prossimo</span> ·':''}${roleDot(c.hue)}<span class="mono">${c.role}</span> · ${logo(c.provider,12)}${esc(c.model)}${thinkingMeter(c.thinking)}${sched?' · '+esc(sched):''}${t.directives.length?' · '+t.directives.length+(t.directives.length>1?' direttive':' direttiva'):''}${t.images.length?' · '+t.images.length+(t.images.length>1?' immagini':' immagine'):''}</span></span><span class="chev" aria-hidden="true">›</span></button>`;
+}
+function expandHTML(p){
+  const q=qlist(p.id);
+  return `<div class="expand">${branchListHTML(p)}${q.length?`<p class="group-label">Coda · ${q.length}</p><div class="list">${q.map((t,i)=>taskRowHTML(p,t,i)).join('')}</div>`:''}<div class="links"><button data-act="newWork" data-pid="${p.id}">Nuovo lavoro</button><button data-act="history" data-pid="${p.id}">Storico</button></div></div>`;
+}
+
+/* Chat */
+function barHTML(){
+  const p=proj(),b=branch(),many=p.branches.length>1;
+  return `<header class="bar"><button class="icon" data-act="back" data-testid="back-home" aria-label="Chiudi">×</button><button class="title" data-act="branches" data-testid="branch-selector" aria-label="${esc(p.name)}, ramo ${esc(b.name)}${many?'. Cambia ramo':''}"><strong>${esc(p.name)}</strong><span>${esc(b.name)}${many?' ▾':''}</span></button><button class="icon" data-act="menu" data-testid="menu" aria-label="Altre azioni">⋯</button></header>`;
+}
+function transcriptHTML(){
+  const b=branch(),k=key(),s=seed();let h='';
+  if(!S.fresh[k]){
+    h+=`<div class="user-wrap"><div class="user">${esc(s.u)}</div></div><div class="agent">${s.a.map(p=>`<p>${esc(p)}</p>`).join('')}`;
+    if(s.steps)h+=`<details class="steps"><summary>${s.steps.length} passaggi</summary><ol>${s.steps.map(x=>`<li>${esc(x)}</li>`).join('')}</ol></details>`;
+    if(s.art!==false)h+=`<button class="art" data-act="preview" data-testid="open-preview"><span class="thumb" aria-hidden="true">P</span><span><strong>Prenotazioni</strong><small>Anteprima interattiva</small></span></button>`;
+    h+='</div>';
+    if(b.status==='question'&&s.q)h+=`<section class="ask" id="ask" aria-label="Domanda dell’agente"><h3>${esc(s.q.t)}</h3><p>${esc(s.q.d)}</p><div class="opts">${s.q.o.map((o,i)=>`<button data-act="answer" data-i="${i}" ${i?'':'data-testid="answer"'}>${esc(o)}</button>`).join('')}</div></section>`;
+  }
+  for(const m of S.extra[k]||[]){
+    if(m.r==='u')h+=`<div class="user-wrap"><div class="user">${esc(m.t)}</div>${m.tag?`<div class="tag">${esc(m.tag)}</div>`:''}</div>`;
+    else if(m.r==='sys')h+=`<p class="sysline">${esc(m.t)}</p>`;
+    else h+=`<div class="agent"><p>${esc(m.t)}</p></div>`;
+  }
+  return h;
+}
+function noticeHTML(){const p=projectById(S.notice);return p?`<div class="notice" role="status"><span class="dot question" aria-hidden="true"></span><span>${esc(p.name)} aspetta una risposta</span><button class="open" data-act="openNotice">Apri</button><button class="icon" data-act="dismiss" aria-label="Ignora avviso">×</button></div>`:''}
+function chatArea(){return `<div class="chat">${S.notice?noticeHTML():''}<div class="transcript" id="tr" data-testid="transcript">${transcriptHTML()}</div><button class="jump" id="jump" data-act="jump" hidden>Domanda in attesa</button></div>`}
+const placeholder=(busy,mode)=>busy?(mode==='queue'?'Scrivi: parte a fine turno':'Correggi il lavoro in corso'):'Scrivi a Studio';
+function composerHTML(){
+  const p=proj(),b=branch(),k=key();
+  if(S.closed[k])return `<div class="endbar"><span>Ramo chiuso · sola lettura</span><button data-act="goMain" data-testid="go-main">Vai a Principale</button></div>`;
+  if(p.closed)return `<div class="endbar"><span>Progetto chiuso su Studio</span><button data-act="reopen">Riapri</button></div>`;
+  const busy=b.status==='working',mode=S.mode[k]||'queue',draft=S.drafts[k]||'',c=cfgLabel(laneCfg(b));
+  return `<div class="composer ${S.composing||draft?'open':''}"><div><div class="field"><button class="icon" data-act="attach" aria-label="Allega file">+</button><textarea id="msg" data-testid="composer" rows="1" aria-label="Messaggio per Studio" placeholder="${placeholder(busy,mode)}">${esc(draft)}</textarea><button class="send" data-act="send" data-testid="send" aria-label="Invia" ${draft.trim()?'':'disabled'}>↑</button></div><div class="tools">${roleChip(c,'lane','lane-role','chip')}${modelChip(c,'lane','lane-model','chip')}${busy?`<div class="seg" role="group" aria-label="Mentre l’agente lavora"><button data-act="mode" data-m="queue" aria-pressed="${mode==='queue'}">In coda</button><button data-act="mode" data-m="steer" aria-pressed="${mode==='steer'}">Reindirizza</button></div>`:''}</div></div><input type="file" id="file" hidden></div>`;
+}
+function previewHTML(){
+  const k=key(),a=S.artifact[k]||(S.artifact[k]={slot:'',out:''});
+  return `<section class="preview" aria-label="Anteprima Prenotazioni"><header class="bar"><button class="icon" data-act="closePreview" data-testid="preview-back" aria-label="Torna alla chat">‹</button><div class="title"><strong>Prenotazioni</strong><span class="plain">Anteprima · ${esc(branch().name)}</span></div>${WIDE.matches?`<button class="icon" data-act="expand" aria-label="${S.expandPreview?'Mostra anche la chat':'Allarga anteprima'}">${S.expandPreview?'⇤':'⤢'}</button>`:'<span></span>'}</header><div class="artifact" id="artifact"><small>CASA BOTANICA</small><h2>Un momento tutto per te.</h2><p>Scegli un orario per la visita al giardino.</p><div class="slots">${['10:30','14:00','16:30'].map(x=>`<button data-act="slot" data-slot="${x}" class="${a.slot===x?'selected':''}" aria-pressed="${a.slot===x}">${x}</button>`).join('')}</div><button class="cta" data-act="book">Prenota la visita</button><p class="out" role="status">${esc(a.out)}</p></div></section>`;
+}
+function chatScreen(){
+  if(S.preview&&!WIDE.matches)return `<div class="screen">${previewHTML()}</div>`;
+  const col=`<div class="chat-col">${barHTML()}${chatArea()}${composerHTML()}</div>`;
+  return S.preview?`<div class="screen"><div class="wide-split ${S.expandPreview?'expanded':''}">${col}${previewHTML()}</div></div>`:`<div class="screen">${col}</div>`;
+}
+function view(){
+  const list=homeHTML();
+  if(S.route!=='chat')return WIDE.matches?`<div class="b-layout">${list}<div class="b-empty">Scegli un progetto per aprire la conversazione.</div></div>`:list;
+  const reader=`<div class="b-reader" ${WIDE.matches?'':'role="dialog" aria-modal="true"'} aria-label="${esc(proj().name)}">${chatScreen()}</div>`;
+  return WIDE.matches?`<div class="b-layout">${list}${reader}</div>`:list+reader;
+}
+function render(){
+  const tr=document.getElementById('tr');if(tr&&S.lastKey)S.scroll[S.lastKey]=tr.scrollTop;
+  app.innerHTML=view();
+  const nt=document.getElementById('tr');S.lastKey=nt?key():null;
+  if(nt){const k=key();if(S.scroll[k]!=null)nt.scrollTop=S.scroll[k];else{const ask=document.getElementById('ask');nt.scrollTop=ask?ask.offsetTop-16:nt.scrollHeight}watchAsk(nt)}
+  const ta=document.getElementById('msg');if(ta)autosize(ta);
+}
+function autosize(ta,min=40,max=136){ta.style.height=min+'px';ta.style.height=Math.min(ta.scrollHeight,max)+'px'}
+let io;
+function watchAsk(tr){
+  io?.disconnect();const ask=document.getElementById('ask'),jump=document.getElementById('jump');if(!ask||!jump)return;
+  io=new IntersectionObserver(([e])=>{jump.hidden=e.isIntersecting;const above=e.rootBounds&&e.boundingClientRect.top<e.rootBounds.top;jump.textContent=(above?'↑ ':'↓ ')+'Domanda in attesa'},{root:tr,threshold:.2});
+  io.observe(ask);
+}
+function openChat(pid,bid){S.pid=pid;S.bid=bid;S.preview=false;S.expandPreview=false;S.composing=false;S.route='chat';render()}
+function openProject(pid){
+  const p=projectById(pid),req=p.branches.filter(b=>b.status==='question');
+  if(req.length===1)return openChat(pid,req[0].id);
+  // Con lavori in coda anche un progetto a ramo unico si apre, per mostrare la coda.
+  if(p.branches.length===1&&!qlist(pid).length)return openChat(pid,p.branches[0].id);
+  S.expanded=S.expanded===pid?null:pid;render();
+}
+
+/* Fogli */
+function openSheet(label,html,cls=''){
+  if(!sheetRoot.innerHTML)S.lastFocus=document.activeElement;
+  sheetRoot.innerHTML=`<div class="backdrop" data-act="closeSheet" data-self="1"><div class="sheet ${cls}" role="dialog" aria-modal="true" aria-label="${esc(label)}"><div class="grip" aria-hidden="true"></div>${html}</div></div>`;
+  (sheetRoot.querySelector('[data-first]')||sheetRoot.querySelector('.sheet .list>button,.sheet button'))?.focus();
+}
+function closeSheet(){sheetRoot.innerHTML='';S.nw=null;S.lastFocus?.isConnected&&S.lastFocus.focus()}
+const sheetHead=(title,sub,backAct)=>`<div class="head">${backAct?`<button class="icon" data-act="${backAct}" aria-label="Indietro">‹</button>`:''}<div style="flex:1;min-width:0"><h2>${esc(title)}</h2>${sub?`<p class="sub">${sub}</p>`:''}</div><button class="icon" data-act="closeSheet" aria-label="Chiudi">×</button></div>`;
+
+/* Ruolo e modello: chip e pannelli del composer di Remote, condivisi da Nuovo lavoro
+   (ctx 'nw') e dalla chat aperta (ctx 'lane'). */
+function roleChip(c,ctx,testid,cls){return `<button class="${cls} r" data-act="openRoles" data-ctx="${ctx}" data-testid="${testid}" aria-label="Ruolo ${esc(c.role)}. Cambia">${roleDot(c.hue)}<span class="mono">${esc(c.role)}</span></button>`}
+function modelChip(c,ctx,testid,cls){return `<button class="${cls} m" data-act="openModels" data-ctx="${ctx}" data-testid="${testid}" aria-label="Modello ${esc(c.model)}, ragionamento ${esc(c.thinkingLabel)}. Cambia">${logo(c.provider,14)}<span class="lbl-trunc">${esc(c.model)}</span>${thinkingMeter(c.thinking)}</button>`}
+const pickerCfg=()=>S.picker.ctx==='nw'?S.nw.cfg:laneCfg(branch());
+function setPickerCfg(cfg){if(S.picker.ctx==='nw')S.nw.cfg=cfg;else S.laneCfg[key()]=cfg}
+function roleSheetHTML(){
+  const cur=pickerCfg();
+  return sheetHead('Ruolo','',S.picker.ctx==='nw'?'nwMain':null)+`<div class="role-list" role="listbox" aria-label="Ruolo">${ROLES.map(r=>{const m=modelBySel(r.model),active=r.id===cur.role;return `<button class="role-item ${active?'active':''}" role="option" aria-selected="${active}" data-act="pickRole" data-role="${r.id}" data-testid="role-${r.id}">${roleDot(r.hue)}<span class="role-content"><span class="role-top"><span class="role-name mono">${r.id}</span><span class="role-meta">${logo(m.provider,11)}<span>${esc(m.name)} · ${r.thinking}</span></span></span><span class="role-desc">${esc(r.desc)}</span></span>${active?`<span class="check-icon" aria-hidden="true">${ICON.check}</span>`:''}</button>`}).join('')}</div>`;
+}
+function modelListHTML(){
+  const c=cfgLabel(pickerCfg()),q=(S.picker.q||'').toLowerCase().trim();
+  const groups=[...new Set(CATALOG.map(m=>m.provider))].map(p=>[p,CATALOG.filter(m=>m.provider===p&&(!q||(m.name+' '+m.id+' '+p).toLowerCase().includes(q)))]).filter(([,list])=>list.length);
+  if(!groups.length)return '<div class="empty-results">Nessun modello trovato</div>';
+  return groups.map(([p,list])=>{const collapsed=!q&&S.picker.collapsed[p];return `<div class="provider-group"><button class="group-header" data-act="toggleGroup" data-p="${p}" aria-expanded="${!collapsed}"><span class="gh-title"><span class="gh-chev ${collapsed?'collapsed':''}" aria-hidden="true">${ICON.chev}</span>${logo(p,13)}<span>${PROVIDER_NAME[p]}</span></span><span>${list.length}</span></button>${collapsed?'':list.map(m=>{const sel=m.provider+'/'+m.id,selected=sel===c.sel;return `<button class="model-option ${selected?'selected':''}" role="option" aria-selected="${selected}" data-act="pickModel" data-sel="${sel}" data-testid="model-${m.id}"><span class="option-main"><span class="option-name">${esc(m.name)}</span><span class="option-id mono">${m.id}</span></span><span class="badges"><span class="ui-cap" aria-label="Contesto ${m.ctx}">${ICON.ctx}<small>${m.ctx}</small></span><span class="ui-cap" aria-label="Ragionamento">${ICON.reason}</span>${selected?`<span class="check-icon" style="margin:0" aria-hidden="true">${ICON.check}</span>`:''}</span></button>`}).join('')}</div>`}).join('');
+}
+function reasoningHTML(){
+  const c=cfgLabel(pickerCfg()),i=LEVELS.findIndex(l=>l[0]===c.thinking),l=LEVELS[i];
+  return `<span class="level-name" id="level-name" aria-hidden="true">${l[1]}</span><input type="range" class="slider" id="mthink" min="0" max="${LEVELS.length-1}" step="1" value="${i}" aria-label="Livello di ragionamento" aria-valuetext="${l[1]}: ${l[2]}" style="--fill:calc(10px + ${i/(LEVELS.length-1)} * (100% - 18px))" data-testid="thinking">`;
+}
+/* Come il pannello mobile di Remote: scorre solo il catalogo; ragionamento e ricerca restano in basso, a portata di pollice. */
+function modelSheetHTML(){
+  return sheetHead('Modello','',S.picker.ctx==='nw'?'nwMain':null)+`<div class="results" id="mlist" role="listbox" aria-label="Modelli disponibili">${modelListHTML()}</div><div class="reasoning" id="mreason">${reasoningHTML()}</div><div class="msearch">${ICON.search}<input id="msearch" type="search" placeholder="Cerca modello" aria-label="Cerca modello" value="${esc(S.picker.q||'')}"></div>`;
+}
+function openPicker(kind,ctx){
+  if(ctx==='nw'){S.nw.text=document.getElementById('nw-t')?.value??S.nw.text;S.nw.view=kind}
+  S.picker={ctx,kind,q:'',collapsed:{}};
+  if(kind==='roles')openSheet('Ruolo',roleSheetHTML());else openSheet('Modello',modelSheetHTML(),'picker');
+}
+function pickerChanged(){if(S.picker.ctx==='lane'){S.composing=false;render()}}
+
+/* Nuovo lavoro: stesse regole della coda di Studio. Il lavoro parte in Principale
+   se e' libera, altrimenti in un ramo creato apposta; non entra mai in un ramo
+   gia' aperto. Continuare una chat e' scrivere nella chat del progetto. */
+const DIRECTIVES=[['plan','Modalità Piano'],['discuss','Discussione & Requisiti'],['minimal','Soluzione Minimale'],['web','Ricerca Web Online'],['security','Revisione sicurezza']];
+ICON.clip='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551"/></svg>';
+S.queue={
+  'mac/docs':[
+    {id:'t1',prompt:'Aggiorna la guida di installazione per macOS con le schermate del nuovo installer.',cfg:{role:'default',model:null,thinking:null},images:[{name:'installer-1.png',hue:200},{name:'installer-2.png',hue:150}],directives:['minimal'],schedule:null},
+    {id:'t2',prompt:'Traduci la sezione FAQ in inglese mantenendo i link interni.',cfg:{role:'smol',model:null,thinking:null},images:[],directives:[],schedule:{kind:'reset'}}],
+  'mac/omp':[{id:'t3',prompt:'Rivedi i testi del pannello quote: più brevi e senza gergo.',cfg:{role:'plan',model:null,thinking:null},images:[],directives:['plan','discuss'],schedule:{kind:'at',at:'18:00'}}]
+};
+S.consent={};
+function nwInit(pid,task){
+  pid=pid||S.pid||ordered()[0]?.id;
+  const s=task?.schedule;
+  S.nw={pid,edit:task?task.id:null,isolated:false,cfg:{...(task?.cfg||{role:'default',model:null,thinking:null})},text:task?.prompt||'',images:[...(task?.images||[])],directives:[...(task?.directives||[])],view:'main',when:s?s.kind:'manual',at:s?.at||'18:00',okConc:false};
+}
+function nwMainBusy(){const main=projectById(S.nw.pid).branches.find(b=>b.id==='main');return main&&main.status!=='idle'}
+function nwStartsInBranch(){return S.nw.isolated||nwMainBusy()}
+function activeLanes(){return machine().projects.filter(p=>!p.closed).flatMap(p=>p.branches.filter(b=>b.status!=='idle').map(b=>({p,b})))}
+const WHEN={manual:'Quando lo avvio io',reset:'Al reset della quota',at:'A un orario'};
+function nwKeepText(){const n=S.nw;n.text=document.getElementById('nw-t')?.value??n.text}
+function nwRender(){
+  const n=S.nw;if(!n)return;
+  const p=projectById(n.pid),c=cfgLabel(n.cfg),task=n.edit&&qlist(n.pid).find(t=>t.id===n.edit);
+  if(n.view==='roles')return openSheet('Ruolo',roleSheetHTML());
+  if(n.view==='models')return openSheet('Modello',modelSheetHTML(),'picker');
+  if(n.view==='queue'){
+    const q=quotaOf(c.q),w=worst(q),edit=!!n.edit;
+    return openSheet(edit?'Programmazione':'Metti in coda',sheetHead(edit?'Programmazione':'Metti in coda','Quando deve partire?','nwMain')+`<div class="list">${Object.entries(WHEN).map(([v,l])=>`<button data-act="nwWhen" data-w="${v}" data-testid="when-${v}"><span><span class="t">${v==='manual'&&edit?'Nessuna programmazione':l}</span><span class="d">${v==='manual'?'Resta in coda finché non lo avvii':v==='reset'?esc(q.name)+' '+esc(w.label.toLowerCase())+' · si azzera '+esc(w.reset):'Parte all’orario scelto, se la quota lo permette'}</span></span>${n.when===v?'<span class="check" aria-label="selezionato">✓</span>':''}</button>`).join('')}</div>${n.when==='at'?`<div class="form"><input type="time" id="nw-at" value="${n.at}" aria-label="Orario"></div>`:''}<p class="hint">Partirà in Principale se è libera, altrimenti in un nuovo worktree.</p><div class="actions"><button class="primary" data-act="${edit?'nwSchedule':'nwQueue'}" data-testid="confirm-queue">${edit?'Salva programmazione':'Metti in coda'}</button></div>`);
+  }
+  if(n.view==='project')return openSheet('Progetto',sheetHead('Progetto','','nwMain')+`<div class="list">${ordered().map(x=>`<button data-act="nwProject" data-pid="${x.id}" data-testid="nw-project-${x.id}"><span><span class="t">${esc(x.name)}</span><span class="d">${projectMeta(x)}</span></span>${n.pid===x.id?'<span class="check" aria-label="selezionato">✓</span>':''}</button>`).join('')}</div>`);
+  if(n.view==='directives')return openSheet('Direttive',sheetHead('Direttive','','nwMain')+`<div class="list">${DIRECTIVES.map(([id,l])=>{const on=n.directives.includes(id);return `<button role="checkbox" aria-checked="${on}" data-act="nwDirective" data-d="${id}" data-testid="directive-${id}"><span class="t">${esc(l)}</span>${on?`<span class="check-icon" style="margin:0" aria-hidden="true">${ICON.check}</span>`:''}</button>`}).join('')}</div><div class="actions"><button class="primary" data-act="nwMain">Fatto</button></div>`);
+  if(n.view==='menu')return openSheet('Azioni del lavoro',sheetHead(taskTitle(task),'','nwMain')+`<div class="list"><button data-act="nwView" data-v="queue" data-testid="task-schedule"><span><span class="t">Programmazione</span><span class="d">${esc(scheduleLabel(task.schedule,task.cfg)||'Nessuna')}</span></span></button><button data-act="taskMove" data-dir="-1" ${qlist(n.pid)[0]===task?'disabled':''}><span class="t">Sposta su</span></button><button data-act="taskMove" data-dir="1" ${qlist(n.pid).at(-1)===task?'disabled':''}><span class="t">Sposta giù</span></button><button class="danger-btn" data-act="nwView" data-v="delete" data-testid="task-delete"><span class="t">Elimina lavoro</span></button></div>`);
+  if(n.view==='delete')return openSheet('Elimina lavoro',sheetHead('Eliminare il lavoro?','','nwMain')+`<p class="body">«${esc(taskTitle(task))}» verrà tolto dalla coda di ${esc(p.name)}. Non si può annullare.</p><div class="actions"><button data-act="nwMain">Annulla</button><button class="primary" style="background:var(--danger)" data-act="taskDelete" data-testid="confirm-delete">Elimina</button></div>`);
+  if(n.view==='concurrency'){const lanes=activeLanes();return openSheet('Altri agenti al lavoro',sheetHead('Altri agenti al lavoro',esc(machine().name),'nwMain')+`<p class="body">Ci sono già ${lanes.length} agenti attivi. Un nuovo worktree ne aggiunge un altro sulla stessa macchina.</p><div class="lanes">${lanes.map(({p:x,b})=>{const lc=cfgLabel({role:b.role,model:null,thinking:null});return `<div><span class="dot ${b.status}" style="margin:0" aria-hidden="true"></span><span style="flex:1;min-width:0" class="lbl-trunc">${esc(x.name)} · ${esc(b.name)}</span>${logo(lc.provider,12)}<span>${esc(lc.model)}</span></div>`}).join('')}</div><div class="actions"><button data-act="nwMain">Annulla</button><button class="primary" data-act="nwConcOk" data-testid="confirm-concurrency">Avvia comunque</button></div>`)}
+  if(n.view==='consent')return openSheet('File locali',sheetHead('File locali per il worktree',esc(p.name),'nwMain')+`<p class="body">Questi file non sono nel repository. Scegli quali copiare nel nuovo worktree: Studio ricorderà la scelta per il progetto.</p><div class="consent">${[['.env.local',true],['config/dev.local.json',false],['certs/localhost.pem',false]].map(([f,on])=>`<label><input type="checkbox" ${on?'checked':''}><span class="mono">${f}</span></label>`).join('')}</div><div class="actions"><button data-act="nwConsent" data-none="1">Non copiare nulla</button><button class="primary" data-act="nwConsent" data-testid="confirm-consent">Copia e avvia</button></div>`);
+  const hint=n.isolated?'Avvia ora apre un nuovo worktree.':nwStartsInBranch()?'Principale è al lavoro: Avvia ora apre un nuovo worktree.':'Avvia ora parte in Principale.';
+  const head=`<div class="head"><div style="flex:1;min-width:0"><h2>${n.edit?'Lavoro in coda':'Nuovo lavoro'}</h2><p class="sub">Su ${esc(machine().name)}</p></div>${n.edit?'<button class="icon more" data-act="nwView" data-v="menu" data-testid="task-menu" aria-label="Azioni del lavoro">⋯</button>':''}<button class="icon" data-act="closeSheet" aria-label="Chiudi">×</button></div>`;
+  const projectChip=n.edit?`<span class="chip static-chip"><span class="dot ${pstatus(p)}" style="margin:0" aria-hidden="true"></span><span class="lbl-trunc">${esc(p.name)}</span></span>`:`<button class="chip" data-act="nwView" data-v="project" data-testid="nw-project"><span class="dot ${pstatus(p)}" style="margin:0" aria-hidden="true"></span><span class="lbl-trunc">${esc(p.name)}</span> ▾</button>`;
+  const tbar=`<div class="tbar"><button class="icon" data-act="nwAttach" aria-label="Allega immagine">${ICON.clip}</button>${n.images.map((im,i)=>`<span class="thumb-img" style="background:oklch(.86 .05 ${im.hue})" title="${esc(im.name)}"><button data-act="nwRmImg" data-i="${i}" aria-label="Rimuovi ${esc(im.name)}">×</button></span>`).join('')}<button class="chip" data-act="nwView" data-v="directives" data-testid="nw-directives" ${n.directives.length?'aria-pressed="true"':''}>Direttive${n.directives.length?' · '+n.directives.length:''}</button><input type="file" id="nw-file" accept="image/*" multiple hidden></div>`;
+  const actions=n.edit?`<button data-act="taskSave" data-testid="save-task">Salva</button><button class="primary" data-act="nwStart" data-testid="start-work">Avvia ora</button>`:`<button data-act="nwToQueue" data-testid="queue-work">Metti in coda</button><button class="primary" data-act="nwStart" data-testid="start-work">Avvia ora</button>`;
+  openSheet(n.edit?'Lavoro in coda':'Nuovo lavoro',head+`<textarea id="nw-t" class="prompt big" placeholder="Cosa deve fare Studio?" aria-label="Cosa deve fare Studio" ${n.edit?'':'data-first'}>${esc(n.text)}</textarea>${tbar}<div class="ctx">${projectChip}<button class="chip" data-act="nwIso" data-testid="nw-isolated" aria-pressed="${n.isolated}">Nuovo worktree</button><div class="cfg-pill">${roleChip(c,'nw','nw-role','')}${modelChip(c,'nw','nw-model','')}</div></div><p class="hint" style="margin-top:0">${hint}</p><div class="actions">${actions}</div>`);
+  const ta=document.getElementById('nw-t');if(ta)autosize(ta,120,200);
+}
+function nwValidate(){const n=S.nw;nwKeepText();n.text=n.text.trim();if(!n.text){toast('Descrivi il lavoro da fare');return false}return true}
+function nwSchedule(){const n=S.nw;if(n.when==='at')n.at=document.getElementById('nw-at')?.value||n.at;return n.when==='manual'?null:n.when==='reset'?{kind:'reset'}:{kind:'at',at:n.at}}
+/* Stesse conferme di Studio prima di creare un worktree: soglia agenti e file locali da copiare. */
+function nwLaunch(){
+  const n=S.nw,branch=nwStartsInBranch();
+  if(branch&&!n.okConc&&activeLanes().length>=2){n.view='concurrency';return nwRender()}
+  if(branch&&!S.consent[S.machine+'/'+n.pid]){n.view='consent';return nwRender()}
+  const p=projectById(n.pid);let bid='main';
+  if(branch){bid='lavoro-'+(p.branches.length+1);p.branches.push({id:bid,name:'nuovo-lavoro-'+p.branches.length,status:'working',summary:taskTitle({prompt:n.text}),role:n.cfg.role})}
+  const b=p.branches.find(x=>x.id===bid);b.status='working';const k=S.machine+'/'+n.pid+'/'+bid;S.laneCfg[k]=n.cfg;
+  if(bid!=='main'){S.fresh[k]=true;S.extra[k]=[]}
+  (S.extra[k]??=[]).push({r:'u',t:n.text+(n.images.length?` (${n.images.length} immagini)`:'')},{r:'a',t:'Avvio il lavoro. Ti scrivo qui quando serve una tua decisione.'});
+  // Come in Studio, un lavoro avviato esce dalla coda e diventa una sessione.
+  if(n.edit)S.queue[S.machine+'/'+n.pid]=qlist(n.pid).filter(t=>t.id!==n.edit);
+  delete S.scroll[k];closeSheet();openChat(n.pid,bid);toast('Avvio simulato: nessun comando inviato al computer');
+}
+
+const acts={
+  project:d=>openProject(d.pid),
+  branch:d=>{closeSheet();openChat(d.pid,d.bid)},
+  back:()=>{S.route='home';S.preview=false;S.composing=false;render()},
+  branches:()=>{const p=proj();if(p.branches.length<2)return;openSheet('Rami',sheetHead(p.name,'Scegli il ramo')+branchListHTML(p))},
+  menu:()=>{const p=proj(),b=branch(),k=key(),c=cfgLabel(laneCfg(b)),q=quotaOf(c.q),w=q&&worst(q);
+    openSheet('Azioni',sheetHead(p.name,esc(b.name)+(w?` · ${esc(q.name)} ${pct(w.used)} (${esc(w.label.toLowerCase())})`:''))+`<div class="list"><button data-act="newWork" data-pid="${p.id}"><span class="t">Nuovo lavoro</span></button>${p.branches.length>1?'<button data-act="branches"><span class="t">Cambia ramo</span></button>':''}<button data-act="history" data-testid="history"><span class="t">Storico delle sessioni</span></button><button data-act="quota"><span><span class="t">Quote di utilizzo</span><span class="d">${esc(machine().name)}</span></span></button></div><p class="group-label">Simulazioni della demo</p><div class="list"><button data-act="simRequest"><span class="t">Arriva una richiesta da un altro progetto</span></button><button data-act="simCloseBranch" data-testid="close-branch" ${b.id==='main'||S.closed[k]?'disabled':''}><span class="t">L’agente integra e chiude il ramo</span></button><button data-act="simCloseProject" ${p.closed?'disabled':''}><span class="t">Il progetto viene chiuso su Studio</span></button></div>`)},
+  noop:()=>{},
+  history:d=>{const p=d.pid?projectById(d.pid):proj();openSheet('Storico',sheetHead('Storico',esc(p.name)+' · sola lettura')+`<div class="list">${[['Ordine dei progetti','Ieri','Concordato: un progetto per riga, richieste in cima.'],['Tastiera su iPhone','28 ottobre','Corretto lo spazio sotto il campo di scrittura.'],['Notifiche','24 ottobre','Aggiunte le notifiche per domande e fine lavoro.']].map(([t,w,x])=>`<button data-act="historyItem"><span><span class="t">${t}</span><span class="d">${w} · ${x}</span></span></button>`).join('')}</div>`)},
+  historyItem:()=>toast('Lettura dello storico simulata: la sessione attiva non cambia'),
+  quota:()=>openSheet('Quote',sheetHead('Quote di utilizzo',esc(machine().name)+' · '+esc(machine().fetched))+`${quotaDetailHTML()}<div class="actions"><button data-act="refreshQuota">Aggiorna</button></div>`),
+  refreshQuota:()=>{machine().fetched='aggiornate ora';acts.quota();toast('Aggiornamento simulato')},
+  machines:()=>openSheet('Macchine',sheetHead('Macchine')+`<div class="list">${Object.entries(M).map(([id,m])=>{const n=m.projects.filter(p=>!p.closed&&pstatus(p)==='question').length;return `<button data-act="setMachine" data-m="${id}"><span><span class="t">${esc(m.name)}</span><span class="d">${m.projects.filter(p=>!p.closed).length} progetti aperti${n?` · <span class="question-text">${n} ${n>1?'richieste':'richiesta'}</span>`:''}</span></span>${id===S.machine?'<span class="check" aria-label="selezionata">✓</span>':''}</button>`}).join('')}</div>`),
+  setMachine:d=>{S.machine=d.m;S.route='home';S.pid=null;S.bid=null;S.expanded=null;S.notice=null;closeSheet();render()},
+  newWork:d=>{nwInit(d.pid);nwRender()},
+  nwProject:d=>{const n=S.nw;n.pid=d.pid;n.view='main';nwRender()},
+  nwView:d=>{const n=S.nw;n.text=document.getElementById('nw-t')?.value??n.text;n.view=d.v;nwRender()},
+  nwIso:()=>{const n=S.nw;n.text=document.getElementById('nw-t')?.value??n.text;n.isolated=!n.isolated;nwRender()},
+  nwMain:()=>{S.nw.view='main';nwRender()},
+  openRoles:d=>openPicker('roles',d.ctx),
+  openModels:d=>openPicker('models',d.ctx),
+  pickRole:d=>{setPickerCfg({role:d.role,model:null,thinking:null});if(S.picker.ctx==='nw'){S.nw.view='main';nwRender()}else{closeSheet();pickerChanged();toast('Ruolo '+d.role+' per '+branch().name+' (simulato)')}},
+  pickModel:d=>{const cfg=pickerCfg();setPickerCfg({...cfg,model:d.sel});document.getElementById('mlist').innerHTML=modelListHTML();pickerChanged()},
+  toggleGroup:d=>{S.picker.collapsed[d.p]=!S.picker.collapsed[d.p];document.getElementById('mlist').innerHTML=modelListHTML()},
+  editTask:d=>{const t=qlist(d.pid).find(x=>x.id===d.tid);nwInit(d.pid,t);nwRender()},
+  nwToQueue:()=>{if(!nwValidate())return;S.nw.view='queue';nwRender()},
+  nwWhen:d=>{S.nw.when=d.w;nwRender()},
+  nwQueue:()=>{
+    const n=S.nw,p=projectById(n.pid),schedule=nwSchedule();
+    qlist(n.pid).push({id:'t'+Date.now(),prompt:n.text,cfg:{...n.cfg},images:n.images,directives:n.directives,schedule});
+    S.expanded=p.id;closeSheet();render();toast('Salvato nella coda di '+p.name+(schedule?' · '+scheduleLabel(schedule,n.cfg):'')+' (simulato)');
+  },
+  nwSchedule:()=>{const n=S.nw,t=qlist(n.pid).find(x=>x.id===n.edit);t.schedule=nwSchedule();n.view='main';render();nwRender();toast('Programmazione salvata (simulato)')},
+  nwDirective:d=>{const n=S.nw;n.directives=n.directives.includes(d.d)?n.directives.filter(x=>x!==d.d):[...n.directives,d.d];nwRender()},
+  nwAttach:()=>{nwKeepText();document.getElementById('nw-file').click()},
+  nwRmImg:d=>{nwKeepText();S.nw.images.splice(+d.i,1);nwRender()},
+  taskSave:()=>{if(!nwValidate())return;const n=S.nw,t=qlist(n.pid).find(x=>x.id===n.edit);Object.assign(t,{prompt:n.text,cfg:{...n.cfg},images:n.images,directives:n.directives});closeSheet();render();toast('Lavoro aggiornato (simulato)')},
+  taskMove:d=>{const n=S.nw,list=qlist(n.pid),i=list.findIndex(x=>x.id===n.edit),j=i+ +d.dir;if(j<0||j>=list.length)return;[list[i],list[j]]=[list[j],list[i]];render();nwRender();toast(j===0?'Ora è il prossimo della coda':'Spostato in posizione '+(j+1))},
+  taskDelete:()=>{const n=S.nw,p=projectById(n.pid);S.queue[S.machine+'/'+n.pid]=qlist(n.pid).filter(x=>x.id!==n.edit);closeSheet();render();toast('Lavoro eliminato dalla coda di '+p.name+' (simulato)')},
+  nwStart:()=>{if(!nwValidate())return;S.nw.okConc=false;nwLaunch()},
+  nwConcOk:()=>{S.nw.okConc=true;nwLaunch()},
+  nwConsent:d=>{S.consent[S.machine+'/'+S.nw.pid]=true;if(d.none)toast('Nessun file copiato');nwLaunch()},
+  answer:d=>{const b=branch(),s=seed(),k=key(),o=s.q.o[+d.i];b.status='working';b.summary='Applica la scelta';(S.extra[k]??=[]).push({r:'u',t:o},{r:'a',t:'Va bene: '+o.toLowerCase()+'. Aggiorno l’anteprima e ti avviso quando è pronta.'});delete S.scroll[k];render()},
+  send:()=>{
+    const ta=document.getElementById('msg'),text=ta.value.trim();if(!text)return;
+    const b=branch(),k=key(),busy=b.status==='working',mode=S.mode[k]||'queue',list=(S.extra[k]??=[]);
+    list.push({r:'u',t:text,tag:busy?(mode==='queue'?'In coda · parte a fine turno':'Inviato al lavoro in corso'):''});
+    if(!busy){list.push({r:'a',t:'Ricevuto, me ne occupo.'});b.status='working'}
+    S.drafts[k]='';S.composing=false;delete S.scroll[k];render();
+  },
+  mode:d=>{S.mode[key()]=d.m;document.querySelectorAll('.tools .seg button').forEach(x=>x.setAttribute('aria-pressed',x.dataset.m===d.m));document.getElementById('msg').placeholder=placeholder(true,d.m)},
+  attach:()=>document.getElementById('file')?.click(),
+  preview:()=>{S.preview=true;render()},
+  closePreview:()=>{S.preview=false;S.expandPreview=false;render()},
+  expand:()=>{S.expandPreview=!S.expandPreview;render()},
+  slot:d=>{S.artifact[key()].slot=d.slot;render()},
+  book:()=>{const a=S.artifact[key()];a.out=a.slot?'Visita prenotata alle '+a.slot+' (prova).':'Scegli prima un orario.';render()},
+  jump:()=>document.getElementById('ask')?.scrollIntoView({block:'start',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'}),
+  simRequest:()=>{const p=projects().find(x=>x.id!==S.pid&&pstatus(x)==='idle');if(!p){closeSheet();return toast('Nessun altro progetto fermo')}p.branches[0].status='question';p.branches[0].summary='Confermi la nuova struttura della guida?';S.notice=p.id;closeSheet();render()},
+  openNotice:()=>{const id=S.notice;S.notice=null;openProject(id)},
+  dismiss:()=>{S.notice=null;render()},
+  simCloseBranch:()=>{const p=proj(),b=branch(),k=key();S.closed[k]={...b,status:'idle',summary:'Integrato in Principale'};p.branches=p.branches.filter(x=>x.id!==b.id);(S.extra[k]??=[]).push({r:'a',t:'Ho integrato '+b.name+' in Principale e chiuso il ramo. Il lavoro è concluso.'},{r:'sys',t:'Ramo chiuso'});delete S.scroll[k];closeSheet();render()},
+  simCloseProject:()=>{proj().closed=true;closeSheet();render()},
+  reopen:()=>{proj().closed=false;render();toast('Riapertura simulata')},
+  goMain:()=>openChat(S.pid,'main'),
+  closeSheet:(d,el,e)=>{if(d.self&&e.target!==el)return;closeSheet()}
+};
+document.addEventListener('click',e=>{const el=e.target.closest('[data-act]');if(!el||el.disabled)return;acts[el.dataset.act]?.(el.dataset,el,e)});
+app.addEventListener('pointerdown',e=>{if(e.target.closest('.tools,.send,.field .icon'))e.preventDefault()});
+app.addEventListener('input',e=>{if(e.target.id!=='msg')return;S.drafts[key()]=e.target.value;autosize(e.target);document.querySelector('[data-testid=send]').disabled=!e.target.value.trim()});
+sheetRoot.addEventListener('input',e=>{
+  if(e.target.id==='nw-t'){S.nw.text=e.target.value;autosize(e.target,120,200)}
+  if(e.target.id==='msearch'){S.picker.q=e.target.value;document.getElementById('mlist').innerHTML=modelListHTML()}
+  if(e.target.id==='mthink'){const l=LEVELS[+e.target.value];setPickerCfg({...pickerCfg(),thinking:l[0]});document.getElementById('level-name').textContent=l[1];e.target.setAttribute('aria-valuetext',l[1]+': '+l[2]);e.target.style.setProperty('--fill',`calc(10px + ${+e.target.value/(LEVELS.length-1)} * (100% - 18px))`);pickerChanged()}
+});
+app.addEventListener('change',e=>{if(e.target.id==='file'&&e.target.files[0])toast('Allegato '+e.target.files[0].name+' (simulato)')});
+sheetRoot.addEventListener('change',e=>{if(e.target.id!=='nw-file'||!S.nw)return;for(const f of e.target.files)S.nw.images.push({name:f.name,hue:Math.floor(Math.random()*360)});nwRender()});
+app.addEventListener('focusin',e=>{if(e.target.id!=='msg')return;S.composing=true;e.target.closest('.composer').classList.add('open')});
+app.addEventListener('focusout',e=>{if(e.target.id!=='msg')return;const c=e.target.closest('.composer');if(c?.contains(e.relatedTarget))return;S.composing=false;if(!e.target.value.trim())c?.classList.remove('open')});
+document.addEventListener('keydown',e=>{if(e.key!=='Escape')return;if(sheetRoot.innerHTML)closeSheet();else if(S.preview)acts.closePreview()});
+const vv=window.visualViewport;
+// Solo con la tastiera aperta l'altezza segue visualViewport; altrimenti vale 100dvh nativo.
+function fit(){const h=vv?vv.height:innerHeight,root=document.documentElement.style;if(vv&&innerHeight-h>80)root.setProperty('--app-h',h+'px');else root.removeProperty('--app-h')}
+vv?.addEventListener('resize',fit);addEventListener('resize',fit);fit();
+WIDE.addEventListener('change',render);
+render();
+</script>
+</body>
+</html>

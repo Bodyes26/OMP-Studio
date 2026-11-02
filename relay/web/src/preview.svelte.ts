@@ -5,6 +5,7 @@
 import { getContext, setContext } from 'svelte';
 import { t } from './i18n.ts';
 import { connection } from './connection.svelte.ts';
+import { navigation } from './navigation.svelte.ts';
 import { wrapPrototypeCode } from '#lib/prototype/wrapper.ts';
 import {
 	API,
@@ -157,6 +158,7 @@ export class PreviewStore {
 	private customSendCommand?: (hostId: string, cmd: RemoteCommand) => Promise<unknown>;
 	// Un'apertura piu' recente (o la chiusura) invalida i caricamenti precedenti.
 	private loadEpoch = 0;
+	private unlistenNavigation: (() => void) | null = null;
 
 	constructor(ctx?: {
 		hostId?: string;
@@ -172,6 +174,14 @@ export class PreviewStore {
 			this.isHistory = ctx.isHistory ?? false;
 			this.customSendCommand = ctx.sendCommand;
 		}
+		// Il gesto Indietro del sistema chiude l'anteprima prima della chat (R-REM-07).
+		this.unlistenNavigation = navigation.onPreviewClose(() => this.close(true));
+	}
+
+	/** Da chiamare quando la superficie che possiede lo store viene smontata. */
+	destroy(): void {
+		this.unlistenNavigation?.();
+		this.unlistenNavigation = null;
 	}
 
 	setRouteContext(ctx: { hostId: string; projectId: string; laneId: string | null; isHistory?: boolean }): void {
@@ -182,6 +192,22 @@ export class PreviewStore {
 	}
 
 	async open(target: OpenArtifactOptions): Promise<void> {
+		// Riaprire la stessa anteprima la mostra com'era: l'iframe e' rimasto montato
+		// e nascosto, quindi lo stato scelto dentro il prototipo non si perde.
+		const current = this.current;
+		if (
+			current &&
+			target.messageId &&
+			current.messageId === target.messageId &&
+			!this.isLoading &&
+			!this.error &&
+			(current.kind !== 'html' || this.previewUrl)
+		) {
+			this.isOpen = true;
+			navigation.openPreview();
+			return;
+		}
+
 		const epoch = ++this.loadEpoch;
 		this.isLoading = false;
 		this.isOpen = true;
@@ -189,6 +215,7 @@ export class PreviewStore {
 		this.deviceMode = 'fit';
 		this.error = null;
 		this.previewUrl = null;
+		navigation.openPreview();
 
 		const targetKind = target.kind;
 		const targetTitle = target.title || (
@@ -303,7 +330,20 @@ export class PreviewStore {
 		}
 	}
 
-	close(): void {
+	/**
+	 * Nasconde l'anteprima conservandola: tornando alla chat e riaprendola si
+	 * ritrova lo stato del prototipo (R-REM-07). Un caricamento in corso o un
+	 * errore non hanno nulla da conservare e si azzerano. `fromNavigation`: la
+	 * voce di cronologia e' gia' stata tolta dal gesto Indietro.
+	 */
+	close(fromNavigation = false): void {
+		if (this.isLoading || this.error) this.reset();
+		else this.isOpen = false;
+		if (!fromNavigation) navigation.closePreview();
+	}
+
+	/** Dimentica l'anteprima: serve quando la chat passa a un'altra corsia. */
+	reset(): void {
 		this.loadEpoch++;
 		this.isOpen = false;
 		this.current = null;

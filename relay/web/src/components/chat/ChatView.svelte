@@ -1,13 +1,19 @@
 <!--
-  ChatView.svelte — Vista a tutto schermo della chat di una corsia.
-  Header della corsia fedele a Studio (tessera progetto, titolo, tipo, macchina, stato agente, modello),
-  trascrizione cronologica centrata (720px), ComposerTray e Composer / AttentionCard ancorati in basso.
+  ChatView.svelte — Chat di un ramo, pensata per il telefono (Gate R48, R-REM-04…07, R-REM-13).
+
+  Intestazione su una riga (×, progetto con il ramo sotto, ⋯) e nient'altro fra
+  intestazione e campo di scrittura: lo spazio va alla conversazione. Le domande
+  dell'agente stanno nel flusso della chat, con un richiamo quando escono dalla
+  vista; le richieste di altri progetti arrivano come avviso sovrapposto, senza
+  spostare la vista ne' toccare la bozza. Se Studio chiude il ramo o il progetto
+  la conversazione resta leggibile con il suo esito.
 -->
 <script lang="ts">
 	import { t } from '../../i18n.ts';
 	import { tick } from 'svelte';
 	import { navigation, type LiveChatRoute } from '../../navigation.svelte.ts';
 	import { connection } from '../../connection.svelte.ts';
+	import { workSheet } from '../../work.svelte.ts';
 	import type {
 		Feature,
 		RemoteAttention,
@@ -20,13 +26,14 @@
 		RemoteProject
 	} from '../../../../src/protocol.ts';
 	import { applyChatEvent, applyChatPage } from '../../chat/merge.ts';
+	import { getLaneStatus, getLaneSummary } from '../../projectHelpers.ts';
 	import Transcript from './Transcript.svelte';
 	import Composer from './Composer.svelte';
-	import ComposerTray from './ComposerTray.svelte';
 	import AttentionCard from '../AttentionCard.svelte';
-	import StatusMark from '../StatusMark.svelte';
-	import OperationalDetails from '../inbox/OperationalDetails.svelte';
-	import { IconArrowLeft, IconChevronDown, IconChevronUp, IconClose, IconNewChat, IconInfo } from '../../icons.ts';
+	import ContextControl from './ContextControl.svelte';
+	import QuotaSheet from '../QuotaSheet.svelte';
+	import ProjectHistorySheet from '../ProjectHistorySheet.svelte';
+	import { IconClose, IconMore, IconChevronDown, IconArrowUp, IconArrowDown } from '../../icons.ts';
 	import type { RemoteComposerAttachment } from '../../chat/remoteAttachments.svelte.ts';
 	import { setAgentUiHooks } from '#lib/agent/ui-context.ts';
 	import { PreviewStore, setPreviewContext } from '../../preview.svelte.ts';
@@ -34,30 +41,39 @@
 
 	let { route }: { route: LiveChatRoute } = $props();
 
+	const wireLaneId = $derived(route.laneId === 'main' ? null : route.laneId);
+
 	let messages = $state<RemoteChatMessage[]>([]);
 	let beforeCursor = $state<string | null>(null);
 	let loadingHistory = $state(false);
 	let loadingOlder = $state(false);
 	let errorMessage = $state<string | null>(null);
 	let transcriptRef = $state<ReturnType<typeof Transcript> | null>(null);
-	let askMinimized = $state(false);
 	let activeImageModal = $state<{ url: string; mimeType?: string } | null>(null);
 	let imageDialogEl = $state<HTMLDialogElement | null>(null);
-	let showOperationalSheet = $state(false);
-	let operationalDialogEl = $state<HTMLDialogElement | null>(null);
 	let pageVisible = $state(false);
 	let historyReady = $state(false);
 
+	// Fogli aperti dal menu ⋯ e dall'intestazione: uno alla volta.
+	let sheet = $state<'menu' | 'branches' | 'quota' | 'history' | null>(null);
+
 	const preview = new PreviewStore();
 	setPreviewContext(preview);
+	let expandPreview = $state(false);
 
 	$effect(() => {
 		preview.setRouteContext({
 			hostId: route.hostId,
 			projectId: route.projectId,
-			laneId: route.laneId === 'main' ? null : route.laneId,
+			laneId: wireLaneId,
 			isHistory: false
 		});
+	});
+
+	$effect(() => () => preview.destroy());
+
+	$effect(() => {
+		if (!preview.isOpen) expandPreview = false;
 	});
 
 	setAgentUiHooks({
@@ -65,7 +81,7 @@
 			if (!hostFeatures.includes('artifacts')) return;
 			void preview.open({
 				kind: 'mermaid',
-				title: diagram.title || 'Diagram',
+				title: diagram.title || t('artifactKindDiagram'),
 				content: diagram.mermaid
 			});
 		},
@@ -77,24 +93,21 @@
 		switchToTerminal: () => {}
 	});
 
-	let isDesktop = $state(
-		typeof window !== 'undefined' ? window.matchMedia('(min-width: 960px)').matches : true
-	);
+	let isWide = $state(typeof window !== 'undefined' ? window.matchMedia('(min-width: 1024px)').matches : true);
 	$effect(() => {
-		if (typeof window === 'undefined') return;
-		const mql = window.matchMedia('(min-width: 960px)');
+		const mql = window.matchMedia('(min-width: 1024px)');
 		const handler = (e: MediaQueryListEvent) => {
-			isDesktop = e.matches;
+			isWide = e.matches;
 		};
 		mql.addEventListener('change', handler);
-		isDesktop = mql.matches;
+		isWide = mql.matches;
 		return () => mql.removeEventListener('change', handler);
 	});
+
 	$effect(() => {
-		if (operationalDialogEl && !operationalDialogEl.open) operationalDialogEl.showModal();
-	});
-	$effect(() => {
-		const update = () => { pageVisible = document.visibilityState === 'visible'; };
+		const update = () => {
+			pageVisible = document.visibilityState === 'visible';
+		};
 		update();
 		document.addEventListener('visibilitychange', update);
 		return () => document.removeEventListener('visibilitychange', update);
@@ -111,38 +124,39 @@
 	function closeImageModal(): void {
 		activeImageModal = null;
 	}
-	// Risoluzione reattiva di macchina, stato, progetto e corsia
+
 	const host = $derived(connection.hosts.find((h) => h.id === route.hostId));
-	const hostName = $derived(host?.name ?? 'Macchina');
+	const hostName = $derived(host?.name ?? '');
 	const hostFeatures = $derived<Feature[]>(host?.features ?? []);
 	const hostOnline = $derived(Boolean(host?.online));
 
 	const hostState = $derived(connection.hostStates[route.hostId]?.state);
-	const project = $derived<RemoteProject | undefined>(
-		hostState?.projects.find((p) => p.id === route.projectId)
-	);
-	const lane = $derived<RemoteLane | undefined>(
-		project?.lanes.find((l: RemoteLane) => l.id === route.laneId)
-	);
+	const project = $derived<RemoteProject | undefined>(hostState?.projects.find((p) => p.id === route.projectId));
+	const lane = $derived<RemoteLane | undefined>(project?.lanes.find((l) => l.id === route.laneId));
 
-	const isWorking = $derived(lane?.agent.state === 'working');
+	// Ultimo stato visto: quando Studio chiude ramo o progetto la chat resta
+	// leggibile con il suo esito invece di svuotarsi (R-REM-13).
+	let lastProject = $state<RemoteProject | null>(null);
+	let lastLane = $state<RemoteLane | null>(null);
+	$effect(() => {
+		if (project) lastProject = project;
+	});
+	$effect(() => {
+		if (lane) lastLane = lane;
+	});
+
+	const viewProject = $derived(project ?? lastProject);
+	const viewLane = $derived(lane ?? lastLane);
+	const projectClosed = $derived(Boolean(hostState && !project && lastProject));
+	const laneClosed = $derived(Boolean(hostState && project && !lane && lastLane));
+
 	const canSessionControl = $derived(hostFeatures.includes('session_control'));
 	const canChat = $derived(hostFeatures.includes('chat'));
 	const canLaneConfig = $derived(hostFeatures.includes('lane_config'));
-	const isLab = $derived(lane?.kind === 'lab');
-	const showNewChat = $derived(canLaneConfig && !isLab);
+	const isWorking = $derived(lane?.agent.state === 'working');
 
-	const agentState = $derived(lane?.agent.state ?? 'offline');
-	const isBusy = $derived(agentState === 'working' || agentState === 'background' || agentState === 'attention');
-	let startingNewChat = $state(false);
-	const canStartNewChat = $derived(showNewChat && !startingNewChat && connection.status === 'connected');
-	const newChatTooltip = $derived(t('newChat'));
-
-	// Catalogo del composer per ruoli, modelli e ragionamento
 	let catalog = $state<RemoteComposerCatalog | null>(null);
-	const catalogCache: Record<string, RemoteComposerCatalog> = {};
 
-	// Override ottimistici locali durante la selezione
 	let optimisticRole = $state<string | null>(null);
 	let optimisticModelLabel = $state<string | null>(null);
 	let optimisticModelId = $state<string | null>(null);
@@ -155,40 +169,18 @@
 	const activeModelId = $derived(optimisticModelId ?? lane?.agent.modelId ?? null);
 	const activeProvider = $derived(optimisticProvider ?? lane?.agent.provider ?? null);
 
+	// L'override ottimistico vale finche' l'istantanea non conferma il nuovo valore.
 	$effect(() => {
-		if (lane?.agent.role && lane.agent.role === optimisticRole) {
-			optimisticRole = null;
-		}
+		if (lane?.agent.role && lane.agent.role === optimisticRole) optimisticRole = null;
 		if (lane?.agent.modelId && lane.agent.modelId === optimisticModelId) {
 			optimisticModelId = null;
 			optimisticModelLabel = null;
 			optimisticProvider = null;
 		}
-		if (lane?.agent.thinkingLevel && lane.agent.thinkingLevel === optimisticThinking) {
-			optimisticThinking = null;
-		}
+		if (lane?.agent.thinkingLevel && lane.agent.thinkingLevel === optimisticThinking) optimisticThinking = null;
 	});
-	const sessionSnapshot = $derived(lane?.session);
-	const conversationTitle = $derived(
-		sessionSnapshot?.title || lane?.title || route.laneId
-	);
 
-	const operationalChips = $derived.by<string[]>(() => {
-		const list: string[] = [];
-		if (sessionSnapshot?.progress && sessionSnapshot.progress.total > 0) {
-			list.push(`${sessionSnapshot.progress.done}/${sessionSnapshot.progress.total} todo`);
-		}
-		if (sessionSnapshot?.subagents && sessionSnapshot.subagents.length > 0) {
-			list.push(`${sessionSnapshot.subagents.length} sub-agent`);
-		}
-		if (sessionSnapshot?.jobs && sessionSnapshot.jobs.length > 0) {
-			list.push(`${sessionSnapshot.jobs.length} job`);
-		}
-		if (project?.tasks && project.tasks.length > 0) {
-			list.push(`+${project.tasks.length} in coda`);
-		}
-		return list;
-	});
+	const sessionSnapshot = $derived(lane?.session);
 
 	// Ogni tentativo riguarda il risultato esatto gia' disegnato, non il prossimo turno.
 	const attemptedCompletions = new Set<string>();
@@ -210,11 +202,11 @@
 				void connection.sendCommand(route.hostId, {
 					kind: 'mark_session_seen',
 					projectId: route.projectId,
-					laneId: route.laneId === 'main' ? null : route.laneId,
+					laneId: wireLaneId,
 					sessionId,
 					completionId: completion.id
 				}).catch((error: unknown) => {
-					errorMessage = error instanceof Error ? error.message : (error as { message?: string })?.message ?? t('errFailed');
+					errorMessage = messageOf(error, t('errFailed'));
 				});
 			});
 		});
@@ -224,48 +216,23 @@
 		};
 	});
 
-	async function fetchComposerCatalog(force = false): Promise<void> {
-		if (!canLaneConfig || connection.status !== 'connected') return;
-		const cacheKey = `${route.hostId}:${route.projectId}:${route.laneId}`;
-		if (!force && catalogCache[cacheKey]) {
-			catalog = catalogCache[cacheKey];
-			return;
-		}
+	function messageOf(err: unknown, fallback: string): string {
+		if (err instanceof Error && err.message) return err.message;
+		const message = (err as { message?: unknown } | null)?.message;
+		return typeof message === 'string' && message ? message : fallback;
+	}
 
+	async function fetchComposerCatalog(): Promise<void> {
+		if (!canLaneConfig || connection.status !== 'connected') return;
 		try {
 			const res = (await connection.sendCommand(route.hostId, {
 				kind: 'composer_catalog',
 				projectId: route.projectId,
-				laneId: route.laneId === 'main' ? null : route.laneId
+				laneId: wireLaneId
 			})) as RemoteComposerCatalog | undefined;
-
-			if (res) {
-				catalog = res;
-				catalogCache[cacheKey] = res;
-			}
+			if (res) catalog = res;
 		} catch (err: unknown) {
-			console.warn('[ChatView] Errore caricamento catalogo:', err);
-		}
-	}
-
-	async function handleNewSession(): Promise<void> {
-		if (!canStartNewChat) return;
-		const interrupt = isBusy;
-		if (interrupt && !window.confirm(t('newChatConfirmInterrupt'))) return;
-		startingNewChat = true;
-		errorMessage = null;
-		try {
-			await connection.sendCommand(route.hostId, {
-				kind: 'new_session',
-				projectId: route.projectId,
-				laneId: route.laneId === 'main' ? null : route.laneId,
-				interrupt
-			});
-		} catch (err: unknown) {
-			const e = err as { message?: string };
-			errorMessage = e?.message || t('newChatError');
-		} finally {
-			startingNewChat = false;
+			console.warn('[ChatView] Catalogo del composer non disponibile:', err);
 		}
 	}
 
@@ -274,27 +241,28 @@
 		optimisticRole = roleId;
 		const roleOpt = catalog?.roles.find((r) => r.id === roleId);
 		if (roleOpt?.model) {
-			const [p, m] = roleOpt.model.split('/');
-			optimisticProvider = p;
-			optimisticModelId = m;
-			optimisticModelLabel = roleOpt.modelLabel ?? m;
-			if (roleOpt.thinking) {
-				optimisticThinking = roleOpt.thinking;
-			}
+			const slash = roleOpt.model.indexOf('/');
+			optimisticProvider = slash > 0 ? roleOpt.model.slice(0, slash) : null;
+			optimisticModelId = slash > 0 ? roleOpt.model.slice(slash + 1) : roleOpt.model;
+			optimisticModelLabel = roleOpt.modelLabel ?? optimisticModelId;
+			if (roleOpt.thinking) optimisticThinking = roleOpt.thinking;
 		}
 		errorMessage = null;
 		try {
 			await connection.sendCommand(route.hostId, {
 				kind: 'set_lane_role',
 				projectId: route.projectId,
-				laneId: route.laneId === 'main' ? null : route.laneId,
+				laneId: wireLaneId,
 				roleId
 			});
-			void fetchComposerCatalog(true);
+			void fetchComposerCatalog();
 		} catch (err: unknown) {
 			optimisticRole = null;
-			const e = err as { message?: string };
-			errorMessage = e?.message || 'Errore impostazione ruolo';
+			optimisticModelId = null;
+			optimisticModelLabel = null;
+			optimisticProvider = null;
+			optimisticThinking = null;
+			errorMessage = messageOf(err, t('errFailed'));
 		}
 	}
 
@@ -302,24 +270,23 @@
 		if (!canLaneConfig) return;
 		optimisticProvider = provider;
 		optimisticModelId = modelId;
-		const modelOpt = catalog?.models.find((m) => m.provider === provider && m.id === modelId);
-		optimisticModelLabel = modelOpt?.name ?? modelId;
+		optimisticModelLabel = catalog?.models.find((m) => m.provider === provider && m.id === modelId)?.name ?? modelId;
 		errorMessage = null;
 		try {
 			await connection.sendCommand(route.hostId, {
 				kind: 'set_lane_model',
 				projectId: route.projectId,
-				laneId: route.laneId === 'main' ? null : route.laneId,
+				laneId: wireLaneId,
 				provider,
 				modelId
 			});
-			void fetchComposerCatalog(true);
+			// I livelli di ragionamento dipendono dal modello appena scelto.
+			void fetchComposerCatalog();
 		} catch (err: unknown) {
 			optimisticModelId = null;
 			optimisticModelLabel = null;
 			optimisticProvider = null;
-			const e = err as { message?: string };
-			errorMessage = e?.message || 'Errore impostazione modello';
+			errorMessage = messageOf(err, t('errFailed'));
 		}
 	}
 
@@ -331,63 +298,95 @@
 			await connection.sendCommand(route.hostId, {
 				kind: 'set_lane_thinking',
 				projectId: route.projectId,
-				laneId: route.laneId === 'main' ? null : route.laneId,
+				laneId: wireLaneId,
 				level
 			});
 		} catch (err: unknown) {
 			optimisticThinking = null;
-			const e = err as { message?: string };
-			errorMessage = e?.message || 'Errore impostazione thinking';
+			errorMessage = messageOf(err, t('errFailed'));
 		}
 	}
 
-	const laneKindLabel = $derived.by(() => {
-		const kind = lane?.kind;
-		if (kind === 'main') return t('laneMain');
-		if (kind === 'worktree') return t('laneWorktree');
-		if (kind === 'lab') return t('laneLab');
-		return '';
-	});
-
-	const modelLabel = $derived(lane?.agent.modelLabel ?? lane?.agent.modelId ?? null);
-
-	// Richiesta che aspetta questa corsia: quelle senza corsia sono della Principale,
-	// con la stessa regola del quadro (ProjectCard).
-	const pendingAttention = $derived(
-		project?.attention?.find(
-			(a: RemoteAttention) => a.laneId === route.laneId || (!a.laneId && route.laneId === 'main')
-		) ?? null
+	// Richiesta di questa corsia: quelle senza corsia sono della Principale.
+	const pendingAttention = $derived<RemoteAttention | null>(
+		project?.attention?.find((a) => a.laneId === route.laneId || (!a.laneId && route.laneId === 'main')) ?? null
 	);
 
-	const attentionText = $derived(
-		pendingAttention
-			? pendingAttention.questions[0]?.question ||
-					pendingAttention.title ||
-					pendingAttention.message ||
-					t('attentionFallbackTitle')
-			: ''
-	);
+	// --- Richiamo «Domanda in attesa» (R-REM-05) ---------------------------------
+	let attentionEl = $state<HTMLDivElement | null>(null);
+	let attentionPosition = $state<'visible' | 'above' | 'below'>('visible');
 
 	$effect(() => {
-		if (!pendingAttention) {
-			askMinimized = false;
+		const el = attentionEl;
+		if (!el) {
+			attentionPosition = 'visible';
+			return;
 		}
+		const observer = new IntersectionObserver(
+			([entry]) => {
+				if (entry.isIntersecting) {
+					attentionPosition = 'visible';
+					return;
+				}
+				const rootTop = entry.rootBounds?.top ?? 0;
+				attentionPosition = entry.boundingClientRect.top < rootTop ? 'above' : 'below';
+			},
+			{ threshold: 0.2 }
+		);
+		observer.observe(el);
+		return () => observer.disconnect();
 	});
 
-	// Ultimi todo ricevuti nella sessione per il vassoio del composer
-	const latestTodos = $derived.by(() => {
-		for (let i = messages.length - 1; i >= 0; i--) {
-			const m = messages[i];
-			if (m.tool?.todos && m.tool.todos.length > 0) {
-				return m.tool.todos;
+	function scrollToAttention(): void {
+		attentionEl?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+	}
+
+	// --- Richieste in altri progetti (R-REM-05) -----------------------------------
+	interface ElsewhereNotice {
+		requestId: string;
+		projectId: string;
+		laneId: string;
+		projectName: string;
+		text: string;
+	}
+
+	let notice = $state<ElsewhereNotice | null>(null);
+	// Richieste gia' presenti all'apertura: l'avviso riguarda solo quelle nuove.
+	let knownRequests: Set<string> | null = null;
+
+	$effect(() => {
+		const projects = hostState?.projects;
+		if (!projects) return;
+		const current = new Set<string>();
+		let fresh: ElsewhereNotice | null = null;
+		for (const p of projects) {
+			for (const a of p.attention ?? []) {
+				current.add(a.requestId);
+				if (p.id === route.projectId || !knownRequests || knownRequests.has(a.requestId)) continue;
+				fresh = {
+					requestId: a.requestId,
+					projectId: p.id,
+					laneId: a.laneId ?? 'main',
+					projectName: p.name,
+					text: a.questions[0]?.question || a.title || a.message || t('attentionFallbackTitle')
+				};
 			}
 		}
-		return [];
+		knownRequests = current;
+		if (fresh) notice = fresh;
+		else if (notice && !current.has(notice.requestId)) notice = null;
 	});
 
-	// Motivazione di disabilitazione se il composer non puo' operare
+	function openNotice(): void {
+		const target = notice;
+		if (!target) return;
+		notice = null;
+		navigation.openChat({ hostId: route.hostId, projectId: target.projectId, laneId: target.laneId });
+	}
+
+	// --- Stato del composer -------------------------------------------------------
 	const disabledReason = $derived.by(() => {
-		if (connection.status !== 'connected') return t('running');
+		if (connection.status !== 'connected') return t('chatReconnecting');
 		if (!hostOnline) return t('chatMachineOffline');
 		if (!canSessionControl) return t('chatNoSessionControl');
 		if (!project || !lane) return t('chatLaneDisappeared');
@@ -400,25 +399,26 @@
 			await connection.sendCommand(route.hostId, {
 				kind: 'refresh_context',
 				projectId: route.projectId,
-				laneId: route.laneId === 'main' ? null : route.laneId,
+				laneId: wireLaneId,
 				force
 			});
 		} catch (err: unknown) {
-			errorMessage = err instanceof Error ? err.message : (err as { message?: string })?.message ?? String(err);
+			errorMessage = messageOf(err, t('errFailed'));
 		}
 	}
 
 	async function handleCompactContext(): Promise<void> {
 		if (!canSessionControl || disabledReason) return;
 		errorMessage = null;
+		sheet = null;
 		try {
 			await connection.sendCommand(route.hostId, {
 				kind: 'compact_context',
 				projectId: route.projectId,
-				laneId: route.laneId === 'main' ? null : route.laneId
+				laneId: wireLaneId
 			});
 		} catch (err: unknown) {
-			errorMessage = err instanceof Error ? err.message : (err as { message?: string })?.message ?? String(err);
+			errorMessage = messageOf(err, t('errFailed'));
 		}
 	}
 
@@ -431,11 +431,10 @@
 			const res = (await connection.sendCommand(route.hostId, {
 				kind: 'chat_history',
 				projectId: route.projectId,
-				laneId: route.laneId === 'main' ? null : route.laneId,
+				laneId: wireLaneId,
 				before: null,
 				limit: 50
 			})) as RemoteChatPage | undefined;
-
 			if (res && Array.isArray(res.messages)) {
 				const merged = applyChatPage(messages, res, 'replace');
 				messages = merged.messages;
@@ -443,8 +442,7 @@
 				historyReady = true;
 			}
 		} catch (err: unknown) {
-			const e = err as { message?: string };
-			errorMessage = e?.message || t('chatLoadError');
+			errorMessage = messageOf(err, t('chatLoadError'));
 		} finally {
 			loadingHistory = false;
 		}
@@ -458,19 +456,17 @@
 			const res = (await connection.sendCommand(route.hostId, {
 				kind: 'chat_history',
 				projectId: route.projectId,
-				laneId: route.laneId === 'main' ? null : route.laneId,
+				laneId: wireLaneId,
 				before: beforeCursor,
 				limit: 50
 			})) as RemoteChatPage | undefined;
-
 			if (res && Array.isArray(res.messages)) {
 				const merged = applyChatPage(messages, res, 'prepend');
 				messages = merged.messages;
 				beforeCursor = merged.before;
 			}
 		} catch (err: unknown) {
-			const e = err as { message?: string };
-			errorMessage = e?.message || t('chatLoadOlderError');
+			errorMessage = messageOf(err, t('chatLoadOlderError'));
 		} finally {
 			loadingOlder = false;
 		}
@@ -480,8 +476,9 @@
 		if (event.kind === 'reset') {
 			messages = [];
 			beforeCursor = null;
+			preview.reset();
 			void loadInitialHistory();
-			void fetchComposerCatalog(true);
+			void fetchComposerCatalog();
 			return;
 		}
 		messages = applyChatEvent(messages, event);
@@ -495,54 +492,31 @@
 		errorMessage = null;
 		try {
 			const effectiveAttachments = attachments ? [...attachments] : [];
-			const stillStaging = effectiveAttachments.some((a) => a.status === 'staging');
-			if (stillStaging) {
-				throw new Error('Salvataggio allegati ancora in corso sull\'host, attendi...');
-			}
-			const hasError = effectiveAttachments.some((a) => a.status === 'error');
-			if (hasError) {
-				throw new Error('Uno o più allegati non sono stati salvati correttamente. Rimuovili o riprova.');
-			}
+			if (effectiveAttachments.some((a) => a.status === 'staging')) throw new Error(t('chatAttachStaging'));
+			if (effectiveAttachments.some((a) => a.status === 'error')) throw new Error(t('chatAttachFailed'));
 
 			const stagedNonImages = effectiveAttachments.filter((a) => a.kind !== 'image' && a.stagedPath);
-
 			let totalInlineBytes = 0;
-			const imagesToSend: RemotePromptImage[] = [];
 			let totalPhysicalImageBytes = 0;
+			const imagesToSend: RemotePromptImage[] = [];
 			for (const att of effectiveAttachments) {
-				if (att.kind === 'image') {
-					if (att.stagedPath) {
-						imagesToSend.push({
-							type: 'image',
-							path: att.stagedPath,
-							mimeType: att.mimeType || 'image/jpeg'
-						});
-					} else if (att.base64) {
-						totalInlineBytes += att.base64.length;
-						imagesToSend.push({
-							type: 'image',
-							data: att.base64,
-							mimeType: att.mimeType || 'image/jpeg'
-						});
-					}
-					if (att.base64) {
-						totalPhysicalImageBytes += att.base64.length;
-					}
+				if (att.kind !== 'image') continue;
+				if (att.stagedPath) {
+					imagesToSend.push({ type: 'image', path: att.stagedPath, mimeType: att.mimeType || 'image/jpeg' });
+				} else if (att.base64) {
+					totalInlineBytes += att.base64.length;
+					imagesToSend.push({ type: 'image', data: att.base64, mimeType: att.mimeType || 'image/jpeg' });
 				}
+				if (att.base64) totalPhysicalImageBytes += att.base64.length;
 			}
-
-			if (totalInlineBytes > 400_000) {
-				throw new Error('Il payload complessivo delle immagini inline supera il limite del frame remoto (512 KiB). Attendi il completamento dello staging.');
-			}
-
-			if (totalPhysicalImageBytes + text.length > 700_000) {
-				throw new Error('Il payload complessivo delle immagini supera il limite massimo supportato dal modello (700 KB base64). Riduci le immagini allegate.');
-			}
+			// Il frame del relay e' di 512 KiB: le immagini inline devono restarci dentro.
+			if (totalInlineBytes > 400_000) throw new Error(t('chatImagesFrameLimit'));
+			if (totalPhysicalImageBytes + text.length > 700_000) throw new Error(t('chatImagesModelLimit'));
 
 			await connection.sendCommand(route.hostId, {
 				kind: 'send_prompt',
 				projectId: route.projectId,
-				laneId: route.laneId === 'main' ? null : route.laneId,
+				laneId: wireLaneId,
 				text: text.trim(),
 				whileBusy,
 				images: imagesToSend.length > 0 ? imagesToSend : undefined,
@@ -550,12 +524,9 @@
 					? stagedNonImages.map((a) => ({ path: a.stagedPath!, name: a.name }))
 					: undefined
 			});
-			queueMicrotask(() => {
-				transcriptRef?.scrollToBottom(true);
-			});
+			queueMicrotask(() => transcriptRef?.scrollToBottom(true));
 		} catch (err: unknown) {
-			const e = err as { message?: string };
-			errorMessage = e?.message || t('chatSendError');
+			errorMessage = messageOf(err, t('chatSendError'));
 			throw err;
 		}
 	}
@@ -566,11 +537,10 @@
 			await connection.sendCommand(route.hostId, {
 				kind: 'abort',
 				projectId: route.projectId,
-				laneId: route.laneId === 'main' ? null : route.laneId
+				laneId: wireLaneId
 			});
 		} catch (err: unknown) {
-			const e = err as { message?: string };
-			errorMessage = e?.message || t('chatStopError');
+			errorMessage = messageOf(err, t('chatStopError'));
 			throw err;
 		}
 	}
@@ -579,258 +549,328 @@
 		if (connection.status !== 'connected') return;
 		void loadInitialHistory();
 		void fetchComposerCatalog();
-		const unlisten = connection.subscribeChat(
-			route.hostId,
-			route.projectId,
-			route.laneId,
-			(ev) => {
-				handleIncomingChatEvent(ev);
-			}
-		);
-		return () => {
-			unlisten();
-		};
+		const unlisten = connection.subscribeChat(route.hostId, route.projectId, route.laneId, (ev) => {
+			handleIncomingChatEvent(ev);
+		});
+		return () => unlisten();
 	});
+
+	// --- Navigazione fra rami e chiusure ------------------------------------------
+	function openLane(laneId: string): void {
+		sheet = null;
+		if (laneId === route.laneId) return;
+		navigation.openChat({ hostId: route.hostId, projectId: route.projectId, laneId });
+	}
+
+	let reopening = $state(false);
+	const canReopen = $derived(Boolean(lastProject?.path) && hostFeatures.includes('projects') && hostOnline);
+
+	async function reopenProject(): Promise<void> {
+		const path = lastProject?.path;
+		if (!path || reopening) return;
+		reopening = true;
+		errorMessage = null;
+		try {
+			const res = (await connection.sendCommand(route.hostId, { kind: 'open_project', path })) as
+				| { projectId: string }
+				| undefined;
+			const projectId = res?.projectId ?? route.projectId;
+			navigation.openChat({ hostId: route.hostId, projectId, laneId: 'main' });
+		} catch (err: unknown) {
+			errorMessage = messageOf(err, t('errFailed'));
+		} finally {
+			reopening = false;
+		}
+	}
+
+	const laneKindLabel = $derived.by(() => {
+		if (viewLane?.kind === 'main') return t('laneMain');
+		if (viewLane?.kind === 'lab') return t('laneLab');
+		return '';
+	});
+	const branchLabel = $derived(viewLane ? (viewLane.kind === 'main' ? t('laneMain') : viewLane.title) : route.laneId);
+	const hasOtherLanes = $derived((project?.lanes.length ?? 0) > 1);
+
+	const menuItems = $derived.by(() => {
+		const items: Array<{ id: 'new' | 'branches' | 'history' | 'quota'; label: string }> = [];
+		if (project && hostFeatures.includes('task_edit')) items.push({ id: 'new', label: t('chatMenuNewWork') });
+		if (hasOtherLanes) items.push({ id: 'branches', label: t('chatMenuBranches') });
+		if (viewProject && hostFeatures.includes('fleet')) items.push({ id: 'history', label: t('chatMenuHistory') });
+		if (hostState?.quota) items.push({ id: 'quota', label: t('chatMenuQuota') });
+		return items;
+	});
+
+	function pickMenu(id: 'new' | 'branches' | 'history' | 'quota'): void {
+		if (id === 'new') {
+			sheet = null;
+			workSheet.openNew({ hostId: route.hostId, projectId: route.projectId });
+			return;
+		}
+		sheet = id;
+	}
+
+	const showContextRow = $derived(Boolean(lane?.agent.context) && canSessionControl);
+	const hideChatColumn = $derived(isWide && preview.isOpen && expandPreview);
 </script>
 
-<div class="chat-view-container safe-top">
-	<!-- Intestazione della corsia (allineata alla barra superiore di Studio) -->
-	<header class="chat-header">
+<div class="chat-view safe-top">
+	<header class="chat-bar">
 		<button
 			type="button"
-			class="header-back-btn"
+			class="icon-btn"
 			onclick={() => navigation.closeChat()}
-			aria-label={t('chatBack')}
-			title={t('chatBack')}
+			aria-label={t('chatClose')}
+			title={t('chatClose')}
+			data-testid="back-home"
 		>
-			<IconArrowLeft />
+			<IconClose />
 		</button>
 
-		<div class="header-titles">
-			<div class="header-context-line">
-				{#if project}
-					<span
-						class="project-hue-dot"
-						style:background="hsl({project.hue}, 70%, 55%)"
-					></span>
-					<span class="context-project">{project.name}</span>
-					<span class="header-sep">/</span>
-				{/if}
-				<span class="context-host">{hostName}</span>
-				{#if laneKindLabel}
-					<span class="header-sep">/</span>
-					<span class="lane-kind-badge">{laneKindLabel}</span>
-				{/if}
-				{#if lane?.title}
-					<span class="header-sep">/</span>
-					<span class="context-lane">{lane.title}</span>
-				{/if}
-			</div>
-			<div class="header-title-line">
-				<h1 class="chat-conversation-title">{conversationTitle}</h1>
-			</div>
-		</div>
-
-		<div class="header-right">
-			{#if showNewChat}
-				<button
-					type="button"
-					class="composer-icon-btn new-chat-btn"
-					disabled={!canStartNewChat}
-					onclick={handleNewSession}
-					title={newChatTooltip}
-					aria-label={newChatTooltip}
-				>
-					<IconNewChat />
-				</button>
-			{/if}
-
-			{#if lane}
-				<span class="agent-mark-wrapper" class:pulse={isWorking}>
-					<StatusMark
-						status={lane.agent.state === 'working'
-							? 'running'
-							: lane.agent.state === 'attention'
-								? 'attention'
-								: lane.agent.state === 'error'
-									? 'failed'
-									: 'pending'}
-					/>
-				</span>
-			{/if}
-
-			{#if !canLaneConfig && modelLabel}
-				<span class="header-model-label font-mono">{modelLabel}</span>
-			{/if}
-			<button
-				type="button"
-				class="composer-icon-btn op-info-btn"
-				onclick={() => (showOperationalSheet = !showOperationalSheet)}
-				title={t('operationalDetailsTitle')}
-				aria-label={t('operationalDetailsTitle')}
-			>
-				<IconInfo />
-			</button>
-			<span class="header-host-name">{hostName}</span>
-		</div>
-	</header>
-	{#if operationalChips.length > 0}
 		<button
 			type="button"
-			class="chat-operational-chips-bar"
-			onclick={() => (showOperationalSheet = true)}
-			aria-label={t('operationalDetailsTitle')}
+			class="bar-title"
+			disabled={!hasOtherLanes}
+			onclick={() => (sheet = 'branches')}
+			aria-label={hasOtherLanes ? t('chatChangeBranch') : undefined}
+			data-testid="branch-switch"
 		>
-			{#each operationalChips as chip (chip)}
-				<span class="op-chip font-mono">{chip}</span>
-			{/each}
+			<span class="bar-project">{viewProject?.name ?? ''}</span>
+			<span class="bar-branch">
+				<span class="branch-dot {viewLane && project && lane ? getLaneStatus(project, lane) : 'idle'}" aria-hidden="true"></span>
+				<span class="branch-name">{branchLabel}</span>
+				{#if laneKindLabel && viewLane?.kind !== 'main'}
+					<span class="branch-kind">· {laneKindLabel}</span>
+				{/if}
+				{#if hasOtherLanes}
+					<span class="branch-caret" aria-hidden="true"><IconChevronDown /></span>
+				{/if}
+			</span>
 		</button>
-	{/if}
 
+		<button
+			type="button"
+			class="icon-btn"
+			onclick={() => (sheet = 'menu')}
+			aria-label={t('chatMenu')}
+			title={t('chatMenu')}
+			aria-haspopup="dialog"
+			data-testid="menu"
+		>
+			<IconMore />
+		</button>
+	</header>
 
 	{#if errorMessage}
-		<div class="chat-error-banner" role="alert">
+		<div class="chat-error" role="alert">
 			<span>{errorMessage}</span>
+			<button type="button" class="error-dismiss" onclick={() => (errorMessage = null)} aria-label={t('close')}>
+				<IconClose />
+			</button>
 		</div>
 	{/if}
 
-	<div class="chat-content-split" class:has-preview={preview.isOpen}>
-		<div class="chat-stream-column">
-	<!-- Trascrizione centrale dei turni -->
-	<main class="chat-main">
-		<Transcript
-			bind:this={transcriptRef}
-			{messages}
-			{loadingOlder}
-			hasOlder={Boolean(beforeCursor)}
-			onLoadOlder={loadOlderMessages}
-			{isWorking}
-			agentActivityText={lane?.agent.activity?.text}
-			agentActivityStartedAt={lane?.agent.activity?.at}
-			onOpenImage={openImageModal}
-			{hostFeatures}
-			hostId={route.hostId}
-			projectId={route.projectId}
-			laneId={route.laneId === 'main' ? null : route.laneId}
-			isHistory={false}
-		/>
-	</main>
-
-	<!-- Riquadro inferiore: AttentionCard o Composer docked -->
-	<footer class="footer-stack">
-		<div class="footer-inner readable">
-			{#if pendingAttention && !askMinimized}
-				<!-- La richiesta di attenzione prende il posto del composer come AskCard in Studio -->
-				<div class="attention-dock-slot rv-lift">
-					<div class="attention-dock-header">
-						<button
-							type="button"
-							class="composer-icon-btn"
-							onclick={() => (askMinimized = true)}
-							title={t('chatAskMinimize')}
-							aria-label={t('chatAskMinimize')}
-						>
-							<IconChevronDown />
-						</button>
-					</div>
-					<div class="attention-scroll-area">
-						<AttentionCard
-							hostId={route.hostId}
-							{hostName}
-							{hostFeatures}
-							projectId={route.projectId}
-							attention={pendingAttention}
-						/>
-					</div>
-				</div>
-			{:else}
-				{#if pendingAttention && askMinimized}
-					<button type="button" class="minimized-ask" onclick={() => (askMinimized = false)}>
-						<StatusMark status="attention" />
-						<span class="minimized-ask-text">{attentionText}</span>
-						<span class="minimized-ask-action">{t('chatAskReopen')}</span>
-						<IconChevronUp />
-					</button>
-				{/if}
-				<ComposerTray todos={latestTodos} />
-				<Composer
-					isWorking={lane?.agent.state === 'working'}
-					disabled={Boolean(disabledReason)}
-					{disabledReason}
-					{canSessionControl}
-					hasLaneConfig={canLaneConfig}
-					role={activeRole}
-					modelLabel={activeModelLabel}
-					modelId={activeModelId}
-					provider={activeProvider}
-					thinkingLevel={activeThinking}
-					machineName={hostName}
-					{catalog}
-					context={lane?.agent.context ?? null}
-					onRefreshContext={handleRefreshContext}
-					onCompactContext={handleCompactContext}
-					onSend={handleSend}
-					onStop={handleStop}
-					onSetRole={handleSetRole}
-					onSetModel={handleSetModel}
-					onSetThinking={handleSetThinking}
-					onNewSession={handleNewSession}
+	<div class="chat-split" class:has-preview={preview.isOpen}>
+		<div class="chat-column" class:hidden={hideChatColumn}>
+			<main class="chat-main">
+				<Transcript
+					bind:this={transcriptRef}
+					{messages}
+					{loadingOlder}
+					hasOlder={Boolean(beforeCursor)}
+					onLoadOlder={loadOlderMessages}
+					{isWorking}
+					agentActivityText={lane?.agent.activity?.text}
+					agentActivityStartedAt={lane?.agent.activity?.at}
 					onOpenImage={openImageModal}
+					subagents={sessionSnapshot?.subagents ?? []}
+					jobs={sessionSnapshot?.jobs ?? []}
+					{hostFeatures}
 					hostId={route.hostId}
 					projectId={route.projectId}
-					laneId={route.laneId === 'main' ? null : route.laneId}
-					{connection}
-					onNotice={(type, msg) => {
-						errorMessage = msg;
-					}}
-				/>
-			{/if}
-		</div>
-	</footer>
-		</div>
-		{#if preview.isOpen}
-			<PreviewSurface {preview} />
-		{/if}
+					laneId={wireLaneId}
+					isHistory={false}
+				>
+					{#if pendingAttention && project}
+						<div class="attention-inline" bind:this={attentionEl} data-testid="attention">
+							<AttentionCard
+								hostId={route.hostId}
+								{hostName}
+								{hostFeatures}
+								projectId={route.projectId}
+								attention={pendingAttention}
+							/>
+						</div>
+					{/if}
+				</Transcript>
 
-		{#if project && (!preview.isOpen || !isDesktop)}
-			<aside class="chat-operational-sidebar">
-				<OperationalDetails
-					hostId={route.hostId}
-					{hostName}
-					{hostFeatures}
-					{project}
-					{lane}
-				/>
-			</aside>
-		{/if}
+				{#if pendingAttention && attentionPosition !== 'visible'}
+					<button type="button" class="ask-pill" onclick={scrollToAttention} data-testid="ask-pill">
+						{#if attentionPosition === 'above'}
+							<IconArrowUp />
+						{:else}
+							<IconArrowDown />
+						{/if}
+						<span>{t('chatAskPending')}</span>
+					</button>
+				{/if}
+
+				{#if notice}
+					<div class="notice" role="status">
+						<span class="notice-dot" aria-hidden="true"></span>
+						<span class="notice-text">
+							<strong>{notice.projectName}</strong>
+							<span>{notice.text}</span>
+						</span>
+						<button type="button" class="notice-open" onclick={openNotice}>{t('chatNoticeOpen')}</button>
+						<button type="button" class="icon-btn small" onclick={() => (notice = null)} aria-label={t('close')}>
+							<IconClose />
+						</button>
+					</div>
+				{/if}
+			</main>
+
+			<footer class="chat-footer">
+				<div class="footer-inner">
+					{#if projectClosed}
+						<div class="endbar" data-testid="project-closed">
+							<span>{t('chatProjectClosed')}</span>
+							{#if canReopen}
+								<button type="button" class="endbar-btn" disabled={reopening} onclick={reopenProject}>
+									{t('chatProjectReopen')}
+								</button>
+							{/if}
+						</div>
+					{:else if laneClosed}
+						<div class="endbar" data-testid="branch-closed">
+							<span>{t('chatBranchClosed')}</span>
+							<button type="button" class="endbar-btn" onclick={() => openLane('main')}>
+								{t('chatGoToMain')}
+							</button>
+						</div>
+					{:else}
+						<Composer
+							isWorking={isWorking}
+							disabled={Boolean(disabledReason)}
+							{disabledReason}
+							{canSessionControl}
+							hasLaneConfig={canLaneConfig}
+							role={activeRole}
+							modelLabel={activeModelLabel}
+							modelId={activeModelId}
+							provider={activeProvider}
+							thinkingLevel={activeThinking}
+							{catalog}
+							onSend={handleSend}
+							onStop={handleStop}
+							onSetRole={handleSetRole}
+							onSetModel={handleSetModel}
+							onSetThinking={handleSetThinking}
+							onOpenImage={openImageModal}
+							hostId={route.hostId}
+							projectId={route.projectId}
+							laneId={wireLaneId}
+							{connection}
+							onNotice={(_variant, msg) => {
+								errorMessage = msg;
+							}}
+						/>
+					{/if}
+				</div>
+			</footer>
+		</div>
+
+		<PreviewSurface
+			{preview}
+			{expandPreview}
+			onToggleExpand={isWide ? () => (expandPreview = !expandPreview) : undefined}
+		/>
 	</div>
 
-	{#if showOperationalSheet && project}
-		<dialog
-			bind:this={operationalDialogEl}
-			class="mobile-operational-backdrop"
-			onclick={(event) => { if (event.target === event.currentTarget) showOperationalSheet = false; }}
-			oncancel={() => (showOperationalSheet = false)}
-			onclose={() => (showOperationalSheet = false)}
-			aria-label={t('operationalDetailsTitle')}
-		>
-			<div class="mobile-operational-sheet">
-				<OperationalDetails
-					hostId={route.hostId}
-					{hostName}
-					{hostFeatures}
-					{project}
-					{lane}
-					onClose={() => (showOperationalSheet = false)}
-				/>
+	{#if sheet === 'menu' || sheet === 'branches'}
+		<div class="backdrop" role="presentation" onclick={(e) => { if (e.target === e.currentTarget) sheet = null; }}>
+			<div
+				class="sheet"
+				role="dialog"
+				aria-modal="true"
+				aria-label={sheet === 'menu' ? t('chatMenu') : t('chatMenuBranches')}
+			>
+				<div class="grip" aria-hidden="true"></div>
+				{#if sheet === 'menu'}
+					<div class="sheet-head">
+						<h2>{viewProject?.name ?? ''}</h2>
+						<span class="sheet-sub">{branchLabel}</span>
+					</div>
+					<div class="menu-list">
+						{#each menuItems as item (item.id)}
+							<button type="button" class="menu-item" onclick={() => pickMenu(item.id)} data-testid={`menu-${item.id}`}>
+								{item.label}
+							</button>
+						{/each}
+						{#if showContextRow && lane?.agent.context}
+							<div class="menu-item context-row">
+								<span>{t('chatMenuContext')}</span>
+								<ContextControl
+									context={lane.agent.context}
+									disabled={isWorking}
+									onRefresh={handleRefreshContext}
+									onCompact={handleCompactContext}
+								/>
+							</div>
+						{/if}
+					</div>
+				{:else}
+					<div class="sheet-head">
+						<h2>{t('chatMenuBranches')}</h2>
+						<span class="sheet-sub">{viewProject?.name ?? ''}</span>
+					</div>
+					<div class="menu-list">
+						{#each project?.lanes ?? [] as candidate (candidate.id)}
+							{@const status = getLaneStatus(project!, candidate)}
+							<button
+								type="button"
+								class="menu-item branch-item"
+								class:current={candidate.id === route.laneId}
+								onclick={() => openLane(candidate.id)}
+								aria-current={candidate.id === route.laneId ? 'true' : undefined}
+								data-testid={`branch-${candidate.id}`}
+							>
+								<span class="branch-dot {status}" aria-hidden="true"></span>
+								<span class="branch-text">
+									<strong>{candidate.kind === 'main' ? t('laneMain') : candidate.title}</strong>
+									<small>{getLaneSummary(project!, candidate)}</small>
+								</span>
+							</button>
+						{/each}
+					</div>
+				{/if}
 			</div>
-		</dialog>
+		</div>
 	{/if}
+
+	{#if sheet === 'quota' && host && hostState}
+		<QuotaSheet
+			hostId={route.hostId}
+			{hostName}
+			features={hostFeatures}
+			quota={hostState.quota}
+			projects={hostState.projects}
+			onClose={() => (sheet = null)}
+		/>
+	{/if}
+
+	{#if sheet === 'history' && viewProject}
+		<ProjectHistorySheet hostId={route.hostId} project={viewProject} onClose={() => (sheet = null)} />
+	{/if}
+
 	{#if activeImageModal}
-		<dialog bind:this={imageDialogEl} class="image-modal-backdrop"
+		<dialog
+			bind:this={imageDialogEl}
+			class="image-modal"
 			aria-label={t('chatImageCountSingular')}
 			onclick={(event) => { if (event.target === event.currentTarget) closeImageModal(); }}
-			onclose={closeImageModal} oncancel={closeImageModal}>
+			onclose={closeImageModal}
+			oncancel={closeImageModal}
+		>
 			<button type="button" class="image-modal-close" onclick={closeImageModal} aria-label={t('close')}>
 				<IconClose />
 			</button>
@@ -838,8 +878,477 @@
 		</dialog>
 	{/if}
 </div>
+
 <style>
-	.image-modal-backdrop {
+	.chat-view {
+		position: relative;
+		width: 100%;
+		height: 100%;
+		background: var(--bg-sunken);
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+		overflow: hidden;
+	}
+
+	/* ------------------------------------------------ Intestazione a una riga */
+
+	.chat-bar {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		min-height: 52px;
+		padding: 4px 6px;
+		background: var(--bg-raised);
+		border-bottom: 1px solid var(--line);
+		flex-shrink: 0;
+	}
+
+	.icon-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 44px;
+		height: 44px;
+		flex-shrink: 0;
+		border: none;
+		border-radius: 12px;
+		background: transparent;
+		color: var(--ink-muted);
+		cursor: pointer;
+		--icon-size: 20px;
+	}
+
+	.icon-btn.small {
+		width: 36px;
+		height: 36px;
+		--icon-size: 16px;
+	}
+
+	.icon-btn:hover {
+		background: var(--bg-hover);
+		color: var(--ink);
+	}
+
+	.icon-btn:focus-visible,
+	.bar-title:focus-visible,
+	.menu-item:focus-visible,
+	.endbar-btn:focus-visible,
+	.ask-pill:focus-visible,
+	.notice-open:focus-visible {
+		outline: 2px solid var(--brand);
+		outline-offset: -2px;
+	}
+
+	.bar-title {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 1px;
+		padding: 4px 6px;
+		border: none;
+		border-radius: 10px;
+		background: transparent;
+		color: var(--ink);
+		font: inherit;
+		text-align: left;
+		cursor: pointer;
+	}
+
+	.bar-title:disabled {
+		cursor: default;
+	}
+
+	.bar-title:not(:disabled):active {
+		background: var(--bg-hover);
+	}
+
+	.bar-project {
+		max-width: 100%;
+		font-size: 16px;
+		font-weight: 650;
+		line-height: 1.25;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.bar-branch {
+		display: flex;
+		align-items: center;
+		gap: 5px;
+		max-width: 100%;
+		font-size: 13px;
+		color: var(--ink-muted);
+		line-height: 1.25;
+		min-width: 0;
+	}
+
+	.branch-name {
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		min-width: 0;
+	}
+
+	.branch-kind {
+		flex-shrink: 0;
+		color: var(--ink-faint);
+	}
+
+	.branch-caret {
+		display: inline-flex;
+		flex-shrink: 0;
+		--icon-size: 13px;
+	}
+
+	.branch-dot {
+		width: 7px;
+		height: 7px;
+		border-radius: 50%;
+		flex-shrink: 0;
+		background: var(--ink-faint);
+	}
+
+	.branch-dot.question {
+		background: var(--warn);
+	}
+
+	.branch-dot.working {
+		background: var(--brand);
+	}
+
+	.chat-error {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 4px 4px 4px 12px;
+		background: color-mix(in oklch, var(--danger) 14%, var(--bg-raised));
+		color: var(--danger);
+		font-size: var(--text-caption);
+		flex-shrink: 0;
+	}
+
+	.chat-error span {
+		flex: 1;
+		min-width: 0;
+	}
+
+	.error-dismiss {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 36px;
+		height: 36px;
+		border: none;
+		background: transparent;
+		color: inherit;
+		cursor: pointer;
+		--icon-size: 16px;
+	}
+
+	/* ------------------------------------------------ Corpo: chat e anteprima */
+
+	.chat-split {
+		position: relative;
+		flex: 1;
+		min-height: 0;
+		display: flex;
+		overflow: hidden;
+	}
+
+	.chat-column {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		height: 100%;
+		overflow: hidden;
+	}
+
+	.chat-column.hidden {
+		display: none;
+	}
+
+	@media (min-width: 1024px) {
+		.chat-split.has-preview .chat-column {
+			min-width: 340px;
+		}
+	}
+
+	.chat-main {
+		position: relative;
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		min-height: 0;
+		min-width: 0;
+		overflow: hidden;
+	}
+
+	.attention-inline {
+		margin: 12px 0 4px;
+		scroll-margin: 16px;
+	}
+
+	.ask-pill {
+		position: absolute;
+		left: 50%;
+		bottom: 12px;
+		transform: translateX(-50%);
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		min-height: 40px;
+		padding: 0 16px;
+		border: 1px solid color-mix(in oklab, var(--warn) 40%, transparent);
+		border-radius: 20px;
+		background: color-mix(in oklab, var(--warn) 14%, var(--bg-raised));
+		color: var(--ink);
+		font: inherit;
+		font-size: var(--text-label);
+		font-weight: 560;
+		box-shadow: var(--shadow-raise);
+		cursor: pointer;
+		z-index: 5;
+		--icon-size: 15px;
+	}
+
+	.notice {
+		position: absolute;
+		top: 8px;
+		left: 8px;
+		right: 8px;
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 6px 4px 6px 12px;
+		border: 1px solid var(--line-strong);
+		border-radius: 14px;
+		background: var(--bg-raised);
+		box-shadow: var(--shadow-overlay);
+		z-index: 6;
+		animation: notice-in 0.2s ease-out;
+	}
+
+	.notice-dot {
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		background: var(--warn);
+		flex-shrink: 0;
+	}
+
+	.notice-text {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		font-size: var(--text-caption);
+		line-height: 1.3;
+	}
+
+	.notice-text strong {
+		color: var(--ink);
+	}
+
+	.notice-text span {
+		color: var(--ink-muted);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.notice-open {
+		min-height: 36px;
+		padding: 0 12px;
+		border: 1px solid var(--line-strong);
+		border-radius: 10px;
+		background: transparent;
+		color: var(--ink);
+		font: inherit;
+		font-size: var(--text-caption);
+		font-weight: 600;
+		cursor: pointer;
+		flex-shrink: 0;
+	}
+
+	@keyframes notice-in {
+		from {
+			opacity: 0;
+			transform: translateY(-8px);
+		}
+	}
+
+	/* ------------------------------------------------ Piede: composer o esito */
+
+	.chat-footer {
+		flex-shrink: 0;
+		padding: 6px 8px calc(8px + var(--safe-bottom, 0px));
+		background: var(--bg-sunken);
+	}
+
+	.footer-inner {
+		width: 100%;
+		max-width: 720px;
+		margin: 0 auto;
+	}
+
+	.endbar {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		min-height: 52px;
+		padding: 6px 6px 6px 14px;
+		border: 1px solid var(--line);
+		border-radius: 16px;
+		background: var(--bg-raised);
+		color: var(--ink-muted);
+		font-size: var(--text-label);
+	}
+
+	.endbar-btn {
+		min-height: 40px;
+		padding: 0 14px;
+		border: none;
+		border-radius: 12px;
+		background: var(--brand-ink);
+		color: var(--bg-base);
+		font: inherit;
+		font-weight: 600;
+		cursor: pointer;
+		flex-shrink: 0;
+	}
+
+	.endbar-btn:disabled {
+		opacity: 0.5;
+		cursor: default;
+	}
+
+	/* ------------------------------------------------ Fogli */
+
+	.backdrop {
+		position: fixed;
+		inset: 0;
+		z-index: 50;
+		background: color-mix(in oklch, var(--ink) 35%, transparent);
+		display: flex;
+		align-items: flex-end;
+		justify-content: center;
+		animation: fade 0.16s ease-out;
+	}
+
+	.sheet {
+		width: 100%;
+		max-width: 560px;
+		max-height: min(80dvh, var(--app-height, 100dvh));
+		display: flex;
+		flex-direction: column;
+		background: var(--bg-raised);
+		border-radius: 18px 18px 0 0;
+		padding: 8px 12px calc(12px + env(safe-area-inset-bottom));
+		box-shadow: var(--shadow-overlay);
+		animation: sheet-up 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+	}
+
+	.grip {
+		width: 36px;
+		height: 5px;
+		border-radius: 3px;
+		background: var(--line-strong);
+		margin: 0 auto 8px;
+		flex-shrink: 0;
+	}
+
+	.sheet-head {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		padding: 4px 6px 10px;
+		border-bottom: 1px solid var(--line);
+	}
+
+	.sheet-head h2 {
+		margin: 0;
+		font-size: 17px;
+		font-weight: 650;
+		color: var(--ink);
+	}
+
+	.sheet-sub {
+		font-size: var(--text-caption);
+		color: var(--ink-muted);
+	}
+
+	.menu-list {
+		display: flex;
+		flex-direction: column;
+		overflow-y: auto;
+		padding-top: 4px;
+	}
+
+	.menu-item {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		min-height: 52px;
+		padding: 8px 10px;
+		border: none;
+		border-radius: 12px;
+		background: transparent;
+		color: var(--ink);
+		font: inherit;
+		font-size: 16px;
+		text-align: left;
+		cursor: pointer;
+	}
+
+	.menu-item:hover {
+		background: var(--bg-hover);
+	}
+
+	.context-row {
+		justify-content: space-between;
+		cursor: default;
+	}
+
+	.branch-item.current {
+		background: var(--bg-hover);
+	}
+
+	.branch-text {
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+	}
+
+	.branch-text small {
+		font-size: var(--text-caption);
+		color: var(--ink-muted);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	@keyframes fade {
+		from {
+			opacity: 0;
+		}
+	}
+
+	@keyframes sheet-up {
+		from {
+			transform: translateY(24px);
+			opacity: 0.6;
+		}
+	}
+
+	/* ------------------------------------------------ Immagine a schermo intero */
+
+	.image-modal {
 		position: fixed;
 		inset: 0;
 		z-index: 9999;
@@ -855,15 +1364,14 @@
 		border: 0;
 		margin: 0;
 		box-sizing: border-box;
-		backdrop-filter: blur(4px);
 	}
 
 	.image-modal-close {
 		position: absolute;
-		top: var(--space-4);
+		top: calc(var(--space-4) + env(safe-area-inset-top, 0px));
 		right: var(--space-4);
-		width: 40px;
-		height: 40px;
+		width: 44px;
+		height: 44px;
 		border-radius: 50%;
 		background: rgba(255, 255, 255, 0.15);
 		border: none;
@@ -872,400 +1380,21 @@
 		align-items: center;
 		justify-content: center;
 		cursor: pointer;
-		transition: background 120ms ease;
 		--icon-size: 20px;
-	}
-
-	.image-modal-close:hover {
-		background: rgba(255, 255, 255, 0.3);
 	}
 
 	.image-modal-img {
 		max-width: 90vw;
-		max-height: 85vh;
 		max-height: 85dvh;
 		object-fit: contain;
 		border-radius: var(--radius-md);
-		box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
 	}
 
-	.chat-view-container {
-		position: relative;
-		width: 100%;
-		height: 100%;
-		background: var(--bg-sunken);
-		display: flex;
-		flex-direction: column;
-		min-width: 0;
-		overflow: hidden;
-	}
-
-	/* ---------------------------------------------------- Intestazione corsia */
-
-	.chat-header {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		min-height: 56px;
-		padding: 6px var(--space-3);
-		background: var(--bg-raised);
-		border-bottom: 1px solid var(--line);
-		flex-shrink: 0;
-		z-index: var(--z-dock);
-	}
-
-	.header-back-btn {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: 32px;
-		height: 32px;
-		background: transparent;
-		border: none;
-		border-radius: var(--radius-md);
-		color: var(--ink-muted);
-		cursor: pointer;
-		--icon-size: 18px;
-		transition:
-			background-color var(--dur-fast),
-			color var(--dur-fast);
-	}
-
-	.header-back-btn:hover {
-		background: var(--bg-hover);
-		color: var(--ink);
-	}
-
-	.header-titles {
-		display: flex;
-		flex-direction: column;
-		align-items: flex-start;
-		gap: 3px;
-		min-width: 0;
-		overflow: hidden;
-		flex: 1;
-	}
-	.header-context-line {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		width: 100%;
-		min-width: 0;
-		white-space: nowrap;
-		overflow: hidden;
-		font-size: var(--text-mini, 11px);
-		color: var(--ink-muted);
-		line-height: 1.2;
-	}
-
-	.context-project,
-	.context-host,
-	.context-lane {
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-
-	.header-title-line {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		min-width: 0;
-		width: 100%;
-	}
-
-	.chat-conversation-title {
-		font-size: var(--text-label, 14px);
-		font-weight: 600;
-		color: var(--ink);
-		margin: 0;
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-
-	.chat-operational-chips-bar {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		padding: 5px 12px;
-		background: var(--bg-sunken);
-		border-bottom: 1px solid var(--line);
-		overflow-x: auto;
-		cursor: pointer;
-		border-top: none;
-		border-left: none;
-		border-right: none;
-		text-align: left;
-		flex-shrink: 0;
-	}
-
-	.op-chip {
-		display: inline-flex;
-		align-items: center;
-		padding: 2px 8px;
-		border-radius: var(--radius-sm, 6px);
-		background: var(--bg-base);
-		border: 1px solid var(--line);
-		font-size: var(--text-mini, 11px);
-		color: var(--ink-muted);
-		white-space: nowrap;
-		flex-shrink: 0;
-	}
-
-	.op-info-btn {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	.chat-content-split {
-		position: relative;
-		flex: 1;
-		min-height: 0;
-		display: flex;
-		flex-direction: row;
-		overflow: hidden;
-	}
-
-	.chat-stream-column {
-		flex: 1;
-		min-width: 0;
-		display: flex;
-		flex-direction: column;
-		height: 100%;
-		overflow: hidden;
-	}
-	@media (min-width: 960px) {
-		/* Su mobile la containment cambierebbe il riferimento del foglio fixed. */
-		.chat-content-split { container-type: inline-size; }
-		.chat-stream-column {
-			min-width: 360px;
-		}
-	}
-
-
-	.chat-operational-sidebar {
-		width: 320px;
-		flex-shrink: 0;
-		border-left: 1px solid var(--line);
-		display: none;
-		background: var(--bg-base);
-		overflow: hidden;
-	}
-
-	@media (min-width: 1200px) {
-		.chat-operational-sidebar {
-			display: flex;
-		}
-	}
-
-	.mobile-operational-backdrop {
-		position: fixed;
-		inset: 0;
-		margin: 0;
-		padding: 0;
-		border: 0;
-		width: 100%;
-		height: 100dvh;
-		max-width: none;
-		max-height: none;
-		box-sizing: border-box;
-		z-index: 200;
-		background: rgba(0, 0, 0, 0.45);
-		display: flex;
-		flex-direction: column;
-		justify-content: flex-end;
-	}
-
-	.mobile-operational-sheet {
-		max-height: 80vh;
-		max-height: 80dvh;
-		padding-bottom: env(safe-area-inset-bottom, 0px);
-		background: var(--bg-base);
-		border-radius: var(--radius-xl, 16px) var(--radius-xl, 16px) 0 0;
-		overflow: hidden;
-		display: flex;
-		flex-direction: column;
-		box-shadow: var(--shadow-dock);
-		border-top: 1px solid var(--line);
-	}
-
-
-	.project-hue-dot {
-		width: 8px;
-		height: 8px;
-		border-radius: var(--radius-full);
-		flex-shrink: 0;
-	}
-
-
-	.header-sep {
-		color: var(--ink-faint);
-		opacity: 0.6;
-		flex-shrink: 0;
-	}
-
-
-	.lane-kind-badge {
-		padding: 1px 6px;
-		background: var(--bg-hover);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		font-size: var(--text-caption);
-		color: var(--ink-faint);
-		white-space: nowrap;
-		flex-shrink: 0;
-	}
-
-	.header-right {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		margin-left: auto;
-		flex-shrink: 0;
-	}
-
-	.agent-mark-wrapper {
-		display: inline-flex;
-		align-items: center;
-	}
-
-	.agent-mark-wrapper.pulse {
-		animation: state-pulse 2s infinite ease-in-out;
-	}
-
-	.header-model-label {
-		font-size: var(--text-caption);
-		color: var(--ink-muted);
-		padding: 1px 6px;
-		background: var(--bg-base);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		white-space: nowrap;
-	}
-
-	.header-host-name {
-		font-size: var(--text-caption);
-		color: var(--ink-faint);
-		white-space: nowrap;
-	}
-
-	.chat-error-banner {
-		padding: var(--space-2) var(--space-3);
-		background: color-mix(in oklch, var(--danger) 15%, transparent);
-		border-bottom: 1px solid color-mix(in oklch, var(--danger) 30%, transparent);
-		color: var(--danger);
-		font-size: var(--text-sm);
-		text-align: center;
-	}
-
-	/* ---------------------------------------------------- Trascrizione */
-
-	.chat-main {
-		flex: 1;
-		display: flex;
-		flex-direction: column;
-		min-height: 0;
-		min-width: 0;
-		overflow: hidden;
-	}
-
-	/* ---------------------------------------------------- Dock inferiore */
-
-	.footer-stack {
-		position: relative;
-		display: flex;
-		flex-direction: column;
-		background: var(--bg-sunken);
-		padding-bottom: calc(var(--space-3) + var(--safe-bottom));
-		min-width: 0;
-		z-index: var(--z-sticky);
-	}
-
-	.footer-inner {
-		position: relative;
-		width: 100%;
-		display: flex;
-		flex-direction: column;
-		min-width: 0;
-		box-sizing: border-box;
-		padding-inline: var(--space-3);
-	}
-
-	.footer-inner.readable {
-		max-width: 720px;
-		margin: 0 auto;
-	}
-
-	.attention-dock-slot {
-		width: 100%;
-	}
-
-	/*
-	 * La domanda scorre dentro un'area propria: senza tetto la scheda cresce oltre
-	 * il pannello (che e' overflow:hidden) e il pulsante di conferma finisce sotto
-	 * la barra di Safari, irraggiungibile.
-	 */
-	.attention-scroll-area {
-		max-height: min(calc(var(--app-height, 100dvh) * 0.72), max(80px, calc(var(--app-height, 100dvh) - 180px - env(safe-area-inset-top, 0px) - var(--safe-bottom, 0px))));
-		overflow-y: auto;
-		overscroll-behavior-y: contain;
-		-webkit-overflow-scrolling: touch;
-		border-radius: var(--radius-xl);
-	}
-
-	/* La riduzione sta sopra la scheda, a destra, come la freccia di AskCard. */
-	.attention-dock-header {
-		display: flex;
-		justify-content: flex-end;
-		margin-bottom: var(--space-1);
-	}
-
-	/* Riga ridotta: la domanda resta visibile sopra il composer, come il vassoio di Studio. */
-	.minimized-ask {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		width: 100%;
-		min-height: 36px;
-		margin-bottom: var(--space-2);
-		padding: 0 var(--space-3);
-		border: 1px solid color-mix(in oklab, var(--warn) 35%, transparent);
-		border-radius: var(--radius-lg);
-		background: color-mix(in oklab, var(--warn) 10%, var(--bg-raised));
-		color: var(--ink);
-		font-size: var(--text-label);
-		text-align: left;
-		--icon-size: 14px;
-	}
-
-	.minimized-ask:hover {
-		background: color-mix(in oklab, var(--warn) 16%, var(--bg-raised));
-	}
-
-	.minimized-ask-text {
-		flex: 1;
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.minimized-ask-action {
-		flex-shrink: 0;
-		color: var(--ink-muted);
-		font-size: var(--text-caption);
-	}
-
-	@media (max-width: 480px) {
-		.header-model-label,
-		.header-host-name {
-			display: none;
-		}
-		.header-back-btn {
-			width: 44px;
-			height: 44px;
+	@media (prefers-reduced-motion: reduce) {
+		.backdrop,
+		.sheet,
+		.notice {
+			animation: none;
 		}
 	}
 </style>

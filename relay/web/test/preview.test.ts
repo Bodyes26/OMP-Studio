@@ -250,7 +250,7 @@ describe('PreviewStore state and caching', () => {
 		expect(store.error).toBe(t('previewErrorNotFound'));
 	});
 
-	it('resets state completely on close', async () => {
+	it('resets state completely on reset', async () => {
 		await store.open({
 			kind: 'mermaid',
 			title: 'Test',
@@ -258,7 +258,7 @@ describe('PreviewStore state and caching', () => {
 		});
 		expect(store.isOpen).toBe(true);
 
-		store.close();
+		store.reset();
 		expect(store.isOpen).toBe(false);
 		expect(store.current).toBeNull();
 		expect(store.error).toBeNull();

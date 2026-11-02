@@ -1,8 +1,10 @@
 /**
- * Instradamento delle notifiche Web Push verso l'elemento visivo corretto nella PWA
- * (scroll automatico e focus su macchina, progetto, richiesta di attenzione o corsia).
+ * Instradamento delle notifiche Web Push nella nuova navigazione (Gate R48,
+ * R-REM-16): la notifica porta alla macchina interessata e, se riguarda un
+ * progetto, apre la chat del ramo della richiesta (la Principale se non e' detto).
  */
 import { navigation } from './navigation.svelte.ts';
+import { machineSelection } from './machine.svelte.ts';
 
 export interface NotificationTarget {
 	hostId?: string;
@@ -11,54 +13,15 @@ export interface NotificationTarget {
 	requestId?: string;
 }
 
-/**
- * Trova l'elemento target nel DOM e lo porta al centro con uno scorrimento fluido.
- * Include tentativi ripetuti se i componenti non sono ancora idratati.
- */
-export function navigateToNotificationTarget(target: NotificationTarget, attempts = 15): void {
-	if (typeof document === 'undefined') return;
-
-	// Notifica su una corsia (con o senza domanda): apre la chat della corsia
-	if (target.hostId && target.projectId) {
-		navigation.openChat({
-			hostId: target.hostId,
-			projectId: target.projectId,
-			laneId: target.laneId ?? 'main'
-		});
-		return;
-	}
-
-	const findTargetElement = (): HTMLElement | null => {
-		if (target.requestId) {
-			const el = document.getElementById(`attention-${target.requestId}`);
-			if (el) return el;
-		}
-		if (target.projectId) {
-			const el = document.getElementById(`project-${target.projectId}`);
-			if (el) return el;
-		}
-		if (target.hostId) {
-			const el = document.getElementById(`host-${target.hostId}`);
-			if (el) return el;
-		}
-		return null;
-	};
-
-	const element = findTargetElement();
-	if (element) {
-		element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-		element.classList.add('highlight-focus');
-		setTimeout(() => {
-			element.classList.remove('highlight-focus');
-		}, 2000);
-		return;
-	}
-
-	if (attempts > 0) {
-		setTimeout(() => {
-			navigateToNotificationTarget(target, attempts - 1);
-		}, 200);
-	}
+export function navigateToNotificationTarget(target: NotificationTarget): void {
+	if (!target.hostId) return;
+	machineSelection.select(target.hostId);
+	if (!target.projectId) return;
+	navigation.openChat({
+		hostId: target.hostId,
+		projectId: target.projectId,
+		laneId: target.laneId ?? 'main'
+	});
 }
 
 /**
@@ -75,15 +38,15 @@ export function initNotificationRouting(): void {
 	const requestId = params.get('request') ?? undefined;
 
 	if (hostId || projectId || requestId || laneId) {
-		navigateToNotificationTarget({ hostId, projectId, laneId, requestId });
-
-		// Pulisce la query string per non rieseguire lo scroll ai successivi refresh
+		// Prima si pulisce l'indirizzo, poi si apre la chat: la voce di cronologia
+		// della chat non deve essere sovrascritta.
 		const cleanUrl = new URL(window.location.href);
 		cleanUrl.searchParams.delete('host');
 		cleanUrl.searchParams.delete('project');
 		cleanUrl.searchParams.delete('lane');
 		cleanUrl.searchParams.delete('request');
-		window.history.replaceState({}, '', cleanUrl.pathname + cleanUrl.hash);
+		window.history.replaceState(null, '', cleanUrl.pathname + cleanUrl.hash);
+		navigateToNotificationTarget({ hostId, projectId, laneId, requestId });
 	}
 
 	// 2. Ascolto messaggi di focus inviati dal Service Worker a finestre gia' aperte

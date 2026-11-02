@@ -18,7 +18,12 @@ import type {
 	RemotePromptImage,
 	RemoteFolderList,
 	RemoteScheduleChoice,
-	RemoteSessionPage
+	RemoteSessionPage,
+	RemoteTaskOptions,
+	RemoteTaskDetail,
+	RemoteDispatchAnswer,
+	RemoteDispatchOutcome,
+	RemoteDispatchDestination
 } from '$remote-protocol';
 import { remoteBridge, type RemoteCommandEvent } from './bridge';
 import { remoteStore } from './remoteStore.svelte';
@@ -30,9 +35,9 @@ import { sessionRegistry } from '#lib/agent/sessionRegistry.ts';
 import type { UnlistenFn } from '@tauri-apps/api/event';
 /** Esito strutturato dell'avvio di un task condiviso tra GUI, Companion e Controllo Remoto. */
 export type RunTaskOutcome =
-	| { kind: 'started' }
+	| { kind: 'started'; laneId?: string }
 	| { kind: 'blocked'; reason: string }
-	| { kind: 'needs_confirmation'; message?: string }
+	| { kind: 'needs_confirmation'; confirmationId?: string; message?: string }
 	| { kind: 'failed'; message: string };
 
 /**
@@ -52,6 +57,8 @@ export class RemoteCommandFailure extends Error {
 export interface RemoteTaskPatch {
 	prompt?: string;
 	schedule?: RemoteScheduleChoice | null;
+	options?: RemoteTaskOptions;
+	images?: { keep: number[]; add: RemotePromptImage[] };
 }
 
 /**
@@ -63,18 +70,27 @@ export interface RemoteCommandExecutor {
 	runTask: (
 		projectId: string,
 		taskId: string,
-		options?: { follow?: boolean }
+		options?: { follow?: boolean; destination?: RemoteDispatchDestination }
 	) => Promise<RunTaskOutcome | void> | RunTaskOutcome | void;
 	waitQuotaReset: (projectId: string, laneId?: string) => Promise<void> | void;
 	dismissQuotaBlocked: (projectId: string, laneId?: string) => Promise<void> | void;
 	createTask: (
 		projectId: string,
 		prompt: string,
-		schedule: RemoteScheduleChoice | null
+		schedule: RemoteScheduleChoice | null,
+		options?: RemoteTaskOptions,
+		images?: RemotePromptImage[]
 	) => Promise<{ taskId: string }>;
 	updateTask: (projectId: string, taskId: string, patch: RemoteTaskPatch) => Promise<void>;
 	deleteTask: (projectId: string, taskId: string) => Promise<void>;
 	moveTask: (projectId: string, taskId: string, toIndex: number) => Promise<void>;
+	getTask: (projectId: string, taskId: string) => Promise<RemoteTaskDetail>;
+	respondDispatch: (
+		projectId: string,
+		confirmationId: string,
+		answer: RemoteDispatchAnswer
+	) => Promise<RemoteDispatchOutcome | undefined>;
+	refreshQuota: () => Promise<void>;
 	abort: (projectId: string, laneId: string | null) => Promise<void>;
 	sendPrompt: (
 		projectId: string,
@@ -113,7 +129,6 @@ export interface RemoteCommandExecutor {
 		name: string,
 		github: { visibility: 'private' | 'public' } | null
 	) => Promise<{ projectId: string }>;
-	newSession: (projectId: string, laneId: string | null, interrupt?: boolean) => Promise<void>;
 	composerCatalog: (projectId: string, laneId: string | null) => Promise<RemoteComposerCatalog>;
 	setLaneRole: (projectId: string, laneId: string | null, roleId: string) => Promise<void>;
 	setLaneModel: (
@@ -135,11 +150,6 @@ export interface RemoteCommandExecutor {
 		before: string | null,
 		limit: number
 	) => Promise<RemoteChatPage>;
-	createLane: (
-		projectId: string,
-		title: string,
-		prompt: string
-	) => Promise<{ laneId: string }>;
 	markSessionSeen: (
 		projectId: string,
 		laneId: string | null,
@@ -206,13 +216,15 @@ const ACTION_LABELS: Record<RemoteCommand['kind'], string> = {
 	update_task: 'modificato task',
 	delete_task: 'eliminato task',
 	move_task: 'spostato task',
+	get_task: 'letto il lavoro in coda',
+	respond_dispatch: 'risposto alla conferma di avvio',
+	refresh_quota: 'aggiornato le quote',
 	abort: 'interrotto l\'agente',
 	send_prompt: 'scritto alla sessione',
 	chat_history: 'letto la chat',
 	list_project_folders: 'letto le cartelle',
 	open_project: 'aperto il progetto',
 	create_project: 'creato il progetto',
-	new_session: 'avviato una nuova sessione',
 	composer_catalog: 'richiesto il catalogo del composer',
 	set_lane_role: 'impostato il ruolo',
 	set_lane_model: 'impostato il modello',
@@ -222,7 +234,6 @@ const ACTION_LABELS: Record<RemoteCommand['kind'], string> = {
 	compact_context: 'compattato il contesto',
 	list_sessions: 'richiesto lo storico delle sessioni',
 	session_history: 'letto la sessione storica',
-	create_lane: 'creato una nuova corsia',
 	mark_session_seen: 'aggiornato lo stato di completamento',
 	get_artifact: 'aperto un\'anteprima'
 };
@@ -236,7 +247,8 @@ const SILENT_KINDS: Partial<Record<RemoteCommand['kind'], true>> = {
 	list_sessions: true,
 	session_history: true,
 	mark_session_seen: true,
-	get_artifact: true
+	get_artifact: true,
+	get_task: true
 };
 /**
  * Notifica in-app dell'avvenuta esecuzione di un comando remoto, registrata
@@ -263,6 +275,28 @@ export function notifyRemoteCommandExecuted(
 function toCommandError(err: unknown): CommandError {
 	if (err instanceof RemoteCommandFailure) return { code: err.code, message: err.message };
 	return { code: 'failed', message: err instanceof Error ? err.message : String(err) };
+}
+
+/**
+ * Esito dell'avvio per il dispositivo: partito (con il ramo da aprire) o in
+ * attesa di una conferma gia' pubblicata nell'istantanea. Un blocco o un
+ * errore diventano il rifiuto del comando.
+ */
+export function toDispatchOutcome(outcome: RunTaskOutcome | void): RemoteDispatchOutcome | undefined {
+	if (!outcome) return undefined;
+	switch (outcome.kind) {
+		case 'started':
+			return { status: 'started', laneId: outcome.laneId ?? 'main' };
+		case 'needs_confirmation':
+			if (!outcome.confirmationId) {
+				throw new RemoteCommandFailure('rejected', outcome.message || 'Conferma richiesta sulla macchina');
+			}
+			return { status: 'confirm', confirmationId: outcome.confirmationId };
+		case 'blocked':
+			throw new RemoteCommandFailure('rejected', outcome.reason || 'Automazione bloccata');
+		case 'failed':
+			throw new RemoteCommandFailure('failed', outcome.message || 'Spedizione del task fallita');
+	}
 }
 
 /**
@@ -299,6 +333,11 @@ export async function handleRemoteCommand(
 				await ctx.reportResult(commandId, true, undefined, data);
 				const opened = ctx.findProject(data.projectId);
 				if (opened) ctx.notify?.(device, opened, command.kind, null);
+				return;
+			}
+			case 'refresh_quota': {
+				await ctx.executor.refreshQuota();
+				await ctx.reportResult(commandId, true);
 				return;
 			}
 		}
@@ -351,22 +390,11 @@ export async function handleRemoteCommand(
 
 			case 'run_task': {
 				queuedTask(command.taskId);
-				const outcome = await ctx.executor.runTask(command.projectId, command.taskId, { follow: false });
-				if (outcome && typeof outcome === 'object' && 'kind' in outcome) {
-					switch (outcome.kind) {
-						case 'started':
-							break;
-						case 'blocked':
-							throw new RemoteCommandFailure('rejected', outcome.reason || 'Automazione bloccata');
-						case 'needs_confirmation':
-							throw new RemoteCommandFailure(
-								'rejected',
-								outcome.message || 'Conferma richiesta sulla macchina'
-							);
-						case 'failed':
-							throw new RemoteCommandFailure('failed', outcome.message || 'Spedizione del task fallita');
-					}
-				}
+				const outcome = await ctx.executor.runTask(command.projectId, command.taskId, {
+					follow: false,
+					destination: command.destination ?? 'auto'
+				});
+				data = toDispatchOutcome(outcome);
 				break;
 			}
 
@@ -380,18 +408,50 @@ export async function handleRemoteCommand(
 				await ctx.executor.dismissQuotaBlocked(command.projectId, command.laneId ?? undefined);
 				break;
 
-			case 'create_task':
-				data = await ctx.executor.createTask(command.projectId, command.prompt, command.schedule);
+			case 'create_task': {
+				const result = await ctx.executor.createTask(
+					command.projectId,
+					command.prompt,
+					command.schedule,
+					command.options,
+					command.images
+				);
+				// Il lavoro e' gia' salvato: se l'avvio viene rifiutato resta in coda.
+				if (command.start) {
+					const outcome = await ctx.executor.runTask(command.projectId, result.taskId, {
+						follow: false,
+						destination: command.start.destination
+					});
+					data = { taskId: result.taskId, dispatch: toDispatchOutcome(outcome) };
+				} else {
+					data = { taskId: result.taskId };
+				}
 				break;
+			}
 
 			case 'update_task': {
 				queuedTask(command.taskId);
 				const patch: RemoteTaskPatch = {};
 				if (command.prompt !== undefined) patch.prompt = command.prompt;
 				if (command.schedule !== undefined) patch.schedule = command.schedule;
+				if (command.options !== undefined) patch.options = command.options;
+				if (command.images !== undefined) patch.images = command.images;
 				await ctx.executor.updateTask(command.projectId, command.taskId, patch);
 				break;
 			}
+
+			case 'get_task':
+				queuedTask(command.taskId);
+				data = await ctx.executor.getTask(command.projectId, command.taskId);
+				break;
+
+			case 'respond_dispatch':
+				data = await ctx.executor.respondDispatch(
+					command.projectId,
+					command.confirmationId,
+					command.answer
+				);
+				break;
 
 			case 'delete_task':
 				queuedTask(command.taskId);
@@ -457,10 +517,6 @@ export async function handleRemoteCommand(
 				data = await ctx.executor.getArtifact(command.projectId, command.laneId, command.messageId);
 				break;
 
-			case 'new_session':
-				laneId = command.laneId;
-				await ctx.executor.newSession(command.projectId, command.laneId, command.interrupt === true);
-				break;
 
 			case 'composer_catalog':
 				laneId = command.laneId;
@@ -505,21 +561,6 @@ export async function handleRemoteCommand(
 				);
 				break;
 
-			case 'create_lane':
-				data = await ctx.executor.createLane(
-					command.projectId,
-					command.title,
-					command.prompt
-				);
-				if (
-					data &&
-					typeof data === 'object' &&
-					'laneId' in data &&
-					typeof (data as { laneId: string }).laneId === 'string'
-				) {
-					laneId = (data as { laneId: string }).laneId;
-				}
-				break;
 
 			case 'mark_session_seen':
 				laneId = command.laneId;

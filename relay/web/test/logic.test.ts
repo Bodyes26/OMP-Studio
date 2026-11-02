@@ -7,10 +7,9 @@ import {
 	buildAskAnswer,
 	isQuestionAnswered
 } from '../src/askAnswers.ts';
-import { sortProjects, getProjectPriority } from '../src/projectSort.ts';
 import { formatCommandError } from '../src/errors.ts';
 import { detectDefaultDeviceName } from '../src/deviceDetect.ts';
-import type { RemoteAskQuestion, RemoteProject, RemoteTaskSchedule } from '../../src/protocol.ts';
+import type { RemoteAskQuestion, RemoteTaskSchedule } from '../../src/protocol.ts';
 
 describe('backoff & jitter bounds', () => {
 	it('returns 0 ms for 0 attempts', () => {
@@ -153,88 +152,6 @@ describe('ask answer building', () => {
 		expect(isQuestionAnswered({ selectedOptions: [], customInput: '   ' })).toBe(false);
 		expect(isQuestionAnswered({ selectedOptions: ['Approccio A'] })).toBe(true);
 		expect(isQuestionAnswered({ selectedOptions: [], customInput: 'altro' })).toBe(true);
-	});
-});
-
-describe('project sorting', () => {
-	const pAttention: RemoteProject = {
-		id: 'p1',
-		name: 'Progetto Alpha',
-		hue: 120,
-		active: false,
-		lanes: [{ id: 'main', title: 'Main', kind: 'main', agent: { state: 'idle', surface: null, provider: null, modelId: null, modelLabel: null, activity: null, headsUp: null } }],
-		attention: [
-			{
-				requestId: 'r1',
-				laneId: null,
-				laneTitle: null,
-				method: 'confirm',
-				title: 'Conferma eliminazione',
-				message: null,
-				options: [],
-				placeholder: null,
-				prefill: null,
-				questions: [],
-				deadline: null,
-				quotaBlocked: null,
-				recentMessages: []
-			}
-		],
-		tasks: [],
-		autoDispatch: true,
-		canRunTask: true,
-		runBlockReason: null
-	};
-
-	const pWorking: RemoteProject = {
-		id: 'p2',
-		name: 'Progetto Beta',
-		hue: 200,
-		active: false,
-		lanes: [{ id: 'main', title: 'Main', kind: 'main', agent: { state: 'working', surface: null, provider: null, modelId: null, modelLabel: null, activity: null, headsUp: null } }],
-		attention: [],
-		tasks: [],
-		autoDispatch: true,
-		canRunTask: false,
-		runBlockReason: 'busy'
-	};
-
-	const pIdle: RemoteProject = {
-		id: 'p3',
-		name: 'Progetto Gamma',
-		hue: 45,
-		active: false,
-		lanes: [{ id: 'main', title: 'Main', kind: 'main', agent: { state: 'idle', surface: null, provider: null, modelId: null, modelLabel: null, activity: null, headsUp: null } }],
-		attention: [],
-		tasks: [],
-		autoDispatch: true,
-		canRunTask: true,
-		runBlockReason: null
-	};
-
-	const pIdleActive: RemoteProject = {
-		id: 'p4',
-		name: 'Progetto Delta',
-		hue: 10,
-		active: true,
-		lanes: [{ id: 'main', title: 'Main', kind: 'main', agent: { state: 'idle', surface: null, provider: null, modelId: null, modelLabel: null, activity: null, headsUp: null } }],
-		attention: [],
-		tasks: [],
-		autoDispatch: true,
-		canRunTask: true,
-		runBlockReason: null
-	};
-
-	it('computes correct priority: attention(0) < working(1) < rest(2)', () => {
-		expect(getProjectPriority(pAttention)).toBe(0);
-		expect(getProjectPriority(pWorking)).toBe(1);
-		expect(getProjectPriority(pIdle)).toBe(2);
-		expect(getProjectPriority(pIdleActive)).toBe(2);
-	});
-
-	it('sorts projects attention > working > rest, with active project first in same priority', () => {
-		const sorted = sortProjects([pIdle, pWorking, pAttention, pIdleActive]);
-		expect(sorted.map((p) => p.id)).toEqual(['p1', 'p2', 'p4', 'p3']);
 	});
 });
 

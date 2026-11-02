@@ -43,7 +43,13 @@ export interface ProtocolId {
  * - `lane_config`: nuova chat, ruolo, modello e ragionamento della corsia, e
  *   catalogo del composer (comandi, skill, modelli, ruoli);
  * - `artifacts`: anteprime dei tool (`RemoteToolCall.artifact`) e comando
- *   `get_artifact` per i contenuti oltre il tetto inline.
+ *   `get_artifact` per i contenuti oltre il tetto inline;
+ * - `task_options`: lavori in coda completi (Gate R48): ruolo, modello,
+ *   ragionamento, direttive e immagini in `RemoteTask`, `get_task`, opzioni e
+ *   immagini in `create_task`/`update_task`, avvio con destinazione;
+ * - `dispatch_confirm`: conferme di avvio in un nuovo worktree pubblicate in
+ *   `RemoteProject.dispatchConfirmations` e risolte con `respond_dispatch`;
+ * - `quota_refresh`: aggiornamento delle quote dal dispositivo.
  */
 export const FEATURES = [
 	'respond_ui',
@@ -56,7 +62,10 @@ export const FEATURES = [
 	'chat_rich',
 	'lane_config',
 	'fleet',
-	'artifacts'
+	'artifacts',
+	'task_options',
+	'dispatch_confirm',
+	'quota_refresh'
 ] as const;
 export type Feature = (typeof FEATURES)[number];
 
@@ -228,11 +237,17 @@ export interface RemoteTaskSchedule {
 	missed: boolean;
 }
 
+/** Direttiva salvata nel task: istantanea del catalogo al momento della scelta. */
+export interface RemoteTaskDirective {
+	id: string;
+	name: string;
+}
+
 export interface RemoteTask {
 	id: string;
 	/** Titolo sintetico, o l'inizio del prompt quando manca. */
 	title: string;
-	/** Prompt troncato a 4.000 caratteri. */
+	/** Anteprima del prompt, troncata a 4.000 caratteri: il testo completo arriva con `get_task`. */
 	prompt: string;
 	status: RemoteTaskStatus;
 	position: number;
@@ -241,7 +256,79 @@ export interface RemoteTask {
 	resume: boolean;
 	/** Il prossimo che l'arbitro avvierebbe. */
 	next: boolean;
+	/**
+	 * Campi `task_options`, assenti dagli host precedenti. `role` null = ruolo
+	 * predefinito del progetto; `modelSelector` (`provider/id`) e
+	 * `thinkingLevel` null = quelli del ruolo.
+	 */
+	role?: string | null;
+	modelSelector?: string | null;
+	thinkingLevel?: string | null;
+	directives?: RemoteTaskDirective[];
+	/** Immagini allegate: solo il conteggio, i dati arrivano con `get_task`. */
+	imageCount?: number;
 }
+
+/** Immagine di un lavoro in coda restituita da `get_task`. */
+export interface RemoteTaskImage {
+	mimeType: string;
+	/** Base64; `null` quando supera il tetto di `get_task`: l'immagine resta nel lavoro ma non si vede. */
+	data: string | null;
+}
+
+/** Lavoro in coda completo, per il pannello di modifica. */
+export interface RemoteTaskDetail {
+	id: string;
+	/** Testo completo, senza troncamento. */
+	prompt: string;
+	role: string | null;
+	modelSelector: string | null;
+	thinkingLevel: string | null;
+	directives: RemoteTaskDirective[];
+	/** Nell'ordine del task: gli indici servono a `update_task.images.keep`. */
+	images: RemoteTaskImage[];
+	schedule: RemoteTaskSchedule | null;
+}
+
+/** Tetto dei dati immagine restituiti da `get_task`: resta sotto `MAX_FRAME_BYTES`. */
+export const TASK_DETAIL_MAX_BYTES = 384 * 1024;
+
+/**
+ * Conferma chiesta da Studio prima di aprire un nuovo worktree (Gate R48):
+ * - `concurrency`: gli agenti attivi superano la soglia;
+ * - `local_files`: file locali non versionati da copiare nel worktree, decisione
+ *   ricordata nel profilo del progetto.
+ * Una sola fonte di verita': rispondere da Studio o da Remote chiude la stessa
+ * conferma su entrambe le superfici.
+ */
+export type RemoteDispatchConfirmation =
+	| {
+			id: string;
+			kind: 'concurrency';
+			taskId: string;
+			taskTitle: string;
+			activeLanes: Array<{ laneId: string; title: string; modelLabel: string | null; state: RemoteAgentState }>;
+	  }
+	| {
+			id: string;
+			kind: 'local_files';
+			taskId: string;
+			taskTitle: string;
+			files: Array<{ path: string; category: string; bytes: number | null; suggested: boolean }>;
+	  };
+
+/** Esito dell'avvio di un lavoro da remoto. */
+export type RemoteDispatchOutcome =
+	| { status: 'started'; laneId: string }
+	/** Serve una conferma: e' gia' pubblicata in `RemoteProject.dispatchConfirmations`. */
+	| { status: 'confirm'; confirmationId: string };
+
+/**
+ * Dove avviare un lavoro: `auto` segue le regole della coda di Studio
+ * (Principale se libera, altrimenti un worktree nuovo, senza chiedere);
+ * `new_lane` apre sempre un worktree nuovo.
+ */
+export type RemoteDispatchDestination = 'auto' | 'new_lane';
 
 export interface RemoteQuotaWindow {
 	id: string;
@@ -271,6 +358,8 @@ export interface RemoteQuota {
 export interface RemoteProject {
 	id: string;
 	name: string;
+	/** Cartella del progetto sulla macchina: serve a riaprirlo con `open_project`. Assente dagli host precedenti. */
+	path?: string | null;
 	/** Tinta d'identita' del progetto (0..360). */
 	hue: number;
 	/** Il progetto aperto in primo piano in Studio. */
@@ -283,6 +372,8 @@ export interface RemoteProject {
 	autoDispatch: boolean;
 	canRunTask: boolean;
 	runBlockReason: string | null;
+	/** Conferme di avvio in sospeso (`dispatch_confirm`). */
+	dispatchConfirmations?: RemoteDispatchConfirmation[];
 }
 
 /**
@@ -326,6 +417,28 @@ export type RemoteAnswer =
  */
 export type RemoteScheduleChoice = { kind: 'reset' } | { kind: 'at'; notBefore: number };
 
+/**
+ * Impostazioni di un lavoro in coda scelte da remoto (`task_options`). Campo
+ * assente = invariato; `null` = torna al valore del ruolo o del progetto.
+ * Prewalk, contesto editor e avvio solo manuale non passano da qui e
+ * restano quelli del task.
+ */
+export interface RemoteTaskOptions {
+	role?: string | null;
+	modelSelector?: string | null;
+	thinkingLevel?: string | null;
+	/** Id del catalogo `RemoteComposerCatalog.directives`, nell'ordine scelto. */
+	directiveIds?: string[];
+}
+
+/** Risposta a una conferma di avvio. */
+export type RemoteDispatchAnswer =
+	| { action: 'cancel' }
+	/** `concurrency`: avvia comunque. */
+	| { action: 'confirm' }
+	/** `local_files`: file da copiare (anche nessuno). */
+	| { action: 'files'; accepted: string[] };
+
 /** Corsia di un progetto: `main` per la Principale. */
 export interface RemoteLaneRef {
 	projectId: string;
@@ -334,11 +447,24 @@ export interface RemoteLaneRef {
 
 export type RemoteCommand =
 	| { kind: 'respond_ui'; projectId: string; laneId: string | null; requestId: string; answer: RemoteAnswer }
-	| { kind: 'run_task'; projectId: string; taskId: string }
+	/** `destination` (`task_options`) assente = `auto`. Risultato: `RemoteDispatchOutcome`. */
+	| { kind: 'run_task'; projectId: string; taskId: string; destination?: RemoteDispatchDestination }
 	| { kind: 'wait_quota_reset'; projectId: string; laneId: string | null }
 	| { kind: 'dismiss_quota_blocked'; projectId: string; laneId: string | null }
-	/** Task in coda in fondo, con le impostazioni predefinite del progetto. */
-	| { kind: 'create_task'; projectId: string; prompt: string; schedule: RemoteScheduleChoice | null }
+	/**
+	 * Task in coda in fondo. Senza `options` usa le impostazioni predefinite del
+	 * progetto. `images` con `path` restituiti da `stage_attachment`. Con
+	 * `start` il lavoro parte subito: il risultato porta anche `dispatch`.
+	 */
+	| {
+			kind: 'create_task';
+			projectId: string;
+			prompt: string;
+			schedule: RemoteScheduleChoice | null;
+			options?: RemoteTaskOptions;
+			images?: RemotePromptImage[];
+			start?: { destination: RemoteDispatchDestination };
+	  }
 	/** Campo assente = invariato; `schedule: null` toglie la programmazione. Solo task in coda. */
 	| {
 			kind: 'update_task';
@@ -346,10 +472,19 @@ export type RemoteCommand =
 			taskId: string;
 			prompt?: string;
 			schedule?: RemoteScheduleChoice | null;
+			options?: RemoteTaskOptions;
+			/** `keep`: indici delle immagini attuali da conservare; `add`: nuove, in coda. */
+			images?: { keep: number[]; add: RemotePromptImage[] };
 	  }
 	| { kind: 'delete_task'; projectId: string; taskId: string }
 	/** `toIndex` e' la posizione fra i task in coda del progetto, da 0. */
 	| { kind: 'move_task'; projectId: string; taskId: string; toIndex: number }
+	/** Lavoro in coda completo (`task_options`). */
+	| { kind: 'get_task'; projectId: string; taskId: string }
+	/** Risponde a una conferma di avvio; risultato `RemoteDispatchOutcome` (puo' chiederne un'altra). */
+	| { kind: 'respond_dispatch'; projectId: string; confirmationId: string; answer: RemoteDispatchAnswer }
+	/** Rilegge le quote di tutti i provider configurati. */
+	| { kind: 'refresh_quota' }
 	/** Come Stop in Studio: interrompe il turno della corsia. */
 	| { kind: 'abort'; projectId: string; laneId: string | null }
 	/**
@@ -372,11 +507,6 @@ export type RemoteCommand =
 	| { kind: 'open_project'; path: string }
 	/** Cartella nuova sotto la radice, `git init`, repository GitHub facoltativo. */
 	| { kind: 'create_project'; name: string; github: { visibility: 'private' | 'public' } | null }
-	/**
-	 * Nuova sessione della corsia, come «Nuova chat» in Studio. Mentre lavora
-	 * richiede `interrupt: true`, dopo conferma sul dispositivo. Mai sulle corsie Lab.
-	 */
-	| { kind: 'new_session'; projectId: string; laneId: string | null; interrupt?: boolean }
 	/** Comandi, skill, modelli e ruoli per il composer della corsia (vedi `RemoteComposerCatalog`). */
 	| { kind: 'composer_catalog'; projectId: string; laneId: string | null }
 	/** Applica alla sessione il modello e il ragionamento assegnati al ruolo. */
@@ -397,7 +527,6 @@ export type RemoteCommand =
 	| { kind: 'compact_context'; projectId: string; laneId: string | null }
 	| { kind: 'list_sessions'; projectId: string; before: string | null; limit: number; query?: string }
 	| { kind: 'session_history'; projectId: string; sessionId: string; before: string | null; limit: number }
-	| { kind: 'create_lane'; projectId: string; title: string; prompt: string }
 	| { kind: 'mark_session_seen'; projectId: string; laneId: string | null; sessionId: string; completionId: string }
 	/** Contenuto completo dell'anteprima del messaggio `messageId` (tool con `artifact.content: null`). */
 	| { kind: 'get_artifact'; projectId: string; laneId: string | null; messageId: string };
@@ -412,13 +541,15 @@ export const COMMAND_FEATURE: Record<RemoteCommand['kind'], Feature> = {
 	update_task: 'task_edit',
 	delete_task: 'task_edit',
 	move_task: 'task_edit',
+	get_task: 'task_options',
+	respond_dispatch: 'dispatch_confirm',
+	refresh_quota: 'quota_refresh',
 	abort: 'session_control',
 	send_prompt: 'session_control',
 	chat_history: 'chat',
 	list_project_folders: 'projects',
 	open_project: 'projects',
 	create_project: 'projects',
-	new_session: 'lane_config',
 	composer_catalog: 'lane_config',
 	set_lane_role: 'lane_config',
 	set_lane_model: 'lane_config',
@@ -428,7 +559,6 @@ export const COMMAND_FEATURE: Record<RemoteCommand['kind'], Feature> = {
 	compact_context: 'session_control',
 	list_sessions: 'fleet',
 	session_history: 'fleet',
-	create_lane: 'fleet',
 	mark_session_seen: 'fleet',
 	get_artifact: 'artifacts'
 };
@@ -603,6 +733,13 @@ export interface RemoteRoleOption {
 	thinking: string | null;
 }
 
+/** Direttiva del catalogo di Studio assegnabile a un lavoro (`task_options`). */
+export interface RemoteDirectiveOption {
+	id: string;
+	name: string;
+	description: string | null;
+}
+
 export interface RemoteComposerCatalog {
 	commands: RemoteSlashCommand[];
 	/** Modelli assegnabili: provider configurati con credenziali valide. */
@@ -610,11 +747,18 @@ export interface RemoteComposerCatalog {
 	roles: RemoteRoleOption[];
 	/** Livelli di ragionamento supportati dal modello attuale, dal piu' basso. */
 	thinkingLevels: string[];
+	/** Direttive visibili del catalogo dei task; assente dagli host senza `task_options`. */
+	directives?: RemoteDirectiveOption[];
 }
 
 /** Dati restituiti in `command_result.data` dai comandi che ne hanno. */
 export interface RemoteCommandData {
-	create_task: { taskId: string };
+	/** `dispatch` solo con `start`. */
+	create_task: { taskId: string; dispatch?: RemoteDispatchOutcome };
+	/** Dagli host senza `task_options` nessun dato. */
+	run_task: RemoteDispatchOutcome;
+	get_task: RemoteTaskDetail;
+	respond_dispatch: RemoteDispatchOutcome;
 	chat_history: RemoteChatPage;
 	list_project_folders: RemoteFolderList;
 	open_project: { projectId: string };
@@ -625,7 +769,6 @@ export interface RemoteCommandData {
 	compact_context: { success: true };
 	list_sessions: RemoteSessionPage;
 	session_history: RemoteChatPage;
-	create_lane: { laneId: string };
 	mark_session_seen: { success: true };
 	get_artifact: { artifact: RemoteArtifact };
 }

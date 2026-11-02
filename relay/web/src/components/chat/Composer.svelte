@@ -1,22 +1,16 @@
 <!--
-  Composer.svelte — Riquadro di immissione comandi e prompt ancorato in basso.
-  Auto-growing textarea nella sagoma .composer-shell, pulsante di invio, stop di emergenza,
-  menu steer/follow-up sul pulsante invio durante il turno, barra dei chip e autocompletamento.
+  Composer.svelte — Campo di scrittura della chat, pensato per il telefono (Gate R48, R-REM-06).
 
-  Adotta i componenti reali condivisi di Studio Desktop:
-  - ModelPickerList (ricerca veloce, grouping per provider, navigazione da tastiera, badge contesto e capacità)
-  - ReasoningSlider (slider a gradini con livelli supportati dal modello)
-  - ThinkingMeter (indicatore a barre del livello di ragionamento)
-  - MenuButton (popover ancorati con top-layer e dismiss accessibile)
-  - ContextControl (anello consumi finestra di contesto e ContextPanel condiviso)
-  - ComposerAttachments e AttachButton (gestione allegati immagini/file)
+  A riposo occupa una riga sola (allegati, campo, invio): sopra resta tutto lo
+  spazio per leggere. Mentre scrivi compare la riga degli strumenti con i chip
+  ruolo e modello condivisi (`ConfigChips`) e, se l'agente lavora, la scelta
+  «In coda | Reindirizza», con In coda predefinito.
 -->
 <script lang="ts">
-	import type { RemoteComposerCatalog, RemoteSlashCommand, RemoteContextSnapshot } from '../../../../src/protocol.ts';
+	import type { RemoteComposerCatalog, RemoteSlashCommand } from '../../../../src/protocol.ts';
 	import type { RemoteAttachmentTransport } from '../../chat/remoteAttachments.svelte.ts';
 	import { t } from '../../i18n.ts';
-	import { IconArrowUp, IconChevronUp, IconStop } from '../../icons.ts';
-	import { ROLE_HUES } from '#lib/agent/roleHues.ts';
+	import { IconArrowUp, IconStop } from '../../icons.ts';
 	import {
 		commandSuggestions,
 		suggestKeyAction,
@@ -26,23 +20,12 @@
 		createRemoteAttachmentManager,
 		type RemoteComposerAttachment
 	} from '../../chat/remoteAttachments.svelte.ts';
-	import ComposerStatusLine from './ComposerStatusLine.svelte';
 	import SuggestTray from './SuggestTray.svelte';
-	import RoleMenu from '#lib/agent/components/RoleMenu.svelte';
 	import ComposerAttachments from './ComposerAttachments.svelte';
 	import AttachButton from './AttachButton.svelte';
-	import ContextControl from './ContextControl.svelte';
+	import ConfigChips from '../work/ConfigChips.svelte';
 	import ComposerEditor from '#lib/agent/components/ComposerEditor.svelte';
 	import { createCommandBadgeElement, type ComposerTrigger } from '#lib/agent/composerDoc.ts';
-	import { THINKING_LEVEL_ITEMS } from '#lib/stores/modelSettingsHelpers.ts';
-
-	// Componenti GUI reali condivisi di Studio Desktop:
-	import ModelPickerList from '#lib/components/models/ModelPickerList.svelte';
-	import ReasoningSlider from '#lib/components/models/ReasoningSlider.svelte';
-	import ThinkingMeter from '#lib/agent/components/ThinkingMeter.svelte';
-	import MenuButton from '#lib/ui/MenuButton.svelte';
-	import ProviderLogo from '#lib/components/models/ProviderLogo.svelte';
-	import { m } from '#lib/paraglide/messages.js';
 
 	let {
 		isWorking = false,
@@ -55,23 +38,18 @@
 		modelId = null,
 		provider = null,
 		thinkingLevel = 'off',
-		machineName = '',
 		catalog = null,
 		hostId = '',
 		projectId = '',
 		laneId = null,
 		connection = null,
-		context = null,
 		onNotice,
-		onRefreshContext,
-		onCompactContext,
 		onOpenImage,
 		onSend,
 		onStop,
 		onSetRole,
 		onSetModel,
-		onSetThinking,
-		onNewSession
+		onSetThinking
 	}: {
 		isWorking?: boolean;
 		disabled?: boolean;
@@ -83,37 +61,31 @@
 		modelId?: string | null;
 		provider?: string | null;
 		thinkingLevel?: string | null;
-		machineName?: string;
 		catalog?: RemoteComposerCatalog | null;
 		hostId?: string;
 		projectId?: string;
 		laneId?: string | null;
 		connection?: RemoteAttachmentTransport | null;
-		context?: RemoteContextSnapshot | null;
 		onNotice?: (variant: 'info' | 'warning' | 'error', message: string) => void;
-		onRefreshContext?: (force?: boolean) => Promise<void>;
-		onCompactContext?: () => Promise<void>;
 		onOpenImage?: (url: string, mimeType?: string) => void;
 		onSend: (text: string, whileBusy: 'steer' | 'follow_up', attachments?: RemoteComposerAttachment[]) => Promise<void>;
 		onStop: () => Promise<void>;
 		onSetRole?: (roleId: string) => Promise<void>;
 		onSetModel?: (provider: string, modelId: string) => Promise<void>;
 		onSetThinking?: (level: string) => Promise<void>;
-		onNewSession?: () => Promise<void>;
 	} = $props();
 
 	let inputText = $state('');
-	let whileBusy = $state<'steer' | 'follow_up'>('steer');
+	// Mentre l'agente lavora il messaggio parte a fine turno: reindirizzare
+	// interrompe il lavoro, quindi va scelto apposta (R-REM-06).
+	let whileBusy = $state<'steer' | 'follow_up'>('follow_up');
 	let isSending = $state(false);
 	let isStopping = $state(false);
+	let hasFocus = $state(false);
 	let editorRef = $state<ReturnType<typeof ComposerEditor> | null>(null);
 	const submitWithModifier = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches;
 	let isDragOver = $state(false);
 
-	// Menu popover aperto (esclusivo)
-	let activeMenu = $state<'role' | 'model' | 'thinking' | 'sendMode' | null>(null);
-
-	// Gestore allegati del composer
 	const attachmentMgr = createRemoteAttachmentManager({
 		getHostId: () => hostId,
 		getProjectId: () => projectId,
@@ -122,50 +94,25 @@
 		onNotice: (variant, message) => onNotice?.(variant, message)
 	});
 
-	// Token draft stimati per l'indicatore della finestra di contesto
-	const draftTokenCount = $derived.by(() => {
-		const textTokens = Math.round(inputText.length / 4);
-		const attTokens = attachmentMgr.attachments.reduce((sum, a) => sum + (a.tokens || 0), 0);
-		return textTokens + attTokens;
-	});
-
-	// Stato autocompletamento slash
 	let slashToken = $state<ComposerTrigger | null>(null);
 	let suggestIndex = $state(0);
 
 	const currentRole = $derived(role || 'default');
-	const currentModelLabel = $derived(modelLabel || modelId || 'Modello');
+	const canSendWhileBusy = $derived(isWorking && canSessionControl);
 
-	const activeModelValue = $derived.by(() => {
-		if (provider && modelId) return `${provider}/${modelId}`;
-		return modelId || '';
+	// La riga degli strumenti serve solo mentre si compone: a riposo lascia lo
+	// spazio alla conversazione.
+	const toolsOpen = $derived(
+		!disabled && (hasFocus || inputText.trim().length > 0 || attachmentMgr.hasAttachments)
+	);
+
+	const placeholder = $derived.by(() => {
+		if (disabled) return disabledReason ?? t('composerDisabled');
+		if (isWorking) return whileBusy === 'follow_up' ? t('composerPlaceholderQueued') : t('composerPlaceholderSteer');
+		return t('chatInputPlaceholder');
 	});
 
-	// Livelli di ragionamento offerti dalla corsia escludendo 'auto' (riservato a ruoli/task)
-	const chatThinkingLevels = $derived.by(() => {
-		const raw = catalog?.thinkingLevels ?? ['off'];
-		return THINKING_LEVEL_ITEMS.flatMap((level) => level.id !== 'auto' && raw.includes(level.id) ? [level.id] : []);
-	});
-	const currentThinking = $derived(chatThinkingLevels.find((level) => level === thinkingLevel) ?? 'off');
-
-	const canReason = $derived.by(() => {
-		const levels = chatThinkingLevels;
-		return levels.length > 1 || (levels.length === 1 && levels[0] !== 'off');
-	});
-
-	// Catalogo con aggiunta del comando locale /new se lane_config e' attivo
-	const availableCommands = $derived.by(() => {
-		const list: RemoteSlashCommand[] = catalog?.commands ? [...catalog.commands] : [];
-		if (hasLaneConfig && !list.some((c) => c.name === 'new')) {
-			list.unshift({
-				name: 'new',
-				kind: 'command',
-				description: t('newChat'),
-				hint: null
-			});
-		}
-		return list;
-	});
+	const availableCommands = $derived<RemoteSlashCommand[]>(catalog?.commands ?? []);
 
 	const suggestions = $derived.by(() => {
 		if (!slashToken) return [];
@@ -173,7 +120,6 @@
 	});
 
 	const showSuggestions = $derived(slashToken !== null);
-
 
 	function handleSelectSuggestion(item: CommandSuggestionItem): void {
 		if (!slashToken || !editorRef) return;
@@ -191,22 +137,10 @@
 		(inputText.trim().length > 0 || attachmentMgr.hasAttachments)
 	);
 
-
 	async function handleSubmit(): Promise<void> {
 		const text = inputText.trim();
 		const currentAttachments = [...attachmentMgr.attachments];
-		if (!canSubmit) {
-			return;
-		}
-
-		// Intercetta /new e /clear digitati da soli per avviare una nuova chat
-		if (hasLaneConfig && (text === '/new' || text === '/clear') && currentAttachments.length === 0) {
-			inputText = '';
-			slashToken = null;
-			editorRef?.clear();
-			if (onNewSession) await onNewSession();
-			return;
-		}
+		if (!canSubmit) return;
 
 		isSending = true;
 		try {
@@ -270,23 +204,16 @@
 			void attachmentMgr.addFiles(e.dataTransfer.files);
 		}
 	}
-</script>
 
-{#snippet thinkingControl()}
-	<div class="thinking-popover">
-		{#if canReason}
-			<ReasoningSlider
-				value={currentThinking}
-				levels={chatThinkingLevels}
-				onChange={(level) => { onSetThinking?.(level); }}
-			/>
-		{:else}
-			<p class="thinking-unsupported">
-				{m.chat_v2_composer_thinking_unsupported({ model: currentModelLabel })}
-			</p>
-		{/if}
-	</div>
-{/snippet}
+	function handleFocusOut(e: FocusEvent): void {
+		const shell = e.currentTarget as HTMLElement;
+		const next = e.relatedTarget as Node | null;
+		// I popover dei chip vivono nel top layer ma restano nel sottoalbero del
+		// composer: il fuoco che ci entra non deve richiudere la riga strumenti.
+		if (next && shell.contains(next)) return;
+		hasFocus = false;
+	}
+</script>
 
 <div class="composer-root">
 	{#if showSuggestions}
@@ -305,15 +232,11 @@
 		ondragover={handleDragOver}
 		ondragleave={handleDragLeave}
 		ondrop={handleDrop}
+		onfocusin={() => (hasFocus = true)}
+		onfocusout={handleFocusOut}
 		role="region"
-		aria-label={t('appTitle')}
+		aria-label={t('composerRegion')}
 	>
-		{#if disabled && disabledReason}
-			<div class="disabled-notice" role="alert">
-				<span>{disabledReason}</span>
-			</div>
-		{/if}
-
 		{#if attachmentMgr.hasAttachments}
 			<ComposerAttachments
 				attachments={attachmentMgr.attachments}
@@ -322,220 +245,100 @@
 			/>
 		{/if}
 
-		<ComposerEditor
-			bind:this={editorRef}
-			disabled={disabled || !canSessionControl || isSending}
-			placeholder={disabled ? (disabledReason ?? t('composerDisabled')) : t('chatInputPlaceholder')}
-			ariaLabel={t('chatInputPlaceholder')}
-			{submitWithModifier}
-			triggers={['/']}
-			onSend={() => void handleSubmit()}
-			onFilesPaste={(files) => { if (!disabled && canSessionControl && !isSending) void attachmentMgr.addFiles(files); }}
-			onInput={() => { inputText = editorRef?.getWireText((name) => availableCommands.some((command) => command.name === name && command.kind === 'skill')) ?? ''; }}
-			onTriggerChange={(trigger) => { slashToken = trigger; suggestIndex = 0; }}
-			onKeydownFilter={handleKeydown}
-		/>
+		<div class="field-row">
+			<AttachButton
+				onFiles={(files) => void attachmentMgr.addFiles(files)}
+				disabled={disabled || !canSessionControl || isSending}
+				title={t('attachFile')}
+			/>
 
-		<div class="composer-toolbar">
-			<div class="toolbar-left">
-				<AttachButton
-					onFiles={(files) => void attachmentMgr.addFiles(files)}
+			<div class="editor-wrap">
+				<ComposerEditor
+					bind:this={editorRef}
 					disabled={disabled || !canSessionControl || isSending}
-					title={t('attachFile')}
+					{placeholder}
+					ariaLabel={placeholder}
+					{submitWithModifier}
+					triggers={['/']}
+					onSend={() => void handleSubmit()}
+					onFilesPaste={(files) => { if (!disabled && canSessionControl && !isSending) void attachmentMgr.addFiles(files); }}
+					onInput={() => { inputText = editorRef?.getWireText((name) => availableCommands.some((command) => command.name === name && command.kind === 'skill')) ?? ''; }}
+					onTriggerChange={(trigger) => { slashToken = trigger; suggestIndex = 0; }}
+					onKeydownFilter={handleKeydown}
 				/>
+			</div>
 
+			{#if canSendWhileBusy}
+				<button
+					type="button"
+					class="round-btn stop-btn"
+					disabled={isStopping}
+					onclick={handleStop}
+					title={t('stopButton')}
+					aria-label={t('stopButton')}
+				>
+					<IconStop />
+				</button>
+			{/if}
+
+			<button
+				type="button"
+				class="round-btn send-btn"
+				disabled={!canSubmit}
+				onclick={handleSubmit}
+				title={t('send')}
+				aria-label={t('send')}
+			>
+				<IconArrowUp />
+			</button>
+		</div>
+
+		{#if toolsOpen && (hasLaneConfig || canSendWhileBusy)}
+			<div class="tools-row">
 				{#if hasLaneConfig}
-					<div class="toolbar-chips">
-						<!-- Selettore Ruolo via MenuButton condiviso -->
-						<MenuButton
-							open={activeMenu === 'role'}
-							title={isWorking ? t('configDisabledBusy') : t('roleChipTitle')}
-							hasPopup="listbox"
-							contentRole="dialog"
-							width="360px"
-							disabled={isWorking}
-							className="ui-chip composer-chip"
-							onToggle={() => (activeMenu = activeMenu === 'role' ? null : 'role')}
-							onClose={() => (activeMenu = null)}
-						>
-							{#snippet trigger()}
-								<span
-									class="role-dot"
-									class:has-hue={ROLE_HUES[currentRole] !== undefined}
-									style={ROLE_HUES[currentRole] !== undefined ? `--role-h: ${ROLE_HUES[currentRole]}` : undefined}
-								></span>
-								<span class="role-name font-mono">{currentRole}</span>
-							{/snippet}
-							{#snippet children()}
-								<RoleMenu
-									assignments={Object.fromEntries((catalog?.roles ?? []).map((role) => {
-										const model = role.modelLabel ?? role.model ?? undefined;
-										// role.model e' `provider/id`: il provider si ricava dal catalogo, o dal prefisso.
-										const match = (catalog?.models ?? []).find((m) => `${m.provider}/${m.id}` === role.model || m.id === role.model);
-										const provider = match?.provider ?? (role.model?.includes('/') ? role.model.split('/')[0] : undefined);
-										return [role.id, { model, provider, thinking: role.thinking ?? undefined }];
-									}))}
-									activeRole={currentRole}
-									onPick={(roleId) => {
-										activeMenu = null;
-										onSetRole?.(roleId);
-									}}
-								/>
-							{/snippet}
-						</MenuButton>
+					<ConfigChips
+						layout="inline"
+						{catalog}
+						role={currentRole}
+						{provider}
+						{modelId}
+						{modelLabel}
+						thinking={thinkingLevel}
+						disabled={isWorking}
+						onRole={(roleId) => void onSetRole?.(roleId)}
+						onModel={(p, id) => void onSetModel?.(p, id)}
+						onThinking={(level) => void onSetThinking?.(level)}
+					/>
+				{/if}
 
-						<!-- Selettore Modello reale condiviso (ModelPickerList) via MenuButton -->
-						<MenuButton
-							open={activeMenu === 'model'}
-							title={isWorking ? t('configDisabledBusy') : t('modelChipTitle')}
-							hasPopup="dialog"
-							contentRole="dialog"
-							width="400px"
-							disabled={isWorking}
-							className="ui-chip composer-chip model-chip"
-							onToggle={() => (activeMenu = activeMenu === 'model' ? null : 'model')}
-							onClose={() => (activeMenu = null)}
+				{#if canSendWhileBusy}
+					<div class="seg" role="radiogroup" aria-label={t('composerWhileBusy')}>
+						<button
+							type="button"
+							role="radio"
+							aria-checked={whileBusy === 'follow_up'}
+							class:on={whileBusy === 'follow_up'}
+							onclick={() => (whileBusy = 'follow_up')}
 						>
-							{#snippet trigger()}
-								{#if provider}
-									<ProviderLogo {provider} size={13} />
-								{/if}
-								<span class="model-name-label">{currentModelLabel}</span>
-								<span class="mobile-thinking-label"><span aria-hidden="true">·</span> {currentThinking}</span>
-								<span class="chevron-indicator"><IconChevronUp /></span>
-							{/snippet}
-							{#snippet children()}
-								<div class="remote-model-picker">
-									<ModelPickerList
-										catalog={catalog?.models ?? []}
-										value={activeModelValue}
-										placeholder={m.chat_v2_composer_model_search()}
-										autoFocus={!window.matchMedia('(max-width: 480px), (pointer: coarse)').matches}
-										showFooter
-										onSelect={(selector, mod) => {
-											if (!window.matchMedia('(max-width: 480px)').matches) activeMenu = null;
-											const targetProvider = mod.provider || (selector.includes('/') ? selector.split('/')[0] : '');
-											const targetModelId = mod.id || (selector.includes('/') ? selector.split('/')[1] : selector);
-											if (targetProvider && targetModelId) {
-												onSetModel?.(targetProvider, targetModelId);
-											}
-										}}
-										onClose={() => (activeMenu = null)}
-									/>
-									<div class="mobile-thinking-panel">
-										{@render thinkingControl()}
-									</div>
-								</div>
-							{/snippet}
-						</MenuButton>
-
-						<!-- Selettore Thinking reale condiviso (ReasoningSlider + ThinkingMeter) -->
-						<MenuButton
-							open={activeMenu === 'thinking'}
-							title={isWorking ? t('configDisabledBusy') : t('thinkingChipTitle')}
-							hasPopup="dialog"
-							contentRole="dialog"
-							width="320px"
-							disabled={isWorking}
-							className="ui-chip composer-chip thinking-chip"
-							onToggle={() => (activeMenu = activeMenu === 'thinking' ? null : 'thinking')}
-							onClose={() => (activeMenu = null)}
+							{t('composerQueue')}
+						</button>
+						<button
+							type="button"
+							role="radio"
+							aria-checked={whileBusy === 'steer'}
+							class:on={whileBusy === 'steer'}
+							onclick={() => (whileBusy = 'steer')}
 						>
-							{#snippet trigger()}
-								<ThinkingMeter level={currentThinking} />
-								<span class="thinking-label font-mono">{currentThinking}</span>
-							{/snippet}
-							{#snippet children()}
-								{@render thinkingControl()}
-							{/snippet}
-						</MenuButton>
-
+							{t('composerSteer')}
+						</button>
 					</div>
 				{/if}
 			</div>
-
-			<div class="toolbar-actions">
-				{#if isWorking && canSessionControl}
-					<button
-						type="button"
-						class="composer-send-btn stop-btn"
-						disabled={isStopping}
-						onclick={handleStop}
-						title={t('stopButton')}
-						aria-label={t('stopButton')}
-					>
-						<IconStop />
-					</button>
-				{/if}
-
-				<div class="send-split-group">
-					<button
-						type="button"
-						class="composer-send-btn"
-						disabled={!canSubmit}
-						onclick={handleSubmit}
-						title={isWorking ? `${t('send')} — ${whileBusy === 'steer' ? m.chat_v2_composer_send_steer() : m.chat_v2_composer_send_followup()}` : t('send')}
-						aria-label={t('send')}
-					>
-						<IconArrowUp />
-					</button>
-					{#if isWorking && canSessionControl}
-						<MenuButton
-							open={activeMenu === 'sendMode'}
-							title={m.chat_v2_composer_send_mode_title()}
-							hasPopup="menu"
-							align="right"
-							width="240px"
-							className="send-mode-trigger"
-							disabled={disabled || isSending}
-							onToggle={() => (activeMenu = activeMenu === 'sendMode' ? null : 'sendMode')}
-							onClose={() => (activeMenu = null)}
-						>
-							{#snippet trigger()}
-								<IconChevronUp />
-							{/snippet}
-							{#snippet children()}
-								<div class="send-mode-menu">
-									<button type="button" role="menuitemradio"
-										aria-checked={whileBusy === 'steer'} class:selected={whileBusy === 'steer'}
-										onclick={() => { whileBusy = 'steer'; activeMenu = null; }}>
-										<span>{m.chat_v2_composer_send_steer()}</span>
-										<small>{t('chatSteerHint')}</small>
-									</button>
-									<button type="button" role="menuitemradio"
-										aria-checked={whileBusy === 'follow_up'} class:selected={whileBusy === 'follow_up'}
-										onclick={() => { whileBusy = 'follow_up'; activeMenu = null; }}>
-										<span>{m.chat_v2_composer_send_followup()}</span>
-										<small>{t('chatFollowUpHint')}</small>
-									</button>
-								</div>
-							{/snippet}
-						</MenuButton>
-					{/if}
-				</div>
-			</div>
-		</div>
-	</div>
-
-	<div class="composer-status-row">
-		<ComposerStatusLine modelLabel={hasLaneConfig ? null : modelLabel} provider={hasLaneConfig ? null : provider} {machineName} />
-		{#if context}
-			<ContextControl {context} draftTokens={draftTokenCount}
-				disabled={disabled || isWorking}
-				onRefresh={onRefreshContext} onCompact={onCompactContext} />
 		{/if}
 	</div>
 </div>
 
 <style>
-	.composer-status-row {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: var(--space-2);
-		min-width: 0;
-	}
-
 	.composer-root {
 		position: relative;
 		width: 100%;
@@ -549,14 +352,10 @@
 		width: 100%;
 		background: var(--bg-raised);
 		border: 1px solid var(--line);
-		border-radius: var(--radius-2xl);
-		box-shadow: var(--shadow-dock);
+		border-radius: 22px;
 		display: flex;
 		flex-direction: column;
-		transition:
-			border-color var(--dur-fast) var(--ease-out),
-			box-shadow var(--dur-fast) var(--ease-out);
-		overflow: hidden;
+		transition: border-color var(--dur-fast) var(--ease-out);
 	}
 
 	.composer-shell:focus-within {
@@ -573,287 +372,113 @@
 		background: var(--bg-sunken);
 	}
 
-	.disabled-notice {
-		padding: 6px 12px;
-		background: color-mix(in oklch, var(--warn) 10%, transparent);
-		border-bottom: 1px solid var(--line);
-		font-size: var(--text-caption);
-		color: var(--warn);
-	}
-
-
-	.composer-toolbar {
+	.field-row {
 		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: 4px 10px 10px;
-		gap: var(--space-2);
-		min-width: 0;
-	}
-
-	.toolbar-left {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		min-width: 0;
-		flex: 1;
-		overflow: hidden;
-	}
-
-	.toolbar-chips {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		flex-wrap: nowrap;
-		overflow-x: auto;
-		scrollbar-width: none;
-		-webkit-overflow-scrolling: touch;
-		min-width: 0;
-	}
-
-	.toolbar-chips::-webkit-scrollbar {
-		display: none;
-	}
-
-	.composer-root :global(.composer-chip) {
-		height: 26px;
-		padding: 0 6px;
-		font-size: var(--text-xs);
-		background: transparent;
-		border: 1px solid transparent;
-		border-radius: var(--radius-md);
-		color: var(--ink-muted);
-		cursor: pointer;
-		display: inline-flex;
-		align-items: center;
-		gap: 5px;
-		flex-shrink: 0;
-		transition:
-			background-color var(--dur-fast) var(--ease-out),
-			border-color var(--dur-fast) var(--ease-out),
-			color var(--dur-fast) var(--ease-out);
-	}
-
-	.composer-root :global(.composer-chip:hover:not(:disabled)) {
-		background: var(--bg-hover);
-		color: var(--ink);
-	}
-
-	:global(.composer-chip.active) {
-		background: var(--bg-hover);
-		color: var(--ink);
-		border-color: var(--line);
-	}
-
-	.role-dot {
-		width: 7px;
-		height: 7px;
-		border-radius: 50%;
-		background: var(--ink-faint);
-		flex-shrink: 0;
-	}
-
-	.role-dot.has-hue {
-		background: hsl(var(--role-h) 70% 55%);
-	}
-
-	.role-name {
-		font-weight: 550;
-		color: var(--ink);
-	}
-
-	.model-name-label {
-		max-width: 140px;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		color: var(--ink);
-	}
-
-	.chevron-indicator {
-		display: inline-flex;
-		align-items: center;
-		color: var(--ink-faint);
-		--icon-size: 12px;
-	}
-
-	.thinking-label {
-		font-size: var(--text-caption);
-	}
-
-	.thinking-popover {
-		padding: var(--space-3) var(--space-4) var(--space-4);
-		--slider-ring: var(--bg-raised);
-	}
-
-	.thinking-unsupported {
-		margin: 0;
-		font-size: var(--text-label);
-		line-height: 1.4;
-		color: var(--ink-muted);
-	}
-
-	.mobile-thinking-label,
-	.mobile-thinking-panel {
-		display: none;
-	}
-
-	.send-split-group {
-		display: flex;
-		align-items: center;
-		background: var(--brand-ink);
-		border-radius: var(--radius-full);
-	}
-
-	.composer-root :global(.menu-button.send-mode-trigger) {
-		height: 32px;
-		padding: 0 8px 0 5px;
-		border: none;
-		border-left: 1px solid color-mix(in oklch, var(--bg-base) 30%, transparent);
-		border-radius: 0 var(--radius-full) var(--radius-full) 0;
-		background: transparent;
-		color: var(--bg-base);
-		--icon-size: 12px;
-	}
-
-	.send-mode-menu {
-		display: flex;
-		flex-direction: column;
-		padding: var(--space-1);
-	}
-
-	.send-mode-menu button {
-		display: flex;
-		flex-direction: column;
-		align-items: flex-start;
+		align-items: flex-end;
 		gap: 4px;
-		padding: var(--space-3);
+		padding: 4px;
+		min-width: 0;
+	}
+
+	.editor-wrap {
+		flex: 1;
+		min-width: 0;
+		align-self: center;
+		/* Il campo cresce con il testo fino a un tetto, poi scorre: la chat resta leggibile. */
+		max-height: 30dvh;
+		overflow-y: auto;
+	}
+
+	.editor-wrap :global(.composer-editor) {
+		padding: 9px 4px;
+		min-height: 0;
+	}
+
+	.round-btn {
+		width: 40px;
+		height: 40px;
+		border-radius: 50%;
 		border: none;
-		border-radius: var(--radius-md);
-		background: transparent;
-		color: var(--ink);
-		font: inherit;
-		cursor: pointer;
-		text-align: left;
-	}
-
-	.send-mode-menu button:hover,
-	.send-mode-menu button.selected {
-		background: var(--bg-hover);
-	}
-
-	.send-mode-menu small {
-		color: var(--ink-muted);
-		font-size: var(--text-caption);
-	}
-
-	.toolbar-actions {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		flex-shrink: 0;
-	}
-
-	.composer-send-btn {
-		width: 32px;
-		height: 32px;
-		border-radius: var(--radius-full);
-		border: none;
-		background: var(--brand-ink);
-		color: var(--bg-base);
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
 		cursor: pointer;
+		flex-shrink: 0;
+		--icon-size: 18px;
 		transition:
 			opacity var(--dur-fast) var(--ease-out),
 			transform var(--dur-fast) var(--ease-out);
-		flex-shrink: 0;
-		--icon-size: 16px;
 	}
 
-	.composer-send-btn:hover:not(:disabled) {
-		opacity: 0.9;
+	.send-btn {
+		background: var(--brand-ink);
+		color: var(--bg-base);
 	}
 
-	.composer-send-btn:active:not(:disabled) {
-		transform: scale(0.95);
-	}
-
-	.composer-send-btn:disabled {
-		opacity: 0.35;
-		cursor: not-allowed;
-	}
-
-	.composer-send-btn.stop-btn {
+	.stop-btn {
 		background: var(--danger);
 		color: #ffffff;
 	}
 
-	@media (max-width: 480px) {
-		.toolbar-left { overflow: visible; }
-		.toolbar-chips { overflow: visible; flex: 1; }
-		.composer-root :global(.thinking-chip),
-		.chevron-indicator { display: none; }
-		.composer-root :global(.model-chip) { min-width: 0; flex-shrink: 1; }
-		.model-name-label { max-width: 120px; min-width: 0; }
-		.mobile-thinking-label { display: inline; white-space: nowrap; }
-		/* Scorre solo il catalogo: thinking e ricerca restano sempre raggiungibili. */
-		.composer-root :global(.menu-popover:has(.remote-model-picker)) {
-			width: calc(100vw - 24px) !important;
-			max-height: calc(100dvh - 24px);
-			overflow: hidden;
-		}
-		.remote-model-picker {
-			display: flex;
-			flex-direction: column;
-			height: min(560px, calc(100dvh - 48px));
-			min-height: 0;
-		}
-		.remote-model-picker :global(.model-picker-list) { display: contents; }
-		.remote-model-picker :global(.results-list) {
-			order: 0;
-			max-height: none;
-			overscroll-behavior-y: contain;
-			padding: var(--space-2);
-		}
-		.remote-model-picker :global(.model-option) {
-			min-height: 48px;
-			padding: var(--space-2) var(--space-3);
-			font-size: var(--text-label);
-		}
-		.remote-model-picker :global(.search-box) {
-			order: 2;
-			border-top: 1px solid var(--line);
-			border-bottom: 0;
-			padding: var(--space-3);
-		}
-		.remote-model-picker :global(.search-input) { min-height: 44px; padding-left: 32px; }
-		.remote-model-picker :global(.search-icon) { left: 24px; --icon-size: 16px; }
-		.remote-model-picker :global(.clear-btn) { right: 16px; min-width: 44px; min-height: 44px; --icon-size: 16px; }
-		.remote-model-picker :global(.menu-footer) { display: none; }
-		.mobile-thinking-panel {
-			display: block;
-			order: 1;
-			flex-shrink: 0;
-			border-top: 1px solid var(--line);
-		}
+	.round-btn:active:not(:disabled) {
+		transform: scale(0.95);
 	}
 
-	/* Bersagli da dito (44px consigliati da Apple): invio, selettore e chip. */
-	@media (pointer: coarse) {
-		.composer-send-btn {
-			width: 40px;
-			height: 40px;
-			--icon-size: 18px;
-		}
-		.composer-root :global(.menu-button.send-mode-trigger) {
-			height: 40px;
-			padding: 0 10px 0 7px;
-		}
-		.composer-root :global(.composer-chip) {
-			height: 36px;
-			padding: 0 var(--space-2);
+	.round-btn:disabled {
+		opacity: 0.35;
+		cursor: not-allowed;
+	}
+
+	.round-btn:focus-visible {
+		outline: 2px solid var(--brand);
+		outline-offset: 2px;
+	}
+
+	.tools-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 8px;
+		padding: 0 8px 8px;
+		min-width: 0;
+	}
+
+	.seg {
+		display: inline-flex;
+		flex-shrink: 0;
+		margin-left: auto;
+		border: 1px solid var(--line);
+		border-radius: 17px;
+		padding: 2px;
+	}
+
+	.seg button {
+		min-height: 30px;
+		padding: 0 10px;
+		border: none;
+		border-radius: 15px;
+		background: transparent;
+		color: var(--ink-muted);
+		font: inherit;
+		font-size: var(--text-caption);
+		cursor: pointer;
+	}
+
+	.seg button.on {
+		background: var(--bg-hover);
+		color: var(--ink);
+		font-weight: 560;
+	}
+
+	.seg button:focus-visible {
+		outline: 2px solid var(--brand);
+		outline-offset: -2px;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.round-btn,
+		.composer-shell {
+			transition: none;
 		}
 	}
 </style>

@@ -19,6 +19,8 @@
 	let {
 		messages = [],
 		summary,
+		subagents = [],
+		jobs = [],
 		hostFeatures = [],
 		hostId = '',
 		projectId = '',
@@ -27,6 +29,8 @@
 	}: {
 		messages: RemoteChatMessage[];
 		summary: ToolGroupSummary;
+		subagents?: Array<{ id: string; name: string; task: string | null; status: string }>;
+		jobs?: Array<{ id: string; label: string; status: string }>;
 		hostFeatures?: Feature[];
 		hostId?: string;
 		projectId?: string;
@@ -62,11 +66,25 @@
 		};
 	}
 
-	const callsCountText = $derived(
-		summary.totalCalls === 1
-			? t('chatCallSingular')
-			: t('chatCalls', { count: summary.totalCalls })
+	const runningSubagents = $derived(
+		subagents ? subagents.filter((s) => s.status === 'running' || s.status === 'working').length : 0
 	);
+	const runningJobs = $derived(
+		jobs ? jobs.filter((j) => j.status === 'running').length : 0
+	);
+	const stepsCountText = $derived.by(() => {
+		let text =
+			summary.totalCalls === 1
+				? t('stepsSingular', { count: 1 })
+				: t('stepsPlural', { count: summary.totalCalls });
+		if (runningSubagents > 0) {
+			text += ` · ${runningSubagents === 1 ? t('subagentsWorkingSingular', { count: 1 }) : t('subagentsWorkingPlural', { count: runningSubagents })}`;
+		}
+		if (runningJobs > 0) {
+			text += ` · ${runningJobs === 1 ? t('jobsRunningSingular', { count: 1 }) : t('jobsRunningPlural', { count: runningJobs })}`;
+		}
+		return text;
+	});
 
 	const durationLabel = $derived.by(() => {
 		return formatDurationSecs(summary.durationMs, getLanguage());
@@ -91,12 +109,12 @@
 		{#if summary.hasRunning}
 			<span class="summary-lead">
 				<span class="live-status text-shimmer">{t('chatToolsWorking')}</span>
-				<span class="summary-text tabular-nums">{callsCountText} · {durationLabel}</span>
+				<span class="summary-text tabular-nums">{stepsCountText} · {durationLabel}</span>
 			</span>
 		{:else}
 			<span class="summary-lead">
 				<span class="check-icon"><IconCheck /></span>
-				<span class="summary-text tabular-nums">{callsCountText} · {durationLabel}</span>
+				<span class="summary-text tabular-nums">{stepsCountText} · {durationLabel}</span>
 			</span>
 
 			<span class="summary-counts">
@@ -158,6 +176,27 @@
 
 	{#if isFullListOpen}
 		<div class="full-list-container">
+			{#if (subagents && subagents.length > 0) || (jobs && jobs.length > 0)}
+				<div class="active-ops-banner">
+					{#each subagents as sa (sa.id)}
+						<div class="op-row">
+							<span class="op-dot" class:running={sa.status === 'running' || sa.status === 'working'}></span>
+							<strong class="op-name">{sa.name}</strong>
+							{#if sa.task}
+								<span class="op-task">: {sa.task}</span>
+							{/if}
+							<span class="op-status-badge">{sa.status}</span>
+						</div>
+					{/each}
+					{#each jobs as j (j.id)}
+						<div class="op-row">
+							<span class="op-dot" class:running={j.status === 'running'}></span>
+							<span class="op-label">{j.label}</span>
+							<span class="op-status-badge">{j.status}</span>
+						</div>
+					{/each}
+				</div>
+			{/if}
 			{#each messages as msg (msg.id)}
 				{#if msg.role === 'assistant'}
 					<ThinkingBlock text={(msg.blocks ?? []).filter((block) => block.type === 'thinking').map((block) => block.text).join('\n\n')} />
@@ -556,5 +595,55 @@
 		color: var(--ink-muted);
 		white-space: pre-wrap;
 		word-break: break-all;
+	}
+	.active-ops-banner {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		padding: 8px 10px;
+		margin: 6px 8px 10px;
+		background: var(--bg-raised);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
+	}
+
+	.op-row {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		font-size: var(--text-xs);
+		color: var(--ink);
+	}
+
+	.op-dot {
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		background: var(--ink-faint);
+		flex-shrink: 0;
+	}
+
+	.op-dot.running {
+		background: var(--brand);
+	}
+
+	.op-name {
+		font-weight: 600;
+	}
+
+	.op-task, .op-label {
+		color: var(--ink-muted);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		flex: 1;
+	}
+
+	.op-status-badge {
+		font-size: 10px;
+		padding: 1px 5px;
+		border-radius: var(--radius-sm);
+		background: var(--bg-sunken);
+		color: var(--ink-muted);
 	}
 </style>

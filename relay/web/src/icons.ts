@@ -22,6 +22,7 @@ export { default as IconRefresh } from '@lucide/svelte/icons/refresh-cw';
 export { default as IconSearch } from '@lucide/svelte/icons/search';
 export { default as IconGlobe } from '@lucide/svelte/icons/globe';
 export { default as IconCopy } from '@lucide/svelte/icons/copy';
+export { default as IconMore } from '@lucide/svelte/icons/ellipsis';
 
 // Guscio, macchine e dispositivi.
 export { default as IconSettings } from '@lucide/svelte/icons/settings';
