@@ -41,6 +41,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Nei progetti con il diario attivo l'agente parte subito dopo l'invio del messaggio: prima ogni turno restava fermo circa 30 secondi prima di iniziare a ragionare.
 - Cambiare ruolo dal composer (per esempio da default a smol) è più rapido: Studio non aspetta più l'elenco completo dei modelli disponibili, che richiedeva diversi secondi.
 - Trascinando lo slider del thinking Studio invia all'agente solo l'ultimo livello scelto invece di un comando per ogni passo: il livello si aggiorna prima e non rallenta i comandi successivi.
+- Con una chat o un terminale aperti su un progetto, pull, sincronizzazione Git, salvataggi, operazioni sui file e cambi di branch non vengono più rifiutati con «occupato da un'automazione attiva» quando nessuna automazione è in esecuzione.
 - Anche gli scratchpad mostrano nella barra superiore l'indicatore dell'agente al lavoro, in attesa di risposta o con un lavoro completato, mantenendo l'icona del fantasmino.
 - Una compattazione manuale avviata fuori da Studio, ad esempio da un'estensione, compare nella chat come «Compattazione del contesto in corso» e alla fine mostra i token risparmiati; durante la compattazione la sessione risulta occupata (richiede omp 18.13.3 o successivo).
 - I prototipi associati a un progetto ricevono il percorso reale e i riferimenti ai suoi file, invece di cercare soltanto nello scaffold vuoto: puoi partire da un progetto mai aperto in Studio senza rispiegare il dominio o avere una chat precedente. (R-LAB-01, R-LAB-07)

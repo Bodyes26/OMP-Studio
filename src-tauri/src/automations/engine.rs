@@ -768,15 +768,10 @@ impl Engine {
         let norm = normalize_project_path(path);
 
         let locks = self.project_locks.lock();
-        if let Some(owner) = locks.get(&canonical_norm).or_else(|| locks.get(&norm)) {
-            if let Some(ex) = excluding_execution {
-                if owner == ex {
-                    return false;
-                }
-            }
-            return true;
-        }
-        false
+        locks
+            .get(&canonical_norm)
+            .or_else(|| locks.get(&norm))
+            .map_or(false, |owner| lock_owner_blocks(owner, excluding_execution))
     }
 
     pub fn interactive_admission(&self, path: &str) -> Result<(), String> {
@@ -786,16 +781,16 @@ impl Engine {
 
         let mut locks = self.project_locks.lock();
         if let Some(owner) = locks.get(&canonical_norm).or_else(|| locks.get(&norm)) {
-            if owner != "interactive" {
+            if owner != INTERACTIVE_LOCK_OWNER {
                 return Err(format!(
                     "Progetto '{}' occupato dall'automazione attiva '{}' (AUT-042)",
                     canonical, owner
                 ));
             }
         } else {
-            locks.insert(canonical_norm.clone(), "interactive".to_string());
+            locks.insert(canonical_norm.clone(), INTERACTIVE_LOCK_OWNER.to_string());
             if canonical_norm != norm {
-                locks.insert(norm, "interactive".to_string());
+                locks.insert(norm, INTERACTIVE_LOCK_OWNER.to_string());
             }
         }
         Ok(())
@@ -807,10 +802,10 @@ impl Engine {
         let norm = normalize_project_path(path);
 
         let mut locks = self.project_locks.lock();
-        if locks.get(&canonical_norm).map_or(false, |o| o == "interactive") {
+        if locks.get(&canonical_norm).map_or(false, |o| o == INTERACTIVE_LOCK_OWNER) {
             locks.remove(&canonical_norm);
         }
-        if locks.get(&norm).map_or(false, |o| o == "interactive") {
+        if locks.get(&norm).map_or(false, |o| o == INTERACTIVE_LOCK_OWNER) {
             locks.remove(&norm);
         }
     }
@@ -1988,6 +1983,20 @@ pub fn normalize_project_path(path: &str) -> String {
     }
 }
 
+/// Proprietario del segnaposto che una sessione interattiva (chat o terminale)
+/// mette in `project_locks`: serve solo a tenere lo scheduler lontano dal
+/// progetto mentre l'utente ci lavora.
+const INTERACTIVE_LOCK_OWNER: &str = "interactive";
+
+/// Dice se il proprietario di un lock rende il progetto occupato (AUT-042).
+///
+/// Il segnaposto interattivo non conta: e' l'utente stesso, e trattarlo come
+/// automazione bloccava pull, salvataggi e cambi di branch con una chat aperta
+/// sul progetto, senza alcuna automazione in esecuzione.
+fn lock_owner_blocks(owner: &str, excluding_execution: Option<&str>) -> bool {
+    owner != INTERACTIVE_LOCK_OWNER && Some(owner) != excluding_execution
+}
+
 /// Regola di ammissione di un titolo AI (AUT-041 rivisto il 2026-10-30).
 ///
 /// Gli agenti interattivi non contano: un titolo e' una sola chiamata breve a
@@ -2032,5 +2041,18 @@ mod tests {
         assert!(!title_slot_admissible(&ctx(0, false), 0, 0, true));
         assert!(!title_slot_admissible(&ctx(0, false), 2, 0, false));
         assert!(title_slot_admissible(&ctx(0, false), 1, 0, false));
+    }
+
+    #[test]
+    fn segnaposto_interattivo_non_occupa_il_progetto() {
+        assert!(!lock_owner_blocks(INTERACTIVE_LOCK_OWNER, None));
+        assert!(!lock_owner_blocks(INTERACTIVE_LOCK_OWNER, Some("exec-1")));
+    }
+
+    #[test]
+    fn esecuzione_automazione_occupa_tranne_per_se_stessa() {
+        assert!(lock_owner_blocks("exec-1", None));
+        assert!(lock_owner_blocks("exec-1", Some("exec-2")));
+        assert!(!lock_owner_blocks("exec-1", Some("exec-1")));
     }
 }
