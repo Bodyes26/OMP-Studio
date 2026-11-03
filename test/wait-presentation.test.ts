@@ -33,6 +33,14 @@ describe('Attese: identita, precedenza e stato dei lavori', () => {
 		]);
 	});
 
+	it('mostra lo scopo del job (omp 18.15+) e ripiega sul comando quando manca', () => {
+		const activities = waitActivities({ jobs: [
+			{ id: 'build', type: 'bash', intent: 'Compilo il frontend', label: 'npm run build', status: 'running' },
+			{ id: 'lint', type: 'bash', label: 'npm run lint', status: 'running' }
+		] });
+		assert.deepEqual(activities.map((item) => item.label), ['Compilo il frontend', 'npm run lint']);
+	});
+
 	it('le attivita nel solo contesto non sono target certi della wait', () => {
 		const context: WaitContext = {
 			subagents: [{ id: 'unrelated', agent: 'Altro lavoro', status: 'running' }],

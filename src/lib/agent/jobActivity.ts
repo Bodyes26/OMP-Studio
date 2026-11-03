@@ -27,7 +27,8 @@ export function observeSessionJobs(
 		const type = str(record.type) ?? (toolName === 'bash' || toolName === 'eval' ? toolName : undefined);
 		if (!id || (type !== 'bash' && type !== 'eval')) continue;
 		const existing = next.find((job) => job.id === id);
-		const label = str(record.label) ?? str(record.task) ?? existing?.label ?? str(args.command) ?? str(args.i) ?? id;
+		// omp 18.15+: `intent` (lo scopo dato dal modello) precede `label`, che per bash e' il comando.
+		const label = str(record.intent) ?? str(record.label) ?? str(record.task) ?? existing?.label ?? str(args.command) ?? str(args.i) ?? id;
 		const status = str(record.status) ?? str(record.state) ?? existing?.status ?? 'unknown';
 		// Il replay puo' rivedere il lancio dopo aver gia' ricevuto l'esito:
 		// l'identita' nativa del job non viene riutilizzata per una nuova esecuzione.

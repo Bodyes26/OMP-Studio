@@ -89,6 +89,13 @@ describe('observed background jobs', () => {
 		assert.deepEqual(replayed, [{ id: 'build', label: 'npm run build', status: 'failed' }]);
 	});
 
+	it('prefers the job intent (omp 18.15+) over its command line', () => {
+		const jobs = observeSessionJobs([], 'job', {}, { jobs: [
+			{ id: 'build', type: 'bash', intent: 'Build the frontend', label: 'npm run build', status: 'running' }
+		] });
+		assert.deepEqual(jobs, [{ id: 'build', label: 'Build the frontend', status: 'running' }]);
+	});
+
 	it('does not mistake an async request or an untyped result for a launched job', () => {
 		assert.deepEqual(observeSessionJobs([], 'bash', { async: true, command: 'build' }, { exitCode: 0 }), []);
 		assert.deepEqual(observeSessionJobs([], 'job', {}, { jobs: [{ id: 'mystery', status: 'running' }] }), []);

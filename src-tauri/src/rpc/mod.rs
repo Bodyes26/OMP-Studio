@@ -488,6 +488,30 @@ pub fn write_lab_session_config(
     Ok(config_path)
 }
 
+/// Filtro eventi chiesto a omp appena e' pronto. `events` e' una lista di
+/// ammessi: e' l'unione `RpcAgentEvent` di omp (`modes/rpc/wire/events.ts`)
+/// senza `tool_stream_update`. Quel frame e' l'anteprima nativa di `edit`:
+/// a ogni token della chiamata omp rispedisce l'anteprima intera (~35 KB),
+/// e Studio non la legge. Il 2026-11-02 un `edit` da 41 KB ne ha prodotti
+/// 93 MB: omp li ha accodati nel suo file di spool, che rilegge a ~8 KB/s,
+/// e risposte ai comandi e fine del turno sono rimaste dietro per ore.
+/// Un evento di sessione nuovo di omp non arriva finche' non e' qui.
+const EVENT_FILTER_COMMAND: &[u8] = b"{\"id\":\"studio-filter-1\",\"type\":\"set_event_filter\",\"events\":[\
+\"agent_start\",\"agent_end\",\"turn_start\",\"turn_end\",\
+\"message_start\",\"message_update\",\"message_end\",\
+\"tool_execution_start\",\"tool_execution_update\",\"tool_execution_end\",\
+\"auto_compaction_start\",\"auto_compaction_end\",\
+\"manual_compaction_start\",\"manual_compaction_end\",\
+\"auto_retry_start\",\"auto_retry_end\",\
+\"cache_warming_start\",\"cache_warming_end\",\
+\"retry_fallback_applied\",\"retry_fallback_succeeded\",\
+\"model_changed\",\"config_warnings_changed\",\
+\"advisor_cost_changed\",\"advisor_yielded\",\
+\"ttsr_triggered\",\"todo_reminder\",\"todo_auto_clear\",\
+\"irc_message\",\"notice\",\"thinking_level_changed\",\
+\"goal_updated\",\"queue_update\"\
+],\"messageUpdates\":\"delta\"}\n";
+
 /// Vista minima di un frame in arrivo: solo cio' che il trasporto deve
 /// decidere. `serde` ignora il resto senza allocarlo.
 #[derive(Deserialize)]
@@ -938,14 +962,13 @@ fn dispatch(
             // segue, risposte ai comandi comprese, arriva con minuti di
             // ritardo: chat ferma e prompt rifiutati dopo 60 s. In modalita'
             // `delta` omp toglie le istantanee e lascia delta, `content` dei
-            // `*_end` e `toolCall`, cioe' tutto cio' che Studio usa. Un omp
+            // `*_end` e `toolCall`, cioe' tutto cio' che Studio usa; la lista
+            // di `EVENT_FILTER_COMMAND` toglie le anteprime di `edit`. Un omp
             // che non conosce il comando risponde con un errore senza padrone.
             let mut guard = stdin.lock();
             if let Some(handle) = guard.as_mut() {
                 let _ = handle
-                    .write_all(
-                        b"{\"id\":\"studio-filter-1\",\"type\":\"set_event_filter\",\"events\":null,\"messageUpdates\":\"delta\"}\n",
-                    )
+                    .write_all(EVENT_FILTER_COMMAND)
                     .and_then(|()| handle.flush());
             }
         }

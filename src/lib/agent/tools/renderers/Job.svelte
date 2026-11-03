@@ -74,7 +74,7 @@
 				agentId,
 				status: str(rec.status) ?? str(rec.state),
 				type,
-				label: str(rec.label) ?? str(rec.task),
+				label: str(rec.intent) ?? str(rec.label) ?? str(rec.task),
 				duration: formatDuration(num(rec.durationMs)),
 				model: str(rec.resolvedModel) ?? str(rec.model),
 				jobText: str(rec.resultText) ?? str(rec.errorText)

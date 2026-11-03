@@ -2094,6 +2094,7 @@
   "ui_edit_modifica_in_corso_0b2d": "Editing...",
   "ui_diff_righe_omesse_mostra_tutto_c087": "lines omitted — show all",
   "ui_bash_esecuzione_in_corso_b1d6": "Running...",
+  "ui_bash_output_ridotto": "Output reduced",
   "ui_generateimage_modello_b6ca": "Model",
   "ui_browserviewer_value1_file_autorizzati_per_il_caricamento_1e76": "{value1} files authorized for upload",
   "ui_browserviewer_impossibile_aprire_la_cartella_value1_5c22": "Unable to open folder: {value1}",

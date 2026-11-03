@@ -2042,3 +2042,9 @@ Scelte prese nelle conversazioni e nei commit ma non registrate come Gate.
 - 2026-10-30 — I titoli AI (task e sessioni) non attendono gli agenti interattivi: sono una chiamata breve a un modello leggero e con due corsie al lavoro, situazione abituale, restavano in attesa indefinita. Restano seriali, dopo le automazioni AI personali e dentro il loro cap. Scelta dell'utente: «Titoli fuori dal cap agenti» (AUT-041 rivisto). [sessione 01a18c7a]
 
 - Immagini nelle risposte ad `ask` (R-LAB-04): la risposta nativa (`extension_ui_response` con `answers`) non trasporta immagini. La scheda le tiene per domanda e, solo dopo che omp ha accettato la risposta, le spedisce con il comando RPC `steer`. Non passa da `prompt()`, che annullerebbe un'eventuale nuova domanda arrivata nel frattempo. Se omp non accetta gli allegati, questi restano nel composer con un avviso. Scartato: salvare l'immagine su disco e mettere il percorso nella nota (richiederebbe all'agente un'altra lettura). [sessione 01a19ca8]
+
+## Filtro eventi verso omp
+
+## Filtro eventi verso omp come lista di ammessi
+
+Studio manda a omp `set_event_filter` con l'elenco esplicito degli eventi di sessione (`RpcAgentEvent` di omp meno `tool_stream_update`) e `messageUpdates: delta`. Perché: omp non offre una lista di esclusi, e l'anteprima di `edit` a ogni token generava decine di MB che bloccavano le chat. Costo: un nuovo evento di sessione di omp non arriva a Studio finché non viene aggiunto a `EVENT_FILTER_COMMAND` in `src-tauri/src/rpc/mod.rs`. [sessione 01a1a066]

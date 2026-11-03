@@ -59,7 +59,8 @@ export function waitActivities(raw: unknown, context?: WaitContext): WaitActivit
 			? status as AgentProgress['status'] : status === 'cancelled' ? 'aborted' : progress?.status;
 		items.set(key, {
 			id: key, kind: previous?.kind ?? 'job',
-			label: str(job.label) ?? previous?.label ?? id, status, observed: true,
+			// omp 18.15+: `intent` e' lo scopo dato dal modello; `label` di un job bash e' il comando.
+			label: str(job.intent) ?? str(job.label) ?? previous?.label ?? id, status, observed: true,
 			progress: progress ? { ...progress, status: agentStatus } : undefined,
 			activity: str(job.stage) ?? previous?.activity,
 			durationMs: num(job.durationMs) ?? previous?.durationMs,

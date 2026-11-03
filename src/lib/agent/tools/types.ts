@@ -96,6 +96,24 @@ export function formatDuration(ms: number | undefined): string | undefined {
 	return `${minutes}m ${Math.round((ms % 60_000) / 1000)}s`;
 }
 
+function formatKb(bytes: number): string {
+	return bytes < 1024 ? `${bytes}B` : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)}KB` : `${(bytes / 1024 / 1024).toFixed(1)}MB`;
+}
+
+/**
+ * Riduzione dell'output bash (omp 18.16+, `details.meta.minimized`): filtro
+ * nativo e byte prima/dopo, come il fatto `Minimized` della TUI. L'output
+ * originale resta nell'artifact citato in coda al testo.
+ */
+export function formatMinimized(details: unknown): string | undefined {
+	const minimized = asRecord(asRecord(asRecord(details)?.meta)?.minimized);
+	const input = num(minimized?.inputBytes);
+	const output = num(minimized?.outputBytes);
+	if (!minimized || input === undefined || output === undefined) return undefined;
+	const filter = str(minimized.filter);
+	return `${filter ? `${filter} ` : ''}${formatKb(input)} → ${formatKb(output)}`;
+}
+
 /**
  * Formatta il tempo trascorso dei cronometri della chat: indicatore di
  * attivita del turno e chiamate ai tool.

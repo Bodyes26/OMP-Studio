@@ -15,6 +15,7 @@
 		asRecord,
 		bool,
 		formatDuration,
+		formatMinimized,
 		num,
 		resultText,
 		str,
@@ -31,6 +32,7 @@
 	const cwd = $derived(str(args.cwd));
 	const pty = $derived(bool(args.pty));
 	const isAsync = $derived(bool(args.async));
+	const minimized = $derived(formatMinimized(result?.details));
 
 	const metaRows = $derived.by(() => {
 		const rows: { key: string; value: string }[] = [];
@@ -51,6 +53,9 @@
 		}
 		if (isAsync !== undefined) {
 			rows.push({ key: 'Async', value: isAsync ? m.ui_bash_si_ef73() : 'no' });
+		}
+		if (minimized) {
+			rows.push({ key: m.ui_bash_output_ridotto(), value: minimized });
 		}
 		return rows;
 	});

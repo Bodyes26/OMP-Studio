@@ -3496,8 +3496,17 @@ mod tests {
     use crate::process_tree::LaneProcessControl;
     use lane_integrate::WorktreeLandOutcome;
     use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::OnceLock;
 
     static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    struct SeedRepository {
+        root: PathBuf,
+        commit: Option<String>,
+    }
+
+    static SEED_WITH_COMMIT: OnceLock<SeedRepository> = OnceLock::new();
+    static SEED_UNBORN: OnceLock<SeedRepository> = OnceLock::new();
 
     struct TestRepository {
         container: PathBuf,
@@ -3529,7 +3538,76 @@ mod tests {
         output
     }
 
+    // Scrive la configurazione Git in batch nel file `.git/config` per evitare
+    // processi separati e disabilitare l'auto-maintenance ereditata anche dalle chiamate reali.
+    fn write_fixture_git_config(git_dir: &Path) {
+        let config_path = git_dir.join("config");
+        let extra = "\n[user]\n\tname = OMP Studio Test\n\temail = studio-test@example.invalid\n[core]\n\tautocrlf = false\n[commit]\n\tgpgsign = false\n[tag]\n\tgpgsign = false\n[maintenance]\n\tauto = false\n[gc]\n\tauto = 0\n";
+        let mut current = fs::read_to_string(&config_path).unwrap_or_default();
+        current.push_str(extra);
+        fs::write(&config_path, current).expect("impossibile scrivere la configurazione git del fixture");
+    }
+
+    // Copia ricorsiva indipendente senza hard link o database di oggetti condivisi.
+    fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
+        fs::create_dir_all(dst)?;
+        for entry in fs::read_dir(src)? {
+            let entry = entry?;
+            let file_type = entry.file_type()?;
+            let from = entry.path();
+            let to = dst.join(entry.file_name());
+            if file_type.is_dir() {
+                copy_dir_all(&from, &to)?;
+            } else {
+                fs::copy(&from, &to)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn get_seed_repository(with_commit: bool) -> &'static SeedRepository {
+        let slot = if with_commit {
+            &SEED_WITH_COMMIT
+        } else {
+            &SEED_UNBORN
+        };
+        slot.get_or_init(|| {
+            let label = if with_commit { "committed" } else { "unborn" };
+            let seed_container = std::env::temp_dir().join(format!(
+                "omp-studio-worktrees-seed-{}-{}",
+                std::process::id(),
+                label
+            ));
+            let _ = fs::remove_dir_all(&seed_container);
+            fs::create_dir_all(&seed_container).expect("creazione seed container");
+            let root = seed_container.join("Repo Con Spazi");
+            fs::create_dir_all(&root).expect("creazione seed root");
+            test_git(&root, &["init"]);
+            write_fixture_git_config(&root.join(".git"));
+            let nested = root.join("cartella con spazi");
+            fs::create_dir_all(&nested).expect("creazione seed nested");
+
+            let commit = if with_commit {
+                fs::write(nested.join("tracked.txt"), "contenuto\n")
+                    .expect("scrittura tracked.txt seed");
+                test_git(&root, &["add", "."]);
+                test_git(&root, &["commit", "-m", "commit iniziale"]);
+                test_git(&root, &["branch", "-M", "main"]);
+                Some(
+                    String::from_utf8_lossy(&test_git(&root, &["rev-parse", "HEAD"]).stdout)
+                        .trim()
+                        .to_string(),
+                )
+            } else {
+                None
+            };
+
+            SeedRepository { root, commit }
+        })
+    }
+
     fn repository(with_commit: bool) -> TestRepository {
+        let seed = get_seed_repository(with_commit);
         let sequence = TEST_COUNTER.fetch_add(1, Ordering::Relaxed);
         let container = std::env::temp_dir().join(format!(
             "omp-studio-worktrees-{}-{}",
@@ -3537,40 +3615,16 @@ mod tests {
             sequence
         ));
         let _ = fs::remove_dir_all(&container);
-        fs::create_dir_all(&container).unwrap();
+        fs::create_dir_all(&container).expect("creazione container test");
         let root = container.join("Repo Con Spazi");
-        fs::create_dir_all(&root).unwrap();
-        test_git(&root, &["init"]);
-        test_git(&root, &["config", "user.name", "OMP Studio Test"]);
-        test_git(
-            &root,
-            &["config", "user.email", "studio-test@example.invalid"],
-        );
-        // I test confrontano byte: l'autocrlf globale dell'utente li renderebbe
-        // dipendenti dalla macchina.
-        test_git(&root, &["config", "core.autocrlf", "false"]);
+        copy_dir_all(&seed.root, &root).expect("copia isolata del seed repo");
         let nested = root.join("cartella con spazi");
-        fs::create_dir_all(&nested).unwrap();
-
-        let commit = if with_commit {
-            fs::write(nested.join("tracked.txt"), "contenuto\n").unwrap();
-            test_git(&root, &["add", "."]);
-            test_git(&root, &["commit", "-m", "commit iniziale"]);
-            test_git(&root, &["branch", "-M", "main"]);
-            Some(
-                String::from_utf8_lossy(&test_git(&root, &["rev-parse", "HEAD"]).stdout)
-                    .trim()
-                    .to_string(),
-            )
-        } else {
-            None
-        };
 
         TestRepository {
             container,
             root,
             nested,
-            commit,
+            commit: seed.commit.clone(),
         }
     }
 

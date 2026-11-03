@@ -683,8 +683,69 @@ mod tests {
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::OnceLock;
 
     static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
+    static SEED_FIXTURE_PATH: OnceLock<PathBuf> = OnceLock::new();
+
+    const FIXTURE_WORKTREE_CONFIG: &str = "\n[user]\n\tname = OMP Studio Test\n\temail = test@coldiretti.invalid\n[commit]\n\tgpgsign = false\n[core]\n\tautocrlf = false\n[maintenance]\n\tauto = false\n[gc]\n\tauto = 0\n";
+    const FIXTURE_BARE_CONFIG: &str = "\n[maintenance]\n\tauto = false\n[gc]\n\tauto = 0\n";
+
+    fn append_repo_config(git_config_path: &Path, content: &str) {
+        let existing = fs::read_to_string(git_config_path).unwrap_or_default();
+        fs::write(git_config_path, format!("{existing}{content}"))
+            .expect("impossibile scrivere la configurazione git del fixture");
+    }
+
+    fn set_writable_recursive(path: &Path) {
+        if let Ok(entries) = fs::read_dir(path) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if let Ok(meta) = p.metadata() {
+                    let mut perms = meta.permissions();
+                    if perms.readonly() {
+                        perms.set_readonly(false);
+                        let _ = fs::set_permissions(&p, perms);
+                    }
+                    if meta.is_dir() {
+                        set_writable_recursive(&p);
+                    }
+                }
+            }
+        }
+    }
+
+    fn remove_dir_all_force(path: &Path) {
+        if !path.exists() {
+            return;
+        }
+        if fs::remove_dir_all(path).is_err() {
+            set_writable_recursive(path);
+            let _ = fs::remove_dir_all(path);
+        }
+    }
+
+    fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
+        fs::create_dir_all(dst)?;
+        for entry in fs::read_dir(src)? {
+            let entry = entry?;
+            let ty = entry.file_type()?;
+            let dest_path = dst.join(entry.file_name());
+            if ty.is_dir() {
+                copy_dir_all(&entry.path(), &dest_path)?;
+            } else {
+                fs::copy(entry.path(), &dest_path)?;
+                if let Ok(meta) = fs::metadata(&dest_path) {
+                    let mut perms = meta.permissions();
+                    if perms.readonly() {
+                        perms.set_readonly(false);
+                        let _ = fs::set_permissions(&dest_path, perms);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
 
     #[test]
     fn test_append_batch_mode_flag_preserves_custom_ssh() {
@@ -733,20 +794,69 @@ mod tests {
 
     impl Drop for TestGitSetup {
         fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.container);
+            remove_dir_all_force(&self.container);
         }
     }
 
     fn init_configured_repo(path: &Path) {
         fs::create_dir_all(path).unwrap();
         run_git_test_cmd(path, &["init"]);
-        run_git_test_cmd(path, &["config", "user.name", "OMP Studio Test"]);
-        run_git_test_cmd(path, &["config", "user.email", "test@coldiretti.invalid"]);
-        run_git_test_cmd(path, &["config", "commit.gpgsign", "false"]);
-        run_git_test_cmd(path, &["config", "core.autocrlf", "false"]);
+        append_repo_config(&path.join(".git").join("config"), FIXTURE_WORKTREE_CONFIG);
+    }
+
+    fn get_seed_fixture_path() -> &'static Path {
+        SEED_FIXTURE_PATH.get_or_init(|| {
+            let seed_container = std::env::temp_dir().join(format!(
+                "omp-studio-sync-seed-{}",
+                std::process::id()
+            ));
+            remove_dir_all_force(&seed_container);
+            fs::create_dir_all(&seed_container).expect("creazione cartella seed git");
+
+            let remote_bare = seed_container.join("remote.git");
+            fs::create_dir_all(&remote_bare).expect("creazione remote.git seed");
+            run_git_test_cmd(&remote_bare, &["init", "--bare"]);
+            append_repo_config(&remote_bare.join("config"), FIXTURE_BARE_CONFIG);
+
+            let work_a = seed_container.join("work_a");
+            init_configured_repo(&work_a);
+            fs::write(work_a.join("initial.txt"), "v1\n").expect("scrittura initial.txt seed");
+            run_git_test_cmd(&work_a, &["add", "."]);
+            run_git_test_cmd(&work_a, &["commit", "-m", "initial commit"]);
+            run_git_test_cmd(&work_a, &["branch", "-M", "main"]);
+            run_git_test_cmd(&work_a, &["remote", "add", "origin", "../remote.git"]);
+            run_git_test_cmd(&work_a, &["push", "-u", "origin", "main"]);
+            run_git_test_cmd(&remote_bare, &["symbolic-ref", "HEAD", "refs/heads/main"]);
+
+            let work_b = seed_container.join("work_b");
+            run_git_test_cmd(
+                &seed_container,
+                &["-c", "core.autocrlf=false", "clone", "./remote.git", "work_b"],
+            );
+
+            // Reindirizza origin di work_b a ../remote.git e applica la configurazione batch
+            let work_b_cfg_path = work_b.join(".git").join("config");
+            let cfg_content = fs::read_to_string(&work_b_cfg_path)
+                .expect("lettura configurazione work_b seed");
+            let mut rewritten_lines = Vec::new();
+            for line in cfg_content.lines() {
+                if line.trim_start().starts_with("url =") {
+                    rewritten_lines.push("\turl = ../remote.git");
+                } else {
+                    rewritten_lines.push(line);
+                }
+            }
+            let mut updated_cfg = rewritten_lines.join("\n");
+            updated_cfg.push_str(FIXTURE_WORKTREE_CONFIG);
+            fs::write(&work_b_cfg_path, updated_cfg)
+                .expect("scrittura configurazione work_b seed");
+
+            seed_container
+        }).as_path()
     }
 
     fn setup_test_repos() -> TestGitSetup {
+        let seed = get_seed_fixture_path();
         let seq = TEST_COUNTER.fetch_add(1, Ordering::Relaxed);
         let container = std::env::temp_dir().join(format!(
             "omp-studio-sync-test-{}-{}-{}",
@@ -757,42 +867,13 @@ mod tests {
                 .unwrap()
                 .as_nanos()
         ));
-        let _ = fs::remove_dir_all(&container);
-        fs::create_dir_all(&container).unwrap();
-
-        let remote_bare = container.join("remote.git");
-        fs::create_dir_all(&remote_bare).unwrap();
-        run_git_test_cmd(&remote_bare, &["init", "--bare"]);
-
-        let work_a = container.join("work_a");
-        init_configured_repo(&work_a);
-        fs::write(work_a.join("initial.txt"), "v1\n").unwrap();
-        run_git_test_cmd(&work_a, &["add", "."]);
-        run_git_test_cmd(&work_a, &["commit", "-m", "initial commit"]);
-        run_git_test_cmd(&work_a, &["branch", "-M", "main"]);
-
-        let remote_str = remote_bare.to_str().unwrap();
-        run_git_test_cmd(&work_a, &["remote", "add", "origin", remote_str]);
-        run_git_test_cmd(&work_a, &["push", "-u", "origin", "main"]);
-        run_git_test_cmd(&remote_bare, &["symbolic-ref", "HEAD", "refs/heads/main"]);
-
-        let work_b = container.join("work_b");
-        run_git_test_cmd(
-            &container,
-            &["-c", "core.autocrlf=false", "clone", remote_str, "work_b"],
-        );
-        run_git_test_cmd(&work_b, &["config", "user.name", "OMP Studio Test"]);
-        run_git_test_cmd(
-            &work_b,
-            &["config", "user.email", "test@coldiretti.invalid"],
-        );
-        run_git_test_cmd(&work_b, &["config", "commit.gpgsign", "false"]);
-        run_git_test_cmd(&work_b, &["config", "core.autocrlf", "false"]);
+        remove_dir_all_force(&container);
+        copy_dir_all(seed, &container).expect("copia fixture seed git");
 
         TestGitSetup {
+            work_a: container.join("work_a"),
+            work_b: container.join("work_b"),
             container,
-            work_a,
-            work_b,
         }
     }
 

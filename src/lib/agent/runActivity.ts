@@ -68,7 +68,6 @@ const ACTIVITY_EVENTS = new Set<string>([
 	'tool_execution_start',
 	'tool_execution_update',
 	'tool_execution_end',
-	'tool_stream_update',
 	'auto_compaction_start',
 	'auto_compaction_end',
 	'manual_compaction_start',

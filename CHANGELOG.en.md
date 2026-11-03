@@ -38,6 +38,8 @@ released: items are closed into a version via `npm run release -- <version>`.
 - The background processes indicator moves to the left corner of the bottom bar, matching the borderless styling and typography of the Studio and omp version buttons.
 - Running automations stay discreet in the bottom bar: grey text and a still, dimmed mark, with no blue color or filled count bubble; you see it when you look there, but it does not draw attention.
 - Studio Remote is designed for the phone: the home page shows one machine at a time and each open project only once, first those waiting for you, then those working, then idle ones; tap it to open the chat of the request or branch, or expand it to see branches, queue and history. The chat has a one-line header, the agent's steps collected in one row, a compact input that shows role, model and queued sending only while you type, and full-screen previews. On wide screens list, chat and preview sit side by side. (R-REM-01…07, R-REM-13…16)
+- Background processes in waits and job checks show what they are for, in the agent's words, instead of only the command; with omp older than 18.15 the command stays (ATT-002).
+- When omp reduces a bash command's output (from omp 18.16), the command card shows the filter used and the bytes before and after, for example "git 120.4KB → 3.2KB".
 
 ### Fixed
 - In the quota popover, “Sign in again” starts the provider login directly from each account with disabled or expired credentials; closing it refreshes accounts and quotas.
@@ -56,6 +58,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - A task saved from the Companion without a role or model gets the default task role and its model instead of having no role.
 - In the quota popover, with several accounts on the same provider, "In use by" appears only on the account omp actually uses for each session instead of on every account of that provider. The quota chip also recognises the account during the first turn of a new session and in long sessions, without picking up the account of another session in the same project.
 - Task titles start as soon as you save the task even while two or more agents are working: before, they stayed "waiting" in the Automations indicator until a lane stopped. (AUT-041)
+- Chats no longer freeze while the agent writes large changes with `edit`: omp sent Studio the whole preview of the change on every token (tens of MB for a single file) and drained that backlog so slowly that the end of the turn, command replies and Stop arrived hours late, forcing you to reopen the chat and type "resume". Studio now asks omp not to send those previews, which it does not use.
 
 ### Removed
 - Studio Remote: removed the all-machines Inbox, the Inbox, History and Machines tabs, the global history, the fleet summary on wide screens, Approve/Reject from the list row, the Operational details view, "Continue lane" and "New chat on Main", and the new session in a branch. Questions and confirmations are answered in the chat, subagents and jobs are in the steps row, history opens inside each project. Removals confirmed on 2026-11-01. (R-REM-01…05, R-REM-09, R-REM-15)
