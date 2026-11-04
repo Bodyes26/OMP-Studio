@@ -357,6 +357,7 @@ export interface AgentMessage {
 	model?: string;
 	usage?: MessageUsage;
 	stopReason?: string;
+	errorMessage?: string;
 	timestamp?: number;
 	/** Solo messaggi assistente: durata della richiesta e attesa del primo token, in ms. */
 	duration?: number;

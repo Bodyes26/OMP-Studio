@@ -42,6 +42,8 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Quando omp riduce l'output di un comando bash (da omp 18.16), la scheda del comando indica il filtro usato e i byte prima e dopo, per esempio «git 120.4KB → 3.2KB».
 
 ### Fixed
+- Tavily e gli altri motori di ricerca restano riconosciuti nei ruoli e nelle riserve senza falsi avvisi su credenziali «web» mancanti; i cataloghi distinguono ricerca e chat, e i conteggi separano modelli e assegnazioni interessate. (SAL-001, SAL-002, SAL-005)
+- Nei provider e negli avvisi dei modelli l'accesso salvato è distinto dall'accesso verificato: Command Code segnala quando occorre accedere di nuovo, senza confondere errori di rete, quota esaurita o un singolo account non valido con la disconnessione dell'intero provider. (SAL-003, SAL-004, SAL-006)
 - Nel popover delle quote, «Accedi di nuovo» avvia il login del provider direttamente da ogni account con credenziali disabilitate o scadute; alla chiusura aggiorna account e quote.
 - Nei progetti con il diario attivo l'agente parte subito dopo l'invio del messaggio: prima ogni turno restava fermo circa 30 secondi prima di iniziare a ragionare.
 - Cambiare ruolo dal composer (per esempio da default a smol) è più rapido: Studio non aspetta più l'elenco completo dei modelli disponibili, che richiedeva diversi secondi.

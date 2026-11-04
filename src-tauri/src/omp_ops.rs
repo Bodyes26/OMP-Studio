@@ -443,6 +443,8 @@ pub async fn usage_snapshot(force: bool) -> Result<UsageReport, String> {
     if let Some(obj) = report.raw_json.as_object_mut() {
         obj.insert("resetSettings".to_string(), read_reset_settings_sync());
     }
+    crate::provider_auth::observe_usage(&report.raw_json);
+    crate::provider_auth::check_commandcode_if_due().await;
     *USAGE_CACHE.lock() = Some((Instant::now(), report.raw_json.clone()));
     Ok(report)
 }

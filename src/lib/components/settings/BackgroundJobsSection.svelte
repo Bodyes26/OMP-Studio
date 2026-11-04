@@ -25,11 +25,7 @@
 		void modelSettingsStore.ensureLoaded();
 	});
 
-	const catalog = $derived(
-		modelSettingsStore.assignableCatalog.length > 0
-			? modelSettingsStore.assignableCatalog
-			: modelSettingsStore.catalog
-	);
+	const catalog = $derived(modelSettingsStore.assignableCatalog);
 
 	interface JobMeta {
 		id: BackgroundJobId;

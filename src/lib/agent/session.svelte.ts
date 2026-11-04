@@ -30,6 +30,7 @@ import { remoteStore } from '#lib/remote/remoteStore.svelte.ts';
 import { sessionCompletions } from './completion.svelte';
 import { observeSessionJobs, finishSessionJobs, type SessionJob } from './jobActivity';
 import type { WaitContext } from './tools/wait';
+import { authenticationFailureOutcome } from './providerAuthentication';
 
 let firstComposerReadyMarked = false;
 // Stato della superficie GUI: un'istanza per progetto.
@@ -2568,6 +2569,18 @@ export class AgentSession {
 			case 'message_end': {
 				const message = this.asMessage(event.message);
 				if (!message || message.role !== 'assistant') return;
+				// Un fallback puo' differire dal modello selezionato nella UI.
+				if (message.provider && !message.synthetic) {
+					const provider = message.provider;
+					const outcome = message.stopReason === 'error'
+						? authenticationFailureOutcome(message.errorMessage ?? '')
+						: message.stopReason && message.stopReason !== 'aborted' ? 'verified' : null;
+					if (outcome) {
+						void import('#lib/stores/modelSettings.svelte.ts').then(({ modelSettingsStore }) =>
+							modelSettingsStore.observeAuthentication(provider, outcome)
+						).catch(() => {});
+					}
+				}
 				const cacheObservation = cacheObservationFromMessage(message);
 				if (cacheObservation) {
 					this.promptCacheObservation = cacheObservation;
@@ -3186,6 +3199,13 @@ export class AgentSession {
 					}
 				}
 				this.checkAndSetQuotaBlocked(msg, false);
+				const failedProvider = typeof event.provider === 'string' ? event.provider : this.model?.provider;
+				if (failedProvider) {
+					// Senza identita' dell'account non deduciamo un logout globale.
+					void import('#lib/stores/modelSettings.svelte.ts').then(({ modelSettingsStore }) =>
+						modelSettingsStore.checkProviderAuthentication(failedProvider)
+					).catch(() => {});
+				}
 				// Come per `isStreaming`: per Studio il run e' finito. Se omp
 				// continua davvero, `agent_start`/`get_state` lo riaccendono.
 				if (this.settle.running) this.settle = { ...this.settle, running: false };

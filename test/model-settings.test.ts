@@ -16,11 +16,13 @@ import {
 	parseRoleSelector,
 	supportedThinkingLevels,
 	clampThinkingLevel,
+	modelSupportsRole,
 	type ModelDto,
 	type AuthAccount
 } from '../src/lib/stores/modelSettingsHelpers.ts';
 import { composeSuggestionChips, type PromptSuggestion } from '../src/lib/stores/promptSuggestions.ts';
 import { recentModelsStore, resolveRecentModels } from '../src/lib/components/models/recentModels.svelte.ts';
+import { authenticationFailureOutcome } from '../src/lib/agent/providerAuthentication.ts';
 
 function createModel(provider: string, id: string): ModelDto {
 	return {
@@ -28,6 +30,7 @@ function createModel(provider: string, id: string): ModelDto {
 		name: `Model ${id}`,
 		provider,
 		selector: `${provider}/${id}`,
+		kind: 'chat',
 		isCustom: false
 	};
 }
@@ -295,5 +298,24 @@ describe('RecentModels: tracciamento e risoluzione modelli recenti', () => {
 
 		assert.equal(recentModelsStore.selectors[0], 'provider1/model-a');
 		assert.equal(recentModelsStore.selectors[1], 'provider2/model-b');
+	});
+});
+
+describe('Salute modelli: cataloghi specializzati e riscontri auth', () => {
+	it('non propone motori di ricerca alle chat ma li conserva nel ruolo web', () => {
+		const search = { ...createModel('web', 'tavily'), kind: 'search' };
+		assert.equal(modelSupportsRole(search, 'default'), false);
+		assert.equal(modelSupportsRole(search, 'web'), true);
+		assert.equal(modelSupportsRole(createModel('anthropic', 'claude'), 'web'), true);
+		assert.equal(modelSupportsRole({ ...search, kind: 'tts' }, 'web'), false);
+	});
+
+	it('non confonde permessi, rete e quota con un login da rinnovare', () => {
+		assert.equal(authenticationFailureOutcome('HTTP 401: invalid access token'), 'reauth_required');
+		assert.equal(authenticationFailureOutcome('refresh_token revoked'), 'reauth_required');
+		assert.equal(authenticationFailureOutcome('HTTP 403: model access denied'), null);
+		assert.equal(authenticationFailureOutcome('HTTP 429: rate limit'), 'verified');
+		assert.equal(authenticationFailureOutcome('fetch failed: ECONNRESET'), 'unavailable');
+		assert.equal(authenticationFailureOutcome('model not found'), null);
 	});
 });

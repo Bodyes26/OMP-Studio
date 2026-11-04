@@ -42,6 +42,8 @@ released: items are closed into a version via `npm run release -- <version>`.
 - When omp reduces a bash command's output (from omp 18.16), the command card shows the filter used and the bytes before and after, for example "git 120.4KB → 3.2KB".
 
 ### Fixed
+- Tavily and other search engines remain recognised in roles and fallback chains without false warnings about missing “web” credentials; catalogs distinguish search from chat, and counts separate affected models from assignments. (SAL-001, SAL-002, SAL-005)
+- Provider settings and model warnings distinguish saved credentials from verified sign-in: Command Code reports when sign-in is required again, without mistaking network errors, exhausted quota or a single invalid account for a provider-wide sign-out. (SAL-003, SAL-004, SAL-006)
 - In the quota popover, “Sign in again” starts the provider login directly from each account with disabled or expired credentials; closing it refreshes accounts and quotas.
 - In projects with the journal enabled the agent starts right after you send a message: before, every turn sat idle for about 30 seconds before it began reasoning.
 - Switching role from the composer (for example from default to smol) is faster: Studio no longer waits for the full list of available models, which took several seconds.

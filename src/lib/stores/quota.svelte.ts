@@ -280,6 +280,9 @@ class QuotaStore {
 			this.evaluateStatus();
 			await this.updateReportPinHashes(this.reports);
 			this.poller?.markRefreshed(this.lastFetchedAt);
+			void import('./modelSettings.svelte.ts').then(({ modelSettingsStore }) =>
+				modelSettingsStore.syncAuthentication()
+			).catch(() => {});
 		} catch (err) {
 			// Resilienza totale: non rilanciamo mai l'errore per evitare crash del renderer UI
 			this.error = String(err);

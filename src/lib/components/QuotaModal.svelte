@@ -64,6 +64,7 @@
 			modelSettingsStore.loadProviders()
 		]);
 		if (provider) {
+			await modelSettingsStore.checkProviderAuthentication(provider);
 			try { await modelSettingsStore.refreshCatalog(provider); } catch {}
 		}
 	}

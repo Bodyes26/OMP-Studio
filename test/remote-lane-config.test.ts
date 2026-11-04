@@ -28,6 +28,7 @@ describe('remote lane config commands (Gate R44, lane_config)', () => {
 			name: 'Claude 3.7 Sonnet',
 			provider: 'anthropic',
 			selector: 'anthropic/claude-3-7-sonnet',
+			kind: 'chat',
 			isCustom: false
 		},
 		{
@@ -35,6 +36,7 @@ describe('remote lane config commands (Gate R44, lane_config)', () => {
 			name: 'Claude Opus 4',
 			provider: 'anthropic',
 			selector: 'anthropic/claude-opus-4',
+			kind: 'chat',
 			isCustom: false
 		},
 		{
@@ -42,6 +44,7 @@ describe('remote lane config commands (Gate R44, lane_config)', () => {
 			name: 'GPT-4o Mini',
 			provider: 'openai',
 			selector: 'openai/gpt-4o-mini',
+			kind: 'chat',
 			isCustom: false
 		}
 	];

@@ -107,7 +107,7 @@ import ProviderLogo from './ProviderLogo.svelte';
 						type="button"
 						class="empty-option-btn"
 						class:selected={!value || value === emptyOption.value}
-						onclick={() => handleSelect(emptyOption.value, { selector: emptyOption.value, name: emptyOption.label, provider: '', id: emptyOption.value } as ModelDto)}
+						onclick={() => handleSelect(emptyOption.value, { selector: emptyOption.value, name: emptyOption.label, provider: '', id: emptyOption.value, kind: 'chat', isCustom: false })}
 					>
 						<span class="empty-option-label">{emptyOption.label}</span>
 						{#if !value || value === emptyOption.value}

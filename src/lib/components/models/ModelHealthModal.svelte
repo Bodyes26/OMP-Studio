@@ -4,7 +4,6 @@
 	import { untrack } from 'svelte';
 	import {
 		modelSettingsStore,
-		STANDARD_ROLES,
 		type ModelFinding,
 		type ModelFixItem
 	} from '#lib/stores/modelSettings.svelte.ts';
@@ -21,10 +20,12 @@
 	}
 
 	function isActionable(finding: ModelFinding): boolean {
+		if (finding.code === 'provider_reauth_required' || finding.code === 'unverified') return false;
 		return Boolean(finding.suggestedSelector) || finding.kind === 'fallback';
 	}
 
 	function createFixItem(finding: ModelFinding): ModelFixItem | null {
+		if (!isActionable(finding)) return null;
 		if (finding.suggestedSelector) {
 			return {
 				role: finding.role,
@@ -111,7 +112,7 @@
 
 	function getRoleMeta(roleId: string) {
 		return (
-			STANDARD_ROLES.find((r) => r.id === roleId) || {
+			modelSettingsStore.configurationRoles.find((r) => r.id === roleId) || {
 				id: roleId,
 				label: roleId,
 				abbr: roleId.slice(0, 2).toUpperCase(),
@@ -161,6 +162,14 @@
 			<p>{m.model_health_report_desc()}</p>
 		{/if}
 	</div>
+
+	{#each modelSettingsStore.reauthProviders as provider (provider.id)}
+		<AlertBanner variant="warning" title={`${provider.name}: ${m.providers_auth_reauth_required()}`} message={m.providers_auth_reauth_hint()} />
+		<button type="button" class="ui-button ui-button-secondary" onclick={() => {
+			modelSettingsStore.healthModalOpen = false;
+			modelSettingsStore.openModal('providers', provider.id);
+		}}>{m.models_health_open_provider()}</button>
+	{/each}
 
 	{#if modelSettingsStore.healthReport?.catalogError}
 		<AlertBanner
@@ -244,10 +253,12 @@
 								<span
 									class="action-tag"
 									class:replace={Boolean(finding.suggestedSelector)}
-									class:remove={!finding.suggestedSelector && finding.kind === 'fallback'}
+									class:remove={actionable && !finding.suggestedSelector && finding.kind === 'fallback'}
 									class:manual={!actionable}
 								>
-									{#if finding.suggestedSelector}
+									{#if !actionable}
+										{m.model_health_action_manual()}
+									{:else if finding.suggestedSelector}
 										{m.model_health_action_replace()}
 									{:else if finding.kind === 'fallback'}
 										{m.ui_modelhealthmodal_rimuovi_riserva_447f()}
@@ -277,7 +288,7 @@
 										{/if}
 									</div>
 								</div>
-							{:else if finding.kind === 'fallback'}
+							{:else if actionable && finding.kind === 'fallback'}
 								<div class="diff-row single">
 									<div class="model-box old remove-target">
 										<span class="box-label">{m.model_health_box_remove_target()}</span>
@@ -287,7 +298,7 @@
 							{:else}
 								<div class="diff-row single">
 									<div class="model-box old invalid-target">
-										<span class="box-label">{m.ui_modelhealthmodal_modello_attuale_non_valido_10a2()}</span>
+										<span class="box-label">{m.model_health_box_current()}</span>
 										<span class="box-val">{finding.currentSelector}</span>
 									</div>
 								</div>
@@ -295,7 +306,12 @@
 
 							<div class="reason-note">
 								<span class="reason-text">{finding.reason}</span>
-								{#if !actionable && finding.kind === 'primary'}
+								{#if finding.code === 'provider_reauth_required'}
+									<button type="button" class="ui-button ui-button-secondary" onclick={() => {
+										modelSettingsStore.healthModalOpen = false;
+										modelSettingsStore.openModal('providers', finding.currentProvider);
+									}}>{m.models_health_open_provider()}</button>
+								{:else if !actionable && finding.kind === 'primary'}
 									<span class="manual-hint">{m.ui_modelhealthmodal_scegli_un_modello_attivo_nella_scheda_ruoli_9727()}</span>
 								{/if}
 							</div>
@@ -388,7 +404,19 @@
 		</div>
 	{/if}
 
-	{#if (!modelSettingsStore.blockingFindings || modelSettingsStore.blockingFindings.length === 0) && (!modelSettingsStore.upgradeFindings || modelSettingsStore.upgradeFindings.length === 0)}
+	{#if modelSettingsStore.unverifiedFindings.length > 0}
+		<section class="findings-group">
+			<h4 class="group-title">{m.models_health_group_unverified()}</h4>
+			<p>{m.models_health_incomplete_hint()}</p>
+			{#each modelSettingsStore.unverifiedFindings as finding (getFindingKey(finding))}
+				<div class="reason-note">
+					<span class="reason-text">{getRoleMeta(finding.role).label} · {getSlotLabel(finding.kind, finding.index)} · {finding.currentSelector}: {finding.reason}</span>
+				</div>
+			{/each}
+		</section>
+	{/if}
+
+	{#if (modelSettingsStore.healthReport?.findings.length ?? 0) === 0 && modelSettingsStore.reauthProviders.length === 0}
 		<div class="empty-state">
 			<p>{m.model_health_no_issues()}</p>
 		</div>

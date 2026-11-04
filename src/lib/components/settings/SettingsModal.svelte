@@ -65,7 +65,7 @@
 		if (level !== 'none') {
 			const warn = level === 'warn';
 			counts.models = {
-				value: warn ? modelSettingsStore.blockingFindings.length : modelSettingsStore.upgradeFindings.length,
+				value: modelSettingsStore.attentionCount,
 				attention: warn,
 				detail: modelSettingsStore.attentionTooltip || m.settings_models_attention_fallback()
 			};
@@ -83,7 +83,7 @@
 	let showDiscardConfirm = $state(false);
 
 	const sectionLabel = $derived(NAV_SECTIONS.find((s) => s.id === settingsStore.section)?.label ?? '');
-	const blockingCount = $derived(modelSettingsStore.healthReport ? (modelSettingsStore.blockingFindings?.length ?? 0) : 0);
+	const blockingCount = $derived(modelSettingsStore.attentionLevel === 'warn' ? modelSettingsStore.attentionCount : 0);
 
 	function requestClose() {
 		// Esc arriva al dialogo anche col referto salute aperto sopra: chiude solo quello.

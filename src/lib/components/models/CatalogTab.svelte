@@ -6,10 +6,10 @@
 	} from '#lib/paraglide/messages.js';
 	import {
 		modelSettingsStore,
-		STANDARD_ROLES,
 		splitModelSelector,
 		type ModelDto
 	} from '#lib/stores/modelSettings.svelte.ts';
+	import { modelSupportsRole } from '#lib/stores/modelSettingsHelpers.ts';
 	import MenuButton from '#lib/ui/MenuButton.svelte';
 	import Tooltip from '#lib/ui/Tooltip.svelte';
 	import {
@@ -32,18 +32,15 @@
 
 	let openAssignMenuFor = $state<string | null>(null);
 
-	/** Sorgente dati unica: i modelli realmente disponibili (auth valida / provider raggiungibile),
-	 *  con fallback sul catalogo statico completo finche' il primo non e' ancora stato caricato. */
-	const effectiveCatalog = $derived.by(() => {
-		const available = modelSettingsStore.availableCatalog;
-		return available.length > 0 ? available : modelSettingsStore.catalog;
-	});
+	/** Il catalogo indica i modelli pubblicati, non lo stato del login. */
+	const effectiveCatalog = $derived(modelSettingsStore.modelPickCallback
+		? modelSettingsStore.assignableCatalog
+		: modelSettingsStore.availableCatalog.length > 0 ? modelSettingsStore.availableCatalog : modelSettingsStore.catalog);
 
-	/** Solo i provider configurati/abilitati compaiono nel filtro di ambito, ciascuno con il conteggio
-	 *  di modelli realmente disponibili (inclusi quelli esposti da plugin, es. Command Code). */
+	/** I namespace specializzati non richiedono un account omonimo. */
 	const providerEntries = $derived.by(() => {
 		return modelSettingsStore.providers
-			.filter((p) => p.enabled && p.configured)
+			.filter((p) => p.enabled && (p.configured || effectiveCatalog.some((model) => model.provider === p.id && model.kind !== 'chat')))
 			.map((p) => ({
 				id: p.id,
 				name: p.name,
@@ -374,7 +371,7 @@
 								<div class="assign-menu">
 									<div class="assign-section-title">{m.catalog_tab_assign_to_role()}</div>
 									<div class="assign-grid">
-										{#each STANDARD_ROLES as r (r.id)}
+										{#each modelSettingsStore.configurationRoles.filter((role) => modelSupportsRole(mDto, role.id)) as r (r.id)}
 											{@const RoleIcon = r.icon}
 											{@const isAssigned = isRoleAssigned(r.id, mDto)}
 											<button
@@ -399,7 +396,7 @@
 
 									<div class="assign-section-title">{addAsFallbackLabel()}</div>
 									<div class="assign-grid">
-										{#each STANDARD_ROLES as r (r.id)}
+										{#each modelSettingsStore.configurationRoles.filter((role) => modelSupportsRole(mDto, role.id)) as r (r.id)}
 											{@const isFallback = isRoleFallback(r.id, mDto)}
 											<button
 												type="button"

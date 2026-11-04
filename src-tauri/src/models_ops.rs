@@ -188,6 +188,10 @@ pub struct ModelThinkingInfo {
     pub efforts: Option<Vec<String>>,
 }
 
+fn default_model_kind() -> String {
+    "chat".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelDto {
@@ -195,6 +199,8 @@ pub struct ModelDto {
     pub name: String,
     pub provider: String,
     pub selector: String,
+    #[serde(default = "default_model_kind")]
+    pub kind: String,
     pub context_window: Option<u64>,
     pub max_tokens: Option<u64>,
     pub reasoning: Option<bool>,
@@ -209,23 +215,23 @@ struct AvailableModelsResponse {
     models: Vec<AvailableModel>,
 }
 
-/// `omp models --json` pubblica `thinking` come elenco piatto degli sforzi
-/// supportati, non come l'oggetto `{mode, efforts}` della cache locale: il
-/// catalogo dei modelli disponibili ha quindi un DTO proprio, convertito poi
-/// nella forma che il frontend riceve da `get_models_catalog`.
+/// `omp models --kind all --json` pubblica i modelli con `kind` ("chat", "search", ecc.)
+/// e `thinking` come elenco piatto degli sforzi supportati.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AvailableModel {
     id: String,
     name: Option<String>,
-    provider: String,
-    selector: String,
-    context_window: Option<u64>,
-    max_tokens: Option<u64>,
-    reasoning: Option<bool>,
-    thinking: Option<Vec<String>>,
-    input: Option<Vec<String>>,
-    cost: Option<ModelCost>,
+    pub provider: String,
+    pub selector: String,
+    #[serde(default = "default_model_kind")]
+    pub kind: String,
+    pub context_window: Option<u64>,
+    pub max_tokens: Option<u64>,
+    pub reasoning: Option<bool>,
+    pub thinking: Option<Vec<String>>,
+    pub input: Option<Vec<String>>,
+    pub cost: Option<ModelCost>,
 }
 
 impl From<AvailableModel> for ModelDto {
@@ -236,6 +242,7 @@ impl From<AvailableModel> for ModelDto {
             name,
             provider: model.provider,
             selector: model.selector,
+            kind: model.kind,
             context_window: model.context_window,
             max_tokens: model.max_tokens,
             reasoning: model.reasoning,
@@ -296,6 +303,7 @@ pub struct ProviderSummaryDto {
     pub account_count: usize,
     pub has_oauth: bool,
     pub is_custom: bool,
+    pub authentication: crate::provider_auth::ProviderAuthenticationDto,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1146,8 +1154,7 @@ pub async fn remove_agent_model_override(agent: String) -> Result<(), String> {
 // Catalogo Modelli (da models.db + models.json)
 // -----------------------------------------------------------------------------
 
-#[command]
-pub async fn get_models_catalog() -> Result<Vec<ModelDto>, String> {
+async fn read_cached_models_catalog() -> Result<Vec<ModelDto>, String> {
     let mut catalog = Vec::new();
     let mut seen_selectors = std::collections::HashSet::new();
 
@@ -1200,6 +1207,12 @@ pub async fn get_models_catalog() -> Result<Vec<ModelDto>, String> {
                     }
                     seen_selectors.insert(selector.clone());
 
+                    let kind = m
+                        .get("kind")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("chat")
+                        .to_string();
+
                     let context_window = m.get("contextWindow").and_then(|v| v.as_u64());
                     let max_tokens = m.get("maxTokens").and_then(|v| v.as_u64());
                     let reasoning = m.get("reasoning").and_then(|v| v.as_bool());
@@ -1241,6 +1254,7 @@ pub async fn get_models_catalog() -> Result<Vec<ModelDto>, String> {
                         name,
                         provider,
                         selector,
+                        kind,
                         context_window,
                         max_tokens,
                         reasoning,
@@ -1269,6 +1283,7 @@ pub async fn get_models_catalog() -> Result<Vec<ModelDto>, String> {
                 name: m.name,
                 provider: provider_name.clone(),
                 selector,
+                kind: "chat".to_string(),
                 context_window: m.context_window,
                 max_tokens: m.max_tokens,
                 reasoning: m.reasoning,
@@ -1283,10 +1298,45 @@ pub async fn get_models_catalog() -> Result<Vec<ModelDto>, String> {
     Ok(catalog)
 }
 
+fn merge_live_into_catalog(catalog: &mut Vec<ModelDto>, live: &[ModelDto]) {
+    let mut catalog_map: HashMap<String, usize> = catalog
+        .iter()
+        .enumerate()
+        .map(|(i, m)| (m.selector.clone(), i))
+        .collect();
+
+    for live_m in live {
+        if let Some(&idx) = catalog_map.get(&live_m.selector) {
+            let existing = &mut catalog[idx];
+            existing.kind = live_m.kind.clone();
+            if existing.name.is_empty() || existing.name == existing.id {
+                existing.name = live_m.name.clone();
+            }
+            if existing.cost.is_none() {
+                existing.cost = live_m.cost.clone();
+            }
+            if existing.context_window.is_none() {
+                existing.context_window = live_m.context_window;
+            }
+            if existing.max_tokens.is_none() {
+                existing.max_tokens = live_m.max_tokens;
+            }
+        } else {
+            catalog_map.insert(live_m.selector.clone(), catalog.len());
+            catalog.push(live_m.clone());
+        }
+    }
+}
+
+#[command]
+pub async fn get_models_catalog() -> Result<Vec<ModelDto>, String> {
+    read_cached_models_catalog().await
+}
+
 fn parse_available_models(stdout: &[u8]) -> Result<Vec<ModelDto>, String> {
     serde_json::from_slice::<AvailableModelsResponse>(stdout)
         .map(|response| response.models.into_iter().map(ModelDto::from).collect())
-        .map_err(|error| format!("Risposta di `omp models --json` non valida: {}", error))
+        .map_err(|error| format!("Risposta di `omp models --kind all --json` non valida: {}", error))
 }
 
 #[command]
@@ -1294,18 +1344,18 @@ pub async fn get_available_models_catalog() -> Result<Vec<ModelDto>, String> {
     let omp_path = crate::omp_ops::get_omp_binary();
     let output = tokio::task::spawn_blocking(move || {
         let mut cmd = Command::new(omp_path);
-        cmd.arg("models").arg("--json");
+        cmd.arg("models").arg("--kind").arg("all").arg("--json");
         #[cfg(target_os = "windows")]
         cmd.creation_flags(0x08000000);
         crate::omp_ops::omp_capture(cmd)
     })
     .await
-    .map_err(|error| format!("Esecuzione di `omp models --json` interrotta: {}", error))?
-    .map_err(|error| format!("Avvio di `omp models --json` fallito: {}", error))?;
+    .map_err(|error| format!("Esecuzione di `omp models --kind all --json` interrotta: {}", error))?
+    .map_err(|error| format!("Avvio di `omp models --kind all --json` fallito: {}", error))?;
 
     if !output.status.success() {
         return Err(format!(
-            "`omp models --json` e' terminato con errore: {}",
+            "`omp models --kind all --json` e' terminato con errore: {}",
             String::from_utf8_lossy(&output.stderr).trim()
         ));
     }
@@ -1985,6 +2035,7 @@ async fn build_provider_catalog() -> Vec<ModelDto> {
                                 name: model.name,
                                 provider: provider_name.clone(),
                                 selector,
+                                kind: "chat".to_string(),
                                 context_window: model.context_window,
                                 max_tokens: model.max_tokens,
                                 reasoning: model.reasoning,
@@ -2003,8 +2054,9 @@ async fn build_provider_catalog() -> Vec<ModelDto> {
     }
 }
 
-#[command]
-pub async fn get_model_providers() -> Result<Vec<ProviderSummaryDto>, String> {
+async fn build_providers_summary_with_catalog(
+    catalog: &[ModelDto],
+) -> Result<Vec<ProviderSummaryDto>, String> {
     let config = get_model_config()
         .await
         .unwrap_or_else(|_| default_model_config());
@@ -2013,11 +2065,11 @@ pub async fn get_model_providers() -> Result<Vec<ProviderSummaryDto>, String> {
         .unwrap_or_else(|_| CustomProvidersFile {
             providers: HashMap::new(),
         });
-    let catalog = build_provider_catalog().await;
     let account_aggregates = read_provider_account_aggregates();
+    let _ = crate::provider_auth::refresh_credentials();
 
     let mut model_counts: HashMap<String, usize> = HashMap::new();
-    for model in &catalog {
+    for model in catalog {
         *model_counts.entry(model.provider.clone()).or_insert(0) += 1;
     }
 
@@ -2046,24 +2098,33 @@ pub async fn get_model_providers() -> Result<Vec<ProviderSummaryDto>, String> {
             } else {
                 "plugin"
             };
+            let configured = account_count > 0 || is_custom || crate::provider_auth::has_configured_credentials(&id);
+            let authentication = crate::provider_auth::provider_authentication(&id, configured);
 
             ProviderSummaryDto {
                 name: provider_display_name(&id, is_custom),
                 source: source.to_string(),
                 enabled: !config.disabled_providers.contains(&id),
-                configured: account_count > 0 || is_custom,
+                configured,
                 auth_origin,
                 available_model_count: model_counts.get(&id).copied().unwrap_or(0),
                 account_count,
                 has_oauth,
                 is_custom,
                 id,
+                authentication,
             }
         })
         .collect();
 
     summaries.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(summaries)
+}
+
+#[command]
+pub async fn get_model_providers() -> Result<Vec<ProviderSummaryDto>, String> {
+    let catalog = build_provider_catalog().await;
+    build_providers_summary_with_catalog(&catalog).await
 }
 
 // -----------------------------------------------------------------------------
@@ -2247,13 +2308,23 @@ pub async fn check_model_health(
         let _ = refresh_models_catalog().await;
     }
 
-    // 2. Lettura sorgenti
-    let catalog = get_models_catalog().await?;
+    // Un solo snapshot auth raccoglie gli esiti reali, incluso il login di Command Code.
+    let _ = crate::provider_auth::refresh_auth_snapshot().await;
+
+    // 2. Lettura sorgenti: singola invocazione CLI per i modelli live
     let (available_models, catalog_error) = match get_available_models_catalog().await {
         Ok(models) => (Some(models), None),
         Err(err) => (None, Some(err)),
     };
-    let providers_summary = get_model_providers().await?;
+
+    // Catalogo unificato: cache locale + modelli live se disponibili
+    let mut catalog = read_cached_models_catalog().await?;
+    if let Some(live) = &available_models {
+        merge_live_into_catalog(&mut catalog, live);
+    }
+
+    // Provider summary costruito dallo snapshot di catalogo gia ottenuto, evitando CLI ripetute
+    let providers_summary = build_providers_summary_with_catalog(&catalog).await?;
 
     // 3. Risoluzione configurazione ruoli e catene di riserva
     let (roles_map, fallback_map) = if roles.as_ref().is_none_or(|r| r.is_empty())
@@ -2313,8 +2384,13 @@ fn evaluate_model_health(
 ) -> Vec<ModelFinding> {
     let known_selectors: std::collections::HashSet<String> =
         catalog.iter().map(|m| m.selector.clone()).collect();
+    let catalog_by_selector: HashMap<&str, &ModelDto> =
+        catalog.iter().map(|m| (m.selector.as_str(), m)).collect();
     let available_selectors: std::collections::HashSet<String> = available_models
         .map(|list| list.iter().map(|m| m.selector.clone()).collect())
+        .unwrap_or_default();
+    let available_by_selector: HashMap<&str, &ModelDto> = available_models
+        .map(|list| list.iter().map(|m| (m.selector.as_str(), m)).collect())
         .unwrap_or_default();
     let providers_map: HashMap<String, &ProviderSummaryDto> = providers_summary
         .iter()
@@ -2346,147 +2422,215 @@ fn evaluate_model_health(
             None => (String::new(), base.clone()),
         };
 
-        let p_info = providers_map.get(&current_provider);
+        // Identifica se e' un modello del namespace `web` (ricerca) o specializzato
+        let is_web = current_provider == "web";
+        let model_kind = catalog_by_selector
+            .get(base.as_str())
+            .map(|m| m.kind.as_str())
+            .or_else(|| available_by_selector.get(base.as_str()).map(|m| m.kind.as_str()))
+            .unwrap_or(if is_web { "search" } else { "chat" });
+        let is_specialized = is_web || model_kind != "chat";
+
+        // Provider credenziali solo per provider non-web (web e' un namespace di ricerca di omp)
+        let p_info = if is_web {
+            None
+        } else {
+            providers_map.get(&current_provider)
+        };
         let is_configured = p_info.is_some_and(|p| p.configured);
         let is_enabled = p_info.is_some_and(|p| p.enabled);
+        let is_reauth_required =
+            p_info.is_some_and(|p| p.authentication.status == "reauth_required");
 
-        let (severity, code, reason) = if !is_configured {
-            (
-                "error",
-                "provider_unconfigured",
-                "Nessuna credenziale configurata per il provider".to_string(),
-            )
-        } else if !is_enabled {
-            (
+        let failure = if is_web {
+            // Per il namespace `web` (ricerca): verifica solo la disponibilita live del motore,
+            // senza inferire o richiedere credenziali fittizie da account AI omonimi.
+            if !available_selectors.contains(&base) {
+                Some((
+                    "info",
+                    "unverified",
+                    format!(
+                        "Motore di ricerca '{}' non verificato nel catalogo live",
+                        base
+                    ),
+                ))
+            } else {
+                None
+            }
+        } else if p_info.is_some() && !is_enabled {
+            Some((
                 "warn",
                 "provider_disabled",
                 "Provider disabilitato nelle impostazioni".to_string(),
-            )
-        } else if !known_selectors.contains(&base) {
-            (
+            ))
+        } else if is_reauth_required {
+            Some((
+                "error",
+                "provider_reauth_required",
+                format!(
+                    "Accesso da rinnovare per il provider {}: eseguire nuovamente il login",
+                    p_info.map(|p| p.name.as_str()).unwrap_or(&current_provider)
+                ),
+            ))
+        } else if is_specialized {
+            // I modelli locali e specializzati non richiedono necessariamente credenziali.
+            if !available_selectors.contains(&base) {
+                Some((
+                    "info",
+                    "unverified",
+                    format!("Modello specializzato '{}' non verificato nel catalogo live", base),
+                ))
+            } else {
+                None
+            }
+        } else if !is_configured {
+            Some((
+                "error",
+                "provider_unconfigured",
+                "Nessuna credenziale configurata per il provider".to_string(),
+            ))
+        } else if !known_selectors.contains(&base) && !available_selectors.contains(&base) {
+            // Modello chat non presente ne' nella cache ne' nei modelli live
+            Some((
                 "error",
                 "removed",
                 "Modello non piu presente nel catalogo del provider".to_string(),
-            )
+            ))
         } else if catalog_error.is_none() && !available_selectors.contains(&base) {
-            (
+            // Modello chat noto al catalogo ma non offerto dalle credenziali attive
+            Some((
                 "error",
                 "not_offered",
                 "Modello non offerto dalle credenziali attive".to_string(),
-            )
+            ))
         } else {
-            // e. Ricerca eventuale aggiornamento di versione
-            let (tpl_cur, ver_cur, date_cur) = parse_model_signature(&current_model_id);
-            let norm_cur = normalize_family_template(&tpl_cur);
-
-            let mut best_upgrade: Option<(&ModelDto, Vec<f64>, Option<u64>)> = None;
-            for m in catalog {
-                if m.provider != current_provider || m.id == current_model_id {
-                    continue;
-                }
-
-                let (tpl_cand, ver_cand, date_cand) = parse_model_signature(&m.id);
-                let norm_cand = normalize_family_template(&tpl_cand);
-                let is_same_family = tpl_cand == tpl_cur || norm_cand == norm_cur;
-
-                if is_same_family && is_version_newer(&ver_cur, date_cur, &ver_cand, date_cand) {
-                    if let Some((_, best_ver, best_date)) = &best_upgrade {
-                        if is_version_newer(best_ver, *best_date, &ver_cand, date_cand) {
-                            best_upgrade = Some((m, ver_cand, date_cand));
-                        }
-                    } else {
-                        best_upgrade = Some((m, ver_cand, date_cand));
-                    }
-                }
-            }
-
-            if let Some((newer_m, _, _)) = best_upgrade {
-                let suggested_selector = match &current_thinking {
-                    Some(th) => format!("{}:{}", newer_m.selector, th),
-                    None => newer_m.selector.clone(),
-                };
-
-                findings.push(ModelFinding {
-                    role,
-                    kind,
-                    index,
-                    current_selector,
-                    current_model_id,
-                    current_provider,
-                    current_thinking,
-                    severity: "info".to_string(),
-                    code: "upgrade".to_string(),
-                    reason: format!("Disponibile nuova versione: {}", newer_m.name),
-                    suggested_selector: Some(suggested_selector),
-                    suggested_model_name: Some(newer_m.name.clone()),
-                });
-            }
-            continue;
+            None
         };
 
-        // Proposta di rimpiazzo per codici bloccanti tra i modelli disponibili
-        let mut suggested_selector = None;
-        let mut suggested_model_name = None;
+        if let Some((severity, code, reason)) = failure {
+            // Proposta di rimpiazzo per codici bloccanti tra i modelli disponibili dello stesso kind.
+            // Nessun suggerimento di sostituzione per reauth_required o unverified
+            let mut suggested_selector = None;
+            let mut suggested_model_name = None;
 
-        if let Some(avail) = available_models {
-            let (tpl_cur, _ver_cur, _date_cur) = parse_model_signature(&current_model_id);
-            let norm_cur = normalize_family_template(&tpl_cur);
+            if code != "provider_reauth_required" && code != "unverified" {
+                if let Some(avail) = available_models {
+                    let (tpl_cur, _ver_cur, _date_cur) = parse_model_signature(&current_model_id);
+                    let norm_cur = normalize_family_template(&tpl_cur);
 
-            let mut best_replacement: Option<(&ModelDto, Vec<f64>, Option<u64>)> = None;
+                    let mut best_replacement: Option<(&ModelDto, Vec<f64>, Option<u64>)> = None;
 
-            for m in avail {
-                let (tpl_cand, ver_cand, date_cand) = parse_model_signature(&m.id);
-                let norm_cand = normalize_family_template(&tpl_cand);
-                let is_same_family = tpl_cand == tpl_cur || norm_cand == norm_cur;
+                    for m in avail {
+                        // Non sostituire con modelli di kind differente
+                        if m.kind != model_kind {
+                            continue;
+                         }
 
-                if !is_same_family {
-                    continue;
-                }
+                        let (tpl_cand, ver_cand, date_cand) = parse_model_signature(&m.id);
+                        let norm_cand = normalize_family_template(&tpl_cand);
+                        let is_same_family = tpl_cand == tpl_cur || norm_cand == norm_cur;
 
-                let replace = match &best_replacement {
-                    Some((best_m, best_ver, best_date)) => {
-                        is_version_newer(best_ver, *best_date, &ver_cand, date_cand)
-                            || (!is_version_newer(&ver_cand, date_cand, best_ver, *best_date)
-                                && m.provider == current_provider
-                                && best_m.provider != current_provider)
+                        if !is_same_family {
+                            continue;
+                        }
+
+                        let replace = match &best_replacement {
+                            Some((best_m, best_ver, best_date)) => {
+                                is_version_newer(best_ver, *best_date, &ver_cand, date_cand)
+                                    || (!is_version_newer(&ver_cand, date_cand, best_ver, *best_date)
+                                        && m.provider == current_provider
+                                        && best_m.provider != current_provider)
+                            }
+                            None => true,
+                        };
+                        if replace {
+                            best_replacement = Some((m, ver_cand, date_cand));
+                        }
                     }
-                    None => true,
-                };
-                if replace {
-                    best_replacement = Some((m, ver_cand, date_cand));
+
+                    if let Some((repl_m, _, _)) = best_replacement {
+                        let sel = match &current_thinking {
+                            Some(th) => format!("{}:{}", repl_m.selector, th),
+                            None => repl_m.selector.clone(),
+                        };
+                        suggested_selector = Some(sel);
+                        suggested_model_name = Some(repl_m.name.clone());
+                    }
                 }
             }
 
-            if let Some((repl_m, _, _)) = best_replacement {
-                let sel = match &current_thinking {
-                    Some(th) => format!("{}:{}", repl_m.selector, th),
-                    None => repl_m.selector.clone(),
-                };
-                suggested_selector = Some(sel);
-                suggested_model_name = Some(repl_m.name.clone());
+            findings.push(ModelFinding {
+                role,
+                kind,
+                index,
+                current_selector,
+                current_model_id,
+                current_provider,
+                current_thinking,
+                severity: severity.to_string(),
+                code: code.to_string(),
+                reason,
+                suggested_selector,
+                suggested_model_name,
+            });
+            continue;
+        }
+
+        // Modello sano: ricerca eventuale aggiornamento di versione (stesso provider, stessa famiglia, stesso kind)
+        let (tpl_cur, ver_cur, date_cur) = parse_model_signature(&current_model_id);
+        let norm_cur = normalize_family_template(&tpl_cur);
+
+        let mut best_upgrade: Option<(&ModelDto, Vec<f64>, Option<u64>)> = None;
+        for m in catalog {
+            if m.provider != current_provider
+                || m.id == current_model_id
+                || m.kind != model_kind
+            {
+                continue;
+            }
+
+            let (tpl_cand, ver_cand, date_cand) = parse_model_signature(&m.id);
+            let norm_cand = normalize_family_template(&tpl_cand);
+            let is_same_family = tpl_cand == tpl_cur || norm_cand == norm_cur;
+
+            if is_same_family && is_version_newer(&ver_cur, date_cur, &ver_cand, date_cand) {
+                if let Some((_, best_ver, best_date)) = &best_upgrade {
+                    if is_version_newer(best_ver, *best_date, &ver_cand, date_cand) {
+                        best_upgrade = Some((m, ver_cand, date_cand));
+                    }
+                } else {
+                    best_upgrade = Some((m, ver_cand, date_cand));
+                }
             }
         }
 
-        findings.push(ModelFinding {
-            role,
-            kind,
-            index,
-            current_selector,
-            current_model_id,
-            current_provider,
-            current_thinking,
-            severity: severity.to_string(),
-            code: code.to_string(),
-            reason,
-            suggested_selector,
-            suggested_model_name,
-        });
+        if let Some((newer_m, _, _)) = best_upgrade {
+            let suggested_selector = match &current_thinking {
+                Some(th) => format!("{}:{}", newer_m.selector, th),
+                None => newer_m.selector.clone(),
+            };
+
+            findings.push(ModelFinding {
+                role,
+                kind,
+                index,
+                current_selector,
+                current_model_id,
+                current_provider,
+                current_thinking,
+                severity: "info".to_string(),
+                code: "upgrade".to_string(),
+                reason: format!("Disponibile nuova versione: {}", newer_m.name),
+                suggested_selector: Some(suggested_selector),
+                suggested_model_name: Some(newer_m.name.clone()),
+            });
+        }
     }
 
-    // Ordina: prima i bloccanti (code != "upgrade"), poi per role, poi primary prima di fallback, poi per index
+    // Ordina: prima i bloccanti (severity != "info" && code != "upgrade"), poi per role, poi primary prima di fallback, poi per index
     findings.sort_by(|a, b| {
-        let a_blocking = a.code != "upgrade";
-        let b_blocking = b.code != "upgrade";
+        let a_blocking = a.severity != "info" && a.code != "upgrade";
+        let b_blocking = b.severity != "info" && b.code != "upgrade";
         b_blocking
             .cmp(&a_blocking)
             .then_with(|| a.role.cmp(&b.role))
@@ -2883,6 +3027,13 @@ pub async fn get_role_suggestions(
     let candidate_models: Vec<ModelDto> = catalog
         .iter()
         .filter(|m| active_providers.contains(&m.provider))
+        .filter(|m| {
+            if role_id == "web" {
+                m.kind == "search" || m.provider == "web"
+            } else {
+                m.kind == "chat"
+            }
+        })
         .filter(|m| {
             if role_id == "vision" {
                 m.input
@@ -3838,6 +3989,24 @@ mod tests {
             name: name.to_string(),
             provider: provider.to_string(),
             selector: format!("{}/{}", provider, id),
+            kind: "chat".to_string(),
+            context_window: None,
+            max_tokens: None,
+            reasoning: None,
+            thinking: None,
+            input: None,
+            cost: None,
+            is_custom: false,
+        }
+    }
+
+    fn catalog_model_with_kind(provider: &str, id: &str, name: &str, kind: &str) -> ModelDto {
+        ModelDto {
+            id: id.to_string(),
+            name: name.to_string(),
+            provider: provider.to_string(),
+            selector: format!("{}/{}", provider, id),
+            kind: kind.to_string(),
             context_window: None,
             max_tokens: None,
             reasoning: None,
@@ -3860,6 +4029,40 @@ mod tests {
             account_count: 0,
             has_oauth: false,
             is_custom: false,
+            authentication: crate::provider_auth::ProviderAuthenticationDto {
+                status: if configured {
+                    "verified".to_string()
+                } else {
+                    "unconfigured".to_string()
+                },
+                checked_at: None,
+                detail: None,
+            },
+        }
+    }
+
+    fn provider_summary_with_auth(
+        id: &str,
+        configured: bool,
+        enabled: bool,
+        auth_status: &str,
+    ) -> ProviderSummaryDto {
+        ProviderSummaryDto {
+            id: id.to_string(),
+            name: id.to_string(),
+            source: "builtin".to_string(),
+            enabled,
+            configured,
+            auth_origin: None,
+            available_model_count: 0,
+            account_count: 0,
+            has_oauth: false,
+            is_custom: false,
+            authentication: crate::provider_auth::ProviderAuthenticationDto {
+                status: auth_status.to_string(),
+                checked_at: None,
+                detail: None,
+            },
         }
     }
 
@@ -3931,6 +4134,164 @@ mod tests {
         assert_eq!(findings[0].code, "provider_unconfigured");
         assert_eq!(findings[0].severity, "error");
     }
+
+    #[test]
+    fn tavily_web_search_slot_with_tavily_configured_is_healthy() {
+        // SAL-001: Tavily configurato come `web/tavily` resta assegnato e non genera
+        // falsi allarmi per l'assenza di un account `web`.
+        let providers = vec![provider_summary("tavily", true, true)];
+        let catalog = vec![catalog_model_with_kind("web", "tavily", "Tavily", "search")];
+
+        let mut roles = HashMap::new();
+        roles.insert("web".to_string(), "web/tavily".to_string());
+
+        let findings = evaluate_model_health(
+            roles,
+            HashMap::new(),
+            &catalog,
+            Some(&catalog),
+            None,
+            &providers,
+        );
+
+        assert!(
+            findings.is_empty(),
+            "Tavily non deve generare falsi allarmi quando 'tavily' e' configurato: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn specialized_no_credential_search_is_not_blocked() {
+        // SAL-002: Motori search senza chiave non richiedono credenziali inventate.
+        let providers = vec![];
+        let catalog = vec![catalog_model_with_kind(
+            "web",
+            "duckduckgo",
+            "DuckDuckGo",
+            "search",
+        )];
+
+        let mut roles = HashMap::new();
+        roles.insert("web".to_string(), "web/duckduckgo".to_string());
+
+        let findings = evaluate_model_health(
+            roles,
+            HashMap::new(),
+            &catalog,
+            Some(&catalog),
+            None,
+            &providers,
+        );
+
+        assert!(
+            findings.is_empty(),
+            "DuckDuckGo (ricerca libera) non deve essere bloccato come privo di credenziali: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn specialized_model_missing_from_available_is_reported_unverified_not_removed() {
+        // Modelli specializzati assenti dai modelli live: segnalati come unverified informativi,
+        // non come rimossi e senza rimpiazzo preimpostato.
+        let providers = vec![];
+        let catalog = vec![catalog_model_with_kind(
+            "web",
+            "custom-search",
+            "Custom Search",
+            "search",
+        )];
+
+        let mut roles = HashMap::new();
+        roles.insert("web".to_string(), "web/custom-search".to_string());
+
+        let findings = evaluate_model_health(
+            roles,
+            HashMap::new(),
+            &catalog,
+            Some(&[]),
+            None,
+            &providers,
+        );
+
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].code, "unverified");
+        assert_eq!(findings[0].severity, "info");
+        assert!(findings[0].suggested_selector.is_none());
+    }
+
+    #[test]
+    fn provider_reauth_required_produces_error_without_replacement() {
+        // SAL-003: reauth_required deve produrre un finding bloccante ma senza preselezione
+        // distruttiva di rimozione o sostituzione automatica.
+        let providers = vec![provider_summary_with_auth(
+            "commandcode",
+            true,
+            true,
+            "reauth_required",
+        )];
+        let catalog = vec![catalog_model(
+            "commandcode",
+            "typesafe/jev",
+            "TypeSafe Jev",
+        )];
+
+        let mut roles = HashMap::new();
+        roles.insert("default".to_string(), "commandcode/typesafe/jev".to_string());
+
+        let findings = evaluate_model_health(
+            roles,
+            HashMap::new(),
+            &catalog,
+            Some(&catalog),
+            None,
+            &providers,
+        );
+
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].code, "provider_reauth_required");
+        assert_eq!(findings[0].severity, "error");
+        assert!(
+            findings[0].suggested_selector.is_none(),
+            "Nessun rimpiazzo deve essere suggerito per login scaduto"
+        );
+    }
+
+    #[test]
+    fn chat_fallbacks_in_web_role_retain_genuine_removed_or_unconfigured_status() {
+        let providers = vec![provider_summary("anthropic", true, true)];
+        let catalog = vec![
+            catalog_model_with_kind("web", "tavily", "Tavily", "search"),
+            catalog_model("anthropic", "claude-3-5-sonnet", "Claude 3.5 Sonnet"),
+        ];
+
+        let mut roles = HashMap::new();
+        roles.insert("web".to_string(), "web/tavily".to_string());
+
+        let mut fallbacks = HashMap::new();
+        // Fallback 0: modello chat rimosso assegnato alla catena web
+        fallbacks.insert(
+            "web".to_string(),
+            vec!["anthropic/old-removed-model".to_string()],
+        );
+
+        let findings = evaluate_model_health(
+            roles,
+            fallbacks,
+            &catalog,
+            Some(&catalog),
+            None,
+            &providers,
+        );
+
+        // Il modello chat fallback inesistente deve mantenere la segnalazione removed bloccante
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].code, "removed");
+        assert_eq!(findings[0].severity, "error");
+        assert_eq!(findings[0].current_selector, "anthropic/old-removed-model");
+    }
+
 
     #[test]
     fn test_benchmark_profile_ratings() {

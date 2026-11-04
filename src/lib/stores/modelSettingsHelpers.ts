@@ -24,6 +24,7 @@ export interface ModelDto {
 	name: string;
 	provider: string;
 	selector: string;
+	kind: string;
 	contextWindow?: number;
 	maxTokens?: number;
 	reasoning?: boolean;
@@ -31,6 +32,19 @@ export interface ModelDto {
 	input?: string[];
 	cost?: ModelCost;
 	isCustom: boolean;
+}
+
+/** I ruoli specializzati possono mantenere anche le riserve chat supportate da omp. */
+export function modelSupportsRole(model: ModelDto, role: string): boolean {
+	if (model.kind === 'chat') return true;
+	switch (role) {
+		case 'web': return model.kind === 'search';
+		case 'image': return model.kind === 'image';
+		case 'speech': return model.kind === 'tts';
+		case 'dictation': return model.kind === 'stt';
+		case 'judge': return model.kind === 'judge';
+		default: return false;
+	}
 }
 
 export interface AuthAccount {
@@ -49,6 +63,12 @@ export interface AuthAccount {
 	updatedAt?: number;
 }
 
+export interface ProviderAuthentication {
+	status: 'unconfigured' | 'unverified' | 'verified' | 'reauth_required' | 'unavailable';
+	checkedAt: number | null;
+	detail?: string | null;
+}
+
 export interface ProviderSummary {
 	id: string;
 	name: string;
@@ -60,6 +80,7 @@ export interface ProviderSummary {
 	accountCount: number;
 	hasOauth: boolean;
 	isCustom: boolean;
+	authentication: ProviderAuthentication;
 }
 
 /**

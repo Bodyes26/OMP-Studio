@@ -19,6 +19,7 @@ import type {
 	ModelDto,
 	AuthAccount,
 	ProviderSummary,
+	ProviderAuthentication,
 	ThinkingLevel,
 	FallbackOnMode,
 	ExtraContextFileValidationError,
@@ -32,6 +33,7 @@ import {
 	sanitizeMaxDynamic,
 	splitModelSelector,
 	FALLBACK_ON_MODES,
+	modelSupportsRole,
 	BUILTIN_CONTEXT_FILES,
 	validateExtraContextFileName
 } from './modelSettingsHelpers';
@@ -43,6 +45,7 @@ export type {
 	ModelDto,
 	AuthAccount,
 	ProviderSummary,
+	ProviderAuthentication,
 	ThinkingLevel,
 	FallbackOnMode,
 	ExtraContextFileValidationError,
@@ -109,7 +112,7 @@ export interface ModelFinding {
 	currentProvider: string;
 	currentThinking: string | null;
 	severity: 'error' | 'warn' | 'info';
-	code: 'removed' | 'not_offered' | 'provider_disabled' | 'provider_unconfigured' | 'upgrade';
+	code: 'removed' | 'not_offered' | 'provider_disabled' | 'provider_unconfigured' | 'provider_reauth_required' | 'unverified' | 'upgrade';
 	reason: string;
 	suggestedSelector: string | null;
 	suggestedModelName: string | null;
@@ -211,10 +214,21 @@ class ModelSettingsStore {
 	private ensureLoadedPromise: Promise<void> | null = null;
 	private configCatalogPromise: Promise<void> | null = null;
 	private providersRequested = false;
+	checkingAuthentication = $state<string[]>([]);
+	private authenticationChecks = new Map<string, Promise<void>>();
 
 
 	suggestionsCache = new Map<string, RoleSuggestionsResponse>();
 	loadingSuggestionsRole = $state<string | null>(null);
+
+	configurationRoles = $derived.by(() => {
+		const known = new Set<string>(STANDARD_ROLES.map((role) => role.id));
+		const configured = this.draftConfig ?? this.config;
+		const extra = new Set([...Object.keys(configured?.modelRoles ?? {}), ...Object.keys(configured?.fallbackChains ?? {})]);
+		return [...STANDARD_ROLES, ...[...extra].filter((id) => !known.has(id)).map((id) => ({
+			id, label: id, abbr: id.slice(0, 2).toUpperCase(), icon: IconRoleDefault, desc: ''
+		}))];
+	});
 
 	hasUnsavedChanges = $derived.by(() => {
 		if (!this.config || !this.draftConfig) return false;
@@ -224,42 +238,52 @@ class ModelSettingsStore {
 	});
 
 	knownSelectors = $derived.by<ReadonlySet<string>>(() => {
-		const list = this.catalog ?? [];
+		const list = this.completeCatalog;
 		return new Set(list.map((m) => m.selector));
 	});
 
 	blockingFindings = $derived.by<ModelFinding[]>(() => {
-		return (this.healthReport?.findings ?? []).filter((f) => f.code !== 'upgrade');
+		return (this.healthReport?.findings ?? []).filter((f) => f.severity !== 'info' && f.code !== 'upgrade');
 	});
 
 	upgradeFindings = $derived.by<ModelFinding[]>(() => {
 		return (this.healthReport?.findings ?? []).filter((f) => f.code === 'upgrade');
 	});
 
+	unverifiedFindings = $derived.by(() => (this.healthReport?.findings ?? []).filter((f) => f.code === 'unverified'));
+	reauthProviders = $derived.by(() => this.providers.filter((p) => p.enabled && p.authentication.status === 'reauth_required'));
+	attentionCount = $derived.by(() => {
+		if (this.reauthProviders.length > 0) return this.reauthProviders.length;
+		if (this.blockingFindings.length > 0) return new Set(this.blockingFindings.map((finding) => splitModelSelector(finding.currentSelector, this.knownSelectors).base)).size;
+		return this.upgradeFindings.length + this.unverifiedFindings.length;
+	});
+
 	currentFingerprint = $derived.by<string>(() => {
-		return computeFindingsFingerprint(this.healthReport?.findings ?? []);
+		return `${computeFindingsFingerprint(this.healthReport?.findings ?? [])}|${this.reauthProviders.map((p) => p.id).sort().join(',')}`;
 	});
 
 	attentionLevel = $derived.by<'none' | 'info' | 'warn'>(() => {
 		const findings = this.healthReport?.findings ?? [];
-		if (findings.length === 0) return 'none';
+		if (findings.length === 0 && this.reauthProviders.length === 0) return 'none';
 		if (this.currentFingerprint === this.dismissedFingerprint) return 'none';
-		if (this.blockingFindings.length > 0) return 'warn';
-		if (this.upgradeFindings.length > 0) return 'info';
+		if (this.blockingFindings.length > 0 || this.reauthProviders.length > 0) return 'warn';
+		if (this.upgradeFindings.length > 0 || this.unverifiedFindings.length > 0) return 'info';
 		return 'none';
 	});
 
 	attentionTooltip = $derived.by<string>(() => {
 		if (this.attentionLevel === 'none') return '';
+		if (this.reauthProviders.length > 0) return msg.models_health_reauth_summary({ count: this.reauthProviders.length });
 		if (this.blockingFindings.length > 0) {
-			const count = this.blockingFindings.length;
-			const label =
-				count === 1 ? msg.ui_ts_modelsettings_1_modello_non_piu_utilizzabile_2912() : `${count} modelli non piu utilizzabili`;
+			const assignments = this.blockingFindings.length;
+			const models = new Set(this.blockingFindings.map((f) => splitModelSelector(f.currentSelector, this.knownSelectors).base)).size;
+			const label = msg.models_health_assignments_summary({ models, assignments });
 			const details = this.blockingFindings
 				.map((f) => (f.kind === 'fallback' ? `${f.role} #${(f.index ?? 0) + 1}` : f.role))
 				.join(', ');
 			return `${label}: ${details}`;
 		}
+		if (this.unverifiedFindings.length > 0) return msg.models_health_unverified_summary({ count: this.unverifiedFindings.length });
 		if (this.upgradeFindings.length > 0) {
 			const count = this.upgradeFindings.length;
 			return count === 1
@@ -269,26 +293,28 @@ class ModelSettingsStore {
 		return '';
 	});
 
-	/**
-	 * Catalogo da usare in ogni selettore di assegnazione (ruoli, riserve,
-	 * ciclo rapido, task): solo modelli raggiungibili con le credenziali che
-	 * l'utente ha davvero. `catalog` e' l'elenco completo noto a OMP e serve
-	 * alla scheda Catalogo e alle ricerche di metadati, non alla scelta.
-	 *
-	 * `availableCatalog` arriva da `omp models --json`. Se la CLI non risponde
-	 * si ripiega sul catalogo completo filtrato per i provider marcati
-	 * configurati e abilitati; se nemmeno quello e' noto si torna al catalogo
-	 * intero, perche' un elenco largo e' comunque meglio di un elenco vuoto.
-	 */
-	assignableCatalog = $derived.by(() => {
-		if (this.availableCatalog.length > 0) return this.availableCatalog;
-		const usable = new Set(
-			this.providers.filter((p) => p.configured && p.enabled).map((p) => p.id)
-		);
-		if (usable.size === 0) return this.catalog;
-		const filtered = this.catalog.filter((m) => usable.has(m.provider));
-		return filtered.length > 0 ? filtered : this.catalog;
+	/** Unisce i metadati live specializzati senza trasformare la cache chat in fonte autoritativa. */
+	completeCatalog = $derived.by(() => {
+		const models = new Map(this.catalog.map((model) => [model.selector, model]));
+		for (const model of this.availableCatalog) models.set(model.selector, model);
+		return [...models.values()];
 	});
+
+	/** Il catalogo dei modelli non certifica il login; i selettori chat restano solo chat. */
+	assignableCatalog = $derived.by(() => {
+		const live = this.availableCatalog.length > 0;
+		const source = live ? this.availableCatalog : this.catalog;
+		const disabled = new Set(this.config?.disabledProviders ?? []);
+		const configured = new Set(this.providers.filter((provider) => provider.configured).map((provider) => provider.id));
+		return source.filter((model) => model.kind === 'chat' && !disabled.has(model.provider)
+			&& (live || configured.size === 0 || configured.has(model.provider)));
+	});
+
+	catalogForRole(role: string): ModelDto[] {
+		const source = this.availableCatalog.length > 0 ? this.availableCatalog : this.catalog;
+		const disabled = new Set(this.config?.disabledProviders ?? []);
+		return source.filter((model) => modelSupportsRole(model, role) && !disabled.has(model.provider));
+	}
 
 	openModal(tab: 'roles' | 'catalog' | 'providers' = 'roles', targetProvider?: string) {
 		this.activeTab = tab;
@@ -378,6 +404,54 @@ class ModelSettingsStore {
 			}
 		})();
 		return this.loadProvidersPromise;
+	}
+
+	private updateAuthentication(providerId: string, authentication: ProviderAuthentication) {
+		this.providers = this.providers.map((provider) =>
+			provider.id === providerId ? { ...provider, authentication } : provider
+		);
+		if (this.healthReport && authentication.status !== 'reauth_required') {
+			this.healthReport = { ...this.healthReport, findings: this.healthReport.findings.filter((finding) =>
+				finding.currentProvider !== providerId || finding.code !== 'provider_reauth_required'
+			) };
+		}
+	}
+
+	async syncAuthentication(): Promise<void> {
+		try {
+			const states = await invoke<Record<string, ProviderAuthentication>>('get_provider_authentication_states');
+			for (const [providerId, authentication] of Object.entries(states)) this.updateAuthentication(providerId, authentication);
+		} catch {
+			// La diagnostica non deve interrompere quote o sessioni.
+		}
+	}
+
+	async checkProviderAuthentication(providerId: string): Promise<void> {
+		const pending = this.authenticationChecks.get(providerId);
+		if (pending) return pending;
+		this.checkingAuthentication = [...this.checkingAuthentication, providerId];
+		const check = (async () => {
+			try {
+				const authentication = await invoke<ProviderAuthentication>('check_provider_authentication', { providerId });
+				this.updateAuthentication(providerId, authentication);
+			} catch {
+				this.updateAuthentication(providerId, { status: 'unavailable', checkedAt: Date.now(), detail: null });
+			} finally {
+				this.checkingAuthentication = this.checkingAuthentication.filter((id) => id !== providerId);
+				this.authenticationChecks.delete(providerId);
+			}
+		})();
+		this.authenticationChecks.set(providerId, check);
+		return check;
+	}
+
+	async observeAuthentication(providerId: string, outcome: 'verified' | 'reauth_required' | 'unavailable'): Promise<void> {
+		try {
+			const authentication = await invoke<ProviderAuthentication>('record_provider_authentication', { providerId, outcome });
+			this.updateAuthentication(providerId, authentication);
+		} catch {
+			// Nessuna scrittura di credenziali: l'esito resta solo diagnostico.
+		}
 	}
 
 	/** Carica gli account di autenticazione, opzionalmente filtrati per provider. */
@@ -598,14 +672,15 @@ class ModelSettingsStore {
 					name: m.name,
 					provider,
 					selector: `${provider}/${m.id}`,
+					kind: 'chat',
 					contextWindow: m.contextWindow,
 					maxTokens: m.maxTokens,
 					reasoning: m.reasoning,
-					thinking: null,
+					thinking: undefined,
 					input: m.input,
-					cost: null,
+					cost: undefined,
 					isCustom: true
-				} as unknown as ModelDto);
+				});
 			}
 		}
 		return out;
@@ -781,9 +856,10 @@ class ModelSettingsStore {
 			}
 
 			this.healthReport = report;
+			await this.syncAuthentication();
 			this.lastCheckAt = report.checkedAt || Date.now();
 
-			const newFingerprint = computeFindingsFingerprint(report.findings || []);
+			const newFingerprint = this.currentFingerprint;
 			if (newFingerprint !== this.dismissedFingerprint) {
 				// Referto con findings diversi da quelli ignorati: azzera il dismiss per riaccendere il badge
 				this.dismissedFingerprint = '';

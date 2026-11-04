@@ -74,6 +74,8 @@ use studio_updater::{
     install_studio_update_and_restart, start_studio_update_download, StudioUpdaterState,
 };
 mod models_ops;
+mod provider_auth;
+use provider_auth::{check_provider_authentication, get_provider_authentication_states, record_provider_authentication};
 use models_ops::{
     apply_model_fixes, check_model_health, get_auth_accounts, get_available_models_catalog,
     get_agent_model_overrides, get_cache_warming_setting, get_custom_providers, get_model_config, get_model_providers,
@@ -445,6 +447,9 @@ pub fn run() {
             stats_summary,
             stats_sync,
             stats_open_dashboard,
+            check_provider_authentication,
+            record_provider_authentication,
+            get_provider_authentication_states,
             automations_snapshot,
             automations_save_draft,
             automations_activate,

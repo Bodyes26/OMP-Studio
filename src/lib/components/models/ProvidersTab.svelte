@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
+	import { untrack } from 'svelte';
+	import AlertBanner from '#lib/components/AlertBanner.svelte';
 	import { i18n } from '#lib/i18n/i18n.svelte.ts';
 	import {
 		modelSettingsStore,
@@ -58,7 +60,8 @@
 					availableModelCount: def.models.length,
 					accountCount: 0,
 					hasOauth: false,
-					isCustom: true
+					isCustom: true,
+					authentication: { status: 'unverified', checkedAt: null }
 				});
 			}
 		}
@@ -111,12 +114,39 @@
 		}
 	});
 
-	// Gli account vivono in `agent.db` e cambiano fuori da Studio (login da CLI,
-	// scadenza token): `ensureLoaded()` non li carica, quindi li leggiamo qui a
-	// ogni apertura della tab, cosi' la lista e' sempre quella reale.
+	// Il catalogo non verifica l'accesso: chiediamo a omp un riscontro distinto,
+	// una volta all'apertura; le verifiche successive riusano la cache nativa.
 	$effect(() => {
-		void modelSettingsStore.loadAccounts();
+		let cancelled = false;
+		void (async () => {
+			await Promise.all([modelSettingsStore.loadAccounts(), modelSettingsStore.loadProviders()]);
+			const ids = untrack(() => modelSettingsStore.providers.filter((p) => p.configured && p.enabled && !p.isCustom).map((p) => p.id));
+			for (const id of ids) {
+				if (cancelled) break;
+				await modelSettingsStore.checkProviderAuthentication(id).catch(() => {});
+			}
+		})();
+		return () => { cancelled = true; };
 	});
+
+	function authenticationLabel(provider: ProviderSummary): string {
+		switch (provider.authentication.status) {
+			case 'unconfigured': return m.providers_auth_unconfigured();
+			case 'verified': return m.providers_auth_verified();
+			case 'reauth_required': return m.providers_auth_reauth_required();
+			case 'unavailable': return m.providers_auth_unavailable();
+			default: return m.providers_auth_unverified();
+		}
+	}
+
+	function authenticationMark(provider: ProviderSummary) {
+		switch (provider.authentication.status) {
+			case 'verified': return 'completed';
+			case 'reauth_required': return 'attention';
+			case 'unavailable': return 'pending';
+			default: return 'pending';
+		}
+	}
 
 	function isEnabled(id: string): boolean {
 		return !(modelSettingsStore.draftConfig?.disabledProviders.includes(id) ?? false);
@@ -288,7 +318,7 @@
 	// --- Stato credenziale account ---
 	interface AccountStatus {
 		label: string;
-		variant: 'ok' | 'warn' | 'danger';
+		variant: 'ok' | 'warn' | 'danger' | 'neutral';
 		message?: string;
 	}
 
@@ -303,7 +333,11 @@
 		if (a.disabledCause) {
 			return { label: m.models_providers_disabled(), variant: 'warn', message: a.disabledCause };
 		}
-		return { label: m.providers_tab_connected(), variant: 'ok' };
+		// Senza esito per-account non attribuiamo a tutti il successo di uno solo.
+		if (selectedProvider?.authentication.status === 'reauth_required' && selectedAccounts.length === 1) {
+			return { label: m.providers_auth_reauth_required(), variant: 'warn', message: m.providers_auth_reauth_hint() };
+		}
+		return { label: m.providers_auth_saved_credential(), variant: 'neutral' };
 	}
 
 	function accountDisplayName(a: AuthAccount): string {
@@ -356,6 +390,7 @@
 		loginTarget = null;
 		await Promise.all([modelSettingsStore.loadAccounts(), modelSettingsStore.loadProviders()]);
 		if (pid) {
+			await modelSettingsStore.checkProviderAuthentication(pid).catch(() => {});
 			try { await modelSettingsStore.refreshCatalog(pid); } catch {}
 		}
 	}
@@ -431,8 +466,8 @@
 					<div class="provider-item-id">{p.id}</div>
 					<div class="provider-item-bottom">
 						<span class="provider-status">
-							<StatusMark status={enabled ? 'completed' : 'pending'} active={enabled} />
-							<span>{enabled ? m.models_providers_enabled() : m.models_providers_disabled()}</span>
+							<StatusMark status={enabled ? authenticationMark(p) : 'pending'} active={false} />
+							<span>{enabled ? authenticationLabel(p) : m.models_providers_disabled()}</span>
 						</span>
 						<Tooltip text={m.providers_tab_connected_accounts()}>
 							<span class="count-pill">
@@ -726,6 +761,31 @@
 						{/if}
 					</div>
 
+					<div class="section-header-row" aria-live="polite">
+						<span class="account-status">
+							<StatusMark status={authenticationMark(selectedProvider)} active={false} />
+							<span>{authenticationLabel(selectedProvider)}</span>
+						</span>
+						<button
+							type="button"
+							class="ui-button ui-button-secondary"
+							disabled={modelSettingsStore.checkingAuthentication.includes(selectedProvider.id)}
+							onclick={() => modelSettingsStore.checkProviderAuthentication(selectedProvider.id).catch(() => {})}
+						>
+							{modelSettingsStore.checkingAuthentication.includes(selectedProvider.id) ? m.providers_auth_checking() : m.providers_auth_check()}
+						</button>
+					</div>
+					{#if selectedProvider.authentication.status === 'reauth_required'}
+						<AlertBanner variant="warning" title={m.providers_auth_reauth_required()} message={m.providers_auth_reauth_hint()} />
+						<button type="button" class="ui-button ui-button-secondary" onclick={() => handleLoginAction(selectedProvider.id)}>
+							{m.ui_providerstab_accedi_di_nuovo_5726()}
+						</button>
+					{:else if selectedProvider.authentication.status === 'unavailable'}
+						<p class="auth-instruction">{m.providers_auth_unavailable_hint()}</p>
+					{:else if selectedProvider.authentication.status === 'unverified'}
+						<p class="auth-instruction">{m.providers_auth_unverified_hint()}</p>
+					{/if}
+
 					{#if selectedAccounts.length === 0}
 						<div class="empty-accounts">
 							{#if selectedProvider.source === 'custom'}
@@ -777,11 +837,13 @@
 											<Tooltip text={status.message ?? status.label}>
 												<span class="account-status">
 													<StatusMark
-														status={status.variant === 'ok'
-															? 'completed'
-															: status.variant === 'warn'
-																? 'attention'
-																: 'failed'}
+														status={status.variant === 'neutral'
+															? 'pending'
+															: status.variant === 'ok'
+																? 'completed'
+																: status.variant === 'warn'
+																	? 'attention'
+																	: 'failed'}
 													/>
 													<span
 														class="account-status-label"
@@ -815,7 +877,7 @@
 									</div>
 
 									<div class="account-actions">
-										{#if status.variant !== 'ok' && isOAuthProvider}
+										{#if (account.disabledCause || selectedProvider.authentication.status === 'reauth_required') && isOAuthProvider}
 											<button
 												type="button"
 												class="ui-button ui-button-secondary account-action-btn"

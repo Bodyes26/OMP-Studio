@@ -44,14 +44,14 @@
 	let extraContextFileError = $state<string | null>(null);
 
 	const selectedRole = $derived(
-		STANDARD_ROLES.find((r) => r.id === selectedRoleId) || STANDARD_ROLES[0]
+		modelSettingsStore.configurationRoles.find((r) => r.id === selectedRoleId) || STANDARD_ROLES[0]
 	);
 	const SelectedRoleIcon = $derived(selectedRole.icon);
 
 	const filteredRoles = $derived.by(() => {
 		const q = roleFilterQuery.trim().toLowerCase();
-		if (!q) return STANDARD_ROLES;
-		return STANDARD_ROLES.filter(
+		if (!q) return modelSettingsStore.configurationRoles;
+		return modelSettingsStore.configurationRoles.filter(
 			(r) =>
 				r.label.toLowerCase().includes(q) ||
 				r.id.toLowerCase().includes(q) ||
@@ -75,7 +75,7 @@
 		return splitModelSelector(full, modelSettingsStore.knownSelectors).thinking ?? 'auto';
 	}
 	const configuredCount = $derived(
-		STANDARD_ROLES.filter((r) => !!getRoleSelector(r.id)).length
+		modelSettingsStore.configurationRoles.filter((r) => !!getRoleSelector(r.id)).length
 	);
 
 	function getFallbacks(roleId: string): string[] {
@@ -83,7 +83,7 @@
 	}
 
 	function getModelDto(selector: string): ModelDto | undefined {
-		return resolveCatalogModel(modelSettingsStore.catalog, selector);
+		return resolveCatalogModel(modelSettingsStore.completeCatalog, selector);
 	}
 	const selectedRoleModelRaw = $derived(getRoleModelRaw(selectedRole.id));
 	const selectedRoleModelDto = $derived(getModelDto(selectedRoleModelRaw));
@@ -106,6 +106,11 @@
 	// Caricamento dinamico dei suggerimenti con OMP e caching
 	$effect(() => {
 		const roleId = selectedRole.id;
+		if (!STANDARD_ROLES.some((role) => role.id === roleId)) {
+			currentSuggestions = null;
+			isFetchingSuggestions = false;
+			return;
+		}
 		const primaryRaw = selectedRoleModelRaw;
 		const fallbacks = selectedRoleFallbacks;
 
@@ -279,12 +284,12 @@
 				{@const isConfigured = !!rawModel}
 				{@const isSelected = role.id === selectedRole.id}
 				{@const primaryFinding = modelSettingsStore.findingFor(role.id, 'primary')}
-				{@const isPrimaryBlocking = Boolean(primaryFinding && (primaryFinding.severity === 'error' || primaryFinding.severity === 'warn' || primaryFinding.code !== 'upgrade'))}
+				{@const isPrimaryBlocking = Boolean(primaryFinding && primaryFinding.severity !== 'info')}
 				{@const roleFallbacks = getFallbacks(role.id)}
 				{@const fallbacksCount = roleFallbacks.length}
 				{@const fallbackBlockingCount = roleFallbacks.reduce((acc, _, idx) => {
 					const f = modelSettingsStore.findingFor(role.id, 'fallback', idx);
-					return (f && (f.severity === 'error' || f.severity === 'warn' || f.code !== 'upgrade')) ? acc + 1 : acc;
+					return (f && f.severity !== 'info') ? acc + 1 : acc;
 				}, 0)}
 				{@const RoleIcon = role.icon}
 				{@const slashIdx = rawModel.indexOf('/')}
@@ -357,7 +362,7 @@
 
 		<div class="sidebar-footer">
 			<div class="summary-text">
-				<span class="count-badge">{configuredCount}/{STANDARD_ROLES.length}</span>
+				<span class="count-badge">{configuredCount}/{modelSettingsStore.configurationRoles.length}</span>
 				<span>{m.roles_tab_configured_count_suffix()}</span>
 			</div>
 			
@@ -441,7 +446,7 @@
 				{/if}
 				<div class="picker-container">
 					<ModelField
-						catalog={modelSettingsStore.assignableCatalog}
+						catalog={modelSettingsStore.catalogForRole(selectedRole.id)}
 						value={selectedRoleModelRaw}
 						placeholder={m.roles_tab_select_model_for_role({ role: selectedRole.label })}
 						ariaLabel={m.roles_tab_select_model_for_role({ role: selectedRole.label })}
@@ -684,7 +689,7 @@
 					{#if isAddingFallback}
 						<div class="inline-fallback-picker">
 							<ModelField
-								catalog={modelSettingsStore.assignableCatalog}
+								catalog={modelSettingsStore.catalogForRole(selectedRole.id)}
 								placeholder={m.models_roles_fallback_placeholder()}
 								ariaLabel={m.models_roles_fallback_placeholder()}
 								onSelect={(sel) => handleAddFallback(selectedRole.id, sel)}
