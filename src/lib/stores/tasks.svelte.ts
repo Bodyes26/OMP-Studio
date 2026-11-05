@@ -159,12 +159,31 @@ class TaskStore {
 		// prima che un qualsiasi salvataggio possa scriverle. `projectStore` e'
 		// asincrono, quindi senza attenderlo qui la lista sarebbe ancora vuota
 		// e nessuna coda verrebbe idratata.
+		// Al boot idrata solo la coda del progetto attivo (PERF-BOOT):
+		// evita I/O e registrazioni di watcher per i progetti non attivi.
+		// I progetti rimanenti vengono caricati in differita a fine avvio
+		// o su richiesta (cambio progetto, apertura QueueDrawer).
 		await projectStore.init();
-		await Promise.all(
-			projectStore.projects
-				.filter((project) => project.canonicalProjectPath)
-				.map((project) => this.loadProject(project.canonicalProjectPath!))
+		const activeProject = projectStore.activeProject;
+		if (activeProject?.canonicalProjectPath) {
+			await this.loadProject(activeProject.canonicalProjectPath);
+		}
+	}
+
+	/**
+	 * Idrata le code di tutti i progetti rimanenti non ancora caricati.
+	 * Chiamato nel task differito di fine avvio o all'apertura del QueueDrawer.
+	 */
+	async loadRemainingProjects(): Promise<void> {
+		if (!this.isTauri) return;
+		await projectStore.init();
+		const pending = projectStore.projects.filter(
+			(project) =>
+				project.canonicalProjectPath &&
+				!this.hydration.isHydrated(projectKey(project.canonicalProjectPath))
 		);
+		if (pending.length === 0) return;
+		await Promise.all(pending.map((project) => this.loadProject(project.canonicalProjectPath!)));
 	}
 
 	/**

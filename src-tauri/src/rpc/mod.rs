@@ -24,7 +24,7 @@ use std::time::{Duration, Instant};
 use base64::Engine;
 use parking_lot::Mutex;
 use serde::Deserialize;
-use tauri::ipc::Channel;
+use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::State;
 
 mod diag;
@@ -34,10 +34,11 @@ use diag::RpcStats;
 /// questo un frame logico e' un errore, non un caso da gestire.
 const MAX_REASSEMBLED_BYTES: usize = 67_108_864;
 
-/// Finestra di coalescenza dei delta. Un solo numero: se il profiling
-/// mostrasse che il collo di bottiglia e' la reattivita' Svelte e non l'IPC,
-/// si allarga qui.
-const DELTA_WINDOW: Duration = Duration::from_millis(8);
+/// Finestra di coalescenza dei delta. Portata a 16ms per allinearsi al budget
+/// di un frame UI (~60fps), evitando di emettere un frame IPC per singolo token.
+/// I punti di riallineamento (frame terminali, cambio di blocco o frame non-delta)
+/// svuotano immediatamente il buffer senza ritardi.
+const DELTA_WINDOW: Duration = Duration::from_millis(16);
 
 /// Righe di stderr conservate per la diagnostica di crash. Un avvio fallito
 /// (binario mancante, provider non autenticato, estensione rotta) altrimenti
@@ -606,7 +607,7 @@ fn delta_kind(event_kind: &str) -> Option<&'static str> {
 /// di default.
 struct ReaderLoopArgs {
     stdout: std::process::ChildStdout,
-    on_event: Channel<String>,
+    on_event: Channel<InvokeResponseBody>,
     stdin: Arc<Mutex<Option<ChildStdin>>>,
     protocol: Arc<AtomicU8>,
     child: Arc<Mutex<Child>>,
@@ -860,7 +861,7 @@ fn reassemble(line: &str, assembly: &mut Option<ChunkAssembly>) -> Result<Option
 /// chiuso e il thread di lettura deve fermarsi.
 fn dispatch(
     line: &str,
-    on_event: &Channel<String>,
+    on_event: &Channel<InvokeResponseBody>,
     stdin: &Arc<Mutex<Option<ChildStdin>>>,
     protocol: &Arc<AtomicU8>,
     pending_delta: &mut Option<DeltaBuffer>,
@@ -988,7 +989,15 @@ fn dispatch(
         Some(kind) => std::borrow::Cow::Borrowed(kind),
         None => std::borrow::Cow::Borrowed("?"),
     };
-    stats.send(on_event, &label, line.to_string())
+    // Invia come JSON nativo solo i frame che sono gia' JSON valido verificato
+    // da FramePeek; se la riga non e' JSON valido la si serializza come stringa
+    // per non rompere l'eval JS lato WebView.
+    let frame = if peek.is_some() {
+        line.to_string()
+    } else {
+        serde_json::to_string(line).unwrap_or_else(|_| "{}".to_string())
+    };
+    stats.send(on_event, &label, frame)
 }
 /// Applica `--resume <session_id>` se la sessione indicata possiede un transcript valido;
 /// altrimenti, se `continue_last` e' true, applica `--continue`.
@@ -1019,7 +1028,7 @@ pub async fn rpc_open(
     project_id: Option<String>,
     continue_last: Option<bool>,
     model: Option<String>,
-    on_event: Channel<String>,
+    on_event: Channel<InvokeResponseBody>,
     manager: State<'_, RpcManager>,
     automation_origin: Option<String>,
     read_only: Option<bool>,
@@ -1478,7 +1487,7 @@ pub async fn rpc_open_lab(
     resume: Option<String>,
     continue_last: Option<bool>,
     model: Option<String>,
-    on_event: Channel<String>,
+    on_event: Channel<InvokeResponseBody>,
     manager: State<'_, RpcManager>,
 ) -> Result<u64, String> {
     if !is_valid_prototype_id(&prototype_id) {
@@ -1976,17 +1985,25 @@ pub async fn rpc_set_prewalk(
     from: Option<String>,
     manager: State<'_, RpcManager>,
 ) -> Result<(), String> {
-    let guard = manager.sessions.lock();
-    let session = guard
-        .get(&rpc_id)
-        .ok_or_else(|| format!("Sessione RPC {} non trovata", rpc_id))?;
-    if session.scope == "lab" || session.prototype_id.is_some() {
-        return Err("Prewalk non supportato per sessioni Laboratorio".to_string());
-    }
-    let config_path = session.config_path.as_ref()
-        .ok_or_else(|| format!("Nessun file di configurazione per la sessione RPC {}", rpc_id))?;
-    // La chiusura non puo' cancellare l'overlay fra lettura del percorso e scrittura.
-    set_gui_overlay_prewalk(config_path, enabled, &PrewalkTargets { into, from })
+    let sessions = Arc::clone(&manager.sessions);
+    // La scrittura atomica (con i suoi retry) gira nel pool bloccante, non su un
+    // worker async. Il lock resta preso fino alla fine: la chiusura della sessione
+    // non puo' cancellare l'overlay fra lettura del percorso e scrittura.
+    tokio::task::spawn_blocking(move || {
+        let guard = sessions.lock();
+        let session = guard
+            .get(&rpc_id)
+            .ok_or_else(|| format!("Sessione RPC {} non trovata", rpc_id))?;
+        if session.scope == "lab" || session.prototype_id.is_some() {
+            return Err("Prewalk non supportato per sessioni Laboratorio".to_string());
+        }
+        let config_path = session.config_path.as_ref().ok_or_else(|| {
+            format!("Nessun file di configurazione per la sessione RPC {}", rpc_id)
+        })?;
+        set_gui_overlay_prewalk(config_path, enabled, &PrewalkTargets { into, from })
+    })
+    .await
+    .map_err(|error| format!("Scrittura prewalk fallita nel thread di I/O: {}", error))?
 }
 
 /// Interrompe la sessione RPC specificata in modo atomico, senza toccare le altre sessioni.

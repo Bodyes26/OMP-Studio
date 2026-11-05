@@ -514,8 +514,7 @@ fn optional_git_line(cwd: &Path, args: &[&str]) -> Result<Option<String>, Worktr
     Ok((!value.is_empty()).then_some(value))
 }
 
-fn inspect_sync(project_path: &str) -> Result<RepositoryInspection, WorktreeError> {
-    let context = discover_repository(project_path)?;
+fn inspect_sync_with_context(context: &RepositoryContext) -> Result<RepositoryInspection, WorktreeError> {
     let current_branch = optional_git_line(
         &context.repository_root,
         &["symbolic-ref", "--quiet", "--short", "HEAD"],
@@ -535,11 +534,16 @@ fn inspect_sync(project_path: &str) -> Result<RepositoryInspection, WorktreeErro
         opened_path: path_string(&context.opened_path)?,
         relative_subpath: path_string(&context.relative_subpath)?,
         worktree_parent: path_string(&context.parent)?,
-        repository_name: context.repository_name,
+        repository_name: context.repository_name.clone(),
         head_state,
         head_commit,
         current_branch,
     })
+}
+
+fn inspect_sync(project_path: &str) -> Result<RepositoryInspection, WorktreeError> {
+    let context = discover_repository(project_path)?;
+    inspect_sync_with_context(&context)
 }
 
 fn ensure_repository_has_commit(context: &RepositoryContext) -> Result<(), WorktreeError> {
@@ -1154,7 +1158,7 @@ fn list_sync(project_path: &str) -> Result<Vec<WorktreeInfo>, WorktreeError> {
 fn list_branches_sync(args: ListBranchesArgs) -> Result<BranchListOutcome, WorktreeError> {
     let context = discover_repository(&args.project_path)?;
     ensure_repository_has_commit(&context)?;
-    let inspection = inspect_sync(&args.project_path)?;
+    let inspection = inspect_sync_with_context(&context)?;
     let primary_branch = inspection
         .current_branch
         .clone()
@@ -1296,7 +1300,7 @@ fn create_sync(args: CreateWorktreeArgs) -> Result<WorktreeInfo, WorktreeError> 
     let _mutation = worktree_mutation_lock();
     let context = discover_repository(&args.project_path)?;
     ensure_repository_has_commit(&context)?;
-    let inspection = inspect_sync(&args.project_path)?;
+    let inspection = inspect_sync_with_context(&context)?;
     if inspection.head_state == RepositoryHeadState::Detached {
         return Err(WorktreeError::new(
             WorktreeErrorCode::DetachedHead,
@@ -1429,7 +1433,7 @@ fn attach_sync(args: AttachWorktreeArgs) -> Result<WorktreeInfo, WorktreeError> 
     let _mutation = worktree_mutation_lock();
     let context = discover_repository(&args.project_path)?;
     ensure_repository_has_commit(&context)?;
-    let inspection = inspect_sync(&args.project_path)?;
+    let inspection = inspect_sync_with_context(&context)?;
     if inspection.head_state == RepositoryHeadState::Detached {
         return Err(WorktreeError::new(
             WorktreeErrorCode::DetachedHead,
@@ -3105,111 +3109,151 @@ fn inspect_review_sync(
         }
     };
 
-    // 5. Drift (ahead: target avanzato rispetto alla corsia; behind: corsia avanzata rispetto a target)
-    let (drift_ahead, drift_behind) = {
-        let out = run_git(
-            &canonical_worktree,
-            &git_args(&[
-                "rev-list",
-                "--left-right",
-                "--count",
-                &format!("refs/heads/{}...HEAD", target_branch),
-            ]),
-        );
-        match out {
-            Ok(o) if o.status.success() => {
-                let txt = String::from_utf8_lossy(&o.stdout);
-                let mut parts = txt.split_whitespace();
-                let ahead = parts
-                    .next()
-                    .and_then(|s| s.parse::<u32>().ok())
-                    .unwrap_or(0);
-                let behind = parts
-                    .next()
-                    .and_then(|s| s.parse::<u32>().ok())
-                    .unwrap_or(0);
-                (ahead, behind)
+    // Invocazioni Git indipendenti eseguite in parallelo via std::thread::scope
+    // per minimizzare la latenza complessiva delle letture del review.
+    let (
+        drift,
+        target_dirty_files_res,
+        lane_dirty_files_res,
+        target_attached_branch_res,
+        lane_unmerged_res,
+        target_unmerged_res,
+        commits,
+        status_out,
+        numstat_out,
+        untracked_out,
+    ) = std::thread::scope(|s| {
+        let t_drift = s.spawn(|| {
+            let out = run_git(
+                &canonical_worktree,
+                &git_args(&[
+                    "rev-list",
+                    "--left-right",
+                    "--count",
+                    &format!("refs/heads/{}...HEAD", target_branch),
+                ]),
+            );
+            match out {
+                Ok(o) if o.status.success() => {
+                    let txt = String::from_utf8_lossy(&o.stdout);
+                    let mut parts = txt.split_whitespace();
+                    let ahead = parts
+                        .next()
+                        .and_then(|s| s.parse::<u32>().ok())
+                        .unwrap_or(0);
+                    let behind = parts
+                        .next()
+                        .and_then(|s| s.parse::<u32>().ok())
+                        .unwrap_or(0);
+                    (ahead, behind)
+                }
+                _ => (0, 0),
             }
-            _ => (0, 0),
-        }
-    };
+        });
 
-    // 6. Pulizia e checkout: un errore di lettura fallisce chiuso, mai "pulito".
-    let target_dirty_files = lane_integrate::porcelain_files(&context.repository_root)?;
-    let is_target_dirty = !target_dirty_files.is_empty();
-    let lane_dirty_files = lane_integrate::porcelain_files(&canonical_worktree)?;
-    let is_lane_dirty = !lane_dirty_files.is_empty();
-    let is_target_checked_out = lane_integrate::attached_branch(&context.repository_root)?
-        .as_deref()
-        == Some(target_branch.as_str());
+        let t_target_dirty = s.spawn(|| lane_integrate::porcelain_files(&context.repository_root));
+        let t_lane_dirty = s.spawn(|| lane_integrate::porcelain_files(&canonical_worktree));
+        let t_target_attached = s.spawn(|| lane_integrate::attached_branch(&context.repository_root));
+        let t_lane_unmerged = s.spawn(|| lane_integrate::unmerged_paths(&canonical_worktree));
+        let t_target_unmerged = s.spawn(|| lane_integrate::unmerged_paths(&context.repository_root));
 
-    // 7. Conflitti non risolti (nella corsia o nel target)
-    let has_unresolved_conflicts = !lane_integrate::unmerged_paths(&canonical_worktree)?.is_empty()
-        || !lane_integrate::unmerged_paths(&context.repository_root)?.is_empty();
-
-    // 8. Lista dei commit eseguiti nella corsia
-    let commits = {
-        let sep = '\u{1f}';
-        let fmt = format!("%H{sep}%h{sep}%an{sep}%at{sep}%s");
-        let log_out = run_git(
-            &canonical_worktree,
-            &git_args(&[
-                "log",
-                &format!("--pretty=format:{}", fmt),
-                &format!("refs/heads/{}..HEAD", target_branch),
-            ]),
-        );
-        let mut list = Vec::new();
-        if let Ok(o) = log_out {
-            if o.status.success() {
-                for line in String::from_utf8_lossy(&o.stdout).lines() {
-                    if line.trim().is_empty() {
-                        continue;
-                    }
-                    let parts: Vec<&str> = line.split(sep).collect();
-                    if parts.len() >= 5 {
-                        list.push(ReviewCommitInfo {
-                            hash: parts[0].to_string(),
-                            short: parts[1].to_string(),
-                            author: parts[2].to_string(),
-                            time: parts[3].parse::<i64>().unwrap_or(0),
-                            subject: parts[4].to_string(),
-                        });
+        let t_commits = s.spawn(|| {
+            let sep = '\u{1f}';
+            let fmt = format!("%H{sep}%h{sep}%an{sep}%at{sep}%s");
+            let log_out = run_git(
+                &canonical_worktree,
+                &git_args(&[
+                    "log",
+                    &format!("--pretty=format:{}", fmt),
+                    &format!("refs/heads/{}..HEAD", target_branch),
+                ]),
+            );
+            let mut list = Vec::new();
+            if let Ok(o) = log_out {
+                if o.status.success() {
+                    for line in String::from_utf8_lossy(&o.stdout).lines() {
+                        if line.trim().is_empty() {
+                            continue;
+                        }
+                        let parts: Vec<&str> = line.split(sep).collect();
+                        if parts.len() >= 5 {
+                            list.push(ReviewCommitInfo {
+                                hash: parts[0].to_string(),
+                                short: parts[1].to_string(),
+                                author: parts[2].to_string(),
+                                time: parts[3].parse::<i64>().unwrap_or(0),
+                                subject: parts[4].to_string(),
+                            });
+                        }
                     }
                 }
             }
-        }
-        list
-    };
+            list
+        });
 
-    // 9. Diff aggregato file (tracked da base_sha a working copy, piu' untracked rilevanti)
+        let t_status = s.spawn(|| {
+            run_git(
+                &canonical_worktree,
+                &git_args(&[
+                    "-c",
+                    "core.quotepath=false",
+                    "diff",
+                    &base_sha,
+                    "--name-status",
+                    "-M",
+                ]),
+            )
+        });
+
+        let t_numstat = s.spawn(|| {
+            run_git(
+                &canonical_worktree,
+                &git_args(&[
+                    "-c",
+                    "core.quotepath=false",
+                    "diff",
+                    &base_sha,
+                    "--numstat",
+                    "-M",
+                ]),
+            )
+        });
+
+        let t_untracked = s.spawn(|| {
+            run_git(
+                &canonical_worktree,
+                &git_args(&["ls-files", "--others", "--exclude-standard", "-z"]),
+            )
+        });
+
+        (
+            t_drift.join().unwrap(),
+            t_target_dirty.join().unwrap(),
+            t_lane_dirty.join().unwrap(),
+            t_target_attached.join().unwrap(),
+            t_lane_unmerged.join().unwrap(),
+            t_target_unmerged.join().unwrap(),
+            t_commits.join().unwrap(),
+            t_status.join().unwrap(),
+            t_numstat.join().unwrap(),
+            t_untracked.join().unwrap(),
+        )
+    });
+
+    let (drift_ahead, drift_behind) = drift;
+    let target_dirty_files = target_dirty_files_res?;
+    let is_target_dirty = !target_dirty_files.is_empty();
+    let lane_dirty_files = lane_dirty_files_res?;
+    let is_lane_dirty = !lane_dirty_files.is_empty();
+    let is_target_checked_out = target_attached_branch_res?.as_deref() == Some(target_branch.as_str());
+    let has_unresolved_conflicts = !lane_unmerged_res?.is_empty() || !target_unmerged_res?.is_empty();
+
+    // Diff aggregato file (tracked da base_sha a working copy, piu' untracked rilevanti)
     let (files, total_additions, total_deletions) = {
         let mut diff_files: std::collections::BTreeMap<String, ReviewFileDiff> =
             std::collections::BTreeMap::new();
 
         // Tracked changes via git diff base_sha
-        let status_out = run_git(
-            &canonical_worktree,
-            &git_args(&[
-                "-c",
-                "core.quotepath=false",
-                "diff",
-                &base_sha,
-                "--name-status",
-                "-M",
-            ]),
-        );
-        let numstat_out = run_git(
-            &canonical_worktree,
-            &git_args(&[
-                "-c",
-                "core.quotepath=false",
-                "diff",
-                &base_sha,
-                "--numstat",
-                "-M",
-            ]),
-        );
 
         if let (Ok(s_out), Ok(n_out)) = (status_out, numstat_out) {
             if s_out.status.success() && n_out.status.success() {
@@ -3232,10 +3276,7 @@ fn inspect_review_sync(
         }
 
         // Untracked files rilevanti in worktree
-        if let Ok(untracked_out) = run_git(
-            &canonical_worktree,
-            &git_args(&["ls-files", "--others", "--exclude-standard", "-z"]),
-        ) {
+        if let Ok(untracked_out) = untracked_out {
             if untracked_out.status.success() {
                 for raw_path in untracked_out
                     .stdout

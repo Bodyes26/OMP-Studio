@@ -288,6 +288,7 @@ commands.allow = [
 identifier = "allow-companion"
 description = "Finestra secondaria Companion: alternanza visibilita', stato geometrico e parsing NL dei task"
 commands.allow = [
+    "companion_prewarm",
     "toggle_companion_window",
     "hide_companion_window",
     "get_companion_state",

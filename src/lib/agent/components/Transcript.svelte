@@ -65,7 +65,9 @@
 	);
 	const activeAssistantHasContent = $derived(
 		activeAssistant?.kind === 'assistant'
-			&& activeAssistant.blocks.some((block: Block) => block.type !== 'text' || block.text.length > 0)
+			&& (activeAssistant.hasContent !== undefined
+				? activeAssistant.hasContent
+				: activeAssistant.blocks.some((block: Block) => block.type !== 'text' || block.text.length > 0))
 	);
 	const hasRunningTool = $derived(
 		session.visibleEntries.some((entry: TranscriptEntry) => entry.kind === 'tool' && entry.running)
@@ -127,6 +129,9 @@
 	/** Giri aperti a mano, per id dell'entry del prompt ripetuto. */
 	let openGiri = $state<Record<string, boolean>>({});
 	function hasResponseContent(entry: AssistantEntry): boolean {
+		if (entry.hasResponseContent !== undefined) {
+			return entry.hasResponseContent;
+		}
 		return entry.blocks.some(
 			(b) => (b.type === 'text' && b.text.trim().length > 0) || b.type === 'image'
 		);
@@ -276,6 +281,8 @@
 		return foldLoop(finalItems);
 	});
 
+	/** Cache dei titoli dei giri ripiegati per non rileggere i blocchi di testo. */
+	const loopHeadlineCache = new Map<string, string>();
 	/** Testo dell'assistente dentro un giro: la sua ultima riga titola la riga ripiegata. */
 	function assistantTexts(items: readonly DisplayItem[]): string[] {
 		const texts: string[] = [];
@@ -293,6 +300,7 @@
 	 */
 	function foldLoop(items: DisplayItem[]): DisplayItem[] {
 		const loop = session.loop;
+		if (session.entries.length === 0) loopHeadlineCache.clear();
 		const hasGiri = items.some((item) => item.kind === 'single' && item.entry.kind === 'user' && item.entry.loopGiro !== undefined);
 		if (!hasGiri) return items;
 		const folded = foldLoopItems(
@@ -308,7 +316,14 @@
 		for (const part of folded) {
 			if (part.kind === 'item') out.push(part.item);
 			else if (part.kind === 'giro-sep') out.push({ kind: 'loop-sep', id: part.key, n: part.n });
-			else out.push({ kind: 'loop-giro', id: part.key, n: part.n, open: part.open, headline: giroHeadline(assistantTexts(part.items)) });
+			else {
+				let headline = loopHeadlineCache.get(part.key);
+				if (!headline) {
+					headline = giroHeadline(assistantTexts(part.items));
+					loopHeadlineCache.set(part.key, headline);
+				}
+				out.push({ kind: 'loop-giro', id: part.key, n: part.n, open: part.open, headline });
+			}
 		}
 		if (loop && !isLoopActive(loop) && loop.giro > 0) out.push({ kind: 'loop-end', id: loop.id });
 		return out;
@@ -414,9 +429,15 @@
 		function recordEntries(entries: TranscriptEntry[]) {
 			for (const entry of entries) {
 				if (entry.kind === 'assistant') {
-					for (const block of entry.blocks) {
-						if (block.type === 'text' && block.text.trim()) {
-							currentTurnAssistantTexts.push(block.text.trim());
+					// Non leggiamo i blocchi di testo dell'assistente attivo durante
+					// lo streaming per evitare invalidazioni reattive a ogni frame
+					// (il footer del turno attivo verra calcolato solo a fine streaming).
+					const isStreamingActive = session.isStreaming && entry.id === session.activeAssistantId;
+					if (!isStreamingActive) {
+						for (const block of entry.blocks) {
+							if (block.type === 'text' && block.text.trim()) {
+								currentTurnAssistantTexts.push(block.text.trim());
+							}
 						}
 					}
 					if (entry.usage?.cost?.total) {
@@ -471,9 +492,10 @@
 				currentTurnCost = 0;
 				currentTurnSpeed = new TurnSpeed();
 				currentTurnModel = undefined;
+				currentTurnProvider = undefined;
 				currentTurnStartMs = 0;
 				currentTurnEndMs = 0;
-				currentTurnUserId = item.kind === 'single' ? item.entry.id : null;
+				currentTurnUserId = item.entry.id;
 				currentTurnAssistantTs = null;
 				currentTurnDiff = emptyTurnDiff();
 			} else {

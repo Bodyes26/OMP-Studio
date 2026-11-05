@@ -290,6 +290,10 @@ export interface AssistantEntry {
 	messageTs?: number;
 	/** Tempo di sola generazione in ms (`duration - ttft`), per i token al secondo del turno. */
 	genMs?: number;
+	/** Presenza di almeno un blocco con contenuto (thinking, immagine o testo non vuoto). */
+	hasContent?: boolean;
+	/** Presenza di testo per l'utente (non vuoto dopo trim) o immagini. */
+	hasResponseContent?: boolean;
 }
 
 export interface ToolEntry {
@@ -2322,10 +2326,16 @@ export class AgentSession {
 				const currentBlocks: Block[] = [];
 				const flushBlocks = (isLast: boolean) => {
 					if (currentBlocks.length === 0) return;
+					const hasContent = currentBlocks.some((b) => b.type !== 'text' || b.text.length > 0);
+					const hasResponseContent = currentBlocks.some(
+						(b) => (b.type === 'text' && b.text.trim().length > 0) || b.type === 'image'
+					);
 					entries.push({
 						id: this.nextEntryId++,
 						kind: 'assistant',
 						blocks: [...currentBlocks],
+						hasContent,
+						hasResponseContent,
 						model: message.model,
 						usage: isLast ? message.usage : undefined,
 						genMs: isLast ? generationMs(message) : undefined,
@@ -2550,6 +2560,8 @@ export class AgentSession {
 						id: this.nextEntryId++,
 						kind: 'assistant',
 						blocks: [],
+						hasContent: false,
+						hasResponseContent: false,
 						messageTs: message.timestamp
 					}) as AssistantEntry;
 					this.activeAssistantId = this.assistantEntry.id;
@@ -2596,6 +2608,16 @@ export class AgentSession {
 					if (typeof message.timestamp === 'number') this.assistantEntry.messageTs = message.timestamp;
 					if (!this.assistantEntry.stopReason) {
 						this.assistantEntry.stopReason = message.stopReason;
+					}
+					if (!this.assistantEntry.hasContent) {
+						this.assistantEntry.hasContent = this.assistantEntry.blocks.some(
+							(b) => b.type !== 'text' || b.text.length > 0
+						);
+					}
+					if (!this.assistantEntry.hasResponseContent) {
+						this.assistantEntry.hasResponseContent = this.assistantEntry.blocks.some(
+							(b) => (b.type === 'text' && b.text.trim().length > 0) || b.type === 'image'
+						);
 					}
 					const assistantMsg = entryToRemoteMessage(this.assistantEntry);
 					if (assistantMsg) {
@@ -3863,6 +3885,15 @@ export class AgentSession {
 		} else {
 			this.setBlock(index, { type: kind, text: delta });
 		}
+		if (!entry.hasContent && (delta.length > 0 || kind !== 'text')) {
+			entry.hasContent = true;
+		}
+		if (!entry.hasResponseContent && kind === 'text') {
+			const currentText = existing && existing.type === 'text' ? existing.text : delta;
+			if (currentText.trim().length > 0) {
+				entry.hasResponseContent = true;
+			}
+		}
 		if (this.remoteChatListeners.size > 0) {
 			const isRich = remoteStore.status.relayFeatures?.includes('chat_rich');
 			if (kind === 'text' || (kind === 'thinking' && isRich)) {
@@ -3882,6 +3913,8 @@ export class AgentSession {
 			id: this.nextEntryId++,
 			kind: 'assistant',
 			blocks: [],
+			hasContent: false,
+			hasResponseContent: false,
 			messageTs: this.liveAssistantTs
 		}) as AssistantEntry;
 		this.activeAssistantId = this.assistantEntry.id;
@@ -3892,6 +3925,16 @@ export class AgentSession {
 		const entry = this.ensureAssistant();
 		while (entry.blocks.length < index) entry.blocks.push({ type: 'text', text: '' });
 		entry.blocks[index] = block;
+		if (!entry.hasContent) {
+			if (block.type !== 'text' || block.text.length > 0) {
+				entry.hasContent = true;
+			}
+		}
+		if (!entry.hasResponseContent) {
+			if (block.type === 'image' || (block.type === 'text' && block.text.trim().length > 0)) {
+				entry.hasResponseContent = true;
+			}
+		}
 	}
 
 	private applySubagent(event: AgentSessionEvent) {

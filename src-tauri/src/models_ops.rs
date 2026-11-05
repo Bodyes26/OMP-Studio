@@ -719,24 +719,36 @@ where
 
 #[command]
 pub async fn get_model_config() -> Result<ModelConfigDto, String> {
-    let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
-    read_model_config_path(&agent.join("config.yml"))
+    tokio::task::spawn_blocking(|| {
+        let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
+        read_model_config_path(&agent.join("config.yml"))
+    })
+    .await
+    .map_err(|e| format!("Task get_model_config fallito: {e}"))?
 }
 
 #[command]
 pub async fn save_model_config(config: ModelConfigDto) -> Result<(), String> {
-    let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
-    save_model_config_path(&agent.join("config.yml"), &config)
+    tokio::task::spawn_blocking(move || {
+        let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
+        save_model_config_path(&agent.join("config.yml"), &config)
+    })
+    .await
+    .map_err(|e| format!("Task save_model_config fallito: {e}"))?
 }
 
 #[command]
 pub async fn get_cache_warming_setting() -> Result<String, String> {
-    let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
-    let path = agent.join("config.yml");
-    match read_yaml_mapping(&path)? {
-        Some(mapping) => Ok(parse_cache_warming(&mapping)),
-        None => Ok("idle".to_string()),
-    }
+    tokio::task::spawn_blocking(|| {
+        let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
+        let path = agent.join("config.yml");
+        match read_yaml_mapping(&path)? {
+            Some(mapping) => Ok(parse_cache_warming(&mapping)),
+            None => Ok("idle".to_string()),
+        }
+    })
+    .await
+    .map_err(|e| format!("Task get_cache_warming_setting fallito: {e}"))?
 }
 
 #[command]
@@ -744,20 +756,24 @@ pub async fn set_cache_warming_setting(mode: String) -> Result<(), String> {
     if !["off", "streaming", "idle"].contains(&mode.as_str()) {
         return Err(format!("Modalita cache warming non valida: {}", mode));
     }
-    let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
-    let path = agent.join("config.yml");
-    let _guard = mutation_lock()?;
-    let mut mapping = read_yaml_mapping(&path)?.unwrap_or_default();
-    let providers_key = yaml_key("providers");
-    let mut providers_map = match mapping.get(&providers_key) {
-        Some(value) => value.as_mapping().cloned().unwrap_or_default(),
-        None => serde_yaml::Mapping::new(),
-    };
-    providers_map.insert(yaml_key("cacheWarming"), serde_yaml::Value::String(mode));
-    mapping.insert(providers_key, serde_yaml::Value::Mapping(providers_map));
-    let serialized = serde_yaml::to_string(&serde_yaml::Value::Mapping(mapping))
-        .map_err(|error| format!("Serializzazione {}: {}", path.display(), error))?;
-    atomic_write(&path, serialized.as_bytes())
+    tokio::task::spawn_blocking(move || {
+        let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
+        let path = agent.join("config.yml");
+        let _guard = mutation_lock()?;
+        let mut mapping = read_yaml_mapping(&path)?.unwrap_or_default();
+        let providers_key = yaml_key("providers");
+        let mut providers_map = match mapping.get(&providers_key) {
+            Some(value) => value.as_mapping().cloned().unwrap_or_default(),
+            None => serde_yaml::Mapping::new(),
+        };
+        providers_map.insert(yaml_key("cacheWarming"), serde_yaml::Value::String(mode));
+        mapping.insert(providers_key, serde_yaml::Value::Mapping(providers_map));
+        let serialized = serde_yaml::to_string(&serde_yaml::Value::Mapping(mapping))
+            .map_err(|error| format!("Serializzazione {}: {}", path.display(), error))?;
+        atomic_write(&path, serialized.as_bytes())
+    })
+    .await
+    .map_err(|e| format!("Task set_cache_warming_setting fallito: {e}"))?
 }
 
 // -----------------------------------------------------------------------------
@@ -862,14 +878,22 @@ pub fn set_prewalk_settings_path(path: &Path, settings: PrewalkSettingsDto) -> R
 
 #[command]
 pub async fn get_prewalk_settings() -> Result<PrewalkSettingsDto, String> {
-    let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
-    get_prewalk_settings_path(&agent.join("config.yml"))
+    tokio::task::spawn_blocking(|| {
+        let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
+        get_prewalk_settings_path(&agent.join("config.yml"))
+    })
+    .await
+    .map_err(|e| format!("Task get_prewalk_settings fallito: {e}"))?
 }
 
 #[command]
 pub async fn set_prewalk_settings(settings: PrewalkSettingsDto) -> Result<(), String> {
-    let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
-    set_prewalk_settings_path(&agent.join("config.yml"), settings)
+    tokio::task::spawn_blocking(move || {
+        let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
+        set_prewalk_settings_path(&agent.join("config.yml"), settings)
+    })
+    .await
+    .map_err(|e| format!("Task set_prewalk_settings fallito: {e}"))?
 }
 
 // -----------------------------------------------------------------------------
@@ -1043,14 +1067,22 @@ pub fn set_subagent_model_settings_path(
 
 #[command]
 pub async fn get_subagent_model_settings() -> Result<SubagentModelSettingsDto, String> {
-    let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
-    get_subagent_model_settings_path(&agent.join("config.yml"))
+    tokio::task::spawn_blocking(|| {
+        let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
+        get_subagent_model_settings_path(&agent.join("config.yml"))
+    })
+    .await
+    .map_err(|e| format!("Task get_subagent_model_settings fallito: {e}"))?
 }
 
 #[command]
 pub async fn set_subagent_model_settings(settings: SubagentModelSettingsDto) -> Result<(), String> {
-    let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
-    set_subagent_model_settings_path(&agent.join("config.yml"), settings)
+    tokio::task::spawn_blocking(move || {
+        let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
+        set_subagent_model_settings_path(&agent.join("config.yml"), settings)
+    })
+    .await
+    .map_err(|e| format!("Task set_subagent_model_settings fallito: {e}"))?
 }
 
 /// Un agente con modello imposto da `task.agentModelOverrides`.
@@ -1140,14 +1172,22 @@ pub fn remove_agent_model_override_path(path: &Path, agent: &str) -> Result<(), 
 
 #[command]
 pub async fn get_agent_model_overrides() -> Result<Vec<AgentModelOverrideDto>, String> {
-    let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
-    get_agent_model_overrides_path(&agent.join("config.yml"))
+    tokio::task::spawn_blocking(|| {
+        let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
+        get_agent_model_overrides_path(&agent.join("config.yml"))
+    })
+    .await
+    .map_err(|e| format!("Task get_agent_model_overrides fallito: {e}"))?
 }
 
 #[command]
 pub async fn remove_agent_model_override(agent: String) -> Result<(), String> {
-    let dir = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
-    remove_agent_model_override_path(&dir.join("config.yml"), &agent)
+    tokio::task::spawn_blocking(move || {
+        let dir = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
+        remove_agent_model_override_path(&dir.join("config.yml"), &agent)
+    })
+    .await
+    .map_err(|e| format!("Task remove_agent_model_override fallito: {e}"))?
 }
 
 // -----------------------------------------------------------------------------
@@ -1365,16 +1405,19 @@ pub async fn get_available_models_catalog() -> Result<Vec<ModelDto>, String> {
 #[command]
 pub async fn refresh_models_catalog() -> Result<Vec<ModelDto>, String> {
     let omp_path = crate::omp_ops::get_omp_binary();
-    let mut cmd = Command::new(&omp_path);
-    cmd.arg("models").arg("refresh");
+    let _ = tokio::task::spawn_blocking(move || {
+        let mut cmd = Command::new(&omp_path);
+        cmd.arg("models").arg("refresh");
 
-    #[cfg(target_os = "windows")]
-    {
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-        cmd.creation_flags(CREATE_NO_WINDOW);
-    }
+        #[cfg(target_os = "windows")]
+        {
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
 
-    let _ = crate::omp_ops::omp_capture(cmd);
+        crate::omp_ops::omp_capture(cmd)
+    })
+    .await;
     get_models_catalog().await
 }
 
@@ -1625,14 +1668,22 @@ fn save_custom_providers_paths(
 
 #[command]
 pub async fn get_custom_providers() -> Result<CustomProvidersFile, String> {
-    let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
-    read_custom_providers_paths(&agent.join("models.json"), &agent.join("models.yml"))
+    tokio::task::spawn_blocking(|| {
+        let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
+        read_custom_providers_paths(&agent.join("models.json"), &agent.join("models.yml"))
+    })
+    .await
+    .map_err(|e| format!("Task get_custom_providers fallito: {e}"))?
 }
 
 #[command]
 pub async fn save_custom_providers(data: CustomProvidersFile) -> Result<(), String> {
-    let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
-    save_custom_providers_paths(&agent.join("models.json"), &agent.join("models.yml"), &data)
+    tokio::task::spawn_blocking(move || {
+        let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
+        save_custom_providers_paths(&agent.join("models.json"), &agent.join("models.yml"), &data)
+    })
+    .await
+    .map_err(|e| format!("Task save_custom_providers fallito: {e}"))?
 }
 
 // -----------------------------------------------------------------------------
@@ -1797,28 +1848,44 @@ fn canonical_provider_id(provider: &str) -> &str {
 
 #[command]
 pub async fn get_auth_accounts(provider_id: Option<String>) -> Result<Vec<AuthAccountDto>, String> {
-    let conn = open_readonly_db("agent.db")?;
-    // Alias-aware: se il filtro e' l'alias storico, cerca anche il canonical.
-    let normalized = provider_id.as_deref().map(canonical_provider_id).map(str::to_string);
-    let alias_needs = provider_id.as_deref().zip(normalized.as_deref()).is_some_and(|(a, b)| a != b);
-    let mut stmt = conn
-        .prepare(
-            "SELECT id, provider, credential_type, identity_key, disabled_cause, data, created_at, updated_at \
-             FROM auth_credentials WHERE ?1 IS NULL OR provider = ?1 OR (?2 = 1 AND provider = ?3) ORDER BY provider, id",
-        )
-        .map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || {
+        let conn = open_readonly_db("agent.db")?;
+        // Alias-aware: se il filtro e' l'alias storico, cerca anche il canonical.
+        let normalized = provider_id.as_deref().map(canonical_provider_id).map(str::to_string);
+        let alias_needs = provider_id.as_deref().zip(normalized.as_deref()).is_some_and(|(a, b)| a != b);
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, provider, credential_type, identity_key, disabled_cause, data, created_at, updated_at \
+                 FROM auth_credentials WHERE ?1 IS NULL OR provider = ?1 OR (?2 = 1 AND provider = ?3) ORDER BY provider, id",
+            )
+            .map_err(|e| e.to_string())?;
 
-    let rows = stmt
-        .query_map(rusqlite::params![provider_id, i32::from(alias_needs), normalized], |row| {
-            let id: i64 = row.get(0)?;
-            let provider: String = row.get(1)?;
-            let credential_type: String = row.get(2)?;
-            let identity_key: Option<String> = row.get(3)?;
-            let disabled_cause: Option<String> = row.get(4)?;
-            let data: String = row.get(5)?;
-            let created_at: Option<i64> = row.get(6)?;
-            let updated_at: Option<i64> = row.get(7)?;
-            Ok((
+        let rows = stmt
+            .query_map(rusqlite::params![provider_id, i32::from(alias_needs), normalized], |row| {
+                let id: i64 = row.get(0)?;
+                let provider: String = row.get(1)?;
+                let credential_type: String = row.get(2)?;
+                let identity_key: Option<String> = row.get(3)?;
+                let disabled_cause: Option<String> = row.get(4)?;
+                let data: String = row.get(5)?;
+                let created_at: Option<i64> = row.get(6)?;
+                let updated_at: Option<i64> = row.get(7)?;
+                Ok((
+                    id,
+                    provider,
+                    credential_type,
+                    identity_key,
+                    disabled_cause,
+                    data,
+                    created_at,
+                    updated_at,
+                ))
+            })
+            .map_err(|e| e.to_string())?;
+
+        let mut list = Vec::new();
+        for row in rows {
+            let (
                 id,
                 provider,
                 credential_type,
@@ -1827,65 +1894,57 @@ pub async fn get_auth_accounts(provider_id: Option<String>) -> Result<Vec<AuthAc
                 data,
                 created_at,
                 updated_at,
-            ))
-        })
-        .map_err(|e| e.to_string())?;
-
-    let mut list = Vec::new();
-    for row in rows {
-        let (
-            id,
-            provider,
-            credential_type,
-            identity_key,
-            disabled_cause,
-            data,
-            created_at,
-            updated_at,
-        ) = row.map_err(|e| e.to_string())?;
-        list.push(build_auth_account_dto(
-            id,
-            provider,
-            credential_type,
-            identity_key,
-            disabled_cause,
-            &data,
-            created_at,
-            updated_at,
-        ));
-    }
-    Ok(list)
+            ) = row.map_err(|e| e.to_string())?;
+            list.push(build_auth_account_dto(
+                id,
+                provider,
+                credential_type,
+                identity_key,
+                disabled_cause,
+                &data,
+                created_at,
+                updated_at,
+            ));
+        }
+        Ok(list)
+    })
+    .await
+    .map_err(|e| format!("Task get_auth_accounts fallito: {e}"))?
 }
 
 #[command]
 pub async fn remove_auth_account(provider: String, credential_id: i64) -> Result<(), String> {
-    let conn = open_readwrite_db("agent.db")?;
-    let target = canonical_provider_id(&provider).to_string();
-    // Prova canonical + originale + alias inverso per i buggati storici.
-    let aliases: Vec<String> = {
-        let mut v = vec![target.clone()];
-        if provider != target { v.push(provider.clone()); }
-        for (alias, canon) in [("openai-codex-device", "openai-codex"), ("zai-coding-plan", "zai")] {
-            if canon == target && alias != provider { v.push(alias.to_string()); }
+    tokio::task::spawn_blocking(move || {
+        let conn = open_readwrite_db("agent.db")?;
+        let target = canonical_provider_id(&provider).to_string();
+        // Prova canonical + originale + alias inverso per i buggati storici.
+        let aliases: Vec<String> = {
+            let mut v = vec![target.clone()];
+            if provider != target { v.push(provider.clone()); }
+            for (alias, canon) in [("openai-codex-device", "openai-codex"), ("zai-coding-plan", "zai")] {
+                if canon == target && alias != provider { v.push(alias.to_string()); }
+            }
+            v
+        };
+        let mut last_err = String::new();
+        for cand in aliases {
+            let changed = conn
+                .execute(
+                    "UPDATE auth_credentials SET disabled_cause = ?1, updated_at = CAST(strftime('%s','now') AS INTEGER) \
+                     WHERE id = ?2 AND provider = ?3",
+                    rusqlite::params!["deleted by user", credential_id, cand],
+                )
+                .map_err(|e| format!("Rimozione credenziale: {}", e))?;
+            if changed > 0 { return Ok(()); }
+            last_err = cand;
         }
-        v
-    };
-    let mut last_err = String::new();
-    for cand in aliases {
-        let changed = conn
-            .execute(
-                "UPDATE auth_credentials SET disabled_cause = ?1, updated_at = CAST(strftime('%s','now') AS INTEGER) \
-                 WHERE id = ?2 AND provider = ?3",
-                rusqlite::params!["deleted by user", credential_id, cand],
-            )
-            .map_err(|e| format!("Rimozione credenziale: {}", e))?;
-        if changed > 0 { return Ok(()); }
-        last_err = cand;
-    }
-    Err(format!(
-        "Nessuna credenziale con id {} per il provider '{}' (tentati: {})",
-        credential_id, provider, last_err
-    ))
+        Err(format!(
+            "Nessuna credenziale con id {} per il provider '{}' (tentati: {})",
+            credential_id, provider, last_err
+        ))
+    })
+    .await
+    .map_err(|e| format!("Task remove_auth_account fallito: {e}"))?
 }
 
 // -----------------------------------------------------------------------------
@@ -2778,9 +2837,13 @@ pub fn apply_fixes_to_config(
 
 #[command]
 pub async fn apply_model_fixes(fixes: Vec<ModelFixItem>) -> Result<(), String> {
-    let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
-    let path = agent.join("config.yml");
-    mutate_model_config_path(&path, move |config| apply_fixes_to_config(config, fixes))
+    tokio::task::spawn_blocking(move || {
+        let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
+        let path = agent.join("config.yml");
+        mutate_model_config_path(&path, move |config| apply_fixes_to_config(config, fixes))
+    })
+    .await
+    .map_err(|e| format!("Task apply_model_fixes fallito: {e}"))?
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

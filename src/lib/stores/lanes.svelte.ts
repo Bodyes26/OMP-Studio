@@ -4,6 +4,7 @@ import {
 	type AgentSurface,
 	type LaneId,
 	type LaneOrigin,
+	type CanonicalProjectPath,
 	type ProjectId,
 	type ProjectWorktreeProfile,
 	laneId,
@@ -91,6 +92,7 @@ class LaneStore {
 	private mutationGeneration = 0;
 	private persistedGeneration = 0;
 	private saveLoop: Promise<void> | null = null;
+	private readonly reconciledProjects = new Set<string>();
 
 	constructor() {
 		void this.init();
@@ -154,41 +156,39 @@ class LaneStore {
 				);
 		if (drafts.changed) this.lanes = drafts.lanes;
 		let changed = this.ensureMainLanes() || drafts.changed;
-		const projects = projectStore.projects.filter((project) => project.canonicalProjectPath);
-		const results = await Promise.allSettled(
-			projects.map(async (project) => ({
-				projectId: project.id,
-				worktrees: await invoke<WorktreeInfo[]>('worktree_list', {
-					args: { projectPath: project.canonicalProjectPath }
-				})
-			}))
-		);
-		const errors: Record<string, string> = {};
-		for (let index = 0; index < results.length; index++) {
-			const result = results[index];
-			if (result.status === 'rejected') {
-				const project = projects[index];
-				errors[project.id] =
-					result.reason instanceof Error ? result.reason.message : String(result.reason);
-				continue;
-			}
-			const reconciliation = reconcileProjectLanes(
-				this.lanes,
-				result.value.projectId,
-				result.value.worktrees
-			);
-			if (reconciliation.changed) {
-				this.lanes = reconciliation.lanes;
-				changed = true;
+		// Al boot riconcilia solo le corsie del progetto attivo (PERF-BOOT):
+		// evita spawn di processi git e worktree_list su tutti i progetti.
+		// I progetti non attivi vengono riconciliati in differita a fine avvio
+		// o non appena l'utente passa a quel progetto.
+		const activeProject = projectStore.activeProject;
+		if (activeProject?.canonicalProjectPath) {
+			try {
+				const worktrees = await invoke<WorktreeInfo[]>('worktree_list', {
+					args: { projectPath: activeProject.canonicalProjectPath }
+				});
+				this.reconciledProjects.add(activeProject.id);
+				delete this.reconciliationErrors[activeProject.id];
+				const reconciliation = reconcileProjectLanes(
+					this.lanes,
+					activeProject.id,
+					worktrees
+				);
+				if (reconciliation.changed) {
+					this.lanes = reconciliation.lanes;
+					changed = true;
+				}
+			} catch (error) {
+				this.reconciliationErrors[activeProject.id] =
+					error instanceof Error ? error.message : String(error);
 			}
 		}
-		this.reconciliationErrors = errors;
 
-		// Riconciliazione corsie Lab: verifica esistenza del workspace su disco (contratto §7)
-		if (this.isTauri) {
+		// Riconciliazione corsie Lab: verifica esistenza del workspace su disco
+		// al boot solo per il progetto attivo se e' un Lab
+		if (this.isTauri && activeProject) {
 			const now = Date.now();
 			for (const lane of this.lanes) {
-				if (lane.kind === 'lab' && lane.status !== 'archived') {
+				if (lane.kind === 'lab' && lane.status !== 'archived' && lane.projectId === activeProject.id) {
 					const exists = lane.workspacePath
 						? await labApi.workspaceExists(lane.workspacePath).catch(() => false)
 						: false;
@@ -256,6 +256,98 @@ class LaneStore {
 			} catch (error) {
 				console.warn('Chiusura di una corsia gia integrata fallita:', error);
 			}
+		}
+	}
+
+	/**
+	 * Riconcilia le corsie di un singolo progetto con worktree_list.
+	 * Idempotente: evita lavoro superfluo se gia riconciliato.
+	 */
+	async reconcileProject(projectId: ProjectId, projectPath: CanonicalProjectPath, force = false): Promise<boolean> {
+		if (!this.isTauri || !projectPath) return false;
+		if (!force && this.reconciledProjects.has(projectId)) return false;
+
+		try {
+			const worktrees = await invoke<WorktreeInfo[]>('worktree_list', {
+				args: { projectPath }
+			});
+			this.reconciledProjects.add(projectId);
+			delete this.reconciliationErrors[projectId];
+			const reconciliation = reconcileProjectLanes(this.lanes, projectId, worktrees);
+			if (reconciliation.changed) {
+				this.lanes = reconciliation.lanes;
+				await this.persistMutation();
+				return true;
+			}
+			return false;
+		} catch (error) {
+			this.reconciliationErrors[projectId] =
+				error instanceof Error ? error.message : String(error);
+			return false;
+		}
+	}
+
+	/**
+	 * Riconcilia i worktree di tutti i progetti rimanenti non ancora processati.
+	 * Chiamato nel task differito a fine avvio.
+	 */
+	async reconcileRemainingProjects(): Promise<void> {
+		if (!this.isTauri) return;
+		const remaining = projectStore.projects.filter(
+			(project) => project.canonicalProjectPath && !this.reconciledProjects.has(project.id)
+		);
+		if (remaining.length === 0) return;
+
+		let changed = false;
+		const results = await Promise.allSettled(
+			remaining.map(async (project) => ({
+				projectId: project.id,
+				worktrees: await invoke<WorktreeInfo[]>('worktree_list', {
+					args: { projectPath: project.canonicalProjectPath }
+				})
+			}))
+		);
+		for (let index = 0; index < results.length; index++) {
+			const result = results[index];
+			const project = remaining[index];
+			if (result.status === 'rejected') {
+				this.reconciliationErrors[project.id] =
+					result.reason instanceof Error ? result.reason.message : String(result.reason);
+				continue;
+			}
+			this.reconciledProjects.add(project.id);
+			delete this.reconciliationErrors[project.id];
+			const reconciliation = reconcileProjectLanes(
+				this.lanes,
+				result.value.projectId,
+				result.value.worktrees
+			);
+			if (reconciliation.changed) {
+				this.lanes = reconciliation.lanes;
+				changed = true;
+			}
+		}
+
+		// Riconciliazione corsie Lab per i progetti rimanenti
+		const now = Date.now();
+		const activeId = projectStore.activeId;
+		for (const lane of this.lanes) {
+			if (lane.kind === 'lab' && lane.status !== 'archived' && lane.projectId !== activeId) {
+				const exists = lane.workspacePath
+					? await labApi.workspaceExists(lane.workspacePath).catch(() => false)
+					: false;
+				if (!exists) {
+					lane.status = 'archived';
+					lane.agentState = 'unknown';
+					lane.archiveReason = 'workspace_missing';
+					lane.archivedAt = now;
+					changed = true;
+				}
+			}
+		}
+
+		if (changed) {
+			await this.persistMutation();
 		}
 	}
 

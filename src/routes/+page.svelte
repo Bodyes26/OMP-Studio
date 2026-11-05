@@ -3,7 +3,7 @@
 	import { attachEditorContext } from '#lib/editor/editorContext.ts';
 	import { perfMark } from '#lib/perf.ts';
 	import { promptBus } from '#lib/agent/promptBus.ts';
-	import Terminal from '#lib/terminal/Terminal.svelte';
+	import type TerminalSurface from '#lib/terminal/Terminal.svelte';
 	import TerminalStopButton from '#lib/terminal/TerminalStopButton.svelte';
 	import type { TerminalStopControl } from '#lib/terminal/stopControl.svelte.ts';
 	import { SvelteMap } from 'svelte/reactivity';
@@ -33,8 +33,8 @@
 	import DiagramViewer from '#lib/components/DiagramViewer.svelte';
 	import PreviewViewer from '#lib/components/PreviewViewer.svelte';
 	import BrowserViewer from '#lib/components/BrowserViewer.svelte';
-	import StudioUpdateModal from '#lib/components/StudioUpdateModal.svelte';
-	import SettingsModal from '#lib/components/settings/SettingsModal.svelte';
+	import type StudioUpdateModalSurface from '#lib/components/StudioUpdateModal.svelte';
+	import type SettingsModalSurface from '#lib/components/settings/SettingsModal.svelte';
 	import AutomationIndicator from '#lib/components/automations/AutomationIndicator.svelte';
 	import AutomationsView from '#lib/components/automations/AutomationsView.svelte';
 	import { automationsStore } from '#lib/automations/store.svelte.ts';
@@ -50,9 +50,9 @@
 	import { pathKey } from '#lib/utils/paths.ts';
 	import CloseConfirmModal, { type ProjectCloseTarget } from '#lib/components/CloseConfirmModal.svelte';
 	import { getCurrentWindow } from '@tauri-apps/api/window';
-	import QueueDrawer from '#lib/components/QueueDrawer.svelte';
-	import SetupModal from '#lib/components/SetupModal.svelte';
-	import ShortcutsHelpModal from '#lib/agent/components/ShortcutsHelpModal.svelte';
+	import type QueueDrawerSurface from '#lib/components/QueueDrawer.svelte';
+	import type SetupModalSurface from '#lib/components/SetupModal.svelte';
+	import type ShortcutsHelpModalSurface from '#lib/agent/components/ShortcutsHelpModal.svelte';
 	import { shortcutsModalStore } from '#lib/stores/shortcutsModal.svelte.ts';
 	import { isShortcutsHelpKey, isProjectCycleShortcut, isLaneCycleShortcut } from '#lib/shortcuts/shortcutMatch.ts';
 	import TaskEditor from '#lib/components/TaskEditor.svelte';
@@ -60,7 +60,7 @@
 	import { studioUpdaterStore, formatVersion } from '#lib/stores/studioUpdater.svelte.ts';
 	import { ompVersionStore } from '#lib/stores/ompVersion.svelte.ts';
 	import { ompChangelogStore } from '#lib/stores/ompChangelog.svelte.ts';
-	import OmpChangelogModal from '#lib/components/OmpChangelogModal.svelte';
+	import type OmpChangelogModalSurface from '#lib/components/OmpChangelogModal.svelte';
 	import { modelSettingsStore } from '#lib/stores/modelSettings.svelte.ts';
 	import { settingsStore } from '#lib/stores/settings.svelte.ts';
 	import { backgroundJobs } from '#lib/stores/backgroundJobs.svelte.ts';
@@ -424,17 +424,183 @@
 		}
 	}
 	/**
-	 * L'editor porta con se' Monaco: da solo pesa quanto tutto il resto del
-	 * guscio. Un import statico lo metterebbe davanti al primo frame, quindi qui
-	 * il caricamento e' dinamico di proposito: la finestra si disegna e l'editor
-	 * entra subito dopo.
+	 * L'editor porta con se' Monaco. Viene prefetchato nel task differito di fine
+	 * avvio (in idle) oppure caricato immediatamente se l'utente apre un file prima.
 	 */
 	let EditorComponent = $state<typeof EditorSurface | null>(null);
+	let editorLoadPromise: Promise<void> | null = null;
+	function loadEditor(): Promise<void> {
+		if (EditorComponent) return Promise.resolve();
+		if (!editorLoadPromise) {
+			editorLoadPromise = import('#lib/editor/Editor.svelte').then((module) => {
+				EditorComponent = module.default;
+			});
+		}
+		return editorLoadPromise;
+	}
+
+	// Carica l'editor subito se un progetto ha gia' file aperti o se l'utente ne apre uno
 	$effect(() => {
-		if (EditorComponent) return;
-		void import('#lib/editor/Editor.svelte').then((module) => {
-			EditorComponent = module.default;
-		});
+		const active = projectStore.activeProject;
+		if (active && (active.lane.activeFile || active.lane.openFiles.length > 0)) {
+			void loadEditor();
+		}
+	});
+
+	/**
+	 * Terminale xterm e relativi addon: chunk pesante (~1.1MB).
+	 * Caricato alla prima apertura di una superficie terminale o in idle a fine avvio.
+	 */
+	let TerminalComponent = $state<typeof TerminalSurface | null>(null);
+	let terminalLoadPromise: Promise<void> | null = null;
+	function loadTerminal(): Promise<void> {
+		if (TerminalComponent) return Promise.resolve();
+		if (!terminalLoadPromise) {
+			terminalLoadPromise = import('#lib/terminal/Terminal.svelte').then((module) => {
+				TerminalComponent = module.default;
+			});
+		}
+		return terminalLoadPromise;
+	}
+
+	// Caricamento immediato del terminale se una corsia visibile ha superficie 'terminal'
+	$effect(() => {
+		for (const p of projectStore.projects) {
+			const mountedLanes = laneOrchestrator.getMountedLanes(p);
+			for (const lane of mountedLanes) {
+				const isLaneActive = p.id === projectStore.activeId && p.lane.laneId === lane.laneId;
+				const currentSurface = isLaneActive ? p.lane.surface : lane.surface;
+				if (lane.kind !== 'lab' && currentSurface === 'terminal') {
+					void loadTerminal();
+					return;
+				}
+			}
+		}
+	});
+
+	// Modali pesanti montati on-demand con prefetch in idle a fine avvio
+	let SettingsModalComponent = $state<typeof SettingsModalSurface | null>(null);
+	let settingsModalPromise: Promise<void> | null = null;
+	let settingsModalEverOpened = $state(false);
+	function loadSettingsModal(): Promise<void> {
+		if (SettingsModalComponent) return Promise.resolve();
+		if (!settingsModalPromise) {
+			settingsModalPromise = import('#lib/components/settings/SettingsModal.svelte').then((module) => {
+				SettingsModalComponent = module.default;
+			});
+		}
+		return settingsModalPromise;
+	}
+	$effect(() => {
+		if (settingsStore.open) {
+			settingsModalEverOpened = true;
+			void loadSettingsModal();
+		}
+	});
+
+	let SetupModalComponent = $state<typeof SetupModalSurface | null>(null);
+	let setupModalPromise: Promise<void> | null = null;
+	let setupModalEverOpened = $state(false);
+	function loadSetupModal(): Promise<void> {
+		if (SetupModalComponent) return Promise.resolve();
+		if (!setupModalPromise) {
+			setupModalPromise = import('#lib/components/SetupModal.svelte').then((module) => {
+				SetupModalComponent = module.default;
+			});
+		}
+		return setupModalPromise;
+	}
+	$effect(() => {
+		if (setupOpen) {
+			setupModalEverOpened = true;
+			void loadSetupModal();
+		}
+	});
+
+	let QueueDrawerComponent = $state<typeof QueueDrawerSurface | null>(null);
+	let queueDrawerPromise: Promise<void> | null = null;
+	let queueDrawerEverOpened = $state(false);
+	function loadQueueDrawer(): Promise<void> {
+		if (QueueDrawerComponent) return Promise.resolve();
+		if (!queueDrawerPromise) {
+			queueDrawerPromise = import('#lib/components/QueueDrawer.svelte').then((module) => {
+				QueueDrawerComponent = module.default;
+			});
+		}
+		return queueDrawerPromise;
+	}
+	$effect(() => {
+		if (queueOpen) {
+			queueDrawerEverOpened = true;
+			void loadQueueDrawer();
+			void taskStore.loadRemainingProjects();
+		}
+	});
+
+	let StudioUpdateModalComponent = $state<typeof StudioUpdateModalSurface | null>(null);
+	let studioUpdateModalPromise: Promise<void> | null = null;
+	let studioUpdateModalEverOpened = $state(false);
+	function loadStudioUpdateModal(): Promise<void> {
+		if (StudioUpdateModalComponent) return Promise.resolve();
+		if (!studioUpdateModalPromise) {
+			studioUpdateModalPromise = import('#lib/components/StudioUpdateModal.svelte').then((module) => {
+				StudioUpdateModalComponent = module.default;
+			});
+		}
+		return studioUpdateModalPromise;
+	}
+	$effect(() => {
+		if (studioUpdaterStore.showModal) {
+			studioUpdateModalEverOpened = true;
+			void loadStudioUpdateModal();
+		}
+	});
+
+	let ShortcutsHelpModalComponent = $state<typeof ShortcutsHelpModalSurface | null>(null);
+	let shortcutsHelpModalPromise: Promise<void> | null = null;
+	let shortcutsHelpModalEverOpened = $state(false);
+	function loadShortcutsHelpModal(): Promise<void> {
+		if (ShortcutsHelpModalComponent) return Promise.resolve();
+		if (!shortcutsHelpModalPromise) {
+			shortcutsHelpModalPromise = import('#lib/agent/components/ShortcutsHelpModal.svelte').then((module) => {
+				ShortcutsHelpModalComponent = module.default;
+			});
+		}
+		return shortcutsHelpModalPromise;
+	}
+	$effect(() => {
+		if (shortcutsModalStore.isOpen) {
+			shortcutsHelpModalEverOpened = true;
+			void loadShortcutsHelpModal();
+		}
+	});
+
+	let OmpChangelogModalComponent = $state<typeof OmpChangelogModalSurface | null>(null);
+	let ompChangelogModalPromise: Promise<void> | null = null;
+	let ompChangelogModalEverOpened = $state(false);
+	function loadOmpChangelogModal(): Promise<void> {
+		if (OmpChangelogModalComponent) return Promise.resolve();
+		if (!ompChangelogModalPromise) {
+			ompChangelogModalPromise = import('#lib/components/OmpChangelogModal.svelte').then((module) => {
+				OmpChangelogModalComponent = module.default;
+			});
+		}
+		return ompChangelogModalPromise;
+	}
+	$effect(() => {
+		if (ompChangelogStore.isModalOpen) {
+			ompChangelogModalEverOpened = true;
+			void loadOmpChangelogModal();
+		}
+	});
+
+	// Quando l'utente passa a un altro progetto, idrata immediatamente la coda e le sue corsie
+	$effect(() => {
+		const active = projectStore.activeProject;
+		if (active?.canonicalProjectPath) {
+			void taskStore.loadProject(active.canonicalProjectPath);
+			void laneStore.reconcileProject(active.id, active.canonicalProjectPath);
+		}
 	});
 
 	// Apertura automatica della superficie Browser al rilevamento di una tab live (S41)
@@ -2349,6 +2515,7 @@
 	 * terminale lo riceve il PTY tramite la prop `resumeSessionId`.
 	 */
 	async function switchSurface(projectId: string, target: 'terminal' | 'gui') {
+		if (target === 'terminal') void loadTerminal();
 		await laneOrchestrator.switchSurface(projectId, target);
 	}
 
@@ -3238,7 +3405,32 @@
 		// Non lanciamo ompVersionStore.refresh() all'avvio: checkSetupContract()
 		// interroga `setup_status` che popola gia' la versione senza spawnare
 		// un processo `omp --version` separato a vuoto.
-		scheduleDeferredBootTask(() => void ompChangelogStore.checkStatus());
+		scheduleDeferredBootTask(() => {
+			void ompChangelogStore.checkStatus();
+			void loadEditor();
+			void loadTerminal();
+			void loadSettingsModal();
+			void loadSetupModal();
+			void loadQueueDrawer();
+			void loadStudioUpdateModal();
+			void loadShortcutsHelpModal();
+			void loadOmpChangelogModal();
+			void taskStore.loadRemainingProjects();
+			void laneStore.reconcileRemainingProjects();
+			void invoke('companion_prewarm').catch(() => {});
+		});
+
+		// Prefetch anticipato su pointerover per evitare latenza al click
+		const handlePointerOver = (e: PointerEvent) => {
+			const target = e.target as HTMLElement | null;
+			if (target?.closest?.('.settings-chip')) {
+				void loadSettingsModal();
+			} else if (target?.closest?.('.queue-chip')) {
+				void loadQueueDrawer();
+				void taskStore.loadRemainingProjects();
+			}
+		};
+		window.addEventListener('pointerover', handlePointerOver, { passive: true });
 		void checkSetupContract();
 		studioUpdaterStore.init();
 		modelSettingsStore.initHealthWatch();
@@ -3255,6 +3447,7 @@
 			stopHost?.();
 			presenceStore.destroy();
 			automationsStore.destroy();
+			window.removeEventListener('pointerover', handlePointerOver);
 		};
 	});
 
@@ -3748,10 +3941,14 @@
 	{#if projectStore.activeProject && projectStore.activeProject.canonicalProjectPath}
 		<LaneStrip project={projectStore.activeProject} onReviewLane={(lane) => (reviewingLane = lane)} />
 	{/if}
-	<SetupModal open={setupOpen} startAt={setupStartAt} onClose={closeSetup} />
+	{#if SetupModalComponent && (setupOpen || setupModalEverOpened)}
+		<SetupModalComponent open={setupOpen} startAt={setupStartAt} onClose={closeSetup} />
+	{/if}
 	<UsagePopover open={usageOpen} anchor={usageAnchor} onClose={() => usageOpen = false} {guiHosts} />
 	<ProjectPicker open={pickerOpen} onClose={() => pickerOpen = false} />
-	<SettingsModal />
+	{#if SettingsModalComponent && (settingsStore.open || settingsModalEverOpened)}
+		<SettingsModalComponent />
+	{/if}
 	<PresenceDialogs />
 	<ConfirmDialog
 		open={pendingAutomationClose !== null}
@@ -3797,16 +3994,18 @@
 			onResolveConflicts={(prompt) => void askLaneToResolveConflicts(prompt)}
 		/>
 	{/if}
-	<QueueDrawer
-		open={queueOpen}
-		anchor={queueAnchor}
-		onClose={() => queueOpen = false}
-		onRunTask={(projectId, taskId, options) => void handleRunTask(projectId, taskId, options)}
-		onEditTask={openTaskOfProject}
-		onOpenProject={openProjectFromQueue}
-		gateFor={(projectId: string) => automationGate(projectId, MAIN_LANE_ID)}
-		onOpenFile={openMentionedFile}
-	/>
+	{#if QueueDrawerComponent && (queueOpen || queueDrawerEverOpened)}
+		<QueueDrawerComponent
+			open={queueOpen}
+			anchor={queueAnchor}
+			onClose={() => queueOpen = false}
+			onRunTask={(projectId, taskId, options) => void handleRunTask(projectId, taskId, options)}
+			onEditTask={openTaskOfProject}
+			onOpenProject={openProjectFromQueue}
+			gateFor={(projectId: string) => automationGate(projectId, MAIN_LANE_ID)}
+			onOpenFile={openMentionedFile}
+		/>
+	{/if}
 
 	<div class="sr-only" role="status" aria-live="polite" aria-atomic="true">
 		{agentAnnouncement}
@@ -4210,8 +4409,8 @@
 									onOpenDiagram={(diagram) => handleChatOpenDiagram(p.id, lane.laneId, diagram)}
 								/>
 							</SurfaceBoundary>
-						{:else}
-							<Terminal
+						{:else if TerminalComponent}
+							<TerminalComponent
 								cwd={lane.workspacePath ?? p.canonicalProjectPath ?? ''}
 								laneId={lane.laneId}
 								projectId={p.id}
@@ -4232,6 +4431,8 @@
 								onSessionChange={(session: TerminalSessionInfo | null) => laneOrchestrator.updateTerminalMeta(key, { sessionId: session?.sessionId ?? null })}
 								onOpenFile={(filePath, line) => handleTerminalOpenFile(p.id, filePath, line)}
 							/>
+						{:else}
+							<div class="terminal-placeholder" aria-busy="true"></div>
 						{/if}
 					{/each}
 				{/each}
@@ -4366,9 +4567,15 @@
 		<p>{m.page_modal_restart_sub()}</p>
 	</ConfirmDialog>
 
-	<StudioUpdateModal />
-	<ShortcutsHelpModal />
-	<OmpChangelogModal />
+	{#if StudioUpdateModalComponent && (studioUpdaterStore.showModal || studioUpdateModalEverOpened)}
+		<StudioUpdateModalComponent />
+	{/if}
+	{#if ShortcutsHelpModalComponent && (shortcutsModalStore.isOpen || shortcutsHelpModalEverOpened)}
+		<ShortcutsHelpModalComponent />
+	{/if}
+	{#if OmpChangelogModalComponent && (ompChangelogStore.isModalOpen || ompChangelogModalEverOpened)}
+		<OmpChangelogModalComponent />
+	{/if}
 	<PreviewRenderHost />
 	{#if viewingImage}
 		<ImageModal
@@ -4984,5 +5191,12 @@
 		color: var(--ink-faint);
 		white-space: pre-wrap;
 		margin: 0;
+	}
+
+	.terminal-placeholder {
+		flex: 1;
+		width: 100%;
+		height: 100%;
+		background: var(--bg-surface);
 	}
 </style>

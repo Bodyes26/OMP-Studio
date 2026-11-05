@@ -19,18 +19,49 @@ export interface ClientTally {
 	/** Frame consegnati da questo Channel: e' anche l'indice del prossimo atteso. */
 	count: number;
 	lastAt: number;
-	recent: ReceivedFrame[];
+	recent: (ReceivedFrame | undefined)[];
+	/** Indice della prossima scrittura nel ring buffer (0..47) */
+	recentHead: number;
 }
 
 export const RECENT_RECEIVED_FRAMES = 48;
 
 export function newTally(): ClientTally {
-	return { count: 0, lastAt: 0, recent: [] };
+	return { count: 0, lastAt: 0, recent: new Array(RECENT_RECEIVED_FRAMES), recentHead: 0 };
 }
 
 export function noteReceived(tally: ClientTally, index: number, chars: number, type: string, at: number) {
-	tally.recent.push({ index, at, chars, type });
-	if (tally.recent.length > RECENT_RECEIVED_FRAMES) tally.recent.shift();
+	const slot = tally.recent[tally.recentHead];
+	if (slot) {
+		slot.index = index;
+		slot.at = at;
+		slot.chars = chars;
+		slot.type = type;
+	} else {
+		tally.recent[tally.recentHead] = { index, at, chars, type };
+	}
+	tally.recentHead = (tally.recentHead + 1) % RECENT_RECEIVED_FRAMES;
+}
+
+/**
+ * Estrae i frame recenti in ordine cronologico (dal piu' vecchio al piu' recente).
+ * Supporta sia il ring buffer a indice fisso sia eventuali array piatti (es. mock di test).
+ */
+export function getRecentFrames(tally: ClientTally): ReceivedFrame[] {
+	if (!tally.recent || tally.recent.length === 0) return [];
+	if (tally.recentHead === undefined) {
+		return (tally.recent as (ReceivedFrame | undefined)[]).filter((f): f is ReceivedFrame => f !== undefined);
+	}
+	const result: ReceivedFrame[] = [];
+	const total = Math.min(tally.count, RECENT_RECEIVED_FRAMES);
+	const start = (tally.recentHead - total + RECENT_RECEIVED_FRAMES) % RECENT_RECEIVED_FRAMES;
+	for (let i = 0; i < total; i++) {
+		const frame = tally.recent[(start + i) % RECENT_RECEIVED_FRAMES];
+		if (frame) {
+			result.push({ ...frame });
+		}
+	}
+	return result;
 }
 
 /** Etichetta del frame, uguale a quella della scatola nera in Rust: una
@@ -188,7 +219,7 @@ export function buildHangReport(input: HangInput) {
 			framesReceived: input.client.count,
 			lastFrameAt: input.client.lastAt,
 			msSinceLastFrame: input.client.lastAt ? input.now - input.client.lastAt : null,
-			recentFrames: input.client.recent
+			recentFrames: getRecentFrames(input.client)
 		},
 		backend: input.backend,
 		backendError: input.backendError

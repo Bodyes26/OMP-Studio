@@ -12,19 +12,6 @@
         "decorations": true,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true
-      },
-      {
-        "label": "companion",
-        "title": "OMP Studio Companion",
-        "url": "/companion",
-        "width": 560,
-        "height": 520,
-        "minWidth": 420,
-        "minHeight": 360,
-        "decorations": false,
-        "alwaysOnTop": true,
-        "visible": false,
-        "skipTaskbar": true
       }
     ]
   },

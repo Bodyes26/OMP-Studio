@@ -32,7 +32,7 @@
 	import StatusMark from '#lib/ui/StatusMark.svelte';
 	import Tooltip from '#lib/ui/Tooltip.svelte';
 	import Dialog from '#lib/ui/Dialog.svelte';
-	import Terminal from '#lib/terminal/Terminal.svelte';
+	import type TerminalSurface from '#lib/terminal/Terminal.svelte';
 	import { modelSettingsStore } from '#lib/stores/modelSettings.svelte.ts';
 
 	let {
@@ -54,6 +54,15 @@
 	let now = $state(Date.now());
 	let manualRedeemSummary = $state<AccountResetSummary | null>(null);
 	let loginTarget = $state<string | null>(null);
+	// Il terminale porta con se' xterm: lo si carica solo quando serve il login,
+	// cosi' il popover delle quote non lo mette nel bundle d'avvio.
+	let TerminalComponent = $state<typeof TerminalSurface | null>(null);
+	$effect(() => {
+		if (!loginTarget || TerminalComponent) return;
+		void import('#lib/terminal/Terminal.svelte').then((module) => {
+			TerminalComponent = module.default;
+		});
+	});
 
 	async function closeLogin() {
 		const provider = loginTarget;
@@ -550,9 +559,11 @@
 		{#if loginTarget}
 			<p class="login-dialog-hint">{m.ui_providerstab_login_dialog_hint()}</p>
 			<div class="login-terminal">
-				{#key loginTarget}
-					<Terminal cwd={''} launchArgs={['login', loginTarget]} />
-				{/key}
+				{#if TerminalComponent}
+					{#key loginTarget}
+						<TerminalComponent cwd={''} launchArgs={['login', loginTarget]} />
+					{/key}
+				{/if}
 			</div>
 		{/if}
 	{/snippet}

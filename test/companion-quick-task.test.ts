@@ -42,15 +42,13 @@ function windowsOf(platformConfig: { app?: { windows?: WindowConfig[] } }): Wind
 	return platformConfig.app?.windows ?? baseConfig.app?.windows ?? [];
 }
 
-test('Configurazione effettiva della finestra Companion su ogni piattaforma desktop', () => {
+test('Finestra Companion rimossa dalla configurazione statica al boot (creazione on-demand/prewarm)', () => {
 	for (const [platform, platformConfig] of platformConfigs) {
-		const companionWindow = windowsOf(platformConfig).find((w) => w.label === 'companion');
-
-		assert.ok(companionWindow, `${platform}: deve esistere la finestra "companion"`);
-		assert.equal(companionWindow.decorations, false, `${platform}: Companion deve essere frameless`);
-		assert.equal(companionWindow.alwaysOnTop, true, `${platform}: Companion deve restare in primo piano`);
-		assert.equal(companionWindow.visible, false, `${platform}: Companion deve partire nascosta`);
-		assert.equal(companionWindow.skipTaskbar, true, `${platform}: Companion non deve apparire nella taskbar`);
+		const windows = windowsOf(platformConfig);
+		const companionWindow = windows.find((w) => w.label === 'companion');
+		assert.equal(companionWindow, undefined, `${platform}: non deve esistere la finestra statica "companion" al boot`);
+		const mainWindow = windows.find((w) => w.label === 'main');
+		assert.ok(mainWindow, `${platform}: deve esistere la finestra statica "main"`);
 	}
 });
 
@@ -91,6 +89,7 @@ test('Capabilities e permessi per la finestra Companion', () => {
 
 	const toml = readFileSync(join(ROOT, 'src-tauri', 'permissions', 'app-commands.toml'), 'utf8');
 	assert.ok(toml.includes('identifier = "allow-companion"'), 'Il permesso allow-companion deve essere definito in app-commands.toml');
+	assert.ok(toml.includes('"companion_prewarm"'), 'companion_prewarm deve essere presente nei comandi consentiti');
 	assert.ok(toml.includes('"toggle_companion_window"'), 'toggle_companion_window deve essere presente nei comandi consentiti');
 	assert.ok(toml.includes('"hide_companion_window"'), 'hide_companion_window deve essere presente nei comandi consentiti');
 	assert.ok(toml.includes('"parse_quick_task_ai"'), 'parse_quick_task_ai deve essere presente nei comandi consentiti');

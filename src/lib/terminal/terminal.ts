@@ -930,10 +930,6 @@ export class TerminalSession {
 	}
 }
 
-export function restartOmpTerminals(targetCwd?: string) {
-	window.dispatchEvent(new CustomEvent('omp-terminals-restart', { detail: { targetCwd } }));
-}
-
 const FILE_TOKEN_REGEX = /(?:\[([^\s\]\r\n]+(?:#[0-9A-Fa-f]+|:[0-9]+(?:-[0-9]+)?))\]|`([^`\r\n]+)`|'([^'\r\n]+)'|"([^"\r\n]+)"|(file:\/\/\/[^\s\r\n()\[\]'"]+|file:\/\/[^\s\r\n()\[\]'"]+|[a-zA-Z]:[\\/][^\s\r\n()\[\]'"]+|\.{1,2}[\\/][^\s\r\n()\[\]'"]+|[a-zA-Z0-9_+\-.]+[\\/][^\s\r\n()\[\]'"]+|[a-zA-Z0-9_+\-.]+\.(?:ts|tsx|js|jsx|mjs|cjs|json|jsonc|svelte|vue|html|htm|css|scss|sass|less|md|markdown|txt|rs|toml|yaml|yml|sql|cs|vb|aspx|ascx|ashx|config|xml|xaml|props|targets|resx|sh|bash|ps1|psm1|bat|cmd|py|go|cpp|c|h|hpp|java|png|jpg|jpeg|gif|svg|webp|ico|lock)(?::[0-9]+(?::[0-9]+)?)?|\.(?:gitignore|gitattributes|env[a-zA-Z0-9_.\-]*|editorconfig|npmrc)|Dockerfile|Makefile|Cargo\.lock|package-lock\.json))/g;
 
 class FileLinkProvider implements ILinkProvider {

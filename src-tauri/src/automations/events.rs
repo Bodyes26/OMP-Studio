@@ -23,8 +23,8 @@ use std::os::windows::process::CommandExt;
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
-/// Intervallo di polling Git di sicurezza (quando non vi sono eventi filesystem su .git).
-const GIT_POLL_INTERVAL_MS: i64 = 2500;
+/// Intervallo di polling Git di sicurezza ridotto a 1 minuto (quando non vi sono eventi filesystem su .git o in worktree con gitdir esterno).
+const GIT_POLL_INTERVAL_MS: i64 = 60_000;
 
 /// Timeout massimo per un singolo comando Git locale in lettura.
 const GIT_COMMAND_TIMEOUT: Duration = Duration::from_millis(2000);

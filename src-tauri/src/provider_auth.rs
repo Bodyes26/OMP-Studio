@@ -593,18 +593,22 @@ pub async fn record_provider_authentication(
 }
 
 #[command]
-pub fn get_provider_authentication_states(
+pub async fn get_provider_authentication_states(
 ) -> Result<HashMap<String, ProviderAuthenticationDto>, String> {
-    refresh_credentials()?;
-    let store = AUTH_STORE.lock();
-    let now = Utc::now().timestamp_millis();
-    let mut states = HashMap::new();
-    for provider in store.credentials.keys().chain(store.observations.keys()) {
-        if !states.contains_key(provider) {
-            states.insert(provider.clone(), cached_state(&store, provider, false, now));
+    tokio::task::spawn_blocking(|| {
+        refresh_credentials()?;
+        let store = AUTH_STORE.lock();
+        let now = Utc::now().timestamp_millis();
+        let mut states = HashMap::new();
+        for provider in store.credentials.keys().chain(store.observations.keys()) {
+            if !states.contains_key(provider) {
+                states.insert(provider.clone(), cached_state(&store, provider, false, now));
+            }
         }
-    }
-    Ok(states)
+        Ok(states)
+    })
+    .await
+    .map_err(|e| format!("Task get_provider_authentication_states fallito: {e}"))?
 }
 
 pub async fn check_commandcode_if_due() {

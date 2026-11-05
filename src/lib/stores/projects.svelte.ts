@@ -161,20 +161,44 @@ class ProjectStore {
 		if (storedProjects) {
 			const seen = new Set<string>();
 			this.projects = [];
+			// Ottimizzazione boot: elenca l'indice delle bozze Lab una sola volta
+			// fuori dal ciclo e verifica workspaceExists in parallelo (PERF-BOOT).
+			const hasLabDrafts = storedProjects.some((p) => p.labDraft?.prototypeId);
+			let drafts: LabIndexEntry[] = [];
+			if (hasLabDrafts) {
+				try {
+					drafts = await labApi.listIndex(null);
+				} catch {
+					drafts = [];
+				}
+			}
+			const validLabMap = new Map<string, LabIndexEntry>();
+			if (hasLabDrafts && drafts.length > 0) {
+				const labChecks = await Promise.all(
+					storedProjects.map(async (p) => {
+						const pid = p.labDraft?.prototypeId;
+						if (!pid) return null;
+						const found = drafts.find((d) => d.id === pid);
+						if (found && found.workspacePath) {
+							try {
+								const exists = await labApi.workspaceExists(found.workspacePath);
+								if (exists) return { prototypeId: pid, entry: found };
+							} catch {
+								return null;
+							}
+						}
+						return null;
+					})
+				);
+				for (const res of labChecks) {
+					if (res) validLabMap.set(res.prototypeId, res.entry);
+				}
+			}
+
 			for (const p of storedProjects) {
 				if (p.labDraft?.prototypeId) {
 					const prototypeId = p.labDraft.prototypeId;
-					let validEntry: LabIndexEntry | null = null;
-					try {
-						const drafts = await labApi.listIndex(null);
-						const found = drafts.find((d) => d.id === prototypeId);
-						if (found && found.workspacePath) {
-							const exists = await labApi.workspaceExists(found.workspacePath);
-							if (exists) validEntry = found;
-						}
-					} catch {
-						validEntry = null;
-					}
+					const validEntry = validLabMap.get(prototypeId);
 					if (!validEntry) continue;
 					const id = projectId(p.id || `draft-${prototypeId}`);
 					const project: Project = {

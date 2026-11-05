@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { sessionRegistry } from '#lib/agent/sessionRegistry.ts';
 import { load, type Store } from '@tauri-apps/plugin-store';
-import { restartOmpTerminals } from '../terminal/terminal';
+import { restartOmpTerminals } from '../terminal/terminalEvents.ts';
 import { settingsStore } from './settings.svelte';
 import {
 	IconRoleDefault,

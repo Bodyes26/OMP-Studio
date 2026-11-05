@@ -6,6 +6,7 @@
 	import { contextMenu, type ContextMenuEntry } from '#lib/contextMenu.svelte.ts';
 	import { IconCopy, IconPaste, IconSelectAll, IconClear, IconStop } from '#lib/icons.ts';
 	import { TerminalStopControl } from './stopControl.svelte';
+	import { OMP_TERMINALS_RESTART_EVENT } from './terminalEvents.ts';
 	import { IS_MAC as isMac, MOD_LABEL as mod } from '#lib/utils/platform.ts';
 	import '@xterm/xterm/css/xterm.css';
 
@@ -79,10 +80,10 @@
 			}
 		};
 
-		window.addEventListener('omp-terminals-restart', handleRestart);
+		window.addEventListener(OMP_TERMINALS_RESTART_EVENT, handleRestart);
 
 		return () => {
-			window.removeEventListener('omp-terminals-restart', handleRestart);
+			window.removeEventListener(OMP_TERMINALS_RESTART_EVENT, handleRestart);
 			sessionRef?.(null);
 			stopRef?.(null);
 			stop.disarm();

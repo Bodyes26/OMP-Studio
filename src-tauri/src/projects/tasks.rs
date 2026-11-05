@@ -78,13 +78,17 @@ fn ensure_auto_ignore(omp_dir: &Path) -> Result<(), String> {
 /// Legge il file `.omp/tasks.json` del progetto. Ritorna stringa vuota se non esiste.
 #[tauri::command]
 pub async fn project_tasks_read(project_path: String) -> Result<String, String> {
-    let file = project_tasks_file(&project_path);
-    if !file.exists() {
-        return Ok(String::new());
-    }
-    let content =
-        fs::read_to_string(&file).map_err(|e| format!("Errore lettura .omp/tasks.json: {}", e))?;
-    Ok(content)
+    tokio::task::spawn_blocking(move || {
+        let file = project_tasks_file(&project_path);
+        if !file.exists() {
+            return Ok(String::new());
+        }
+        let content =
+            fs::read_to_string(&file).map_err(|e| format!("Errore lettura .omp/tasks.json: {}", e))?;
+        Ok(content)
+    })
+    .await
+    .map_err(|e| format!("Task project_tasks_read fallito: {e}"))?
 }
 
 /// Scrittura crash-safe della coda su `.omp/tasks.json`.
@@ -115,7 +119,9 @@ pub async fn project_tasks_write(
         .lock()
         .insert(norm_key, Instant::now());
 
-    write_tasks_file(&project_path, &content)
+    tokio::task::spawn_blocking(move || write_tasks_file(&project_path, &content))
+        .await
+        .map_err(|e| format!("Task project_tasks_write fallito: {e}"))?
 }
 
 /// Registra un watcher filesystem sulla cartella `.omp` per notificare modifiche esterne a `tasks.json`.

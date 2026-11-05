@@ -17,6 +17,7 @@ import type {
 import {
 	buildHangReport,
 	frameLabel,
+	getRecentFrames,
 	newTally,
 	noteReceived,
 	type BackendDiagnostics,
@@ -147,9 +148,9 @@ export class OmpRpcClient {
 		}
 	): Promise<number> {
 		const epoch = ++this.openEpoch;
-		const channel = new Channel<string>();
+		const channel = new Channel<unknown>();
 		const tally = (this.tally = newTally());
-		channel.onmessage = (line) => {
+		channel.onmessage = (payload) => {
 			const index = tally.count++;
 			tally.lastAt = Date.now();
 			// Frame di un processo superato: la sessione ne sta aprendo un
@@ -157,7 +158,7 @@ export class OmpRpcClient {
 			// pronto invece che su quello richiesto, e con una sessione nuova
 			// e vuota il transcript ricostruito resta vuoto per sempre.
 			if (epoch !== this.openEpoch) return;
-			this.receive(line, index);
+			this.receive(payload, index);
 		};
 		this.rpcId = null;
 		this.closed = false;
@@ -199,13 +200,13 @@ export class OmpRpcClient {
 		model?: string | null;
 	}): Promise<number> {
 		const epoch = ++this.openEpoch;
-		const channel = new Channel<string>();
+		const channel = new Channel<unknown>();
 		const tally = (this.tally = newTally());
-		channel.onmessage = (line) => {
+		channel.onmessage = (payload) => {
 			const index = tally.count++;
 			tally.lastAt = Date.now();
 			if (epoch !== this.openEpoch) return;
-			this.receive(line, index);
+			this.receive(payload, index);
 		};
 		this.rpcId = null;
 		this.closed = false;
@@ -430,7 +431,12 @@ export class OmpRpcClient {
 		if (rpcId === null || started - this.lastHangReportAt < HANG_REPORT_MIN_INTERVAL_MS) return null;
 		this.lastHangReportAt = started;
 		// Copia ora: mentre si attende il backend possono arrivare altri frame.
-		const client: ClientTally = { ...this.tally, recent: [...this.tally.recent] };
+		const client: ClientTally = {
+			count: this.tally.count,
+			lastAt: this.tally.lastAt,
+			recent: getRecentFrames(this.tally),
+			recentHead: 0
+		};
 		const pending = [...this.pending.values()].map((entry) => ({ id: entry.id, command: entry.command, sentAt: entry.sentAt }));
 		let backend: BackendDiagnostics | null = null;
 		let backendError: string | null = null;
@@ -463,19 +469,30 @@ export class OmpRpcClient {
 		}
 	}
 
-	private receive(line: string, index: number) {
+	private receive(payload: unknown, index: number) {
 		if (this.closed) return;
 		let frame: unknown;
-		try {
-			frame = JSON.parse(line);
-		} catch (error) {
-			noteReceived(this.tally, index, line.length, '<illeggibile>', Date.now());
-			console.error('Frame RPC illeggibile:', error, line.slice(0, 400));
-			return;
+		let chars = 0;
+		if (typeof payload === 'string') {
+			chars = payload.length;
+			try {
+				frame = JSON.parse(payload);
+			} catch (error) {
+				noteReceived(this.tally, index, chars, '<illeggibile>', Date.now());
+				console.error('Frame RPC illeggibile:', error, payload.slice(0, 400));
+				return;
+			}
+		} else {
+			// Con Channel<InvokeResponseBody> Tauri consegna al WebView l'oggetto gia'
+			// deserializzato senza doppio parse JSON.
+			frame = payload;
+			if (payload && typeof payload === 'object' && 'delta' in payload && typeof payload.delta === 'string') {
+				chars = payload.delta.length;
+			}
 		}
 		if (!frame || typeof frame !== 'object') return;
 		const event = frame as AgentSessionEvent;
-		noteReceived(this.tally, index, line.length, frameLabel(event), Date.now());
+		noteReceived(this.tally, index, chars, frameLabel(event), Date.now());
 
 		if (event.type === 'response') {
 			this.settle(frame as RpcResponse);

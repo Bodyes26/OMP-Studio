@@ -8,14 +8,13 @@
 //! successivi). Questi contatori separano i tre casi: il frontend confronta i
 //! frame spediti qui con quelli ricevuti dal suo `onmessage`.
 
-use std::collections::VecDeque;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use parking_lot::Mutex;
-use tauri::ipc::Channel;
+use tauri::ipc::{Channel, InvokeResponseBody};
 
 /// Soglia oltre la quale Tauri non valuta il frame direttamente nel WebView
 /// ma lo consegna con una `fetch` interna (`MAX_JSON_DIRECT_EXECUTE_THRESHOLD`
@@ -34,13 +33,86 @@ pub(super) fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
+#[derive(Clone, Copy)]
 struct SentFrame {
     /// Indice del frame sul Channel: coincide con l'indice che Tauri assegna,
     /// perche' Tauri lo consuma anche quando l'invio fallisce.
     index: u64,
     at_ms: u64,
     bytes: usize,
-    kind: String,
+    kind_len: u8,
+    kind: [u8; 64],
+}
+
+impl SentFrame {
+    const fn empty() -> Self {
+        Self {
+            index: 0,
+            at_ms: 0,
+            bytes: 0,
+            kind_len: 0,
+            kind: [0u8; 64],
+        }
+    }
+
+    fn set(&mut self, index: u64, at_ms: u64, bytes: usize, kind_str: &str) {
+        self.index = index;
+        self.at_ms = at_ms;
+        self.bytes = bytes;
+        let raw = kind_str.as_bytes();
+        let copy_len = raw.len().min(64);
+        self.kind[..copy_len].copy_from_slice(&raw[..copy_len]);
+        self.kind_len = copy_len as u8;
+    }
+
+    fn kind_str(&self) -> &str {
+        std::str::from_utf8(&self.kind[..self.kind_len as usize]).unwrap_or("")
+    }
+}
+
+/// Ring buffer circolare a dimensione fissa (48 elementi) senza allocazioni
+/// sul heap nel path caldo di invio frame.
+struct RecentFramesRing {
+    slots: [SentFrame; RECENT_FRAMES],
+    head: usize,
+    count: usize,
+}
+
+impl Default for RecentFramesRing {
+    fn default() -> Self {
+        Self {
+            slots: [SentFrame::empty(); RECENT_FRAMES],
+            head: 0,
+            count: 0,
+        }
+    }
+}
+
+impl RecentFramesRing {
+    #[inline]
+    fn push(&mut self, index: u64, at_ms: u64, bytes: usize, kind: &str) {
+        self.slots[self.head].set(index, at_ms, bytes, kind);
+        self.head = (self.head + 1) % RECENT_FRAMES;
+        if self.count < RECENT_FRAMES {
+            self.count += 1;
+        }
+    }
+
+    fn to_json_vec(&self) -> Vec<serde_json::Value> {
+        let mut out = Vec::with_capacity(self.count);
+        let start = (self.head + RECENT_FRAMES - self.count) % RECENT_FRAMES;
+        for i in 0..self.count {
+            let slot = &self.slots[(start + i) % RECENT_FRAMES];
+            out.push(serde_json::json!({
+                "index": slot.index,
+                "atMs": slot.at_ms,
+                "bytes": slot.bytes,
+                "kind": slot.kind_str(),
+                "tauriFetchPath": slot.bytes >= TAURI_FETCH_PATH_BYTES,
+            }));
+        }
+        out
+    }
 }
 
 #[derive(Default)]
@@ -60,7 +132,7 @@ pub(super) struct RpcStats {
     /// una scrittura che non finisce vuol dire che omp non legge piu'.
     stdin_write_since_ms: AtomicU64,
     reader_exited: AtomicBool,
-    recent: Mutex<VecDeque<SentFrame>>,
+    recent: Mutex<RecentFramesRing>,
 }
 
 impl RpcStats {
@@ -87,7 +159,7 @@ impl RpcStats {
     /// Spedisce un frame sul Channel registrandone indice, dimensione e tipo.
     /// Tutti gli invii del lettore passano di qui: un invio non contato
     /// sfaserebbe il confronto con i frame ricevuti dal frontend.
-    pub(super) fn send(&self, channel: &Channel<String>, kind: &str, frame: String) -> bool {
+    pub(super) fn send(&self, channel: &Channel<InvokeResponseBody>, kind: &str, frame: String) -> bool {
         let bytes = frame.len();
         let at_ms = now_ms();
         let index = self.frames_sent.fetch_add(1, Ordering::Relaxed);
@@ -96,26 +168,9 @@ impl RpcStats {
         }
         {
             let mut recent = self.recent.lock();
-            // Il buffer piu' vecchio si riusa: a regime nessuna allocazione
-            // per frame.
-            let mut slot = if recent.len() == RECENT_FRAMES {
-                recent.pop_front().expect("buffer pieno")
-            } else {
-                SentFrame {
-                    index: 0,
-                    at_ms: 0,
-                    bytes: 0,
-                    kind: String::new(),
-                }
-            };
-            slot.index = index;
-            slot.at_ms = at_ms;
-            slot.bytes = bytes;
-            slot.kind.clear();
-            slot.kind.push_str(kind);
-            recent.push_back(slot);
+            recent.push(index, at_ms, bytes, kind);
         }
-        let ok = channel.send(frame).is_ok();
+        let ok = channel.send(InvokeResponseBody::Json(frame)).is_ok();
         if ok {
             self.last_sent_ms.store(at_ms, Ordering::Relaxed);
         } else {
@@ -125,20 +180,7 @@ impl RpcStats {
     }
 
     pub(super) fn snapshot(&self) -> serde_json::Value {
-        let recent: Vec<serde_json::Value> = self
-            .recent
-            .lock()
-            .iter()
-            .map(|frame| {
-                serde_json::json!({
-                    "index": frame.index,
-                    "atMs": frame.at_ms,
-                    "bytes": frame.bytes,
-                    "kind": frame.kind,
-                    "tauriFetchPath": frame.bytes >= TAURI_FETCH_PATH_BYTES,
-                })
-            })
-            .collect();
+        let recent = self.recent.lock().to_json_vec();
         let since = self.stdin_write_since_ms.load(Ordering::Relaxed);
         serde_json::json!({
             "nowMs": now_ms(),
@@ -203,7 +245,7 @@ mod tests {
     fn indici_e_contatori_restano_allineati_al_channel() {
         let fail = std::sync::Arc::new(AtomicBool::new(false));
         let fail_in_channel = fail.clone();
-        let channel = Channel::<String>::new(move |_| {
+        let channel = Channel::<InvokeResponseBody>::new(move |_| {
             if fail_in_channel.load(Ordering::Relaxed) {
                 Err(tauri::Error::WindowNotFound)
             } else {

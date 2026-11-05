@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 use tauri::{
     command, webview::PageLoadEvent, AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize,
     WebviewUrl, WebviewWindow, WebviewWindowBuilder, Window,
@@ -71,7 +71,7 @@ fn hide_companion_now(app: &AppHandle, window: &WebviewWindow) -> Result<(), Str
 /// La geometria e' in pixel fisici: e' la stessa unita' con cui la si rilegge
 /// (`inner_size`) e la si riapplica (`set_size`), quindi il giro di andata e
 /// ritorno non introduce conversioni.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CompanionState {
     // Nessuna dimensione predefinita: senza geometria salvata la finestra
@@ -116,6 +116,16 @@ pub struct QuickTaskAiParsed {
     pub ambiguities: Vec<String>,
 }
 
+/// Stato persistente della companion mantenuto in memoria (caricato una volta dal disco).
+/// Le letture da `fit_companion_to_content` e dalle aperture leggono sempre da questa copia,
+/// evitando qualsiasi operazione di I/O su disco a ogni resize o battitura.
+static COMPANION_STATE: LazyLock<Mutex<CompanionState>> =
+    LazyLock::new(|| Mutex::new(load_companion_state_from_disk()));
+
+/// Lock per serializzare la creazione della finestra ed evitare corse tra
+/// prewarm in background e scorciatoia o clic dell'utente.
+static PREWARM_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+
 fn get_companion_state_file() -> Option<PathBuf> {
     let base = if cfg!(target_os = "windows") {
         std::env::var("LOCALAPPDATA").ok()
@@ -126,35 +136,51 @@ fn get_companion_state_file() -> Option<PathBuf> {
     }?;
 
     let dir = PathBuf::from(base).join("omp-studio");
-
-    let _ = fs::create_dir_all(&dir);
     Some(dir.join("companion-state.json"))
 }
 
-#[command]
-pub fn get_companion_state() -> Result<CompanionState, String> {
+fn load_companion_state_from_disk() -> CompanionState {
     let path = match get_companion_state_file() {
         Some(p) => p,
-        None => return Ok(CompanionState::default()),
+        None => return CompanionState::default(),
     };
 
     if !path.exists() {
-        return Ok(CompanionState::default());
+        return CompanionState::default();
     }
 
-    let raw =
-        fs::read_to_string(&path).map_err(|e| format!("Lettura stato companion fallita: {}", e))?;
-    let state: CompanionState = serde_json::from_str(&raw).unwrap_or_default();
-    Ok(state)
+    match fs::read_to_string(&path) {
+        Ok(raw) => serde_json::from_str(&raw).unwrap_or_default(),
+        Err(e) => {
+            eprintln!("[companion] Lettura stato companion fallita: {}", e);
+            CompanionState::default()
+        }
+    }
 }
 
-fn write_companion_state(state: &CompanionState) -> Result<(), String> {
+fn write_companion_state_to_disk(state: &CompanionState) -> Result<(), String> {
     let path = get_companion_state_file()
         .ok_or_else(|| "Percorso configurazione companion non disponibile".to_string())?;
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
     let json = serde_json::to_string_pretty(state)
         .map_err(|e| format!("Serializzazione stato companion fallita: {}", e))?;
     fs::write(&path, json).map_err(|e| format!("Scrittura stato companion fallita: {}", e))?;
     Ok(())
+}
+
+/// Restituisce lo stato cached in memoria, senza effettuare I/O su disco.
+pub fn get_cached_companion_state() -> CompanionState {
+    COMPANION_STATE
+        .lock()
+        .map(|guard| guard.clone())
+        .unwrap_or_default()
+}
+
+#[command]
+pub async fn get_companion_state() -> Result<CompanionState, String> {
+    Ok(get_cached_companion_state())
 }
 
 /// Geometria letta dalla finestra, in pixel fisici.
@@ -210,20 +236,10 @@ pub fn track_companion_geometry(window: &Window) {
     }
 }
 
-/// Salva la geometria della finestra conservando il flag di fissaggio.
-///
-/// Va invocata prima di ogni nascondimento e all'uscita: sono gli unici momenti
-/// in cui la dimensione scelta dall'utente esiste ancora. La guardia su
-/// `COMPANION_SHOWN` evita che una finestra creata e mai aperta sovrascriva la
-/// geometria salvata con la dimensione di creazione.
-///
-/// In modalita' Spotlight **l'altezza non si salva**: la decide il contenuto
-/// (`fit_companion_to_content`), e memorizzarla farebbe ereditare al widget
-/// pinnato un'altezza che nessuno ha scelto. La larghezza invece resta
-/// dell'utente in entrambe le modalita'.
-pub fn persist_companion_geometry(app: &AppHandle) {
+/// Calcola la prossima geometria della finestra da salvare.
+fn compute_next_companion_geometry(app: &AppHandle) -> Option<CompanionState> {
     if !COMPANION_SHOWN.load(Ordering::Relaxed) {
-        return;
+        return None;
     }
 
     let live = app
@@ -233,35 +249,76 @@ pub fn persist_companion_geometry(app: &AppHandle) {
         *slot = Some(geometry);
     }
 
-    let Some(geometry) = LAST_GEOMETRY.lock().ok().and_then(|slot| *slot) else {
-        return;
-    };
+    let geometry = LAST_GEOMETRY.lock().ok().and_then(|slot| *slot)?;
 
-    let mut state = get_companion_state().unwrap_or_default();
+    let mut state = get_cached_companion_state();
     state.x = Some(geometry.x);
     state.y = Some(geometry.y);
     state.width = Some(geometry.width);
     if state.is_pinned {
         state.height = Some(geometry.height);
     }
-    let _ = write_companion_state(&state);
+    Some(state)
+}
+
+/// Salva la geometria della finestra conservando il flag di fissaggio.
+/// Scrive su disco solo se c'e' stato un reale cambiamento di geometria/stato.
+///
+/// In modalita' Spotlight l'altezza non si salva (la decide il contenuto).
+pub fn persist_companion_geometry(app: &AppHandle) {
+    if let Some(next_state) = compute_next_companion_geometry(app) {
+        let changed = {
+            if let Ok(mut guard) = COMPANION_STATE.lock() {
+                if *guard != next_state {
+                    *guard = next_state.clone();
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        };
+        if changed {
+            let _ = write_companion_state_to_disk(&next_state);
+        }
+    }
+}
+
+/// Variante asincrona con spawn_blocking per comandi Tauri non bloccanti.
+pub async fn persist_companion_geometry_async(app: &AppHandle) {
+    if let Some(next_state) = compute_next_companion_geometry(app) {
+        let changed = {
+            if let Ok(mut guard) = COMPANION_STATE.lock() {
+                if *guard != next_state {
+                    *guard = next_state.clone();
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        };
+        if changed {
+            let _ = tokio::task::spawn_blocking(move || {
+                write_companion_state_to_disk(&next_state)
+            })
+            .await;
+        }
+    }
 }
 
 /// Adatta l'altezza della finestra Spotlight al contenuto.
 ///
 /// `height` e' in unita' logiche, le stesse del CSS da cui viene misurata.
-/// Non si tocca la posizione: il ridimensionamento cresce verso il basso come
-/// una barra di ricerca di sistema, mentre una ricentratura a ogni riga
-/// scritta farebbe saltare la finestra sotto le mani di chi digita.
-///
-/// Da pinnata il comando esce senza fare nulla: la geometria del widget e'
-/// dell'utente.
+/// Non tocca il disco: verifica `is_pinned` leggendo dalla copia in memoria.
 #[command]
 pub fn fit_companion_to_content(app: AppHandle, height: f64) -> Result<(), String> {
     if !height.is_finite() || height <= 0.0 {
         return Ok(());
     }
-    let state = get_companion_state().unwrap_or_default();
+    let state = get_cached_companion_state();
     if state.is_pinned {
         return Ok(());
     }
@@ -294,21 +351,22 @@ pub fn fit_companion_to_content(app: AppHandle, height: f64) -> Result<(), Strin
 }
 
 /// Commuta la modalita' Spotlight/Widget senza toccare la geometria salvata.
-///
-/// Il comando non accetta piu' dimensioni dal frontend: la TopBar della finestra
-/// principale non puo' conoscerle e le inviava vuote, azzerando la larghezza
-/// memorizzata. Qui la geometria si rilegge dalla finestra vera.
-///
-/// L'esito viene annunciato a tutte le webview: main e Companion hanno copie
-/// separate dello stato e senza l'evento chi non ha premuto il pulsante
-/// resterebbe convinto del contrario (pastiglia della TopBar spenta, elenco
-/// progetti troncato con l'invito a fissare una finestra gia' fissata).
 #[command]
-pub fn set_companion_pinned(app: AppHandle, pinned: bool) -> Result<(), String> {
-    persist_companion_geometry(&app);
-    let mut state = get_companion_state().unwrap_or_default();
-    state.is_pinned = pinned;
-    write_companion_state(&state)?;
+pub async fn set_companion_pinned(app: AppHandle, pinned: bool) -> Result<(), String> {
+    persist_companion_geometry_async(&app).await;
+    let mut state = get_cached_companion_state();
+    if state.is_pinned != pinned {
+        state.is_pinned = pinned;
+        let to_save = state.clone();
+        if let Ok(mut guard) = COMPANION_STATE.lock() {
+            *guard = state;
+        }
+        let _ = tokio::task::spawn_blocking(move || {
+            write_companion_state_to_disk(&to_save)
+        })
+        .await
+        .map_err(|e| format!("Scrittura stato companion fallita: {}", e))?;
+    }
     let _ = app.emit("companion-pinned-changed", pinned);
     Ok(())
 }
@@ -319,7 +377,19 @@ pub fn set_companion_pinned(app: AppHandle, pinned: bool) -> Result<(), String> 
 /// dispaccia un messaggio all'event loop e attende la risposta, quindi sul main
 /// thread si blocca. Va chiamata da un comando `async` o da un thread dedicato.
 fn create_companion_window(app: &AppHandle) -> Result<WebviewWindow, String> {
-    WebviewWindowBuilder::new(app, "companion", WebviewUrl::App("/companion".into()))
+    let builder = WebviewWindowBuilder::new(app, "companion", WebviewUrl::App("/companion".into()));
+    // Su Windows la Companion usa lo sfondo Mica traslucido: prima lo dichiarava
+    // tauri.windows.conf.json, ora che la finestra nasce a runtime va impostato qui.
+    #[cfg(windows)]
+    let builder = builder
+        .transparent(true)
+        .effects(tauri::utils::config::WindowEffectsConfig {
+            effects: vec![tauri::window::Effect::Mica],
+            state: None,
+            radius: None,
+            color: None,
+        });
+    builder
         .title("OMP Studio Companion")
         .inner_size(560.0, 520.0)
         .min_inner_size(420.0, 360.0)
@@ -330,9 +400,12 @@ fn create_companion_window(app: &AppHandle) -> Result<WebviewWindow, String> {
         .visible(false)
         .on_page_load(|window, payload| {
             // Il primo summon arriva prima che la vista sia pronta ad ascoltare:
-            // lo si ripete a fine caricamento per mettere a fuoco l'input.
-            if payload.event() == PageLoadEvent::Finished {
+            // lo si ripete a fine caricamento solo se la finestra e' visibile
+            // (es. evocata prima del prewarm). Se e' nascosta (prewarm in background),
+            // non emettiamo il summon per non attivare anzitempo focus o animazioni.
+            if payload.event() == PageLoadEvent::Finished && window.is_visible().unwrap_or(false) {
                 let _ = window.emit("companion-summon", ());
+                let _ = window.app_handle().emit("companion-summon", ());
             }
         })
         .build()
@@ -341,10 +414,24 @@ fn create_companion_window(app: &AppHandle) -> Result<WebviewWindow, String> {
 
 /// Restituisce la finestra Companion, creandola alla prima richiesta.
 fn companion_window(app: &AppHandle) -> Result<WebviewWindow, String> {
+    let _guard = PREWARM_LOCK.lock().map_err(|e| e.to_string())?;
     match app.get_webview_window("companion") {
         Some(window) => Ok(window),
         None => create_companion_window(app),
     }
+}
+
+/// Preriscalda la finestra Companion creando la webview nascosta se non esiste ancora.
+///
+/// Idempotente: se la finestra esiste gia', non fa nulla. Essendo un comando `async`,
+/// viene eseguito fuori dal thread principale della UI, evitando deadlock con l'event loop.
+#[command]
+pub async fn companion_prewarm(app: AppHandle) -> Result<(), String> {
+    let _guard = PREWARM_LOCK.lock().map_err(|e| e.to_string())?;
+    if app.get_webview_window("companion").is_none() {
+        create_companion_window(&app)?;
+    }
+    Ok(())
 }
 
 fn show_companion_window(window: &WebviewWindow) -> Result<(), String> {
@@ -364,12 +451,14 @@ fn show_companion_window(window: &WebviewWindow) -> Result<(), String> {
         .map_err(|e| format!("Focus finestra companion fallito: {}", e))?;
     window
         .emit("companion-summon", ())
-        .map_err(|e| format!("Attivazione finestra companion fallita: {}", e))
+        .map_err(|e| format!("Attivazione finestra companion fallita: {}", e))?;
+    let _ = window.app_handle().emit("companion-summon", ());
+    Ok(())
 }
 
 /// Mostra o nasconde la finestra Companion applicando la geometria appropriata.
 pub fn toggle_companion_window_internal(app: &AppHandle) -> Result<(), String> {
-    let state = get_companion_state().unwrap_or_default();
+    let state = get_cached_companion_state();
     let window = companion_window(app)?;
 
     let is_visible = window.is_visible().unwrap_or(false);
@@ -452,12 +541,12 @@ pub async fn toggle_companion_window(app: AppHandle) -> Result<(), String> {
 }
 
 #[command]
-pub fn hide_companion_window(app: AppHandle) -> Result<(), String> {
+pub async fn hide_companion_window(app: AppHandle) -> Result<(), String> {
     // La vista ha completato la chiusura: il timer di riserva non deve intervenire.
     settle_dismiss();
     // La dimensione va salvata mentre la finestra e' ancora quella che
     // l'utente ha ridimensionato: dopo `hide()` non c'e' altro momento utile.
-    persist_companion_geometry(&app);
+    persist_companion_geometry_async(&app).await;
     if let Some(window) = app.get_webview_window("companion") {
         let _ = window.hide();
     }
@@ -614,5 +703,26 @@ mod tests {
         assert!(dismiss_still_pending(second));
         settle_dismiss();
         assert!(!dismiss_still_pending(second));
+    }
+
+    #[test]
+    fn confronto_e_rilevamento_modifiche_stato_companion() {
+        let s1 = CompanionState {
+            is_pinned: false,
+            x: Some(100),
+            y: Some(200),
+            width: Some(560),
+            height: Some(520),
+        };
+        let s2 = s1.clone();
+        assert_eq!(s1, s2);
+
+        let mut s3 = s1.clone();
+        s3.is_pinned = true;
+        assert_ne!(s1, s3);
+
+        let mut s4 = s1.clone();
+        s4.width = Some(600);
+        assert_ne!(s1, s4);
     }
 }

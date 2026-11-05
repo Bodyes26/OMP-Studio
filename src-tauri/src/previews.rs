@@ -252,8 +252,7 @@ pub fn spawn_watcher(app: AppHandle) {
 
 /// Scrive atomicamente il file di ack `<id>.ack.json` nella cartella previews.
 /// Valida il charset dell'identificatore per prevenire directory traversal.
-#[tauri::command]
-pub fn studio_preview_ack(id: String, ack: serde_json::Value) -> Result<(), String> {
+fn studio_preview_ack_sync(id: String, ack: serde_json::Value) -> Result<(), String> {
     let clean_id = id.trim();
     if clean_id.is_empty() || clean_id.len() > 128 {
         return Err("Identificatore preview non valido o troppo lungo".to_string());
@@ -297,6 +296,15 @@ pub fn studio_preview_ack(id: String, ack: serde_json::Value) -> Result<(), Stri
     }
 
     Ok(())
+}
+
+/// Scrive atomicamente il file di ack `<id>.ack.json` nella cartella previews.
+/// Sposta l'I/O su thread pool con spawn_blocking per non bloccare l'event loop Tauri.
+#[tauri::command]
+pub async fn studio_preview_ack(id: String, ack: serde_json::Value) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || studio_preview_ack_sync(id, ack))
+        .await
+        .map_err(|e| format!("Task studio_preview_ack fallito: {e}"))?
 }
 
 fn prune_stale_acks(dir: &Path) {
@@ -467,8 +475,8 @@ mod tests {
 
     #[test]
     fn test_studio_preview_ack_id_validation() {
-        assert!(studio_preview_ack("".to_string(), serde_json::json!({})).is_err());
-        assert!(studio_preview_ack("../bad_id".to_string(), serde_json::json!({})).is_err());
-        assert!(studio_preview_ack("bad id with spaces".to_string(), serde_json::json!({})).is_err());
+        assert!(studio_preview_ack_sync("".to_string(), serde_json::json!({})).is_err());
+        assert!(studio_preview_ack_sync("../bad_id".to_string(), serde_json::json!({})).is_err());
+        assert!(studio_preview_ack_sync("bad id with spaces".to_string(), serde_json::json!({})).is_err());
     }
 }
