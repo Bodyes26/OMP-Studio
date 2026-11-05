@@ -130,6 +130,7 @@ Implementazione completata e integrata il 2026-10-29 in conformità con la speci
 - Prototipo UI locale non esecutivo `proto/automazioni-specifica-prototype.html`: strutturaA approvata, schede di revisione e cornice sidebar non sono navigazione di produzione; icona definitiva da `proto/automazioni-cron-icone-prototype.html`, varianteA. `proto/automazioni-icona-prototype.html` conserva alternative non scelte. Prototipi non versionati, non codice di produzione.
 - Smoke browser2026-10-29 del prototipo: tre layout selezionabili, wizard/assistente illustrativo/popover/menu illustrativo; a1200x800 e1024x640 niente overflow orizzontale, barra inferiore entro viewport. Prototipo icone selezioneA/B/C funzionante. Non e' prova di tray nativo, agenti, shell o nuova funzione.
 - Nessuna esecuzione della nuova funzione, nessuna prova tray/macOS/Linux effettuata. Su questa workstation non avviare PowerShell, nemmeno indirettamente; non avviare una seconda istanza desktop di Studio.
+- 2026-11-05, AUT-014: il comando `automations_event` (eventi agente dal frontend) accodava ogni definizione attiva senza controllare trigger e progetto. Corretto con il filtro unico `engine::definitions_for_event`, usato anche dall'observer e dagli eventi registrati dagli agenti. Prova: test unitario `evento_agente_accoda_solo_le_definizioni_col_suo_trigger_e_progetto` (`cargo test`, superato); scenario reale con una chat che finisce non ancora eseguito.
 
 ## Conferma finale
 

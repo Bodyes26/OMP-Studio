@@ -1,5 +1,13 @@
 <script lang="ts">
-	// Andamento senza assi sotto un KPI: dice la direzione, non il valore.
+	/**
+	 * Andamento senza assi sotto un KPI: dice la direzione, non il valore.
+	 * Quando cambiano i punti o l'intervallo, esegue un crossfade sobrio
+	 * mantenendo la dimensione stabile senza scatti o ricostruzioni brusche.
+	 */
+	import { fade } from 'svelte/transition';
+	import { revealEase } from '#lib/agent/motion.ts';
+	import { motionReduced } from '#lib/agent/motionState.svelte.ts';
+
 	let { values }: { values: number[] } = $props();
 
 	const max = $derived(Math.max(...values, 0));
@@ -12,16 +20,41 @@
 	);
 </script>
 
-{#if points}
-	<svg class="spark" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
-		<polygon class="area" points={`0,24 ${points} 100,24`} />
-		<polyline class="line" points={points} />
-	</svg>
-{:else}
-	<div class="spark spark-flat" aria-hidden="true"></div>
-{/if}
+<div class="spark-wrap">
+	{#key points}
+		<div
+			class="spark-layer"
+			in:fade={{ duration: motionReduced() ? 0 : 350, easing: revealEase }}
+			out:fade={{ duration: motionReduced() ? 0 : 200, easing: revealEase }}
+		>
+			{#if points}
+				<svg class="spark" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+					<polygon class="area" points={`0,24 ${points} 100,24`} />
+					<polyline class="line" points={points} />
+				</svg>
+			{:else}
+				<div class="spark spark-flat" aria-hidden="true"></div>
+			{/if}
+		</div>
+	{/key}
+</div>
 
 <style>
+	.spark-wrap {
+		display: grid;
+		grid-template-columns: 1fr;
+		grid-template-rows: 1fr;
+		width: 100%;
+		height: 24px;
+		overflow: hidden;
+	}
+
+	.spark-layer {
+		grid-area: 1 / 1;
+		width: 100%;
+		height: 100%;
+	}
+
 	.spark {
 		display: block;
 		width: 100%;

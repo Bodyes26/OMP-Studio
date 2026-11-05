@@ -18,6 +18,10 @@
 	import AlertBanner from '#lib/components/AlertBanner.svelte';
 	import StatsSparkline from './stats/StatsSparkline.svelte';
 	import StatsActivityChart from './stats/StatsActivityChart.svelte';
+	import AnimatedNumber from './stats/AnimatedNumber.svelte';
+	import { fade } from 'svelte/transition';
+	import { revealEase } from '#lib/agent/motion.ts';
+	import { motionReduced } from '#lib/agent/motionState.svelte.ts';
 	import {
 		RANGE_HOURS,
 		bucketize,
@@ -204,47 +208,74 @@
 	{:else if totals.requests === 0}
 		<div class="empty">{m.settings_stats_empty_range()}</div>
 	{:else}
-		<!-- KPI -->
-		<div class="kpis">
-			<div class="kpi">
-				<span class="kpi-label">{m.settings_stats_kpi_cost()}</span>
-				<span class="kpi-value tabular">{f.cost(totals.cost)}</span>
-				<span class="kpi-sub tabular">
-					{totals.unpriced > 0
-						? m.settings_stats_kpi_unpriced({ count: f.count(totals.unpriced) })
-						: m.settings_stats_kpi_per_request({ cost: f.cost(share(totals.cost, totals.requests)) })}
-				</span>
-				<StatsSparkline values={spark((b) => b.cost)} />
+		<div class="stats-data" in:fade={{ duration: motionReduced() ? 0 : 250, easing: revealEase }}>
+			<!-- KPI -->
+			<div class="kpis">
+				<div class="kpi">
+					<span class="kpi-label">{m.settings_stats_kpi_cost()}</span>
+					<AnimatedNumber value={totals.cost} format={f.cost} class="kpi-value tabular" />
+					<span class="kpi-sub tabular">
+						{#if totals.unpriced > 0}
+							<AnimatedNumber
+								inline
+								value={totals.unpriced}
+								format={(n) => m.settings_stats_kpi_unpriced({ count: f.count(n) })}
+							/>
+						{:else}
+							<AnimatedNumber
+								inline
+								value={share(totals.cost, totals.requests)}
+								format={(cost) => m.settings_stats_kpi_per_request({ cost: f.cost(cost) })}
+							/>
+						{/if}
+					</span>
+					<StatsSparkline values={spark((b) => b.cost)} />
+				</div>
+				<div class="kpi">
+					<span class="kpi-label">{m.settings_stats_kpi_requests()}</span>
+					<AnimatedNumber value={totals.requests} format={f.count} class="kpi-value tabular" />
+					<span class="kpi-sub tabular">
+						TTFT <AnimatedNumber inline value={totals.avgTtftMs} format={f.seconds} /> · <AnimatedNumber inline value={totals.avgTokensPerSecond} format={f.rate} /> tok/s
+					</span>
+					<StatsSparkline values={spark((b) => b.requests)} />
+				</div>
+				<div class="kpi">
+					<span class="kpi-label">{m.settings_stats_kpi_tokens()}</span>
+					<AnimatedNumber value={totals.totalTokens} format={f.tokens} class="kpi-value tabular" />
+					<span class="kpi-sub tabular">
+						<AnimatedNumber
+							inline
+							value={totals.outputTokens}
+							format={(tokens) => m.settings_stats_kpi_output({ tokens: f.tokens(tokens) })}
+						/>
+					</span>
+					<StatsSparkline values={spark((b) => b.tokens)} />
+				</div>
+				<div class="kpi">
+					<span class="kpi-label">{m.settings_stats_kpi_cache()}</span>
+					<AnimatedNumber value={totals.cacheRate} format={f.percent} class="kpi-value tabular" />
+					<span class="kpi-sub tabular">
+						<AnimatedNumber
+							inline
+							value={totals.cacheSavings}
+							format={(pct) => m.settings_stats_kpi_cache_saved({ pct: f.percent(pct) })}
+						/>
+					</span>
+					<div class="meter" aria-hidden="true"><span style:width={`${totals.cacheRate * 100}%`}></span></div>
+				</div>
+				<div class="kpi">
+					<span class="kpi-label">{m.settings_stats_kpi_errors()}</span>
+					<AnimatedNumber value={share(totals.failed, totals.requests)} format={f.percent} class="kpi-value tabular" />
+					<span class="kpi-sub tabular" class:bad={totals.failed > 0}>
+						<AnimatedNumber
+							inline
+							value={totals.failed}
+							format={(count) => m.settings_stats_kpi_failed({ count: f.count(count) })}
+						/>
+					</span>
+					<StatsSparkline values={spark((b) => b.failed)} />
+				</div>
 			</div>
-			<div class="kpi">
-				<span class="kpi-label">{m.settings_stats_kpi_requests()}</span>
-				<span class="kpi-value tabular">{f.count(totals.requests)}</span>
-				<span class="kpi-sub tabular">
-					{m.settings_stats_kpi_speed({ ttft: f.seconds(totals.avgTtftMs), tps: f.rate(totals.avgTokensPerSecond) })}
-				</span>
-				<StatsSparkline values={spark((b) => b.requests)} />
-			</div>
-			<div class="kpi">
-				<span class="kpi-label">{m.settings_stats_kpi_tokens()}</span>
-				<span class="kpi-value tabular">{f.tokens(totals.totalTokens)}</span>
-				<span class="kpi-sub tabular">{m.settings_stats_kpi_output({ tokens: f.tokens(totals.outputTokens) })}</span>
-				<StatsSparkline values={spark((b) => b.tokens)} />
-			</div>
-			<div class="kpi">
-				<span class="kpi-label">{m.settings_stats_kpi_cache()}</span>
-				<span class="kpi-value tabular">{f.percent(totals.cacheRate)}</span>
-				<span class="kpi-sub tabular">{m.settings_stats_kpi_cache_saved({ pct: f.percent(totals.cacheSavings) })}</span>
-				<div class="meter" aria-hidden="true"><span style:width={`${totals.cacheRate * 100}%`}></span></div>
-			</div>
-			<div class="kpi">
-				<span class="kpi-label">{m.settings_stats_kpi_errors()}</span>
-				<span class="kpi-value tabular">{f.percent(share(totals.failed, totals.requests))}</span>
-				<span class="kpi-sub tabular" class:bad={totals.failed > 0}>
-					{m.settings_stats_kpi_failed({ count: f.count(totals.failed) })}
-				</span>
-				<StatsSparkline values={spark((b) => b.failed)} />
-			</div>
-		</div>
 
 		<!-- Attivita' nel tempo -->
 		<section class="block" aria-labelledby="stats-activity-title">
@@ -305,13 +336,21 @@
 								</span>
 							</td>
 							<td class="num tabular">
-								{f.count(x.requests)}
-								<span class="sub">{f.percent(share(x.requests, totals.requests))}</span>
+								<AnimatedNumber value={x.requests} format={f.count} />
+								<span class="sub">
+									<AnimatedNumber inline value={share(x.requests, totals.requests)} format={f.percent} />
+								</span>
 							</td>
-							<td class="num tabular">{x.unpriced > 0 && x.cost === 0 ? '—' : f.cost(x.cost)}</td>
-							<td class="num tabular">{f.percent(x.cacheRate)}</td>
-							<td class="num tabular">{f.rate(x.avgTokensPerSecond)}</td>
-							<td class="num tabular">{f.seconds(x.avgTtftMs)}</td>
+							<td class="num tabular">
+								{#if x.unpriced > 0 && x.cost === 0}
+									—
+								{:else}
+									<AnimatedNumber value={x.cost} format={f.cost} />
+								{/if}
+							</td>
+							<td class="num tabular"><AnimatedNumber value={x.cacheRate} format={f.percent} /></td>
+							<td class="num tabular"><AnimatedNumber value={x.avgTokensPerSecond} format={f.rate} /></td>
+							<td class="num tabular"><AnimatedNumber value={x.avgTtftMs} format={f.seconds} /></td>
 						</tr>
 					{/each}
 				</tbody>
@@ -340,8 +379,8 @@
 								{#if active}<span class="ui-count">{m.settings_stats_project_active()}</span>{/if}
 							</span>
 							<span class="rank-value tabular">
-								{f.cost(x.cost)}
-								<span class="sub">· {f.count(x.requests)} {m.settings_stats_requests_short()}</span>
+								<AnimatedNumber value={x.cost} format={f.cost} />
+								<span class="sub">· <AnimatedNumber inline value={x.requests} format={f.count} /> {m.settings_stats_requests_short()}</span>
 							</span>
 							<span class="rank-bar" aria-hidden="true">
 								<span style:width={`${share(x.cost, maxFolderCost) * 100}%`}></span>
@@ -372,18 +411,19 @@
 						<li>
 							<span class={`swatch a-${x.agentType}`} aria-hidden="true"></span>
 							<span class="legend-name">{agentLabel(x.agentType)}</span>
-							<span class="legend-pct tabular">{f.percent(share(x.requests, totals.requests))}</span>
+							<span class="legend-pct tabular">
+								<AnimatedNumber value={share(x.requests, totals.requests)} format={f.percent} />
+							</span>
 							<span class="sub tabular legend-detail">
-								{m.settings_stats_agent_detail({
-									requests: f.count(x.requests),
-									tokens: f.tokens(x.totalTokens),
-									cost: f.cost(x.cost)
-								})}
+								<AnimatedNumber inline value={x.requests} format={f.count} /> {m.settings_stats_requests_short()} ·
+								<AnimatedNumber inline value={x.totalTokens} format={f.tokens} /> tok ·
+								<AnimatedNumber inline value={x.cost} format={f.cost} />
 							</span>
 						</li>
 					{/each}
 				</ul>
 			</section>
+		</div>
 		</div>
 	{/if}
 </div>
@@ -395,6 +435,12 @@
 		gap: var(--space-4);
 		padding: var(--space-3) var(--space-4);
 	}
+	.stats-data {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-4);
+	}
+
 
 	.section-header {
 		display: flex;
@@ -529,6 +575,7 @@
 		display: block;
 		height: 100%;
 		background: var(--brand);
+		transition: width var(--dur-calm, 480ms) var(--ease-reveal);
 	}
 
 	.block {
@@ -593,6 +640,7 @@
 	.seg {
 		flex-basis: 0;
 		min-width: 2px;
+		transition: flex-grow var(--dur-calm, 480ms) var(--ease-reveal);
 	}
 
 	.swatch {
@@ -736,6 +784,7 @@
 		display: block;
 		height: 100%;
 		background: color-mix(in oklch, var(--brand) 55%, var(--bg-raised));
+		transition: width var(--dur-calm, 480ms) var(--ease-reveal);
 	}
 
 	.rank-row.active .rank-bar span {

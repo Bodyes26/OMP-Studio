@@ -298,46 +298,58 @@ impl Engine {
                     }
                 }
             } else {
-                for def in &definitions {
-                    if def.state == "enabled" && self.event_matches_definition(&obs_ev.event, def) {
-                        let _ = self.enqueue_occurrence(def, obs_ev.event.clone(), now_ms);
-                    }
+                for def in definitions_for_event(&definitions, &obs_ev.event) {
+                    let _ = self.enqueue_occurrence(def, obs_ev.event.clone(), now_ms);
                 }
             }
         }
     }
+}
 
-    pub fn event_matches_definition(&self, event: &AutomationEvent, def: &AutomationDefinition) -> bool {
-        for trigger in &def.triggers {
-            if trigger.kind != event.kind {
-                continue;
-            }
+/// Definizioni attive che un evento deve accodare. Unico filtro per observer ed
+/// eventi dal frontend: senza, un `agentFinished` qualsiasi accodava anche le
+/// automazioni a calendario o di altri progetti.
+pub fn definitions_for_event<'a>(
+    definitions: &'a [AutomationDefinition],
+    event: &'a AutomationEvent,
+) -> impl Iterator<Item = &'a AutomationDefinition> + 'a {
+    definitions
+        .iter()
+        .filter(move |def| def.state == "enabled" && event_matches_definition(event, def))
+}
 
-            // Match percorsi per eventi file e git:
-            // Non imporre event.project_path == action target su trigger file autorizzati (possono osservare cartelle esterne)
-            if trigger.kind != "file" {
-                if let Some(p_path) = &event.project_path {
-                    let targets = &def.targets;
-                    let matches_target = targets.project_paths.is_empty()
-                        || targets.project_paths.iter().any(|tp| normalize_project_path(tp) == normalize_project_path(p_path));
-                    if !matches_target {
-                        continue;
-                    }
-                }
-            }
+fn event_matches_definition(event: &AutomationEvent, def: &AutomationDefinition) -> bool {
+    for trigger in &def.triggers {
+        if trigger.kind != event.kind {
+            continue;
+        }
 
-            // Match branch per eventi git
-            if let Some(ev_branch) = &event.branch {
-                if !trigger.branches.is_empty() && !trigger.branches.iter().any(|b| b == ev_branch) {
+        // Match percorsi per eventi file e git:
+        // Non imporre event.project_path == action target su trigger file autorizzati (possono osservare cartelle esterne)
+        if trigger.kind != "file" {
+            if let Some(p_path) = &event.project_path {
+                let targets = &def.targets;
+                let matches_target = targets.project_paths.is_empty()
+                    || targets.project_paths.iter().any(|tp| normalize_project_path(tp) == normalize_project_path(p_path));
+                if !matches_target {
                     continue;
                 }
             }
-
-            return true;
         }
-        false
-    }
 
+        // Match branch per eventi git
+        if let Some(ev_branch) = &event.branch {
+            if !trigger.branches.is_empty() && !trigger.branches.iter().any(|b| b == ev_branch) {
+                continue;
+            }
+        }
+
+        return true;
+    }
+    false
+}
+
+impl Engine {
     fn evaluate_calendar_triggers(&self, now_ms: i64) {
         let definitions = match self.storage.get_definitions() {
             Ok(d) => d,
@@ -2054,5 +2066,46 @@ mod tests {
         assert!(lock_owner_blocks("exec-1", None));
         assert!(lock_owner_blocks("exec-1", Some("exec-2")));
         assert!(!lock_owner_blocks("exec-1", Some("exec-1")));
+    }
+
+    fn definition(id: &str, triggers: &str, project_paths: &str) -> AutomationDefinition {
+        serde_json::from_str(&format!(
+            r#"{{"id":"{id}","revision":1,"name":"{id}","state":"enabled",
+            "action":{{"kind":"prompt","prompt":"x"}},
+            "targets":{{"source":"selected","projectPaths":{project_paths}}},
+            "triggers":{triggers},"policy":{{"timezone":"Europe/Rome"}},
+            "createdAt":0,"updatedAt":0}}"#
+        ))
+        .unwrap()
+    }
+
+    fn agent_event(kind: &str, project: &str) -> AutomationEvent {
+        AutomationEvent {
+            kind: kind.to_string(),
+            at: 0,
+            project_path: Some(project.to_string()),
+            paths: Vec::new(),
+            branch: None,
+            commit: None,
+            origin: Some("interactive".to_string()),
+            detail: None,
+        }
+    }
+
+    #[test]
+    fn evento_agente_accoda_solo_le_definizioni_col_suo_trigger_e_progetto() {
+        let mut disabled = definition("spenta", r#"[{"id":"t","kind":"agentFinished"}]"#, "[]");
+        disabled.state = "disabled".to_string();
+        let definitions = vec![
+            definition("calendario", r#"[{"id":"t","kind":"calendar","time":"09:00"}]"#, "[]"),
+            definition("altro-progetto", r#"[{"id":"t","kind":"agentFinished"}]"#, r#"["C:/repo/altro"]"#),
+            definition("errori", r#"[{"id":"t","kind":"agentError"}]"#, "[]"),
+            disabled,
+            definition("giusta", r#"[{"id":"t","kind":"agentFinished"}]"#, r#"["C:/repo/studio"]"#),
+            definition("ogni-progetto", r#"[{"id":"t","kind":"agentFinished"}]"#, "[]"),
+        ];
+        let event = agent_event("agentFinished", "C:/repo/studio");
+        let ids: Vec<&str> = definitions_for_event(&definitions, &event).map(|d| d.id.as_str()).collect();
+        assert_eq!(ids, ["giusta", "ogni-progetto"]);
     }
 }

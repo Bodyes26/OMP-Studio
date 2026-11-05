@@ -1,5 +1,9 @@
 <script lang="ts">
+	import { fade } from 'svelte/transition';
 	import { m } from '#lib/paraglide/messages.js';
+	import { revealEase } from '#lib/agent/motion.ts';
+	import { motionReduced } from '#lib/agent/motionState.svelte.ts';
+	import AnimatedNumber from './AnimatedNumber.svelte';
 	import {
 		formatMetric,
 		metricValue,
@@ -54,29 +58,54 @@
 				{readout}
 			{/if}
 		</span>
-		<span class="max tabular">{max > 0 ? formatMetric(f, metric, max) : ''}</span>
+		<AnimatedNumber
+			value={max > 0 ? max : null}
+			format={(v) => formatMetric(f, metric, v)}
+			class="max tabular"
+		/>
 	</div>
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<svg
-		class="bars"
-		viewBox={`0 0 ${width} 100`}
-		preserveAspectRatio="none"
-		aria-hidden="true"
-		onmouseleave={() => (hovered = null)}
-	>
-		<line class="baseline" x1="0" x2={width} y1="100" y2="100" />
-		<line class="grid" x1="0" x2={width} y1="0.5" y2="0.5" />
-		{#each buckets as b, i (b.start)}
-			{@const v = values[i]}
-			{@const h = max > 0 ? Math.max((v / max) * 100, v > 0 ? 1.5 : 0) : 0}
-			<rect class="hit" x={i * 10} y="0" width="10" height="100" onmouseenter={() => (hovered = i)} />
-			<rect class="bar" class:active={focus === i} x={i * 10 + 1.5} y={100 - h} width="7" height={h} />
-		{/each}
-	</svg>
-	<div class="axis tabular" aria-hidden="true">
-		{#each ticks as i (i)}
-			<span>{buckets[i] ? axisLabel(buckets[i]) : ''}</span>
-		{/each}
+	<!-- Crossfade sobrio al cambio di intervallo temporale: i grafici si sovrappongono
+	     nella griglia senza scatti né salti di altezza della sezione. -->
+	<div class="chart-canvas">
+		{#key range}
+			<div
+				class="chart-layer"
+				in:fade={{ duration: motionReduced() ? 0 : 350, easing: revealEase }}
+				out:fade={{ duration: motionReduced() ? 0 : 200, easing: revealEase }}
+			>
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<svg
+					class="bars"
+					viewBox={`0 0 ${width} 100`}
+					preserveAspectRatio="none"
+					aria-hidden="true"
+					onmouseleave={() => (hovered = null)}
+				>
+					<line class="baseline" x1="0" x2={width} y1="100" y2="100" />
+					<line class="grid" x1="0" x2={width} y1="0.5" y2="0.5" />
+					{#each buckets as b, i (b.start)}
+						{@const v = values[i]}
+						{@const h = max > 0 ? Math.max((v / max) * 100, v > 0 ? 1.5 : 0) : 0}
+						<rect class="hit" x={i * 10} y="0" width="10" height="100" onmouseenter={() => (hovered = i)} />
+						<rect
+							class="bar"
+							class:active={focus === i}
+							x={i * 10 + 1.5}
+							y={100 - h}
+							width="7"
+							height={h}
+							style:y={`${100 - h}px`}
+							style:height={`${h}px`}
+						/>
+					{/each}
+				</svg>
+				<div class="axis tabular" aria-hidden="true">
+					{#each ticks as i (i)}
+						<span>{buckets[i] ? axisLabel(buckets[i]) : ''}</span>
+					{/each}
+				</div>
+			</div>
+		{/key}
 	</div>
 </figure>
 
@@ -110,8 +139,24 @@
 		margin-right: 4px;
 	}
 
-	.max {
+	.chart-head :global(.max) {
 		color: var(--ink-faint);
+	}
+
+	.chart-canvas {
+		display: grid;
+		grid-template-columns: 1fr;
+		grid-template-rows: 1fr;
+		width: 100%;
+		min-height: 142px;
+	}
+
+	.chart-layer {
+		grid-area: 1 / 1;
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		width: 100%;
 	}
 
 	.bars {
@@ -140,7 +185,12 @@
 	.bar {
 		fill: color-mix(in oklch, var(--brand) 55%, var(--bg-raised));
 		pointer-events: none;
-		transition: fill var(--dur-fast) var(--ease-out);
+		/* Transizione dolce delle altezze al cambio metrica (richieste/token/costo)
+		   con curva di rilascio --ease-reveal. */
+		transition:
+			y var(--dur-calm, 480ms) var(--ease-reveal),
+			height var(--dur-calm, 480ms) var(--ease-reveal),
+			fill var(--dur-fast) var(--ease-out);
 	}
 
 	.bar.active {

@@ -403,10 +403,8 @@ pub fn agent_request(
             };
 
             let definitions = engine.storage().get_definitions().unwrap_or_default();
-            for def in &definitions {
-                if def.state == "enabled" && engine.event_matches_definition(&ev, def) {
-                    engine.enqueue_occurrence(def, ev.clone(), now);
-                }
+            for def in engine::definitions_for_event(&definitions, &ev) {
+                let _ = engine.enqueue_occurrence(def, ev.clone(), now);
             }
 
             Ok(serde_json::json!({
@@ -583,10 +581,8 @@ pub async fn automations_event(event: AutomationEvent) -> Result<(), String> {
     let engine = get_engine()?;
     let now = storage::chrono_now_ms();
     let definitions = engine.storage().get_definitions().unwrap_or_default();
-    for def in &definitions {
-        if def.state == "enabled" {
-            engine.enqueue_occurrence(def, event.clone(), now);
-        }
+    for def in engine::definitions_for_event(&definitions, &event) {
+        let _ = engine.enqueue_occurrence(def, event.clone(), now);
     }
     Ok(())
 }

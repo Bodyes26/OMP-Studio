@@ -11,13 +11,15 @@ released: items are closed into a version via `npm run release -- <version>`.
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-11-05
+
 ### Added
 - New Automations feature: schedule and run AI prompts and script commands triggered by calendar, Git events, or file changes across single or multiple projects. Includes a five-step wizard, read-only AI-assisted creation, draft workflow, dedicated run transcripts, output history, and multi-account quota protection.
-- Native desktop presence: system tray (Windows) and menu bar (macOS) integration to keep runs going while the window is hidden, close behavior management, exit protection during active jobs, and optional launch on login.
+- Native desktop presence: system tray (Windows) and menu bar (macOS) integration to keep runs going while the window is hidden, close behavior management, exit protection during active jobs, and optional launch on login. The first-close and exit-with-running-jobs dialogs follow Studio's style, listing active jobs and those waiting for an answer.
 - Background jobs: a single queue in the main window generates task and session titles, maintains the history index, fetches projects from Git and checks for updates without opening their panels. "Settings → Background jobs" has the global switch, a toggle for each job, the model used by AI jobs and the quota floor below which subscription models stop.
 - A bottom-bar icon shows running and pending jobs; its popover lets you interrupt the current job, pause or resume each job, run it now or stop everything.
 - Lab and UI prototype previews show "Rendering preview…" while the new version loads, instead of a blank frame, and confirm with "Preview updated" once the update is ready.
-- New "Settings → Statistics" section: API-equivalent cost, requests, tokens, cache and errors across every omp session over the last 24 hours, 7 or 30 days, with activity over time, the models used (share, cost, speed), projects by cost with the open one highlighted and the share of work done by subagents. "Full dashboard" opens omp's web dashboard with requests, errors, traces and tools.
+- New "Settings → Statistics" section: API-equivalent cost, requests, tokens, cache and errors across every omp session over the last 24 hours, 7 or 30 days, with activity over time, the models used (share, cost, speed), projects by cost with the open one highlighted and the share of work done by subagents. When you switch range or new data arrives, numbers count from their previous value and charts and bars update with a smooth transition. "Full dashboard" opens omp's web dashboard with requests, errors, traces and tools.
 - Lab: before building, the agent explores the project and prepares a brief with a short interview; comment on and refine it like a Plan, and Studio unlocks changes only after your approval. Then choose “Compact and continue” or “Keep the full context” without changing sessions; the same applies to free drafts and older prototypes without approval. (R-LAB-01…04, R-LAB-08)
 - Lab: choose Faithful, Divergent variants, Flow or Free; variants compare the same data and operations with a distinct author for each proposal, and the brief follows revisions and handoff to Main. Screenshots of the real app remain optional manual attachments. (R-LAB-04…06)
 - Prewalk: the status-line button and `/prewalk` open a card above the composer showing whether prewalk is off, armed (and which model it will switch to) or already switched. From the card you pick the target (a role such as @smol or @task, or an exact model) and the model “Repeat” returns to; the choice also applies to new chats and the terminal. `/prewalk <model>` changes the target for the current chat only (requires omp 18.14.0 or later). (PRW-001…005)
@@ -66,10 +68,10 @@ released: items are closed into a version via `npm run release -- <version>`.
 - In the quota popover, with several accounts on the same provider, "In use by" appears only on the account omp actually uses for each session instead of on every account of that provider. The quota chip also recognises the account during the first turn of a new session and in long sessions, without picking up the account of another session in the same project.
 - Task titles start as soon as you save the task even while two or more agents are working: before, they stayed "waiting" in the Automations indicator until a lane stopped. (AUT-041)
 - Chats no longer freeze while the agent writes large changes with `edit`: omp sent Studio the whole preview of the change on every token (tens of MB for a single file) and drained that backlog so slowly that the end of the turn, command replies and Stop arrived hours late, forcing you to reopen the chat and type "resume". Studio now asks omp not to send those previews, which it does not use.
+- When a chat finishes, fails or runs out of quota, only automations with that trigger on that project start: before, every enabled automation started, including calendar ones and those for other projects. (AUT-014)
 
 ### Removed
 - Studio Remote: removed the all-machines Inbox, the Inbox, History and Machines tabs, the global history, the fleet summary on wide screens, Approve/Reject from the list row, the Operational details view, "Continue lane" and "New chat on Main", and the new session in a branch. Questions and confirmations are answered in the chat, subagents and jobs are in the steps row, history opens inside each project. Removals confirmed on 2026-11-01. (R-REM-01…05, R-REM-09, R-REM-15)
-
 ## [1.9.0] - 2026-10-27
 
 ### Added
