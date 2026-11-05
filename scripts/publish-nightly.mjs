@@ -25,7 +25,7 @@ import {
 import { basename, dirname, join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { printSummary, verifyNightly, withNightlyLock } from './verify-nightly.mjs';
-import { computeFrontendFingerprint } from './nightly-cache.mjs';
+import { computeFrontendFingerprint, computeFrontendFingerprintDetails } from './nightly-cache.mjs';
 import {
 	ROOT,
 	VERSION_FILES,
@@ -181,9 +181,9 @@ async function runNpm(script, args = [], observe = () => {}) {
 }
 
 function snapshotBuildInputs() {
-	const fingerprint = computeFrontendFingerprint(ROOT);
-	if (!fingerprint) throw new Error('Impossibile attestare gli input della build: pubblicazione bloccata.');
-	return fingerprint;
+	const details = computeFrontendFingerprintDetails(ROOT);
+	if (!details.receipt) throw new Error(`Impossibile attestare gli input della build (${details.error}): pubblicazione bloccata.`);
+	return details;
 }
 
 async function buildInstaller(platform) {
@@ -454,7 +454,23 @@ async function publish(opts) {
 		} else {
 			console.log(`\nSalto la compilazione (--skip-build).`);
 		}
-		if (snapshotBuildInputs() !== buildInputs || getCommitSha() !== commitSha) {
+		const afterInputs = snapshotBuildInputs();
+		const currentCommit = getCommitSha();
+		if (afterInputs.receipt !== buildInputs.receipt || currentCommit !== commitSha) {
+			if (afterInputs.receipt !== buildInputs.receipt) {
+				const beforeMap = new Map(buildInputs.entries.map(([n, ...rest]) => [n, rest.join(':')]));
+				const afterMap = new Map(afterInputs.entries.map(([n, ...rest]) => [n, rest.join(':')]));
+				const diffs = [];
+				for (const [k, v] of beforeMap) {
+					if (!afterMap.has(k)) diffs.push(`rimosso: ${k}`);
+					else if (afterMap.get(k) !== v) diffs.push(`modificato: ${k}`);
+				}
+				for (const [k] of afterMap) {
+					if (!beforeMap.has(k)) diffs.push(`aggiunto: ${k}`);
+				}
+				if (afterInputs.envSig !== buildInputs.envSig) diffs.push('envSignature cambiata');
+				console.error(`Differenze input build: ${diffs.join(', ')}`);
+			}
 			throw new Error('Sorgenti o commit cambiati durante la build: installer non pubblicato.');
 		}
 

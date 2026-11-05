@@ -80,6 +80,22 @@ export function computeFrontendFingerprint(root) {
 	}
 }
 
+export function computeFrontendFingerprintDetails(root) {
+	try {
+		const inputs = sourceFiles(root).filter((name) => !name.startsWith('docs/') && !/^[^/]+\.md$/i.test(name));
+		const entries = fileEntries(root, inputs);
+		for (const name of ['.package-lock.json', '.modules.yaml']) {
+			const path = join(root, 'node_modules', name);
+			entries.push([`installed:${name}`, existsSync(path) ? digest(readFileSync(path)) : '<absent>']);
+		}
+		const envSig = environmentSignature();
+		const rec = receipt(root, entries);
+		return { receipt: rec, entries, envSig };
+	} catch (e) {
+		return { receipt: null, error: e?.message || String(e) };
+	}
+}
+
 // Cargo prepara SEMPRE gli harness prima del riuso del runtime: risolve
 // freshness, include generati, dipendenze e opzioni linker. Solo i .rs non bastano.
 export function computeRustFingerprint(root, { artifacts, toolchain } = {}) {
