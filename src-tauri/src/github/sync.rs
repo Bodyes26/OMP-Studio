@@ -703,7 +703,16 @@ mod tests {
                 if let Ok(meta) = p.metadata() {
                     let mut perms = meta.permissions();
                     if perms.readonly() {
+                        // Su Windows toglie il readonly; su Unix aggiunge solo il bit di scrittura del proprietario evitando world-writable.
+                        #[cfg(windows)]
+                        #[allow(clippy::permissions_set_readonly_false)]
                         perms.set_readonly(false);
+                        #[cfg(unix)]
+                        {
+                            use std::os::unix::fs::PermissionsExt;
+                            let mode = perms.mode();
+                            perms.set_mode(mode | 0o200);
+                        }
                         let _ = fs::set_permissions(&p, perms);
                     }
                     if meta.is_dir() {
@@ -737,7 +746,16 @@ mod tests {
                 if let Ok(meta) = fs::metadata(&dest_path) {
                     let mut perms = meta.permissions();
                     if perms.readonly() {
+                        // Su Windows toglie il readonly; su Unix aggiunge solo il bit di scrittura del proprietario evitando world-writable.
+                        #[cfg(windows)]
+                        #[allow(clippy::permissions_set_readonly_false)]
                         perms.set_readonly(false);
+                        #[cfg(unix)]
+                        {
+                            use std::os::unix::fs::PermissionsExt;
+                            let mode = perms.mode();
+                            perms.set_mode(mode | 0o200);
+                        }
                         let _ = fs::set_permissions(&dest_path, perms);
                     }
                 }

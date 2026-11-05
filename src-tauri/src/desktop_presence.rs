@@ -21,11 +21,10 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Emitter, Manager, RunEvent, WebviewWindow, Window, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, RunEvent, WindowEvent};
 use tauri_plugin_autostart::ManagerExt;
 /// Preferenze salvate su disco in app_local_data_dir/desktop-presence.json.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -610,7 +609,7 @@ fn handle_tray_quit(app: &AppHandle) -> Result<(), String> {
 // =========================================================================
 
 #[tauri::command]
-pub fn desktop_presence_get_state(app: AppHandle) -> Result<DesktopPresenceState, String> {
+pub fn desktop_presence_get_state(_app: AppHandle) -> Result<DesktopPresenceState, String> {
     let lock = STATE.lock();
     let state = lock
         .as_ref()
@@ -891,7 +890,7 @@ pub fn desktop_presence_set_attention(app: AppHandle, attention: bool) -> Result
 }
 
 #[tauri::command]
-pub fn desktop_presence_get_active_jobs(app: AppHandle) -> Result<ActiveJobsSummary, String> {
+pub fn desktop_presence_get_active_jobs(_app: AppHandle) -> Result<ActiveJobsSummary, String> {
     let (auto, interactive) = get_active_counts();
     Ok(ActiveJobsSummary {
         total_jobs: auto + interactive,

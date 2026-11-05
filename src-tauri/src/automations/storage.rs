@@ -1044,7 +1044,7 @@ impl Storage {
                 )
                 .ok();
 
-            let is_ended = state.as_deref().map_or(true, |s| {
+            let is_ended = state.as_deref().is_none_or(|s| {
                 s == "completed" || s == "error" || s == "timeout" || s == "interrupted" || s == "skipped"
             });
 
@@ -1069,7 +1069,7 @@ impl Storage {
                 )
                 .unwrap_or((None, 0));
 
-            let is_ended = state.as_deref().map_or(true, |s| {
+            let is_ended = state.as_deref().is_none_or(|s| {
                 s == "completed" || s == "error" || s == "timeout" || s == "interrupted" || s == "skipped"
             });
 
@@ -1102,7 +1102,7 @@ impl Storage {
             .unwrap_or((None, 0));
 
         let is_ended = next_offset >= file_len
-            && state.as_deref().map_or(true, |s| {
+            && state.as_deref().is_none_or(|s| {
                 s == "completed" || s == "error" || s == "timeout" || s == "interrupted" || s == "skipped"
             });
 

@@ -47,7 +47,7 @@ pub fn is_project_locked(path: &str, excluding_execution: Option<&str>) -> bool 
     ENGINE
         .read()
         .as_ref()
-        .map_or(false, |e| e.is_project_locked(path, excluding_execution))
+        .is_some_and(|e| e.is_project_locked(path, excluding_execution))
 }
 
 pub fn interactive_admission(path: &str) -> Result<(), String> {
@@ -78,7 +78,7 @@ pub fn is_execution_terminal(execution_id: &str) -> bool {
     ENGINE
         .read()
         .as_ref()
-        .map_or(false, |e| e.is_execution_terminal(execution_id))
+        .is_some_and(|e| e.is_execution_terminal(execution_id))
 }
 
 pub fn project_path_for_id(project_id: &str) -> Option<String> {

@@ -1,6 +1,8 @@
 //! Gestione notifiche toast native per progetto su Windows.
 
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
+#[cfg(target_os = "windows")]
+use tauri::Manager;
 
 #[cfg(target_os = "windows")]
 use parking_lot::Mutex;
@@ -19,8 +21,10 @@ use windows::Foundation::TypedEventHandler;
 #[cfg(target_os = "windows")]
 use windows::UI::Notifications::{ToastNotification, ToastNotificationManager};
 
+#[cfg(target_os = "windows")]
 pub const TOAST_TAG: &str = "alert";
 
+#[cfg(target_os = "windows")]
 pub fn project_to_group(project_id: &str) -> String {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
@@ -28,6 +32,7 @@ pub fn project_to_group(project_id: &str) -> String {
     format!("{:x}", hasher.finalize())
 }
 
+#[cfg(target_os = "windows")]
 pub fn escape_xml(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
     for c in input.chars() {
@@ -43,6 +48,7 @@ pub fn escape_xml(input: &str) -> String {
     out
 }
 
+#[cfg(target_os = "windows")]
 pub fn is_main_window_focused(app: &AppHandle) -> bool {
     let Some(window) = app.get_webview_window("main") else {
         return false;
@@ -50,13 +56,10 @@ pub fn is_main_window_focused(app: &AppHandle) -> bool {
     if window.is_minimized().unwrap_or(false) {
         return false;
     }
-    #[cfg(target_os = "windows")]
-    {
-        if let Ok(hwnd_raw) = window.hwnd() {
-            let fg = unsafe { windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow() };
-            if !fg.is_null() && fg == (hwnd_raw.0 as windows_sys::Win32::Foundation::HWND) {
-                return true;
-            }
+    if let Ok(hwnd_raw) = window.hwnd() {
+        let fg = unsafe { windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow() };
+        if !fg.is_null() && std::ptr::eq(fg, hwnd_raw.0 as _) {
+            return true;
         }
     }
     window.is_focused().unwrap_or(false)
@@ -254,7 +257,7 @@ pub fn dismiss_project_notifications(app: AppHandle, project_id: String) -> Resu
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "windows"))]
 mod tests {
     use super::*;
 

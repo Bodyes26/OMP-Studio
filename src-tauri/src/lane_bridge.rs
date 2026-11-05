@@ -343,7 +343,6 @@ fn rejection(code: u16, reason: &'static str, text: impl Into<String>) -> Reject
 struct BridgeRequest {
     owner: BridgeOwner,
     target: BridgeRouteTarget,
-    route: CorsiaRoute,
     /// Corpo normalizzato: l'alias storico viene riscritto con i nomi italiani.
     body: serde_json::Map<String, serde_json::Value>,
 }
@@ -565,14 +564,9 @@ async fn read_request(stream: &mut TcpStream) -> Result<BridgeRequest, Rejection
         }
     }
 
-    let corsia_route = match target {
-        BridgeRouteTarget::Corsia(r) => r,
-        BridgeRouteTarget::Automation(_) => CorsiaRoute::Stato,
-    };
     let request = BridgeRequest {
         owner,
         target,
-        route: corsia_route,
         body: fields,
     };
 
@@ -842,7 +836,7 @@ mod tests {
         .await
         .unwrap_or_else(|(code, _, text)| panic!("{code}: {text}"));
         assert_eq!(parsed.owner.owner_id, 9101);
-        assert_eq!(parsed.route, CorsiaRoute::Integra);
+        assert_eq!(parsed.target, BridgeRouteTarget::Corsia(CorsiaRoute::Integra));
         assert_eq!(parsed.text("corsia").as_deref(), Some("wt2"));
         assert_eq!(
             parsed.text("messaggio").as_deref(),
@@ -904,7 +898,7 @@ mod tests {
         ))
         .await
         .unwrap_or_else(|(code, _, text)| panic!("{code}: {text}"));
-        assert_eq!(parsed.route, CorsiaRoute::Avvia);
+        assert_eq!(parsed.target, BridgeRouteTarget::Corsia(CorsiaRoute::Avvia));
         assert_eq!(parsed.text("obiettivo").as_deref(), Some("Rifai il login"));
         assert_eq!(parsed.text("tipo").as_deref(), Some("worktree"));
 

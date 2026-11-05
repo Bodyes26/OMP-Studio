@@ -231,7 +231,7 @@ fn drain_stream<R: Read + Send + 'static>(
 
             while read_bytes < MAX_CHUNK_BYTES {
                 let available = match buf_reader.fill_buf() {
-                    Ok(b) if b.is_empty() => break, // EOF
+                    Ok([]) => break, // EOF
                     Ok(b) => b,
                     Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
                     Err(_) => break, // Pipe chiusa o errore I/O
@@ -352,7 +352,7 @@ pub fn execute(
         env_map.insert(env_var.clone(), secret_val);
     }
     // Ordina i segreti per lunghezza decrescente per evitare sostituzioni parziali
-    secrets_to_mask.sort_by(|a, b| b.len().cmp(&a.len()));
+    secrets_to_mask.sort_by_key(|a| std::cmp::Reverse(a.len()));
 
     // Iniezione sicura del percorso contesto JSON via variabile OMP_AUTOMATION_CONTEXT (nessuna interpolazione)
     env_map.insert(

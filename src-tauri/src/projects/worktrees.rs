@@ -3382,9 +3382,7 @@ pub async fn worktree_remove(args: RemoveWorktreeArgs) -> Result<(), WorktreeErr
     {
         return Err(WorktreeError::new(
             WorktreeErrorCode::WorktreeLocked,
-            format!(
-                "Operazione non consentita: il progetto o worktree e' attualmente occupato da un'automazione attiva (AUT-042)"
-            ),
+            "Operazione non consentita: il progetto o worktree e' attualmente occupato da un'automazione attiva (AUT-042)".to_string(),
         ));
     }
     tokio::task::spawn_blocking(move || remove_sync(args))
@@ -3437,9 +3435,7 @@ pub async fn worktree_land(
     {
         return Err(WorktreeError::new(
             WorktreeErrorCode::WorktreeLocked,
-            format!(
-                "Operazione non consentita: il progetto o worktree e' attualmente occupato da un'automazione attiva (AUT-042)"
-            ),
+            "Operazione non consentita: il progetto o worktree e' attualmente occupato da un'automazione attiva (AUT-042)".to_string(),
         ));
     }
     tokio::task::spawn_blocking(move || lane_integrate::land_sync(args))
@@ -3620,7 +3616,16 @@ mod tests {
                 if let Ok(meta) = fs::metadata(&to) {
                     let mut perms = meta.permissions();
                     if perms.readonly() {
+                        // Su Windows toglie il readonly; su Unix aggiunge solo il bit di scrittura del proprietario evitando world-writable.
+                        #[cfg(windows)]
+                        #[allow(clippy::permissions_set_readonly_false)]
                         perms.set_readonly(false);
+                        #[cfg(unix)]
+                        {
+                            use std::os::unix::fs::PermissionsExt;
+                            let mode = perms.mode();
+                            perms.set_mode(mode | 0o200);
+                        }
                         let _ = fs::set_permissions(&to, perms);
                     }
                 }
@@ -3699,9 +3704,9 @@ mod tests {
 
     fn get_seed_repository(with_commit: bool) -> &'static SeedRepository {
         if with_commit {
-            &*SEED_WITH_COMMIT
+            &SEED_WITH_COMMIT
         } else {
-            &*SEED_UNBORN
+            &SEED_UNBORN
         }
     }
 

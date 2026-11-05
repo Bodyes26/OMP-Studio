@@ -242,20 +242,18 @@ pub fn parse_session_file(path: &Path) -> Option<ParsedSessionInfo> {
                     }
                 }
             }
-            "message" => {
-                if first_prompt.is_none() {
-                    if let Some(message) = val.get("message") {
-                        if message.get("role").and_then(|r| r.as_str()) == Some("user") {
-                            if let Some(content) = message.get("content") {
-                                if let Some(text) = content.as_str() {
-                                    first_prompt = Some(truncate_title(text));
-                                } else if let Some(arr) = content.as_array() {
-                                    for part in arr {
-                                        if part.get("type").and_then(|t| t.as_str()) == Some("text") {
-                                            if let Some(txt) = part.get("text").and_then(|t| t.as_str()) {
-                                                first_prompt = Some(truncate_title(txt));
-                                                break;
-                                            }
+            "message" if first_prompt.is_none() => {
+                if let Some(message) = val.get("message") {
+                    if message.get("role").and_then(|r| r.as_str()) == Some("user") {
+                        if let Some(content) = message.get("content") {
+                            if let Some(text) = content.as_str() {
+                                first_prompt = Some(truncate_title(text));
+                            } else if let Some(arr) = content.as_array() {
+                                for part in arr {
+                                    if part.get("type").and_then(|t| t.as_str()) == Some("text") {
+                                        if let Some(txt) = part.get("text").and_then(|t| t.as_str()) {
+                                            first_prompt = Some(truncate_title(txt));
+                                            break;
                                         }
                                     }
                                 }
@@ -377,7 +375,7 @@ impl SessionIndex {
         if migrated_path.exists() {
             let _ = fs::remove_file(&migrated_path);
         }
-        if let Err(_) = fs::rename(json_path, &migrated_path) {
+        if fs::rename(json_path, &migrated_path).is_err() {
             let _ = fs::remove_file(json_path);
         }
 

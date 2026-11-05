@@ -9,7 +9,7 @@
 //! - Tracciamento dell'attività locale per i filtri di ammissione.
 
 use super::model::{
-    AutomationDefinition, AutomationEvent, AutomationProject, AutomationTrigger,
+    AutomationDefinition, AutomationEvent, AutomationProject,
 };
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::collections::{HashMap, HashSet};
@@ -43,7 +43,6 @@ const DEFAULT_EXCLUDE_PATTERNS: &[&str] = &[
 #[derive(Debug, Clone)]
 struct PendingFileBurst {
     definition_id: String,
-    trigger_id: String,
     project_path: Option<String>,
     first_event_at_ms: i64,
     last_event_at_ms: i64,
@@ -56,7 +55,6 @@ struct PendingFileBurst {
 /// Stato Git memorizzato per singolo progetto per tracciare transizioni ed evitare replay.
 #[derive(Debug, Clone)]
 struct ProjectGitState {
-    project_path: PathBuf,
     last_commit: Option<String>,
     last_branch: Option<String>,
     last_is_dirty: Option<bool>,
@@ -199,7 +197,6 @@ impl Observer {
 
             // Assicura la presenza nello stato Git
             self.git_states.entry(path_buf).or_insert_with(|| ProjectGitState {
-                project_path: PathBuf::from(&proj.path),
                 last_commit: None,
                 last_branch: None,
                 last_is_dirty: None,
@@ -585,7 +582,6 @@ impl Observer {
 
                         let burst = self.pending_file_bursts.entry(burst_key).or_insert_with(|| PendingFileBurst {
                             definition_id: def.id.clone(),
-                            trigger_id: trig.id.clone(),
                             project_path: Some(root.raw_path.to_string_lossy().to_string()),
                             first_event_at_ms: now_ms,
                             last_event_at_ms: now_ms,
@@ -886,16 +882,6 @@ fn definition_targets_project(def: &AutomationDefinition, project_path: &str) ->
     true
 }
 
-/// Verifica se il branch corrente soddisfa i criteri configurati.
-fn branch_matches(current_branch: Option<&str>, branches: &[String]) -> bool {
-    if branches.is_empty() {
-        return true;
-    }
-    match current_branch {
-        Some(b) => branches.iter().any(|pattern| pattern == b || glob_match(pattern, b)),
-        None => false,
-    }
-}
 
 /// Restituisce il timestamp unix corrente in millisecondi.
 fn now_millis() -> i64 {

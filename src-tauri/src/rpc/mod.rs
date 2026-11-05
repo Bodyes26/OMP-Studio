@@ -359,12 +359,6 @@ pub fn write_automation_session_config(
     Ok(config_path)
 }
 
-pub fn write_readonly_session_config(
-    rpc_id: u64,
-    readonly_extension_path: Option<&str>,
-) -> Result<std::path::PathBuf, String> {
-    write_automation_session_config(rpc_id, true, readonly_extension_path)
-}
 
 /// Sorgente dell'estensione OMP per il Laboratorio prototipi (broker scrittura confinata).
 pub const LAB_EXTENSION_TS: &str = include_str!("../../../extensions/studio-lab.ts");

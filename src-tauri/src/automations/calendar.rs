@@ -15,8 +15,7 @@
 //! - Risoluzione al minuto (minimo 1 minuto, nessuna frazione di secondo);
 //! - Prevenzione duplicati al riavvio di Studio o nello stesso minuto (AUT-039).
 
-use super::model::AutomationTrigger;
-use chrono::{DateTime, Datelike, LocalResult, NaiveDate, NaiveTime, TimeZone, Timelike};
+use chrono::{DateTime, Datelike, LocalResult, NaiveTime, TimeZone};
 use chrono_tz::Tz;
 
 /// Millisecondi in un minuto intero.

@@ -88,6 +88,8 @@ fn default_model() -> String {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "camelCase")]
+// Si mantiene il valore non boxed per preservare ergonomia e serializzazione diretta del modello serde.
+#[allow(clippy::large_enum_variant)]
 pub enum AutomationAction {
     #[serde(rename = "command")]
     Command(CommandAction),

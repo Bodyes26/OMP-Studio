@@ -128,9 +128,11 @@ pub fn categorize_window(window_id: &str, label: &str, duration_ms: Option<f64>)
     }
 }
 
+/// Alias di tipo per semplificare la firma della cache dei ruoli modello.
+type ModelRolesCache = LazyLock<Mutex<Option<(Instant, HashMap<String, String>)>>>;
+
 /// Legge la configurazione dei ruoli modello da ~/.omp/agent/config.yml (con cache 10s).
-static MODEL_ROLES_CACHE: LazyLock<Mutex<Option<(Instant, HashMap<String, String>)>>> =
-    LazyLock::new(|| Mutex::new(None));
+static MODEL_ROLES_CACHE: ModelRolesCache = LazyLock::new(|| Mutex::new(None));
 
 pub fn read_model_roles_cached() -> HashMap<String, String> {
     if let Ok(lock) = MODEL_ROLES_CACHE.lock() {
@@ -183,11 +185,9 @@ pub fn resolve_model_selector(model_or_role: &str, roles: &HashMap<String, Strin
 #[derive(Debug, Clone)]
 struct ParsedLimit {
     window_cat: &'static str,
-    window_id: String,
     remaining_pct: f64,
     remaining_amount: Option<f64>,
     limit_amount: Option<f64>,
-    is_exhausted: bool,
 }
 
 /// Dati estratti per un singolo account attivo.
@@ -404,11 +404,9 @@ pub fn evaluate_with_usage(
 
             account_limits.push(ParsedLimit {
                 window_cat,
-                window_id,
                 remaining_pct,
                 remaining_amount: rem_amt,
                 limit_amount: lim_amt,
-                is_exhausted,
             });
         }
 

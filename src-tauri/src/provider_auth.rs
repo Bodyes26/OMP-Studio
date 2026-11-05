@@ -462,7 +462,7 @@ async fn probe_commandcode(key: &str) -> &'static str {
     // Schannel usa le CA enterprise del sistema quando rustls non riesce a verificarle.
     #[cfg(target_os = "windows")]
     {
-        return commandcode_curl(key.to_string()).await;
+        commandcode_curl(key.to_string()).await
     }
     #[cfg(not(target_os = "windows"))]
     {

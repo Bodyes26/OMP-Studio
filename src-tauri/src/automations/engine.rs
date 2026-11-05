@@ -1,5 +1,5 @@
 use crate::automations::calendar;
-use crate::automations::events::{ObservedAutomationEvent, Observer};
+use crate::automations::events::Observer;
 use crate::automations::model::*;
 use crate::automations::quota;
 use crate::automations::runner::{self, CommandOutcome, CommandRequest};
@@ -230,7 +230,7 @@ impl Engine {
             return;
         }
         let last_retention = *self.last_retention_check_ms.lock();
-        if now_ms - last_retention > 3600_000 {
+        if now_ms - last_retention > 3_600_000 {
             *self.last_retention_check_ms.lock() = now_ms;
             let settings = self.storage.get_settings();
             self.storage.cleanup_retention(settings.retention_days, settings.output_total_bytes);
@@ -783,7 +783,7 @@ impl Engine {
         locks
             .get(&canonical_norm)
             .or_else(|| locks.get(&norm))
-            .map_or(false, |owner| lock_owner_blocks(owner, excluding_execution))
+            .is_some_and(|owner| lock_owner_blocks(owner, excluding_execution))
     }
 
     pub fn interactive_admission(&self, path: &str) -> Result<(), String> {
@@ -814,10 +814,10 @@ impl Engine {
         let norm = normalize_project_path(path);
 
         let mut locks = self.project_locks.lock();
-        if locks.get(&canonical_norm).map_or(false, |o| o == INTERACTIVE_LOCK_OWNER) {
+        if locks.get(&canonical_norm).is_some_and(|o| o == INTERACTIVE_LOCK_OWNER) {
             locks.remove(&canonical_norm);
         }
-        if locks.get(&norm).map_or(false, |o| o == INTERACTIVE_LOCK_OWNER) {
+        if locks.get(&norm).is_some_and(|o| o == INTERACTIVE_LOCK_OWNER) {
             locks.remove(&norm);
         }
     }
@@ -922,12 +922,12 @@ impl Engine {
             for req in reqs.values_mut() {
                 if req.status == "deferred" && req.operation == "close" {
                     let req_norm = normalize_project_path(&req.path);
-                    if released_paths.iter().any(|rp| normalize_project_path(rp) == req_norm) {
-                        if !self.is_project_locked(&req.path, None) {
-                            req.status = "requested".to_string();
-                            let _ = self.storage.save_project_request(req);
-                            to_emit.push(req.clone());
-                        }
+                    if released_paths.iter().any(|rp| normalize_project_path(rp) == req_norm)
+                        && !self.is_project_locked(&req.path, None)
+                    {
+                        req.status = "requested".to_string();
+                        let _ = self.storage.save_project_request(req);
+                        to_emit.push(req.clone());
                     }
                 }
             }
@@ -1094,7 +1094,8 @@ impl Engine {
             || (ctx.max_agent_count > 0 && ctx.interactive_agent_count >= ctx.max_agent_count);
 
         let active_cmds = self.running_commands.lock().len();
-        let active_ai = self.pending_ai_requests.lock().len();
+        // Conteggio richieste pendenti riservato per controlli futuri sui limiti di coda
+        let _active_ai = self.pending_ai_requests.lock().len();
 
         let mut occurrences = match self.storage.get_occurrences(50) {
             Ok(o) => o,
