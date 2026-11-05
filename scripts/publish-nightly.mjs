@@ -457,21 +457,31 @@ async function publish(opts) {
 		const afterInputs = snapshotBuildInputs();
 		const currentCommit = getCommitSha();
 		if (afterInputs.receipt !== buildInputs.receipt || currentCommit !== commitSha) {
-			if (afterInputs.receipt !== buildInputs.receipt) {
-				const beforeMap = new Map(buildInputs.entries.map(([n, ...rest]) => [n, rest.join(':')]));
-				const afterMap = new Map(afterInputs.entries.map(([n, ...rest]) => [n, rest.join(':')]));
-				const diffs = [];
-				for (const [k, v] of beforeMap) {
-					if (!afterMap.has(k)) diffs.push(`rimosso: ${k}`);
-					else if (afterMap.get(k) !== v) diffs.push(`modificato: ${k}`);
+			const beforeMap = new Map(buildInputs.entries.map(([n, ...rest]) => [n, rest.join(':')]));
+			const afterMap = new Map(afterInputs.entries.map(([n, ...rest]) => [n, rest.join(':')]));
+			const diffs = [];
+			for (const [k, v] of beforeMap) {
+				if (!afterMap.has(k)) {
+					diffs.push(`rimosso: ${k}`);
+				} else if (afterMap.get(k) !== v) {
+					if (VERSION_FILES.includes(k)) {
+						const text = read(k);
+						const applied = edits.find(([rel]) => rel === k)?.[1];
+						if (applied && text.replace(/\r\n/g, '\n') === applied.replace(/\r\n/g, '\n')) {
+							continue;
+						}
+					}
+					diffs.push(`modificato: ${k}`);
 				}
-				for (const [k] of afterMap) {
-					if (!beforeMap.has(k)) diffs.push(`aggiunto: ${k}`);
-				}
-				if (afterInputs.envSig !== buildInputs.envSig) diffs.push('envSignature cambiata');
-				console.error(`Differenze input build: ${diffs.join(', ')}`);
 			}
-			throw new Error('Sorgenti o commit cambiati durante la build: installer non pubblicato.');
+			for (const [k] of afterMap) {
+				if (!beforeMap.has(k)) diffs.push(`aggiunto: ${k}`);
+			}
+			if (afterInputs.envSig !== buildInputs.envSig) diffs.push('envSignature cambiata');
+			if (diffs.length > 0 || currentCommit !== commitSha) {
+				console.error(`Differenze input build: ${diffs.join(', ')}`);
+				throw new Error('Sorgenti o commit cambiati durante la build: installer non pubblicato.');
+			}
 		}
 
 		// 3. Individuazione installer e preparazione staging piatto con nomi normalizzati a punti
