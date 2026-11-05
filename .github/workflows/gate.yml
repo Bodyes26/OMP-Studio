@@ -47,8 +47,11 @@ jobs:
       - name: Smoke test delle funzionalita critiche
         run: npm run test:smoke
 
+      # GHSA-gcqx-w48m-w2h4 (deepmerge, bassa): arriva solo da @sveltejs/vite-plugin-svelte
+      # in fase di build e non esiste una versione corretta (4.3.1 e' l'ultima, 2026-11-05).
+      # Toglierlo quando deepmerge o il plugin pubblicano una correzione.
       - name: Vulnerabilita delle dipendenze
-        run: bun audit
+        run: bun audit --ignore=GHSA-gcqx-w48m-w2h4
 
       - name: Igiene del diff dell'ultimo commit
         run: git diff --check HEAD^ HEAD
