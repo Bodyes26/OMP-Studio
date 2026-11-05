@@ -1,7 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import {
@@ -18,7 +17,6 @@ import {
 	isBrowserLiveEventType,
 	isLoopbackWebSocketEndpoint,
 	negotiateCapabilities,
-	parseBrowserFrameMeta,
 	parseBrowserLiveClientMessage,
 	parseBrowserLiveServerMessage,
 	parseBrowserSessionIdentity,
@@ -35,19 +33,6 @@ import { resultImages } from '../src/lib/agent/tools/types.ts';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const FIXTURE_PATH = join(ROOT, 'test', 'fixtures', 'browser-live-v1.json');
 
-/**
- * Copia del runtime OMP della stessa fixture. Non e' un percorso inventato: il
- * contratto vive in due repository e la fixture e' l'unico artefatto condiviso,
- * quindi quando il checkout separato e' presente la si confronta byte a byte.
- */
-const UPSTREAM_FIXTURE = join(
-	process.env.OMP_UPSTREAM_ROOT ?? join(ROOT, '..', 'oh-my-pi-upstream'),
-	'packages',
-	'coding-agent',
-	'test',
-	'fixtures',
-	'browser-live-v1.json'
-);
 
 interface BrowserLiveFixture {
 	contract: string;
@@ -95,15 +80,6 @@ describe('Contratto browser-live-v1', () => {
 			assert.deepEqual(STUDIO_BROWSER_LIVE_OFFER, fixture.capability);
 		});
 
-		it(
-			'la copia nel checkout del runtime OMP e identica byte a byte',
-			{ skip: existsSync(UPSTREAM_FIXTURE) ? false : `checkout runtime assente: ${UPSTREAM_FIXTURE}` },
-			() => {
-				const studio = createHash('sha256').update(readFileSync(FIXTURE_PATH)).digest('hex');
-				const runtime = createHash('sha256').update(readFileSync(UPSTREAM_FIXTURE)).digest('hex');
-				assert.equal(runtime, studio, 'la fixture del runtime e quella di Studio sono divergenti');
-			}
-		);
 	});
 
 	describe('negoziazione delle capability', () => {

@@ -688,7 +688,6 @@ mod tests {
     static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
     static SEED_FIXTURE_PATH: OnceLock<PathBuf> = OnceLock::new();
 
-    const FIXTURE_WORKTREE_CONFIG: &str = "\n[user]\n\tname = OMP Studio Test\n\temail = test@coldiretti.invalid\n[commit]\n\tgpgsign = false\n[core]\n\tautocrlf = false\n[maintenance]\n\tauto = false\n[gc]\n\tauto = 0\n";
     const FIXTURE_BARE_CONFIG: &str = "\n[maintenance]\n\tauto = false\n[gc]\n\tauto = 0\n";
 
     fn append_repo_config(git_config_path: &Path, content: &str) {
@@ -786,6 +785,35 @@ mod tests {
         output
     }
 
+    fn run_git_test_cmd_with_stdin(cwd: &Path, args: &[&str], stdin_data: &[u8]) -> std::process::Output {
+        use std::io::Write;
+        let mut command = Command::new("git");
+        command.current_dir(cwd).args(args);
+        command.stdin(std::process::Stdio::piped());
+        command.stdout(std::process::Stdio::piped());
+        command.stderr(std::process::Stdio::piped());
+        #[cfg(target_os = "windows")]
+        command.creation_flags(CREATE_NO_WINDOW);
+        let mut child = command
+            .spawn()
+            .expect("git deve essere disponibile nell'ambiente di test");
+        if let Some(mut stdin) = child.stdin.take() {
+            stdin.write_all(stdin_data).expect("scrittura stdin git");
+        }
+        let output = child
+            .wait_with_output()
+            .expect("attesa completamento comando git");
+        assert!(
+            output.status.success(),
+            "git {:?} fallito in {:?}:\nstdout: {}\nstderr: {}",
+            args,
+            cwd,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        output
+    }
+
     struct TestGitSetup {
         container: PathBuf,
         work_a: PathBuf,
@@ -798,10 +826,41 @@ mod tests {
         }
     }
 
-    fn init_configured_repo(path: &Path) {
-        fs::create_dir_all(path).unwrap();
-        run_git_test_cmd(path, &["init"]);
-        append_repo_config(&path.join(".git").join("config"), FIXTURE_WORKTREE_CONFIG);
+    fn fast_rev_parse(dir: &Path, rev: &str) -> Option<String> {
+        let dot_git = dir.join(".git");
+        if !dot_git.is_dir() {
+            return None;
+        }
+        if rev == "HEAD" {
+            let head_file = dot_git.join("HEAD");
+            let head = fs::read_to_string(head_file).ok()?;
+            let trimmed = head.trim();
+            if trimmed.len() == 40 && trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
+                return Some(trimmed.to_string());
+            }
+            if let Some(ref_rel) = trimmed.strip_prefix("ref: ") {
+                let ref_path = dot_git.join(ref_rel.trim());
+                if let Ok(c) = fs::read_to_string(ref_path) {
+                    let sha = c.trim();
+                    if sha.len() == 40 && sha.chars().all(|c| c.is_ascii_hexdigit()) {
+                        return Some(sha.to_string());
+                    }
+                }
+            }
+        } else if rev == "origin/main" || rev == "refs/remotes/origin/main" {
+            let ref_path = dot_git.join("refs").join("remotes").join("origin").join("main");
+            if let Ok(c) = fs::read_to_string(ref_path) {
+                let sha = c.trim();
+                if sha.len() == 40 && sha.chars().all(|c| c.is_ascii_hexdigit()) {
+                    return Some(sha.to_string());
+                }
+            }
+        }
+        None
+    }
+
+    fn test_rev_parse(dir: &Path, rev: &str) -> String {
+        fast_rev_parse(dir, rev).unwrap_or_else(|| run_git_in(dir, &["rev-parse", rev]).unwrap())
     }
 
     fn get_seed_fixture_path() -> &'static Path {
@@ -813,43 +872,50 @@ mod tests {
             remove_dir_all_force(&seed_container);
             fs::create_dir_all(&seed_container).expect("creazione cartella seed git");
 
+            // 1. Inizializza remote bare con branch iniziale main
             let remote_bare = seed_container.join("remote.git");
             fs::create_dir_all(&remote_bare).expect("creazione remote.git seed");
-            run_git_test_cmd(&remote_bare, &["init", "--bare"]);
+            run_git_test_cmd(
+                &remote_bare,
+                &[
+                    "-c",
+                    "init.defaultRefFormat=files",
+                    "init",
+                    "--bare",
+                    "--initial-branch=main",
+                    "--object-format=sha1",
+                ],
+            );
             append_repo_config(&remote_bare.join("config"), FIXTURE_BARE_CONFIG);
 
+            // 2. Importa il commit iniziale con git fast-import (singolo processo batch nativo)
+            const FAST_IMPORT_STREAM: &[u8] = b"commit refs/heads/main\ncommitter OMP Studio Test <test@coldiretti.invalid> 1700000000 +0000\ndata 15\ninitial commit\nM 644 inline initial.txt\ndata 3\nv1\n\n";
+            run_git_test_cmd_with_stdin(&remote_bare, &["fast-import", "--quiet"], FAST_IMPORT_STREAM);
+
+            // 3. work_a: copia indipendente del remote.git bare dentro work_a/.git
             let work_a = seed_container.join("work_a");
-            init_configured_repo(&work_a);
-            fs::write(work_a.join("initial.txt"), "v1\n").expect("scrittura initial.txt seed");
-            run_git_test_cmd(&work_a, &["add", "."]);
-            run_git_test_cmd(&work_a, &["commit", "-m", "initial commit"]);
-            run_git_test_cmd(&work_a, &["branch", "-M", "main"]);
-            run_git_test_cmd(&work_a, &["remote", "add", "origin", "../remote.git"]);
-            run_git_test_cmd(&work_a, &["push", "-u", "origin", "main"]);
-            run_git_test_cmd(&remote_bare, &["symbolic-ref", "HEAD", "refs/heads/main"]);
+            let work_a_git = work_a.join(".git");
+            copy_dir_all(&remote_bare, &work_a_git).expect("copia bare in work_a/.git");
 
+            // Scrive il tracking ref refs/remotes/origin/main corrispondente
+            let head_commit = fs::read_to_string(work_a_git.join("refs").join("heads").join("main"))
+                .expect("lettura commit main");
+            let origin_remotes = work_a_git.join("refs").join("remotes").join("origin");
+            fs::create_dir_all(&origin_remotes).expect("creazione refs/remotes/origin");
+            fs::write(origin_remotes.join("main"), head_commit.trim_end().to_string() + "\n")
+                .expect("scrittura refs/remotes/origin/main");
+
+            // Configurazione completa in batch per work_a: bare=false, user, maintenance, origin, branch tracking
+            const WORKTREE_FULL_CONFIG: &str = "[core]\n\trepositoryformatversion = 0\n\tfilemode = false\n\tbare = false\n\tlogallrefupdates = true\n\tautocrlf = false\n[user]\n\tname = OMP Studio Test\n\temail = test@coldiretti.invalid\n[commit]\n\tgpgsign = false\n[maintenance]\n\tauto = false\n[gc]\n\tauto = 0\n[remote \"origin\"]\n\turl = ../remote.git\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n[branch \"main\"]\n\tremote = origin\n\tmerge = refs/heads/main\n";
+            fs::write(work_a_git.join("config"), WORKTREE_FULL_CONFIG)
+                .expect("scrittura config work_a");
+
+            // Materializza index e working tree in work_a con un singolo reset --hard HEAD
+            run_git_test_cmd(&work_a, &["reset", "--hard", "HEAD"]);
+
+            // 4. work_b: copia indipendente di work_a (zero processi Git)
             let work_b = seed_container.join("work_b");
-            run_git_test_cmd(
-                &seed_container,
-                &["-c", "core.autocrlf=false", "clone", "./remote.git", "work_b"],
-            );
-
-            // Reindirizza origin di work_b a ../remote.git e applica la configurazione batch
-            let work_b_cfg_path = work_b.join(".git").join("config");
-            let cfg_content = fs::read_to_string(&work_b_cfg_path)
-                .expect("lettura configurazione work_b seed");
-            let mut rewritten_lines = Vec::new();
-            for line in cfg_content.lines() {
-                if line.trim_start().starts_with("url =") {
-                    rewritten_lines.push("\turl = ../remote.git");
-                } else {
-                    rewritten_lines.push(line);
-                }
-            }
-            let mut updated_cfg = rewritten_lines.join("\n");
-            updated_cfg.push_str(FIXTURE_WORKTREE_CONFIG);
-            fs::write(&work_b_cfg_path, updated_cfg)
-                .expect("scrittura configurazione work_b seed");
+            copy_dir_all(&work_a, &work_b).expect("copia indipendente work_b seed");
 
             seed_container
         }).as_path()
@@ -1024,7 +1090,7 @@ mod tests {
         run_git_test_cmd(&setup.work_b, &["commit", "-m", "commit Y"]);
 
         // Albero di lavoro in work_b è pulito (tutto committato), ma diverso da upstream
-        let head_before = run_git_in(&setup.work_b, &["rev-parse", "HEAD"]).unwrap();
+        let head_before = test_rev_parse(&setup.work_b, "HEAD");
 
         // 3. fetch-background rileva la divergenza
         git_sync_repo(path_b_str.clone(), "fetch-background".to_string())
@@ -1040,7 +1106,7 @@ mod tests {
         assert!(pull_res.is_err(), "pull-ff deve rifiutare rami divergenti");
 
         // 5. Verifica che HEAD sia preservato inalterato
-        let head_after = run_git_in(&setup.work_b, &["rev-parse", "HEAD"]).unwrap();
+        let head_after = test_rev_parse(&setup.work_b, "HEAD");
         assert_eq!(
             head_before, head_after,
             "HEAD deve essere rigorosamente preservato"
@@ -1147,7 +1213,7 @@ mod tests {
         run_git_test_cmd(&setup.work_b, &["commit", "-m", "other"]);
         fs::write(setup.work_b.join("other.txt"), "modifica in corso\n").unwrap();
         fs::write(setup.work_b.join("untracked.txt"), "nuovo\n").unwrap();
-        let head_before = run_git_in(&setup.work_b, &["rev-parse", "HEAD"]).unwrap();
+        let head_before = test_rev_parse(&setup.work_b, "HEAD");
 
         let res = git_sync_repo(path_b_str.clone(), "pull".to_string()).await;
         let err = res.expect_err("il pull in conflitto deve fallire");
@@ -1161,7 +1227,7 @@ mod tests {
             "il rebase deve essere annullato"
         );
         assert_eq!(
-            run_git_in(&setup.work_b, &["rev-parse", "HEAD"]).unwrap(),
+            test_rev_parse(&setup.work_b, "HEAD"),
             head_before
         );
         assert_eq!(
@@ -1179,10 +1245,10 @@ mod tests {
         assert!(stash_list(&setup.work_b).is_empty());
 
         // sync non deve pubblicare nulla se il pull fallisce
-        let remote_head = run_git_in(&setup.work_a, &["rev-parse", "HEAD"]).unwrap();
+        let remote_head = test_rev_parse(&setup.work_a, "HEAD");
         let sync = git_sync_repo(path_b_str, "sync".to_string()).await;
         assert!(sync.is_err());
-        let remote_after = run_git_in(&setup.work_b, &["rev-parse", "origin/main"]).unwrap();
+        let remote_after = test_rev_parse(&setup.work_b, "origin/main");
         assert_eq!(
             remote_after, remote_head,
             "sync non deve fare push dopo un pull fallito"
@@ -1241,6 +1307,31 @@ mod tests {
         )
         .to_string();
         assert_eq!(stashed, "modifica locale\n");
+    }
+
+    #[tokio::test]
+    async fn test_fixture_seed_independent_copies_isolation() {
+        let setup1 = setup_test_repos();
+        let setup2 = setup_test_repos();
+
+        assert_ne!(setup1.container, setup2.container);
+        assert_ne!(setup1.work_a, setup2.work_a);
+        assert_ne!(setup1.work_b, setup2.work_b);
+
+        fs::write(setup1.work_a.join("mutated_a.txt"), "mutazione a\n").unwrap();
+        run_git_test_cmd(&setup1.work_a, &["add", "."]);
+        run_git_test_cmd(&setup1.work_a, &["commit", "-m", "mutation on setup1 work_a"]);
+        fs::write(setup1.work_b.join("mutated_b.txt"), "mutazione b\n").unwrap();
+
+        assert!(!setup2.work_a.join("mutated_a.txt").exists());
+        assert!(!setup2.work_b.join("mutated_b.txt").exists());
+        assert!(!setup1.work_a.join("mutated_b.txt").exists());
+        assert!(!setup1.work_b.join("mutated_a.txt").exists());
+
+        let status2_a = run_git_test_cmd(&setup2.work_a, &["status", "--porcelain"]);
+        assert!(status2_a.stdout.is_empty());
+        let status2_b = run_git_test_cmd(&setup2.work_b, &["status", "--porcelain"]);
+        assert!(status2_b.stdout.is_empty());
     }
 
     #[tokio::test]

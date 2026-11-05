@@ -5,6 +5,142 @@ Documento operativo. Traccia l'evoluzione del prodotto, il piano di stabilizzazi
 **Leggere prima:** `PRODUCT.md` (visione e perimetro), `DESIGN.md` (sistema visivo e token), `ARCHITECTURE.md` (architettura tecnica).
 
 ---
+## Nightly locale Windows — accelerazione delle verifiche e del rilascio
+
+**Data:** 2026-11-05. **Stato:** implementazione approvata dall'utente («ok procedi pure») e in corso; nessuna autorizzazione a pubblicare. Registro: [NLC-001…010](requisiti/nightly-locale.md).
+
+### Obiettivo, perimetro e invarianti
+
+Ridurre l'attesa locale completa, non soltanto il tempo di `npm run nightly`: includere i controlli eseguiti dall'agente prima del commit e il tempo fino alla disponibilita dell'installer Windows. Priorita ai processi Git e ai test Rust sulla workstation con Sophos. Nessuna promessa di durata prima dei confronti.
+
+- Non cambiare i workflow cloud o le piattaforme pubblicate, non disabilitare Sophos e non aggiungere esclusioni antivirus.
+- Non estendere l'intervento al comportamento Git di produzione, al polling dell'app o a una riscrittura del backend.
+- Non togliere scenari Git/worktree, non aggiungere skip per velocizzare e non trasformare failure in warning.
+- Non usare il diario reale, gli archivi personali delle sessioni o repository operativi come fixture.
+- Non avviare una seconda istanza desktop; non cancellare target o eseguibili in uso per simulare una cache fredda.
+- Non fare bump, commit, push, tag o upload senza autorizzazione esplicita. Il lavoro parcheggiato resta intatto.
+
+### Punto di partenza e flusso da correggere
+
+Misure locali del 2026-11-05: suite JS 73,0 s (55,1 s in sources del diario); controllo tipi 89,7 s; catalogo comandi 4,4 s; sola compilazione lib-test Rust 55,4 s. Sources con archivio temporaneo isolato: 135 ms. Non sono misure dell'intero rilascio. La suite JS ha un fallimento noto sul percorso Windows lungo/8.3; il controllo tipi ha 6 warning e la compilazione lib-test 16: separarli dalle regressioni introdotte.
+
+Il protocollo dell'agente richiede verifiche prima della pubblicazione. `scripts/publish-nightly.mjs` ripete il catalogo comandi, controlla le icone, applica la versione temporanea e avvia Tauri: frontend, Rust con profilo nightly, NSIS e upload. Non esegue direttamente `cargo test`. Il profilo dei test e quello dell'installer sono distinti. Il runner Rust e gia parallelo; il runner JS passa invece un solo aggregatore a Node.
+
+### Contratto operativo proposto
+
+- Nuovo comando **`npm run verify:nightly`**, implementato in `scripts/verify-nightly.mjs`: sola verifica, nessuna pubblicazione; utilizzabile sul working tree non committato.
+- **`npm run verify:nightly -- --full`**: forza tutte le verifiche senza riuso di esiti precedenti. Resta la via diagnostica e di accettazione finale.
+- `npm run check`, `npm test`, `npm run check:commands` e i comandi Cargo individuali restano funzionanti autonomamente; il runner non deve richiamare se stesso tramite questi comandi.
+- `npm run nightly` usa lo stesso preflight prima delle mutazioni di versione. Se esiste una prova valida, riusa solo i gate equivalenti e dichiara quali; altrimenti li esegue. Non aggiungere un generico `--skip-tests`.
+- Esiti per gate: **eseguito / riusato con prova / fallito / non avviato**. Nessun «tutto passato» se un controllo non e stato eseguito o riusato legittimamente.
+- File locale ignorato, proposto `.omp/cache/nightly-verification.json`: solo fingerprint, versione dello schema, comandi, durate, ambiente rilevante e risultati; niente credenziali o contenuti di documenti/sessioni. Non e una firma di sicurezza e non sostituisce il gate completo della stabile.
+- Una sola verifica/pubblicazione locale per workspace alla volta, con lock e recupero sicuro dopo interruzione; non interferire con i lock dei progetti aperti in Studio.
+
+### Mappa di conservazione dei requisiti
+
+| ID | Destinazione | Esito del piano |
+|---|---|---|
+| NLC-001, NLC-010 | NL0, NL1, NL8 | Mantenuti: tempi completi e confronto locale |
+| NLC-002 | NL1, NL6, NL7 | Mantenuto: comando standard, niente ripetizioni equivalenti |
+| NLC-003 | NL2 | Mantenuto: test della funzione Diario, non del diario del progetto |
+| NLC-004 | NL3 | Mantenuto: meno processi Git nelle sole fixture |
+| NLC-005 | NL4, NL5 | Mantenuto: parallelismo controllato, niente competizione Cargo |
+| NLC-006 | NL6 | Mantenuto: riuso nativo solo con input identici e prova completa |
+| NLC-007 | Tutte le fasi | Mantenuto: copertura ed errori bloccanti |
+| NLC-008, NLC-009 | NL0, NL7, NL8 | Mantenuti: perimetro locale e pubblicazione protetta |
+
+Nessuna rimozione di requisito. La sostituzione dell'aggregatore JS non elimina test; eventuali rimozioni di controlli che non risultino realmente equivalenti richiedono decisione separata, non questa tabella.
+
+### Fasi operative
+
+#### NL0 — Baseline riproducibile e inventario degli input (NLC-001, 007…010)
+
+- Leggere il registro NLC e controllare le modifiche utente nei percorsi coinvolti. Inventariare i gate reali e i caller di runner, publisher e script npm, inclusi i test e la documentazione operativa.
+- Registrare toolchain, feature/target, cache calda o fredda e contesa di altri processi; non attribuire un tempo a Sophos senza prova specifica. Il vincolo operativo resta quello segnalato dall'utente.
+- Per Rust separare preparazione lib-test e runtime usando il percorso dell'harness emesso da Cargo, non un nome hash fisso. Il programma desktop non deve mai essere lanciato.
+- Per gli scenari Git usare Trace2 verso file temporanei locali, contando anche processi figli e distinguendo setup, operazione verificata, assert e cleanup. Non contare soltanto gli spawn espliciti nel codice.
+- Non rieseguire una suite lenta solo per riconfermare la segnalazione: partire dalle evidenze note e raccogliere la baseline mancante durante il primo confronto necessario; misure storiche e attuali restano distinte.
+- **Uscita:** elenco dei controlli, input da invalidare, scenari rappresentativi e baseline con limiti espliciti. Nessun numero storico spacciato per risultato corrente.
+
+#### NL1 — Orchestratore standard e tempi per fase (NLC-001, 002, 009, 010)
+
+- Aggiungere `scripts/verify-nightly.mjs` e il comando npm; usare Node e argomenti strutturati, nessuna dipendenza nuova o PowerShell.
+- Prima implementare il percorso completo equivalente all'attuale, senza cache di esiti e senza ridurre controlli. Distinguere gate frontend, catalogo/icone, versioni e gate nativi.
+- Non anteporre automaticamente `cargo check` a `cargo test` se target e feature coperti sono equivalenti; mantenere separatamente ogni verifica aggiuntiva realmente necessaria emersa nell'inventario.
+- Raccogliere tempi monotoni per gate e durata totale; log distinti e limitati per job, exit code corretto, errore di spawn esplicito, annullamento dei figli e nessuna prova verde dopo interruzione.
+- **Uscita:** il comando reale su una copia temporanea del progetto rileva un errore deliberato in un gate e termina non-zero; il percorso valido esegue tutti i gate previsti una sola volta. Copia temporanea dentro `ricerca/`, nessuna pubblicazione.
+
+#### NL2 — Isolamento del Diario e confronto dei percorsi Windows (NLC-003, 007)
+
+- In `test/studio-docs.test.ts` assegnare `PI_CODING_AGENT_DIR` a una cartella temporanea per la fixture, ripristinando l'ambiente anche in caso di errore; usare archivi e sessioni sintetici, senza leggere quelli reali.
+- Coprire sources con documenti e sessioni appartenenti a due progetti: include quelle giuste, esclude quelle estranee, non modifica file. Dimostrare che un archivio personale configurato esternamente non viene aperto.
+- Canonicalizzare entrambi i lati del confronto sul worktree Windows; verificare l'identita della directory, non eliminare l'asserzione o imporre un formato testuale incidentale.
+- Non modificare il contenuto del diario del progetto ne il comportamento della funzione in produzione per aggirare il test.
+- **Uscita:** scenario funzionale isolato e worktree lungo/8.3 verdi; confronto del tempo di sources; archivio reale non consultato.
+
+#### NL3 — Meno avvii Git nelle fixture Rust (NLC-004, 007, 008, 010)
+
+- Partire da `src-tauri/src/github/sync.rs` e `src-tauri/src/projects/worktrees.rs`. Ci sono gia seed OnceLock, configurazioni batch e manutenzione automatica disabilitata nelle fixture: misurare cio che resta.
+- Sostituire letture separate solo quando un comando strutturato restituisce davvero gli stessi dati: ad esempio status porcelain v2 con branch oppure for-each-ref con piu campi. Usare delimitatori robusti per nomi con spazi e Unicode; non introdurre parsing dell'output destinato all'utente.
+- Evitare processi `git config` per chiave; impostare branch iniziale in init e parametri per la singola invocazione dove equivalenti. Non scrivere configurazioni globali.
+- Riutilizzare seed immutabili per processo di test e copie indipendenti; ridurre file e commit del setup al minimo necessario. Non condividere worktree mutabili o usare hard link sugli oggetti senza una prova d'isolamento.
+- Non usare shell/alias per fingere un batch: add, commit e push restano processi distinti. Non sostituire Git reale nelle operazioni che il test deve verificare.
+- Un helper comune solo se elimina duplicazione reale tra le due fixture, senza framework generale di test o refactoring dei comandi di produzione.
+- **Uscita:** meno processi nella preparazione degli scenari scelti e confronto wall-time; pull reale, rifiuto dirty/untracked, modifiche preservate, creazione/elenco/rimozione, unborn/detached e worktree concorrenti mantengono gli stessi esiti. Misurare setup e scenario completo: non occultare il costo del seed.
+
+#### NL4 — Test JS isolati per file e preparazione condivisa (NLC-002, 005, 007)
+
+- In `scripts/run-smoke-tests.mjs` scoprire automaticamente i file di test e passarli a `node:test`, preservando loader alias e shim rune per ogni processo.
+- Migrare eventuale setup dell'aggregatore; rimuovere solo l'aggregatore reso obsoleto. Nessun file eseguito due volte o dimenticato; conservare la copertura della scoperta automatica.
+- Preparare traduzioni e Svelte Kit una sola volta prima dei consumatori. I comandi standalone restano autosufficienti; il preflight invoca lo stesso codice condiviso senza rigenerare file mentre altri job li leggono.
+- Confrontare 1, 2 e 4 processi sullo stesso insieme di test. Scegliere il limite con misure, non con il numero di core; se peggiora, conservare il valore piu basso. Non parallelizzare nello stesso processo suite che mutano window, document, environment e store.
+- **Uscita:** stessi test selezionati/esiti, nuova scoperta automatica funzionante, nessuna dipendenza dall'ordine e miglioramento locale dimostrato oppure configurazione seriale mantenuta con motivazione.
+
+#### NL5 — Sovrapposizione controlli indipendenti e costo Cargo (NLC-001, 005, 007, 010)
+
+- Dopo la preparazione comune, sovrapporre un ramo frontend e uno Rust; catalogo/icone possono stare nel ramo leggero senza aggiungere altri job pesanti indiscriminatamente.
+- Non eseguire Cargo check/test/build contemporaneamente sulla stessa target directory. Compilazione test e installer restano sequenziali; non duplicare target directory per mascherare un lock.
+- Mantenere la cache Cargo locale, senza clean. Valutare il costo debug/link del profilo test (anche simboli di debug ridotti) con un confronto dedicato, senza cambiare ottimizzazione o comportamento dell'app distribuita e senza applicare modifiche al profilo solo per supposizione.
+- Misurare la concorrenza Rust corrente e limiti conservativi sugli scenari con molti processi Git: meno thread puo essere piu veloce sotto scansione; non forzare la serializzazione dell'intera suite senza confronto.
+- **Uscita:** nessuna contesa Cargo o rigenerazione i18n; tempi separati e wall-time end-to-end; configurazione scelta documentata. Nessuna promessa di sommare linearmente i risparmi delle singole fasi.
+
+#### NL6 — Riuso conservativo delle verifiche riuscite (NLC-002, 006, 007, 009)
+
+- Definire fingerprint per gate, calcolati dai contenuti effettivi del working tree inclusi file non tracciati rilevanti, non da mtime o solo dall'ultimo commit.
+- Inventariare input Rust: sorgenti/test, moduli e include esterni, manifest/lock, build.rs, configurazione Cargo/Tauri/capability/risorse lette dalla build, target/feature, compiler/linker/SDK e variabili rilevanti. Quando la dipendenza non e classificabile, invalidare conservativamente; nessuna assunzione «solo .rs».
+- Per il gate JS includere test, runner/loader, moduli consumati, messaggi/configurazione i18n e lock/toolchain; nessun riuso del catalogo live tra invocazioni senza un'identita verificabile del binario/configurazione omp. In prima implementazione rieseguire quel controllo economico.
+- Salvare atomicamente solo risultati completi riusciti, in directory ignorata da Git; hash prima e dopo l'esecuzione. Mutazione durante il gate, schema sconosciuto, file mancante/corrotto, errore o annullamento invalidano il riuso.
+- Una prova puo sopravvivere al commit dello stesso contenuto, non a un cambiamento dei suoi input. Nessun riuso attraverso la mutazione di versione Nightly senza equivalenza esplicitamente dimostrata: non escludere globalmente i file versione dai fingerprint.
+- **Uscita:** modifica frontend riusa il gate Rust solo se input invariati; modifica Rust, test, dipendenza, build.rs, include, feature, toolchain o configurazione lo riesegue; `--full` ignora la prova. Scenari fail-closed e corruzione coperti da test comportamentali.
+
+#### NL7 — Integrazione nel publisher e allineamento del protocollo (NLC-002, 007…009)
+
+- Collegare `scripts/publish-nightly.mjs` al preflight comune prima di cambiare versioni, compilare o pubblicare; mantenere working tree pulito per l'installer pubblicato, ripristino versioni, checksum e identita commit.
+- Evitare il doppio catalogo comandi/icone nella stessa esecuzione; eliminare codice duplicato dopo migrazione, senza usare come scorciatoia i flag di emergenza esistenti.
+- Il preflight sul lavoro non committato non committa. Dopo autorizzazione, commit e push, il publisher rivalida gli input: riusa solo prove ancora valide sul contenuto finale.
+- Aggiornare istruzioni operative e regole dell'agente insieme al cutover, per sostituire la sequenza manuale con il comando standard; usare la skill writing-for-agents prima di modificare le regole. Le regole correnti restano valide fino al cutover.
+- Stabile e CI mantengono i propri gate completi: nessun bypass della release stabile. Lasciare invariati i workflow e il completamento automatico degli altri OS.
+- **Uscita:** dry-run reale su copia temporanea del repo sotto `ricerca/`, con versioni temporanee ma senza upload; fallimento o Ctrl+C non pubblicano e ripristinano lo stato. Nessuna modifica a eseguibili dell'app in uso.
+
+#### NL8 — Accettazione integrata e consegna (NLC-001…010)
+
+- Eseguire una sola verifica completa sullo stato finale (`--full`), senza distribuire suite globali ripetute tra subagenti; prima restano necessari gli scenari mirati degli interventi.
+- Confrontare: verifica completa senza riuso; seconda verifica identica; modifica soltanto frontend; modifica nativa; modifica toolchain/configurazione; prova corrotta; interruzione. Le mutazioni di prova vivono solo nella copia temporanea.
+- Report con durate per fase e totale, processi Git setup/scenario, cache/prove riusate, esiti, warning preesistenti e limiti. Nessuna soglia «sotto 5 secondi» non dimostrata.
+- Non misurare upload o dichiarare il rilascio completo senza autorizzazione: il dry-run prova fino all'installer; il primo rilascio autorizzato aggiunge la misura della disponibilita dell'asset Windows.
+- Aggiornare registro NLC con le prove, istruzioni di uso e diario. Changelog IT/EN solo per cambiamenti rivolti all'utente dell'app; sole modifiche di tooling/documentazione non richiedono bump o voce secondo le regole del repo.
+- **Uscita:** tutti i requisiti verificati oppure limite esplicito non dichiarato chiuso; nessuno scenario funzionale rimosso; nessuna regressione nascosta. La decisione di pubblicazione e separata dal completamento tecnico.
+
+### Ordine e parallelismo del lavoro
+
+NL0 → NL1 → NL2/NL3 → NL4 → NL5 → NL6 → NL7 → NL8. Dopo l'inventario, NL2 (fixture Diario) e NL3 (fixture Git) sono indipendenti e possono essere implementati da agenti distinti; un solo proprietario integra runner, package.json e publisher. I moduli di fixture non devono essere riscritti contemporaneamente da piu agenti. Nessuna build/lint/suite globale nei lavori delegati; verifica integrata una volta dopo l'integrazione.
+
+### Criterio di successo complessivo
+
+La Nightly locale richiede meno attesa misurata, soprattutto quando il backend e gia stato verificato e cambia solo il frontend. I miglioramenti devono derivare da meno I/O/processi e da riuso provato, non dalla scomparsa di test o dai gate saltati. Se una tecnica non migliora il tempo o rende l'invalidazione incerta, non viene attivata; si conserva il percorso completo corretto e si registra il motivo.
+
+---
+
 
 ## Piano di stabilizzazione 1.2.1 — audit NO-GO
 

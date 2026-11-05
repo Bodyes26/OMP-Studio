@@ -11,6 +11,7 @@
 //     (inspect/inspector-client.js, protocollo `inspect_*` v2, Gate R42).
 
 import inspectorSource from './inspect/inspector-client.js?raw';
+import { PREVIEW_SHORTCUT_SCRIPT } from '../shortcuts/previewShortcuts.ts';
 
 /** Sorgente dell'ispettore pronto per un `<script type="module">` inline. */
 export function buildInspectorModule(source: string = inspectorSource): string {
@@ -42,6 +43,7 @@ export function buildLabPreviewHtml(options: LabPreviewHtmlOptions): string {
 	return `<!doctype html>
 <html lang="it">
 <head>
+  ${PREVIEW_SHORTCUT_SCRIPT}
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${escapeHtml(title)}</title>

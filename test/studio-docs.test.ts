@@ -34,6 +34,13 @@ const NOW = new Date(2026, 9, 8, 15, 30);
 const LATER = new Date(2026, 9, 9, 9, 0);
 
 let root: string;
+let mockAgentDir: string;
+let originalAgentDir: string | undefined;
+
+function canonicalPath(p: string): string {
+	const real = realpathSync.native(p).replace(/\\/g, '/').replace(/\/+$/, '');
+	return process.platform === 'win32' ? real.toLowerCase() : real;
+}
 
 function write(rel: string, text: string) {
 	mkdirSync(join(root, rel, '..'), { recursive: true });
@@ -46,10 +53,25 @@ function read(rel: string): string {
 
 beforeEach(() => {
 	root = mkdtempSync(join(tmpdir(), 'omp-studio-docs-'));
+	mockAgentDir = mkdtempSync(join(tmpdir(), 'omp-agent-fixture-'));
+	originalAgentDir = process.env.PI_CODING_AGENT_DIR;
+	process.env.PI_CODING_AGENT_DIR = mockAgentDir;
 });
 
 afterEach(() => {
-	rmSync(root, { recursive: true, force: true });
+	try {
+		rmSync(root, { recursive: true, force: true });
+	} finally {
+		try {
+			rmSync(mockAgentDir, { recursive: true, force: true });
+		} finally {
+			if (originalAgentDir === undefined) {
+				delete process.env.PI_CODING_AGENT_DIR;
+			} else {
+				process.env.PI_CODING_AGENT_DIR = originalAgentDir;
+			}
+		}
+	}
 });
 
 describe('Diario: manifest e inizializzazione', () => {
@@ -247,13 +269,83 @@ describe('Diario: tool project_docs', () => {
 		assert.equal(bad.isError, true);
 	});
 
-	it('sources elenca documentazione e git senza scrivere niente', async () => {
+	it('sources elenca documentazione e git senza scrivere niente, isolato da archivi esterni', async () => {
 		write('README.md', '# Progetto\n');
 		write('docs/guida.md', '# Guida\n');
-		const res = await runProjectDocs(root, { action: 'sources' });
-		assert.match(res.content[0].text, /README\.md/);
-		assert.match(res.content[0].text, /docs\/guida\.md/);
-		assert.ok(!existsSync(join(root, '.omp')), 'sources non crea file');
+
+		// Secondo progetto sintetico per verificare filtraggio
+		const otherProjectRoot = mkdtempSync(join(tmpdir(), 'omp-studio-other-'));
+		// Archivio personale esterno simulato che non deve essere consultato
+		const externalArchiveDir = mkdtempSync(join(tmpdir(), 'omp-personal-archive-'));
+		const previousHome = process.env.HOME;
+		const previousUserProfile = process.env.USERPROFILE;
+
+		try {
+			// Se la funzione ignorasse PI_CODING_AGENT_DIR, il fallback home
+			// troverebbe la sentinella invece delle sessioni del progetto.
+			process.env.HOME = externalArchiveDir;
+			process.env.USERPROFILE = externalArchiveDir;
+			// Fixture sessioni per root (Progetto A)
+			const sessionsA = join(mockAgentDir, 'sessions', 'proj-a');
+			mkdirSync(sessionsA, { recursive: true });
+			writeFileSync(
+				join(sessionsA, 'sess-a1.jsonl'),
+				JSON.stringify({ id: 'sess-a1-1111', cwd: root, timestamp: '2026-11-01T10:00:00.000Z' }) + '\n{"role":"user","content":"p1"}\n'
+			);
+			writeFileSync(
+				join(sessionsA, 'sess-a2.jsonl'),
+				JSON.stringify({ id: 'sess-a2-2222', cwd: root, timestamp: '2026-11-02T10:00:00.000Z' }) + '\n{"role":"user","content":"p2"}\n'
+			);
+
+			// Fixture sessioni per otherProjectRoot (Progetto B)
+			const sessionsB = join(mockAgentDir, 'sessions', 'proj-b');
+			mkdirSync(sessionsB, { recursive: true });
+			writeFileSync(
+				join(sessionsB, 'sess-b1.jsonl'),
+				JSON.stringify({ id: 'sess-b1-3333', cwd: otherProjectRoot, timestamp: '2026-11-03T10:00:00.000Z' }) + '\n{"role":"user","content":"p3"}\n'
+			);
+
+			// Sessione nell'archivio personale esterno
+			const extSessions = join(externalArchiveDir, '.omp', 'agent', 'sessions', 'personal');
+			mkdirSync(extSessions, { recursive: true });
+			writeFileSync(
+				join(extSessions, 'secret.jsonl'),
+				JSON.stringify({ id: 'personal-secret-session', cwd: root, timestamp: '2026-11-04T10:00:00.000Z' }) + '\n'
+			);
+
+			const resA = await runProjectDocs(root, { action: 'sources' });
+			assert.match(resA.content[0].text, /README\.md/);
+			assert.match(resA.content[0].text, /docs\/guida\.md/);
+			assert.match(resA.content[0].text, /sess-a1-/);
+			assert.match(resA.content[0].text, /sess-a2-/);
+			assert.doesNotMatch(resA.content[0].text, /sess-b1-/);
+			assert.doesNotMatch(resA.content[0].text, /secret\.jsonl/);
+			const detailsA = resA.details;
+			const countA = detailsA && typeof detailsA === 'object' && 'sessions' in detailsA ? detailsA.sessions : undefined;
+			assert.equal(countA, 2);
+			assert.ok(!existsSync(join(root, '.omp')), 'sources non crea file nel progetto');
+
+			// Verifica che per il secondo progetto si vedano solo le sue sessioni
+			const resB = await runProjectDocs(otherProjectRoot, { action: 'sources' });
+			assert.match(resB.content[0].text, /sess-b1-/);
+			assert.doesNotMatch(resB.content[0].text, /sess-a1-/);
+			assert.doesNotMatch(resB.content[0].text, /sess-a2-/);
+			assert.doesNotMatch(resB.content[0].text, /secret\.jsonl/);
+			const detailsB = resB.details;
+			const countB = detailsB && typeof detailsB === 'object' && 'sessions' in detailsB ? detailsB.sessions : undefined;
+			assert.equal(countB, 1);
+			assert.ok(!existsSync(join(otherProjectRoot, '.omp')), 'sources non crea file nel secondo progetto');
+		} finally {
+			try {
+				rmSync(otherProjectRoot, { recursive: true, force: true });
+				rmSync(externalArchiveDir, { recursive: true, force: true });
+			} finally {
+				if (previousHome === undefined) delete process.env.HOME;
+				else process.env.HOME = previousHome;
+				if (previousUserProfile === undefined) delete process.env.USERPROFILE;
+				else process.env.USERPROFILE = previousUserProfile;
+			}
+		}
 	});
 });
 
@@ -268,8 +360,8 @@ describe('Diario: corsie e prompt', () => {
 		const lane = join(root, '..', `${root.split(/[\\/]/).pop()}-lane`);
 		git(['worktree', 'add', '-q', lane]);
 		try {
-			const resolved = resolveProjectRoot(lane).replace(/\\/g, '/');
-			assert.equal(resolved.replace(/\/+$/, ''), realpathSync(root).replace(/\\/g, '/').replace(/\/+$/, ''));
+			const resolved = resolveProjectRoot(lane);
+			assert.equal(canonicalPath(resolved), canonicalPath(root));
 		} finally {
 			rmSync(lane, { recursive: true, force: true });
 		}

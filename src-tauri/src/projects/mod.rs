@@ -2848,54 +2848,90 @@ mod tests {
         let _ = fs::remove_dir_all(&outside);
     }
 
-    /// Il pannello GIT vive di questi comandi: su un repository reale
-    /// (questo) devono restituire l'ultimo commit e i file toccati.
+    // Questi scenari non devono dipendere da HEAD o dalla storia del progetto
+    // su cui l'agente sta lavorando. fast-import prepara tre commit con un solo processo.
+    struct HistoryRepository(std::path::PathBuf);
+
+    impl Drop for HistoryRepository {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn history_repository(label: &str) -> HistoryRepository {
+        use std::io::Write;
+        use std::process::Stdio;
+
+        let root = temp_dir(&format!("history-{label}-{}", std::process::id()));
+        let repo = HistoryRepository(root);
+        let git = || {
+            let mut command = std::process::Command::new("git");
+            command.current_dir(&repo.0);
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                command.creation_flags(0x08000000);
+            }
+            command
+        };
+        let init = git().args(["-c", "init.defaultRefFormat=files", "init", "-q", "--initial-branch=main", "--object-format=sha1"]).output().unwrap();
+        assert!(init.status.success(), "{}", String::from_utf8_lossy(&init.stderr));
+        fs::write(repo.0.join(".git/config"), "[core]\nrepositoryformatversion = 0\nbare = false\n[maintenance]\nauto = false\n[gc]\nauto = 0\n").unwrap();
+
+        let mut input = String::new();
+        for (index, subject) in ["primo", "secondo", "terzo"].iter().enumerate() {
+            let timestamp = 1_700_000_000 + index;
+            let content = format!("versione {}\n", index + 1);
+            let parent = if index == 0 { String::new() } else { format!("from :{index}\n") };
+            input.push_str(&format!(
+                "commit refs/heads/main\nmark :{}\nauthor Fixture <fixture@example.invalid> {timestamp} +0000\ncommitter Fixture <fixture@example.invalid> {timestamp} +0000\ndata {}\n{subject}\n{parent}M 100644 inline fixture.txt\ndata {}\n{content}\n",
+                index + 1, subject.len(), content.len()
+            ));
+        }
+        let mut importer = git().args(["fast-import", "--quiet"])
+            .stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::piped()).spawn().unwrap();
+        importer.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
+        let imported = importer.wait_with_output().unwrap();
+        assert!(imported.status.success(), "{}", String::from_utf8_lossy(&imported.stderr));
+        repo
+    }
+
     #[test]
     fn last_commit_su_repository_reale() {
-        let repo = env!("CARGO_MANIFEST_DIR");
-        let commit = tokio::runtime::Runtime::new()
-            .unwrap()
-            .block_on(git_last_commit(repo.to_string()))
-            .unwrap();
-        if let Some(c) = commit {
-            assert_eq!(c.hash.len(), 40);
-            assert!(!c.subject.is_empty());
-        }
+        let repo = history_repository("last");
+        let commit = tokio::runtime::Runtime::new().unwrap()
+            .block_on(git_last_commit(repo.0.to_string_lossy().into_owned()))
+            .unwrap().expect("la fixture contiene tre commit");
+        assert_eq!(commit.subject, "terzo");
+        assert_eq!(commit.author, "Fixture");
+        assert_eq!(commit.time, 1_700_000_002);
+        assert_eq!(commit.files[0].path, "fixture.txt");
     }
 
     #[test]
     fn recent_commits_limita_e_ordina() {
-        let repo = env!("CARGO_MANIFEST_DIR");
-        let commits = tokio::runtime::Runtime::new()
-            .unwrap()
-            .block_on(git_recent_commits(repo.to_string(), Some(3)))
-            .unwrap();
-        assert!(commits.len() <= 3);
-        for w in commits.windows(2) {
-            assert!(w[0].time >= w[1].time, "i commit non sono in ordine");
-        }
+        let repo = history_repository("recent");
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let path = repo.0.to_string_lossy().into_owned();
+        let commits = rt.block_on(git_recent_commits(path.clone(), Some(2))).unwrap();
+        assert_eq!(commits.iter().map(|c| c.subject.as_str()).collect::<Vec<_>>(), ["terzo", "secondo"]);
+        assert!(commits[0].time > commits[1].time);
+        let first = rt.block_on(git_recent_commits(path, Some(1))).unwrap();
+        assert_eq!(first.iter().map(|c| &c.hash).collect::<Vec<_>>(), [&commits[0].hash]);
     }
 
     #[test]
     fn file_git_rev_legge_head_e_rifiuta_traversal() {
-        let repo = env!("CARGO_MANIFEST_DIR");
+        let repo = history_repository("revision");
+        let path = repo.0.to_string_lossy().into_owned();
         let rt = tokio::runtime::Runtime::new().unwrap();
-        let ok = rt
-            .block_on(file_git_rev(
-                repo.to_string(),
-                "src-tauri/Cargo.toml".to_string(),
-                "HEAD".to_string(),
-            ))
-            .unwrap();
-        assert!(ok.exists);
-        assert!(ok.content.contains("[package]"));
-
-        let bad = rt.block_on(file_git_rev(
-            repo.to_string(),
-            "../fuori.toml".to_string(),
-            "HEAD".to_string(),
-        ));
-        assert!(bad.is_err());
+        let head = rt.block_on(file_git_rev(path.clone(), "fixture.txt".into(), "HEAD".into())).unwrap();
+        let previous = rt.block_on(file_git_rev(path.clone(), "fixture.txt".into(), "HEAD~1".into())).unwrap();
+        assert!(head.exists);
+        assert!(previous.exists);
+        assert_eq!(head.content, "versione 3\n");
+        assert_eq!(previous.content, "versione 2\n");
+        assert!(rt.block_on(file_git_rev(path, "../fuori.toml".into(), "HEAD".into())).is_err());
     }
 
     #[test]

@@ -46,6 +46,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Impostazioni dei modelli, account, coda dei task, anteprime e Companion leggono e salvano i file senza bloccare l'interfaccia. La revisione di una corsia prima dell'integrazione esegue i controlli Git in parallelo.
 
 ### Fixed
+- «Ctrl+Tab» cambia progetto anche con il focus dentro un'anteprima HTML o del Laboratorio, senza dover prima cliccare sul composer; anche «Ctrl+Shift+Tab» continua a cambiare corsia dall'anteprima. (ANT-012)
 - Tavily e gli altri motori di ricerca restano riconosciuti nei ruoli e nelle riserve senza falsi avvisi su credenziali «web» mancanti; i cataloghi distinguono ricerca e chat, e i conteggi separano modelli e assegnazioni interessate. (SAL-001, SAL-002, SAL-005)
 - Nei provider e negli avvisi dei modelli l'accesso salvato è distinto dall'accesso verificato: Command Code segnala quando occorre accedere di nuovo, senza confondere errori di rete, quota esaurita o un singolo account non valido con la disconnessione dell'intero provider. (SAL-003, SAL-004, SAL-006)
 - Nel popover delle quote, «Accedi di nuovo» avvia il login del provider direttamente da ogni account con credenziali disabilitate o scadute; alla chiusura aggiorna account e quote.

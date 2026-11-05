@@ -34,26 +34,27 @@ export const VERSION_FILES = [
 ];
 
 /** Estrae le versioni correnti dichiarate nei quattro file di configurazione. */
-export function getVersions() {
+export function getVersions(root = ROOT) {
+	const readFile = (rel) => readFileSync(join(root, rel), 'utf8');
 	let pkgVersion = null;
 	try {
-		pkgVersion = JSON.parse(read('package.json')).version ?? null;
+		pkgVersion = JSON.parse(readFile('package.json')).version ?? null;
 	} catch {}
 
 	let tauriVersion = null;
 	try {
-		tauriVersion = JSON.parse(read('src-tauri/tauri.conf.json')).version ?? null;
+		tauriVersion = JSON.parse(readFile('src-tauri/tauri.conf.json')).version ?? null;
 	} catch {}
 
 	let cargoTomlVersion = null;
 	try {
-		const m = read('src-tauri/Cargo.toml').match(/^version\s*=\s*"([^"]+)"/m);
+		const m = readFile('src-tauri/Cargo.toml').match(/^version\s*=\s*"([^"]+)"/m);
 		cargoTomlVersion = m ? m[1] : null;
 	} catch {}
 
 	let cargoLockVersion = null;
 	try {
-		const m = read('src-tauri/Cargo.lock').match(
+		const m = readFile('src-tauri/Cargo.lock').match(
 			/(?:name = "omp-studio-app"\s*[\r\n]+version = )"([^"]+)"/
 		);
 		cargoLockVersion = m ? m[1] : null;

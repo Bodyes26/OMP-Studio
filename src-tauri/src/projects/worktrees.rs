@@ -3589,6 +3589,16 @@ mod tests {
         fs::write(&config_path, current).expect("impossibile scrivere la configurazione git del fixture");
     }
 
+    fn add_remote(repo_root: &Path, name: &str, url: &str) {
+        let config_path = repo_root.join(".git").join("config");
+        let mut current = fs::read_to_string(&config_path).unwrap_or_default();
+        let normalized_url = url.replace('\\', "/").replace('"', "\\\"");
+        current.push_str(&format!(
+            "\n[remote \"{name}\"]\n\turl = \"{normalized_url}\"\n\tfetch = +refs/heads/*:refs/remotes/{name}/*\n"
+        ));
+        fs::write(&config_path, current).expect("scrittura remote config");
+    }
+
     // Copia ricorsiva indipendente senza hard link o database di oggetti condivisi.
     fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
         fs::create_dir_all(dst)?;
@@ -3601,9 +3611,84 @@ mod tests {
                 copy_dir_all(&from, &to)?;
             } else {
                 fs::copy(&from, &to)?;
+                if let Ok(meta) = fs::metadata(&to) {
+                    let mut perms = meta.permissions();
+                    if perms.readonly() {
+                        perms.set_readonly(false);
+                        let _ = fs::set_permissions(&to, perms);
+                    }
+                }
             }
         }
         Ok(())
+    }
+
+    fn fast_rev_parse_head(cwd: &Path) -> Option<String> {
+        let dot_git = cwd.join(".git");
+        if dot_git.is_dir() {
+            let head_file = dot_git.join("HEAD");
+            let head = fs::read_to_string(head_file).ok()?;
+            let trimmed = head.trim();
+            if trimmed.len() == 40 && trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
+                return Some(trimmed.to_string());
+            }
+            if let Some(ref_rel) = trimmed.strip_prefix("ref: ") {
+                let ref_path = dot_git.join(ref_rel.trim());
+                if let Ok(content) = fs::read_to_string(ref_path) {
+                    let sha = content.trim();
+                    if sha.len() == 40 && sha.chars().all(|c| c.is_ascii_hexdigit()) {
+                        return Some(sha.to_string());
+                    }
+                }
+            }
+        } else if dot_git.is_file() {
+            let content = fs::read_to_string(&dot_git).ok()?;
+            if let Some(gd) = content.trim().strip_prefix("gitdir: ") {
+                let gd_trimmed = gd.trim();
+                let raw_path = Path::new(gd_trimmed);
+                let wt_gitdir = if raw_path.is_absolute() {
+                    raw_path.to_path_buf()
+                } else {
+                    cwd.join(raw_path)
+                };
+                let head_file = wt_gitdir.join("HEAD");
+                if let Ok(head) = fs::read_to_string(head_file) {
+                    let trimmed = head.trim();
+                    if trimmed.len() == 40 && trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
+                        return Some(trimmed.to_string());
+                    }
+                    if let Some(ref_rel) = trimmed.strip_prefix("ref: ") {
+                        let commondir_file = wt_gitdir.join("commondir");
+                        if let Ok(cd) = fs::read_to_string(commondir_file) {
+                            let cd_trimmed = cd.trim();
+                            let p = Path::new(cd_trimmed);
+                            let common = if p.is_absolute() {
+                                p.to_path_buf()
+                            } else {
+                                wt_gitdir.join(p)
+                            };
+                            let ref_path = common.join(ref_rel.trim());
+                            if let Ok(c) = fs::read_to_string(ref_path) {
+                                let sha = c.trim();
+                                if sha.len() == 40 && sha.chars().all(|c| c.is_ascii_hexdigit()) {
+                                    return Some(sha.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    fn sha_of(cwd: &Path) -> String {
+        if let Some(sha) = fast_rev_parse_head(cwd) {
+            return sha;
+        }
+        String::from_utf8_lossy(&test_git(cwd, &["rev-parse", "HEAD"]).stdout)
+            .trim()
+            .to_string()
     }
 
     fn get_seed_repository(with_commit: bool) -> &'static SeedRepository {
@@ -3623,7 +3708,7 @@ mod tests {
             fs::create_dir_all(&seed_container).expect("creazione seed container");
             let root = seed_container.join("Repo Con Spazi");
             fs::create_dir_all(&root).expect("creazione seed root");
-            test_git(&root, &["init"]);
+            test_git(&root, &["-c", "init.defaultRefFormat=files", "init", "--initial-branch=main", "--object-format=sha1"]);
             write_fixture_git_config(&root.join(".git"));
             let nested = root.join("cartella con spazi");
             fs::create_dir_all(&nested).expect("creazione seed nested");
@@ -3633,12 +3718,7 @@ mod tests {
                     .expect("scrittura tracked.txt seed");
                 test_git(&root, &["add", "."]);
                 test_git(&root, &["commit", "-m", "commit iniziale"]);
-                test_git(&root, &["branch", "-M", "main"]);
-                Some(
-                    String::from_utf8_lossy(&test_git(&root, &["rev-parse", "HEAD"]).stdout)
-                        .trim()
-                        .to_string(),
-                )
+                Some(sha_of(&root))
             } else {
                 None
             };
@@ -4141,11 +4221,6 @@ mod tests {
         assert!(!repo.root.join("untracked-lane.txt").exists());
     }
 
-    fn sha_of(cwd: &Path) -> String {
-        String::from_utf8_lossy(&test_git(cwd, &["rev-parse", "HEAD"]).stdout)
-            .trim()
-            .to_string()
-    }
 
     fn subjects_of(cwd: &Path) -> Vec<String> {
         String::from_utf8_lossy(&test_git(cwd, &["log", "--format=%s"]).stdout)
@@ -5276,9 +5351,9 @@ mod tests {
     fn attach_ramo_solo_remoto_crea_tracking() {
         let repo = repository(true);
         let remote_bare = repo.container.join("bare_remote.git");
-        test_git(&repo.container, &["init", "--bare", "bare_remote.git"]);
+        test_git(&repo.container, &["-c", "init.defaultRefFormat=files", "init", "--bare", "--initial-branch=main", "--object-format=sha1", "bare_remote.git"]);
         let remote_str = path_string(&remote_bare).unwrap();
-        test_git(&repo.root, &["remote", "add", "origin", &remote_str]);
+        add_remote(&repo.root, "origin", &remote_str);
         test_git(&repo.root, &["push", "-u", "origin", "main"]);
 
         test_git(&repo.root, &["checkout", "-b", "feat-remote"]);
@@ -5511,9 +5586,9 @@ mod tests {
     fn cancellazione_remota_differita_registrata_ed_eseguita() {
         let repo = repository(true);
         let remote_bare = repo.container.join("bare_del.git");
-        test_git(&repo.container, &["init", "--bare", "bare_del.git"]);
+        test_git(&repo.container, &["-c", "init.defaultRefFormat=files", "init", "--bare", "--initial-branch=main", "--object-format=sha1", "bare_del.git"]);
         let remote_str = path_string(&remote_bare).unwrap();
-        test_git(&repo.root, &["remote", "add", "origin", &remote_str]);
+        add_remote(&repo.root, "origin", &remote_str);
         test_git(&repo.root, &["push", "-u", "origin", "main"]);
 
         test_git(&repo.root, &["branch", "feat-del"]);
@@ -5560,9 +5635,9 @@ mod tests {
     fn list_branches_elenca_locali_e_remoti() {
         let repo = repository(true);
         let remote_bare = repo.container.join("bare_list.git");
-        test_git(&repo.container, &["init", "--bare", "bare_list.git"]);
+        test_git(&repo.container, &["-c", "init.defaultRefFormat=files", "init", "--bare", "--initial-branch=main", "--object-format=sha1", "bare_list.git"]);
         let remote_str = path_string(&remote_bare).unwrap();
-        test_git(&repo.root, &["remote", "add", "origin", &remote_str]);
+        add_remote(&repo.root, "origin", &remote_str);
         test_git(&repo.root, &["push", "-u", "origin", "main"]);
 
         test_git(&repo.root, &["branch", "local-only"]);
@@ -5595,5 +5670,20 @@ mod tests {
             .unwrap();
         assert_eq!(remote_entry.kind, BranchKind::Remote);
         assert!(remote_entry.checked_out_path.is_none());
+    }
+
+    #[test]
+    fn test_seed_repository_independent_copies_isolation() {
+        let repo1 = repository(true);
+        let repo2 = repository(true);
+
+        assert_ne!(repo1.container, repo2.container);
+        assert_ne!(repo1.root, repo2.root);
+
+        commit_file(&repo1.root, "leak_check.txt", "payload\n", "isolation check");
+        assert!(repo1.root.join("leak_check.txt").exists());
+
+        assert!(!repo2.root.join("leak_check.txt").exists());
+        assert_eq!(sha_of(&repo2.root), repo2.commit.as_deref().unwrap());
     }
 }

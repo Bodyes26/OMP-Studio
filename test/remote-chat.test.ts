@@ -1,4 +1,4 @@
-import { describe, it } from 'node:test';
+import { describe, it, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
@@ -28,6 +28,20 @@ import type {
 	ToolEntry,
 	AgentSession
 } from '../src/lib/agent/session.svelte.ts';
+
+function mockBrowserTimers(t: TestContext) {
+	t.mock.timers.enable({ apis: ['setTimeout'] });
+	const previousWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
+	Object.defineProperty(globalThis, 'window', {
+		configurable: true,
+		value: { setTimeout: globalThis.setTimeout, clearTimeout: globalThis.clearTimeout }
+	});
+	t.after(() => {
+		clearAllWatchersAndDeltas();
+		if (previousWindow) Object.defineProperty(globalThis, 'window', previousWindow);
+		else Reflect.deleteProperty(globalThis, 'window');
+	});
+}
 
 describe('remote chat history & session commands', () => {
 	it('reassembles a binary upload before staging and rejects mixed upload metadata', async (t) => {
@@ -428,7 +442,8 @@ describe('remote chat history & session commands', () => {
 		assert.equal(entryToRemoteMessage(user)!.text, 'Sistema il login');
 	});
 
-	it('per-block delta batching order preserves FIFO without mixing blocks', () => {
+	it('per-block delta batching order preserves FIFO without mixing blocks', (t) => {
+		mockBrowserTimers(t);
 		const published: { projectId: string; laneId: string; event: RemoteChatEvent }[] = [];
 		const origPublish = remoteBridge.publishChatEvent;
 		remoteBridge.publishChatEvent = (projectId, laneId, event) => {
@@ -468,7 +483,8 @@ describe('remote chat history & session commands', () => {
 			remoteBridge.publishChatEvent = origPublish;
 		}
 	});
-	it('thinking deltas suppressed when relay lacks chat_rich, allowed when present', () => {
+	it('thinking deltas suppressed when relay lacks chat_rich, allowed when present', (t) => {
+		mockBrowserTimers(t);
 		const published: { event: RemoteChatEvent }[] = [];
 		const origPublish = remoteBridge.publishChatEvent;
 		remoteBridge.publishChatEvent = (_p, _l, event) => {

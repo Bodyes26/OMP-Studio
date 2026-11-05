@@ -3,6 +3,7 @@
 	import { m } from '#lib/paraglide/messages.js';
 	import { invoke } from '@tauri-apps/api/core';
 	import { wrapPrototypeCode } from '#lib/prototype/wrapper.ts';
+	import { previewShortcuts } from '#lib/shortcuts/previewShortcuts.ts';
 	import { buildSandboxedSvgDocument, isSvgFileName, isSvgContent } from '#lib/editor/svgSandbox.ts';
 	import { colorizeCode } from '#lib/agent/markdown.ts';
 	import Segmented from '#lib/ui/Segmented.svelte';
@@ -377,6 +378,7 @@
 				<div class="preview-frame-box" style:width={DEVICE_WIDTHS[device]}>
 					{#key publishSeq}
 						<iframe
+							use:previewShortcuts
 							class="preview-frame"
 							class:is-loading={frameRendering}
 							sandbox="allow-scripts"

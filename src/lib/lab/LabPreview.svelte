@@ -18,6 +18,7 @@
 	import { m } from '#lib/paraglide/messages.js';
 	import type { AgentSession } from '#lib/agent/session.svelte.ts';
 	import { openLabEntry } from '#lib/lanes/laneActions.ts';
+	import { previewShortcuts } from '#lib/shortcuts/previewShortcuts.ts';
 	import { labApi } from './api';
 	import {
 		disposeLabRuntime,
@@ -773,6 +774,7 @@
 				     l'iframe il riquadro mostrerebbe per sempre la prima build. -->
 				{#key runtime.publishSeq}
 					<iframe
+						use:previewShortcuts
 						bind:this={iframeEl}
 						sandbox="allow-scripts allow-forms allow-modals allow-popups"
 						src={runtime.url}

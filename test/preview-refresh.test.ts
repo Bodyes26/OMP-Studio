@@ -5,7 +5,6 @@ import {
 	type LanePreviewPayload
 } from '../src/lib/agent/laneSurfaces.ts';
 import type { LaneResolutionContext } from '../src/lib/agent/laneRouting.ts';
-import { wrapPrototypeCode } from '../src/lib/prototype/wrapper.ts';
 
 describe('Ciclo di aggiornamento anteprima: refresh automatico, revisioni e robustezza sorgenti', () => {
 	let surfaceStore: LaneSurfaceManager;
@@ -86,17 +85,4 @@ describe('Ciclo di aggiornamento anteprima: refresh automatico, revisioni e robu
 		});
 	});
 
-	describe('2. Pass-through fedele documenti HTML in wrapPrototypeCode', () => {
-		it('preserva intatti documenti HTML con doctype minuscolo (<!doctype html>)', () => {
-			const fullHtml = '<!doctype html><html><head><title>Test</title></head><body><h1>Web Page</h1></body></html>';
-			const wrapped = wrapPrototypeCode('Test Title', fullHtml);
-			assert.equal(wrapped, fullHtml);
-		});
-
-		it('preserva intatti documenti HTML con tag <html lang="it"> senza doctype', () => {
-			const htmlWithoutDoctype = '<html lang="it"><head><title>Page</title></head><body>Content</body></html>';
-			const wrapped = wrapPrototypeCode('Page Title', htmlWithoutDoctype);
-			assert.equal(wrapped, htmlWithoutDoctype);
-		});
-	});
 });

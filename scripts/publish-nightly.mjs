@@ -4,12 +4,12 @@
 // `nightly` su GitHub tramite `gh` in modo fail-safe.
 //
 // Uso:
-//   node scripts/publish-nightly.mjs                # build locale e pubblicazione completa
-//   node scripts/publish-nightly.mjs --dry-run      # build locale senza pubblicazione su GitHub
-//   node scripts/publish-nightly.mjs --skip-build   # pubblica l'ultimo installer gia' compilato
-//   node scripts/publish-nightly.mjs --build-id 123 # specifica un ID build numerico
+//   npm run nightly                    # build locale e pubblicazione completa
+//   npm run nightly -- --dry-run        # build locale senza upload
+//   npm run nightly -- --skip-build     # pubblica l'installer gia' compilato
+//   npm run nightly -- --build-id 123   # specifica un ID build numerico
 
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
 	copyFileSync,
@@ -23,6 +23,9 @@ import {
 	writeFileSync
 } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
+import { performance } from 'node:perf_hooks';
+import { printSummary, verifyNightly, withNightlyLock } from './verify-nightly.mjs';
+import { computeFrontendFingerprint } from './nightly-cache.mjs';
 import {
 	ROOT,
 	VERSION_FILES,
@@ -45,6 +48,7 @@ function parseArgs() {
 		noCloud: false,
 		allowDirty: false,
 		skipCommandCheck: false,
+		full: false,
 		help: false
 	};
 
@@ -62,6 +66,8 @@ function parseArgs() {
 			opts.allowDirty = true;
 		} else if (arg === '--skip-command-check') {
 			opts.skipCommandCheck = true;
+		} else if (arg === '--full') {
+			opts.full = true;
 		} else if (arg === '--build-id') {
 			opts.buildId = args[++i];
 		} else if (/^[1-9]\d*$/.test(arg)) {
@@ -77,7 +83,7 @@ function parseArgs() {
 
 function printHelp() {
 	console.log(`
-Uso: node scripts/publish-nightly.mjs [opzioni]
+Uso: npm run nightly -- [opzioni]
 
 Opzioni:
   --build-id <id>     ID build numerico o timestamp per SemVer (default: ora corrente)
@@ -87,6 +93,7 @@ Opzioni:
   --no-cloud          Non avviare su GitHub la build degli altri sistemi operativi
   --allow-dirty       Compila anche con modifiche non committate (solo con --dry-run)
   --skip-command-check Salta la verifica comandi omp con il catalogo (emergenza)
+  --full             Riesegue tutti i gate, senza riusare verifiche precedenti
   -h, --help          Mostra questo messaggio di aiuto
 `);
 }
@@ -113,14 +120,121 @@ function runCommand(cmd, args, options = {}) {
 	return res;
 }
 
+const timings = [];
+const abortController = new AbortController();
+
+// npm resta il punto d'ingresso canonico anche nei figli, senza interpolare
+// argomenti in una shell o avviare PowerShell su Windows.
+async function runNpm(script, args = [], observe = () => {}) {
+	const npmCli = process.env.npm_execpath;
+	if (!npmCli || !/\.(?:c?js|mjs)$/i.test(npmCli)) {
+		throw new Error('Avvia la pubblicazione con npm run nightly.');
+	}
+	abortController.signal.throwIfAborted();
+	await new Promise((resolve, reject) => {
+		const child = spawn(process.execPath, [npmCli, 'run', script, '--', ...args], {
+			cwd: ROOT,
+			env: process.env,
+			stdio: ['inherit', 'pipe', 'pipe'],
+			windowsHide: true,
+			detached: process.platform !== 'win32'
+		});
+		let killTimer;
+		const abort = () => {
+			if (!child.pid) return;
+			if (process.platform === 'win32') {
+				// Aspetta close prima di ripristinare versioni: npm puo avere
+				// ancora Cargo/NSIS discendenti che leggono quei file.
+				const killer = spawn('taskkill', ['/pid', String(child.pid), '/t', '/f'], {
+					stdio: 'ignore',
+					windowsHide: true
+				});
+				killer.once('error', () => child.kill('SIGTERM'));
+			} else {
+				try { process.kill(-child.pid, 'SIGTERM'); } catch {}
+				killTimer = setTimeout(() => {
+					try { process.kill(-child.pid, 'SIGKILL'); } catch {}
+				}, 1500);
+				killTimer.unref();
+			}
+		};
+		abortController.signal.addEventListener('abort', abort, { once: true });
+		if (abortController.signal.aborted) abort();
+		for (const [stream, output] of [[child.stdout, process.stdout], [child.stderr, process.stderr]]) {
+			stream.on('data', (chunk) => {
+				output.write(chunk);
+				observe(chunk.toString());
+			});
+		}
+		child.once('error', (error) => {
+			abortController.signal.removeEventListener('abort', abort);
+			clearTimeout(killTimer);
+			reject(error);
+		});
+		child.once('close', (code, signal) => {
+			abortController.signal.removeEventListener('abort', abort);
+			clearTimeout(killTimer);
+			if (code === 0 && !signal && !interrupted) resolve();
+			else reject(new Error(`npm run ${script} interrotto o fallito (${signal || code})`));
+		});
+	});
+}
+
+function snapshotBuildInputs() {
+	const fingerprint = computeFrontendFingerprint(ROOT);
+	if (!fingerprint) throw new Error('Impossibile attestare gli input della build: pubblicazione bloccata.');
+	return fingerprint;
+}
+
+async function buildInstaller(platform) {
+	let start = performance.now();
+	console.log('\nCompilazione frontend...');
+	await runNpm('build');
+	timings.push({ fase: 'Frontend', secondi: ((performance.now() - start) / 1000).toFixed(1) });
+
+	// Mantiene il packaging Tauri e il profilo nightly originali. Il frontend
+	// e gia pronto: il merge temporaneo evita di compilarlo una seconda volta.
+	const config = join(ROOT, '.omp', 'cache', 'nightly-build.json');
+	mkdirSync(dirname(config), { recursive: true });
+	writeFileSync(config, JSON.stringify({ build: { beforeBuildCommand: '' } }));
+	const args = [...platform.bundleArgs];
+	const separator = args.indexOf('--');
+	args.splice(separator < 0 ? args.length : separator, 0, '--config', config);
+	start = performance.now();
+	let rustFinished = null;
+	let lineBuffer = '';
+	try {
+		await runNpm('tauri', ['build', ...args], (chunk) => {
+			lineBuffer += chunk.replace(/\x1b\[[0-9;]*m/g, '');
+			const lines = lineBuffer.split(/\r?\n/);
+			lineBuffer = lines.pop() || '';
+			for (const line of lines) {
+				if (rustFinished === null && /\bFinished\b.*\bprofile\b/.test(line)) {
+					rustFinished = performance.now();
+				}
+			}
+		});
+		const end = performance.now();
+		if (rustFinished !== null) {
+			timings.push({ fase: 'Rust (avvio Tauri incluso)', secondi: ((rustFinished - start) / 1000).toFixed(1) });
+			timings.push({ fase: 'Installer (dopo Cargo)', secondi: ((end - rustFinished) / 1000).toFixed(1) });
+		} else {
+			timings.push({ fase: 'Rust + installer (marker Cargo assente)', secondi: ((end - start) / 1000).toFixed(1) });
+		}
+	} finally {
+		if (existsSync(config)) unlinkSync(config);
+	}
+}
+
 // Con un gestore registrato Node non termina subito su Ctrl+C: lo script
 // esce dal passo in corso e il finally rimette i quattro file di versione
 // alla versione stabile. Senza, restavano sulla versione nightly.
 let interrupted = false;
 for (const signal of ['SIGINT', 'SIGTERM']) {
 	process.on(signal, () => {
-		if (interrupted) process.exit(130);
+		if (interrupted) return;
 		interrupted = true;
+		abortController.abort(new Error(`Interrotto da ${signal}`));
 		console.error(`\n${signal} ricevuto: interrompo e ripristino i file di versione...`);
 	});
 }
@@ -276,35 +390,26 @@ async function main() {
 		printHelp();
 		return;
 	}
-	if (opts.skipCommandCheck) {
-		console.warn('\nATTENZIONE: verifica allineamento comandi omp saltata (--skip-command-check).');
-	} else {
-		console.log('\nVerifico l\'allineamento dei comandi omp con il catalogo...');
-		const cmdCheck = spawnSync(process.execPath, ['--no-warnings', '--experimental-strip-types', join(ROOT, 'scripts', 'check-commands.mjs')], {
-			cwd: ROOT,
-			stdio: 'inherit'
-		});
-		if (cmdCheck.status !== 0) {
-			console.error('\nPubblicazione interrotta: il catalogo dei comandi non e\' allineato a omp.');
-			console.error('Consulta docs/COMMANDS.md per la procedura di aggiornamento.');
-			console.error('Per forzare la pubblicazione in emergenza: --skip-command-check\n');
-			process.exit(1);
-		}
-	}
+	await withNightlyLock(ROOT, () => publish(opts), { signal: abortController.signal });
+}
 
-	// Gate icone: import diretti dal pacchetto Lucide o registro rotto bloccano la pubblicazione.
-	console.log('\nVerifico il registro icone...');
-	const iconCheck = spawnSync(process.execPath, [join(ROOT, 'scripts', 'check-icons.mjs'), '--strict'], {
-		cwd: ROOT,
-		stdio: 'inherit'
-	});
-	if (iconCheck.status !== 0) {
-		console.error('\nPubblicazione interrotta: violazioni del registro icone (src/lib/icons.ts).');
-		process.exit(1);
-	}
-
+async function publish(opts) {
+	const totalStart = performance.now();
 	assertCleanWorkingTree(opts);
 	const commitSha = getCommitSha();
+	const verification = await verifyNightly({
+		root: ROOT,
+		full: opts.full,
+		lockHeld: true,
+		signal: abortController.signal,
+		skipCommandCheck: opts.skipCommandCheck
+	});
+	printSummary(verification);
+
+	assertCleanWorkingTree(opts);
+	if (getCommitSha() !== commitSha) {
+		throw new Error('Commit cambiato durante il preflight: pubblicazione interrotta.');
+	}
 	const platform = getPlatformConfig();
 	const buildId = normalizeBuildId(opts.buildId);
 	const version = getNightlyVersion(buildId);
@@ -340,16 +445,17 @@ async function main() {
 		for (const [rel, content] of edits) {
 			write(rel, content);
 		}
+		const buildInputs = snapshotBuildInputs();
 
 		// 2. Compilazione
 		if (!opts.skipBuild) {
 			console.log(`\nAvvio compilazione Tauri (${platform.name})...`);
-			const tauriCmd = 'bun';
-			const tauriArgs = ['run', 'tauri', 'build', ...platform.bundleArgs];
-
-			runCommand(tauriCmd, tauriArgs);
+			await buildInstaller(platform);
 		} else {
 			console.log(`\nSalto la compilazione (--skip-build).`);
+		}
+		if (snapshotBuildInputs() !== buildInputs || getCommitSha() !== commitSha) {
+			throw new Error('Sorgenti o commit cambiati durante la build: installer non pubblicato.');
 		}
 
 		// 3. Individuazione installer e preparazione staging piatto con nomi normalizzati a punti
@@ -418,6 +524,7 @@ async function main() {
 
 		// 5. Upload GitHub fail-safe (upload/clobber prima, poi pulizia obsoleti, poi spostamento tag)
 		if (!opts.dryRun) {
+			const uploadStart = performance.now();
 			const uploadFiles = [
 				...stagedInstallers.map((i) => i.path),
 				sumsPath,
@@ -532,6 +639,7 @@ async function main() {
 			runCommand('gh', ['api', `repos/{owner}/{repo}/releases/tags/nightly`, '--jq', '.html_url'], {
 				allowFailure: true
 			});
+			timings.push({ fase: 'Upload e aggiornamento release', secondi: ((performance.now() - uploadStart) / 1000).toFixed(1) });
 		} else {
 			console.log(`\n[DRY-RUN] File di staging generati in ${stagingDir}`);
 			console.log(`[DRY-RUN] Manifest:\n${JSON.stringify(manifest, null, 2)}`);
@@ -550,6 +658,8 @@ async function main() {
 		if (!opts.dryRun && existsSync(stagingDir)) {
 			rmSync(stagingDir, { recursive: true, force: true });
 		}
+		console.table(timings);
+		console.log(`Tempo totale locale: ${((performance.now() - totalStart) / 1000).toFixed(1)} s`);
 	}
 }
 

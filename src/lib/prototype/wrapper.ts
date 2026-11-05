@@ -9,11 +9,14 @@
 // icone si e' rotto. `extensions/studio-diagram.ts` contiene la stessa funzione:
 // l'estensione e' un file unico incorporato nel binario e non puo' importarla.
 
+import { injectPreviewHarness } from './harness.ts';
+import { PREVIEW_SHORTCUT_SCRIPT } from '../shortcuts/previewShortcuts.ts';
+
 export function wrapPrototypeCode(title: string, code: string): string {
 	const raw = code.trim();
 	const lower = raw.toLowerCase();
 	if (lower.startsWith('<!doctype') || lower.startsWith('<html') || (lower.includes('<head') && lower.includes('<body'))) {
-		return code;
+		return injectPreviewHarness(code, PREVIEW_SHORTCUT_SCRIPT);
 	}
 
 	// Gli import da `react` e `lucide-react` diventano le globali del documento;
@@ -57,6 +60,7 @@ export function wrapPrototypeCode(title: string, code: string): string {
 	return `<!DOCTYPE html>
 <html lang="it" class="dark">
 <head>
+  ${PREVIEW_SHORTCUT_SCRIPT}
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>${title}</title>

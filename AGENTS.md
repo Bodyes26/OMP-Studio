@@ -138,12 +138,22 @@ parcheggiata in precedenza (opzione C, anche da altre chat) entra nello stesso
 commit, push e build, insieme al lavoro corrente. Prima del commit:
 
 - `git status --short` (senza filtro di percorso) per vedere tutto ciò che entra;
-- verifica sull'intero insieme, non solo sull'ultimo lavoro: `npm run check`,
-  `npm test`, `npm run check:commands` (se fallisce consulta `docs/COMMANDS.md`) e, se `src-tauri/` è modificato, `cargo check`/`cargo test`;
+- verifica sull'intero insieme, non solo sull'ultimo lavoro: `npm run verify:nightly`.
+  Il preflight prepara i file generati una volta, sovrappone i controlli indipendenti
+  e riusa solo verifiche riuscite con input identici. Non anteporre la vecchia
+  sequenza check/test/catalogo/Cargo: il publisher rivalida gli input automaticamente.
+  Per diagnosi o per forzare tutti i gate: `npm run verify:nightly -- --full`.
+  Se fallisce il catalogo consulta `docs/COMMANDS.md`; se fallisce un altro gate
+  correggi la causa, senza cancellare test o forzare prove verdi.
 - controlla che ogni voce di `[Unreleased]` corrisponda a codice presente e viceversa;
 - escludi solo file estranei al progetto (segreti, dump, file temporanei come
   `.release-notes.md`): se un file ha dubbia natura, chiedi con `ask` prima di committare.
 - il messaggio di commit riassume tutti i lavori inclusi, non solo l'ultimo.
+
+Il riuso e locale in `.omp/cache/`, ignorato da Git: cambiamenti rilevanti,
+prova corrotta o ambiente non classificabile obbligano alla verifica completa.
+Il comando non committa e non pubblica. Il diario reale e le sessioni personali
+non sono input dei test: si verifica la funzione Diario con fixture isolate.
 
 ```powershell
 # 1. Commit di tutte le modifiche del working tree (lavori parcheggiati inclusi)
@@ -176,7 +186,8 @@ node scripts/release.mjs --notes    # note bilingui dell'ultima versione rilasci
 
 Quando l'utente richiede o conferma il rilascio, l'agente esegue la pipeline. Come per
 la Nightly, il rilascio include **tutte** le modifiche del working tree, parcheggiate
-comprese (stessi controlli preliminari della sezione Nightly, inclusi `npm run check:commands` con rimando a `docs/COMMANDS.md` e test completi):
+comprese (per la stabile eseguire `npm run verify:nightly -- --full`, con rimando
+a `docs/COMMANDS.md` se fallisce il catalogo; nessun riuso dei gate della Nightly):
 ```powershell
 # 1. Bump versioni e chiusura changelog
 npm run release -- 0.2.0

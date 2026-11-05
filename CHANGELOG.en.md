@@ -46,6 +46,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Model settings, accounts, the task queue, previews and the Companion read and save files without blocking the interface. Reviewing a lane before integration runs its Git checks in parallel.
 
 ### Fixed
+- "Ctrl+Tab" switches projects even with focus inside an HTML or Lab preview, without clicking the composer first; "Ctrl+Shift+Tab" also switches lanes from the preview. (ANT-012)
 - Tavily and other search engines remain recognised in roles and fallback chains without false warnings about missing “web” credentials; catalogs distinguish search from chat, and counts separate affected models from assignments. (SAL-001, SAL-002, SAL-005)
 - Provider settings and model warnings distinguish saved credentials from verified sign-in: Command Code reports when sign-in is required again, without mistaking network errors, exhausted quota or a single invalid account for a provider-wide sign-out. (SAL-003, SAL-004, SAL-006)
 - In the quota popover, “Sign in again” starts the provider login directly from each account with disabled or expired credentials; closing it refreshes accounts and quotas.
