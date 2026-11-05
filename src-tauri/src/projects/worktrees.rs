@@ -3537,18 +3537,19 @@ mod tests {
     use crate::process_tree::LaneProcessControl;
     use lane_integrate::WorktreeLandOutcome;
     use std::sync::atomic::{AtomicU64, Ordering};
-    use std::sync::OnceLock;
+    use std::sync::LazyLock;
 
     static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
 
     struct SeedRepository {
         root: PathBuf,
         commit: Option<String>,
+        bare_remote: Option<PathBuf>,
     }
 
-    static SEED_WITH_COMMIT: OnceLock<SeedRepository> = OnceLock::new();
-    static SEED_UNBORN: OnceLock<SeedRepository> = OnceLock::new();
-
+    static SEED_WITH_COMMIT: LazyLock<SeedRepository> = LazyLock::new(|| create_seed_repository(true));
+    static SEED_UNBORN: LazyLock<SeedRepository> = LazyLock::new(|| create_seed_repository(false));
+    static SEED_WITH_REMOTE: LazyLock<SeedRepository> = LazyLock::new(create_seed_repository_with_remote);
     struct TestRepository {
         container: PathBuf,
         root: PathBuf,
@@ -3593,6 +3594,11 @@ mod tests {
         let config_path = repo_root.join(".git").join("config");
         let mut current = fs::read_to_string(&config_path).unwrap_or_default();
         let normalized_url = url.replace('\\', "/").replace('"', "\\\"");
+        let section_header = format!("[remote \"{name}\"]");
+        if let Some(pos) = current.find(&section_header) {
+            let next_section = current[pos + 1..].find('[').map(|p| pos + 1 + p).unwrap_or(current.len());
+            current.replace_range(pos..next_section, "");
+        }
         current.push_str(&format!(
             "\n[remote \"{name}\"]\n\turl = \"{normalized_url}\"\n\tfetch = +refs/heads/*:refs/remotes/{name}/*\n"
         ));
@@ -3692,39 +3698,101 @@ mod tests {
     }
 
     fn get_seed_repository(with_commit: bool) -> &'static SeedRepository {
-        let slot = if with_commit {
-            &SEED_WITH_COMMIT
+        if with_commit {
+            &*SEED_WITH_COMMIT
         } else {
-            &SEED_UNBORN
+            &*SEED_UNBORN
+        }
+    }
+
+    fn create_seed_repository(with_commit: bool) -> SeedRepository {
+        let label = if with_commit { "committed" } else { "unborn" };
+        let seed_container = std::env::temp_dir().join(format!(
+            "omp-studio-worktrees-seed-{}-{}",
+            std::process::id(),
+            label
+        ));
+        let _ = fs::remove_dir_all(&seed_container);
+        fs::create_dir_all(&seed_container).expect("creazione seed container");
+        let root = seed_container.join("Repo Con Spazi");
+        fs::create_dir_all(&root).expect("creazione seed root");
+        test_git(&root, &["-c", "init.defaultRefFormat=files", "init", "--initial-branch=main", "--object-format=sha1"]);
+        write_fixture_git_config(&root.join(".git"));
+        let nested = root.join("cartella con spazi");
+        fs::create_dir_all(&nested).expect("creazione seed nested");
+
+        let commit = if with_commit {
+            fs::write(nested.join("tracked.txt"), "contenuto\n")
+                .expect("scrittura tracked.txt seed");
+            test_git(&root, &["add", "."]);
+            test_git(&root, &["commit", "-m", "commit iniziale"]);
+            Some(sha_of(&root))
+        } else {
+            None
         };
-        slot.get_or_init(|| {
-            let label = if with_commit { "committed" } else { "unborn" };
-            let seed_container = std::env::temp_dir().join(format!(
-                "omp-studio-worktrees-seed-{}-{}",
-                std::process::id(),
-                label
-            ));
-            let _ = fs::remove_dir_all(&seed_container);
-            fs::create_dir_all(&seed_container).expect("creazione seed container");
-            let root = seed_container.join("Repo Con Spazi");
-            fs::create_dir_all(&root).expect("creazione seed root");
-            test_git(&root, &["-c", "init.defaultRefFormat=files", "init", "--initial-branch=main", "--object-format=sha1"]);
-            write_fixture_git_config(&root.join(".git"));
-            let nested = root.join("cartella con spazi");
-            fs::create_dir_all(&nested).expect("creazione seed nested");
 
-            let commit = if with_commit {
-                fs::write(nested.join("tracked.txt"), "contenuto\n")
-                    .expect("scrittura tracked.txt seed");
-                test_git(&root, &["add", "."]);
-                test_git(&root, &["commit", "-m", "commit iniziale"]);
-                Some(sha_of(&root))
-            } else {
-                None
-            };
+        SeedRepository {
+            root,
+            commit,
+            bare_remote: None,
+        }
+    }
 
-            SeedRepository { root, commit }
-        })
+    fn create_seed_repository_with_remote() -> SeedRepository {
+        let seed_container = std::env::temp_dir().join(format!(
+            "omp-studio-worktrees-seed-{}-with-remote",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&seed_container);
+        fs::create_dir_all(&seed_container).expect("creazione seed container with remote");
+
+        let remote_bare = seed_container.join("bare_remote.git");
+        test_git(
+            &seed_container,
+            &[
+                "-c",
+                "init.defaultRefFormat=files",
+                "init",
+                "--bare",
+                "--initial-branch=main",
+                "--object-format=sha1",
+                "bare_remote.git",
+            ],
+        );
+        write_fixture_git_config(&remote_bare);
+
+        let root = seed_container.join("Repo Con Spazi");
+        fs::create_dir_all(&root).expect("creazione seed root with remote");
+        test_git(
+            &root,
+            &[
+                "-c",
+                "init.defaultRefFormat=files",
+                "init",
+                "--initial-branch=main",
+                "--object-format=sha1",
+            ],
+        );
+        write_fixture_git_config(&root.join(".git"));
+        let bare_str = path_string(&remote_bare).unwrap();
+        add_remote(&root, "origin", &bare_str);
+
+        let nested = root.join("cartella con spazi");
+        fs::create_dir_all(&nested).expect("creazione seed nested with remote");
+
+        fs::write(nested.join("tracked.txt"), "contenuto\n")
+            .expect("scrittura tracked.txt seed with remote");
+        test_git(&root, &["add", "."]);
+        test_git(&root, &["commit", "-m", "commit iniziale"]);
+        test_git(&root, &["push", "-u", "origin", "main"]);
+
+        let commit = sha_of(&root);
+
+        SeedRepository {
+            root,
+            commit: Some(commit),
+            bare_remote: Some(remote_bare),
+        }
     }
 
     fn repository(with_commit: bool) -> TestRepository {
@@ -3747,6 +3815,55 @@ mod tests {
             nested,
             commit: seed.commit.clone(),
         }
+    }
+
+    fn repository_with_remote() -> TestRepository {
+        let seed = &*SEED_WITH_REMOTE;
+        let sequence = TEST_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let container = std::env::temp_dir().join(format!(
+            "omp-studio-worktrees-{}-{}",
+            std::process::id(),
+            sequence
+        ));
+        let _ = fs::remove_dir_all(&container);
+        fs::create_dir_all(&container).expect("creazione container test with remote");
+
+        let remote_bare = container.join("bare_remote.git");
+        copy_dir_all(seed.bare_remote.as_ref().unwrap(), &remote_bare)
+            .expect("copia isolata remote_bare");
+
+        let root = container.join("Repo Con Spazi");
+        copy_dir_all(&seed.root, &root).expect("copia isolata del seed repo with remote");
+
+        let remote_str = path_string(&remote_bare).unwrap();
+        add_remote(&root, "origin", &remote_str);
+
+        let nested = root.join("cartella con spazi");
+
+        TestRepository {
+            container,
+            root,
+            nested,
+            commit: seed.commit.clone(),
+        }
+    }
+
+    fn create_test_branch(cwd: &Path, name: &str) {
+        let head_sha = sha_of(cwd);
+        let branch_ref = cwd.join(".git").join("refs").join("heads").join(name);
+        fs::create_dir_all(branch_ref.parent().unwrap()).unwrap();
+        fs::write(branch_ref, format!("{}\n", head_sha)).unwrap();
+    }
+
+    fn create_remote_branch(repo: &TestRepository, remote_bare_name: &str, branch: &str, sha: &str) {
+        let bare = repo.container.join(remote_bare_name);
+        let bare_ref = bare.join("refs").join("heads").join(branch);
+        fs::create_dir_all(bare_ref.parent().unwrap()).unwrap();
+        fs::write(bare_ref, format!("{}\n", sha)).unwrap();
+
+        let tracking_ref = repo.root.join(".git").join("refs").join("remotes").join("origin").join(branch);
+        fs::create_dir_all(tracking_ref.parent().unwrap()).unwrap();
+        fs::write(tracking_ref, format!("{}\n", sha)).unwrap();
     }
 
     fn create_args(repo: &TestRepository, lane_id: &str) -> CreateWorktreeArgs {
@@ -5320,8 +5437,7 @@ mod tests {
     #[test]
     fn attach_ramo_locale_esistente() {
         let repo = repository(true);
-        test_git(&repo.root, &["branch", "feat-x"]);
-
+        create_test_branch(&repo.root, "feat-x");
         let args = AttachWorktreeArgs {
             project_path: path_string(&repo.nested).unwrap(),
             branch: "feat-x".to_string(),
@@ -5349,19 +5465,9 @@ mod tests {
 
     #[test]
     fn attach_ramo_solo_remoto_crea_tracking() {
-        let repo = repository(true);
-        let remote_bare = repo.container.join("bare_remote.git");
-        test_git(&repo.container, &["-c", "init.defaultRefFormat=files", "init", "--bare", "--initial-branch=main", "--object-format=sha1", "bare_remote.git"]);
-        let remote_str = path_string(&remote_bare).unwrap();
-        add_remote(&repo.root, "origin", &remote_str);
-        test_git(&repo.root, &["push", "-u", "origin", "main"]);
-
-        test_git(&repo.root, &["checkout", "-b", "feat-remote"]);
-        commit_file(&repo.root, "rem.txt", "remote\n", "remote commit");
-        test_git(&repo.root, &["push", "-u", "origin", "feat-remote"]);
-        test_git(&repo.root, &["checkout", "main"]);
-        test_git(&repo.root, &["branch", "-D", "feat-remote"]);
-
+        let repo = repository_with_remote();
+        let commit = repo.commit.clone().unwrap();
+        create_remote_branch(&repo, "bare_remote.git", "feat-remote", &commit);
         let args = AttachWorktreeArgs {
             project_path: path_string(&repo.nested).unwrap(),
             branch: "origin/feat-remote".to_string(),
@@ -5379,7 +5485,7 @@ mod tests {
     #[test]
     fn adozione_in_place_worktree_esterno() {
         let repo = repository(true);
-        test_git(&repo.root, &["branch", "feat-ext"]);
+        create_test_branch(&repo.root, "feat-ext");
         let ext_dir = repo.container.join("external-wt");
         test_git(
             &repo.root,
@@ -5422,7 +5528,7 @@ mod tests {
     #[test]
     fn land_corsia_adottata_fast_forward() {
         let repo = repository(true);
-        test_git(&repo.root, &["branch", "feat-ff"]);
+        create_test_branch(&repo.root, "feat-ff");
         let created = attach_sync(AttachWorktreeArgs {
             project_path: path_string(&repo.root).unwrap(),
             branch: "feat-ff".to_string(),
@@ -5471,7 +5577,7 @@ mod tests {
     #[test]
     fn land_corsia_adottata_true_merge_commit() {
         let repo = repository(true);
-        test_git(&repo.root, &["branch", "feat-merge"]);
+        create_test_branch(&repo.root, "feat-merge");
         let created = attach_sync(AttachWorktreeArgs {
             project_path: path_string(&repo.root).unwrap(),
             branch: "feat-merge".to_string(),
@@ -5532,7 +5638,7 @@ mod tests {
     #[test]
     fn scarta_corsia_adottata_mantiene_il_branch() {
         let repo = repository(true);
-        test_git(&repo.root, &["branch", "feat-disc"]);
+        create_test_branch(&repo.root, "feat-disc");
         let created = attach_sync(AttachWorktreeArgs {
             project_path: path_string(&repo.root).unwrap(),
             branch: "feat-disc".to_string(),
@@ -5584,16 +5690,10 @@ mod tests {
 
     #[test]
     fn cancellazione_remota_differita_registrata_ed_eseguita() {
-        let repo = repository(true);
-        let remote_bare = repo.container.join("bare_del.git");
-        test_git(&repo.container, &["-c", "init.defaultRefFormat=files", "init", "--bare", "--initial-branch=main", "--object-format=sha1", "bare_del.git"]);
-        let remote_str = path_string(&remote_bare).unwrap();
-        add_remote(&repo.root, "origin", &remote_str);
-        test_git(&repo.root, &["push", "-u", "origin", "main"]);
-
-        test_git(&repo.root, &["branch", "feat-del"]);
-        test_git(&repo.root, &["push", "-u", "origin", "feat-del"]);
-
+        let repo = repository_with_remote();
+        let commit = repo.commit.clone().unwrap();
+        create_test_branch(&repo.root, "feat-del");
+        create_remote_branch(&repo, "bare_remote.git", "feat-del", &commit);
         let created = attach_sync(AttachWorktreeArgs {
             project_path: path_string(&repo.root).unwrap(),
             branch: "feat-del".to_string(),
@@ -5633,20 +5733,10 @@ mod tests {
 
     #[test]
     fn list_branches_elenca_locali_e_remoti() {
-        let repo = repository(true);
-        let remote_bare = repo.container.join("bare_list.git");
-        test_git(&repo.container, &["-c", "init.defaultRefFormat=files", "init", "--bare", "--initial-branch=main", "--object-format=sha1", "bare_list.git"]);
-        let remote_str = path_string(&remote_bare).unwrap();
-        add_remote(&repo.root, "origin", &remote_str);
-        test_git(&repo.root, &["push", "-u", "origin", "main"]);
-
-        test_git(&repo.root, &["branch", "local-only"]);
-        test_git(&repo.root, &["checkout", "-b", "remote-only"]);
-        commit_file(&repo.root, "ro.txt", "ro\n", "ro commit");
-        test_git(&repo.root, &["push", "-u", "origin", "remote-only"]);
-        test_git(&repo.root, &["checkout", "main"]);
-        test_git(&repo.root, &["branch", "-D", "remote-only"]);
-
+        let repo = repository_with_remote();
+        let commit = repo.commit.clone().unwrap();
+        create_test_branch(&repo.root, "local-only");
+        create_remote_branch(&repo, "bare_remote.git", "remote-only", &commit);
         let outcome = list_branches_sync(ListBranchesArgs {
             project_path: path_string(&repo.root).unwrap(),
         })
@@ -5685,5 +5775,11 @@ mod tests {
 
         assert!(!repo2.root.join("leak_check.txt").exists());
         assert_eq!(sha_of(&repo2.root), repo2.commit.as_deref().unwrap());
+
+        let repo_remote1 = repository_with_remote();
+        let repo_remote2 = repository_with_remote();
+        assert_ne!(repo_remote1.container, repo_remote2.container);
+        assert!(repo_remote1.container.join("bare_remote.git").exists());
+        assert!(repo_remote2.container.join("bare_remote.git").exists());
     }
 }

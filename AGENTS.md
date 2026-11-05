@@ -254,6 +254,8 @@ Tutti i comandi bash devono rispettare l'ambiente Windows della workstation (usa
   **MAI lanciare `npm run tauri -- dev`, `cargo run` o eseguire `omp-studio-app.exe`**: Studio è l'applicazione in cui l'utente sta già lavorando; avviare una seconda istanza innesca il controllo nativo `single_instance` e ruba il focus del sistema operativo mentre l'utente sta scrivendo altrove (Chrome, editor, Word, ecc.). Per verificare le modifiche usare esclusivamente `npm test`, `npm run check`, `cargo test`, o al più Vite nel browser (`npm run dev`), mai il binario desktop completo.
 - **File locking Windows**:
   Non tentare di eliminare o sovrascrivere file `.exe` o artefatti di build mentre l'applicazione OMP Studio o altri processi correlati sono in esecuzione.
+- **Timeout comandi di verifica e build (subito 1200s)**:
+  Quando si eseguono verifiche complete o build (`npm run verify:nightly`, `npm run nightly`, `cargo test` globale), impostare **SEMPRE subito `timeout: 1200`** (20 minuti) nel tool di esecuzione bash. L'esecuzione di centinaia di test nativi Rust con fork di processi `git.exe` su Windows con antivirus attivo (Sophos) richiede diversi minuti; non usare mai timeout inferiori (es. 180s, 300s o 600s) per non interrompere i test a metà costringendo a ripetere prove già parzialmente eseguite.
 
 ## 6. Esplorazione e ricerca: delega Subagent-First
 
