@@ -782,7 +782,12 @@ svg.lucide {
   cursor: pointer;
   transition: background-color var(--dur-fast) var(--ease-out),
     border-color var(--dur-fast) var(--ease-out),
-    color var(--dur-fast) var(--ease-out);
+    color var(--dur-fast) var(--ease-out),
+    transform 90ms var(--ease-out);
+}
+
+.ui-button:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 .ui-button-secondary:hover:not(:disabled) {
@@ -852,7 +857,12 @@ svg.lucide {
   user-select: none;
   transition: background-color var(--dur-fast) var(--ease-out),
     border-color var(--dur-fast) var(--ease-out),
-    color var(--dur-fast) var(--ease-out);
+    color var(--dur-fast) var(--ease-out),
+    transform 90ms var(--ease-out);
+}
+
+.ui-chip:active:not(:disabled) {
+  transform: scale(0.96);
 }
 
 .ui-chip:hover:not(:disabled) {

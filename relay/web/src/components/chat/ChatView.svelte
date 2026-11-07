@@ -35,6 +35,7 @@
 	import ProjectHistorySheet from '../ProjectHistorySheet.svelte';
 	import { IconClose, IconMore, IconChevronDown, IconArrowUp, IconArrowDown } from '../../icons.ts';
 	import type { RemoteComposerAttachment } from '../../chat/remoteAttachments.svelte.ts';
+	import { scrim, bottomSheet, dropNotice } from '../../motion.ts';
 	import { setAgentUiHooks } from '#lib/agent/ui-context.ts';
 	import { PreviewStore, setPreviewContext } from '../../preview.svelte.ts';
 	import PreviewSurface from './PreviewSurface.svelte';
@@ -715,7 +716,7 @@
 				{/if}
 
 				{#if notice}
-					<div class="notice" role="status">
+					<div class="notice" transition:dropNotice role="status">
 						<span class="notice-dot" aria-hidden="true"></span>
 						<span class="notice-text">
 							<strong>{notice.projectName}</strong>
@@ -787,10 +788,10 @@
 	</div>
 
 	{#if sheet === 'menu' || sheet === 'branches'}
-		<div class="backdrop" role="presentation" onclick={(e) => { if (e.target === e.currentTarget) sheet = null; }}>
+		<div class="backdrop" transition:scrim role="presentation" onclick={(e) => { if (e.target === e.currentTarget) sheet = null; }}>
 			<div
 				class="sheet"
-				role="dialog"
+				transition:bottomSheet
 				aria-modal="true"
 				aria-label={sheet === 'menu' ? t('chatMenu') : t('chatMenuBranches')}
 			>
@@ -1130,7 +1131,6 @@
 		background: var(--bg-raised);
 		box-shadow: var(--shadow-overlay);
 		z-index: 6;
-		animation: notice-in 0.2s ease-out;
 	}
 
 	.notice-dot {
@@ -1175,12 +1175,6 @@
 		flex-shrink: 0;
 	}
 
-	@keyframes notice-in {
-		from {
-			opacity: 0;
-			transform: translateY(-8px);
-		}
-	}
 
 	/* ------------------------------------------------ Piede: composer o esito */
 
@@ -1238,7 +1232,6 @@
 		display: flex;
 		align-items: flex-end;
 		justify-content: center;
-		animation: fade 0.16s ease-out;
 	}
 
 	.sheet {
@@ -1251,7 +1244,6 @@
 		border-radius: 18px 18px 0 0;
 		padding: 8px 12px calc(12px + env(safe-area-inset-bottom));
 		box-shadow: var(--shadow-overlay);
-		animation: sheet-up 0.24s cubic-bezier(0.22, 1, 0.36, 1);
 	}
 
 	.grip {
@@ -1333,18 +1325,6 @@
 		text-overflow: ellipsis;
 	}
 
-	@keyframes fade {
-		from {
-			opacity: 0;
-		}
-	}
-
-	@keyframes sheet-up {
-		from {
-			transform: translateY(24px);
-			opacity: 0.6;
-		}
-	}
 
 	/* ------------------------------------------------ Immagine a schermo intero */
 

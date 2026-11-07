@@ -12,7 +12,7 @@
 	import CodeModal from './CodeModal.svelte';
 	import PushNotificationToggle from './PushNotificationToggle.svelte';
 	import StatusMark from './StatusMark.svelte';
-
+	import { scrim, responsiveDialog } from '../motion.ts';
 	let { onClose } = $props<{ onClose: () => void }>();
 
 	let devices = $state<DeviceListItem[]>([]);
@@ -89,12 +89,14 @@
 
 <div
 	class="sheet-backdrop"
+	transition:scrim
 	onclick={onClose}
 	onkeydown={(e) => { if (e.key === 'Escape') onClose(); }}
 	role="presentation"
 >
 	<div
-		class="sheet-surface rv-lift"
+		class="sheet-surface"
+		transition:responsiveDialog
 		onclick={(e) => e.stopPropagation()}
 		onkeydown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } else { e.stopPropagation(); } }}
 		role="dialog"
@@ -250,8 +252,8 @@
 
 <!-- Modal conferma revoca macchina -->
 {#if hostToRevoke}
-	<div class="sheet-backdrop confirm-backdrop" role="presentation">
-		<div class="confirm-surface rv-lift" role="dialog" aria-modal="true">
+	<div class="sheet-backdrop confirm-backdrop" transition:scrim role="presentation">
+		<div class="confirm-surface" transition:responsiveDialog role="dialog" aria-modal="true">
 			<h4 class="confirm-title">{t('revokeMachine')}</h4>
 			<p class="confirm-text">{t('revokeMachineConfirm', { name: hostToRevoke.name })}</p>
 			<div class="confirm-buttons">
@@ -278,8 +280,8 @@
 
 <!-- Modal conferma revoca dispositivo -->
 {#if deviceToRevoke}
-	<div class="sheet-backdrop confirm-backdrop" role="presentation">
-		<div class="confirm-surface rv-lift" role="dialog" aria-modal="true">
+	<div class="sheet-backdrop confirm-backdrop" transition:scrim role="presentation">
+		<div class="confirm-surface" transition:responsiveDialog role="dialog" aria-modal="true">
 			<h4 class="confirm-title">{t('revoke')}</h4>
 			<p class="confirm-text">{t('revokeConfirm')}</p>
 			<div class="confirm-buttons">

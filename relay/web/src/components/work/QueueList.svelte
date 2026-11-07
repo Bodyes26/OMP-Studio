@@ -13,7 +13,7 @@
 	import ProviderLogo from '#lib/components/models/ProviderLogo.svelte';
 	import ThinkingMeter from '#lib/agent/components/ThinkingMeter.svelte';
 	import type { ThinkingLevel } from '#lib/agent/wire.ts';
-
+	import { listReorder } from '../../motion.ts';
 	let {
 		hostId,
 		project,
@@ -56,6 +56,7 @@
 				<button
 					type="button"
 					class="task-row"
+					animate:listReorder
 					data-testid="task-{task.id}"
 					disabled={!canEdit}
 					onclick={() => {

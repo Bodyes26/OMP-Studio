@@ -7,11 +7,12 @@
 	import { t } from '../i18n.ts';
 	import { connection } from '../connection.svelte.ts';
 	import { IconOffline, IconRefresh } from '../icons.ts';
+	import { dropNotice } from '../motion.ts';
 </script>
 
 {#if connection.isOffline}
-	<div class="offline-wrap" role="status" aria-live="polite">
-		<div class="offline-notice rv-lift">
+	<div class="offline-wrap" role="status" aria-live="polite" transition:dropNotice>
+		<div class="offline-notice">
 			<span class="icon-slot" aria-hidden="true"><IconOffline /></span>
 			<span class="offline-text">{t('offlineBanner')}</span>
 			<button

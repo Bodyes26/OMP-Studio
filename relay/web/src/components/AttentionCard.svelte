@@ -19,7 +19,7 @@
 	import { formatCommandError } from '../errors.ts';
 	import { IconCheck, IconChevronDown, IconChevronUp, ProviderLogo } from '../icons.ts';
 	import StatusMark from './StatusMark.svelte';
-
+	import { accordionFold } from '../motion.ts';
 	let {
 		hostId,
 		hostName,
@@ -293,7 +293,7 @@
 			</button>
 
 			{#if showRecentContext}
-				<div class="messages-stream">
+				<div class="messages-stream" transition:accordionFold>
 					{#each attention.recentMessages as msg, idx (idx)}
 						<div class="chat-line role-{msg.role}">
 							<span class="role-badge">{msg.role}</span>

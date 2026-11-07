@@ -8,7 +8,7 @@
 	import { formatPairingCode } from '../../../src/protocol.ts';
 	import { t } from '../i18n.ts';
 	import { IconCopy, IconCheck, IconClose } from '../icons.ts';
-
+	import { scrim, responsiveDialog } from '../motion.ts';
 	let {
 		codeData,
 		onClose
@@ -59,12 +59,14 @@
 
 <div
 	class="sheet-backdrop"
+	transition:scrim
 	onclick={onClose}
 	onkeydown={(e) => { if (e.key === 'Escape') onClose(); }}
 	role="presentation"
 >
 	<div
-		class="sheet-surface rv-lift"
+		class="sheet-surface"
+		transition:responsiveDialog
 		onclick={(e) => e.stopPropagation()}
 		onkeydown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } else { e.stopPropagation(); } }}
 		role="dialog"

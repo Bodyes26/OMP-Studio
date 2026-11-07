@@ -17,7 +17,7 @@
 		queuedTaskCount
 	} from '../projectHelpers.ts';
 	import QueueList from './work/QueueList.svelte';
-
+	import { accordionFold } from '../motion.ts';
 	let {
 		hostId,
 		project,
@@ -96,7 +96,7 @@
 	</button>
 
 	{#if isExpandable && isExpanded}
-		<div class="expand-pane">
+		<div class="expand-pane" transition:accordionFold>
 			<!-- Elenco dei rami (Principale, worktree, Lab) -->
 			<div class="branches-list">
 				{#each project.lanes as lane (lane.id)}

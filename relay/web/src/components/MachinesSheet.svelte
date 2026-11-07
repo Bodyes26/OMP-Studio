@@ -16,7 +16,7 @@
 		IconMachine
 	} from '../icons.ts';
 	import { getProjectStatus } from '../projectHelpers.ts';
-
+	import { scrim, bottomSheet } from '../motion.ts';
 	let {
 		currentHostId,
 		onSelectHost,
@@ -57,8 +57,8 @@
 	);
 </script>
 
-<div class="backdrop" onclick={(e) => { if (e.target === e.currentTarget) onClose(); }} role="presentation">
-	<div class="sheet" role="dialog" aria-modal="true" aria-label={t('machinesTitle')}>
+<div class="backdrop" transition:scrim onclick={(e) => { if (e.target === e.currentTarget) onClose(); }} role="presentation">
+	<div class="sheet" transition:bottomSheet role="dialog" aria-modal="true" aria-label={t('machinesTitle')}>
 		<div class="grip" aria-hidden="true"></div>
 
 		<div class="sheet-head">
@@ -163,7 +163,6 @@
 		display: flex;
 		align-items: flex-end;
 		justify-content: center;
-		animation: fade 0.16s ease-out;
 	}
 
 	.sheet {
@@ -175,7 +174,6 @@
 		background: var(--bg-raised);
 		border-radius: 18px 18px 0 0;
 		padding: 8px 16px calc(16px + env(safe-area-inset-bottom));
-		animation: slideUp 0.24s cubic-bezier(0.22, 1, 0.36, 1);
 		box-shadow: var(--shadow-overlay);
 	}
 
@@ -344,13 +342,4 @@
 		opacity: 0.92;
 	}
 
-	@keyframes fade {
-		from { opacity: 0; }
-		to { opacity: 1; }
-	}
-
-	@keyframes slideUp {
-		from { transform: translateY(100%); }
-		to { transform: translateY(0); }
-	}
 </style>

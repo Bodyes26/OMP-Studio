@@ -11,9 +11,11 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ## [Unreleased]
 
+### Changed
+- Studio Remote: aggiunte animazioni fluide su tutte le interfacce della PWA secondo il design system di Studio. I fogli modali e i dialoghi ora scendono e sfumano alla chiusura invece di sparire all'istante; la chat a schermo intero entra ed esce con transizione a scorrimento laterale stile nativo mobile; l'espansione dei rami e della coda dei progetti si srotola morbidamente con rotazione sincronizzata della freccia; il vassoio comandi `/`, il banner di attenzione esterna, il banner offline e il pulsante per scorrere in fondo hanno transizioni dedicate in entrata e uscita; bottoni, chip e righe offrono un micro-feedback tattile alla pressione. Tutte le animazioni si azzerano automaticamente con `prefers-reduced-motion`.
+
 ### Fixed
 - Con l'interfaccia in inglese restavano testi in italiano: la sezione «Apri branch» del menu `+` delle corsie, la Principale nella finestra degli agenti concorrenti, l'avviso in chat quando una corsia finisce e la pagina vuota dei nuovi prototipi del Laboratorio (titolo compreso). Ora seguono la lingua scelta.
-
 ## [1.10.0] - 2026-11-05
 
 ### Added

@@ -17,7 +17,7 @@
 	import { formatScheduleLabel } from '../../schedule.ts';
 	import ConfigChips from './ConfigChips.svelte';
 	import { IconClose, IconMore, IconImage, IconCheck, IconChevronDown } from '../../icons.ts';
-
+	import { scrim, bottomSheet, popFloat } from '../../motion.ts';
 	let promptEl = $state<HTMLTextAreaElement | null>(null);
 	let fileInput = $state<HTMLInputElement | null>(null);
 
@@ -105,6 +105,7 @@
 {#if workSheet.isOpen}
 	<div
 		class="backdrop"
+		transition:scrim
 		role="presentation"
 		onclick={(event) => {
 			if (event.target === event.currentTarget) workSheet.back();
@@ -112,6 +113,7 @@
 	>
 		<div
 			class="sheet"
+			transition:bottomSheet
 			role="dialog"
 			aria-modal="true"
 			aria-label={editing ? t('workEditTitle') : t('workNewTitle')}
@@ -509,7 +511,7 @@
 {/if}
 
 {#if workSheet.toast}
-	<div class="toast" role="status">{workSheet.toast}</div>
+	<div class="toast" role="status" transition:popFloat>{workSheet.toast}</div>
 {/if}
 
 <style>
@@ -521,7 +523,6 @@
 		align-items: flex-end;
 		justify-content: center;
 		background: color-mix(in oklch, var(--ink) 35%, transparent);
-		animation: fade 0.16s ease-out;
 	}
 
 	.sheet {
@@ -537,7 +538,6 @@
 		background: var(--bg-raised);
 		border-radius: 18px 18px 0 0;
 		box-shadow: var(--shadow-overlay);
-		animation: sheet-up 0.24s cubic-bezier(0.22, 1, 0.36, 1);
 	}
 
 	.grip {
@@ -982,21 +982,8 @@
 		color: var(--bg-base);
 		font-size: 14px;
 		pointer-events: none;
-		animation: fade 0.16s ease-out;
 	}
 
-	@keyframes fade {
-		from {
-			opacity: 0;
-		}
-	}
-
-	@keyframes sheet-up {
-		from {
-			transform: translateY(24px);
-			opacity: 0.6;
-		}
-	}
 
 	@keyframes spin {
 		to {

@@ -15,7 +15,7 @@
 	import ThinkingBlock from '#lib/agent/components/ThinkingBlock.svelte';
 	import StatusMark from '../StatusMark.svelte';
 	import { IconCheck, IconClose, IconChevronRight, IconWorkflow, IconImage, IconViewPreview } from '../../icons.ts';
-
+	import { accordionFold } from '../../motion.ts';
 	let {
 		messages = [],
 		summary,
@@ -175,7 +175,7 @@
 	{/if}
 
 	{#if isFullListOpen}
-		<div class="full-list-container">
+		<div class="full-list-container" transition:accordionFold>
 			{#if (subagents && subagents.length > 0) || (jobs && jobs.length > 0)}
 				<div class="active-ops-banner">
 					{#each subagents as sa (sa.id)}

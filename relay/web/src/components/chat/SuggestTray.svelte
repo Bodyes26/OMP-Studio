@@ -6,6 +6,7 @@
 	import type { CommandSuggestionItem } from '../../chat/suggest.ts';
 	import { IconSparkles } from '../../icons.ts';
 	import { t } from '../../i18n.ts';
+	import { popFloat } from '../../motion.ts';
 
 	let {
 		items = [],
@@ -43,7 +44,7 @@
 	{/if}
 {/snippet}
 
-<div class="suggest-tray" role="listbox" tabindex="-1">
+<div class="suggest-tray" transition:popFloat role="listbox" tabindex="-1">
 	<div bind:this={listEl} class="suggest-list">
 		{#if items.length === 0}
 			<div class="empty-notice">

@@ -20,6 +20,7 @@
 	import HistoryChatView from './components/chat/HistoryChatView.svelte';
 	import WorkSheet from './components/work/WorkSheet.svelte';
 	import { initNotificationRouting } from './notificationRouting.ts';
+	import { chatTransition } from './motion.ts';
 	import { applyTheme, pickTheme } from './theme.ts';
 
 	let showSettings = $state(false);
@@ -62,7 +63,7 @@
 
 	{#if isPaired}
 		{#if chatRoute}
-			<div class="chat-pane" role="region" aria-label={t('chatRegion')}>
+			<div class="chat-pane" transition:chatTransition role="region" aria-label={t('chatRegion')}>
 				{#if chatRoute.isHistory}
 					{#key `${chatRoute.hostId}:${chatRoute.projectId}:${chatRoute.sessionId}`}
 						<HistoryChatView route={chatRoute} />

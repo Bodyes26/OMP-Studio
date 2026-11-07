@@ -9,7 +9,7 @@
 	import { connection } from '../connection.svelte.ts';
 	import { IconClose, IconFolder, IconGitBranch, IconChevronRight, IconRefresh } from '../icons.ts';
 	import StatusMark from './StatusMark.svelte';
-
+	import { scrim, responsiveDialog } from '../motion.ts';
 	let {
 		host,
 		onClose
@@ -95,12 +95,14 @@
 
 <div
 	class="sheet-backdrop"
+	transition:scrim
 	onclick={onClose}
 	onkeydown={(e) => { if (e.key === 'Escape') onClose(); }}
 	role="presentation"
 >
 	<div
-		class="sheet-surface rv-lift"
+		class="sheet-surface"
+		transition:responsiveDialog
 		onclick={(e) => e.stopPropagation()}
 		onkeydown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } else { e.stopPropagation(); } }}
 		role="dialog"

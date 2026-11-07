@@ -15,7 +15,7 @@
 	import TurnFooter from '#lib/agent/components/TurnFooter.svelte';
 	import ActivityIndicator from '#lib/agent/components/ActivityIndicator.svelte';
 	import { IconArrowDown } from '../../icons.ts';
-
+	import { popFloat } from '../../motion.ts';
 	let {
 		messages = [],
 		loadingOlder = false,
@@ -198,10 +198,10 @@
 		{/if}
 	</div>
 	{#if userScrolledUp}
-		<div class="scroll-bottom-wrap">
+		<div class="scroll-bottom-wrap" transition:popFloat>
 			<button
 				type="button"
-				class="scroll-bottom-btn rv-lift"
+				class="scroll-bottom-btn"
 				onclick={() => scrollToBottom(true)}
 				aria-label={t('chatScrollToBottom')}
 				title={t('chatScrollToBottom')}

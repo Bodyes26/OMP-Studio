@@ -605,7 +605,7 @@
 		z-index: 10;
 	}
 
-	.preview-surface.closed {
+	.preview-surface.closed:not(.mobile) {
 		display: none;
 	}
 
@@ -638,8 +638,18 @@
 		overflow: hidden;
 		overscroll-behavior: contain;
 		touch-action: pan-y;
+		transform: translate3d(0, 0, 0);
+		opacity: 1;
+		pointer-events: auto;
+		transition: transform 320ms cubic-bezier(0.16, 1, 0.3, 1),
+			opacity 220ms ease;
 	}
 
+	.preview-surface.mobile.closed {
+		transform: translate3d(100%, 0, 0);
+		opacity: 0;
+		pointer-events: none;
+	}
 	/* ============================================================ */
 	/* DESKTOP TOOLBAR                                              */
 	/* ============================================================ */
