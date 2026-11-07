@@ -47,12 +47,14 @@ The Lab is a workspace for UI prototypes beside the project. The agent first exp
 
 ## Studio Remote and Companion
 
-- **Studio Remote** (off by default) pairs Studio with a relay you host yourself. From your phone or any browser you see every machine, read and write in each lane's chat, answer the agent's questions, attach files, start queued tasks and watch quotas. There is no shared relay: see [`relay/`](relay/README.md).
+- **Studio Remote** (off by default) pairs Studio with a relay you host yourself. From your phone or any browser you see every machine, read and write in each lane's chat, answer the agent's questions, attach files, start queued tasks and watch quotas. Setup is separate from Studio: see [Set up Studio Remote](#set-up-studio-remote-optional).
 - **Companion** is a small always-available window (`Alt+Space`): it collects the agent's answers and questions from every project, so you can reply or send a new task without bringing Studio to the front.
 
 <img src="assets/screenshots/screen_remote.png" alt="Studio Remote on a phone: projects and lanes, a lane's chat, starting new work" width="100%" />
 
-## Download
+## Install OMP Studio
+
+This is all you need to use Studio on your computer.
 
 | Platform | Package |
 |---|---|
@@ -62,6 +64,24 @@ The Lab is a workspace for UI prototypes beside the project. The agent first exp
 
 Download from [Releases](https://github.com/Bodyes26/OMP-Studio/releases/latest). Studio updates itself; in Settings you choose between the stable channel and Nightly.
 If `omp` is not installed, the first launch offers to install and configure it.
+
+## Set up Studio Remote (optional)
+
+Studio Remote is not part of the installer. It needs a **relay**: a small server you run yourself, which your Studio machines and your phone both connect to. Studio never opens a port on your computer, and there is no shared or default relay.
+
+| | OMP Studio | Studio Remote relay |
+|---|---|---|
+| Where it runs | your computer | a server reachable from the internet |
+| How you install it | installer from Releases | Docker Compose (`ghcr.io/bodyes26/omp-studio-relay`) |
+| What you need | nothing else | Docker, a DNS name, a reverse proxy with TLS and WebSockets |
+| Needed for | everything | only phone/browser access |
+
+1. **Start the relay.** On the server, copy [`relay/compose.example.yml`](relay/compose.example.yml) as `compose.yaml` and [`relay/.env.example`](relay/.env.example) as `.env`. In `.env` set `RELAY_ADMIN_TOKEN` (for example `openssl rand -hex 32`, keep it private) and `PROXY_NETWORK` (your reverse proxy's Docker network), then run `docker compose up -d`.
+2. **Expose it.** In your reverse proxy route your DNS name to `http://studio-relay:8787` with TLS and WebSockets. `https://<your-relay>/healthz` should answer with the relay version.
+3. **Pair your phone.** Open `https://<your-relay>` on the phone, name the device, choose *Use admin secret* and paste `RELAY_ADMIN_TOKEN`. On iPhone, *Share → Add to Home Screen* installs it as an app.
+4. **Pair Studio.** In the phone dashboard, *Settings → Pair a machine* shows a code. In Studio open *Settings → Remote Control*, enter the relay address, a machine name and the code, then *Pair*.
+
+Full guide, proxy examples (Nginx Proxy Manager, Caddy), notifications and security notes: [`relay/README.md`](relay/README.md).
 
 ## Privacy
 

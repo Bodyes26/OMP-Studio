@@ -14,12 +14,19 @@ seconda istanza.
 | `screen_remote.png` | Tre schermate della PWA di Studio Remote dall'iPhone (elenco progetti con le corsie del demo, chat di una corsia, foglio «Nuovo lavoro»), affiancate su fondo trasparente. I nomi di progetti privati vanno pixelati; niente quote con email, niente impostazioni con i nomi delle macchine. |
 | `screen_lab.png` | Prototipo del Laboratorio: anteprima a sinistra, chat con il riepilogo dell'agente a destra. |
 
-Formato: PNG 1920×1027 (finestra 1440×770 punti su Retina, ridotta), quantizzata a
-256 colori, sotto i 200 KB.
+Formato: PNG largo 1920 px. La cattura della finestra (1440×770 punti su Retina, angoli
+arrotondati trasparenti) sta su uno sfondo a gradiente diagonale indaco → viola → rosa
+(`#4338CA` → `#8B5CF6` → `#EC4899`, con un bagliore chiaro in alto a sinistra), con il
+6% di margine e un'ombra sfocata sotto la finestra. Compressione con `pngquant
+--quality=75-95`: 250–350 KB. Per Remote le tre schermate del telefono hanno angoli
+arrotondati e la stessa ombra sullo stesso gradiente.
 
 La GIF nasce da una registrazione MP4 (in `ricerca/readme-media/`, fuori da git),
-montata con `ffmpeg` e convertita con `fps=8,scale=960:-1` + `palettegen`/`paletteuse`
-(128 colori, `stats_mode=diff`): circa 2 MB. Un MP4 si vedrebbe meglio, ma GitHub lo
+montata con `ffmpeg`: video a 8 fps scalato a 844 px, angoli arrotondati con
+`alphamerge`, sovrapposto allo stesso gradiente (960 px di larghezza), poi
+`palettegen` a 256 colori e `paletteuse` con dithering bayer: circa 2 MB. Le immagini
+in più (`-loop 1`) vanno limitate con `-t` alla durata del video, altrimenti ffmpeg
+non termina. Un MP4 si vedrebbe meglio, ma GitHub lo
 riproduce nel README solo come allegato `user-attachments`, che si carica dal browser
 trascinandolo in una issue: `gh` non ha un comando per farlo.
 

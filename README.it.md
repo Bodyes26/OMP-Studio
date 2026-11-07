@@ -47,12 +47,14 @@ Il Laboratorio è uno spazio per prototipi di interfaccia accanto al progetto. L
 
 ## Studio Remote e Companion
 
-- **Studio Remote** (spento di default) collega Studio a un relay che ospiti tu. Dal telefono o da qualunque browser vedi tutte le macchine, leggi e scrivi nella chat di ogni corsia, rispondi alle domande dell'agente, alleghi file, avvii i task in coda e controlli le quote. Non esiste un relay condiviso: vedi [`relay/`](relay/README.it.md).
+- **Studio Remote** (spento di default) collega Studio a un relay che ospiti tu. Dal telefono o da qualunque browser vedi tutte le macchine, leggi e scrivi nella chat di ogni corsia, rispondi alle domande dell'agente, alleghi file, avvii i task in coda e controlli le quote. Si configura a parte rispetto a Studio: vedi [Configurare Studio Remote](#configurare-studio-remote-facoltativo).
 - **Companion** è una piccola finestra sempre a portata (`Alt+Space`): raccoglie risposte e domande dell'agente da tutti i progetti, così rispondi o mandi un nuovo task senza riportare Studio in primo piano.
 
 <img src="assets/screenshots/screen_remote.png" alt="Studio Remote sul telefono: progetti e corsie, chat di una corsia, avvio di un nuovo lavoro" width="100%" />
 
-## Download
+## Installare OMP Studio
+
+È tutto quello che serve per usare Studio sul tuo computer.
 
 | Piattaforma | Pacchetto |
 |---|---|
@@ -62,6 +64,24 @@ Il Laboratorio è uno spazio per prototipi di interfaccia accanto al progetto. L
 
 Scarica da [Releases](https://github.com/Bodyes26/OMP-Studio/releases/latest). Studio si aggiorna da solo; nelle Impostazioni scegli tra il canale stabile e Nightly.
 Se `omp` non è installato, al primo avvio Studio propone di installarlo e configurarlo.
+
+## Configurare Studio Remote (facoltativo)
+
+Studio Remote non è incluso nell'installer. Serve un **relay**: un piccolo server che gestisci tu, a cui si collegano sia le macchine con Studio sia il telefono. Studio non apre porte sul tuo computer e non esiste un relay condiviso o predefinito.
+
+| | OMP Studio | Relay di Studio Remote |
+|---|---|---|
+| Dove gira | sul tuo computer | su un server raggiungibile da internet |
+| Come si installa | installer da Releases | Docker Compose (`ghcr.io/bodyes26/omp-studio-relay`) |
+| Cosa serve | nient'altro | Docker, un nome DNS, un reverse proxy con TLS e WebSocket |
+| Serve per | tutto | solo l'accesso da telefono o browser |
+
+1. **Avvia il relay.** Sul server copia [`relay/compose.example.yml`](relay/compose.example.yml) come `compose.yaml` e [`relay/.env.example`](relay/.env.example) come `.env`. In `.env` imposta `RELAY_ADMIN_TOKEN` (per esempio `openssl rand -hex 32`, da tenere privato) e `PROXY_NETWORK` (la rete Docker del tuo reverse proxy), poi lancia `docker compose up -d`.
+2. **Esponilo.** Nel reverse proxy instrada il tuo nome DNS verso `http://studio-relay:8787` con TLS e WebSocket. `https://<tuo-relay>/healthz` deve rispondere con la versione del relay.
+3. **Abbina il telefono.** Apri `https://<tuo-relay>` sul telefono, dai un nome al dispositivo, scegli *Usa il token di amministrazione* e incolla `RELAY_ADMIN_TOKEN`. Su iPhone, *Condividi → Aggiungi alla schermata Home* lo installa come app.
+4. **Abbina Studio.** Nella dashboard del telefono, *Impostazioni → Abbina una macchina* mostra un codice. In Studio apri *Impostazioni → Controllo remoto*, inserisci l'indirizzo del relay, un nome per la macchina e il codice, poi *Abbina*.
+
+Guida completa, esempi di proxy (Nginx Proxy Manager, Caddy), notifiche e note di sicurezza: [`relay/README.it.md`](relay/README.it.md).
 
 ## Privacy
 
