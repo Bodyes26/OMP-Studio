@@ -108,7 +108,7 @@
 				<ul>
 					{#each warning.lanes as lane (lane.title)}
 						<li>
-							<span class="lane-title">{lane.title}</span>
+							<span class="lane-title">{lane.isMain ? m.lanestrip_tab_main() : lane.title}</span>
 							<span class="lane-model">{lane.model ?? m.lane_dispatch_model_unknown()}</span>
 							{#if lane.liveProcess}
 								<span class="lane-process">{m.lane_dispatch_live_process()}</span>

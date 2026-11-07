@@ -3,6 +3,7 @@
 // `projectPath: null` indica l'indice globale delle bozze.
 
 import { invoke } from '@tauri-apps/api/core';
+import { m } from '#lib/paraglide/messages.js';
 import type {
 	LabFile,
 	LabIndexEntry,
@@ -17,9 +18,17 @@ import type {
 export const labApi = {
 	paths: () => invoke<LabPaths>('lab_paths'),
 
-	/** Crea workspace dal template, git interno con commit iniziale e voce d'indice. */
+	/**
+	 * Crea workspace dal template, git interno con commit iniziale e voce d'indice.
+	 * Titolo predefinito e testo della pagina vuota arrivano nella lingua
+	 * dell'interfaccia: il template Rust non conosce la lingua scelta.
+	 */
 	createPrototype: (projectPath: string | null, title: string | null = null) =>
-		invoke<LabIndexEntry>('lab_prototype_create', { projectPath, title }),
+		invoke<LabIndexEntry>('lab_prototype_create', {
+			projectPath,
+			title: title ?? m.lanestrip_new_prototype(),
+			emptyHint: m.lab_template_empty_hint()
+		}),
 
 	listIndex: (projectPath: string | null) =>
 		invoke<LabIndexEntry[]>('lab_index_list', { projectPath }),

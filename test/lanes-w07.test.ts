@@ -16,6 +16,7 @@ describe('W07 — Riconoscimento titoli segnaposto e limiti corsia', () => {
 		assert.equal(isPlaceholderLaneTitle('Nuovo prototipo', 'lab'), true);
 		assert.equal(isPlaceholderLaneTitle('nuovo prototipo', 'lab'), true);
 		assert.equal(isPlaceholderLaneTitle('  NUOVO PROTOTIPO  ', 'lab'), true);
+		assert.equal(isPlaceholderLaneTitle('New prototype', 'lab'), true);
 		assert.equal(isPlaceholderLaneTitle('ChatAI Reveal', 'lab'), false);
 		assert.equal(isPlaceholderLaneTitle('Worktree 1', 'lab'), false);
 	});

@@ -2,204 +2,89 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/logo/readme-pi-on-dark.png" />
-  <img src="assets/logo/readme-pi-on-light.png" alt="OMP Studio Logo" width="96" height="96" />
+  <img src="assets/logo/readme-pi-on-light.png" alt="OMP Studio" width="96" height="96" />
 </picture>
 
 # OMP Studio
 
-*Italiano: questo file · English: [README.md](README.md)*
+[English](README.md) · **Italiano**
 
-**Il banco di lavoro desktop ad alte prestazioni per l'agente di coding `omp`.**
-Workspace multi-progetto, doppia superficie Terminale / Chat GUI, editor Monaco con Git diff, sandbox visuali, orchestrazione dei task e monitoraggio in tempo reale delle quote AI.
+L'ambiente desktop per lavorare con [`omp`](https://github.com/can1357/oh-my-pi) su più progetti,
+con più agenti in parallelo in worktree Git isolati: rivedi il loro lavoro e uniscilo con un clic.
 
-[![GitHub Release](https://img.shields.io/github/v/release/Bodyes26/OMP-Studio?style=flat-square&color=crimson)](https://github.com/Bodyes26/OMP-Studio/releases)
-[![Tauri 2](https://img.shields.io/badge/Tauri-2.x-24C8D8?style=flat-square&logo=tauri&logoColor=white)](https://tauri.app/)
-[![Svelte 5](https://img.shields.io/badge/Svelte-5-FF3E00?style=flat-square&logo=svelte&logoColor=white)](https://svelte.dev/)
-[![Rust](https://img.shields.io/badge/Rust-2021-DEA584?style=flat-square&logo=rust&logoColor=white)](https://www.rust-lang.org/)
-[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-0078D4?style=flat-square&logo=windows&logoColor=white)](https://github.com/Bodyes26/OMP-Studio/releases)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/Bodyes26/OMP-Studio?style=flat-square&color=crimson)](https://github.com/Bodyes26/OMP-Studio/releases/latest)
+[![Piattaforme](https://img.shields.io/badge/Windows%20%7C%20macOS%20%7C%20Linux-0078D4?style=flat-square)](https://github.com/Bodyes26/OMP-Studio/releases/latest)
+[![Licenza: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
 
-<br />
-
-<img src="assets/screenshots/screen_hero.png" alt="OMP Studio Workspace Overview" width="100%" />
-
-<br /><br />
-
-[Download](#-download-e-installazione) • [Funzionalità principali](#-funzionalità-principali) • [Screenshot](#-panoramica-visiva) • [Scorciatoie](#-scorciatoie-da-tastiera) • [Creato con OMP](#-creato-con-e-per-omp) • [Sviluppo](#-sviluppo-locale) • [Documentazione](docs/PRODUCT.md)
+<img src="assets/screenshots/screen_hero.png" alt="OMP Studio: barra dei progetti, corsie, editor e chat dell'agente" width="100%" />
 
 </div>
 
----
+## Cosa puoi fare
 
-## 🎯 Panoramica
+- **Tieni aperti tutti i progetti.** Una tessera per repository nella barra in alto; il passaggio è istantaneo e l'agente di ogni progetto continua a lavorare in background. Le tessere mostrano chi lavora, chi aspetta te e quanti task sono in coda.
+- **Fai lavorare più agenti in parallelo.** Ogni corsia è un worktree Git su un proprio branch, con la sua conversazione, mentre la Principale resta libera.
+- **Rivedi prima di unire.** «Revisione e integrazione» mostra la diff rispetto al branch di destinazione e i comandi eseguiti dall'agente, poi porta tutto in un solo commit squash.
+- **Chat o terminale, stessa sessione.** Una chat grafica con schede degli strumenti, diff, piani e domande, oppure il vero terminale di `omp`: `Ctrl+Alt+A` passa dall'uno all'altro senza riavviare niente.
+- **Prototipa interfacce nel Laboratorio.** Prototipi React + Tailwind con anteprima dal vivo, varianti e revisioni, consegnati all'agente principale quando sono giusti.
+- **Segui dal telefono.** Studio Remote mostra macchine, progetti, corsie e quote, e ti fa rispondere all'agente o avviare lavori da qualunque posto.
+- **Metti in coda e pianifica.** Code di task per progetto, task che partono al reset della quota e automazioni attivate da orari, eventi Git o modifiche ai file.
+- **Sai quanto stai spendendo.** Quote in tempo reale per ogni provider, statistiche di costi e token, ruoli dei modelli con fallback.
 
-**OMP Studio** è un banco di lavoro desktop focalizzato e privo di distrazioni, progettato attorno all'agente di coding AI [`omp`](https://github.com/...).
+## Come funzionano le corsie
 
-Invece di imporre un singolo paradigma o avvolgere l'agente in livelli ridondanti, OMP Studio offre una **Doppia Superficie** cooperativa:
+1. Studio apre una corsia: un worktree affiancato su un branch `omp/lane-*`. Se la Principale è occupata, un task in coda può partire da solo in una nuova corsia.
+2. L'agente della corsia lavora lì con la sua conversazione; file, Git, editor e chat seguono la corsia selezionata.
+3. Quando ha finito lascia un riepilogo. Rivedi la diff, poi la integri nel branch di destinazione, la rimandi alla corsia per altro lavoro o la rifiuti.
 
-1. **Terminale nativo ad alte prestazioni**: Renderer Canvas `@xterm/xterm` con precisione al singolo pixel basato su ConPTY (Windows) e PTY POSIX (macOS), con Truecolor a 24 bit, legature Nerd Font integrate e streaming di byte a conversione zero.
-2. **Chat GUI nativa**: Creata con Svelte 5 e trasporto RPC Rust (`omp --mode rpc-ui`), con alberi di ragionamento comprimibili, oltre 30 schede strumento strutturate, wizard interattivi di richiesta input (`ask`), percorsi file cliccabili, allegati immagine e un cursore di digitazione fluido.
+<img src="assets/screenshots/screen_lanes.png" alt="Revisiona e integra una corsia" width="100%" />
 
-Passa istantaneamente dal Terminale alla Chat GUI con **`Ctrl+Alt+A`** sulla **stessa identica sessione in esecuzione** senza alcuna perdita di stato.
+## Laboratorio
 
----
+Il Laboratorio è uno spazio per prototipi di interfaccia accanto al progetto. L'agente prima esplora il progetto e scrive un breve brief da approvare, poi costruisce prototipi React 19 + Tailwind v4 con anteprima dal vivo: una versione fedele, varianti divergenti o un flusso. Con **Indica e disegna** clicchi o disegni sull'anteprima per dire cosa cambiare; ogni richiesta è una revisione a cui puoi tornare. Il prototipo approvato passa all'agente principale, che lo implementa nello stack vero del progetto.
 
-## ✨ Funzionalità principali
+<img src="assets/screenshots/screen_lab.png" alt="Laboratorio: prototipo React con anteprima dal vivo accanto all'agente" width="100%" />
 
-- 🗂️ **Barra multi-progetto a zero attrito**: Passa da un repository aperto all'altro a latenza zero. I processi in background dell'agente continuano a funzionare senza interruzioni. Le tessere dei progetti riflettono in tempo reale lo stato dell'agente (spinner di lavoro, anello ambra di attesa input, inattivo) e il conteggio della coda task.
-- ⚡ **Doppia superficie per l'agente (`TERMINAL | GUI`)**: Usa l'autentica TUI da terminale o la ricca GUI in Svelte 5. Pieno supporto per lo streaming markdown, l'incollo di immagini (`Ctrl+V`), i comandi slash (`/`) e l'ispezione dei sub-agenti.
-- 📝 **Editor Monaco integrato e diff affiancato**: Ispeziona, modifica e verifica il codice toccato dall'agente. Pannello Git integrato con cambio branch, visualizzazione dei diff non committati e cronologia temporale delle sessioni.
-- 📋 **Orchestrazione dei task di progetto (`.omp/tasks.json`)**: Code di task locali e persistenti condivise in tempo reale tra Studio e il comando `/tasks` da terminale. Include preset per i ruoli operativi (`plan`, `smol`, `default`, `slow`, `advisor`), cursore per il livello di ragionamento (thinking effort), allegati visivi ed esecuzione automatica dei task.
-- 🎨 **Prototipazione visuale e whiteboard**:
-  - **Sandbox UI (`studio_preview`)**: Rendering live istantaneo per componenti React/TSX e HTML con cambio reattivo del viewport (Desktop, Tablet, Mobile).
-  - **Whiteboard Mermaid (`studio_diagram`)**: Diagrammi visuali di architettura zoomabili renderizzati direttamente nella colonna centrale.
-- 📊 **Quote AI in tempo reale e intelligenza dei modelli**: Monitoraggio live delle quote su tutti i provider (`Ctrl+Alt+U`), sparkline con i trend delle ultime 24 ore, countdown al reset e un gestore integrato di Modelli e Ruoli (`Ctrl+Alt+M`) con catene di fallback automatiche.
-- 📜 **Regole di contesto e motore anti-attrito**: Scheda Regole dedicata con l'elenco dei file di contesto del progetto (`AGENTS.md`, `.omp/rules/`, `CLAUDE.md`) e delle skill installate. Analizza le correzioni ricorrenti dell'utente per proporre regole mirate di progetto applicabili con un singolo click.
-- 🔔 **Notifiche desktop native**: Notifiche toast di Windows 10/11 (con AUMID registrato e lampeggio nella barra delle applicazioni) e notifiche macOS (con rimbalzo nel dock e contatore badge) quando l'agente richiede input o completa un task.
-- 🛡️ **Privato, leggero e sicuro**: App desktop locale al 100% offline basata su Tauri 2. Si collega direttamente ai database SQLite locali in modalità rigorosamente di sola lettura (`PRAGMA query_only = ON`).
+## Studio Remote e Companion
 
----
+- **Studio Remote** (spento di default) collega Studio a un relay che ospiti tu. Dal telefono o da qualunque browser vedi tutte le macchine, leggi e scrivi nella chat di ogni corsia, rispondi alle domande dell'agente, alleghi file, avvii i task in coda e controlli le quote. Non esiste un relay condiviso: vedi [`relay/`](relay/README.it.md).
+- **Companion** è una piccola finestra sempre a portata (`Alt+Space`): raccoglie risposte e domande dell'agente da tutti i progetti, così rispondi o mandi un nuovo task senza riportare Studio in primo piano.
 
-## 📸 Panoramica visiva
+<img src="assets/screenshots/screen_remote.png" alt="Studio Remote sul telefono: progetti e corsie, chat di una corsia, avvio di un nuovo lavoro" width="100%" />
 
-### Doppia superficie per l'agente: Chat GUI e Terminale nativo
-Passa dalla ricca chat GUI in Svelte 5 al terminale ANSI perfetto al singolo pixel sulla stessa sessione usando `Ctrl+Alt+A`:
+## Download
 
-<p align="center">
-  <img src="assets/screenshots/screen_gui.png" width="49%" alt="Native Chat GUI" />
-  <img src="assets/screenshots/screen_tui.png" width="49%" alt="Native Terminal TUI" />
-</p>
+| Piattaforma | Pacchetto |
+|---|---|
+| Windows 10/11 x64 | installer `.exe`, per utente, senza diritti di amministratore |
+| macOS (Apple Silicon e Intel) | `.dmg` universale |
+| Linux x64 | `.deb` o `.AppImage` |
 
-### Editor Monaco e Git Diff
-Ispeziona le modifiche, confronta i diff Git affiancati, visualizza in anteprima gli SVG e modifica i file direttamente accanto all'agente:
+Scarica da [Releases](https://github.com/Bodyes26/OMP-Studio/releases/latest). Studio si aggiorna da solo; nelle Impostazioni scegli tra il canale stabile e Nightly.
+Se `omp` non è installato, al primo avvio Studio propone di installarlo e configurarlo.
 
-<p align="center">
-  <img src="assets/screenshots/screen_editor.png" width="100%" alt="Monaco Code Editor and Diff Viewer" />
-</p>
+## Privacy
 
-### Orchestrazione dei task e intelligenza dei modelli
-Accoda prompt, calibra il thinking effort e i ruoli, allega screenshot e monitora le quote di token tra i vari provider:
+Studio è un'app locale. Legge i database delle sessioni di `omp` in sola lettura e non invia telemetria. Codice e conversazioni vanno solo ai provider AI che configuri in `omp` e, se attivi Studio Remote, al tuo relay.
 
-<p align="center">
-  <img src="assets/screenshots/screen_task.png" width="100%" alt="Task Editor and Model Configuration" />
-</p>
+## Documentazione
 
----
+- [Scorciatoie da tastiera](docs/SHORTCUTS.md)
+- [Changelog](CHANGELOG.md)
+- Note di prodotto, architettura e design: [PRODUCT](docs/PRODUCT.md), [ARCHITECTURE](docs/ARCHITECTURE.md), [DESIGN](docs/DESIGN.md), [DECISIONS](docs/DECISIONS.md)
 
-## 🤖 Creato con e per `omp`
+## Compilare dai sorgenti
 
-L'intera applicazione è **sviluppata, mantenuta ed evoluta iterativamente usando `omp` stesso**.
+Servono Node.js 22.17+, [Bun](https://bun.sh/), Rust stable e gli strumenti di build della piattaforma (Visual Studio C++ su Windows, Xcode Command Line Tools su macOS).
 
-- **Documentazione AI-First**: Linee guida come [`AGENTS.md`](AGENTS.md), progetti di architettura in [`docs/`](docs/) e contratti di workflow sono scritti esplicitamente affinché gli agenti di coding AI possano ispezionarli, ragionarci sopra e agire senza alcuna ambiguità.
-- **Contesto bilingue**: Mentre l'interfaccia pubblica e questo README sono in inglese, i documenti di progettazione interni, la cronologia dei commit e i dialoghi dei prompt dell'agente sono mantenuti in **italiano** (la lingua madre dell'autore).
-- **Invarianti rigorosi**: La base di codice è progettata per resistere alle modifiche apportate dall'AI, con script di rilascio automatizzati, controlli di configurazione basati su un'unica fonte di verità e convalida automatica dei tipi.
-
----
-
-## 📥 Download e installazione
-
-I rilasci precompilati sono disponibili per Windows, macOS e Linux (x86_64).
-
-### Windows (10 / 11 a 64 bit)
-Scarica l'installer leggero NSIS (`.exe`) dalle **[Release](https://github.com/Bodyes26/OMP-Studio/releases/latest)**.
-- Installazione per singolo utente (senza privilegi di amministratore / UAC richiesti).
-- Aggiornamenti in-app silenziosi e in background.
-
-### macOS (Apple Silicon e Intel)
-Scarica il file DMG universale (`.dmg`) dalle **[Release](https://github.com/Bodyes26/OMP-Studio/releases/latest)**.
-- Binario universale (`aarch64` Apple Silicon + `x86_64` Intel).
-- Rendering nativo WebKit e notifiche di sistema.
-
-### Linux (x86_64)
-Scarica il pacchetto Debian (`.deb`) o l'AppImage portabile (`.AppImage`) dalle **[Release](https://github.com/Bodyes26/OMP-Studio/releases/latest)**.
-- Rendering nativo GTK3 / WebKitGTK con notifiche desktop.
-- Compatibile con Ubuntu, Debian, Fedora, Arch e le principali distribuzioni.
-*Nota: se `omp` non è installato nel sistema, la **Procedura guidata di configurazione** integrata in Studio proporrà automaticamente di scaricarlo, verificarlo e configurarlo al primo avvio.*
-
----
-
-## ⌨️ Scorciatoie da tastiera
-
-Tutte le combinazioni di tasti del terminale vengono inoltrate direttamente al PTY. Le azioni globali di Studio utilizzano il modificatore dedicato **`Ctrl+Alt`**:
-
-| Scorciatoia | Ambito | Azione |
-|---|---|---|
-| `Ctrl+Alt+A` | Globale | Passa tra le superfici **TERMINAL** e **GUI** (stessa sessione) |
-| `Ctrl+Alt+N` | Globale | Apre / Aggiunge un nuovo workspace di progetto |
-| `Ctrl+Alt+T` | Globale | Apre il cassetto della Coda task globale multi-progetto |
-| `Ctrl+Alt+U` | Globale | Mostra/nasconde il popover di monitoraggio delle quote AI e dei token |
-| `Ctrl+Alt+M` | Globale | Apre il gestore di configurazione di Modelli e Ruoli |
-| `Ctrl+Alt+,` | Globale | Apre il Centro impostazioni unificato |
-| `Ctrl+Alt+S` | Globale | Apre la chat temporanea Scratchpad (`--no-session`) |
-| `Ctrl+Alt+→` / `←` | Globale | Passa al progetto aperto successivo / precedente |
-| `Ctrl+P` / `Alt+R` | GUI | Cicla rapidamente / seleziona i ruoli operativi dell'agente (`default`, `plan`, `smol`...) |
-| `Ctrl+S` | Editor | Salva il file corrente nell'editor Monaco |
-| `Ctrl+W` / `Ctrl+F4` | Editor | Chiude la scheda del file attivo nell'editor |
-| `Esc` | Globale | Chiude la finestra di dialogo o il popover attivo, o annulla la risposta in streaming |
-
-*Consulta [`docs/SHORTCUTS.md`](docs/SHORTCUTS.md) per il riferimento completo a tutte le scorciatoie da tastiera.*
-
----
-
-## 🛠️ Sviluppo locale
-
-### Prerequisiti
-- Node.js **22.17+** e [Bun](https://bun.sh/)
-- Toolchain Rust (`stable`)
-- Strumenti di compilazione C++ della piattaforma (Visual Studio C++ su Windows / Strumenti da riga di comando Xcode su macOS)
-
-### Guida introduttiva
 ```bash
-# 1. Clona il repository
 git clone https://github.com/Bodyes26/OMP-Studio.git
 cd OMP-Studio
-
-# 2. Installa le dipendenze
 npm install
-
-# 3. Esegui l'app desktop in modalità di sviluppo
-npm run tauri -- dev
-
-# 4. Esegui il controllo dei tipi Svelte / TypeScript
-npm run check
-
-# 5. Esegui la suite di test automatizzati
-npm test
+npm run tauri -- dev    # avvia l'app
+npm run check && npm test
 ```
 
----
+## Licenza
 
-## 📦 Controllo versione e flusso di rilascio
-
-L'avanzamento di versione è sincronizzato tra `package.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock` e `src-tauri/tauri.conf.json` tramite la pipeline di rilascio automatizzata:
-
-```bash
-npm run release -- 1.2.0            # Avanzamento di versione + chiude [Unreleased] in CHANGELOG.md
-node scripts/release.mjs --notes    # Genera note di rilascio pulite per le GitHub Releases
-```
-
-Per le regole dettagliate di rilascio e i protocolli dell'agente, consulta [`AGENTS.md`](AGENTS.md).
-
----
-
-## 📐 Filosofia e architettura
-
-1. **La sessione dell'agente è il contenuto, l'app è la cornice**: I viewport non vengono mai rallentati da decoratori grafici pesanti. La cornice dell'interfaccia utilizza palette neutre a croma 0 in modo che i colori ANSI e i temi del codice rimangano inalterati.
-2. **Cambio progetto istantaneo**: Il passaggio tra progetti è immediato e non ricarica mai il DOM né interrompe i processi PTY.
-3. **Doppia superficie per progettazione**: La chat GUI è un compagno ergonomico che comunica tramite `omp --mode rpc-ui`; non sostituisce mai il terminale nativo né crea fork del motore dell'agente.
-4. **Resilienza e privacy**: Tutti i database dell'agente vengono aperti in sola lettura (`PRAGMA query_only = ON`). Nessuna telemetria remota né vincoli proprietari verso il cloud.
-
-Progetti architetturali dettagliati:
-- [PRODUCT.md](docs/PRODUCT.md) — Visione di prodotto, problemi risolti e non-obiettivi
-- [ARCHITECTURE.md](docs/ARCHITECTURE.md) — Streaming ConPTY/POSIX PTY, trasporto RPC Svelte 5 e modello di threading
-- [DESIGN.md](docs/DESIGN.md) — Design token, sistema dei colori e regole di stato dell'interfaccia utente
-- [DECISIONS.md](docs/DECISIONS.md) — Architecture Decision Records (ADR)
-- [SHORTCUTS.md](docs/SHORTCUTS.md) — Riferimento completo alle scorciatoie da tastiera
-
----
-
-## 📄 Licenza e contributi
-
-Distribuito con **[Licenza MIT](LICENSE)**.
-
-*Questo è un progetto personale pubblicato in sola lettura. Le pull request vengono chiuse automaticamente, ma sei il benvenuto a effettuarne il fork e adattarlo al tuo flusso di lavoro.*
+[MIT](LICENSE). OMP Studio è sviluppato con `omp` stesso ed è pubblicato come progetto personale: le pull request vengono chiuse automaticamente, i fork sono benvenuti.

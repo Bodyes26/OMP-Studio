@@ -1,3 +1,7 @@
+// Sostituiti alla creazione con titolo e testo nella lingua dell'interfaccia.
+const TITLE = "{{TITLE}}";
+const EMPTY_HINT = "{{EMPTY_HINT}}";
+
 export default function App() {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 flex items-center justify-center p-6">
@@ -17,10 +21,8 @@ export default function App() {
             />
           </svg>
         </div>
-        <h1 className="text-xl font-semibold text-slate-900">Nuovo prototipo</h1>
-        <p className="text-sm text-slate-500 leading-relaxed">
-          Descrivi l'interfaccia desiderata nella chat per iniziare a costruire il prototipo.
-        </p>
+        <h1 className="text-xl font-semibold text-slate-900">{TITLE}</h1>
+        <p className="text-sm text-slate-500 leading-relaxed">{EMPTY_HINT}</p>
       </div>
     </div>
   );

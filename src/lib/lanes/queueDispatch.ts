@@ -61,7 +61,7 @@ export type AutoDispatchDecision =
 export interface ConcurrencyWarning {
 	/** Agenti gia' attivi, quello in arrivo escluso. */
 	activeAgents: number;
-	lanes: Array<{ title: string; model: string | null; liveProcess: boolean }>;
+	lanes: Array<{ title: string; isMain: boolean; model: string | null; liveProcess: boolean }>;
 }
 
 export interface QueueRootResolution {
@@ -128,6 +128,7 @@ export function buildConcurrencyWarning(
 		activeAgents: active.length,
 		lanes: active.map((lane) => ({
 			title: lane.title,
+			isMain: lane.laneId === MAIN_LANE_ID,
 			model: formatModel(lane),
 			liveProcess: lane.liveProcess === true
 		}))

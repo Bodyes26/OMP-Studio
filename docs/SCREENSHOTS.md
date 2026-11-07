@@ -1,60 +1,55 @@
-# Screenshot del README
+# Screenshot e video del README
 
 Le immagini del README stanno in `assets/screenshots/` e vanno rifatte quando
-l'interfaccia cambia in modo visibile (ultima richiesta: rilascio 1.7.0).
-Non si possono produrre in cloud: serve l'app desktop vera. Il prompt qui sotto
-è pensato per un agente locale (omp o Claude Code) sulla workstation Windows.
+l'interfaccia cambia in modo visibile (ultimo giro: 1.10.0, novembre 2026, da macOS).
+Servono l'app desktop vera e la finestra di Studio già aperta: niente cloud, niente
+seconda istanza.
 
-## Prompt per l'agente locale
+## File
 
-````text
-Obiettivo: produrre gli screenshot del README di OMP Studio e salvarli nel repo.
+| File | Contenuto |
+|---|---|
+| `screen_hero.png` | Finestra intera sul progetto demo: barra progetti, riga corsie con almeno due corsie worktree e un prototipo del Laboratorio, albero file, editor con un file modificato, chat con gruppo di tool e risposta finale. |
+| `screen_lanes.png` | Finestra «Review & Integrate» su una corsia con modifiche, diff di un file `.svelte` selezionato (non `package-lock.json`). |
+| `screen_remote.png` | Tre schermate della PWA di Studio Remote dall'iPhone (elenco progetti con le corsie del demo, chat di una corsia, foglio «Nuovo lavoro»), affiancate su fondo trasparente. I nomi di progetti privati vanno pixelati; niente quote con email, niente impostazioni con i nomi delle macchine. |
+| `screen_lab.png` | Prototipo del Laboratorio: anteprima a sinistra, chat con il riepilogo dell'agente a destra. |
 
-REGOLE (vincolanti):
-- MAI PowerShell/pwsh/.ps1, nemmeno indiretto (Sophos termina la sessione). Usa Python
-  (ctypes/user32, Pillow, mss, pyautogui) e cmd.exe.
-- NON avviare una seconda istanza di OMP Studio (né `npm run tauri -- dev`, né l'exe):
-  usa la finestra di OMP Studio già aperta. Se non è aperta, fermati e chiedimelo.
-- Gli screenshot finiscono in un repo PUBBLICO: usa solo il progetto demo descritto sotto.
-  Nessun nome di cliente, server, percorso personale, token, email o progetto aziendale.
-  Se un'immagine mostra dati sensibili, rifalla.
-- Non committare nulla: lascia i file nel working tree e mostrami `git status --short`.
+Formato: PNG 1920×1027 (finestra 1440×770 punti su Retina, ridotta), quantizzata a
+256 colori, sotto i 200 KB.
 
-PREPARAZIONE
-1. Crea un progetto demo in C:\demo\omp-demo-app (git init, un piccolo progetto
-   Svelte/TS o Node con 8-15 file, un paio di commit) e aprilo in Studio.
-2. Tema scuro, lingua inglese (Impostazioni → Generale), finestra massimizzata
-   a 1920x1080 con scala Windows al 100% (se la scala è diversa, ridimensiona poi
-   alle misure indicate mantenendo le proporzioni).
-3. Fai fare all'agente un compito vero ma breve sul progetto demo (es. "aggiungi una
-   funzione di validazione email con test"), così la chat ha messaggi, gruppi di tool,
-   diff e una TODO list.
+Il video (20–30 s: task in coda → «New lane» → riepilogo della corsia → Review &
+Integrate → commit nella cronologia Git) non sta nel repo: GitHub lo riproduce nel
+README solo come allegato `user-attachments`. Si carica trascinando l'MP4 nell'editor
+di una issue o di una PR e si incolla il link ottenuto nel README.
 
-CATTURA: cattura SOLO il rettangolo della finestra di Studio (GetWindowRect via
-ctypes) o l'area indicata, senza bordo del desktop né barra delle applicazioni.
-Formato PNG. Dopo la cattura ottimizza (Pillow optimize=True; se c'è pngquant/oxipng
-usali) restando sotto i 400 KB per immagine.
+## Regole
 
-FILE DA PRODURRE (cartella assets/screenshots/ del repo):
-1. screen_hero.png    ~1920x1030  Finestra intera: barra progetti in alto con il
-                                   progetto demo e almeno una corsia aperta, albero
-                                   file a sinistra, chat al centro con risposta e
-                                   gruppi di tool, colonna destra visibile.
-2. screen_gui.png     ~780x980    Solo la colonna della chat: messaggi, un gruppo di
-                                   tool espanso, composer in basso con un badge @file.
-3. screen_tui.png     ~780x980    Stessa area ma in modalità terminale (omp TUI attivo).
-4. screen_editor.png  ~820x980    Editor Monaco con un file del demo e una diff visibile.
-5. screen_task.png    ~1920x1024  Task Editor aperto (modello, slider thinking) con la
-                                   coda task che contiene 2-3 task.
-6. screen_lanes.png   ~1920x1030  NUOVO: barra delle corsie con 2 corsie e la finestra
-                                   "Revisiona e integra" aperta su una corsia con modifiche.
-7. screen_github.png  ~1200x800   NUOVO: Impostazioni → GitHub (account demo o stato
-                                   "non collegato", MAI un token visibile) oppure pannello
-                                   Git con lo stato del repo demo.
-8. screen_doctor.png  ~1200x800   NUOVO: Impostazioni → Studio Doctor dopo un controllo.
+- Repo pubblico: solo il progetto demo. Nessun cliente, server, token, email o
+  percorso aziendale; se un'immagine li mostra, va rifatta.
+- Tema scuro (`titanium`), lingua inglese; a fine lavoro si rimettono le
+  impostazioni dell'utente.
+- Mai PowerShell; mai avviare `npm run tauri -- dev` o l'eseguibile.
+- Nessun commit: i file restano nel working tree.
 
-Sostituisci i file 1-5 esistenti con lo stesso nome; crea 6-8.
+## Procedura su macOS
 
-CONSEGNA: elenco dei file con dimensioni in pixel e KB, `git status --short`, e per
-ogni immagine una riga su cosa mostra. Segnala qualsiasi schermata non ottenuta.
-````
+Permessi una tantum in Impostazioni di Sistema → Privacy e sicurezza, per
+`omp-studio-app` (l'agente gira dentro Studio): **Registrazione schermo** e
+**Accessibilità**. Registrazione schermo vale solo dopo il riavvio di Studio.
+
+1. Progetto demo in `~/demo/omp-demo-app`: piccola app Svelte 5 + TS (lista task),
+   due commit con autore `Demo <demo@example.com>`. Aprirlo da `+` → *Browse…*
+   (nel pannello di sistema `⌘⇧G` e il percorso).
+2. Far lavorare l'agente: un task in Main e due task in coda avviati con
+   «New lane»; un prototipo da `+` → *New prototype*.
+3. Comandi: `cliclick` (Homebrew) per mouse e tasti; per incollare testo
+   `pbcopy` + `osascript -e 'tell application "System Events" to keystroke "v" using command down'`
+   (`cliclick t:` e `kp:return` non arrivano sempre alla WebView). I menu a
+   comparsa di Studio vogliono un clic lento: `m:`, pausa, `dd:`, 0,1 s, `du:`.
+4. Cattura della sola finestra: id con Quartz
+   (`CGWindowListCopyWindowInfo`, proprietario `omp-studio-app`, layer 0), poi
+   `screencapture -x -o -l <id> file.png`.
+5. Video: `ffmpeg -f avfoundation -framerate 30 -capture_cursor 1 -capture_mouse_clicks 1 -i "<schermo>:none"`
+   (indice da `-list_devices true`), stop con `q` su stdin. Montaggio: `crop` sulla
+   finestra, scala a 1440 px, tagli con `trim`/`concat`, `setpts=PTS/1.4`,
+   `libx264 -crf 24 -movflags +faststart`.

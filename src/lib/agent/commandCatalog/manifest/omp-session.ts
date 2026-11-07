@@ -494,6 +494,44 @@ export const OMP_ENTRIES_SESSION: readonly CommandManifestEntry[] = [
 		}
 	},
 	{
+		id: 'unpin',
+		origin: 'omp',
+		category: 'session',
+		icon: 'IconPin',
+		control: 'action',
+		supported: [...STATUS_LINE_PLACEMENTS],
+		defaultPlacement: null,
+		argsHint: '[session id]',
+		text: {
+			it: {
+				title: 'Togli il pin alla sessione',
+				summary: 'Toglie il pin a una sessione, che torna al suo posto nella lista di ripresa.',
+				benefits: [
+					'Libera la cima dell\'elenco /resume dalle sessioni che non servono piu\' a portata di mano',
+					'Se usato senza argomenti, agisce sulla sessione attiva'
+				],
+				examples: [
+					{ command: '/unpin', note: 'Toglie il pin alla sessione corrente' },
+					{ command: '/unpin 019234ab-56cd', note: 'Toglie il pin alla sessione specificata per ID' }
+				],
+				whenToUse: 'Quando una sessione fissata non e\' piu\' un lavoro a cui torni spesso.'
+			},
+			en: {
+				title: 'Unpin Session',
+				summary: 'Remove a session\'s pin so it returns to its place in the resume list.',
+				benefits: [
+					'Clears sessions you no longer need from the top of /resume',
+					'Acts on the active session when run without arguments'
+				],
+				examples: [
+					{ command: '/unpin', note: 'Unpin the active session' },
+					{ command: '/unpin 019234ab-56cd', note: 'Unpin a specific session by its identifier' }
+				],
+				whenToUse: 'When a pinned session is no longer work you return to often.'
+			}
+		}
+	},
+	{
 		id: 'retry',
 		origin: 'omp',
 		category: 'session',

@@ -11,6 +11,9 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ## [Unreleased]
 
+### Fixed
+- Con l'interfaccia in inglese restavano testi in italiano: la sezione «Apri branch» del menu `+` delle corsie, la Principale nella finestra degli agenti concorrenti, l'avviso in chat quando una corsia finisce e la pagina vuota dei nuovi prototipi del Laboratorio (titolo compreso). Ora seguono la lingua scelta.
+
 ## [1.10.0] - 2026-11-05
 
 ### Added

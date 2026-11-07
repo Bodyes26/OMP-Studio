@@ -248,8 +248,8 @@ describe('W09 — Routing della coda verso le corsie', () => {
 			]);
 			assert.equal(warning.activeAgents, 2);
 			assert.deepEqual(warning.lanes, [
-				{ title: 'Principale', model: 'anthropic/opus', liveProcess: true },
-				{ title: 'Worktree wt-1', model: 'openai/gpt-5', liveProcess: false }
+				{ title: 'Principale', isMain: true, model: 'anthropic/opus', liveProcess: true },
+				{ title: 'Worktree wt-1', isMain: false, model: 'openai/gpt-5', liveProcess: false }
 			]);
 		});
 	});

@@ -352,19 +352,19 @@ export async function projectLaneActions(
 	// 3. Sezione "Apri branch" per repository Git
 	if (isGitRepo && project.canonicalProjectPath) {
 		items.push({ kind: 'separator' });
-		items.push({ kind: 'header', label: 'Apri branch' });
+		items.push({ kind: 'header', label: m.lanestrip_open_branch_header() });
 
 		if (options?.branchesState?.loading) {
 			items.push({
 				kind: 'item',
-				label: 'Caricamento branch in corso...',
+				label: m.lanestrip_branches_loading(),
 				disabled: true,
 				run: () => {}
 			});
 		} else if (options?.branchesState?.error) {
 			items.push({
 				kind: 'item',
-				label: 'Impossibile leggere i branch',
+				label: m.lanestrip_branches_error(),
 				disabled: true,
 				run: () => {}
 			});
@@ -378,7 +378,7 @@ export async function projectLaneActions(
 				if (openable.length === 0) {
 					items.push({
 						kind: 'item',
-						label: 'Nessun branch da aprire',
+						label: m.lanestrip_branches_empty(),
 						disabled: true,
 						run: () => {}
 					});
@@ -389,9 +389,9 @@ export async function projectLaneActions(
 							label: branch.name,
 							icon: IconGitBranch,
 							detail: branch.checkedOutPath
-								? 'worktree esterno'
+								? m.lanestrip_branch_external_worktree()
 								: branch.kind === 'remote'
-									? 'remoto'
+									? m.lanestrip_branch_remote()
 									: undefined,
 							run: async () => {
 								if (options?.onOpenBranch) {
@@ -409,7 +409,7 @@ export async function projectLaneActions(
 				console.warn('Lettura branch fallita per il menu:', err);
 				items.push({
 					kind: 'item',
-					label: 'Impossibile leggere i branch',
+					label: m.lanestrip_branches_error(),
 					disabled: true,
 					run: () => {}
 				});

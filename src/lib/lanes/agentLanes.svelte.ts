@@ -31,6 +31,7 @@ import { labApi } from '#lib/lab/api.ts';
 import type { LabIndexEntry } from '#lib/lab/types.ts';
 import { peekLabRuntime } from '#lib/lab/runtime.svelte.ts';
 import { laneId as toLaneId, workspacePath, MAIN_LANE_ID, type LaneId, type ProjectId } from '#lib/types/lanes.ts';
+import { m } from '#lib/paraglide/messages.js';
 import {
 	buildLabHandoffPackage,
 	callerIsMain,
@@ -728,7 +729,7 @@ class AgentLaneService {
 		});
 		const main = sessionRegistry.getMainSession(project.id);
 		const first = riassunto.split('\n', 1)[0] ?? riassunto;
-		main?.pushNotice('info', `Corsia "${lane.title}" finita: ${first.length > 140 ? `${first.slice(0, 139)}\u2026` : first}`, 'studio');
+		main?.pushNotice('info', m.agent_lane_finished_notice({ title: lane.title, summary: first.length > 140 ? `${first.slice(0, 139)}\u2026` : first }), 'studio');
 		return {
 			ok: true,
 			text: "Riassunto registrato: la Principale e l'utente lo leggono da Studio. Non integrare e non fare commit: decide l'utente.",

@@ -20,10 +20,12 @@ const TEMPLATE_GITIGNORE: &str = include_str!("template/.gitignore");
 const TEMPLATE_META_JSON: &str = include_str!("template/.lab/meta.json");
 
 /// Istanzia tutti i file del template all'interno della cartella del workspace.
+/// `empty_hint` e' il testo della pagina vuota, gia' nella lingua dell'interfaccia.
 fn instantiate_template(
     workspace_path: &Path,
     prototype_id: &str,
     title: &str,
+    empty_hint: &str,
     created_at: &str,
 ) -> Result<(), String> {
     fs::create_dir_all(workspace_path.join("src"))
@@ -43,14 +45,21 @@ fn instantiate_template(
         .map_err(|e| format!("Scrittura tsconfig.json fallita: {e}"))?;
     fs::write(workspace_path.join("src/main.tsx"), TEMPLATE_MAIN_TSX)
         .map_err(|e| format!("Scrittura src/main.tsx fallita: {e}"))?;
-    fs::write(workspace_path.join("src/App.tsx"), TEMPLATE_APP_TSX)
+    // Letterali JSON: sono anche stringhe JS valide, quindi titolo e testo non
+    // possono rompere il TSX qualunque carattere contengano.
+    let escaped_title = serde_json::to_string(title).unwrap_or_else(|_| format!("\"{title}\""));
+    let escaped_hint =
+        serde_json::to_string(empty_hint).unwrap_or_else(|_| format!("\"{empty_hint}\""));
+    let app_tsx = TEMPLATE_APP_TSX
+        .replace("\"{{TITLE}}\"", &escaped_title)
+        .replace("\"{{EMPTY_HINT}}\"", &escaped_hint);
+    fs::write(workspace_path.join("src/App.tsx"), app_tsx)
         .map_err(|e| format!("Scrittura src/App.tsx fallita: {e}"))?;
     fs::write(workspace_path.join("src/index.css"), TEMPLATE_INDEX_CSS)
         .map_err(|e| format!("Scrittura src/index.css fallita: {e}"))?;
     fs::write(workspace_path.join(".gitignore"), TEMPLATE_GITIGNORE)
         .map_err(|e| format!("Scrittura .gitignore fallita: {e}"))?;
 
-    let escaped_title = serde_json::to_string(title).unwrap_or_else(|_| format!("\"{title}\""));
     let meta_json = TEMPLATE_META_JSON
         .replace("\"{{TITLE}}\"", &escaped_title)
         .replace("{{UPDATED_AT}}", created_at);
@@ -77,12 +86,20 @@ fn with_workspace_cleanup<T>(
 pub async fn lab_prototype_create(
     project_path: Option<String>,
     title: Option<String>,
+    empty_hint: Option<String>,
 ) -> Result<LabIndexEntry, String> {
     tokio::task::spawn_blocking(move || {
         let title = title
             .map(|t| t.trim().to_string())
             .filter(|t| !t.is_empty())
             .unwrap_or_else(|| "Nuovo prototipo".to_string());
+        let empty_hint = empty_hint
+            .map(|t| t.trim().to_string())
+            .filter(|t| !t.is_empty())
+            .unwrap_or_else(|| {
+                "Descrivi l'interfaccia desiderata nella chat per iniziare a costruire il prototipo."
+                    .to_string()
+            });
 
         let prototype_id = generate_prototype_id();
         let ws_path = prototype_workspace_path(&prototype_id)
@@ -101,7 +118,7 @@ pub async fn lab_prototype_create(
         // si e' verificato che non esistesse): se un passo fallisce si rimuove, invece
         // di lasciare un workspace a meta' che nessun indice conosce.
         let initial_rev = with_workspace_cleanup(&ws_path, || {
-            instantiate_template(&ws_path, &prototype_id, &title, &now)?;
+            instantiate_template(&ws_path, &prototype_id, &title, &empty_hint, &now)?;
             git_init(&ws_path)?;
             git_initial_commit(&ws_path)
         })?;
@@ -498,7 +515,7 @@ mod tests {
     fn snapshot_includes_template_sources_in_subfolders() {
         let (dir, mixed_root) = temp_workspace("tpl");
         let root = Path::new(&mixed_root);
-        instantiate_template(root, "p-test", "Test", "2026-01-01T00:00:00Z").unwrap();
+        instantiate_template(root, "p-test", "Test", "Hint", "2026-01-01T00:00:00Z").unwrap();
         fs::create_dir_all(root.join("src/components/ui")).unwrap();
         fs::write(root.join("src/components/ui/Button.tsx"), "export {}").unwrap();
         fs::create_dir_all(root.join("node_modules/react")).unwrap();
