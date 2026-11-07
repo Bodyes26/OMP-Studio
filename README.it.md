@@ -37,7 +37,7 @@ con più agenti in parallelo in worktree Git isolati: rivedi il loro lavoro e un
 2. L'agente della corsia lavora lì con la sua conversazione; file, Git, editor e chat seguono la corsia selezionata.
 3. Quando ha finito lascia un riepilogo. Rivedi la diff, poi la integri nel branch di destinazione, la rimandi alla corsia per altro lavoro o la rifiuti.
 
-<img src="assets/screenshots/screen_lanes.png" alt="Revisiona e integra una corsia" width="100%" />
+<img src="assets/screenshots/demo_lanes.gif" alt="Un task in coda parte in una nuova corsia, poi Revisione e integrazione lo porta su main in un solo commit" width="100%" />
 
 ## Laboratorio
 

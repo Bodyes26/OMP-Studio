@@ -10,17 +10,18 @@ seconda istanza.
 | File | Contenuto |
 |---|---|
 | `screen_hero.png` | Finestra intera sul progetto demo: barra progetti, riga corsie con almeno due corsie worktree e un prototipo del Laboratorio, albero file, editor con un file modificato, chat con gruppo di tool e risposta finale. |
-| `screen_lanes.png` | Finestra «Review & Integrate» su una corsia con modifiche, diff di un file `.svelte` selezionato (non `package-lock.json`). |
+| `demo_lanes.gif` | Animazione di circa 25 s: task in coda → «New lane» → riepilogo della corsia → Review & Integrate → commit nella cronologia Git. |
 | `screen_remote.png` | Tre schermate della PWA di Studio Remote dall'iPhone (elenco progetti con le corsie del demo, chat di una corsia, foglio «Nuovo lavoro»), affiancate su fondo trasparente. I nomi di progetti privati vanno pixelati; niente quote con email, niente impostazioni con i nomi delle macchine. |
 | `screen_lab.png` | Prototipo del Laboratorio: anteprima a sinistra, chat con il riepilogo dell'agente a destra. |
 
 Formato: PNG 1920×1027 (finestra 1440×770 punti su Retina, ridotta), quantizzata a
 256 colori, sotto i 200 KB.
 
-Il video (20–30 s: task in coda → «New lane» → riepilogo della corsia → Review &
-Integrate → commit nella cronologia Git) non sta nel repo: GitHub lo riproduce nel
-README solo come allegato `user-attachments`. Si carica trascinando l'MP4 nell'editor
-di una issue o di una PR e si incolla il link ottenuto nel README.
+La GIF nasce da una registrazione MP4 (in `ricerca/readme-media/`, fuori da git),
+montata con `ffmpeg` e convertita con `fps=8,scale=960:-1` + `palettegen`/`paletteuse`
+(128 colori, `stats_mode=diff`): circa 2 MB. Un MP4 si vedrebbe meglio, ma GitHub lo
+riproduce nel README solo come allegato `user-attachments`, che si carica dal browser
+trascinandolo in una issue: `gh` non ha un comando per farlo.
 
 ## Regole
 

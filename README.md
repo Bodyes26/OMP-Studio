@@ -37,7 +37,7 @@ with several agents running in parallel in isolated Git worktrees: review their 
 2. The lane's agent works there with its own conversation; files, Git, editor and chat follow the lane you select.
 3. When it is done it leaves a summary. You review the diff, then integrate it into the target branch, return it to the lane for more work, or reject it.
 
-<img src="assets/screenshots/screen_lanes.png" alt="Review and integrate a lane" width="100%" />
+<img src="assets/screenshots/demo_lanes.gif" alt="A queued task starts in a new lane, then Review & Integrate lands it on main as one commit" width="100%" />
 
 ## Lab
 
