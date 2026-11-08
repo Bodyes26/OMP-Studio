@@ -223,6 +223,11 @@ pub fn is_trusted_download_url(url: &str) -> bool {
         return parsed.path().to_lowercase().starts_with(&expected_prefix);
     }
 
+    if host == "api.github.com" {
+        let expected_prefix = format!("/repos/{}/releases/assets/", GITHUB_REPO).to_lowercase();
+        return parsed.path().to_lowercase().starts_with(&expected_prefix);
+    }
+
     if host == "objects.githubusercontent.com" || host.ends_with(".githubusercontent.com") {
         return true;
     }
@@ -312,7 +317,13 @@ fn github_asset_to_release_asset(a: &GithubAsset) -> StudioReleaseAsset {
     StudioReleaseAsset {
         name: a.name.clone(),
         size: a.size,
-        download_url: a.browser_download_url.clone(),
+        // L'URL per id evita `releases/download/<tag>/`, che dopo una nuova
+        // pubblicazione della nightly puo' rispondere 504 per ore.
+        download_url: if a.url.is_empty() {
+            a.browser_download_url.clone()
+        } else {
+            a.url.clone()
+        },
         content_type: a.content_type.clone(),
         sha256: a.digest.as_deref().and_then(parse_sha256_digest),
     }
@@ -992,7 +1003,15 @@ pub async fn start_studio_update_download(
             }
         };
 
-        let response = match client.get(&download_url).send().await {
+        // L'endpoint API dell'asset restituisce il file solo con questo Accept
+        // e rifiuta le richieste senza User-Agent.
+        let response = match client
+            .get(&download_url)
+            .header("User-Agent", format!("omp-studio-app/{}", env!("CARGO_PKG_VERSION")))
+            .header("Accept", "application/octet-stream")
+            .send()
+            .await
+        {
             Ok(res) if res.status().is_success() => res,
             Ok(res) => {
                 cleanup_temp_files();
@@ -2009,6 +2028,12 @@ b0613893715ab033d81414c1f905a91e76710ed06c03815d700d62cc76403b5b *OMP.Studio_1.1
         assert!(is_trusted_download_url(
             "https://objects.githubusercontent.com/github-production-release-asset-2e65be/12345"
         ));
+        assert!(is_trusted_download_url(
+            "https://api.github.com/repos/Bodyes26/OMP-Studio/releases/assets/721157636"
+        ));
+        assert!(!is_trusted_download_url(
+            "https://api.github.com/repos/other-user/other-repo/releases/assets/1"
+        )); // Asset API di un altro repo
 
         // Rejected URLs
         assert!(!is_trusted_download_url(

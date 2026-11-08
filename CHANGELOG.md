@@ -16,6 +16,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ### Fixed
 - Con l'interfaccia in inglese restavano testi in italiano: la sezione «Apri branch» del menu `+` delle corsie, la Principale nella finestra degli agenti concorrenti, l'avviso in chat quando una corsia finisce e la pagina vuota dei nuovi prototipi del Laboratorio (titolo compreso). Ora seguono la lingua scelta.
+- L'aggiornamento di Studio non si blocca più con l'errore 504 subito dopo la pubblicazione di una nuova Nightly: l'installer si scarica dall'indirizzo stabile del file su GitHub invece che da quello legato al nome della release.
 ## [1.10.0] - 2026-11-05
 
 ### Added

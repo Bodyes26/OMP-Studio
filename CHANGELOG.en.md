@@ -16,6 +16,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 
 ### Fixed
 - With the interface in English some text stayed in Italian: the "Open branch" section of the lanes `+` menu, Main in the concurrent agents dialog, the chat notice when a lane finishes and the empty page of new Lab prototypes (title included). They now follow the chosen language.
+- Studio updates no longer fail with error 504 right after a new Nightly is published: the installer is downloaded from the file's stable GitHub address instead of the one tied to the release name.
 ## [1.10.0] - 2026-11-05
 
 ### Added
