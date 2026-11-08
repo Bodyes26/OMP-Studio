@@ -169,7 +169,7 @@
 		popover="manual"
 		role="dialog"
 		aria-label={m.queue_drawer_modal_aria()}
-		use:anchoredPopover={{ anchor, placement: 'bottom-end', offset: 8, constrainHeight: true, motion: false }}
+		use:anchoredPopover={{ anchor, placement: 'top-start', offset: 8, constrainHeight: true, motion: false }}
 		transition:rvLift={{ duration: 150, blur: 3 }}
 		onfocusout={handleFocusOut}
 	>

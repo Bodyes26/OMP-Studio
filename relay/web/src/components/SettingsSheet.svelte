@@ -8,10 +8,11 @@
 	import { t } from '../i18n.ts';
 	import { formatHHMM } from '../schedule.ts';
 	import { connection } from '../connection.svelte.ts';
-	import { IconClose, IconPlus, IconLogout, IconTrash, IconLaptop, IconMachine, IconPhone } from '../icons.ts';
+	import { IconClose, IconPlus, IconLogout, IconTrash, IconLaptop, IconMachine, IconPhone, IconRefresh } from '../icons.ts';
 	import CodeModal from './CodeModal.svelte';
 	import PushNotificationToggle from './PushNotificationToggle.svelte';
 	import StatusMark from './StatusMark.svelte';
+	import { reloadApp } from '../reloadApp.ts';
 	import { scrim, responsiveDialog } from '../motion.ts';
 	let { onClose } = $props<{ onClose: () => void }>();
 
@@ -143,6 +144,18 @@
 			<!-- Notifiche push -->
 			<section class="settings-section">
 				<PushNotificationToggle />
+			</section>
+
+			<section class="settings-section">
+				<button
+					type="button"
+					class="ui-button ui-button-secondary action-btn"
+					onclick={reloadApp}
+					data-testid="refresh-app"
+				>
+					<IconRefresh />
+					<span>{t('refreshApp')}</span>
+				</button>
 			</section>
 
 			<!-- Azioni di abbinamento -->

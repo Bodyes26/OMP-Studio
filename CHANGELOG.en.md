@@ -11,8 +11,12 @@ released: items are closed into a version via `npm run release -- <version>`.
 
 ## [Unreleased]
 
+### Added
+- Studio Remote: the PWA can be reloaded without closing and reopening it, by pulling down (installed app) or with the "Refresh" button in Settings.
+
 ### Changed
 - Studio Remote: added fluid animations across all PWA interfaces adhering to Studio's design system. Modal sheets and dialogs now slide down and fade out on close instead of abruptly vanishing; full-screen chat transitions with native-feeling mobile push/pop sliding; project branch and queue accordion sections unfold smoothly with synchronized arrow rotation; the slash command tray, cross-branch notice banner, offline banner and scroll-to-bottom button have dedicated enter/exit transitions; buttons, chips, and list rows provide subtle tactile press feedback. All transitions automatically collapse to zero duration under `prefers-reduced-motion`.
+- The Companion, Queue and Remote control buttons move from the top bar to the status bar at the bottom, next to automations: the top bar stays free for project tiles.
 
 ### Fixed
 - With the interface in English some text stayed in Italian: the "Open branch" section of the lanes `+` menu, Main in the concurrent agents dialog, the chat notice when a lane finishes and the empty page of new Lab prototypes (title included). They now follow the chosen language.

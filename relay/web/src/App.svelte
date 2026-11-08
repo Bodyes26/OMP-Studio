@@ -20,6 +20,7 @@
 	import HistoryChatView from './components/chat/HistoryChatView.svelte';
 	import WorkSheet from './components/work/WorkSheet.svelte';
 	import { initNotificationRouting } from './notificationRouting.ts';
+	import PullToRefresh from './components/PullToRefresh.svelte';
 	import { chatTransition } from './motion.ts';
 	import { applyTheme, pickTheme } from './theme.ts';
 
@@ -42,6 +43,8 @@
 	const isPaired = $derived(connection.status !== 'unpaired' && connection.status !== 'checking');
 	const chatRoute = $derived(isPaired ? navigation.chat : null);
 </script>
+
+<PullToRefresh />
 
 <div class="app-layout" class:is-paired={isPaired} class:has-chat={Boolean(chatRoute)}>
 	<div class="status-bar-backdrop" aria-hidden="true"></div>

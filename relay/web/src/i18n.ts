@@ -23,6 +23,8 @@ const DICT = {
 	it: {
 		offlineBanner: 'Disconnesso dal relay. Riconnessione in corso...',
 		settings: 'Impostazioni',
+		refreshApp: 'Aggiorna',
+		refreshing: 'Aggiornamento in corso',
 		close: 'Chiudi',
 		cancel: 'Annulla',
 		confirm: 'Conferma',
@@ -352,6 +354,8 @@ const DICT = {
 	en: {
 		offlineBanner: 'Disconnected from relay. Reconnecting...',
 		settings: 'Settings',
+		refreshApp: 'Refresh',
+		refreshing: 'Refreshing',
 		close: 'Close',
 		cancel: 'Cancel',
 		confirm: 'Confirm',

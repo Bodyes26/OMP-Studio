@@ -36,6 +36,7 @@
 	import type StudioUpdateModalSurface from '#lib/components/StudioUpdateModal.svelte';
 	import type SettingsModalSurface from '#lib/components/settings/SettingsModal.svelte';
 	import AutomationIndicator from '#lib/components/automations/AutomationIndicator.svelte';
+	import StatusBarChips from '#lib/components/StatusBarChips.svelte';
 	import AutomationsView from '#lib/components/automations/AutomationsView.svelte';
 	import { automationsStore } from '#lib/automations/store.svelte.ts';
 	import { presenceStore } from '#lib/automations/presence.svelte.ts';
@@ -4444,6 +4445,10 @@
 	<footer class="statusbar">
 		<div class="statusbar-left">
 			<AutomationIndicator onOpenView={() => openAutomations()} onOpenSession={(id) => void openAutomationSession(id)} />
+			<StatusBarChips
+				onQueueClick={(anchor) => { queueAnchor = anchor; queueOpen = !queueOpen; }}
+				onRemoteSettings={() => settingsStore.openSection('remote')}
+			/>
 		</div>
 		<div class="statusbar-right">
 			<Tooltip text={studioUpdaterStore.currentVersion ? m.page_statusbar_studio_version_title({ version: studioUpdaterStore.currentVersion }) : m.page_statusbar_studio_version_check()}>

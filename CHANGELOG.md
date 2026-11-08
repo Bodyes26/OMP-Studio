@@ -11,8 +11,12 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ## [Unreleased]
 
+### Added
+- Studio Remote: la PWA si può ricaricare senza chiuderla e riaprirla, trascinando verso il basso (app installata) o con il pulsante «Aggiorna» nelle Impostazioni.
+
 ### Changed
 - Studio Remote: aggiunte animazioni fluide su tutte le interfacce della PWA secondo il design system di Studio. I fogli modali e i dialoghi ora scendono e sfumano alla chiusura invece di sparire all'istante; la chat a schermo intero entra ed esce con transizione a scorrimento laterale stile nativo mobile; l'espansione dei rami e della coda dei progetti si srotola morbidamente con rotazione sincronizzata della freccia; il vassoio comandi `/`, il banner di attenzione esterna, il banner offline e il pulsante per scorrere in fondo hanno transizioni dedicate in entrata e uscita; bottoni, chip e righe offrono un micro-feedback tattile alla pressione. Tutte le animazioni si azzerano automaticamente con `prefers-reduced-motion`.
+- I pulsanti Companion, Coda e Controllo remoto passano dalla barra superiore alla barra di stato in basso, accanto alle automazioni: la barra superiore resta libera per le tessere dei progetti.
 
 ### Fixed
 - Con l'interfaccia in inglese restavano testi in italiano: la sezione «Apri branch» del menu `+` delle corsie, la Principale nella finestra degli agenti concorrenti, l'avviso in chat quando una corsia finisce e la pagina vuota dei nuovi prototipi del Laboratorio (titolo compreso). Ora seguono la lingua scelta.

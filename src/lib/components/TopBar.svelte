@@ -14,12 +14,9 @@
 	import { activeQuotaStore } from '#lib/stores/activeQuota.svelte.ts';
 	import QuotaChip from './quota/QuotaChip.svelte';
 	import { scheduleStore } from '#lib/stores/schedule.svelte.ts';
-	import Tooltip from '#lib/ui/Tooltip.svelte';
 	import BrandMark from '#lib/ui/BrandMark.svelte';
 	import ProjectPopover from './ProjectPopover.svelte';
 	import GitDiffBadge from './GitDiffBadge.svelte';
-	import { companionStore } from '#lib/stores/companion.svelte.ts';
-	import { remoteStore } from '#lib/remote/remoteStore.svelte.ts';
 	import { modelSettingsStore } from '#lib/stores/modelSettings.svelte.ts';
 	import { perfSpan } from '#lib/perf.ts';
 	import {
@@ -33,9 +30,10 @@
 		IconChevronDown,
 		IconChevronLeft,
 		IconChevronRight,
+		IconPanelLeftClose,
+		IconPanelLeftOpen,
 		IconGhost,
 		IconPlus,
-		IconPin,
 		IconQuota,
 		IconSettings,
 		IconWarning,
@@ -43,7 +41,6 @@
 		IconGitBranch,
 		IconTrash,
 		IconDownload,
-		IconRemote
 	} from '#lib/icons.ts';
 	import { laneStore } from '#lib/stores/lanes.svelte.ts';
 	import { MAIN_LANE_ID, type ProjectId } from '#lib/types/lanes.ts';
@@ -706,7 +703,16 @@
 				: m.ui_topbar_nascondi_barra_laterale_ctrl_alt_b_093c()}
 			aria-expanded={!isSidebarCollapsed}
 		>
-			<BrandMark class="brand-logo-img" />
+			<span class="brand-swap">
+				<BrandMark class="brand-logo-img" />
+				<span class="brand-toggle-icon" aria-hidden="true">
+					{#if isSidebarCollapsed}
+						<IconPanelLeftOpen size={18} />
+					{:else}
+						<IconPanelLeftClose size={18} />
+					{/if}
+				</span>
+			</span>
 		</button>
 	</div>
 
@@ -994,61 +1000,6 @@
 			{/if}
 		</button>
 
-		<button
-			class="settings-chip companion-chip"
-			class:active={companionStore.isPinned}
-			onclick={(e) => { e.stopPropagation(); void companionStore.toggleCompanion(); }}
-			title={m.topbar_companion_chip_title()}
-			aria-label={m.topbar_companion_chip_aria()}
-		>
-			<IconPin /> Companion
-		</button>
-
-
-		{#if taskStore.totalQueued > 0}
-			<Tooltip text={m.topbar_queue_chip_title()} placement="bottom">
-			<button
-				class="queue-chip"
-				onclick={(e) => { e.stopPropagation(); onQueueClick?.(e.currentTarget); }}
-				aria-label={m.topbar_queue_chip_aria({ count: taskStore.totalQueued })}
-			>
-				{m.topbar_queue_chip_label({ count: taskStore.totalQueued })}
-			</button>
-			</Tooltip>
-		{/if}
-
-		{#if remoteStore.status.connection === 'connected' && remoteStore.status.clients.length > 0}
-			{@const deviceNames = remoteStore.status.clients.map((c) => c.name).join(', ')}
-			<Tooltip text={m.topbar_remote_chip_aria({ count: remoteStore.status.clients.length, devices: deviceNames })} placement="bottom">
-				<button
-					class="settings-chip remote-chip"
-					onclick={(e) => { e.stopPropagation(); onSettingsClick?.('remote'); }}
-					oncontextmenu={(e) => {
-						e.preventDefault();
-						e.stopPropagation();
-						contextMenu.open(e, {
-							label: m.settings_remote_machines_title(),
-							items: [
-								{
-									kind: 'item',
-									label: m.topbar_remote_chip_open_machines(),
-									run: () => void remoteStore.openMachinesWindow()
-								},
-								{
-									kind: 'item',
-									label: m.topbar_remote_chip_settings(),
-									run: () => onSettingsClick?.('remote')
-								}
-							]
-						});
-					}}
-					aria-label={m.topbar_remote_chip_aria({ count: remoteStore.status.clients.length, devices: deviceNames })}
-				>
-					<IconRemote />
-					<span>{m.topbar_remote_chip_label({ count: remoteStore.status.clients.length })}</span>
-				</button>
-			</Tooltip>
-		{/if}
 		<QuotaChip
 			showProvider={settingsStore.appearance.quotaChip.showProvider}
 			alwaysShowPct={settingsStore.appearance.quotaChip.alwaysShowPct}
@@ -1189,6 +1140,35 @@
 		height: 18px;
 		width: auto;
 		color: var(--ink);
+	}
+
+	/* Al passaggio il logo lascia il posto al glifo della barra laterale:
+	   stesso riquadro, nessuno spostamento di layout. */
+	.brand-swap {
+		position: relative;
+		display: grid;
+		place-items: center;
+	}
+
+	.brand-swap > :global(*) {
+		grid-area: 1 / 1;
+		transition: opacity var(--dur-fast) var(--ease-out);
+	}
+
+	.brand-toggle-icon {
+		display: flex;
+		color: var(--ink);
+		opacity: 0;
+	}
+
+	.app-icon-btn:hover :global(.brand-logo-img),
+	.app-icon-btn:focus-visible :global(.brand-logo-img) {
+		opacity: 0;
+	}
+
+	.app-icon-btn:hover .brand-toggle-icon,
+	.app-icon-btn:focus-visible .brand-toggle-icon {
+		opacity: 1;
 	}
 
 	.tabs-nav {
@@ -1748,42 +1728,6 @@
 		height: 6px;
 		border-radius: var(--radius-full);
 		background: var(--brand);
-	}
-
-	.companion-chip.active {
-		color: var(--brand-ink);
-		border-color: color-mix(in srgb, var(--brand) 40%, var(--line-strong));
-		background: color-mix(in oklch, var(--brand) 12%, transparent);
-	}
-	.remote-chip {
-		border-color: var(--brand-dim);
-		color: var(--brand-ink);
-	}
-
-	.remote-chip:hover {
-		border-color: var(--brand);
-		background: var(--bg-hover);
-	}
-
-
-	.queue-chip {
-		background: transparent;
-		border: 1px solid var(--brand-dim);
-		color: var(--brand-ink);
-		height: 28px;
-		padding: 0 8px;
-		font-size: var(--text-caption);
-		border-radius: var(--radius-md);
-		cursor: pointer;
-		margin-right: var(--space-2);
-		transition: background-color var(--dur-fast) var(--ease-out),
-		            border-color var(--dur-fast) var(--ease-out),
-		            color var(--dur-fast) var(--ease-out);
-	}
-
-	.queue-chip:hover {
-		border-color: var(--brand);
-		background: var(--bg-hover);
 	}
 
 	/* Il solo chip che ha diritto di usare l'ambra: dice che una cosa manca,
