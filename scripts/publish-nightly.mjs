@@ -322,6 +322,9 @@ function getPlatformConfig() {
 			};
 		case 'darwin':
 			useMacSigningIdentity();
+			// Con CI=true (impostata anche da alcuni terminali e agenti) il bundler di
+			// Tauri salta lo script Finder del DMG: niente sfondo ne' posizioni delle icone.
+			process.env.TAURI_BUNDLER_DMG_IGNORE_CI = 'true';
 			return {
 				key: 'macos',
 				name: 'macOS',
