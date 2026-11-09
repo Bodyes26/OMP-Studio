@@ -27,6 +27,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - The macOS installer DMG window has a new look: a monumental marble π in an alpine landscape, with the π made of fine ASCII characters and a film-grain photographic finish. OMP Studio sits on the left and the Applications folder on the right.
 
 ### Fixed
+- In chat, while Composer, Grok and the other Cursor models use tools, the reply written afterwards stays visible under those steps: it no longer appears only after reopening the session.
 - Images attached to an answer arrive with the data in the same `ask` result instead of a second queued message; an attachment that is not ready or cannot be delivered keeps the draft and prevents text-only submission. Preview and history read the new format while preserving older conversations. (ASK-004, ASK-010, ASK-013)
 - Questions always wait for explicit submission: no countdown confirms preselected values or cancels the form, including after a prewalk change. (ASK-003)
 - Initial configuration recognizes OMP's setup threshold 3 without enabling automatic updates or changing credentials. (ASK-005)

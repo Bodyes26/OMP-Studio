@@ -958,6 +958,14 @@ export class AgentSession {
 
 	private nextEntryId = 1;
 	private assistantEntry: AssistantEntry | null = null;
+	/**
+	 * `contentIndex` del filo verso la posizione nel segmento aperto.
+	 * Cursor tiene intro, tool e risposta nello stesso messaggio: dopo un
+	 * tool l'indice non riparte da zero, e usarlo cosi' com'e' riempie la
+	 * bolla di paragrafi vuoti. La mappa vale solo per l'entry `segmentFor`.
+	 */
+	private segmentWireIndex = new Map<number, number>();
+	private segmentFor: number | null = null;
 	private readonly toolEntries = new Map<string, ToolEntry>();
 	private renderedCustomKeys = new Set<string>();
 	readonly cwd: string;
@@ -2652,6 +2660,8 @@ export class AgentSession {
 				traceAgent(`tool-start:${event.toolName}`);
 				// Se un'entry assistant era ancora aperta, chiudila: l'esecuzione
 				// del tool appartiene al passo successivo del flusso di esecuzione.
+				// Il testo che arriva dopo, nello stesso messaggio, non si scarta:
+				// apre una bolla nuova sotto il tool (vedi `localBlockIndex`).
 				this.assistantEntry = null;
 				this.activeAssistantId = null;
 				const entry: ToolEntry = {
@@ -3845,27 +3855,32 @@ export class AgentSession {
 	}
 
 	private applyAssistantEvent(event: AgentSessionEvent) {
-		if (!this.isStreaming || !this.assistantEntry || this.isAborting) return;
+		if (!this.isStreaming || this.isAborting) return;
 		const inner = event.assistantMessageEvent;
 		if (!inner) return;
-		const index = inner.contentIndex ?? 0;
+		const wireIndex = inner.contentIndex ?? 0;
 		if (inner.type === 'toolcall_start' || inner.type === 'toolcall_delta' || inner.type === 'toolcall_end') {
 			this.applyAskToolDelta(inner);
 			return;
 		}
 
 		// I `*_end` portano il testo autorevole: rimpiazzano il blocco e sanano
-		// ogni delta perso.
+		// ogni delta perso. Se il tool ha gia' chiuso la bolla, il blocco apre
+		// il segmento successivo invece di cadere.
 		if (inner.type === 'text_end' && typeof inner.content === 'string') {
-			this.setBlock(index, { type: 'text', text: inner.content });
+			this.setBlock(this.localBlockIndex(wireIndex), { type: 'text', text: inner.content });
 			return;
 		}
 		if (inner.type === 'thinking_end' && typeof inner.content === 'string') {
-			this.setBlock(index, { type: 'thinking', text: inner.content });
+			this.setBlock(this.localBlockIndex(wireIndex), { type: 'thinking', text: inner.content });
 			return;
 		}
 		if (inner.type === 'image_end' && typeof inner.content === 'string') {
-			this.setBlock(index, { type: 'image', data: inner.content, mimeType: inner.mimeType ?? 'image/png' });
+			this.setBlock(this.localBlockIndex(wireIndex), {
+				type: 'image',
+				data: inner.content,
+				mimeType: inner.mimeType ?? 'image/png'
+			});
 			return;
 		}
 	}
@@ -3894,12 +3909,13 @@ export class AgentSession {
 	}
 
 	private applyDelta(event: AgentSessionEvent) {
-		if (!this.isStreaming || !this.assistantEntry || this.isAborting) return;
+		if (!this.isStreaming || this.isAborting) return;
 		const kind = event.kind ?? 'text';
 		const delta = typeof event.delta === 'string' ? event.delta : '';
 		const index = typeof event.contentIndex === 'number' ? event.contentIndex : 0;
 		// Il backend ricompone anche i `toolcall_delta` in `studio_delta`: senza
 		// questo ramo l'anteprima di `ask` restava vuota fino a `toolcall_end`.
+		// Non apre una bolla: la card arriva da `tool_execution_start`.
 		if (kind === 'toolcall') {
 			if (this.askTracker.delta(index, delta)) this.streamAsk = this.askTracker.current;
 			return;
@@ -3908,10 +3924,12 @@ export class AgentSession {
 		this.deltaBatcher.push(kind, index, delta);
 	}
 
-	private applyBufferedDelta(kind: string, index: number, delta: string) {
-		if (!this.isStreaming || !this.assistantEntry || this.isAborting) return;
+	private applyBufferedDelta(kind: string, wireIndex: number, delta: string) {
+		if (!this.isStreaming || this.isAborting) return;
 		if (kind !== 'text' && kind !== 'thinking') return;
-		const entry = this.ensureAssistant();
+		const index = this.localBlockIndex(wireIndex);
+		const entry = this.assistantEntry;
+		if (!entry) return;
 		const existing = entry.blocks[index];
 		if (existing && existing.type === kind) {
 			existing.text += delta;
@@ -3940,6 +3958,24 @@ export class AgentSession {
 			}
 		}
 	}
+	/**
+	 * Indice locale del segmento aperto. Va chiamato quando il blocco si
+	 * scrive davvero: apre la bolla se un tool l'ha chiusa, e fa ripartire
+	 * gli indici da zero solo per quella bolla.
+	 */
+	private localBlockIndex(wireIndex: number): number {
+		const entry = this.ensureAssistant();
+		if (this.segmentFor !== entry.id) {
+			this.segmentWireIndex.clear();
+			this.segmentFor = entry.id;
+		}
+		const known = this.segmentWireIndex.get(wireIndex);
+		if (known !== undefined) return known;
+		const local = this.segmentWireIndex.size;
+		this.segmentWireIndex.set(wireIndex, local);
+		return local;
+	}
+
 	private ensureAssistant(): AssistantEntry {
 		if (this.assistantEntry) return this.assistantEntry;
 		this.assistantEntry = this.push({

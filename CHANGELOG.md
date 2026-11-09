@@ -27,6 +27,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - La finestra del DMG di installazione su macOS ha un aspetto nuovo: un π monumentale di marmo in un paesaggio alpino, con il π composto da caratteri ASCII fini e una resa fotografica a grana di pellicola. OMP Studio sta a sinistra e la cartella Applicazioni a destra.
 
 ### Fixed
+- In chat, mentre Composer, Grok e gli altri modelli Cursor usano gli strumenti, la risposta scritta dopo resta visibile sotto i passaggi: non compare più solo riaprendo la sessione.
 - Le immagini allegate a una risposta arrivano insieme ai dati nello stesso risultato di `ask`, non in un secondo messaggio in coda; un allegato non pronto o non consegnabile conserva la bozza e impedisce l'invio del solo testo. Anteprima e storico leggono il nuovo formato senza perdere le conversazioni precedenti. (ASK-004, ASK-010, ASK-013)
 - Le domande aspettano sempre l'invio esplicito: nessun conto alla rovescia conferma i valori preselezionati o annulla il modulo, nemmeno dopo un cambio di prewalk. (ASK-003)
 - La configurazione iniziale riconosce la soglia setup 3 di OMP, senza attivare automaticamente gli aggiornamenti o cambiare le credenziali. (ASK-005)
