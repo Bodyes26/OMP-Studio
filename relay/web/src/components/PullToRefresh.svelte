@@ -89,15 +89,14 @@
 		position: fixed;
 		top: env(safe-area-inset-top, 0px);
 		left: 50%;
-		z-index: 1000;
+		z-index: var(--z-toast);
 		width: 36px;
 		height: 36px;
 		display: grid;
 		place-items: center;
 		border-radius: 50%;
-		background: var(--bg-overlay, #222);
-		color: var(--text-primary, #fff);
-		box-shadow: 0 2px 8px rgb(0 0 0 / 0.35);
+		background: var(--bg-overlay);
+		color: var(--ink);
 		pointer-events: none;
 	}
 	.spinning :global(svg) {

@@ -34,6 +34,7 @@ import type { PromptAnswer } from '#lib/agent/askAnswers.ts';
 import { sessionRegistry } from '#lib/agent/sessionRegistry.ts';
 import type { UnlistenFn } from '@tauri-apps/api/event';
 import { m } from '#lib/paraglide/messages.js';
+import { isAskFormSubmission } from '#lib/agent/askForm.ts';
 /** Esito strutturato dell'avvio di un task condiviso tra GUI, Companion e Controllo Remoto. */
 export type RunTaskOutcome =
 	| { kind: 'started'; laneId?: string }
@@ -616,6 +617,9 @@ export function createRemotePromptResolver(options: RemoteCommandSetupOptions = 
 		laneId: string | null;
 		answer: RemoteAnswer;
 	}): Promise<boolean> => {
+		if (answer.action === 'form' && !isAskFormSubmission(answer.submission)) {
+			return false;
+		}
 		const promptAnswer = answer as unknown as PromptAnswer;
 		if (!requestId) return false;
 		const pending = promptBus.getRequest(requestId);

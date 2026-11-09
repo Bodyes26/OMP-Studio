@@ -338,6 +338,9 @@
 				onWaitQuotaReset={ask.onWaitQuotaReset}
 				draft={ask.draftFor(attention)}
 				wantsText={ask.wantsText}
+				onFormSubmit={ask.onFormSubmit}
+				onFormDraft={ask.onFormDraft}
+				getFormDraft={ask.getFormDraft}
 			/>
 
 			{#if previousProjectName}

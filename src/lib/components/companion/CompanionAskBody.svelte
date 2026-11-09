@@ -33,6 +33,14 @@
 	} from '#lib/icons.ts';
 	import { scheduleStore } from '#lib/stores/schedule.svelte.ts';
 	import ProviderLogo from '#lib/components/models/ProviderLogo.svelte';
+	import { modelSettingsStore } from '#lib/stores/modelSettings.svelte.ts';
+	import AskForm from '#lib/agent/components/AskForm.svelte';
+	import {
+		createAskFormDraft,
+		copyAskFormDraft,
+		type AskFormDraft,
+		type AskFormSubmission
+	} from '#lib/agent/askForm.ts';
 
 	let {
 		req,
@@ -47,7 +55,10 @@
 		onDismissQuotaBlocked,
 		onWaitQuotaReset,
 		draft,
-		wantsText
+		wantsText,
+		onFormSubmit,
+		onFormDraft,
+		getFormDraft
 	} = $props<{
 		req: AttentionRequest;
 		customReplyOpen?: boolean;
@@ -62,6 +73,9 @@
 		onWaitQuotaReset: (projectId: string, laneId?: string | null) => void | Promise<void>;
 		draft: string;
 		wantsText: (pending: AttentionRequest['pendingUi']) => boolean;
+		onFormSubmit?: (projectId: string, submission: AskFormSubmission, laneId?: string | null, requestId?: string | null) => Promise<boolean>;
+		onFormDraft?: (requestId: string, draft: AskFormDraft) => void;
+		getFormDraft?: (requestId: string) => AskFormDraft | undefined;
 	}>();
 
 	const parsed = $derived(parseAskTitle(req.pendingUi.title));
@@ -138,6 +152,58 @@
 			onCustomReplyToggle(req.projectId, false);
 		}
 	}
+
+	const supportsImages = $derived.by(() => {
+		const runtime = companionStore.projectRuntimes.find((r) => r.projectId === req.projectId);
+		const modelSelector = runtime?.modelId ?? req.modelName;
+		if (!modelSelector) return true;
+		const modelDef = modelSettingsStore.completeCatalog.find(
+			(m) => m.selector === modelSelector || m.id === modelSelector || m.name === modelSelector
+		);
+		if (modelDef && Array.isArray(modelDef.input)) {
+			return modelDef.input.includes('image');
+		}
+		return true;
+	});
+
+	const formRequest = $derived(req.pendingUi.form ?? null);
+	let localFormDraft = $state<AskFormDraft | null>(null);
+
+	$effect(() => {
+		const f = formRequest;
+		if (!f) {
+			localFormDraft = null;
+			return;
+		}
+		const existingDraft =
+			getFormDraft?.(req.pendingUi.requestId) ??
+			req.pendingUi.formDraft ??
+			companionStore.getFormDraft(req.pendingUi.requestId);
+		if (existingDraft) {
+			localFormDraft = copyAskFormDraft(existingDraft);
+		} else if (!localFormDraft) {
+			localFormDraft = createAskFormDraft(f);
+		}
+	});
+
+	function handleFormDraft(updated: AskFormDraft) {
+		localFormDraft = updated;
+		if (onFormDraft) {
+			onFormDraft(req.pendingUi.requestId, updated);
+		}
+		companionStore.updateFormDraft(req.pendingUi.requestId, updated);
+	}
+
+	async function handleFormSubmit(submission: AskFormSubmission): Promise<boolean> {
+		if (onFormSubmit) {
+			return await onFormSubmit(req.projectId, submission, req.laneId, req.pendingUi.requestId);
+		}
+		return await companionStore.submitAskForm(req.projectId, submission, req.laneId, req.pendingUi.requestId);
+	}
+
+	async function handleFormCancel(): Promise<boolean | void> {
+		return await onQuickReplyCancel(req.projectId, req.laneId, req.pendingUi.requestId);
+	}
 </script>
 
 {#if isLoadingEntries}
@@ -202,6 +268,19 @@
 	{/if}
 {/snippet}
 
+{#if formRequest && localFormDraft}
+	<div class="companion-form-wrap">
+		<AskForm
+			form={formRequest}
+			draft={localFormDraft}
+			onDraft={handleFormDraft}
+			onSubmit={handleFormSubmit}
+			onCancel={handleFormCancel}
+			supportsImages={supportsImages}
+			compact={true}
+		/>
+	</div>
+{:else}
 <div class="ask-box">
 	<div class="ask-head">
 		<div class="ask-text-markdown">
@@ -454,7 +533,14 @@
 		</div>
 	{/if}
 </div>
+{/if}
 <style>
+	.companion-form-wrap {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		min-width: 0;
+	}
 	.ask-chat-thread {
 		display: flex;
 		flex-direction: column;

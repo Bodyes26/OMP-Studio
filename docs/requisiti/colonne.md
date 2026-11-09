@@ -2,7 +2,7 @@
 
 ## Stato del documento
 
-Requisiti approvati il 2026-11-08 nella stessa conversazione in cui sono stati implementati. La prova sull'app desktop resta all'utente (AGENTS.md vieta di avviare una seconda istanza).
+Requisiti approvati il 2026-11-08 nella stessa conversazione in cui sono stati implementati. La prova sull'app desktop è stata fatta dall'utente il 2026-11-09 («ho provato tutto funziona»).
 
 Supera, per la sola posizione delle colonne, l'ordine fisso «file | editor | agente» dato per scontato in DECISIONS.md (W08) e DESIGN.md: i tre ruoli restano gli stessi, cambia solo dove stanno.
 
@@ -34,4 +34,4 @@ Limite noto: l'ordine di tabulazione resta quello del DOM (barra laterale, edito
 | 2026-11-08 | COL-001, COL-004, COL-005, COL-006 | Le 6 permutazioni in orizzontale e in verticale: 5 tracce senza sovrapposizioni, divisore accanto alla sua colonna sul lato della chat, segno del trascinamento, misure legate al ruolo, griglia predefinita identica a prima | superata | `test/panel-geometry.test.ts` («Ordine delle colonne»), `npm test` 1427/1427 |
 | 2026-11-08 | COL-005 | Frecce invertite quando la colonna sta dall'altro lato del divisore | superata | `test/panel-geometry.test.ts`, `npm test` |
 | 2026-11-08 | COL-001, COL-004, COL-006 | Resa reale in Chromium dell'output di `panelPlacement` per le 12 disposizioni: nessuna sovrapposizione, divisori adiacenti, editor sempre largo 120 px (orizzontale) e alto 50 px (verticale) | superata | banco di prova usa e getta nel browser; l'app in Vite non si apre per l'errore `rune_outside_svelte` in `src/lib/externalOpen.ts`, estraneo a questa modifica |
-| — | COL-002, COL-003, COL-007, COL-008 | Percorso reale nell'app desktop: Impostazioni → Aspetto, cambio progetto, icona e animazione della barra a destra, vista Automazioni | da verificare dall'utente nell'app | — |
+| 2026-11-09 | COL-002, COL-003, COL-007, COL-008 | Percorso reale nell'app desktop: Impostazioni → Aspetto, cambio progetto, icona e animazione della barra a destra, vista Automazioni | superata | Utente, 2026-11-09: «ho provato tutto funziona». |

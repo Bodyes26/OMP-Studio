@@ -400,23 +400,33 @@ pub fn init_windows_aumid() {}
 #[cfg(all(test, target_os = "windows"))]
 mod tests {
     use super::*;
-    #[cfg(target_os = "windows")]
-    use std::os::windows::process::CommandExt;
+
     #[test]
-    #[cfg(target_os = "windows")]
     fn test_init_windows_aumid_registers_registry_keys() {
+        use windows_sys::Win32::Foundation::ERROR_SUCCESS;
+        use windows_sys::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_SZ};
+
         init_windows_aumid();
 
-        let mut cmd = std::process::Command::new("powershell.exe");
-        cmd.args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            "(Get-ItemProperty -Path 'HKCU:\\Software\\Classes\\AppUserModelId\\sh.omp.studio').DisplayName",
-        ]);
-        cmd.creation_flags(0x0800_0000);
-        let out = cmd.output().expect("verifica AUMID");
-        let display_name = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        assert_eq!(display_name, "OMP Studio");
+        // Stessa lettura del registro, senza avviare powershell.exe: su questa
+        // macchina Sophos termina il processo che lo lancia.
+        let subkey = wide("Software\\Classes\\AppUserModelId\\sh.omp.studio");
+        let name = wide("DisplayName");
+        let mut buf = [0u16; 64];
+        let mut size = (buf.len() * std::mem::size_of::<u16>()) as u32;
+        let status = unsafe {
+            RegGetValueW(
+                HKEY_CURRENT_USER,
+                subkey.as_ptr(),
+                name.as_ptr(),
+                RRF_RT_REG_SZ,
+                std::ptr::null_mut(),
+                buf.as_mut_ptr().cast(),
+                &mut size,
+            )
+        };
+        assert_eq!(status, ERROR_SUCCESS, "lettura DisplayName AUMID");
+        let len = buf.iter().position(|unit| *unit == 0).unwrap_or(buf.len());
+        assert_eq!(String::from_utf16_lossy(&buf[..len]), "OMP Studio");
     }
 }

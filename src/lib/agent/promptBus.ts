@@ -1,5 +1,7 @@
 import type { AskQuestion, PromptAnswer } from './askAnswers.ts';
 import { normalizePromptAnswer } from './askAnswers.ts';
+import type { AskFormRequest, AskFormDraft } from './askForm.ts';
+import { copyAskFormDraft } from './askForm.ts';
 import {
 	broadcastToWindows,
 	listenFromWindows,
@@ -8,7 +10,7 @@ import {
 	windowLabel
 } from '#lib/stores/windowBridge.ts';
 
-export type PromptMethod = 'select' | 'confirm' | 'input' | 'editor' | 'ask';
+export type PromptMethod = 'select' | 'confirm' | 'input' | 'editor' | 'ask' | 'form';
 
 /**
  * `expired`: richiesta persistita da un'esecuzione precedente. Il processo omp
@@ -47,6 +49,8 @@ export interface PromptRequestPayload {
 	questionIndex?: number;
 	totalQuestions?: number;
 	createdAt?: number;
+	form?: AskFormRequest;
+	formDraft?: AskFormDraft;
 	responder?: (answer: PromptAnswer) => Promise<boolean>;
 }
 
@@ -70,6 +74,8 @@ export interface PromptRequest {
 	readonly questionIndex?: number;
 	readonly totalQuestions?: number;
 	readonly createdAt: number;
+	readonly form?: AskFormRequest;
+	formDraft?: AskFormDraft;
 	status: PromptStatus;
 	resolvedAt?: number;
 	answer?: PromptAnswer;
@@ -135,8 +141,17 @@ function createDefaultStorage(): PromptBusStorage {
  *    la semantica e' 'first-response-wins' (solo la prima risposta per requestId viene accolta).
  * 3. Apertura tardiva: la Companion recupera e renderizza lo stato corretto istantaneamente.
  */
+const PROMPT_BUS_DRAFT_EVENT = 'studio-prompt-draft-updated';
+const PROMPT_BUS_RESOLVE_REQUEST_EVENT = 'studio-prompt-resolve-request';
+const PROMPT_BUS_RESOLVE_ACK_EVENT = 'studio-prompt-resolve-ack';
+const PROMPT_BUS_CANCEL_REQUEST_EVENT = 'studio-prompt-cancel-request';
+const PROMPT_BUS_CANCEL_ACK_EVENT = 'studio-prompt-cancel-ack';
+
 export class PromptBus {
 	private requests = new Map<string, PromptRequest>();
+	private resolvingRequests = new Set<string>();
+	private formDrafts = new Map<string, AskFormDraft>();
+	private pendingAcks = new Map<string, (result: { ok: boolean; error?: string }) => void>();
 	private subscribers = new Set<(pendings: PromptRequest[]) => void>();
 	private unlistenBridge: Array<() => void> = [];
 	private storageKey: string;
@@ -144,7 +159,6 @@ export class PromptBus {
 	private broadcastFn: <T>(event: string, payload: T) => Promise<void>;
 	private listenFn: <T>(event: string, handler: (payload: T) => void) => Promise<(() => void) | null>;
 	private initialized = false;
-
 	constructor(options?: PromptBusOptions) {
 		this.storageKey = options?.storageKey ?? DEFAULT_STORAGE_KEY;
 		this.storage = options?.storage ?? createDefaultStorage();
@@ -216,6 +230,58 @@ export class PromptBus {
 			);
 			if (uSyncRes) this.unlistenBridge.push(uSyncRes);
 
+			// 6. Aggiornamento bozza form interattivo tra finestre
+			const uDraft = await this.listenFn<{ requestId: string; draft: AskFormDraft; owner?: string | null }>(
+				PROMPT_BUS_DRAFT_EVENT,
+				(payload) => {
+					this.handleRemoteDraftUpdate(payload.requestId, payload.draft, payload.owner);
+				}
+			);
+			if (uDraft) this.unlistenBridge.push(uDraft);
+
+			// 7. Richiesta di risoluzione da secondaria (Companion) verso owner
+			const uResolveReq = await this.listenFn<{
+				nonce: string;
+				requestId: string;
+				answer: PromptAnswer;
+				target?: PromptTargetFilter;
+			}>(PROMPT_BUS_RESOLVE_REQUEST_EVENT, (payload) => {
+				void this.handleRemoteResolveRequest(payload);
+			});
+			if (uResolveReq) this.unlistenBridge.push(uResolveReq);
+
+			// 8. Risposta ack di risoluzione da owner verso secondaria
+			const uResolveAck = await this.listenFn<{
+				nonce: string;
+				requestId: string;
+				ok: boolean;
+				error?: string;
+			}>(PROMPT_BUS_RESOLVE_ACK_EVENT, (payload) => {
+				this.handleRemoteResolveAck(payload);
+			});
+			if (uResolveAck) this.unlistenBridge.push(uResolveAck);
+
+			// 9. Richiesta di annullamento da secondaria (Companion) verso owner
+			const uCancelReq = await this.listenFn<{
+				nonce: string;
+				requestId: string;
+				target?: PromptTargetFilter;
+			}>(PROMPT_BUS_CANCEL_REQUEST_EVENT, (payload) => {
+				void this.handleRemoteCancelRequest(payload);
+			});
+			if (uCancelReq) this.unlistenBridge.push(uCancelReq);
+
+			// 10. Risposta ack di annullamento da owner verso secondaria
+			const uCancelAck = await this.listenFn<{
+				nonce: string;
+				requestId: string;
+				ok: boolean;
+				error?: string;
+			}>(PROMPT_BUS_CANCEL_ACK_EVENT, (payload) => {
+				this.handleRemoteCancelAck(payload);
+			});
+			if (uCancelAck) this.unlistenBridge.push(uCancelAck);
+
 			// Notifica alle altre finestre l'apertura per richiedere l'allineamento
 			if (windowBridgeAvailable) {
 				void this.broadcastFn(PROMPT_BUS_EVENTS.SYNC_REQUEST, {});
@@ -235,6 +301,8 @@ export class PromptBus {
 		}
 		this.unlistenBridge = [];
 		this.subscribers.clear();
+		this.pendingAcks.clear();
+		this.resolvingRequests.clear();
 		this.initialized = false;
 	}
 
@@ -261,6 +329,7 @@ export class PromptBus {
 				...existing,
 				laneId: payload.laneId !== undefined ? payload.laneId : existing.laneId,
 				toolCallId: payload.toolCallId ?? existing.toolCallId,
+				method: payload.method ?? existing.method,
 				questions: payload.questions ?? existing.questions,
 				questionIndex: payload.questionIndex ?? existing.questionIndex,
 				totalQuestions: payload.totalQuestions ?? existing.totalQuestions,
@@ -271,8 +340,13 @@ export class PromptBus {
 				deadline: payload.deadline ?? existing.deadline,
 				message: payload.message ?? existing.message,
 				title: payload.title || existing.title,
+				form: payload.form ?? existing.form,
+				formDraft: payload.formDraft ?? existing.formDraft,
 				responder: payload.responder ?? existing.responder
 			};
+			if (payload.formDraft) {
+				this.formDrafts.set(requestId, copyAskFormDraft(payload.formDraft));
+			}
 			this.requests.set(requestId, enriched);
 			this.broadcastRegistration(enriched);
 			this.notifySubscribers();
@@ -299,10 +373,15 @@ export class PromptBus {
 			questionIndex: payload.questionIndex,
 			totalQuestions: payload.totalQuestions,
 			createdAt: payload.createdAt ?? Date.now(),
+			form: payload.form,
+			formDraft: payload.formDraft,
 			status: 'pending',
 			responder: payload.responder
 		};
 
+		if (payload.formDraft) {
+			this.formDrafts.set(requestId, copyAskFormDraft(payload.formDraft));
+		}
 		this.requests.set(requestId, request);
 		this.saveToStorage();
 		this.broadcastRegistration(request);
@@ -327,41 +406,89 @@ export class PromptBus {
 			return false;
 		}
 
-		if (target) {
-			if (target.projectId && request.projectId.trim().toLowerCase() !== target.projectId.trim().toLowerCase()) {
-				return false;
-			}
-			if (target.laneId && (request.laneId ?? 'main').trim().toLowerCase() !== target.laneId.trim().toLowerCase()) {
-				return false;
-			}
-			if (target.sessionId && request.sessionId && request.sessionId !== target.sessionId) {
-				return false;
-			}
+		if (this.resolvingRequests.has(requestId)) {
+			return false;
 		}
-		request.status = 'resolved';
-		request.resolvedAt = Date.now();
-		request.answer = answer;
 
-		// Rimuove immediatamente dallo storage delle pendenti
-		this.saveToStorage();
+		if (!this.matchesTarget(request, target)) {
+			return false;
+		}
 
-		// Esegue il responder locale se configurato su questa istanza
-		if (request.responder && !fromResponder) {
+		// Se possiede il responder locale (authoritative owner): esegue e diffonde solo se ok
+		if (request.responder || fromResponder) {
+			this.resolvingRequests.add(requestId);
 			try {
-				await request.responder(answer);
-			} catch (err) {
-				console.error(`PromptBus: responder fallito per richiesta ${requestId}`, err);
+				if (request.responder && !fromResponder) {
+					let responderSuccess = false;
+					try {
+						responderSuccess = await request.responder(answer);
+					} catch (err) {
+						console.error(`PromptBus: responder fallito per richiesta ${requestId}`, err);
+						responderSuccess = false;
+					}
+					if (!responderSuccess) {
+						// Consegna fallita: la richiesta e la bozza rimangono integre e pendenti
+						return false;
+					}
+				}
+
+				request.status = 'resolved';
+				request.resolvedAt = Date.now();
+				request.answer = answer;
+
+				// Rimuove immediatamente dallo storage delle pendenti
+				this.saveToStorage();
+
+				// Notifica le altre finestre dell'avvenuta risoluzione
+				void this.broadcastFn(PROMPT_BUS_EVENTS.RESOLVED, {
+					requestId,
+					answer: normalizePromptAnswer(answer)
+				});
+
+				this.notifySubscribers();
+				return true;
+			} finally {
+				this.resolvingRequests.delete(requestId);
 			}
 		}
 
-		// Notifica le altre finestre dell'avvenuta risoluzione
-		void this.broadcastFn(PROMPT_BUS_EVENTS.RESOLVED, {
-			requestId,
-			answer: normalizePromptAnswer(answer)
-		});
+		// Secondaria senza responder locale (Companion): protocollo request/ack verso l'owner
+		this.resolvingRequests.add(requestId);
+		const nonce = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+		try {
+			const { promise: ackPromise, resolve } = Promise.withResolvers<{ ok: boolean; error?: string }>();
+			const timer = setTimeout(() => {
+				this.pendingAcks.delete(nonce);
+				resolve({ ok: false, error: 'timeout' });
+			}, 10_000);
+			this.pendingAcks.set(nonce, (result) => {
+				clearTimeout(timer);
+				this.pendingAcks.delete(nonce);
+				resolve(result);
+			});
 
-		this.notifySubscribers();
-		return true;
+			await this.broadcastFn(PROMPT_BUS_RESOLVE_REQUEST_EVENT, {
+				nonce,
+				requestId,
+				answer: normalizePromptAnswer(answer),
+				target
+			});
+
+			const ack = await ackPromise;
+			if (!ack.ok) {
+				// Fallimento owner o timeout: la richiesta e la bozza rimangono pendenti
+				return false;
+			}
+
+			request.status = 'resolved';
+			request.resolvedAt = Date.now();
+			request.answer = answer;
+			this.saveToStorage();
+			this.notifySubscribers();
+			return true;
+		} finally {
+			this.resolvingRequests.delete(requestId);
+		}
 	}
 
 	/**
@@ -376,34 +503,76 @@ export class PromptBus {
 			return false;
 		}
 
-		if (target) {
-			if (target.projectId && request.projectId.trim().toLowerCase() !== target.projectId.trim().toLowerCase()) {
-				return false;
-			}
-			if (target.laneId && (request.laneId ?? 'main').trim().toLowerCase() !== target.laneId.trim().toLowerCase()) {
-				return false;
-			}
-			if (target.sessionId && request.sessionId && request.sessionId !== target.sessionId) {
-				return false;
-			}
+		if (this.resolvingRequests.has(requestId)) {
+			return false;
 		}
-		request.status = 'cancelled';
-		request.resolvedAt = Date.now();
 
-		this.saveToStorage();
+		if (!this.matchesTarget(request, target)) {
+			return false;
+		}
 
-		if (request.responder && !fromResponder) {
+		if (request.responder || fromResponder) {
+			this.resolvingRequests.add(requestId);
 			try {
-				await request.responder({ action: 'cancel' });
-			} catch (err) {
-				console.error(`PromptBus: responder cancel fallito per richiesta ${requestId}`, err);
+				if (request.responder && !fromResponder) {
+					let cancelSuccess = false;
+					try {
+						cancelSuccess = await request.responder({ action: 'cancel' });
+					} catch (err) {
+						console.error(`PromptBus: responder cancel fallito per richiesta ${requestId}`, err);
+						cancelSuccess = false;
+					}
+					if (!cancelSuccess) {
+						return false;
+					}
+				}
+
+				request.status = 'cancelled';
+				request.resolvedAt = Date.now();
+
+				this.saveToStorage();
+				void this.broadcastFn(PROMPT_BUS_EVENTS.CANCELLED, { requestId });
+				this.notifySubscribers();
+				return true;
+			} finally {
+				this.resolvingRequests.delete(requestId);
 			}
 		}
 
-		void this.broadcastFn(PROMPT_BUS_EVENTS.CANCELLED, { requestId });
+		// Secondaria senza responder locale: request/ack verso l'owner
+		this.resolvingRequests.add(requestId);
+		const nonce = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+		try {
+			const { promise: ackPromise, resolve } = Promise.withResolvers<{ ok: boolean; error?: string }>();
+			const timer = setTimeout(() => {
+				this.pendingAcks.delete(nonce);
+				resolve({ ok: false, error: 'timeout' });
+			}, 10_000);
+			this.pendingAcks.set(nonce, (result) => {
+				clearTimeout(timer);
+				this.pendingAcks.delete(nonce);
+				resolve(result);
+			});
 
-		this.notifySubscribers();
-		return true;
+			await this.broadcastFn(PROMPT_BUS_CANCEL_REQUEST_EVENT, {
+				nonce,
+				requestId,
+				target
+			});
+
+			const ack = await ackPromise;
+			if (!ack.ok) {
+				return false;
+			}
+
+			request.status = 'cancelled';
+			request.resolvedAt = Date.now();
+			this.saveToStorage();
+			this.notifySubscribers();
+			return true;
+		} finally {
+			this.resolvingRequests.delete(requestId);
+		}
 	}
 
 	/**
@@ -467,6 +636,61 @@ export class PromptBus {
 		if (!request || request.status !== 'pending') return false;
 		request.responder = responder;
 		return true;
+	}
+
+	/**
+	 * Aggiorna la bozza di compilazione di un modulo `ask`.
+	 * Mantiene la bozza in memoria e la diffonde live alle finestre senza salvare
+	 * i payload base64 pesanti nello storage locale.
+	 */
+	updateFormDraft(requestId: string, draft: AskFormDraft): void {
+		if (!requestId || !draft) return;
+		const copied = copyAskFormDraft(draft);
+		this.formDrafts.set(requestId, copied);
+
+		const req = this.requests.get(requestId);
+		if (req) {
+			req.formDraft = copied;
+		}
+
+		this.saveToStorage();
+
+		void this.broadcastFn(PROMPT_BUS_DRAFT_EVENT, {
+			requestId,
+			draft: copied,
+			owner: req?.owner ?? null
+		});
+
+		this.notifySubscribers();
+	}
+
+	/**
+	 * Recupera la bozza di compilazione corrente per una richiesta form.
+	 */
+	getFormDraft(requestId: string): AskFormDraft | undefined {
+		if (!requestId) return undefined;
+		const memDraft = this.formDrafts.get(requestId);
+		if (memDraft) return copyAskFormDraft(memDraft);
+		const reqDraft = this.requests.get(requestId)?.formDraft;
+		if (reqDraft) return copyAskFormDraft(reqDraft);
+		const formDraft = this.requests.get(requestId)?.form?.draft;
+		if (formDraft) return copyAskFormDraft(formDraft);
+		return undefined;
+	}
+
+	private handleRemoteDraftUpdate(
+		requestId: string,
+		draft: AskFormDraft,
+		owner?: string | null
+	): void {
+		if (!requestId || !draft) return;
+		const req = this.requests.get(requestId);
+		if (req) {
+			if (owner && req.owner && req.owner !== owner) return;
+			req.formDraft = copyAskFormDraft(draft);
+		}
+		this.formDrafts.set(requestId, copyAskFormDraft(draft));
+		this.notifySubscribers();
 	}
 
 	/**
@@ -545,8 +769,38 @@ export class PromptBus {
 		}
 	}
 
-	private serialize(request: PromptRequest): SerializedPromptRequest {
+	private serialize(request: PromptRequest, forStorage = false): SerializedPromptRequest {
 		const { responder: _, ...rest } = request;
+		if (forStorage) {
+			let serializedFormDraft = rest.formDraft;
+			if (serializedFormDraft) {
+				serializedFormDraft = {
+					...serializedFormDraft,
+					annotations: serializedFormDraft.annotations.map((ann) => ({
+						...ann,
+						images: []
+					}))
+				};
+			}
+			let serializedForm = rest.form;
+			if (serializedForm?.draft) {
+				serializedForm = {
+					...serializedForm,
+					draft: {
+						...serializedForm.draft,
+						annotations: serializedForm.draft.annotations.map((ann) => ({
+							...ann,
+							images: []
+						}))
+					}
+				};
+			}
+			return {
+				...rest,
+				form: serializedForm,
+				formDraft: serializedFormDraft
+			};
+		}
 		return rest;
 	}
 
@@ -564,6 +818,7 @@ export class PromptBus {
 				...existing,
 				laneId: serialized.laneId !== undefined ? serialized.laneId : existing.laneId,
 				toolCallId: serialized.toolCallId ?? existing.toolCallId,
+				method: serialized.method ?? existing.method,
 				questions: serialized.questions ?? existing.questions,
 				questionIndex: serialized.questionIndex ?? existing.questionIndex,
 				totalQuestions: serialized.totalQuestions ?? existing.totalQuestions,
@@ -573,8 +828,13 @@ export class PromptBus {
 				prefill: serialized.prefill ?? existing.prefill,
 				deadline: serialized.deadline ?? existing.deadline,
 				message: serialized.message ?? existing.message,
-				title: serialized.title || existing.title
+				title: serialized.title || existing.title,
+				form: serialized.form ?? existing.form,
+				formDraft: serialized.formDraft ?? existing.formDraft
 			};
+			if (serialized.formDraft) {
+				this.formDrafts.set(serialized.requestId, copyAskFormDraft(serialized.formDraft));
+			}
 			this.requests.set(serialized.requestId, enriched);
 			this.notifySubscribers();
 			return;
@@ -584,52 +844,144 @@ export class PromptBus {
 			...serialized,
 			status: 'pending'
 		};
+		if (serialized.formDraft) {
+			this.formDrafts.set(serialized.requestId, copyAskFormDraft(serialized.formDraft));
+		}
 		this.requests.set(serialized.requestId, request);
 		this.saveToStorage();
 		this.notifySubscribers();
 	}
 
-	private async handleRemoteResolution(requestId: string, answer: PromptAnswer): Promise<void> {
+	private handleRemoteResolution(requestId: string, answer: PromptAnswer): void {
 		const request = this.requests.get(requestId);
 		if (!request || request.status !== 'pending') {
 			return;
 		}
-
 		request.status = 'resolved';
 		request.resolvedAt = Date.now();
 		request.answer = answer;
 		this.saveToStorage();
-
-		if (request.responder) {
-			try {
-				await request.responder(answer);
-			} catch (err) {
-				console.error(`PromptBus: responder remoto fallito per ${requestId}`, err);
-			}
-		}
-
 		this.notifySubscribers();
 	}
 
-	private async handleRemoteCancellation(requestId: string): Promise<void> {
+	private handleRemoteCancellation(requestId: string): void {
 		const request = this.requests.get(requestId);
 		if (!request || request.status !== 'pending') {
 			return;
 		}
-
 		request.status = 'cancelled';
 		request.resolvedAt = Date.now();
 		this.saveToStorage();
+		this.notifySubscribers();
+	}
 
-		if (request.responder) {
-			try {
-				await request.responder({ action: 'cancel' });
-			} catch (err) {
-				console.error(`PromptBus: responder cancel remoto fallito per ${requestId}`, err);
-			}
+	private async handleRemoteResolveRequest(payload: {
+		nonce: string;
+		requestId: string;
+		answer: PromptAnswer;
+		target?: PromptTargetFilter;
+	}): Promise<void> {
+		if (!payload?.nonce || !payload?.requestId) return;
+		const { nonce, requestId, answer, target } = payload;
+		const request = this.requests.get(requestId);
+		if (!request || !request.responder) return;
+		if (request.status !== 'pending' || this.resolvingRequests.has(requestId) || !this.matchesTarget(request, target)) {
+			void this.broadcastFn(PROMPT_BUS_RESOLVE_ACK_EVENT, { nonce, requestId, ok: false });
+			return;
 		}
 
-		this.notifySubscribers();
+		this.resolvingRequests.add(requestId);
+		let success = false;
+		try {
+			success = await request.responder(answer);
+		} catch (err) {
+			console.error(`PromptBus: responder fallito su resolve-request ${requestId}`, err);
+			success = false;
+		} finally {
+			this.resolvingRequests.delete(requestId);
+		}
+
+		if (success) {
+			request.status = 'resolved';
+			request.resolvedAt = Date.now();
+			request.answer = answer;
+			this.saveToStorage();
+			void this.broadcastFn(PROMPT_BUS_RESOLVE_ACK_EVENT, { nonce, requestId, ok: true });
+			void this.broadcastFn(PROMPT_BUS_EVENTS.RESOLVED, {
+				requestId,
+				answer: normalizePromptAnswer(answer)
+			});
+			this.notifySubscribers();
+		} else {
+			void this.broadcastFn(PROMPT_BUS_RESOLVE_ACK_EVENT, { nonce, requestId, ok: false });
+		}
+	}
+
+	private handleRemoteResolveAck(payload: { nonce: string; requestId: string; ok: boolean; error?: string }): void {
+		if (!payload?.nonce) return;
+		const cb = this.pendingAcks.get(payload.nonce);
+		if (cb) {
+			cb(payload);
+		}
+	}
+
+	private async handleRemoteCancelRequest(payload: {
+		nonce: string;
+		requestId: string;
+		target?: PromptTargetFilter;
+	}): Promise<void> {
+		if (!payload?.nonce || !payload?.requestId) return;
+		const { nonce, requestId, target } = payload;
+		const request = this.requests.get(requestId);
+		if (!request || !request.responder) return;
+		if (request.status !== 'pending' || this.resolvingRequests.has(requestId) || !this.matchesTarget(request, target)) {
+			void this.broadcastFn(PROMPT_BUS_CANCEL_ACK_EVENT, { nonce, requestId, ok: false });
+			return;
+		}
+
+		this.resolvingRequests.add(requestId);
+		let success = false;
+		try {
+			success = await request.responder({ action: 'cancel' });
+		} catch (err) {
+			console.error(`PromptBus: responder cancel fallito su cancel-request ${requestId}`, err);
+			success = false;
+		} finally {
+			this.resolvingRequests.delete(requestId);
+		}
+
+		if (success) {
+			request.status = 'cancelled';
+			request.resolvedAt = Date.now();
+			this.saveToStorage();
+			void this.broadcastFn(PROMPT_BUS_CANCEL_ACK_EVENT, { nonce, requestId, ok: true });
+			void this.broadcastFn(PROMPT_BUS_EVENTS.CANCELLED, { requestId });
+			this.notifySubscribers();
+		} else {
+			void this.broadcastFn(PROMPT_BUS_CANCEL_ACK_EVENT, { nonce, requestId, ok: false });
+		}
+	}
+
+	private handleRemoteCancelAck(payload: { nonce: string; requestId: string; ok: boolean; error?: string }): void {
+		if (!payload?.nonce) return;
+		const cb = this.pendingAcks.get(payload.nonce);
+		if (cb) {
+			cb(payload);
+		}
+	}
+
+	private matchesTarget(request: PromptRequest, target?: PromptTargetFilter): boolean {
+		if (!target) return true;
+		if (target.projectId && request.projectId.trim().toLowerCase() !== target.projectId.trim().toLowerCase()) {
+			return false;
+		}
+		if (target.laneId && (request.laneId ?? 'main').trim().toLowerCase() !== target.laneId.trim().toLowerCase()) {
+			return false;
+		}
+		if (target.sessionId && request.sessionId && request.sessionId !== target.sessionId) {
+			return false;
+		}
+		return true;
 	}
 
 	private handleRemoteSync(pendings: SerializedPromptRequest[]): void {
@@ -643,22 +995,39 @@ export class PromptBus {
 				this.requests.set(item.requestId, { ...item, status: 'pending' });
 				changed = true;
 			} else if (existing.status === 'pending') {
-				// Arricchisce se arrivati dettagli più aggiornati
+				let updated: PromptRequest = { ...existing };
+				let itemChanged = false;
 				if (item.questions && (!existing.questions || existing.questions.length === 0)) {
-					const updated: PromptRequest = {
-						...existing,
+					updated = {
+						...updated,
 						laneId: item.laneId !== undefined ? item.laneId : existing.laneId,
 						questions: item.questions,
 						questionIndex: item.questionIndex ?? existing.questionIndex,
 						totalQuestions: item.totalQuestions ?? existing.totalQuestions,
 						toolCallId: item.toolCallId ?? existing.toolCallId
 					};
+					itemChanged = true;
+				}
+				if (item.form && !existing.form) {
+					updated = {
+						...updated,
+						method: item.method ?? updated.method,
+						form: item.form,
+						formDraft: item.formDraft ?? updated.formDraft
+					};
+					itemChanged = true;
+				}
+				if (item.formDraft && !this.formDrafts.has(item.requestId)) {
+					this.formDrafts.set(item.requestId, copyAskFormDraft(item.formDraft));
+					updated.formDraft = copyAskFormDraft(item.formDraft);
+					itemChanged = true;
+				}
+				if (itemChanged) {
 					this.requests.set(item.requestId, updated);
 					changed = true;
 				}
 			}
 		}
-
 		if (changed) {
 			this.saveToStorage();
 			this.notifySubscribers();
@@ -667,7 +1036,7 @@ export class PromptBus {
 
 	private saveToStorage(): void {
 		try {
-			const pendings = this.getPendings().map((r) => this.serialize(r));
+			const pendings = this.getPendings().map((r) => this.serialize(r, true));
 			if (pendings.length === 0) {
 				this.storage.removeItem(this.storageKey);
 			} else {
@@ -693,10 +1062,14 @@ export class PromptBus {
 				if (item.deadline && now > item.deadline + 60_000) continue;
 
 				if (!this.requests.has(item.requestId)) {
-					this.requests.set(item.requestId, {
+					const req: PromptRequest = {
 						...item,
 						status: 'pending'
-					});
+					};
+					this.requests.set(item.requestId, req);
+					if (item.formDraft) {
+						this.formDrafts.set(item.requestId, copyAskFormDraft(item.formDraft));
+					}
 				}
 			}
 		} catch (err) {

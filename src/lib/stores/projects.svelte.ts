@@ -791,9 +791,11 @@ class ProjectStore {
 		if (p.lane.activeFile === file) {
 			p.lane.activeFile = p.lane.openFiles[index] ?? p.lane.openFiles[index - 1] ?? null;
 		}
-		// La cartella resta aperta anche senza schede: chiuderla qui chiuderebbe
-		// anche la chat in corso. Se ne va con la X del menu, o al riavvio (EXT-010).
-		if (p.external) this.save();
+		if (p.external) {
+			// Usa la chiusura ordinaria per liberare anche la sessione della cartella.
+			if (p.lane.openFiles.length === 0) this.closeProject(id);
+			else this.save();
+		}
 	}
 
 	/** Sposta la scheda `file` nella posizione di `beforeFile`, come il
@@ -848,6 +850,7 @@ class ProjectStore {
 		if (!p) return;
 		p.lane.openFiles = [];
 		p.lane.activeFile = null;
+		if (p.external) this.closeProject(id);
 	}
 
 	setPtyId(id: string, ptyId: number) {

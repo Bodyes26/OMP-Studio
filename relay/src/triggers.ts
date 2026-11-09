@@ -115,7 +115,7 @@ export class HostSnapshotTriggerDetector {
 						kind: 'attention',
 						hostName,
 						projectName: project.name,
-						question: att.title || att.message || null
+						question: att.form?.title || att.title || att.message || null
 					};
 					const payload: PushNotificationPayload = {
 						...renderPushText(text, 'en'),

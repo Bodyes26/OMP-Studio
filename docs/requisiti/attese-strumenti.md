@@ -6,6 +6,8 @@
 2026-11-01, proposta B: attesa compatta con dettagli espandibili, destinazioni certe, tono preciso e discreto, azione + oggetto + esito per gli strumenti.
 2026-11-01, utente: «sì va bene b» e «Procedi pure.» — approvazione della direzione e dell'implementazione. Nessuna rimozione di comportamenti esistenti.
 
+2026-11-09, utente: «la chat gui si interrompe dicendo che ha finito ma l'agente ha lavorato in background […] Verifica il bug e risolvi, poi fai build nightly». Precisazione di ATT-003: un risultato asincrono che riavvia il run mantiene chat e streaming al lavoro; solo `isSettled = true` chiude il lavoro. Durante l'attesa il transcript mostra il lavoro aperto invece del piè finale.
+
 ## Requisiti
 
 | ID | Stato | Requisito | Scenario concreto |
@@ -26,8 +28,10 @@ L'anteprima `proto/attese-strumenti-proposte.html` rimane una proposta con dati 
 | 2026-11-01 | ATT-002 | `AgentSession` reale compilata da Vite ed esercitata nel browser: intent da `args.i`, snapshot aggiornato durante wait, congelato dopo `tool_execution_end`, preservato nel replay della stessa chiamata; nessun backfill per una chiamata storica senza snapshot anche con subagenti attuali presenti. Superato. | Output `PASS: intent live, aggiornamento durante wait, congelamento dopo fine, replay preservato, nessun backfill da attivita attuali` nella sessione corrente; route temporanea rimossa. |
 | 2026-11-01 | ATT-001…005 | `npm run check`: 0 errori, 6 warning in file non modificati. `npm test`: 1386 passati, 0 falliti, 1 saltato. Le regressioni proteggono deduplicazione agente/job, prevalenza del fallimento nativo, peer non live senza falso successo/link, identità distinte con nomi uguali, contesto senza falsa attribuzione di target. | Suite finale, output nella sessione corrente. |
 | 2026-11-03 | ATT-002 | Allineamento a omp 18.15/18.16: `details.jobs[].intent` (scopo dato dal modello) precede `label` nelle righe di attesa, nei job osservati e nella scheda `job`, con ripiego sul comando quando manca; regressioni su precedenza e ripiego. `npm test`: 0 falliti, 1 saltato; `npm run check`: 0 errori, 6 warning in file non modificati. Nessuna resa visiva verificata nel browser. | Suite e output nella sessione corrente. |
+| 2026-11-09 | ATT-003 | `AgentSession` reale compilata da Vite e chiamata in Chromium attraverso `refreshState`, client RPC di fixture: background=true/working → snapshot streaming=true/settled=false conserva streaming=true e working → snapshot streaming=false/settled=true porta idle. Superato. | Output browser della sessione corrente: `before: {streaming:false,background:true,state:'working'}`, `resumed: {streaming:true,background:false,state:'working',settled:false}`, `final: {streaming:false,state:'idle',settled:true}`. Nessun processo agente reale o seconda istanza desktop avviato. |
+| 2026-11-09 | ATT-003, ATT-005 | Componente reale `BackgroundWait` montato in Chromium: mostra «Verifica Nightly», esclude il job già completato; a 360 px nessun overflow; con movimento ridotto `animationName: none`. Resa scura osservata in inglese. | Screenshot e assert browser nella sessione corrente; harness temporaneo rimosso. La suite Node non importa `AgentSession` senza ampliare il loader (`ERR_UNSUPPORTED_DIR_IMPORT` sul modulo icons): la transizione è provata sul modulo browser reale, non su una copia del riduttore. |
 
-Limiti della verifica: nessuna seconda istanza desktop avviata. Lo smoke SSR del riduttore non è utilizzabile per l'import CommonJS di xterm; lo stesso scenario è stato eseguito con successo sul modulo browser reale. Il controllo del movimento è stato esercitato tramite la preferenza globale di Studio; la regola `prefers-reduced-motion` riusa anche la soppressione globale esistente.
+Limiti della verifica del 2026-11-09: nessuna seconda istanza desktop avviata; `AgentSession` usa risposte RPC di fixture, mentre l'indicatore è il componente Svelte reale. Il controllo del movimento ridotto usa `prefers-reduced-motion` di Chromium. Il nuovo indicatore è stato osservato in inglese e tema scuro; italiano e tema chiaro non sono stati riesercitati in questa sessione.
 
 ## Dati e mantenimento dei comportamenti
 

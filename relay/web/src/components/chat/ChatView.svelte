@@ -313,6 +313,20 @@
 		project?.attention?.find((a) => a.laneId === route.laneId || (!a.laneId && route.laneId === 'main')) ?? null
 	);
 
+	const activeLaneModel = $derived(
+		optimisticModelId
+			? (optimisticProvider ? `${optimisticProvider}/${optimisticModelId}` : optimisticModelId)
+			: lane?.agent.model
+	);
+	const laneSupportsImages = $derived.by(() => {
+		if (!activeLaneModel) return true;
+		const opt = catalog?.models.find((m) => `${m.provider}/${m.id}` === activeLaneModel || m.id === activeLaneModel);
+		if (opt && Array.isArray(opt.input)) {
+			return opt.input.includes('image');
+		}
+		return true;
+	});
+
 	// --- Richiamo «Domanda in attesa» (R-REM-05) ---------------------------------
 	let attentionEl = $state<HTMLDivElement | null>(null);
 	let attentionPosition = $state<'visible' | 'above' | 'below'>('visible');
@@ -699,6 +713,7 @@
 								{hostFeatures}
 								projectId={route.projectId}
 								attention={pendingAttention}
+								supportsImages={laneSupportsImages}
 							/>
 						</div>
 					{/if}

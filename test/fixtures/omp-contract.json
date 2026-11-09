@@ -4,7 +4,7 @@
     "minima": "17.0.0",
     "corrente": "18.0.4"
   },
-  "setupVersion": 2,
+  "setupVersion": 3,
   "assetDiRelease": {
     "windows-x86_64": "omp-windows-x64.exe",
     "macos-aarch64": "omp-darwin-arm64",

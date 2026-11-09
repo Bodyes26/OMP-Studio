@@ -68,29 +68,65 @@ describe('File esterni (EXT-002..010)', () => {
 		assert.equal(promoted.external, false);
 	});
 
-	it('openFile e closeFile aggiornano le tab; la cartella resta aperta senza tab', () => {
-		const workdir = '/tmp/external/files-folder';
-		const id = projectStore.openExternal(workdir);
+	it('chiudere l’ultimo file esterno elimina la cartella e torna al progetto rimasto', () => {
+		const normalId = projectStore.openProject('/tmp/repos/normal-proj');
+		const id = projectStore.openExternal('/tmp/external/files-folder');
 		assert.ok(id);
-
+		projectStore.activeId = id;
 		projectStore.openFile(id, 'sub/note.txt');
 		projectStore.openFile(id, 'config.json');
 
+		projectStore.closeFile(id, 'config.json');
 		const proj = projectStore.projects.find((p) => p.id === id);
 		assert.ok(proj);
-		assert.deepEqual(proj.lane.openFiles, ['sub/note.txt', 'config.json']);
-		assert.equal(proj.lane.activeFile, 'config.json');
-
-		// Chiudi un file
-		projectStore.closeFile(id, 'config.json');
 		assert.deepEqual(proj.lane.openFiles, ['sub/note.txt']);
 		assert.equal(proj.lane.activeFile, 'sub/note.txt');
+		assert.equal(projectStore.activeId, id);
 
-		// Chiudere l'ultima scheda non chiude la cartella: la chat resta disponibile
 		projectStore.closeFile(id, 'sub/note.txt');
-		const stillOpen = projectStore.projects.find((p) => p.id === id);
-		assert.ok(stillOpen);
-		assert.deepEqual(stillOpen.lane.openFiles, []);
+		assert.equal(projectStore.projects.some((p) => p.external), false);
+		assert.equal(projectStore.activeId, normalId);
+	});
+
+	it('chiudere una cartella esterna mantiene i file delle altre cartelle', () => {
+		const first = projectStore.openExternal('/tmp/external/first');
+		const second = projectStore.openExternal('/tmp/external/second');
+		assert.ok(first);
+		assert.ok(second);
+		projectStore.activeId = second;
+		projectStore.openFile(first, 'a.txt');
+		projectStore.openFile(second, 'b.txt');
+
+		projectStore.closeFile(first, 'a.txt');
+		assert.deepEqual(projectStore.projects.map((p) => p.id), [second]);
+		assert.deepEqual(projectStore.activeProject?.lane.openFiles, ['b.txt']);
+
+		projectStore.closeFile(second, 'b.txt');
+		assert.deepEqual(projectStore.projects, []);
+		assert.equal(projectStore.activeId, null);
+	});
+
+	it('Chiudi tutti elimina la cartella esterna ma non i progetti ordinari', () => {
+		const normalId = projectStore.openProject('/tmp/repos/normal-proj');
+		assert.ok(normalId);
+		projectStore.openFile(normalId, 'README.md');
+		projectStore.closeAllFiles(normalId);
+		assert.equal(projectStore.activeId, normalId);
+		assert.deepEqual(projectStore.activeProject?.lane.openFiles, []);
+
+		const externalId = projectStore.openExternal('/tmp/external/files-folder');
+		assert.ok(externalId);
+		projectStore.activeId = externalId;
+		projectStore.openFile(externalId, 'a.txt');
+		projectStore.openFile(externalId, 'b.txt');
+		projectStore.closeAllFiles(externalId);
+		assert.deepEqual(projectStore.projects.map((p) => p.id), [normalId]);
+		assert.equal(projectStore.activeId, normalId);
+
+		projectStore.openFile(normalId, 'README.md');
+		projectStore.closeFile(normalId, 'README.md');
+		assert.equal(projectStore.activeId, normalId);
+		assert.deepEqual(projectStore.activeProject?.lane.openFiles, []);
 	});
 
 	it('projectOrder.list esclude i progetti esterni', () => {

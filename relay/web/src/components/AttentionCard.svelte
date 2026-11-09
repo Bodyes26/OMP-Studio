@@ -6,7 +6,7 @@
 -->
 <script lang="ts">
 	import type { RemoteAttention, RemoteAskQuestion, Feature } from '../../../src/protocol.ts';
-	import { t } from '../i18n.ts';
+	import { remoteFrameMessage, t } from '../i18n.ts';
 	import { connection } from '../connection.svelte.ts';
 	import { untrack } from 'svelte';
 	import {
@@ -17,21 +17,32 @@
 		type QuestionAnswerState
 	} from '../askAnswers.ts';
 	import { formatCommandError } from '../errors.ts';
-	import { IconCheck, IconChevronDown, IconChevronUp, ProviderLogo } from '../icons.ts';
+	import { IconCheck, IconChevronDown, IconChevronUp, IconWarning, ProviderLogo } from '../icons.ts';
 	import StatusMark from './StatusMark.svelte';
 	import { accordionFold } from '../motion.ts';
+	import AskForm from '#lib/agent/components/AskForm.svelte';
+	import {
+		createAskFormDraft,
+		copyAskFormDraft,
+		type AskFormDraft,
+		type AskFormSubmission
+	} from '#lib/agent/askForm.ts';
+	import { MAX_FRAME_BYTES, type RemoteCommand } from '../../../src/protocol.ts';
+	import { remoteDraftStore } from '../remoteDrafts.svelte.ts';
 	let {
 		hostId,
 		hostName,
 		hostFeatures,
 		projectId,
-		attention
+		attention,
+		supportsImages = true
 	} = $props<{
 		hostId: string;
 		hostName: string;
 		hostFeatures: Feature[];
 		projectId: string;
 		attention: RemoteAttention;
+		supportsImages?: boolean;
 	}>();
 
 	let isSubmitting = $state(false);
@@ -41,6 +52,77 @@
 	// Per input/editor
 	let textValue = $state('');
 
+	// Per form HTML
+	const isForm = $derived(attention.method === 'form' || Boolean(attention.form));
+	let remoteFormDraft = $state<AskFormDraft | null>(null);
+
+	$effect(() => {
+		const form = attention.form;
+		if (!form) {
+			remoteFormDraft = null;
+			return;
+		}
+		const existing = remoteDraftStore.getDraft(hostId, projectId, attention.requestId);
+		if (existing) {
+			const isDirty = remoteDraftStore.isDirty(hostId, projectId, attention.requestId);
+			if (isDirty) {
+				remoteFormDraft = existing;
+				return;
+			}
+			remoteFormDraft = attention.formDraft ? copyAskFormDraft(attention.formDraft) : existing;
+			return;
+		}
+		const initialDraft = attention.formDraft ? copyAskFormDraft(attention.formDraft) : createAskFormDraft(form);
+		remoteDraftStore.setDraft(hostId, projectId, attention.requestId, initialDraft, false);
+		remoteFormDraft = initialDraft;
+	});
+
+	function handleFormDraft(updated: AskFormDraft) {
+		remoteFormDraft = updated;
+		remoteDraftStore.setDraft(hostId, projectId, attention.requestId, updated, true);
+	}
+
+	async function handleRemoteFormSubmit(submission: AskFormSubmission): Promise<boolean> {
+		if (isSubmitting) return false;
+		errorMessage = null;
+
+		const command: RemoteCommand = {
+			kind: 'respond_ui',
+			projectId,
+			laneId: attention.laneId,
+			requestId: attention.requestId,
+			answer: { action: 'form', submission }
+		};
+
+		// Considera l'intero frame envelope di connessione (ClientFrame) inviato via WebSocket:
+		const envelope = {
+			type: 'command' as const,
+			commandId: '00000000-0000-0000-0000-000000000000',
+			hostId,
+			command
+		};
+
+		try {
+			const json = JSON.stringify(envelope);
+			const byteLength = new TextEncoder().encode(json).length;
+			if (byteLength > MAX_FRAME_BYTES) {
+				const sizeKb = Math.round(byteLength / 1024);
+				errorMessage = t('remoteFormImageBudgetExceeded', { size: sizeKb });
+				return false;
+			}
+		} catch (err) {
+			errorMessage = err instanceof Error ? err.message : String(err);
+			return false;
+		}
+
+		let ok = false;
+		await runAction(async () => {
+			await connection.sendCommand(hostId, command);
+			remoteDraftStore.deleteDraft(hostId, projectId, attention.requestId);
+			ok = true;
+		});
+		return ok;
+	}
 	// Per ask
 	let askState = $state<Record<string, QuestionAnswerState>>({});
 	// Una domanda per volta, come AskCard; `questions.length` e' il riepilogo.
@@ -164,16 +246,17 @@
 		);
 	}
 
-	function handleCancel(): void {
-		runAction(() =>
-			connection.sendCommand(hostId, {
+	async function handleCancel(): Promise<void> {
+		await runAction(async () => {
+			await connection.sendCommand(hostId, {
 				kind: 'respond_ui',
 				projectId,
 				laneId: attention.laneId,
 				requestId: attention.requestId,
 				answer: { action: 'cancel' }
-			})
-		);
+			});
+			remoteDraftStore.deleteDraft(hostId, projectId, attention.requestId);
+		});
 	}
 
 	function handleWaitQuota(): void {
@@ -200,16 +283,20 @@
 	// ripeterla in piccolo sotto «Richiesta dell'agente» la faceva sembrare secondaria.
 	const isAsk = $derived(attention.method === 'ask' && attention.questions.length > 0);
 	const headline = $derived(
-		isAsk
-			? (currentQuestion?.question ?? t('askReviewTitle'))
-			: attention.title || attention.message || t('attentionFallbackTitle')
+		isForm
+			? (attention.form?.title || attention.title || t('askFormTitle'))
+			: isAsk
+				? (currentQuestion?.question ?? t('askReviewTitle'))
+				: attention.title || attention.message || t('attentionFallbackTitle')
 	);
 	const detail = $derived(
-		isAsk
-			? attention.title || null
-			: attention.message && attention.title && attention.message !== attention.title
-				? attention.message
-				: null
+		isForm
+			? null
+			: isAsk
+				? attention.title || null
+				: attention.message && attention.title && attention.message !== attention.title
+					? attention.message
+					: null
 	);
 </script>
 
@@ -262,9 +349,11 @@
 			<span class="ask-counter">{currentQuestion.header}</span>
 		{/if}
 
-		<h3 class="ask-text">{headline}</h3>
-		{#if detail}
-			<p class="ask-detail">{detail}</p>
+		{#if !isForm}
+			<h3 class="ask-text">{headline}</h3>
+			{#if detail}
+				<p class="ask-detail">{detail}</p>
+			{/if}
 		{/if}
 	</div>
 
@@ -338,6 +427,29 @@
 						</button>
 					</div>
 				{/if}
+			</div>
+		{:else if attention.frameError}
+			<div class="frame-error-box" role="alert">
+				<p class="frame-error-title">
+					<IconWarning aria-hidden="true" />
+					<span>{remoteFrameMessage(attention.frameError)}</span>
+				</p>
+				<p class="frame-error-hint">
+					{t('remoteFormDesktopOnlyHint')}
+				</p>
+			</div>
+		{:else if isForm && attention.form && remoteFormDraft}
+			<div class="remote-ask-form-wrap">
+				<AskForm
+					form={attention.form}
+					draft={remoteFormDraft}
+					onDraft={handleFormDraft}
+					onSubmit={handleRemoteFormSubmit}
+					onCancel={handleCancel}
+					supportsImages={supportsImages}
+					imageBudget={320_000}
+					compact={true}
+				/>
 			</div>
 
 		{:else if attention.method === 'select'}
@@ -521,6 +633,42 @@
 </div>
 
 <style>
+	.frame-error-box {
+		padding: var(--space-3);
+		border-radius: var(--radius-lg);
+		background: color-mix(in srgb, var(--warn) 12%, transparent);
+		border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		margin-top: var(--space-2);
+	}
+
+	.frame-error-title {
+		display: flex;
+		align-items: flex-start;
+		gap: var(--space-2);
+		font-size: var(--text-base);
+		font-weight: 500;
+		color: var(--ink);
+		line-height: 1.4;
+		margin: 0;
+	}
+
+	.frame-error-hint {
+		font-size: var(--text-sm);
+		color: var(--ink-muted);
+		line-height: 1.4;
+		margin: 0;
+	}
+
+	.remote-ask-form-wrap {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		min-width: 0;
+	}
+
 	.attention-card {
 		background: var(--bg-raised);
 		border: 1px solid var(--line-strong);

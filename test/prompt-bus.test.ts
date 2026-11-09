@@ -215,7 +215,7 @@ describe('PromptBus: Architettura e Resilienza Input Pendenti', () => {
 	});
 
 	describe('3. Resilienza a Crash WebView e Ricaricamenti (Persistenza Temporanea)', () => {
-		it('salva le richieste pendenti nello storage e le recupera dopo un reload simulato', () => {
+		it('salva le richieste pendenti nello storage e le recupera dopo un reload simulato', async () => {
 			// Simulazione della webview pre-reload
 			const busPreReload = new PromptBus({
 				storage,
@@ -262,7 +262,7 @@ describe('PromptBus: Architettura e Resilienza Input Pendenti', () => {
 			assert.equal(reattached, true);
 
 			// Risolvendo la richiesta dopo il reload, il responder viene eseguito e lo storage viene ripulito
-			void busPostReload.resolveRequest('req-survivor', { action: 'select', value: 'LaserJet 1' });
+			await busPostReload.resolveRequest('req-survivor', { action: 'select', value: 'LaserJet 1' });
 			assert.equal(responderInvoked, true);
 			assert.equal(busPostReload.getPendings().length, 0);
 

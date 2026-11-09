@@ -25,12 +25,14 @@ import type {
 	RemoteSessionSnapshot,
 	RemoteDispatchConfirmation
 } from '$remote-protocol';
+import { REMOTE_ATTENTION_MAX_BYTES, REMOTE_FRAME_TOO_LARGE } from '$remote-protocol';
 import { resolveActiveRole } from '#lib/stores/modelSettingsHelpers.ts';
 import { taskLabel } from '#lib/stores/taskTitle.ts';
 import type { AttentionRequest, CompanionProjectRuntime } from '#lib/stores/companion.svelte.ts';
 import type { StudioTask } from '#lib/stores/tasks.svelte.ts';
 import type { QuotaReport, QuotaLimit } from '#lib/stores/quota.svelte.ts';
 import { m } from '#lib/paraglide/messages.js';
+import type { AskFormRequest } from '#lib/agent/askForm.ts';
 
 export interface ProjectInput {
 	id: string;
@@ -283,15 +285,48 @@ function mapLanes(
 	});
 }
 
+function sanitizeFormProjection(form: AskFormRequest | null | undefined): AskFormRequest | null {
+	if (!form || !form.form || !Array.isArray(form.form.sections)) return null;
+	const safeSections = form.form.sections.map((section) => ({
+		title: section.title,
+		blocks: section.blocks.map((block) => {
+			if (block.kind === 'image') {
+				const isSafeData = /^data:image\/(?:png|jpeg|webp|gif);base64,/i.test(block.src);
+				return {
+					...block,
+					src: isSafeData ? block.src : ''
+				};
+			}
+			return block;
+		})
+	}));
+
+	return {
+		version: 1,
+		toolCallId: form.toolCallId,
+		title: form.title,
+		html: '', // I client remoti rendono il modello semantico parsed; svuotare il raw HTML evita di duplicare pesanti data URI nel frame
+		form: {
+			...form.form,
+			sections: safeSections
+		},
+		defaults: form.defaults,
+		draft: form.draft,
+		error: form.error
+	};
+}
+
 function mapAttention(requests: AttentionRequest[], projectId: string): RemoteAttention[] {
 	const projectRequests = requests.filter((r) => r.projectId === projectId);
 	return projectRequests.map((req): RemoteAttention => {
 		const pending = req.pendingUi;
-		let method: 'ask' | 'select' | 'confirm' | 'input' | 'editor' = 'select';
+		let method: 'ask' | 'select' | 'confirm' | 'input' | 'editor' | 'form' = 'select';
 		if (pending.method) {
 			method = pending.method;
 		} else if (pending.blockedQuota) {
 			method = 'confirm';
+		} else if (pending.form) {
+			method = 'form';
 		} else if (Array.isArray(pending.questions) && pending.questions.length > 0) {
 			method = 'ask';
 		}
@@ -344,6 +379,15 @@ function mapAttention(requests: AttentionRequest[], projectId: string): RemoteAt
 				}))
 			: [];
 
+		const formProj = sanitizeFormProjection(pending.form);
+		const draftProj = pending.formDraft ?? null;
+		// Il tetto vale per il modello e per la bozza, anche se le immagini
+		// stanno solo in form.draft: azzerare la bozza separata lascerebbe
+		// partire uno stato che il relay scarta per intero.
+		const estimatedBytes =
+			(formProj ? JSON.stringify(formProj).length : 0) +
+			(draftProj ? JSON.stringify(draftProj).length : 0);
+		const overFrame = (formProj !== null || draftProj !== null) && estimatedBytes > REMOTE_ATTENTION_MAX_BYTES;
 		return {
 			requestId: pending.requestId,
 			laneId: req.laneId ?? null,
@@ -357,7 +401,10 @@ function mapAttention(requests: AttentionRequest[], projectId: string): RemoteAt
 			questions,
 			deadline: typeof pending.deadline === 'number' ? pending.deadline : null,
 			quotaBlocked,
-			recentMessages
+			recentMessages,
+			form: overFrame ? null : formProj,
+			formDraft: overFrame ? null : draftProj,
+			frameError: overFrame ? REMOTE_FRAME_TOO_LARGE : null
 		};
 	});
 }

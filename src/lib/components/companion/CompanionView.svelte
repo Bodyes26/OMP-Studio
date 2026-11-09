@@ -37,6 +37,7 @@
 	import { sessionCompletions } from '#lib/agent/completion.svelte.ts';
 	import CompanionRightRail, { type RailProjectItem } from './CompanionRightRail.svelte';
 	import type { CompanionAskHandlers } from './companionAsk';
+	import type { AskFormDraft, AskFormSubmission } from '#lib/agent/askForm.ts';
 	import { promptBus } from '#lib/agent/promptBus.ts';
 	import {
 		createInitialPresentationState,
@@ -1105,7 +1106,21 @@
 			return companionStore.waitQuotaReset(projectId, laneId);
 		},
 		draftFor,
-		wantsText
+		wantsText,
+		onFormSubmit: async (projectId: string, submission: AskFormSubmission, laneId?: string | null, requestId?: string | null) => {
+			const handled = await companionStore.submitAskForm(projectId, submission, laneId, requestId);
+			if (handled) {
+				presentation.selectedProjectId = null;
+				presentation.selectedRequestId = null;
+			}
+			return handled;
+		},
+		onFormDraft: (requestId: string, draft: AskFormDraft) => {
+			companionStore.updateFormDraft(requestId, draft);
+		},
+		getFormDraft: (requestId: string) => {
+			return companionStore.getFormDraft(requestId);
+		}
 	});
 </script>
 

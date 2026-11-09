@@ -20,17 +20,24 @@ released: items are closed into a version via `npm run release -- <version>`.
 - One-command install on macOS, Linux and Windows: the script downloads the latest release (stable or Nightly), checks its SHA-256 and installs it without the Gatekeeper and SmartScreen warnings. On Linux it installs the AppImage in your home folder, with a menu entry and the `omp-studio` command, and automatic updates work without a password.
 
 ### Changed
+- Agent questions use OMP's new HTML form: every section stays visible and editable before submission, with choices, numbers, text, images and diagrams, including in Companion and Studio Remote. Each section offers “Add note or image”; minimizing the card or switching projects preserves the draft. (ASK-001, ASK-002, ASK-006…012, ASK-014)
 - Studio Remote: added fluid animations across all PWA interfaces adhering to Studio's design system. Modal sheets and dialogs now slide down and fade out on close instead of abruptly vanishing; full-screen chat transitions with native-feeling mobile push/pop sliding; project branch and queue accordion sections unfold smoothly with synchronized arrow rotation; the slash command tray, cross-branch notice banner, offline banner and scroll-to-bottom button have dedicated enter/exit transitions; buttons, chips, and list rows provide subtle tactile press feedback. All transitions automatically collapse to zero duration under `prefers-reduced-motion`.
 - The Companion, Queue and Remote control buttons move from the top bar to the status bar at the bottom, next to automations: the top bar stays free for project tiles.
 - On macOS Studio is signed with its own stable certificate instead of an ad-hoc signature: after an update macOS recognizes it as the same app and does not ask again for folder permissions and keychain access. The first update after this change asks one last time.
 - The macOS installer DMG window has a new look: a monumental marble π in an alpine landscape, with the π made of fine ASCII characters and a film-grain photographic finish. OMP Studio sits on the left and the Applications folder on the right.
 
 ### Fixed
+- Images attached to an answer arrive with the data in the same `ask` result instead of a second queued message; an attachment that is not ready or cannot be delivered keeps the draft and prevents text-only submission. Preview and history read the new format while preserving older conversations. (ASK-004, ASK-010, ASK-013)
+- Questions always wait for explicit submission: no countdown confirms preselected values or cancels the form, including after a prewalk change. (ASK-003)
+- Initial configuration recognizes OMP's setup threshold 3 without enabling automatic updates or changing credentials. (ASK-005)
+- The “External files” space disappears when you close the last file, including with “Close all”; other folders with open files and regular projects remain available. Closing the folder also ends its agent session. (EXT-013)
 - Studio starts again after the external-files update instead of getting stuck on the “500 / Internal Error” screen. (EXT-002, EXT-010)
 - Code blocks in chat are readable on the dark theme: before any file was opened the syntax colors came from the light theme and the text blended into the background.
 - With the interface in English no Italian text is left: agent tools and results, `/` commands, Lab, automations, settings, quota notices, update errors, installation, Git, lanes and files, notifications and native windows, Studio Remote commands and push notifications. Backend and extension errors follow the chosen language, which can be changed without restarting.
 - With the interface in English some text stayed in Italian: the "Open branch" section of the lanes `+` menu, Main in the concurrent agents dialog, the chat notice when a lane finishes and the empty page of new Lab prototypes (title included). They now follow the chosen language.
 - Studio updates no longer fail with error 504 right after a new Nightly is published: the installer is downloaded from the file's stable GitHub address instead of the one tied to the release name.
+- In chat, a turn still waiting for a background command or subagent no longer looks finished: instead of the end-of-turn footer it shows "Not finished: waiting for …" with the name of the running work, and a note that closing Studio stops it. The footer appears once the agent has really finished.
+- Chat stays working when a background result restarts the agent during state synchronization: streaming no longer stops as though the work had finished. (ATT-003)
 - In chat, if you scrolled slightly away from the bottom, auto-scroll now resumes by itself after 10 seconds without touching the chat and with the mouse outside it, so you don't miss finished replies or pending questions.
 ## [1.10.0] - 2026-11-05
 

@@ -16,6 +16,7 @@
 		ToolEntry,
 		TranscriptEntry
 	} from '../session.svelte';
+	import BackgroundWait from './BackgroundWait.svelte';
 	import { chatReveal } from '../motion';
 	import OmpWelcome from './OmpWelcome.svelte';
 	import ToolGroup, { type ToolGroupEntry } from '../tools/ToolGroup.svelte';
@@ -512,9 +513,12 @@
 			}
 		}
 
+		// Un turno ceduto con lavoro ancora in background non e' concluso: il
+		// risultato del job lo fara' ripartire, e il piè lo farebbe sembrare finito.
 		if (
 			currentTurnStartIndex >= 0
 			&& !session.isStreaming
+			&& !session.backgroundPending
 			&& !hasRunningTool
 			&& (currentTurnAssistantTexts.length > 0 || currentTurnToolCalls > 0)
 		) {
@@ -772,6 +776,8 @@
 		<div class="agent-activity in-turn-idle rv-blur" role="status" aria-live="polite">
 			<span class="text-shimmer">{m.chat_v2_thinking_streaming()}</span>
 		</div>
+	{:else if session.backgroundPending}
+		<BackgroundWait jobs={session.backgroundJobs} />
 	{/if}
 </div>
 
@@ -833,6 +839,7 @@
 		color: var(--ink-muted);
 		user-select: none;
 	}
+
 
 
 	.transcript.is-empty {

@@ -12,6 +12,8 @@ import type { AvailableCommand, ImageContent } from '#lib/agent/wire.ts';
 import { m as messages } from '#lib/paraglide/messages.js';
 import { promptBus, type PromptRequest } from '#lib/agent/promptBus.ts';
 import type { PromptAnswer } from '#lib/agent/askAnswers.ts';
+import type { AskFormRequest, AskFormDraft, AskFormSubmission } from '#lib/agent/askForm.ts';
+import { copyAskFormDraft } from '#lib/agent/askForm.ts';
 import {
 	CompanionConversationError,
 	type CompanionAssistantReference,
@@ -49,13 +51,15 @@ export interface PendingUiPayload {
 	message?: string;
 	options?: string[];
 	optionDetails?: { description?: string }[];
-	method?: 'select' | 'confirm' | 'input' | 'editor' | 'ask';
+	method?: 'select' | 'confirm' | 'input' | 'editor' | 'ask' | 'form';
 	placeholder?: string;
 	prefill?: string;
 	deadline?: number;
 	questions?: unknown[];
 	questionIndex?: number;
 	totalQuestions?: number;
+	form?: AskFormRequest | null;
+	formDraft?: AskFormDraft | null;
 	blockedQuota?: {
 		reasonKind: 'quota_exhausted' | 'provider_error';
 		rawError?: string;
@@ -375,6 +379,51 @@ class CompanionStore {
 		}
 		return await promptBus.resolveRequest(requestId, answer, { laneId: laneId ?? undefined });
 	}
+	/** Aggiorna la bozza del modulo su PromptBus e nello stato locale. */
+	updateFormDraft(requestId: string, draft: AskFormDraft) {
+		const bus = promptBus as unknown as { updateFormDraft?: (id: string, d: AskFormDraft) => void };
+		if (typeof bus.updateFormDraft === 'function') {
+			bus.updateFormDraft(requestId, draft);
+		}
+		const req = this.attentionRequests.find((r) => r.pendingUi?.requestId === requestId);
+		if (req && req.pendingUi) {
+			req.pendingUi.formDraft = copyAskFormDraft(draft);
+		}
+	}
+
+	/** Recupera la bozza corrente del modulo se presente. */
+	getFormDraft(requestId: string): AskFormDraft | undefined {
+		const bus = promptBus as unknown as { getFormDraft?: (id: string) => AskFormDraft | undefined };
+		if (typeof bus.getFormDraft === 'function') {
+			const busDraft = bus.getFormDraft(requestId);
+			if (busDraft) return busDraft;
+		}
+		const req = this.attentionRequests.find((r) => r.pendingUi?.requestId === requestId);
+		return req?.pendingUi?.formDraft ?? req?.pendingUi?.form?.draft ?? undefined;
+	}
+
+	/** Invia la risposta del form ask HTML attraverso il promptBus autoritativo. */
+	async submitAskForm(
+		projectId: string,
+		submission: AskFormSubmission,
+		laneId?: string | null,
+		requestId?: string | null
+	): Promise<boolean> {
+		const targetReqId =
+			requestId ??
+			this.attentionRequests.find(
+				(r) => r.projectId === projectId && (!laneId || (r.laneId ?? 'main') === laneId)
+			)?.pendingUi?.requestId;
+		const answer = { action: 'form' as const, submission };
+		if (targetReqId) {
+			// Attende l'ack autoritativo dell'owner su promptBus: nessun fallback cieco
+			// a respondUi in caso di risoluzione in-flight o fallita, per evitare doppi invii.
+			return await this.respondPrompt(targetReqId, answer as unknown as PromptAnswer, laneId);
+		}
+		await this.respondUi(projectId, answer, laneId, targetReqId);
+		return true;
+	}
+
 	/** Invia la richiesta di cambio modello e ripresa (one-click) per quota bloccata. */
 	async resolveQuotaBlocked(
 		projectId: string,
@@ -423,6 +472,10 @@ class CompanionStore {
 					r.projectId.toLowerCase() === p.projectId.toLowerCase() &&
 					(r.laneId ?? 'main').toLowerCase() === pLane
 			);
+			const pExt = p as unknown as { form?: AskFormRequest | null; formDraft?: AskFormDraft | null };
+			if (existing && pExt.formDraft && existing.pendingUi.formDraft !== pExt.formDraft) {
+				existing.pendingUi.formDraft = pExt.formDraft;
+			}
 			if (!existing || existing.pendingUi.requestId !== p.requestId || existing.pendingUi.title !== p.title) {
 				const project = this.projects.find((prj) => prj.id.toLowerCase() === p.projectId.toLowerCase()) ?? {
 					id: p.projectId,
@@ -445,13 +498,15 @@ class CompanionStore {
 						message: p.message,
 						options: [...p.options],
 						optionDetails: [...p.optionDetails],
-						method: p.method,
+						method: pExt.form ? 'form' : p.method,
 						placeholder: p.placeholder,
 						prefill: p.prefill,
 						deadline: p.deadline,
 						questions: p.questions,
 						questionIndex: p.questionIndex,
-						totalQuestions: p.totalQuestions
+						totalQuestions: p.totalQuestions,
+						form: pExt.form ?? null,
+						formDraft: pExt.formDraft ?? null
 					}
 				};
 				const next = upsertAttentionRequest(this.attentionRequests, attentionReq);

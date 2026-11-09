@@ -8,9 +8,11 @@
 	 * con le sue scene. Studio si limita a cio' che `omp` non sa fare:
 	 * installare il binario quando manca, e sapere dove stanno i progetti.
 	 *
-	 * La chiusura non segue il wizard, segue lo stato reale: `setupVersion`
-	 * arriva a 2 anche uscendo con Esc da ogni scena, quindi chiudere su quel
-	 * segnale consegnerebbe una GUI senza credenziali ne' modello.
+	 * La chiusura non segue il numero di `setupVersion` da solo. La soglia
+	 * corrente e' 3: un profilo fermo a 2 e' precedente, ma il wizard si
+	 * riapre solo se mancano il binario, le credenziali o il modello.
+	 * Uscire con Esc puo' scrivere la versione senza lasciare una
+	 * configurazione usabile.
 	 */
 	import { invoke } from '@tauri-apps/api/core';
 	import { listen, type UnlistenFn } from '@tauri-apps/api/event';

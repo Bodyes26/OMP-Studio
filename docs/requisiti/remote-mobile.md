@@ -30,24 +30,24 @@ Le fonti complete sono nella conversazione di progetto del 2026-11-01 e nel diar
 
 | ID | Stato del requisito | Implementazione | Verifica |
 |---|---|---|---|
-| R-REM-01 | Attivo, approvato il 2026-11-01 | Codice scritto il 2026-11-01 | Non verificato nell'app |
-| R-REM-02 | Attivo, approvato il 2026-11-01 | Codice scritto il 2026-11-01 | Non verificato nell'app |
-| R-REM-03 | Attivo, approvato il 2026-11-01 | Codice scritto il 2026-11-01 | Non verificato nell'app |
-| R-REM-04 | Attivo, approvato il 2026-11-01 | Codice scritto il 2026-11-01 | Non verificato nell'app |
-| R-REM-05 | Attivo, approvato il 2026-11-01 | Codice scritto il 2026-11-01 | Non verificato nell'app |
-| R-REM-06 | Attivo, approvato il 2026-11-01 | Codice scritto il 2026-11-01 | Non verificato nell'app |
-| R-REM-07 | Attivo, approvato il 2026-11-01 | Codice scritto il 2026-11-01 | Non verificato nell'app |
-| R-REM-08 | Attivo, approvato il 2026-11-01 | Codice scritto il 2026-11-01 | Non verificato nell'app |
-| R-REM-09 | Attivo, approvato il 2026-11-01 | Codice scritto il 2026-11-01 | Non verificato nell'app |
-| R-REM-10 | Attivo, approvato il 2026-11-01 | Codice scritto il 2026-11-01 | Non verificato nell'app |
-| R-REM-11 | Attivo, approvato il 2026-11-01 | Codice scritto il 2026-11-01 | Non verificato nell'app |
-| R-REM-12 | Attivo, approvato il 2026-11-01 | Codice scritto il 2026-11-01 | Non verificato nell'app |
-| R-REM-13 | Attivo, approvato il 2026-11-01 | Codice scritto il 2026-11-01 | Non verificato nell'app |
-| R-REM-14 | Attivo, approvato il 2026-11-01 | Codice scritto il 2026-11-01 | Non verificato nell'app |
-| R-REM-15 | Attivo, approvato il 2026-11-01 | Codice scritto il 2026-11-01 | Non verificato nell'app |
-| R-REM-16 | Attivo, approvato il 2026-11-01 | Codice scritto il 2026-11-01 | Non verificato nell'app |
+| R-REM-01 | Attivo, approvato il 2026-11-01 | Codice scritto il 2026-11-01 | Confermato dall'utente il 2026-11-09 sull'app («ho provato tutto funziona») |
+| R-REM-02 | Attivo, approvato il 2026-11-01 | Codice scritto il 2026-11-01 | Confermato dall'utente il 2026-11-09 sull'app («ho provato tutto funziona») |
+| R-REM-03 | Attivo, approvato il 2026-11-01 | Codice scritto il 2026-11-01 | Confermato dall'utente il 2026-11-09 sull'app («ho provato tutto funziona») |
+| R-REM-04 | Attivo, approvato il 2026-11-01 | Codice scritto il 2026-11-01 | Confermato dall'utente il 2026-11-09 sull'app («ho provato tutto funziona») |
+| R-REM-05 | Attivo, approvato il 2026-11-01 | Codice scritto il 2026-11-01 | Confermato dall'utente il 2026-11-09 sull'app («ho provato tutto funziona») |
+| R-REM-06 | Attivo, approvato il 2026-11-01 | Codice scritto il 2026-11-01 | Confermato dall'utente il 2026-11-09 sull'app («ho provato tutto funziona») |
+| R-REM-07 | Attivo, approvato il 2026-11-01 | Codice scritto il 2026-11-01 | Confermato dall'utente il 2026-11-09 sull'app («ho provato tutto funziona») |
+| R-REM-08 | Attivo, approvato il 2026-11-01 | Codice scritto il 2026-11-01 | Confermato dall'utente il 2026-11-09 sull'app («ho provato tutto funziona») |
+| R-REM-09 | Attivo, approvato il 2026-11-01 | Codice scritto il 2026-11-01 | Confermato dall'utente il 2026-11-09 sull'app («ho provato tutto funziona») |
+| R-REM-10 | Attivo, approvato il 2026-11-01 | Codice scritto il 2026-11-01 | Confermato dall'utente il 2026-11-09 sull'app («ho provato tutto funziona») |
+| R-REM-11 | Attivo, approvato il 2026-11-01 | Codice scritto il 2026-11-01 | Confermato dall'utente il 2026-11-09 sull'app («ho provato tutto funziona») |
+| R-REM-12 | Attivo, approvato il 2026-11-01 | Codice scritto il 2026-11-01 | Confermato dall'utente il 2026-11-09 sull'app («ho provato tutto funziona») |
+| R-REM-13 | Attivo, approvato il 2026-11-01 | Codice scritto il 2026-11-01 | Confermato dall'utente il 2026-11-09 sull'app («ho provato tutto funziona») |
+| R-REM-14 | Attivo, approvato il 2026-11-01 | Codice scritto il 2026-11-01 | Confermato dall'utente il 2026-11-09 sull'app («ho provato tutto funziona») |
+| R-REM-15 | Attivo, approvato il 2026-11-01 | Codice scritto il 2026-11-01 | Confermato dall'utente il 2026-11-09 sull'app («ho provato tutto funziona») |
+| R-REM-16 | Attivo, approvato il 2026-11-01 | Codice scritto il 2026-11-01 | Confermato dall'utente il 2026-11-09 sull'app («ho provato tutto funziona») |
 
-«Solo anteprima» significa che il comportamento è stato esercitato nel prototipo con dati simulati (vedi «Prove sull'anteprima»), non nell'app reale. «Codice scritto» significa che l'implementazione esiste ma, per scelta dell'utente del 2026-11-01 («non fare test»), non sono stati scritti test nuovi né fatte prove nel browser o sul telefono. Per la Nightly del 2026-11-02 sono passati i controlli di pubblicazione (`npm run check`, `npm test`, `npm run check:commands`, `cargo test`; in `relay/` `bun run check`, `bun run check:web`, `bun test`, `bun run build:web`): provano che il codice compila e non rompe le suite esistenti, non gli scenari di accettazione, che restano da eseguire.
+«Solo anteprima» significa che il comportamento è stato esercitato nel prototipo con dati simulati (vedi «Prove sull'anteprima»), non nell'app reale. «Codice scritto» significa che l'implementazione esiste ma, per scelta dell'utente del 2026-11-01 («non fare test»), non sono stati scritti test nuovi né fatte prove nel browser o sul telefono. Per la Nightly del 2026-11-02 sono passati i controlli di pubblicazione (`npm run check`, `npm test`, `npm run check:commands`, `cargo test`; in `relay/` `bun run check`, `bun run check:web`, `bun test`, `bun run build:web`): provano che il codice compila e non rompe le suite esistenti, non gli scenari di accettazione. Quegli scenari, insieme a ricarica della PWA, animazioni, barra di stato e scorrimento della chat, sono stati confermati dall'utente il 2026-11-09 sull'app («ho provato tutto funziona»).
 
 ### Prove sull'anteprima (2026-11-01)
 

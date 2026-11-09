@@ -12,8 +12,8 @@
  *
  * Studio usa la quiete per tutto cio' che significa «ha finito davvero»:
  * stato `finished` del progetto (annuncio, companion, pallino), avvio
- * automatico della coda dei task. La risposta del turno resta legata al
- * yield: il composer si libera e il piè di turno compare subito.
+ * automatico della coda dei task. Allo yield il composer si libera, ma con
+ * background pendente il transcript mostra l'attesa invece del pie' finale.
  *
  * Compatibilita': un omp che non conosce la quiete non manda mai
  * `session_settled` ne' `isSettled`. Finche' nessuno dei due e' stato visto

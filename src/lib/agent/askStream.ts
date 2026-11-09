@@ -34,6 +34,9 @@ export interface StreamAskState {
 	questions: StreamQuestion[];
 	complete: boolean;
 	raw?: string;
+	html?: string;
+	isHtml?: boolean;
+	formTitle?: string;
 }
 
 /**
@@ -126,6 +129,99 @@ export function repairPartialJson(raw: string): unknown | null {
 	return null;
 }
 
+function extractFromHtml(html: string, isComplete: boolean): { questions: StreamQuestion[]; title?: string } {
+	if (!html || typeof html !== 'string') return { questions: [] };
+
+	if (typeof DOMParser !== 'undefined') {
+		try {
+			const sanitizedInput = html
+				.replace(/<script\b[\s\S]*?<\/script>/gi, '')
+				.replace(/<style\b[\s\S]*?<\/style>/gi, '')
+				.replace(/<iframe\b[\s\S]*?<\/iframe>/gi, '')
+				.replace(/<img\b[^>]*>/gi, '');
+
+			const doc = new DOMParser().parseFromString(sanitizedInput, 'text/html');
+			const title =
+				doc.querySelector('title')?.textContent?.trim() ||
+				doc.querySelector('h1, h2, h3, legend')?.textContent?.trim() ||
+				undefined;
+
+			const questions: StreamQuestion[] = [];
+			const fieldsets = doc.querySelectorAll('fieldset, section');
+			let idx = 0;
+
+			if (fieldsets.length > 0) {
+				for (const fs of Array.from(fieldsets)) {
+					idx++;
+					const legend = fs.querySelector('legend, h2, h3, h4')?.textContent?.trim();
+					const qText = legend || (title && idx === 1 ? title : '');
+
+					const options: StreamOption[] = [];
+					let isMulti = false;
+					const inputs = fs.querySelectorAll('input[type="radio"], input[type="checkbox"]');
+					for (const inp of Array.from(inputs)) {
+						if ((inp as HTMLInputElement).type === 'checkbox') isMulti = true;
+						const label =
+							inp.closest('label')?.textContent?.trim() ||
+							(inp as HTMLInputElement).value ||
+							'';
+						if (label) {
+							options.push({ label, complete: isComplete });
+						}
+					}
+					const selectOpts = fs.querySelectorAll('select option');
+					for (const opt of Array.from(selectOpts)) {
+						const label = opt.textContent?.trim() || (opt as HTMLOptionElement).value;
+						if (label) {
+							options.push({ label, complete: isComplete });
+						}
+					}
+
+					if (qText || options.length > 0) {
+						questions.push({
+							id: `q_${idx}`,
+							question: qText,
+							multi: isMulti,
+							options,
+							textComplete: isComplete,
+							optionsComplete: isComplete,
+							complete: isComplete
+						});
+					}
+				}
+			}
+
+			if (questions.length === 0) {
+				const labels = doc.querySelectorAll('label');
+				for (let lIdx = 0; lIdx < labels.length; lIdx++) {
+					const l = labels[lIdx];
+					const text = l.textContent?.trim();
+					if (text && text.length < 120) {
+						questions.push({
+							id: `q_${lIdx + 1}`,
+							question: text,
+							options: [],
+							textComplete: isComplete,
+							optionsComplete: true,
+							complete: isComplete
+						});
+					}
+				}
+			}
+
+			return { questions, title };
+		} catch {
+			// Fallback sotto
+		}
+	}
+
+	let title: string | undefined;
+	const titleMatch = html.match(/<(?:title|h1|h2|h3|legend)[^>]*>([^<]+)<\//i);
+	if (titleMatch) title = titleMatch[1].trim();
+
+	return { questions: [], title };
+}
+
 /**
  * Converte qualsiasi input (stringa delta parziale, JSON completo o oggetto gia' deserializzato)
  * in uno stato coerente `StreamAskState`. Non lancia mai eccezioni.
@@ -158,6 +254,18 @@ export function parsePartialAskStream(input: unknown): StreamAskState {
 	}
 
 	const dict = rawObj as Record<string, unknown>;
+	const rawHtml = typeof dict.html === 'string' ? dict.html : undefined;
+	if (rawHtml !== undefined) {
+		const { questions: htmlQuestions, title } = extractFromHtml(rawHtml, isRawComplete);
+		return {
+			questions: htmlQuestions,
+			complete: isRawComplete,
+			raw: typeof input === 'string' ? input : undefined,
+			html: rawHtml,
+			isHtml: true,
+			formTitle: title
+		};
+	}
 	const questionsArr = Array.isArray(dict.questions) ? dict.questions : [];
 	const rawStr = typeof input === 'string' ? input.trim() : JSON.stringify(input);
 

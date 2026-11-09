@@ -279,7 +279,7 @@ fn write_overlay() -> std::path::PathBuf {
     let mut overlay_path = std::env::temp_dir();
     overlay_path.push("omp-studio-overlay.yml");
 
-    let mut yml = String::from("tui:\n  titleState: true\n  hyperlinks: always\n");
+    let mut yml = String::from("tui:\n  titleState: true\n  hyperlinks: always\nask:\n  timeout: 0\n");
     if crate::omp_ops::studio_theme_file().is_some_and(|p| p.exists()) {
         yml.push_str("theme:\n  dark: ");
         yml.push_str(crate::omp_ops::STUDIO_THEME_NAME);
@@ -324,6 +324,9 @@ pub const DOCS_EXTENSION_TS: &str = include_str!("../../../extensions/studio-doc
 /// Tool `studio_automations` (AUT-086 / AUT-106): gestione e bozze delle automazioni Studio.
 pub const AUTOMATIONS_EXTENSION_TS: &str =
     include_str!("../../../extensions/studio-automations.ts");
+/// Estensione ask HTML per RPC: dialoghi a modulo unico senza auto-invio.
+/// Non caricata nel PTY nativo (vale l'ask nativo della TUI).
+pub const ASK_EXTENSION_TS: &str = include_str!("../../../extensions/studio-ask.ts");
 
 /// Unica direttiva aggiunta all'avvio: tenerla qui evita divergenze tra GUI,
 /// Laboratorio e TUI senza salvarla nei messaggi o nel transcript.

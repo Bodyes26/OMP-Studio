@@ -28,6 +28,9 @@
 	import { sessionCompletions } from '../completion.svelte';
 
 	import AskCard from './AskCard.svelte';
+	import AskForm from './AskForm.svelte';
+	import { promptBus } from '../promptBus';
+	import { createAskFormDraft, type AskFormDraft } from '../askForm';
 	import AskStreamPreview from './AskStreamPreview.svelte';
 	import BranchPanel from './BranchPanel.svelte';
 	import BtwPopover from './BtwPopover.svelte';
@@ -38,7 +41,7 @@
 	import GoalBanner from './GoalBanner.svelte';
 	import GuidedGoalAskCard from './GuidedGoalAskCard.svelte';
 	import GuidedGoalStrip from './GuidedGoalStrip.svelte';
-	import type { Goal } from '../wire';
+	import { modelSupportsImages, type Goal } from '../wire';
 	import QueueChips from './QueueChips.svelte';
 	import SubagentDrawer from './SubagentDrawer.svelte';
 	import SuggestionChips from './SuggestionChips.svelte';
@@ -155,6 +158,31 @@
 	function openAsk() {
 		askMinimizedRequestId = null;
 	}
+	let currentFormDraft = $state<AskFormDraft | null>(null);
+
+	$effect(() => {
+		const reqId = session.pendingUi?.requestId;
+		const formReq = session.pendingUi?.form;
+		if (reqId && formReq) {
+			const existing = promptBus.getFormDraft(reqId);
+			currentFormDraft = existing ?? createAskFormDraft(formReq);
+		} else {
+			currentFormDraft = null;
+		}
+	});
+
+	$effect(() => {
+		const unsub = promptBus.subscribe((pendings) => {
+			const reqId = session.pendingUi?.requestId;
+			if (!reqId || !session.pendingUi?.form) return;
+			const found = pendings.find((p) => p.requestId === reqId);
+			const draft = found?.formDraft ?? promptBus.getFormDraft(reqId);
+			if (draft) {
+				currentFormDraft = draft;
+			}
+		});
+		return unsub;
+	});
 	let activeSubagentId = $state<string | null>(null);
 
 	// --- Obiettivo (goal mode) ------------------------------------------------
@@ -682,8 +710,8 @@
 				onCancelSubagent={(id) => void session.cancelSubagent(id)}
 				questionMinimized={askMinimized && session.pendingUi
 					? {
-							title: session.pendingUi.title,
-							count: session.pendingUi.totalQuestions,
+							title: session.pendingUi.form?.title || session.pendingUi.title,
+							count: session.pendingUi.form ? session.pendingUi.form.form.sections.length : session.pendingUi.totalQuestions,
 							onOpen: openAsk
 						}
 					: undefined}
@@ -693,10 +721,28 @@
 				<PlanApprovalCard {session} {visible} />
 			{/if}
 			{#if session.pendingUi && !askMinimized && !session.plan.approvalOpen}
-				{@const cardKey = `${session.pendingUi.toolCallId ?? session.pendingUi.requestId}:${session.pendingUi.questions?.length ?? 0}:${session.pendingUi.questionIndex ?? 0}`}
-				{#key cardKey}
-					<AskCard {session} pending={session.pendingUi} {visible} onMinimize={minimizeAsk} />
-				{/key}
+				{#if session.pendingUi.form}
+					{@const targetRequestId = session.pendingUi.requestId}
+					{@const formReq = session.pendingUi.form}
+					{@const activeDraft = currentFormDraft ?? promptBus.getFormDraft(targetRequestId) ?? createAskFormDraft(formReq)}
+					<AskForm
+						form={formReq}
+						draft={activeDraft}
+						onDraft={(d) => {
+							currentFormDraft = d;
+							promptBus.updateFormDraft(targetRequestId, d);
+						}}
+						onSubmit={(sub) => session.submitAskForm(sub)}
+						onCancel={() => session.cancelPendingUi()}
+						onMinimize={minimizeAsk}
+						supportsImages={modelSupportsImages(session.model)}
+					/>
+				{:else}
+					{@const cardKey = `${session.pendingUi.toolCallId ?? session.pendingUi.requestId}:${session.pendingUi.questions?.length ?? 0}:${session.pendingUi.questionIndex ?? 0}`}
+					{#key cardKey}
+						<AskCard {session} pending={session.pendingUi} {visible} onMinimize={minimizeAsk} />
+					{/key}
+				{/if}
 			{/if}
 			{#if session.compactChoiceOpen}
 				<CompactChoiceCard {session} {visible} />

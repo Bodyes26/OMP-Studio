@@ -10,6 +10,16 @@
 
 import type { RemoteContextSnapshot } from '../../src/lib/agent/contextPanelState';
 export type { RemoteContextSnapshot };
+import type {
+	AskFormRequest,
+	AskFormDraft,
+	AskFormSubmission
+} from '../../src/lib/agent/askForm';
+export type {
+	AskFormRequest,
+	AskFormDraft,
+	AskFormSubmission
+};
 
 export const PROTOCOL = { name: 'omp-studio-remote', version: 1 } as const;
 
@@ -79,6 +89,14 @@ export const COMMAND_TIMEOUT_MS = 30_000;
 export const HELLO_TIMEOUT_MS = 5_000;
 /** Tetto di un frame JSON, in byte. Uno stato di macchina resta molto sotto. */
 export const MAX_FRAME_BYTES = 512 * 1024;
+/** Tetto massimo stimato per i dati di form/bozza dentro un'attenzione prima di rischiare di eccedere MAX_FRAME_BYTES in HostState. */
+export const REMOTE_ATTENTION_MAX_BYTES = 360 * 1024;
+/**
+ * `RemoteAttention.frameError` quando form o bozza non entrano nel frame.
+ * Il client lo traduce. Una frase libera e' solo uno stato gia' in volo
+ * da una build precedente e si mostra cosi' com'e'.
+ */
+export const REMOTE_FRAME_TOO_LARGE = 'remote_frame_too_large';
 
 export const CloseCode = {
 	normal: 1000,
@@ -208,7 +226,7 @@ export interface RemoteAttention {
 	requestId: string;
 	laneId: string | null;
 	laneTitle: string | null;
-	method: 'ask' | 'select' | 'confirm' | 'input' | 'editor';
+	method: 'ask' | 'select' | 'confirm' | 'input' | 'editor' | 'form';
 	/** Domanda per `select`, `confirm`, `input`, `editor`. */
 	title: string;
 	message: string | null;
@@ -224,6 +242,16 @@ export interface RemoteAttention {
 	quotaBlocked: { reason: 'quota_exhausted' | 'provider_error'; provider: string | null; modelId: string | null } | null;
 	/** Ultime righe della conversazione, per capire la domanda senza aprire la chat. */
 	recentMessages: RemoteChatLine[];
+	/** Richiesta e modello form canonico (ask HTML). */
+	form?: AskFormRequest | null;
+	/** Bozza corrente sincronizzata tra le superfici. */
+	formDraft?: AskFormDraft | null;
+	/**
+	 * `remote_frame_too_large` se form e bozza non vanno inviati: il telefono
+	 * non riceve un modulo parziale e la bozza resta sul computer.
+	 * Una frase libera e' uno stato precedente e non e' un modulo inviabile.
+	 */
+	frameError?: string | null;
 }
 
 export type RemoteTaskStatus = 'queued' | 'dispatching' | 'in_progress';
@@ -409,6 +437,7 @@ export type RemoteAnswer =
 	| { action: 'confirm'; confirmed: boolean }
 	| { action: 'input' | 'editor'; value: string }
 	| { action: 'ask'; answers: { id: string; selectedOptions: string[]; customInput?: string }[] }
+	| { action: 'form'; submission: AskFormSubmission }
 	| { action: 'cancel' };
 
 /**

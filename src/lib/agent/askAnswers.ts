@@ -11,6 +11,7 @@
 
 import { m as msg } from '#lib/paraglide/messages.js';
 import type { AskDialogAnswer, ImageContent } from './wire';
+import type { AskFormSubmission } from './askForm';
 
 /**
  * Domanda come l'ha dichiarata l'agente negli argomenti del tool `ask`. Vive
@@ -144,23 +145,27 @@ export type PromptAnswer =
 	| { action: 'confirm'; confirmed: boolean }
 	| { action: 'input' | 'editor'; value: string }
 	| { action: 'wizard' | 'ask'; answers: AskDialogAnswer[]; value?: string }
+	| { action: 'form'; submission: AskFormSubmission }
 	| { action: 'cancel' }
 	| {
-			action: 'select' | 'confirm' | 'input' | 'editor' | 'wizard' | 'ask' | 'cancel';
+			action: 'select' | 'confirm' | 'input' | 'editor' | 'wizard' | 'ask' | 'form' | 'cancel';
 			value?: string;
 			confirmed?: boolean;
 			answers?: AskDialogAnswer[];
+			submission?: AskFormSubmission;
 	  }
 	| { value: string }
 	| { confirmed: boolean }
 	| { cancelled: true }
-	| { answers: AskDialogAnswer[] };
+	| { answers: AskDialogAnswer[] }
+	| { submission: AskFormSubmission };
 
 export interface NormalizedPromptAnswer {
-	action: 'select' | 'confirm' | 'input' | 'editor' | 'wizard' | 'ask' | 'cancel';
+	action: 'select' | 'confirm' | 'input' | 'editor' | 'wizard' | 'ask' | 'form' | 'cancel';
 	value?: string;
 	confirmed?: boolean;
 	answers?: AskDialogAnswer[];
+	submission?: AskFormSubmission;
 }
 
 /**
@@ -172,6 +177,9 @@ export function normalizePromptAnswer(answer: PromptAnswer): NormalizedPromptAns
 	}
 	if ('cancelled' in answer && answer.cancelled) {
 		return { action: 'cancel' };
+	}
+	if ('submission' in answer && answer.submission) {
+		return { action: 'form', submission: answer.submission };
 	}
 	if ('confirmed' in answer && typeof answer.confirmed === 'boolean') {
 		return { action: 'confirm', confirmed: answer.confirmed };

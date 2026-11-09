@@ -62,6 +62,12 @@ import {
 	type AskQuestion,
 	type PromptAnswer
 } from './askAnswers';
+import type { AskFormRequest, AskFormDraft, AskFormSubmission } from './askForm';
+import {
+	parseAskFormRequest,
+	createAskFormDraft,
+	ASK_FORM_IMAGE_BUDGET
+} from './askForm';
 import { AskStreamTracker, type StreamAskState } from './askStream';
 import { queueChips } from './queueRestore';
 import { canRestorePrompt, promptBus, type PromptRequest } from './promptBus';
@@ -464,7 +470,7 @@ export interface PendingAsk {
 	 */
 	toolCallId?: string;
 
-	method: 'select' | 'confirm' | 'input' | 'editor' | 'ask';
+	method: 'select' | 'confirm' | 'input' | 'editor' | 'ask' | 'form';
 	title: string;
 	message?: string;
 	options: string[];
@@ -487,6 +493,8 @@ export interface PendingAsk {
 	questionIndex?: number;
 	/** Conteggio totale delle domande nella sequenza */
 	totalQuestions?: number;
+	form?: AskFormRequest;
+	formDraft?: AskFormDraft;
 }
 
 export type PendingUiRequest = PendingAsk;
@@ -838,6 +846,7 @@ export class AgentSession {
 	pendingUi = $state<PendingUiRequest | null>(null);
 	/** Solo anteprima: nessuna risposta parte finche' omp non emette extension_ui_request. */
 	streamAsk = $state<{ toolCallId: string | null; state: StreamAskState } | null>(null);
+	private deferredFormUiRequest: { id: string; formRequest: AskFormRequest; timeout?: number } | null = null;
 	private readonly askTracker = new AskStreamTracker();
 	/**
 	 * Voci di stato delle estensioni (`setStatus`), per `statusKey`. Nella TUI
@@ -2139,7 +2148,9 @@ export class AgentSession {
 				this.activeAssistantId = null;
 			}
 		}
-		if (wasBackground && !this.backgroundPending) this.onSettled();
+		// Uscire dal background puo' significare che il job ha riavviato il run,
+		// non che e' finito: solo la quiete autorizza a spegnere lo streaming.
+		if (wasBackground && this.settle.settled) this.onSettled();
 		else if (this.backgroundPending) this.scheduleSettlePoll();
 		if (typeof state.isCompacting === 'boolean') this.isCompacting = state.isCompacting;
 		if (typeof state.queuedMessageCount === 'number') this.queuedMessageCount = state.queuedMessageCount;
@@ -2666,6 +2677,13 @@ export class AgentSession {
 				// Stessa ragione dell'entry assistant: nella mappa va l'istanza
 				// reattiva, non quella grezza appena costruita.
 				this.toolEntries.set(event.toolCallId, this.push(entry) as ToolEntry);
+				if (event.toolName === 'ask' && this.deferredFormUiRequest) {
+					if (this.deferredFormUiRequest.formRequest.toolCallId === event.toolCallId) {
+						const deferred = this.deferredFormUiRequest;
+						this.deferredFormUiRequest = null;
+						this.activateFormUi(deferred.id, deferred.formRequest, entry);
+					}
+				}
 				const startToolMsg = entryToRemoteMessage(entry);
 				if (startToolMsg) {
 					this.emitRemoteChat({
@@ -4112,6 +4130,49 @@ export class AgentSession {
 				this.agentState = 'attention';
 				return;
 			}
+			const formRequest = parseAskFormRequest(title, event.prefill);
+			if (formRequest) {
+				const runningAsk = Array.from(this.toolEntries.values())
+					.reverse()
+					.find((t) => t.running && t.toolName === 'ask');
+				const streamingAskId = this.streamAsk?.toolCallId ?? null;
+
+				// 1. Tool ask attivo in esecuzione:
+				if (runningAsk) {
+					if (runningAsk.toolCallId === formRequest.toolCallId) {
+						this.activateFormUi(id, formRequest, runningAsk);
+						return;
+					}
+					// Identità diversa con tool ask attivo: rifiuto esplicito anti-spoofing
+					void this.client.respondUi({
+						type: 'extension_ui_response',
+						id,
+						cancelled: true
+					});
+					this.pushNotice(
+						'warning',
+						messages.l10n_agent_reply_not_sent({
+							error: messages.l10n_agent_reply_resource_not_allowed()
+						})
+					);
+					return;
+				}
+
+				// 2. Coincide con l'ask identificato nello streaming dell'assistant:
+				if (streamingAskId && streamingAskId === formRequest.toolCallId) {
+					this.activateFormUi(id, formRequest, undefined);
+					return;
+				}
+
+				// 3. Race condition: UI request ha anticipato tool_execution_start.
+				// Differisce in memoria senza MAI mostrare il JSON grezzo nell'editor.
+				this.deferredFormUiRequest = {
+					id,
+					formRequest,
+					timeout: typeof event.timeout === 'number' ? Date.now() + event.timeout : undefined
+				};
+				return;
+			}
 		}
 
 		if (method === 'ask') {
@@ -4224,6 +4285,48 @@ export class AgentSession {
 		});
 	}
 
+	private activateFormUi(id: string, formRequest: AskFormRequest, runningAsk?: ToolEntry): void {
+		const toolCallId = formRequest.toolCallId;
+		const initialDraft = formRequest.draft ?? createAskFormDraft(formRequest);
+
+		this.pendingUi = {
+			kind: 'ask',
+			requestId: id,
+			toolCallId,
+			method: 'form',
+			title: formRequest.title || (typeof runningAsk?.args?.title === 'string' ? runningAsk.args.title : '') || messages.chat_v2_ask_agent_question(),
+			message: undefined,
+			options: [],
+			optionDetails: [],
+			// Il modulo non ha una scadenza: ask.timeout 0 e l'invio resta esplicito.
+			deadline: undefined,
+			form: formRequest,
+			formDraft: initialDraft
+		};
+		this.agentState = 'attention';
+
+		promptBus.registerRequest({
+			requestId: id,
+			projectId: this.projectKey,
+			laneId: this.laneId ?? 'main',
+			sessionId: this.sessionId,
+			toolCallId,
+			owner: this.promptOwner(),
+			kind: 'ask',
+			method: 'form',
+			title: this.pendingUi.title,
+			message: this.pendingUi.message,
+			options: [],
+			optionDetails: [],
+			deadline: this.pendingUi.deadline,
+			form: formRequest,
+			formDraft: initialDraft,
+			responder: async (answer) => {
+				return this.handlePromptAnswer(id, answer);
+			}
+		});
+	}
+
 	/**
 	 * Bozza del wizard della domanda aperta (risposte, passo corrente). Sta
 	 * qui e non nella card perche' la card ridotta nel vassoio viene smontata:
@@ -4243,6 +4346,7 @@ export class AgentSession {
 		const reqId = this.pendingUi?.requestId;
 		this.pendingUi = null;
 		this.askDraft = null;
+		this.deferredFormUiRequest = null;
 		if (this.agentState === 'attention') this.agentState = this.isStreaming ? 'working' : 'idle';
 		if (reqId && promptBus.hasPending(reqId)) {
 			// Chiusura locale: il bus non deve richiamare il responder, che
@@ -4385,6 +4489,106 @@ export class AgentSession {
 		return this.respond(pending, { cancelled: true, timedOut });
 	}
 
+	private async respondFormSubmission(
+		pending: PendingUiRequest,
+		submission: AskFormSubmission
+	): Promise<boolean> {
+		if (pending.method !== 'form') return false;
+
+		// 0. Verifica stato media del draft autorevole: se immagini in preparazione o con errori, blocca e conserva
+		const authoritativeDraft = promptBus.getFormDraft(pending.requestId) ?? pending.formDraft;
+		if (authoritativeDraft?.media) {
+			if (authoritativeDraft.media.pending > 0) {
+				this.pushNotice(
+					'warning',
+					messages.l10n_agent_reply_not_sent({
+						error: messages.ask_form_image_preparing()
+					})
+				);
+				return false;
+			}
+			const errorCount = Object.keys(authoritativeDraft.media.errors ?? {}).length;
+			if (errorCount > 0) {
+				const firstError = Object.values(authoritativeDraft.media.errors)[0];
+				this.pushNotice(
+					'error',
+					messages.l10n_agent_reply_not_sent({
+						error: firstError || messages.ask_form_invalid_media()
+					})
+				);
+				return false;
+			}
+		}
+
+		// 1. Validazione immagini totale <= ASK_FORM_IMAGE_BUDGET (700000 base64)
+		let totalImageBase64 = 0;
+		if (Array.isArray(submission.annotations)) {
+			for (const ann of submission.annotations) {
+				if (Array.isArray(ann.images)) {
+					for (const img of ann.images) {
+						if (typeof img?.data === 'string') {
+							totalImageBase64 += img.data.length;
+						}
+					}
+				}
+			}
+		}
+		if (totalImageBase64 > ASK_FORM_IMAGE_BUDGET) {
+			this.pushNotice(
+				'error',
+				messages.l10n_agent_reply_not_sent({
+					error: messages.ask_form_image_budget_exceeded()
+				})
+			);
+			return false;
+		}
+
+		// 2. Validazione UTF-8 byte length della JSON line (< 1 MiB)
+		const payloadString = JSON.stringify(submission);
+		const byteLength = new TextEncoder().encode(payloadString).length;
+		if (byteLength >= 1024 * 1024) {
+			this.pushNotice(
+				'error',
+				messages.l10n_agent_reply_not_sent({
+					error: messages.l10n_agent_image_too_large_for_rpc()
+				})
+			);
+			return false;
+		}
+
+		const previousState = this.agentState;
+		this.pendingUi = null;
+		if (this.agentState === 'attention') this.agentState = this.isStreaming ? 'working' : 'idle';
+
+		try {
+			await this.client.respondUi({
+				type: 'extension_ui_response',
+				id: pending.requestId,
+				value: payloadString
+			});
+			return true;
+		} catch (error) {
+			// Conserva pending e bozza intatti su fallimento
+			this.pendingUi = pending;
+			this.agentState = previousState;
+			this.pushNotice('error', messages.l10n_agent_reply_not_sent({ error: this.reason(error) }));
+			return false;
+		}
+	}
+
+	async submitAskForm(submission: AskFormSubmission): Promise<boolean> {
+		const pending = this.pendingUi;
+		if (!pending || pending.method !== 'form') {
+			return false;
+		}
+		const reqId = pending.requestId;
+
+		return await promptBus.resolveRequest(reqId, {
+			action: 'form',
+			submission
+		});
+	}
+
 	/**
 	 * Ripristina lo stato di una richiesta pendente da PromptBus (es. dopo reload o riapertura).
 	 */
@@ -4396,14 +4600,16 @@ export class AgentSession {
 			method: promptReq.method,
 			title: promptReq.title,
 			message: promptReq.message,
-			options: [...promptReq.options],
-			optionDetails: [...promptReq.optionDetails],
+			options: promptReq.options ? [...promptReq.options] : [],
+			optionDetails: promptReq.optionDetails ? [...promptReq.optionDetails] : [],
 			placeholder: promptReq.placeholder,
 			prefill: promptReq.prefill,
 			deadline: promptReq.deadline,
 			questions: promptReq.questions as AskQuestion[] | undefined,
 			questionIndex: promptReq.questionIndex,
-			totalQuestions: promptReq.totalQuestions
+			totalQuestions: promptReq.totalQuestions,
+			form: promptReq.form,
+			formDraft: promptReq.formDraft ?? (promptReq.form ? promptBus.getFormDraft(promptReq.requestId) ?? createAskFormDraft(promptReq.form) : undefined)
 		};
 		this.agentState = 'attention';
 		promptBus.attachResponder(promptReq.requestId, async (answer) => {
@@ -4430,6 +4636,13 @@ export class AgentSession {
 		if (!current || current.requestId !== requestId) return false;
 
 		const normalized = normalizePromptAnswer(answer);
+		if (normalized.action === 'form' && normalized.submission) {
+			try {
+				return await this.respondFormSubmission(current, normalized.submission);
+			} catch {
+				return false;
+			}
+		}
 		if ((normalized.action === 'wizard' || normalized.action === 'ask') && normalized.answers) {
 			try {
 				await this.submitAskAnswers(normalized.answers);

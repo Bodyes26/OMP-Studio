@@ -1366,6 +1366,231 @@ graph LR
 
 ---
 
+## Piano Ask HTML — allineamento OMP 18.18.3
+
+**Data:** 2026-11-09. **Stato:** implementazione completa autorizzata dall'utente (F8 in `docs/requisiti/ask.md`); codice scritto, test/build/smoke esplicitamente differiti alla build. Nessuna fase e' dichiarata verificata dalla sola implementazione; nessun commit o rilascio autorizzato.
+**Registro:** `docs/requisiti/ask.md`, ASK-001…014. Scelte già confermate: modulo unico a sezioni (ASK-002), nessun invio automatico (ASK-003), risoluzione del blocco di risposta segnalato (ASK-004), piccole correzioni incluso setup 3 (ASK-005), «Aggiungi nota o immagine» per sezione (ASK-014). Screenshot del Laboratorio mantenuti (ASK-006 / R-LAB-04); consegna diretta nel risultato ask richiesta in ASK-013.
+
+### Perimetro e principio di integrazione
+
+- Contenuti, gruppi e campi decisi dall'agente tramite HTML; stile, sicurezza, controlli e ciclo di vita governati da Studio. Non è un motore per applicazioni HTML/JavaScript arbitrarie.
+- Input standard `{ html }`, dati con i nomi e i tipi previsti dal runtime, risultati `details.answers[]`; niente tool parallelo con un nome diverso o secondo parser con semantica divergente.
+- Chat principale, corsie, Laboratorio, Companion e Remote migrano insieme per i rispettivi percorsi già esistenti. Il terminale conserva il form nativo OMP, con la stessa policy di assenza auto-invio.
+- Le prove statiche non dimostrano il successo del flusso dell'utente: «non riesco a rispondere» è il bug da risolvere, non una compatibilità da ridichiarare sulla fiducia.
+- Tabella di cutover nel registro: note, immagini, delega esplicita, bozze, attenzione e storico mantenuti; vecchio wizard spostato nel modulo unico; auto-invio rimosso con conferma esplicita dell'utente. Nessun'altra rimozione approvata.
+
+### ASKP00 — Provare il collegamento al runtime ufficiale
+
+**Requisiti:** ASK-001, ASK-004, ASK-006, ASK-007, ASK-013.
+
+- Prima scelta: estensione Studio per `ask` con riuso dei moduli upstream e richiesta/risposta dell'intero modulo sul canale `ctx.ui.editor`, già impiegato dalla revisione Piano. Il dettaglio della busta applicativa va definito dopo la prova, non dedotto dalla sola presenza del canale.
+- Con un esperimento isolato sul binario stock verificare import effettivi del parser/dati form, precedenza della registrazione `ask`, schema esposto, consegna della richiesta completa, invio JSON con un allegato immagine nel risultato della stessa tool call e annullamento. Verificare che non venga generato un messaggio steer/follow-up o un elemento di coda. Distinguere il successo degli import in un checkout sorgente da quello nel binario distribuito.
+- I wildcard export dei package non dimostrano un blocco ai percorsi annidati; resta da verificare il loader embedded. Lo stesso upstream prevede sostituzioni di tool con lo stesso nome, ma il flusso completo di Studio non è ancora provato.
+- **Uscita:** prova riproducibile sul runtime reale, senza modificare l'exe installato o il profilo OMP dell'utente; nessun codice di prova entra nel prodotto. Non richiede una chiamata a pagamento per verificare gli import e il dialogo RPC.
+- **Se la prova fallisce:** documentare esattamente l'anello mancante e la modifica RPC/export upstream necessaria. Le correzioni indipendenti restano attuabili, ma non dichiarare completo il nuovo ask con una demo o il ripiego seriale. Non scegliere un fork o la duplicazione del parser senza nuova decisione.
+
+### ASKP01 — Contratto del modulo e ciclo di vita
+
+**Requisiti:** ASK-001, ASK-004, ASK-007…011. **Dipendenza:** ASKP00.
+
+- Definire un modulo di dominio condiviso per descrizione del form, valori, annotazioni e stato della richiesta; un solo percorso di validazione/consegna, non una nuova semantica per ciascuna finestra.
+- Separare i valori nominati del form da note, immagini e azioni dell'utente. Nessun nome di campo riservato inserito nel JSON dell'agente; nessun cambio del valore di un campo numerico per trasportare una nota.
+- Associare la richiesta a id, tool call, processo proprietario, progetto, corsia e sessione; accettare una risposta solo per quella richiesta ancora viva. Stati compilazione, invio, risolta, annullata e orfana distinguibili.
+- Riusare `AgentSession`, `promptBus` e il percorso di risposta esistenti, eliminando dal percorso delle nuove chiamate la dipendenza da domande seriali o dal vecchio opt-in `set_ask_dialog`. I metodi generici di dialogo delle estensioni non vanno rimossi se ancora utilizzati.
+- **Uscita:** contratto esercitabile attraverso l'interfaccia usata dai consumatori, con errori espliciti per risposta invalida, richiesta vecchia e processo terminato.
+
+### ASKP02 — Nessun invio automatico, anche nel runtime
+
+**Requisiti:** ASK-003, ASK-011.
+
+- Applicare `ask.timeout: 0` negli overlay delle sessioni avviate da Studio che possono ricevere domande: GUI/corsie, PTY, Laboratorio e automazioni. Non modificare la configurazione globale.
+- La policy deve sopravvivere alla riscrittura dell'overlay in `set_gui_overlay_prewalk` e agli altri cambi di configurazione della sessione.
+- Togliere l'auto-cancel/auto-risposta della scheda alla scadenza: oggi `AskCard.svelte` chiama `cancelPendingUi(true)`. Non limitarsi a nascondere il conto alla rovescia.
+- Distinguere la richiesta viva dalla pulizia di richieste orfane dopo la morte del processo. Conservare timeout tecnici di trasporto e controlli di disponibilità, che non autorizzano risposte.
+- **Prova:** con scadenza breve e default globali contrari, lasciare il modulo inattivo oltre la vecchia scadenza; zero risposte o cancellazioni automatiche e agente ancora in attesa. Ripetere dopo un cambio prewalk e nei percorsi con overlay separati.
+
+### ASKP03 — Modulo unico, sicuro e coerente con Studio
+
+**Requisiti:** ASK-001, ASK-002, ASK-007, ASK-012. **Dipendenze:** ASKP01.
+
+- Adattare `AskCard.svelte` o il suo modulo di presentazione ai campi eterogenei del form; sezioni tutte raggiungibili nello stesso modulo, senza obbligo di Avanti/Indietro. Preservare la vista vicino al composer, con corpo scorrevole ed espansione per richieste lunghe.
+- Riutilizzare i controlli e i token di Studio; nessun inserimento libero di HTML nella WebView privilegiata, nessuno script/handler/action/stile arbitrario. Immagini e SVG attraverso un percorso controllato e compatibile con i client; non demandare ai client remoti l'accesso a file dell'host.
+- Campi, valori iniziali, obbligatorietà e vincoli coerenti con il runtime. Default visibili non equivalgono a consenso; l'utente deve comunque inviare. Nessuna risposta inventata per soddisfare una validazione.
+- Tastiera, focus, etichette, errori vicino ai campi, tema chiaro/scuro, IT/EN e movimento ridotto; Invio in textarea non conferma il modulo.
+- **Prova:** form reale con scelte, checkbox, select, numero, testo, multilinea, spiegazione, immagine e diagramma; modifica del primo campo dopo l'ultimo; dati ricevuti dal runtime corretti e singolo invio deliberato.
+
+### ASKP04 — Note, screenshot, bozze e delega esplicita
+
+**Requisiti:** ASK-006, ASK-008, ASK-009, ASK-013, ASK-014; R-LAB-04. **Dipendenze:** ASKP01, ASKP03.
+
+- Mantenere note e screenshot associati alla domanda/campo o sezione identificabile, con «Aggiungi nota o immagine» che apre l'area quando serve (scelta confermata); scelta da file, incolla, anteprima, rimozione e blocco invio durante preparazione.
+- Preservare «Altro» dove previsto dalla semantica del form e «Decidi tu» esplicito dove già disponibile; la delega è un'azione distinta, non una risposta falsa a un campo obbligatorio.
+- Conservare la bozza riducendo la scheda, cambiando progetto/corsia e tornando. Non promettere la ripresa di una richiesta su un nuovo processo dopo un riavvio.
+- Portare dati e allegati attraverso una sola decisione autorevole di consegna. L'adattatore runtime restituisce un unico risultato ask con blocchi testo e immagine: il contratto `AgentToolResult` upstream lo supporta già. La busta UI trasporta dati, note e allegati validati/associati al proprietario senza mescolarli ai valori nominati del form.
+- Non usare più `buildAskImageSteers` / `client.send({ type: 'steer', ... })` nel nuovo percorso delle risposte ask: oggi inviano il testo prima dell'immagine e spiegano il comportamento segnalato dall'utente. Nessuna risposta del solo testo se un allegato non è pronto, fallisce o non è supportato; errore esplicito e bozza conservata.
+- **Prova:** screenshot del Laboratorio come blocco immagine nel risultato della stessa chiamata ask, associato alla domanda e disponibile all'agente prima della continuazione; zero steer, follow-up o elementi di coda creati dagli allegati. Note non confuse con valori/opzioni; annullamento, failure e risposte concorrenti senza invii nascosti, consegne parziali o duplicazioni.
+
+### ASKP05 — Companion, Remote e risposte concorrenti
+
+**Requisiti:** ASK-004, ASK-009, ASK-011; ATT-003, R-REM-05. **Dipendenze:** ASKP01…04.
+
+- Aggiornare schema/serializzazione di `promptBus`, `sessionRegistry`, stato Companion e `CompanionAskBody`; portare il contratto nei comandi host Remote, `relay/src/protocol.ts` e `AttentionCard.svelte`.
+- Riutilizzare regole di dominio e validazione; presentazioni adattate allo spazio desktop/mobile, senza riottenere uno schema domande diverso per ciascun client.
+- Prima risposta valida accettata una volta per richiesta/processo; le altre superfici ricevono l'esito e non duplicano allegati o conferme. Un processo morto o una richiesta già risolta non può ricevere una risposta indirizzata alla nuova sessione.
+- Preservare notifica, richiamo alla domanda, contesto progetto/corsia e bozze quando arriva una domanda altrove. Non cambiare la navigazione generale di Remote o Companion.
+- **Prova:** invio concorrente tra GUI e Companion/Remote, annullamento da un'altra superficie, disconnessione prima e dopo consegna, richiesta orfana; un solo esito autorevole e nessuna perdita silenziosa dei dati.
+
+### ASKP06 — Anteprima, storico e piccole correzioni collegate
+
+**Requisiti:** ASK-005, ASK-010; ATT-003.
+
+- Aggiornare `askStream.ts` / `AskStreamPreview.svelte` al nuovo input HTML: anteprima informativa finché il form non è completo e il runtime non apre la richiesta; nessuna interazione su markup parziale.
+- Aggiornare `askResult.ts` / `AskTrace.svelte` a `details.answers[]`, preservando la lettura delle conversazioni legacy `questions/results`. Riepilogo con domande e risposte reali, note/allegati dove disponibili, distinzione tra invio esplicito e vecchio esito per timeout.
+- Riallineare soglia setup 3 in `src-tauri/src/setup.rs` e riferimento al sorgente upstream spostato in `packages/tui/src/setup/setup-version.ts`. Verificare profili precedenti e correnti con fixture, senza cambiare profilo reale o attivare auto-update.
+- Documentare i punti di compatibilità con la versione OMP e togliere soltanto codice/commenti resi realmente obsoleti dal cutover, senza cancellare dati o funzioni ancora usate.
+- **Prova:** storico vecchio/nuovo dopo riapertura, anteprima durante streaming, profilo setup 2 pendente e 3 completo; nessuna credenziale o preferenza persa.
+
+### ASKP07 — Accettazione, documentazione e rilascio separato
+
+**Requisiti:** ASK-001…014; R-LAB-04, ATT-003, ATT-005, R-REM-05. **Dipendenze:** ASKP00…06.
+
+- Eseguire gli scenari del registro sul percorso reale. Lo smoke browser via Vite prova UI e interazione; lo smoke RPC deve provare separatamente il runtime ufficiale; nessuna seconda istanza desktop di Studio.
+- Test permanenti solo per comportamento, limiti, validazione, transizioni, concorrenza e preservazione dei dati; niente test sul testo sorgente, copie di oggetti o banali inoltri. Fixture isolate, nessuna scrittura al profilo utente.
+- Controlli proporzionati ai moduli toccati: tipi frontend, test mirati, compilazione Rust se modificato, controlli relay se modificato. Il preflight completo appartiene al successivo rilascio autorizzato, non va ripetuto durante ogni passo.
+- Registrare data, scenario, risultato e prova per requisito; aggiornare architettura, uso e changelog IT/EN dopo implementazione verificata. Nessun requisito è chiuso dal solo completamento di una casella.
+- **Chiusura:** l'utente riesce a rispondere a un form completo, con screenshot quando necessari, e lo stesso agente riceve dati e immagini nel risultato di ask senza messaggi accodati dagli allegati; inattività e client concorrenti non causano invii; nessuna funzione mantenuta nel cutover è persa. Solo dopo si chiede separatamente cosa pubblicare.
+
+**Aggiornamento 2026-11-09 (F8):** implementati adattatore sul builtin nativo, modulo e annotazioni, invio multimodale, bus owner/ack, superfici Companion/Remote, anteprima/storico e correzioni native. I passi di prova sopra restano criteri di accettazione da eseguire, non risultati acquisiti: su richiesta esplicita non sono eseguiti test, build, lint, typecheck o smoke prima della build. Dettaglio e mappa del codice nel registro ASK.
+
+### Fuori scope
+
+Nuove funzioni shell fuori contesto (`excludeFromContext`), comandi manutenzione `gc --strip`, cambi ai provider, delega o navigazione generale. I fix già forniti dal binario OMP non vanno reimplementati in Studio. Il piano non include bump, commit, push, pubblicazione o modifica del runtime installato.
+
+---
+
+## Piano 1.11 — correzioni della review prima della stabile
+
+**Data:** 2026-11-09. **Stato:** da eseguire. Nessuna fase è verificata. Nessun commit, bump, tag o pubblicazione è incluso in questo piano.
+**Origine:** review del diff da `v1.10.0` più il working tree, per decidere la stabile 1.11.0. Il numero di versione resta quello giusto per le funzioni già in `[Unreleased]`. Il tag resta fermo finché le fasi R11-1…R11-8 non hanno una prova.
+**Si appoggia a:** `docs/requisiti/ask.md` (ASK-005, ASK-009, ASK-012, ASK-013), `docs/requisiti/file-esterni.md` (EXT-001, EXT-002, EXT-012, EXT-013), `docs/requisiti/colonne.md` (COL-002, COL-003, COL-007, COL-008) e alla chiusura ASKP07. Non rifà ASKP00…06: quel codice è già scritto. Questo piano chiude i difetti trovati dopo, poi esegue le prove che F8 aveva rinviato alla build.
+
+### Perimetro e invarianti
+
+Entra solo ciò che blocca la stabile o che la review ha indicato come da fare prima del tag.
+
+- Non avviare una seconda istanza di Studio (`npm run tauri -- dev`, `cargo run`, l'eseguibile desktop). Gli scenari sull'app installata li esegue l'utente.
+- Non usare PowerShell. Non scrivere sul profilo `omp` reale e non attivare gli aggiornamenti automatici.
+- Non chiudere un requisito nel registro prima dello scenario sul percorso reale. Il changelog non guadagna voci «fatto» prima di quella prova; le voci già presenti si correggono se la prova le smentisce.
+- Non fare stash, restore o reset del working tree. Il lavoro ask non committato resta dov'è.
+- La tranche lasciata fuori dal tag (commenti, tooltip, documenti di design, codice morto) non si mescola a queste fasi. Si tocca solo se il file è già aperto per un punto di questo piano e la modifica è la stessa riga.
+
+### Ordine
+
+R11-1…R11-6 sono correzioni indipendenti e si possono fare in parallelo, tranne R11-2 e R11-3 che si incontrano su `projection.ts` e `AttentionCard.svelte`: li fa la stessa persona, R11-2 prima di R11-3. R11-7 parte solo quando R11-1…R11-6 sono nel tree. R11-8 aspetta R11-7 verde. R11-9 è dell'utente e può procedere in parallelo a R11-7 sull'installer e sulle colonne, non sul modulo ask prima delle correzioni. Nessuna pubblicazione esce da R11-9: si torna a chiedere Nightly, stabile 1.11.0 o parcheggio.
+
+### R11-1 — Il test della soglia setup dice la verità (ASK-005)
+
+`CURRENT_SETUP_VERSION` in `src-tauri/src/setup.rs` è 3. `wizard_pending` è vero quando `setup_version < 3`. Il test `config_facts_read_the_keys_omp_actually_writes` scrive `setupVersion: 2` e poi esige `assert!(!status.wizard_pending)`: con la costante nuova fallisce e blocca `cargo test`.
+
+- Tenere la lettura di modello, tema e color blind sul fixture versione 2.
+- Aspettarsi `wizard_pending == true` per la versione 2, e `missing` ancora limitato a binario, credenziali e modello. Un profilo con credenziali e modello non apre il wizard da solo: `checkSetupContract` guarda solo `missing`.
+- Aggiungere un fixture `setupVersion: 3` con le stesse chiavi e aspettarsi `wizard_pending == false`.
+- In `SetupModal.svelte` il commento dice ancora che `setupVersion` arriva a 2 uscendo con Esc. Aggiornarlo: la chiusura segue credenziali e modello, la soglia corrente è 3, e un profilo fermo a 2 è precedente senza riscrivere il file di configurazione.
+- **Prova:** `cargo test --manifest-path src-tauri/Cargo.toml config_facts_read_the_keys -- --test-threads=8` verde, timeout lungo. Nessun `config.yml` dell'utente letto o scritto.
+
+### R11-2 — Un modulo troppo grande non cancella lo stato del telefono (ASK-009)
+
+`sanitizeFormProjection` copia `form.draft` dentro il form proiettato. Se la stima supera `REMOTE_ATTENTION_MAX_BYTES` (512 KiB) il codice azzera solo `formDraft` e spedisce comunque `form`. `snapshot_fits` in `src-tauri/src/remote/connection.rs` scarta l'intero JSON e i dispositivi restano sull'ultimo stato ricevuto. Il registro vieta l'invio parziale: errore esplicito e bozza conservata sul computer.
+
+- In `mapAttention`, se form proiettato più bozza superano il tetto, la proiezione di quella richiesta non contiene il form né la bozza. Resta un codice stabile, proposto `remote_frame_too_large`, non una frase italiana.
+- Non spedire un modulo senza immagini ma ancora inviabile dal telefono: chi è al telefono non deve poter confermare il solo testo mentre gli allegati sono rimasti sul computer.
+- La bozza in `promptBus` e nella scheda desktop non si tocca. È la proiezione a essere ridotta.
+- Se anche il solo modello, senza bozza, supera il tetto, stessa uscita: niente form, solo il codice.
+- `relay/src/protocol.ts`: documentare il codice sul campo `frameError`. `AttentionCard.svelte` traduce il codice con `t()`, compreso il tetto in KiB. Una frase libera arrivata da una build precedente si mostra ancora, così uno stato già in volo non diventa una chiave grezza.
+- **Prova:** test di `buildHostState` con un form sotto il tetto (arriva intero), uno con allegati sopra il tetto (form e bozza assenti, codice presente, bozza sorgente intatta) e uno il cui modello da solo supera il tetto. Nessun test che legge il sorgente della funzione.
+
+### R11-3 — Niente italiano fisso sul percorso ask e remoto (ASK-012)
+
+Con l'interfaccia in inglese queste stringhe restano italiane.
+
+- `src/lib/remote/projection.ts`: la frase «La bozza della richiesta contiene allegati…» esce con R11-2. Non reintrodurla in un'altra lingua hardcoded.
+- `activateFormUi` in `session.svelte.ts` usa `'Domanda'` se il titolo manca. Usare `m.chat_v2_ask_agent_question()` («Domanda dell'agente» / «Agent question»), già nei messaggi.
+- `AttentionCard.svelte` fa `t('remoteFormImageBudgetExceeded') || \`La risposta con gli allegati…\``. `t()` non restituisce vuoto: il fallback italiano è morto e va tolto. Se il messaggio deve citare i KiB misurati, il parametro entra nelle due tabelle di `relay/web/src/i18n.ts`, non in una stringa di riserva.
+- `t()` ricade sul dizionario italiano quando la chiave manca in inglese. Per le chiavi toccate qui la riga inglese deve esistere; non si aggiunge una chiave solo in italiano.
+- **Prova:** test o lettura del risultato di proiezione in inglese che non contiene «bozza», «allegati», «Domanda». La scheda di attenzione, con lingua inglese, mostra la frase inglese del tetto.
+
+### R11-4 — Il Laboratorio riceve la lingua della sessione (ASK-012)
+
+`rpc_open` imposta `OMP_STUDIO_LOCALE` da `desktop_presence::get_current_locale`. `rpc_open_lab` carica `studio-ask.ts` con `OMP_STUDIO_ASK=1` e non imposta la variabile. `tr()` in `extensions/studio-ask.ts` ricade sull'inglese.
+
+- Copiare lo stesso `if let Some(locale)` nel blocco `env` di `rpc_open_lab`, accanto a `OMP_STUDIO_ASK`. Non inventare una seconda fonte della lingua.
+- Non caricare l'estensione ask in altri avvii in questo passo. Oggi gli unici due punti sono `rpc_open` e `rpc_open_lab`.
+- **Prova:** test del comando di avvio del Laboratorio, se ne esiste già uno sul costruttore del `Command`; altrimenti un test mirato della funzione che compone gli env, con locale `it` presente e assente. Non lanciare il binario `omp`.
+
+### R11-5 — Le due copie del base64 accettano le stesse immagini (ASK-013)
+
+`extensions/studio-ask.ts` accetta `/^[a-z\d+/]*={0,2}$/i`. `src/lib/agent/askForm.ts` accetta `/^[a-z\d+/=\r\n]+$/i`. Un allegato con a capo passa dall'interfaccia e viene rifiutato dall'estensione. L'estensione è un file solo, copiato con `include_str`: non può importare `src/lib`, e un import fra file fratelli non è affidabile.
+
+- In entrambe le copie: togliere spazi, `\r` e `\n`, poi applicare il criterio stretto del padding. Rifiutare il vuoto, i caratteri fuori alfabeto e un padding diverso da 0, 1 o 2 `=`.
+- Commento in entrambi i file che indica l'altra copia e il perché della duplicazione. Nessun terzo parser HTML.
+- **Prova:** test su `isAskFormImage` (o sulla funzione estratta in `askForm.ts`) con payload valido, valido dopo la normalizzazione, vuoto, carattere illegale, padding di tre `=`. La copia nell'estensione si allinea a quella funzione; non si aggiunge un test che confronta il testo dei due file.
+
+### R11-6 — Il pull-to-refresh usa i token della PWA
+
+In `relay/web/src/components/PullToRefresh.svelte` il colore è `var(--text-primary, #fff)`. `--text-primary` non esiste in `relay/web/src/app.css`, quindi l'icona resta bianca anche sul tema chiaro. La stessa regola usa `z-index: 1000` e un `box-shadow` letterale. Il foglio della PWA dice che l'elevazione è luminanza, non ombra, e ha la scala `--z-toast`.
+
+- Colore `var(--ink)`. Strato `var(--z-toast)`. Niente ombra e niente `#fff` di riserva.
+- **Prova:** la regola non contiene `--text-primary`, `#fff` né `box-shadow`. Controllo visivo sul tema chiaro e su quello scuro quando la PWA è già aperta per R11-8; non è un motivo per avviare Studio desktop.
+
+### R11-7 — Verifica automatica, una volta, sull'albero intero
+
+Dipende da R11-1…R11-6. Comando unico, timeout di 20 minuti: `npm run verify:nightly -- --full`. Copre tipi, test, catalogo e Cargo, compreso il test della soglia. Non si lancia la suite a pezzi prima per «vedere se va», e non si rilancia il full se il primo esito è già verde.
+
+- Un fallimento si corregge e si ripete solo il gate fallito, poi di nuovo il full se il gate corretto non è l'ultimo della catena già coperta dal riuso. Non si cancellano test per farli passare.
+- **Uscita:** esito eseguito, non riusato, su tutti i gate. Il diario di verifica locale non è una prova di pubblicazione.
+
+### R11-8 — Scenari ask sul percorso reale (ASKP07, rinviato da F8)
+
+Dipende da R11-7. Sono gli scenari del registro, non una demo generica. Lo smoke Vite prova l'interfaccia; il dialogo col runtime ufficiale si prova a parte. Nessuna seconda istanza desktop.
+
+- Form con radio, checkbox, select, numero, testo e multilinea; un solo invio; i nomi dei campi tornano come li aspetta il runtime.
+- Lasciare il modulo fermo oltre una scadenza di prova, anche dopo un cambio di prewalk: zero risposte e zero annullamenti.
+- Ridurre la scheda e cambiare progetto: valori, note e immagine ancora presenti.
+- Immagine nello stesso risultato di `ask`, nessun messaggio steer e nessun elemento in coda. Allegato in preparazione o modello senza visione: invio bloccato, bozza intatta.
+- Studio, Companion e Remote sulla stessa richiesta: una sola risposta accettata. Annullamento distinto da invio.
+- Profilo setup 2 segnalato precedente e profilo 3 completo, su fixture, senza toccare il profilo della macchina.
+- **Uscita:** per ogni riga, data, esito e prova scritti in `docs/requisiti/ask.md`. Una riga fallita non si marca verificata.
+
+### R11-9 — Ciò che solo l'app installata può dimostrare
+
+L'agente non avvia Studio. Questi punti restano aperti finché l'utente non li esegue sulla Nightly o sulla build locale già installata, dopo R11-7.
+
+- «Apri con» su Windows e su macOS, senza diventare il programma predefinito (EXT-001, EXT-012).
+- Studio chiuso che si apre sul file, e Studio già aperto che viene in primo piano senza una seconda finestra (EXT-002).
+- Chiudere l'ultimo file esterno, anche con «Chiudi tutti»: lo spazio sparisce, l'altra cartella esterna resta, i progetti ordinari restano, il processo agente di quella cartella termina (EXT-013).
+- Impostazioni → Aspetto: i sei ordini, il cambio progetto che non li sposta, l'icona e l'animazione con la barra a destra, Automazioni che non segue l'ordine (COL-002, COL-003, COL-007, COL-008).
+- Lo script `scripts/install-windows.cmd` su Windows, canale che si intende pubblicare. Il diario lo segna come non provato; il changelog lo dà già per funzionante. L'esito aggiorna la voce, in un senso o nell'altro.
+- Usare per un giorno la Coda nella barra in basso. Il diario la lasciava in dubbio: si conferma o si riporta il pulsante dov'era, con una voce di changelog coerente.
+
+### R11-10 — Changelog e domanda di pubblicazione
+
+Solo dopo R11-7 e dopo le righe di R11-8 che riguardano le voci già scritte. R11-9 può restare aperto solo se la voce di changelog non promette quello scenario: oggi le voci di «Apri con», EXT-013, installer Windows e ask lo promettono, quindi quelle voci aspettano la prova corrispondente.
+
+- Allineare `CHANGELOG.md` e `CHANGELOG.en.md`. Una riga per comportamento visibile all'utente, con gli ID. Nessuna riga che descrive un file.
+- Poi chiedere, con il tool di scelta, Nightly, stabile 1.11.0, parcheggio o un altro numero. Senza risposta non si committa e non si tagga.
+
+### Fuori da questo piano
+
+Non bloccano il tag e non si fanno «già che ci siamo», salvo la riga già aperta da R11-1…R11-6:
+
+- Commenti che raccontano il cosa in `rpc/mod.rs`, e l'accento nel commento nuovo di `session.svelte.ts`.
+- `title` nativo al posto di `Tooltip` sui pulsanti di `AskForm.svelte`.
+- `DESIGN.md` e `PRODUCT.md` che descrivono ancora l'ordine fisso delle colonne.
+- `inFlightUploads` solo scritto, `deferredFormUiRequest.timeout` mai letto, `pub use crate::pty::ASK_EXTENSION_TS` non usato.
+- Unificare le undici copie di `tr()`, i quattro overlay `ask.timeout: 0` e i parametri posizionali di `panelPlacement`.
+
+---
+
 ## Cosa NON entra in questo piano
 
 In linea con i principi di `PRODUCT.md`:

@@ -1,4 +1,5 @@
 import { setLocale } from '#lib/paraglide/runtime.js';
+import { REMOTE_FRAME_TOO_LARGE } from '$remote-protocol';
 
 /**
  * Dizionario bilingue italiano/inglese per la PWA di controllo remoto.
@@ -41,6 +42,10 @@ const DICT = {
 		recommendedBadge: 'Consigliata',
 		recentContext: 'Contesto recente',
 		attentionFallbackTitle: "Richiesta dell'agente",
+		askFormTitle: 'Modulo di richiesta',
+		remoteFormImageBudgetExceeded: 'La risposta con gli allegati ({size} KiB) supera il limite del frame remoto (512 KiB). Riduci la dimensione o il numero delle immagini prima di inviare.',
+		remoteFrameTooLarge: 'Gli allegati superano il limite del frame remoto (512 KiB). Completa il modulo da Studio sul computer: la bozza resta lì.',
+		remoteFormDesktopOnlyHint: 'La bozza completa con tutti gli allegati è conservata intatta su Studio Desktop.',
 		expiresIn: 'Scade tra {time}',
 		expired: 'Scaduto',
 
@@ -400,8 +405,12 @@ const DICT = {
 		recommendedBadge: 'Recommended',
 		recentContext: 'Recent context',
 		attentionFallbackTitle: 'Agent request',
+		askFormTitle: 'Request form',
+		remoteFormImageBudgetExceeded: 'The response with attachments ({size} KiB) exceeds the remote frame limit (512 KiB). Reduce image size or count before submitting.',
+		remoteFrameTooLarge: 'Attachments exceed the remote frame limit (512 KiB). Finish the form in Studio on this computer: the draft stays there.',
 		expiresIn: 'Expires in {time}',
 		expired: 'Expired',
+		remoteFormDesktopOnlyHint: 'The complete draft with all attachments is preserved intact on Studio Desktop.',
 
 		// Gate R48 Remote Mobile
 		homeNewWork: '+ New',
@@ -776,6 +785,11 @@ export function getLanguage(): Language {
 /** Locale BCP 47 per `toLocaleDateString` e simili, coerente con la lingua della UI. */
 export function getFormatLocale(): string {
 	return currentLang === 'it' ? 'it-IT' : 'en-US';
+}
+
+/** Traduce il codice del frame; una frase gia' pronta resta com'e'. */
+export function remoteFrameMessage(value: string): string {
+	return value === REMOTE_FRAME_TOO_LARGE ? t('remoteFrameTooLarge') : value;
 }
 
 export function t(key: MessageKey, params?: Record<string, string | number>): string {

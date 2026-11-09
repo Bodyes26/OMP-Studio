@@ -10,12 +10,15 @@
 
 	const multi = $derived(state.questions.length > 1);
 	const current = $derived(state.questions[state.questions.length - 1]);
+	const previewTitle = $derived(
+		state.formTitle || (multi ? m.chat_v2_ask_title_multi() : m.chat_v2_ask_title_single())
+	);
 </script>
 
 <div class="ask-stream" role="status" aria-live="polite" aria-label={m.chat_v2_ask_preparing()}>
 	<div class="head">
 		<span class="icon" aria-hidden="true"><IconAsk /></span>
-		<span class="title">{multi ? m.chat_v2_ask_title_multi() : m.chat_v2_ask_title_single()}</span>
+		<span class="title">{previewTitle}</span>
 		<span class="status text-shimmer">{m.chat_v2_ask_preparing()}</span>
 	</div>
 
@@ -66,6 +69,18 @@
 						<div class="ghost-line" style="width: 75%"></div>
 					</div>
 				{/if}
+			</div>
+		</div>
+	{/if}
+	{#if state.isHtml && state.questions.length === 0}
+		<div class="body">
+			<div class="q-ghost" aria-hidden="true">
+				<div class="ghost-line" style="width: 75%"></div>
+				<div class="ghost-line" style="width: 45%"></div>
+			</div>
+			<div class="opt-ghost" aria-hidden="true">
+				<div class="ghost-line" style="width: 60%"></div>
+				<div class="ghost-line" style="width: 85%"></div>
 			</div>
 		</div>
 	{/if}

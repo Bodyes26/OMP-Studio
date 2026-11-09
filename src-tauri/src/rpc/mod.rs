@@ -211,7 +211,7 @@ pub(crate) struct PrewalkTargets {
 
 /// Riscrive in modo atomico il file di configurazione overlay GUI,
 /// preservando la base (`tools.approvalMode: yolo`, `read.defaultLimit: 1200`,
-/// `goal.continuationModes` con `rpc`) e aggiornando `prewalk.enabled` con
+/// `goal.continuationModes` con `rpc`, `ask.timeout: 0`) e aggiornando `prewalk.enabled` con
 /// destinazione e ripartenza della sessione.
 ///
 /// `goal.continuationModes`: di default omp fa proseguire da solo un obiettivo
@@ -235,7 +235,7 @@ pub(crate) fn set_gui_overlay_prewalk(
         .to_string());
     }
     let mut content = String::from(
-        "tools:\n  approvalMode: yolo\nread:\n  defaultLimit: 1200\ngoal:\n  continuationModes:\n    - interactive\n    - rpc\nprewalk:\n",
+        "tools:\n  approvalMode: yolo\nread:\n  defaultLimit: 1200\ngoal:\n  continuationModes:\n    - interactive\n    - rpc\nask:\n  timeout: 0\nprewalk:\n",
     );
     content.push_str(if enabled {
         "  enabled: true\n"
@@ -254,6 +254,14 @@ pub(crate) fn set_gui_overlay_prewalk(
     crate::fs_atomic::atomic_write(config_path, content.as_bytes())
 }
 
+/// La lingua della UI segue la sessione. Senza locale non si scrive la
+/// variabile: l'estensione ricade sull'inglese solo se Studio non ha lingua.
+pub(crate) fn apply_studio_locale(command: &mut Command, locale: Option<&str>) {
+    if let Some(locale) = locale.map(str::trim).filter(|value| !value.is_empty()) {
+        command.env("OMP_STUDIO_LOCALE", locale);
+    }
+}
+
 /// Genera la configurazione overlay per-sessione per il percorso GUI con prewalk disabilitato di default.
 pub(crate) fn write_gui_overlay(rpc_id: u64) -> Result<std::path::PathBuf, String> {
     let overlay_path = std::env::temp_dir().join(format!("omp-studio-gui-overlay-{}.yml", rpc_id));
@@ -263,6 +271,8 @@ pub(crate) fn write_gui_overlay(rpc_id: u64) -> Result<std::path::PathBuf, Strin
 
 /// Sorgente dell'estensione OMP per sessioni in sola lettura e assistente automazioni.
 pub const READONLY_EXTENSION_TS: &str = include_str!("../../../extensions/studio-readonly.ts");
+/// Sorgente dell'estensione OMP per ask HTML (studio-ask.ts).
+pub use crate::pty::ASK_EXTENSION_TS;
 
 /// Prepara un file di pool account temporaneo per la sessione, disattivando le API key a consumo.
 /// Rispetta il file OMP_AUTH_BROKER_ACCOUNT_POOL_FILE eventualmente configurato dall'utente,
@@ -383,7 +393,7 @@ pub fn write_automation_session_config(
     content.push_str("read:\n  defaultLimit: 1200\n\n");
     content.push_str("retry:\n  modelFallback: false\n  fallbackChains: {}\n\n");
     content.push_str("contextPromotion:\n  enabled: false\n\n");
-
+    content.push_str("ask:\n  timeout: 0\n\n");
     if let Some(ext_path) = readonly_extension_path {
         let normalized = ext_path.replace('\\', "/");
         content.push_str("extensions:\n");
@@ -504,6 +514,8 @@ pub fn write_lab_session_config(
 
     // Disattivazione xdev per esporre direttamente i tool confinati del Laboratorio
     content.push_str("tools:\n  xdev: false\n\n");
+    // ask.timeout: 0 per disabilitare auto-timeout di ask
+    content.push_str("ask:\n  timeout: 0\n\n");
 
     // Caricamento estensione Laboratorio e Piano (e, se presente, delle corsie). Senza
     // l'estensione confinata non si carica nient'altro: le altre estensioni
@@ -1213,6 +1225,7 @@ pub async fn rpc_open(
             crate::pty::AUTOMATIONS_EXTENSION_TS,
         )
     };
+    let ask_extension = crate::pty::write_extension("studio-ask.ts", crate::pty::ASK_EXTENSION_TS);
 
     // Progetto senza cartella (chat temporanea): stesso trattamento del PTY,
     // sessione effimera e nessun `--cwd`.
@@ -1277,6 +1290,9 @@ pub async fn rpc_open(
     if let Some(path) = &automations_extension {
         command.arg("-e").arg(path);
     }
+    if let Some(path) = &ask_extension {
+        command.arg("-e").arg(path);
+    }
     // Applica resume (se sessione valida) oppure continue_last
     let mut session_args = Vec::new();
     apply_resume_or_continue(
@@ -1301,6 +1317,8 @@ pub async fn rpc_open(
         // Accende `studio-plan.ts`: il Piano della chat GUI. Nel PTY la
         // variabile manca e l'estensione resta inerte (vale il `/plan` nativo).
         .env("OMP_STUDIO_PLAN", "gui")
+        // Abilita ask HTML in RPC
+        .env("OMP_STUDIO_ASK", "1")
         // Come per il PTY: nessun wizard dentro una sessione di lavoro.
         .env("OMP_SKIP_SETUP", "1");
     if let Some(lane) = &lane_id {
@@ -1309,9 +1327,10 @@ pub async fn rpc_open(
     if let Some(proj) = &project_id {
         command.env("OMP_PROJECT_ID", proj);
     }
-    if let Some(locale) = crate::desktop_presence::get_current_locale() {
-        command.env("OMP_STUDIO_LOCALE", locale);
-    }
+    apply_studio_locale(
+        &mut command,
+        crate::desktop_presence::get_current_locale().as_deref(),
+    );
     if let Some(root) = crate::pty::resolve_project_root(&cwd) {
         command.env("OMP_STUDIO_PROJECT_ROOT", root);
     }
@@ -1693,6 +1712,8 @@ pub async fn rpc_open_lab(
         )?;
     let lanes_extension =
         crate::pty::write_extension("studio-lanes.ts", crate::pty::LANES_EXTENSION_TS);
+    let ask_extension =
+        crate::pty::write_extension("studio-ask.ts", crate::pty::ASK_EXTENSION_TS);
 
     let rpc_id = {
         let mut guard = manager.next_id.lock();
@@ -1723,6 +1744,9 @@ pub async fn rpc_open_lab(
     command.arg("-e").arg(&lab_extension);
     command.arg("-e").arg(&plan_extension);
     if let Some(path) = &lanes_extension {
+        command.arg("-e").arg(path);
+    }
+    if let Some(path) = &ask_extension {
         command.arg("-e").arg(path);
     }
     let mut session_args = Vec::new();
@@ -1756,6 +1780,7 @@ pub async fn rpc_open_lab(
         .current_dir(&resolved_ws_str)
         .env("OMP_STUDIO", "1")
         .env("OMP_STUDIO_PLAN", "gui")
+        .env("OMP_STUDIO_ASK", "1")
         .env("OMP_SKIP_SETUP", "1")
         .env("OMP_LAB_SESSION", "1")
         .env("OMP_LAB_WORKSPACE", &resolved_ws_str)
@@ -1766,6 +1791,10 @@ pub async fn rpc_open_lab(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    apply_studio_locale(
+        &mut command,
+        crate::desktop_presence::get_current_locale().as_deref(),
+    );
 
     // Token del bridge solo per un prototipo di progetto: la bozza libera non
     // ha una corsia da segnare come finita. Il proprietario dentro una corsia
@@ -2474,6 +2503,25 @@ mod tests {
     }
 
     #[test]
+    fn la_lingua_della_sessione_entra_nell_env_e_quella_vuota_no() {
+        let mut with_locale = Command::new("omp");
+        apply_studio_locale(&mut with_locale, Some("it"));
+        let locale: Vec<_> = with_locale
+            .get_envs()
+            .filter(|(key, _)| *key == "OMP_STUDIO_LOCALE")
+            .collect();
+        assert_eq!(locale.len(), 1);
+        assert_eq!(locale[0].1, Some(std::ffi::OsStr::new("it")));
+
+        let mut absent = Command::new("omp");
+        apply_studio_locale(&mut absent, None);
+        apply_studio_locale(&mut absent, Some("  "));
+        assert!(absent
+            .get_envs()
+            .all(|(key, _)| key != "OMP_STUDIO_LOCALE"));
+    }
+
+    #[test]
     fn validazione_id_prototipo_laboratorio() {
         assert!(is_valid_prototype_id("prototype-1"));
         assert!(is_valid_prototype_id("test-proto-abc"));
@@ -2512,6 +2560,7 @@ mod tests {
         assert!(content.contains("browser:\n  enabled: true"));
         assert!(content.contains("mcp:\n  enableProjectConfig: false"));
         assert!(content.contains("tools:\n  xdev: false"));
+        assert!(content.contains("ask:\n  timeout: 0"));
 
         // Verifica estensione caricata
         assert!(content.contains("extensions:"));
@@ -2640,8 +2689,14 @@ mod tests {
         #[derive(Deserialize)]
         struct Overlay {
             tools: OverlayTools,
+            ask: OverlayAsk,
             read: OverlayRead,
             prewalk: OverlayPrewalk,
+        }
+
+        #[derive(Deserialize)]
+        struct OverlayAsk {
+            timeout: u64,
         }
 
         #[derive(Deserialize)]
@@ -2668,6 +2723,7 @@ mod tests {
         let overlay: Overlay = serde_yaml::from_str(&content).expect("overlay GUI YAML valido");
 
         assert_eq!(overlay.tools.approval_mode, "yolo");
+        assert_eq!(overlay.ask.timeout, 0);
         assert_eq!(overlay.read.default_limit, 1200);
         assert!(overlay.read.summarize.is_none());
         assert!(!overlay.prewalk.enabled);
@@ -2686,6 +2742,14 @@ mod tests {
             #[serde(rename = "continuationModes")]
             continuation_modes: Vec<String>,
         }
+        #[derive(Deserialize)]
+        struct OverlayAskTimeout {
+            ask: OverlayAskField,
+        }
+        #[derive(Deserialize)]
+        struct OverlayAskField {
+            timeout: u64,
+        }
 
         let rpc_id = 99006;
         let overlay_path = write_gui_overlay(rpc_id).expect("overlay GUI generato");
@@ -2696,6 +2760,9 @@ mod tests {
             let parsed: OverlayGoalOnly =
                 serde_yaml::from_str(&content).expect("overlay YAML valido");
             assert_eq!(parsed.goal.continuation_modes, vec!["interactive", "rpc"]);
+            let ask: OverlayAskTimeout =
+                serde_yaml::from_str(&content).expect("overlay YAML valido");
+            assert_eq!(ask.ask.timeout, 0);
         }
         let _ = std::fs::remove_file(overlay_path);
     }

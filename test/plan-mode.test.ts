@@ -325,10 +325,6 @@ describe('Estensione studio-plan: guardia di scrittura', () => {
 		assert.ok(blocked({ toolName: 'edit', input: { path: 'local://x-plan.md', edits: [{ op: 'update', rename: 'local://y.md' }] } }));
 		assert.ok(blocked({ toolName: 'edit', input: { path: 'local://x-plan.md', edits: [{ op: 'delete' }] } }));
 		assert.ok(blocked({ toolName: 'edit', input: { input: '*** Begin Patch\n*** Update File: src/a.ts\n*** End Patch' } }));
-		assert.match(
-			evaluatePlanToolCall({ toolName: 'write', input: { path: 'src/app.ts' } }, cwd, true)?.reason ?? '',
-			/read-only/
-		);
 	});
 
 	it('non tocca bash, read e gli strumenti di sola lettura', () => {

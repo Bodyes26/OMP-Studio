@@ -525,10 +525,17 @@ La seconda superficie nativa si interfaccia direttamente con il runtime di OMP s
 - I delta di streaming (`assistantMessageEvent`) vengono unificati entro un intervallo di 8 ms, consentendo rendering fluido a 120 fps senza saturare il bridge IPC.
 
 ### 6.3 Richieste Interattive (`extension_ui_request`)
-Quando l'agente o un tool (es. `ask`) richiede una scelta interattiva, OMP invia un frame `extension_ui_request` con `method: "ask"`. Studio visualizza la card `AskCard.svelte` dotata di:
-- Navigazione WAI-ARIA completa con tasti freccia e `roving tabindex`.
-- Convalida del fuoco per evitare invii accidentali tramite `Enter`.
-- Risposta tipizzata `extension_ui_response` inviata tramite `rpc_send`.
+Le richieste generiche delle estensioni (`select`, `confirm`, `input`, `editor` e il dialogo `ask` legacy) mantengono la risposta `extension_ui_response` via `rpc_send`. Il nuovo tool `ask` HTML di OMP 18.18.3 usa invece un modulo completo:
+
+- `extensions/studio-ask.ts`, caricata nei processi RPC con `OMP_STUDIO_ASK=1`, registra il tool standard `ask` e delega al builtin tramite `ctx.invokeTool`. Durante quella chiamata esclusiva aggiunge `formDialog` all'interfaccia UI pubblica condivisa fra RPC e tool, ripristinandola nel `finally`. Restano nativi parser HTML, dati, annullamento e gestione delle interruzioni.
+- La superficie usa `ctx.ui.editor` con titolo `studio-ask-form:{"version":1,"toolCallId":...}` e una busta JSON con modello canonico, valori iniziali e eventuale bozza/errore. `AgentSession` controlla l'identita' della tool call; una richiesta anticipata rispetto all'evento del tool attende in memoria, senza esporre il JSON come editor generico.
+- `askForm.ts` descrive il contratto condiviso. `AskForm.svelte` presenta tutte le sezioni, vincoli dei controlli, note e screenshot; i dati del modello sono testo o controlli, non HTML libero nella WebView. SVG sanificati come documenti immagine inerti, immagini del form risolte dal runtime senza distribuire percorsi dell'host.
+- `promptBus` conserva la bozza in memoria e sincronizza le finestre. La finestra proprietaria prende il lock prima della consegna; la Companion attende un ack invece di dichiarare risolta una richiesta che il processo potrebbe rifiutare. Richieste orfane non vengono riprese da un processo diverso.
+- La risposta e' un unico JSON `AskFormSubmission` sul canale editor. Il runtime valida prima l'intero insieme e restituisce un solo `toolResult` con testo e blocchi immagine; note e associazioni agli allegati stanno nei dettagli, senza usare `steer` o nuovi messaggi in coda per il nuovo percorso.
+- Gli overlay GUI, PTY, Lab e automazioni impostano `ask.timeout: 0`; la UI non ha auto-risposta o auto-cancel per inattivita'. Il PTY mantiene il form nativo di OMP, non il wrapper grafico.
+- Companion e PWA Remote riusano il modulo e il contratto; Remote controlla l'intero frame prima dell'invio. Preparazione, errore o dimensione eccessiva di un allegato non autorizzano a spedire il solo testo. Lo storico legge `details.answers[]` e resta compatibile con `questions/results` delle vecchie conversazioni.
+
+Requisiti e stato delle prove: `docs/requisiti/ask.md` (ASK-001…014). Su richiesta dell'utente non sono eseguiti test, build o smoke prima della build di consegna.
 
 I metodi senza risposta (`notify`, `setStatus`, `setWidget`, `setTitle`, `open_url`) passano dallo stesso riduttore. `setStatus { statusKey, statusText }` e `setWidget { widgetKey, widgetLines, widgetPlacement }` aggiornano `AgentSession.extensionStatus` ed `extensionWidgets` tramite le funzioni pure di `src/lib/agent/extensionUi.ts` (testo o righe assenti tolgono la voce); la riga di stato del composer mostra le voci, `ExtensionWidgets.svelte` i widget sopra o sotto il composer. `notify` legge il livello da `notifyType`. `setTitle` e' ignorato (titolo del terminale, non della chat). Entrambe le mappe si azzerano a ogni `ready` e all'uscita del processo.
 
@@ -582,12 +589,14 @@ I metodi senza risposta (`notify`, `setStatus`, `setWidget`, `setTitle`, `open_u
 | Evento | Effetto |
 |---|---|
 | `agent_start` | `running = true`, `settled = false`, `agentState = working` |
-| `agent_end` terminale, o non terminale con `awaitingAsyncWork` (solo se `aware`) | **yield**: `isStreaming = false`, `runEndSeq++`, piè di turno e suggerimenti; `running = false`; senza `aware` anche `settled = true` |
+| `agent_end` terminale, o non terminale con `awaitingAsyncWork` (solo se `aware`) | **yield**: `isStreaming = false`, `runEndSeq++`, suggerimenti; `running = false`; con lavoro in background il transcript mostra l'attesa al posto del piè finale; senza `aware` anche `settled = true` |
 | `prompt_result` | `sessionSettled: true` → quiete; `status: "error"` con `agentInvoked` → avviso con provider/HTTP/`retryable` |
 | `session_settled` | **quiete**: `settled = true`, `agentState` da `working` a `idle`/`attention` |
 | `get_state` | `isSettled` (con `isStreaming`) riallinea chi si attacca a meta'; la sua presenza accende `aware` |
 
 `running` e' anche il «run vivo» del cancello della coda (§5.3): `turn_end` spegne `isStreaming` a ogni giro di tool, `running` resta acceso fino allo yield. `backgroundPending = aware && !settled && !running && !streaming`. In quello stato `agentState` resta `working` (tessera, companion e `finished` aspettano la quiete), `automationSnapshot.backgroundWork` e' vero (blocco `background` in `automationGate.ts`, instradabile in corsia) e la riga di stato mostra «in background». Mentre si aspetta, un `get_state` ogni 15 s fa da rete per un `session_settled` perso. Con un omp che non riporta la quiete (`aware` mai acceso) lo yield vale come quiete: il comportamento precedente.
+
+Un `get_state` che passa dal background a `isStreaming = true` indica la ripresa del run, non la quiete: `applyState` chiama `onSettled` solo se `settle.settled` è vero. Il transcript dell'ultimo turno mantiene l'indicatore di attesa finché `backgroundPending` è vero, con nomi provenienti dai job osservati e ripiego generico quando mancano.
 
 
 ### 6.10 Modalita' Piano nella chat GUI (Gate R36)

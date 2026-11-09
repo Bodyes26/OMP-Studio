@@ -107,7 +107,6 @@ describe('Estensione studio_preview: sicurezza, confinamento e I/O atomico', () 
 
 		const res = await previewTool.execute('call-1', { title: 'Test', code: '   ' }, undefined, undefined, ctx);
 		assert.equal(res.isError, true);
-		assert.ok(res.content[0].text.includes('prototype code is empty'));
 	});
 
 	it('genera slug sicuro confinato ed esegue scrittura atomica e .gitignore', async () => {

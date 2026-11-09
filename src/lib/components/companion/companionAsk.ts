@@ -7,6 +7,7 @@
 // callback avrebbe perso proprio cio' che serve a non sbagliare argomento).
 
 import type { AttentionRequest } from '#lib/stores/companion.svelte.ts';
+import type { AskFormDraft, AskFormSubmission } from '#lib/agent/askForm.ts';
 
 export interface CompanionAskHandlers {
 	/** Risposta libera aperta al posto delle opzioni, per progetto. */
@@ -23,4 +24,7 @@ export interface CompanionAskHandlers {
 	onWaitQuotaReset: (projectId: string, laneId?: string | null) => void | Promise<void>;
 	draftFor: (req: AttentionRequest) => string;
 	wantsText: (pending: AttentionRequest['pendingUi']) => boolean;
+	onFormSubmit?: (projectId: string, submission: AskFormSubmission, laneId?: string | null, requestId?: string | null) => Promise<boolean>;
+	onFormDraft?: (requestId: string, draft: AskFormDraft) => void;
+	getFormDraft?: (requestId: string) => AskFormDraft | undefined;
 }

@@ -101,32 +101,8 @@
 		selectedOptions: SvelteSet<string>;
 	}
 
-	// Scadenza con countdown: oltre, omp risolve da se' al default e la
-	// scheda invia la risposta di timeout (cancelled: true, timedOut: true).
-	let now = $state(Date.now());
-	$effect(() => {
-		if (!pending.deadline) return;
-		const timer = setInterval(() => {
-			now = Date.now();
-			if (pending.deadline && Date.now() >= pending.deadline) {
-				clearInterval(timer);
-				handleCountdownTimeout();
-			}
-		}, 500);
-		return () => clearInterval(timer);
-	});
-
-	function handleCountdownTimeout() {
-		if (submitting) return;
-		submitting = true;
-		void session.cancelPendingUi(true);
-	}
-	const remainingSeconds = $derived.by(() => {
-		if (!pending.deadline) return null;
-		const diff = Math.ceil((pending.deadline - now) / 1000);
-		return diff > 0 ? diff : 0;
-	});
-	const showCountdown = $derived(remainingSeconds !== null && remainingSeconds > 0);
+	// Nessun invio o annullamento automatico per inattivita' (ASK-003):
+	// la risposta o la cancellazione richiedono sempre un'azione esplicita dell'utente.
 
 	const parsedTitle = $derived(parseAskTitle(pending.title));
 	const detailMessage = $derived(sanitizeAskDetail(pending.message));
@@ -847,9 +823,6 @@
 		</span>
 		{#if multiSteps && !isReviewStep}
 			<span class="ask-progress">{m.chat_v2_ask_progress({ done: answeredCount, total: sentQuestions.length + questions.length })}</span>
-		{/if}
-		{#if showCountdown}
-			<span class="ask-deadline" role="timer">{m.chat_v2_ask_expires({ seconds: remainingSeconds ?? 0 })}</span>
 		{/if}
 		{#if onMinimize}
 			<button

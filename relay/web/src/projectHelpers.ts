@@ -110,7 +110,7 @@ export function getLaneSummary(project: RemoteProject, lane: RemoteLane): string
 		(a) => a.laneId === lane.id || (lane.kind === 'main' && a.laneId === null)
 	);
 	if (att) {
-		return att.questions[0]?.question || att.title || att.message || t('attentionFallbackTitle');
+		return att.form?.title || att.questions[0]?.question || att.title || att.message || t('attentionFallbackTitle');
 	}
 	if (lane.agent.headsUp) {
 		return lane.agent.headsUp;

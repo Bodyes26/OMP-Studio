@@ -12,6 +12,7 @@
 
 import type { AgentSession, AgentSessionConfig } from './session.svelte';
 import type { AskDialogAnswer, CacheWarmingMode } from './wire';
+import type { AskFormSubmission } from './askForm';
 import { promptBus } from './promptBus.ts';
 import { laneSessionKey } from './sessionKeys';
 import { m as msg } from '#lib/paraglide/messages.js';
@@ -26,10 +27,11 @@ export interface UiResponsePayload {
 	sessionId?: string;
 	requestId?: string;
 	response: {
-		action: 'select' | 'confirm' | 'wizard' | 'ask' | 'cancel';
+		action: 'select' | 'confirm' | 'wizard' | 'ask' | 'form' | 'cancel';
 		value?: string;
 		confirmed?: boolean;
 		answers?: AskDialogAnswer[];
+		submission?: AskFormSubmission;
 	};
 }
 
@@ -58,6 +60,7 @@ export interface AgentSessionLike {
 	answerSelect?(value: string): Promise<void>;
 	answerConfirm?(confirmed: boolean): Promise<void>;
 	submitAskAnswers?(answers: AskDialogAnswer[]): Promise<void>;
+	submitAskForm?(submission: AskFormSubmission): Promise<boolean>;
 	cancelPendingUi?(): Promise<boolean | void>;
 	clearInferredAttention?(): void;
 	/** L'esito della consegna interessa solo la coda dei task: qui basta attendere. */
@@ -381,6 +384,9 @@ export class SessionRegistry<T extends AgentSessionLike = AgentSession> {
 			if ((response.action === 'wizard' || response.action === 'ask') && response.answers) {
 				await target.submitAskAnswers?.(response.answers);
 				return true;
+			}
+			if (response.action === 'form' && response.submission) {
+				return (await target.submitAskForm?.(response.submission)) ?? false;
 			}
 			if (response.action === 'cancel') {
 				await target.cancelPendingUi?.();

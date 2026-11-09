@@ -6,10 +6,12 @@
 	import { IconAsk, IconCheck, IconNote } from '#lib/icons.ts';
 	import type { ToolEntry } from '../session.svelte';
 	import { parseAskToolCall, summarizeAskAnswer } from '../askResult';
+	import { agentUiHooks } from '../ui-context';
 
 	let { entry } = $props<{ entry: ToolEntry }>();
 
-	const questions = $derived(parseAskToolCall(entry.args, entry.result?.details));
+	const hooks = agentUiHooks();
+	const questions = $derived(parseAskToolCall(entry.args, entry.result?.details, entry.result?.content));
 	const answers = $derived(questions.map((q) => ({ q, a: summarizeAskAnswer(q) })));
 	const answered = $derived(answers.some(({ a }) => a.kind !== 'none'));
 	const waiting = $derived(!entry.result && entry.running);
@@ -48,6 +50,24 @@
 					{/if}
 					{#if a.note}
 						<span class="sent-note"><IconNote aria-hidden="true" />{a.note}</span>
+					{/if}
+					{#if a.images && a.images.length > 0}
+						<div class="sent-images">
+							{#each a.images as img, imgIdx (imgIdx)}
+								<button
+									type="button"
+									class="thumb-btn"
+									onclick={() => hooks.openImage(img.data, img.mimeType)}
+									title={m.user_message_open_image()}
+								>
+									<img
+										class="sent-thumb"
+										src={`data:${img.mimeType};base64,${img.data}`}
+										alt=""
+									/>
+								</button>
+							{/each}
+						</div>
 					{/if}
 				</dd>
 			{/each}
@@ -139,5 +159,34 @@
 	.sent-note :global(svg) {
 		margin-top: 2px;
 		flex-shrink: 0;
+	}
+	.sent-images {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
+		margin-top: 4px;
+	}
+	.thumb-btn {
+		background: none;
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
+		padding: 0;
+		cursor: pointer;
+		overflow: hidden;
+		display: inline-flex;
+		transition: border-color var(--dur-fast) var(--ease-out);
+	}
+	.thumb-btn:hover {
+		border-color: var(--line-strong);
+	}
+	.thumb-btn:focus-visible {
+		outline: 2px solid var(--brand);
+		outline-offset: 1px;
+	}
+	.sent-thumb {
+		width: 48px;
+		height: 48px;
+		object-fit: cover;
+		display: block;
 	}
 </style>

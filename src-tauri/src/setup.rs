@@ -25,10 +25,10 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const OMP_REPO: &str = "can1357/oh-my-pi";
 
 /// Versione del wizard di `omp` che consideriamo "setup fatto".
-/// `CURRENT_SETUP_VERSION = 2` in `packages/coding-agent/src/modes/setup-version.ts`,
-/// verificato sul bundle di omp 18.0.4. Se `omp` la alza, il wizard nativo
+/// `CURRENT_SETUP_VERSION = 3` in `packages/tui/src/setup/setup-version.ts`,
+/// verificato sul bundle di omp 18.18.3. Se `omp` la alza, il wizard nativo
 /// tornera' a proporre le scene nuove: `wizard_pending` lo riflette da solo.
-const CURRENT_SETUP_VERSION: u64 = 2;
+const CURRENT_SETUP_VERSION: u64 = 3;
 
 /// Font incluso nel binario, come l'estensione-ponte dei diagrammi: una sola
 /// verita' nel repo, nessuna risorsa Tauri da configurare. E' lo stesso font
@@ -1798,10 +1798,25 @@ mod tests {
         assert!(facts.color_blind_mode);
 
         let status = status_for(Some(base.clone()));
-        assert!(!status.wizard_pending);
-        // Il modello c'e' ma le credenziali no: e' il caso "wizard chiuso con Esc"
+        assert!(
+            status.wizard_pending,
+            "setupVersion 2 e' precedente alla soglia 3"
+        );
+        // Il modello c'e' ma le credenziali no: e' il caso "wizard chiuso con Esc".
+        // La soglia non aggiunge una voce a `missing`: il wizard non si riapre da solo.
         assert!(status.missing.contains(&"credentials".to_string()));
         assert!(!status.missing.contains(&"model".to_string()));
+        assert!(!status.missing.iter().any(|item| item == "wizard"));
+
+        std::fs::write(
+            base.join("config.yml"),
+            "setupVersion: 3\nmodelRoles:\n  default: anthropic/claude-opus-5:high\n  smol: x/y\ntheme:\n  dark: titanium\ncolorBlindMode: true\n",
+        )
+        .unwrap();
+        let current = status_for(Some(base.clone()));
+        assert!(!current.wizard_pending, "setupVersion 3 e' la soglia corrente");
+        assert!(current.missing.contains(&"credentials".to_string()));
+        assert!(!current.missing.contains(&"model".to_string()));
         let _ = std::fs::remove_dir_all(&base);
     }
 

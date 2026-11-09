@@ -37,3 +37,7 @@ _Come si usa, dal punto di vista di chi lo usa (non del codice)._
 ## Quote, modelli e statistiche
 
 - `Ctrl+Alt+U` apre le quote dei provider con il tempo al reset; `Ctrl+Alt+M` apre ruoli, modelli e provider di `omp`; «Impostazioni → Statistiche» mostra costi e uso delle sessioni [commit 80bbc96] [commit b28c593] [commit 7ffc4a7].
+
+Ask HTML (codice implementato il 2026-11-09, non ancora pubblicato o verificato): le domande si compilano in un unico modulo a sezioni vicino al composer, allargabile. «Aggiungi nota o immagine» apre gli allegati della sezione; campi, note e screenshot restano in bozza riducendo la scheda o cambiando progetto. «Invia risposte» o Ctrl/Cmd+Invio consegnano dati e immagini insieme; nessun conto alla rovescia conferma al posto dell'utente. Un errore o un allegato non pronto impedisce la consegna del solo testo. La Companion e Remote usano lo stesso modulo; Remote segnala esplicitamente le bozze che superano i limiti del frame, conservandole complete sul computer. Nel terminale resta il form nativo OMP senza invio automatico. Requisiti e limiti delle prove: docs/requisiti/ask.md, ASK-001…014. [sessione 01a1c00e]
+
+Chat e lavoro in background (2026-11-09): il turno non è concluso finché omp ha job che possono riavviare l'agente. Il transcript mostra «Non ha finito: aspetta …» con i nomi dei job osservati, o un'attesa generica; il piè finale resta nascosto. La ripresa del run conserva lo streaming. Uscire da Studio interrompe i processi, nascondere la finestra li lascia lavorare. [sessione corrente]
