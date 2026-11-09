@@ -26,6 +26,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - The macOS installer DMG window has a new look: a monumental marble π in an alpine landscape, with the π made of fine ASCII characters and a film-grain photographic finish. OMP Studio sits on the left and the Applications folder on the right.
 
 ### Fixed
+- Studio starts again after the external-files update instead of getting stuck on the “500 / Internal Error” screen. (EXT-002, EXT-010)
 - Code blocks in chat are readable on the dark theme: before any file was opened the syntax colors came from the light theme and the text blended into the background.
 - With the interface in English no Italian text is left: agent tools and results, `/` commands, Lab, automations, settings, quota notices, update errors, installation, Git, lanes and files, notifications and native windows, Studio Remote commands and push notifications. Backend and extension errors follow the chosen language, which can be changed without restarting.
 - With the interface in English some text stayed in Italian: the "Open branch" section of the lanes `+` menu, Main in the concurrent agents dialog, the chat notice when a lane finishes and the empty page of new Lab prototypes (title included). They now follow the chosen language.

@@ -36,3 +36,7 @@ Precisazione dell'utente 2026-11-05: la priorità dell'indagine Nightly è il te
 
 - Automazioni AUT-014: va provato lo scenario reale, una chat che finisce con un'automazione a calendario attiva non deve farla partire (corretto il 2026-11-05, coperto solo da test unitario).
 - Pulizia dei 16 warning Rust di codice inutilizzato in automazioni e desktop_presence: decidere se rimuovere o collegare (es. branch_matches, write_readonly_session_config). [commit 645a5c0]
+
+- Risolta il 2026-11-05: i warning Rust di codice inutilizzato sono stati eliminati con la pulizia clippy della 1.10.0.
+- Da decidere: aggiungere clippy -D warnings a verify:nightly, così che il lint della release non fallisca solo in CI.
+- Da ricontrollare: togliere --ignore=GHSA-gcqx-w48m-w2h4 da gate.yml quando deepmerge o @sveltejs/vite-plugin-svelte pubblicano una correzione. [commit 23d36be]

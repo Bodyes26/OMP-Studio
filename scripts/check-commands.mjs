@@ -318,6 +318,10 @@ export const EXCLUDED_BUILTIN_COMMANDS = Object.freeze({
 	'forget-approvals': {
 		reason:
 			'Studio opera con tools.approvalMode: yolo (src-tauri/src/rpc/mod.rs:217-219); le approvazioni persistenti di file/cartelle registrate da Ask non vengono utilizzate nel normale flusso GUI.'
+	},
+	unpin: {
+		reason:
+			'Le sessioni fissate (omp 18.17, ~/.omp/session-pins.json) non sono gestite da Studio: l\'elenco sessioni della GUI non legge i pin e il comando non serve.'
 	}
 });
 

@@ -90,6 +90,7 @@ Regole della politica di esclusione:
 | Comando | Descrizione omp | Motivo dell'esclusione dalla GUI |
 | --- | --- | --- |
 | `/forget-approvals` | Forget every file and folder approval Ask and remember has recorded | Studio opera con `tools.approvalMode: yolo` (`src-tauri/src/rpc/mod.rs:217-219`), concedendo approvazione automatica agli strumenti. Le approvazioni persistenti di singoli file o cartelle (funzione di `Ask and remember` nella TUI/CLI) non vengono registrate ne' utilizzate nel normale flusso della GUI; pertanto il comando non e' esposto nel catalogo comandi e non blocca il rilascio. |
+| `/unpin` | Unpin a session from the top of the resume list | Le sessioni fissate (omp 18.17, `~/.omp/session-pins.json`) non sono gestite da Studio: l'elenco sessioni della GUI non legge i pin, quindi il comando non viene esposto. Scelta dell'utente del 2026-11-06. |
 
 ---
 

@@ -155,7 +155,7 @@
 	import { markSwitch } from '#lib/switchDissolve.ts';
 	import { open as openDialog } from '@tauri-apps/plugin-dialog';
 	import { getCurrentWebview } from '@tauri-apps/api/webview';
-	import { openPaths, externalOpenState } from '#lib/externalOpen.ts';
+	import { openPaths, externalOpenState } from '#lib/externalOpen.svelte.ts';
 	import ExternalFilesPanel from '#lib/components/ExternalFilesPanel.svelte';
 	import { physicalToCssPoint } from '#lib/agent/chatDrop.ts';
 

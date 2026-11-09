@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { projectStore, type Project } from '../src/lib/stores/projects.svelte.ts';
 import { projectOrder } from '../src/lib/stores/projectOrder.svelte.ts';
 import { normalizeProjectPath, pathKey } from '../src/lib/utils/paths.ts';
-import { buildRootEntries, resolveOpenRouteDecision, type ExternalRoute } from '../src/lib/externalOpen.ts';
+import { buildRootEntries, resolveOpenRouteDecision, type ExternalRoute } from '../src/lib/externalOpen.svelte.ts';
 import { isMermaidFileName, computeMermaidPreviewState } from '../src/lib/mermaidSvg.ts';
 import { MAIN_LANE_ID } from '../src/lib/types/lanes.ts';
 

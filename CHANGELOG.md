@@ -26,6 +26,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - La finestra del DMG di installazione su macOS ha un aspetto nuovo: un π monumentale di marmo in un paesaggio alpino, con il π composto da caratteri ASCII fini e una resa fotografica a grana di pellicola. OMP Studio sta a sinistra e la cartella Applicazioni a destra.
 
 ### Fixed
+- Studio si avvia di nuovo dopo l'aggiornamento con i file esterni: non resta bloccato sulla schermata «500 / Internal Error». (EXT-002, EXT-010)
 - I blocchi di codice nella chat si leggono anche sul tema scuro: prima di aprire un file i colori della sintassi erano quelli del tema chiaro e il testo si confondeva con lo sfondo.
 - Con l'interfaccia in inglese non restano più testi in italiano: strumenti e risultati dell'agente, comandi `/`, Laboratorio, automazioni, impostazioni, avvisi di quota, errori di aggiornamento, installazione, Git, corsie e file, notifiche e finestre native, comandi da Studio Remote e notifiche push. Gli errori del backend e delle estensioni seguono la lingua scelta, che si può cambiare senza riavviare.
 - Con l'interfaccia in inglese restavano testi in italiano: la sezione «Apri branch» del menu `+` delle corsie, la Principale nella finestra degli agenti concorrenti, l'avviso in chat quando una corsia finisce e la pagina vuota dei nuovi prototipi del Laboratorio (titolo compreso). Ora seguono la lingua scelta.
