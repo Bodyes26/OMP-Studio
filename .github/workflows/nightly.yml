@@ -118,7 +118,7 @@ jobs:
               {
                 key: "macos",
                 name: "macOS universal",
-                os: "macos-14",
+                os: "macos-15",
                 build_args: "--bundles dmg --target universal-apple-darwin",
                 artifact_name: "nightly-macos-universal",
                 artifact_dir: "src-tauri/target/universal-apple-darwin/release/bundle/dmg"

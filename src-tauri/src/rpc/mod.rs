@@ -271,8 +271,6 @@ pub(crate) fn write_gui_overlay(rpc_id: u64) -> Result<std::path::PathBuf, Strin
 
 /// Sorgente dell'estensione OMP per sessioni in sola lettura e assistente automazioni.
 pub const READONLY_EXTENSION_TS: &str = include_str!("../../../extensions/studio-readonly.ts");
-/// Sorgente dell'estensione OMP per ask HTML (studio-ask.ts).
-pub use crate::pty::ASK_EXTENSION_TS;
 
 /// Prepara un file di pool account temporaneo per la sessione, disattivando le API key a consumo.
 /// Rispetta il file OMP_AUTH_BROKER_ACCOUNT_POOL_FILE eventualmente configurato dall'utente,

@@ -81,7 +81,7 @@ jobs:
             artifact_name: windows-x64
             artifact_dir: src-tauri/target/release/bundle/nsis
           - name: macOS universal
-            os: macos-14
+            os: macos-15
             build_args: --bundles dmg --target universal-apple-darwin
             artifact_name: macos-universal
             artifact_dir: src-tauri/target/universal-apple-darwin/release/bundle/dmg

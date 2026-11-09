@@ -13,6 +13,7 @@
  * 5. Catalogo comandi live (`check-commands.mjs`) eseguito ad ogni run senza cache;
  *    può essere omesso solo con `--skip-command-check` (emergenza).
  * 6. Gate icone strict (`check-icons.mjs --strict`).
+ * 6b. Lint Rust (`cargo clippy --all-targets -- -D warnings`) come nei job di build CI, senza cache.
  * 7. Riuso conservativo: Cargo compila sempre per determinare freschezza e artifact;
  *    se gli artifact compilati e le fonti runtime sono identici, il runtime nativo e doctest vengono riusati.
  * 8. Abort immediato di entrambi i rami: l'errore in un ramo scatena subito `abortController.abort()`
@@ -44,6 +45,7 @@ import {
 import {
 	compileRustTests,
 	killProcessTree,
+	runRustClippy,
 	runRustTests
 } from './nightly-rust.mjs';
 
@@ -312,6 +314,9 @@ export async function verifyNightly(options = {}) {
 		const compiled = await compileRustTests(root, { signal: localSignal, stdio });
 		compiledRustArtifacts = compiled.executables;
 		compiledRustToolchain = compiled.toolchain;
+
+		const clippy = await runRustClippy(root, { signal: localSignal, stdio });
+		gates.clippy = { status: 'passed', durationMs: clippy.durationMs };
 
 		// Fingerprint calcolato includendo gli artifact compilati effettivi e la toolchain
 		rustFingerprintBefore = computeRustFingerprint(root, {

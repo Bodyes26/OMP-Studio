@@ -298,6 +298,31 @@ export async function runRustTests(root, compiled, options = {}) {
 }
 
 /**
+ * Stesso lint dei job di build in CI: con `-D warnings` ogni avviso blocca la Nightly,
+ * quindi va scoperto qui e non dopo il push. Sempre eseguito, senza cache: Cargo
+ * decide da solo la freschezza e un controllo aggiornato costa pochi secondi.
+ *
+ * @param {string} root Radice del workspace
+ * @param {object} [options]
+ * @param {AbortSignal} [options.signal]
+ * @param {'inherit' | 'pipe' | 'ignore'} [options.stdio]
+ * @returns {Promise<{ durationMs: number }>}
+ */
+export async function runRustClippy(root, options = {}) {
+	const start = performance.now();
+	await runSubprocess(
+		'cargo',
+		['clippy', '--manifest-path', 'Cargo.toml', '--all-targets', '--', '-D', 'warnings'],
+		{
+			cwd: join(root, 'src-tauri'),
+			signal: options.signal,
+			stdio: options.stdio || 'inherit'
+		}
+	);
+	return { durationMs: performance.now() - start };
+}
+
+/**
  * Helper unificato che compila ed esegue il gate Rust completo.
  *
  * @param {string} root
