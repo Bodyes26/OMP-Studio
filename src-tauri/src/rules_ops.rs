@@ -51,12 +51,33 @@ pub struct ProjectContextSummary {
     pub skills: Vec<SkillItem>,
 }
 
-/// File di linee guida alternativi riconosciuti nella radice del progetto.
-const ALT_CONTEXT_FILES: &[(&str, &str)] = &[
-    ("CLAUDE.md", "Istruzioni di contesto Claude"),
-    ("GEMINI.md", "Istruzioni di contesto Gemini"),
-    (".impeccable.md", "Regole e principi interfaccia"),
-];
+/// File di linee guida alternativi riconosciuti nella radice del progetto,
+/// con la descrizione mostrata nel pannello nella lingua dell'interfaccia.
+fn alt_context_files() -> [(&'static str, &'static str); 3] {
+    [
+        (
+            "CLAUDE.md",
+            crate::tr!(
+                "Istruzioni di contesto Claude",
+                "Claude context instructions"
+            ),
+        ),
+        (
+            "GEMINI.md",
+            crate::tr!(
+                "Istruzioni di contesto Gemini",
+                "Gemini context instructions"
+            ),
+        ),
+        (
+            ".impeccable.md",
+            crate::tr!(
+                "Regole e principi interfaccia",
+                "Interface rules and principles"
+            ),
+        ),
+    ]
+}
 
 /// Censisce le regole e le skill per il percorso specificato in modo sincrono.
 pub(crate) fn get_project_context_sync(
@@ -64,9 +85,9 @@ pub(crate) fn get_project_context_sync(
 ) -> Result<ProjectContextSummary, String> {
     let root = Path::new(project_path);
     if !root.is_dir() {
-        return Err(format!(
-            "Directory di progetto non trovata: {}",
-            project_path
+        return Err(crate::tr!(
+            format!("Directory di progetto non trovata: {}", project_path),
+            format!("Project directory not found: {}", project_path)
         ));
     }
     let mut rules = Vec::new();
@@ -80,7 +101,13 @@ pub(crate) fn get_project_context_sync(
         path: "AGENTS.md".to_string(),
         exists: root.join("AGENTS.md").is_file(),
         rule_type: "agents_md".to_string(),
-        description: Some("Linee guida primarie e convenzioni operative del progetto".to_string()),
+        description: Some(
+            crate::tr!(
+                "Linee guida primarie e convenzioni operative del progetto",
+                "Primary guidelines and operating conventions for the project"
+            )
+            .to_string(),
+        ),
     });
 
     // 2. .omp/preview.md: regole di design per le anteprime dell'agente (ANT-001, ANT-002).
@@ -92,7 +119,13 @@ pub(crate) fn get_project_context_sync(
         path: ".omp/preview.md".to_string(),
         exists: preview_exists,
         rule_type: "preview_rules".to_string(),
-        description: Some("Design applicato dall'agente alle anteprime".to_string()),
+        description: Some(
+            crate::tr!(
+                "Design applicato dall'agente alle anteprime",
+                "Design applied by the agent to previews"
+            )
+            .to_string(),
+        ),
     });
 
     // 3. Regole modulari in .omp/rules/*.md
@@ -112,7 +145,13 @@ pub(crate) fn get_project_context_sync(
                 path: format!(".omp/rules/{}", file_name),
                 exists: true,
                 rule_type: "omp_rule".to_string(),
-                description: Some("Regola di contesto di progetto".to_string()),
+                description: Some(
+                    crate::tr!(
+                        "Regola di contesto di progetto",
+                        "Project context rule"
+                    )
+                    .to_string(),
+                ),
             });
         }
     }
@@ -120,7 +159,7 @@ pub(crate) fn get_project_context_sync(
     rules.append(&mut omp_rules);
 
     // 4. File di contesto aggiuntivi nella radice.
-    for (filename, desc) in ALT_CONTEXT_FILES {
+    for (filename, desc) in alt_context_files() {
         if root.join(filename).is_file() {
             rules.push(ContextRuleItem {
                 id: format!("extra_{}", filename),
@@ -159,7 +198,7 @@ pub(crate) fn get_project_context_sync(
 pub async fn get_project_context(project_path: String) -> Result<ProjectContextSummary, String> {
     tokio::task::spawn_blocking(move || get_project_context_sync(&project_path))
         .await
-        .map_err(|e| format!("Task get_project_context fallito: {}", e))?
+        .map_err(|e| crate::tr!(format!("Task get_project_context fallito: {}", e), format!("Task get_project_context failed: {}", e)))?
 }
 
 fn has_md_extension(path: &Path) -> bool {
@@ -247,7 +286,11 @@ fn extract_skill_description(path: &Path) -> Option<String> {
     None
 }
 
-const DEFAULT_AGENTS_MD: &str = r#"# AGENTS.md
+/// Contenuto iniziale di `AGENTS.md`, scritto nella lingua dell'interfaccia al
+/// momento della creazione: il file appartiene all'utente e resta com'e'.
+fn default_agents_md() -> &'static str {
+    crate::tr!(
+        r#"# AGENTS.md
 
 Linee guida e convenzioni per gli agenti che operano su questo repository.
 
@@ -264,7 +307,26 @@ Linee guida e convenzioni per gli agenti che operano su questo repository.
 - Correttezza e manutenibilita' al primo posto.
 - Verificare le modifiche con test o comandi specifici prima di dichiarare
   completato il lavoro.
-"#;
+"#,
+        r#"# AGENTS.md
+
+Guidelines and conventions for agents working in this repository.
+
+## Project overview
+- Purpose:
+- Technology stack:
+
+## Verification commands
+- Build:
+- Test:
+- Lint/Typecheck:
+
+## Invariants and conventions
+- Correctness and maintainability come first.
+- Verify changes with tests or specific commands before calling the work done.
+"#
+    )
+}
 
 /// Crea il file `AGENTS.md` nella radice del progetto in modo sicuro e sincrono:
 /// valida il contenimento canonico del genitore, rifiuta collegamenti e symlink
@@ -276,18 +338,27 @@ pub(crate) fn create_project_agents_md_sync(project_path: &str) -> Result<String
     // `symlink_metadata` non segue i collegamenti: intercetta symlink validi o dangling
     if let Ok(meta) = fs::symlink_metadata(&target) {
         if meta.file_type().is_symlink() {
-            return Err(
-                "Percorso non ammesso: AGENTS.md e' un collegamento e potrebbe puntare fuori dal progetto"
-                    .to_string(),
-            );
+            return Err(crate::tr!(
+                "Percorso non ammesso: AGENTS.md e' un collegamento e potrebbe puntare fuori dal progetto",
+                "Path not allowed: AGENTS.md is a link and may point outside the project"
+            )
+            .to_string());
         }
         if meta.is_file() {
             return Ok("AGENTS.md".to_string());
         }
         if meta.is_dir() {
-            return Err("Percorso non ammesso: AGENTS.md e' una cartella".to_string());
+            return Err(crate::tr!(
+                "Percorso non ammesso: AGENTS.md e' una cartella",
+                "Path not allowed: AGENTS.md is a directory"
+            )
+            .to_string());
         }
-        return Err("Percorso non ammesso: tipo di elemento non valido per AGENTS.md".to_string());
+        return Err(crate::tr!(
+            "Percorso non ammesso: tipo di elemento non valido per AGENTS.md",
+            "Path not allowed: invalid item type for AGENTS.md"
+        )
+        .to_string());
     }
 
     // Creazione atomica esclusiva: `create_new(true)` impedisce sovrascritture concorrenti o traversal
@@ -298,21 +369,35 @@ pub(crate) fn create_project_agents_md_sync(project_path: &str) -> Result<String
     {
         Ok(f) => f,
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-            let meta = fs::symlink_metadata(&target)
-                .map_err(|e| format!("Errore verifica AGENTS.md: {}", e))?;
+            let meta = fs::symlink_metadata(&target).map_err(|e| {
+                crate::tr!(
+                    format!("Errore verifica AGENTS.md: {}", e),
+                    format!("AGENTS.md check error: {}", e)
+                )
+            })?;
             if meta.file_type().is_symlink() {
-                return Err(
-                    "Percorso non ammesso: AGENTS.md e' un collegamento e potrebbe puntare fuori dal progetto"
-                        .to_string(),
-                );
+                return Err(crate::tr!(
+                    "Percorso non ammesso: AGENTS.md e' un collegamento e potrebbe puntare fuori dal progetto",
+                    "Path not allowed: AGENTS.md is a link and may point outside the project"
+                )
+                .to_string());
             }
             return Ok("AGENTS.md".to_string());
         }
-        Err(e) => return Err(format!("Errore durante la creazione di AGENTS.md: {}", e)),
+        Err(e) => {
+            return Err(crate::tr!(
+                format!("Errore durante la creazione di AGENTS.md: {}", e),
+                format!("Error while creating AGENTS.md: {}", e)
+            ))
+        }
     };
 
-    file.write_all(DEFAULT_AGENTS_MD.as_bytes())
-        .map_err(|e| format!("Errore durante la scrittura di AGENTS.md: {}", e))?;
+    file.write_all(default_agents_md().as_bytes()).map_err(|e| {
+        crate::tr!(
+            format!("Errore durante la scrittura di AGENTS.md: {}", e),
+            format!("Error while writing AGENTS.md: {}", e)
+        )
+    })?;
 
     Ok("AGENTS.md".to_string())
 }
@@ -321,10 +406,22 @@ pub(crate) fn create_project_agents_md_sync(project_path: &str) -> Result<String
 pub async fn create_project_agents_md(project_path: String) -> Result<String, String> {
     tokio::task::spawn_blocking(move || create_project_agents_md_sync(&project_path))
         .await
-        .map_err(|e| format!("Task create_project_agents_md fallito: {}", e))?
+        .map_err(|e| {
+            crate::tr!(
+                format!("Task create_project_agents_md fallito: {}", e),
+                format!("Task create_project_agents_md failed: {}", e)
+            )
+        })?
 }
 
-const PREVIEW_RULES_HEADER: &str = "# Regole delle anteprime\n<!-- Linee guida di design applicate dall'agente alle anteprime di Studio. Inizializzato da DESIGN.md/PRODUCT.md; modificabile liberamente e mai sovrascritto da Studio. -->\n\n";
+/// Intestazione di `.omp/preview.md` quando il progetto non ha documenti di
+/// design: scritta nella lingua dell'interfaccia al momento della creazione.
+fn preview_rules_header() -> &'static str {
+    crate::tr!(
+        "# Regole delle anteprime\n<!-- Linee guida di design applicate dall'agente alle anteprime di Studio. Inizializzato da DESIGN.md/PRODUCT.md; modificabile liberamente e mai sovrascritto da Studio. -->\n\n",
+        "# Preview rules\n<!-- Design guidelines the agent applies to Studio previews. Initialised from DESIGN.md/PRODUCT.md; edit freely, Studio never overwrites it. -->\n\n"
+    )
+}
 
 /// Cerca un documento di design o prodotto prima nella radice del progetto, poi in `docs/`.
 /// Rifiuta e non segue collegamenti (symlink) che puntano fuori dalla radice del progetto.
@@ -369,17 +466,25 @@ pub(crate) fn ensure_preview_rules_sync(
     // 1. Se il file esiste gia', verifica che non sia un symlink fuori progetto e non toccarlo mai.
     if let Ok(meta) = fs::symlink_metadata(&target) {
         if meta.file_type().is_symlink() {
-            let canonical = target
-                .canonicalize()
-                .map_err(|e| format!("Errore risoluzione symlink .omp/preview.md: {}", e))?;
+            let canonical = target.canonicalize().map_err(|e| {
+                crate::tr!(
+                    format!("Errore risoluzione symlink .omp/preview.md: {}", e),
+                    format!("Symlink resolution error for .omp/preview.md: {}", e)
+                )
+            })?;
             if !canonical.starts_with(&base) {
-                return Err(
-                    "Percorso non ammesso: .omp/preview.md e' un collegamento e punta fuori dal progetto"
-                        .to_string(),
-                );
+                return Err(crate::tr!(
+                    "Percorso non ammesso: .omp/preview.md e' un collegamento e punta fuori dal progetto",
+                    "Path not allowed: .omp/preview.md is a link pointing outside the project"
+                )
+                .to_string());
             }
         } else if meta.is_dir() {
-            return Err("Percorso non ammesso: .omp/preview.md e' una cartella".to_string());
+            return Err(crate::tr!(
+                "Percorso non ammesso: .omp/preview.md e' una cartella",
+                "Path not allowed: .omp/preview.md is a directory"
+            )
+            .to_string());
         }
         return Ok(false);
     }
@@ -387,30 +492,44 @@ pub(crate) fn ensure_preview_rules_sync(
     // 2. Cartella .omp: se e' un symlink, deve rimanere dentro il progetto.
     if let Ok(meta) = fs::symlink_metadata(&omp_dir) {
         if meta.file_type().is_symlink() {
-            let canonical = omp_dir
-                .canonicalize()
-                .map_err(|e| format!("Errore risoluzione symlink .omp: {}", e))?;
+            let canonical = omp_dir.canonicalize().map_err(|e| {
+                crate::tr!(
+                    format!("Errore risoluzione symlink .omp: {}", e),
+                    format!("Symlink resolution error for .omp: {}", e)
+                )
+            })?;
             if !canonical.starts_with(&base) {
-                return Err(
-                    "Percorso non ammesso: .omp e' un collegamento e punta fuori dal progetto"
-                        .to_string(),
-                );
+                return Err(crate::tr!(
+                    "Percorso non ammesso: .omp e' un collegamento e punta fuori dal progetto",
+                    "Path not allowed: .omp is a link pointing outside the project"
+                )
+                .to_string());
             }
         }
     } else if let Err(e) = fs::create_dir_all(&omp_dir) {
-        return Err(format!("Impossibile creare la cartella .omp: {}", e));
+        return Err(crate::tr!(
+            format!("Impossibile creare la cartella .omp: {}", e),
+            format!("Unable to create the .omp directory: {}", e)
+        ));
     }
 
     // 3. Cerca DESIGN.md e PRODUCT.md nella radice, poi in docs/
     let design = find_and_read_project_doc(&base, "DESIGN.md");
     let product = find_and_read_project_doc(&base, "PRODUCT.md");
+    // Il marcatore di provenienza finisce nel file dell'utente: segue la sua lingua.
+    let source_marker = |name: &str| {
+        crate::tr!(
+            format!("<!-- Source: {} -->\n", name),
+            format!("<!-- Source: {} -->\n", name)
+        )
+    };
 
     let content = if design.is_none() && product.is_none() {
         default_content.to_string()
     } else {
-        let mut text = PREVIEW_RULES_HEADER.to_string();
+        let mut text = preview_rules_header().to_string();
         if let Some((source_name, doc_content)) = design {
-            text.push_str(&format!("<!-- Fonte: {} -->\n", source_name));
+            text.push_str(&source_marker(&source_name));
             text.push_str(&doc_content);
             if !text.ends_with('\n') {
                 text.push('\n');
@@ -418,7 +537,7 @@ pub(crate) fn ensure_preview_rules_sync(
             text.push('\n');
         }
         if let Some((source_name, doc_content)) = product {
-            text.push_str(&format!("<!-- Fonte: {} -->\n", source_name));
+            text.push_str(&source_marker(&source_name));
             text.push_str(&doc_content);
             if !text.ends_with('\n') {
                 text.push('\n');
@@ -437,13 +556,26 @@ pub(crate) fn ensure_preview_rules_sync(
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
             return Ok(false);
         }
-        Err(e) => return Err(format!("Errore durante la creazione di .omp/preview.md: {}", e)),
+        Err(e) => {
+            return Err(crate::tr!(
+                format!("Errore durante la creazione di .omp/preview.md: {}", e),
+                format!("Error while creating .omp/preview.md: {}", e)
+            ))
+        }
     };
 
-    file.write_all(content.as_bytes())
-        .map_err(|e| format!("Errore durante la scrittura di .omp/preview.md: {}", e))?;
-    file.flush()
-        .map_err(|e| format!("Errore durante il flush di .omp/preview.md: {}", e))?;
+    file.write_all(content.as_bytes()).map_err(|e| {
+        crate::tr!(
+            format!("Errore durante la scrittura di .omp/preview.md: {}", e),
+            format!("Error while writing .omp/preview.md: {}", e)
+        )
+    })?;
+    file.flush().map_err(|e| {
+        crate::tr!(
+            format!("Errore durante il flush di .omp/preview.md: {}", e),
+            format!("Error while flushing .omp/preview.md: {}", e)
+        )
+    })?;
 
     Ok(true)
 }
@@ -455,7 +587,12 @@ pub async fn ensure_preview_rules(
 ) -> Result<bool, String> {
     tokio::task::spawn_blocking(move || ensure_preview_rules_sync(&project_path, &default_content))
         .await
-        .map_err(|e| format!("Task ensure_preview_rules fallito: {}", e))?
+        .map_err(|e| {
+            crate::tr!(
+                format!("Task ensure_preview_rules fallito: {}", e),
+                format!("Task ensure_preview_rules failed: {}", e)
+            )
+        })?
 }
 
 /// Una proposta di regola nata dall'attrito osservato nei prompt recenti.
@@ -480,64 +617,105 @@ const PROMPT_WINDOW: usize = 60;
 
 struct FrictionPattern {
     id: &'static str,
-    title: &'static str,
+    title: String,
     /// Completa la frase "In N sessioni recenti ...".
-    evidence: &'static str,
-    /// Intestazione della sezione: se e' gia' in AGENTS.md la proposta tace.
-    marker: &'static str,
-    section: &'static str,
+    evidence: String,
+    /// Intestazioni della sezione, in entrambe le lingue: un AGENTS.md scritto
+    /// in inglese o in italiano zittisce la proposta allo stesso modo.
+    markers: &'static [&'static str],
+    /// Testo proposto per AGENTS.md: scritto nella lingua dell'interfaccia,
+    /// perche' finisce nel file dell'utente.
+    section: String,
     keywords: &'static [&'static str],
 }
 
-const FRICTION_PATTERNS: &[FrictionPattern] = &[
-    FrictionPattern {
-        id: "sug_verification_step",
-        title: "Aggiungi la verifica dei test a AGENTS.md",
-        evidence: "hai dovuto chiedere esplicitamente di verificare i test.",
-        marker: "## Verifica delle modifiche",
-        section: "## Verifica delle modifiche\n- Eseguire sempre la suite di test del progetto e il controllo tipi prima di concludere il task.\n",
-        keywords: &[
-            "esegui i test",
-            "fai girare i test",
-            "lancia i test",
-            "run test",
-            "run the test",
-            "mancano i test",
-            "hai eseguito i test",
-        ],
-    },
-    FrictionPattern {
-        id: "sug_build_check",
-        title: "Includi il comando di build o typecheck in AGENTS.md",
-        evidence: "sono emersi errori di compilazione o typecheck non verificati prima della consegna.",
-        marker: "## Vincolo di build",
-        section: "## Vincolo di build\n- Verificare con il comando di compilazione o di typecheck che non vi siano regressioni sintattiche o di tipo.\n",
-        keywords: &[
-            "non compila",
-            "errore di build",
-            "build fallita",
-            "typecheck",
-            "svelte-check",
-            "does not compile",
-            "build error",
-        ],
-    },
-    FrictionPattern {
-        id: "sug_scope_protection",
-        title: "Definisci il perimetro dei file in AGENTS.md",
-        evidence: "hai dovuto ripristinare o vietare modifiche a file non correlati.",
-        marker: "## Perimetro delle modifiche",
-        section: "## Perimetro delle modifiche\n- Modificare esclusivamente i file necessari al task: nessuna configurazione o file non correlato senza richiesta esplicita.\n",
-        keywords: &[
-            "non modificare quel file",
-            "non toccare",
-            "rimetti come prima",
-            "ripristina il file",
-            "avevi cambiato",
-            "revert",
-        ],
-    },
-];
+fn friction_patterns() -> Vec<FrictionPattern> {
+    vec![
+        FrictionPattern {
+            id: "sug_verification_step",
+            title: crate::tr!(
+                "Aggiungi la verifica dei test a AGENTS.md",
+                "Add test verification to AGENTS.md"
+            )
+            .to_string(),
+            evidence: crate::tr!(
+                "hai dovuto chiedere esplicitamente di verificare i test.",
+                "you had to ask explicitly to verify the tests."
+            )
+            .to_string(),
+            markers: &["## Verifica delle modifiche", "## Change verification"],
+            section: crate::tr!(
+                "## Verifica delle modifiche\n- Eseguire sempre la suite di test del progetto e il controllo tipi prima di concludere il task.\n",
+                "## Change verification\n- Always run the project test suite and type checks before finishing a task.\n"
+            )
+            .to_string(),
+            keywords: &[
+                "esegui i test",
+                "fai girare i test",
+                "lancia i test",
+                "run test",
+                "run the test",
+                "mancano i test",
+                "hai eseguito i test",
+            ],
+        },
+        FrictionPattern {
+            id: "sug_build_check",
+            title: crate::tr!(
+                "Includi il comando di build o typecheck in AGENTS.md",
+                "Include the build or typecheck command in AGENTS.md"
+            )
+            .to_string(),
+            evidence: crate::tr!(
+                "sono emersi errori di compilazione o typecheck non verificati prima della consegna.",
+                "compile or typecheck errors surfaced that were not verified before delivery."
+            )
+            .to_string(),
+            markers: &["## Vincolo di build", "## Build requirement"],
+            section: crate::tr!(
+                "## Vincolo di build\n- Verificare con il comando di compilazione o di typecheck che non vi siano regressioni sintattiche o di tipo.\n",
+                "## Build requirement\n- Use the build or typecheck command to confirm there are no syntax or type regressions.\n"
+            )
+            .to_string(),
+            keywords: &[
+                "non compila",
+                "errore di build",
+                "build fallita",
+                "typecheck",
+                "svelte-check",
+                "does not compile",
+                "build error",
+            ],
+        },
+        FrictionPattern {
+            id: "sug_scope_protection",
+            title: crate::tr!(
+                "Definisci il perimetro dei file in AGENTS.md",
+                "Define the file scope in AGENTS.md"
+            )
+            .to_string(),
+            evidence: crate::tr!(
+                "hai dovuto ripristinare o vietare modifiche a file non correlati.",
+                "you had to revert or forbid changes to unrelated files."
+            )
+            .to_string(),
+            markers: &["## Perimetro delle modifiche", "## Change scope"],
+            section: crate::tr!(
+                "## Perimetro delle modifiche\n- Modificare esclusivamente i file necessari al task: nessuna configurazione o file non correlato senza richiesta esplicita.\n",
+                "## Change scope\n- Only touch the files the task needs: no unrelated configuration or files without an explicit request.\n"
+            )
+            .to_string(),
+            keywords: &[
+                "non modificare quel file",
+                "non toccare",
+                "rimetti come prima",
+                "ripristina il file",
+                "avevi cambiato",
+                "revert",
+            ],
+        },
+    ]
+}
 
 /// Costruisce le proposte a partire dai prompt recenti. Funzione pura: la
 /// lettura dello storico e di AGENTS.md resta nel comando.
@@ -545,12 +723,15 @@ fn build_suggestions(prompts: &[String], agents_md: Option<&str>) -> Vec<RuleSug
     let lowered: Vec<String> = prompts.iter().map(|p| p.to_lowercase()).collect();
     let mut suggestions = Vec::new();
 
-    for pattern in FRICTION_PATTERNS {
-        if agents_md.is_some_and(|content| {
-            content
-                .to_lowercase()
-                .contains(&pattern.marker.to_lowercase())
-        }) {
+    for pattern in friction_patterns() {
+        let already_documented = agents_md.is_some_and(|content| {
+            let content = content.to_lowercase();
+            pattern
+                .markers
+                .iter()
+                .any(|marker| content.contains(&marker.to_lowercase()))
+        });
+        if already_documented {
             continue;
         }
 
@@ -564,11 +745,14 @@ fn build_suggestions(prompts: &[String], agents_md: Option<&str>) -> Vec<RuleSug
 
         suggestions.push(RuleSuggestion {
             id: pattern.id.to_string(),
-            title: pattern.title.to_string(),
-            reason: format!("In {} prompt recenti {}", occurrences, pattern.evidence),
+            title: pattern.title,
+            reason: crate::tr!(
+                format!("In {} prompt recenti {}", occurrences, pattern.evidence),
+                format!("In {} recent prompts {}", occurrences, pattern.evidence)
+            ),
             target_type: "agents_md".to_string(),
             target_file: "AGENTS.md".to_string(),
-            proposed_content: pattern.section.to_string(),
+            proposed_content: pattern.section,
             occurrences,
         });
     }
@@ -612,7 +796,7 @@ pub(crate) fn analyze_project_friction_sync(
 pub async fn analyze_project_friction(project_path: String) -> Result<Vec<RuleSuggestion>, String> {
     tokio::task::spawn_blocking(move || analyze_project_friction_sync(&project_path))
         .await
-        .map_err(|e| format!("Task analyze_project_friction fallito: {}", e))?
+        .map_err(|e| crate::tr!(format!("Task analyze_project_friction fallito: {}", e), format!("Task analyze_project_friction failed: {}", e)))?
 }
 
 /// Applica la proposta di regola in modo sincrono con contenimento canonico e controllo symlink.
@@ -631,21 +815,33 @@ pub(crate) fn apply_rule_suggestion_sync(
     // `symlink_metadata` non segue il collegamento: un `AGENTS.md` che punta
     // fuori dal progetto verrebbe altrimenti riscritto sulla destinazione.
     let meta = fs::symlink_metadata(&full_path).map_err(|_| {
-        format!(
-            "File {} non trovato: inizializzalo prima di applicare la proposta",
-            target_rel_path
+        crate::tr!(
+            format!(
+                "File {} non trovato: inizializzalo prima di applicare la proposta",
+                target_rel_path
+            ),
+            format!(
+                "File {} not found: initialise it before applying the suggestion",
+                target_rel_path
+            )
         )
     })?;
     if meta.file_type().is_symlink() {
-        return Err(format!(
-            "Percorso non ammesso: {} e' un collegamento e potrebbe puntare fuori dal progetto",
-            target_rel_path
+        return Err(crate::tr!(
+            format!(
+                "Percorso non ammesso: {} e' un collegamento e potrebbe puntare fuori dal progetto",
+                target_rel_path
+            ),
+            format!(
+                "Path not allowed: {} is a link and may point outside the project",
+                target_rel_path
+            )
         ));
     }
     if !meta.is_file() {
-        return Err(format!(
-            "Percorso non ammesso: {} non e' un file",
-            target_rel_path
+        return Err(crate::tr!(
+            format!("Percorso non ammesso: {} non e' un file", target_rel_path),
+            format!("Path not allowed: {} is not a file", target_rel_path)
         ));
     }
 
@@ -670,7 +866,7 @@ pub async fn apply_rule_suggestion(
         apply_rule_suggestion_sync(&project_path, &target_rel_path, &append_content)
     })
     .await
-    .map_err(|e| format!("Task apply_rule_suggestion fallito: {}", e))?
+    .map_err(|e| crate::tr!(format!("Task apply_rule_suggestion fallito: {}", e), format!("Task apply_rule_suggestion failed: {}", e)))?
 }
 
 #[cfg(test)]
@@ -809,7 +1005,11 @@ mod tests {
         let err = create_project_agents_md(root.to_string_lossy().to_string())
             .await
             .unwrap_err();
-        assert!(err.contains("collegamento"), "errore inatteso: {}", err);
+        assert!(
+            err.to_lowercase().contains("link") || err.contains("collegamento"),
+            "errore inatteso: {}",
+            err
+        );
         assert_eq!(fs::read_to_string(&secret).unwrap(), "# Fuori\n");
 
         // Dangling symlink: cancelliamo il target esterno
@@ -818,7 +1018,7 @@ mod tests {
             .await
             .unwrap_err();
         assert!(
-            err_dangling.contains("collegamento"),
+            err_dangling.to_lowercase().contains("link") || err_dangling.contains("collegamento"),
             "errore inatteso per dangling symlink: {}",
             err_dangling
         );
@@ -914,7 +1114,11 @@ mod tests {
         .await
         .unwrap_err();
 
-        assert!(err.contains("collegamento"), "errore inatteso: {}", err);
+        assert!(
+            err.to_lowercase().contains("link") || err.contains("collegamento"),
+            "errore inatteso: {}",
+            err
+        );
         assert_eq!(fs::read_to_string(&secret).unwrap(), "# Fuori\n");
     }
 
@@ -933,9 +1137,9 @@ mod tests {
         let target = root.join(".omp").join("preview.md");
         assert!(target.is_file());
         let text = fs::read_to_string(&target).unwrap();
-        assert!(text.contains("<!-- Fonte: DESIGN.md -->"));
+        assert!(text.contains("DESIGN.md -->"), "marcatore di provenienza mancante: {text}");
         assert!(text.contains("# Design\nColori primari: blu\n"));
-        assert!(text.contains("<!-- Fonte: PRODUCT.md -->"));
+        assert!(text.contains("PRODUCT.md -->"), "marcatore di provenienza mancante: {text}");
         assert!(text.contains("# Prodotto\nDashboard gestionale\n"));
 
         // Seconda chiamata: non sovrascrive
@@ -959,9 +1163,9 @@ mod tests {
         assert!(created);
 
         let text = fs::read_to_string(root.join(".omp").join("preview.md")).unwrap();
-        assert!(text.contains("<!-- Fonte: docs/DESIGN.md -->"));
+        assert!(text.contains("docs/DESIGN.md -->"), "marcatore di provenienza mancante: {text}");
         assert!(text.contains("# Design in docs\n"));
-        assert!(text.contains("<!-- Fonte: docs/PRODUCT.md -->"));
+        assert!(text.contains("docs/PRODUCT.md -->"), "marcatore di provenienza mancante: {text}");
         assert!(text.contains("# Product in docs\n"));
     }
 

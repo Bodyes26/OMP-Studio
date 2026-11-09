@@ -24,6 +24,7 @@ import { artifactForToolEntry } from './artifacts';
 import { asRecord, resultText, str, recordList } from '#lib/agent/tools/types.ts';
 import { extractPhasesFromCall } from '#lib/agent/todoTrace.ts';
 import { stripEditorContext } from '#lib/editor/editorContextParsing.ts';
+import { m } from '#lib/paraglide/messages.js';
 
 export const MAX_DIFF_LINES = 300;
 export const MAX_DIFF_BYTES = 24 * 1024; // 24 KB
@@ -97,9 +98,9 @@ function extractRemoteTodos(entry: ToolEntry): RemoteTodoItem[] | null {
 		if (flatItems.length > 0) {
 			phases = [
 				{
-					name: str(entry.args.phase) ?? 'Attività',
+					name: str(entry.args.phase) ?? m.l10n_lab_remote_todo_default_phase(),
 					tasks: flatItems.map((t, idx) => ({
-						content: str(t.task) ?? str(t.content) ?? (typeof t === 'string' ? t : `Attività ${idx + 1}`),
+						content: str(t.task) ?? str(t.content) ?? (typeof t === 'string' ? t : m.l10n_lab_remote_todo_default_task({ index: String(idx + 1) })),
 						status: 'pending'
 					}))
 				}
@@ -137,7 +138,7 @@ function buildRemoteToolCall(entry: ToolEntry): RemoteToolCall {
 
 	const isError = entry.result?.isError === true || summary.fail === true;
 	const status: RemoteToolCall['status'] = entry.running ? 'running' : isError ? 'error' : 'ok';
-	const errorReason = summary.errorReason ?? (isError ? (summary.meta || 'Errore') : null);
+	const errorReason = summary.errorReason ?? (isError ? (summary.meta || m.l10n_lab_remote_tool_error_fallback()) : null);
 
 	const details = asRecord(entry.result?.details);
 	const rawDiff = str(details?.diff);

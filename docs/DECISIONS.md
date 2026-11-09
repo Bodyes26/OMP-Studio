@@ -1057,7 +1057,7 @@ Fino alla versione 1.2, OMP Studio applicava il principio "un progetto = una car
    - *Rivisto dal Gate R45: la riga è sempre presente, con la sola Principale se non ci sono corsie secondarie.*
 3. **Switch atomico di workspace:**
    - La selezione di una corsia riorienta istantaneamente e simultaneamente: albero dei file, pannello Git, modelli e tab aperti dell'editor Monaco, superficie dell'agente (Terminale PTY o Chat GUI), Browser Studio e anteprima sandbox.
-   - La geometria delle tre colonne (larghezze, stato di collasso) e le preferenze d'interfaccia restano invece proprietà del Progetto, evitando salti visivi di layout durante il passaggio tra corsie.
+   - La geometria delle tre colonne (larghezze, stato di collasso) e le preferenze d'interfaccia restano invece proprietà del Progetto, evitando salti visivi di layout durante il passaggio tra corsie. L'ordine delle colonne (2026-11-08, `docs/requisiti/colonne.md`) è invece globale, per lo stesso motivo: cambiare progetto non deve spostarle.
 4. **Coda task comune e routing deterministico:**
    - Il file `.omp/tasks.json` vive esclusivamente nella radice canonica del progetto principale. Tutte le corsie vedono e gestiscono la medesima coda; le corsie isolate non creano file `.omp/tasks.json` locali.
    - Click su un task in coda: se `Principale` è inattivo, il task parte su `Principale`. Se `Principale` è occupato (`working`), Studio presenta un prompt rapido: *"Agente al lavoro. Avviare in una nuova corsia isolata?"*.
@@ -2048,3 +2048,23 @@ Scelte prese nelle conversazioni e nei commit ma non registrate come Gate.
 ## Filtro eventi verso omp come lista di ammessi
 
 Studio manda a omp `set_event_filter` con l'elenco esplicito degli eventi di sessione (`RpcAgentEvent` di omp meno `tool_stream_update`) e `messageUpdates: delta`. Perché: omp non offre una lista di esclusi, e l'anteprima di `edit` a ogni token generava decine di MB che bloccavano le chat. Costo: un nuovo evento di sessione di omp non arriva a Studio finché non viene aggiunto a `EVENT_FILTER_COMMAND` in `src-tauri/src/rpc/mod.rs`. [sessione 01a1a066]
+
+## Distribuzione senza account Apple Developer (2026-11-08)
+
+Niente Apple Developer Program né certificato Windows a pagamento. Gatekeeper e SmartScreen controllano solo i file segnati come scaricati da internet (`com.apple.quarantine`, Mark of the Web), segno che mettono i browser e non `curl`. Quindi:
+
+- **Script di installazione** `scripts/install-macos.sh`, `install-linux.sh`, `install-windows.cmd`: scaricano con `curl` dalla release (stabile o `--nightly`, letta per id), verificano `SHA256SUMS.txt` e installano. Linux usa l'AppImage nella cartella utente perché l'updater la sostituisce senza password. Windows usa solo `curl.exe`, `findstr` e `certutil` (niente PowerShell) e lancia l'installer NSIS con `/S`. Il `.cmd` resta in CRLF (`.gitattributes`). Gli aggiornamenti successivi li fa già l'updater, che scarica con reqwest e non porta la quarantena.
+- **Firma macOS self-signed stabile** al posto dell'ad-hoc. Gatekeeper non migliora, ma con la firma ad-hoc il requisito designato è l'hash del binario e ogni aggiornamento sembra un'altra app: macOS richiede di nuovo i permessi sulle cartelle e l'accesso al portachiavi, che Studio usa tramite `keyring`. Con il certificato il requisito diventa `certificate root = H"666e96a5…"`.
+- **Stessa identità su ogni builder.** Le build macOS nascono su tre strade: release su runner (anche se il tag parte dal PC Windows), Nightly cloud avviata da `npm run nightly` sugli altri sistemi, Nightly locale dal Mac. Il certificato «OMP Studio Self-Signed» è nei secret `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY` e nel portachiavi di login del Mac; `publish-nightly.mjs` rifiuta una Nightly macOS senza l'identità. Copia del `.p12` in `ricerca/firma-macos/` (fuori da git). Il PC Windows non ne ha bisogno.
+- **Import del keychain nostro, non di Tauri.** Con `APPLE_CERTIFICATE` Tauri cerca solo identità valide e fallisce con «failed to resolve signing identity» sul certificato non fidato. `scripts/ci-import-macos-cert.sh` lo importa e Tauri riceve solo `APPLE_SIGNING_IDENTITY`. La notarizzazione parte solo con `APPLE_ID`; il controllo `spctl`/`stapler` in `release.yml` vale solo in quel caso.
+- **Scartati:** Homebrew tap (brew applica la quarantena e sta togliendo `--no-quarantine`), certificato Apple Development del Mac (personale, scade, non pensato per la distribuzione).
+
+## Lingua dei testi fuori da Paraglide (2026-11-08)
+
+Dopo l'audit delle stringhe rimaste solo in italiano (circa 1400 fra frontend, backend Rust, estensioni omp e relay) ogni testo visibile all'utente segue la lingua dell'interfaccia. Tre meccanismi, uno per strato, nessun catalogo duplicato:
+
+- **Frontend:** Paraglide (`messages/*.json`). Le tabelle statiche con testo (`commands.ts`, `modelSettingsHelpers.ts`, preset dei suggerimenti e delle direttive) sono diventate getter valutati all'uso, così il cambio lingua si applica senza riavvio. I default che finivano nei dati (titoli dell'intelligent-ui) si risolvono al rendering, non al parsing.
+- **Backend Rust:** `src-tauri/src/i18n.rs`, macro `crate::tr!(it, en)`. La lingua è quella che il frontend invia con `desktop_presence_set_locale` all'avvio e a ogni cambio; fino al primo invio vale l'inglese. Scelta contro i codici d'errore strutturati `{ code, params }`: le stringhe restano accanto al punto in cui nascono e non serve un secondo catalogo da tenere allineato. Prezzo accettato: un testo scritto su disco o nel database (motivi di esecuzione, `meta.json` del Laboratorio) resta nella lingua attiva al momento della scrittura. I prompt per il modello restano com'erano, tranne dove l'output compare nella UI (suggerimenti, titoli, ambiguità del task rapido, spiegazioni dei modelli): lì chiedono la lingua corrente.
+- **Estensioni omp:** helper `tr(it, en)` per file, perché le estensioni sono copiate in una cartella e caricate con `-e` (un import fra file fratelli non è affidabile); legge `OMP_STUDIO_LOCALE`, che Studio imposta all'avvio della sessione. Il relay ha il proprio dizionario `t()` e il push parte localizzato in base alla lingua che il client registra con la sottoscrizione (colonna `language`, assente = inglese).
+
+Limite noto: gli errori dei comandi remoti arrivano alla PWA nella lingua della macchina host, non in quella del telefono.

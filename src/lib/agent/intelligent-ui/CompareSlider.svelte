@@ -3,18 +3,24 @@
 -->
 <script lang="ts">
 	import { IconChevronLeft, IconChevronRight } from '../../icons';
+	import { m } from '../../paraglide/messages.js';
 
 	let {
 		before = '',
 		after = '',
-		labelBefore = 'Prima',
-		labelAfter = 'Dopo'
+		labelBefore,
+		labelAfter
 	}: {
 		before: string;
 		after: string;
 		labelBefore?: string;
 		labelAfter?: string;
 	} = $props();
+
+	// Etichette risolte a render time: se l'autore del blocco non le indica
+	// seguono la lingua attiva invece di restare fissate all'italiano.
+	const badgeBefore = $derived(labelBefore || m.l10n_intui_compare_before());
+	const badgeAfter = $derived(labelAfter || m.l10n_intui_compare_after());
 
 	let splitPercent = $state(50);
 	let isDragging = $state(false);
@@ -56,9 +62,9 @@
 
 <div class="compare-card" bind:this={containerEl}>
 	<div class="compare-header">
-		<span class="badge-before">{labelBefore}</span>
-		<span class="compare-title">Confronto</span>
-		<span class="badge-after">{labelAfter}</span>
+		<span class="badge-before">{badgeBefore}</span>
+		<span class="compare-title">{m.l10n_intui_compare_title()}</span>
+		<span class="badge-after">{badgeAfter}</span>
 	</div>
 
 	<div class="compare-stage">
@@ -77,7 +83,7 @@
 			onpointercancel={handlePointerUp}
 			role="slider"
 			aria-valuenow={Math.round(splitPercent)}
-			aria-label="Regola divisione confronto"
+			aria-label={m.l10n_intui_compare_divider_aria()}
 			tabindex="0"
 			onkeydown={handleKeyDown}
 		>

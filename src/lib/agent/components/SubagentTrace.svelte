@@ -68,7 +68,7 @@
 							<StatusMark status={agent?.status ? (agent.status === 'completed' ? 'completed' : agent.status === 'running' ? 'running' : agent.status === 'failed' ? 'failed' : agent.status === 'aborted' ? 'aborted' : 'pending') : 'pending'} />
 							{#if agent?.id}
 								<button type="button" class="agent-name" onclick={() => hooks.openSubagent(agent.id!)}>{agent.agent ?? agent.id}</button>
-							{:else}<strong>{agent?.agent ?? (typeof assignment?.agent === 'string' ? assignment.agent : `Subagente ${index + 1}`)}</strong>{/if}
+							{:else}<strong>{agent?.agent ?? (typeof assignment?.agent === 'string' ? assignment.agent : m.l10n_agentcmp_subagent_index({ n: index + 1 }))}</strong>{/if}
 							<span class="agent-task">{agent?.task ?? agent?.description ?? (typeof assignment?.task === 'string' ? assignment.task : '')}</span>
 							<span class="meta">{agent?.toolCount ?? agent?.recentTools?.length ?? 0} · {duration(agent?.durationMs)}</span>
 						</div>

@@ -5,10 +5,11 @@
   i metadati dell'operazione e l'anteprima del contenuto scritto (troncato a 40 righe).
 -->
 <script lang="ts">
+	import { m } from '#lib/paraglide/messages.js';
 	import KeyValue from '../parts/KeyValue.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
 	import ToolFileHeader from '../parts/ToolFileHeader.svelte';
-	import { asRecord, resultText, str, type ToolRenderProps } from '../types';
+	import { asRecord, formatDecimal, resultText, str, type ToolRenderProps } from '../types';
 
 	let { args, result }: ToolRenderProps = $props();
 
@@ -29,8 +30,8 @@
 			// file ad ogni ricalcolo reattivo, a differenza di `TextEncoder.encode`.
 			const byteLen = new Blob([content]).size;
 			if (byteLen < 1024) return `${byteLen} B`;
-			if (byteLen < 1024 * 1024) return `${(byteLen / 1024).toFixed(1)} KB`;
-			return `${(byteLen / (1024 * 1024)).toFixed(1)} MB`;
+			if (byteLen < 1024 * 1024) return `${formatDecimal(byteLen / 1024, 1)} KB`;
+			return `${formatDecimal(byteLen / (1024 * 1024), 1)} MB`;
 		}
 		return undefined;
 	});
@@ -40,10 +41,10 @@
 		const resolved = str(details?.resolvedPath);
 		const rawPath = str(args.path);
 		if (resolved && rawPath && resolved !== rawPath) {
-			rows.push({ key: 'Percorso risolto', value: resolved });
+			rows.push({ key: m.l10n_tools_label_resolved_path(), value: resolved });
 		}
 		if (writtenBytesLabel) {
-			rows.push({ key: 'Dimensione', value: writtenBytesLabel });
+			rows.push({ key: m.l10n_tools_label_size(), value: writtenBytesLabel });
 		}
 		return rows;
 	});
@@ -57,10 +58,10 @@
 		<KeyValue rows={metaRows} />
 	{/if}
 	{#if content}
-		<OutputBlock text={content} maxLines={40} label="contenuto" />
+		<OutputBlock text={content} maxLines={40} label={m.l10n_tools_label_content()} />
 	{/if}
 	{#if textResult && textResult !== content}
-		<OutputBlock text={textResult} label="risultato" />
+		<OutputBlock text={textResult} label={m.l10n_tools_label_result()} />
 	{/if}
 </div>
 

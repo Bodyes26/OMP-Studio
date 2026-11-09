@@ -4,7 +4,10 @@
 	// JSON pieghevole: il ripiego quando non c'e' niente di meglio da dire su
 	// un payload. Usato da `Generic` e dai renderer per gli argomenti che non
 	// hanno una forma propria.
-	let { value, label = 'argomenti' } = $props<{ value: unknown; label?: string }>();
+	let { value, label = undefined } = $props<{ value: unknown; label?: string }>();
+
+	// Default risolto a ogni cambio lingua, non al montaggio.
+	const labelText = $derived(label ?? m.l10n_tools_label_arguments());
 
 	let open = $state(false);
 	function hasJsonContent(val: unknown): boolean {
@@ -49,7 +52,7 @@
 		try {
 			return JSON.stringify(value, null, 2) ?? '';
 		} catch {
-			return '(payload non serializzabile)';
+			return m.l10n_tools_label_unserializable();
 		}
 	});
 
@@ -73,7 +76,7 @@
 	<details bind:open>
 		<summary>
 			<span class="chevron" aria-hidden="true"><IconChevronRight /></span>
-			<span>{label} · {m.chat_lines_count({ count: lineCount })}</span>
+			<span>{labelText} · {m.chat_lines_count({ count: lineCount })}</span>
 		</summary>
 		{#if open}
 			<pre>{text}</pre>

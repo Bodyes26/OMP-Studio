@@ -96,7 +96,7 @@
 			await automationsStore.putSecret(newSecretKey.trim(), newSecretValue);
 			newSecretKey = '';
 			newSecretValue = '';
-			secretSuccessMsg = 'Segreto salvato nel portachiavi di sistema.';
+			secretSuccessMsg = t('detail_secret_saved');
 			setTimeout(() => { secretSuccessMsg = null; }, 3000);
 		} catch (err) {
 			console.error('Failed to save secret:', err);
@@ -124,14 +124,14 @@
 				</span>
 				<span class="action-kind-pill">
 					{#if definition.action.kind === 'prompt'}
-						<IconTerminal /> Prompt AI
+						<IconTerminal /> {t('view_action_kind_prompt')}
 					{:else}
-						<IconFileCode /> Comando ({definition.action.mode})
+						<IconFileCode /> {t('detail_command_with_mode', { mode: definition.action.mode })}
 					{/if}
 				</span>
-				<span class="revision-pill font-mono">Rev. {definition.revision}</span>
+				<span class="revision-pill font-mono">{t('occ_revision_short', { rev: definition.revision })}</span>
 			</div>
-			<h2 class="def-title">{definition.name || 'Automazione senza nome'}</h2>
+			<h2 class="def-title">{definition.name || t('automation_untitled')}</h2>
 			{#if definition.description}
 				<p class="def-description">{definition.description}</p>
 			{/if}
@@ -152,7 +152,7 @@
 				class="ui-button ui-button-primary text-xs"
 				onclick={handleRunNow}
 				disabled={isRunningNow || definition.state === 'archived'}
-				title="Avvia un'occorrenza manuale con gli stessi controlli e target"
+				title={t('detail_title_run_now')}
 			>
 				<IconPlay />
 				<span>{t('detail_action_run_now')}</span>
@@ -162,7 +162,7 @@
 				type="button"
 				class="ui-button ui-button-secondary text-xs"
 				onclick={() => automationsStore.edit(definition)}
-				title="Apri una bozza di modifica (la versione attiva resta invariata fino a conferma)"
+				title={t('detail_title_edit')}
 			>
 				<IconPencil />
 				<span>{t('detail_action_edit')}</span>
@@ -173,7 +173,7 @@
 					type="button"
 					class="ui-button ui-button-secondary text-xs"
 					onclick={handleToggleState}
-					title="Disattiva programmazioni future senza annullare esecuzioni in corso"
+					title={t('detail_title_disable')}
 				>
 					<IconPause />
 					<span>{t('detail_action_disable')}</span>
@@ -183,7 +183,7 @@
 					type="button"
 					class="ui-button ui-button-secondary text-xs"
 					onclick={handleToggleState}
-					title="Riattiva la regola"
+					title={t('detail_title_enable')}
 				>
 					<IconPlay />
 					<span>{t('detail_action_enable')}</span>
@@ -195,7 +195,7 @@
 					type="button"
 					class="ui-button ui-button-secondary text-xs"
 					onclick={handleArchive}
-					title="Archivia la regola (disattivata e conservata)"
+					title={t('detail_title_archive')}
 				>
 					<span>{t('detail_action_archive')}</span>
 				</button>
@@ -205,7 +205,7 @@
 				type="button"
 				class="ui-button ui-button-danger text-xs"
 				onclick={() => { showDeleteDialog = true; }}
-				title="Elimina definitivamente la regola"
+				title={t('detail_title_delete')}
 			>
 				<IconTrash />
 				<span>{t('detail_action_delete')}</span>
@@ -252,36 +252,36 @@
 			<div class="config-sections">
 				<!-- Azione -->
 				<section class="info-card">
-					<h4 class="card-title">Azione da eseguire</h4>
+					<h4 class="card-title">{t('detail_section_action')}</h4>
 					{#if definition.action.kind === 'prompt'}
 						<div class="field-item">
-							<span class="field-label">Istruzioni Prompt:</span>
+							<span class="field-label">{t('detail_field_prompt')}</span>
 							<pre class="prompt-box">{definition.action.prompt}</pre>
 						</div>
 						<div class="field-grid text-xs">
 							<div>
-								<span class="field-label">Modello / Ruolo:</span>
-								<span class="field-value font-mono">{definition.action.modelMode === 'role' ? `Ruolo "${definition.action.model}"` : definition.action.model}</span>
+								<span class="field-label">{t('detail_field_model_role')}</span>
+								<span class="field-value font-mono">{definition.action.modelMode === 'role' ? t('detail_role_value', { model: definition.action.model }) : definition.action.model}</span>
 							</div>
 							<div>
-								<span class="field-label">Consumo Pay-as-you-go:</span>
-								<span class="field-value">{definition.action.allowPayAsYouGo ? 'Consentito' : 'Vietato (solo abbonamenti)'}</span>
+								<span class="field-label">{t('detail_field_payg')}</span>
+								<span class="field-value">{definition.action.allowPayAsYouGo ? t('detail_payg_allowed') : t('detail_payg_denied')}</span>
 							</div>
 							{#if definition.action.maxCostUsd}
 								<div>
-									<span class="field-label">Tetto costo:</span>
+									<span class="field-label">{t('detail_field_max_cost')}</span>
 									<span class="field-value font-mono">${definition.action.maxCostUsd} USD</span>
 								</div>
 							{/if}
 						</div>
 					{:else}
 						<div class="field-item">
-							<span class="field-label">Comando:</span>
+							<span class="field-label">{t('detail_field_command')}</span>
 							<code class="code-box">{definition.action.command || '—'}</code>
 						</div>
 						{#if definition.action.args && definition.action.args.length > 0}
 							<div class="field-item">
-								<span class="field-label">Argomenti:</span>
+								<span class="field-label">{t('detail_field_args')}</span>
 								<div class="tags-row">
 									{#each definition.action.args as arg}
 										<span class="tag-pill font-mono">{arg}</span>
@@ -291,16 +291,16 @@
 						{/if}
 						<div class="field-grid text-xs">
 							<div>
-								<span class="field-label">Interprete:</span>
+								<span class="field-label">{t('detail_field_interpreter')}</span>
 								<span class="field-value font-mono">{definition.action.interpreter || 'cmd.exe / /bin/sh'}</span>
 							</div>
 							<div>
-								<span class="field-label">Piattaforme:</span>
-								<span class="field-value">{definition.action.platforms.join(', ')}</span>
+								<span class="field-label">{t('detail_field_platforms')}</span>
+								<span class="field-value">{definition.action.platforms.map((p) => t(`platform_${p}` as any)).join(', ')}</span>
 							</div>
 							<div>
-								<span class="field-label">Politica script:</span>
-								<span class="field-value">{definition.action.scriptPolicy === 'review' ? 'Richiedi approvazione a ogni modifica' : 'Segui file (follow)'}</span>
+								<span class="field-label">{t('detail_field_script_policy')}</span>
+								<span class="field-value">{definition.action.scriptPolicy === 'review' ? t('script_policy_review') : t('script_policy_follow')}</span>
 							</div>
 						</div>
 					{/if}
@@ -308,24 +308,24 @@
 
 				<!-- Destinatari -->
 				<section class="info-card">
-					<h4 class="card-title">Destinatari e cartella di lavoro</h4>
+					<h4 class="card-title">{t('detail_section_targets')}</h4>
 					<div class="field-grid text-xs">
 						<div>
-							<span class="field-label">Origine:</span>
-							<span class="field-value">{definition.targets.source}</span>
+							<span class="field-label">{t('detail_field_source')}</span>
+							<span class="field-value">{t(`targets_source_${definition.targets.source}` as any)}</span>
 						</div>
 						<div>
-							<span class="field-label">Modalità esecuzione:</span>
-							<span class="field-value">{definition.targets.mode === 'each' ? 'Per ciascun destinatario' : 'Unica sull’insieme'}</span>
+							<span class="field-label">{t('detail_field_mode')}</span>
+							<span class="field-value">{definition.targets.mode === 'each' ? t('targets_mode_each') : t('targets_mode_aggregate')}</span>
 						</div>
 						<div>
-							<span class="field-label">Cartella CWD:</span>
-							<span class="field-value font-mono">{definition.targets.cwd || 'Radice del progetto'}</span>
+							<span class="field-label">{t('detail_field_cwd')}</span>
+							<span class="field-value font-mono">{definition.targets.cwd || t('detail_cwd_project_root')}</span>
 						</div>
 					</div>
 					{#if definition.targets.projectPaths && definition.targets.projectPaths.length > 0}
 						<div class="field-item text-xs">
-							<span class="field-label">Progetti inclusi:</span>
+							<span class="field-label">{t('detail_field_included_projects')}</span>
 							<div class="tags-row">
 								{#each definition.targets.projectPaths as p}
 									<span class="tag-pill font-mono">{p}</span>
@@ -337,19 +337,19 @@
 
 				<!-- Trigger e pianificazioni -->
 				<section class="info-card">
-					<h4 class="card-title">Programmazione ed eventi ({definition.triggers.length})</h4>
+					<h4 class="card-title">{t('detail_section_triggers', { count: definition.triggers.length })}</h4>
 					<div class="triggers-list">
 						{#each definition.triggers as trig}
 							<div class="trigger-row text-xs">
 								<span class="trigger-kind font-semibold">{t(`trigger_${trig.kind}` as any) || trig.kind}</span>
 								{#if trig.time}
-									<span class="trigger-detail">Orario: {trig.time}</span>
+									<span class="trigger-detail">{t('detail_trigger_time', { time: trig.time })}</span>
 								{/if}
 								{#if trig.weekdays && trig.weekdays.length > 0}
-									<span class="trigger-detail">Giorni: {trig.weekdays.map(d => t(`weekday_${['sun','mon','tue','wed','thu','fri','sat'][d]}` as any)).join(', ')}</span>
+									<span class="trigger-detail">{t('detail_trigger_days', { days: trig.weekdays.map(d => t(`weekday_${['sun','mon','tue','wed','thu','fri','sat'][d]}` as any)).join(', ') })}</span>
 								{/if}
 								{#if trig.intervalMinutes}
-									<span class="trigger-detail">Ogni {formatDuration(trig.intervalMinutes)}</span>
+									<span class="trigger-detail">{t('detail_trigger_every', { duration: formatDuration(trig.intervalMinutes) })}</span>
 								{/if}
 								{#if trig.includePatterns && trig.includePatterns.length > 0}
 									<span class="trigger-detail font-mono">in: {trig.includePatterns.join(', ')}</span>
@@ -361,38 +361,38 @@
 						{/each}
 					</div>
 					<div class="field-item text-xs" style="margin-top: 8px;">
-						<span class="field-label">Fuso orario configurato:</span>
+						<span class="field-label">{t('detail_field_timezone')}</span>
 						<span class="field-value font-mono">{definition.policy.timezone}</span>
 					</div>
 				</section>
 
 				<!-- Politiche operative (Policy) -->
 				<section class="info-card">
-					<h4 class="card-title">Condizioni e limiti (Policy)</h4>
+					<h4 class="card-title">{t('detail_section_policy')}</h4>
 					<div class="field-grid text-xs">
 						<div>
-							<span class="field-label">Timeout esecuzione:</span>
+							<span class="field-label">{t('detail_field_timeout')}</span>
 							<span class="field-value font-mono">{formatDuration(definition.policy.timeoutMinutes)}</span>
 						</div>
 						<div>
-							<span class="field-label">Attesa se occupato:</span>
+							<span class="field-label">{t('detail_field_max_wait')}</span>
 							<span class="field-value font-mono">{formatDuration(definition.policy.maxWaitMinutes)}</span>
 						</div>
 						<div>
-							<span class="field-label">Attesa risposta umana:</span>
+							<span class="field-label">{t('detail_field_human_wait')}</span>
 							<span class="field-value font-mono">{formatDuration(definition.policy.humanWaitMinutes)}</span>
 						</div>
 						<div>
-							<span class="field-label">Scadenze perse:</span>
-							<span class="field-value">{definition.policy.missed === 'notify' ? 'Segnala senza avviare' : definition.policy.missed === 'recover' ? `Recupera (max ${definition.policy.recoveryMinutes}m)` : 'Ignora'}</span>
+							<span class="field-label">{t('detail_field_missed')}</span>
+							<span class="field-value">{definition.policy.missed === 'notify' ? t('detail_missed_notify') : definition.policy.missed === 'recover' ? t('detail_missed_recover', { minutes: definition.policy.recoveryMinutes }) : t('detail_missed_ignore')}</span>
 						</div>
 						<div>
-							<span class="field-label">Sovrapposizioni:</span>
-							<span class="field-value">{definition.policy.overlap === 'coalesce' ? 'Raggruppa successiva (coalesce)' : 'Salta (skip)'}</span>
+							<span class="field-label">{t('detail_field_overlap')}</span>
+							<span class="field-value">{definition.policy.overlap === 'coalesce' ? t('detail_overlap_coalesce') : t('detail_overlap_skip')}</span>
 						</div>
 						<div>
-							<span class="field-label">Riserva quote personali:</span>
-							<span class="field-value font-mono">{definition.policy.quota.shortPct}% breve / {definition.policy.quota.weeklyPct}% sett.</span>
+							<span class="field-label">{t('detail_field_quota')}</span>
+							<span class="field-value font-mono">{t('detail_quota_value', { short: definition.policy.quota.shortPct, weekly: definition.policy.quota.weeklyPct })}</span>
 						</div>
 					</div>
 				</section>
@@ -407,12 +407,12 @@
 		{:else if activeDetailTab === 'secrets'}
 			<div class="secrets-management-panel">
 				<p class="secrets-intro text-xs">
-					I riferimenti a segreti consentono ai comandi di accedere a chiavi private o token conservati nel portachiavi nativo del sistema operativo (Windows Credential Manager / macOS Keychain / Linux Secret Service). I valori non vengono mai inclusi nelle definizioni o negli export.
+					{t('detail_secrets_intro')}
 				</p>
 
 				{#if secretRefsEntries.length > 0}
 					<div class="vault-list">
-						<h5 class="vault-heading text-xs">Segreti referenziati da questa automazione</h5>
+						<h5 class="vault-heading text-xs">{t('detail_secrets_list_heading')}</h5>
 						{#each secretRefsEntries as [envName, vaultId]}
 							<div class="vault-row">
 								<div class="vault-info font-mono text-xs">
@@ -424,7 +424,7 @@
 									type="button"
 									class="ui-button ui-button-ghost action-xs"
 									onclick={() => removeSecret(vaultId)}
-									title="Rimuovi dal portachiavi di sistema"
+									title={t('detail_secret_remove_title')}
 								>
 									<IconTrash />
 								</button>
@@ -435,18 +435,18 @@
 
 				<!-- Aggiungi / Aggiorna valore nel vault -->
 				<div class="add-secret-box">
-					<h5 class="vault-heading text-xs">Registra o aggiorna un segreto nel Vault di sistema</h5>
+					<h5 class="vault-heading text-xs">{t('detail_secrets_add_heading')}</h5>
 					<div class="secret-inputs">
 						<input
 							type="text"
 							class="ui-input text-xs font-mono"
-							placeholder="ID segreto (es. GITHUB_TOKEN)"
+							placeholder={t('detail_secret_key_placeholder')}
 							bind:value={newSecretKey}
 						/>
 						<input
 							type="password"
 							class="ui-input text-xs font-mono"
-							placeholder="Valore segreto"
+							placeholder={t('detail_secret_value_placeholder')}
 							bind:value={newSecretValue}
 						/>
 						<button
@@ -456,7 +456,7 @@
 							disabled={secretSaving || !newSecretKey.trim() || !newSecretValue}
 						>
 							<IconLock />
-							<span>Salva nel Vault</span>
+							<span>{t('detail_secret_save')}</span>
 						</button>
 					</div>
 					{#if secretSuccessMsg}

@@ -108,7 +108,7 @@
 		onClose={onClose}
 	>
 		<div class="io-modal-container">
-			<p class="io-desc text-xs" style="margin: -6px 0 6px;">Condivisione sicura di definizioni senza esportazione di segreti o storico</p>
+			<p class="io-desc text-xs" style="margin: -6px 0 6px;">{t('io_modal_subtitle')}</p>
 			<!-- Sub-tab navigazione -->
 			<div class="io-tabs">
 				<button
@@ -118,7 +118,7 @@
 					onclick={() => { activeTab = 'export'; }}
 				>
 					<IconDownload />
-					<span>Esporta</span>
+					<span>{t('io_tab_export')}</span>
 				</button>
 				<button
 					type="button"
@@ -127,7 +127,7 @@
 					onclick={() => { activeTab = 'import'; }}
 				>
 					<IconArrowUp />
-					<span>Importa</span>
+					<span>{t('io_tab_import')}</span>
 				</button>
 			</div>
 
@@ -137,7 +137,7 @@
 					<p class="io-desc text-xs">{t('io_export_desc')}</p>
 
 					<div class="definitions-selection">
-						<span class="selection-label text-xs font-semibold">Seleziona definizioni ({selectedIds.length}/{definitions.length}):</span>
+						<span class="selection-label text-xs font-semibold">{t('io_select_definitions', { selected: selectedIds.length, total: definitions.length })}</span>
 						<div class="checkboxes-list">
 							{#each definitions as def}
 								<label class="def-checkbox text-xs">
@@ -175,7 +175,7 @@
 					{#if exportedJson}
 						<div class="exported-preview-box">
 							<div class="preview-toolbar">
-								<span class="preview-title text-xs font-mono">JSON GENERATO</span>
+								<span class="preview-title text-xs font-mono">{t('io_generated_json')}</span>
 								<div class="toolbar-btns">
 									<button
 										type="button"
@@ -184,10 +184,10 @@
 									>
 										{#if copied}
 											<IconCheck />
-											<span>Copiato</span>
+											<span>{t('occ_btn_copied')}</span>
 										{:else}
 											<IconCopy />
-											<span>Copia</span>
+											<span>{t('io_copy')}</span>
 										{/if}
 									</button>
 									<button
@@ -196,7 +196,7 @@
 										onclick={downloadJson}
 									>
 										<IconDownload />
-										<span>Scarica file</span>
+										<span>{t('io_download_file')}</span>
 									</button>
 								</div>
 							</div>
@@ -212,10 +212,10 @@
 					<div class="file-picker-row">
 						<label class="file-upload-label ui-button ui-button-secondary text-xs">
 							<IconFileCode />
-							<span>Carica file JSON</span>
+							<span>{t('io_upload_json')}</span>
 							<input type="file" accept=".json" onchange={handleFileSelected} class="hidden-input" />
 						</label>
-						<span class="text-xs text-muted">oppure incolla il JSON qui sotto:</span>
+						<span class="text-xs text-muted">{t('io_or_paste')}</span>
 					</div>
 
 					<textarea

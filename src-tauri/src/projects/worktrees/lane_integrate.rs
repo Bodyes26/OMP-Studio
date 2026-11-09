@@ -175,8 +175,13 @@ fn ensure_git_supports_merge_tree(version: Option<(u32, u32, u32)>) -> Result<()
         Some((major, minor, patch)) if (major, minor, patch) < MIN_MERGE_TREE_VERSION => {
             Err(WorktreeError::new(
                 WorktreeErrorCode::GitTooOld,
-                format!(
-                    "Integrazione corsie: serve Git 2.38 o successivo (trovato {major}.{minor})"
+                crate::tr!(
+                    format!(
+                        "Integrazione corsie: serve Git 2.38 o successivo (trovato {major}.{minor})"
+                    ),
+                    format!(
+                        "Lane integration: Git 2.38 or later is required (found {major}.{minor})"
+                    )
                 ),
             ))
         }
@@ -190,7 +195,7 @@ fn git_text(cwd: &Path, args: &[&str]) -> Result<String, WorktreeError> {
         cwd,
         &git_args(args),
         WorktreeErrorCode::GitCommandFailed,
-        "Git ha rifiutato un controllo richiesto dall'integrazione",
+        crate::tr!("Git ha rifiutato un controllo richiesto dall'integrazione", "Git rejected a check required by the integration"),
     )?;
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
@@ -200,7 +205,7 @@ pub(crate) fn porcelain_files(cwd: &Path) -> Result<Vec<String>, WorktreeError> 
         cwd,
         &git_args(&["status", "--porcelain=v1", "--untracked-files=all", "-z"]),
         WorktreeErrorCode::GitCommandFailed,
-        "Impossibile verificare se il working tree e' pulito",
+        crate::tr!("Impossibile verificare se il working tree e' pulito", "Cannot verify whether the working tree is clean"),
     )?;
     Ok(super::parse_porcelain_z_dirty_files(&output.stdout))
 }
@@ -210,7 +215,7 @@ pub(crate) fn unmerged_paths(cwd: &Path) -> Result<Vec<String>, WorktreeError> {
         cwd,
         &git_args(&["ls-files", "-u", "-z"]),
         WorktreeErrorCode::GitCommandFailed,
-        "Impossibile verificare i conflitti Git",
+        crate::tr!("Impossibile verificare i conflitti Git", "Cannot verify the Git conflicts"),
     )?;
     let mut files = Vec::new();
     for raw in output
@@ -246,7 +251,7 @@ pub(crate) fn attached_branch(cwd: &Path) -> Result<Option<String>, WorktreeErro
     }
     Err(WorktreeError::with_detail(
         WorktreeErrorCode::GitCommandFailed,
-        "Impossibile determinare il branch checked out",
+        crate::tr!("Impossibile determinare il branch checked out", "Cannot determine the checked out branch"),
         output_detail(&output),
     ))
 }
@@ -261,7 +266,7 @@ fn merge_in_progress(cwd: &Path) -> Result<bool, WorktreeError> {
         Some(1) => Ok(false),
         _ => Err(WorktreeError::with_detail(
             WorktreeErrorCode::GitCommandFailed,
-            "Impossibile verificare se un merge e' in corso",
+            crate::tr!("Impossibile verificare se un merge e' in corso", "Cannot verify whether a merge is in progress"),
             output_detail(&output),
         )),
     }
@@ -277,7 +282,7 @@ fn is_ancestor(cwd: &Path, ancestor: &str, descendant: &str) -> Result<bool, Wor
         Some(1) => Ok(false),
         _ => Err(WorktreeError::with_detail(
             WorktreeErrorCode::GitCommandFailed,
-            "Impossibile confrontare la storia dei commit",
+            crate::tr!("Impossibile confrontare la storia dei commit", "Cannot compare the commit history"),
             output_detail(&output),
         )),
     }
@@ -314,7 +319,7 @@ fn diff_quiet(cwd: &Path, extra: &[&str]) -> Result<bool, WorktreeError> {
         Some(1) => Ok(false),
         _ => Err(WorktreeError::with_detail(
             WorktreeErrorCode::GitCommandFailed,
-            "Impossibile confrontare il working tree con il commit atteso",
+            crate::tr!("Impossibile confrontare il working tree con il commit atteso", "Cannot compare the working tree with the expected commit"),
             output_detail(&output),
         )),
     }
@@ -325,7 +330,7 @@ fn untracked_empty(cwd: &Path) -> Result<bool, WorktreeError> {
         cwd,
         &git_args(&["ls-files", "--others", "--exclude-standard", "-z"]),
         WorktreeErrorCode::GitCommandFailed,
-        "Impossibile elencare i file non tracciati",
+        crate::tr!("Impossibile elencare i file non tracciati", "Cannot list the untracked files"),
     )?;
     Ok(output.stdout.iter().all(|byte| *byte == 0))
 }
@@ -382,7 +387,7 @@ fn no_hooks_path(cwd: &Path) -> Result<String, WorktreeError> {
     }
     Err(WorktreeError::new(
         WorktreeErrorCode::Internal,
-        "Impossibile scegliere una cartella hook vuota per l'integrazione",
+        crate::tr!("Impossibile scegliere una cartella hook vuota per l'integrazione", "Cannot pick an empty hooks folder for the integration"),
     ))
 }
 
@@ -406,7 +411,7 @@ fn git_without_hooks(cwd: &Path, args: &[&str]) -> Result<std::process::Output, 
     command.output().map_err(|error| {
         WorktreeError::with_detail(
             WorktreeErrorCode::GitUnavailable,
-            "Git non e' disponibile",
+            crate::tr!("Git non e' disponibile", "Git is not available"),
             error.to_string(),
         )
     })
@@ -429,7 +434,7 @@ fn reset_hard(cwd: &Path, sha: &str) -> Result<(), WorktreeError> {
     git_without_hooks_ok(
         cwd,
         &["reset", "--hard", "--quiet", sha],
-        "Il checkout non si e' allineato al commit",
+        crate::tr!("Il checkout non si e' allineato al commit", "The checkout did not align with the commit"),
     )
 }
 
@@ -444,7 +449,7 @@ fn update_ref(cwd: &Path, branch: &str, new_sha: &str, old_sha: &str) -> Result<
     } else {
         Err(WorktreeError::with_detail(
             WorktreeErrorCode::TargetMoved,
-            "Il branch target e' cambiato durante l'operazione e non e' stato modificato",
+            crate::tr!("Il branch target e' cambiato durante l'operazione e non e' stato modificato", "The target branch changed during the operation and was left untouched"),
             output_detail(&output),
         ))
     }
@@ -457,7 +462,7 @@ fn abort_merge(cwd: &Path) -> Result<(), WorktreeError> {
     } else {
         Err(WorktreeError::with_detail(
             WorktreeErrorCode::GitCommandFailed,
-            "Il merge nella corsia non e' stato annullato",
+            crate::tr!("Il merge nella corsia non e' stato annullato", "The merge in the lane was not aborted"),
             output_detail(&output),
         ))
     }
@@ -597,7 +602,7 @@ fn resolve_target_name(
         (Some(requested), Some(registered)) if requested != registered => {
             return Err(WorktreeError::new(
                 WorktreeErrorCode::InvalidTargetBranch,
-                "Il branch richiesto non coincide con il target registrato della corsia",
+                crate::tr!("Il branch richiesto non coincide con il target registrato della corsia", "The requested branch does not match the lane registered target"),
             ));
         }
         (Some(requested), _) => requested.to_string(),
@@ -611,7 +616,7 @@ fn ensure_lane_not_main(worktree: &Path, repository_root: &Path) -> Result<(), W
     if same_path(worktree, repository_root) {
         return Err(WorktreeError::new(
             WorktreeErrorCode::UnsafeWorktreePath,
-            "L'operazione non viene eseguita nel worktree principale",
+            crate::tr!("L'operazione non viene eseguita nel worktree principale", "The operation is not performed in the main worktree"),
         ));
     }
     Ok(())
@@ -621,14 +626,14 @@ fn validate_message(message: &str) -> Result<String, WorktreeError> {
     if message.contains('\0') || message.len() > MAX_MESSAGE_BYTES {
         return Err(WorktreeError::new(
             WorktreeErrorCode::MessageInvalid,
-            "Il messaggio di commit non e' utilizzabile",
+            crate::tr!("Il messaggio di commit non e' utilizzabile", "The commit message cannot be used"),
         ));
     }
     let trimmed = message.trim();
     if trimmed.is_empty() {
         return Err(WorktreeError::new(
             WorktreeErrorCode::MessageInvalid,
-            "Lo squash richiede un messaggio di commit",
+            crate::tr!("Lo squash richiede un messaggio di commit", "The squash requires a commit message"),
         ));
     }
     Ok(trimmed.to_string())
@@ -666,7 +671,7 @@ fn commit_tree_parents(
     let mut child = command.spawn().map_err(|error| {
         WorktreeError::with_detail(
             WorktreeErrorCode::GitUnavailable,
-            "Git non e' disponibile",
+            crate::tr!("Git non e' disponibile", "Git is not available"),
             error.to_string(),
         )
     })?;
@@ -674,13 +679,13 @@ fn commit_tree_parents(
         let mut stdin = child.stdin.take().ok_or_else(|| {
             WorktreeError::new(
                 WorktreeErrorCode::Internal,
-                "Impossibile scrivere il messaggio di commit",
+                crate::tr!("Impossibile scrivere il messaggio di commit", "Cannot write the commit message"),
             )
         })?;
         stdin.write_all(message.as_bytes()).map_err(|error| {
             WorktreeError::with_detail(
                 WorktreeErrorCode::GitCommandFailed,
-                "Impossibile scrivere il messaggio di commit",
+                crate::tr!("Impossibile scrivere il messaggio di commit", "Cannot write the commit message"),
                 error.to_string(),
             )
         })?;
@@ -688,14 +693,14 @@ fn commit_tree_parents(
     let output = child.wait_with_output().map_err(|error| {
         WorktreeError::with_detail(
             WorktreeErrorCode::GitCommandFailed,
-            "commit-tree non e' terminato",
+            crate::tr!("commit-tree non e' terminato", "commit-tree did not terminate"),
             error.to_string(),
         )
     })?;
     if !output.status.success() {
         return Err(WorktreeError::with_detail(
             WorktreeErrorCode::GitCommandFailed,
-            "Git non ha creato il commit di integrazione",
+            crate::tr!("Git non ha creato il commit di integrazione", "Git did not create the integration commit"),
             output_detail(&output),
         ));
     }
@@ -705,7 +710,7 @@ fn commit_tree_parents(
     require_explicit_sha(
         &sha,
         WorktreeErrorCode::GitCommandFailed,
-        "Git ha restituito un commit di integrazione non valido",
+        crate::tr!("Git ha restituito un commit di integrazione non valido", "Git returned an invalid integration commit"),
     )
 }
 
@@ -761,7 +766,7 @@ pub(crate) fn add_pending_remote_delete(
     if !output.status.success() {
         return Err(WorktreeError::with_detail(
             WorktreeErrorCode::GitCommandFailed,
-            "Impossibile registrare la cancellazione remota differita",
+            crate::tr!("Impossibile registrare la cancellazione remota differita", "Cannot record the deferred remote deletion"),
             output_detail(&output),
         ));
     }
@@ -800,7 +805,7 @@ fn sync_checkout(
     if attached_branch(root).map_err(untouched)?.as_deref() != Some(target_branch) {
         return Err(untouched(WorktreeError::new(
             WorktreeErrorCode::CheckoutMismatch,
-            "Il checkout principale non e' piu' sul branch target",
+            crate::tr!("Il checkout principale non e' piu' sul branch target", "The main checkout is no longer on the target branch"),
         )));
     }
     if resolve_commit(root, "HEAD").map_err(untouched)? == to_sha
@@ -811,7 +816,7 @@ fn sync_checkout(
     if !worktree_matches_commit(root, from_sha).map_err(untouched)? {
         return Err(untouched(WorktreeError::new(
             WorktreeErrorCode::TargetDirty,
-            "Il checkout target e' cambiato durante l'operazione",
+            crate::tr!("Il checkout target e' cambiato durante l'operazione", "The target checkout changed during the operation"),
         )));
     }
     reset_hard(root, to_sha).map_err(touched)?;
@@ -820,7 +825,7 @@ fn sync_checkout(
     {
         return Err(touched(WorktreeError::new(
             WorktreeErrorCode::GitCommandFailed,
-            "Il checkout target non coincide con il commit atteso",
+            crate::tr!("Il checkout target non coincide con il commit atteso", "The target checkout does not match the expected commit"),
         )));
     }
     Ok(())
@@ -837,19 +842,19 @@ fn sync_checkout_preserving(
     if attached_branch(root).map_err(untouched)?.as_deref() != Some(target_branch) {
         return Err(untouched(WorktreeError::new(
             WorktreeErrorCode::CheckoutMismatch,
-            "Il checkout principale non e' piu' sul branch target",
+            crate::tr!("Il checkout principale non e' piu' sul branch target", "The main checkout is no longer on the target branch"),
         )));
     }
     git_without_hooks_ok(
         root,
         &["read-tree", "-m", "-u", from_sha, to_sha],
-        "read-tree non ha aggiornato il checkout target",
+        crate::tr!("read-tree non ha aggiornato il checkout target", "read-tree did not update the target checkout"),
     )
     .map_err(touched)?;
     if resolve_commit(root, "HEAD").map_err(touched)? != to_sha {
         return Err(touched(WorktreeError::new(
             WorktreeErrorCode::GitCommandFailed,
-            "Il checkout target non coincide con il commit di destinazione",
+            crate::tr!("Il checkout target non coincide con il commit di destinazione", "The target checkout does not match the destination commit"),
         )));
     }
     Ok(())
@@ -878,7 +883,7 @@ fn git_without_hooks_input(
     let mut child = command.spawn().map_err(|error| {
         WorktreeError::with_detail(
             WorktreeErrorCode::GitUnavailable,
-            "Git non e' disponibile",
+            crate::tr!("Git non e' disponibile", "Git is not available"),
             error.to_string(),
         )
     })?;
@@ -925,7 +930,7 @@ fn restore_changed_paths(
             to_sha,
         ]),
         WorktreeErrorCode::GitCommandFailed,
-        "Impossibile determinare i file da ripristinare",
+        crate::tr!("Impossibile determinare i file da ripristinare", "Cannot determine the files to restore"),
     )?;
     let mut to_checkout: Vec<u8> = Vec::new();
     let mut to_delete: Vec<String> = Vec::new();
@@ -959,7 +964,7 @@ fn restore_changed_paths(
                 "--pathspec-file-nul",
             ],
             &to_checkout,
-            "Impossibile ripristinare i file del checkout target",
+            crate::tr!("Impossibile ripristinare i file del checkout target", "Cannot restore the target checkout files"),
         )?;
     }
     for path in &to_delete {
@@ -976,7 +981,7 @@ fn restore_changed_paths(
                 "--pathspec-file-nul",
             ],
             input.as_bytes(),
-            "Impossibile togliere dall'indice un file dell'aggiornamento annullato",
+            crate::tr!("Impossibile togliere dall'indice un file dell'aggiornamento annullato", "Cannot unstage a file from the reverted update"),
         )?;
         let absolute = root.join(path);
         if std::fs::symlink_metadata(&absolute)
@@ -985,7 +990,10 @@ fn restore_changed_paths(
             std::fs::remove_file(&absolute).map_err(|error| {
                 WorktreeError::with_detail(
                     WorktreeErrorCode::GitCommandFailed,
-                    format!("Impossibile rimuovere '{path}' dal checkout target"),
+                    crate::tr!(
+                        format!("Impossibile rimuovere '{path}' dal checkout target"),
+                        format!("Cannot remove '{path}' from the target checkout")
+                    ),
                     error.to_string(),
                 )
             })?;
@@ -1014,7 +1022,7 @@ fn restore_checkout(
     if resolve_commit(root, "HEAD")? != to_sha {
         return Err(WorktreeError::new(
             WorktreeErrorCode::GitCommandFailed,
-            "Il checkout target non coincide con il commit ripristinato",
+            crate::tr!("Il checkout target non coincide con il commit ripristinato", "The target checkout does not match the restored commit"),
         ));
     }
     Ok(())
@@ -1034,7 +1042,7 @@ pub(super) fn restore_checkout_for_tests(
 fn checkout_left_halfway(detail: String) -> WorktreeError {
     WorktreeError::with_detail(
         WorktreeErrorCode::CheckoutSyncFailed,
-        "Il branch target e' stato ripristinato, ma alcuni file del checkout principale sono rimasti a meta'. Esegui git status nel progetto, chiudi i programmi che bloccano i file e riprova",
+        crate::tr!("Il branch target e' stato ripristinato, ma alcuni file del checkout principale sono rimasti a meta'. Esegui git status nel progetto, chiudi i programmi che bloccano i file e riprova", "The target branch was restored, but some files of the main checkout are still half done. Run git status in the project, close the programs locking the files and retry"),
         detail,
     )
 }
@@ -1056,7 +1064,7 @@ fn diff_name_only_z(cwd: &Path, from: &str, to: &str) -> Result<Vec<String>, Wor
         cwd,
         &git_args(&["diff", "--name-only", "--no-renames", "-z", from, to]),
         WorktreeErrorCode::GitCommandFailed,
-        "Impossibile determinare i file modificati",
+        crate::tr!("Impossibile determinare i file modificati", "Cannot determine the changed files"),
     )?;
     let mut files = Vec::new();
     for raw in output
@@ -1128,7 +1136,11 @@ fn list_for_message(files: &[String]) -> String {
         .collect::<Vec<_>>()
         .join(", ");
     if files.len() > MAX_LISTED_FILES {
-        text.push_str(&format!(" (e altri {})", files.len() - MAX_LISTED_FILES));
+        let rest = files.len() - MAX_LISTED_FILES;
+        text.push_str(&crate::tr!(
+            format!(" (e altri {})", rest),
+            format!(" (and {} more)", rest)
+        ));
     }
     text
 }
@@ -1156,7 +1168,7 @@ fn ignored_files_overwritten(
             "-z",
         ]),
         WorktreeErrorCode::GitCommandFailed,
-        "Impossibile elencare i file ignorati del checkout target",
+        crate::tr!("Impossibile elencare i file ignorati del checkout target", "Cannot list the ignored files of the target checkout"),
     )?;
     let ignored: Vec<String> = output
         .stdout
@@ -1188,9 +1200,15 @@ fn ensure_no_ignored_overwrite(root: &Path, changed: &[String]) -> Result<(), Wo
     }
     Err(WorktreeError::with_detail(
         WorktreeErrorCode::TargetDirty,
-        format!(
-            "Il checkout target contiene file ignorati da Git che l'operazione sovrascriverebbe: {}. Spostali o rinominali e riprova",
-            list_for_message(&hits)
+        crate::tr!(
+            format!(
+                "Il checkout target contiene file ignorati da Git che l'operazione sovrascriverebbe: {}. Spostali o rinominali e riprova",
+                list_for_message(&hits)
+            ),
+            format!(
+                "The target checkout contains Git-ignored files that the operation would overwrite: {}. Move or rename them and retry",
+                list_for_message(&hits)
+            )
         ),
         hits.join("\n"),
     ))
@@ -1224,7 +1242,7 @@ fn merge_tree_write(
             let tree = require_explicit_sha(
                 first_line,
                 WorktreeErrorCode::GitCommandFailed,
-                "merge-tree ha restituito un OID albero non valido",
+                crate::tr!("merge-tree ha restituito un OID albero non valido", "merge-tree returned an invalid tree OID"),
             )?;
             Ok(MergeTreeResult::Clean { tree })
         }
@@ -1257,7 +1275,7 @@ fn merge_target_into_lane(
     if target_after != target_before {
         return Err(WorktreeError::new(
             WorktreeErrorCode::Internal,
-            "L'aggiornamento della corsia ha modificato il branch target",
+            crate::tr!("L'aggiornamento della corsia ha modificato il branch target", "The lane refresh modified the target branch"),
         ));
     }
 
@@ -1277,12 +1295,15 @@ fn merge_target_into_lane(
     if head_after != head_before || merge_in_progress(worktree)? {
         return Err(WorktreeError::new(
             WorktreeErrorCode::GitCommandFailed,
-            "L'aggiornamento della corsia e' fallito e il rollback non ha ripristinato HEAD",
+            crate::tr!("L'aggiornamento della corsia e' fallito e il rollback non ha ripristinato HEAD", "The lane refresh failed and the rollback did not restore HEAD"),
         ));
     }
     Err(WorktreeError::with_detail(
         WorktreeErrorCode::GitCommandFailed,
-        format!("Impossibile aggiornare la corsia da '{target_branch}'"),
+        crate::tr!(
+            format!("Impossibile aggiornare la corsia da '{target_branch}'"),
+            format!("Cannot update the lane from '{target_branch}'")
+        ),
         output_detail(&output),
     ))
 }
@@ -1311,7 +1332,7 @@ pub(crate) fn land_sync(args: WorktreeLandArgs) -> Result<WorktreeLandOutcome, W
     let lane_branch = entry.branch.clone().ok_or_else(|| {
         WorktreeError::new(
             WorktreeErrorCode::UnmanagedWorktree,
-            "La corsia non ha un branch",
+            crate::tr!("La corsia non ha un branch", "The lane has no branch"),
         )
     })?;
     let is_adopted = super::config_get(&context, &lane_branch, "ompStudioAdopted")?
@@ -1321,7 +1342,7 @@ pub(crate) fn land_sync(args: WorktreeLandArgs) -> Result<WorktreeLandOutcome, W
         if reg_lane_id.as_deref() != Some(lane_id.as_str()) {
             return Err(WorktreeError::new(
                 WorktreeErrorCode::InvalidLaneId,
-                "Il branch della corsia non corrisponde all'identificatore confermato",
+                crate::tr!("Il branch della corsia non corrisponde all'identificatore confermato", "The lane branch does not match the confirmed identifier"),
             ));
         }
     } else {
@@ -1329,7 +1350,7 @@ pub(crate) fn land_sync(args: WorktreeLandArgs) -> Result<WorktreeLandOutcome, W
         if lane_branch != expected_branch {
             return Err(WorktreeError::new(
                 WorktreeErrorCode::InvalidLaneId,
-                "Il branch della corsia non corrisponde all'identificatore confermato",
+                crate::tr!("Il branch della corsia non corrisponde all'identificatore confermato", "The lane branch does not match the confirmed identifier"),
             ));
         }
     }
@@ -1357,7 +1378,7 @@ pub(crate) fn land_sync(args: WorktreeLandArgs) -> Result<WorktreeLandOutcome, W
     if !active_processes.is_empty() {
         return Err(WorktreeError::with_detail(
             WorktreeErrorCode::ProcessesActive,
-            "La corsia ha processi attivi e l'integrazione non parte",
+            crate::tr!("La corsia ha processi attivi e l'integrazione non parte", "The lane has active processes and the integration does not start"),
             describe_processes(&active_processes),
         ));
     }
@@ -1400,7 +1421,7 @@ pub(crate) fn land_sync(args: WorktreeLandArgs) -> Result<WorktreeLandOutcome, W
         git_without_hooks_ok(
             &worktree,
             &["commit", "--no-edit"],
-            "Impossibile completare il merge in corso nella corsia",
+            crate::tr!("Impossibile completare il merge in corso nella corsia", "Cannot complete the merge in progress in the lane"),
         )?;
     }
 
@@ -1411,14 +1432,14 @@ pub(crate) fn land_sync(args: WorktreeLandArgs) -> Result<WorktreeLandOutcome, W
         git_without_hooks_ok(
             &worktree,
             &add_refs,
-            "Impossibile preparare le modifiche della corsia (git add)",
+            crate::tr!("Impossibile preparare le modifiche della corsia (git add)", "Cannot stage the lane changes (git add)"),
         )?;
         // Senza nulla in stage (es. solo file locali esclusi) `commit` fallirebbe.
         if !diff_quiet(&worktree, &["--cached"])? {
             git_without_hooks_ok(
                 &worktree,
                 &["commit", "-m", &message],
-                "Impossibile creare il commit delle modifiche della corsia",
+                crate::tr!("Impossibile creare il commit delle modifiche della corsia", "Cannot create the commit of the lane changes"),
             )?;
         }
     }
@@ -1468,7 +1489,7 @@ pub(crate) fn land_sync(args: WorktreeLandArgs) -> Result<WorktreeLandOutcome, W
                                 if retried_clean {
                                     return Err(WorktreeError::new(
                                         WorktreeErrorCode::Internal,
-                                        "Conflitto inaspettato dopo il merge del target nella corsia",
+                                        crate::tr!("Conflitto inaspettato dopo il merge del target nella corsia", "Unexpected conflict after merging the target into the lane"),
                                     ));
                                 }
                                 retried_clean = true;
@@ -1512,7 +1533,7 @@ pub(crate) fn land_sync(args: WorktreeLandArgs) -> Result<WorktreeLandOutcome, W
                             if retried_clean {
                                 return Err(WorktreeError::new(
                                     WorktreeErrorCode::Internal,
-                                    "Conflitto inaspettato dopo il merge del target nella corsia",
+                                    crate::tr!("Conflitto inaspettato dopo il merge del target nella corsia", "Unexpected conflict after merging the target into the lane"),
                                 ));
                             }
                             retried_clean = true;
@@ -1543,13 +1564,13 @@ pub(crate) fn land_sync(args: WorktreeLandArgs) -> Result<WorktreeLandOutcome, W
     if attached_branch(&context.repository_root)?.as_deref() != Some(&target_branch) {
         return Err(WorktreeError::new(
             WorktreeErrorCode::CheckoutMismatch,
-            "Il checkout principale non e' sul branch di destinazione",
+            crate::tr!("Il checkout principale non e' sul branch di destinazione", "The main checkout is not on the destination branch"),
         ));
     }
     if !unmerged_paths(&context.repository_root)?.is_empty() {
         return Err(WorktreeError::new(
             WorktreeErrorCode::ConflictsPresent,
-            "Il checkout principale ha conflitti non risolti",
+            crate::tr!("Il checkout principale ha conflitti non risolti", "The main checkout has unresolved conflicts"),
         ));
     }
 
@@ -1618,7 +1639,7 @@ pub(crate) fn land_sync(args: WorktreeLandArgs) -> Result<WorktreeLandOutcome, W
         {
             return Err(WorktreeError::with_detail(
                 WorktreeErrorCode::CheckoutSyncFailed,
-                "Il commit e' sul target ma il checkout non e' allineato: il tentativo successivo non crea un altro merge",
+                crate::tr!("Il commit e' sul target ma il checkout non e' allineato: il tentativo successivo non crea un altro merge", "The commit is on the target but the checkout is not aligned: the next attempt will not create another merge"),
                 failure.error.message,
             ));
         }
@@ -1637,7 +1658,7 @@ pub(crate) fn land_sync(args: WorktreeLandArgs) -> Result<WorktreeLandOutcome, W
         }
         return Err(WorktreeError::with_detail(
             WorktreeErrorCode::GitCommandFailed,
-            "Integrazione annullata senza modificare il target",
+            crate::tr!("Integrazione annullata senza modificare il target", "Integration cancelled without touching the target"),
             failure.error.message,
         ));
     }
@@ -1650,13 +1671,13 @@ pub(crate) fn land_sync(args: WorktreeLandArgs) -> Result<WorktreeLandOutcome, W
     if verified != new_commit {
         return Err(WorktreeError::new(
             WorktreeErrorCode::CheckoutSyncFailed,
-            "Il commit di integrazione non risulta sul branch target",
+            crate::tr!("Il commit di integrazione non risulta sul branch target", "The integration commit is not on the target branch"),
         ));
     }
     if resolve_tree(&context.repository_root, &new_commit)? != merged_tree {
         return Err(WorktreeError::new(
             WorktreeErrorCode::GitCommandFailed,
-            "L'albero del commit squash non coincide con quello generato dal merge",
+            crate::tr!("L'albero del commit squash non coincide con quello generato dal merge", "The squash commit tree does not match the one produced by the merge"),
         ));
     }
 
@@ -1690,18 +1711,21 @@ pub(crate) fn undo_land_sync(
     let commit = require_explicit_sha(
         &args.commit,
         WorktreeErrorCode::TargetMoved,
-        "Lo SHA del commit da annullare non e' valido",
+        crate::tr!("Lo SHA del commit da annullare non e' valido", "The SHA of the commit to undo is not valid"),
     )?;
     let previous_target = require_explicit_sha(
         &args.previous_target,
         WorktreeErrorCode::TargetMoved,
-        "Lo SHA del target precedente non e' valido",
+        crate::tr!("Lo SHA del target precedente non e' valido", "The SHA of the previous target is not valid"),
     )?;
 
     if attached_branch(&context.repository_root)?.as_deref() != Some(&target_branch) {
         return Err(WorktreeError::new(
             WorktreeErrorCode::CheckoutMismatch,
-            "Il checkout principale non e' sul branch target",
+            crate::tr!(
+                "Il checkout principale non e' sul branch target",
+                "The main checkout is not on the target branch"
+            ),
         ));
     }
 
@@ -1712,7 +1736,7 @@ pub(crate) fn undo_land_sync(
     if current_target != commit {
         return Err(WorktreeError::new(
             WorktreeErrorCode::TargetMoved,
-            "Il branch target e' avanzato rispetto al commit da annullare",
+            crate::tr!("Il branch target e' avanzato rispetto al commit da annullare", "The target branch moved past the commit to undo"),
         ));
     }
     // L'annullamento riporta il ref al genitore diretto dello squash: con un
@@ -1722,14 +1746,14 @@ pub(crate) fn undo_land_sync(
     if parent != previous_target {
         return Err(WorktreeError::new(
             WorktreeErrorCode::TargetMoved,
-            "Il commit da annullare non e' figlio diretto del target precedente indicato",
+            crate::tr!("Il commit da annullare non e' figlio diretto del target precedente indicato", "The commit to undo is not a direct child of the given previous target"),
         ));
     }
 
     if !unmerged_paths(&context.repository_root)?.is_empty() {
         return Err(WorktreeError::new(
             WorktreeErrorCode::ConflictsPresent,
-            "Il checkout principale ha conflitti non risolti",
+            crate::tr!("Il checkout principale ha conflitti non risolti", "The main checkout has unresolved conflicts"),
         ));
     }
 
@@ -1739,7 +1763,7 @@ pub(crate) fn undo_land_sync(
     if !overlapping.is_empty() {
         return Err(WorktreeError::with_detail(
             WorktreeErrorCode::TargetDirty,
-            "I file modificati localmente nel target si sovrappongono alle modifiche da annullare",
+            crate::tr!("I file modificati localmente nel target si sovrappongono alle modifiche da annullare", "The files changed locally in the target overlap the changes to undo"),
             overlapping.join(", "),
         ));
     }
@@ -1785,7 +1809,7 @@ pub(crate) fn undo_land_sync(
             clear_receipt(&context, &lane_branch);
             return Err(WorktreeError::with_detail(
                 WorktreeErrorCode::CheckoutSyncFailed,
-                "Il branch target e' tornato al commit precedente ma il checkout non e' allineato. Esegui git status nel progetto, chiudi i programmi che bloccano i file e riprova",
+                crate::tr!("Il branch target e' tornato al commit precedente ma il checkout non e' allineato. Esegui git status nel progetto, chiudi i programmi che bloccano i file e riprova", "The target branch is back at the previous commit but the checkout is not aligned. Run git status in the project, close the programs locking the files and retry"),
                 failure.error.message,
             ));
         }
@@ -1801,7 +1825,7 @@ pub(crate) fn undo_land_sync(
         }
         return Err(WorktreeError::with_detail(
             WorktreeErrorCode::CheckoutSyncFailed,
-            "Impossibile allineare il checkout target al commit precedente durante l'annullamento",
+            crate::tr!("Impossibile allineare il checkout target al commit precedente durante l'annullamento", "Cannot align the target checkout with the previous commit during the undo"),
             failure.error.message,
         ));
     }
@@ -1830,7 +1854,7 @@ pub(crate) fn undo_land_sync(
         if counter > 1000 {
             return Err(WorktreeError::new(
                 WorktreeErrorCode::Internal,
-                "Impossibile creare il branch di ripristino della corsia",
+                crate::tr!("Impossibile creare il branch di ripristino della corsia", "Cannot create the lane restore branch"),
             ));
         }
     };
@@ -1952,7 +1976,7 @@ fn count_entries(cwd: &Path, args: &[&str], separator: u8) -> Result<u32, Worktr
         cwd,
         &git_args(args),
         WorktreeErrorCode::GitCommandFailed,
-        "Impossibile contare il lavoro non integrato della corsia",
+        crate::tr!("Impossibile contare il lavoro non integrato della corsia", "Cannot count the unintegrated work of the lane"),
     )?;
     let count = output
         .stdout
@@ -2075,7 +2099,7 @@ pub(crate) fn delete_lane_branch_sync(args: DeleteLaneBranchArgs) -> Result<(), 
     if !args.confirm {
         return Err(WorktreeError::new(
             WorktreeErrorCode::ConfirmationRequired,
-            "L'eliminazione del branch richiede una conferma distinta",
+            crate::tr!("L'eliminazione del branch richiede una conferma distinta", "Deleting the branch requires a separate confirmation"),
         ));
     }
     let context = discover_repository(&args.project_path)?;
@@ -2092,7 +2116,7 @@ pub(crate) fn delete_lane_branch_sync(args: DeleteLaneBranchArgs) -> Result<(), 
     if is_checked_out {
         return Err(WorktreeError::new(
             WorktreeErrorCode::WorktreeInUse,
-            "Il branch e' ancora checked out: nessun force e' stato usato",
+            crate::tr!("Il branch e' ancora checked out: nessun force e' stato usato", "The branch is still checked out: no force was used"),
         ));
     }
     if state.adopted {
@@ -2104,7 +2128,7 @@ pub(crate) fn delete_lane_branch_sync(args: DeleteLaneBranchArgs) -> Result<(), 
             if !output.status.success() {
                 return Err(WorktreeError::with_detail(
                     WorktreeErrorCode::GitCommandFailed,
-                    "Git non ha eliminato il branch con branch -d",
+                    crate::tr!("Git non ha eliminato il branch con branch -d", "Git did not delete the branch with branch -d"),
                     output_detail(&output),
                 ));
             }
@@ -2116,7 +2140,7 @@ pub(crate) fn delete_lane_branch_sync(args: DeleteLaneBranchArgs) -> Result<(), 
             if !safe && !args.discard_unintegrated {
                 return Err(WorktreeError::new(
                     WorktreeErrorCode::ConfirmationRequired,
-                    "Il branch non ha un'integrazione riconosciuta e non viene forzato",
+                    crate::tr!("Il branch non ha un'integrazione riconosciuta e non viene forzato", "The branch has no recognised integration and is not forced"),
                 ));
             }
             clear_receipt(&context, &branch);
@@ -2133,11 +2157,11 @@ pub(crate) fn delete_lane_branch_sync(args: DeleteLaneBranchArgs) -> Result<(), 
             return Err(match &state.receipt {
                 Some(_) => WorktreeError::new(
                     WorktreeErrorCode::LaneDivergedAfterIntegrate,
-                    "Il branch contiene commit non compresi nell'integrazione e non viene forzato",
+                    crate::tr!("Il branch contiene commit non compresi nell'integrazione e non viene forzato", "The branch contains commits not included in the integration and is not forced"),
                 ),
                 None => WorktreeError::new(
                     WorktreeErrorCode::ConfirmationRequired,
-                    "Il branch non ha un'integrazione riconosciuta e non viene forzato",
+                    crate::tr!("Il branch non ha un'integrazione riconosciuta e non viene forzato", "The branch has no recognised integration and is not forced"),
                 ),
             });
         }
@@ -2147,7 +2171,7 @@ pub(crate) fn delete_lane_branch_sync(args: DeleteLaneBranchArgs) -> Result<(), 
         }
         return Err(WorktreeError::new(
             WorktreeErrorCode::GitCommandFailed,
-            "Git non ha eliminato il branch della corsia",
+            crate::tr!("Git non ha eliminato il branch della corsia", "Git did not delete the lane branch"),
         ));
     }
 
@@ -2163,7 +2187,7 @@ pub(crate) fn delete_lane_branch_sync(args: DeleteLaneBranchArgs) -> Result<(), 
     } else {
         Err(WorktreeError::with_detail(
             WorktreeErrorCode::GitCommandFailed,
-            "Git non ha eliminato il branch della corsia",
+            crate::tr!("Git non ha eliminato il branch della corsia", "Git did not delete the lane branch"),
             output_detail(&forced),
         ))
     }
@@ -2177,9 +2201,11 @@ mod tests {
     fn rifiuta_git_precedente_alla_2_38_con_messaggio_esplicito() {
         let error = ensure_git_supports_merge_tree(Some((2, 37, 9))).unwrap_err();
         assert_eq!(error.code, WorktreeErrorCode::GitTooOld);
-        assert_eq!(
-            error.message,
-            "Integrazione corsie: serve Git 2.38 o successivo (trovato 2.37)"
+        // Il testo dipende dalla lingua dell'interfaccia: contano le versioni.
+        assert!(
+            error.message.contains("2.38") && error.message.contains("2.37"),
+            "messaggio inatteso: {}",
+            error.message
         );
         assert!(ensure_git_supports_merge_tree(Some((2, 38, 0))).is_ok());
         assert!(ensure_git_supports_merge_tree(Some((3, 0, 0))).is_ok());
@@ -2224,7 +2250,10 @@ mod tests {
         assert!(text.starts_with("f0, f1"));
         assert!(text.contains("f9"));
         assert!(!text.contains("f10,"));
-        assert!(text.ends_with("(e altri 2)"));
+        assert!(
+            text.ends_with("(e altri 2)") || text.ends_with("(and 2 more)"),
+            "testo inatteso: {text}"
+        );
     }
 
     #[test]

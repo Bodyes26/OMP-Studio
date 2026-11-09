@@ -213,7 +213,7 @@ export class LaneOrchestrator {
 	 */
 	async cycleLane(projectId: ProjectId, direction: 'next' | 'prev'): Promise<void> {
 		const project = projectStore.projects.find((p) => p.id === projectId);
-		if (!project) return;
+		if (!project || project.external) return;
 
 		const projectLanes = laneStore.lanesFor(projectId).filter((l) => l.status !== 'archived' && l.status !== 'closed');
 		if (projectLanes.length <= 1) return;

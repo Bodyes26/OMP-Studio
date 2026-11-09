@@ -8,7 +8,7 @@
 -->
 <script lang="ts">
 	import type { RemoteQuota, RemoteProject, Feature, RemoteQuotaProvider } from '../../../src/protocol.ts';
-	import { t } from '../i18n.ts';
+	import { t, getFormatLocale } from '../i18n.ts';
 	import { formatHHMM } from '../schedule.ts';
 	import { connection } from '../connection.svelte.ts';
 	import { IconClose, IconRefresh, ProviderLogo } from '../icons.ts';
@@ -84,7 +84,7 @@
 		const timeStr = formatHHMM(resetsAt);
 		if (isToday) return timeStr;
 
-		const dayName = d.toLocaleDateString(undefined, { weekday: 'short' });
+		const dayName = d.toLocaleDateString(getFormatLocale(), { weekday: 'short' });
 		return `${dayName} ${timeStr}`;
 	}
 

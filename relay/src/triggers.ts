@@ -5,9 +5,21 @@
  * - Agente corsia da working/background a idle: "<lane.title>: ha finito" (con debounce di qualche secondo)
  * - Nessuna notifica al riavvio del relay (confronto con l'ultimo stato persistito in SQLite)
  * - Deduplicazione per requestId
+ *
+ * Il testo non e' cablato qui: ogni notifica porta il contenuto strutturato
+ * (`data.text`) e una resa inglese predefinita; `PushSender` la ricompone nella
+ * lingua dichiarata dalla sottoscrizione (`pushText.ts`).
  */
 
-import type { HostState, PushNotificationPayload, RemoteAttention, RemoteLane, RemoteProject } from './protocol.ts';
+import type {
+	HostState,
+	PushNotificationPayload,
+	PushNotificationText,
+	RemoteAttention,
+	RemoteLane,
+	RemoteProject
+} from './protocol.ts';
+import { renderPushText } from './pushText.ts';
 import type { RelayStore } from './store.ts';
 
 export interface TriggerDetectorOptions {
@@ -99,17 +111,22 @@ export class HostSnapshotTriggerDetector {
 				if (!prevAttentionIds.has(att.requestId) && !this.seenRequestIds.has(att.requestId)) {
 					this.seenRequestIds.add(att.requestId);
 
-					const questionText = att.title || att.message || 'domanda';
+					const text: PushNotificationText = {
+						kind: 'attention',
+						hostName,
+						projectName: project.name,
+						question: att.title || att.message || null
+					};
 					const payload: PushNotificationPayload = {
-						title: `${hostName} · ${project.name}`,
-						body: `${questionText}: domanda`,
+						...renderPushText(text, 'en'),
 						tag: `att-${att.requestId}`,
 						data: {
 							hostId,
 							projectId: project.id,
 							laneId: att.laneId ?? undefined,
 							requestId: att.requestId,
-							type: 'attention'
+							type: 'attention',
+							text
 						}
 					};
 
@@ -143,19 +160,24 @@ export class HostSnapshotTriggerDetector {
 					if (!prevHadQuotaBlock.has(att.requestId) && !this.seenRequestIds.has(att.requestId)) {
 						this.seenRequestIds.add(att.requestId);
 
-						const reason = att.quotaBlocked.reason === 'quota_exhausted' ? 'Quota esaurita' : 'Errore fornitore';
-						const providerInfo = att.quotaBlocked.provider ? ` (${att.quotaBlocked.provider})` : '';
+						const text: PushNotificationText = {
+							kind: 'quota_blocked',
+							hostName,
+							projectName: project.name,
+							reason: att.quotaBlocked.reason,
+							provider: att.quotaBlocked.provider ?? null
+						};
 
 						const payload: PushNotificationPayload = {
-							title: `${hostName} · ${project.name}`,
-							body: `${reason}${providerInfo}: blocco di quota`,
+							...renderPushText(text, 'en'),
 							tag: `quota-${att.requestId}`,
 							data: {
 								hostId,
 								projectId: project.id,
 								laneId: att.laneId ?? undefined,
 								requestId: att.requestId,
-								type: 'quota'
+								type: 'quota',
+								text
 							}
 						};
 
@@ -198,13 +220,20 @@ export class HostSnapshotTriggerDetector {
 					if (!this.seenRequestIds.has(quotaKey)) {
 						this.seenRequestIds.add(quotaKey);
 
+						const text: PushNotificationText = {
+							kind: 'quota_provider_exhausted',
+							hostName,
+							provider: prov.provider,
+							account: prov.account ?? null
+						};
+
 						const payload: PushNotificationPayload = {
-							title: `${hostName}`,
-							body: `Quota esaurita per ${prov.provider}${prov.account ? ` (${prov.account})` : ''}`,
+							...renderPushText(text, 'en'),
 							tag: quotaKey,
 							data: {
 								hostId,
-								type: 'quota'
+								type: 'quota',
+								text
 							}
 						};
 
@@ -263,16 +292,21 @@ export class HostSnapshotTriggerDetector {
 					const timer = setTimeout(() => {
 						this.idleDebounceTimers.delete(key);
 
-						const laneTitle = currentLane.title || 'Corsia';
+						const text: PushNotificationText = {
+							kind: 'lane_idle',
+							hostName,
+							projectName: project.name,
+							laneTitle: currentLane.title || null
+						};
 						const payload: PushNotificationPayload = {
-							title: `${hostName} · ${project.name}`,
-							body: `${laneTitle}: ha finito`,
+							...renderPushText(text, 'en'),
 							tag: `idle-${key}`,
 							data: {
 								hostId,
 								projectId: project.id,
 								laneId: currentLane.id,
-								type: 'idle'
+								type: 'idle',
+								text
 							}
 						};
 

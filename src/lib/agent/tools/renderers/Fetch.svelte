@@ -30,8 +30,8 @@
 
 	const argsRows = $derived.by(() => {
 		const rows: { key: string; value: string }[] = [];
-		if (url) rows.push({ key: 'URL', value: url });
-		if (method) rows.push({ key: 'Metodo', value: method });
+		if (url) rows.push({ key: m.l10n_tools_label_url(), value: url });
+		if (method) rows.push({ key: m.l10n_tools_label_method(), value: method });
 		if (status !== undefined) {
 			rows.push({
 				key: m.ui_goal_stato_89af(),
@@ -39,7 +39,7 @@
 			});
 		}
 		if (charCount > 0) {
-			rows.push({ key: 'Dimensione', value: `${i18n.formatNumber(charCount)} caratteri` });
+			rows.push({ key: m.l10n_tools_label_size(), value: m.l10n_tools_label_characters({ count: i18n.formatNumber(charCount) }) });
 		}
 		return rows;
 	});
@@ -51,7 +51,7 @@
 	{/if}
 
 	{#if text}
-		<OutputBlock {text} label="risposta fetch" />
+		<OutputBlock {text} label={m.l10n_tools_label_fetch_response()} />
 	{/if}
 </div>
 

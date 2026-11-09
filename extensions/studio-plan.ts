@@ -32,6 +32,22 @@ import { isAbsolute, join, relative, resolve } from "node:path";
 
 /* ------------------------------------------------------------------ costanti */
 
+/**
+ * Testo scelto secondo la lingua della UI: il processo omp riceve
+ * `OMP_STUDIO_LOCALE` da Studio, il bundle della GUI ricade su `<html lang>`.
+ * Senza lingua nota si usa l'inglese, il default di Studio. Letta a ogni
+ * chiamata: la lingua puo' cambiare durante la vita del processo.
+ */
+function tr(it: string, en: string): string {
+	const host = globalThis as {
+		process?: { env?: Record<string, string | undefined> };
+		document?: { documentElement?: { lang?: string } };
+	};
+	const code = (host.process?.env?.OMP_STUDIO_LOCALE || host.document?.documentElement?.lang || "en").toLowerCase();
+	return code.startsWith("it") ? it : en;
+}
+
+
 /** Prefisso del titolo della richiesta di revisione: Studio lo riconosce. */
 export const PLAN_REVIEW_TITLE_PREFIX = "studio-plan-review:";
 /** Chiave di `setStatus` con lo stato JSON del Piano per Studio. */
@@ -344,8 +360,13 @@ export interface GuardResult {
 	reason: string;
 }
 
-const READ_ONLY_REASON =
-	"Plan mode (OMP Studio): the working tree is read-only. Write your plan to a local://<slug>-plan.md file instead.";
+/** Motivo del blocco quando il Piano non lascia scrivere fuori da `local://` e `.omp/plans/`. */
+function readOnlyReason(): string {
+	return tr(
+		"Modalita' Piano (OMP Studio): l'albero di lavoro e' in sola lettura. Scrivi il piano in un file local://<slug>-plan.md.",
+		"Plan mode (OMP Studio): the working tree is read-only. Write your plan to a local://<slug>-plan.md file instead."
+	);
+}
 
 /** Toglie l'involucro hashline `[path#TAG]` come la guardia nativa. */
 function unwrapHashline(raw: string): string {
@@ -412,11 +433,25 @@ export function evaluatePlanToolCall(event: ToolCallLike, cwd: string, enabled: 
 	if (!enabled) return undefined;
 	if (WRITE_TOOLS[event.toolName] !== true) return undefined;
 	const { paths, forbidden } = collectWriteTargets(event.input ?? {});
-	if (forbidden === "rename") return { block: true, reason: "Plan mode (OMP Studio): renaming files is not allowed." };
-	if (forbidden === "delete") return { block: true, reason: "Plan mode (OMP Studio): deleting files is not allowed." };
-	if (paths.length === 0) return { block: true, reason: READ_ONLY_REASON };
+	if (forbidden === "rename")
+		return {
+			block: true,
+			reason: tr(
+				"Modalita' Piano (OMP Studio): la rinomina dei file non e' consentita.",
+				"Plan mode (OMP Studio): renaming files is not allowed."
+			)
+		};
+	if (forbidden === "delete")
+		return {
+			block: true,
+			reason: tr(
+				"Modalita' Piano (OMP Studio): l'eliminazione dei file non e' consentita.",
+				"Plan mode (OMP Studio): deleting files is not allowed."
+			)
+		};
+	if (paths.length === 0) return { block: true, reason: readOnlyReason() };
 	for (const path of paths) {
-		if (!isPlanWritablePath(path, cwd)) return { block: true, reason: READ_ONLY_REASON };
+		if (!isPlanWritablePath(path, cwd)) return { block: true, reason: readOnlyReason() };
 	}
 	return undefined;
 }
@@ -1006,11 +1041,28 @@ export default function studioPlanExtension(pi: StudioPlanApi): void {
 		const planFilePath = `local://${slug}-plan.md`;
 		const localPath = join(localRootOf(ctx), `${slug}-plan.md`);
 		if (!existsSync(localPath)) {
-			return { error: `Plan file not found: ${planFilePath}. Write the ${isLab ? "brief" : "plan"} there first, then submit again.` };
+			return {
+				error: tr(
+					`File del piano non trovato: ${planFilePath}. Scrivi prima li' il ${isLab ? "brief" : "piano"}, poi invia di nuovo.`,
+					`Plan file not found: ${planFilePath}. Write the ${isLab ? "brief" : "plan"} there first, then submit again.`
+				)
+			};
 		}
 		const content = readFileSync(localPath, "utf8");
-		if (!content.trim()) return { error: `${isLab ? "Brief" : "Plan"} file is empty: ${planFilePath}.` };
-		if (!ctx?.ui) return { error: "No OMP Studio UI is attached to this session." };
+		if (!content.trim())
+			return {
+				error: tr(
+					`Il file del ${isLab ? "brief" : "piano"} e' vuoto: ${planFilePath}.`,
+					`${isLab ? "Brief" : "Plan"} file is empty: ${planFilePath}.`
+				)
+			};
+		if (!ctx?.ui)
+			return {
+				error: tr(
+					"Nessuna interfaccia di OMP Studio e' collegata a questa sessione.",
+					"No OMP Studio UI is attached to this session."
+				)
+			};
 
 		const state = planState();
 		state.planFilePath = planFilePath;
@@ -1061,7 +1113,10 @@ export default function studioPlanExtension(pi: StudioPlanApi): void {
 					await setEnabled(ctx, false);
 				} catch (error) {
 					ctx.ui.notify(
-						`Salvataggio brief in .lab/brief.md non riuscito: ${error instanceof Error ? error.message : String(error)}`,
+						tr(
+							`Salvataggio brief in .lab/brief.md non riuscito: ${error instanceof Error ? error.message : String(error)}`,
+							`Saving the brief to .lab/brief.md failed: ${error instanceof Error ? error.message : String(error)}`
+						),
 						"error"
 					);
 				}
@@ -1071,8 +1126,11 @@ export default function studioPlanExtension(pi: StudioPlanApi): void {
 						savedPath = savePlanCopy(contextCwd(ctx), title, finalContent);
 					} catch (error) {
 						ctx.ui.notify(
-							`Copia del piano in .omp/plans non riuscita: ${error instanceof Error ? error.message : String(error)}`,
-							"warning"
+							 tr(
+							  `Copia del piano in .omp/plans non riuscita: ${error instanceof Error ? error.message : String(error)}`,
+							  `Copying the plan to .omp/plans failed: ${error instanceof Error ? error.message : String(error)}`
+							 ),
+							 "warning"
 						);
 					}
 				}
@@ -1098,8 +1156,11 @@ export default function studioPlanExtension(pi: StudioPlanApi): void {
 					savedPath = savePlanCopy(contextCwd(ctx), title, finalContent);
 				} catch (error) {
 					ctx.ui.notify(
-						`Copia del piano in .omp/plans non riuscita: ${error instanceof Error ? error.message : String(error)}`,
-						"warning"
+						 tr(
+						  `Copia del piano in .omp/plans non riuscita: ${error instanceof Error ? error.message : String(error)}`,
+						  `Copying the plan to .omp/plans failed: ${error instanceof Error ? error.message : String(error)}`
+						 ),
+						 "warning"
 					);
 				}
 				await setEnabled(ctx, false);
@@ -1118,7 +1179,7 @@ export default function studioPlanExtension(pi: StudioPlanApi): void {
 
 	pi.registerTool({
 		name: PLAN_SUBMIT_TOOL,
-		label: isLab ? "Studio Lab Brief Submit" : "Studio Plan Submit",
+		label: isLab ? tr("Invio brief del Laboratorio", "Studio Lab Brief Submit") : tr("Invio piano", "Studio Plan Submit"),
 		description: isLab
 			? "Submit the brief written to local://<slug>-plan.md for review in OMP Studio. Only available while brief review is pending. Blocks until the user decides: returns requested changes (update the brief and submit again) or approval (stop immediately)."
 			: "Submit the plan written to local://<slug>-plan.md for review in OMP Studio. Only available while Studio plan mode is active. " +
@@ -1154,7 +1215,10 @@ export default function studioPlanExtension(pi: StudioPlanApi): void {
 	});
 
 	pi.registerCommand("studio-plan", {
-		description: "OMP Studio: modalita' Piano della chat GUI (on|off|status|review)",
+		description: tr(
+			"OMP Studio: modalita' Piano della chat GUI (on|off|status|review)",
+			"OMP Studio: GUI chat plan mode (on|off|status|review)"
+		),
 		handler: async (args, ctx) => {
 			if (ctx?.agent?.kind === "sub") return;
 			const state = planState();
@@ -1166,7 +1230,10 @@ export default function studioPlanExtension(pi: StudioPlanApi): void {
 			if (op === "off") {
 				if (isLab && !state.briefApproved) {
 					ctx?.ui?.notify(
-						"Nel Laboratorio la modalita' Piano e' obbligatoria fino all'approvazione del brief.",
+						tr(
+							"Nel Laboratorio la modalita' Piano e' obbligatoria fino all'approvazione del brief.",
+							"In the Lab, plan mode is mandatory until the brief is approved."
+						),
 						"warning"
 					);
 					publish(ctx);
@@ -1180,7 +1247,12 @@ export default function studioPlanExtension(pi: StudioPlanApi): void {
 				// di `prompt`, quindi parte senza attendere e applica l'esito dopo.
 				const slug = normalizePlanSlug(state.planFilePath ?? "");
 				if (!slug) {
-					ctx?.ui?.notify(isLab ? "Nessun brief da rivedere in questa sessione." : "Nessun piano da rivedere in questa sessione.", "info");
+					ctx?.ui?.notify(
+						isLab
+							? tr("Nessun brief da rivedere in questa sessione.", "No brief to review in this session.")
+							: tr("Nessun piano da rivedere in questa sessione.", "No plan to review in this session."),
+						"info"
+					);
 					return;
 				}
 				const title = state.title ?? slug;

@@ -27,27 +27,50 @@ const MAX_SECRET_ID_LEN: usize = 128;
 pub fn validate_secret_id(id: &str) -> Result<(), String> {
     let trimmed = id.trim();
     if trimmed.is_empty() {
-        return Err("L'identificatore del segreto non può essere vuoto".to_string());
+        return Err(crate::tr!(
+            "L'identificatore del segreto non può essere vuoto",
+            "The secret identifier cannot be empty"
+        )
+        .to_string());
     }
     if id.len() != trimmed.len() {
-        return Err(format!(
-            "L'identificatore del segreto '{}' contiene spazi iniziali o finali non consentiti",
-            id
+        return Err(crate::tr!(
+            format!(
+                "L'identificatore del segreto '{}' contiene spazi iniziali o finali non consentiti",
+                id
+            ),
+            format!(
+                "Secret identifier '{}' has leading or trailing spaces, which are not allowed",
+                id
+            )
         ));
     }
     if id.len() > MAX_SECRET_ID_LEN {
-        return Err(format!(
-            "L'identificatore del segreto supera la lunghezza massima consentita di {} caratteri (lunghezza: {})",
-            MAX_SECRET_ID_LEN,
-            id.len()
+        return Err(crate::tr!(
+            format!(
+                "L'identificatore del segreto supera la lunghezza massima consentita di {} caratteri (lunghezza: {})",
+                MAX_SECRET_ID_LEN,
+                id.len()
+            ),
+            format!(
+                "Secret identifier exceeds the maximum allowed length of {} characters (length: {})",
+                MAX_SECRET_ID_LEN,
+                id.len()
+            )
         ));
     }
 
     for ch in id.chars() {
         if !ch.is_ascii_alphanumeric() && ch != '_' && ch != '-' && ch != '.' && ch != ':' {
-            return Err(format!(
-                "Carattere non consentito '{}' nell'identificatore del segreto '{}'. Sono ammessi solo caratteri alfanumerici ASCII, '_', '-', '.' e ':'",
-                ch, id
+            return Err(crate::tr!(
+                format!(
+                    "Carattere non consentito '{}' nell'identificatore del segreto '{}'. Sono ammessi solo caratteri alfanumerici ASCII, '_', '-', '.' e ':'",
+                    ch, id
+                ),
+                format!(
+                    "Character '{}' is not allowed in secret identifier '{}'. Only ASCII alphanumeric characters, '_', '-', '.' and ':' are allowed",
+                    ch, id
+                )
             ));
         }
     }
@@ -55,56 +78,99 @@ pub fn validate_secret_id(id: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Etichetta localizzata dell'operazione sul portachiavi, indicata nei messaggi.
+fn keyring_action_label(action: &str) -> &'static str {
+    match action {
+        "create_entry" => crate::tr!("create_entry", "creating the entry"),
+        "save_value" => crate::tr!("save_value", "saving the value"),
+        "read_value" => crate::tr!("read_value", "reading the value"),
+        "delete" => crate::tr!("delete", "deleting the entry"),
+        "check_exists" => crate::tr!("check_exists", "checking existence"),
+        _ => crate::tr!("accesso al portachiavi", "accessing the keychain"),
+    }
+}
+
 /// Converte un errore del crate `keyring` in un messaggio diagnostico esplicito e sicuro (AUT-083).
 /// Non include MAI il valore del segreto nei messaggi.
 fn format_keyring_error(action: &str, id: &str, err: &keyring::Error) -> String {
+    let action = keyring_action_label(action);
     match err {
-        keyring::Error::NoEntry => {
-            format!("Segreto '{}' non presente nel portachiavi di sistema", id)
-        }
-        keyring::Error::NoStorageAccess(e) => {
+        keyring::Error::NoEntry => crate::tr!(
+            format!("Segreto '{}' non presente nel portachiavi di sistema", id),
+            format!("Secret '{}' is not present in the system keychain", id)
+        ),
+        keyring::Error::NoStorageAccess(e) => crate::tr!(
             format!(
                 "Impossibile accedere al portachiavi di sistema durante {} per '{}' (vault bloccato, sessione grafica/DBus mancante o permessi insufficienti): {}",
                 action, id, e
+            ),
+            format!(
+                "Unable to access the system keychain while {} for '{}' (locked vault, missing graphical/DBus session, or insufficient permissions): {}",
+                action, id, e
             )
-        }
-        keyring::Error::PlatformFailure(e) => {
+        ),
+        keyring::Error::PlatformFailure(e) => crate::tr!(
             format!(
                 "Errore del backend del portachiavi di sistema durante {} per '{}': {}",
                 action, id, e
+            ),
+            format!(
+                "System keychain backend error while {} for '{}': {}",
+                action, id, e
             )
-        }
-        keyring::Error::BadEncoding(_) => {
+        ),
+        keyring::Error::BadEncoding(_) => crate::tr!(
             format!(
                 "Il segreto '{}' archiviato nel portachiavi non contiene una stringa UTF-8 valida",
                 id
+            ),
+            format!(
+                "Secret '{}' stored in the keychain is not a valid UTF-8 string",
+                id
             )
-        }
-        keyring::Error::TooLong(attr, max_len) => {
+        ),
+        keyring::Error::TooLong(attr, max_len) => crate::tr!(
             format!(
                 "Attributo '{}' per il segreto '{}' supera il limite massimo della piattaforma ({})",
                 attr, id, max_len
+            ),
+            format!(
+                "Attribute '{}' for secret '{}' exceeds the platform maximum limit ({})",
+                attr, id, max_len
             )
-        }
-        keyring::Error::Invalid(attr, reason) => {
+        ),
+        keyring::Error::Invalid(attr, reason) => crate::tr!(
             format!(
                 "Attributo '{}' non valido per il segreto '{}': {}",
                 attr, id, reason
+            ),
+            format!(
+                "Invalid attribute '{}' for secret '{}': {}",
+                attr, id, reason
             )
-        }
-        keyring::Error::Ambiguous(items) => {
+        ),
+        keyring::Error::Ambiguous(items) => crate::tr!(
             format!(
                 "Rilevati più record ambigui nel portachiavi per il segreto '{}' ({} elementi)",
                 id,
                 items.len()
+            ),
+            format!(
+                "Found multiple ambiguous keychain records for secret '{}' ({} items)",
+                id,
+                items.len()
             )
-        }
-        other => {
+        ),
+        other => crate::tr!(
             format!(
                 "Errore del portachiavi di sistema durante {} per '{}': {}",
                 action, id, other
+            ),
+            format!(
+                "System keychain error while {} for '{}': {}",
+                action, id, other
             )
-        }
+        ),
     }
 }
 
@@ -113,12 +179,12 @@ fn format_keyring_error(action: &str, id: &str, err: &keyring::Error) -> String 
 pub fn put(id: &str, value: &str) -> Result<(), String> {
     validate_secret_id(id)?;
 
-    let entry = Entry::new(SERVICE_NAME, id)
-        .map_err(|e| format_keyring_error("creazione entry", id, &e))?;
+    let entry =
+        Entry::new(SERVICE_NAME, id).map_err(|e| format_keyring_error("create_entry", id, &e))?;
 
     entry
         .set_password(value)
-        .map_err(|e| format_keyring_error("salvataggio valore", id, &e))?;
+        .map_err(|e| format_keyring_error("save_value", id, &e))?;
 
     Ok(())
 }
@@ -129,12 +195,12 @@ pub fn put(id: &str, value: &str) -> Result<(), String> {
 pub fn get(id: &str) -> Result<String, String> {
     validate_secret_id(id)?;
 
-    let entry = Entry::new(SERVICE_NAME, id)
-        .map_err(|e| format_keyring_error("creazione entry", id, &e))?;
+    let entry =
+        Entry::new(SERVICE_NAME, id).map_err(|e| format_keyring_error("create_entry", id, &e))?;
 
     entry
         .get_password()
-        .map_err(|e| format_keyring_error("lettura valore", id, &e))
+        .map_err(|e| format_keyring_error("read_value", id, &e))
 }
 
 /// Elimina un segreto dal portachiavi nativo del sistema operativo.
@@ -142,8 +208,8 @@ pub fn get(id: &str) -> Result<String, String> {
 pub fn remove(id: &str) -> Result<(), String> {
     validate_secret_id(id)?;
 
-    let entry = Entry::new(SERVICE_NAME, id)
-        .map_err(|e| format_keyring_error("creazione entry", id, &e))?;
+    let entry =
+        Entry::new(SERVICE_NAME, id).map_err(|e| format_keyring_error("create_entry", id, &e))?;
 
     match entry.delete_credential() {
         Ok(()) => Ok(()),
@@ -151,7 +217,7 @@ pub fn remove(id: &str) -> Result<(), String> {
             // Segreto già assente dal portachiavi, rimozione completata
             Ok(())
         }
-        Err(e) => Err(format_keyring_error("eliminazione", id, &e)),
+        Err(e) => Err(format_keyring_error("delete", id, &e)),
     }
 }
 
@@ -159,12 +225,12 @@ pub fn remove(id: &str) -> Result<(), String> {
 pub fn exists(id: &str) -> Result<bool, String> {
     validate_secret_id(id)?;
 
-    let entry = Entry::new(SERVICE_NAME, id)
-        .map_err(|e| format_keyring_error("creazione entry", id, &e))?;
+    let entry =
+        Entry::new(SERVICE_NAME, id).map_err(|e| format_keyring_error("create_entry", id, &e))?;
 
     match entry.get_password() {
         Ok(_) => Ok(true),
         Err(keyring::Error::NoEntry) => Ok(false),
-        Err(e) => Err(format_keyring_error("verifica esistenza", id, &e)),
+        Err(e) => Err(format_keyring_error("check_exists", id, &e)),
     }
 }

@@ -1,5 +1,6 @@
 import type { QuotaLimit } from '../stores/quota.svelte';
 
+import { m } from '#lib/paraglide/messages.js';
 export type ModelFamily = 'anthropic' | 'google' | 'openai' | null;
 
 /**
@@ -187,24 +188,29 @@ export async function accountPinHash(
 }
 
 /**
- * Formatta il countdown al reset in italiano leggibile (es. "tra 4h 15m", "tra 2g 3h", "reset ora").
+ * Formatta il countdown al reset nella lingua attiva (es. "in 4h 15m",
+ * "tra 2g 3h", "reset ora"): il tooltip della quota lo mostra cosi' com'e'.
  */
 export function formatResetCountdown(resetsAt: number | undefined, now = Date.now()): string {
 	if (!resetsAt) return '';
 	const diffMs = resetsAt - now;
-	if (diffMs <= 0) return 'reset ora';
+	if (diffMs <= 0) return m.quota_reset_now();
 	const diffSec = Math.floor(diffMs / 1000);
-	if (diffSec < 60) return `tra ${diffSec}s`;
+	if (diffSec < 60) return m.quota_reset_in_seconds({ sec: diffSec });
 	const diffMin = Math.floor(diffSec / 60);
-	if (diffMin < 60) return `tra ${diffMin}m`;
+	if (diffMin < 60) return m.quota_reset_in_minutes({ min: diffMin });
 	const diffHours = Math.floor(diffMin / 60);
 	const remMin = diffMin % 60;
 	if (diffHours < 24) {
-		return remMin > 0 ? `tra ${diffHours}h ${remMin}m` : `tra ${diffHours}h`;
+		return remMin > 0
+			? m.quota_reset_in_hours({ hours: diffHours, min: remMin })
+			: m.l10n_state_quota_reset_hours({ hours: diffHours });
 	}
 	const diffDays = Math.floor(diffHours / 24);
 	const remHours = diffHours % 24;
-	return remHours > 0 ? `tra ${diffDays}g ${remHours}h` : `tra ${diffDays}g`;
+	return remHours > 0
+		? m.quota_reset_in_days({ days: diffDays, hours: remHours })
+		: m.l10n_state_quota_reset_days({ days: diffDays });
 }
 
 /**

@@ -20,6 +20,7 @@ import { remoteStore } from './remoteStore.svelte';
 import { entryToRemoteMessage, remoteMessageId } from './chatProjection';
 import { fullArtifactForToolEntry } from './artifacts';
 import { paginateRemoteMessages } from './chatPaging';
+import { m } from '#lib/paraglide/messages.js';
 
 interface PendingDelta {
 	projectId: string;
@@ -238,9 +239,9 @@ export async function initRemoteChat(): Promise<() => void> {
  * esistenza e di superficie per storico e anteprime.
  */
 function resolveLaneSession(projectId: string, laneId: string | null) {
-	const project = projectStore.projects.find((p) => p.id === projectId);
+	const project = projectStore.projects.find((p) => !p.external && p.id === projectId);
 	if (!project) {
-		throw new RemoteCommandFailure('not_found', `Progetto "${projectId}" non trovato`);
+		throw new RemoteCommandFailure('not_found', m.l10n_lab_remote_project_not_found({ project: projectId }));
 	}
 
 	const isMain = !laneId || laneId === 'main';
@@ -249,7 +250,10 @@ function resolveLaneSession(projectId: string, laneId: string | null) {
 	// Risolvi corsia e superficie in modo canonico (#3)
 	const lane = laneOrchestrator.laneRecord(project, effectiveLaneId);
 	if (!lane && !isMain) {
-		throw new RemoteCommandFailure('not_found', `Corsia "${laneId}" non trovata nel progetto "${projectId}"`);
+		throw new RemoteCommandFailure(
+			'not_found',
+			m.l10n_lab_remote_lane_not_found({ lane: laneId ?? 'main', project: projectId })
+		);
 	}
 
 	const surface = (project.lane.laneId === effectiveLaneId)
@@ -259,7 +263,7 @@ function resolveLaneSession(projectId: string, laneId: string | null) {
 	if (surface === 'terminal') {
 		throw new RemoteCommandFailure(
 			'unsupported',
-			"Lo storico della chat non e' disponibile per le corsie aperte su terminale (passa alla vista GUI in Studio per abilitarlo)."
+			m.l10n_lab_remote_chat_history_terminal_unavailable()
 		);
 	}
 
@@ -307,7 +311,7 @@ export async function remoteGetArtifact(
 		(candidate) => candidate.kind === 'tool' && remoteMessageId(candidate) === messageId
 	);
 	if (!entry || entry.kind !== 'tool') {
-		throw new RemoteCommandFailure('not_found', `Messaggio "${messageId}" non trovato nella corsia`);
+		throw new RemoteCommandFailure('not_found', m.l10n_lab_remote_message_not_found({ message: messageId }));
 	}
 	return { artifact: fullArtifactForToolEntry(entry) };
 }

@@ -42,20 +42,31 @@ pub enum ExternalTarget {
 fn validate(project_path: &str, rel: Option<&str>) -> Result<PathBuf, String> {
     let clean_project_path = project_path.trim();
     if clean_project_path.is_empty() {
-        return Err("Cartella di progetto non valida: percorso vuoto".to_string());
+        return Err(crate::tr!(
+            "Cartella di progetto non valida: percorso vuoto",
+            "Invalid project folder: empty path"
+        )
+        .to_string());
     }
 
     let base_raw = Path::new(clean_project_path);
     if !base_raw.is_dir() {
-        return Err(format!(
-            "Cartella di progetto non valida: {clean_project_path}"
+        return Err(crate::tr!(
+            format!("Cartella di progetto non valida: {clean_project_path}"),
+            format!("Invalid project folder: {clean_project_path}")
         ));
     }
 
     let base = base_raw.canonicalize().map_err(|e| {
-        format!(
-            "Cartella di progetto non valida ({}): {}",
-            clean_project_path, e
+        crate::tr!(
+            format!(
+                "Cartella di progetto non valida ({}): {}",
+                clean_project_path, e
+            ),
+            format!(
+                "Invalid project folder ({}): {}",
+                clean_project_path, e
+            )
         )
     })?;
 
@@ -69,18 +80,25 @@ fn validate(project_path: &str, rel: Option<&str>) -> Result<PathBuf, String> {
             }
 
             let target = base.join(clean_rel);
-            let canonical = target
-                .canonicalize()
-                .map_err(|e| format!("Sottocartella non valida o inesistente ({}): {}", r, e))?;
+            let canonical = target.canonicalize().map_err(|e| {
+                crate::tr!(
+                    format!("Sottocartella non valida o inesistente ({}): {}", r, e),
+                    format!("Invalid or missing subfolder ({}): {}", r, e)
+                )
+            })?;
 
             if !canonical.starts_with(&base) {
-                return Err("Il percorso esce dalla cartella del progetto".to_string());
+                return Err(crate::tr!(
+                    "Il percorso esce dalla cartella del progetto",
+                    "The path leaves the project folder"
+                )
+                .to_string());
             }
 
             if !canonical.is_dir() {
-                return Err(format!(
-                    "Il percorso specificato non e' una cartella: {}",
-                    r
+                return Err(crate::tr!(
+                    format!("Il percorso specificato non e' una cartella: {}", r),
+                    format!("The specified path is not a folder: {}", r)
                 ));
             }
 
@@ -311,18 +329,27 @@ pub async fn open_project_external(
         spawn_first(&candidates, &path)
     })
     .await
-    .map_err(|error| format!("Avvio dell'applicazione esterna: {}", error))?;
+    .map_err(|error| {
+        crate::tr!(
+            format!("Avvio dell'applicazione esterna: {}", error),
+            format!("Launching the external application: {}", error)
+        )
+    })?;
 
     if launched {
         Ok(())
     } else {
         Err(match target {
-            ExternalTarget::Terminal => {
-                "Nessun terminale disponibile su questo sistema".to_string()
-            }
-            ExternalTarget::Editor => {
-                "Nessun editor esterno trovato: installa VS Code oppure rendi disponibile il comando `code`".to_string()
-            }
+            ExternalTarget::Terminal => crate::tr!(
+                "Nessun terminale disponibile su questo sistema",
+                "No terminal available on this system"
+            )
+            .to_string(),
+            ExternalTarget::Editor => crate::tr!(
+                "Nessun editor esterno trovato: installa VS Code oppure rendi disponibile il comando `code`",
+                "No external editor found: install VS Code or make the `code` command available"
+            )
+            .to_string(),
         })
     }
 }

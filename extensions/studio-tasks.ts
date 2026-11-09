@@ -13,6 +13,21 @@ import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 
+/**
+ * Testo scelto secondo la lingua della UI: il processo omp riceve
+ * `OMP_STUDIO_LOCALE` da Studio, il bundle della GUI ricade su `<html lang>`.
+ * Senza lingua nota si usa l'inglese, il default di Studio. Letta a ogni
+ * chiamata: la lingua puo' cambiare durante la vita del processo.
+ */
+function tr(it: string, en: string): string {
+	const host = globalThis as {
+		process?: { env?: Record<string, string | undefined> };
+		document?: { documentElement?: { lang?: string } };
+	};
+	const code = (host.process?.env?.OMP_STUDIO_LOCALE || host.document?.documentElement?.lang || "en").toLowerCase();
+	return code.startsWith("it") ? it : en;
+}
+
 export interface TaskDirectiveSnapshot {
 	id: string;
 	factoryKey?: "plan" | "discussion" | "minimal" | "research";
@@ -295,13 +310,20 @@ function formatScheduleTime(at: number, now = Date.now()): string {
 /** Etichetta per `/tasks` e per il tool: `[al reset 14:05]`, `[dopo 19:00]`, `[riprendi]`. */
 export function scheduleTag(task: Pick<ProjectTask, "schedule" | "resume">, now = Date.now()): string {
 	const parts: string[] = [];
-	if (task.resume) parts.push("[riprendi]");
+	if (task.resume) parts.push(tr("[riprendi]", "[resume]"));
 	const schedule = task.schedule;
 	if (schedule?.kind === "at" && schedule.notBefore) {
-		parts.push(`[dopo ${formatScheduleTime(schedule.notBefore, now)}]`);
+		parts.push(tr(`[dopo ${formatScheduleTime(schedule.notBefore, now)}]`, `[after ${formatScheduleTime(schedule.notBefore, now)}]`));
 	} else if (schedule?.kind === "reset") {
 		// Per `reset` l'orario salvato e' solo la stima della scelta: lo dice.
-		parts.push(schedule.notBefore ? `[al reset ~${formatScheduleTime(schedule.notBefore, now)}]` : "[al reset]");
+		parts.push(
+			schedule.notBefore
+				? tr(
+						`[al reset ~${formatScheduleTime(schedule.notBefore, now)}]`,
+						`[at reset ~${formatScheduleTime(schedule.notBefore, now)}]`
+					)
+				: tr("[al reset]", "[at reset]")
+		);
 	}
 	return parts.join(" ");
 }
@@ -518,19 +540,30 @@ class TasksTuiOverlay {
 		const inProgress = this.tasks.filter((t) => t.status === "in_progress").length;
 
 		lines.push(c.fg("accent", "━".repeat(width)));
-		const title = ` TASK DI PROGETTO (.omp/tasks.json) — [${completed}/${total} completati${inProgress > 0 ? `, ${inProgress} in corso` : ""}] `;
+		const title = tr(
+			` TASK DI PROGETTO (.omp/tasks.json) — [${completed}/${total} completati${inProgress > 0 ? `, ${inProgress} in corso` : ""}] `,
+			` PROJECT TASKS (.omp/tasks.json) — [${completed}/${total} completed${inProgress > 0 ? `, ${inProgress} in progress` : ""}] `
+		);
 		const pad = Math.max(0, Math.floor((width - title.length) / 2));
 		lines.push(" ".repeat(pad) + c.bold(title));
 		lines.push(c.fg("accent", "━".repeat(width)));
 		lines.push("");
 
 		if (this.isAdding) {
-			lines.push(c.fg("accent", " [NUOVO TASK] Scrivi il prompt e premi INVIO (ESC per annullare):"));
+			lines.push(
+				c.fg(
+					"accent",
+					tr(
+						" [NUOVO TASK] Scrivi il prompt e premi INVIO (ESC per annullare):",
+						" [NEW TASK] Type the prompt and press ENTER (ESC to cancel):"
+					)
+				)
+			);
 			lines.push(` > ${this.newPromptBuffer}█`);
 			lines.push("");
 		} else if (this.tasks.length === 0) {
-			lines.push(c.fg("muted", "  Nessun task presente in coda per questo progetto."));
-			lines.push(c.fg("muted", "  Premi [A] per aggiungere il primo task."));
+			lines.push(c.fg("muted", tr("  Nessun task presente in coda per questo progetto.", "  No tasks queued for this project.")));
+			lines.push(c.fg("muted", tr("  Premi [A] per aggiungere il primo task.", "  Press [A] to add the first task.")));
 			lines.push("");
 		} else {
 			const maxVisible = 18;
@@ -584,7 +617,7 @@ class TasksTuiOverlay {
 				if (tag) optBadges.unshift(tag);
 				const badgeStr = optBadges.length > 0 ? " " + c.fg("accent", optBadges.join(" ")) : "";
 
-				const firstLine = task.prompt.split(/\r?\n/).find((l) => l.trim())?.trim() || "(prompt vuoto)";
+				const firstLine = task.prompt.split(/\r?\n/).find((l) => l.trim())?.trim() || tr("(prompt vuoto)", "(empty prompt)");
 				const availWidth = Math.max(10, width - 20 - optBadges.join(" ").length);
 				let text = fitWidth(firstLine, availWidth);
 
@@ -603,8 +636,24 @@ class TasksTuiOverlay {
 		if (this.statusMessage) {
 			lines.push(c.fg("accent", ` ${this.statusMessage}`));
 		}
-		lines.push(c.fg("muted", " [↑/↓ o j/k] Seleziona • [Spazio] Cambia stato • [A] Aggiungi • [D] Elimina"));
-		lines.push(c.fg("muted", " [J/K o Alt+↑/↓] Riordina • [Invio] Avvia subito • [Esc/Q] Chiudi"));
+		lines.push(
+			c.fg(
+				"muted",
+				tr(
+					" [↑/↓ o j/k] Seleziona • [Spazio] Cambia stato • [A] Aggiungi • [D] Elimina",
+					" [↑/↓ or j/k] Select • [Space] Cycle status • [A] Add • [D] Delete"
+				)
+			)
+		);
+		lines.push(
+			c.fg(
+				"muted",
+				tr(
+					" [J/K o Alt+↑/↓] Riordina • [Invio] Avvia subito • [Esc/Q] Chiudi",
+					" [J/K or Alt+↑/↓] Reorder • [Enter] Run now • [Esc/Q] Close"
+				)
+			)
+		);
 		lines.push(c.fg("accent", "━".repeat(width)));
 
 		return lines.map((l) => (l.length > width ? fitWidth(l, width) : l));
@@ -634,7 +683,7 @@ class TasksTuiOverlay {
 					};
 					this.tasks.push(newTask);
 					this.selectedIndex = this.tasks.length - 1;
-					this.statusMessage = "Task aggiunto con successo!";
+					this.statusMessage = tr("Task aggiunto con successo!", "Task added successfully!");
 					this.saveAndRefresh();
 				}
 				this.isAdding = false;
@@ -693,7 +742,7 @@ class TasksTuiOverlay {
 				};
 				current.status = nextStatus[current.status] || "queued";
 				current.updatedAt = Date.now();
-				this.statusMessage = `Stato aggiornato a: ${current.status}`;
+				this.statusMessage = tr(`Stato aggiornato a: ${current.status}`, `Status changed to: ${current.status}`);
 				this.saveAndRefresh();
 			}
 			return;
@@ -714,7 +763,7 @@ class TasksTuiOverlay {
 				if (this.selectedIndex >= this.tasks.length && this.selectedIndex > 0) {
 					this.selectedIndex = this.tasks.length - 1;
 				}
-				this.statusMessage = `Task #${this.selectedIndex + 1} eliminato`;
+				this.statusMessage = tr(`Task #${this.selectedIndex + 1} eliminato`, `Task #${this.selectedIndex + 1} deleted`);
 				this.saveAndRefresh();
 			}
 			return;
@@ -1116,7 +1165,10 @@ export default function studioTasksExtension(pi: StudioTasksApi): void {
 
 	// 2. Registrazione dello Slash Command `/tasks` per TUI
 	pi.registerCommand("tasks", {
-		description: "Apri il gestore interattivo dei task del progetto (.omp/tasks.json)",
+		description: tr(
+			"Apri il gestore interattivo dei task del progetto (.omp/tasks.json)",
+			"Open the interactive project task manager (.omp/tasks.json)"
+		),
 		handler: async (_args: string, ctx: TasksCommandContext) => {
 			const cwd = ctx?.sessionManager?.getCwd?.() ?? process.cwd();
 
@@ -1124,11 +1176,11 @@ export default function studioTasksExtension(pi: StudioTasksApi): void {
 				// Modalità non interattiva: stampa sommario testuale
 				const tasks = loadProjectTasks(cwd);
 				if (tasks.length === 0) {
-					ctx.ui.notify("Nessun task in coda in .omp/tasks.json", "info");
+					ctx.ui.notify(tr("Nessun task in coda in .omp/tasks.json", "No tasks queued in .omp/tasks.json"), "info");
 					return;
 				}
 				const summary = tasks.map((t, idx) => `[${idx + 1}] [${t.status}] ${t.prompt.split("\n")[0]}`).join("\n");
-				ctx.ui.notify(`Task di progetto:\n${summary}`, "info");
+				ctx.ui.notify(tr(`Task di progetto:\n${summary}`, `Project tasks:\n${summary}`), "info");
 				return;
 			}
 

@@ -133,9 +133,15 @@ fn parse_action(val: &serde_json::Value) -> Result<CommandAction, String> {
         }
     }
 
-    Err(format!(
-        "Impossibile deserializzare l'azione come CommandAction o AutomationAction::Command: {:?}",
-        val
+    Err(crate::tr!(
+        format!(
+            "Impossibile deserializzare l'azione come CommandAction o AutomationAction::Command: {:?}",
+            val
+        ),
+        format!(
+            "Unable to deserialize the action as CommandAction or AutomationAction::Command: {:?}",
+            val
+        )
     ))
 }
 
@@ -296,9 +302,15 @@ pub fn execute(
             .iter()
             .any(|p| p.eq_ignore_ascii_case(current_os))
     {
-        return Err(format!(
-            "Piattaforma corrente '{}' non supportata dall'azione (supportate: {:?})",
-            current_os, action.platforms
+        return Err(crate::tr!(
+            format!(
+                "Piattaforma corrente '{}' non supportata dall'azione (supportate: {:?})",
+                current_os, action.platforms
+            ),
+            format!(
+                "Current platform '{}' is not supported by the action (supported: {:?})",
+                current_os, action.platforms
+            )
         ));
     }
 
@@ -307,25 +319,33 @@ pub fn execute(
 
     // 5. Divieto di sicurezza assoluto su PowerShell
     if is_powershell(&variant.command) || is_powershell(&variant.interpreter) {
-        return Err(
-            "Esecuzione di PowerShell / pwsh / script .ps1 non consentita dalle policy di sicurezza di Studio (AUT-035/ACC-16)"
-                .to_string(),
-        );
+        return Err(crate::tr!(
+            "Esecuzione di PowerShell / pwsh / script .ps1 non consentita dalle policy di sicurezza di Studio (AUT-035/ACC-16)",
+            "Running PowerShell / pwsh / .ps1 scripts is not allowed by Studio security policies (AUT-035/ACC-16)"
+        )
+        .to_string());
     }
     for arg in &variant.args {
         if arg.ends_with(".ps1") {
-            return Err(
-                "Argomento script .ps1 non consentito dalle policy di sicurezza di Studio (AUT-035/ACC-16)"
-                    .to_string(),
-            );
+            return Err(crate::tr!(
+                "Argomento script .ps1 non consentito dalle policy di sicurezza di Studio (AUT-035/ACC-16)",
+                "A .ps1 script argument is not allowed by Studio security policies (AUT-035/ACC-16)"
+            )
+            .to_string());
         }
     }
 
     // 6. Validazione della working directory esplicita
     if !request.cwd.exists() || !request.cwd.is_dir() {
-        return Err(format!(
-            "Directory di lavoro non valida o inesistente: {}",
-            request.cwd.display()
+        return Err(crate::tr!(
+            format!(
+                "Directory di lavoro non valida o inesistente: {}",
+                request.cwd.display()
+            ),
+            format!(
+                "Invalid or missing working directory: {}",
+                request.cwd.display()
+            )
         ));
     }
 
@@ -341,9 +361,15 @@ pub fn execute(
     let mut secrets_to_mask: Vec<String> = Vec::new();
     for (env_var, secret_id) in &action.secret_refs {
         let secret_val = super::secrets::get(secret_id).map_err(|err| {
-            format!(
-                "Risoluzione segreto vault fallita (fail-closed) per '{}' (variabile '{}'): {}",
-                secret_id, env_var, err
+            crate::tr!(
+                format!(
+                    "Risoluzione segreto vault fallita (fail-closed) per '{}' (variabile '{}'): {}",
+                    secret_id, env_var, err
+                ),
+                format!(
+                    "Vault secret resolution failed (fail-closed) for '{}' (variable '{}'): {}",
+                    secret_id, env_var, err
+                )
             )
         })?;
         if !secret_val.is_empty() {
@@ -445,10 +471,17 @@ pub fn execute(
             };
 
             if !script_path.is_file() {
-                return Err(format!(
-                    "File di script '{}' non trovato o non accessibile in '{}'",
-                    variant.command,
-                    request.cwd.display()
+                return Err(crate::tr!(
+                    format!(
+                        "File di script '{}' non trovato o non accessibile in '{}'",
+                        variant.command,
+                        request.cwd.display()
+                    ),
+                    format!(
+                        "Script file '{}' not found or not accessible in '{}'",
+                        variant.command,
+                        request.cwd.display()
+                    )
                 ));
             }
 
@@ -457,18 +490,20 @@ pub fn execute(
                 .and_then(|e| e.to_str())
                 .unwrap_or("");
             if ext.eq_ignore_ascii_case("ps1") {
-                return Err(
-                    "Esecuzione di script PowerShell (.ps1) non consentita dalle policy di sicurezza di Studio (AUT-035/ACC-16)"
-                        .to_string(),
-                );
+                return Err(crate::tr!(
+                    "Esecuzione di script PowerShell (.ps1) non consentita dalle policy di sicurezza di Studio (AUT-035/ACC-16)",
+                    "Running PowerShell (.ps1) scripts is not allowed by Studio security policies (AUT-035/ACC-16)"
+                )
+                .to_string());
             }
 
             if !variant.interpreter.is_empty() {
                 if is_powershell(&variant.interpreter) {
-                    return Err(
-                        "Interprete PowerShell non consentito dalle policy di sicurezza di Studio (AUT-035/ACC-16)"
-                            .to_string(),
-                    );
+                    return Err(crate::tr!(
+                        "Interprete PowerShell non consentito dalle policy di sicurezza di Studio (AUT-035/ACC-16)",
+                        "A PowerShell interpreter is not allowed by Studio security policies (AUT-035/ACC-16)"
+                    )
+                    .to_string());
                 }
 
                 #[cfg(target_os = "windows")]
@@ -518,9 +553,11 @@ pub fn execute(
                         }
                         #[cfg(not(target_os = "windows"))]
                         {
-                            return Err(
-                                "File batch .bat/.cmd non supportati su sistemi POSIX".to_string()
-                            );
+                            return Err(crate::tr!(
+                                "File batch .bat/.cmd non supportati su sistemi POSIX",
+                                "Batch files (.bat/.cmd) are not supported on POSIX systems"
+                            )
+                            .to_string());
                         }
                     }
                     "sh" => {
@@ -556,9 +593,15 @@ pub fn execute(
                         }
                         #[cfg(target_os = "windows")]
                         {
-                            return Err(format!(
-                                "Nessun interprete specificato per lo script con estensione '.{}' su Windows",
-                                ext_lower
+                            return Err(crate::tr!(
+                                format!(
+                                    "Nessun interprete specificato per lo script con estensione '.{}' su Windows",
+                                    ext_lower
+                                ),
+                                format!(
+                                    "No interpreter specified for the '.{}' script on Windows",
+                                    ext_lower
+                                )
                             ));
                         }
                     }
@@ -566,9 +609,15 @@ pub fn execute(
             }
         }
         other => {
-            return Err(format!(
-                "Modalita' di comando '{}' non supportata (valide: 'shell', 'executable', 'script')",
-                other
+            return Err(crate::tr!(
+                format!(
+                    "Modalita' di comando '{}' non supportata (valide: 'shell', 'executable', 'script')",
+                    other
+                ),
+                format!(
+                    "Unsupported command mode '{}' (valid: 'shell', 'executable', 'script')",
+                    other
+                )
             ));
         }
     }
@@ -595,11 +644,19 @@ pub fn execute(
 
     // 10. Avvio del processo
     let mut child = cmd.spawn().map_err(|e| {
-        format!(
-            "Impossibile avviare il processo '{}' in '{}': {}",
-            variant.command,
-            request.cwd.display(),
-            e
+        crate::tr!(
+            format!(
+                "Impossibile avviare il processo '{}' in '{}': {}",
+                variant.command,
+                request.cwd.display(),
+                e
+            ),
+            format!(
+                "Unable to start the process '{}' in '{}': {}",
+                variant.command,
+                request.cwd.display(),
+                e
+            )
         )
     })?;
     let pid = child.id();
@@ -618,14 +675,20 @@ pub fn execute(
     };
 
     // 12. Drenaggio simultaneo di stdout e stderr su thread separati
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| "Impossibile acquisire stdout del processo".to_string())?;
-    let stderr = child
-        .stderr
-        .take()
-        .ok_or_else(|| "Impossibile acquisire stderr del processo".to_string())?;
+    let stdout = child.stdout.take().ok_or_else(|| {
+        crate::tr!(
+            "Impossibile acquisire stdout del processo",
+            "Unable to capture the process stdout"
+        )
+        .to_string()
+    })?;
+    let stderr = child.stderr.take().ok_or_else(|| {
+        crate::tr!(
+            "Impossibile acquisire stderr del processo",
+            "Unable to capture the process stderr"
+        )
+        .to_string()
+    })?;
 
     let (tx, rx) = mpsc::channel::<(String, bool)>();
     let stdout_handle = drain_stream(stdout, false, secrets_to_mask.clone(), tx.clone());
@@ -644,7 +707,13 @@ pub fn execute(
         if cancel.load(Ordering::Relaxed) {
             break (
                 "interrupted".to_string(),
-                Some("Esecuzione annullata dall'utente".to_string()),
+                Some(
+                    crate::tr!(
+                        "Esecuzione annullata dall'utente",
+                        "Execution cancelled by the user"
+                    )
+                    .to_string(),
+                ),
                 None,
             );
         }
@@ -653,10 +722,17 @@ pub fn execute(
         if start.elapsed() >= request.timeout {
             break (
                 "timeout".to_string(),
-                Some(format!(
-                    "Timeout superato dopo {}s (limite: {}s)",
-                    start.elapsed().as_secs(),
-                    request.timeout.as_secs()
+                Some(crate::tr!(
+                    format!(
+                        "Timeout superato dopo {}s (limite: {}s)",
+                        start.elapsed().as_secs(),
+                        request.timeout.as_secs()
+                    ),
+                    format!(
+                        "Timed out after {}s (limit: {}s)",
+                        start.elapsed().as_secs(),
+                        request.timeout.as_secs()
+                    )
                 )),
                 None,
             );
@@ -670,8 +746,15 @@ pub fn execute(
                     break ("completed".to_string(), None, code);
                 } else {
                     let detail = Some(match code {
-                        Some(c) => format!("Comando terminato con codice di errore {}", c),
-                        None => "Comando terminato in modo anomalo da un segnale".to_string(),
+                        Some(c) => crate::tr!(
+                            format!("Comando terminato con codice di errore {}", c),
+                            format!("Command exited with error code {}", c)
+                        ),
+                        None => crate::tr!(
+                            "Comando terminato in modo anomalo da un segnale",
+                            "Command terminated abnormally by a signal"
+                        )
+                        .to_string(),
                     });
                     break ("error".to_string(), detail, code);
                 }
@@ -682,7 +765,10 @@ pub fn execute(
             Err(e) => {
                 break (
                     "error".to_string(),
-                    Some(format!("Errore durante l'attesa del processo: {}", e)),
+                    Some(crate::tr!(
+                        format!("Errore durante l'attesa del processo: {}", e),
+                        format!("Error while waiting for the process: {}", e)
+                    )),
                     None,
                 );
             }

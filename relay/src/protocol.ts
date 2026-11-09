@@ -1039,6 +1039,11 @@ export interface PushSubscriptionData {
 export interface SavePushSubscriptionRequest {
 	subscription: PushSubscriptionData;
 	userAgent?: string;
+	/**
+	 * Lingua della UI del dispositivo: il relay localizza titolo e corpo delle
+	 * notifiche. Assente (client vecchi) vale l'inglese.
+	 */
+	language?: 'it' | 'en';
 }
 
 export interface SavePushSubscriptionResponse {
@@ -1063,5 +1068,25 @@ export interface PushNotificationPayload {
 		requestId?: string;
 		type?: 'attention' | 'quota' | 'idle' | string;
 		url?: string;
+		/**
+		 * Contenuto strutturato della notifica: il relay lo ricompone nella lingua
+		 * dichiarata dalla sottoscrizione al momento dell'invio (`pushText.ts`).
+		 * `title`/`body` restano la resa inglese predefinita per i client vecchi.
+		 */
+		text?: PushNotificationText;
 	};
+}
+
+/** Contenuto strutturato di una notifica, sufficiente a comporla in ogni lingua. */
+export interface PushNotificationText {
+	kind: 'attention' | 'quota_blocked' | 'quota_provider_exhausted' | 'lane_idle';
+	hostName: string;
+	projectName?: string | null;
+	/** Titolo o messaggio della richiesta in attesa. */
+	question?: string | null;
+	/** `quota_exhausted` oppure un errore del fornitore. */
+	reason?: string | null;
+	provider?: string | null;
+	account?: string | null;
+	laneTitle?: string | null;
 }

@@ -154,7 +154,7 @@ describe('Fleet historical transcript parsing and mapping', () => {
 		// imagePreviews deve essere rimosso per salvare byte
 		assert.equal(bounded.imagePreviews, undefined);
 		// Il testo deve contenere il marker di troncamento
-		assert.ok(bounded.text?.includes('[testo troncato per limite di frame]'));
+		assert.ok(/truncated for the frame limit/.test(bounded.text ?? ''));
 	});
 
 	it('sliceWithoutHalfSurrogate avoids orphaned high surrogates', () => {

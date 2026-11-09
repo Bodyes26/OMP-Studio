@@ -74,7 +74,7 @@ export async function startOpenBranchFlow(
  * usando Intl.RelativeTimeFormat e la lingua corrente.
  */
 export function formatRelativeDate(timestamp: number): string {
-	const locale = getLocale?.() ?? 'it';
+	const locale = getLocale();
 	const now = Date.now();
 	const diffMs = timestamp - now;
 	const diffSec = Math.round(diffMs / 1000);
@@ -101,7 +101,7 @@ export function formatRelativeDate(timestamp: number): string {
 		const date = new Date(timestamp);
 		return new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short' }).format(date);
 	} catch {
-		return new Date(timestamp).toLocaleDateString();
+		return new Date(timestamp).toLocaleDateString(locale);
 	}
 }
 

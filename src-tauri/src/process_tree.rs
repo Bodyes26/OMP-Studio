@@ -45,7 +45,10 @@ impl WindowsJob {
         unsafe {
             let job_handle = CreateJobObjectW(std::ptr::null(), std::ptr::null());
             if job_handle.is_null() {
-                return Err("Creazione Job Object fallita".to_string());
+                return Err(crate::tr!(
+            "Creazione Job Object fallita",
+            "Job Object creation failed"
+        ).to_string());
             }
 
             let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
@@ -59,13 +62,19 @@ impl WindowsJob {
             );
             if res == 0 {
                 CloseHandle(job_handle);
-                return Err("Configurazione Job Object (KILL_ON_JOB_CLOSE) fallita".to_string());
+                return Err(crate::tr!(
+            "Configurazione Job Object (KILL_ON_JOB_CLOSE) fallita",
+            "Job Object configuration (KILL_ON_JOB_CLOSE) failed"
+        ).to_string());
             }
 
             let proc_handle = OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, FALSE, pid);
             if proc_handle.is_null() {
                 CloseHandle(job_handle);
-                return Err(format!("Apertura processo PID {} fallita", pid));
+                return Err(crate::tr!(
+                    format!("Apertura processo PID {} fallita", pid),
+                    format!("Opening PID {} failed", pid)
+                ));
             }
 
             let assign_res = AssignProcessToJobObject(job_handle, proc_handle);
@@ -73,9 +82,9 @@ impl WindowsJob {
 
             if assign_res == 0 {
                 CloseHandle(job_handle);
-                return Err(format!(
-                    "Assegnazione processo {} al Job Object fallita",
-                    pid
+                return Err(crate::tr!(
+                    format!("Assegnazione processo {} al Job Object fallita", pid),
+                    format!("Assigning process {} to the Job Object failed", pid)
                 ));
             }
 
@@ -569,7 +578,12 @@ pub async fn lane_processes_stop(
 ) -> Result<LaneProcessStopReport, String> {
     tokio::task::spawn_blocking(move || stop_lane_processes(&project_id, &lane_id))
         .await
-        .map_err(|error| format!("Arresto dei processi della corsia: {}", error))
+        .map_err(|error| {
+            crate::tr!(
+                format!("Arresto dei processi della corsia: {}", error),
+                format!("Stopping the lane processes: {}", error)
+            )
+        })
 }
 
 #[cfg(test)]

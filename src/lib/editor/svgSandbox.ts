@@ -13,6 +13,7 @@
 //    - Nessun accesso a window.parent, window.top, localStorage o alle API IPC privilegiate di Tauri (window.__TAURI__, invoke, etc.).
 
 import DOMPurify from 'dompurify';
+import { getLocale } from '#lib/paraglide/runtime.js';
 
 /**
  * Rimuove costrutti pericolosi dal markup SVG tramite filtri strutturali euristici
@@ -142,9 +143,11 @@ export function sanitizeSvg(svg: string): string {
 export function buildSandboxedSvgDocument(svgContent: string): string {
 	const clean = sanitizeSvg(svgContent);
 	const csp = "default-src 'none'; style-src 'unsafe-inline'; img-src data: blob:;";
+	// La lingua del documento generato segue quella dell'interfaccia.
+	const locale = getLocale();
 
 	return `<!DOCTYPE html>
-<html lang="it">
+<html lang="${locale}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">

@@ -279,6 +279,25 @@ function verifyGhAuth() {
 	}
 }
 
+// Identita' di firma macOS condivisa con i runner GitHub (secret APPLE_SIGNING_IDENTITY).
+const MAC_SIGNING_IDENTITY = 'OMP Studio Self-Signed';
+
+// La firma ad-hoc della configurazione lega l'identita' dell'app all'hash del
+// binario: ogni aggiornamento sembrerebbe un'altra app e macOS richiederebbe di
+// nuovo permessi e accesso al portachiavi. La Nightly locale deve quindi usare
+// lo stesso certificato delle build cloud, o non partire.
+function useMacSigningIdentity() {
+	const identity = process.env.APPLE_SIGNING_IDENTITY || MAC_SIGNING_IDENTITY;
+	const res = spawnSync('security', ['find-identity', '-p', 'codesigning'], { encoding: 'utf8' });
+	if (res.status !== 0 || !res.stdout.includes(`"${identity}"`)) {
+		throw new Error(
+			`Identita' di firma macOS "${identity}" assente dal portachiavi: importa il certificato ` +
+				'(vedi docs/DECISIONS.md, firma macOS) prima di pubblicare la Nightly.'
+		);
+	}
+	process.env.APPLE_SIGNING_IDENTITY = identity;
+}
+
 function getPlatformConfig() {
 	switch (process.platform) {
 		case 'win32':
@@ -302,6 +321,7 @@ function getPlatformConfig() {
 				extensions: ['.exe']
 			};
 		case 'darwin':
+			useMacSigningIdentity();
 			return {
 				key: 'macos',
 				name: 'macOS',

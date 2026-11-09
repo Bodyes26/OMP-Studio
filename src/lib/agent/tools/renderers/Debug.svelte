@@ -6,6 +6,7 @@
   quando presenti, le sezioni per stack trace, variabili e breakpoint.
 -->
 <script lang="ts">
+	import { m } from '#lib/paraglide/messages.js';
 	import KeyValue from '../parts/KeyValue.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
 	import PathChip from '../parts/PathChip.svelte';
@@ -70,14 +71,14 @@
 	const argsRows = $derived.by<{ key: string; value: string }[]>(() => {
 		const rows: { key: string; value: string }[] = [];
 		const action = str(details?.action) ?? str(args.action) ?? 'debug';
-		rows.push({ key: 'Azione', value: action });
-		if (targetProgram) rows.push({ key: 'Programma', value: targetProgram });
-		if (targetExpression) rows.push({ key: 'Espressione', value: targetExpression });
-		if (targetLine !== undefined) rows.push({ key: 'Riga', value: String(targetLine) });
+		rows.push({ key: m.l10n_tools_label_action(), value: action });
+		if (targetProgram) rows.push({ key: m.l10n_tools_label_program(), value: targetProgram });
+		if (targetExpression) rows.push({ key: m.l10n_tools_label_expression(), value: targetExpression });
+		if (targetLine !== undefined) rows.push({ key: m.l10n_tools_label_line(), value: String(targetLine) });
 		const adapter = str(details?.adapter) ?? str(args.adapter);
-		if (adapter) rows.push({ key: 'Adapter', value: adapter });
+		if (adapter) rows.push({ key: m.l10n_tools_label_adapter(), value: adapter });
 		const threads = strList(details?.threads);
-		if (threads.length > 0) rows.push({ key: 'Thread', value: threads.join(', ') });
+		if (threads.length > 0) rows.push({ key: m.l10n_tools_label_thread(), value: threads.join(', ') });
 		return rows;
 	});
 </script>
@@ -93,7 +94,7 @@
 
 	{#if stackFrames.length > 0}
 		<div class="debug-section">
-			<div class="section-title">Stack trace</div>
+			<div class="section-title">{m.l10n_tools_label_stack_trace()}</div>
 			<ul class="frame-list">
 				{#each stackFrames as frame (frame.id)}
 					<li class="frame-row">
@@ -101,7 +102,7 @@
 						{#if frame.path}
 							<PathChip path={frame.path} line={frame.line} />
 						{:else if frame.line !== undefined}
-							<span class="frame-line">riga {frame.line}</span>
+							<span class="frame-line">{m.l10n_tools_label_line_number({ line: frame.line })}</span>
 						{/if}
 					</li>
 				{/each}
@@ -111,24 +112,24 @@
 
 	{#if variableRows.length > 0}
 		<div class="debug-section">
-			<div class="section-title">Variabili</div>
+			<div class="section-title">{m.l10n_tools_label_variables()}</div>
 			<KeyValue rows={variableRows} />
 		</div>
 	{/if}
 
 	{#if breakpoints.length > 0}
 		<div class="debug-section">
-			<div class="section-title">Breakpoint</div>
+			<div class="section-title">{m.l10n_tools_label_breakpoints()}</div>
 			<ul class="breakpoint-list">
 				{#each breakpoints as bp (bp.id)}
 					<li class="breakpoint-row">
 						{#if bp.path}
 							<PathChip path={bp.path} line={bp.line} />
 						{:else if bp.line !== undefined}
-							<span class="frame-line">riga {bp.line}</span>
+							<span class="frame-line">{m.l10n_tools_label_line_number({ line: bp.line })}</span>
 						{/if}
 						{#if !bp.verified}
-							<span class="bp-unverified">non verificato{bp.message ? `: ${bp.message}` : ''}</span>
+							<span class="bp-unverified">{m.l10n_tools_label_unverified()}{bp.message ? `: ${bp.message}` : ''}</span>
 						{/if}
 					</li>
 				{/each}
@@ -137,7 +138,7 @@
 	{/if}
 
 	{#if text}
-		<OutputBlock {text} label="output debugger" />
+		<OutputBlock {text} label={m.l10n_tools_label_debugger_output()} />
 	{/if}
 </div>
 

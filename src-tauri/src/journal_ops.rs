@@ -19,9 +19,20 @@ const ASK_CONTEXT_MAX_CHARS: usize = 24_000;
 /// Tetto della domanda (caratteri).
 const ASK_QUESTION_MAX_CHARS: usize = 600;
 
+/// Prompt di sistema di «Chiedi al diario». La risposta viene mostrata
+/// nell'interfaccia di Studio: la lingua la decide `crate::i18n::code()`.
+fn system_prompt() -> String {
+    format!(
+        r#"{prompt}
+5. Lingua della risposta: scrivi SEMPRE in questa lingua di interfaccia: {lang}, anche se la domanda e' in un'altra lingua."#,
+        prompt = SYSTEM_PROMPT,
+        lang = crate::i18n::code()
+    )
+}
+
 const SYSTEM_PROMPT: &str = r#"Rispondi a una domanda sul progetto usando SOLO gli estratti del diario e dei documenti di progetto nel file allegato.
 Regole:
-1. Rispondi in modo breve (al massimo 6 frasi), nella STESSA LINGUA della domanda, con parole semplici.
+1. Rispondi in modo breve (al massimo 6 frasi), con parole semplici.
 2. Cita le fonti come compaiono negli estratti: il percorso del file e, se c'e', la fonte tra parentesi quadre (es. [sessione 5b90c1a2], [commit 41aa0d1]).
 3. Se gli estratti non contengono la risposta, dillo chiaramente in una frase e suggerisci di aggiungerla alle domande aperte. Non inventare.
 4. Nessun preambolo, nessun blocco di codice."#;
@@ -54,9 +65,10 @@ pub async fn project_docs_ask(
 
     let resolved_model =
         crate::directives_ops::resolve_assistant_model(model_selector.as_deref()).await;
+    let prompt = system_prompt();
     let spawned = tokio::task::spawn_blocking(move || {
         crate::directives_ops::run_ephemeral_omp(
-            SYSTEM_PROMPT,
+            &prompt,
             Some(&context_md),
             "Rispondi alla domanda del file allegato rispettando le regole.",
             resolved_model.as_deref(),

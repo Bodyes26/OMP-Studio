@@ -59,10 +59,10 @@
 		</div>
 	{/if}
 	{#if displayContent}
-		<OutputBlock text={displayContent} label="risultati grep" />
+		<OutputBlock text={displayContent} label={m.l10n_tools_label_grep_results()} />
 	{/if}
 	{#if truncated}
-		<EmptyNotice text="Risultati troncati per superamento del limite." />
+		<EmptyNotice text={m.l10n_tools_label_results_truncated()} />
 	{/if}
 </div>
 

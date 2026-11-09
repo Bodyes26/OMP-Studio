@@ -345,7 +345,7 @@
 			items.push({
 				kind: 'item',
 				label: lane.adopted
-					? 'Scarta corsia'
+					? m.l10n_cmp_lane_discard_action()
 					: m.lanestrip_action_delete_worktree(),
 				icon: IconTrash,
 				danger: true,
@@ -728,17 +728,19 @@
 		</button>
 	{/if}
 
-	<!-- Pulsante + icon-only senza freccia ne' testo -->
-	<button
-		type="button"
-		class="lane-new-btn"
-		title={m.lanestrip_tab_new()}
-		aria-label={m.lanestrip_tab_new()}
-		onclick={handleOpenNewMenu}
-		disabled={isCreating}
-	>
-		<IconPlus />
-	</button>
+	<!-- Pulsante + icon-only senza freccia ne' testo: nascosto per progetti esterni -->
+	{#if !project.external}
+		<button
+			type="button"
+			class="lane-new-btn"
+			title={m.lanestrip_tab_new()}
+			aria-label={m.lanestrip_tab_new()}
+			onclick={handleOpenNewMenu}
+			disabled={isCreating}
+		>
+			<IconPlus />
+		</button>
+	{/if}
 </nav>
 
 <!-- Dialogo conferma eliminazione definitiva worktree -->
@@ -748,7 +750,7 @@
 	title={deleteConfirmTarget?.prototypeId
 		? m.lab_delete_dialog_title()
 		: deleteConfirmTarget?.adopted
-			? 'Scarta corsia'
+			? m.l10n_cmp_lane_discard_action()
 			: m.lanestrip_delete_dialog_title()}
 	ariaDescribedBy="lane-delete-desc"
 >
@@ -758,7 +760,7 @@
 				{#if deleteConfirmTarget.prototypeId}
 					{m.lab_delete_dialog_message({ name: deleteConfirmTarget.title })}
 				{:else if deleteConfirmTarget.adopted}
-					Vuoi davvero scartare la corsia "{deleteConfirmTarget.title}"? Il worktree verra' rimosso, mentre il branch Git restera' intatto.
+					{m.l10n_cmp_lane_discard_adopted_message({ name: deleteConfirmTarget.title })}
 				{:else}
 					{m.lanestrip_delete_dialog_message({ name: deleteConfirmTarget.title })}
 				{/if}
@@ -786,7 +788,7 @@
 			class="ui-button ui-button-danger"
 			onclick={() => void executeDelete()}
 		>
-			{deleteConfirmTarget?.adopted ? 'Scarta' : m.lanestrip_delete_dialog_confirm()}
+			{deleteConfirmTarget?.adopted ? m.l10n_cmp_lane_discard_confirm() : m.lanestrip_delete_dialog_confirm()}
 		</button>
 	{/snippet}
 </Dialog>

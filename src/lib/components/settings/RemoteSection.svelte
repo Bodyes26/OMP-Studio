@@ -95,7 +95,7 @@
 		<!-- Stato connessione -->
 		<div class="remote-card">
 			<div class="card-title-row">
-				<span class="card-title">Stato connessione</span>
+				<span class="card-title">{m.l10n_cmp_remote_status_title()}</span>
 				{#if remoteStore.status.relayVersion}
 					<span class="version-chip">relay {remoteStore.status.relayVersion}</span>
 				{/if}
@@ -134,7 +134,7 @@
 				{:else if remoteStore.status.paired}
 					<div class="status-line">
 						<StatusMark status="pending" />
-						<span class="status-text">In collegamento...</span>
+						<span class="status-text">{m.l10n_cmp_remote_status_connecting()}</span>
 					</div>
 				{:else}
 					<div class="status-line">
@@ -189,8 +189,8 @@
 					</div>
 					<div class="copy-field">
 						<input type="text" class="ui-input" value={remoteStore.status.relayUrl ?? ''} readonly />
-						<Tooltip text={copied === 'url' ? 'Copiato' : 'Copia'}>
-							<button type="button" class="ui-button ui-button-ghost icon-btn" onclick={() => copy(remoteStore.status.relayUrl ?? '', 'url')} aria-label="Copia URL">
+						<Tooltip text={copied === 'url' ? m.alert_copied() : m.context_menu_item_copy()}>
+							<button type="button" class="ui-button ui-button-ghost icon-btn" onclick={() => copy(remoteStore.status.relayUrl ?? '', 'url')} aria-label={m.l10n_cmp_remote_copy_url_aria()}>
 								<IconCopy />
 							</button>
 						</Tooltip>
@@ -209,9 +209,9 @@
 			<!-- Zona pericolosa -->
 			<div class="remote-card danger-card">
 				<div class="card-title-row">
-					<span class="card-title">Zona pericolosa</span>
+					<span class="card-title">{m.l10n_cmp_remote_danger_title()}</span>
 				</div>
-				<p class="card-desc">Rimuove l'abbinamento di questa macchina. Dovrai generare un nuovo codice dal relay.</p>
+				<p class="card-desc">{m.l10n_cmp_remote_danger_desc()}</p>
 				<button type="button" class="ui-button ui-button-danger" disabled={remoteStore.loading} onclick={() => (confirmUnpairOpen = true)}>
 					{m.settings_remote_forget_button()}
 				</button>
@@ -220,9 +220,9 @@
 			<!-- Abbinamento -->
 			<div class="remote-card">
 				<div class="card-title-row">
-					<span class="card-title">Abbina questa macchina</span>
+					<span class="card-title">{m.l10n_cmp_remote_pair_title()}</span>
 				</div>
-				<p class="card-desc">Incolla l'URL del tuo relay e il codice di abbinamento generato nella dashboard del relay.</p>
+				<p class="card-desc">{m.l10n_cmp_remote_pair_desc()}</p>
 
 				<div class="field-stack">
 					<label class="field-label" for="settings-remote-pair-url">{m.settings_remote_relay_url_title()}</label>

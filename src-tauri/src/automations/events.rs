@@ -8,9 +8,7 @@
 //! - Soppressione percorsi attivi e riallineamento anti-autociclo;
 //! - Tracciamento dell'attività locale per i filtri di ammissione.
 
-use super::model::{
-    AutomationDefinition, AutomationEvent, AutomationProject,
-};
+use super::model::{AutomationDefinition, AutomationEvent, AutomationProject};
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -112,15 +110,19 @@ impl Observer {
         let (file_tx, file_rx) = channel();
         let mut errors = HashSet::new();
 
-        let watcher = match notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
-            let _ = file_tx.send(res);
-        }) {
-            Ok(w) => Some(w),
-            Err(e) => {
-                errors.insert(format!("Inizializzazione watcher filesystem fallita: {e}"));
-                None
-            }
-        };
+        let watcher =
+            match notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
+                let _ = file_tx.send(res);
+            }) {
+                Ok(w) => Some(w),
+                Err(e) => {
+                    errors.insert(crate::tr!(
+                        format!("Inizializzazione watcher filesystem fallita: {e}"),
+                        format!("Filesystem watcher initialization failed: {e}")
+                    ));
+                    None
+                }
+            };
 
         let (git_tx, git_rx) = channel();
 
@@ -167,7 +169,11 @@ impl Observer {
         let mut current_known = HashMap::new();
         for proj in projects {
             let path_buf = PathBuf::from(&proj.path);
-            let was_open = self.known_projects.get(&proj.id).map(|p| p.open).unwrap_or(false);
+            let was_open = self
+                .known_projects
+                .get(&proj.id)
+                .map(|p| p.open)
+                .unwrap_or(false);
             if proj.open && !was_open {
                 // Progetto appena aperto: emetti se vi sono definizioni interessate
                 for def in definitions {
@@ -175,7 +181,9 @@ impl Observer {
                         continue;
                     }
                     for trig in &def.triggers {
-                        if trig.kind == "projectOpened" && definition_targets_project(def, &proj.path) {
+                        if trig.kind == "projectOpened"
+                            && definition_targets_project(def, &proj.path)
+                        {
                             self.queued_lifecycle_events.push(ObservedAutomationEvent {
                                 automation_id: Some(def.id.clone()),
                                 event: AutomationEvent {
@@ -186,7 +194,10 @@ impl Observer {
                                     branch: None,
                                     commit: None,
                                     origin: Some("interactive".to_string()),
-                                    detail: Some(format!("Apertura del progetto {}", proj.name)),
+                                    detail: Some(crate::tr!(
+                                        format!("Apertura del progetto {}", proj.name),
+                                        format!("Project {} opened", proj.name)
+                                    )),
                                 },
                             });
                         }
@@ -196,15 +207,17 @@ impl Observer {
             current_known.insert(proj.id.clone(), proj.clone());
 
             // Assicura la presenza nello stato Git
-            self.git_states.entry(path_buf).or_insert_with(|| ProjectGitState {
-                last_commit: None,
-                last_branch: None,
-                last_is_dirty: None,
-                baseline_initialized: false,
-                in_flight: false,
-                needs_check: true,
-                last_poll_ms: 0,
-            });
+            self.git_states
+                .entry(path_buf)
+                .or_insert_with(|| ProjectGitState {
+                    last_commit: None,
+                    last_branch: None,
+                    last_is_dirty: None,
+                    baseline_initialized: false,
+                    in_flight: false,
+                    needs_check: true,
+                    last_poll_ms: 0,
+                });
         }
         self.known_projects = current_known;
 
@@ -215,8 +228,10 @@ impl Observer {
             .cloned()
             .collect();
 
-        let active_def_ids: HashSet<String> = self.definitions.iter().map(|d| d.id.clone()).collect();
-        self.pending_file_bursts.retain(|_k, burst| active_def_ids.contains(&burst.definition_id));
+        let active_def_ids: HashSet<String> =
+            self.definitions.iter().map(|d| d.id.clone()).collect();
+        self.pending_file_bursts
+            .retain(|_k, burst| active_def_ids.contains(&burst.definition_id));
 
         // 4. Calcola le radici locali approvate da monitorare
         let mut required_roots: HashSet<PathBuf> = HashSet::new();
@@ -237,7 +252,10 @@ impl Observer {
                             required_roots.insert(PathBuf::from(&p.path));
                         }
                     }
-                } else if matches!(trig.kind.as_str(), "gitCommit" | "gitBranch" | "gitDirty" | "gitClean") {
+                } else if matches!(
+                    trig.kind.as_str(),
+                    "gitCommit" | "gitBranch" | "gitDirty" | "gitClean"
+                ) {
                     for p in projects {
                         required_roots.insert(PathBuf::from(&p.path));
                     }
@@ -269,7 +287,13 @@ impl Observer {
                                 branch: None,
                                 commit: None,
                                 origin: Some("interactive".to_string()),
-                                detail: Some("Avvio della sessione di OMP Studio".to_string()),
+                                detail: Some(
+                                    crate::tr!(
+                                        "Avvio della sessione di OMP Studio",
+                                        "OMP Studio session started"
+                                    )
+                                    .to_string(),
+                                ),
                             },
                         });
                     }
@@ -306,7 +330,9 @@ impl Observer {
 
         // Se non ancora pronto, effettua una verifica bounded diretta
         if p.exists() && !is_network_path(p) {
-            if let Ok(out) = run_git_bounded(p, &["status", "--porcelain"], Duration::from_millis(1500)) {
+            if let Ok(out) =
+                run_git_bounded(p, &["status", "--porcelain"], Duration::from_millis(1500))
+            {
                 if out.status.success() {
                     let s = String::from_utf8_lossy(&out.stdout);
                     let dirty = s.lines().any(|l| !l.trim().is_empty());
@@ -446,22 +472,34 @@ impl Observer {
 
             // Escludi cartelle di rete (AUT-016)
             if is_network_path(&r) {
-                self.errors.insert(format!(
-                    "Cartella di rete non supportata come sorgente eventi: {}",
-                    r.display()
+                self.errors.insert(crate::tr!(
+                    format!(
+                        "Cartella di rete non supportata come sorgente eventi: {}",
+                        r.display()
+                    ),
+                    format!(
+                        "Network folder not supported as an event source: {}",
+                        r.display()
+                    )
                 ));
                 continue;
             }
 
             if !r.exists() {
-                self.errors.insert(format!("Percorso approvato non trovato su disco: {}", r.display()));
+                self.errors.insert(crate::tr!(
+                    format!("Percorso approvato non trovato su disco: {}", r.display()),
+                    format!("Approved path not found on disk: {}", r.display())
+                ));
                 continue;
             }
 
             let canonical = match std::fs::canonicalize(&r) {
                 Ok(c) => c,
                 Err(e) => {
-                    self.errors.insert(format!("Risoluzione canonica di {} fallita: {e}", r.display()));
+                    self.errors.insert(crate::tr!(
+                        format!("Risoluzione canonica di {} fallita: {e}", r.display()),
+                        format!("Canonical resolution of {} failed: {e}", r.display())
+                    ));
                     continue;
                 }
             };
@@ -477,7 +515,10 @@ impl Observer {
                     );
                 }
                 Err(e) => {
-                    self.errors.insert(format!("Avvio monitoraggio su {} fallito: {e}", r.display()));
+                    self.errors.insert(crate::tr!(
+                        format!("Avvio monitoraggio su {} fallito: {e}", r.display()),
+                        format!("Starting watch on {} failed: {e}", r.display())
+                    ));
                 }
             }
         }
@@ -489,7 +530,10 @@ impl Observer {
             let event = match msg {
                 Ok(ev) => ev,
                 Err(e) => {
-                    self.errors.insert(format!("Errore dal watcher di sistema: {e}"));
+                    self.errors.insert(crate::tr!(
+                        format!("Errore dal watcher di sistema: {e}"),
+                        format!("Error from the system watcher: {e}")
+                    ));
                     continue;
                 }
             };
@@ -503,10 +547,9 @@ impl Observer {
                 }
 
                 // Trova la radice approvata di appartenenza
-                let root_entry = self
-                    .watched_roots
-                    .values()
-                    .find(|entry| path.starts_with(&entry.raw_path) || path.starts_with(&entry.canonical_path));
+                let root_entry = self.watched_roots.values().find(|entry| {
+                    path.starts_with(&entry.raw_path) || path.starts_with(&entry.canonical_path)
+                });
 
                 let root = match root_entry {
                     Some(r) => r,
@@ -541,7 +584,8 @@ impl Observer {
                         // Se il trigger specifica radici esplicite (anche esterne autorizzate), verifica corrispondenza
                         let matches_scope = if !trig.roots.is_empty() {
                             trig.roots.iter().any(|r| {
-                                normalize_path_for_compare(Path::new(r)) == normalize_path_for_compare(&root.raw_path)
+                                normalize_path_for_compare(Path::new(r))
+                                    == normalize_path_for_compare(&root.raw_path)
                             })
                         } else {
                             definition_targets_project(def, &root.raw_path.to_string_lossy())
@@ -552,7 +596,9 @@ impl Observer {
                         }
 
                         // Verifica filtro change tipo (create, modify, remove)
-                        if !trig.changes.is_empty() && !trig.changes.iter().any(|c| c == change_type) {
+                        if !trig.changes.is_empty()
+                            && !trig.changes.iter().any(|c| c == change_type)
+                        {
                             continue;
                         }
 
@@ -560,7 +606,9 @@ impl Observer {
                         let is_excluded = if trig.exclude_patterns.is_empty() {
                             matches_any_pattern(&norm_rel, DEFAULT_EXCLUDE_PATTERNS)
                         } else {
-                            trig.exclude_patterns.iter().any(|pat| glob_match(pat, &norm_rel))
+                            trig.exclude_patterns
+                                .iter()
+                                .any(|pat| glob_match(pat, &norm_rel))
                         };
 
                         if is_excluded {
@@ -569,27 +617,35 @@ impl Observer {
 
                         // Verifica pattern di inclusione
                         if !trig.include_patterns.is_empty() {
-                            let is_included = trig.include_patterns.iter().any(|pat| glob_match(pat, &norm_rel));
+                            let is_included = trig
+                                .include_patterns
+                                .iter()
+                                .any(|pat| glob_match(pat, &norm_rel));
                             if !is_included {
                                 continue;
                             }
                         }
 
                         // Registra o accoda nel burst di eventi pendenti per applicare quiete e max wait (AUT-018)
-                        let burst_key = format!("{}:{}:{}", def.id, trig.id, root.raw_path.display());
+                        let burst_key =
+                            format!("{}:{}:{}", def.id, trig.id, root.raw_path.display());
                         let quiet_ms = (def.policy.file_quiet_seconds as i64 * 1000).max(500);
-                        let max_wait_ms = (def.policy.file_max_wait_seconds as i64 * 1000).max(quiet_ms);
+                        let max_wait_ms =
+                            (def.policy.file_max_wait_seconds as i64 * 1000).max(quiet_ms);
 
-                        let burst = self.pending_file_bursts.entry(burst_key).or_insert_with(|| PendingFileBurst {
-                            definition_id: def.id.clone(),
-                            project_path: Some(root.raw_path.to_string_lossy().to_string()),
-                            first_event_at_ms: now_ms,
-                            last_event_at_ms: now_ms,
-                            paths: HashSet::new(),
-                            changes: HashSet::new(),
-                            quiet_ms,
-                            max_wait_ms,
-                        });
+                        let burst =
+                            self.pending_file_bursts
+                                .entry(burst_key)
+                                .or_insert_with(|| PendingFileBurst {
+                                    definition_id: def.id.clone(),
+                                    project_path: Some(root.raw_path.to_string_lossy().to_string()),
+                                    first_event_at_ms: now_ms,
+                                    last_event_at_ms: now_ms,
+                                    paths: HashSet::new(),
+                                    changes: HashSet::new(),
+                                    quiet_ms,
+                                    max_wait_ms,
+                                });
 
                         burst.last_event_at_ms = now_ms;
                         burst.paths.insert(norm_rel.clone());
@@ -601,7 +657,11 @@ impl Observer {
     }
 
     /// Elabora i risultati dei controlli Git asincroni.
-    fn drain_git_results(&mut self, now_ms: i64, emitted_events: &mut Vec<ObservedAutomationEvent>) {
+    fn drain_git_results(
+        &mut self,
+        now_ms: i64,
+        emitted_events: &mut Vec<ObservedAutomationEvent>,
+    ) {
         while let Ok(res) = self.git_rx.try_recv() {
             let state = match self.git_states.get_mut(&res.project_path) {
                 Some(s) => s,
@@ -612,7 +672,10 @@ impl Observer {
             state.needs_check = false;
 
             if let Some(err) = res.error {
-                self.errors.insert(format!("Git check {} fallito: {err}", res.project_path.display()));
+                self.errors.insert(crate::tr!(
+                    format!("Git check {} fallito: {err}", res.project_path.display()),
+                    format!("Git check {} failed: {err}", res.project_path.display())
+                ));
                 continue;
             }
 
@@ -638,7 +701,8 @@ impl Observer {
             // 1. Nuovo commit locale (AUT-013) - emesso globalmente per il progetto (None)
             if let (Some(new_c), Some(old_c)) = (&res.commit, &state.last_commit) {
                 if new_c != old_c && !new_c.is_empty() {
-                    self.activity_ledger.insert(res.project_path.clone(), now_ms);
+                    self.activity_ledger
+                        .insert(res.project_path.clone(), now_ms);
 
                     emitted_events.push(ObservedAutomationEvent {
                         automation_id: None,
@@ -659,7 +723,8 @@ impl Observer {
             // 2. Cambio branch (AUT-013) - emesso globalmente per il progetto (None)
             if let (Some(new_b), Some(old_b)) = (&res.branch, &state.last_branch) {
                 if new_b != old_b && !new_b.is_empty() {
-                    self.activity_ledger.insert(res.project_path.clone(), now_ms);
+                    self.activity_ledger
+                        .insert(res.project_path.clone(), now_ms);
 
                     emitted_events.push(ObservedAutomationEvent {
                         automation_id: None,
@@ -671,7 +736,10 @@ impl Observer {
                             branch: Some(new_b.clone()),
                             commit: res.commit.clone(),
                             origin: Some("external".to_string()),
-                            detail: Some(format!("Cambio branch verso {new_b}")),
+                            detail: Some(crate::tr!(
+                                format!("Cambio branch verso {new_b}"),
+                                format!("Branch switched to {new_b}")
+                            )),
                         },
                     });
                 }
@@ -680,13 +748,20 @@ impl Observer {
             // 3. Transizioni dirty / clean (AUT-013) - emesse globalmente per il progetto (None)
             if let Some(old_dirty) = state.last_is_dirty {
                 if old_dirty != res.is_dirty {
-                    self.activity_ledger.insert(res.project_path.clone(), now_ms);
+                    self.activity_ledger
+                        .insert(res.project_path.clone(), now_ms);
 
                     let trig_kind = if res.is_dirty { "gitDirty" } else { "gitClean" };
                     let detail_msg = if res.is_dirty {
-                        "Modifiche non salvate rilevate nel working tree"
+                        crate::tr!(
+                            "Modifiche non salvate rilevate nel working tree",
+                            "Uncommitted changes detected in the working tree"
+                        )
                     } else {
-                        "Working tree ritornato allo stato pulito"
+                        crate::tr!(
+                            "Working tree ritornato allo stato pulito",
+                            "Working tree back to a clean state"
+                        )
                     };
 
                     emitted_events.push(ObservedAutomationEvent {
@@ -734,7 +809,10 @@ impl Observer {
                     })
                     .map_err(|e| {
                         state.in_flight = false;
-                        self.errors.insert(format!("Creazione worker thread Git fallita: {e}"));
+                        self.errors.insert(crate::tr!(
+                            format!("Creazione worker thread Git fallita: {e}"),
+                            format!("Creating the Git worker thread failed: {e}")
+                        ));
                     })
                     .ok();
             }
@@ -742,7 +820,11 @@ impl Observer {
     }
 
     /// Rilascia gli eventi file pendenti che hanno concluso la quiete o superato il tempo massimo di attesa.
-    fn flush_file_bursts(&mut self, now_ms: i64, emitted_events: &mut Vec<ObservedAutomationEvent>) {
+    fn flush_file_bursts(
+        &mut self,
+        now_ms: i64,
+        emitted_events: &mut Vec<ObservedAutomationEvent>,
+    ) {
         let mut ready_keys = Vec::new();
 
         for (key, burst) in &self.pending_file_bursts {
@@ -761,9 +843,15 @@ impl Observer {
 
                 let count = sorted_paths.len();
                 let detail = if count == 1 {
-                    format!("Rilevata modifica sul file {}", sorted_paths[0])
+                    crate::tr!(
+                        format!("Rilevata modifica sul file {}", sorted_paths[0]),
+                        format!("Change detected in file {}", sorted_paths[0])
+                    )
                 } else {
-                    format!("Rilevate modifiche raggruppate su {count} file")
+                    crate::tr!(
+                        format!("Rilevate modifiche raggruppate su {count} file"),
+                        format!("Grouped changes detected in {count} files")
+                    )
                 };
 
                 emitted_events.push(ObservedAutomationEvent {
@@ -813,7 +901,10 @@ fn check_symlink_escape(path: &Path, canonical_root: &Path, raw_root: &Path) -> 
 /// Normalizza il percorso relativo eliminando separatori iniziali e uniformando a '/'.
 fn calculate_relative_path(path: &Path, root: &Path) -> String {
     let rel = path.strip_prefix(root).unwrap_or(path);
-    rel.to_string_lossy().replace('\\', "/").trim_start_matches('/').to_string()
+    rel.to_string_lossy()
+        .replace('\\', "/")
+        .trim_start_matches('/')
+        .to_string()
 }
 
 /// Rileva se il percorso e' interno alla directory di controllo versione .git.
@@ -876,12 +967,15 @@ fn definition_targets_project(def: &AutomationDefinition, project_path: &str) ->
     }
 
     if !def.targets.project_paths.is_empty() {
-        return def.targets.project_paths.iter().any(|p| normalize_path_for_compare(Path::new(p)) == norm_proj);
+        return def
+            .targets
+            .project_paths
+            .iter()
+            .any(|p| normalize_path_for_compare(Path::new(p)) == norm_proj);
     }
 
     true
 }
-
 
 /// Restituisce il timestamp unix corrente in millisecondi.
 fn now_millis() -> i64 {
@@ -915,27 +1009,41 @@ fn run_git_bounded(
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
-        .map_err(|e| format!("Avvio di git fallito in {}: {e}", cwd.display()))?;
+        .map_err(|e| {
+            crate::tr!(
+                format!("Avvio di git fallito in {}: {e}", cwd.display()),
+                format!("Starting git failed in {}: {e}", cwd.display())
+            )
+        })?;
 
     let start = Instant::now();
     loop {
         match child.try_wait() {
             Ok(Some(_status)) => {
-                let output = child
-                    .wait_with_output()
-                    .map_err(|e| format!("Lettura output git fallita: {e}"))?;
+                let output = child.wait_with_output().map_err(|e| {
+                    crate::tr!(
+                        format!("Lettura output git fallita: {e}"),
+                        format!("Reading git output failed: {e}")
+                    )
+                })?;
                 return Ok(output);
             }
             Ok(None) => {
                 if start.elapsed() >= timeout {
                     let _ = child.kill();
-                    return Err(format!("Timeout su git {:?}", args));
+                    return Err(crate::tr!(
+                        format!("Timeout su git {:?}", args),
+                        format!("Timeout on git {:?}", args)
+                    ));
                 }
                 std::thread::sleep(Duration::from_millis(20));
             }
             Err(e) => {
                 let _ = child.kill();
-                return Err(format!("Errore nel monitoraggio del processo git: {e}"));
+                return Err(crate::tr!(
+                    format!("Errore nel monitoraggio del processo git: {e}"),
+                    format!("Error monitoring the git process: {e}")
+                ));
             }
         }
     }
@@ -957,7 +1065,11 @@ fn check_git_project(project_path: &Path) -> GitPollResult {
     };
 
     // 2. Branch corrente: git rev-parse --abbrev-ref HEAD
-    let branch = match run_git_bounded(project_path, &["rev-parse", "--abbrev-ref", "HEAD"], GIT_COMMAND_TIMEOUT) {
+    let branch = match run_git_bounded(
+        project_path,
+        &["rev-parse", "--abbrev-ref", "HEAD"],
+        GIT_COMMAND_TIMEOUT,
+    ) {
         Ok(out) if out.status.success() => {
             let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
             if s.is_empty() || s == "HEAD" {
@@ -970,7 +1082,11 @@ fn check_git_project(project_path: &Path) -> GitPollResult {
     };
 
     // 3. Verifica modifiche non committate (dirty): git status --porcelain
-    let (is_dirty, status_err) = match run_git_bounded(project_path, &["status", "--porcelain"], GIT_COMMAND_TIMEOUT) {
+    let (is_dirty, status_err) = match run_git_bounded(
+        project_path,
+        &["status", "--porcelain"],
+        GIT_COMMAND_TIMEOUT,
+    ) {
         Ok(out) if out.status.success() => {
             let s = String::from_utf8_lossy(&out.stdout);
             let has_modifications = s.lines().any(|l| !l.trim().is_empty());
@@ -984,7 +1100,11 @@ fn check_git_project(project_path: &Path) -> GitPollResult {
     };
 
     // 4. Titolo dell'ultimo commit per detail: git log -1 --format=%s
-    let commit_msg = match run_git_bounded(project_path, &["log", "-1", "--format=%s"], GIT_COMMAND_TIMEOUT) {
+    let commit_msg = match run_git_bounded(
+        project_path,
+        &["log", "-1", "--format=%s"],
+        GIT_COMMAND_TIMEOUT,
+    ) {
         Ok(out) if out.status.success() => {
             let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
             if s.is_empty() {

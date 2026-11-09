@@ -35,6 +35,8 @@ export interface PushSubscriptionRecord {
 	p256dh: string;
 	auth: string;
 	userAgent: string | null;
+	/** Lingua dichiarata dal dispositivo per le notifiche; `null` per i client vecchi (inglese). */
+	language: string | null;
 	createdAt: number;
 	lastUsedAt: number | null;
 }
@@ -149,6 +151,17 @@ export class RelayStore {
 				CREATE INDEX IF NOT EXISTS idx_push_subs_endpoint ON push_subscriptions (endpoint);
 			`);
 			this.db.run('PRAGMA user_version = 2;');
+		}
+		if (currentVersion < 3) {
+			// Lingua delle notifiche per dispositivo: `NULL` per le sottoscrizioni
+			// registrate prima di questo campo, che ricevono l'inglese.
+			const columns = this.db
+				.query<{ name: string }, []>('PRAGMA table_info(push_subscriptions);')
+				.all();
+			if (!columns.some((column) => column.name === 'language')) {
+				this.db.run('ALTER TABLE push_subscriptions ADD COLUMN language TEXT;');
+			}
+			this.db.run('PRAGMA user_version = 3;');
 		}
 	}
 
@@ -378,6 +391,7 @@ export class RelayStore {
 		p256dh: string,
 		auth: string,
 		userAgent: string | null,
+		language: string | null,
 		now: number
 	): string {
 		const existing = this.db
@@ -387,9 +401,9 @@ export class RelayStore {
 		if (existing) {
 			this.db
 				.query(
-					'UPDATE push_subscriptions SET device_id = ?, p256dh = ?, auth = ?, user_agent = ?, last_used_at = ? WHERE id = ?;'
+					'UPDATE push_subscriptions SET device_id = ?, p256dh = ?, auth = ?, user_agent = ?, language = ?, last_used_at = ? WHERE id = ?;'
 				)
-				.run(deviceId, p256dh, auth, userAgent, now, existing.id);
+				.run(deviceId, p256dh, auth, userAgent, language, now, existing.id);
 			return existing.id;
 		}
 
@@ -412,9 +426,9 @@ export class RelayStore {
 		const id = randomUUID();
 		this.db
 			.query(
-				'INSERT INTO push_subscriptions (id, device_id, endpoint, p256dh, auth, user_agent, created_at, last_used_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?);'
+				'INSERT INTO push_subscriptions (id, device_id, endpoint, p256dh, auth, user_agent, language, created_at, last_used_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);'
 			)
-			.run(id, deviceId, endpoint, p256dh, auth, userAgent, now, now);
+			.run(id, deviceId, endpoint, p256dh, auth, userAgent, language, now, now);
 		return id;
 	}
 
@@ -446,7 +460,7 @@ export class RelayStore {
 				PushSubscriptionRecord,
 				[string]
 			>(
-				'SELECT id, device_id as deviceId, endpoint, p256dh, auth, user_agent as userAgent, created_at as createdAt, last_used_at as lastUsedAt FROM push_subscriptions WHERE device_id = ?;'
+				'SELECT id, device_id as deviceId, endpoint, p256dh, auth, user_agent as userAgent, language, created_at as createdAt, last_used_at as lastUsedAt FROM push_subscriptions WHERE device_id = ?;'
 			)
 			.all(deviceId);
 	}
@@ -456,7 +470,7 @@ export class RelayStore {
 		if (this.closed) return [];
 		return this.db
 			.query<PushSubscriptionRecord, []>(
-				`SELECT p.id, p.device_id as deviceId, p.endpoint, p.p256dh, p.auth, p.user_agent as userAgent, p.created_at as createdAt, p.last_used_at as lastUsedAt
+				`SELECT p.id, p.device_id as deviceId, p.endpoint, p.p256dh, p.auth, p.user_agent as userAgent, p.language, p.created_at as createdAt, p.last_used_at as lastUsedAt
 				 FROM push_subscriptions p
 				 INNER JOIN devices d ON d.id = p.device_id
 				 WHERE d.revoked = 0;`

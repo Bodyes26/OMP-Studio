@@ -13,14 +13,24 @@ released: items are closed into a version via `npm run release -- <version>`.
 
 ### Added
 - Studio Remote: the PWA can be reloaded without closing and reopening it, by pulling down (installed app) or with the "Refresh" button in Settings.
+- Studio works as an editor for external files: it appears in "Open with…" for text and code files, without becoming the default program, and also opens files chosen with `Ctrl+O`, dropped on the window or clicked as an absolute path in the terminal or chat. A file inside an open project opens in that project; the others go to the "External files" space in the top bar, with one chat per folder (the git repository root, if any) and an "Open folder as project" button. Tabs are restored on restart. (EXT-001…010, EXT-012)
+- The editor notices when another program changes an open file: with no unsaved changes it reloads it keeping cursor and scroll, otherwise it shows a notice to choose between "Reload from disk" and "Keep mine". A deleted file stays open and is flagged. Applies to project files and external files. (EXT-011)
+- The editor previews Mermaid diagrams (`.mmd`, `.mermaid`) with the same views as Markdown: code, split and preview; invalid syntax shows the error. (EXT-006)
+- The three columns can be arranged in any order, for example with the chat in the center and the editor on the right, or with the sidebar on the right: choose it in "Settings → Appearance → Column order"; it applies to every project. The sidebar and the editor keep their sizes when they move; in the vertical layout the sidebar goes right when it is last, while the editor and chat stack in the chosen order. (COL-001…008)
+- One-command install on macOS, Linux and Windows: the script downloads the latest release (stable or Nightly), checks its SHA-256 and installs it without the Gatekeeper and SmartScreen warnings. On Linux it installs the AppImage in your home folder, with a menu entry and the `omp-studio` command, and automatic updates work without a password.
 
 ### Changed
 - Studio Remote: added fluid animations across all PWA interfaces adhering to Studio's design system. Modal sheets and dialogs now slide down and fade out on close instead of abruptly vanishing; full-screen chat transitions with native-feeling mobile push/pop sliding; project branch and queue accordion sections unfold smoothly with synchronized arrow rotation; the slash command tray, cross-branch notice banner, offline banner and scroll-to-bottom button have dedicated enter/exit transitions; buttons, chips, and list rows provide subtle tactile press feedback. All transitions automatically collapse to zero duration under `prefers-reduced-motion`.
 - The Companion, Queue and Remote control buttons move from the top bar to the status bar at the bottom, next to automations: the top bar stays free for project tiles.
+- On macOS Studio is signed with its own stable certificate instead of an ad-hoc signature: after an update macOS recognizes it as the same app and does not ask again for folder permissions and keychain access. The first update after this change asks one last time.
+- The macOS installer DMG window has a new look: a monumental marble π in an alpine landscape, with the π made of fine ASCII characters and a film-grain photographic finish. OMP Studio sits on the left and the Applications folder on the right.
 
 ### Fixed
+- Code blocks in chat are readable on the dark theme: before any file was opened the syntax colors came from the light theme and the text blended into the background.
+- With the interface in English no Italian text is left: agent tools and results, `/` commands, Lab, automations, settings, quota notices, update errors, installation, Git, lanes and files, notifications and native windows, Studio Remote commands and push notifications. Backend and extension errors follow the chosen language, which can be changed without restarting.
 - With the interface in English some text stayed in Italian: the "Open branch" section of the lanes `+` menu, Main in the concurrent agents dialog, the chat notice when a lane finishes and the empty page of new Lab prototypes (title included). They now follow the chosen language.
 - Studio updates no longer fail with error 504 right after a new Nightly is published: the installer is downloaded from the file's stable GitHub address instead of the one tied to the release name.
+- In chat, if you scrolled slightly away from the bottom, auto-scroll now resumes by itself after 10 seconds without touching the chat and with the mouse outside it, so you don't miss finished replies or pending questions.
 ## [1.10.0] - 2026-11-05
 
 ### Added

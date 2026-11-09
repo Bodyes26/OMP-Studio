@@ -14,6 +14,7 @@
 //    mai una corsia archiviata per finta: resta recuperabile.
 
 import { invoke } from '@tauri-apps/api/core';
+import { m } from '#lib/paraglide/messages.js';
 
 export type LaneProcessKind = 'terminal' | 'agent';
 
@@ -126,7 +127,7 @@ export function classifyWorktreeRemovalError(error: unknown): LaneCleanupDiagnos
 	const code = errorField(error, 'code');
 	const message =
 		errorField(error, 'message') ??
-		(error instanceof Error ? error.message : typeof error === 'string' ? error : 'Rimozione del worktree fallita');
+		(error instanceof Error ? error.message : typeof error === 'string' ? error : m.lane_landing_cleanup_remove_failed());
 	const detail = errorField(error, 'detail');
 
 	const failure: LaneCleanupFailure =

@@ -228,7 +228,13 @@ pub async fn studio_log_append(lines: Vec<String>) -> Result<(), String> {
 pub async fn studio_log_path() -> Result<String, String> {
     PATH.get()
         .map(|p| p.to_string_lossy().to_string())
-        .ok_or_else(|| "Registro di Studio non inizializzato".to_string())
+        .ok_or_else(|| {
+        crate::tr!(
+            "Registro di Studio non inizializzato",
+            "Studio log not initialized"
+        )
+        .to_string()
+    })
 }
 
 #[cfg(test)]

@@ -27,6 +27,7 @@ import type {
 import { rawMessagesToTranscriptEntries } from '#lib/remote/historicalCommands.ts';
 import { buildAutomationPrompt, resolveActionModel } from './runtimeHelpers';
 import { promptResultError } from '#lib/agent/settle.ts';
+import { t, formatLocale } from './i18n.ts';
 
 class AutomationRuntimeManager {
 	private activeSessions = new Map<string, AgentSession>();
@@ -298,7 +299,7 @@ class AutomationRuntimeManager {
 		await this.sendUpdate({
 			executionId,
 			state: 'interrupted',
-			reason: 'Annullato dall\'utente'
+			reason: t('runtime_cancelled_by_user')
 		});
 
 		this.cleanupSession(executionId);
@@ -400,7 +401,7 @@ class AutomationRuntimeManager {
 
 			// Rilevamento domande utente (tool `ask`) -> stato `needsInput` (AUT-028, AUT-044)
 			if (event.type === 'extension_ui_request' || session.pendingUi) {
-				const questionText = session.blockingQuestionText || 'In attesa di chiarimento dall\'utente';
+				const questionText = session.blockingQuestionText || t('runtime_waiting_clarification');
 				void this.sendUpdate({
 					executionId,
 					state: 'needsInput',
@@ -418,8 +419,8 @@ class AutomationRuntimeManager {
 					const failure = promptResultError(event);
 					const rawErr = (event as Record<string, unknown>).error as Record<string, unknown> | undefined;
 					const code = typeof rawErr?.code === 'string' ? rawErr.code : undefined;
-					const msg = failure?.message || (typeof rawErr?.message === 'string' ? rawErr.message : 'Errore del provider');
-					lastPromptError = code === 'cost_cap' ? `Tetto di spesa massimo raggiunto: ${msg}` : msg;
+					const msg = failure?.message || (typeof rawErr?.message === 'string' ? rawErr.message : t('runtime_provider_error'));
+					lastPromptError = code === 'cost_cap' ? t('runtime_cost_cap', { message: msg }) : msg;
 				}
 			}
 
@@ -434,7 +435,7 @@ class AutomationRuntimeManager {
 					void this.sendUpdate({
 						executionId,
 						state: 'interrupted',
-						reason: 'Annullato dall\'utente',
+						reason: t('runtime_cancelled_by_user'),
 						sessionId: session.sessionId ?? undefined
 					}).then(() => this.finalizeSession(executionId, session));
 					return;
@@ -471,7 +472,7 @@ class AutomationRuntimeManager {
 							void this.sendUpdate({
 								executionId,
 								state: 'interrupted',
-								reason: 'Annullato dall\'utente',
+								reason: t('runtime_cancelled_by_user'),
 								sessionId: session.sessionId ?? undefined
 							}).then(() => this.finalizeSession(executionId, session));
 							return;
@@ -502,7 +503,11 @@ class AutomationRuntimeManager {
 			// Rilevamento errori di processo o crash
 			if (event.type === 'studio_error' || (event.type === 'studio_exit' && event.exitCode !== 0)) {
 				completedOrErrored = true;
-				const reason = event.type === 'studio_error' ? event.error : `Processo terminato con codice ${event.exitCode}`;
+				const exitCode = event.exitCode ?? event.code;
+				const reason =
+					event.type === 'studio_error'
+						? event.error
+						: t('runtime_process_exit', { code: exitCode === null || exitCode === undefined ? '?' : String(exitCode) });
 				void this.sendUpdate({
 					executionId,
 					state: 'error',
@@ -515,7 +520,7 @@ class AutomationRuntimeManager {
 		cleanups.push(unsubscribeEvent);
 
 		// 6. Titolo sessione wire prima del prompt secondo AUT-094 (regola + data, senza ulteriore AI)
-		const sessionTitle = `${request.definition.name || 'Automazione'} - ${new Date().toLocaleString()}`;
+		const sessionTitle = `${request.definition.name || t('automation_default_name')} - ${new Date().toLocaleString(formatLocale())}`;
 		await session.setSessionName(sessionTitle);
 
 		// 7. Invio prompt di avvio

@@ -55,11 +55,11 @@
 	{/if}
 
 	{#if mainText}
-		<OutputBlock text={mainText} label="risultato finale" maxLines={48} />
+		<OutputBlock text={mainText} label={m.l10n_tools_label_final_result()} maxLines={48} />
 	{/if}
 
 	{#if structuredData}
-		<JsonBlock value={structuredData} label="dati strutturati" />
+		<JsonBlock value={structuredData} label={m.l10n_tools_label_structured_data()} />
 	{/if}
 </div>
 

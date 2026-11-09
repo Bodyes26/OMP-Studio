@@ -94,7 +94,7 @@ export function classifyFailureReason(
 	if (isTelemetryExhausted || isTextQuotaMatch) {
 		return {
 			kind: 'quota_exhausted',
-			title: 'Quota o crediti esauriti',
+			title: msg.l10n_agent_quota_exhausted_title(),
 			summary:
 				msg.ui_ts_quotarecovery_l_agente_si_e_arrestato_perche_il_7a43()
 		};
@@ -102,7 +102,7 @@ export function classifyFailureReason(
 
 	return {
 		kind: 'provider_error',
-		title: 'Richiesta non recuperabile dal provider',
+		title: msg.l10n_agent_provider_error_title(),
 		summary:
 			msg.ui_ts_quotarecovery_l_agente_si_e_arrestato_perche_i_3da2()
 	};

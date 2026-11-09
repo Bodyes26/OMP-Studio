@@ -136,21 +136,32 @@ jobs:
       - name: Lint del backend Rust
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 
-      - name: Compila gli installer
-        shell: bash
+      - name: Importa il certificato di firma macOS
+        if: runner.os == 'macOS'
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: bash scripts/ci-import-macos-cert.sh
+
+      - name: Compila gli installer
+        shell: bash
+        env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           WINDOWS_CERTIFICATE_THUMBPRINT: ${{ secrets.WINDOWS_CERTIFICATE_THUMBPRINT }}
           CI: "true"
+          # Con CI=true il bundler salta lo script Finder del DMG: niente sfondo ne'
+          # posizioni delle icone. Questa variabile lo fa eseguire comunque.
+          TAURI_BUNDLER_DMG_IGNORE_CI: "true"
         run: |
-          if [ -z "${APPLE_CERTIFICATE:-}" ]; then
-            unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
-          fi
+          # Un secret assente arriva come stringa vuota, e per Tauri una variabile
+          # vuota e' comunque impostata: senza identita' resta la firma ad-hoc della
+          # configurazione, senza APPLE_ID niente notarizzazione.
+          for name in APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            [ -n "${!name:-}" ] || unset "$name"
+          done
           bun tauri build ${{ matrix.build_args }}
 
       - name: Verifica firma e notarizzazione macOS
@@ -158,14 +169,27 @@ jobs:
         shell: bash
         env:
           SIGNING_CONFIGURED: ${{ secrets.APPLE_CERTIFICATE != '' && 'true' || 'false' }}
+          NOTARIZATION_CONFIGURED: ${{ secrets.APPLE_ID != '' && 'true' || 'false' }}
         run: |
           set -euo pipefail
           APP="src-tauri/target/universal-apple-darwin/release/bundle/macos/OMP Studio.app"
           if [ "$SIGNING_CONFIGURED" != "true" ]; then
-            echo "::warning::Certificato Apple non configurato (secret APPLE_* assenti): il bundle macOS non e' firmato ne' notarizzato."
+            echo "::warning::Certificato macOS non configurato (APPLE_CERTIFICATE assente): firma ad-hoc, permessi e portachiavi si richiedono a ogni aggiornamento."
             exit 0
           fi
           codesign --verify --deep --strict --verbose=2 "$APP"
+          # Il requisito designato deve citare il certificato, non l'hash del binario:
+          # e' cio' che fa riconoscere a macOS la stessa app da una versione all'altra.
+          requirement="$(codesign -d -r- "$APP" 2>&1)"
+          echo "$requirement"
+          if echo "$requirement" | grep -q 'cdhash'; then
+            echo "::error::Il bundle macOS ha una firma ad-hoc nonostante il certificato configurato."
+            exit 1
+          fi
+          if [ "$NOTARIZATION_CONFIGURED" != "true" ]; then
+            echo "::notice::Bundle macOS firmato ma non notarizzato: Gatekeeper avvisa chi scarica il DMG dal browser."
+            exit 0
+          fi
           spctl --assess --type execute --verbose=4 "$APP"
           xcrun stapler validate "$APP"
       - name: Firma Authenticode dei binari ed installer Windows

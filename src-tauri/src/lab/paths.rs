@@ -100,9 +100,20 @@ pub fn prototype_workspace_path(id: &str) -> Option<PathBuf> {
 /// Ritorna la radice dei dati del Laboratorio e il percorso dell'indice bozze globale.
 #[command]
 pub async fn lab_paths() -> Result<LabPaths, String> {
-    let root = lab_root().ok_or_else(|| "Radice del Laboratorio non disponibile".to_string())?;
-    let drafts_index =
-        drafts_index_path().ok_or_else(|| "Percorso indice bozze non disponibile".to_string())?;
+    let root = lab_root().ok_or_else(|| {
+        crate::tr!(
+            "Radice del Laboratorio non disponibile",
+            "Lab root not available"
+        )
+        .to_string()
+    })?;
+    let drafts_index = drafts_index_path().ok_or_else(|| {
+        crate::tr!(
+            "Percorso indice bozze non disponibile",
+            "Drafts index path not available"
+        )
+        .to_string()
+    })?;
     Ok(LabPaths {
         root: root.to_string_lossy().to_string(),
         drafts_index: drafts_index.to_string_lossy().to_string(),

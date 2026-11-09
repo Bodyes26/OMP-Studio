@@ -376,7 +376,7 @@
 				<div class="sync-row">
 					<div class="sync-info">
 						{#if upstream.upstream}
-							<span class="upstream-name" title={`Traccia ${upstream.upstream}`}>
+							<span class="upstream-name" title={m.l10n_cmp_git_upstream_tracking_title({ name: upstream.upstream })}>
 								<span class="upstream-icon" aria-hidden="true"><IconCloud /></span>
 								{upstream.upstream}
 							</span>
@@ -516,7 +516,7 @@
 					type="button"
 					class="file-row"
 					in:chatReveal={{ duration: freshKeys.has(f.path) ? undefined : 0 }}
-					title="{f.path} — clicca per il diff con HEAD"
+					title={m.l10n_cmp_git_file_diff_head_title({ path: f.path })}
 					onclick={() => onOpenWorkingDiff?.(f.path)}
 				>
 					<span class="file-status"><GitStatusMark status={f.status} /></span>
@@ -563,7 +563,7 @@
 						<button
 							type="button"
 							class="file-row sub"
-							title="{f.path} — diff di questo commit"
+							title={m.l10n_cmp_git_commit_file_diff_title({ path: f.path })}
 							onclick={() => onOpenCommitDiff?.(f.path, lastCommit!.hash, lastCommit!.short)}
 						>
 							<span class="file-status"><GitStatusMark status={f.status} /></span>
@@ -613,7 +613,7 @@
 							<button
 								type="button"
 								class="file-row sub"
-								title="{f.path} — diff di questo commit"
+								title={m.l10n_cmp_git_commit_file_diff_title({ path: f.path })}
 								onclick={() => onOpenCommitDiff?.(f.path, c.hash, c.short)}
 							>
 								<span class="file-status"><GitStatusMark status={f.status} /></span>

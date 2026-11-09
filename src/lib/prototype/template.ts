@@ -10,12 +10,21 @@
 //
 // L'agente puo' generarlo direttamente usando il tool `studio_preview` o creando il file in `proto/`.
 
-const TEMPLATE = `<!DOCTYPE html>
-<html lang="it" class="dark">
+import { m } from '#lib/paraglide/messages.js';
+import { getLocale } from '#lib/paraglide/runtime.js';
+
+/** Documento di riferimento: la lingua attiva si risolve qui, il template e' statico. */
+export default function prototypeTemplate(): string {
+	// Testi dell'error boundary: virgolettati con JSON.stringify, cosi' un apostrofo
+	// nella traduzione non rompe lo script generato.
+	const runtimeErrorPrefix = JSON.stringify(m.l10n_lab_remote_preview_runtime_error_prefix() + ': ');
+	const unknownErrorText = JSON.stringify(m.l10n_lab_remote_preview_error_unknown());
+	return `<!DOCTYPE html>
+<html lang="${getLocale()}" class="dark">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Prototipo UI</title>
+  <title>${m.l10n_lab_remote_prototype_template_title()}</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
@@ -100,7 +109,7 @@ const TEMPLATE = `<!DOCTYPE html>
       const eb = document.getElementById('error-boundary');
       if (eb) {
         eb.classList.remove('hidden');
-        eb.textContent = 'Errore runtime: ' + (e.message || e.error || 'Errore sconosciuto');
+        eb.textContent = ${runtimeErrorPrefix} + (e.message || e.error || ${unknownErrorText});
       }
     });
 
@@ -115,22 +124,22 @@ const TEMPLATE = `<!DOCTYPE html>
               <LucideReact.Sparkles size={20} />
             </div>
             <div>
-              <h1 className="text-base font-semibold text-zinc-100">Prototipo Interattivo</h1>
-              <p className="text-xs text-zinc-400">Pronto per vibecoding e test UI</p>
+              <h1 className="text-base font-semibold text-zinc-100">${m.l10n_lab_remote_prototype_template_heading()}</h1>
+              <p className="text-xs text-zinc-400">${m.l10n_lab_remote_prototype_template_subtitle()}</p>
             </div>
           </div>
           
           <p className="text-sm text-zinc-300 leading-relaxed mb-6">
-            Sostituisci questo componente con la tua card, dashboard o flusso.
+            ${m.l10n_lab_remote_prototype_template_body()}
           </p>
 
           <div className="flex items-center justify-between pt-4 border-t border-zinc-800/80">
-            <span className="text-xs text-zinc-400">Interazioni: <strong className="text-zinc-200">{count}</strong></span>
+            <span className="text-xs text-zinc-400">${m.l10n_lab_remote_prototype_template_interactions()} <strong className="text-zinc-200">{count}</strong></span>
             <button
               onClick={() => setCount((c) => c + 1)}
               className="flex items-center gap-2 px-4 py-2 text-xs font-medium rounded-lg bg-zinc-100 text-zinc-900 hover:bg-white active:scale-95 transition-all shadow-sm"
             >
-              <span>Testa click</span>
+              <span>${m.l10n_lab_remote_prototype_template_test_click()}</span>
               <LucideReact.ArrowRight size={14} />
             </button>
           </div>
@@ -142,5 +151,5 @@ const TEMPLATE = `<!DOCTYPE html>
   <\/script>
 </body>
 </html>`;
+}
 
-export default TEMPLATE;

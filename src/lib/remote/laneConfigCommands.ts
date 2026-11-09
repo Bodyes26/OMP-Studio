@@ -20,6 +20,7 @@ import { laneOrchestrator } from '#lib/lanes/laneOrchestrator.svelte.ts';
 import type { LaneRecord } from '#lib/stores/lanes.svelte.ts';
 import type { AgentLane } from '#lib/types/lanes.ts';
 import { sessionRegistry } from '#lib/agent/sessionRegistry.ts';
+import { m } from '#lib/paraglide/messages.js';
 import {
 	parseRoleSelector,
 	resolveCatalogModel,
@@ -55,7 +56,7 @@ interface TargetLaneResolution {
 function resolveTargetLane(projectId: string, laneId: string | null): TargetLaneResolution {
 	const project = projectStore.projects.find((p) => p.id === projectId);
 	if (!project) {
-		throw new RemoteCommandFailure('not_found', `Progetto "${projectId}" non trovato`);
+		throw new RemoteCommandFailure('not_found', m.l10n_lab_remote_project_not_found({ project: projectId }));
 	}
 
 	const isMain = !laneId || laneId === 'main';
@@ -65,7 +66,7 @@ function resolveTargetLane(projectId: string, laneId: string | null): TargetLane
 	if (!lane && !isMain) {
 		throw new RemoteCommandFailure(
 			'not_found',
-			`Corsia "${laneId}" non trovata nel progetto "${projectId}"`
+			m.l10n_lab_remote_lane_not_found({ lane: laneId ?? 'main', project: projectId })
 		);
 	}
 
@@ -102,7 +103,7 @@ export function createLaneConfigCommands(deps: LaneConfigDeps) {
 		if (surface === 'terminal') {
 			throw new RemoteCommandFailure(
 				'unsupported',
-				"Il catalogo del composer non e' disponibile per corsie su terminale."
+				m.l10n_lab_remote_composer_catalog_terminal_unavailable()
 			);
 		}
 
@@ -136,15 +137,15 @@ export function createLaneConfigCommands(deps: LaneConfigDeps) {
 
 		// 2. Modelli assegnabili (tetto a 600)
 		const assignable = deps.getAssignableCatalog() ?? [];
-		const models: RemoteModelOption[] = assignable.slice(0, 600).map((m) => ({
-			provider: m.provider,
-			id: m.id,
-			name: m.name,
-			contextWindow: m.contextWindow,
-			maxTokens: m.maxTokens,
-			reasoning: m.reasoning,
-			thinking: m.thinking,
-			input: m.input
+		const models: RemoteModelOption[] = assignable.slice(0, 600).map((option) => ({
+			provider: option.provider,
+			id: option.id,
+			name: option.name,
+			contextWindow: option.contextWindow,
+			maxTokens: option.maxTokens,
+			reasoning: option.reasoning,
+			thinking: option.thinking,
+			input: option.input
 		}));
 
 		// 3. Ruoli standard con assegnazioni da configurazione
@@ -204,7 +205,7 @@ export function createLaneConfigCommands(deps: LaneConfigDeps) {
 		if (surface === 'terminal') {
 			throw new RemoteCommandFailure(
 				'unsupported',
-				"La configurazione del ruolo non e' disponibile per corsie su terminale."
+				m.l10n_lab_remote_role_config_terminal_unavailable()
 			);
 		}
 
@@ -220,7 +221,7 @@ export function createLaneConfigCommands(deps: LaneConfigDeps) {
 			if (lane?.kind === 'lab') {
 				throw new RemoteCommandFailure(
 					'rejected',
-					"La sessione Laboratorio non e' aperta in Studio."
+					m.l10n_lab_remote_lab_lane_not_open()
 				);
 			}
 			await session.open(null);
@@ -245,7 +246,7 @@ export function createLaneConfigCommands(deps: LaneConfigDeps) {
 		if (surface === 'terminal') {
 			throw new RemoteCommandFailure(
 				'unsupported',
-				"La configurazione del modello non e' disponibile per corsie su terminale."
+				m.l10n_lab_remote_model_config_terminal_unavailable()
 			);
 		}
 
@@ -261,7 +262,7 @@ export function createLaneConfigCommands(deps: LaneConfigDeps) {
 			if (lane?.kind === 'lab') {
 				throw new RemoteCommandFailure(
 					'rejected',
-					"La sessione Laboratorio non e' aperta in Studio."
+					m.l10n_lab_remote_lab_lane_not_open()
 				);
 			}
 			await session.open(null);
@@ -270,13 +271,15 @@ export function createLaneConfigCommands(deps: LaneConfigDeps) {
 		await deps.ensureLoaded();
 		const assignable = deps.getAssignableCatalog() ?? [];
 		const found =
-			assignable.find((m) => m.provider === provider && m.id === modelId) ??
-			assignable.find((m) => m.selector === `${provider}/${modelId}` || m.selector === modelId);
+			assignable.find((option) => option.provider === provider && option.id === modelId) ??
+			assignable.find(
+				(option) => option.selector === `${provider}/${modelId}` || option.selector === modelId
+			);
 
 		if (!found) {
 			throw new RemoteCommandFailure(
 				'rejected',
-				`Modello "${provider}/${modelId}" non trovato tra i modelli assegnabili configurati.`
+				m.l10n_lab_remote_model_not_found({ model: `${provider}/${modelId}` })
 			);
 		}
 
@@ -298,7 +301,7 @@ export function createLaneConfigCommands(deps: LaneConfigDeps) {
 		if (surface === 'terminal') {
 			throw new RemoteCommandFailure(
 				'unsupported',
-				"La configurazione del ragionamento non e' disponibile per corsie su terminale."
+				m.l10n_lab_remote_thinking_config_terminal_unavailable()
 			);
 		}
 
@@ -314,7 +317,7 @@ export function createLaneConfigCommands(deps: LaneConfigDeps) {
 			if (lane?.kind === 'lab') {
 				throw new RemoteCommandFailure(
 					'rejected',
-					"La sessione Laboratorio non e' aperta in Studio."
+					m.l10n_lab_remote_lab_lane_not_open()
 				);
 			}
 			await session.open(null);
@@ -324,7 +327,7 @@ export function createLaneConfigCommands(deps: LaneConfigDeps) {
 		if (!(supported as readonly string[]).includes(level)) {
 			throw new RemoteCommandFailure(
 				'rejected',
-				`Livello di ragionamento "${level}" non valido o non supportato dal modello.`
+				m.l10n_lab_remote_thinking_level_invalid({ level })
 			);
 		}
 

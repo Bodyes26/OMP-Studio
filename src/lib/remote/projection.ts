@@ -30,6 +30,7 @@ import { taskLabel } from '#lib/stores/taskTitle.ts';
 import type { AttentionRequest, CompanionProjectRuntime } from '#lib/stores/companion.svelte.ts';
 import type { StudioTask } from '#lib/stores/tasks.svelte.ts';
 import type { QuotaReport, QuotaLimit } from '#lib/stores/quota.svelte.ts';
+import { m } from '#lib/paraglide/messages.js';
 
 export interface ProjectInput {
 	id: string;
@@ -149,7 +150,7 @@ function mapLanes(
 	const hasMain = lanes.some((l) => l.laneId === 'main');
 	const allLanes: LaneInput[] = hasMain
 		? [...lanes]
-		: [{ projectId: project.id, laneId: 'main', kind: 'main', title: 'Principale' }, ...lanes];
+		: [{ projectId: project.id, laneId: 'main', kind: 'main', title: m.companion_lane_main() }, ...lanes];
 
 	// Ordina mettendo la Principale per prima
 	allLanes.sort((a, b) => {
@@ -167,7 +168,7 @@ function mapLanes(
 				? 'lab'
 				: 'worktree';
 		const title = isMain
-			? lane.title || 'Principale'
+			? lane.title || m.companion_lane_main()
 			: lane.title || lane.laneId;
 
 		const session = resolveSession(inputSessions, project.id, lane.laneId);
@@ -336,10 +337,10 @@ function mapAttention(requests: AttentionRequest[], projectId: string): RemoteAt
 			: null;
 
 		const recentMessages: RemoteChatLine[] = Array.isArray(req.recentMessages)
-			? req.recentMessages.map((m) => ({
-					role: m.role,
-					text: m.text,
-					timestamp: typeof m.timestamp === 'number' ? m.timestamp : null
+			? req.recentMessages.map((line) => ({
+					role: line.role,
+					text: line.text,
+					timestamp: typeof line.timestamp === 'number' ? line.timestamp : null
 				}))
 			: [];
 

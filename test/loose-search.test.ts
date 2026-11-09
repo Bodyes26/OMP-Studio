@@ -45,6 +45,9 @@ import {
 	getEffectiveSelector,
 	type SharedModelItem
 } from '../src/lib/components/models/modelPicker.ts';
+import { useLocale } from './locale.ts';
+
+useLocale('it');
 
 const SAMPLE_MODELS: SharedModelItem[] = [
 	{ id: 'gpt-6.1', name: 'GPT-6.1 Preview', provider: 'openai', selector: 'openai/gpt-6.1' },

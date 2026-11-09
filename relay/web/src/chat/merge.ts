@@ -15,6 +15,7 @@ import type {
 	TurnDiffTotals,
 	TurnFooterData
 } from './types.ts';
+import { t, getLanguage } from '../i18n.ts';
 
 const TOOL_CATEGORY_BY_NAME: Record<string, RemoteToolCategory> = {
 	read: 'read',
@@ -69,7 +70,7 @@ export function normalizeMessage(message: RemoteChatMessage): RemoteChatMessage 
 	// Tool senza dettagli ricchi: crea sintesi minima da toolName e text
 	if (message.role === 'tool' && !message.tool) {
 		const category = deduceToolCategory(message.toolName);
-		const label = message.toolName ?? 'Strumento';
+		const label = message.toolName ?? t('toolFallback');
 		const syntheticTool: RemoteToolCall = {
 			category,
 			label,
@@ -418,7 +419,7 @@ export function groupMessages(messages: RemoteChatMessage[]): {
 /**
  * Formatta i millisecondi come 'X,Y s' (italiano) o 'X.Y s' (inglese).
  */
-export function formatDurationSecs(ms: number, lang: 'it' | 'en' = 'it'): string {
+export function formatDurationSecs(ms: number, lang: 'it' | 'en' = getLanguage()): string {
 	if (ms <= 0) return lang === 'it' ? '0,0 s' : '0.0 s';
 	const secs = (ms / 1000).toFixed(1);
 	return lang === 'it' ? `${secs.replace('.', ',')} s` : `${secs} s`;

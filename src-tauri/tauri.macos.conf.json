@@ -16,6 +16,27 @@
     ]
   },
   "bundle": {
-    "targets": ["dmg"]
+    "targets": ["dmg"],
+    "macOS": {
+      "dmg": {
+        "background": "dmg/background.tiff",
+        "windowSize": { "width": 800, "height": 472 },
+        "appPosition": { "x": 110, "y": 235 },
+        "applicationFolderPosition": { "x": 630, "y": 235 }
+      }
+    },
+    "fileAssociations": [
+      {
+        "name": "OMP Studio Text",
+        "role": "Editor",
+        "rank": "Alternate",
+        "ext": [
+          "txt", "md", "markdown", "mmd", "json", "jsonc", "yaml", "yml", "toml", "ini", "xml",
+          "csv", "log", "html", "htm", "css", "svg", "env", "ts", "tsx", "js", "jsx", "mjs", "cjs",
+          "svelte", "vue", "py", "rs", "vb", "cs", "sql", "sh", "bat", "cmd", "ps1", "go", "java",
+          "kt", "c", "h", "cpp", "hpp", "rb", "php", "lua"
+        ]
+      }
+    ]
   }
 }

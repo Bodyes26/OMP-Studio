@@ -991,7 +991,7 @@
 							aria-pressed={Boolean(options.prewalk)}
 							onclick={togglePrewalk}
 						>
-							<span class="capsule-label">Prewalk</span>
+							<span class="capsule-label">{m.task_editor_prewalk_title()}</span>
 						</button>
 					</Tooltip>
 

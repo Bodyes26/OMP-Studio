@@ -110,7 +110,7 @@
 				return;
 			}
 		} catch (err) {
-			errorMessage = (err as Error).message || 'Errore durante la registrazione push';
+			errorMessage = (err as Error).message || t('notificationsEnableFailed');
 			await checkPushStatus();
 		} finally {
 			loading = false;
@@ -129,7 +129,7 @@
 			}
 			pushState = 'inactive';
 		} catch (err) {
-			errorMessage = (err as Error).message || 'Errore durante la disattivazione';
+			errorMessage = (err as Error).message || t('notificationsDisableFailed');
 		} finally {
 			loading = false;
 		}

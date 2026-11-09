@@ -1,6 +1,7 @@
 import { remoteBridge, type RemoteStatus } from '#lib/remote/bridge.ts';
 import { normalizePairingCode } from '$remote-protocol';
 import type { UnlistenFn } from '@tauri-apps/api/event';
+import { m } from '#lib/paraglide/messages.js';
 
 const DEFAULT_REMOTE_STATUS: RemoteStatus = {
 	enabled: false,
@@ -122,7 +123,7 @@ export class RemoteStore {
 		this.actionError = null;
 		const cleanCode = normalizePairingCode(code);
 		if (!cleanCode) {
-			this.actionError = 'Codice di abbinamento non valido';
+			this.actionError = m.l10n_lab_remote_pairing_code_invalid();
 			this.loading = false;
 			return false;
 		}

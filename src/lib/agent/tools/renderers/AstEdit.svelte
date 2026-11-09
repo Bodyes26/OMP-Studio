@@ -6,6 +6,7 @@
   e gli errori di parsing se presenti.
 -->
 <script lang="ts">
+	import { m } from '#lib/paraglide/messages.js';
 	import CountBadge from '../parts/CountBadge.svelte';
 	import Diff from '../parts/Diff.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
@@ -42,7 +43,7 @@
 					</div>
 					<div class="op-row">
 						<CountBadge text="out" muted />
-						<code>{out.length > 0 ? out : '(nodo rimosso)'}</code>
+						<code>{out.length > 0 ? out : m.l10n_tools_label_node_removed()}</code>
 					</div>
 				</div>
 			{/each}
@@ -62,11 +63,11 @@
 	{/if}
 
 	{#if text}
-		<OutputBlock {text} label="risultato ast-edit" />
+		<OutputBlock {text} label={m.l10n_tools_label_ast_edit_result()} />
 	{/if}
 
 	{#if parseErrors.length > 0}
-		<OutputBlock text={parseErrors.join('\n')} label="errori di parsing" />
+		<OutputBlock text={parseErrors.join('\n')} label={m.l10n_tools_label_parse_errors()} />
 	{/if}
 </div>
 

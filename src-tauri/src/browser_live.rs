@@ -420,13 +420,18 @@ impl BrowserLiveManager {
     pub fn send_message(&self, session_id: u64, msg: Message) -> Result<(), String> {
         let lock = self.sessions.lock();
         if let Some(session) = lock.get(&session_id) {
-            session
-                .msg_tx
-                .try_send(msg)
-                .map_err(|e| format!("Invio messaggio fallito: {}", e))?;
+            session.msg_tx.try_send(msg).map_err(|e| {
+                crate::tr!(
+                    format!("Invio messaggio fallito: {}", e),
+                    format!("Sending the message failed: {}", e)
+                )
+            })?;
             Ok(())
         } else {
-            Err(format!("Sessione live {} non trovata", session_id))
+            Err(crate::tr!(
+                format!("Sessione live {} non trovata", session_id),
+                format!("Live session {} not found", session_id)
+            ))
         }
     }
 }
@@ -442,7 +447,10 @@ pub async fn browser_live_connect(
     manager: State<'_, BrowserLiveManager>,
 ) -> Result<u64, String> {
     if !is_loopback_endpoint(&endpoint) {
-        return Err(format!("Endpoint non loopback rifiutato: {}", endpoint));
+        return Err(crate::tr!(
+            format!("Endpoint non loopback rifiutato: {}", endpoint),
+            format!("Non-loopback endpoint refused: {}", endpoint)
+        ));
     }
 
     let session_id = manager.next_id.fetch_add(1, Ordering::SeqCst);
@@ -452,7 +460,11 @@ pub async fn browser_live_connect(
     {
         let mut lock = manager.sessions.lock();
         if lock.len() >= 32 {
-            return Err("Limite massimo di 32 sessioni live simultanee raggiunto".to_string());
+            return Err(crate::tr!(
+                "Limite massimo di 32 sessioni live simultanee raggiunto",
+                "Maximum of 32 simultaneous live sessions reached"
+            )
+            .to_string());
         }
         lock.insert(session_id, ActiveSession { stop_tx, msg_tx });
     }
@@ -469,9 +481,9 @@ pub async fn browser_live_connect(
             Err(err) => {
                 let _ = on_event.send(BrowserLiveEvent::Error {
                     code: "BROWSER_LIVE_UNAVAILABLE".to_string(),
-                    message: redact_sensitive_string(&format!(
-                        "Connessione WebSocket fallita: {}",
-                        err
+                    message: redact_sensitive_string(&crate::tr!(
+                        format!("Connessione WebSocket fallita: {}", err),
+                        format!("WebSocket connection failed: {}", err)
                     )),
                 });
                 let _ = on_event.send(BrowserLiveEvent::Disconnected);
@@ -492,7 +504,10 @@ pub async fn browser_live_connect(
         {
             let _ = on_event.send(BrowserLiveEvent::Error {
                 code: "TICKET_INVALID".to_string(),
-                message: redact_sensitive_string(&format!("Invio ticket fallito: {}", err)),
+                message: redact_sensitive_string(&crate::tr!(
+                    format!("Invio ticket fallito: {}", err),
+                    format!("Sending the ticket failed: {}", err)
+                )),
             });
             let _ = on_event.send(BrowserLiveEvent::Disconnected);
             sessions_map.lock().remove(&session_id);
@@ -509,7 +524,10 @@ pub async fn browser_live_connect(
                     if let Err(err) = ws_stream.send(outbound).await {
                         let _ = on_event.send(BrowserLiveEvent::Error {
                             code: "STREAM_ERROR".to_string(),
-                            message: redact_sensitive_string(&format!("Errore invio messaggio client: {}", err)),
+                            message: redact_sensitive_string(&crate::tr!(
+                                format!("Errore invio messaggio client: {}", err),
+                                format!("Error sending the client message: {}", err)
+                            )),
                         });
                         break;
                     }
@@ -523,7 +541,10 @@ pub async fn browser_live_connect(
                         Err(err) => {
                             let _ = on_event.send(BrowserLiveEvent::Error {
                                 code: "STREAM_ERROR".to_string(),
-                                message: redact_sensitive_string(&format!("Errore stream WebSocket: {}", err)),
+                                message: redact_sensitive_string(&crate::tr!(
+                                    format!("Errore stream WebSocket: {}", err),
+                                    format!("WebSocket stream error: {}", err)
+                                )),
                             });
                             break;
                         }
@@ -686,8 +707,11 @@ pub async fn browser_live_send_message(
 ) -> Result<(), String> {
     if let Some(kind) = message.get("type").and_then(|t| t.as_str()) {
         if BACKEND_ONLY_MESSAGE_TYPES.contains(&kind) {
-            return Err(format!(
-                "Messaggio '{kind}' consentito solo al selettore file nativo"
+            return Err(crate::tr!(
+                format!(
+                    "Messaggio '{kind}' consentito solo al selettore file nativo"
+                ),
+                format!("Message '{kind}' is only allowed from the native file picker")
             ));
         }
     }
@@ -711,7 +735,10 @@ pub async fn browser_live_pick_upload_files(
     use tauri_plugin_dialog::DialogExt;
 
     let (tx, rx) = oneshot::channel::<Vec<String>>();
-    let builder = app.dialog().file().set_title("Scegli i file da caricare");
+    let builder = app.dialog().file().set_title(crate::tr!(
+        "Scegli i file da caricare",
+        "Choose the files to upload"
+    ));
     if multiple {
         builder.pick_files(move |paths| {
             let chosen = paths
@@ -732,9 +759,9 @@ pub async fn browser_live_pick_upload_files(
         });
     }
 
-    let paths = rx
-        .await
-        .map_err(|_| "Selezione file annullata".to_string())?;
+    let paths = rx.await.map_err(|_| {
+        crate::tr!("Selezione file annullata", "File selection cancelled").to_string()
+    })?;
     if paths.is_empty() {
         // Annullamento esplicito: il chooser della pagina va chiuso, non lasciato pendente.
         let cancel = serde_json::json!({ "type": "cancel_file_chooser", "chooserId": chooser_id });

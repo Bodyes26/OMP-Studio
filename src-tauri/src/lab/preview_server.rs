@@ -138,12 +138,20 @@ fn url_decode(s: &str) -> String {
 async fn ensure_server_started() -> Result<u16, String> {
     let port = PREVIEW_PORT
         .get_or_try_init(|| async {
-            let listener = TcpListener::bind("127.0.0.1:0")
-                .await
-                .map_err(|e| format!("Avvio listener server anteprima fallito: {}", e))?;
+            let listener = TcpListener::bind("127.0.0.1:0").await.map_err(|e| {
+                crate::tr!(
+                    format!("Avvio listener server anteprima fallito: {}", e),
+                    format!("Starting the preview server listener failed: {}", e)
+                )
+            })?;
             let port = listener
                 .local_addr()
-                .map_err(|e| format!("Risoluzione porta server anteprima fallita: {}", e))?
+                .map_err(|e| {
+                    crate::tr!(
+                        format!("Risoluzione porta server anteprima fallita: {}", e),
+                        format!("Resolving the preview server port failed: {}", e)
+                    )
+                })?
                 .port();
             tokio::spawn(server_loop(listener));
             Ok::<u16, String>(port)
@@ -390,9 +398,12 @@ async fn send_405(stream: &mut TcpStream) -> Result<(), std::io::Error> {
 #[tauri::command]
 pub async fn lab_preview_publish_shared(files: Vec<LabServedFile>) -> Result<(), String> {
     ensure_server_started().await?;
-    let mut state = STATE
-        .lock()
-        .map_err(|e| format!("Lock state anteprima fallito: {}", e))?;
+    let mut state = STATE.lock().map_err(|e| {
+        crate::tr!(
+            format!("Lock state anteprima fallito: {}", e),
+            format!("Preview state lock failed: {}", e)
+        )
+    })?;
     for file in files {
         let clean_path = normalize_path(&file.path);
         state.shared_files.insert(clean_path, file);
@@ -408,9 +419,12 @@ async fn publish(
     policy: PreviewPolicy,
 ) -> Result<LabPreviewPublishResponse, String> {
     let port = ensure_server_started().await?;
-    let mut state = STATE
-        .lock()
-        .map_err(|e| format!("Lock state anteprima fallito: {}", e))?;
+    let mut state = STATE.lock().map_err(|e| {
+        crate::tr!(
+            format!("Lock state anteprima fallito: {}", e),
+            format!("Preview state lock failed: {}", e)
+        )
+    })?;
 
     let token = if let Some(existing_token) = state.key_to_token.get(&key) {
         existing_token.clone()
@@ -465,9 +479,12 @@ pub async fn studio_preview_publish(
 /// Rimuove la pubblicazione dell'anteprima per `key`.
 #[tauri::command]
 pub async fn lab_preview_unpublish(key: String) -> Result<(), String> {
-    let mut state = STATE
-        .lock()
-        .map_err(|e| format!("Lock state anteprima fallito: {}", e))?;
+    let mut state = STATE.lock().map_err(|e| {
+        crate::tr!(
+            format!("Lock state anteprima fallito: {}", e),
+            format!("Preview state lock failed: {}", e)
+        )
+    })?;
     if let Some(token) = state.key_to_token.remove(&key) {
         state.token_to_key.remove(&token);
         state.token_to_files.remove(&token);

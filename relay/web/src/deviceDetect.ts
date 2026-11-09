@@ -2,13 +2,16 @@
  * Rileva un nome amichevole per il dispositivo corrente a partire dal User-Agent,
  * per precompilare il campo durante il primo abbinamento (es. "iPhone Safari", "Mac Chrome").
  */
+import { t } from './i18n.ts';
+
 export function detectDefaultDeviceName(userAgent?: string): string {
 	const ua = userAgent ?? (typeof navigator !== 'undefined' ? navigator.userAgent : '');
 	if (!ua) {
 		return 'Browser';
 	}
 
-	let os = 'Dispositivo';
+	// Nome generico localizzato: finisce nel campo gia' compilato dell'abbinamento.
+	let os = t('deviceFallbackName');
 	if (/iPhone/i.test(ua)) {
 		os = 'iPhone';
 	} else if (/iPad/i.test(ua)) {

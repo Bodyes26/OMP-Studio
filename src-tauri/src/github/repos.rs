@@ -92,8 +92,12 @@ pub async fn project_detect_github_remotes(
             return Ok(Vec::new());
         }
 
-        let entries =
-            std::fs::read_dir(&root).map_err(|e| format!("Lettura cartella radice: {e}"))?;
+        let entries = std::fs::read_dir(&root).map_err(|e| {
+            crate::tr!(
+                format!("Lettura cartella radice: {e}"),
+                format!("Reading the root folder: {e}")
+            )
+        })?;
 
         let mut results = Vec::new();
 
@@ -149,7 +153,12 @@ pub async fn project_detect_github_remotes(
         Ok(results)
     })
     .await
-    .map_err(|e| format!("Task detect remotes: {e}"))?
+    .map_err(|e| {
+        crate::tr!(
+            format!("Rilevamento dei remote interrotto: {e}"),
+            format!("Remote detection interrupted: {e}")
+        )
+    })?
 }
 
 #[derive(Deserialize)]
@@ -251,16 +260,29 @@ pub async fn github_list_remote_repos(limit: Option<u32>) -> Result<Vec<GithubRe
             .bearer_auth(token)
             .send()
             .await
-            .map_err(|e| format!("Richiesta API GitHub fallita: {e}"))?;
+            .map_err(|e| {
+                crate::tr!(
+                    format!("Richiesta API GitHub fallita: {e}"),
+                    format!("GitHub API request failed: {e}")
+                )
+            })?;
 
         if !res.status().is_success() {
-            return Err(format!("Errore API GitHub (HTTP {})", res.status()));
+            return Err(crate::tr!(
+                format!("Errore API GitHub (HTTP {})", res.status()),
+                format!("GitHub API error (HTTP {})", res.status())
+            ));
         }
 
         let items: Vec<GhApiRepo> = res
             .json()
             .await
-            .map_err(|e| format!("Parsing risposta repository: {e}"))?;
+            .map_err(|e| {
+                crate::tr!(
+                    format!("Parsing risposta repository: {e}"),
+                    format!("Parsing the repository response: {e}")
+                )
+            })?;
 
         let mapped = items
             .into_iter()
@@ -279,7 +301,11 @@ pub async fn github_list_remote_repos(limit: Option<u32>) -> Result<Vec<GithubRe
         return Ok(mapped);
     }
 
-    Err("Nessun account GitHub collegato (né GitHub CLI né Personal Access Token)".to_string())
+    Err(crate::tr!(
+        "Nessun account GitHub collegato (né GitHub CLI né Personal Access Token)",
+        "No GitHub account connected (neither GitHub CLI nor a Personal Access Token)"
+    )
+    .to_string())
 }
 
 /// Clona un repository GitHub remoto in locale.
@@ -288,9 +314,9 @@ pub async fn github_clone_repo(repo_url: String, target_path: String) -> Result<
     tokio::task::spawn_blocking(move || {
         let target = PathBuf::from(&target_path);
         if target.exists() {
-            return Err(format!(
-                "La cartella di destinazione '{}' esiste già.",
-                target_path
+            return Err(crate::tr!(
+                format!("La cartella di destinazione '{}' esiste già.", target_path),
+                format!("The destination folder '{}' already exists.", target_path)
             ));
         }
 
@@ -302,17 +328,30 @@ pub async fn github_clone_repo(repo_url: String, target_path: String) -> Result<
 
         let out = cmd
             .output()
-            .map_err(|e| format!("Avvio git clone fallito: {e}"))?;
+            .map_err(|e| {
+                crate::tr!(
+                    format!("Avvio git clone fallito: {e}"),
+                    format!("Starting git clone failed: {e}")
+                )
+            })?;
 
         if !out.status.success() {
             let stderr = String::from_utf8_lossy(&out.stderr);
-            return Err(format!("Clonazione fallita: {stderr}"));
+            return Err(crate::tr!(
+                format!("Clonazione fallita: {stderr}"),
+                format!("Clone failed: {stderr}")
+            ));
         }
 
         Ok(target_path)
     })
     .await
-    .map_err(|e| format!("Task clone repo: {e}"))?
+    .map_err(|e| {
+        crate::tr!(
+            format!("Clonazione interrotta: {e}"),
+            format!("Clone interrupted: {e}")
+        )
+    })?
 }
 
 /// Nome di repository accettato da GitHub. Il controllo sta anche qui, e non solo
@@ -320,25 +359,42 @@ pub async fn github_clone_repo(repo_url: String, target_path: String) -> Result<
 /// che inizia con '-' finirebbe letto da gh come opzione.
 fn validate_github_repo_name(name: &str) -> Result<(), String> {
     if name.is_empty() {
-        return Err("Il nome del repository è obbligatorio.".to_string());
+        return Err(crate::tr!(
+            "Il nome del repository è obbligatorio.",
+            "The repository name is required."
+        )
+        .to_string());
     }
     if name.len() > 100 {
-        return Err("Il nome del repository è troppo lungo (max 100 caratteri).".to_string());
+        return Err(crate::tr!(
+            "Il nome del repository è troppo lungo (max 100 caratteri).",
+            "The repository name is too long (max 100 characters)."
+        )
+        .to_string());
     }
     if name.starts_with('-') {
-        return Err("Il nome del repository non può iniziare con un trattino.".to_string());
+        return Err(crate::tr!(
+            "Il nome del repository non può iniziare con un trattino.",
+            "The repository name cannot start with a hyphen."
+        )
+        .to_string());
     }
     if name == "." || name == ".." {
-        return Err("Nome del repository non valido.".to_string());
+        return Err(crate::tr!(
+            "Nome del repository non valido.",
+            "Invalid repository name."
+        )
+        .to_string());
     }
     if !name
         .chars()
         .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
     {
-        return Err(
-            "Il nome del repository può contenere solo lettere, numeri, trattino, underscore e punto."
-                .to_string(),
-        );
+        return Err(crate::tr!(
+            "Il nome del repository può contenere solo lettere, numeri, trattino, underscore e punto.",
+            "The repository name may contain only letters, digits, hyphens, underscores and dots."
+        )
+        .to_string());
     }
     Ok(())
 }
@@ -416,14 +472,19 @@ fn gh_create_repo(
 
     let out = match cmd.output() {
         Ok(out) => out,
-        Err(e) => return GhCreateOutcome::Failed(format!("Avvio gh repo create: {e}")),
+        Err(e) => {
+            return GhCreateOutcome::Failed(crate::tr!(
+                format!("Avvio gh repo create fallito: {e}"),
+                format!("Starting gh repo create failed: {e}")
+            ))
+        }
     };
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
         let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
         let detail = if stderr.is_empty() { stdout } else { stderr };
         return GhCreateOutcome::Failed(if detail.is_empty() {
-            "gh repo create non riuscito".to_string()
+            crate::tr!("gh repo create non riuscito", "gh repo create failed").to_string()
         } else {
             detail
         });
@@ -470,8 +531,13 @@ fn gh_create_repo(
 
     GhCreateOutcome::Created(match owner {
         Some(owner) => Ok(repo_from_known_data(&owner, name, description, is_private)),
-        None => Err(format!(
-            "Il repository '{name}' è stato creato su GitHub, ma non è stato possibile leggerne i dati. Collegalo manualmente."
+        None => Err(crate::tr!(
+            format!(
+                "Il repository '{name}' è stato creato su GitHub, ma non è stato possibile leggerne i dati. Collegalo manualmente."
+            ),
+            format!(
+                "Repository '{name}' was created on GitHub, but its data could not be read. Link it manually."
+            )
         )),
     })
 }
@@ -505,12 +571,15 @@ pub async fn github_create_repo(
     // Fallback con token PAT (solo se gh manca o non ha creato nulla)
     let Some(token) = get_saved_token() else {
         return Err(match gh_error {
-            Some(stderr) => {
-                format!("Creazione del repository con GitHub CLI non riuscita: {stderr}")
-            }
-            None => {
-                "Impossibile creare il repository: nessun account GitHub collegato.".to_string()
-            }
+            Some(stderr) => crate::tr!(
+                format!("Creazione del repository con GitHub CLI non riuscita: {stderr}"),
+                format!("Creating the repository with the GitHub CLI failed: {stderr}")
+            ),
+            None => crate::tr!(
+                "Impossibile creare il repository: nessun account GitHub collegato.",
+                "Cannot create the repository: no GitHub account connected."
+            )
+            .to_string(),
         });
     };
     let with_gh_error = |message: String| match &gh_error {
@@ -536,7 +605,12 @@ pub async fn github_create_repo(
         .json(&body)
         .send()
         .await
-        .map_err(|e| with_gh_error(format!("Richiesta creazione repo GitHub fallita: {e}")))?;
+        .map_err(|e| {
+            with_gh_error(crate::tr!(
+                format!("Richiesta creazione repo GitHub fallita: {e}"),
+                format!("GitHub repo creation request failed: {e}")
+            ))
+        })?;
 
     if !res.status().is_success() {
         let status = res.status();
@@ -551,16 +625,27 @@ pub async fn github_create_repo(
             })
             .unwrap_or_default();
         return Err(with_gh_error(if detail.is_empty() {
-            format!("Creazione repo fallita (HTTP {status})")
+            crate::tr!(
+                format!("Creazione repo fallita (HTTP {status})"),
+                format!("Repo creation failed (HTTP {status})")
+            )
         } else {
-            format!("Creazione repo fallita (HTTP {status}): {detail}")
+            crate::tr!(
+                format!("Creazione repo fallita (HTTP {status}): {detail}"),
+                format!("Repo creation failed (HTTP {status}): {detail}")
+            )
         }));
     }
 
     let r: GhApiRepo = res
         .json()
         .await
-        .map_err(|e| format!("Parsing risposta creazione: {e}"))?;
+        .map_err(|e| {
+            crate::tr!(
+                format!("Parsing risposta creazione: {e}"),
+                format!("Parsing the creation response: {e}")
+            )
+        })?;
 
     Ok(GithubRemoteRepo {
         name: r.name,
@@ -577,34 +662,59 @@ pub async fn github_create_repo(
 /// Valida il nome di una nuova cartella progetto (e, se serve, di un repo GitHub).
 fn validate_new_project_name(name: &str, for_github: bool) -> Result<(), String> {
     if name.is_empty() {
-        return Err("Il nome del progetto è obbligatorio.".to_string());
+        return Err(crate::tr!(
+            "Il nome del progetto è obbligatorio.",
+            "The project name is required."
+        )
+        .to_string());
     }
     if name.len() > 100 {
-        return Err("Il nome del progetto è troppo lungo (max 100 caratteri).".to_string());
+        return Err(crate::tr!(
+            "Il nome del progetto è troppo lungo (max 100 caratteri).",
+            "The project name is too long (max 100 characters)."
+        )
+        .to_string());
     }
     if name == "." || name == ".." || name.starts_with('.') {
-        return Err("Il nome non può iniziare con un punto.".to_string());
+        return Err(crate::tr!(
+            "Il nome non può iniziare con un punto.",
+            "The name cannot start with a dot."
+        )
+        .to_string());
     }
     if name.ends_with('.') || name.ends_with(' ') {
-        return Err("Il nome non può finire con punto o spazio.".to_string());
+        return Err(crate::tr!(
+            "Il nome non può finire con punto o spazio.",
+            "The name cannot end with a dot or a space."
+        )
+        .to_string());
     }
     if name.chars().any(|c| {
         matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control()
     }) {
-        return Err("Il nome contiene caratteri non validi per una cartella.".to_string());
+        return Err(crate::tr!(
+            "Il nome contiene caratteri non validi per una cartella.",
+            "The name contains characters that are not valid for a folder."
+        )
+        .to_string());
     }
     if for_github && name.starts_with('-') {
-        return Err("Per GitHub il nome non può iniziare con un trattino.".to_string());
+        return Err(crate::tr!(
+            "Per GitHub il nome non può iniziare con un trattino.",
+            "For GitHub the name cannot start with a hyphen."
+        )
+        .to_string());
     }
     if for_github
         && !name
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
     {
-        return Err(
-            "Per GitHub il nome può contenere solo lettere, numeri, trattino, underscore e punto."
-                .to_string(),
-        );
+        return Err(crate::tr!(
+            "Per GitHub il nome può contenere solo lettere, numeri, trattino, underscore e punto.",
+            "For GitHub the name may contain only letters, digits, hyphens, underscores and dots."
+        )
+        .to_string());
     }
     Ok(())
 }
@@ -624,19 +734,28 @@ pub async fn project_create_new(
     let on_github = match visibility.as_str() {
         "local" => false,
         "public" | "private" => true,
-        other => return Err(format!("Visibilità non valida: {other}")),
+        other => {
+            return Err(crate::tr!(
+                format!("Visibilità non valida: {other}"),
+                format!("Invalid visibility: {other}")
+            ))
+        }
     };
     validate_new_project_name(&name, on_github)?;
 
     let parent = PathBuf::from(&parent_dir);
     if !parent.is_dir() {
-        return Err(format!(
-            "La cartella dei progetti '{parent_dir}' non esiste."
+        return Err(crate::tr!(
+            format!("La cartella dei progetti '{parent_dir}' non esiste."),
+            format!("The projects folder '{parent_dir}' does not exist.")
         ));
     }
     let target = parent.join(&name);
     if target.exists() {
-        return Err(format!("Esiste già '{}' in {parent_dir}.", name));
+        return Err(crate::tr!(
+            format!("Esiste già '{}' in {parent_dir}.", name),
+            format!("'{}' already exists in {parent_dir}.", name)
+        ));
     }
 
     let remote_url = if on_github {
@@ -650,7 +769,12 @@ pub async fn project_create_new(
     };
 
     tokio::task::spawn_blocking(move || {
-        std::fs::create_dir(&target).map_err(|e| format!("Creazione cartella fallita: {e}"))?;
+        std::fs::create_dir(&target).map_err(|e| {
+            crate::tr!(
+                format!("Creazione cartella fallita: {e}"),
+                format!("Creating the folder failed: {e}")
+            )
+        })?;
 
         let run_git = |args: &[&str]| -> Result<(), String> {
             let mut cmd = Command::new("git");
@@ -659,14 +783,26 @@ pub async fn project_create_new(
             cmd.creation_flags(CREATE_NO_WINDOW);
             let out = cmd
                 .output()
-                .map_err(|e| format!("Avvio git fallito: {e}"))?;
+                .map_err(|e| {
+                    crate::tr!(
+                        format!("Avvio git fallito: {e}"),
+                        format!("Starting git failed: {e}")
+                    )
+                })?;
             if out.status.success() {
                 Ok(())
             } else {
-                Err(format!(
-                    "git {} fallito: {}",
-                    args.first().copied().unwrap_or(""),
-                    String::from_utf8_lossy(&out.stderr).trim()
+                Err(crate::tr!(
+                    format!(
+                        "git {} fallito: {}",
+                        args.first().copied().unwrap_or(""),
+                        String::from_utf8_lossy(&out.stderr).trim()
+                    ),
+                    format!(
+                        "git {} failed: {}",
+                        args.first().copied().unwrap_or(""),
+                        String::from_utf8_lossy(&out.stderr).trim()
+                    )
                 ))
             }
         };
@@ -678,7 +814,12 @@ pub async fn project_create_new(
         Ok(target.to_string_lossy().to_string())
     })
     .await
-    .map_err(|e| format!("Task creazione progetto: {e}"))?
+    .map_err(|e| {
+        crate::tr!(
+            format!("Creazione progetto interrotta: {e}"),
+            format!("Project creation interrupted: {e}")
+        )
+    })?
 }
 
 #[cfg(test)]

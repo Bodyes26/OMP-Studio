@@ -284,7 +284,7 @@
 										<span>{formatDateTime(run.scheduledAt)}</span>
 										{#if run.executions.some(e => e.question)}
 											<span class="bullet">·</span>
-											<span class="question-notice">Richiede risposta</span>
+											<span class="question-notice">{t('popover_question_pending')}</span>
 										{/if}
 									</div>
 									<div class="item-card-actions">
@@ -380,7 +380,7 @@
 							{#if isTitleRunning}
 								<div class="popover-item-card running-card">
 									<div class="item-card-top">
-										<span class="item-name font-medium">Titoli AI: {backgroundJobs.running?.running?.label || 'Generazione in corso'}</span>
+										<span class="item-name font-medium">{t('popover_titles_running', { label: backgroundJobs.running?.running?.label || t('popover_titles_generating') })}</span>
 										<span class="elapsed-badge font-mono text-xs">
 											{formatElapsed(backgroundJobs.running?.running?.startedAt || null)}
 										</span>
@@ -405,7 +405,7 @@
 				{#if titlesQuotaPaused}
 					<div class="quota-warning-banner">
 						<IconWarning />
-						<span class="text-xs">Titoli AI sospesi per riserva quota (soglia 30% raggiunta).</span>
+						<span class="text-xs">{t('popover_titles_quota_paused')}</span>
 					</div>
 				{/if}
 
@@ -441,7 +441,7 @@
 					class="footer-link-btn text-xs"
 					onclick={handleManageClick}
 				>
-					<span>Vedi tutte le {definitions.length} automazioni…</span>
+					<span>{t('popover_view_all', { count: definitions.length })}</span>
 				</button>
 			</div>
 		</div>

@@ -8,6 +8,8 @@
  * testo): lo stesso comportamento della TUI.
  */
 
+import { m as msg } from '#lib/paraglide/messages.js';
+
 export type CompactMode = 'soft' | 'remote' | 'snapcompact';
 
 export const COMPACT_MODES: readonly CompactMode[] = ['snapcompact', 'soft', 'remote'];
@@ -33,7 +35,7 @@ export function parseCompactArgs(args: string): ParsedCompactArgs {
 	if (!mode) return { instructions: trimmed };
 	const focus = space === -1 ? '' : trimmed.slice(space + 1).trim();
 	if (mode === 'snapcompact' && focus) {
-		return { error: '/compact snapcompact non accetta istruzioni di focus (archivia senza riepilogo LLM)' };
+		return { error: msg.l10n_agent_compact_snapcompact_no_focus() };
 	}
 	return { mode, instructions: focus || undefined };
 }

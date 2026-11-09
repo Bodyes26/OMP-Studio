@@ -47,7 +47,7 @@
 			</div>
 			<div class="header-text">
 				<h3 id="close-confirm-title">
-					{m.close_confirm_title_project({ name: project?.name || 'progetto' })}
+					{m.close_confirm_title_project({ name: project?.name || m.l10n_cmp_generic_project() })}
 				</h3>
 				<p class="subtitle">
 					{#if hasWorking}

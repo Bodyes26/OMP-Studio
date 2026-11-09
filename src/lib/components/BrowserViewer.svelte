@@ -1263,7 +1263,7 @@
 
 		<!-- Modalita e selezione esplicita Chrome personale (S46) -->
 		<span class="mode-badge" class:relay={activeTab?.mode === 'chrome-relay'}>
-			{activeTab?.mode === 'chrome-relay' ? 'Chrome Relay' : 'Browser Studio'}
+			{activeTab?.mode === 'chrome-relay' ? m.l10n_cmp_browser_mode_relay() : m.l10n_cmp_browser_mode_studio()}
 		</span>
 		{#if activeTab?.mode === 'chrome-relay'}
 			<button type="button" class="tool-btn" disabled={relayBusy} onclick={disconnectRelay}>
@@ -1403,9 +1403,9 @@
 							<span class="capability-name">{CAPABILITY_LABELS[capability]}</span>
 							<Segmented
 								options={[
-									{ value: 'denied', label: 'Nega' },
-									{ value: 'prompt', label: 'Chiedi' },
-									{ value: 'granted', label: 'Consenti' }
+									{ value: 'denied', label: m.l10n_cmp_browser_cap_deny() },
+									{ value: 'prompt', label: m.l10n_cmp_browser_cap_prompt() },
+									{ value: 'granted', label: m.l10n_cmp_browser_cap_allow() }
 								]}
 								value={capabilityDecision(capability)}
 								onChange={(val) => changeCapability(capability, val as BrowserCapabilityDecision)}
@@ -1484,7 +1484,7 @@
 					{#each relayTargets as target (target.targetId)}
 						<button type="button" class="relay-target" disabled={relayBusy} onclick={() => authorizeRelayTarget(target.targetId)}>
 							<span>{target.title || m.browser_relay_untitled_tab()}</span>
-							<small>{target.origin}{target.active ? ' · attiva' : ''}</small>
+							<small>{target.origin}{target.active ? m.l10n_cmp_browser_relay_target_active() : ''}</small>
 						</button>
 					{/each}
 				</div>
@@ -1666,7 +1666,7 @@
 						</button>
 					{:else}
 						<span class="artifact-chip rejected" title={download.error ?? ''}>
-							{download.suggestedFilename} · {download.status === 'denied' ? 'eliminato' : m.ui_browserviewer_fallito_ca59()}
+							{download.suggestedFilename} · {download.status === 'denied' ? m.l10n_cmp_browser_download_deleted() : m.ui_browserviewer_fallito_ca59()}
 						</span>
 					{/if}
 				{/each}
@@ -1955,7 +1955,7 @@
 									<span class="field-val">{inspectedElement.accessibleName || '—'}</span>
 								</div>
 								<div class="meta-field">
-									<span class="field-label">Bounding Box</span>
+									<span class="field-label">{m.l10n_cmp_browser_bounding_box_label()}</span>
 									<span class="field-val">
 										{m.browser_bounding_box_value({
 										width: Math.round(inspectedElement.boundingBox.width),

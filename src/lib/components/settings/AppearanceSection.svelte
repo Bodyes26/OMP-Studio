@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
 	import { onMount } from 'svelte';
+	import { flip } from 'svelte/animate';
 	import { themeStore } from '#lib/stores/theme.svelte.ts';
 	import {
 		settingsStore,
@@ -8,8 +9,9 @@
 		type QueueViewVariant,
 	} from '#lib/stores/settings.svelte.ts';
 	import { activeQuotaStore } from '#lib/stores/activeQuota.svelte.ts';
+	import { DEFAULT_COLUMN_ORDER, filesOnRight, moveColumn, type ColumnRole } from '#lib/panelGeometry.ts';
 	import { THEME_GROUPS, THEMES, swatchesFor, anchorsFor, type ThemeMode } from '#lib/theme.ts';
-	import { IconCheck, IconSearch, IconClose } from '#lib/icons.ts';
+	import { IconCheck, IconSearch, IconClose, IconChevronLeft, IconChevronRight } from '#lib/icons.ts';
 	import Switch from '#lib/ui/Switch.svelte';
 	import Segmented from '#lib/ui/Segmented.svelte';
 	import QuotaChip from '../quota/QuotaChip.svelte';
@@ -48,6 +50,14 @@
 	function setLayoutMode(mode: LayoutMode) {
 		settingsStore.patchGeneral({ layoutMode: mode });
 	}
+
+	const columnOrder = $derived(settingsStore.general.columnOrder);
+	const isDefaultColumnOrder = $derived(columnOrder.every((role, i) => role === DEFAULT_COLUMN_ORDER[i]));
+	// Le classi delle anteprime in miniatura: la chat usa il tono del terminale gia' esistente.
+	const MINI_CLASS: Record<ColumnRole, string> = { files: 'side', editor: 'editor', agent: 'terminal' };
+	const columnLabel = (role: ColumnRole) => role === 'files'
+		? m.settings_appearance_columns_files()
+		: role === 'editor' ? m.settings_appearance_columns_editor() : m.settings_appearance_columns_agent();
 
 	function setQueueView(variant: QueueViewVariant) {
 		settingsStore.patchQueueView(variant);
@@ -163,9 +173,9 @@
 				</p>
 				<div class="variant-preview">
 					<div class="layout-mini-preview horizontal" aria-hidden="true">
-						<div class="mini-col side"></div>
-						<div class="mini-col editor"></div>
-						<div class="mini-col terminal"></div>
+						{#each columnOrder as role (role)}
+							<div class="mini-col {MINI_CLASS[role]}"></div>
+						{/each}
 					</div>
 				</div>
 			</label>
@@ -186,16 +196,54 @@
 					{m.ui_appearancesection_vista_a_stack_albero_a_sinistra_editor_7c6e()}
 				</p>
 				<div class="variant-preview">
-					<div class="layout-mini-preview vertical" aria-hidden="true">
+					<div class="layout-mini-preview vertical" class:side-right={filesOnRight(columnOrder)} aria-hidden="true">
 						<div class="mini-col side"></div>
 						<div class="mini-stack">
-							<div class="mini-row editor"></div>
-							<div class="mini-row terminal"></div>
+							{#each columnOrder.filter((role) => role !== 'files') as role (role)}
+								<div class="mini-row {MINI_CLASS[role]}"></div>
+							{/each}
 						</div>
 					</div>
 				</div>
 			</label>
 		</div>
+	</div>
+	<!-- BLOCCO: ORDINE DELLE COLONNE -->
+	<div class="section-block">
+		<div class="block-head-row">
+			<div class="block-titles">
+				<h4>{m.settings_appearance_columns_title()}</h4>
+				<span class="block-desc">{m.settings_appearance_columns_desc()}</span>
+			</div>
+			<button
+				type="button"
+				class="ui-button ui-button-secondary"
+				disabled={isDefaultColumnOrder}
+				onclick={() => settingsStore.patchGeneral({ columnOrder: [...DEFAULT_COLUMN_ORDER] })}
+			>{m.settings_appearance_columns_reset()}</button>
+		</div>
+		<ol class="column-order" aria-label={m.settings_appearance_columns_aria()}>
+			{#each columnOrder as role, i (role)}
+				{@const column = columnLabel(role)}
+				<li class="column-slot {MINI_CLASS[role]}" animate:flip={{ duration: 160 }}>
+					<button
+						type="button"
+						class="ui-button ui-button-ghost column-move"
+						disabled={i === 0}
+						aria-label={m.settings_appearance_columns_move_left({ column })}
+						onclick={() => settingsStore.patchGeneral({ columnOrder: moveColumn(columnOrder, role, -1) })}
+					><IconChevronLeft size={14} /></button>
+					<span class="column-name">{column}</span>
+					<button
+						type="button"
+						class="ui-button ui-button-ghost column-move"
+						disabled={i === columnOrder.length - 1}
+						aria-label={m.settings_appearance_columns_move_right({ column })}
+						onclick={() => settingsStore.patchGeneral({ columnOrder: moveColumn(columnOrder, role, 1) })}
+					><IconChevronRight size={14} /></button>
+				</li>
+			{/each}
+		</ol>
 	</div>
 	<!-- BLOCCO: VISTA CODA TASK -->
 	<div class="section-block">
@@ -1011,6 +1059,56 @@
 
 	.mini-row.terminal {
 		background: var(--bg-base);
+	}
+
+	.layout-mini-preview.side-right {
+		flex-direction: row-reverse;
+	}
+
+	.column-order {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: grid;
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+		gap: var(--space-2);
+	}
+
+	.column-slot {
+		display: flex;
+		align-items: center;
+		gap: var(--space-1);
+		min-height: 40px;
+		padding: var(--space-1);
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
+		background: var(--bg-sunken);
+	}
+
+	.column-slot.side {
+		background: var(--bg-raised);
+	}
+
+	.column-slot.terminal {
+		background: var(--bg-base);
+	}
+
+	.column-name {
+		flex: 1;
+		min-width: 0;
+		text-align: center;
+		font-size: var(--text-label);
+		color: var(--ink);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.column-move {
+		padding: 0;
+		width: 28px;
+		height: 28px;
+		flex: none;
 	}
 
 	.mini-auto-body {

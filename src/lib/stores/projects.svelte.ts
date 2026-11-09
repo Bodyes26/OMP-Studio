@@ -1,3 +1,5 @@
+import { invoke } from '@tauri-apps/api/core';
+import { m } from '#lib/paraglide/messages.js';
 import { load, type Store } from '@tauri-apps/plugin-store';
 import { homeDir } from '@tauri-apps/api/path';
 import { debounce } from 'lodash-es';
@@ -58,6 +60,8 @@ export interface Project {
 	labDraft?: { prototypeId: string } | null;
 	/** Ripresa automatica dell'ultima chat nelle corsie worktree (--continue). */
 	worktreeResumeChat: boolean;
+	/** Vero per cartelle di file esterni aperte senza progetto (EXT-002..010). */
+	external: boolean;
 }
 
 interface StoredProject {
@@ -76,6 +80,9 @@ interface StoredProject {
 	browserAllowedOrigins?: string[];
 	labDraft?: { prototypeId: string } | null;
 	worktreeResumeChat?: boolean;
+	external?: boolean;
+	openFiles?: string[];
+	activeFile?: string | null;
 }
 
 export const PRESET_HUES = [355, 25, 60, 135, 175, 220, 265, 305];
@@ -203,7 +210,7 @@ class ProjectStore {
 					const id = projectId(p.id || `draft-${prototypeId}`);
 					const project: Project = {
 						id,
-						name: validEntry.title || p.name || 'Bozza Lab',
+						name: validEntry.title || p.name || m.l10n_state_lab_draft_name(),
 						label: null,
 						canonicalProjectPath: null,
 						hue: typeof p.hue === 'number' ? p.hue : 0,
@@ -212,7 +219,7 @@ class ProjectStore {
 							kind: 'lab',
 							labPrototypeId: prototypeId,
 							workspacePath: workspacePath(validEntry.workspacePath),
-							title: validEntry.title || p.name || 'Bozza Lab'
+							title: validEntry.title || p.name || m.l10n_state_lab_draft_name()
 						}),
 						layout: {
 							left: typeof p.layout?.left === 'number' ? p.layout.left : 260,
@@ -225,8 +232,73 @@ class ProjectStore {
 						autoDispatch: false,
 						taskDefaults: null,
 						labDraft: { prototypeId },
-						worktreeResumeChat: true
+						worktreeResumeChat: true,
+						external: false
 					};
+					this.projects.push(project);
+					continue;
+				}
+
+				if (p.external) {
+					const rawPath =
+						typeof p.canonicalProjectPath === 'string' ? p.canonicalProjectPath : p.path;
+					const normalizedPath = normalizeProjectPath(rawPath ?? '');
+					if (!normalizedPath || seen.has(pathKey(normalizedPath))) continue;
+
+					const storedOpenFiles = Array.isArray(p.openFiles) ? p.openFiles : [];
+					const validFiles: string[] = [];
+
+					if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
+						for (const candidate of storedOpenFiles) {
+							// `external_route` fallisce se il file non c'e' piu'; a differenza di
+							// `resolve_project_file` non cerca un omonimo nelle sottocartelle.
+							try {
+								const route = await invoke<{ rootIndex: number | null; rel: string }>('external_route', {
+									path: `${normalizedPath}/${candidate}`,
+									roots: [normalizedPath]
+								});
+								if (route.rootIndex === 0) validFiles.push(route.rel);
+							} catch {
+								// File cancellato o spostato: la scheda non torna
+							}
+						}
+					} else {
+						validFiles.push(...storedOpenFiles);
+					}
+
+					// EXT-010: elimina i progetti esterni rimasti senza tab
+					if (validFiles.length === 0) continue;
+
+					seen.add(pathKey(normalizedPath));
+					const id = projectId(p.id);
+					const canonicalPath = canonicalProjectPath(normalizedPath);
+					const activeFile =
+						p.activeFile && validFiles.includes(p.activeFile) ? p.activeFile : validFiles[0];
+
+					const project: Project = {
+						id,
+						name: p.name || (normalizedPath.split(/[\\/]/).filter(Boolean).pop() || m.topbar_external_files()),
+						label: null,
+						canonicalProjectPath: canonicalPath,
+						hue: typeof p.hue === 'number' ? p.hue : getProjectHue(normalizedPath),
+						colorMode: 'auto',
+						lane: createMainLane(id, canonicalPath, 'gui'),
+						layout: {
+							left: typeof p.layout?.left === 'number' ? p.layout.left : 260,
+							center: typeof p.layout?.center === 'number' ? p.layout.center : 0.5,
+							leftSection: 'files',
+							editorOpen: true,
+							panelGeometry: readPanelGeometries(p.layout?.panelGeometry)
+						},
+						lastOpened: typeof p.lastOpened === 'number' ? p.lastOpened : 0,
+						autoDispatch: false,
+						taskDefaults: null,
+						browserAllowedOrigins: p.browserAllowedOrigins,
+						worktreeResumeChat: false,
+						external: true
+					};
+					project.lane.openFiles = validFiles;
+					project.lane.activeFile = activeFile;
 					this.projects.push(project);
 					continue;
 				}
@@ -267,7 +339,8 @@ class ProjectStore {
 					autoDispatch: p.autoDispatch === true,
 					taskDefaults: p.taskDefaults && typeof p.taskDefaults === 'object' ? p.taskDefaults : null,
 					browserAllowedOrigins: p.browserAllowedOrigins,
-					worktreeResumeChat: p.worktreeResumeChat ?? true
+					worktreeResumeChat: p.worktreeResumeChat ?? true,
+					external: false
 				};
 				this.projects.push(project);
 				this.syncProjectMetadata(project);
@@ -312,7 +385,7 @@ class ProjectStore {
 	get registeredProjectMetadata(): StoredProjectMetadata[] {
 		const known = new Map(this.metadata);
 		for (const project of this.projects) {
-			if (!project.canonicalProjectPath) continue;
+			if (!project.canonicalProjectPath || project.external) continue;
 			const metadata = buildProjectMetadata({
 				id: project.id,
 				name: project.name,
@@ -339,7 +412,7 @@ class ProjectStore {
 			return;
 		}
 		for (const p of this.projects) {
-			if (p.canonicalProjectPath) {
+			if (p.canonicalProjectPath && !p.external) {
 				this.syncProjectMetadata(p);
 			}
 		}
@@ -359,7 +432,10 @@ class ProjectStore {
 				taskDefaults: p.taskDefaults ? $state.snapshot(p.taskDefaults) : null,
 				browserAllowedOrigins: p.browserAllowedOrigins,
 				labDraft: p.labDraft ?? undefined,
-				worktreeResumeChat: p.worktreeResumeChat
+				worktreeResumeChat: p.worktreeResumeChat,
+				external: p.external ? true : undefined,
+				openFiles: p.external ? $state.snapshot(p.lane.openFiles) : undefined,
+				activeFile: p.external ? p.lane.activeFile : undefined
 			}));
 		const metaToSave = pruneProjectMetadata(Array.from(this.metadata.values()));
 		await this.store.set('projects', toSave);
@@ -377,6 +453,9 @@ class ProjectStore {
 			(p) => p.canonicalProjectPath && pathKey(p.canonicalProjectPath) === key
 		);
 		if (existing) {
+			if (existing.external) {
+				existing.external = false;
+			}
 			existing.lastOpened = Date.now();
 			this.syncProjectMetadata(existing);
 			this.activeId = existing.id;
@@ -407,7 +486,8 @@ class ProjectStore {
 			autoDispatch: resolved.autoDispatch,
 			taskDefaults: resolved.taskDefaults,
 			browserAllowedOrigins: resolved.browserAllowedOrigins,
-			worktreeResumeChat: resolved.worktreeResumeChat
+			worktreeResumeChat: resolved.worktreeResumeChat,
+			external: false
 		};
 		// Nuovo progetto: in coda con l'ordine manuale, in testa solo se
 		// l'utente ha scelto `mru` (il piu' recente resta il piu' visibile).
@@ -420,6 +500,67 @@ class ProjectStore {
 		this.syncProjectMetadata(newProj);
 		this.save();
 		return id;
+	}
+
+	/**
+	 * Apre una cartella di lavoro per file esterni (EXT-004, EXT-008). Crea un progetto con `external: true`
+	 * senza i side effect di un progetto normale, o riusa quello esistente.
+	 */
+	openExternal(workdir: string): ProjectId | null {
+		const normalizedPath = normalizeProjectPath(workdir);
+		if (!normalizedPath) return null;
+		const key = pathKey(normalizedPath);
+		const existing = this.projects.find(
+			(p) => p.canonicalProjectPath && pathKey(p.canonicalProjectPath) === key
+		);
+		if (existing) {
+			existing.lastOpened = Date.now();
+			this.save();
+			return existing.id;
+		}
+
+		const id = projectId(crypto.randomUUID());
+		const canonicalPath = canonicalProjectPath(normalizedPath);
+		const defaultName = normalizedPath.split(/[\\/]/).filter(Boolean).pop() || m.topbar_external_files();
+
+		const newProj: Project = {
+			id,
+			name: defaultName,
+			label: null,
+			canonicalProjectPath: canonicalPath,
+			hue: getProjectHue(normalizedPath),
+			colorMode: 'auto',
+			lane: createMainLane(id, canonicalPath, 'gui'),
+			layout: {
+				left: 260,
+				center: 0.5,
+				leftSection: 'files',
+				editorOpen: true
+			},
+			lastOpened: Date.now(),
+			autoDispatch: false,
+			taskDefaults: null,
+			browserAllowedOrigins: undefined,
+			worktreeResumeChat: false,
+			external: true
+		};
+
+		this.projects.push(newProj);
+		this.save();
+		return id;
+	}
+
+	/**
+	 * Promuove un progetto esterno a progetto ordinario di Studio (EXT-005).
+	 * Passa `external` a false, sincronizza i metadati e salva.
+	 */
+	promoteExternal(id: string) {
+		const p = this.projects.find((item) => item.id === id);
+		if (!p || !p.external) return;
+		p.external = false;
+		this.syncProjectMetadata(p);
+		this.activeId = p.id;
+		this.save();
 	}
 
 	/** Cambia la cartella in cui cercare i progetti e la persiste. Usata dal
@@ -478,7 +619,8 @@ class ProjectStore {
 			lastOpened: Date.now(),
 			autoDispatch: false,
 			taskDefaults: null,
-			worktreeResumeChat: true
+			worktreeResumeChat: true,
+			external: false
 		};
 		if (settingsStore.projectBar.order === 'mru') {
 			this.projects.unshift(scratchpadProj);
@@ -520,7 +662,8 @@ class ProjectStore {
 			autoDispatch: false,
 			taskDefaults: null,
 			labDraft: { prototypeId: entry.id },
-			worktreeResumeChat: true
+			worktreeResumeChat: true,
+			external: false
 		};
 		if (settingsStore.projectBar.order === 'mru') {
 			this.projects.unshift(draftProj);
@@ -553,7 +696,9 @@ class ProjectStore {
 			this.activeId = this.projects.length > 0 ? this.projects[this.projects.length - 1].id : null;
 		}
 		this.save();
-		window.dispatchEvent(new CustomEvent('studio-project-closed', { detail: { projectId: id } }));
+		if (typeof window !== 'undefined') {
+			window.dispatchEvent(new CustomEvent('studio-project-closed', { detail: { projectId: id } }));
+		}
 	}
 
 	setActive(id: string) {
@@ -631,9 +776,10 @@ class ProjectStore {
 	openFile(id: string, file: string) {
 		const p = this.projects.find(p => p.id === id);
 		if (!p || !file) return;
-		// Nessun save(): i tab sono stato di sessione, non configurazione.
+		// Nessun save(): i tab sono stato di sessione, tranne per i progetti esterni (EXT-010).
 		if (!p.lane.openFiles.includes(file)) p.lane.openFiles.push(file);
 		p.lane.activeFile = file;
+		if (p.external) this.save();
 	}
 
 	closeFile(id: string, file: string) {
@@ -645,6 +791,9 @@ class ProjectStore {
 		if (p.lane.activeFile === file) {
 			p.lane.activeFile = p.lane.openFiles[index] ?? p.lane.openFiles[index - 1] ?? null;
 		}
+		// La cartella resta aperta anche senza schede: chiuderla qui chiuderebbe
+		// anche la chat in corso. Se ne va con la X del menu, o al riavvio (EXT-010).
+		if (p.external) this.save();
 	}
 
 	/** Sposta la scheda `file` nella posizione di `beforeFile`, come il
@@ -658,6 +807,7 @@ class ProjectStore {
 		if (from === -1 || to === -1) return;
 		p.lane.openFiles.splice(from, 1);
 		p.lane.openFiles.splice(to, 0, file);
+		if (p.external) this.save();
 	}
 
 	/**

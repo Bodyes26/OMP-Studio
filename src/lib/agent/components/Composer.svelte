@@ -1185,7 +1185,7 @@
 							<Tooltip
 								text={planActive
 									? (isLab ? m.plan_lab_pill_exit_title() : m.plan_pill_exit_title())
-									: (isLab ? m.plan_lab_pill_enter_title({ keys: IS_MAC ? '⌃⌥⇧P' : 'Alt+Maiusc+P' }) : m.plan_pill_enter_title({ keys: IS_MAC ? '⌃⌥⇧P' : 'Alt+Maiusc+P' }))}
+									: (isLab ? m.plan_lab_pill_enter_title({ keys: IS_MAC ? '⌃⌥⇧P' : m.l10n_agentcmp_plan_keys() }) : m.plan_pill_enter_title({ keys: IS_MAC ? '⌃⌥⇧P' : m.l10n_agentcmp_plan_keys() }))}
 								placement="top"
 								offset={6}
 							>

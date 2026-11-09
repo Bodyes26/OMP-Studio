@@ -69,7 +69,7 @@
 		onClose={onClose}
 	>
 		<div class="settings-modal-body">
-			<p class="dialog-subtitle text-xs" style="margin: -6px 0 10px; color: var(--ink-muted);">Limiti operativi e impostazioni generali per l'esecuzione in background</p>
+			<p class="dialog-subtitle text-xs" style="margin: -6px 0 10px; color: var(--ink-muted);">{t('settings_subtitle')}</p>
 			{#if error}
 				<div class="settings-error-banner" role="alert">
 					<IconWarning />
@@ -80,7 +80,7 @@
 			<div class="settings-form">
 				<!-- Concorrenza -->
 				<fieldset class="form-section">
-					<legend class="section-legend">Concorrenza massima globale</legend>
+					<legend class="section-legend">{t('settings_concurrency_heading')}</legend>
 					<div class="field-row">
 						<label for="set-max-ai" class="field-label-text">{t('settings_max_ai')}</label>
 						<input
@@ -107,7 +107,7 @@
 
 				<!-- Limiti output e ritenzione -->
 				<fieldset class="form-section">
-					<legend class="section-legend">Conservazione e limiti di output</legend>
+					<legend class="section-legend">{t('settings_retention_heading')}</legend>
 					<div class="field-row">
 						<label for="set-retention" class="field-label-text">{t('settings_retention_days')}</label>
 						<input
@@ -147,10 +147,10 @@
 				<fieldset class="form-section">
 					<legend class="section-legend">{t('settings_assistant_heading')}</legend>
 					<div class="field-row">
-						<label for="set-asst-mode" class="field-label-text">Modalità selezione</label>
+						<label for="set-asst-mode" class="field-label-text">{t('settings_assistant_mode_label')}</label>
 						<select id="set-asst-mode" class="ui-input text-xs" bind:value={assistantModelMode}>
-							<option value="role">Ruolo (es. smol, default)</option>
-							<option value="model">Modello esplicito</option>
+							<option value="role">{t('settings_assistant_mode_role')}</option>
+							<option value="model">{t('settings_assistant_mode_model')}</option>
 						</select>
 					</div>
 					<div class="field-row">

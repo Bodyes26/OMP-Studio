@@ -18,6 +18,7 @@ import type { ToolEntry } from '#lib/agent/session.svelte.ts';
 import { asRecord, str } from '#lib/agent/tools/types.ts';
 import { isSvgContent, isSvgFileName } from '#lib/editor/svgSandbox.ts';
 import { RemoteCommandFailure } from './commands';
+import { m } from '#lib/paraglide/messages.js';
 
 const encoder = new TextEncoder();
 
@@ -91,7 +92,7 @@ export function artifactForToolEntry(entry: ToolEntry): RemoteArtifact | null {
 export function fullArtifactForToolEntry(entry: ToolEntry): RemoteArtifact {
 	const raw = rawArtifact(entry);
 	if (!raw) {
-		throw new RemoteCommandFailure('not_found', 'Il messaggio non ha un\'anteprima disponibile');
+		throw new RemoteCommandFailure('not_found', m.l10n_lab_remote_artifact_not_available());
 	}
 	const bytes = encoder.encode(raw.content).length;
 	// JSON raddoppia virgolette e barre e puo' espandere i caratteri di controllo:
@@ -100,7 +101,7 @@ export function fullArtifactForToolEntry(entry: ToolEntry): RemoteArtifact {
 	if (bytes > ARTIFACT_MAX_BYTES || serializedBytes > 480 * 1024) {
 		throw new RemoteCommandFailure(
 			'rejected',
-			`Anteprima troppo grande per il controllo remoto (${Math.ceil(bytes / 1024)} KB)`
+			m.l10n_lab_remote_artifact_too_large({ size: String(Math.ceil(bytes / 1024)) })
 		);
 	}
 	return { kind: raw.kind, title: raw.title, bytes, content: raw.content };

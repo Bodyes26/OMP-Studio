@@ -6,6 +6,8 @@
 // per ogni tool sta in `ricerca/TOOL-DETAILS.md`, rilevata sul filo.
 
 import type { Component } from 'svelte';
+import { getLocale } from '#lib/paraglide/runtime.js';
+import { m } from '#lib/paraglide/messages.js';
 import type { ContentBlock } from '../wire';
 import type { WaitContext } from './wait';
 
@@ -87,17 +89,33 @@ export function baseName(path: string): string {
 	return parts[parts.length - 1] || path;
 }
 
-/** Durata compatta: `840ms`, `2.4s`, `1m 12s`. */
+/**
+ * Numero con il separatore decimale della lingua dell'interfaccia
+ * (virgola in italiano, punto in inglese) e senza separatore delle migliaia.
+ */
+export function formatDecimal(value: number, digits: number): string {
+	return new Intl.NumberFormat(getLocale(), {
+		minimumFractionDigits: digits,
+		maximumFractionDigits: digits,
+		useGrouping: false
+	}).format(value);
+}
+
+/** Durata compatta: `840ms`, `2.4s`, `1m 12s` (decimali secondo la lingua). */
 export function formatDuration(ms: number | undefined): string | undefined {
 	if (ms === undefined || !Number.isFinite(ms) || ms < 0) return undefined;
 	if (ms < 1000) return `${Math.round(ms)}ms`;
-	if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+	if (ms < 60_000) return `${formatDecimal(ms / 1000, 1)}s`;
 	const minutes = Math.floor(ms / 60_000);
 	return `${minutes}m ${Math.round((ms % 60_000) / 1000)}s`;
 }
 
 function formatKb(bytes: number): string {
-	return bytes < 1024 ? `${bytes}B` : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)}KB` : `${(bytes / 1024 / 1024).toFixed(1)}MB`;
+	return bytes < 1024
+		? `${bytes}B`
+		: bytes < 1024 * 1024
+			? `${formatDecimal(bytes / 1024, 1)}KB`
+			: `${formatDecimal(bytes / 1024 / 1024, 1)}MB`;
 }
 
 /**
@@ -119,7 +137,8 @@ export function formatMinimized(details: unknown): string | undefined {
  * attivita del turno e chiamate ai tool.
  * Separata da formatDuration perche durante il tick a 100ms i millisecondi
  * produrrebbero tre cifre che saltano continuamente e una larghezza instabile.
- * Sotto il minuto mostra un decimale (`0.1s`, `12.8s`); oltre, minuti e
+ * Sotto il minuto mostra un decimale col separatore della lingua
+ * (`0.1s` in inglese, `0,1s` in italiano); oltre, minuti e
  * secondi con lo zero di riempimento (`1m 14s`, `2m 05s`): il decimale non
  * porta informazione e la larghezza resta ferma mentre i secondi scorrono.
  * Il tempo e troncato, non arrotondato: un cronometro non mostra un istante
@@ -127,16 +146,15 @@ export function formatMinimized(details: unknown): string | undefined {
  * chiamata istantanea si congela su un valore leggibile e non su `0.0s`.
  */
 export function formatElapsed(ms: number): string {
-	if (!Number.isFinite(ms) || ms <= 0) return '0.0s';
+	if (!Number.isFinite(ms) || ms <= 0) return `${formatDecimal(0, 1)}s`;
 	if (ms < 60_000) {
 		const tenths = Math.max(1, Math.floor(ms / 100));
-		return `${Math.floor(tenths / 10)}.${tenths % 10}s`;
+		return `${formatDecimal(tenths / 10, 1)}s`;
 	}
 	const minutes = Math.floor(ms / 60_000);
 	const seconds = Math.floor((ms % 60_000) / 1000);
 	return `${minutes}m ${String(seconds).padStart(2, '0')}s`;
 }
-
 
 /**
  * Estrae una breve descrizione dell'errore per il microcopy di fallimento.
@@ -191,7 +209,7 @@ export function extractToolErrorReason(tool: {
 	}
 
 	// 4. Ripiego generico
-	return 'operazione non riuscita';
+	return m.l10n_tools_error_generic();
 }
 
 function cleanErrorLine(raw: string): string {
@@ -204,5 +222,5 @@ function cleanErrorLine(raw: string): string {
 	if (cleaned.length > MAX_LEN) {
 		return cleaned.slice(0, MAX_LEN - 3).trimEnd() + '...';
 	}
-	return cleaned || 'operazione non riuscita';
+	return cleaned || m.l10n_tools_error_generic();
 }

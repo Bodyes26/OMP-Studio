@@ -32,6 +32,7 @@ import {
 	PREVIEW_PATH_PREFIX
 } from './protocol.ts';
 import { isValidAuth, isValidP256dh, isValidPushEndpoint, type VapidKeyPair } from './vapid.ts';
+import { normalizePushLanguage } from './pushText.ts';
 import { extractClientKey, type RateLimiter } from './ratelimit.ts';
 import type { RelayWsData, SocketHub } from './sockets.ts';
 import { PreviewStore, servePreview } from './previews.ts';
@@ -530,12 +531,16 @@ export async function handleRequest(
 			? body.userAgent.slice(0, 500)
 			: (req.headers.get('user-agent')?.slice(0, 500) ?? null);
 
+		// Lingua delle notifiche: i client vecchi non la mandano e restano in inglese.
+		const language = normalizePushLanguage(body.language);
+
 		const subscriptionId = store.savePushSubscription(
 			device.id,
 			body.subscription.endpoint,
 			body.subscription.keys.p256dh,
 			body.subscription.keys.auth,
 			userAgent,
+			language,
 			Date.now()
 		);
 

@@ -6,6 +6,7 @@
 
 import type { PushNotificationPayload } from './protocol.ts';
 import { encryptPushPayload } from './pushCrypto.ts';
+import { localizePushPayload, normalizePushLanguage } from './pushText.ts';
 import type { PushSubscriptionRecord, RelayStore } from './store.ts';
 import { createVapidHeaders, isValidPushEndpoint, type VapidKeyPair } from './vapid.ts';
 
@@ -79,8 +80,6 @@ export class PushSender {
 			rateLimited: 0
 		};
 
-		const jsonPayload = JSON.stringify(payload);
-
 		const isHighPriority = payload.data?.type === 'attention' || payload.data?.type === 'quota';
 		// Valuta idoneita' di ciascun dispositivo una sola volta per notifica
 		const deviceEligibility = new Map<string, boolean>();
@@ -116,7 +115,10 @@ export class PushSender {
 				continue;
 			}
 			try {
-				const encryptedBody = await encryptPushPayload(jsonPayload, {
+				// Titolo e corpo nella lingua della sottoscrizione (i client vecchi
+				// senza `language` restano sull'inglese predefinito).
+				const devicePayload = localizePushPayload(payload, normalizePushLanguage(sub.language));
+				const encryptedBody = await encryptPushPayload(JSON.stringify(devicePayload), {
 					p256dh: sub.p256dh,
 					auth: sub.auth
 				});

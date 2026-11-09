@@ -212,7 +212,8 @@ describe('remote command handling', () => {
 		assert.equal(results.length, 1);
 		assert.equal(results[0].ok, false);
 		assert.equal(results[0].error?.code, 'not_found');
-		assert.match(results[0].error?.message ?? '', /non appartiene al progetto/);
+		// Il testo segue la lingua dell'interfaccia: si verifica il fatto, non la frase.
+		assert.match(results[0].error?.message ?? '', /t-other/);
 	});
 
 	it('rejects run_task with rejected when task is not queued', async () => {
@@ -239,7 +240,7 @@ describe('remote command handling', () => {
 		assert.equal(results.length, 1);
 		assert.equal(results[0].ok, false);
 		assert.equal(results[0].error?.code, 'rejected');
-		assert.match(results[0].error?.message ?? '', /non e' in coda/);
+		assert.match(results[0].error?.message ?? '', /in_progress/);
 	});
 
 	it('maps handler outcome blocked to rejected with reason', async () => {

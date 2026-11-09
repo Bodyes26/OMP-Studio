@@ -22,7 +22,7 @@
 	let { args, result }: ToolRenderProps = $props();
 
 	const details = $derived(asRecord(result?.details));
-	const to = $derived(str(args.to) ?? str(args.recipient) ?? str(details?.to) ?? 'tutti');
+	const to = $derived(str(args.to) ?? str(args.recipient) ?? str(details?.to) ?? m.l10n_tools_label_everyone());
 	const from = $derived(str(args.from) ?? str(details?.from));
 	const message = $derived(str(args.message) ?? str(args.text) ?? '');
 	const replyTo = $derived(str(args.replyTo));
@@ -32,15 +32,15 @@
 
 	const argsRows = $derived.by(() => {
 		const rows: { key: string; value: string }[] = [];
-		rows.push({ key: 'Destinatario', value: to });
-		if (from) rows.push({ key: 'Mittente', value: from });
-		if (replyTo) rows.push({ key: 'In risposta a', value: replyTo });
+		rows.push({ key: m.l10n_tools_label_recipient(), value: to });
+		if (from) rows.push({ key: m.l10n_tools_label_sender(), value: from });
+		if (replyTo) rows.push({ key: m.l10n_tools_label_reply_to(), value: replyTo });
 		if (awaitReply !== undefined) {
-			rows.push({ key: 'Attesa risposta', value: awaitReply ? m.ui_bash_si_ef73() : 'no' });
+			rows.push({ key: m.l10n_tools_label_await_reply(), value: awaitReply ? m.ui_bash_si_ef73() : m.l10n_tools_value_no() });
 		}
 		if (timeoutMs !== undefined) {
 			const dur = formatDuration(timeoutMs);
-			if (dur) rows.push({ key: 'Timeout', value: dur });
+			if (dur) rows.push({ key: m.l10n_tools_label_timeout(), value: dur });
 		}
 		return rows;
 	});
@@ -56,7 +56,7 @@
 	{/if}
 
 	{#if text}
-		<OutputBlock {text} label="risposta irc" />
+		<OutputBlock {text} label={m.l10n_tools_label_irc_reply()} />
 	{/if}
 </div>
 

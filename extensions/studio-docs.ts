@@ -66,23 +66,54 @@ export interface ProjectDocsState {
 	fingerprints: Record<string, string>;
 }
 
+/**
+ * Testo scelto secondo la lingua della UI: il processo omp riceve
+ * `OMP_STUDIO_LOCALE` da Studio, il bundle della GUI ricade su `<html lang>`.
+ * Senza lingua nota si usa l'inglese, il default di Studio. Letta a ogni
+ * chiamata: la lingua puo' cambiare durante la vita del processo.
+ */
+function tr(it: string, en: string): string {
+	const host = globalThis as {
+		process?: { env?: Record<string, string | undefined> };
+		document?: { documentElement?: { lang?: string } };
+	};
+	const code = (host.process?.env?.OMP_STUDIO_LOCALE || host.document?.documentElement?.lang || "en").toLowerCase();
+	return code.startsWith("it") ? it : en;
+}
+
 export const MANIFEST_REL = ".omp/progetto.json";
 export const STATE_REL = ".omp/progetto-stato.json";
 
-export const ROLE_TITLES: Record<DocRole, string> = {
-	scopo: "Scopo",
-	uso: "Uso",
-	decisioni: "Decisioni",
-	storia: "Storia",
-	"domande-aperte": "Domande aperte"
+/** Titolo del documento scritto nello scheletro: la lingua attiva al momento. */
+export const ROLE_TITLES: Record<DocRole, { it: string; en: string }> = {
+	scopo: { it: "Scopo", en: "Purpose" },
+	uso: { it: "Uso", en: "Usage" },
+	decisioni: { it: "Decisioni", en: "Decisions" },
+	storia: { it: "Storia", en: "History" },
+	"domande-aperte": { it: "Domande aperte", en: "Open questions" }
 };
 
-const ROLE_HINTS: Record<DocRole, string> = {
-	scopo: "A cosa serve il progetto, per chi, cosa non e'.",
-	uso: "Come si usa, dal punto di vista di chi lo usa (non del codice).",
-	decisioni: "Scelte fatte e perche': data, scelta, motivo, alternative scartate, fonte.",
-	storia: "Tappe e svolte del progetto, comprese le strade abbandonate.",
-	"domande-aperte": "Cio' che non e' deciso o non si e' trovato."
+const ROLE_HINTS: Record<DocRole, { it: string; en: string }> = {
+	scopo: {
+		it: "A cosa serve il progetto, per chi, cosa non e'.",
+		en: "What the project is for, who it serves, and what it is not."
+	},
+	uso: {
+		it: "Come si usa, dal punto di vista di chi lo usa (non del codice).",
+		en: "How it is used, from the point of view of its users (not the code)."
+	},
+	decisioni: {
+		it: "Scelte fatte e perche': data, scelta, motivo, alternative scartate, fonte.",
+		en: "Choices made and why: date, decision, reason, discarded alternatives, source."
+	},
+	storia: {
+		it: "Tappe e svolte del progetto, comprese le strade abbandonate.",
+		en: "Milestones and turning points of the project, abandoned paths included."
+	},
+	"domande-aperte": {
+		it: "Cio' che non e' deciso o non si e' trovato.",
+		en: "What is still undecided or was not found."
+	}
 };
 
 /** Riga aggiunta al prompt di sistema quando il diario e' attivo (circa 60 token). */
@@ -268,7 +299,10 @@ export function ensureOmpIgnore(root: string, entries: string[]): void {
 	if (lines.has("*")) return;
 	const missing = entries.filter((e) => !lines.has(e) && !lines.has(`/${e}`));
 	if (missing.length === 0) return;
-	const block = `${existing && !existing.endsWith("\n") ? "\n" : ""}\n# OMP Studio: diario di progetto (stato locale)\n${missing.join("\n")}\n`;
+	const block = `${existing && !existing.endsWith("\n") ? "\n" : ""}\n${tr(
+		"# OMP Studio: diario di progetto (stato locale)",
+		"# OMP Studio: project journal (local state)"
+	)}\n${missing.join("\n")}\n`;
 	writeAtomic(path, existing + block);
 }
 
@@ -407,11 +441,11 @@ function fpKey(rel: string, heading: string): string {
 /* ---------------------------------------------------------------- init --- */
 
 function skeleton(role: DocRole): string {
-	return `# ${ROLE_TITLES[role]}\n\n_${ROLE_HINTS[role]}_\n`;
+	return `# ${tr(ROLE_TITLES[role].it, ROLE_TITLES[role].en)}\n\n_${tr(ROLE_HINTS[role].it, ROLE_HINTS[role].en)}_\n`;
 }
 
 function diaryHeader(date: Date): string {
-	return `# Diario ${date.getFullYear()}-${pad(date.getMonth() + 1)}\n`;
+	return tr(`# Diario ${date.getFullYear()}-${pad(date.getMonth() + 1)}\n`, `# Journal ${date.getFullYear()}-${pad(date.getMonth() + 1)}\n`);
 }
 
 export interface InitResult {
@@ -549,19 +583,43 @@ export function updateDoc(root: string, manifest: ProjectDocsManifest, input: Up
 	const original = readText(full) ?? skeleton(input.role);
 	const lines = original.replace(/\s+$/, "").split(/\r?\n/);
 	const text = input.text.trim();
-	if (!text) return { ok: false, rel, message: "Errore: 'text' vuoto." };
+	if (!text)
+		return {
+			ok: false,
+			rel,
+			message: tr("Errore: 'text' vuoto.", "Error: 'text' is empty.")
+		};
 
 	if (input.mode === "add_section") {
 		const heading = (input.section ?? "").trim();
-		if (!heading) return { ok: false, rel, message: "Errore: 'section' e' obbligatorio con add_section." };
+		if (!heading)
+			return {
+				ok: false,
+				rel,
+				message: tr(
+					"Errore: 'section' e' obbligatorio con add_section.",
+					"Error: 'section' is required with add_section."
+				)
+			};
 		if (findSection(lines, heading)) {
-			return { ok: false, rel, message: `La sezione «${heading}» esiste gia' in ${rel}: usa append o replace_section.` };
+			return {
+				ok: false,
+				rel,
+				message: tr(
+					`La sezione «${heading}» esiste gia' in ${rel}: usa append o replace_section.`,
+					`The section «${heading}» already exists in ${rel}: use append or replace_section.`
+				)
+			};
 		}
 		const body = blockWithSource(text, input.source);
 		appendBlock(lines, lines.length, [`## ${heading}`, "", ...body]);
 		state.fingerprints[fpKey(rel, heading)] = fingerprint(body.join("\n"));
 		writeAtomic(full, `${lines.join("\n")}\n`);
-		return { ok: true, rel, message: `Sezione «${heading}» aggiunta a ${rel}.` };
+		return {
+			ok: true,
+			rel,
+			message: tr(`Sezione «${heading}» aggiunta a ${rel}.`, `Section «${heading}» added to ${rel}.`)
+		};
 	}
 
 	if (input.mode === "append") {
@@ -570,14 +628,22 @@ export function updateDoc(root: string, manifest: ProjectDocsManifest, input: Up
 		if (!heading) {
 			appendBlock(lines, lines.length, body);
 			writeAtomic(full, `${lines.join("\n")}\n`);
-			return { ok: true, rel, message: `Testo aggiunto in fondo a ${rel}.` };
+			return {
+				ok: true,
+				rel,
+				message: tr(`Testo aggiunto in fondo a ${rel}.`, `Text appended to the end of ${rel}.`)
+			};
 		}
 		const found = findSection(lines, heading);
 		if (!found) {
 			appendBlock(lines, lines.length, [`## ${heading}`, "", ...body]);
 			state.fingerprints[fpKey(rel, heading)] = fingerprint(body.join("\n"));
 			writeAtomic(full, `${lines.join("\n")}\n`);
-			return { ok: true, rel, message: `Sezione «${heading}» creata in ${rel}.` };
+			return {
+				ok: true,
+				rel,
+				message: tr(`Sezione «${heading}» creata in ${rel}.`, `Section «${heading}» created in ${rel}.`)
+			};
 		}
 		const key = fpKey(rel, heading);
 		const before = lines.slice(found.bodyStart, found.end).join("\n");
@@ -592,19 +658,35 @@ export function updateDoc(root: string, manifest: ProjectDocsManifest, input: Up
 			if (after) state.fingerprints[key] = fingerprint(lines.slice(after.bodyStart, after.end).join("\n"));
 		}
 		writeAtomic(full, `${lines.join("\n")}\n`);
-		return { ok: true, rel, message: `Aggiunto alla sezione «${heading}» di ${rel}.` };
+		return {
+			ok: true,
+			rel,
+			message: tr(`Aggiunto alla sezione «${heading}» di ${rel}.`, `Added to section «${heading}» of ${rel}.`)
+		};
 	}
 
 	// replace_section
 	const heading = (input.section ?? "").trim();
-	if (!heading) return { ok: false, rel, message: "Errore: 'section' e' obbligatorio con replace_section." };
+	if (!heading)
+		return {
+			ok: false,
+			rel,
+			message: tr(
+				"Errore: 'section' e' obbligatorio con replace_section.",
+				"Error: 'section' is required with replace_section."
+			)
+		};
 	const found = findSection(lines, heading);
 	const body = blockWithSource(text, input.source);
 	if (!found) {
 		appendBlock(lines, lines.length, [`## ${heading}`, "", ...body]);
 		state.fingerprints[fpKey(rel, heading)] = fingerprint(body.join("\n"));
 		writeAtomic(full, `${lines.join("\n")}\n`);
-		return { ok: true, rel, message: `Sezione «${heading}» creata in ${rel}.` };
+		return {
+				ok: true,
+				rel,
+				message: tr(`Sezione «${heading}» creata in ${rel}.`, `Section «${heading}» created in ${rel}.`)
+			};
 	}
 	const key = fpKey(rel, heading);
 	const currentBody = lines.slice(found.bodyStart, found.end).join("\n");
@@ -623,7 +705,11 @@ export function updateDoc(root: string, manifest: ProjectDocsManifest, input: Up
 	lines.splice(found.bodyStart, found.end - found.bodyStart, "", ...body, "");
 	state.fingerprints[key] = fingerprint(["", ...body, ""].join("\n"));
 	writeAtomic(full, `${lines.join("\n").replace(/\n{3,}/g, "\n\n").replace(/\s+$/, "")}\n`);
-	return { ok: true, rel, message: `Sezione «${heading}» riscritta in ${rel}.` };
+	return {
+		ok: true,
+		rel,
+		message: tr(`Sezione «${heading}» riscritta in ${rel}.`, `Section «${heading}» rewritten in ${rel}.`)
+	};
 }
 
 /* ------------------------------------------------------------- lettura --- */
@@ -928,52 +1014,117 @@ export function initPrompt(info: {
 	const mapped = Object.entries(info.init.mapped)
 		.map(([role, rel]) => `${role} -> ${rel}`)
 		.join(", ");
+	const storage = info.init.manifest.storage === "local";
 	const lines = [
-		"[Diario di progetto · inizializzazione]",
-		`Ho creato la struttura del diario (${info.init.manifest.storage === "local" ? "fuori da git, in .omp/progetto/" : "versionata, in docs/diario e docs/progetto"}).` +
-			(mapped ? ` Documenti esistenti usati al posto dei nuovi: ${mapped}.` : ""),
+		tr("[Diario di progetto · inizializzazione]", "[Project journal · initialization]"),
+		tr(
+			`Ho creato la struttura del diario (${storage ? "fuori da git, in .omp/progetto/" : "versionata, in docs/diario e docs/progetto"}).` +
+				(mapped ? ` Documenti esistenti usati al posto dei nuovi: ${mapped}.` : ""),
+			`I created the journal structure (${storage ? "outside git, in .omp/progetto/" : "versioned, in docs/diario and docs/progetto"}).` +
+				(mapped ? ` Existing documents used instead of new ones: ${mapped}.` : "")
+		),
 		""
 	];
 	if (hasMaterial) {
 		lines.push(
-			"Il progetto ha gia' materiale: ricava le informazioni da li', senza farmi domande se non per cio' che resta davvero ambiguo.",
-			"1. Chiama project_docs con action 'sources' per l'elenco: documentazione esistente, riepilogo git, sessioni passate e prompt di history.db.",
-			"2. Leggi README, AGENTS.md, docs/, CHANGELOG; usa `git log --stat` (a blocchi) per tappe e svolte; dai prompt di history.db e, solo dove servono dettagli, dai transcript .jsonl (cerca con grep, non leggerli interi) ricava decisioni e motivi.",
-			"3. I file di omp (history.db, sessioni .jsonl, ~/.omp) sono in SOLA LETTURA: non modificarli mai.",
-			"4. Compila con project_docs update i documenti scopo, uso, decisioni, storia, domande-aperte (sezioni brevi, linguaggio semplice, ogni affermazione con la fonte: [commit abc1234] o [sessione 1a2b3c4d]); cio' che non trovi o non e' chiaro va in domande-aperte.",
-			"5. Nei documenti mappati su file gia' esistenti aggiungi solo cio' che manca (mode append), non riscrivere il testo dell'utente.",
-			"6. Scrivi nel diario (doc 'diario') una voce per le tappe principali gia' avvenute e una per l'inizializzazione di oggi.",
-			"7. Alla fine riassumi in poche righe cosa hai scritto e cosa e' rimasto in domande-aperte."
+			tr(
+				"Il progetto ha gia' materiale: ricava le informazioni da li', senza farmi domande se non per cio' che resta davvero ambiguo.",
+				"The project already has material: derive the information from it, and only ask me questions for what stays genuinely ambiguous."
+			),
+			tr(
+				"1. Chiama project_docs con action 'sources' per l'elenco: documentazione esistente, riepilogo git, sessioni passate e prompt di history.db.",
+				"1. Call project_docs with action 'sources' for the list: existing documentation, git summary, past sessions and history.db prompts."
+			),
+			tr(
+				"2. Leggi README, AGENTS.md, docs/, CHANGELOG; usa `git log --stat` (a blocchi) per tappe e svolte; dai prompt di history.db e, solo dove servono dettagli, dai transcript .jsonl (cerca con grep, non leggerli interi) ricava decisioni e motivi.",
+				"2. Read README, AGENTS.md, docs/, CHANGELOG; use `git log --stat` (in chunks) for milestones and turning points; from history.db prompts and, only where details are needed, from .jsonl transcripts (search with grep, never read them whole) derive decisions and reasons."
+			),
+			tr(
+				"3. I file di omp (history.db, sessioni .jsonl, ~/.omp) sono in SOLA LETTURA: non modificarli mai.",
+				"3. omp files (history.db, .jsonl sessions, ~/.omp) are READ-ONLY: never modify them."
+			),
+			tr(
+				"4. Compila con project_docs update i documenti scopo, uso, decisioni, storia, domande-aperte (sezioni brevi, linguaggio semplice, ogni affermazione con la fonte: [commit abc1234] o [sessione 1a2b3c4d]); cio' che non trovi o non e' chiaro va in domande-aperte.",
+				"4. Fill the purpose, usage, decisions, history and open-questions documents with project_docs update (short sections, plain language, every claim with its source: [commit abc1234] or [session 1a2b3c4d]); anything you cannot find or that is unclear goes into open questions."
+			),
+			tr(
+				"5. Nei documenti mappati su file gia' esistenti aggiungi solo cio' che manca (mode append), non riscrivere il testo dell'utente.",
+				"5. In documents mapped to existing files only add what is missing (mode append), never rewrite the user's text."
+			),
+			tr(
+				"6. Scrivi nel diario (doc 'diario') una voce per le tappe principali gia' avvenute e una per l'inizializzazione di oggi.",
+				"6. Write into the journal (doc 'diario') one entry for the main milestones already reached and one for today's initialization."
+			),
+			tr(
+				"7. Alla fine riassumi in poche righe cosa hai scritto e cosa e' rimasto in domande-aperte.",
+				"7. At the end summarize in a few lines what you wrote and what stayed in open questions."
+			)
 		);
 	} else {
 		lines.push(
-			"Il progetto e' nuovo o quasi vuoto: fammi un'INTERVISTA breve per compilare i documenti.",
-			"- Una domanda per messaggio, in linguaggio semplice; aspetta la mia risposta prima della successiva. Massimo 6-8 domande.",
-			"- Copri: a cosa serve e per chi, cosa NON deve fare, come lo usera' chi lo usa, scelte gia' fatte (tecnologie, vincoli) e perche', dubbi aperti.",
-			"- Dopo ogni risposta aggiorna subito il documento giusto con project_docs update (fonte: la sessione corrente).",
-			"- Alla fine scrivi una voce nel diario (doc 'diario') e riassumi cosa hai registrato."
+			tr(
+				"Il progetto e' nuovo o quasi vuoto: fammi un'INTERVISTA breve per compilare i documenti.",
+				"The project is new or almost empty: run a short INTERVIEW to fill the documents."
+			),
+			tr(
+				"- Una domanda per messaggio, in linguaggio semplice; aspetta la mia risposta prima della successiva. Massimo 6-8 domande.",
+				"- One question per message, in plain language; wait for my answer before the next one. At most 6-8 questions."
+			),
+			tr(
+				"- Copri: a cosa serve e per chi, cosa NON deve fare, come lo usera' chi lo usa, scelte gia' fatte (tecnologie, vincoli) e perche', dubbi aperti.",
+				"- Cover: what it is for and for whom, what it must NOT do, how its users will use it, choices already made (technologies, constraints) and why, open doubts."
+			),
+			tr(
+				"- Dopo ogni risposta aggiorna subito il documento giusto con project_docs update (fonte: la sessione corrente).",
+				"- After each answer update the right document right away with project_docs update (source: the current session)."
+			),
+			tr(
+				"- Alla fine scrivi una voce nel diario (doc 'diario') e riassumi cosa hai registrato.",
+				"- At the end write a journal entry (doc 'diario') and summarize what you recorded."
+			)
 		);
 	}
 	if (info.init.manifestIgnored) {
-		lines.push("", "Nota: .omp/progetto.json e' ignorato da git in questo repository, quindi le mappature restano solo su questa macchina; dimmelo in una riga.");
+		lines.push(
+			"",
+			tr(
+				"Nota: .omp/progetto.json e' ignorato da git in questo repository, quindi le mappature restano solo su questa macchina; dimmelo in una riga.",
+				"Note: .omp/progetto.json is gitignored in this repository, so the mappings stay on this machine only; tell me in one line."
+			)
+		);
 	}
 	return lines.join("\n");
 }
 
 export function updatePrompt(): string {
 	return [
-		"[Diario di progetto · aggiornamento]",
-		"Aggiorna adesso diario e documenti di progetto con project_docs update in base a questa sessione (e ai commit recenti se servono):",
-		"- nel diario (doc 'diario') 1-5 righe: cosa e' cambiato, cosa si e' deciso e perche' (con le mie parole tra virgolette se ci sono), cosa resta aperto;",
-		"- nei documenti solo cio' che e' durevole; ogni riga con la fonte; se nulla di durevole e' successo dillo e non scrivere niente."
+		tr("[Diario di progetto · aggiornamento]", "[Project journal · update]"),
+		tr(
+			"Aggiorna adesso diario e documenti di progetto con project_docs update in base a questa sessione (e ai commit recenti se servono):",
+			"Update the journal and project documents now with project_docs update based on this session (and recent commits if needed):"
+		),
+		tr(
+			"- nel diario (doc 'diario') 1-5 righe: cosa e' cambiato, cosa si e' deciso e perche' (con le mie parole tra virgolette se ci sono), cosa resta aperto;",
+			"- in the journal (doc 'diario') 1-5 lines: what changed, what was decided and why (quoting my words when useful), what is still open;"
+		),
+		tr(
+			"- nei documenti solo cio' che e' durevole; ogni riga con la fonte; se nulla di durevole e' successo dillo e non scrivere niente.",
+			"- in the documents only what is durable; every line with its source; if nothing durable happened, say so and write nothing."
+		)
 	].join("\n");
 }
 
 export function askPrompt(question: string): string {
 	return [
-		"[Diario di progetto · domanda]",
-		`Rispondi usando il diario e i documenti di progetto (project_docs search/read), citando le fonti: ${question}`,
-		"Se la risposta non c'e', dillo e proponi di aggiungerla a domande-aperte."
+		tr("[Diario di progetto · domanda]", "[Project journal · question]"),
+		tr(
+			`Rispondi usando il diario e i documenti di progetto (project_docs search/read), citando le fonti: ${question}`,
+			`Answer using the project journal and documents (project_docs search/read), citing the sources: ${question}`
+		),
+		tr(
+			"Se la risposta non c'e', dillo e proponi di aggiungerla a domande-aperte.",
+			"If the answer is not there, say so and offer to add it to open questions."
+		)
 	].join("\n");
 }
 
@@ -1095,9 +1246,14 @@ export async function runProjectDocs(cwd: string, params: ProjectDocsParams, ses
 	if (action === "init") {
 		const init = initProject(root, params.storage === "local" ? "local" : "repo", now);
 		return textResult(
-			`Diario inizializzato. Creati: ${init.created.join(", ") || "nessun file nuovo"}.` +
-				(Object.keys(init.mapped).length ? ` Mappati: ${JSON.stringify(init.mapped)}.` : "") +
-				(init.manifestIgnored ? " Attenzione: .omp/progetto.json e' ignorato da git." : ""),
+			tr(
+				`Diario inizializzato. Creati: ${init.created.join(", ") || "nessun file nuovo"}.` +
+					(Object.keys(init.mapped).length ? ` Mappati: ${JSON.stringify(init.mapped)}.` : "") +
+					(init.manifestIgnored ? " Attenzione: .omp/progetto.json e' ignorato da git." : ""),
+				`Project journal initialized. Created: ${init.created.join(", ") || "no new files"}.` +
+					(Object.keys(init.mapped).length ? ` Mapped: ${JSON.stringify(init.mapped)}.` : "") +
+					(init.manifestIgnored ? " Warning: .omp/progetto.json is gitignored." : "")
+			),
 			{ manifest: init.manifest, created: init.created }
 		);
 	}
@@ -1108,33 +1264,58 @@ export async function runProjectDocs(cwd: string, params: ProjectDocsParams, ses
 		const docs = existingDocFiles(root, manifest);
 		const git = gitSummary(root);
 		const lines = [
-			`Radice: ${toPosix(root)}`,
-			`Documentazione esistente (${docs.length}): ${docs.join(", ") || "nessuna"}`,
-			git ? `Git: ${git.commits} commit (${git.first ?? "?"} -> ${git.last ?? "?"})` : "Git: non disponibile",
-			`Sessioni omp per questa cartella (${sessions.length}, sola lettura):`,
+			tr(`Radice: ${toPosix(root)}`, `Root: ${toPosix(root)}`),
+			tr(
+				`Documentazione esistente (${docs.length}): ${docs.join(", ") || "nessuna"}`,
+				`Existing documentation (${docs.length}): ${docs.join(", ") || "none"}`
+			),
+			git
+				? tr(
+						`Git: ${git.commits} commit (${git.first ?? "?"} -> ${git.last ?? "?"})`,
+						`Git: ${git.commits} commits (${git.first ?? "?"} -> ${git.last ?? "?"})`
+					)
+				: tr("Git: non disponibile", "Git: not available"),
+			tr(
+				`Sessioni omp per questa cartella (${sessions.length}, sola lettura):`,
+				`omp sessions for this folder (${sessions.length}, read-only):`
+			),
 			...sessions.slice(0, 40).map((s) => `- ${s.date} ${s.id.slice(0, 8)} ${s.path}`),
-			`Prompt dell'utente da history.db (${prompts.length}, sola lettura, dal piu' vecchio):`,
-			...prompts.map((p) => `- ${p.date} [sessione ${p.sessionId}] ${p.prompt}`)
+			tr(
+				`Prompt dell'utente da history.db (${prompts.length}, sola lettura, dal piu' vecchio):`,
+				`User prompts from history.db (${prompts.length}, read-only, oldest first):`
+			),
+			...prompts.map((p) => tr(`- ${p.date} [sessione ${p.sessionId}] ${p.prompt}`, `- ${p.date} [session ${p.sessionId}] ${p.prompt}`))
 		];
 		return textResult(lines.join("\n"), { docs, git, sessions: sessions.length, prompts: prompts.length });
 	}
 
 	if (source === "none") {
-		return errorResult("Il diario di progetto non e' ancora attivo qui. L'utente puo' avviarlo con /diario init (o tu con action 'init' se te lo chiede).");
+		return errorResult(
+			tr(
+				"Il diario di progetto non e' ancora attivo qui. L'utente puo' avviarlo con /diario init (o tu con action 'init' se te lo chiede).",
+				"The project journal is not active here yet. The user can start it with /diario init (or you with action 'init' if they ask)."
+			)
+		);
 	}
 
 	switch (action) {
 		case "list": {
 			const docs = DOC_ROLES.map((role) => {
 				const rel = manifest.docs[role];
-				return `- ${role}: ${rel} (${lineCount(join(root, rel))} righe)`;
+				return tr(`- ${role}: ${rel} (${lineCount(join(root, rel))} righe)`, `- ${role}: ${rel} (${lineCount(join(root, rel))} lines)`);
 			});
 			const months = listDiaryMonths(root, manifest);
 			return textResult(
 				[
-					`Diario di progetto (${manifest.storage === "local" ? "fuori da git" : "versionato"}):`,
+					tr(
+						`Diario di progetto (${manifest.storage === "local" ? "fuori da git" : "versionato"}):`,
+						`Project journal (${manifest.storage === "local" ? "outside git" : "versioned"}):`
+					),
 					...docs,
-					`- diario: ${months.length ? months.join(", ") : `${manifest.diaryDir} (vuoto)`}`
+					tr(
+						`- diario: ${months.length ? months.join(", ") : `${manifest.diaryDir} (vuoto)`}`,
+						`- journal: ${months.length ? months.join(", ") : `${manifest.diaryDir} (empty)`}`
+					)
 				].join("\n"),
 				{ manifest, months }
 			);
@@ -1147,42 +1328,68 @@ export async function runProjectDocs(cwd: string, params: ProjectDocsParams, ses
 				rel = month ? `${manifest.diaryDir}/${month}.md` : diaryRelFor(manifest, now);
 			} else {
 				const role = asRole(doc);
-				if (!role) return errorResult(`Documento sconosciuto '${doc}'. Usa uno di: ${DOC_ROLES.join(", ")}, diario, diario:YYYY-MM.`);
+				if (!role)
+					return errorResult(
+						tr(
+							`Documento sconosciuto '${doc}'. Usa uno di: ${DOC_ROLES.join(", ")}, diario, diario:YYYY-MM.`,
+							`Unknown document '${doc}'. Use one of: ${DOC_ROLES.join(", ")}, diario, diario:YYYY-MM.`
+						)
+					);
 				rel = manifest.docs[role];
 			}
 			const text = readText(join(root, rel));
-			if (text === null) return errorResult(`${rel} non esiste ancora.`);
+			if (text === null) return errorResult(tr(`${rel} non esiste ancora.`, `${rel} does not exist yet.`));
 			const part = sectionText(text, params.section);
-			if (part === null) return errorResult(`Sezione '${params.section}' non trovata in ${rel}.`);
+			if (part === null)
+				return errorResult(
+					tr(`Sezione '${params.section}' non trovata in ${rel}.`, `Section '${params.section}' not found in ${rel}.`)
+				);
 			return textResult(`${rel}\n\n${part}`);
 		}
 		case "search": {
 			const query = (params.query ?? "").trim();
-			if (!query) return errorResult("Errore: 'query' e' obbligatorio.");
+			if (!query) return errorResult(tr("Errore: 'query' e' obbligatorio.", "Error: 'query' is required."));
 			const hits = searchDocs(root, manifest, query);
-			if (hits.length === 0) return textResult(`Nessun risultato per «${query}».`, { hits: [] });
+			if (hits.length === 0)
+				return textResult(tr(`Nessun risultato per «${query}».`, `No results for «${query}».`), { hits: [] });
 			return textResult(hits.map((h) => `${h.rel}:${h.line} [${h.section || "-"}] ${h.text}`).join("\n"), { hits });
 		}
 		case "update": {
 			const text = (params.text ?? "").trim();
-			if (!text) return errorResult("Errore: 'text' e' obbligatorio.");
+			if (!text) return errorResult(tr("Errore: 'text' e' obbligatorio.", "Error: 'text' is required."));
 			const src = normalizeSource(params.source, sessionId);
 			const doc = (params.doc ?? "").trim().toLowerCase();
 			if (doc === "diario" || doc === "journal") {
 				const rel = appendDiary(root, manifest, text, src, now);
-				return textResult(`Diario aggiornato: ${rel}.`, { rel });
+				return textResult(tr(`Diario aggiornato: ${rel}.`, `Journal updated: ${rel}.`), { rel });
 			}
 			const role = asRole(doc);
-			if (!role) return errorResult(`Documento sconosciuto '${params.doc}'. Usa uno di: ${DOC_ROLES.join(", ")}, diario.`);
+			if (!role)
+				return errorResult(
+					tr(
+						`Documento sconosciuto '${params.doc}'. Usa uno di: ${DOC_ROLES.join(", ")}, diario.`,
+						`Unknown document '${params.doc}'. Use one of: ${DOC_ROLES.join(", ")}, diario.`
+					)
+				);
 			const state = loadState(root);
 			const outcome = updateDoc(root, manifest, { role, mode: params.mode ?? "append", section: params.section, text, source: src, force: params.force }, state);
 			if (outcome.ok) saveState(root, state);
 			return outcome.ok
 				? textResult(outcome.message, { rel: outcome.rel })
-				: { content: [{ type: "text", text: outcome.current ? `${outcome.message}\n\nTesto attuale:\n${outcome.current}` : outcome.message }], isError: true };
+				: {
+						content: [
+							{
+								type: "text",
+								text: outcome.current
+									? `${outcome.message}\n\n${tr("Testo attuale:", "Current text:")}\n${outcome.current}`
+									: outcome.message
+							}
+						],
+						isError: true
+					};
 		}
 		default:
-			return errorResult(`Azione sconosciuta '${action}'.`);
+			return errorResult(tr(`Azione sconosciuta '${action}'.`, `Unknown action '${action}'.`));
 	}
 }
 
@@ -1194,7 +1401,7 @@ export default function studioDocsExtension(pi: StudioDocsApi): void {
 
 	pi.registerTool<ProjectDocsParams>({
 		name: "project_docs",
-		label: "Project Docs",
+		label: tr("Documenti di progetto", "Project Docs"),
 		description: PROJECT_DOCS_DESCRIPTION,
 		parameters: z.object({
 			action: z.enum(["list", "read", "search", "update", "sources", "init"]).describe("Action to perform."),
@@ -1217,7 +1424,12 @@ export default function studioDocsExtension(pi: StudioDocsApi): void {
 			try {
 				return await runProjectDocs(cwd, params, sessionId);
 			} catch (err) {
-				return errorResult(`Errore del diario: ${err instanceof Error ? err.message : String(err)}`);
+				return errorResult(
+					tr(
+						`Errore del diario: ${err instanceof Error ? err.message : String(err)}`,
+						`Journal error: ${err instanceof Error ? err.message : String(err)}`
+					)
+				);
 			}
 		}
 	});
@@ -1240,7 +1452,10 @@ export default function studioDocsExtension(pi: StudioDocsApi): void {
 	};
 
 	pi.registerCommand?.("diario", {
-		description: "Diario di progetto: init | aggiorna | locale | repo | <domanda>",
+		description: tr(
+			"Diario di progetto: init | aggiorna | locale | repo | <domanda>",
+			"Project journal: init | update | local | repo | <question>"
+		),
 		handler: async (args: string, ctx: CommandContext) => {
 			const cwd = ctx?.sessionManager?.getCwd?.() ?? ctx?.cwd ?? process.cwd();
 			const root = resolveProjectRoot(cwd);
@@ -1259,7 +1474,13 @@ export default function studioDocsExtension(pi: StudioDocsApi): void {
 					return;
 				}
 				if (!isJournalActive(root)) {
-					notify("Il diario non e' ancora attivo in questo progetto: avvialo con /diario init.", "warning");
+					notify(
+						tr(
+							"Il diario non e' ancora attivo in questo progetto: avvialo con /diario init.",
+							"The journal is not active in this project yet: start it with /diario init."
+						),
+						"warning"
+					);
 					return;
 				}
 				if (sub === "aggiorna" || sub === "update") {
@@ -1270,22 +1491,35 @@ export default function studioDocsExtension(pi: StudioDocsApi): void {
 					const { moved, manifest } = switchStorage(root, sub === "repo" ? "repo" : "local");
 					notify(
 						manifest.storage === "local"
-							? `Diario spostato fuori da git (.omp/progetto/). ${moved.length} file spostati.`
-							: `Diario riportato nel repo (docs/). ${moved.length} file spostati.`
+							? tr(
+									`Diario spostato fuori da git (.omp/progetto/). ${moved.length} file spostati.`,
+									`Journal moved outside git (.omp/progetto/). ${moved.length} files moved.`
+								)
+							: tr(
+									`Diario riportato nel repo (docs/). ${moved.length} file spostati.`,
+									`Journal moved back into the repo (docs/). ${moved.length} files moved.`
+								)
 					);
 					return;
 				}
 				if (!trimmed) {
 					const { manifest } = loadManifest(root);
 					notify(
-						`Diario attivo (${manifest.storage === "local" ? "fuori da git" : "versionato"}): ${manifest.diaryDir}, ${DOC_ROLES.map((r) => manifest.docs[r]).join(", ")}. ` +
-							"Uso: /diario <domanda> · /diario aggiorna · /diario locale|repo"
+						tr(
+							`Diario attivo (${manifest.storage === "local" ? "fuori da git" : "versionato"}): ${manifest.diaryDir}, ${DOC_ROLES.map((r) => manifest.docs[r]).join(", ")}. ` +
+								"Uso: /diario <domanda> · /diario aggiorna · /diario locale|repo",
+							`Journal active (${manifest.storage === "local" ? "outside git" : "versioned"}): ${manifest.diaryDir}, ${DOC_ROLES.map((r) => manifest.docs[r]).join(", ")}. ` +
+								"Usage: /diario <question> · /diario update · /diario local|repo"
+						)
 					);
 					return;
 				}
 				send(askPrompt(trimmed));
 			} catch (err) {
-				notify(`Diario: ${err instanceof Error ? err.message : String(err)}`, "error");
+				notify(
+					tr(`Diario: ${err instanceof Error ? err.message : String(err)}`, `Journal: ${err instanceof Error ? err.message : String(err)}`),
+					"error"
+				);
 			}
 		}
 	});

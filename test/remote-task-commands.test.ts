@@ -9,6 +9,7 @@ import { handleRemoteCommand, type CommandContext, type RemoteCommandExecutor } 
 import type { RemoteCommandEvent } from '../src/lib/remote/bridge.ts';
 import type { StudioTask, TaskSchedule } from '../src/lib/stores/tasks.svelte.ts';
 
+
 describe('remote task commands (R5)', () => {
 	const dummyDevice = { id: 'dev-1', name: 'iPhone' };
 
@@ -112,7 +113,7 @@ describe('remote task commands (R5)', () => {
 			const { commands } = createMockDeps();
 			await assert.rejects(
 				() => commands.createRemoteTask('p1', '   ', null),
-				/Prompt vuoto/
+				/Empty prompt/
 			);
 		});
 
@@ -121,7 +122,7 @@ describe('remote task commands (R5)', () => {
 			const longPrompt = 'a'.repeat(20_001);
 			await assert.rejects(
 				() => commands.createRemoteTask('p1', longPrompt, null),
-				/Prompt troppo lungo/
+				/Prompt too long/
 			);
 		});
 
@@ -129,7 +130,7 @@ describe('remote task commands (R5)', () => {
 			const { commands } = createMockDeps();
 			await assert.rejects(
 				() => commands.createRemoteTask('p1', null as unknown as string, null),
-				/Prompt non valido/
+				/Invalid prompt/
 			);
 		});
 
@@ -137,7 +138,7 @@ describe('remote task commands (R5)', () => {
 			const { commands } = createMockDeps();
 			await assert.rejects(
 				() => commands.createRemoteTask('unknown-project', 'Valid prompt', null),
-				/Progetto "unknown-project" non trovato/
+				/unknown-project/
 			);
 		});
 
@@ -178,7 +179,7 @@ describe('remote task commands (R5)', () => {
 						'Past task',
 						{ kind: 'at', notBefore: pastTime }
 					),
-				/nel passato/
+				/in the past/
 			);
 		});
 
@@ -192,7 +193,7 @@ describe('remote task commands (R5)', () => {
 						'Future task',
 						{ kind: 'at', notBefore: absurdFuture }
 					),
-				/troppo lontano nel futuro/
+				/too far in the future/
 			);
 		});
 
@@ -230,7 +231,7 @@ describe('remote task commands (R5)', () => {
 						'Reset task without provider',
 						{ kind: 'reset' }
 					),
-				/Nessun provider di quota configurato/
+				/No quota provider configured/
 			);
 
 			assert.equal(tasks.has('task-no-provider'), false);
@@ -242,7 +243,7 @@ describe('remote task commands (R5)', () => {
 			const { commands } = createMockDeps();
 			await assert.rejects(
 				() => commands.updateRemoteTask('p1', 'nonexistent', { prompt: 'new text' }),
-				/non trovato/
+				/nonexistent/
 			);
 		});
 
@@ -250,7 +251,7 @@ describe('remote task commands (R5)', () => {
 			const { commands } = createMockDeps();
 			await assert.rejects(
 				() => commands.updateRemoteTask('p1', 'task-1', { prompt: '   ' }),
-				/Prompt vuoto/
+				/Empty prompt/
 			);
 		});
 
@@ -298,7 +299,7 @@ describe('remote task commands (R5)', () => {
 			const { commands } = createMockDeps();
 			await assert.rejects(
 				() => commands.deleteRemoteTask('p1', 'nonexistent'),
-				/non trovato/
+				/nonexistent/
 			);
 		});
 
@@ -316,11 +317,11 @@ describe('remote task commands (R5)', () => {
 			const { commands } = createMockDeps();
 			await assert.rejects(
 				() => commands.moveRemoteTask('p1', 'task-1', 1.5),
-				/Indice di destinazione non valido/
+				/Invalid destination index/
 			);
 			await assert.rejects(
 				() => commands.moveRemoteTask('p1', 'task-1', NaN),
-				/Indice di destinazione non valido/
+				/Invalid destination index/
 			);
 		});
 
@@ -328,7 +329,7 @@ describe('remote task commands (R5)', () => {
 			const { commands } = createMockDeps();
 			await assert.rejects(
 				() => commands.moveRemoteTask('p1', 'nonexistent', 0),
-				/non trovato/
+				/nonexistent/
 			);
 		});
 

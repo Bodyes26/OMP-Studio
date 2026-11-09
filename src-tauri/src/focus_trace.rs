@@ -23,8 +23,18 @@ fn trace_path(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = app
         .path()
         .app_log_dir()
-        .map_err(|e| format!("Cartella dei log non risolvibile: {}", e))?;
-    fs::create_dir_all(&dir).map_err(|e| format!("Creazione cartella log fallita: {}", e))?;
+        .map_err(|e| {
+            crate::tr!(
+                format!("Cartella dei log non risolvibile: {}", e),
+                format!("Log folder could not be resolved: {}", e)
+            )
+        })?;
+    fs::create_dir_all(&dir).map_err(|e| {
+        crate::tr!(
+            format!("Creazione cartella log fallita: {}", e),
+            format!("Creating the log folder failed: {}", e)
+        )
+    })?;
     Ok(dir.join("focus-trace.log"))
 }
 
@@ -82,9 +92,19 @@ fn append_lines(path: &Path, lines: &[String]) -> Result<(), String> {
         .create(true)
         .append(true)
         .open(path)
-        .map_err(|e| format!("Apertura file di traccia fallita: {}", e))?;
+        .map_err(|e| {
+            crate::tr!(
+                format!("Apertura file di traccia fallita: {}", e),
+                format!("Opening the trace file failed: {}", e)
+            )
+        })?;
     file.write_all(buffer.as_bytes())
-        .map_err(|e| format!("Scrittura traccia fallita: {}", e))
+        .map_err(|e| {
+            crate::tr!(
+                format!("Scrittura traccia fallita: {}", e),
+                format!("Writing the trace failed: {}", e)
+            )
+        })
 }
 
 /// Accoda un lotto di righe gia' formattate dal frontend.

@@ -82,7 +82,7 @@
 		<span class="output-title font-mono">{t('occ_output_heading')}</span>
 		<div class="toolbar-actions">
 			{#if loading}
-				<span class="loading-indicator">{t('titles_backfill_running')}</span>
+				<span class="loading-indicator">{t('occ_output_loading')}</span>
 			{/if}
 			{#if !isEnd && !loading}
 				<button
@@ -129,7 +129,7 @@
 		{#if fullText}
 			<pre>{fullText}</pre>
 		{:else if loading}
-			<div class="placeholder">{t('titles_backfill_running')}</div>
+			<div class="placeholder">{t('occ_output_loading')}</div>
 		{:else}
 			<div class="placeholder">{t('occ_output_empty')}</div>
 		{/if}

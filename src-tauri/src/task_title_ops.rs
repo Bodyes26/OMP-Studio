@@ -16,15 +16,17 @@ const TITLE_TIMEOUT_SECS: u64 = 25;
 /// Oltre questa soglia il prompt non aggiunge informazione utile al titolo.
 const TITLE_PROMPT_MAX_CHARS: usize = 2000;
 
-const SYSTEM_PROMPT: &str = r#"Sei un assistente che assegna un'etichetta brevissima a un task di sviluppo software in coda.
+fn system_prompt(lang: &str) -> String {
+    format!(r#"Sei un assistente che assegna un'etichetta brevissima a un task di sviluppo software in coda.
 Ricevi il testo del task scritto dall'utente.
 
 Regole TASSATIVE:
 1. Rispondi con ESCLUSIVAMENTE l'etichetta, su una sola riga. Nessun testo introduttivo, nessun commento, nessun blocco markdown o virgolette.
 2. Lunghezza: da 1 a 3 parole, MASSIMO 24 caratteri totali.
 3. Contenuto: l'intento del task, cioe' cosa cambia e dove (es. "Ordina quote popover", "Fix overlay anteprima", "Elimina prototipi Lab").
-4. Lingua: la stessa del testo del task.
-5. Nessuna frase completa, nessuna punteggiatura finale."#;
+4. Lingua: la stessa del testo del task; se il testo non ne suggerisce una, usa la lingua dell'interfaccia ({lang}).
+5. Nessuna frase completa, nessuna punteggiatura finale."#, lang = lang)
+}
 
 /// Cancella un job di generazione in background registrato con `job_id`.
 /// Restituisce `true` se il processo era attivo ed e' stato terminato.
@@ -52,7 +54,7 @@ pub async fn generate_task_title(
     let resolved_model = crate::directives_ops::resolve_assistant_model(model.as_deref()).await;
     let spawned = tokio::task::spawn_blocking(move || {
         crate::directives_ops::run_ephemeral_omp_cancellable(
-            SYSTEM_PROMPT,
+            &system_prompt(crate::i18n::code()),
             Some(&context_md),
             "Genera l'etichetta rispettando rigorosamente le regole indicate.",
             resolved_model.as_deref(),

@@ -28,23 +28,51 @@ fn instantiate_template(
     empty_hint: &str,
     created_at: &str,
 ) -> Result<(), String> {
-    fs::create_dir_all(workspace_path.join("src"))
-        .map_err(|e| format!("Creazione cartella src fallita: {e}"))?;
-    fs::create_dir_all(workspace_path.join(".lab"))
-        .map_err(|e| format!("Creazione cartella .lab fallita: {e}"))?;
+    fs::create_dir_all(workspace_path.join("src")).map_err(|e| {
+        crate::tr!(
+            format!("Creazione cartella src fallita: {e}"),
+            format!("Creating the src folder failed: {e}")
+        )
+    })?;
+    fs::create_dir_all(workspace_path.join(".lab")).map_err(|e| {
+        crate::tr!(
+            format!("Creazione cartella .lab fallita: {e}"),
+            format!("Creating the .lab folder failed: {e}")
+        )
+    })?;
 
     let package_json = TEMPLATE_PACKAGE_JSON.replace("{{SLUG}}", prototype_id);
-    fs::write(workspace_path.join("package.json"), package_json)
-        .map_err(|e| format!("Scrittura package.json fallita: {e}"))?;
+    fs::write(workspace_path.join("package.json"), package_json).map_err(|e| {
+        crate::tr!(
+            format!("Scrittura package.json fallita: {e}"),
+            format!("Writing package.json failed: {e}")
+        )
+    })?;
 
-    fs::write(workspace_path.join("index.html"), TEMPLATE_INDEX_HTML)
-        .map_err(|e| format!("Scrittura index.html fallita: {e}"))?;
-    fs::write(workspace_path.join("vite.config.ts"), TEMPLATE_VITE_CONFIG)
-        .map_err(|e| format!("Scrittura vite.config.ts fallita: {e}"))?;
-    fs::write(workspace_path.join("tsconfig.json"), TEMPLATE_TSCONFIG)
-        .map_err(|e| format!("Scrittura tsconfig.json fallita: {e}"))?;
-    fs::write(workspace_path.join("src/main.tsx"), TEMPLATE_MAIN_TSX)
-        .map_err(|e| format!("Scrittura src/main.tsx fallita: {e}"))?;
+    fs::write(workspace_path.join("index.html"), TEMPLATE_INDEX_HTML).map_err(|e| {
+        crate::tr!(
+            format!("Scrittura index.html fallita: {e}"),
+            format!("Writing index.html failed: {e}")
+        )
+    })?;
+    fs::write(workspace_path.join("vite.config.ts"), TEMPLATE_VITE_CONFIG).map_err(|e| {
+        crate::tr!(
+            format!("Scrittura vite.config.ts fallita: {e}"),
+            format!("Writing vite.config.ts failed: {e}")
+        )
+    })?;
+    fs::write(workspace_path.join("tsconfig.json"), TEMPLATE_TSCONFIG).map_err(|e| {
+        crate::tr!(
+            format!("Scrittura tsconfig.json fallita: {e}"),
+            format!("Writing tsconfig.json failed: {e}")
+        )
+    })?;
+    fs::write(workspace_path.join("src/main.tsx"), TEMPLATE_MAIN_TSX).map_err(|e| {
+        crate::tr!(
+            format!("Scrittura src/main.tsx fallita: {e}"),
+            format!("Writing src/main.tsx failed: {e}")
+        )
+    })?;
     // Letterali JSON: sono anche stringhe JS valide, quindi titolo e testo non
     // possono rompere il TSX qualunque carattere contengano.
     let escaped_title = serde_json::to_string(title).unwrap_or_else(|_| format!("\"{title}\""));
@@ -53,18 +81,34 @@ fn instantiate_template(
     let app_tsx = TEMPLATE_APP_TSX
         .replace("\"{{TITLE}}\"", &escaped_title)
         .replace("\"{{EMPTY_HINT}}\"", &escaped_hint);
-    fs::write(workspace_path.join("src/App.tsx"), app_tsx)
-        .map_err(|e| format!("Scrittura src/App.tsx fallita: {e}"))?;
-    fs::write(workspace_path.join("src/index.css"), TEMPLATE_INDEX_CSS)
-        .map_err(|e| format!("Scrittura src/index.css fallita: {e}"))?;
-    fs::write(workspace_path.join(".gitignore"), TEMPLATE_GITIGNORE)
-        .map_err(|e| format!("Scrittura .gitignore fallita: {e}"))?;
+    fs::write(workspace_path.join("src/App.tsx"), app_tsx).map_err(|e| {
+        crate::tr!(
+            format!("Scrittura src/App.tsx fallita: {e}"),
+            format!("Writing src/App.tsx failed: {e}")
+        )
+    })?;
+    fs::write(workspace_path.join("src/index.css"), TEMPLATE_INDEX_CSS).map_err(|e| {
+        crate::tr!(
+            format!("Scrittura src/index.css fallita: {e}"),
+            format!("Writing src/index.css failed: {e}")
+        )
+    })?;
+    fs::write(workspace_path.join(".gitignore"), TEMPLATE_GITIGNORE).map_err(|e| {
+        crate::tr!(
+            format!("Scrittura .gitignore fallita: {e}"),
+            format!("Writing .gitignore failed: {e}")
+        )
+    })?;
 
     let meta_json = TEMPLATE_META_JSON
         .replace("\"{{TITLE}}\"", &escaped_title)
         .replace("{{UPDATED_AT}}", created_at);
-    fs::write(workspace_path.join(".lab/meta.json"), meta_json)
-        .map_err(|e| format!("Scrittura .lab/meta.json fallita: {e}"))?;
+    fs::write(workspace_path.join(".lab/meta.json"), meta_json).map_err(|e| {
+        crate::tr!(
+            format!("Scrittura .lab/meta.json fallita: {e}"),
+            format!("Writing .lab/meta.json failed: {e}")
+        )
+    })?;
 
     Ok(())
 }
@@ -92,23 +136,34 @@ pub async fn lab_prototype_create(
         let title = title
             .map(|t| t.trim().to_string())
             .filter(|t| !t.is_empty())
-            .unwrap_or_else(|| "Nuovo prototipo".to_string());
+            .unwrap_or_else(|| {
+                // La lingua del titolo segue l'interfaccia: il frontend riconosce i
+                // segnaposto in entrambe le forme (isPlaceholderLaneTitle).
+                crate::tr!("Nuovo prototipo", "New prototype").to_string()
+            });
         let empty_hint = empty_hint
             .map(|t| t.trim().to_string())
             .filter(|t| !t.is_empty())
             .unwrap_or_else(|| {
-                "Descrivi l'interfaccia desiderata nella chat per iniziare a costruire il prototipo."
-                    .to_string()
+                crate::tr!(
+                    "Descrivi l'interfaccia desiderata nella chat per iniziare a costruire il prototipo.",
+                    "Describe the interface you want in the chat to start building the prototype."
+                )
+                .to_string()
             });
 
         let prototype_id = generate_prototype_id();
-        let ws_path = prototype_workspace_path(&prototype_id)
-            .ok_or_else(|| "Radice del Laboratorio non disponibile".to_string())?;
+        let ws_path = prototype_workspace_path(&prototype_id).ok_or_else(|| {
+            crate::tr!(
+                "Radice del Laboratorio non disponibile",
+                "Lab root not available"
+            ).to_string()
+        })?;
 
         if ws_path.exists() {
-            return Err(format!(
-                "La cartella di destinazione {} esiste gia'",
-                ws_path.display()
+            return Err(crate::tr!(
+                format!("La cartella di destinazione {} esiste gia'", ws_path.display()),
+                format!("The destination folder {} already exists", ws_path.display())
             ));
         }
 
@@ -175,8 +230,13 @@ pub(super) fn decode_snapshot_text(
                 .and_then(|e| e.to_str())
                 .is_some_and(|e| SOURCE_EXTENSIONS.iter().any(|s| s.eq_ignore_ascii_case(e)));
             if is_source {
-                Err(format!(
-                    "Il file {rel_path} non e' codificato in UTF-8: salvalo in UTF-8 per compilarlo"
+                Err(crate::tr!(
+                    format!(
+                        "Il file {rel_path} non e' codificato in UTF-8: salvalo in UTF-8 per compilarlo"
+                    ),
+                    format!(
+                        "File {rel_path} is not UTF-8 encoded: save it as UTF-8 so it can compile"
+                    )
                 ))
             } else {
                 Ok(None)
@@ -187,11 +247,20 @@ pub(super) fn decode_snapshot_text(
 
 /// Attraversa ricorsivamente la cartella del workspace raccogliendo i file di testo.
 fn walk_snapshot_dir(root: &Path, current: &Path, files: &mut Vec<LabFile>) -> Result<(), String> {
-    let entries = fs::read_dir(current)
-        .map_err(|e| format!("Lettura directory {} fallita: {e}", current.display()))?;
+    let entries = fs::read_dir(current).map_err(|e| {
+        crate::tr!(
+            format!("Lettura directory {} fallita: {e}", current.display()),
+            format!("Reading directory {} failed: {e}", current.display())
+        )
+    })?;
 
     for entry in entries {
-        let entry = entry.map_err(|e| format!("Voce non valida: {e}"))?;
+        let entry = entry.map_err(|e| {
+            crate::tr!(
+                format!("Voce non valida: {e}"),
+                format!("Invalid entry: {e}")
+            )
+        })?;
         let path = entry.path();
         let file_name = path
             .file_name()
@@ -199,9 +268,12 @@ fn walk_snapshot_dir(root: &Path, current: &Path, files: &mut Vec<LabFile>) -> R
             .unwrap_or_default();
         // `file_type` non segue i link simbolici: una cartella collegata a un antenato
         // porterebbe la ricorsione in un ciclo infinito.
-        let file_type = entry
-            .file_type()
-            .map_err(|e| format!("Tipo di {} non disponibile: {e}", path.display()))?;
+        let file_type = entry.file_type().map_err(|e| {
+            crate::tr!(
+                format!("Tipo di {} non disponibile: {e}", path.display()),
+                format!("File type of {} not available: {e}", path.display())
+            )
+        })?;
 
         if file_type.is_dir() {
             if file_name == ".git"
@@ -213,26 +285,41 @@ fn walk_snapshot_dir(root: &Path, current: &Path, files: &mut Vec<LabFile>) -> R
             }
             walk_snapshot_dir(root, &path, files)?;
         } else if path.is_file() {
-            let rel = path
-                .strip_prefix(root)
-                .map_err(|e| format!("Prefisso non valido: {e}"))?;
+            let rel = path.strip_prefix(root).map_err(|e| {
+                crate::tr!(
+                    format!("Prefisso non valido: {e}"),
+                    format!("Invalid prefix: {e}")
+                )
+            })?;
             let normalized = rel.to_string_lossy().replace('\\', "/");
 
             if files.len() >= 400 {
-                return Err("Il workspace supera il limite massimo di 400 file".to_string());
+                return Err(crate::tr!(
+                    "Il workspace supera il limite massimo di 400 file",
+                    "The workspace exceeds the maximum limit of 400 files"
+                )
+                .to_string());
             }
 
-            let meta = entry
-                .metadata()
-                .map_err(|e| format!("Metadata {normalized} non disponibili: {e}"))?;
+            let meta = entry.metadata().map_err(|e| {
+                crate::tr!(
+                    format!("Metadata {normalized} non disponibili: {e}"),
+                    format!("Metadata for {normalized} not available: {e}")
+                )
+            })?;
             if meta.len() > 1_048_576 {
-                return Err(format!(
-                    "Il file {normalized} supera la dimensione massima di 1 MiB"
+                return Err(crate::tr!(
+                    format!("Il file {normalized} supera la dimensione massima di 1 MiB"),
+                    format!("File {normalized} exceeds the maximum size of 1 MiB")
                 ));
             }
 
-            let bytes = fs::read(&path)
-                .map_err(|e| format!("Lettura del file {normalized} fallita: {e}"))?;
+            let bytes = fs::read(&path).map_err(|e| {
+                crate::tr!(
+                    format!("Lettura del file {normalized} fallita: {e}"),
+                    format!("Reading file {normalized} failed: {e}")
+                )
+            })?;
             if let Some(content) = decode_snapshot_text(&normalized, bytes)? {
                 files.push(LabFile {
                     path: normalized,
@@ -248,9 +335,9 @@ fn walk_snapshot_dir(root: &Path, current: &Path, files: &mut Vec<LabFile>) -> R
 /// e l'intera cartella .lab salvo .lab/brief.md), con percorsi relativi alla radice e separatori `/`.
 fn snapshot_workspace(root: &Path) -> Result<Vec<LabFile>, String> {
     if !root.is_dir() {
-        return Err(format!(
-            "Workspace non trovato o non cartella: {}",
-            root.display()
+        return Err(crate::tr!(
+            format!("Workspace non trovato o non cartella: {}", root.display()),
+            format!("Workspace not found or not a folder: {}", root.display())
         ));
     }
 
@@ -301,14 +388,27 @@ fn copy_dir_filtered(
     include_git: bool,
     exclude_lab: bool,
 ) -> Result<(), String> {
-    fs::create_dir_all(dst)
-        .map_err(|e| format!("Creazione cartella {} fallita: {e}", dst.display()))?;
+    fs::create_dir_all(dst).map_err(|e| {
+        crate::tr!(
+            format!("Creazione cartella {} fallita: {e}", dst.display()),
+            format!("Creating folder {} failed: {e}", dst.display())
+        )
+    })?;
 
-    let entries = fs::read_dir(src)
-        .map_err(|e| format!("Lettura cartella {} fallita: {e}", src.display()))?;
+    let entries = fs::read_dir(src).map_err(|e| {
+        crate::tr!(
+            format!("Lettura cartella {} fallita: {e}", src.display()),
+            format!("Reading folder {} failed: {e}", src.display())
+        )
+    })?;
 
     for entry in entries {
-        let entry = entry.map_err(|e| format!("Errore elemento directory: {e}"))?;
+        let entry = entry.map_err(|e| {
+            crate::tr!(
+                format!("Errore elemento directory: {e}"),
+                format!("Directory entry error: {e}")
+            )
+        })?;
         let path = entry.path();
         let file_name = path
             .file_name()
@@ -332,10 +432,17 @@ fn copy_dir_filtered(
             copy_dir_filtered(&path, &target, include_git, exclude_lab)?;
         } else if path.is_file() {
             fs::copy(&path, &target).map_err(|e| {
-                format!(
-                    "Copia da {} a {} fallita: {e}",
-                    path.display(),
-                    target.display()
+                crate::tr!(
+                    format!(
+                        "Copia da {} a {} fallita: {e}",
+                        path.display(),
+                        target.display()
+                    ),
+                    format!(
+                        "Copy from {} to {} failed: {e}",
+                        path.display(),
+                        target.display()
+                    )
                 )
             })?;
         }
@@ -358,19 +465,29 @@ pub async fn lab_prototype_duplicate(
             .iter()
             .find(|e| e.id == id)
             .cloned()
-            .ok_or_else(|| format!("Prototipo {id} da duplicare non trovato nell'indice"))?;
+            .ok_or_else(|| {
+                crate::tr!(
+                    format!("Prototipo {id} da duplicare non trovato nell'indice"),
+                    format!("Prototype {id} to duplicate not found in the index")
+                )
+            })?;
 
         let orig_ws = PathBuf::from(&orig_entry.workspace_path);
         if !orig_ws.is_dir() {
-            return Err(format!(
-                "Workspace di origine non esistente: {}",
-                orig_ws.display()
+            return Err(crate::tr!(
+                format!("Workspace di origine non esistente: {}", orig_ws.display()),
+                format!("Source workspace does not exist: {}", orig_ws.display())
             ));
         }
 
         let new_id = generate_prototype_id();
-        let new_ws = prototype_workspace_path(&new_id)
-            .ok_or_else(|| "Radice del Laboratorio non disponibile".to_string())?;
+        let new_ws = prototype_workspace_path(&new_id).ok_or_else(|| {
+            crate::tr!(
+                "Radice del Laboratorio non disponibile",
+                "Lab root not available"
+            )
+            .to_string()
+        })?;
 
         // Copia ricorsiva del workspace (incluso .git, esclusi node_modules e dist)
         copy_dir_filtered(&orig_ws, &new_ws, true, false)?;
@@ -379,9 +496,11 @@ pub async fn lab_prototype_duplicate(
         let _ = fs::remove_file(new_ws.join(".lab").join(".brief-approved.json"));
         let _ = fs::remove_file(new_ws.join(".lab").join("preview-status.json"));
 
-
         let now = now_iso8601();
-        let new_title = format!("{} (copia)", orig_entry.title);
+        let new_title = crate::tr!(
+            format!("{} (copia)", orig_entry.title),
+            format!("{} (copy)", orig_entry.title)
+        );
 
         // Aggiorna nome in package.json
         let pkg_path = new_ws.join("package.json");
@@ -434,25 +553,36 @@ pub async fn lab_export(workspace_path: String, destination: String) -> Result<(
     tokio::task::spawn_blocking(move || {
         let src = Path::new(&workspace_path);
         if !src.is_dir() {
-            return Err(format!(
-                "Workspace di origine non valido: {}",
-                src.display()
+            return Err(crate::tr!(
+                format!("Workspace di origine non valido: {}", src.display()),
+                format!("Invalid source workspace: {}", src.display())
             ));
         }
 
         let dst = Path::new(&destination);
         if dst.exists() {
             if !dst.is_dir() {
-                return Err(
-                    "La destinazione indicata esiste gia' e non e' una cartella".to_string()
-                );
+                return Err(crate::tr!(
+                    "La destinazione indicata esiste gia' e non e' una cartella",
+                    "The destination already exists and is not a folder"
+                )
+                .to_string());
             }
             let is_empty = fs::read_dir(dst)
-                .map_err(|e| format!("Controllo cartella destinazione fallito: {e}"))?
+                .map_err(|e| {
+                    crate::tr!(
+                        format!("Controllo cartella destinazione fallito: {e}"),
+                        format!("Checking the destination folder failed: {e}")
+                    )
+                })?
                 .next()
                 .is_none();
             if !is_empty {
-                return Err("La cartella di destinazione deve essere vuota".to_string());
+                return Err(crate::tr!(
+                    "La cartella di destinazione deve essere vuota",
+                    "The destination folder must be empty"
+                )
+                .to_string());
             }
         }
 

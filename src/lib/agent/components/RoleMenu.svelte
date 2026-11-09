@@ -32,16 +32,18 @@
 		onPick: (roleId: string) => void;
 	}>();
 
-	const ROLES: RoleDefinition[] = [
-		{ id: 'default', label: 'default', description: 'Ruolo principale per conversazione e compiti generici' },
-		{ id: 'plan', label: 'plan', description: 'Pianificazione architetturale ad alto livello', hue: ROLE_HUES.plan },
-		{ id: 'smol', label: 'smol', description: 'Modello veloce per risposte concise e sintetiche', hue: ROLE_HUES.smol },
-		{ id: 'slow', label: 'slow', description: 'Modello di massimo ragionamento per problemi complessi', hue: ROLE_HUES.slow },
-		{ id: 'vision', label: 'vision', description: 'Specializzato nell\'analisi di immagini e diagrammi', hue: ROLE_HUES.vision },
-		{ id: 'task', label: 'task', description: 'Esecuzione mirata di sotto-task e automazioni', hue: ROLE_HUES.task },
-		{ id: 'commit', label: 'commit', description: 'Generazione di messaggi di commit e revisione patch', hue: ROLE_HUES.commit },
-		{ id: 'advisor', label: 'advisor', description: 'Revisione del codice, sicurezza e best practice', hue: ROLE_HUES.advisor }
-	];
+	// Le descrizioni sono testi utente: vanno lette a ogni render, non congelate
+	// alla creazione del modulo, altrimenti il cambio lingua non le aggiorna.
+	const ROLES = $derived.by((): RoleDefinition[] => [
+		{ id: 'default', label: 'default', description: m.l10n_agentcmp_role_desc_default() },
+		{ id: 'plan', label: 'plan', description: m.l10n_agentcmp_role_desc_plan(), hue: ROLE_HUES.plan },
+		{ id: 'smol', label: 'smol', description: m.l10n_agentcmp_role_desc_smol(), hue: ROLE_HUES.smol },
+		{ id: 'slow', label: 'slow', description: m.l10n_agentcmp_role_desc_slow(), hue: ROLE_HUES.slow },
+		{ id: 'vision', label: 'vision', description: m.l10n_agentcmp_role_desc_vision(), hue: ROLE_HUES.vision },
+		{ id: 'task', label: 'task', description: m.l10n_agentcmp_role_desc_task(), hue: ROLE_HUES.task },
+		{ id: 'commit', label: 'commit', description: m.l10n_agentcmp_role_desc_commit(), hue: ROLE_HUES.commit },
+		{ id: 'advisor', label: 'advisor', description: m.l10n_agentcmp_role_desc_advisor(), hue: ROLE_HUES.advisor }
+	]);
 
 	function getProvider(assign?: RoleAssignment): string {
 		if (assign?.provider) return assign.provider;

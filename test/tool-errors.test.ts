@@ -129,6 +129,7 @@ describe('Estrazione motivi errore tool (extractToolErrorReason)', () => {
 			toolName: 'unknown',
 			result: { isError: true }
 		});
-		assert.equal(reason, 'operazione non riuscita');
+		// Il ripiego e' localizzato: si verifica la forma, non una lingua precisa.
+		assert.match(reason, /^(operation failed|operazione non riuscita)$/);
 	});
 });

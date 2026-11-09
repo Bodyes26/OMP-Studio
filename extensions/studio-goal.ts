@@ -22,6 +22,21 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+/**
+ * Testo scelto secondo la lingua della UI: il processo omp riceve
+ * `OMP_STUDIO_LOCALE` da Studio, il bundle della GUI ricade su `<html lang>`.
+ * Senza lingua nota si usa l'inglese, il default di Studio. Letta a ogni
+ * chiamata: la lingua puo' cambiare durante la vita del processo.
+ */
+function tr(it: string, en: string): string {
+	const host = globalThis as {
+		process?: { env?: Record<string, string | undefined> };
+		document?: { documentElement?: { lang?: string } };
+	};
+	const code = (host.process?.env?.OMP_STUDIO_LOCALE || host.document?.documentElement?.lang || "en").toLowerCase();
+	return code.startsWith("it") ? it : en;
+}
+
 export const STATUS_KEY = "studio.goal";
 export const COMMAND_NAME = "studio-goal";
 
@@ -176,7 +191,7 @@ export async function runSuggest(request: SuggestRequest, ctx: StudioGoalContext
 	if (!ctx.runEphemeralTurn) {
 		return Object.keys(hints).length
 			? { type: "suggestions", requestId: request.requestId, suggestions: { questions: [], hints } }
-			: { type: "error", requestId: request.requestId, message: "side turns unavailable" };
+			: { type: "error", requestId: request.requestId, message: tr("turni a margine non disponibili", "side turns unavailable") };
 	}
 	try {
 		const result = await ctx.runEphemeralTurn({
@@ -189,7 +204,7 @@ export async function runSuggest(request: SuggestRequest, ctx: StudioGoalContext
 		if (!parsed || typeof parsed !== "object") {
 			return Object.keys(hints).length
 				? { type: "suggestions", requestId: request.requestId, suggestions: { questions: [], hints } }
-				: { type: "error", requestId: request.requestId, message: "no JSON in reply" };
+				: { type: "error", requestId: request.requestId, message: tr("nessun JSON nella risposta", "no JSON in reply") };
 		}
 		return { type: "suggestions", requestId: request.requestId, suggestions: { ...(parsed as object), hints } };
 	} catch (error) {
@@ -203,11 +218,20 @@ export async function runSuggest(request: SuggestRequest, ctx: StudioGoalContext
 
 export default function studioGoalExtension(pi: StudioGoalApi): void {
 	pi.registerCommand(COMMAND_NAME, {
-		description: "Proposte dell'agente per l'obiettivo guidato di OMP Studio (uso interno della GUI)",
+		description: tr(
+			"Proposte dell'agente per l'obiettivo guidato di OMP Studio (uso interno della GUI)",
+			"Agent suggestions for the OMP Studio guided goal (internal GUI use)"
+		),
 		handler: async (args, ctx) => {
 			const request = parseSuggestArgs(args);
 			if (!request) {
-				ctx.ui?.notify?.("Comando interno di OMP Studio: usa /guided-goal nella chat di Studio.", "info");
+				ctx.ui?.notify?.(
+					tr(
+						"Comando interno di OMP Studio: usa /guided-goal nella chat di Studio.",
+						"OMP Studio internal command: use /guided-goal in the Studio chat."
+					),
+					"info"
+				);
 				return;
 			}
 			// Il turno a margine puo' durare decine di secondi: il comando torna

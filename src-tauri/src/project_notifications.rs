@@ -94,7 +94,10 @@ impl Drop for ComGuard {
 fn get_aumid(app: &AppHandle) -> Result<String, String> {
     let id = app.config().identifier.clone();
     if id.is_empty() {
-        return Err("AUMID non configurato in tauri.conf.json".to_string());
+        return Err(crate::tr!(
+            "AUMID non configurato in tauri.conf.json",
+            "AUMID not configured in tauri.conf.json"
+        ).to_string());
     }
     Ok(id)
 }
@@ -237,7 +240,11 @@ pub fn send_project_notification(
     #[cfg(not(target_os = "windows"))]
     {
         let _ = (app, project_id, title, body, silent, test);
-        Err("send_project_notification is only supported on Windows".to_string())
+        Err(crate::tr!(
+            "L'invio di notifiche di progetto è supportato solo su Windows",
+            "send_project_notification is only supported on Windows"
+        )
+        .to_string())
     }
 }
 
@@ -253,7 +260,11 @@ pub fn dismiss_project_notifications(app: AppHandle, project_id: String) -> Resu
     #[cfg(not(target_os = "windows"))]
     {
         let _ = (app, project_id);
-        Err("dismiss_project_notifications is only supported on Windows".to_string())
+        Err(crate::tr!(
+            "La chiusura delle notifiche di progetto è supportata solo su Windows",
+            "dismiss_project_notifications is only supported on Windows"
+        )
+        .to_string())
     }
 }
 

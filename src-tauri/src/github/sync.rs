@@ -43,7 +43,12 @@ fn run_git_in(dir: &Path, args: &[&str]) -> Result<String, String> {
 
     let out = cmd
         .output()
-        .map_err(|e| format!("Esecuzione git {:?}: {e}", args))?;
+        .map_err(|e| {
+            crate::tr!(
+                format!("Esecuzione git {:?} fallita: {e}", args),
+                format!("Running git {:?} failed: {e}", args)
+            )
+        })?;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr).to_string();
         let stdout = String::from_utf8_lossy(&out.stdout).to_string();
@@ -90,7 +95,12 @@ fn run_git_raw(dir: &Path, args: &[&str]) -> Result<GitRawOutput, String> {
     cmd.creation_flags(CREATE_NO_WINDOW);
     let out = cmd
         .output()
-        .map_err(|e| format!("Esecuzione git {:?}: {e}", args))?;
+        .map_err(|e| {
+            crate::tr!(
+                format!("Esecuzione git {:?} fallita: {e}", args),
+                format!("Running git {:?} failed: {e}", args)
+            )
+        })?;
     Ok(GitRawOutput {
         success: out.status.success(),
         stdout: String::from_utf8_lossy(&out.stdout).to_string(),
@@ -130,9 +140,23 @@ fn autostash_left_in_stash(output: &str) -> bool {
         || output.contains("Your changes are safe in the stash")
 }
 
-const PULL_CONFLICT_ABORTED: &str =
-    "Pull annullato: conflitto con il remoto. Le tue modifiche locali sono intatte.";
-const AUTOSTASH_IN_STASH: &str = "Pull completato, ma le tue modifiche locali non si sono riapplicate senza conflitti: sono al sicuro nello stash di git (vedi `git stash list`). Recuperale con `git stash pop` dopo aver risolto i conflitti.";
+/// Testo del pull annullato da un conflitto: la lingua cambia a runtime, quindi
+/// e' una funzione e non una costante.
+fn pull_conflict_aborted() -> String {
+    crate::tr!(
+        "Pull annullato: conflitto con il remoto. Le tue modifiche locali sono intatte.",
+        "Pull cancelled: conflict with the remote. Your local changes are intact."
+    )
+    .to_string()
+}
+
+fn autostash_in_stash() -> String {
+    crate::tr!(
+        "Pull completato, ma le tue modifiche locali non si sono riapplicate senza conflitti: sono al sicuro nello stash di git (vedi `git stash list`). Recuperale con `git stash pop` dopo aver risolto i conflitti.",
+        "Pull completed, but your local changes could not be reapplied without conflicts: they are safe in the git stash (see `git stash list`). Recover them with `git stash pop` after resolving the conflicts."
+    )
+    .to_string()
+}
 
 /// Pull con rebase che non perde mai lavoro locale.
 ///
@@ -146,10 +170,11 @@ fn pull_rebase_autostash(dir: &Path) -> Result<String, String> {
     // Un rebase gia' in corso e' dell'utente: annullarlo dopo il pull fallito
     // butterebbe via i conflitti che sta risolvendo.
     if rebase_in_progress(dir) {
-        return Err(
-            "Pull non eseguito: nel repository c'è già un rebase in corso. Completalo o annullalo prima di sincronizzare."
-                .to_string(),
-        );
+        return Err(crate::tr!(
+            "Pull non eseguito: nel repository c'è già un rebase in corso. Completalo o annullalo prima di sincronizzare.",
+            "Pull not run: a rebase is already in progress in the repository. Complete or abort it before syncing."
+        )
+        .to_string());
     }
     let stash_before = stash_top(dir);
     let pull = run_git_raw(dir, &["pull", "--rebase", "--autostash"])?;
@@ -159,38 +184,55 @@ fn pull_rebase_autostash(dir: &Path) -> Result<String, String> {
         if rebase_in_progress(dir) {
             let abort = run_git_raw(dir, &["rebase", "--abort"])?;
             if !abort.success || rebase_in_progress(dir) {
-                return Err(format!(
-                    "Pull interrotto da un conflitto e annullamento del rebase non riuscito: risolvi i conflitti o esegui `git rebase --abort` nel repository.\n{}\n{}",
-                    pull_text,
-                    abort.combined()
+                return Err(crate::tr!(
+                    format!(
+                        "Pull interrotto da un conflitto e annullamento del rebase non riuscito: risolvi i conflitti o esegui `git rebase --abort` nel repository.\n{}\n{}",
+                        pull_text,
+                        abort.combined()
+                    ),
+                    format!(
+                        "Pull interrupted by a conflict and the rebase abort failed: resolve the conflicts or run `git rebase --abort` in the repository.\n{}\n{}",
+                        pull_text,
+                        abort.combined()
+                    )
                 ));
             }
             if autostash_left_in_stash(&abort.combined()) || stash_top(dir) != stash_before {
-                return Err(format!(
-                    "Pull annullato: conflitto con il remoto. Le tue modifiche locali non si sono riapplicate e sono al sicuro nello stash di git (vedi `git stash list`).\n{pull_text}"
+                return Err(crate::tr!(
+                    format!(
+                        "Pull annullato: conflitto con il remoto. Le tue modifiche locali non si sono riapplicate e sono al sicuro nello stash di git (vedi `git stash list`).\n{pull_text}"
+                    ),
+                    format!(
+                        "Pull cancelled: conflict with the remote. Your local changes could not be reapplied and are safe in the git stash (see `git stash list`).\n{pull_text}"
+                    )
                 ));
             }
-            return Err(format!("{PULL_CONFLICT_ABORTED}\n{pull_text}"));
+            return Err(format!("{}\n{pull_text}", pull_conflict_aborted()));
         }
         if autostash_left_in_stash(&pull_text) || stash_top(dir) != stash_before {
-            return Err(format!(
-                "Pull non riuscito. Le tue modifiche locali sono al sicuro nello stash di git (vedi `git stash list`).\n{pull_text}"
+            return Err(crate::tr!(
+                format!(
+                    "Pull non riuscito. Le tue modifiche locali sono al sicuro nello stash di git (vedi `git stash list`).\n{pull_text}"
+                ),
+                format!(
+                    "Pull failed. Your local changes are safe in the git stash (see `git stash list`).\n{pull_text}"
+                )
             ));
         }
         return Err(if pull_text.is_empty() {
-            "Pull non riuscito".to_string()
+            crate::tr!("Pull non riuscito", "Pull failed").to_string()
         } else {
             pull_text
         });
     }
 
     if autostash_left_in_stash(&pull_text) || stash_top(dir) != stash_before {
-        return Err(format!("{AUTOSTASH_IN_STASH}\n{pull_text}"));
+        return Err(format!("{}\n{pull_text}", autostash_in_stash()));
     }
 
     let stdout = pull.stdout.trim();
     Ok(if stdout.is_empty() {
-        "Pull completato".to_string()
+        crate::tr!("Pull completato", "Pull completed").to_string()
     } else {
         stdout.to_string()
     })
@@ -277,7 +319,12 @@ fn run_git_fetch_background_with_timeout(dir: &Path, timeout: Duration) -> Resul
 
     let mut child = cmd
         .spawn()
-        .map_err(|e| format!("Esecuzione git fetch in background fallita: {e}"))?;
+        .map_err(|e| {
+            crate::tr!(
+                format!("Esecuzione git fetch in background fallita: {e}"),
+                format!("Background git fetch could not start: {e}")
+            )
+        })?;
 
     let pid = child.id();
     #[cfg(target_os = "windows")]
@@ -330,21 +377,34 @@ fn run_git_fetch_background_with_timeout(dir: &Path, timeout: Duration) -> Resul
                 crate::process_tree::kill_process_tree(Some(pid));
                 let _ = child.kill();
                 let _ = child.wait();
-                return Err(format!(
-                    "Attesa processo git fetch in background fallita: {e}"
+                return Err(crate::tr!(
+                    format!("Attesa processo git fetch in background fallita: {e}"),
+                    format!("Waiting for the background git fetch failed: {e}")
                 ));
             }
         }
     };
 
     if timed_out {
-        return Err(format!(
-            "Operazione git fetch in background terminata per timeout ({}s)",
-            timeout.as_secs()
+        return Err(crate::tr!(
+            format!(
+                "Operazione git fetch in background terminata per timeout ({}s)",
+                timeout.as_secs()
+            ),
+            format!(
+                "Background git fetch timed out after {}s",
+                timeout.as_secs()
+            )
         ));
     }
 
-    let status = status.ok_or_else(|| "Processo git terminato in modo anomalo".to_string())?;
+    let status = status.ok_or_else(|| {
+        crate::tr!(
+            "Processo git terminato in modo anomalo",
+            "The git process ended abnormally"
+        )
+        .to_string()
+    })?;
 
     // Un helper che eredita i pipe non deve trasformare un fetch fallito in un successo.
     let drain_timeout =
@@ -363,8 +423,9 @@ fn run_git_fetch_background_with_timeout(dir: &Path, timeout: Duration) -> Resul
             crate::process_tree::kill_process_tree(Some(pid), job.as_ref());
             #[cfg(not(target_os = "windows"))]
             crate::process_tree::kill_process_tree(Some(pid));
-            return Err(format!(
-                "Lettura output git fetch in background fallita: {error}"
+            return Err(crate::tr!(
+                format!("Lettura output git fetch in background fallita: {error}"),
+                format!("Reading the background git fetch output failed: {error}")
             ));
         }
     };
@@ -377,7 +438,7 @@ fn run_git_fetch_background_with_timeout(dir: &Path, timeout: Duration) -> Resul
 
     let out = String::from_utf8_lossy(&stdout_bytes).trim().to_string();
     Ok(if out.is_empty() {
-        "Fetch completato con successo".to_string()
+        crate::tr!("Fetch completato con successo", "Fetch completed successfully").to_string()
     } else {
         out
     })
@@ -478,7 +539,10 @@ pub async fn git_upstream_status(project_path: String) -> Result<GitUpstreamStat
     tokio::task::spawn_blocking(move || {
         let path = Path::new(&project_path);
         if !path.exists() {
-            return Err(format!("Percorso '{project_path}' non trovato"));
+            return Err(crate::tr!(
+                format!("Percorso '{project_path}' non trovato"),
+                format!("Path '{project_path}' not found")
+            ));
         }
 
         // Singolo spawn git: `status --porcelain=v2 --branch` restituisce
@@ -539,7 +603,12 @@ pub async fn git_upstream_status(project_path: String) -> Result<GitUpstreamStat
         })
     })
     .await
-    .map_err(|e| format!("Task upstream status: {e}"))?
+    .map_err(|e| {
+        crate::tr!(
+            format!("Lettura dello stato upstream interrotta: {e}"),
+            format!("Reading the upstream status was interrupted: {e}")
+        )
+    })?
 }
 
 
@@ -548,7 +617,10 @@ pub async fn git_sync_repo(project_path: String, action: String) -> Result<Strin
     tokio::task::spawn_blocking(move || {
         let path = Path::new(&project_path);
         if !path.exists() {
-            return Err(format!("Percorso '{project_path}' non trovato"));
+            return Err(crate::tr!(
+                format!("Percorso '{project_path}' non trovato"),
+                format!("Path '{project_path}' not found")
+            ));
         }
 
         let act = action.trim().to_lowercase();
@@ -556,26 +628,42 @@ pub async fn git_sync_repo(project_path: String, action: String) -> Result<Strin
             && act != "fetch-background"
             && crate::automations::is_project_locked(&project_path, None)
         {
-            return Err(format!(
-                "Operazione git sync non consentita: il progetto '{}' e' occupato da un'automazione attiva (AUT-042)",
-                project_path
+            return Err(crate::tr!(
+                format!(
+                    "Operazione git sync non consentita: il progetto '{}' e' occupato da un'automazione attiva (AUT-042)",
+                    project_path
+                ),
+                format!(
+                    "git sync not allowed: project '{}' is busy with a running automation (AUT-042)",
+                    project_path
+                )
             ));
         }
         match act.as_str() {
             "fetch" => {
                 run_git_in(path, &["fetch", "--prune"])?;
-                Ok("Fetch completato con successo".to_string())
+                Ok(crate::tr!(
+                    "Fetch completato con successo",
+                    "Fetch completed successfully"
+                )
+                .to_string())
             }
             "fetch-background" => run_git_fetch_background(path),
             "pull-ff" => {
                 // Rifiuta modifiche non committate o file non tracciati (fail closed su errore git status)
                 let status_out = run_git_in(path, &["status", "--porcelain"])
-                    .map_err(|e| format!("Impossibile verificare lo stato del repository: {e}"))?;
+                    .map_err(|e| {
+                        crate::tr!(
+                            format!("Impossibile verificare lo stato del repository: {e}"),
+                            format!("Cannot verify the repository status: {e}")
+                        )
+                    })?;
                 if !status_out.trim().is_empty() {
-                    return Err(
-                        "Impossibile eseguire il pull: sono presenti modifiche locali non salvate o file non tracciati"
-                            .to_string(),
-                    );
+                    return Err(crate::tr!(
+                        "Impossibile eseguire il pull: sono presenti modifiche locali non salvate o file non tracciati",
+                        "Cannot pull: there are unsaved local changes or untracked files"
+                    )
+                    .to_string());
                 }
 
                 let pull_res = run_git_in(
@@ -592,7 +680,7 @@ pub async fn git_sync_repo(project_path: String, action: String) -> Result<Strin
 
                 pull_res.map(|msg| {
                     if msg.is_empty() {
-                        "Pull completato".to_string()
+                        crate::tr!("Pull completato", "Pull completed").to_string()
                     } else {
                         msg
                     }
@@ -603,7 +691,8 @@ pub async fn git_sync_repo(project_path: String, action: String) -> Result<Strin
                 let push_res = run_git_in(path, &["push"])?;
                 execute_pending_remote_deletions(path);
                 Ok(if push_res.is_empty() {
-                    "Push completato con successo".to_string()
+                    crate::tr!("Push completato con successo", "Push completed successfully")
+                        .to_string()
                 } else {
                     push_res
                 })
@@ -619,15 +708,24 @@ pub async fn git_sync_repo(project_path: String, action: String) -> Result<Strin
                 // 3. Push
                 let push_res = run_git_in(path, &["push"])?;
                 execute_pending_remote_deletions(path);
-                Ok(format!("Sincronizzazione completata: {push_res}"))
+                Ok(crate::tr!(
+                    format!("Sincronizzazione completata: {push_res}"),
+                    format!("Sync completed: {push_res}")
+                ))
             }
-            _ => Err(format!(
-                "Azione di sincronizzazione sconosciuta: '{action}'"
+            _ => Err(crate::tr!(
+                format!("Azione di sincronizzazione sconosciuta: '{action}'"),
+                format!("Unknown sync action: '{action}'")
             )),
         }
     })
     .await
-    .map_err(|e| format!("Task git sync: {e}"))?
+    .map_err(|e| {
+        crate::tr!(
+            format!("Sincronizzazione git interrotta: {e}"),
+            format!("Git sync interrupted: {e}")
+        )
+    })?
 }
 
 pub(crate) fn execute_pending_remote_deletions(repo_dir: &Path) {
@@ -1236,7 +1334,7 @@ mod tests {
         let res = git_sync_repo(path_b_str.clone(), "pull".to_string()).await;
         let err = res.expect_err("il pull in conflitto deve fallire");
         assert!(
-            err.starts_with(PULL_CONFLICT_ABORTED),
+            err.starts_with(&pull_conflict_aborted()),
             "messaggio inatteso: {err}"
         );
 
@@ -1297,7 +1395,7 @@ mod tests {
         let err = git_sync_repo(path_b_str, "pull".to_string())
             .await
             .expect_err("il pull deve rifiutarsi");
-        assert!(err.contains("rebase in corso"), "{err}");
+        assert!(err.contains("rebase in corso") || err.contains("rebase is already in progress"), "{err}");
         assert!(
             rebase_in_progress(&setup.work_b),
             "il rebase dell'utente non va annullato"

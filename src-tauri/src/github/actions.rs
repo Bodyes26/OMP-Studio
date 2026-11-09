@@ -136,7 +136,10 @@ pub async fn github_get_actions_status(
 ) -> Result<Vec<GithubActionRun>, String> {
     let path = PathBuf::from(&project_path);
     if !path.exists() {
-        return Err(format!("Percorso '{project_path}' non trovato"));
+        return Err(crate::tr!(
+            format!("Percorso '{project_path}' non trovato"),
+            format!("Path '{project_path}' not found")
+        ));
     }
     let branch = branch
         .map(|b| b.trim().to_string())

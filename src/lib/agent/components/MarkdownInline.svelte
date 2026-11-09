@@ -5,6 +5,7 @@
 	// e' un percorso di file valido del progetto, viene aperto nell'editor.
 	import { isAllowedExternalUrl } from '#lib/utils/externalUrl.ts';
 	import { openExternalUrl } from '#lib/utils/openExternal.ts';
+	import { m } from '#lib/paraglide/messages.js';
 	import type { Token } from '../markdown';
 	import { agentUiHooks, hasAgentUiHooks } from '../ui-context';
 	import MarkdownInline from './MarkdownInline.svelte';
@@ -88,7 +89,7 @@
 			<button
 				type="button"
 				class="codespan-btn"
-				title={`Apri ${token.text} nell'editor`}
+				title={m.l10n_agentcmp_open_in_editor({ file: token.text })}
 				onclick={() => handleCodespanClick(token.text)}
 			>
 				<code>{token.text}</code>

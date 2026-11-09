@@ -72,14 +72,26 @@ pub fn find_authorized_gh_binary() -> Option<PathBuf> {
 }
 
 fn set_gh_cli_disabled(disabled: bool) -> Result<(), String> {
-    let path = github_config_path().ok_or_else(|| "Cartella agent_dir non trovata".to_string())?;
+    let path = github_config_path().ok_or_else(|| {
+        crate::tr!(
+            "Cartella agent_dir non trovata",
+            "agent_dir folder not found"
+        )
+        .to_string()
+    })?;
     update_config_at(&path, |cfg| {
         cfg.gh_cli_disabled = if disabled { Some(true) } else { None };
     })
 }
 
 pub fn save_token(token: Option<String>, protocol: Option<String>) -> Result<(), String> {
-    let path = github_config_path().ok_or_else(|| "Cartella agent_dir non trovata".to_string())?;
+    let path = github_config_path().ok_or_else(|| {
+        crate::tr!(
+            "Cartella agent_dir non trovata",
+            "agent_dir folder not found"
+        )
+        .to_string()
+    })?;
     save_token_at(&path, token, protocol)
 }
 
@@ -114,11 +126,19 @@ fn update_config_at(
         SavedGithubConfig::default()
     };
     change(&mut cfg);
-    let json = serde_json::to_string_pretty(&cfg)
-        .map_err(|e| format!("Serializzazione config GitHub: {e}"))?;
+    let json = serde_json::to_string_pretty(&cfg).map_err(|e| {
+        crate::tr!(
+            format!("Serializzazione config GitHub: {e}"),
+            format!("GitHub config serialization: {e}")
+        )
+    })?;
     restrict_token_file_permissions(path)?;
-    crate::fs_atomic::atomic_write(path, json.as_bytes())
-        .map_err(|e| format!("Scrittura github.json: {e}"))?;
+    crate::fs_atomic::atomic_write(path, json.as_bytes()).map_err(|e| {
+        crate::tr!(
+            format!("Scrittura github.json: {e}"),
+            format!("Writing github.json: {e}")
+        )
+    })?;
     restrict_token_file_permissions(path)?;
     Ok(())
 }
@@ -128,12 +148,19 @@ fn restrict_token_file_permissions(path: &Path) -> Result<(), String> {
     use std::os::unix::fs::PermissionsExt;
     match std::fs::metadata(path) {
         Ok(meta) if meta.permissions().mode() & 0o777 != 0o600 => {
-            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
-                .map_err(|e| format!("Permessi github.json: {e}"))
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).map_err(|e| {
+                crate::tr!(
+                    format!("Permessi github.json: {e}"),
+                    format!("github.json permissions: {e}")
+                )
+            })
         }
         Ok(_) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(format!("Permessi github.json: {e}")),
+        Err(e) => Err(crate::tr!(
+            format!("Permessi github.json: {e}"),
+            format!("github.json permissions: {e}")
+        )),
     }
 }
 
@@ -180,9 +207,12 @@ where
     F: FnOnce() -> T + Send + 'static,
     T: Send + 'static,
 {
-    tokio::task::spawn_blocking(job)
-        .await
-        .map_err(|e| format!("Task in background: {e}"))
+    tokio::task::spawn_blocking(job).await.map_err(|e| {
+        crate::tr!(
+            format!("Attivita' in background interrotta: {e}"),
+            format!("Background activity interrupted: {e}")
+        )
+    })
 }
 
 fn resolve_gh_binary() -> Option<PathBuf> {
@@ -345,16 +375,29 @@ async fn validate_github_token(token: &str) -> Result<GithubUserApi, String> {
         .bearer_auth(token)
         .send()
         .await
-        .map_err(|e| format!("Richiesta API GitHub fallita: {e}"))?;
+        .map_err(|e| {
+            crate::tr!(
+                format!("Richiesta API GitHub fallita: {e}"),
+                format!("GitHub API request failed: {e}")
+            )
+        })?;
 
     if !res.status().is_success() {
-        return Err(format!("Token GitHub non valido (HTTP {})", res.status()));
+        return Err(crate::tr!(
+            format!("Token GitHub non valido (HTTP {})", res.status()),
+            format!("Invalid GitHub token (HTTP {})", res.status())
+        ));
     }
 
     let user: GithubUserApi = res
         .json()
         .await
-        .map_err(|e| format!("Parsing risposta utente GitHub: {e}"))?;
+        .map_err(|e| {
+            crate::tr!(
+                format!("Parsing risposta utente GitHub: {e}"),
+                format!("Parsing the GitHub user response: {e}")
+            )
+        })?;
 
     Ok(user)
 }
@@ -534,13 +577,19 @@ pub async fn github_logout(also_gh_cli: Option<bool>) -> Result<(), String> {
             cmd.creation_flags(CREATE_NO_WINDOW);
             let out = cmd
                 .output()
-                .map_err(|e| format!("Avvio gh auth logout fallito: {e}"))?;
+                .map_err(|e| {
+                    crate::tr!(
+                        format!("Avvio gh auth logout fallito: {e}"),
+                        format!("Starting gh auth logout failed: {e}")
+                    )
+                })?;
             if !out.status.success() {
                 let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
                 // gh risponde con errore anche se non c'era nessun login: non e' un fallimento.
                 if !err.to_lowercase().contains("not logged in") {
-                    return Err(format!(
-                        "Disconnessione della GitHub CLI non riuscita: {err}"
+                    return Err(crate::tr!(
+                        format!("Disconnessione della GitHub CLI non riuscita: {err}"),
+                        format!("Signing out of the GitHub CLI failed: {err}")
                     ));
                 }
             }
@@ -577,16 +626,33 @@ async fn install_gh_cli() -> Result<String, String> {
             cmd.creation_flags(CREATE_NO_WINDOW);
             let out = cmd
                 .output()
-                .map_err(|e| format!("Avvio winget fallito: {e}"))?;
+                .map_err(|e| {
+                    crate::tr!(
+                        format!("Avvio winget fallito: {e}"),
+                        format!("Starting winget failed: {e}")
+                    )
+                })?;
             if !out.status.success() {
                 let err = String::from_utf8_lossy(&out.stderr);
                 let stdout = String::from_utf8_lossy(&out.stdout);
-                return Err(format!("Installazione fallita: {err} {stdout}"));
+                return Err(crate::tr!(
+                    format!("Installazione fallita: {err} {stdout}"),
+                    format!("Installation failed: {err} {stdout}")
+                ));
             }
-            Ok("GitHub CLI installata con successo".to_string())
+            Ok(crate::tr!(
+                "GitHub CLI installata con successo",
+                "GitHub CLI installed successfully"
+            )
+            .to_string())
         })
         .await
-        .map_err(|e| format!("Task installazione: {e}"))?
+        .map_err(|e| {
+            crate::tr!(
+                format!("Installazione interrotta: {e}"),
+                format!("Installation interrupted: {e}")
+            )
+        })?
     }
 
     #[cfg(target_os = "macos")]
@@ -597,27 +663,52 @@ async fn install_gh_cli() -> Result<String, String> {
                 .map(PathBuf::from)
                 .find(|p| p.exists())
                 .ok_or_else(|| {
-                    "Homebrew non trovato. Installalo da https://brew.sh oppure scarica gh da https://cli.github.com".to_string()
+                    crate::tr!(
+                        "Homebrew non trovato. Installalo da https://brew.sh oppure scarica gh da https://cli.github.com",
+                        "Homebrew not found. Install it from https://brew.sh or download gh from https://cli.github.com"
+                    )
+                    .to_string()
                 })?;
             let out = Command::new(&brew)
                 .args(["install", "gh"])
                 .env("HOMEBREW_NO_AUTO_UPDATE", "1")
                 .env("NONINTERACTIVE", "1")
                 .output()
-                .map_err(|e| format!("Avvio brew fallito: {e}"))?;
+                .map_err(|e| {
+                    crate::tr!(
+                        format!("Avvio brew fallito: {e}"),
+                        format!("Starting brew failed: {e}")
+                    )
+                })?;
             if !out.status.success() {
                 let err = String::from_utf8_lossy(&out.stderr);
-                return Err(format!("Installazione fallita: {err}"));
+                return Err(crate::tr!(
+                    format!("Installazione fallita: {err}"),
+                    format!("Installation failed: {err}")
+                ));
             }
-            Ok("GitHub CLI installata con successo".to_string())
+            Ok(crate::tr!(
+                "GitHub CLI installata con successo",
+                "GitHub CLI installed successfully"
+            )
+            .to_string())
         })
         .await
-        .map_err(|e| format!("Task installazione: {e}"))?
+        .map_err(|e| {
+            crate::tr!(
+                format!("Installazione interrotta: {e}"),
+                format!("Installation interrupted: {e}")
+            )
+        })?
     }
 
     #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
     {
-        Err("Su Linux installa gh con il gestore di pacchetti di sistema (vedi https://cli.github.com).".to_string())
+        Err(crate::tr!(
+            "Su Linux installa gh con il gestore di pacchetti di sistema (vedi https://cli.github.com).",
+            "On Linux install gh with the system package manager (see https://cli.github.com)."
+        )
+        .to_string())
     }
 }
 

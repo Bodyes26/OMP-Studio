@@ -372,7 +372,12 @@ pub async fn stats_summary(range_hours: u32, project_paths: Vec<String>) -> Resu
             .map_err(|e| format!("schema:{e}"))
     })
     .await
-    .map_err(|e| format!("Task stats_summary: {e}"))?
+    .map_err(|e| {
+        crate::tr!(
+            format!("Task stats_summary: {e}"),
+            format!("stats_summary task: {e}")
+        )
+    })?
 }
 
 static SYNC_LOCK: LazyLock<tokio::sync::Mutex<Option<Instant>>> =
@@ -399,7 +404,12 @@ pub async fn stats_sync() -> Result<bool, String> {
         }
     })
     .await
-    .map_err(|e| format!("Task stats_sync: {e}"))??;
+    .map_err(|e| {
+            crate::tr!(
+                format!("Task stats_sync: {e}"),
+                format!("stats_sync task: {e}")
+            )
+        })??;
     *last = Some(Instant::now());
     Ok(true)
 }
@@ -435,11 +445,21 @@ pub async fn stats_open_dashboard() -> Result<(), String> {
             .stderr(Stdio::null());
         #[cfg(target_os = "windows")]
         cmd.creation_flags(CREATE_NO_WINDOW);
-        *guard = Some(cmd.spawn().map_err(|e| format!("Avvio di omp stats non riuscito: {e}"))?);
+        *guard = Some(cmd.spawn().map_err(|e| {
+            crate::tr!(
+                format!("Avvio di omp stats non riuscito: {e}"),
+                format!("Starting omp stats failed: {e}")
+            )
+        })?);
         Ok(())
     })
     .await
-    .map_err(|e| format!("Task stats_open_dashboard: {e}"))?
+    .map_err(|e| {
+            crate::tr!(
+                format!("Task stats_open_dashboard: {e}"),
+                format!("stats_open_dashboard task: {e}")
+            )
+        })?
 }
 
 /// Chiude il server della dashboard avviato da Studio, all'uscita dell'app.

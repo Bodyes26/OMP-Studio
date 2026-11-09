@@ -1,6 +1,8 @@
+import { m as msg } from '#lib/paraglide/messages.js';
+
 function keySegment(value: string, name: string): string {
 	const normalized = value.trim().toLowerCase();
-	if (!normalized) throw new Error(`${name} non puo' essere vuoto`);
+	if (!normalized) throw new Error(msg.l10n_agent_session_key_empty({ name }));
 	return normalized;
 }
 

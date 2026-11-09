@@ -301,9 +301,9 @@ pub async fn lane_bridge_respond(
             let _ = tx.send(response);
             Ok(())
         }
-        None => Err(format!(
-            "Richiesta bridge '{}' non trovata o gia' scaduta",
-            request_id
+        None => Err(crate::tr!(
+            format!("Richiesta bridge '{}' non trovata o gia' scaduta", request_id),
+            format!("Bridge request '{}' not found or already expired", request_id)
         )),
     }
 }
@@ -364,9 +364,15 @@ fn authorize(route: CorsiaRoute, owner: &BridgeOwner) -> Result<(), Rejection> {
         return Err(rejection(
             403,
             "Forbidden",
-            format!(
-                "Dentro una corsia sono ammessi solo corsia_fatto e corsia_stato: '{}' spetta alla Principale",
-                route.as_str()
+            crate::tr!(
+                format!(
+                    "Dentro una corsia sono ammessi solo corsia_fatto e corsia_stato: '{}' spetta alla Principale",
+                    route.as_str()
+                ),
+                format!(
+                    "Inside a lane only corsia_fatto and corsia_stato are allowed: '{}' belongs to the main lane",
+                    route.as_str()
+                )
             ),
         ));
     }
@@ -382,7 +388,10 @@ fn authorize_automations(owner: &BridgeOwner) -> Result<(), Rejection> {
             return Err(rejection(
                 403,
                 "Forbidden",
-                "Le sessioni del Laboratorio non hanno accesso alle automazioni di Studio",
+                crate::tr!(
+                    "Le sessioni del Laboratorio non hanno accesso alle automazioni di Studio",
+                    "Lab sessions cannot access Studio automations"
+                ),
             ));
         }
     }
@@ -390,7 +399,10 @@ fn authorize_automations(owner: &BridgeOwner) -> Result<(), Rejection> {
         return Err(rejection(
             403,
             "Forbidden",
-            "Gli agenti readonly o helper non possono gestire le automazioni di Studio",
+            crate::tr!(
+                    "Gli agenti readonly o helper non possono gestire le automazioni di Studio",
+                    "Read-only or helper agents cannot manage Studio automations"
+                ),
         ));
     }
     Ok(())
@@ -412,7 +424,7 @@ async fn read_request(stream: &mut TcpStream) -> Result<BridgeRequest, Rejection
             return Err(rejection(
                 431,
                 "Request Header Fields Too Large",
-                "Header HTTP oltre 16 KiB",
+                crate::tr!("Header HTTP oltre 16 KiB", "HTTP headers over 16 KiB"),
             ));
         }
         let read = stream
@@ -420,13 +432,23 @@ async fn read_request(stream: &mut TcpStream) -> Result<BridgeRequest, Rejection
             .await
             .map_err(|error| rejection(400, "Bad Request", error.to_string()))?;
         if read == 0 {
-            return Err(rejection(400, "Bad Request", "Richiesta HTTP incompleta"));
+            return Err(rejection(
+                400,
+                "Bad Request",
+                crate::tr!("Richiesta HTTP incompleta", "Incomplete HTTP request"),
+            ));
         }
         buffer.extend_from_slice(&chunk[..read]);
     };
 
     let head = std::str::from_utf8(&buffer[..header_end])
-        .map_err(|_| rejection(400, "Bad Request", "Header HTTP non UTF-8"))?;
+        .map_err(|_| {
+            rejection(
+                400,
+                "Bad Request",
+                crate::tr!("Header HTTP non UTF-8", "HTTP header is not UTF-8"),
+            )
+        })?;
     let mut lines = head.split("\r\n");
     let mut request_line = lines.next().unwrap_or_default().split_whitespace();
     let (method, path) = (
@@ -442,8 +464,13 @@ async fn read_request(stream: &mut TcpStream) -> Result<BridgeRequest, Rejection
                 return Err(rejection(
                     403,
                     "Forbidden",
-                    format!(
-                        "Azione automazione '{action}' negata: gli agenti possono solo consultare o proporre bozze con revisione utente"
+                    crate::tr!(
+                        format!(
+                            "Azione automazione '{action}' negata: gli agenti possono solo consultare o proporre bozze con revisione utente"
+                        ),
+                        format!(
+                            "Automation action '{action}' denied: agents can only read or propose drafts for user review"
+                        )
                     ),
                 ));
             }
@@ -454,7 +481,10 @@ async fn read_request(stream: &mut TcpStream) -> Result<BridgeRequest, Rejection
                     return Err(rejection(
                         404,
                         "Not Found",
-                        format!("Percorso automazione '/v1/automations/{action}' non valido"),
+                        crate::tr!(
+                            format!("Percorso automazione '/v1/automations/{action}' non valido"),
+                            format!("Invalid automation path '/v1/automations/{action}'")
+                        ),
                     ));
                 }
             }
@@ -463,11 +493,18 @@ async fn read_request(stream: &mut TcpStream) -> Result<BridgeRequest, Rejection
         return Err(rejection(
             404,
             "Not Found",
-            format!("Percorso '{path}' non trovato"),
+            crate::tr!(
+                format!("Percorso '{path}' non trovato"),
+                format!("Path '{path}' not found")
+            ),
         ));
     };
     if method != "POST" && method != "GET" {
-        return Err(rejection(405, "Method Not Allowed", "Usare POST o GET"));
+        return Err(rejection(
+            405,
+            "Method Not Allowed",
+            crate::tr!("Usare POST o GET", "Use POST or GET"),
+        ));
     }
 
     let mut content_length = None;
@@ -490,7 +527,10 @@ async fn read_request(stream: &mut TcpStream) -> Result<BridgeRequest, Rejection
         rejection(
             401,
             "Unauthorized",
-            "Token del bridge assente, non valido o revocato",
+            crate::tr!(
+                "Token del bridge assente, non valido o revocato",
+                "Bridge token missing, invalid or revoked"
+            ),
         )
     })?;
 
@@ -511,13 +551,20 @@ async fn read_request(stream: &mut TcpStream) -> Result<BridgeRequest, Rejection
             return Err(rejection(
                 411,
                 "Length Required",
-                "Header Content-Length obbligatorio",
+                crate::tr!(
+                    "Header Content-Length obbligatorio",
+                    "Content-Length header required"
+                ),
             ));
         }
     };
 
     if length > BODY_LIMIT {
-        return Err(rejection(413, "Payload Too Large", "Corpo oltre 64 KiB"));
+        return Err(rejection(
+            413,
+            "Payload Too Large",
+            crate::tr!("Corpo oltre 64 KiB", "Body over 64 KiB"),
+        ));
     }
 
     let mut fields = serde_json::Map::new();
@@ -532,7 +579,10 @@ async fn read_request(stream: &mut TcpStream) -> Result<BridgeRequest, Rejection
                 return Err(rejection(
                     400,
                     "Bad Request",
-                    "Corpo piu' corto di Content-Length",
+                    crate::tr!(
+                        "Corpo piu' corto di Content-Length",
+                        "Body shorter than Content-Length"
+                    ),
                 ));
             }
             body.extend_from_slice(&chunk[..read]);
@@ -540,13 +590,24 @@ async fn read_request(stream: &mut TcpStream) -> Result<BridgeRequest, Rejection
         body.truncate(length);
 
         if !body.iter().all(|b| b.is_ascii_whitespace()) {
-            let json: serde_json::Value = serde_json::from_slice(&body)
-                .map_err(|_| rejection(400, "Bad Request", "Il corpo non e' JSON valido"))?;
+            let json: serde_json::Value = serde_json::from_slice(&body).map_err(|_| {
+                rejection(
+                    400,
+                    "Bad Request",
+                    crate::tr!(
+                        "Il corpo non e' JSON valido",
+                        "The body is not valid JSON"
+                    ),
+                )
+            })?;
             let serde_json::Value::Object(map) = json else {
                 return Err(rejection(
                     400,
                     "Bad Request",
-                    "Il corpo deve essere un oggetto JSON",
+                    crate::tr!(
+                        "Il corpo deve essere un oggetto JSON",
+                        "The body must be a JSON object"
+                    ),
                 ));
             };
             fields = map;
@@ -577,7 +638,10 @@ async fn read_request(stream: &mut TcpStream) -> Result<BridgeRequest, Rejection
                     return Err(rejection(
                         400,
                         "Bad Request",
-                        format!("Campo '{field}' obbligatorio"),
+                        crate::tr!(
+                            format!("Campo '{field}' obbligatorio"),
+                            format!("Field '{field}' required")
+                        ),
                     ));
                 }
             }
@@ -586,7 +650,14 @@ async fn read_request(stream: &mut TcpStream) -> Result<BridgeRequest, Rejection
             match route {
                 AutomationRoute::Get => {
                     if request.text("id").is_none() {
-                        return Err(rejection(400, "Bad Request", "Campo 'id' obbligatorio per get"));
+                        return Err(rejection(
+                            400,
+                            "Bad Request",
+                            crate::tr!(
+                                "Campo 'id' obbligatorio per get",
+                                "Field 'id' required for get"
+                            ),
+                        ));
                     }
                 }
                 AutomationRoute::ProposeUpdate => {
@@ -594,7 +665,10 @@ async fn read_request(stream: &mut TcpStream) -> Result<BridgeRequest, Rejection
                         return Err(rejection(
                             400,
                             "Bad Request",
-                            "Campo 'id' obbligatorio per propose_update",
+                            crate::tr!(
+                                "Campo 'id' obbligatorio per propose_update",
+                                "Field 'id' required for propose_update"
+                            ),
                         ));
                     }
                 }
@@ -608,7 +682,10 @@ async fn read_request(stream: &mut TcpStream) -> Result<BridgeRequest, Rejection
                         return Err(rejection(
                             400,
                             "Bad Request",
-                            "propose_create richiede almeno name, prompt, command, action o message",
+                            crate::tr!(
+                                "propose_create richiede almeno name, prompt, command, action o message",
+                                "propose_create requires at least name, prompt, command, action or message"
+                            ),
                         ));
                     }
                 }
@@ -619,7 +696,10 @@ async fn read_request(stream: &mut TcpStream) -> Result<BridgeRequest, Rejection
                             return Err(rejection(
                                 400,
                                 "Bad Request",
-                                "Campo 'path' obbligatorio per le operazioni 'open' o 'close' sui progetti",
+                                crate::tr!(
+                                    "Campo 'path' obbligatorio per le operazioni 'open' o 'close' sui progetti",
+                                    "Field 'path' required for the 'open' and 'close' project operations"
+                                ),
                             ));
                         }
                     }
@@ -630,14 +710,20 @@ async fn read_request(stream: &mut TcpStream) -> Result<BridgeRequest, Rejection
                         return Err(rejection(
                             403,
                             "Forbidden",
-                            "Solo i processi terminali/agente possono emettere eventi agente (AUT-014)",
+                            crate::tr!(
+                                "Solo i processi terminali/agente possono emettere eventi agente (AUT-014)",
+                                "Only terminal/agent processes can emit agent events (AUT-014)"
+                            ),
                         ));
                     }
                     if request.text("kind").is_none() {
                         return Err(rejection(
                             400,
                             "Bad Request",
-                            "Campo 'kind' obbligatorio per l'endpoint event (AUT-014)",
+                            crate::tr!(
+                                "Campo 'kind' obbligatorio per l'endpoint event (AUT-014)",
+                                "Field 'kind' required for the event endpoint (AUT-014)"
+                            ),
                         ));
                     }
                 }
@@ -664,8 +750,13 @@ async fn handle_connection(mut stream: TcpStream, app: AppHandle) -> Result<(), 
             .await;
         }
         Err(_) => {
-            let body =
-                serde_json::json!({ "ok": false, "text": "Timeout nella lettura della richiesta" });
+            let body = serde_json::json!({
+                "ok": false,
+                "text": crate::tr!(
+                    "Timeout nella lettura della richiesta",
+                    "Timeout while reading the request"
+                )
+            });
             return send_response(&mut stream, 408, "Request Timeout", &body).await;
         }
     };
@@ -692,7 +783,13 @@ async fn handle_connection(mut stream: TcpStream, app: AppHandle) -> Result<(), 
             };
             if let Err(error) = app.emit("lane-bridge://request", &event_payload) {
                 PENDING_REQUESTS.lock().remove(&request_id);
-                let body = serde_json::json!({ "ok": false, "text": format!("Studio non ha ricevuto la richiesta: {error}") });
+                let body = serde_json::json!({
+                    "ok": false,
+                    "text": crate::tr!(
+                        format!("Studio non ha ricevuto la richiesta: {error}"),
+                        format!("Studio did not receive the request: {error}")
+                    )
+                });
                 return send_response(&mut stream, 500, "Internal Server Error", &body).await;
             }
 
@@ -703,12 +800,23 @@ async fn handle_connection(mut stream: TcpStream, app: AppHandle) -> Result<(), 
             match outcome {
                 Ok(Ok(value)) => send_response(&mut stream, 200, "OK", &value).await,
                 Ok(Err(_)) => {
-                    let body = serde_json::json!({ "ok": false, "text": "Studio ha chiuso la richiesta senza esito" });
+                    let body = serde_json::json!({
+                        "ok": false,
+                        "text": crate::tr!(
+                            "Studio ha chiuso la richiesta senza esito",
+                            "Studio closed the request without a result"
+                        )
+                    });
                     send_response(&mut stream, 500, "Internal Server Error", &body).await
                 }
                 Err(_) => {
-                    let body =
-                        serde_json::json!({ "ok": false, "text": "Studio non ha risposto in tempo" });
+                    let body = serde_json::json!({
+                        "ok": false,
+                        "text": crate::tr!(
+                            "Studio non ha risposto in tempo",
+                            "Studio did not answer in time"
+                        )
+                    });
                     send_response(&mut stream, 504, "Gateway Timeout", &body).await
                 }
             }

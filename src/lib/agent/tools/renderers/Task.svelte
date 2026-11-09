@@ -7,6 +7,7 @@
   l'eventuale stato asincrono del job e i blocchi di testo dei risultati.
 -->
 <script lang="ts">
+	import { m } from '#lib/paraglide/messages.js';
 	import { agentUiHooks } from '../../ui-context';
 	import StatusMark, { type StatusMarkType } from '#lib/ui/StatusMark.svelte';
 	import AgentLink from '../parts/AgentLink.svelte';
@@ -205,7 +206,7 @@
 			{#if asyncState}
 				<StatusMark status={toStatusMarkStatus(asyncState)} />
 			{/if}
-			<span class="async-label">Job asincrono:</span>
+			<span class="async-label">{m.l10n_tools_label_async_job()}</span>
 			{#if asyncAgentId}
 				<button
 					type="button"
@@ -241,11 +242,11 @@
 	{#if resultTexts.length > 0}
 		<div class="results-section">
 			{#each resultTexts as textItem, idx (idx)}
-				<OutputBlock text={textItem} label={`risultato subagent ${idx + 1}`} maxLines={12} />
+				<OutputBlock text={textItem} label={m.l10n_tools_label_result_subagent({ index: idx + 1 })} maxLines={12} />
 			{/each}
 		</div>
 	{:else if fallbackResult && progressList.length === 0}
-		<OutputBlock text={fallbackResult} label="risultato task" />
+		<OutputBlock text={fallbackResult} label={m.l10n_tools_label_task_result()} />
 	{/if}
 </div>
 

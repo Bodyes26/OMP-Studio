@@ -5,6 +5,7 @@
 	// alla fine del turno. Cliccare o premere Alt+N precompila il composer.
 
 	import type { SuggestionChipItem } from '#lib/stores/promptSuggestions.ts';
+	import { m } from '#lib/paraglide/messages.js';
 
 	let {
 		chips,
@@ -92,7 +93,7 @@
 		class:fade-start={fadeStart}
 		class:fade-end={fadeEnd}
 		role="toolbar"
-		aria-label="Suggerimenti prompt"
+		aria-label={m.l10n_agentcmp_suggestions_aria()}
 		onscroll={updateFades}
 	>
 		{#each chips as chip, index (chip.id)}

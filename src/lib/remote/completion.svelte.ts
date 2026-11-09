@@ -4,6 +4,7 @@ import { sessionRegistry } from '#lib/agent/sessionRegistry.ts';
 import { sessionCompletions } from '#lib/agent/completion.svelte.ts';
 import { RemoteCommandFailure } from './commands';
 import { stripEditorContext } from '#lib/editor/editorContextParsing.ts';
+import { m } from '#lib/paraglide/messages.js';
 
 /** Lo snapshot non ricostruisce il transcript a ogni token: usa gli stati osservati. */
 export function buildRemoteSessionSnapshot(session: AgentSession): RemoteSessionSnapshot {
@@ -38,9 +39,9 @@ export async function markRemoteSessionSeen(
 ): Promise<void> {
 	const session = sessionRegistry.getLaneSession(projectId, laneId ?? 'main');
 	if (!session || session.sessionId !== sessionId) {
-		throw new RemoteCommandFailure('not_found', 'La conversazione non e piu quella aperta nella corsia.');
+		throw new RemoteCommandFailure('not_found', m.l10n_lab_remote_conversation_stale());
 	}
 	if (!sessionCompletions.markSeen(sessionId, completionId)) {
-		throw new RemoteCommandFailure('rejected', 'Il risultato e cambiato: rileggi la risposta aggiornata.');
+		throw new RemoteCommandFailure('rejected', m.l10n_lab_remote_result_changed());
 	}
 }

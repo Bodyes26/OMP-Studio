@@ -55,10 +55,19 @@ pub fn git_command(cwd: &Path) -> Command {
 fn resolve_lab_workspace(workspace_path: &str) -> Result<PathBuf, String> {
     let cwd = Path::new(workspace_path);
     if !cwd.exists() {
-        return Err(format!("Workspace non esistente: {}", cwd.display()));
+        return Err(crate::tr!(
+            format!("Workspace non esistente: {}", cwd.display()),
+            format!("Workspace does not exist: {}", cwd.display())
+        ));
     }
     let prototypes_dir = super::paths::lab_root()
-        .ok_or_else(|| "Radice del Laboratorio non disponibile".to_string())?
+        .ok_or_else(|| {
+            crate::tr!(
+                "Radice del Laboratorio non disponibile",
+                "Lab root not available"
+            )
+            .to_string()
+        })?
         .join("prototypes");
     let canonical = super::index::confined_prototype_workspace(&prototypes_dir, cwd)?;
     ensure_own_git_dir(&canonical)?;
@@ -75,9 +84,15 @@ fn ensure_own_git_dir(cwd: &Path) -> Result<(), String> {
     if cwd.join(".git").exists() {
         Ok(())
     } else {
-        Err(format!(
-            "Il workspace {} non ha un repository git proprio",
-            cwd.display()
+        Err(crate::tr!(
+            format!(
+                "Il workspace {} non ha un repository git proprio",
+                cwd.display()
+            ),
+            format!(
+                "Workspace {} has no git repository of its own",
+                cwd.display()
+            )
         ))
     }
 }
@@ -89,7 +104,10 @@ fn validate_revision(sha: &str) -> Result<(), String> {
     if valid {
         Ok(())
     } else {
-        Err(format!("Revisione non valida: {sha}"))
+        Err(crate::tr!(
+            format!("Revisione non valida: {sha}"),
+            format!("Invalid revision: {sha}")
+        ))
     }
 }
 
@@ -103,14 +121,20 @@ pub fn git_command_with_author(cwd: &Path) -> Command {
 
 /// Esegue un comando Git verificandone lo stato di uscita.
 fn run_git_checked(cmd: &mut Command, desc: &str) -> Result<Output, String> {
-    let output = cmd
-        .output()
-        .map_err(|e| format!("Errore avvio git {desc}: {e}"))?;
+    let output = cmd.output().map_err(|e| {
+        crate::tr!(
+            format!("Errore avvio git {desc}: {e}"),
+            format!("Error starting git {desc}: {e}")
+        )
+    })?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
         let err_msg = if !stderr.is_empty() { stderr } else { stdout };
-        return Err(format!("git {desc} fallito: {err_msg}"));
+        return Err(crate::tr!(
+            format!("git {desc} fallito: {err_msg}"),
+            format!("git {desc} failed: {err_msg}")
+        ));
     }
     Ok(output)
 }
@@ -146,17 +170,33 @@ pub fn git_init(cwd: &Path) -> Result<(), String> {
 pub fn git_initial_commit(cwd: &Path) -> Result<LabRevision, String> {
     let mut add_cmd = git_command(cwd);
     add_cmd.args(["add", "-A"]);
-    run_git_checked(&mut add_cmd, "add -A iniziale")?;
+    run_git_checked(
+        &mut add_cmd,
+        crate::tr!("add -A iniziale", "initial add -A"),
+    )?;
 
     let mut commit_cmd = git_command_with_author(cwd);
-    commit_cmd.args(["commit", "-m", "Prototipo creato"]);
-    run_git_checked(&mut commit_cmd, "commit iniziale")?;
+    commit_cmd.args([
+        "commit",
+        "-m",
+        crate::tr!("Prototipo creato", "Prototype created"),
+    ]);
+    run_git_checked(
+        &mut commit_cmd,
+        crate::tr!("commit iniziale", "initial commit"),
+    )?;
 
     let mut log_cmd = git_command(cwd);
     log_cmd.args(["log", "-1", "--format=%H\x1f%s\x1f%aI"]);
-    let out = run_git_checked(&mut log_cmd, "log iniziale")?;
+    let out = run_git_checked(&mut log_cmd, crate::tr!("log iniziale", "initial log"))?;
     let line = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    parse_revision_line(&line).ok_or_else(|| "Formato commit iniziale non valido".to_string())
+    parse_revision_line(&line).ok_or_else(|| {
+        crate::tr!(
+            "Formato commit iniziale non valido",
+            "Invalid initial commit format"
+        )
+        .to_string()
+    })
 }
 
 /// Aggiunge tutte le modifiche e committa. Restituisce `None` se non c'erano modifiche.
@@ -220,9 +260,12 @@ pub async fn lab_git_commit(
         // Verifica se ci sono differenze staged rispetto all'albero attuale
         let mut diff_cmd = git_command(cwd);
         diff_cmd.args(["diff", "--cached", "--quiet"]);
-        let diff_out = diff_cmd
-            .output()
-            .map_err(|e| format!("Errore controllo modifiche: {e}"))?;
+        let diff_out = diff_cmd.output().map_err(|e| {
+            crate::tr!(
+                format!("Errore controllo modifiche: {e}"),
+                format!("Error checking for changes: {e}")
+            )
+        })?;
 
         if diff_out.status.code() == Some(0) {
             // Nessuna modifica staged da committare
@@ -239,8 +282,13 @@ pub async fn lab_git_commit(
         log_cmd.args(["log", "-1", "--format=%H\x1f%s\x1f%aI"]);
         let out = run_git_checked(&mut log_cmd, "log")?;
         let line = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        let rev = parse_revision_line(&line)
-            .ok_or_else(|| "Formato revisione git non valido".to_string())?;
+        let rev = parse_revision_line(&line).ok_or_else(|| {
+            crate::tr!(
+                "Formato revisione git non valido",
+                "Invalid git revision format"
+            )
+            .to_string()
+        })?;
 
         Ok(Some(rev))
     })
@@ -327,9 +375,11 @@ pub async fn lab_git_files_at(workspace_path: String, sha: String) -> Result<Vec
             }
 
             if files.len() >= 400 {
-                return Err(
-                    "Il workspace alla revisione supera il limite massimo di 400 file".to_string(),
-                );
+                return Err(crate::tr!(
+                    "Il workspace alla revisione supera il limite massimo di 400 file",
+                    "The workspace at this revision exceeds the maximum limit of 400 files"
+                )
+                .to_string());
             }
 
             // Verifica dimensione file prima della lettura completa
@@ -341,8 +391,9 @@ pub async fn lab_git_files_at(workspace_path: String, sha: String) -> Result<Vec
                     let size_str = String::from_utf8_lossy(&size_out.stdout).trim().to_string();
                     if let Ok(size_bytes) = size_str.parse::<usize>() {
                         if size_bytes > 1_048_576 {
-                            return Err(format!(
-                                "Il file {rel_path} supera la dimensione massima di 1 MiB"
+                            return Err(crate::tr!(
+                                format!("Il file {rel_path} supera la dimensione massima di 1 MiB"),
+                                format!("File {rel_path} exceeds the maximum size of 1 MiB")
                             ));
                         }
                     }
@@ -352,7 +403,10 @@ pub async fn lab_git_files_at(workspace_path: String, sha: String) -> Result<Vec
             // Legge il contenuto
             let mut show_cmd = git_command(cwd);
             show_cmd.args(["show", &target_spec]);
-            let show_out = run_git_checked(&mut show_cmd, &format!("show {target_spec}"))?;
+            let show_out = run_git_checked(
+                &mut show_cmd,
+                &crate::tr!(format!("show {target_spec}"), format!("show {target_spec}")),
+            )?;
 
             if let Some(content) =
                 super::workspace::decode_snapshot_text(&normalized, show_out.stdout)?
@@ -382,11 +436,17 @@ pub async fn lab_git_restore(workspace_path: String, sha: String) -> Result<LabR
         // Recupera il messaggio originale del commit da ripristinare
         let mut log_cmd = git_command(cwd);
         log_cmd.args(["log", "-1", "--format=%s", &sha, "--"]);
-        let log_out = run_git_checked(&mut log_cmd, "log messaggio commit")?;
+        let log_out = run_git_checked(
+            &mut log_cmd,
+            crate::tr!("log messaggio commit", "log commit message"),
+        )?;
         let subject = String::from_utf8_lossy(&log_out.stdout).trim().to_string();
 
         let sha7 = if sha.len() >= 7 { &sha[..7] } else { &sha };
-        let restore_message = format!("Ripristino di {sha7}: {subject}");
+        let restore_message = crate::tr!(
+            format!("Ripristino di {sha7}: {subject}"),
+            format!("Restore of {sha7}: {subject}")
+        );
 
         // git add -A per tracciare eventuali file nuovi prima del restore no-overlay
         let mut add_cmd = git_command(cwd);
@@ -423,8 +483,13 @@ pub async fn lab_git_restore(workspace_path: String, sha: String) -> Result<LabR
         new_log_cmd.args(["log", "-1", "--format=%H\x1f%s\x1f%aI"]);
         let out = run_git_checked(&mut new_log_cmd, "log nuova revisione")?;
         let line = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        parse_revision_line(&line)
-            .ok_or_else(|| "Formato commit di ripristino non valido".to_string())
+        parse_revision_line(&line).ok_or_else(|| {
+            crate::tr!(
+                "Formato commit di ripristino non valido",
+                "Invalid restore commit format"
+            )
+            .to_string()
+        })
     })
     .await
     .map_err(|e| e.to_string())?

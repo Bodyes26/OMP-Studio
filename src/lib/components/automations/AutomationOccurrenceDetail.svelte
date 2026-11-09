@@ -223,7 +223,7 @@
 			<div class="occurrence-meta text-xs">
 				<span>{t('occ_scheduled_at', { time: formatDateTime(occurrence.scheduledAt) })}</span>
 				<span class="bullet">·</span>
-				<span>Rev. {occurrence.revision}</span>
+				<span>{t('occ_revision_short', { rev: occurrence.revision })}</span>
 			</div>
 		</div>
 
@@ -267,7 +267,7 @@
 					type="button"
 					class="ui-button ui-button-secondary text-xs"
 					onclick={handleSelectiveRetry}
-					title="Riesegue solo i destinatari falliti o saltati ({failedTargets.length})"
+					title={t('occ_retry_selective_title', { count: failedTargets.length })}
 				>
 					<IconRefresh />
 					<span>{t('occ_btn_retry_selective')}</span>

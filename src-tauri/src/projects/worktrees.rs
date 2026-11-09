@@ -24,6 +24,34 @@ const ALLOWLIST_KEY: &str = "ompStudioAllowlist";
 /// Serializza le mutazioni dei worktree. Un panic in un'operazione precedente
 /// avvelena il mutex ma non lo stato Git, che ogni operazione rilegge da capo:
 /// si recupera il lock invece di bloccare corsie e integrazioni fino al riavvio.
+/// Errore comune ai comandi rifiutati perche' un'automazione sta usando il progetto.
+fn project_locked_error(project_path: &str) -> WorktreeError {
+    WorktreeError::new(
+        WorktreeErrorCode::WorktreeLocked,
+        crate::tr!(
+            format!(
+                "Operazione non consentita: il progetto '{}' e' attualmente occupato da un'automazione attiva (AUT-042)",
+                project_path
+            ),
+            format!(
+                "Operation not allowed: project '{}' is currently busy with a running automation (AUT-042)",
+                project_path
+            )
+        ),
+    )
+}
+
+/// Come `project_locked_error`, per il percorso che puo' essere un worktree.
+fn project_or_worktree_locked_error() -> WorktreeError {
+    WorktreeError::new(
+        WorktreeErrorCode::WorktreeLocked,
+        crate::tr!(
+            "Operazione non consentita: il progetto o worktree e' attualmente occupato da un'automazione attiva (AUT-042)",
+            "Operation not allowed: the project or worktree is currently busy with a running automation (AUT-042)"
+        ),
+    )
+}
+
 fn worktree_mutation_lock() -> std::sync::MutexGuard<'static, ()> {
     WORKTREE_MUTATION_LOCK
         .lock()
@@ -332,7 +360,7 @@ fn run_git(cwd: &Path, args: &[OsString]) -> Result<Output, WorktreeError> {
     command.output().map_err(|error| {
         WorktreeError::with_detail(
             WorktreeErrorCode::GitUnavailable,
-            "Git non e' disponibile",
+            crate::tr!("Git non e' disponibile", "Git is not available"),
             error.to_string(),
         )
     })
@@ -350,7 +378,7 @@ fn require_git(
     cwd: &Path,
     args: &[OsString],
     code: WorktreeErrorCode,
-    message: &str,
+    message: impl Into<String>,
 ) -> Result<Output, WorktreeError> {
     let output = run_git(cwd, args)?;
     if output.status.success() {
@@ -368,7 +396,7 @@ fn path_string(path: &Path) -> Result<String, WorktreeError> {
     let raw = path.to_str().ok_or_else(|| {
         WorktreeError::new(
             WorktreeErrorCode::InvalidPath,
-            "Il percorso contiene caratteri non rappresentabili",
+            crate::tr!("Il percorso contiene caratteri non rappresentabili", "The path contains characters that cannot be represented"),
         )
     })?;
 
@@ -412,18 +440,30 @@ fn same_path(left: &Path, right: &Path) -> bool {
     }
 }
 
-fn canonical_directory(path: &Path, label: &str) -> Result<PathBuf, WorktreeError> {
+/// `label_it`/`label_en` sono l'etichetta del percorso nelle due lingue: il
+/// messaggio finisce nella card della corsia e deve seguirla.
+fn canonical_directory(
+    path: &Path,
+    label_it: &str,
+    label_en: &str,
+) -> Result<PathBuf, WorktreeError> {
     let canonical = path.canonicalize().map_err(|error| {
         WorktreeError::with_detail(
             WorktreeErrorCode::InvalidPath,
-            format!("{} non valido", label),
+            crate::tr!(
+                format!("{} non valido", label_it),
+                format!("Invalid {}", label_en)
+            ),
             error.to_string(),
         )
     })?;
     if !canonical.is_dir() {
         return Err(WorktreeError::new(
             WorktreeErrorCode::InvalidPath,
-            format!("{} non e' una cartella", label),
+            crate::tr!(
+                format!("{} non e' una cartella", label_it),
+                format!("{} is not a folder", label_en)
+            ),
         ));
     }
     Ok(canonical)
@@ -434,16 +474,16 @@ fn discover_repository(project_path: &str) -> Result<RepositoryContext, Worktree
     if trimmed.is_empty() || trimmed.contains('\0') {
         return Err(WorktreeError::new(
             WorktreeErrorCode::InvalidPath,
-            "Percorso progetto non valido",
+            crate::tr!("Percorso progetto non valido", "Invalid project path"),
         ));
     }
 
-    let opened_path = canonical_directory(Path::new(trimmed), "Percorso progetto")?;
+    let opened_path = canonical_directory(Path::new(trimmed), "Percorso progetto", "project path")?;
     let output = run_git(&opened_path, &git_args(&["rev-parse", "--show-toplevel"]))?;
     if !output.status.success() {
         return Err(WorktreeError::with_detail(
             WorktreeErrorCode::NotGitRepository,
-            "Il percorso non appartiene a un repository Git",
+            crate::tr!("Il percorso non appartiene a un repository Git", "The path does not belong to a Git repository"),
             output_detail(&output),
         ));
     }
@@ -452,19 +492,19 @@ fn discover_repository(project_path: &str) -> Result<RepositoryContext, Worktree
         .map_err(|error| {
             WorktreeError::with_detail(
                 WorktreeErrorCode::InvalidPath,
-                "Git ha restituito una radice repository non valida",
+                crate::tr!("Git ha restituito una radice repository non valida", "Git returned an invalid repository root"),
                 error.to_string(),
             )
         })?
         .trim()
         .to_string();
-    let repository_root = canonical_directory(Path::new(&root_text), "Radice repository")?;
+    let repository_root = canonical_directory(Path::new(&root_text), "Radice repository", "repository root")?;
     let relative_subpath = opened_path
         .strip_prefix(&repository_root)
         .map_err(|_| {
             WorktreeError::new(
                 WorktreeErrorCode::UnsafeWorktreePath,
-                "Il percorso aperto non e' contenuto nella radice Git canonica",
+                crate::tr!("Il percorso aperto non e' contenuto nella radice Git canonica", "The opened path is not inside the canonical Git root"),
             )
         })?
         .to_path_buf();
@@ -473,14 +513,14 @@ fn discover_repository(project_path: &str) -> Result<RepositoryContext, Worktree
         .ok_or_else(|| {
             WorktreeError::new(
                 WorktreeErrorCode::UnsafeWorktreePath,
-                "La radice Git non ha una cartella genitore consentita",
+                crate::tr!("La radice Git non ha una cartella genitore consentita", "The Git root has no allowed parent folder"),
             )
         })?
         .canonicalize()
         .map_err(|error| {
             WorktreeError::with_detail(
                 WorktreeErrorCode::InvalidPath,
-                "Cartella genitore del repository non valida",
+                crate::tr!("Cartella genitore del repository non valida", "Invalid repository parent folder"),
                 error.to_string(),
             )
         })?;
@@ -491,7 +531,7 @@ fn discover_repository(project_path: &str) -> Result<RepositoryContext, Worktree
         .ok_or_else(|| {
             WorktreeError::new(
                 WorktreeErrorCode::InvalidPath,
-                "Il repository non ha un nome utilizzabile",
+                crate::tr!("Il repository non ha un nome utilizzabile", "The repository has no usable name"),
             )
         })?
         .to_string();
@@ -551,12 +591,12 @@ fn ensure_repository_has_commit(context: &RepositoryContext) -> Result<(), Workt
         &context.repository_root,
         &git_args(&["rev-list", "--all", "--max-count=1"]),
         WorktreeErrorCode::GitCommandFailed,
-        "Impossibile verificare i commit del repository",
+        crate::tr!("Impossibile verificare i commit del repository", "Cannot verify the repository commits"),
     )?;
     if output.stdout.iter().all(u8::is_ascii_whitespace) {
         return Err(WorktreeError::new(
             WorktreeErrorCode::NoCommits,
-            "Il repository non contiene ancora alcun commit",
+            crate::tr!("Il repository non contiene ancora alcun commit", "The repository has no commits yet"),
         ));
     }
     Ok(())
@@ -580,7 +620,7 @@ fn validate_lane_id(lane_id: &str) -> Result<&str, WorktreeError> {
     if !valid {
         return Err(WorktreeError::new(
             WorktreeErrorCode::InvalidLaneId,
-            "L'identificatore corsia deve contenere 1-40 caratteri ASCII alfanumerici, '-' o '_'",
+            crate::tr!("L'identificatore corsia deve contenere 1-40 caratteri ASCII alfanumerici, '-' o '_'", "The lane id must be 1-40 alphanumeric ASCII characters, '-' or '_'"),
         ));
     }
     Ok(lane_id)
@@ -616,7 +656,7 @@ fn validate_base_commit(context: &RepositoryContext, value: &str) -> Result<Stri
     if !matches!(value.len(), 40 | 64) || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Err(WorktreeError::new(
             WorktreeErrorCode::InvalidBaseCommit,
-            "Il commit base deve essere uno SHA completo esplicito",
+            crate::tr!("Il commit base deve essere uno SHA completo esplicito", "The base commit must be an explicit full SHA"),
         ));
     }
     let revision = format!("{}^{{commit}}", value);
@@ -628,13 +668,13 @@ fn validate_base_commit(context: &RepositoryContext, value: &str) -> Result<Stri
             OsString::from(revision),
         ],
         WorktreeErrorCode::InvalidBaseCommit,
-        "Il commit base non esiste nel repository",
+        crate::tr!("Il commit base non esiste nel repository", "The base commit does not exist in the repository"),
     )?;
     let resolved = String::from_utf8_lossy(&output.stdout).trim().to_string();
     if !resolved.eq_ignore_ascii_case(value) {
         return Err(WorktreeError::new(
             WorktreeErrorCode::InvalidBaseCommit,
-            "Il commit base non corrisponde allo SHA esplicito richiesto",
+            crate::tr!("Il commit base non corrisponde allo SHA esplicito richiesto", "The base commit does not match the requested explicit SHA"),
         ));
     }
     Ok(resolved)
@@ -645,7 +685,7 @@ fn resolve_head_commit(cwd: &Path) -> Result<String, WorktreeError> {
         cwd,
         &git_args(&["rev-parse", "--verify", "HEAD^{commit}"]),
         WorktreeErrorCode::GitCommandFailed,
-        "Impossibile determinare il commit HEAD",
+        crate::tr!("Impossibile determinare il commit HEAD", "Cannot determine the HEAD commit"),
     )?;
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
@@ -658,7 +698,7 @@ fn validate_target_branch(
     if value.is_empty() || value.starts_with('-') || value.starts_with("refs/") {
         return Err(WorktreeError::new(
             WorktreeErrorCode::InvalidTargetBranch,
-            "Il branch target deve essere il nome breve di un branch locale",
+            crate::tr!("Il branch target deve essere il nome breve di un branch locale", "The target branch must be the short name of a local branch"),
         ));
     }
     require_git(
@@ -669,7 +709,7 @@ fn validate_target_branch(
             OsString::from(value),
         ],
         WorktreeErrorCode::InvalidTargetBranch,
-        "Nome del branch target non valido",
+        crate::tr!("Nome del branch target non valido", "Invalid target branch name"),
     )?;
     let revision = format!("refs/heads/{}^{{commit}}", value);
     require_git(
@@ -680,7 +720,7 @@ fn validate_target_branch(
             OsString::from(revision),
         ],
         WorktreeErrorCode::InvalidTargetBranch,
-        "Il branch target locale non esiste o non contiene commit",
+        crate::tr!("Il branch target locale non esiste o non contiene commit", "The local target branch does not exist or has no commits"),
     )?;
     Ok(value.to_string())
 }
@@ -689,7 +729,7 @@ fn parse_porcelain(stdout: &[u8]) -> Result<Vec<PorcelainWorktree>, WorktreeErro
     let text = String::from_utf8(stdout.to_vec()).map_err(|error| {
         WorktreeError::with_detail(
             WorktreeErrorCode::GitCommandFailed,
-            "Git ha restituito un elenco worktree non valido",
+            crate::tr!("Git ha restituito un elenco worktree non valido", "Git returned an invalid worktree list"),
             error.to_string(),
         )
     })?;
@@ -717,7 +757,7 @@ fn parse_porcelain(stdout: &[u8]) -> Result<Vec<PorcelainWorktree>, WorktreeErro
         let Some(entry) = current.as_mut() else {
             return Err(WorktreeError::new(
                 WorktreeErrorCode::GitCommandFailed,
-                "Formato porcelain dei worktree inatteso",
+                crate::tr!("Formato porcelain dei worktree inatteso", "Unexpected worktree porcelain format"),
             ));
         };
         if let Some(commit) = line.strip_prefix("HEAD ") {
@@ -743,7 +783,7 @@ fn parse_porcelain(stdout: &[u8]) -> Result<Vec<PorcelainWorktree>, WorktreeErro
     {
         return Err(WorktreeError::new(
             WorktreeErrorCode::GitCommandFailed,
-            "Git ha restituito un worktree senza percorso",
+            crate::tr!("Git ha restituito un worktree senza percorso", "Git returned a worktree with no path"),
         ));
     }
     Ok(worktrees)
@@ -756,7 +796,7 @@ fn porcelain_worktrees(
         &context.repository_root,
         &git_args(&["worktree", "list", "--porcelain"]),
         WorktreeErrorCode::GitCommandFailed,
-        "Impossibile elencare i worktree Git",
+        crate::tr!("Impossibile elencare i worktree Git", "Cannot list the Git worktrees"),
     )?;
     parse_porcelain(&output.stdout)
 }
@@ -789,7 +829,7 @@ pub(crate) fn config_get(
     }
     Err(WorktreeError::with_detail(
         WorktreeErrorCode::GitCommandFailed,
-        "Impossibile leggere la registrazione Studio del worktree",
+        crate::tr!("Impossibile leggere la registrazione Studio del worktree", "Cannot read the Studio worktree registration"),
         output_detail(&output),
     ))
 }
@@ -810,7 +850,7 @@ pub(crate) fn config_set(
             OsString::from(value),
         ],
         WorktreeErrorCode::GitCommandFailed,
-        "Impossibile registrare i metadati Studio del worktree",
+        crate::tr!("Impossibile registrare i metadati Studio del worktree", "Cannot record the Studio worktree metadata"),
     )?;
     Ok(())
 }
@@ -864,7 +904,7 @@ fn allowlist_paths(
     if !output.status.success() {
         return Err(WorktreeError::with_detail(
             WorktreeErrorCode::GitCommandFailed,
-            "Impossibile leggere i file locali copiati nella corsia",
+            crate::tr!("Impossibile leggere i file locali copiati nella corsia", "Cannot read the local files copied into the lane"),
             output_detail(&output),
         ));
     }
@@ -905,7 +945,7 @@ fn record_allowlist_paths(
                 OsString::from(path),
             ],
             WorktreeErrorCode::GitCommandFailed,
-            "Impossibile registrare i file locali copiati nella corsia",
+            crate::tr!("Impossibile registrare i file locali copiati nella corsia", "Cannot record the local files copied into the lane"),
         )?;
     }
     Ok(())
@@ -937,7 +977,7 @@ fn blocking_changes(worktree: &Path, allowlisted: &[String]) -> Result<Vec<Strin
         worktree,
         &git_args(&["status", "--porcelain=v1", "--untracked-files=all", "-z"]),
         WorktreeErrorCode::GitCommandFailed,
-        "Impossibile verificare lo stato del worktree",
+        crate::tr!("Impossibile verificare lo stato del worktree", "Cannot verify the worktree status"),
     )?;
     Ok(porcelain_status_entries(&status.stdout)
         .into_iter()
@@ -986,7 +1026,7 @@ pub(crate) fn branch_registrations(
     if !output.status.success() {
         return Err(WorktreeError::with_detail(
             WorktreeErrorCode::GitCommandFailed,
-            "Impossibile leggere la registrazione Studio del worktree",
+            crate::tr!("Impossibile leggere la registrazione Studio del worktree", "Cannot read the Studio worktree registration"),
             output_detail(&output),
         ));
     }
@@ -1171,7 +1211,7 @@ fn list_branches_sync(args: ListBranchesArgs) -> Result<BranchListOutcome, Workt
         &context.repository_root,
         &git_args(&["for-each-ref", "--format=%(refname:short)", "refs/heads"]),
         WorktreeErrorCode::GitCommandFailed,
-        "Impossibile elencare i branch locali",
+        crate::tr!("Impossibile elencare i branch locali", "Cannot list the local branches"),
     )?;
     let local_text = String::from_utf8_lossy(&local_output.stdout);
     let local_names: Vec<String> = local_text
@@ -1267,7 +1307,7 @@ fn branch_exists(context: &RepositoryContext, branch: &str) -> Result<bool, Work
         Some(1) => Ok(false),
         _ => Err(WorktreeError::with_detail(
             WorktreeErrorCode::GitCommandFailed,
-            "Impossibile verificare la collisione del branch corsia",
+            crate::tr!("Impossibile verificare la collisione del branch corsia", "Cannot check the lane branch collision"),
             output_detail(&output),
         )),
     }
@@ -1304,13 +1344,13 @@ fn create_sync(args: CreateWorktreeArgs) -> Result<WorktreeInfo, WorktreeError> 
     if inspection.head_state == RepositoryHeadState::Detached {
         return Err(WorktreeError::new(
             WorktreeErrorCode::DetachedHead,
-            "Il repository e' in detached HEAD: selezionare un branch target prima di creare la corsia",
+            crate::tr!("Il repository e' in detached HEAD: selezionare un branch target prima di creare la corsia", "The repository is in detached HEAD: select a target branch before creating the lane"),
         ));
     }
     if inspection.head_state == RepositoryHeadState::Unborn {
         return Err(WorktreeError::new(
             WorktreeErrorCode::NoCommits,
-            "Il repository non contiene ancora alcun commit",
+            crate::tr!("Il repository non contiene ancora alcun commit", "The repository has no commits yet"),
         ));
     }
 
@@ -1326,7 +1366,7 @@ fn create_sync(args: CreateWorktreeArgs) -> Result<WorktreeInfo, WorktreeError> 
             OsString::from(&branch),
         ],
         WorktreeErrorCode::InvalidLaneId,
-        "L'identificatore corsia genera un branch Git non valido",
+        crate::tr!("L'identificatore corsia genera un branch Git non valido", "The lane id produces an invalid Git branch"),
     )?;
 
     let path = context.parent.join(format!(
@@ -1338,13 +1378,19 @@ fn create_sync(args: CreateWorktreeArgs) -> Result<WorktreeInfo, WorktreeError> 
     if path.symlink_metadata().is_ok() {
         return Err(WorktreeError::new(
             WorktreeErrorCode::PathCollision,
-            format!("La destinazione '{}' esiste gia'", path_string(&path)?),
+            crate::tr!(
+                format!("La destinazione '{}' esiste gia'", path_string(&path)?),
+                format!("The destination '{}' already exists", path_string(&path)?)
+            ),
         ));
     }
     if branch_exists(&context, &branch)? {
         return Err(WorktreeError::new(
             WorktreeErrorCode::BranchCollision,
-            format!("Il branch '{}' esiste gia'", branch),
+            crate::tr!(
+                format!("Il branch '{}' esiste gia'", branch),
+                format!("Branch '{}' already exists", branch)
+            ),
         ));
     }
     if porcelain_worktrees(&context)?
@@ -1353,7 +1399,7 @@ fn create_sync(args: CreateWorktreeArgs) -> Result<WorktreeInfo, WorktreeError> 
     {
         return Err(WorktreeError::new(
             WorktreeErrorCode::PathCollision,
-            "La destinazione e' gia' registrata da Git come worktree",
+            crate::tr!("La destinazione e' gia' registrata da Git come worktree", "The destination is already registered by Git as a worktree"),
         ));
     }
 
@@ -1368,7 +1414,7 @@ fn create_sync(args: CreateWorktreeArgs) -> Result<WorktreeInfo, WorktreeError> 
             OsString::from(&base_commit),
         ],
         WorktreeErrorCode::GitCommandFailed,
-        "Git non ha creato il worktree",
+        crate::tr!("Git non ha creato il worktree", "Git did not create the worktree"),
     )?;
 
     let canonical_path = match path.canonicalize() {
@@ -1377,7 +1423,7 @@ fn create_sync(args: CreateWorktreeArgs) -> Result<WorktreeInfo, WorktreeError> 
             rollback_create(&context, &path, &branch, &base_commit);
             return Err(WorktreeError::with_detail(
                 WorktreeErrorCode::InvalidPath,
-                "Il worktree creato non e' canonicalizzabile",
+                crate::tr!("Il worktree creato non e' canonicalizzabile", "The created worktree cannot be canonicalized"),
                 error.to_string(),
             ));
         }
@@ -1389,7 +1435,7 @@ fn create_sync(args: CreateWorktreeArgs) -> Result<WorktreeInfo, WorktreeError> 
         rollback_create(&context, &canonical_path, &branch, &base_commit);
         return Err(WorktreeError::new(
             WorktreeErrorCode::UnsafeWorktreePath,
-            "Git ha creato il worktree fuori dal parent consentito",
+            crate::tr!("Git ha creato il worktree fuori dal parent consentito", "Git created the worktree outside the allowed parent"),
         ));
     }
     let workspace_path = canonical_path.join(&context.relative_subpath);
@@ -1397,7 +1443,7 @@ fn create_sync(args: CreateWorktreeArgs) -> Result<WorktreeInfo, WorktreeError> 
         rollback_create(&context, &canonical_path, &branch, &base_commit);
         return Err(WorktreeError::new(
             WorktreeErrorCode::MissingProjectSubpath,
-            "Il commit base non contiene la sottocartella aperta in Studio",
+            crate::tr!("Il commit base non contiene la sottocartella aperta in Studio", "The base commit does not contain the folder opened in Studio"),
         ));
     }
     if let Err(error) = register_worktree(
@@ -1437,13 +1483,13 @@ fn attach_sync(args: AttachWorktreeArgs) -> Result<WorktreeInfo, WorktreeError> 
     if inspection.head_state == RepositoryHeadState::Detached {
         return Err(WorktreeError::new(
             WorktreeErrorCode::DetachedHead,
-            "Il repository e' in detached HEAD: selezionare un branch target prima di adottare il branch",
+            crate::tr!("Il repository e' in detached HEAD: selezionare un branch target prima di adottare il branch", "The repository is in detached HEAD: select a target branch before adopting the branch"),
         ));
     }
     if inspection.head_state == RepositoryHeadState::Unborn {
         return Err(WorktreeError::new(
             WorktreeErrorCode::NoCommits,
-            "Il repository non contiene ancora alcun commit",
+            crate::tr!("Il repository non contiene ancora alcun commit", "The repository has no commits yet"),
         ));
     }
 
@@ -1471,20 +1517,20 @@ fn attach_sync(args: AttachWorktreeArgs) -> Result<WorktreeInfo, WorktreeError> 
             OsString::from(&local_branch),
         ],
         WorktreeErrorCode::InvalidLaneId,
-        "Il nome del branch non e' un ref Git valido",
+        crate::tr!("Il nome del branch non e' un ref Git valido", "The branch name is not a valid Git ref"),
     )?;
 
     if local_branch == target_branch {
         return Err(WorktreeError::new(
             WorktreeErrorCode::WorktreeInUse,
-            "Impossibile adottare il branch principale del repository",
+            crate::tr!("Impossibile adottare il branch principale del repository", "Cannot adopt the main branch of the repository"),
         ));
     }
 
     if inspection.current_branch.as_deref() == Some(&local_branch) {
         return Err(WorktreeError::new(
             WorktreeErrorCode::WorktreeInUse,
-            "Il branch e' gia' aperto nel checkout principale",
+            crate::tr!("Il branch e' gia' aperto nel checkout principale", "The branch is already open in the main checkout"),
         ));
     }
 
@@ -1493,7 +1539,10 @@ fn attach_sync(args: AttachWorktreeArgs) -> Result<WorktreeInfo, WorktreeError> 
         if reg.managed.as_deref().is_some_and(|v| v.eq_ignore_ascii_case("true")) {
             return Err(WorktreeError::new(
                 WorktreeErrorCode::BranchCollision,
-                format!("Il branch '{}' e' gia' gestito in un'altra corsia Studio", local_branch),
+                crate::tr!(
+                    format!("Il branch '{}' e' gia' gestito in un'altra corsia Studio", local_branch),
+                    format!("Branch '{}' is already managed by another Studio lane", local_branch)
+                ),
             ));
         }
     }
@@ -1509,14 +1558,14 @@ fn attach_sync(args: AttachWorktreeArgs) -> Result<WorktreeInfo, WorktreeError> 
         if same_path(&canonical_path, &context.repository_root) {
             return Err(WorktreeError::new(
                 WorktreeErrorCode::WorktreeInUse,
-                "Il branch e' aperto nel checkout principale",
+                crate::tr!("Il branch e' aperto nel checkout principale", "The branch is open in the main checkout"),
             ));
         }
         let workspace_path = canonical_path.join(&context.relative_subpath);
         if !workspace_path.is_dir() {
             return Err(WorktreeError::new(
                 WorktreeErrorCode::MissingProjectSubpath,
-                "Il worktree esistente non contiene la sottocartella aperta in Studio",
+                crate::tr!("Il worktree esistente non contiene la sottocartella aperta in Studio", "The existing worktree does not contain the folder opened in Studio"),
             ));
         }
         let base_commit = resolve_head_commit(&canonical_path)?;
@@ -1556,7 +1605,10 @@ fn attach_sync(args: AttachWorktreeArgs) -> Result<WorktreeInfo, WorktreeError> 
         if path.symlink_metadata().is_ok() {
             return Err(WorktreeError::new(
                 WorktreeErrorCode::PathCollision,
+                crate::tr!(
                 format!("La destinazione '{}' esiste gia'", path_string(&path)?),
+                format!("The destination '{}' already exists", path_string(&path)?)
+            ),
             ));
         }
 
@@ -1565,7 +1617,10 @@ fn attach_sync(args: AttachWorktreeArgs) -> Result<WorktreeInfo, WorktreeError> 
                 if !branch_exists(&context, &local_branch)? {
                     return Err(WorktreeError::new(
                         WorktreeErrorCode::InvalidPath,
-                        format!("Il branch locale '{}' non esiste", local_branch),
+                        crate::tr!(
+                            format!("Il branch locale '{}' non esiste", local_branch),
+                            format!("Local branch '{}' does not exist", local_branch)
+                        ),
                     ));
                 }
                 require_git(
@@ -1577,14 +1632,17 @@ fn attach_sync(args: AttachWorktreeArgs) -> Result<WorktreeInfo, WorktreeError> 
                         OsString::from(&local_branch),
                     ],
                     WorktreeErrorCode::GitCommandFailed,
-                    "Git non ha creato il worktree per il branch locale",
+                    crate::tr!("Git non ha creato il worktree per il branch locale", "Git did not create the worktree for the local branch"),
                 )?;
             }
             BranchKind::Remote => {
                 if branch_exists(&context, &local_branch)? {
                     return Err(WorktreeError::new(
                         WorktreeErrorCode::BranchCollision,
-                        format!("Il branch locale '{}' esiste gia'", local_branch),
+                        crate::tr!(
+                            format!("Il branch locale '{}' esiste gia'", local_branch),
+                            format!("Local branch '{}' already exists", local_branch)
+                        ),
                     ));
                 }
                 require_git(
@@ -1599,7 +1657,7 @@ fn attach_sync(args: AttachWorktreeArgs) -> Result<WorktreeInfo, WorktreeError> 
                         OsString::from(&args.branch),
                     ],
                     WorktreeErrorCode::GitCommandFailed,
-                    "Git non ha creato il worktree per il branch remoto",
+                    crate::tr!("Git non ha creato il worktree per il branch remoto", "Git did not create the worktree for the remote branch"),
                 )?;
             }
         }
@@ -1611,7 +1669,7 @@ fn attach_sync(args: AttachWorktreeArgs) -> Result<WorktreeInfo, WorktreeError> 
                 let _ = prune_worktrees(&context);
                 return Err(WorktreeError::with_detail(
                     WorktreeErrorCode::InvalidPath,
-                    "Il worktree creato non e' canonicalizzabile",
+                    crate::tr!("Il worktree creato non e' canonicalizzabile", "The created worktree cannot be canonicalized"),
                     error.to_string(),
                 ));
             }
@@ -1625,7 +1683,7 @@ fn attach_sync(args: AttachWorktreeArgs) -> Result<WorktreeInfo, WorktreeError> 
             let _ = prune_worktrees(&context);
             return Err(WorktreeError::new(
                 WorktreeErrorCode::UnsafeWorktreePath,
-                "Git ha creato il worktree fuori dal parent consentito",
+                crate::tr!("Git ha creato il worktree fuori dal parent consentito", "Git created the worktree outside the allowed parent"),
             ));
         }
 
@@ -1635,7 +1693,7 @@ fn attach_sync(args: AttachWorktreeArgs) -> Result<WorktreeInfo, WorktreeError> 
             let _ = prune_worktrees(&context);
             return Err(WorktreeError::new(
                 WorktreeErrorCode::MissingProjectSubpath,
-                "Il branch non contiene la sottocartella aperta in Studio",
+                crate::tr!("Il branch non contiene la sottocartella aperta in Studio", "The branch does not contain the folder opened in Studio"),
             ));
         }
 
@@ -1689,7 +1747,7 @@ pub(crate) fn resolve_managed_worktree(
     supplied_path: &str,
 ) -> Result<(PathBuf, PorcelainWorktree), WorktreeError> {
     let supplied = validate_supplied_path(supplied_path)?;
-    let supplied_canonical = canonical_directory(supplied, "Percorso worktree")?;
+    let supplied_canonical = canonical_directory(supplied, "Percorso worktree", "worktree path")?;
     let worktrees = porcelain_worktrees(context)?;
     let entry = worktrees
         .into_iter()
@@ -1703,7 +1761,7 @@ pub(crate) fn resolve_managed_worktree(
     if same_path(&canonical_path, &context.repository_root) {
         return Err(WorktreeError::new(
             WorktreeErrorCode::UnmanagedWorktree,
-            "Il checkout principale non e' una corsia",
+            crate::tr!("Il checkout principale non e' una corsia", "The main checkout is not a lane"),
         ));
     }
     let lane_id = managed_lane_id(context, &canonical_path, &entry)?;
@@ -1721,7 +1779,7 @@ pub(crate) fn resolve_managed_worktree(
         if canonical_path.file_name().and_then(|name| name.to_str()) != Some(expected_name.as_str()) {
             return Err(WorktreeError::new(
                 WorktreeErrorCode::UnsafeWorktreePath,
-                "Il nome del worktree non corrisponde alla registrazione Studio",
+                crate::tr!("Il nome del worktree non corrisponde alla registrazione Studio", "The worktree name does not match the Studio registration"),
             ));
         }
         if !canonical_path
@@ -1730,7 +1788,7 @@ pub(crate) fn resolve_managed_worktree(
         {
             return Err(WorktreeError::new(
                 WorktreeErrorCode::UnsafeWorktreePath,
-                "Il worktree non e' un fratello diretto del repository",
+                crate::tr!("Il worktree non e' un fratello diretto del repository", "The worktree is not a direct sibling of the repository"),
             ));
         }
     }
@@ -1740,7 +1798,7 @@ pub(crate) fn resolve_managed_worktree(
 fn not_listed_error() -> WorktreeError {
     WorktreeError::new(
         WorktreeErrorCode::UnmanagedWorktree,
-        "Il percorso non e' registrato da Git come worktree del repository",
+        crate::tr!("Il percorso non e' registrato da Git come worktree del repository", "Git does not list the path as a worktree of the repository"),
     )
 }
 
@@ -1761,20 +1819,20 @@ fn managed_lane_id(
     let branch = entry.branch.as_deref().ok_or_else(|| {
         WorktreeError::new(
             WorktreeErrorCode::UnmanagedWorktree,
-            "Un worktree detached non e' gestito da Studio",
+            crate::tr!("Un worktree detached non e' gestito da Studio", "A detached worktree is not managed by Studio"),
         )
     })?;
     let (managed, lane_id, _, _) = registered_values(context, branch, root)?;
     if !managed {
         return Err(WorktreeError::new(
             WorktreeErrorCode::UnmanagedWorktree,
-            "Il worktree non risulta creato e registrato da Studio",
+            crate::tr!("Il worktree non risulta creato e registrato da Studio", "The worktree is not created and registered by Studio"),
         ));
     }
     lane_id.ok_or_else(|| {
         WorktreeError::new(
             WorktreeErrorCode::UnmanagedWorktree,
-            "La registrazione Studio non contiene l'identificatore corsia",
+            crate::tr!("La registrazione Studio non contiene l'identificatore corsia", "The Studio registration does not contain the lane id"),
         )
     })
 }
@@ -1784,13 +1842,13 @@ fn validate_supplied_path(supplied_path: &str) -> Result<&Path, WorktreeError> {
     if !supplied.is_absolute() {
         return Err(WorktreeError::new(
             WorktreeErrorCode::UnsafeWorktreePath,
-            "L'operazione richiede un percorso worktree assoluto",
+            crate::tr!("L'operazione richiede un percorso worktree assoluto", "This operation requires an absolute worktree path"),
         ));
     }
     if has_parent_component(supplied) {
         return Err(WorktreeError::new(
             WorktreeErrorCode::PathTraversal,
-            "Il percorso worktree contiene traversal '..'",
+            crate::tr!("Il percorso worktree contiene traversal '..'", "The worktree path contains a .. traversal"),
         ));
     }
     Ok(supplied)
@@ -1807,20 +1865,20 @@ fn confined_lane_root(
     let metadata = fs::symlink_metadata(supplied).map_err(|error| {
         WorktreeError::with_detail(
             WorktreeErrorCode::InvalidPath,
-            "Il worktree indicato non esiste",
+            crate::tr!("Il worktree indicato non esiste", "The specified worktree does not exist"),
             error.to_string(),
         )
     })?;
     if metadata.file_type().is_symlink() {
         return Err(WorktreeError::new(
             WorktreeErrorCode::UnsafeWorktreePath,
-            "Link e junction non sono percorsi worktree consentiti",
+            crate::tr!("Link e junction non sono percorsi worktree consentiti", "Links and junctions are not allowed worktree paths"),
         ));
     }
     // Il frontend passa il workspace operativo della corsia, che per un progetto
     // aperto in una sottocartella sta dentro il worktree: si risale alla radice
     // fratella del repository. Traversal e link sono gia' stati rifiutati sopra.
-    let supplied_canonical = canonical_directory(supplied, "Percorso worktree")?;
+    let supplied_canonical = canonical_directory(supplied, "Percorso worktree", "worktree path")?;
     let canonical_path = supplied_canonical
         .ancestors()
         .find(|candidate| {
@@ -1837,7 +1895,7 @@ fn confined_lane_root(
     {
         return Err(WorktreeError::new(
             WorktreeErrorCode::UnsafeWorktreePath,
-            "Il worktree non e' un fratello diretto del repository",
+            crate::tr!("Il worktree non e' un fratello diretto del repository", "The worktree is not a direct sibling of the repository"),
         ));
     }
     Ok(canonical_path)
@@ -1873,7 +1931,7 @@ fn stop_or_refuse_processes(root: &Path, stop_processes: bool) -> Result<bool, W
     if !stop_processes {
         return Err(WorktreeError::with_detail(
             WorktreeErrorCode::ProcessesActive,
-            "Il worktree ha processi attivi avviati da Studio e non verra' rimosso",
+            crate::tr!("Il worktree ha processi attivi avviati da Studio e non verra' rimosso", "The worktree has active processes started by Studio and will not be removed"),
             describe_processes(&live),
         ));
     }
@@ -1881,7 +1939,7 @@ fn stop_or_refuse_processes(root: &Path, stop_processes: bool) -> Result<bool, W
     if !report.remaining.is_empty() {
         return Err(WorktreeError::with_detail(
             WorktreeErrorCode::ProcessesActive,
-            "Alcuni processi della corsia non si sono arrestati: rimozione annullata",
+            crate::tr!("Alcuni processi della corsia non si sono arrestati: rimozione annullata", "Some lane processes did not stop: removal cancelled"),
             describe_processes(&report.remaining),
         ));
     }
@@ -1894,7 +1952,7 @@ fn ensure_clean_for_removal(root: &Path, allowlisted: &[String]) -> Result<(), W
     } else {
         Err(WorktreeError::new(
             WorktreeErrorCode::DirtyWorktree,
-            "Il worktree contiene modifiche o file non tracciati e non verra' rimosso",
+            crate::tr!("Il worktree contiene modifiche o file non tracciati e non verra' rimosso", "The worktree has changes or untracked files and will not be removed"),
         ))
     }
 }
@@ -1907,7 +1965,7 @@ fn remove_allowlist_copies(root: &Path, allowlisted: &[String]) -> Result<(), Wo
         root,
         &git_args(&["status", "--porcelain=v1", "--untracked-files=all", "-z"]),
         WorktreeErrorCode::GitCommandFailed,
-        "Impossibile verificare lo stato del worktree",
+        crate::tr!("Impossibile verificare lo stato del worktree", "Cannot verify the worktree status"),
     )?;
     for (status, path) in porcelain_status_entries(&status.stdout) {
         if status != "??"
@@ -1932,9 +1990,15 @@ fn remove_allowlist_copies(root: &Path, allowlisted: &[String]) -> Result<(), Wo
         fs::remove_file(&target).map_err(|error| {
             WorktreeError::with_detail(
                 WorktreeErrorCode::WorktreeInUse,
-                format!(
-                    "Il file locale '{}' della corsia non e' stato rimosso: chiudi i programmi che lo usano e riprova",
-                    path
+                crate::tr!(
+                    format!(
+                        "Il file locale '{}' della corsia non e' stato rimosso: chiudi i programmi che lo usano e riprova",
+                        path
+                    ),
+                    format!(
+                        "The lane local file '{}' was not removed: close the programs using it and retry",
+                        path
+                    )
                 ),
                 error.to_string(),
             )
@@ -1948,7 +2012,7 @@ fn prune_worktrees(context: &RepositoryContext) -> Result<(), WorktreeError> {
         &context.repository_root,
         &git_args(&["worktree", "prune"]),
         WorktreeErrorCode::MetadataCleanupFailed,
-        "Il worktree e' stato rimosso, ma Git non ha pulito i metadati obsoleti",
+        crate::tr!("Il worktree e' stato rimosso, ma Git non ha pulito i metadati obsoleti", "The worktree was removed, but Git did not clean the stale metadata"),
     )?;
     Ok(())
 }
@@ -2012,13 +2076,13 @@ fn remove_missing_worktree(
     if root.file_name().and_then(|name| name.to_str()) != Some(expected_name.as_str()) {
         return Err(WorktreeError::new(
             WorktreeErrorCode::UnsafeWorktreePath,
-            "Il nome del worktree non corrisponde alla registrazione Studio",
+            crate::tr!("Il nome del worktree non corrisponde alla registrazione Studio", "The worktree name does not match the Studio registration"),
         ));
     }
     if entry.locked_reason.is_some() {
         return Err(WorktreeError::with_detail(
             WorktreeErrorCode::WorktreeLocked,
-            "Il worktree e' bloccato da Git e non puo' essere rimosso",
+            crate::tr!("Il worktree e' bloccato da Git e non puo' essere rimosso", "The worktree is locked by Git and cannot be removed"),
             entry.locked_reason.unwrap_or_default(),
         ));
     }
@@ -2027,7 +2091,7 @@ fn remove_missing_worktree(
     if listed_worktree(context, root)?.is_some() {
         return Err(WorktreeError::new(
             WorktreeErrorCode::MetadataCleanupFailed,
-            "La cartella della corsia non esiste piu', ma Git la registra ancora come worktree",
+            crate::tr!("La cartella della corsia non esiste piu', ma Git la registra ancora come worktree", "The lane folder no longer exists, but Git still lists it as a worktree"),
         ));
     }
     Ok(())
@@ -2078,7 +2142,7 @@ fn remove_orphan_folder(
     if !is_plain_directory {
         return Err(WorktreeError::new(
             WorktreeErrorCode::UnsafeWorktreePath,
-            "Link e junction non sono percorsi worktree consentiti",
+            crate::tr!("Link e junction non sono percorsi worktree consentiti", "Links and junctions are not allowed worktree paths"),
         ));
     }
     if still_linked_to_git(root) {
@@ -2087,14 +2151,14 @@ fn remove_orphan_folder(
         // cartella orfana. Cancellarla perderebbe modifiche non committate.
         return Err(WorktreeError::new(
             WorktreeErrorCode::UnmanagedWorktree,
-            "La cartella della corsia e' ancora collegata a Git: rimuovila con git worktree remove o riprova dopo git worktree prune",
+            crate::tr!("La cartella della corsia e' ancora collegata a Git: rimuovila con git worktree remove o riprova dopo git worktree prune", "The lane folder is still attached to Git: remove it with git worktree remove or retry after git worktree prune"),
         ));
     }
     stop_or_refuse_processes(root, stop_processes)?;
     fs::remove_dir_all(root).map_err(|error| {
         WorktreeError::with_detail(
             WorktreeErrorCode::WorktreeInUse,
-            "La cartella residua della corsia non e' stata rimossa del tutto: chiudi i programmi che ne usano i file e riprova",
+            crate::tr!("La cartella residua della corsia non e' stata rimossa del tutto: chiudi i programmi che ne usano i file e riprova", "The leftover lane folder was not fully removed: close the programs using its files and retry"),
             error.to_string(),
         )
     })?;
@@ -2111,7 +2175,7 @@ fn remove_sync(args: RemoveWorktreeArgs) -> Result<(), WorktreeError> {
         let Some(root) = missing_lane_root(&context, supplied) else {
             return Err(WorktreeError::new(
                 WorktreeErrorCode::InvalidPath,
-                "Il worktree indicato non esiste",
+                crate::tr!("Il worktree indicato non esiste", "The specified worktree does not exist"),
             ));
         };
         if fs::symlink_metadata(&root).is_err() {
@@ -2137,7 +2201,7 @@ fn remove_sync(args: RemoveWorktreeArgs) -> Result<(), WorktreeError> {
     if entry.locked_reason.is_some() {
         return Err(WorktreeError::with_detail(
             WorktreeErrorCode::WorktreeLocked,
-            "Il worktree e' bloccato da Git e non puo' essere rimosso",
+            crate::tr!("Il worktree e' bloccato da Git e non puo' essere rimosso", "The worktree is locked by Git and cannot be removed"),
             entry.locked_reason.unwrap_or_default(),
         ));
     }
@@ -2183,7 +2247,7 @@ fn remove_sync(args: RemoveWorktreeArgs) -> Result<(), WorktreeError> {
         };
         return Err(WorktreeError::with_detail(
             code,
-            "Git ha rifiutato la rimozione sicura del worktree; nessun --force e' stato usato",
+            crate::tr!("Git ha rifiutato la rimozione sicura del worktree; nessun --force e' stato usato", "Git refused the safe worktree removal; no --force was used"),
             detail,
         ));
     }
@@ -2365,7 +2429,7 @@ fn relative_slash_path(root: &Path, path: &Path) -> Result<String, WorktreeError
     let relative = path.strip_prefix(root).map_err(|_| {
         WorktreeError::new(
             WorktreeErrorCode::UnsafeWorktreePath,
-            "Il percorso analizzato non e' contenuto nella radice del repository",
+            crate::tr!("Il percorso analizzato non e' contenuto nella radice del repository", "The analysed path is not inside the repository root"),
         )
     })?;
     let mut parts = Vec::new();
@@ -2375,7 +2439,7 @@ fn relative_slash_path(root: &Path, path: &Path) -> Result<String, WorktreeError
             _ => {
                 return Err(WorktreeError::new(
                     WorktreeErrorCode::PathTraversal,
-                    "Il percorso analizzato contiene componenti non consentiti",
+                    crate::tr!("Il percorso analizzato contiene componenti non consentiti", "The analysed path contains disallowed components"),
                 ))
             }
         }
@@ -2620,7 +2684,7 @@ fn untracked_candidates(
             "-z",
         ]),
         WorktreeErrorCode::GitCommandFailed,
-        "Impossibile elencare i file locali non versionati",
+        crate::tr!("Impossibile elencare i file locali non versionati", "Cannot list the local unversioned files"),
     )?;
 
     let mut candidates: Vec<UntrackedCandidate> = Vec::new();
@@ -2789,13 +2853,13 @@ fn scan_sync(project_path: &str) -> Result<WorktreeProfileScan, WorktreeError> {
 fn normalize_allowlist_path(raw: &str) -> Result<(String, Vec<String>), String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() || trimmed.contains('\0') {
-        return Err("Percorso vuoto o non valido".to_string());
+        return Err(crate::tr!("Percorso vuoto o non valido", "Empty or invalid path").to_string());
     }
     if Path::new(trimmed).is_absolute() || trimmed.starts_with('/') || trimmed.starts_with('\\') {
-        return Err("Sono ammessi solo percorsi relativi alla radice del repository".to_string());
+        return Err(crate::tr!("Sono ammessi solo percorsi relativi alla radice del repository", "Only paths relative to the repository root are allowed").to_string());
     }
     if trimmed.len() > 1 && trimmed.as_bytes()[1] == b':' {
-        return Err("Sono ammessi solo percorsi relativi alla radice del repository".to_string());
+        return Err(crate::tr!("Sono ammessi solo percorsi relativi alla radice del repository", "Only paths relative to the repository root are allowed").to_string());
     }
     let parts: Vec<String> = trimmed
         .split(['/', '\\'])
@@ -2803,13 +2867,13 @@ fn normalize_allowlist_path(raw: &str) -> Result<(String, Vec<String>), String> 
         .map(|part| part.to_string())
         .collect();
     if parts.is_empty() || parts.len() > MAX_ALLOWLIST_DEPTH {
-        return Err("Percorso non consentito".to_string());
+        return Err(crate::tr!("Percorso non consentito", "Path not allowed").to_string());
     }
     if parts.iter().any(|part| part == ".." || part == ".") {
-        return Err("Il percorso contiene traversal".to_string());
+        return Err(crate::tr!("Il percorso contiene traversal", "The path contains traversal").to_string());
     }
     if parts.iter().any(|part| is_skipped_directory(part)) {
-        return Err("Le cartelle generate non vengono mai copiate".to_string());
+        return Err(crate::tr!("Le cartelle generate non vengono mai copiate", "Generated folders are never copied").to_string());
     }
     Ok((parts.join("/"), parts))
 }
@@ -2825,15 +2889,15 @@ fn apply_allowlist_sync(
     if has_parent_component(workspace) {
         return Err(WorktreeError::new(
             WorktreeErrorCode::PathTraversal,
-            "Il percorso worktree contiene traversal '..'",
+            crate::tr!("Il percorso worktree contiene traversal '..'", "The worktree path contains a .. traversal"),
         ));
     }
-    let canonical_workspace = canonical_directory(workspace, "Percorso worktree")?;
+    let canonical_workspace = canonical_directory(workspace, "Percorso worktree", "worktree path")?;
     let toplevel = require_git(
         &canonical_workspace,
         &git_args(&["rev-parse", "--show-toplevel"]),
         WorktreeErrorCode::UnmanagedWorktree,
-        "Il percorso della corsia non appartiene a un worktree Git",
+        crate::tr!("Il percorso della corsia non appartiene a un worktree Git", "The lane path does not belong to a Git worktree"),
     )?;
     let toplevel_text = String::from_utf8_lossy(&toplevel.stdout).trim().to_string();
     let (worktree_root, entry) = resolve_managed_worktree(&context, &toplevel_text)?;
@@ -2882,7 +2946,7 @@ fn apply_allowlist_sync(
                 relative_path,
                 status: AllowlistCopyStatus::Rejected,
                 bytes: 0,
-                reason: Some("Solo i file regolari vengono copiati".to_string()),
+                reason: Some(crate::tr!("Solo i file regolari vengono copiati", "Only regular files are copied").to_string()),
             });
             continue;
         }
@@ -2892,9 +2956,15 @@ fn apply_allowlist_sync(
                 relative_path,
                 status: AllowlistCopyStatus::Rejected,
                 bytes,
-                reason: Some(format!(
-                    "Il file supera il limite di {} KiB previsto per i file locali",
-                    MAX_ALLOWLIST_BYTES / 1024
+                reason: Some(crate::tr!(
+                    format!(
+                        "Il file supera il limite di {} KiB previsto per i file locali",
+                        MAX_ALLOWLIST_BYTES / 1024
+                    ),
+                    format!(
+                        "The file exceeds the {} KiB limit for local files",
+                        MAX_ALLOWLIST_BYTES / 1024
+                    )
                 )),
             });
             continue;
@@ -2968,7 +3038,7 @@ fn apply_allowlist_sync(
                         OsString::from(format!(":(literal){}", outcome.relative_path)),
                     ],
                     WorktreeErrorCode::GitCommandFailed,
-                    "Impossibile verificare i file locali della corsia",
+                    crate::tr!("Impossibile verificare i file locali della corsia", "Cannot verify the local files of the lane"),
                 )?;
                 tracked.stdout.is_empty()
             }
@@ -3062,7 +3132,10 @@ fn inspect_review_sync(
                     _ => {
                         return Err(WorktreeError::with_detail(
                             WorktreeErrorCode::InvalidTargetBranch,
-                            format!("Branch di destinazione '{}' non trovato", target_branch),
+                            crate::tr!(
+                                format!("Branch di destinazione '{}' non trovato", target_branch),
+                                format!("Target branch '{}' not found", target_branch)
+                            ),
                             "",
                         ));
                     }
@@ -3077,7 +3150,7 @@ fn inspect_review_sync(
             &canonical_worktree,
             &git_args(&["rev-parse", "--verify", "HEAD"]),
             WorktreeErrorCode::GitCommandFailed,
-            "Impossibile determinare HEAD della corsia",
+            crate::tr!("Impossibile determinare HEAD della corsia", "Cannot determine the lane HEAD"),
         )?;
         String::from_utf8_lossy(&out.stdout).trim().to_string()
     };
@@ -3355,13 +3428,7 @@ pub async fn worktree_inspect(
 #[command]
 pub async fn worktree_create(args: CreateWorktreeArgs) -> Result<WorktreeInfo, WorktreeError> {
     if crate::automations::is_project_locked(&args.project_path, None) {
-        return Err(WorktreeError::new(
-            WorktreeErrorCode::WorktreeLocked,
-            format!(
-                "Operazione non consentita: il progetto '{}' e' attualmente occupato da un'automazione attiva (AUT-042)",
-                args.project_path
-            ),
-        ));
+        return Err(project_locked_error(&args.project_path));
     }
     tokio::task::spawn_blocking(move || create_sync(args))
         .await
@@ -3380,10 +3447,7 @@ pub async fn worktree_remove(args: RemoveWorktreeArgs) -> Result<(), WorktreeErr
     if crate::automations::is_project_locked(&args.project_path, None)
         || crate::automations::is_project_locked(&args.worktree_path, None)
     {
-        return Err(WorktreeError::new(
-            WorktreeErrorCode::WorktreeLocked,
-            "Operazione non consentita: il progetto o worktree e' attualmente occupato da un'automazione attiva (AUT-042)".to_string(),
-        ));
+        return Err(project_or_worktree_locked_error());
     }
     tokio::task::spawn_blocking(move || remove_sync(args))
         .await
@@ -3404,13 +3468,7 @@ pub async fn worktree_apply_allowlist(
     args: ApplyAllowlistArgs,
 ) -> Result<Vec<AllowlistCopyOutcome>, WorktreeError> {
     if crate::automations::is_project_locked(&args.project_path, None) {
-        return Err(WorktreeError::new(
-            WorktreeErrorCode::WorktreeLocked,
-            format!(
-                "Operazione non consentita: il progetto '{}' e' attualmente occupato da un'automazione attiva (AUT-042)",
-                args.project_path
-            ),
-        ));
+        return Err(project_locked_error(&args.project_path));
     }
     tokio::task::spawn_blocking(move || apply_allowlist_sync(args))
         .await
@@ -3433,10 +3491,7 @@ pub async fn worktree_land(
     if crate::automations::is_project_locked(&args.project_path, None)
         || crate::automations::is_project_locked(&args.worktree_path, None)
     {
-        return Err(WorktreeError::new(
-            WorktreeErrorCode::WorktreeLocked,
-            "Operazione non consentita: il progetto o worktree e' attualmente occupato da un'automazione attiva (AUT-042)".to_string(),
-        ));
+        return Err(project_or_worktree_locked_error());
     }
     tokio::task::spawn_blocking(move || lane_integrate::land_sync(args))
         .await
@@ -3448,13 +3503,7 @@ pub async fn worktree_undo_land(
     args: lane_integrate::WorktreeUndoLandArgs,
 ) -> Result<lane_integrate::WorktreeUndoLandOutcome, WorktreeError> {
     if crate::automations::is_project_locked(&args.project_path, None) {
-        return Err(WorktreeError::new(
-            WorktreeErrorCode::WorktreeLocked,
-            format!(
-                "Operazione non consentita: il progetto '{}' e' attualmente occupato da un'automazione attiva (AUT-042)",
-                args.project_path
-            ),
-        ));
+        return Err(project_locked_error(&args.project_path));
     }
     tokio::task::spawn_blocking(move || lane_integrate::undo_land_sync(args))
         .await
@@ -3465,13 +3514,7 @@ pub async fn worktree_delete_lane_branch(
     args: lane_integrate::DeleteLaneBranchArgs,
 ) -> Result<(), WorktreeError> {
     if crate::automations::is_project_locked(&args.project_path, None) {
-        return Err(WorktreeError::new(
-            WorktreeErrorCode::WorktreeLocked,
-            format!(
-                "Operazione non consentita: il progetto '{}' e' attualmente occupato da un'automazione attiva (AUT-042)",
-                args.project_path
-            ),
-        ));
+        return Err(project_locked_error(&args.project_path));
     }
     tokio::task::spawn_blocking(move || lane_integrate::delete_lane_branch_sync(args))
         .await
@@ -3514,13 +3557,7 @@ pub async fn worktree_attach_branch(
     args: AttachWorktreeArgs,
 ) -> Result<WorktreeInfo, WorktreeError> {
     if crate::automations::is_project_locked(&args.project_path, None) {
-        return Err(WorktreeError::new(
-            WorktreeErrorCode::WorktreeLocked,
-            format!(
-                "Operazione non consentita: il progetto '{}' e' attualmente occupato da un'automazione attiva (AUT-042)",
-                args.project_path
-            ),
-        ));
+        return Err(project_locked_error(&args.project_path));
     }
     tokio::task::spawn_blocking(move || attach_sync(args))
         .await

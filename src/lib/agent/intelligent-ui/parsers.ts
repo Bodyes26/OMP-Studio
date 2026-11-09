@@ -72,7 +72,7 @@ export function parseMetricBlock(text: string): StatItem[] | null {
 			const parsed = JSON.parse(trimmed);
 			const arr = Array.isArray(parsed) ? parsed : [parsed];
 			return arr.map((item) => ({
-				label: String(item.label || item.name || 'Metrica'),
+				label: String(item.label || item.name || ''),
 				value: item.value ?? 0,
 				change: item.change,
 				trend: item.trend,
@@ -125,7 +125,7 @@ export function parseTabsBlock(text: string): TabItem[] | null {
 			if (Array.isArray(parsed)) {
 				return parsed.map((t, idx) => ({
 					id: t.id || `tab-${idx}`,
-					title: String(t.title || `Tab ${idx + 1}`),
+					title: String(t.title || ''),
 					lang: t.lang,
 					content: String(t.content || '')
 				}));
@@ -171,7 +171,7 @@ export function parseStepsBlock(text: string): StepItem[] | null {
 			if (Array.isArray(parsed)) {
 				return parsed.map((s, idx) => ({
 					id: s.id || idx + 1,
-					title: String(s.title || `Passo ${idx + 1}`),
+					title: String(s.title || ''),
 					status: s.status || 'pending',
 					description: s.description
 				}));
@@ -253,11 +253,11 @@ export function parseCompareBlock(text: string): { before: string; after: string
 	if (splitMatch.length >= 2) {
 		const beforePart = splitMatch[0].replace(/===\s*(?:PRIMA|BEFORE)\s*===/i, '').trim();
 		const afterPart = splitMatch[1].trim();
+		// Nessuna etichetta qui: le risolve CompareSlider nella lingua attiva,
+		// altrimenti il testo resterebbe congelato al momento del parsing.
 		return {
 			before: beforePart,
-			after: afterPart,
-			labelBefore: 'Prima',
-			labelAfter: 'Dopo'
+			after: afterPart
 		};
 	}
 

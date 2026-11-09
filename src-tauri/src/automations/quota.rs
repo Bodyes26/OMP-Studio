@@ -1,8 +1,8 @@
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 use super::model::AutomationQuotaPolicy;
 
@@ -69,7 +69,9 @@ pub fn model_family_for(model_id: &str) -> Option<&'static str> {
     };
     if starts_with_ignore_ascii_case(leaf, "claude-") {
         Some("anthropic")
-    } else if starts_with_ignore_ascii_case(leaf, "gemini-") || starts_with_ignore_ascii_case(leaf, "gemma-") {
+    } else if starts_with_ignore_ascii_case(leaf, "gemini-")
+        || starts_with_ignore_ascii_case(leaf, "gemma-")
+    {
         Some("google")
     } else if starts_with_ignore_ascii_case(leaf, "gpt-") {
         Some("openai")
@@ -119,7 +121,13 @@ pub fn categorize_window(window_id: &str, label: &str, duration_ms: Option<f64>)
     }
     let id_l = window_id.to_lowercase();
     let lbl_l = label.to_lowercase();
-    if id_l.contains("short") || id_l.contains("5h") || id_l.contains("day") || id_l.contains("daily") || lbl_l.contains("day") || lbl_l.contains("session") {
+    if id_l.contains("short")
+        || id_l.contains("5h")
+        || id_l.contains("day")
+        || id_l.contains("daily")
+        || lbl_l.contains("day")
+        || lbl_l.contains("session")
+    {
         "short"
     } else if id_l.contains("week") || id_l.contains("7d") || lbl_l.contains("week") {
         "weekly"
@@ -144,9 +152,14 @@ pub fn read_model_roles_cached() -> HashMap<String, String> {
     }
 
     let mut roles = HashMap::new();
-    let home = std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME")).unwrap_or_default();
+    let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .unwrap_or_default();
     if !home.is_empty() {
-        let config_path = std::path::Path::new(&home).join(".omp").join("agent").join("config.yml");
+        let config_path = std::path::Path::new(&home)
+            .join(".omp")
+            .join("agent")
+            .join("config.yml");
         if let Ok(content) = std::fs::read_to_string(config_path) {
             if let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(&content) {
                 if let Some(mapping) = yaml.get("modelRoles").and_then(|v| v.as_mapping()) {
@@ -170,7 +183,8 @@ pub fn read_model_roles_cached() -> HashMap<String, String> {
 pub fn resolve_model_selector(model_or_role: &str, roles: &HashMap<String, String>) -> String {
     let trimmed = model_or_role.trim();
     if trimmed.is_empty() {
-        return roles.get("smol")
+        return roles
+            .get("smol")
             .or_else(|| roles.get("default"))
             .cloned()
             .unwrap_or_default();
@@ -314,7 +328,9 @@ pub fn evaluate_with_usage(
                 continue;
             }
             if let Some(status) = meta.get("status").and_then(|v| v.as_str()) {
-                if status.eq_ignore_ascii_case("disabled") || status.eq_ignore_ascii_case("inactive") {
+                if status.eq_ignore_ascii_case("disabled")
+                    || status.eq_ignore_ascii_case("inactive")
+                {
                     continue;
                 }
             }
@@ -322,7 +338,11 @@ pub fn evaluate_with_usage(
 
         let account_id = report
             .get("metadata")
-            .and_then(|m| m.get("accountId").or_else(|| m.get("email")).or_else(|| m.get("orgId")))
+            .and_then(|m| {
+                m.get("accountId")
+                    .or_else(|| m.get("email"))
+                    .or_else(|| m.get("orgId"))
+            })
             .and_then(|v| v.as_str())
             .unwrap_or(&format!("account-{}", idx))
             .to_string();
@@ -338,7 +358,11 @@ pub fn evaluate_with_usage(
 
         for l in limits_val {
             // Deduplica shared pool
-            if let Some(shared_group) = l.get("scope").and_then(|s| s.get("sharedGroup")).and_then(|g| g.as_str()) {
+            if let Some(shared_group) = l
+                .get("scope")
+                .and_then(|s| s.get("sharedGroup"))
+                .and_then(|g| g.as_str())
+            {
                 if !seen_shared_groups.insert(shared_group.to_string()) {
                     continue;
                 }
@@ -369,27 +393,51 @@ pub fn evaluate_with_usage(
                     }
                 } else if !limit_id.is_empty() {
                     let lbl_lower = label.to_lowercase();
-                    if fam == "anthropic" && (lbl_lower.contains("gemini") || lbl_lower.contains("openai")) {
+                    if fam == "anthropic"
+                        && (lbl_lower.contains("gemini") || lbl_lower.contains("openai"))
+                    {
                         continue;
                     }
-                    if fam == "google" && (lbl_lower.contains("anthropic") || lbl_lower.contains("openai")) {
+                    if fam == "google"
+                        && (lbl_lower.contains("anthropic") || lbl_lower.contains("openai"))
+                    {
                         continue;
                     }
-                    if fam == "openai" && (lbl_lower.contains("anthropic") || lbl_lower.contains("gemini")) {
+                    if fam == "openai"
+                        && (lbl_lower.contains("anthropic") || lbl_lower.contains("gemini"))
+                    {
                         continue;
                     }
                 }
             }
 
-            let window_id = l.get("window").and_then(|w| w.get("id")).and_then(|i| i.as_str()).unwrap_or("").to_string();
-            let label = l.get("label").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let duration_ms = l.get("window").and_then(|w| w.get("durationMs")).and_then(|d| d.as_f64());
+            let window_id = l
+                .get("window")
+                .and_then(|w| w.get("id"))
+                .and_then(|i| i.as_str())
+                .unwrap_or("")
+                .to_string();
+            let label = l
+                .get("label")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let duration_ms = l
+                .get("window")
+                .and_then(|w| w.get("durationMs"))
+                .and_then(|d| d.as_f64());
             let window_cat = categorize_window(&window_id, &label, duration_ms);
 
             let amount = l.get("amount");
             let remaining_frac = amount
                 .and_then(|a| a.get("remainingFraction").and_then(|f| f.as_f64()))
-                .or_else(|| amount.and_then(|a| a.get("usedFraction").and_then(|f| f.as_f64()).map(|u| 1.0 - u)))
+                .or_else(|| {
+                    amount.and_then(|a| {
+                        a.get("usedFraction")
+                            .and_then(|f| f.as_f64())
+                            .map(|u| 1.0 - u)
+                    })
+                })
                 .unwrap_or(1.0);
             let remaining_pct = (remaining_frac.clamp(0.0, 1.0) * 100.0).round();
 
@@ -487,10 +535,14 @@ pub fn evaluate_with_usage(
         // Altrimenti considera gli account equivalenti dichiarati:
         // media aritmetica delle percentuali (es. 24% e 90% = 57%).
         let agg_pct = if all_have_physical && sum_physical_lim > 0.0 {
-            ((sum_physical_rem / sum_physical_lim) * 100.0).clamp(0.0, 100.0).round()
+            ((sum_physical_rem / sum_physical_lim) * 100.0)
+                .clamp(0.0, 100.0)
+                .round()
         } else {
             let total: f64 = account_pcts.iter().sum();
-            (total / (account_pcts.len() as f64)).clamp(0.0, 100.0).round()
+            (total / (account_pcts.len() as f64))
+                .clamp(0.0, 100.0)
+                .round()
         };
 
         if agg_pct < min_agg_pct {

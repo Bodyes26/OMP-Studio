@@ -290,7 +290,12 @@ fn database_status(agent: &Path) -> Vec<DatabaseStatus> {
 pub async fn setup_status() -> Result<SetupStatus, String> {
     tokio::task::spawn_blocking(|| status_for(crate::omp_ops::agent_dir()))
         .await
-        .map_err(|e| format!("Verifica del contratto: {}", e))
+        .map_err(|e| {
+        crate::tr!(
+            format!("Verifica del contratto: {}", e),
+            format!("Contract check: {}", e)
+        )
+    })
 }
 
 /// Corpo di `setup_status` con la directory dell'agente esplicita: e' quello
@@ -455,21 +460,33 @@ fn github_client() -> Result<reqwest::Client, String> {
         .timeout(std::time::Duration::from_secs(300))
         .user_agent(format!("omp-studio/{}", env!("CARGO_PKG_VERSION")))
         .build()
-        .map_err(|e| format!("Inizializzazione client HTTP: {}", e))
+        .map_err(|e| {
+            crate::tr!(
+                format!("Inizializzazione client HTTP: {}", e),
+                format!("HTTP client initialization: {}", e)
+            )
+        })
 }
 
 /// SHA-256 del file appena scaricato, calcolato nativamente in Rust.
 /// Evita dipendenze da PowerShell o shasum ed elimina rischi di timeout
 /// o execution policy.
 fn file_sha256(path: &Path) -> Result<String, String> {
-    let mut file = std::fs::File::open(path)
-        .map_err(|e| format!("Apertura del file da verificare {}: {}", path.display(), e))?;
+    let mut file = std::fs::File::open(path).map_err(|e| {
+        crate::tr!(
+            format!("Apertura del file da verificare {}: {}", path.display(), e),
+            format!("Opening the file to verify {}: {}", path.display(), e)
+        )
+    })?;
     let mut hasher = Sha256::new();
     let mut buffer = [0u8; 64 * 1024];
     loop {
-        let n = file
-            .read(&mut buffer)
-            .map_err(|e| format!("Lettura del file da verificare {}: {}", path.display(), e))?;
+        let n = file.read(&mut buffer).map_err(|e| {
+            crate::tr!(
+                format!("Lettura del file da verificare {}: {}", path.display(), e),
+                format!("Reading the file to verify {}: {}", path.display(), e)
+            )
+        })?;
         if n == 0 {
             break;
         }
@@ -501,20 +518,35 @@ fn resolve_expected_hash(
         .and_then(parse_asset_digest)
         .or_else(|| checksum_hash.and_then(normalize_sha256))
         .ok_or_else(|| {
-            "La release non fornisce un'impronta SHA-256 valida per il binario richiesto"
-                .to_string()
+            crate::tr!(
+                "La release non fornisce un'impronta SHA-256 valida per il binario richiesto",
+                "The release does not provide a valid SHA-256 digest for the requested binary"
+            )
+            .to_string()
         })
 }
 
 fn verify_file_sha256(path: &Path, expected: &str) -> Result<(), String> {
-    let expected = normalize_sha256(expected).ok_or("L'impronta SHA-256 attesa non e' valida")?;
+    let expected = normalize_sha256(expected).ok_or_else(|| {
+        crate::tr!(
+            "L'impronta SHA-256 attesa non e' valida",
+            "The expected SHA-256 digest is not valid"
+        )
+        .to_string()
+    })?;
     let actual = file_sha256(path)?;
     if actual == expected {
         return Ok(());
     }
-    Err(format!(
-        "Impronta del file scaricato diversa da quella ufficiale pubblicata: attesa {}, trovata {}",
-        expected, actual
+    Err(crate::tr!(
+        format!(
+            "Impronta del file scaricato diversa da quella ufficiale pubblicata: attesa {}, trovata {}",
+            expected, actual
+        ),
+        format!(
+            "The downloaded file digest differs from the published one: expected {}, found {}",
+            expected, actual
+        )
     ))
 }
 
@@ -626,7 +658,12 @@ fn ensure_profile_exports(profile: &Path, dir: &Path) -> Result<bool, String> {
     let existing = match std::fs::read_to_string(profile) {
         Ok(text) => text,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(error) => return Err(format!("Lettura di {}: {}", profile.display(), error)),
+        Err(error) => {
+            return Err(crate::tr!(
+                format!("Lettura di {}: {}", profile.display(), error),
+                format!("Reading {}: {}", profile.display(), error)
+            ))
+        }
     };
     if existing.contains(PATH_BLOCK_START) {
         return Ok(false);
@@ -644,8 +681,12 @@ fn ensure_profile_exports(profile: &Path, dir: &Path) -> Result<bool, String> {
     next.push('\n');
 
     if let Some(parent) = profile.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|error| format!("Cartella di {}: {}", profile.display(), error))?;
+        std::fs::create_dir_all(parent).map_err(|error| {
+            crate::tr!(
+                format!("Cartella di {}: {}", profile.display(), error),
+                format!("Folder of {}: {}", profile.display(), error)
+            )
+        })?;
     }
     crate::fs_atomic::atomic_write(profile, next.as_bytes())?;
     Ok(true)
@@ -704,8 +745,12 @@ fn ensure_shell_path() -> Result<Option<String>, String> {
     let path = agent.join("settings.json");
 
     let mut root = if path.exists() {
-        let text = std::fs::read_to_string(&path)
-            .map_err(|e| format!("Lettura di settings.json: {}", e))?;
+        let text = std::fs::read_to_string(&path).map_err(|e| {
+            crate::tr!(
+                format!("Lettura di settings.json: {}", e),
+                format!("Reading settings.json: {}", e)
+            )
+        })?;
         serde_json::from_str::<serde_json::Value>(&text)
             .unwrap_or_else(|_| serde_json::Value::Object(serde_json::Map::new()))
     } else {
@@ -732,10 +777,24 @@ fn ensure_shell_path() -> Result<Option<String>, String> {
         serde_json::Value::String(bash_str.clone()),
     );
 
-    std::fs::create_dir_all(&agent).map_err(|e| format!("Cartella dell'agente: {}", e))?;
-    let serialized = serde_json::to_string_pretty(&root)
-        .map_err(|e| format!("Serializzazione di settings.json: {}", e))?;
-    std::fs::write(&path, serialized).map_err(|e| format!("Scrittura di settings.json: {}", e))?;
+    std::fs::create_dir_all(&agent).map_err(|e| {
+        crate::tr!(
+            format!("Cartella dell'agente: {}", e),
+            format!("Agent folder: {}", e)
+        )
+    })?;
+    let serialized = serde_json::to_string_pretty(&root).map_err(|e| {
+        crate::tr!(
+            format!("Serializzazione di settings.json: {}", e),
+            format!("Serializing settings.json: {}", e)
+        )
+    })?;
+    std::fs::write(&path, serialized).map_err(|e| {
+        crate::tr!(
+            format!("Scrittura di settings.json: {}", e),
+            format!("Writing settings.json: {}", e)
+        )
+    })?;
     Ok(Some(bash_str))
 }
 
@@ -744,55 +803,87 @@ fn replace_verified_binary(temp_path: &Path, target: &Path) -> Result<(), String
     {
         // `rename` sostituisce atomicamente un file esistente: un errore lascia
         // quindi intatta la versione gia' installata.
-        std::fs::rename(temp_path, target)
-            .map_err(|e| format!("Installazione del binario {}: {}", target.display(), e))
+        std::fs::rename(temp_path, target).map_err(|e| {
+            crate::tr!(
+                format!("Installazione del binario {}: {}", target.display(), e),
+                format!("Installing the binary {}: {}", target.display(), e)
+            )
+        })
     }
 
     #[cfg(target_os = "windows")]
     {
         if !target.exists() {
-            return std::fs::rename(temp_path, target)
-                .map_err(|e| format!("Installazione del binario {}: {}", target.display(), e));
+            return std::fs::rename(temp_path, target).map_err(|e| {
+                crate::tr!(
+                    format!("Installazione del binario {}: {}", target.display(), e),
+                    format!("Installing the binary {}: {}", target.display(), e)
+                )
+            });
         }
 
         // Windows non consente a `rename` di sovrascrivere la destinazione.
         // Conserviamo il binario corrente finche' quello verificato non e'
         // entrato al suo posto, cosi' possiamo ripristinarlo in caso di errore.
         let file_name = target.file_name().ok_or_else(|| {
-            format!(
-                "Nome del binario di destinazione non valido: {}",
-                target.display()
+            crate::tr!(
+                format!(
+                    "Nome del binario di destinazione non valido: {}",
+                    target.display()
+                ),
+                format!("Invalid destination binary name: {}", target.display())
             )
         })?;
         let backup = target.with_file_name(format!("{}.previous", file_name.to_string_lossy()));
         if backup.exists() {
             std::fs::remove_file(&backup).map_err(|e| {
-                format!(
-                    "Rimozione del backup precedente {}: {}",
-                    backup.display(),
-                    e
+                crate::tr!(
+                    format!(
+                        "Rimozione del backup precedente {}: {}",
+                        backup.display(),
+                        e
+                    ),
+                    format!("Removing the previous backup {}: {}", backup.display(), e)
                 )
             })?;
         }
         std::fs::rename(target, &backup).map_err(|e| {
-            format!(
-                "Preparazione della sostituzione di {}: {}",
-                target.display(),
-                e
+            crate::tr!(
+                format!(
+                    "Preparazione della sostituzione di {}: {}",
+                    target.display(),
+                    e
+                ),
+                format!("Preparing the replacement of {}: {}", target.display(), e)
             )
         })?;
         if let Err(install_error) = std::fs::rename(temp_path, target) {
             return match std::fs::rename(&backup, target) {
-                Ok(()) => Err(format!(
-                    "Installazione del binario {}: {}",
-                    target.display(),
-                    install_error
+                Ok(()) => Err(crate::tr!(
+                    format!(
+                        "Installazione del binario {}: {}",
+                        target.display(),
+                        install_error
+                    ),
+                    format!(
+                        "Installing the binary {}: {}",
+                        target.display(),
+                        install_error
+                    )
                 )),
-                Err(restore_error) => Err(format!(
-                    "Installazione del binario {}: {}; ripristino del binario precedente non riuscito: {}",
-                    target.display(),
-                    install_error,
-                    restore_error
+                Err(restore_error) => Err(crate::tr!(
+                    format!(
+                        "Installazione del binario {}: {}; ripristino del binario precedente non riuscito: {}",
+                        target.display(),
+                        install_error,
+                        restore_error
+                    ),
+                    format!(
+                        "Installing the binary {}: {}; restoring the previous binary failed: {}",
+                        target.display(),
+                        install_error,
+                        restore_error
+                    )
                 )),
             };
         }
@@ -826,11 +917,19 @@ pub struct InstallOutcome {
 pub async fn install_omp(app: AppHandle) -> Result<InstallOutcome, String> {
     let result = install_omp_inner(&app).await;
     if let Err(error) = &result {
-        let diagnostic = format!(
-            "Errore durante l'installazione di omp su {} {}: {}",
-            std::env::consts::OS,
-            std::env::consts::ARCH,
-            error
+        let diagnostic = crate::tr!(
+            format!(
+                "Errore durante l'installazione di omp su {} {}: {}",
+                std::env::consts::OS,
+                std::env::consts::ARCH,
+                error
+            ),
+            format!(
+                "Error while installing omp on {} {}: {}",
+                std::env::consts::OS,
+                std::env::consts::ARCH,
+                error
+            )
         );
         let _ = app.emit(
             INSTALL_EVENT,
@@ -842,22 +941,46 @@ pub async fn install_omp(app: AppHandle) -> Result<InstallOutcome, String> {
 
 async fn install_omp_inner(app: &AppHandle) -> Result<InstallOutcome, String> {
     let asset_name = release_asset_name().ok_or_else(|| {
-        format!(
-            "Nessun binario di omp pubblicato per {} {}",
-            std::env::consts::OS,
-            std::env::consts::ARCH
+        crate::tr!(
+            format!(
+                "Nessun binario di omp pubblicato per {} {}",
+                std::env::consts::OS,
+                std::env::consts::ARCH
+            ),
+            format!(
+                "No omp binary published for {} {}",
+                std::env::consts::OS,
+                std::env::consts::ARCH
+            )
         )
     })?;
-    let target =
-        installed_binary_path().ok_or("Impossibile risolvere la cartella di installazione")?;
+    let target = installed_binary_path().ok_or_else(|| {
+        crate::tr!(
+            "Impossibile risolvere la cartella di installazione",
+            "Could not resolve the installation folder"
+        )
+        .to_string()
+    })?;
     let dir = target
         .parent()
-        .ok_or("Cartella di installazione non valida")?
+        .ok_or_else(|| {
+            crate::tr!(
+                "Cartella di installazione non valida",
+                "Invalid installation folder"
+            )
+            .to_string()
+        })?
         .to_path_buf();
 
     let _ = app.emit(
         INSTALL_EVENT,
-        InstallProgress::stage("resolving", "Cerco l'ultima release di omp"),
+        InstallProgress::stage(
+            "resolving",
+            crate::tr!(
+                "Cerco l'ultima release di omp",
+                "Looking for the latest omp release"
+            ),
+        ),
     );
 
     let client = github_client()?;
@@ -881,9 +1004,15 @@ async fn install_omp_inner(app: &AppHandle) -> Result<InstallOutcome, String> {
             let expected = fetch_hash_from_url(&client, &sums_url, asset_name)
                     .await
                     .map_err(|checksum_error| {
-                        format!(
-                            "Impossibile risolvere un'impronta SHA-256 attendibile: API GitHub: {}; checksum della release: {}",
-                            api_error, checksum_error
+                        crate::tr!(
+                            format!(
+                                "Impossibile risolvere un'impronta SHA-256 attendibile: API GitHub: {}; checksum della release: {}",
+                                api_error, checksum_error
+                            ),
+                            format!(
+                                "Could not resolve a trusted SHA-256 digest: GitHub API: {}; release checksum: {}",
+                                api_error, checksum_error
+                            )
                         )
                     })?;
             (fallback_url, "latest".to_string(), expected)
@@ -893,10 +1022,17 @@ async fn install_omp_inner(app: &AppHandle) -> Result<InstallOutcome, String> {
     // Si scarica in un file temporaneo accanto alla destinazione: se il
     // download si interrompe, l'eventuale binario esistente non viene corrotto.
     std::fs::create_dir_all(&dir).map_err(|e| {
-        format!(
-            "Creazione cartella di installazione {}: {}",
-            dir.display(),
-            e
+        crate::tr!(
+            format!(
+                "Creazione cartella di installazione {}: {}",
+                dir.display(),
+                e
+            ),
+            format!(
+                "Creating the installation folder {}: {}",
+                dir.display(),
+                e
+            )
         )
     })?;
     let temp_path = dir.join(format!("{}.download", asset_name));
@@ -906,23 +1042,39 @@ async fn install_omp_inner(app: &AppHandle) -> Result<InstallOutcome, String> {
 
     let _ = app.emit(
         INSTALL_EVENT,
-        InstallProgress::stage("downloading", "Avvio del download di omp"),
+        InstallProgress::stage(
+            "downloading",
+            crate::tr!("Avvio del download di omp", "Starting the omp download"),
+        ),
     );
 
     let response = client
         .get(&download_url)
         .send()
         .await
-        .map_err(|e| format!("Connessione per il download non riuscita: {}", e))?
+        .map_err(|e| {
+            crate::tr!(
+                format!("Connessione per il download non riuscita: {}", e),
+                format!("Connection for the download failed: {}", e)
+            )
+        })?
         .error_for_status()
-        .map_err(|e| format!("Download non disponibile dal server: {}", e))?;
+        .map_err(|e| {
+            crate::tr!(
+                format!("Download non disponibile dal server: {}", e),
+                format!("Download not available from the server: {}", e)
+            )
+        })?;
     let total_bytes = response.content_length().unwrap_or(0);
 
     {
         use tokio::io::AsyncWriteExt;
-        let mut file = tokio::fs::File::create(&temp_path)
-            .await
-            .map_err(|e| format!("Creazione file temporaneo {}: {}", temp_path.display(), e))?;
+        let mut file = tokio::fs::File::create(&temp_path).await.map_err(|e| {
+            crate::tr!(
+                format!("Creazione file temporaneo {}: {}", temp_path.display(), e),
+                format!("Creating the temporary file {}: {}", temp_path.display(), e)
+            )
+        })?;
         let mut stream = response.bytes_stream();
         let mut downloaded: u64 = 0;
         let mut last_emit = std::time::Instant::now();
@@ -932,12 +1084,18 @@ async fn install_omp_inner(app: &AppHandle) -> Result<InstallOutcome, String> {
                 Ok(c) => c,
                 Err(e) => {
                     let _ = std::fs::remove_file(&temp_path);
-                    return Err(format!("Download interrotto per errore di rete: {}", e));
+                    return Err(crate::tr!(
+                        format!("Download interrotto per errore di rete: {}", e),
+                        format!("Download interrupted by a network error: {}", e)
+                    ));
                 }
             };
             if let Err(e) = file.write_all(&chunk).await {
                 let _ = std::fs::remove_file(&temp_path);
-                return Err(format!("Scrittura del file scaricato su disco: {}", e));
+                return Err(crate::tr!(
+                    format!("Scrittura del file scaricato su disco: {}", e),
+                    format!("Writing the downloaded file to disk: {}", e)
+                ));
             }
             downloaded += chunk.len() as u64;
 
@@ -954,7 +1112,10 @@ async fn install_omp_inner(app: &AppHandle) -> Result<InstallOutcome, String> {
                         } else {
                             0.0
                         },
-                        message: Some("Download di omp in corso".to_string()),
+                        message: Some(
+                            crate::tr!("Download di omp in corso", "omp download in progress")
+                                .to_string(),
+                        ),
                         error: None,
                         diagnostic: None,
                         retryable: false,
@@ -964,13 +1125,22 @@ async fn install_omp_inner(app: &AppHandle) -> Result<InstallOutcome, String> {
         }
         if let Err(e) = file.flush().await {
             let _ = std::fs::remove_file(&temp_path);
-            return Err(format!("Chiusura del file scaricato: {}", e));
+            return Err(crate::tr!(
+                format!("Chiusura del file scaricato: {}", e),
+                format!("Closing the downloaded file: {}", e)
+            ));
         }
     }
 
     let _ = app.emit(
         INSTALL_EVENT,
-        InstallProgress::stage("verifying", "Verifico l'impronta di sicurezza SHA-256"),
+        InstallProgress::stage(
+            "verifying",
+            crate::tr!(
+                "Verifico l'impronta di sicurezza SHA-256",
+                "Verifying the SHA-256 security digest"
+            ),
+        ),
     );
     if let Err(error) = verify_file_sha256(&temp_path, &expected_hash) {
         let _ = std::fs::remove_file(&temp_path);
@@ -979,7 +1149,10 @@ async fn install_omp_inner(app: &AppHandle) -> Result<InstallOutcome, String> {
 
     let _ = app.emit(
         INSTALL_EVENT,
-        InstallProgress::stage("installing", "Installazione del binario"),
+        InstallProgress::stage(
+            "installing",
+            crate::tr!("Installazione del binario", "Installing the binary"),
+        ),
     );
 
     if let Err(error) = replace_verified_binary(&temp_path, &target) {
@@ -1009,9 +1182,15 @@ async fn install_omp_inner(app: &AppHandle) -> Result<InstallOutcome, String> {
     }
 
     let version = detected_version.ok_or_else(|| {
-        format!(
-            "Il binario e' stato scritto in {} ma non risponde a 'omp --version'. Verifica che l'antivirus non stia bloccando il file.",
-            target.display()
+        crate::tr!(
+            format!(
+                "Il binario e' stato scritto in {} ma non risponde a 'omp --version'. Verifica che l'antivirus non stia bloccando il file.",
+                target.display()
+            ),
+            format!(
+                "The binary was written to {} but does not answer to 'omp --version'. Check that the antivirus is not blocking the file.",
+                target.display()
+            )
         )
     })?;
 
@@ -1036,7 +1215,10 @@ async fn install_omp_inner(app: &AppHandle) -> Result<InstallOutcome, String> {
             downloaded_bytes: total_bytes,
             total_bytes,
             percentage: 100.0,
-            message: Some(format!("omp {} installato con successo", outcome.version)),
+            message: Some(crate::tr!(
+                format!("omp {} installato con successo", outcome.version),
+                format!("omp {} installed successfully", outcome.version)
+            )),
             error: None,
             diagnostic: None,
             retryable: false,
@@ -1056,21 +1238,42 @@ async fn fetch_release_info(
         ))
         .send()
         .await
-        .map_err(|e| format!("Connessione a GitHub: {}", e))?
+        .map_err(|e| {
+            crate::tr!(
+                format!("Connessione a GitHub: {}", e),
+                format!("Connection to GitHub: {}", e)
+            )
+        })?
         .error_for_status()
-        .map_err(|e| format!("Status release GitHub: {}", e))?
+        .map_err(|e| {
+            crate::tr!(
+                format!("Status release GitHub: {}", e),
+                format!("GitHub release status: {}", e)
+            )
+        })?
         .json()
         .await
-        .map_err(|e| format!("Risposta JSON della release non valida: {}", e))?;
+        .map_err(|e| {
+            crate::tr!(
+                format!("Risposta JSON della release non valida: {}", e),
+                format!("Invalid release JSON response: {}", e)
+            )
+        })?;
 
     let asset = release
         .assets
         .iter()
         .find(|asset| asset.name == asset_name)
         .ok_or_else(|| {
-            format!(
-                "La release {} non contiene l'asset {}",
-                release.tag_name, asset_name
+            crate::tr!(
+                format!(
+                    "La release {} non contiene l'asset {}",
+                    release.tag_name, asset_name
+                ),
+                format!(
+                    "Release {} does not contain the asset {}",
+                    release.tag_name, asset_name
+                )
             )
         })?;
 
@@ -1101,16 +1304,37 @@ async fn fetch_hash_from_url(
         .get(url)
         .send()
         .await
-        .map_err(|e| format!("Connessione al file checksum: {}", e))?
+        .map_err(|e| {
+            crate::tr!(
+                format!("Connessione al file checksum: {}", e),
+                format!("Connection to the checksum file: {}", e)
+            )
+        })?
         .error_for_status()
-        .map_err(|e| format!("File checksum non disponibile: {}", e))?
+        .map_err(|e| {
+            crate::tr!(
+                format!("File checksum non disponibile: {}", e),
+                format!("Checksum file not available: {}", e)
+            )
+        })?
         .text()
         .await
-        .map_err(|e| format!("Lettura del file checksum: {}", e))?;
+        .map_err(|e| {
+            crate::tr!(
+                format!("Lettura del file checksum: {}", e),
+                format!("Reading the checksum file: {}", e)
+            )
+        })?;
     parse_checksums(&text, asset_name).ok_or_else(|| {
-        format!(
-            "Il file checksum non contiene uno SHA-256 valido per {}",
-            asset_name
+        crate::tr!(
+            format!(
+                "Il file checksum non contiene uno SHA-256 valido per {}",
+                asset_name
+            ),
+            format!(
+                "The checksum file does not contain a valid SHA-256 for {}",
+                asset_name
+            )
         )
     })
 }
@@ -1142,7 +1366,13 @@ async fn fetch_expected_hash(
         .assets
         .iter()
         .find(|asset| asset.name == "SHA256SUMS.txt")
-        .ok_or("La release non pubblica SHA256SUMS.txt")?;
+        .ok_or_else(|| {
+            crate::tr!(
+                "La release non pubblica SHA256SUMS.txt",
+                "The release does not publish SHA256SUMS.txt"
+            )
+            .to_string()
+        })?;
     fetch_hash_from_url(client, &sums.browser_download_url, asset_name).await
 }
 
@@ -1209,16 +1439,34 @@ pub struct FontInstallOutcome {
 #[command]
 pub async fn install_nerd_font() -> Result<FontInstallOutcome, String> {
     tokio::task::spawn_blocking(|| {
-        let target = nerd_font_target().ok_or("Impossibile risolvere la cartella dei font")?;
-        let dir = target.parent().ok_or("Percorso del font non valido")?;
-        std::fs::create_dir_all(dir).map_err(|e| format!("Cartella dei font: {}", e))?;
+        let target = nerd_font_target().ok_or_else(|| {
+            crate::tr!(
+                "Impossibile risolvere la cartella dei font",
+                "Could not resolve the font folder"
+            )
+            .to_string()
+        })?;
+        let dir = target.parent().ok_or_else(|| {
+            crate::tr!("Percorso del font non valido", "Invalid font path").to_string()
+        })?;
+        std::fs::create_dir_all(dir).map_err(|e| {
+            crate::tr!(
+                format!("Cartella dei font: {}", e),
+                format!("Font folder: {}", e)
+            )
+        })?;
 
         let already = target.exists()
             && std::fs::metadata(&target)
                 .map(|m| m.len() == NERD_FONT_TTF.len() as u64)
                 .unwrap_or(false);
         if !already {
-            std::fs::write(&target, NERD_FONT_TTF).map_err(|e| format!("Copia del font: {}", e))?;
+            std::fs::write(&target, NERD_FONT_TTF).map_err(|e| {
+                crate::tr!(
+                    format!("Copia del font: {}", e),
+                    format!("Copying the font: {}", e)
+                )
+            })?;
         }
 
         let registered = register_font(&target);
@@ -1230,7 +1478,12 @@ pub async fn install_nerd_font() -> Result<FontInstallOutcome, String> {
         })
     })
     .await
-    .map_err(|e| format!("Installazione del font: {}", e))?
+    .map_err(|e| {
+        crate::tr!(
+            format!("Installazione del font: {}", e),
+            format!("Installing the font: {}", e)
+        )
+    })?
 }
 
 /// Registra il font nel ramo utente del registro e lo carica nella sessione
@@ -1341,7 +1594,13 @@ pub async fn detect_project_roots() -> Result<Vec<ProjectRootCandidate>, String>
     tokio::task::spawn_blocking(|| {
         let home = std::env::var("USERPROFILE")
             .or_else(|_| std::env::var("HOME"))
-            .map_err(|_| "Impossibile risolvere la cartella utente".to_string())?;
+            .map_err(|_| {
+                crate::tr!(
+                    "Impossibile risolvere la cartella utente",
+                    "Could not resolve the user folder"
+                )
+                .to_string()
+            })?;
         let home = PathBuf::from(home);
 
         let mut found: Vec<ProjectRootCandidate> = ROOT_CANDIDATES
@@ -1366,7 +1625,12 @@ pub async fn detect_project_roots() -> Result<Vec<ProjectRootCandidate>, String>
         Ok(found)
     })
     .await
-    .map_err(|e| format!("Rilevamento delle cartelle progetto: {}", e))?
+    .map_err(|e| {
+        crate::tr!(
+            format!("Rilevamento delle cartelle progetto: {}", e),
+            format!("Detecting the project folders: {}", e)
+        )
+    })?
 }
 
 #[cfg(test)]
@@ -1681,7 +1945,12 @@ mod tests {
         )
         .unwrap_err();
 
-        assert!(error.contains("diversa"));
+        // Il messaggio segue la lingua dell'interfaccia (default inglese): si
+        // verifica il fatto, non la frase.
+        assert!(
+            error.contains("digest differs") || error.contains("diversa"),
+            "errore inatteso: {error}"
+        );
         assert_eq!(
             std::fs::read(&existing).unwrap().as_slice(),
             b"existing binary"

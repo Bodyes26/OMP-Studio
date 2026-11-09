@@ -14,6 +14,7 @@
 // e resta sul renderer screenshot alimentato da
 // `tool_execution_start/update/end`.
 
+import { m as msg } from '#lib/paraglide/messages.js';
 import { Channel, invoke } from '@tauri-apps/api/core';
 
 /* ------------------------------------------------------------- capability */
@@ -693,7 +694,7 @@ export function checkTicket(
 	nowMs: number = Date.now()
 ): BrowserLiveCheck<BrowserLiveTicket> {
 	const source = record(value);
-	if (!source) return { ok: false, code: 'TICKET_INVALID', message: 'Ticket browser-live illeggibile' };
+	if (!source) return { ok: false, code: 'TICKET_INVALID', message: msg.l10n_agent_browser_ticket_unreadable() };
 	const ticketId = nonEmpty(source.ticketId);
 	const token = nonEmpty(source.token);
 	const endpoint = nonEmpty(source.endpoint);
@@ -710,14 +711,14 @@ export function checkTicket(
 		typeof issuedAtMs !== 'number' ||
 		typeof expiresAtMs !== 'number'
 	)
-		return { ok: false, code: 'TICKET_INVALID', message: 'Ticket browser-live incompleto' };
+		return { ok: false, code: 'TICKET_INVALID', message: msg.l10n_agent_browser_ticket_incomplete() };
 	if (source.transport !== 'local-websocket')
-		return { ok: false, code: 'TICKET_INVALID', message: 'Trasporto del ticket non supportato' };
+		return { ok: false, code: 'TICKET_INVALID', message: msg.l10n_agent_browser_ticket_transport_unsupported() };
 	if (!isLoopbackWebSocketEndpoint(endpoint))
-		return { ok: false, code: 'ENDPOINT_NOT_LOOPBACK', message: `Endpoint non loopback rifiutato: ${endpoint}` };
-	if (nowMs >= expiresAtMs) return { ok: false, code: 'TICKET_EXPIRED', message: 'Ticket browser-live scaduto' };
+		return { ok: false, code: 'ENDPOINT_NOT_LOOPBACK', message: msg.l10n_agent_browser_ticket_endpoint_rejected({ endpoint }) };
+	if (nowMs >= expiresAtMs) return { ok: false, code: 'TICKET_EXPIRED', message: msg.l10n_agent_browser_ticket_expired() };
 	if (!sameIdentity(identity, expected))
-		return { ok: false, code: 'TICKET_IDENTITY_MISMATCH', message: 'Ticket browser-live di un\u2019altra sessione' };
+		return { ok: false, code: 'TICKET_IDENTITY_MISMATCH', message: msg.l10n_agent_browser_ticket_other_session() };
 	return {
 		ok: true,
 		value: { ticketId, token, endpoint, transport: 'local-websocket', identity, runtimePid, issuedAtMs, expiresAtMs }
@@ -1551,7 +1552,7 @@ export async function startBrowserLiveWebSocketStream(
 			onEvent({
 				type: 'error',
 				code: 'BROWSER_LIVE_UNAVAILABLE',
-				message: 'Errore connessione WebSocket live'
+				message: msg.l10n_agent_browser_live_ws_error()
 			});
 		}
 	};
@@ -1578,7 +1579,7 @@ export async function startBrowserLiveWebSocketStream(
 		// Nessun selettore nativo fuori da Tauri: senza dialogo di sistema non
 		// esiste un percorso che l'utente abbia davvero scelto.
 		pickUploadFiles: async (): Promise<number> => {
-			throw new Error('Il selettore file nativo richiede il backend Tauri');
+			throw new Error(msg.l10n_agent_native_file_picker_requires_tauri());
 		}
 	});
 	return handle;

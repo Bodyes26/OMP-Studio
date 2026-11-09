@@ -205,11 +205,48 @@ jobs:
       - name: Lint del backend Rust
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 
-      - name: Compila gli installer
+      - name: Importa il certificato di firma macOS
+        if: runner.os == 'macOS'
         env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: bash scripts/ci-import-macos-cert.sh
+
+      # Stessa identita' della release stabile e della Nightly compilata in locale:
+      # se cambia, macOS tratta l'aggiornamento come un'altra app e richiede di
+      # nuovo permessi e accesso al portachiavi. Niente notarizzazione sulla Nightly.
+      - name: Compila gli installer
+        shell: bash
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           WINDOWS_CERTIFICATE_THUMBPRINT: ${{ secrets.WINDOWS_CERTIFICATE_THUMBPRINT }}
           CI: "true"
-        run: bun tauri build ${{ matrix.build_args }}
+          # Con CI=true il bundler salta lo script Finder del DMG: niente sfondo ne'
+          # posizioni delle icone. Questa variabile lo fa eseguire comunque.
+          TAURI_BUNDLER_DMG_IGNORE_CI: "true"
+        run: |
+          [ -n "${APPLE_SIGNING_IDENTITY:-}" ] || unset APPLE_SIGNING_IDENTITY
+          bun tauri build ${{ matrix.build_args }}
+
+      - name: Verifica firma macOS
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          SIGNING_CONFIGURED: ${{ secrets.APPLE_CERTIFICATE != '' && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+          APP="src-tauri/target/universal-apple-darwin/release/bundle/macos/OMP Studio.app"
+          if [ "$SIGNING_CONFIGURED" != "true" ]; then
+            echo "::warning::Certificato macOS non configurato (APPLE_CERTIFICATE assente): firma ad-hoc."
+            exit 0
+          fi
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          requirement="$(codesign -d -r- "$APP" 2>&1)"
+          echo "$requirement"
+          if echo "$requirement" | grep -q 'cdhash'; then
+            echo "::error::Il bundle macOS ha una firma ad-hoc nonostante il certificato configurato."
+            exit 1
+          fi
 
       - name: Prepara staging piatto con nomi normalizzati a punti
         shell: bash

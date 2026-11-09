@@ -197,7 +197,9 @@
 							<span
 								class="group-chip"
 								style="--proj-hue: {projectHue(group.project)}"
-								title={group.project.label ? `Sigla: ${group.project.label}` : `Progetto: ${group.project.name}`}
+								title={group.project.label
+									? m.l10n_cmp_project_code_short({ code: group.project.label })
+									: m.file_tree_menu_project_label({ name: group.project.name })}
 							>
 								{projectLabel(group.project)}
 							</span>

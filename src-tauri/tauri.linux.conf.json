@@ -1,0 +1,38 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "fileAssociations": [
+      { "ext": ["txt", "log", "ini", "env"], "mimeType": "text/plain" },
+      { "ext": ["md", "markdown"], "mimeType": "text/markdown" },
+      { "ext": ["mmd"], "mimeType": "text/vnd.mermaid" },
+      { "ext": ["json", "jsonc"], "mimeType": "application/json" },
+      { "ext": ["yaml", "yml"], "mimeType": "application/yaml" },
+      { "ext": ["toml"], "mimeType": "application/toml" },
+      { "ext": ["xml"], "mimeType": "application/xml" },
+      { "ext": ["csv"], "mimeType": "text/csv" },
+      { "ext": ["html", "htm"], "mimeType": "text/html" },
+      { "ext": ["css"], "mimeType": "text/css" },
+      { "ext": ["svg"], "mimeType": "image/svg+xml" },
+      { "ext": ["ts", "tsx"], "mimeType": "application/typescript" },
+      { "ext": ["js", "jsx", "mjs", "cjs"], "mimeType": "text/javascript" },
+      { "ext": ["svelte"], "mimeType": "text/x-svelte" },
+      { "ext": ["vue"], "mimeType": "text/x-vue" },
+      { "ext": ["py"], "mimeType": "text/x-python" },
+      { "ext": ["rs"], "mimeType": "text/rust" },
+      { "ext": ["vb"], "mimeType": "text/x-vb" },
+      { "ext": ["cs"], "mimeType": "text/x-csharp" },
+      { "ext": ["sql"], "mimeType": "application/sql" },
+      { "ext": ["sh"], "mimeType": "application/x-shellscript" },
+      { "ext": ["bat", "cmd"], "mimeType": "application/x-bat" },
+      { "ext": ["ps1"], "mimeType": "text/x-powershell" },
+      { "ext": ["go"], "mimeType": "text/x-go" },
+      { "ext": ["java"], "mimeType": "text/x-java" },
+      { "ext": ["kt"], "mimeType": "text/x-kotlin" },
+      { "ext": ["c", "h"], "mimeType": "text/x-csrc" },
+      { "ext": ["cpp", "hpp"], "mimeType": "text/x-c++src" },
+      { "ext": ["rb"], "mimeType": "application/x-ruby" },
+      { "ext": ["php"], "mimeType": "application/x-php" },
+      { "ext": ["lua"], "mimeType": "text/x-lua" }
+    ]
+  }
+}

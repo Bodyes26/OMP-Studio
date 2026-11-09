@@ -14,6 +14,21 @@
 // Il bridge applica comunque gli stessi permessi in Rust: l'elenco qui serve a
 // non mostrare al modello strumenti che non potrebbe usare.
 
+/**
+ * Testo scelto secondo la lingua della UI: il processo omp riceve
+ * `OMP_STUDIO_LOCALE` da Studio, il bundle della GUI ricade su `<html lang>`.
+ * Senza lingua nota si usa l'inglese, il default di Studio. Letta a ogni
+ * chiamata: la lingua puo' cambiare durante la vita del processo.
+ */
+function tr(it: string, en: string): string {
+	const host = globalThis as {
+		process?: { env?: Record<string, string | undefined> };
+		document?: { documentElement?: { lang?: string } };
+	};
+	const code = (host.process?.env?.OMP_STUDIO_LOCALE || host.document?.documentElement?.lang || "en").toLowerCase();
+	return code.startsWith("it") ? it : en;
+}
+
 // Sottoinsieme tipizzato della superficie iniettata da omp (allineato a studio-tasks.ts).
 interface ZodType {
 	optional(): ZodType;
@@ -160,16 +175,21 @@ export async function callBridge(
 			data = (await response.json()) as BridgeReply;
 		} catch {
 			return errorResult(
-				`Errore di comunicazione: la risposta HTTP ${response.status} del bridge non e' un JSON valido.`
+				tr(
+					`Errore di comunicazione: la risposta HTTP ${response.status} del bridge non e' un JSON valido.`,
+					`Communication error: the bridge HTTP response ${response.status} is not valid JSON.`
+				)
 			);
 		}
 		const details = { ...(data?.details ?? {}), verbo };
-		const text = data?.text || (data?.ok ? "Fatto." : `Studio ha rifiutato corsia_${verbo}.`);
+		const text =
+			data?.text ||
+			(data?.ok ? tr("Fatto.", "Done.") : tr(`Studio ha rifiutato corsia_${verbo}.`, `Studio refused corsia_${verbo}.`));
 		return data?.ok ? textResult(text, details) : errorResult(text, details);
 	} catch (err: unknown) {
-		if (signal?.aborted) return errorResult(`corsia_${verbo} annullato.`);
+		if (signal?.aborted) return errorResult(tr(`corsia_${verbo} annullato.`, `corsia_${verbo} cancelled.`));
 		const msg = err instanceof Error ? err.message : String(err);
-		return errorResult(`Errore di rete verso il bridge di Studio: ${msg}`);
+		return errorResult(tr(`Errore di rete verso il bridge di Studio: ${msg}`, `Network error towards the Studio bridge: ${msg}`));
 	}
 }
 
@@ -191,7 +211,7 @@ export default function studioLanesExtension(pi: StudioLanesApi, envOverride?: C
 
 	register<{ obiettivo?: string; tipo?: string; profilo?: string }>({
 		name: "corsia_avvia",
-		label: "Avvia corsia",
+		label: tr("Avvia corsia", "Start lane"),
 		description:
 			"Apre una corsia di Studio e le affida un obiettivo come primo compito: Studio crea il worktree isolato (tipo 'worktree') " +
 			"o un prototipo del Laboratorio (tipo 'lab') e ci fa partire un agente dedicato. " +
@@ -214,7 +234,7 @@ export default function studioLanesExtension(pi: StudioLanesApi, envOverride?: C
 		approval: "write",
 		async execute(_id, params, signal) {
 			const obiettivo = cleanText(params?.obiettivo);
-			if (!obiettivo) return errorResult("Il parametro 'obiettivo' e' obbligatorio.");
+			if (!obiettivo) return errorResult(tr("Il parametro 'obiettivo' e' obbligatorio.", "The 'obiettivo' parameter is required."));
 			const tipo = params?.tipo === "lab" ? "lab" : "worktree";
 			return callBridge(env, "avvia", { obiettivo, tipo, profilo: cleanText(params?.profilo) }, signal);
 		}
@@ -222,7 +242,7 @@ export default function studioLanesExtension(pi: StudioLanesApi, envOverride?: C
 
 	register<Record<string, never>>({
 		name: "corsia_stato",
-		label: "Stato corsie",
+		label: tr("Stato corsie", "Lane status"),
 		description:
 			"Elenca le corsie del progetto con il loro stato (in corso, finita, bloccata, in coda), i file toccati e il diffstat. " +
 			"Usalo per sapere a che punto sono le corsie prima di leggerne il risultato o integrarle.",
@@ -235,7 +255,7 @@ export default function studioLanesExtension(pi: StudioLanesApi, envOverride?: C
 
 	register<{ corsia?: string }>({
 		name: "corsia_risultato",
-		label: "Risultato corsia",
+		label: tr("Risultato corsia", "Lane result"),
 		description:
 			"Legge il riassunto che l'agente della corsia ha lasciato con corsia_fatto, piu' il diffstat; " +
 			"per un prototipo del Laboratorio l'ultima revisione e lo stato dell'anteprima.",
@@ -245,14 +265,14 @@ export default function studioLanesExtension(pi: StudioLanesApi, envOverride?: C
 		approval: "read",
 		async execute(_id, params, signal) {
 			const corsia = cleanText(params?.corsia);
-			if (!corsia) return errorResult("Il parametro 'corsia' e' obbligatorio.");
+			if (!corsia) return errorResult(tr("Il parametro 'corsia' e' obbligatorio.", "The 'corsia' parameter is required."));
 			return callBridge(env, "risultato", { corsia }, signal);
 		}
 	});
 
 	register<{ corsia?: string; messaggio?: string }>({
 		name: "corsia_integra",
-		label: "Integra corsia",
+		label: tr("Integra corsia", "Merge lane"),
 		description:
 			"Integra il lavoro di una corsia worktree nel branch di destinazione. Se il merge e' pulito Studio integra subito " +
 			"(un solo commit squash) e chiude la corsia, senza chiedere conferma. Se ci sono conflitti NON li risolvi tu: " +
@@ -267,14 +287,14 @@ export default function studioLanesExtension(pi: StudioLanesApi, envOverride?: C
 		approval: "write",
 		async execute(_id, params, signal) {
 			const messaggio = cleanText(params?.messaggio);
-			if (!messaggio) return errorResult("Il parametro 'messaggio' e' obbligatorio.");
+			if (!messaggio) return errorResult(tr("Il parametro 'messaggio' e' obbligatorio.", "The 'messaggio' parameter is required."));
 			return callBridge(env, "integra", { corsia: cleanText(params?.corsia), messaggio }, signal);
 		}
 	});
 
 	register<{ corsia?: string }>({
 		name: "corsia_chiudi",
-		label: "Chiudi corsia",
+		label: tr("Chiudi corsia", "Close lane"),
 		description:
 			"Chiude una corsia in modo reversibile: ferma il suo agente e i processi, la toglie dalla barra e conserva branch e cartella " +
 			"(l'utente puo' riaprirla). Per i prototipi del Laboratorio chiude la scheda e lascia intatte le revisioni.",
@@ -284,14 +304,14 @@ export default function studioLanesExtension(pi: StudioLanesApi, envOverride?: C
 		approval: "write",
 		async execute(_id, params, signal) {
 			const corsia = cleanText(params?.corsia);
-			if (!corsia) return errorResult("Il parametro 'corsia' e' obbligatorio.");
+			if (!corsia) return errorResult(tr("Il parametro 'corsia' e' obbligatorio.", "The 'corsia' parameter is required."));
 			return callBridge(env, "chiudi", { corsia }, signal);
 		}
 	});
 
 	register<{ corsia?: string }>({
 		name: "corsia_scarta",
-		label: "Scarta corsia",
+		label: tr("Scarta corsia", "Discard lane"),
 		description:
 			"Elimina definitivamente una corsia (worktree e branch, o il prototipo del Laboratorio). Se la corsia contiene lavoro " +
 			"mai integrato, o e' un prototipo, Studio non cancella nulla: avvisa e chiede conferma all'utente nella sua finestra. " +
@@ -302,14 +322,14 @@ export default function studioLanesExtension(pi: StudioLanesApi, envOverride?: C
 		approval: "write",
 		async execute(_id, params, signal) {
 			const corsia = cleanText(params?.corsia);
-			if (!corsia) return errorResult("Il parametro 'corsia' e' obbligatorio.");
+			if (!corsia) return errorResult(tr("Il parametro 'corsia' e' obbligatorio.", "The 'corsia' parameter is required."));
 			return callBridge(env, "scarta", { corsia }, signal);
 		}
 	});
 
 	register<{ prototipo?: string }>({
 		name: "corsia_consegna",
-		label: "Consegna prototipo",
+		label: tr("Consegna prototipo", "Hand off prototype"),
 		description:
 			"Consegna alla Principale un prototipo del Laboratorio: restituisce il pacchetto di handoff (revisione, file, " +
 			"riepilogo, limiti delle simulazioni) da cui implementare la funzionalita' nello stack nativo del progetto, " +
@@ -320,14 +340,14 @@ export default function studioLanesExtension(pi: StudioLanesApi, envOverride?: C
 		approval: "write",
 		async execute(_id, params, signal) {
 			const prototipo = cleanText(params?.prototipo);
-			if (!prototipo) return errorResult("Il parametro 'prototipo' e' obbligatorio.");
+			if (!prototipo) return errorResult(tr("Il parametro 'prototipo' e' obbligatorio.", "The 'prototipo' parameter is required."));
 			return callBridge(env, "consegna", { prototipo }, signal);
 		}
 	});
 
 	register<{ riassunto?: string }>({
 		name: "corsia_fatto",
-		label: "Corsia finita",
+		label: tr("Corsia finita", "Lane done"),
 		description:
 			"Segnala a Studio che il compito di questa corsia e' finito e lascia il riassunto per la Principale " +
 			"(cosa hai fatto, file principali, verifiche eseguite, cosa resta aperto). Chiamalo una sola volta alla fine. " +
@@ -338,14 +358,14 @@ export default function studioLanesExtension(pi: StudioLanesApi, envOverride?: C
 		approval: "read",
 		async execute(_id, params, signal) {
 			const riassunto = cleanText(params?.riassunto);
-			if (!riassunto) return errorResult("Il parametro 'riassunto' e' obbligatorio.");
+			if (!riassunto) return errorResult(tr("Il parametro 'riassunto' e' obbligatorio.", "The 'riassunto' parameter is required."));
 			return callBridge(env, "fatto", { riassunto }, signal);
 		}
 	});
 
 	register<{ motivo?: string; obiettivo?: string }>({
 		name: "corsia_proponi",
-		label: "Proponi corsia",
+		label: tr("Proponi corsia", "Propose lane"),
 		description:
 			"Prima di un'operazione pericolosa o sperimentale sul working tree (refactoring esteso, cancellazioni, migrazioni, " +
 			"aggiornamenti di dipendenze, prove distruttive) chiedi all'utente se spostare il lavoro in un worktree isolato. " +
@@ -364,7 +384,7 @@ export default function studioLanesExtension(pi: StudioLanesApi, envOverride?: C
 		approval: "read",
 		async execute(toolCallId, params, signal) {
 			const motivo = cleanText(params?.motivo);
-			if (!motivo) return errorResult("Il parametro 'motivo' e' obbligatorio.");
+			if (!motivo) return errorResult(tr("Il parametro 'motivo' e' obbligatorio.", "The 'motivo' parameter is required."));
 			return callBridge(
 				env,
 				"proponi",

@@ -17,7 +17,7 @@
 		<span class="row-icon" aria-hidden="true">
 			<IconRule />
 		</span>
-		<span class="label">Regole di contesto:</span>
+		<span class="label">{m.rules_context_rules_title()}:</span>
 		{#if entry.rules && entry.rules.length > 0}
 			<div class="rules-list">
 				{#each entry.rules as rule, i (i)}

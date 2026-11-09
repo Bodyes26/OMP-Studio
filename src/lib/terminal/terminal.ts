@@ -416,7 +416,7 @@ export class TerminalSession {
 	 *  gate di `assertAutomationReady`: la sessione di setup non pubblica uno
 	 *  stato agente e non e' una coda di task. */
 	public async sendCommand(command: string) {
-		if (!/^\/[a-z][a-z0-9:_-]*$/i.test(command)) throw new Error('Comando non valido');
+		if (!/^\/[a-z][a-z0-9:_-]*$/i.test(command)) throw new Error(msg.l10n_state_terminal_invalid_command());
 		await this.writePty(`${command}\r`);
 		this.setInputPending(0);
 	}
@@ -439,8 +439,8 @@ export class TerminalSession {
 	}
 
 	public async startTask(prompt: string, configuration?: TerminalTaskConfiguration) {
-		if (!prompt.trim()) throw new Error('Il task non contiene un prompt');
-		if (prompt.includes('\x1b[201~')) throw new Error('Il prompt contiene una sequenza di controllo non supportata');
+		if (!prompt.trim()) throw new Error(msg.l10n_state_terminal_task_without_prompt());
+		if (prompt.includes('\x1b[201~')) throw new Error(msg.l10n_state_terminal_prompt_control_sequence());
 		this.assertAutomationReady();
 		const previous = await this.readSessionInfo();
 		if (!previous) throw new Error(msg.ui_ts_terminal_omp_non_ha_ancora_pubblicato_la_sessione_494e());

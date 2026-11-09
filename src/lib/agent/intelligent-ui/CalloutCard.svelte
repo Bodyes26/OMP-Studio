@@ -4,6 +4,9 @@
 -->
 <script lang="ts">
 	import type { Snippet } from 'svelte';
+	// Etichette di default risolte qui, non in costanti di modulo: cambiando
+	// lingua la card deve riscriversi senza ricaricare la WebView.
+	import { m } from '../../paraglide/messages.js';
 	import {
 		IconInfo,
 		IconSparkles,
@@ -28,33 +31,33 @@
 		switch (kind) {
 			case 'tip':
 				return {
-					label: title || 'Suggerimento',
+					label: title || m.l10n_intui_callout_tip(),
 					icon: IconSparkles,
 					className: 'callout-tip'
 				};
 			case 'warning':
 			case 'caution':
 				return {
-					label: title || 'Attenzione',
+					label: title || m.l10n_intui_callout_warning(),
 					icon: IconWarning,
 					className: 'callout-warning'
 				};
 			case 'important':
 				return {
-					label: title || 'Importante',
+					label: title || m.l10n_intui_callout_important(),
 					icon: IconCircleAlert,
 					className: 'callout-important'
 				};
 			case 'success':
 				return {
-					label: title || 'Completato',
+					label: title || m.l10n_intui_callout_success(),
 					icon: IconCircleCheck,
 					className: 'callout-success'
 				};
 			case 'note':
 			default:
 				return {
-					label: title || 'Nota',
+					label: title || m.l10n_intui_callout_note(),
 					icon: IconInfo,
 					className: 'callout-note'
 				};

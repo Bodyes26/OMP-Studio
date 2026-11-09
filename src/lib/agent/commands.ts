@@ -23,33 +23,39 @@ export const STUDIO_SLASH_COMMANDS: AvailableCommand[] = [
 		name: 'compact',
 		get description() { return msg.ui_ts_commands_compatta_la_cronologia_e_il_contesto_della_2157(); },
 		source: 'studio',
-		input: { hint: '[soft|remote|snapcompact] [istruzioni]' }
+		input: {
+			get hint() { return msg.l10n_agent_cmd_compact_hint(); }
+		}
 	},
 	{
 		name: 'handoff',
 		get description() { return msg.ui_ts_commands_passa_il_riassunto_a_una_nuova_sessione_8ecf(); },
 		source: 'studio',
-		input: { hint: '[istruzioni]' }
+		input: {
+			get hint() { return msg.l10n_agent_cmd_handoff_hint(); }
+		}
 	},
 	{
 		name: 'thinking',
 		get description() { return msg.ui_ts_commands_imposta_il_livello_di_ragionamento_del_modello_7da6(); },
 		aliases: ['reasoning'],
 		source: 'studio',
-		input: { hint: '<livello>' },
+		input: {
+			get hint() { return msg.l10n_agent_cmd_thinking_hint(); }
+		},
 		subcommands: [
-			{ name: 'off', description: 'Disattiva il reasoning' },
-			{ name: 'minimal', description: 'Reasoning minimo' },
-			{ name: 'low', description: 'Reasoning basso' },
-			{ name: 'medium', description: 'Reasoning medio' },
-			{ name: 'high', description: 'Reasoning alto' },
-			{ name: 'xhigh', description: 'Reasoning molto alto' },
-			{ name: 'max', description: 'Reasoning massimo' }
+			{ name: 'off', get description() { return msg.l10n_agent_cmd_thinking_off(); } },
+			{ name: 'minimal', get description() { return msg.l10n_agent_cmd_thinking_minimal(); } },
+			{ name: 'low', get description() { return msg.l10n_agent_cmd_thinking_low(); } },
+			{ name: 'medium', get description() { return msg.l10n_agent_cmd_thinking_medium(); } },
+			{ name: 'high', get description() { return msg.l10n_agent_cmd_thinking_high(); } },
+			{ name: 'xhigh', get description() { return msg.l10n_agent_cmd_thinking_xhigh(); } },
+			{ name: 'max', get description() { return msg.l10n_agent_cmd_thinking_max(); } }
 		]
 	},
 	{
 		name: 'model',
-		description: 'Apre la configurazione modelli o passa al successivo',
+		get description() { return msg.l10n_agent_cmd_model_desc(); },
 		source: 'studio',
 		input: { hint: '[next]' },
 		subcommands: [
@@ -71,7 +77,7 @@ export const STUDIO_SLASH_COMMANDS: AvailableCommand[] = [
 			{ name: 'task', get description() { return msg.ui_ts_commands_imposta_il_ruolo_task_subagents_20af(); } },
 			{ name: 'commit', get description() { return msg.ui_ts_commands_imposta_il_ruolo_git_commit_2b53(); } },
 			{ name: 'advisor', get description() { return msg.ui_ts_commands_imposta_il_ruolo_advisor_reviewer_d3fc(); } },
-			{ name: 'next', description: 'Passa al ruolo successivo nella sequenza' }
+			{ name: 'next', get description() { return msg.l10n_agent_cmd_role_next_desc(); } }
 		]
 	},
 	{
@@ -79,7 +85,9 @@ export const STUDIO_SLASH_COMMANDS: AvailableCommand[] = [
 		get description() { return msg.ui_ts_commands_rinomina_la_sessione_corrente_9566(); },
 		aliases: ['rename'],
 		source: 'studio',
-		input: { hint: '<titolo>' }
+		input: {
+			get hint() { return msg.l10n_agent_cmd_name_hint(); }
+		}
 	},
 	{
 		name: 'cost',
@@ -89,25 +97,25 @@ export const STUDIO_SLASH_COMMANDS: AvailableCommand[] = [
 	},
 	{
 		name: 'git',
-		description: 'Apre il pannello Git nella barra laterale',
+		get description() { return msg.l10n_agent_cmd_git_desc(); },
 		aliases: ['branch'],
 		source: 'studio'
 	},
 	{
 		name: 'settings',
-		description: 'Apre la configurazione dei modelli',
+		get description() { return msg.l10n_agent_cmd_settings_desc(); },
 		aliases: ['setup', 'models'],
 		source: 'studio'
 	},
 	{
 		name: 'usage',
-		description: 'Apre il pannello delle quote e consumi',
+		get description() { return msg.l10n_agent_cmd_usage_desc(); },
 		aliases: ['quota'],
 		source: 'studio'
 	},
 	{
 		name: 'switch',
-		description: 'Apre il selettore rapido dei progetti',
+		get description() { return msg.l10n_agent_cmd_switch_desc(); },
 		source: 'studio'
 	},
 	{
@@ -121,7 +129,7 @@ export const STUDIO_SLASH_COMMANDS: AvailableCommand[] = [
 		aliases: ['whatsnew'],
 		input: { hint: '[full]' },
 		subcommands: [
-			{ name: 'full', description: 'Mostra tutto il changelog storico' }
+			{ name: 'full', get description() { return msg.l10n_agent_cmd_changelog_full_desc(); } }
 		],
 		source: 'studio'
 	},
@@ -132,7 +140,7 @@ export const STUDIO_SLASH_COMMANDS: AvailableCommand[] = [
 	},
 	{
 		name: 'login',
-		description: 'Apre la configurazione dei provider di modelli e credenziali; con un argomento apre direttamente quel provider',
+		get description() { return msg.l10n_agent_cmd_login_desc(); },
 		aliases: ['logout'],
 		input: { hint: '[provider]' },
 		source: 'studio'
@@ -146,7 +154,9 @@ export const STUDIO_SLASH_COMMANDS: AvailableCommand[] = [
 		name: 'btw',
 		get description() { return msg.ui_ts_commands_btw_description(); },
 		source: 'studio',
-		input: { hint: '[domanda]' }
+		input: {
+			get hint() { return msg.l10n_agent_cmd_btw_hint(); }
+		}
 	},
 	{
 		name: 'tree',
@@ -162,7 +172,9 @@ export const STUDIO_SLASH_COMMANDS: AvailableCommand[] = [
 		name: 'plan',
 		get description() { return msg.plan_command_description(); },
 		source: 'studio',
-		input: { hint: '[testo]' }
+		input: {
+			get hint() { return msg.l10n_agent_cmd_plan_hint(); }
+		}
 	},
 	{
 		name: 'plan-review',
@@ -187,7 +199,9 @@ export const STUDIO_SLASH_COMMANDS: AvailableCommand[] = [
 		name: 'goal',
 		get description() { return msg.commands_goal_desc(); },
 		source: 'studio',
-		input: { hint: '[obiettivo]' },
+		input: {
+			get hint() { return msg.l10n_agent_cmd_goal_hint(); }
+		},
 		subcommands: [
 			{ name: 'show', get description() { return msg.commands_goal_show(); } },
 			{ name: 'pause', get description() { return msg.commands_goal_pause(); } },

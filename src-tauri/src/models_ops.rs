@@ -22,7 +22,13 @@ static TEMP_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
 fn mutation_lock() -> Result<std::sync::MutexGuard<'static, ()>, String> {
     CONFIG_MUTATION_LOCK
         .lock()
-        .map_err(|_| "Lock configurazione non disponibile".to_string())
+        .map_err(|_| {
+            crate::tr!(
+                "Lock configurazione non disponibile",
+                "Configuration lock unavailable"
+            )
+            .to_string()
+        })
 }
 
 fn read_yaml_mapping(path: &Path) -> Result<Option<serde_yaml::Mapping>, String> {
@@ -30,15 +36,23 @@ fn read_yaml_mapping(path: &Path) -> Result<Option<serde_yaml::Mapping>, String>
         Ok(bytes) => bytes,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(error) => {
-            return Err(format!("Lettura {}: {}", path.display(), error));
+            return Err(crate::tr!(
+                format!("Lettura {}: {}", path.display(), error),
+                format!("Reading {}: {}", path.display(), error)
+            ));
         }
     };
     let value: serde_yaml::Value = serde_yaml::from_slice(&bytes)
-        .map_err(|error| format!("Parsing YAML {}: {}", path.display(), error))?;
+        .map_err(|error| {
+            crate::tr!(
+                format!("Parsing YAML {}: {}", path.display(), error),
+                format!("Parsing YAML {}: {}", path.display(), error)
+            )
+        })?;
     value.as_mapping().cloned().map(Some).ok_or_else(|| {
-        format!(
-            "Struttura {} non valida (atteso dizionario)",
-            path.display()
+        crate::tr!(
+            format!("Struttura {} non valida (atteso dizionario)", path.display()),
+            format!("Invalid structure in {} (expected a mapping)", path.display())
         )
     })
 }
@@ -50,15 +64,23 @@ fn read_json_mapping(
         Ok(bytes) => bytes,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(error) => {
-            return Err(format!("Lettura {}: {}", path.display(), error));
+            return Err(crate::tr!(
+                format!("Lettura {}: {}", path.display(), error),
+                format!("Reading {}: {}", path.display(), error)
+            ));
         }
     };
     let value: serde_json::Value = serde_json::from_slice(&bytes)
-        .map_err(|error| format!("Parsing JSON {}: {}", path.display(), error))?;
+        .map_err(|error| {
+            crate::tr!(
+                format!("Parsing JSON {}: {}", path.display(), error),
+                format!("Parsing JSON {}: {}", path.display(), error)
+            )
+        })?;
     value.as_object().cloned().map(Some).ok_or_else(|| {
-        format!(
-            "Struttura {} non valida (atteso dizionario)",
-            path.display()
+        crate::tr!(
+            format!("Struttura {} non valida (atteso dizionario)", path.display()),
+            format!("Invalid structure in {} (expected an object)", path.display())
         )
     })
 }
@@ -97,9 +119,20 @@ fn get_db_path(db_name: &str) -> Option<PathBuf> {
 }
 
 fn open_readonly_db(db_name: &str) -> Result<Connection, String> {
-    let path = get_db_path(db_name).ok_or("Impossibile risolvere il percorso del database")?;
+    let path = get_db_path(db_name).ok_or_else(|| {
+        crate::tr!(
+            "Impossibile risolvere il percorso del database",
+            "Unable to resolve the database path"
+        )
+        .to_string()
+    })?;
     let conn = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-        .map_err(|e| format!("Impossibile aprire {} : {}", db_name, e))?;
+        .map_err(|e| {
+            crate::tr!(
+                format!("Impossibile aprire {} : {}", db_name, e),
+                format!("Unable to open {}: {}", db_name, e)
+            )
+        })?;
     let _ = conn.execute_batch("PRAGMA query_only = ON; PRAGMA busy_timeout = 3000;");
     Ok(conn)
 }
@@ -108,9 +141,20 @@ fn open_readonly_db(db_name: &str) -> Result<Connection, String> {
 /// credenziale (`remove_auth_account`). Nessuna creazione automatica del
 /// file: se `agent.db` non esiste non c'e' nulla da rimuovere.
 fn open_readwrite_db(db_name: &str) -> Result<Connection, String> {
-    let path = get_db_path(db_name).ok_or("Impossibile risolvere il percorso del database")?;
+    let path = get_db_path(db_name).ok_or_else(|| {
+        crate::tr!(
+            "Impossibile risolvere il percorso del database",
+            "Unable to resolve the database path"
+        )
+        .to_string()
+    })?;
     let conn = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE)
-        .map_err(|e| format!("Impossibile aprire {} in scrittura: {}", db_name, e))?;
+        .map_err(|e| {
+            crate::tr!(
+                format!("Impossibile aprire {} in scrittura: {}", db_name, e),
+                format!("Unable to open {} for writing: {}", db_name, e)
+            )
+        })?;
     let _ = conn.execute_batch("PRAGMA busy_timeout = 3000;");
     Ok(conn)
 }
@@ -347,14 +391,27 @@ pub fn validate_fallback_on(value: &str, path: Option<&Path>) -> Result<String, 
         return Ok(trimmed.to_string());
     }
     match path {
-        Some(p) => Err(format!(
-            "Campo retry.fallbackOn non valido in {}: '{}' (atteso any, usage-limit o except-usage-limit)",
-            p.display(),
-            value
+        Some(p) => Err(crate::tr!(
+            format!(
+                "Campo retry.fallbackOn non valido in {}: '{}' (atteso any, usage-limit o except-usage-limit)",
+                p.display(),
+                value
+            ),
+            format!(
+                "Invalid retry.fallbackOn field in {}: '{}' (expected any, usage-limit or except-usage-limit)",
+                p.display(),
+                value
+            )
         )),
-        None => Err(format!(
-            "Valore retry.fallbackOn non valido: '{}' (atteso any, usage-limit o except-usage-limit)",
-            value
+        None => Err(crate::tr!(
+            format!(
+                "Valore retry.fallbackOn non valido: '{}' (atteso any, usage-limit o except-usage-limit)",
+                value
+            ),
+            format!(
+                "Invalid retry.fallbackOn value: '{}' (expected any, usage-limit or except-usage-limit)",
+                value
+            )
         )),
     }
 }
@@ -373,16 +430,28 @@ pub fn validate_extra_context_files(
     for raw in entries {
         let trimmed = raw.trim();
         if trimmed.is_empty() {
-            return Err(format!(
-                "Campo contextFiles.extra non valido{}: le voci non possono essere vuote",
-                loc
+            return Err(crate::tr!(
+                format!(
+                    "Campo contextFiles.extra non valido{}: le voci non possono essere vuote",
+                    loc
+                ),
+                format!(
+                    "Invalid contextFiles.extra field{}: entries cannot be empty",
+                    loc
+                )
             ));
         }
         let lower = trimmed.to_ascii_lowercase();
         if BUILTIN_CONTEXT_FILES.contains(&lower.as_str()) {
-            return Err(format!(
-                "Campo contextFiles.extra non valido{}: '{}' e un file di contesto predefinito di omp",
-                loc, trimmed
+            return Err(crate::tr!(
+                format!(
+                    "Campo contextFiles.extra non valido{}: '{}' e un file di contesto predefinito di omp",
+                    loc, trimmed
+                ),
+                format!(
+                    "Invalid contextFiles.extra field{}: '{}' is a built-in omp context file",
+                    loc, trimmed
+                )
             ));
         }
         if trimmed == "."
@@ -391,9 +460,15 @@ pub fn validate_extra_context_files(
             || trimmed.contains('\\')
             || trimmed.contains('\0')
         {
-            return Err(format!(
-                "Campo contextFiles.extra non valido{}: '{}' deve essere un nome di file, non un percorso",
-                loc, trimmed
+            return Err(crate::tr!(
+                format!(
+                    "Campo contextFiles.extra non valido{}: '{}' deve essere un nome di file, non un percorso",
+                    loc, trimmed
+                ),
+                format!(
+                    "Invalid contextFiles.extra field{}: '{}' must be a file name, not a path",
+                    loc, trimmed
+                )
             ));
         }
         if !normalized
@@ -533,7 +608,10 @@ where
         .cloned()
         .map(|value| {
             serde_yaml::from_value(value).map_err(|error| {
-                format!("Campo {} non valido in {}: {}", name, path.display(), error)
+                crate::tr!(
+                    format!("Campo {} non valido in {}: {}", name, path.display(), error),
+                    format!("Invalid field {} in {}: {}", name, path.display(), error)
+                )
             })
         })
         .transpose()
@@ -558,9 +636,15 @@ fn model_config_from_mapping(
     let mut parsed_fallback_on: Option<String> = None;
     if let Some(retry_value) = mapping.get(yaml_key("retry")) {
         let retry = retry_value.as_mapping().ok_or_else(|| {
-            format!(
-                "Campo retry non valido in {} (atteso dizionario)",
-                path.display()
+            crate::tr!(
+                format!(
+                    "Campo retry non valido in {} (atteso dizionario)",
+                    path.display()
+                ),
+                format!(
+                    "Invalid retry field in {} (expected a mapping)",
+                    path.display()
+                )
             )
         })?;
         config.fallback_chains =
@@ -578,9 +662,15 @@ fn model_config_from_mapping(
 
     if let Some(cf_value) = mapping.get(yaml_key("contextFiles")) {
         let cf_map = cf_value.as_mapping().ok_or_else(|| {
-            format!(
-                "Campo contextFiles non valido in {} (atteso dizionario)",
-                path.display()
+            crate::tr!(
+                format!(
+                    "Campo contextFiles non valido in {} (atteso dizionario)",
+                    path.display()
+                ),
+                format!(
+                    "Invalid contextFiles field in {} (expected a mapping)",
+                    path.display()
+                )
             )
         })?;
         if let Some(extra) = parse_yaml_field::<Vec<String>>(cf_map, "extra", path)? {
@@ -606,6 +696,34 @@ fn read_model_config_path(path: &Path) -> Result<ModelConfigDto, String> {
     }
 }
 
+/// Messaggio uniforme per un errore di serializzazione YAML/JSON, nella lingua
+/// dell'interfaccia. `label` e' il campo o il percorso che stava per essere scritto.
+fn serialization_error(label: impl std::fmt::Display, error: impl std::fmt::Display) -> String {
+    crate::tr!(
+        format!("Serializzazione {label}: {error}"),
+        format!("Serializing {label}: {error}")
+    )
+}
+
+/// Errore di un task bloccante non portato a termine (panic o cancellazione).
+fn task_error(task: &str, error: impl std::fmt::Display) -> String {
+    crate::tr!(
+        format!("Task {task} fallito: {error}"),
+        format!("Task {task} failed: {error}")
+    )
+}
+
+/// Cartella `~/.omp/agent`, unica sede dei file di configurazione di omp.
+fn require_agent_dir() -> Result<PathBuf, String> {
+    agent_dir().ok_or_else(|| {
+        crate::tr!(
+            "Impossibile trovare directory ~/.omp/agent",
+            "Unable to find the ~/.omp/agent directory"
+        )
+        .to_string()
+    })
+}
+
 fn save_model_config_locked(path: &Path, config: &ModelConfigDto) -> Result<(), String> {
     let mut mapping = match read_yaml_mapping(path)? {
         Some(mapping) => {
@@ -616,15 +734,15 @@ fn save_model_config_locked(path: &Path, config: &ModelConfigDto) -> Result<(), 
     };
 
     let roles = serde_yaml::to_value(&config.model_roles)
-        .map_err(|error| format!("Serializzazione modelRoles: {}", error))?;
+        .map_err(|error| serialization_error("modelRoles", error))?;
     mapping.insert(yaml_key("modelRoles"), roles);
 
     let cycle_order = serde_yaml::to_value(&config.cycle_order)
-        .map_err(|error| format!("Serializzazione cycleOrder: {}", error))?;
+        .map_err(|error| serialization_error("cycleOrder", error))?;
     mapping.insert(yaml_key("cycleOrder"), cycle_order);
 
     let disabled = serde_yaml::to_value(&config.disabled_providers)
-        .map_err(|error| format!("Serializzazione disabledProviders: {}", error))?;
+        .map_err(|error| serialization_error("disabledProviders", error))?;
     mapping.insert(yaml_key("disabledProviders"), disabled);
 
     let validated_fallback_on = match &config.fallback_on {
@@ -639,15 +757,21 @@ fn save_model_config_locked(path: &Path, config: &ModelConfigDto) -> Result<(), 
     let retry_key = yaml_key("retry");
     let mut retry = match mapping.get(&retry_key) {
         Some(value) => value.as_mapping().cloned().ok_or_else(|| {
-            format!(
-                "Campo retry non valido in {} (atteso dizionario)",
-                path.display()
+            crate::tr!(
+                format!(
+                    "Campo retry non valido in {} (atteso dizionario)",
+                    path.display()
+                ),
+                format!(
+                    "Invalid retry field in {} (expected a mapping)",
+                    path.display()
+                )
             )
         })?,
         None => serde_yaml::Mapping::new(),
     };
     let fallbacks = serde_yaml::to_value(&config.fallback_chains)
-        .map_err(|error| format!("Serializzazione fallbackChains: {}", error))?;
+        .map_err(|error| serialization_error("fallbackChains", error))?;
     retry.insert(yaml_key("fallbackChains"), fallbacks);
     if let Some(fallback_on) = validated_fallback_on {
         retry.insert(
@@ -663,16 +787,22 @@ fn save_model_config_locked(path: &Path, config: &ModelConfigDto) -> Result<(), 
         let had_flat = mapping.remove(yaml_key("contextFiles.extra")).is_some();
         let mut cf_map = match mapping.get(&cf_key) {
             Some(value) => value.as_mapping().cloned().ok_or_else(|| {
-                format!(
-                    "Campo contextFiles non valido in {} (atteso dizionario)",
-                    path.display()
+                crate::tr!(
+                    format!(
+                        "Campo contextFiles non valido in {} (atteso dizionario)",
+                        path.display()
+                    ),
+                    format!(
+                        "Invalid contextFiles field in {} (expected a mapping)",
+                        path.display()
+                    )
                 )
             })?,
             None => serde_yaml::Mapping::new(),
         };
         if !extra_files.is_empty() || mapping.contains_key(&cf_key) || had_flat {
             let extra_val = serde_yaml::to_value(&extra_files)
-                .map_err(|error| format!("Serializzazione contextFiles.extra: {}", error))?;
+                .map_err(|error| serialization_error("contextFiles.extra", error))?;
             cf_map.insert(yaml_key("extra"), extra_val);
             mapping.insert(cf_key, serde_yaml::Value::Mapping(cf_map));
         }
@@ -698,7 +828,7 @@ fn save_model_config_locked(path: &Path, config: &ModelConfigDto) -> Result<(), 
     }
 
     let serialized = serde_yaml::to_string(&serde_yaml::Value::Mapping(mapping))
-        .map_err(|error| format!("Serializzazione {}: {}", path.display(), error))?;
+        .map_err(|error| serialization_error(path.display(), error))?;
     atomic_write(path, serialized.as_bytes())
 }
 
@@ -720,27 +850,27 @@ where
 #[command]
 pub async fn get_model_config() -> Result<ModelConfigDto, String> {
     tokio::task::spawn_blocking(|| {
-        let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
+        let agent = require_agent_dir()?;
         read_model_config_path(&agent.join("config.yml"))
     })
     .await
-    .map_err(|e| format!("Task get_model_config fallito: {e}"))?
+    .map_err(|e| task_error("get_model_config", e))?
 }
 
 #[command]
 pub async fn save_model_config(config: ModelConfigDto) -> Result<(), String> {
     tokio::task::spawn_blocking(move || {
-        let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
+        let agent = require_agent_dir()?;
         save_model_config_path(&agent.join("config.yml"), &config)
     })
     .await
-    .map_err(|e| format!("Task save_model_config fallito: {e}"))?
+    .map_err(|e| task_error("save_model_config", e))?
 }
 
 #[command]
 pub async fn get_cache_warming_setting() -> Result<String, String> {
     tokio::task::spawn_blocking(|| {
-        let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
+        let agent = require_agent_dir()?;
         let path = agent.join("config.yml");
         match read_yaml_mapping(&path)? {
             Some(mapping) => Ok(parse_cache_warming(&mapping)),
@@ -748,16 +878,19 @@ pub async fn get_cache_warming_setting() -> Result<String, String> {
         }
     })
     .await
-    .map_err(|e| format!("Task get_cache_warming_setting fallito: {e}"))?
+    .map_err(|e| task_error("get_cache_warming_setting", e))?
 }
 
 #[command]
 pub async fn set_cache_warming_setting(mode: String) -> Result<(), String> {
     if !["off", "streaming", "idle"].contains(&mode.as_str()) {
-        return Err(format!("Modalita cache warming non valida: {}", mode));
+        return Err(crate::tr!(
+            format!("Modalita cache warming non valida: {}", mode),
+            format!("Invalid cache warming mode: {}", mode)
+        ));
     }
     tokio::task::spawn_blocking(move || {
-        let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
+        let agent = require_agent_dir()?;
         let path = agent.join("config.yml");
         let _guard = mutation_lock()?;
         let mut mapping = read_yaml_mapping(&path)?.unwrap_or_default();
@@ -769,11 +902,11 @@ pub async fn set_cache_warming_setting(mode: String) -> Result<(), String> {
         providers_map.insert(yaml_key("cacheWarming"), serde_yaml::Value::String(mode));
         mapping.insert(providers_key, serde_yaml::Value::Mapping(providers_map));
         let serialized = serde_yaml::to_string(&serde_yaml::Value::Mapping(mapping))
-            .map_err(|error| format!("Serializzazione {}: {}", path.display(), error))?;
+            .map_err(|error| serialization_error(path.display(), error))?;
         atomic_write(&path, serialized.as_bytes())
     })
     .await
-    .map_err(|e| format!("Task set_cache_warming_setting fallito: {e}"))?
+    .map_err(|e| task_error("set_cache_warming_setting", e))?
 }
 
 // -----------------------------------------------------------------------------
@@ -840,10 +973,18 @@ pub fn set_prewalk_settings_path(path: &Path, settings: PrewalkSettingsDto) -> R
     let from = settings.from.trim();
 
     if into.is_empty() {
-        return Err("Il campo prewalk.into non puo essere vuoto".to_string());
+        return Err(crate::tr!(
+            "Il campo prewalk.into non puo essere vuoto",
+            "The prewalk.into field cannot be empty"
+        )
+        .to_string());
     }
     if from.is_empty() {
-        return Err("Il campo prewalk.from non puo essere vuoto".to_string());
+        return Err(crate::tr!(
+            "Il campo prewalk.from non puo essere vuoto",
+            "The prewalk.from field cannot be empty"
+        )
+        .to_string());
     }
 
     let _guard = mutation_lock()?;
@@ -852,9 +993,15 @@ pub fn set_prewalk_settings_path(path: &Path, settings: PrewalkSettingsDto) -> R
     let prewalk_key = yaml_key("prewalk");
     let mut prewalk_map = match mapping.get(&prewalk_key) {
         Some(val) => val.as_mapping().cloned().ok_or_else(|| {
-            format!(
-                "Campo prewalk non valido in {} (atteso dizionario)",
-                path.display()
+            crate::tr!(
+                format!(
+                    "Campo prewalk non valido in {} (atteso dizionario)",
+                    path.display()
+                ),
+                format!(
+                    "Invalid prewalk field in {} (expected a mapping)",
+                    path.display()
+                )
             )
         })?,
         None => serde_yaml::Mapping::new(),
@@ -872,28 +1019,28 @@ pub fn set_prewalk_settings_path(path: &Path, settings: PrewalkSettingsDto) -> R
     }
 
     let serialized = serde_yaml::to_string(&serde_yaml::Value::Mapping(mapping))
-        .map_err(|error| format!("Serializzazione {}: {}", path.display(), error))?;
+        .map_err(|error| serialization_error(path.display(), error))?;
     atomic_write(path, serialized.as_bytes())
 }
 
 #[command]
 pub async fn get_prewalk_settings() -> Result<PrewalkSettingsDto, String> {
     tokio::task::spawn_blocking(|| {
-        let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
+        let agent = require_agent_dir()?;
         get_prewalk_settings_path(&agent.join("config.yml"))
     })
     .await
-    .map_err(|e| format!("Task get_prewalk_settings fallito: {e}"))?
+    .map_err(|e| task_error("get_prewalk_settings", e))?
 }
 
 #[command]
 pub async fn set_prewalk_settings(settings: PrewalkSettingsDto) -> Result<(), String> {
     tokio::task::spawn_blocking(move || {
-        let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
+        let agent = require_agent_dir()?;
         set_prewalk_settings_path(&agent.join("config.yml"), settings)
     })
     .await
-    .map_err(|e| format!("Task set_prewalk_settings fallito: {e}"))?
+    .map_err(|e| task_error("set_prewalk_settings", e))?
 }
 
 // -----------------------------------------------------------------------------
@@ -995,17 +1142,29 @@ pub fn set_subagent_model_settings_path(
 ) -> Result<(), String> {
     let per_call_model = settings.per_call_model.trim();
     if !["off", "eval", "on"].contains(&per_call_model) {
-        return Err(format!(
-            "Valore task.perCallModel non valido: '{}' (atteso: off, eval, on)",
-            settings.per_call_model
+        return Err(crate::tr!(
+            format!(
+                "Valore task.perCallModel non valido: '{}' (atteso: off, eval, on)",
+                settings.per_call_model
+            ),
+            format!(
+                "Invalid task.perCallModel value: '{}' (expected: off, eval, on)",
+                settings.per_call_model
+            )
         ));
     }
 
     let max_effort = settings.max_effort.trim();
     if !["minimal", "low", "medium", "high", "xhigh", "max"].contains(&max_effort) {
-        return Err(format!(
-            "Valore task.maxEffort non valido: '{}' (atteso: minimal, low, medium, high, xhigh, max)",
-            settings.max_effort
+        return Err(crate::tr!(
+            format!(
+                "Valore task.maxEffort non valido: '{}' (atteso: minimal, low, medium, high, xhigh, max)",
+                settings.max_effort
+            ),
+            format!(
+                "Invalid task.maxEffort value: '{}' (expected: minimal, low, medium, high, xhigh, max)",
+                settings.max_effort
+            )
         ));
     }
 
@@ -1013,9 +1172,15 @@ pub fn set_subagent_model_settings_path(
     for entry in &settings.per_call_model_allow {
         let trimmed = entry.trim();
         if trimmed.is_empty() || !trimmed.contains('/') {
-            return Err(format!(
-                "Elemento allowlist non valido: '{}' (deve essere non vuoto e contenere '/')",
-                entry
+            return Err(crate::tr!(
+                format!(
+                    "Elemento allowlist non valido: '{}' (deve essere non vuoto e contenere '/')",
+                    entry
+                ),
+                format!(
+                    "Invalid allowlist entry: '{}' (must be non-empty and contain '/')",
+                    entry
+                )
             ));
         }
         let trimmed_str = trimmed.to_string();
@@ -1030,9 +1195,15 @@ pub fn set_subagent_model_settings_path(
     let task_key = yaml_key("task");
     let mut task_map = match mapping.get(&task_key) {
         Some(val) => val.as_mapping().cloned().ok_or_else(|| {
-            format!(
-                "Campo task non valido in {} (atteso dizionario)",
-                path.display()
+            crate::tr!(
+                format!(
+                    "Campo task non valido in {} (atteso dizionario)",
+                    path.display()
+                ),
+                format!(
+                    "Invalid task field in {} (expected a mapping)",
+                    path.display()
+                )
             )
         })?,
         None => serde_yaml::Mapping::new(),
@@ -1043,7 +1214,7 @@ pub fn set_subagent_model_settings_path(
         serde_yaml::Value::String(per_call_model.to_string()),
     );
     let allow_yaml = serde_yaml::to_value(&deduped_allow)
-        .map_err(|error| format!("Serializzazione task.perCallModelAllow: {}", error))?;
+        .map_err(|error| serialization_error("task.perCallModelAllow", error))?;
     task_map.insert(yaml_key("perCallModelAllow"), allow_yaml);
     task_map.insert(
         yaml_key("maxEffort"),
@@ -1061,28 +1232,28 @@ pub fn set_subagent_model_settings_path(
     }
 
     let serialized = serde_yaml::to_string(&serde_yaml::Value::Mapping(mapping))
-        .map_err(|error| format!("Serializzazione {}: {}", path.display(), error))?;
+        .map_err(|error| serialization_error(path.display(), error))?;
     atomic_write(path, serialized.as_bytes())
 }
 
 #[command]
 pub async fn get_subagent_model_settings() -> Result<SubagentModelSettingsDto, String> {
     tokio::task::spawn_blocking(|| {
-        let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
+        let agent = require_agent_dir()?;
         get_subagent_model_settings_path(&agent.join("config.yml"))
     })
     .await
-    .map_err(|e| format!("Task get_subagent_model_settings fallito: {e}"))?
+    .map_err(|e| task_error("get_subagent_model_settings", e))?
 }
 
 #[command]
 pub async fn set_subagent_model_settings(settings: SubagentModelSettingsDto) -> Result<(), String> {
     tokio::task::spawn_blocking(move || {
-        let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
+        let agent = require_agent_dir()?;
         set_subagent_model_settings_path(&agent.join("config.yml"), settings)
     })
     .await
-    .map_err(|e| format!("Task set_subagent_model_settings fallito: {e}"))?
+    .map_err(|e| task_error("set_subagent_model_settings", e))?
 }
 
 /// Un agente con modello imposto da `task.agentModelOverrides`.
@@ -1137,11 +1308,15 @@ pub fn get_agent_model_overrides_path(path: &Path) -> Result<Vec<AgentModelOverr
 pub fn remove_agent_model_override_path(path: &Path, agent: &str) -> Result<(), String> {
     let agent = agent.trim();
     if agent.is_empty() {
-        return Err("Nome agente vuoto".to_string());
+        return Err(crate::tr!("Nome agente vuoto", "Empty agent name").to_string());
     }
     let _guard = mutation_lock()?;
-    let mut mapping = read_yaml_mapping(path)?
-        .ok_or_else(|| format!("Nessun override per l'agente {agent}"))?;
+    let mut mapping = read_yaml_mapping(path)?.ok_or_else(|| {
+        crate::tr!(
+            format!("Nessun override per l'agente {agent}"),
+            format!("No override for agent {agent}")
+        )
+    })?;
     let mut removed = false;
 
     let task_key = yaml_key("task");
@@ -1162,32 +1337,35 @@ pub fn remove_agent_model_override_path(path: &Path, agent: &str) -> Result<(), 
         }
     }
     if !removed {
-        return Err(format!("Nessun override per l'agente {agent}"));
+        return Err(crate::tr!(
+            format!("Nessun override per l'agente {agent}"),
+            format!("No override for agent {agent}")
+        ));
     }
 
     let serialized = serde_yaml::to_string(&serde_yaml::Value::Mapping(mapping))
-        .map_err(|error| format!("Serializzazione {}: {}", path.display(), error))?;
+        .map_err(|error| serialization_error(path.display(), error))?;
     atomic_write(path, serialized.as_bytes())
 }
 
 #[command]
 pub async fn get_agent_model_overrides() -> Result<Vec<AgentModelOverrideDto>, String> {
     tokio::task::spawn_blocking(|| {
-        let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
+        let agent = require_agent_dir()?;
         get_agent_model_overrides_path(&agent.join("config.yml"))
     })
     .await
-    .map_err(|e| format!("Task get_agent_model_overrides fallito: {e}"))?
+    .map_err(|e| task_error("get_agent_model_overrides", e))?
 }
 
 #[command]
 pub async fn remove_agent_model_override(agent: String) -> Result<(), String> {
     tokio::task::spawn_blocking(move || {
-        let dir = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
+        let dir = require_agent_dir()?;
         remove_agent_model_override_path(&dir.join("config.yml"), &agent)
     })
     .await
-    .map_err(|e| format!("Task remove_agent_model_override fallito: {e}"))?
+    .map_err(|e| task_error("remove_agent_model_override", e))?
 }
 
 // -----------------------------------------------------------------------------
@@ -1376,7 +1554,12 @@ pub async fn get_models_catalog() -> Result<Vec<ModelDto>, String> {
 fn parse_available_models(stdout: &[u8]) -> Result<Vec<ModelDto>, String> {
     serde_json::from_slice::<AvailableModelsResponse>(stdout)
         .map(|response| response.models.into_iter().map(ModelDto::from).collect())
-        .map_err(|error| format!("Risposta di `omp models --kind all --json` non valida: {}", error))
+        .map_err(|error| {
+            crate::tr!(
+                format!("Risposta di `omp models --kind all --json` non valida: {}", error),
+                format!("Invalid `omp models --kind all --json` response: {}", error)
+            )
+        })
 }
 
 #[command]
@@ -1390,13 +1573,29 @@ pub async fn get_available_models_catalog() -> Result<Vec<ModelDto>, String> {
         crate::omp_ops::omp_capture(cmd)
     })
     .await
-    .map_err(|error| format!("Esecuzione di `omp models --kind all --json` interrotta: {}", error))?
-    .map_err(|error| format!("Avvio di `omp models --kind all --json` fallito: {}", error))?;
+    .map_err(|error| {
+        crate::tr!(
+            format!("Esecuzione di `omp models --kind all --json` interrotta: {}", error),
+            format!("`omp models --kind all --json` execution interrupted: {}", error)
+        )
+    })?
+    .map_err(|error| {
+        crate::tr!(
+            format!("Avvio di `omp models --kind all --json` fallito: {}", error),
+            format!("Failed to start `omp models --kind all --json`: {}", error)
+        )
+    })?;
 
     if !output.status.success() {
-        return Err(format!(
-            "`omp models --kind all --json` e' terminato con errore: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
+        return Err(crate::tr!(
+            format!(
+                "`omp models --kind all --json` e' terminato con errore: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ),
+            format!(
+                "`omp models --kind all --json` exited with an error: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            )
         ));
     }
     parse_available_models(&output.stdout)
@@ -1446,10 +1645,17 @@ fn custom_providers_from_yaml(
     path: &Path,
 ) -> Result<CustomProvidersFile, String> {
     serde_yaml::from_value(serde_yaml::Value::Mapping(mapping.clone())).map_err(|error| {
-        format!(
-            "Struttura provider non valida in {}: {}",
-            path.display(),
-            error
+        crate::tr!(
+            format!(
+                "Struttura provider non valida in {}: {}",
+                path.display(),
+                error
+            ),
+            format!(
+                "Invalid provider structure in {}: {}",
+                path.display(),
+                error
+            )
         )
     })
 }
@@ -1459,11 +1665,16 @@ fn json_mapping_to_yaml(
     path: &Path,
 ) -> Result<serde_yaml::Mapping, String> {
     let value = serde_yaml::to_value(serde_json::Value::Object(mapping))
-        .map_err(|error| format!("Conversione {}: {}", path.display(), error))?;
+        .map_err(|error| {
+            crate::tr!(
+                format!("Conversione {}: {}", path.display(), error),
+                format!("Conversion of {}: {}", path.display(), error)
+            )
+        })?;
     value.as_mapping().cloned().ok_or_else(|| {
-        format!(
-            "Struttura {} non valida (atteso dizionario)",
-            path.display()
+        crate::tr!(
+            format!("Struttura {} non valida (atteso dizionario)", path.display()),
+            format!("Invalid structure in {} (expected a mapping)", path.display())
         )
     })
 }
@@ -1474,10 +1685,17 @@ fn read_custom_providers_paths(
 ) -> Result<CustomProvidersFile, String> {
     if let Some(mapping) = read_json_mapping(json_path)? {
         return serde_json::from_value(serde_json::Value::Object(mapping)).map_err(|error| {
-            format!(
-                "Struttura provider non valida in {}: {}",
-                json_path.display(),
-                error
+            crate::tr!(
+                format!(
+                    "Struttura provider non valida in {}: {}",
+                    json_path.display(),
+                    error
+                ),
+                format!(
+                    "Invalid provider structure in {}: {}",
+                    json_path.display(),
+                    error
+                )
             )
         });
     }
@@ -1507,26 +1725,42 @@ fn merge_provider_models(
     desired: &serde_yaml::Value,
     provider_name: &str,
 ) -> Result<serde_yaml::Value, String> {
-    let desired_models = desired
-        .as_sequence()
-        .ok_or_else(|| format!("Models provider {} non validi", provider_name))?;
+    let desired_models = desired.as_sequence().ok_or_else(|| {
+        crate::tr!(
+            format!("Models provider {} non validi", provider_name),
+            format!("Invalid models for provider {}", provider_name)
+        )
+    })?;
     let existing_models: &[serde_yaml::Value] = match existing {
         Some(value) => value
             .as_sequence()
-            .ok_or_else(|| format!("Models provider {} non validi", provider_name))?
+            .ok_or_else(|| {
+                crate::tr!(
+                    format!("Models provider {} non validi", provider_name),
+                    format!("Invalid models for provider {}", provider_name)
+                )
+            })?
             .as_slice(),
         None => &[],
     };
     let mut merged = Vec::with_capacity(desired_models.len());
 
     for desired_model in desired_models {
-        let desired_mapping = desired_model
-            .as_mapping()
-            .ok_or_else(|| format!("Modello provider {} non valido", provider_name))?;
+        let desired_mapping = desired_model.as_mapping().ok_or_else(|| {
+            crate::tr!(
+                format!("Modello provider {} non valido", provider_name),
+                format!("Invalid model for provider {}", provider_name)
+            )
+        })?;
         let id = desired_mapping
             .get(yaml_key("id"))
             .and_then(serde_yaml::Value::as_str)
-            .ok_or_else(|| format!("Modello provider {} senza id", provider_name))?;
+            .ok_or_else(|| {
+                crate::tr!(
+                    format!("Modello provider {} senza id", provider_name),
+                    format!("Model for provider {} without an id", provider_name)
+                )
+            })?;
         let mut model_mapping = match existing_models
             .iter()
             .filter_map(serde_yaml::Value::as_mapping)
@@ -1562,35 +1796,58 @@ fn merge_custom_providers(
     data: &CustomProvidersFile,
 ) -> Result<(), String> {
     let desired = serde_yaml::to_value(data)
-        .map_err(|error| format!("Serializzazione provider: {}", error))?;
-    let desired_root = desired
-        .as_mapping()
-        .ok_or("Serializzazione provider non valida")?;
+        .map_err(|error| serialization_error("provider", error))?;
+    let desired_root = desired.as_mapping().ok_or_else(|| {
+        crate::tr!(
+            "Serializzazione provider non valida",
+            "Invalid provider serialization"
+        )
+        .to_string()
+    })?;
     let desired_providers = desired_root
         .get(yaml_key("providers"))
         .and_then(serde_yaml::Value::as_mapping)
-        .ok_or("Serializzazione providers non valida")?;
+        .ok_or_else(|| {
+            crate::tr!(
+                "Serializzazione providers non valida",
+                "Invalid providers serialization"
+            )
+            .to_string()
+        })?;
 
     let providers_key = yaml_key("providers");
     let existing_providers = match root.get(&providers_key) {
         Some(value) => value
             .as_mapping()
-            .ok_or("Campo providers non valido (atteso dizionario)")?
+            .ok_or_else(|| {
+                crate::tr!(
+                    "Campo providers non valido (atteso dizionario)",
+                    "Invalid providers field (expected a mapping)"
+                )
+                .to_string()
+            })?
             .clone(),
         None => serde_yaml::Mapping::new(),
     };
     let mut merged_providers = serde_yaml::Mapping::new();
 
     for (provider_key, desired_provider) in desired_providers {
-        let provider_name = provider_key.as_str().ok_or("Nome provider non valido")?;
-        let desired_mapping = desired_provider
-            .as_mapping()
-            .ok_or_else(|| format!("Provider {} non valido", provider_name))?;
+        let provider_name = provider_key.as_str().ok_or_else(|| {
+            crate::tr!("Nome provider non valido", "Invalid provider name").to_string()
+        })?;
+        let desired_mapping = desired_provider.as_mapping().ok_or_else(|| {
+            crate::tr!(
+                format!("Provider {} non valido", provider_name),
+                format!("Invalid provider {}", provider_name)
+            )
+        })?;
         let mut provider_mapping = match existing_providers.get(provider_key) {
-            Some(value) => value
-                .as_mapping()
-                .cloned()
-                .ok_or_else(|| format!("Provider {} non valido", provider_name))?,
+            Some(value) => value.as_mapping().cloned().ok_or_else(|| {
+                crate::tr!(
+                    format!("Provider {} non valido", provider_name),
+                    format!("Invalid provider {}", provider_name)
+                )
+            })?,
             None => serde_yaml::Mapping::new(),
         };
         copy_yaml_fields(
@@ -1606,9 +1863,12 @@ fn merge_custom_providers(
             }
         }
         let models_key = yaml_key("models");
-        let desired_models = desired_mapping
-            .get(&models_key)
-            .ok_or_else(|| format!("Provider {} senza models", provider_name))?;
+        let desired_models = desired_mapping.get(&models_key).ok_or_else(|| {
+            crate::tr!(
+                format!("Provider {} senza models", provider_name),
+                format!("Provider {} without models", provider_name)
+            )
+        })?;
         let models = merge_provider_models(
             provider_mapping.get(&models_key),
             desired_models,
@@ -1656,11 +1916,11 @@ fn save_custom_providers_paths(
     merge_custom_providers(&mut yaml_root, data)?;
 
     let json_value = serde_json::to_value(serde_yaml::Value::Mapping(json_root))
-        .map_err(|error| format!("Serializzazione {}: {}", json_path.display(), error))?;
+        .map_err(|error| serialization_error(json_path.display(), error))?;
     let json = serde_json::to_vec_pretty(&json_value)
-        .map_err(|error| format!("Serializzazione {}: {}", json_path.display(), error))?;
+        .map_err(|error| serialization_error(json_path.display(), error))?;
     let yaml = serde_yaml::to_string(&serde_yaml::Value::Mapping(yaml_root))
-        .map_err(|error| format!("Serializzazione {}: {}", yml_path.display(), error))?;
+        .map_err(|error| serialization_error(yml_path.display(), error))?;
 
     atomic_write(json_path, &json)?;
     atomic_write(yml_path, yaml.as_bytes())
@@ -1669,21 +1929,21 @@ fn save_custom_providers_paths(
 #[command]
 pub async fn get_custom_providers() -> Result<CustomProvidersFile, String> {
     tokio::task::spawn_blocking(|| {
-        let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
+        let agent = require_agent_dir()?;
         read_custom_providers_paths(&agent.join("models.json"), &agent.join("models.yml"))
     })
     .await
-    .map_err(|e| format!("Task get_custom_providers fallito: {e}"))?
+    .map_err(|e| task_error("get_custom_providers", e))?
 }
 
 #[command]
 pub async fn save_custom_providers(data: CustomProvidersFile) -> Result<(), String> {
     tokio::task::spawn_blocking(move || {
-        let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
+        let agent = require_agent_dir()?;
         save_custom_providers_paths(&agent.join("models.json"), &agent.join("models.yml"), &data)
     })
     .await
-    .map_err(|e| format!("Task save_custom_providers fallito: {e}"))?
+    .map_err(|e| task_error("save_custom_providers", e))?
 }
 
 // -----------------------------------------------------------------------------
@@ -1909,7 +2169,7 @@ pub async fn get_auth_accounts(provider_id: Option<String>) -> Result<Vec<AuthAc
         Ok(list)
     })
     .await
-    .map_err(|e| format!("Task get_auth_accounts fallito: {e}"))?
+    .map_err(|e| task_error("get_auth_accounts", e))?
 }
 
 #[command]
@@ -1934,17 +2194,28 @@ pub async fn remove_auth_account(provider: String, credential_id: i64) -> Result
                      WHERE id = ?2 AND provider = ?3",
                     rusqlite::params!["deleted by user", credential_id, cand],
                 )
-                .map_err(|e| format!("Rimozione credenziale: {}", e))?;
+                .map_err(|e| {
+                    crate::tr!(
+                        format!("Rimozione credenziale: {}", e),
+                        format!("Removing credential: {}", e)
+                    )
+                })?;
             if changed > 0 { return Ok(()); }
             last_err = cand;
         }
-        Err(format!(
-            "Nessuna credenziale con id {} per il provider '{}' (tentati: {})",
-            credential_id, provider, last_err
+        Err(crate::tr!(
+            format!(
+                "Nessuna credenziale con id {} per il provider '{}' (tentati: {})",
+                credential_id, provider, last_err
+            ),
+            format!(
+                "No credential with id {} for provider '{}' (tried: {})",
+                credential_id, provider, last_err
+            )
         ))
     })
     .await
-    .map_err(|e| format!("Task remove_auth_account fallito: {e}"))?
+    .map_err(|e| task_error("remove_auth_account", e))?
 }
 
 // -----------------------------------------------------------------------------
@@ -2508,9 +2779,12 @@ fn evaluate_model_health(
                 Some((
                     "info",
                     "unverified",
-                    format!(
-                        "Motore di ricerca '{}' non verificato nel catalogo live",
-                        base
+                    crate::tr!(
+                        format!(
+                            "Motore di ricerca '{}' non verificato nel catalogo live",
+                            base
+                        ),
+                        format!("Search engine '{}' not verified in the live catalog", base)
                     ),
                 ))
             } else {
@@ -2520,15 +2794,25 @@ fn evaluate_model_health(
             Some((
                 "warn",
                 "provider_disabled",
-                "Provider disabilitato nelle impostazioni".to_string(),
+                crate::tr!(
+                    "Provider disabilitato nelle impostazioni",
+                    "Provider disabled in settings"
+                )
+                .to_string(),
             ))
         } else if is_reauth_required {
             Some((
                 "error",
                 "provider_reauth_required",
-                format!(
-                    "Accesso da rinnovare per il provider {}: eseguire nuovamente il login",
-                    p_info.map(|p| p.name.as_str()).unwrap_or(&current_provider)
+                crate::tr!(
+                    format!(
+                        "Accesso da rinnovare per il provider {}: eseguire nuovamente il login",
+                        p_info.map(|p| p.name.as_str()).unwrap_or(&current_provider)
+                    ),
+                    format!(
+                        "Sign-in needs renewal for provider {}: log in again",
+                        p_info.map(|p| p.name.as_str()).unwrap_or(&current_provider)
+                    )
                 ),
             ))
         } else if is_specialized {
@@ -2537,7 +2821,10 @@ fn evaluate_model_health(
                 Some((
                     "info",
                     "unverified",
-                    format!("Modello specializzato '{}' non verificato nel catalogo live", base),
+                    crate::tr!(
+                        format!("Modello specializzato '{}' non verificato nel catalogo live", base),
+                        format!("Specialized model '{}' not verified in the live catalog", base)
+                    ),
                 ))
             } else {
                 None
@@ -2546,21 +2833,33 @@ fn evaluate_model_health(
             Some((
                 "error",
                 "provider_unconfigured",
-                "Nessuna credenziale configurata per il provider".to_string(),
+                crate::tr!(
+                    "Nessuna credenziale configurata per il provider",
+                    "No credentials configured for the provider"
+                )
+                .to_string(),
             ))
         } else if !known_selectors.contains(&base) && !available_selectors.contains(&base) {
             // Modello chat non presente ne' nella cache ne' nei modelli live
             Some((
                 "error",
                 "removed",
-                "Modello non piu presente nel catalogo del provider".to_string(),
+                crate::tr!(
+                    "Modello non piu presente nel catalogo del provider",
+                    "Model no longer available in the provider catalog"
+                )
+                .to_string(),
             ))
         } else if catalog_error.is_none() && !available_selectors.contains(&base) {
             // Modello chat noto al catalogo ma non offerto dalle credenziali attive
             Some((
                 "error",
                 "not_offered",
-                "Modello non offerto dalle credenziali attive".to_string(),
+                crate::tr!(
+                    "Modello non offerto dalle credenziali attive",
+                    "Model not offered by the active credentials"
+                )
+                .to_string(),
             ))
         } else {
             None
@@ -2679,7 +2978,10 @@ fn evaluate_model_health(
                 current_thinking,
                 severity: "info".to_string(),
                 code: "upgrade".to_string(),
-                reason: format!("Disponibile nuova versione: {}", newer_m.name),
+                reason: crate::tr!(
+                    format!("Disponibile nuova versione: {}", newer_m.name),
+                    format!("New version available: {}", newer_m.name)
+                ),
                 suggested_selector: Some(suggested_selector),
                 suggested_model_name: Some(newer_m.name.clone()),
             });
@@ -2704,6 +3006,14 @@ fn evaluate_model_health(
     findings
 }
 
+/// Errore per una catena di riserva inesistente quando un fix la cerca.
+fn missing_fallback_chain(role: &str) -> String {
+    crate::tr!(
+        format!("Catena di riserva per il ruolo '{}' non presente", role),
+        format!("No fallback chain for role '{}'", role)
+    )
+}
+
 /// Applica le modifiche alla configurazione in modo puro e atomico.
 pub fn apply_fixes_to_config(
     config: &mut ModelConfigDto,
@@ -2722,16 +3032,25 @@ pub fn apply_fixes_to_config(
                 "replace" => fallback_replaces.push(fix),
                 "remove" => fallback_removes.push(fix),
                 unknown => {
-                    return Err(format!(
-                        "Azione non valida '{}' per fallback del ruolo '{}'",
-                        unknown, fix.role
+                    return Err(crate::tr!(
+                        format!(
+                            "Azione non valida '{}' per fallback del ruolo '{}'",
+                            unknown, fix.role
+                        ),
+                        format!(
+                            "Invalid action '{}' for the fallback of role '{}'",
+                            unknown, fix.role
+                        )
                     ))
                 }
             },
             unknown => {
-                return Err(format!(
-                    "Tipo di elemento non valido '{}' per il ruolo '{}'",
-                    unknown, fix.role
+                return Err(crate::tr!(
+                    format!(
+                        "Tipo di elemento non valido '{}' per il ruolo '{}'",
+                        unknown, fix.role
+                    ),
+                    format!("Invalid item kind '{}' for role '{}'", unknown, fix.role)
                 ))
             }
         }
@@ -2742,9 +3061,15 @@ pub fn apply_fixes_to_config(
         match fix.action.as_str() {
             "replace" => {
                 let new_sel = fix.new_selector.ok_or_else(|| {
-                    format!(
-                        "Nuovo selettore non specificato per sostituire il ruolo primario '{}'",
-                        fix.role
+                    crate::tr!(
+                        format!(
+                            "Nuovo selettore non specificato per sostituire il ruolo primario '{}'",
+                            fix.role
+                        ),
+                        format!(
+                            "No new selector given to replace the primary of role '{}'",
+                            fix.role
+                        )
                     )
                 })?;
                 working.model_roles.insert(fix.role, new_sel);
@@ -2753,9 +3078,15 @@ pub fn apply_fixes_to_config(
                 working.model_roles.remove(&fix.role);
             }
             unknown => {
-                return Err(format!(
-                    "Azione non valida '{}' per il ruolo primario '{}'",
-                    unknown, fix.role
+                return Err(crate::tr!(
+                    format!(
+                        "Azione non valida '{}' per il ruolo primario '{}'",
+                        unknown, fix.role
+                    ),
+                    format!(
+                        "Invalid action '{}' for the primary of role '{}'",
+                        unknown, fix.role
+                    )
                 ))
             }
         }
@@ -2764,27 +3095,47 @@ pub fn apply_fixes_to_config(
     // Applica fallback replace
     for fix in fallback_replaces {
         let idx = fix.index.ok_or_else(|| {
-            format!(
-                "Indice non specificato per la sostituzione fallback del ruolo '{}'",
-                fix.role
+            crate::tr!(
+                format!(
+                    "Indice non specificato per la sostituzione fallback del ruolo '{}'",
+                    fix.role
+                ),
+                format!(
+                    "No index given for the fallback replacement of role '{}'",
+                    fix.role
+                )
             )
         })? as usize;
         let chain = working
             .fallback_chains
             .get_mut(&fix.role)
-            .ok_or_else(|| format!("Catena di riserva per il ruolo '{}' non presente", fix.role))?;
+            .ok_or_else(|| missing_fallback_chain(&fix.role))?;
         if idx >= chain.len() {
-            return Err(format!(
-                "Indice {} fuori intervallo per la catena di riserva del ruolo '{}' (lunghezza {})",
-                idx,
-                fix.role,
-                chain.len()
+            return Err(crate::tr!(
+                format!(
+                    "Indice {} fuori intervallo per la catena di riserva del ruolo '{}' (lunghezza {})",
+                    idx,
+                    fix.role,
+                    chain.len()
+                ),
+                format!(
+                    "Index {} out of range for the fallback chain of role '{}' (length {})",
+                    idx,
+                    fix.role,
+                    chain.len()
+                )
             ));
         }
         let new_sel = fix.new_selector.ok_or_else(|| {
-            format!(
-                "Nuovo selettore non specificato per sostituire il fallback all'indice {} del ruolo '{}'",
-                idx, fix.role
+            crate::tr!(
+                format!(
+                    "Nuovo selettore non specificato per sostituire il fallback all'indice {} del ruolo '{}'",
+                    idx, fix.role
+                ),
+                format!(
+                    "No new selector given to replace the fallback at index {} of role '{}'",
+                    idx, fix.role
+                )
             )
         })?;
         chain[idx] = new_sel;
@@ -2794,9 +3145,15 @@ pub fn apply_fixes_to_config(
     let mut removes_by_role: HashMap<String, Vec<u32>> = HashMap::new();
     for fix in fallback_removes {
         let idx = fix.index.ok_or_else(|| {
-            format!(
-                "Indice non specificato per la rimozione fallback del ruolo '{}'",
-                fix.role
+            crate::tr!(
+                format!(
+                    "Indice non specificato per la rimozione fallback del ruolo '{}'",
+                    fix.role
+                ),
+                format!(
+                    "No index given for the fallback removal of role '{}'",
+                    fix.role
+                )
             )
         })?;
         removes_by_role.entry(fix.role).or_default().push(idx);
@@ -2807,9 +3164,15 @@ pub fn apply_fixes_to_config(
 
         for window in indices.windows(2) {
             if window[0] == window[1] {
-                return Err(format!(
-                    "Indice fallback {} specificato piu' volte per la rimozione nel ruolo '{}'",
-                    window[0], role
+                return Err(crate::tr!(
+                    format!(
+                        "Indice fallback {} specificato piu' volte per la rimozione nel ruolo '{}'",
+                        window[0], role
+                    ),
+                    format!(
+                        "Fallback index {} given more than once for removal in role '{}'",
+                        window[0], role
+                    )
                 ));
             }
         }
@@ -2817,14 +3180,20 @@ pub fn apply_fixes_to_config(
         let chain = working
             .fallback_chains
             .get_mut(&role)
-            .ok_or_else(|| format!("Catena di riserva per il ruolo '{}' non presente", role))?;
+            .ok_or_else(|| missing_fallback_chain(&role))?;
 
         for idx_u32 in indices {
             let idx = idx_u32 as usize;
             if idx >= chain.len() {
-                return Err(format!(
-                    "Indice {} fuori intervallo per la rimozione fallback del ruolo '{}' (lunghezza {})",
-                    idx, role, chain.len()
+                return Err(crate::tr!(
+                    format!(
+                        "Indice {} fuori intervallo per la rimozione fallback del ruolo '{}' (lunghezza {})",
+                        idx, role, chain.len()
+                    ),
+                    format!(
+                        "Index {} out of range for the fallback removal of role '{}' (length {})",
+                        idx, role, chain.len()
+                    )
                 ));
             }
             chain.remove(idx);
@@ -2838,12 +3207,12 @@ pub fn apply_fixes_to_config(
 #[command]
 pub async fn apply_model_fixes(fixes: Vec<ModelFixItem>) -> Result<(), String> {
     tokio::task::spawn_blocking(move || {
-        let agent = agent_dir().ok_or("Impossibile trovare directory ~/.omp/agent")?;
+        let agent = require_agent_dir()?;
         let path = agent.join("config.yml");
         mutate_model_config_path(&path, move |config| apply_fixes_to_config(config, fixes))
     })
     .await
-    .map_err(|e| format!("Task apply_model_fixes fallito: {e}"))?
+    .map_err(|e| task_error("apply_model_fixes", e))?
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -3282,6 +3651,13 @@ pub async fn get_role_suggestions(
     } else {
         current_fallbacks.join(", ")
     };
+    // `reason` e `badge` generati dal modello compaiono nella scheda del ruolo:
+    // devono essere nella lingua dell'interfaccia, non sempre in italiano.
+    let output_language = if crate::i18n::is_it() {
+        "italiano"
+    } else {
+        "inglese"
+    };
 
     let user_prompt = format!(
         "Sei l'assistente esperto di configurazione modelli per OMP Studio.\n\
@@ -3305,7 +3681,7 @@ Rispondi ESCLUSIVAMENTE con un JSON valido con questa struttura esatta:\n\
   \"primary\": [\n\
     {{\n\
       \"selector\": \"selettore-esatto-dalla-lista\",\n\
-      \"reason\": \"Breve spiegazione in italiano (max 10 parole)\",\n\
+      \"reason\": \"Breve spiegazione ({output_language}, max 10 parole)\",\n\
       \"badge\": \"Top ELO 1566\",\n\
       \"recommendedThinking\": \"auto\"\n\
     }}\n\
@@ -3313,7 +3689,7 @@ Rispondi ESCLUSIVAMENTE con un JSON valido con questa struttura esatta:\n\
   \"fallback\": [\n\
     {{\n\
       \"selector\": \"selettore-esatto-da-provider-diverso\",\n\
-      \"reason\": \"Breve spiegazione in italiano del perche come riserva\",\n\
+      \"reason\": \"Breve spiegazione ({output_language}) del perche come riserva\",\n\
       \"badge\": \"Zero-Cost Backup\"\n\
     }}\n\
   ]\n\
@@ -3389,29 +3765,17 @@ Rispondi ESCLUSIVAMENTE con un JSON valido con questa struttura esatta:\n\
                         // Badge intelligente di fallback se mancante o generico
                         let badge = it
                             .badge
-                            .filter(|b| !b.is_empty() && b != "Consigliato")
-                            .or_else(|| {
-                                if elo >= 1560 {
-                                    Some(format!("Top ELO {}", elo))
-                                } else if let Some(p) = perf_stat {
-                                    if p.tokens_per_sec >= 200.0 {
-                                        Some(format!("{} tok/s", p.tokens_per_sec as u32))
-                                    } else if is_sub {
-                                        Some("Abbonamento".to_string())
-                                    } else {
-                                        Some(format!("ELO {}", elo))
-                                    }
-                                } else if is_sub {
-                                    Some("Abbonamento".to_string())
-                                } else {
-                                    Some(format!("ELO {}", elo))
-                                }
-                            });
+                            .filter(|b| !b.is_empty() && b != "Consigliato" && b != "Recommended")
+                            .or_else(|| default_badge(elo, perf_stat, is_sub));
 
                         validated_primary.push(SuggestedModelItem {
                             selector: matched_model.selector.clone(),
                             reason: it.reason.unwrap_or_else(|| {
-                                "Modello consigliato per questo ruolo".to_string()
+                                crate::tr!(
+                                    "Modello consigliato per questo ruolo",
+                                    "Recommended model for this role"
+                                )
+                                .to_string()
                             }),
                             badge,
                             recommended_thinking: it.recommended_thinking,
@@ -3453,19 +3817,28 @@ Rispondi ESCLUSIVAMENTE con un JSON valido con questa struttura esatta:\n\
                                     })
                                     .unwrap_or(false));
 
+                        // `Zero-Cost` resta invariato: il frontend lo cerca per
+                        // colorare il badge gratuito (`includes('Zero-Cost')`).
                         let badge = it.badge.filter(|b| !b.is_empty()).or_else(|| {
                             if is_free {
                                 Some("Zero-Cost Backup".to_string())
                             } else {
-                                Some(format!("Riserva {}", matched_model.provider))
+                                Some(crate::tr!(
+                                    format!("Riserva {}", matched_model.provider),
+                                    format!("{} backup", matched_model.provider)
+                                ))
                             }
                         });
 
                         validated_fallback.push(SuggestedModelItem {
                             selector: matched_model.selector.clone(),
-                            reason: it
-                                .reason
-                                .unwrap_or_else(|| "Riserva consigliata su rate-limit".to_string()),
+                            reason: it.reason.unwrap_or_else(|| {
+                                crate::tr!(
+                                    "Riserva consigliata su rate-limit",
+                                    "Recommended backup for rate limits"
+                                )
+                                .to_string()
+                            }),
                             badge,
                             recommended_thinking: it.recommended_thinking,
                             arena_elo: Some(elo),
@@ -3494,6 +3867,23 @@ Rispondi ESCLUSIVAMENTE con un JSON valido con questa struttura esatta:\n\
         primary: validated_primary,
         fallback: validated_fallback,
     })
+}
+
+/// Badge compatto quando il modello non ne propone uno: ELO alto, velocita'
+/// misurata o provenienza da un abbonamento.
+fn default_badge(elo: u32, perf_stat: Option<&ModelPerfStat>, is_sub: bool) -> Option<String> {
+    if elo >= 1560 {
+        return Some(format!("Top ELO {}", elo));
+    }
+    if let Some(p) = perf_stat {
+        if p.tokens_per_sec >= 200.0 {
+            return Some(format!("{} tok/s", p.tokens_per_sec as u32));
+        }
+    }
+    if is_sub {
+        return Some(crate::tr!("Abbonamento", "Subscription").to_string());
+    }
+    Some(format!("ELO {}", elo))
 }
 
 fn build_deterministic_suggestions(
@@ -3547,25 +3937,14 @@ fn build_deterministic_suggestions(
                     .map(|c| c.input.unwrap_or(0.0) == 0.0 && c.output.unwrap_or(0.0) == 0.0)
                     .unwrap_or(false));
 
-        let badge = if elo >= 1560 {
-            Some(format!("Top ELO {}", elo))
-        } else if let Some(p) = perf_stat {
-            if p.tokens_per_sec >= 200.0 {
-                Some(format!("{} tok/s", p.tokens_per_sec as u32))
-            } else if is_sub {
-                Some("Abbonamento".to_string())
-            } else {
-                Some(format!("ELO {}", elo))
-            }
-        } else if is_sub {
-            Some("Abbonamento".to_string())
-        } else {
-            Some(format!("ELO {}", elo))
-        };
+        let badge = default_badge(elo, perf_stat, is_sub);
 
         primary.push(SuggestedModelItem {
             selector: m.selector.clone(),
-            reason: format!("Modello ottimale per {}", role_id),
+            reason: crate::tr!(
+                format!("Modello ottimale per {}", role_id),
+                format!("Optimal model for {}", role_id)
+            ),
             badge,
             recommended_thinking: Some("auto".to_string()),
             arena_elo: Some(elo),
@@ -3582,8 +3961,14 @@ fn build_deterministic_suggestions(
             let perf_stat = perf_map.get(&m.selector).or_else(|| perf_map.get(&m.id));
             fallback.push(SuggestedModelItem {
                 selector: m.selector.clone(),
-                reason: format!("Riserva di continuità da {}", m.provider),
-                badge: Some(format!("Riserva {}", m.provider)),
+                reason: crate::tr!(
+                    format!("Riserva di continuità da {}", m.provider),
+                    format!("Continuity backup from {}", m.provider)
+                ),
+                badge: Some(crate::tr!(
+                    format!("Riserva {}", m.provider),
+                    format!("{} backup", m.provider)
+                )),
                 recommended_thinking: Some("auto".to_string()),
                 arena_elo: Some(elo),
                 tokens_per_sec: perf_stat.map(|p| p.tokens_per_sec),
@@ -3604,7 +3989,11 @@ fn build_deterministic_suggestions(
             let perf_stat = perf_map.get(&m.selector).or_else(|| perf_map.get(&m.id));
             fallback.push(SuggestedModelItem {
                 selector: m.selector.clone(),
-                reason: "Riserva gratuita a costo zero su rate-limit".to_string(),
+                reason: crate::tr!(
+                    "Riserva gratuita a costo zero su rate-limit",
+                    "Free zero-cost backup for rate limits"
+                )
+                .to_string(),
                 badge: Some("Zero-Cost Backup".to_string()),
                 recommended_thinking: Some("auto".to_string()),
                 arena_elo: Some(elo),
@@ -4736,7 +5125,9 @@ mod tests {
         bad_fallback.fallback_on = Some("invalid-mode".to_string());
         let err_fb = save_model_config_path(&path, &bad_fallback)
             .expect_err("modalita fallbackOn non valida deve fallire");
-        assert!(err_fb.contains("retry.fallbackOn non valido"));
+        // Il testo dell'errore dipende dalla lingua dell'interfaccia: si verifica
+        // che nomini il campo rifiutato, non la frase esatta.
+        assert!(err_fb.contains("retry.fallbackOn"), "errore inatteso: {err_fb}");
 
         for invalid_entry in [
             "",
@@ -4752,8 +5143,8 @@ mod tests {
             let err_extra = save_model_config_path(&path, &bad_extra)
                 .expect_err("voce contextFiles.extra non valida deve fallire");
             assert!(
-                err_extra.contains("contextFiles.extra non valido"),
-                "atteso errore italiano per '{}', ottenuto: {}",
+                err_extra.contains("contextFiles.extra"),
+                "atteso il nome del campo rifiutato per '{}', ottenuto: {}",
                 invalid_entry,
                 err_extra
             );
@@ -5018,7 +5409,7 @@ task:
             },
         )
         .expect_err("modalita perCallModel invalida");
-        assert!(bad_mode.contains("perCallModel non valido"));
+        assert!(bad_mode.contains("task.perCallModel"), "errore inatteso: {bad_mode}");
 
         let bad_effort = set_subagent_model_settings_path(
             &path,
@@ -5029,7 +5420,7 @@ task:
             },
         )
         .expect_err("maxEffort invalido");
-        assert!(bad_effort.contains("maxEffort non valido"));
+        assert!(bad_effort.contains("task.maxEffort"), "errore inatteso: {bad_effort}");
 
         let bad_allow_no_slash = set_subagent_model_settings_path(
             &path,
@@ -5040,7 +5431,10 @@ task:
             },
         )
         .expect_err("allowlist senza slash deve fallire");
-        assert!(bad_allow_no_slash.contains("allowlist non valido"));
+        assert!(
+            bad_allow_no_slash.contains("allowlist"),
+            "errore inatteso: {bad_allow_no_slash}"
+        );
 
         let bad_allow_empty = set_subagent_model_settings_path(
             &path,
@@ -5051,7 +5445,10 @@ task:
             },
         )
         .expect_err("allowlist con stringa vuota deve fallire");
-        assert!(bad_allow_empty.contains("allowlist non valido"));
+        assert!(
+            bad_allow_empty.contains("allowlist"),
+            "errore inatteso: {bad_allow_empty}"
+        );
 
         let intact = get_subagent_model_settings_path(&path).expect("rilettura");
         assert_eq!(intact.per_call_model, "off");
@@ -5096,7 +5493,10 @@ task:
         assert!(mapping.get(yaml_key("modelRoles")).is_some());
 
         let err = remove_agent_model_override_path(&path, "task").expect_err("agente senza override");
-        assert!(err.contains("Nessun override"));
+        assert!(
+            err.contains("task") || err.contains("override"),
+            "errore inatteso: {err}"
+        );
 
         fs::write(&path, "task.agentModelOverrides:\n  reviewer: \"@slow\"\n").expect("scrittura config");
         assert_eq!(get_agent_model_overrides_path(&path).expect("lettura")[0].agent, "reviewer");

@@ -42,6 +42,7 @@
 	const openKeys = $derived(
 		new Set(
 			projectStore.projects
+				.filter((p) => !p.external)
 				.flatMap((p) => (p.canonicalProjectPath ? [p.canonicalProjectPath] : []))
 				.map((path) => path.toLowerCase())
 		)

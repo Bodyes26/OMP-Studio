@@ -6,6 +6,7 @@
   output prodotto, codice di uscita, durata e stato di errore mirato.
 -->
 <script lang="ts">
+	import { m } from '#lib/paraglide/messages.js';
 	import OutputBlock from '../parts/OutputBlock.svelte';
 	import {
 		asRecord,
@@ -38,7 +39,7 @@
 			if (code) {
 				return [
 					{
-						title: str(args.title) ?? 'Cella',
+						title: str(args.title) ?? m.l10n_tools_label_cell(),
 						code,
 						output: resultText(result) || undefined,
 						status: result?.isError ? 'error' : 'complete'
@@ -52,7 +53,7 @@
 			const idx = num(c.index) ?? i;
 			return {
 				index: idx,
-				title: str(c.title) ?? `Cella ${idx + 1}`,
+				title: str(c.title) ?? m.l10n_tools_label_cell_n({ index: idx + 1 }),
 				code: str(c.code) ?? '',
 				output: str(c.output),
 				status: str(c.status) ?? 'complete',
@@ -88,13 +89,13 @@
 						<pre class="cell-code"><code>{cell.code}</code></pre>
 					{/if}
 					{#if cell.output}
-						<OutputBlock text={cell.output} label="output cella" />
+						<OutputBlock text={cell.output} label={m.l10n_tools_label_cell_output()} />
 					{/if}
 				</div>
 			{/each}
 		</div>
 	{:else if textFallback}
-		<OutputBlock text={textFallback} label="output eval" />
+		<OutputBlock text={textFallback} label={m.l10n_tools_label_eval_output()} />
 	{/if}
 </div>
 

@@ -5,6 +5,7 @@
   la tabella KeyValue con i metadati (tool, categoria, severita') e l'eventuale riscontro in OutputBlock.
 -->
 <script lang="ts">
+	import { m } from '#lib/paraglide/messages.js';
 	import KeyValue from '../parts/KeyValue.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
 	import PromptBlock from '../parts/PromptBlock.svelte';
@@ -40,18 +41,18 @@
 
 	const argRows = $derived.by(() => {
 		const rows: { key: string; value: string }[] = [];
-		if (toolName) rows.push({ key: 'Tool', value: toolName });
+		if (toolName) rows.push({ key: m.l10n_tools_label_tool(), value: toolName });
 		const category = str(args.category) ?? str(details?.category);
-		if (category) rows.push({ key: 'Categoria', value: category });
+		if (category) rows.push({ key: m.l10n_tools_label_category(), value: category });
 		const severity = str(args.severity) ?? str(details?.severity);
-		if (severity) rows.push({ key: 'Severità', value: severity });
+		if (severity) rows.push({ key: m.l10n_tools_label_severity(), value: severity });
 		return rows;
 	});
 </script>
 
 <div class="report-body">
 	{#if description}
-		<PromptBlock text={description} label="Segnalazione anomalia" />
+		<PromptBlock text={description} label={m.l10n_tools_label_issue_report()} />
 	{/if}
 
 	{#if argRows.length > 0}
@@ -59,7 +60,7 @@
 	{/if}
 
 	{#if text && text !== description}
-		<OutputBlock {text} label="riscontro" />
+		<OutputBlock {text} label={m.l10n_tools_label_feedback()} />
 	{/if}
 </div>
 

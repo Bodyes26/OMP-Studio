@@ -1,4 +1,5 @@
 import { normalizeProjectPath } from '#lib/utils/paths.ts';
+import { m } from '#lib/paraglide/messages.js';
 
 declare const projectIdBrand: unique symbol;
 declare const laneIdBrand: unique symbol;
@@ -102,7 +103,9 @@ export const MAIN_LANE_ID = 'main' as LaneId;
 
 function nonEmpty(value: string, name: string): string {
 	const normalized = value.trim();
-	if (!normalized) throw new Error(`${name} non puo' essere vuoto`);
+	// Il messaggio arriva fino alla UI quando un chiamante passa un id vuoto:
+	// segue la lingua attiva invece di restare in italiano.
+	if (!normalized) throw new Error(m.l10n_state_value_cannot_be_empty({ name }));
 	return normalized;
 }
 
@@ -142,7 +145,7 @@ export function createMainLane(
 	return {
 		projectId: ownerProjectId,
 		laneId: MAIN_LANE_ID,
-		title: options?.title ?? 'Principale',
+		title: options?.title ?? m.lanestrip_tab_main(),
 		workspacePath:
 			options?.workspacePath ??
 			(canonicalPath ? workspacePathFromCanonical(canonicalPath) : null),

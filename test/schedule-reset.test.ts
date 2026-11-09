@@ -54,6 +54,8 @@ import {
 } from '../extensions/studio-tasks.ts';
 import type { QuotaLimit, QuotaReport } from '../src/lib/stores/quota.svelte.ts';
 
+process.env.OMP_STUDIO_LOCALE = 'it';
+
 const NOW = Date.UTC(2026, 9, 8, 12, 53);
 const MIN = 60_000;
 const HOUR = 60 * MIN;

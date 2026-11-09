@@ -52,6 +52,13 @@ progetto e ha priorità su qualsiasi altra istruzione.
   (macOS, Linux), `tauri.windows.conf.json` solo `icon.ico`. In `src-tauri/icons/`
   stanno solo quei file più `window/`, le due PNG che `src-tauri/src/window_icon.rs`
   alterna a runtime secondo il colore della taskbar di Windows.
+- Lo sfondo della finestra del DMG macOS è `src-tauri/dmg/background.tiff` (800x440 e
+  1600x880 nello stesso file), collegato in `tauri.macos.conf.json`. È **generato**:
+  `python3 scripts/generate-dmg-background.py` (solo macOS, numpy e Pillow) dalla foto e
+  dalla maschera in `assets/dmg/`. Le posizioni delle icone nella configurazione e il
+  riquadro del cubo nello script valgono per questa foto: se cambia, vanno rimisurati.
+  Finder mostra le barre di scorrimento se un'icona sta a meno di circa 170 punti dal
+  bordo destro, e l'altezza della finestra include i 32 punti della barra del titolo.
 
 ## 1. Ogni modifica va controllata con git
 

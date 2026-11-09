@@ -155,6 +155,21 @@ export interface ExtensionApi {
 	): void;
 }
 
+/**
+ * Testo scelto secondo la lingua della UI: il processo omp riceve
+ * `OMP_STUDIO_LOCALE` da Studio, il bundle della GUI ricade su `<html lang>`.
+ * Senza lingua nota si usa l'inglese, il default di Studio. Letta a ogni
+ * chiamata: la lingua puo' cambiare durante la vita del processo.
+ */
+function tr(it: string, en: string): string {
+	const host = globalThis as {
+		process?: { env?: Record<string, string | undefined> };
+		document?: { documentElement?: { lang?: string } };
+	};
+	const code = (host.process?.env?.OMP_STUDIO_LOCALE || host.document?.documentElement?.lang || "en").toLowerCase();
+	return code.startsWith("it") ? it : en;
+}
+
 function textResult(text: string, details?: Record<string, unknown>): ToolResult {
 	return details ? { content: [{ type: "text", text }], details } : { content: [{ type: "text", text }] };
 }
@@ -527,7 +542,10 @@ export function inspectBrowserInput(
 		if (!previewUrl || typeof previewUrl !== "string") {
 			return {
 				blocked: true,
-				reason: "Browser negato: nessuna anteprima pubblicata in .lab/preview-status.json. Esegui prima una compilazione o verifica lab_preview_status."
+				reason: tr(
+						"Browser negato: nessuna anteprima pubblicata in .lab/preview-status.json. Esegui prima una compilazione o verifica lab_preview_status.",
+						"Browser denied: no preview published in .lab/preview-status.json. Run a build first or check lab_preview_status."
+					)
 			};
 		}
 
@@ -602,7 +620,10 @@ export function createLabToolCallHook(env?: LabHookEnvironment) {
 				if (toolName === "corsia_fatto" && !isLabBriefApproved(workspaceDir)) {
 					return {
 						block: true,
-						reason: "Operazione negata: non e' possibile completare il prototipo prima dell'approvazione del brief in OMP Studio."
+						reason: tr(
+						"Operazione negata: non e' possibile completare il prototipo prima dell'approvazione del brief in OMP Studio.",
+						"Operation denied: the prototype cannot be completed before the brief is approved in OMP Studio."
+					)
 					};
 				}
 				return undefined;
@@ -798,7 +819,10 @@ export function createLabToolCallHook(env?: LabHookEnvironment) {
 				if (!isLabBriefApproved(workspaceDir)) {
 					return {
 						block: true,
-						reason: "Scrittura negata: nel Laboratorio il workspace e' in sola lettura finche' il brief non e' approvato in OMP Studio. Scrivi il brief in local://<slug>-plan.md e chiama studio_plan_submit."
+						reason: tr(
+						"Scrittura negata: nel Laboratorio il workspace e' in sola lettura finche' il brief non e' approvato in OMP Studio. Scrivi il brief in local://<slug>-plan.md e chiama studio_plan_submit.",
+						"Write denied: in the Lab the workspace is read-only until the brief is approved in OMP Studio. Write the brief to local://<slug>-plan.md and call studio_plan_submit."
+					)
 					};
 				}
 
@@ -841,7 +865,10 @@ export function createLabToolCallHook(env?: LabHookEnvironment) {
 				if (!isLabBriefApproved(workspaceDir)) {
 					return {
 						block: true,
-						reason: "Modifica negata: nel Laboratorio il workspace e' in sola lettura finche' il brief non e' approvato in OMP Studio. Scrivi il brief in local://<slug>-plan.md e chiama studio_plan_submit."
+						reason: tr(
+						"Modifica negata: nel Laboratorio il workspace e' in sola lettura finche' il brief non e' approvato in OMP Studio. Scrivi il brief in local://<slug>-plan.md e chiama studio_plan_submit.",
+						"Edit denied: in the Lab the workspace is read-only until the brief is approved in OMP Studio. Write the brief to local://<slug>-plan.md and call studio_plan_submit."
+					)
 					};
 				}
 
@@ -894,7 +921,10 @@ export function createLabToolCallHook(env?: LabHookEnvironment) {
 				if (!isLabBriefApproved(workspaceDir)) {
 					return {
 						block: true,
-						reason: "Modifica AST negata: nel Laboratorio il workspace e' in sola lettura finche' il brief non e' approvato in OMP Studio. Scrivi il brief in local://<slug>-plan.md e chiama studio_plan_submit."
+						reason: tr(
+						"Modifica AST negata: nel Laboratorio il workspace e' in sola lettura finche' il brief non e' approvato in OMP Studio. Scrivi il brief in local://<slug>-plan.md e chiama studio_plan_submit.",
+						"AST edit denied: in the Lab the workspace is read-only until the brief is approved in OMP Studio. Write the brief to local://<slug>-plan.md and call studio_plan_submit."
+					)
 					};
 				}
 
@@ -965,7 +995,7 @@ export function createLabToolCallHook(env?: LabHookEnvironment) {
 				if (inspection.blocked) {
 					return {
 						block: true,
-						reason: inspection.reason || "Uso del browser non autorizzato nel Laboratorio."
+						reason: inspection.reason || tr("Uso del browser non autorizzato nel Laboratorio.", "Browser use is not allowed in the Lab.")
 					};
 				}
 
@@ -976,7 +1006,10 @@ export function createLabToolCallHook(env?: LabHookEnvironment) {
 			if (toolName === "bash" || toolName === "exec") {
 				return {
 					block: true,
-					reason: "Tool 'bash' non consentito nel Laboratorio: l'esecuzione di comandi shell e' vietata per isolamento del runtime."
+					reason: tr(
+						"Tool 'bash' non consentito nel Laboratorio: l'esecuzione di comandi shell e' vietata per isolamento del runtime.",
+						"Tool 'bash' is not allowed in the Lab: running shell commands is forbidden for runtime isolation."
+					)
 				};
 			}
 			if (toolName === "eval" || toolName === "python") {
@@ -1043,7 +1076,7 @@ export default function studioLabExtension(pi: ExtensionApi): void {
 	const previewParams = z ? z.object({}) : undefined;
 	pi.registerTool({
 		name: "lab_preview_status",
-		label: "Stato anteprima Laboratorio",
+		label: tr("Stato anteprima Laboratorio", "Lab preview status"),
 		description:
 			"Legge lo stato attuale della compilazione e dell'anteprima da .lab/preview-status.json. " +
 			"Attende fino a 8 secondi che l'anteprima sia ricompilata dopo le ultime modifiche ai sorgenti. " +
@@ -1092,7 +1125,10 @@ export default function studioLabExtension(pi: ExtensionApi): void {
 
 			if (!status) {
 				return textResult(
-					"Anteprima non ancora disponibile: il file .lab/preview-status.json non e' presente nel workspace del prototipo dopo 8 secondi di attesa.",
+					tr(
+						"Anteprima non ancora disponibile: il file .lab/preview-status.json non e' presente nel workspace del prototipo dopo 8 secondi di attesa.",
+						"Preview not available yet: the .lab/preview-status.json file is missing from the prototype workspace after an 8-second wait."
+					),
 					{
 						ok: false,
 						url: null,
@@ -1104,10 +1140,20 @@ export default function studioLabExtension(pi: ExtensionApi): void {
 			}
 
 			const lines: string[] = [];
-			lines.push(`URL anteprima (solo per il tool browser; l'utente vede l'anteprima nella scheda Anteprima di Studio): ${status.url || "nessun URL (non pubblicata)"}`);
+			lines.push(
+				tr(
+					`URL anteprima (solo per il tool browser; l'utente vede l'anteprima nella scheda Anteprima di Studio): ${status.url || "nessun URL (non pubblicata)"}`,
+					`Preview URL (for the browser tool only; the user sees the preview in Studio's Preview tab): ${status.url || "no URL (not published)"}`
+				)
+			);
 			lines.push(`Esito compilazione: ${status.ok ? "SUCCESSO (OK)" : "ERRORI RILEVATI"}`);
 			if (isStale) {
-				lines.push("Stato: VECCHIO (la compilazione non ha ancora recepito l'ultima modifica ai sorgenti)");
+				lines.push(
+					tr(
+						"Stato: VECCHIO (la compilazione non ha ancora recepito l'ultima modifica ai sorgenti)",
+						"Status: STALE (the build has not picked up the latest source change yet)"
+					)
+				);
 			} else {
 				lines.push("Stato: AGGIORNATO");
 			}
@@ -1119,7 +1165,7 @@ export default function studioLabExtension(pi: ExtensionApi): void {
 					lines.push(`- [${err.kind || "errore"}] ${loc}: ${err.message}`);
 				}
 			} else {
-				lines.push("\nNessun errore di compilazione o runtime.");
+				lines.push(tr("\nNessun errore di compilazione o runtime.", "\nNo build or runtime errors."));
 			}
 
 			return textResult(lines.join("\n"), {
@@ -1144,7 +1190,7 @@ export default function studioLabExtension(pi: ExtensionApi): void {
 
 	pi.registerTool<{ summary?: string }>({
 		name: "lab_set_summary",
-		label: "Salvataggio riepilogo prototipo",
+		label: tr("Salvataggio riepilogo prototipo", "Save prototype summary"),
 		description:
 			"Salva il riepilogo del prototipo nel file atomico .lab/meta.json. " +
 			"Chiamalo non appena il prototipo prende forma o quando il suo scopo cambia: " +
@@ -1155,16 +1201,27 @@ export default function studioLabExtension(pi: ExtensionApi): void {
 			const activeWorkspace = ctx?.sessionManager?.getCwd?.() || workspaceDir;
 			if (!isLabBriefApproved(activeWorkspace)) {
 				return errorResult(
-					"Il riepilogo del prototipo potra' essere salvato solo dopo l'approvazione del brief in OMP Studio."
+					tr(
+						"Il riepilogo del prototipo potra' essere salvato solo dopo l'approvazione del brief in OMP Studio.",
+						"The prototype summary can only be saved after the brief is approved in OMP Studio."
+					)
 				);
 			}
 			const summary = typeof params?.summary === "string" ? params.summary.trim() : "";
 			if (!summary) {
-				return errorResult("Errore: il parametro 'summary' e' obbligatorio e non puo' essere vuoto.");
+				return errorResult(
+					tr(
+						"Errore: il parametro 'summary' e' obbligatorio e non puo' essere vuoto.",
+						"Error: the 'summary' parameter is required and cannot be empty."
+					)
+				);
 			}
 			if (summary.length > 400) {
 				return errorResult(
-					`Errore: il riepilogo supera il limite massimo di 400 caratteri (lunghezza: ${summary.length}).`
+					tr(
+						`Errore: il riepilogo supera il limite massimo di 400 caratteri (lunghezza: ${summary.length}).`,
+						`Error: the summary exceeds the 400-character limit (length: ${summary.length}).`
+					)
 				);
 			}
 
@@ -1199,7 +1256,9 @@ export default function studioLabExtension(pi: ExtensionApi): void {
 				renameSync(tempFile, metaPath);
 			} catch (err: unknown) {
 				const msg = err instanceof Error ? err.message : String(err);
-				return errorResult(`Errore durante la scrittura di .lab/meta.json: ${msg}`);
+				return errorResult(
+					tr(`Errore durante la scrittura di .lab/meta.json: ${msg}`, `Error while writing .lab/meta.json: ${msg}`)
+				);
 			}
 
 			return textResult(

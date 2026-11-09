@@ -108,7 +108,9 @@ self.addEventListener('fetch', (event) => {
 // ---------------------------------------------------------------------------
 
 self.addEventListener('push', (event) => {
-	let data = { title: 'OMP Studio', body: 'Nuovo aggiornamento' };
+	// Predefinito inglese: il relay manda sempre titolo e corpo gia' nella lingua
+	// del dispositivo, questo resta solo per payload privi di testo.
+	let data = { title: 'OMP Studio', body: 'New update' };
 	if (event.data) {
 		try {
 			data = event.data.json();

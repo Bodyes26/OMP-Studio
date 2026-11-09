@@ -42,15 +42,15 @@
 
 	const argsRows = $derived.by(() => {
 		const rows: { key: string; value: string }[] = [];
-		rows.push({ key: 'Operazione', value: op });
-		if (repo) rows.push({ key: 'Repository', value: repo });
-		if (branch) rows.push({ key: 'Branch', value: branch });
-		if (pr) rows.push({ key: 'PR', value: pr });
-		if (prList.length > 0) rows.push({ key: 'PRs', value: prList.join(', ') });
-		if (pathArg) rows.push({ key: 'Percorso', value: pathArg });
-		if (query) rows.push({ key: 'Query', value: query });
-		if (title) rows.push({ key: 'Titolo', value: title });
-		if (run) rows.push({ key: 'Run ID', value: run });
+		rows.push({ key: m.l10n_tools_label_operation(), value: op });
+		if (repo) rows.push({ key: m.l10n_tools_label_repository(), value: repo });
+		if (branch) rows.push({ key: m.l10n_tools_label_branch(), value: branch });
+		if (pr) rows.push({ key: m.l10n_tools_label_pr(), value: pr });
+		if (prList.length > 0) rows.push({ key: m.l10n_tools_label_prs(), value: prList.join(', ') });
+		if (pathArg) rows.push({ key: m.l10n_tools_label_path(), value: pathArg });
+		if (query) rows.push({ key: m.l10n_tools_label_query(), value: query });
+		if (title) rows.push({ key: m.l10n_tools_label_title(), value: title });
+		if (run) rows.push({ key: m.l10n_tools_label_run_id(), value: run });
 		return rows;
 	});
 
@@ -99,7 +99,7 @@
 	{/if}
 
 	{#if text}
-		<OutputBlock {text} label="risultato github" />
+		<OutputBlock {text} label={m.l10n_tools_label_github_result()} />
 	{/if}
 </div>
 

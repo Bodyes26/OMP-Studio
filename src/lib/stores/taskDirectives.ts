@@ -9,6 +9,9 @@
  */
 
 import { m } from '#lib/paraglide/messages.js';
+
+/** Un messaggio Paraglide senza parametri, invocabile per lingua. */
+type LocalizedMessage = (options: { locale: 'en' | 'it' }) => string;
 export type DirectivePlacement = 'before' | 'after';
 export type FactoryDirectiveKey = 'plan' | 'discussion' | 'minimal' | 'research';
 
@@ -41,8 +44,13 @@ export const FACTORY_DIRECTIVES: readonly TaskDirective[] = [
 	{
 		id: 'dir_factory_plan',
 		factoryKey: 'plan',
-		name: 'Modalità Piano',
-		description: 'Formula un piano architetturale ed attende approvazione prima di modificare file.',
+		// Nome e descrizione sono mostrati nella UI: nascono nella lingua attiva.
+		get name() {
+			return m.directive_factory_plan_name();
+		},
+		get description() {
+			return m.directive_factory_plan_desc();
+		},
 		tag: '/plan',
 		prompt:
 			'[Modalita Piano: formula prima un piano di esecuzione dettagliato passo-passo ed esponilo per approvazione prima di procedere con modifiche.]',
@@ -53,8 +61,12 @@ export const FACTORY_DIRECTIVES: readonly TaskDirective[] = [
 	{
 		id: 'dir_factory_discussion',
 		factoryKey: 'discussion',
-		name: 'Discussione & Requisiti',
-		description: 'Pone domande approfondite per chiarire ogni decisione prima di toccare il codice.',
+		get name() {
+			return m.directive_factory_discussion_name();
+		},
+		get description() {
+			return m.directive_factory_discussion_desc();
+		},
 		tag: '/grill-me',
 		prompt:
 			"[Modalita Discussione: NON modificare codice subito. Analizza il progetto e usa la skill /grill-me o interroga l'utente con domande mirate per chiarire decisioni, vincoli e architettura prima di procedere.]",
@@ -65,8 +77,12 @@ export const FACTORY_DIRECTIVES: readonly TaskDirective[] = [
 	{
 		id: 'dir_factory_minimal',
 		factoryKey: 'minimal',
-		name: 'Soluzione Minimale',
-		description: 'Forza la soluzione più semplice, pigra e senza dipendenze o astrazioni superflue.',
+		get name() {
+			return m.directive_factory_minimal_name();
+		},
+		get description() {
+			return m.directive_factory_minimal_desc();
+		},
 		tag: '/ponytail',
 		prompt:
 			'[Modalita Minimale: applica la soluzione piu pigra, semplice e minimale possibile (/ponytail). Evita astrazioni premature, boilerplate o nuove dipendenze se non indispensabili.]',
@@ -77,8 +93,12 @@ export const FACTORY_DIRECTIVES: readonly TaskDirective[] = [
 	{
 		id: 'dir_factory_research',
 		factoryKey: 'research',
-		name: 'Ricerca Web Online',
-		description: "Esegue ricerche online mirate sull'ambito della richiesta prima di procedere.",
+		get name() {
+			return m.directive_factory_research_name();
+		},
+		get description() {
+			return m.directive_factory_research_desc();
+		},
 		tag: 'Web',
 		prompt:
 			"[Direttiva Ricerca Online: Dopo aver analizzato al completo la richiesta e tutto il codice collegato nel progetto, effettua ricerche online approfondite sull'ambito e sulla richiesta (documentazione, riferimenti, librerie e best practice) prima di procedere con l'implementazione o le modifiche.]",
@@ -124,19 +144,24 @@ export function directiveDisplayName(directive: {
 	name: string;
 }): string {
 	const key = directive.factoryKey ?? (directive.id?.replace(/^dir_factory_/, '') as FactoryDirectiveKey | undefined);
-	if (key === 'plan' && (!directive.name || directive.name === 'Modalità Piano' || directive.name === 'Plan Mode')) {
+	const name = directive.name ?? '';
+	// Lo snapshot salvato porta il nome nella lingua in cui e' nato: entrambe
+	// le varianti contano come "non personalizzato".
+	const isFactory = (message: LocalizedMessage) =>
+		!name || name === message({ locale: 'it' }) || name === message({ locale: 'en' });
+	if (key === 'plan' && isFactory(m.directive_factory_plan_name)) {
 		return m.directive_factory_plan_name();
 	}
-	if (key === 'discussion' && (!directive.name || directive.name === 'Discussione & Requisiti' || directive.name === 'Discussion & Requirements')) {
+	if (key === 'discussion' && isFactory(m.directive_factory_discussion_name)) {
 		return m.directive_factory_discussion_name();
 	}
-	if (key === 'minimal' && (!directive.name || directive.name === 'Soluzione Minimale' || directive.name === 'Minimal Solution')) {
+	if (key === 'minimal' && isFactory(m.directive_factory_minimal_name)) {
 		return m.directive_factory_minimal_name();
 	}
-	if (key === 'research' && (!directive.name || directive.name === 'Ricerca Web Online' || directive.name === 'Online Web Research')) {
+	if (key === 'research' && isFactory(m.directive_factory_research_name)) {
 		return m.directive_factory_research_name();
 	}
-	return directive.name;
+	return name;
 }
 
 /**
@@ -150,16 +175,20 @@ export function directiveDisplayDescription(directive: {
 }): string {
 	const key = directive.factoryKey ?? (directive.id?.replace(/^dir_factory_/, '') as FactoryDirectiveKey | undefined);
 	const desc = directive.description ?? '';
-	if (key === 'plan' && (!desc || desc === FACTORY_DIRECTIVES[0].description)) {
+	// Il catalogo salvato porta il testo della lingua in cui e' nato: si
+	// riconosce il preset confrontando entrambe le varianti.
+	const isFactory = (message: LocalizedMessage) =>
+		!desc || desc === message({ locale: 'it' }) || desc === message({ locale: 'en' });
+	if (key === 'plan' && isFactory(m.directive_factory_plan_desc)) {
 		return m.directive_factory_plan_desc();
 	}
-	if (key === 'discussion' && (!desc || desc === FACTORY_DIRECTIVES[1].description)) {
+	if (key === 'discussion' && isFactory(m.directive_factory_discussion_desc)) {
 		return m.directive_factory_discussion_desc();
 	}
-	if (key === 'minimal' && (!desc || desc === FACTORY_DIRECTIVES[2].description)) {
+	if (key === 'minimal' && isFactory(m.directive_factory_minimal_desc)) {
 		return m.directive_factory_minimal_desc();
 	}
-	if (key === 'research' && (!desc || desc === FACTORY_DIRECTIVES[3].description)) {
+	if (key === 'research' && isFactory(m.directive_factory_research_desc)) {
 		return m.directive_factory_research_desc();
 	}
 	return desc;

@@ -652,7 +652,7 @@ class ModelSettingsStore {
 				this.availableCatalogLoaded = true;
 			}
 			this.clearSuggestionsCache();
-			this.showToast('Configurazione modelli salvata');
+			this.showToast(msg.l10n_state_models_config_saved());
 			return true;
 		} catch (e) {
 			console.error('Failed to save model config:', e);
@@ -710,7 +710,12 @@ class ModelSettingsStore {
 				this.availableCatalogLoaded = true;
 				this.clearSuggestionsCache();
 				void this.loadProviders();
-				this.showToast(`Catalogo aggiornato per ${providerId} (${providerModels.length} modelli)`);
+				this.showToast(
+					msg.l10n_state_models_catalog_updated_provider({
+						provider: providerId,
+						count: providerModels.length
+					})
+				);
 			} else {
 				const cat = await invoke<ModelDto[]>('refresh_models_catalog');
 				this.catalog = cat;
@@ -718,7 +723,7 @@ class ModelSettingsStore {
 				this.availableCatalogLoaded = true;
 				this.clearSuggestionsCache();
 				void this.loadProviders();
-				this.showToast(`Catalogo aggiornato (${cat.length} modelli)`);
+				this.showToast(msg.l10n_state_models_catalog_updated({ count: cat.length }));
 			}
 		} catch (e) {
 			console.error('Failed to refresh models catalog:', e);
@@ -870,7 +875,7 @@ class ModelSettingsStore {
 				if (report.findings && report.findings.length > 0) {
 					this.healthModalOpen = true;
 				} else {
-					this.showToast('Modelli verificati: nessun problema rilevato');
+					this.showToast(msg.model_health_no_issues());
 				}
 			}
 		} catch (e) {
@@ -898,7 +903,7 @@ class ModelSettingsStore {
 			this.showToast(
 				count === 1
 					? msg.ui_ts_modelsettings_correzione_modello_applicata_4a31()
-					: `Applicate ${count} correzioni ai modelli`
+					: msg.l10n_state_models_fixes_applied({ count })
 			);
 		} catch (e) {
 			console.error('Failed to apply model fixes:', e);
@@ -954,7 +959,7 @@ class ModelSettingsStore {
 
 	restartOmpSessions(targetCwd?: string) {
 		restartOmpTerminals(targetCwd);
-		this.showToast('Sessioni OMP riavviate');
+		this.showToast(msg.l10n_state_omp_sessions_restarted());
 	}
 
 	// Utility di modifica draftConfig

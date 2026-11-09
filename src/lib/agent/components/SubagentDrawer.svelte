@@ -21,16 +21,21 @@
 	import { fade } from 'svelte/transition';
 	import { trapFocus } from '#lib/focusTrap.ts';
 	import { settingsStore } from '#lib/stores/settings.svelte.ts';
-	// Etichette di ruolo in italiano. Ruoli di sistema (custom e developer)
+	// Etichette di ruolo tradotte. Ruoli di sistema (custom e developer)
 	// vengono gestiti separatamente come chip e non passano da qui.
-	const ROLE_LABEL: Record<string, string> = {
-		user: 'utente',
-		assistant: 'assistente',
-		toolResult: 'risultato tool'
-	};
-
+	// Funzione e non tabella costante: la lingua attiva si legge al momento
+	// dell'uso, cosi' il cambio lingua aggiorna le etichette gia' a schermo.
 	function roleLabel(role: string): string {
-		return ROLE_LABEL[role] ?? role;
+		switch (role) {
+			case 'user':
+				return m.l10n_agentcmp_role_user();
+			case 'assistant':
+				return m.l10n_agentcmp_role_assistant();
+			case 'toolResult':
+				return m.l10n_agentcmp_role_tool_result();
+			default:
+				return role;
+		}
 	}
 
 	let {
@@ -137,7 +142,7 @@
 								id: i,
 								kind: 'system-chip',
 								customType: 'custom-message',
-								title: msg.role === 'developer' ? 'Promemoria' : 'Sistema',
+								title: msg.role === 'developer' ? m.l10n_agentcmp_chip_reminder() : m.l10n_agentcmp_system_chip_system(),
 								body: stripped
 							}
 						});
@@ -212,7 +217,7 @@
 							id: i,
 							kind: 'system-chip',
 							customType: 'async-result',
-							title: 'Risultato in background',
+							title: m.l10n_agentcmp_system_chip_async_result(),
 							body
 						}
 					});

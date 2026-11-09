@@ -17,10 +17,12 @@ use tauri::{command, AppHandle, Emitter, Manager};
 static ENGINE: LazyLock<RwLock<Option<Arc<Engine>>>> = LazyLock::new(|| RwLock::new(None));
 
 pub fn init(app: AppHandle) -> Result<(), String> {
-    let data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("Percorso app_data_dir non disponibile: {}", e))?;
+    let data_dir = app.path().app_data_dir().map_err(|e| {
+        crate::tr!(
+            format!("Percorso app_data_dir non disponibile: {}", e),
+            format!("app_data_dir path not available: {}", e)
+        )
+    })?;
     let db_path = data_dir.join("automations.db");
     let outputs_dir = data_dir.join("automation_outputs");
 
@@ -40,7 +42,10 @@ pub fn active_count() -> usize {
 }
 
 pub fn interactive_active_count() -> usize {
-    ENGINE.read().as_ref().map_or(0, |e| e.interactive_active_count())
+    ENGINE
+        .read()
+        .as_ref()
+        .map_or(0, |e| e.interactive_active_count())
 }
 
 pub fn is_project_locked(path: &str, excluding_execution: Option<&str>) -> bool {
@@ -106,14 +111,19 @@ pub fn extend_human_wait(run_id: &str, execution_id: &str, minutes: u64) -> Resu
 }
 
 fn get_engine() -> Result<Arc<Engine>, String> {
-    ENGINE
-        .read()
-        .as_ref()
-        .cloned()
-        .ok_or_else(|| "Motore automazioni non ancora inizializzato".to_string())
+    ENGINE.read().as_ref().cloned().ok_or_else(|| {
+        crate::tr!(
+            "Motore automazioni non ancora inizializzato",
+            "Automations engine not initialized yet"
+        )
+        .to_string()
+    })
 }
 
-fn is_definition_in_owner_scope(def: &AutomationDefinition, owner: &crate::lane_bridge::BridgeOwner) -> bool {
+fn is_definition_in_owner_scope(
+    def: &AutomationDefinition,
+    owner: &crate::lane_bridge::BridgeOwner,
+) -> bool {
     if owner.owner_kind == "terminal" || (owner.lane_id.is_none() && owner.cwd.is_empty()) {
         return true;
     }
@@ -122,7 +132,11 @@ fn is_definition_in_owner_scope(def: &AutomationDefinition, owner: &crate::lane_
         return true;
     }
     let targets = &def.targets;
-    if targets.project_paths.iter().any(|p| engine::normalize_project_path(p) == owner_norm) {
+    if targets
+        .project_paths
+        .iter()
+        .any(|p| engine::normalize_project_path(p) == owner_norm)
+    {
         return true;
     }
     if !targets.cwd.is_empty() && engine::normalize_project_path(&targets.cwd) == owner_norm {
@@ -144,66 +158,105 @@ pub fn agent_request(
 
     match action {
         "list" => {
-            let mut defs = engine.storage().get_definitions().map_err(|e| e.to_string())?;
+            let mut defs = engine
+                .storage()
+                .get_definitions()
+                .map_err(|e| e.to_string())?;
             defs.retain(|d| is_definition_in_owner_scope(d, owner));
             Ok(serde_json::json!({
                 "ok": true,
-                "text": format!("Trovate {} automazioni.", defs.len()),
+                "text": crate::tr!(
+                    format!("Trovate {} automazioni.", defs.len()),
+                    format!("Found {} automations.", defs.len())
+                ),
                 "details": defs,
             }))
         }
         "get" => {
-            let id = body
-                .get("id")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| "Parametro 'id' mancante".to_string())?;
+            let id = body.get("id").and_then(|v| v.as_str()).ok_or_else(|| {
+                crate::tr!("Parametro 'id' mancante", "Missing 'id' parameter").to_string()
+            })?;
 
             if let Some(def) = engine.storage().get_definition(id) {
                 if !is_definition_in_owner_scope(&def, owner) {
                     return Ok(serde_json::json!({
                         "ok": false,
-                        "text": format!("Automazione '{}' fuori dallo scope autorizzato dell'agente.", id),
+                        "text": crate::tr!(
+                            format!("Automazione '{}' fuori dallo scope autorizzato dell'agente.", id),
+                            format!("Automation '{}' is outside the agent's authorized scope.", id)
+                        ),
                     }));
                 }
                 Ok(serde_json::json!({
                     "ok": true,
-                    "text": format!("Automazione '{}' trovata.", def.name),
+                    "text": crate::tr!(
+                        format!("Automazione '{}' trovata.", def.name),
+                        format!("Automation '{}' found.", def.name)
+                    ),
                     "details": def,
                 }))
             } else {
                 Ok(serde_json::json!({
                     "ok": false,
-                    "text": format!("Automazione '{}' non trovata.", id),
+                    "text": crate::tr!(
+                        format!("Automazione '{}' non trovata.", id),
+                        format!("Automation '{}' not found.", id)
+                    ),
                 }))
             }
         }
         "runs" => {
-            let mut runs = engine.storage().get_occurrences(20).map_err(|e| e.to_string())?;
+            let mut runs = engine
+                .storage()
+                .get_occurrences(20)
+                .map_err(|e| e.to_string())?;
             let owner_norm = engine::normalize_project_path(&owner.cwd);
             runs.retain(|r| {
                 is_definition_in_owner_scope(&r.definition, owner)
-                    || (!owner_norm.is_empty() && r.targets.iter().any(|t| engine::normalize_project_path(&t.path) == owner_norm))
+                    || (!owner_norm.is_empty()
+                        && r.targets
+                            .iter()
+                            .any(|t| engine::normalize_project_path(&t.path) == owner_norm))
             });
             Ok(serde_json::json!({
                 "ok": true,
-                "text": format!("Trovate {} esecuzioni recenti.", runs.len()),
+                "text": crate::tr!(
+                    format!("Trovate {} esecuzioni recenti.", runs.len()),
+                    format!("Found {} recent runs.", runs.len())
+                ),
                 "details": runs,
             }))
         }
         "propose_create" => {
             let def_val = body.get("definition").unwrap_or(&body);
-            let mut def: AutomationDefinition = serde_json::from_value(def_val.clone())
-                .map_err(|e| format!("Formato JSON definizione non valido per propose_create: {}", e))?;
+            let mut def: AutomationDefinition =
+                serde_json::from_value(def_val.clone()).map_err(|e| {
+                    crate::tr!(
+                        format!(
+                            "Formato JSON definizione non valido per propose_create: {}",
+                            e
+                        ),
+                        format!("Invalid definition JSON format for propose_create: {}", e)
+                    )
+                })?;
 
             let owner_norm = engine::normalize_project_path(&owner.cwd);
             if !owner_norm.is_empty() && owner.owner_kind != "terminal" {
                 if def.targets.project_paths.is_empty() {
                     def.targets.project_paths = vec![owner.cwd.clone()];
                     def.targets.source = "selected".to_string();
-                } else if !def.targets.project_paths.iter().any(|p| engine::normalize_project_path(p) == owner_norm) {
+                } else if !def
+                    .targets
+                    .project_paths
+                    .iter()
+                    .any(|p| engine::normalize_project_path(p) == owner_norm)
+                {
                     return Ok(serde_json::json!({
                         "ok": false,
-                        "text": format!("Non puoi proporre automazioni che agiscono su percorsi fuori dallo scope ({})", owner.cwd),
+                        "text": crate::tr!(
+                            format!("Non puoi proporre automazioni che agiscono su percorsi fuori dallo scope ({})", owner.cwd),
+                            format!("You cannot propose automations that act on paths outside the scope ({})", owner.cwd)
+                        ),
                     }));
                 }
             }
@@ -231,7 +284,10 @@ pub fn agent_request(
 
             Ok(serde_json::json!({
                 "ok": true,
-                "text": "Bozza creata e proposta per la revisione utente nella UI di OMP Studio.",
+                "text": crate::tr!(
+                    "Bozza creata e proposta per la revisione utente nella UI di OMP Studio.",
+                    "Draft created and proposed for user review in the OMP Studio UI."
+                ),
                 "details": {
                     "draftId": draft.id,
                     "definition": draft.definition
@@ -239,27 +295,48 @@ pub fn agent_request(
             }))
         }
         "propose_update" => {
-            let id = body
-                .get("id")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| "Parametro 'id' mancante per propose_update".to_string())?;
+            let id = body.get("id").and_then(|v| v.as_str()).ok_or_else(|| {
+                crate::tr!(
+                    "Parametro 'id' mancante per propose_update",
+                    "Missing 'id' parameter for propose_update"
+                )
+                .to_string()
+            })?;
 
-            let existing = engine
-                .storage()
-                .get_definition(id)
-                .ok_or_else(|| format!("Automazione '{}' non trovata", id))?;
+            let existing = engine.storage().get_definition(id).ok_or_else(|| {
+                crate::tr!(
+                    format!("Automazione '{}' non trovata", id),
+                    format!("Automation '{}' not found", id)
+                )
+            })?;
 
             if !is_definition_in_owner_scope(&existing, owner) {
                 return Ok(serde_json::json!({
                     "ok": false,
-                    "text": format!("Automazione '{}' fuori dallo scope autorizzato dell'agente.", id),
+                    "text": crate::tr!(
+                        format!("Automazione '{}' fuori dallo scope autorizzato dell'agente.", id),
+                        format!("Automation '{}' is outside the agent's authorized scope.", id)
+                    ),
                 }));
             }
 
-            let def_val = body.get("definition")
-                .ok_or_else(|| "Campo 'definition' mancante per propose_update".to_string())?;
+            let def_val = body.get("definition").ok_or_else(|| {
+                crate::tr!(
+                    "Campo 'definition' mancante per propose_update",
+                    "Missing 'definition' field for propose_update"
+                )
+                .to_string()
+            })?;
             let mut updated_def: AutomationDefinition = serde_json::from_value(def_val.clone())
-                .map_err(|e| format!("Formato JSON definizione non valido per propose_update: {}", e))?;
+                .map_err(|e| {
+                    crate::tr!(
+                        format!(
+                            "Formato JSON definizione non valido per propose_update: {}",
+                            e
+                        ),
+                        format!("Invalid definition JSON format for propose_update: {}", e)
+                    )
+                })?;
             updated_def.id = existing.id.clone();
             updated_def.revision = existing.revision;
             updated_def.updated_at = now;
@@ -286,7 +363,10 @@ pub fn agent_request(
 
             Ok(serde_json::json!({
                 "ok": true,
-                "text": "Aggiornamento proposto come bozza per la revisione utente nella UI di OMP Studio.",
+                "text": crate::tr!(
+                    "Aggiornamento proposto come bozza per la revisione utente nella UI di OMP Studio.",
+                    "Update proposed as a draft for user review in the OMP Studio UI."
+                ),
                 "details": {
                     "draftId": draft.id,
                     "definition": draft.definition
@@ -294,21 +374,33 @@ pub fn agent_request(
             }))
         }
         "projects" => {
-            let operation = body.get("operation").and_then(|v| v.as_str()).unwrap_or("list");
+            let operation = body
+                .get("operation")
+                .and_then(|v| v.as_str())
+                .unwrap_or("list");
             match operation {
                 "list" => {
-                    let projects = engine.storage().get_registered_projects().map_err(|e| e.to_string())?;
+                    let projects = engine
+                        .storage()
+                        .get_registered_projects()
+                        .map_err(|e| e.to_string())?;
                     Ok(serde_json::json!({
                         "ok": true,
-                        "text": format!("Catalogo progetti ({} registrati).", projects.len()),
+                        "text": crate::tr!(
+                            format!("Catalogo progetti ({} registrati).", projects.len()),
+                            format!("Project catalog ({} registered).", projects.len())
+                        ),
                         "details": projects,
                     }))
                 }
                 "open" | "close" => {
-                    let path = body
-                        .get("path")
-                        .and_then(|v| v.as_str())
-                        .ok_or_else(|| "Parametro 'path' obbligatorio per open/close".to_string())?;
+                    let path = body.get("path").and_then(|v| v.as_str()).ok_or_else(|| {
+                        crate::tr!(
+                            "Parametro 'path' obbligatorio per open/close",
+                            "The 'path' parameter is required for open/close"
+                        )
+                        .to_string()
+                    })?;
 
                     // Scope check: perimetro dell'agente o destinatari autorizzati
                     let target_norm = engine::normalize_project_path(path);
@@ -320,9 +412,15 @@ pub fn agent_request(
                     if !allowed {
                         return Ok(serde_json::json!({
                             "ok": false,
-                            "text": format!(
-                                "Operazione non autorizzata sul percorso '{}': fuori dallo scope dell'agente (AUT-086).",
-                                path
+                            "text": crate::tr!(
+                                format!(
+                                    "Operazione non autorizzata sul percorso '{}': fuori dallo scope dell'agente (AUT-086).",
+                                    path
+                                ),
+                                format!(
+                                    "Operation not allowed on path '{}': outside the agent scope (AUT-086).",
+                                    path
+                                )
                             ),
                         }));
                     }
@@ -331,11 +429,20 @@ pub fn agent_request(
                     let req = engine.request_project_operation(operation, path, execution_id)?;
 
                     let msg = if req.status == "deferred" {
-                        "Chiusura del progetto differita al termine dell'esecuzione (AUT-091)."
+                        crate::tr!(
+                            "Chiusura del progetto differita al termine dell'esecuzione (AUT-091).",
+                            "Project close deferred until the run finishes (AUT-091)."
+                        )
                     } else if operation == "open" {
-                        "Richiesta apertura progetto inviata a Studio."
+                        crate::tr!(
+                            "Richiesta apertura progetto inviata a Studio.",
+                            "Project open request sent to Studio."
+                        )
                     } else {
-                        "Richiesta chiusura progetto inviata a Studio."
+                        crate::tr!(
+                            "Richiesta chiusura progetto inviata a Studio.",
+                            "Project close request sent to Studio."
+                        )
                     };
 
                     Ok(serde_json::json!({
@@ -346,21 +453,26 @@ pub fn agent_request(
                 }
                 _ => Ok(serde_json::json!({
                     "ok": false,
-                    "text": format!("Operazione '{}' non supportata. Valide: 'list', 'open', 'close'.", operation),
+                    "text": crate::tr!(
+                        format!("Operazione '{}' non supportata. Valide: 'list', 'open', 'close'.", operation),
+                        format!("Unsupported operation '{}'. Valid: 'list', 'open', 'close'.", operation)
+                    ),
                 })),
             }
         }
         "event" => {
             // AUT-014: whitelist per eventi agente emessi da PTY/bridge autenticato
-            let kind = body
-                .get("kind")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| "Parametro 'kind' mancante".to_string())?;
+            let kind = body.get("kind").and_then(|v| v.as_str()).ok_or_else(|| {
+                crate::tr!("Parametro 'kind' mancante", "Missing 'kind' parameter").to_string()
+            })?;
 
             if kind != "agentFinished" && kind != "agentQuota" && kind != "agentError" {
                 return Ok(serde_json::json!({
                     "ok": false,
-                    "text": format!("Tipo evento '{}' non consentito. Whitelist ammessa: 'agentFinished', 'agentQuota', 'agentError' (AUT-014).", kind),
+                    "text": crate::tr!(
+                        format!("Tipo evento '{}' non consentito. Whitelist ammessa: 'agentFinished', 'agentQuota', 'agentError' (AUT-014).", kind),
+                        format!("Event type '{}' not allowed. Permitted whitelist: 'agentFinished', 'agentQuota', 'agentError' (AUT-014).", kind)
+                    ),
                 }));
             }
 
@@ -368,7 +480,10 @@ pub fn agent_request(
             if owner.owner_kind != "terminal" && owner.owner_kind != "agent" {
                 return Ok(serde_json::json!({
                     "ok": false,
-                    "text": "Autorità insufficiente per emettere eventi agente (AUT-014).",
+                    "text": crate::tr!(
+                        "Autorità insufficiente per emettere eventi agente (AUT-014).",
+                        "Insufficient authority to emit agent events (AUT-014)."
+                    ),
                 }));
             }
 
@@ -377,7 +492,10 @@ pub fn agent_request(
                 if lane_lower.starts_with("lab-") || lane_lower.contains("readonly") {
                     return Ok(serde_json::json!({
                         "ok": false,
-                        "text": "Eventi ignorati per corsie Lab o readonly (AUT-014).",
+                        "text": crate::tr!(
+                            "Eventi ignorati per corsie Lab o readonly (AUT-014).",
+                            "Events ignored for Lab or read-only lanes (AUT-014)."
+                        ),
                     }));
                 }
             }
@@ -389,12 +507,19 @@ pub fn agent_request(
                 .and_then(|pid| engine.project_path_for_id(pid))
                 .unwrap_or_else(|| owner.cwd.clone());
 
-            let detail = body.get("detail").and_then(|v| v.as_str()).map(str::to_string);
+            let detail = body
+                .get("detail")
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
 
             let ev = AutomationEvent {
                 kind: kind.to_string(),
                 at: now,
-                project_path: if project_path.is_empty() { None } else { Some(project_path) },
+                project_path: if project_path.is_empty() {
+                    None
+                } else {
+                    Some(project_path)
+                },
                 paths: Vec::new(),
                 branch: None,
                 commit: None,
@@ -409,19 +534,27 @@ pub fn agent_request(
 
             Ok(serde_json::json!({
                 "ok": true,
-                "text": format!("Evento agente '{}' registrato e processato (AUT-014).", kind),
+                "text": crate::tr!(
+                    format!("Evento agente '{}' registrato e processato (AUT-014).", kind),
+                    format!("Agent event '{}' recorded and processed (AUT-014).", kind)
+                ),
             }))
         }
         _ => Ok(serde_json::json!({
             "ok": false,
-            "text": format!(
-                "Azione '{}' non consentita per gli agenti. L'attivazione, esecuzione e cancellazione delle automazioni possono avvenire solo su conferma esplicita dell'utente nella UI (AUT-002, AUT-061).",
-                action
+            "text": crate::tr!(
+                format!(
+                    "Azione '{}' non consentita per gli agenti. L'attivazione, esecuzione e cancellazione delle automazioni possono avvenire solo su conferma esplicita dell'utente nella UI (AUT-002, AUT-061).",
+                    action
+                ),
+                format!(
+                    "Action '{}' is not allowed for agents. Automations can only be activated, run or deleted with the user's explicit confirmation in the UI (AUT-002, AUT-061).",
+                    action
+                )
             ),
         })),
     }
 }
-
 
 // =========================================================================
 // COMANDI TAURI
@@ -449,10 +582,12 @@ pub async fn automations_activate(
     expected_revision: Option<u64>,
 ) -> Result<AutomationDefinition, String> {
     let engine = get_engine()?;
-    let draft = engine
-        .storage()
-        .get_draft(&draft_id)
-        .ok_or_else(|| format!("Bozza '{}' non trovata", draft_id))?;
+    let draft = engine.storage().get_draft(&draft_id).ok_or_else(|| {
+        crate::tr!(
+            format!("Bozza '{}' non trovata", draft_id),
+            format!("Draft '{}' not found", draft_id)
+        )
+    })?;
 
     let mut def = draft.definition;
 
@@ -460,9 +595,15 @@ pub async fn automations_activate(
         if let Some(existing) = engine.storage().get_definition(&def.id) {
             let exp = expected_revision.unwrap_or(0);
             if exp > 0 && existing.revision != exp {
-                return Err(format!(
-                    "Conflitto di revisione: attesa revisione {} ma l'automazione ha revisione {} (AUT-067)",
-                    exp, existing.revision
+                return Err(crate::tr!(
+                    format!(
+                        "Conflitto di revisione: attesa revisione {} ma l'automazione ha revisione {} (AUT-067)",
+                        exp, existing.revision
+                    ),
+                    format!(
+                        "Revision conflict: expected revision {} but the automation is at revision {} (AUT-067)",
+                        exp, existing.revision
+                    )
                 ));
             }
             def.revision = existing.revision + 1;
@@ -490,7 +631,13 @@ pub async fn automations_activate(
                 for exec in &mut r.executions {
                     if exec.state == "waiting" {
                         exec.state = "superseded".to_string();
-                        exec.reason = Some("Superata da una nuova revisione dell'automazione".to_string());
+                        exec.reason = Some(
+                            crate::tr!(
+                                "Superata da una nuova revisione dell'automazione",
+                                "Superseded by a new revision of the automation"
+                            )
+                            .to_string(),
+                        );
                     }
                 }
                 let _ = engine.storage().save_occurrence(&r);
@@ -516,7 +663,13 @@ pub async fn automations_set_state(id: String, state: String) -> Result<(), Stri
                     for exec in &mut r.executions {
                         if exec.state == "waiting" {
                             exec.state = "interrupted".to_string();
-                            exec.reason = Some("Automazione disattivata o archiviata".to_string());
+                            exec.reason = Some(
+                                crate::tr!(
+                                    "Automazione disattivata o archiviata",
+                                    "Automation disabled or archived"
+                                )
+                                .to_string(),
+                            );
                         }
                     }
                     let _ = engine.storage().save_occurrence(&r);
@@ -547,13 +700,19 @@ pub async fn automations_run_now(
 }
 
 #[command]
-pub async fn automations_cancel(run_id: String, execution_id: Option<String>) -> Result<(), String> {
+pub async fn automations_cancel(
+    run_id: String,
+    execution_id: Option<String>,
+) -> Result<(), String> {
     let engine = get_engine()?;
     engine.cancel(&run_id, execution_id.as_deref())
 }
 
 #[command]
-pub async fn automations_acknowledge(run_id: String, resolve_unknown: Option<bool>) -> Result<(), String> {
+pub async fn automations_acknowledge(
+    run_id: String,
+    resolve_unknown: Option<bool>,
+) -> Result<(), String> {
     let engine = get_engine()?;
     engine
         .storage()
@@ -594,7 +753,9 @@ pub async fn automations_ai_pending() -> Result<Vec<AutomationAiRequest>, String
 }
 
 #[command]
-pub async fn automations_ai_update(update: AutomationAiUpdate) -> Result<AutomationOccurrence, String> {
+pub async fn automations_ai_update(
+    update: AutomationAiUpdate,
+) -> Result<AutomationOccurrence, String> {
     let engine = get_engine()?;
     engine.handle_ai_update(update)
 }
@@ -612,7 +773,9 @@ pub async fn automations_output(
 }
 
 #[command]
-pub async fn automations_preview(definition: AutomationDefinition) -> Result<AutomationPreview, String> {
+pub async fn automations_preview(
+    definition: AutomationDefinition,
+) -> Result<AutomationPreview, String> {
     let engine = get_engine()?;
     engine.preview(&definition)
 }

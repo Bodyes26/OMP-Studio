@@ -870,7 +870,7 @@
 
 				<div class="footer-center">
 					<label class="integrate-message">
-						<span class="message-label">{lane.adopted ? 'Messaggio del commit di merge' : m.lanereview_message_label()}</span>
+						<span class="message-label">{lane.adopted ? m.l10n_cmp_lanereview_merge_commit_message() : m.lanereview_message_label()}</span>
 						<textarea
 							rows="2"
 							bind:value={integrateMessage}

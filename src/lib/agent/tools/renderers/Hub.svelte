@@ -5,6 +5,7 @@
   modello e durata tabulari, la tabella KeyValue degli argomenti e l'output testuale in OutputBlock.
 -->
 <script lang="ts">
+	import { m } from '#lib/paraglide/messages.js';
 	import { agentUiHooks } from '../../ui-context';
 	import KeyValue from '../parts/KeyValue.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
@@ -62,15 +63,15 @@
 
 	const argsRows = $derived.by(() => {
 		const rows: { key: string; value: string }[] = [];
-		if (op) rows.push({ key: 'Operazione', value: op });
-		if (name) rows.push({ key: 'Nome', value: name });
-		if (to) rows.push({ key: 'A', value: to });
-		if (from) rows.push({ key: 'Da', value: from });
-		if (message) rows.push({ key: 'Messaggio', value: message });
-		if (ids.length > 0) rows.push({ key: 'ID', value: ids.join(', ') });
-		if (signal) rows.push({ key: 'Segnale', value: signal });
-		if (keys.length > 0) rows.push({ key: 'Chiavi', value: keys.join(', ') });
-		if (stdinText) rows.push({ key: 'Stdin', value: stdinText });
+		if (op) rows.push({ key: m.l10n_tools_label_operation(), value: op });
+		if (name) rows.push({ key: m.l10n_tools_label_name(), value: name });
+		if (to) rows.push({ key: m.l10n_tools_label_to(), value: to });
+		if (from) rows.push({ key: m.l10n_tools_label_from(), value: from });
+		if (message) rows.push({ key: m.l10n_tools_label_message(), value: message });
+		if (ids.length > 0) rows.push({ key: m.l10n_tools_label_id(), value: ids.join(', ') });
+		if (signal) rows.push({ key: m.l10n_tools_label_signal(), value: signal });
+		if (keys.length > 0) rows.push({ key: m.l10n_tools_label_keys(), value: keys.join(', ') });
+		if (stdinText) rows.push({ key: m.l10n_tools_label_stdin(), value: stdinText });
 		return rows;
 	});
 </script>
@@ -116,7 +117,7 @@
 					</div>
 					{#if jobResText}
 						<div class="job-output">
-							<OutputBlock text={jobResText} label={`risultato ${jobId}`} maxLines={8} />
+							<OutputBlock text={jobResText} label={m.l10n_tools_label_result_named({ name: jobId })} maxLines={8} />
 						</div>
 					{/if}
 				</div>
@@ -129,7 +130,7 @@
 	{/if}
 
 	{#if text}
-		<OutputBlock {text} label="risultato hub" />
+		<OutputBlock {text} label={m.l10n_tools_label_hub_result()} />
 	{/if}
 </div>
 

@@ -39,20 +39,20 @@
 		if (wallTimeMs !== undefined) {
 			const formatted = formatDuration(wallTimeMs);
 			if (formatted) {
-				rows.push({ key: 'Durata', value: formatted });
+				rows.push({ key: m.l10n_tools_label_duration(), value: formatted });
 			}
 		}
 		if (timeoutSec !== undefined) {
-			rows.push({ key: 'Timeout', value: `${timeoutSec}s` });
+			rows.push({ key: m.l10n_tools_label_timeout(), value: `${timeoutSec}s` });
 		}
 		if (cwd) {
 			rows.push({ key: m.ui_filetree_cartella_ee2c(), value: cwd });
 		}
 		if (pty !== undefined) {
-			rows.push({ key: 'PTY', value: pty ? 'abilitato' : 'disabilitato' });
+			rows.push({ key: m.l10n_tools_label_pty(), value: pty ? m.l10n_tools_value_enabled() : m.l10n_tools_value_disabled() });
 		}
 		if (isAsync !== undefined) {
-			rows.push({ key: 'Async', value: isAsync ? m.ui_bash_si_ef73() : 'no' });
+			rows.push({ key: m.l10n_tools_label_async(), value: isAsync ? m.ui_bash_si_ef73() : m.l10n_tools_value_no() });
 		}
 		if (minimized) {
 			rows.push({ key: m.ui_bash_output_ridotto(), value: minimized });
@@ -63,11 +63,11 @@
 
 <div class="bash-body">
 	{#if text}
-		<OutputBlock {text} label="output bash" />
+		<OutputBlock {text} label={m.l10n_tools_label_bash_output()} />
 	{:else if running}
 		<LiveNotice label={m.ui_bash_esecuzione_in_corso_b1d6()} />
 	{:else}
-		<EmptyNotice text="(nessun output)" />
+		<EmptyNotice text={m.l10n_tools_label_no_output()} />
 	{/if}
 	{#if metaRows.length > 0}
 		<KeyValue rows={metaRows} />

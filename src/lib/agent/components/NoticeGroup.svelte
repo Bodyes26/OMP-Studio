@@ -30,7 +30,7 @@
 		class="group-toggle"
 		aria-expanded={expanded}
 		onclick={() => (expanded = !expanded)}
-		title={expanded ? 'Comprimi messaggi di sistema' : 'Espandi messaggi di sistema'}
+		title={expanded ? m.l10n_agentcmp_notice_collapse_all() : m.l10n_agentcmp_notice_expand_all()}
 	>
 		<span class="chevron" class:expanded aria-hidden="true">
 			<IconChevronRight />

@@ -31,7 +31,9 @@ export function getEffectiveProvider(model: SharedModelItem): string {
 	if (model.selector && model.selector.includes('/')) {
 		return model.selector.split('/')[0];
 	}
-	return 'Altri';
+	// Serve solo come etichetta di raggruppamento a schermo, non come chiave
+	// tecnica: puo' seguire la lingua dell'interfaccia.
+	return m.l10n_cmp_model_picker_other_provider();
 }
 
 export function isSameModel(a?: SharedModelItem | null, b?: SharedModelItem | null): boolean {

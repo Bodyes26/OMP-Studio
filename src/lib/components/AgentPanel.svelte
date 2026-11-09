@@ -28,7 +28,8 @@
 		onResumeSession,
 		onOpenFile,
 		agentBusy = false,
-		onInitJournal
+		onInitJournal,
+		isExternal = false
 	}: {
 		projectPath: string;
 		gate: AutomationGate;
@@ -43,34 +44,44 @@
 		agentBusy?: boolean;
 		/** Avvia `/diario init` come task del progetto. */
 		onInitJournal: (storage: 'repo' | 'local') => void;
+		isExternal?: boolean;
 	} = $props();
 
 	const tasks = $derived(taskStore.tasksFor(projectPath).filter((t) => t.status !== 'dispatching'));
-	const view = $derived(taskStore.viewFor(projectPath));
+	const view = $derived(isExternal ? 'sessions' : taskStore.viewFor(projectPath));
 	const frictionCount = $derived(rulesStore.suggestionsFor(projectPath).length);
 	const isCardView = $derived((settingsStore.appearance.queueView ?? 'compact') === 'cards');
 
-	const tabOptions = $derived<SegmentedOption<AgentView>[]>([
-		{
-			value: 'queue',
-			label: m.agent_panel_tab_queue(),
-			count: tasks.length
-		},
-		{
-			value: 'sessions',
-			label: m.agent_panel_tab_sessions()
-		},
-		{
-			value: 'rules',
-			label: m.agent_panel_tab_rules(),
-			count: frictionCount,
-			countTone: 'attention'
-		},
-		{
-			value: 'project',
-			label: m.agent_panel_tab_project()
-		}
-	]);
+	const tabOptions = $derived<SegmentedOption<AgentView>[]>(
+		isExternal
+			? [
+					{
+						value: 'sessions',
+						label: m.agent_panel_tab_sessions()
+					}
+			  ]
+			: [
+					{
+						value: 'queue',
+						label: m.agent_panel_tab_queue(),
+						count: tasks.length
+					},
+					{
+						value: 'sessions',
+						label: m.agent_panel_tab_sessions()
+					},
+					{
+						value: 'rules',
+						label: m.agent_panel_tab_rules(),
+						count: frictionCount,
+						countTone: 'attention'
+					},
+					{
+						value: 'project',
+						label: m.agent_panel_tab_project()
+					}
+			  ]
+	);
 	/**
 	 * Blocco di cui si sta mostrando la spiegazione. Si confronta con quello
 	 * corrente invece di tenere un booleano: se il motivo cambia o si scioglie
@@ -131,18 +142,20 @@
 </script>
 
 <div class="agent-panel">
-	<div class="agent-tabs">
-		<Segmented
-			mode="tablist"
-			fill
-			tabIdPrefix="tab-agent-"
-			panelIdPrefix="panel-agent-"
-			value={view}
-			options={tabOptions}
-			ariaLabel={m.page_tabs_agent_panel_label()}
-			onChange={setView}
-		/>
-	</div>
+	{#if tabOptions.length > 1}
+		<div class="agent-tabs">
+			<Segmented
+				mode="tablist"
+				fill
+				tabIdPrefix="tab-agent-"
+				panelIdPrefix="panel-agent-"
+				value={view}
+				options={tabOptions}
+				ariaLabel={m.page_tabs_agent_panel_label()}
+				onChange={setView}
+			/>
+		</div>
+	{/if}
 
 	{#if actionError}
 		<div class="action-error" role="alert" aria-live="assertive">{actionError}</div>

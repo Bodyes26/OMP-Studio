@@ -36,11 +36,11 @@
 
 	const argsRows = $derived.by(() => {
 		const rows: { key: string; value: string }[] = [];
-		if (pat) rows.push({ key: 'Pattern', value: pat });
-		if (pathArg) rows.push({ key: 'Percorso', value: pathArg });
-		if (skip !== undefined && skip > 0) rows.push({ key: 'Skip', value: String(skip) });
+		if (pat) rows.push({ key: m.l10n_tools_label_pattern(), value: pat });
+		if (pathArg) rows.push({ key: m.l10n_tools_label_path(), value: pathArg });
+		if (skip !== undefined && skip > 0) rows.push({ key: m.l10n_tools_label_skip(), value: String(skip) });
 		if (fileCount !== undefined) {
-			rows.push({ key: 'File controllati', value: String(fileCount) });
+			rows.push({ key: m.l10n_tools_label_files_checked(), value: String(fileCount) });
 		}
 		return rows;
 	});
@@ -75,11 +75,11 @@
 	{/if}
 
 	{#if text}
-		<OutputBlock {text} label="risultati ast-grep" />
+		<OutputBlock {text} label={m.l10n_tools_label_ast_grep_results()} />
 	{/if}
 
 	{#if parseErrors.length > 0}
-		<OutputBlock text={parseErrors.join('\n')} label="errori di parsing" />
+		<OutputBlock text={parseErrors.join('\n')} label={m.l10n_tools_label_parse_errors()} />
 	{/if}
 </div>
 

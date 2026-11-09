@@ -10,6 +10,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { projectStore } from '#lib/stores/projects.svelte.ts';
 import { githubStore } from '#lib/stores/github.svelte.ts';
 import { settingsStore } from '#lib/stores/settings.svelte.ts';
+import { m } from '#lib/paraglide/messages.js';
 
 export interface ProjectFolderEntry {
 	name: string;
@@ -97,15 +98,15 @@ export function validateDirectChildPath(
 	isWin: boolean = isWindows
 ): { valid: true; canonicalPath: string; folderName: string } | { valid: false; reason: string } {
 	if (!root || !root.trim()) {
-		return { valid: false, reason: 'Radice dei progetti non configurata su questa macchina' };
+		return { valid: false, reason: m.l10n_lab_remote_project_root_missing() };
 	}
 	if (!rawPath || !rawPath.trim()) {
-		return { valid: false, reason: 'Percorso non specificato' };
+		return { valid: false, reason: m.l10n_lab_remote_path_missing() };
 	}
 
 	const rootParsed = splitCanonicalSegments(root, isWin);
 	if (!rootParsed.isAbsolute) {
-		return { valid: false, reason: 'Radice dei progetti non e\' un percorso assoluto' };
+		return { valid: false, reason: m.l10n_lab_remote_project_root_not_absolute() };
 	}
 
 	let targetPath = rawPath.trim();
@@ -119,7 +120,7 @@ export function validateDirectChildPath(
 
 	if (isWin) {
 		if (targetParsed.drive !== rootParsed.drive) {
-			return { valid: false, reason: 'Unita\' disco differente dalla radice dei progetti' };
+			return { valid: false, reason: m.l10n_lab_remote_drive_mismatch() };
 		}
 	}
 
@@ -127,7 +128,7 @@ export function validateDirectChildPath(
 	if (targetParsed.segments.length !== rootParsed.segments.length + 1) {
 		return {
 			valid: false,
-			reason: 'Il percorso deve essere una cartella direttamente sotto la radice dei progetti'
+			reason: m.l10n_lab_remote_path_not_direct_child()
 		};
 	}
 
@@ -138,18 +139,18 @@ export function validateDirectChildPath(
 		if (!match) {
 			return {
 				valid: false,
-				reason: 'Il percorso non si trova dentro la radice dei progetti'
+				reason: m.l10n_lab_remote_path_outside_root()
 			};
 		}
 	}
 
 	const childName = targetParsed.segments[rootParsed.segments.length];
 	if (!childName || childName === '.' || childName === '..') {
-		return { valid: false, reason: 'Nome cartella non valido' };
+		return { valid: false, reason: m.l10n_lab_remote_folder_name_invalid() };
 	}
 
 	if (childName.includes('/') || childName.includes('\\')) {
-		return { valid: false, reason: 'Il nome della cartella contiene separatori' };
+		return { valid: false, reason: m.l10n_lab_remote_folder_name_separators() };
 	}
 
 	const canonicalPath = isWin
@@ -168,42 +169,42 @@ export function validateProjectName(
 	forGithub: boolean
 ): { valid: true; cleanName: string } | { valid: false; reason: string } {
 	if (!name || typeof name !== 'string') {
-		return { valid: false, reason: 'Il nome del progetto e\' obbligatorio' };
+		return { valid: false, reason: m.l10n_lab_remote_project_name_required() };
 	}
 	if (name.endsWith('.') || name.endsWith(' ')) {
-		return { valid: false, reason: 'Il nome non puo\' finire con punto o spazio' };
+		return { valid: false, reason: m.l10n_lab_remote_project_name_trailing() };
 	}
 	const trimmed = name.trim();
 	if (trimmed.length === 0) {
-		return { valid: false, reason: 'Il nome del progetto e\' obbligatorio' };
+		return { valid: false, reason: m.l10n_lab_remote_project_name_required() };
 	}
 	if (trimmed.length > 100) {
-		return { valid: false, reason: 'Il nome del progetto e\' troppo lungo (max 100 caratteri)' };
+		return { valid: false, reason: m.l10n_lab_remote_project_name_too_long() };
 	}
 	if (trimmed === '.' || trimmed === '..' || trimmed.startsWith('.')) {
-		return { valid: false, reason: 'Il nome non puo\' iniziare con un punto' };
+		return { valid: false, reason: m.l10n_lab_remote_project_name_leading_dot() };
 	}
 	if (trimmed.includes('/') || trimmed.includes('\\')) {
-		return { valid: false, reason: 'Il nome non puo\' contenere separatori di percorso' };
+		return { valid: false, reason: m.l10n_lab_remote_project_name_path_separators() };
 	}
 	if (trimmed.includes('..')) {
-		return { valid: false, reason: 'Il nome non puo\' contenere ".."' };
+		return { valid: false, reason: m.l10n_lab_remote_project_name_dotdot() };
 	}
 	if (/[/\\:*?"<>|]/.test(trimmed) || /[\x00-\x1f\x7f]/.test(trimmed)) {
-		return { valid: false, reason: 'Il nome contiene caratteri non validi per una cartella' };
+		return { valid: false, reason: m.l10n_lab_remote_project_name_chars() };
 	}
 	// Nomi riservati su Windows (CON, PRN, AUX, NUL, COM1-9, LPT1-9) con qualsiasi estensione
 	if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i.test(trimmed)) {
-		return { valid: false, reason: 'Nome riservato non consentito su Windows' };
+		return { valid: false, reason: m.l10n_lab_remote_project_name_reserved() };
 	}
 	if (forGithub) {
 		if (trimmed.startsWith('-')) {
-			return { valid: false, reason: 'Per GitHub il nome non puo\' iniziare con un trattino' };
+			return { valid: false, reason: m.l10n_lab_remote_project_name_leading_dash() };
 		}
 		if (!/^[a-zA-Z0-9_.-]+$/.test(trimmed)) {
 			return {
 				valid: false,
-				reason: 'Per GitHub il nome puo\' contenere solo lettere, numeri, trattino, underscore e punto'
+				reason: m.l10n_lab_remote_project_name_github_chars()
 			};
 		}
 	}
@@ -217,10 +218,12 @@ export function getDefaultProjectCommandDeps(): ProjectCommandDeps {
 		return {
 			getProjectRoot: () => (projectStore.projectRoot ? normalizeProjectPath(projectStore.projectRoot) : null),
 			getOpenProjects: () =>
-				projectStore.projects.map((p) => ({
-					id: p.id,
-					canonicalProjectPath: p.canonicalProjectPath
-				})),
+				projectStore.projects
+					.filter((p) => !p.external)
+					.map((p) => ({
+						id: p.id,
+						canonicalProjectPath: p.canonicalProjectPath
+					})),
 			isGithubAuthenticated: () => Boolean(githubStore.status.authenticated),
 			readDir: async (dirPath: string) => {
 				const entries = await invoke<Array<{ name: string; is_dir: boolean }>>('tree_read', {
@@ -324,7 +327,7 @@ export async function openRemoteProject(
 ): Promise<{ projectId: string }> {
 	const root = deps.getProjectRoot();
 	if (!root) {
-		throw new RemoteCommandFailure('rejected', 'Radice dei progetti non configurata su questa macchina');
+		throw new RemoteCommandFailure('rejected', m.l10n_lab_remote_project_root_missing());
 	}
 
 	const win = deps.isWin ?? isWindows;
@@ -342,7 +345,10 @@ export async function openRemoteProject(
 			: check.canonicalPath;
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err);
-		throw new RemoteCommandFailure('rejected', `Verifica cartella fallita: ${msg}`);
+		throw new RemoteCommandFailure(
+				'rejected',
+				m.l10n_lab_remote_folder_check_failed({ error: msg })
+			);
 	}
 
 	const canonicalKey = pathKey(canonicalPath, win);
@@ -357,7 +363,10 @@ export async function openRemoteProject(
 
 	const projectId = await deps.openProject(canonicalPath);
 	if (!projectId) {
-		throw new RemoteCommandFailure('failed', `Impossibile aprire il progetto in "${canonicalPath}"`);
+		throw new RemoteCommandFailure(
+				'failed',
+				m.l10n_lab_remote_open_project_failed({ path: canonicalPath })
+			);
 	}
 
 	return { projectId };
@@ -370,7 +379,7 @@ export async function createRemoteProject(
 ): Promise<{ projectId: string }> {
 	const root = deps.getProjectRoot();
 	if (!root) {
-		throw new RemoteCommandFailure('rejected', 'Radice dei progetti non configurata su questa macchina');
+		throw new RemoteCommandFailure('rejected', m.l10n_lab_remote_project_root_missing());
 	}
 
 	const forGithub = Boolean(github);
@@ -382,7 +391,7 @@ export async function createRemoteProject(
 	if (forGithub && !deps.isGithubAuthenticated()) {
 		throw new RemoteCommandFailure(
 			'rejected',
-			'GitHub non e\' configurato o non e\' autenticato su questa macchina'
+			m.l10n_lab_remote_github_not_configured()
 		);
 	}
 
@@ -399,7 +408,7 @@ export async function createRemoteProject(
 		if (alreadyExists) {
 			throw new RemoteCommandFailure(
 				'rejected',
-				`Esiste gia' una cartella con il nome "${cleanName}" nella radice dei progetti`
+				m.l10n_lab_remote_folder_already_exists({ name: cleanName })
 			);
 		}
 	} catch (err) {
@@ -419,12 +428,12 @@ export async function createRemoteProject(
 		});
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err);
-		throw new RemoteCommandFailure('failed', `Creazione progetto fallita: ${msg}`);
+		throw new RemoteCommandFailure('failed', m.l10n_lab_remote_create_project_failed({ error: msg }));
 	}
 
 	const projectId = await deps.openProject(createdPath);
 	if (!projectId) {
-		throw new RemoteCommandFailure('failed', 'Progetto creato ma impossibile aprirlo');
+		throw new RemoteCommandFailure('failed', m.l10n_lab_remote_project_created_not_opened());
 	}
 
 	return { projectId };

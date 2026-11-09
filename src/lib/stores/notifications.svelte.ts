@@ -237,10 +237,10 @@ class NotificationManager {
 
 			if (isDetailed) {
 				title = `OMP Studio · ${project.name}`;
-				body = askMsg || `OMP ha bisogno di te su ${project.name}`;
+				body = askMsg || m.l10n_state_needs_you_body({ project: project.name });
 			} else {
 				title = 'OMP Studio';
-				body = `OMP ha bisogno di te su ${project.name}`;
+				body = m.l10n_state_needs_you_body({ project: project.name });
 			}
 			await this.sendProjectNotification(project.id, title, body);
 		} catch (err) {

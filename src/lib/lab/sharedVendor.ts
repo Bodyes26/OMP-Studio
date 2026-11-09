@@ -3,6 +3,7 @@
 
 import { labApi } from './api';
 import type { LabServedFile } from './types';
+import { m } from '#lib/paraglide/messages.js';
 
 let isPublished = false;
 let publishPromise: Promise<void> | null = null;
@@ -26,7 +27,9 @@ export async function ensureSharedVendorPublished(): Promise<void> {
 				vendorFiles.map(async (v) => {
 					const res = await fetch(v.url);
 					if (!res.ok) {
-						throw new Error(`Impossibile caricare l'asset vendor: ${v.url} (${res.status})`);
+						throw new Error(
+							m.l10n_lab_remote_vendor_asset_failed({ url: v.url, status: String(res.status) })
+						);
 					}
 					const content = await res.text();
 					return {

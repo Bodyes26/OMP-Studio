@@ -12,6 +12,7 @@
 	 */
 	import { PRESET_HUES } from '#lib/stores/projects.svelte.ts';
 	import { IconCheck } from '#lib/icons.ts';
+	import { m } from '#lib/paraglide/messages.js';
 
 	let { hue, mode, autoHue, onhue, onauto } = $props<{
 		/** Tinta scelta a mano, in gradi. */
@@ -84,14 +85,14 @@
 			style="--mode-hue: {autoHue}"
 			onclick={onauto}
 			aria-pressed={mode === 'auto'}
-			title="Tinta assegnata dal tema attivo"
+			title={m.l10n_cmp_hue_auto_theme_title()}
 		>
 			<span class="mode-dot"></span>
-			<span>Tema</span>
+			<span>{m.l10n_cmp_hue_auto_theme_label()}</span>
 			{#if mode === 'auto'}<IconCheck aria-hidden="true" style="--icon-size: 12px" />{/if}
 		</button>
 
-		<div class="presets" role="group" aria-label="Tinte predefinite">
+		<div class="presets" role="group" aria-label={m.l10n_cmp_hue_presets_aria()}>
 			{#each PRESET_HUES as preset (preset)}
 				<button
 					type="button"
@@ -100,8 +101,8 @@
 					style="--swatch-hue: {preset}"
 					onclick={() => onhue(preset)}
 					aria-pressed={mode === 'custom' && hue === preset}
-					aria-label={`Tinta ${preset} gradi`}
-					title={`Tinta ${preset}°`}
+					aria-label={m.l10n_cmp_hue_preset_aria({ deg: preset })}
+					title={m.l10n_cmp_hue_preset_title({ deg: preset })}
 				></button>
 			{/each}
 		</div>
@@ -114,11 +115,11 @@
 			bind:this={trackEl}
 			role="slider"
 			tabindex="0"
-			aria-label="Tinta del progetto"
+			aria-label={m.l10n_cmp_hue_slider_aria()}
 			aria-valuemin="0"
 			aria-valuemax="359"
 			aria-valuenow={hue}
-			aria-valuetext={`${hue} gradi`}
+			aria-valuetext={m.l10n_cmp_hue_slider_valuetext({ deg: hue })}
 			style="background: {trackGradient}"
 			onpointerdown={handlePointerDown}
 			onpointermove={handlePointerMove}
@@ -133,7 +134,7 @@
 			></span>
 		</div>
 		<span class="value" class:muted={mode === 'auto'}>
-			{mode === 'auto' ? autoHue : hue}°{#if mode === 'custom' && !isPreset}<span class="value-tag">scelta</span>{/if}
+			{mode === 'auto' ? autoHue : hue}°{#if mode === 'custom' && !isPreset}<span class="value-tag">{m.l10n_cmp_hue_custom_tag()}</span>{/if}
 		</span>
 	</div>
 </div>

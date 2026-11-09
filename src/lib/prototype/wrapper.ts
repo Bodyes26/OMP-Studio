@@ -11,6 +11,8 @@
 
 import { injectPreviewHarness } from './harness.ts';
 import { PREVIEW_SHORTCUT_SCRIPT } from '../shortcuts/previewShortcuts.ts';
+import { m } from '#lib/paraglide/messages.js';
+import { getLocale } from '#lib/paraglide/runtime.js';
 
 export function wrapPrototypeCode(title: string, code: string): string {
 	const raw = code.trim();
@@ -18,6 +20,12 @@ export function wrapPrototypeCode(title: string, code: string): string {
 	if (lower.startsWith('<!doctype') || lower.startsWith('<html') || (lower.includes('<head') && lower.includes('<body'))) {
 		return injectPreviewHarness(code, PREVIEW_SHORTCUT_SCRIPT);
 	}
+
+	// Testi dell'error boundary: il documento dell'anteprima e' un'altra origine,
+	// quindi la lingua attiva viene risolta qui e inserita come letterale.
+	const runtimeErrorPrefix = JSON.stringify(m.l10n_lab_remote_preview_runtime_error_prefix() + ': ');
+	const unknownErrorText = JSON.stringify(m.l10n_lab_remote_preview_error_unknown());
+	const initErrorPrefix = JSON.stringify(m.l10n_lab_remote_preview_init_error_prefix() + ': ');
 
 	// Gli import da `react` e `lucide-react` diventano le globali del documento;
 	// gli altri non hanno un modulo da cui leggere e vengono tolti. Il codice
@@ -58,7 +66,7 @@ export function wrapPrototypeCode(title: string, code: string): string {
 	}
 
 	return `<!DOCTYPE html>
-<html lang="it" class="dark">
+<html lang="${getLocale()}" class="dark">
 <head>
   ${PREVIEW_SHORTCUT_SCRIPT}
   <meta charset="UTF-8" />
@@ -156,7 +164,7 @@ export function wrapPrototypeCode(title: string, code: string): string {
       const eb = document.getElementById('error-boundary');
       if (eb) {
         eb.classList.remove('hidden');
-        eb.textContent = 'Errore runtime: ' + (e.message || e.error || 'Errore sconosciuto');
+        eb.textContent = ${runtimeErrorPrefix} + (e.message || e.error || ${unknownErrorText});
       }
     });
 
@@ -178,7 +186,7 @@ export function wrapPrototypeCode(title: string, code: string): string {
       const eb = document.getElementById('error-boundary');
       if (eb) {
         eb.classList.remove('hidden');
-        eb.textContent = 'Errore di inizializzazione: ' + (err.message || String(err));
+        eb.textContent = ${initErrorPrefix} + (err.message || String(err));
       }
     }
   </script>

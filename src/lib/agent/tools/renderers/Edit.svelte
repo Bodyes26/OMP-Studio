@@ -35,10 +35,10 @@
 	const metaRows = $derived.by(() => {
 		const rows: { key: string; value: string }[] = [];
 		if (op) {
-			rows.push({ key: 'Operazione', value: op });
+			rows.push({ key: m.l10n_tools_label_operation(), value: op });
 		}
 		if (firstChangedLine !== undefined) {
-			rows.push({ key: 'Prima riga', value: String(firstChangedLine) });
+			rows.push({ key: m.l10n_tools_label_first_line(), value: String(firstChangedLine) });
 		}
 		return rows;
 	});
@@ -55,9 +55,9 @@
 	{:else if running}
 		<LiveNotice label={m.ui_edit_modifica_in_corso_0b2d()} />
 	{:else}
-		<JsonBlock value={args} label="argomenti edit" />
+		<JsonBlock value={args} label={m.l10n_tools_label_edit_args()} />
 		{#if fallbackText}
-			<OutputBlock text={fallbackText} label="risultato" />
+			<OutputBlock text={fallbackText} label={m.l10n_tools_label_result()} />
 		{/if}
 	{/if}
 	{#if metaRows.length > 0}

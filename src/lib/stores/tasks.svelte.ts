@@ -165,7 +165,7 @@ class TaskStore {
 		// o su richiesta (cambio progetto, apertura QueueDrawer).
 		await projectStore.init();
 		const activeProject = projectStore.activeProject;
-		if (activeProject?.canonicalProjectPath) {
+		if (activeProject?.canonicalProjectPath && !activeProject.external) {
 			await this.loadProject(activeProject.canonicalProjectPath);
 		}
 	}
@@ -179,6 +179,7 @@ class TaskStore {
 		await projectStore.init();
 		const pending = projectStore.projects.filter(
 			(project) =>
+				!project.external &&
 				project.canonicalProjectPath &&
 				!this.hydration.isHydrated(projectKey(project.canonicalProjectPath))
 		);
@@ -611,7 +612,7 @@ class TaskStore {
 		this.origins = this.origins.filter((origin) =>
 			origin.projectPath !== task.projectPath || origin.sessionId !== sessionId
 		);
-		const title = taskLabel(task) || 'Nuovo task';
+		const title = taskLabel(task) || msg.agent_panel_new_task_btn();
 		const origin: TaskSessionOrigin = {
 			projectPath: task.projectPath,
 			sessionId,

@@ -34,12 +34,26 @@ pub async fn lab_preview_status_write(
 ) -> Result<(), String> {
     tokio::task::spawn_blocking(move || {
         let lab_dir = Path::new(&workspace_path).join(".lab");
-        fs::create_dir_all(&lab_dir)
-            .map_err(|e| format!("Creazione cartella .lab in {} fallita: {e}", lab_dir.display()))?;
+        fs::create_dir_all(&lab_dir).map_err(|e| {
+            crate::tr!(
+                format!(
+                    "Creazione cartella .lab in {} fallita: {e}",
+                    lab_dir.display()
+                ),
+                format!(
+                    "Creating the .lab folder in {} failed: {e}",
+                    lab_dir.display()
+                )
+            )
+        })?;
 
         let status_path = lab_dir.join("preview-status.json");
-        let bytes = serde_json::to_vec_pretty(&status)
-            .map_err(|e| format!("Serializzazione preview-status fallita: {e}"))?;
+        let bytes = serde_json::to_vec_pretty(&status).map_err(|e| {
+            crate::tr!(
+                format!("Serializzazione preview-status fallita: {e}"),
+                format!("Serializing preview-status failed: {e}")
+            )
+        })?;
 
         crate::fs_atomic::atomic_write(&status_path, &bytes)
     })

@@ -43,19 +43,19 @@
 		/>
 	{:else if filteredRuns.length === 0}
 		<div class="empty-history text-xs">
-			<span>Nessuna esecuzione registrata nello storico.</span>
+			<span>{t('history_empty')}</span>
 		</div>
 	{:else}
 		<div class="runs-table-wrap">
 			<table class="runs-table">
 				<thead>
 					<tr>
-						<th>Stato</th>
-						<th>Data e ora</th>
-						<th>Motivo</th>
-						<th>Destinatari</th>
-						<th>Revisione</th>
-						<th class="text-right">Azioni</th>
+						<th>{t('history_col_status')}</th>
+						<th>{t('history_col_when')}</th>
+						<th>{t('history_col_reason')}</th>
+						<th>{t('history_col_targets')}</th>
+						<th>{t('history_col_revision')}</th>
+						<th class="text-right">{t('history_col_actions')}</th>
 					</tr>
 				</thead>
 				<tbody>

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { QuotaTone } from '#lib/quota/resolve.ts';
+	import { m } from '#lib/paraglide/messages.js';
 
 	let {
 		label = '',
@@ -32,9 +33,11 @@
 
 	// Descrizione accessibile completa per il ruolo meter
 	const meterAriaValueText = $derived(
-		`${remainingPercent}% disponibile${resetCountdown ? `, reset ${resetCountdown}` : ''}`
+		resetCountdown
+			? m.l10n_cmp_quota_meter_aria_reset({ percent: remainingPercent, reset: resetCountdown })
+			: m.l10n_cmp_quota_meter_aria({ percent: remainingPercent })
 	);
-	const meterAriaLabel = $derived(label || 'Quota');
+	const meterAriaLabel = $derived(label || m.quota_chip_label());
 </script>
 
 <div
@@ -69,7 +72,7 @@
 
 	{#if resetCountdown}
 		<div class="limit-bottom" title={resetExact || undefined}>
-			reset {resetCountdown}
+			{m.l10n_cmp_quota_reset_inline({ when: resetCountdown })}
 		</div>
 	{/if}
 </div>

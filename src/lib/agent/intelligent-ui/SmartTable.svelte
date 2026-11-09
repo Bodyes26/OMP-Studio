@@ -8,6 +8,7 @@
 -->
 <script lang="ts">
 	import { m } from '../../paraglide/messages.js';
+	import { i18n } from '#lib/i18n/i18n.svelte.ts';
 	import type { Token } from '../markdown';
 	import MarkdownInline from '../components/MarkdownInline.svelte';
 	import Tooltip from '../../ui/Tooltip.svelte';
@@ -73,7 +74,9 @@
 			if (isNum) {
 				return asc ? numA - numB : numB - numA;
 			}
-			return asc ? textA.localeCompare(textB) : textB.localeCompare(textA);
+			// Ordinamento secondo la lingua dell'interfaccia, non quella di sistema.
+			const collator = i18n.formatLocale;
+			return asc ? textA.localeCompare(textB, collator) : textB.localeCompare(textA, collator);
 		});
 	});
 
@@ -237,7 +240,7 @@
 				{#if paginatedRows.length === 0}
 					<tr>
 						<td colspan={header.length || 1} class="empty-cell">
-							Nessun dato corrispondente ai criteri
+							{m.l10n_intui_table_empty()}
 						</td>
 					</tr>
 				{:else}
@@ -271,7 +274,7 @@
 					class="page-nav-btn"
 					disabled={currentPage === 0}
 					onclick={() => currentPage = Math.max(0, currentPage - 1)}
-					aria-label="Pagina precedente"
+					aria-label={m.pdf_previous_page()}
 				>
 					<IconChevronLeft />
 				</button>
@@ -280,7 +283,7 @@
 					class="page-nav-btn"
 					disabled={currentPage >= totalPages - 1}
 					onclick={() => currentPage = Math.min(totalPages - 1, currentPage + 1)}
-					aria-label="Pagina successiva"
+					aria-label={m.pdf_next_page()}
 				>
 					<IconChevronRight />
 				</button>

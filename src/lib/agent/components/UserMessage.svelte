@@ -203,7 +203,7 @@
 									<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 										<polyline points={showSelectionCode ? '4 10 8 6 12 10' : '4 6 8 10 12 6'} />
 									</svg>
-									<span>{showSelectionCode ? m.ui_usermessage_nascondi_82ca() : 'Codice'}</span>
+									<span>{showSelectionCode ? m.ui_usermessage_nascondi_82ca() : m.l10n_agentcmp_user_code_toggle()}</span>
 								</button>
 							{/if}
 						</div>

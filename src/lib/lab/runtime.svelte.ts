@@ -13,6 +13,7 @@ import { labApi } from './api';
 import { compileLabPrototypeInWorker } from './compiler';
 import { buildLabPreviewHtml } from './preview-builder';
 import { ensureSharedVendorPublished } from './sharedVendor';
+import { m } from '#lib/paraglide/messages.js';
 import {
 	LAB_CHANGED_EVENT,
 	type LabChangedEvent,
@@ -239,7 +240,7 @@ export class LabLaneRuntime {
 		try {
 			// Ricava la prima riga del messaggio utente per la descrizione del commit
 			const lastUserEntry = [...this.session.entries].reverse().find((e) => e.kind === 'user');
-			let commitMsg = 'Modifiche prototipo';
+			let commitMsg: string = m.l10n_lab_remote_commit_default_message();
 			if (lastUserEntry) {
 				const text = lastUserEntry.content ?? '';
 				const firstLine = text.trim().split('\n')[0]?.trim();

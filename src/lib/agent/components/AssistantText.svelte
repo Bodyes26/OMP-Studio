@@ -192,7 +192,7 @@
 						>
 							<img
 								src={`data:${block.mimeType};base64,${block.data}`}
-								alt="Immagine generata dall'assistente"
+								alt={m.l10n_agentcmp_assistant_image_alt()}
 							/>
 						</button>
 					</div>

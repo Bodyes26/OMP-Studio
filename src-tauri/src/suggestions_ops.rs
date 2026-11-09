@@ -60,6 +60,20 @@ struct RawStructuredSuggestions {
 }
 
 /// Prompt di sistema per l'analisi del turno e la generazione di risposte rapide.
+/// Il campo `headsUp` finisce nell'interfaccia di Studio: la lingua la decide
+/// `crate::i18n::code()`, non quella del messaggio dell'agente.
+fn system_prompt() -> String {
+    format!(
+        r##"{prompt}
+
+6. Lingua dei campi di interfaccia:
+   - "questionSummary" e "headsUp" sono testi mostrati da Studio all'utente: scrivili SEMPRE in questa lingua: {lang}.
+   - "suggestions" resta nella lingua del messaggio dell'agente, come indicato sopra."##,
+        prompt = SYSTEM_PROMPT,
+        lang = crate::i18n::code()
+    )
+}
+
 const SYSTEM_PROMPT: &str = r##"Sei un assistente specializzato nell'analizzare l'ultimo messaggio di un agente di coding (Oh My Pi / OMP) e suggerire le risposte rapide piu' probabili che lo sviluppatore darebbe.
 Ricevi l'ultimo messaggio dell'agente e il prompt precedente dell'utente.
 
@@ -92,7 +106,7 @@ Nessun testo introduttivo, nessun commento, nessun blocco markdown prima o dopo.
 
 5. Campo "headsUp" (facoltativo):
    - Compilalo SOLO se il file allegato contiene la sezione "# Heads-up richiesto"; altrimenti imposta null.
-   - E' AL MASSIMO UNA FRASE (max 200 caratteri), in linguaggio naturale, nella STESSA LINGUA del messaggio dell'agente, in terza persona riferita all'agente (es. "Ha cambiato lo schema del DB e non ha eseguito i test; ti chiede se tenere la vecchia API.").
+   - E' AL MASSIMO UNA FRASE (max 200 caratteri), in linguaggio naturale, nella lingua indicata in fondo a questo prompt, in terza persona riferita all'agente (es. "Ha cambiato lo schema del DB e non ha eseguito i test; ti chiede se tenere la vecchia API.").
    - Serve a far notare all'utente cio' che potrebbe perdersi perche' sta a meta' del racconto: un comando di verifica fallito e non risolto, test o build non eseguiti dopo modifiche, una modifica delicata (schema del database, API pubblica, dipendenze, migrazioni, configurazione), una decisione presa al posto dell'utente, una domanda posta a meta' messaggio.
    - Includi i "Fatti certi del turno" se ci sono, fondendoli in una frase sola.
    - Se nel turno non c'e' niente di questo genere, o se tutto e' gia' evidente nelle ultime righe del messaggio, imposta null. Non riassumere il lavoro svolto, non inventare cautele generiche."##;
@@ -265,12 +279,13 @@ pub async fn generate_prompt_suggestions(
 
     let resolved_model =
         crate::directives_ops::resolve_assistant_model(model_selector.as_deref()).await;
+    let prompt = system_prompt();
 
     // Runner condiviso: il timeout vive dentro il runner, cosi' allo scadere il processo
     // viene davvero terminato invece di restare orfano in background.
     let spawned = tokio::task::spawn_blocking(move || {
         crate::directives_ops::run_ephemeral_omp(
-            SYSTEM_PROMPT,
+            &prompt,
             Some(&context_md),
             &user_prompt,
             resolved_model.as_deref(),

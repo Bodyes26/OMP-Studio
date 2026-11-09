@@ -48,7 +48,7 @@ fn read_diagram(path: &std::path::Path) -> Option<DiagramPayload> {
     let title = value
         .get("title")
         .and_then(|v| v.as_str())
-        .unwrap_or("Diagram")
+        .unwrap_or_else(|| crate::tr!("Diagramma", "Diagram"))
         .to_string();
     let mermaid = value.get("mermaid")?.as_str()?.to_string();
     if mermaid.trim().is_empty() {

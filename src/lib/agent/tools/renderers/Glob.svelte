@@ -48,14 +48,14 @@
 				class="toggle-button"
 				onclick={() => (expanded = !expanded)}
 			>
-				{expanded ? 'Comprimi elenco' : m.ui_glob_mostra_altri_value1_file_5cf9({ value1: hiddenCount })}
+				{expanded ? m.l10n_tools_label_collapse_list() : m.ui_glob_mostra_altri_value1_file_5cf9({ value1: hiddenCount })}
 			</button>
 		{/if}
 	{:else if textFallback}
-		<OutputBlock text={textFallback} label="risultato glob" />
+		<OutputBlock text={textFallback} label={m.l10n_tools_label_glob_result()} />
 	{/if}
 	{#if truncated}
-		<EmptyNotice text="Elenco file troncato dal server." />
+		<EmptyNotice text={m.l10n_tools_label_file_list_truncated()} />
 	{/if}
 </div>
 

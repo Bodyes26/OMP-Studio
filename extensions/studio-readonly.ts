@@ -23,13 +23,38 @@ interface ExtensionApi {
 	): void;
 }
 
-const FORBIDDEN_WRITE_TOOLS: Record<string, string> = {
-	write: "Scrittura file non consentita in modalità sola lettura",
-	edit: "Modifica file non consentita in modalità sola lettura",
-	ast_edit: "Modifica strutturale file non consentita in modalità sola lettura",
-	bash: "Esecuzione shell/comandi non consentita in modalità sola lettura",
-	eval: "Interpreti host (eval) non consentiti in modalità sola lettura",
-	terminal: "Terminale interattivo non consentito in modalità sola lettura"
+/**
+ * Testo scelto secondo la lingua della UI: il processo omp riceve
+ * `OMP_STUDIO_LOCALE` da Studio, il bundle della GUI ricade su `<html lang>`.
+ * Senza lingua nota si usa l'inglese, il default di Studio. Letta a ogni
+ * chiamata: la lingua puo' cambiare durante la vita del processo.
+ */
+function tr(it: string, en: string): string {
+	const host = globalThis as {
+		process?: { env?: Record<string, string | undefined> };
+		document?: { documentElement?: { lang?: string } };
+	};
+	const code = (host.process?.env?.OMP_STUDIO_LOCALE || host.document?.documentElement?.lang || "en").toLowerCase();
+	return code.startsWith("it") ? it : en;
+}
+
+/** Motivo del blocco per tool: [italiano, inglese]. */
+const FORBIDDEN_WRITE_TOOLS: Record<string, [string, string]> = {
+	write: ["Scrittura file non consentita in modalità sola lettura", "file writes are not allowed in read-only mode"],
+	edit: ["Modifica file non consentita in modalità sola lettura", "file edits are not allowed in read-only mode"],
+	ast_edit: [
+		"Modifica strutturale file non consentita in modalità sola lettura",
+		"structural file edits are not allowed in read-only mode"
+	],
+	bash: [
+		"Esecuzione shell/comandi non consentita in modalità sola lettura",
+		"shell command execution is not allowed in read-only mode"
+	],
+	eval: ["Interpreti host (eval) non consentiti in modalità sola lettura", "host interpreters (eval) are not allowed in read-only mode"],
+	terminal: [
+		"Terminale interattivo non consentito in modalità sola lettura",
+		"an interactive terminal is not allowed in read-only mode"
+	]
 };
 
 const ALLOWED_READ_SCHEMES: Record<string, true> = {
@@ -114,10 +139,11 @@ export function createReadonlyHook(allowedRoots = parseAllowedRoots()) {
 		const input = event.input || {};
 
 		// 1. Blocco immediato di tool di scrittura o esecuzione
-		if (FORBIDDEN_WRITE_TOOLS[toolName]) {
+		const forbidden = FORBIDDEN_WRITE_TOOLS[toolName];
+		if (forbidden) {
 			return {
 				block: true,
-				reason: `Operazione negata: ${FORBIDDEN_WRITE_TOOLS[toolName]}.`
+				reason: tr(`Operazione negata: ${forbidden[0]}.`, `Operation denied: ${forbidden[1]}.`)
 			};
 		}
 
@@ -127,7 +153,10 @@ export function createReadonlyHook(allowedRoots = parseAllowedRoots()) {
 			if (!rawPath && toolName === "read") {
 				return {
 					block: true,
-					reason: "Tool 'read' bloccato: parametro 'path' mancante o vuoto."
+					reason: tr(
+						"Tool 'read' bloccato: parametro 'path' mancante o vuoto.",
+						"Tool 'read' blocked: the 'path' parameter is missing or empty."
+					)
 				};
 			}
 
@@ -140,7 +169,10 @@ export function createReadonlyHook(allowedRoots = parseAllowedRoots()) {
 					}
 					return {
 						block: true,
-						reason: `Lettura negata: schema URL '${scheme}://' non consentito in sessione protetta.`
+						reason: tr(
+							`Lettura negata: schema URL '${scheme}://' non consentito in sessione protetta.`,
+							`Read denied: URL scheme '${scheme}://' is not allowed in a protected session.`
+						)
 					};
 				}
 
@@ -148,7 +180,7 @@ export function createReadonlyHook(allowedRoots = parseAllowedRoots()) {
 				if (isDeniedSensitivePath(clean)) {
 					return {
 						block: true,
-						reason: `Accesso negato al file sensibile: '${clean}'.`
+						reason: tr(`Accesso negato al file sensibile: '${clean}'.`, `Access to the sensitive file denied: '${clean}'.`)
 					};
 				}
 
@@ -157,7 +189,10 @@ export function createReadonlyHook(allowedRoots = parseAllowedRoots()) {
 					if (!inAnyRoot) {
 						return {
 							block: true,
-							reason: `Accesso negato: il percorso '${clean}' è al di fuori delle cartelle consentite.`
+							reason: tr(
+								`Accesso negato: il percorso '${clean}' è al di fuori delle cartelle consentite.`,
+								`Access denied: the path '${clean}' is outside the allowed folders.`
+							)
 						};
 					}
 				}

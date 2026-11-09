@@ -643,7 +643,7 @@
 	{#if session.hasEarlier}
 		<div class="earlier-bar">
 			<button type="button" class="earlier-btn" onclick={handleShowEarlier}>
-				Carica precedenti ({session.entries.length - session.visibleCount} nascoste)
+				{m.l10n_agentcmp_load_earlier({ count: session.entries.length - session.visibleCount })}
 			</button>
 		</div>
 	{/if}

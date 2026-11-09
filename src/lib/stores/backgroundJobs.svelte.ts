@@ -11,6 +11,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
+import { m } from '#lib/paraglide/messages.js';
 import { untrack } from 'svelte';
 import { settingsStore, type BackgroundJobId } from './settings.svelte';
 import { taskStore } from './tasks.svelte';
@@ -652,7 +653,7 @@ async function executeSessionTitles(): Promise<boolean> {
 async function executeSessionIndex(): Promise<void> {
 	sessionIndexPending = false;
 	runningJobId = 'sessionIndex';
-	runningState = { label: 'Indice sessioni', startedAt: Date.now() };
+	runningState = { label: m.l10n_state_job_session_index(), startedAt: Date.now() };
 
 	try {
 		const stats = await invoke<SessionIndexStats>('session_index_refresh');
@@ -660,7 +661,7 @@ async function executeSessionIndex(): Promise<void> {
 		lastRun.sessionIndex = {
 			at: Date.now(),
 			ok: true,
-			detail: stats ? `${stats.scanned} letti, ${stats.updated} agg.` : undefined
+			detail: stats ? m.l10n_state_job_session_index_detail({ scanned: stats.scanned, updated: stats.updated }) : undefined
 		};
 		// AUT-094: nessun sweep automatico dello storico durante l'aggiornamento dell'indice
 	} catch (err) {
@@ -705,7 +706,7 @@ async function executeGitFetch(): Promise<void> {
 async function executeUpdateCheck(): Promise<void> {
 	updateCheckPending = false;
 	runningJobId = 'updateCheck';
-	runningState = { label: 'Verifica aggiornamenti', startedAt: Date.now() };
+	runningState = { label: m.settings_background_jobs_update_check_title(), startedAt: Date.now() };
 
 	try {
 		await studioUpdaterStore.checkUpdate(false);

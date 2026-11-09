@@ -7,12 +7,13 @@
  */
 
 import type { RemoteChatMessage, RemoteChatPage } from '$remote-protocol';
+import { m } from '#lib/paraglide/messages.js';
 
 const encoder = new TextEncoder();
 
 /** Calcola la dimensione esatta in byte UTF-8 del messaggio serializzato in JSON. */
-export function messageUtf8Bytes(m: RemoteChatMessage): number {
-	return encoder.encode(JSON.stringify(m)).length + 2;
+export function messageUtf8Bytes(message: RemoteChatMessage): number {
+	return encoder.encode(JSON.stringify(message)).length + 2;
 }
 
 /**
@@ -30,7 +31,10 @@ export function sliceWithoutHalfSurrogate(s: string, len: number): string {
 	return sliced;
 }
 
-const TRUNCATION_SUFFIX = '\n... [testo troncato per limite di frame]';
+/** Suffisso del testo troncato: risolto a ogni uso, la lingua cambia a runtime. */
+function truncationSuffix(): string {
+	return m.l10n_lab_remote_paging_truncated_text();
+}
 
 /**
  * Riduce i messaggi oltre il budget, marcando il testo troncato.
@@ -53,10 +57,10 @@ export function boundMessageForBudget(msg: RemoteChatMessage, maxBytes: number):
 		boundedTool.todos = null;
 		boundedTool.diffStats = null;
 		if (boundedTool.diff && boundedTool.diff.length > 500) {
-			boundedTool.diff = boundedTool.diff.slice(0, 500) + '\n... [diff troncato per limite di frame]';
+			boundedTool.diff = boundedTool.diff.slice(0, 500) + m.l10n_lab_remote_paging_truncated_diff();
 		}
 		if (boundedTool.output && boundedTool.output.length > 500) {
-			boundedTool.output = boundedTool.output.slice(-500) + '\n... [output troncato per limite di frame]';
+			boundedTool.output = boundedTool.output.slice(-500) + m.l10n_lab_remote_paging_truncated_output();
 		}
 		bounded.tool = boundedTool;
 		if (messageUtf8Bytes(bounded) <= maxBytes) return bounded;
@@ -81,7 +85,7 @@ export function boundMessageForBudget(msg: RemoteChatMessage, maxBytes: number):
 
 	while (low <= high) {
 		const mid = Math.floor((low + high) / 2);
-		const candidate = sliceWithoutHalfSurrogate(fullText, mid) + (mid < fullText.length ? TRUNCATION_SUFFIX : '');
+		const candidate = sliceWithoutHalfSurrogate(fullText, mid) + (mid < fullText.length ? truncationSuffix() : '');
 		bounded.text = candidate;
 		if (bounded.blocks) {
 			bounded.blocks[0].text = candidate;
@@ -110,7 +114,7 @@ export function boundMessageForBudget(msg: RemoteChatMessage, maxBytes: number):
 	high = fullText.length;
 	while (low <= high) {
 		const mid = Math.floor((low + high) / 2);
-		const candidate = sliceWithoutHalfSurrogate(fullText, mid) + (mid < fullText.length ? TRUNCATION_SUFFIX : '');
+		const candidate = sliceWithoutHalfSurrogate(fullText, mid) + (mid < fullText.length ? truncationSuffix() : '');
 		bounded.text = candidate;
 		if (messageUtf8Bytes(bounded) <= maxBytes) {
 			bestCandidateText = candidate;
@@ -126,9 +130,9 @@ export function boundMessageForBudget(msg: RemoteChatMessage, maxBytes: number):
 	}
 
 	// Un budget inferiore all'identita' non consente una pagina valida.
-	bounded.text = '[messaggio omesso per limite di frame]';
+	bounded.text = m.l10n_lab_remote_paging_message_omitted();
 	if (messageUtf8Bytes(bounded) <= maxBytes) return bounded;
-	throw new RangeError('Il messaggio supera il budget anche senza contenuto e metadati facoltativi.');
+	throw new RangeError(m.l10n_lab_remote_paging_budget_exceeded());
 }
 
 /**
@@ -144,7 +148,7 @@ export function paginateRemoteMessages(
 
 	let endIndex = allMessages.length;
 	if (before !== null) {
-		const targetIndex = allMessages.findIndex((m) => m.id === before);
+		const targetIndex = allMessages.findIndex((candidate) => candidate.id === before);
 		if (targetIndex <= 0) {
 			return { messages: [], before: null };
 		}

@@ -2,7 +2,8 @@ import { setLocale } from '#lib/paraglide/runtime.js';
 
 /**
  * Dizionario bilingue italiano/inglese per la PWA di controllo remoto.
- * La lingua e' scelta in base a navigator.language (italiano se inizia con 'it').
+ * La lingua e' scelta in base a navigator.language (italiano se inizia con 'it'),
+ * con `?lang=` che ha la precedenza e l'inglese come base.
  */
 
 export type Language = 'it' | 'en';
@@ -16,7 +17,8 @@ export function detectLanguage(): Language {
 	if (typeof navigator !== 'undefined' && navigator.language) {
 		return navigator.language.toLowerCase().startsWith('it') ? 'it' : 'en';
 	}
-	return 'it';
+	// Senza indizi la base resta l'inglese, come il resto della UI.
+	return 'en';
 }
 
 const DICT = {
@@ -349,7 +351,35 @@ const DICT = {
 		workPromptLocked: 'Testo troppo lungo da modificare da qui: aggiorna Studio o modificalo sul computer.',
 		workQueueHint: 'Al momento dell’avvio parte in Principale se è libera, altrimenti in un nuovo worktree.',
 		workScheduleUpdated: 'Programmazione aggiornata',
-		workScheduledAs: 'Programmato: {schedule}'
+		workScheduledAs: 'Programmato: {schedule}',
+
+		// Messaggi generici, errori di trasporto e allegati
+		toolFallback: 'Strumento',
+		toolRunningAria: 'In esecuzione',
+		toolCollapse: 'Comprimi strumenti',
+		toolExpand: 'Espandi strumenti',
+		toolErrorsOne: '{count} errore',
+		toolErrorsMany: '{count} errori',
+		retry: 'Riprova',
+		attachmentAlt: 'Allegato {index}',
+		attachFilesImages: 'Allega file o immagini',
+		attachmentTooLarge: '"{name}" supera il limite di {limit} MiB',
+		attachmentNoPath: "Nessun percorso restituito dallo staging sul filesystem dell'host",
+		attachmentNoConnection: "Nessuna connessione attiva verso l'host",
+		attachmentSaveFailed: 'Impossibile salvare l\'allegato "{name}": {error}',
+		notificationsEnableFailed: 'Errore durante la registrazione push',
+		notificationsDisableFailed: 'Errore durante la disattivazione',
+		deviceCodeGenerateFailed: 'Errore generazione codice: {message}',
+		revokeFailed: 'Errore revoca: {message}',
+		errHttpStatus: 'Errore HTTP {status}',
+		errProtocolIncompatible: 'Versione protocollo non compatibile. Ricarica la pagina.',
+		errCommandFailed: 'Comando fallito',
+		errRelayConnectionLost: 'Connessione relay interrotta',
+		errRelayNotConnected: 'Relay non connesso',
+		errNoResponse: 'Nessuna risposta entro 30s',
+		errPushMissingKeys: 'Sottoscrizione priva di chiavi crittografiche',
+		previewPrototypeTitle: 'Prototipo',
+		deviceFallbackName: 'Dispositivo'
 	},
 	en: {
 		offlineBanner: 'Disconnected from relay. Reconnecting...',
@@ -680,11 +710,46 @@ const DICT = {
 		workPromptLocked: 'Text too long to edit from here: update Studio or edit it on the computer.',
 		workQueueHint: 'When it starts, it runs in Main if free, otherwise in a new worktree.',
 		workScheduleUpdated: 'Schedule updated',
-		workScheduledAs: 'Scheduled: {schedule}'
+		workScheduledAs: 'Scheduled: {schedule}',
+
+		// Generic messages, transport errors and attachments
+		toolFallback: 'Tool',
+		toolRunningAria: 'Running',
+		toolCollapse: 'Collapse tools',
+		toolExpand: 'Expand tools',
+		toolErrorsOne: '{count} error',
+		toolErrorsMany: '{count} errors',
+		retry: 'Retry',
+		attachmentAlt: 'Attachment {index}',
+		attachFilesImages: 'Attach files or images',
+		attachmentTooLarge: '"{name}" exceeds the {limit} MiB limit',
+		attachmentNoPath: "No path returned by staging on the host's filesystem",
+		attachmentNoConnection: 'No active connection to the host',
+		attachmentSaveFailed: 'Could not save attachment "{name}": {error}',
+		notificationsEnableFailed: 'Push registration failed',
+		notificationsDisableFailed: 'Could not disable notifications',
+		deviceCodeGenerateFailed: 'Could not generate code: {message}',
+		revokeFailed: 'Revoke failed: {message}',
+		errHttpStatus: 'HTTP error {status}',
+		errProtocolIncompatible: 'Incompatible protocol version. Reload the page.',
+		errCommandFailed: 'Command failed',
+		errRelayConnectionLost: 'Relay connection lost',
+		errRelayNotConnected: 'Relay not connected',
+		errNoResponse: 'No response within 30s',
+		errPushMissingKeys: 'Subscription is missing its encryption keys',
+		previewPrototypeTitle: 'Prototype',
+		deviceFallbackName: 'Device'
 	}
 } as const;
 
 export type MessageKey = keyof typeof DICT['it'];
+
+/** Allinea l'attributo `lang` del documento alla lingua attiva (a11y e sintesi vocale). */
+function applyDocumentLang(lang: Language): void {
+	if (typeof document !== 'undefined' && document.documentElement) {
+		document.documentElement.lang = lang;
+	}
+}
 
 let currentLang: Language = detectLanguage();
 try {
@@ -692,9 +757,11 @@ try {
 } catch {
 	// Paraglide optional fallback
 }
+applyDocumentLang(currentLang);
 
 export function setLanguage(lang: Language): void {
 	currentLang = lang;
+	applyDocumentLang(lang);
 	try {
 		setLocale(lang, { reload: false });
 	} catch {
@@ -704,6 +771,11 @@ export function setLanguage(lang: Language): void {
 
 export function getLanguage(): Language {
 	return currentLang;
+}
+
+/** Locale BCP 47 per `toLocaleDateString` e simili, coerente con la lingua della UI. */
+export function getFormatLocale(): string {
+	return currentLang === 'it' ? 'it-IT' : 'en-US';
 }
 
 export function t(key: MessageKey, params?: Record<string, string | number>): string {

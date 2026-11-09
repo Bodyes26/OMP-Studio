@@ -56,7 +56,7 @@
 		backfillSuccessMsg = null;
 		try {
 			const res = await startSessionTitlesBackfill();
-			backfillSuccessMsg = `Avviata generazione per ${res.queued} sessioni.`;
+			backfillSuccessMsg = t('titles_backfill_started', { count: res.queued });
 			missingSessionCount = 0;
 		} catch (err) {
 			backfillError = err instanceof Error ? err.message : String(err);
@@ -93,7 +93,7 @@
 			<span class="card-title-text">{t('titles_quota_status')}</span>
 		</div>
 		<p class="text-xs text-muted" style="margin: 0 0 10px;">
-			La generazione dei titoli viene sospesa automaticamente per non consumare la quota necessaria al lavoro interattivo se il residuo scende sotto il 30% nella finestra breve (5h) o settimanale.
+			{t('titles_quota_desc')}
 		</p>
 
 		{#if taskTitleJob?.paused === 'quotaFloor' || sessionTitleJob?.paused === 'quotaFloor'}
@@ -122,17 +122,17 @@
 				<div class="job-meta">
 					<div class="job-name-line">
 						<StatusMark status={taskTitleJob.running ? 'running' : taskTitleJob.paused ? 'pending' : 'completed'} />
-						<span class="job-name font-medium">Titoli automatici dei task</span>
+						<span class="job-name font-medium">{t('titles_job_task_name')}</span>
 						{#if taskTitleJob.running}
 							<span class="status-chip running">{t('exec_running')}</span>
 						{:else if taskTitleJob.paused}
-							<span class="status-chip paused">In pausa ({taskTitleJob.paused})</span>
+							<span class="status-chip paused">{t('titles_job_paused', { reason: taskTitleJob.paused })}</span>
 						{:else}
-							<span class="status-chip ok">Attivo</span>
+							<span class="status-chip ok">{t('titles_job_active')}</span>
 						{/if}
 					</div>
 					<div class="job-sub text-xs text-muted">
-						Generato dopo il salvataggio con 2s di quiete. I titoli modificati manualmente vengono preservati.
+						{t('titles_job_task_desc')}
 					</div>
 				</div>
 				<div class="job-actions">
@@ -153,17 +153,17 @@
 						>
 							{#if taskTitleJob.paused}
 								<IconPlay />
-								<span>Riprendi</span>
+								<span>{t('titles_job_resume')}</span>
 							{:else}
 								<IconPause />
-								<span>Pausa</span>
+								<span>{t('titles_job_pause')}</span>
 							{/if}
 						</button>
 						<button
 							type="button"
 							class="ui-button ui-button-ghost text-xs"
 							onclick={() => backgroundJobs.runNow(taskTitleJob.id)}
-							title="Esegui subito il controllo della coda task"
+							title={t('titles_job_run_task_now')}
 						>
 							<IconRefresh />
 						</button>
@@ -178,17 +178,17 @@
 				<div class="job-meta">
 					<div class="job-name-line">
 						<StatusMark status={sessionTitleJob.running ? 'running' : sessionTitleJob.paused ? 'pending' : 'completed'} />
-						<span class="job-name font-medium">Titoli delle nuove sessioni chat</span>
+						<span class="job-name font-medium">{t('titles_job_session_name')}</span>
 						{#if sessionTitleJob.running}
 							<span class="status-chip running">{t('exec_running')}</span>
 						{:else if sessionTitleJob.paused}
-							<span class="status-chip paused">In pausa ({sessionTitleJob.paused})</span>
+							<span class="status-chip paused">{t('titles_job_paused', { reason: sessionTitleJob.paused })}</span>
 						{:else}
-							<span class="status-chip ok">Attivo</span>
+							<span class="status-chip ok">{t('titles_job_active')}</span>
 						{/if}
 					</div>
 					<div class="job-sub text-xs text-muted">
-						Generato al termine del primo turno della sessione. Nessun recupero massivo automatico dello storico.
+						{t('titles_job_session_desc')}
 					</div>
 				</div>
 				<div class="job-actions">
@@ -209,17 +209,17 @@
 						>
 							{#if sessionTitleJob.paused}
 								<IconPlay />
-								<span>Riprendi</span>
+								<span>{t('titles_job_resume')}</span>
 							{:else}
 								<IconPause />
-								<span>Pausa</span>
+								<span>{t('titles_job_pause')}</span>
 							{/if}
 						</button>
 						<button
 							type="button"
 							class="ui-button ui-button-ghost text-xs"
 							onclick={() => backgroundJobs.runNow(sessionTitleJob.id)}
-							title="Esegui subito"
+							title={t('titles_job_run_now')}
 						>
 							<IconRefresh />
 						</button>

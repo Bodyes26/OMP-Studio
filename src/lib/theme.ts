@@ -16,6 +16,8 @@
  * unica resta `app.css` anche per i due componenti che dipingono su canvas.
  */
 
+import { m } from '#lib/paraglide/messages.js';
+
 export interface OmpTheme {
 	name: string;
 	vars?: Record<string, string | number>;
@@ -204,19 +206,24 @@ export type ThemeMode = 'dark' | 'light';
 
 export interface ThemeGroup {
 	mode: ThemeMode;
-	label: string;
+	/** Getter: l'etichetta segue la lingua attiva senza ricreare il gruppo. */
+	readonly label: string;
 	names: string[];
 }
 
 export const THEME_GROUPS: ThemeGroup[] = [
 	{
 		mode: 'dark',
-		label: 'Temi scuri',
+		get label() {
+			return m.l10n_state_theme_group_dark();
+		},
 		names: THEME_NAMES.filter((name) => modeFor(THEMES[name]) === 'dark')
 	},
 	{
 		mode: 'light',
-		label: 'Temi chiari',
+		get label() {
+			return m.l10n_state_theme_group_light();
+		},
 		names: THEME_NAMES.filter((name) => modeFor(THEMES[name]) === 'light')
 	}
 ];

@@ -6,6 +6,7 @@
 	import JsonBlock from './parts/JsonBlock.svelte';
 	import OutputBlock from './parts/OutputBlock.svelte';
 	import { resultImages, resultText, type ToolRenderProps } from './types';
+	import { m } from '#lib/paraglide/messages.js';
 
 	let { args, result }: ToolRenderProps = $props();
 
@@ -16,7 +17,7 @@
 <div class="generic-body">
 	<JsonBlock value={args} />
 	{#if result?.details}
-		<JsonBlock value={result.details} label="dettagli" />
+		<JsonBlock value={result.details} label={m.l10n_tools_label_details()} />
 	{/if}
 	{#if text}
 		<OutputBlock {text} />

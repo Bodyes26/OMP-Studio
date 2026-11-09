@@ -11,13 +11,14 @@ import { stageAttachmentHeaders, type DroppedImage } from '#lib/agent/chatDrop.t
 import type { RemotePromptImage } from '$remote-protocol';
 import type { ImageContent } from '#lib/agent/wire.ts';
 import { RemoteCommandFailure } from './commands';
+import { m } from '#lib/paraglide/messages.js';
 /**
  * Interrompe il turno della corsia remota come farebbe il pulsante Stop di Studio.
  */
 export async function abortRemoteLane(projectId: string, laneId: string | null): Promise<void> {
 	const project = projectStore.projects.find((p) => p.id === projectId);
 	if (!project) {
-		throw new RemoteCommandFailure('not_found', `Progetto "${projectId}" non trovato`);
+		throw new RemoteCommandFailure('not_found', m.l10n_lab_remote_project_not_found({ project: projectId }));
 	}
 
 	const isMain = !laneId || laneId === 'main';
@@ -25,7 +26,10 @@ export async function abortRemoteLane(projectId: string, laneId: string | null):
 
 	const lane = laneOrchestrator.laneRecord(project, effectiveLaneId);
 	if (!lane && !isMain) {
-		throw new RemoteCommandFailure('not_found', `Corsia "${laneId}" non trovata nel progetto "${projectId}"`);
+		throw new RemoteCommandFailure(
+			'not_found',
+			m.l10n_lab_remote_lane_not_found({ lane: laneId ?? 'main', project: projectId })
+		);
 	}
 
 	const surface = (project.lane.laneId === effectiveLaneId)
@@ -35,7 +39,7 @@ export async function abortRemoteLane(projectId: string, laneId: string | null):
 	if (surface === 'terminal') {
 		throw new RemoteCommandFailure(
 			'unsupported',
-			"L'interruzione remota non e' disponibile per corsie su terminale."
+			m.l10n_lab_remote_abort_terminal_unavailable()
 		);
 	}
 
@@ -64,15 +68,15 @@ export async function sendRemotePrompt(
 	const hasImages = Array.isArray(images) && images.length > 0;
 	const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
 	if (!trimmed && !hasImages && !hasAttachments) {
-		throw new RemoteCommandFailure('rejected', "Il testo del messaggio non puo' essere vuoto");
+		throw new RemoteCommandFailure('rejected', m.l10n_lab_remote_prompt_text_empty());
 	}
 	if (trimmed.length > 20_000) {
-		throw new RemoteCommandFailure('rejected', 'Il testo del messaggio supera il limite di 20.000 caratteri');
+		throw new RemoteCommandFailure('rejected', m.l10n_lab_remote_prompt_text_too_long());
 	}
 
 	const project = projectStore.projects.find((p) => p.id === projectId);
 	if (!project) {
-		throw new RemoteCommandFailure('not_found', `Progetto "${projectId}" non trovato`);
+		throw new RemoteCommandFailure('not_found', m.l10n_lab_remote_project_not_found({ project: projectId }));
 	}
 
 	const isMain = !laneId || laneId === 'main';
@@ -80,7 +84,10 @@ export async function sendRemotePrompt(
 
 	const lane = laneOrchestrator.laneRecord(project, effectiveLaneId);
 	if (!lane && !isMain) {
-		throw new RemoteCommandFailure('not_found', `Corsia "${laneId}" non trovata nel progetto "${projectId}"`);
+		throw new RemoteCommandFailure(
+			'not_found',
+			m.l10n_lab_remote_lane_not_found({ lane: laneId ?? 'main', project: projectId })
+		);
 	}
 
 	const surface = (project.lane.laneId === effectiveLaneId)
@@ -90,7 +97,7 @@ export async function sendRemotePrompt(
 	if (surface === 'terminal') {
 		throw new RemoteCommandFailure(
 			'unsupported',
-			"L'invio di messaggi non e' disponibile per corsie su terminale."
+			m.l10n_lab_remote_send_terminal_unavailable()
 		);
 	}
 
@@ -98,7 +105,7 @@ export async function sendRemotePrompt(
 	if (lane?.kind === 'lab' && !lane.labPrototypeId) {
 		throw new RemoteCommandFailure(
 			'rejected',
-			"La corsia Laboratorio non ha un prototipo associato valido."
+			m.l10n_lab_remote_lab_lane_no_prototype()
 		);
 	}
 
@@ -110,11 +117,14 @@ export async function sendRemotePrompt(
 		if (lane?.kind === 'lab') {
 			throw new RemoteCommandFailure(
 				'rejected',
-				"La corsia Laboratorio deve essere aperta in Studio prima di potervi inviare messaggi."
+				m.l10n_lab_remote_lab_lane_not_open_send()
 			);
 		}
 		if (!lane) {
-			throw new RemoteCommandFailure('not_found', `Corsia "${effectiveLaneId}" non trovata`);
+			throw new RemoteCommandFailure(
+				'not_found',
+				m.l10n_lab_remote_lane_not_found_short({ lane: effectiveLaneId })
+			);
 		}
 		session = laneOrchestrator.getOrCreateAgentSession(project, lane);
 	}
@@ -123,7 +133,7 @@ export async function sendRemotePrompt(
 		if (lane?.kind === 'lab') {
 			throw new RemoteCommandFailure(
 				'rejected',
-				"La sessione Laboratorio non e' aperta in Studio."
+				m.l10n_lab_remote_lab_lane_not_open()
 			);
 		}
 		await session.open(null);
@@ -159,7 +169,9 @@ export async function sendRemotePrompt(
 				} catch (err) {
 					throw new RemoteCommandFailure(
 						'failed',
-						`Impossibile leggere l'immagine allegata: ${err instanceof Error ? err.message : String(err)}`
+						m.l10n_lab_remote_attachment_image_read_failed({
+					error: err instanceof Error ? err.message : String(err)
+				})
 					);
 				}
 			}
@@ -172,14 +184,14 @@ export async function sendRemotePrompt(
 	if (totalImageBase64Length + wireText.length > 700_000) {
 		throw new RemoteCommandFailure(
 			'rejected',
-			'Il payload complessivo delle immagini allegate supera il limite del frame fisico omp (700 KB base64).'
+			m.l10n_lab_remote_images_payload_too_large()
 		);
 	}
 
 	const behavior = whileBusy === 'follow_up' ? 'followUp' : 'steer';
 	const result = await session.prompt(wireText, imagesToSend, behavior);
 	if (result === 'failed') {
-		throw new RemoteCommandFailure('failed', 'Impossibile inviare il messaggio alla sessione');
+		throw new RemoteCommandFailure('failed', m.l10n_lab_remote_send_failed());
 	}
 }
 
@@ -203,25 +215,28 @@ export async function stageRemoteAttachment(
 	stageId?: string
 ): Promise<{ path: string; name: string; size: number }> {
 	if (!fileName || typeof fileName !== 'string' || !fileName.trim()) {
-		throw new RemoteCommandFailure('rejected', 'Nome file non valido');
+		throw new RemoteCommandFailure('rejected', m.l10n_lab_remote_file_name_invalid());
 	}
 	if (!Number.isInteger(totalChunks) || totalChunks < 1 || totalChunks > 1000) {
-		throw new RemoteCommandFailure('rejected', 'Numero totale di chunk non valido');
+		throw new RemoteCommandFailure('rejected', m.l10n_lab_remote_chunk_total_invalid());
 	}
 	if (!Number.isInteger(chunkIndex) || chunkIndex < 0 || chunkIndex >= totalChunks) {
-		throw new RemoteCommandFailure('rejected', 'Indice del chunk non valido');
+		throw new RemoteCommandFailure('rejected', m.l10n_lab_remote_chunk_index_invalid());
 	}
 
 	const project = projectStore.projects.find((p) => p.id === projectId);
 	if (!project) {
-		throw new RemoteCommandFailure('not_found', `Progetto "${projectId}" non trovato`);
+		throw new RemoteCommandFailure('not_found', m.l10n_lab_remote_project_not_found({ project: projectId }));
 	}
 
 	const isMain = !laneId || laneId === 'main';
 	const effectiveLaneId = isMain ? 'main' : laneId;
 	const lane = laneOrchestrator.laneRecord(project, effectiveLaneId);
 	if (!lane && !isMain) {
-		throw new RemoteCommandFailure('not_found', `Corsia "${laneId}" non trovata nel progetto "${projectId}"`);
+		throw new RemoteCommandFailure(
+			'not_found',
+			m.l10n_lab_remote_lane_not_found({ lane: laneId ?? 'main', project: projectId })
+		);
 	}
 
 	const surface = (project.lane.laneId === effectiveLaneId)
@@ -231,14 +246,14 @@ export async function stageRemoteAttachment(
 	if (surface === 'terminal') {
 		throw new RemoteCommandFailure(
 			'unsupported',
-			"Lo staging degli allegati non e' disponibile per corsie su terminale."
+			m.l10n_lab_remote_staging_terminal_unavailable()
 		);
 	}
 
 	if (lane?.kind === 'lab' && !lane.labPrototypeId) {
 		throw new RemoteCommandFailure(
 			'rejected',
-			"La corsia Laboratorio non ha un prototipo associato valido."
+			m.l10n_lab_remote_lab_lane_no_prototype()
 		);
 	}
 
@@ -250,11 +265,14 @@ export async function stageRemoteAttachment(
 		if (lane?.kind === 'lab') {
 			throw new RemoteCommandFailure(
 				'rejected',
-				"La corsia Laboratorio deve essere aperta in Studio prima dello staging."
+				m.l10n_lab_remote_lab_lane_not_open_staging()
 			);
 		}
 		if (!lane) {
-			throw new RemoteCommandFailure('not_found', `Corsia "${effectiveLaneId}" non trovata`);
+			throw new RemoteCommandFailure(
+				'not_found',
+				m.l10n_lab_remote_lane_not_found_short({ lane: effectiveLaneId })
+			);
 		}
 		session = laneOrchestrator.getOrCreateAgentSession(project, lane);
 	}
@@ -271,7 +289,7 @@ export async function stageRemoteAttachment(
 
 	if (totalChunks > 1) {
 		if (!stageId) {
-			throw new RemoteCommandFailure('rejected', 'Identificatore di staging mancante per caricamento a blocchi');
+			throw new RemoteCommandFailure('rejected', m.l10n_lab_remote_stage_id_missing());
 		}
 		let upload = pendingUploads.get(uploadKey);
 		if (!upload) {
@@ -289,7 +307,7 @@ export async function stageRemoteAttachment(
 		}
 		if (upload.total !== totalChunks || upload.fileName !== fileName) {
 			pendingUploads.delete(uploadKey);
-			throw new RemoteCommandFailure('rejected', 'Metadati del caricamento modificati');
+			throw new RemoteCommandFailure('rejected', m.l10n_lab_remote_upload_metadata_changed());
 		}
 
 		if (upload.chunks[chunkIndex] !== undefined) {
@@ -299,7 +317,7 @@ export async function stageRemoteAttachment(
 		const chunkBytes = (data.length / 4) * 3 - (data.endsWith('==') ? 2 : data.endsWith('=') ? 1 : 0);
 		if (upload.totalBytes + chunkBytes > 50 * 1024 * 1024) {
 			pendingUploads.delete(uploadKey);
-			throw new RemoteCommandFailure('rejected', 'Dimensione complessiva allegato supera il limite di 50 MiB');
+			throw new RemoteCommandFailure('rejected', m.l10n_lab_remote_attachment_total_too_large());
 		}
 
 		upload.chunks[chunkIndex] = data;
@@ -315,7 +333,7 @@ export async function stageRemoteAttachment(
 	} else {
 		const singleBytes = (data.length / 4) * 3 - (data.endsWith('==') ? 2 : data.endsWith('=') ? 1 : 0);
 		if (singleBytes > 50 * 1024 * 1024) {
-			throw new RemoteCommandFailure('rejected', 'Dimensione allegato supera il limite di 50 MiB');
+			throw new RemoteCommandFailure('rejected', m.l10n_lab_remote_attachment_too_large());
 		}
 	}
 
@@ -327,11 +345,11 @@ export async function stageRemoteAttachment(
 			bytes[i] = binary.charCodeAt(i);
 		}
 	} catch {
-		throw new RemoteCommandFailure('rejected', 'Dati allegato base64 non validi');
+		throw new RemoteCommandFailure('rejected', m.l10n_lab_remote_base64_invalid());
 	}
 
 	if (bytes.length > 50 * 1024 * 1024) {
-		throw new RemoteCommandFailure('rejected', 'Dimensione allegato decodificato eccede 50 MiB');
+		throw new RemoteCommandFailure('rejected', m.l10n_lab_remote_attachment_decoded_too_large());
 	}
 
 	try {
@@ -341,7 +359,7 @@ export async function stageRemoteAttachment(
 		return staged;
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err);
-		throw new RemoteCommandFailure('failed', `Salvataggio allegato non riuscito: ${msg}`);
+		throw new RemoteCommandFailure('failed', m.l10n_lab_remote_attachment_save_failed({ error: msg }));
 	}
 }
 
@@ -352,14 +370,17 @@ export async function refreshRemoteContext(
 ): Promise<{ success: true }> {
 	const project = projectStore.projects.find((p) => p.id === projectId);
 	if (!project) {
-		throw new RemoteCommandFailure('not_found', `Progetto "${projectId}" non trovato`);
+		throw new RemoteCommandFailure('not_found', m.l10n_lab_remote_project_not_found({ project: projectId }));
 	}
 
 	const isMain = !laneId || laneId === 'main';
 	const effectiveLaneId = isMain ? 'main' : laneId;
 	const lane = laneOrchestrator.laneRecord(project, effectiveLaneId);
 	if (!lane && !isMain) {
-		throw new RemoteCommandFailure('not_found', `Corsia "${laneId}" non trovata nel progetto "${projectId}"`);
+		throw new RemoteCommandFailure(
+			'not_found',
+			m.l10n_lab_remote_lane_not_found({ lane: laneId ?? 'main', project: projectId })
+		);
 	}
 
 	const surface = (project.lane.laneId === effectiveLaneId)
@@ -369,7 +390,7 @@ export async function refreshRemoteContext(
 	if (surface === 'terminal') {
 		throw new RemoteCommandFailure(
 			'unsupported',
-			"L'operazione sul contesto non e' disponibile per corsie su terminale."
+			m.l10n_lab_remote_context_terminal_unavailable()
 		);
 	}
 
@@ -378,15 +399,18 @@ export async function refreshRemoteContext(
 		: sessionRegistry.getLaneSession(projectId, effectiveLaneId);
 
 	if (!session) {
-		throw new RemoteCommandFailure('not_found', `Sessione "${effectiveLaneId}" non trovata`);
+		throw new RemoteCommandFailure(
+				'not_found',
+				m.l10n_lab_remote_session_not_found({ lane: effectiveLaneId })
+			);
 	}
 
 	if (!session.isOpen || !session.isReady || !session.isAttached) {
-		throw new RemoteCommandFailure('rejected', "La sessione non e' pronta in Studio");
+		throw new RemoteCommandFailure('rejected', m.l10n_lab_remote_session_not_ready());
 	}
 
 	if (session.isContextBusy) {
-		throw new RemoteCommandFailure('rejected', 'Sessione occupata: turno, interruzione o dialogo in corso');
+		throw new RemoteCommandFailure('rejected', m.l10n_lab_remote_session_busy());
 	}
 
 	await session.refreshState();
@@ -400,14 +424,17 @@ export async function compactRemoteContext(
 ): Promise<{ success: true }> {
 	const project = projectStore.projects.find((p) => p.id === projectId);
 	if (!project) {
-		throw new RemoteCommandFailure('not_found', `Progetto "${projectId}" non trovato`);
+		throw new RemoteCommandFailure('not_found', m.l10n_lab_remote_project_not_found({ project: projectId }));
 	}
 
 	const isMain = !laneId || laneId === 'main';
 	const effectiveLaneId = isMain ? 'main' : laneId;
 	const lane = laneOrchestrator.laneRecord(project, effectiveLaneId);
 	if (!lane && !isMain) {
-		throw new RemoteCommandFailure('not_found', `Corsia "${laneId}" non trovata nel progetto "${projectId}"`);
+		throw new RemoteCommandFailure(
+			'not_found',
+			m.l10n_lab_remote_lane_not_found({ lane: laneId ?? 'main', project: projectId })
+		);
 	}
 
 	const surface = (project.lane.laneId === effectiveLaneId)
@@ -417,7 +444,7 @@ export async function compactRemoteContext(
 	if (surface === 'terminal') {
 		throw new RemoteCommandFailure(
 			'unsupported',
-			"La compattazione non e' disponibile per corsie su terminale."
+			m.l10n_lab_remote_compaction_terminal_unavailable()
 		);
 	}
 
@@ -426,17 +453,20 @@ export async function compactRemoteContext(
 		: sessionRegistry.getLaneSession(projectId, effectiveLaneId);
 
 	if (!session) {
-		throw new RemoteCommandFailure('not_found', `Sessione "${effectiveLaneId}" non trovata`);
+		throw new RemoteCommandFailure(
+				'not_found',
+				m.l10n_lab_remote_session_not_found({ lane: effectiveLaneId })
+			);
 	}
 	if (!session.isOpen || !session.isReady || !session.isAttached) {
-		throw new RemoteCommandFailure('rejected', "La sessione non e' aperta e pronta in Studio");
+		throw new RemoteCommandFailure('rejected', m.l10n_lab_remote_session_not_open_ready());
 	}
 	if (session.isContextBusy) {
-		throw new RemoteCommandFailure('rejected', 'Sessione occupata: turno, interruzione o dialogo in corso');
+		throw new RemoteCommandFailure('rejected', m.l10n_lab_remote_session_busy());
 	}
 	const ok = await session.compact();
 	if (!ok) {
-		throw new RemoteCommandFailure('rejected', 'Compattazione non avviata: sessione gia in compattazione o non necessaria');
+		throw new RemoteCommandFailure('rejected', m.l10n_lab_remote_compaction_not_started());
 	}
 	return { success: true };
 }

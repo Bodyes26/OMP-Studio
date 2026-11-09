@@ -13,6 +13,9 @@ import assert from 'node:assert/strict';
 import type { Channel } from '@tauri-apps/api/core';
 import { OmpRpcClient } from '../src/lib/agent/client.ts';
 import { diagnoseHang, newTally, type BackendDiagnostics, type HangInput } from '../src/lib/agent/hangReport.ts';
+import { useLocale } from './locale.ts';
+
+useLocale('it');
 
 let callbacks = new Map<number, (raw: unknown) => void>();
 let nextCallbackId = 1;
@@ -129,7 +132,7 @@ describe('Rapporto di blocco RPC', () => {
 		assert.equal(report.client.framesReceived, 2);
 		assert.match(report.verdict[0], /Channel Tauri fermo: Rust ha spedito 5 frame, il WebView ne ha consegnati 2/);
 		assert.match(report.verdict[0], /indice 2, "message_end", 20000 byte, consegnato da Tauri via fetch/);
-		assert.ok(report.verdict.some((line: string) => /risposta a "prompt" \(s1\) e’ arrivata a Rust/.test(line)));
+		assert.ok(report.verdict.some((line: string) => /risposta a "prompt" \(s1\) (?:e’|è) arrivata a Rust/.test(line)));
 	});
 
 	it('se anche il backend non risponde il prompt fallisce comunque', async (t) => {

@@ -67,33 +67,55 @@ pub fn refresh_credentials() -> Result<(), String> {
     let conn = crate::omp_ops::open_readonly_db("agent.db")?;
     let mut stmt = conn.prepare(
         "SELECT provider, id, updated_at, disabled_cause, data FROM auth_credentials ORDER BY id"
-    ).map_err(|_| "Impossibile leggere lo stato delle credenziali".to_string())?;
-    let mut rows = stmt
-        .query([])
-        .map_err(|_| "Impossibile leggere le credenziali".to_string())?;
+    ).map_err(|_| crate::tr!(
+            "Impossibile leggere lo stato delle credenziali",
+            "Unable to read the credential status"
+        ).to_string())?;
+    let mut rows = stmt.query([]).map_err(|_| {
+        crate::tr!(
+            "Impossibile leggere le credenziali",
+            "Unable to read the credentials"
+        )
+        .to_string()
+    })?;
     let mut hashes: HashMap<String, (Sha256, usize, bool)> = HashMap::new();
-    while let Some(row) = rows
-        .next()
-        .map_err(|_| "Lettura credenziali interrotta".to_string())?
-    {
-        let provider: String = row
-            .get(0)
-            .map_err(|_| "Provider non leggibile".to_string())?;
+    while let Some(row) = rows.next().map_err(|_| {
+        crate::tr!(
+            "Lettura credenziali interrotta",
+            "Credential read interrupted"
+        )
+        .to_string()
+    })? {
+        let provider: String = row.get(0).map_err(|_| {
+            crate::tr!("Provider non leggibile", "Provider not readable").to_string()
+        })?;
         if provider.contains(':') {
             continue;
         }
-        let id: i64 = row
-            .get(1)
-            .map_err(|_| "Identita credenziale non leggibile".to_string())?;
-        let updated: i64 = row
-            .get(2)
-            .map_err(|_| "Data credenziale non leggibile".to_string())?;
-        let disabled: Option<String> = row
-            .get(3)
-            .map_err(|_| "Stato credenziale non leggibile".to_string())?;
-        let data: String = row
-            .get(4)
-            .map_err(|_| "Credenziale non leggibile".to_string())?;
+        let id: i64 = row.get(1).map_err(|_| {
+            crate::tr!(
+                "Identita credenziale non leggibile",
+                "Credential identity not readable"
+            )
+            .to_string()
+        })?;
+        let updated: i64 = row.get(2).map_err(|_| {
+            crate::tr!(
+                "Data credenziale non leggibile",
+                "Credential date not readable"
+            )
+            .to_string()
+        })?;
+        let disabled: Option<String> = row.get(3).map_err(|_| {
+            crate::tr!(
+                "Stato credenziale non leggibile",
+                "Credential status not readable"
+            )
+            .to_string()
+        })?;
+        let data: String = row.get(4).map_err(|_| {
+            crate::tr!("Credenziale non leggibile", "Credential not readable").to_string()
+        })?;
         let entry = hashes
             .entry(canonical_provider(&provider).to_string())
             .or_insert_with(|| (Sha256::new(), 0, false));
@@ -336,15 +358,35 @@ pub fn observe_usage(value: &serde_json::Value) {
 fn commandcode_keys() -> Result<Vec<String>, String> {
     let conn = crate::omp_ops::open_readonly_db("agent.db")?;
     let mut stmt = conn.prepare("SELECT data FROM auth_credentials WHERE provider = 'commandcode' AND disabled_cause IS NULL")
-        .map_err(|_| "Credenziali Command Code non leggibili".to_string())?;
+        .map_err(|_| crate::tr!(
+            "Credenziali Command Code non leggibili",
+            "Command Code credentials not readable"
+        ).to_string())?;
     let rows = stmt
         .query_map([], |row| row.get::<_, String>(0))
-        .map_err(|_| "Credenziali Command Code non leggibili".to_string())?;
+        .map_err(|_| {
+            crate::tr!(
+                "Credenziali Command Code non leggibili",
+                "Command Code credentials not readable"
+            )
+            .to_string()
+        })?;
     let mut keys = Vec::new();
     for row in rows {
-        let data = row.map_err(|_| "Credenziale Command Code non leggibile".to_string())?;
-        let value: serde_json::Value = serde_json::from_str(&data)
-            .map_err(|_| "Formato credenziale Command Code non leggibile".to_string())?;
+        let data = row.map_err(|_| {
+            crate::tr!(
+                "Credenziale Command Code non leggibile",
+                "Command Code credential not readable"
+            )
+            .to_string()
+        })?;
+        let value: serde_json::Value = serde_json::from_str(&data).map_err(|_| {
+            crate::tr!(
+                "Formato credenziale Command Code non leggibile",
+                "Command Code credential format not readable"
+            )
+            .to_string()
+        })?;
         // Il plugin salva una API key in access; nessun refresh OAuth viene reimplementato.
         let key = value
             .get("access")
@@ -533,7 +575,7 @@ pub async fn check_provider_authentication(
 ) -> Result<ProviderAuthenticationDto, String> {
     let provider = canonical_provider(provider_id.trim()).to_string();
     if provider.is_empty() || provider.contains('/') || provider.starts_with('-') {
-        return Err("Provider non valido".to_string());
+        return Err(crate::tr!("Provider non valido", "Invalid provider").to_string());
     }
     let _serial = AUTH_CHECK_LOCK.lock().await;
     if refresh_credentials().is_err() {
@@ -584,7 +626,13 @@ pub async fn record_provider_authentication(
     let status = match outcome.as_str() {
         "verified" => "verified",
         "unavailable" => "unavailable",
-        _ => return Err("Esito autenticazione non valido".to_string()),
+        _ => {
+            return Err(crate::tr!(
+                "Esito autenticazione non valido",
+                "Invalid authentication outcome"
+            )
+            .to_string())
+        }
     };
     refresh_credentials()?;
     let provider = canonical_provider(&provider_id);
@@ -608,7 +656,12 @@ pub async fn get_provider_authentication_states(
         Ok(states)
     })
     .await
-    .map_err(|e| format!("Task get_provider_authentication_states fallito: {e}"))?
+    .map_err(|e| {
+        crate::tr!(
+            format!("Task get_provider_authentication_states fallito: {e}"),
+            format!("Task get_provider_authentication_states failed: {e}")
+        )
+    })?
 }
 
 pub async fn check_commandcode_if_due() {

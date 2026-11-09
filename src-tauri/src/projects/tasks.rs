@@ -48,8 +48,12 @@ fn project_tasks_file(project_path: &str) -> PathBuf {
 /// Assicura che la cartella `.omp` e il relativo `.gitignore` esistano e contengano `tasks.json`.
 fn ensure_auto_ignore(omp_dir: &Path) -> Result<(), String> {
     if !omp_dir.exists() {
-        fs::create_dir_all(omp_dir)
-            .map_err(|e| format!("Impossibile creare cartella .omp: {}", e))?;
+        fs::create_dir_all(omp_dir).map_err(|e| {
+            crate::tr!(
+                format!("Impossibile creare cartella .omp: {}", e),
+                format!("Cannot create the .omp folder: {}", e)
+            )
+        })?;
     }
 
     let gitignore_path = omp_dir.join(".gitignore");
@@ -66,11 +70,18 @@ fn ensure_auto_ignore(omp_dir: &Path) -> Result<(), String> {
     };
 
     if needs_entry {
-        let entry = "\n# OMP Studio: task locali non versionati\ntasks.json\n.tasks.json.*.tmp\n";
+        let entry = crate::tr!(
+            "\n# OMP Studio: task locali non versionati\ntasks.json\n.tasks.json.*.tmp\n",
+            "\n# OMP Studio: local tasks, not versioned\ntasks.json\n.tasks.json.*.tmp\n"
+        );
         let mut existing = fs::read_to_string(&gitignore_path).unwrap_or_default();
         existing.push_str(entry);
-        fs::write(&gitignore_path, existing)
-            .map_err(|e| format!("Impossibile aggiornare .omp/.gitignore: {}", e))?;
+        fs::write(&gitignore_path, existing).map_err(|e| {
+            crate::tr!(
+                format!("Impossibile aggiornare .omp/.gitignore: {}", e),
+                format!("Cannot update .omp/.gitignore: {}", e)
+            )
+        })?;
     }
 
     Ok(())
@@ -83,12 +94,21 @@ pub async fn project_tasks_read(project_path: String) -> Result<String, String> 
         if !file.exists() {
             return Ok(String::new());
         }
-        let content =
-            fs::read_to_string(&file).map_err(|e| format!("Errore lettura .omp/tasks.json: {}", e))?;
+        let content = fs::read_to_string(&file).map_err(|e| {
+            crate::tr!(
+                format!("Errore lettura .omp/tasks.json: {}", e),
+                format!("Error reading .omp/tasks.json: {}", e)
+            )
+        })?;
         Ok(content)
     })
     .await
-    .map_err(|e| format!("Task project_tasks_read fallito: {e}"))?
+    .map_err(|e| {
+        crate::tr!(
+            format!("Lettura della coda dei task interrotta: {e}"),
+            format!("Reading the task queue was interrupted: {e}")
+        )
+    })?
 }
 
 /// Scrittura crash-safe della coda su `.omp/tasks.json`.
@@ -121,7 +141,12 @@ pub async fn project_tasks_write(
 
     tokio::task::spawn_blocking(move || write_tasks_file(&project_path, &content))
         .await
-        .map_err(|e| format!("Task project_tasks_write fallito: {e}"))?
+        .map_err(|e| {
+            crate::tr!(
+                format!("Scrittura della coda dei task interrotta: {e}"),
+                format!("Writing the task queue was interrupted: {e}")
+            )
+        })?
 }
 
 /// Registra un watcher filesystem sulla cartella `.omp` per notificare modifiche esterne a `tasks.json`.
@@ -181,11 +206,19 @@ pub async fn project_tasks_watch(
             );
         }
     })
-    .map_err(|e| format!("Impossibile creare watcher per .omp: {}", e))?;
+    .map_err(|e| {
+        crate::tr!(
+            format!("Impossibile creare watcher per .omp: {}", e),
+            format!("Cannot create the .omp watcher: {}", e)
+        )
+    })?;
 
-    watcher
-        .watch(&omp_dir, RecursiveMode::NonRecursive)
-        .map_err(|e| format!("Impossibile osservare cartella .omp: {}", e))?;
+    watcher.watch(&omp_dir, RecursiveMode::NonRecursive).map_err(|e| {
+        crate::tr!(
+            format!("Impossibile osservare cartella .omp: {}", e),
+            format!("Cannot watch the .omp folder: {}", e)
+        )
+    })?;
 
     watchers.insert(norm_key, watcher);
     Ok(())
@@ -275,7 +308,7 @@ mod tests {
         let errore = write_tasks_file(project_str, "dopo").unwrap_err();
 
         assert!(
-            errore.contains("Creazione temp"),
+            errore.contains("Creazione temp") || errore.contains("Creating temp"),
             "errore inatteso: {}",
             errore
         );

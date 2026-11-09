@@ -70,9 +70,9 @@
 			items: [
 				{ keys: [IS_MAC ? '⌘B' : 'Ctrl+B'], description: m.shortcuts_item_btw() },
 				{ keys: [`${L}+Shift+P`], description: m.shortcuts_item_plan() },
-				{ keys: ['Invio'], description: m.ui_shortcutshelpmodal_invia_il_messaggio_o_seleziona_il_comando_af10() },
-				{ keys: ['Alt+Invio'], description: m.ui_shortcutshelpmodal_invia_con_la_modalita_di_accodamento_alternativa_4022() },
-				{ keys: ['Shift+Invio', 'Ctrl+Invio'], description: m.ui_shortcutshelpmodal_inserisce_una_nuova_riga_nel_campo_di_6250() },
+				{ keys: [m.l10n_agentcmp_key_enter()], description: m.ui_shortcutshelpmodal_invia_il_messaggio_o_seleziona_il_comando_af10() },
+				{ keys: [m.l10n_agentcmp_key_alt_enter()], description: m.ui_shortcutshelpmodal_invia_con_la_modalita_di_accodamento_alternativa_4022() },
+				{ keys: [m.l10n_agentcmp_key_shift_enter(), m.l10n_agentcmp_key_ctrl_enter()], description: m.ui_shortcutshelpmodal_inserisce_una_nuova_riga_nel_campo_di_6250() },
 				{ keys: ['/'], description: m.shortcuts_item_slash_palette() },
 				{ keys: [`${L}+1…6`], description: m.ui_shortcutshelpmodal_precompila_il_composer_con_il_suggerimento_in_f5fb() },
 				{ keys: [`${L}+E`], description: m.shortcuts_item_focus_composer() },
@@ -81,7 +81,7 @@
 				{ keys: ['Ctrl+C'], description: m.ui_shortcutshelpmodal_interrompe_la_risposta_in_streaming_senza_testo_37ce() },
 				{ keys: ['Esc'], description: m.shortcuts_item_close_menus() },
 				// Chiave unica per l'#each: Invio/Esc nel composer in ripetizione (/loop).
-				{ keys: ['Invio', 'Esc'], description: m.shortcuts_item_loop() }
+				{ keys: [m.l10n_agentcmp_key_enter(), 'Esc'], description: m.shortcuts_item_loop() }
 			]
 		},
 		{
@@ -112,6 +112,7 @@
 			title: m.ui_shortcutshelpmodal_editor_file_varie_472a(),
 			column: 2,
 			items: [
+				{ keys: ['Ctrl+O'], description: m.shortcuts_item_open_file() },
 				{ keys: ['Ctrl+S'], description: m.ui_shortcutshelpmodal_salva_il_file_corrente_nell_editor_adfb() },
 				{ keys: ['Ctrl+W', 'Ctrl+F4'], description: m.ui_shortcutshelpmodal_chiude_la_scheda_del_file_corrente_2d67() },
 				{ keys: ['Ctrl+Shift+W'], description: m.shortcuts_item_close_all_tabs() },

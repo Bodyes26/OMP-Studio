@@ -4,9 +4,10 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import { IconChevronRight } from '../../icons';
+	import { m } from '../../paraglide/messages.js';
 
 	let {
-		title = 'Dettagli',
+		title,
 		badge,
 		open = false,
 		children
@@ -16,6 +17,9 @@
 		open?: boolean;
 		children?: Snippet;
 	} = $props();
+
+	// Titolo di riserva risolto a render time per seguire il cambio lingua.
+	const heading = $derived(title || m.chat_v2_tray_quota_details());
 
 	let isOpen = $state(false);
 	$effect(() => {
@@ -33,7 +37,7 @@
 		<span class="chevron" class:expanded={isOpen} aria-hidden="true">
 			<IconChevronRight />
 		</span>
-		<span class="accordion-title">{title}</span>
+		<span class="accordion-title">{heading}</span>
 		{#if badge}
 			<span class="accordion-badge">{badge}</span>
 		{/if}

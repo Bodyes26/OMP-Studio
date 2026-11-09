@@ -2,6 +2,7 @@
 // Non tocca messaggi globali paraglide; riusa getLocale() del runtime Studio.
 
 import { getLocale as getParaglideLocale } from '#lib/paraglide/runtime.js';
+import { resolveFormatLocale } from '#lib/i18n/locale.ts';
 
 export type AutomationLocale = 'it' | 'en';
 
@@ -10,10 +11,24 @@ export function getLocale(): AutomationLocale {
 		const loc: unknown = getParaglideLocale?.();
 		if (loc === 'it' || loc === 'en') return loc;
 		if (typeof loc === 'string' && loc.startsWith('it')) return 'it';
+		if (typeof loc === 'string' && loc.startsWith('en')) return 'en';
 	} catch {
 		// Fallback silente se runtime non ancora pronto
 	}
-	return 'it';
+	return 'en';
+}
+
+function navigatorLanguages(): string[] {
+	if (typeof navigator === 'undefined') return [];
+	return navigator.languages?.length ? [...navigator.languages] : [navigator.language];
+}
+
+/**
+ * Locale per Intl (date, numeri): segue la regione dell'utente, non la sola
+ * lingua dell'interfaccia. Stessa regola dello store globale i18n.
+ */
+export function formatLocale(): string {
+	return resolveFormatLocale(getLocale(), navigatorLanguages());
 }
 
 const DICTIONARY = {
@@ -417,7 +432,236 @@ const DICTIONARY = {
 		occ_unknown_verify_confirm_msg: 'Confermi di aver controllato manualmente gli effetti esterni dell’esecuzione? La segnalazione di attenzione verrà archiviata. La regola rimarrà nello stato attuale finché non deciderai di riabilitarla.',
 		occ_unknown_retry_btn: 'Riprova solo esiti ignoti',
 		occ_unknown_retry_confirm_title: 'Riprova esecuzione ignota',
-		occ_unknown_retry_confirm_msg: 'Vuoi riavviare l’esecuzione solo per i destinatari con esito non verificato ({count})?'
+		occ_unknown_retry_confirm_msg: 'Vuoi riavviare l’esecuzione solo per i destinatari con esito non verificato ({count})?',
+
+		// Nomi predefiniti condivisi
+		automation_untitled: 'Automazione senza nome',
+		automation_default_name: 'Automazione',
+
+		// Presenza desktop (dialoghi di chiusura e uscita)
+		presence_close_title: 'Cosa vuoi fare alla chiusura di Studio?',
+		presence_close_desc_mac: 'Puoi continuare a eseguire in background automazioni e compiti nella barra dei menu oppure chiudere completamente l’applicazione.',
+		presence_close_desc_tray: 'Puoi continuare a eseguire in background automazioni e compiti nell’area di notifica oppure chiudere completamente l’applicazione.',
+		presence_close_legend: 'Opzioni di chiusura',
+		presence_hide_title_mac: 'Riduci nella barra dei menu',
+		presence_hide_title_tray: 'Riduci nell’area di notifica (system tray)',
+		presence_hide_desc_mac: 'Studio resta attivo nella barra dei menu. Automazioni pianificate, osservatori Git/file e compiti continuano normalmente.',
+		presence_hide_desc_tray: 'Studio resta attivo nell’area di notifica. Automazioni pianificate, osservatori Git/file e compiti continuano normalmente.',
+		presence_unavailable_mac: 'Barra dei menu non disponibile su questa piattaforma o ambiente.',
+		presence_unavailable_tray: 'Area di notifica non disponibile su questa piattaforma o ambiente.',
+		presence_quit_title: 'Esci dall’applicazione',
+		presence_quit_desc: 'Chiude tutte le finestre, interrompe le esecuzioni e rilascia le risorse.',
+		presence_remember: 'Ricorda la mia scelta (modificabile nelle Impostazioni)',
+		presence_confirm_btn: 'Conferma',
+		presence_exit_title: 'Lavori in corso: confermi l’uscita?',
+		presence_exit_desc: 'Ci sono processi in esecuzione che verrebbero interrotti se esci adesso.',
+		presence_jobs_count_one: '{count} esecuzione attiva',
+		presence_jobs_count_other: '{count} esecuzioni attive',
+		presence_jobs_meta: 'in corso',
+		presence_job_needs_input: 'Chiede risposta',
+		presence_unlisted: 'Ulteriori {count} esecuzioni attive in background nativo',
+		presence_jobs_empty: 'Processi di background o sessioni interattive attive nel motore nativo.',
+		presence_safe_notice: 'Se annulli l’uscita, nessun processo verrà terminato e tutte le attività proseguiranno normalmente.',
+		presence_keep_running: 'Continua a lavorare',
+		presence_interrupt_exit: 'Interrompi ed esci',
+		presence_targets_count: '{count} destinatari',
+		presence_targets_label: 'Destinatari: {targets}',
+		presence_active_execution: 'Esecuzione attiva',
+		presence_bg_task_titles: 'Generazione titoli task (AI)',
+		presence_bg_session_titles: 'Generazione titoli sessioni (AI)',
+		presence_bg_maintenance: 'Manutenzione AI in background',
+		presence_project_default: 'Progetto',
+		presence_interactive_active: 'Sessione agente attiva al lavoro',
+		presence_assistant_title: 'Assistente Creazione Automazioni',
+		presence_assistant_count: '{count} sessione/i in elaborazione',
+		presence_error_save_before_exit: 'Impossibile completare il salvataggio prima dell’uscita: {message}',
+
+		// Indicatore e popover (testi aggiuntivi)
+		popover_question_pending: 'Richiede risposta',
+		popover_titles_running: 'Titoli AI: {label}',
+		popover_titles_generating: 'Generazione in corso',
+		popover_titles_quota_paused: 'Titoli AI sospesi per riserva quota (soglia 30% raggiunta).',
+		popover_view_all: 'Vedi tutte le {count} automazioni…',
+
+		// Assistente (testi aggiuntivi)
+		assistant_error_prefix: 'Errore assistente:',
+		assistant_role_user: 'Tu',
+		assistant_role_assistant: 'Assistente AI',
+		assistant_scope_badge: 'Ambito: {path}',
+		assistant_proposal_aria: 'Proposta di automazione',
+		assistant_script_proposal_aria: 'Proposta file script',
+		assistant_prop_name: 'Nome:',
+		assistant_prop_description: 'Descrizione:',
+		assistant_prop_action: 'Azione:',
+		assistant_prop_when: 'Quando:',
+		assistant_prop_shell_command: 'comando shell',
+		assistant_diff_applied: 'Applicati: {keys}',
+		assistant_diff_none: 'nessuno',
+		assistant_diff_preserved: 'Preservati perché modificati manualmente: {keys}',
+		assistant_placeholder_no_scope: 'Seleziona prima l’ambito di lavoro sopra…',
+		assistant_error_scope_required: 'Ambito non configurato: seleziona un progetto o cartella di lavoro prima di avviare l’assistente AI (AUT-024/AUT-059).',
+		assistant_error_session_timeout: 'La sessione dell’assistente non è diventata pronta entro il tempo limite.',
+		assistant_error_empty_reply: 'L’assistente ha completato il turno senza produrre testo.',
+		assistant_error_no_project_path: 'Impossibile scrivere lo script: nessun percorso di progetto configurato nei destinatari.',
+		assistant_error_invalid_script_path: 'Percorso script non valido o fuori dall’ambito del progetto: {path}',
+		assistant_field_unset: '(non impostato)',
+
+		// Dettaglio regola (testi aggiuntivi)
+		detail_title_run_now: 'Avvia un’occorrenza manuale con gli stessi controlli e target',
+		detail_title_edit: 'Apri una bozza di modifica (la versione attiva resta invariata fino a conferma)',
+		detail_title_disable: 'Disattiva programmazioni future senza annullare esecuzioni in corso',
+		detail_title_enable: 'Riattiva la regola',
+		detail_title_archive: 'Archivia la regola (disattivata e conservata)',
+		detail_title_delete: 'Elimina definitivamente la regola',
+		detail_command_with_mode: 'Comando ({mode})',
+		detail_section_action: 'Azione da eseguire',
+		detail_field_prompt: 'Istruzioni Prompt:',
+		detail_field_model_role: 'Modello / Ruolo:',
+		detail_role_value: 'Ruolo "{model}"',
+		detail_field_payg: 'Consumo Pay-as-you-go:',
+		detail_payg_allowed: 'Consentito',
+		detail_payg_denied: 'Vietato (solo abbonamenti)',
+		detail_field_max_cost: 'Tetto costo:',
+		detail_field_command: 'Comando:',
+		detail_field_args: 'Argomenti:',
+		detail_field_interpreter: 'Interprete:',
+		detail_field_platforms: 'Piattaforme:',
+		detail_field_script_policy: 'Politica script:',
+		detail_section_targets: 'Destinatari e cartella di lavoro',
+		detail_field_source: 'Origine:',
+		detail_field_mode: 'Modalità esecuzione:',
+		detail_field_cwd: 'Cartella CWD:',
+		detail_cwd_project_root: 'Radice del progetto',
+		detail_field_included_projects: 'Progetti inclusi:',
+		detail_section_triggers: 'Programmazione ed eventi ({count})',
+		detail_trigger_time: 'Orario: {time}',
+		detail_trigger_days: 'Giorni: {days}',
+		detail_trigger_every: 'Ogni {duration}',
+		detail_field_timezone: 'Fuso orario configurato:',
+		detail_section_policy: 'Condizioni e limiti (Policy)',
+		detail_field_timeout: 'Timeout esecuzione:',
+		detail_field_max_wait: 'Attesa se occupato:',
+		detail_field_human_wait: 'Attesa risposta umana:',
+		detail_field_missed: 'Scadenze perse:',
+		detail_missed_notify: 'Segnala senza avviare',
+		detail_missed_recover: 'Recupera (max {minutes}m)',
+		detail_missed_ignore: 'Ignora',
+		detail_field_overlap: 'Sovrapposizioni:',
+		detail_overlap_coalesce: 'Raggruppa successiva (coalesce)',
+		detail_overlap_skip: 'Salta (skip)',
+		detail_field_quota: 'Riserva quote personali:',
+		detail_quota_value: '{short}% breve / {weekly}% sett.',
+		detail_secrets_intro: 'I riferimenti a segreti consentono ai comandi di accedere a chiavi private o token conservati nel portachiavi nativo del sistema operativo (Windows Credential Manager / macOS Keychain / Linux Secret Service). I valori non vengono mai inclusi nelle definizioni o negli export.',
+		detail_secrets_list_heading: 'Segreti referenziati da questa automazione',
+		detail_secret_remove_title: 'Rimuovi dal portachiavi di sistema',
+		detail_secrets_add_heading: 'Registra o aggiorna un segreto nel Vault di sistema',
+		detail_secret_key_placeholder: 'ID segreto (es. GITHUB_TOKEN)',
+		detail_secret_value_placeholder: 'Valore segreto',
+		detail_secret_save: 'Salva nel Vault',
+		detail_secret_saved: 'Segreto salvato nel portachiavi di sistema.',
+
+		// Storico
+		history_empty: 'Nessuna esecuzione registrata nello storico.',
+		history_col_status: 'Stato',
+		history_col_when: 'Data e ora',
+		history_col_reason: 'Motivo',
+		history_col_targets: 'Destinatari',
+		history_col_revision: 'Revisione',
+		history_col_actions: 'Azioni',
+
+		// Import / Export (testi aggiuntivi)
+		io_modal_subtitle: 'Condivisione sicura di definizioni senza esportazione di segreti o storico',
+		io_tab_export: 'Esporta',
+		io_tab_import: 'Importa',
+		io_select_definitions: 'Seleziona definizioni ({selected}/{total}):',
+		io_generated_json: 'JSON GENERATO',
+		io_copy: 'Copia',
+		io_download_file: 'Scarica file',
+		io_upload_json: 'Carica file JSON',
+		io_or_paste: 'oppure incolla il JSON qui sotto:',
+
+		// Occorrenze (testi aggiuntivi)
+		occ_retry_selective_title: 'Riesegue solo i destinatari falliti o saltati ({count})',
+		occ_revision_short: 'Rev. {rev}',
+		occ_output_loading: 'Caricamento…',
+
+		// Impostazioni (testi aggiuntivi)
+		settings_subtitle: 'Limiti operativi e impostazioni generali per l’esecuzione in background',
+		settings_concurrency_heading: 'Concorrenza massima globale',
+		settings_retention_heading: 'Conservazione e limiti di output',
+		settings_assistant_mode_label: 'Modalità selezione',
+		settings_assistant_mode_role: 'Ruolo (es. smol, default)',
+		settings_assistant_mode_model: 'Modello esplicito',
+
+		// Titoli AI (testi aggiuntivi)
+		titles_backfill_started: 'Avviata generazione per {count} sessioni.',
+		titles_quota_desc: 'La generazione dei titoli viene sospesa automaticamente per non consumare la quota necessaria al lavoro interattivo se il residuo scende sotto il 30% nella finestra breve (5h) o settimanale.',
+		titles_job_task_name: 'Titoli automatici dei task',
+		titles_job_session_name: 'Titoli delle nuove sessioni chat',
+		titles_job_paused: 'In pausa ({reason})',
+		titles_job_active: 'Attivo',
+		titles_job_task_desc: 'Generato dopo il salvataggio con 2s di quiete. I titoli modificati manualmente vengono preservati.',
+		titles_job_session_desc: 'Generato al termine del primo turno della sessione. Nessun recupero massivo automatico dello storico.',
+		titles_job_resume: 'Riprendi',
+		titles_job_pause: 'Pausa',
+		titles_job_run_now: 'Esegui subito',
+		titles_job_run_task_now: 'Esegui subito il controllo della coda task',
+
+		// Wizard (testi aggiuntivi)
+		wizard_diff_name: 'Nome',
+		wizard_diff_description: 'Descrizione',
+		wizard_diff_action_kind: 'Tipo azione',
+		wizard_diff_command: 'Comando',
+		wizard_diff_prompt: 'Prompt',
+		wizard_diff_targets_source: 'Origine destinatari',
+		wizard_diff_timeout: 'Timeout',
+		wizard_diff_empty: '(vuota)',
+		wizard_steps_aria: 'Passi editor',
+		wizard_command_mode_label: 'Modalità comando',
+		wizard_command_mode_shell: 'Shell script',
+		wizard_command_mode_executable: 'Eseguibile binario',
+		wizard_command_mode_script: 'File script dedicato',
+		wizard_env_variable: 'Variabile:',
+		wizard_secret_ref_secret: 'Segreto OS:',
+		wizard_preview_loading: 'Calcolo anteprima in corso…',
+		wizard_preview_no_next_runs: 'Nessuna programmata',
+
+		// Vista principale (testi aggiuntivi)
+		view_clear_project_filter: 'Rimuovi filtro progetto',
+		view_io_title: 'Importa o esporta definizioni JSON',
+		view_settings_title: 'Configura limiti operativi e modello assistente',
+		view_create_ai_title: 'Conversa con l’assistente dedicato per generare una bozza strutturata',
+		view_clear_search: 'Cancella ricerca',
+		view_needs_attention_title: 'Richiede attenzione o presa visione',
+		view_action_kind_prompt: 'Prompt AI',
+		view_targets_count: '{count} proj',
+		view_targets_all: 'Tutti',
+		view_titles_summary_title: 'Titoli automatici',
+		view_titles_summary_desc: 'I titoli per i task salvati e per le sessioni completate vengono generati in background senza bloccare l’interfaccia.',
+		view_empty_heading: 'Seleziona o crea un’automazione',
+		view_empty_desc: 'Automatizza comandi ripetitivi sui progetti o richiedi a un agente AI di eseguire task complessi a scadenze prefissate o su eventi Git e file.',
+		btn_retry: 'Riprova',
+
+		// Runtime AI (messaggi inviati al motore e mostrati nello storico)
+		runtime_cancelled_by_user: 'Annullato dall’utente',
+		runtime_waiting_clarification: 'In attesa di chiarimento dall’utente',
+		runtime_provider_error: 'Errore del provider',
+		runtime_cost_cap: 'Tetto di spesa massimo raggiunto: {message}',
+		runtime_process_exit: 'Processo terminato con codice {code}',
+		runtime_plan_prompt: 'Esegui il controllo pianificato per questa automazione.',
+		runtime_answer_language: 'Rispondi sempre nella lingua dell’interfaccia attiva: italiano.',
+
+		// Risoluzione modelli / tariffazione a consumo
+		payg_reason_oauth_flat: 'Account OAuth flat non configurato o non valido per {provider}.',
+		payg_reason_anthropic_mixed: 'Il provider Anthropic dispone di chiave API o percorso ambiguo non vincolato a solo OAuth flat.',
+		payg_reason_not_flat: 'Il provider o modello {model} non è un abbonamento flat documentato ed è soggetto a tariffazione a consumo.',
+		payg_model_not_allowed: 'Modello {model} non autorizzato per questa automazione (AUT-026/ACC-15): {reason}',
+		payg_default_reason: 'Soggetto a tariffazione Pay-As-You-Go. Abilitare "Consenti Pay-As-You-Go" per consentire l’esecuzione.',
+
+		// Store, host e notifiche
+		store_error_desktop_required: 'Le automazioni richiedono l’app desktop di Studio.',
+		store_error_draft_unavailable: 'La bozza richiesta non è disponibile.',
+		host_notification_title: 'Automazione {name}'
 	},
 	en: {
 		// Views & sections
@@ -819,7 +1063,236 @@ const DICTIONARY = {
 		occ_unknown_verify_confirm_msg: 'Do you confirm you manually checked the external effects of this run? The attention alert will be dismissed. The rule will remain in its current state until you explicitly re-enable it.',
 		occ_unknown_retry_btn: 'Retry unverified targets only',
 		occ_unknown_retry_confirm_title: 'Retry unverified run',
-		occ_unknown_retry_confirm_msg: 'Do you want to retry the execution only for unverified targets ({count})?'
+		occ_unknown_retry_confirm_msg: 'Do you want to retry the execution only for unverified targets ({count})?',
+
+		// Shared default names
+		automation_untitled: 'Untitled automation',
+		automation_default_name: 'Automation',
+
+		// Desktop presence (close and exit dialogs)
+		presence_close_title: 'What should happen when closing Studio?',
+		presence_close_desc_mac: 'You can keep automations and tasks running in the menu bar, or exit the application completely.',
+		presence_close_desc_tray: 'You can keep automations and tasks running in the system tray, or exit the application completely.',
+		presence_close_legend: 'Close options',
+		presence_hide_title_mac: 'Keep running in menu bar',
+		presence_hide_title_tray: 'Keep running in system tray',
+		presence_hide_desc_mac: 'Studio stays active in the menu bar. Scheduled automations, Git/file watchers, and background tasks continue normally.',
+		presence_hide_desc_tray: 'Studio stays active in the system tray. Scheduled automations, Git/file watchers, and background tasks continue normally.',
+		presence_unavailable_mac: 'Menu bar is not available on this platform or environment.',
+		presence_unavailable_tray: 'System tray is not available on this platform or environment.',
+		presence_quit_title: 'Exit application',
+		presence_quit_desc: 'Closes all windows, halts ongoing executions, and frees system resources.',
+		presence_remember: 'Remember my choice (can be changed in Settings)',
+		presence_confirm_btn: 'Confirm',
+		presence_exit_title: 'Active jobs running: confirm exit?',
+		presence_exit_desc: 'There are active processes that will be interrupted if you exit now.',
+		presence_jobs_count_one: '{count} active execution',
+		presence_jobs_count_other: '{count} active executions',
+		presence_jobs_meta: 'in progress',
+		presence_job_needs_input: 'Needs input',
+		presence_unlisted: 'Additional {count} active executions in native background',
+		presence_jobs_empty: 'Background processes or active interactive sessions in native engine.',
+		presence_safe_notice: 'If you cancel, no processes will be terminated and all activities will continue normally.',
+		presence_keep_running: 'Keep running',
+		presence_interrupt_exit: 'Interrupt and exit',
+		presence_targets_count: '{count} targets',
+		presence_targets_label: 'Targets: {targets}',
+		presence_active_execution: 'Active execution',
+		presence_bg_task_titles: 'AI Task Title Generation',
+		presence_bg_session_titles: 'AI Session Title Generation',
+		presence_bg_maintenance: 'AI background maintenance',
+		presence_project_default: 'Project',
+		presence_interactive_active: 'Active agent session working',
+		presence_assistant_title: 'Automation Creator Assistant',
+		presence_assistant_count: '{count} active session(s)',
+		presence_error_save_before_exit: 'Could not finish saving before exit: {message}',
+
+		// Indicator and popover (additional strings)
+		popover_question_pending: 'Needs an answer',
+		popover_titles_running: 'AI titles: {label}',
+		popover_titles_generating: 'Generating',
+		popover_titles_quota_paused: 'AI titles paused to preserve quota reserve (30% threshold reached).',
+		popover_view_all: 'See all {count} automations…',
+
+		// Assistant (additional strings)
+		assistant_error_prefix: 'Assistant error:',
+		assistant_role_user: 'You',
+		assistant_role_assistant: 'AI Assistant',
+		assistant_scope_badge: 'Scope: {path}',
+		assistant_proposal_aria: 'Automation proposal',
+		assistant_script_proposal_aria: 'Script file proposal',
+		assistant_prop_name: 'Name:',
+		assistant_prop_description: 'Description:',
+		assistant_prop_action: 'Action:',
+		assistant_prop_when: 'When:',
+		assistant_prop_shell_command: 'shell command',
+		assistant_diff_applied: 'Applied: {keys}',
+		assistant_diff_none: 'none',
+		assistant_diff_preserved: 'Preserved because edited manually: {keys}',
+		assistant_placeholder_no_scope: 'Select a working scope above first…',
+		assistant_error_scope_required: 'Scope not configured: select a project or working folder before starting the AI assistant (AUT-024/AUT-059).',
+		assistant_error_session_timeout: 'The assistant session did not become ready within the time limit.',
+		assistant_error_empty_reply: 'The assistant finished the turn without producing any text.',
+		assistant_error_no_project_path: 'Cannot write the script: no project path configured in the targets.',
+		assistant_error_invalid_script_path: 'Invalid script path or outside the project scope: {path}',
+		assistant_field_unset: '(not set)',
+
+		// Rule detail (additional strings)
+		detail_title_run_now: 'Start a manual occurrence with the same checks and targets',
+		detail_title_edit: 'Open an edit draft (the active version stays unchanged until confirmed)',
+		detail_title_disable: 'Disable future schedules without cancelling running executions',
+		detail_title_enable: 'Re-enable the rule',
+		detail_title_archive: 'Archive the rule (disabled and kept)',
+		detail_title_delete: 'Delete the rule permanently',
+		detail_command_with_mode: 'Command ({mode})',
+		detail_section_action: 'Action to perform',
+		detail_field_prompt: 'Prompt instructions:',
+		detail_field_model_role: 'Model / Role:',
+		detail_role_value: 'Role "{model}"',
+		detail_field_payg: 'Pay-as-you-go usage:',
+		detail_payg_allowed: 'Allowed',
+		detail_payg_denied: 'Forbidden (subscriptions only)',
+		detail_field_max_cost: 'Cost cap:',
+		detail_field_command: 'Command:',
+		detail_field_args: 'Arguments:',
+		detail_field_interpreter: 'Interpreter:',
+		detail_field_platforms: 'Platforms:',
+		detail_field_script_policy: 'Script policy:',
+		detail_section_targets: 'Targets and working folder',
+		detail_field_source: 'Source:',
+		detail_field_mode: 'Execution mode:',
+		detail_field_cwd: 'CWD folder:',
+		detail_cwd_project_root: 'Project root',
+		detail_field_included_projects: 'Included projects:',
+		detail_section_triggers: 'Schedule and events ({count})',
+		detail_trigger_time: 'Time: {time}',
+		detail_trigger_days: 'Days: {days}',
+		detail_trigger_every: 'Every {duration}',
+		detail_field_timezone: 'Configured time zone:',
+		detail_section_policy: 'Conditions and limits (Policy)',
+		detail_field_timeout: 'Execution timeout:',
+		detail_field_max_wait: 'Wait when busy:',
+		detail_field_human_wait: 'Human answer wait:',
+		detail_field_missed: 'Missed schedules:',
+		detail_missed_notify: 'Report without starting',
+		detail_missed_recover: 'Recover (max {minutes}m)',
+		detail_missed_ignore: 'Ignore',
+		detail_field_overlap: 'Overlaps:',
+		detail_overlap_coalesce: 'Group into next run (coalesce)',
+		detail_overlap_skip: 'Skip',
+		detail_field_quota: 'Personal quota reserve:',
+		detail_quota_value: '{short}% short / {weekly}% weekly',
+		detail_secrets_intro: 'Secret references let commands use private keys or tokens stored in the operating system keychain (Windows Credential Manager / macOS Keychain / Linux Secret Service). Values are never included in definitions or exports.',
+		detail_secrets_list_heading: 'Secrets referenced by this automation',
+		detail_secret_remove_title: 'Remove from the system keychain',
+		detail_secrets_add_heading: 'Store or update a secret in the system Vault',
+		detail_secret_key_placeholder: 'Secret ID (e.g. GITHUB_TOKEN)',
+		detail_secret_value_placeholder: 'Secret value',
+		detail_secret_save: 'Save to Vault',
+		detail_secret_saved: 'Secret saved in the system keychain.',
+
+		// History
+		history_empty: 'No executions recorded in the history.',
+		history_col_status: 'Status',
+		history_col_when: 'Date and time',
+		history_col_reason: 'Reason',
+		history_col_targets: 'Targets',
+		history_col_revision: 'Revision',
+		history_col_actions: 'Actions',
+
+		// Import / Export (additional strings)
+		io_modal_subtitle: 'Secure sharing of definitions without exporting secrets or history',
+		io_tab_export: 'Export',
+		io_tab_import: 'Import',
+		io_select_definitions: 'Select definitions ({selected}/{total}):',
+		io_generated_json: 'GENERATED JSON',
+		io_copy: 'Copy',
+		io_download_file: 'Download file',
+		io_upload_json: 'Upload JSON file',
+		io_or_paste: 'or paste the JSON below:',
+
+		// Occurrences (additional strings)
+		occ_retry_selective_title: 'Retries only failed or skipped targets ({count})',
+		occ_revision_short: 'Rev. {rev}',
+		occ_output_loading: 'Loading…',
+
+		// Settings (additional strings)
+		settings_subtitle: 'Operating limits and general settings for background execution',
+		settings_concurrency_heading: 'Global maximum concurrency',
+		settings_retention_heading: 'Retention and output limits',
+		settings_assistant_mode_label: 'Selection mode',
+		settings_assistant_mode_role: 'Role (e.g. smol, default)',
+		settings_assistant_mode_model: 'Explicit model',
+
+		// AI titles (additional strings)
+		titles_backfill_started: 'Generation started for {count} sessions.',
+		titles_quota_desc: 'Title generation is paused automatically so it never consumes the quota interactive work needs when the remainder drops below 30% in the short (5h) or weekly window.',
+		titles_job_task_name: 'Automatic task titles',
+		titles_job_session_name: 'New chat session titles',
+		titles_job_paused: 'Paused ({reason})',
+		titles_job_active: 'Active',
+		titles_job_task_desc: 'Generated 2s after saving settles. Manually edited titles are preserved.',
+		titles_job_session_desc: 'Generated at the end of the session’s first turn. No automatic bulk backfill of the history.',
+		titles_job_resume: 'Resume',
+		titles_job_pause: 'Pause',
+		titles_job_run_now: 'Run now',
+		titles_job_run_task_now: 'Run the task queue check now',
+
+		// Wizard (additional strings)
+		wizard_diff_name: 'Name',
+		wizard_diff_description: 'Description',
+		wizard_diff_action_kind: 'Action type',
+		wizard_diff_command: 'Command',
+		wizard_diff_prompt: 'Prompt',
+		wizard_diff_targets_source: 'Targets source',
+		wizard_diff_timeout: 'Timeout',
+		wizard_diff_empty: '(empty)',
+		wizard_steps_aria: 'Editor steps',
+		wizard_command_mode_label: 'Command mode',
+		wizard_command_mode_shell: 'Shell script',
+		wizard_command_mode_executable: 'Binary executable',
+		wizard_command_mode_script: 'Dedicated script file',
+		wizard_env_variable: 'Variable:',
+		wizard_secret_ref_secret: 'OS secret:',
+		wizard_preview_loading: 'Calculating preview…',
+		wizard_preview_no_next_runs: 'None scheduled',
+
+		// Main view (additional strings)
+		view_clear_project_filter: 'Remove project filter',
+		view_io_title: 'Import or export JSON definitions',
+		view_settings_title: 'Configure operating limits and assistant model',
+		view_create_ai_title: 'Talk to the dedicated assistant to generate a structured draft',
+		view_clear_search: 'Clear search',
+		view_needs_attention_title: 'Needs attention or acknowledgement',
+		view_action_kind_prompt: 'AI prompt',
+		view_targets_count: '{count} proj',
+		view_targets_all: 'All',
+		view_titles_summary_title: 'Automatic titles',
+		view_titles_summary_desc: 'Titles for saved tasks and completed sessions are generated in the background without blocking the interface.',
+		view_empty_heading: 'Select or create an automation',
+		view_empty_desc: 'Automate repetitive commands across projects, or ask an AI agent to run complex tasks on a schedule or on Git and file events.',
+		btn_retry: 'Retry',
+
+		// AI runtime (messages sent to the engine and shown in the history)
+		runtime_cancelled_by_user: 'Cancelled by the user',
+		runtime_waiting_clarification: 'Waiting for the user to clarify',
+		runtime_provider_error: 'Provider error',
+		runtime_cost_cap: 'Maximum cost cap reached: {message}',
+		runtime_process_exit: 'Process terminated with code {code}',
+		runtime_plan_prompt: 'Run the scheduled check for this automation.',
+		runtime_answer_language: 'Always answer in the currently active interface language: English.',
+
+		// Model resolution / pay-as-you-go billing
+		payg_reason_oauth_flat: 'Flat OAuth account not configured or not valid for {provider}.',
+		payg_reason_anthropic_mixed: 'The Anthropic provider has an API key or an ambiguous path that is not restricted to flat OAuth only.',
+		payg_reason_not_flat: 'The provider or model {model} is not a documented flat subscription and is billed pay-as-you-go.',
+		payg_model_not_allowed: 'Model {model} is not allowed for this automation (AUT-026/ACC-15): {reason}',
+		payg_default_reason: 'Subject to Pay-As-You-Go billing. Enable "Allow Pay-As-You-Go" to let it run.',
+
+		// Store, host and notifications
+		store_error_desktop_required: 'Automations require the Studio desktop app.',
+		store_error_draft_unavailable: 'The requested draft is unavailable.',
+		host_notification_title: 'Automation {name}'
 	}
 };
 
@@ -837,15 +1310,16 @@ export function t(key: AutomationI18nKey, params?: Record<string, string | numbe
 	return val;
 }
 
-export function formatDateTime(ms: number, locale = getLocale()): string {
+export function formatDateTime(ms: number, locale?: string): string {
 	if (!ms) return '—';
+	const format = locale || formatLocale();
 	try {
-		return new Intl.DateTimeFormat(locale === 'it' ? 'it-IT' : 'en-US', {
+		return new Intl.DateTimeFormat(format, {
 			dateStyle: 'medium',
 			timeStyle: 'short'
 		}).format(new Date(ms));
 	} catch {
-		return new Date(ms).toLocaleString();
+		return new Date(ms).toLocaleString(format);
 	}
 }
 

@@ -69,7 +69,7 @@ export function mapArtifactError(err: unknown): string {
  * Avvolge il codice del prototipo con wrapPrototypeCode e lo pubblica su /v1/preview.
  * Restituisce l'URL relativo isolato (/p/<id>/) da montare nell'iframe sandbox="allow-scripts".
  */
-export async function publishPrototype(code: string, title = 'Prototype'): Promise<string> {
+export async function publishPrototype(code: string, title = t('previewPrototypeTitle')): Promise<string> {
 	const wrapped = wrapPrototypeCode(title, code);
 	const bytes = new TextEncoder().encode(wrapped).length;
 	if (bytes > PREVIEW_MAX_HTML_BYTES) {

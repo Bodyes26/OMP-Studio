@@ -321,7 +321,7 @@
 								<Tooltip text={m.models_picker_vision_cap()}>
 									<span class="ui-cap">
 										<IconRoleVision />
-										<span>Vision</span>
+										<span>{m.catalog_tab_filter_vision()}</span>
 									</span>
 								</Tooltip>
 							{/if}
@@ -329,7 +329,7 @@
 								<Tooltip text={reasoningTitle(mDto)}>
 									<span class="ui-cap">
 										<IconRoleSlow />
-										<span>Reasoning</span>{#if mDto.thinking?.efforts?.length}<small> · {mDto.thinking.efforts.join(', ')}</small>{/if}
+										<span>{m.providers_tab_reasoning()}</span>{#if mDto.thinking?.efforts?.length}<small> · {mDto.thinking.efforts.join(', ')}</small>{/if}
 									</span>
 								</Tooltip>
 							{/if}
@@ -347,7 +347,7 @@
 									class="ui-button ui-button-primary select-model-btn"
 									onclick={() => modelSettingsStore.selectModel(mDto.selector)}
 								>
-									<span>{m.ui_catalogtab_seleziona_modello?.() ?? 'Usa modello'}</span>
+									<span>{m.ui_catalogtab_seleziona_modello()}</span>
 								</button>
 							{:else}
 							<MenuButton

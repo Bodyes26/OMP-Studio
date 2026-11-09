@@ -310,7 +310,12 @@ impl SessionIndex {
              CREATE INDEX IF NOT EXISTS idx_sessions_norm_project ON sessions(normalized_project_path);
              CREATE INDEX IF NOT EXISTS idx_sessions_created ON sessions(created_at DESC);
              CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_path ON sessions(path) WHERE path IS NOT NULL AND path != '';"
-        ).map_err(|e| format!("Inizializzazione schema indice sessioni fallita: {e}"))?;
+        ).map_err(|e| {
+            crate::tr!(
+                format!("Inizializzazione schema indice sessioni fallita: {e}"),
+                format!("Session index schema initialization failed: {e}")
+            )
+        })?;
         Ok(())
     }
 
@@ -318,10 +323,20 @@ impl SessionIndex {
     pub fn open(db_path: &Path) -> Result<Self, String> {
         if let Some(parent) = db_path.parent() {
             fs::create_dir_all(parent)
-                .map_err(|e| format!("Creazione cartella {}: {e}", parent.display()))?;
+                .map_err(|e| {
+            crate::tr!(
+                format!("Creazione cartella {}: {e}", parent.display()),
+                format!("Creating folder {}: {e}", parent.display())
+            )
+        })?;
         }
         let conn = Connection::open(db_path)
-            .map_err(|e| format!("Apertura SQLite {}: {e}", db_path.display()))?;
+            .map_err(|e| {
+            crate::tr!(
+                format!("Apertura SQLite {}: {e}", db_path.display()),
+                format!("Opening SQLite {}: {e}", db_path.display())
+            )
+        })?;
         Self::init_connection(&conn)?;
         Ok(Self {
             conn: Mutex::new(conn),
@@ -331,7 +346,12 @@ impl SessionIndex {
     /// Crea un indice in-memory (utile per i test unitari veloci e isolati).
     pub fn open_in_memory() -> Result<Self, String> {
         let conn = Connection::open_in_memory()
-            .map_err(|e| format!("Apertura SQLite in-memory: {e}"))?;
+            .map_err(|e| {
+            crate::tr!(
+                format!("Apertura SQLite in-memory: {e}"),
+                format!("Opening in-memory SQLite: {e}")
+            )
+        })?;
         Self::init_connection(&conn)?;
         Ok(Self {
             conn: Mutex::new(conn),
@@ -344,9 +364,19 @@ impl SessionIndex {
             return Ok(0);
         }
         let bytes = fs::read(json_path)
-            .map_err(|e| format!("Lettura {}: {e}", json_path.display()))?;
+            .map_err(|e| {
+            crate::tr!(
+                format!("Lettura {}: {e}", json_path.display()),
+                format!("Reading {}: {e}", json_path.display())
+            )
+        })?;
         let titles: HashMap<String, String> = serde_json::from_slice(&bytes)
-            .map_err(|e| format!("Parsing {}: {e}", json_path.display()))?;
+            .map_err(|e| {
+            crate::tr!(
+                format!("Parsing {}: {e}", json_path.display()),
+                format!("Parsing {}: {e}", json_path.display())
+            )
+        })?;
 
         let mut count = 0;
         {
@@ -390,7 +420,12 @@ impl SessionIndex {
              VALUES (?1, '', '', '', 0, 0, ?2, 0)
              ON CONFLICT(session_id) DO UPDATE SET studio_title = excluded.studio_title;",
             params![session_id, title],
-        ).map_err(|e| format!("Salvataggio titolo sessione su SQLite fallito: {e}"))?;
+        ).map_err(|e| {
+            crate::tr!(
+                format!("Salvataggio titolo sessione su SQLite fallito: {e}"),
+                format!("Saving the session title to SQLite failed: {e}")
+            )
+        })?;
         Ok(())
     }
 
@@ -419,7 +454,12 @@ impl SessionIndex {
             return Ok(0);
         }
         let conn_omp = Connection::open_with_flags(history_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-            .map_err(|e| format!("Apertura {}: {e}", history_path.display()))?;
+            .map_err(|e| {
+            crate::tr!(
+                format!("Apertura {}: {e}", history_path.display()),
+                format!("Opening {}: {e}", history_path.display())
+            )
+        })?;
 
         let mut stmt = match conn_omp.prepare("SELECT session_id, title FROM session_titles") {
             Ok(s) => s,
@@ -615,7 +655,13 @@ impl SessionIndex {
 
     /// Refresh incrementale usando la directory standard delle sessioni di OMP.
     pub fn refresh(&self) -> Result<SessionIndexStats, String> {
-        let agent = crate::omp_ops::agent_dir().ok_or("Directory agent non trovata")?;
+        let agent = crate::omp_ops::agent_dir().ok_or_else(|| {
+        crate::tr!(
+            "Directory agent non trovata",
+            "Agent directory not found"
+        )
+        .to_string()
+    })?;
         let sessions_dir = agent.join("sessions");
         let history_db = agent.join("history.db");
         self.refresh_in_dir(&sessions_dir, Some(&history_db))
@@ -876,7 +922,12 @@ pub fn get_session_index(app: &AppHandle) -> Result<Arc<SessionIndex>, String> {
     let db_path = app
         .path()
         .app_data_dir()
-        .map_err(|e| format!("Percorso app_data_dir non disponibile: {e}"))?
+        .map_err(|e| {
+            crate::tr!(
+                format!("Percorso app_data_dir non disponibile: {e}"),
+                format!("app_data_dir path not available: {e}")
+            )
+        })?
         .join("studio-sessions.db");
 
     let index = Arc::new(SessionIndex::open(&db_path)?);
@@ -897,7 +948,12 @@ pub async fn session_index_refresh(app: AppHandle) -> Result<SessionIndexStats, 
     let index = get_session_index(&app)?;
     tokio::task::spawn_blocking(move || index.refresh())
         .await
-        .map_err(|e| format!("Task session_index_refresh fallito: {e}"))?
+        .map_err(|e| {
+            crate::tr!(
+                format!("Task session_index_refresh fallito: {e}"),
+                format!("session_index_refresh task failed: {e}")
+            )
+        })?
 }
 
 /// Comando IPC: restituisce le sessioni che necessitano di un titolo generato dall'AI.
@@ -909,7 +965,12 @@ pub async fn session_index_untitled(
     let index = get_session_index(&app)?;
     tokio::task::spawn_blocking(move || index.untitled(limit))
         .await
-        .map_err(|e| format!("Task session_index_untitled fallito: {e}"))?
+        .map_err(|e| {
+            crate::tr!(
+                format!("Task session_index_untitled fallito: {e}"),
+                format!("session_index_untitled task failed: {e}")
+            )
+        })?
 }
 
 /// Comando IPC: memorizza nell'indice SQLite il titolo generato da Studio per una sessione.
@@ -921,12 +982,21 @@ pub async fn session_title_save(
 ) -> Result<(), String> {
     let title: String = title.trim().chars().take(80).collect();
     if session_id.trim().is_empty() || title.is_empty() {
-        return Err("Sessione o titolo mancanti".to_string());
+        return Err(crate::tr!(
+            "Sessione o titolo mancanti",
+            "Session or title missing"
+        )
+        .to_string());
     }
     let index = get_session_index(&app)?;
     tokio::task::spawn_blocking(move || index.save_title(&session_id, &title))
         .await
-        .map_err(|e| format!("Task session_title_save fallito: {e}"))?
+        .map_err(|e| {
+            crate::tr!(
+                format!("Task session_title_save fallito: {e}"),
+                format!("session_title_save task failed: {e}")
+            )
+        })?
 }
 
 #[cfg(test)]

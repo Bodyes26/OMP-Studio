@@ -22,6 +22,7 @@ import {
 	type RemoteChatEvent
 } from '../../src/protocol.ts';
 import { calculateBackoffDelay, OFFLINE_BANNER_THRESHOLD } from './backoff.ts';
+import { t, getLanguage } from './i18n.ts';
 
 export type AppConnectionStatus = 'checking' | 'unpaired' | 'connecting' | 'connected' | 'disconnected';
 
@@ -113,7 +114,7 @@ class RemoteConnectionManager {
 			return {
 				ok: false,
 				status: res.status,
-				error: errJson?.error?.message || `Errore HTTP ${res.status}`
+				error: errJson?.error?.message || t('errHttpStatus', { status: res.status })
 			};
 		} catch (e) {
 			return { ok: false, error: (e as Error).message };
@@ -185,7 +186,7 @@ class RemoteConnectionManager {
 						location.reload();
 						return;
 					}
-					this.lastError = 'Versione protocollo non compatibile. Ricarica la pagina.';
+					this.lastError = t('errProtocolIncompatible');
 					this.status = 'disconnected';
 					return;
 				}
@@ -253,7 +254,7 @@ class RemoteConnectionManager {
 					if (frame.ok) {
 						pending.resolve(frame.data);
 					} else {
-						pending.reject(frame.error || { code: 'failed', message: 'Comando fallito' });
+						pending.reject(frame.error || { code: 'failed', message: t('errCommandFailed') });
 					}
 				}
 				break;
@@ -330,7 +331,7 @@ class RemoteConnectionManager {
 	}
 
 	private rejectPendingCommandsOnDisconnect(): void {
-		const err: CommandError = { code: 'host_offline', message: 'Connessione relay interrotta' };
+		const err: CommandError = { code: 'host_offline', message: t('errRelayConnectionLost') };
 		for (const [id, pending] of this.pendingMap.entries()) {
 			pending.reject(err);
 			this.pendingMap.delete(id);
@@ -344,7 +345,7 @@ class RemoteConnectionManager {
 	 */
 	async sendCommand(hostId: string, command: RemoteCommand): Promise<unknown> {
 		if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-			throw { code: 'host_offline', message: 'Relay non connesso' } as CommandError;
+			throw { code: 'host_offline', message: t('errRelayNotConnected') } as CommandError;
 		}
 
 		const commandId = crypto.randomUUID();
@@ -353,7 +354,7 @@ class RemoteConnectionManager {
 			const timeoutTimer = setTimeout(() => {
 				this.pendingMap.delete(commandId);
 				delete this.pendingCommands[commandId];
-				reject({ code: 'timeout', message: 'Nessuna risposta entro 30s' } as CommandError);
+				reject({ code: 'timeout', message: t('errNoResponse') } as CommandError);
 			}, COMMAND_TIMEOUT_MS);
 
 			this.pendingMap.set(commandId, {
@@ -386,19 +387,19 @@ class RemoteConnectionManager {
 
 	async fetchDevices(): Promise<DeviceListItem[]> {
 		const res = await fetch(API.devices);
-		if (!res.ok) throw new Error(`HTTP ${res.status}`);
+		if (!res.ok) throw new Error(t('errHttpStatus', { status: res.status }));
 		const data = (await res.json()) as { devices: DeviceListItem[] };
 		return data.devices;
 	}
 
 	async revokeDevice(deviceId: string): Promise<void> {
 		const res = await fetch(`${API.devices}/${deviceId}`, { method: 'DELETE' });
-		if (!res.ok) throw new Error(`HTTP ${res.status}`);
+		if (!res.ok) throw new Error(t('errHttpStatus', { status: res.status }));
 	}
 
 	async revokeHost(hostId: string): Promise<void> {
 		const res = await fetch(`${API.hosts}/${hostId}`, { method: 'DELETE' });
-		if (!res.ok) throw new Error(`HTTP ${res.status}`);
+		if (!res.ok) throw new Error(t('errHttpStatus', { status: res.status }));
 	}
 
 	async createPairingCode(kind: PairingKind): Promise<CreateCodeResponse> {
@@ -407,7 +408,7 @@ class RemoteConnectionManager {
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ kind })
 		});
-		if (!res.ok) throw new Error(`HTTP ${res.status}`);
+		if (!res.ok) throw new Error(t('errHttpStatus', { status: res.status }));
 		return (await res.json()) as CreateCodeResponse;
 	}
 
@@ -422,7 +423,7 @@ class RemoteConnectionManager {
 
 	async fetchVapidPublicKey(): Promise<string> {
 		const res = await fetch(API.pushVapidPublicKey);
-		if (!res.ok) throw new Error(`HTTP ${res.status}`);
+		if (!res.ok) throw new Error(t('errHttpStatus', { status: res.status }));
 		const data = (await res.json()) as { publicKey: string };
 		return data.publicKey;
 	}
@@ -431,7 +432,7 @@ class RemoteConnectionManager {
 		const rawKey = subscription.getKey('p256dh');
 		const rawAuth = subscription.getKey('auth');
 		if (!rawKey || !rawAuth) {
-			throw new Error('Sottoscrizione priva di chiavi crittografiche');
+			throw new Error(t('errPushMissingKeys'));
 		}
 
 		const p256dh = btoa(String.fromCharCode(...new Uint8Array(rawKey)))
@@ -451,10 +452,12 @@ class RemoteConnectionManager {
 					endpoint: subscription.endpoint,
 					keys: { p256dh, auth }
 				},
-				userAgent
+				userAgent,
+				// Il relay sceglie la lingua di titolo e corpo delle notifiche da qui.
+				language: getLanguage()
 			})
 		});
-		if (!res.ok) throw new Error(`HTTP ${res.status}`);
+		if (!res.ok) throw new Error(t('errHttpStatus', { status: res.status }));
 		const data = (await res.json()) as { ok: boolean; subscriptionId: string };
 		return data.subscriptionId;
 	}
@@ -465,7 +468,7 @@ class RemoteConnectionManager {
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ endpoint })
 		});
-		if (!res.ok) throw new Error(`HTTP ${res.status}`);
+		if (!res.ok) throw new Error(t('errHttpStatus', { status: res.status }));
 	}
 
 	subscribeChat(

@@ -80,7 +80,7 @@
 	{/snippet}
 	{#if progress.recentTools && progress.recentTools.length > 0}
 		<div class="agent-recent-tools">
-			<span class="tools-heading">Tool:</span>
+			<span class="tools-heading">{m.l10n_tools_label_tool()}:</span>
 			<div class="tools-tags">
 				{#each progress.recentTools as t}
 					<span class="tool-tag">{t.tool}</span>

@@ -5,6 +5,7 @@
 // JSON del comando `prompt` stia comodamente nel frame senza eccedere la soglia.
 // `data` deve essere base64 nudo, senza prefisso data:URL.
 
+import { m as msg } from '#lib/paraglide/messages.js';
 import type { ImageContent } from './wire';
 
 const MAX_DIMENSION = 1568;
@@ -93,10 +94,10 @@ function readFileAsDataUrl(file: File | Blob): Promise<string> {
 		if (typeof reader.result === 'string') {
 			resolve(reader.result);
 		} else {
-			reject(new Error('Formato di lettura non valido'));
+			reject(new Error(msg.l10n_agent_image_read_format_invalid()));
 		}
 	};
-	reader.onerror = () => reject(new Error('Impossibile leggere il file dell’immagine'));
+	reader.onerror = () => reject(new Error(msg.l10n_agent_image_read_failed()));
 	reader.readAsDataURL(file);
 	return promise;
 }
@@ -163,7 +164,7 @@ export async function prepareImage(
 		let height = source.height;
 
 		if (!width || !height) {
-			return { error: 'Dimensioni dell’immagine non valide' };
+			return { error: msg.l10n_agent_image_dimensions_invalid() };
 		}
 
 		// Ridimensionamento iniziale su canvas: lato lungo <= 1568px
@@ -177,7 +178,7 @@ export async function prepareImage(
 		const canvas = document.createElement('canvas');
 		const ctx = canvas.getContext('2d');
 		if (!ctx) {
-			return { error: 'Contesto canvas 2D non disponibile' };
+			return { error: msg.l10n_agent_image_canvas_unavailable() };
 		}
 
 		for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
@@ -213,9 +214,9 @@ export async function prepareImage(
 			height = Math.max(1, Math.floor(height / 2));
 		}
 
-		return { error: 'Immagine troppo grande per il canale RPC' };
+		return { error: msg.l10n_agent_image_too_large_for_rpc() };
 	} catch (err) {
-		const message = err instanceof Error ? err.message : 'Errore sconosciuto durante la preparazione dell’immagine';
+		const message = err instanceof Error ? err.message : msg.l10n_agent_image_prepare_failed_unknown();
 		return { error: message };
 	} finally {
 		source?.dispose();

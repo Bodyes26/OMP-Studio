@@ -18,6 +18,7 @@ import type { AgentSession } from '#lib/agent/session.svelte.ts';
 import { createAutomationAgent } from './runtime.svelte.ts';
 import { resolveActionModel } from './runtimeHelpers.ts';
 import { automationsStore } from './store.svelte.ts';
+import { t, getLocale } from './i18n.ts';
 
 export interface ScriptProposal {
 	path: string;
@@ -139,7 +140,7 @@ export class AutomationAssistantController {
 		}
 
 		if (!this.isScopeConfigured) {
-			throw new Error('Ambito non configurato: seleziona un progetto o cartella di lavoro prima di avviare l’assistente AI (AUT-024/AUT-059).');
+			throw new Error(t('assistant_error_scope_required'));
 		}
 
 		// Risoluzione reale del modello assistente (AUT-026/AUT-060)
@@ -174,7 +175,7 @@ export class AutomationAssistantController {
 
 		const isReady = await agent.waitUntilReady(10000);
 		if (!isReady) {
-			throw new Error('La sessione dell’assistente non è diventata pronta entro il tempo limite.');
+			throw new Error(t('assistant_error_session_timeout'));
 		}
 
 		return this.session;
@@ -222,7 +223,7 @@ export class AutomationAssistantController {
 
 			const assistantReplyText = agent.lastAssistantText;
 			if (!assistantReplyText) {
-				throw new Error('L’assistente ha completato il turno senza produrre testo.');
+				throw new Error(t('assistant_error_empty_reply'));
 			}
 
 			// Analizza la risposta per estrarre eventuali blocchi proposta
@@ -284,15 +285,18 @@ export class AutomationAssistantController {
 	private buildContextualPrompt(userText: string): string {
 		const def = this.draft.definition;
 		const contextSummary = {
-			currentName: def.name || '(non impostato)',
+			currentName: def.name || t('assistant_field_unset'),
 			currentTargets: def.targets.source,
 			projectPaths: def.targets.projectPaths,
 			currentActionKind: def.action.kind,
 			manualFields: Array.from(this.manualFields)
 		};
 
+		// Le risposte dell'assistente sono mostrate all'utente nella conversazione:
+		// il prompt chiede esplicitamente la lingua attiva dell'interfaccia.
 		return `Sei l'assistente dedicato di OMP Studio per la creazione e revisione delle automazioni ricorrenti (AUT-059..AUT-062).
 Operi in SOLA LETTURA su questo progetto. Non eseguire comandi o scritture.
+Rispondi sempre nella lingua dell'interfaccia attiva: ${getLocale() === 'it' ? 'italiano' : 'English'}.
 Se mancano dettagli per configurare l'automazione, fai solo le domande pertinenti (es. giorni, orario, fuso, comandi o filtri).
 Se hai elementi sufficienti o vuoi proporre una configurazione strutturata, inserisci un blocco JSON delimitato da \`\`\`automation-proposal
 con i campi di AutomationDefinition aggiornati (name, description, action, targets, triggers, policy).
@@ -542,7 +546,7 @@ ${userText}`;
 			this.draft.definition.targets.projectPaths[0]?.trim();
 
 		if (!projectPath) {
-			const err = 'Impossibile scrivere lo script: nessun percorso di progetto configurato nei destinatari.';
+			const err = t('assistant_error_no_project_path');
 			this.currentScriptProposal.error = err;
 			throw new Error(err);
 		}
@@ -554,7 +558,7 @@ ${userText}`;
 			rel = rel.slice(normProj.length).replace(/^\/+/, '');
 		}
 		if (rel.startsWith('/') || rel.startsWith('../') || rel.includes('/../')) {
-			const err = `Percorso script non valido o fuori dall'ambito del progetto: ${rel}`;
+			const err = t('assistant_error_invalid_script_path', { path: rel });
 			this.currentScriptProposal.error = err;
 			throw new Error(err);
 		}

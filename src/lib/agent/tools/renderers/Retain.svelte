@@ -5,6 +5,7 @@
   la tabella KeyValue con i metadati e il riscontro in OutputBlock.
 -->
 <script lang="ts">
+	import { m } from '#lib/paraglide/messages.js';
 	import KeyValue from '../parts/KeyValue.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
 	import {
@@ -48,9 +49,9 @@
 
 	const metaRows = $derived.by(() => {
 		const rows: { key: string; value: string }[] = [];
-		if (tag) rows.push({ key: 'Tag', value: tag });
+		if (tag) rows.push({ key: m.l10n_tools_label_tag(), value: tag });
 		const bank = str(details?.bank) ?? str(details?.bankId);
-		if (bank) rows.push({ key: 'Banca', value: bank });
+		if (bank) rows.push({ key: m.l10n_tools_label_bank(), value: bank });
 		return rows;
 	});
 </script>
@@ -67,7 +68,7 @@
 					<p class="item-content">{item.content}</p>
 					{#if item.context}
 						<div class="item-context">
-							<span class="context-label">Contesto:</span>
+							<span class="context-label">{m.l10n_tools_label_context()}:</span>
 							<span class="context-text">{item.context}</span>
 						</div>
 					{/if}
@@ -77,7 +78,7 @@
 	{/if}
 
 	{#if text}
-		<OutputBlock {text} label="riscontro" />
+		<OutputBlock {text} label={m.l10n_tools_label_feedback()} />
 	{/if}
 </div>
 

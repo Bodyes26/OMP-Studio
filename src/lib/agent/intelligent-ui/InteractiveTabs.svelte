@@ -5,6 +5,7 @@
 	import type { Token } from '../markdown';
 	import MarkdownInline from '../components/MarkdownInline.svelte';
 	import CodeBlock from '../components/CodeBlock.svelte';
+	import { m } from '../../paraglide/messages.js';
 
 	export interface TabItem {
 		id?: string;
@@ -36,7 +37,7 @@
 				aria-selected={idx === activeIndex}
 				onclick={() => (activeIndex = idx)}
 			>
-				{tab.title}
+				{tab.title || m.l10n_intui_tab_default_title({ n: idx + 1 })}
 			</button>
 		{/each}
 	</div>

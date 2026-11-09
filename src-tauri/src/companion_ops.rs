@@ -61,7 +61,10 @@ fn hide_companion_now(app: &AppHandle, window: &WebviewWindow) -> Result<(), Str
     persist_companion_geometry(app);
     window
         .hide()
-        .map_err(|e| format!("Chiusura finestra companion fallita: {}", e))?;
+        .map_err(|e| crate::tr!(
+            format!("Chiusura finestra companion fallita: {}", e),
+            format!("Closing the companion window failed: {}", e)
+        ))?;
     let _ = app.emit("companion-hidden", ());
     Ok(())
 }
@@ -160,13 +163,22 @@ fn load_companion_state_from_disk() -> CompanionState {
 
 fn write_companion_state_to_disk(state: &CompanionState) -> Result<(), String> {
     let path = get_companion_state_file()
-        .ok_or_else(|| "Percorso configurazione companion non disponibile".to_string())?;
+        .ok_or_else(|| crate::tr!(
+            "Percorso configurazione companion non disponibile",
+            "Companion configuration path not available"
+        ).to_string())?;
     if let Some(parent) = path.parent() {
         let _ = fs::create_dir_all(parent);
     }
     let json = serde_json::to_string_pretty(state)
-        .map_err(|e| format!("Serializzazione stato companion fallita: {}", e))?;
-    fs::write(&path, json).map_err(|e| format!("Scrittura stato companion fallita: {}", e))?;
+        .map_err(|e| crate::tr!(
+            format!("Serializzazione stato companion fallita: {}", e),
+            format!("Serializing the companion state failed: {}", e)
+        ))?;
+    fs::write(&path, json).map_err(|e| crate::tr!(
+            format!("Scrittura stato companion fallita: {}", e),
+            format!("Writing the companion state failed: {}", e)
+        ))?;
     Ok(())
 }
 
@@ -337,7 +349,10 @@ pub fn fit_companion_to_content(app: AppHandle, height: f64) -> Result<(), Strin
 
     let current = window
         .inner_size()
-        .map_err(|e| format!("Lettura dimensione companion fallita: {}", e))?;
+        .map_err(|e| crate::tr!(
+            format!("Lettura dimensione companion fallita: {}", e),
+            format!("Reading the companion size failed: {}", e)
+        ))?;
     let target_physical = (target * scale).round() as u32;
     // Tolleranza di un pixel fisico: senza, l'arrotondamento su schermi con
     // scalatura non intera genererebbe un ridimensionamento a ogni misura.
@@ -347,7 +362,10 @@ pub fn fit_companion_to_content(app: AppHandle, height: f64) -> Result<(), Strin
 
     window
         .set_size(PhysicalSize::new(current.width, target_physical))
-        .map_err(|e| format!("Adattamento altezza companion fallito: {}", e))
+        .map_err(|e| crate::tr!(
+            format!("Adattamento altezza companion fallito: {}", e),
+            format!("Fitting the companion height failed: {}", e)
+        ))
 }
 
 /// Commuta la modalita' Spotlight/Widget senza toccare la geometria salvata.
@@ -365,7 +383,10 @@ pub async fn set_companion_pinned(app: AppHandle, pinned: bool) -> Result<(), St
             write_companion_state_to_disk(&to_save)
         })
         .await
-        .map_err(|e| format!("Scrittura stato companion fallita: {}", e))?;
+        .map_err(|e| crate::tr!(
+            format!("Scrittura stato companion fallita: {}", e),
+            format!("Writing the companion state failed: {}", e)
+        ))?;
     }
     let _ = app.emit("companion-pinned-changed", pinned);
     Ok(())
@@ -409,7 +430,10 @@ fn create_companion_window(app: &AppHandle) -> Result<WebviewWindow, String> {
             }
         })
         .build()
-        .map_err(|e| format!("Creazione finestra companion fallita: {}", e))
+        .map_err(|e| crate::tr!(
+            format!("Creazione finestra companion fallita: {}", e),
+            format!("Creating the companion window failed: {}", e)
+        ))
 }
 
 /// Restituisce la finestra Companion, creandola alla prima richiesta.
@@ -442,16 +466,28 @@ fn show_companion_window(window: &WebviewWindow) -> Result<(), String> {
     COMPANION_SHOWN.store(true, Ordering::Relaxed);
     window
         .unminimize()
-        .map_err(|e| format!("Ripristino finestra companion fallito: {}", e))?;
+        .map_err(|e| crate::tr!(
+            format!("Ripristino finestra companion fallito: {}", e),
+            format!("Restoring the companion window failed: {}", e)
+        ))?;
     window
         .show()
-        .map_err(|e| format!("Apertura finestra companion fallita: {}", e))?;
+        .map_err(|e| crate::tr!(
+            format!("Apertura finestra companion fallita: {}", e),
+            format!("Opening the companion window failed: {}", e)
+        ))?;
     window
         .set_focus()
-        .map_err(|e| format!("Focus finestra companion fallito: {}", e))?;
+        .map_err(|e| crate::tr!(
+            format!("Focus finestra companion fallito: {}", e),
+            format!("Focusing the companion window failed: {}", e)
+        ))?;
     window
         .emit("companion-summon", ())
-        .map_err(|e| format!("Attivazione finestra companion fallita: {}", e))?;
+        .map_err(|e| crate::tr!(
+            format!("Attivazione finestra companion fallita: {}", e),
+            format!("Activating the companion window failed: {}", e)
+        ))?;
     let _ = window.app_handle().emit("companion-summon", ());
     Ok(())
 }
@@ -506,15 +542,24 @@ pub fn toggle_companion_window_internal(app: &AppHandle) -> Result<(), String> {
         (Some(w), Some(h), true) => {
             window
                 .set_size(PhysicalSize::new(w, h))
-                .map_err(|e| format!("Dimensionamento finestra companion fallito: {}", e))?;
+                .map_err(|e| crate::tr!(
+            format!("Dimensionamento finestra companion fallito: {}", e),
+            format!("Resizing the companion window failed: {}", e)
+        ))?;
         }
         (Some(w), _, false) => {
             let current = window
                 .inner_size()
-                .map_err(|e| format!("Lettura dimensione companion fallita: {}", e))?;
+                .map_err(|e| crate::tr!(
+            format!("Lettura dimensione companion fallita: {}", e),
+            format!("Reading the companion size failed: {}", e)
+        ))?;
             window
                 .set_size(PhysicalSize::new(w, current.height))
-                .map_err(|e| format!("Dimensionamento finestra companion fallito: {}", e))?;
+                .map_err(|e| crate::tr!(
+            format!("Dimensionamento finestra companion fallito: {}", e),
+            format!("Resizing the companion window failed: {}", e)
+        ))?;
         }
         _ => {}
     }
@@ -523,13 +568,19 @@ pub fn toggle_companion_window_internal(app: &AppHandle) -> Result<(), String> {
         if let (Some(x), Some(y)) = (state.x, state.y) {
             window
                 .set_position(PhysicalPosition::new(x, y))
-                .map_err(|e| format!("Posizionamento finestra companion fallito: {}", e))?;
+                .map_err(|e| crate::tr!(
+            format!("Posizionamento finestra companion fallito: {}", e),
+            format!("Positioning the companion window failed: {}", e)
+        ))?;
         }
     } else {
         // Spotlight mode: centra sul monitor attivo
         window
             .center()
-            .map_err(|e| format!("Centratura finestra companion fallita: {}", e))?;
+            .map_err(|e| crate::tr!(
+            format!("Centratura finestra companion fallita: {}", e),
+            format!("Centering the companion window failed: {}", e)
+        ))?;
     }
 
     show_companion_window(&window)
@@ -601,9 +652,21 @@ pub fn init_global_shortcut(app: &AppHandle) {
 }
 
 /// Prompt di sistema compatto per il parsing intelligente di un Quick Task.
-/// Rimane statico e sotto i 2.000 caratteri: tutti gli elenchi variabili (progetti,
+/// Rimane sotto i 2.000 caratteri: tutti gli elenchi variabili (progetti,
 /// direttive, ruoli, modelli) e il testo digitato dall'utente confluiscono nel
 /// file di contesto allegato, rispettando il limite Win32 di 32.767 caratteri in argv.
+///
+/// Gli avvisi in `ambiguities` vengono mostrati all'utente: la lingua e' quella
+/// dell'interfaccia (`crate::i18n::code()`), non quella del testo digitato.
+fn quick_task_parser_system_prompt(lang: &str) -> String {
+    format!(
+        r#"{prompt}
+8. Lingua degli avvisi: il campo "ambiguities" e' testo mostrato nell'interfaccia di Studio, quindi scrivilo SEMPRE in questa lingua: {lang}."#,
+        prompt = QUICK_TASK_PARSER_SYSTEM_PROMPT,
+        lang = lang
+    )
+}
+
 const QUICK_TASK_PARSER_SYSTEM_PROMPT: &str = r#"Sei un parser intelligente di task per l'orchestratore di agenti OMP Studio.
 Il tuo compito è analizzare una richiesta utente in linguaggio naturale ed estrarre i parametri del task da accodare, consultando il contesto fornito nel file allegato.
 
@@ -614,7 +677,7 @@ REGOLE DI ESTRAZIONE RIGIDE:
 4. "role": se l'utente nomina esplicitamente un ruolo (es. "agente smol", "ruolo default", "slow", "plan"), restituisci uno tra i ruoli disponibili. Se non è specificato, restituisci null.
 5. "model_selector": se l'utente specifica un modello (es. "usa gpt 5.6 sol", "modello claude sonnet"), cerca la migliore corrispondenza nel catalogo modelli e restituisci il selettore esatto. Se non è specificato un modello, restituisci null.
 6. "directive_ids": array contenente gli ID delle direttive richieste (es. se menziona "ponytail", "piano", "discussione", "ricerca online", "grill-me", ecc.). Includi solo ID validi presenti nell'elenco.
-7. "ambiguities": array di stringhe. Se il testo contiene elementi poco chiari, riferimenti a progetti inesistenti o comandi contraddittori, inserisci brevi avvisi esplicativi in italiano. Se tutto è chiaro e ben determinato, lascia l'array vuoto [].
+7. "ambiguities": array di stringhe. Se il testo contiene elementi poco chiari, riferimenti a progetti inesistenti o comandi contraddittori, inserisci brevi avvisi esplicativi nella lingua indicata in fondo a questo prompt. Se tutto è chiaro e ben determinato, lascia l'array vuoto [].
 
 RISPONDI ESCLUSIVAMENTE con un oggetto JSON valido privo di testo introduttivo o conclusivo con questa struttura:
 {
@@ -639,17 +702,32 @@ pub async fn parse_quick_task_ai(
 ) -> Result<QuickTaskAiParsed, String> {
     let trimmed = input.trim();
     if trimmed.is_empty() {
-        return Err("Il testo del task non può essere vuoto".to_string());
+        return Err(crate::tr!(
+            "Il testo del task non può essere vuoto",
+            "The task text cannot be empty"
+        ).to_string());
     }
 
     let projects_json = serde_json::to_string(&projects)
-        .map_err(|e| format!("Serializzazione progetti fallita: {}", e))?;
+        .map_err(|e| crate::tr!(
+            format!("Serializzazione progetti fallita: {}", e),
+            format!("Serializing projects failed: {}", e)
+        ))?;
     let directives_json = serde_json::to_string(&directives)
-        .map_err(|e| format!("Serializzazione direttive fallita: {}", e))?;
+        .map_err(|e| crate::tr!(
+            format!("Serializzazione direttive fallita: {}", e),
+            format!("Serializing directives failed: {}", e)
+        ))?;
     let roles_json = serde_json::to_string(&roles)
-        .map_err(|e| format!("Serializzazione ruoli fallita: {}", e))?;
+        .map_err(|e| crate::tr!(
+            format!("Serializzazione ruoli fallita: {}", e),
+            format!("Serializing roles failed: {}", e)
+        ))?;
     let catalog_models_json = serde_json::to_string(&catalog_models)
-        .map_err(|e| format!("Serializzazione catalogo modelli fallita: {}", e))?;
+        .map_err(|e| crate::tr!(
+            format!("Serializzazione catalogo modelli fallita: {}", e),
+            format!("Serializing the model catalog failed: {}", e)
+        ))?;
 
     // Su Windows CreateProcessW ha un limite di 32.767 caratteri: cataloghi e testo utente
     // confluiscono tutti nel file di contesto allegato via sintassi @ di omp.
@@ -664,24 +742,34 @@ pub async fn parse_quick_task_ai(
 
     let user_prompt = "Analizza la richiesta utente contenuta nel file allegato e rispondi solo con il JSON richiesto.";
 
+    let prompt = quick_task_parser_system_prompt(crate::i18n::code());
     let model_sel = model_selector.clone();
     let raw_output = tokio::task::spawn_blocking(move || {
         run_ephemeral_omp_raw(
-            QUICK_TASK_PARSER_SYSTEM_PROMPT,
+            &prompt,
             Some(&context_markdown),
             user_prompt,
             model_sel.as_deref(),
         )
     })
     .await
-    .map_err(|e| format!("Task thread interrotto: {}", e))??;
+    .map_err(|e| crate::tr!(
+            format!("Task thread interrotto: {}", e),
+            format!("Task thread interrupted: {}", e)
+        ))??;
 
     let json_text = extract_json_payload(&raw_output)?;
 
     let parsed: QuickTaskAiParsed = serde_json::from_str(&json_text).map_err(|e| {
-        format!(
+        crate::tr!(
+            format!(
             "Parsing risposta JSON da omp fallito: {}. Output grezzo: {}",
             e, json_text
+        ),
+            format!(
+            "Parsing the JSON response from omp failed: {}. Raw output: {}",
+            e, json_text
+        )
         )
     })?;
 

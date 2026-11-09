@@ -194,7 +194,7 @@
 							>
 								<IconSparkles />
 								<span class="chip-name font-mono">/{cmd.name}</span>
-								<span class="badge-new">new</span>
+								<span class="badge-new">{m.l10n_cmp_commands_new_badge()}</span>
 							</button>
 						{/each}
 					</div>

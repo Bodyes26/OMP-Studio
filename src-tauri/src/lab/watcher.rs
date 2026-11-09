@@ -58,9 +58,15 @@ pub async fn lab_watch_start(
 
     let ws_path = PathBuf::from(&workspace_path);
     if !ws_path.is_dir() {
-        return Err(format!(
-            "Cartella workspace non valida per il watcher: {}",
-            ws_path.display()
+        return Err(crate::tr!(
+            format!(
+                "Cartella workspace non valida per il watcher: {}",
+                ws_path.display()
+            ),
+            format!(
+                "Invalid workspace folder for the watcher: {}",
+                ws_path.display()
+            )
         ));
     }
 
@@ -96,11 +102,21 @@ pub async fn lab_watch_start(
         },
         Config::default(),
     )
-    .map_err(|e| format!("Inizializzazione watcher fallita: {e}"))?;
+    .map_err(|e| {
+        crate::tr!(
+            format!("Inizializzazione watcher fallita: {e}"),
+            format!("Watcher initialization failed: {e}")
+        )
+    })?;
 
     watcher
         .watch(&ws_path, RecursiveMode::Recursive)
-        .map_err(|e| format!("Avvio watch su {} fallito: {e}", ws_path.display()))?;
+        .map_err(|e| {
+            crate::tr!(
+                format!("Avvio watch su {} fallito: {e}", ws_path.display()),
+                format!("Starting watch on {} failed: {e}", ws_path.display())
+            )
+        })?;
 
     let key_clone = key.clone();
     let task = tokio::spawn(async move {

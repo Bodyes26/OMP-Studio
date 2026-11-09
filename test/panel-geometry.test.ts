@@ -1,6 +1,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { panelScope, panelMetrics, resizePanel, panelKeyValue, readPanelGeometries } from '../src/lib/panelGeometry.ts';
+import {
+	panelScope, panelMetrics, resizePanel, panelKeyValue, readPanelGeometries,
+	panelPlacement, readColumnOrder, moveColumn, type ColumnRole
+} from '../src/lib/panelGeometry.ts';
 import { buildProjectMetadata, resolveProjectTabInfo } from '../src/lib/stores/projectTabHelpers.ts';
 
 const initial = { left: 260, centerRatio: 0.5, topRatio: 0.5 };
@@ -64,5 +67,65 @@ describe('Geometria dei pannelli per branch e prototipo', () => {
 			negative: { left: -1, centerRatio: 0.5, topRatio: 0.5 }, null: null
 		});
 		assert.deepEqual(result, { [key]: initial });
+	});
+});
+
+const ORDERS: ColumnRole[][] = [
+	['files', 'editor', 'agent'], ['files', 'agent', 'editor'], ['editor', 'files', 'agent'],
+	['editor', 'agent', 'files'], ['agent', 'files', 'editor'], ['agent', 'editor', 'files']
+];
+
+describe('Ordine delle colonne (COL-001, COL-004, COL-005, COL-006)', () => {
+	it('in orizzontale ogni ordine occupa le 5 tracce senza sovrapposizioni, divisori accanto alla loro colonna', () => {
+		for (const order of ORDERS) {
+			const p = panelPlacement(order, false, 260, 6, 700);
+			const columns = [p.files, p.filesSplit, p.editor, p.editorSplit, p.agent].map((s) => Number(s.column));
+			assert.deepEqual([...columns].sort(), [1, 2, 3, 4, 5], order.join('|'));
+			assert.deepEqual(order.map((role) => Number(p[role].column)), [1, 3, 5]);
+			// Il divisore sta sul lato rivolto alla chat e il segno dice se trascinare a destra allarga.
+			assert.equal(Number(p.filesSplit.column), Number(p.files.column) + p.filesSign);
+			assert.equal(Number(p.editorSplit.column), Number(p.editor.column) + p.editorSign);
+			assert.equal(p.filesSign, order.indexOf('agent') > order.indexOf('files') ? 1 : -1);
+			// Le misure seguono il ruolo: la traccia dell'editor e' sempre 700px, la chat prende il resto.
+			const tracks = p.columns.split(/ (?![^(]*\))/);
+			assert.equal(tracks[Number(p.editor.column) - 1], '700px');
+			assert.equal(tracks[Number(p.files.column) - 1], '260px');
+			assert.equal(tracks[Number(p.agent.column) - 1], 'minmax(0, 1fr)');
+		}
+	});
+
+	it('l\'ordine predefinito riproduce la griglia di prima', () => {
+		const p = panelPlacement(['files', 'editor', 'agent'], false, 260, 6, 700);
+		assert.equal(p.columns, '260px 6px 700px 6px minmax(0, 1fr)');
+		assert.deepEqual([p.filesSign, p.editorSign], [1, 1]);
+		const v = panelPlacement(['files', 'editor', 'agent'], true, 260, 6, 400);
+		assert.equal(v.columns, '260px 6px minmax(0, 1fr)');
+		assert.equal(v.rows, '400px 6px minmax(0, 1fr)');
+	});
+
+	it('in verticale la barra va a destra solo se ultima; editor e chat si impilano nell\'ordine relativo', () => {
+		const v = panelPlacement(['agent', 'editor', 'files'], true, 260, 6, 400);
+		assert.equal(v.files.column, '3');
+		assert.equal(v.columns, 'minmax(0, 1fr) 6px 260px');
+		assert.equal(v.filesSign, -1);
+		assert.deepEqual([v.agent.row, v.editor.row], ['1', '3']);
+		assert.equal(v.rows, 'minmax(0, 1fr) 6px 400px');
+		assert.equal(v.editorSign, -1);
+		assert.equal(panelPlacement(['editor', 'files', 'agent'], true, 260, 6, 400).files.column, '1');
+	});
+
+	it('le frecce muovono il divisore nel loro verso anche con la colonna dall\'altro lato', () => {
+		assert.equal(panelKeyValue('ArrowLeft', 300, 160, 900, false, false, true), 310);
+		assert.equal(panelKeyValue('ArrowRight', 300, 160, 900, false, false, true), 290);
+		assert.equal(panelKeyValue('ArrowUp', 300, 120, 700, true, false, true), 310);
+	});
+
+	it('accetta dal disco solo permutazioni complete e sposta entro i bordi', () => {
+		assert.deepEqual(readColumnOrder(['agent', 'files', 'editor']), ['agent', 'files', 'editor']);
+		for (const bad of [['files', 'editor'], ['files', 'files', 'agent'], ['files', 'editor', 'chat'], 'files', null]) {
+			assert.equal(readColumnOrder(bad), undefined);
+		}
+		assert.deepEqual(moveColumn(['files', 'editor', 'agent'], 'agent', -1), ['files', 'agent', 'editor']);
+		assert.deepEqual(moveColumn(['files', 'editor', 'agent'], 'files', -1), ['files', 'editor', 'agent']);
 	});
 });

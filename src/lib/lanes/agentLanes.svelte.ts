@@ -202,7 +202,10 @@ class AgentLaneService {
 		};
 		try {
 			if (!verbo) {
-				await this.respond(payload.requestId, { ok: false, text: `Verbo '${payload.route}' sconosciuto.` });
+				await this.respond(payload.requestId, {
+					ok: false,
+					text: m.l10n_state_lane_unknown_verb({ verb: String(payload.route) })
+				});
 				return;
 			}
 			// Il token nasce solo con un projectId: indovinare il progetto
@@ -211,7 +214,7 @@ class AgentLaneService {
 				? projectStore.projects.find((p) => p.id === payload.projectId)
 				: undefined;
 			if (!project) {
-				await this.respond(payload.requestId, { ok: false, text: 'Progetto non trovato.' });
+				await this.respond(payload.requestId, { ok: false, text: m.l10n_state_lane_project_not_found() });
 				return;
 			}
 			if (!verboAllowedForCaller(verbo, payload.callerLaneId)) {
@@ -236,7 +239,10 @@ class AgentLaneService {
 		} catch (error) {
 			await this.respond(payload.requestId, {
 				ok: false,
-				text: `Errore imprevisto in corsia_${verbo ?? payload.route}: ${errorMessage(error)}`
+				text: m.l10n_state_lane_unexpected_error({
+					verb: String(verbo ?? payload.route),
+					error: errorMessage(error)
+				})
 			});
 		}
 	}
@@ -293,19 +299,24 @@ class AgentLaneService {
 				}
 			};
 		}
-		return { error: { ok: false, text: `Corsia "${ref ?? ''}" non trovata. ${describeLaneChoices(lanes)}` } };
+		return {
+			error: {
+				ok: false,
+				text: m.l10n_state_lane_not_found({ ref: ref ?? '', choices: describeLaneChoices(lanes) })
+			}
+		};
 	}
 
 	/* -------------------------------------------------------- avvia --- */
 
 	private async avvia(project: Project, body: Record<string, unknown>): Promise<BridgeResponse> {
 		const obiettivo = text(body.obiettivo);
-		if (!obiettivo) return { ok: false, text: "Il campo 'obiettivo' e' obbligatorio." };
+		if (!obiettivo) return { ok: false, text: m.l10n_state_lane_required_field({ field: 'obiettivo' }) };
 		const profilo = text(body.profilo);
 		if (body.tipo === 'lab') return this.avviaLab(project, obiettivo, profilo);
 
 		if (!project.canonicalProjectPath) {
-			return { ok: false, text: 'Il progetto non ha una cartella Git: niente worktree.' };
+			return { ok: false, text: m.l10n_state_lane_no_git_lane() };
 		}
 		const created = await this.createGoalTask(project, obiettivo, profilo);
 		if ('error' in created) return { ok: false, text: created.error };
@@ -322,7 +333,7 @@ class AgentLaneService {
 			this.saveQueue();
 			return {
 				ok: true,
-				text: `In coda: ci sono gia' troppi agenti al lavoro in questo progetto. L'obiettivo (${goal.id}) e' nella coda del progetto e parte da solo appena si libera un posto. Non ritentare.`,
+				text: m.l10n_state_lane_queued_soft_cap({ id: goal.id }),
 				details: { stato: 'in_coda', obiettivoId: goal.id, taskId: created.taskId }
 			};
 		}
@@ -342,13 +353,16 @@ class AgentLaneService {
 		profilo: string | null
 	): Promise<{ taskId: string } | { error: string }> {
 		const root = project.canonicalProjectPath;
-		if (!root) return { error: 'Il progetto non ha una cartella.' };
+		if (!root) return { error: m.l10n_state_lane_no_folder() };
 		let roleOptions: { role: string; modelSelector?: string; thinkingLevel?: string } | null = null;
 		if (profilo) {
 			const role = STANDARD_ROLES.find((candidate) => candidate.id === profilo.toLowerCase());
 			if (!role) {
 				return {
-					error: `Profilo "${profilo}" sconosciuto. Profili disponibili: ${STANDARD_ROLES.map((r) => r.id).join(', ')}.`
+					error: m.l10n_state_lane_unknown_profile({
+						profile: profilo,
+						profiles: STANDARD_ROLES.map((r) => r.id).join(', ')
+					})
 				};
 			}
 			const roles = modelSettingsStore.config?.modelRoles ?? {};
@@ -367,28 +381,28 @@ class AgentLaneService {
 		options: { follow?: boolean }
 	): Promise<BridgeResponse> {
 		if (!this.host) {
-			return { ok: false, text: "Studio non e' pronto a creare corsie: riprova tra qualche secondo." };
+			return { ok: false, text: m.l10n_state_lane_not_ready() };
 		}
 		const outcome = await this.host.dispatchTaskInNewLane(project, taskId, options);
 		if (outcome.kind === 'started') {
 			return {
 				ok: true,
-				text: `Corsia ${outcome.lane.laneId} ("${outcome.lane.title}") avviata: l'agente della corsia sta lavorando sull'obiettivo. Usa corsia_stato e corsia_risultato per seguirla.`,
+				text: m.l10n_state_lane_started({ id: outcome.lane.laneId, title: outcome.lane.title }),
 				details: { stato: 'in_corso', corsia: outcome.lane.laneId, titolo: outcome.lane.title, tipo: 'worktree' }
 			};
 		}
 		if (outcome.kind === 'awaiting-consent') {
 			return {
 				ok: true,
-				text: "Studio chiede all'utente quali file locali copiare nel nuovo worktree: la corsia parte dopo la sua scelta. Non ritentare.",
+				text: m.l10n_state_lane_awaiting_files(),
 				details: { stato: 'consenso_utente', taskId }
 			};
 		}
-		return { ok: false, text: `Corsia non avviata: ${outcome.message}`, details: { taskId } };
+		return { ok: false, text: m.l10n_state_lane_start_failed({ message: outcome.message }), details: { taskId } };
 	}
 
 	private async avviaLab(project: Project, obiettivo: string, profilo: string | null): Promise<BridgeResponse> {
-		if (!project.canonicalProjectPath) return { ok: false, text: 'Il progetto non ha una cartella.' };
+		if (!project.canonicalProjectPath) return { ok: false, text: m.l10n_state_lane_no_folder() };
 		if (profilo) {
 			// Il Laboratorio ha la sua configurazione confinata: il ruolo non si applica.
 			console.info('[agentLanes] Profilo ignorato per il Laboratorio:', profilo);
@@ -405,13 +419,13 @@ class AgentLaneService {
 		} catch (error) {
 			return {
 				ok: false,
-				text: `Prototipo ${entry.id} creato ma l'agente del Laboratorio non e' partito: ${errorMessage(error)}`,
+				text: m.l10n_state_lane_prototype_start_failed({ id: entry.id, error: errorMessage(error) }),
 				details: { corsia: record.laneId, prototipo: entry.id }
 			};
 		}
 		return {
 			ok: true,
-			text: `Prototipo ${entry.id} avviato nella corsia ${record.laneId}: l'agente del Laboratorio sta lavorando. Usa corsia_risultato e poi corsia_consegna.`,
+			text: m.l10n_state_lane_prototype_started({ id: entry.id, lane: record.laneId }),
 			details: { stato: 'in_corso', corsia: record.laneId, titolo: record.title, tipo: 'lab', prototipo: entry.id }
 		};
 	}
@@ -492,28 +506,42 @@ class AgentLaneService {
 			recoveryState: lane.recoveryState
 		});
 		const summary = lane.agentSummary?.trim() || null;
-		const header = `Corsia ${lane.laneId} ("${lane.title}"): ${state.replace('_', ' ')}.`;
+		const header = m.l10n_state_lane_status_header({
+			id: lane.laneId,
+			title: lane.title,
+			state: state.replace('_', ' ')
+		});
 		const summaryText = summary
-			? `Riassunto dell'agente della corsia:\n${summary}`
-			: "L'agente della corsia non ha ancora lasciato un riassunto con corsia_fatto.";
+			? m.l10n_state_lane_summary_header({ summary })
+			: m.l10n_state_lane_no_summary_yet();
 
 		if (lane.kind === 'lab') {
 			const entry = (await this.labIndex(project)).find((item) => item.id === lane.labPrototypeId) ?? null;
 			const runtime = peekLabRuntime(project.id, lane.laneId);
 			const revision = entry?.lastRevision ?? null;
 			const lines = [header, summaryText];
-			if (entry?.summary) lines.push(`Riepilogo del prototipo: ${entry.summary}`);
+			if (entry?.summary) lines.push(m.l10n_state_lane_prototype_summary({ summary: entry.summary }));
 			lines.push(
 				revision
-					? `Ultima revisione: ${revision.sha.slice(0, 7)} "${revision.message}" (${revision.date}).`
-					: 'Nessuna revisione registrata.'
+					? m.l10n_state_lane_last_revision({
+							sha: revision.sha.slice(0, 7),
+							message: revision.message,
+							date: revision.date
+						})
+					: m.l10n_state_lane_no_revision()
 			);
 			if (runtime?.url) {
 				lines.push(
-					`Anteprima: ${runtime.url}${runtime.errors > 0 ? ` (${runtime.errors} errori aperti)` : ' (nessun errore)'}.`
+					m.l10n_state_lane_preview_line({
+						url: runtime.url,
+						errors:
+							runtime.errors > 0
+								? m.l10n_state_lane_preview_errors({ count: runtime.errors })
+								: m.l10n_state_lane_preview_clean()
+					})
 				);
 			} else {
-				lines.push("Anteprima non ancora compilata in questa sessione di Studio.");
+				lines.push(m.l10n_state_lane_preview_not_compiled());
 			}
 			return {
 				ok: true,
@@ -534,9 +562,16 @@ class AgentLaneService {
 
 		const inspection = await this.inspect(project, lane);
 		const stat: Diffstat | null = inspection ? computeDiffstat(inspection.files) : null;
-		const lines = [header, summaryText, `Modifiche rispetto a ${inspection?.targetBranch ?? lane.targetBranch ?? 'main'}: ${formatDiffstat(stat)}.`];
+		const lines = [
+			header,
+			summaryText,
+			m.l10n_state_lane_diff_vs({
+				branch: inspection?.targetBranch ?? lane.targetBranch ?? 'main',
+				diffstat: formatDiffstat(stat)
+			})
+		];
 		const paths = listPaths(stat?.paths ?? [], 30);
-		if (paths) lines.push(`File: ${paths}`);
+		if (paths) lines.push(m.l10n_state_lane_files_short({ files: paths }));
 		return {
 			ok: true,
 			text: lines.join('\n'),
@@ -560,7 +595,7 @@ class AgentLaneService {
 		body: Record<string, unknown>
 	): Promise<BridgeResponse> {
 		const messaggio = text(body.messaggio);
-		if (!messaggio) return { ok: false, text: "Il campo 'messaggio' e' obbligatorio." };
+		if (!messaggio) return { ok: false, text: m.l10n_state_lane_message_required({ field: 'messaggio' }) };
 		const ref = text(body.corsia);
 		let lane: LaneRecord;
 		if (ref) {
@@ -575,13 +610,16 @@ class AgentLaneService {
 			if (open.length !== 1) {
 				return {
 					ok: false,
-					text: open.length === 0 ? 'Nessuna corsia worktree aperta da integrare.' : `Specifica la corsia. ${describeLaneChoices(open)}`
+					text:
+					open.length === 0
+						? m.l10n_state_lane_nothing_integrate()
+						: m.l10n_state_lane_specify({ choices: describeLaneChoices(open) })
 				};
 			}
 			lane = open[0];
 		}
 		if (lane.kind === 'lab') {
-			return { ok: false, text: 'Un prototipo del Laboratorio non si integra: usa corsia_consegna.' };
+			return { ok: false, text: m.l10n_state_lane_lab_no_integrate() };
 		}
 		const caller: LandCaller = {
 			kind: payload.ownerKind,
@@ -607,13 +645,19 @@ class AgentLaneService {
 		if ('error' in found) return found.error;
 		const lane = found.lane;
 		if (lane.status === 'closed') {
-			return { ok: true, text: `La corsia ${lane.laneId} e' gia' chiusa.`, details: { corsia: lane.laneId, titolo: lane.title, esito: 'chiusa' } };
+			return {
+				ok: true,
+				text: m.l10n_state_lane_already_closed({ id: lane.laneId }),
+				details: { corsia: lane.laneId, titolo: lane.title, esito: 'chiusa' }
+			};
 		}
 		const outcome = await closeLane(project.id as ProjectId, lane.laneId);
-		if (outcome.kind === 'failed') return { ok: false, text: `Chiusura non riuscita: ${outcome.message}` };
+		if (outcome.kind === 'failed') {
+			return { ok: false, text: m.l10n_state_lane_close_failed({ message: outcome.message }) };
+		}
 		return {
 			ok: true,
-			text: `Corsia ${lane.laneId} ("${lane.title}") chiusa. Branch e cartella restano: l'utente puo' riaprirla dalla barra delle corsie.`,
+			text: m.l10n_state_lane_closed_ok({ id: lane.laneId, title: lane.title }),
 			details: { corsia: lane.laneId, titolo: lane.title, tipo: lane.kind === 'lab' ? 'lab' : 'worktree', esito: 'chiusa' }
 		};
 	}
@@ -629,7 +673,7 @@ class AgentLaneService {
 			this.requestDelete(project.id, lane.laneId);
 			return {
 				ok: true,
-				text: `Eliminare il prototipo ${lane.labPrototypeId ?? lane.laneId} cancella tutte le sue revisioni: Studio ha chiesto conferma all'utente. Non ritentare.`,
+				text: m.l10n_state_lane_delete_confirm_lab({ id: lane.labPrototypeId ?? lane.laneId }),
 				details: { ...base, esito: 'conferma_utente' }
 			};
 		}
@@ -639,13 +683,17 @@ class AgentLaneService {
 			this.requestDelete(project.id, lane.laneId);
 			return {
 				ok: true,
-				text: `Attenzione: la corsia ${lane.laneId} contiene lavoro mai integrato. Studio non ha cancellato nulla e ha chiesto conferma all'utente nella sua finestra. Non ritentare.`,
+				text: m.l10n_state_lane_delete_confirm_dirty({ id: lane.laneId }),
 				details: { ...base, esito: 'conferma_utente', perdita: loss }
 			};
 		}
 		const outcome = await deleteWorktreeLane(project.id as ProjectId, lane.laneId);
 		if (outcome.kind === 'deleted') {
-			return { ok: true, text: `Corsia ${lane.laneId} ("${lane.title}") scartata: worktree e branch rimossi.`, details: { ...base, esito: 'scartata' } };
+			return {
+				ok: true,
+				text: m.l10n_state_lane_discarded_ok({ id: lane.laneId, title: lane.title }),
+				details: { ...base, esito: 'scartata' }
+			};
 		}
 		if (outcome.kind === 'unintegrated' || outcome.kind === 'processes-active') {
 			// Commit arrivati nel frattempo o processi vivi: decide l'utente nello stesso dialogo della GUI.
@@ -654,18 +702,22 @@ class AgentLaneService {
 				ok: true,
 				text:
 					outcome.kind === 'unintegrated'
-						? `La corsia ${lane.laneId} contiene lavoro mai integrato: Studio ha chiesto conferma all'utente. Non ritentare.`
-						: `Nella corsia ${lane.laneId} ci sono processi ancora vivi: Studio ha chiesto all'utente se fermarli. Non ritentare.`,
+						? m.l10n_state_lane_delete_confirm_dirty({ id: lane.laneId })
+						: m.l10n_state_lane_delete_confirm_processes({ id: lane.laneId }),
 				details: { ...base, esito: 'conferma_utente' }
 			};
 		}
-		return { ok: false, text: `Eliminazione non riuscita: ${outcome.message}`, details: { ...base, esito: 'errore' } };
+		return {
+			ok: false,
+			text: m.l10n_state_lane_delete_failed({ message: outcome.message }),
+			details: { ...base, esito: 'errore' }
+		};
 	}
 
 	/* ----------------------------------------------------- consegna --- */
 
 	private async consegna(project: Project, ref: string | null): Promise<BridgeResponse> {
-		if (!project.canonicalProjectPath) return { ok: false, text: 'Il progetto non ha una cartella.' };
+		if (!project.canonicalProjectPath) return { ok: false, text: m.l10n_state_lane_no_folder() };
 		const index = await this.labIndex(project);
 		const lanes = this.lanes(project).filter((lane) => lane.kind === 'lab');
 		const byLane = resolveLaneRef(lanes, ref);
@@ -676,11 +728,20 @@ class AgentLaneService {
 			index.find((item) => item.title.trim().toLowerCase() === wanted);
 		if (!entry) {
 			const list = index.map((item) => `- ${item.id}: ${item.title}`).join('\n');
-			return { ok: false, text: `Prototipo "${ref ?? ''}" non trovato.${list ? `\nPrototipi del progetto:\n${list}` : ''}` };
+			return {
+				ok: false,
+				text: m.l10n_state_lane_prototype_not_found({
+					ref: ref ?? '',
+					list: list ? m.l10n_state_lane_prototype_list({ list }) : ''
+				})
+			};
 		}
 		const exists = await labApi.workspaceExists(entry.workspacePath).catch(() => false);
 		if (!exists) {
-			return { ok: false, text: `La cartella del prototipo ${entry.id} non esiste su questa macchina.` };
+			return {
+				ok: false,
+				text: m.l10n_state_lane_prototype_folder_missing({ id: entry.id })
+			};
 		}
 		const log = await labApi.log(entry.workspacePath, 1);
 		const revision = log[0] ?? entry.lastRevision ?? null;
@@ -717,10 +778,10 @@ class AgentLaneService {
 	/* -------------------------------------------------------- fatto --- */
 
 	private async fatto(project: Project, callerLaneId: string | null, riassunto: string | null): Promise<BridgeResponse> {
-		if (!riassunto) return { ok: false, text: "Il campo 'riassunto' e' obbligatorio." };
+		if (!riassunto) return { ok: false, text: m.l10n_state_lane_required_field({ field: 'riassunto' }) };
 		if (callerIsMain(callerLaneId)) return { ok: false, text: 'corsia_fatto si usa solo dentro una corsia.' };
 		const lane = this.lanes(project).find((candidate) => candidate.laneId === callerLaneId);
-		if (!lane) return { ok: false, text: 'Studio non trova la corsia di questa sessione.' };
+		if (!lane) return { ok: false, text: m.l10n_state_lane_session_missing() };
 		await laneStore.updateLane(project.id as ProjectId, lane.laneId, {
 			agentSummary: riassunto,
 			agentSummaryAt: Date.now(),
@@ -732,7 +793,7 @@ class AgentLaneService {
 		main?.pushNotice('info', m.agent_lane_finished_notice({ title: lane.title, summary: first.length > 140 ? `${first.slice(0, 139)}\u2026` : first }), 'studio');
 		return {
 			ok: true,
-			text: "Riassunto registrato: la Principale e l'utente lo leggono da Studio. Non integrare e non fare commit: decide l'utente.",
+			text: m.l10n_state_lane_summary_saved(),
 			details: { corsia: lane.laneId, titolo: lane.title, riassunto }
 		};
 	}
@@ -769,7 +830,7 @@ class AgentLaneService {
 			const project = projectStore.projects.find((p) => p.id === proposal.projectId);
 			const outcome = project
 				? await this.createProposedLane(project, proposal)
-				: { error: 'progetto non piu\' aperto' };
+				: { error: m.l10n_state_lane_project_closed() };
 			if ('error' in outcome) {
 				resolved = { ...resolved, error: outcome.error };
 				response = { ok: true, text: proposalAgentText('worktree', outcome), details: { scelta: 'worktree', errore: outcome.error } };
@@ -787,7 +848,7 @@ class AgentLaneService {
 		if (!delivered && !resolved.error) {
 			// Il bridge ha gia' chiuso la richiesta (attesa scaduta o agente fermato):
 			// la scelta resta visibile, ma l'agente non la ricevera'.
-			resolved = { ...resolved, error: "l'agente non era piu' in attesa della risposta" };
+			resolved = { ...resolved, error: m.l10n_state_lane_agent_no_longer_waiting() };
 		}
 		const { [key]: _done, ...rest } = this.proposals;
 		this.proposals = rest;
@@ -798,19 +859,19 @@ class AgentLaneService {
 		project: Project,
 		proposal: PendingLaneProposal
 	): Promise<{ laneId: string; title: string; dispatched: boolean } | { error: string }> {
-		if (!project.canonicalProjectPath) return { error: 'il progetto non ha una cartella Git' };
+		if (!project.canonicalProjectPath) return { error: m.l10n_state_lane_project_no_git() };
 		try {
 			if (proposal.obiettivo) {
 				// Il clic dell'utente e' gia' la conferma: niente soft-cap ne' coda.
 				const created = await this.createGoalTask(project, proposal.obiettivo, null);
 				if ('error' in created) return { error: created.error };
-				if (!this.host) return { error: "Studio non e' pronto a creare corsie" };
+				if (!this.host) return { error: m.l10n_state_lane_not_ready_short() };
 				const outcome = await this.host.dispatchTaskInNewLane(project, created.taskId, { follow: false });
 				if (outcome.kind === 'started') {
 					return { laneId: outcome.lane.laneId, title: outcome.lane.title, dispatched: true };
 				}
 				if (outcome.kind === 'awaiting-consent') {
-					return { error: "serve prima la scelta dell'utente sui file locali da copiare (dialogo aperto)" };
+					return { error: m.l10n_state_lane_awaiting_local_files() };
 				}
 				return { error: outcome.message };
 			}
@@ -850,7 +911,11 @@ class AgentLaneService {
 				const response = await this.startGoal(project, goal.taskId, { follow: false });
 				sessionRegistry
 					.getMainSession(project.id)
-					?.pushNotice(response.ok ? 'info' : 'warning', `Obiettivo in coda: ${response.text}`, 'studio');
+					?.pushNotice(
+						response.ok ? 'info' : 'warning',
+						m.l10n_state_lane_goal_queued({ text: response.text }),
+						'studio'
+					);
 			}
 		} finally {
 			this.draining = false;

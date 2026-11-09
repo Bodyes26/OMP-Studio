@@ -2,7 +2,6 @@
 // e dalle anteprime dei file scritti dall'agente.
 
 import { sanitizeSvg } from '#lib/editor/svgSandbox.ts';
-import { tokenHex } from '#lib/theme.ts';
 
 // Mermaid crea un elemento temporaneo con questo id: due render concorrenti
 // (piu' anteprime montate insieme) non devono condividerlo.
@@ -15,7 +14,10 @@ let renderSeq = 0;
 export async function renderMermaidSvg(source: string): Promise<string> {
 	// Import dinamico voluto: Mermaid pesa megabyte e questo modulo sta nel
 	// percorso della chat; statico finirebbe nel bundle iniziale.
-	const mermaidApi = (await import('mermaid')).default;
+	const [{ default: mermaidApi }, { tokenHex }] = await Promise.all([
+		import('mermaid'),
+		import('#lib/theme.ts')
+	]);
 	mermaidApi.initialize({
 		startOnLoad: false,
 		securityLevel: 'strict',
@@ -71,4 +73,32 @@ export function isMermaidFileName(path: string | null | undefined): boolean {
 	if (!path) return false;
 	const ext = path.split(/[\\/]/).pop()?.split('.').pop()?.toLowerCase();
 	return ext === 'mmd' || ext === 'mermaid';
+}
+
+export interface MermaidPreviewState {
+	svg: string;
+	error: string | null;
+}
+
+/**
+ * Calcola lo stato dell'anteprima Mermaid: in caso di successo ritorna l'SVG
+ * sanificato; in caso di errore di sintassi preserva il messaggio d'errore
+ * per l'utente anziche' lasciare l'anteprima vuota.
+ */
+export async function computeMermaidPreviewState(
+	text: string,
+	renderer: (src: string) => Promise<string> = renderMermaidSvg
+): Promise<MermaidPreviewState> {
+	if (!text.trim()) {
+		return { svg: '', error: null };
+	}
+	try {
+		const svg = await renderer(text);
+		return { svg, error: null };
+	} catch (err) {
+		return {
+			svg: '',
+			error: err instanceof Error ? err.message : String(err)
+		};
+	}
 }

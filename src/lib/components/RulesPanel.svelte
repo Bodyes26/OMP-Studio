@@ -114,7 +114,7 @@
 		try {
 			await revealItemInDir(skill.path);
 		} catch (error) {
-			actionError = `Impossibile mostrare ${skill.name}: ${String(error)}`;
+			actionError = m.l10n_cmp_rules_reveal_failed({ name: skill.name, error: String(error) });
 		}
 	}
 
@@ -143,11 +143,11 @@
 					<span class="occurrences">{suggestion.occurrences}×</span>
 				</div>
 				<p class="suggestion-reason">{suggestion.reason}</p>
-				<pre class="preview" aria-label={`Anteprima delle righe da aggiungere a ${suggestion.target_file}`}>{#each suggestion.proposed_content.trimEnd().split('\n') as line, index (index)}<span class="added">+ {line}</span>
+				<pre class="preview" aria-label={m.l10n_cmp_rules_preview_aria({ file: suggestion.target_file })}>{#each suggestion.proposed_content.trimEnd().split('\n') as line, index (index)}<span class="added">+ {line}</span>
 {/each}</pre>
 				<div class="suggestion-actions">
 					<Tooltip
-						text={agentsMd?.exists !== true ? 'Inizializza AGENTS.md per poter applicare la proposta' : undefined}
+						text={agentsMd?.exists !== true ? m.l10n_cmp_rules_init_agents_tooltip() : undefined}
 						disabled={agentsMd?.exists === true}
 					>
 						<button
@@ -157,7 +157,7 @@
 							onclick={() => void applySuggestion(suggestion)}
 						>
 							<IconCheck />
-							Applica a {suggestion.target_file}
+							{m.l10n_cmp_rules_apply_to({ file: suggestion.target_file })}
 						</button>
 					</Tooltip>
 					<button
@@ -181,7 +181,7 @@
 				{#if suggestions.length === 2}
 					<p class="queued">{m.rules_another_queued()}</p>
 				{:else if suggestions.length > 2}
-					<p class="queued">Altre {suggestions.length - 1} {m.ui_rulespanel_proposte_in_attesa_0c30()}</p>
+					<p class="queued">{m.l10n_cmp_rules_more_queued({ count: suggestions.length - 1 })}</p>
 				{/if}
 			</article>
 		{/if}

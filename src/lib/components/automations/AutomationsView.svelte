@@ -164,7 +164,7 @@
 								type="button"
 								class="clear-chip-btn"
 								onclick={() => { projectFilter = ''; automationsStore.projectFilter = ''; }}
-								aria-label="Rimuovi filtro progetto"
+								aria-label={t('view_clear_project_filter')}
 							>
 								<IconClose />
 							</button>
@@ -180,7 +180,7 @@
 				type="button"
 				class="ui-button ui-button-secondary text-xs"
 				onclick={() => { showIoModal = true; }}
-				title="Importa o esporta definizioni JSON"
+				title={t('view_io_title')}
 			>
 				<IconDownload />
 				<span>{t('btn_import_export')}</span>
@@ -190,7 +190,7 @@
 				type="button"
 				class="ui-button ui-button-secondary text-xs"
 				onclick={() => { showSettingsModal = true; }}
-				title="Configura limiti operativi e modello assistente"
+				title={t('view_settings_title')}
 			>
 				<IconSettings />
 				<span>{t('btn_settings')}</span>
@@ -219,7 +219,7 @@
 				class="ui-button ui-button-secondary text-xs"
 				onclick={() => void automationsStore.refresh()}
 			>
-				Riprova
+				{t('btn_retry')}
 			</button>
 		</div>
 	{/if}
@@ -264,7 +264,7 @@
 						type="button"
 						class="ui-button ui-button-secondary text-xs create-ai-btn"
 						onclick={handleNewAi}
-						title="Conversa con l'assistente dedicato per generare una bozza strutturata"
+						title={t('view_create_ai_title')}
 					>
 						<IconSparkles />
 						<span>{t('btn_create_ai')}</span>
@@ -285,7 +285,7 @@
 							type="button"
 							class="clear-search-btn"
 							onclick={() => { searchQuery = ''; }}
-							aria-label="Cancella ricerca"
+							aria-label={t('view_clear_search')}
 						>
 							<IconClose />
 						</button>
@@ -333,9 +333,9 @@
 							>
 								<div class="item-top">
 									<span class="item-state-dot state-{def.state}"></span>
-									<span class="item-name font-medium">{def.name || 'Automazione senza nome'}</span>
+									<span class="item-name font-medium">{def.name || t('automation_untitled')}</span>
 									{#if needsAttention}
-										<span class="attention-badge" title="Richiede attenzione o presa visione">
+										<span class="attention-badge" title={t('view_needs_attention_title')}>
 											<IconWarning />
 										</span>
 									{/if}
@@ -344,14 +344,14 @@
 								<div class="item-sub text-xs">
 									<span class="action-kind-label">
 										{#if def.action.kind === 'prompt'}
-											Prompt AI
+											{t('view_action_kind_prompt')}
 										{:else}
-											Comando ({def.action.mode})
+											{t('detail_command_with_mode', { mode: def.action.mode })}
 										{/if}
 									</span>
 									<span class="bullet">·</span>
 									<span class="targets-summary font-mono">
-										{def.targets.source === 'studio' ? 'Studio' : def.targets.projectPaths?.length ? `${def.targets.projectPaths.length} proj` : 'Tutti'}
+										{def.targets.source === 'studio' ? 'Studio' : def.targets.projectPaths?.length ? t('view_targets_count', { count: def.targets.projectPaths.length }) : t('view_targets_all')}
 									</span>
 								</div>
 
@@ -369,9 +369,9 @@
 				<!-- Sidebar Titoli AI: riepilogo rapido -->
 				<div class="titles-sidebar-summary">
 					<div class="summary-card text-xs">
-						<span class="font-semibold">Titoli automatici</span>
+						<span class="font-semibold">{t('view_titles_summary_title')}</span>
 						<p class="text-muted" style="margin: 4px 0 0;">
-							I titoli per i task salvati e per le sessioni completate vengono generati in background senza bloccare l'interfaccia.
+							{t('view_titles_summary_desc')}
 						</p>
 					</div>
 				</div>
@@ -393,9 +393,9 @@
 				<!-- Stato vuoto selezione -->
 				<div class="empty-selection-view">
 					<IconAutomation size={48} class="empty-icon" />
-					<h3 class="empty-heading">Seleziona o crea un'automazione</h3>
+					<h3 class="empty-heading">{t('view_empty_heading')}</h3>
 					<p class="empty-paragraph text-xs">
-						Automatizza comandi ripetitivi sui progetti o richiedi a un agente AI di eseguire task complessi a scadenze prefissate o su eventi Git e file.
+						{t('view_empty_desc')}
 					</p>
 					<div class="empty-actions">
 						<button

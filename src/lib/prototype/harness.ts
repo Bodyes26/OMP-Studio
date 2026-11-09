@@ -61,7 +61,7 @@ export function buildPreviewHarnessScript(id: string, snapshot: boolean): string
       if (eb) {
         var text = (eb.textContent || '').trim();
         var isVisible = !eb.classList.contains('hidden') && eb.style.display !== 'none';
-        if (text && (isVisible || text.indexOf('Errore') !== -1 || text.indexOf('Error') !== -1)) {
+        if (text && (isVisible || /error|errore/i.test(text))) {
           var exists = errors.some(function(e) { return e.message.indexOf(text) !== -1; });
           if (!exists) {
             pushError({ message: text });

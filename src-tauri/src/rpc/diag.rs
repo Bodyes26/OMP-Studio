@@ -159,7 +159,12 @@ impl RpcStats {
     /// Spedisce un frame sul Channel registrandone indice, dimensione e tipo.
     /// Tutti gli invii del lettore passano di qui: un invio non contato
     /// sfaserebbe il confronto con i frame ricevuti dal frontend.
-    pub(super) fn send(&self, channel: &Channel<InvokeResponseBody>, kind: &str, frame: String) -> bool {
+    pub(super) fn send(
+        &self,
+        channel: &Channel<InvokeResponseBody>,
+        kind: &str,
+        frame: String,
+    ) -> bool {
         let bytes = frame.len();
         let at_ms = now_ms();
         let index = self.frames_sent.fetch_add(1, Ordering::Relaxed);
@@ -207,7 +212,12 @@ const KEPT_REPORTS: usize = 20;
 /// Scrive `rpc-hang-<epoch_ms>.json` in `dir`, eliminando i rapporti oltre
 /// gli ultimi `KEPT_REPORTS`.
 pub(super) fn write_hang_report(dir: &Path, report: &str) -> Result<PathBuf, String> {
-    fs::create_dir_all(dir).map_err(|error| format!("Cartella dei log: {}", error))?;
+    fs::create_dir_all(dir).map_err(|error| {
+        crate::tr!(
+            format!("Cartella dei log: {}", error),
+            format!("Log directory: {}", error)
+        )
+    })?;
     let mut existing: Vec<PathBuf> = fs::read_dir(dir)
         .map(|entries| {
             entries
@@ -230,7 +240,12 @@ pub(super) fn write_hang_report(dir: &Path, report: &str) -> Result<PathBuf, Str
         let _ = fs::remove_file(old);
     }
     let path = dir.join(format!("rpc-hang-{}.json", now_ms()));
-    fs::write(&path, report).map_err(|error| format!("Scrittura del rapporto: {}", error))?;
+    fs::write(&path, report).map_err(|error| {
+        crate::tr!(
+            format!("Scrittura del rapporto: {}", error),
+            format!("Writing the report: {}", error)
+        )
+    })?;
     Ok(path)
 }
 

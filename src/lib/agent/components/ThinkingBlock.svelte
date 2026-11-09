@@ -53,9 +53,9 @@
 			class:expanded
 			aria-expanded={expanded}
 			aria-controls={bodyId}
-			aria-label={`${label}. ${expanded ? 'Comprimi' : 'Espandi'} il ragionamento`}
+			aria-label={`${label}. ${expanded ? m.l10n_agentcmp_thinking_collapse() : m.l10n_agentcmp_thinking_expand()}`}
 			onclick={toggleExpanded}
-			title={expanded ? 'Comprimi ragionamento' : 'Espandi ragionamento'}
+			title={expanded ? m.l10n_agentcmp_thinking_collapse() : m.l10n_agentcmp_thinking_expand()}
 		>
 			<span class="chevron" class:expanded aria-hidden="true"><IconChevronRight /></span>
 			<span class="label">{label}</span>

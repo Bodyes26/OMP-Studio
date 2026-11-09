@@ -39,7 +39,11 @@ pub struct Engine {
 }
 
 impl Engine {
-    pub fn new(app: AppHandle, db_path: PathBuf, outputs_dir: PathBuf) -> Result<Arc<Self>, String> {
+    pub fn new(
+        app: AppHandle,
+        db_path: PathBuf,
+        outputs_dir: PathBuf,
+    ) -> Result<Arc<Self>, String> {
         let storage = Arc::new(Storage::open(&db_path, &outputs_dir)?);
 
         // Crash recovery: riconcilia occorrenze rimaste aperte (AUT-046, AUT-106)
@@ -143,7 +147,11 @@ impl Engine {
         true
     }
 
-    fn is_occurrence_admissible_now(&self, occ: &AutomationOccurrence, ctx: &AutomationContext) -> bool {
+    fn is_occurrence_admissible_now(
+        &self,
+        occ: &AutomationOccurrence,
+        ctx: &AutomationContext,
+    ) -> bool {
         if let AutomationAction::Prompt(pa) = &occ.definition.action {
             // Verifica quote
             if !quota::evaluate(&pa.model, &occ.definition.policy.quota).allowed {
@@ -166,7 +174,12 @@ impl Engine {
             let locks = self.project_locks.lock();
             for t in &occ.targets {
                 let norm = normalize_project_path(&t.path);
-                if locks.contains_key(&norm) || ctx.busy_paths.iter().any(|bp| normalize_project_path(bp) == norm) {
+                if locks.contains_key(&norm)
+                    || ctx
+                        .busy_paths
+                        .iter()
+                        .any(|bp| normalize_project_path(bp) == norm)
+                {
                     return false;
                 }
             }
@@ -233,7 +246,8 @@ impl Engine {
         if now_ms - last_retention > 3_600_000 {
             *self.last_retention_check_ms.lock() = now_ms;
             let settings = self.storage.get_settings();
-            self.storage.cleanup_retention(settings.retention_days, settings.output_total_bytes);
+            self.storage
+                .cleanup_retention(settings.retention_days, settings.output_total_bytes);
         }
 
         // 2. Poll eventi dall'Observer (Git, file, agente, studio)
@@ -258,8 +272,14 @@ impl Engine {
                             self.send_notification(
                                 &occ.automation_id,
                                 &occ.name,
-                                "Riserva quota attraversata (AUT-078)",
-                                &format!("Durante l'esecuzione, la riserva per il modello '{}' è scesa sotto la soglia richiesta.", pa.model),
+                                crate::tr!(
+                                    "Riserva quota attraversata (AUT-078)",
+                                    "Quota reserve crossed (AUT-078)"
+                                ),
+                                &crate::tr!(
+                                    format!("Durante l'esecuzione, la riserva per il modello '{}' è scesa sotto la soglia richiesta.", pa.model),
+                                    format!("During the run, the reserve for model '{}' dropped below the required threshold.", pa.model)
+                                ),
                                 "quota_crossed_inrun",
                             );
                         }
@@ -330,7 +350,10 @@ fn event_matches_definition(event: &AutomationEvent, def: &AutomationDefinition)
             if let Some(p_path) = &event.project_path {
                 let targets = &def.targets;
                 let matches_target = targets.project_paths.is_empty()
-                    || targets.project_paths.iter().any(|tp| normalize_project_path(tp) == normalize_project_path(p_path));
+                    || targets
+                        .project_paths
+                        .iter()
+                        .any(|tp| normalize_project_path(tp) == normalize_project_path(p_path));
                 if !matches_target {
                     continue;
                 }
@@ -368,10 +391,17 @@ impl Engine {
             let last_check = last_checks.get(&def.id).copied().unwrap_or(def.created_at);
 
             for trigger in &def.triggers {
-                if trigger.kind == "manual" || trigger.kind == "gitCommit" || trigger.kind == "gitBranch"
-                    || trigger.kind == "gitDirty" || trigger.kind == "gitClean" || trigger.kind == "file"
-                    || trigger.kind == "agentFinished" || trigger.kind == "agentQuota" || trigger.kind == "agentError"
-                    || trigger.kind == "studioStarted" || trigger.kind == "projectOpened"
+                if trigger.kind == "manual"
+                    || trigger.kind == "gitCommit"
+                    || trigger.kind == "gitBranch"
+                    || trigger.kind == "gitDirty"
+                    || trigger.kind == "gitClean"
+                    || trigger.kind == "file"
+                    || trigger.kind == "agentFinished"
+                    || trigger.kind == "agentQuota"
+                    || trigger.kind == "agentError"
+                    || trigger.kind == "studioStarted"
+                    || trigger.kind == "projectOpened"
                 {
                     continue;
                 }
@@ -381,7 +411,10 @@ impl Engine {
                     self.storage
                         .get_occurrences(10)
                         .ok()
-                        .and_then(|occs| occs.into_iter().find(|o| o.automation_id == def.id && o.state == "completed"))
+                        .and_then(|occs| {
+                            occs.into_iter()
+                                .find(|o| o.automation_id == def.id && o.state == "completed")
+                        })
                         .and_then(|o| o.executions.into_iter().next())
                         .and_then(|e| e.finished_at)
                 } else {
@@ -408,16 +441,23 @@ impl Engine {
                                         self.send_notification(
                                             &def.id,
                                             &def.name,
-                                            "Scadenza persa",
-                                            &format!(
-                                                "L'automazione '{}' ha saltato la scadenza prevista per superamento del tempo massimo.",
-                                                def.name
+                                            crate::tr!("Scadenza persa", "Missed deadline"),
+                                            &crate::tr!(
+                                                format!(
+                                                    "L'automazione '{}' ha saltato la scadenza prevista per superamento del tempo massimo.",
+                                                    def.name
+                                                ),
+                                                format!(
+                                                    "Automation '{}' skipped its scheduled deadline because the maximum wait time was exceeded.",
+                                                    def.name
+                                                )
                                             ),
                                             "missed",
                                         );
                                     }
                                     "recover" => {
-                                        let recovery_limit = (def.policy.recovery_minutes as i64) * 60_000;
+                                        let recovery_limit =
+                                            (def.policy.recovery_minutes as i64) * 60_000;
                                         if now_ms - sched_at <= recovery_limit {
                                             let ev = AutomationEvent {
                                                 kind: trigger.kind.clone(),
@@ -427,7 +467,13 @@ impl Engine {
                                                 branch: None,
                                                 commit: None,
                                                 origin: Some("automation".to_string()),
-                                                detail: Some("Recupero scadenza persa".to_string()),
+                                                detail: Some(
+                                                    crate::tr!(
+                                                        "Recupero scadenza persa",
+                                                        "Missed deadline recovery"
+                                                    )
+                                                    .to_string(),
+                                                ),
                                             };
                                             let _ = self.enqueue_occurrence(def, ev, sched_at);
                                         }
@@ -467,7 +513,8 @@ impl Engine {
 
         // Controllo overlap / coalesce (AUT-011, AUT-019, AUT-040)
         let active_run = existing_runs.iter().find(|o| {
-            o.automation_id == def.id && (o.state == "running" || o.state == "waiting" || o.state == "needsInput")
+            o.automation_id == def.id
+                && (o.state == "running" || o.state == "waiting" || o.state == "needsInput")
         });
 
         if let Some(existing) = active_run {
@@ -485,7 +532,9 @@ impl Engine {
             }
 
             // Se e' in running, controlla se c'e' gia' una pending waiting accodata
-            let already_pending = existing_runs.iter().find(|o| o.automation_id == def.id && o.state == "waiting");
+            let already_pending = existing_runs
+                .iter()
+                .find(|o| o.automation_id == def.id && o.state == "waiting");
             if let Some(pending) = already_pending {
                 let mut updated = pending.clone();
                 updated.reasons.push(event);
@@ -497,7 +546,12 @@ impl Engine {
 
         // Risolvi i destinatari congelati per questa occorrenza (AUT-072, AUT-073)
         let obs_guard = self.observer.lock();
-        let targets = self.resolve_targets(&def.targets, obs_guard.as_ref(), scheduled_at, &def.policy.timezone);
+        let targets = self.resolve_targets(
+            &def.targets,
+            obs_guard.as_ref(),
+            scheduled_at,
+            &def.policy.timezone,
+        );
         drop(obs_guard);
 
         // Se l'insieme dei destinatari e' vuoto: chiude senza eseguire (AUT-087)
@@ -603,7 +657,13 @@ impl Engine {
                     for exec in &mut occ.executions {
                         if exec.state == "waiting" {
                             exec.state = "skipped".to_string();
-                            exec.reason = Some("Attesa massima superata (risorse o progetti occupati)".to_string());
+                            exec.reason = Some(
+                                crate::tr!(
+                                    "Attesa massima superata (risorse o progetti occupati)",
+                                    "Maximum wait exceeded (busy resources or projects)"
+                                )
+                                .to_string(),
+                            );
                             exec.finished_at = Some(now_ms);
                         }
                     }
@@ -612,8 +672,11 @@ impl Engine {
                     self.send_notification(
                         &occ.automation_id,
                         &occ.name,
-                        "Attesa scaduta",
-                        &format!("L'automazione '{}' e' stata saltata per superamento del tempo massimo di attesa.", occ.name),
+                        crate::tr!("Attesa scaduta", "Wait expired"),
+                        &crate::tr!(
+                            format!("L'automazione '{}' e' stata saltata per superamento del tempo massimo di attesa.", occ.name),
+                            format!("Automation '{}' was skipped because the maximum wait time was exceeded.", occ.name)
+                        ),
                         "timeout",
                     );
                     self.emit_changed();
@@ -641,14 +704,23 @@ impl Engine {
                                 model: None,
                                 result: None,
                                 question: None,
-                                reason: Some("Tempo di risposta umana scaduto (AUT-044)".to_string()),
+                                reason: Some(
+                                    crate::tr!(
+                                        "Tempo di risposta umana scaduto (AUT-044)",
+                                        "Human reply time expired (AUT-044)"
+                                    )
+                                    .to_string(),
+                                ),
                             };
                             let _ = self.storage.set_execution_update(&update, None);
                             self.send_notification(
                                 &occ.automation_id,
                                 &occ.name,
-                                "Risposta scaduta",
-                                &format!("L'attesa per l'automazione '{}' e' scaduta senza risposta.", occ.name),
+                                crate::tr!("Risposta scaduta", "Reply expired"),
+                                &crate::tr!(
+                                    format!("L'attesa per l'automazione '{}' e' scaduta senza risposta.", occ.name),
+                                    format!("The wait for automation '{}' expired without an answer.", occ.name)
+                                ),
                                 "timeout",
                             );
                             self.emit_changed();
@@ -676,14 +748,23 @@ impl Engine {
                                     model: None,
                                     result: None,
                                     question: None,
-                                    reason: Some("Timeout esecuzione AI superato (AUT-043)".to_string()),
+                                    reason: Some(
+                                        crate::tr!(
+                                            "Timeout esecuzione AI superato (AUT-043)",
+                                            "AI execution timeout exceeded (AUT-043)"
+                                        )
+                                        .to_string(),
+                                    ),
                                 };
                                 let _ = self.storage.set_execution_update(&update, None);
                                 self.send_notification(
                                     &occ.automation_id,
                                     &occ.name,
-                                    "Timeout esecuzione",
-                                    &format!("L'automazione AI '{}' ha superato il tempo massimo di attività.", occ.name),
+                                    crate::tr!("Timeout esecuzione", "Execution timeout"),
+                                    &crate::tr!(
+                                        format!("L'automazione AI '{}' ha superato il tempo massimo di attività.", occ.name),
+                                        format!("AI automation '{}' exceeded the maximum activity time.", occ.name)
+                                    ),
                                     "timeout",
                                 );
                                 self.emit_changed();
@@ -794,9 +875,15 @@ impl Engine {
         let mut locks = self.project_locks.lock();
         if let Some(owner) = locks.get(&canonical_norm).or_else(|| locks.get(&norm)) {
             if owner != INTERACTIVE_LOCK_OWNER {
-                return Err(format!(
-                    "Progetto '{}' occupato dall'automazione attiva '{}' (AUT-042)",
-                    canonical, owner
+                return Err(crate::tr!(
+                    format!(
+                        "Progetto '{}' occupato dall'automazione attiva '{}' (AUT-042)",
+                        canonical, owner
+                    ),
+                    format!(
+                        "Project '{}' is busy with the active automation '{}' (AUT-042)",
+                        canonical, owner
+                    )
                 ));
             }
         } else {
@@ -814,10 +901,16 @@ impl Engine {
         let norm = normalize_project_path(path);
 
         let mut locks = self.project_locks.lock();
-        if locks.get(&canonical_norm).is_some_and(|o| o == INTERACTIVE_LOCK_OWNER) {
+        if locks
+            .get(&canonical_norm)
+            .is_some_and(|o| o == INTERACTIVE_LOCK_OWNER)
+        {
             locks.remove(&canonical_norm);
         }
-        if locks.get(&norm).is_some_and(|o| o == INTERACTIVE_LOCK_OWNER) {
+        if locks
+            .get(&norm)
+            .is_some_and(|o| o == INTERACTIVE_LOCK_OWNER)
+        {
             locks.remove(&norm);
         }
     }
@@ -849,7 +942,13 @@ impl Engine {
         execution_id: Option<&str>,
     ) -> Result<AutomationProjectRequest, String> {
         if operation != "open" && operation != "close" {
-            return Err(format!("Operazione '{}' non valida. Usa 'open' o 'close'.", operation));
+            return Err(crate::tr!(
+                format!(
+                    "Operazione '{}' non valida. Usa 'open' o 'close'.",
+                    operation
+                ),
+                format!("Invalid operation '{}'. Use 'open' or 'close'.", operation)
+            ));
         }
 
         let is_locked = self.is_project_locked(path, None);
@@ -889,7 +988,12 @@ impl Engine {
             .pending_project_requests
             .lock()
             .remove(request_id)
-            .ok_or_else(|| format!("Richiesta progetto '{}' non trovata", request_id))?;
+            .ok_or_else(|| {
+                crate::tr!(
+                    format!("Richiesta progetto '{}' non trovata", request_id),
+                    format!("Project request '{}' not found", request_id)
+                )
+            })?;
 
         let _ = self.storage.delete_project_request(request_id);
 
@@ -912,7 +1016,11 @@ impl Engine {
     }
 
     pub fn get_pending_project_requests(&self) -> Vec<AutomationProjectRequest> {
-        self.pending_project_requests.lock().values().cloned().collect()
+        self.pending_project_requests
+            .lock()
+            .values()
+            .cloned()
+            .collect()
     }
 
     fn check_deferred_project_requests(&self, released_paths: &[String]) {
@@ -922,7 +1030,9 @@ impl Engine {
             for req in reqs.values_mut() {
                 if req.status == "deferred" && req.operation == "close" {
                     let req_norm = normalize_project_path(&req.path);
-                    if released_paths.iter().any(|rp| normalize_project_path(rp) == req_norm)
+                    if released_paths
+                        .iter()
+                        .any(|rp| normalize_project_path(rp) == req_norm)
                         && !self.is_project_locked(&req.path, None)
                     {
                         req.status = "requested".to_string();
@@ -948,24 +1058,52 @@ impl Engine {
             }
         }
 
-        let mut occ = target_occ.ok_or_else(|| format!("Esecuzione '{}' non trovata", execution_id))?;
+        let mut occ = target_occ.ok_or_else(|| {
+            crate::tr!(
+                format!("Esecuzione '{}' non trovata", execution_id),
+                format!("Execution '{}' not found", execution_id)
+            )
+        })?;
         {
-            let exec = occ.executions.iter().find(|e| e.id == execution_id)
-                .ok_or_else(|| format!("Esecuzione '{}' non trovata nell'occorrenza", execution_id))?;
+            let exec = occ
+                .executions
+                .iter()
+                .find(|e| e.id == execution_id)
+                .ok_or_else(|| {
+                    crate::tr!(
+                        format!("Esecuzione '{}' non trovata nell'occorrenza", execution_id),
+                        format!("Execution '{}' not found in the occurrence", execution_id)
+                    )
+                })?;
             if exec.state != "needsInput" {
-                return Err(format!("L'esecuzione '{}' non e' in attesa di input (stato: {})", execution_id, exec.state));
+                return Err(crate::tr!(
+                    format!(
+                        "L'esecuzione '{}' non e' in attesa di input (stato: {})",
+                        execution_id, exec.state
+                    ),
+                    format!(
+                        "Execution '{}' is not waiting for input (state: {})",
+                        execution_id, exec.state
+                    )
+                ));
             }
         }
 
         let ctx = self.context.read().clone();
 
         // 1. Precedenza interattiva (AUT-041)
-        if ctx.interactive_waiting || (ctx.max_agent_count > 0 && ctx.interactive_agent_count >= ctx.max_agent_count) {
+        if ctx.interactive_waiting
+            || (ctx.max_agent_count > 0 && ctx.interactive_agent_count >= ctx.max_agent_count)
+        {
             return Ok(false);
         }
 
         // 2. Cap globale AI (AUT-041, AUT-044)
-        let global_ai_cap = if ctx.max_agent_count > 0 { ctx.max_agent_count } else { 2 };
+        let global_ai_cap = if ctx.max_agent_count > 0 {
+            ctx.max_agent_count
+        } else {
+            2
+        };
         let total_ai_usage = ctx.interactive_agent_count
             + self.pending_ai_requests.lock().len()
             + self.active_titles.lock().len();
@@ -982,8 +1120,16 @@ impl Engine {
 
         // Ammissione concessa: riacquisisce lo slot AI e rimette stato a running
         let targets = {
-            let exec = occ.executions.iter_mut().find(|e| e.id == execution_id)
-                .ok_or_else(|| format!("Esecuzione '{}' non trovata nell'occorrenza", execution_id))?;
+            let exec = occ
+                .executions
+                .iter_mut()
+                .find(|e| e.id == execution_id)
+                .ok_or_else(|| {
+                    crate::tr!(
+                        format!("Esecuzione '{}' non trovata nell'occorrenza", execution_id),
+                        format!("Execution '{}' not found in the occurrence", execution_id)
+                    )
+                })?;
             exec.state = "running".to_string();
             exec.question = None;
             exec.targets.clone()
@@ -991,7 +1137,10 @@ impl Engine {
         occ.recompute_state();
         self.storage.save_occurrence(&occ)?;
 
-        let cwd = targets.first().map(|t| t.path.clone()).unwrap_or_else(|| occ.definition.targets.cwd.clone());
+        let cwd = targets
+            .first()
+            .map(|t| t.path.clone())
+            .unwrap_or_else(|| occ.definition.targets.cwd.clone());
         let ai_req = AutomationAiRequest {
             execution_id: execution_id.to_string(),
             run_id: occ.id.clone(),
@@ -1003,7 +1152,9 @@ impl Engine {
                 .to_string(),
             cwd,
         };
-        self.pending_ai_requests.lock().insert(execution_id.to_string(), ai_req);
+        self.pending_ai_requests
+            .lock()
+            .insert(execution_id.to_string(), ai_req);
 
         self.emit_changed();
         Ok(true)
@@ -1059,7 +1210,13 @@ impl Engine {
                 for exec in &mut occ.executions {
                     if exec.state == "running" || exec.state == "needsInput" {
                         exec.state = "unknown".to_string();
-                        exec.reason = Some("Host UI riavviato (nuova host_epoch): esito non verificato (AUT-046)".to_string());
+                        exec.reason = Some(
+                            crate::tr!(
+                            "Host UI riavviato (nuova host_epoch): esito non verificato (AUT-046)",
+                            "UI host restarted (new host_epoch): outcome not verified (AUT-046)"
+                        )
+                            .to_string(),
+                        );
                         exec.finished_at = Some(chrono_now_ms());
                         self.release_project_locks(&exec.targets);
                         reconciled.push(exec.id.clone());
@@ -1071,7 +1228,9 @@ impl Engine {
                     occ.recompute_state();
                     occ.requires_review = true;
                     let _ = self.storage.save_occurrence(&occ);
-                    let _ = self.storage.set_definition_state(&occ.automation_id, "suspended");
+                    let _ = self
+                        .storage
+                        .set_definition_state(&occ.automation_id, "suspended");
                 }
             }
 
@@ -1100,7 +1259,10 @@ impl Engine {
         let mut occurrences = match self.storage.get_occurrences(50) {
             Ok(o) => o,
             Err(e) => {
-                eprintln!("[automations] Impossibile recuperare occorrenze SQLite: {}", e);
+                eprintln!(
+                    "[automations] Impossibile recuperare occorrenze SQLite: {}",
+                    e
+                );
                 return;
             }
         };
@@ -1126,7 +1288,11 @@ impl Engine {
                         }
 
                         // Verifica lock di progetto (AUT-042, AUT-012)
-                        if !self.try_acquire_project_locks(&occ.executions[exec_idx].targets, &occ.executions[exec_idx].id, &ctx) {
+                        if !self.try_acquire_project_locks(
+                            &occ.executions[exec_idx].targets,
+                            &occ.executions[exec_idx].id,
+                            &ctx,
+                        ) {
                             continue;
                         }
 
@@ -1143,7 +1309,11 @@ impl Engine {
 
                         // Acquisizione atomica all-or-none
                         let exec_id = occ.executions[exec_idx].id.clone();
-                        if !self.try_acquire_project_locks(&occ.executions[exec_idx].targets, &exec_id, &ctx) {
+                        if !self.try_acquire_project_locks(
+                            &occ.executions[exec_idx].targets,
+                            &exec_id,
+                            &ctx,
+                        ) {
                             continue;
                         }
 
@@ -1160,10 +1330,19 @@ impl Engine {
                         );
                     }
                     AutomationAction::Prompt(pa) => {
-                        let global_ai_cap = if ctx.max_agent_count > 0 { ctx.max_agent_count } else { 2 };
+                        let global_ai_cap = if ctx.max_agent_count > 0 {
+                            ctx.max_agent_count
+                        } else {
+                            2
+                        };
                         let running_ai = self.running_ai_executions.lock().len();
-                        let total_ai_usage = ctx.interactive_agent_count + running_ai + self.active_titles.lock().len();
-                        if interactive_blocked || running_ai >= settings.max_ai as usize || total_ai_usage >= global_ai_cap {
+                        let total_ai_usage = ctx.interactive_agent_count
+                            + running_ai
+                            + self.active_titles.lock().len();
+                        if interactive_blocked
+                            || running_ai >= settings.max_ai as usize
+                            || total_ai_usage >= global_ai_cap
+                        {
                             continue;
                         }
 
@@ -1195,7 +1374,11 @@ impl Engine {
 
                         let exec_id = occ.executions[exec_idx].id.clone();
                         // Acquisizione atomica all-or-none
-                        if !self.try_acquire_project_locks(&occ.executions[exec_idx].targets, &exec_id, &ctx) {
+                        if !self.try_acquire_project_locks(
+                            &occ.executions[exec_idx].targets,
+                            &exec_id,
+                            &ctx,
+                        ) {
                             continue;
                         }
 
@@ -1224,23 +1407,34 @@ impl Engine {
         }
     }
 
-
     fn check_script_approval(&self, ca: &CommandAction) -> Option<String> {
         for file in &ca.watched_files {
             let p = Path::new(file);
             if !p.exists() {
-                return Some(format!("File sorvegliato '{}' non trovato", file));
+                return Some(crate::tr!(
+                    format!("File sorvegliato '{}' non trovato", file),
+                    format!("Watched file '{}' not found", file)
+                ));
             }
             if let Ok(hash) = hash_file(p) {
                 if let Some(approved) = ca.approved_files.get(file) {
                     if &hash != approved {
-                        return Some(format!(
-                            "Il file script '{}' e' stato modificato e richiede revisione (AUT-036).",
-                            file
+                        return Some(crate::tr!(
+                            format!(
+                                "Il file script '{}' e' stato modificato e richiede revisione (AUT-036).",
+                                file
+                            ),
+                            format!(
+                                "Script file '{}' changed and needs review (AUT-036).",
+                                file
+                            )
                         ));
                     }
                 } else {
-                    return Some(format!("Il file script '{}' non ha un hash approvato.", file));
+                    return Some(crate::tr!(
+                        format!("Il file script '{}' non ha un hash approvato.", file),
+                        format!("Script file '{}' has no approved hash.", file)
+                    ));
                 }
             }
         }
@@ -1295,7 +1489,10 @@ impl Engine {
                     env.insert(k.clone(), val);
                 }
                 Err(e) => {
-                    secret_err = Some(format!("Segreto '{}' non accessibile nel vault: {}", sec_id, e));
+                    secret_err = Some(crate::tr!(
+                        format!("Segreto '{}' non accessibile nel vault: {}", sec_id, e),
+                        format!("Secret '{}' not accessible in the vault: {}", sec_id, e)
+                    ));
                     break;
                 }
             }
@@ -1323,7 +1520,9 @@ impl Engine {
         }
 
         let cancel_flag = Arc::new(AtomicBool::new(false));
-        engine_running.lock().insert(execution_id.clone(), Arc::clone(&cancel_flag));
+        engine_running
+            .lock()
+            .insert(execution_id.clone(), Arc::clone(&cancel_flag));
 
         let settings = storage.get_settings();
         let max_output_bytes = settings.output_per_run_bytes;
@@ -1347,10 +1546,12 @@ impl Engine {
                 let _ = storage_for_cb.append_output(&eid_for_cb, chunk, max_output_bytes);
             };
 
-            let outcome = runner::execute(&request, &cancel_flag, &on_output).unwrap_or_else(|e| CommandOutcome {
-                state: "error".to_string(),
-                exit_code: Some(1),
-                detail: Some(e),
+            let outcome = runner::execute(&request, &cancel_flag, &on_output).unwrap_or_else(|e| {
+                CommandOutcome {
+                    state: "error".to_string(),
+                    exit_code: Some(1),
+                    detail: Some(e),
+                }
             });
 
             // Cleanup
@@ -1368,7 +1569,10 @@ impl Engine {
             for req in reqs.values_mut() {
                 if req.status == "deferred" && req.operation == "close" {
                     let req_norm = normalize_project_path(&req.path);
-                    if targets.iter().any(|t| normalize_project_path(&t.path) == req_norm) {
+                    if targets
+                        .iter()
+                        .any(|t| normalize_project_path(&t.path) == req_norm)
+                    {
                         req.status = "requested".to_string();
                         let _ = app.emit("automations://project-request", &*req);
                     }
@@ -1389,9 +1593,15 @@ impl Engine {
 
             if outcome.state != "completed" || notify_success {
                 let title = if outcome.state == "completed" {
-                    format!("Automazione '{}' completata", automation_name)
+                    crate::tr!(
+                        format!("Automazione '{}' completata", automation_name),
+                        format!("Automation '{}' completed", automation_name)
+                    )
                 } else {
-                    format!("Automazione '{}' fallita", automation_name)
+                    crate::tr!(
+                        format!("Automazione '{}' fallita", automation_name),
+                        format!("Automation '{}' failed", automation_name)
+                    )
                 };
                 let body = outcome.detail.unwrap_or_default();
                 let _ = app.emit(
@@ -1447,13 +1657,18 @@ impl Engine {
         self.pending_ai_requests
             .lock()
             .insert(execution_id.clone(), ai_req.clone());
-        self.running_ai_executions.lock().insert(execution_id.clone());
+        self.running_ai_executions
+            .lock()
+            .insert(execution_id.clone());
 
         let _ = self.app.emit("automations://ai-request", &ai_req);
         self.emit_changed();
     }
 
-    pub fn handle_ai_update(&self, update: AutomationAiUpdate) -> Result<AutomationOccurrence, String> {
+    pub fn handle_ai_update(
+        &self,
+        update: AutomationAiUpdate,
+    ) -> Result<AutomationOccurrence, String> {
         let is_terminal = update.state == "completed"
             || update.state == "error"
             || update.state == "timeout"
@@ -1461,15 +1676,27 @@ impl Engine {
             || update.state == "skipped";
 
         if is_terminal {
-            self.running_ai_executions.lock().remove(&update.execution_id);
-            self.needs_input_executions.lock().remove(&update.execution_id);
+            self.running_ai_executions
+                .lock()
+                .remove(&update.execution_id);
+            self.needs_input_executions
+                .lock()
+                .remove(&update.execution_id);
             self.pending_ai_requests.lock().remove(&update.execution_id);
         } else if update.state == "needsInput" {
-            self.running_ai_executions.lock().remove(&update.execution_id);
-            self.needs_input_executions.lock().insert(update.execution_id.clone());
+            self.running_ai_executions
+                .lock()
+                .remove(&update.execution_id);
+            self.needs_input_executions
+                .lock()
+                .insert(update.execution_id.clone());
         } else if update.state == "running" {
-            self.needs_input_executions.lock().remove(&update.execution_id);
-            self.running_ai_executions.lock().insert(update.execution_id.clone());
+            self.needs_input_executions
+                .lock()
+                .remove(&update.execution_id);
+            self.running_ai_executions
+                .lock()
+                .insert(update.execution_id.clone());
         }
 
         let occ = self.storage.set_execution_update(&update, None)?;
@@ -1485,11 +1712,13 @@ impl Engine {
 
         // Se l'AI richiede input umano, invia notifica (AUT-028, AUT-053)
         if update.state == "needsInput" {
-            let question = update.question.clone().unwrap_or_else(|| "Richiesta risposta utente".to_string());
+            let question = update.question.clone().unwrap_or_else(|| {
+                crate::tr!("Richiesta risposta utente", "User reply requested").to_string()
+            });
             self.send_notification(
                 &occ.automation_id,
                 &occ.name,
-                "Chiede risposta",
+                crate::tr!("Chiede risposta", "Waiting for a reply"),
                 &question,
                 "input",
             );
@@ -1504,10 +1733,12 @@ impl Engine {
     }
 
     pub fn cancel(&self, run_id: &str, execution_id: Option<&str>) -> Result<(), String> {
-        let occ = self
-            .storage
-            .get_occurrence(run_id)
-            .ok_or_else(|| format!("Occorrenza '{}' non trovata", run_id))?;
+        let occ = self.storage.get_occurrence(run_id).ok_or_else(|| {
+            crate::tr!(
+                format!("Occorrenza '{}' non trovata", run_id),
+                format!("Occurrence '{}' not found", run_id)
+            )
+        })?;
 
         for exec in &occ.executions {
             if let Some(eid) = execution_id {
@@ -1531,9 +1762,15 @@ impl Engine {
                         state: "interrupted".to_string(),
                         session_id: None,
                         model: None,
-                        result: Some("Interrotto dall'utente".to_string()),
+                        result: Some(
+                            crate::tr!("Interrotto dall'utente", "Interrupted by the user")
+                                .to_string(),
+                        ),
                         question: None,
-                        reason: Some("Interrotto dall'utente".to_string()),
+                        reason: Some(
+                            crate::tr!("Interrotto dall'utente", "Interrupted by the user")
+                                .to_string(),
+                        ),
                     };
                     let _ = self.storage.set_execution_update(&update, None);
                 }
@@ -1560,10 +1797,12 @@ impl Engine {
         id: &str,
         target_paths: Option<Vec<String>>,
     ) -> Result<AutomationOccurrence, String> {
-        let mut def = self
-            .storage
-            .get_definition(id)
-            .ok_or_else(|| format!("Automazione '{}' non trovata", id))?;
+        let mut def = self.storage.get_definition(id).ok_or_else(|| {
+            crate::tr!(
+                format!("Automazione '{}' non trovata", id),
+                format!("Automation '{}' not found", id)
+            )
+        })?;
 
         if let Some(tp) = target_paths {
             def.targets.project_paths = tp;
@@ -1579,7 +1818,9 @@ impl Engine {
             branch: None,
             commit: None,
             origin: Some("interactive".to_string()),
-            detail: Some("Avvio manuale utente".to_string()),
+            detail: Some(
+                crate::tr!("Avvio manuale utente", "Manual start by the user").to_string(),
+            ),
         };
 
         self.enqueue_occurrence(&def, ev, now)
@@ -1588,7 +1829,8 @@ impl Engine {
     pub fn preview(&self, def: &AutomationDefinition) -> Result<AutomationPreview, String> {
         let now = chrono_now_ms();
         let obs_guard = self.observer.lock();
-        let targets = self.resolve_targets(&def.targets, obs_guard.as_ref(), now, &def.policy.timezone);
+        let targets =
+            self.resolve_targets(&def.targets, obs_guard.as_ref(), now, &def.policy.timezone);
         let mut issues = Vec::new();
 
         if let Some(obs) = obs_guard.as_ref() {
@@ -1597,7 +1839,13 @@ impl Engine {
         drop(obs_guard);
 
         if targets.is_empty() {
-            issues.push("Nessun destinatario risolto con la configurazione attuale.".to_string());
+            issues.push(
+                crate::tr!(
+                    "Nessun destinatario risolto con la configurazione attuale.",
+                    "No recipient resolved with the current configuration."
+                )
+                .to_string(),
+            );
         }
 
         // Valida trigger e calcola prossime esecuzioni (AUT-039)
@@ -1605,7 +1853,10 @@ impl Engine {
         let now = chrono_now_ms();
         for trig in &def.triggers {
             if let Err(e) = calendar::validate_trigger(trig, &def.policy.timezone) {
-                issues.push(format!("Trigger non valido: {}", e));
+                issues.push(crate::tr!(
+                    format!("Trigger non valido: {}", e),
+                    format!("Invalid trigger: {}", e)
+                ));
             } else if let Ok(occs) =
                 calendar::next_occurrences(trig, &def.policy.timezone, now, 5, def.created_at, None)
             {
@@ -1620,10 +1871,17 @@ impl Engine {
         if let AutomationAction::Command(ca) = &def.action {
             let current_os = current_platform();
             if !ca.platforms.is_empty() && !ca.platforms.iter().any(|p| p == current_os) {
-                issues.push(format!(
-                    "Questa automazione e' configurata per [{}] ma il sistema operativo attuale e' {}.",
-                    ca.platforms.join(", "),
-                    current_os
+                issues.push(crate::tr!(
+                    format!(
+                        "Questa automazione e' configurata per [{}] ma il sistema operativo attuale e' {}.",
+                        ca.platforms.join(", "),
+                        current_os
+                    ),
+                    format!(
+                        "This automation is configured for [{}] but the current operating system is {}.",
+                        ca.platforms.join(", "),
+                        current_os
+                    )
                 ));
             }
 
@@ -1634,16 +1892,25 @@ impl Engine {
                         file_hashes.insert(file.clone(), h);
                     }
                 } else {
-                    issues.push(format!("File '{}' non trovato.", file));
+                    issues.push(crate::tr!(
+                        format!("File '{}' non trovato.", file),
+                        format!("File '{}' not found.", file)
+                    ));
                 }
             }
 
             for (sec_name, sec_id) in &ca.secret_refs {
                 match secrets::exists(sec_id) {
                     Ok(true) => {}
-                    _ => issues.push(format!(
-                        "Segreto '{}' (ID: {}) non trovato nel vault OS (AUT-083).",
-                        sec_name, sec_id
+                    _ => issues.push(crate::tr!(
+                        format!(
+                            "Segreto '{}' (ID: {}) non trovato nel vault OS (AUT-083).",
+                            sec_name, sec_id
+                        ),
+                        format!(
+                            "Secret '{}' (ID: {}) not found in the OS vault (AUT-083).",
+                            sec_name, sec_id
+                        )
                     )),
                 }
             }
@@ -1665,18 +1932,28 @@ impl Engine {
                 defs.push(def);
             }
         }
-        serde_json::to_string_pretty(&defs).map_err(|e| format!("Errore serializzazione export: {}", e))
+        serde_json::to_string_pretty(&defs).map_err(|e| {
+            crate::tr!(
+                format!("Errore serializzazione export: {}", e),
+                format!("Export serialization error: {}", e)
+            )
+        })
     }
 
     pub fn import_definitions(&self, json_str: &str) -> Result<Vec<AutomationDraft>, String> {
         // Supporta sia array di definizioni che singola definizione
-        let parsed_defs: Vec<AutomationDefinition> = if let Ok(arr) = serde_json::from_str::<Vec<AutomationDefinition>>(json_str) {
-            arr
-        } else if let Ok(single) = serde_json::from_str::<AutomationDefinition>(json_str) {
-            vec![single]
-        } else {
-            return Err("Formato JSON non valido per l'importazione di definizioni.".to_string());
-        };
+        let parsed_defs: Vec<AutomationDefinition> =
+            if let Ok(arr) = serde_json::from_str::<Vec<AutomationDefinition>>(json_str) {
+                arr
+            } else if let Ok(single) = serde_json::from_str::<AutomationDefinition>(json_str) {
+                vec![single]
+            } else {
+                return Err(crate::tr!(
+                    "Formato JSON non valido per l'importazione di definizioni.",
+                    "Invalid JSON format for importing definitions."
+                )
+                .to_string());
+            };
 
         let now = chrono_now_ms();
         let mut drafts = Vec::new();
@@ -1719,28 +1996,40 @@ impl Engine {
         let definitions = match self.storage.get_definitions() {
             Ok(d) => d,
             Err(e) => {
-                errors.push(format!("Database definizioni non accessibile: {}", e));
+                errors.push(crate::tr!(
+                    format!("Database definizioni non accessibile: {}", e),
+                    format!("Definitions database not accessible: {}", e)
+                ));
                 Vec::new()
             }
         };
         let drafts = match self.storage.get_drafts() {
             Ok(d) => d,
             Err(e) => {
-                errors.push(format!("Database bozze non accessibile: {}", e));
+                errors.push(crate::tr!(
+                    format!("Database bozze non accessibile: {}", e),
+                    format!("Drafts database not accessible: {}", e)
+                ));
                 Vec::new()
             }
         };
         let runs = match self.storage.get_occurrences(50) {
             Ok(r) => r,
             Err(e) => {
-                errors.push(format!("Database cronologia non accessibile: {}", e));
+                errors.push(crate::tr!(
+                    format!("Database cronologia non accessibile: {}", e),
+                    format!("History database not accessible: {}", e)
+                ));
                 Vec::new()
             }
         };
         let registered = match self.storage.get_registered_projects() {
             Ok(p) => p,
             Err(e) => {
-                errors.push(format!("Database progetti registrati non accessibile: {}", e));
+                errors.push(crate::tr!(
+                    format!("Database progetti registrati non accessibile: {}", e),
+                    format!("Registered projects database not accessible: {}", e)
+                ));
                 Vec::new()
             }
         };
@@ -1752,7 +2041,14 @@ impl Engine {
             if def.state == "enabled" {
                 let mut earliest: Option<i64> = None;
                 for trig in &def.triggers {
-                    if let Ok(occs) = calendar::next_occurrences(trig, &def.policy.timezone, now, 1, def.created_at, None) {
+                    if let Ok(occs) = calendar::next_occurrences(
+                        trig,
+                        &def.policy.timezone,
+                        now,
+                        1,
+                        def.created_at,
+                        None,
+                    ) {
                         if let Some(&t) = occs.first() {
                             earliest = Some(earliest.map_or(t, |e| e.min(t)));
                         }
@@ -1792,10 +2088,16 @@ impl Engine {
             "selected" => {
                 for p_str in &targets.project_paths {
                     let p = Path::new(p_str);
-                    let name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| p_str.clone());
+                    let name = p
+                        .file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_else(|| p_str.clone());
                     candidates.push(ResolvedAutomationTarget {
                         key: p_str.clone(),
-                        project_id: registered.iter().find(|rp| rp.path == *p_str).map(|rp| rp.id.clone()),
+                        project_id: registered
+                            .iter()
+                            .find(|rp| rp.path == *p_str)
+                            .map(|rp| rp.id.clone()),
                         path: p_str.clone(),
                         name,
                         kind: "project".to_string(),
@@ -1830,7 +2132,9 @@ impl Engine {
                 candidates.push(ResolvedAutomationTarget {
                     key: "studio".to_string(),
                     project_id: None,
-                    path: std::env::current_dir().map(|p| p.to_string_lossy().to_string()).unwrap_or_else(|_| ".".to_string()),
+                    path: std::env::current_dir()
+                        .map(|p| p.to_string_lossy().to_string())
+                        .unwrap_or_else(|_| ".".to_string()),
                     name: "OMP Studio".to_string(),
                     kind: "studio".to_string(),
                 });
@@ -1845,7 +2149,10 @@ impl Engine {
                 };
                 for d in dir_paths {
                     let p = Path::new(d);
-                    let name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| d.clone());
+                    let name = p
+                        .file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_else(|| d.clone());
                     candidates.push(ResolvedAutomationTarget {
                         key: d.clone(),
                         project_id: None,
@@ -1866,7 +2173,9 @@ impl Engine {
             candidates.push(ResolvedAutomationTarget {
                 key: "studio".to_string(),
                 project_id: None,
-                path: std::env::current_dir().map(|p| p.to_string_lossy().to_string()).unwrap_or_else(|_| ".".to_string()),
+                path: std::env::current_dir()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_else(|_| ".".to_string()),
                 name: "OMP Studio".to_string(),
                 kind: "studio".to_string(),
             });
@@ -1882,12 +2191,18 @@ impl Engine {
                     let passed = match f.kind.as_str() {
                         "dirty" => observer.and_then(|o| o.is_dirty(&c.path)).unwrap_or(false),
                         "activity" => {
-                            let cutoff = filter_period_cutoff(&f.period, original_instant_ms, timezone);
-                            observer.map(|o| o.has_local_activity(&c.path, cutoff)).unwrap_or(false)
+                            let cutoff =
+                                filter_period_cutoff(&f.period, original_instant_ms, timezone);
+                            observer
+                                .map(|o| o.has_local_activity(&c.path, cutoff))
+                                .unwrap_or(false)
                         }
                         "commit" => {
-                            let cutoff = filter_period_cutoff(&f.period, original_instant_ms, timezone);
-                            observer.map(|o| o.has_commits_since(&c.path, cutoff, &f.authors)).unwrap_or(false)
+                            let cutoff =
+                                filter_period_cutoff(&f.period, original_instant_ms, timezone);
+                            observer
+                                .map(|o| o.has_commits_since(&c.path, cutoff, &f.authors))
+                                .unwrap_or(false)
                         }
                         _ => true,
                     };
@@ -1902,7 +2217,14 @@ impl Engine {
         candidates
     }
 
-    fn send_notification(&self, automation_id: &str, automation_name: &str, title: &str, body: &str, issue_key: &str) {
+    fn send_notification(
+        &self,
+        automation_id: &str,
+        automation_name: &str,
+        title: &str,
+        body: &str,
+        issue_key: &str,
+    ) {
         let now = chrono_now_ms();
         let mut history = self.notification_history.lock();
         let key = (automation_id.to_string(), issue_key.to_string());
@@ -1958,11 +2280,21 @@ fn filter_period_cutoff(period: &str, original_instant_ms: i64, timezone: &str) 
 }
 
 pub fn hash_file(path: &Path) -> Result<String, String> {
-    let mut file = File::open(path).map_err(|e| format!("Apertura file per hash: {}", e))?;
+    let mut file = File::open(path).map_err(|e| {
+        crate::tr!(
+            format!("Apertura file per hash: {}", e),
+            format!("Opening file for hashing: {}", e)
+        )
+    })?;
     let mut hasher = Sha256::new();
     let mut buffer = [0u8; 8192];
     loop {
-        let n = file.read(&mut buffer).map_err(|e| format!("Lettura file per hash: {}", e))?;
+        let n = file.read(&mut buffer).map_err(|e| {
+            crate::tr!(
+                format!("Lettura file per hash: {}", e),
+                format!("Reading file for hashing: {}", e)
+            )
+        })?;
         if n == 0 {
             break;
         }
@@ -2025,7 +2357,11 @@ fn title_slot_admissible(
     if active_titles > 0 || automation_waiting {
         return false;
     }
-    let global_ai_cap = if ctx.max_agent_count > 0 { ctx.max_agent_count } else { 2 };
+    let global_ai_cap = if ctx.max_agent_count > 0 {
+        ctx.max_agent_count
+    } else {
+        2
+    };
     active_ai + active_titles < global_ai_cap
 }
 
@@ -2098,15 +2434,33 @@ mod tests {
         let mut disabled = definition("spenta", r#"[{"id":"t","kind":"agentFinished"}]"#, "[]");
         disabled.state = "disabled".to_string();
         let definitions = vec![
-            definition("calendario", r#"[{"id":"t","kind":"calendar","time":"09:00"}]"#, "[]"),
-            definition("altro-progetto", r#"[{"id":"t","kind":"agentFinished"}]"#, r#"["C:/repo/altro"]"#),
+            definition(
+                "calendario",
+                r#"[{"id":"t","kind":"calendar","time":"09:00"}]"#,
+                "[]",
+            ),
+            definition(
+                "altro-progetto",
+                r#"[{"id":"t","kind":"agentFinished"}]"#,
+                r#"["C:/repo/altro"]"#,
+            ),
             definition("errori", r#"[{"id":"t","kind":"agentError"}]"#, "[]"),
             disabled,
-            definition("giusta", r#"[{"id":"t","kind":"agentFinished"}]"#, r#"["C:/repo/studio"]"#),
-            definition("ogni-progetto", r#"[{"id":"t","kind":"agentFinished"}]"#, "[]"),
+            definition(
+                "giusta",
+                r#"[{"id":"t","kind":"agentFinished"}]"#,
+                r#"["C:/repo/studio"]"#,
+            ),
+            definition(
+                "ogni-progetto",
+                r#"[{"id":"t","kind":"agentFinished"}]"#,
+                "[]",
+            ),
         ];
         let event = agent_event("agentFinished", "C:/repo/studio");
-        let ids: Vec<&str> = definitions_for_event(&definitions, &event).map(|d| d.id.as_str()).collect();
+        let ids: Vec<&str> = definitions_for_event(&definitions, &event)
+            .map(|d| d.id.as_str())
+            .collect();
         assert_eq!(ids, ["giusta", "ogni-progetto"]);
     }
 }

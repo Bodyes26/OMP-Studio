@@ -8,6 +8,7 @@ import {
 	isQuestionAnswered
 } from '../src/askAnswers.ts';
 import { formatCommandError } from '../src/errors.ts';
+import { setLanguage } from '../src/i18n.ts';
 import { detectDefaultDeviceName } from '../src/deviceDetect.ts';
 import type { RemoteAskQuestion, RemoteTaskSchedule } from '../../src/protocol.ts';
 
@@ -42,6 +43,9 @@ describe('backoff & jitter bounds', () => {
 });
 
 describe('schedule labels', () => {
+	// Le etichette seguono la lingua attiva: qui si verifica la resa italiana.
+	setLanguage('it');
+
 	it('returns null when no schedule exists', () => {
 		expect(formatScheduleLabel(null)).toBeNull();
 	});
@@ -156,6 +160,8 @@ describe('ask answer building', () => {
 });
 
 describe('command error messages mapping', () => {
+	setLanguage('it');
+
 	it('maps each known code to a clear message', () => {
 		expect(formatCommandError({ code: 'host_offline', message: '' })).toContain('offline');
 		expect(formatCommandError({ code: 'timeout', message: '' })).toContain('tempo limite');

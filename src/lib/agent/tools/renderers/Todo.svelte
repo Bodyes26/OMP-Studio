@@ -6,6 +6,7 @@
   stato dei singoli task e blocker inline.
 -->
 <script lang="ts">
+	import { m } from '#lib/paraglide/messages.js';
 	import { flip } from 'svelte/animate';
 	import OutputBlock from '../parts/OutputBlock.svelte';
 	import TaskRow from '../../components/TaskRow.svelte';
@@ -27,9 +28,9 @@
 		const rawPhases = recordList(details?.phases);
 		if (rawPhases.length > 0) {
 			return rawPhases.map((p, idx) => ({
-				name: str(p.name) ?? str(p.phase) ?? `Fase ${idx + 1}`,
+				name: str(p.name) ?? str(p.phase) ?? m.l10n_tools_label_phase_n({ index: idx + 1 }),
 				tasks: recordList(p.tasks).map((t, tIdx) => ({
-					content: str(t.task) ?? str(t.content) ?? `Attivita' ${tIdx + 1}`,
+					content: str(t.task) ?? str(t.content) ?? m.l10n_tools_label_activity_n({ index: tIdx + 1 }),
 					status: (str(t.status) ?? 'pending') as TodoStatus,
 					blocker: str(t.blocker)
 				}))
@@ -39,9 +40,9 @@
 		const listArg = recordList(args.list);
 		if (listArg.length > 0) {
 			return listArg.map((p, idx) => ({
-				name: str(p.phase) ?? str(p.name) ?? `Fase ${idx + 1}`,
+				name: str(p.phase) ?? str(p.name) ?? m.l10n_tools_label_phase_n({ index: idx + 1 }),
 				tasks: recordList(p.items).map((t, tIdx) => ({
-					content: str(t.task) ?? str(t.content) ?? (typeof t === 'string' ? t : `Attivita' ${tIdx + 1}`),
+					content: str(t.task) ?? str(t.content) ?? (typeof t === 'string' ? t : m.l10n_tools_label_activity_n({ index: tIdx + 1 })),
 					status: 'pending' as TodoStatus
 				}))
 			}));
@@ -51,9 +52,9 @@
 		if (flatItems.length > 0) {
 			return [
 				{
-					name: str(args.phase) ?? 'Attività',
+					name: str(args.phase) ?? m.l10n_tools_label_activity(),
 					tasks: flatItems.map((t, tIdx) => ({
-						content: str(t.task) ?? str(t.content) ?? (typeof t === 'string' ? t : `Attivita' ${tIdx + 1}`),
+						content: str(t.task) ?? str(t.content) ?? (typeof t === 'string' ? t : m.l10n_tools_label_activity_n({ index: tIdx + 1 })),
 						status: 'pending' as TodoStatus
 					}))
 				}
@@ -99,7 +100,7 @@
 			{/each}
 		</div>
 	{:else if textFallback}
-		<OutputBlock text={textFallback} label="risultato todo" />
+		<OutputBlock text={textFallback} label={m.l10n_tools_label_todo_result()} />
 	{/if}
 </div>
 

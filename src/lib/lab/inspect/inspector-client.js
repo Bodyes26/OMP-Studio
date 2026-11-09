@@ -24,6 +24,16 @@
 export const LAB_INSPECT_PROTOCOL = 2;
 export const LAB_LOC_ATTR = 'data-lab-loc';
 
+/**
+ * Testi risolti da Studio nella lingua attiva (`buildInspectorModule` li passa a
+ * `installLabInspector`): il modulo gira nell'iframe, senza accesso a Paraglide.
+ */
+let LAB_STRINGS = {};
+function S(key, fallback) {
+	const value = LAB_STRINGS[key];
+	return value == null ? fallback : value;
+}
+
 const MEDIA_TAGS = new Set(['img', 'svg', 'video', 'canvas', 'picture', 'iframe']);
 const CONTROL_TAGS = new Set(['button', 'a', 'input', 'select', 'textarea', 'label']);
 
@@ -361,7 +371,7 @@ function blobToDataUrl(win, blob) {
 	return new Promise((resolve, reject) => {
 		const reader = new win.FileReader();
 		reader.onload = () => resolve(reader.result);
-		reader.onerror = () => reject(reader.error || new Error('lettura non riuscita'));
+		reader.onerror = () => reject(reader.error || new Error(S('readFailed', 'read failed')));
 		reader.readAsDataURL(blob);
 	});
 }
@@ -396,11 +406,11 @@ function imageToDataUrl(win, url, cache) {
 					reject(err);
 				}
 			};
-			img.onerror = () => reject(new Error('immagine non caricabile con CORS'));
+			img.onerror = () => reject(new Error(S('imageCorsFailed', 'image could not be loaded with CORS')));
 			img.src = url;
 		}),
 		5000,
-		'immagine: tempo scaduto'
+		S('imageTimeout', 'image: timed out')
 	);
 	cache.set(url, job);
 	return job;
@@ -447,11 +457,11 @@ async function collectFontCss(win, usedFamilies, warnings) {
 			for (const u of urls) {
 				try {
 					const abs = new win.URL(u, sheet.href || doc.baseURI).href;
-					const res = await withTimeout(win.fetch(abs), 5000, 'font: tempo scaduto');
+					const res = await withTimeout(win.fetch(abs), 5000, S('fontTimeout', 'font: timed out'));
 					if (!res.ok) throw new Error('HTTP ' + res.status);
 					const blob = await res.blob();
 					budget -= blob.size;
-					if (budget < 0) throw new Error('troppi font');
+					if (budget < 0) throw new Error(S('tooManyFonts', 'too many fonts'));
 					const data = await blobToDataUrl(win, blob);
 					cssText = cssText.split(u).join(data);
 				} catch (_) {
@@ -702,7 +712,7 @@ export async function rasterizeRegion(win, region, opts) {
 
 	try {
 		const root = clone(doc.documentElement, null, null);
-		if (!root) throw new Error('documento vuoto');
+		if (!root) throw new Error(S('emptyDocument', 'empty document'));
 		await Promise.all(jobs);
 		const fontCss = await collectFontCss(win, usedFamilies, warnings);
 		const styleEl = doc.createElement('style');
@@ -727,10 +737,10 @@ export async function rasterizeRegion(win, region, opts) {
 		img.decoding = 'sync';
 		const loaded = new Promise((resolve, reject) => {
 			img.onload = () => resolve();
-			img.onerror = () => reject(new Error('SVG del fotogramma non valido'));
+			img.onerror = () => reject(new Error(S('frameSvgInvalid', 'invalid frame SVG')));
 		});
 		img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
-		await withTimeout(loaded, 8000, 'fotogramma: tempo scaduto');
+		await withTimeout(loaded, 8000, S('frameTimeout', 'frame: timed out'));
 
 		const dpr = Math.min(2, win.devicePixelRatio || 1);
 		const scale = Math.min(dpr, opts.maxSide / Math.max(region.width, region.height));
@@ -782,8 +792,9 @@ const OVERLAY_CSS = `
 .rubber { position: fixed; border: 1.5px dashed #e2477f; background: rgba(226,71,127,.08); display: none; box-sizing: border-box; }
 `;
 
-export function installLabInspector(win) {
+export function installLabInspector(win, strings) {
 	if (win.__labInspector) return win.__labInspector;
+	if (strings) LAB_STRINGS = strings;
 	const doc = win.document;
 	const post = (msg) => {
 		try {

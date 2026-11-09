@@ -251,6 +251,15 @@ fn fuzzy_match_str(target: &str, query: &str) -> Option<(i64, Vec<usize>)> {
     best_score
 }
 
+/// Errore di un comando che non ha concluso il proprio `spawn_blocking`. Il
+/// testo arriva all'utente: `operation` resta un identificatore ASCII stabile.
+fn task_error(operation: &str, error: impl std::fmt::Display) -> String {
+    crate::tr!(
+        format!("Operazione {operation} interrotta: {error}"),
+        format!("Operation {operation} interrupted: {error}")
+    )
+}
+
 fn resolve_path(project_path: &str, rel_path: &str) -> Result<PathBuf, String> {
     #[cfg(not(target_os = "windows"))]
     let clean_project_path = project_path.replace('\\', "/");
@@ -260,17 +269,28 @@ fn resolve_path(project_path: &str, rel_path: &str) -> Result<PathBuf, String> {
     let clean_rel_path = rel_path.replace('\\', "/");
 
     let base = Path::new(&clean_project_path).canonicalize().map_err(|e| {
-        format!(
-            "Radice del progetto non valida ({}): {}",
-            clean_project_path, e
+        crate::tr!(
+            format!(
+                "Radice del progetto non valida ({}): {}",
+                clean_project_path, e
+            ),
+            format!("Invalid project root ({}): {}", clean_project_path, e)
         )
     })?;
     if clean_rel_path.contains('\0') {
-        return Err("Il percorso relativo contiene caratteri non ammessi".to_string());
+        return Err(crate::tr!(
+            "Il percorso relativo contiene caratteri non ammessi",
+            "The relative path contains disallowed characters"
+        )
+        .to_string());
     }
     #[cfg(target_os = "windows")]
     if clean_rel_path.contains(':') {
-        return Err("Il percorso relativo contiene caratteri non ammessi".to_string());
+        return Err(crate::tr!(
+            "Il percorso relativo contiene caratteri non ammessi",
+            "The relative path contains disallowed characters"
+        )
+        .to_string());
     }
 
     let target = if clean_rel_path.is_empty() {
@@ -282,17 +302,32 @@ fn resolve_path(project_path: &str, rel_path: &str) -> Result<PathBuf, String> {
     let resolved = match target.canonicalize() {
         Ok(path) => path,
         Err(_) => {
-            let parent = target.parent().ok_or("Percorso senza cartella padre")?;
-            let name = target.file_name().ok_or("Percorso senza nome file")?;
+            let parent = target.parent().ok_or(crate::tr!(
+                "Percorso senza cartella padre",
+                "Path without a parent folder"
+            ))?;
+            let name = target.file_name().ok_or(crate::tr!(
+                "Percorso senza nome file",
+                "Path without a file name"
+            ))?;
             parent
                 .canonicalize()
-                .map_err(|e| format!("Cartella di destinazione non valida: {}", e))?
+                .map_err(|e| {
+                    crate::tr!(
+                        format!("Cartella di destinazione non valida: {}", e),
+                        format!("Invalid destination folder: {}", e)
+                    )
+                })?
                 .join(name)
         }
     };
 
     if !resolved.starts_with(&base) {
-        return Err("Il percorso esce dalla cartella del progetto".to_string());
+        return Err(crate::tr!(
+            "Il percorso esce dalla cartella del progetto",
+            "The path leaves the project folder"
+        )
+        .to_string());
     }
 
     Ok(resolved)
@@ -303,25 +338,39 @@ fn resolve_path(project_path: &str, rel_path: &str) -> Result<PathBuf, String> {
 pub(crate) fn validate_basename(name: &str) -> Result<&str, String> {
     let trimmed = name.trim();
     if trimmed.is_empty() {
-        return Err("Il nome non puo' essere vuoto".to_string());
+        return Err(crate::tr!("Il nome non puo' essere vuoto", "The name cannot be empty").to_string());
     }
     if name == "." || name == ".." || trimmed == "." || trimmed == ".." {
-        return Err("Nome non valido: '.' e '..' non sono ammessi".to_string());
+        return Err(crate::tr!(
+            "Nome non valido: '.' e '..' non sono ammessi",
+            "Invalid name: '.' and '..' are not allowed"
+        )
+        .to_string());
     }
     if name.contains('/') || name.contains('\\') || name.contains('\0') {
-        return Err(
-            "Il nome non puo' contenere separatori di percorso o caratteri nulli".to_string(),
-        );
+        return Err(crate::tr!(
+            "Il nome non puo' contenere separatori di percorso o caratteri nulli",
+            "The name cannot contain path separators or null characters"
+        )
+        .to_string());
     }
     #[cfg(target_os = "windows")]
     if name.contains(':') {
-        return Err("Il nome non puo' contenere due punti o prefissi drive".to_string());
+        return Err(crate::tr!(
+            "Il nome non puo' contenere due punti o prefissi drive",
+            "The name cannot contain colons or drive prefixes"
+        )
+        .to_string());
     }
     let mut components = Path::new(name).components();
     match (components.next(), components.next()) {
         (Some(Component::Normal(comp)), None) if comp == name => {}
         _ => {
-            return Err("Nome non valido: deve essere un singolo componente normale".to_string());
+            return Err(crate::tr!(
+                "Nome non valido: deve essere un singolo componente normale",
+                "Invalid name: it must be a single normal component"
+            )
+            .to_string());
         }
     }
     Ok(name)
@@ -335,13 +384,17 @@ pub(crate) fn canonical_project_base(project_path: &str) -> Result<PathBuf, Stri
     let clean_project_path = project_path.to_string();
 
     if clean_project_path.trim().is_empty() {
-        return Err("Percorso del progetto non specificato".to_string());
+        return Err(crate::tr!("Percorso del progetto non specificato", "Project path not specified")
+            .to_string());
     }
 
     Path::new(&clean_project_path).canonicalize().map_err(|e| {
-        format!(
-            "Radice del progetto non valida ({}): {}",
-            clean_project_path, e
+        crate::tr!(
+            format!(
+                "Radice del progetto non valida ({}): {}",
+                clean_project_path, e
+            ),
+            format!("Invalid project root ({}): {}", clean_project_path, e)
         )
     })
 }
@@ -350,11 +403,19 @@ pub(crate) fn canonical_project_base(project_path: &str) -> Result<PathBuf, Stri
 /// assicurando che non esca dai confini della radice.
 pub(crate) fn resolve_parent_dir(base: &Path, parent_rel: &str) -> Result<PathBuf, String> {
     if parent_rel.contains('\0') {
-        return Err("Percorso relativo non valido: contiene caratteri non ammessi".to_string());
+        return Err(crate::tr!(
+            "Percorso relativo non valido: contiene caratteri non ammessi",
+            "Invalid relative path: it contains disallowed characters"
+        )
+        .to_string());
     }
     #[cfg(target_os = "windows")]
     if parent_rel.contains(':') {
-        return Err("Percorso relativo non valido: contiene caratteri non ammessi".to_string());
+        return Err(crate::tr!(
+            "Percorso relativo non valido: contiene caratteri non ammessi",
+            "Invalid relative path: it contains disallowed characters"
+        )
+        .to_string());
     }
     let clean_parent = parent_rel.replace('\\', "/");
     let clean_parent = clean_parent.trim_matches('/');
@@ -366,25 +427,38 @@ pub(crate) fn resolve_parent_dir(base: &Path, parent_rel: &str) -> Result<PathBu
             match comp {
                 Component::Normal(_) | Component::CurDir | Component::ParentDir => {}
                 _ => {
-                    return Err(
-                        "Percorso relativo non valido: contiene radici o prefissi".to_string()
+                    return Err(crate::tr!(
+                        "Percorso relativo non valido: contiene radici o prefissi",
+                        "Invalid relative path: it contains roots or prefixes"
                     )
+                    .to_string())
                 }
             }
         }
         base.join(clean_parent)
     };
 
-    let canonical = target
-        .canonicalize()
-        .map_err(|e| format!("Cartella genitore non valida o inesistente: {}", e))?;
+    let canonical = target.canonicalize().map_err(|e| {
+        crate::tr!(
+            format!("Cartella genitore non valida o inesistente: {}", e),
+            format!("Invalid or missing parent folder: {}", e)
+        )
+    })?;
 
     if !canonical.starts_with(base) {
-        return Err("Il percorso esce dalla cartella del progetto".to_string());
+        return Err(crate::tr!(
+            "Il percorso esce dalla cartella del progetto",
+            "The path leaves the project folder"
+        )
+        .to_string());
     }
 
     if !canonical.is_dir() {
-        return Err("Il percorso genitore non e' una cartella".to_string());
+        return Err(crate::tr!(
+            "Il percorso genitore non e' una cartella",
+            "The parent path is not a folder"
+        )
+        .to_string());
     }
 
     Ok(canonical)
@@ -394,21 +468,37 @@ pub(crate) fn resolve_parent_dir(base: &Path, parent_rel: &str) -> Result<PathBu
 /// Rifiuta operazioni sulla radice del progetto.
 pub(crate) fn split_rel_path(rel: &str) -> Result<(String, String), String> {
     if rel.contains('\0') {
-        return Err("Percorso non valido: contiene caratteri non ammessi".to_string());
+        return Err(crate::tr!(
+            "Percorso non valido: contiene caratteri non ammessi",
+            "Invalid path: it contains disallowed characters"
+        )
+        .to_string());
     }
     #[cfg(target_os = "windows")]
     if rel.contains(':') {
-        return Err("Percorso non valido: contiene caratteri non ammessi".to_string());
+        return Err(crate::tr!(
+            "Percorso non valido: contiene caratteri non ammessi",
+            "Invalid path: it contains disallowed characters"
+        )
+        .to_string());
     }
     let clean = rel.replace('\\', "/");
     let clean = clean.trim_matches('/');
     if clean.is_empty() || clean == "." {
-        return Err("Operazione non consentita sulla radice del progetto".to_string());
+        return Err(crate::tr!(
+            "Operazione non consentita sulla radice del progetto",
+            "Operation not allowed on the project root"
+        )
+        .to_string());
     }
 
     let parts: Vec<&str> = clean.split('/').filter(|s| !s.is_empty()).collect();
     if parts.is_empty() {
-        return Err("Operazione non consentita sulla radice del progetto".to_string());
+        return Err(crate::tr!(
+            "Operazione non consentita sulla radice del progetto",
+            "Operation not allowed on the project root"
+        )
+        .to_string());
     }
 
     let leaf = parts.last().unwrap();
@@ -431,12 +521,20 @@ pub(crate) fn resolve_existing_entry(
     let entry_path = parent_dir.join(&leaf_name);
 
     if !entry_path.starts_with(&base) || entry_path.parent() != Some(&parent_dir) {
-        return Err("Il percorso esce dalla cartella del progetto".to_string());
+        return Err(crate::tr!(
+            "Il percorso esce dalla cartella del progetto",
+            "The path leaves the project folder"
+        )
+        .to_string());
     }
 
     // Leaf non seguito: verifichiamo l'esistenza dell'entry con symlink_metadata
-    let _meta = fs::symlink_metadata(&entry_path)
-        .map_err(|e| format!("Elemento '{}' non trovato: {}", rel, e))?;
+    let _meta = fs::symlink_metadata(&entry_path).map_err(|e| {
+        crate::tr!(
+            format!("Elemento '{}' non trovato: {}", rel, e),
+            format!("Item '{}' not found: {}", rel, e)
+        )
+    })?;
 
     let is_dir = entry_path.is_dir();
 
@@ -460,12 +558,19 @@ pub(crate) fn resolve_new_destination(
     let dest_path = parent_dir.join(name);
 
     if !dest_path.starts_with(&base) || dest_path.parent() != Some(&parent_dir) {
-        return Err("La destinazione esce dalla cartella del progetto".to_string());
+        return Err(crate::tr!(
+            "La destinazione esce dalla cartella del progetto",
+            "The destination leaves the project folder"
+        )
+        .to_string());
     }
 
     // Collision check: rifiuta se esiste gia' file, cartella, symlink o junction
     if fs::symlink_metadata(&dest_path).is_ok() {
-        return Err(format!("Un elemento con il nome '{}' esiste gia'", name));
+        return Err(crate::tr!(
+            format!("Un elemento con il nome '{}' esiste gia'", name),
+            format!("An item named '{}' already exists", name)
+        ));
     }
 
     Ok((dest_path, clean_parent, name.to_string()))
@@ -478,9 +583,15 @@ pub async fn path_create_file(
     name: String,
 ) -> Result<Dirent, String> {
     if crate::automations::is_project_locked(&project_path, None) {
-        return Err(format!(
-            "Impossibile creare il file: il progetto '{}' e' occupato da un'automazione attiva (AUT-042)",
-            project_path
+        return Err(crate::tr!(
+            format!(
+                "Impossibile creare il file: il progetto '{}' e' occupato da un'automazione attiva (AUT-042)",
+                project_path
+            ),
+            format!(
+                "Cannot create the file: project '{}' is busy with a running automation (AUT-042)",
+                project_path
+            )
         ));
     }
     tokio::task::spawn_blocking(move || {
@@ -491,7 +602,12 @@ pub async fn path_create_file(
             .write(true)
             .create_new(true)
             .open(&dest_path)
-            .map_err(|e| format!("Impossibile creare il file '{}': {}", name, e))?;
+            .map_err(|e| {
+                crate::tr!(
+                    format!("Impossibile creare il file '{}': {}", name, e),
+                    format!("Cannot create the file '{}': {}", name, e)
+                )
+            })?;
 
         drop(file);
 
@@ -508,7 +624,7 @@ pub async fn path_create_file(
         })
     })
     .await
-    .map_err(|e| format!("Task path_create_file: {e}"))?
+    .map_err(|e| task_error("path_create_file", e))?
 }
 
 #[command]
@@ -518,17 +634,27 @@ pub async fn path_create_directory(
     name: String,
 ) -> Result<Dirent, String> {
     if crate::automations::is_project_locked(&project_path, None) {
-        return Err(format!(
-            "Impossibile creare la cartella: il progetto '{}' e' occupato da un'automazione attiva (AUT-042)",
-            project_path
+        return Err(crate::tr!(
+            format!(
+                "Impossibile creare la cartella: il progetto '{}' e' occupato da un'automazione attiva (AUT-042)",
+                project_path
+            ),
+            format!(
+                "Cannot create the folder: project '{}' is busy with a running automation (AUT-042)",
+                project_path
+            )
         ));
     }
     tokio::task::spawn_blocking(move || {
         let (dest_path, parent_norm, dir_name) =
             resolve_new_destination(&project_path, &parent_rel, &name)?;
 
-        fs::create_dir(&dest_path)
-            .map_err(|e| format!("Impossibile creare la cartella '{}': {}", name, e))?;
+        fs::create_dir(&dest_path).map_err(|e| {
+            crate::tr!(
+                format!("Impossibile creare la cartella '{}': {}", name, e),
+                format!("Cannot create the folder '{}': {}", name, e)
+            )
+        })?;
 
         let rel_path = if parent_norm.is_empty() {
             dir_name.clone()
@@ -543,7 +669,7 @@ pub async fn path_create_directory(
         })
     })
     .await
-    .map_err(|e| format!("Task path_create_directory: {e}"))?
+    .map_err(|e| task_error("path_create_directory", e))?
 }
 
 /// Contatore dei nomi temporanei della rinomina in due passi: il pid da solo
@@ -625,9 +751,15 @@ pub async fn path_rename(
     new_name: String,
 ) -> Result<Dirent, String> {
     if crate::automations::is_project_locked(&project_path, None) {
-        return Err(format!(
-            "Impossibile rinominare l'elemento: il progetto '{}' e' occupato da un'automazione attiva (AUT-042)",
-            project_path
+        return Err(crate::tr!(
+            format!(
+                "Impossibile rinominare l'elemento: il progetto '{}' e' occupato da un'automazione attiva (AUT-042)",
+                project_path
+            ),
+            format!(
+                "Cannot rename the item: project '{}' is busy with a running automation (AUT-042)",
+                project_path
+            )
         ));
     }
     tokio::task::spawn_blocking(move || {
@@ -647,12 +779,19 @@ pub async fn path_rename(
             });
         }
 
-        let parent_dir = old_path.parent().ok_or("Cartella genitore non trovata")?;
+        let parent_dir = old_path.parent().ok_or(crate::tr!(
+            "Cartella genitore non trovata",
+            "Parent folder not found"
+        ))?;
         let new_path = parent_dir.join(&new_name);
 
         let base = canonical_project_base(&project_path)?;
         if !new_path.starts_with(&base) || new_path.parent() != Some(parent_dir) {
-            return Err("La destinazione della rinomina esce dalla cartella consentita".to_string());
+            return Err(crate::tr!(
+                "La destinazione della rinomina esce dalla cartella consentita",
+                "The rename destination leaves the allowed folder"
+            )
+            .to_string());
         }
 
         // Su un filesystem case-insensitive (APFS, NTFS) il percorso di
@@ -663,9 +802,9 @@ pub async fn path_rename(
         let is_case_only_rename = is_same_entry(&old_path, &new_path);
 
         if !is_case_only_rename && fs::symlink_metadata(&new_path).is_ok() {
-            return Err(format!(
-                "Un elemento con il nome '{}' esiste gia'",
-                new_name
+            return Err(crate::tr!(
+                format!("Un elemento con il nome '{}' esiste gia'", new_name),
+                format!("An item named '{}' already exists", new_name)
             ));
         }
 
@@ -676,9 +815,12 @@ pub async fn path_rename(
         };
 
         outcome.map_err(|e| {
-            format!(
-                "Impossibile rinominare '{}' in '{}': {}",
-                old_name, new_name, e
+            crate::tr!(
+                format!(
+                    "Impossibile rinominare '{}' in '{}': {}",
+                    old_name, new_name, e
+                ),
+                format!("Cannot rename '{}' to '{}': {}", old_name, new_name, e)
             )
         })?;
 
@@ -695,25 +837,35 @@ pub async fn path_rename(
         })
     })
     .await
-    .map_err(|e| format!("Task path_rename: {e}"))?
+    .map_err(|e| task_error("path_rename", e))?
 }
 
 #[command]
 pub async fn path_trash(project_path: String, rel: String) -> Result<(), String> {
     if crate::automations::is_project_locked(&project_path, None) {
-        return Err(format!(
-            "Impossibile eliminare l'elemento: il progetto '{}' e' occupato da un'automazione attiva (AUT-042)",
-            project_path
+        return Err(crate::tr!(
+            format!(
+                "Impossibile eliminare l'elemento: il progetto '{}' e' occupato da un'automazione attiva (AUT-042)",
+                project_path
+            ),
+            format!(
+                "Cannot delete the item: project '{}' is busy with a running automation (AUT-042)",
+                project_path
+            )
         ));
     }
     tokio::task::spawn_blocking(move || {
         let (target_path, _, _, _) = resolve_existing_entry(&project_path, &rel)?;
-        trash::delete(&target_path)
-            .map_err(|e| format!("Impossibile spostare nel cestino '{}': {}", rel, e))?;
+        trash::delete(&target_path).map_err(|e| {
+            crate::tr!(
+                format!("Impossibile spostare nel cestino '{}': {}", rel, e),
+                format!("Cannot move '{}' to the trash: {}", rel, e)
+            )
+        })?;
         Ok(())
     })
     .await
-    .map_err(|e| format!("Task path_trash: {e}"))?
+    .map_err(|e| task_error("path_trash", e))?
 }
 
 #[command]
@@ -753,7 +905,7 @@ pub async fn tree_read(project_path: String, rel: String) -> Result<Vec<Dirent>,
         Ok(entries)
     })
     .await
-    .map_err(|e| format!("Task tree_read: {e}"))?
+    .map_err(|e| task_error("tree_read", e))?
 }
 
 #[command]
@@ -765,7 +917,12 @@ pub async fn project_files_list(
     // worker del runtime async e fermerebbe gli altri comandi in attesa.
     tokio::task::spawn_blocking(move || files_list_sync(&project_path, limit))
         .await
-        .map_err(|error| format!("Elenco file interrotto: {}", error))?
+        .map_err(|error| {
+            crate::tr!(
+                format!("Elenco file interrotto: {}", error),
+                format!("File listing interrupted: {}", error)
+            )
+        })?
 }
 
 fn files_list_sync(project_path: &str, limit: Option<usize>) -> Result<Vec<String>, String> {
@@ -984,7 +1141,12 @@ pub async fn project_files_search(
 ) -> Result<Vec<FileSearchResult>, String> {
     tokio::task::spawn_blocking(move || project_files_search_sync(&project_path, &query, limit))
         .await
-        .map_err(|error| format!("Ricerca file interrotta: {}", error))?
+        .map_err(|error| {
+            crate::tr!(
+                format!("Ricerca file interrotta: {}", error),
+                format!("File search interrupted: {}", error)
+            )
+        })?
 }
 
 const MAX_CONTENT_FILE_SIZE: u64 = 1024 * 1024; // 1 MiB
@@ -1396,15 +1558,21 @@ pub async fn file_read_bytes(project_path: String, rel: String) -> Result<Respon
         Ok(Response::new(bytes))
     })
     .await
-    .map_err(|e| format!("Task file_read_bytes: {e}"))?
+    .map_err(|e| task_error("file_read_bytes", e))?
 }
 
 #[command]
 pub async fn file_write(project_path: String, rel: String, content: String) -> Result<(), String> {
     if crate::automations::is_project_locked(&project_path, None) {
-        return Err(format!(
-            "Impossibile salvare il file: il progetto '{}' e' occupato da un'automazione attiva (AUT-042)",
-            project_path
+        return Err(crate::tr!(
+            format!(
+                "Impossibile salvare il file: il progetto '{}' e' occupato da un'automazione attiva (AUT-042)",
+                project_path
+            ),
+            format!(
+                "Cannot save the file: project '{}' is busy with a running automation (AUT-042)",
+                project_path
+            )
         ));
     }
     tokio::task::spawn_blocking(move || {
@@ -1413,7 +1581,7 @@ pub async fn file_write(project_path: String, rel: String, content: String) -> R
         Ok(())
     })
     .await
-    .map_err(|e| format!("Task file_write: {e}"))?
+    .map_err(|e| task_error("file_write", e))?
 }
 #[command]
 pub async fn file_git_head(project_path: String, rel: String) -> Result<GitHeadContent, String> {
@@ -1513,7 +1681,7 @@ fn project_git_status_sync(project_path: &str) -> Result<FileGitStatus, String> 
 pub async fn project_git_status(project_path: String) -> Result<FileGitStatus, String> {
     tokio::task::spawn_blocking(move || project_git_status_sync(&project_path))
         .await
-        .map_err(|e| format!("Task project_git_status: {e}"))?
+        .map_err(|e| task_error("project_git_status", e))?
 }
 
 /// Percorsi esclusi da `.gitignore`, relativi alla cartella del progetto.
@@ -1525,7 +1693,7 @@ pub async fn project_git_ignored(project_path: String) -> Result<Vec<String>, St
     // `git ls-files` su un repository grande dura secondi: fuori dal runtime async.
     tokio::task::spawn_blocking(move || git_ignored_sync(&project_path))
         .await
-        .map_err(|error| format!("Task project_git_ignored: {error}"))
+        .map_err(|error| task_error("project_git_ignored", error))
 }
 
 fn git_ignored_sync(project_path: &str) -> Vec<String> {
@@ -1794,7 +1962,7 @@ fn git_diff_stats_sync(project_path: &str) -> GitDiffStats {
 pub async fn git_diff_stats(project_path: String) -> Result<GitDiffStats, String> {
     tokio::task::spawn_blocking(move || git_diff_stats_sync(&project_path))
         .await
-        .map_err(|error| format!("Task git_diff_stats: {error}"))
+        .map_err(|error| task_error("git_diff_stats", error))
 }
 
 /// Unisce `--name-status` e `--numstat` sulla stessa lista di path.
@@ -1896,7 +2064,7 @@ fn git_last_commit_sync(project_path: &str) -> Result<Option<CommitInfo>, String
 pub async fn git_last_commit(project_path: String) -> Result<Option<CommitInfo>, String> {
     tokio::task::spawn_blocking(move || git_last_commit_sync(&project_path))
         .await
-        .map_err(|e| format!("Task git_last_commit: {e}"))?
+        .map_err(|e| task_error("git_last_commit", e))?
 }
 
 fn git_recent_commits_sync(
@@ -1970,7 +2138,7 @@ pub async fn git_recent_commits(
 ) -> Result<Vec<CommitInfo>, String> {
     tokio::task::spawn_blocking(move || git_recent_commits_sync(&project_path, limit))
         .await
-        .map_err(|e| format!("Task git_recent_commits: {e}"))?
+        .map_err(|e| task_error("git_recent_commits", e))?
 }
 
 fn git_current_branch_sync(project_path: &str) -> Result<String, String> {
@@ -1985,7 +2153,7 @@ fn git_current_branch_sync(project_path: &str) -> Result<String, String> {
 pub async fn git_current_branch(project_path: String) -> Result<String, String> {
     tokio::task::spawn_blocking(move || git_current_branch_sync(&project_path))
         .await
-        .map_err(|e| format!("Task git_current_branch: {e}"))?
+        .map_err(|e| task_error("git_current_branch", e))?
 }
 
 fn git_working_numstat_sync(project_path: &str) -> Result<HashMap<String, NumStat>, String> {
@@ -2013,12 +2181,12 @@ fn git_working_numstat_sync(project_path: &str) -> Result<HashMap<String, NumSta
 pub async fn git_working_numstat(project_path: String) -> Result<HashMap<String, NumStat>, String> {
     tokio::task::spawn_blocking(move || git_working_numstat_sync(&project_path))
         .await
-        .map_err(|e| format!("Task git_working_numstat: {e}"))?
+        .map_err(|e| task_error("git_working_numstat", e))?
 }
 
 fn file_git_rev_sync(project_path: &str, rel: &str, rev: &str) -> Result<GitRevContent, String> {
     if rel.split(['/', '\\']).any(|seg| seg == "..") {
-        return Err("Percorso non valido".to_string());
+        return Err(crate::tr!("Percorso non valido", "Invalid path").to_string());
     }
     let rel_norm = rel.replace('\\', "/");
     let spec = format!("{rev}:{rel_norm}");
@@ -2050,7 +2218,7 @@ pub async fn file_git_rev(
 ) -> Result<GitRevContent, String> {
     tokio::task::spawn_blocking(move || file_git_rev_sync(&project_path, &rel, &rev))
         .await
-        .map_err(|e| format!("Task file_git_rev: {e}"))?
+        .map_err(|e| task_error("file_git_rev", e))?
 }
 
 #[derive(Serialize)]
@@ -2090,7 +2258,7 @@ fn git_branch_list_sync(project_path: &str) -> Result<Vec<GitBranch>, String> {
 pub async fn git_branch_list(project_path: String) -> Result<Vec<GitBranch>, String> {
     tokio::task::spawn_blocking(move || git_branch_list_sync(&project_path))
         .await
-        .map_err(|e| format!("Task git_branch_list: {e}"))?
+        .map_err(|e| task_error("git_branch_list", e))?
 }
 
 /// Checkout di un branch esistente. Rifiuta se ci sono modifiche non
@@ -2099,17 +2267,24 @@ pub async fn git_branch_list(project_path: String) -> Result<Vec<GitBranch>, Str
 #[command]
 pub async fn git_branch_checkout(project_path: String, name: String) -> Result<(), String> {
     if crate::automations::is_project_locked(&project_path, None) {
-        return Err(format!(
-            "Impossibile cambiare branch: il progetto '{}' e' occupato da un'automazione attiva (AUT-042)",
-            project_path
+        return Err(crate::tr!(
+            format!(
+                "Impossibile cambiare branch: il progetto '{}' e' occupato da un'automazione attiva (AUT-042)",
+                project_path
+            ),
+            format!(
+                "Cannot switch branch: project '{}' is busy with a running automation (AUT-042)",
+                project_path
+            )
         ));
     }
     let status = project_git_status(project_path.clone()).await?;
     if !status.statuses.is_empty() {
-        return Err(
-            "Ci sono modifiche non committate: committale o scartale prima di cambiare branch"
-                .to_string(),
-        );
+        return Err(crate::tr!(
+            "Ci sono modifiche non committate: committale o scartale prima di cambiare branch",
+            "There are uncommitted changes: commit or discard them before switching branch"
+        )
+        .to_string());
     }
     tokio::task::spawn_blocking(move || {
         let mut cmd = Command::new("git");
@@ -2124,20 +2299,26 @@ pub async fn git_branch_checkout(project_path: String, name: String) -> Result<(
         Ok(())
     })
     .await
-    .map_err(|e| format!("Task git_branch_checkout: {e}"))?
+    .map_err(|e| task_error("git_branch_checkout", e))?
 }
 
 #[command]
 pub async fn git_branch_create(project_path: String, name: String) -> Result<(), String> {
     if crate::automations::is_project_locked(&project_path, None) {
-        return Err(format!(
-            "Impossibile creare il branch: il progetto '{}' e' occupato da un'automazione attiva (AUT-042)",
-            project_path
+        return Err(crate::tr!(
+            format!(
+                "Impossibile creare il branch: il progetto '{}' e' occupato da un'automazione attiva (AUT-042)",
+                project_path
+            ),
+            format!(
+                "Cannot create the branch: project '{}' is busy with a running automation (AUT-042)",
+                project_path
+            )
         ));
     }
     let trimmed = name.trim().to_string();
     if trimmed.is_empty() || trimmed.contains("..") || trimmed.starts_with('-') {
-        return Err("Nome di branch non valido".to_string());
+        return Err(crate::tr!("Nome di branch non valido", "Invalid branch name").to_string());
     }
     tokio::task::spawn_blocking(move || {
         let mut cmd = Command::new("git");
@@ -2152,7 +2333,7 @@ pub async fn git_branch_create(project_path: String, name: String) -> Result<(),
         Ok(())
     })
     .await
-    .map_err(|e| format!("Task git_branch_create: {e}"))?
+    .map_err(|e| task_error("git_branch_create", e))?
 }
 
 
@@ -2293,7 +2474,7 @@ pub async fn preview_file(project_path: String, rel: String) -> Result<GitRevCon
         })
     })
     .await
-    .map_err(|e| format!("Task preview_file: {e}"))?
+    .map_err(|e| task_error("preview_file", e))?
 }
 
 fn find_file_in_dir(dir: &Path, target_name: &str, depth: usize) -> Option<PathBuf> {
@@ -2441,23 +2622,29 @@ pub async fn project_canonicalize_child_dir(
 ) -> Result<String, String> {
     tokio::task::spawn_blocking(move || project_canonicalize_child_dir_sync(&root, &candidate))
         .await
-        .map_err(|e| format!("Task canonicalize: {e}"))?
+        .map_err(|e| task_error("canonicalize", e))?
 }
 
 pub fn project_canonicalize_child_dir_sync(root: &str, candidate: &str) -> Result<String, String> {
     let root_path = Path::new(root);
     if !root_path.exists() {
-        return Err(format!("La radice dei progetti '{}' non esiste.", root));
-    }
-    if !root_path.is_dir() {
-        return Err(format!(
-            "La radice dei progetti '{}' non e' una cartella.",
-            root
+        return Err(crate::tr!(
+            format!("La radice dei progetti '{}' non esiste.", root),
+            format!("The projects root '{}' does not exist.", root)
         ));
     }
-    let canonical_root = root_path
-        .canonicalize()
-        .map_err(|e| format!("Impossibile risolvere la radice dei progetti: {e}"))?;
+    if !root_path.is_dir() {
+        return Err(crate::tr!(
+            format!("La radice dei progetti '{}' non e' una cartella.", root),
+            format!("The projects root '{}' is not a folder.", root)
+        ));
+    }
+    let canonical_root = root_path.canonicalize().map_err(|e| {
+        crate::tr!(
+            format!("Impossibile risolvere la radice dei progetti: {e}"),
+            format!("Cannot resolve the projects root: {e}")
+        )
+    })?;
 
     let candidate_path = Path::new(candidate);
     let target = if candidate_path.is_absolute() {
@@ -2467,21 +2654,34 @@ pub fn project_canonicalize_child_dir_sync(root: &str, candidate: &str) -> Resul
     };
 
     if !target.exists() {
-        return Err("La cartella specificata non esiste.".to_string());
+        return Err(crate::tr!(
+            "La cartella specificata non esiste.",
+            "The specified folder does not exist."
+        )
+        .to_string());
     }
 
-    let canonical_target = target
-        .canonicalize()
-        .map_err(|e| format!("Impossibile risolvere il percorso della cartella: {e}"))?;
+    let canonical_target = target.canonicalize().map_err(|e| {
+        crate::tr!(
+            format!("Impossibile risolvere il percorso della cartella: {e}"),
+            format!("Cannot resolve the folder path: {e}")
+        )
+    })?;
 
     if !canonical_target.is_dir() {
-        return Err("Il percorso specificato non e' una cartella.".to_string());
+        return Err(crate::tr!(
+            "Il percorso specificato non e' una cartella.",
+            "The specified path is not a folder."
+        )
+        .to_string());
     }
 
     if canonical_target.parent() != Some(&canonical_root) {
-        return Err(
-            "La cartella deve trovarsi direttamente sotto la radice dei progetti.".to_string(),
-        );
+        return Err(crate::tr!(
+            "La cartella deve trovarsi direttamente sotto la radice dei progetti.",
+            "The folder must sit directly under the projects root."
+        )
+        .to_string());
     }
 
     let result_str = canonical_target.to_string_lossy().to_string();
@@ -2553,7 +2753,12 @@ mod tests {
         let res =
             project_canonicalize_child_dir_sync(root.to_str().unwrap(), file.to_str().unwrap());
         assert!(res.is_err());
-        assert!(res.unwrap_err().contains("non e' una cartella"));
+        // Il messaggio dipende dalla lingua dell'interfaccia: accettiamo entrambe.
+        let err = res.unwrap_err();
+        assert!(
+            err.contains("non e' una cartella") || err.contains("is not a folder"),
+            "errore inatteso: {err}"
+        );
         let _ = fs::remove_dir_all(&root);
     }
 
@@ -2585,7 +2790,11 @@ mod tests {
         let res =
             project_canonicalize_child_dir_sync(root.to_str().unwrap(), link.to_str().unwrap());
         assert!(res.is_err());
-        assert!(res.unwrap_err().contains("direttamente sotto la radice"));
+        let err = res.unwrap_err();
+        assert!(
+            err.contains("direttamente sotto la radice") || err.contains("directly under the projects root"),
+            "errore inatteso: {err}"
+        );
 
         let _ = fs::remove_file(&link);
         let _ = fs::remove_dir_all(&root);
@@ -3207,7 +3416,12 @@ mod tests {
             "uno.txt".to_string(),
             "due.txt".to_string(),
         )));
-        assert!(err.contains("esiste gia'"), "errore inatteso: {}", err);
+        // Il messaggio dipende dalla lingua dell'interfaccia: accettiamo entrambe.
+        assert!(
+            err.contains("esiste gia'") || err.contains("already exists"),
+            "errore inatteso: {}",
+            err
+        );
         assert_eq!(fs::read_to_string(root.join("uno.txt")).unwrap(), "1");
         assert_eq!(fs::read_to_string(root.join("due.txt")).unwrap(), "2");
         assert!(residui_rinomina(&root).is_empty());
@@ -3226,7 +3440,7 @@ mod tests {
                 "TRE.txt".to_string(),
             )));
             assert!(
-                err_case.contains("esiste gia'"),
+                err_case.contains("esiste gia'") || err_case.contains("already exists"),
                 "errore inatteso: {}",
                 err_case
             );

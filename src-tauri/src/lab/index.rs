@@ -17,6 +17,10 @@ use tauri::command;
 static INDEX_LOCKS: LazyLock<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+/// Blocco aggiunto al `.gitignore` del progetto: e' un commento dell'utente, quindi
+/// resta neutro in inglese qualunque sia la lingua dell'interfaccia.
+const GITIGNORE_BLOCK: &str = "\n# OMP Studio Lab (local prototype index)\n.omp/lab/\n";
+
 /// Ottiene o crea il mutex associato al file di indice specificato.
 fn get_file_lock(path: &Path) -> Arc<Mutex<()>> {
     let mut locks = INDEX_LOCKS.lock();
@@ -33,15 +37,20 @@ pub fn resolve_index_path(project_path: Option<&str>) -> Result<PathBuf, String>
         Some(path_str) => {
             let path = Path::new(path_str);
             if !path.exists() {
-                return Err(format!(
-                    "Cartella di progetto non esistente: {}",
-                    path.display()
+                return Err(crate::tr!(
+                    format!("Cartella di progetto non esistente: {}", path.display()),
+                    format!("Project folder does not exist: {}", path.display())
                 ));
             }
             Ok(project_index_path(path))
         }
-        None => drafts_index_path()
-            .ok_or_else(|| "Radice del Laboratorio non disponibile per le bozze".to_string()),
+        None => drafts_index_path().ok_or_else(|| {
+            crate::tr!(
+                "Radice del Laboratorio non disponibile per le bozze",
+                "Lab root not available for drafts"
+            )
+            .to_string()
+        }),
     }
 }
 
@@ -51,12 +60,22 @@ pub fn read_index(path: &Path) -> Result<LabIndexFile, String> {
     if !path.exists() {
         return Ok(LabIndexFile::default());
     }
-    let content = fs::read_to_string(path)
-        .map_err(|e| format!("Impossibile leggere l'indice in {}: {e}", path.display()))?;
+    let content = fs::read_to_string(path).map_err(|e| {
+        crate::tr!(
+            format!("Impossibile leggere l'indice in {}: {e}", path.display()),
+            format!("Unable to read the index in {}: {e}", path.display())
+        )
+    })?;
     serde_json::from_str(&content).map_err(|e| {
-        format!(
-            "Indice dei prototipi corrotto o non valido in {}: {e}",
-            path.display()
+        crate::tr!(
+            format!(
+                "Indice dei prototipi corrotto o non valido in {}: {e}",
+                path.display()
+            ),
+            format!(
+                "Corrupted or invalid prototype index in {}: {e}",
+                path.display()
+            )
         )
     })
 }
@@ -65,14 +84,24 @@ pub fn read_index(path: &Path) -> Result<LabIndexFile, String> {
 pub fn write_index(path: &Path, file: &LabIndexFile) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| {
-            format!(
-                "Impossibile creare la cartella dell'indice in {}: {e}",
-                parent.display()
+            crate::tr!(
+                format!(
+                    "Impossibile creare la cartella dell'indice in {}: {e}",
+                    parent.display()
+                ),
+                format!(
+                    "Unable to create the index folder in {}: {e}",
+                    parent.display()
+                )
             )
         })?;
     }
-    let json_bytes = serde_json::to_vec_pretty(file)
-        .map_err(|e| format!("Serializzazione indice fallita: {e}"))?;
+    let json_bytes = serde_json::to_vec_pretty(file).map_err(|e| {
+        crate::tr!(
+            format!("Serializzazione indice fallita: {e}"),
+            format!("Index serialization failed: {e}")
+        )
+    })?;
     crate::fs_atomic::atomic_write(path, &json_bytes)
 }
 
@@ -88,9 +117,15 @@ pub fn ensure_project_gitignore(project_path: &Path) -> Result<(), String> {
     let gitignore_path = canonical.join(".gitignore");
     if gitignore_path.exists() {
         let content = fs::read_to_string(&gitignore_path).map_err(|e| {
-            format!(
-                "Impossibile leggere .gitignore in {}: {e}",
-                gitignore_path.display()
+            crate::tr!(
+                format!(
+                    "Impossibile leggere .gitignore in {}: {e}",
+                    gitignore_path.display()
+                ),
+                format!(
+                    "Unable to read .gitignore in {}: {e}",
+                    gitignore_path.display()
+                )
             )
         })?;
 
@@ -113,10 +148,11 @@ pub fn ensure_project_gitignore(project_path: &Path) -> Result<(), String> {
         if !new_content.is_empty() && !new_content.ends_with('\n') {
             new_content.push('\n');
         }
-        new_content.push_str("\n# OMP Studio Lab (indice locale dei prototipi)\n.omp/lab/\n");
+        // Commento neutro (niente italiano) finisce nel .gitignore dell'utente.
+        new_content.push_str(GITIGNORE_BLOCK);
         crate::fs_atomic::atomic_write(&gitignore_path, new_content.as_bytes())
     } else {
-        let content = "# OMP Studio Lab (indice locale dei prototipi)\n.omp/lab/\n";
+        let content = GITIGNORE_BLOCK.trim_start_matches('\n');
         crate::fs_atomic::atomic_write(&gitignore_path, content.as_bytes())
     }
 }
@@ -152,7 +188,12 @@ pub async fn lab_index_update(
             .prototypes
             .iter_mut()
             .find(|e| e.id == id)
-            .ok_or_else(|| format!("Prototipo {id} non trovato nell'indice"))?;
+            .ok_or_else(|| {
+                crate::tr!(
+                    format!("Prototipo {id} non trovato nell'indice"),
+                    format!("Prototype {id} not found in the index")
+                )
+            })?;
 
         if let Some(title) = patch.title {
             entry.title = title;
@@ -209,10 +250,17 @@ pub async fn lab_index_remove(
             .prototypes
             .iter()
             .position(|e| e.id == id)
-            .ok_or_else(|| format!("Prototipo {id} non trovato nell'indice"))?;
+            .ok_or_else(|| {
+                crate::tr!(
+                    format!("Prototipo {id} non trovato nell'indice"),
+                    format!("Prototype {id} not found in the index")
+                )
+            })?;
 
         if delete_workspace {
-            let root = lab_root().ok_or("Radice Lab non disponibile")?;
+            let root = lab_root().ok_or_else(|| {
+                crate::tr!("Radice Lab non disponibile", "Lab root not available").to_string()
+            })?;
             let workspace = PathBuf::from(&index_file.prototypes[pos].workspace_path);
             remove_prototype_workspace(&root.join("prototypes"), &workspace)?;
         }
@@ -233,16 +281,28 @@ pub(super) fn confined_prototype_workspace(
 ) -> Result<PathBuf, String> {
     // Si canonicalizzano entrambi i lati solo quando esistono: su Windows
     // `canonicalize` aggiunge il prefisso `\\?\`, e un confronto misto fallirebbe sempre.
-    let allowed = prototypes_dir
-        .canonicalize()
-        .map_err(|e| format!("Cartella dei prototipi non accessibile: {e}"))?;
-    let target = workspace
-        .canonicalize()
-        .map_err(|e| format!("Workspace non accessibile in {}: {e}", workspace.display()))?;
+    let allowed = prototypes_dir.canonicalize().map_err(|e| {
+        crate::tr!(
+            format!("Cartella dei prototipi non accessibile: {e}"),
+            format!("Prototypes folder not accessible: {e}")
+        )
+    })?;
+    let target = workspace.canonicalize().map_err(|e| {
+        crate::tr!(
+            format!("Workspace non accessibile in {}: {e}", workspace.display()),
+            format!("Workspace not accessible in {}: {e}", workspace.display())
+        )
+    })?;
     if !target.starts_with(&allowed) || target == allowed {
-        return Err(format!(
-            "Il workspace {} non e' contenuto nella directory dei prototipi",
-            workspace.display()
+        return Err(crate::tr!(
+            format!(
+                "Il workspace {} non e' contenuto nella directory dei prototipi",
+                workspace.display()
+            ),
+            format!(
+                "Workspace {} is not inside the prototypes directory",
+                workspace.display()
+            )
         ));
     }
     Ok(target)
@@ -255,9 +315,15 @@ fn remove_prototype_workspace(prototypes_dir: &Path, workspace: &Path) -> Result
         return Ok(());
     }
     let target = confined_prototype_workspace(prototypes_dir, workspace).map_err(|_| {
-        format!(
-            "Cancellazione negata: il workspace {} non e' contenuto nella directory sicura dei prototipi",
-            workspace.display()
+        crate::tr!(
+            format!(
+                "Cancellazione negata: il workspace {} non e' contenuto nella directory sicura dei prototipi",
+                workspace.display()
+            ),
+            format!(
+                "Deletion denied: workspace {} is not inside the safe prototypes directory",
+                workspace.display()
+            )
         )
     })?;
 
@@ -275,10 +341,21 @@ fn remove_prototype_workspace(prototypes_dir: &Path, workspace: &Path) -> Result
             std::thread::sleep(std::time::Duration::from_millis(250));
         }
     }
-    Err(format!(
-        "Impossibile eliminare il workspace in {}: {}",
-        workspace.display(),
-        last_error.map(|e| e.to_string()).unwrap_or_default()
+    Err(crate::tr!(
+        format!(
+            "Impossibile eliminare il workspace in {}: {}",
+            workspace.display(),
+            last_error
+                .map(|e| e.to_string())
+                .unwrap_or_else(|| crate::tr!("errore sconosciuto", "unknown error").to_string())
+        ),
+        format!(
+            "Unable to delete the workspace in {}: {}",
+            workspace.display(),
+            last_error
+                .map(|e| e.to_string())
+                .unwrap_or_else(|| "unknown error".to_string())
+        )
     ))
 }
 
@@ -291,14 +368,25 @@ pub async fn lab_prototype_associate(
     tokio::task::spawn_blocking(move || {
         let target_project = Path::new(&target_project_path);
         if !target_project.exists() {
-            return Err(format!(
-                "Cartella di progetto di destinazione non esistente: {}",
-                target_project.display()
+            return Err(crate::tr!(
+                format!(
+                    "Cartella di progetto di destinazione non esistente: {}",
+                    target_project.display()
+                ),
+                format!(
+                    "Destination project folder does not exist: {}",
+                    target_project.display()
+                )
             ));
         }
 
-        let drafts_path = drafts_index_path()
-            .ok_or_else(|| "Radice del Laboratorio non disponibile".to_string())?;
+        let drafts_path = drafts_index_path().ok_or_else(|| {
+            crate::tr!(
+                "Radice del Laboratorio non disponibile",
+                "Lab root not available"
+            )
+            .to_string()
+        })?;
         let target_index_path = project_index_path(target_project);
 
         // Blocca entrambi gli indici in ordine deterministico per evitare deadlock
@@ -320,7 +408,12 @@ pub async fn lab_prototype_associate(
             .prototypes
             .iter()
             .position(|e| e.id == id)
-            .ok_or_else(|| format!("Prototipo {id} non trovato nelle bozze"))?;
+            .ok_or_else(|| {
+                crate::tr!(
+                    format!("Prototipo {id} non trovato nelle bozze"),
+                    format!("Prototype {id} not found among drafts")
+                )
+            })?;
 
         let mut entry = drafts_file.prototypes.remove(pos);
         entry.updated_at = now_iso8601();

@@ -1,3 +1,4 @@
+import { getLocale } from '#lib/paraglide/runtime.js';
 import { projectStore, type Project } from './projects.svelte';
 import { settingsStore } from './settings.svelte';
 import { taskStore } from './tasks.svelte';
@@ -15,14 +16,15 @@ import { taskStore } from './tasks.svelte';
  */
 class ProjectOrder {
 	get list(): Project[] {
+		const projects = projectStore.projects.filter((p) => !p.external);
 		const order = settingsStore.projectBar.order;
 
 		if (order === 'alpha') {
-			return [...projectStore.projects].sort((a, b) => a.name.localeCompare(b.name, 'it'));
+			return [...projects].sort((a, b) => a.name.localeCompare(b.name, getLocale()));
 		}
 
 		if (order === 'priority') {
-			const entries = projectStore.projects.map((p, index) => {
+			const entries = projects.map((p, index) => {
 				const queued = p.canonicalProjectPath
 					? taskStore.queuedCountFor(p.canonicalProjectPath)
 					: 0;
@@ -45,7 +47,7 @@ class ProjectOrder {
 
 		// 'fixed': l'ordine manuale e' l'unica verita'. 'mru': l'array e' gia'
 		// mantenuto in ordine da `projectStore.setActive`.
-		return projectStore.projects;
+		return projects;
 	}
 }
 

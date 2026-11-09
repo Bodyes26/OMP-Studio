@@ -14,6 +14,7 @@ import {
 	type RemoteProject
 } from '../src/protocol.ts';
 import { decryptPushPayload, encryptPushPayload } from '../src/pushCrypto.ts';
+import { localizePushPayload, normalizePushLanguage, renderPushText } from '../src/pushText.ts';
 import { PushSender } from '../src/pushSender.ts';
 import { RateLimiter } from '../src/ratelimit.ts';
 import { SocketHub } from '../src/sockets.ts';
@@ -349,6 +350,38 @@ describe('API Sottoscrizioni Push e Autorizzazione', () => {
 	});
 });
 
+describe('Testi delle notifiche localizzati (pushText)', () => {
+	it('compone titolo e corpo in inglese e italiano', () => {
+		const parts = {
+			kind: 'lane_idle' as const,
+			hostName: 'MacBook',
+			projectName: 'Alpha',
+			laneTitle: 'Rifattorizzazione'
+		};
+		expect(renderPushText(parts, 'en')).toEqual({
+			title: 'MacBook · Alpha',
+			body: 'Rifattorizzazione: finished'
+		});
+		expect(renderPushText(parts, 'it')).toEqual({
+			title: 'MacBook · Alpha',
+			body: 'Rifattorizzazione: ha finito'
+		});
+	});
+
+	it('usa la lingua dichiarata e ricade sull inglese per i client vecchi', () => {
+		expect(normalizePushLanguage('it')).toBe('it');
+		expect(normalizePushLanguage('it-IT')).toBe('it');
+		expect(normalizePushLanguage(undefined)).toBe('en');
+		expect(normalizePushLanguage(null)).toBe('en');
+		expect(normalizePushLanguage('de')).toBe('en');
+	});
+
+	it('lascia intatto un payload senza contenuto strutturato', () => {
+		const payload = { title: 'MacBook', body: 'Testo diretto' };
+		expect(localizePushPayload(payload, 'it')).toBe(payload);
+	});
+});
+
 describe('Rilevamento Trigger (HostSnapshotTriggerDetector)', () => {
 	function makeState(projects: RemoteProject[]): HostState {
 		return {
@@ -488,7 +521,9 @@ describe('Rilevamento Trigger (HostSnapshotTriggerDetector)', () => {
 			detector.processSnapshot(hostId, 'MacBook Pro', makeState([projectWithAttention]));
 			expect(fired.length).toBe(1);
 			expect(fired[0].title).toBe('MacBook Pro · Progetto Alpha');
+			// Resa predefinita in inglese: la lingua si applica per dispositivo all'invio.
 			expect(fired[0].body).toContain('Procedere con l eliminazione?');
+			expect(fired[0].body).toContain('question');
 			expect(fired[0].data?.requestId).toBe('req-new-question');
 
 			// Stato 3: stesso snapshot con la stessa richiesta (dedupe)
@@ -539,7 +574,7 @@ describe('Rilevamento Trigger (HostSnapshotTriggerDetector)', () => {
 			detector.processSnapshot(hostId, 'Mac Studio', makeQuotaState('exhausted'));
 			expect(fired.length).toBe(1);
 			expect(fired[0].title).toBe('Mac Studio');
-			expect(fired[0].body).toContain('Quota esaurita per anthropic');
+			expect(fired[0].body).toContain('Quota exhausted for anthropic');
 
 			// 3. Stesso stato exhausted -> dedupe, non notifica di nuovo
 			detector.processSnapshot(hostId, 'Mac Studio', makeQuotaState('exhausted'));
@@ -619,7 +654,7 @@ describe('Rilevamento Trigger (HostSnapshotTriggerDetector)', () => {
 			vi.advanceTimersByTime(80);
 			expect(fired.length).toBe(1);
 			expect(fired[0].title).toBe('Studio Mac · App');
-			expect(fired[0].body).toContain('ha finito');
+			expect(fired[0].body).toContain('finished');
 
 			// 3. Test cancellazione debounce su flapping: working -> idle -> working prima dello scadere
 			detector.processSnapshot(hostId, 'Studio Mac', makeLaneState('working'));
@@ -657,8 +692,8 @@ describe('PushSender e Gestione 404/410', () => {
 			);
 			const p256dh = Buffer.from(await crypto.subtle.exportKey('raw', realEcKey.publicKey)).toString('base64url');
 			const auth = Buffer.from(crypto.getRandomValues(new Uint8Array(16))).toString('base64url');
-			store.savePushSubscription(dev1.id, 'https://fcm.googleapis.com/sub/valid', p256dh, auth, 'UA1', Date.now());
-			store.savePushSubscription(dev2.id, 'https://fcm.googleapis.com/sub/expired', p256dh, auth, 'UA2', Date.now());
+			store.savePushSubscription(dev1.id, 'https://fcm.googleapis.com/sub/valid', p256dh, auth, 'UA1', 'it', Date.now());
+			store.savePushSubscription(dev2.id, 'https://fcm.googleapis.com/sub/expired', p256dh, auth, 'UA2', 'it', Date.now());
 
 			let capturedRedirect: string | undefined;
 			const mockFetch = async (url: string | URL | Request, init?: RequestInit): Promise<Response> => {
@@ -713,8 +748,8 @@ describe('PushSender e Gestione 404/410', () => {
 			const p256dh = Buffer.from(await crypto.subtle.exportKey('raw', realEcKey.publicKey)).toString('base64url');
 			const auth = Buffer.from(crypto.getRandomValues(new Uint8Array(16))).toString('base64url');
 
-			store.savePushSubscription(dev.id, 'https://fcm.googleapis.com/sub/tab1', p256dh, auth, 'UA1', Date.now());
-			store.savePushSubscription(dev.id, 'https://fcm.googleapis.com/sub/tab2', p256dh, auth, 'UA2', Date.now());
+			store.savePushSubscription(dev.id, 'https://fcm.googleapis.com/sub/tab1', p256dh, auth, 'UA1', 'it', Date.now());
+			store.savePushSubscription(dev.id, 'https://fcm.googleapis.com/sub/tab2', p256dh, auth, 'UA2', 'it', Date.now());
 
 			let fetchCount = 0;
 			const mockFetch = async (): Promise<Response> => {
@@ -766,7 +801,7 @@ describe('PushSender e Gestione 404/410', () => {
 			const auth = Buffer.from(crypto.getRandomValues(new Uint8Array(16))).toString('base64url');
 
 			// Sottoscrizione inserita direttamente
-			store.savePushSubscription(dev.id, 'https://169.254.169.254/latest/meta-data', p256dh, auth, 'UA', Date.now());
+			store.savePushSubscription(dev.id, 'https://169.254.169.254/latest/meta-data', p256dh, auth, 'UA', 'it', Date.now());
 
 			let fetchCalled = false;
 			const mockFetch = async (): Promise<Response> => {
@@ -781,6 +816,63 @@ describe('PushSender e Gestione 404/410', () => {
 			expect(result.dropped).toBe(1);
 			expect(result.sent).toBe(0);
 			expect(store.getPushSubscriptionsForDevice(dev.id).length).toBe(0);
+
+			store.close();
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it('consegna titolo e corpo nella lingua della sottoscrizione, in inglese per i client vecchi', async () => {
+		const dir = createTempDir('sender-lang-');
+		try {
+			const store = new RelayStore(dir);
+			const vapid = await getOrCreateVapidKeys(store);
+			const devIt = store.createDevice('iPhone IT', 'h1', Date.now());
+			const devLegacy = store.createDevice('Old client', 'h2', Date.now());
+
+			const makeReceiver = async () => {
+				const ec = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
+				const pub = Buffer.from(await crypto.subtle.exportKey('raw', ec.publicKey)).toString('base64url');
+				const jwk = (await crypto.subtle.exportKey('jwk', ec.privateKey)) as { d: string };
+				return {
+					p256dh: pub,
+					auth: Buffer.from(crypto.getRandomValues(new Uint8Array(16))).toString('base64url'),
+					privateKey: jwk.d
+				};
+			};
+
+			const receiverIt = await makeReceiver();
+			const receiverLegacy = await makeReceiver();
+			store.savePushSubscription(devIt.id, 'https://fcm.googleapis.com/sub/it', receiverIt.p256dh, receiverIt.auth, 'UA1', 'it', Date.now());
+			store.savePushSubscription(devLegacy.id, 'https://fcm.googleapis.com/sub/legacy', receiverLegacy.p256dh, receiverLegacy.auth, 'UA2', null, Date.now());
+
+			const bodies = new Map<string, Uint8Array>();
+			const mockFetch = async (url: string | URL | Request, init?: RequestInit): Promise<Response> => {
+				const urlStr = url.toString();
+				bodies.set(urlStr.includes('/it') ? 'it' : 'legacy', new Uint8Array(init?.body as ArrayBuffer));
+				return new Response(null, { status: 201 });
+			};
+
+			const sender = new PushSender(store, vapid, mockFetch as unknown as typeof fetch);
+			const text = {
+				kind: 'quota_blocked' as const,
+				hostName: 'MacBook',
+				projectName: 'Alpha',
+				reason: 'quota_exhausted' as const,
+				provider: 'anthropic'
+			};
+			await sender.send({ ...renderPushText(text, 'en'), data: { type: 'quota', text } });
+
+			const decodedIt = JSON.parse(
+				(await decryptPushPayload(bodies.get('it')!, receiverIt)).toString('utf8')
+			) as PushNotificationPayload;
+			const decodedLegacy = JSON.parse(
+				(await decryptPushPayload(bodies.get('legacy')!, receiverLegacy)).toString('utf8')
+			) as PushNotificationPayload;
+
+			expect(decodedIt.body).toBe('Quota esaurita (anthropic): blocco di quota');
+			expect(decodedLegacy.body).toBe('Quota exhausted (anthropic): quota block');
 
 			store.close();
 		} finally {

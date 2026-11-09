@@ -3,6 +3,7 @@
 	// Stesso aspetto del chip "Editor" in fondo alla bolla, ma inline: sta
 	// dentro la riga e ne segue l'altezza.
 	import { IconFile } from '#lib/icons.ts';
+	import { m } from '#lib/paraglide/messages.js';
 	import { baseName } from '../tools/types';
 	import { agentUiHooks } from '../ui-context';
 
@@ -24,7 +25,7 @@
 <button
 	type="button"
 	class="chat-badge chat-badge--file file-mention-btn"
-	title={`${path} • Clicca per aprire nell'editor`}
+	title={m.user_message_open_file_title({ file: path })}
 	onclick={open}
 >
 	<span class="chat-badge-glyph"><IconFile aria-hidden="true" /></span>

@@ -14,20 +14,46 @@ pub struct Storage {
 impl Storage {
     pub fn open(db_path: &Path, outputs_dir: &Path) -> Result<Self, String> {
         if let Some(parent) = db_path.parent() {
-            fs::create_dir_all(parent).map_err(|e| format!("Creazione cartella db automazioni: {}", e))?;
+            fs::create_dir_all(parent).map_err(|e| {
+                crate::tr!(
+                    format!("Creazione cartella db automazioni: {}", e),
+                    format!("Creating the automations database folder: {}", e)
+                )
+            })?;
         }
-        fs::create_dir_all(outputs_dir)
-            .map_err(|e| format!("Creazione cartella output automazioni: {}", e))?;
+        fs::create_dir_all(outputs_dir).map_err(|e| {
+            crate::tr!(
+                format!("Creazione cartella output automazioni: {}", e),
+                format!("Creating the automations output folder: {}", e)
+            )
+        })?;
 
-        let conn = Connection::open(db_path)
-            .map_err(|e| format!("Apertura database automazioni ({}): {}", db_path.display(), e))?;
+        let conn = Connection::open(db_path).map_err(|e| {
+            crate::tr!(
+                format!(
+                    "Apertura database automazioni ({}): {}",
+                    db_path.display(),
+                    e
+                ),
+                format!(
+                    "Opening the automations database ({}): {}",
+                    db_path.display(),
+                    e
+                )
+            )
+        })?;
 
         conn.execute_batch(
             "PRAGMA journal_mode = WAL;
              PRAGMA foreign_keys = ON;
              PRAGMA busy_timeout = 5000;",
         )
-        .map_err(|e| format!("Configurazione PRAGMA automazioni: {}", e))?;
+        .map_err(|e| {
+            crate::tr!(
+                format!("Configurazione PRAGMA automazioni: {}", e),
+                format!("Configuring the automations PRAGMA: {}", e)
+            )
+        })?;
 
         let storage = Self {
             conn: Arc::new(Mutex::new(conn)),
@@ -130,12 +156,26 @@ impl Storage {
                 created_at INTEGER NOT NULL
             );",
         )
-        .map_err(|e| format!("Inizializzazione tabelle automazioni: {}", e))?;
+        .map_err(|e| {
+            crate::tr!(
+                format!("Inizializzazione tabelle automazioni: {}", e),
+                format!("Initializing the automations tables: {}", e)
+            )
+        })?;
 
-        let _ = conn.execute("ALTER TABLE executions ADD COLUMN active_duration_ms INTEGER NOT NULL DEFAULT 0", []);
-        let _ = conn.execute("ALTER TABLE executions ADD COLUMN human_deadline INTEGER", []);
+        let _ = conn.execute(
+            "ALTER TABLE executions ADD COLUMN active_duration_ms INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE executions ADD COLUMN human_deadline INTEGER",
+            [],
+        );
         let _ = conn.execute("ALTER TABLE executions ADD COLUMN active_since INTEGER", []);
-        let _ = conn.execute("ALTER TABLE registered_projects ADD COLUMN workspace_paths_json TEXT DEFAULT '[]'", []);
+        let _ = conn.execute(
+            "ALTER TABLE registered_projects ADD COLUMN workspace_paths_json TEXT DEFAULT '[]'",
+            [],
+        );
 
         Ok(())
     }
@@ -174,9 +214,13 @@ impl Storage {
             );
 
             // Aggiorna le singole esecuzioni pendenti
+            let crash_reason = crate::tr!(
+                "Arresto anomalo di Studio: esito non verificato",
+                "Studio crashed: outcome not verified"
+            );
             let _ = conn.execute(
-                "UPDATE executions SET state = 'unknown', reason = 'Arresto anomalo di Studio: esito non verificato' WHERE run_id = ?1 AND state IN ('running', 'waiting')",
-                params![run_id],
+                "UPDATE executions SET state = 'unknown', reason = ?2 WHERE run_id = ?1 AND state IN ('running', 'waiting')",
+                params![run_id, crash_reason],
             );
 
             // AUT-046: Sospendi la regola fino a revisione esplicita dell'utente
@@ -196,7 +240,9 @@ impl Storage {
     pub fn get_settings(&self) -> AutomationSettings {
         let conn = self.conn.lock();
         let res: Result<String, _> =
-            conn.query_row("SELECT data_json FROM settings WHERE id = 1", [], |r| r.get(0));
+            conn.query_row("SELECT data_json FROM settings WHERE id = 1", [], |r| {
+                r.get(0)
+            });
 
         match res {
             Ok(json_str) => serde_json::from_str(&json_str).unwrap_or_default(),
@@ -212,7 +258,12 @@ impl Storage {
              ON CONFLICT(id) DO UPDATE SET data_json = excluded.data_json",
             params![json],
         )
-        .map_err(|e| format!("Salvataggio impostazioni automazioni: {}", e))?;
+        .map_err(|e| {
+            crate::tr!(
+                format!("Salvataggio impostazioni automazioni: {}", e),
+                format!("Saving the automations settings: {}", e)
+            )
+        })?;
         Ok(())
     }
 
@@ -222,11 +273,21 @@ impl Storage {
         let conn = self.conn.lock();
         let mut stmt = conn
             .prepare("SELECT data_json FROM definitions ORDER BY updated_at DESC")
-            .map_err(|e| format!("Errore prepare query definizioni: {}", e))?;
+            .map_err(|e| {
+                crate::tr!(
+                    format!("Errore prepare query definizioni: {}", e),
+                    format!("Definitions query preparation error: {}", e)
+                )
+            })?;
 
         let rows = stmt
             .query_map([], |row| row.get::<_, String>(0))
-            .map_err(|e| format!("Errore query definizioni: {}", e))?;
+            .map_err(|e| {
+                crate::tr!(
+                    format!("Errore query definizioni: {}", e),
+                    format!("Definitions query error: {}", e)
+                )
+            })?;
 
         let mut out = Vec::new();
         for item in rows.flatten() {
@@ -274,7 +335,10 @@ impl Storage {
                 def.updated_at
             ],
         )
-        .map_err(|e| format!("Salvataggio definizione automazione: {}", e))?;
+        .map_err(|e| crate::tr!(
+            format!("Salvataggio definizione automazione: {}", e),
+            format!("Saving the automation definition: {}", e)
+        ))?;
 
         // Salva versione storica immutabile (AUT-067)
         let _ = conn.execute(
@@ -298,9 +362,12 @@ impl Storage {
     }
 
     pub fn set_definition_state(&self, id: &str, state: &str) -> Result<(), String> {
-        let mut def = self
-            .get_definition(id)
-            .ok_or_else(|| format!("Automazione '{}' non trovata", id))?;
+        let mut def = self.get_definition(id).ok_or_else(|| {
+            crate::tr!(
+                format!("Automazione '{}' non trovata", id),
+                format!("Automation '{}' not found", id)
+            )
+        })?;
         def.state = state.to_string();
         def.updated_at = chrono_now_ms();
         self.save_definition(&def)
@@ -308,10 +375,20 @@ impl Storage {
 
     pub fn delete_definition(&self, id: &str, delete_history: bool) -> Result<(), String> {
         let mut conn = self.conn.lock();
-        let tx = conn.transaction().map_err(|e| format!("Inizio transazione cancellazione: {}", e))?;
+        let tx = conn.transaction().map_err(|e| {
+            crate::tr!(
+                format!("Inizio transazione cancellazione: {}", e),
+                format!("Starting the deletion transaction: {}", e)
+            )
+        })?;
 
         tx.execute("DELETE FROM definitions WHERE id = ?1", params![id])
-            .map_err(|e| format!("Errore cancellazione definizione: {}", e))?;
+            .map_err(|e| {
+                crate::tr!(
+                    format!("Errore cancellazione definizione: {}", e),
+                    format!("Definition deletion error: {}", e)
+                )
+            })?;
 
         // Rimuovi bozze collegate
         let _ = tx.execute("DELETE FROM drafts WHERE automation_id = ?1", params![id]);
@@ -333,13 +410,34 @@ impl Storage {
                 let _ = fs::remove_file(log_path);
             }
 
-            tx.execute("DELETE FROM occurrences WHERE automation_id = ?1", params![id])
-                .map_err(|e| format!("Errore cancellazione occorrenze: {}", e))?;
-            tx.execute("DELETE FROM definition_versions WHERE automation_id = ?1", params![id])
-                .map_err(|e| format!("Errore cancellazione versioni: {}", e))?;
+            tx.execute(
+                "DELETE FROM occurrences WHERE automation_id = ?1",
+                params![id],
+            )
+            .map_err(|e| {
+                crate::tr!(
+                    format!("Errore cancellazione occorrenze: {}", e),
+                    format!("Occurrences deletion error: {}", e)
+                )
+            })?;
+            tx.execute(
+                "DELETE FROM definition_versions WHERE automation_id = ?1",
+                params![id],
+            )
+            .map_err(|e| {
+                crate::tr!(
+                    format!("Errore cancellazione versioni: {}", e),
+                    format!("Versions deletion error: {}", e)
+                )
+            })?;
         }
 
-        tx.commit().map_err(|e| format!("Commit cancellazione: {}", e))?;
+        tx.commit().map_err(|e| {
+            crate::tr!(
+                format!("Commit cancellazione: {}", e),
+                format!("Deletion commit: {}", e)
+            )
+        })?;
         Ok(())
     }
 
@@ -347,33 +445,49 @@ impl Storage {
         let conn = self.conn.lock();
         let mut stmt = conn
             .prepare("SELECT id, automation_id, base_revision, definition_json, conversation_json, source, created_at, updated_at FROM drafts ORDER BY updated_at DESC")
-            .map_err(|e| format!("Errore prepare query bozze: {}", e))?;
+            .map_err(|e| crate::tr!(
+                format!("Errore prepare query bozze: {}", e),
+                format!("Drafts query preparation error: {}", e)
+            ))?;
 
-        let rows = stmt.query_map([], |row| {
-            let id: String = row.get(0)?;
-            let _automation_id: Option<String> = row.get(1)?;
-            let base_revision: Option<i64> = row.get(2)?;
-            let def_json: String = row.get(3)?;
-            let conv_json: String = row.get(4)?;
-            let source: String = row.get(5)?;
-            let created_at: i64 = row.get(6)?;
-            let updated_at: i64 = row.get(7)?;
+        let rows = stmt
+            .query_map([], |row| {
+                let id: String = row.get(0)?;
+                let _automation_id: Option<String> = row.get(1)?;
+                let base_revision: Option<i64> = row.get(2)?;
+                let def_json: String = row.get(3)?;
+                let conv_json: String = row.get(4)?;
+                let source: String = row.get(5)?;
+                let created_at: i64 = row.get(6)?;
+                let updated_at: i64 = row.get(7)?;
 
-            let definition = serde_json::from_str::<AutomationDefinition>(&def_json)
-                .map_err(|e| rusqlite::Error::FromSqlConversionFailure(3, rusqlite::types::Type::Text, Box::new(e)))?;
-            let conversation = serde_json::from_str::<Vec<AssistantMessage>>(&conv_json)
-                .unwrap_or_default();
+                let definition =
+                    serde_json::from_str::<AutomationDefinition>(&def_json).map_err(|e| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            3,
+                            rusqlite::types::Type::Text,
+                            Box::new(e),
+                        )
+                    })?;
+                let conversation =
+                    serde_json::from_str::<Vec<AssistantMessage>>(&conv_json).unwrap_or_default();
 
-            Ok(AutomationDraft {
-                id,
-                definition,
-                base_revision: base_revision.map(|r| r as u64),
-                conversation,
-                created_at,
-                updated_at,
-                source,
+                Ok(AutomationDraft {
+                    id,
+                    definition,
+                    base_revision: base_revision.map(|r| r as u64),
+                    conversation,
+                    created_at,
+                    updated_at,
+                    source,
+                })
             })
-        }).map_err(|e| format!("Errore query bozze: {}", e))?;
+            .map_err(|e| {
+                crate::tr!(
+                    format!("Errore query bozze: {}", e),
+                    format!("Drafts query error: {}", e)
+                )
+            })?;
 
         Ok(rows.flatten().collect())
     }
@@ -444,7 +558,10 @@ impl Storage {
                 draft.updated_at
             ],
         )
-        .map_err(|e| format!("Salvataggio bozza: {}", e))?;
+        .map_err(|e| crate::tr!(
+            format!("Salvataggio bozza: {}", e),
+            format!("Saving the draft: {}", e)
+        ))?;
 
         Ok(())
     }
@@ -465,45 +582,63 @@ impl Storage {
                 "SELECT id, automation_id, revision, name, scheduled_at, created_at, deadline, state, acknowledged, requires_review, reasons_json, targets_json, definition_json
                  FROM occurrences ORDER BY scheduled_at DESC, created_at DESC LIMIT ?1",
             )
-            .map_err(|e| format!("Errore prepare query occorrenze: {}", e))?;
+            .map_err(|e| crate::tr!(
+                format!("Errore prepare query occorrenze: {}", e),
+                format!("Occurrences query preparation error: {}", e)
+            ))?;
 
-        let rows = stmt.query_map(params![limit as i64], |row| {
-            let id: String = row.get(0)?;
-            let automation_id: String = row.get(1)?;
-            let revision: i64 = row.get(2)?;
-            let name: String = row.get(3)?;
-            let scheduled_at: i64 = row.get(4)?;
-            let created_at: i64 = row.get(5)?;
-            let deadline: i64 = row.get(6)?;
-            let state: String = row.get(7)?;
-            let acknowledged: i32 = row.get(8)?;
-            let requires_review: i32 = row.get(9)?;
-            let reasons_json: String = row.get(10)?;
-            let targets_json: String = row.get(11)?;
-            let def_json: String = row.get(12)?;
+        let rows = stmt
+            .query_map(params![limit as i64], |row| {
+                let id: String = row.get(0)?;
+                let automation_id: String = row.get(1)?;
+                let revision: i64 = row.get(2)?;
+                let name: String = row.get(3)?;
+                let scheduled_at: i64 = row.get(4)?;
+                let created_at: i64 = row.get(5)?;
+                let deadline: i64 = row.get(6)?;
+                let state: String = row.get(7)?;
+                let acknowledged: i32 = row.get(8)?;
+                let requires_review: i32 = row.get(9)?;
+                let reasons_json: String = row.get(10)?;
+                let targets_json: String = row.get(11)?;
+                let def_json: String = row.get(12)?;
 
-            let reasons = serde_json::from_str::<Vec<AutomationEvent>>(&reasons_json).unwrap_or_default();
-            let targets = serde_json::from_str::<Vec<ResolvedAutomationTarget>>(&targets_json).unwrap_or_default();
-            let definition = serde_json::from_str::<AutomationDefinition>(&def_json)
-                .map_err(|e| rusqlite::Error::FromSqlConversionFailure(12, rusqlite::types::Type::Text, Box::new(e)))?;
+                let reasons =
+                    serde_json::from_str::<Vec<AutomationEvent>>(&reasons_json).unwrap_or_default();
+                let targets = serde_json::from_str::<Vec<ResolvedAutomationTarget>>(&targets_json)
+                    .unwrap_or_default();
+                let definition =
+                    serde_json::from_str::<AutomationDefinition>(&def_json).map_err(|e| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            12,
+                            rusqlite::types::Type::Text,
+                            Box::new(e),
+                        )
+                    })?;
 
-            Ok(AutomationOccurrence {
-                id,
-                automation_id,
-                revision: revision as u64,
-                name,
-                scheduled_at,
-                created_at,
-                deadline,
-                state,
-                reasons,
-                targets,
-                executions: Vec::new(),
-                definition,
-                acknowledged: acknowledged != 0,
-                requires_review: requires_review != 0,
+                Ok(AutomationOccurrence {
+                    id,
+                    automation_id,
+                    revision: revision as u64,
+                    name,
+                    scheduled_at,
+                    created_at,
+                    deadline,
+                    state,
+                    reasons,
+                    targets,
+                    executions: Vec::new(),
+                    definition,
+                    acknowledged: acknowledged != 0,
+                    requires_review: requires_review != 0,
+                })
             })
-        }).map_err(|e| format!("Errore query occorrenze: {}", e))?;
+            .map_err(|e| {
+                crate::tr!(
+                    format!("Errore query occorrenze: {}", e),
+                    format!("Occurrences query error: {}", e)
+                )
+            })?;
 
         let mut occurrences: Vec<AutomationOccurrence> = rows.flatten().collect();
 
@@ -515,7 +650,11 @@ impl Storage {
         Ok(occurrences)
     }
 
-    fn get_executions_for_run_locked(&self, conn: &Connection, run_id: &str) -> Vec<AutomationExecution> {
+    fn get_executions_for_run_locked(
+        &self,
+        conn: &Connection,
+        run_id: &str,
+    ) -> Vec<AutomationExecution> {
         let mut stmt = match conn.prepare(
             "SELECT id, run_id, state, targets_json, reason, started_at, finished_at, exit_code, model, session_id, result, question, output_truncated, active_duration_ms, active_since, human_deadline
              FROM executions WHERE run_id = ?1",
@@ -542,7 +681,8 @@ impl Storage {
             let active_since: Option<i64> = row.get(14)?;
             let human_deadline: Option<i64> = row.get(15)?;
 
-            let targets = serde_json::from_str::<Vec<ResolvedAutomationTarget>>(&targets_json).unwrap_or_default();
+            let targets = serde_json::from_str::<Vec<ResolvedAutomationTarget>>(&targets_json)
+                .unwrap_or_default();
 
             Ok(AutomationExecution {
                 id,
@@ -564,7 +704,8 @@ impl Storage {
             })
         });
 
-        rows.map(|iter| iter.flatten().collect()).unwrap_or_default()
+        rows.map(|iter| iter.flatten().collect())
+            .unwrap_or_default()
     }
 
     pub fn get_occurrence(&self, id: &str) -> Option<AutomationOccurrence> {
@@ -651,11 +792,15 @@ impl Storage {
                 def_json
             ],
         )
-        .map_err(|e| format!("Salvataggio occorrenza: {}", e))?;
+        .map_err(|e| crate::tr!(
+            format!("Salvataggio occorrenza: {}", e),
+            format!("Saving the occurrence: {}", e)
+        ))?;
 
         // Aggiorna/inserisce le singole esecuzioni
         for exec in &occ.executions {
-            let exec_targets = serde_json::to_string(&exec.targets).unwrap_or_else(|_| "[]".to_string());
+            let exec_targets =
+                serde_json::to_string(&exec.targets).unwrap_or_else(|_| "[]".to_string());
             conn.execute(
                 "INSERT INTO executions (id, run_id, state, targets_json, reason, started_at, finished_at, exit_code, model, session_id, result, question, output_truncated, active_duration_ms, active_since, human_deadline)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
@@ -692,7 +837,10 @@ impl Storage {
                     exec.human_deadline
                 ],
             )
-            .map_err(|e| format!("Salvataggio esecuzione: {}", e))?;
+            .map_err(|e| crate::tr!(
+                format!("Salvataggio esecuzione: {}", e),
+                format!("Saving the execution: {}", e)
+            ))?;
         }
 
         Ok(())
@@ -734,7 +882,10 @@ impl Storage {
                 params![update.execution_id],
                 |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
             )
-            .map_err(|e| format!("Esecuzione '{}' non trovata: {}", update.execution_id, e))?;
+            .map_err(|e| crate::tr!(
+                format!("Esecuzione '{}' non trovata: {}", update.execution_id, e),
+                format!("Execution '{}' not found: {}", update.execution_id, e)
+            ))?;
 
         let now = chrono_now_ms();
         let is_final = update.state == "completed"
@@ -752,32 +903,36 @@ impl Storage {
             || current_state == "unknown";
         if is_current_terminal {
             drop(conn);
-            return self
-                .get_occurrence(&run_id)
-                .ok_or_else(|| format!("Occorrenza '{}' non trovata", run_id));
+            return self.get_occurrence(&run_id).ok_or_else(|| {
+                crate::tr!(
+                    format!("Occorrenza '{}' non trovata", run_id),
+                    format!("Occurrence '{}' not found", run_id)
+                )
+            });
         }
 
         // Calcola durata attiva, active_since e human_deadline preservando started_at originale
-        let (new_active_duration, new_active_since, human_deadline) = if update.state == "needsInput" {
-            let added = if let Some(as_ts) = active_since {
-                (now - as_ts).max(0) as u64
+        let (new_active_duration, new_active_since, human_deadline) =
+            if update.state == "needsInput" {
+                let added = if let Some(as_ts) = active_since {
+                    (now - as_ts).max(0) as u64
+                } else {
+                    0
+                };
+                let h_deadline = human_wait_minutes.unwrap_or(60) as i64 * 60_000 + now;
+                (active_dur as u64 + added, None, Some(h_deadline))
+            } else if update.state == "running" {
+                (active_dur as u64, Some(now), None)
+            } else if is_final {
+                let added = if let Some(as_ts) = active_since {
+                    (now - as_ts).max(0) as u64
+                } else {
+                    0
+                };
+                (active_dur as u64 + added, None, None)
             } else {
-                0
+                (active_dur as u64, active_since, None)
             };
-            let h_deadline = human_wait_minutes.unwrap_or(60) as i64 * 60_000 + now;
-            (active_dur as u64 + added, None, Some(h_deadline))
-        } else if update.state == "running" {
-            (active_dur as u64, Some(now), None)
-        } else if is_final {
-            let added = if let Some(as_ts) = active_since {
-                (now - as_ts).max(0) as u64
-            } else {
-                0
-            };
-            (active_dur as u64 + added, None, None)
-        } else {
-            (active_dur as u64, active_since, None)
-        };
 
         conn.execute(
             "UPDATE executions SET
@@ -830,11 +985,19 @@ impl Storage {
 
         drop(conn);
 
-        self.get_occurrence(&run_id)
-            .ok_or_else(|| format!("Occorrenza '{}' non trovata", run_id))
+        self.get_occurrence(&run_id).ok_or_else(|| {
+            crate::tr!(
+                format!("Occorrenza '{}' non trovata", run_id),
+                format!("Occurrence '{}' not found", run_id)
+            )
+        })
     }
 
-    pub fn extend_human_wait(&self, execution_id: &str, additional_minutes: u64) -> Result<i64, String> {
+    pub fn extend_human_wait(
+        &self,
+        execution_id: &str,
+        additional_minutes: u64,
+    ) -> Result<i64, String> {
         let conn = self.conn.lock();
         let (state, human_deadline): (String, Option<i64>) = conn
             .query_row(
@@ -842,12 +1005,23 @@ impl Storage {
                 params![execution_id],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
-            .map_err(|e| format!("Esecuzione '{}' non trovata: {}", execution_id, e))?;
+            .map_err(|e| {
+                crate::tr!(
+                    format!("Esecuzione '{}' non trovata: {}", execution_id, e),
+                    format!("Execution '{}' not found: {}", execution_id, e)
+                )
+            })?;
 
         if state != "needsInput" {
-            return Err(format!(
-                "L'esecuzione '{}' non e' in stato 'needsInput' (stato attuale: {})",
-                execution_id, state
+            return Err(crate::tr!(
+                format!(
+                    "L'esecuzione '{}' non e' in stato 'needsInput' (stato attuale: {})",
+                    execution_id, state
+                ),
+                format!(
+                    "Execution '{}' is not in the 'needsInput' state (current state: {})",
+                    execution_id, state
+                )
             ));
         }
 
@@ -859,7 +1033,12 @@ impl Storage {
             "UPDATE executions SET human_deadline = ?1 WHERE id = ?2",
             params![new_deadline, execution_id],
         )
-        .map_err(|e| format!("Aggiornamento proroga deadline: {}", e))?;
+        .map_err(|e| {
+            crate::tr!(
+                format!("Aggiornamento proroga deadline: {}", e),
+                format!("Updating the extended deadline: {}", e)
+            )
+        })?;
 
         Ok(new_deadline)
     }
@@ -870,26 +1049,36 @@ impl Storage {
         let conn = self.conn.lock();
         let mut stmt = conn
             .prepare("SELECT id, path, name, open, workspace_paths_json FROM registered_projects ORDER BY name ASC")
-            .map_err(|e| format!("Errore prepare query progetti registrati: {}", e))?;
+            .map_err(|e| crate::tr!(
+                format!("Errore prepare query progetti registrati: {}", e),
+                format!("Registered projects query preparation error: {}", e)
+            ))?;
 
-        let rows = stmt.query_map([], |row| {
-            let id: String = row.get(0)?;
-            let path: String = row.get(1)?;
-            let name: String = row.get(2)?;
-            let open: i32 = row.get(3)?;
-            let wp_json: Option<String> = row.get(4).unwrap_or(None);
-            let workspace_paths = wp_json
-                .and_then(|j| serde_json::from_str(&j).ok())
-                .unwrap_or_default();
+        let rows = stmt
+            .query_map([], |row| {
+                let id: String = row.get(0)?;
+                let path: String = row.get(1)?;
+                let name: String = row.get(2)?;
+                let open: i32 = row.get(3)?;
+                let wp_json: Option<String> = row.get(4).unwrap_or(None);
+                let workspace_paths = wp_json
+                    .and_then(|j| serde_json::from_str(&j).ok())
+                    .unwrap_or_default();
 
-            Ok(AutomationProject {
-                id,
-                path,
-                name,
-                open: open != 0,
-                workspace_paths,
+                Ok(AutomationProject {
+                    id,
+                    path,
+                    name,
+                    open: open != 0,
+                    workspace_paths,
+                })
             })
-        }).map_err(|e| format!("Errore query progetti registrati: {}", e))?;
+            .map_err(|e| {
+                crate::tr!(
+                    format!("Errore query progetti registrati: {}", e),
+                    format!("Registered projects query error: {}", e)
+                )
+            })?;
 
         Ok(rows.flatten().collect())
     }
@@ -897,7 +1086,8 @@ impl Storage {
     pub fn save_registered_projects(&self, projects: &[AutomationProject]) -> Result<(), String> {
         let conn = self.conn.lock();
         for p in projects {
-            let wp_json = serde_json::to_string(&p.workspace_paths).unwrap_or_else(|_| "[]".to_string());
+            let wp_json =
+                serde_json::to_string(&p.workspace_paths).unwrap_or_else(|_| "[]".to_string());
             conn.execute(
                 "INSERT INTO registered_projects (id, path, name, open, workspace_paths_json)
                  VALUES (?1, ?2, ?3, ?4, ?5)
@@ -907,7 +1097,12 @@ impl Storage {
                     workspace_paths_json = excluded.workspace_paths_json",
                 params![p.id, p.path, p.name, if p.open { 1 } else { 0 }, wp_json],
             )
-            .map_err(|e| format!("Salvataggio progetto registrato: {}", e))?;
+            .map_err(|e| {
+                crate::tr!(
+                    format!("Salvataggio progetto registrato: {}", e),
+                    format!("Saving the registered project: {}", e)
+                )
+            })?;
         }
         Ok(())
     }
@@ -937,7 +1132,10 @@ impl Storage {
                 req.created_at
             ],
         )
-        .map_err(|e| format!("Salvataggio richiesta progetto: {}", e))?;
+        .map_err(|e| crate::tr!(
+            format!("Salvataggio richiesta progetto: {}", e),
+            format!("Saving the project request: {}", e)
+        ))?;
         Ok(())
     }
 
@@ -947,7 +1145,12 @@ impl Storage {
             "DELETE FROM project_requests WHERE request_id = ?1",
             params![request_id],
         )
-        .map_err(|e| format!("Eliminazione richiesta progetto: {}", e))?;
+        .map_err(|e| {
+            crate::tr!(
+                format!("Eliminazione richiesta progetto: {}", e),
+                format!("Deleting the project request: {}", e)
+            )
+        })?;
         Ok(())
     }
 
@@ -958,7 +1161,12 @@ impl Storage {
                 "SELECT request_id, operation, path, execution_id, status, created_at
                  FROM project_requests ORDER BY created_at ASC",
             )
-            .map_err(|e| format!("Prepare query richieste progetti: {}", e))?;
+            .map_err(|e| {
+                crate::tr!(
+                    format!("Prepare query richieste progetti: {}", e),
+                    format!("Project requests query preparation error: {}", e)
+                )
+            })?;
 
         let rows = stmt
             .query_map([], |row| {
@@ -971,7 +1179,12 @@ impl Storage {
                     created_at: row.get(5)?,
                 })
             })
-            .map_err(|e| format!("Query richieste progetti: {}", e))?;
+            .map_err(|e| {
+                crate::tr!(
+                    format!("Query richieste progetti: {}", e),
+                    format!("Project requests query error: {}", e)
+                )
+            })?;
 
         Ok(rows.flatten().collect())
     }
@@ -990,7 +1203,12 @@ impl Storage {
             .append(true)
             .read(true)
             .open(&path)
-            .map_err(|e| format!("Apertura log output: {}", e))?;
+            .map_err(|e| {
+                crate::tr!(
+                    format!("Apertura log output: {}", e),
+                    format!("Opening the output log: {}", e)
+                )
+            })?;
 
         let current_len = file.metadata().map(|m| m.len()).unwrap_or(0);
         if current_len >= max_run_bytes {
@@ -1006,8 +1224,12 @@ impl Storage {
             (bytes, false)
         };
 
-        file.write_all(to_write)
-            .map_err(|e| format!("Scrittura log output: {}", e))?;
+        file.write_all(to_write).map_err(|e| {
+            crate::tr!(
+                format!("Scrittura log output: {}", e),
+                format!("Writing the output log: {}", e)
+            )
+        })?;
 
         if truncated {
             self.mark_output_truncated(execution_id);
@@ -1045,7 +1267,11 @@ impl Storage {
                 .ok();
 
             let is_ended = state.as_deref().is_none_or(|s| {
-                s == "completed" || s == "error" || s == "timeout" || s == "interrupted" || s == "skipped"
+                s == "completed"
+                    || s == "error"
+                    || s == "timeout"
+                    || s == "interrupted"
+                    || s == "skipped"
             });
 
             return Ok(AutomationOutput {
@@ -1056,7 +1282,12 @@ impl Storage {
             });
         }
 
-        let mut file = File::open(&path).map_err(|e| format!("Lettura log: {}", e))?;
+        let mut file = File::open(&path).map_err(|e| {
+            crate::tr!(
+                format!("Lettura log: {}", e),
+                format!("Reading the log: {}", e)
+            )
+        })?;
         let file_len = file.metadata().map(|m| m.len()).unwrap_or(0);
 
         if offset >= file_len {
@@ -1070,7 +1301,11 @@ impl Storage {
                 .unwrap_or((None, 0));
 
             let is_ended = state.as_deref().is_none_or(|s| {
-                s == "completed" || s == "error" || s == "timeout" || s == "interrupted" || s == "skipped"
+                s == "completed"
+                    || s == "error"
+                    || s == "timeout"
+                    || s == "interrupted"
+                    || s == "skipped"
             });
 
             return Ok(AutomationOutput {
@@ -1081,13 +1316,21 @@ impl Storage {
             });
         }
 
-        file.seek(SeekFrom::Start(offset))
-            .map_err(|e| format!("Seek log: {}", e))?;
+        file.seek(SeekFrom::Start(offset)).map_err(|e| {
+            crate::tr!(
+                format!("Seek log: {}", e),
+                format!("Seeking in the log: {}", e)
+            )
+        })?;
 
         let to_read = (file_len - offset).min(req_limit) as usize;
         let mut buffer = vec![0u8; to_read];
-        file.read_exact(&mut buffer)
-            .map_err(|e| format!("Lettura buffer log: {}", e))?;
+        file.read_exact(&mut buffer).map_err(|e| {
+            crate::tr!(
+                format!("Lettura buffer log: {}", e),
+                format!("Reading the log buffer: {}", e)
+            )
+        })?;
 
         let text = String::from_utf8_lossy(&buffer).to_string();
         let next_offset = offset + to_read as u64;
@@ -1103,7 +1346,11 @@ impl Storage {
 
         let is_ended = next_offset >= file_len
             && state.as_deref().is_none_or(|s| {
-                s == "completed" || s == "error" || s == "timeout" || s == "interrupted" || s == "skipped"
+                s == "completed"
+                    || s == "error"
+                    || s == "timeout"
+                    || s == "interrupted"
+                    || s == "skipped"
             });
 
         Ok(AutomationOutput {
@@ -1215,7 +1462,10 @@ impl AutomationOccurrence {
 
         // Se tutte sono finite
         let all_completed = self.executions.iter().all(|e| e.state == "completed");
-        let any_error = self.executions.iter().any(|e| e.state == "error" || e.state == "timeout");
+        let any_error = self
+            .executions
+            .iter()
+            .any(|e| e.state == "error" || e.state == "timeout");
 
         if all_completed {
             self.state = "completed".to_string();
@@ -1236,10 +1486,12 @@ pub fn chrono_now_ms() -> i64 {
         .unwrap_or(0)
 }
 
-
 pub fn uuid_v4() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
     let pid = std::process::id();
     static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
     let count = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);

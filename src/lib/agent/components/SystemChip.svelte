@@ -36,7 +36,7 @@
 			</span>
 			<span class="title">{entry.title}</span>
 			{#if entry.internal}
-				<span class="internal-tag" title={m.ui_systemchip_messaggio_di_sistema_interno_nascosto_di_default_4677()}>interno</span>
+				<span class="internal-tag" title={m.ui_systemchip_messaggio_di_sistema_interno_nascosto_di_default_4677()}>{m.l10n_agentcmp_system_chip_internal_tag()}</span>
 			{/if}
 			{#if !expanded && bodyPreview}
 				<span class="preview">· {bodyPreview}</span>
@@ -49,7 +49,7 @@
 			</span>
 			<span class="title">{entry.title}</span>
 			{#if entry.internal}
-				<span class="internal-tag" title={m.ui_systemchip_messaggio_di_sistema_interno_nascosto_di_default_4677()}>interno</span>
+				<span class="internal-tag" title={m.ui_systemchip_messaggio_di_sistema_interno_nascosto_di_default_4677()}>{m.l10n_agentcmp_system_chip_internal_tag()}</span>
 			{/if}
 		</div>
 	{/if}

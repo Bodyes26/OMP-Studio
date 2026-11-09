@@ -12,11 +12,28 @@
 
 import inspectorSource from './inspect/inspector-client.js?raw';
 import { PREVIEW_SHORTCUT_SCRIPT } from '../shortcuts/previewShortcuts.ts';
+import { m } from '#lib/paraglide/messages.js';
+import { getLocale } from '#lib/paraglide/runtime.js';
 
 /** Sorgente dell'ispettore pronto per un `<script type="module">` inline. */
 export function buildInspectorModule(source: string = inspectorSource): string {
+	// I messaggi della cattura nascono nell'iframe, dove Paraglide non arriva:
+	// Studio li risolve qui, nella lingua attiva, e li passa come letterale.
+	const strings = JSON.stringify({
+		readFailed: m.l10n_lab_remote_capture_read_failed(),
+		imageCorsFailed: m.l10n_lab_remote_capture_image_cors(),
+		imageTimeout: m.l10n_lab_remote_capture_image_timeout(),
+		fontTimeout: m.l10n_lab_remote_capture_font_timeout(),
+		tooManyFonts: m.l10n_lab_remote_capture_too_many_fonts(),
+		emptyDocument: m.l10n_lab_remote_capture_empty_document(),
+		frameSvgInvalid: m.l10n_lab_remote_capture_frame_svg_invalid(),
+		frameTimeout: m.l10n_lab_remote_capture_frame_timeout()
+	});
 	// Un `</script` letterale chiuderebbe il tag in anticipo.
-	return source.replace(/<\/script/gi, '<\\/script') + '\ninstallLabInspector(window);\n';
+	return (
+		source.replace(/<\/script/gi, '<\\/script') +
+		`\ninstallLabInspector(window, ${strings});\n`
+	);
 }
 
 export interface LabPreviewHtmlOptions {
@@ -35,13 +52,17 @@ function escapeHtml(value: string): string {
 }
 
 export function buildLabPreviewHtml(options: LabPreviewHtmlOptions): string {
-	const title = options.title ?? 'Prototipo Laboratorio';
+	const title = options.title ?? m.l10n_lab_remote_preview_default_title();
 	const importMapJson = JSON.stringify({ imports: options.importMap }, null, 2);
 	const css = options.compiledCss ?? '';
 	const inspectorModule = buildInspectorModule();
+	// Lo script inline dell'anteprima gira in un'altra origine: la lingua
+	// attiva viaggia come letterale JS gia' risolto.
+	const runtimeErrorText = JSON.stringify(m.l10n_lab_remote_preview_runtime_error());
+	const unhandledRejectionText = JSON.stringify(m.l10n_lab_remote_preview_unhandled_rejection());
 
 	return `<!doctype html>
-<html lang="it">
+<html lang="${escapeHtml(getLocale())}">
 <head>
   ${PREVIEW_SHORTCUT_SCRIPT}
   <meta charset="utf-8">
@@ -104,7 +125,7 @@ ${css}
 
     window.addEventListener('error', function(event) {
       notifyError({
-        message: event.message || 'Errore di runtime',
+        message: event.message || ${runtimeErrorText},
         file: event.filename || null,
         line: event.lineno,
         column: event.colno
@@ -113,7 +134,7 @@ ${css}
 
     window.addEventListener('unhandledrejection', function(event) {
       var reason = event.reason;
-      var msg = (reason && (reason.stack || reason.message)) || String(reason || 'Unhandled Promise Rejection');
+      var msg = (reason && (reason.stack || reason.message)) || String(reason || ${unhandledRejectionText});
       notifyError({ message: msg });
     });
 

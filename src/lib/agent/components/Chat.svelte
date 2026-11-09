@@ -440,6 +440,31 @@
 		};
 	});
 
+	// Se l'utente si e' allontanato dal fondo ma non tocca la chat e il mouse non e'
+	// sopra, non sta leggendo: dopo un po' si riprende l'autoscroll, cosi' non si
+	// perdono risposte finite o domande in attesa.
+	const IDLE_RESUME_MS = 10_000;
+	let lastInteraction = Date.now();
+	function markInteraction() {
+		lastInteraction = Date.now();
+	}
+	$effect(() => {
+		if (!scrollEl || !visible || !userScrolledUp) return;
+		const el = scrollEl;
+		markInteraction();
+		const events = ['wheel', 'pointerdown', 'keydown', 'touchstart', 'scroll'] as const;
+		for (const name of events) el.addEventListener(name, markInteraction, { passive: true });
+		const timer = setInterval(() => {
+			// :hover include il mouse gia' sopra la chat all'avvio del timer.
+			if (el.matches(':hover') || Date.now() - lastInteraction < IDLE_RESUME_MS) return;
+			scrollToBottom();
+		}, 1000);
+		return () => {
+			clearInterval(timer);
+			for (const name of events) el.removeEventListener(name, markInteraction);
+		};
+	});
+
 	let isDraggingColumn = $state(false);
 	let dragSummary = $state('');
 	let surfaceEl: HTMLElement | null = $state(null);

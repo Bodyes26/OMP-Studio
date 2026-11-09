@@ -10,15 +10,13 @@
 	import StatusMark from '#lib/ui/StatusMark.svelte';
 	import { IconJobs, IconWarning, IconCircleAlert } from '#lib/icons.ts';
 	import { presenceStore } from '#lib/automations/presence.svelte.ts';
-	import { getLocale } from '#lib/automations/i18n.ts';
+	import { t } from '#lib/automations/i18n.ts';
 	import { automationsStore } from '#lib/automations/store.svelte.ts';
 	import { backgroundJobs } from '#lib/stores/backgroundJobs.svelte.ts';
 	import { projectStore } from '#lib/stores/projects.svelte.ts';
 	import { getAutomationAssistantActiveCount } from '#lib/automations/assistant.svelte.ts';
 	import { IS_MAC } from '#lib/utils/platform.ts';
 
-	const locale = $derived(getLocale());
-	const isIt = $derived(locale === 'it');
 	// Rilevamento piattaforma per distinguere "barra dei menu" (macOS) da "area di notifica" (Windows/Linux)
 	const isMac = $derived(IS_MAC || presenceStore.state.platform === 'macos');
 
@@ -77,16 +75,16 @@
 					run.targets.length > 0
 						? run.targets.length === 1
 							? (run.targets[0].name || run.targets[0].path)
-							: `${run.targets.length} ${isIt ? 'destinatari' : 'targets'}`
+							: t('presence_targets_count', { count: run.targets.length })
 						: '';
 
 				items.push({
 					id: `automation-${run.id}`,
 					kind: 'automation',
-					title: run.name || (isIt ? 'Automazione' : 'Automation'),
+					title: run.name || t('automation_default_name'),
 					subtitle: targetsText
-						? `${isIt ? 'Destinatari' : 'Targets'}: ${targetsText}`
-						: (isIt ? 'Esecuzione attiva' : 'Active execution'),
+						? t('presence_targets_label', { targets: targetsText })
+						: t('presence_active_execution'),
 					status: hasInput ? 'needsInput' : 'running'
 				});
 			}
@@ -99,10 +97,8 @@
 				items.push({
 					id: `bg-job-${jId}`,
 					kind: 'background',
-					title: isIt
-						? (jId === 'taskTitles' ? 'Generazione titoli task (AI)' : 'Generazione titoli sessioni (AI)')
-						: (jId === 'taskTitles' ? 'AI Task Title Generation' : 'AI Session Title Generation'),
-					subtitle: isIt ? 'Manutenzione AI in background' : 'AI background maintenance',
+					title: jId === 'taskTitles' ? t('presence_bg_task_titles') : t('presence_bg_session_titles'),
+					subtitle: t('presence_bg_maintenance'),
 					status: 'running'
 				});
 			}
@@ -114,8 +110,8 @@
 				items.push({
 					id: `project-${p.id}`,
 					kind: 'interactive',
-					title: p.label?.trim() || p.name || (isIt ? 'Progetto' : 'Project'),
-					subtitle: isIt ? 'Sessione agente attiva al lavoro' : 'Active agent session working',
+					title: p.label?.trim() || p.name || t('presence_project_default'),
+					subtitle: t('presence_interactive_active'),
 					status: 'running'
 				});
 			}
@@ -127,10 +123,8 @@
 			items.push({
 				id: 'assistant-active-session',
 				kind: 'assistant',
-				title: isIt ? 'Assistente Creazione Automazioni' : 'Automation Creator Assistant',
-				subtitle: isIt
-					? `${assistantCount} sessione/i in elaborazione`
-					: `${assistantCount} active session(s)`,
+				title: t('presence_assistant_title'),
+				subtitle: t('presence_assistant_count', { count: assistantCount }),
 				status: 'running'
 			});
 		}
@@ -152,7 +146,7 @@
 <!-- ===================================================================== -->
 <Dialog
 	open={presenceStore.showCloseDialog}
-	title={isIt ? 'Cosa vuoi fare alla chiusura di Studio?' : 'What should happen when closing Studio?'}
+	title={t('presence_close_title')}
 	onClose={handleCancelClose}
 	initialFocus="button.ui-button-primary"
 	ariaDescribedBy="presence-close-desc"
@@ -165,18 +159,12 @@
 
 	{#snippet body()}
 		<p id="presence-close-desc" class="dialog-intro">
-			{isIt
-				? (isMac
-					? 'Puoi continuare a eseguire in background automazioni e compiti nella barra dei menu oppure chiudere completamente l’applicazione.'
-					: 'Puoi continuare a eseguire in background automazioni e compiti nell’area di notifica oppure chiudere completamente l’applicazione.')
-				: (isMac
-					? 'You can keep automations and tasks running in the menu bar, or exit the application completely.'
-					: 'You can keep automations and tasks running in the system tray, or exit the application completely.')}
+			{isMac ? t('presence_close_desc_mac') : t('presence_close_desc_tray')}
 		</p>
 
 		<fieldset class="options-group">
 			<legend class="sr-only">
-				{isIt ? 'Opzioni di chiusura' : 'Close options'}
+				{t('presence_close_legend')}
 			</legend>
 
 			<!-- Opzione 1: Riduci nell'area di sistema -->
@@ -194,24 +182,14 @@
 				/>
 				<div class="choice-content">
 					<span class="choice-title">
-						{isIt
-							? (isMac ? 'Riduci nella barra dei menu' : 'Riduci nell’area di notifica (system tray)')
-							: (isMac ? 'Keep running in menu bar' : 'Keep running in system tray')}
+						{isMac ? t('presence_hide_title_mac') : t('presence_hide_title_tray')}
 					</span>
 					<p class="choice-desc">
-						{isIt
-							? (isMac
-								? 'Studio resta attivo nella barra dei menu. Automazioni pianificate, osservatori Git/file e compiti continuano normalmente.'
-								: 'Studio resta attivo nell’area di notifica. Automazioni pianificate, osservatori Git/file e compiti continuano normalmente.')
-							: (isMac
-								? 'Studio stays active in the menu bar. Scheduled automations, Git/file watchers, and background tasks continue normally.'
-								: 'Studio stays active in the system tray. Scheduled automations, Git/file watchers, and background tasks continue normally.')}
+						{isMac ? t('presence_hide_desc_mac') : t('presence_hide_desc_tray')}
 					</p>
 					{#if !presenceStore.state.trayAvailable}
 						<span class="choice-warning">
-							{isIt
-								? (isMac ? 'Barra dei menu non disponibile su questa piattaforma o ambiente.' : 'Area di notifica non disponibile su questa piattaforma o ambiente.')
-								: (isMac ? 'Menu bar is not available on this platform or environment.' : 'System tray is not available on this platform or environment.')}
+							{isMac ? t('presence_unavailable_mac') : t('presence_unavailable_tray')}
 						</span>
 					{/if}
 				</div>
@@ -228,12 +206,10 @@
 				/>
 				<div class="choice-content">
 					<span class="choice-title">
-						{isIt ? 'Esci dall’applicazione' : 'Exit application'}
+						{t('presence_quit_title')}
 					</span>
 					<p class="choice-desc">
-						{isIt
-							? 'Chiude tutte le finestre, interrompe le esecuzioni e rilascia le risorse.'
-							: 'Closes all windows, halts ongoing executions, and frees system resources.'}
+						{t('presence_quit_desc')}
 					</p>
 				</div>
 			</label>
@@ -246,9 +222,7 @@
 				bind:checked={rememberChoice}
 			/>
 			<span class="remember-text">
-				{isIt
-					? 'Ricorda la mia scelta (modificabile nelle Impostazioni)'
-					: 'Remember my choice (can be changed in Settings)'}
+				{t('presence_remember')}
 			</span>
 		</label>
 	{/snippet}
@@ -259,14 +233,14 @@
 			class="ui-button ui-button-ghost"
 			onclick={handleCancelClose}
 		>
-			{isIt ? 'Annulla' : 'Cancel'}
+			{t('btn_cancel')}
 		</button>
 		<button
 			type="button"
 			class="ui-button ui-button-primary"
 			onclick={handleConfirmClose}
 		>
-			{isIt ? 'Conferma' : 'Confirm'}
+			{t('presence_confirm_btn')}
 		</button>
 	{/snippet}
 </Dialog>
@@ -276,7 +250,7 @@
 <!-- ===================================================================== -->
 <Dialog
 	open={presenceStore.showExitDialog}
-	title={isIt ? 'Lavori in corso: confermi l’uscita?' : 'Active jobs running: confirm exit?'}
+	title={t('presence_exit_title')}
 	onClose={handleCancelExit}
 	initialFocus="button.ui-button-secondary"
 	ariaDescribedBy="presence-exit-desc"
@@ -289,9 +263,7 @@
 
 	{#snippet body()}
 		<p id="presence-exit-desc" class="dialog-intro">
-			{isIt
-				? 'Ci sono processi in esecuzione che verrebbero interrotti se esci adesso.'
-				: 'There are active processes that will be interrupted if you exit now.'}
+			{t('presence_exit_desc')}
 		</p>
 
 		{#if presenceStore.error}
@@ -309,12 +281,12 @@
 			<div class="jobs-box-header">
 				<StatusMark status="running" active={true} />
 				<span class="jobs-count">
-					{isIt
-						? `${backendTotalExecutions} ${backendTotalExecutions === 1 ? 'esecuzione attiva' : 'esecuzioni attive'}`
-						: `${backendTotalExecutions} active ${backendTotalExecutions === 1 ? 'execution' : 'executions'}`}
+					{t(backendTotalExecutions === 1 ? 'presence_jobs_count_one' : 'presence_jobs_count_other', {
+						count: backendTotalExecutions
+					})}
 				</span>
 				<span class="jobs-meta">
-					{isIt ? 'in corso' : 'in progress'}
+					{t('presence_jobs_meta')}
 				</span>
 			</div>
 
@@ -336,7 +308,7 @@
 							</div>
 							{#if job.status === 'needsInput'}
 								<span class="job-badge">
-									{isIt ? 'Chiede risposta' : 'Needs input'}
+									{t('presence_job_needs_input')}
 								</span>
 							{/if}
 						</div>
@@ -344,25 +316,19 @@
 
 					{#if unlistedCount > 0}
 						<div class="unlisted-row">
-							{isIt
-								? `Ulteriori ${unlistedCount} esecuzioni attive in background nativo`
-								: `Additional ${unlistedCount} active executions in native background`}
+							{t('presence_unlisted', { count: unlistedCount })}
 						</div>
 					{/if}
 				</div>
 			{:else}
 				<p class="jobs-empty-text">
-					{isIt
-						? 'Processi di background o sessioni interattive attive nel motore nativo.'
-						: 'Background processes or active interactive sessions in native engine.'}
+					{t('presence_jobs_empty')}
 				</p>
 			{/if}
 		</div>
 
 		<p class="safe-notice">
-			{isIt
-				? 'Se annulli l’uscita, nessun processo verrà terminato e tutte le attività proseguiranno normalmente.'
-				: 'If you cancel, no processes will be terminated and all activities will continue normally.'}
+			{t('presence_safe_notice')}
 		</p>
 	{/snippet}
 
@@ -372,14 +338,14 @@
 			class="ui-button ui-button-secondary"
 			onclick={handleCancelExit}
 		>
-			{isIt ? 'Continua a lavorare' : 'Keep running'}
+			{t('presence_keep_running')}
 		</button>
 		<button
 			type="button"
 			class="ui-button ui-button-danger"
 			onclick={handleConfirmExit}
 		>
-			{isIt ? 'Interrompi ed esci' : 'Interrupt and exit'}
+			{t('presence_interrupt_exit')}
 		</button>
 	{/snippet}
 </Dialog>

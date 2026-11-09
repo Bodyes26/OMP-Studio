@@ -20,12 +20,20 @@ static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 /// Su Unix il file temporaneo viene creato con modo restrittivo 0600
 /// (lettura e scrittura solo per il proprietario).
 fn create_temp_file(path: &Path) -> io::Result<(PathBuf, File)> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "percorso senza directory"))?;
+    let parent = path.parent().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            crate::tr!("percorso senza directory", "path has no parent directory"),
+        )
+    })?;
     let file_name = path
         .file_name()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "percorso senza nome file"))?
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                crate::tr!("percorso senza nome file", "path has no file name"),
+            )
+        })?
         .to_string_lossy();
 
     loop {
@@ -140,7 +148,12 @@ pub(crate) fn replace_file(temp_path: &Path, target_path: &Path) -> io::Result<(
 /// errore il temporaneo viene rimosso e la destinazione resta quella di prima.
 pub(crate) fn atomic_write(path: &Path, contents: &[u8]) -> Result<(), String> {
     let (temp_path, mut temp_file) = create_temp_file(path)
-        .map_err(|error| format!("Creazione temp {}: {}", path.display(), error))?;
+        .map_err(|error| {
+            crate::tr!(
+                format!("Creazione temp {}: {}", path.display(), error),
+                format!("Creating temp {}: {}", path.display(), error)
+            )
+        })?;
     let result = (|| -> io::Result<()> {
         temp_file.write_all(contents)?;
         temp_file.flush()?;
@@ -151,7 +164,10 @@ pub(crate) fn atomic_write(path: &Path, contents: &[u8]) -> Result<(), String> {
 
     if let Err(error) = result {
         let _ = fs::remove_file(&temp_path);
-        return Err(format!("Scrittura atomica {}: {}", path.display(), error));
+        return Err(crate::tr!(
+            format!("Scrittura atomica {}: {}", path.display(), error),
+            format!("Atomic write {}: {}", path.display(), error)
+        ));
     }
     Ok(())
 }
@@ -211,8 +227,9 @@ mod tests {
 
         let error = atomic_write(&target, b"x").unwrap_err();
 
+        // Il messaggio segue la lingua dell'interfaccia (default inglese).
         assert!(
-            error.contains("Creazione temp"),
+            error.contains("Creating temp") || error.contains("Creazione temp"),
             "errore inatteso: {}",
             error
         );

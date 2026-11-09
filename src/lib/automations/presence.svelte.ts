@@ -12,7 +12,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { automationsStore } from './store.svelte.ts';
-import { getLocale } from '#lib/automations/i18n.ts';
+import { getLocale, t } from '#lib/automations/i18n.ts';
 
 export type CloseAction = 'ask' | 'hide' | 'quit';
 export type DesktopPlatform = 'windows' | 'macos' | 'linux';
@@ -293,7 +293,7 @@ export class DesktopPresenceStore {
 						await this.beforeExitCallback();
 					} catch (err) {
 						const msg = err instanceof Error ? err.message : String(err);
-						this.error = `Impossibile completare il salvataggio prima dell'uscita: ${msg}`;
+						this.error = t('presence_error_save_before_exit', { message: msg });
 						console.error('[DesktopPresence] Autorizzazione uscita bloccata per errore in beforeExit:', err);
 						return false;
 					}
@@ -383,7 +383,7 @@ export class DesktopPresenceStore {
 				await this.beforeExitCallback();
 			} catch (err) {
 				const msg = err instanceof Error ? err.message : String(err);
-				this.error = `Impossibile completare il salvataggio prima dell'uscita: ${msg}`;
+				this.error = t('presence_error_save_before_exit', { message: msg });
 				console.error('[DesktopPresence] Uscita bloccata per errore in beforeExit:', err);
 				// Blocca l'uscita: risolve le promesse pendenti con false senza uscire
 				for (const resolve of resolvers) resolve(false);

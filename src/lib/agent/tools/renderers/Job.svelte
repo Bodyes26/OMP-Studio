@@ -108,12 +108,12 @@
 
 	const argRows = $derived.by(() => {
 		const rows: { key: string; value: string }[] = [];
-		if (op) rows.push({ key: 'Operazione', value: op });
-		if (targetIds.length > 0) rows.push({ key: 'Target', value: targetIds.join(', ') });
+		if (op) rows.push({ key: m.l10n_tools_label_operation(), value: op });
+		if (targetIds.length > 0) rows.push({ key: m.l10n_tools_label_target(), value: targetIds.join(', ') });
 		const signal = str(args.signal);
-		if (signal) rows.push({ key: 'Segnale', value: signal });
+		if (signal) rows.push({ key: m.l10n_tools_label_signal(), value: signal });
 		const timeout = num(args.timeout) ?? num(args.timeoutMs);
-		if (timeout !== undefined) rows.push({ key: 'Timeout', value: `${timeout}` });
+		if (timeout !== undefined) rows.push({ key: m.l10n_tools_label_timeout(), value: `${timeout}` });
 		return rows;
 	});
 </script>
@@ -130,8 +130,8 @@
 					<tr>
 						<th>ID</th>
 						<th>{m.ui_goal_stato_89af()}</th>
-						<th>Durata</th>
-						<th>Dettagli</th>
+						<th>{m.l10n_tools_label_duration()}</th>
+						<th>{m.l10n_tools_label_details_col()}</th>
 					</tr>
 				</thead>
 				<tbody>
@@ -180,7 +180,7 @@
 	{/if}
 
 	{#if text}
-		<OutputBlock {text} label="risultato" />
+		<OutputBlock {text} label={m.l10n_tools_label_result()} />
 	{/if}
 </div>
 

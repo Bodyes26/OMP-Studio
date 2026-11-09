@@ -128,11 +128,11 @@ export class SessionRegistry<T extends AgentSessionLike = AgentSession> {
 		const cwd = project.lane.workspacePath ?? '';
 		let session = this.sessions.get(key);
 		if (session && session.cwd !== cwd) {
-			throw new Error(`La sessione ${key} e' gia' legata al workspace ${session.cwd}`);
+			throw new Error(msg.l10n_agent_session_already_bound({ key, workspace: session.cwd }));
 		}
 		if (!session) {
 			if (!this.factory) {
-				throw new Error('Nessuna factory registrata per creare AgentSession');
+				throw new Error(msg.l10n_agent_session_factory_missing());
 			}
 			const isLab = project.lane.kind === 'lab';
 			session = this.factory({

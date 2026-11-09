@@ -14,6 +14,7 @@
 //    ambiguo non sceglie a caso, restituisce l'elenco.
 // 3. Il testo per l'agente non contiene mai istruzioni git: il "come" e' di Studio.
 
+import { m } from '#lib/paraglide/messages.js';
 import { MAIN_LANE_ID } from '../types/lanes.ts';
 
 export const CORSIA_VERBI = [
@@ -106,8 +107,8 @@ export function resolveLaneRef<T extends LaneRefCandidate>(
 /** Elenco leggibile delle corsie tra cui scegliere, per i messaggi d'errore all'agente. */
 export function describeLaneChoices(lanes: readonly LaneRefCandidate[]): string {
 	const open = lanes.filter((lane) => isOpenLane(lane) && lane.status !== 'closed');
-	if (open.length === 0) return 'Nessuna corsia aperta nel progetto.';
-	return `Corsie aperte:\n${open.map((lane) => `- ${lane.laneId}: ${lane.title}`).join('\n')}`;
+	if (open.length === 0) return m.l10n_state_lanes_none_open();
+	return `${m.l10n_state_lanes_header()}\n${open.map((lane) => `- ${lane.laneId}: ${lane.title}`).join('\n')}`;
 }
 
 /* -------------------------------------------------- stato sintetico --- */
@@ -198,7 +199,7 @@ export interface AgentLaneRow {
 }
 
 export function formatStatoText(rows: readonly AgentLaneRow[]): string {
-	if (rows.length === 0) return 'Nessuna corsia aperta o in coda nel progetto.';
+	if (rows.length === 0) return m.l10n_state_lanes_none_open_or_queued();
 	const lines = rows.map((row) => {
 		const kind = row.kind === 'lab' ? 'prototipo' : row.kind === 'goal' ? 'obiettivo' : 'worktree';
 		const parts = [`- ${row.laneId} (${kind}) "${row.title}": ${AGENT_LANE_STATE_LABEL[row.state]}`];
@@ -292,13 +293,13 @@ export function proposalAgentText(
 	outcome?: { laneId: string; title: string; dispatched: boolean } | { error: string }
 ): string {
 	if (choice === 'main') {
-		return "L'utente ha scelto: resta su main. Prosegui sulla Principale con cautela.";
+		return m.l10n_state_lane_main_restart();
 	}
-	if (!outcome) return "L'utente ha scelto il worktree ma la corsia non e' stata creata.";
+	if (!outcome) return m.l10n_state_lane_proposal_no_lane();
 	if ('error' in outcome) {
-		return `L'utente ha scelto il worktree ma Studio non ha potuto crearlo: ${outcome.error}. Non eseguire l'operazione sulla Principale: riferisci all'utente.`;
+		return m.l10n_state_lane_proposal_error({ error: outcome.error });
 	}
 	return outcome.dispatched
-		? `L'utente ha scelto il worktree: corsia ${outcome.laneId} ("${outcome.title}") creata e il compito e' gia' stato affidato al suo agente. Non eseguire l'operazione sulla Principale; segui l'avanzamento con corsia_stato e corsia_risultato.`
-		: `L'utente ha scelto il worktree: corsia ${outcome.laneId} ("${outcome.title}") creata e aperta all'utente. Non eseguire l'operazione sulla Principale: il lavoro prosegue nella nuova corsia.`;
+		? m.l10n_state_lane_proposal_dispatched({ id: outcome.laneId, title: outcome.title })
+		: m.l10n_state_lane_proposal_opened({ id: outcome.laneId, title: outcome.title });
 }

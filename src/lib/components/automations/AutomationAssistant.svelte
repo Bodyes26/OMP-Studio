@@ -116,7 +116,7 @@
 				</span>
 				{#if controller.isScopeConfigured}
 					<span class="badge scope-badge">
-						Ambito: {controller.draft.definition.targets.cwd || controller.draft.definition.targets.projectPaths[0]}
+						{t('assistant_scope_badge', { path: controller.draft.definition.targets.cwd || controller.draft.definition.targets.projectPaths[0] })}
 					</span>
 				{/if}
 			</div>
@@ -211,7 +211,7 @@
 					<div class="message-bubble {msg.role}">
 						<div class="message-meta">
 							<span class="role-tag">
-								{msg.role === 'user' ? 'Tu' : 'Assistente AI'}
+								{msg.role === 'user' ? t('assistant_role_user') : t('assistant_role_assistant')}
 							</span>
 							<span class="time-tag">{formatDateTime(msg.at)}</span>
 						</div>
@@ -238,7 +238,7 @@
 
 		{#if controller.error}
 			<div class="error-banner" role="alert">
-				<strong>Errore assistente:</strong> {controller.error}
+				<strong>{t('assistant_error_prefix')}</strong> {controller.error}
 			</div>
 		{/if}
 
@@ -255,7 +255,7 @@
 
 		<!-- Card Proposta Strutturata (AUT-099) -->
 		{#if controller.currentProposal}
-			<div class="proposal-card" role="region" aria-label="Proposta di automazione">
+			<div class="proposal-card" role="region" aria-label={t('assistant_proposal_aria')}>
 				<div class="proposal-header">
 					<IconSparkles size={18} class="proposal-icon" />
 					<h3>{t('assistant_proposal_banner')}</h3>
@@ -263,31 +263,31 @@
 				<div class="proposal-body">
 					{#if controller.currentProposal.name}
 						<div class="prop-item">
-							<span class="prop-key">Nome:</span>
+							<span class="prop-key">{t('assistant_prop_name')}</span>
 							<span class="prop-val"><strong>{controller.currentProposal.name}</strong></span>
 						</div>
 					{/if}
 					{#if controller.currentProposal.description}
 						<div class="prop-item">
-							<span class="prop-key">Descrizione:</span>
+							<span class="prop-key">{t('assistant_prop_description')}</span>
 							<span class="prop-val">{controller.currentProposal.description}</span>
 						</div>
 					{/if}
 					{#if controller.currentProposal.action}
 						<div class="prop-item">
-							<span class="prop-key">Azione:</span>
+							<span class="prop-key">{t('assistant_prop_action')}</span>
 							<span class="prop-val">
 								{#if controller.currentProposal.action.kind === 'command'}
-									<code>{controller.currentProposal.action.command || 'comando shell'}</code>
+									<code>{controller.currentProposal.action.command || t('assistant_prop_shell_command')}</code>
 								{:else}
-									Prompt AI dedicato
+									{t('action_kind_prompt')}
 								{/if}
 							</span>
 						</div>
 					{/if}
 					{#if controller.currentProposal.triggers && controller.currentProposal.triggers.length > 0}
 						<div class="prop-item">
-							<span class="prop-key">Quando:</span>
+							<span class="prop-key">{t('assistant_prop_when')}</span>
 							<span class="prop-val">
 								{(controller.currentProposal.triggers as Array<{ kind: string }>).map((tr: { kind: string }) => tr.kind).join(', ')}
 							</span>
@@ -323,7 +323,7 @@
 
 		<!-- Card Proposta Script File con Autorizzazione Separatamente (AUT-061) -->
 		{#if controller.currentScriptProposal}
-			<div class="script-card" role="region" aria-label="Proposta file script">
+			<div class="script-card" role="region" aria-label={t('assistant_script_proposal_aria')}>
 				<div class="script-header">
 					<h4>{t('assistant_file_proposal_heading')}</h4>
 					<span class="script-path"><code>{controller.currentScriptProposal.path}</code></span>
@@ -352,10 +352,10 @@
 		<!-- Notifica differenze applicate -->
 		{#if controller.lastDiffSummary}
 			<div class="diff-summary-alert">
-				<span>Applicati: <strong>{controller.lastDiffSummary.appliedKeys.join(', ') || 'nessuno'}</strong></span>
+				<span>{t('assistant_diff_applied', { keys: controller.lastDiffSummary.appliedKeys.join(', ') || t('assistant_diff_none') })}</span>
 				{#if controller.lastDiffSummary.preservedManualKeys.length > 0}
 					<span class="preserved-tag">
-						Preservati perché modificati manualmente: <strong>{controller.lastDiffSummary.preservedManualKeys.join(', ')}</strong>
+						{t('assistant_diff_preserved', { keys: controller.lastDiffSummary.preservedManualKeys.join(', ') })}
 					</span>
 				{/if}
 			</div>
@@ -369,7 +369,7 @@
 				class="chat-input"
 				bind:value={inputText}
 				onkeydown={handleKeyDown}
-				placeholder={controller.isScopeConfigured ? t('assistant_input_placeholder') : 'Seleziona prima l’ambito di lavoro sopra…'}
+				placeholder={controller.isScopeConfigured ? t('assistant_input_placeholder') : t('assistant_placeholder_no_scope')}
 				rows="2"
 				aria-label={t('assistant_input_placeholder')}
 				disabled={controller.isBusy || !controller.isScopeConfigured}

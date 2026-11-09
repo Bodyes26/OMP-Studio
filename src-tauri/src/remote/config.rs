@@ -91,42 +91,67 @@ pub struct NormalizedRelayUrl {
 pub fn validate_and_normalize_relay_url(input: &str) -> Result<NormalizedRelayUrl, String> {
     let trimmed = input.trim();
     if trimmed.is_empty() {
-        return Err("URL del relay non specificato".to_string());
+        return Err(
+            crate::tr!("URL del relay non specificato", "Relay URL not provided").to_string(),
+        );
     }
 
-    let parsed =
-        reqwest::Url::parse(trimmed).map_err(|e| format!("URL del relay non valido: {e}"))?;
+    let parsed = reqwest::Url::parse(trimmed).map_err(|e| {
+        crate::tr!(
+            format!("URL del relay non valido: {e}"),
+            format!("Invalid relay URL: {e}")
+        )
+    })?;
 
     if parsed.fragment().is_some() {
-        return Err("L'URL del relay non puo' contenere frammenti (#...)".to_string());
+        return Err(crate::tr!(
+            "L'URL del relay non puo' contenere frammenti (#...)",
+            "The relay URL cannot contain a fragment (#...)"
+        )
+        .to_string());
     }
 
     if parsed.query().is_some() {
-        return Err("L'URL del relay non puo' contenere parametri di query (?...)".to_string());
+        return Err(crate::tr!(
+            "L'URL del relay non puo' contenere parametri di query (?...)",
+            "The relay URL cannot contain query parameters (?...)"
+        )
+        .to_string());
     }
 
     let path = parsed.path();
     if !path.is_empty() && path != "/" {
-        return Err("L'URL del relay non puo' contenere percorsi aggiuntivi".to_string());
+        return Err(crate::tr!(
+            "L'URL del relay non puo' contenere percorsi aggiuntivi",
+            "The relay URL cannot contain additional paths"
+        )
+        .to_string());
     }
 
     let scheme = parsed.scheme();
     let host_str = parsed
         .host_str()
-        .ok_or_else(|| "URL privo di host".to_string())?;
+        .ok_or_else(|| crate::tr!("URL privo di host", "URL without a host").to_string())?;
 
     let is_localhost = is_localhost_host(host_str);
 
     match scheme {
         "http" => {
             if !is_localhost {
-                return Err("Il protocollo HTTP e' consentito solo per localhost/127.0.0.1; per tutti gli altri host e' richiesto HTTPS".to_string());
+                return Err(crate::tr!(
+                    "Il protocollo HTTP e' consentito solo per localhost/127.0.0.1; per tutti gli altri host e' richiesto HTTPS",
+                    "The HTTP protocol is only allowed for localhost/127.0.0.1; all other hosts require HTTPS"
+                )
+                .to_string());
             }
         }
         "https" => {}
         other => {
-            return Err(format!(
-                "Schema non supportato '{other}': usare https:// (o http:// per localhost)"
+            return Err(crate::tr!(
+                format!(
+                    "Schema non supportato '{other}': usare https:// (o http:// per localhost)"
+                ),
+                format!("Unsupported scheme '{other}': use https:// (or http:// for localhost)")
             ));
         }
     }
@@ -166,9 +191,18 @@ pub fn load_or_create_config(path: &Path) -> Result<RemoteConfig, String> {
         return Ok(default_config);
     }
 
-    let bytes = fs::read(path).map_err(|e| format!("Lettura {} fallita: {e}", path.display()))?;
-    let mut config: RemoteConfig = serde_json::from_slice(&bytes)
-        .map_err(|e| format!("Parsing JSON di {} fallito: {e}", path.display()))?;
+    let bytes = fs::read(path).map_err(|e| {
+        crate::tr!(
+            format!("Lettura {} fallita: {e}", path.display()),
+            format!("Reading {} failed: {e}", path.display())
+        )
+    })?;
+    let mut config: RemoteConfig = serde_json::from_slice(&bytes).map_err(|e| {
+        crate::tr!(
+            format!("Parsing JSON di {} fallito: {e}", path.display()),
+            format!("Parsing JSON of {} failed: {e}", path.display())
+        )
+    })?;
 
     let mut modified = false;
     if config.host_id.trim().is_empty() {
@@ -195,12 +229,20 @@ pub fn save_config(path: &Path, config: &RemoteConfig) -> Result<(), String> {
 
 fn save_config_inner(path: &Path, config: &RemoteConfig) -> Result<(), String> {
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| format!("Creazione cartella {} fallita: {e}", parent.display()))?;
+        fs::create_dir_all(parent).map_err(|e| {
+            crate::tr!(
+                format!("Creazione cartella {} fallita: {e}", parent.display()),
+                format!("Creating folder {} failed: {e}", parent.display())
+            )
+        })?;
     }
 
-    let json_bytes = serde_json::to_vec_pretty(config)
-        .map_err(|e| format!("Serializzazione configurazione remota fallita: {e}"))?;
+    let json_bytes = serde_json::to_vec_pretty(config).map_err(|e| {
+        crate::tr!(
+            format!("Serializzazione configurazione remota fallita: {e}"),
+            format!("Serializing the remote configuration failed: {e}")
+        )
+    })?;
 
     crate::fs_atomic::atomic_write(path, &json_bytes)?;
 
@@ -220,5 +262,10 @@ pub fn default_config_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     app.path()
         .app_local_data_dir()
         .map(|dir| dir.join("remote.json"))
-        .map_err(|e| format!("Impossibile determinare app_local_data_dir: {e}"))
+        .map_err(|e| {
+            crate::tr!(
+                format!("Impossibile determinare app_local_data_dir: {e}"),
+                format!("Unable to determine app_local_data_dir: {e}")
+            )
+        })
 }

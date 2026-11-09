@@ -6,6 +6,7 @@
 // `/loop …` e `/studio-loop …`. Parser e serializzazione sono gli stessi
 // dell'estensione: una sola grammatica per composer, pillole e motore.
 
+import { m as msg } from '#lib/paraglide/messages.js';
 import {
 	LOOP_CONTROL_COMMAND,
 	LOOP_STATUS_KEY,
@@ -131,7 +132,7 @@ export function routeLoopSlash(argument: string, loopActive: boolean): LoopSlash
 	if (!trimmed) return loopActive ? { kind: 'stop' } : { kind: 'setup', draft: defaultLoopDraft() };
 	const parsed = parseLoopArgs(trimmed);
 	if (typeof parsed === 'string') return { kind: 'error', message: parsed };
-	if (loopActive) return { kind: 'error', message: 'A loop is already active. Stop it first.' };
+	if (loopActive) return { kind: 'error', message: msg.l10n_agent_loop_already_active() };
 	if (!parsed.prompt) return { kind: 'setup', draft: draftFromArgs(parsed) };
 	return { kind: 'start', command: formatLoopCommand(parsed) };
 }

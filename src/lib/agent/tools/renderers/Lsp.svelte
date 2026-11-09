@@ -8,6 +8,7 @@
   una lista di PathChip cliccabili.
 -->
 <script lang="ts">
+	import { m } from '#lib/paraglide/messages.js';
 	import KeyValue from '../parts/KeyValue.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
 	import PathChip from '../parts/PathChip.svelte';
@@ -66,11 +67,11 @@
 
 	const metaRows = $derived.by(() => {
 		const rows: { key: string; value: string }[] = [];
-		if (action) rows.push({ key: 'Azione', value: action });
-		if (file) rows.push({ key: 'File', value: line ? `${file}:${line}` : file });
-		if (symbol) rows.push({ key: 'Simbolo', value: symbol });
-		if (query) rows.push({ key: 'Query', value: query });
-		if (newName) rows.push({ key: 'Nuovo nome', value: newName });
+		if (action) rows.push({ key: m.l10n_tools_label_action(), value: action });
+		if (file) rows.push({ key: m.ui_filetree_file_8635(), value: line ? `${file}:${line}` : file });
+		if (symbol) rows.push({ key: m.l10n_tools_label_symbol(), value: symbol });
+		if (query) rows.push({ key: m.l10n_tools_label_query(), value: query });
+		if (newName) rows.push({ key: m.l10n_tools_label_new_name(), value: newName });
 		return rows;
 	});
 
@@ -91,7 +92,7 @@
 		</div>
 	{/if}
 	{#if text}
-		<OutputBlock {text} label="risultato lsp" />
+		<OutputBlock {text} label={m.l10n_tools_label_lsp_result()} />
 	{/if}
 </div>
 

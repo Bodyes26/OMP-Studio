@@ -5,6 +5,7 @@
   con metadati e score tabulari allineati, oppure l'output testuale.
 -->
 <script lang="ts">
+	import { m } from '#lib/paraglide/messages.js';
 	import OutputBlock from '../parts/OutputBlock.svelte';
 	import {
 		asRecord,
@@ -57,7 +58,7 @@
 <div class="recall-body">
 	{#if query}
 		<div class="query-box">
-			<span class="query-label">Query:</span>
+			<span class="query-label">{m.l10n_tools_label_query()}:</span>
 			<span class="query-text">{query}</span>
 		</div>
 	{/if}
@@ -81,7 +82,7 @@
 						</div>
 					</div>
 					{#if item.score !== undefined}
-						<span class="memory-score" title={`Score: ${item.score}`}>
+						<span class="memory-score" title={`${m.l10n_tools_label_score()}: ${item.score}`}>
 							{item.score.toFixed(2)}
 						</span>
 					{/if}
@@ -89,7 +90,7 @@
 			{/each}
 		</ul>
 	{:else if text}
-		<OutputBlock {text} label="risultati recall" />
+		<OutputBlock {text} label={m.l10n_tools_label_recall_results()} />
 	{/if}
 </div>
 

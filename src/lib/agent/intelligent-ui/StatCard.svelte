@@ -3,6 +3,7 @@
 -->
 <script lang="ts">
 	import { IconArrowUp, IconArrowDown } from '../../icons';
+	import { m } from '../../paraglide/messages.js';
 
 	export interface StatItem {
 		label: string;
@@ -22,6 +23,10 @@
 		subtext
 	}: StatItem = $props();
 
+	// Il parser lascia la label vuota quando il blocco non la fornisce: la
+	// riserva si risolve qui per seguire la lingua attiva a ogni render.
+	const text = $derived(label || m.l10n_intui_metric_default_label());
+
 	const isPositiveTrend = $derived(
 		trend === 'up' || (typeof change === 'string' && change.trim().startsWith('+'))
 	);
@@ -32,7 +37,7 @@
 
 <div class="stat-card tone-{tone}">
 	<div class="stat-header">
-		<span class="stat-label">{label}</span>
+		<span class="stat-label">{text}</span>
 		{#if change}
 			<span
 				class="stat-change"

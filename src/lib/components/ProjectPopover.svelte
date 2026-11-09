@@ -657,7 +657,9 @@
 				class="proj-chip"
 				class:scratchpad={isScratchpad}
 				style="--proj-hue: {effectiveHue}"
-				title={project.label ? `Sigla: ${project.label}` : `Progetto: ${project.name}`}
+				title={project.label
+					? m.l10n_cmp_project_code_short({ code: project.label })
+					: m.file_tree_menu_project_label({ name: project.name })}
 				aria-hidden="true"
 			>
 				{#if project.labDraft}
@@ -740,7 +742,7 @@
 		</div>
 	{:else if view === 'close-others'}
 		<div class="confirm">
-			<p>Chiudo gli altri {otherProjectCount} {m.ui_projectpopover_progetti_aperti_18ab()}</p>
+			<p>{m.l10n_cmp_project_close_others_confirm({ count: otherProjectCount })}</p>
 			<button type="button" class="row danger" onclick={closeOthers}>
 				<IconCloseOthers /> <span class="row-label">{m.ui_editor_chiudi_gli_altri_f1f6()} {otherProjectCount}</span>
 			</button>
@@ -817,7 +819,7 @@
 				{/each}
 				{#if queueTasks.length > QUEUE_PEEK_LIMIT}
 					<button type="button" class="row subtle" onclick={openQueue}>
-						<span class="row-label indent">+{queueTasks.length - QUEUE_PEEK_LIMIT} altri task</span>
+						<span class="row-label indent">{m.l10n_cmp_project_more_tasks({ count: queueTasks.length - QUEUE_PEEK_LIMIT })}</span>
 					</button>
 				{/if}
 			</section>
@@ -1082,7 +1084,7 @@
 						automationsStore.open(project.canonicalProjectPath ?? undefined);
 					}}
 				>
-					<IconAutomation size={14} /> <span class="row-label">Automazioni</span>
+					<IconAutomation size={14} /> <span class="row-label">{m.l10n_cmp_project_automations()}</span>
 				</button>
 			</section>
 

@@ -56,6 +56,7 @@ Global shortcuts captured by the application live behind the **`Ctrl+Alt`** modi
 | `Esc` | Composer in repeat mode (`/loop`) | Close the pill menu or leave repeat mode; once started, pause the repeat at the end of the round |
 | `Alt+I` | Lab preview | Toggle "Point" (Point and draw); `Shift+click` adds the element to the open note, `Esc` exits |
 | `Ctrl+0` | Focused Diagram | Fit diagram to window |
+| `Ctrl+O` | Editor / Global | Opens one or more files using the system file picker |
 | `Ctrl+S` | Editor | Save current file and notify |
 | `Ctrl+W` | Editor | Close current file |
 | `Ctrl+F4` | Editor | Close current file |

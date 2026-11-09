@@ -80,9 +80,9 @@
 
 	// Calcolo della durata complessiva
 	const durationLabel = $derived.by(() => {
-		if (entries.length === 0) return '0,1 s';
+		if (entries.length === 0) return formatDurationSecs(0);
 		const startTimes = toolEntries.map((e) => e.startedAt).filter((t) => typeof t === 'number' && t > 0);
-		if (startTimes.length === 0) return '0,1 s';
+		if (startTimes.length === 0) return formatDurationSecs(0);
 		const start = Math.min(...startTimes);
 		if (isLive) {
 			const now = stopwatchNow();

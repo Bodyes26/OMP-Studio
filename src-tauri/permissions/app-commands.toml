@@ -62,7 +62,10 @@ commands.allow = [
     "file_write",
     "preview_file",
     "resolve_project_file",
-    "project_canonicalize_child_dir"
+    "project_canonicalize_child_dir",
+    "external_open_take",
+    "external_route",
+    "file_watch_set",
 ]
 
 [[permission]]

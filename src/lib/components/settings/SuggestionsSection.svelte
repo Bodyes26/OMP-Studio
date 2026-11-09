@@ -33,14 +33,17 @@
 	});
 
 	const availableModels = $derived(modelSettingsStore.assignableCatalog);
+	// Etichetta del gruppo per i modelli senza provider (il ciclo sotto usa una
+	// variabile locale proprio per non ombreggiare il namespace dei messaggi).
+	const otherProviderLabel = $derived(m.l10n_cmp_model_picker_other_provider());
 
 	// Raggruppa i modelli per provider per una select ordinata
 	const groupedModels = $derived.by(() => {
 		const map: Record<string, ModelDto[]> = {};
-		for (const m of availableModels) {
-			const providerKey = m.provider || 'Altri';
+		for (const model of availableModels) {
+			const providerKey = model.provider || otherProviderLabel;
 			if (!map[providerKey]) map[providerKey] = [];
-			map[providerKey].push(m);
+			map[providerKey].push(model);
 		}
 		return Object.entries(map).sort(([a], [b]) => a.localeCompare(b));
 	});
@@ -226,10 +229,10 @@
 								})
 							}
 						>
-							<option value="">Ruolo smol (predefinito)</option>
+							<option value="">{m.settings_background_jobs_model_smol_default()}</option>
 							{#if settingsStore.suggestions.modelSelector && !availableModels.some((m) => m.selector === settingsStore.suggestions.modelSelector || m.id === settingsStore.suggestions.modelSelector)}
 								<option value={settingsStore.suggestions.modelSelector}>
-									{settingsStore.suggestions.modelSelector} (personalizzato)
+									{m.l10n_cmp_suggestions_custom_suffix({ selector: settingsStore.suggestions.modelSelector })}
 								</option>
 							{/if}
 							{#each groupedModels as [provider, models] (provider)}

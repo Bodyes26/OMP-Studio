@@ -290,8 +290,8 @@ export class LaneLandingService {
 
 		const agentText =
 			item.reason === 'main_busy'
-				? "Integrazione messa in coda: l'agente principale e' attualmente occupato. Verra' ripresa automaticamente."
-				: `Integrazione messa in coda: rilevate modifiche locali nel branch target sui file: ${item.files.join(', ')}. Verra' ripresa automaticamente.`;
+				? m.l10n_state_landing_queued_busy()
+				: m.l10n_state_landing_queued_local_changes({ files: item.files.join(', ') });
 
 		// La ripresa ritenta ogni 15 s: la card si crea solo al primo accodamento.
 		if (!alreadyQueued) {
@@ -478,7 +478,7 @@ export class LaneLandingService {
 				kind: 'awaiting_confirm',
 				laneId,
 				projectId: project.id,
-				agentText: 'In attesa di conferma utente, non ritentare.'
+				agentText: m.l10n_state_landing_awaiting_confirm()
 			};
 		}
 
@@ -560,11 +560,12 @@ export class LaneLandingService {
 				error: parsed
 			});
 
-			const detailStr = parsed.detail ? ` Dettaglio: ${parsed.detail}` : '';
 			return {
 				kind: 'error',
 				error: parsed,
-				agentText: `Errore durante l'integrazione: ${parsed.message}.${detailStr}`
+				agentText: parsed.detail
+					? m.l10n_state_landing_error_detail({ message: parsed.message, detail: parsed.detail })
+					: m.l10n_state_landing_error({ error: parsed.message })
 			};
 		}
 
@@ -590,10 +591,14 @@ export class LaneLandingService {
 			});
 
 			const shortCommit = outcome.commit.slice(0, 7);
-			let agentText = `Corsia integrata con successo nel branch ${outcome.targetBranch} (commit ${shortCommit}). File integrati: ${outcome.files.length}.`;
+			let agentText: string = m.l10n_state_landing_integrated({
+				branch: outcome.targetBranch,
+				commit: shortCommit,
+				count: outcome.files.length
+			});
 			if (outcome.pendingRemoteDelete && outcome.pendingRemoteDelete.length > 0) {
 				const remoteNotices = outcome.pendingRemoteDelete
-					.map((b) => `origin/${b} verra' eliminato al prossimo push`)
+					.map((b) => m.l10n_state_landing_remote_delete({ branch: b }))
 					.join(', ');
 				agentText += ` (${remoteNotices})`;
 			}
@@ -628,7 +633,10 @@ export class LaneLandingService {
 			});
 
 			const shortCommit = outcome.commit.slice(0, 7);
-			const agentText = `La corsia e' gia' integrata nel branch ${outcome.targetBranch} (commit ${shortCommit}).`;
+			const agentText = m.l10n_state_landing_already({
+				branch: outcome.targetBranch,
+				commit: shortCommit
+			});
 
 			return {
 				kind: 'already_integrated',
@@ -658,7 +666,10 @@ export class LaneLandingService {
 			// Nessuna istruzione git all'agente (Gate R43): i conflitti li vede
 			// l'utente nella revisione, che Studio gli apre.
 			const fileList = outcome.files.map((f) => `- ${f}`).join('\n');
-			const agentText = `Integrazione non eseguita: il merge con ${outcome.targetBranch} ha conflitti.\nFile in conflitto:\n${fileList}\nStudio ha segnato la corsia come in attesa dell'utente e gli ha aperto la revisione. Non risolvere i conflitti, non usare git e non ritentare: riferisci all'utente.`;
+			const agentText = m.l10n_state_landing_conflicts({
+				branch: outcome.targetBranch,
+				files: fileList
+			});
 
 			return {
 				kind: 'conflicts',
@@ -706,7 +717,7 @@ export class LaneLandingService {
 			kind: 'nothing'
 		});
 
-		const agentText = `Nessuna modifica da integrare nel branch ${outcome.targetBranch}.`;
+		const agentText = m.l10n_state_landing_nothing({ branch: outcome.targetBranch });
 		return {
 			kind: 'nothing',
 			targetBranch: outcome.targetBranch,

@@ -157,32 +157,32 @@ class QuotaStore {
 			case 'offline':
 				return 'Offline';
 			case 'unconfigured':
-				return 'Quota: non config.';
+				return msg.quota_chip_unconfigured();
 			case 'exhausted':
-				return 'Quota esaurita';
+				return msg.quota_chip_exhausted();
 			case 'warning':
 				return this.lowestRemainingPercent !== null
-					? `Quota ${this.lowestRemainingPercent}%`
-					: 'Quota bassa';
+					? msg.l10n_state_quota_chip_value({ pct: this.lowestRemainingPercent })
+					: msg.l10n_state_quota_chip_low();
 			case 'loading':
-				return this.rawJson ? 'Quota...' : 'Quota';
+				return this.rawJson ? `${msg.quota_chip_label()}...` : msg.quota_chip_label();
 			default:
-				return 'Quota';
+				return msg.quota_chip_label();
 		}
 	});
 
 	chipTooltip = $derived.by(() => {
 		switch (this.status) {
 			case 'offline':
-				return `Provider AI o rete non raggiungibili${this.error ? `: ${this.error}` : ''}. Clicca per dettagli e riprova (Ctrl+Alt+U)`;
+				return msg.l10n_state_quota_tip_offline_retry({ detail: this.error ? `: ${this.error}` : '' });
 			case 'unconfigured':
-				return 'Nessun provider AI configurato con credenziali attive. Clicca per impostare i modelli (Ctrl+Alt+U)';
+				return msg.l10n_state_quota_tip_configure_models();
 			case 'exhausted':
 				return msg.ui_ts_quota_limite_di_quota_raggiunto_su_uno_o_b96d();
 			case 'warning':
-				return `Quota in esaurimento (${this.lowestRemainingPercent ?? '< 15'}% rimanente). Clicca per dettagli (Ctrl+Alt+U)`;
+				return msg.l10n_state_quota_tip_low({ pct: this.lowestRemainingPercent ?? '< 15' });
 			default:
-				return 'Visualizza quote e consumi API OMP (Ctrl+Alt+U)';
+				return msg.l10n_state_quota_tip_view();
 		}
 	});
 
@@ -343,7 +343,7 @@ class QuotaStore {
 
 	async redeemReset(target: string): Promise<{ ok: boolean; target: string; message: string }> {
 		if (this.redeemingTarget) {
-			return { ok: false, target, message: 'Riscatto gia in corso' };
+			return { ok: false, target, message: msg.l10n_state_redeem_in_progress() };
 		}
 		this.redeemingTarget = target;
 		try {

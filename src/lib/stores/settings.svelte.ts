@@ -18,6 +18,7 @@ import {
 import type { StreamingBehavior, QueueMode, InterruptMode, CacheWarmingMode } from '#lib/agent/wire.ts';
 import { m as msg } from '#lib/paraglide/messages.js';
 import { broadcastToWindows, listenFromWindows } from './windowBridge';
+import { DEFAULT_COLUMN_ORDER, readColumnOrder, type ColumnRole } from '#lib/panelGeometry.ts';
 import type { ComposerLayout, PinnedCommand, ComposerZone, ComposerForm } from '#lib/agent/commandCatalog/types.ts';
 import {
 	type BackgroundJobId,
@@ -185,6 +186,8 @@ export interface GeneralSettings {
 	 * 'vertical' (sidebar sinistra + editor sopra + chat/terminale sotto).
 	 */
 	layoutMode: LayoutMode;
+	/** Ordine globale delle tre colonne, da sinistra; in verticale decide lato della barra e impilamento. */
+	columnOrder: ColumnRole[];
 	/** Stato di collasso della barra laterale sinistra (a 0px). */
 	sidebarCollapsed: boolean;
 	/** Stato di collasso della barra laterale sinistra per corsie Lab (default true). */
@@ -287,6 +290,7 @@ export const DEFAULT_SETTINGS: StudioSettings = {
 		chatReveal: 'blur',
 		showInternalAgentMessages: false,
 		layoutMode: 'auto',
+		columnOrder: [...DEFAULT_COLUMN_ORDER],
 		sidebarCollapsed: false,
 		labSidebarCollapsed: true,
 		defaultStreamingBehavior: 'steer',
@@ -462,6 +466,7 @@ export function parseSettings(value: unknown): StudioSettings {
 			chatReveal: pick(general.chatReveal, ['blur', 'stream', 'final'] as const, d.general.chatReveal),
 			showInternalAgentMessages: bool(general.showInternalAgentMessages, d.general.showInternalAgentMessages),
 			layoutMode: pick(general.layoutMode, ['auto', 'horizontal', 'vertical'] as const, d.general.layoutMode),
+			columnOrder: readColumnOrder(general.columnOrder) ?? [...DEFAULT_COLUMN_ORDER],
 			sidebarCollapsed: bool(general.sidebarCollapsed, d.general.sidebarCollapsed),
 			labSidebarCollapsed: bool(general.labSidebarCollapsed, d.general.labSidebarCollapsed),
 			defaultStreamingBehavior: pick(

@@ -3,11 +3,12 @@
 -->
 <script lang="ts">
 	import { IconAttach } from '../../icons.ts';
+	import { t } from '../../i18n.ts';
 
 	let {
 		onFiles,
 		disabled = false,
-		title = 'Allega file o immagini'
+		title = t('attachFilesImages')
 	}: {
 		onFiles: (files: FileList) => void;
 		disabled?: boolean;

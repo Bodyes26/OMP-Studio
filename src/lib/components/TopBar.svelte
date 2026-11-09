@@ -4,6 +4,7 @@
 	import { projectOrder } from '#lib/stores/projectOrder.svelte.ts';
 	import { taskStore } from '#lib/stores/tasks.svelte.ts';
 	import { settingsStore, type ProjectBarOrder, type SettingsSection } from '#lib/stores/settings.svelte.ts';
+	import { filesOnRight } from '#lib/panelGeometry.ts';
 	import { themeStore } from '#lib/stores/theme.svelte.ts';
 	import { automaticProjectHue, THEMES } from '#lib/theme.ts';
 	import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -32,6 +33,8 @@
 		IconChevronRight,
 		IconPanelLeftClose,
 		IconPanelLeftOpen,
+		IconPanelRightClose,
+		IconPanelRightOpen,
 		IconGhost,
 		IconPlus,
 		IconQuota,
@@ -41,6 +44,8 @@
 		IconGitBranch,
 		IconTrash,
 		IconDownload,
+		IconFile,
+		IconClose
 	} from '#lib/icons.ts';
 	import { laneStore } from '#lib/stores/lanes.svelte.ts';
 	import { MAIN_LANE_ID, type ProjectId } from '#lib/types/lanes.ts';
@@ -200,15 +205,38 @@
 	const isSidebarCollapsed = $derived(
 		activeLaneKind === 'lab' ? settingsStore.general.labSidebarCollapsed : settingsStore.general.sidebarCollapsed
 	);
+	const sidebarOnRight = $derived(filesOnRight(settingsStore.general.columnOrder));
 
 	/** Tessera che tiene il posto della barra nel tab order: e' quella attiva,
 	 *  oppure la prima se nessun progetto lo e' (all'avvio, o dopo la chiusura
 	 *  dell'ultimo attivo), altrimenti la barra diventerebbe irraggiungibile
 	 *  da tastiera. */
+	const externalProjects = $derived(projectStore.projects.filter((p) => p.external));
+	const isExternalActive = $derived(Boolean(projectStore.activeProject?.external));
+	const lastUsedExternal = $derived(
+		externalProjects.slice().sort((a, b) => (b.lastOpened || 0) - (a.lastOpened || 0))[0]
+	);
+	let externalMenuOpen = $state(false);
+
+	function handleExternalTileClick() {
+		if (externalProjects.length === 0) return;
+		if (externalProjects.length === 1) {
+			projectStore.setActive(externalProjects[0].id);
+			externalMenuOpen = false;
+			return;
+		}
+		if (!isExternalActive && lastUsedExternal) {
+			projectStore.setActive(lastUsedExternal.id);
+		}
+		externalMenuOpen = !externalMenuOpen;
+	}
+
 	const rovingTabId = $derived(
 		projectOrder.list.some((candidate) => candidate.id === projectStore.activeId)
 			? projectStore.activeId
-			: projectOrder.list[0]?.id ?? null
+			: isExternalActive
+				? 'external-tab'
+				: projectOrder.list[0]?.id ?? (externalProjects.length > 0 ? 'external-tab' : null)
 	);
 
 	/** Tooltip e aria-label per la chip impostazioni: se c'e' un avviso di salute
@@ -706,7 +734,13 @@
 			<span class="brand-swap">
 				<BrandMark class="brand-logo-img" />
 				<span class="brand-toggle-icon" aria-hidden="true">
-					{#if isSidebarCollapsed}
+					{#if sidebarOnRight}
+						{#if isSidebarCollapsed}
+							<IconPanelRightOpen size={18} />
+						{:else}
+							<IconPanelRightClose size={18} />
+						{/if}
+					{:else if isSidebarCollapsed}
 						<IconPanelLeftOpen size={18} />
 					{:else}
 						<IconPanelLeftClose size={18} />
@@ -891,6 +925,87 @@
 
 			</div>
 		{/each}
+
+		{#if externalProjects.length > 0}
+			<div class="tab-container external-container" role="presentation">
+				<button
+					class="tab external-tab"
+					type="button"
+					role="tab"
+					class:active={isExternalActive}
+					onclick={handleExternalTileClick}
+					onkeydown={handleTabKeydown}
+					aria-selected={isExternalActive}
+					tabindex={rovingTabId === 'external-tab' ? 0 : -1}
+					aria-haspopup={externalProjects.length > 1 ? 'menu' : undefined}
+					aria-expanded={externalProjects.length > 1 ? externalMenuOpen : undefined}
+					aria-label={m.topbar_external_files()}
+				>
+					<span class="tab-ghost" aria-hidden="true"><IconFile /></span>
+					<span class="tab-reveal show">
+						<span class="tab-reveal-inner">
+							<span class="tab-name">{m.topbar_external_files()}</span>
+						</span>
+					</span>
+					{#if externalProjects.length > 1}
+						<span class="external-count-badge">{externalProjects.length}</span>
+					{/if}
+				</button>
+
+				{#if externalMenuOpen && externalProjects.length > 1}
+					<button
+						type="button"
+						class="order-backdrop"
+						onclick={() => (externalMenuOpen = false)}
+						aria-label={m.common_close()}
+						tabindex="-1"
+					></button>
+					<div
+						class="order-popover rv-lift external-popover"
+						role="menu"
+						aria-label={m.topbar_external_files()}
+						use:trapFocus={{ onEscape: () => (externalMenuOpen = false) }}
+					>
+						{#each externalProjects as ext (ext.id)}
+							{@const isActive = projectStore.activeId === ext.id}
+							<div class="external-menu-row" class:active={isActive}>
+								<button
+									type="button"
+									class="order-option external-folder-btn"
+									class:active={isActive}
+									role="menuitem"
+									title={ext.canonicalProjectPath ?? ext.lane.workspacePath ?? ext.name}
+									onclick={() => {
+										projectStore.setActive(ext.id);
+										externalMenuOpen = false;
+									}}
+								>
+									<span class="external-folder-name">{ext.name}</span>
+									{#if ext.lane.openFiles.length > 0}
+										<span class="external-folder-count">({ext.lane.openFiles.length})</span>
+									{/if}
+								</button>
+								<button
+									type="button"
+									class="external-close-btn"
+									title={m.topbar_close_external_folder()}
+									aria-label={m.topbar_close_external_folder()}
+									onclick={(e) => {
+										e.stopPropagation();
+										projectStore.closeProject(ext.id);
+										if (projectStore.projects.filter((p) => p.external).length <= 1) {
+											externalMenuOpen = false;
+										}
+									}}
+								>
+									<IconClose />
+								</button>
+							</div>
+						{/each}
+					</div>
+				{/if}
+			</div>
+		{/if}
 			</div>
 		</div>
 
@@ -981,7 +1096,7 @@
 				e.preventDefault();
 				e.stopPropagation();
 				contextMenu.open(e, {
-					label: 'Impostazioni',
+					label: m.ui_settingsmodal_impostazioni_d713(),
 					items: [
 						{ kind: 'item', label: m.ui_settingsmodal_impostazioni_d713(), run: () => onSettingsClick?.('general'), shortcut: 'Ctrl+Alt+,' },
 						{ kind: 'item', label: m.settings_nav_models(), run: () => onSettingsClick?.('models'), shortcut: 'Ctrl+Alt+M' },
@@ -1023,7 +1138,7 @@
 						<path d="M3 8h10"/>
 					</svg>
 				</button>
-				<button class="win-btn" onclick={handleToggleMaximize} title={isMaximized ? m.topbar_win_restore() : m.topbar_win_maximize()} aria-label={isMaximized ? m.ui_topbar_ripristina_finestra_a21a() : "Ingrandisci finestra"}>
+				<button class="win-btn" onclick={handleToggleMaximize} title={isMaximized ? m.topbar_win_restore() : m.topbar_win_maximize()} aria-label={isMaximized ? m.topbar_win_restore() : m.l10n_cmp_topbar_maximize_aria()}>
 					{#if isMaximized}
 						<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 							<path d="M6 3h5a2 2 0 0 1 2 2v5"/>
@@ -1439,6 +1554,90 @@
 		background: var(--bg-active);
 		color: var(--brand-ink);
 		font-weight: 500;
+	}
+
+	.external-tab {
+		--proj-hue: 200;
+	}
+
+	.external-tab.active {
+		background-color: var(--bg-hover);
+	}
+
+	.external-tab.active:hover {
+		background-color: var(--bg-active);
+	}
+
+	.external-count-badge {
+		font-size: var(--text-xs);
+		background: var(--bg-hover);
+		color: var(--ink-muted);
+		padding: 0 5px;
+		border-radius: var(--radius-full);
+		margin-left: 4px;
+	}
+
+	.external-popover {
+		width: 280px;
+	}
+
+	.external-menu-row {
+		display: flex;
+		align-items: center;
+		border-radius: var(--radius-md);
+		overflow: hidden;
+	}
+
+	.external-menu-row:hover {
+		background: var(--bg-hover);
+	}
+
+	.external-menu-row.active {
+		background: var(--bg-active);
+	}
+
+	.external-folder-btn {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		padding: 7px 8px;
+		border: none;
+		background: transparent;
+	}
+
+	.external-folder-name {
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.external-folder-count {
+		font-size: var(--text-xs);
+		color: var(--ink-faint);
+		flex-shrink: 0;
+	}
+
+	.external-close-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 24px;
+		height: 24px;
+		padding: 0;
+		border: none;
+		background: transparent;
+		color: var(--ink-faint);
+		cursor: pointer;
+		border-radius: var(--radius-sm);
+		margin-right: 4px;
+		transition: color var(--dur-fast), background var(--dur-fast);
+	}
+
+	.external-close-btn:hover {
+		color: var(--danger);
+		background: var(--bg-sunken);
 	}
 
 	/* Progetto aperto: fondo con tinta leggera del progetto (12%) e nome rivelato.

@@ -26,6 +26,7 @@ import {
 	onAction
 } from '@tauri-apps/plugin-notification';
 import { automationsStore } from './store.svelte.ts';
+import { t } from './i18n.ts';
 import { startAutomationRuntime } from './runtime.svelte.ts';
 import { settingsStore } from '#lib/stores/settings.svelte.ts';
 import { IS_WINDOWS } from '#lib/utils/platform.ts';
@@ -156,7 +157,9 @@ export async function startAutomationHost(options: AutomationHostOptions): Promi
 					return;
 				}
 
-				const title = payload.title || `Automazione ${payload.automationName || payload.automationId}`;
+				const title =
+					payload.title ||
+					t('host_notification_title', { name: payload.automationName || payload.automationId });
 				const body = payload.body || '';
 
 				try {

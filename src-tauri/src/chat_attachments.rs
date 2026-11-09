@@ -138,7 +138,11 @@ pub fn resolve_session_attachments_dir(
             comp,
             Component::ParentDir | Component::RootDir | Component::Prefix(_)
         ) {
-            return Err("Tentativo di path traversal nella chiave di sessione".to_string());
+            return Err(crate::tr!(
+                "Tentativo di path traversal nella chiave di sessione",
+                "Path traversal attempt in the session key"
+            )
+            .to_string());
         }
     }
 
@@ -156,7 +160,13 @@ pub fn percent_decode(value: &str) -> Result<String, String> {
                 .get(i + 1..i + 3)
                 .and_then(|h| std::str::from_utf8(h).ok())
                 .and_then(|h| u8::from_str_radix(h, 16).ok())
-                .ok_or_else(|| "Sequenza percent-encoding non valida".to_string())?;
+                .ok_or_else(|| {
+                    crate::tr!(
+                        "Sequenza percent-encoding non valida",
+                        "Invalid percent-encoding sequence"
+                    )
+                    .to_string()
+                })?;
             out.push(hex);
             i += 3;
         } else {
@@ -164,16 +174,32 @@ pub fn percent_decode(value: &str) -> Result<String, String> {
             i += 1;
         }
     }
-    String::from_utf8(out).map_err(|_| "Valore dell'header non e' UTF-8 valido".to_string())
+    String::from_utf8(out).map_err(|_| {
+        crate::tr!(
+            "Valore dell'header non e' UTF-8 valido",
+            "The header value is not valid UTF-8"
+        )
+        .to_string()
+    })
 }
 
 fn header_value(request: &Request<'_>, name: &str) -> Result<String, String> {
     let raw = request
         .headers()
         .get(name)
-        .ok_or_else(|| format!("Header {name} mancante"))?
+        .ok_or_else(|| {
+            crate::tr!(
+                format!("Header {name} mancante"),
+                format!("Missing {name} header")
+            )
+        })?
         .to_str()
-        .map_err(|_| format!("Header {name} non valido"))?;
+        .map_err(|_| {
+            crate::tr!(
+                format!("Header {name} non valido"),
+                format!("Invalid {name} header")
+            )
+        })?;
     percent_decode(raw)
 }
 
@@ -184,13 +210,23 @@ pub fn stage_into_dir(
     bytes: &[u8],
 ) -> Result<StagedAttachment, String> {
     if bytes.len() > MAX_ATTACHMENT_SIZE {
-        return Err(format!(
-            "Dimensione file eccede il limite consentito di {} MiB",
-            MAX_ATTACHMENT_SIZE / (1024 * 1024)
+        return Err(crate::tr!(
+            format!(
+                "Dimensione file eccede il limite consentito di {} MiB",
+                MAX_ATTACHMENT_SIZE / (1024 * 1024)
+            ),
+            format!(
+                "File size exceeds the allowed limit of {} MiB",
+                MAX_ATTACHMENT_SIZE / (1024 * 1024)
+            )
         ));
     }
-    fs::create_dir_all(session_dir)
-        .map_err(|e| format!("Impossibile creare cartella allegati: {e}"))?;
+    fs::create_dir_all(session_dir).map_err(|e| {
+        crate::tr!(
+            format!("Impossibile creare cartella allegati: {e}"),
+            format!("Could not create the attachments folder: {e}")
+        )
+    })?;
 
     // Determina il prefisso numerico sequenziale <n>-
     let count = match fs::read_dir(session_dir) {
@@ -204,11 +240,19 @@ pub fn stage_into_dir(
 
     // Verifica confinamento finale
     if target_path.parent() != Some(session_dir) {
-        return Err("Tentativo di path traversal nel nome dell'allegato".to_string());
+        return Err(crate::tr!(
+            "Tentativo di path traversal nel nome dell'allegato",
+            "Path traversal attempt in the attachment name"
+        )
+        .to_string());
     }
 
-    fs::write(&target_path, bytes)
-        .map_err(|e| format!("Impossibile scrivere il file allegato: {e}"))?;
+    fs::write(&target_path, bytes).map_err(|e| {
+        crate::tr!(
+            format!("Impossibile scrivere il file allegato: {e}"),
+            format!("Could not write the attachment file: {e}")
+        )
+    })?;
 
     Ok(StagedAttachment {
         path: target_path.to_string_lossy().to_string(),
@@ -227,15 +271,21 @@ pub async fn stage_chat_attachment(
     request: Request<'_>,
 ) -> Result<StagedAttachment, String> {
     let InvokeBody::Raw(bytes) = request.body() else {
-        return Err("Corpo dell'allegato atteso in forma binaria".to_string());
+        return Err(crate::tr!(
+            "Corpo dell'allegato atteso in forma binaria",
+            "Attachment body expected in binary form"
+        )
+        .to_string());
     };
     let session_key = header_value(&request, HEADER_SESSION_KEY)?;
     let file_name = header_value(&request, HEADER_FILE_NAME)?;
 
-    let data_dir = app
-        .path()
-        .app_local_data_dir()
-        .map_err(|e| format!("Impossibile risolvere cartella dati app: {e}"))?;
+    let data_dir = app.path().app_local_data_dir().map_err(|e| {
+        crate::tr!(
+            format!("Impossibile risolvere cartella dati app: {e}"),
+            format!("Could not resolve the app data folder: {e}")
+        )
+    })?;
 
     let session_dir = resolve_session_attachments_dir(&data_dir, &session_key)?;
     stage_into_dir(&session_dir, &file_name, bytes)
@@ -289,13 +339,19 @@ pub fn read_image_file(path: &Path, max: u64) -> Result<DroppedImage, ReadImageE
     if !meta.is_file() {
         return Err(ReadImageError::new(
             "not_image",
-            "Il percorso non e' un file",
+            crate::tr!(
+                "Il percorso non e' un file",
+                "The path is not a file"
+            ),
         ));
     }
     if meta.len() > max {
         return Err(ReadImageError::new(
             "too_large",
-            format!("Immagine oltre il limite di {} MiB", max / (1024 * 1024)),
+            crate::tr!(
+                format!("Immagine oltre il limite di {} MiB", max / (1024 * 1024)),
+                format!("Image over the {} MiB limit", max / (1024 * 1024))
+            ),
         ));
     }
     // `take` difende dal file che cresce tra metadata e lettura.
@@ -306,13 +362,19 @@ pub fn read_image_file(path: &Path, max: u64) -> Result<DroppedImage, ReadImageE
     if bytes.len() as u64 > max {
         return Err(ReadImageError::new(
             "too_large",
-            format!("Immagine oltre il limite di {} MiB", max / (1024 * 1024)),
+            crate::tr!(
+                format!("Immagine oltre il limite di {} MiB", max / (1024 * 1024)),
+                format!("Image over the {} MiB limit", max / (1024 * 1024))
+            ),
         ));
     }
     let mime = image_mime_from_magic(&bytes).ok_or_else(|| {
         ReadImageError::new(
             "not_image",
-            "Il file non e' un'immagine PNG, JPEG, GIF o WebP",
+            crate::tr!(
+                "Il file non e' un'immagine PNG, JPEG, GIF o WebP",
+                "The file is not a PNG, JPEG, GIF or WebP image"
+            ),
         )
     })?;
     Ok(DroppedImage {
@@ -335,15 +397,21 @@ pub async fn chat_attachment_read_image(path: String) -> Result<DroppedImage, Re
 /// Elimina la cartella degli allegati associata alla sessione.
 #[tauri::command]
 pub async fn cleanup_chat_attachments(app: AppHandle, session_key: String) -> Result<(), String> {
-    let data_dir = app
-        .path()
-        .app_local_data_dir()
-        .map_err(|e| format!("Impossibile risolvere cartella dati app: {e}"))?;
+    let data_dir = app.path().app_local_data_dir().map_err(|e| {
+        crate::tr!(
+            format!("Impossibile risolvere cartella dati app: {e}"),
+            format!("Could not resolve the app data folder: {e}")
+        )
+    })?;
 
     let session_dir = resolve_session_attachments_dir(&data_dir, &session_key)?;
     if session_dir.exists() {
-        fs::remove_dir_all(&session_dir)
-            .map_err(|e| format!("Impossibile eliminare cartella allegati: {e}"))?;
+        fs::remove_dir_all(&session_dir).map_err(|e| {
+            crate::tr!(
+                format!("Impossibile eliminare cartella allegati: {e}"),
+                format!("Could not delete the attachments folder: {e}")
+            )
+        })?;
     }
 
     Ok(())

@@ -47,6 +47,21 @@ export function initMonaco() {
 	onThemeChange(applyMonacoTheme);
 }
 
+let themeReady = false;
+
+/**
+ * Definisce il tema Studio una sola volta senza toccare worker ne' ambiente.
+ * Serve a chi usa Monaco solo per colorare (blocchi di codice in chat), dove
+ * nessun editor ha mai chiamato `initMonaco`: senza, `colorize` usa il tema
+ * chiaro predefinito e sul tema scuro il testo risulta illeggibile.
+ */
+export function ensureMonacoTheme() {
+	if (themeReady) return;
+	themeReady = true;
+	applyMonacoTheme();
+	onThemeChange(applyMonacoTheme);
+}
+
 function applyMonacoTheme() {
 	const c = canvasColors();
 	monaco.editor.defineTheme('omp-studio', {
@@ -226,6 +241,25 @@ export function revealLineInEditor(line: number) {
 export function getCurrentFileContent(absPath: string): string | null {
 	const model = models.get(absPath);
 	return model ? model.getValue(undefined, true) : null;
+}
+
+/**
+ * Aggiorna il contenuto di un modello esistente preservando la vista (cursore, scroll).
+ * Se il modello e' attualmente agganciato all'editor, salva e ripristina il viewState.
+ */
+export function updateFileModelContent(absPath: string, content: string): boolean {
+	const model = models.get(absPath);
+	if (!model) return false;
+	if (editorInstance && editorInstance.getModel() === model) {
+		const state = editorInstance.saveViewState();
+		model.setValue(content);
+		if (state) {
+			editorInstance.restoreViewState(state);
+		}
+	} else {
+		model.setValue(content);
+	}
+	return true;
 }
 
 export function getActiveEditorInfo(): {

@@ -37,6 +37,31 @@ import {
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 
+/**
+ * Testo scelto secondo la lingua della UI: il processo omp riceve
+ * `OMP_STUDIO_LOCALE` da Studio, il bundle della GUI ricade su `<html lang>`.
+ * Senza lingua nota si usa l'inglese, il default di Studio. Letta a ogni
+ * chiamata: la lingua puo' cambiare durante la vita del processo.
+ */
+function tr(it: string, en: string): string {
+	const host = globalThis as {
+		process?: { env?: Record<string, string | undefined> };
+		document?: { documentElement?: { lang?: string } };
+	};
+	const code = (host.process?.env?.OMP_STUDIO_LOCALE || host.document?.documentElement?.lang || "en").toLowerCase();
+	return code.startsWith("it") ? it : en;
+}
+
+/** Codice lingua per `<html lang>` dei prototipi e dei diagrammi. */
+function uiLanguageCode(): string {
+	const host = globalThis as {
+		process?: { env?: Record<string, string | undefined> };
+		document?: { documentElement?: { lang?: string } };
+	};
+	const code = (host.process?.env?.OMP_STUDIO_LOCALE || host.document?.documentElement?.lang || "en").toLowerCase();
+	return code.startsWith("it") ? "it" : "en";
+}
+
 function isSubpath(parent: string, child: string): boolean {
 	const rel = relative(parent, child);
 	return !rel.startsWith("..") && !isAbsolute(rel);
@@ -92,7 +117,7 @@ function wrapPrototypeCode(title: string, code: string): string {
 	}
 
 	return `<!DOCTYPE html>
-<html lang="it" class="dark">
+<html lang="${uiLanguageCode()}" class="dark">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -189,7 +214,7 @@ function wrapPrototypeCode(title: string, code: string): string {
       const eb = document.getElementById('error-boundary');
       if (eb) {
         eb.classList.remove('hidden');
-        eb.textContent = 'Errore runtime: ' + (e.message || e.error || 'Errore sconosciuto');
+        eb.textContent = ${JSON.stringify(tr("Errore runtime: ", "Runtime error: "))} + (e.message || e.error || ${JSON.stringify(tr("Errore sconosciuto", "Unknown error"))});
       }
     });
 
@@ -211,7 +236,7 @@ function wrapPrototypeCode(title: string, code: string): string {
       const eb = document.getElementById('error-boundary');
       if (eb) {
         eb.classList.remove('hidden');
-        eb.textContent = 'Errore di inizializzazione: ' + (err.message || String(err));
+        eb.textContent = ${JSON.stringify(tr("Errore di inizializzazione: ", "Initialization error: "))} + (err.message || String(err));
       }
     }
   </script>
@@ -363,7 +388,7 @@ export default function studioExtension(pi: StudioExtensionApi) {
 	// 1. Tool per whiteboard diagrammi Mermaid
 	pi.registerTool({
 		name: "studio_diagram",
-		label: "Studio Diagram",
+		label: tr("Studio Diagram", "Studio Diagram"),
 		description:
 			"Render an interactive diagram on the OMP Studio whiteboard instead of printing ASCII art in the terminal. " +
 			"Use this whenever the user asks to explain, visualize or evaluate a process, architecture, flow, state machine, " +
@@ -379,7 +404,7 @@ export default function studioExtension(pi: StudioExtensionApi) {
 			const title = String(params.title || "Diagram").slice(0, 120);
 			const mermaid = String(params.mermaid || "");
 			if (!mermaid.trim()) {
-				return errorResult("Error: mermaid source is empty");
+				return errorResult(tr("Errore: il sorgente Mermaid e' vuoto", "Error: mermaid source is empty"));
 			}
 
 			let base: string;
@@ -388,14 +413,16 @@ export default function studioExtension(pi: StudioExtensionApi) {
 			} else if (process.env.HOME) {
 				base = join(process.env.HOME, ".omp-studio", "diagrams");
 			} else {
-				return errorResult("Error: cannot resolve exchange directory");
+				return errorResult(
+					tr("Errore: impossibile risolvere la cartella di scambio", "Error: cannot resolve exchange directory")
+				);
 			}
 
 			try {
 				mkdirSync(base, { recursive: true });
 			} catch (err: unknown) {
 				const msg = err instanceof Error ? err.message : String(err);
-				return errorResult(`Error creating exchange directory: ${msg}`);
+				return errorResult(tr(`Errore nella creazione della cartella di scambio: ${msg}`, `Error creating exchange directory: ${msg}`));
 			}
 
 			const rawCwd = ctx?.sessionManager?.getCwd?.() ?? process.cwd();
@@ -435,10 +462,15 @@ export default function studioExtension(pi: StudioExtensionApi) {
 					unlinkSync(tmpFile);
 				} catch {}
 				const msg = err instanceof Error ? err.message : String(err);
-				return errorResult(`Error writing diagram exchange file: ${msg}`);
+				return errorResult(tr(`Errore nella scrittura del file di scambio del diagramma: ${msg}`, `Error writing diagram exchange file: ${msg}`));
 			}
 
-			return textResult(`Diagram "${title}" sent to OMP Studio whiteboard (${basename(file)}).`, {
+			return textResult(
+				tr(
+					`Diagramma "${title}" inviato alla whiteboard di OMP Studio (${basename(file)}).`,
+					`Diagram "${title}" sent to OMP Studio whiteboard (${basename(file)}).`
+				),
+				{
 				studioFile: file
 			});
 		}
@@ -452,7 +484,7 @@ export default function studioExtension(pi: StudioExtensionApi) {
 	// 2. Tool per anteprima live di componenti / prototipi UI
 	pi.registerTool({
 		name: "studio_preview",
-		label: "Studio Preview",
+		label: tr("Studio Preview", "Studio Preview"),
 		description:
 			"Render a live interactive UI prototype in the OMP Studio preview, instead of only printing code. " +
 			"Use it whenever the user asks for a component, card, mockup, table, dialog, dashboard, form, or visual flow. " +
@@ -487,7 +519,7 @@ export default function studioExtension(pi: StudioExtensionApi) {
 			const title = String(params.title || "Prototype").slice(0, 120);
 			const code = String(params.code || "");
 			if (!code.trim()) {
-				return errorResult("Error: prototype code is empty");
+				return errorResult(tr("Errore: il codice del prototipo e' vuoto", "Error: prototype code is empty"));
 			}
 
 			const rawCwd = ctx?.sessionManager?.getCwd?.() ?? process.cwd();
@@ -497,7 +529,7 @@ export default function studioExtension(pi: StudioExtensionApi) {
 				canonicalCwd = realpathSync(cwd);
 			} catch (err: unknown) {
 				const msg = err instanceof Error ? err.message : String(err);
-				return errorResult(`Error resolving project working directory: ${msg}`);
+				return errorResult(tr(`Errore nel risolvere la cartella di lavoro del progetto: ${msg}`, `Error resolving project working directory: ${msg}`));
 			}
 
 			const sessionId = ctx?.sessionManager?.getSessionId?.() ?? "unknown";
@@ -519,7 +551,7 @@ export default function studioExtension(pi: StudioExtensionApi) {
 				const stat = lstatSync(gitignorePath, { throwIfNoEntry: false });
 				if (stat) {
 					if (stat.isSymbolicLink()) {
-						return errorResult("Error: .gitignore is a symbolic link or junction");
+						return errorResult(tr("Errore: .gitignore e' un link simbolico o una junction", "Error: .gitignore is a symbolic link or junction"));
 					}
 					gitignoreExists = true;
 				}
@@ -527,7 +559,7 @@ export default function studioExtension(pi: StudioExtensionApi) {
 				const code = err && typeof err === "object" && "code" in err ? err.code : undefined;
 				if (code !== "ENOENT") {
 					const msg = err instanceof Error ? err.message : String(err);
-					return errorResult(`Error checking .gitignore: ${msg}`);
+					return errorResult(tr(`Errore nel controllo di .gitignore: ${msg}`, `Error checking .gitignore: ${msg}`));
 				}
 			}
 
@@ -552,7 +584,7 @@ export default function studioExtension(pi: StudioExtensionApi) {
 				}
 			} catch (err: unknown) {
 				const msg = err instanceof Error ? err.message : String(err);
-				return errorResult(`Error updating .gitignore: ${msg}`);
+				return errorResult(tr(`Errore nell'aggiornamento di .gitignore: ${msg}`, `Error updating .gitignore: ${msg}`));
 			}
 
 			// 2. Assicura che la cartella proto/ esista nel progetto e non sia un symlink/junction
@@ -561,10 +593,10 @@ export default function studioExtension(pi: StudioExtensionApi) {
 				const stat = lstatSync(protoDir, { throwIfNoEntry: false });
 				if (stat) {
 					if (stat.isSymbolicLink()) {
-						return errorResult("Error: proto directory is a symbolic link or junction");
+						return errorResult(tr("Errore: la cartella proto e' un link simbolico o una junction", "Error: proto directory is a symbolic link or junction"));
 					}
 					if (!stat.isDirectory()) {
-						return errorResult("Error: proto exists but is not a directory");
+						return errorResult(tr("Errore: proto esiste ma non e' una cartella", "Error: proto exists but is not a directory"));
 					}
 				} else {
 					mkdirSync(protoDir, { recursive: true });
@@ -573,7 +605,7 @@ export default function studioExtension(pi: StudioExtensionApi) {
 				const code = err && typeof err === "object" && "code" in err ? err.code : undefined;
 				if (code !== "ENOENT") {
 					const msg = err instanceof Error ? err.message : String(err);
-					return errorResult(`Error accessing proto directory: ${msg}`);
+					return errorResult(tr(`Errore nell'accesso alla cartella proto: ${msg}`, `Error accessing proto directory: ${msg}`));
 				}
 			}
 
@@ -582,29 +614,29 @@ export default function studioExtension(pi: StudioExtensionApi) {
 				canonicalProtoDir = realpathSync(protoDir);
 			} catch (err: unknown) {
 				const msg = err instanceof Error ? err.message : String(err);
-				return errorResult(`Error resolving proto directory: ${msg}`);
+				return errorResult(tr(`Errore nel risolvere la cartella proto: ${msg}`, `Error resolving proto directory: ${msg}`));
 			}
 
 			if (!isSubpath(canonicalCwd, canonicalProtoDir) || canonicalProtoDir === canonicalCwd) {
-				return errorResult("Error: proto directory resolves outside of project root");
+				return errorResult(tr("Errore: la cartella proto esce dalla radice del progetto", "Error: proto directory resolves outside of project root"));
 			}
 
 			// 3. Verifica il file foglia prima della scrittura e salva in modo atomico
 			const targetFile = join(canonicalProtoDir, `${slug}.html`);
 			if (!isSubpath(canonicalProtoDir, targetFile)) {
-				return errorResult("Error: target prototype path is outside of proto directory");
+				return errorResult(tr("Errore: il percorso del prototipo esce dalla cartella proto", "Error: target prototype path is outside of proto directory"));
 			}
 
 			try {
 				const stat = lstatSync(targetFile, { throwIfNoEntry: false });
 				if (stat && stat.isSymbolicLink()) {
-					return errorResult("Error: target prototype file is a symbolic link or junction");
+					return errorResult(tr("Errore: il file del prototipo e' un link simbolico o una junction", "Error: target prototype file is a symbolic link or junction"));
 				}
 			} catch (err: unknown) {
 				const code = err && typeof err === "object" && "code" in err ? err.code : undefined;
 				if (code !== "ENOENT") {
 					const msg = err instanceof Error ? err.message : String(err);
-					return errorResult(`Error checking target file: ${msg}`);
+					return errorResult(tr(`Errore nel controllo del file di destinazione: ${msg}`, `Error checking target file: ${msg}`));
 				}
 			}
 
@@ -627,7 +659,7 @@ export default function studioExtension(pi: StudioExtensionApi) {
 					unlinkSync(tmpTargetFile);
 				} catch {}
 				const msg = err instanceof Error ? err.message : String(err);
-				return errorResult(`Error writing prototype file: ${msg}`);
+				return errorResult(tr(`Errore nella scrittura del file del prototipo: ${msg}`, `Error writing prototype file: ${msg}`));
 			}
 
 			// 4. Scrive la notifica per Studio in %LOCALAPPDATA%/omp-studio/previews
@@ -637,14 +669,14 @@ export default function studioExtension(pi: StudioExtensionApi) {
 			} else if (process.env.HOME) {
 				base = join(process.env.HOME, ".omp-studio", "previews");
 			} else {
-				return errorResult("Error: cannot resolve preview exchange directory");
+				return errorResult(tr("Errore: impossibile risolvere la cartella di scambio dell'anteprima", "Error: cannot resolve preview exchange directory"));
 			}
 
 			try {
 				mkdirSync(base, { recursive: true });
 			} catch (err: unknown) {
 				const msg = err instanceof Error ? err.message : String(err);
-				return errorResult(`Error creating preview exchange directory: ${msg}`);
+				return errorResult(tr(`Errore nella creazione della cartella di scambio dell'anteprima: ${msg}`, `Error creating preview exchange directory: ${msg}`));
 			}
 
 			const exchangeSlug = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
@@ -682,7 +714,7 @@ export default function studioExtension(pi: StudioExtensionApi) {
 					unlinkSync(tmpExchangeFile);
 				} catch {}
 				const msg = err instanceof Error ? err.message : String(err);
-				return errorResult(`Error writing preview exchange file: ${msg}`);
+				return errorResult(tr(`Errore nella scrittura del file di scambio dell'anteprima: ${msg}`, `Error writing preview exchange file: ${msg}`));
 			}
 
 			// 5. Polling del file di ack generato dall'host di rendering di Studio (ANT-009, ANT-010)

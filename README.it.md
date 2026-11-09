@@ -62,7 +62,26 @@ Il Laboratorio è uno spazio per prototipi di interfaccia accanto al progetto. L
 | macOS (Apple Silicon e Intel) | `.dmg` universale |
 | Linux x64 | `.deb` o `.AppImage` |
 
-Scarica da [Releases](https://github.com/Bodyes26/OMP-Studio/releases/latest). Studio si aggiorna da solo; nelle Impostazioni scegli tra il canale stabile e Nightly.
+Il modo più rapido è un comando nel terminale. Scarica l'ultima versione, ne controlla lo SHA-256 e la installa:
+
+```sh
+# macOS (Terminale)
+curl -fsSL https://raw.githubusercontent.com/Bodyes26/OMP-Studio/main/scripts/install-macos.sh | bash
+
+# Linux x64: AppImage in ~/.local, voce nel menu e comando `omp-studio`, senza sudo
+curl -fsSL https://raw.githubusercontent.com/Bodyes26/OMP-Studio/main/scripts/install-linux.sh | sh
+```
+
+```bat
+:: Windows (Prompt dei comandi, PowerShell o Win+R)
+cmd /c "curl -fsSLo %TEMP%\omp-studio-install.cmd https://raw.githubusercontent.com/Bodyes26/OMP-Studio/main/scripts/install-windows.cmd && %TEMP%\omp-studio-install.cmd"
+```
+
+Aggiungi `--nightly` in fondo al comando (`| bash -s -- --nightly`, `| sh -s -- --nightly`, `...install.cmd --nightly`) per il canale Nightly.
+
+Perché uno script: Studio non è notarizzato da Apple e non ha un certificato Windows a pagamento. Un file scaricato con il browser viene segnato come proveniente da internet: macOS rifiuta di aprirlo finché non lo consenti in *Impostazioni di Sistema → Privacy e sicurezza*, e SmartScreen di Windows chiede conferma. I file scaricati con `curl` non hanno quel segno. Puoi anche scaricare gli installer da [Releases](https://github.com/Bodyes26/OMP-Studio/releases/latest) e accettare quegli avvisi una volta. Su macOS, `xattr -dr com.apple.quarantine "/Applications/OMP Studio.app"` toglie il segno da un download del browser.
+
+Studio si aggiorna da solo; nelle Impostazioni scegli tra il canale stabile e Nightly.
 Se `omp` non è installato, al primo avvio Studio propone di installarlo e configurarlo.
 
 ## Configurare Studio Remote (facoltativo)

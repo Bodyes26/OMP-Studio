@@ -284,7 +284,7 @@ class CompanionStore {
 	/** Notifica a tutte le finestre lo stato attuale dei progetti e delle attenzioni. */
 	broadcastState() {
 		void broadcastToWindows('studio-attention-update', $state.snapshot(this.attentionRequests));
-		void broadcastToWindows('studio-projects-update', $state.snapshot(projectStore.projects));
+		void broadcastToWindows('studio-projects-update', $state.snapshot(projectStore.projects.filter((p) => !p.external)));
 		void broadcastToWindows('studio-project-runtime', this.publishedRuntimes);
 	}
 
@@ -433,7 +433,7 @@ class CompanionStore {
 				const attentionReq: AttentionRequest = {
 					projectId: project.id,
 					laneId,
-					laneTitle: laneId !== 'main' ? laneId : 'Principale',
+					laneTitle: laneId !== 'main' ? laneId : messages.lanestrip_tab_main(),
 					projectName: project.name,
 					projectHue: (project as Project).hue ?? 200,
 					recentMessages: existing?.recentMessages ?? [],
@@ -548,8 +548,8 @@ class CompanionStore {
 		const timer = setTimeout(() => fail(new CompanionConversationError(
 			'unavailable',
 			kind === 'send'
-				? "Studio non ha confermato l'invio. Non reinviare: il messaggio potrebbe essere gia' stato consegnato."
-				: 'Richiesta di conversazione scaduta'
+				? messages.l10n_state_companion_send_unconfirmed()
+				: messages.l10n_state_companion_conversation_timeout()
 		)), kind === 'send' ? 180_000 : 10_000);
 
 		void listen<ConversationHostResponse>(`companion-${kind}-conversation-res`, (event) => {
@@ -586,7 +586,7 @@ class CompanionStore {
 	 */
 	async loadConversation(projectId: string, laneId = 'main'): Promise<CompanionConversationSnapshot> {
 		return this.requestConversation('load', { projectId, laneId }, (response) => {
-			if (!response.snapshot) throw new CompanionConversationError('failed', 'Risposta vuota da Studio');
+			if (!response.snapshot) throw new CompanionConversationError('failed', messages.l10n_state_companion_empty_response());
 			return response.snapshot;
 		});
 	}
@@ -597,7 +597,7 @@ class CompanionStore {
 	 */
 	async sendConversation(target: CompanionConversationTarget, text: string): Promise<void> {
 		return this.requestConversation('send', { target, text }, (response) => {
-			if (response.ok !== true) throw new CompanionConversationError('failed', 'Invio non confermato da Studio');
+			if (response.ok !== true) throw new CompanionConversationError('failed', messages.l10n_state_companion_send_not_confirmed());
 		});
 	}
 
@@ -643,6 +643,7 @@ class CompanionStore {
 
 			// Prepara metadati progetti noti
 			const knownProjects = (this.projects.length > 0 ? this.projects : projectStore.projects)
+				.filter((p) => !p.external)
 				.flatMap((p) =>
 					p.canonicalProjectPath
 						? [{

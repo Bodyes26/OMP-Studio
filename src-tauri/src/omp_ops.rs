@@ -41,16 +41,28 @@ fn get_db_path(db_name: &str) -> Option<PathBuf> {
 }
 
 pub(crate) fn open_readonly_db(db_name: &str) -> Result<Connection, String> {
-    let path =
-        get_db_path(db_name).ok_or_else(|| format!("Percorso db {} non risolvibile", db_name))?;
+    let path = get_db_path(db_name).ok_or_else(|| {
+        crate::tr!(
+            format!("Percorso db {} non risolvibile", db_name),
+            format!("Database path {} could not be resolved", db_name)
+        )
+    })?;
     if !path.exists() {
-        return Err(format!("File db {} non esiste", path.display()));
+        return Err(crate::tr!(
+            format!("File db {} non esiste", path.display()),
+            format!("Database file {} does not exist", path.display())
+        ));
     }
     let conn = Connection::open_with_flags(
         &path,
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )
-    .map_err(|e| format!("Cannot open db {}: {}", db_name, e))?;
+    .map_err(|e| {
+        crate::tr!(
+            format!("Apertura del database {} non riuscita: {}", db_name, e),
+            format!("Cannot open db {}: {}", db_name, e)
+        )
+    })?;
 
     conn.execute_batch(
         "PRAGMA query_only = ON;
@@ -296,14 +308,35 @@ pub fn studio_theme_file() -> Option<PathBuf> {
 /// `theme_apply` nell'overlay, quindi ogni modalita' della TUI usa la stessa
 /// scelta.
 fn theme_apply_sync(theme: serde_json::Value) -> Result<(), String> {
-    let path = studio_theme_file().ok_or("Impossibile risolvere ~/.omp/agent")?;
-    let dir = path.parent().ok_or("Percorso tema senza cartella")?;
-    std::fs::create_dir_all(dir).map_err(|e| format!("Cartella temi: {}", e))?;
+    let path = studio_theme_file().ok_or_else(|| {
+        crate::tr!(
+            "Impossibile risolvere ~/.omp/agent",
+            "Could not resolve ~/.omp/agent"
+        )
+        .to_string()
+    })?;
+    let dir = path.parent().ok_or_else(|| {
+        crate::tr!(
+            "Percorso tema senza cartella",
+            "Theme path has no parent folder"
+        )
+        .to_string()
+    })?;
+    std::fs::create_dir_all(dir).map_err(|e| {
+        crate::tr!(
+            format!("Cartella temi: {}", e),
+            format!("Themes folder: {}", e)
+        )
+    })?;
 
     let mut theme = theme;
-    let obj = theme
-        .as_object_mut()
-        .ok_or("Il tema non e' un oggetto JSON")?;
+    let obj = theme.as_object_mut().ok_or_else(|| {
+        crate::tr!(
+            "Il tema non e' un oggetto JSON",
+            "The theme is not a JSON object"
+        )
+        .to_string()
+    })?;
     obj.insert(
         "name".into(),
         serde_json::Value::String(STUDIO_THEME_NAME.into()),
@@ -311,14 +344,24 @@ fn theme_apply_sync(theme: serde_json::Value) -> Result<(), String> {
     obj.remove("$schema");
 
     let body = serde_json::to_string_pretty(&theme).map_err(|e| e.to_string())?;
-    std::fs::write(&path, body).map_err(|e| format!("Scrittura tema: {}", e))
+    std::fs::write(&path, body).map_err(|e| {
+        crate::tr!(
+            format!("Scrittura tema: {}", e),
+            format!("Writing the theme: {}", e)
+        )
+    })
 }
 
 #[command]
 pub async fn theme_apply(theme: serde_json::Value) -> Result<(), String> {
     tokio::task::spawn_blocking(move || theme_apply_sync(theme))
         .await
-        .map_err(|e| format!("Task theme_apply: {}", e))?
+        .map_err(|e| {
+            crate::tr!(
+                format!("Task theme_apply: {}", e),
+                format!("theme_apply task: {}", e)
+            )
+        })?
 }
 
 /// Il tema attivo nella configurazione dell'utente (`theme.dark` di
@@ -326,7 +369,13 @@ pub async fn theme_apply(theme: serde_json::Value) -> Result<(), String> {
 /// gia' scelto in `omp`. Se `theme.dark` non e' presente, usa `theme.light`
 /// come fallback.
 fn omp_user_theme_sync() -> Result<Option<String>, String> {
-    let mut path = agent_dir().ok_or("Impossibile risolvere ~/.omp/agent")?;
+    let mut path = agent_dir().ok_or_else(|| {
+        crate::tr!(
+            "Impossibile risolvere ~/.omp/agent",
+            "Could not resolve ~/.omp/agent"
+        )
+        .to_string()
+    })?;
     path.push("config.yml");
     let Ok(text) = std::fs::read_to_string(&path) else {
         return Ok(None);
@@ -362,7 +411,12 @@ fn omp_user_theme_sync() -> Result<Option<String>, String> {
 pub async fn omp_user_theme() -> Result<Option<String>, String> {
     tokio::task::spawn_blocking(omp_user_theme_sync)
         .await
-        .map_err(|e| format!("Task omp_user_theme: {}", e))?
+        .map_err(|e| {
+            crate::tr!(
+                format!("Task omp_user_theme: {}", e),
+                format!("omp_user_theme task: {}", e)
+            )
+        })?
 }
 
 #[derive(Serialize)]
@@ -437,7 +491,12 @@ pub async fn usage_snapshot(force: bool) -> Result<UsageReport, String> {
 
     let mut report = tokio::task::spawn_blocking(usage_snapshot_sync)
         .await
-        .map_err(|e| format!("Task usage_snapshot: {}", e))??;
+        .map_err(|e| {
+            crate::tr!(
+                format!("Task usage_snapshot: {}", e),
+                format!("usage_snapshot task: {}", e)
+            )
+        })??;
     let extra = extra_usage_reports().await;
     merge_extra_reports(&mut report.raw_json, extra, now_ms());
     if let Some(obj) = report.raw_json.as_object_mut() {
@@ -539,17 +598,25 @@ fn read_reset_settings_sync() -> serde_json::Value {
 fn validate_reset_target(raw: &str) -> Result<String, String> {
     let trimmed = raw.trim();
     let Some((raw_provider, raw_id)) = trimmed.split_once('/') else {
-        return Err(
-            "Target reset non valido: usa il formato <provider>/<credential-id>".to_string(),
-        );
+        return Err(crate::tr!(
+            "Target reset non valido: usa il formato <provider>/<credential-id>",
+            "Invalid reset target: use the format <provider>/<credential-id>"
+        )
+        .to_string());
     };
     let provider = match raw_provider.trim().to_ascii_lowercase().as_str() {
         "openai-codex" | "codex" => "openai-codex",
         "anthropic" | "claude" => "anthropic",
         other => {
-            return Err(format!(
-                "Provider reset non supportato: '{}'. Usa openai-codex o anthropic.",
-                other
+            return Err(crate::tr!(
+                format!(
+                    "Provider reset non supportato: '{}'. Usa openai-codex o anthropic.",
+                    other
+                ),
+                format!(
+                    "Unsupported reset provider: '{}'. Use openai-codex or anthropic.",
+                    other
+                )
             ))
         }
     };
@@ -558,14 +625,24 @@ fn validate_reset_target(raw: &str) -> Result<String, String> {
         || id_str.len() > 12
         || !id_str.bytes().all(|b| b.is_ascii_digit())
     {
-        return Err(format!(
-            "ID credenziale non valido in '{}': deve essere il numero elencato da omp usage reset.",
-            trimmed
+        return Err(crate::tr!(
+            format!(
+                "ID credenziale non valido in '{}': deve essere il numero elencato da omp usage reset.",
+                trimmed
+            ),
+            format!(
+                "Invalid credential ID in '{}': it must be the number listed by omp usage reset.",
+                trimmed
+            )
         ));
     }
-    let cred_id: u64 = id_str
-        .parse()
-        .map_err(|_| "ID credenziale fuori intervallo".to_string())?;
+    let cred_id: u64 = id_str.parse().map_err(|_| {
+        crate::tr!(
+            "ID credenziale fuori intervallo",
+            "Credential ID out of range"
+        )
+        .to_string()
+    })?;
     Ok(format!("{}/{}", provider, cred_id))
 }
 
@@ -638,7 +715,12 @@ pub async fn usage_reset_list(force: bool) -> Result<UsageReport, String> {
 
     let report = tokio::task::spawn_blocking(usage_reset_list_sync)
         .await
-        .map_err(|e| format!("Task usage_reset_list: {}", e))??;
+        .map_err(|e| {
+            crate::tr!(
+                format!("Task usage_reset_list: {}", e),
+                format!("usage_reset_list task: {}", e)
+            )
+        })??;
     *USAGE_RESET_CACHE.lock() = Some((Instant::now(), report.raw_json.clone()));
     Ok(report)
 }
@@ -693,7 +775,12 @@ pub async fn usage_reset_redeem(target: String) -> Result<UsageResetRedeemResult
     let canonical = validate_reset_target(&target)?;
     let result = tokio::task::spawn_blocking(move || usage_reset_redeem_sync(canonical))
         .await
-        .map_err(|e| format!("Task usage_reset_redeem: {}", e))??;
+        .map_err(|e| {
+            crate::tr!(
+                format!("Task usage_reset_redeem: {}", e),
+                format!("usage_reset_redeem task: {}", e)
+            )
+        })??;
     // Svuota subito entrambe le cache cosi' il refresh immediatamente successivo
     // legge le quote e il saldo reset aggiornati senza aspettare USAGE_FORCE_FLOOR.
     *USAGE_CACHE.lock() = None;
@@ -1137,7 +1224,7 @@ fn provider_host(breadcrumb_name: &str) -> &'static str {
     } else if breadcrumb_name.starts_with("wt-") {
         "Windows Terminal"
     } else if breadcrumb_name.starts_with("pts-") {
-        "Terminale"
+        crate::tr!("Terminale", "Terminal")
     } else if breadcrumb_name.starts_with("tmux-") {
         "tmux"
     } else if breadcrumb_name.starts_with("zellij-") {
@@ -1151,7 +1238,7 @@ fn provider_host(breadcrumb_name: &str) -> &'static str {
     } else if breadcrumb_name.starts_with("apple-") {
         "Terminal.app"
     } else {
-        "Sconosciuto"
+        crate::tr!("Sconosciuto", "Unknown")
     }
 }
 
@@ -1187,7 +1274,12 @@ fn provider_hosts_sync() -> Result<Vec<ProviderHost>, String> {
     let entries = match std::fs::read_dir(&terminal_sessions) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => return Err(format!("Lettura sessioni terminale: {}", error)),
+        Err(error) => {
+            return Err(crate::tr!(
+                format!("Lettura sessioni terminale: {}", error),
+                format!("Reading terminal sessions: {}", error)
+            ))
+        }
     };
 
     let mut hosts = HashMap::<(String, String, Option<String>), ProviderHost>::new();
@@ -1324,7 +1416,12 @@ fn provider_hosts_sync() -> Result<Vec<ProviderHost>, String> {
 pub async fn provider_hosts() -> Result<Vec<ProviderHost>, String> {
     tokio::task::spawn_blocking(provider_hosts_sync)
         .await
-        .map_err(|e| format!("Task provider_hosts: {}", e))?
+        .map_err(|e| {
+            crate::tr!(
+                format!("Task provider_hosts: {}", e),
+                format!("provider_hosts task: {}", e)
+            )
+        })?
 }
 
 pub use crate::session_index::SessionEntry;
@@ -1448,7 +1545,12 @@ pub async fn sessions_list(
 ) -> Result<Vec<SessionEntry>, String> {
     tokio::task::spawn_blocking(move || sessions_list_sync(app, project_path))
         .await
-        .map_err(|e| format!("Task sessions_list: {}", e))?
+        .map_err(|e| {
+            crate::tr!(
+                format!("Task sessions_list: {}", e),
+                format!("sessions_list task: {}", e)
+            )
+        })?
 }
 
 pub fn sanitize_fts_query(query: &str) -> String {
@@ -1548,7 +1650,12 @@ pub async fn sessions_search(
 ) -> Result<Vec<SessionEntry>, String> {
     tokio::task::spawn_blocking(move || sessions_search_sync(app, query, project_path))
         .await
-        .map_err(|e| format!("Task sessions_search: {}", e))?
+        .map_err(|e| {
+            crate::tr!(
+                format!("Task sessions_search: {}", e),
+                format!("sessions_search task: {}", e)
+            )
+        })?
 }
 
 /// Estrae tutti i record `credential_pin` da un file di sessione JSONL.
@@ -1697,7 +1804,11 @@ fn read_session_messages_from_path(
 ) -> Result<Vec<serde_json::Value>, String> {
 
     let Some(info) = crate::session_index::parse_session_file(file_path) else {
-        return Err("Impossibile leggere l'intestazione della sessione".to_string());
+        return Err(crate::tr!(
+            "Impossibile leggere l'intestazione della sessione",
+            "Could not read the session header"
+        )
+        .to_string());
     };
 
     // Controllo rigoroso di autorizzazione sul percorso canonico e worktree
@@ -1751,13 +1862,24 @@ fn read_session_messages_from_path(
     }
 
     if !authorized {
-        return Err(format!(
-            "Accesso negato: la sessione '{}' non appartiene al progetto '{}'",
-            session_id, project_path
+        return Err(crate::tr!(
+            format!(
+                "Accesso negato: la sessione '{}' non appartiene al progetto '{}'",
+                session_id, project_path
+            ),
+            format!(
+                "Access denied: session '{}' does not belong to project '{}'",
+                session_id, project_path
+            )
         ));
     }
 
-    let file = File::open(file_path).map_err(|e| format!("Apertura del file di sessione fallita: {}", e))?;
+    let file = File::open(file_path).map_err(|e| {
+        crate::tr!(
+            format!("Apertura del file di sessione fallita: {}", e),
+            format!("Opening the session file failed: {}", e)
+        )
+    })?;
     let reader = BufReader::new(file);
 
     let mut nodes: HashMap<String, (Option<String>, serde_json::Value)> = HashMap::new();
@@ -1765,7 +1887,12 @@ fn read_session_messages_from_path(
     let mut fallback_linear: Vec<serde_json::Value> = Vec::new();
 
     for line_result in reader.lines() {
-        let line = line_result.map_err(|e| format!("Errore di lettura del transcript: {}", e))?;
+        let line = line_result.map_err(|e| {
+            crate::tr!(
+                format!("Errore di lettura del transcript: {}", e),
+                format!("Error reading the transcript: {}", e)
+            )
+        })?;
         let trimmed_line = line.trim();
         if trimmed_line.is_empty() {
             continue;
@@ -1852,18 +1979,33 @@ fn read_historical_session_messages_sync(
 ) -> Result<Vec<serde_json::Value>, String> {
     let trimmed_id = session_id.trim();
     if trimmed_id.is_empty() {
-        return Err("Session ID cannot be empty".to_string());
+        return Err(crate::tr!(
+            "L'ID della sessione non può essere vuoto",
+            "Session ID cannot be empty"
+        )
+        .to_string());
     }
     if trimmed_id.contains('/') || trimmed_id.contains('\\') || trimmed_id.contains("..") {
-        return Err("Invalid session ID format".to_string());
+        return Err(crate::tr!(
+            "Formato dell'ID sessione non valido",
+            "Invalid session ID format"
+        )
+        .to_string());
     }
 
     let Some(agent) = agent_dir() else {
-        return Err("Could not locate agent directory".to_string());
+        return Err(crate::tr!(
+            "Impossibile trovare la cartella dell'agente",
+            "Could not locate agent directory"
+        )
+        .to_string());
     };
     let sessions_root = agent.join("sessions");
     let Some(file_path) = find_session_file_in(&sessions_root, trimmed_id) else {
-        return Err(format!("Session transcript not found for id '{}'", trimmed_id));
+        return Err(crate::tr!(
+            format!("Transcript della sessione non trovato per l'id '{}'", trimmed_id),
+            format!("Session transcript not found for id '{}'", trimmed_id)
+        ));
     };
 
     read_session_messages_from_path(&file_path, &project_path, trimmed_id, &known_worktree_paths)
@@ -1882,7 +2024,12 @@ pub async fn read_historical_session_messages(
         read_historical_session_messages_sync(app, project_path, session_id, known_worktree_paths)
     })
     .await
-    .map_err(|e| format!("Task read_historical_session_messages: {}", e))?
+    .map_err(|e| {
+            crate::tr!(
+                format!("Task read_historical_session_messages: {}", e),
+                format!("read_historical_session_messages task: {}", e)
+            )
+        })?
 }
 
 /// Versioni di omp in cache, per binario e mtime. Una cache globale senza chiave
@@ -1945,7 +2092,12 @@ pub fn get_omp_version_sync() -> Result<String, String> {
 pub async fn get_omp_version() -> Result<String, String> {
     tokio::task::spawn_blocking(get_omp_version_sync)
         .await
-        .map_err(|e| format!("Task get_omp_version: {}", e))?
+        .map_err(|e| {
+            crate::tr!(
+                format!("Task get_omp_version: {}", e),
+                format!("get_omp_version task: {}", e)
+            )
+        })?
 }
 #[derive(Serialize)]
 pub struct OmpUpdateCheck {
@@ -1996,7 +2148,11 @@ pub fn parse_omp_update_check(
         let err_msg = if !combined.is_empty() {
             combined
         } else {
-            "Controllo aggiornamenti OMP fallito senza output".to_string()
+            crate::tr!(
+                "Controllo aggiornamenti OMP fallito senza output",
+                "OMP update check failed without output"
+            )
+            .to_string()
         };
         return Err(err_msg);
     }
@@ -2121,8 +2277,12 @@ fn check_omp_update_sync() -> Result<OmpUpdateCheck, String> {
     );
     let current_version = get_omp_version_sync().unwrap_or_else(|_| "unknown".to_string());
 
-    let output =
-        omp_capture(cmd).map_err(|e| format!("Impossibile verificare aggiornamenti OMP: {}", e))?;
+    let output = omp_capture(cmd).map_err(|e| {
+        crate::tr!(
+            format!("Impossibile verificare aggiornamenti OMP: {}", e),
+            format!("Could not check for OMP updates: {}", e)
+        )
+    })?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
 
@@ -2133,7 +2293,12 @@ fn check_omp_update_sync() -> Result<OmpUpdateCheck, String> {
 pub async fn check_omp_update() -> Result<OmpUpdateCheck, String> {
     tokio::task::spawn_blocking(check_omp_update_sync)
         .await
-        .map_err(|e| format!("Task check_omp_update: {}", e))?
+        .map_err(|e| {
+            crate::tr!(
+                format!("Task check_omp_update: {}", e),
+                format!("check_omp_update task: {}", e)
+            )
+        })?
 }
 
 fn run_omp_update_sync() -> Result<String, String> {
@@ -2164,7 +2329,12 @@ fn run_omp_update_sync() -> Result<String, String> {
     );
     let output = cmd
         .output()
-        .map_err(|e| format!("Impossibile eseguire l'aggiornamento di OMP: {}", e))?;
+        .map_err(|e| {
+            crate::tr!(
+                format!("Impossibile eseguire l'aggiornamento di OMP: {}", e),
+                format!("Could not run the OMP update: {}", e)
+            )
+        })?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -2180,9 +2350,15 @@ fn run_omp_update_sync() -> Result<String, String> {
         let msg = if !cleaned.is_empty() {
             cleaned
         } else {
-            format!(
-                "Aggiornamento OMP fallito con codice {:?}",
-                output.status.code()
+            crate::tr!(
+                format!(
+                    "Aggiornamento OMP fallito con codice {:?}",
+                    output.status.code()
+                ),
+                format!(
+                    "OMP update failed with code {:?}",
+                    output.status.code()
+                )
             )
         };
         Err(msg)
@@ -2193,7 +2369,12 @@ fn run_omp_update_sync() -> Result<String, String> {
 pub async fn run_omp_update() -> Result<String, String> {
     tokio::task::spawn_blocking(run_omp_update_sync)
         .await
-        .map_err(|e| format!("Task run_omp_update: {}", e))?
+        .map_err(|e| {
+            crate::tr!(
+                format!("Task run_omp_update: {}", e),
+                format!("run_omp_update task: {}", e)
+            )
+        })?
 }
 
 /// Rappresentazione semver semplice per confrontare versioni di omp e changelog.
@@ -2309,12 +2490,23 @@ fn read_last_changelog_version() -> Option<String> {
 }
 
 fn write_last_changelog_version(version: &str) -> Result<(), String> {
-    let path = last_changelog_version_file().ok_or("Impossibile trovare directory ~/.omp/agent")?;
+    let path = last_changelog_version_file().ok_or_else(|| {
+        crate::tr!(
+            "Impossibile trovare directory ~/.omp/agent",
+            "Could not find the ~/.omp/agent directory"
+        )
+        .to_string()
+    })?;
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
     std::fs::write(&path, version.trim())
-        .map_err(|e| format!("Scrittura last-changelog-version: {}", e))
+        .map_err(|e| {
+        crate::tr!(
+            format!("Scrittura last-changelog-version: {}", e),
+            format!("Writing last-changelog-version: {}", e)
+        )
+    })
 }
 
 type ChangelogCacheKey = (PathBuf, Option<SystemTime>);
@@ -2351,7 +2543,12 @@ fn fetch_omp_changelog_sync() -> Result<String, String> {
         .stderr(std::process::Stdio::null());
 
     let spawned_at = SystemTime::now();
-    let mut child = cmd.spawn().map_err(|e| format!("Spawn omp rpc: {}", e))?;
+    let mut child = cmd.spawn().map_err(|e| {
+        crate::tr!(
+            format!("Spawn omp rpc: {}", e),
+            format!("Spawn of omp rpc: {}", e)
+        )
+    })?;
     let pid = child.id();
 
     if let Some(mut stdin) = child.stdin.take() {
@@ -2380,7 +2577,10 @@ fn fetch_omp_changelog_sync() -> Result<String, String> {
     discard_child_log(pid, spawned_at);
 
     if changelog_text.is_empty() {
-        return Err("Nessun output changelog ricevuto da omp".to_string());
+        return Err(crate::tr!(
+            "Nessun output changelog ricevuto da omp",
+            "No changelog output received from omp"
+        ).to_string());
     }
 
     *CACHED_CHANGELOG_TEXT.lock() = Some((cache_key, changelog_text.clone()));
@@ -2492,7 +2692,10 @@ pub fn mark_omp_changelog_seen_sync(target_version: Option<String>) -> Result<()
         None => get_omp_version_sync().unwrap_or_default(),
     };
     if ver.is_empty() {
-        return Err("Versione non valida".to_string());
+        return Err(crate::tr!(
+            "Versione non valida",
+            "Invalid version"
+        ).to_string());
     }
     let clean = ver.trim_start_matches("omp/").trim_start_matches('v').to_string();
     write_last_changelog_version(&clean)
@@ -2502,14 +2705,24 @@ pub fn mark_omp_changelog_seen_sync(target_version: Option<String>) -> Result<()
 pub async fn get_omp_changelog_status() -> Result<OmpChangelogStatus, String> {
     tokio::task::spawn_blocking(get_omp_changelog_status_sync)
         .await
-        .map_err(|e| format!("Task get_omp_changelog_status: {}", e))?
+        .map_err(|e| {
+            crate::tr!(
+                format!("Task get_omp_changelog_status: {}", e),
+                format!("get_omp_changelog_status task: {}", e)
+            )
+        })?
 }
 
 #[command]
 pub async fn mark_omp_changelog_seen(version: Option<String>) -> Result<(), String> {
     tokio::task::spawn_blocking(move || mark_omp_changelog_seen_sync(version))
         .await
-        .map_err(|e| format!("Task mark_omp_changelog_seen: {}", e))?
+        .map_err(|e| {
+            crate::tr!(
+                format!("Task mark_omp_changelog_seen: {}", e),
+                format!("mark_omp_changelog_seen task: {}", e)
+            )
+        })?
 }
 
 #[cfg(test)]

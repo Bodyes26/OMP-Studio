@@ -11,6 +11,7 @@ import type { SessionRegistry, AgentSessionLike } from '#lib/agent/sessionRegist
 import { sessionRegistry } from '#lib/agent/sessionRegistry.ts';
 import { projectStore } from '#lib/stores/projects.svelte.ts';
 import { laneOrchestrator } from '#lib/lanes/laneOrchestrator.svelte.ts';
+import { m } from '#lib/paraglide/messages.js';
 import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event';
 
 export interface CompanionHostOptions {
@@ -105,13 +106,13 @@ function assertLiveConversation(
 	session: AgentSessionLike
 ) {
 	if (registry.getLaneSession(projectId, laneId) !== session || session.sessionId !== sessionId) {
-		throw new CompanionConversationError('session_changed', "La conversazione attiva e' cambiata. Ricaricala prima di inviare.");
+		throw new CompanionConversationError('session_changed', m.l10n_lab_remote_conversation_changed());
 	}
 	if (session.pendingUi) {
-		throw new CompanionConversationError('unavailable', 'Rispondi alla domanda in attesa prima di inviare un altro messaggio.');
+		throw new CompanionConversationError('unavailable', m.l10n_lab_remote_answer_pending_first());
 	}
 	if (isPlanHandingOff(session)) {
-		throw new CompanionConversationError('unavailable', 'Passaggio di compito in corso');
+		throw new CompanionConversationError('unavailable', m.l10n_lab_remote_plan_handoff_running());
 	}
 }
 
@@ -124,9 +125,9 @@ export async function readConversationSnapshot(
 	laneId: string = 'main',
 	registry: SessionRegistry = sessionRegistry
 ): Promise<CompanionConversationSnapshot> {
-	const project = projectStore.projects.find((p) => p.id.toLowerCase() === projectId.toLowerCase());
+	const project = projectStore.projects.find((p) => !p.external && p.id.toLowerCase() === projectId.toLowerCase());
 	if (!project) {
-		throw new CompanionConversationError('not_found', `Progetto "${projectId}" non trovato`);
+		throw new CompanionConversationError('not_found', m.l10n_lab_remote_project_not_found({ project: projectId }));
 	}
 
 	const isMain = !laneId || laneId.toLowerCase() === 'main';
@@ -136,7 +137,7 @@ export async function readConversationSnapshot(
 	if (!lane && !isMain) {
 		throw new CompanionConversationError(
 			'not_found',
-			`Corsia "${effectiveLaneId}" non trovata nel progetto "${project.id}"`
+			m.l10n_lab_remote_lane_not_found({ lane: effectiveLaneId, project: project.id })
 		);
 	}
 
@@ -146,17 +147,17 @@ export async function readConversationSnapshot(
 	const sessionId = session?.sessionId ?? null;
 
 	let canSend = Boolean(sessionId);
-	let sendBlockReason: string | undefined = sessionId ? undefined : 'Nessuna sessione attiva per questo progetto.';
+	let sendBlockReason: string | undefined = sessionId ? undefined : m.companion_no_active_session();
 
 	if (surface === 'terminal') {
 		canSend = false;
-		sendBlockReason = "L'invio di messaggi non e' disponibile per corsie su terminale.";
+		sendBlockReason = m.l10n_lab_remote_send_terminal_unavailable();
 	} else if (session?.pendingUi) {
 		canSend = false;
-		sendBlockReason = 'In attesa di risposta alla domanda';
+		sendBlockReason = m.l10n_lab_remote_answer_waiting();
 	} else if (isPlanHandingOff(session)) {
 		canSend = false;
-		sendBlockReason = 'Passaggio di compito in corso';
+		sendBlockReason = m.l10n_lab_remote_plan_handoff_running();
 	}
 
 	let message: CompanionAssistantMessage | null = null;
@@ -188,12 +189,12 @@ export async function sendConversationToSession(
 ): Promise<void> {
 	const trimmed = (text ?? '').trim();
 	if (!trimmed) {
-		throw new CompanionConversationError('failed', "Il messaggio non puo' essere vuoto");
+		throw new CompanionConversationError('failed', m.l10n_lab_remote_message_empty());
 	}
 
-	const project = projectStore.projects.find((p) => p.id.toLowerCase() === target.projectId.toLowerCase());
+	const project = projectStore.projects.find((p) => !p.external && p.id.toLowerCase() === target.projectId.toLowerCase());
 	if (!project) {
-		throw new CompanionConversationError('not_found', `Progetto "${target.projectId}" non trovato`);
+		throw new CompanionConversationError('not_found', m.l10n_lab_remote_project_not_found({ project: target.projectId }));
 	}
 
 	const isMain = !target.laneId || target.laneId.toLowerCase() === 'main';
@@ -203,20 +204,17 @@ export async function sendConversationToSession(
 	if (!lane && !isMain) {
 		throw new CompanionConversationError(
 			'not_found',
-			`Corsia "${target.laneId}" non trovata nel progetto "${project.id}"`
+			m.l10n_lab_remote_lane_not_found({ lane: target.laneId, project: project.id })
 		);
 	}
 
 	const surface = project.lane.laneId === effectiveLaneId ? project.lane.surface : (lane?.surface ?? 'gui');
 	if (surface === 'terminal') {
-		throw new CompanionConversationError(
-			'unavailable',
-			"L'invio di messaggi non e' disponibile per corsie su terminale."
-		);
+		throw new CompanionConversationError('unavailable', m.l10n_lab_remote_send_terminal_unavailable());
 	}
 
 	if (lane?.kind === 'lab' && !lane.labPrototypeId) {
-		throw new CompanionConversationError('failed', 'La corsia Laboratorio non ha un prototipo associato valido.');
+		throw new CompanionConversationError('failed', m.l10n_lab_remote_lab_lane_no_prototype());
 	}
 
 	const registry = options.registry ?? sessionRegistry;
@@ -224,7 +222,7 @@ export async function sendConversationToSession(
 	if (!session) {
 		throw new CompanionConversationError(
 			'not_found',
-			`Nessuna sessione trovata per la corsia "${effectiveLaneId}" nel progetto "${project.id}"`
+			m.l10n_lab_remote_session_for_lane_not_found({ lane: effectiveLaneId, project: project.id })
 		);
 	}
 
@@ -232,7 +230,10 @@ export async function sendConversationToSession(
 	if (!session.sessionId || session.sessionId !== target.sessionId) {
 		throw new CompanionConversationError(
 			'session_changed',
-			`La sessione attiva (${session.sessionId ?? 'nessuna'}) non corrisponde alla sessione letta (${target.sessionId})`
+			m.l10n_lab_remote_session_mismatch({
+				active: session.sessionId ?? m.l10n_lab_remote_session_none(),
+				read: target.sessionId
+			})
 		);
 	}
 	assertLiveConversation(registry, project.id, effectiveLaneId, target.sessionId, session);
@@ -245,11 +246,14 @@ export async function sendConversationToSession(
 			if (session.sessionId !== target.sessionId) {
 				throw new CompanionConversationError(
 					'session_changed',
-					`La sessione e' cambiata durante l'apertura (${session.sessionId ?? 'nessuna'} != ${target.sessionId})`
+					m.l10n_lab_remote_session_changed_opening({
+						active: session.sessionId ?? m.l10n_lab_remote_session_none(),
+						read: target.sessionId
+					})
 				);
 			}
 		} else {
-			throw new CompanionConversationError('unavailable', 'Sessione chiusa e non riapribile');
+			throw new CompanionConversationError('unavailable', m.l10n_lab_remote_session_closed());
 		}
 	}
 	assertLiveConversation(registry, project.id, effectiveLaneId, target.sessionId, session);
@@ -266,14 +270,17 @@ export async function sendConversationToSession(
 
 	// Slash custom (come /pubblica-progetto adesso) o testo normale: inoltra a session.prompt
 	if (typeof session.prompt !== 'function') {
-		throw new CompanionConversationError('unavailable', "La sessione non supporta l'invio di messaggi");
+		throw new CompanionConversationError('unavailable', m.l10n_lab_remote_session_no_prompt());
 	}
 
 	// Controllo identita' prima della consegna
 	if (session.sessionId !== target.sessionId) {
 		throw new CompanionConversationError(
 			'session_changed',
-			`La sessione e' cambiata prima dell'invio (${session.sessionId ?? 'nessuna'} != ${target.sessionId})`
+			m.l10n_lab_remote_session_changed_before_send({
+				active: session.sessionId ?? m.l10n_lab_remote_session_none(),
+				read: target.sessionId
+			})
 		);
 	}
 
@@ -281,10 +288,10 @@ export async function sendConversationToSession(
 	try {
 		const result = await session.prompt(trimmed, [], behavior);
 		if (result === 'failed') {
-			throw new CompanionConversationError('failed', 'Impossibile inviare il messaggio alla sessione');
+			throw new CompanionConversationError('failed', m.l10n_lab_remote_send_failed());
 		}
 		if (result === 'empty') {
-			throw new CompanionConversationError('failed', 'Messaggio vuoto non accettato dalla sessione');
+			throw new CompanionConversationError('failed', m.l10n_lab_remote_message_empty_rejected());
 		}
 	} catch (err) {
 		if (err instanceof CompanionConversationError) {
@@ -292,7 +299,7 @@ export async function sendConversationToSession(
 		}
 		throw new CompanionConversationError(
 			'failed',
-			`Errore durante l'invio: ${err instanceof Error ? err.message : String(err)}`
+			m.l10n_lab_remote_send_error({ error: err instanceof Error ? err.message : String(err) })
 		);
 	}
 }

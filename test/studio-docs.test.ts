@@ -30,6 +30,8 @@ import studioDocsExtension, {
 	withSource
 } from '../extensions/studio-docs.ts';
 
+process.env.OMP_STUDIO_LOCALE = 'it';
+
 const NOW = new Date(2026, 9, 8, 15, 30);
 const LATER = new Date(2026, 9, 9, 9, 0);
 

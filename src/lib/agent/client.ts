@@ -23,6 +23,7 @@ import {
 	type BackendDiagnostics,
 	type ClientTally
 } from './hangReport';
+import { m as msg } from '#lib/paraglide/messages.js';
 
 /** Timeout di default per richiesta. Un comando che non risponde entro un
  *  minuto e' un comando perso: senza timeout la promise resterebbe appesa. */
@@ -67,7 +68,7 @@ const HANG_REPORT_INVOKE_TIMEOUT_MS = 5_000;
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 	return Promise.race([
 		promise,
-		new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`nessuna risposta entro ${ms / 1000}s`)), ms))
+		new Promise<never>((_, reject) => setTimeout(() => reject(new Error(msg.l10n_agent_rpc_no_response({ seconds: ms / 1000 }))), ms))
 	]);
 }
 export interface RpcError extends Error {
@@ -235,7 +236,7 @@ export class OmpRpcClient {
 	 * `enabled` diventa vero.
 	 */
 	async setPrewalk(enabled: boolean, targets: { into?: string; from?: string } = {}): Promise<void> {
-		if (this.rpcId === null || this.closed) throw rpcError('Sessione RPC non aperta', 'prewalk');
+		if (this.rpcId === null || this.closed) throw rpcError(msg.l10n_agent_rpc_session_not_open(), 'prewalk');
 		await invoke('rpc_set_prewalk', {
 			rpcId: this.rpcId,
 			enabled,
@@ -250,7 +251,7 @@ export class OmpRpcClient {
 	 * emissione non e' garantito dal protocollo.
 	 */
 	async send<T = unknown>(command: RpcCommand): Promise<T> {
-		if (this.rpcId === null || this.closed) throw rpcError('Sessione RPC non aperta', command.type);
+		if (this.rpcId === null || this.closed) throw rpcError(msg.l10n_agent_rpc_session_not_open(), command.type);
 		const id = `s${++this.seq}`;
 		// `/compact <modo>` passa da `prompt` ma fa la stessa chiamata al modello di `compact`.
 		const slowPrompt = command.type === 'prompt' && /^\/compact(\s|$)/.test(command.message);
@@ -267,9 +268,18 @@ export class OmpRpcClient {
 
 		const timer = window.setTimeout(() => {
 			this.pending.delete(id);
-			const message = `Nessuna risposta a "${command.type}" entro ${timeoutMs / 1000}s`;
+			const message = msg.l10n_agent_rpc_no_response_command({
+				command: command.type,
+				seconds: timeoutMs / 1000
+			});
 			void this.reportHang(id, command.type, sentAt, timeoutMs).then((path) =>
-				reject(rpcError(path ? `${message}. Rapporto diagnostico: ${path}` : message, command.type, 'timeout'))
+				reject(
+					rpcError(
+						path ? msg.l10n_agent_rpc_timeout_with_report({ message, path }) : message,
+						command.type,
+						'timeout'
+					)
+				)
 			);
 		}, timeoutMs);
 
@@ -315,7 +325,7 @@ export class OmpRpcClient {
 	async abort(): Promise<void> {
 		if (this.rpcId === null || this.closed) return;
 		this.abortEpoch++;
-		this.abortPendingRequests('Interrotto dall\u2019utente');
+		this.abortPendingRequests(msg.l10n_agent_tool_interrupted_by_user());
 		const rpcId = this.rpcId;
 		const abortId = `s${++this.seq}`;
 		const abortBashId = `s${++this.seq}`;
@@ -337,7 +347,7 @@ export class OmpRpcClient {
 	async forceKill(): Promise<void> {
 		if (this.rpcId === null || this.closed) return;
 		this.abortEpoch++;
-		this.abortPendingRequests('Arresto forzato immediato (SIGKILL)');
+		this.abortPendingRequests(msg.l10n_agent_tool_forced_stop());
 		const rpcId = this.rpcId;
 		try {
 			await invoke('rpc_force_kill', { rpcId }).catch(() =>
@@ -375,7 +385,7 @@ export class OmpRpcClient {
 	async abortAndRestoreQueue(): Promise<AbortAndRestoreQueueResult | null> {
 		if (this.rpcId === null || this.closed) return null;
 		this.abortEpoch++;
-		this.abortPendingRequests('Interrotto dall\u2019utente');
+		this.abortPendingRequests(msg.l10n_agent_tool_interrupted_by_user());
 		const rpcId = this.rpcId;
 		// `abort_and_restore_queue` fa l'abort del turno, `abort_bash` ferma il
 		// processo figlio in corso e sblocca i buffer di delta lato Rust.
@@ -399,7 +409,7 @@ export class OmpRpcClient {
 		// Un'apertura ancora in volo non ha ancora un `rpcId` da chiudere: la
 		// generazione la invalida, e il processo verra' chiuso appena nasce.
 		this.openEpoch++;
-		this.failAllPending('Sessione RPC chiusa');
+		this.failAllPending(msg.l10n_agent_rpc_closed());
 		if (rpcId === null) return;
 		await invoke('rpc_close', { rpcId });
 	}
@@ -408,7 +418,7 @@ export class OmpRpcClient {
 	markExited() {
 		this.closed = true;
 		this.rpcId = null;
-		this.failAllPending('Il processo omp e\u2019 terminato');
+		this.failAllPending(msg.l10n_agent_omp_terminated());
 	}
 
 	private failAllPending(reason: string) {
@@ -537,7 +547,7 @@ export class OmpRpcClient {
 			window.clearTimeout(orphan.timer);
 			orphan.reject(
 				rpcError(
-					response.error ?? `Comando "${orphan.command}" non riconosciuto da omp`,
+					response.error ?? msg.l10n_agent_command_unrecognized({ command: orphan.command }),
 					orphan.command,
 					'uncorrelated'
 				)
@@ -554,7 +564,7 @@ export class OmpRpcClient {
 		this.pending.delete(response.id);
 		window.clearTimeout(entry.timer);
 		if (response.success) entry.resolve(response.data);
-		else entry.reject(rpcError(response.error ?? 'Comando fallito', response.command, response.code));
+		else entry.reject(rpcError(response.error ?? msg.l10n_agent_command_failed(), response.command, response.code));
 	}
 
 	/** La piu' vecchia richiesta in sospeso con quel nome di comando. */

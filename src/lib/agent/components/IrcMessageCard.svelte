@@ -60,7 +60,7 @@
 					type="button"
 					class="peer-btn"
 					onclick={() => hooks.openSubagent(entry.peer)}
-					title={`Apri transcript di ${entry.peer}`}
+					title={m.l10n_agentcmp_irc_open_transcript({ peer: entry.peer })}
 				>
 					{entry.peer}
 				</button>

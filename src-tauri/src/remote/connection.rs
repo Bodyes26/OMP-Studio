@@ -91,9 +91,15 @@ fn snapshot_fits(ctx: &ConnectionContext, json: &str) -> bool {
     if json.len() <= MAX_FRAME_BYTES {
         return true;
     }
-    ctx.status.lock().last_error = Some(format!(
-        "Stato della macchina troppo grande per il relay ({} KB): i dispositivi vedono l'ultimo ricevuto",
-        json.len() / 1024
+    ctx.status.lock().last_error = Some(crate::tr!(
+        format!(
+            "Stato della macchina troppo grande per il relay ({} KB): i dispositivi vedono l'ultimo ricevuto",
+            json.len() / 1024
+        ),
+        format!(
+            "Machine state too large for the relay ({} KB): devices see the last one received",
+            json.len() / 1024
+        )
     ));
     ctx.emit_status_update();
     false
@@ -111,26 +117,45 @@ pub enum CloseOutcome {
 /// Mappa il codice di chiusura ricevuto nell'azione appropriata.
 pub fn map_close_code(code: Option<u16>, reason: Option<&str>) -> CloseOutcome {
     match code {
-        Some(close_code::UNAUTHORIZED) | Some(close_code::REVOKED) => CloseOutcome::Revoked(
-            reason
-                .unwrap_or("Macchina o credenziale revocata dal relay")
-                .to_string(),
-        ),
-        Some(close_code::INCOMPATIBLE) => CloseOutcome::Incompatible(
-            reason
-                .unwrap_or("Versione del protocollo non compatibile con il relay")
-                .to_string(),
-        ),
+        Some(close_code::UNAUTHORIZED) | Some(close_code::REVOKED) => {
+            CloseOutcome::Revoked(reason.map(str::to_string).unwrap_or_else(|| {
+                crate::tr!(
+                    "Macchina o credenziale revocata dal relay",
+                    "Machine or credential revoked by the relay"
+                )
+                .to_string()
+            }))
+        }
+        Some(close_code::INCOMPATIBLE) => {
+            CloseOutcome::Incompatible(reason.map(str::to_string).unwrap_or_else(|| {
+                crate::tr!(
+                    "Versione del protocollo non compatibile con il relay",
+                    "Protocol version not compatible with the relay"
+                )
+                .to_string()
+            }))
+        }
         Some(close_code::REPLACED) => CloseOutcome::WaitReplaced(60_000),
         Some(other) => {
-            let msg = reason.unwrap_or(match other {
-                close_code::PROTOCOL_ERROR => "Errore di protocollo",
-                1000 => "Chiusura normale",
-                _ => "Connessione chiusa dal relay",
+            let msg = reason.map(str::to_string).unwrap_or_else(|| match other {
+                close_code::PROTOCOL_ERROR => {
+                    crate::tr!("Errore di protocollo", "Protocol error").to_string()
+                }
+                1000 => crate::tr!("Chiusura normale", "Normal closure").to_string(),
+                _ => crate::tr!(
+                    "Connessione chiusa dal relay",
+                    "Connection closed by the relay"
+                )
+                .to_string(),
             });
-            CloseOutcome::Backoff(format!("{msg} (codice {other})"))
+            CloseOutcome::Backoff(crate::tr!(
+                format!("{msg} (codice {other})"),
+                format!("{msg} (code {other})")
+            ))
         }
-        None => CloseOutcome::Backoff(reason.unwrap_or("Connessione interrotta").to_string()),
+        None => CloseOutcome::Backoff(reason.map(str::to_string).unwrap_or_else(|| {
+            crate::tr!("Connessione interrotta", "Connection interrupted").to_string()
+        })),
     }
 }
 
@@ -512,8 +537,13 @@ async fn connection_loop(
                     if ctx.is_session_current(session_id) {
                         let mut st = ctx.status.lock();
                         st.connection = RemoteConnection::Waiting;
-                        st.last_error =
-                            Some("Sessione sostituita da un'altra connessione".to_string());
+                        st.last_error = Some(
+                            crate::tr!(
+                                "Sessione sostituita da un'altra connessione",
+                                "Session replaced by another connection"
+                            )
+                            .to_string(),
+                        );
                         st.retry_at = Some(retry_at);
                         st.clients.clear();
                         st.relay_features.clear();
@@ -577,8 +607,9 @@ pub(crate) async fn run_single_session(
     let mut request = match ws_url.into_client_request() {
         Ok(r) => r,
         Err(e) => {
-            return Err(CloseOutcome::Backoff(format!(
-                "URL WebSocket non valido: {e}"
+            return Err(CloseOutcome::Backoff(crate::tr!(
+                format!("URL WebSocket non valido: {e}"),
+                format!("Invalid WebSocket URL: {e}")
             )))
         }
     };
@@ -586,8 +617,9 @@ pub(crate) async fn run_single_session(
     let auth_header = match HeaderValue::from_str(&format!("Bearer {credential}")) {
         Ok(h) => h,
         Err(e) => {
-            return Err(CloseOutcome::Backoff(format!(
-                "Intestazione autorizzazione non valida: {e}"
+            return Err(CloseOutcome::Backoff(crate::tr!(
+                format!("Intestazione autorizzazione non valida: {e}"),
+                format!("Invalid authorization header: {e}")
             )))
         }
     };
@@ -608,28 +640,39 @@ pub(crate) async fn run_single_session(
                     if status == tokio_tungstenite::tungstenite::http::StatusCode::UNAUTHORIZED
                         || status == tokio_tungstenite::tungstenite::http::StatusCode::FORBIDDEN
                     {
-                        return Err(CloseOutcome::Revoked(format!(
-                            "Handshake rifiutato con codice HTTP {status}: credenziale revocata o non autorizzata"
+                        return Err(CloseOutcome::Revoked(crate::tr!(
+                            format!(
+                                "Handshake rifiutato con codice HTTP {status}: credenziale revocata o non autorizzata"
+                            ),
+                            format!(
+                                "Handshake rejected with HTTP code {status}: credential revoked or not authorized"
+                            )
                         )));
                     }
                     if status == tokio_tungstenite::tungstenite::http::StatusCode::UPGRADE_REQUIRED {
-                        return Err(CloseOutcome::Incompatible(
-                            "Handshake rifiutato con codice HTTP 426 (Upgrade Required): protocollo incompatibile".to_string()
-                        ));
+                        return Err(CloseOutcome::Incompatible(crate::tr!(
+                            "Handshake rifiutato con codice HTTP 426 (Upgrade Required): protocollo incompatibile",
+                            "Handshake rejected with HTTP code 426 (Upgrade Required): incompatible protocol"
+                        )
+                        .to_string()));
                     }
-                    return Err(CloseOutcome::Backoff(format!(
-                        "Handshake HTTP rifiutato con stato {status}"
+                    return Err(CloseOutcome::Backoff(crate::tr!(
+                        format!("Handshake HTTP rifiutato con stato {status}"),
+                        format!("HTTP handshake rejected with status {status}")
                     )));
                 }
                 Ok(Err(e)) => {
-                    return Err(CloseOutcome::Backoff(format!(
-                        "Impossibile collegarsi al relay: {e}"
+                    return Err(CloseOutcome::Backoff(crate::tr!(
+                        format!("Impossibile collegarsi al relay: {e}"),
+                        format!("Unable to connect to the relay: {e}")
                     )));
                 }
                 Err(_) => {
-                    return Err(CloseOutcome::Backoff(
-                        "Timeout durante la connessione al relay".to_string(),
-                    ));
+                    return Err(CloseOutcome::Backoff(crate::tr!(
+                        "Timeout durante la connessione al relay",
+                        "Timeout while connecting to the relay"
+                    )
+                    .to_string()));
                 }
             }
         }
@@ -655,8 +698,12 @@ pub(crate) async fn run_single_session(
         },
     };
 
-    let hello_json = serde_json::to_string(&hello_frame)
-        .map_err(|e| CloseOutcome::Backoff(format!("Serializzazione frame hello fallita: {e}")))?;
+    let hello_json = serde_json::to_string(&hello_frame).map_err(|e| {
+        CloseOutcome::Backoff(crate::tr!(
+            format!("Serializzazione frame hello fallita: {e}"),
+            format!("Serializing the hello frame failed: {e}")
+        ))
+    })?;
 
     tokio::select! {
         biased;
@@ -665,8 +712,9 @@ pub(crate) async fn run_single_session(
         }
         send_res = write_half.send(Message::Text(hello_json.into())) => {
             if let Err(e) = send_res {
-                return Err(CloseOutcome::Backoff(format!(
-                    "Invio frame hello fallito: {e}"
+                return Err(CloseOutcome::Backoff(crate::tr!(
+                    format!("Invio frame hello fallito: {e}"),
+                    format!("Sending the hello frame failed: {e}")
                 )));
             }
         }
@@ -683,19 +731,24 @@ pub(crate) async fn run_single_session(
             match welcome_res {
                 Ok(Some(Ok(msg))) => msg,
                 Ok(Some(Err(e))) => {
-                    return Err(CloseOutcome::Backoff(format!(
-                        "Errore durante l'attesa del benvenuto: {e}"
+                    return Err(CloseOutcome::Backoff(crate::tr!(
+                        format!("Errore durante l'attesa del benvenuto: {e}"),
+                        format!("Error while waiting for the welcome frame: {e}")
                     )));
                 }
                 Ok(None) => {
-                    return Err(CloseOutcome::Backoff(
-                        "Connessione chiusa prima del frame di benvenuto".to_string(),
-                    ));
+                    return Err(CloseOutcome::Backoff(crate::tr!(
+                        "Connessione chiusa prima del frame di benvenuto",
+                        "Connection closed before the welcome frame"
+                    )
+                    .to_string()));
                 }
                 Err(_) => {
-                    return Err(CloseOutcome::Backoff(
-                        "Timeout in attesa del benvenuto dal relay".to_string(),
-                    ));
+                    return Err(CloseOutcome::Backoff(crate::tr!(
+                        "Timeout in attesa del benvenuto dal relay",
+                        "Timeout waiting for the relay welcome"
+                    )
+                    .to_string()));
                 }
             }
         }
@@ -711,14 +764,15 @@ pub(crate) async fn run_single_session(
                 clients,
             }) => (relay, clients, features),
             Ok(other) => {
-                return Err(CloseOutcome::Backoff(format!(
-                    "Frame iniziale inatteso: {:?}",
-                    other
+                return Err(CloseOutcome::Backoff(crate::tr!(
+                    format!("Frame iniziale inatteso: {:?}", other),
+                    format!("Unexpected initial frame: {:?}", other)
                 )));
             }
             Err(e) => {
-                return Err(CloseOutcome::Backoff(format!(
-                    "Parsing frame benvenuto fallito: {e}"
+                return Err(CloseOutcome::Backoff(crate::tr!(
+                    format!("Parsing frame benvenuto fallito: {e}"),
+                    format!("Parsing the welcome frame failed: {e}")
                 )));
             }
         },
@@ -729,7 +783,11 @@ pub(crate) async fn run_single_session(
         }
         _ => {
             return Err(CloseOutcome::Backoff(
-                "Messaggio iniziale non di testo ricevuto dal relay".to_string(),
+                crate::tr!(
+                    "Messaggio iniziale non di testo ricevuto dal relay",
+                    "Non-text initial message received from the relay"
+                )
+                .to_string(),
             ));
         }
     };
@@ -815,24 +873,37 @@ pub(crate) async fn run_single_session(
                     code: WsCloseCode::Normal,
                     reason: "".into(),
                 }))).await;
-                return Err(CloseOutcome::Backoff("Riconnessione richiesta".to_string()));
+                return Err(CloseOutcome::Backoff(crate::tr!(
+                    "Riconnessione richiesta",
+                    "Reconnection requested"
+                )
+                .to_string()));
             }
 
             // Watchdog d'inattivita': scade se nessun frame viene ricevuto per 70 s
             () = &mut watchdog => {
-                return Err(CloseOutcome::Backoff(
-                    "Nessun battito dal relay per 70 s (heartbeat timeout)".to_string(),
-                ));
+                return Err(CloseOutcome::Backoff(crate::tr!(
+                    "Nessun battito dal relay per 70 s (heartbeat timeout)",
+                    "No heartbeat from the relay for 70 s (heartbeat timeout)"
+                )
+                .to_string()));
             }
 
             // Frame in arrivo dal relay
             msg_res = read_half.next() => {
                 match msg_res {
                     None => {
-                        return Err(CloseOutcome::Backoff("Flusso WebSocket terminato dal relay".to_string()));
+                        return Err(CloseOutcome::Backoff(crate::tr!(
+                            "Flusso WebSocket terminato dal relay",
+                            "WebSocket stream terminated by the relay"
+                        )
+                        .to_string()));
                     }
                     Some(Err(e)) => {
-                        return Err(CloseOutcome::Backoff(format!("Errore WebSocket in lettura: {e}")));
+                        return Err(CloseOutcome::Backoff(crate::tr!(
+                            format!("Errore WebSocket in lettura: {e}"),
+                            format!("WebSocket read error: {e}")
+                        )));
                     }
                     Some(Ok(msg)) => {
                         // Reset del watchdog SOLO alla ricezione di frame in ingresso
@@ -941,9 +1012,15 @@ pub(crate) async fn run_single_session(
                             ok: false,
                             error: Some(CommandError {
                                 code: "failed".to_string(),
-                                message: format!(
-                                    "Risultato troppo grande per il relay ({} KB)",
-                                    json.len() / 1024
+                                message: crate::tr!(
+                                    format!(
+                                        "Risultato troppo grande per il relay ({} KB)",
+                                        json.len() / 1024
+                                    ),
+                                    format!(
+                                        "Result too large for the relay ({} KB)",
+                                        json.len() / 1024
+                                    )
                                 ),
                             }),
                             data: None,

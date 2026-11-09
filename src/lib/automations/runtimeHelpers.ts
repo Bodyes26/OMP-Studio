@@ -8,6 +8,7 @@
 import type { AutomationDefinition, PromptAction, ResolvedAutomationTarget } from './types';
 import { modelSettingsStore } from '#lib/stores/modelSettings.svelte.ts';
 import { splitModelSelector } from '#lib/stores/modelSettingsHelpers.ts';
+import { t } from './i18n.ts';
 import { canonicalProvider, providersMatchStrict } from '#lib/stores/backgroundJobsHelpers.ts';
 export interface ResolvedModelConfig {
 	model: string;
@@ -73,7 +74,7 @@ export function checkModelPayAsYouGo(modelSelectorOrId: string): PaygCheckResult
 		}
 		return {
 			isPayg: true,
-			reason: `Account OAuth flat non configurato o non valido per '${effectiveProvider}'.`
+			reason: t('payg_reason_oauth_flat', { provider: effectiveProvider })
 		};
 	}
 
@@ -89,7 +90,7 @@ export function checkModelPayAsYouGo(modelSelectorOrId: string): PaygCheckResult
 		if (hasApiKey || !hasOauth) {
 			return {
 				isPayg: true,
-				reason: `Il provider Anthropic dispone di chiave API o percorso ambiguo non vincolato a solo OAuth flat.`
+				reason: t('payg_reason_anthropic_mixed')
 			};
 		}
 
@@ -100,7 +101,7 @@ export function checkModelPayAsYouGo(modelSelectorOrId: string): PaygCheckResult
 	// 4. Tutti gli altri provider o modelli con costi da catalogo o ignoti: fail-closed
 	return {
 		isPayg: true,
-		reason: `Il provider o modello '${trimmed}' non è un abbonamento flat documentato ed è soggetto a tariffazione a consumo.`
+		reason: t('payg_reason_not_flat', { model: trimmed })
 	};
 }
 
@@ -131,7 +132,10 @@ export function resolveActionModel(action: PromptAction): ResolvedModelConfig {
 			const check = checkModelPayAsYouGo(effectiveModel);
 			if (check.isPayg) {
 				throw new Error(
-					`Modello '${effectiveModel}' non autorizzato per questa automazione (AUT-026/ACC-15): ${check.reason || 'Soggetto a tariffazione Pay-As-You-Go. Abilitare "Consenti Pay-As-You-Go" per consentire l\'esecuzione.'}`
+					t('payg_model_not_allowed', {
+						model: effectiveModel,
+						reason: check.reason || t('payg_default_reason')
+					})
 				);
 			}
 		}
@@ -149,7 +153,10 @@ export function resolveActionModel(action: PromptAction): ResolvedModelConfig {
 		const check = checkModelPayAsYouGo(modelName);
 		if (check.isPayg) {
 			throw new Error(
-				`Modello '${modelName}' non autorizzato per questa automazione (AUT-026/ACC-15): ${check.reason || 'Soggetto a tariffazione Pay-As-You-Go. Abilitare "Consenti Pay-As-You-Go" per consentire l\'esecuzione.'}`
+				t('payg_model_not_allowed', {
+					model: modelName,
+					reason: check.reason || t('payg_default_reason')
+				})
 			);
 		}
 	}
@@ -215,7 +222,11 @@ export function buildAutomationPrompt(
 
 	// 5. Istruzioni utente
 	sections.push('## Istruzioni da eseguire');
-	sections.push(userPrompt || 'Esegui il controllo pianificato per questa automazione.');
+	sections.push(userPrompt || t('runtime_plan_prompt'));
+
+	// 6. Lingua della risposta: il risultato viene mostrato nella UI dell'utente
+	sections.push('## Lingua della risposta');
+	sections.push(t('runtime_answer_language'));
 
 	return sections.join('\n\n');
 }

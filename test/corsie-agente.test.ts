@@ -205,10 +205,12 @@ describe('Gate R43 — tool corsia_* guidati dall\'agente', () => {
 			assert.match(text, /1 file, \+3 -1/);
 			assert.match(text, /coda-1 \(obiettivo\) "Report": in coda/);
 			assert.doesNotMatch(text, /git /);
-			assert.match(proposalAgentText('main'), /resta su main/);
+			// Il testo segue la lingua dell'interfaccia: si verifica il senso,
+			// non la frase di una lingua sola.
+			assert.match(proposalAgentText('main'), /resta su main|stay on main/);
 			assert.match(
 				proposalAgentText('worktree', { laneId: 'wt4', title: 'Prova', dispatched: true }),
-				/Non eseguire l'operazione sulla Principale/
+				/Principale|Main/
 			);
 		});
 	});

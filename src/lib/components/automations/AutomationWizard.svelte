@@ -78,13 +78,14 @@
 	let previewData = $state<AutomationPreview | null>(null);
 	let isPreviewLoading = $state(false);
 
-	const STEPS = [
+	// Reattivo: cambiando lingua i titoli dei passi si riscrivono senza riaprire l'editor.
+	const STEPS = $derived([
 		{ id: 0, title: t('wizard_step_1') },
 		{ id: 1, title: t('wizard_step_2') },
 		{ id: 2, title: t('wizard_step_3') },
 		{ id: 3, title: t('wizard_step_4') },
 		{ id: 4, title: t('wizard_step_5') }
-	];
+	]);
 
 	// Carica anteprima risoluzione quando si entra nel passo 5
 	$effect(() => {
@@ -356,18 +357,18 @@
 		const current = currentDraft.definition;
 
 		if (base.name !== current.name) {
-			diffs.push({ label: 'Nome', oldVal: base.name, newVal: current.name });
+			diffs.push({ label: t('wizard_diff_name'), oldVal: base.name, newVal: current.name });
 		}
 		if (base.description !== current.description) {
 			diffs.push({
-				label: 'Descrizione',
-				oldVal: base.description || '(vuota)',
-				newVal: current.description || '(vuota)'
+				label: t('wizard_diff_description'),
+				oldVal: base.description || t('wizard_diff_empty'),
+				newVal: current.description || t('wizard_diff_empty')
 			});
 		}
 		if (base.action.kind !== current.action.kind) {
 			diffs.push({
-				label: 'Tipo azione',
+				label: t('wizard_diff_action_kind'),
 				oldVal: base.action.kind,
 				newVal: current.action.kind
 			});
@@ -377,7 +378,7 @@
 			base.action.command !== current.action.command
 		) {
 			diffs.push({
-				label: 'Comando',
+				label: t('wizard_diff_command'),
 				oldVal: base.action.command,
 				newVal: current.action.command
 			});
@@ -387,21 +388,21 @@
 			base.action.prompt !== current.action.prompt
 		) {
 			diffs.push({
-				label: 'Prompt',
+				label: t('wizard_diff_prompt'),
 				oldVal: base.action.prompt,
 				newVal: current.action.prompt
 			});
 		}
 		if (base.targets.source !== current.targets.source) {
 			diffs.push({
-				label: 'Origine destinatari',
+				label: t('wizard_diff_targets_source'),
 				oldVal: base.targets.source,
 				newVal: current.targets.source
 			});
 		}
 		if (base.policy.timeoutMinutes !== current.policy.timeoutMinutes) {
 			diffs.push({
-				label: 'Timeout',
+				label: t('wizard_diff_timeout'),
 				oldVal: `${base.policy.timeoutMinutes} min`,
 				newVal: `${current.policy.timeoutMinutes} min`
 			});
@@ -462,7 +463,7 @@
 		{:else}
 			<!-- Navigazione a 5 passi ed Editor -->
 			<div class="wizard-layout">
-				<nav class="steps-nav" aria-label="Passi editor">
+				<nav class="steps-nav" aria-label={t('wizard_steps_aria')}>
 					{#each STEPS as step (step.id)}
 						<button
 							type="button"
@@ -729,15 +730,15 @@
 							{:else if currentDraft.definition.action.kind === 'command'}
 								<!-- Configurazione Comando Shell / Eseguibile -->
 								<div class="field-group">
-									<label for="command-mode">Modalità comando</label>
+									<label for="command-mode">{t('wizard_command_mode_label')}</label>
 									<select
 										id="command-mode"
 										class="select-input"
 										bind:value={currentDraft.definition.action.mode}
 									>
-										<option value="shell">Shell script</option>
-										<option value="executable">Eseguibile binario</option>
-										<option value="script">File script dedicato</option>
+										<option value="shell">{t('wizard_command_mode_shell')}</option>
+										<option value="executable">{t('wizard_command_mode_executable')}</option>
+										<option value="script">{t('wizard_command_mode_script')}</option>
 									</select>
 								</div>
 
@@ -824,8 +825,8 @@
 
 									{#each Object.entries(currentDraft.definition.action.secretRefs) as [envName, vaultId]}
 										<div class="key-value-row">
-											<span>Variabile: <code>{envName}</code></span>
-											<span>Segreto OS: <code>{vaultId}</code></span>
+											<span>{t('wizard_env_variable')} <code>{envName}</code></span>
+											<span>{t('wizard_secret_ref_secret')} <code>{vaultId}</code></span>
 											<button
 												type="button"
 												class="remove-icon-btn"
@@ -1157,7 +1158,7 @@
 							<div class="preview-box">
 								<h3>{t('review_preview_heading')}</h3>
 								{#if isPreviewLoading}
-									<p class="muted-hint">Calcolo anteprima in corso…</p>
+									<p class="muted-hint">{t('wizard_preview_loading')}</p>
 								{:else if previewData}
 									<div class="preview-facts">
 										<div class="fact-row">
@@ -1169,7 +1170,7 @@
 										<div class="fact-row">
 											<span class="fact-key">{t('review_preview_next_runs')}:</span>
 											<span class="fact-val">
-												{previewData.nextRuns.map((r: number) => formatDateTime(r)).join(' · ') || 'Nessuna programmata'}
+												{previewData.nextRuns.map((r: number) => formatDateTime(r)).join(' · ') || t('wizard_preview_no_next_runs')}
 											</span>
 										</div>
 										{#if previewData.issues.length > 0}

@@ -129,7 +129,9 @@
 
 	const attentionList = $derived(companionStore.attentionRequests);
 	const knownProjects = $derived(
-		companionStore.projects.length > 0 ? companionStore.projects : projectStore.projects
+		(companionStore.projects.length > 0 ? companionStore.projects : projectStore.projects).filter(
+			(p) => !p.external
+		)
 	);
 	const knownDirectives = $derived(settingsStore.taskDirectives.filter((d) => !d.hidden));
 
@@ -938,7 +940,13 @@
 			const answer = trimmedNote
 				? {
 						action: 'wizard' as const,
-						answers: [{ id: qId, selectedOptions: [], customInput: `${value} (nota: ${trimmedNote})` }]
+						answers: [
+							{
+								id: qId,
+								selectedOptions: [],
+								customInput: `${value} ${m.l10n_cmp_companion_note_suffix({ note: trimmedNote })}`
+							}
+						]
 				  }
 				: {
 						action: 'wizard' as const,
@@ -953,7 +961,9 @@
 		}
 
 		const trimmedNote = note?.trim();
-		const finalValue = trimmedNote ? `${value} (nota: ${trimmedNote})` : value;
+		const finalValue = trimmedNote
+			? `${value} ${m.l10n_cmp_companion_note_suffix({ note: trimmedNote })}`
+			: value;
 		if (targetReqId) {
 			const handled = await companionStore.respondPrompt(targetReqId, { action: 'select', value: finalValue }, laneId);
 			if (handled) return;
@@ -1014,7 +1024,8 @@
 		);
 		let value = (replyDrafts[projectId] ?? request?.pendingUi.prefill ?? '').trim();
 		if (note?.trim()) {
-			value = value ? `${value} (nota: ${note.trim()})` : note.trim();
+			const suffix = m.l10n_cmp_companion_note_suffix({ note: note.trim() });
+			value = value ? `${value} ${suffix}` : suffix;
 		}
 		if (!value) return;
 		delete replyDrafts[projectId];

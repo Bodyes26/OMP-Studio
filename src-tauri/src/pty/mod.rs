@@ -218,7 +218,12 @@ fn read_session_info(pty_id: u64) -> Result<Option<PtySessionInfo>, String> {
     let content = match std::fs::read_to_string(&breadcrumb) {
         Ok(content) => content,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(format!("Lettura breadcrumb PTY: {}", error)),
+        Err(error) => {
+            return Err(crate::tr!(
+                format!("Lettura breadcrumb PTY: {}", error),
+                format!("Reading PTY breadcrumb: {}", error)
+            ))
+        }
     };
     let mut lines = content.lines();
     let Some(cwd) = lines.next() else {
@@ -256,7 +261,10 @@ pub async fn pty_session_info(
     }
     tokio::task::spawn_blocking(move || read_session_info(pty_id))
         .await
-        .map_err(|error| format!("Lettura sessione PTY: {}", error))?
+        .map_err(|error| crate::tr!(
+            format!("Lettura sessione PTY: {}", error),
+            format!("Reading PTY session: {}", error)
+        ))?
 }
 
 /// Overlay di configurazione passato con `--config`: non tocca la config
@@ -831,7 +839,7 @@ pub async fn pty_open(
             lane_id: lane_id.clone().unwrap_or_default(),
             workspace_root: cwd.clone(),
             pid,
-            label: "Terminale".to_string(),
+            label: crate::tr!("Terminale", "Terminal").to_string(),
             control: Arc::new(session),
         });
     }
@@ -906,7 +914,10 @@ pub async fn pty_write(
         let sessions = manager.sessions.lock();
         let session = sessions
             .get(&pty_id)
-            .ok_or_else(|| format!("PTY {} non disponibile", pty_id))?;
+            .ok_or_else(|| crate::tr!(
+                format!("PTY {} non disponibile", pty_id),
+                format!("PTY {} not available", pty_id)
+            ))?;
         (
             session.writer.clone(),
             session.cwd.clone(),
@@ -926,18 +937,24 @@ pub async fn pty_write(
         if !target_path.is_empty() {
             // AUT-042: Guardia per impedire input che avvii lavoro sul progetto riservato da automazioni
             if crate::automations::is_project_locked(&target_path, None) {
-                return Err(format!(
-                    "Progetto '{}' riservato da un'automazione in esecuzione: input interattivo bloccato (AUT-042)",
-                    target_path
+                return Err(crate::tr!(
+                    format!(
+                        "Progetto '{}' riservato da un'automazione in esecuzione: input interattivo bloccato (AUT-042)",
+                        target_path
+                    ),
+                    format!(
+                        "Project '{}' reserved by a running automation: interactive input blocked (AUT-042)",
+                        target_path
+                    )
                 ));
             }
 
             // Se l'input invia un comando (Enter), acquisisce l'ammissione interattiva per evitare race con lo scheduler
             if data.contains(&b'\r') || data.contains(&b'\n') {
                 if let Err(err) = crate::automations::interactive_admission(&target_path) {
-                    return Err(format!(
-                        "Impossibile avviare il comando interattivo: {} (AUT-042)",
-                        err
+                    return Err(crate::tr!(
+                        format!("Impossibile avviare il comando interattivo: {} (AUT-042)", err),
+                        format!("Unable to start the interactive command: {} (AUT-042)", err)
                     ));
                 }
             }
@@ -948,13 +965,19 @@ pub async fn pty_write(
         let mut writer = writer.lock();
         writer
             .write_all(&data)
-            .map_err(|error| format!("Scrittura PTY {}: {}", pty_id, error))?;
+            .map_err(|error| crate::tr!(
+                format!("Scrittura PTY {}: {}", pty_id, error),
+                format!("PTY {} write: {}", pty_id, error)
+            ))?;
         writer
             .flush()
-            .map_err(|error| format!("Flush PTY {}: {}", pty_id, error))
+            .map_err(|error| crate::tr!(
+                format!("Flush PTY {}: {}", pty_id, error),
+                format!("PTY {} flush: {}", pty_id, error)
+            ))
     })
     .await
-    .map_err(|e| format!("Task pty_write: {}", e))?
+    .map_err(|e| crate::tr!(format!("Task pty_write: {}", e), format!("Task pty_write: {}", e)))?
 }
 #[tauri::command]
 pub async fn pty_resize(
@@ -987,7 +1010,10 @@ pub async fn pty_close(pty_id: u64, manager: State<'_, PtyManager>) -> Result<()
         remove_breadcrumb(pty_id);
     })
     .await
-    .map_err(|e| format!("Chiusura PTY {}: {}", pty_id, e))?;
+    .map_err(|e| crate::tr!(
+        format!("Chiusura PTY {}: {}", pty_id, e),
+        format!("Closing PTY {}: {}", pty_id, e)
+    ))?;
     Ok(())
 }
 
@@ -997,14 +1023,20 @@ pub async fn pty_force_kill(pty_id: u64, manager: State<'_, PtyManager>) -> Resu
     // `remove`, non `get`: una sessione abbattuta non deve restare nella mappa,
     // dove `pty_write`/`pty_resize` continuerebbero a trovarla.
     let session = manager.sessions.lock().remove(&pty_id);
-    let session = session.ok_or_else(|| format!("Sessione PTY {} non trovata", pty_id))?;
+    let session = session.ok_or_else(|| crate::tr!(
+        format!("Sessione PTY {} non trovata", pty_id),
+        format!("PTY session {} not found", pty_id)
+    ))?;
     tokio::task::spawn_blocking(move || {
         session.kill_tree();
         remove_breadcrumb(pty_id);
         crate::lane_bridge::revoke_owner("terminal", pty_id);
     })
     .await
-    .map_err(|e| format!("Terminazione forzata PTY {}: {}", pty_id, e))?;
+    .map_err(|e| crate::tr!(
+        format!("Terminazione forzata PTY {}: {}", pty_id, e),
+        format!("Forced PTY {} termination: {}", pty_id, e)
+    ))?;
     Ok(())
 }
 

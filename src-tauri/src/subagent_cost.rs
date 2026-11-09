@@ -178,7 +178,12 @@ pub fn session_subagent_cost_sync(session_file: &str) -> f64 {
 pub async fn session_subagent_cost(session_file: String) -> Result<f64, String> {
     tokio::task::spawn_blocking(move || session_subagent_cost_sync(&session_file))
         .await
-        .map_err(|e| format!("Task session_subagent_cost: {}", e))
+        .map_err(|e| {
+            crate::tr!(
+                format!("Task session_subagent_cost: {}", e),
+                format!("session_subagent_cost task: {}", e)
+            )
+        })
 }
 
 #[cfg(test)]

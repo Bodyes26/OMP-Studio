@@ -36,8 +36,8 @@
 	const metaRows = $derived.by(() => {
 		const rows: { key: string; value: string }[] = [];
 		if (model) rows.push({ key: m.ui_companionview_modello_fa78(), value: model });
-		if (mimeType) rows.push({ key: 'tipo', value: mimeType });
-		if (imagePath && imagePath !== path) rows.push({ key: 'risolto', value: imagePath });
+		if (mimeType) rows.push({ key: m.l10n_tools_label_type(), value: mimeType });
+		if (imagePath && imagePath !== path) rows.push({ key: m.l10n_tools_label_resolved(), value: imagePath });
 		return rows;
 	});
 
@@ -54,7 +54,7 @@
 	{/if}
 
 	{#if question}
-		<PromptBlock text={question} label="Domanda" />
+		<PromptBlock text={question} label={m.l10n_tools_label_question()} />
 	{/if}
 
 	{#if metaRows.length > 0}
@@ -62,7 +62,7 @@
 	{/if}
 
 	{#if text}
-		<OutputBlock {text} label="analisi" />
+		<OutputBlock {text} label={m.l10n_tools_label_analysis()} />
 	{/if}
 </div>
 

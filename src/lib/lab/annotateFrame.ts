@@ -5,16 +5,17 @@
 // da allegare al prompt. La geometria e' `annotationShapes` (pura, testata).
 
 import { annotationShapes, type LabFrame, type LabNote } from './visualNotes';
+import { m } from '#lib/paraglide/messages.js';
 
 const MARK = '#e2477f';
 
 function loadImage(src: string): Promise<HTMLImageElement> {
-	return new Promise((resolve, reject) => {
-		const img = new Image();
-		img.onload = () => resolve(img);
-		img.onerror = () => reject(new Error('fotogramma non leggibile'));
-		img.src = src;
-	});
+	const { promise, resolve, reject } = Promise.withResolvers<HTMLImageElement>();
+	const img = new Image();
+	img.onload = () => resolve(img);
+	img.onerror = () => reject(new Error(m.l10n_lab_remote_frame_unreadable()));
+	img.src = src;
+	return promise;
 }
 
 /** PNG annotato in base64 (senza prefisso data:), pronto per `ImageContent`. */
@@ -27,7 +28,7 @@ export async function renderAnnotatedFrame(
 	canvas.width = frame.width;
 	canvas.height = frame.height;
 	const ctx = canvas.getContext('2d');
-	if (!ctx) throw new Error('canvas non disponibile');
+	if (!ctx) throw new Error(m.l10n_lab_remote_canvas_unavailable());
 	ctx.drawImage(img, 0, 0, frame.width, frame.height);
 
 	const unit = Math.max(1, frame.scale);

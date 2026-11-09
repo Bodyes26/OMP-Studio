@@ -17,6 +17,7 @@
  */
 
 import type { AttentionRequest, PendingUiPayload, RecentChatMessage } from './companion.svelte';
+import { m } from '#lib/paraglide/messages.js';
 import type { BlockedQuotaState } from '../agent/quotaRecovery';
 
 /**
@@ -133,7 +134,7 @@ export function buildAttentionRequest(
 	}
 ): AttentionRequest | null {
 	const laneId = session.laneId ?? 'main';
-	const laneTitle = session.laneTitle ?? (laneId !== 'main' ? laneId : 'Principale');
+	const laneTitle = session.laneTitle ?? (laneId !== 'main' ? laneId : m.lanestrip_tab_main());
 	const pendingUi = session.pendingUi;
 	if (pendingUi && pendingUi.kind === 'ask') {
 		return {
@@ -210,7 +211,10 @@ export function buildAttentionRequest(
 			laneId,
 			title: inf.question,
 			method: 'select',
-			options: inf.suggestions && inf.suggestions.length > 0 ? inf.suggestions : ['Procedi pure']
+			options:
+				inf.suggestions && inf.suggestions.length > 0
+					? inf.suggestions
+					: [m.l10n_state_proceed_option()]
 		};
 
 		return {

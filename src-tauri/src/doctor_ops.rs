@@ -91,7 +91,11 @@ fn get_os_version() -> String {
                 return out;
             }
         }
-        "Windows (versione non determinata)".to_string()
+        crate::tr!(
+            "Windows (versione non determinata)",
+            "Windows (version not determined)"
+        )
+        .to_string()
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -118,7 +122,7 @@ fn check_omp_items() -> Vec<DoctorItemDto> {
             items.push(DoctorItemDto {
                 id: "omp_binary".to_string(),
                 category: "omp".to_string(),
-                name: "Eseguibile omp".to_string(),
+                name: crate::tr!("Eseguibile omp", "omp executable").to_string(),
                 status: "ok".to_string(),
                 value: anonymize_text(&path_str),
                 recommendation: None,
@@ -127,12 +131,14 @@ fn check_omp_items() -> Vec<DoctorItemDto> {
             // Lettura versione
             let version = crate::setup::read_omp_version(&path);
             let has_valid_version = version.is_some();
-            let version_label = version.unwrap_or_else(|| "Sconosciuta".to_string());
+            let version_label = version.unwrap_or_else(|| {
+                crate::tr!("Sconosciuta", "Unknown").to_string()
+            });
 
             items.push(DoctorItemDto {
                 id: "omp_version".to_string(),
                 category: "omp".to_string(),
-                name: "Versione omp".to_string(),
+                name: crate::tr!("Versione omp", "omp version").to_string(),
                 status: if has_valid_version {
                     "ok".to_string()
                 } else {
@@ -143,8 +149,11 @@ fn check_omp_items() -> Vec<DoctorItemDto> {
                     None
                 } else {
                     Some(
-                        "Verifica che il binario omp risponda correttamente a `omp --version`"
-                            .to_string(),
+                        crate::tr!(
+                            "Verifica che il binario omp risponda correttamente a `omp --version`",
+                            "Check that the omp binary answers correctly to `omp --version`"
+                        )
+                        .to_string(),
                     )
                 },
             });
@@ -155,7 +164,7 @@ fn check_omp_items() -> Vec<DoctorItemDto> {
             items.push(DoctorItemDto {
                 id: "omp_rpc".to_string(),
                 category: "omp".to_string(),
-                name: "Protocollo RPC-UI".to_string(),
+                name: crate::tr!("Protocollo RPC-UI", "RPC-UI protocol").to_string(),
                 status: if rpc_compat.0 {
                     "ok".to_string()
                 } else {
@@ -166,8 +175,11 @@ fn check_omp_items() -> Vec<DoctorItemDto> {
                     None
                 } else {
                     Some(
-                        "Aggiorna omp a una versione compatibile con la modalita' `--mode rpc-ui`"
-                            .to_string(),
+                        crate::tr!(
+                            "Aggiorna omp a una versione compatibile con la modalita' `--mode rpc-ui`",
+                            "Update omp to a version compatible with the `--mode rpc-ui` mode"
+                        )
+                        .to_string(),
                     )
                 },
             });
@@ -176,29 +188,48 @@ fn check_omp_items() -> Vec<DoctorItemDto> {
             items.push(DoctorItemDto {
                 id: "omp_binary".to_string(),
                 category: "omp".to_string(),
-                name: "Eseguibile omp".to_string(),
+                name: crate::tr!("Eseguibile omp", "omp executable").to_string(),
                 status: "error".to_string(),
-                value: "Non trovato nel PATH di sistema".to_string(),
+                value: crate::tr!("Non trovato nel PATH di sistema", "Not found in the system PATH")
+                    .to_string(),
                 recommendation: Some(
-                    "Installa omp eseguendo `npm install -g @oh-my-pi/pi-coding-agent` o aggiungilo al PATH".to_string(),
+                    crate::tr!(
+                        "Installa omp eseguendo `npm install -g @oh-my-pi/pi-coding-agent` o aggiungilo al PATH",
+                        "Install omp by running `npm install -g @oh-my-pi/pi-coding-agent` or add it to the PATH"
+                    )
+                    .to_string(),
                 ),
             });
             items.push(DoctorItemDto {
                 id: "omp_version".to_string(),
                 category: "omp".to_string(),
-                name: "Versione omp".to_string(),
+                name: crate::tr!("Versione omp", "omp version").to_string(),
                 status: "error".to_string(),
-                value: "Non rilevabile (eseguibile assente)".to_string(),
-                recommendation: Some("Installare omp per rilevare la versione".to_string()),
+                value: crate::tr!(
+                    "Non rilevabile (eseguibile assente)",
+                    "Not detectable (executable missing)"
+                )
+                .to_string(),
+                recommendation: Some(
+                    crate::tr!(
+                        "Installare omp per rilevare la versione",
+                        "Install omp to detect the version"
+                    )
+                    .to_string(),
+                ),
             });
             items.push(DoctorItemDto {
                 id: "omp_rpc".to_string(),
                 category: "omp".to_string(),
-                name: "Protocollo RPC-UI".to_string(),
+                name: crate::tr!("Protocollo RPC-UI", "RPC-UI protocol").to_string(),
                 status: "error".to_string(),
-                value: "Non disponibile".to_string(),
+                value: crate::tr!("Non disponibile", "Not available").to_string(),
                 recommendation: Some(
-                    "Installare omp per abilitare il runtime delle sessioni".to_string(),
+                    crate::tr!(
+                        "Installare omp per abilitare il runtime delle sessioni",
+                        "Install omp to enable the session runtime"
+                    )
+                    .to_string(),
                 ),
             });
         }
@@ -235,16 +266,30 @@ fn test_omp_rpc_support(binary: &Path) -> (bool, String) {
             if combined.contains("--mode") || combined.contains("rpc") || out.status.success() {
                 (
                     true,
-                    "Supportato (interfaccia stdio NDJSON conforme)".to_string(),
+                    crate::tr!(
+                        "Supportato (interfaccia stdio NDJSON conforme)",
+                        "Supported (conforming stdio NDJSON interface)"
+                    )
+                    .to_string(),
                 )
             } else {
                 (
                     false,
-                    "Flag `--mode rpc-ui` non rilevato nell'output di aiuto".to_string(),
+                    crate::tr!(
+                        "Flag `--mode rpc-ui` non rilevato nell'output di aiuto",
+                        "Flag `--mode rpc-ui` not found in the help output"
+                    )
+                    .to_string(),
                 )
             }
         }
-        Err(err) => (false, format!("Errore invocazione test RPC: {}", err)),
+        Err(err) => (
+            false,
+            crate::tr!(
+                format!("Errore invocazione test RPC: {}", err),
+                format!("RPC test invocation error: {}", err)
+            ),
+        ),
     }
 }
 
@@ -273,36 +318,62 @@ fn lanes_git_item(git_version_output: Option<&str>) -> DoctorItemDto {
     let (status, value, recommendation) = match git_version_output {
         None => (
             "warn",
-            format!("Non disponibile: richiede Git {required}+"),
-            Some(format!("Installa Git {required} o successivo per integrare le corsie")),
+            crate::tr!(
+                format!("Non disponibile: richiede Git {required}+"),
+                format!("Not available: requires Git {required}+")
+            ),
+            Some(crate::tr!(
+                format!("Installa Git {required} o successivo per integrare le corsie"),
+                format!("Install Git {required} or later to merge lanes")
+            )),
         ),
         Some(raw) => match parse_git_version(raw) {
             Some(found) if found >= LANES_MIN_GIT => (
                 "ok",
-                format!("Supportata (Git {}.{})", found.0, found.1),
+                crate::tr!(
+                    format!("Supportata (Git {}.{})", found.0, found.1),
+                    format!("Supported (Git {}.{})", found.0, found.1)
+                ),
                 None,
             ),
             Some(found) => (
                 "warn",
-                format!(
-                    "Richiede Git {required}+ (rilevato {}.{})",
-                    found.0, found.1
+                crate::tr!(
+                    format!(
+                        "Richiede Git {required}+ (rilevato {}.{})",
+                        found.0, found.1
+                    ),
+                    format!(
+                        "Requires Git {required}+ (found {}.{})",
+                        found.0, found.1
+                    )
                 ),
-                Some(format!(
-                    "Aggiorna Git ad almeno la versione {required}: l'integrazione delle corsie usa `git merge-tree --write-tree`"
+                Some(crate::tr!(
+                    format!(
+                        "Aggiorna Git ad almeno la versione {required}: l'integrazione delle corsie usa `git merge-tree --write-tree`"
+                    ),
+                    format!(
+                        "Update Git to at least version {required}: lane merging uses `git merge-tree --write-tree`"
+                    )
                 )),
             ),
             None => (
                 "warn",
-                format!("Versione di Git non riconosciuta: richiede Git {required}+"),
-                Some(format!("Verifica che `git --version` riporti almeno {required}")),
+                crate::tr!(
+                    format!("Versione di Git non riconosciuta: richiede Git {required}+"),
+                    format!("Unrecognized Git version: requires Git {required}+")
+                ),
+                Some(crate::tr!(
+                    format!("Verifica che `git --version` riporti almeno {required}"),
+                    format!("Check that `git --version` reports at least {required}")
+                )),
             ),
         },
     };
     DoctorItemDto {
         id: "git_lanes_merge".to_string(),
         category: "shell_git".to_string(),
-        name: "Integrazione corsie".to_string(),
+        name: crate::tr!("Integrazione corsie", "Lane merging").to_string(),
         status: status.to_string(),
         value,
         recommendation,
@@ -338,9 +409,14 @@ fn check_shell_and_git_items(project_path: Option<&str>) -> Vec<DoctorItemDto> {
                 category: "shell_git".to_string(),
                 name: "Git CLI".to_string(),
                 status: "error".to_string(),
-                value: "Non trovato o non funzionante".to_string(),
+                value: crate::tr!("Non trovato o non funzionante", "Not found or not working")
+                    .to_string(),
                 recommendation: Some(
-                    "Installa Git e assicurati che sia disponibile nel PATH".to_string(),
+                    crate::tr!(
+                        "Installa Git e assicurati che sia disponibile nel PATH",
+                        "Install Git and make sure it is available in the PATH"
+                    )
+                    .to_string(),
                 ),
             });
             items.push(lanes_git_item(None));
@@ -397,10 +473,17 @@ fn check_shell_and_git_items(project_path: Option<&str>) -> Vec<DoctorItemDto> {
                     category: "shell_git".to_string(),
                     name: "Git Bash (bash.exe)".to_string(),
                     status: "warn".to_string(),
-                    value: "Non rilevato nei percorsi standard".to_string(),
+                    value: crate::tr!(
+                        "Non rilevato nei percorsi standard",
+                        "Not found in the standard paths"
+                    )
+                    .to_string(),
                     recommendation: Some(
-                        "Installa Git for Windows con i componenti bash per consentire l'esecuzione degli script agent"
-                            .to_string(),
+                        crate::tr!(
+                            "Installa Git for Windows con i componenti bash per consentire l'esecuzione degli script agent",
+                            "Install Git for Windows with the bash components to run agent scripts"
+                        )
+                        .to_string(),
                     ),
                 });
             }
@@ -429,9 +512,14 @@ fn check_shell_and_git_items(project_path: Option<&str>) -> Vec<DoctorItemDto> {
                     category: "shell_git".to_string(),
                     name: "Shell Bash".to_string(),
                     status: "warn".to_string(),
-                    value: "bash non rilevata in PATH".to_string(),
+                    value: crate::tr!("bash non rilevata in PATH", "bash not found in PATH")
+                        .to_string(),
                     recommendation: Some(
-                        "Verifica che /bin/bash sia installata e accessibile".to_string(),
+                        crate::tr!(
+                            "Verifica che /bin/bash sia installata e accessibile",
+                            "Check that /bin/bash is installed and accessible"
+                        )
+                        .to_string(),
                     ),
                 });
             }
@@ -482,18 +570,27 @@ fn check_shell_and_git_items(project_path: Option<&str>) -> Vec<DoctorItemDto> {
                         .unwrap_or(0);
 
                     let desc = if mod_count == 0 {
-                        format!("Ramo `{}` · working tree pulito", branch_name)
+                        crate::tr!(
+                            format!("Ramo `{}` · working tree pulito", branch_name),
+                            format!("Branch `{}` · clean working tree", branch_name)
+                        )
                     } else {
-                        format!(
-                            "Ramo `{}` · {} file modificati non committati",
-                            branch_name, mod_count
+                        crate::tr!(
+                            format!(
+                                "Ramo `{}` · {} file modificati non committati",
+                                branch_name, mod_count
+                            ),
+                            format!(
+                                "Branch `{}` · {} uncommitted modified files",
+                                branch_name, mod_count
+                            )
                         )
                     };
 
                     items.push(DoctorItemDto {
                         id: "git_repo_status".to_string(),
                         category: "shell_git".to_string(),
-                        name: "Repository aperto".to_string(),
+                        name: crate::tr!("Repository aperto", "Open repository").to_string(),
                         status: "ok".to_string(),
                         value: desc,
                         recommendation: None,
@@ -503,12 +600,19 @@ fn check_shell_and_git_items(project_path: Option<&str>) -> Vec<DoctorItemDto> {
                     items.push(DoctorItemDto {
                         id: "git_repo_status".to_string(),
                         category: "shell_git".to_string(),
-                        name: "Repository aperto".to_string(),
+                        name: crate::tr!("Repository aperto", "Open repository").to_string(),
                         status: "warn".to_string(),
-                        value: "La cartella attiva non è un repository Git".to_string(),
+                        value: crate::tr!(
+                            "La cartella attiva non è un repository Git",
+                            "The active folder is not a Git repository"
+                        )
+                        .to_string(),
                         recommendation: Some(
-                            "Inizializza un repository con `git init` se desideri il tracciamento"
-                                .to_string(),
+                            crate::tr!(
+                                "Inizializza un repository con `git init` se desideri il tracciamento",
+                                "Initialize a repository with `git init` if you want tracking"
+                            )
+                            .to_string(),
                         ),
                     });
                 }
@@ -518,9 +622,13 @@ fn check_shell_and_git_items(project_path: Option<&str>) -> Vec<DoctorItemDto> {
         items.push(DoctorItemDto {
             id: "git_repo_status".to_string(),
             category: "shell_git".to_string(),
-            name: "Repository aperto".to_string(),
+            name: crate::tr!("Repository aperto", "Open repository").to_string(),
             status: "ok".to_string(),
-            value: "Nessun progetto aperto in primo piano".to_string(),
+            value: crate::tr!(
+                "Nessun progetto aperto in primo piano",
+                "No project open in the foreground"
+            )
+            .to_string(),
             recommendation: None,
         });
     }
@@ -541,14 +649,24 @@ fn check_pty_backend() -> DoctorItemDto {
     match res {
         Ok(_pair) => {
             #[cfg(target_os = "windows")]
-            let backend_name = "ConPTY operativo (backend pseudo-terminale nativo Windows)";
+            let backend_name = crate::tr!(
+                "ConPTY operativo (backend pseudo-terminale nativo Windows)",
+                "ConPTY working (native Windows pseudo-terminal backend)"
+            );
             #[cfg(not(target_os = "windows"))]
-            let backend_name = "POSIX openpty operativo (backend Unix PTY)";
+            let backend_name = crate::tr!(
+                "POSIX openpty operativo (backend Unix PTY)",
+                "POSIX openpty working (Unix PTY backend)"
+            );
 
             DoctorItemDto {
                 id: "pty_backend".to_string(),
                 category: "pty".to_string(),
-                name: "Backend Terminale Nativo (PTY)".to_string(),
+                name: crate::tr!(
+                    "Backend Terminale Nativo (PTY)",
+                    "Native Terminal Backend (PTY)"
+                )
+                .to_string(),
                 status: "ok".to_string(),
                 value: backend_name.to_string(),
                 recommendation: None,
@@ -556,17 +674,29 @@ fn check_pty_backend() -> DoctorItemDto {
         }
         Err(err) => {
             #[cfg(target_os = "windows")]
-            let rec =
-                "Verifica che il sistema supporti ConPTY (Windows 10 versione 1809 o successiva)";
+            let rec = crate::tr!(
+                "Verifica che il sistema supporti ConPTY (Windows 10 versione 1809 o successiva)",
+                "Check that the system supports ConPTY (Windows 10 version 1809 or later)"
+            );
             #[cfg(not(target_os = "windows"))]
-            let rec = "Verifica i permessi sui descrittori pseudo-terminale (/dev/pts)";
+            let rec = crate::tr!(
+                "Verifica i permessi sui descrittori pseudo-terminale (/dev/pts)",
+                "Check the permissions on the pseudo-terminal descriptors (/dev/pts)"
+            );
 
             DoctorItemDto {
                 id: "pty_backend".to_string(),
                 category: "pty".to_string(),
-                name: "Backend Terminale Nativo (PTY)".to_string(),
+                name: crate::tr!(
+                    "Backend Terminale Nativo (PTY)",
+                    "Native Terminal Backend (PTY)"
+                )
+                .to_string(),
                 status: "error".to_string(),
-                value: format!("Inizializzazione PTY fallita: {}", err),
+                value: crate::tr!(
+                    format!("Inizializzazione PTY fallita: {}", err),
+                    format!("PTY initialization failed: {}", err)
+                ),
                 recommendation: Some(rec.to_string()),
             }
         }
@@ -598,9 +728,17 @@ fn test_sqlite_db_read(db_name: &str, title: &str) -> DoctorItemDto {
                     category: "sqlite".to_string(),
                     name: title.to_string(),
                     status: "warn".to_string(),
-                    value: "Aperto ma PRAGMA query_only non attivo".to_string(),
+                    value: crate::tr!(
+                        "Aperto ma PRAGMA query_only non attivo",
+                        "Open but PRAGMA query_only is not active"
+                    )
+                    .to_string(),
                     recommendation: Some(
-                        "Assicurarsi che la connessione al DB imponga la sola lettura".to_string(),
+                        crate::tr!(
+                            "Assicurarsi che la connessione al DB imponga la sola lettura",
+                            "Make sure the DB connection enforces read-only access"
+                        )
+                        .to_string(),
                     ),
                 }
             } else {
@@ -610,24 +748,35 @@ fn test_sqlite_db_read(db_name: &str, title: &str) -> DoctorItemDto {
                     category: "sqlite".to_string(),
                     name: title.to_string(),
                     status: "ok".to_string(),
-                    value: format!(
-                        "Integrità verificata · PRAGMA query_only = ON ({} tabelle)",
-                        tables
+                    value: crate::tr!(
+                        format!(
+                            "Integrità verificata · PRAGMA query_only = ON ({} tabelle)",
+                            tables
+                        ),
+                        format!(
+                            "Integrity verified · PRAGMA query_only = ON ({} tables)",
+                            tables
+                        )
                     ),
                     recommendation: None,
                 }
             }
         }
         Err(err) => {
-            // Se il file non esiste ancora, non e' un errore critico per history o stats
-            if err.contains("non esiste") {
+            // Se il file non esiste ancora, non e' un errore critico per history o stats.
+            // Il confronto copre entrambe le lingue: il messaggio arriva da
+            // `open_readonly_db`, che risponde nella lingua dell'interfaccia.
+            if err.contains("non esiste") || err.contains("does not exist") {
                 DoctorItemDto {
                     id: format!("sqlite_{}", db_name.replace('.', "_")),
                     category: "sqlite".to_string(),
                     name: title.to_string(),
                     status: "ok".to_string(),
-                    value: "Non ancora creato (verrà inizializzato automaticamente da omp)"
-                        .to_string(),
+                    value: crate::tr!(
+                        "Non ancora creato (verrà inizializzato automaticamente da omp)",
+                        "Not created yet (omp initializes it automatically)"
+                    )
+                    .to_string(),
                     recommendation: None,
                 }
             } else {
@@ -636,10 +785,13 @@ fn test_sqlite_db_read(db_name: &str, title: &str) -> DoctorItemDto {
                     category: "sqlite".to_string(),
                     name: title.to_string(),
                     status: "error".to_string(),
-                    value: format!("Errore apertura: {}", anonymize_text(&err)),
-                    recommendation: Some(format!(
-                        "Verifica i permessi o l'integrità del file {}",
-                        db_name
+                    value: crate::tr!(
+                        format!("Errore apertura: {}", anonymize_text(&err)),
+                        format!("Opening error: {}", anonymize_text(&err))
+                    ),
+                    recommendation: Some(crate::tr!(
+                        format!("Verifica i permessi o l'integrità del file {}", db_name),
+                        format!("Check the permissions or the integrity of the file {}", db_name)
                     )),
                 }
             }
@@ -650,9 +802,27 @@ fn test_sqlite_db_read(db_name: &str, title: &str) -> DoctorItemDto {
 /// Controlli Database Locali SQLite.
 fn check_sqlite_items() -> Vec<DoctorItemDto> {
     vec![
-        test_sqlite_db_read("history.db", "Database Cronologia (history.db)"),
-        test_sqlite_db_read("stats.db", "Database Statistiche (stats.db)"),
-        test_sqlite_db_read("agent.db", "Database Agente & Credenziali (agent.db)"),
+        test_sqlite_db_read(
+            "history.db",
+            crate::tr!(
+                "Database Cronologia (history.db)",
+                "History database (history.db)"
+            ),
+        ),
+        test_sqlite_db_read(
+            "stats.db",
+            crate::tr!(
+                "Database Statistiche (stats.db)",
+                "Statistics database (stats.db)"
+            ),
+        ),
+        test_sqlite_db_read(
+            "agent.db",
+            crate::tr!(
+                "Database Agente & Credenziali (agent.db)",
+                "Agent & Credentials database (agent.db)"
+            ),
+        ),
     ]
 }
 
@@ -717,8 +887,14 @@ fn resolve_provider_endpoint(
 /// riuscita: e' il server che rifiuta una richiesta anonima.
 fn reachability_status_and_label(http_status: Option<u16>) -> (&'static str, &'static str) {
     match http_status {
-        Some(code) if code >= 500 => ("warn", "Raggiungibile, ma il server risponde con un errore"),
-        _ => ("ok", "Raggiungibile"),
+        Some(code) if code >= 500 => (
+            "warn",
+            crate::tr!(
+                "Raggiungibile, ma il server risponde con un errore",
+                "Reachable, but the server answers with an error"
+            ),
+        ),
+        _ => ("ok", crate::tr!("Raggiungibile", "Reachable")),
     }
 }
 
@@ -798,12 +974,19 @@ async fn check_provider_items() -> Vec<DoctorItemDto> {
         items.push(DoctorItemDto {
             id: "provider_none".to_string(),
             category: "providers".to_string(),
-            name: "Provider AI Configurato".to_string(),
+            name: crate::tr!("Provider AI Configurato", "Configured AI provider").to_string(),
             status: "warn".to_string(),
-            value: "Nessun provider configurato in Studio".to_string(),
+            value: crate::tr!(
+                "Nessun provider configurato in Studio",
+                "No provider configured in Studio"
+            )
+            .to_string(),
             recommendation: Some(
-                "Configura almeno un provider (es. Anthropic, OpenAI, Google) nelle Impostazioni > Modelli"
-                    .to_string(),
+                crate::tr!(
+                    "Configura almeno un provider (es. Anthropic, OpenAI, Google) nelle Impostazioni > Modelli",
+                    "Configure at least one provider (e.g. Anthropic, OpenAI, Google) in Settings > Models"
+                )
+                .to_string(),
             ),
         });
         return items;
@@ -839,22 +1022,37 @@ async fn check_provider_items() -> Vec<DoctorItemDto> {
         let disabled_cause = disabled_causes.get(&provider_id);
 
         let friendly_name = crate::models_ops::provider_display_name(&provider_id, false);
-        let display_name = format!("Provider {}", friendly_name);
+        let display_name = crate::tr!(
+            format!("Provider {}", friendly_name),
+            format!("{} provider", friendly_name)
+        );
 
         let Some(ping) = ping else {
             // Nessun endpoint da verificare: lo si dice, invece di inventarne uno.
             let (status, value, recommendation) = match endpoint {
                 ProviderEndpoint::MissingBaseUrl => (
                     "warn",
-                    "Non verificabile: baseUrl mancante nella configurazione modelli".to_string(),
-                    Some(format!(
-                        "Indica la baseUrl del provider {provider_id} in models.yml (Impostazioni > Modelli)"
+                    crate::tr!(
+                        "Non verificabile: baseUrl mancante nella configurazione modelli",
+                        "Cannot be verified: baseUrl missing in the model configuration"
+                    )
+                    .to_string(),
+                    Some(crate::tr!(
+                        format!(
+                            "Indica la baseUrl del provider {provider_id} in models.yml (Impostazioni > Modelli)"
+                        ),
+                        format!(
+                            "Set the baseUrl of provider {provider_id} in models.yml (Settings > Models)"
+                        )
                     )),
                 ),
                 _ => (
                     "ok",
-                    "Configurato · connettività non verificabile (endpoint non noto a Studio)"
-                        .to_string(),
+                    crate::tr!(
+                        "Configurato · connettività non verificabile (endpoint non noto a Studio)",
+                        "Configured · connectivity cannot be verified (endpoint unknown to Studio)"
+                    )
+                    .to_string(),
                     None,
                 ),
             };
@@ -869,7 +1067,10 @@ async fn check_provider_items() -> Vec<DoctorItemDto> {
                 }
                 .to_string(),
                 value: match disabled_cause {
-                    Some(cause) => format!("Disabilitato: {cause}"),
+                    Some(cause) => crate::tr!(
+                        format!("Disabilitato: {cause}"),
+                        format!("Disabled: {cause}")
+                    ),
                     None => value,
                 },
                 recommendation,
@@ -893,10 +1094,19 @@ async fn check_provider_items() -> Vec<DoctorItemDto> {
                 category: "providers".to_string(),
                 name: display_name,
                 status: "warn".to_string(),
-                value: format!("Disabilitato: {} (endpoint: {} ms)", cause, latency_ms),
-                recommendation: Some(format!(
-                    "Riconnetti o riabilita il provider {} nelle Impostazioni > Modelli",
-                    provider_id
+                value: crate::tr!(
+                    format!("Disabilitato: {} (endpoint: {} ms)", cause, latency_ms),
+                    format!("Disabled: {} (endpoint: {} ms)", cause, latency_ms)
+                ),
+                recommendation: Some(crate::tr!(
+                    format!(
+                        "Riconnetti o riabilita il provider {} nelle Impostazioni > Modelli",
+                        provider_id
+                    ),
+                    format!(
+                        "Reconnect or re-enable provider {} in Settings > Models",
+                        provider_id
+                    )
                 )),
             });
         } else if reachable {
@@ -915,10 +1125,16 @@ async fn check_provider_items() -> Vec<DoctorItemDto> {
                 category: "providers".to_string(),
                 name: display_name,
                 status: "error".to_string(),
-                value: format!("Endpoint non raggiungibile: {} ({})", endpoint, detail),
+                value: crate::tr!(
+                    format!("Endpoint non raggiungibile: {} ({})", endpoint, detail),
+                    format!("Endpoint unreachable: {} ({})", endpoint, detail)
+                ),
                 recommendation: Some(
-                    "Verifica la connessione internet, proxy o limitazioni firewall aziendali"
-                        .to_string(),
+                    crate::tr!(
+                        "Verifica la connessione internet, proxy o limitazioni firewall aziendali",
+                        "Check the internet connection, proxy or corporate firewall restrictions"
+                    )
+                    .to_string(),
                 ),
             });
         }
@@ -930,23 +1146,39 @@ async fn check_provider_items() -> Vec<DoctorItemDto> {
 /// Genera un sommario anonimizzato in formato Markdown pronto da incollare in una issue o in chat.
 pub fn generate_markdown_report(report: &DoctorReportDto) -> String {
     let mut md = String::new();
-    md.push_str("### 🩺 Studio Doctor Diagnostic Report\n\n");
+    md.push_str(crate::tr!(
+        "### 🩺 Report diagnostico di Studio Doctor\n\n",
+        "### 🩺 Studio Doctor Diagnostic Report\n\n"
+    ));
     md.push_str(&format!(
-        "- **OMP Studio Version:** `{}`\n",
+        "- **{}** `{}`\n",
+        crate::tr!("Versione di OMP Studio:", "OMP Studio Version:"),
         report.system.studio_version
     ));
     md.push_str(&format!(
-        "- **OS:** `{} ({})` — `{}`\n",
-        report.system.os, report.system.arch, report.system.os_version
+        "- **{}** `{} ({})` — `{}`\n",
+        crate::tr!("Sistema operativo:", "OS:"),
+        report.system.os,
+        report.system.arch,
+        report.system.os_version
     ));
-    md.push_str(&format!("- **Timestamp:** `{}`\n", report.system.timestamp));
     md.push_str(&format!(
-        "- **Overall Status:** `{}` (eseguito in {} ms)\n\n",
+        "- **{}** `{}`\n",
+        crate::tr!("Data e ora:", "Timestamp:"),
+        report.system.timestamp
+    ));
+    md.push_str(&format!(
+        "- **{}** `{}` ({} {} ms)\n\n",
+        crate::tr!("Stato complessivo:", "Overall Status:"),
         report.overall_status.to_uppercase(),
+        crate::tr!("eseguito in", "ran in"),
         report.elapsed_ms
     ));
 
-    md.push_str("| Controllo | Stato | Valore Rilevato | Suggerimento |\n");
+    md.push_str(crate::tr!(
+        "| Controllo | Stato | Valore Rilevato | Suggerimento |\n",
+        "| Check | Status | Observed Value | Suggestion |\n"
+    ));
     md.push_str("| :--- | :---: | :--- | :--- |\n");
 
     for item in &report.items {
@@ -963,7 +1195,10 @@ pub fn generate_markdown_report(report: &DoctorReportDto) -> String {
         ));
     }
 
-    md.push_str("\n---\n*Report generato automaticamente da OMP Studio Doctor.*\n");
+    md.push_str(crate::tr!(
+        "\n---\n*Report generato automaticamente da OMP Studio Doctor.*\n",
+        "\n---\n*Report generated automatically by OMP Studio Doctor.*\n"
+    ));
     md
 }
 
@@ -993,7 +1228,12 @@ pub async fn run_studio_doctor(project_path: Option<String>) -> Result<DoctorRep
         (os_version, items)
     })
     .await
-    .map_err(|e| format!("Task diagnostica: {e}"))?;
+    .map_err(|e| {
+        crate::tr!(
+            format!("Task diagnostica: {e}"),
+            format!("Diagnostics task: {e}")
+        )
+    })?;
 
     let sys_info = SystemInfoDto {
         os: std::env::consts::OS.to_string(),
@@ -1115,8 +1355,14 @@ mod tests {
         for code in [200, 401, 403, 404] {
             let (status, label) = reachability_status_and_label(Some(code));
             assert_eq!(status, "ok");
-            assert_eq!(label, "Raggiungibile");
+            // L'etichetta segue la lingua dell'interfaccia: si confronta con
+            // entrambi i testi invece di fissare l'italiano.
+            assert!(
+                label == "Raggiungibile" || label == "Reachable",
+                "etichetta inattesa: {label}"
+            );
             assert!(!label.contains("Autenticato"));
+            assert!(!label.contains("Authenticated"));
         }
         assert_eq!(reachability_status_and_label(Some(503)).0, "warn");
     }
@@ -1152,7 +1398,12 @@ mod tests {
         };
 
         let md = generate_markdown_report(&report);
-        assert!(md.contains("Studio Doctor Diagnostic Report"));
+        // Le intestazioni seguono la lingua dell'interfaccia: si accettano
+        // entrambe invece di fissare l'inglese.
+        assert!(
+            md.contains("Studio Doctor Diagnostic Report")
+                || md.contains("Report diagnostico di Studio Doctor")
+        );
         assert!(md.contains("Test Check"));
         assert!(md.contains("✅ OK"));
     }

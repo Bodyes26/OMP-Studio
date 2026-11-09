@@ -43,7 +43,7 @@
 		try {
 			activeCode = await connection.createPairingCode('device');
 		} catch (err) {
-			alert('Errore generazione codice: ' + (err as Error).message);
+			alert(t('deviceCodeGenerateFailed', { message: (err as Error).message }));
 		}
 	}
 
@@ -51,7 +51,7 @@
 		try {
 			activeCode = await connection.createPairingCode('host');
 		} catch (err) {
-			alert('Errore generazione codice: ' + (err as Error).message);
+			alert(t('deviceCodeGenerateFailed', { message: (err as Error).message }));
 		}
 	}
 
@@ -67,7 +67,7 @@
 			await connection.revokeHost(hostToRevoke.id);
 			hostToRevoke = null;
 		} catch (err) {
-			alert('Errore revoca: ' + (err as Error).message);
+			alert(t('revokeFailed', { message: (err as Error).message }));
 		} finally {
 			isRevoking = false;
 		}
@@ -81,7 +81,7 @@
 			deviceToRevoke = null;
 			await loadData();
 		} catch (err) {
-			alert('Errore revoca: ' + (err as Error).message);
+			alert(t('revokeFailed', { message: (err as Error).message }));
 		} finally {
 			isRevoking = false;
 		}
@@ -122,7 +122,7 @@
 				<h3 class="section-title">{t('thisDevice')}</h3>
 				<div class="device-card">
 					<div class="device-info">
-						<span class="device-name">{connection.device?.name || 'Questo dispositivo'}</span>
+						<span class="device-name">{connection.device?.name || t('thisDevice')}</span>
 						<span class="ui-chip current-chip">{t('currentDeviceBadge')}</span>
 					</div>
 					<button

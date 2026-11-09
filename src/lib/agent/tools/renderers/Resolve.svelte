@@ -6,6 +6,7 @@
   i metadati dell'operazione in KeyValue e l'eventuale output in OutputBlock.
 -->
 <script lang="ts">
+	import { m } from '#lib/paraglide/messages.js';
 	import KeyValue from '../parts/KeyValue.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
 	import PromptBlock from '../parts/PromptBlock.svelte';
@@ -43,33 +44,33 @@
 	const outcomeLabel = $derived.by(() => {
 		switch (outcome) {
 			case 'rejected':
-				return 'Rifiutato';
+				return m.l10n_tools_value_rejected();
 			case 'proposed':
-				return 'Proposto';
+				return m.l10n_tools_value_proposed();
 			case 'applied':
 			default:
-				return 'Applicato';
+				return m.l10n_tools_value_applied();
 		}
 	});
 
 	const metaRows = $derived.by(() => {
 		const rows: { key: string; value: string }[] = [];
-		rows.push({ key: 'Esito', value: outcomeLabel });
+		rows.push({ key: m.l10n_tools_label_outcome(), value: outcomeLabel });
 		const action = str(args.action);
-		if (action) rows.push({ key: 'Azione', value: action });
+		if (action) rows.push({ key: m.l10n_tools_label_action(), value: action });
 		const invokerId = str(details?.invokerId) ?? str(details?.id);
-		if (invokerId) rows.push({ key: 'ID', value: invokerId });
+		if (invokerId) rows.push({ key: m.l10n_tools_label_id(), value: invokerId });
 		return rows;
 	});
 </script>
 
 <div class="resolve-body">
 	{#if targetPath}
-		<ToolFileHeader path={targetPath} action="File:" />
+		<ToolFileHeader path={targetPath} action={`${m.ui_filetree_file_8635()}:`} />
 	{/if}
 
 	{#if reason}
-		<PromptBlock text={reason} label="Motivazione" />
+		<PromptBlock text={reason} label={m.l10n_tools_label_reason()} />
 	{/if}
 
 	{#if metaRows.length > 0}
@@ -77,7 +78,7 @@
 	{/if}
 
 	{#if text && text !== reason}
-		<OutputBlock {text} label="esito" />
+		<OutputBlock {text} label={m.l10n_tools_label_outcome_lower()} />
 	{/if}
 </div>
 

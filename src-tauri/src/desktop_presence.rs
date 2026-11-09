@@ -169,8 +169,12 @@ fn save_settings(path: &std::path::Path, settings: &DesktopPresenceSettings) -> 
     if let Some(parent) = path.parent() {
         let _ = fs::create_dir_all(parent);
     }
-    let json = serde_json::to_string_pretty(settings)
-        .map_err(|e| format!("Serializzazione impostazioni presenza fallita: {e}"))?;
+    let json = serde_json::to_string_pretty(settings).map_err(|e| {
+        crate::tr!(
+            format!("Serializzazione impostazioni presenza fallita: {e}"),
+            format!("Serializing the presence settings failed: {e}")
+        )
+    })?;
     crate::fs_atomic::atomic_write(path, json.as_bytes())
 }
 
@@ -181,13 +185,19 @@ fn save_settings(path: &std::path::Path, settings: &DesktopPresenceSettings) -> 
 fn apply_autostart(app: &AppHandle, enabled: bool) -> Result<(), String> {
     let autolaunch = app.autolaunch();
     if enabled {
-        autolaunch
-            .enable()
-            .map_err(|e| format!("Abilitazione autostart fallita: {e}"))?;
+        autolaunch.enable().map_err(|e| {
+            crate::tr!(
+                format!("Abilitazione autostart fallita: {e}"),
+                format!("Enabling autostart failed: {e}")
+            )
+        })?;
     } else {
-        autolaunch
-            .disable()
-            .map_err(|e| format!("Disabilitazione autostart fallita: {e}"))?;
+        autolaunch.disable().map_err(|e| {
+            crate::tr!(
+                format!("Disabilitazione autostart fallita: {e}"),
+                format!("Disabling autostart failed: {e}")
+            )
+        })?;
     }
     Ok(())
 }
@@ -198,7 +208,7 @@ fn apply_autostart(app: &AppHandle, enabled: bool) -> Result<(), String> {
 
 fn build_tray_menu(app: &AppHandle, attention: bool, locale: &str) -> Result<Menu<tauri::Wry>, String> {
     let (auto_count, interactive_count) = get_active_counts();
-    let is_it = locale.starts_with("it");
+    let is_it = crate::i18n::is_italian(locale);
 
     let status_label = if is_it {
         if attention {
@@ -223,23 +233,21 @@ fn build_tray_menu(app: &AppHandle, attention: bool, locale: &str) -> Result<Men
     let attention_label = if is_it { "Vedi notifiche" } else { "View notifications" };
     let quit_label = if is_it { "Esci da Studio" } else { "Exit Studio" };
 
-    let status_item = MenuItem::with_id(
-        app,
-        "tray_status",
-        status_label,
-        false,
-        None::<&str>,
-    )
-    .map_err(|e| format!("Creazione voce stato tray fallita: {e}"))?;
+    let status_item = MenuItem::with_id(app, "tray_status", status_label, false, None::<&str>)
+        .map_err(|e| {
+            crate::tr!(
+                format!("Creazione voce stato tray fallita: {e}"),
+                format!("Creating the tray status item failed: {e}")
+            )
+        })?;
 
-    let open_item = MenuItem::with_id(
-        app,
-        "tray_open",
-        open_label,
-        true,
-        None::<&str>,
-    )
-    .map_err(|e| format!("Creazione voce apri tray fallita: {e}"))?;
+    let open_item = MenuItem::with_id(app, "tray_open", open_label, true, None::<&str>)
+        .map_err(|e| {
+            crate::tr!(
+                format!("Creazione voce apri tray fallita: {e}"),
+                format!("Creating the tray open item failed: {e}")
+            )
+        })?;
 
     let automations_item = MenuItem::with_id(
         app,
@@ -248,7 +256,12 @@ fn build_tray_menu(app: &AppHandle, attention: bool, locale: &str) -> Result<Men
         true,
         None::<&str>,
     )
-    .map_err(|e| format!("Creazione voce automazioni tray fallita: {e}"))?;
+    .map_err(|e| {
+        crate::tr!(
+            format!("Creazione voce automazioni tray fallita: {e}"),
+            format!("Creating the tray automations item failed: {e}")
+        )
+    })?;
 
     let attention_item = MenuItem::with_id(
         app,
@@ -257,20 +270,28 @@ fn build_tray_menu(app: &AppHandle, attention: bool, locale: &str) -> Result<Men
         attention,
         None::<&str>,
     )
-    .map_err(|e| format!("Creazione voce attenzione tray fallita: {e}"))?;
+    .map_err(|e| {
+        crate::tr!(
+            format!("Creazione voce attenzione tray fallita: {e}"),
+            format!("Creating the tray attention item failed: {e}")
+        )
+    })?;
 
-    let quit_item = MenuItem::with_id(
-        app,
-        "tray_quit",
-        quit_label,
-        true,
-        None::<&str>,
-    )
-    .map_err(|e| format!("Creazione voce esci tray fallita: {e}"))?;
-    let sep1 = PredefinedMenuItem::separator(app)
-        .map_err(|e| format!("Creazione separatore fallita: {e}"))?;
-    let sep2 = PredefinedMenuItem::separator(app)
-        .map_err(|e| format!("Creazione separatore fallita: {e}"))?;
+    let quit_item = MenuItem::with_id(app, "tray_quit", quit_label, true, None::<&str>)
+        .map_err(|e| {
+            crate::tr!(
+                format!("Creazione voce esci tray fallita: {e}"),
+                format!("Creating the tray quit item failed: {e}")
+            )
+        })?;
+    let separator_error = |e: tauri::Error| {
+        crate::tr!(
+            format!("Creazione separatore fallita: {e}"),
+            format!("Creating the separator failed: {e}")
+        )
+    };
+    let sep1 = PredefinedMenuItem::separator(app).map_err(separator_error)?;
+    let sep2 = PredefinedMenuItem::separator(app).map_err(separator_error)?;
 
     let menu = Menu::with_items(
         app,
@@ -284,15 +305,26 @@ fn build_tray_menu(app: &AppHandle, attention: bool, locale: &str) -> Result<Men
             &quit_item,
         ],
     )
-    .map_err(|e| format!("Costruzione menu tray fallita: {e}"))?;
+    .map_err(|e| {
+        crate::tr!(
+            format!("Costruzione menu tray fallita: {e}"),
+            format!("Building the tray menu failed: {e}")
+        )
+    })?;
 
     Ok(menu)
 }
 
 fn create_tray(app: &AppHandle) -> Result<TrayIcon, String> {
-    let menu = build_tray_menu(app, false, "it")?;
-    let icon = Image::from_bytes(TRAY_ICON_BYTES)
-        .map_err(|e| format!("Caricamento icona tray fallito: {e}"))?;
+    // Il menu nasce nella lingua gia' nota al backend (l'inglese prima che il
+    // frontend sincronizzi con `desktop_presence_set_locale`).
+    let menu = build_tray_menu(app, false, crate::i18n::code())?;
+    let icon = Image::from_bytes(TRAY_ICON_BYTES).map_err(|e| {
+        crate::tr!(
+            format!("Caricamento icona tray fallito: {e}"),
+            format!("Loading the tray icon failed: {e}")
+        )
+    })?;
     let app_handle_click = app.clone();
     let app_handle_menu = app.clone();
 
@@ -327,7 +359,12 @@ fn create_tray(app: &AppHandle) -> Result<TrayIcon, String> {
             _ => {}
         })
         .build(app)
-        .map_err(|e| format!("Inizializzazione tray icon fallita: {e}"))?;
+        .map_err(|e| {
+        crate::tr!(
+            format!("Inizializzazione tray icon fallita: {e}"),
+            format!("Tray icon initialization failed: {e}")
+        )
+    })?;
 
     Ok(tray)
 }
@@ -340,19 +377,17 @@ fn update_tray_menu_state(app: &AppHandle) {
                 let _ = tray.set_menu(Some(new_menu));
             }
             let (auto_count, _) = get_active_counts();
-            let is_it = state.locale.starts_with("it");
             let tip = if state.attention {
-                if is_it {
-                    "OMP Studio — Attenzione richiesta".to_string()
-                } else {
-                    "OMP Studio — Attention required".to_string()
-                }
+                crate::tr!(
+                    "OMP Studio — Attenzione richiesta",
+                    "OMP Studio — Attention required"
+                )
+                .to_string()
             } else if auto_count > 0 {
-                if is_it {
-                    format!("OMP Studio — {auto_count} automazioni in corso")
-                } else {
+                crate::tr!(
+                    format!("OMP Studio — {auto_count} automazioni in corso"),
                     format!("OMP Studio — {auto_count} automations in progress")
-                }
+                )
             } else {
                 "OMP Studio".to_string()
             };
@@ -369,10 +404,12 @@ fn update_tray_menu_state(app: &AppHandle) {
 /// la tray icon su Windows e macOS. Su Linux o in caso di errore, garantisce fallback
 /// trasparente senza lasciare la finestra nascosta orfana (AUT-084).
 pub fn init(app: &AppHandle) -> Result<(), String> {
-    let local_data = app
-        .path()
-        .app_local_data_dir()
-        .map_err(|e| format!("Risoluzione app_local_data_dir fallita: {e}"))?;
+    let local_data = app.path().app_local_data_dir().map_err(|e| {
+        crate::tr!(
+            format!("Risoluzione app_local_data_dir fallita: {e}"),
+            format!("Resolving app_local_data_dir failed: {e}")
+        )
+    })?;
     let settings_file = local_data.join("desktop-presence.json");
     let settings = load_settings(&settings_file);
 
@@ -411,7 +448,9 @@ pub fn init(app: &AppHandle) -> Result<(), String> {
         settings_file: Some(settings_file),
         tray_available,
         attention: false,
-        locale: "it".to_string(),
+        // Il backend conosce gia' la lingua scelta (default inglese, la lingua
+        // base): la tray parte coerente col resto dei testi nativi.
+        locale: crate::i18n::code().to_string(),
         main_window_visible: initial_visible,
         tray_handle,
     };
@@ -533,9 +572,9 @@ pub fn on_run_event(app: &AppHandle, event: &RunEvent) -> bool {
 // =========================================================================
 
 pub fn show_main_window(app: &AppHandle) -> Result<(), String> {
-    let window = app
-        .get_webview_window("main")
-        .ok_or_else(|| "Finestra main non trovata".to_string())?;
+    let window = app.get_webview_window("main").ok_or_else(|| {
+        crate::tr!("Finestra main non trovata", "Main window not found").to_string()
+    })?;
 
     #[cfg(target_os = "macos")]
     {
@@ -561,12 +600,16 @@ pub fn hide_main_window(app: &AppHandle) -> Result<(), String> {
     };
 
     if !tray_ok {
-        return Err("Impossibile nascondere: area di notifica non disponibile (AUT-084)".to_string());
+        return Err(crate::tr!(
+            "Impossibile nascondere: area di notifica non disponibile (AUT-084)",
+            "Cannot hide: notification area not available (AUT-084)"
+        )
+        .to_string());
     }
 
-    let window = app
-        .get_webview_window("main")
-        .ok_or_else(|| "Finestra main non trovata".to_string())?;
+    let window = app.get_webview_window("main").ok_or_else(|| {
+        crate::tr!("Finestra main non trovata", "Main window not found").to_string()
+    })?;
 
     let _ = window.hide();
 
@@ -611,9 +654,13 @@ fn handle_tray_quit(app: &AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub fn desktop_presence_get_state(_app: AppHandle) -> Result<DesktopPresenceState, String> {
     let lock = STATE.lock();
-    let state = lock
-        .as_ref()
-        .ok_or_else(|| "Modulo desktop_presence non inizializzato".to_string())?;
+    let state = lock.as_ref().ok_or_else(|| {
+        crate::tr!(
+            "Modulo desktop_presence non inizializzato",
+            "desktop_presence module not initialized"
+        )
+        .to_string()
+    })?;
 
     let (auto, interactive) = get_active_counts();
 
@@ -638,9 +685,13 @@ pub fn desktop_presence_update_settings(
 ) -> Result<DesktopPresenceState, String> {
     let path_opt = {
         let mut lock = STATE.lock();
-        let state = lock
-            .as_mut()
-            .ok_or_else(|| "Modulo desktop_presence non inizializzato".to_string())?;
+        let state = lock.as_mut().ok_or_else(|| {
+            crate::tr!(
+                "Modulo desktop_presence non inizializzato",
+                "desktop_presence module not initialized"
+            )
+            .to_string()
+        })?;
 
         // Applichiamo l'eventuale variazione di autostart tramite plugin
         if settings.autostart_enabled != state.settings.autostart_enabled {
@@ -666,9 +717,13 @@ pub fn desktop_presence_update_settings(
 pub fn desktop_presence_request_close(app: AppHandle) -> Result<CloseRequestOutcome, String> {
     let (close_action, remember, tray_available) = {
         let lock = STATE.lock();
-        let state = lock
-            .as_ref()
-            .ok_or_else(|| "Modulo desktop_presence non inizializzato".to_string())?;
+        let state = lock.as_ref().ok_or_else(|| {
+            crate::tr!(
+                "Modulo desktop_presence non inizializzato",
+                "desktop_presence module not initialized"
+            )
+            .to_string()
+        })?;
         (
             state.settings.close_action.clone(),
             state.settings.remember_close_action,
@@ -764,7 +819,12 @@ pub fn desktop_presence_respond_close(
         "cancel" => {
             // L'utente ha annullato la finestra di dialogo: non fare nulla
         }
-        _ => return Err(format!("Azione non valida: {action}")),
+        _ => {
+            return Err(crate::tr!(
+                format!("Azione non valida: {action}"),
+                format!("Invalid action: {action}")
+            ))
+        }
     }
     Ok(())
 }
@@ -901,6 +961,7 @@ pub fn desktop_presence_get_active_jobs(_app: AppHandle) -> Result<ActiveJobsSum
 
 #[tauri::command]
 pub fn desktop_presence_set_locale(app: AppHandle, locale: String) -> Result<(), String> {
+    crate::i18n::set_locale(&locale);
     {
         let mut lock = STATE.lock();
         if let Some(st) = &mut *lock {

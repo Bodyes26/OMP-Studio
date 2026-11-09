@@ -165,7 +165,9 @@
 <div class="subagent-result-card">
 	{#if entry.jobs.length > 1}
 		<div class="group-header">
-			<span class="group-title">{entry.jobs.length} risultati in background</span>
+			<span class="group-title"
+				>{m.l10n_agentcmp_background_results_many({ count: entry.jobs.length })}</span
+			>
 		</div>
 	{/if}
 
@@ -187,14 +189,14 @@
 				<TaskRow {model}>
 					{#if metaSize}
 						<div class="meta-row size">
-							<span class="meta-label">Dimensione:</span>
+							<span class="meta-label">{m.l10n_agentcmp_meta_size()}</span>
 							<span class="meta-value">{metaSize}</span>
 						</div>
 					{/if}
 
 					{#if job.envelope?.abortReason}
 						<div class="meta-row abort">
-							<span class="meta-label">Interrotto:</span>
+							<span class="meta-label">{m.l10n_agentcmp_meta_interrupted()}</span>
 							<span class="meta-value">{job.envelope.abortReason}</span>
 						</div>
 					{/if}
@@ -232,7 +234,7 @@
 
 					{#if bodyContent}
 						<div class="job-output">
-							<OutputBlock text={formatBody(bodyContent)} label="risultato" />
+							<OutputBlock text={formatBody(bodyContent)} label={m.l10n_agentcmp_output_result()} />
 						</div>
 					{/if}
 				</TaskRow>

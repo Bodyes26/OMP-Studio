@@ -62,7 +62,26 @@ This is all you need to use Studio on your computer.
 | macOS (Apple Silicon and Intel) | universal `.dmg` |
 | Linux x64 | `.deb` or `.AppImage` |
 
-Download from [Releases](https://github.com/Bodyes26/OMP-Studio/releases/latest). Studio updates itself; in Settings you choose between the stable channel and Nightly.
+The quickest way is one command in a terminal. It downloads the latest release, checks its SHA-256 and installs it:
+
+```sh
+# macOS (Terminal)
+curl -fsSL https://raw.githubusercontent.com/Bodyes26/OMP-Studio/main/scripts/install-macos.sh | bash
+
+# Linux x64: AppImage in ~/.local, menu entry and `omp-studio` command, no sudo
+curl -fsSL https://raw.githubusercontent.com/Bodyes26/OMP-Studio/main/scripts/install-linux.sh | sh
+```
+
+```bat
+:: Windows (Command Prompt, PowerShell or Win+R)
+cmd /c "curl -fsSLo %TEMP%\omp-studio-install.cmd https://raw.githubusercontent.com/Bodyes26/OMP-Studio/main/scripts/install-windows.cmd && %TEMP%\omp-studio-install.cmd"
+```
+
+Add `--nightly` at the end of the command (`| bash -s -- --nightly`, `| sh -s -- --nightly`, `...install.cmd --nightly`) for the Nightly channel.
+
+Why a script: Studio is not notarized by Apple and has no paid Windows certificate. A file downloaded with a browser is marked as coming from the internet, so macOS refuses to open it until you allow it in *System Settings → Privacy & Security*, and Windows SmartScreen asks for confirmation. Files downloaded with `curl` carry no such mark. You can also download the installers from [Releases](https://github.com/Bodyes26/OMP-Studio/releases/latest) and accept those warnings once. On macOS, `xattr -dr com.apple.quarantine "/Applications/OMP Studio.app"` removes the mark from a browser download.
+
+Studio updates itself; in Settings you choose between the stable channel and Nightly.
 If `omp` is not installed, the first launch offers to install and configure it.
 
 ## Set up Studio Remote (optional)

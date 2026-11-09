@@ -164,9 +164,9 @@
 
 	function sourceLabel(source: string): string {
 		switch (source) {
-			case 'builtin': return 'Built-in';
-			case 'plugin': return 'Plugin';
-			case 'custom': return 'Custom';
+			case 'builtin': return m.l10n_cmp_providers_source_builtin();
+			case 'plugin': return m.l10n_cmp_providers_source_plugin();
+			case 'custom': return m.l10n_cmp_models_custom_badge();
 			default: return source;
 		}
 	}
@@ -252,7 +252,7 @@
 			return;
 		}
 		if (name.length < 2) {
-			modelSettingsStore.showToast('Identificativo troppo corto (min 2).');
+			modelSettingsStore.showToast(m.l10n_cmp_providers_id_too_short());
 			return;
 		}
 		if (displayProviders.some((p) => p.id === name)) {
@@ -266,7 +266,7 @@
 			models: [
 				{
 					id: 'my-model-1',
-					name: 'My Custom Model',
+					name: m.l10n_cmp_providers_custom_model_default_name(),
 					contextWindow: 128000,
 					maxTokens: 8192,
 					reasoning: false,
@@ -284,7 +284,7 @@
 		if (!prov) return;
 		modelSettingsStore.addDraftCustomModel(providerName, {
 			id: `model-${prov.models.length + 1}`,
-			name: `Custom Model ${prov.models.length + 1}`,
+			name: m.l10n_cmp_providers_custom_model_name({ n: prov.models.length + 1 }),
 			contextWindow: 128000,
 			maxTokens: 8192,
 			reasoning: false,

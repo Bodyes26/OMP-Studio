@@ -5,6 +5,7 @@
   e il blocco OutputBlock con la risposta di sintesi completa.
 -->
 <script lang="ts">
+	import { m } from '#lib/paraglide/messages.js';
 	import KeyValue from '../parts/KeyValue.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
 	import {
@@ -23,10 +24,10 @@
 
 	const argRows = $derived.by(() => {
 		const rows: { key: string; value: string }[] = [];
-		if (query) rows.push({ key: 'Domanda', value: query });
-		if (context) rows.push({ key: 'Contesto', value: context });
+		if (query) rows.push({ key: m.l10n_tools_label_question(), value: query });
+		if (context) rows.push({ key: m.l10n_tools_label_context(), value: context });
 		const bank = str(details?.bank) ?? str(details?.bankId);
-		if (bank) rows.push({ key: 'Banca', value: bank });
+		if (bank) rows.push({ key: m.l10n_tools_label_bank(), value: bank });
 		return rows;
 	});
 </script>
@@ -37,7 +38,7 @@
 	{/if}
 
 	{#if text}
-		<OutputBlock {text} label="riflessione" />
+		<OutputBlock {text} label={m.l10n_tools_label_reflection()} />
 	{/if}
 </div>
 

@@ -14,6 +14,21 @@
 
 import { randomUUID } from "node:crypto";
 
+/**
+ * Testo scelto secondo la lingua della UI: il processo omp riceve
+ * `OMP_STUDIO_LOCALE` da Studio, il bundle della GUI ricade su `<html lang>`.
+ * Senza lingua nota si usa l'inglese, il default di Studio. Letta a ogni
+ * chiamata: la lingua puo' cambiare durante la vita del processo.
+ */
+function tr(it: string, en: string): string {
+	const host = globalThis as {
+		process?: { env?: Record<string, string | undefined> };
+		document?: { documentElement?: { lang?: string } };
+	};
+	const code = (host.process?.env?.OMP_STUDIO_LOCALE || host.document?.documentElement?.lang || "en").toLowerCase();
+	return code.startsWith("it") ? it : en;
+}
+
 /* ------------------------------------------------------------------ tipi --- */
 
 interface ZodType {
@@ -208,20 +223,26 @@ export async function callBridge(
 			data = (await response.json()) as BridgeReply;
 		} catch {
 			return errorResult(
-				`Errore di comunicazione: la risposta HTTP ${response.status} del bridge automazioni non e' un JSON valido.`
+				tr(
+					`Errore di comunicazione: la risposta HTTP ${response.status} del bridge automazioni non e' un JSON valido.`,
+					`Communication error: the automations bridge HTTP response ${response.status} is not valid JSON.`
+				)
 			);
 		}
 		const details = { ...(data?.details ?? {}), action };
 		const text =
 			data?.text ||
 			(data?.ok
-				? "Operazione sulle automazioni completata con successo."
-				: `Studio ha rifiutato l'operazione automazioni: ${action}`);
+				? tr("Operazione sulle automazioni completata con successo.", "Automation operation completed successfully.")
+				: tr(`Studio ha rifiutato l'operazione automazioni: ${action}`, `Studio refused the automation operation: ${action}`));
 		return data?.ok ? textResult(text, details) : errorResult(text, details);
 	} catch (err: unknown) {
-		if (signal?.aborted) return errorResult(`Operazione automazione '${action}' annullata.`);
+		if (signal?.aborted)
+			return errorResult(
+				tr(`Operazione automazione '${action}' annullata.`, `Automation operation '${action}' cancelled.`)
+			);
 		const msg = err instanceof Error ? err.message : String(err);
-		return errorResult(`Errore di rete verso il bridge di Studio: ${msg}`);
+		return errorResult(tr(`Errore di rete verso il bridge di Studio: ${msg}`, `Network error towards the Studio bridge: ${msg}`));
 	}
 }
 
@@ -403,11 +424,15 @@ export function detectAgentOutcome(
 			const msg = event.messages[i];
 			if (msg && msg.role === "assistant") {
 				if (msg.stopReason === "quota") {
-					const detail = typeof msg.error === "string" ? msg.error : "Quota o crediti esauriti";
+					const detail =
+						typeof msg.error === "string" ? msg.error : tr("Quota o crediti esauriti", "Quota or credits exhausted");
 					return { kind: "agentQuota", detail };
 				}
 				if (msg.stopReason === "error") {
-					const detail = typeof msg.error === "string" ? msg.error : "Errore durante l'esecuzione dell'assistente";
+					const detail =
+						typeof msg.error === "string"
+							? msg.error
+							: tr("Errore durante l'esecuzione dell'assistente", "Error while running the assistant");
 					if (/quota|credit|rate\s*limit|balance|exhausted|429/i.test(detail)) {
 						return { kind: "agentQuota", detail };
 					}
@@ -490,7 +515,7 @@ export function condenseCreatePayload(
 		const def = {
 			id: typeof raw.id === "string" && raw.id ? raw.id : randomUUID(),
 			revision: typeof raw.revision === "number" ? raw.revision : 0,
-			name: cleanString(raw.name) || cleanString(params.name) || "Nuova automazione",
+			name: cleanString(raw.name) || cleanString(params.name) || tr("Nuova automazione", "New automation"),
 			description: cleanString(raw.description) || cleanString(params.description) || "",
 			state: (cleanString(raw.state) as string) || "draft",
 			action: rawAction ?? {
@@ -832,7 +857,7 @@ export default function studioAutomationsExtension(
 
 	pi.registerTool<StudioAutomationsParams>({
 		name: "studio_automations",
-		label: "Automazioni Studio",
+		label: tr("Automazioni Studio", "Studio Automations"),
 		description:
 			"Gestisce e propone automazioni di OMP Studio via native bridge. " +
 			"Azioni disponibili: " +
@@ -960,7 +985,9 @@ export default function studioAutomationsExtension(
 				case "get": {
 					const id = cleanString(params.id);
 					if (!id) {
-						return errorResult("Il parametro 'id' e' obbligatorio per l'azione 'get'.");
+						return errorResult(
+							tr("Il parametro 'id' e' obbligatorio per l'azione 'get'.", "The 'id' parameter is required for the 'get' action.")
+						);
 					}
 					return callBridge(env, "get", { id }, signal);
 				}
@@ -982,7 +1009,12 @@ export default function studioAutomationsExtension(
 				case "propose_update": {
 					const id = cleanString(params.id);
 					if (!id) {
-						return errorResult("Il parametro 'id' e' obbligatorio per l'azione 'propose_update'.");
+						return errorResult(
+							tr(
+								"Il parametro 'id' e' obbligatorio per l'azione 'propose_update'.",
+								"The 'id' parameter is required for the 'propose_update' action."
+							)
+						);
 					}
 
 					// 1. Fetch get per recuperare la definizione esistente completa
@@ -1002,7 +1034,10 @@ export default function studioAutomationsExtension(
 
 					if (!existing || typeof existing !== "object") {
 						return errorResult(
-							`Impossibile recuperare l'automazione esistente con ID '${id}' per la modifica.`
+							tr(
+								`Impossibile recuperare l'automazione esistente con ID '${id}' per la modifica.`,
+								`Cannot load the existing automation with ID '${id}' for the update.`
+							)
 						);
 					}
 
@@ -1024,7 +1059,12 @@ export default function studioAutomationsExtension(
 					const operation = params.projectOperation || "list";
 					const path = cleanString(params.projectPath) || cleanString(params.targets?.cwd) || (operation !== "list" ? cwd : undefined);
 					if ((operation === "open" || operation === "close") && !path) {
-						return errorResult(`Il parametro 'projectPath' e' obbligatorio per l'operazione '${operation}'.`);
+						return errorResult(
+						tr(
+							`Il parametro 'projectPath' e' obbligatorio per l'operazione '${operation}'.`,
+							`The 'projectPath' parameter is required for the '${operation}' operation.`
+						)
+					);
 					}
 					const body: Record<string, unknown> = {
 						operation,
@@ -1035,7 +1075,10 @@ export default function studioAutomationsExtension(
 
 				default: {
 					return errorResult(
-						`Azione non supportata: '${action}'. Azioni consentite: list, get, runs, propose_create, propose_update, projects.`
+						tr(
+							`Azione non supportata: '${action}'. Azioni consentite: list, get, runs, propose_create, propose_update, projects.`,
+							`Unsupported action: '${action}'. Allowed actions: list, get, runs, propose_create, propose_update, projects.`
+						)
 					);
 				}
 			}

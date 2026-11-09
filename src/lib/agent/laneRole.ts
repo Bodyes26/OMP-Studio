@@ -3,6 +3,7 @@
  * Condivisa tra il comando slash della GUI (/role) e il controllo remoto (set_lane_role).
  */
 
+import { m as msg } from '#lib/paraglide/messages.js';
 import {
 	parseRoleSelector,
 	resolveActiveRole,
@@ -21,7 +22,11 @@ export class RoleApplyError extends Error {
 	readonly role: string;
 
 	constructor(reason: 'no_configured_roles' | 'unconfigured_role', role: string) {
-		super(reason === 'no_configured_roles' ? 'Nessun ruolo configurato nel ciclo rapido' : `Ruolo "${role}" senza modello assegnato`);
+		super(
+			reason === 'no_configured_roles'
+				? msg.l10n_agent_role_apply_no_roles()
+				: msg.l10n_agent_role_apply_unconfigured({ role })
+		);
 		this.name = 'RoleApplyError';
 		this.reason = reason;
 		this.role = role;

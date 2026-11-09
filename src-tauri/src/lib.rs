@@ -1,5 +1,7 @@
 pub mod automations;
 mod desktop_presence;
+#[macro_use]
+pub mod i18n;
 use automations::{
     automations_activate, automations_acknowledge, automations_ai_pending, automations_ai_update,
     automations_canonical_root, automations_cancel, automations_delete, automations_event,
@@ -19,6 +21,10 @@ use desktop_presence::{
     desktop_presence_show_main, desktop_presence_update_settings,
 };
 mod diagrams;
+mod external_open;
+use external_open::{external_open_take, external_route, PendingOpens};
+mod file_watch;
+use file_watch::file_watch_set;
 mod fs_atomic;
 mod lanes_store;
 use lanes_store::{lanes_store_backup, lanes_store_read, lanes_store_write_atomic};
@@ -210,7 +216,15 @@ pub fn run() {
         .manage(diagrams::DiagramWatcherState::new())
         .manage(projects::ProjectTasksState::new())
         .manage(BrowserLiveManager::new())
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        .manage(PendingOpens::default())
+        .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+            // "Apri con… Studio" con Studio gia' aperto: il file arriva qui come
+            // argomento della seconda istanza (EXT-002).
+            let paths = external_open::paths_from_args(&args, std::path::Path::new(&cwd));
+            if !paths.is_empty() {
+                external_open::enqueue(app, paths);
+                return;
+            }
             if let Some(window) = app.get_webview_window("main") {
                 // Se la finestra e' ridotta a icona, ripristinala. Mai chiamare
                 // `set_focus()` incondizionatamente: se l'utente sta scrivendo in
@@ -303,6 +317,9 @@ pub fn run() {
             project_tasks_unwatch,
             project_canonicalize_child_dir,
             resolve_project_file,
+            external_open_take,
+            external_route,
+            file_watch_set,
             worktree_inspect,
             worktree_create,
             worktree_list,
@@ -576,12 +593,30 @@ pub fn run() {
                 lab::paths::init(dir);
             }
             remote::init(app.handle().clone());
+            if let Ok(cwd) = std::env::current_dir() {
+                external_open::push(
+                    app.handle(),
+                    external_open::paths_from_args(std::env::args(), &cwd),
+                );
+            }
             Ok(())
         })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
             if desktop_presence::on_run_event(app_handle, &event) {
+                return;
+            }
+            // macOS consegna "Apri con" come evento, non come argomento.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = &event {
+                let paths = urls
+                    .iter()
+                    .filter_map(|url| url.to_file_path().ok())
+                    .filter(|path| path.is_file())
+                    .map(|path| path.to_string_lossy().into_owned())
+                    .collect();
+                external_open::enqueue(app_handle, paths);
                 return;
             }
             if let tauri::RunEvent::Exit = event {

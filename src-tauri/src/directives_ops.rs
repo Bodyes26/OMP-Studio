@@ -81,7 +81,7 @@ pub(crate) async fn resolve_assistant_model(model_override: Option<&str>) -> Opt
 pub fn extract_json_payload(raw: &str) -> Result<String, String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
-        return Err("Risposta del modello vuota".to_string());
+        return Err(crate::tr!("Risposta del modello vuota", "Empty model response").to_string());
     }
 
     // Se racchiuso in fence markdown ```json ... ``` o ``` ... ```
@@ -261,11 +261,15 @@ pub(crate) fn run_ephemeral_omp_cancellable(
     // restituiamo un errore esplicito in italiano spiegando che il contenuto voluminoso va passato
     // nel contesto su file temporaneo, anziche' far fallire CreateProcessW con os error 206.
     if system_prompt.len() + user_prompt.len() > 24_000 {
-        return Err(
+        return Err(crate::tr!(
             "La dimensione combinata di system_prompt e user_prompt supera la soglia di sicurezza (24.000 byte). \
              Il contenuto voluminoso o variabile deve essere passato tramite il parametro `context` su file temporaneo \
-             per rispettare il limite Win32 di 32.767 caratteri per la riga di comando.".to_string()
-        );
+             per rispettare il limite Win32 di 32.767 caratteri per la riga di comando.",
+            "The combined size of system_prompt and user_prompt exceeds the safety threshold (24.000 bytes). \
+             Large or variable content must be passed through the `context` parameter on a temporary file \
+             to stay within the Win32 limit of 32.767 characters per command line."
+        )
+        .to_string());
     }
 
     // Se context e' presente, viene scritto in un file temporaneo con nome univoco.
@@ -280,7 +284,12 @@ pub(crate) fn run_ephemeral_omp_cancellable(
         let temp_path = std::env::temp_dir().join(filename);
 
         std::fs::write(&temp_path, ctx)
-            .map_err(|e| format!("Scrittura file temporaneo di contesto fallita: {}", e))?;
+            .map_err(|e| {
+        crate::tr!(
+            format!("Scrittura file temporaneo di contesto fallita: {}", e),
+            format!("Writing the context temporary file failed: {}", e)
+        )
+    })?;
 
         let normalized_path = temp_path.to_string_lossy().replace('\\', "/");
         let arg = format!("@{}", normalized_path);
@@ -321,7 +330,12 @@ pub(crate) fn run_ephemeral_omp_cancellable(
 
     let mut child = cmd
         .spawn()
-        .map_err(|e| format!("Avvio processo omp fallito: {}", e))?;
+        .map_err(|e| {
+            crate::tr!(
+                format!("Avvio processo omp fallito: {}", e),
+                format!("Starting the omp process failed: {}", e)
+            )
+        })?;
     let pid = child.id();
     #[cfg(target_os = "windows")]
     let job = crate::process_tree::WindowsJob::create_for_process(pid).ok().map(Arc::new);
@@ -395,7 +409,10 @@ pub(crate) fn run_ephemeral_omp_cancellable(
 
         let wait_res = match child.lock() {
             Ok(mut c) => c.try_wait(),
-            Err(e) => return Err(format!("Attesa del processo omp fallita: {}", e)),
+            Err(e) => return Err(crate::tr!(
+                    format!("Attesa del processo omp fallita: {}", e),
+                    format!("Waiting for the omp process failed: {}", e)
+                )),
         };
 
         match wait_res {
@@ -422,7 +439,10 @@ pub(crate) fn run_ephemeral_omp_cancellable(
                     was_cancelled = true;
                     break None;
                 }
-                return Err(format!("Attesa del processo omp fallita: {}", e));
+                return Err(crate::tr!(
+                    format!("Attesa del processo omp fallita: {}", e),
+                    format!("Waiting for the omp process failed: {}", e)
+                ));
             }
         }
     };
@@ -441,7 +461,10 @@ pub(crate) fn run_ephemeral_omp_cancellable(
     if !status.success() {
         let stderr_msg = String::from_utf8_lossy(&stderr_bytes).trim().to_string();
         return Ok(EphemeralOutcome::Failed(if stderr_msg.is_empty() {
-            format!("omp e' terminato con codice di errore {:?}", status.code())
+            crate::tr!(
+                format!("omp e' terminato con codice di errore {:?}", status.code()),
+                format!("omp exited with error code {:?}", status.code())
+            )
         } else {
             stderr_msg
         }));
@@ -467,11 +490,21 @@ pub(crate) fn run_ephemeral_omp_raw(
     )? {
         EphemeralOutcome::Ok(out) => Ok(out),
         EphemeralOutcome::Failed(msg) => Err(msg),
-        EphemeralOutcome::TimedOut => Err(format!(
-            "omp non ha risposto entro {} secondi ed e' stato interrotto",
-            EPHEMERAL_TIMEOUT.as_secs()
+        EphemeralOutcome::TimedOut => Err(crate::tr!(
+            format!(
+                "omp non ha risposto entro {} secondi ed e' stato interrotto",
+                EPHEMERAL_TIMEOUT.as_secs()
+            ),
+            format!(
+                "omp did not answer within {} seconds and was interrupted",
+                EPHEMERAL_TIMEOUT.as_secs()
+            )
         )),
-        EphemeralOutcome::Cancelled => Err("Chiamata omp cancellata".to_string()),
+        EphemeralOutcome::Cancelled => Err(crate::tr!(
+            "Chiamata omp cancellata",
+            "omp call cancelled"
+        )
+        .to_string()),
     }
 }
 
@@ -484,10 +517,14 @@ pub async fn generate_task_directive_ai(
 ) -> Result<TaskDirectiveAiProposal, String> {
     let topic_trimmed = topic.trim();
     if topic_trimmed.is_empty() {
-        return Err("L'argomento o obiettivo della direttiva non può essere vuoto".to_string());
+        return Err(crate::tr!(
+            "L'argomento o obiettivo della direttiva non può essere vuoto",
+            "The directive topic or goal cannot be empty"
+        )
+        .to_string());
     }
 
-    let system_prompt = r#"Sei un assistente esperto di prompt engineering per agenti software (Oh My Pi / OMP).
+    let mut system_prompt = String::from(r#"Sei un assistente esperto di prompt engineering per agenti software (Oh My Pi / OMP).
 Il tuo compito è creare una singola direttiva di prompt per task riutilizzabile.
 
 Devi rispondere ESCLUSIVAMENTE con un oggetto JSON valido (senza testo introduttivo o conclusivo) con la seguente struttura esatta:
@@ -498,8 +535,14 @@ Devi rispondere ESCLUSIVAMENTE con un oggetto JSON valido (senza testo introdutt
   "prompt": "[Direttiva: Istruzioni operative chiare, imperative e precise per l'agente. Es. Esegui sempre i test unitari prima di concludere.]",
   "placement": "before", // "before" se deve istruire l'agente prima del compito, oppure "after" se è una post-condizione
   "reason": "Spiegazione sintetica del perché è utile"
-}"#;
+}"#);
 
+    // I campi testuali generati finiscono nell'interfaccia: si chiede la
+    // lingua corrente di Studio.
+    system_prompt.push_str(&format!(
+        "\n\nLingua dei campi testuali (name, description, tag, prompt, reason): {}. Scrivi l'intero contenuto in questa lingua, senza mescolarla con altre.",
+        crate::i18n::code()
+    ));
     let (context_payload, user_prompt) = match context
         .as_deref()
         .map(str::trim)
@@ -527,19 +570,30 @@ Devi rispondere ESCLUSIVAMENTE con un oggetto JSON valido (senza testo introdutt
     let resolved_model = resolve_assistant_model(model_selector.as_deref()).await;
     let raw_response = tokio::task::spawn_blocking(move || {
         run_ephemeral_omp_raw(
-            system_prompt,
+            &system_prompt,
             context_payload.as_deref(),
             &user_prompt,
             resolved_model.as_deref(),
         )
     })
     .await
-    .map_err(|e| format!("Task thread interrotto: {}", e))??;
+    .map_err(|e| {
+        crate::tr!(
+            format!("Task thread interrotto: {}", e),
+            format!("Task thread interrupted: {}", e)
+        )
+    })??;
     let json_text = extract_json_payload(&raw_response)?;
     let proposal: TaskDirectiveAiProposal = serde_json::from_str(&json_text).map_err(|e| {
-        format!(
+        crate::tr!(
+            format!(
             "Parsing risposta AI non riuscito: {}. Risposta grezza: {}",
             e, raw_response
+        ),
+            format!(
+            "Parsing the AI response failed: {}. Raw response: {}",
+            e, raw_response
+        )
         )
     })?;
 
@@ -553,7 +607,7 @@ pub async fn refine_task_directive_ai(
     feedback: String,
     model_selector: Option<String>,
 ) -> Result<TaskDirectiveAiProposal, String> {
-    let system_prompt = r#"Sei un assistente esperto di prompt engineering per agenti software (Oh My Pi / OMP).
+    let mut system_prompt = String::from(r#"Sei un assistente esperto di prompt engineering per agenti software (Oh My Pi / OMP).
 Il tuo compito è perfezionare e ottimizzare una direttiva di prompt esistente seguendo il feedback dell'utente.
 
 Devi rispondere ESCLUSIVAMENTE con un oggetto JSON valido con la seguente struttura esatta:
@@ -564,7 +618,7 @@ Devi rispondere ESCLUSIVAMENTE con un oggetto JSON valido con la seguente strutt
   "prompt": "[Direttiva: Testo raffinato e ottimizzato, rigoroso ed esplicito per l'agente]",
   "placement": "before", // "before" o "after"
   "reason": "Spiegazione delle modifiche e miglioramenti apportati"
-}"#;
+}"#);
 
     let context_md = format!(
         "# Direttiva Attuale\n- Nome: {}\n- Tag: {}\n- Posizione: {}\n- Descrizione: {}\n- Prompt:\n{}\n\n# Feedback / Istruzioni di Miglioramento\n{}",
@@ -579,24 +633,42 @@ Devi rispondere ESCLUSIVAMENTE con un oggetto JSON valido con la seguente strutt
             feedback.trim()
         }
     );
+    // I campi testuali generati finiscono nell'interfaccia: si chiede la
+    // lingua corrente di Studio.
+    system_prompt.push_str(&format!(
+        "\n\nLingua dei campi testuali (name, description, tag, prompt, reason): {}. Scrivi l'intero contenuto in questa lingua, senza mescolarla con altre.",
+        crate::i18n::code()
+    ));
+
     let user_prompt = "Perfeziona la direttiva descritta nel file allegato secondo il feedback fornito e rispondi solo con il JSON richiesto.";
 
     let resolved_model = resolve_assistant_model(model_selector.as_deref()).await;
     let raw_response = tokio::task::spawn_blocking(move || {
         run_ephemeral_omp_raw(
-            system_prompt,
+            &system_prompt,
             Some(&context_md),
             user_prompt,
             resolved_model.as_deref(),
         )
     })
     .await
-    .map_err(|e| format!("Task thread interrotto: {}", e))??;
+    .map_err(|e| {
+        crate::tr!(
+            format!("Task thread interrotto: {}", e),
+            format!("Task thread interrupted: {}", e)
+        )
+    })??;
     let json_text = extract_json_payload(&raw_response)?;
     let mut proposal: TaskDirectiveAiProposal = serde_json::from_str(&json_text).map_err(|e| {
-        format!(
-            "Parsing risposta AI non riuscito: {}. Risposta grezza: {}",
-            e, raw_response
+        crate::tr!(
+            format!(
+                "Parsing risposta AI non riuscito: {}. Risposta grezza: {}",
+                e, raw_response
+            ),
+            format!(
+                "Parsing the AI response failed: {}. Raw response: {}",
+                e, raw_response
+            )
         )
     })?;
 
@@ -668,7 +740,7 @@ pub async fn analyze_task_directives_friction(
         return Ok(Vec::new());
     }
 
-    let system_prompt = r#"Sei un assistente di analisi per agenti software (Oh My Pi / OMP).
+    let mut system_prompt = String::from(r#"Sei un assistente di analisi per agenti software (Oh My Pi / OMP).
 Analizza i prompt e le richieste recenti dell'utente in questo progetto e identifica se esistono schemi, vincoli o istruzioni ricorrenti (ad es. convenzioni sui test, regole di stile, documentazione, controllo modifiche) che beneficerebbero di una direttiva riutilizzabile dedicata.
 
 NON proporre direttive per concetti già chiaramente coperti dalle direttive esistenti.
@@ -683,7 +755,7 @@ Devi rispondere ESCLUSIVAMENTE con un array JSON di proposte (da 0 a 3 elementi)
     "placement": "before",
     "reason": "Rilevato in X prompt recenti: spiegazione sintetica dell'attrito"
   }
-]"#;
+]"#);
 
     let existing_desc = existing_directives
         .iter()
@@ -712,25 +784,43 @@ Devi rispondere ESCLUSIVAMENTE con un array JSON di proposte (da 0 a 3 elementi)
         },
         prompts_list
     );
+    // I campi testuali generati finiscono nell'interfaccia: si chiede la
+    // lingua corrente di Studio.
+    system_prompt.push_str(&format!(
+        "\n\nLingua dei campi testuali (name, description, tag, prompt, reason): {}. Scrivi l'intero contenuto in questa lingua, senza mescolarla con altre.",
+        crate::i18n::code()
+    ));
+
     let user_prompt = "Analizza i prompt e le direttive esistenti descritte nel file allegato e proponi da 0 a 3 direttive ricorrenti in formato JSON.";
 
     let resolved_model = resolve_assistant_model(model_selector.as_deref()).await;
     let raw_response = tokio::task::spawn_blocking(move || {
         run_ephemeral_omp_raw(
-            system_prompt,
+            &system_prompt,
             Some(&context_md),
             user_prompt,
             resolved_model.as_deref(),
         )
     })
     .await
-    .map_err(|e| format!("Task thread interrotto: {}", e))??;
+    .map_err(|e| {
+        crate::tr!(
+            format!("Task thread interrotto: {}", e),
+            format!("Task thread interrupted: {}", e)
+        )
+    })??;
     let json_text = extract_json_payload(&raw_response)?;
     let proposals: Vec<TaskDirectiveAiProposal> =
         serde_json::from_str(&json_text).map_err(|e| {
-            format!(
+            crate::tr!(
+                format!(
                 "Parsing array proposte AI non riuscito: {}. Risposta grezza: {}",
                 e, raw_response
+            ),
+                format!(
+                "Parsing the AI proposal array failed: {}. Raw response: {}",
+                e, raw_response
+            )
             )
         })?;
 

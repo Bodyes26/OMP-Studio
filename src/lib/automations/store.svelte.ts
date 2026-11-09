@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { getLocale } from '#lib/paraglide/runtime.js';
+import { t } from './i18n.ts';
 import { pathKey } from '#lib/utils/paths.ts';
 import {
 	newAutomationDefinition,
@@ -58,7 +58,7 @@ class AutomationsStore {
 	}
 	private async initialize(): Promise<void> {
 		if (!nativeAvailable()) {
-			this.error = getLocale() === 'it' ? 'Le automazioni richiedono l’app desktop di Studio.' : 'Automations require the Studio desktop app.';
+			this.error = t('store_error_desktop_required');
 			return;
 		}
 		this.loading = true;
@@ -138,7 +138,7 @@ class AutomationsStore {
 	async openReview(draftId: string): Promise<void> {
 		const snapshot = await this.refresh();
 		const draft = snapshot.drafts.find((candidate) => candidate.id === draftId);
-		if (!draft) throw new Error(getLocale() === 'it' ? 'La bozza richiesta non è disponibile.' : 'The requested draft is unavailable.');
+		if (!draft) throw new Error(t('store_error_draft_unavailable'));
 		this.editingDraft = structuredClone($state.snapshot(draft));
 		this.createWithAi = false;
 		this.opened = true;

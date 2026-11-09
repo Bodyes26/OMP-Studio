@@ -16,7 +16,8 @@ use tauri::command;
 const NAMING_TIMEOUT_SECS: u64 = 25;
 
 /// Prompt di sistema per la denominazione di un prototipo Lab.
-const LAB_SYSTEM_PROMPT: &str = r#"Sei un assistente specializzato nel dare un nome sintetico e memorabile a un prototipo interattivo (Lab prototype).
+fn lab_system_prompt(lang: &str) -> String {
+    format!(r#"Sei un assistente specializzato nel dare un nome sintetico e memorabile a un prototipo interattivo (Lab prototype).
 Ricevi la richiesta o descrizione dell'utente per il prototipo.
 
 Regole TASSATIVE:
@@ -24,10 +25,13 @@ Regole TASSATIVE:
 2. Lunghezza: da 1 a 3 parole, MASSIMO 24 caratteri totali.
 3. Stile: nome inventivo, memorabile, da prodotto software (es. "ChatAI Reveal", "Ultimate AI Chat", "Kanban Flow", "DataPulse").
 4. Nessun verbo coniugato, nessuna frase completa, nessun punto o punteggiatura finale.
-5. Il nome DEVE essere diverso da quelli gia' esistenti forniti nel contesto."#;
+5. Il nome DEVE essere diverso da quelli gia' esistenti forniti nel contesto.
+6. Lingua: la lingua dell'interfaccia ({lang})."#, lang = lang)
+}
 
 /// Prompt di sistema per la denominazione di un worktree Git.
-const GIT_SYSTEM_PROMPT: &str = r#"Sei un assistente specializzato nel dare un nome breve e chiaro all'area funzionale di un worktree Git in un progetto software.
+fn git_system_prompt(lang: &str) -> String {
+    format!(r#"Sei un assistente specializzato nel dare un nome breve e chiaro all'area funzionale di un worktree Git in un progetto software.
 Ricevi la richiesta o il prompt dell'utente per questo task/worktree.
 
 Regole TASSATIVE:
@@ -35,7 +39,9 @@ Regole TASSATIVE:
 2. Lunghezza: da 1 a 3 parole, MASSIMO 24 caratteri totali.
 3. Stile: l'area funzionale toccata o il componente (es. "Ricerca V2", "Login AD", "Export Excel", "Fatture PDF", "Auth Token"), nella stessa lingua della richiesta dell'utente.
 4. Nessun verbo coniugato, nessuna frase completa, nessun punto o punteggiatura finale.
-5. Il nome DEVE essere diverso da quelli gia' esistenti forniti nel contesto."#;
+5. Il nome DEVE essere diverso da quelli gia' esistenti forniti nel contesto.
+6. Lingua: la lingua dell'interfaccia ({lang})."#, lang = lang)
+}
 
 /// Ripulisce e valida un'etichetta breve generata dal modello: nomi di corsia,
 /// prototipo e titoli dei task in coda condividono gli stessi limiti.
@@ -151,10 +157,11 @@ pub async fn generate_lane_name(
     }
 
     let is_lab = kind.trim().eq_ignore_ascii_case("lab");
+    let lang = crate::i18n::code();
     let system_prompt = if is_lab {
-        LAB_SYSTEM_PROMPT
+        lab_system_prompt(lang)
     } else {
-        GIT_SYSTEM_PROMPT
+        git_system_prompt(lang)
     };
 
     let truncated_prompt = if prompt_trimmed.chars().count() > 2000 {
@@ -186,7 +193,7 @@ pub async fn generate_lane_name(
 
     let spawned = tokio::task::spawn_blocking(move || {
         crate::directives_ops::run_ephemeral_omp(
-            system_prompt,
+            &system_prompt,
             Some(&context_md),
             user_prompt,
             resolved_model.as_deref(),

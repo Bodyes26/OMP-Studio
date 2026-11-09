@@ -49,7 +49,7 @@
 		const list: SearchSource[] = [];
 		for (const rec of rawSources) {
 			const link = str(rec.url) ?? str(rec.link);
-			const title = str(rec.title) ?? link ?? 'Risultato web';
+			const title = str(rec.title) ?? link ?? m.l10n_tools_label_web_result();
 			if (link || title) {
 				list.push({
 					title,
@@ -84,7 +84,7 @@
 
 	{#if answer}
 		<div class="answer-box">
-			<span class="answer-label">Risposta diretta</span>
+			<span class="answer-label">{m.l10n_tools_label_direct_answer()}</span>
 			<div class="answer-text">
 				<MarkdownInline tokens={answerTokens} />
 			</div>
@@ -122,7 +122,7 @@
 			{/each}
 		</ul>
 	{:else if text}
-		<OutputBlock {text} label="risultati ricerca" />
+		<OutputBlock {text} label={m.l10n_tools_label_search_results()} />
 	{/if}
 </div>
 

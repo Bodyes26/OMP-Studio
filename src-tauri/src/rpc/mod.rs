@@ -201,7 +201,6 @@ impl RpcManager {
     }
 }
 
-
 /// Destinazione (`prewalk.into`) e ripartenza (`prewalk.from`) scelte per la
 /// sessione. Assenti: valgono quelle globali di `config.yml`.
 #[derive(Debug, Default, Clone)]
@@ -229,12 +228,20 @@ pub(crate) fn set_gui_overlay_prewalk(
     targets: &PrewalkTargets,
 ) -> Result<(), String> {
     if config_path.to_string_lossy().contains("omp-studio-lab-") {
-        return Err("Rifiutata modifica prewalk su configurazione Laboratorio".to_string());
+        return Err(crate::tr!(
+            "Rifiutata modifica prewalk su configurazione Laboratorio",
+            "Prewalk change refused on the Lab configuration"
+        )
+        .to_string());
     }
     let mut content = String::from(
         "tools:\n  approvalMode: yolo\nread:\n  defaultLimit: 1200\ngoal:\n  continuationModes:\n    - interactive\n    - rpc\nprewalk:\n",
     );
-    content.push_str(if enabled { "  enabled: true\n" } else { "  enabled: false\n" });
+    content.push_str(if enabled {
+        "  enabled: true\n"
+    } else {
+        "  enabled: false\n"
+    });
     for (key, value) in [("into", &targets.into), ("from", &targets.from)] {
         let Some(selector) = value.as_deref().map(str::trim).filter(|v| !v.is_empty()) else {
             continue;
@@ -249,8 +256,7 @@ pub(crate) fn set_gui_overlay_prewalk(
 
 /// Genera la configurazione overlay per-sessione per il percorso GUI con prewalk disabilitato di default.
 pub(crate) fn write_gui_overlay(rpc_id: u64) -> Result<std::path::PathBuf, String> {
-    let overlay_path =
-        std::env::temp_dir().join(format!("omp-studio-gui-overlay-{}.yml", rpc_id));
+    let overlay_path = std::env::temp_dir().join(format!("omp-studio-gui-overlay-{}.yml", rpc_id));
     set_gui_overlay_prewalk(&overlay_path, false, &PrewalkTargets::default())?;
     Ok(overlay_path)
 }
@@ -266,10 +272,30 @@ fn prepare_automation_pool_file(rpc_id: u64) -> Result<std::path::PathBuf, Strin
     let existing_pool_env = std::env::var("OMP_AUTH_BROKER_ACCOUNT_POOL_FILE").ok();
 
     let pool_json = if let Some(path_str) = &existing_pool_env {
-        let content = std::fs::read_to_string(path_str)
-            .map_err(|e| format!("Impossibile leggere il file pool account esistente '{}': {}", path_str, e))?;
-        let mut parsed: serde_json::Value = serde_json::from_str(&content)
-            .map_err(|e| format!("File pool account esistente '{}' non è JSON valido: {}", path_str, e))?;
+        let content = std::fs::read_to_string(path_str).map_err(|e| {
+            crate::tr!(
+                format!(
+                    "Impossibile leggere il file pool account esistente '{}': {}",
+                    path_str, e
+                ),
+                format!(
+                    "Unable to read the existing account pool file '{}': {}",
+                    path_str, e
+                )
+            )
+        })?;
+        let mut parsed: serde_json::Value = serde_json::from_str(&content).map_err(|e| {
+            crate::tr!(
+                format!(
+                    "File pool account esistente '{}' non è JSON valido: {}",
+                    path_str, e
+                ),
+                format!(
+                    "Existing account pool file '{}' is not valid JSON: {}",
+                    path_str, e
+                )
+            )
+        })?;
 
         if let Some(obj) = parsed.as_object_mut() {
             if let Some(wild) = obj.get_mut("*") {
@@ -300,7 +326,11 @@ fn prepare_automation_pool_file(rpc_id: u64) -> Result<std::path::PathBuf, Strin
                 }
             }
         } else {
-            return Err("Struttura del pool account non valida (atteso oggetto JSON)".to_string());
+            return Err(crate::tr!(
+                "Struttura del pool account non valida (atteso oggetto JSON)",
+                "Invalid account pool structure (expected a JSON object)"
+            )
+            .to_string());
         }
         parsed
     } else {
@@ -309,10 +339,18 @@ fn prepare_automation_pool_file(rpc_id: u64) -> Result<std::path::PathBuf, Strin
         })
     };
 
-    let data = serde_json::to_vec(&pool_json)
-        .map_err(|e| format!("Serializzazione pool file temporaneo fallita: {}", e))?;
-    std::fs::write(&pool_file, data)
-        .map_err(|e| format!("Scrittura pool file temporaneo fallita: {}", e))?;
+    let data = serde_json::to_vec(&pool_json).map_err(|e| {
+        crate::tr!(
+            format!("Serializzazione pool file temporaneo fallita: {}", e),
+            format!("Failed to serialize the temporary pool file: {}", e)
+        )
+    })?;
+    std::fs::write(&pool_file, data).map_err(|e| {
+        crate::tr!(
+            format!("Scrittura pool file temporaneo fallita: {}", e),
+            format!("Failed to write the temporary pool file: {}", e)
+        )
+    })?;
 
     Ok(pool_file)
 }
@@ -330,7 +368,10 @@ pub fn write_automation_session_config(
     config_path.push(format!("omp-studio-auto-{}.yml", rpc_id));
 
     let mut content = String::new();
-    content.push_str("# Configurazione per-sessione generata da OMP Studio per automazioni\n");
+    content.push_str(crate::tr!(
+        "# Configurazione per-sessione generata da OMP Studio per automazioni\n",
+        "# Per-session configuration generated by OMP Studio for automations\n"
+    ));
     if is_read_only {
         content.push_str("bash:\n  enabled: false\n\n");
         content.push_str("eval:\n  py: false\n  js: false\n  rb: false\n  jl: false\n\n");
@@ -350,15 +391,20 @@ pub fn write_automation_session_config(
     }
 
     std::fs::write(&config_path, content.as_bytes()).map_err(|e| {
-        format!(
-            "Impossibile generare la configurazione di sessione automazione: {}",
-            e
+        crate::tr!(
+            format!(
+                "Impossibile generare la configurazione di sessione automazione: {}",
+                e
+            ),
+            format!(
+                "Unable to generate the automation session configuration: {}",
+                e
+            )
         )
     })?;
 
     Ok(config_path)
 }
-
 
 /// Sorgente dell'estensione OMP per il Laboratorio prototipi (broker scrittura confinata).
 pub const LAB_EXTENSION_TS: &str = include_str!("../../../extensions/studio-lab.ts");
@@ -436,11 +482,14 @@ pub fn write_lab_session_config(
     config_path.push(format!("omp-studio-lab-{}-{}.yml", rpc_id, safe_proto));
 
     let mut content = String::new();
-    content.push_str(
+    content.push_str(crate::tr!(
         "# Configurazione per-sessione generata da OMP Studio per il Laboratorio prototipi\n",
-    );
-    content
-        .push_str("# Disattiva shell, interpreti host, browser generico e configurazioni MCP.\n\n");
+        "# Per-session configuration generated by OMP Studio for Lab prototypes\n"
+    ));
+    content.push_str(crate::tr!(
+        "# Disattiva shell, interpreti host, browser generico e configurazioni MCP.\n\n",
+        "# Disables shell, host interpreters, the general browser and MCP configurations.\n\n"
+    ));
 
     // Disattivazione shell libera
     content.push_str("bash:\n  enabled: false\n\n");
@@ -474,9 +523,12 @@ pub fn write_lab_session_config(
     }
 
     std::fs::write(&config_path, content.as_bytes()).map_err(|e| {
-        format!(
-            "Impossibile generare la configurazione di sessione Laboratorio: {}",
-            e
+        crate::tr!(
+            format!(
+                "Impossibile generare la configurazione di sessione Laboratorio: {}",
+                e
+            ),
+            format!("Unable to generate the Lab session configuration: {}", e)
         )
     })?;
 
@@ -491,7 +543,8 @@ pub fn write_lab_session_config(
 /// 93 MB: omp li ha accodati nel suo file di spool, che rilegge a ~8 KB/s,
 /// e risposte ai comandi e fine del turno sono rimaste dietro per ore.
 /// Un evento di sessione nuovo di omp non arriva finche' non e' qui.
-const EVENT_FILTER_COMMAND: &[u8] = b"{\"id\":\"studio-filter-1\",\"type\":\"set_event_filter\",\"events\":[\
+const EVENT_FILTER_COMMAND: &[u8] =
+    b"{\"id\":\"studio-filter-1\",\"type\":\"set_event_filter\",\"events\":[\
 \"agent_start\",\"agent_end\",\"turn_start\",\"turn_end\",\
 \"message_start\",\"message_update\",\"message_end\",\
 \"tool_execution_start\",\"tool_execution_update\",\"tool_execution_end\",\
@@ -742,7 +795,10 @@ fn reader_loop(args: ReaderLoopArgs) {
         );
         session.kill_tree();
     } else {
-        crate::studio_log::info("rpc", format!("omp chiuso rpc={} codice={:?}", rpc_id, code));
+        crate::studio_log::info(
+            "rpc",
+            format!("omp chiuso rpc={} codice={:?}", rpc_id, code),
+        );
     }
     crate::lane_bridge::revoke_owner("agent", rpc_id);
     let _ = stats.send(
@@ -763,28 +819,50 @@ fn reader_loop(args: ReaderLoopArgs) {
 /// meta', indice fuori ordine, lunghezza dichiarata diversa) fa fallire la
 /// sequenza invece di consegnare byte plausibili.
 fn reassemble(line: &str, assembly: &mut Option<ChunkAssembly>) -> Result<Option<String>, String> {
-    let chunk: ChunkFrame =
-        serde_json::from_str(line).map_err(|error| format!("Chunk RPC illeggibile: {}", error))?;
+    let chunk: ChunkFrame = serde_json::from_str(line).map_err(|error| {
+        crate::tr!(
+            format!("Chunk RPC illeggibile: {}", error),
+            format!("Unreadable RPC chunk: {}", error)
+        )
+    })?;
 
     if chunk.count == 0 || chunk.index >= chunk.count {
-        return Err(format!(
-            "Chunk RPC incoerente: index {} su count {}",
-            chunk.index, chunk.count
+        return Err(crate::tr!(
+            format!(
+                "Chunk RPC incoerente: index {} su count {}",
+                chunk.index, chunk.count
+            ),
+            format!(
+                "Inconsistent RPC chunk: index {} of {}",
+                chunk.index, chunk.count
+            )
         ));
     }
     if chunk.byte_length > MAX_REASSEMBLED_BYTES {
-        return Err(format!(
-            "Frame RPC da {} byte oltre il tetto di riassemblaggio",
-            chunk.byte_length
+        return Err(crate::tr!(
+            format!(
+                "Frame RPC da {} byte oltre il tetto di riassemblaggio",
+                chunk.byte_length
+            ),
+            format!(
+                "RPC frame of {} bytes exceeds the reassembly cap",
+                chunk.byte_length
+            )
         ));
     }
 
     let current = match assembly.take() {
         Some(current) if current.chunk_id == chunk.chunk_id => {
             if chunk.index != current.next_index || chunk.count != current.count {
-                return Err(format!(
-                    "Sequenza di chunk {} interrotta all'indice {}",
-                    chunk.chunk_id, chunk.index
+                return Err(crate::tr!(
+                    format!(
+                        "Sequenza di chunk {} interrotta all'indice {}",
+                        chunk.chunk_id, chunk.index
+                    ),
+                    format!(
+                        "Chunk sequence {} broken at index {}",
+                        chunk.chunk_id, chunk.index
+                    )
                 ));
             }
             current
@@ -801,17 +879,29 @@ fn reassemble(line: &str, assembly: &mut Option<ChunkAssembly>) -> Result<Option
                     buffer: Vec::with_capacity(chunk.byte_length.min(MAX_REASSEMBLED_BYTES)),
                 }
             } else {
-                return Err(format!(
-                    "Sequenza di chunk {} interlacciata con {}",
-                    previous.chunk_id, chunk.chunk_id
+                return Err(crate::tr!(
+                    format!(
+                        "Sequenza di chunk {} interlacciata con {}",
+                        previous.chunk_id, chunk.chunk_id
+                    ),
+                    format!(
+                        "Chunk sequence {} interleaved with {}",
+                        previous.chunk_id, chunk.chunk_id
+                    )
                 ));
             }
         }
         None => {
             if chunk.index != 0 {
-                return Err(format!(
-                    "Sequenza di chunk {} iniziata dall'indice {}",
-                    chunk.chunk_id, chunk.index
+                return Err(crate::tr!(
+                    format!(
+                        "Sequenza di chunk {} iniziata dall'indice {}",
+                        chunk.chunk_id, chunk.index
+                    ),
+                    format!(
+                        "Chunk sequence {} started at index {}",
+                        chunk.chunk_id, chunk.index
+                    )
                 ));
             }
             ChunkAssembly {
@@ -827,10 +917,19 @@ fn reassemble(line: &str, assembly: &mut Option<ChunkAssembly>) -> Result<Option
     let mut current = current;
     let decoded = base64::engine::general_purpose::STANDARD
         .decode(chunk.data.as_bytes())
-        .map_err(|error| format!("Chunk RPC non decodificabile: {}", error))?;
+        .map_err(|error| {
+            crate::tr!(
+                format!("Chunk RPC non decodificabile: {}", error),
+                format!("Undecodable RPC chunk: {}", error)
+            )
+        })?;
     current.buffer.extend_from_slice(&decoded);
     if current.buffer.len() > MAX_REASSEMBLED_BYTES {
-        return Err("Frame RPC oltre il tetto di riassemblaggio".to_string());
+        return Err(crate::tr!(
+            "Frame RPC oltre il tetto di riassemblaggio",
+            "RPC frame exceeds the reassembly cap"
+        )
+        .to_string());
     }
     current.next_index = chunk.index + 1;
 
@@ -840,15 +939,26 @@ fn reassemble(line: &str, assembly: &mut Option<ChunkAssembly>) -> Result<Option
     }
 
     if current.buffer.len() != current.byte_length {
-        return Err(format!(
-            "Frame RPC ricomposto da {} byte invece dei {} dichiarati",
-            current.buffer.len(),
-            current.byte_length
+        return Err(crate::tr!(
+            format!(
+                "Frame RPC ricomposto da {} byte invece dei {} dichiarati",
+                current.buffer.len(),
+                current.byte_length
+            ),
+            format!(
+                "Reassembled RPC frame has {} bytes instead of the declared {}",
+                current.buffer.len(),
+                current.byte_length
+            )
         ));
     }
-    String::from_utf8(current.buffer)
-        .map(Some)
-        .map_err(|_| "Frame RPC ricomposto non e' UTF-8 valido".to_string())
+    String::from_utf8(current.buffer).map(Some).map_err(|_| {
+        crate::tr!(
+            "Frame RPC ricomposto non e' UTF-8 valido",
+            "Reassembled RPC frame is not valid UTF-8"
+        )
+        .to_string()
+    })
 }
 
 /// Instrada un frame logico verso il frontend. `false` quando il canale e'
@@ -1047,7 +1157,8 @@ pub async fn rpc_open(
         None
     };
 
-    let is_automation_session = is_read_only || execution_id.is_some() || automation_origin.is_some();
+    let is_automation_session =
+        is_read_only || execution_id.is_some() || automation_origin.is_some();
     let overlay_path = if is_automation_session {
         write_automation_session_config(rpc_id, is_read_only, readonly_extension.as_deref())?
     } else {
@@ -1124,7 +1235,9 @@ pub async fn rpc_open(
         // Disabilita discovery estensioni di progetto prima dell'avvio (AUT-086)
         command.arg("--no-extensions");
         // Limita i tool nativi a sola lettura e interazione
-        command.arg("--tools").arg("read,grep,glob,todo,ask,web_search");
+        command
+            .arg("--tools")
+            .arg("read,grep,glob,todo,ask,web_search");
     }
     if let Some(cost) = max_cost_usd {
         command.arg(format!("--max-cost={}", cost));
@@ -1288,15 +1401,30 @@ pub async fn rpc_open(
             if bridge_creds.is_some() {
                 crate::lane_bridge::revoke_owner("agent", rpc_id);
             }
-            crate::studio_log::warn("rpc", format!("avvio di omp fallito rpc={} cwd={}: {}", rpc_id, launch_cwd, error));
-            return Err(format!("Avvio di omp in modalita' RPC: {}", error));
+            crate::studio_log::warn(
+                "rpc",
+                format!(
+                    "avvio di omp fallito rpc={} cwd={}: {}",
+                    rpc_id, launch_cwd, error
+                ),
+            );
+            return Err(crate::tr!(
+                format!("Avvio di omp in modalita' RPC: {}", error),
+                format!("Starting omp in RPC mode: {}", error)
+            ));
         }
     };
 
     let pid = child.id();
     crate::studio_log::info(
         "rpc",
-        format!("omp avviato rpc={} pid={} cwd={} resume={}", rpc_id, pid, launch_cwd, resume.as_deref().unwrap_or("-")),
+        format!(
+            "omp avviato rpc={} pid={} cwd={} resume={}",
+            rpc_id,
+            pid,
+            launch_cwd,
+            resume.as_deref().unwrap_or("-")
+        ),
     );
     #[cfg(target_os = "windows")]
     let job = match crate::process_tree::WindowsJob::create_for_process(pid) {
@@ -1312,7 +1440,9 @@ pub async fn rpc_open(
         None => {
             let _ = std::fs::remove_file(&overlay_path);
             let _ = child.kill();
-            return Err("stdin di omp non disponibile".to_string());
+            return Err(
+                crate::tr!("stdin di omp non disponibile", "omp stdin unavailable").to_string(),
+            );
         }
     };
     let stdout = match child.stdout.take() {
@@ -1320,7 +1450,9 @@ pub async fn rpc_open(
         None => {
             let _ = std::fs::remove_file(&overlay_path);
             let _ = child.kill();
-            return Err("stdout di omp non disponibile".to_string());
+            return Err(
+                crate::tr!("stdout di omp non disponibile", "omp stdout unavailable").to_string(),
+            );
         }
     };
     let stderr = match child.stderr.take() {
@@ -1328,7 +1460,9 @@ pub async fn rpc_open(
         None => {
             let _ = std::fs::remove_file(&overlay_path);
             let _ = child.kill();
-            return Err("stderr di omp non disponibile".to_string());
+            return Err(
+                crate::tr!("stderr di omp non disponibile", "omp stderr unavailable").to_string(),
+            );
         }
     };
 
@@ -1391,7 +1525,7 @@ pub async fn rpc_open(
                     lane_id: lane_id.clone().unwrap_or_default(),
                     workspace_root: cwd.clone(),
                     pid: Some(pid),
-                    label: "Agente".to_string(),
+                    label: crate::tr!("Agente", "Agent").to_string(),
                     control: Arc::new(LaneAgentProcess { rpc_id, session }),
                 },
             );
@@ -1485,14 +1619,23 @@ pub async fn rpc_open_lab(
     manager: State<'_, RpcManager>,
 ) -> Result<u64, String> {
     if !is_valid_prototype_id(&prototype_id) {
-        return Err(format!("Id prototipo non valido: {:?}", prototype_id));
+        return Err(crate::tr!(
+            format!("Id prototipo non valido: {:?}", prototype_id),
+            format!("Invalid prototype id: {:?}", prototype_id)
+        ));
     }
 
     let ws_path = std::path::Path::new(&workspace_path);
     if !ws_path.is_dir() {
-        return Err(format!(
-            "Directory del workspace inesistente per la sessione Laboratorio: {}",
-            workspace_path
+        return Err(crate::tr!(
+            format!(
+                "Directory del workspace inesistente per la sessione Laboratorio: {}",
+                workspace_path
+            ),
+            format!(
+                "Workspace directory does not exist for the Lab session: {}",
+                workspace_path
+            )
         ));
     }
     let canonical_ws = crate::lab::paths::strip_unc_prefix(
@@ -1510,9 +1653,15 @@ pub async fn rpc_open_lab(
     let canonical_project_path = if !clean_project_path.is_empty() {
         let p = std::path::Path::new(clean_project_path);
         if !p.is_dir() {
-            return Err(format!(
-                "Directory di progetto inesistente per la sessione Laboratorio: {}",
-                clean_project_path
+            return Err(crate::tr!(
+                format!(
+                    "Directory di progetto inesistente per la sessione Laboratorio: {}",
+                    clean_project_path
+                ),
+                format!(
+                    "Project directory does not exist for the Lab session: {}",
+                    clean_project_path
+                )
             ));
         }
         let canon = crate::lab::paths::strip_unc_prefix(
@@ -1524,14 +1673,24 @@ pub async fn rpc_open_lab(
     };
 
     let omp_path = crate::omp_ops::get_omp_binary();
-    let lab_extension = crate::pty::write_extension("studio-lab.ts", LAB_EXTENSION_TS)
-        .ok_or_else(|| {
-            "Impossibile preparare l'estensione del Laboratorio (studio-lab.ts)".to_string()
+    let lab_extension =
+        crate::pty::write_extension("studio-lab.ts", LAB_EXTENSION_TS).ok_or_else(|| {
+            crate::tr!(
+                "Impossibile preparare l'estensione del Laboratorio (studio-lab.ts)",
+                "Unable to prepare the Lab extension (studio-lab.ts)"
+            )
+            .to_string()
         })?;
-    let plan_extension = crate::pty::write_extension("studio-plan.ts", crate::pty::PLAN_EXTENSION_TS)
-        .ok_or_else(|| {
-            "Impossibile preparare l'estensione del Piano (studio-plan.ts)".to_string()
-        })?;
+    let plan_extension =
+        crate::pty::write_extension("studio-plan.ts", crate::pty::PLAN_EXTENSION_TS).ok_or_else(
+            || {
+                crate::tr!(
+                    "Impossibile preparare l'estensione del Piano (studio-plan.ts)",
+                    "Unable to prepare the Plan extension (studio-plan.ts)"
+                )
+                .to_string()
+            },
+        )?;
     let lanes_extension =
         crate::pty::write_extension("studio-lanes.ts", crate::pty::LANES_EXTENSION_TS);
 
@@ -1556,12 +1715,10 @@ pub async fn rpc_open_lab(
     command.arg("--config").arg(&lab_config_path);
 
     let lab_prompt = build_lab_system_prompt(canonical_project_path.as_deref());
-    let lab_system_prompt = format!(
-        "{}\n\n{}",
-        crate::pty::STUDIO_SYSTEM_PROMPT,
-        lab_prompt
-    );
-    command.arg("--append-system-prompt").arg(&lab_system_prompt);
+    let lab_system_prompt = format!("{}\n\n{}", crate::pty::STUDIO_SYSTEM_PROMPT, lab_prompt);
+    command
+        .arg("--append-system-prompt")
+        .arg(&lab_system_prompt);
 
     command.arg("-e").arg(&lab_extension);
     command.arg("-e").arg(&plan_extension);
@@ -1658,15 +1815,24 @@ pub async fn rpc_open_lab(
             if lab_bridge.is_some() {
                 crate::lane_bridge::revoke_owner("agent", rpc_id);
             }
-            crate::studio_log::warn("rpc", format!("avvio di omp Laboratorio fallito rpc={}: {}", rpc_id, error));
-            return Err(format!("Avvio di omp per sessione Laboratorio: {}", error));
+            crate::studio_log::warn(
+                "rpc",
+                format!("avvio di omp Laboratorio fallito rpc={}: {}", rpc_id, error),
+            );
+            return Err(crate::tr!(
+                format!("Avvio di omp per sessione Laboratorio: {}", error),
+                format!("Starting omp for the Lab session: {}", error)
+            ));
         }
     };
 
     let pid = child.id();
     crate::studio_log::info(
         "rpc",
-        format!("omp Laboratorio avviato rpc={} pid={} cwd={}", rpc_id, pid, workspace_path),
+        format!(
+            "omp Laboratorio avviato rpc={} pid={} cwd={}",
+            rpc_id, pid, workspace_path
+        ),
     );
     #[cfg(target_os = "windows")]
     let job = match crate::process_tree::WindowsJob::create_for_process(pid) {
@@ -1682,7 +1848,9 @@ pub async fn rpc_open_lab(
         None => {
             let _ = std::fs::remove_file(&lab_config_path);
             let _ = child.kill();
-            return Err("stdin di omp non disponibile".to_string());
+            return Err(
+                crate::tr!("stdin di omp non disponibile", "omp stdin unavailable").to_string(),
+            );
         }
     };
     let stdout = match child.stdout.take() {
@@ -1690,7 +1858,9 @@ pub async fn rpc_open_lab(
         None => {
             let _ = std::fs::remove_file(&lab_config_path);
             let _ = child.kill();
-            return Err("stdout di omp non disponibile".to_string());
+            return Err(
+                crate::tr!("stdout di omp non disponibile", "omp stdout unavailable").to_string(),
+            );
         }
     };
     let stderr = match child.stderr.take() {
@@ -1698,7 +1868,9 @@ pub async fn rpc_open_lab(
         None => {
             let _ = std::fs::remove_file(&lab_config_path);
             let _ = child.kill();
-            return Err("stderr di omp non disponibile".to_string());
+            return Err(
+                crate::tr!("stderr di omp non disponibile", "omp stderr unavailable").to_string(),
+            );
         }
     };
 
@@ -1726,7 +1898,11 @@ pub async fn rpc_open_lab(
         prototype_id: Some(prototype_id.clone()),
         session_id: session_id_slot.clone(),
         cwd: resolved_ws_str.clone(),
-        project_id: if effective_project_id.is_empty() { None } else { Some(effective_project_id.to_string()) },
+        project_id: if effective_project_id.is_empty() {
+            None
+        } else {
+            Some(effective_project_id.to_string())
+        },
         execution_id: None,
         stats: stats.clone(),
     };
@@ -1734,21 +1910,16 @@ pub async fn rpc_open_lab(
     manager.sessions.lock().insert(rpc_id, session.clone());
 
     if !effective_project_id.is_empty() {
-        crate::process_tree::register_lane_process(
-            crate::process_tree::LaneProcessRegistration {
-                kind: crate::process_tree::LaneProcessKind::Agent,
-                owner_id: rpc_id,
-                project_id: effective_project_id.to_string(),
-                lane_id: effective_lane_id.to_string(),
-                workspace_root: workspace_path.clone(),
-                pid: Some(pid),
-                label: "Agente Lab".to_string(),
-                control: Arc::new(LaneAgentProcess {
-                    rpc_id,
-                    session,
-                }),
-            },
-        );
+        crate::process_tree::register_lane_process(crate::process_tree::LaneProcessRegistration {
+            kind: crate::process_tree::LaneProcessKind::Agent,
+            owner_id: rpc_id,
+            project_id: effective_project_id.to_string(),
+            lane_id: effective_lane_id.to_string(),
+            workspace_root: workspace_path.clone(),
+            pid: Some(pid),
+            label: crate::tr!("Agente Lab", "Lab agent").to_string(),
+            control: Arc::new(LaneAgentProcess { rpc_id, session }),
+        });
     }
 
     let sessions = manager.sessions.clone();
@@ -1790,9 +1961,12 @@ pub async fn rpc_send(
 ) -> Result<(), String> {
     let (stdin, abort_signal, stats, cwd, execution_id, project_id) = {
         let sessions = manager.sessions.lock();
-        let session = sessions
-            .get(&rpc_id)
-            .ok_or_else(|| format!("Sessione RPC {} non disponibile", rpc_id))?;
+        let session = sessions.get(&rpc_id).ok_or_else(|| {
+            crate::tr!(
+                format!("Sessione RPC {} non disponibile", rpc_id),
+                format!("RPC session {} not available", rpc_id)
+            )
+        })?;
         (
             session.stdin.clone(),
             session.abort_signal.clone(),
@@ -1814,7 +1988,8 @@ pub async fn rpc_send(
     }
 
     // AUT-042 / AUT-044: Guardia prima di prompt, retry e risposte interattive (extension_ui_response)
-    let is_prompt_or_retry = line.contains("\"type\":\"prompt\"") || line.contains("\"type\":\"retry\"");
+    let is_prompt_or_retry =
+        line.contains("\"type\":\"prompt\"") || line.contains("\"type\":\"retry\"");
     let is_ui_response = line.contains("\"type\":\"extension_ui_response\"");
     let mut auto_admitted_eid: Option<String> = None;
 
@@ -1822,25 +1997,41 @@ pub async fn rpc_send(
         if let Some(eid) = &execution_id {
             // Rifiuta prompt e retry su esecuzioni ormai terminali (nessuna continuazione fuori dallo scheduler)
             if crate::automations::is_execution_terminal(eid) {
-                return Err(format!(
-                    "Esecuzione '{}' già conclusa: continuazione non consentita fuori dallo scheduler.",
-                    eid
+                return Err(crate::tr!(
+                    format!(
+                        "Esecuzione '{}' già conclusa: continuazione non consentita fuori dallo scheduler.",
+                        eid
+                    ),
+                    format!(
+                        "Execution '{}' already finished: continuation outside the scheduler is not allowed.",
+                        eid
+                    )
                 ));
             }
 
             // Se l'automazione era in needsInput, riacquisisce slot AI e quota prima dell'invio wire
             let admitted = crate::automations::resume_admission(eid)?;
             if !admitted {
-                return Err("Slot AI attualmente occupato o quota insufficiente. Risposta conservata, riprova a breve.".to_string());
+                return Err(crate::tr!(
+                    "Slot AI attualmente occupato o quota insufficiente. Risposta conservata, riprova a breve.",
+                    "AI slot currently busy or quota insufficient. The answer is kept, retry shortly."
+                )
+                .to_string());
             }
             auto_admitted_eid = Some(eid.clone());
 
             // Verifica che il progetto non sia conteso da un'altra automazione sulla canonical root
             if crate::automations::is_project_locked(&canonical_root, Some(eid)) {
                 let _ = crate::automations::resume_release(eid);
-                return Err(format!(
-                    "Progetto '{}' occupato da un'altra automazione attiva (AUT-042)",
-                    canonical_root
+                return Err(crate::tr!(
+                    format!(
+                        "Progetto '{}' occupato da un'altra automazione attiva (AUT-042)",
+                        canonical_root
+                    ),
+                    format!(
+                        "Project '{}' is busy with another running automation (AUT-042)",
+                        canonical_root
+                    )
                 ));
             }
         } else if is_prompt_or_retry {
@@ -1859,8 +2050,16 @@ pub async fn rpc_send(
                 .write_all(line.as_bytes())
                 .and_then(|()| handle.write_all(b"\n"))
                 .and_then(|()| handle.flush())
-                .map_err(|error| format!("Scrittura sulla sessione RPC {}: {}", rpc_id, error)),
-            None => Err(format!("Sessione RPC {} in chiusura", rpc_id)),
+                .map_err(|error| {
+                    crate::tr!(
+                        format!("Scrittura sulla sessione RPC {}: {}", rpc_id, error),
+                        format!("Writing to RPC session {}: {}", rpc_id, error)
+                    )
+                }),
+            None => Err(crate::tr!(
+                format!("Sessione RPC {} in chiusura", rpc_id),
+                format!("RPC session {} is closing", rpc_id)
+            )),
         }
     };
     stats.stdin_write_finished();
@@ -1916,12 +2115,19 @@ pub async fn rpc_close(rpc_id: u64, manager: State<'_, RpcManager>) -> Result<()
         session.kill_tree();
     })
     .await
-    .map_err(|error| format!("Chiusura della sessione RPC {}: {}", rpc_id, error))
+    .map_err(|error| {
+        crate::tr!(
+            format!("Chiusura della sessione RPC {}: {}", rpc_id, error),
+            format!("Closing RPC session {}: {}", rpc_id, error)
+        )
+    })
 }
 
 /// Chiude tutte le sessioni RPC di automazione orfane o aperte da host precedenti.
 #[tauri::command]
-pub async fn rpc_cleanup_automation_sessions(manager: State<'_, RpcManager>) -> Result<usize, String> {
+pub async fn rpc_cleanup_automation_sessions(
+    manager: State<'_, RpcManager>,
+) -> Result<usize, String> {
     let ids: Vec<u64> = {
         let sessions = manager.sessions.lock();
         sessions
@@ -1985,19 +2191,37 @@ pub async fn rpc_set_prewalk(
     // non puo' cancellare l'overlay fra lettura del percorso e scrittura.
     tokio::task::spawn_blocking(move || {
         let guard = sessions.lock();
-        let session = guard
-            .get(&rpc_id)
-            .ok_or_else(|| format!("Sessione RPC {} non trovata", rpc_id))?;
+        let session = guard.get(&rpc_id).ok_or_else(|| {
+            crate::tr!(
+                format!("Sessione RPC {} non trovata", rpc_id),
+                format!("RPC session {} not found", rpc_id)
+            )
+        })?;
         if session.scope == "lab" || session.prototype_id.is_some() {
-            return Err("Prewalk non supportato per sessioni Laboratorio".to_string());
+            return Err(crate::tr!(
+                "Prewalk non supportato per sessioni Laboratorio",
+                "Prewalk is not supported for Lab sessions"
+            )
+            .to_string());
         }
         let config_path = session.config_path.as_ref().ok_or_else(|| {
-            format!("Nessun file di configurazione per la sessione RPC {}", rpc_id)
+            crate::tr!(
+                format!(
+                    "Nessun file di configurazione per la sessione RPC {}",
+                    rpc_id
+                ),
+                format!("No configuration file for RPC session {}", rpc_id)
+            )
         })?;
         set_gui_overlay_prewalk(config_path, enabled, &PrewalkTargets { into, from })
     })
     .await
-    .map_err(|error| format!("Scrittura prewalk fallita nel thread di I/O: {}", error))?
+    .map_err(|error| {
+        crate::tr!(
+            format!("Scrittura prewalk fallita nel thread di I/O: {}", error),
+            format!("Prewalk write failed in the I/O thread: {}", error)
+        )
+    })?
 }
 
 /// Interrompe la sessione RPC specificata in modo atomico, senza toccare le altre sessioni.
@@ -2005,23 +2229,34 @@ pub async fn rpc_set_prewalk(
 pub async fn rpc_abort(rpc_id: u64, manager: State<'_, RpcManager>) -> Result<(), String> {
     let (stdin, abort_signal) = {
         let sessions = manager.sessions.lock();
-        let session = sessions
-            .get(&rpc_id)
-            .ok_or_else(|| format!("Sessione RPC {} non disponibile", rpc_id))?;
+        let session = sessions.get(&rpc_id).ok_or_else(|| {
+            crate::tr!(
+                format!("Sessione RPC {} non disponibile", rpc_id),
+                format!("RPC session {} not available", rpc_id)
+            )
+        })?;
         (session.stdin.clone(), session.abort_signal.clone())
     };
 
     abort_signal.store(true, Ordering::SeqCst);
     let mut guard = stdin.lock();
-    let handle = guard
-        .as_mut()
-        .ok_or_else(|| format!("Sessione RPC {} in chiusura", rpc_id))?;
+    let handle = guard.as_mut().ok_or_else(|| {
+        crate::tr!(
+            format!("Sessione RPC {} in chiusura", rpc_id),
+            format!("RPC session {} is closing", rpc_id)
+        )
+    })?;
 
     handle
         .write_all(b"{\"id\":\"abort-direct-1\",\"type\":\"abort\"}\n")
         .and_then(|()| handle.write_all(b"{\"id\":\"abort-direct-2\",\"type\":\"abort_bash\"}\n"))
         .and_then(|()| handle.flush())
-        .map_err(|error| format!("Invio abort sulla sessione RPC {}: {}", rpc_id, error))
+        .map_err(|error| {
+            crate::tr!(
+                format!("Invio abort sulla sessione RPC {}: {}", rpc_id, error),
+                format!("Sending abort on RPC session {}: {}", rpc_id, error)
+            )
+        })
 }
 
 /// Termina forzatamente la sessione RPC e l'intero albero dei processi figli (SIGKILL/taskkill).
@@ -2029,12 +2264,22 @@ pub async fn rpc_abort(rpc_id: u64, manager: State<'_, RpcManager>) -> Result<()
 pub async fn rpc_force_kill(rpc_id: u64, manager: State<'_, RpcManager>) -> Result<(), String> {
     crate::lane_bridge::revoke_owner("agent", rpc_id);
     let session = manager.sessions.lock().get(&rpc_id).cloned();
-    let session = session.ok_or_else(|| format!("Sessione RPC {} non disponibile", rpc_id))?;
+    let session = session.ok_or_else(|| {
+        crate::tr!(
+            format!("Sessione RPC {} non disponibile", rpc_id),
+            format!("RPC session {} not available", rpc_id)
+        )
+    })?;
     tokio::task::spawn_blocking(move || {
         session.kill_tree();
     })
     .await
-    .map_err(|error| format!("Terminazione forzata sessione RPC {}: {}", rpc_id, error))
+    .map_err(|error| {
+        crate::tr!(
+            format!("Terminazione forzata sessione RPC {}: {}", rpc_id, error),
+            format!("Forced termination of RPC session {}: {}", rpc_id, error)
+        )
+    })
 }
 
 /// Termina forzatamente una sessione agente (RPC o PTY) e il relativo albero di processi figli (SIGKILL / Job Object / taskkill).
@@ -2051,9 +2296,12 @@ pub async fn force_kill_session(
     if let Some(id) = pty_id {
         return crate::pty::pty_force_kill(id, pty_manager).await;
     }
-    Err("Specificare rpc_id o pty_id per force_kill_session".to_string())
+    Err(crate::tr!(
+        "Specificare rpc_id o pty_id per force_kill_session",
+        "Specify rpc_id or pty_id for force_kill_session"
+    )
+    .to_string())
 }
-
 
 /// Fotografia del trasporto di una sessione viva, per il rapporto di blocco
 /// che il frontend scrive quando un comando resta senza risposta. Arriva per
@@ -2069,8 +2317,18 @@ pub async fn rpc_diagnostics(
         .lock()
         .get(&rpc_id)
         .cloned()
-        .ok_or_else(|| format!("Sessione RPC {} non disponibile", rpc_id))?;
-    let child_alive = session.child.lock().try_wait().ok().map(|status| status.is_none());
+        .ok_or_else(|| {
+            crate::tr!(
+                format!("Sessione RPC {} non disponibile", rpc_id),
+                format!("RPC session {} not available", rpc_id)
+            )
+        })?;
+    let child_alive = session
+        .child
+        .lock()
+        .try_wait()
+        .ok()
+        .map(|status| status.is_none());
 
     // Due campioni del Job Object: CPU consumata dall'albero di omp nel
     // mezzo secondo, e processi ancora attivi (omp piu' eventuali tool).
@@ -2095,7 +2353,10 @@ pub async fn rpc_diagnostics(
 
     let stderr_tail: Vec<String> = {
         let tail = session.stderr_tail.lock();
-        tail.iter().skip(tail.len().saturating_sub(40)).cloned().collect()
+        tail.iter()
+            .skip(tail.len().saturating_sub(40))
+            .cloned()
+            .collect()
     };
     Ok(serde_json::json!({
         "rpcId": rpc_id,
@@ -2113,16 +2374,22 @@ pub async fn rpc_diagnostics(
 /// Scrive il rapporto di blocco nella cartella dei log e ne restituisce il
 /// percorso, da mostrare all'utente.
 #[tauri::command]
-pub async fn rpc_write_hang_report(report: String, app: tauri::AppHandle) -> Result<String, String> {
+pub async fn rpc_write_hang_report(
+    report: String,
+    app: tauri::AppHandle,
+) -> Result<String, String> {
     use tauri::Manager;
-    let dir = app.path().app_log_dir().map_err(|error| error.to_string())?;
-    let path = diag::write_hang_report(&dir, &report).map(|path| path.to_string_lossy().into_owned());
+    let dir = app
+        .path()
+        .app_log_dir()
+        .map_err(|error| error.to_string())?;
+    let path =
+        diag::write_hang_report(&dir, &report).map(|path| path.to_string_lossy().into_owned());
     if let Ok(path) = &path {
         crate::studio_log::warn("rpc", format!("comando senza risposta, rapporto {}", path));
     }
     path
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -2251,8 +2518,12 @@ mod tests {
         assert!(content.contains("C:/test/extensions/studio-lab.ts"));
         // Il piano e le corsie entrano solo dopo l'estensione confinata, che ne filtra i tool
         let lab_at = content.find("studio-lab.ts").unwrap();
-        let plan_at = content.find("studio-plan.ts").expect("estensione piano caricata");
-        let lanes_at = content.find("studio-lanes.ts").expect("estensione corsie caricata");
+        let plan_at = content
+            .find("studio-plan.ts")
+            .expect("estensione piano caricata");
+        let lanes_at = content
+            .find("studio-lanes.ts")
+            .expect("estensione corsie caricata");
         assert!(plan_at > lab_at);
         assert!(lanes_at > plan_at);
 
@@ -2422,7 +2693,8 @@ mod tests {
             set_gui_overlay_prewalk(&overlay_path, enabled, &PrewalkTargets::default())
                 .expect("riscrittura overlay riuscita");
             let content = std::fs::read_to_string(&overlay_path).expect("overlay leggibile");
-            let parsed: OverlayGoalOnly = serde_yaml::from_str(&content).expect("overlay YAML valido");
+            let parsed: OverlayGoalOnly =
+                serde_yaml::from_str(&content).expect("overlay YAML valido");
             assert_eq!(parsed.goal.continuation_modes, vec!["interactive", "rpc"]);
         }
         let _ = std::fs::remove_file(overlay_path);
@@ -2526,8 +2798,8 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(
-            err.contains("Laboratorio"),
-            "Atteso errore su Laboratorio, ottenuto: {}",
+            err.to_lowercase().contains("laboratorio") || err.to_lowercase().contains("lab"),
+            "Atteso errore sulla configurazione Laboratorio, ottenuto: {}",
             err
         );
     }
@@ -2552,16 +2824,24 @@ mod tests {
         };
         set_gui_overlay_prewalk(&overlay_path, true, &targets).expect("armo con destinazione");
         let content = std::fs::read_to_string(&overlay_path).expect("overlay leggibile");
-        let parsed: OverlayPrewalkOnly = serde_yaml::from_str(&content).expect("overlay YAML valido");
+        let parsed: OverlayPrewalkOnly =
+            serde_yaml::from_str(&content).expect("overlay YAML valido");
         assert!(parsed.prewalk.enabled);
         assert_eq!(parsed.prewalk.into.as_deref(), Some("@smol"));
-        assert_eq!(parsed.prewalk.from.as_deref(), Some("openai-codex/gpt-6.1-sol:high"));
+        assert_eq!(
+            parsed.prewalk.from.as_deref(),
+            Some("openai-codex/gpt-6.1-sol:high")
+        );
 
         // Senza scelta di sessione le chiavi spariscono: torna a valere config.yml.
-        let blank = PrewalkTargets { into: Some("  ".into()), from: None };
+        let blank = PrewalkTargets {
+            into: Some("  ".into()),
+            from: None,
+        };
         set_gui_overlay_prewalk(&overlay_path, false, &blank).expect("disarmo");
         let content = std::fs::read_to_string(&overlay_path).expect("overlay leggibile");
-        let parsed: OverlayPrewalkOnly = serde_yaml::from_str(&content).expect("overlay YAML valido");
+        let parsed: OverlayPrewalkOnly =
+            serde_yaml::from_str(&content).expect("overlay YAML valido");
         assert!(!parsed.prewalk.enabled);
         assert!(parsed.prewalk.into.is_none());
         assert!(parsed.prewalk.from.is_none());

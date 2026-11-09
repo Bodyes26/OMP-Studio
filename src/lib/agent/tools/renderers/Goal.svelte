@@ -35,7 +35,7 @@
 	const argsRows = $derived.by(() => {
 		const rows: { key: string; value: string }[] = [];
 		if (status) rows.push({ key: m.ui_goal_stato_89af(), value: status });
-		if (category) rows.push({ key: 'Categoria', value: category });
+		if (category) rows.push({ key: m.l10n_tools_label_category(), value: category });
 		if (priority) rows.push({ key: m.ui_goal_priorita_e480(), value: priority });
 		return rows;
 	});
@@ -43,7 +43,7 @@
 
 <div class="goal-body">
 	{#if goalText}
-		<PromptBlock text={goalText} label="Obiettivo" />
+		<PromptBlock text={goalText} label={m.l10n_tools_label_goal()} />
 	{/if}
 
 	{#if argsRows.length > 0}
@@ -51,7 +51,7 @@
 	{/if}
 
 	{#if text && text !== goalText}
-		<OutputBlock {text} label="risultato goal" />
+		<OutputBlock {text} label={m.l10n_tools_label_goal_result()} />
 	{/if}
 </div>
 

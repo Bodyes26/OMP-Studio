@@ -10,6 +10,7 @@
 
 import type { RemoteCommand } from '../../../src/protocol.ts';
 import { isImageFile, prepareImage } from '#lib/agent/images.ts';
+import { t } from '../i18n.ts';
 import { base64ToBlob } from '#lib/agent/chatDrop.ts';
 
 /** Limite massimo per singolo allegato: 50 MiB. */
@@ -58,7 +59,7 @@ export async function stageFileToHost(
 ): Promise<{ path: string; name: string; size: number }> {
 	if (file.size > MAX_ATTACHMENT_BYTES) {
 		throw new Error(
-			`Il file "${file.name}" supera il limite di ${MAX_ATTACHMENT_BYTES / (1024 * 1024)} MiB`
+			t('attachmentTooLarge', { name: file.name, limit: MAX_ATTACHMENT_BYTES / (1024 * 1024) })
 		);
 	}
 
@@ -101,7 +102,7 @@ export async function stageFileToHost(
 	}
 
 	if (!lastResult.path) {
-		throw new Error('Nessun percorso restituito dallo staging sul filesystem dell\'host');
+		throw new Error(t('attachmentNoPath'));
 	}
 
 	return lastResult;
@@ -186,7 +187,10 @@ export function createRemoteAttachmentManager(options: {
 				if (file.size > MAX_ATTACHMENT_BYTES) {
 					options.onNotice?.(
 						'warning',
-						`"${file.name}" supera il limite di ${MAX_ATTACHMENT_BYTES / (1024 * 1024)} MiB`
+						t('attachmentTooLarge', {
+							name: file.name,
+							limit: MAX_ATTACHMENT_BYTES / (1024 * 1024)
+						})
 					);
 					continue;
 				}
@@ -208,9 +212,9 @@ export function createRemoteAttachmentManager(options: {
 					const item = attachments.find((a) => a.id === attId);
 					if (item) {
 						item.status = 'error';
-						item.error = 'Nessuna connessione attiva verso l\'host';
+						item.error = t('attachmentNoConnection');
 					}
-					options.onNotice?.('error', 'Nessuna connessione attiva verso l\'host');
+					options.onNotice?.('error', t('attachmentNoConnection'));
 					continue;
 				}
 
@@ -235,7 +239,7 @@ export function createRemoteAttachmentManager(options: {
 						}
 						options.onNotice?.(
 							'error',
-							`Impossibile salvare l'allegato "${file.name}": ${item?.error ?? err}`
+							t('attachmentSaveFailed', { name: file.name, error: String(item?.error ?? err) })
 						);
 					})
 					.finally(() => {

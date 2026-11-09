@@ -1,0 +1,5 @@
+# Gli script di installazione si scaricano grezzi da raw.githubusercontent.com,
+# che serve i byte del repository: le terminazioni di riga vanno fissate li'.
+# cmd sbaglia i salti alle etichette con LF; sh non accetta CRLF.
+scripts/install-windows.cmd -text
+scripts/install-*.sh text eol=lf

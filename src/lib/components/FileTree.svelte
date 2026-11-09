@@ -1282,7 +1282,7 @@
 	class:tree-root={level === 0}
 	bind:this={nodeEl}
 	role={level === 0 && !searchQuery.trim() ? "tree" : undefined}
-	aria-label={level === 0 ? `Albero file: ${name}` : undefined}
+	aria-label={level === 0 ? m.l10n_cmp_filetree_aria({ name }) : undefined}
 	tabindex={level === 0 && !searchQuery.trim() ? -1 : undefined}
 	onkeydown={level === 0 && !searchQuery.trim() ? handleTreeKeyDown : undefined}
 	oncontextmenu={level === 0 && !searchQuery.trim() ? handleRootContainerContextMenu : undefined}
@@ -1415,7 +1415,7 @@
 						class:has-error={!!renameError}
 						onkeydown={handleRenameKeyDown}
 						onblur={handleRenameBlur}
-						aria-label={`Rinomina ${name}`}
+						aria-label={m.l10n_cmp_filetree_rename_aria({ name })}
 					/>
 				</form>
 			</div>
@@ -1528,7 +1528,7 @@
 							/>
 						{/each}
 						{#if entries.length === 0 && !creatingType}
-							<div class="empty" style="padding-left: {(level + 1) * 12 + 24}px;">(empty)</div>
+							<div class="empty" style="padding-left: {(level + 1) * 12 + 24}px;">{m.l10n_cmp_filetree_empty_folder()}</div>
 						{/if}
 					{:else if loadError}
 						<div class="load-error" style="padding-left: {(level + 1) * 12 + 24}px;">

@@ -6,6 +6,7 @@
   e gli screenshot acquisiti tramite ImageBlock.
 -->
 <script lang="ts">
+	import { m } from '#lib/paraglide/messages.js';
 	import ImageBlock from '../parts/ImageBlock.svelte';
 	import KeyValue from '../parts/KeyValue.svelte';
 	import OutputBlock from '../parts/OutputBlock.svelte';
@@ -59,11 +60,11 @@
 
 	const argsRows = $derived.by(() => {
 		const rows: { key: string; value: string }[] = [];
-		rows.push({ key: 'Azione', value: action });
-		if (name) rows.push({ key: 'Scheda', value: name });
-		if (url) rows.push({ key: 'URL', value: url });
-		if (viewportLabel) rows.push({ key: 'Viewport', value: viewportLabel });
-		if (timeout !== undefined) rows.push({ key: 'Timeout', value: `${timeout}s` });
+		rows.push({ key: m.l10n_tools_label_action(), value: action });
+		if (name) rows.push({ key: m.l10n_tools_label_tab(), value: name });
+		if (url) rows.push({ key: m.l10n_tools_label_url(), value: url });
+		if (viewportLabel) rows.push({ key: m.l10n_tools_label_viewport(), value: viewportLabel });
+		if (timeout !== undefined) rows.push({ key: m.l10n_tools_label_timeout(), value: `${timeout}s` });
 		return rows;
 	});
 </script>
@@ -74,11 +75,11 @@
 	{/if}
 
 	{#if code}
-		<OutputBlock text={code} label="script eseguito" maxLines={10} />
+		<OutputBlock text={code} label={m.l10n_tools_label_script_run()} maxLines={10} />
 	{/if}
 
 	{#if text}
-		<OutputBlock {text} label="risultato browser" />
+		<OutputBlock {text} label={m.l10n_tools_label_browser_result()} />
 	{/if}
 
 	{#if images.length > 0}

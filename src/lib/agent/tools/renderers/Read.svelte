@@ -11,6 +11,7 @@
 	import ToolFileHeader from '../parts/ToolFileHeader.svelte';
 	import {
 		asRecord,
+		formatDecimal,
 		num,
 		resultText,
 		str,
@@ -50,8 +51,8 @@
 	function formatFileSize(bytes: number | undefined): string | undefined {
 		if (bytes === undefined) return undefined;
 		if (bytes < 1024) return `${bytes} B`;
-		if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-		return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+		if (bytes < 1024 * 1024) return `${formatDecimal(bytes / 1024, 1)} KB`;
+		return `${formatDecimal(bytes / (1024 * 1024), 1)} MB`;
 	}
 
 	const sizeFormatted = $derived(formatFileSize(fileSize));
@@ -59,12 +60,14 @@
 	const metaRows = $derived.by(() => {
 		const rows: { key: string; value: string }[] = [];
 		if (totalLines !== undefined) {
-			rows.push({ key: 'Righe', value: String(totalLines) });
+			rows.push({ key: m.l10n_tools_label_rows(), value: String(totalLines) });
 		}
 		if (fileSize !== undefined) {
 			rows.push({
-				key: 'Dimensione',
-				value: sizeFormatted ? `${fileSize} byte (${sizeFormatted})` : `${fileSize} byte`
+				key: m.l10n_tools_label_size(),
+				value: sizeFormatted
+					? m.l10n_tools_label_bytes_with_size({ count: fileSize, size: sizeFormatted })
+					: m.l10n_tools_label_bytes({ count: fileSize })
 			});
 		}
 		return rows;
@@ -87,7 +90,7 @@
 	{#if metaRows.length > 0}
 		<KeyValue rows={metaRows} />
 	{/if}
-	<OutputBlock text={contentText} label="contenuto file" />
+	<OutputBlock text={contentText} label={m.l10n_tools_label_file_content()} />
 </div>
 
 <style>

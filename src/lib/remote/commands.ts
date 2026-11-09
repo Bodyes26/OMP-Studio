@@ -33,6 +33,7 @@ import { promptBus } from '#lib/agent/promptBus.ts';
 import type { PromptAnswer } from '#lib/agent/askAnswers.ts';
 import { sessionRegistry } from '#lib/agent/sessionRegistry.ts';
 import type { UnlistenFn } from '@tauri-apps/api/event';
+import { m } from '#lib/paraglide/messages.js';
 /** Esito strutturato dell'avvio di un task condiviso tra GUI, Companion e Controllo Remoto. */
 export type RunTaskOutcome =
 	| { kind: 'started'; laneId?: string }
@@ -207,35 +208,36 @@ export function taskBelongsToProject(
 	return false;
 }
 
-const ACTION_LABELS: Record<RemoteCommand['kind'], string> = {
-	respond_ui: 'risposto alla richiesta',
-	run_task: 'avviato task',
-	wait_quota_reset: 'messo in attesa reset quota',
-	dismiss_quota_blocked: 'rimosso blocco quota',
-	create_task: 'aggiunto task',
-	update_task: 'modificato task',
-	delete_task: 'eliminato task',
-	move_task: 'spostato task',
-	get_task: 'letto il lavoro in coda',
-	respond_dispatch: 'risposto alla conferma di avvio',
-	refresh_quota: 'aggiornato le quote',
-	abort: 'interrotto l\'agente',
-	send_prompt: 'scritto alla sessione',
-	chat_history: 'letto la chat',
-	list_project_folders: 'letto le cartelle',
-	open_project: 'aperto il progetto',
-	create_project: 'creato il progetto',
-	composer_catalog: 'richiesto il catalogo del composer',
-	set_lane_role: 'impostato il ruolo',
-	set_lane_model: 'impostato il modello',
-	set_lane_thinking: 'impostato il livello di ragionamento',
-	stage_attachment: 'salvato un allegato',
-	refresh_context: 'aggiornato il contesto',
-	compact_context: 'compattato il contesto',
-	list_sessions: 'richiesto lo storico delle sessioni',
-	session_history: 'letto la sessione storica',
-	mark_session_seen: 'aggiornato lo stato di completamento',
-	get_artifact: 'aperto un\'anteprima'
+// Etichette risolte a ogni uso: la lingua cambia a runtime senza ricaricare la WebView.
+const ACTION_LABEL_KEYS: Record<RemoteCommand['kind'], () => string> = {
+	respond_ui: () => m.l10n_lab_remote_action_respond_ui(),
+	run_task: () => m.l10n_lab_remote_action_run_task(),
+	wait_quota_reset: () => m.l10n_lab_remote_action_wait_quota_reset(),
+	dismiss_quota_blocked: () => m.l10n_lab_remote_action_dismiss_quota_blocked(),
+	create_task: () => m.l10n_lab_remote_action_create_task(),
+	update_task: () => m.l10n_lab_remote_action_update_task(),
+	delete_task: () => m.l10n_lab_remote_action_delete_task(),
+	move_task: () => m.l10n_lab_remote_action_move_task(),
+	get_task: () => m.l10n_lab_remote_action_get_task(),
+	respond_dispatch: () => m.l10n_lab_remote_action_respond_dispatch(),
+	refresh_quota: () => m.l10n_lab_remote_action_refresh_quota(),
+	abort: () => m.l10n_lab_remote_action_abort(),
+	send_prompt: () => m.l10n_lab_remote_action_send_prompt(),
+	chat_history: () => m.l10n_lab_remote_action_chat_history(),
+	list_project_folders: () => m.l10n_lab_remote_action_list_project_folders(),
+	open_project: () => m.l10n_lab_remote_action_open_project(),
+	create_project: () => m.l10n_lab_remote_action_create_project(),
+	composer_catalog: () => m.l10n_lab_remote_action_composer_catalog(),
+	set_lane_role: () => m.l10n_lab_remote_action_set_lane_role(),
+	set_lane_model: () => m.l10n_lab_remote_action_set_lane_model(),
+	set_lane_thinking: () => m.l10n_lab_remote_action_set_lane_thinking(),
+	stage_attachment: () => m.l10n_lab_remote_action_stage_attachment(),
+	refresh_context: () => m.l10n_lab_remote_action_refresh_context(),
+	compact_context: () => m.l10n_lab_remote_action_compact_context(),
+	list_sessions: () => m.l10n_lab_remote_action_list_sessions(),
+	session_history: () => m.l10n_lab_remote_action_session_history(),
+	mark_session_seen: () => m.l10n_lab_remote_action_mark_session_seen(),
+	get_artifact: () => m.l10n_lab_remote_action_get_artifact()
 };
 
 /** Le letture non lasciano traccia: avvisano solo le azioni che cambiano qualcosa. */
@@ -261,7 +263,11 @@ export function notifyRemoteCommandExecuted(
 	laneId?: string | null
 ): void {
 	if (SILENT_KINDS[kind]) return;
-	const noticeText = `Controllo remoto (${device.name}): ${ACTION_LABELS[kind]} su "${project.name}"`;
+	const noticeText = m.l10n_lab_remote_remote_notice({
+		device: device.name,
+		action: ACTION_LABEL_KEYS[kind](),
+		project: project.name
+	});
 
 	const session =
 		sessionRegistry.getLaneSession(project.id, laneId ?? 'main') ??
@@ -289,13 +295,13 @@ export function toDispatchOutcome(outcome: RunTaskOutcome | void): RemoteDispatc
 			return { status: 'started', laneId: outcome.laneId ?? 'main' };
 		case 'needs_confirmation':
 			if (!outcome.confirmationId) {
-				throw new RemoteCommandFailure('rejected', outcome.message || 'Conferma richiesta sulla macchina');
+				throw new RemoteCommandFailure('rejected', outcome.message || m.l10n_lab_remote_confirm_required());
 			}
 			return { status: 'confirm', confirmationId: outcome.confirmationId };
 		case 'blocked':
-			throw new RemoteCommandFailure('rejected', outcome.reason || 'Automazione bloccata');
+			throw new RemoteCommandFailure('rejected', outcome.reason || m.l10n_lab_remote_automation_blocked());
 		case 'failed':
-			throw new RemoteCommandFailure('failed', outcome.message || 'Spedizione del task fallita');
+			throw new RemoteCommandFailure('failed', outcome.message || m.l10n_lab_remote_task_dispatch_failed());
 	}
 }
 
@@ -312,7 +318,7 @@ export async function handleRemoteCommand(
 	if (!ctx.isEnabled()) {
 		await ctx.reportResult(commandId, false, {
 			code: 'disabled',
-			message: 'Controllo remoto disabilitato su questa macchina'
+			message: m.l10n_lab_remote_remote_disabled()
 		});
 		return;
 	}
@@ -344,23 +350,31 @@ export async function handleRemoteCommand(
 
 		const project = ctx.findProject(command.projectId);
 		if (!project) {
-			throw new RemoteCommandFailure('not_found', `Progetto "${command.projectId}" non trovato`);
+			throw new RemoteCommandFailure(
+				'not_found',
+				m.l10n_lab_remote_project_not_found({ project: command.projectId })
+			);
 		}
 
 		// Un task arriva da un dispositivo: deve essere di questo progetto e ancora in coda.
 		const queuedTask = (taskId: string): CommandTaskInfo => {
 			const task = ctx.findTask(taskId);
-			if (!task) throw new RemoteCommandFailure('not_found', `Task "${taskId}" non trovato`);
+			if (!task) {
+				throw new RemoteCommandFailure('not_found', m.l10n_lab_remote_task_not_found({ task: taskId }));
+			}
 			if (!taskBelongsToProject(task, project)) {
 				throw new RemoteCommandFailure(
 					'not_found',
-					`Task "${taskId}" non appartiene al progetto "${command.projectId}"`
+					m.l10n_lab_remote_task_not_in_project({ task: taskId, project: command.projectId })
 				);
 			}
 			if (task.status !== 'queued') {
 				throw new RemoteCommandFailure(
 					'rejected',
-					`Task "${taskId}" non e' in coda (stato attuale: ${task.status ?? 'sconosciuto'})`
+					m.l10n_lab_remote_task_not_queued({
+						task: taskId,
+						status: task.status ?? m.l10n_lab_remote_status_unknown()
+					})
 				);
 			}
 			return task;
@@ -382,7 +396,7 @@ export async function handleRemoteCommand(
 				if (!handled) {
 					throw new RemoteCommandFailure(
 						'not_found',
-						`Richiesta interattiva "${command.requestId}" non trovata o gia' completata`
+						m.l10n_lab_remote_interactive_request_not_found({ request: command.requestId })
 					);
 				}
 				break;

@@ -236,9 +236,12 @@
 	</div>
 
 	<div class="suggest-footer">
-		<span><kbd>↑↓</kbd> naviga</span>
-		<span><kbd>↵</kbd> o <kbd>Tab</kbd> inserisci</span>
-		<span><kbd>Esc</kbd> chiudi</span>
+		<span><kbd>↑↓</kbd> {m.l10n_agentcmp_suggest_footer_navigate()}</span>
+		<span
+			><kbd>↵</kbd> {m.shortcuts_footer_hint_or()} <kbd>Tab</kbd>
+			{m.l10n_agentcmp_suggest_footer_insert()}</span
+		>
+		<span><kbd>Esc</kbd> {m.l10n_agentcmp_suggest_footer_close()}</span>
 	</div>
 </div>
 

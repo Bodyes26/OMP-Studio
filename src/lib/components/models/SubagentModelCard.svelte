@@ -293,12 +293,12 @@
 				disabled={isDisabled}
 				onchange={handleEffortChange}
 			>
-				<option value="minimal">Minimal</option>
-				<option value="low">Low</option>
-				<option value="medium">Medium</option>
-				<option value="high">High</option>
-				<option value="xhigh">Extra High</option>
-				<option value="max">Max</option>
+				<option value="minimal">{m.l10n_cmp_effort_minimal()}</option>
+				<option value="low">{m.l10n_cmp_effort_low()}</option>
+				<option value="medium">{m.l10n_cmp_effort_medium()}</option>
+				<option value="high">{m.l10n_cmp_effort_high()}</option>
+				<option value="xhigh">{m.l10n_cmp_effort_xhigh()}</option>
+				<option value="max">{m.l10n_cmp_effort_max()}</option>
 			</select>
 			<span class="subagent-control-hint">
 				{m.subagent_model_max_effort_desc()}

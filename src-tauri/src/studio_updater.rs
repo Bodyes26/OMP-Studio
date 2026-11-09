@@ -239,7 +239,7 @@ pub fn is_trusted_download_url(url: &str) -> bool {
 pub fn sanitize_installer_filename(raw_name: &str) -> Result<String, String> {
     let trimmed = raw_name.trim();
     if trimmed.is_empty() {
-        return Err("Nome file installer vuoto".to_string());
+        return Err(crate::tr!("Nome file installer vuoto", "Installer file name is empty").to_string());
     }
 
     // Rifiuta qualsiasi separatore di percorso o sequenza di navigazione nel nome fornito
@@ -248,24 +248,42 @@ pub fn sanitize_installer_filename(raw_name: &str) -> Result<String, String> {
         || trimmed.contains("..")
         || trimmed.contains(':')
     {
-        return Err("Path traversal o caratteri di percorso rilevati nel nome file".to_string());
+        return Err(crate::tr!(
+            "Path traversal o caratteri di percorso rilevati nel nome file",
+            "Path traversal or path characters detected in the file name"
+        )
+        .to_string());
     }
 
     let path = Path::new(trimmed);
     let file_name = path
         .file_name()
         .and_then(|n| n.to_str())
-        .ok_or_else(|| "Nome file installer non valido".to_string())?;
+        .ok_or_else(|| {
+            crate::tr!(
+                "Nome file installer non valido",
+                "Invalid installer file name"
+            )
+            .to_string()
+        })?;
 
     if file_name != trimmed {
-        return Err("Il nome file contiene componenti di percorso non ammessi".to_string());
+        return Err(crate::tr!(
+            "Il nome file contiene componenti di percorso non ammessi",
+            "The file name contains disallowed path components"
+        )
+        .to_string());
     }
 
     if !file_name
         .chars()
         .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_')
     {
-        return Err("Caratteri non validi o pericolosi nel nome file installer".to_string());
+        return Err(crate::tr!(
+            "Caratteri non validi o pericolosi nel nome file installer",
+            "Invalid or unsafe characters in the installer file name"
+        )
+        .to_string());
     }
 
     let lower = file_name.to_lowercase();
@@ -278,7 +296,11 @@ pub fn sanitize_installer_filename(raw_name: &str) -> Result<String, String> {
         || lower.ends_with(".zip");
 
     if !has_valid_ext {
-        return Err("Estensione file installer non supportata o non sicura".to_string());
+        return Err(crate::tr!(
+            "Estensione file installer non supportata o non sicura",
+            "Unsupported or unsafe installer file extension"
+        )
+        .to_string());
     }
 
     Ok(file_name.to_string())
@@ -288,8 +310,12 @@ pub fn sanitize_installer_filename(raw_name: &str) -> Result<String, String> {
 pub fn get_safe_temp_updates_dir() -> Result<PathBuf, String> {
     let temp_dir = std::env::temp_dir().join("omp-studio-updates");
     if !temp_dir.exists() {
-        std::fs::create_dir_all(&temp_dir)
-            .map_err(|e| format!("Impossibile creare cartella temporanea: {}", e))?;
+        std::fs::create_dir_all(&temp_dir).map_err(|e| {
+            crate::tr!(
+                format!("Impossibile creare cartella temporanea: {}", e),
+                format!("Could not create the temporary folder: {}", e)
+            )
+        })?;
     }
     Ok(temp_dir)
 }
@@ -497,20 +523,30 @@ async fn fetch_latest_stable_release(
     let response = github_get(client, &url, current_version)
         .send()
         .await
-        .map_err(|e| format!("Impossibile contattare GitHub per la verifica: {}", e))?;
+        .map_err(|e| {
+            crate::tr!(
+                format!("Impossibile contattare GitHub per la verifica: {}", e),
+                format!("Could not reach GitHub for the check: {}", e)
+            )
+        })?;
 
     if response.status().is_success() {
         return response
             .json::<GithubRelease>()
             .await
             .map(Some)
-            .map_err(|e| format!("Errore nel parsing della release da GitHub: {}", e));
+            .map_err(|e| {
+                crate::tr!(
+                    format!("Errore nel parsing della release da GitHub: {}", e),
+                    format!("Error parsing the release from GitHub: {}", e)
+                )
+            });
     }
 
     if response.status().as_u16() != 404 {
-        return Err(format!(
-            "GitHub API ha risposto con errore HTTP {}",
-            response.status()
+        return Err(crate::tr!(
+            format!("GitHub API ha risposto con errore HTTP {}", response.status()),
+            format!("GitHub API answered with HTTP error {}", response.status())
         ));
     }
 
@@ -520,19 +556,29 @@ async fn fetch_latest_stable_release(
     let list_response = github_get(client, &list_url, current_version)
         .send()
         .await
-        .map_err(|e| format!("Errore nella connessione a GitHub: {}", e))?;
+        .map_err(|e| {
+            crate::tr!(
+                format!("Errore nella connessione a GitHub: {}", e),
+                format!("Error connecting to GitHub: {}", e)
+            )
+        })?;
 
     if !list_response.status().is_success() {
-        return Err(format!(
-            "GitHub API ha risposto con codice {}",
-            list_response.status()
+        return Err(crate::tr!(
+            format!("GitHub API ha risposto con codice {}", list_response.status()),
+            format!("GitHub API answered with code {}", list_response.status())
         ));
     }
 
     let releases = list_response
         .json::<Vec<GithubRelease>>()
         .await
-        .map_err(|e| format!("Errore nel parsing dell'elenco releases: {}", e))?;
+        .map_err(|e| {
+            crate::tr!(
+                format!("Errore nel parsing dell'elenco releases: {}", e),
+                format!("Error parsing the releases list: {}", e)
+            )
+        })?;
 
     Ok(releases
         .into_iter()
@@ -550,27 +596,44 @@ async fn fetch_nightly_release(
     let response = github_get(client, &url, current_version)
         .send()
         .await
-        .map_err(|e| format!("Impossibile contattare GitHub per la nightly: {}", e))?;
+        .map_err(|e| {
+            crate::tr!(
+                format!("Impossibile contattare GitHub per la nightly: {}", e),
+                format!("Could not reach GitHub for the nightly build: {}", e)
+            )
+        })?;
 
     if response.status().as_u16() == 404 {
         return Ok(None);
     }
     if !response.status().is_success() {
-        return Err(format!(
-            "GitHub API ha risposto con errore HTTP {} per il canale nightly",
-            response.status()
+        return Err(crate::tr!(
+            format!(
+                "GitHub API ha risposto con errore HTTP {} per il canale nightly",
+                response.status()
+            ),
+            format!(
+                "GitHub API answered with HTTP error {} for the nightly channel",
+                response.status()
+            )
         ));
     }
 
-    let listed = response
-        .json::<GithubRelease>()
-        .await
-        .map_err(|e| format!("Errore nel parsing della release nightly: {}", e))?;
+    let listed = response.json::<GithubRelease>().await.map_err(|e| {
+        crate::tr!(
+            format!("Errore nel parsing della release nightly: {}", e),
+            format!("Error parsing the nightly release: {}", e)
+        )
+    })?;
     if listed.draft {
         return Ok(None);
     }
     if !listed.prerelease {
-        return Err("La release nightly non e' marcata come prerelease".to_string());
+        return Err(crate::tr!(
+            "La release nightly non e' marcata come prerelease",
+            "The nightly release is not marked as a prerelease"
+        )
+        .to_string());
     }
 
     // `releases/tags/nightly` risponde con una copia in cache degli asset che
@@ -584,23 +647,42 @@ async fn fetch_nightly_release(
     let fresh_response = github_get(client, &fresh_url, current_version)
         .send()
         .await
-        .map_err(|e| format!("Impossibile contattare GitHub per la nightly: {}", e))?;
+        .map_err(|e| {
+            crate::tr!(
+                format!("Impossibile contattare GitHub per la nightly: {}", e),
+                format!("Could not reach GitHub for the nightly build: {}", e)
+            )
+        })?;
     if !fresh_response.status().is_success() {
-        return Err(format!(
-            "GitHub API ha risposto con errore HTTP {} per la release nightly",
-            fresh_response.status()
+        return Err(crate::tr!(
+            format!(
+                "GitHub API ha risposto con errore HTTP {} per la release nightly",
+                fresh_response.status()
+            ),
+            format!(
+                "GitHub API answered with HTTP error {} for the nightly release",
+                fresh_response.status()
+            )
         ));
     }
-    let release = fresh_response
-        .json::<GithubRelease>()
-        .await
-        .map_err(|e| format!("Errore nel parsing della release nightly: {}", e))?;
+    let release = fresh_response.json::<GithubRelease>().await.map_err(|e| {
+        crate::tr!(
+            format!("Errore nel parsing della release nightly: {}", e),
+            format!("Error parsing the nightly release: {}", e)
+        )
+    })?;
 
     let manifest_asset = release
         .assets
         .iter()
         .find(|asset| asset.name.eq_ignore_ascii_case("nightly.json"))
-        .ok_or_else(|| "La release nightly non contiene nightly.json".to_string())?;
+        .ok_or_else(|| {
+            crate::tr!(
+                "La release nightly non contiene nightly.json",
+                "The nightly release does not contain nightly.json"
+            )
+            .to_string()
+        })?;
     // Anche `releases/download/nightly/nightly.json` passa da una cache legata
     // al tag e puo' servire il manifest di una build precedente: il manifest
     // si scarica per id dall'API.
@@ -620,26 +702,49 @@ async fn fetch_nightly_release(
     }
     .send()
     .await
-    .map_err(|e| format!("Impossibile scaricare il manifest nightly: {}", e))?;
+    .map_err(|e| {
+        crate::tr!(
+            format!("Impossibile scaricare il manifest nightly: {}", e),
+            format!("Could not download the nightly manifest: {}", e)
+        )
+    })?;
 
     if !manifest_response.status().is_success() {
-        return Err(format!(
-            "Download del manifest nightly fallito con HTTP {}",
-            manifest_response.status()
+        return Err(crate::tr!(
+            format!(
+                "Download del manifest nightly fallito con HTTP {}",
+                manifest_response.status()
+            ),
+            format!(
+                "Nightly manifest download failed with HTTP {}",
+                manifest_response.status()
+            )
         ));
     }
 
-    let manifest = manifest_response
-        .json::<NightlyManifest>()
-        .await
-        .map_err(|e| format!("Manifest nightly non valido: {}", e))?;
+    let manifest = manifest_response.json::<NightlyManifest>().await.map_err(|e| {
+        crate::tr!(
+            format!("Manifest nightly non valido: {}", e),
+            format!("Invalid nightly manifest: {}", e)
+        )
+    })?;
     let version = normalize_version(&manifest.version).to_string();
-    let parsed_version = semver::Version::parse(&version)
-        .map_err(|e| format!("Versione nightly non valida '{}': {}", version, e))?;
+    let parsed_version = semver::Version::parse(&version).map_err(|e| {
+        crate::tr!(
+            format!("Versione nightly non valida '{}': {}", version, e),
+            format!("Invalid nightly version '{}': {}", version, e)
+        )
+    })?;
     if parsed_version.pre.is_empty() {
-        return Err(format!(
-            "La versione nightly '{}' non contiene un identificatore prerelease",
-            version
+        return Err(crate::tr!(
+            format!(
+                "La versione nightly '{}' non contiene un identificatore prerelease",
+                version
+            ),
+            format!(
+                "The nightly version '{}' has no prerelease identifier",
+                version
+            )
         ));
     }
 
@@ -675,7 +780,11 @@ fn no_release_info(current_version: &str, channel: StudioUpdateChannel) -> Studi
         current_version: current_version.to_string(),
         latest_version: current_version.to_string(),
         tag_name: format!("v{}", current_version),
-        release_name: "Nessuna release trovata".to_string(),
+        release_name: crate::tr!(
+            "Nessuna release trovata",
+            "No release found"
+        )
+        .to_string(),
         release_notes: String::new(),
         published_at: None,
         html_url: format!("https://github.com/{}/releases", GITHUB_REPO),
@@ -794,7 +903,12 @@ pub async fn check_studio_update(
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(12))
         .build()
-        .map_err(|e| format!("Impossibile inizializzare client HTTP: {}", e))?;
+        .map_err(|e| {
+            crate::tr!(
+                format!("Impossibile inizializzare client HTTP: {}", e),
+                format!("Could not initialize the HTTP client: {}", e)
+            )
+        })?;
 
     let stable = fetch_latest_stable_release(&client, current_version)
         .await?
@@ -894,7 +1008,11 @@ pub async fn start_studio_update_download(
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_err()
     {
-        return Err("Un download e' gia' in corso".to_string());
+        return Err(crate::tr!(
+            "Un download e' gia' in corso",
+            "A download is already in progress"
+        )
+        .to_string());
     }
 
     // 2. Risoluzione e validazione obbligatoria dell'hash SHA256
@@ -906,7 +1024,11 @@ pub async fn start_studio_update_download(
         (Some(param_hash), Some(stored_hash)) => {
             if !param_hash.eq_ignore_ascii_case(&stored_hash) {
                 state.is_downloading.store(false, Ordering::SeqCst);
-                return Err("Discrepanza di checksum SHA256 tra richiesta e release verificata: download rifiutato.".to_string());
+                return Err(crate::tr!(
+                    "Discrepanza di checksum SHA256 tra richiesta e release verificata: download rifiutato.",
+                    "SHA256 checksum mismatch between the request and the verified release: download refused."
+                )
+                .to_string());
             }
             param_hash
         }
@@ -914,16 +1036,23 @@ pub async fn start_studio_update_download(
         (None, Some(stored_hash)) => stored_hash,
         (None, None) => {
             state.is_downloading.store(false, Ordering::SeqCst);
-            return Err("Checksum SHA256 non disponibile per questa release. Per motivi di sicurezza l'installazione è rifiutata.".to_string());
+            return Err(crate::tr!(
+                "Checksum SHA256 non disponibile per questa release. Per motivi di sicurezza l'installazione è rifiutata.",
+                "No SHA256 checksum available for this release. Installation is refused for security reasons."
+            )
+            .to_string());
         }
     };
 
     // 3. Confinamento URL di download: solo server GitHub ufficiali
     if !is_trusted_download_url(&download_url) {
         state.is_downloading.store(false, Ordering::SeqCst);
-        return Err(format!(
-            "URL di download non attendibile o non autorizzato: {}",
-            download_url
+        return Err(crate::tr!(
+            format!(
+                "URL di download non attendibile o non autorizzato: {}",
+                download_url
+            ),
+            format!("Untrusted or unauthorized download URL: {}", download_url)
         ));
     }
 
@@ -932,7 +1061,10 @@ pub async fn start_studio_update_download(
         Ok(f) => f,
         Err(e) => {
             state.is_downloading.store(false, Ordering::SeqCst);
-            return Err(format!("Nome file installer non sicuro: {}", e));
+            return Err(crate::tr!(
+                format!("Nome file installer non sicuro: {}", e),
+                format!("Unsafe installer file name: {}", e)
+            ));
         }
     };
 
@@ -996,7 +1128,10 @@ pub async fn start_studio_update_download(
                         total_bytes: 0,
                         percentage: 0.0,
                         speed_bytes_per_sec: 0,
-                        error: Some(format!("Errore inizializzazione client: {}", e)),
+                        error: Some(crate::tr!(
+                            format!("Errore inizializzazione client: {}", e),
+                            format!("Client initialization error: {}", e)
+                        )),
                     },
                 );
                 return;
@@ -1025,9 +1160,12 @@ pub async fn start_studio_update_download(
                         total_bytes: 0,
                         percentage: 0.0,
                         speed_bytes_per_sec: 0,
-                        error: Some(format!(
-                            "Server di download ha risposto con codice {}",
-                            res.status()
+                        error: Some(crate::tr!(
+                            format!(
+                                "Server di download ha risposto con codice {}",
+                                res.status()
+                            ),
+                            format!("Download server answered with code {}", res.status())
                         )),
                     },
                 );
@@ -1045,7 +1183,10 @@ pub async fn start_studio_update_download(
                         total_bytes: 0,
                         percentage: 0.0,
                         speed_bytes_per_sec: 0,
-                        error: Some(format!("Errore connessione durante il download: {}", e)),
+                        error: Some(crate::tr!(
+                            format!("Errore connessione durante il download: {}", e),
+                            format!("Connection error during the download: {}", e)
+                        )),
                     },
                 );
                 return;
@@ -1069,9 +1210,9 @@ pub async fn start_studio_update_download(
                         total_bytes: total_size,
                         percentage: 0.0,
                         speed_bytes_per_sec: 0,
-                        error: Some(format!(
-                            "Impossibile creare il file temporaneo su disco: {}",
-                            e
+                        error: Some(crate::tr!(
+                            format!("Impossibile creare il file temporaneo su disco: {}", e),
+                            format!("Could not create the temporary file on disk: {}", e)
                         )),
                     },
                 );
@@ -1132,7 +1273,10 @@ pub async fn start_studio_update_download(
                                     0.0
                                 },
                                 speed_bytes_per_sec: 0,
-                                error: Some(format!("Errore di scrittura su disco: {}", e)),
+                                error: Some(crate::tr!(
+                                    format!("Errore di scrittura su disco: {}", e),
+                                    format!("Disk write error: {}", e)
+                                )),
                             },
                         );
                         return;
@@ -1193,7 +1337,10 @@ pub async fn start_studio_update_download(
                                 0.0
                             },
                             speed_bytes_per_sec: 0,
-                            error: Some(format!("Errore durante la ricezione dati: {}", e)),
+                            error: Some(crate::tr!(
+                                format!("Errore durante la ricezione dati: {}", e),
+                                format!("Error while receiving data: {}", e)
+                            )),
                         },
                     );
                     return;
@@ -1215,7 +1362,10 @@ pub async fn start_studio_update_download(
                     total_bytes: total_size,
                     percentage: 100.0,
                     speed_bytes_per_sec: 0,
-                    error: Some(format!("Errore nel completamento scrittura file: {}", e)),
+                    error: Some(crate::tr!(
+                        format!("Errore nel completamento scrittura file: {}", e),
+                        format!("Error while finishing the file write: {}", e)
+                    )),
                 },
             );
             return;
@@ -1231,9 +1381,15 @@ pub async fn start_studio_update_download(
             *verified_installer.lock() = None;
             is_downloading.store(false, Ordering::SeqCst);
 
-            let err_msg = format!(
-                "Validazione integrità fallita: checksum SHA256 non corrispondente (atteso: {}, calcolato: {}). File eliminato per sicurezza.",
-                expected_hash, computed_sha256
+            let err_msg = crate::tr!(
+                format!(
+                    "Validazione integrità fallita: checksum SHA256 non corrispondente (atteso: {}, calcolato: {}). File eliminato per sicurezza.",
+                    expected_hash, computed_sha256
+                ),
+                format!(
+                    "Integrity check failed: SHA256 checksum mismatch (expected: {}, computed: {}). File deleted for security.",
+                    expected_hash, computed_sha256
+                )
             );
             let _ = app_handle.emit(
                 "studio_update_progress",
@@ -1267,7 +1423,10 @@ pub async fn start_studio_update_download(
                     total_bytes: total_size,
                     percentage: 100.0,
                     speed_bytes_per_sec: 0,
-                    error: Some(format!("Impossibile finalizzare il file scaricato: {}", e)),
+                    error: Some(crate::tr!(
+                        format!("Impossibile finalizzare il file scaricato: {}", e),
+                        format!("Could not finalize the downloaded file: {}", e)
+                    )),
                 },
             );
             return;
@@ -1365,16 +1524,31 @@ fn install_dmg_in_place(dmg: &Path, expected_bundle_id: &str) -> Result<(), Stri
 fn running_app_bundle() -> Result<PathBuf, String> {
     let exe = std::env::current_exe()
         .and_then(|p| p.canonicalize())
-        .map_err(|e| format!("Percorso dell'eseguibile non risolvibile: {}", e))?;
+        .map_err(|e| {
+            crate::tr!(
+                format!("Percorso dell'eseguibile non risolvibile: {}", e),
+                format!("Could not resolve the executable path: {}", e)
+            )
+        })?;
     let bundle = exe
         .ancestors()
         .find(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("app")))
-        .ok_or_else(|| "L'app non e' in esecuzione da un bundle .app".to_string())?
+        .ok_or_else(|| {
+            crate::tr!(
+                "L'app non e' in esecuzione da un bundle .app",
+                "The app is not running from a .app bundle"
+            )
+            .to_string()
+        })?
         .to_path_buf();
     // Con App Translocation il bundle vive in un mount di sola lettura generato da
     // Gatekeeper: sostituirlo non aggiornerebbe la copia che l'utente apre.
     if bundle.to_string_lossy().contains("/AppTranslocation/") {
-        return Err("L'app e' in esecuzione da una posizione isolata da Gatekeeper".to_string());
+        return Err(crate::tr!(
+            "L'app e' in esecuzione da una posizione isolata da Gatekeeper",
+            "The app is running from a location isolated by Gatekeeper"
+        )
+        .to_string());
     }
     Ok(bundle)
 }
@@ -1415,7 +1589,12 @@ fn stage_app_from_dmg(
     let _ = std::fs::remove_dir_all(work_dir);
     std::fs::create_dir_all(&mount_point)
         .and_then(|_| std::fs::create_dir_all(&staging_dir))
-        .map_err(|e| format!("Impossibile preparare la cartella di installazione: {}", e))?;
+        .map_err(|e| {
+            crate::tr!(
+                format!("Impossibile preparare la cartella di installazione: {}", e),
+                format!("Could not prepare the installation folder: {}", e)
+            )
+        })?;
 
     // -noverify: l'integrita' del file e' gia' garantita dallo SHA256 appena ricontrollato
     run_checked(
@@ -1430,7 +1609,7 @@ fn stage_app_from_dmg(
             ])
             .arg(&mount_point)
             .arg(dmg),
-        "Montaggio del DMG fallito",
+        crate::tr!("Montaggio del DMG fallito", "Mounting the DMG failed"),
     )?;
     let copied = copy_app_from_volume(&mount_point, &staging_dir);
     let _ = Command::new("hdiutil")
@@ -1443,13 +1622,22 @@ fn stage_app_from_dmg(
         Command::new("/usr/libexec/PlistBuddy")
             .args(["-c", "Print :CFBundleIdentifier"])
             .arg(staged.join("Contents/Info.plist")),
-        "Lettura dell'Info.plist del pacchetto fallita",
+        crate::tr!(
+            "Lettura dell'Info.plist del pacchetto fallita",
+            "Reading the bundle's Info.plist failed"
+        ),
     )?;
     if bundle_id.trim() != expected_bundle_id {
         let _ = std::fs::remove_dir_all(work_dir);
-        return Err(format!(
-            "Il DMG contiene un'app diversa da OMP Studio ({})",
-            bundle_id.trim()
+        return Err(crate::tr!(
+            format!(
+                "Il DMG contiene un'app diversa da OMP Studio ({})",
+                bundle_id.trim()
+            ),
+            format!(
+                "The DMG contains an app other than OMP Studio ({})",
+                bundle_id.trim()
+            )
         ));
     }
 
@@ -1465,7 +1653,12 @@ fn stage_app_from_dmg(
 #[cfg(target_os = "macos")]
 fn copy_app_from_volume(volume: &Path, staging_dir: &Path) -> Result<PathBuf, String> {
     let app_name = std::fs::read_dir(volume)
-        .map_err(|e| format!("Contenuto del DMG non leggibile: {}", e))?
+        .map_err(|e| {
+            crate::tr!(
+                format!("Contenuto del DMG non leggibile: {}", e),
+                format!("DMG contents not readable: {}", e)
+            )
+        })?
         .filter_map(Result::ok)
         // file_type non segue i link: il collegamento ad Applicazioni resta escluso
         .find(|e| {
@@ -1475,14 +1668,23 @@ fn copy_app_from_volume(volume: &Path, staging_dir: &Path) -> Result<PathBuf, St
                     .is_some_and(|ext| ext.eq_ignore_ascii_case("app"))
         })
         .map(|e| e.file_name())
-        .ok_or_else(|| "Nessun bundle .app trovato nel DMG".to_string())?;
+        .ok_or_else(|| {
+            crate::tr!(
+                "Nessun bundle .app trovato nel DMG",
+                "No .app bundle found in the DMG"
+            )
+            .to_string()
+        })?;
 
     let dest = staging_dir.join(&app_name);
     run_checked(
         std::process::Command::new("ditto")
             .arg(volume.join(&app_name))
             .arg(&dest),
-        "Copia del bundle dal DMG fallita",
+        crate::tr!(
+            "Copia del bundle dal DMG fallita",
+            "Copying the bundle from the DMG failed"
+        ),
     )?;
     Ok(dest)
 }
@@ -1492,11 +1694,18 @@ fn copy_app_from_volume(volume: &Path, staging_dir: &Path) -> Result<PathBuf, St
 #[cfg(target_os = "macos")]
 fn swap_app_bundle(staged: &Path, bundle: &Path, backup: &Path) -> Result<(), String> {
     let _ = std::fs::remove_dir_all(backup);
-    std::fs::rename(bundle, backup)
-        .map_err(|e| format!("Impossibile spostare la versione installata: {}", e))?;
+    std::fs::rename(bundle, backup).map_err(|e| {
+        crate::tr!(
+            format!("Impossibile spostare la versione installata: {}", e),
+            format!("Could not move the installed version: {}", e)
+        )
+    })?;
     if let Err(e) = std::fs::rename(staged, bundle) {
         let _ = std::fs::rename(backup, bundle);
-        return Err(format!("Impossibile installare la nuova versione: {}", e));
+        return Err(crate::tr!(
+            format!("Impossibile installare la nuova versione: {}", e),
+            format!("Could not install the new version: {}", e)
+        ));
     }
     Ok(())
 }
@@ -1572,31 +1781,60 @@ fn replace_appimage_atomically(
 ) -> Result<(), String> {
     use std::os::unix::fs::PermissionsExt;
 
-    let file_name = target
-        .file_name()
-        .ok_or_else(|| "Percorso dell'AppImage non valido".to_string())?;
+    let file_name = target.file_name().ok_or_else(|| {
+        crate::tr!(
+            "Percorso dell'AppImage non valido",
+            "Invalid AppImage path"
+        )
+        .to_string()
+    })?;
     let staged = target.with_file_name(format!("{}.new", file_name.to_string_lossy()));
 
     let result = (|| -> Result<(), String> {
         std::fs::copy(downloaded, &staged).map_err(|e| {
-            format!(
-                "Impossibile scrivere la nuova AppImage accanto a {}: {}",
-                target.display(),
-                e
+            crate::tr!(
+                format!(
+                    "Impossibile scrivere la nuova AppImage accanto a {}: {}",
+                    target.display(),
+                    e
+                ),
+                format!(
+                    "Could not write the new AppImage next to {}: {}",
+                    target.display(),
+                    e
+                )
             )
         })?;
-        let sha = compute_file_sha256(&staged)
-            .map_err(|e| format!("Impossibile verificare la nuova AppImage: {}", e))?;
+        let sha = compute_file_sha256(&staged).map_err(|e| {
+            crate::tr!(
+                format!("Impossibile verificare la nuova AppImage: {}", e),
+                format!("Could not verify the new AppImage: {}", e)
+            )
+        })?;
         if !sha.eq_ignore_ascii_case(expected_sha256) {
-            return Err(format!(
-                "Verifica di integrità della nuova AppImage fallita (atteso: {}, trovato: {})",
-                expected_sha256, sha
+            return Err(crate::tr!(
+                format!(
+                    "Verifica di integrità della nuova AppImage fallita (atteso: {}, trovato: {})",
+                    expected_sha256, sha
+                ),
+                format!(
+                    "Integrity check of the new AppImage failed (expected: {}, found: {})",
+                    expected_sha256, sha
+                )
             ));
         }
-        std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o755))
-            .map_err(|e| format!("Impossibile rendere eseguibile la nuova AppImage: {}", e))?;
-        std::fs::rename(&staged, target)
-            .map_err(|e| format!("Impossibile sostituire l'AppImage: {}", e))
+        std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o755)).map_err(|e| {
+            crate::tr!(
+                format!("Impossibile rendere eseguibile la nuova AppImage: {}", e),
+                format!("Could not make the new AppImage executable: {}", e)
+            )
+        })?;
+        std::fs::rename(&staged, target).map_err(|e| {
+            crate::tr!(
+                format!("Impossibile sostituire l'AppImage: {}", e),
+                format!("Could not replace the AppImage: {}", e)
+            )
+        })
     })();
 
     if result.is_err() {
@@ -1649,10 +1887,11 @@ pub async fn install_studio_update_and_restart(
         match guard.as_ref() {
             Some(v) => v.clone(),
             None => {
-                return Err(
-                    "Nessun pacchetto di aggiornamento verificato trovato su disco. Riprova a scaricarlo con verifica di integrità."
-                        .to_string(),
-                );
+                return Err(crate::tr!(
+                    "Nessun pacchetto di aggiornamento verificato trovato su disco. Riprova a scaricarlo con verifica di integrità.",
+                    "No verified update package found on disk. Try downloading it again with the integrity check."
+                )
+                .to_string());
             }
         }
     };
@@ -1660,45 +1899,63 @@ pub async fn install_studio_update_and_restart(
     let installer_path = verified.path;
     if !installer_path.exists() {
         *state.verified_installer.lock() = None;
-        return Err(
-            "Il file dell'installer non è più presente su disco. Riprova a scaricarlo.".to_string(),
-        );
+        return Err(crate::tr!(
+            "Il file dell'installer non è più presente su disco. Riprova a scaricarlo.",
+            "The installer file is no longer on disk. Try downloading it again."
+        )
+        .to_string());
     }
 
     // 1. Controllo di confinamento: il percorso deve risiedere rigorosamente nella cartella temporanea autorizzata
     let temp_dir = get_safe_temp_updates_dir()?;
-    let canonical_temp = temp_dir
-        .canonicalize()
-        .map_err(|e| format!("Errore risoluzione cartella temp: {}", e))?;
-    let canonical_installer = installer_path
-        .canonicalize()
-        .map_err(|e| format!("Errore risoluzione percorso installer: {}", e))?;
+    let canonical_temp = temp_dir.canonicalize().map_err(|e| {
+        crate::tr!(
+            format!("Errore risoluzione cartella temp: {}", e),
+            format!("Error resolving the temp folder: {}", e)
+        )
+    })?;
+    let canonical_installer = installer_path.canonicalize().map_err(|e| {
+        crate::tr!(
+            format!("Errore risoluzione percorso installer: {}", e),
+            format!("Error resolving the installer path: {}", e)
+        )
+    })?;
 
     if !canonical_installer.starts_with(&canonical_temp) {
         let _ = std::fs::remove_file(&installer_path);
         *state.verified_installer.lock() = None;
-        return Err(
-            "Violazione di sicurezza: il file dell'installer è situato fuori dalla directory temporanea autorizzata."
-                .to_string(),
-        );
+        return Err(crate::tr!(
+            "Violazione di sicurezza: il file dell'installer è situato fuori dalla directory temporanea autorizzata.",
+            "Security violation: the installer file is outside the authorized temporary directory."
+        )
+        .to_string());
     }
 
     // 2. Ricalcolo dell'hash SHA256 direttamente dal disco prima dell'esecuzione (TOCTOU protection)
     let disk_sha256 = compute_file_sha256(&installer_path).map_err(|e| {
         let _ = std::fs::remove_file(&installer_path);
         *state.verified_installer.lock() = None;
-        format!(
-            "Impossibile validare l'hash del file prima dell'installazione: {}",
-            e
+        crate::tr!(
+            format!(
+                "Impossibile validare l'hash del file prima dell'installazione: {}",
+                e
+            ),
+            format!("Could not validate the file hash before installing: {}", e)
         )
     })?;
 
     if !disk_sha256.eq_ignore_ascii_case(&verified.sha256) {
         let _ = std::fs::remove_file(&installer_path);
         *state.verified_installer.lock() = None;
-        return Err(format!(
-            "Validazione integrità pre-installazione fallita: checksum su disco modificato (atteso: {}, trovato: {}). File eliminato per sicurezza.",
-            verified.sha256, disk_sha256
+        return Err(crate::tr!(
+            format!(
+                "Validazione integrità pre-installazione fallita: checksum su disco modificato (atteso: {}, trovato: {}). File eliminato per sicurezza.",
+                verified.sha256, disk_sha256
+            ),
+            format!(
+                "Pre-install integrity check failed: checksum on disk changed (expected: {}, found: {}). File deleted for security.",
+                verified.sha256, disk_sha256
+            )
         ));
     }
 
@@ -1738,7 +1995,11 @@ pub async fn install_studio_update_and_restart(
         if contains_shell_meta(&installer_str) || contains_shell_meta(&current_exe_str) {
             let _ = std::fs::remove_file(&installer_path);
             *state.verified_installer.lock() = None;
-            return Err("Caratteri non consentiti nei percorsi di installazione".to_string());
+            return Err(crate::tr!(
+                "Caratteri non consentiti nei percorsi di installazione",
+                "Disallowed characters in the installation paths"
+            )
+            .to_string());
         }
 
         let cmd_string = if is_msi {
@@ -1761,8 +2022,12 @@ pub async fn install_studio_update_and_restart(
         let mut cmd = Command::new("cmd.exe");
         cmd.raw_arg(format!("/D /S /C \"{}\"", cmd_string));
         cmd.creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
-        cmd.spawn()
-            .map_err(|e| format!("Impossibile avviare il processo di aggiornamento: {}", e))?;
+        cmd.spawn().map_err(|e| {
+            crate::tr!(
+                format!("Impossibile avviare il processo di aggiornamento: {}", e),
+                format!("Could not start the update process: {}", e)
+            )
+        })?;
 
         // Breve pausa per essere certi che il processo installer sia stato avviato
         tokio::time::sleep(Duration::from_millis(300)).await;
@@ -1791,7 +2056,12 @@ pub async fn install_studio_update_and_restart(
                     Command::new("open")
                         .arg(&canonical_installer)
                         .spawn()
-                        .map_err(|e| format!("Impossibile aprire il DMG: {}", e))?;
+                        .map_err(|e| {
+                            crate::tr!(
+                                format!("Impossibile aprire il DMG: {}", e),
+                                format!("Could not open the DMG: {}", e)
+                            )
+                        })?;
                 }
             }
         } else {
@@ -1799,7 +2069,12 @@ pub async fn install_studio_update_and_restart(
                 .arg("-R")
                 .arg(&canonical_installer)
                 .spawn()
-                .map_err(|e| format!("Impossibile mostrare il file: {}", e))?;
+                .map_err(|e| {
+                    crate::tr!(
+                        format!("Impossibile mostrare il file: {}", e),
+                        format!("Could not reveal the file: {}", e)
+                    )
+                })?;
         }
 
         tokio::time::sleep(Duration::from_millis(300)).await;
@@ -1839,12 +2114,27 @@ pub async fn install_studio_update_and_restart(
                         &canonical_installer,
                         std::fs::Permissions::from_mode(0o755),
                     )
-                    .map_err(|e| format!("Impossibile rendere eseguibile l'AppImage: {}", e))?;
-                    spawn_linux_relaunch_after_exit(&canonical_installer, &[])
-                        .map_err(|e| format!("Impossibile eseguire AppImage: {}", e))?;
-                    let msg = format!(
-                        "Studio non è in esecuzione da un'AppImage: la nuova versione viene avviata da {} e l'installazione esistente non è stata aggiornata.",
-                        canonical_installer.display()
+                    .map_err(|e| {
+                        crate::tr!(
+                            format!("Impossibile rendere eseguibile l'AppImage: {}", e),
+                            format!("Could not make the AppImage executable: {}", e)
+                        )
+                    })?;
+                    spawn_linux_relaunch_after_exit(&canonical_installer, &[]).map_err(|e| {
+                        crate::tr!(
+                            format!("Impossibile eseguire AppImage: {}", e),
+                            format!("Could not run the AppImage: {}", e)
+                        )
+                    })?;
+                    let msg = crate::tr!(
+                        format!(
+                            "Studio non è in esecuzione da un'AppImage: la nuova versione viene avviata da {} e l'installazione esistente non è stata aggiornata.",
+                            canonical_installer.display()
+                        ),
+                        format!(
+                            "Studio is not running from an AppImage: the new version is launched from {} and the existing installation was not updated.",
+                            canonical_installer.display()
+                        )
                     );
                     eprintln!("{}", msg);
                     Some(msg)
@@ -1865,19 +2155,28 @@ pub async fn install_studio_update_and_restart(
             .arg(&canonical_installer)
             .stdin(std::process::Stdio::null())
             .spawn()
-            .map_err(|e| format!("Impossibile aprire il pacchetto: {}", e))?;
+            .map_err(|e| {
+                crate::tr!(
+                    format!("Impossibile aprire il pacchetto: {}", e),
+                    format!("Could not open the package: {}", e)
+                )
+            })?;
         return Ok(StudioInstallOutcome {
             manual_completion_required: true,
             message: Some(
-                "Completa l'installazione nel gestore software, poi riavvia Studio.".to_string(),
+                crate::tr!(
+                    "Completa l'installazione nel gestore software, poi riavvia Studio.",
+                    "Complete the installation in the software manager, then restart Studio."
+                )
+                .to_string(),
             ),
         });
     }
 
     #[allow(unreachable_code)]
-    Err(format!(
-        "Installazione automatica non supportata su {}",
-        _os
+    Err(crate::tr!(
+        format!("Installazione automatica non supportata su {}", _os),
+        format!("Automatic installation is not supported on {}", _os)
     ))
 }
 

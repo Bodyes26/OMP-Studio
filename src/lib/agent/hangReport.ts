@@ -6,6 +6,8 @@
 // accanto all'altro i contatori dei due lati e ne deduce dove la catena si e'
 // fermata: senza, ogni blocco si potrebbe solo raccontare, non localizzare.
 
+import { m as msg } from '#lib/paraglide/messages.js';
+
 /** Frame consegnato dal Channel al client, nell'ordine di consegna. */
 export interface ReceivedFrame {
 	index: number;
@@ -133,8 +135,9 @@ export function diagnoseHang(input: HangInput): string[] {
 	const { now, client, backend } = input;
 	if (!backend) {
 		return [
-			`Il backend di Studio non ha risposto a rpc_diagnostics (${input.backendError ?? 'nessun dettaglio'}): ` +
-				'si e\u2019 fermato l\u2019IPC Tauri o il processo di Studio, non omp.'
+			msg.l10n_agent_hang_backend_unavailable({
+				error: input.backendError ?? msg.l10n_agent_hang_no_detail()
+			})
 		];
 	}
 	const findings: string[] = [];
@@ -143,7 +146,7 @@ export function diagnoseHang(input: HangInput): string[] {
 	const responseFrame = t.recentFrames.find((frame) => frame.kind === responseLabel);
 
 	if (backend.childAlive === false || t.readerExited) {
-		findings.push('Il processo omp e\u2019 terminato o il lettore di stdout si e\u2019 chiuso, ma la sessione e\u2019 ancora aperta.');
+		findings.push(msg.l10n_agent_hang_omp_exited());
 	}
 
 	// Un frame mancante spedito da pochi istanti e' solo in viaggio: il
@@ -153,42 +156,63 @@ export function diagnoseHang(input: HangInput): string[] {
 	const stalled = gap > 0 && (!missing || now - missing.atMs > IN_FLIGHT_MS);
 	if (stalled) {
 		const detail = missing
-			? ` Primo frame mancante: indice ${missing.index}, "${missing.kind}", ${missing.bytes} byte` +
-				(missing.tauriFetchPath ? ', consegnato da Tauri via fetch (>= 8192 byte).' : ', consegnato da Tauri via eval.')
-			: ` Primo frame mancante: indice ${client.count}, fuori dagli ultimi ${t.recentFrames.length} registrati.`;
+			? ' ' +
+				msg.l10n_agent_hang_missing_frame_index({
+					index: missing.index,
+					kind: missing.kind,
+					bytes: missing.bytes
+				}) +
+				(missing.tauriFetchPath
+					? msg.l10n_agent_hang_via_fetch()
+					: msg.l10n_agent_hang_via_eval())
+			: ' ' +
+				msg.l10n_agent_hang_missing_frame_outside({
+					index: client.count,
+					count: t.recentFrames.length
+				});
 		findings.push(
-			`Channel Tauri fermo: Rust ha spedito ${t.framesSent} frame, il WebView ne ha consegnati ${client.count}.` +
-				` Il Channel consegna solo in ordine, quindi tutti i ${gap} successivi restano in coda.` +
+			msg.l10n_agent_hang_channel_stalled({ sent: t.framesSent, delivered: client.count }) +
+				' ' +
+				msg.l10n_agent_hang_channel_queue({ gap }) +
 				detail
 		);
 		if (responseFrame) {
-			findings.push(`La risposta a "${input.command}" (${input.commandId}) e\u2019 arrivata a Rust (frame ${responseFrame.index}) ma non al client.`);
+			findings.push(
+				msg.l10n_agent_hang_response_stuck_rust({
+					command: input.command,
+					commandId: input.commandId,
+					frame: responseFrame.index
+				})
+			);
 		}
-		if (t.sendErrors > 0) findings.push(`Invii falliti sul Channel lato Rust: ${t.sendErrors}.`);
+		if (t.sendErrors > 0) findings.push(msg.l10n_agent_hang_send_errors({ count: t.sendErrors }));
 	}
 
 	if (t.stdinWriteSinceMs !== null && now - t.stdinWriteSinceMs > STDIN_STUCK_MS) {
-		findings.push(`omp non legge stdin: una scrittura e\u2019 ferma da ${seconds(now - t.stdinWriteSinceMs)}.`);
+		findings.push(msg.l10n_agent_hang_stdin_stuck({ seconds: seconds(now - t.stdinWriteSinceMs) }));
 	}
 
 	if (!stalled) {
 		if (t.lastStdoutMs < input.sentAt) {
 			findings.push(
 				t.lastStdoutMs === 0
-					? 'omp muto: non ha mai scritto su stdout.'
-					: `omp muto: nessuna riga su stdout da ${seconds(now - t.lastStdoutMs)}, cioe\u2019 da prima dell\u2019invio del comando.`
+					? msg.l10n_agent_hang_omp_silent_never()
+					: msg.l10n_agent_hang_omp_silent_since({ seconds: seconds(now - t.lastStdoutMs) })
 			);
 		} else if (responseFrame) {
-			findings.push(`La risposta a "${input.command}" e\u2019 stata consegnata al client: il blocco e\u2019 nella correlazione delle risposte.`);
+			findings.push(msg.l10n_agent_hang_response_delivered({ command: input.command }));
 		} else {
 			const avgLine = t.stdoutLines > 0 ? t.stdoutBytes / t.stdoutLines : 0;
 			findings.push(
 				avgLine >= SNAPSHOT_LINE_BYTES
-					? `omp scrive su stdout e il client riceve tutto, ma le righe sono in media di ${Math.round(avgLine / 1024)} KB: ` +
-						'omp spedisce l\u2019istantanea intera del messaggio a ogni delta, accumula l\u2019output in arretrato ' +
-						`e la risposta a "${input.command}" e\u2019 ancora in coda dietro i frame vecchi.`
-					: `omp scrive su stdout (ultima riga ${seconds(now - t.lastStdoutMs)} fa) e il client riceve tutto, ` +
-						`ma non ha mai risposto a "${input.command}": il comando e\u2019 fermo dentro omp.`
+					? msg.l10n_agent_hang_snapshot_lines({
+							kb: Math.round(avgLine / 1024),
+							command: input.command
+						})
+					: msg.l10n_agent_hang_writes_no_reply({
+							seconds: seconds(now - t.lastStdoutMs),
+							command: input.command
+						})
 			);
 		}
 	}
@@ -197,11 +221,11 @@ export function diagnoseHang(input: HangInput): string[] {
 	if (tree) {
 		findings.push(
 			tree.cpuMsInLast500ms >= BUSY_CPU_MS
-				? `L\u2019albero di omp consuma CPU (${tree.cpuMsInLast500ms} ms su 500): sta calcolando, non aspettando.`
-				: `L\u2019albero di omp e\u2019 quasi fermo (${tree.cpuMsInLast500ms} ms di CPU su 500): sta aspettando qualcosa.`
+				? msg.l10n_agent_hang_tree_busy({ cpu: tree.cpuMsInLast500ms })
+				: msg.l10n_agent_hang_tree_idle({ cpu: tree.cpuMsInLast500ms })
 		);
 		if (tree.activeProcesses > 1) {
-			findings.push(`Processi attivi nell\u2019albero di omp: ${tree.activeProcesses} (omp piu\u2019 tool o figli ancora in corso).`);
+			findings.push(msg.l10n_agent_hang_tree_processes({ count: tree.activeProcesses }));
 		}
 	}
 	return findings;

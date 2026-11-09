@@ -26,7 +26,12 @@ fn store_path(app: &AppHandle) -> Result<PathBuf, String> {
     app.path()
         .app_data_dir()
         .map(|directory| directory.join(STORE_FILE_NAME))
-        .map_err(|error| format!("Percorso store corsie non disponibile: {error}"))
+        .map_err(|error| {
+            crate::tr!(
+                format!("Percorso store corsie non disponibile: {error}"),
+                format!("Lane store path unavailable: {error}")
+            )
+        })
 }
 
 fn read_document(app: &AppHandle) -> Result<Option<Value>, String> {
@@ -34,12 +39,24 @@ fn read_document(app: &AppHandle) -> Result<Option<Value>, String> {
     if !path.exists() {
         return Ok(None);
     }
-    let bytes = fs::read(&path).map_err(|error| format!("Lettura {}: {error}", path.display()))?;
-    let root: Value = serde_json::from_slice(&bytes)
-        .map_err(|error| format!("JSON {} non valido: {error}", path.display()))?;
-    let object = root
-        .as_object()
-        .ok_or_else(|| format!("{} non contiene un oggetto store", path.display()))?;
+    let bytes = fs::read(&path).map_err(|error| {
+        crate::tr!(
+            format!("Lettura {}: {error}", path.display()),
+            format!("Reading {}: {error}", path.display())
+        )
+    })?;
+    let root: Value = serde_json::from_slice(&bytes).map_err(|error| {
+        crate::tr!(
+            format!("JSON {} non valido: {error}", path.display()),
+            format!("Invalid JSON in {}: {error}", path.display())
+        )
+    })?;
+    let object = root.as_object().ok_or_else(|| {
+        crate::tr!(
+            format!("{} non contiene un oggetto store", path.display()),
+            format!("{} does not contain a store object", path.display())
+        )
+    })?;
     Ok(object.get(STORE_KEY).cloned())
 }
 
@@ -50,7 +67,12 @@ pub async fn lanes_store_read(app: AppHandle) -> Result<Option<Value>, String> {
         read_document(&app)
     })
     .await
-    .map_err(|error| format!("Lettura store corsie interrotta: {error}"))?
+    .map_err(|error| {
+        crate::tr!(
+            format!("Lettura store corsie interrotta: {error}"),
+            format!("Lane store read interrupted: {error}")
+        )
+    })?
 }
 
 #[command]
@@ -58,29 +80,50 @@ pub async fn lanes_store_write_atomic(app: AppHandle, document: Value) -> Result
     tokio::task::spawn_blocking(move || {
         let _guard = lane_store_lock();
         let path = store_path(&app)?;
-        let parent = path
-            .parent()
-            .ok_or_else(|| "Percorso store corsie senza directory".to_string())?;
-        fs::create_dir_all(parent)
-            .map_err(|error| format!("Creazione {}: {error}", parent.display()))?;
+        let parent = path.parent().ok_or_else(|| {
+            crate::tr!(
+                "Percorso store corsie senza directory",
+                "Lane store path without a directory"
+            )
+            .to_string()
+        })?;
+        fs::create_dir_all(parent).map_err(|error| {
+            crate::tr!(
+                format!("Creazione {}: {error}", parent.display()),
+                format!("Creating {}: {error}", parent.display())
+            )
+        })?;
 
         let mut root = Map::new();
         root.insert(STORE_KEY.to_string(), document);
-        let bytes = serde_json::to_vec_pretty(&Value::Object(root))
-            .map_err(|error| format!("Serializzazione store corsie: {error}"))?;
+        let bytes = serde_json::to_vec_pretty(&Value::Object(root)).map_err(|error| {
+            crate::tr!(
+                format!("Serializzazione store corsie: {error}"),
+                format!("Serializing lane store: {error}")
+            )
+        })?;
         atomic_write(&path, &bytes)
     })
     .await
-    .map_err(|error| format!("Salvataggio store corsie interrotto: {error}"))?
+    .map_err(|error| {
+        crate::tr!(
+            format!("Salvataggio store corsie interrotto: {error}"),
+            format!("Lane store save interrupted: {error}")
+        )
+    })?
 }
 
 /// Copia `lanes.json` accanto a se' prima che il frontend lo riscriva dopo aver
 /// scartato record non validi: e' l'unico posto in cui quei record restano
 /// recuperabili. Restituisce il percorso della copia.
 fn backup_store_file(path: &std::path::Path, stamp_ms: u128) -> Result<PathBuf, String> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| "Percorso store corsie senza directory".to_string())?;
+    let parent = path.parent().ok_or_else(|| {
+        crate::tr!(
+            "Percorso store corsie senza directory",
+            "Lane store path without a directory"
+        )
+        .to_string()
+    })?;
     let mut target = parent.join(format!("{STORE_FILE_NAME}.bak-{stamp_ms}"));
     let mut suffix = 1;
     // Due copie nello stesso millisecondo non devono sovrascriversi.
@@ -88,7 +131,12 @@ fn backup_store_file(path: &std::path::Path, stamp_ms: u128) -> Result<PathBuf, 
         target = parent.join(format!("{STORE_FILE_NAME}.bak-{stamp_ms}-{suffix}"));
         suffix += 1;
     }
-    let bytes = fs::read(path).map_err(|error| format!("Lettura {}: {error}", path.display()))?;
+    let bytes = fs::read(path).map_err(|error| {
+        crate::tr!(
+            format!("Lettura {}: {error}", path.display()),
+            format!("Reading {}: {error}", path.display())
+        )
+    })?;
     atomic_write(&target, &bytes)?;
     Ok(target)
 }
@@ -99,9 +147,9 @@ pub async fn lanes_store_backup(app: AppHandle) -> Result<String, String> {
         let _guard = lane_store_lock();
         let path = store_path(&app)?;
         if !path.exists() {
-            return Err(format!(
-                "{} non esiste: nessuna copia da fare",
-                path.display()
+            return Err(crate::tr!(
+                format!("{} non esiste: nessuna copia da fare", path.display()),
+                format!("{} does not exist: nothing to copy", path.display())
             ));
         }
         let stamp_ms = std::time::SystemTime::now()
@@ -111,7 +159,12 @@ pub async fn lanes_store_backup(app: AppHandle) -> Result<String, String> {
         backup_store_file(&path, stamp_ms).map(|target| target.to_string_lossy().to_string())
     })
     .await
-    .map_err(|error| format!("Copia store corsie interrotta: {error}"))?
+    .map_err(|error| {
+        crate::tr!(
+            format!("Copia store corsie interrotta: {error}"),
+            format!("Lane store copy interrupted: {error}")
+        )
+    })?
 }
 
 #[cfg(test)]

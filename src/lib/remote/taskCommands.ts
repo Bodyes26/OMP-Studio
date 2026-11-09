@@ -5,6 +5,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
+import { m } from '#lib/paraglide/messages.js';
 import type {
 	RemoteScheduleChoice,
 	RemoteTaskOptions,
@@ -77,16 +78,19 @@ const defaultDeps: TaskCommandDeps = {
 
 function validatePrompt(prompt: unknown): string {
 	if (typeof prompt !== 'string') {
-		throw new RemoteCommandFailure('rejected', 'Prompt non valido: attesa una stringa');
+		throw new RemoteCommandFailure('rejected', m.l10n_lab_remote_prompt_invalid_type());
 	}
 	const trimmed = prompt.trim();
 	if (trimmed.length === 0) {
-		throw new RemoteCommandFailure('rejected', 'Prompt vuoto: inserisci un testo per il task');
+		throw new RemoteCommandFailure('rejected', m.l10n_lab_remote_prompt_empty());
 	}
 	if (prompt.length > MAX_PROMPT_LENGTH) {
 		throw new RemoteCommandFailure(
 			'rejected',
-			`Prompt troppo lungo (${prompt.length} caratteri, massimo ${MAX_PROMPT_LENGTH})`
+			m.l10n_lab_remote_prompt_too_long({
+				length: String(prompt.length),
+				max: String(MAX_PROMPT_LENGTH)
+			})
 		);
 	}
 	return prompt;
@@ -94,13 +98,13 @@ function validatePrompt(prompt: unknown): string {
 
 function validateAtSchedule(notBefore: unknown, now: number): number {
 	if (typeof notBefore !== 'number' || !Number.isFinite(notBefore)) {
-		throw new RemoteCommandFailure('rejected', 'Orario programmato non valido: atteso un epoch ms');
+		throw new RemoteCommandFailure('rejected', m.l10n_lab_remote_schedule_invalid());
 	}
 	if (notBefore < now - SKEW_TOLERANCE_MS) {
-		throw new RemoteCommandFailure('rejected', 'Orario programmato nel passato');
+		throw new RemoteCommandFailure('rejected', m.l10n_lab_remote_schedule_past());
 	}
 	if (notBefore > now + MAX_FUTURE_SCHEDULE_MS) {
-		throw new RemoteCommandFailure('rejected', 'Orario programmato troppo lontano nel futuro');
+		throw new RemoteCommandFailure('rejected', m.l10n_lab_remote_schedule_too_far());
 	}
 	return notBefore;
 }
@@ -118,7 +122,7 @@ function resolveSchedule(
 		if (!resolved) {
 			throw new RemoteCommandFailure(
 				'rejected',
-				'Nessun provider di quota configurato per il ruolo o modello di questo task'
+				m.l10n_lab_remote_quota_provider_missing()
 			);
 		}
 		return resolved;
@@ -129,7 +133,7 @@ function resolveSchedule(
 		return buildAtSchedule(validNotBefore, currentNow);
 	}
 
-	throw new RemoteCommandFailure('rejected', 'Tipo di programmazione non riconosciuto');
+	throw new RemoteCommandFailure('rejected', m.l10n_lab_remote_schedule_kind_unknown());
 }
 
 export async function resolvePromptImages(images: RemotePromptImage[]): Promise<ImageContent[]> {
@@ -152,7 +156,9 @@ export async function resolvePromptImages(images: RemotePromptImage[]): Promise<
 			} catch (err) {
 				throw new RemoteCommandFailure(
 					'failed',
-					`Impossibile leggere l'immagine allegata: ${err instanceof Error ? err.message : String(err)}`
+					m.l10n_lab_remote_attachment_image_read_failed({
+						error: err instanceof Error ? err.message : String(err)
+					})
 				);
 			}
 		}
@@ -192,7 +198,7 @@ function validateAndNormalizeOptions(
 			for (const r of Object.keys(deps.roleModels?.() ?? {})) knownRoles.add(r);
 			knownRoles.add('custom');
 			if (!knownRoles.has(role)) {
-				throw new RemoteCommandFailure('rejected', `Ruolo "${role}" sconosciuto`);
+				throw new RemoteCommandFailure('rejected', m.l10n_lab_remote_role_unknown({ role }));
 			}
 			result.role = role;
 			roleChanged = true;
@@ -215,7 +221,7 @@ function validateAndNormalizeOptions(
 			const selector = options.modelSelector.trim();
 			const slash = selector.indexOf('/');
 			if (slash <= 0 || slash === selector.length - 1) {
-				throw new RemoteCommandFailure('rejected', `Selettore modello non valido: "${selector}"`);
+				throw new RemoteCommandFailure('rejected', m.l10n_lab_remote_model_selector_invalid({ selector }));
 			}
 			result.modelSelector = selector;
 		}
@@ -236,7 +242,7 @@ function validateAndNormalizeOptions(
 		for (const id of options.directiveIds) {
 			const found = catalog.find((d) => d.id === id);
 			if (!found) {
-				throw new RemoteCommandFailure('rejected', `Direttiva "${id}" non trovata nel catalogo`);
+				throw new RemoteCommandFailure('rejected', m.l10n_lab_remote_directive_not_found({ id }));
 			}
 			snapshots.push(createDirectiveSnapshot(found));
 		}
@@ -252,11 +258,11 @@ export function createTaskCommands(customDeps?: Partial<TaskCommandDeps>) {
 		getRemoteTask: async (projectId: string, taskId: string): Promise<RemoteTaskDetail> => {
 			const task = deps.taskById(taskId);
 			if (!task) {
-				throw new RemoteCommandFailure('not_found', `Task "${taskId}" non trovato`);
+				throw new RemoteCommandFailure('not_found', m.l10n_lab_remote_task_not_found({ task: taskId }));
 			}
 			const project = deps.findProject(projectId);
 			if (!project) {
-				throw new RemoteCommandFailure('not_found', `Progetto "${projectId}" non trovato`);
+				throw new RemoteCommandFailure('not_found', m.l10n_lab_remote_project_not_found({ project: projectId }));
 			}
 
 			let accumulatedBytes = 0;
@@ -314,7 +320,7 @@ export function createTaskCommands(customDeps?: Partial<TaskCommandDeps>) {
 
 			const project = deps.findProject(projectId);
 			if (!project || !project.canonicalProjectPath) {
-				throw new RemoteCommandFailure('not_found', `Progetto "${projectId}" non trovato`);
+				throw new RemoteCommandFailure('not_found', m.l10n_lab_remote_project_not_found({ project: projectId }));
 			}
 
 			await deps.loadProject(project.canonicalProjectPath);
@@ -355,7 +361,7 @@ export function createTaskCommands(customDeps?: Partial<TaskCommandDeps>) {
 		): Promise<void> => {
 			const task = deps.taskById(taskId);
 			if (!task) {
-				throw new RemoteCommandFailure('not_found', `Task "${taskId}" non trovato`);
+				throw new RemoteCommandFailure('not_found', m.l10n_lab_remote_task_not_found({ task: taskId }));
 			}
 
 			let newPrompt = task.prompt;
@@ -368,7 +374,7 @@ export function createTaskCommands(customDeps?: Partial<TaskCommandDeps>) {
 				const currentImages = task.images || [];
 				const keepIndices = patch.images.keep;
 				if (!Array.isArray(keepIndices)) {
-					throw new RemoteCommandFailure('rejected', 'keep non valido: atteso un array di indici');
+					throw new RemoteCommandFailure('rejected', m.l10n_lab_remote_keep_invalid());
 				}
 				for (const idx of keepIndices) {
 					if (typeof idx !== 'number' || !Number.isInteger(idx) || idx < 0 || idx >= currentImages.length) {
@@ -415,7 +421,7 @@ export function createTaskCommands(customDeps?: Partial<TaskCommandDeps>) {
 		deleteRemoteTask: async (_projectId: string, taskId: string): Promise<void> => {
 			const task = deps.taskById(taskId);
 			if (!task) {
-				throw new RemoteCommandFailure('not_found', `Task "${taskId}" non trovato`);
+				throw new RemoteCommandFailure('not_found', m.l10n_lab_remote_task_not_found({ task: taskId }));
 			}
 			deps.deleteTask(taskId);
 		},
@@ -428,12 +434,12 @@ export function createTaskCommands(customDeps?: Partial<TaskCommandDeps>) {
 			if (typeof toIndex !== 'number' || !Number.isFinite(toIndex) || !Number.isInteger(toIndex)) {
 				throw new RemoteCommandFailure(
 					'rejected',
-					'Indice di destinazione non valido: atteso un intero'
+					m.l10n_lab_remote_move_index_invalid()
 				);
 			}
 			const task = deps.taskById(taskId);
 			if (!task) {
-				throw new RemoteCommandFailure('not_found', `Task "${taskId}" non trovato`);
+				throw new RemoteCommandFailure('not_found', m.l10n_lab_remote_task_not_found({ task: taskId }));
 			}
 			deps.moveTaskToIndex(taskId, toIndex);
 		}

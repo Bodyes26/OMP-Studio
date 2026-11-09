@@ -8,6 +8,11 @@
  * - Il click o scorciatoia Alt+N precompila il composer (non invia).
  */
 
+import { m } from '#lib/paraglide/messages.js';
+
+/** Un messaggio Paraglide senza parametri, invocabile per lingua. */
+type LocalizedSuggestionMessage = (inputs?: Record<string, never>, options?: { locale: 'en' | 'it' }) => string;
+
 export type FactorySuggestionKey = 'proceed' | 'explain' | 'verify';
 
 export interface PromptSuggestion {
@@ -26,24 +31,26 @@ export const FACTORY_SUGGESTIONS: readonly PromptSuggestion[] = [
 	{
 		id: 'sug_factory_proceed',
 		factoryKey: 'proceed',
-		label: 'Procedi pure',
-		prompt: 'Procedi pure.',
+		// Getter: i preset di fabbrica nascono nella lingua attiva al primo uso;
+		// una volta salvati restano il testo dell'utente.
+		get label() { return m.l10n_state_suggest_proceed_label(); },
+		get prompt() { return m.l10n_state_suggest_proceed_prompt(); },
 		order: 10,
 		hidden: false
 	},
 	{
 		id: 'sug_factory_explain',
 		factoryKey: 'explain',
-		label: 'Spiega la scelta',
-		prompt: 'Spiega la scelta che hai fatto e le alternative che hai scartato.',
+		get label() { return m.l10n_state_suggest_explain_label(); },
+		get prompt() { return m.l10n_state_suggest_explain_prompt(); },
 		order: 20,
 		hidden: false
 	},
 	{
 		id: 'sug_factory_verify',
 		factoryKey: 'verify',
-		label: 'Esegui i controlli',
-		prompt: "Esegui i controlli e i test del progetto e riporta l'esito.",
+		get label() { return m.l10n_state_suggest_verify_label(); },
+		get prompt() { return m.l10n_state_suggest_verify_prompt(); },
 		order: 30,
 		hidden: false
 	}
@@ -161,6 +168,35 @@ export function normalizeSuggestionText(value: string): string {
 		.trim();
 }
 
+/**
+ * Etichetta e prompt da mostrare per un suggerimento.
+ *
+ * Un preset di fabbrica non personalizzato vive nella lingua in cui e' stato
+ * salvato: si riconosce confrontando entrambe le varianti, cosi' la chip segue
+ * la lingua attiva. Un testo scritto dall'utente resta com'e'.
+ */
+export function suggestionDisplayText(suggestion: PromptSuggestion): { label: string; prompt: string } {
+	const key = suggestion.factoryKey;
+	if (!key) return { label: suggestion.label, prompt: suggestion.prompt };
+
+	const messages: Record<FactorySuggestionKey, { label: LocalizedSuggestionMessage; prompt: LocalizedSuggestionMessage }> = {
+		proceed: { label: m.l10n_state_suggest_proceed_label, prompt: m.l10n_state_suggest_proceed_prompt },
+		explain: { label: m.l10n_state_suggest_explain_label, prompt: m.l10n_state_suggest_explain_prompt },
+		verify: { label: m.l10n_state_suggest_verify_label, prompt: m.l10n_state_suggest_verify_prompt }
+	};
+	const messagesForKey = messages[key];
+	const isFactory = (value: string, message: LocalizedSuggestionMessage) =>
+		!value || value === message({}, { locale: 'it' }) || value === message({}, { locale: 'en' });
+	return {
+		label: isFactory(suggestion.label, messagesForKey.label)
+			? messagesForKey.label()
+			: suggestion.label,
+		prompt: isFactory(suggestion.prompt, messagesForKey.prompt)
+			? messagesForKey.prompt()
+			: suggestion.prompt
+	};
+}
+
 /** Chip pronta per il rendering nella riga dei suggerimenti del composer. */
 export interface SuggestionChipItem {
 	id: string;
@@ -194,14 +230,15 @@ export function composeSuggestionChips(
 	let shortcut = 1;
 
 	for (const s of statics) {
-		seen.add(normalizeSuggestionText(s.prompt || s.label));
+		const shown = suggestionDisplayText(s);
+		seen.add(normalizeSuggestionText(shown.prompt || shown.label));
 		items.push({
 			id: s.id,
-			label: s.label,
-			prompt: s.prompt,
+			label: shown.label,
+			prompt: shown.prompt,
 			isDynamic: false,
 			shortcutNumber: shortcut++,
-			title: s.prompt !== s.label ? s.prompt : s.label
+			title: shown.prompt !== shown.label ? shown.prompt : shown.label
 		});
 	}
 

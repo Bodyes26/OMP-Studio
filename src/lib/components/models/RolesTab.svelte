@@ -473,7 +473,7 @@
 							<Tooltip text={m.roles_tab_capability_reasoning_tooltip()}>
 								<span class="ui-cap">
 									<IconRoleSlow />
-									<span>Reasoning</span>
+									<span>{m.providers_tab_reasoning()}</span>
 								</span>
 							</Tooltip>
 						{/if}
@@ -481,12 +481,12 @@
 							<Tooltip text={m.roles_tab_capability_vision_tooltip()}>
 								<span class="ui-cap">
 									<IconRoleVision />
-									<span>Vision</span>
+									<span>{m.catalog_tab_filter_vision()}</span>
 								</span>
 							</Tooltip>
 						{/if}
 						{#if selectedRoleModelDto.isCustom}
-							<span class="meta-badge custom">Custom</span>
+							<span class="meta-badge custom">{m.l10n_cmp_models_custom_badge()}</span>
 						{/if}
 					</div>
 				{/if}

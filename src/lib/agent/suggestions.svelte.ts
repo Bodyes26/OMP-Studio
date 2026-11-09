@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { settingsStore } from '#lib/stores/settings.svelte.ts';
 import type { AgentSession, TranscriptEntry } from './session.svelte';
+import * as messages from '#lib/paraglide/messages.js';
 
 /**
  * Risultato strutturato restituito dal comando Tauri `generate_prompt_suggestions`.
@@ -211,7 +212,7 @@ export class SessionSuggestions {
 
 			if (structured.awaitsUserInput) {
 				this.session.setInferredAttention(
-					structured.questionSummary || 'L\'agente attende una risposta per procedere.',
+					structured.questionSummary || messages.l10n_agent_agent_awaits_answer(),
 					structured.suggestions
 				);
 			} else {

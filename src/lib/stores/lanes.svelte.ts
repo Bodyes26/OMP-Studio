@@ -265,6 +265,8 @@ class LaneStore {
 	 */
 	async reconcileProject(projectId: ProjectId, projectPath: CanonicalProjectPath, force = false): Promise<boolean> {
 		if (!this.isTauri || !projectPath) return false;
+		const proj = projectStore.projects.find((p) => p.id === projectId);
+		if (proj?.external) return false;
 		if (!force && this.reconciledProjects.has(projectId)) return false;
 
 		try {
@@ -294,7 +296,7 @@ class LaneStore {
 	async reconcileRemainingProjects(): Promise<void> {
 		if (!this.isTauri) return;
 		const remaining = projectStore.projects.filter(
-			(project) => project.canonicalProjectPath && !this.reconciledProjects.has(project.id)
+			(project) => !project.external && project.canonicalProjectPath && !this.reconciledProjects.has(project.id)
 		);
 		if (remaining.length === 0) return;
 

@@ -42,15 +42,15 @@
 
 	const argsRows = $derived.by(() => {
 		const rows: { key: string; value: string }[] = [];
-		if (provider) rows.push({ key: 'Provider', value: provider });
+		if (provider) rows.push({ key: m.l10n_tools_label_provider(), value: provider });
 		if (model) rows.push({ key: m.ui_generateimage_modello_b6ca(), value: model });
-		if (style) rows.push({ key: 'Stile', value: style });
-		if (aspectRatio) rows.push({ key: 'Proporzioni', value: aspectRatio });
-		if (imageSize) rows.push({ key: 'Dimensioni', value: imageSize });
-		if (action) rows.push({ key: 'Azione', value: action });
-		if (scene) rows.push({ key: 'Scena', value: scene });
-		if (composition) rows.push({ key: 'Inquadratura', value: composition });
-		if (lighting) rows.push({ key: 'Illuminazione', value: lighting });
+		if (style) rows.push({ key: m.l10n_tools_label_style(), value: style });
+		if (aspectRatio) rows.push({ key: m.l10n_tools_label_aspect_ratio(), value: aspectRatio });
+		if (imageSize) rows.push({ key: m.l10n_tools_label_image_size(), value: imageSize });
+		if (action) rows.push({ key: m.l10n_tools_label_action(), value: action });
+		if (scene) rows.push({ key: m.l10n_tools_label_scene(), value: scene });
+		if (composition) rows.push({ key: m.l10n_tools_label_framing(), value: composition });
+		if (lighting) rows.push({ key: m.l10n_tools_label_lighting(), value: lighting });
 		return rows;
 	});
 </script>
@@ -71,7 +71,7 @@
 	{/if}
 
 	{#if prompt}
-		<PromptBlock text={prompt} label="Prompt di generazione" />
+		<PromptBlock text={prompt} label={m.l10n_tools_label_generation_prompt()} />
 	{/if}
 
 	{#if argsRows.length > 0}
@@ -79,7 +79,7 @@
 	{/if}
 
 	{#if text && text !== prompt}
-		<OutputBlock {text} label="risultato" />
+		<OutputBlock {text} label={m.l10n_tools_label_result()} />
 	{/if}
 </div>
 

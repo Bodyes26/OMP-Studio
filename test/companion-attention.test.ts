@@ -28,6 +28,9 @@ import {
 import { askQuestionText, parseAskTitle, sanitizeAskDetail } from '../src/lib/agent/askTitle.ts';
 import { cleanOptionLabel, isOtherOption } from '../src/lib/agent/askAnswers.ts';
 import type { AttentionRequest } from '../src/lib/stores/companion.svelte.ts';
+import { useLocale } from './locale.ts';
+
+useLocale('it');
 
 /**
  * Ricostruisce la richiesta come fa l'effetto: array e oggetti nuovi a ogni

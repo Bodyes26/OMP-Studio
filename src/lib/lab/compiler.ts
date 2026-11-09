@@ -19,6 +19,7 @@ import {
 } from './catalog.ts';
 import type { LabFile, LabPreviewError } from './types.ts';
 import { LAB_JSX_DEV_SHIM } from './inspect/jsxDevShim.ts';
+import { m } from '#lib/paraglide/messages.js';
 
 export interface LabCompileResult {
 	ok: boolean;
@@ -106,7 +107,7 @@ export async function compileLabPrototype(files: LabFile[]): Promise<LabCompileR
 		} catch {
 			errors.push({
 				kind: 'compile',
-				message: 'Il file package.json contiene sintassi JSON non valida.'
+				message: m.l10n_lab_remote_compile_package_json_invalid()
 			});
 		}
 	}
@@ -123,9 +124,9 @@ export async function compileLabPrototype(files: LabFile[]): Promise<LabCompileR
 	if (!entryPath) {
 		errors.push({
 			kind: 'compile',
-			message:
-				'Nessun file di ingresso trovato nel prototipo. Cercati: ' +
-				ENTRY_CANDIDATES.map((c) => c.slice(1)).join(', ')
+			message: m.l10n_lab_remote_compile_no_entry({
+				candidates: ENTRY_CANDIDATES.map((c) => c.slice(1)).join(', ')
+			})
 		});
 		return {
 			ok: false,
@@ -204,7 +205,7 @@ export async function compileLabPrototype(files: LabFile[]): Promise<LabCompileR
 				return {
 					errors: [
 						{
-							text: `Modulo non trovato nel prototipo: ${args.path}`,
+							text: m.l10n_lab_remote_compile_module_not_found({ path: args.path }),
 							location: {
 								file: args.importer,
 								line: 1,
@@ -235,7 +236,7 @@ export async function compileLabPrototype(files: LabFile[]): Promise<LabCompileR
 				if (!declaredVersion) {
 					errors.push({
 						kind: 'compile',
-						message: `Il pacchetto "${pkg}" non e' presente in package.json "dependencies". Aggiungilo con una versione esatta.`,
+						message: m.l10n_lab_remote_compile_dependency_missing({ pkg }),
 						file: args.importer || 'src/main.tsx'
 					});
 					return { path: specifier, external: true };
@@ -244,7 +245,7 @@ export async function compileLabPrototype(files: LabFile[]): Promise<LabCompileR
 				if (!isExactVersion(declaredVersion)) {
 					errors.push({
 						kind: 'compile',
-						message: `Il pacchetto "${pkg}" ha una versione non esatta ("${declaredVersion}"). Fissa una versione esatta (es. "1.2.3") senza ^, ~ o intervalli.`,
+						message: m.l10n_lab_remote_compile_dependency_not_exact({ pkg, version: declaredVersion }),
 						file: args.importer || 'src/main.tsx'
 					});
 					return { path: specifier, external: true };
@@ -258,7 +259,7 @@ export async function compileLabPrototype(files: LabFile[]): Promise<LabCompileR
 			build.onLoad({ filter: /.*/, namespace: 'vfs' }, (args) => {
 				const content = vfsMap.get(args.path);
 				if (content === undefined) {
-					return { errors: [{ text: `Contenuto mancante per ${args.path}` }] };
+					return { errors: [{ text: m.l10n_lab_remote_compile_content_missing({ path: args.path }) }] };
 				}
 
 				if (args.path.endsWith('.css')) {
@@ -404,7 +405,7 @@ export async function compileLabPrototypeInWorker(
 				errors: [
 					{
 						kind: 'compile',
-						message: `Compilazione scaduta dopo ${timeoutMs}ms.`
+						message: m.l10n_lab_remote_compile_timeout({ ms: String(timeoutMs) })
 					}
 				],
 				compiledJs: '',
@@ -429,7 +430,7 @@ export async function compileLabPrototypeInWorker(
 				errors: [
 					{
 						kind: 'compile',
-						message: err.message || 'Errore nel Web Worker di compilazione.'
+						message: err.message || m.l10n_lab_remote_compile_worker_error()
 					}
 				],
 				compiledJs: '',

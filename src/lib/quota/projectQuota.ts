@@ -3,6 +3,7 @@ import {
 	type QuotaReport,
 	type QuotaLimit
 } from '../stores/quota.svelte';
+import { m } from '#lib/paraglide/messages.js';
 import { providersMatch } from './providers';
 import {
 	modelFamilyFor,
@@ -70,7 +71,7 @@ export function computeQuotaInfo(
 			remainingPct: null,
 			usedPct: 0,
 			hasLimits: false,
-			tooltip: `Provider AI o rete non raggiungibili${quotaStore.error ? `: ${quotaStore.error}` : ''}. Clicca per dettagli (Ctrl+Alt+U)`,
+			tooltip: m.l10n_state_quota_tip_offline({ detail: quotaStore.error ? `: ${quotaStore.error}` : '' }),
 			accountEmail: undefined,
 			longWindowAlert: null
 		};
@@ -124,7 +125,7 @@ export function computeQuotaInfo(
 			const remainingFrac = shortestLimit ? remainingFractionOf(shortestLimit) : 1;
 			const remainingPct = Math.round(remainingFrac * 100);
 			const usedPct = Math.max(0, Math.min(100, 100 - remainingPct));
-			const limitLabel = shortestLimit?.label || shortestLimit?.window?.label || 'Quota';
+			const limitLabel = shortestLimit?.label || shortestLimit?.window?.label || m.l10n_state_quota_window_default();
 			const resetsAt = shortestLimit?.window?.resetsAt ?? shortestLimit?.resetsAt;
 
 			// Stato:
@@ -173,7 +174,7 @@ export function computeQuotaInfo(
 					const longPct = Math.round(minLongRem * 100);
 					if (longPct <= 10) {
 						longWindowAlert = {
-							label: worstLongLimit.label || worstLongLimit.window?.label || 'Finestra estesa',
+							label: worstLongLimit.label || worstLongLimit.window?.label || m.l10n_state_quota_window_extended(),
 							remainingPct: longPct,
 							status:
 								worstLongLimit.status === 'exhausted' || minLongRem <= 0.001 || longPct <= 0
@@ -186,33 +187,38 @@ export function computeQuotaInfo(
 				}
 			}
 
-			// Costruzione del tooltip multilinea in italiano:
+			// Costruzione del tooltip multilinea (nella lingua attiva):
 			// Prima riga: finestra breve con residuo e reset;
 			// Seconda riga (se presente): finestra lunga critica;
 			// Terza riga (se presente): account email;
 			// Ultima riga: suffisso con scorciatoia tastiera.
 			const lines: string[] = [];
-			let line1 =
+			let line1: string =
 				status === 'exhausted'
-					? `Quota esaurita per ${shortName} (${limitLabel}): ${remainingPct}% rimanente`
-					: `Quota ${shortName} (${limitLabel}): ${remainingPct}% rimanente`;
+					? m.l10n_state_quota_tip_exhausted({ name: shortName, window: limitLabel, pct: remainingPct })
+					: m.l10n_state_quota_tip_remaining({ name: shortName, window: limitLabel, pct: remainingPct });
 			if (resetsAt) {
 				const countdown = formatResetCountdown(resetsAt);
 				if (countdown) {
-					line1 += ` (reset ${countdown})`;
+					line1 += m.l10n_state_quota_tip_reset_suffix({ when: countdown });
 				}
 			}
 			lines.push(line1);
 
 			if (longWindowAlert) {
-				lines.push(`Attenzione ${longWindowAlert.label}: ${longWindowAlert.remainingPct}% rimanente`);
+				lines.push(
+				m.l10n_state_quota_tip_long_window({
+					label: longWindowAlert.label,
+					pct: longWindowAlert.remainingPct
+				})
+			);
 			}
 
 			if (accountEmail) {
-				lines.push(`Account: ${accountEmail}`);
+				lines.push(m.l10n_state_quota_tip_account({ email: accountEmail }));
 			}
 
-			lines.push('Clicca per dettagli (Ctrl+Alt+U)');
+			lines.push(m.l10n_state_quota_tip_details_hint());
 
 			return {
 				provider,
@@ -238,7 +244,7 @@ export function computeQuotaInfo(
 			remainingPct: null,
 			usedPct: 0,
 			hasLimits: false,
-			tooltip: `Provider attivo: ${shortName} (nessun limite API registrato). Clicca per dettagli (Ctrl+Alt+U)`,
+			tooltip: m.l10n_state_quota_ok_tip({ name: shortName }),
 			accountEmail,
 			longWindowAlert: null
 		};
@@ -252,7 +258,7 @@ export function computeQuotaInfo(
 			remainingPct: null,
 			usedPct: 0,
 			hasLimits: false,
-			tooltip: 'Nessun provider AI configurato con credenziali attive. Clicca per configurare (Ctrl+Alt+U)',
+			tooltip: m.l10n_state_quota_tip_unconfigured(),
 			accountEmail: undefined,
 			longWindowAlert: null
 		};
@@ -265,7 +271,7 @@ export function computeQuotaInfo(
 			remainingPct: quotaStore.lowestRemainingPercent ?? 0,
 			usedPct: 100 - (quotaStore.lowestRemainingPercent ?? 0),
 			hasLimits: true,
-			tooltip: 'Limite di quota raggiunto su uno o più provider. Clicca per dettagli (Ctrl+Alt+U)',
+			tooltip: m.ui_ts_quota_limite_di_quota_raggiunto_su_uno_o_b96d(),
 			accountEmail: undefined,
 			longWindowAlert: null
 		};
@@ -279,7 +285,7 @@ export function computeQuotaInfo(
 			remainingPct: rem,
 			usedPct: 100 - rem,
 			hasLimits: true,
-			tooltip: `Quota in esaurimento (${rem}% rimanente). Clicca per dettagli (Ctrl+Alt+U)`,
+			tooltip: m.l10n_state_quota_tip_low({ pct: rem }),
 			accountEmail: undefined,
 			longWindowAlert: null
 		};

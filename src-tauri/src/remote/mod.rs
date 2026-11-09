@@ -8,7 +8,7 @@ pub mod connection;
 pub mod machines_window;
 pub mod protocol;
 pub use machines_window::{
-    remote_open_machines_window, MACHINES_WINDOW_LABEL, MACHINES_WINDOW_TITLE,
+    machines_window_title, remote_open_machines_window, MACHINES_WINDOW_LABEL,
 };
 
 #[cfg(test)]
@@ -100,33 +100,53 @@ impl RemoteManager {
             .timeout(Duration::from_secs(15))
             .send()
             .await
-            .map_err(|e| format!("Errore di rete o TLS durante l'abbinamento: {e}"))?;
+            .map_err(|e| {
+                crate::tr!(
+                    format!("Errore di rete o TLS durante l'abbinamento: {e}"),
+                    format!("Network or TLS error while pairing: {e}")
+                )
+            })?;
 
         let status_code = response.status();
         if status_code == reqwest::StatusCode::UNAUTHORIZED {
-            return Err("Codice di abbinamento non valido o scaduto".to_string());
+            return Err(crate::tr!(
+                "Codice di abbinamento non valido o scaduto",
+                "Pairing code invalid or expired"
+            )
+            .to_string());
         }
         if status_code == reqwest::StatusCode::TOO_MANY_REQUESTS {
-            return Err("Troppi tentativi di abbinamento, riprova piu' tardi".to_string());
+            return Err(crate::tr!(
+                "Troppi tentativi di abbinamento, riprova piu' tardi",
+                "Too many pairing attempts, try again later"
+            )
+            .to_string());
         }
         if !status_code.is_success() {
             let text = response.text().await.unwrap_or_default();
-            return Err(format!(
-                "Abbinamento rifiutato dal relay ({status_code}): {text}"
+            return Err(crate::tr!(
+                format!("Abbinamento rifiutato dal relay ({status_code}): {text}"),
+                format!("Pairing rejected by the relay ({status_code}): {text}")
             ));
         }
 
-        let pair_resp: PairHostResponse = response
-            .json()
-            .await
-            .map_err(|e| format!("Risposta non valida dal relay: {e}"))?;
+        let pair_resp: PairHostResponse = response.json().await.map_err(|e| {
+            crate::tr!(
+                format!("Risposta non valida dal relay: {e}"),
+                format!("Invalid response from the relay: {e}")
+            )
+        })?;
 
         // Se l'epoca e' cambiata mentre attendevamo la risposta HTTP (es. unpair o disable),
         // scartiamo la risposta senza salvare ne' connettere.
         if self.ctx.current_epoch() != epoch {
             let mut st = self.ctx.status.lock();
             st.last_error = Some(
-                "Abbinamento annullato: configurazione modificata durante l'operazione".to_string(),
+                crate::tr!(
+                    "Abbinamento annullato: configurazione modificata durante l'operazione",
+                    "Pairing cancelled: configuration changed during the operation"
+                )
+                .to_string(),
             );
             let status = st.clone();
             drop(st);
@@ -267,9 +287,13 @@ pub fn init(app: AppHandle) {
 
 #[tauri::command]
 pub async fn remote_get_status(app: AppHandle) -> Result<RemoteStatus, String> {
-    let manager = app
-        .try_state::<RemoteManager>()
-        .ok_or_else(|| "Modulo di controllo remoto non inizializzato".to_string())?;
+    let manager = app.try_state::<RemoteManager>().ok_or_else(|| {
+        crate::tr!(
+            "Modulo di controllo remoto non inizializzato",
+            "Remote control module not initialized"
+        )
+        .to_string()
+    })?;
     let status = manager.ctx.status.lock().clone();
     Ok(status)
 }
@@ -281,17 +305,25 @@ pub async fn remote_pair(
     code: String,
     machine_name: String,
 ) -> Result<RemoteStatus, String> {
-    let manager = app
-        .try_state::<RemoteManager>()
-        .ok_or_else(|| "Modulo di controllo remoto non inizializzato".to_string())?;
+    let manager = app.try_state::<RemoteManager>().ok_or_else(|| {
+        crate::tr!(
+            "Modulo di controllo remoto non inizializzato",
+            "Remote control module not initialized"
+        )
+        .to_string()
+    })?;
     manager.pair(&relay_url, &code, &machine_name).await
 }
 
 #[tauri::command]
 pub async fn remote_set_enabled(app: AppHandle, enabled: bool) -> Result<RemoteStatus, String> {
-    let manager = app
-        .try_state::<RemoteManager>()
-        .ok_or_else(|| "Modulo di controllo remoto non inizializzato".to_string())?;
+    let manager = app.try_state::<RemoteManager>().ok_or_else(|| {
+        crate::tr!(
+            "Modulo di controllo remoto non inizializzato",
+            "Remote control module not initialized"
+        )
+        .to_string()
+    })?;
     manager.set_enabled(enabled)
 }
 
@@ -300,12 +332,20 @@ pub async fn remote_set_machine_name(
     app: AppHandle,
     machine_name: String,
 ) -> Result<RemoteStatus, String> {
-    let manager = app
-        .try_state::<RemoteManager>()
-        .ok_or_else(|| "Modulo di controllo remoto non inizializzato".to_string())?;
+    let manager = app.try_state::<RemoteManager>().ok_or_else(|| {
+        crate::tr!(
+            "Modulo di controllo remoto non inizializzato",
+            "Remote control module not initialized"
+        )
+        .to_string()
+    })?;
     let trimmed = machine_name.trim().to_string();
     if trimmed.is_empty() {
-        return Err("Il nome della macchina non puo' essere vuoto".to_string());
+        return Err(crate::tr!(
+            "Il nome della macchina non puo' essere vuoto",
+            "The machine name cannot be empty"
+        )
+        .to_string());
     }
 
     {
@@ -332,17 +372,25 @@ pub async fn remote_set_machine_name(
 
 #[tauri::command]
 pub async fn remote_unpair(app: AppHandle) -> Result<RemoteStatus, String> {
-    let manager = app
-        .try_state::<RemoteManager>()
-        .ok_or_else(|| "Modulo di controllo remoto non inizializzato".to_string())?;
+    let manager = app.try_state::<RemoteManager>().ok_or_else(|| {
+        crate::tr!(
+            "Modulo di controllo remoto non inizializzato",
+            "Remote control module not initialized"
+        )
+        .to_string()
+    })?;
     manager.unpair()
 }
 
 #[tauri::command]
 pub async fn remote_publish_state(app: AppHandle, state: serde_json::Value) -> Result<(), String> {
-    let manager = app
-        .try_state::<RemoteManager>()
-        .ok_or_else(|| "Modulo di controllo remoto non inizializzato".to_string())?;
+    let manager = app.try_state::<RemoteManager>().ok_or_else(|| {
+        crate::tr!(
+            "Modulo di controllo remoto non inizializzato",
+            "Remote control module not initialized"
+        )
+        .to_string()
+    })?;
     *manager.ctx.latest_state.lock() = Some(state);
     manager.ctx.snapshot_notify.notify_one();
     Ok(())
@@ -356,9 +404,13 @@ pub async fn remote_command_result(
     error: Option<CommandError>,
     data: Option<serde_json::Value>,
 ) -> Result<(), String> {
-    let manager = app
-        .try_state::<RemoteManager>()
-        .ok_or_else(|| "Modulo di controllo remoto non inizializzato".to_string())?;
+    let manager = app.try_state::<RemoteManager>().ok_or_else(|| {
+        crate::tr!(
+            "Modulo di controllo remoto non inizializzato",
+            "Remote control module not initialized"
+        )
+        .to_string()
+    })?;
     manager
         .ctx
         .queue_command_result(command_id, ok, error, data);
@@ -372,9 +424,13 @@ pub async fn remote_publish_chat_event(
     lane_id: String,
     event: serde_json::Value,
 ) -> Result<(), String> {
-    let manager = app
-        .try_state::<RemoteManager>()
-        .ok_or_else(|| "Modulo di controllo remoto non inizializzato".to_string())?;
+    let manager = app.try_state::<RemoteManager>().ok_or_else(|| {
+        crate::tr!(
+            "Modulo di controllo remoto non inizializzato",
+            "Remote control module not initialized"
+        )
+        .to_string()
+    })?;
     manager.ctx.queue_chat_event(project_id, lane_id, event);
     Ok(())
 }

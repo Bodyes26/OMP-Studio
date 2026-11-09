@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
+	import { i18n } from '#lib/i18n/i18n.svelte.ts';
 	// Diff a colonna singola.
 	//
 	// Il formato di `EditToolDetails.diff` **non** e' un diff unificato,
@@ -80,7 +81,7 @@
 		{/each}
 		{#if clipped}
 			<button type="button" class="omitted" onclick={() => (expanded = true)}>
-				{omitted} {m.ui_diff_righe_omesse_mostra_tutto_c087()}
+				{i18n.formatNumber(omitted)} {m.ui_diff_righe_omesse_mostra_tutto_c087()}
 			</button>
 			{#each tail as row, index (index)}
 				{#if gapBefore(tail, index)}

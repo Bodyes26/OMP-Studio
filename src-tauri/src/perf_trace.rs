@@ -153,7 +153,13 @@ pub async fn perf_trace_append(lines: Vec<String>) -> Result<(), String> {
 pub async fn perf_trace_path() -> Result<String, String> {
     PATH.get()
         .map(|p| p.to_string_lossy().to_string())
-        .ok_or_else(|| "Traccia dei tempi non inizializzata".to_string())
+        .ok_or_else(|| {
+            crate::tr!(
+                "Traccia dei tempi non inizializzata",
+                "Timing trace not initialized"
+            )
+            .to_string()
+        })
 }
 
 #[cfg(test)]

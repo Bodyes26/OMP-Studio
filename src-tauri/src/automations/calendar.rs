@@ -28,10 +28,18 @@ const MAX_SEARCH_DAYS: i64 = 3652;
 pub fn parse_timezone(timezone: &str) -> Result<Tz, String> {
     let name = timezone.trim();
     if name.is_empty() {
-        return Err("Fuso orario IANA non specificato o vuoto".to_string());
+        return Err(crate::tr!(
+            "Fuso orario IANA non specificato o vuoto",
+            "IANA time zone not provided or empty"
+        )
+        .to_string());
     }
-    name.parse::<Tz>()
-        .map_err(|_| format!("Fuso orario IANA '{}' sconosciuto o non supportato", name))
+    name.parse::<Tz>().map_err(|_| {
+        crate::tr!(
+            format!("Fuso orario IANA '{}' sconosciuto o non supportato", name),
+            format!("Unknown or unsupported IANA time zone '{}'", name)
+        )
+    })
 }
 
 /// Parsea una stringa oraria nel formato "HH:MM".
@@ -40,34 +48,55 @@ pub fn parse_time_str(time_str: &str) -> Result<(u32, u32, u32), String> {
     let trimmed = time_str.trim();
     let parts: Vec<&str> = trimmed.split(':').collect();
     if parts.len() < 2 || parts.len() > 3 {
-        return Err(format!(
-            "Formato orario non valido '{}': atteso 'HH:MM'",
-            time_str
+        return Err(crate::tr!(
+            format!("Formato orario non valido '{}': atteso 'HH:MM'", time_str),
+            format!("Invalid time format '{}': expected 'HH:MM'", time_str)
         ));
     }
 
-    let h: u32 = parts[0]
-        .parse()
-        .map_err(|_| format!("Ora non valida '{}' in '{}'", parts[0], time_str))?;
-    let m: u32 = parts[1]
-        .parse()
-        .map_err(|_| format!("Minuto non valido '{}' in '{}'", parts[1], time_str))?;
+    let h: u32 = parts[0].parse().map_err(|_| {
+        crate::tr!(
+            format!("Ora non valida '{}' in '{}'", parts[0], time_str),
+            format!("Invalid hour '{}' in '{}'", parts[0], time_str)
+        )
+    })?;
+    let m: u32 = parts[1].parse().map_err(|_| {
+        crate::tr!(
+            format!("Minuto non valido '{}' in '{}'", parts[1], time_str),
+            format!("Invalid minute '{}' in '{}'", parts[1], time_str)
+        )
+    })?;
 
     if h > 23 {
-        return Err(format!("Ora fuori intervallo (0-23): {} in '{}'", h, time_str));
+        return Err(crate::tr!(
+            format!("Ora fuori intervallo (0-23): {} in '{}'", h, time_str),
+            format!("Hour out of range (0-23): {} in '{}'", h, time_str)
+        ));
     }
     if m > 59 {
-        return Err(format!("Minuto fuori intervallo (0-59): {} in '{}'", m, time_str));
+        return Err(crate::tr!(
+            format!("Minuto fuori intervallo (0-59): {} in '{}'", m, time_str),
+            format!("Minute out of range (0-59): {} in '{}'", m, time_str)
+        ));
     }
 
     if parts.len() == 3 {
-        let s: u32 = parts[2]
-            .parse()
-            .map_err(|_| format!("Secondo non valido '{}' in '{}'", parts[2], time_str))?;
+        let s: u32 = parts[2].parse().map_err(|_| {
+            crate::tr!(
+                format!("Secondo non valido '{}' in '{}'", parts[2], time_str),
+                format!("Invalid second '{}' in '{}'", parts[2], time_str)
+            )
+        })?;
         if s != 0 {
-            return Err(format!(
-                "Precisione secondi non ammessa (trovati {}s in '{}'): la pianificazione calendariale (AUT-039) è rigorosamente al minuto (HH:MM)",
-                s, time_str
+            return Err(crate::tr!(
+                format!(
+                    "Precisione secondi non ammessa (trovati {}s in '{}'): la pianificazione calendariale (AUT-039) è rigorosamente al minuto (HH:MM)",
+                    s, time_str
+                ),
+                format!(
+                    "Seconds are not allowed (found {}s in '{}'): calendar scheduling (AUT-039) is strictly on the minute (HH:MM)",
+                    s, time_str
+                )
             ));
         }
     }
@@ -90,7 +119,9 @@ pub fn validate_trigger(
     timezone: &str,
 ) -> Result<(), String> {
     if trigger.id.trim().is_empty() {
-        return Err("Identificatore trigger vuoto".to_string());
+        return Err(
+            crate::tr!("Identificatore trigger vuoto", "Empty trigger identifier").to_string(),
+        );
     }
 
     let is_calendar = matches!(
@@ -104,72 +135,102 @@ pub fn validate_trigger(
 
     match trigger.kind.as_str() {
         "once" => {
-            let at = trigger
-                .at
-                .ok_or_else(|| "Trigger 'once' richiede il timestamp 'at'".to_string())?;
+            let at = trigger.at.ok_or_else(|| {
+                crate::tr!(
+                    "Trigger 'once' richiede il timestamp 'at'",
+                    "Trigger 'once' requires the 'at' timestamp"
+                )
+                .to_string()
+            })?;
             if at <= 0 {
-                return Err(format!("Timestamp 'at' non valido per trigger 'once': {}", at));
+                return Err(crate::tr!(
+                    format!("Timestamp 'at' non valido per trigger 'once': {}", at),
+                    format!("Invalid 'at' timestamp for 'once' trigger: {}", at)
+                ));
             }
         }
         "daily" => {
-            let time_str = trigger
-                .time
-                .as_ref()
-                .ok_or_else(|| "Trigger 'daily' richiede il campo 'time' (HH:MM)".to_string())?;
+            let time_str = trigger.time.as_ref().ok_or_else(|| {
+                crate::tr!(
+                    "Trigger 'daily' richiede il campo 'time' (HH:MM)",
+                    "Trigger 'daily' requires the 'time' field (HH:MM)"
+                )
+                .to_string()
+            })?;
             parse_time_str(time_str)?;
         }
         "weekly" => {
-            let time_str = trigger
-                .time
-                .as_ref()
-                .ok_or_else(|| "Trigger 'weekly' richiede il campo 'time' (HH:MM)".to_string())?;
+            let time_str = trigger.time.as_ref().ok_or_else(|| {
+                crate::tr!(
+                    "Trigger 'weekly' richiede il campo 'time' (HH:MM)",
+                    "Trigger 'weekly' requires the 'time' field (HH:MM)"
+                )
+                .to_string()
+            })?;
             parse_time_str(time_str)?;
             if trigger.weekdays.is_empty() {
-                return Err(
-                    "Trigger 'weekly' richiede almeno un giorno della settimana selezionato"
-                        .to_string(),
-                );
+                return Err(crate::tr!(
+                    "Trigger 'weekly' richiede almeno un giorno della settimana selezionato",
+                    "Trigger 'weekly' requires at least one weekday selected"
+                )
+                .to_string());
             }
             for &day in &trigger.weekdays {
                 if day > 7 {
-                    return Err(format!(
-                        "Giorno della settimana non valido: {} (ammessi 0-6 per Dom-Sab o 1-7 per Lun-Dom)",
-                        day
+                    return Err(crate::tr!(
+                        format!(
+                            "Giorno della settimana non valido: {} (ammessi 0-6 per Dom-Sab o 1-7 per Lun-Dom)",
+                            day
+                        ),
+                        format!(
+                            "Invalid weekday: {} (allowed 0-6 for Sun-Sat or 1-7 for Mon-Sun)",
+                            day
+                        )
                     ));
                 }
             }
         }
         "interval" => {
-            let interval = trigger
-                .interval_minutes
-                .ok_or_else(|| "Trigger 'interval' richiede 'intervalMinutes'".to_string())?;
+            let interval = trigger.interval_minutes.ok_or_else(|| {
+                crate::tr!(
+                    "Trigger 'interval' richiede 'intervalMinutes'",
+                    "Trigger 'interval' requires 'intervalMinutes'"
+                )
+                .to_string()
+            })?;
             if interval < 1 {
-                return Err("L'intervallo minimo per trigger 'interval' è di 1 minuto (valore 0 non consentito)".to_string());
+                return Err(crate::tr!(
+                    "L'intervallo minimo per trigger 'interval' è di 1 minuto (valore 0 non consentito)",
+                    "The minimum interval for an 'interval' trigger is 1 minute (value 0 is not allowed)"
+                )
+                .to_string());
             }
         }
         "afterFinish" => {
-            let interval = trigger
-                .interval_minutes
-                .ok_or_else(|| "Trigger 'afterFinish' richiede 'intervalMinutes'".to_string())?;
+            let interval = trigger.interval_minutes.ok_or_else(|| {
+                crate::tr!(
+                    "Trigger 'afterFinish' richiede 'intervalMinutes'",
+                    "Trigger 'afterFinish' requires 'intervalMinutes'"
+                )
+                .to_string()
+            })?;
             if interval < 1 {
-                return Err("L'intervallo minimo per trigger 'afterFinish' è di 1 minuto (valore 0 non consentito)".to_string());
+                return Err(crate::tr!(
+                    "L'intervallo minimo per trigger 'afterFinish' è di 1 minuto (valore 0 non consentito)",
+                    "The minimum interval for an 'afterFinish' trigger is 1 minute (value 0 is not allowed)"
+                )
+                .to_string());
             }
         }
-        "manual"
-        | "gitCommit"
-        | "gitBranch"
-        | "gitDirty"
-        | "gitClean"
-        | "file"
-        | "agentFinished"
-        | "agentQuota"
-        | "agentError"
-        | "studioStarted"
-        | "projectOpened" => {
+        "manual" | "gitCommit" | "gitBranch" | "gitDirty" | "gitClean" | "file"
+        | "agentFinished" | "agentQuota" | "agentError" | "studioStarted" | "projectOpened" => {
             // Trigger a eventi o manuali validi
         }
         other => {
-            return Err(format!("Kind di trigger sconosciuto: '{}'", other));
+            return Err(crate::tr!(
+                format!("Kind di trigger sconosciuto: '{}'", other),
+                format!("Unknown trigger kind: '{}'", other)
+            ));
         }
     }
 
@@ -227,12 +288,19 @@ fn compute_once_occurrences(
     trigger: &super::model::AutomationTrigger,
     after_ms: i64,
 ) -> Result<Vec<i64>, String> {
-    let at = trigger
-        .at
-        .ok_or_else(|| "Trigger 'once' privo del campo 'at'".to_string())?;
+    let at = trigger.at.ok_or_else(|| {
+        crate::tr!(
+            "Trigger 'once' privo del campo 'at'",
+            "Trigger 'once' is missing the 'at' field"
+        )
+        .to_string()
+    })?;
 
     if at <= 0 {
-        return Err(format!("Timestamp 'at' non valido per trigger 'once': {}", at));
+        return Err(crate::tr!(
+            format!("Timestamp 'at' non valido per trigger 'once': {}", at),
+            format!("Invalid 'at' timestamp for 'once' trigger: {}", at)
+        ));
     }
 
     if at > after_ms {
@@ -250,15 +318,22 @@ fn compute_daily_occurrences(
     after_ms: i64,
     count: usize,
 ) -> Result<Vec<i64>, String> {
-    let time_str = trigger
-        .time
-        .as_ref()
-        .ok_or_else(|| "Trigger 'daily' privo del campo 'time'".to_string())?;
+    let time_str = trigger.time.as_ref().ok_or_else(|| {
+        crate::tr!(
+            "Trigger 'daily' privo del campo 'time'",
+            "Trigger 'daily' is missing the 'time' field"
+        )
+        .to_string()
+    })?;
     let (hour, minute, second) = parse_time_str(time_str)?;
     let tz = parse_timezone(timezone)?;
 
-    let utc_dt = DateTime::from_timestamp_millis(after_ms)
-        .ok_or_else(|| format!("Timestamp after_ms non valido: {}", after_ms))?;
+    let utc_dt = DateTime::from_timestamp_millis(after_ms).ok_or_else(|| {
+        crate::tr!(
+            format!("Timestamp after_ms non valido: {}", after_ms),
+            format!("Invalid after_ms timestamp: {}", after_ms)
+        )
+    })?;
     let local_dt = utc_dt.with_timezone(&tz);
     let mut current_date = local_dt.date_naive();
 
@@ -310,20 +385,31 @@ fn compute_weekly_occurrences(
     after_ms: i64,
     count: usize,
 ) -> Result<Vec<i64>, String> {
-    let time_str = trigger
-        .time
-        .as_ref()
-        .ok_or_else(|| "Trigger 'weekly' privo del campo 'time'".to_string())?;
+    let time_str = trigger.time.as_ref().ok_or_else(|| {
+        crate::tr!(
+            "Trigger 'weekly' privo del campo 'time'",
+            "Trigger 'weekly' is missing the 'time' field"
+        )
+        .to_string()
+    })?;
     let (hour, minute, second) = parse_time_str(time_str)?;
 
     if trigger.weekdays.is_empty() {
-        return Err("Trigger 'weekly' privo di giorni della settimana selezionati".to_string());
+        return Err(crate::tr!(
+            "Trigger 'weekly' privo di giorni della settimana selezionati",
+            "Trigger 'weekly' has no weekdays selected"
+        )
+        .to_string());
     }
 
     let tz = parse_timezone(timezone)?;
 
-    let utc_dt = DateTime::from_timestamp_millis(after_ms)
-        .ok_or_else(|| format!("Timestamp after_ms non valido: {}", after_ms))?;
+    let utc_dt = DateTime::from_timestamp_millis(after_ms).ok_or_else(|| {
+        crate::tr!(
+            format!("Timestamp after_ms non valido: {}", after_ms),
+            format!("Invalid after_ms timestamp: {}", after_ms)
+        )
+    })?;
     let local_dt = utc_dt.with_timezone(&tz);
     let mut current_date = local_dt.date_naive();
 
@@ -376,11 +462,19 @@ fn compute_interval_occurrences(
     count: usize,
     anchor_ms: i64,
 ) -> Result<Vec<i64>, String> {
-    let interval_minutes = trigger
-        .interval_minutes
-        .ok_or_else(|| "Trigger 'interval' privo del campo 'intervalMinutes'".to_string())?;
+    let interval_minutes = trigger.interval_minutes.ok_or_else(|| {
+        crate::tr!(
+            "Trigger 'interval' privo del campo 'intervalMinutes'",
+            "Trigger 'interval' is missing the 'intervalMinutes' field"
+        )
+        .to_string()
+    })?;
     if interval_minutes < 1 {
-        return Err("L'intervallo minimo per trigger 'interval' è di 1 minuto (valore 0 non consentito)".to_string());
+        return Err(crate::tr!(
+            "L'intervallo minimo per trigger 'interval' è di 1 minuto (valore 0 non consentito)",
+            "The minimum interval for an 'interval' trigger is 1 minute (value 0 is not allowed)"
+        )
+        .to_string());
     }
     let interval_ms = (interval_minutes as i64) * MS_PER_MINUTE;
 
@@ -419,11 +513,19 @@ fn compute_after_finish_occurrences(
     anchor_ms: i64,
     last_finished_ms: Option<i64>,
 ) -> Result<Vec<i64>, String> {
-    let interval_minutes = trigger
-        .interval_minutes
-        .ok_or_else(|| "Trigger 'afterFinish' privo del campo 'intervalMinutes'".to_string())?;
+    let interval_minutes = trigger.interval_minutes.ok_or_else(|| {
+        crate::tr!(
+            "Trigger 'afterFinish' privo del campo 'intervalMinutes'",
+            "Trigger 'afterFinish' is missing the 'intervalMinutes' field"
+        )
+        .to_string()
+    })?;
     if interval_minutes < 1 {
-        return Err("L'intervallo minimo per trigger 'afterFinish' è di 1 minuto (valore 0 non consentito)".to_string());
+        return Err(crate::tr!(
+            "L'intervallo minimo per trigger 'afterFinish' è di 1 minuto (valore 0 non consentito)",
+            "The minimum interval for an 'afterFinish' trigger is 1 minute (value 0 is not allowed)"
+        )
+        .to_string());
     }
     let interval_ms = (interval_minutes as i64) * MS_PER_MINUTE;
 

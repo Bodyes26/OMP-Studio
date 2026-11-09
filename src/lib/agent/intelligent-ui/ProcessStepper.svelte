@@ -3,6 +3,7 @@
 -->
 <script lang="ts">
 	import { IconCheck, IconChevronDown } from '../../icons';
+	import { m } from '../../paraglide/messages.js';
 
 	export interface StepItem {
 		id?: string | number;
@@ -51,7 +52,7 @@
 						onclick={() => step.description && toggleStep(idx)}
 						onkeydown={(e) => e.key === 'Enter' && step.description && toggleStep(idx)}
 					>
-						<span class="step-title">{step.title}</span>
+						<span class="step-title">{step.title || m.l10n_intui_step_default_title({ n: idx + 1 })}</span>
 						{#if step.description}
 							<span class="expand-arrow" class:rotated={isExpanded}>
 								<IconChevronDown />

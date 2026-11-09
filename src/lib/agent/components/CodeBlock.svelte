@@ -136,7 +136,9 @@
 				<button
 					type="button"
 					class="file-chip-btn"
-					title={item.line ? `Apri ${item.path}:${item.line} nell'editor` : `Apri ${item.path} nell'editor`}
+					title={m.l10n_agentcmp_open_in_editor({
+						file: item.line ? `${item.path}:${item.line}` : item.path
+					})}
 					onclick={() => onOpenFile ? onOpenFile(item.path) : hooks.openFile(item.path, item.line)}
 				>
 					<span class="file-chip-icon" aria-hidden="true"><IconFile /></span>

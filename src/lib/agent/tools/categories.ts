@@ -12,11 +12,11 @@
 
 import type { AgentToolResult } from '../wire';
 import { m as msg } from '#lib/paraglide/messages.js';
-import { getLocale } from '#lib/paraglide/runtime.js';
 import { describeWait, type WaitContext } from './wait';
 import {
 	asRecord,
 	extractToolErrorReason,
+	formatDecimal,
 	formatDuration,
 	num,
 	str,
@@ -172,19 +172,15 @@ export function parseDiffStats(diffText?: string | null): [number, number] | und
  */
 export function formatDurationSecs(ms: number): string {
 	const clamped = Math.max(0.1, ms / 1000);
-	const value = new Intl.NumberFormat(getLocale(), {
-		minimumFractionDigits: 1,
-		maximumFractionDigits: 1,
-		useGrouping: false
-	}).format(Math.round(clamped * 10) / 10);
-	return `${value} s`;
+	// Arrotondato al decimo prima di formattare: 0.1 s e non 0.0 s.
+	return `${formatDecimal(Math.round(clamped * 10) / 10, 1)} s`;
 }
 
 function formatFileSize(bytes: number | undefined): string | undefined {
 	if (bytes === undefined) return undefined;
 	if (bytes < 1024) return `${bytes} B`;
-	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+	if (bytes < 1024 * 1024) return `${formatDecimal(bytes / 1024, 1)} KB`;
+	return `${formatDecimal(bytes / (1024 * 1024), 1)} MB`;
 }
 
 function previewArgs(args: Record<string, unknown>): string | undefined {

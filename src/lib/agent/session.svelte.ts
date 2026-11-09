@@ -1509,10 +1509,10 @@ export class AgentSession {
 			this.resumedFallbackModel = null;
 			this.pushNotice(
 				'warning',
-				(messages as Record<string, any>).ui_ts_session_modello_non_disponibile_ripresa_con?.({
+				messages.ui_ts_session_modello_non_disponibile_ripresa_con({
 					model: failed,
 					fallback
-				}) ?? `Il modello ${failed} non è più disponibile: sessione ripresa con ${fallback}.`,
+				}),
 				'session'
 			);
 		}
@@ -1716,7 +1716,7 @@ export class AgentSession {
 	/** Elenca soltanto i metadati minimi necessari al picker Relay. */
 	async listBrowserRelayTargets(): Promise<{ probe: BrowserRelayProbe; targets: BrowserRelayTarget[] }> {
 		if (!this.browserLive?.features.includes('chrome-relay')) {
-			throw new Error('Chrome Relay non negoziato con questo runtime');
+			throw new Error(messages.l10n_agent_chrome_relay_unavailable());
 		}
 		return await this.client.send<{ probe: BrowserRelayProbe; targets: BrowserRelayTarget[] }>({
 			type: 'browser_relay_targets'
@@ -2101,8 +2101,7 @@ export class AgentSession {
 
 			this.pushNotice(
 				'info',
-				(messages as Record<string, any>).ui_ts_session_continua_in_nuovo_file?.() ??
-					'La sessione continua in un nuovo file perché un altro processo omp la stava usando',
+				messages.ui_ts_session_continua_in_nuovo_file(),
 				'session-persistence'
 			);
 		}
@@ -2268,7 +2267,7 @@ export class AgentSession {
 	}
 
 	/** Storico -> entry. Stessa forma della diretta: nessun percorso separato. */
-	private mapHistory(messages: AgentMessage[]): TranscriptEntry[] {
+	private mapHistory(history: AgentMessage[]): TranscriptEntry[] {
 		this.renderedCustomKeys.clear();
 		const entries: TranscriptEntry[] = [];
 		const tools = new Map<string, ToolEntry>();
@@ -2279,18 +2278,22 @@ export class AgentSession {
 			)
 		);
 
-		for (const message of messages) {
+		for (const message of history) {
 			if (message.role === 'compactionSummary' || (typeof message.summary === 'string' && !message.role)) {
-				let msg = 'Contesto compattato';
+				let msg = messages.l10n_agent_compacted();
 				if (typeof message.tokensBefore === 'number' && typeof message.tokensAfter === 'number') {
 					const saved = message.tokensBefore - message.tokensAfter;
 					if (saved > 0) {
-						msg = `Contesto compattato (${formatTokens(message.tokensBefore)} → ${formatTokens(message.tokensAfter)} token, -${formatTokens(saved)})`;
+						msg = messages.l10n_agent_compacted_saved({
+							before: formatTokens(message.tokensBefore),
+							after: formatTokens(message.tokensAfter),
+							saved: formatTokens(saved)
+						});
 					} else {
-						msg = `Contesto compattato (${formatTokens(message.tokensAfter)} token)`;
+						msg = messages.l10n_agent_compacted_tokens({ tokens: formatTokens(message.tokensAfter) });
 					}
 				} else if (message.shortSummary) {
-					msg = `Contesto compattato: ${message.shortSummary}`;
+					msg = messages.l10n_agent_compacted_summary({ summary: message.shortSummary });
 				}
 				entries.push({
 					id: this.nextEntryId++,
@@ -2936,7 +2939,7 @@ export class AgentSession {
 				const last = this.lastOfKind('compaction');
 				if (last) {
 					last.running = false;
-					last.message = 'Contesto compattato';
+					last.message = messages.l10n_agent_compacted();
 				}
 				if (!this.isStreaming) {
 					this.agentState = this.resolveSettledState();
@@ -2978,7 +2981,11 @@ export class AgentSession {
 				} else if (event.skipped) {
 					this.flashNotice('info', messages.ui_ts_session_nessun_contenuto_da_compattare_la_sessione_e_322e());
 				} else if (!event.aborted && typeof event.errorMessage === 'string') {
-					this.pushNotice('error', `Compattazione non riuscita: ${event.errorMessage}`, 'studio');
+					this.pushNotice(
+						'error',
+						messages.l10n_agent_compaction_failed({ error: event.errorMessage }),
+						'studio'
+					);
 				}
 				if (!this.isStreaming) {
 					this.agentState = this.resolveSettledState();
@@ -3154,9 +3161,12 @@ export class AgentSession {
 				return;
 
 			case 'extension_error': {
-				const path = typeof event.extensionPath === 'string' ? event.extensionPath : 'estensione';
+				const path =
+					typeof event.extensionPath === 'string'
+						? event.extensionPath
+						: messages.l10n_agent_notice_source_extension();
 				const detail = typeof event.error === 'string' ? event.error : messages.ui_ts_session_errore_non_descritto_567a();
-				this.pushNotice('warning', `${path}: ${detail}`, 'estensione');
+				this.pushNotice('warning', `${path}: ${detail}`, messages.l10n_agent_notice_source_extension());
 				return;
 			}
 
@@ -3278,7 +3288,7 @@ export class AgentSession {
 						if (!entry.result) {
 							entry.result = {
 								isError: true,
-								content: [{ type: 'text', text: 'Processo terminato' }]
+								content: [{ type: 'text', text: messages.l10n_agent_tool_process_ended() }]
 							};
 						}
 					}
@@ -3329,13 +3339,13 @@ export class AgentSession {
 						kind: 'notice',
 						level: 'error',
 						message:
-							(messages as Record<string, any>).ui_ts_session_modello_non_disponibile_errore?.({
+							messages.ui_ts_session_modello_non_disponibile_errore({
 								model: unavailableResumeModel
-							}) ?? `Il modello ${unavailableResumeModel} non è disponibile per questa sessione.`,
+							}),
 						detail: stderr.slice(-12),
 						offerTerminal: true,
 						action: {
-							label: (messages as Record<string, any>).ui_ts_session_scegli_modello?.() ?? 'Scegli modello',
+							label: messages.ui_ts_session_scegli_modello(),
 							run: () => {
 								modelSettingsStore.openForSelection(async (chosenSelector) => {
 									const { base } = splitModelSelector(chosenSelector, modelSettingsStore.knownSelectors);
@@ -3379,7 +3389,12 @@ export class AgentSession {
 			await this.open();
 		} catch (error) {
 			this.recoveredResume = null;
-			this.pushNotice('error', `Nuova chat non avviata: ${this.reason(error)}`, undefined, true);
+			this.pushNotice(
+				'error',
+				messages.l10n_agent_new_chat_not_started({ error: this.reason(error) }),
+				undefined,
+				true
+			);
 		}
 	}
 
@@ -3426,13 +3441,13 @@ export class AgentSession {
 			kind: 'notice',
 			level: 'error',
 			message:
-				(messages as Record<string, any>).ui_ts_session_modello_non_disponibile_errore?.({
+				messages.ui_ts_session_modello_non_disponibile_errore({
 					model: failedModel
-				}) ?? `Il modello ${failedModel} non è disponibile per questa sessione.`,
+				}),
 			detail: stderr.slice(-12),
 			offerTerminal: true,
 			action: {
-				label: (messages as Record<string, any>).ui_ts_session_scegli_modello?.() ?? 'Scegli modello',
+				label: messages.ui_ts_session_scegli_modello(),
 				run: () => {
 					modelSettingsStore.openForSelection(async (chosenSelector) => {
 						const { base } = splitModelSelector(chosenSelector, modelSettingsStore.knownSelectors);
@@ -4017,14 +4032,23 @@ export class AgentSession {
 					void promptBus.cancelRequest(cancelId, undefined, true);
 				}
 				this.clearPendingUi();
-				this.pushNotice('info', messages.chat_v2_ask_withdrawn(), 'domande');
+				this.pushNotice(
+					'info',
+					messages.chat_v2_ask_withdrawn(),
+					messages.l10n_agent_notice_source_questions()
+				);
 			}
 			return;
 		}
 		if (method === 'notify') {
 			const body = text ?? title;
 			// omp manda il livello in `notifyType`; `level` resta per i frame vecchi.
-			if (body) this.pushNotice(this.noticeLevel(event.notifyType ?? event.level), body, 'estensione');
+			if (body)
+				this.pushNotice(
+					this.noticeLevel(event.notifyType ?? event.level),
+					body,
+					messages.l10n_agent_notice_source_extension()
+				);
 			return;
 		}
 		// Le chiavi riservate di Studio portano stato strutturato (JSON) per la
@@ -4067,7 +4091,11 @@ export class AgentSession {
 			const target = typeof event.launchUrl === 'string' ? event.launchUrl : typeof event.url === 'string' ? event.url : null;
 			if (target === null) return;
 			if (!isAllowedExternalUrl(target)) {
-				this.pushNotice('warning', `Apertura bloccata: ${target}`, 'estensione');
+				this.pushNotice(
+					'warning',
+					messages.l10n_agent_open_blocked({ target }),
+					messages.l10n_agent_notice_source_extension()
+				);
 				return;
 			}
 			void openExternalUrl(target);
@@ -4298,7 +4326,7 @@ export class AgentSession {
 		} catch (error) {
 			this.pendingUi = pending;
 			this.agentState = previousState;
-			this.pushNotice('error', `Risposta non inviata: ${this.reason(error)}`);
+			this.pushNotice('error', messages.l10n_agent_reply_not_sent({ error: this.reason(error) }));
 			return false;
 		}
 	}
@@ -4315,7 +4343,7 @@ export class AgentSession {
 		if (!pending) return;
 		const ok = await this.respond(pending, { answers });
 		if (!ok) {
-			throw new Error('Impossibile inviare la risposta: risorsa non ammessa');
+			throw new Error(messages.l10n_agent_reply_resource_not_allowed());
 		}
 		for (let index = 0; index < imageSteers.length; index++) {
 			try {
@@ -4339,7 +4367,7 @@ export class AgentSession {
 		if (!pending) return;
 		const ok = await this.respond(pending, { value });
 		if (!ok) {
-			throw new Error('Impossibile inviare la risposta: risorsa non ammessa');
+			throw new Error(messages.l10n_agent_reply_resource_not_allowed());
 		}
 	}
 
@@ -4348,7 +4376,7 @@ export class AgentSession {
 		if (!pending) return;
 		const ok = await this.respond(pending, { confirmed });
 		if (!ok) {
-			throw new Error('Impossibile inviare la risposta: risorsa non ammessa');
+			throw new Error(messages.l10n_agent_reply_resource_not_allowed());
 		}
 	}
 	async cancelPendingUi(timedOut = false): Promise<boolean> {
@@ -4840,7 +4868,7 @@ export class AgentSession {
 		} catch (error) {
 			this.applyRunActivity(runActivityOnPromptDropped(this.runActivity));
 			this.dropOptimisticUser();
-			this.pushNotice('error', `Prompt non accettato: ${this.reason(error)}`);
+			this.pushNotice('error', messages.l10n_agent_prompt_not_accepted({ error: this.reason(error) }));
 			return 'failed';
 		}
 		if (streaming) void this.reconcile();
@@ -4873,7 +4901,7 @@ export class AgentSession {
 				this.dropOptimisticUser();
 				const idx = this.entries.findIndex((e) => e.id === pending.optimisticUser.id);
 				if (idx !== -1) this.entries.splice(idx, 1);
-				this.pushNotice('error', `Prompt non accettato: ${this.reason(error)}`);
+				this.pushNotice('error', messages.l10n_agent_prompt_not_accepted({ error: this.reason(error) }));
 				this.onStartupPromptsDropped?.();
 				break;
 			}
@@ -4977,7 +5005,7 @@ export class AgentSession {
 				if (!entry.result) {
 					entry.result = {
 						isError: true,
-						content: [{ type: 'text', text: 'Interrotto dall\u2019utente' }]
+						content: [{ type: 'text', text: messages.l10n_agent_tool_interrupted_by_user() }]
 					};
 				}
 			}
@@ -5061,7 +5089,7 @@ export class AgentSession {
 				if (!entry.result) {
 					entry.result = {
 						isError: true,
-						content: [{ type: 'text', text: 'Arresto forzato (SIGKILL)' }]
+						content: [{ type: 'text', text: messages.l10n_agent_tool_forced_stop() }]
 					};
 				}
 			}
@@ -5718,7 +5746,11 @@ export class AgentSession {
 			if (errStr.includes('Nothing to compact') || errStr.includes('session too small') || errStr.includes('no messages')) {
 				this.pushNotice('info', messages.ui_ts_session_nessun_contenuto_da_compattare_la_sessione_e_322e(), 'studio');
 			} else {
-				this.pushNotice('error', `Compattazione non riuscita: ${this.reason(error)}`, 'studio');
+				this.pushNotice(
+					'error',
+					messages.l10n_agent_compaction_failed({ error: this.reason(error) }),
+					'studio'
+				);
 			}
 			return false;
 		} finally {
@@ -5733,16 +5765,20 @@ export class AgentSession {
 	/** Chiude la voce di compattazione con i token risparmiati o il riassunto breve. */
 	private applyCompactResult(entry: CompactionEntry, res: CompactResult | null | undefined) {
 		entry.running = false;
-		let msg = 'Contesto compattato';
+		let msg = messages.l10n_agent_compacted();
 		if (typeof res?.tokensBefore === 'number' && typeof res?.tokensAfter === 'number') {
 			const saved = res.tokensBefore - res.tokensAfter;
 			if (saved > 0) {
-				msg = `Contesto compattato (${formatTokens(res.tokensBefore)} → ${formatTokens(res.tokensAfter)} token, -${formatTokens(saved)})`;
+				msg = messages.l10n_agent_compacted_saved({
+					before: formatTokens(res.tokensBefore),
+					after: formatTokens(res.tokensAfter),
+					saved: formatTokens(saved)
+				});
 			} else {
-				msg = `Contesto compattato (${formatTokens(res.tokensAfter)} token)`;
+				msg = messages.l10n_agent_compacted_tokens({ tokens: formatTokens(res.tokensAfter) });
 			}
 		} else if (res?.shortSummary) {
-			msg = `Contesto compattato: ${res.shortSummary}`;
+			msg = messages.l10n_agent_compacted_summary({ summary: res.shortSummary });
 		}
 		entry.message = msg;
 		if (res?.summary) entry.summary = res.summary;
@@ -5789,7 +5825,7 @@ export class AgentSession {
 			if (errStr.includes('Nothing to hand off') || errStr.includes('no messages')) {
 				this.pushNotice('info', messages.ui_ts_session_nessun_contenuto_per_l_handoff_la_sessione_129e(), 'studio');
 			} else {
-				this.pushNotice('error', `Handoff non riuscito: ${this.reason(error)}`, 'studio');
+				this.pushNotice('error', messages.l10n_agent_handoff_failed({ error: this.reason(error) }), 'studio');
 			}
 			return false;
 		} finally {
@@ -5805,7 +5841,11 @@ export class AgentSession {
 		try {
 			return await this.client.getLoginProviders();
 		} catch (error) {
-			this.pushNotice('error', `Impossibile recuperare i provider di login: ${this.reason(error)}`, 'studio');
+			this.pushNotice(
+				'error',
+				messages.l10n_agent_login_providers_unavailable({ error: this.reason(error) }),
+				'studio'
+			);
 			return [];
 		}
 	}
@@ -5823,7 +5863,11 @@ export class AgentSession {
 			await this.refreshState();
 			return true;
 		} catch (error) {
-			this.pushNotice('error', `Login non riuscito per "${providerId}": ${this.reason(error)}`, 'studio');
+			this.pushNotice(
+				'error',
+				messages.l10n_agent_login_failed({ provider: providerId, error: this.reason(error) }),
+				'studio'
+			);
 			return false;
 		}
 	}

@@ -48,7 +48,7 @@ fn read_preview(path: &std::path::Path) -> Option<PreviewPayload> {
     let title = value
         .get("title")
         .and_then(|v| v.as_str())
-        .unwrap_or("Prototipo")
+        .unwrap_or_else(|| crate::tr!("Prototipo", "Prototype"))
         .to_string();
     let file_path = value
         .get("file_path")
@@ -255,17 +255,29 @@ pub fn spawn_watcher(app: AppHandle) {
 fn studio_preview_ack_sync(id: String, ack: serde_json::Value) -> Result<(), String> {
     let clean_id = id.trim();
     if clean_id.is_empty() || clean_id.len() > 128 {
-        return Err("Identificatore preview non valido o troppo lungo".to_string());
+        return Err(crate::tr!(
+            "Identificatore preview non valido o troppo lungo",
+            "Invalid or too long preview identifier"
+        ).to_string());
     }
     if !clean_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
-        return Err("Identificatore preview contiene caratteri non ammessi".to_string());
+        return Err(crate::tr!(
+            "Identificatore preview contiene caratteri non ammessi",
+            "Preview identifier contains disallowed characters"
+        ).to_string());
     }
 
     let Some(dir) = previews_dir() else {
-        return Err("Impossibile risolvere la cartella delle anteprime".to_string());
+        return Err(crate::tr!(
+            "Impossibile risolvere la cartella delle anteprime",
+            "Could not resolve the previews folder"
+        ).to_string());
     };
     if let Err(e) = std::fs::create_dir_all(&dir) {
-        return Err(format!("Impossibile creare la cartella delle anteprime: {e}"));
+        return Err(crate::tr!(
+            format!("Impossibile creare la cartella delle anteprime: {e}"),
+            format!("Could not create the previews folder: {e}")
+        ));
     }
     // Un ack arrivato dopo che lo strumento ha smesso di attenderlo non verrebbe mai letto:
     // si eliminano qui gli ack orfani, cosi' la cartella non cresce senza limite.
@@ -282,16 +294,29 @@ fn studio_preview_ack_sync(id: String, ack: serde_json::Value) -> Result<(), Str
     ));
 
     let json_bytes = serde_json::to_vec_pretty(&ack)
-        .map_err(|e| format!("Serializzazione ack fallita: {e}"))?;
+        .map_err(|e| {
+            crate::tr!(
+                format!("Serializzazione ack fallita: {e}"),
+                format!("Ack serialization failed: {e}")
+            )
+        })?;
 
     std::fs::write(&tmp_file, &json_bytes)
-        .map_err(|e| format!("Scrittura file temporaneo fallita: {e}"))?;
+        .map_err(|e| {
+            crate::tr!(
+                format!("Scrittura file temporaneo fallita: {e}"),
+                format!("Writing the temporary file failed: {e}")
+            )
+        })?;
 
     if let Err(err) = std::fs::rename(&tmp_file, &ack_file) {
         let _ = std::fs::remove_file(&ack_file);
         if let Err(e) = std::fs::rename(&tmp_file, &ack_file) {
             let _ = std::fs::remove_file(&tmp_file);
-            return Err(format!("Rinomina file ack fallita: {e} (tentativo iniziale: {err})"));
+            return Err(crate::tr!(
+                format!("Rinomina file ack fallita: {e} (tentativo iniziale: {err})"),
+                format!("Renaming the ack file failed: {e} (first attempt: {err})")
+            ));
         }
     }
 
@@ -304,7 +329,12 @@ fn studio_preview_ack_sync(id: String, ack: serde_json::Value) -> Result<(), Str
 pub async fn studio_preview_ack(id: String, ack: serde_json::Value) -> Result<(), String> {
     tokio::task::spawn_blocking(move || studio_preview_ack_sync(id, ack))
         .await
-        .map_err(|e| format!("Task studio_preview_ack fallito: {e}"))?
+        .map_err(|e| {
+        crate::tr!(
+            format!("Task studio_preview_ack fallito: {e}"),
+            format!("studio_preview_ack task failed: {e}")
+        )
+    })?
 }
 
 fn prune_stale_acks(dir: &Path) {

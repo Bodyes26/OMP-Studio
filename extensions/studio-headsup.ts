@@ -42,6 +42,21 @@ interface ToolDefinition<TParams> {
 	): Promise<ToolResult>;
 }
 
+/**
+ * Testo scelto secondo la lingua della UI: il processo omp riceve
+ * `OMP_STUDIO_LOCALE` da Studio, il bundle della GUI ricade su `<html lang>`.
+ * Senza lingua nota si usa l'inglese, il default di Studio. Letta a ogni
+ * chiamata: la lingua puo' cambiare durante la vita del processo.
+ */
+function tr(it: string, en: string): string {
+	const host = globalThis as {
+		process?: { env?: Record<string, string | undefined> };
+		document?: { documentElement?: { lang?: string } };
+	};
+	const code = (host.process?.env?.OMP_STUDIO_LOCALE || host.document?.documentElement?.lang || "en").toLowerCase();
+	return code.startsWith("it") ? it : en;
+}
+
 export interface StudioHeadsUpApi {
 	zod: ZodBuilder;
 	registerTool<TParams>(definition: ToolDefinition<TParams>): void;
@@ -75,7 +90,7 @@ export default function studioHeadsUpExtension(pi: StudioHeadsUpApi): void {
 	const z = pi.zod;
 	pi.registerTool<HeadsUpParams>({
 		name: "studio_headsup",
-		label: "Heads up",
+		label: tr("Heads up", "Heads up"),
 		description: HEADS_UP_TOOL_DESCRIPTION,
 		parameters: z.object({
 			text: z
@@ -87,7 +102,15 @@ export default function studioHeadsUpExtension(pi: StudioHeadsUpApi): void {
 			const text = normalizeHeadsUpText(params?.text);
 			if (!text) {
 				return {
-					content: [{ type: "text", text: "Errore: 'text' e' obbligatorio. Se non c'e' niente da segnalare, non chiamare questo tool." }],
+					content: [
+						{
+							type: "text",
+							text: tr(
+								"Errore: 'text' e' obbligatorio. Se non c'e' niente da segnalare, non chiamare questo tool.",
+								"Error: 'text' is required. If there is nothing to report, do not call this tool."
+							)
+						}
+					],
 					isError: true
 				};
 			}

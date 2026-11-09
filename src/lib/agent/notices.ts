@@ -66,31 +66,31 @@ export interface ClassifyInput {
 	text: string;
 }
 
-/** Dizionario dei titoli italiani per i customType noti di omp. */
+/** Dizionario dei titoli per i customType noti di omp, risolti a ogni lettura. */
 const KNOWN_TITLES: Record<string, string> = {
-	'async-result': 'Risultato in background',
+	get 'async-result'() { return msg.l10n_agent_notice_async_result(); },
 	get 'irc:incoming'() { return msg.ui_ts_notices_messaggio_da_un_agente_a97b(); },
-	'irc:autoreply': 'Risposta automatica',
-	advisor: "Consiglio dell'advisor",
-	'skill-prompt': 'Skill invocata',
-	'xdev-mount-notice': 'Dispositivi xd:// aggiornati',
-	'launch-completion': 'Processo supervisionato terminato',
-	'lsp-late-diagnostic': 'Diagnostica LSP tardiva',
-	'interrupted-thinking': 'Ragionamento interrotto',
-	'checkpoint-active-reminder': 'Checkpoint di esplorazione attivo',
+	get 'irc:autoreply'() { return msg.l10n_agent_notice_irc_autoreply(); },
+	get advisor() { return msg.l10n_agent_notice_advisor(); },
+	get 'skill-prompt'() { return msg.l10n_agent_notice_skill_prompt(); },
+	get 'xdev-mount-notice'() { return msg.l10n_agent_notice_xdev_mount(); },
+	get 'launch-completion'() { return msg.l10n_agent_notice_launch_completion(); },
+	get 'lsp-late-diagnostic'() { return msg.l10n_agent_notice_lsp_late(); },
+	get 'interrupted-thinking'() { return msg.l10n_agent_notice_interrupted_thinking(); },
+	get 'checkpoint-active-reminder'() { return msg.l10n_agent_notice_checkpoint_reminder(); },
 	get 'plan-mode-context'() { return msg.ui_ts_notices_vincoli_della_modalita_piano_2eb5(); },
-	'ttsr-injection': 'Regola di progetto applicata',
+	get 'ttsr-injection'() { return msg.l10n_agent_notice_ttsr_injection(); },
 	get 'todo-error-reminder'() { return msg.ui_ts_notices_errore_sui_todo_6322(); },
-	'resolve-reminder': 'Promemoria di risoluzione',
+	get 'resolve-reminder'() { return msg.l10n_agent_notice_resolve_reminder(); },
 	get 'session-stop-continuation'() { return msg.ui_ts_notices_ripresa_della_sessione_8d48(); },
-	'plan-approved': 'Piano approvato',
-	'developer-note': 'Nota di sistema',
-	'developer-reminder': 'Promemoria interno',
+	get 'plan-approved'() { return msg.l10n_agent_notice_plan_approved(); },
+	get 'developer-note'() { return msg.l10n_agent_notice_developer_note(); },
+	get 'developer-reminder'() { return msg.l10n_agent_notice_developer_reminder(); },
 	get 'custom-message'() { return msg.ui_ts_notices_messaggio_di_un_estensione_a7fe(); }
 };
 
 /**
- * Restituisce il titolo in italiano per un avviso di sistema dato il suo customType.
+ * Restituisce il titolo localizzato per un avviso di sistema dato il suo customType.
  * Se non e' noto, ricava un titolo in Title Case separando su trattini, underscore e due punti.
  */
 export function systemNoticeTitle(customType: string): string {

@@ -165,7 +165,7 @@
 						<span class="remote-delete-icon"><IconGitBranch /></span>
 						<div class="pending-remote-delete-list">
 							{#each record.pendingRemoteDelete as branch}
-								<span>origin/{branch} verra' eliminato al prossimo push</span>
+								<span>{m.l10n_agentcmp_branch_delete_on_push({ branch })}</span>
 							{/each}
 						</div>
 					</div>

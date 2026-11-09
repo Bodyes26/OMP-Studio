@@ -48,7 +48,7 @@
 	let activeMenu = $state<'role' | 'model' | null>(null);
 
 	const currentRole = $derived(role || 'default');
-	const currentModelLabel = $derived(modelLabel || modelId || 'Modello');
+	const currentModelLabel = $derived(modelLabel || modelId || t('modelChipTitle'));
 
 	const activeModelValue = $derived.by(() => {
 		if (provider && modelId) return `${provider}/${modelId}`;

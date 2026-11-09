@@ -104,7 +104,7 @@
 		class:live={summary.hasRunning}
 		aria-expanded={isFullListOpen}
 		onclick={toggleFullList}
-		title={isFullListOpen ? 'Comprimi strumenti' : 'Espandi strumenti'}
+		title={isFullListOpen ? t('toolCollapse') : t('toolExpand')}
 	>
 		{#if summary.hasRunning}
 			<span class="summary-lead">
@@ -139,7 +139,9 @@
 
 				{#if summary.failedCount > 0}
 					<span class="summary-failed">
-						{summary.failedCount} {summary.failedCount === 1 ? 'errore' : 'errori'}
+						{summary.failedCount === 1
+							? t('toolErrorsOne', { count: 1 })
+							: t('toolErrorsMany', { count: summary.failedCount })}
 					</span>
 				{/if}
 
@@ -212,7 +214,7 @@
 					>
 						<span class="row-icon-slot">
 							{#if tool?.status === 'running'}
-								<span class="spinner" aria-label="In esecuzione"></span>
+								<span class="spinner" aria-label={t('toolRunningAria')}></span>
 							{:else if tool?.status === 'error'}
 								<span class="fail-icon"><IconClose /></span>
 							{:else if tool?.artifact && supportsArtifacts}
@@ -229,7 +231,7 @@
 						</span>
 
 						<span class="row-label" class:text-shimmer={tool?.status === 'running'}>
-							{tool?.artifact?.title || tool?.label || msg.toolName || 'Strumento'}
+							{tool?.artifact?.title || tool?.label || msg.toolName || t('toolFallback')}
 						</span>
 
 						{#if tool?.detail}

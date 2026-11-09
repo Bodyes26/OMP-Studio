@@ -14,6 +14,7 @@
 	import { wrapPrototypeCode } from '#lib/prototype/wrapper.ts';
 	import type { LanePreviewPayload } from '#lib/agent/laneSurfaces.ts';
 	import { buildPreviewHarnessScript, injectPreviewHarness } from './harness.ts';
+	import { m } from '#lib/paraglide/messages.js';
 
 	interface QueueItem {
 		id: string;
@@ -40,7 +41,7 @@
 		if (!payload || !payload.id || !payload.file_path) return;
 		queue.push({
 			id: payload.id,
-			title: payload.title || 'Prototype',
+			title: payload.title || m.l10n_lab_remote_preview_default_title(),
 			file_path: payload.file_path,
 			cwd: payload.cwd || '',
 			snapshot: payload.snapshot
@@ -76,7 +77,9 @@
 					version: 1,
 					id: item.id,
 					ok: false,
-					errors: [{ message: `Prototype file missing or empty: ${item.file_path}` }],
+					errors: [
+						{ message: m.l10n_lab_remote_render_file_missing({ path: item.file_path }) }
+					],
 					width: 0,
 					height: 0
 				});
@@ -100,7 +103,9 @@
 				version: 1,
 				id: item.id,
 				ok: false,
-				errors: [{ message: `Studio could not publish the prototype: ${msg}` }],
+				errors: [
+					{ message: m.l10n_lab_remote_render_publish_failed({ error: msg }) }
+				],
 				width: 0,
 				height: 0
 			});
@@ -196,7 +201,7 @@
 		sandbox="allow-scripts"
 		tabindex="-1"
 		aria-hidden="true"
-		title="Studio preview render host"
+		title={m.l10n_lab_remote_render_host_title()}
 		style="position: fixed; left: 0; top: 0; width: 1280px; height: 800px; opacity: 0; pointer-events: none; z-index: -1; border: 0;"
 	></iframe>
 {/if}

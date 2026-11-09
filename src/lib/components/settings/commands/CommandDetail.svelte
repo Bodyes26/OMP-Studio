@@ -123,7 +123,7 @@
 							<button
 								type="button"
 								class="btn-copy-slash"
-								aria-label="Copia comando slash"
+								aria-label={m.l10n_cmp_commands_copy_slash_aria()}
 								onclick={() => copySlashCommand(`/${entry.id}`)}
 							>
 								{#if copiedSlash}
@@ -146,7 +146,7 @@
 
 			{#if entry.supported.length === 0}
 				<p class="placement-unsupported-note">
-					Questo comando è utilizzabile tramite comando slash o dal menu catalogo; non dispone di un controllo dedicato nel composer.
+					{m.l10n_cmp_commands_placement_unsupported()}
 				</p>
 			{:else}
 				<div class="placement-controls">
@@ -246,7 +246,7 @@
 			</div>
 
 			<p class="summary-text">
-				{newCommand.description || 'Nessuna descrizione fornita dal runtime di omp.'}
+				{newCommand.description || m.l10n_cmp_commands_no_description()}
 			</p>
 		</div>
 
@@ -254,7 +254,7 @@
 			<div class="new-command-notice">
 				<IconInfo />
 				<p class="notice-text">
-					{m.settings_commands_section_new_desc()} Questo comando è utilizzabile digitando <code>/{newCommand.name}</code> nel composer, ma non supporta ancora il fissaggio visivo come pulsante rapido.
+					{m.settings_commands_section_new_desc()} {m.l10n_cmp_commands_new_notice_before()} <code>/{newCommand.name}</code> {m.l10n_cmp_commands_new_notice_after()}
 				</p>
 			</div>
 		</div>

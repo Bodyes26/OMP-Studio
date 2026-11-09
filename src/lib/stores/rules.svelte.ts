@@ -87,7 +87,7 @@ class RulesStore {
 			});
 			this.errors[key] = null;
 		} catch (error) {
-			this.errors[key] = `Censimento non disponibile: ${String(error)}`;
+			this.errors[key] = m.l10n_state_rules_census_unavailable({ error: String(error) });
 		} finally {
 			this.loading[key] = false;
 		}
@@ -137,7 +137,7 @@ class RulesStore {
 			await this.loadContext(projectPath, true);
 			return rel;
 		} catch (error) {
-			this.errors[projectPath.toLowerCase()] = `Creazione non riuscita: ${String(error)}`;
+			this.errors[projectPath.toLowerCase()] = m.l10n_state_rules_create_failed({ error: String(error) });
 			return null;
 		}
 	}
@@ -170,7 +170,7 @@ class RulesStore {
 			await this.loadContext(projectPath, true);
 			return '.omp/preview.md';
 		} catch (error) {
-			this.errors[projectPath.toLowerCase()] = `Creazione non riuscita: ${String(error)}`;
+			this.errors[projectPath.toLowerCase()] = m.l10n_state_rules_create_failed({ error: String(error) });
 			return null;
 		}
 	}

@@ -6,7 +6,7 @@
 -->
 <script lang="ts">
 	import type { RemoteProject, RemoteSessionSummary, RemoteSessionPage } from '../../../src/protocol.ts';
-	import { t } from '../i18n.ts';
+	import { t, getFormatLocale } from '../i18n.ts';
 	import { connection } from '../connection.svelte.ts';
 	import { navigation } from '../navigation.svelte.ts';
 	import { IconClose, IconSearch, IconChevronRight } from '../icons.ts';
@@ -91,7 +91,7 @@
 			}
 		} catch (err) {
 			if (reqGen !== activeRequestGen) return;
-			errorMessage = (err as Error)?.message || 'Errore caricamento storico';
+			errorMessage = (err as Error)?.message || t('historyLoadError');
 		} finally {
 			if (reqGen === activeRequestGen) {
 				isLoading = false;
@@ -114,7 +114,7 @@
 	function formatDate(ts: number): string {
 		if (!ts) return '';
 		const d = new Date(ts);
-		return d.toLocaleDateString(undefined, {
+		return d.toLocaleDateString(getFormatLocale(), {
 			day: 'numeric',
 			month: 'short',
 			hour: '2-digit',

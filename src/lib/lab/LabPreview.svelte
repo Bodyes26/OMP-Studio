@@ -350,17 +350,17 @@
 		if (!inspectorReady || !iframeEl || !visible || runtime.isViewingHistorical || notes.notes.length === 0) return;
 		const revision = notes.revision;
 		const reqId = `cap-${++captureSeq}`;
-		const reply = await new Promise<CaptureReply | null>((resolve) => {
-			pendingCaptures.set(reqId, resolve);
-			postToPreview({ type: 'inspect_capture', reqId, maxSide: 1568 });
-			window.setTimeout(() => {
-				if (pendingCaptures.delete(reqId)) resolve(null);
-			}, 12_000);
-		});
+		const { promise, resolve } = Promise.withResolvers<CaptureReply | null>();
+		pendingCaptures.set(reqId, resolve);
+		postToPreview({ type: 'inspect_capture', reqId, maxSide: 1568 });
+		window.setTimeout(() => {
+			if (pendingCaptures.delete(reqId)) resolve(null);
+		}, 12_000);
+		const reply = await promise;
 		// Una nota cambiata nel frattempo: vale la cattura successiva.
 		if (revision !== notes.revision) return;
 		if (!reply || !reply.ok || !reply.dataUrl || !reply.region) {
-			notes.setFrame(null, 'failed', reply?.error ?? 'timeout');
+			notes.setFrame(null, 'failed', reply?.error ?? m.l10n_lab_remote_capture_no_reply());
 			return;
 		}
 		notes.setFrame(
@@ -526,7 +526,7 @@
 					onclick={() => (viewportMode = 'desktop')}
 					aria-label={m.lab_view_viewport_desktop()}
 				>
-					<span class="btn-text">Desktop</span>
+					<span class="btn-text">{m.l10n_lab_remote_viewport_desktop()}</span>
 				</button>
 			</Tooltip>
 			<Tooltip text={m.lab_view_viewport_tablet()} placement="bottom">
@@ -537,7 +537,7 @@
 					onclick={() => (viewportMode = 'tablet')}
 					aria-label={m.lab_view_viewport_tablet()}
 				>
-					<span class="btn-text">Tablet</span>
+					<span class="btn-text">{m.l10n_lab_remote_viewport_tablet()}</span>
 				</button>
 			</Tooltip>
 			<Tooltip text={m.lab_view_viewport_mobile()} placement="bottom">
@@ -548,7 +548,7 @@
 					onclick={() => (viewportMode = 'mobile')}
 					aria-label={m.lab_view_viewport_mobile()}
 				>
-					<span class="btn-text">Mobile</span>
+					<span class="btn-text">{m.l10n_lab_remote_viewport_mobile()}</span>
 				</button>
 			</Tooltip>
 		</div>
@@ -888,7 +888,9 @@
 								{#each runtime.allErrors as err}
 									<div class="error-item" role="listitem">
 										<span class="error-kind-badge" class:is-runtime={err.kind === 'runtime'}>
-											{err.kind === 'compile' ? 'Build' : 'Runtime'}
+											{err.kind === 'compile'
+												? m.l10n_lab_remote_error_kind_compile()
+												: m.l10n_lab_remote_error_kind_runtime()}
 										</span>
 										{#if err.file}
 											<span class="error-location">

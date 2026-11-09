@@ -39,7 +39,7 @@
 				>
 					<img
 						src={`data:${img.mimeType};base64,${img.data}`}
-						alt="Allegato {i + 1}"
+						alt={t('attachmentAlt', { index: i + 1 })}
 						class="user-image-thumb"
 					/>
 				</button>

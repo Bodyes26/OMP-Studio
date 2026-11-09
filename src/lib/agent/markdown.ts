@@ -231,6 +231,7 @@ const LANGUAGE_ALIASES: Record<string, string> = {
  * caricamento dinamico e' l'unico modo di tenerli fuori dal primo frame.
  */
 const MAX_COLORIZE_CACHE = 200;
+let themeWatched = false;
 const colorizeCache = new Map<string, string>();
 
 /**
@@ -265,6 +266,15 @@ export async function colorizeCode(code: string, language: string | undefined): 
 	// Caricamento dinamico: Monaco pesa diversi megabyte e non deve essere
 	// caricato nel frame iniziale prima che un messaggio contenga codice.
 	const monaco = await import('monaco-editor');
+	const { ensureMonacoTheme } = await import('#lib/editor/monaco.ts');
+	if (!themeWatched) {
+		themeWatched = true;
+		// Le classi mtkN dipendono dalla mappa colori del tema: l'HTML in cache
+		// colorato col tema precedente andrebbe rimappato male.
+		const { onThemeChange } = await import('#lib/theme.ts');
+		onThemeChange(() => colorizeCache.clear());
+	}
+	ensureMonacoTheme();
 	const known = monaco.languages.getLanguages().some((entry) => entry.id === resolved);
 	if (!known) return null;
 	try {

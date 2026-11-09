@@ -162,7 +162,7 @@
 						<p class="error-text">{fetchError}</p>
 						<button type="button" class="ui-button ui-button-secondary" onclick={loadFolders}>
 							<IconRefresh />
-							<span>Riprova</span>
+							<span>{t('retry')}</span>
 						</button>
 					</div>
 				{:else if !folderList?.root}

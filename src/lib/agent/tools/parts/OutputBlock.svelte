@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
+	import { i18n } from '#lib/i18n/i18n.svelte.ts';
 	// Output monospazio con troncamento: l'output di un tool puo' essere
 	// arbitrariamente lungo e la colonna e' larga ~820px su 1920.
 	// Evita text.split('\n') per non allocare array di stringhe enormi
@@ -7,8 +8,12 @@
 	let {
 		text,
 		maxLines = 24,
-		label = 'output'
+		label = undefined
 	} = $props<{ text: string; maxLines?: number; label?: string }>();
+
+	// Etichetta risolta a ogni cambio lingua: i default dei `$props` si
+	// valutano una volta sola, la lingua no.
+	const labelText = $derived(label ?? m.l10n_tools_label_output());
 
 	let expanded = $state(false);
 
@@ -58,7 +63,7 @@
 			if (remainingLines >= MAX_SAFE_LINES) {
 				return {
 					shown: text.slice(0, cutIndex),
-					hidden: `${MAX_SAFE_LINES}+`,
+					hidden: `${i18n.formatNumber(MAX_SAFE_LINES)}+`,
 					hasMore: true
 				};
 			}
@@ -112,12 +117,12 @@
 		<pre>{shown}</pre>
 		{#if isCapped}
 			<div class="output-truncated-note">
-				{m.output_block_truncated_note({ max: '20.000' })}
+				{m.output_block_truncated_note({ max: i18n.formatNumber(MAX_SAFE_LINES) })}
 			</div>
 		{/if}
 		{#if hasHidden}
 			<button type="button" onclick={() => (expanded = !expanded)}>
-				{expanded ? m.output_block_collapse({ label }) : m.ui_outputblock_value1_righe_in_piu_d8e9({ value1: hiddenCount })}
+				{expanded ? m.output_block_collapse({ label: labelText }) : m.ui_outputblock_value1_righe_in_piu_d8e9({ value1: hiddenCount })}
 			</button>
 		{/if}
 	</div>

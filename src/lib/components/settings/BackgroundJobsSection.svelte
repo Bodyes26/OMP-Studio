@@ -135,12 +135,12 @@
 			<div class="form-row-copy">
 				<div class="label-with-value">
 					<label for="bg-quota-short" id="bg-quota-short-label" class="form-row-label">
-						Riserva minima finestra breve (giornaliera / 5h)
+						{m.l10n_cmp_bg_quota_short_label()}
 					</label>
 					<span class="ui-count tabular font-mono">{quotaShort}%</span>
 				</div>
 				<span id="bg-quota-short-desc" class="form-row-desc">
-					Sospende la generazione automatica dei titoli quando la quota residua nelle finestre brevi scende sotto questa soglia.
+					{m.l10n_cmp_bg_quota_short_desc()}
 				</span>
 			</div>
 			<div class="form-row-control slider-control">
@@ -163,12 +163,12 @@
 			<div class="form-row-copy">
 				<div class="label-with-value">
 					<label for="bg-quota-weekly" id="bg-quota-weekly-label" class="form-row-label">
-						Riserva minima finestra settimanale
+						{m.l10n_cmp_bg_quota_weekly_label()}
 					</label>
 					<span class="ui-count tabular font-mono">{quotaWeekly}%</span>
 				</div>
 				<span id="bg-quota-weekly-desc" class="form-row-desc">
-					Soglia protetta per la capacità aggregata della finestra settimanale (calcolata sui report multi-account).
+					{m.l10n_cmp_bg_quota_weekly_desc()}
 				</span>
 			</div>
 			<div class="form-row-control slider-control">
@@ -191,12 +191,12 @@
 			<div class="form-row-copy">
 				<div class="label-with-value">
 					<label for="bg-task-quiet" id="bg-task-quiet-label" class="form-row-label">
-						Quiete salvataggio task (secondi)
+						{m.l10n_cmp_bg_quiet_label()}
 					</label>
 					<span class="ui-count tabular font-mono">{taskQuiet}s</span>
 				</div>
 				<span id="bg-task-quiet-desc" class="form-row-desc">
-					Attesa dopo il salvataggio o la digitazione del prompt prima di invocare il modello leggero (preserva titoli manuali).
+					{m.l10n_cmp_bg_quiet_desc()}
 				</span>
 			</div>
 			<div class="form-row-control slider-control">
@@ -271,13 +271,13 @@
 		<div class="form-row backfill-row">
 			<div class="form-row-copy">
 				<div class="label-with-value">
-					<span class="form-row-label">Titoli mancanti nella cronologia</span>
+					<span class="form-row-label">{m.l10n_cmp_bg_backfill_label()}</span>
 					{#if missingSessionCount !== null}
 						<span class="ui-count tabular font-mono">{missingSessionCount}</span>
 					{/if}
 				</div>
 				<span class="form-row-desc">
-					Le nuove sessioni vengono titolate automaticamente al primo messaggio. Per le sessioni pregresse, avvia il recupero manuale senza sweep automatici.
+					{m.l10n_cmp_bg_backfill_desc()}
 				</span>
 			</div>
 			<div class="form-row-control">
@@ -287,7 +287,7 @@
 					disabled={!isGlobalEnabled || isBackfilling || (missingSessionCount !== null && missingSessionCount === 0)}
 					onclick={handleBackfill}
 				>
-					{isBackfilling ? 'Generazione in corso…' : 'Genera titoli mancanti'}
+					{isBackfilling ? m.l10n_cmp_bg_backfill_running() : m.l10n_cmp_bg_backfill_start()}
 				</button>
 			</div>
 		</div>

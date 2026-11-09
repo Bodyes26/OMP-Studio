@@ -14,8 +14,11 @@
 		clearGutterDebounce,
 		scheduleGutterDecorations,
 		getAttachedLines,
-		dissolveChangedLines
+		dissolveChangedLines,
+		updateFileModelContent
 	} from './monaco';
+	import { decideFileReload } from './fileReloadDecision';
+	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 	import { registerSnapshot, pendingSwitch, switchSnapshot, dissolve } from '#lib/switchDissolve.ts';
 	import { perfSpan } from '#lib/perf.ts';
 	import { settingsStore } from '#lib/stores/settings.svelte.ts';
@@ -27,7 +30,9 @@
 	import Tooltip from '#lib/ui/Tooltip.svelte';
 	import StatusMark from '#lib/ui/StatusMark.svelte';
 	import { lexMarkdown } from '#lib/agent/markdown.ts';
-	import { projectStore, joinProjectPath, isWindows } from '#lib/stores/projects.svelte.ts';
+	import { renderMermaidSvg, isMermaidFileName, computeMermaidPreviewState } from '#lib/mermaidSvg.ts';
+	import { onThemeChange } from '#lib/theme.ts';
+	import { projectStore, joinProjectPath, isWindows, pathKey, normalizeProjectPath } from '#lib/stores/projects.svelte.ts';
 	import { IS_MAC, REVEAL_LABEL } from '#lib/utils/platform.ts';
 	import { invoke } from '@tauri-apps/api/core';
 	import { revealItemInDir } from '@tauri-apps/plugin-opener';
@@ -84,7 +89,7 @@
 		return ['html', 'htm', 'jsx', 'tsx'].includes(path.split('.').pop()?.toLowerCase() || '');
 	}
 
-	type FileLoadError = 'too_large' | 'binary' | 'generic';
+	type FileLoadError = 'too_large' | 'binary' | 'generic' | 'deleted';
 
 	interface FileState {
 		initialContent: string;
@@ -104,6 +109,7 @@
 	let diffContainer = $state<HTMLElement>();
 	let splitContainer = $state<HTMLElement>();
 	let dirtyFiles = $state<Record<string, boolean>>({});
+	let diskConflicts = $state<Record<string, { diskContent: string }>>({});
 	let saveError = $state<string | null>(null);
 	let loadErrors = $state<Record<string, FileLoadError>>({});
 	let loadedKey: string | null = null;
@@ -144,6 +150,7 @@
 	let isPdf = $derived(filePath ? isPdfFile(filePath) : false);
 	let isSvg = $derived(filePath ? filePath.split('.').pop()?.toLowerCase() === 'svg' : false);
 	let isMarkdown = $derived(filePath ? ['md', 'markdown'].includes(filePath.split('.').pop()?.toLowerCase() || '') : false);
+	let isMermaid = $derived(filePath ? isMermaidFileName(filePath) : false);
 
 	// Vista scelta per file: la chiave e' fileKey, non il path, cosi' due
 	// progetti con lo stesso file relativo non si sovrascrivono la scelta.
@@ -159,7 +166,7 @@
 	// `moveFile` inserisce dopo il bersaglio quando lo si trascina in avanti.
 	let dragOverAfter = $state(false);
 
-	let previewCapable = $derived(isSvg || isMarkdown);
+	let previewCapable = $derived(isSvg || isMarkdown || isMermaid);
 	let activeFileError = $derived.by<FileLoadError | null>(() => {
 		if (!filePath || !projectPath) return null;
 		return loadErrors[fileKey(projectPath, filePath)] ?? null;
@@ -169,6 +176,35 @@
 		return viewModes[fileKey(projectPath, filePath)] ?? 'split';
 	});
 	let markdownTokens = $derived(isMarkdown && viewMode !== 'code' ? lexMarkdown(currentText) : []);
+	let mermaidSvg = $state('');
+	let mermaidError = $state<string | null>(null);
+	let mermaidThemeEpoch = $state(0);
+
+	$effect(() => onThemeChange(() => mermaidThemeEpoch++));
+
+	$effect(() => {
+		if (!isMermaid || viewMode === 'code') {
+			mermaidSvg = '';
+			mermaidError = null;
+			return;
+		}
+		const text = currentText;
+		void mermaidThemeEpoch;
+		let stale = false;
+
+		const timer = setTimeout(() => {
+			computeMermaidPreviewState(text, renderMermaidSvg).then((res) => {
+				if (stale) return;
+				mermaidSvg = res.svg;
+				mermaidError = res.error;
+			});
+		}, 150);
+
+		return () => {
+			stale = true;
+			clearTimeout(timer);
+		};
+	});
 	const viewOptions = $derived<SegmentedOption<ViewMode>[]>([
 		{ value: 'code', label: m.editor_view_code(), icon: IconViewCode, tooltip: m.editor_view_tip({ view: m.editor_view_code() }) },
 		{ value: 'split', label: m.editor_view_split(), icon: IconViewSplit, tooltip: m.editor_view_tip({ view: m.editor_view_split() }) },
@@ -209,6 +245,7 @@
 				if (!currentSet.has(path)) {
 					fileStates.delete(key);
 					delete loadErrors[key];
+					delete diskConflicts[key];
 					clearDirty(key);
 					clearViewMode(key);
 					disposeFileModel(joinProjectPath(currentProject, path));
@@ -234,6 +271,218 @@
 		}
 		knownFilesByProject.set(currentProject, currentSet);
 	});
+	const editorOwnerId = `editor:${crypto.randomUUID()}`;
+
+	// Mantiene l'insieme dei percorsi osservati allineato alle tab attualmente aperte (EXT-011)
+	$effect(() => {
+		const currentProject = projectPath;
+		const currentPaths = filePaths;
+		if (!currentProject || currentPaths.length === 0) {
+			void invoke('file_watch_set', { owner: editorOwnerId, paths: [] });
+			return;
+		}
+		const absPaths = currentPaths.map((p: string) => joinProjectPath(currentProject, p));
+		void invoke('file_watch_set', { owner: editorOwnerId, paths: absPaths });
+
+		// All'attivazione del progetto, verifica le modifiche su disco per tutte le tab in cache (EXT-011)
+		for (const p of currentPaths) {
+			const key = fileKey(currentProject, p);
+			const cached = fileStates.get(key);
+			if (cached) {
+				void syncFileFromDisk(currentProject, p, key, cached);
+			}
+		}
+	});
+
+	let unlistenFileChanged: UnlistenFn | null = null;
+
+	$effect(() => {
+		let active = true;
+		void listen<{ path: string }>('studio://file-changed', (event) => {
+			if (!active) return;
+			void handleFileChangedOnDisk(event.payload.path);
+		}).then((unlisten) => {
+			if (!active) {
+				unlisten();
+			} else {
+				unlistenFileChanged = unlisten;
+			}
+		});
+
+		return () => {
+			active = false;
+			if (unlistenFileChanged) {
+				unlistenFileChanged();
+				unlistenFileChanged = null;
+			}
+		};
+	});
+
+	async function syncFileFromDisk(project: string, targetPath: string, targetKey: string, state: FileState) {
+		const abs = joinProjectPath(project, targetPath);
+
+		// Rilettura da disco
+		let diskContent: string | null = null;
+		try {
+			const res = await invoke<{ content: string }>('file_read', {
+				projectPath: project,
+				rel: targetPath
+			});
+			diskContent = res.content;
+		} catch {
+			diskContent = null;
+		}
+
+		const currentContent = getCurrentFileContent(abs) ?? state.currentText;
+		const decision = decideFileReload({
+			diskContent,
+			baselineContent: state.initialContent,
+			currentContent
+		});
+
+		if (decision.action === 'ignore') {
+			if (diskConflicts[targetKey]) {
+				const { [targetKey]: _, ...remaining } = diskConflicts;
+				diskConflicts = remaining;
+			}
+			return;
+		}
+
+		if (decision.action === 'reload') {
+			const newContent = decision.content;
+			state.initialContent = newContent;
+			state.currentText = newContent;
+			if (targetPath === filePath && project === projectPath) {
+				initialContent = newContent;
+				currentText = newContent;
+			}
+			updateFileModelContent(abs, newContent);
+			setDirty(targetKey, false);
+
+			if (diskConflicts[targetKey]) {
+				const { [targetKey]: _, ...remaining } = diskConflicts;
+				diskConflicts = remaining;
+			}
+			if (loadErrors[targetKey]) {
+				const { [targetKey]: _, ...remaining } = loadErrors;
+				loadErrors = remaining;
+			}
+			if (targetPath === filePath && project === projectPath && editor) {
+				clearGutterDebounce();
+				state.decorationIds = updateGutterDecorations(
+					editor,
+					state.gitHeadContent,
+					newContent,
+					state.decorationIds
+				);
+			}
+			return;
+		}
+
+		if (decision.action === 'conflict') {
+			diskConflicts = {
+				...diskConflicts,
+				[targetKey]: { diskContent: decision.diskContent }
+			};
+			return;
+		}
+
+		if (decision.action === 'deleted') {
+			if (currentContent === state.initialContent) {
+				loadErrors = { ...loadErrors, [targetKey]: 'deleted' };
+			} else {
+				diskConflicts = {
+					...diskConflicts,
+					[targetKey]: { diskContent: '' }
+				};
+			}
+		}
+	}
+
+	async function handleFileChangedOnDisk(changedPath: string) {
+		if (!projectPath || !filePaths || filePaths.length === 0) return;
+		const normChanged = normalizeProjectPath(changedPath);
+
+		// Individua la tab aperta corrispondente al percorso notificato
+		const matchingTab = filePaths.find((tabPath: string) => {
+			const abs = joinProjectPath(projectPath, tabPath);
+			return pathKey(abs) === pathKey(normChanged);
+		});
+		if (!matchingTab) return;
+
+		const targetPath = matchingTab;
+		const targetKey = fileKey(projectPath, targetPath);
+
+		const state = fileStates.get(targetKey);
+		// Se il file non e' ancora mai stato aperto/istanziato in memoria/Monaco
+		if (!state) {
+			try {
+				await invoke('file_read', { projectPath, rel: targetPath });
+				if (loadErrors[targetKey] === 'deleted') {
+					const { [targetKey]: _, ...remaining } = loadErrors;
+					loadErrors = remaining;
+				}
+			} catch {
+				loadErrors = { ...loadErrors, [targetKey]: 'deleted' };
+			}
+			return;
+		}
+
+		await syncFileFromDisk(projectPath, targetPath, targetKey, state);
+	}
+	async function reloadConflictFromDisk(targetPath: string) {
+		if (!projectPath) return;
+		const targetKey = fileKey(projectPath, targetPath);
+		const conflict = diskConflicts[targetKey];
+		let content = conflict?.diskContent;
+		if (content === undefined || content === null || content === '') {
+			try {
+				const res = await invoke<{ content: string }>('file_read', { projectPath, rel: targetPath });
+				content = res.content;
+			} catch {
+				return;
+			}
+		}
+		const state = fileStates.get(targetKey);
+		const abs = joinProjectPath(projectPath, targetPath);
+		if (state) {
+			state.initialContent = content;
+			state.currentText = content;
+			if (targetPath === filePath) {
+				initialContent = content;
+				currentText = content;
+			}
+			updateFileModelContent(abs, content);
+			setDirty(targetKey, false);
+			if (targetPath === filePath && editor) {
+				clearGutterDebounce();
+				state.decorationIds = updateGutterDecorations(
+					editor,
+					state.gitHeadContent,
+					content,
+					state.decorationIds
+				);
+			}
+		}
+		const { [targetKey]: _, ...remaining } = diskConflicts;
+		diskConflicts = remaining;
+	}
+
+	function keepLocalConflict(targetPath: string) {
+		if (!projectPath) return;
+		const targetKey = fileKey(projectPath, targetPath);
+		const conflict = diskConflicts[targetKey];
+		const state = fileStates.get(targetKey);
+		if (state && conflict) {
+			state.initialContent = conflict.diskContent;
+			if (targetPath === filePath) {
+				initialContent = conflict.diskContent;
+			}
+			setDirty(targetKey, state.currentText !== state.initialContent);
+		}
+		const { [targetKey]: _, ...remaining } = diskConflicts;
+		diskConflicts = remaining;
+	}
 
 	function fileKey(project: string, path: string): string {
 		return `${project}\u0000${path}`;
@@ -265,6 +514,7 @@
 		if (ext === 'vb') return 'vb';
 		if (ext === 'cs') return 'csharp';
 		if (ext === 'md' || ext === 'markdown') return 'markdown';
+		if (ext === 'mmd' || ext === 'mermaid') return 'markdown';
 		if (ext === 'rs') return 'rust';
 		if (ext === 'py') return 'python';
 		if (ext === 'yaml' || ext === 'yml') return 'yaml';
@@ -442,9 +692,9 @@
 			const endOpen = perfSpan('editor', `open ${path} cached`);
 			activateLoadedFile(project, path, key, cached, false);
 			endOpen('ok');
+			void syncFileFromDisk(project, path, key, cached);
 			return;
 		}
-
 		loading = true;
 		delete loadErrors[key];
 		const endOpen = perfSpan('editor', `open ${path} uncached`);
@@ -695,6 +945,7 @@
 		clearGutterDebounce();
 		disposeDiff();
 		stopResize();
+		void invoke('file_watch_set', { owner: editorOwnerId, paths: [] });
 	});
 
 	async function saveFileByPath(targetPath: string) {
@@ -703,7 +954,7 @@
 		const key = fileKey(projectPath, targetPath);
 		// Protezione assoluta: mai salvare file rifiutati (es. troppo grandi o binari)
 		// per evitare sovrascritture distruttive su disco con contenuto vuoto.
-		if (loadErrors[key]) return;
+		if (loadErrors[key] === 'too_large' || loadErrors[key] === 'binary') return;
 		const state = fileStates.get(key);
 		if (!state) return;
 		const abs = joinProjectPath(projectPath, targetPath);
@@ -718,6 +969,8 @@
 				currentText = content;
 			}
 			setDirty(key, false);
+			delete diskConflicts[key];
+			delete loadErrors[key];
 			if (targetPath === filePath && editor) {
 				clearGutterDebounce();
 				state.decorationIds = updateGutterDecorations(
@@ -753,6 +1006,7 @@
 		}
 		fileStates.delete(key);
 		delete loadErrors[key];
+		delete diskConflicts[key];
 		clearDirty(key);
 		clearViewMode(key);
 		disposeFileModel(joinProjectPath(projectPath, path));
@@ -766,6 +1020,7 @@
 				const key = fileKey(projectPath, p);
 				fileStates.delete(key);
 				delete loadErrors[key];
+				delete diskConflicts[key];
 				clearDirty(key);
 				clearViewMode(key);
 				disposeFileModel(joinProjectPath(projectPath, p));
@@ -786,6 +1041,7 @@
 			disposeFileModel(joinProjectPath(projectPath, p));
 		}
 		loadErrors = {};
+		diskConflicts = {};
 		projectStore.closeAllFiles(projectStore.activeId);
 	}
 
@@ -1259,10 +1515,12 @@
 			{#each filePaths as path (path)}
 				{@const isActive = path === filePath}
 				{@const isTabDirty = dirtyFiles[fileKey(projectPath, path)] === true}
+				{@const hasConflict = !!diskConflicts[fileKey(projectPath, path)]}
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
 				<div
 					class="editor-tab"
 					class:active={isActive}
+					class:has-conflict={hasConflict}
 					class:dragging={draggedTabPath === path}
 					class:drag-over={dragOverTabPath === path && draggedTabPath !== path}
 					class:drag-after={dragOverAfter}
@@ -1280,17 +1538,19 @@
 					<button
 						class="editor-tab-file"
 						aria-pressed={isActive}
-						title={path}
+						title={hasConflict ? `${path} (${m.editor_external_conflict_tab_tip()})` : path}
 						onclick={() => selectFile(path)}
 					>
-						<span class="tab-label" class:unsaved={isTabDirty}>{fileName(path)}</span>
+						<span class="tab-label" class:unsaved={isTabDirty} class:conflict={hasConflict}>{fileName(path)}</span>
 						{#if isTabDirty}<span class="sr-only">, {m.editor_unsaved()}</span>{/if}
 					</button>
 					<!-- Un solo posto per due segni: il punto delle modifiche non
 					     salvate lascia il posto alla X al passaggio del mouse, cosi'
 					     la larghezza della scheda non cambia mai. -->
-					<span class="tab-slot" class:has-dot={isTabDirty}>
-						{#if isTabDirty}
+					<span class="tab-slot" class:has-dot={isTabDirty || hasConflict}>
+						{#if hasConflict}
+							<span class="conflict-dot" aria-hidden="true" title={m.editor_external_conflict_tab_tip()}>!</span>
+						{:else if isTabDirty}
 							<span class="dirty-dot" aria-hidden="true"></span>
 						{/if}
 						<button
@@ -1377,7 +1637,7 @@
 					</Tooltip>
 				{/if}
 				{#if readOnly}
-					<span class="readonly-badge" title="Progetto occupato da un'automazione attiva (AUT-042)">
+					<span class="readonly-badge" title={m.l10n_state_readonly_automation_title()}>
 						{m.ui_editor_file_in_sola_lettura_63b0()}
 					</span>
 				{:else if isDirty && !isImage && !activeFileError}
@@ -1393,6 +1653,28 @@
 			</div>
 		{/if}
 	</div>
+
+	{#if filePath && diskConflicts[fileKey(projectPath, filePath)]}
+		<div class="external-conflict-banner" role="alert">
+			<span class="conflict-message">{m.editor_external_conflict_banner()}</span>
+			<div class="conflict-actions">
+				<button
+					type="button"
+					class="ui-button ui-button-secondary"
+					onclick={() => void reloadConflictFromDisk(filePath!)}
+				>
+					{m.editor_external_reload()}
+				</button>
+				<button
+					type="button"
+					class="ui-button ui-button-secondary"
+					onclick={() => keepLocalConflict(filePath!)}
+				>
+					{m.editor_external_keep()}
+				</button>
+			</div>
+		</div>
+	{/if}
 
 	<div class="editor-body">
 		{#if loading}
@@ -1414,6 +1696,8 @@
 						{m.editor_file_too_large()}
 					{:else if activeFileError === 'binary'}
 						{m.editor_file_binary()}
+					{:else if activeFileError === 'deleted'}
+						{m.editor_file_deleted()}
 					{:else}
 						{m.editor_file_load_error()}
 					{/if}
@@ -1423,6 +1707,8 @@
 						{m.editor_file_too_large_hint()}
 					{:else if activeFileError === 'binary'}
 						{m.editor_file_binary_hint()}
+					{:else if activeFileError === 'deleted'}
+						{m.editor_file_deleted_hint()}
 					{:else}
 						{m.editor_file_load_error_hint()}
 					{/if}
@@ -1450,6 +1736,14 @@
 				{#if isSvg}
 					<div class="svg-preview-viewport">
 						<SvgPreview content={currentText} title={m.editor_svg_preview_title({ name: fileName(filePath) })} />
+					</div>
+				{:else if isMermaid}
+					<div class="mermaid-preview-viewport">
+						{#if mermaidError}
+							<div class="mermaid-error" role="alert">{mermaidError}</div>
+						{:else if mermaidSvg}
+							<div class="mermaid-host">{@html mermaidSvg}</div>
+						{/if}
 					</div>
 				{:else}
 					<div class="markdown-preview-viewport">
@@ -1485,6 +1779,14 @@
 					{#if isSvg}
 						<div class="svg-preview-viewport">
 							<SvgPreview content={currentText} title={m.editor_svg_preview_title({ name: fileName(filePath) })} />
+						</div>
+					{:else if isMermaid}
+						<div class="mermaid-preview-viewport">
+							{#if mermaidError}
+								<div class="mermaid-error" role="alert">{mermaidError}</div>
+							{:else if mermaidSvg}
+								<div class="mermaid-host">{@html mermaidSvg}</div>
+							{/if}
 						</div>
 					{:else}
 						<div class="markdown-preview-viewport">
@@ -1735,8 +2037,50 @@
 	}
 
 	.editor-tab:hover .dirty-dot,
-	.tab-slot:focus-within .dirty-dot {
+	.editor-tab:hover .conflict-dot,
+	.tab-slot:focus-within .dirty-dot,
+	.tab-slot:focus-within .conflict-dot {
 		opacity: 0;
+	}
+
+	.conflict-dot {
+		width: 14px;
+		height: 14px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 11px;
+		font-weight: 700;
+		color: var(--color-warning, #d97706);
+		user-select: none;
+	}
+
+	.tab-label.conflict {
+		color: var(--color-warning, #d97706);
+	}
+
+	.external-conflict-banner {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-3);
+		padding: var(--space-2) var(--space-4);
+		background: var(--bg-hover);
+		border-bottom: 1px solid var(--line);
+		font-size: var(--text-body);
+		color: var(--ink);
+		flex-shrink: 0;
+		z-index: 5;
+	}
+
+	.conflict-message {
+		font-weight: 500;
+	}
+
+	.conflict-actions {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
 	}
 
 	/* Senza modifiche pendenti la X resta visibile sulla scheda attiva: e'
@@ -1871,6 +2215,42 @@
 	.markdown-column {
 		max-width: 720px;
 		margin: 0 auto;
+	}
+
+	.mermaid-preview-viewport {
+		flex: 1;
+		padding: var(--space-4) var(--space-3) var(--space-6);
+		overflow: auto;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+	}
+
+	.mermaid-host {
+		display: flex;
+		justify-content: center;
+		width: 100%;
+		max-width: 900px;
+		margin: 0 auto;
+	}
+
+	.mermaid-host :global(svg) {
+		display: block;
+		max-width: 100%;
+		height: auto;
+	}
+
+	.mermaid-error {
+		padding: var(--space-3) var(--space-4);
+		background: var(--bg-sunken);
+		border: 1px solid var(--danger);
+		border-radius: var(--radius-md);
+		color: var(--danger);
+		font-family: var(--font-mono);
+		font-size: var(--text-caption);
+		white-space: pre-wrap;
+		max-width: 600px;
+		margin: var(--space-4) auto;
 	}
 
 	.loading-overlay, .empty-state {

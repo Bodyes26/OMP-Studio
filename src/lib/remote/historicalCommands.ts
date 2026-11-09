@@ -8,6 +8,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
+import { m } from '#lib/paraglide/messages.js';
 import type {
 	RemoteChatMessage,
 	RemoteChatPage,
@@ -181,16 +182,16 @@ export function rawMessagesToTranscriptEntries(
 		}
 
 		if (role === 'compactionSummary' || (typeof msg.summary === 'string' && !msg.role) || msg.type === 'compaction') {
-			let summaryText = 'Contesto compattato';
+			let summaryText = m.l10n_lab_remote_compaction_summary();
 			if (typeof msg.tokensBefore === 'number' && typeof msg.tokensAfter === 'number') {
 				const saved = msg.tokensBefore - msg.tokensAfter;
 				summaryText = saved > 0
-					? `Contesto compattato (-${saved} token)`
-					: `Contesto compattato (${msg.tokensAfter} token)`;
+					? m.l10n_lab_remote_compaction_summary_freed({ tokens: String(saved) })
+					: m.l10n_lab_remote_compaction_summary_after({ tokens: String(msg.tokensAfter) });
 			} else if (typeof msg.shortSummary === 'string' && msg.shortSummary.trim()) {
-				summaryText = `Contesto compattato: ${msg.shortSummary.trim()}`;
+				summaryText = m.l10n_lab_remote_compaction_summary_detail({ summary: msg.shortSummary.trim() });
 			} else if (typeof msg.summary === 'string' && msg.summary.trim()) {
-				summaryText = `Contesto compattato: ${msg.summary.trim()}`;
+				summaryText = m.l10n_lab_remote_compaction_summary_detail({ summary: msg.summary.trim() });
 			}
 			const compactionEntry: CompactionEntry = {
 				id: nextId++,
@@ -261,7 +262,7 @@ export async function listRemoteSessions(
 ): Promise<RemoteSessionPage> {
 	const project = projectStore.projects.find((p) => p.id === projectId);
 	if (!project) {
-		throw new RemoteCommandFailure('not_found', `Progetto "${projectId}" non trovato`);
+		throw new RemoteCommandFailure('not_found', m.l10n_lab_remote_project_not_found({ project: projectId }));
 	}
 
 	const canonicalPath = project.canonicalProjectPath || project.id;
@@ -295,7 +296,7 @@ export async function listRemoteSessions(
 		}
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err);
-		throw new RemoteCommandFailure('failed', `Errore lettura sessioni principali: ${msg}`);
+		throw new RemoteCommandFailure('failed', m.l10n_lab_remote_sessions_read_failed({ error: msg }));
 	}
 
 	// 2. Sessioni dei worktree noti
@@ -314,7 +315,10 @@ export async function listRemoteSessions(
 			}
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);
-			throw new RemoteCommandFailure('failed', `Errore lettura sessioni del worktree "${wtPath}": ${msg}`);
+			throw new RemoteCommandFailure(
+				'failed',
+				m.l10n_lab_remote_worktree_sessions_read_failed({ path: wtPath, error: msg })
+			);
 		}
 	}
 
@@ -367,7 +371,7 @@ export async function listRemoteSessions(
 	if (before !== null) {
 		const targetIndex = summaries.findIndex((s) => s.sessionId === before);
 		if (targetIndex < 0) {
-			throw new RemoteCommandFailure('rejected', "L'elenco delle sessioni e cambiato. Ricarica lo storico.");
+			throw new RemoteCommandFailure('rejected', m.l10n_lab_remote_session_list_changed());
 		}
 		startIndex = targetIndex + 1;
 	}
@@ -395,12 +399,12 @@ export async function remoteSessionHistory(
 	limit: number
 ): Promise<RemoteChatPage> {
 	if (!sessionId || typeof sessionId !== 'string') {
-		throw new RemoteCommandFailure('not_found', 'Identificatore di sessione non valido');
+		throw new RemoteCommandFailure('not_found', m.l10n_lab_remote_session_id_invalid());
 	}
 
 	const project = projectStore.projects.find((p) => p.id === projectId);
 	if (!project) {
-		throw new RemoteCommandFailure('not_found', `Progetto "${projectId}" non trovato`);
+		throw new RemoteCommandFailure('not_found', m.l10n_lab_remote_project_not_found({ project: projectId }));
 	}
 
 	const canonicalPath = project.canonicalProjectPath || project.id;
@@ -447,7 +451,10 @@ export async function remoteSessionHistory(
 			allEntries = rawMessagesToTranscriptEntries(rawMessages);
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
-			throw new RemoteCommandFailure('failed', `Lettura della sessione "${sessionId}" fallita: ${message}`);
+			throw new RemoteCommandFailure(
+				'failed',
+				m.l10n_lab_remote_session_read_failed({ session: sessionId, error: message })
+			);
 		}
 	}
 

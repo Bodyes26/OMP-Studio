@@ -11,6 +11,8 @@
  * test che girano con il solo type-stripping di Node.
  */
 
+import { m as msg } from '#lib/paraglide/messages.js';
+
 export interface ParsedAskTitle {
 	/** `(N selected)` o `k/N` quando il protocollo li dichiara, altrimenti `null`. */
 	counter: string | null;
@@ -76,7 +78,7 @@ export function sanitizeAskDetail(raw: string | null | undefined): string | null
  */
 export function askQuestionText(
 	pending: { title?: string | null; message?: string | null } | null | undefined,
-	fallback = 'Richiesta di risposta'
+	fallback = msg.l10n_agent_ask_default_title()
 ): string {
 	if (!pending) return fallback;
 	const fromTitle = parseAskTitle(pending.title).text.trim();

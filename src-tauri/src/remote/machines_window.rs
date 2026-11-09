@@ -14,8 +14,10 @@ use crate::remote::RemoteManager;
 /// Etichetta univoca della finestra «Altre macchine».
 pub const MACHINES_WINDOW_LABEL: &str = "remote-machines";
 
-/// Titolo visualizzato nella barra del titolo della finestra.
-pub const MACHINES_WINDOW_TITLE: &str = "Altre macchine";
+/// Titolo visualizzato nella barra del titolo della finestra, nella lingua dell'interfaccia.
+pub fn machines_window_title() -> &'static str {
+    crate::tr!("Altre macchine", "Other machines")
+}
 
 /// Decisione di navigazione per le richieste originate all'interno della Webview.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,8 +45,18 @@ pub fn decide_navigation(target: &url::Url, allowed_origin: &url::Origin) -> Nav
 /// Costruisce l'URL della PWA remota garantendo lo slash finale sull'origine del relay.
 pub fn build_machines_url(relay_url: &str) -> Result<url::Url, String> {
     let normalized = validate_and_normalize_relay_url(relay_url)?;
-    let url_str = format!("{}/?lang=it", normalized.http_url.trim_end_matches('/'));
-    url::Url::parse(&url_str).map_err(|e| format!("URL relay non valido per la finestra: {e}"))
+    // La PWA segue la lingua di Studio: il parametro viene letto all'apertura.
+    let url_str = format!(
+        "{}/?lang={}",
+        normalized.http_url.trim_end_matches('/'),
+        crate::i18n::code()
+    );
+    url::Url::parse(&url_str).map_err(|e| {
+        crate::tr!(
+            format!("URL relay non valido per la finestra: {e}"),
+            format!("Invalid relay URL for the window: {e}")
+        )
+    })
 }
 
 /// Apre o mette a fuoco la finestra «Altre macchine».
@@ -54,16 +66,23 @@ pub async fn remote_open_machines_window(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(MACHINES_WINDOW_LABEL) {
         let _ = window.unminimize();
         let _ = window.show();
-        window
-            .set_focus()
-            .map_err(|e| format!("Focus finestra altre macchine fallito: {e}"))?;
+        window.set_focus().map_err(|e| {
+            crate::tr!(
+                format!("Focus finestra altre macchine fallito: {e}"),
+                format!("Focusing the other machines window failed: {e}")
+            )
+        })?;
         return Ok(());
     }
 
     // 2. Verifica che il controllo remoto sia configurato e abbinato.
-    let manager = app
-        .try_state::<RemoteManager>()
-        .ok_or_else(|| "Modulo di controllo remoto non inizializzato".to_string())?;
+    let manager = app.try_state::<RemoteManager>().ok_or_else(|| {
+        crate::tr!(
+            "Modulo di controllo remoto non inizializzato",
+            "Remote control module not initialized"
+        )
+        .to_string()
+    })?;
 
     let (enabled, paired, relay_url) = {
         let cfg = manager.ctx.config.lock();
@@ -75,10 +94,16 @@ pub async fn remote_open_machines_window(app: AppHandle) -> Result<(), String> {
     };
 
     if !enabled || !paired {
-        return Err("Controllo remoto non configurato o non abbinato".to_string());
+        return Err(crate::tr!(
+            "Controllo remoto non configurato o non abbinato",
+            "Remote control not configured or not paired"
+        )
+        .to_string());
     }
 
-    let relay_url = relay_url.ok_or_else(|| "URL del relay non configurato".to_string())?;
+    let relay_url = relay_url.ok_or_else(|| {
+        crate::tr!("URL del relay non configurato", "Relay URL not configured").to_string()
+    })?;
     let machines_url = build_machines_url(&relay_url)?;
     let allowed_origin = machines_url.origin();
 
@@ -88,7 +113,7 @@ pub async fn remote_open_machines_window(app: AppHandle) -> Result<(), String> {
         MACHINES_WINDOW_LABEL,
         WebviewUrl::External(machines_url),
     )
-    .title(MACHINES_WINDOW_TITLE)
+    .title(machines_window_title())
     .inner_size(1024.0, 720.0)
     .min_inner_size(480.0, 400.0)
     .resizable(true)
@@ -104,7 +129,12 @@ pub async fn remote_open_machines_window(app: AppHandle) -> Result<(), String> {
         },
     )
     .build()
-    .map_err(|e| format!("Creazione finestra altre macchine fallita: {e}"))?;
+    .map_err(|e| {
+        crate::tr!(
+            format!("Creazione finestra altre macchine fallita: {e}"),
+            format!("Creating the other machines window failed: {e}")
+        )
+    })?;
 
     // 4. La geometria salvata la ripristina gia' il plugin window-state alla
     //    creazione della finestra. Richiamare `restore_state` qui da un comando
@@ -123,7 +153,10 @@ mod tests {
     #[test]
     fn test_build_machines_url_valid_https() {
         let url = build_machines_url("https://relay.example.com").expect("url valido");
-        assert_eq!(url.as_str(), "https://relay.example.com/?lang=it");
+        assert_eq!(
+            url.as_str(),
+            format!("https://relay.example.com/?lang={}", crate::i18n::code())
+        );
         assert_eq!(
             url.origin().ascii_serialization(),
             "https://relay.example.com"
@@ -131,18 +164,27 @@ mod tests {
 
         let url_trailing =
             build_machines_url("https://relay.example.com/").expect("url valido con slash");
-        assert_eq!(url_trailing.as_str(), "https://relay.example.com/?lang=it");
+        assert_eq!(
+            url_trailing.as_str(),
+            format!("https://relay.example.com/?lang={}", crate::i18n::code())
+        );
     }
 
     #[test]
     fn test_build_machines_url_localhost() {
         let url = build_machines_url("http://127.0.0.1:18795").expect("url loopback valido");
-        assert_eq!(url.as_str(), "http://127.0.0.1:18795/?lang=it");
+        assert_eq!(
+            url.as_str(),
+            format!("http://127.0.0.1:18795/?lang={}", crate::i18n::code())
+        );
         assert_eq!(url.origin().ascii_serialization(), "http://127.0.0.1:18795");
 
         let url_localhost =
             build_machines_url("http://localhost:18795/").expect("url localhost valido");
-        assert_eq!(url_localhost.as_str(), "http://localhost:18795/?lang=it");
+        assert_eq!(
+            url_localhost.as_str(),
+            format!("http://localhost:18795/?lang={}", crate::i18n::code())
+        );
     }
 
     #[test]

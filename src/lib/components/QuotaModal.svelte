@@ -272,7 +272,7 @@
 		class:quota-semantic={popover.semanticColors}
 		role="dialog"
 		tabindex="-1"
-		aria-label="Limiti di utilizzo API"
+		aria-label={m.l10n_cmp_quota_dialog_aria()}
 		popover="manual"
 		use:anchoredPopover={{
 			anchor,
@@ -361,7 +361,7 @@
 				<div class="disabled-creds-card">
 					<div class="disabled-header">
 						<span class="warning-icon" aria-hidden="true"><IconWarning /></span>
-						<span class="disabled-title">Credenziali disabilitate o scadute ({quotaStore.disabledCredentials.length})</span>
+						<span class="disabled-title">{m.l10n_cmp_quota_disabled_credentials({ count: quotaStore.disabledCredentials.length })}</span>
 					</div>
 					<div class="disabled-list">
 						{#each quotaStore.disabledCredentials as cred (cred.id)}
@@ -436,7 +436,7 @@
 									{/if}
 								</h4>
 								{#if projectLabels.length > 0}
-									<div class="host-usage">In uso da: {projectLabels.join(', ')}</div>
+									<div class="host-usage">{m.l10n_cmp_quota_in_use_by({ projects: projectLabels.join(', ') })}</div>
 								{/if}
 								{#each dedupeSharedLimits(report.limits) as limit, limitIndex}
 									{@const rawUsed = typeof limit.amount?.usedFraction === 'number' ? limit.amount.usedFraction : null}

@@ -77,10 +77,11 @@
 	import { quotaStore } from '#lib/stores/quota.svelte.ts';
 	import { providersMatch } from '#lib/quota/providers.ts';
 	import { onDestroy } from 'svelte';
+	import { gitDiffStore } from '#lib/stores/gitDiff.svelte.ts';
 	import { normalizeProjectPath, projectStore, type AgentState, type Project } from '#lib/stores/projects.svelte.ts';
 	import { githubStore } from '#lib/stores/github.svelte.ts';
 	import { rulesStore } from '#lib/stores/rules.svelte.ts';
-	import { PANEL_SPLIT as SPLIT, panelScope, panelMetrics, resizePanel, panelKeyValue, type PanelGeometry, type SplitterAxis } from '#lib/panelGeometry.ts';
+	import { PANEL_SPLIT as SPLIT, DEFAULT_COLUMN_ORDER, panelScope, panelMetrics, resizePanel, panelKeyValue, panelPlacement, filesOnRight, type PanelGeometry, type SplitterAxis } from '#lib/panelGeometry.ts';
 	import { taskStore, formatTaskPrompt, type StudioTask, type TaskRunLaneContext } from '#lib/stores/tasks.svelte.ts';
 	import { taskLabel } from '#lib/stores/taskTitle.ts';
 	import { nextAutoDispatchTask } from '#lib/quota/scheduleQueue.ts';
@@ -152,6 +153,11 @@
 	import { startFocusTracer } from '#lib/focusTracer.ts';
 	import { registerSnapshotProvider } from '#lib/diagnostics/studioLog.ts';
 	import { markSwitch } from '#lib/switchDissolve.ts';
+	import { open as openDialog } from '@tauri-apps/plugin-dialog';
+	import { getCurrentWebview } from '@tauri-apps/api/webview';
+	import { openPaths, externalOpenState } from '#lib/externalOpen.ts';
+	import ExternalFilesPanel from '#lib/components/ExternalFilesPanel.svelte';
+	import { physicalToCssPoint } from '#lib/agent/chatDrop.ts';
 
 	let automationSessionId = $state<string | null>(null);
 	let automationSession = $state<AgentSession | null>(null);
@@ -205,6 +211,7 @@
 		let interactiveAgentCount = getAutomationAssistantActiveCount();
 		for (const dirtyPath of getDirtyEditorPaths()) busyPaths.add(dirtyPath);
 		for (const project of projectStore.projects) {
+			if (project.external) continue;
 			for (const lane of laneOrchestrator.getMountedLanes(project)) {
 				const gate = automationGate(project.id, lane.laneId, false);
 				if (!gate.ready && gate.block !== 'no-session') {
@@ -224,9 +231,9 @@
 				id: metadata.id ?? pathKey(metadata.path),
 				path: metadata.path,
 				name: metadata.label?.trim() || metadata.name,
-				open: projectStore.projects.some((project) => project.canonicalProjectPath && pathKey(project.canonicalProjectPath) === pathKey(metadata.path)),
+				open: projectStore.projects.some((project) => !project.external && project.canonicalProjectPath && pathKey(project.canonicalProjectPath) === pathKey(metadata.path)),
 				workspacePaths: projectStore.projects
-					.filter((project) => project.canonicalProjectPath && pathKey(project.canonicalProjectPath) === pathKey(metadata.path))
+					.filter((project) => !project.external && project.canonicalProjectPath && pathKey(project.canonicalProjectPath) === pathKey(metadata.path))
 					.flatMap((project) => laneOrchestrator.getMountedLanes(project).flatMap((lane) => lane.workspacePath ? [lane.workspacePath] : []))
 			})),
 			busyPaths: [...busyPaths],
@@ -244,7 +251,7 @@
 			await projectStore.flushSave();
 			return;
 		}
-		const project = projectStore.projects.find((item) => item.canonicalProjectPath && pathKey(item.canonicalProjectPath) === pathKey(request.path));
+		const project = projectStore.projects.find((item) => !item.external && item.canonicalProjectPath && pathKey(item.canonicalProjectPath) === pathKey(request.path));
 		if (!project) return;
 		const context = buildAutomationContext();
 		if (context.busyPaths.some((path) => pathKey(path) === pathKey(request.path))
@@ -598,7 +605,7 @@
 	// Quando l'utente passa a un altro progetto, idrata immediatamente la coda e le sue corsie
 	$effect(() => {
 		const active = projectStore.activeProject;
-		if (active?.canonicalProjectPath) {
+		if (active?.canonicalProjectPath && !active.external) {
 			void taskStore.loadProject(active.canonicalProjectPath);
 			void laneStore.reconcileProject(active.id, active.canonicalProjectPath);
 		}
@@ -871,7 +878,7 @@
 			const project = projectStore.projects.find(
 				(p) => p.id === session.projectKey || p.lane.workspacePath === session.cwd
 			);
-			const projectName = project?.label?.trim() || project?.name || 'Progetto';
+			const projectName = project?.label?.trim() || project?.name || m.page_project_fallback_name();
 			const projectPath = project?.canonicalProjectPath ?? session.cwd;
 			// 1. Modello primario attivo nella sessione GUI (solo se sta generando)
 			if (isGenerating && session.model) {
@@ -1111,7 +1118,8 @@
 	let runtimeBroadcastTimer: ReturnType<typeof setTimeout> | null = null;
 	$effect(() => {
 		const companionVisible = companionStore.isCompanionVisible;
-		const runtimes: CompanionProjectRuntime[] = projectStore.projects.map((p) => {
+		const companionProjects = projectStore.projects.filter((p) => !p.external);
+		const runtimes: CompanionProjectRuntime[] = companionProjects.map((p) => {
 			const { provider, modelId, credentialPin } = resolveProjectRuntime(p);
 			const gate = automationGate(p.id);
 			const laneSession = registeredSessionFor(p);
@@ -1148,7 +1156,7 @@
 		// Digest sui soli campi che la companion mostra: durante lo streaming lo stato
 		// sfarfalla e senza confronto si inonderebbe l'IPC a ogni token. Nome, etichetta
 		// e tinta ci stanno perche' la companion disegna anche quelli: senza, un
-		const structural = projectStore.projects
+		const structural = companionProjects
 			.map((p, i) => {
 				const cmds = runtimes[i].availableCommands
 					? runtimes[i].availableCommands.map((c) => `${c.name}:${c.source ?? ''}:${c.description ?? ''}`).join(',')
@@ -1355,7 +1363,7 @@
 			for (const s of sessionsToCheck) {
 				const laneId = s.laneId ?? 'main';
 				const laneRecord = laneStore.lanes.find((l) => l.projectId === p.id && l.laneId === laneId);
-				const laneTitle = laneRecord?.title ?? (laneId !== 'main' ? laneId : 'Principale');
+				const laneTitle = laneRecord?.title ?? (laneId !== 'main' ? laneId : m.lanestrip_tab_main());
 
 				// Leggiamo recentMessages solo se esiste una potenziale richiesta di attenzione,
 				// e sempre dentro untrack() per evitare che ogni singolo token di streaming
@@ -1520,7 +1528,7 @@
 					respondDispatch: async (projectId, confirmationId, answer) => {
 						const found = dispatchConfirmationsStore.findConfirmation(confirmationId);
 						if (!found || found.prompt.projectId !== projectId) {
-							throw new RemoteCommandFailure('not_found', `Conferma "${confirmationId}" non trovata o gia' risolta`);
+							throw new RemoteCommandFailure('not_found', m.l10n_state_remote_confirm_not_found({ id: confirmationId }));
 						}
 						if (answer.action === 'cancel') {
 							dispatchConfirmationsStore.clearConfirmation(confirmationId);
@@ -1528,7 +1536,7 @@
 						}
 						const expected = found.kind === 'concurrency' ? 'confirm' : 'files';
 						if (answer.action !== expected) {
-							throw new RemoteCommandFailure('rejected', `Risposta "${answer.action}" non valida per questa conferma`);
+							throw new RemoteCommandFailure('rejected', m.l10n_state_remote_confirm_bad_action({ action: answer.action }));
 						}
 						dispatchConfirmationsStore.clearConfirmation(confirmationId);
 						if (found.kind === 'local_files' && answer.action === 'files') {
@@ -1581,6 +1589,69 @@
 			disposed = true;
 			for (const unlisten of unlistens) unlisten();
 			remoteStore.destroy();
+		};
+	});
+	// Ascolto apertura file esterni da sistema operativo e seconda istanza (EXT-002)
+	$effect(() => {
+		if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return;
+		let disposed = false;
+		let unlistenPaths: (() => void) | null = null;
+
+		void listen('studio://open-paths', async () => {
+			try {
+				const paths = await invoke<string[]>('external_open_take');
+				if (paths && paths.length > 0) {
+					await openPaths(paths);
+				}
+			} catch (err) {
+				console.warn('Lettura open-paths fallita:', err);
+			}
+		}).then((fn) => {
+			if (disposed) fn();
+			else unlistenPaths = fn;
+		});
+
+		// Chiamata iniziale all'avvio: prima listen, poi external_open_take iniziale
+		void invoke<string[]>('external_open_take')
+			.then((paths) => {
+				if (!disposed && paths && paths.length > 0) void openPaths(paths);
+			})
+			.catch((err) => console.warn('Lettura iniziale external_open_take fallita:', err));
+
+		return () => {
+			disposed = true;
+			unlistenPaths?.();
+		};
+	});
+
+	// Trascinamento file dal sistema operativo sulla finestra (EXT-002)
+	$effect(() => {
+		if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return;
+		let disposed = false;
+		let unlistenDrop: (() => void) | null = null;
+
+		void getCurrentWebview()
+			.onDragDropEvent((event) => {
+				const payload = event.payload;
+				if (payload.type === 'drop') {
+					const dropped = payload.paths;
+					if (!dropped || dropped.length === 0) return;
+					const point = physicalToCssPoint(payload.position, window.devicePixelRatio);
+					const target = document.elementFromPoint(point.x, point.y);
+					// Non intercettare se il drop è sopra la superficie della chat (gestito da Chat.svelte)
+					if (target?.closest('.chat-surface')) return;
+					void openPaths(dropped);
+				}
+			})
+			.then((stop) => {
+				if (disposed) stop();
+				else unlistenDrop = stop;
+			})
+			.catch((err) => console.warn('Drag&drop file esterni non disponibile:', err));
+
+		return () => {
+			disposed = true;
+			unlistenDrop?.();
 		};
 	});
 	// Heads-up di fine turno nella notifica di sistema (Gate R40).
@@ -1745,7 +1816,7 @@
 	 */
 	function openNewTaskOfProject(projectId: string) {
 		const project = projectStore.projects.find((candidate) => candidate.id === projectId);
-		if (!project?.canonicalProjectPath) return;
+		if (!project?.canonicalProjectPath || project.external) return;
 		if (projectStore.activeId !== projectId) projectStore.setActive(projectId);
 		queueOpen = false;
 		leftSection = 'agent';
@@ -1820,7 +1891,7 @@
 		const project = projectStore.projects.find((candidate) => candidate.id === projectId);
 		const task = taskStore.taskById(taskId);
 		if (!project?.canonicalProjectPath || !task) {
-			return { kind: 'failed', message: 'Progetto o task non trovato' };
+			return { kind: 'failed', message: m.l10n_state_run_task_not_found() };
 		}
 		if (automationsStore.projectIsReserved(project.canonicalProjectPath)) {
 			return { kind: 'failed', message: automationText('host_locked_detail') };
@@ -1832,7 +1903,7 @@
 			if (!delivered) {
 				const key = runtimeKey(project, task.resume.laneId ?? MAIN_LANE_ID);
 				const reason = agentErrors[key] ?? agentErrors[runtimeKey(project)];
-				return { kind: 'failed', message: reason || 'Ripresa del task fallita' };
+				return { kind: 'failed', message: reason || m.l10n_state_run_task_resume_failed() };
 			}
 			return { kind: 'started', laneId: task.resume.laneId ?? MAIN_LANE_ID };
 		}
@@ -1841,23 +1912,23 @@
 			const outcome = await dispatchInNewLane(project, task, options);
 			if (outcome.kind === 'started') return { kind: 'started', laneId: outcome.lane.laneId };
 			if (outcome.kind === 'awaiting-consent') {
-				return { kind: 'needs_confirmation', confirmationId: outcome.confirmationId, message: 'Consenso profilo richiesto sulla macchina' };
+				return { kind: 'needs_confirmation', confirmationId: outcome.confirmationId, message: m.l10n_state_run_task_profile_consent() };
 			}
-			return { kind: 'failed', message: outcome.message || 'Creazione corsia fallita' };
+			return { kind: 'failed', message: outcome.message || m.l10n_state_run_task_lane_create_failed() };
 		}
 		if (options.laneId) {
 			const lane = laneOrchestrator.laneRecord(project, options.laneId);
-			if (!lane) return { kind: 'failed', message: 'Corsia non trovata' };
+			if (!lane) return { kind: 'failed', message: m.lane_error_not_found() };
 			if (!options.force) {
 				const gate = automationGate(project.id, lane.laneId);
 				if (!gate.ready) {
-					return { kind: 'blocked', reason: gate.label || 'Automazione bloccata' };
+					return { kind: 'blocked', reason: gate.label || m.l10n_state_automation_blocked() };
 				}
 			}
 			const delivered = await dispatchTaskInLane(project, lane, task, options);
 			if (!delivered) {
 				const reason = agentErrors[runtimeKey(project, lane.laneId)];
-				return { kind: 'failed', message: reason || 'Spedizione nella corsia fallita' };
+				return { kind: 'failed', message: reason || m.l10n_state_run_task_lane_failed() };
 			}
 			return { kind: 'started', laneId: lane.laneId };
 		}
@@ -1881,13 +1952,13 @@
 			if (!options.force) {
 				const gate = automationGate(project.id, mainLane.laneId);
 				if (!gate.ready) {
-					return { kind: 'blocked', reason: gate.label || 'Automazione bloccata' };
+					return { kind: 'blocked', reason: gate.label || m.l10n_state_automation_blocked() };
 				}
 			}
 			const delivered = await dispatchTaskInLane(project, mainLane, task, options);
 			if (!delivered) {
 				const reason = agentErrors[runtimeKey(project, mainLane.laneId)];
-				return { kind: 'failed', message: reason || 'Spedizione sulla Principale fallita' };
+				return { kind: 'failed', message: reason || m.l10n_state_run_task_main_failed() };
 			}
 			return { kind: 'started', laneId: MAIN_LANE_ID };
 		}
@@ -1900,9 +1971,9 @@
 			const outcome = await dispatchInNewLane(project, task, options);
 			if (outcome.kind === 'started') return { kind: 'started', laneId: outcome.lane.laneId };
 			if (outcome.kind === 'awaiting-consent') {
-				return { kind: 'needs_confirmation', confirmationId: outcome.confirmationId, message: 'Consenso profilo richiesto sulla macchina' };
+				return { kind: 'needs_confirmation', confirmationId: outcome.confirmationId, message: m.l10n_state_run_task_profile_consent() };
 			}
-			return { kind: 'failed', message: outcome.message || 'Creazione corsia fallita' };
+			return { kind: 'failed', message: outcome.message || m.l10n_state_run_task_lane_create_failed() };
 		}
 		// Stato e modello degli agenti attivi: Remote li mostra nella conferma.
 		const activeLaneSummaries = activeLanes(lanes).map((lane) => ({
@@ -1930,8 +2001,8 @@
 			kind: 'needs_confirmation',
 			confirmationId,
 			message: route.confirmConcurrency
-				? 'Conferma concorrenza agenti richiesta sulla macchina'
-				: 'Conferma avvio su nuova corsia richiesta sulla macchina'
+				? m.l10n_state_run_task_confirm_concurrency()
+				: m.l10n_state_run_task_confirm_new_lane()
 		};
 	}
 
@@ -2704,13 +2775,13 @@
 		if (lowerCmd === '/copy') {
 			const transcriptText = session.entries
 				.map((entry) => {
-					if (entry.kind === 'user') return `User: ${entry.content || ''}`;
+					if (entry.kind === 'user') return `${m.l10n_state_transcript_user_label()}: ${entry.content || ''}`;
 					if (entry.kind === 'assistant') {
 						const text = entry.blocks
-							.map((b) => (b.type === 'text' ? b.text : b.type === 'thinking' ? `[Thinking: ${b.text}]` : ''))
+							.map((b) => (b.type === 'text' ? b.text : b.type === 'thinking' ? `[${m.l10n_state_transcript_thinking_label()}: ${b.text}]` : ''))
 							.filter(Boolean)
 							.join('\n');
-						return `Assistant: ${text}`;
+						return `${m.l10n_state_transcript_assistant_label()}: ${text}`;
 					}
 					if (entry.kind === 'notice') return `[${entry.level}]: ${entry.message || ''}`;
 					return '';
@@ -2824,7 +2895,10 @@
 					}
 					session.flashNotice(
 						'warning',
-						`/role ${arg}: ${err instanceof Error ? err.message : String(err)}`
+						m.l10n_state_role_apply_failed({
+							role: arg,
+							error: err instanceof Error ? err.message : String(err)
+						})
 					);
 				}
 			})();
@@ -3166,6 +3240,7 @@
 		let targetLine = line;
 
 		const proj = projectStore.projects.find((p) => p.id === projectId);
+		let resolved = false;
 		if (proj?.lane.workspacePath) {
 			try {
 				const res: { rel_path: string; line: number | null } | null = await invoke('resolve_project_file', {
@@ -3177,9 +3252,19 @@
 					if (res.line !== null && targetLine === null) {
 						targetLine = res.line;
 					}
+					resolved = true;
 				}
 			} catch {
 				// In caso di errore IPC o disconnessione, mantieni filePath grezzo come fallback
+			}
+		}
+
+		if (!resolved) {
+			const isAbsolute = filePath.startsWith('/') || filePath.startsWith('\\') || /^[a-zA-Z]:[\\/]/.test(filePath);
+			if (isAbsolute) {
+				const cleanPath = filePath.replace(/:\d+(?::\d+)?$/, '');
+				await openPaths([cleanPath]);
+				return;
 			}
 		}
 
@@ -3603,7 +3688,7 @@
 
 	$effect(() => {
 		const p = projectStore.activeProject;
-		const path = p?.lane.kind === 'git' ? p.lane.workspacePath : null;
+		const path = p?.lane.kind === 'git' && !p.external ? p.lane.workspacePath : null;
 		if (path) untrack(() => { void githubStore.loadUpstreamStatus(path); });
 	});
 
@@ -3612,7 +3697,7 @@
 	$effect(() => {
 		const project = projectStore.activeProject;
 		const path = project?.canonicalProjectPath;
-		if (!path) return;
+		if (!path || project?.external) return;
 		const key = path.toLowerCase();
 		if (ensuredPreviewPaths.has(key)) return;
 		ensuredPreviewPaths.add(key);
@@ -3628,13 +3713,26 @@
 		untrack(() => stopPanelDrag?.());
 	});
 
+	const isGitAvailable = $derived(
+		!projectStore.activeProject?.external ||
+		gitDiffStore.forPath(projectStore.activeProject.lane.workspacePath ?? '').isRepo
+	);
+
 	const sidebarTabs = $derived([
 		{ id: 'files', label: m.page_tabs_files_panel(), ariaLabel: m.page_tabs_files_panel_label() },
-		{ id: 'git', label: m.page_tabs_git_panel(), ariaLabel: m.page_tabs_git_panel_label() },
+		...(isGitAvailable
+			? [{ id: 'git', label: m.page_tabs_git_panel(), ariaLabel: m.page_tabs_git_panel_label() }]
+			: []),
 		...(activeLaneKind !== 'lab'
 			? [{ id: 'agent', label: m.page_tabs_agent_panel(), ariaLabel: m.page_tabs_agent_panel_label() }]
 			: [])
 	]);
+
+	$effect(() => {
+		if (!isGitAvailable && leftSection === 'git') {
+			leftSection = 'files';
+		}
+	});
 
 	// Lo switch della colonna destra usa la stessa primitiva delle schede di
 	// sinistra (D2); la scorciatoia passa dal Tooltip, non da un `title` (D8).
@@ -3669,20 +3767,22 @@
 		}
 	});
 
+	// Automazioni ha una disposizione propria: l'ordine scelto dall'utente vale solo per l'officina.
+	const columnOrder = $derived(automationWorkspaceOpen ? DEFAULT_COLUMN_ORDER : settingsStore.general.columnOrder);
+	const sidebarOnRight = $derived(filesOnRight(columnOrder));
+	const placement = $derived(panelPlacement(
+		columnOrder, !automationWorkspaceOpen && effectiveLayout === 'vertical',
+		leftWidth, isSidebarCollapsed ? 0 : SPLIT, centerValue
+	));
 	const gridColumns = $derived.by(() => {
 		if (automationWorkspaceOpen) {
 			return projectStore.projects.length === 0
 				? '0px 0px minmax(0, 1fr) 0px 0px'
 				: `0px 0px minmax(560px, 1fr) ${SPLIT}px minmax(320px, 0.8fr)`;
 		}
-		const splitW = isSidebarCollapsed ? 0 : SPLIT;
-		if (effectiveLayout === 'vertical') {
-			return `${leftWidth}px ${splitW}px minmax(0, 1fr)`;
-		}
-		return `${leftWidth}px ${splitW}px ${panelBounds.center}px ${SPLIT}px minmax(0, 1fr)`;
+		return placement.columns;
 	});
-	const gridRows = $derived(!automationWorkspaceOpen && effectiveLayout === 'vertical'
-		? `${panelBounds.top}px ${SPLIT}px minmax(0, 1fr)` : '1fr');
+	const gridRows = $derived(automationWorkspaceOpen ? '1fr' : placement.rows);
 
 	function savePanelGeometry(value: PanelGeometry) {
 		const p = projectStore.activeProject;
@@ -3710,7 +3810,8 @@
 			which === 'left' ? leftWidth : centerValue,
 			which === 'left' ? panelBounds.leftMin : centerMin,
 			which === 'left' ? panelBounds.leftMax : centerMax,
-			which === 'center' && effectiveLayout === 'vertical', e.shiftKey);
+			which === 'center' && effectiveLayout === 'vertical', e.shiftKey,
+			(which === 'left' ? placement.filesSign : placement.editorSign) < 0);
 		if (value === null) return;
 		e.preventDefault();
 		e.stopPropagation();
@@ -3724,6 +3825,7 @@
 		const owner = geometryOwner;
 		const vertical = effectiveLayout === 'vertical';
 		const start = which === 'left' ? leftWidth : centerValue;
+		const sign = which === 'left' ? placement.filesSign : placement.editorSign;
 		const coordinate = which === 'center' && vertical ? e.clientY : e.clientX;
 		handle.focus();
 		handle.setPointerCapture(e.pointerId);
@@ -3735,7 +3837,7 @@
 				onUp();
 				return;
 			}
-			setPanelSize(which, start + (which === 'center' && vertical ? ev.clientY : ev.clientX) - coordinate);
+			setPanelSize(which, start + sign * ((which === 'center' && vertical ? ev.clientY : ev.clientX) - coordinate));
 		};
 		const onUp = () => {
 			dragging = false;
@@ -3780,14 +3882,39 @@
 	});
 
 	function cycleProject(direction: 1 | -1) {
-		const projects = projectOrder.list;
-		if (projects.length < 2) return;
-		const idx = projects.findIndex(p => p.id === projectStore.activeId);
-		const currentIdx = idx >= 0 ? idx : 0;
+		const normalProjects = projectOrder.list;
+		const externalProjects = projectStore.projects.filter((p) => p.external);
+		const hasExternal = externalProjects.length > 0;
+		const totalSlots = normalProjects.length + (hasExternal ? 1 : 0);
+		if (totalSlots < 2) return;
+
+		const isExtActive = Boolean(projectStore.activeProject?.external);
+		const currentIdx = isExtActive
+			? normalProjects.length
+			: Math.max(0, normalProjects.findIndex((p) => p.id === projectStore.activeId));
+
 		const nextIdx = direction === 1
-			? (currentIdx + 1) % projects.length
-			: (currentIdx - 1 + projects.length) % projects.length;
-		projectStore.setActive(projects[nextIdx].id);
+			? (currentIdx + 1) % totalSlots
+			: (currentIdx - 1 + totalSlots) % totalSlots;
+
+		if (nextIdx === normalProjects.length && hasExternal) {
+			const lastUsed = externalProjects.slice().sort((a, b) => (b.lastOpened || 0) - (a.lastOpened || 0))[0];
+			if (lastUsed) projectStore.setActive(lastUsed.id);
+		} else if (normalProjects[nextIdx]) {
+			projectStore.setActive(normalProjects[nextIdx].id);
+		}
+	}
+
+	async function handleOpenFiles() {
+		try {
+			const selected = await openDialog({ multiple: true, directory: false });
+			if (selected) {
+				const paths = Array.isArray(selected) ? selected : [selected];
+				await openPaths(paths);
+			}
+		} catch (err) {
+			console.warn('Selezione file annullata o non riuscita:', err);
+		}
 	}
 
 	function handleKeydown(e: KeyboardEvent) {
@@ -3829,9 +3956,29 @@
 			e.preventDefault();
 			if (projectCycle) {
 				cycleProject(1);
-			} else if (projectStore.activeProject) {
+			} else if (projectStore.activeProject && !projectStore.activeProject.external) {
 				void laneOrchestrator.cycleLane(projectStore.activeProject.id as ProjectId, 'next');
 			}
+			return;
+		}
+
+		// Ctrl+O / Cmd+O: apri file di sistema (EXT-002). Nel terminale resta
+		// alla TUI di omp, che lo usa per espandere l'output degli strumenti.
+		const inTerminal = e.target instanceof Element && e.target.closest('.xterm') !== null;
+		if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'o' && !inTerminal) {
+			const hasOpenModal =
+				settingsStore.open ||
+				shortcutsModalStore.isOpen ||
+				closeConfirmModalState.open ||
+				setupOpen ||
+				usageOpen ||
+				pickerOpen ||
+				queueOpen ||
+				showRestartModal ||
+				showUpdatePromptModal;
+			if (hasOpenModal) return;
+			e.preventDefault();
+			void handleOpenFiles();
 			return;
 		}
 
@@ -3857,7 +4004,7 @@
 		} else if (e.key.toLowerCase() === 'k') {
 			e.preventDefault();
 			const activeProj = projectStore.activeProject;
-			if (activeProj?.canonicalProjectPath) {
+			if (activeProj?.canonicalProjectPath && !activeProj.external) {
 				leftSection = 'agent';
 				openNewTask(activeProj.canonicalProjectPath);
 			}
@@ -4048,6 +4195,24 @@
 			</button>
 		</div>
 	{/if}
+	{#if externalOpenState.notice}
+		<div
+			class="floating-error-toast"
+			role="alert"
+			in:rvLift={{ duration: 150 }}
+		>
+			<span class="floating-error-icon"><IconCircleAlert /></span>
+			<span class="floating-error-text">{externalOpenState.notice}</span>
+			<button
+				type="button"
+				class="floating-error-close"
+				onclick={() => externalOpenState.clearNotice()}
+				aria-label={m.common_close()}
+			>
+				<IconClose />
+			</button>
+		</div>
+	{/if}
 
 
 	{#if !projectStore.ready}
@@ -4091,6 +4256,7 @@
 		class:sidebar-collapsed={isSidebarCollapsed || automationWorkspaceOpen}
 		class:automation-workspace={automationWorkspaceOpen}
 		class:automation-no-projects={automationWorkspaceOpen && projectStore.projects.length === 0}
+		class:sidebar-right={sidebarOnRight}
 		bind:this={columnsEl}
 		style:grid-template-columns={gridColumns}
 		style:grid-template-rows={gridRows}
@@ -4105,6 +4271,8 @@
 			id="workspace-files-panel"
 			inert={isSidebarCollapsed || automationWorkspaceOpen}
 			style:--sidebar-width="{leftWidth}px"
+			style:grid-column={placement.files.column}
+			style:grid-row={placement.files.row}
 		>
 			<div class="col-left-inner">
 				<div class="col-header tabs-header">
@@ -4133,23 +4301,34 @@
 							{m.page_scratchpad_notice()}
 						</div>
 					{:else if leftSection === 'files'}
-						{#key `${proj.id}:${proj.lane.laneId}:${proj.lane.workspacePath}`}
-							<FileTree
-								projectPath={proj.lane.workspacePath}
-								name={proj.name}
+						{#if proj.external}
+							<ExternalFilesPanel
+								project={proj}
 								onFileSelect={(file: string) => {
 									projectStore.openFile(proj.id, file);
 									closeActiveSurface();
-									if (proj.lane.kind === 'lab') {
-										labCenterView = 'editor';
-									}
 								}}
-								onFileDiff={(path: string) => handleGitPanelDiff(path, 'working')}
-								dirtyFilePaths={activeDirtyFiles}
-								onPathRenamed={(from: string, to: string, isDir: boolean) => projectStore.renamePath(proj.id, from, to, isDir)}
-								onPathTrashed={(path: string, isDir: boolean) => projectStore.trashPath(proj.id, path, isDir)}
+								onPromote={() => projectStore.promoteExternal(proj.id)}
 							/>
-						{/key}
+						{:else}
+							{#key `${proj.id}:${proj.lane.laneId}:${proj.lane.workspacePath}`}
+								<FileTree
+									projectPath={proj.lane.workspacePath}
+									name={proj.name}
+									onFileSelect={(file: string) => {
+										projectStore.openFile(proj.id, file);
+										closeActiveSurface();
+										if (proj.lane.kind === 'lab') {
+											labCenterView = 'editor';
+										}
+									}}
+									onFileDiff={(path: string) => handleGitPanelDiff(path, 'working')}
+									dirtyFilePaths={activeDirtyFiles}
+									onPathRenamed={(from: string, to: string, isDir: boolean) => projectStore.renamePath(proj.id, from, to, isDir)}
+									onPathTrashed={(path: string, isDir: boolean) => projectStore.trashPath(proj.id, path, isDir)}
+								/>
+							{/key}
+						{/if}
 					{:else if leftSection === 'git'}
 						{#key `${proj.id}:${proj.lane.laneId}:${proj.lane.workspacePath}`}
 							<GitPanel
@@ -4174,6 +4353,7 @@
 							}}
 							agentBusy={proj.lane.agentState === 'working' || proj.lane.agentState === 'attention'}
 							onInitJournal={(storage) => void handleInitJournal(proj.id, storage)}
+							isExternal={proj.external === true}
 						/>
 					{/if}
 				{/if}
@@ -4196,9 +4376,16 @@
 			onkeydown={(e) => handlePanelKey(e, 'left')}
 			onpointerdown={(e) => startDrag(e, 'left')}
 			ondblclick={() => resetSplit('left')}
+			style:grid-column={placement.filesSplit.column}
+			style:grid-row={placement.filesSplit.row}
 		></div>
 
-		<section class="col-center" id="workspace-editor-panel">
+		<section
+			class="col-center"
+			id="workspace-editor-panel"
+			style:grid-column={placement.editor.column}
+			style:grid-row={placement.editor.row}
+		>
 			<!-- Ogni vista porta la propria barra da 32 px al posto di questa (D7):
 			     resta solo nelle corsie Lab, per lo switch Anteprima/Editor. -->
 			{#if isLabLane && !automationWorkspaceOpen}
@@ -4357,9 +4544,11 @@
 			onkeydown={(e) => handlePanelKey(e, 'center')}
 			onpointerdown={(e) => startDrag(e, 'center')}
 			ondblclick={() => resetSplit('center')}
+			style:grid-column={placement.editorSplit.column}
+			style:grid-row={placement.editorSplit.row}
 		></div>
 
-		<section class="col-right">
+		<section class="col-right" style:grid-column={placement.agent.column} style:grid-row={placement.agent.row}>
 			<div class="col-header tabs-header">
 				{#if projectStore.activeProject?.lane.kind !== 'lab'}
 					<ColumnTabs
@@ -4666,47 +4855,12 @@
 		cursor: row-resize;
 	}
 
-	/* Posizionamento griglia: Orizzontale (3 colonne) */
-	.columns:not(.layout-vertical) .col-left {
-		grid-column: 1;
-		grid-row: 1;
-	}
-	.columns:not(.layout-vertical) .splitter-left {
-		grid-column: 2;
-		grid-row: 1;
-		cursor: col-resize;
-	}
-	.columns:not(.layout-vertical) .col-center {
-		grid-column: 3;
-		grid-row: 1;
-	}
+	/* Le posizioni nella griglia arrivano inline da panelPlacement (ordine colonne scelto dall'utente). */
+	.columns .splitter-left,
 	.columns:not(.layout-vertical) .splitter-center {
-		grid-column: 4;
-		grid-row: 1;
 		cursor: col-resize;
-	}
-	.columns:not(.layout-vertical) .col-right {
-		grid-column: 5;
-		grid-row: 1;
-	}
-
-	/* Posizionamento griglia: Verticale (sidebar + stack editor sopra / chat sotto) */
-	.columns.layout-vertical .col-left {
-		grid-column: 1;
-		grid-row: 1 / span 3;
-	}
-	.columns.layout-vertical .splitter-left {
-		grid-column: 2;
-		grid-row: 1 / span 3;
-		cursor: col-resize;
-	}
-	.columns.layout-vertical .col-center {
-		grid-column: 3;
-		grid-row: 1;
 	}
 	.columns.layout-vertical .splitter-center {
-		grid-column: 3;
-		grid-row: 2;
 		cursor: row-resize;
 	}
 	.columns.layout-vertical .splitter-center:hover,
@@ -4716,9 +4870,10 @@
 		background-position: center;
 		background-repeat: no-repeat;
 	}
-	.columns.layout-vertical .col-right {
-		grid-column: 3;
-		grid-row: 3;
+
+	/* Barra laterale sul bordo destro: durante la chiusura resta agganciata al bordo esterno. */
+	.columns.sidebar-right .col-left {
+		align-items: flex-end;
 	}
 
 	/* Sidebar collassata */
@@ -4732,6 +4887,10 @@
 	.columns.sidebar-collapsed .col-left-inner {
 		opacity: 0;
 		transform: translateX(-16px);
+	}
+
+	.columns.sidebar-collapsed.sidebar-right .col-left-inner {
+		transform: translateX(16px);
 	}
 
 	.columns.sidebar-collapsed .splitter-left {

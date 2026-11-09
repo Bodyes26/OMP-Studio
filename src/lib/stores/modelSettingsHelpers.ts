@@ -156,12 +156,12 @@ export interface ThinkingLevelItem {
 export const THINKING_LEVEL_ITEMS: readonly ThinkingLevelItem[] = [
 	{ id: 'auto', label: 'Auto', get desc() { return msg.ui_ts_modelsettings_deciso_dal_modello_a27c(); } },
 	{ id: 'off', label: 'Off', get desc() { return msg.ui_ts_modelsettings_disabilitato_de7e(); } },
-	{ id: 'minimal', label: 'Minimal', desc: 'Ragionamento minimo' },
-	{ id: 'low', label: 'Low', desc: 'Ragionamento basso' },
-	{ id: 'medium', label: 'Medium', desc: 'Ragionamento medio' },
-	{ id: 'high', label: 'High', desc: 'Ragionamento alto' },
-	{ id: 'xhigh', label: 'Extra High', desc: 'Ragionamento molto alto' },
-	{ id: 'max', label: 'Max', desc: 'Ragionamento massimo' }
+	{ id: 'minimal', label: 'Minimal', get desc() { return msg.l10n_state_thinking_minimal(); } },
+	{ id: 'low', label: 'Low', get desc() { return msg.l10n_state_thinking_low(); } },
+	{ id: 'medium', label: 'Medium', get desc() { return msg.l10n_state_thinking_medium(); } },
+	{ id: 'high', label: 'High', get desc() { return msg.l10n_state_thinking_high(); } },
+	{ id: 'xhigh', label: 'Extra High', get desc() { return msg.l10n_state_thinking_xhigh(); } },
+	{ id: 'max', label: 'Max', get desc() { return msg.l10n_state_thinking_max(); } }
 ] as const;
 /** Quanto basta di un modello per leggerne gli sforzi: `ModelInfo` di sessione o `ModelDto` di catalogo. */
 export interface ThinkingCapableModel {
@@ -338,14 +338,14 @@ export interface RoleDefinition {
 }
 
 export const STANDARD_ROLE_METAS: readonly RoleDefinition[] = [
-	{ id: 'default', label: 'Default / Chat', abbr: 'CH', desc: 'Modello principale per conversazione e attivita generali' },
-	{ id: 'plan', label: 'Architectural Plan', abbr: 'PL', desc: 'Modello per pianificazione e analisi architetturale' },
-	{ id: 'smol', label: 'Smol (Fast)', abbr: 'SM', desc: 'Modello ultra-rapido per compiti leggeri, esplorazione e scouting' },
-	{ id: 'slow', label: 'Slow (Reasoning)', abbr: 'SL', desc: 'Modello per ragionamenti complessi e deduzioni approfondite' },
-	{ id: 'vision', label: 'Vision / Images', abbr: 'VI', desc: 'Modello multimodale per ispezione e comprensione immagini' },
-	{ id: 'task', label: 'Task Subagents', abbr: 'TS', desc: 'Modello delegato per subagenti ed esecuzioni parallele' },
-	{ id: 'commit', label: 'Git Commit', abbr: 'CM', desc: 'Modello per generazione messaggi di commit e changelog' },
-	{ id: 'advisor', label: 'Advisor (Reviewer)', abbr: 'AD', desc: 'Modello di revisione e controllo passivo di qualita' }
+	{ id: 'default', label: 'Default / Chat', abbr: 'CH', get desc() { return msg.ui_ts_modelsettings_modello_principale_per_conversazione_e_attivita_generali_5d00(); } },
+	{ id: 'plan', label: 'Architectural Plan', abbr: 'PL', get desc() { return msg.ui_ts_modelsettings_modello_per_pianificazione_e_analisi_architetturale_b3e1(); } },
+	{ id: 'smol', label: 'Smol (Fast)', abbr: 'SM', get desc() { return msg.ui_ts_modelsettings_modello_ultra_rapido_per_compiti_leggeri_esplorazione_24a7(); } },
+	{ id: 'slow', label: 'Slow (Reasoning)', abbr: 'SL', get desc() { return msg.ui_ts_modelsettings_modello_per_ragionamenti_complessi_e_deduzioni_approfondite_6f2d(); } },
+	{ id: 'vision', label: 'Vision / Images', abbr: 'VI', get desc() { return msg.ui_ts_modelsettings_modello_multimodale_per_ispezione_e_comprensione_immagini_a594(); } },
+	{ id: 'task', label: 'Task Subagents', abbr: 'TS', get desc() { return msg.ui_ts_modelsettings_modello_delegato_per_subagenti_ed_esecuzioni_parallele_427f(); } },
+	{ id: 'commit', label: 'Git Commit', abbr: 'CM', get desc() { return msg.ui_ts_modelsettings_modello_per_generazione_messaggi_di_commit_e_44fc(); } },
+	{ id: 'advisor', label: 'Advisor (Reviewer)', abbr: 'AD', get desc() { return msg.ui_ts_modelsettings_modello_di_revisione_e_controllo_passivo_di_f294(); } }
 ];
 
 export type FallbackOnMode = 'any' | 'usage-limit' | 'except-usage-limit';

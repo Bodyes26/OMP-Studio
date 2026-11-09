@@ -11,6 +11,7 @@
 // 4. Ripiego su legacy single-lane solo quando la corsia e' univoca nel sistema.
 
 import { isWindows } from '#lib/utils/paths.ts';
+import { m as msg } from '#lib/paraglide/messages.js';
 
 export interface LaneEventTarget {
 	projectId?: string | null;
@@ -208,7 +209,7 @@ export function resolveTargetLane(
 				return {
 					matched: false,
 					isAmbiguous: true,
-					reason: 'CWD corrisponde a piu corsie autorizzate'
+					reason: msg.l10n_agent_lane_reason_cwd_multiple()
 				};
 			}
 		}
@@ -235,6 +236,6 @@ export function resolveTargetLane(
 	return {
 		matched: false,
 		isAmbiguous: true,
-		reason: 'Target incerto con piu corsie attive: la superficie attiva e protetta'
+		reason: msg.l10n_agent_lane_reason_ambiguous_target()
 	};
 }
