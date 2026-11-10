@@ -17,7 +17,8 @@
 	} from '#lib/icons.ts';
 	import ComposerEditor from '#lib/agent/components/ComposerEditor.svelte';
 	import SuggestPanel, { type SuggestionItem } from '#lib/agent/components/SuggestPanel.svelte';
-	import { createCommandBadgeElement, createFileBadgeElement, type ComposerTrigger } from '#lib/agent/composerDoc.ts';
+	import { createCommandBadgeElement, createFileBadgeElement, type ComposerSegment, type ComposerTrigger } from '#lib/agent/composerDoc.ts';
+	import { resolvePastedTokens } from '#lib/companion/pasteTokens.ts';
 	import { computeCaretAnchorLeft, loadProjectFiles, rankFileCandidates } from '#lib/agent/fileMention.ts';
 	import { SUGGEST_WIDTH, commandSuggestions, fileSuggestions } from '#lib/agent/suggestItems.ts';
 	import { STUDIO_SLASH_COMMANDS, mergeCommands } from '#lib/agent/commands.ts';
@@ -76,6 +77,34 @@
 	let suggestIndex = $state(0);
 
 	const knownDirectives = $derived(settingsStore.taskDirectives.filter((d) => !d.hidden));
+	const replyCommands = $derived.by(() => {
+		const laneCmds =
+			convState.snapshot?.availableCommands ??
+			companionStore.projectRuntimes.find(
+				(r) => r.projectId.toLowerCase() === project.id.toLowerCase()
+			)?.availableCommands ??
+			[];
+		return mergeCommands(STUDIO_SLASH_COMMANDS, laneCmds);
+	});
+
+	function prepareReplyPaste(text: string): ComposerSegment[] | null {
+		const resolved = resolvePastedTokens(
+			text,
+			{
+				projects: [],
+				directives: knownDirectives.map((d) => ({
+					id: d.id,
+					name: directiveDisplayName(d),
+					tag: d.tag
+				})),
+				roles: [],
+				models: [],
+				commands: replyCommands
+			},
+			{ triggers: ['@', '/'], liftDirectives: false }
+		);
+		return resolved.changed ? resolved.segments : null;
+	}
 
 	$effect(() => {
 		const trigger = currentTrigger;
@@ -86,14 +115,7 @@
 		}
 		const query = trigger.query.toLowerCase();
 		if (trigger.kind === '/') {
-			const laneCmds =
-				convState.snapshot?.availableCommands ??
-				companionStore.projectRuntimes.find(
-					(r) => r.projectId.toLowerCase() === project.id.toLowerCase()
-				)?.availableCommands ??
-				[];
-			const allCmds = mergeCommands(STUDIO_SLASH_COMMANDS, laneCmds);
-			const cmdSuggests = commandSuggestions(allCmds, trigger.query);
+			const cmdSuggests = commandSuggestions(replyCommands, trigger.query);
 
 			const directiveSuggests: SuggestionItem[] = knownDirectives
 				.filter(
@@ -515,6 +537,7 @@
 											disabled={!convState.snapshot?.sessionId}
 											triggers={['@', '/']}
 											onTriggerChange={(t) => (currentTrigger = t)}
+											onPreparePaste={prepareReplyPaste}
 											onInput={() => onDraftChange(replyEditor?.getWireText() ?? '')}
 											onSend={() => {
 												if (canSendReply) onSendReply();

@@ -50,6 +50,8 @@
 	import { computeCaretAnchorLeft, loadProjectFiles, rankFileCandidates } from '#lib/agent/fileMention.ts';
 	import { SUGGEST_WIDTH, commandSuggestions, fileSuggestions, suggestKeyAction } from '#lib/agent/suggestItems.ts';
 	import { matchesLooseQuery } from '#lib/looseSearch.ts';
+	import { resolvePastedTokens } from '#lib/companion/pasteTokens.ts';
+	import type { ComposerSegment } from '#lib/agent/composerDoc.ts';
 	import { trayFold } from '#lib/agent/motion.ts';
 	import StatusMark from '#lib/ui/StatusMark.svelte';
 	import Tooltip from '#lib/ui/Tooltip.svelte';
@@ -277,6 +279,34 @@
 		currentTrigger = null;
 	}
 
+	// L'incolla non passa dal cursore: ogni token completo del frammento diventa
+	// lo stesso badge che la palette avrebbe inserito scrivendolo.
+	function preparePaste(text: string): ComposerSegment[] | null {
+		const resolved = resolvePastedTokens(
+			text,
+			{
+				projects: sources.projects,
+				directives: sources.directives.flatMap((d: CompanionSuggestSources['directives'][number]) => {
+					const id = d.id ?? d.value;
+					if (!id) return [];
+					return [{ id, name: d.label, tag: d.hint ?? (d.value ? `/${d.value}` : undefined) }];
+				}),
+				roles: sources.roles,
+				models: sources.models.map((model: CompanionSuggestSources['models'][number]) => ({
+					value: model.value,
+					label: model.label
+				})),
+				commands: sources.commands ?? []
+			},
+			{ triggers: ['@', '#', '/', '!'], liftDirectives: true }
+		);
+		if (!resolved.changed) return null;
+		if (resolved.project) onSelectProject?.(resolved.project);
+		for (const directive of resolved.directives) onAddDirective?.(directive);
+		if (resolved.role) onSelectRole?.(resolved.role);
+		return resolved.segments;
+	}
+
 	function handleEditorKeydown(e: KeyboardEvent): boolean {
 		if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
 			e.preventDefault();
@@ -379,6 +409,7 @@
 				submitWithModifier={true}
 				onSend={() => onSave()}
 				onFilesPaste={(files) => onFilesAdd(files)}
+				onPreparePaste={preparePaste}
 				onTriggerChange={(trigger) => (currentTrigger = trigger)}
 				onKeydownFilter={handleEditorKeydown}
 				{onInput}

@@ -332,6 +332,28 @@ function createBadgeElement(seg: Exclude<ComposerSegment, { t: 'text' }>): HTMLE
 }
 
 /**
+ * Frammento da incollare: i ritorni a capo diventano `<br>` (il contenteditable
+ * non conserva `\n` dentro `insertHTML`) e ogni badge e' lo stesso span del
+ * documento. Uno spazio dopo l'ultimo badge da' un posto al cursore.
+ */
+export function fillPasteFragment(segs: ComposerSegment[], parent: HTMLElement): void {
+	for (let i = 0; i < segs.length; i++) {
+		const seg = segs[i];
+		if (seg.t === 'text') {
+			const parts = seg.s.split('\n');
+			for (let p = 0; p < parts.length; p++) {
+				if (p > 0) parent.appendChild(document.createElement('br'));
+				if (parts[p]) parent.appendChild(document.createTextNode(parts[p]));
+			}
+			continue;
+		}
+		parent.appendChild(createBadgeElement(seg));
+		const next = segs[i + 1];
+		if (!next || next.t !== 'text') parent.appendChild(document.createTextNode(NBSP));
+	}
+}
+
+/**
  * Inserisce i segmenti nel container DOM dell'editor.
  */
 export function renderSegmentsToDom(segs: ComposerSegment[], ed: HTMLElement): void {

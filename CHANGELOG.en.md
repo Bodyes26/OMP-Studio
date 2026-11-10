@@ -20,6 +20,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - One-command install on macOS, Linux and Windows: the script downloads the latest release (stable or Nightly), checks its SHA-256 and installs it without the Gatekeeper and SmartScreen warnings. On Linux it installs the AppImage in your home folder, with a menu entry and the `omp-studio` command, and automatic updates work without a password.
 
 ### Changed
+- In the HTML question form, the recommendation reads apart from the rest of the text, and the option the model already marked shows “Recommended”. Radios and checkboxes fill on state change; menus, dates and ranges are Studio controls. Once chosen, “Other…” becomes the row you type in.
 - Agent questions use OMP's new HTML form: every section stays visible and editable before submission, with choices, numbers, text, images and diagrams, including in Companion and Studio Remote. Each section offers “Add note or image”; minimizing the card or switching projects preserves the draft. (ASK-001, ASK-002, ASK-006…012, ASK-014)
 - Studio Remote: added fluid animations across all PWA interfaces adhering to Studio's design system. Modal sheets and dialogs now slide down and fade out on close instead of abruptly vanishing; full-screen chat transitions with native-feeling mobile push/pop sliding; project branch and queue accordion sections unfold smoothly with synchronized arrow rotation; the slash command tray, cross-branch notice banner, offline banner and scroll-to-bottom button have dedicated enter/exit transitions; buttons, chips, and list rows provide subtle tactile press feedback. All transitions automatically collapse to zero duration under `prefers-reduced-motion`.
 - The Companion, Queue and Remote control buttons move from the top bar to the status bar at the bottom, next to automations: the top bar stays free for project tiles.
@@ -27,6 +28,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - The macOS installer DMG window has a new look: a monumental marble π in an alpine landscape, with the π made of fine ASCII characters and a film-grain photographic finish. OMP Studio sits on the left and the Applications folder on the right.
 
 ### Fixed
+- Pasting a message in Companion recognizes complete tags at once: `#project`, `@file`, a `/directive` or command, and a `!role` or model become the same badges as when you type them, including in the middle of the text.
 - In chat, while Composer, Grok and the other Cursor models use tools, the reply written afterwards stays visible under those steps: it no longer appears only after reopening the session.
 - Images attached to an answer arrive with the data in the same `ask` result instead of a second queued message; an attachment that is not ready or cannot be delivered keeps the draft and prevents text-only submission. Preview and history read the new format while preserving older conversations. (ASK-004, ASK-010, ASK-013)
 - Questions always wait for explicit submission: no countdown confirms preselected values or cancels the form, including after a prewalk change. (ASK-003)

@@ -134,7 +134,7 @@ function resolveProjectCandidates(
  * solo progetto resta in gara; le parole successive al nome ("perche' anche
  * se...") non concatenano mai chiavi che assomigliano a un progetto noto.
  */
-function findProjectTokens(rawText: string, projects: LocalProjectRef[]): ProjectTokenMatch[] {
+export function findProjectTokens(rawText: string, projects: LocalProjectRef[]): ProjectTokenMatch[] {
 	// La corsa parte da '#' e prosegue su parole separate da spazi orizzontali:
 	// mai a capo, mai oltre punteggiatura (che chiude naturalmente il nome).
 	const runRegex = /(?:^|\s)(#([\w.\-]+(?:[ \t]+[\w.\-]+)*))/g;

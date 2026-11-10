@@ -9,6 +9,7 @@
 		segmentsToWireText,
 		parsePlainTextToSegments,
 		renderSegmentsToDom,
+		fillPasteFragment,
 		NBSP,
 		type ComposerSegment,
 		type ComposerTrigger,
@@ -36,6 +37,7 @@
 		triggers = ['@', '/'],
 		onSend,
 		onFilesPaste,
+		onPreparePaste,
 		onTriggerChange,
 		onKeydownFilter,
 		onInput
@@ -52,6 +54,11 @@
 		triggers?: ComposerTriggerKind[];
 		onSend?: (isAlt: boolean) => void;
 		onFilesPaste?: (files: FileList | File[]) => void;
+		/**
+		 * Incolla di testo. `null` lascia l'inserimento grezzo (undo nativo).
+		 * Un array sostituisce il frammento con segmenti gia' risolti (badge).
+		 */
+		onPreparePaste?: (text: string) => ComposerSegment[] | null;
 		onTriggerChange?: (trigger: ComposerTrigger | null) => void;
 		onKeydownFilter?: (e: KeyboardEvent) => boolean;
 		onInput?: () => void;
@@ -302,6 +309,47 @@
 		publishTrigger(readTrigger());
 	}
 
+	function ensureCaretInEditor() {
+		if (!editorEl) return;
+		const sel = window.getSelection();
+		if (!sel || !sel.rangeCount || !editorEl.contains(sel.anchorNode)) {
+			caretAfter(editorEl, editorEl.childNodes.length);
+		}
+	}
+
+	/**
+	 * Inserisce segmenti gia' risolti al posto della selezione. `insertHTML`
+	 * resta un solo passo di undo; se il browser lo rifiuta si inserisce il
+	 * frammento a mano.
+	 */
+	function insertPreparedSegments(segs: ComposerSegment[]): void {
+		if (!editorEl) return;
+		editorEl.focus();
+		ensureCaretInEditor();
+		if (segs.length === 0) {
+			const sel = window.getSelection();
+			if (sel && !sel.isCollapsed && editorEl.contains(sel.anchorNode)) {
+				document.execCommand('delete');
+			}
+			return;
+		}
+		const scratch = document.createElement('div');
+		fillPasteFragment(segs, scratch);
+		const html = scratch.innerHTML;
+		if (html && document.execCommand('insertHTML', false, html)) return;
+		const range = window.getSelection()?.getRangeAt(0);
+		if (!range) return;
+		range.deleteContents();
+		const last = scratch.lastChild;
+		const frag = document.createDocumentFragment();
+		frag.append(...Array.from(scratch.childNodes));
+		range.insertNode(frag);
+		if (last) {
+			if (last.nodeType === Node.TEXT_NODE) caretAfter(last, (last.textContent ?? '').length);
+			else caretAfter(editorEl, Array.from(editorEl.childNodes).indexOf(last as ChildNode) + 1);
+		}
+	}
+
 	function handlePaste(e: ClipboardEvent) {
 		e.preventDefault();
 		const clipboard = e.clipboardData;
@@ -312,8 +360,13 @@
 		if (content === 'files') {
 			onFilesPaste?.(clipboard.files);
 		} else if (content === 'text') {
-			// Incollaggio testo semplice per preservare l'undo nativo
-			document.execCommand('insertText', false, text);
+			const prepared = onPreparePaste?.(text) ?? null;
+			if (prepared) {
+				insertPreparedSegments(prepared);
+			} else {
+				// Nessun token riconosciuto: testo semplice, un solo passo di undo.
+				document.execCommand('insertText', false, text);
+			}
 			sync();
 		}
 	}
