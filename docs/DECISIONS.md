@@ -2068,3 +2068,19 @@ Dopo l'audit delle stringhe rimaste solo in italiano (circa 1400 fra frontend, b
 - **Estensioni omp:** helper `tr(it, en)` per file, perché le estensioni sono copiate in una cartella e caricate con `-e` (un import fra file fratelli non è affidabile); legge `OMP_STUDIO_LOCALE`, che Studio imposta all'avvio della sessione. Il relay ha il proprio dizionario `t()` e il push parte localizzato in base alla lingua che il client registra con la sottoscrizione (colonna `language`, assente = inglese).
 
 Limite noto: gli errori dei comandi remoti arrivano alla PWA nella lingua della macchina host, non in quella del telefono.
+
+## Sito web di presentazione di Studio
+
+- Studio avrà una pagina web di presentazione, autonoma, da collegare dal portfolio personale (maurizioactis.it) ma senza farne parte: l'utente ha scartato sottodomini o sottopagine del dominio personale ("voglio che sia indipendente").
+- Hosting scelto: Cloudflare Pages, indirizzo puntato omp-studio.pages.dev; l'utente usa già Cloudflare per i suoi domini. Scartati GitHub Pages (URL con il nickname o percorso /OMP-Studio/) e Vercel (omp-studio.vercel.app già occupato).
+- Sorgente previsto in una cartella dedicata di questo repo, collegata a Cloudflare Pages con root directory e build watch paths limitati a quella cartella. Design e sviluppo della pagina da definire. [sessione 01a1c5a0]
+
+- Framework: Astro, con componenti interattivi in Svelte 5 (stesso linguaggio dell'app). Requisiti dell'utente: una sola landing, solo in inglese, logo e icone riusati, tanta interattivita' con componenti fatti apposta per la pagina ("sicuramente non solo del css semplice").
+- Stile grafico: preso dall'immagine di sfondo del DMG (foto della rovina a forma di pi, resa in caratteri ASCII con effetto pellicola), non dall'interfaccia dell'app: "un conto e' la grafica di un programma, un conto e' la grafica di un sito che pubblicizza il programma". [sessione 01a1c5a0]
+
+- Download sulla pagina: pulsanti che puntano all'ultima release e mostrano la versione uscita; ogni release stabile ricompila la pagina (deploy hook di Cloudflare chiamato dal workflow di rilascio), "tanto e' la stessa pubblicazione su github". Decisioni parcheggiate in attesa della ricerca su contenuti e design. [sessione 01a1c5a0]
+
+## Installer grafico Windows — wrapper NSIS
+
+Scelta la strada E su richiesta dell'utente («proviamo ad implementare la E allora»): un launcher Tauri dedicato contiene il setup NSIS di Tauri. Grafica ispirata al DMG (rovina ASCII animata) e cornice Windows 11 con Mica, tema automatico, opzioni cartella/desktop e lingua di Windows. La UI e' HTML/CSS/JS senza bundler; la logica di installazione e la disinstallazione restano NSIS. Requisiti e limiti di verifica: docs/requisiti/installer-windows.md (IWN-001…011).
+La compatibilita' con gli aggiornamenti preesistenti passa dal forwarding della riga di comando e del codice d'uscita senza aprire la UI. La prova con un payload Rust innocuo preserva /S, percorsi con spazi e codici 41/42; l'utente conferma nessun nuovo avviso Sophos. La precedente prova con cmd.exe rinominato aveva invece generato Evade_13a: non usare binari di sistema mascherati per i test e non applicare esclusioni antivirus. L'esito innocuo non garantisce che Sophos accetti qualunque installer reale. Finestra nativa e build con payload NSIS provate, installazione effettiva non eseguita sullo Studio in uso. [sessione 01a1c5a0]

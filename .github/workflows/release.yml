@@ -215,6 +215,29 @@ jobs:
             }
           }
 
+      # Installer grafico (docs/requisiti/installer-windows.md): incorpora il setup
+      # NSIS appena firmato e ne prende il nome, poi viene firmato a sua volta.
+      - name: Installer grafico Windows
+        if: runner.os == 'Windows'
+        shell: bash
+        run: node scripts/build-windows-installer.mjs --bundle-dir src-tauri/target/release/bundle/nsis --profile release
+
+      - name: Firma Authenticode dell'installer grafico Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE_THUMBPRINT: ${{ secrets.WINDOWS_CERTIFICATE_THUMBPRINT }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_THUMBPRINT)) {
+            Write-Output "Nessun certificato Windows configurato: installer grafico non firmato."
+            exit 0
+          }
+          $targets = @('src-tauri/target/release/omp-studio-setup.exe') + @(Get-ChildItem -Path 'src-tauri/target/release/bundle/nsis/*.exe' -File | ForEach-Object { $_.FullName })
+          foreach ($path in $targets) {
+            & powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sign-windows.ps1 -Path $path
+          }
+
       - name: Verifica firma Authenticode Windows
         if: runner.os == 'Windows'
         shell: pwsh

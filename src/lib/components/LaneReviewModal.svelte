@@ -343,7 +343,7 @@
 				if (!container || !filePath) return;
 				cleanupDiff();
 
-				const lang = languageForFile(filePath);
+				const lang = languageForFile(filePath, modified || original);
 				diffEditorInstance = createDiffEditorInstance(
 					container,
 					original,

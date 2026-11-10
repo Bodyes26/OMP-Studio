@@ -1,3 +1,9 @@
+# Workspace con l'installer grafico Windows (installer/, vedi
+# docs/requisiti/installer-windows.md). Il pacchetto radice resta l'unico
+# compilato e testato quando non si passa `-p`.
+[workspace]
+members = ["installer"]
+
 [package]
 name = "omp-studio-app"
 version = "1.10.0"

@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>OMP Studio Setup</title>
+		<link rel="stylesheet" href="style.css" />
+		<script type="module" src="app.js"></script>
+	</head>
+	<body>
+		<main class="setup">
+			<div class="hero" aria-hidden="true">
+				<canvas id="ruin"></canvas>
+				<div class="grain"></div>
+			</div>
+
+			<section class="panel" aria-labelledby="product">
+				<header class="brand">
+					<svg class="mark" viewBox="0 0 96 80" fill="currentColor" aria-hidden="true">
+						<rect x="0" y="0" width="96" height="16" rx="1.1" />
+						<rect x="24" y="8" width="16" height="32" rx="1.1" />
+						<rect x="56" y="8" width="16" height="72" rx="1.1" />
+						<rect x="24" y="40" width="16" height="16" rx="1.1" opacity="0.45" />
+					</svg>
+					<h1 id="product">OMP Studio</h1>
+					<p class="tagline" data-t="tagline"></p>
+					<p class="meta" id="meta"></p>
+				</header>
+
+				<div class="body">
+					<div class="notice" id="running" role="alert" hidden>
+						<svg class="notice-icon" viewBox="0 0 16 16" aria-hidden="true">
+							<path d="M8 1.5 15 14H1z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" />
+							<path d="M8 6v3.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" />
+							<circle cx="8" cy="11.6" r="0.85" fill="currentColor" />
+						</svg>
+						<div>
+							<p class="notice-title" data-t="runningTitle"></p>
+							<p class="notice-text" id="running-text" data-t="runningText"></p>
+							<div class="row">
+								<button type="button" class="btn" id="retry-running" data-t="retry"></button>
+								<button type="button" class="btn danger" id="close-studio" data-t="closeAndContinue"></button>
+							</div>
+						</div>
+					</div>
+
+					<div class="step" id="ready">
+						<div class="row">
+							<button type="button" class="btn primary" id="install"></button>
+							<button
+								type="button"
+								class="btn subtle disclosure"
+								id="toggle-options"
+								aria-expanded="false"
+								aria-controls="options"
+							>
+								<span data-t="options"></span>
+								<svg viewBox="0 0 16 16" aria-hidden="true">
+									<path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+								</svg>
+							</button>
+						</div>
+						<p class="hint" id="downgrade" hidden></p>
+
+						<div class="options" id="options" hidden>
+							<label class="field-label" for="dir" data-t="folder"></label>
+							<div class="field-row">
+								<input id="dir" type="text" spellcheck="false" autocomplete="off" />
+								<button type="button" class="btn" id="browse" data-t="browse"></button>
+							</div>
+							<p class="hint" id="dir-locked" data-t="folderLocked" hidden></p>
+							<label class="check">
+								<input type="checkbox" id="desktop" checked />
+								<span class="box" aria-hidden="true">
+									<svg viewBox="0 0 16 16"><path d="m3.5 8.2 3 3 6-6.4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+								</span>
+								<span data-t="desktop"></span>
+							</label>
+						</div>
+					</div>
+
+					<div class="step" id="working" role="status" aria-live="polite" hidden>
+						<p class="status-title" id="working-title"></p>
+						<div class="bar" aria-hidden="true"><span></span></div>
+					</div>
+
+					<div class="step" id="done" role="status" aria-live="polite" hidden>
+						<p class="status-title" id="done-title"></p>
+						<p class="hint" id="done-text"></p>
+						<div class="row">
+							<button type="button" class="btn primary" id="open" data-t="open"></button>
+							<button type="button" class="btn subtle" id="close" data-t="close"></button>
+						</div>
+					</div>
+
+					<div class="step" id="failed" role="alert" hidden>
+						<p class="status-title" data-t="errorTitle"></p>
+						<p class="hint" id="error-text"></p>
+						<div class="row">
+							<button type="button" class="btn primary" id="retry" data-t="retry"></button>
+							<button type="button" class="btn subtle" id="classic" data-t="classic"></button>
+						</div>
+					</div>
+				</div>
+
+				<footer class="foot" data-t="foot"></footer>
+			</section>
+		</main>
+	</body>
+</html>

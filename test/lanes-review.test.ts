@@ -196,4 +196,16 @@ describe('W12 — Mappatura estensioni linguaggio per Monaco diff (languageForFi
 		assert.equal(languageForFile('script.py'), 'python');
 		assert.equal(languageForFile('unknown.xyz'), 'plaintext');
 	});
+
+	it("riconosce dal contenuto i file con estensione sconosciuta, mai sopra l'estensione", () => {
+		assert.equal(languageForFile('C:\\Report\\Fattura.rli', '\uFEFF<?xml version="1.0" encoding="utf-8"?>\r\n<Report/>'), 'xml');
+		assert.equal(languageForFile('scripts/deploy', '#!/usr/bin/env bash\necho ok'), 'shell');
+		assert.equal(languageForFile('tool', '#!/usr/bin/env python3\n'), 'python');
+		assert.equal(languageForFile('run.xyz', '#!/usr/bin/env node\n'), 'javascript');
+		assert.equal(languageForFile('note.xyz', 'testo libero\n<?xml?>'), 'plaintext');
+		// L'estensione nota vince sul contenuto.
+		assert.equal(languageForFile('page.html', '<?xml version="1.0"?>'), 'html');
+		// Un punto nella cartella non e' un'estensione.
+		assert.equal(languageForFile('C:\\dir.vb\\Makefile', '<?xml version="1.0"?>'), 'xml');
+	});
 });

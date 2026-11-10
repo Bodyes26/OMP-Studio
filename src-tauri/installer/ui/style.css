@@ -1,0 +1,491 @@
+/*
+ * Installer grafico di OMP Studio. Due mondi affiancati: a sinistra la rovina dello
+ * sfondo del DMG, sempre scura come la foto; a destra la cornice Windows 11 su Mica,
+ * chiara o scura secondo Windows. L'accento e' l'ocra dei licheni sulla pietra.
+ */
+
+:root {
+	color-scheme: light dark;
+	--hero-w: 460px;
+	--font: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+	--font-display: 'Segoe UI Variable Display', 'Segoe UI', system-ui, sans-serif;
+
+	--ink: #1b1a17;
+	--ink-2: #4f4b44;
+	--ink-3: #686358;
+	--solid: #f3f3f3;
+	--layer: rgb(255 255 255 / 0.6);
+	--layer-line: rgb(0 0 0 / 0.07);
+	--control: rgb(255 255 255 / 0.72);
+	--control-hover: rgb(250 250 250 / 0.55);
+	--control-press: rgb(250 250 250 / 0.3);
+	--control-line: rgb(0 0 0 / 0.07);
+	--control-line-bottom: rgb(0 0 0 / 0.17);
+	--accent: #6b5116;
+	--accent-hover: #7a5e1d;
+	--accent-press: #5c4512;
+	--on-accent: #fffaf0;
+	--caution: #9d5d00;
+	--caution-bg: rgb(157 93 0 / 0.09);
+	--caution-line: rgb(157 93 0 / 0.22);
+	--danger: #b3261e;
+	--danger-hover: #c42b1c;
+	--on-danger: #ffffff;
+	--focus: #1b1a17;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--ink: #f2f0ea;
+		--ink-2: #cbc6ba;
+		--ink-3: #a9a397;
+		--solid: #202020;
+		--layer: rgb(255 255 255 / 0.05);
+		--layer-line: rgb(255 255 255 / 0.08);
+		--control: rgb(255 255 255 / 0.06);
+		--control-hover: rgb(255 255 255 / 0.09);
+		--control-press: rgb(255 255 255 / 0.04);
+		--control-line: rgb(255 255 255 / 0.08);
+		--control-line-bottom: rgb(255 255 255 / 0.05);
+		--accent: #e3c06a;
+		--accent-hover: #ebcd84;
+		--accent-press: #cfae5c;
+		--on-accent: #1d1606;
+		--caution: #f2c94c;
+		--caution-bg: rgb(242 201 76 / 0.08);
+		--caution-line: rgb(242 201 76 / 0.2);
+		--danger: #ff9a8f;
+		--danger-hover: #ffb0a6;
+		--on-danger: #2b0703;
+		--focus: #f2f0ea;
+	}
+}
+
+* {
+	box-sizing: border-box;
+}
+
+html,
+body {
+	margin: 0;
+	height: 100%;
+	overflow: hidden;
+	/* Su Windows 11 lo sfondo e' Mica, dietro al webview trasparente. */
+	background: transparent;
+	color: var(--ink);
+	font: 14px/20px var(--font);
+	-webkit-font-smoothing: antialiased;
+	user-select: none;
+	cursor: default;
+}
+
+/* Windows 10: niente Mica, fondo pieno del tema. */
+html.solid body {
+	background: var(--solid);
+}
+
+::selection {
+	background: var(--accent);
+	color: var(--on-accent);
+}
+
+.setup {
+	display: grid;
+	grid-template-columns: var(--hero-w) 1fr;
+	height: 100%;
+}
+
+/* Rovina ------------------------------------------------------------------ */
+
+.hero {
+	position: relative;
+	overflow: hidden;
+	background: #24231f;
+}
+
+.hero canvas {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	opacity: 0;
+	transition: opacity 600ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.hero canvas.ready {
+	opacity: 1;
+}
+
+/* Grana della pellicola, come nello sfondo del DMG: rumore generato da ruin.js. */
+.grain {
+	position: absolute;
+	inset: -64px;
+	opacity: 0.11;
+	mix-blend-mode: overlay;
+	pointer-events: none;
+	animation: grain 0.9s steps(6) infinite;
+}
+
+@keyframes grain {
+	0% { transform: translate(0, 0); }
+	20% { transform: translate(-23px, 17px); }
+	40% { transform: translate(31px, -9px); }
+	60% { transform: translate(-12px, -29px); }
+	80% { transform: translate(19px, 26px); }
+	100% { transform: translate(0, 0); }
+}
+
+/* Pannello ---------------------------------------------------------------- */
+
+.panel {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	padding: 44px 44px 24px;
+	/* Avviso di Studio aperto e Opzioni insieme superano l'altezza fissa della finestra. */
+	overflow-y: auto;
+	scrollbar-width: thin;
+	scrollbar-color: var(--ink-3) transparent;
+}
+
+.panel > .foot {
+	padding-top: 20px;
+}
+
+.brand .mark {
+	display: block;
+	width: 34px;
+	height: auto;
+	margin-bottom: 20px;
+	color: var(--ink);
+}
+
+h1 {
+	margin: 0;
+	font: 600 28px/36px var(--font-display);
+	letter-spacing: -0.02em;
+}
+
+.tagline {
+	margin: 4px 0 0;
+	color: var(--ink-2);
+	text-wrap: balance;
+}
+
+.meta {
+	margin: 12px 0 0;
+	color: var(--ink-3);
+	font-size: 12px;
+	line-height: 16px;
+	font-variant-numeric: tabular-nums;
+}
+
+.body {
+	margin-top: 32px;
+}
+
+.row {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+}
+
+.hint {
+	margin: 8px 0 0;
+	color: var(--ink-2);
+	font-size: 12px;
+	line-height: 16px;
+	overflow-wrap: anywhere;
+}
+
+.foot {
+	margin-top: auto;
+	color: var(--ink-3);
+	font-size: 12px;
+	line-height: 16px;
+}
+
+.step[hidden],
+.notice[hidden],
+.options[hidden],
+.hint[hidden] {
+	display: none;
+}
+
+.step:not([hidden]) {
+	animation: enter 260ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.step .hint + .row {
+	margin-top: 16px;
+}
+
+@keyframes enter {
+	from { opacity: 0; transform: translateY(4px); }
+}
+
+.status-title {
+	margin: 0;
+	font: 600 16px/22px var(--font-display);
+}
+
+/* Pulsanti (misure Fluent: 32 px, raggio 4) -------------------------------- */
+
+.btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	height: 32px;
+	padding: 0 12px;
+	border: 1px solid var(--control-line);
+	border-bottom-color: var(--control-line-bottom);
+	border-radius: 4px;
+	background: var(--control);
+	color: var(--ink);
+	font: inherit;
+	cursor: default;
+	transition: background-color 80ms linear, color 80ms linear;
+}
+
+.btn:hover {
+	background: var(--control-hover);
+}
+
+.btn:active {
+	background: var(--control-press);
+	color: var(--ink-2);
+}
+
+.btn:disabled {
+	opacity: 0.45;
+	pointer-events: none;
+}
+
+.btn.primary {
+	height: 36px;
+	min-width: 148px;
+	padding: 0 20px;
+	border-color: transparent;
+	background: var(--accent);
+	color: var(--on-accent);
+	font-weight: 600;
+}
+
+.btn.primary:hover {
+	background: var(--accent-hover);
+}
+
+.btn.primary:active {
+	background: var(--accent-press);
+	color: var(--on-accent);
+}
+
+.btn.danger {
+	border-color: transparent;
+	background: var(--danger);
+	color: var(--on-danger);
+}
+
+.btn.danger:hover {
+	background: var(--danger-hover);
+}
+
+.btn.subtle {
+	border-color: transparent;
+	background: transparent;
+}
+
+.btn.subtle:hover {
+	background: var(--control-hover);
+}
+
+.disclosure svg {
+	width: 14px;
+	height: 14px;
+	transition: transform 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.disclosure[aria-expanded='true'] svg {
+	transform: rotate(180deg);
+}
+
+:focus-visible {
+	outline: 2px solid var(--focus);
+	outline-offset: 2px;
+}
+
+/* Opzioni ------------------------------------------------------------------ */
+
+.options {
+	margin-top: 16px;
+	padding: 16px;
+	border: 1px solid var(--layer-line);
+	border-radius: 8px;
+	background: var(--layer);
+	animation: enter 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.field-label {
+	display: block;
+	margin-bottom: 6px;
+	font-size: 12px;
+	line-height: 16px;
+	color: var(--ink-2);
+}
+
+.field-row {
+	display: flex;
+	gap: 8px;
+}
+
+input[type='text'] {
+	flex: 1;
+	min-width: 0;
+	height: 32px;
+	padding: 0 10px;
+	border: 1px solid var(--control-line);
+	border-bottom: 1px solid var(--ink-3);
+	border-radius: 4px;
+	background: var(--control);
+	color: var(--ink);
+	font: inherit;
+	user-select: text;
+}
+
+input[type='text']:focus {
+	outline: none;
+	border-bottom: 2px solid var(--accent);
+	padding-bottom: 1px;
+}
+
+input[type='text']:disabled {
+	color: var(--ink-2);
+	border-bottom-color: var(--control-line);
+}
+
+.check {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	margin-top: 16px;
+}
+
+.check input {
+	position: absolute;
+	opacity: 0;
+	pointer-events: none;
+}
+
+.check .box {
+	display: grid;
+	place-items: center;
+	width: 20px;
+	height: 20px;
+	border: 1px solid var(--ink-3);
+	border-radius: 4px;
+	background: var(--control);
+	color: var(--on-accent);
+	transition: background-color 120ms linear, border-color 120ms linear;
+}
+
+.check .box svg {
+	width: 14px;
+	height: 14px;
+	stroke-dasharray: 16;
+	stroke-dashoffset: 16;
+	transition: stroke-dashoffset 160ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.check input:checked + .box {
+	border-color: var(--accent);
+	background: var(--accent);
+}
+
+.check input:checked + .box svg {
+	stroke-dashoffset: 0;
+}
+
+.check input:focus-visible + .box {
+	outline: 2px solid var(--focus);
+	outline-offset: 2px;
+}
+
+/* Avviso: Studio aperto ---------------------------------------------------- */
+
+.notice {
+	display: flex;
+	gap: 12px;
+	margin-bottom: 20px;
+	padding: 12px 16px 14px;
+	border: 1px solid var(--caution-line);
+	border-radius: 8px;
+	background: var(--caution-bg);
+}
+
+.notice-icon {
+	flex: none;
+	width: 16px;
+	height: 16px;
+	margin-top: 2px;
+	color: var(--caution);
+}
+
+.notice-title {
+	margin: 0;
+	font-weight: 600;
+}
+
+.notice-text {
+	margin: 2px 0 12px;
+	color: var(--ink-2);
+}
+
+/* Avanzamento indeterminato, alla Windows 11 ---------------------------------- */
+
+.bar {
+	position: relative;
+	height: 3px;
+	margin-top: 16px;
+	overflow: hidden;
+	border-radius: 2px;
+}
+
+.bar::before {
+	content: '';
+	position: absolute;
+	left: 0;
+	right: 0;
+	top: 1px;
+	height: 1px;
+	background: var(--ink-3);
+	opacity: 0.5;
+}
+
+.bar span {
+	position: absolute;
+	top: 0;
+	height: 3px;
+	width: 40%;
+	border-radius: 2px;
+	background: var(--accent);
+	animation: indeterminate 1.6s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+
+@keyframes indeterminate {
+	from { left: -40%; }
+	to { left: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.grain,
+	.step:not([hidden]),
+	.options {
+		animation: none;
+	}
+
+	.bar span {
+		animation-duration: 3.2s;
+	}
+}

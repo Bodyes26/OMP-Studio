@@ -25,6 +25,7 @@ import {
 import { basename, dirname, join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { printSummary, verifyNightly, withNightlyLock } from './verify-nightly.mjs';
+import { wrapWindowsInstaller } from './build-windows-installer.mjs';
 import { computeFrontendFingerprint, computeFrontendFingerprintDetails } from './nightly-cache.mjs';
 import {
 	ROOT,
@@ -476,6 +477,15 @@ async function publish(opts) {
 			await buildInstaller(platform);
 		} else {
 			console.log(`\nSalto la compilazione (--skip-build).`);
+		}
+		// Installer grafico Windows: sostituisce il setup NSIS mantenendone il nome.
+		// Idempotente, quindi vale anche con --skip-build.
+		if (platform.key === 'windows') {
+			const start = performance.now();
+			for (const setup of findInstallers(platform, version, buildStartTime)) {
+				wrapWindowsInstaller({ setupPath: setup.path, profile: 'nightly' });
+			}
+			timings.push({ fase: 'Installer grafico', secondi: ((performance.now() - start) / 1000).toFixed(1) });
 		}
 		const afterInputs = snapshotBuildInputs();
 		const currentCommit = getCommitSha();

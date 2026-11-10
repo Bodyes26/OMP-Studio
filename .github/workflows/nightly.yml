@@ -228,6 +228,13 @@ jobs:
           [ -n "${APPLE_SIGNING_IDENTITY:-}" ] || unset APPLE_SIGNING_IDENTITY
           bun tauri build ${{ matrix.build_args }}
 
+      # Installer grafico (docs/requisiti/installer-windows.md): incorpora il setup
+      # NSIS e ne prende il nome, come scripts/publish-nightly.mjs.
+      - name: Installer grafico Windows
+        if: runner.os == 'Windows'
+        shell: bash
+        run: node scripts/build-windows-installer.mjs --bundle-dir src-tauri/target/nightly/bundle/nsis --profile nightly
+
       - name: Verifica firma macOS
         if: runner.os == 'macOS'
         shell: bash

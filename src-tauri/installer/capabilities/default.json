@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Finestra dell'installer: solo i comandi propri, nessuna API di sistema dal webview",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}
