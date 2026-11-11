@@ -119,7 +119,8 @@ jobs:
                 key: "macos",
                 name: "macOS universal",
                 os: "macos-15",
-                build_args: "--bundles dmg --target universal-apple-darwin",
+                // Il controllo firma usa il bundle app anche dopo la creazione del DMG.
+                build_args: "--bundles app,dmg --target universal-apple-darwin",
                 artifact_name: "nightly-macos-universal",
                 artifact_dir: "src-tauri/target/universal-apple-darwin/release/bundle/dmg"
               },
