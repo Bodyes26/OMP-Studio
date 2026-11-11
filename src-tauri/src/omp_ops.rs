@@ -540,6 +540,29 @@ fn normalize_auto_redeem_value(val: Option<&serde_yaml::Value>) -> &'static str 
     }
 }
 
+fn yaml_auto_redeem_opt(
+    root: &serde_yaml::Value,
+    section: &str,
+    field: &str,
+) -> Option<&'static str> {
+    let dotted = format!("{}.{}", section, field);
+    let val = root
+        .get(section)
+        .and_then(|s| s.get(field))
+        .or_else(|| root.get(dotted.as_str()));
+    match val {
+        Some(serde_yaml::Value::Bool(true)) => Some("yes"),
+        Some(serde_yaml::Value::Bool(false)) => Some("no"),
+        Some(serde_yaml::Value::String(s)) => match s.trim().to_ascii_lowercase().as_str() {
+            "yes" | "true" => Some("yes"),
+            "no" | "false" => Some("no"),
+            _ => Some("unset"),
+        },
+        Some(_) => Some("unset"),
+        None => None,
+    }
+}
+
 fn yaml_u64_field(
     root: &serde_yaml::Value,
     section: &str,
@@ -555,17 +578,56 @@ fn yaml_u64_field(
 }
 
 fn parse_provider_reset_policy(root: &serde_yaml::Value, section: &str) -> serde_json::Value {
-    let dotted_auto = format!("{}.autoRedeem", section);
-    let auto_val = root
-        .get(section)
-        .and_then(|s| s.get("autoRedeem"))
-        .or_else(|| root.get(dotted_auto.as_str()));
-    let auto_redeem = normalize_auto_redeem_value(auto_val);
+    let legacy_auto = yaml_auto_redeem_opt(root, section, "autoRedeem");
+    // Chiavi per-finestra introdotte in omp 18.18.7.
+    // La chiave legacy migra sulle finestre 5h e weekly; fable e' nuova e resta unset se non impostata.
+    let auto_5h = yaml_auto_redeem_opt(root, section, "autoRedeem5h")
+        .or(legacy_auto)
+        .unwrap_or("unset");
+    let auto_weekly = yaml_auto_redeem_opt(root, section, "autoRedeemWeekly")
+        .or(legacy_auto)
+        .unwrap_or("unset");
+
+    let mut by_window = serde_json::Map::new();
+    by_window.insert("5h".to_string(), serde_json::Value::String(auto_5h.to_string()));
+    by_window.insert("weekly".to_string(), serde_json::Value::String(auto_weekly.to_string()));
+
+    let auto_fable = if section == "claudeResets" {
+        let val = yaml_auto_redeem_opt(root, section, "autoRedeemFable").unwrap_or("unset");
+        by_window.insert("fable".to_string(), serde_json::Value::String(val.to_string()));
+        Some(val)
+    } else {
+        None
+    };
+
+    // Riepilogo derivato per retrocompatibilita': 'yes' se tutte le finestre sono yes,
+    // 'no' se tutte sono no, oppure il valore legacy esplicito quando le chiavi nuove mancano.
+    let auto_redeem = if let Some(legacy) = legacy_auto {
+        if yaml_auto_redeem_opt(root, section, "autoRedeem5h").is_none()
+            && yaml_auto_redeem_opt(root, section, "autoRedeemWeekly").is_none()
+        {
+            legacy
+        } else if auto_5h == "yes" && auto_weekly == "yes" && auto_fable.unwrap_or("yes") == "yes" {
+            "yes"
+        } else if auto_5h == "no" && auto_weekly == "no" && auto_fable.unwrap_or("no") == "no" {
+            "no"
+        } else {
+            "unset"
+        }
+    } else if auto_5h == "yes" && auto_weekly == "yes" && auto_fable.unwrap_or("yes") == "yes" {
+        "yes"
+    } else if auto_5h == "no" && auto_weekly == "no" && auto_fable.unwrap_or("no") == "no" {
+        "no"
+    } else {
+        "unset"
+    };
+
     let min_blocked_minutes = yaml_u64_field(root, section, "minBlockedMinutes", 60);
     let keep_credits = yaml_u64_field(root, section, "keepCredits", 0);
     let salvage_horizon_hours = yaml_u64_field(root, section, "salvageHorizonHours", 12);
     serde_json::json!({
         "autoRedeem": auto_redeem,
+        "autoRedeemByWindow": by_window,
         "minBlockedMinutes": min_blocked_minutes,
         "keepCredits": keep_credits,
         "salvageHorizonHours": salvage_horizon_hours,
@@ -3379,22 +3441,55 @@ riga_non_json_che_viene_ignorata
     fn interpreta_impostazioni_reset_da_yaml() {
         let vuoto = parse_reset_settings_yaml("");
         assert_eq!(vuoto["openai-codex"]["autoRedeem"], "unset");
+        assert_eq!(vuoto["openai-codex"]["autoRedeemByWindow"]["5h"], "unset");
+        assert_eq!(vuoto["openai-codex"]["autoRedeemByWindow"]["weekly"], "unset");
         assert_eq!(vuoto["openai-codex"]["salvageHorizonHours"], 12);
         assert_eq!(vuoto["anthropic"]["autoRedeem"], "unset");
+        assert_eq!(vuoto["anthropic"]["autoRedeemByWindow"]["5h"], "unset");
+        assert_eq!(vuoto["anthropic"]["autoRedeemByWindow"]["weekly"], "unset");
+        assert_eq!(vuoto["anthropic"]["autoRedeemByWindow"]["fable"], "unset");
 
         let annidato = parse_reset_settings_yaml(
             "codexResets:\n  autoRedeem: yes\n  keepCredits: 1\n  salvageHorizonHours: 24\nclaudeResets:\n  autoRedeem: false\n",
         );
         assert_eq!(annidato["openai-codex"]["autoRedeem"], "yes");
+        assert_eq!(annidato["openai-codex"]["autoRedeemByWindow"]["5h"], "yes");
+        assert_eq!(annidato["openai-codex"]["autoRedeemByWindow"]["weekly"], "yes");
         assert_eq!(annidato["openai-codex"]["keepCredits"], 1);
         assert_eq!(annidato["openai-codex"]["salvageHorizonHours"], 24);
         assert_eq!(annidato["anthropic"]["autoRedeem"], "no");
+        assert_eq!(annidato["anthropic"]["autoRedeemByWindow"]["5h"], "no");
+        assert_eq!(annidato["anthropic"]["autoRedeemByWindow"]["weekly"], "no");
+        assert_eq!(annidato["anthropic"]["autoRedeemByWindow"]["fable"], "unset");
 
         let puntato = parse_reset_settings_yaml(
             "\"codexResets.autoRedeem\": no\n\"claudeResets.autoRedeem\": true\n",
         );
         assert_eq!(puntato["openai-codex"]["autoRedeem"], "no");
+        assert_eq!(puntato["openai-codex"]["autoRedeemByWindow"]["5h"], "no");
+        assert_eq!(puntato["openai-codex"]["autoRedeemByWindow"]["weekly"], "no");
         assert_eq!(puntato["anthropic"]["autoRedeem"], "yes");
+        assert_eq!(puntato["anthropic"]["autoRedeemByWindow"]["5h"], "yes");
+        assert_eq!(puntato["anthropic"]["autoRedeemByWindow"]["weekly"], "yes");
+        assert_eq!(puntato["anthropic"]["autoRedeemByWindow"]["fable"], "unset");
+
+        let per_finestra = parse_reset_settings_yaml(
+            "codexResets:\n  autoRedeem5h: yes\n  autoRedeemWeekly: no\nclaudeResets:\n  autoRedeem5h: no\n  autoRedeemWeekly: yes\n  autoRedeemFable: yes\n",
+        );
+        assert_eq!(per_finestra["openai-codex"]["autoRedeemByWindow"]["5h"], "yes");
+        assert_eq!(per_finestra["openai-codex"]["autoRedeemByWindow"]["weekly"], "no");
+        assert_eq!(per_finestra["openai-codex"]["autoRedeem"], "unset");
+        assert_eq!(per_finestra["anthropic"]["autoRedeemByWindow"]["5h"], "no");
+        assert_eq!(per_finestra["anthropic"]["autoRedeemByWindow"]["weekly"], "yes");
+        assert_eq!(per_finestra["anthropic"]["autoRedeemByWindow"]["fable"], "yes");
+        assert_eq!(per_finestra["anthropic"]["autoRedeem"], "unset");
+
+        let per_finestra_puntato = parse_reset_settings_yaml(
+            "\"codexResets.autoRedeem5h\": true\n\"codexResets.autoRedeemWeekly\": false\n\"claudeResets.autoRedeemFable\": true\n",
+        );
+        assert_eq!(per_finestra_puntato["openai-codex"]["autoRedeemByWindow"]["5h"], "yes");
+        assert_eq!(per_finestra_puntato["openai-codex"]["autoRedeemByWindow"]["weekly"], "no");
+        assert_eq!(per_finestra_puntato["anthropic"]["autoRedeemByWindow"]["fable"], "yes");
     }
 
     #[test]

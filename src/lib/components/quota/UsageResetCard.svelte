@@ -12,7 +12,7 @@
 	import { i18n } from '#lib/i18n/i18n.svelte.ts';
 	import { IconSparkles, IconWarning, IconClose, IconInfo } from '#lib/icons.ts';
 	import StatusMark from '#lib/ui/StatusMark.svelte';
-	import type { ResetPromptCandidate } from '#lib/quota/usageResets.ts';
+	import { formatResetSettingKey, type ResetPromptCandidate } from '#lib/quota/usageResets.ts';
 
 	let {
 		candidate,
@@ -44,7 +44,8 @@
 
 	const summary = $derived(candidate.summary);
 	const settingKey = $derived(
-		summary.provider === 'openai-codex' ? 'codexResets.autoRedeem' : 'claudeResets.autoRedeem'
+		candidate.settingKey ||
+			formatResetSettingKey(summary.provider, candidate.window ?? summary.window)
 	);
 
 	const expiryWhen = $derived.by(() => {
@@ -208,7 +209,7 @@
 			</p>
 		{:else if candidate.willBeLostWithoutManualRedeem}
 			<p class="card-note warn-note">
-				{m.quota_reset_card_desc_lost_warning()}
+				{m.quota_reset_card_desc_lost_warning({ setting: settingKey })}
 			</p>
 		{/if}
 		<div class="card-actions">

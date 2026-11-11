@@ -512,6 +512,20 @@ export { RENDER_WINDOW, clampVisibleCount, sliceVisibleEntries, hasEarlierEntrie
 const REBUILD_ATTEMPTS = 3;
 
 /**
+ * Pagina della ricostruzione progressiva: piu' piccola di quella atomica
+ * (256) perche' la chat compaia a blocchi brevi invece di un solo salto.
+ */
+const PROGRESSIVE_PAGE_SIZE = 64;
+
+/** Stato che `mapHistory` porta da una pagina dello storico alla successiva. */
+type HistoryContext = {
+	/** Chiamate di tool ancora senza risultato: il risultato puo' arrivare nella pagina dopo. */
+	tools: Map<string, ToolEntry>;
+	/** Contesti di `wait` del solo client, recuperati dal transcript precedente. */
+	waitContexts: Map<string, NonNullable<ToolEntry['waitContext']>>;
+};
+
+/**
  * Ogni quanto si richiede `get_state` mentre si aspetta la quiete. E' solo la
  * rete per un `session_settled` perso: il segnale normale e' il frame.
  */
@@ -724,6 +738,18 @@ export class AgentSession {
 
 	entries = $state<TranscriptEntry[]>([]);
 	visibleCount = $state(RENDER_WINDOW);
+	/**
+	 * Avanzamento della ricostruzione progressiva dello storico: la chat mostra
+	 * i messaggi gia' arrivati e segnaposto per quelli mancanti. `total` viene
+	 * da `totalMessages` di `get_messages_page`; `null` finche' omp non lo dice.
+	 */
+	transcriptLoad = $state<{ loaded: number; total: number | null } | null>(null);
+	/**
+	 * Transcript tolto dalla vista al passaggio terminale -> GUI: la ricostruzione
+	 * ne recupera card del Piano e contesti di `wait` (non sono nella storia di
+	 * omp) e lo rimette se lo storico non si puo' rileggere.
+	 */
+	private handoffStash: TranscriptEntry[] | null = null;
 
 	isStreaming = $state(false);
 	// Cresce di uno a ogni `agent_end` terminale: e' la fine della richiesta
@@ -1439,6 +1465,7 @@ export class AgentSession {
 		this.backgroundJobs = [];
 		this.attachGeneration++;
 		this.isRebuildingTranscript = false;
+		this.transcriptLoad = null;
 		this.requestedResume = null;
 		this.sessionId = null;
 		this.sessionFile = null;
@@ -1454,6 +1481,20 @@ export class AgentSession {
 		this.deltaBatcher.clear();
 		this.resetProcessScopedState();
 		await this.client.close();
+	}
+
+	/**
+	 * Passaggio terminale -> GUI: nel terminale la conversazione e' andata
+	 * avanti, quella in memoria qui e' vecchia. Si toglie subito dalla vista,
+	 * cosi' durante l'avvio di omp compare il caricamento e non una chat che
+	 * sembra attuale; la ricostruzione ne recupera cio' che omp non conserva.
+	 */
+	clearForHandoff(): void {
+		if (this.entries.length === 0) return;
+		this.handoffStash = this.entries;
+		this.entries = [];
+		this.visibleCount = RENDER_WINDOW;
+		this.toolEntries.clear();
 	}
 
 	/** Chiude ogni canale effimero del processo precedente e dimentica le sue capability. */
@@ -1485,7 +1526,7 @@ export class AgentSession {
 				this.applyQueueModes(),
 				this.applyCacheWarming()
 			]);
-			await this.rebuildTranscript();
+			await this.rebuildTranscript({ progressive: true });
 			void this.refreshCost();
 			// Dopo un resume o un riavvio di omp lo stato del loop si chiede
 			// esplicitamente: il frame di `session_start` puo' arrivare prima
@@ -2224,24 +2265,56 @@ export class AgentSession {
 	/**
 	 * Ricostruzione paginata. `get_messages` monolitico non e' un'opzione: un
 	 * solo messaggio con immagini sfonda il frame fisico da 1 MiB.
+	 *
+	 * `progressive` (insediamento: ripresa, passaggio dal terminale, avvio)
+	 * svuota la vista e la riempie pagina per pagina, con `transcriptLoad` per i
+	 * segnaposto dei messaggi mancanti: la conversazione vecchia non resta a
+	 * fingersi attuale mentre arriva quella vera. Gli altri percorsi (fork,
+	 * compattazione, handoff) sostituiscono il transcript in un colpo solo, per
+	 * non far lampeggiare una chat viva.
 	 */
-	private async rebuildTranscript() {
+	private async rebuildTranscript(opts: { progressive?: boolean } = {}) {
+		const progressive = opts.progressive === true;
+		// Il transcript precedente porta card del Piano e contesti di `wait`, che
+		// la storia di omp non ha; al passaggio dal terminale e' gia' fuori vista.
+		const previous = this.handoffStash ?? this.entries;
+		this.handoffStash = null;
 		this.isRebuildingTranscript = true;
 		try {
 			for (let attempt = 1; attempt <= REBUILD_ATTEMPTS; attempt++) {
 				const collected: AgentMessage[] = [];
 				let cursor: string | undefined;
 				let failed: string | null = null;
+				// Nel percorso atomico il contesto nasce solo a lettura riuscita: azzerare
+				// prima `toolEntries` farebbe perdere gli aggiornamenti della diretta.
+				const history = progressive ? this.newHistoryContext(previous) : null;
+				if (progressive) {
+					this.entries = [];
+					this.visibleCount = RENDER_WINDOW;
+					this.transcriptLoad = { loaded: 0, total: null };
+				}
 
 				do {
 					try {
-						const page = await this.client.send<{ messages?: AgentMessage[]; nextCursor?: string }>({
+						const page = await this.client.send<{
+							messages?: AgentMessage[];
+							nextCursor?: string;
+							totalMessages?: number;
+						}>({
 							type: 'get_messages_page',
 							cursor,
-							limit: 256
+							limit: progressive ? PROGRESSIVE_PAGE_SIZE : 256
 						});
-						if (Array.isArray(page?.messages)) collected.push(...page.messages);
+						const pageMessages = Array.isArray(page?.messages) ? page.messages : [];
+						collected.push(...pageMessages);
 						cursor = typeof page?.nextCursor === 'string' ? page.nextCursor : undefined;
+						if (history) {
+							this.appendHistoryPage(this.mapHistory(pageMessages, history), history);
+							this.transcriptLoad = {
+								loaded: collected.length,
+								total: typeof page?.totalMessages === 'number' ? page.totalMessages : null
+							};
+						}
 					} catch (error) {
 						// `session_busy` e `stale_cursor` invalidano le pagine gia'
 						// raccolte: mescolarle darebbe un transcript inventato.
@@ -2253,19 +2326,17 @@ export class AgentSession {
 
 				if (failed === null) {
 					// Le card del Piano non sono nella storia di omp: tornano al loro posto.
-					const planEntries = this.entries.filter(
+					const planEntries = (progressive ? previous : this.entries).filter(
 						(entry): entry is PlanEntry => entry.kind === 'plan' && entry.sessionId === this.sessionId
 					);
-					this.entries = reanchorEntries(this.mapHistory(collected), planEntries);
+					const mapped = history ? this.entries : this.mapHistory(collected, this.newHistoryContext(this.entries));
+					this.entries = reanchorEntries(mapped, planEntries);
 					const cacheHistory = latestPromptCacheObservation(collected);
 					this.promptCacheObservation = cacheHistory.observation;
 					this.promptCacheContextChanged = cacheHistory.contextChanged;
 					// Le card ricostruite devono restare aggiornabili dalla diretta:
 					// nella mappa vanno le istanze reattive, prese dopo l'assegnazione.
-					this.toolEntries.clear();
-					for (const entry of this.entries) {
-						if (entry.kind === 'tool' && !entry.result) this.toolEntries.set(entry.toolCallId, entry);
-					}
+					this.indexRunningTools();
 					this.optimisticUser = null;
 					this.visibleCount = RENDER_WINDOW;
 					this.restoreGuidedGoalEntries();
@@ -2279,23 +2350,63 @@ export class AgentSession {
 				window.setTimeout(resolve, 400 * attempt);
 				await promise;
 			}
+			// Storico illeggibile: meglio la conversazione di prima di una parziale.
+			if (progressive) {
+				this.entries = previous;
+				this.indexRunningTools();
+			}
 			this.pushNotice('warning', messages.ui_ts_session_transcript_storico_non_ricostruito_la_sessione_e_1030());
 		} finally {
 			this.isRebuildingTranscript = false;
+			this.transcriptLoad = null;
 		}
 	}
 
-	/** Storico -> entry. Stessa forma della diretta: nessun percorso separato. */
-	private mapHistory(history: AgentMessage[]): TranscriptEntry[] {
-		this.renderedCustomKeys.clear();
-		const entries: TranscriptEntry[] = [];
-		const tools = new Map<string, ToolEntry>();
+	/** Le card ancora in corso, nelle istanze reattive, aggiornabili dalla diretta. */
+	private indexRunningTools(): void {
 		this.toolEntries.clear();
-		const waitContexts = new Map(
-			this.entries.flatMap((entry) =>
-				entry.kind === 'tool' && entry.waitContext ? [[entry.toolCallId, entry.waitContext] as const] : []
+		for (const entry of this.entries) {
+			if (entry.kind === 'tool' && !entry.result) this.toolEntries.set(entry.toolCallId, entry);
+		}
+	}
+
+	/**
+	 * Accoda alla vista le entry di una pagina dello storico. I risultati delle
+	 * pagine successive devono aggiornare card gia' disegnate: nel contesto
+	 * vanno le istanze reattive lette dopo l'inserimento, non gli oggetti grezzi.
+	 */
+	private appendHistoryPage(fresh: TranscriptEntry[], history: HistoryContext): void {
+		if (fresh.length === 0) return;
+		const start = this.entries.length;
+		this.entries.push(...fresh);
+		for (let i = start; i < this.entries.length; i++) {
+			const entry = this.entries[i];
+			if (entry.kind === 'tool' && !entry.result) history.tools.set(entry.toolCallId, entry);
+		}
+	}
+
+	/** Contesto nuovo per una lettura completa dello storico. */
+	private newHistoryContext(previous: TranscriptEntry[]): HistoryContext {
+		this.renderedCustomKeys.clear();
+		this.toolEntries.clear();
+		return {
+			tools: new Map(),
+			waitContexts: new Map(
+				previous.flatMap((entry) =>
+					entry.kind === 'tool' && entry.waitContext ? [[entry.toolCallId, entry.waitContext] as const] : []
+				)
 			)
-		);
+		};
+	}
+
+	/**
+	 * Storico -> entry. Stessa forma della diretta: nessun percorso separato.
+	 * Il contesto passa da una pagina all'altra: un risultato puo' arrivare
+	 * nella pagina successiva a quella della sua chiamata.
+	 */
+	private mapHistory(history: AgentMessage[], context: HistoryContext): TranscriptEntry[] {
+		const entries: TranscriptEntry[] = [];
+		const { tools, waitContexts } = context;
 
 		for (const message of history) {
 			if (message.role === 'compactionSummary' || (typeof message.summary === 'string' && !message.role)) {
@@ -5058,8 +5169,9 @@ export class AgentSession {
 			this.startupPhase = 'ready';
 		}
 
-		// Se il processo omp e' terminato o in crash, riapri prima di accodare il messaggio
-		if (this.exited) {
+		// Se il processo omp e' terminato, in crash o fermato con l'arresto
+		// forzato (canale chiuso senza `exited`), riapri prima di accodare il messaggio
+		if (this.exited || !this.client.isOpen) {
 			this.exited = false;
 			void this.ensureOpen(this.sessionId ?? null);
 		}
@@ -5704,6 +5816,14 @@ export class AgentSession {
 		this.attachEventQueue = [];
 		this.endAborting();
 		this.suggestions.invalidate();
+		// Dopo un arresto forzato (o un'uscita di omp) il canale e' chiuso:
+		// `new_session` fallirebbe con "Sessione RPC non aperta" e la chat
+		// resterebbe inutilizzabile finche' non si ripassa dal terminale.
+		// Si riapre un processo pulito e si aspetta il suo `ready`.
+		if (!this.client.isOpen) {
+			await this.ensureOpen(null);
+			await this.waitUntilReady(15000);
+		}
 		await this.client.send({ type: 'new_session' });
 		this.resetLiveSessionState();
 		await this.refreshState();

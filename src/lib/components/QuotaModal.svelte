@@ -517,7 +517,33 @@
 													{m.quota_reset_expires_in({ when: expCountdown })}{expExact ? ` (${expExact})` : ''}
 												</span>
 											{/if}
-											{#if resetSummary.autoRedeem === 'yes'}
+											{#if resetSummary.autoRedeemByWindow}
+												{@const win = resetSummary.window}
+												{@const winMode = win ? resetSummary.autoRedeemByWindow[win] : undefined}
+												{@const allYes = Object.values(resetSummary.autoRedeemByWindow).every((v) => v === 'yes')}
+												{@const allNo = Object.values(resetSummary.autoRedeemByWindow).every((v) => v === 'no')}
+												{#if allYes}
+													<span>· {m.quota_reset_auto_redeem_yes()}</span>
+												{:else if allNo}
+													<span>· {m.quota_reset_auto_redeem_no()}</span>
+												{:else if win && winMode === 'yes'}
+													<span>· {m.quota_reset_auto_redeem_window_yes({ window: win })}</span>
+												{:else if win && winMode === 'no'}
+													<span>· {m.quota_reset_auto_redeem_window_no({ window: win })}</span>
+												{:else if !win}
+													{#each Object.entries(resetSummary.autoRedeemByWindow) as [w, mode]}
+														{#if mode === 'yes'}
+															<span>· {m.quota_reset_auto_redeem_window_yes({ window: w })}</span>
+														{:else if mode === 'no'}
+															<span>· {m.quota_reset_auto_redeem_window_no({ window: w })}</span>
+														{/if}
+													{/each}
+												{:else if resetSummary.autoRedeem === 'yes'}
+													<span>· {m.quota_reset_auto_redeem_yes()}</span>
+												{:else if resetSummary.autoRedeem === 'no'}
+													<span>· {m.quota_reset_auto_redeem_no()}</span>
+												{/if}
+											{:else if resetSummary.autoRedeem === 'yes'}
 												<span>· {m.quota_reset_auto_redeem_yes()}</span>
 											{:else if resetSummary.autoRedeem === 'no'}
 												<span>· {m.quota_reset_auto_redeem_no()}</span>

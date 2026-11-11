@@ -20,6 +20,8 @@ released: items are closed into a version via `npm run release -- <version>`.
 - One-command install on macOS, Linux and Windows: the script downloads the latest release (stable or Nightly), checks its SHA-256 and installs it without the Gatekeeper and SmartScreen warnings. On Linux it installs the AppImage in your home folder, with a menu entry and the `omp-studio` command, and automatic updates work without a password.
 
 ### Changed
+- Switching a chat from the terminal to the GUI clears the old conversation right away: while `omp` starts a loading state appears, then the chat rebuilds in blocks as messages arrive, with placeholders and a count of those still loading. The same applies when resuming a session from history.
+- Saved quota resets follow OMP 18.18.7's per-window auto-redeem setting (5-hour, weekly and, for Claude, Fable): the usage card and panel show the rule for the window the reset applies to.
 - The Windows installer has a dedicated screen with the animated ASCII ruin, the Windows light/dark theme, and options for the install folder and desktop shortcut; updates remain silent. (IWN-001…011)
 - In the HTML question form, the recommendation reads apart from the rest of the text, and the option the model already marked shows “Recommended”. Radios and checkboxes fill on state change; menus, dates and ranges are Studio controls. Once chosen, “Other…” becomes the row you type in.
 - Agent questions use OMP's new HTML form: every section stays visible and editable before submission, with choices, numbers, text, images and diagrams, including in Companion and Studio Remote. Each section offers “Add note or image”; minimizing the card or switching projects preserves the draft. (ASK-001, ASK-002, ASK-006…012, ASK-014)
@@ -29,6 +31,8 @@ released: items are closed into a version via `npm run release -- <version>`.
 - The macOS installer DMG window has a new look: a monumental marble π in an alpine landscape, with the π made of fine ASCII characters and a film-grain photographic finish. OMP Studio sits on the left and the Applications folder on the right.
 
 ### Fixed
+- After force-stopping a stuck agent, "New chat" and sending a message reopen `omp` from the GUI, without going through the terminal.
+- The chat no longer freezes during long commands with lots of output (for example an MSBuild publish): Studio drops the command execution trace that `omp` attaches to every update, which reached hundreds of KB per second, slowed the chat down and left it on "Running" after the command had finished.
 - The editor also highlights files with an unknown extension by recognizing their first line, like VS Code: `<?xml …` (for example `.rli` files) becomes XML, `<!doctype html>` HTML, and `#!` scripts shell, Python or JavaScript.
 - Pasting a message in Companion recognizes complete tags at once: `#project`, `@file`, a `/directive` or command, and a `!role` or model become the same badges as when you type them, including in the middle of the text.
 - In chat, while Composer, Grok and the other Cursor models use tools, the reply written afterwards stays visible under those steps: it no longer appears only after reopening the session.

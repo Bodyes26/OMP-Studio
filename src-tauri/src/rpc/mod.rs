@@ -971,6 +971,62 @@ fn reassemble(line: &str, assembly: &mut Option<ChunkAssembly>) -> Result<Option
     })
 }
 
+/// Rimuove la chiave `trace` da qualsiasi oggetto `details` all'interno del frame JSON.
+/// Restituisce `true` se almeno una chiave `trace` e' stata rimossa.
+fn strip_trace_from_details(value: &mut serde_json::Value) -> bool {
+    let mut removed = false;
+    match value {
+        serde_json::Value::Object(map) => {
+            if let Some(serde_json::Value::Object(details)) = map.get_mut("details") {
+                if details.remove("trace").is_some() {
+                    removed = true;
+                }
+            }
+            for v in map.values_mut() {
+                if strip_trace_from_details(v) {
+                    removed = true;
+                }
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for v in arr.iter_mut() {
+                if strip_trace_from_details(v) {
+                    removed = true;
+                }
+            }
+        }
+        _ => {}
+    }
+    removed
+}
+
+/// Rimuove la traccia di esecuzione shell (`details.trace`) prima dell'inoltro al frontend.
+///
+/// A partire da omp 18.17, la traccia shell (`display.shellVisualization`) si accumula a ogni
+/// secondo nei frame `tool_execution_update` e nei risultati `toolResult`, raggiungendo centinaia
+/// di KB per frame durante comandi lunghi (es. MSBuild). Studio non disegna la traccia shell
+/// (ha i propri renderer di tool): inoltrarla inonda il canale IPC Rust->WebView.
+///
+/// Per evitare di rieseguire il parse JSON su tutti i frame (la maggior parte inoltrati come
+/// stringa grezza), si effettua prima un controllo rapido a sottostringa: si fa il parse solo
+/// se compaiono `"trace"` e uno dei marcatori di tool execution o toolResult. Se nessuna chiave
+/// `trace` e' stata effettivamente rimossa, restituisce `None` per preservare il frame byte per
+/// byte senza riserializzarlo.
+fn strip_shell_trace(line: &str) -> Option<String> {
+    if !line.contains("\"trace\"") {
+        return None;
+    }
+    if !line.contains("tool_execution_") && !line.contains("toolResult") {
+        return None;
+    }
+    let mut value: serde_json::Value = serde_json::from_str(line).ok()?;
+    if strip_trace_from_details(&mut value) {
+        serde_json::to_string(&value).ok()
+    } else {
+        None
+    }
+}
+
 /// Instrada un frame logico verso il frontend. `false` quando il canale e'
 /// chiuso e il thread di lettura deve fermarsi.
 fn dispatch(
@@ -1107,7 +1163,7 @@ fn dispatch(
     // da FramePeek; se la riga non e' JSON valido la si serializza come stringa
     // per non rompere l'eval JS lato WebView.
     let frame = if peek.is_some() {
-        line.to_string()
+        strip_shell_trace(line).unwrap_or_else(|| line.to_string())
     } else {
         serde_json::to_string(line).unwrap_or_else(|_| "{}".to_string())
     };
@@ -2962,5 +3018,61 @@ mod tests {
         // 3. Nessuna sessione indicata: con continue_last=true usa --continue
         assert_eq!(run(None, true, true), vec!["--continue".to_string()]);
         assert_eq!(run(None, false, true), Vec::<String>::new());
+    }
+
+    #[test]
+    fn rimozione_traccia_shell_da_tool_execution_update() {
+        // Frame con traccia shell cumulativa in partialResult.details.trace
+        let raw_with_trace = r#"{"type":"tool_execution_update","toolCallId":"call_bash_1","toolName":"bash","args":{"command":"cargo build"},"partialResult":{"content":[{"type":"text","text":"Compilazione in corso...\n"}],"details":{"timeoutSeconds":300,"wallTimeMs":1542.5,"trace":{"v":1,"seq":88,"status":"running","rootVpid":1234,"t_ns":1794219436000000,"script":"cargo build","units":[{"id":"u1","cmd":"cargo build","state":"running"}],"history":["h1","h2","h3"]}}}}"#;
+
+        let stripped = strip_shell_trace(raw_with_trace)
+            .expect("il frame con trace deve essere ripulito e riserializzato");
+
+        let val: serde_json::Value = serde_json::from_str(&stripped)
+            .expect("il frame ripulito deve essere JSON valido");
+
+        // `trace` e' stato rimosso da `details`
+        assert!(val["partialResult"]["details"].get("trace").is_none());
+
+        // Gli altri campi di `details` sono intatti
+        assert_eq!(val["partialResult"]["details"]["timeoutSeconds"], 300);
+        assert_eq!(val["partialResult"]["details"]["wallTimeMs"], 1542.5);
+
+        // Gli altri campi del frame e di partialResult sono intatti
+        assert_eq!(val["type"], "tool_execution_update");
+        assert_eq!(val["toolCallId"], "call_bash_1");
+        assert_eq!(val["toolName"], "bash");
+        assert_eq!(val["args"]["command"], "cargo build");
+        assert_eq!(
+            val["partialResult"]["content"][0]["text"],
+            "Compilazione in corso...\n"
+        );
+
+        // Frame senza `trace`: deve essere ignorato (None) cosi' da restare byte per byte identico
+        let raw_without_trace = r#"{"type":"tool_execution_update","toolCallId":"call_bash_1","toolName":"bash","args":{"command":"cargo build"},"partialResult":{"content":[{"type":"text","text":"Compilazione in corso...\n"}],"details":{"timeoutSeconds":300,"wallTimeMs":1542.5}}}"#;
+        assert_eq!(strip_shell_trace(raw_without_trace), None);
+    }
+
+    #[test]
+    fn rimozione_traccia_shell_altre_forme_e_invarianza_testo() {
+        // Frame `tool_execution_end` con `result.details.trace`
+        let raw_end = r#"{"type":"tool_execution_end","toolCallId":"call_bash_1","toolName":"bash","result":{"content":[{"type":"text","text":"Fatto\n"}],"details":{"exitCode":0,"wallTimeMs":2000.0,"trace":{"v":1,"seq":120}}}}"#;
+        let stripped_end = strip_shell_trace(raw_end).expect("trace deve essere rimosso da tool_execution_end");
+        let val_end: serde_json::Value = serde_json::from_str(&stripped_end).unwrap();
+        assert!(val_end["result"]["details"].get("trace").is_none());
+        assert_eq!(val_end["result"]["details"]["exitCode"], 0);
+        assert_eq!(val_end["result"]["details"]["wallTimeMs"], 2000.0);
+
+        // Messaggio toolResult con `message.details.trace`
+        let raw_msg = r#"{"type":"message","message":{"role":"toolResult","toolCallId":"call_bash_1","toolName":"bash","content":[{"type":"text","text":"OK"}],"details":{"timeoutSeconds":300,"trace":{"v":1}}}}"#;
+        let stripped_msg = strip_shell_trace(raw_msg).expect("trace deve essere rimosso da message.details");
+        let val_msg: serde_json::Value = serde_json::from_str(&stripped_msg).unwrap();
+        assert!(val_msg["message"]["details"].get("trace").is_none());
+        assert_eq!(val_msg["message"]["details"]["timeoutSeconds"], 300);
+
+        // Frame in cui compare la stringa '"trace"' nel testo o negli argomenti, ma non come chiave in details:
+        // non deve essere riserializzato, garantendo identita' byte per byte.
+        let raw_text_mention = r#"{"type":"tool_execution_update","toolCallId":"call_bash_1","toolName":"bash","args":{"command":"grep \"trace\" log.txt"},"partialResult":{"content":[{"type":"text","text":"stack \"trace\" line 42"}],"details":{"timeoutSeconds":300}}}"#;
+        assert_eq!(strip_shell_trace(raw_text_mention), None);
     }
 }

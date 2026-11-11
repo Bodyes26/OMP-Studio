@@ -20,6 +20,8 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Installazione con un comando su macOS, Linux e Windows: lo script scarica l'ultima versione (stabile o Nightly), ne controlla lo SHA-256 e la installa senza gli avvisi di Gatekeeper e SmartScreen. Su Linux installa l'AppImage nella cartella utente, con voce nel menu e comando `omp-studio`, e gli aggiornamenti automatici funzionano senza password.
 
 ### Changed
+- Passando una chat dal terminale alla GUI la conversazione vecchia sparisce subito: mentre `omp` si avvia compare il caricamento, poi la chat si ricostruisce a blocchi man mano che arrivano i messaggi, con segnaposto e il conteggio di quelli ancora da caricare. Lo stesso vale quando si riprende una sessione dallo storico.
+- I reset di quota salvati seguono l'impostazione di riscatto automatico per finestra di OMP 18.18.7 (5 ore, settimanale e, per Claude, Fable): la scheda e il pannello dei consumi mostrano la regola della finestra a cui il reset si applica.
 - L'installer Windows ha una schermata dedicata con la rovina ASCII animata, tema chiaro/scuro di Windows e opzioni per cartella e collegamento sul desktop; gli aggiornamenti restano silenziosi. (IWN-001…011)
 - Nel modulo HTML delle domande la raccomandazione si distingue dal resto del testo e l'opzione già segnata dal modello porta «Consigliata». Radio e caselle si riempiono al passaggio di stato; menu, data e intervalli sono controlli di Studio. «Altro…», una volta scelto, diventa la riga in cui si scrive.
 - Le domande dell'agente usano il nuovo modulo HTML di OMP: tutte le sezioni sono visibili e modificabili prima dell'invio, con scelte, numeri, testo, immagini e diagrammi, anche in Companion e Studio Remote. Ogni sezione offre «Aggiungi nota o immagine»; ridurre la scheda o cambiare progetto conserva la bozza. (ASK-001, ASK-002, ASK-006…012, ASK-014)
@@ -29,6 +31,8 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - La finestra del DMG di installazione su macOS ha un aspetto nuovo: un π monumentale di marmo in un paesaggio alpino, con il π composto da caratteri ASCII fini e una resa fotografica a grana di pellicola. OMP Studio sta a sinistra e la cartella Applicazioni a destra.
 
 ### Fixed
+- Dopo l'arresto forzato di un agente bloccato, «Nuova chat» e l'invio di un messaggio riaprono `omp` dalla GUI, senza dover passare dal terminale.
+- La chat non si blocca più durante i comandi lunghi con molto output (per esempio una pubblicazione con MSBuild): Studio scarta la traccia di esecuzione dei comandi che `omp` allega a ogni aggiornamento e che arrivava a centinaia di KB al secondo, rallentando la chat e lasciandola su «In esecuzione» a comando già finito.
 - L'editor colora anche i file con estensione sconosciuta riconoscendoli dalla prima riga, come VS Code: `<?xml …` (ad esempio i `.rli`) diventa XML, `<!doctype html>` HTML, e gli script con `#!` shell, Python o JavaScript.
 - In Companion, incollare un messaggio riconosce subito i tag già completi: `#progetto`, `@file`, `/direttiva` o comando e `!ruolo` o modello diventano gli stessi badge che compaiono mentre si scrive, anche in mezzo al testo.
 - In chat, mentre Composer, Grok e gli altri modelli Cursor usano gli strumenti, la risposta scritta dopo resta visibile sotto i passaggi: non compare più solo riaprendo la sessione.

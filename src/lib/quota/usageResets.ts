@@ -19,8 +19,24 @@ export const RESET_EXPIRY_IMMINENT_MS = 24 * 3_600_000;
 export const RESET_LAST_CHANCE_MS = 5 * 60_000;
 export const SALVAGE_MIN_USED_FRACTION = 0.25;
 
+export type ResetWindow = '5h' | 'weekly' | 'fable';
+
+export type ResetWindowModes = Partial<Record<ResetWindow, ResetAutoRedeemMode>>;
+
+export interface RawResetProviderPolicy {
+	autoRedeem?: ResetAutoRedeemMode | boolean;
+	autoRedeem5h?: ResetAutoRedeemMode | boolean;
+	autoRedeemWeekly?: ResetAutoRedeemMode | boolean;
+	autoRedeemFable?: ResetAutoRedeemMode | boolean;
+	autoRedeemByWindow?: Partial<Record<ResetWindow, ResetAutoRedeemMode | boolean>>;
+	minBlockedMinutes?: number;
+	keepCredits?: number;
+	salvageHorizonHours?: number;
+}
+
 export interface ResetProviderPolicy {
 	autoRedeem: ResetAutoRedeemMode;
+	autoRedeemByWindow: Record<ResetWindow, ResetAutoRedeemMode>;
 	minBlockedMinutes: number;
 	keepCredits: number;
 	salvageHorizonHours: number;
@@ -62,7 +78,7 @@ export interface ResetAccountRaw {
 export interface UsageResetListRaw {
 	generatedAt?: number;
 	accounts?: ResetAccountRaw[];
-	resetSettings?: Partial<Record<string, Partial<ResetProviderPolicy>>>;
+	resetSettings?: Partial<Record<string, Partial<RawResetProviderPolicy>>>;
 }
 
 export interface AccountResetSummary {
@@ -92,7 +108,9 @@ export interface AccountResetSummary {
 	creditTitle?: string;
 	unavailableReason?: string;
 	error?: string;
+	window?: ResetWindow;
 	autoRedeem: ResetAutoRedeemMode;
+	autoRedeemByWindow: Record<ResetWindow, ResetAutoRedeemMode>;
 	keepCredits: number;
 	minBlockedMinutes: number;
 	salvageHorizonHours: number;
@@ -104,17 +122,24 @@ export interface ResetPromptCandidate {
 	episodeKey: string;
 	reason: ResetPromptReason;
 	summary: AccountResetSummary;
+	window?: ResetWindow;
+	settingKey: string;
 	/**
 	 * `prompt`: chiede conferma esplicita all'utente (`autoRedeem` e' `unset` o `no`).
 	 * `auto_informed`: `autoRedeem` e' `yes`, quindi informa senza doppio prompt.
 	 */
 	mode: 'prompt' | 'auto_informed';
-	/** Vero se `autoRedeem === 'no'` e il reset sta per scadere: senza azione manuale va perso. */
+	/** Vero se l'auto-riscatto e' 'no' per la finestra del reset: senza azione manuale va perso. */
 	willBeLostWithoutManualRedeem: boolean;
 }
 
 const DEFAULT_POLICY: ResetProviderPolicy = {
 	autoRedeem: 'unset',
+	autoRedeemByWindow: {
+		'5h': 'unset',
+		weekly: 'unset',
+		fable: 'unset'
+	},
 	minBlockedMinutes: 60,
 	keepCredits: 0,
 	salvageHorizonHours: 12
@@ -150,10 +175,66 @@ function normalizeAutoRedeemMode(raw: unknown): ResetAutoRedeemMode {
 	return 'unset';
 }
 
-function normalizePolicy(raw?: Partial<ResetProviderPolicy> | null): ResetProviderPolicy {
-	if (!raw || typeof raw !== 'object') return { ...DEFAULT_POLICY };
+function normalizePolicy(raw?: Partial<RawResetProviderPolicy> | null): ResetProviderPolicy {
+	if (!raw || typeof raw !== 'object') {
+		return {
+			...DEFAULT_POLICY,
+			autoRedeemByWindow: { ...DEFAULT_POLICY.autoRedeemByWindow }
+		};
+	}
+
+	const legacyMode =
+		raw.autoRedeem !== undefined ? normalizeAutoRedeemMode(raw.autoRedeem) : undefined;
+
+	const rawByWin = raw.autoRedeemByWindow;
+	const mode5h =
+		rawByWin?.['5h'] !== undefined
+			? normalizeAutoRedeemMode(rawByWin['5h'])
+			: raw.autoRedeem5h !== undefined
+				? normalizeAutoRedeemMode(raw.autoRedeem5h)
+				: (legacyMode ?? 'unset');
+
+	const modeWeekly =
+		rawByWin?.weekly !== undefined
+			? normalizeAutoRedeemMode(rawByWin.weekly)
+			: raw.autoRedeemWeekly !== undefined
+				? normalizeAutoRedeemMode(raw.autoRedeemWeekly)
+				: (legacyMode ?? 'unset');
+
+	const modeFable =
+		rawByWin?.fable !== undefined
+			? normalizeAutoRedeemMode(rawByWin.fable)
+			: raw.autoRedeemFable !== undefined
+				? normalizeAutoRedeemMode(raw.autoRedeemFable)
+				: 'unset';
+
+	// Riepilogo derivato: mantiene il valore legacy se le nuove chiavi per finestra
+	// non sono specificate, altrimenti 'yes' solo se tutte le finestre sono yes,
+	// 'no' solo se tutte sono no, 'unset' se miste.
+	const hasPerWindow =
+		raw.autoRedeem5h !== undefined ||
+		raw.autoRedeemWeekly !== undefined ||
+		raw.autoRedeemFable !== undefined ||
+		rawByWin !== undefined;
+
+	let autoRedeem: ResetAutoRedeemMode = legacyMode ?? 'unset';
+	if (hasPerWindow) {
+		if (mode5h === 'yes' && modeWeekly === 'yes' && (modeFable === 'yes' || modeFable === 'unset')) {
+			autoRedeem = 'yes';
+		} else if (mode5h === 'no' && modeWeekly === 'no' && (modeFable === 'no' || modeFable === 'unset')) {
+			autoRedeem = 'no';
+		} else {
+			autoRedeem = 'unset';
+		}
+	}
+
 	return {
-		autoRedeem: normalizeAutoRedeemMode(raw.autoRedeem),
+		autoRedeem,
+		autoRedeemByWindow: {
+			'5h': mode5h,
+			weekly: modeWeekly,
+			fable: modeFable
+		},
 		minBlockedMinutes:
 			typeof raw.minBlockedMinutes === 'number' && Number.isFinite(raw.minBlockedMinutes)
 				? Math.max(0, raw.minBlockedMinutes)
@@ -170,12 +251,119 @@ function normalizePolicy(raw?: Partial<ResetProviderPolicy> | null): ResetProvid
 }
 
 export function normalizeResetSettings(
-	raw?: Partial<Record<string, Partial<ResetProviderPolicy>>> | null
+	raw?: Partial<Record<string, Partial<RawResetProviderPolicy>>> | null
 ): ResetSettingsMap {
 	return {
-		'openai-codex': normalizePolicy(raw?.['openai-codex'] ?? raw?.codexResets),
-		anthropic: normalizePolicy(raw?.anthropic ?? raw?.claudeResets)
+		'openai-codex': normalizePolicy(raw?.['openai-codex'] ?? (raw as Record<string, unknown> | undefined)?.codexResets),
+		anthropic: normalizePolicy(raw?.anthropic ?? (raw as Record<string, unknown> | undefined)?.claudeResets)
 	};
+}
+
+/** Classifica una QuotaLimit nella finestra canonica 5h o weekly. */
+export function classifyLimitWindow(limit: QuotaLimit | undefined): '5h' | 'weekly' | undefined {
+	if (!limit) return undefined;
+	const durationMs = limit.window?.durationMs;
+	if (durationMs !== undefined && Number.isFinite(durationMs)) {
+		if (Math.abs(durationMs - 7 * 24 * 3_600_000) <= 60_000) return 'weekly';
+		if (Math.abs(durationMs - 5 * 3_600_000) <= 60_000) return '5h';
+	}
+	const windowId = (limit.window?.id ?? '').toLowerCase();
+	const limitId = limit.id.toLowerCase();
+	if (windowId === '7d' || limitId.includes(':7d') || limitId.includes('secondary')) return 'weekly';
+	if (windowId === '5h' || limitId.includes(':5h') || limitId.includes('primary')) return '5h';
+	const label = (limit.label || '').toLowerCase();
+	if (label.includes('7 day') || label.includes('week')) return 'weekly';
+	if (label.includes('5 hour') || label.includes('5h')) return '5h';
+	return undefined;
+}
+
+/**
+ * Determina la finestra di rate limit (5h, weekly, fable) a cui si riferisce un credito o un blocco.
+ */
+export function detectResetWindow(options: {
+	provider: ResetProviderId;
+	selectedCredit?: ResetCreditItem;
+	creditTitle?: string;
+	fullestLimit?: QuotaLimit;
+	exhaustedLimits?: QuotaLimit[];
+	reason?: ResetPromptReason;
+}): ResetWindow | undefined {
+	const { provider, selectedCredit, creditTitle, fullestLimit, exhaustedLimits, reason } = options;
+
+	// 1. Claude Fable launch grant: identificato da 'anthropic:7d:fable' in clears o fable nel titolo/id
+	if (provider === 'anthropic') {
+		if (
+			selectedCredit?.clears?.includes('anthropic:7d:fable') ||
+			/fable/i.test(selectedCredit?.title ?? creditTitle ?? '') ||
+			/fable/i.test(selectedCredit?.id ?? '')
+		) {
+			return 'fable';
+		}
+		if (selectedCredit?.program === 'juniper_tide') {
+			return '5h';
+		}
+	}
+
+	// 2. Se bloccato da rate limit, comanda la finestra esaurita (weekly outranks 5h)
+	if (reason === 'rate_limited' && exhaustedLimits && exhaustedLimits.length > 0) {
+		const windows = exhaustedLimits.map(classifyLimitWindow).filter(Boolean);
+		if (windows.includes('weekly')) return 'weekly';
+		if (windows.includes('5h')) return '5h';
+	}
+
+	// 3. Se credito in scadenza o salvataggio, comanda il limite piu' consumato
+	if (fullestLimit) {
+		const win = classifyLimitWindow(fullestLimit);
+		if (win) return win;
+	}
+
+	// 4. Copertura esplicita nei clears del credito
+	if (selectedCredit?.clears && selectedCredit.clears.length > 0) {
+		if (selectedCredit.clears.some((id) => /7d|week/i.test(id))) {
+			return 'weekly';
+		}
+		if (selectedCredit.clears.every((id) => /5h/i.test(id))) {
+			return '5h';
+		}
+	}
+
+	// 5. Titolo descrittivo del credito
+	const title = selectedCredit?.title ?? creditTitle ?? '';
+	if (/fable/i.test(title)) return 'fable';
+	if (/weekly|7[\s-]*day/i.test(title)) return 'weekly';
+	if (/5[\s-]*h/i.test(title)) return '5h';
+
+	return undefined;
+}
+
+const MODE_RANK: Record<ResetAutoRedeemMode, number> = { no: 0, unset: 1, yes: 2 };
+
+/**
+ * Risolve la modalita' di auto-riscatto per una specifica finestra.
+ * Se la finestra e' sconosciuta, applica la regola piu' conservativa:
+ * la modalita' con rango piu' basso tra 5h e weekly (no < unset < yes).
+ */
+export function resolveAutoRedeemModeForWindow(
+	byWindow: Record<ResetWindow, ResetAutoRedeemMode> | undefined,
+	window: ResetWindow | undefined,
+	fallbackAutoRedeem: ResetAutoRedeemMode = 'unset'
+): ResetAutoRedeemMode {
+	if (!byWindow) return fallbackAutoRedeem;
+	if (window) {
+		return byWindow[window] ?? fallbackAutoRedeem;
+	}
+	const fiveHour = byWindow['5h'] ?? fallbackAutoRedeem;
+	const weekly = byWindow.weekly ?? fallbackAutoRedeem;
+	return MODE_RANK[fiveHour] < MODE_RANK[weekly] ? fiveHour : weekly;
+}
+
+/** Formatta la chiave di configurazione corretta per la finestra indicata. */
+export function formatResetSettingKey(provider: ResetProviderId, window?: ResetWindow): string {
+	const prefix = provider === 'openai-codex' ? 'codexResets' : 'claudeResets';
+	if (window === '5h') return `${prefix}.autoRedeem5h`;
+	if (window === 'weekly') return `${prefix}.autoRedeemWeekly`;
+	if (window === 'fable') return `${prefix}.autoRedeemFable`;
+	return `${prefix}.autoRedeem5h + ${prefix}.autoRedeemWeekly`;
 }
 
 function normStr(value: unknown): string | undefined {
@@ -334,6 +522,7 @@ function buildSingleSummary(
 	const limits = report?.limits ?? [];
 	const coveredLimits = coveredLimitsForAccount(provider, limits, selectedCredit);
 
+	let fullestLimit: QuotaLimit | undefined;
 	let fullestLabel: string | undefined;
 	let fullestUsed = 0;
 	for (const limit of coveredLimits) {
@@ -343,9 +532,16 @@ function buildSingleSummary(
 			observed,
 			typeof serverFrac === 'number' && Number.isFinite(serverFrac) ? serverFrac : 0
 		);
-		if (!fullestLabel || used > fullestUsed) {
+		const isWeekly = classifyLimitWindow(limit) === 'weekly';
+		const prevIsWeekly = fullestLimit ? classifyLimitWindow(fullestLimit) === 'weekly' : false;
+		if (
+			!fullestLabel ||
+			used > fullestUsed ||
+			(used === fullestUsed && isWeekly && !prevIsWeekly)
+		) {
 			fullestUsed = used;
 			fullestLabel = limit.label || limit.window?.label || limit.id;
+			fullestLimit = limit;
 		}
 	}
 	if (!fullestLabel && selectedCredit?.usedFractions) {
@@ -423,11 +619,19 @@ function buildSingleSummary(
 		coveredWindowLabel: fullestLabel,
 		coveredUsedPercent,
 		isRateLimited,
-		exhaustedWindowLabels,
+		exhaustedWindowLabels: fallbackExhausted.map((l) => l.label || l.window?.label || l.id),
 		creditTitle: selectedCredit?.title,
 		unavailableReason,
 		error: account?.error,
+		window: detectResetWindow({
+			provider,
+			selectedCredit,
+			creditTitle: selectedCredit?.title,
+			fullestLimit,
+			exhaustedLimits: fallbackExhausted
+		}),
 		autoRedeem: policy.autoRedeem,
+		autoRedeemByWindow: policy.autoRedeemByWindow,
 		keepCredits: policy.keepCredits,
 		minBlockedMinutes: policy.minBlockedMinutes,
 		salvageHorizonHours: policy.salvageHorizonHours,
@@ -442,7 +646,7 @@ function buildSingleSummary(
 export function buildAccountResetSummaries(options: {
 	reports?: readonly QuotaReport[];
 	resetAccounts?: readonly ResetAccountRaw[];
-	resetSettings?: Partial<Record<string, Partial<ResetProviderPolicy>>> | null;
+	resetSettings?: Partial<Record<string, Partial<RawResetProviderPolicy>>> | null;
 	nowMs?: number;
 }): AccountResetSummary[] {
 	const reports = options.reports ?? [];
@@ -523,7 +727,11 @@ export function findResetSummaryForReport(
  */
 export function isAutoRedeemSessionPrompt(title: string | undefined | null): boolean {
 	if (!title) return false;
-	return /auto-redeem saved (?:codex|claude) rate-limit resets/i.test(title);
+	return (
+		/auto-redeem saved (?:codex|claude) rate-limit resets/i.test(title) ||
+		/(?:spend \d+|spend \w+)?.*saved (?:codex|claude) (?:rate-limit )?resets?/i.test(title) ||
+		/saved (?:codex|claude) (?:rate-limit )?resets?/i.test(title)
+	);
 }
 
 /**
@@ -581,11 +789,27 @@ export function selectResetPromptCandidate(options: {
 		const episodeKey = `rate_limited:${summary.accountKey}:${summary.soonestExpiry ?? 'none'}:${summary.bankedCount}`;
 		if (dismissed.has(episodeKey)) continue;
 
+		let targetWindow = summary.window;
+		if (summary.exhaustedWindowLabels.length > 0) {
+			const hasWeekly = summary.exhaustedWindowLabels.some((l) => /7[\s-]*d|week/i.test(l));
+			const has5h = summary.exhaustedWindowLabels.some((l) => /5[\s-]*h/i.test(l));
+			if (hasWeekly) targetWindow = 'weekly';
+			else if (has5h) targetWindow = '5h';
+		}
+		const effectiveMode = resolveAutoRedeemModeForWindow(
+			summary.autoRedeemByWindow,
+			targetWindow,
+			summary.autoRedeem
+		);
+		const settingKey = formatResetSettingKey(summary.provider, targetWindow);
+
 		return {
 			episodeKey,
 			reason: 'rate_limited',
 			summary,
-			mode: summary.autoRedeem === 'yes' ? 'auto_informed' : 'prompt',
+			window: targetWindow,
+			settingKey,
+			mode: effectiveMode === 'yes' ? 'auto_informed' : 'prompt',
 			willBeLostWithoutManualRedeem: false
 		};
 	}
@@ -611,12 +835,22 @@ export function selectResetPromptCandidate(options: {
 		const episodeKey = `expiring:${summary.accountKey}:${summary.soonestExpiry ?? 'none'}`;
 		if (dismissed.has(episodeKey)) continue;
 
+		const window = summary.window;
+		const effectiveMode = resolveAutoRedeemModeForWindow(
+			summary.autoRedeemByWindow,
+			window,
+			summary.autoRedeem
+		);
+		const settingKey = formatResetSettingKey(summary.provider, window);
+
 		return {
 			episodeKey,
 			reason: 'expiring',
 			summary,
-			mode: summary.autoRedeem === 'yes' ? 'auto_informed' : 'prompt',
-			willBeLostWithoutManualRedeem: summary.autoRedeem === 'no'
+			window,
+			settingKey,
+			mode: effectiveMode === 'yes' ? 'auto_informed' : 'prompt',
+			willBeLostWithoutManualRedeem: effectiveMode === 'no'
 		};
 	}
 

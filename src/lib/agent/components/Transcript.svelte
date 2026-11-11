@@ -565,6 +565,28 @@
 		return 'content';
 	}
 
+	/** Larghezze delle due righe di ogni segnaposto: variano per non sembrare un elenco. */
+	const PENDING_WIDTHS: readonly (readonly [string, string])[] = [
+		['38%', '22%'],
+		['86%', '64%'],
+		['72%', '41%']
+	];
+
+	/** Segnaposto della ricostruzione progressiva; `null` se non c'e' niente in arrivo. */
+	const historyPending = $derived.by(() => {
+		const load = session.transcriptLoad;
+		if (!load) return null;
+		const remaining = load.total === null ? null : Math.max(0, load.total - load.loaded);
+		if (remaining === 0) return null;
+		return {
+			rows: Math.min(remaining ?? PENDING_WIDTHS.length, PENDING_WIDTHS.length),
+			label:
+				load.total === null
+					? m.l10n_agentcmp_transcript_loading()
+					: m.l10n_agentcmp_transcript_loading_count({ loaded: load.loaded, total: load.total })
+		};
+	});
+
 	let transcriptEl = $state<HTMLElement | null>(null);
 	let disableAnimations = $state(false);
 
@@ -588,7 +610,10 @@
 
 		const isNewSession = currentSessionId !== lastRenderedSessionId;
 		const countDelta = currentCount - prevEntriesCount;
-		const isBulk = isNewSession || isRebuilding || isAttaching || isResuming || countDelta > 2;
+		// La ricostruzione progressiva e' fatta per essere vista: i blocchi che
+		// arrivano entrano con la loro animazione invece di comparire di colpo.
+		const isProgressive = session.transcriptLoad !== null;
+		const isBulk = !isProgressive && (isNewSession || isRebuilding || isAttaching || isResuming || countDelta > 2);
 
 		if (isBulk && currentCount > 0) {
 			disableAnimations = true;
@@ -644,7 +669,7 @@
 	class:is-empty={session.visibleEntries.length === 0}
 	aria-busy={session.isStreaming}
 >
-	{#if session.hasEarlier}
+	{#if session.hasEarlier && !session.transcriptLoad}
 		<div class="earlier-bar">
 			<button type="button" class="earlier-btn" onclick={handleShowEarlier}>
 				{m.l10n_agentcmp_load_earlier({ count: session.entries.length - session.visibleCount })}
@@ -759,6 +784,24 @@
 				<TurnFooter data={footer} />
 			{/if}
 		{/each}
+		{#if historyPending}
+			<!-- Messaggi dello storico non ancora arrivati: segnaposto sotto quelli
+			     gia' disegnati, finche' omp non manda l'ultima pagina. -->
+			<div
+				class="history-pending"
+				role="status"
+				aria-live="polite"
+				transition:chatReveal={{ duration: 180, blur: 3, distance: 2 }}
+			>
+				{#each PENDING_WIDTHS.slice(0, historyPending.rows) as widths, i (i)}
+					<div class="pending-row" aria-hidden="true">
+						<div class="ghost-line" style:width={widths[0]}></div>
+						<div class="ghost-line" style:width={widths[1]}></div>
+					</div>
+				{/each}
+				<span class="pending-label">{historyPending.label}</span>
+			</div>
+		{/if}
 	{/if}
 
 
@@ -837,6 +880,26 @@
 	.agent-activity.in-turn-idle {
 		font-size: 13.5px;
 		color: var(--ink-muted);
+		user-select: none;
+	}
+
+	.history-pending {
+		margin-top: var(--space-4);
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-4);
+	}
+
+	.pending-row {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+	}
+
+	.pending-label {
+		font-size: var(--text-xs);
+		color: var(--ink-muted);
+		font-variant-numeric: tabular-nums;
 		user-select: none;
 	}
 

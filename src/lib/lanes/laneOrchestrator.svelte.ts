@@ -522,6 +522,9 @@ export class LaneOrchestrator {
 			if (!projectStore.projects.includes(project) || project.lane !== initialLane) return;
 
 			this.updateTerminalMeta(key, { sessionId: currentSessionId });
+			// La chat GUI in memoria e' rimasta a prima del terminale: va tolta
+			// prima di mostrarla, o durante l'avvio di omp sembrerebbe attuale.
+			if (target === 'gui') this.getLaneSession(currentProject.id, initialLaneId)?.clearForHandoff();
 			projectStore.setSurface(projectId, target);
 
 			// Aggiorna anche laneStore per persistenza del cambio superficie

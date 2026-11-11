@@ -316,3 +316,92 @@ test('selectResetPromptCandidate propone riscatto su rate limit e verifica coper
 	});
 	assert.equal(summariesBlocked7d[0].isRateLimited, false);
 });
+
+test('selectResetPromptCandidate rispetta le impostazioni autoRedeem per finestra (5h vs weekly)', () => {
+	const inSixHoursIso = new Date(NOW_MS + 6 * 3_600_000).toISOString();
+
+	// Report con finestra 5h piu' consumata (5h reset governato da autoRedeem5h)
+	const report5hFuller: QuotaReport = {
+		...FIXTURE_REPORTS[0],
+		limits: [
+			{
+				id: 'openai-codex:primary',
+				label: '5 hours',
+				window: { id: '5h', label: '5 hours', durationMs: 18_000_000, resetsAt: NOW_MS + 9_000_000 },
+				amount: { unit: 'percent', usedFraction: 0.85, remainingFraction: 0.15 },
+				status: 'ok'
+			},
+			{
+				id: 'openai-codex:secondary',
+				label: '7 days',
+				window: { id: '7d', label: '7 days', durationMs: 604_800_000, resetsAt: NOW_MS + 500_000_000 },
+				amount: { unit: 'percent', usedFraction: 0.2, remainingFraction: 0.8 },
+				status: 'ok'
+			}
+		]
+	};
+
+	// Report con finestra weekly piu' consumata (weekly reset governato da autoRedeemWeekly, come FIXTURE_REPORTS[0])
+	const reportWeeklyFuller: QuotaReport = FIXTURE_REPORTS[0];
+
+	const accounts: ResetAccountRaw[] = [
+		{
+			...FIXTURE_RESET_ACCOUNTS[0],
+			soonestExpiry: inSixHoursIso,
+			credits: [
+				{
+					id: 'RateLimitResetCredit_expiring',
+					title: 'Full reset (Weekly + 5 hr)',
+					status: 'available',
+					expiresAt: inSixHoursIso
+				}
+			]
+		}
+	];
+
+	// Configurazione per-finestra: codexResets: { autoRedeem5h: yes, autoRedeemWeekly: no }
+	const resetSettings = {
+		'openai-codex': {
+			autoRedeem5h: 'yes' as const,
+			autoRedeemWeekly: 'no' as const
+		}
+	};
+
+	// 1. Il reset che ripristina la finestra 5h e' trattato come auto-riscattato (auto_informed)
+	const summaries5h = buildAccountResetSummaries({
+		reports: [report5hFuller],
+		resetAccounts: accounts,
+		resetSettings,
+		nowMs: NOW_MS
+	});
+	assert.equal(summaries5h[0].window, '5h');
+	const candidate5h = selectResetPromptCandidate({
+		summaries: summaries5h,
+		nowMs: NOW_MS
+	});
+	assert.ok(candidate5h);
+	assert.equal(candidate5h.mode, 'auto_informed');
+	assert.equal(candidate5h.willBeLostWithoutManualRedeem, false);
+	assert.equal(candidate5h.settingKey, 'codexResets.autoRedeem5h');
+
+	// 2. Il reset che ripristina la finestra weekly e' trattato come perso senza riscatto manuale (prompt, willBeLostWithoutManualRedeem = true)
+	const summariesWeekly = buildAccountResetSummaries({
+		reports: [reportWeeklyFuller],
+		resetAccounts: accounts,
+		resetSettings,
+		nowMs: NOW_MS
+	});
+	assert.equal(summariesWeekly[0].window, 'weekly');
+	const candidateWeekly = selectResetPromptCandidate({
+		summaries: summariesWeekly,
+		nowMs: NOW_MS
+	});
+	assert.ok(candidateWeekly);
+	assert.equal(candidateWeekly.mode, 'prompt');
+	assert.equal(candidateWeekly.willBeLostWithoutManualRedeem, true);
+	assert.equal(candidateWeekly.settingKey, 'codexResets.autoRedeemWeekly');
+
+	// 3. Verifica riconoscimento prompt di sessione con formati estesi
+	assert.equal(isAutoRedeemSessionPrompt('Spend 1 saved Codex rate-limit reset for maurizioactis@gmail.com?'), true);
+	assert.equal(isAutoRedeemSessionPrompt('Spend 2 saved Claude rate-limit resets?'), true);
+});
