@@ -119,12 +119,6 @@ fn cmd_arg(s: &str) -> String {
     out
 }
 
-/// Cita un argomento PowerShell per il raro fallback che contiene `%` o `"`.
-#[cfg(target_os = "windows")]
-fn ps_quote(s: &str) -> String {
-    format!("'{}'", s.replace('\'', "''"))
-}
-
 /// Cita un argomento per la riga di comando POSIX shell (single-quoted).
 #[allow(dead_code)]
 fn sh_quote(s: &str) -> String {
@@ -613,21 +607,17 @@ pub async fn pty_open(
         // percorso legale come `C:\R&D\omp.exe` conserva cosi' l'ampersand.
         //
         // `%` viene espanso da `cmd` persino dentro i doppi apici, mentre un
-        // apice doppio non e' rappresentabile nella sua riga di comando.
-        // Per quei soli argomenti patologici resta il wrapper PowerShell:
-        // correttezza prima dell'ottimizzazione, senza penalizzare il caso
-        // normale.
+        // apice doppio non e' rappresentabile nella sua riga di comando. Per
+        // quei soli argomenti patologici `omp` parte direttamente nel ConPTY,
+        // con la citazione MSVC di `portable-pty`: si perde la shell residua
+        // dopo l'uscita, non la correttezza. Niente PowerShell: su macchine
+        // con Sophos il solo avvio termina il processo che lo lancia.
         if launch_args
             .iter()
             .any(|arg| arg.contains('%') || arg.contains('"'))
         {
-            let mut c = CommandBuilder::new("powershell.exe");
-            let mut launch = format!("& {}", ps_quote(&launch_args[0]));
-            for arg in &launch_args[1..] {
-                launch.push(' ');
-                launch.push_str(&ps_quote(arg));
-            }
-            c.args(["-NoLogo", "-NoProfile", "-NoExit", "-Command", &launch]);
+            let mut c = CommandBuilder::new(&launch_args[0]);
+            c.args(&launch_args[1..]);
             c
         } else {
             let mut c = CommandBuilder::new("cmd.exe");

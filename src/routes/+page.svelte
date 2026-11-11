@@ -3370,6 +3370,26 @@
 	} | null>(null);
 	let isInstallingUpdate = $state(false);
 
+	type ContractStatus = {
+		missing: string[];
+		ompVersion?: string | null;
+		ompOutdated?: boolean;
+		minOmpVersion?: string;
+	};
+
+	/** Versione e soglia minima di `omp` dal contratto: sotto la soglia il chip
+	 *  resta acceso finche' l'utente non aggiorna, e il suo click propone
+	 *  l'aggiornamento come per una nuova versione. */
+	function applyContractVersion(status: ContractStatus) {
+		if (status.ompVersion) {
+			ompVersionStore.set(status.ompVersion);
+		}
+		if (status.ompOutdated && status.minOmpVersion && !isInstallingUpdate) {
+			updateMessage = m.page_omp_update_status_outdated({ min: status.minOmpVersion });
+			ompBadgeType = 'error';
+		}
+	}
+
 	/**
 	 * Verifica del contratto con `omp` all'avvio (docs/PLAN.md Fase 8). Il
 	 * wizard si apre solo quando c'e' qualcosa da fare, e parte dalla carta
@@ -3382,10 +3402,8 @@
 			// attendere, un utente con progetti vedrebbe il wizard solo perche'
 			// la lista e' ancora vuota.
 			await Promise.all([projectStore.init(), laneStore.init()]);
-			const status = await invoke<{ missing: string[]; ompVersion?: string | null }>('setup_status');
-			if (status.ompVersion) {
-				ompVersionStore.set(status.ompVersion);
-			}
+			const status = await invoke<ContractStatus>('setup_status');
+			applyContractVersion(status);
 			setupIncomplete = status.missing.length > 0;
 			if (status.missing.includes('omp')) {
 				setupStartAt = 'install';
@@ -3420,10 +3438,8 @@
 	/** Aggiorna il solo indicatore, senza decidere di aprire niente. */
 	async function refreshSetupChip() {
 		try {
-			const status = await invoke<{ missing: string[]; ompVersion?: string | null }>('setup_status');
-			if (status.ompVersion) {
-				ompVersionStore.set(status.ompVersion);
-			}
+			const status = await invoke<ContractStatus>('setup_status');
+			applyContractVersion(status);
 			setupIncomplete = status.missing.length > 0;
 		} catch (e) {
 			console.error(m.ui__page_verifica_del_contratto_omp_545e(), e);

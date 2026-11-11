@@ -56,6 +56,10 @@
 		themeDark: string | null;
 		colorBlindMode: boolean;
 		nerdFontInstalled: boolean;
+		shellPath: string | null;
+		bashMissing: boolean;
+		minOmpVersion: string;
+		ompOutdated: boolean;
 		databases: DatabaseStatus[];
 		missing: string[];
 	}
@@ -110,6 +114,25 @@
 	const brokenDatabases = $derived(
 		status?.databases.filter((db) => db.exists && !db.readable) ?? []
 	);
+
+	let updatingOmp = $state(false);
+	let ompUpdateError = $state<string | null>(null);
+
+	/** `omp update` sostituisce il binario sotto la soglia minima: il wizard
+	 *  non lo reinstalla, perche' l'utente puo' averlo messo altrove. */
+	async function updateOmp() {
+		if (updatingOmp) return;
+		updatingOmp = true;
+		ompUpdateError = null;
+		try {
+			await invoke('run_omp_update');
+			await refreshStatus();
+		} catch (e) {
+			ompUpdateError = String(e);
+		} finally {
+			updatingOmp = false;
+		}
+	}
 
 	async function refreshStatus() {
 		checkingStatus = true;
@@ -525,6 +548,31 @@
 						title={m.setup_broken_db_title()}
 						message={m.setup_broken_db_message({ dbs: brokenDatabases.map((db) => db.name).join(', ') })}
 						diagnostic={m.setup_broken_db_diagnostic()}
+					/>
+				</div>
+			{/if}
+
+			{#if status?.ompOutdated}
+				<div class="broken-db-wrap">
+					<AlertBanner
+						variant="warning"
+						title={m.setup_omp_outdated_title()}
+						message={m.setup_omp_outdated_message({ current: status.ompVersion ?? '?', min: status.minOmpVersion })}
+						diagnostic={ompUpdateError ? m.setup_omp_update_error({ error: ompUpdateError }) : undefined}
+						actions={[
+							{ label: m.setup_btn_update_omp(), onClick: updateOmp, variant: 'primary', loading: updatingOmp, disabled: updatingOmp }
+						]}
+					/>
+				</div>
+			{/if}
+
+			{#if status?.bashMissing}
+				<div class="broken-db-wrap">
+					<AlertBanner
+						variant="warning"
+						title={m.setup_bash_missing_title()}
+						message={m.setup_bash_missing_message()}
+						diagnostic={m.setup_bash_missing_diagnostic()}
 					/>
 				</div>
 			{/if}

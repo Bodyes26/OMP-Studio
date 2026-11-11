@@ -468,29 +468,38 @@
 		};
 	});
 
-	// Se l'utente si e' allontanato dal fondo ma non tocca la chat e il mouse non e'
-	// sopra, non sta leggendo: dopo un po' si riprende l'autoscroll, cosi' non si
-	// perdono risposte finite o domande in attesa.
+	// Se l'utente si e' allontanato dal fondo, l'autoscroll riprende solo con un
+	// agente al lavoro e dopo IDLE_RESUME_MS senza interazioni con la scheda del
+	// progetto (chat, editor, anteprima). Il conteggio parte dall'ultima
+	// interazione, non dall'arrivo di nuovo testo: per questo gli ascoltatori
+	// restano attivi finche' la chat e' a schermo, anche ad agente fermo.
 	const IDLE_RESUME_MS = 10_000;
 	let lastInteraction = Date.now();
 	function markInteraction() {
 		lastInteraction = Date.now();
 	}
 	$effect(() => {
-		if (!scrollEl || !visible || !userScrolledUp) return;
-		const el = scrollEl;
+		if (!visible) return;
 		markInteraction();
-		const events = ['wheel', 'pointerdown', 'keydown', 'touchstart', 'scroll'] as const;
-		for (const name of events) el.addEventListener(name, markInteraction, { passive: true });
+		// In cattura sul documento: Monaco, xterm e altri componenti interni possono
+		// fermare la propagazione. Niente `scroll`: lo emettono anche gli scorrimenti
+		// automatici (terminali, elenchi di strumenti) e terrebbero fermo il conteggio.
+		const events = ['pointerdown', 'pointermove', 'wheel', 'keydown', 'touchstart'] as const;
+		for (const name of events) document.addEventListener(name, markInteraction, { capture: true, passive: true });
+		return () => {
+			for (const name of events) document.removeEventListener(name, markInteraction, { capture: true });
+		};
+	});
+	$effect(() => {
+		if (!scrollEl || !visible || !userScrolledUp || !session.isStreaming) return;
 		const timer = setInterval(() => {
-			// :hover include il mouse gia' sopra la chat all'avvio del timer.
-			if (el.matches(':hover') || Date.now() - lastInteraction < IDLE_RESUME_MS) return;
+			// Gli eventi dentro un iframe (anteprima) non arrivano al documento:
+			// il puntatore sopra l'iframe conta come interazione.
+			if (document.querySelector('iframe:hover')) markInteraction();
+			if (Date.now() - lastInteraction < IDLE_RESUME_MS) return;
 			scrollToBottom();
 		}, 1000);
-		return () => {
-			clearInterval(timer);
-			for (const name of events) el.removeEventListener(name, markInteraction);
-		};
+		return () => clearInterval(timer);
 	});
 
 	let isDraggingColumn = $state(false);

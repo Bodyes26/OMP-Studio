@@ -3,9 +3,14 @@
 //! rilevamento della cartella dei progetti.
 //!
 //! Perimetro di scrittura (docs/DECISIONS.md, Gate R11): `%LOCALAPPDATA%\omp`,
-//! il `Path` utente, `~/.omp/agent/settings.json` limitatamente alla chiave
-//! `shellPath` e solo se assente, la cartella font per-utente. `config.yml`
-//! non si tocca: lo scrive `omp` attraverso il suo wizard.
+//! il `Path` utente, la chiave `shellPath` solo se assente (in `config.yml`
+//! quando esiste, altrimenti in `settings.json`, che `omp` migra al primo
+//! avvio), la cartella font per-utente. Il resto di `config.yml` lo scrive
+//! `omp` attraverso il suo wizard.
+//!
+//! Nessun `powershell.exe`: registro e messaggi di sistema passano per le API
+//! native. Su macchine con Sophos il solo avvio di PowerShell termina il
+//! processo che lo lancia.
 
 use futures_util::StreamExt;
 use serde::Serialize;
@@ -18,7 +23,7 @@ use tauri::{command, AppHandle, Emitter};
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 
-/// Nasconde la finestra di console dei processi ausiliari (PowerShell, reg).
+/// Nasconde la finestra di console dei processi ausiliari (`reg.exe`).
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
@@ -29,6 +34,12 @@ const OMP_REPO: &str = "can1357/oh-my-pi";
 /// verificato sul bundle di omp 18.18.3. Se `omp` la alza, il wizard nativo
 /// tornera' a proporre le scene nuove: `wizard_pending` lo riflette da solo.
 const CURRENT_SETUP_VERSION: u64 = 3;
+
+/// Versione minima di `omp` con cui Studio funziona per intero: dalla 18.18.3
+/// il contesto delle estensioni espone `invokeTool`, senza il quale il modulo
+/// di `ask` della GUI (`extensions/studio-ask.ts`) non puo' partire. Sotto
+/// questa soglia Studio propone l'aggiornamento invece di guastarsi in silenzio.
+const MIN_OMP_VERSION: &str = "18.18.3";
 
 /// Font incluso nel binario, come l'estensione-ponte dei diagrammi: una sola
 /// verita' nel repo, nessuna risorsa Tauri da configurare. E' lo stesso font
@@ -78,6 +89,16 @@ pub struct SetupStatus {
     pub theme_dark: Option<String>,
     pub color_blind_mode: bool,
     pub nerd_font_installed: bool,
+    /// `shellPath` effettivo per `omp`: da `config.yml`, oppure da
+    /// `settings.json` finche' `omp` non l'ha migrato.
+    pub shell_path: Option<String>,
+    /// Solo Windows: nessuna bash configurata ne' trovata. Non blocca (i
+    /// comandi del tool `bash` usano la bash interna di `omp`), ma servizi,
+    /// terminali e comandi `!` restano senza una shell POSIX.
+    pub bash_missing: bool,
+    pub min_omp_version: String,
+    /// `omp` installato ma piu' vecchio di `MIN_OMP_VERSION`.
+    pub omp_outdated: bool,
     pub databases: Vec<DatabaseStatus>,
     /// Cosa manca, in ordine di carta da mostrare: `omp`, `credentials`, `model`.
     pub missing: Vec<String>,
@@ -190,16 +211,45 @@ struct ConfigFacts {
     default_model: Option<String>,
     theme_dark: Option<String>,
     color_blind_mode: bool,
+    shell_path: Option<String>,
+}
+
+impl ConfigFacts {
+    fn empty() -> Self {
+        ConfigFacts {
+            setup_version: 0,
+            default_model: None,
+            theme_dark: None,
+            color_blind_mode: false,
+            shell_path: None,
+        }
+    }
+}
+
+fn non_empty_str(value: Option<&serde_yaml::Value>) -> Option<String> {
+    value
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+/// `shellPath` da `settings.json`. `omp` lo legge solo per migrarlo quando
+/// nessun `config.yml`/`config.yaml` esiste ancora: con un YAML presente il
+/// file e' inerte e non va consultato.
+fn legacy_settings_shell_path(agent: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(agent.join("settings.json")).ok()?;
+    let value: serde_json::Value = serde_json::from_str(text.trim_start_matches('\u{feff}')).ok()?;
+    value
+        .get("shellPath")
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 fn read_config_facts(agent: &Path) -> ConfigFacts {
-    let mut facts = ConfigFacts {
-        setup_version: 0,
-        default_model: None,
-        theme_dark: None,
-        color_blind_mode: false,
-    };
+    let mut facts = ConfigFacts::empty();
     let Some(path) = config_yml_path_in(agent) else {
+        facts.shell_path = legacy_settings_shell_path(agent);
         return facts;
     };
     let Ok(text) = std::fs::read_to_string(&path) else {
@@ -213,18 +263,9 @@ fn read_config_facts(agent: &Path) -> ConfigFacts {
         .get("setupVersion")
         .and_then(|v| v.as_u64())
         .unwrap_or(0);
-    facts.default_model = value
-        .get("modelRoles")
-        .and_then(|roles| roles.get("default"))
-        .and_then(|v| v.as_str())
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
-    facts.theme_dark = value
-        .get("theme")
-        .and_then(|theme| theme.get("dark"))
-        .and_then(|v| v.as_str())
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
+    facts.default_model = non_empty_str(value.get("modelRoles").and_then(|roles| roles.get("default")));
+    facts.theme_dark = non_empty_str(value.get("theme").and_then(|theme| theme.get("dark")));
+    facts.shell_path = non_empty_str(value.get("shellPath"));
     facts.color_blind_mode = value
         .get("colorBlindMode")
         .and_then(|v| v.as_bool())
@@ -288,14 +329,66 @@ fn database_status(agent: &Path) -> Vec<DatabaseStatus> {
 /// booleano. Il frontend decide quali carte mostrare leggendo `missing`.
 #[command]
 pub async fn setup_status() -> Result<SetupStatus, String> {
-    tokio::task::spawn_blocking(|| status_for(crate::omp_ops::agent_dir()))
-        .await
-        .map_err(|e| {
+    tokio::task::spawn_blocking(|| {
+        let agent = crate::omp_ops::agent_dir();
+        if let Some(dir) = agent.as_deref() {
+            ensure_shell_path_once(dir);
+        }
+        status_for(agent)
+    })
+    .await
+    .map_err(|e| {
         crate::tr!(
             format!("Verifica del contratto: {}", e),
             format!("Contract check: {}", e)
         )
     })
+}
+
+/// Porta `shellPath` anche a chi aveva gia' `omp` prima di Studio, una volta
+/// per processo. Solo a setup concluso: mentre il wizard nativo gira, `omp`
+/// riscrive `config.yml` da un altro processo e una scrittura concorrente di
+/// Studio potrebbe perdere le sue scelte.
+fn ensure_shell_path_once(agent: &Path) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static DONE: AtomicBool = AtomicBool::new(false);
+    if !cfg!(target_os = "windows") || DONE.load(Ordering::Acquire) {
+        return;
+    }
+    if omp_binary_if_present().is_none()
+        || read_config_facts(agent).setup_version < CURRENT_SETUP_VERSION
+    {
+        return;
+    }
+    if DONE.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    if let Err(error) = ensure_shell_path_in(agent, find_bash()) {
+        eprintln!("[Setup] Avviso: shellPath non scritto: {}", error);
+    }
+}
+
+/// Una shell configurata esiste davvero: percorso assoluto presente su disco,
+/// oppure nome nudo risolto dal `PATH`.
+fn shell_resolves(shell: &str) -> bool {
+    let path = Path::new(shell);
+    if path.is_absolute() {
+        path.exists()
+    } else {
+        which_on_path(shell).is_some()
+    }
+}
+
+/// `true` quando la versione e' leggibile e sotto `MIN_OMP_VERSION`. Una
+/// versione illeggibile non e' una prova di vecchiaia: non si allarma.
+fn version_below_minimum(version: &str) -> bool {
+    let (Ok(current), Ok(minimum)) = (
+        semver::Version::parse(version.trim()),
+        semver::Version::parse(MIN_OMP_VERSION),
+    ) else {
+        return false;
+    };
+    current < minimum
 }
 
 /// Corpo di `setup_status` con la directory dell'agente esplicita: e' quello
@@ -307,12 +400,7 @@ fn status_for(agent: Option<PathBuf>) -> SetupStatus {
     let facts = agent
         .as_deref()
         .map(read_config_facts)
-        .unwrap_or(ConfigFacts {
-            setup_version: 0,
-            default_model: None,
-            theme_dark: None,
-            color_blind_mode: false,
-        });
+        .unwrap_or_else(ConfigFacts::empty);
     let credential_providers = agent
         .as_deref()
         .map(read_credential_providers)
@@ -329,6 +417,13 @@ fn status_for(agent: Option<PathBuf>) -> SetupStatus {
         missing.push("model".to_string());
     }
 
+    let bash_missing = cfg!(target_os = "windows")
+        && match facts.shell_path.as_deref() {
+            Some(shell) => !shell_resolves(shell),
+            None => find_bash().is_none(),
+        };
+    let omp_outdated = omp_version.as_deref().is_some_and(version_below_minimum);
+
     SetupStatus {
         omp_installed: binary.is_some(),
         omp_path: binary.as_ref().map(|p| p.to_string_lossy().to_string()),
@@ -342,6 +437,10 @@ fn status_for(agent: Option<PathBuf>) -> SetupStatus {
         theme_dark: facts.theme_dark,
         color_blind_mode: facts.color_blind_mode,
         nerd_font_installed: nerd_font_target().is_some_and(|p| p.exists()),
+        shell_path: facts.shell_path,
+        bash_missing,
+        min_omp_version: MIN_OMP_VERSION.to_string(),
+        omp_outdated,
         databases: agent.as_deref().map(database_status).unwrap_or_default(),
         missing,
     }
@@ -550,57 +649,142 @@ fn verify_file_sha256(path: &Path, expected: &str) -> Result<(), String> {
     ))
 }
 
-#[cfg(any(target_os = "windows", test))]
-/// Quota una stringa per una riga di comando PowerShell in apici singoli.
-fn ps_single_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "''"))
+/// Stringa UTF-16 terminata da zero per le API `W` di Win32.
+#[cfg(target_os = "windows")]
+fn wide(value: &str) -> Vec<u16> {
+    use std::os::windows::ffi::OsStrExt;
+    std::ffi::OsStr::new(value)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect()
 }
 
-/// Aggiunge la cartella al `Path` **utente** leggendolo e riscrivendolo con
-/// PowerShell, come fa `scripts/install.ps1`. Non si usa `setx`: troncherebbe
-/// il valore oltre 1024 caratteri, cioe' distruggerebbe il PATH dell'utente.
+/// Valore del `Path` utente con la cartella in coda, o `None` se c'e' gia'.
+/// Il confronto ignora maiuscole e barra finale, come Windows risolve i
+/// percorsi; le voci esistenti restano intatte e nell'ordine originale.
+#[cfg(any(target_os = "windows", test))]
+fn path_with_dir(current: &str, dir: &str) -> Option<String> {
+    let normalize = |entry: &str| entry.trim().trim_end_matches(['\\', '/']).to_lowercase();
+    let wanted = normalize(dir);
+    if current
+        .split(';')
+        .any(|entry| !entry.trim().is_empty() && normalize(entry) == wanted)
+    {
+        return None;
+    }
+    let base = current.trim_end_matches(';');
+    Some(if base.trim().is_empty() {
+        dir.to_string()
+    } else {
+        format!("{};{}", base, dir)
+    })
+}
+
+/// Aggiunge la cartella al `Path` **utente** (`HKCU\Environment`) con le API
+/// del registro, come fa `scripts/install.ps1` ma senza PowerShell. Non si
+/// usa `setx`: troncherebbe il valore oltre 1024 caratteri, cioe' distruggerebbe
+/// il PATH dell'utente. Il tipo del valore (`REG_EXPAND_SZ` di solito) si
+/// conserva, altrimenti le voci con `%USERPROFILE%` smetterebbero di espandersi.
 #[cfg(target_os = "windows")]
 fn ensure_user_path_contains(dir: &Path) -> Result<bool, String> {
-    let dir_literal = ps_single_quote(&dir.to_string_lossy());
-    let script = format!(
-        "$dir = {d};\
-         $current = [Environment]::GetEnvironmentVariable('Path','User');\
-         if ($null -eq $current) {{ $current = '' }};\
-         $parts = $current.Split(';') | Where-Object {{ $_ -ne '' }};\
-         if ($parts -contains $dir) {{ 'present' }} else {{\
-            $joined = if ($current.TrimEnd(';') -eq '') {{ $dir }} else {{ $current.TrimEnd(';') + ';' + $dir }};\
-            [Environment]::SetEnvironmentVariable('Path', $joined, 'User'); 'added' }}",
-        d = dir_literal
-    );
-    let mut cmd = Command::new("powershell.exe");
-    cmd.args([
-        "-NoProfile",
-        "-NonInteractive",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command",
-        &script,
-    ]);
-    cmd.creation_flags(CREATE_NO_WINDOW);
-    let out = match cmd.output() {
-        Ok(o) => o,
-        Err(e) => {
-            eprintln!(
-                "[Setup] Avviso: esecuzione powershell per PATH non riuscita: {}",
-                e
-            );
-            return Ok(false);
-        }
+    use windows_sys::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_SUCCESS};
+    use windows_sys::Win32::System::Registry::{
+        RegCloseKey, RegOpenKeyExW, RegQueryValueExW, RegSetValueExW, HKEY, HKEY_CURRENT_USER,
+        KEY_QUERY_VALUE, KEY_SET_VALUE, REG_EXPAND_SZ, REG_SZ, REG_VALUE_TYPE,
     };
-    if !out.status.success() {
-        let err_msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
-        eprintln!(
-            "[Setup] Avviso: aggiornamento PATH utente non riuscito: {}",
-            err_msg
-        );
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        SendMessageTimeoutW, HWND_BROADCAST, SMTO_ABORTIFHUNG, WM_SETTINGCHANGE,
+    };
+
+    let subkey = wide("Environment");
+    let name = wide("Path");
+    let mut key: HKEY = std::ptr::null_mut();
+    // SAFETY: puntatori a buffer locali vivi per tutta la chiamata.
+    let status = unsafe {
+        RegOpenKeyExW(
+            HKEY_CURRENT_USER,
+            subkey.as_ptr(),
+            0,
+            KEY_QUERY_VALUE | KEY_SET_VALUE,
+            &mut key,
+        )
+    };
+    if status != ERROR_SUCCESS {
+        eprintln!("[Setup] Avviso: HKCU\\Environment non apribile: errore {}", status);
         return Ok(false);
     }
-    Ok(String::from_utf8_lossy(&out.stdout).trim() == "added")
+
+    let result = (|| {
+        let mut kind: REG_VALUE_TYPE = 0;
+        let mut size: u32 = 0;
+        // SAFETY: prima chiamata con buffer nullo per conoscere la dimensione.
+        let status = unsafe {
+            RegQueryValueExW(key, name.as_ptr(), std::ptr::null(), &mut kind, std::ptr::null_mut(), &mut size)
+        };
+        let current = if status == ERROR_FILE_NOT_FOUND {
+            kind = REG_EXPAND_SZ;
+            String::new()
+        } else if status != ERROR_SUCCESS {
+            return Err(format!("lettura Path: errore {}", status));
+        } else if kind != REG_SZ && kind != REG_EXPAND_SZ {
+            // Un Path di tipo inatteso non e' nostro da riscrivere.
+            return Err(format!("Path di tipo {} inatteso", kind));
+        } else {
+            let mut buf = vec![0u16; (size as usize).div_ceil(2) + 1];
+            let mut bytes = (buf.len() * 2) as u32;
+            // SAFETY: `buf` ha almeno `bytes` byte scrivibili.
+            let status = unsafe {
+                RegQueryValueExW(key, name.as_ptr(), std::ptr::null(), &mut kind, buf.as_mut_ptr().cast(), &mut bytes)
+            };
+            if status != ERROR_SUCCESS {
+                return Err(format!("lettura Path: errore {}", status));
+            }
+            let len = buf.iter().position(|unit| *unit == 0).unwrap_or(buf.len());
+            String::from_utf16_lossy(&buf[..len])
+        };
+
+        let Some(joined) = path_with_dir(&current, &dir.to_string_lossy()) else {
+            return Ok(false);
+        };
+        let value = wide(&joined);
+        // SAFETY: `value` e' un buffer UTF-16 terminato da zero.
+        let status = unsafe {
+            RegSetValueExW(key, name.as_ptr(), 0, kind, value.as_ptr().cast(), (value.len() * 2) as u32)
+        };
+        if status != ERROR_SUCCESS {
+            return Err(format!("scrittura Path: errore {}", status));
+        }
+        Ok(true)
+    })();
+    // SAFETY: `key` e' stata aperta sopra con successo.
+    unsafe { RegCloseKey(key) };
+
+    match result {
+        Ok(true) => {
+            // Come `SetEnvironmentVariable(..., 'User')`: senza l'avviso Explorer
+            // e i terminali aperti dopo non vedrebbero il nuovo PATH fino al logout.
+            let area = wide("Environment");
+            let mut ignored = 0usize;
+            // SAFETY: `area` resta viva per la durata della chiamata sincrona.
+            unsafe {
+                SendMessageTimeoutW(
+                    HWND_BROADCAST,
+                    WM_SETTINGCHANGE,
+                    0,
+                    area.as_ptr() as isize,
+                    SMTO_ABORTIFHUNG,
+                    5000,
+                    &mut ignored,
+                )
+            };
+            Ok(true)
+        }
+        Ok(false) => Ok(false),
+        Err(error) => {
+            eprintln!("[Setup] Avviso: aggiornamento PATH utente non riuscito: {}", error);
+            Ok(false)
+        }
+    }
 }
 
 /// Delimitatori del blocco che Studio si riserva dentro i profili di shell.
@@ -733,32 +917,51 @@ fn find_bash() -> Option<PathBuf> {
     }
 }
 
-/// Scrive `shellPath` in `~/.omp/agent/settings.json` **solo se la chiave
-/// manca**, in merge sul JSON esistente. Replica `Configure-BashShell` di
-/// `scripts/install.ps1`: senza quella chiave il tool `bash` di `omp` ripiega
-/// sulla shell interna. E' la sola aggiunta dentro `~/.omp` oltre al file di
-/// tema (docs/DECISIONS.md, Gate R11).
-fn ensure_shell_path() -> Result<Option<String>, String> {
-    let Some(agent) = crate::omp_ops::agent_dir() else {
+/// Scrive `shellPath` **solo se la chiave manca**, dove `omp` la legge:
+///
+/// - in `config.yml` (o `config.yaml`) quando esiste: da li' in poi `omp`
+///   ignora `settings.json`, e una chiave scritta solo li' resterebbe lettera
+///   morta per chi aveva gia' configurato `omp`;
+/// - in `settings.json` quando nessun YAML esiste ancora: al primo avvio `omp`
+///   lo migra in `config.yml` insieme alle eventuali impostazioni legacy.
+///   Creare noi il YAML salterebbe quella migrazione.
+///
+/// Replica `Configure-BashShell` di `scripts/install.ps1`: senza la chiave,
+/// servizi, terminali e comandi `!` di `omp` non hanno una shell POSIX (Gate R11).
+fn ensure_shell_path_in(agent: &Path, bash: Option<PathBuf>) -> Result<Option<String>, String> {
+    let Some(bash) = bash else {
         return Ok(None);
     };
+    let bash_str = bash.to_string_lossy().to_string();
+
+    if let Some(config) = config_yml_path_in(agent) {
+        let written =
+            crate::models_ops::insert_config_string_if_absent(&config, "shellPath", &bash_str)?;
+        return Ok(written.then_some(bash_str));
+    }
+
     let path = agent.join("settings.json");
-
-    let mut root = if path.exists() {
-        let text = std::fs::read_to_string(&path).map_err(|e| {
-            crate::tr!(
-                format!("Lettura di settings.json: {}", e),
-                format!("Reading settings.json: {}", e)
-            )
-        })?;
-        serde_json::from_str::<serde_json::Value>(&text)
-            .unwrap_or_else(|_| serde_json::Value::Object(serde_json::Map::new()))
-    } else {
-        serde_json::Value::Object(serde_json::Map::new())
+    let mut root = match std::fs::read_to_string(&path) {
+        Ok(text) => {
+            // Un file che non si legge come oggetto JSON non e' nostro: si
+            // lascia com'e' invece di sostituirlo con un oggetto vuoto. Il BOM
+            // di un file salvato da Windows non e' un motivo per scartarlo.
+            match serde_json::from_str::<serde_json::Value>(text.trim_start_matches('\u{feff}')) {
+                Ok(value) if value.is_object() => value,
+                _ => return Ok(None),
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            serde_json::Value::Object(serde_json::Map::new())
+        }
+        Err(error) => {
+            return Err(crate::tr!(
+                format!("Lettura di settings.json: {}", error),
+                format!("Reading settings.json: {}", error)
+            ))
+        }
     };
-
     let Some(map) = root.as_object_mut() else {
-        // Il file esiste ma non e' un oggetto: non e' nostro, non lo tocchiamo.
         return Ok(None);
     };
     if map
@@ -768,16 +971,12 @@ fn ensure_shell_path() -> Result<Option<String>, String> {
     {
         return Ok(None);
     }
-    let Some(bash) = find_bash() else {
-        return Ok(None);
-    };
-    let bash_str = bash.to_string_lossy().to_string();
     map.insert(
         "shellPath".to_string(),
         serde_json::Value::String(bash_str.clone()),
     );
 
-    std::fs::create_dir_all(&agent).map_err(|e| {
+    std::fs::create_dir_all(agent).map_err(|e| {
         crate::tr!(
             format!("Cartella dell'agente: {}", e),
             format!("Agent folder: {}", e)
@@ -789,12 +988,7 @@ fn ensure_shell_path() -> Result<Option<String>, String> {
             format!("Serializing settings.json: {}", e)
         )
     })?;
-    std::fs::write(&path, serialized).map_err(|e| {
-        crate::tr!(
-            format!("Scrittura di settings.json: {}", e),
-            format!("Writing settings.json: {}", e)
-        )
-    })?;
+    crate::fs_atomic::atomic_write(&path, serialized.as_bytes())?;
     Ok(Some(bash_str))
 }
 
@@ -1197,7 +1391,8 @@ async fn install_omp_inner(app: &AppHandle) -> Result<InstallOutcome, String> {
     // PATH e impostazioni vengono aggiornati soltanto dopo che il binario
     // sostituito ha risposto correttamente.
     let path_updated = ensure_user_path_contains(&dir).unwrap_or(false);
-    let shell_path = ensure_shell_path().ok().flatten();
+    let shell_path = crate::omp_ops::agent_dir()
+        .and_then(|agent| ensure_shell_path_in(&agent, find_bash()).ok().flatten());
 
     let outcome = InstallOutcome {
         version,
@@ -1513,20 +1708,25 @@ fn register_font(path: &Path) -> bool {
     // `AddFontResourceW` rende il font disponibile subito; `WM_FONTCHANGE`
     // avvisa le finestre esistenti. Best effort: se fallisce, il font c'e'
     // comunque al prossimo avvio dei processi.
-    let script = format!(
-        "Add-Type -Namespace OmpStudio -Name Fonts -MemberDefinition '\
-         [DllImport(\"gdi32.dll\", CharSet=CharSet.Unicode)] public static extern int AddFontResourceW(string f);\
-         [DllImport(\"user32.dll\")] public static extern int SendMessageTimeout(IntPtr h, uint m, IntPtr w, IntPtr l, uint fl, uint t, out IntPtr r);' \
-         -PassThru | Out-Null;\
-         [void][OmpStudio.Fonts]::AddFontResourceW({p});\
-         $r = [IntPtr]::Zero;\
-         [void][OmpStudio.Fonts]::SendMessageTimeout([IntPtr]0xffff, 0x001D, [IntPtr]::Zero, [IntPtr]::Zero, 2, 1000, [ref]$r)",
-        p = ps_single_quote(&path.to_string_lossy())
-    );
-    let mut ps = Command::new("powershell.exe");
-    ps.args(["-NoProfile", "-NonInteractive", "-Command", &script]);
-    ps.creation_flags(CREATE_NO_WINDOW);
-    let _ = ps.output();
+    use windows_sys::Win32::Graphics::Gdi::AddFontResourceW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        SendMessageTimeoutW, HWND_BROADCAST, SMTO_ABORTIFHUNG, WM_FONTCHANGE,
+    };
+    let font = wide(&path.to_string_lossy());
+    let mut ignored = 0usize;
+    // SAFETY: `font` e' UTF-16 terminato da zero e vive per tutta la chiamata.
+    unsafe {
+        AddFontResourceW(font.as_ptr());
+        SendMessageTimeoutW(
+            HWND_BROADCAST,
+            WM_FONTCHANGE,
+            0,
+            0,
+            SMTO_ABORTIFHUNG,
+            1000,
+            &mut ignored,
+        );
+    }
     true
 }
 
@@ -1692,9 +1892,79 @@ mod tests {
     }
 
     #[test]
-    fn ps_quoting_escapes_single_quotes() {
-        assert_eq!(ps_single_quote(r"C:\a b"), r"'C:\a b'");
-        assert_eq!(ps_single_quote("it's"), "'it''s'");
+    fn path_utente_aggiunge_la_cartella_una_sola_volta() {
+        let dir = r"C:\Users\u\AppData\Local\omp";
+        // Gia' presente con altra grafia o barra finale: nessuna riscrittura.
+        assert_eq!(path_with_dir(r"C:\a;c:\users\U\appdata\local\OMP\;D:\b", dir), None);
+        // Voci esistenti, variabili e ordine restano intatti.
+        assert_eq!(
+            path_with_dir(r"%USERPROFILE%\bin;C:\a;", dir).as_deref(),
+            Some(r"%USERPROFILE%\bin;C:\a;C:\Users\u\AppData\Local\omp")
+        );
+        assert_eq!(path_with_dir("", dir).as_deref(), Some(dir));
+    }
+
+    #[test]
+    fn versione_minima_di_omp() {
+        assert!(version_below_minimum("18.18.2"));
+        assert!(version_below_minimum("17.9.9"));
+        assert!(!version_below_minimum(MIN_OMP_VERSION));
+        assert!(!version_below_minimum("18.18.8"));
+        assert!(!version_below_minimum("19.0.0"));
+        // Illeggibile non vuol dire vecchia.
+        assert!(!version_below_minimum("unknown"));
+    }
+
+    fn shell_dir(name: &str) -> PathBuf {
+        let base = std::env::temp_dir().join(format!("omp-studio-shell-{}-{}", name, std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        base
+    }
+
+    #[test]
+    fn shell_path_va_in_config_yml_quando_esiste() {
+        let base = shell_dir("yml");
+        std::fs::write(base.join("config.yml"), "setupVersion: 3\nmodelRoles:\n  default: a/b\n").unwrap();
+        // Un settings.json residuo non conta piu' per omp: non va scritto.
+        std::fs::write(base.join("settings.json"), "{}").unwrap();
+
+        let bash = PathBuf::from(r"C:\Git\bin\bash.exe");
+        let written = ensure_shell_path_in(&base, Some(bash.clone())).unwrap();
+        assert_eq!(written.as_deref(), Some(r"C:\Git\bin\bash.exe"));
+        let facts = read_config_facts(&base);
+        assert_eq!(facts.shell_path.as_deref(), Some(r"C:\Git\bin\bash.exe"));
+        assert_eq!(facts.setup_version, 3);
+        assert_eq!(facts.default_model.as_deref(), Some("a/b"));
+        assert_eq!(std::fs::read_to_string(base.join("settings.json")).unwrap(), "{}");
+
+        // La scelta dell'utente non si sostituisce.
+        std::fs::write(base.join("config.yml"), "shellPath: D:\\mia\\bash.exe\n").unwrap();
+        assert_eq!(ensure_shell_path_in(&base, Some(bash)).unwrap(), None);
+        assert_eq!(read_config_facts(&base).shell_path.as_deref(), Some(r"D:\mia\bash.exe"));
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn senza_yaml_shell_path_va_in_settings_json_da_migrare() {
+        let base = shell_dir("json");
+        // BOM e chiavi dell'utente come li lascia un file salvato da Windows.
+        std::fs::write(base.join("settings.json"), "\u{feff}{\"theme\": \"x\"}").unwrap();
+
+        let bash = PathBuf::from(r"C:\Git\bin\bash.exe");
+        ensure_shell_path_in(&base, Some(bash.clone())).unwrap();
+        assert!(!base.join("config.yml").exists(), "il YAML lo crea omp migrando");
+        let saved: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(base.join("settings.json")).unwrap()).unwrap();
+        assert_eq!(saved["theme"], "x");
+        assert_eq!(saved["shellPath"], r"C:\Git\bin\bash.exe");
+        assert_eq!(read_config_facts(&base).shell_path.as_deref(), Some(r"C:\Git\bin\bash.exe"));
+
+        // Un file illeggibile non viene sostituito.
+        std::fs::write(base.join("settings.json"), "non json").unwrap();
+        assert_eq!(ensure_shell_path_in(&base, Some(bash)).unwrap(), None);
+        assert_eq!(std::fs::read_to_string(base.join("settings.json")).unwrap(), "non json");
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]

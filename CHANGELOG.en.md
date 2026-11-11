@@ -18,6 +18,8 @@ released: items are closed into a version via `npm run release -- <version>`.
 - The editor previews Mermaid diagrams (`.mmd`, `.mermaid`) with the same views as Markdown: code, split and preview; invalid syntax shows the error. (EXT-006)
 - The three columns can be arranged in any order, for example with the chat in the center and the editor on the right, or with the sidebar on the right: choose it in "Settings → Appearance → Column order"; it applies to every project. The sidebar and the editor keep their sizes when they move; in the vertical layout the sidebar goes right when it is last, while the editor and chat stack in the chosen order. (COL-001…008)
 - One-command install on macOS, Linux and Windows: the script downloads the latest release (stable or Nightly), checks its SHA-256 and installs it without the Gatekeeper and SmartScreen warnings. On Linux it installs the AppImage in your home folder, with a menu entry and the `omp-studio` command, and automatic updates work without a password.
+- Studio warns when the installed `omp` is too old for its features (at least 18.18.3 is required): the version chip at the bottom lights up and the first-run setup offers "Update omp".
+- On Windows the first-run setup reports when Git Bash is missing, which `omp` uses for services, terminals and `!` commands, and explains how to install it.
 
 ### Changed
 - Switching a chat from the terminal to the GUI clears the old conversation right away: while `omp` starts a loading state appears, then the chat rebuilds in blocks as messages arrive, with placeholders and a count of those still loading. The same applies when resuming a session from history.
@@ -47,7 +49,10 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Studio updates no longer fail with error 504 right after a new Nightly is published: the installer is downloaded from the file's stable GitHub address instead of the one tied to the release name.
 - In chat, a turn still waiting for a background command or subagent no longer looks finished: instead of the end-of-turn footer it shows "Not finished: waiting for …" with the name of the running work, and a note that closing Studio stops it. The footer appears once the agent has really finished.
 - Chat stays working when a background result restarts the agent during state synchronization: streaming no longer stops as though the work had finished. (ATT-003)
-- In chat, if you scrolled slightly away from the bottom, auto-scroll now resumes by itself after 10 seconds without touching the chat and with the mouse outside it, so you don't miss finished replies or pending questions.
+- In chat, if you scrolled away from the bottom, auto-scroll resumes by itself only while an agent is working and after 10 seconds without interacting with the project (chat, editor or preview), counted from your last interaction: reading a reply while looking at a preview or opening files no longer pulls you back to the bottom.
+- Studio sets `omp`'s Git Bash shell also for people who already had `omp` installed, and writes it to the file `omp` actually reads (`config.yml`): it used to land in `settings.json`, which `omp` ignores after its first setup. A shell chosen by the user is never replaced.
+- First-run setup and the terminal no longer start PowerShell: updating PATH, registering the font and launching `omp` with unusual arguments use native Windows functions. On PCs where the antivirus blocks PowerShell, setup now completes.
+- In Companion, the rows under "To read" and "Working" no longer overlap: the project name and reply preview stay on their own lines, and the list scrolls when the items don't fit.
 ## [1.10.0] - 2026-11-05
 
 ### Added

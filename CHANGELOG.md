@@ -18,6 +18,8 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - L'editor mostra l'anteprima dei diagrammi Mermaid (`.mmd`, `.mermaid`) con le stesse viste del Markdown: codice, divisa e anteprima; se la sintassi è sbagliata compare l'errore. (EXT-006)
 - Le tre colonne si possono disporre in qualsiasi ordine, per esempio con la chat al centro e l'editor a destra o con la barra laterale a destra: si sceglie in «Impostazioni → Aspetto → Ordine delle colonne» e vale per tutti i progetti. Barra laterale ed editor mantengono le loro misure quando cambiano posto; in disposizione verticale la barra laterale va a destra se è l'ultima, mentre editor e chat si impilano nell'ordine scelto. (COL-001…008)
 - Installazione con un comando su macOS, Linux e Windows: lo script scarica l'ultima versione (stabile o Nightly), ne controlla lo SHA-256 e la installa senza gli avvisi di Gatekeeper e SmartScreen. Su Linux installa l'AppImage nella cartella utente, con voce nel menu e comando `omp-studio`, e gli aggiornamenti automatici funzionano senza password.
+- Studio avvisa quando la versione di `omp` è troppo vecchia per le sue funzioni (serve almeno la 18.18.3): il chip della versione in basso si accende e la configurazione iniziale offre «Aggiorna omp».
+- Su Windows la configurazione iniziale segnala quando manca Git Bash, che `omp` usa per servizi, terminali e comandi `!`, e spiega come installarlo.
 
 ### Changed
 - Passando una chat dal terminale alla GUI la conversazione vecchia sparisce subito: mentre `omp` si avvia compare il caricamento, poi la chat si ricostruisce a blocchi man mano che arrivano i messaggi, con segnaposto e il conteggio di quelli ancora da caricare. Lo stesso vale quando si riprende una sessione dallo storico.
@@ -47,7 +49,10 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - L'aggiornamento di Studio non si blocca più con l'errore 504 subito dopo la pubblicazione di una nuova Nightly: l'installer si scarica dall'indirizzo stabile del file su GitHub invece che da quello legato al nome della release.
 - In chat un turno che aspetta ancora un comando o un subagente in background non sembra più finito: invece del piè di fine turno compare «Non ha finito: aspetta …» con il nome del lavoro in corso, e l'avviso che chiudere Studio lo interrompe. Il piè compare quando l'agente ha davvero finito.
 - La chat mantiene lo stato «al lavoro» quando un risultato in background riavvia l'agente durante il riallineamento: non spegne più lo streaming come se il lavoro fosse concluso. (ATT-003)
-- In chat, se ti sei allontanato dal fondo con un piccolo scorrimento, dopo 10 secondi senza toccare la chat e con il mouse fuori da essa lo scorrimento automatico riprende da solo, così non perdi risposte finite o domande in attesa.
+- In chat, se ti sei allontanato dal fondo, lo scorrimento automatico riprende da solo solo mentre un agente sta lavorando e dopo 10 secondi senza che tu interagisca con il progetto (chat, editor o anteprima), contati dall'ultima interazione: leggere una risposta mentre guardi un'anteprima o apri file non ti riporta più in fondo.
+- Studio imposta la shell Git Bash di `omp` anche a chi aveva già `omp` installato, e la scrive nel file che `omp` legge davvero (`config.yml`): prima finiva in `settings.json`, che `omp` ignora dopo la prima configurazione. Una shell scelta dall'utente non viene mai sostituita.
+- La configurazione iniziale e il terminale non avviano più PowerShell: aggiornamento del PATH, registrazione del font e avvio di `omp` con argomenti particolari usano le funzioni native di Windows. Sui PC dove l'antivirus blocca PowerShell la configurazione ora va a buon fine.
+- Nella Companion le righe di «Da leggere» e «Lavori in corso» non si sovrappongono più: nome del progetto e anteprima della risposta restano sulle loro righe e, se le voci non entrano, l'elenco scorre.
 ## [1.10.0] - 2026-11-05
 
 ### Added

@@ -909,6 +909,33 @@ pub async fn set_cache_warming_setting(mode: String) -> Result<(), String> {
     .map_err(|e| task_error("set_cache_warming_setting", e))?
 }
 
+/// Scrive una chiave stringa di primo livello in `config.yml` solo se manca,
+/// e' `null` o e' vuota, sotto lo stesso lock delle altre scritture di Studio.
+/// Restituisce `true` se ha scritto. Il setup la usa per `shellPath`: un
+/// valore scelto dall'utente non va mai sostituito.
+pub(crate) fn insert_config_string_if_absent(
+    path: &Path,
+    key: &str,
+    value: &str,
+) -> Result<bool, String> {
+    let _guard = mutation_lock()?;
+    let mut mapping = read_yaml_mapping(path)?.unwrap_or_default();
+    let yaml_name = yaml_key(key);
+    let absent = match mapping.get(&yaml_name) {
+        None | Some(serde_yaml::Value::Null) => true,
+        Some(serde_yaml::Value::String(current)) => current.trim().is_empty(),
+        Some(_) => false,
+    };
+    if !absent {
+        return Ok(false);
+    }
+    mapping.insert(yaml_name, serde_yaml::Value::String(value.to_string()));
+    let serialized = serde_yaml::to_string(&serde_yaml::Value::Mapping(mapping))
+        .map_err(|error| serialization_error(path.display(), error))?;
+    atomic_write(path, serialized.as_bytes())?;
+    Ok(true)
+}
+
 // -----------------------------------------------------------------------------
 // Prewalk Settings (prewalk.into / prewalk.from)
 // -----------------------------------------------------------------------------

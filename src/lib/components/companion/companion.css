@@ -348,6 +348,21 @@
 	overscroll-behavior: contain;
 }
 
+/* La lista e' una colonna flex con altezza limitata: senza flex-shrink 0 le righe
+   a piu' linee si comprimono a min-height e il testo invade la riga successiva. */
+.priority-rail .priority-list > * {
+	flex-shrink: 0;
+}
+
+/* Nome + attivita' su due righe: il pallino resta allineato al nome. */
+.rail-unread .priority-project {
+	align-items: flex-start;
+}
+
+.rail-unread .priority-project .p-dot {
+	margin-top: 6px;
+}
+
 
 .rail-title {
 	display: flex;

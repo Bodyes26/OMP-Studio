@@ -137,21 +137,42 @@ chiusura è quindi semantica: `setupVersion >= 2` **e** almeno una credenziale a
 con `/setup` (alias `/providers`, riapre la sola scena provider senza rimarcare il setup)
 come azione di rimedio.
 
-**Perimetro di scrittura, chiuso ed elencato.** Il flusso scrive esattamente questo, e
-`config.yml` **non** è nella lista: lo scrive `omp` stesso attraverso il suo wizard.
+**Perimetro di scrittura, chiuso ed elencato.** Il flusso scrive esattamente questo; di
+`config.yml` tocca la sola chiave `shellPath`, il resto lo scrive `omp` attraverso il suo wizard.
 
 | Percorso | Quando | Modo |
 |---|---|---|
 | `%LOCALAPPDATA%\omp\omp.exe` | solo se `omp` è assente | file nuovo, fuori da `~/.omp` |
-| `HKCU\Environment` → `Path` | solo se la cartella non c'è già | append, mai riscrittura |
-| `~/.omp/agent/settings.json` → `shellPath` | solo se la chiave è assente | merge, mai sovrascrittura |
+| `HKCU\Environment` → `Path` | solo se la cartella non c'è già | append via API del registro, tipo del valore conservato |
+| `~/.omp/agent/config.yml` → `shellPath` | se il YAML esiste e la chiave manca; all'installazione o una volta per avvio a setup concluso | merge, mai sovrascrittura |
+| `~/.omp/agent/settings.json` → `shellPath` | solo se nessun YAML esiste ancora e la chiave manca | merge; `omp` lo migra in `config.yml` al primo avvio |
 | `%LOCALAPPDATA%\Microsoft\Windows\Fonts` + `HKCU\...\Fonts` | installazione font per-utente | file nuovo + un valore |
 | `%APPDATA%\omp-studio\settings.json` → `projectRoot` | carta finale | store di Studio, non di `omp` |
 
 `shellPath` è la sola aggiunta dentro `~/.omp` oltre a R9, e replica ciò che fa
-`Configure-BashShell` nell'installer ufficiale (`scripts/install.ps1`): senza quella
-chiave il tool `bash` di `omp` ricade sulla shell interna. Scritta in merge e solo se
-assente, non può distruggere una configurazione esistente.
+`Configure-BashShell` nell'installer ufficiale (`scripts/install.ps1`). Scritta in merge e
+solo se assente, non può distruggere una configurazione esistente.
+
+**Revisione 2026-11-11.** Tre correzioni emerse confrontando la configurazione reale di
+una macchina con il comportamento di `omp` 18.18:
+
+1. `omp` legge `settings.json` solo per migrarlo quando nessun `config.yml`/`config.yaml`
+   esiste (doc `settings` di `omp`, «Global legacy»). La versione precedente scriveva
+   sempre lì: chi aveva già configurato `omp` riceveva una chiave inerte. Ora si scrive nel
+   YAML quando c'è, con lo stesso lock delle altre scritture di Studio; `settings.json`
+   resta solo per la macchina nuova, dove creare noi il YAML salterebbe la migrazione.
+2. La chiave veniva scritta solo quando Studio installava `omp`. Ora anche chi aveva `omp`
+   la riceve, una volta per avvio e solo a setup concluso (`setupVersion >= 3`): mentre il
+   wizard nativo gira `omp` riscrive `config.yml` da un altro processo.
+3. In `omp` 18.18 il tool `bash` usa sempre la bash interna; `shellPath` serve a servizi,
+   terminali e comandi `!`. Senza Git Bash quindi `omp` funziona: il setup lo segnala come
+   avviso (`bashMissing`), non come requisito mancante.
+
+Sempre dal 2026-11-11 il setup non avvia più `powershell.exe` (PATH e font passano per
+le API native; su macchine con Sophos l'avvio di PowerShell termina il processo) e
+dichiara una versione minima di `omp` (`MIN_OMP_VERSION`, 18.18.3, la prima con
+`invokeTool` nel contesto delle estensioni usato dal modulo `ask` della GUI): sotto
+soglia il chip della versione resta acceso e il setup offre `omp update`.
 
 **Perché l'installazione di `omp` sta nell'app e non in un hook NSIS.** L'installer è
 `installMode: currentUser`, quindi un hook sarebbe tecnicamente possibile. Ma il binario
