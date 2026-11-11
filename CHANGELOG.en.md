@@ -33,6 +33,8 @@ released: items are closed into a version via `npm run release -- <version>`.
 - The macOS installer DMG window has a new look: a monumental marble π in an alpine landscape, with the π made of fine ASCII characters and a film-grain photographic finish. OMP Studio sits on the left and the Applications folder on the right.
 
 ### Fixed
+- Single-choice agent questions show one radio dot per option: the hidden native radio no longer reappears next to Studio's own.
+- The Companion shortcut now also closes it when it is pinned as a widget, if its window is active; when it is open but in the background, the shortcut brings it to the front without replaying the opening animation.
 - After force-stopping a stuck agent, "New chat" and sending a message reopen `omp` from the GUI, without going through the terminal.
 - The chat no longer freezes during long commands with lots of output (for example an MSBuild publish): Studio drops the command execution trace that `omp` attaches to every update, which reached hundreds of KB per second, slowed the chat down and left it on "Running" after the command had finished.
 - The editor also highlights files with an unknown extension by recognizing their first line, like VS Code: `<?xml …` (for example `.rli` files) becomes XML, `<!doctype html>` HTML, and `#!` scripts shell, Python or JavaScript.

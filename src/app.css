@@ -628,8 +628,11 @@ input, textarea, button {
 
 /* Radio button personalizzati di Studio (non standard del browser):
    cerchio rifinito a mano con anello reattivo e dot interno centrato
-   sintonizzato sulla tinta del tema attivo (--brand). */
-input[type='radio'] {
+   sintonizzato sulla tinta del tema attivo (--brand). Esclude i radio
+   `.sr-only` (AskForm disegna il proprio segno): con specificita' 0,1,1
+   questa regola batteva `.sr-only` e il radio nascosto tornava visibile.
+   `:where` lascia la specificita' invariata per gli override locali. */
+input[type='radio']:where(:not(.sr-only)) {
   appearance: none;
   -webkit-appearance: none;
   width: 16px;

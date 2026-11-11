@@ -492,6 +492,22 @@ fn show_companion_window(window: &WebviewWindow) -> Result<(), String> {
     Ok(())
 }
 
+fn focus_companion_window(window: &WebviewWindow) -> Result<(), String> {
+    settle_dismiss();
+    window
+        .unminimize()
+        .map_err(|e| crate::tr!(
+            format!("Ripristino finestra companion fallito: {}", e),
+            format!("Restoring the companion window failed: {}", e)
+        ))?;
+    window
+        .set_focus()
+        .map_err(|e| crate::tr!(
+            format!("Focus finestra companion fallito: {}", e),
+            format!("Focusing the companion window failed: {}", e)
+        ))
+}
+
 /// Mostra o nasconde la finestra Companion applicando la geometria appropriata.
 pub fn toggle_companion_window_internal(app: &AppHandle) -> Result<(), String> {
     let state = get_cached_companion_state();
@@ -501,9 +517,9 @@ pub fn toggle_companion_window_internal(app: &AppHandle) -> Result<(), String> {
 
     if is_visible {
         let is_focused = window.is_focused().unwrap_or(false);
-        if is_focused && !state.is_pinned {
-            // In modalita Spotlight, se la finestra e' a fuoco la scorciatoia la
-            // chiude. L'uscita la anima la vista: riceve la richiesta, dissolve il
+        if is_focused {
+            // Se la finestra e' a fuoco la scorciatoia la chiude, in Spotlight
+            // come in Widget (pinnata). L'uscita la anima la vista: riceve la richiesta, dissolve il
             // guscio e chiama `hide_companion_window`, che salva la geometria e
             // annuncia `companion-hidden` come ogni altro percorso di chiusura.
             // Se l'evento non parte si nasconde subito, senza animazione; se parte
@@ -529,8 +545,9 @@ pub fn toggle_companion_window_internal(app: &AppHandle) -> Result<(), String> {
             });
             return Ok(());
         }
-        // Se visibile ma non a fuoco, o pinnata, la porta in primo piano
-        return show_companion_window(&window);
+        // Visibile ma non a fuoco: la porta in primo piano senza `companion-summon`,
+        // che rifarebbe l'animazione di apertura su una finestra gia' aperta.
+        return focus_companion_window(&window);
     }
 
     // Ripristina la dimensione salvata (in pixel fisici, come letta): senza

@@ -33,6 +33,8 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - La finestra del DMG di installazione su macOS ha un aspetto nuovo: un π monumentale di marmo in un paesaggio alpino, con il π composto da caratteri ASCII fini e una resa fotografica a grana di pellicola. OMP Studio sta a sinistra e la cartella Applicazioni a destra.
 
 ### Fixed
+- Nelle domande dell'agente con scelta singola ogni opzione mostra un solo pallino: il radio nativo nascosto non ricompare più accanto a quello di Studio.
+- La scorciatoia della Companion ora la chiude anche quando è fissata come widget, se la finestra è attiva; se è aperta ma in secondo piano la porta davanti senza ripetere l'animazione di apertura.
 - Dopo l'arresto forzato di un agente bloccato, «Nuova chat» e l'invio di un messaggio riaprono `omp` dalla GUI, senza dover passare dal terminale.
 - La chat non si blocca più durante i comandi lunghi con molto output (per esempio una pubblicazione con MSBuild): Studio scarta la traccia di esecuzione dei comandi che `omp` allega a ogni aggiornamento e che arrivava a centinaia di KB al secondo, rallentando la chat e lasciandola su «In esecuzione» a comando già finito.
 - L'editor colora anche i file con estensione sconosciuta riconoscendoli dalla prima riga, come VS Code: `<?xml …` (ad esempio i `.rli`) diventa XML, `<!doctype html>` HTML, e gli script con `#!` shell, Python o JavaScript.
