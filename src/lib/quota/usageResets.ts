@@ -254,8 +254,8 @@ export function normalizeResetSettings(
 	raw?: Partial<Record<string, Partial<RawResetProviderPolicy>>> | null
 ): ResetSettingsMap {
 	return {
-		'openai-codex': normalizePolicy(raw?.['openai-codex'] ?? (raw as Record<string, unknown> | undefined)?.codexResets),
-		anthropic: normalizePolicy(raw?.anthropic ?? (raw as Record<string, unknown> | undefined)?.claudeResets)
+		'openai-codex': normalizePolicy(raw?.['openai-codex'] ?? raw?.codexResets),
+		anthropic: normalizePolicy(raw?.anthropic ?? raw?.claudeResets)
 	};
 }
 

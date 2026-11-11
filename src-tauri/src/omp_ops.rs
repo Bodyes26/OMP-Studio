@@ -527,19 +527,6 @@ fn cached_usage_resets(max_age: Duration) -> Option<serde_json::Value> {
     (at.elapsed() <= max_age).then(|| value.clone())
 }
 
-fn normalize_auto_redeem_value(val: Option<&serde_yaml::Value>) -> &'static str {
-    match val {
-        Some(serde_yaml::Value::Bool(true)) => "yes",
-        Some(serde_yaml::Value::Bool(false)) => "no",
-        Some(serde_yaml::Value::String(s)) => match s.trim().to_ascii_lowercase().as_str() {
-            "yes" | "true" => "yes",
-            "no" | "false" => "no",
-            _ => "unset",
-        },
-        _ => "unset",
-    }
-}
-
 fn yaml_auto_redeem_opt(
     root: &serde_yaml::Value,
     section: &str,

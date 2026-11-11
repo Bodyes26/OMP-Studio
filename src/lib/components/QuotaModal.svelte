@@ -23,7 +23,7 @@
 	import QuotaLimitRow from './quota/QuotaLimitRow.svelte';
 	import ProviderLogo from './models/ProviderLogo.svelte';
 	import UsageResetCard from './quota/UsageResetCard.svelte';
-	import type { AccountResetSummary, ResetPromptCandidate } from '#lib/quota/usageResets.ts';
+	import { formatResetSettingKey, type AccountResetSummary, type ResetPromptCandidate } from '#lib/quota/usageResets.ts';
 	import { limitTone, dedupeSharedLimits } from '#lib/quota/resolve.ts';
 	import { IconRefresh, IconClose, IconWarning, IconSchedule, IconSparkles } from '#lib/icons.ts';
 	import { scheduleStore } from '#lib/stores/schedule.svelte.ts';
@@ -130,6 +130,8 @@
 				episodeKey: `manual:${manualRedeemSummary.accountKey}`,
 				reason: manualRedeemSummary.isRateLimited ? 'rate_limited' : 'expiring',
 				summary: manualRedeemSummary,
+				window: manualRedeemSummary.window,
+				settingKey: formatResetSettingKey(manualRedeemSummary.provider, manualRedeemSummary.window),
 				mode: 'prompt',
 				willBeLostWithoutManualRedeem: false
 			};
