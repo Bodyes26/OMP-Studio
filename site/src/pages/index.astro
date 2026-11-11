@@ -1,0 +1,126 @@
+---
+import Base from '../layouts/Base.astro';
+import Header from '../components/Header.astro';
+import Footer from '../components/Footer.astro';
+import Download from '../components/Download.astro';
+import Hero from '../components/Hero.svelte';
+import ProjectsBar from '../components/features/ProjectsBar.svelte';
+import Lanes from '../components/features/Lanes.svelte';
+import TaskQueue from '../components/features/TaskQueue.svelte';
+import Lab from '../components/features/Lab.svelte';
+import Companion from '../components/features/Companion.svelte';
+import { latestRelease } from '../lib/release';
+
+const release = await latestRelease();
+const description =
+	'A desktop workspace for omp. Studio keeps all your projects in one window: switch with a click, run several agents at once, and follow each session in the terminal or in a GUI.';
+const jsonLd = {
+	'@context': 'https://schema.org',
+	'@type': 'SoftwareApplication',
+	name: 'OMP Studio',
+	description,
+	applicationCategory: 'DeveloperApplication',
+	operatingSystem: 'Windows, macOS, Linux',
+	softwareVersion: release.version,
+	license: 'https://opensource.org/licenses/MIT',
+	offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+	downloadUrl: release.url,
+	author: { '@type': 'Person', name: 'Maurizio Actis', url: 'https://maurizioactis.it' }
+};
+---
+
+<Base title="OMP Studio · every project, its own agent, one window" description={description}>
+	<script type="application/ld+json" slot="head" set:html={JSON.stringify(jsonLd)} />
+	<Header />
+	<main id="top">
+		<Hero client:load version={release.version} windowsUrl={release.windows.url} macUrl={release.macos.url} />
+		<div id="reveal-root">
+			<section class="block" id="features">
+				<div class="wrap">
+					<h2 class="title">What it does all day</h2>
+					<p class="intro-line">Five things you would otherwise do by hand, between windows, many times an hour.</p>
+					<ul class="index">
+						<li>
+							<div class="copy">
+								<h3>Projects bar</h3>
+								<p>
+									Every project is a tile. Click one and the file tree, the editor and the session come back exactly where you left them.
+									The mark next to each name tells you which agent is working and which one is waiting for you.
+								</p>
+								<p class="hint">Pick a project. When a mark lights up, an agent has a question.</p>
+							</div>
+							<div class="widget" data-ascii="skip"><ProjectsBar client:visible /></div>
+						</li>
+						<li>
+							<div class="copy">
+								<h3>Lanes</h3>
+								<p>
+									Hand a second job to another agent. It works in its own worktree, on its own branch, while you keep editing on main.
+									When it is done, you review the changes and land them as a single commit, and the files you were editing stay as you
+									left them.
+								</p>
+								<p class="hint">Give a lane a job, then keep watching main.</p>
+							</div>
+							<div class="widget" data-ascii="skip"><Lanes client:visible /></div>
+						</li>
+						<li>
+							<div class="copy">
+								<h3>Task queue</h3>
+								<p>
+									Write the next prompt while the agent is still busy. It waits in the project's queue, in the order you choose, with its
+									directives attached. Run it on main when the agent is free, send it to a new lane right away, or turn on auto-start and
+									it begins on its own.
+								</p>
+								<p class="hint">Queue a task, drag it into place, then flip auto-start.</p>
+							</div>
+							<div class="widget" data-ascii="skip"><TaskQueue client:visible /></div>
+						</li>
+						<li>
+							<div class="copy">
+								<h3>Lab</h3>
+								<p>
+									Prototype interfaces in real React with a live preview, outside your repository. Point at an element or draw a box
+									around it, say what should change, and the agent receives the file and line of each element with a numbered frame of
+									the preview. Every change is a revision you can go back to.
+								</p>
+								<p class="hint">Pick Point or Area, mark something on the plan card, then send the notes.</p>
+							</div>
+							<div class="widget" data-ascii="skip"><Lab client:visible /></div>
+						</li>
+						<li>
+							<div class="copy">
+								<h3>Companion</h3>
+								<p>
+									A floating window for every agent across your projects, one shortcut away. Questions, answers to read and work in
+									progress sit on the right; the conversation you are reading stays in the middle, and new arrivals never push it away.
+									Reply under the answer, or type a new request on top and it goes to the right project's queue.
+								</p>
+								<p class="hint">Call it up, answer the question, then queue a task with #project.</p>
+							</div>
+							<div class="widget" data-ascii="skip"><Companion client:visible /></div>
+						</li>
+					</ul>
+					<p class="also">
+						Also inside: Studio Remote on your phone through a relay you host, AI quota at a glance, scheduled automations, a Git panel with
+						side-by-side diffs.
+					</p>
+				</div>
+			</section>
+			<Download release={release} />
+		</div>
+	</main>
+	<Footer />
+</Base>
+
+<script>
+	import { createAsciiReveal } from 'ascii-reveal/core';
+
+	// Le sezioni sotto l'apertura si decodificano mentre entrano in vista; i componenti
+	// interattivi hanno la propria rivelazione (data-ascii="skip").
+	const root = document.getElementById('reveal-root');
+	if (root) {
+		document.fonts.ready.then(() => {
+			createAsciiReveal(root, { preset: 'decode', duration: 'cinematic', lazy: true }).reveal();
+		});
+	}
+</script>

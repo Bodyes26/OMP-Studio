@@ -401,3 +401,19 @@ jobs:
               --notes-file release-notes.md \
               "${EXTRA_FLAGS[@]}"
           fi
+
+      # Il sito legge versione e installer dall'ultima release stabile al momento della build:
+      # una release stabile lo ricompila. Senza il segreto (fork, prima configurazione) si salta.
+      - name: Ricompila il sito di presentazione
+        if: needs.resolve.outputs.is_candidate != 'true'
+        env:
+          SITE_DEPLOY_HOOK: ${{ secrets.CLOUDFLARE_PAGES_DEPLOY_HOOK }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${SITE_DEPLOY_HOOK:-}" ]; then
+            echo "CLOUDFLARE_PAGES_DEPLOY_HOOK non configurato: sito non ricompilato."
+            exit 0
+          fi
+          curl -fsS -X POST "$SITE_DEPLOY_HOOK" > /dev/null
+          echo "Build del sito avviata su Cloudflare Pages."

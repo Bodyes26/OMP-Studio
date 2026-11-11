@@ -1,0 +1,105 @@
+---
+import type { Release } from '../lib/release';
+
+interface Props {
+	release: Release;
+}
+const { release } = Astro.props;
+---
+
+<section class="block dl" id="download">
+	<div class="wrap">
+		<h2 class="title">Download</h2>
+		<p class="intro-line">
+			Version {release.version}, released {release.date}. Updates arrive inside the app, on the stable or the Nightly channel.
+		</p>
+		<div class="os">
+			<div>
+				<h3>Windows</h3>
+				<p>Windows 11, x64<br />{release.windows.label} · {release.windows.sizeMb} MB</p>
+				<a class="btn" href={release.windows.url} data-ascii="fade">Download<small>.exe</small></a>
+			</div>
+			<div>
+				<h3>macOS</h3>
+				<p>Universal: Apple Silicon and Intel<br />{release.macos.label} · {release.macos.sizeMb} MB</p>
+				<a class="btn" href={release.macos.url} data-ascii="fade">Download<small>.dmg</small></a>
+			</div>
+			<div>
+				<h3>Linux</h3>
+				<p>x64<br />.deb · {release.linux.deb.sizeMb} MB, AppImage · {release.linux.appImage.sizeMb} MB</p>
+				<div class="pair">
+					<a class="btn" href={release.linux.deb.url} data-ascii="fade">Download<small>.deb</small></a>
+					<a class="btn ghost" href={release.linux.appImage.url} data-ascii="fade">Download<small>AppImage</small></a>
+				</div>
+			</div>
+		</div>
+		<p class="req">
+			On first launch Studio installs omp if it is missing and opens its setup inside a terminal tab. On Windows it needs Git for Windows.
+		</p>
+		<p class="sums"><a class="link" href={release.checksums}>SHA-256 checksums</a> · <a class="link" href={release.url}>Release notes</a></p>
+	</div>
+</section>
+
+<style>
+	.dl {
+		border-top: 1px solid var(--line);
+	}
+	.os {
+		display: grid;
+		grid-template-columns: repeat(3, 1fr);
+		margin-top: 48px;
+		border-top: 1px solid var(--line);
+	}
+	.os > div {
+		padding: 28px 28px 32px 0;
+		border-right: 1px solid var(--line);
+	}
+	.os > div + div {
+		padding-left: 28px;
+	}
+	.os > div:last-child {
+		border-right: 0;
+	}
+	h3 {
+		font: 400 30px/1 var(--serif);
+		letter-spacing: -0.02em;
+	}
+	.os p {
+		font: 400 13px/1.6 var(--mono);
+		color: var(--slate);
+		margin: 12px 0 22px;
+	}
+	.pair {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px;
+	}
+	.btn.ghost {
+		background: transparent;
+		color: var(--ochre);
+		box-shadow: inset 0 0 0 1px var(--ochre);
+	}
+	.btn.ghost:hover {
+		background: rgb(227 192 106 / 0.12);
+	}
+	.req {
+		margin-top: 28px;
+		color: var(--slate);
+		max-width: 60ch;
+	}
+	.sums {
+		margin-top: 14px;
+		color: var(--faint);
+	}
+	@media (max-width: 760px) {
+		.os {
+			grid-template-columns: 1fr;
+		}
+		.os > div,
+		.os > div + div {
+			border-right: 0;
+			border-bottom: 1px solid var(--line);
+			padding: 24px 0;
+		}
+	}
+</style>

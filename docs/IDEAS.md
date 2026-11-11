@@ -262,6 +262,11 @@ quindi il commit non coincide mai con quello della RC; `release.mjs` chiude
 Costo stimato: 1-2 giorni.
 Dipende da: niente.
 
+### Grafico delle corsie rispetto al branch di destinazione
+Problema reale che risolve: oggi la riga delle corsie dice quali corsie esistono e il loro stato, ma non da quale punto del branch sono partite, quanti passi hanno fatto né dove rientreranno. Un piccolo grafico (il branch di destinazione come linea, ogni corsia su una sua riga che parte da lì, un punto per ogni commit o passo dell'agente, il rientro come un solo commit all'integrazione) lo farebbe vedere in un colpo d'occhio. Nato dal componente «Lanes» del sito di presentazione (`proto/sito-comp-corsie.html`); l'utente: «sta roba della linea nel nostro programma non c'è, non sarebbe male pensare qualcosa di simile». Da decidere dove vive (riga delle corsie, scheda Git, revisione dell'integrazione) e da quali dati parte (`git log` del worktree della corsia, base del merge).
+Costo stimato: da valutare dopo la scelta del posto.
+Dipende da: niente.
+
 ---
 
 ## Scartate, con la ragione

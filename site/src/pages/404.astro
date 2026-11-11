@@ -1,0 +1,43 @@
+---
+import Base from '../layouts/Base.astro';
+import Header from '../components/Header.astro';
+import Footer from '../components/Footer.astro';
+---
+
+<Base title="Not found · OMP Studio" description="This page does not exist. OMP Studio is a desktop workspace for omp.">
+	<Header />
+	<main class="nf">
+		<pre aria-hidden="true">
+ ████████████████
+     ██      ██
+     ██      ██
+     ░░      ██
+             ██</pre>
+		<h1>Nothing stands here.</h1>
+		<p>The page you followed is gone, or never existed.</p>
+		<a class="btn" href="/">Back to OMP Studio</a>
+	</main>
+	<Footer />
+</Base>
+
+<style>
+	.nf {
+		min-height: 80vh;
+		display: grid;
+		place-content: center;
+		justify-items: start;
+		gap: 18px;
+		padding: 120px var(--gutter) 60px;
+	}
+	pre {
+		font: 600 14px/1.1 var(--mono);
+		color: var(--ochre);
+	}
+	h1 {
+		font: 400 clamp(40px, 6vw, 72px) / 1 var(--serif);
+		letter-spacing: -0.03em;
+	}
+	p {
+		color: var(--slate);
+	}
+</style>

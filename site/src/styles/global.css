@@ -1,0 +1,196 @@
+/* Token del sito: «stampa scura» della rovina, ocra del lichene come unico accento.
+   Non sono i token dell'app: il sito ha una sua direzione visiva (DECISIONS.md, «Sito web di presentazione»). */
+@font-face {
+	font-family: 'Geist Serif';
+	src: url('/fonts/GeistSerif-Regular.woff2') format('woff2');
+	font-display: swap;
+}
+@font-face {
+	font-family: 'Geist';
+	src: url('/fonts/Geist-Variable.woff2') format('woff2');
+	font-weight: 100 900;
+	font-display: swap;
+}
+@font-face {
+	font-family: 'Geist Mono';
+	src: url('/fonts/GeistMono-Variable.woff2') format('woff2');
+	font-weight: 100 900;
+	font-display: swap;
+}
+
+:root {
+	color-scheme: dark;
+	--ground: #0e0e0c;
+	--ground-2: #141412;
+	--stone: #f2f0ea;
+	--slate: #a3a7aa;
+	--faint: #7d8185;
+	--line: rgb(242 240 234 / 0.12);
+	--line-strong: rgb(242 240 234 / 0.24);
+	--ochre: #e3c06a;
+	--ochre-hover: #ebcd84;
+	--on-ochre: #1d1606;
+	--ok: #8fc27a;
+	--serif: 'Geist Serif', Georgia, serif;
+	--sans: 'Geist', system-ui, sans-serif;
+	--mono: 'Geist Mono', ui-monospace, Consolas, monospace;
+	--ease: cubic-bezier(0.2, 0.7, 0.1, 1);
+	--gutter: clamp(20px, 4vw, 48px);
+	/* ascii-reveal legge queste variabili dalla radice di ogni rivelazione */
+	--ascii-font: 'Geist Mono', ui-monospace, monospace;
+	--ascii-accent: #e3c06a;
+	--ascii-flash: #e3c06a;
+	--ascii-surface: #0e0e0c;
+}
+
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+	margin: 0;
+}
+html {
+	background: var(--ground);
+	color: var(--stone);
+	font-family: var(--sans);
+	-webkit-font-smoothing: antialiased;
+	overflow-x: clip;
+}
+body {
+	font-size: 17px;
+	line-height: 1.55;
+}
+a {
+	color: inherit;
+}
+img {
+	max-width: 100%;
+	height: auto;
+}
+:focus-visible {
+	outline: 2px solid var(--ochre);
+	outline-offset: 3px;
+}
+[hidden] {
+	display: none !important;
+}
+.sr-only {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+}
+
+.wrap {
+	width: min(1240px, 100% - 2 * var(--gutter));
+	margin-inline: auto;
+}
+section.block {
+	padding: clamp(96px, 14vh, 160px) 0;
+}
+.block h2.title {
+	font: 400 clamp(40px, 5vw, 72px) / 1 var(--serif);
+	letter-spacing: -0.03em;
+	margin-left: -0.03em;
+	max-width: 18ch;
+}
+.intro-line {
+	color: var(--slate);
+	max-width: 56ch;
+	margin-top: 18px;
+}
+
+/* Pulsanti e link condivisi */
+.btn {
+	display: inline-flex;
+	align-items: baseline;
+	gap: 12px;
+	background: var(--ochre);
+	color: var(--on-ochre);
+	text-decoration: none;
+	padding: 14px 20px;
+	border-radius: 2px;
+	font: 600 14px/1 var(--mono);
+	transition:
+		background 0.25s var(--ease),
+		translate 0.35s var(--ease);
+}
+.btn small {
+	font: 500 12px/1 var(--mono);
+	opacity: 0.72;
+}
+.btn:hover {
+	background: var(--ochre-hover);
+	translate: 0 -2px;
+}
+.btn:active {
+	translate: 0 0;
+}
+.link {
+	font: 500 13px/1 var(--mono);
+	color: var(--stone);
+	text-decoration: underline;
+	text-underline-offset: 5px;
+	text-decoration-color: var(--line-strong);
+	transition: text-decoration-color 0.25s;
+}
+.link:hover {
+	text-decoration-color: var(--ochre);
+}
+
+/* Elenco delle funzioni: testo a sinistra, componente interattivo a destra */
+.index {
+	list-style: none;
+	padding: 0;
+	margin-top: 56px;
+	border-top: 1px solid var(--line);
+}
+.index > li {
+	display: grid;
+	grid-template-columns: 5fr 7fr;
+	gap: 20px 48px;
+	padding: 40px 0;
+	border-bottom: 1px solid var(--line);
+	align-items: start;
+}
+.index h3 {
+	font: 400 clamp(30px, 3.2vw, 46px) / 1.05 var(--serif);
+	letter-spacing: -0.02em;
+	transition:
+		translate 0.45s var(--ease),
+		color 0.3s;
+}
+.index > li:hover h3 {
+	translate: 10px 0;
+	color: var(--ochre);
+}
+.index .copy p {
+	max-width: 46ch;
+	margin-top: 20px;
+}
+.index .hint {
+	font: 400 13px/1.5 var(--mono);
+	color: var(--faint);
+	margin-top: 16px;
+}
+.index .widget {
+	min-width: 0;
+}
+.also {
+	font: 400 13px/1.6 var(--mono);
+	color: var(--slate);
+	margin-top: 28px;
+}
+
+@media (max-width: 760px) {
+	.index > li {
+		grid-template-columns: 1fr;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.index > li:hover h3 {
+		translate: none;
+	}
+}

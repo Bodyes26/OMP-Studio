@@ -1,0 +1,110 @@
+<a class="skip" href="#features">Skip to content</a>
+<header>
+	<a class="brand" href="/" aria-label="OMP Studio, home">
+		<svg viewBox="0 0 96 80" fill="currentColor" aria-hidden="true"
+			><rect x="0" y="0" width="96" height="16" rx="1.1"></rect><rect x="24" y="8" width="16" height="32" rx="1.1"></rect><rect
+				x="56"
+				y="8"
+				width="16"
+				height="72"
+				rx="1.1"></rect><rect x="24" y="40" width="16" height="16" rx="1.1" opacity="0.45"></rect></svg
+		>
+		<span>OMP Studio</span>
+	</a>
+	<nav aria-label="Main">
+		<a href="/#features">Features</a>
+		<a href="/#download">Download</a>
+		<a href="https://github.com/Bodyes26/OMP-Studio">GitHub</a>
+	</nav>
+</header>
+
+<script>
+	// Sopra la foto il testo va in difference; dopo l'apertura passa su un fondo pieno,
+	// cosi' non si sovrappone ai testi delle sezioni che scorrono sotto.
+	const header = document.querySelector('header');
+	const gate = document.getElementById('gate');
+	if (header) {
+		const update = () => header.classList.toggle('solid', !gate || gate.getBoundingClientRect().bottom < 80);
+		addEventListener('scroll', update, { passive: true });
+		update();
+	}
+</script>
+<style>
+	.skip {
+		position: absolute;
+		left: -999px;
+		top: 8px;
+		background: var(--ochre);
+		color: var(--on-ochre);
+		padding: 8px 12px;
+		font: 500 13px var(--mono);
+		z-index: 50;
+	}
+	.skip:focus {
+		left: 8px;
+	}
+	/* Angoli liberi e testo in difference: resta leggibile sopra la foto e sul fondo scuro. */
+	header {
+		position: fixed;
+		inset: 0 0 auto 0;
+		z-index: 20;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 20px var(--gutter);
+		mix-blend-mode: difference;
+		color: #fff;
+	}
+	.brand {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		text-decoration: none;
+		font: 500 13px/1 var(--mono);
+	}
+	.brand svg {
+		width: 22px;
+		height: auto;
+	}
+	nav {
+		display: flex;
+		gap: clamp(14px, 2.4vw, 32px);
+	}
+	nav a {
+		font: 500 13px/1 var(--mono);
+		text-decoration: none;
+		padding: 6px 0;
+		position: relative;
+	}
+	header.solid {
+		mix-blend-mode: normal;
+		color: var(--stone);
+		background: rgb(14 14 12 / 0.94);
+		border-bottom: 1px solid var(--line);
+		padding-block: 14px;
+	}
+	header {
+		transition: padding 0.3s var(--ease), background-color 0.3s;
+	}
+	nav a::after {
+		content: '';
+		position: absolute;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		height: 1px;
+		background: currentColor;
+		transform: scaleX(0);
+		transform-origin: left;
+		transition: transform 0.35s var(--ease);
+	}
+	nav a:hover::after,
+	nav a:focus-visible::after {
+		transform: scaleX(1);
+	}
+	@media (max-width: 760px) {
+		nav a:not(:last-child) {
+			display: none;
+		}
+	}
+</style>

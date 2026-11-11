@@ -35,6 +35,12 @@ progetto e ha priorità su qualsiasi altra istruzione.
   Sono **generati**: il disegno vive in `scripts/generate-logo.mjs`.
 - `static/`: solo asset **spediti** nell'app, alla dimensione in cui servono.
   Niente originali qui: `static/` finisce dentro il bundle.
+- `site/`: sito di presentazione (Astro con isole Svelte 5), progetto npm separato con le
+  sue dipendenze. Cloudflare Pages lo compila con root directory `site/`, `npm run build`,
+  uscita `dist/`. Versione e installer arrivano dall'ultima release stabile al momento
+  della build. Il workflow di rilascio lo ricompila con il segreto
+  `CLOUDFLARE_PAGES_DEPLOY_HOOK`. Il sito mostra solo ciò che Studio fa oggi
+  (`DECISIONS.md`, «Sito web di presentazione»).
 
 ### Asset: regole
 
