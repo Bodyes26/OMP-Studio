@@ -3,7 +3,7 @@
 
   Nel corpo visualizza le fasi tramite il primitivo TaskRow,
   con indice fase nell'anello, metrica completed/total e dettagli espandibili con
-  stato dei singoli task e blocker inline.
+  stato dei singoli task.
 -->
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
@@ -31,8 +31,7 @@
 				name: str(p.name) ?? str(p.phase) ?? m.l10n_tools_label_phase_n({ index: idx + 1 }),
 				tasks: recordList(p.tasks).map((t, tIdx) => ({
 					content: str(t.task) ?? str(t.content) ?? m.l10n_tools_label_activity_n({ index: tIdx + 1 }),
-					status: (str(t.status) ?? 'pending') as TodoStatus,
-					blocker: str(t.blocker)
+					status: (str(t.status) ?? 'pending') as TodoStatus
 				}))
 			}));
 		}
@@ -73,8 +72,7 @@
 					tasks: phase.tasks.map((t, tIdx) => ({
 						id: `task-${idx}-${tIdx}`,
 						content: t.content,
-						status: t.status as TodoStatus,
-						blocker: t.blocker
+						status: t.status as TodoStatus
 					}))
 				},
 				idx

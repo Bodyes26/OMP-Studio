@@ -733,9 +733,9 @@ class ProjectStore {
 	}
 
 
-	/** Riordino manuale (drag&drop): `id` prende il posto di `targetId`. */
-	moveProject(id: string, targetId: string) {
-		this.projects = reorderItemsList(this.projects, id, targetId);
+	/** Riordino manuale (drag&drop / pointer): `id` prende il posto prima o dopo `targetId`. */
+	moveProject(id: string, targetId: string, position: 'before' | 'after' = 'before') {
+		this.projects = reorderItemsList(this.projects, id, targetId, position);
 		this.save();
 	}
 

@@ -7,6 +7,10 @@
 // - Misura le dimensioni reali del documento (scrollWidth/scrollHeight).
 // - Se snapshot e' richiesto, carica html-to-image da unpkg e cattura document.body
 //   (html2canvas non funziona: clona la pagina in un iframe, vietato dall'origine opaca della sandbox).
+//   La libreria serializza il DOM in un SVG: un commento HTML con "--" (lecito in HTML,
+//   vietato in XML) rende l'immagine illeggibile. Le immagini remote non si possono
+//   rileggere (la CSP non ha connect-src e quasi nessuna manda gli header CORS), quindi
+//   un segnaposto che non e' un GIF valido faceva rifiutare l'intera cattura.
 // - Invia l'esito a Studio con window.parent.postMessage.
 
 // Lo script viene ridotto a una sola riga e iniettato senza a capo: cosi' le righe degli
@@ -113,6 +117,66 @@ export function buildPreviewHarnessScript(id: string, snapshot: boolean): string
       return;
     }
 
+    function describeError(err) {
+      if (err && typeof err === 'object' && err.type && !err.message) {
+        var target = err.target;
+        var where = target && target.tagName ? ' on ' + String(target.tagName).toLowerCase() : '';
+        return err.type + where;
+      }
+      return (err && err.message) || String(err);
+    }
+
+    function prepareSnapshotDom(root) {
+      var comments = [];
+      if (typeof document.createTreeWalker === 'function') {
+        var walker = document.createTreeWalker(root, 128, null);
+        while (walker.nextNode()) comments.push(walker.currentNode);
+      }
+      for (var c = 0; c < comments.length; c++) {
+        if (comments[c].parentNode) comments[c].parentNode.removeChild(comments[c]);
+      }
+      var imgs = root.querySelectorAll('img');
+      for (var i = 0; i < imgs.length; i++) {
+        var img = imgs[i];
+        if (!img.naturalWidth || !img.naturalHeight) continue;
+        try {
+          var scratch = document.createElement('canvas');
+          scratch.width = img.naturalWidth;
+          scratch.height = img.naturalHeight;
+          scratch.getContext('2d').drawImage(img, 0, 0);
+          img.removeAttribute('srcset');
+          img.src = scratch.toDataURL('image/png');
+        } catch (e) {}
+      }
+      var canvases = root.querySelectorAll('canvas');
+      for (var k = 0; k < canvases.length; k++) {
+        try { canvases[k].toDataURL(); }
+        catch (e) {
+          var blank = document.createElement('canvas');
+          blank.width = canvases[k].width || 1;
+          blank.height = canvases[k].height || 1;
+          if (canvases[k].parentNode) canvases[k].parentNode.replaceChild(blank, canvases[k]);
+        }
+      }
+      var styles = root.querySelectorAll('style');
+      for (var s = 0; s < styles.length; s++) {
+        styles[s].textContent = styles[s].textContent.replace(/url\(\s*['"]?https?:[^)]+\)/gi, 'none');
+      }
+      var nodes = root.querySelectorAll('*');
+      for (var n = 0; n < nodes.length; n++) {
+        var el = nodes[n];
+        var bgImage = '';
+        try { bgImage = getComputedStyle(el).backgroundImage || ''; } catch (e) { bgImage = ''; }
+        if (bgImage.indexOf('http:') !== -1) el.style.backgroundImage = 'none';
+        var mask = '';
+        try { mask = getComputedStyle(el).webkitMaskImage || getComputedStyle(el).maskImage || ''; } catch (e) { mask = ''; }
+        if (mask.indexOf('http:') !== -1) {
+          el.style.webkitMaskImage = 'none';
+          el.style.maskImage = 'none';
+        }
+      }
+    }
+
     function capture() {
       try {
         var lib = window.htmlToImage;
@@ -120,6 +184,7 @@ export function buildPreviewHarnessScript(id: string, snapshot: boolean): string
           sendAck(null, 'html-to-image unavailable or document.body missing');
           return;
         }
+        prepareSnapshotDom(document.body);
         var shotWidth = Math.min(width, 1280);
         var shotHeight = Math.min(height, 2400);
         var bg = getComputedStyle(document.body).backgroundColor;
@@ -131,7 +196,9 @@ export function buildPreviewHarnessScript(id: string, snapshot: boolean): string
           pixelRatio: 1,
           skipFonts: true,
           backgroundColor: bg,
-          imagePlaceholder: 'data:image/gif;base64,R0lGODlhAQABAAAAACw='
+          imagePlaceholder: 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
+          onImageErrorHandler: function() {},
+          filter: function(node) { return node.nodeType !== 8; }
         }).then(function(canvas) {
           var dataUrl = canvas.toDataURL('image/png');
           var mimeType = 'image/png';
@@ -142,10 +209,10 @@ export function buildPreviewHarnessScript(id: string, snapshot: boolean): string
           var commaIdx = dataUrl.indexOf(',');
           sendAck({ mimeType: mimeType, data: commaIdx !== -1 ? dataUrl.slice(commaIdx + 1) : dataUrl }, null);
         }).catch(function(err) {
-          sendAck(null, 'Snapshot capture error: ' + ((err && err.message) || String(err)));
+          sendAck(null, 'Snapshot capture error: ' + describeError(err));
         });
       } catch (e) {
-        sendAck(null, 'Snapshot exception: ' + ((e && e.message) || String(e)));
+        sendAck(null, 'Snapshot exception: ' + describeError(e));
       }
     }
 

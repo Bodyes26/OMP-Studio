@@ -153,14 +153,23 @@ export function applyTabTrash(
 
 /**
  * Riordina un array di elementi spostando l'elemento con id `fromId` alla posizione di `targetId`.
+ * Se `position` e' 'after', l'elemento viene inserito subito dopo `targetId`; altrimenti subito prima.
  */
-export function reorderItemsList<T extends { id: string }>(items: T[], fromId: string, targetId: string): T[] {
+export function reorderItemsList<T extends { id: string }>(
+	items: T[],
+	fromId: string,
+	targetId: string,
+	position: 'before' | 'after' = 'before'
+): T[] {
 	if (fromId === targetId) return items;
 	const from = items.findIndex((p) => p.id === fromId);
 	const targetIdx = items.findIndex((p) => p.id === targetId);
 	if (from === -1 || targetIdx === -1) return items;
 	const [moved] = items.splice(from, 1);
-	const to = items.findIndex((p) => p.id === targetId);
+	let to = items.findIndex((p) => p.id === targetId);
+	if (position === 'after') {
+		to += 1;
+	}
 	items.splice(to, 0, moved);
 	return items;
 }

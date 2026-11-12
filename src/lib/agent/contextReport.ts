@@ -16,6 +16,7 @@ const LABEL_IDS: Record<string, string> = {
 	'System prompt': 'systemPrompt',
 	'System tools': 'systemTools',
 	'System context': 'systemContext',
+	'Instruction files': 'instructionFiles',
 	Skills: 'skills',
 	Messages: 'messages',
 	'Auto-compact buf': 'autoCompact',

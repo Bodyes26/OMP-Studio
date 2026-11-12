@@ -199,9 +199,6 @@
 										<StatusMark status={toStatusMarkStatus(item.status ?? 'pending')} />
 									</span>
 									<span class="item-label">{item.label}</span>
-									{#if item.blocker}
-										<span class="item-blocker" title={item.blocker}>{item.blocker}</span>
-									{/if}
 								</li>
 							{/each}
 						</ul>
@@ -509,21 +506,6 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-	}
-
-	.item-blocker {
-		font-size: var(--text-caption);
-		line-height: 1.35;
-		padding: 2px 6px;
-		border-radius: var(--radius-sm);
-		background: color-mix(in srgb, var(--warn) 15%, transparent);
-		color: var(--warn);
-		border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent);
-		width: 100%;
-		margin-left: 22px;
-		box-sizing: border-box;
-		word-break: break-word;
-		white-space: pre-wrap;
 	}
 
 	.details-meta-grid {

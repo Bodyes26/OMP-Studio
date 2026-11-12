@@ -40,7 +40,6 @@ export type TodoTraceItem =
 			total: number;
 			title: string;
 			status: TodoStatus;
-			blocker?: string;
 	  }
 	| {
 			type: 'completion';
@@ -106,14 +105,13 @@ export function extractPhasesFromCall(call: TodoCallInput): ExtractedPhases {
 					: typeof t.text === 'string'
 						? t.text
 						: '';
-			const rawStatus = (typeof t.status === 'string' ? t.status : 'pending') as TodoStatus;
-			const blocker = typeof t.blocker === 'string' ? t.blocker : undefined;
+			// omp 18.19 ha tolto `blocked`: come omp al ripristino, i transcript vecchi tornano `pending`.
+			const rawStatus = typeof t.status === 'string' && t.status !== 'blocked' ? (t.status as TodoStatus) : 'pending';
 
 			tasks.push({
 				id: typeof t.id === 'string' ? t.id : `task-${pIdx}-${tIdx}`,
 				content,
-				status: rawStatus,
-				blocker
+				status: rawStatus
 			});
 		}
 
@@ -138,7 +136,7 @@ interface ActiveTaskInfo {
 function findActiveTask(phases: TodoPhase[]): ActiveTaskInfo | null {
 	let globalIndex = 0;
 
-	// Prima cerca il primo task in esecuzione
+	// Il task attivo e' il primo in esecuzione
 	for (let pIdx = 0; pIdx < phases.length; pIdx++) {
 		const phase = phases[pIdx];
 		const tasks = phase.tasks ?? [];
@@ -146,26 +144,6 @@ function findActiveTask(phases: TodoPhase[]): ActiveTaskInfo | null {
 			globalIndex++;
 			const task = tasks[tIdx];
 			if (task.status === 'in_progress') {
-				return {
-					phaseIndex: pIdx,
-					phaseName: phase.name,
-					taskIndex: tIdx,
-					globalIndex,
-					item: task
-				};
-			}
-		}
-	}
-
-	// Se nessuno e' in esecuzione, cerca il primo bloccato
-	globalIndex = 0;
-	for (let pIdx = 0; pIdx < phases.length; pIdx++) {
-		const phase = phases[pIdx];
-		const tasks = phase.tasks ?? [];
-		for (let tIdx = 0; tIdx < tasks.length; tIdx++) {
-			globalIndex++;
-			const task = tasks[tIdx];
-			if (task.status === 'blocked') {
 				return {
 					phaseIndex: pIdx,
 					phaseName: phase.name,
@@ -293,8 +271,7 @@ export class TodoTraceTracker {
 					globalIndex: initialActive.globalIndex,
 					total,
 					title: initialActive.item.content,
-					status: initialActive.item.status,
-					blocker: initialActive.item.blocker
+					status: initialActive.item.status
 				});
 
 				this.lastActiveKey = `${initialActive.phaseIndex}:${initialActive.taskIndex}:${initialActive.item.content}`;
@@ -349,8 +326,7 @@ export class TodoTraceTracker {
 					globalIndex: currentActive.globalIndex,
 					total,
 					title: currentActive.item.content,
-					status: currentActive.item.status,
-					blocker: currentActive.item.blocker
+					status: currentActive.item.status
 				});
 
 				this.lastActiveKey = activeKey;

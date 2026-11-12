@@ -31,8 +31,13 @@ released: items are closed into a version via `npm run release -- <version>`.
 - The Companion, Queue and Remote control buttons move from the top bar to the status bar at the bottom, next to automations: the top bar stays free for project tiles.
 - On macOS Studio is signed with its own stable certificate instead of an ad-hoc signature: after an update macOS recognizes it as the same app and does not ask again for folder permissions and keychain access. The first update after this change asks one last time.
 - The macOS installer DMG window has a new look: a monumental marble π in an alpine landscape, with the π made of fine ASCII characters and a film-grain photographic finish. OMP Studio sits on the left and the Applications folder on the right.
+- Aligned with OMP 18.19: todos no longer have the "blocked" status, which OMP removed. The tray, rows and chat traces show only pending, in progress, completed and abandoned; blocked todos from earlier sessions appear as pending, as OMP restores them.
 
 ### Fixed
+- A preview screenshot comes back even when the page has HTML comments or external images: previously the capture failed and the agent got no image. (ANT-010)
+- Project tab reordering via drag & drop: dragging project tiles in the top bar when order is set to "Manual" now uses Pointer Events with a minimal drag resistance threshold (6 px), avoiding conflicts with Tauri's window drag region and bypassing WebView2/Windows HTML5 drag restrictions. Dropping places the tab before or after the target based on the hovered half.
+- When replying to a chat from the Companion with command, skill or file suggestions open, Tab and Enter pick the suggestion as in the chat composer, the arrows move through it and Esc closes the list: Tab no longer moves focus to the send button and Enter no longer sends a half-written message.
+- In the top bar, agent status indicators on Scratchpad tabs and free Lab drafts (working spinner, attention ring and finished ring) no longer overlap or crowd the ghost or flask icon, maintaining proper spacing.
 - Single-choice agent questions show one radio dot per option: the hidden native radio no longer reappears next to Studio's own.
 - The Companion shortcut now also closes it when it is pinned as a widget, if its window is active; when it is open but in the background, the shortcut brings it to the front without replaying the opening animation.
 - After force-stopping a stuck agent, "New chat" and sending a message reopen `omp` from the GUI, without going through the terminal.
@@ -55,6 +60,9 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Studio sets `omp`'s Git Bash shell also for people who already had `omp` installed, and writes it to the file `omp` actually reads (`config.yml`): it used to land in `settings.json`, which `omp` ignores after its first setup. A shell chosen by the user is never replaced.
 - First-run setup and the terminal no longer start PowerShell: updating PATH, registering the font and launching `omp` with unusual arguments use native Windows functions. On PCs where the antivirus blocks PowerShell, setup now completes.
 - In Companion, the rows under "To read" and "Working" no longer overlap: the project name and reply preview stay on their own lines, and the list scrolls when the items don't fit.
+- The context panel shows "Instruction files" (AGENTS.md and similar) as their own entry with a translated label, as `/context` splits them out since OMP 18.18.9, instead of an untranslated row at the bottom.
+- The `/mcp` command card no longer mentions searching the Smithery registry, removed in OMP 18.18.9.
+
 ## [1.10.0] - 2026-11-05
 
 ### Added

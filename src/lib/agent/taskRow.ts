@@ -21,7 +21,6 @@ export interface TaskRowDetailItem {
 	id?: string;
 	label: string;
 	status?: TaskRowStatus;
-	blocker?: string;
 }
 
 export interface TaskRowToolCall {
@@ -74,8 +73,6 @@ export function mapTodoStatus(status?: TodoStatus | string): TaskRowStatus {
 			return 'running';
 		case 'completed':
 			return 'completed';
-		case 'blocked':
-			return 'blocked';
 		case 'abandoned':
 			return 'abandoned';
 		case 'pending':
@@ -111,7 +108,7 @@ export function mapAgentStatus(
 
 /**
  * Risolve lo stato aggregato di una fase Todo secondo la precedenza contrattuale:
- * in_progress > blocked > pending > abandoned > completed.
+ * in_progress > pending > abandoned > completed.
  */
 export function resolvePhaseStatus(
 	tasks?: Array<{ status?: TodoStatus | string }> | null
@@ -119,7 +116,6 @@ export function resolvePhaseStatus(
 	if (!tasks || tasks.length === 0) return 'pending';
 
 	if (tasks.some((t) => t.status === 'in_progress')) return 'running';
-	if (tasks.some((t) => t.status === 'blocked')) return 'blocked';
 	if (tasks.some((t) => t.status === 'pending')) return 'pending';
 	if (tasks.some((t) => t.status === 'abandoned')) return 'abandoned';
 	if (tasks.every((t) => t.status === 'completed')) return 'completed';
@@ -201,8 +197,7 @@ export function todoPhaseToTaskRow(phase: TodoPhase, index?: number): TaskRowMod
 	const detailItems: TaskRowDetailItem[] = tasks.map((t: TodoItem, taskIdx: number) => ({
 		id: t.id ?? `${phaseKey}-task-${taskIdx}`,
 		label: t.content,
-		status: mapTodoStatus(t.status),
-		blocker: t.blocker
+		status: mapTodoStatus(t.status)
 	}));
 
 	return {

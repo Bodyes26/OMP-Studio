@@ -3,7 +3,7 @@
  *
  * Test di unita' per il contratto osservabile degli adattatori TaskRow:
  * - mapping stati per TodoStatus e AgentProgress
- * - precedenza contrattuale fase (in_progress > blocked > pending > abandoned > completed)
+ * - precedenza contrattuale fase (in_progress > pending > abandoned > completed)
  * - conteggio completed/total (solo completed al numeratore)
  * - gestione campi opzionali assenti e fallback
  * - stati blocked, abandoned, aborted
@@ -35,7 +35,6 @@ describe('Adattatori TaskRow — Mapping stati', () => {
 		assert.equal(mapTodoStatus('pending'), 'pending');
 		assert.equal(mapTodoStatus('in_progress'), 'running');
 		assert.equal(mapTodoStatus('completed'), 'completed');
-		assert.equal(mapTodoStatus('blocked'), 'blocked');
 		assert.equal(mapTodoStatus('abandoned'), 'abandoned');
 		// Fallback su stato indefinito o sconosciuto
 		assert.equal(mapTodoStatus(undefined), 'pending');
@@ -73,24 +72,13 @@ describe('Adattatori TaskRow — Precedenza di fase', () => {
 		const tasks = [
 			{ status: 'completed' },
 			{ status: 'abandoned' },
-			{ status: 'blocked' },
 			{ status: 'pending' },
 			{ status: 'in_progress' }
 		];
 		assert.equal(resolvePhaseStatus(tasks), 'running');
 	});
 
-	it('assegna priorita a blocked quando nessun task e in_progress', () => {
-		const tasks = [
-			{ status: 'completed' },
-			{ status: 'abandoned' },
-			{ status: 'pending' },
-			{ status: 'blocked' }
-		];
-		assert.equal(resolvePhaseStatus(tasks), 'blocked');
-	});
-
-	it('assegna priorita a pending quando non ci sono in_progress o blocked', () => {
+	it('assegna priorita a pending quando non ci sono in_progress', () => {
 		const tasks = [
 			{ status: 'completed' },
 			{ status: 'abandoned' },
@@ -130,14 +118,13 @@ describe('Adattatori TaskRow — Conteggio completed/total', () => {
 			{ status: 'completed' },
 			{ status: 'completed' },
 			{ status: 'abandoned' },
-			{ status: 'blocked' },
 			{ status: 'in_progress' },
 			{ status: 'pending' }
 		];
 		const counts = countPhaseCompleted(tasks);
 		assert.equal(counts.completed, 2, 'Il numeratore deve contare solo completed');
-		assert.equal(counts.total, 6, 'Il denominatore deve essere il totale');
-		assert.equal(formatPhaseMetric(counts.completed, counts.total), '2/6');
+		assert.equal(counts.total, 5, 'Il denominatore deve essere il totale');
+		assert.equal(formatPhaseMetric(counts.completed, counts.total), '2/5');
 	});
 
 	it('restituisce 0/0 per liste vuote', () => {
@@ -167,13 +154,13 @@ describe('Adattatori TaskRow — Formattazione metrica token', () => {
 });
 
 describe('Adattatori TaskRow — todoPhaseToTaskRow', () => {
-	it('trasforma una TodoPhase completa con task e blocker', () => {
+	it('trasforma una TodoPhase completa con task', () => {
 		const phase: TodoPhase = {
 			id: 'phase-prep',
 			name: 'Preparazione ambiente',
 			tasks: [
 				{ id: 't1', content: 'Verifica dipendenze', status: 'completed' },
-				{ id: 't2', content: 'Configurazione proxy', status: 'blocked', blocker: 'Porta 8080 occupata' },
+				{ id: 't2', content: 'Configurazione proxy', status: 'in_progress' },
 				{ id: 't3', content: 'Avvio container', status: 'pending' }
 			]
 		};
@@ -182,14 +169,13 @@ describe('Adattatori TaskRow — todoPhaseToTaskRow', () => {
 
 		assert.equal(row.key, 'phase-prep');
 		assert.equal(row.label, 'Preparazione ambiente');
-		assert.equal(row.status, 'blocked');
+		assert.equal(row.status, 'running');
 		assert.equal(row.ringNumber, 1);
 		assert.equal(row.metric, '1/3');
 		assert.equal(row.expandable, true);
 		assert.ok(row.details);
 		assert.equal(row.details.items?.length, 3);
-		assert.equal(row.details.items[1].status, 'blocked');
-		assert.equal(row.details.items[1].blocker, 'Porta 8080 occupata');
+		assert.equal(row.details.items[1].status, 'running');
 	});
 
 	it('gestisce TodoPhase priva di task rendendola non espandibile', () => {

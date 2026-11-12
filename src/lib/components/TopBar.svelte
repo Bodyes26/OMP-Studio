@@ -189,8 +189,24 @@
 	let closeTimer: ReturnType<typeof setTimeout> | null = null;
 	let pointerInsidePanel = false;
 	let orderMenuOpen = $state(false);
+	// Riordino manuale delle tessere tramite Pointer Events con soglia di resistenza:
+	// In WebView2/Chromium sotto Tauri il drag&drop HTML5 nativo viene disabilitato
+	// quando e' attivo il drop di file nativi (dragDropEnabled). I pointer events
+	// con soglia di movimento evitano falsi avvii su normali clic o micro-movimenti.
+	const DRAG_RESISTANCE_PX = 6;
+	let dragCandidate = $state<{ id: string; startX: number; startY: number } | null>(null);
+	let isDraggingProject = $state(false);
 	let draggedProjectId = $state<string | null>(null);
 	let dragOverProjectId = $state<string | null>(null);
+	let dragOverAfter = $state(false);
+	let suppressTabClickUntil = 0;
+
+	$effect(() => {
+		if (isDraggingProject) {
+			document.body.classList.add('is-dragging-project-tab');
+			return () => document.body.classList.remove('is-dragging-project-tab');
+		}
+	});
 	let tabsTrackEl = $state<HTMLElement | null>(null);
 	let canScrollLeft = $state(false);
 	let canScrollRight = $state(false);
@@ -538,7 +554,7 @@
 		// Solo il mouse apre l'anteprima: con penna o dito non esiste "passare
 		// sopra", e il pannello comparirebbe al tocco insieme alla selezione.
 		if (event.pointerType !== 'mouse') return;
-		if (draggedProjectId) return;
+		if (draggedProjectId || isDraggingProject) return;
 		if (panel?.pinned) return;
 		const anchor = event.currentTarget as HTMLElement;
 		clearTimers();
@@ -610,42 +626,74 @@
 		tabs[next].focus();
 	}
 
-	// Riordino manuale della barra: ha senso solo con order === 'fixed', gli
-	// altri modi sono viste calcolate che non hanno un ordine da spostare.
-	function handleProjectDragStart(event: DragEvent, id: string) {
+	// Riordino manuale della barra: ha senso solo con order === 'fixed'.
+	// Il trascinamento usa Pointer Events per operare stabilmente sotto WebView2/Tauri.
+	function handleTabPointerDown(event: PointerEvent, id: string) {
+		if (event.button !== 0) return;
 		if (settingsStore.projectBar.order !== 'fixed') return;
-		closePanel();
-		draggedProjectId = id;
-		if (event.dataTransfer) {
-			event.dataTransfer.effectAllowed = 'move';
-			event.dataTransfer.setData('text/plain', id);
+		dragCandidate = {
+			id,
+			startX: event.clientX,
+			startY: event.clientY
+		};
+		isDraggingProject = false;
+	}
+
+	function handleWindowPointerMove(event: PointerEvent) {
+		if (!dragCandidate) return;
+
+		if (!isDraggingProject) {
+			const dist = Math.hypot(
+				event.clientX - dragCandidate.startX,
+				event.clientY - dragCandidate.startY
+			);
+			if (dist >= DRAG_RESISTANCE_PX) {
+				isDraggingProject = true;
+				draggedProjectId = dragCandidate.id;
+				closePanel();
+				clearTimers();
+			}
+		}
+
+		if (isDraggingProject && draggedProjectId) {
+			const el = document.elementFromPoint(event.clientX, event.clientY);
+			const targetContainer = el?.closest<HTMLElement>('.tab-container[data-tab-id]');
+			const targetId = targetContainer?.dataset.tabId ?? null;
+
+			if (targetId && targetId !== draggedProjectId) {
+				dragOverProjectId = targetId;
+				const rect = targetContainer!.getBoundingClientRect();
+				dragOverAfter = event.clientX > rect.left + rect.width / 2;
+			} else {
+				dragOverProjectId = null;
+				dragOverAfter = false;
+			}
 		}
 	}
 
-	function handleProjectDragOver(event: DragEvent, id: string) {
-		if (settingsStore.projectBar.order !== 'fixed' || !draggedProjectId) return;
-		event.preventDefault();
-		if (event.dataTransfer) {
-			event.dataTransfer.dropEffect = 'move';
+	function handleWindowPointerUp(event: PointerEvent) {
+		if (!dragCandidate) return;
+
+		if (isDraggingProject && draggedProjectId) {
+			if (dragOverProjectId && dragOverProjectId !== draggedProjectId) {
+				projectStore.moveProject(draggedProjectId, dragOverProjectId, dragOverAfter ? 'after' : 'before');
+			}
+			suppressTabClickUntil = Date.now() + 150;
 		}
-		dragOverProjectId = id;
-	}
 
-	function handleProjectDragLeave(id: string) {
-		if (dragOverProjectId === id) dragOverProjectId = null;
-	}
-
-	function handleProjectDrop(event: DragEvent, id: string) {
-		event.preventDefault();
-		const sourceId = draggedProjectId || event.dataTransfer?.getData('text/plain');
-		if (sourceId && sourceId !== id) projectStore.moveProject(sourceId, id);
+		dragCandidate = null;
+		isDraggingProject = false;
 		draggedProjectId = null;
 		dragOverProjectId = null;
+		dragOverAfter = false;
 	}
 
-	function handleProjectDragEnd() {
+	function handleWindowPointerCancel() {
+		dragCandidate = null;
+		isDraggingProject = false;
 		draggedProjectId = null;
 		dragOverProjectId = null;
+		dragOverAfter = false;
 	}
 
 	function selectProjectOrder(order: ProjectBarOrder) {
@@ -683,6 +731,14 @@
 
 	function handleKeydown(event: KeyboardEvent) {
 		if (event.key === 'Escape') {
+			if (isDraggingProject) {
+				dragCandidate = null;
+				isDraggingProject = false;
+				draggedProjectId = null;
+				dragOverProjectId = null;
+				dragOverAfter = false;
+				return;
+			}
 			if (orderMenuOpen) {
 				orderMenuOpen = false;
 				return;
@@ -711,7 +767,12 @@
 	);
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
+<svelte:window
+	onkeydown={handleKeydown}
+	onpointermove={handleWindowPointerMove}
+	onpointerup={handleWindowPointerUp}
+	onpointercancel={handleWindowPointerCancel}
+/>
 
 <header class="topbar" class:mac-chrome={IS_MAC} data-tauri-drag-region="deep">
 	<div class="brand-section">
@@ -750,7 +811,7 @@
 		</button>
 	</div>
 
-	<div class="tabs-nav">
+	<div class="tabs-nav" data-tauri-drag-region="false" class:is-dragging-tab={isDraggingProject}>
 		{#if canScrollLeft}
 			<button
 				type="button"
@@ -799,13 +860,11 @@
 						class="tab-container"
 						role="presentation"
 						data-tab-id={p.id}
+						class:can-reorder={settingsStore.projectBar.order === 'fixed'}
 						class:dragging={draggedProjectId === p.id}
 						class:drag-over={dragOverProjectId === p.id && draggedProjectId !== null && draggedProjectId !== p.id}
+						class:drag-after={dragOverAfter && dragOverProjectId === p.id}
 						class:panel-open={panel?.projectId === p.id}
-						draggable={settingsStore.projectBar.order === 'fixed'}
-						ondragover={(event) => handleProjectDragOver(event, p.id)}
-						ondragleave={() => handleProjectDragLeave(p.id)}
-						ondrop={(event) => handleProjectDrop(event, p.id)}
 						onpointerenter={(event) => handleTabPointerEnter(p.id, event)}
 						onpointerleave={handleTabPointerLeave}
 						oncontextmenu={(event) => handleTabContextMenu(p.id, event)}
@@ -821,16 +880,17 @@
 					class="tab"
 					type="button"
 					role="tab"
-					draggable={settingsStore.projectBar.order === 'fixed'}
-					ondragstart={(event) => handleProjectDragStart(event, p.id)}
-					ondragend={handleProjectDragEnd}
+					onpointerdown={(event) => handleTabPointerDown(event, p.id)}
 					class:active={isActive}
 					class:attention={settingsStore.projectBar.showAgentDot && aggState === 'attention'}
 					class:finished={settingsStore.projectBar.showAgentDot && aggState === 'finished'}
 					class:quiet={aggState === 'idle' || aggState === 'unknown'}
 					class:scratchpad={!p.canonicalProjectPath}
 					style="--proj-hue: {projectHue(p)}"
-					onclick={() => projectStore.setActive(p.id)}
+					onclick={() => {
+						if (Date.now() < suppressTabClickUntil) return;
+						projectStore.setActive(p.id);
+					}}
 					onkeydown={handleTabKeydown}
 					aria-selected={isActive}
 					tabindex={p.id === rovingTabId ? 0 : -1}
@@ -1368,13 +1428,12 @@
 
 	/* Riordino manuale: la tessera trascinata segnala il punto di sgancio con
 	   una barra sottile, mai con un'animazione che distragga. */
-	.tab[draggable="true"],
-	.tab-container[draggable="true"] .tab {
+	.tab-container.can-reorder .tab {
 		cursor: grab;
 	}
 
-	.tab[draggable="true"]:active,
-	.tab-container[draggable="true"] .tab:active {
+	.tab-container.can-reorder .tab:active,
+	.tab-container.dragging .tab {
 		cursor: grabbing;
 	}
 
@@ -1392,8 +1451,20 @@
 		border-radius: var(--radius-full);
 		background-color: var(--line-strong);
 		pointer-events: none;
+		z-index: 2;
 	}
 
+	.tab-container.drag-over.drag-after::before {
+		left: auto;
+		right: -2px;
+	}
+
+	:global(body.is-dragging-project-tab),
+	.tabs-nav.is-dragging-tab,
+	.tabs-nav.is-dragging-tab * {
+		user-select: none !important;
+		cursor: grabbing !important;
+	}
 	.tab,
 	.tab-add {
 		height: 30px;
@@ -1687,11 +1758,19 @@
 		animation: spin 0.9s linear infinite;
 	}
 
+	/* Icona del fantasma (scratchpad) o beuta (bozza libera): distanziata
+	   dal punto d'identita' come il codice progetto (tab-code), cosi' il
+	   segnalino al lavoro, in attenzione o finito non tocca la sagoma. */
 	.tab-ghost {
 		display: flex;
 		align-items: center;
 		position: relative;
 		z-index: 1;
+		transition: color var(--dur-calm) var(--ease-out);
+	}
+
+	.tab-dot + .tab-ghost {
+		margin-left: var(--space-2);
 	}
 
 	.tab-code {

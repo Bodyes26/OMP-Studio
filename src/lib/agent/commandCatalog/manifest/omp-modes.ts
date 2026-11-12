@@ -907,8 +907,7 @@ export const OMP_ENTRIES_MODES: readonly CommandManifestEntry[] = [
 					'Gestisce i server Model Context Protocol (MCP) per connettere endpoint, API esterne e database.',
 				benefits: [
 					'Integra server MCP locali o remoti arricchendo la sessione con strumenti e risorse specializzate.',
-					'Permette di testare, riautenticare o ricaricare i server a caldo senza riavviare l’applicazione.',
-					'Supporta ricerca e installazione rapida di integrazioni tramite il registro Smithery.'
+					'Permette di testare, riautenticare o ricaricare i server a caldo senza riavviare l’applicazione.'
 				],
 				examples: [
 					{
@@ -937,8 +936,7 @@ export const OMP_ENTRIES_MODES: readonly CommandManifestEntry[] = [
 					'Manages Model Context Protocol (MCP) servers to integrate external tools, data, and endpoints.',
 				benefits: [
 					'Connects local and remote MCP servers, extending session capabilities with custom tools and resources.',
-					'Enables testing, re-authenticating, and reloading servers on the fly without restarting.',
-					'Supports fast discovery and deployment of integrations via the Smithery registry.'
+					'Enables testing, re-authenticating, and reloading servers on the fly without restarting.'
 				],
 				examples: [
 					{

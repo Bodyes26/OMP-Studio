@@ -34,8 +34,8 @@
 							{#if trace.phases.length > 1}<strong>{phase.name}</strong>{/if}
 							{#each phase.tasks as task}
 								<div class="task-row">
-									<StatusMark status={task.status === 'completed' ? 'completed' : task.status === 'blocked' ? 'blocked' : 'pending'} />
-									<span>{task.content}{#if task.blocker} · {task.blocker}{/if}</span>
+									<StatusMark status={task.status === 'completed' ? 'completed' : 'pending'} />
+									<span>{task.content}</span>
 								</div>
 							{/each}
 						{/each}
@@ -49,10 +49,9 @@
 {:else if trace.type === 'step'}
 	<!-- Il passo e' storia del racconto: lo stato vivo sta nel vassoio, qui il segno resta fermo. -->
 	<div class="trace-row step" role="status">
-		<StatusMark status={trace.status === 'completed' ? 'completed' : trace.status === 'blocked' ? 'blocked' : 'running'} active={false} />
+		<StatusMark status={trace.status === 'completed' ? 'completed' : 'running'} active={false} />
 		<span class="count">{trace.globalIndex}/{trace.total}</span>
 		<span>{trace.title}</span>
-		{#if trace.blocker}<span class="meta"> · {trace.blocker}</span>{/if}
 	</div>
 {:else}
 	<div class="trace-row step" role="status"><StatusMark status="completed" />{m.chat_v2_trace_todo_done_of_total({ completed: trace.completed, total: trace.total })}</div>

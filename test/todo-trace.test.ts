@@ -202,44 +202,20 @@ describe('todoTrace — estrazione e tracciamento eventi todo (Gate R32 - C12)',
 		}
 	});
 
-	it('produce un marcatore per todo bloccato con motivo blocker', () => {
-		const tracker = new TodoTraceTracker();
-
-		const phasesRunning: TodoPhase[] = [
-			{
-				name: 'Lavoro',
-				tasks: [
-					{ id: 't1', content: 'Connessione DB', status: 'in_progress' },
-					{ id: 't2', content: 'Query', status: 'pending' }
-				]
+	it('riporta a pending i todo blocked dei transcript precedenti a omp 18.19', () => {
+		const { phases } = extractPhasesFromCall({
+			result: {
+				details: {
+					phases: [
+						{
+							name: 'Lavoro',
+							tasks: [{ content: 'Connessione DB', status: 'blocked', blocker: 'Credenziali mancanti' }]
+						}
+					]
+				}
 			}
-		];
-
-		tracker.process({ phases: phasesRunning });
-
-		const phasesBlocked: TodoPhase[] = [
-			{
-				name: 'Lavoro',
-				tasks: [
-					{
-						id: 't1',
-						content: 'Connessione DB',
-						status: 'blocked',
-						blocker: 'Credenziali mancanti in Parametri.ini'
-					},
-					{ id: 't2', content: 'Query', status: 'pending' }
-				]
-			}
-		];
-
-		const blockedTraces = tracker.process({ phases: phasesBlocked });
-		assert.equal(blockedTraces.length, 1);
-		assert.equal(blockedTraces[0].type, 'step');
-		if (blockedTraces[0].type === 'step') {
-			assert.equal(blockedTraces[0].status, 'blocked');
-			assert.equal(blockedTraces[0].blocker, 'Credenziali mancanti in Parametri.ini');
-			assert.equal(blockedTraces[0].title, 'Connessione DB');
-		}
+		});
+		assert.equal(phases[0].tasks[0].status, 'pending');
 	});
 
 	it('produce evento di completamento finale quando tutti i todo sono completati', () => {

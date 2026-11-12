@@ -2124,3 +2124,61 @@ Limite noto: gli errori dei comandi remoti arrivano alla PWA nella lingua della 
 
 Scelta la strada E su richiesta dell'utente («proviamo ad implementare la E allora»): un launcher Tauri dedicato contiene il setup NSIS di Tauri. Grafica ispirata al DMG (rovina ASCII animata) e cornice Windows 11 con Mica, tema automatico, opzioni cartella/desktop e lingua di Windows. La UI e' HTML/CSS/JS senza bundler; la logica di installazione e la disinstallazione restano NSIS. Requisiti e limiti di verifica: docs/requisiti/installer-windows.md (IWN-001…011).
 La compatibilita' con gli aggiornamenti preesistenti passa dal forwarding della riga di comando e del codice d'uscita senza aprire la UI. La prova con un payload Rust innocuo preserva /S, percorsi con spazi e codici 41/42; l'utente conferma nessun nuovo avviso Sophos. La precedente prova con cmd.exe rinominato aveva invece generato Evade_13a: non usare binari di sistema mascherati per i test e non applicare esclusioni antivirus. L'esito innocuo non garantisce che Sophos accetti qualunque installer reale. Finestra nativa e build con payload NSIS provate, installazione effettiva non eseguita sullo Studio in uso. [sessione 01a1c5a0]
+
+## Gate R49: multi-istanza, una finestra di Studio guida i progetti di un'altra macchina
+
+**Data:** 2026-11-12
+**Esito:** APPROVATO come direzione e requisiti («sì va bene superare il gate, registra pure tutto»). Nessun codice scritto. Supera il punto 9 del Gate R44 e ne deroga i vincoli di rete per questa sola funzione.
+**Registro canonico:** [requisiti/multi-istanza.md](requisiti/multi-istanza.md), R-MI-01…15.
+**Piano:** «Piano Multi-istanza — Gate R49» in [PLAN.md](PLAN.md).
+
+### Il problema
+
+Chi usa Studio su due computer vuole lavorare dalla finestra di uno sui progetti dell'altro come se fossero locali: stessa barra dei progetti, stesse funzioni, un badge che dice dove gira. Studio Remote non copre questo caso per scelta: mostra una proiezione ridotta pensata per il telefono, passa da un relay ospitato dall'utente e tiene fuori file, editor, Git e terminale. In prospettiva lo stesso progetto presente su due macchine deve comparire una volta sola, e il lavoro di un agente deve potersi spostare da una macchina all'altra.
+
+La valutazione è stata fatta in teoria, mettendo da parte su richiesta dell'utente i vincoli della rete aziendale e di Sophos che avevano guidato il Gate R44.
+
+### Decisioni
+
+1. **Si parte dalla finestra remota, costruita come primo pezzo dello Studio diviso in due.** La finestra instrada ogni chiamata di progetto verso la macchina che lo possiede; il backend di quella macchina risponde con gli stessi gestori usati in locale. L'agente, i file e i processi restano dove vive il progetto. Il punto d'arrivo è un backend che lavora anche a finestra chiusa, a cui la finestra si collega allo stesso modo in locale e in remoto; ci si arriva per gradi.
+2. **Tre fasi.** Fase 1: finestra remota con parità di funzioni (R-MI-01…11, R-MI-15). Fase 2: lo stesso progetto una volta sola e scelta della macchina (R-MI-12, R-MI-13). Fase 3: spostamento dell'esecuzione a fine turno (R-MI-14).
+3. **Più finestre sulla stessa sessione.** Lo stato che oggi presuppone una sola finestra si sposta nel backend: distribuzione degli eventi della sessione a più consumatori con ripresa, terminale condiviso con una dimensione sola e storia conservata, registro delle domande in attesa.
+4. **La logica che agisce da sola resta, nella fase 1, nella finestra della macchina che possiede il progetto.** Avvio della coda, programmazioni, automazioni e integrazione delle corsie girano solo lì; la finestra remota le innesca inviando l'azione, come già fa Remote. Presuppone Studio aperto sulla macchina del progetto, che è lo scenario dell'utente. Spostare anche questa logica nel backend è il passo successivo.
+5. **Abbinamento a chiave, senza account, e collegamento diretto.** Le due istanze si scambiano una chiave una volta. In rete locale si collegano da sole; fra reti diverse un punto d'incontro le presenta e i dati passano diretti, con ripiego su un relay che vede solo pacchetti cifrati. Fuori dalla stessa rete un collegamento privo di terzi non esiste. La tecnologia si sceglie dopo una prova: una libreria con relay pubblici già esistenti (iroh: relay gratuiti e senza autenticazione, dichiarati per sviluppo e uso amatoriale, ospitabili in proprio) oppure un servizio proprio su piattaforma gratuita (Cloudflare Workers non gestisce UDP: può presentare le macchine e fare da ripiego su WebSocket, non scoprire gli indirizzi).
+6. **Istanze alla pari, con accesso pieno dichiarato.** Un'istanza abbinata può leggere e scrivere file, usare Git e il terminale: equivale a una shell. Funzione spenta per default, revoca per dispositivo, indicatore sulla macchina controllata, registro delle azioni, permessi per ambito.
+7. **Versioni incompatibili bloccano il collegamento**, con l'indicazione di quale macchina aggiornare. Niente negoziazione fine né funzionamento parziale: con questo livello di fedeltà le due finestre devono parlare lo stesso contratto.
+8. **Progetto unico come vista unita, non come dati replicati.** Ogni corsia e ogni sessione vive su una sola macchina; la finestra le mostra insieme interrogando entrambe. A macchina spenta il progetto si mostra non raggiungibile e non si replica nulla; l'unica eccezione è la registrazione di task in coda, consegnati al ritorno (R-MI-15, scelta dell'utente del 2026-11-12).
+9. **Lo spostamento avviene a fine turno**, con un solo scrittore per sessione: storico e stato del codice viaggiano, i processi no.
+10. **Studio Remote resta invariato.** Relay, PWA e requisiti R-REM non cambiano; dell'impianto si riusano abbinamento a codice, instradamento dei comandi verso la finestra e registro delle azioni.
+11. **`PRODUCT.md` si aggiorna con la prima fase pubblicata**, come per il Gate R44.
+
+### Impatto sui Gate precedenti
+
+| Origine | Esito nel R49 | Motivo |
+|---|---|---|
+| R44 punto 9, «le schede di progetto remote con chat GUI completa (livello L2) restano fuori» | Superato | È l'oggetto di questo Gate |
+| R44, vincolo «le macchine con Studio non accettano connessioni in ingresso» | Derogato per le istanze abbinate | Il collegamento diretto lo richiede; resta spento per default |
+| R44, «Studio non si collega a un servizio predefinito» | Derogato, da definire con Q2 | Il punto d'incontro vede solo pacchetti cifrati e il suo indirizzo è configurabile |
+| R44 punto 4, ruoli separati fra macchina e dispositivo | Derogato per le istanze abbinate | Due istanze abbinate sono alla pari; la protezione passa da chiave, revoca e permessi |
+| R44 punto 5, «nessun comando remoto apre file, editor, Git o shell» | Invariato per Remote; non vale per le istanze abbinate | La parità di funzioni lo richiede (R-MI-06) |
+| R44, scarto di Tailscale e dei tunnel | Invariato | Nessun agente di rete da installare |
+| R48, Studio Remote mobile | Invariato | Scopo diverso |
+| `IDEAS.md`, scarto di `/collab` come guest | Confermato | Strada 2 scartata di nuovo |
+
+### Alternative scartate
+
+- **Proiezione estesa di Remote**: contratto stretto e tollerante alle versioni, ma ogni funzione andrebbe proiettata a mano e la parità non sarebbe raggiungibile.
+- **Collab di omp, omp via SSH, sincronizzazione continua dei file**: motivi nel registro, «Strade scartate».
+- **Studio diviso in due in un solo passaggio**: riscrittura troppo ampia; si procede per gradi.
+
+### Cosa dice l'inventario
+
+Il confine fra finestra e backend conta 253 comandi: circa 167 instradabili così come sono, 26 da adattare, 60 che restano della macchina di chi guarda. La finestra li chiama in 337 punti su 69 file, senza un passaggio unico. Fuori dai comandi, 58 dipendenze dalla macchina locale vanno adattate (percorsi, dialoghi nativi, indirizzi locali delle anteprime, flussi continui). Le classificazioni vengono da un'analisi automatica non ricontrollata voce per voce e valgono come ordine di grandezza.
+
+### Rischi accettati
+
+- La macchina del progetto deve essere accesa con Studio aperto, fino a quando la logica autonoma non passa nel backend.
+- Il collegamento concede accesso pieno alla macchina: una chiave sottratta vale quanto una shell, fino alla revoca.
+- Il punto d'incontro è un servizio di terzi o pubblicato dal progetto; se manca, fuori dalla rete locale il collegamento non si stabilisce.
+- Il confronto con T3 Code conferma l'impianto (finestra come client, più macchine in una barra, progetti raggruppati ma separati) e mostra che spostamento e replica fra macchine non li ha realizzati: sono la parte più incerta, per questo ultime.
+- La fattibilità sul PC di lavoro (rete aziendale, Sophos) non è stata valutata e va provata prima di investire nel resto.

@@ -20,7 +20,7 @@
 	import { createCommandBadgeElement, createFileBadgeElement, type ComposerSegment, type ComposerTrigger } from '#lib/agent/composerDoc.ts';
 	import { resolvePastedTokens } from '#lib/companion/pasteTokens.ts';
 	import { computeCaretAnchorLeft, loadProjectFiles, rankFileCandidates } from '#lib/agent/fileMention.ts';
-	import { SUGGEST_WIDTH, commandSuggestions, fileSuggestions } from '#lib/agent/suggestItems.ts';
+	import { SUGGEST_WIDTH, commandSuggestions, fileSuggestions, suggestKeyAction } from '#lib/agent/suggestItems.ts';
 	import { STUDIO_SLASH_COMMANDS, mergeCommands } from '#lib/agent/commands.ts';
 	import { sessionCompletions } from '#lib/agent/completion.svelte.ts';
 	import { settingsStore } from '#lib/stores/settings.svelte.ts';
@@ -271,14 +271,24 @@
 		});
 	}
 
-	function handleReplyKeydown(e: KeyboardEvent) {
-		if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+	// Con la palette aperta frecce, Invio/Tab ed Esc appartengono a lei, come nel
+	// composer della chat: senza, Tab sposta il fuoco sul pulsante d'invio e Invio
+	// spedisce il messaggio invece di scegliere il suggerimento.
+	function handleReplyKeydown(e: KeyboardEvent): boolean {
+		if (!currentTrigger) return false;
+		if (e.key === 'Escape') {
 			e.preventDefault();
-			e.stopPropagation();
-			if (canSendReply) {
-				onSendReply();
-			}
+			replyEditor?.dismissCurrentTrigger(currentTrigger);
+			currentTrigger = null;
+			return true;
 		}
+		const action = suggestKeyAction(e, suggestItems.length, suggestIndex);
+		if (action?.kind === 'move') suggestIndex = action.index;
+		else if (action?.kind === 'pick') {
+			const target = suggestItems[suggestIndex];
+			if (target) pickSuggestion(target);
+		}
+		return action !== null;
 	}
 </script>
 
@@ -537,6 +547,7 @@
 											disabled={!convState.snapshot?.sessionId}
 											triggers={['@', '/']}
 											onTriggerChange={(t) => (currentTrigger = t)}
+											onKeydownFilter={handleReplyKeydown}
 											onPreparePaste={prepareReplyPaste}
 											onInput={() => onDraftChange(replyEditor?.getWireText() ?? '')}
 											onSend={() => {

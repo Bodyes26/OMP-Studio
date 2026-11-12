@@ -31,8 +31,13 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - I pulsanti Companion, Coda e Controllo remoto passano dalla barra superiore alla barra di stato in basso, accanto alle automazioni: la barra superiore resta libera per le tessere dei progetti.
 - Su macOS Studio è firmato con un certificato proprio e stabile invece della firma ad-hoc: dopo un aggiornamento macOS lo riconosce come la stessa app e non richiede di nuovo i permessi sulle cartelle e l'accesso al portachiavi. Al primo aggiornamento dopo questo cambio la richiesta compare un'ultima volta.
 - La finestra del DMG di installazione su macOS ha un aspetto nuovo: un π monumentale di marmo in un paesaggio alpino, con il π composto da caratteri ASCII fini e una resa fotografica a grana di pellicola. OMP Studio sta a sinistra e la cartella Applicazioni a destra.
+- Allineamento a OMP 18.19: i todo non hanno più lo stato «bloccato», tolto da OMP. Vassoio, righe e tracce della chat mostrano solo in attesa, in corso, completato e abbandonato; i todo bloccati delle sessioni precedenti appaiono in attesa, come li riprende OMP.
 
 ### Fixed
+- Lo screenshot di un'anteprima arriva anche quando la pagina ha commenti HTML o immagini esterne: prima la cattura falliva e l'agente restava senza immagine. (ANT-010)
+- Riordino schede progetto tramite trascinamento (drag & drop): il trascinamento delle tessere nella barra superiore quando l'ordinamento è impostato su «Manuale» usa ora i Pointer Events con soglia di resistenza minima (6 px), evitando conflitti con l'area di trascinamento finestra di Tauri e aggirando il blocco dell'HTML5 drag nativo su WebView2/Windows. Il rilascio posiziona la scheda prima o dopo il bersaglio in base alla metà del tasto puntata.
+- Nella risposta a una chat dalla Companion, con i suggerimenti di comandi, skill o file aperti, Tab e Invio scelgono il suggerimento come nel composer della chat, le frecce lo cambiano ed Esc chiude l'elenco: Tab non porta più il fuoco sul pulsante d'invio e Invio non spedisce il messaggio a metà.
+- Nella barra superiore, lo stato dell'agente sulle tessere Scratchpad e sulle bozze libere del Laboratorio (spinner di caricamento al lavoro, anello di attenzione e anello di fine turno) non si sovrappone più all'icona del fantasmino o della beuta, rispettando la corretta spaziatura.
 - Nelle domande dell'agente con scelta singola ogni opzione mostra un solo pallino: il radio nativo nascosto non ricompare più accanto a quello di Studio.
 - La scorciatoia della Companion ora la chiude anche quando è fissata come widget, se la finestra è attiva; se è aperta ma in secondo piano la porta davanti senza ripetere l'animazione di apertura.
 - Dopo l'arresto forzato di un agente bloccato, «Nuova chat» e l'invio di un messaggio riaprono `omp` dalla GUI, senza dover passare dal terminale.
@@ -55,6 +60,9 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Studio imposta la shell Git Bash di `omp` anche a chi aveva già `omp` installato, e la scrive nel file che `omp` legge davvero (`config.yml`): prima finiva in `settings.json`, che `omp` ignora dopo la prima configurazione. Una shell scelta dall'utente non viene mai sostituita.
 - La configurazione iniziale e il terminale non avviano più PowerShell: aggiornamento del PATH, registrazione del font e avvio di `omp` con argomenti particolari usano le funzioni native di Windows. Sui PC dove l'antivirus blocca PowerShell la configurazione ora va a buon fine.
 - Nella Companion le righe di «Da leggere» e «Lavori in corso» non si sovrappongono più: nome del progetto e anteprima della risposta restano sulle loro righe e, se le voci non entrano, l'elenco scorre.
+- Il pannello del contesto mostra i «File di istruzioni» (AGENTS.md e simili) come voce propria con etichetta tradotta, come li separa `/context` da OMP 18.18.9, invece di una riga in inglese in fondo.
+- La scheda del comando `/mcp` non cita più la ricerca nel registro Smithery, rimossa da OMP 18.18.9.
+
 ## [1.10.0] - 2026-11-05
 
 ### Added

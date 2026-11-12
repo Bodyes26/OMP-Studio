@@ -96,13 +96,9 @@
 	const allTasks = $derived(phases.flatMap((p: TodoPhase) => p.tasks ?? []));
 	const completedCount = $derived(allTasks.filter((t: TodoItem) => t.status === 'completed').length);
 	const totalCount = $derived(allTasks.length);
-	const blockedList = $derived(allTasks.filter((t: TodoItem) => t.status === 'blocked'));
-	const hasBlocked = $derived(blockedList.length > 0);
 	const currentTodo = $derived.by(() => {
 		const active = allTasks.find((t: TodoItem) => t.status === 'in_progress');
 		if (active) return active.content;
-		const blocked = allTasks.find((t: TodoItem) => t.status === 'blocked');
-		if (blocked) return blocked.content;
 		if (totalCount === 0) return m.chat_v2_tray_todo_ready();
 		if (completedCount === totalCount && totalCount > 0) return m.chat_v2_tray_todo_all_done();
 		return m.chat_v2_tray_todo_ready();
@@ -111,7 +107,6 @@
 	const todoAnnounce = $derived(
 		m.task_row_aggregate_announcement({
 			completed: completedCount,
-			blocked: blockedList.length,
 			total: totalCount
 		})
 	);
@@ -425,11 +420,6 @@
 									{#if !todoOpen}
 										<span class="tray-current">{currentTodo}</span>
 									{/if}
-									{#if hasBlocked}
-										<span class="tray-badge-blocked" title={blockedList.map((t: TodoItem) => t.content).join('; ')}>
-											{blockedList.length}
-										</span>
-									{/if}
 									{#if reminder}
 										<span
 											class="tray-badge-reminder"
@@ -456,7 +446,6 @@
 														class="todo-row"
 														class:done={task.status === 'completed'}
 														class:active={task.status === 'in_progress'}
-														class:blocked={task.status === 'blocked'}
 													>
 														<span class="todo-mark" aria-hidden="true">
 															<StatusMark
@@ -465,9 +454,6 @@
 															/>
 														</span>
 														<span class="todo-text">{task.content}</span>
-														{#if task.status === 'blocked' && task.blocker}
-															<span class="todo-blocker">{task.blocker}</span>
-														{/if}
 													</div>
 												{/each}
 											</div>
@@ -785,18 +771,6 @@
 	.tray-chevron.open {
 		transform: rotate(180deg);
 	}
-	.tray-badge-blocked {
-		display: inline-grid;
-		place-items: center;
-		min-width: 18px;
-		height: 18px;
-		padding: 0 5px;
-		border-radius: var(--radius-full);
-		background: var(--danger-dim);
-		color: var(--danger);
-		font-size: var(--text-caption);
-		font-weight: 700;
-	}
 	.tray-badge-reminder {
 		display: inline-flex;
 		align-items: center;
@@ -861,10 +835,6 @@
 		color: var(--ink-faint);
 		text-decoration: line-through;
 	}
-	.todo-row.blocked .todo-text {
-		color: var(--danger);
-		font-weight: 500;
-	}
 	.todo-mark {
 		display: grid;
 		place-items: center;
@@ -873,12 +843,6 @@
 		flex-shrink: 0;
 	}
 	/* I segni di stato sono gestiti dal componente StatusMark */
-	.todo-blocker {
-		display: block;
-		width: 100%;
-		font-size: var(--text-mono);
-		color: var(--danger);
-	}
 	.agent-row {
 		display: flex;
 		align-items: center;

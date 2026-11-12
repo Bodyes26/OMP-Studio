@@ -1598,3 +1598,88 @@ In linea con i principi di `PRODUCT.md`:
 - Nessun marketplace di estensioni terze o plugin arbitrari.
 - Nessun servizio cloud, server remoto obbligatorio o telemetria esterna: il funzionamento è al 100% locale e privato.
 - Nessuna emulazione di modelli o prompt custom hardcoded: Studio è un guscio ergonomico e sicuro che dialoga esclusivamente con il runtime ufficiale di `omp`.
+
+## Piano Multi-istanza — Gate R49
+
+**Data:** 2026-11-12. **Stato:** pianificato. Nessun passo iniziato, nessun codice scritto. Attua il Gate R49 di `DECISIONS.md`.
+**Fonte di verità:** [requisiti/multi-istanza.md](requisiti/multi-istanza.md), R-MI-01…15. Le domande aperte Q2–Q4 del registro bloccano i passi che le citano.
+
+### Metodo
+
+- Un passo attivo alla volta, nell'ordine delle dipendenze; ogni passo chiude con la propria prova comportamentale. `npm run check`, `npm test`, `cargo test` sui moduli toccati.
+- I passi MI01–MI04 non usano la rete e non devono cambiare nulla per chi usa Studio su una sola macchina: la prova di ognuno comprende il comportamento locale invariato.
+- Il binario desktop non si avvia (`AGENTS.md`). Le prove fra due macchine reali sono «prova con l'utente» sulla Nightly, Windows e Mac.
+- L'interfaccia nuova (abbinamento, elenco macchine, badge) si approva su anteprima prima del codice (Q4).
+- Ogni passo aggiorna il registro: stato di implementazione, mappa dei file, verifiche con data e prova.
+
+### Fase 0 — Prove preliminari
+
+- [ ] **MI00 — Prova del collegamento** (R-MI-01, R-MI-02; decide Q2)
+  Programma di prova fuori dall'app che abbina due macchine con una chiave e scambia un flusso cifrato: stessa rete senza Internet, reti diverse con via diretta, reti diverse con ripiego. Confronto fra libreria con relay pubblici e servizio proprio. Comprende il PC di lavoro.
+  **Prova:** tabella degli esiti per ogni combinazione di rete, con latenza e via usata.
+
+### Fase 1 — Finestra remota
+
+- [ ] **MI01 — Instradatore unico nella finestra** (R-MI-06)
+  Ogni chiamata della finestra al backend passa da un solo punto che conosce la macchina del progetto. In questo passo esiste solo la macchina locale.
+  **Prova:** nessuna chiamata diretta residua fuori dall'instradatore; suite esistenti verdi.
+
+- [ ] **MI02 — Sessione agganciabile da più consumatori** (R-MI-07, R-MI-11)
+  Il backend distribuisce gli eventi di una sessione a più consumatori, li numera, conserva quanto serve per la ripresa e offre l'aggancio a una sessione già viva.
+  **Prova:** test Rust con due consumatori, uno dei quali si scollega e riprende senza buchi né duplicati; ricarica della finestra che ritrova la sessione in corso.
+
+- [ ] **MI03 — Terminale condiviso** (R-MI-06, R-MI-07)
+  Storia del terminale conservata nel backend, una sola dimensione concordata fra i consumatori, aggancio a un terminale già aperto.
+  **Prova:** due consumatori di misura diversa senza corruzione; chi si aggancia dopo vede la storia.
+
+- [ ] **MI04 — Domande in attesa nel backend** (R-MI-07)
+  Registro delle richieste interattive aperte; la prima risposta chiude la richiesta per tutti.
+  **Prova:** un consumatore agganciato dopo vede la domanda; due risposte concorrenti producono un solo esito.
+
+- [ ] **MI05 — Collegamento e abbinamento** (R-MI-01, R-MI-02, R-MI-09; dopo MI00 e Q4)
+  Chiavi dell'istanza, abbinamento con codice, elenco dei dispositivi con revoca, scelta della via più diretta, impostazione spenta per default.
+  **Prova con l'utente:** scenari di accettazione di R-MI-01 e R-MI-02.
+
+- [ ] **MI06 — Backend raggiungibile dal collegamento** (R-MI-06, R-MI-09, R-MI-10; dopo MI05 e Q3)
+  La macchina del progetto esegue le chiamate in arrivo con gli stessi gestori locali, entro i permessi dell'abbinamento, con registro delle azioni, indicatore di collegamento e controllo della versione.
+  **Prova:** chiamata fuori permesso rifiutata e registrata; versione incompatibile rifiutata con messaggio; scenario di revoca di R-MI-09.
+
+- [ ] **MI07 — Progetti remoti in barra** (R-MI-03, R-MI-04; dopo MI01, MI02, MI06)
+  Elenco dei progetti dell'altra macchina, apertura in barra con badge, chat, albero, editor, Git, corsie e coda sulla macchina remota.
+  **Prova con l'utente:** scenari di R-MI-03 e R-MI-04.
+
+- [ ] **MI08 — Azioni che spettano alla finestra proprietaria** (R-MI-06, R-MI-07; dopo MI07)
+  Avvio dei task, programmazioni, automazioni e integrazione delle corsie eseguiti solo dalla finestra della macchina del progetto, innescati anche da remoto. Dati di progetto oggi salvati per macchina (elenco delle corsie, origini dei task) resi leggibili da remoto.
+  **Prova con l'utente:** scenario di R-MI-07 con avvio automatico della coda.
+
+- [ ] **MI09 — Percorsi e file in ingresso** (R-MI-08; dopo MI07)
+  Percorsi trattati secondo il sistema della macchina del progetto; file trascinati, scelti e incollati inviati come contenuto.
+  **Prova con l'utente:** scenario di R-MI-08 da Windows verso Mac.
+
+- [ ] **MI10 — Terminale, domande e ripresa da remoto** (R-MI-06, R-MI-11; dopo MI03, MI04, MI07)
+  **Prova con l'utente:** scenario di R-MI-11 con rete interrotta per due minuti.
+
+- [ ] **MI11 — Anteprime, Laboratorio, diagrammi, Browser Studio** (R-MI-06; dopo MI07)
+  Contenuti oggi serviti da un indirizzo locale fatti passare dal collegamento.
+  **Prova con l'utente:** un prototipo del Laboratorio e un'anteprima aperti da remoto.
+
+- [ ] **MI12 — Creare e aggiungere progetti sull'altra macchina** (R-MI-05; dopo MI07)
+  Navigatore delle cartelle remote, scelta della macchina alla creazione.
+  **Prova con l'utente:** scenario di R-MI-05.
+
+- [ ] **MI13 — Task registrati a macchina spenta** (R-MI-15; dopo MI08)
+  I task scritti mentre la macchina del progetto non è raggiungibile restano sulla macchina di chi guarda e vengono consegnati alla coda al ritorno, una volta sola.
+  **Prova:** test con consegna interrotta a metà e ripetuta senza duplicati. **Prova con l'utente:** scenario di R-MI-15.
+
+- [ ] **MI14 — Chiusura della fase 1** (R-MI-06)
+  Giro completo dell'elenco di R-MI-06 su un progetto remoto; eccezioni residue presentate all'utente per conferma; `PRODUCT.md`, documenti utente e changelog.
+
+### Fase 2 — Progetto unico
+
+- [ ] **MI20 — Identità di progetto e vista unita** (R-MI-12, R-MI-13; dopo la fase 1)
+  Nessuna replica dei dati (Q1 risolta). Dettaglio dei passi da scrivere prima di iniziare la fase.
+
+### Fase 3 — Spostamento dell'esecuzione
+
+- [ ] **MI30 — Spostamento a fine turno** (R-MI-14; dopo la fase 2)
+  Dettaglio e scenari di accettazione da scrivere prima di iniziare.

@@ -150,7 +150,7 @@
 	const rows = $derived.by(() => {
 		const list: { id: string; fallback: string; tokens: number }[] = [];
 		if (report) {
-			const known = ['systemPrompt', 'systemTools', 'systemContext', 'skills', 'messages'];
+			const known = ['systemPrompt', 'systemTools', 'systemContext', 'instructionFiles', 'skills', 'messages'];
 			for (const id of known) {
 				const category = report.categories.find((row) => row.id === id);
 				list.push({ id, fallback: category?.label ?? '', tokens: category?.tokens ?? 0 });
@@ -197,6 +197,8 @@
 				return m.chat_v2_composer_context_system_tools();
 			case 'systemContext':
 				return m.chat_v2_composer_context_system_context();
+			case 'instructionFiles':
+				return m.chat_v2_composer_context_instruction_files();
 			case 'skills':
 				return m.chat_v2_composer_context_skills();
 			case 'messages':
@@ -670,6 +672,11 @@
 	.meter-segment.systemContext,
 	.dot.systemContext {
 		background: color-mix(in oklab, var(--brand-ink) 55%, var(--ink-muted));
+	}
+
+	.meter-segment.instructionFiles,
+	.dot.instructionFiles {
+		background: color-mix(in oklab, var(--success) 55%, var(--brand-ink));
 	}
 
 	.meter-segment.skills,

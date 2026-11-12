@@ -80,6 +80,20 @@ describe('Riordino progetti (manuale e drag&drop)', () => {
 		);
 	});
 
+	it('moveProject posiziona dopo il target quando position è after', () => {
+		const list = [{ id: 'p1' }, { id: 'p2' }, { id: 'p3' }, { id: 'p4' }];
+		const res = reorderItemsList(list, 'p1', 'p4', 'after');
+		assert.deepEqual(
+			res.map((p) => p.id),
+			['p2', 'p3', 'p4', 'p1']
+		);
+
+		const res2 = reorderItemsList([{ id: 'p1' }, { id: 'p2' }, { id: 'p3' }], 'p3', 'p1', 'after');
+		assert.deepEqual(
+			res2.map((p) => p.id),
+			['p1', 'p3', 'p2']
+		);
+	});
 	it('moveProject ignora spostamenti su se stesso o id inesistenti', () => {
 		const list = [{ id: 'p1' }, { id: 'p2' }, { id: 'p3' }];
 		const res1 = reorderItemsList([...list], 'p2', 'p2');
@@ -115,5 +129,23 @@ describe('Riordino progetti (manuale e drag&drop)', () => {
 			res3.map((p) => p.id),
 			['p1', 'p3', 'p2']
 		);
+	});
+
+	it('resistenza al trascinamento: sotto la soglia non avvia il drag, sopra la soglia attiva il drag', () => {
+		const DRAG_RESISTANCE_PX = 6;
+		function shouldStartDrag(startX: number, startY: number, currentX: number, currentY: number): boolean {
+			const dist = Math.hypot(currentX - startX, currentY - startY);
+			return dist >= DRAG_RESISTANCE_PX;
+		}
+
+		// Click o jitter di 2-4 pixel (sotto soglia)
+		assert.equal(shouldStartDrag(100, 50, 102, 51), false);
+		assert.equal(shouldStartDrag(100, 50, 100, 55), false);
+		assert.equal(shouldStartDrag(100, 50, 104, 53), false);
+
+		// Trascinamento intenzionale (>= 6 pixel)
+		assert.equal(shouldStartDrag(100, 50, 106, 50), true);
+		assert.equal(shouldStartDrag(100, 50, 94, 50), true);
+		assert.equal(shouldStartDrag(100, 50, 105, 55), true);
 	});
 });

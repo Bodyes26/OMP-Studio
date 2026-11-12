@@ -151,13 +151,12 @@ export interface ContextUsage {
 	percent?: number;
 }
 
-export type TodoStatus = 'pending' | 'in_progress' | 'completed' | 'abandoned' | 'blocked';
+export type TodoStatus = 'pending' | 'in_progress' | 'completed' | 'abandoned';
 
 export interface TodoItem {
 	id?: string;
 	content: string;
 	status: TodoStatus;
-	blocker?: string;
 }
 
 export interface TodoPhase {
