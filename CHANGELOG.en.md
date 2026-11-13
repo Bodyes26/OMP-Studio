@@ -23,6 +23,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 
 ### Changed
 - Project tabs show a read-only preview on hover; commands open from the three dots or a right click in one stable card, with internal views, an always-visible close button, editable name and code, theme-derived colors and a path relative to the projects root. After reordering, the card stays still while the pointer is inside. (TPR-001…011, TPR-031…032, TPR-037…038)
+- Project tabs in the top bar slide to their new place when moved with the project menu arrows or dragged, instead of jumping; with reduced motion the move stays instant. (TPR-039)
 - The project queue shows the title, model with its provider logo and four compact actions: run, new worktree, edit and schedule. Runs stay in the background, with Ctrl/Cmd to follow; switch labels are clickable and child menus do not close the card. (TPR-012…017)
 - Git in the project menu really switches the Main lane branch and downloads fast-forward updates with safety gates; Lanes and prototypes separates open and closed entries, opens worktree review and confirms deletion on the same row, showing work at risk and cancelling after five seconds. (TPR-018…030)
 - Switching a chat from the terminal to the GUI clears the old conversation right away: while `omp` starts a loading state appears, then the chat rebuilds in blocks as messages arrive, with placeholders and a count of those still loading. The same applies when resuming a session from history.

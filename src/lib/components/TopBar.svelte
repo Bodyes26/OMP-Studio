@@ -9,6 +9,9 @@
 	import { automaticProjectHue, THEMES } from '#lib/theme.ts';
 	import { getCurrentWindow } from '@tauri-apps/api/window';
 	import { onMount } from 'svelte';
+	import { flip } from 'svelte/animate';
+	import { revealEase } from '#lib/agent/motion.ts';
+	import { motionReduced } from '#lib/agent/motionState.svelte.ts';
 	import { trapFocus } from '#lib/focusTrap.ts';
 	import { IS_MAC, IS_WINDOWS } from '#lib/utils/platform.ts';
 	import { quotaStore } from '#lib/stores/quota.svelte.ts';
@@ -873,6 +876,7 @@
 						class="tab-container"
 						role="presentation"
 						data-tab-id={p.id}
+						animate:flip={{ duration: motionReduced() ? 0 : 210, easing: revealEase }}
 						class:can-reorder={settingsStore.projectBar.order === 'fixed'}
 						class:dragging={draggedProjectId === p.id}
 						class:drag-over={dragOverProjectId === p.id && draggedProjectId !== null && draggedProjectId !== p.id}
