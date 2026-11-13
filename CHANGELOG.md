@@ -38,6 +38,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Chiarimento sul Browser Studio annunciato nella 1.5.0: con l'`omp` pubblico la pagina dal vivo, la presa di controllo e la modalità privata non sono disponibili, perché la parte del runtime su cui si basavano non è mai stata pubblicata. Studio continua a mostrare riepilogo e screenshot delle azioni del tool `browser`; la versione dal vivo è in riprogettazione.
 
 ### Fixed
+- Barra dei progetti: la tessera del progetto aperto ha di nuovo il bordo attorno a nome e menu «⋯», e il pulsante del menu compare solo su quella tessera. Il passaggio dall’anteprima al pannello del progetto è animato: la card cambia misura e il contenuto sfuma.
 - Scegliere un orario personalizzato per un task mantiene aperto il menu di programmazione e porta il focus al campo orario, invece di chiuderlo mentre la voce viene sostituita. (TPR-016)
 - Nel popover delle quote, «Aggiorna» ricarica i consumi e lascia il pannello aperto.
 - Dopo aver risposto a una domanda dell'agente, la scheda «L'agente sta preparando le domande…» non ricompare più sotto la chat restando appesa finché l'agente non finisce di lavorare.

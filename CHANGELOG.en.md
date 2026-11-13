@@ -38,6 +38,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Clarification on the Browser Studio announced in 1.5.0: with the public `omp`, the live page, takeover and private mode are not available, because the runtime part they relied on was never published. Studio keeps showing the summary and screenshots of the `browser` tool's actions; the live version is being redesigned.
 
 ### Fixed
+- Project bar: the open project's tab has its border back around the name and the "⋯" menu, and the menu button only shows on that tab. Going from the hover preview to the project panel is animated: the card resizes and the content cross-fades.
 - Picking a custom task time keeps the schedule menu open and moves focus to the time field instead of closing it while its menu item is replaced. (TPR-016)
 - In the quota popover, Refresh reloads usage and leaves the panel open.
 - After you answer an agent question, the "The agent is preparing questions…" card no longer reappears below the chat and lingers until the agent finishes working.

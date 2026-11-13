@@ -62,6 +62,43 @@
 	let noticeTimer: ReturnType<typeof setTimeout> | undefined;
 	let navEpoch = 0;
 	let lastProjectId: string | null = null;
+	let contentEl = $state<HTMLElement | null>(null);
+	let prePinned = untrack(() => pinned);
+	let morphFrom: { width: number; height: number; clone: HTMLElement } | null = null;
+	// Passaggio anteprima -> card fissata: e' lo stesso nodo, quindi la
+	// cornice cambia misura e il vecchio contenuto sfuma sopra il nuovo.
+	$effect.pre(() => {
+		const next = pinned;
+		if (next === prePinned) return;
+		prePinned = next;
+		if (!panelEl || !contentEl || reducedMotion()) return;
+		const rect = panelEl.getBoundingClientRect();
+		const clone = contentEl.cloneNode(true) as HTMLElement;
+		clone.setAttribute('aria-hidden', 'true');
+		clone.setAttribute('inert', '');
+		clone.style.cssText = `position:absolute;left:0;top:0;width:${rect.width - 2}px;box-sizing:border-box;padding:${next ? 16 : 0}px;pointer-events:none;`;
+		morphFrom = { width: rect.width, height: rect.height, clone };
+	});
+	$effect(() => {
+		void pinned;
+		const from = morphFrom;
+		if (!from || !panelEl) return;
+		morphFrom = null;
+		const el = panelEl;
+		const to = el.getBoundingClientRect();
+		const easing = 'cubic-bezier(.22,.61,.36,1)';
+		el.style.overflow = 'hidden';
+		el.appendChild(from.clone);
+		const done = [
+			el.animate([{ width: `${from.width}px`, height: `${from.height}px` }, { width: `${to.width}px`, height: `${to.height}px` }], { duration: 210, easing }).finished,
+			from.clone.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 110, easing: 'ease-out', fill: 'forwards' }).finished,
+			contentEl?.animate([{ opacity: 0 }, { opacity: 0, offset: 0.3 }, { opacity: 1 }], { duration: 210, easing }).finished
+		];
+		Promise.allSettled(done).then(() => {
+			from.clone.remove();
+			el.style.overflow = '';
+		});
+	});
 	let lastPinned = false;
 
 	const isDraft = $derived(Boolean(project.labDraft));
@@ -272,6 +309,7 @@
 	use:anchoredPopover={{ anchor, offset: 6, constrainHeight: true, motion: true, fixedPosition }}
 	onpointerenter={() => onHoverChange(true)} onpointerleave={() => onHoverChange(false)} onkeydown={keydown}
 >
+	<div class="popover-content" bind:this={contentEl}>
 	{#if !pinned}
 		<div class="peek-identity">
 			<span class="identity-code" style="--proj-hue: {hue}">{#if isDraft}<IconLab />{:else if isScratchpad}<IconGhost />{:else}{project.label ?? project.name.slice(0, 2).toUpperCase()}{/if}</span>
@@ -322,6 +360,7 @@
 		</div>
 		{#if notice}<p class="notice" role="status">{notice}</p>{/if}
 	{/if}
+	</div>
 </div>
 
 <style>

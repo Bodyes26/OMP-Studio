@@ -878,6 +878,8 @@
 						class:drag-over={dragOverProjectId === p.id && draggedProjectId !== null && draggedProjectId !== p.id}
 						class:drag-after={dragOverAfter && dragOverProjectId === p.id}
 						class:panel-open={panel?.projectId === p.id}
+						class:active-tab={isActive && !!p.canonicalProjectPath}
+						class:has-menu={isActive}
 						oncontextmenu={(event) => handleTabContextMenu(p.id, event)}
 					>
 				<!-- `aria-selected` dice quale progetto e' in primo piano, percio'
@@ -995,17 +997,19 @@
 						</span>
 					{/if}
 				</button>
-				<button
-					type="button"
-					class="tab-menu"
-					data-project-menu-trigger
-					aria-label={m.project_tabs_core_commands({ name: p.name })}
-					aria-haspopup="dialog"
-					aria-expanded={panel?.pinned && panel.projectId === p.id}
-					tabindex={p.id === rovingTabId ? 0 : -1}
-					onpointerdown={(event) => event.stopPropagation()}
-					onclick={(event) => handleTabMenuClick(p.id, event)}
-				><IconMore /></button>
+				{#if isActive}
+					<button
+						type="button"
+						class="tab-menu"
+						data-project-menu-trigger
+						aria-label={m.project_tabs_core_commands({ name: p.name })}
+						aria-haspopup="dialog"
+						aria-expanded={panel?.pinned && panel.projectId === p.id}
+						tabindex={p.id === rovingTabId ? 0 : -1}
+						onpointerdown={(event) => event.stopPropagation()}
+						onclick={(event) => handleTabMenuClick(p.id, event)}
+					><IconMore /></button>
+				{/if}
 
 			</div>
 		{/each}
@@ -1446,7 +1450,16 @@
 		position: relative;
 		display: flex;
 		align-items: center;
+		border: 1px solid transparent;
+		border-radius: var(--radius-md);
+		transition: border-color var(--dur-fast) var(--ease-out);
 	}
+	/* Il filetto sta sul contenitore e non sulla tessera: abbraccia insieme
+	   nome e pulsante del menu, come nel prototipo. La tessera ha il suo
+	   bordo trasparente e il suo `overflow: hidden`, che lo taglierebbe. */
+	.tab-container.active-tab { border-color: var(--line-strong); }
+	.tab-container.panel-open { border-color: var(--ink-faint); }
+	.tab-container:not(.has-menu) .tab { border-radius: var(--radius-md); }
 
 	.tab-menu {
 		display: grid;
@@ -1594,9 +1607,7 @@
 	/* Tessera con il pannello aperto: l'anello dice da dove esce il pannello,
 	   cosi' con piu' progetti aperti si sa sempre di chi si stanno guardando
 	   le azioni. */
-	.tab-container.panel-open .tab {
-		box-shadow: inset 0 0 0 1px var(--line-strong);
-	}
+	.tab-container.panel-open .tab { background-color: color-mix(in srgb, var(--ink) 5%, transparent); }
 
 	.tab-add {
 		background-color: transparent;
