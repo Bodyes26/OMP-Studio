@@ -258,6 +258,10 @@
 	function handleFocusOut(e: FocusEvent) {
 		if (loginTarget) return;
 		const related = e.relatedTarget as Node | null;
+		// Senza destinazione il fuoco non e' uscito con Tab: Aggiorna si
+		// disabilita appena parte il refresh e il browser gli toglie il fuoco.
+		// Chiudere qui faceva sparire il popover al click.
+		if (!related) return;
 		if (!popoverEl?.contains(related) && !(anchor && anchor.contains(related))) {
 			// Uscita naturale del Tab: chiude senza ripristinare il fuoco sull'ancora
 			onClose?.();

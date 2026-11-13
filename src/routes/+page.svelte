@@ -4094,13 +4094,21 @@
 		onQueueClick={(anchor) => { queueAnchor = anchor ?? null; queueOpen = !queueOpen; }}
 
 		{setupIncomplete}
-		onRunTask={(projectId, taskId, follow) => void handleRunTask(projectId, taskId, { follow })}
+		onRunTask={async (projectId, taskId, follow, newWorktree) => {
+			const outcome = await handleRunTask(projectId, taskId, { follow, newLane: newWorktree });
+			if (outcome.kind === 'failed') throw new Error(outcome.message);
+			if (outcome.kind === 'blocked') throw new Error(outcome.reason);
+			return outcome.kind === 'started';
+		}}
 		onEditTask={openTaskOfProject}
 		onNewTask={openNewTaskOfProject}
 		canRunTask={(projectId) => automationGate(projectId, MAIN_LANE_ID).ready}
 		runReason={(projectId) => automationGate(projectId, MAIN_LANE_ID).label}
 		onRequestCloseProject={handleRequestCloseProject}
-		onOpenFile={openMentionedFile}
+		onReviewLane={(projectId, lane) => {
+			projectStore.setActive(projectId);
+			reviewingLane = lane;
+		}}
 	/>
 	{#if projectStore.activeProject && projectStore.activeProject.canonicalProjectPath}
 		<LaneStrip project={projectStore.activeProject} onReviewLane={(lane) => (reviewingLane = lane)} />

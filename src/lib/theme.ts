@@ -155,7 +155,7 @@ export function swatchesFor(theme: OmpTheme): { bg: string; accent: string; text
  * fissa. I temi quasi monocromatici mantengono la rampa storica per non
  * assegnare lo stesso colore a ogni progetto.
  */
-function projectPaletteFor(theme: OmpTheme): number[] {
+export function projectPaletteFor(theme: OmpTheme): number[] {
 	const cached = projectPaletteCache.get(theme);
 	if (cached) return cached;
 

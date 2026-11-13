@@ -27,8 +27,7 @@
 	import ScheduleChip from './schedule/ScheduleChip.svelte';
 	import ScheduleMenu from './schedule/ScheduleMenu.svelte';
 	import ProviderLogo from './models/ProviderLogo.svelte';
-	import { modelSettingsStore } from '#lib/stores/modelSettings.svelte.ts';
-	import { splitModelSelector, resolveCatalogModel } from '#lib/stores/modelSettingsHelpers.ts';
+	import { resolveTaskModelBadge } from './taskModelBadge.ts';
 
 	/**
 	 * Un task della coda, condiviso da pannello Agente e cassetto globale.
@@ -78,35 +77,7 @@
 	const isQueued = $derived(task.status === 'queued');
 	const finished = $derived(task.status === 'completed' || task.status === 'abandoned');
 	const directives = $derived(task.options?.directives ?? []);
-	const modelBadge = $derived.by(() => {
-		const rawSelector = task.options?.modelSelector?.trim();
-		if (rawSelector) {
-			const { base } = splitModelSelector(rawSelector, modelSettingsStore.knownSelectors);
-			const catModel = resolveCatalogModel(modelSettingsStore.catalog, base);
-			const slashIdx = base.indexOf('/');
-			const provider = catModel?.provider || (slashIdx >= 0 ? base.slice(0, slashIdx) : '');
-			if (catModel?.name) {
-				return {
-					label: catModel.name,
-					provider,
-					tooltip: rawSelector,
-					isSession: false
-				};
-			}
-			return {
-				label: m.queue_task_assigned_model(),
-				provider,
-				tooltip: m.queue_task_assigned_model_tooltip({ selector: rawSelector }),
-				isSession: false
-			};
-		}
-		return {
-			label: m.queue_task_session_model(),
-			provider: '',
-			tooltip: m.queue_task_session_model_tooltip(),
-			isSession: true
-		};
-	});
+	const modelBadge = $derived(resolveTaskModelBadge(task));
 	// Mostra un'intestazione separata solo se il titolo e' stato generato dall'IA
 	// e quindi non fa parte del testo del prompt. Se invece l'utente ha scritto
 	// un titolo markdown (# ...) o una prima riga, l'intero prompt viene reso in un

@@ -4359,6 +4359,10 @@ export class AgentSession {
 				totalQuestions: questions.length
 			};
 			this.agentState = 'attention';
+			// La scheda vera sostituisce l'anteprima: senza azzerarla qui, se
+			// `tool_execution_end` non la riconosce (id assente o diverso)
+			// riappare dopo la risposta e resta fino a fine run.
+			this.clearStreamAsk();
 
 			promptBus.registerRequest({
 				requestId: id,
@@ -4451,6 +4455,7 @@ export class AgentSession {
 			formDraft: initialDraft
 		};
 		this.agentState = 'attention';
+		this.clearStreamAsk();
 
 		promptBus.registerRequest({
 			requestId: id,

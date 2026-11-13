@@ -10,7 +10,9 @@
 	 * tinta. Qui si sceglie l'unica cosa che il sistema sa rappresentare, e
 	 * ogni colore mostrato e' esattamente il colore che prendera' la tessera.
 	 */
-	import { PRESET_HUES } from '#lib/stores/projects.svelte.ts';
+	import { projectPaletteFor, THEMES } from '#lib/theme.ts';
+	import { themeStore } from '#lib/stores/theme.svelte.ts';
+	import Tooltip from '#lib/ui/Tooltip.svelte';
 	import { IconCheck } from '#lib/icons.ts';
 	import { m } from '#lib/paraglide/messages.js';
 
@@ -35,7 +37,14 @@
 		(stop) => `oklch(var(--proj-l-fill) var(--proj-c-fill) ${stop})`
 	).join(', ')})`;
 
-	const isPreset = $derived(PRESET_HUES.includes(hue));
+	const recommendedHues = $derived(projectPaletteFor(THEMES[themeStore.current]));
+	const isPreset = $derived(recommendedHues.includes(hue));
+
+	function chooseRandom() {
+		const current = mode === 'auto' ? autoHue : hue;
+		const choices = recommendedHues.filter(value => value !== current);
+		onhue(choices[Math.floor(Math.random() * choices.length)]);
+	}
 
 	function hueFromClientX(clientX: number): number {
 		if (!trackEl) return hue;
@@ -77,35 +86,23 @@
 </script>
 
 <div class="hue-picker">
-	<div class="row">
-		<button
-			type="button"
-			class="mode"
-			class:selected={mode === 'auto'}
-			style="--mode-hue: {autoHue}"
-			onclick={onauto}
-			aria-pressed={mode === 'auto'}
-			title={m.l10n_cmp_hue_auto_theme_title()}
-		>
-			<span class="mode-dot"></span>
-			<span>{m.l10n_cmp_hue_auto_theme_label()}</span>
-			{#if mode === 'auto'}<IconCheck aria-hidden="true" style="--icon-size: 12px" />{/if}
-		</button>
-
-		<div class="presets" role="group" aria-label={m.l10n_cmp_hue_presets_aria()}>
-			{#each PRESET_HUES as preset (preset)}
-				<button
-					type="button"
-					class="swatch"
-					class:selected={mode === 'custom' && hue === preset}
-					style="--swatch-hue: {preset}"
-					onclick={() => onhue(preset)}
-					aria-pressed={mode === 'custom' && hue === preset}
-					aria-label={m.l10n_cmp_hue_preset_aria({ deg: preset })}
-					title={m.l10n_cmp_hue_preset_title({ deg: preset })}
-				></button>
-			{/each}
-		</div>
+	<div class="row modes">
+		<Tooltip text={m.l10n_cmp_hue_auto_theme_title()}>
+			<button type="button" class="mode" class:selected={mode === 'auto'} style="--mode-hue: {autoHue}" onclick={onauto} aria-pressed={mode === 'auto'}>
+				<span class="mode-dot"></span>
+				<span>{m.l10n_cmp_hue_auto_theme_label()}</span>
+				{#if mode === 'auto'}<IconCheck aria-hidden="true" style="--icon-size: 12px" />{/if}
+			</button>
+		</Tooltip>
+		<button type="button" class="mode" onclick={chooseRandom}>{m.project_tabs_core_random_color()}</button>
+	</div>
+	<span class="presets-label">{m.project_tabs_core_recommended_colors()}</span>
+	<div class="presets" role="group" aria-label={m.l10n_cmp_hue_presets_aria()}>
+		{#each recommendedHues as preset (preset)}
+			<Tooltip text={m.l10n_cmp_hue_preset_title({ deg: preset })}>
+				<button type="button" class="swatch" class:selected={mode === 'custom' && hue === preset} style="--swatch-hue: {preset}" onclick={() => onhue(preset)} aria-pressed={mode === 'custom' && hue === preset} aria-label={m.l10n_cmp_hue_preset_aria({ deg: preset })}></button>
+			</Tooltip>
+		{/each}
 	</div>
 
 	<div class="row">
@@ -144,7 +141,7 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-2);
-		padding: 0 var(--space-2);
+		padding: 0;
 	}
 
 	.row {
@@ -183,18 +180,24 @@
 		background: oklch(var(--proj-l-fill) var(--proj-c-fill) var(--mode-hue));
 	}
 
+	.presets-label {
+		font-size: var(--text-caption);
+		color: var(--ink-faint);
+	}
+
+	.modes { justify-content: space-between; }
+
 	.presets {
 		display: flex;
 		align-items: center;
-		gap: 5px;
-		margin-left: auto;
-		padding-left: var(--space-2);
-		border-left: 1px solid var(--line);
+		justify-content: space-between;
+		gap: 6px;
+		padding: 2px 0 6px;
 	}
 
 	.swatch {
-		width: 16px;
-		height: 16px;
+		width: 24px;
+		height: 24px;
 		padding: 0;
 		border-radius: var(--radius-full);
 		border: 2px solid transparent;

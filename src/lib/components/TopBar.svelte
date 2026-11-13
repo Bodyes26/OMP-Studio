@@ -45,10 +45,11 @@
 		IconTrash,
 		IconDownload,
 		IconFile,
-		IconClose
+		IconClose,
+		IconMore
 	} from '#lib/icons.ts';
-	import { laneStore } from '#lib/stores/lanes.svelte.ts';
-	import { MAIN_LANE_ID, type ProjectId } from '#lib/types/lanes.ts';
+	import { laneStore, type LaneRecord } from '#lib/stores/lanes.svelte.ts';
+	import { MAIN_LANE_ID, type ProjectId, type AgentLane } from '#lib/types/lanes.ts';
 	import { sessionRegistry } from '#lib/agent/sessionRegistry.ts';
 	import { contextMenu, type ContextMenuEntry } from '#lib/contextMenu.svelte.ts';
 	import { labApi } from '#lib/lab/api.ts';
@@ -61,7 +62,7 @@
 		onUsageClick, onNewProject, onSettingsClick, onSetupClick, onQueueClick,
 		setupIncomplete = false,
 		onRunTask, onEditTask, onNewTask, canRunTask, runReason,
-		onRequestCloseProject, onOpenFile
+		onRequestCloseProject, onReviewLane
 	} = $props<{
 		onUsageClick?: (anchor?: HTMLElement | null) => void;
 		onNewProject?: () => void;
@@ -72,15 +73,14 @@
 		 *  setup compare solo allora, e sparisce quando non ha piu' niente da
 		 *  dire. */
 		setupIncomplete?: boolean;
-		onRunTask?: (projectId: string, taskId: string, follow: boolean) => void;
+		onRunTask?: (projectId: string, taskId: string, follow: boolean, newWorktree?: boolean) => boolean | Promise<boolean>;
 		onEditTask?: (projectId: string, taskId: string) => void;
 		/** Apre l'editor di un task nuovo sul progetto indicato. */
 		onNewTask?: (projectId: string) => void;
 		canRunTask?: (projectId: string) => boolean;
 		runReason?: (projectId: string) => string;
-		onRequestCloseProject?: (projectId: string) => void;
-		/** Apre nell'editor un file menzionato nei task del popover di progetto. */
-		onOpenFile?: (projectId: string, relPath: string) => void;
+		onRequestCloseProject: (projectId: string) => void;
+		onReviewLane: (projectId: string, lane: AgentLane | LaneRecord) => void;
 	}>();
 
 	async function handleGhostButtonClick(event: MouseEvent) {
@@ -178,6 +178,7 @@
 		projectId: string;
 		anchor: HTMLElement;
 		pinned: boolean;
+		invoker: HTMLElement | null;
 	}
 
 	const HOVER_OPEN_MS = 280;
@@ -533,21 +534,31 @@
 		closeTimer = null;
 	}
 
-	function openPanel(projectId: string, anchor: HTMLElement, pinned: boolean) {
+	function openPanel(projectId: string, anchor: HTMLElement, pinned: boolean, invoker: HTMLElement | null = null) {
 		clearTimers();
 		pointerInsidePanel = false;
-		panel = { projectId, anchor, pinned };
+		panel = { projectId, anchor, pinned, invoker };
+	}
+
+	function handleTabMenuClick(projectId: string, event: MouseEvent) {
+		event.stopPropagation();
+		const invoker = event.currentTarget as HTMLElement;
+		const anchor = invoker.closest<HTMLElement>('[data-tab-id]');
+		if (!anchor) return;
+		if (panel?.pinned && panel.projectId === projectId) closePanel(true);
+		else openPanel(projectId, anchor, true, invoker);
 	}
 
 	function closePanel(returnFocus = false) {
 		clearTimers();
 		const anchor = panel?.anchor;
+		const invoker = panel?.invoker;
 		const wasPinned = panel?.pinned ?? false;
 		panel = null;
 		pointerInsidePanel = false;
 		// Il fuoco torna alla tessera solo se era stato spostato: dopo un hover
 		// nessuno lo ha mosso, e rubarlo qui interromperebbe la digitazione.
-		if (returnFocus && wasPinned) anchor?.querySelector('button')?.focus();
+		if (returnFocus && wasPinned) (invoker?.isConnected ? invoker : anchor?.querySelector('button'))?.focus();
 	}
 
 	function handleTabPointerEnter(projectId: string, event: PointerEvent) {
@@ -556,9 +567,11 @@
 		if (event.pointerType !== 'mouse') return;
 		if (draggedProjectId || isDraggingProject) return;
 		if (panel?.pinned) return;
-		const anchor = event.currentTarget as HTMLElement;
+		const anchor = (event.currentTarget as HTMLElement).closest<HTMLElement>('[data-tab-id]');
+		if (!anchor) return;
 		clearTimers();
-		openTimer = setTimeout(() => openPanel(projectId, anchor, false), HOVER_OPEN_MS);
+		if (panel && !panel.pinned) openPanel(projectId, anchor, false);
+		else openTimer = setTimeout(() => openPanel(projectId, anchor, false), HOVER_OPEN_MS);
 	}
 
 	function handleTabPointerLeave() {
@@ -865,8 +878,6 @@
 						class:drag-over={dragOverProjectId === p.id && draggedProjectId !== null && draggedProjectId !== p.id}
 						class:drag-after={dragOverAfter && dragOverProjectId === p.id}
 						class:panel-open={panel?.projectId === p.id}
-						onpointerenter={(event) => handleTabPointerEnter(p.id, event)}
-						onpointerleave={handleTabPointerLeave}
 						oncontextmenu={(event) => handleTabContextMenu(p.id, event)}
 					>
 				<!-- `aria-selected` dice quale progetto e' in primo piano, percio'
@@ -881,6 +892,8 @@
 					type="button"
 					role="tab"
 					onpointerdown={(event) => handleTabPointerDown(event, p.id)}
+					onpointerenter={(event) => handleTabPointerEnter(p.id, event)}
+					onpointerleave={handleTabPointerLeave}
 					class:active={isActive}
 					class:attention={settingsStore.projectBar.showAgentDot && aggState === 'attention'}
 					class:finished={settingsStore.projectBar.showAgentDot && aggState === 'finished'}
@@ -889,12 +902,12 @@
 					style="--proj-hue: {projectHue(p)}"
 					onclick={() => {
 						if (Date.now() < suppressTabClickUntil) return;
+						closePanel();
 						projectStore.setActive(p.id);
 					}}
 					onkeydown={handleTabKeydown}
 					aria-selected={isActive}
 					tabindex={p.id === rovingTabId ? 0 : -1}
-					aria-haspopup="dialog"
 					aria-label={m.topbar_tab_aria_label({ type: p.labDraft ? m.lab_lane_draft_badge() : p.canonicalProjectPath ? m.topbar_tab_project() : m.topbar_tab_scratchpad(), name: p.name, state: AGENT_STATE_LABEL[aggState], queued: queued > 0 ? ` · ${m.topbar_queue_count_label({ count: queued })}` : '' }) + (gitLanesCount > 0 ? ` · ${m.topbar_tab_aria_worktrees({ count: gitLanesCount })}` : '') + (labLanesCount > 0 ? ` · ${m.topbar_tab_aria_prototypes({ count: labLanesCount })}` : '') + gitDiffLabel + upstreamLabel}
 				>
 
@@ -982,6 +995,17 @@
 						</span>
 					{/if}
 				</button>
+				<button
+					type="button"
+					class="tab-menu"
+					data-project-menu-trigger
+					aria-label={m.project_tabs_core_commands({ name: p.name })}
+					aria-haspopup="dialog"
+					aria-expanded={panel?.pinned && panel.projectId === p.id}
+					tabindex={p.id === rovingTabId ? 0 : -1}
+					onpointerdown={(event) => event.stopPropagation()}
+					onclick={(event) => handleTabMenuClick(p.id, event)}
+				><IconMore /></button>
 
 			</div>
 		{/each}
@@ -1226,17 +1250,15 @@
 		anchor={panel.anchor}
 		pinned={panel.pinned}
 		autoHue={themeHue(panelProject)}
-		otherProjectCount={projectStore.projects.length - 1}
 		onClose={() => closePanel(true)}
 		onHoverChange={handlePanelHoverChange}
 		{onRunTask}
 		{onEditTask}
 		{onNewTask}
-		onQueueClick={() => onQueueClick?.(null)}
 		{canRunTask}
 		{runReason}
 		{onRequestCloseProject}
-		{onOpenFile}
+		onReviewLane={(lane) => onReviewLane(lane.projectId, lane)}
 	/>
 {/if}
 
@@ -1426,6 +1448,26 @@
 		align-items: center;
 	}
 
+	.tab-menu {
+		display: grid;
+		place-items: center;
+		width: 30px;
+		height: 30px;
+		padding: 6px;
+		border: 0;
+		border-left: 1px solid var(--line);
+		border-radius: 0 var(--radius-md) var(--radius-md) 0;
+		background: transparent;
+		color: var(--ink-faint);
+		cursor: pointer;
+		flex: none;
+		--icon-size: 15px;
+		transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+	}
+	.tab-menu:hover,
+	.tab-menu[aria-expanded='true'] { background: var(--bg-hover); color: var(--ink); }
+	.tab-menu:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+
 	/* Riordino manuale: la tessera trascinata segnala il punto di sgancio con
 	   una barra sottile, mai con un'animazione che distragga. */
 	.tab-container.can-reorder .tab {
@@ -1493,6 +1535,7 @@
 	   solo tetto e' sul nome. */
 	.tab {
 		padding: 0 var(--space-2);
+		border-radius: var(--radius-md) 0 0 var(--radius-md);
 		white-space: nowrap;
 		overflow: hidden;
 		transition: background-color var(--dur-slow) var(--ease-out);

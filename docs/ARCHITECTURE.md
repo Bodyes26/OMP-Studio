@@ -726,9 +726,13 @@ Tutti gli obiettivi architetturali sono verificati e misurati su build Release:
 | **R16** | Raggruppamento Tool e Accessibilità Chat | Componente `ToolGroup` unificato, autoscroll resiliente durante lo streaming, `listbox`/`option` con roving tabindex e risposte esplicite su `AskCard`. | SUPERATO |
 | **R17** | Notifiche OS e Allerte Icona | Registrazione AUMID `sh.omp.studio`, notifiche toast OS, dot rosso taskbar Windows e badge Dock macOS. | SUPERATO |
 | **R18** | Suggerimenti dinamici effimeri vs residenti | Processo effimero e non residente via `omp -p` (misurati 5,7 s con `smol`, 4,3 s con suffisso `:minimal`, contro ~1,5 s di un processo caldo) perche' l'utente ha accettato la latenza e un processo residente introdurrebbe ciclo di vita, watchdog e rischio di contesto condiviso fra progetti; generazione opt-in (`dynamicEnabled: false` di default) per non consumare chiamate a modello non richieste ad ogni fine turno. | SUPERATO |
-| **R23** | Browser Studio gestito e trasmesso nella colonna centrale | Superficie dedicata BrowserViewer centrale, broker gestito windowless, stream binario BLF1 loopback con backpressure hardware/software, control epochs, takeover atomico e privato, inspector mirato (ring buffer bounded), dialoghi/popup/file/recording espliciti, Chrome Relay target-scoped e teardown crash-safe senza orfani. | SUPERATO |
+| **R23** | Browser Studio gestito e trasmesso nella colonna centrale | Superficie dedicata BrowserViewer centrale, broker gestito windowless, stream binario BLF1 loopback con backpressure hardware/software, control epochs, takeover atomico e privato, inspector mirato (ring buffer bounded), dialoghi/popup/file/recording espliciti, Chrome Relay target-scoped e teardown crash-safe senza orfani. Lato runtime mai pubblicato e perso; nuova direzione in `DECISIONS.md` («Gate R23 sospeso»). | SOSPESO |
 | **R24** | Laboratorio prototipi frontend React 19 + Tailwind v4 | Spazio GUI dedicato per esplorare UX/UI con frontend React reali e dati simulati. Concorrenza con il principale, broker confinato `extensions/studio-lab.ts`, VFS chiuso, bundler offline locale (`static/lab/`), revisioni locali atomiche, export autonomo Vite e handoff al principale. Il renderer Chromium dedicato con CDP e watchdog e' stato sostituito dal Gate R30 (iframe sandbox nella WebView di Studio, §9.2). | SUPERATO |
-### 9.1 Browser Studio (Gate R23 — S38-S47 completati, SUPERATO)
+### 9.1 Browser Studio (Gate R23 — SOSPESO: Studio pronto, runtime assente nell'omp pubblico)
+
+Con l'`omp` pubblico la capability `browser-live-v1` non viene mai annunciata e
+`BrowserViewer` resta sul renderer a screenshot. Quanto segue descrive il disegno
+implementato lato Studio; la parte runtime (punti 3 e 4) non esiste più.
 
 Il Gate R23 introduce la superficie Browser nella colonna centrale, alimentata da
 Chromium gestito o da una singola tab Chrome personale autorizzata tramite OMP Browser

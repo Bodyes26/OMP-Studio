@@ -2,9 +2,9 @@
 
 **Stato:** S38-S47 implementati (contratto `browser-live-v1`, broker/Chromium gestito, stream binario BLF1, BrowserViewer centrale, control epochs, takeover privato, policy origini top-level, ticket fail-closed e redazione dati, inspector mirato, dialoghi/popup/file/recording, Chrome Relay su tab autorizzata, hardening di recovery/concorrenza/memoria/accessibilità e matrice E2E).
 
-**Gate:** R23 non ancora superato. La review pre-1.5.0 ha rilevato due difetti bloccanti — consenso e revoca delle origini mai trasmessi al runtime, e tastiera muta dopo il rimontaggio della superficie live — insieme a sette difetti P1 sul canale live. Sono corretti (vedi §12.1 e il registro in `PLAN.md` S43/S47), ma il gate richiede lo smoke reale multipiattaforma su un `omp` che espone `browser_origin_decision`.
+**Gate:** R23 SOSPESO (2026-11-12). Il runtime di S38-S47 stava su branch locali di un clone di `can1357/oh-my-pi` mai pubblicati, e il clone è stato cancellato. L'`omp` pubblico (18.19.0) non annuncia `browser-live-v1`: gli utenti vedono il renderer a screenshot e lo smoke reale con `browser_origin_decision` non è mai stato possibile. Nuova direzione in `DECISIONS.md`, «Gate R23 sospeso: Chromium posseduto da Studio». Le sezioni sul runtime (broker, `BrowserLiveServer`, Relay) descrivono codice che non esiste più.
 
-**Ultimo aggiornamento:** 2026-09-07
+**Ultimo aggiornamento:** 2026-11-12
 
 **Owner documentale:** ogni agente che completa uno step S38-S47
 

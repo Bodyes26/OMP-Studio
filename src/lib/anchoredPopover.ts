@@ -54,6 +54,8 @@ export interface AnchoredOptions {
 	 *  Se l'elemento usa gia' una transizione rvLift o la classe rv-lift,
 	 *  non viene duplicata l'animazione. */
 	motion?: boolean;
+	/** Mantiene la card ferma durante il riordino, finche' il puntatore resta dentro. */
+	fixedPosition?: { left: number; top: number } | null;
 }
 
 const DEFAULTS = {
@@ -109,6 +111,12 @@ export function anchoredPopover(node: HTMLElement, options: AnchoredOptions = {}
 
 	function place() {
 		frame = 0;
+		if (current.fixedPosition) {
+			const { left, top } = current.fixedPosition;
+			node.style.left = `${Math.round(Math.max(current.padding, Math.min(left, window.innerWidth - node.offsetWidth - current.padding)))}px`;
+			node.style.top = `${Math.round(Math.max(current.padding, Math.min(top, window.innerHeight - node.offsetHeight - current.padding)))}px`;
+			return;
+		}
 		const anchor = current.anchor;
 		const point = current.point;
 		const hasAnchor = Boolean(anchor?.isConnected);

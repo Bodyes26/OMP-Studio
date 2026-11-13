@@ -610,8 +610,46 @@ con il descrittore `commandcode.json` di questa macchina: due limiti (finestra
 
 ## Gate R23: Browser Studio gestito e trasmesso nella colonna centrale
 
-**Data:** 2026-09-02 (completato 2026-09-04)
-**Esito:** SUPERATO
+**Data:** 2026-09-02 (lato Studio completato 2026-09-04; sospeso 2026-11-12)
+**Esito:** SOSPESO. La parte Studio (S38-S47) è nell'app dalla 1.5.0; la parte
+runtime non è mai arrivata a un `omp` pubblico ed è andata persa. Vedi
+«Gate R23 sospeso: Chromium posseduto da Studio» qui sotto.
+
+### Gate R23 sospeso: Chromium posseduto da Studio (2026-11-12)
+
+**Fatti.** Il runtime di S38-S47 viveva sui branch locali `feat/s38…`, `feat/s39…`,
+`feat/s40-browser-live-stream` di un clone di `can1357/oh-my-pi` in
+`../oh-my-pi-upstream`, senza fork pubblicato né PR. Il clone è stato cancellato:
+restano registrati solo i commit `afe4fd5` (S38), `73c8181` (S39) ed `e521201` (S40);
+per S41-S47 lato runtime non risulta alcun commit. L'`omp` pubblico (18.19.0) non
+contiene `browser-live-v1`, `browser_live_ticket` né `negotiate_capabilities`, quindi
+ogni utente vede il renderer a screenshot. Il gate era stato segnato SUPERATO senza lo
+smoke reale che `BROWSER-STUDIO.md` richiedeva.
+
+**Requisiti dell'utente (2026-11-12).** «A me di guardare un video invece di una
+pagina interattiva non potrà mai essere utile»: la pagina deve essere nativa e
+interattiva. «Serve anche che l'agente abbia pieno controllo e ottenga feedback da
+strumento come fa col browser normale». Mac «allo stesso livello» di Windows.
+Anteprima, Lab e browser devono convergere su un solo motore.
+
+**Direzione.** Niente fork del runtime: l'`omp` pubblico ha già `browser.cdpUrl`, con
+cui il tool `browser` standard si aggancia a un Chromium esistente. Studio possiede
+il Chromium e lo mostra nativo; candidato è Tauri 3 con `tauri-runtime-cef`
+(Chromium incorporato su Windows, macOS e Linux, CDP per webview da Rust), esposto
+all'agente con un endpoint CDP loopback filtrato sulla sola webview del browser.
+Lo stream BLF1 non serve più.
+
+**Perché non le altre strade.** PR upstream: il codice è perso e upstream cambia ogni
+giorno. Estensione `-e`: non può aggiungere comandi RPC né capability, e un browser
+parallelo riapre il punto 5 qui sopra. WebView2 + CDP: solo Windows, WKWebView non
+parla CDP. Stream verso la superficie: l'utente vede un video, non una pagina.
+
+**Prima di decidere.** Prova in una corsia isolata: Tauri 3 alpha + CEF, webview
+browser, endpoint CDP filtrato, `omp` collegato via `cdpUrl`, su Windows e su macOS.
+Rischi da misurare: Tauri 3 è alpha e la migrazione tocca l'intera app; installer più
+pesante di centinaia di MB; su Windows CEF oggi gira senza sandbox dei processi;
+`remote_debugging(Port)` esporrebbe anche la webview di Studio a ogni processo locale.
+Se la prova fallisce si ripiega sulle WebView di sistema con un tool di Studio.
 
 **Decisione:** il tool standard `browser` del runtime OMP controllera un Chromium
 gestito senza finestra desktop e ne trasmettera la tab a una superficie Browser
@@ -2182,3 +2220,7 @@ Il confine fra finestra e backend conta 253 comandi: circa 167 instradabili cos�
 - Il punto d'incontro è un servizio di terzi o pubblicato dal progetto; se manca, fuori dalla rete locale il collegamento non si stabilisce.
 - Il confronto con T3 Code conferma l'impianto (finestra come client, più macchine in una barra, progetti raggruppati ma separati) e mostra che spostamento e replica fra macchine non li ha realizzati: sono la parte più incerta, per questo ultime.
 - La fattibilità sul PC di lavoro (rete aziendale, Sophos) non è stata valutata e va provata prima di investire nel resto.
+
+## Popover dei tab progetto: proposta consolidata
+
+Decisioni puntuali concordate nella sessione del 2026-11-12/13, consolidate in docs/requisiti/tab-progetti.md (TPR-001…038), in attesa della conferma finale del documento e dell’eventuale autorizzazione all’implementazione. Anteprima informativa separata dai comandi persistenti; una sola card che si sposta tra tab; identità e colore modificabili in testata; viste interne Coda/Git/Corsie; Git usa il branch realmente in checkout; eliminazione delle corsie chiuse con conferma a scadenza sulla stessa riga e perdita esplicita; X worktree apre la revisione, X Lab chiude conservando; Automazioni resta accesso diretto alla vista filtrata. Dopo riordino la card resta ferma finché il puntatore è dentro, poi segue il tab: sostituito il timer inizialmente proposto. Il prototipo è simulato, non implementazione nativa né prova end-to-end. Fonte: sessione corrente. [sessione 01a1d02e]

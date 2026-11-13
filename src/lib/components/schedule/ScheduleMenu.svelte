@@ -23,23 +23,37 @@
 	let {
 		task,
 		align = 'right',
-		size = 'row'
+		size = 'row',
+		label
 	}: {
 		task: StudioTask;
 		align?: 'left' | 'right';
 		/** `row`: icona della riga di coda; `toolbar`: barra del TaskEditor. */
 		size?: 'row' | 'toolbar';
+		/**
+		 * Testo visibile accanto all'icona. Senza, il trigger resta la sola icona
+		 * da 24 px di sempre; con, il trigger parte da 28 px e mostra il testo
+		 * all'hover o al focus, cosi' l'azione puo' stare in una fila di icone
+		 * che si espandono.
+		 */
+		label?: string;
 	} = $props();
 
 	let open = $state(false);
 	let customOpen = $state(false);
 	let customValue = $state('');
 	let customError = $state(false);
+	let customInputEl = $state<HTMLInputElement | null>(null);
+	$effect(() => {
+		if (customOpen && customInputEl) customInputEl.focus({ preventScroll: true });
+	});
 
 	const scheduled = $derived(Boolean(task.schedule));
-	const label = $derived(scheduleStore.labelFor(task));
+	const scheduleLabel = $derived(scheduleStore.labelFor(task));
 	const triggerTitle = $derived(
-		label ? m.schedule_button_title_active({ label: label.text }) : m.schedule_button_title()
+		scheduleLabel
+			? m.schedule_button_title_active({ label: scheduleLabel.text })
+			: m.schedule_button_title()
 	);
 	// Letti all'apertura: il menu mostra orari e reset di questo momento.
 	const resetDetail = $derived(open ? scheduleStore.resetMenuDetail(task) : null);
@@ -72,7 +86,12 @@
 		close();
 	}
 
-	function openCustom() {
+	function openCustom(event: MouseEvent) {
+		// La voce cliccata sparisce: prima il focus passa al menu stabile,
+		// altrimenti focusout chiude il popover durante la sostituzione.
+		if (event.currentTarget instanceof HTMLElement) {
+			event.currentTarget.closest<HTMLElement>('[role="menu"]')?.focus({ preventScroll: true });
+		}
 		customOpen = true;
 		customError = false;
 		const base = task.schedule?.kind === 'at' && task.schedule.notBefore ? task.schedule.notBefore : Date.now() + 3_600_000;
@@ -103,12 +122,13 @@
 	hasPopup="menu"
 	{align}
 	width="270px"
-	className="schedule-trigger {size} {scheduled ? 'is-scheduled' : ''}"
+	className="schedule-trigger {size} {label ? 'labeled' : ''} {scheduled ? 'is-scheduled' : ''}"
 	onToggle={() => (open ? close() : (open = true))}
 	onClose={close}
 >
 	{#snippet trigger()}
 		<IconSchedule />
+		{#if label}<span class="trigger-label" aria-hidden="true">{label}</span>{/if}
 	{/snippet}
 	{#snippet children()}
 		<div class="schedule-menu">
@@ -135,13 +155,12 @@
 				<form class="custom" onsubmit={confirmCustom}>
 					<label class="custom-label">
 						<span>{m.schedule_menu_custom_label()}</span>
-						<!-- svelte-ignore a11y_autofocus -->
 						<input
+							bind:this={customInputEl}
 							type="time"
 							class="custom-input"
 							bind:value={customValue}
 							aria-invalid={customError}
-							autofocus
 						/>
 					</label>
 					<button type="submit" class="ui-button ui-button-primary custom-ok">
@@ -186,6 +205,61 @@
 	   pieno e non in colore (lo stato non e' un allarme). */
 	:global(.menu-button.schedule-trigger.is-scheduled) {
 		color: var(--ink);
+	}
+
+	/* Trigger etichettato: parte da icona e rivela il testo quando e' sotto il
+	   puntatore o ha il fuoco. La misura cresce a destra, le altre azioni della
+	   fila restano dove sono. */
+	:global(.menu-button.schedule-trigger.labeled) {
+		width: auto;
+		min-width: 30px;
+		height: 28px;
+		padding: 0 5px;
+		gap: 0;
+		justify-content: center;
+		color: var(--ink-muted);
+		--icon-size: 14px;
+	}
+
+	/* Programmato vince sulla tinta di riposo: dopo `.labeled`, non prima. */
+	:global(.menu-button.schedule-trigger.labeled.is-scheduled) {
+		color: var(--ink);
+	}
+
+	:global(.menu-button.schedule-trigger.labeled) .trigger-label {
+		max-width: 0;
+		opacity: 0;
+		overflow: hidden;
+		white-space: nowrap;
+		font-size: var(--text-caption);
+		transition:
+			max-width var(--dur-base) var(--ease-out),
+			opacity var(--dur-fast) var(--ease-out),
+			margin-left var(--dur-base) var(--ease-out);
+	}
+
+	:global(.menu-button.schedule-trigger.labeled:hover:not(:disabled)),
+	:global(.menu-button.schedule-trigger.labeled:focus-visible) {
+		color: var(--ink);
+	}
+
+	/* Stesso tetto delle altre azioni: due etichette aperte insieme non devono
+	   sfondare la larghezza della card. */
+	:global(.menu-button.schedule-trigger.labeled:hover:not(:disabled)) .trigger-label,
+	:global(.menu-button.schedule-trigger.labeled:focus-visible) .trigger-label {
+		max-width: 68px;
+		opacity: 1;
+		margin-left: 6px;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		:global(.menu-button.schedule-trigger.labeled) .trigger-label {
+			transition: none;
+		}
+	}
+
+	:global(:root[data-animations='false']) .trigger-label {
+		transition: none;
 	}
 
 	.schedule-menu {

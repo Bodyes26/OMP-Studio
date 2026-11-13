@@ -705,6 +705,10 @@ non impone un tetto alla TTL.
 `browser_origin_decision`; con un runtime precedente Studio segnala che la
 decisione non e' stata applicata invece di darla per fatta.
 
+**Gate R23 sospeso (2026-11-12):** il runtime con `browser_origin_decision` non è
+mai stato pubblicato ed è andato perso con il clone `../oh-my-pi-upstream`. Prossimo
+passo: prova Tauri 3 + CEF in una corsia (`DECISIONS.md`, «Gate R23 sospeso»).
+
 ---
 
 ## Piano Laboratorio Prototipi Frontend — Gate R24 / Gate R30

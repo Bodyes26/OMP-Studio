@@ -22,6 +22,9 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Su Windows la configurazione iniziale segnala quando manca Git Bash, che `omp` usa per servizi, terminali e comandi `!`, e spiega come installarlo.
 
 ### Changed
+- I tab dei progetti mostrano un'anteprima in sola lettura al passaggio del mouse; i comandi si aprono dai tre puntini o con il tasto destro in una card stabile, con viste interne, chiusura sempre visibile, nome e sigla modificabili, colori dal tema e percorso relativo alla radice progetti. Dopo un riordino la card resta ferma finché il puntatore è dentro. (TPR-001…011, TPR-031…032, TPR-037…038)
+- La Coda del progetto mostra titolo, modello con logo e quattro azioni compatte: avvio, nuovo worktree, modifica e programmazione. Gli avvii restano in background, con Ctrl/Cmd per seguirli; le label degli interruttori sono cliccabili e i menu figli non chiudono la card. (TPR-012…017)
+- Dal menu del progetto Git cambia realmente il branch della Principale e scarica gli aggiornamenti fast-forward con i blocchi di sicurezza; Corsie e prototipi separa aperte e chiuse, apre la revisione dal worktree e conferma le eliminazioni sulla stessa riga, indicando il lavoro da perdere e annullando dopo cinque secondi. (TPR-018…030)
 - Passando una chat dal terminale alla GUI la conversazione vecchia sparisce subito: mentre `omp` si avvia compare il caricamento, poi la chat si ricostruisce a blocchi man mano che arrivano i messaggi, con segnaposto e il conteggio di quelli ancora da caricare. Lo stesso vale quando si riprende una sessione dallo storico.
 - I reset di quota salvati seguono l'impostazione di riscatto automatico per finestra di OMP 18.18.7 (5 ore, settimanale e, per Claude, Fable): la scheda e il pannello dei consumi mostrano la regola della finestra a cui il reset si applica.
 - L'installer Windows ha una schermata dedicata con la rovina ASCII animata, tema chiaro/scuro di Windows e opzioni per cartella e collegamento sul desktop; gli aggiornamenti restano silenziosi. (IWN-001…011)
@@ -32,8 +35,12 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Su macOS Studio è firmato con un certificato proprio e stabile invece della firma ad-hoc: dopo un aggiornamento macOS lo riconosce come la stessa app e non richiede di nuovo i permessi sulle cartelle e l'accesso al portachiavi. Al primo aggiornamento dopo questo cambio la richiesta compare un'ultima volta.
 - La finestra del DMG di installazione su macOS ha un aspetto nuovo: un π monumentale di marmo in un paesaggio alpino, con il π composto da caratteri ASCII fini e una resa fotografica a grana di pellicola. OMP Studio sta a sinistra e la cartella Applicazioni a destra.
 - Allineamento a OMP 18.19: i todo non hanno più lo stato «bloccato», tolto da OMP. Vassoio, righe e tracce della chat mostrano solo in attesa, in corso, completato e abbandonato; i todo bloccati delle sessioni precedenti appaiono in attesa, come li riprende OMP.
+- Chiarimento sul Browser Studio annunciato nella 1.5.0: con l'`omp` pubblico la pagina dal vivo, la presa di controllo e la modalità privata non sono disponibili, perché la parte del runtime su cui si basavano non è mai stata pubblicata. Studio continua a mostrare riepilogo e screenshot delle azioni del tool `browser`; la versione dal vivo è in riprogettazione.
 
 ### Fixed
+- Scegliere un orario personalizzato per un task mantiene aperto il menu di programmazione e porta il focus al campo orario, invece di chiuderlo mentre la voce viene sostituita. (TPR-016)
+- Nel popover delle quote, «Aggiorna» ricarica i consumi e lascia il pannello aperto.
+- Dopo aver risposto a una domanda dell'agente, la scheda «L'agente sta preparando le domande…» non ricompare più sotto la chat restando appesa finché l'agente non finisce di lavorare.
 - Lo screenshot di un'anteprima arriva anche quando la pagina ha commenti HTML o immagini esterne: prima la cattura falliva e l'agente restava senza immagine. (ANT-010)
 - Riordino schede progetto tramite trascinamento (drag & drop): il trascinamento delle tessere nella barra superiore quando l'ordinamento è impostato su «Manuale» usa ora i Pointer Events con soglia di resistenza minima (6 px), evitando conflitti con l'area di trascinamento finestra di Tauri e aggirando il blocco dell'HTML5 drag nativo su WebView2/Windows. Il rilascio posiziona la scheda prima o dopo il bersaglio in base alla metà del tasto puntata.
 - Nella risposta a una chat dalla Companion, con i suggerimenti di comandi, skill o file aperti, Tab e Invio scelgono il suggerimento come nel composer della chat, le frecce lo cambiano ed Esc chiude l'elenco: Tab non porta più il fuoco sul pulsante d'invio e Invio non spedisce il messaggio a metà.
@@ -62,6 +69,9 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Nella Companion le righe di «Da leggere» e «Lavori in corso» non si sovrappongono più: nome del progetto e anteprima della risposta restano sulle loro righe e, se le voci non entrano, l'elenco scorre.
 - Il pannello del contesto mostra i «File di istruzioni» (AGENTS.md e simili) come voce propria con etichetta tradotta, come li separa `/context` da OMP 18.18.9, invece di una riga in inglese in fondo.
 - La scheda del comando `/mcp` non cita più la ricerca nel registro Smithery, rimossa da OMP 18.18.9.
+
+### Removed
+- Dal solo popover dei progetti: scorciatoie per terminale ed editor esterno, «Chiudi altri progetti» e collegamenti duplicati «Nuovo task»/«Tutte le code» nella vista Coda; terminale, editor, Nuovo task e coda aggregata restano nelle altre superfici. Rimozioni confermate il 2026-11-13. (TPR-034…036)
 
 ## [1.10.0] - 2026-11-05
 

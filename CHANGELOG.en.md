@@ -22,6 +22,9 @@ released: items are closed into a version via `npm run release -- <version>`.
 - On Windows the first-run setup reports when Git Bash is missing, which `omp` uses for services, terminals and `!` commands, and explains how to install it.
 
 ### Changed
+- Project tabs show a read-only preview on hover; commands open from the three dots or a right click in one stable card, with internal views, an always-visible close button, editable name and code, theme-derived colors and a path relative to the projects root. After reordering, the card stays still while the pointer is inside. (TPR-001…011, TPR-031…032, TPR-037…038)
+- The project queue shows the title, model with its provider logo and four compact actions: run, new worktree, edit and schedule. Runs stay in the background, with Ctrl/Cmd to follow; switch labels are clickable and child menus do not close the card. (TPR-012…017)
+- Git in the project menu really switches the Main lane branch and downloads fast-forward updates with safety gates; Lanes and prototypes separates open and closed entries, opens worktree review and confirms deletion on the same row, showing work at risk and cancelling after five seconds. (TPR-018…030)
 - Switching a chat from the terminal to the GUI clears the old conversation right away: while `omp` starts a loading state appears, then the chat rebuilds in blocks as messages arrive, with placeholders and a count of those still loading. The same applies when resuming a session from history.
 - Saved quota resets follow OMP 18.18.7's per-window auto-redeem setting (5-hour, weekly and, for Claude, Fable): the usage card and panel show the rule for the window the reset applies to.
 - The Windows installer has a dedicated screen with the animated ASCII ruin, the Windows light/dark theme, and options for the install folder and desktop shortcut; updates remain silent. (IWN-001…011)
@@ -32,8 +35,12 @@ released: items are closed into a version via `npm run release -- <version>`.
 - On macOS Studio is signed with its own stable certificate instead of an ad-hoc signature: after an update macOS recognizes it as the same app and does not ask again for folder permissions and keychain access. The first update after this change asks one last time.
 - The macOS installer DMG window has a new look: a monumental marble π in an alpine landscape, with the π made of fine ASCII characters and a film-grain photographic finish. OMP Studio sits on the left and the Applications folder on the right.
 - Aligned with OMP 18.19: todos no longer have the "blocked" status, which OMP removed. The tray, rows and chat traces show only pending, in progress, completed and abandoned; blocked todos from earlier sessions appear as pending, as OMP restores them.
+- Clarification on the Browser Studio announced in 1.5.0: with the public `omp`, the live page, takeover and private mode are not available, because the runtime part they relied on was never published. Studio keeps showing the summary and screenshots of the `browser` tool's actions; the live version is being redesigned.
 
 ### Fixed
+- Picking a custom task time keeps the schedule menu open and moves focus to the time field instead of closing it while its menu item is replaced. (TPR-016)
+- In the quota popover, Refresh reloads usage and leaves the panel open.
+- After you answer an agent question, the "The agent is preparing questions…" card no longer reappears below the chat and lingers until the agent finishes working.
 - A preview screenshot comes back even when the page has HTML comments or external images: previously the capture failed and the agent got no image. (ANT-010)
 - Project tab reordering via drag & drop: dragging project tiles in the top bar when order is set to "Manual" now uses Pointer Events with a minimal drag resistance threshold (6 px), avoiding conflicts with Tauri's window drag region and bypassing WebView2/Windows HTML5 drag restrictions. Dropping places the tab before or after the target based on the hovered half.
 - When replying to a chat from the Companion with command, skill or file suggestions open, Tab and Enter pick the suggestion as in the chat composer, the arrows move through it and Esc closes the list: Tab no longer moves focus to the send button and Enter no longer sends a half-written message.
@@ -62,6 +69,9 @@ released: items are closed into a version via `npm run release -- <version>`.
 - In Companion, the rows under "To read" and "Working" no longer overlap: the project name and reply preview stay on their own lines, and the list scrolls when the items don't fit.
 - The context panel shows "Instruction files" (AGENTS.md and similar) as their own entry with a translated label, as `/context` splits them out since OMP 18.18.9, instead of an untranslated row at the bottom.
 - The `/mcp` command card no longer mentions searching the Smithery registry, removed in OMP 18.18.9.
+
+### Removed
+- From the project popover only: terminal and external-editor shortcuts, “Close other projects”, and duplicate “New task”/“All queues” links inside the Queue view; terminal, editor, New task and aggregate queue remain on other surfaces. Removals confirmed on 2026-11-13. (TPR-034…036)
 
 ## [1.10.0] - 2026-11-05
 
