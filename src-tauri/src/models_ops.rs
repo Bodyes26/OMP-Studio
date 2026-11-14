@@ -909,6 +909,32 @@ pub async fn set_cache_warming_setting(mode: String) -> Result<(), String> {
     .map_err(|e| task_error("set_cache_warming_setting", e))?
 }
 
+/// Applica una modifica al dizionario di `config.yml` sotto lo stesso lock
+/// delle altre scritture di Studio, poi scrive in modo atomico.
+///
+/// Serve ai passi del setup grafico, che toccano chiavi diverse da quelle dei
+/// modelli: senza il lock condiviso un `save_model_config` concorrente
+/// rileggerebbe il file prima della nostra scrittura e la annullerebbe.
+/// `mutate` non riceve il percorso: il file e' gia' stato letto (un errore di
+/// parsing resta un errore, non un dizionario vuoto da sovrascrivere).
+/// `base` e' il contenuto di partenza quando il file non esiste ancora: serve
+/// a chi crea il file dovendo conservare chiavi che stavano altrove.
+pub(crate) fn mutate_config_mapping<F>(
+    path: &Path,
+    base: Option<serde_yaml::Mapping>,
+    mutate: F,
+) -> Result<(), String>
+where
+    F: FnOnce(&mut serde_yaml::Mapping),
+{
+    let _guard = mutation_lock()?;
+    let mut mapping = read_yaml_mapping(path)?.or(base).unwrap_or_default();
+    mutate(&mut mapping);
+    let serialized = serde_yaml::to_string(&serde_yaml::Value::Mapping(mapping))
+        .map_err(|error| serialization_error(path.display(), error))?;
+    atomic_write(path, serialized.as_bytes())
+}
+
 /// Scrive una chiave stringa di primo livello in `config.yml` solo se manca,
 /// e' `null` o e' vuota, sotto lo stesso lock delle altre scritture di Studio.
 /// Restituisce `true` se ha scritto. Il setup la usa per `shellPath`: un

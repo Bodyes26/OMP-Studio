@@ -7,11 +7,13 @@
  * 2. Allineamento versioni delegato a scripts/release.mjs (checkVersionAlignment con getVersions(root)).
  * 3. Preparazione frontend (Paraglide i18n + SvelteKit sync) una sola volta prima dei consumatori
  *    tramite import statico di scripts/prepare-frontend.mjs (nessun fallback silenzioso).
- * 4. Parallelismo controllato: un ramo frontend (icone, catalogo live, typecheck, smoke test JS)
+ * 4. Parallelismo controllato: un ramo frontend (icone, catalogo live, setup omp, typecheck, smoke test JS)
  *    e un ramo Rust (Cargo no-run sempre eseguito per freschezza + riuso del runtime se identico) concorrenti.
  *    Nessuna contesa Cargo concorrente.
  * 5. Catalogo comandi live (`check-commands.mjs`) eseguito ad ogni run senza cache;
  *    può essere omesso solo con `--skip-command-check` (emergenza).
+ * 5b. Impronta del setup grafico di omp (`check-setup-flow.mjs`, SET-043) eseguita ad ogni run
+ *    senza cache; può essere omessa solo con `--skip-setup-flow-check` (emergenza).
  * 6. Gate icone strict (`check-icons.mjs --strict`).
  * 6b. Lint Rust (`cargo clippy --all-targets -- -D warnings`) come nei job di build CI, senza cache.
  * 7. Riuso conservativo: Cargo compila sempre per determinare freschezza e artifact;
@@ -143,6 +145,7 @@ export function checkVersionAlignment(root) {
  * @param {AbortSignal} [options.signal] Segnale per annullare le verifiche in corso
  * @param {boolean} [options.lockHeld=false] Se true, indica che il chiamante detiene già il lock
  * @param {boolean} [options.skipCommandCheck=false] Salta la verifica del catalogo comandi omp (emergenza)
+ * @param {boolean} [options.skipSetupFlowCheck=false] Salta la verifica dell'impronta del setup di omp (emergenza)
  * @param {'inherit' | 'pipe' | 'ignore'} [options.stdio='inherit']
  * @returns {Promise<{
  *   ok: boolean,
@@ -156,6 +159,7 @@ export async function verifyNightly(options = {}) {
 	const full = Boolean(options.full);
 	const lockHeld = Boolean(options.lockHeld);
 	const skipCommandCheck = Boolean(options.skipCommandCheck);
+	const skipSetupFlowCheck = Boolean(options.skipSetupFlowCheck);
 	const stdio = options.stdio || 'inherit';
 	const externalSignal = options.signal;
 
@@ -250,7 +254,20 @@ export async function verifyNightly(options = {}) {
 			};
 		}
 
-		// 3. Gate JS (Typecheck + Smoke test JS)
+		// 3. Gate Setup grafico di omp (impronta dei sorgenti upstream, SET-043; MAI cache tra run)
+		if (skipSetupFlowCheck) {
+			gates.setupFlow = { status: 'skipped' };
+		} else {
+			const setupStart = performance.now();
+			const setupScript = join(root, 'scripts', 'check-setup-flow.mjs');
+			await spawnNodeStep([setupScript], { cwd: root, signal: localSignal, stdio });
+			gates.setupFlow = {
+				status: 'passed',
+				durationMs: performance.now() - setupStart
+			};
+		}
+
+		// 4. Gate JS (Typecheck + Smoke test JS)
 		const jsStart = performance.now();
 		if (canReuseFrontend) {
 			gates.frontend = {
@@ -492,6 +509,8 @@ Uso: node scripts/verify-nightly.mjs [opzioni]
 Opzioni:
   --full                Forza riesecuzione completa ignorando le prove in cache
   --skip-command-check  Salta la verifica live del catalogo comandi omp (emergenza)
+  --skip-setup-flow-check
+                        Salta la verifica dell'impronta del setup di omp (emergenza)
   -h, --help            Mostra questo messaggio di aiuto
 `);
 }
@@ -501,6 +520,7 @@ async function cliMain() {
 	const opts = {
 		full: false,
 		skipCommandCheck: false,
+		skipSetupFlowCheck: false,
 		help: false
 	};
 
@@ -510,6 +530,8 @@ async function cliMain() {
 			opts.full = true;
 		} else if (arg === '--skip-command-check') {
 			opts.skipCommandCheck = true;
+		} else if (arg === '--skip-setup-flow-check') {
+			opts.skipSetupFlowCheck = true;
 		} else if (arg === '--help' || arg === '-h') {
 			opts.help = true;
 		} else {
@@ -528,6 +550,7 @@ async function cliMain() {
 	console.log('========================================');
 	console.log(`  Modalità:    ${opts.full ? 'FULL (cache disattivata)' : 'INCREMENTALE (riuso runtime sicuro con cache)'}`);
 	console.log(`  Comandi omp: ${opts.skipCommandCheck ? 'OMESSO (--skip-command-check)' : 'Verifica live catalogo'}`);
+	console.log(`  Setup omp:   ${opts.skipSetupFlowCheck ? 'OMESSO (--skip-setup-flow-check)' : 'Confronto impronta sorgenti'}`);
 	console.log('========================================\n');
 
 	const abortController = new AbortController();
@@ -542,6 +565,7 @@ async function cliMain() {
 		const result = await verifyNightly({
 			full: opts.full,
 			skipCommandCheck: opts.skipCommandCheck,
+			skipSetupFlowCheck: opts.skipSetupFlowCheck,
 			signal: abortController.signal,
 			stdio: 'inherit'
 		});

@@ -49,6 +49,7 @@ function parseArgs() {
 		noCloud: false,
 		allowDirty: false,
 		skipCommandCheck: false,
+		skipSetupFlowCheck: false,
 		full: false,
 		help: false
 	};
@@ -67,6 +68,8 @@ function parseArgs() {
 			opts.allowDirty = true;
 		} else if (arg === '--skip-command-check') {
 			opts.skipCommandCheck = true;
+		} else if (arg === '--skip-setup-flow-check') {
+			opts.skipSetupFlowCheck = true;
 		} else if (arg === '--full') {
 			opts.full = true;
 		} else if (arg === '--build-id') {
@@ -94,6 +97,8 @@ Opzioni:
   --no-cloud          Non avviare su GitHub la build degli altri sistemi operativi
   --allow-dirty       Compila anche con modifiche non committate (solo con --dry-run)
   --skip-command-check Salta la verifica comandi omp con il catalogo (emergenza)
+  --skip-setup-flow-check
+                     Salta la verifica dell'impronta del setup di omp (emergenza)
   --full             Riesegue tutti i gate, senza riusare verifiche precedenti
   -h, --help          Mostra questo messaggio di aiuto
 `);
@@ -426,7 +431,8 @@ async function publish(opts) {
 		full: opts.full,
 		lockHeld: true,
 		signal: abortController.signal,
-		skipCommandCheck: opts.skipCommandCheck
+		skipCommandCheck: opts.skipCommandCheck,
+		skipSetupFlowCheck: opts.skipSetupFlowCheck
 	});
 	printSummary(verification);
 

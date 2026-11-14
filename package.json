@@ -18,6 +18,7 @@
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "check:icons": "node scripts/check-icons.mjs",
     "check:commands": "node --no-warnings --experimental-strip-types scripts/check-commands.mjs",
+    "check:setup-flow": "node scripts/check-setup-flow.mjs",
     "logo": "node scripts/generate-logo.mjs",
     "tauri": "tauri",
     "tauri:cdp": "set \"WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222\" && tauri dev",

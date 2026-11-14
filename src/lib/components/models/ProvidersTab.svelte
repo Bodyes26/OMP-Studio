@@ -107,6 +107,16 @@
 			: false
 	);
 
+	// I provider a chiave API non hanno OAuth ma `omp login <id>` li gestisce lo
+	// stesso: chiede la chiave nascosta nel terminale e la salva in agent.db.
+	// I Custom invece portano la chiave nella loro definizione.
+	const canTerminalLogin = $derived(
+		selectedProvider
+			? selectedProvider.source !== 'custom' &&
+				(modelSettingsStore.loginProviderIds?.has(selectedProvider.id) ?? true)
+			: false
+	);
+
 	// Seleziona automaticamente il primo provider quando nessuno e' ancora attivo
 	$effect(() => {
 		if (!modelSettingsStore.selectedProviderId && displayProviders.length > 0) {
@@ -119,7 +129,7 @@
 	$effect(() => {
 		let cancelled = false;
 		void (async () => {
-			await Promise.all([modelSettingsStore.loadAccounts(), modelSettingsStore.loadProviders()]);
+			await Promise.all([modelSettingsStore.loadAccounts(), modelSettingsStore.loadProviders(), modelSettingsStore.loadLoginProviders()]);
 			const ids = untrack(() => modelSettingsStore.providers.filter((p) => p.configured && p.enabled && !p.isCustom).map((p) => p.id));
 			for (const id of ids) {
 				if (cancelled) break;
@@ -748,7 +758,7 @@
 				<section class="detail-section">
 					<div class="section-header-row">
 						<h3 class="detail-section-title">{m.providers_tab_auth_and_accounts()}</h3>
-						{#if isOAuthProvider}
+						{#if isOAuthProvider || canTerminalLogin}
 							<Tooltip text={m.ui_providerstab_login_new_account_title()}>
 								<button
 									type="button"
@@ -802,22 +812,33 @@
 							{:else}
 								{@const envHint = getProviderEnvVarHint(selectedProvider.id)}
 								<p class="auth-instruction">
-									{m.providers_tab_env_auth_instruction()}
+									{canTerminalLogin ? m.providers_tab_key_login_instruction() : m.providers_tab_env_auth_instruction()}
 									{#if envHint}
-										{m.providers_tab_configure_env_hint({ envVar: envHint })}
-									{:else}
+										{canTerminalLogin ? m.providers_tab_env_alternative({ envVar: envHint }) : m.providers_tab_configure_env_hint({ envVar: envHint })}
+									{:else if !canTerminalLogin}
 										{m.ui_providerstab_configura_la_chiave_api_nelle_impostazioni_ambiente_8930()}
 									{/if}
 								</p>
-								{#if envHint}
-									<button
-										type="button"
-										class="ui-button ui-button-secondary"
-										onclick={() => handleCopyEnvHint(envHint)}
-									>
-										{m.ui_providerstab_copia_nome_variabile_1f23()}{envHint})
-									</button>
-								{/if}
+								<div class="auth-actions">
+									{#if canTerminalLogin}
+										<button
+											type="button"
+											class="ui-button ui-button-primary"
+											onclick={() => handleLoginAction(selectedProvider.id)}
+										>
+											{m.providers_tab_login_terminal()}
+										</button>
+									{/if}
+									{#if envHint}
+										<button
+											type="button"
+											class="ui-button ui-button-secondary"
+											onclick={() => handleCopyEnvHint(envHint)}
+										>
+											{m.ui_providerstab_copia_nome_variabile_1f23()}{envHint})
+										</button>
+									{/if}
+								</div>
 							{/if}
 						</div>
 					{:else}
@@ -1505,6 +1526,12 @@
 	.empty-accounts p {
 		margin: 0;
 		line-height: 1.45;
+	}
+
+	.auth-actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-2);
 	}
 
 	.accounts-list {

@@ -1,0 +1,303 @@
+{
+ "models": [
+  {
+   "provider": "local",
+   "kind": "tiny",
+   "id": "falcon-h1-90m",
+   "selector": "local/falcon-h1-90m",
+   "name": "Falcon H1 Tiny 90M",
+   "contextWindow": null,
+   "maxTokens": null,
+   "reasoning": false,
+   "thinking": null,
+   "input": [
+    "text"
+   ],
+   "cost": {
+    "input": 0,
+    "output": 0,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "pricingStatus": "unknown"
+  },
+  {
+   "provider": "local",
+   "kind": "tiny",
+   "id": "gemma-3-1b",
+   "selector": "local/gemma-3-1b",
+   "name": "Gemma 3 1B",
+   "contextWindow": null,
+   "maxTokens": null,
+   "reasoning": false,
+   "thinking": null,
+   "input": [
+    "text"
+   ],
+   "cost": {
+    "input": 0,
+    "output": 0,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "pricingStatus": "unknown"
+  },
+  {
+   "provider": "local",
+   "kind": "tts",
+   "id": "kokoro",
+   "selector": "local/kokoro",
+   "name": "Kokoro-82M",
+   "contextWindow": null,
+   "maxTokens": null,
+   "reasoning": false,
+   "thinking": null,
+   "input": [
+    "text"
+   ],
+   "cost": {
+    "input": 0,
+    "output": 0,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "pricingStatus": "unknown"
+  },
+  {
+   "provider": "local",
+   "kind": "tiny",
+   "id": "lfm2-1.2b",
+   "selector": "local/lfm2-1.2b",
+   "name": "LFM2 1.2B",
+   "contextWindow": null,
+   "maxTokens": null,
+   "reasoning": false,
+   "thinking": null,
+   "input": [
+    "text"
+   ],
+   "cost": {
+    "input": 0,
+    "output": 0,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "pricingStatus": "unknown"
+  },
+  {
+   "provider": "local",
+   "kind": "tiny",
+   "id": "lfm2.5-230m",
+   "selector": "local/lfm2.5-230m",
+   "name": "LFM2.5 230M",
+   "contextWindow": null,
+   "maxTokens": null,
+   "reasoning": false,
+   "thinking": null,
+   "input": [
+    "text"
+   ],
+   "cost": {
+    "input": 0,
+    "output": 0,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "pricingStatus": "unknown"
+  },
+  {
+   "provider": "local",
+   "kind": "tiny",
+   "id": "lfm2.5-350m",
+   "selector": "local/lfm2.5-350m",
+   "name": "LFM2.5 350M",
+   "contextWindow": null,
+   "maxTokens": null,
+   "reasoning": false,
+   "thinking": null,
+   "input": [
+    "text"
+   ],
+   "cost": {
+    "input": 0,
+    "output": 0,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "pricingStatus": "unknown"
+  },
+  {
+   "provider": "local",
+   "kind": "tiny",
+   "id": "llama3.2:3b",
+   "selector": "local/llama3.2:3b",
+   "name": "Llama 3.2 3B",
+   "contextWindow": null,
+   "maxTokens": null,
+   "reasoning": false,
+   "thinking": null,
+   "input": [
+    "text"
+   ],
+   "cost": {
+    "input": 0,
+    "output": 0,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "pricingStatus": "unknown"
+  },
+  {
+   "provider": "local",
+   "kind": "stt",
+   "id": "nemotron-streaming-en-0.6b",
+   "selector": "local/nemotron-streaming-en-0.6b",
+   "name": "Nemotron Speech 0.6B (Streaming English)",
+   "contextWindow": null,
+   "maxTokens": null,
+   "reasoning": false,
+   "thinking": null,
+   "input": [
+    "text"
+   ],
+   "cost": {
+    "input": 0,
+    "output": 0,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "pricingStatus": "unknown"
+  },
+  {
+   "provider": "local",
+   "kind": "stt",
+   "id": "parakeet-tdt-0.6b-v3",
+   "selector": "local/parakeet-tdt-0.6b-v3",
+   "name": "Parakeet TDT 0.6B v3",
+   "contextWindow": null,
+   "maxTokens": null,
+   "reasoning": false,
+   "thinking": null,
+   "input": [
+    "text"
+   ],
+   "cost": {
+    "input": 0,
+    "output": 0,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "pricingStatus": "unknown"
+  },
+  {
+   "provider": "local",
+   "kind": "tiny",
+   "id": "qwen2.5-1.5b",
+   "selector": "local/qwen2.5-1.5b",
+   "name": "Qwen2.5 1.5B",
+   "contextWindow": null,
+   "maxTokens": null,
+   "reasoning": false,
+   "thinking": null,
+   "input": [
+    "text"
+   ],
+   "cost": {
+    "input": 0,
+    "output": 0,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "pricingStatus": "unknown"
+  },
+  {
+   "provider": "local",
+   "kind": "tiny",
+   "id": "qwen3-1.7b",
+   "selector": "local/qwen3-1.7b",
+   "name": "Qwen3 1.7B",
+   "contextWindow": null,
+   "maxTokens": null,
+   "reasoning": true,
+   "thinking": [
+    "minimal",
+    "low",
+    "medium",
+    "high"
+   ],
+   "input": [
+    "text"
+   ],
+   "cost": {
+    "input": 0,
+    "output": 0,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "pricingStatus": "unknown"
+  },
+  {
+   "provider": "local",
+   "kind": "stt",
+   "id": "whisper-base",
+   "selector": "local/whisper-base",
+   "name": "Whisper Base",
+   "contextWindow": null,
+   "maxTokens": null,
+   "reasoning": false,
+   "thinking": null,
+   "input": [
+    "text"
+   ],
+   "cost": {
+    "input": 0,
+    "output": 0,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "pricingStatus": "unknown"
+  },
+  {
+   "provider": "local",
+   "kind": "stt",
+   "id": "whisper-large-v3-turbo",
+   "selector": "local/whisper-large-v3-turbo",
+   "name": "Whisper Large v3 Turbo",
+   "contextWindow": null,
+   "maxTokens": null,
+   "reasoning": false,
+   "thinking": null,
+   "input": [
+    "text"
+   ],
+   "cost": {
+    "input": 0,
+    "output": 0,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "pricingStatus": "unknown"
+  },
+  {
+   "provider": "local",
+   "kind": "stt",
+   "id": "whisper-small",
+   "selector": "local/whisper-small",
+   "name": "Whisper Small",
+   "contextWindow": null,
+   "maxTokens": null,
+   "reasoning": false,
+   "thinking": null,
+   "input": [
+    "text"
+   ],
+   "cost": {
+    "input": 0,
+    "output": 0,
+    "cacheRead": 0,
+    "cacheWrite": 0
+   },
+   "pricingStatus": "unknown"
+  }
+ ]
+}

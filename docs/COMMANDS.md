@@ -166,7 +166,7 @@ Alcune funzioni della GUI replicano un flusso che omp offre solo nella TUI e ne 
 
 Procedura: `git diff` dei file upstream tra la versione copiata e quella nuova; se cambiano, aggiorna la copia mantenendo l'adattamento, aggiorna la colonna «Versione copiata» qui e nell'intestazione dei file, rilancia `test/plan-mode.test.ts`. Se omp introduce un comando RPC `plan` (o una richiesta UI `plan_review`), apri invece una decisione per sostituire l'estensione.
 
-## 5. Flag di Emergenza (`--skip-command-check`)
+## 5. Flag di Emergenza (`--skip-command-check`, `--skip-setup-flow-check`)
 
 In casi straordinari in cui e' necessario pubblicare immediatamente una fix critica senza aggiornare contestualmente il catalogo, sia `publish-nightly.mjs` che `release.mjs` accettano il flag:
 
@@ -176,3 +176,59 @@ npm run release -- <versione> --skip-command-check
 ```
 
 L'uso di questo flag emette un avviso visibile nel terminale e non deve essere usato come prassi ordinaria.
+
+Lo stesso vale per `--skip-setup-flow-check`, che salta la sola impronta del setup grafico di omp (§ 6) in entrambi gli script:
+
+```bash
+node scripts/publish-nightly.mjs --skip-setup-flow-check
+npm run release -- <versione> --skip-setup-flow-check
+```
+
+---
+
+## 6. Impronta del Setup Grafico di omp (`npm run check:setup-flow`)
+
+Il setup di primo avvio della GUI replica le scene del wizard nativo di omp (requisito SET-043, esito `strict`). Se omp cambia versioni, scene o sorgenti del setup, la copia in Studio puo' diventare silenziosamente obsoleta: per questo i sorgenti upstream sono registrati come impronta versionata in `scripts/omp-setup-flow.lock.json`.
+
+Ad ogni pubblicazione (Nightly e release) viene eseguito:
+
+```bash
+npm run check:setup-flow
+```
+
+Lo script `scripts/check-setup-flow.mjs`:
+1. Individua il binario `omp` con la stessa ricerca di `check:commands` (`--bin`, `OMP_BIN`, percorsi standard) e ne legge la versione con `omp --version`.
+2. Scarica dal registry npm il tarball di `@oh-my-pi/pi-tui@<versione omp>` e ne estrae `package/src/setup/**` (tar letto in Node, senza strumenti esterni come `tar.exe`).
+3. Estrae `CURRENT_SETUP_VERSION` da `setup-version.ts`, l'elenco ordinato delle scene da `ALL_SCENES` in `wizard.ts` (con `id` e `minVersion` per ciascuna) e il `sha256` di ogni file di `src/setup/**`.
+4. Confronta il risultato con il lock.
+
+### Esiti
+
+- **Allineato**: esce con codice `0`. Se cambia solo la versione di omp ma i sorgenti del setup sono identici, il gate **passa comunque** (un `--update` facoltativo allinea il campo versione del lock).
+- **Differenze** (versione del setup, scene aggiunte/rimosse/modificate o riordinare, hash di file, file aggiunti o rimossi): esce con codice `1`, elenca per file cosa e' cambiato con gli hash abbreviati e stampa la procedura.
+- **Impronta assente o illeggibile**: esce con codice `1`; la generazione avviene solo su richiesta esplicita con `--update`.
+- **Rete assente o pacchetto introvabile**: errore esplicito con l'URL coinvolto. Il gate non passa mai in silenzio quando non ha potuto leggere i sorgenti upstream.
+
+### Procedura quando il controllo fallisce
+
+1. **Rivedi il setup grafico di Studio** contro le scene di omp elencate: `src/lib/components/setup/` (un passo per ogni scena gestita) e i testi `setup2_*` in `messages/it.json` e `messages/en.json`.
+2. **Aggiorna `docs/requisiti/setup.md`**: requisiti e matrice di copertura per le scene nuove, rimosse o con `minVersion` diversa, annotando la nuova versione di omp.
+3. **Riscrivi il lock** con la versione ora installata:
+   ```bash
+   npm run check:setup-flow -- --update
+   ```
+4. **Rilancia il gate** (`npm run check:setup-flow`) e riprendi la pubblicazione dal punto sospeso.
+
+Il lock e' versionato di proposito: la sua storia Git documenta quando e perche' il setup di omp e' cambiato rispetto alla copia di Studio. Non modificarlo a mano per far passare il gate.
+
+### Opzioni
+
+```
+--update         Riscrive il lock con l'impronta della versione installata
+--bin <path>     Percorso del binario omp (prevale su OMP_BIN e PATH)
+--package <ver>  Versione del pacchetto npm da leggere (default: versione di omp)
+--json           Esito strutturato su stdout
+-h, --help       Aiuto
+```
+
+Nel preflight della Nightly il controllo gira nel ramo frontend subito dopo il catalogo comandi ed e' soggetto allo stesso principio: nessuna cache tra run. Anche `release.mjs` lo esegue accanto a `check-commands.mjs` e interrompe il bump se fallisce. Il flag di emergenza e' `--skip-setup-flow-check`, accettato da `publish-nightly.mjs` e da `release.mjs` con la stessa politica di `--skip-command-check` (usare solo per fix critiche, mai come prassi).

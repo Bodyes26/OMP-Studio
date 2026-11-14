@@ -132,11 +132,16 @@ function latestVersion(changelog) {
 
 export function runCli(argv = process.argv.slice(2)) {
 	const skipCommandCheck = argv.includes('--skip-command-check');
-	const cleanArgv = argv.filter((a) => a !== '--skip-command-check');
+	const skipSetupFlowCheck = argv.includes('--skip-setup-flow-check');
+	const cleanArgv = argv.filter(
+		(a) => a !== '--skip-command-check' && a !== '--skip-setup-flow-check'
+	);
 	const arg = cleanArgv[0];
 
 	if (arg === '--help' || arg === '-h') {
-		console.log('Uso: npm run release -- <major.minor.patch> [--skip-command-check] | --notes [versione] | --check');
+		console.log(
+			'Uso: npm run release -- <major.minor.patch> [--skip-command-check] [--skip-setup-flow-check] | --notes [versione] | --check'
+		);
 		process.exit(0);
 	}
 	if (arg === '--check' || arg === '-c' || arg === '--verify') {
@@ -157,7 +162,9 @@ export function runCli(argv = process.argv.slice(2)) {
 	}
 
 	if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(arg ?? '')) {
-		console.error('Uso: npm run release -- <major.minor.patch> [--skip-command-check] | --notes [versione] | --check');
+		console.error(
+			'Uso: npm run release -- <major.minor.patch> [--skip-command-check] [--skip-setup-flow-check] | --notes [versione] | --check'
+		);
 		process.exit(1);
 	}
 	const version = arg;
@@ -175,6 +182,24 @@ export function runCli(argv = process.argv.slice(2)) {
 			console.error('\nRelease interrotta: il catalogo dei comandi non e\' allineato a omp.');
 			console.error('Consulta docs/COMMANDS.md per la procedura di aggiornamento.');
 			console.error('Per forzare la release in emergenza: --skip-command-check\n');
+			process.exit(1);
+		}
+	}
+
+	// Gate impronta del setup grafico di omp (SET-043): un setup upstream cambiato
+	// rende obsoleta la copia in Studio, quindi blocca il bump come il catalogo.
+	if (skipSetupFlowCheck) {
+		console.warn('\nATTENZIONE: verifica impronta setup di omp saltata (--skip-setup-flow-check).');
+	} else {
+		console.log('Verifico l\'impronta del setup grafico di omp...');
+		const setupCheck = spawnSync(process.execPath, [join(ROOT, 'scripts', 'check-setup-flow.mjs')], {
+			cwd: ROOT,
+			stdio: 'inherit'
+		});
+		if (setupCheck.status !== 0) {
+			console.error('\nRelease interrotta: il setup grafico di omp e\' cambiato rispetto alla copia di Studio.');
+			console.error('Consulta docs/COMMANDS.md § 6 per la procedura di aggiornamento.');
+			console.error('Per forzare la release in emergenza: --skip-setup-flow-check\n');
 			process.exit(1);
 		}
 	}

@@ -1,0 +1,271 @@
+{
+ "models": [
+  {
+   "provider": "openai-codex",
+   "kind": "chat",
+   "id": "gpt-5.6-luna",
+   "selector": "openai-codex/gpt-5.6-luna",
+   "name": "GPT-5.6 Luna",
+   "contextWindow": 272000,
+   "maxTokens": 128000,
+   "reasoning": true,
+   "thinking": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+   ],
+   "input": [
+    "text",
+    "image"
+   ],
+   "cost": {
+    "input": 0.2,
+    "output": 1.2,
+    "cacheRead": 0.02,
+    "cacheWrite": 0.25,
+    "longContext": {
+     "inputThreshold": 272000,
+     "input": 0.4,
+     "output": 1.8,
+     "cacheRead": 0.04,
+     "cacheWrite": 0.5
+    }
+   },
+   "pricingStatus": "fixed"
+  },
+  {
+   "provider": "openai-codex",
+   "kind": "chat",
+   "id": "gpt-5.6-sol",
+   "selector": "openai-codex/gpt-5.6-sol",
+   "name": "GPT-5.6 Sol",
+   "contextWindow": 272000,
+   "maxTokens": 128000,
+   "reasoning": true,
+   "thinking": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+   ],
+   "input": [
+    "text",
+    "image"
+   ],
+   "cost": {
+    "input": 4,
+    "output": 20,
+    "cacheRead": 0.4,
+    "cacheWrite": 5,
+    "longContext": {
+     "inputThreshold": 272000,
+     "input": 8,
+     "output": 30,
+     "cacheRead": 0.8,
+     "cacheWrite": 10
+    }
+   },
+   "pricingStatus": "fixed"
+  },
+  {
+   "provider": "openai-codex",
+   "kind": "chat",
+   "id": "gpt-5.6-terra",
+   "selector": "openai-codex/gpt-5.6-terra",
+   "name": "GPT-5.6 Terra",
+   "contextWindow": 272000,
+   "maxTokens": 128000,
+   "reasoning": true,
+   "thinking": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+   ],
+   "input": [
+    "text",
+    "image"
+   ],
+   "cost": {
+    "input": 2,
+    "output": 12,
+    "cacheRead": 0.2,
+    "cacheWrite": 2.5,
+    "longContext": {
+     "inputThreshold": 272000,
+     "input": 4,
+     "output": 18,
+     "cacheRead": 0.4,
+     "cacheWrite": 5
+    }
+   },
+   "pricingStatus": "fixed"
+  },
+  {
+   "provider": "openai-codex",
+   "kind": "chat",
+   "id": "gpt-6-astra",
+   "selector": "openai-codex/gpt-6-astra",
+   "name": "GPT-6 Astra",
+   "contextWindow": 272000,
+   "maxTokens": 128000,
+   "reasoning": true,
+   "thinking": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+   ],
+   "input": [
+    "text",
+    "image"
+   ],
+   "cost": {
+    "input": 10,
+    "output": 50,
+    "cacheRead": 1,
+    "cacheWrite": 0
+   },
+   "pricingStatus": "fixed"
+  },
+  {
+   "provider": "openai-codex",
+   "kind": "chat",
+   "id": "gpt-6-luna",
+   "selector": "openai-codex/gpt-6-luna",
+   "name": "GPT-6 Luna",
+   "contextWindow": 272000,
+   "maxTokens": 128000,
+   "reasoning": true,
+   "thinking": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+   ],
+   "input": [
+    "text",
+    "image"
+   ],
+   "cost": {
+    "input": 0.1,
+    "output": 0.5,
+    "cacheRead": 0.01,
+    "cacheWrite": 0
+   },
+   "pricingStatus": "fixed"
+  },
+  {
+   "provider": "openai-codex",
+   "kind": "chat",
+   "id": "gpt-6-sol",
+   "selector": "openai-codex/gpt-6-sol",
+   "name": "GPT-6 Sol",
+   "contextWindow": 272000,
+   "maxTokens": 128000,
+   "reasoning": true,
+   "thinking": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+   ],
+   "input": [
+    "text",
+    "image"
+   ],
+   "cost": {
+    "input": 2,
+    "output": 10,
+    "cacheRead": 0.2,
+    "cacheWrite": 0
+   },
+   "pricingStatus": "fixed"
+  },
+  {
+   "provider": "openai-codex",
+   "kind": "chat",
+   "id": "gpt-6.1-sol",
+   "selector": "openai-codex/gpt-6.1-sol",
+   "name": "GPT-6.1 Sol",
+   "contextWindow": 500000,
+   "maxTokens": 128000,
+   "reasoning": true,
+   "thinking": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+   ],
+   "input": [
+    "text",
+    "image"
+   ],
+   "cost": {
+    "input": 2,
+    "output": 10,
+    "cacheRead": 0.1,
+    "cacheWrite": 0
+   },
+   "pricingStatus": "fixed"
+  },
+  {
+   "provider": "openai-codex",
+   "kind": "chat",
+   "id": "gpt-6.1-terra",
+   "selector": "openai-codex/gpt-6.1-terra",
+   "name": "GPT-6.1 Terra",
+   "contextWindow": 500000,
+   "maxTokens": 128000,
+   "reasoning": true,
+   "thinking": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+   ],
+   "input": [
+    "text",
+    "image"
+   ],
+   "cost": {
+    "input": 1,
+    "output": 5,
+    "cacheRead": 0.05,
+    "cacheWrite": 0
+   },
+   "pricingStatus": "fixed"
+  },
+  {
+   "provider": "openai-codex",
+   "kind": "image",
+   "id": "gpt-image-2",
+   "selector": "openai-codex/gpt-image-2",
+   "name": "gpt-image-2",
+   "contextWindow": 10000,
+   "maxTokens": null,
+   "reasoning": false,
+   "thinking": null,
+   "input": [
+    "text",
+    "image"
+   ],
+   "cost": {
+    "cacheRead": 1.25,
+    "cacheWrite": 0,
+    "input": 5,
+    "output": 30
+   },
+   "pricingStatus": "fixed"
+  }
+ ]
+}

@@ -1,0 +1,596 @@
+{
+ "models": [
+  {
+   "provider": "anthropic",
+   "kind": "chat",
+   "id": "claude-fable-5",
+   "selector": "anthropic/claude-fable-5",
+   "name": "Claude Fable 5",
+   "contextWindow": 1000000,
+   "maxTokens": 128000,
+   "reasoning": true,
+   "thinking": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+   ],
+   "input": [
+    "text",
+    "image"
+   ],
+   "cost": {
+    "input": 10,
+    "output": 50,
+    "cacheRead": 1,
+    "cacheWrite": 12.5
+   },
+   "pricingStatus": "fixed"
+  },
+  {
+   "provider": "anthropic",
+   "kind": "chat",
+   "id": "claude-fable-5-1",
+   "selector": "anthropic/claude-fable-5-1",
+   "name": "Claude Fable 5.1",
+   "contextWindow": 1000000,
+   "maxTokens": 128000,
+   "reasoning": true,
+   "thinking": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+   ],
+   "input": [
+    "text",
+    "image"
+   ],
+   "cost": {
+    "input": 10,
+    "output": 50,
+    "cacheRead": 0.25,
+    "cacheWrite": 12.5
+   },
+   "pricingStatus": "fixed"
+  },
+  {
+   "provider": "anthropic",
+   "kind": "chat",
+   "id": "claude-fable-5-2",
+   "selector": "anthropic/claude-fable-5-2",
+   "name": "Claude Fable 5.2",
+   "contextWindow": 1000000,
+   "maxTokens": 128000,
+   "reasoning": true,
+   "thinking": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+   ],
+   "input": [
+    "text",
+    "image"
+   ],
+   "cost": {
+    "input": 8,
+    "output": 40,
+    "cacheRead": 0.2,
+    "cacheWrite": 10
+   },
+   "pricingStatus": "fixed"
+  },
+  {
+   "provider": "anthropic",
+   "kind": "chat",
+   "id": "claude-haiku-4-5",
+   "selector": "anthropic/claude-haiku-4-5",
+   "name": "Claude Haiku 4.5",
+   "contextWindow": 200000,
+   "maxTokens": 64000,
+   "reasoning": true,
+   "thinking": [
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh"
+   ],
+   "input": [
+    "text",
+    "image"
+   ],
+   "cost": {
+    "cacheRead": 0.1,
+    "cacheWrite": 1.25,
+    "input": 1,
+    "output": 5
+   },
+   "pricingStatus": "fixed"
+  },
+  {
+   "provider": "anthropic",
+   "kind": "chat",
+   "id": "claude-haiku-4-5-20251001",
+   "selector": "anthropic/claude-haiku-4-5-20251001",
+   "name": "Claude Haiku 4.5",
+   "contextWindow": 200000,
+   "maxTokens": 64000,
+   "reasoning": true,
+   "thinking": [
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh"
+   ],
+   "input": [
+    "text",
+    "image"
+   ],
+   "cost": {
+    "input": 1,
+    "output": 5,
+    "cacheRead": 0.1,
+    "cacheWrite": 1.25
+   },
+   "pricingStatus": "fixed"
+  },
+  {
+   "provider": "anthropic",
+   "kind": "chat",
+   "id": "claude-haiku-5-5",
+   "selector": "anthropic/claude-haiku-5-5",
+   "name": "Claude Haiku 5.5",
+   "contextWindow": 100000,
+   "maxTokens": 128000,
+   "reasoning": true,
+   "thinking": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+   ],
+   "input": [
+    "text",
+    "image"
+   ],
+   "cost": {
+    "input": 0.1,
+    "output": 0.5,
+    "cacheRead": 0.01,
+    "cacheWrite": 0.125,
+    "longContext": {
+     "inputThreshold": 100000,
+     "input": 0.5,
+     "output": 2.5,
+     "cacheRead": 0.05,
+     "cacheWrite": 0.625
+    }
+   },
+   "pricingStatus": "fixed"
+  },
+  {
+   "provider": "anthropic",
+   "kind": "chat",
+   "id": "claude-mythos-5",
+   "selector": "anthropic/claude-mythos-5",
+   "name": "Claude Mythos 5",
+   "contextWindow": 1000000,
+   "maxTokens": 128000,
+   "reasoning": true,
+   "thinking": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+   ],
+   "input": [
+    "text",
+    "image"
+   ],
+   "cost": {
+    "cacheRead": 1,
+    "cacheWrite": 12.5,
+    "input": 10,
+    "output": 50
+   },
+   "pricingStatus": "fixed"
+  },
+  {
+   "provider": "anthropic",
+   "kind": "chat",
+   "id": "claude-mythos-5-1",
+   "selector": "anthropic/claude-mythos-5-1",
+   "name": "Claude Mythos 5.1",
+   "contextWindow": 1000000,
+   "maxTokens": 128000,
+   "reasoning": true,
+   "thinking": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+   ],
+   "input": [
+    "text",
+    "image"
+   ],
+   "cost": {
+    "cacheRead": 0.25,
+    "cacheWrite": 12.5,
+    "input": 10,
+    "output": 50
+   },
+   "pricingStatus": "fixed"
+  },
+  {
+   "provider": "anthropic",
+   "kind": "chat",
+   "id": "claude-mythos-5-2",
+   "selector": "anthropic/claude-mythos-5-2",
+   "name": "Claude Mythos 5.2",
+   "contextWindow": 1000000,
+   "maxTokens": 128000,
+   "reasoning": true,
+   "thinking": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+   ],
+   "input": [
+    "text",
+    "image"
+   ],
+   "cost": {
+    "cacheRead": 0.2,
+    "cacheWrite": 10,
+    "input": 8,
+    "output": 40
+   },
+   "pricingStatus": "fixed"
+  },
+  {
+   "provider": "anthropic",
+   "kind": "chat",
+   "id": "claude-opus-4-5",
+   "selector": "anthropic/claude-opus-4-5",
+   "name": "Claude Opus 4.5",
+   "contextWindow": 200000,
+   "maxTokens": 64000,
+   "reasoning": true,
+   "thinking": [
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh"
+   ],
+   "input": [
+    "text",
+    "image"
+   ],
+   "cost": {
+    "cacheRead": 0.5,
+    "cacheWrite": 6.25,
+    "input": 5,
+    "output": 25
+   },
+   "pricingStatus": "fixed"
+  },
+  {
+   "provider": "anthropic",
+   "kind": "chat",
+   "id": "claude-opus-4-5-20251101",
+   "selector": "anthropic/claude-opus-4-5-20251101",
+   "name": "Claude Opus 4.5",
+   "contextWindow": 200000,
+   "maxTokens": 64000,
+   "reasoning": true,
+   "thinking": [
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh"
+   ],
+   "input": [
+    "text",
+    "image"
+   ],
+   "cost": {
+    "input": 5,
+    "output": 25,
+    "cacheRead": 0.5,
+    "cacheWrite": 6.25
+   },
+   "pricingStatus": "fixed"
+  },
+  {
+   "provider": "anthropic",
+   "kind": "chat",
+   "id": "claude-opus-4-6",
+   "selector": "anthropic/claude-opus-4-6",
+   "name": "Claude Opus 4.6",
+   "contextWindow": 1000000,
+   "maxTokens": 128000,
+   "reasoning": true,
+   "thinking": [
+    "low",
+    "medium",
+    "high",
+    "max"
+   ],
+   "input": [
+    "text",
+    "image"
+   ],
+   "cost": {
+    "input": 5,
+    "output": 25,
+    "cacheRead": 0.5,
+    "cacheWrite": 6.25
+   },
+   "pricingStatus": "fixed"
+  },
+  {
+   "provider": "anthropic",
+   "kind": "chat",
+   "id": "claude-opus-4-7",
+   "selector": "anthropic/claude-opus-4-7",
+   "name": "Claude Opus 4.7",
+   "contextWindow": 1000000,
+   "maxTokens": 128000,
+   "reasoning": true,
+   "thinking": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+   ],
+   "input": [
+    "text",
+    "image"
+   ],
+   "cost": {
+    "input": 5,
+    "output": 25,
+    "cacheRead": 0.5,
+    "cacheWrite": 6.25
+   },
+   "pricingStatus": "fixed"
+  },
+  {
+   "provider": "anthropic",
+   "kind": "chat",
+   "id": "claude-opus-4-8",
+   "selector": "anthropic/claude-opus-4-8",
+   "name": "Claude Opus 4.8",
+   "contextWindow": 1000000,
+   "maxTokens": 128000,
+   "reasoning": true,
+   "thinking": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+   ],
+   "input": [
+    "text",
+    "image"
+   ],
+   "cost": {
+    "input": 5,
+    "output": 25,
+    "cacheRead": 0.5,
+    "cacheWrite": 6.25
+   },
+   "pricingStatus": "fixed"
+  },
+  {
+   "provider": "anthropic",
+   "kind": "chat",
+   "id": "claude-opus-5",
+   "selector": "anthropic/claude-opus-5",
+   "name": "Claude Opus 5",
+   "contextWindow": 1000000,
+   "maxTokens": 128000,
+   "reasoning": true,
+   "thinking": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+   ],
+   "input": [
+    "text",
+    "image"
+   ],
+   "cost": {
+    "input": 5,
+    "output": 25,
+    "cacheRead": 0.5,
+    "cacheWrite": 6.25
+   },
+   "pricingStatus": "fixed"
+  },
+  {
+   "provider": "anthropic",
+   "kind": "chat",
+   "id": "claude-opus-5-5",
+   "selector": "anthropic/claude-opus-5-5",
+   "name": "Claude Opus 5.5",
+   "contextWindow": 1000000,
+   "maxTokens": 128000,
+   "reasoning": true,
+   "thinking": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+   ],
+   "input": [
+    "text",
+    "image"
+   ],
+   "cost": {
+    "input": 4,
+    "output": 20,
+    "cacheRead": 0.2,
+    "cacheWrite": 5
+   },
+   "pricingStatus": "fixed"
+  },
+  {
+   "provider": "anthropic",
+   "kind": "chat",
+   "id": "claude-sonnet-4-5",
+   "selector": "anthropic/claude-sonnet-4-5",
+   "name": "Claude Sonnet 4.5",
+   "contextWindow": 200000,
+   "maxTokens": 64000,
+   "reasoning": true,
+   "thinking": [
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh"
+   ],
+   "input": [
+    "text",
+    "image"
+   ],
+   "cost": {
+    "cacheRead": 0.3,
+    "cacheWrite": 3.75,
+    "input": 3,
+    "output": 15
+   },
+   "pricingStatus": "fixed"
+  },
+  {
+   "provider": "anthropic",
+   "kind": "chat",
+   "id": "claude-sonnet-4-5-20250929",
+   "selector": "anthropic/claude-sonnet-4-5-20250929",
+   "name": "Claude Sonnet 4.5",
+   "contextWindow": 200000,
+   "maxTokens": 64000,
+   "reasoning": true,
+   "thinking": [
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh"
+   ],
+   "input": [
+    "text",
+    "image"
+   ],
+   "cost": {
+    "input": 3,
+    "output": 15,
+    "cacheRead": 0.3,
+    "cacheWrite": 3.75
+   },
+   "pricingStatus": "fixed"
+  },
+  {
+   "provider": "anthropic",
+   "kind": "chat",
+   "id": "claude-sonnet-4-6",
+   "selector": "anthropic/claude-sonnet-4-6",
+   "name": "Claude Sonnet 4.6",
+   "contextWindow": 1000000,
+   "maxTokens": 128000,
+   "reasoning": true,
+   "thinking": [
+    "low",
+    "medium",
+    "high"
+   ],
+   "input": [
+    "text",
+    "image"
+   ],
+   "cost": {
+    "input": 3,
+    "output": 15,
+    "cacheRead": 0.3,
+    "cacheWrite": 3.75
+   },
+   "pricingStatus": "fixed"
+  },
+  {
+   "provider": "anthropic",
+   "kind": "chat",
+   "id": "claude-sonnet-5",
+   "selector": "anthropic/claude-sonnet-5",
+   "name": "Claude Sonnet 5",
+   "contextWindow": 1000000,
+   "maxTokens": 128000,
+   "reasoning": true,
+   "thinking": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+   ],
+   "input": [
+    "text",
+    "image"
+   ],
+   "cost": {
+    "input": 2,
+    "output": 10,
+    "cacheRead": 0.2,
+    "cacheWrite": 2.5
+   },
+   "pricingStatus": "fixed"
+  },
+  {
+   "provider": "anthropic",
+   "kind": "chat",
+   "id": "claude-sonnet-5-5",
+   "selector": "anthropic/claude-sonnet-5-5",
+   "name": "Claude Sonnet 5.5",
+   "contextWindow": 1000000,
+   "maxTokens": 128000,
+   "reasoning": true,
+   "thinking": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+   ],
+   "input": [
+    "text",
+    "image"
+   ],
+   "cost": {
+    "input": 2,
+    "output": 10,
+    "cacheRead": 0.1,
+    "cacheWrite": 2.5
+   },
+   "pricingStatus": "fixed"
+  }
+ ]
+}

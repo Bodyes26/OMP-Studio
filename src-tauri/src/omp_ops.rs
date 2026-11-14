@@ -73,35 +73,55 @@ pub(crate) fn open_readonly_db(db_name: &str) -> Result<Connection, String> {
     Ok(conn)
 }
 
-pub fn get_omp_binary() -> String {
+/// I percorsi noti in cui un'installazione di `omp` puo' trovarsi, in ordine
+/// di preferenza. Elencati una volta sola: `get_omp_binary` sceglie il primo
+/// **esistente**, mentre il setup grafico deve poter guardare anche quelli che
+/// esistono come collegamento rotto (vedi `crate::setup::omp_broken_candidate`).
+pub fn omp_binary_candidates() -> Vec<PathBuf> {
     #[cfg(target_os = "windows")]
     {
-        let local_app_data = std::env::var("LOCALAPPDATA").unwrap_or_default();
-        if !local_app_data.is_empty() {
-            let win_path = format!("{}\\omp\\omp.exe", local_app_data);
-            if Path::new(&win_path).exists() {
-                return win_path;
-            }
-        }
+        let Some(local_app_data) = std::env::var("LOCALAPPDATA").ok().filter(|v| !v.is_empty())
+        else {
+            return Vec::new();
+        };
+        vec![PathBuf::from(local_app_data).join("omp").join("omp.exe")]
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let Some(home) = std::env::var("HOME").ok().filter(|v| !v.is_empty()) else {
+            return Vec::new();
+        };
+        vec![
+            PathBuf::from(&home).join(".bun").join("bin").join("omp"),
+            PathBuf::from(&home).join(".omp").join("bin").join("omp"),
+            PathBuf::from(&home).join(".local").join("bin").join("omp"),
+            PathBuf::from(&home).join(".cargo").join("bin").join("omp"),
+            PathBuf::from("/usr/local/bin/omp"),
+            PathBuf::from("/opt/homebrew/bin/omp"),
+        ]
+    }
+}
+
+/// Primo candidato che esiste davvero. `Path::exists` segue i collegamenti,
+/// quindi un symlink rotto viene saltato: e' quello che rende una riparazione
+/// in `~/.omp/bin` sufficiente anche con un vecchio `~/.bun/bin/omp` orfano.
+pub fn first_existing_candidate(candidates: &[PathBuf]) -> Option<&Path> {
+    candidates
+        .iter()
+        .find(|path| path.exists())
+        .map(PathBuf::as_path)
+}
+
+pub fn get_omp_binary() -> String {
+    if let Some(path) = first_existing_candidate(&omp_binary_candidates()) {
+        return path.to_string_lossy().to_string();
+    }
+    #[cfg(target_os = "windows")]
+    {
         "omp.exe".to_string()
     }
     #[cfg(not(target_os = "windows"))]
     {
-        if let Ok(home) = std::env::var("HOME") {
-            let candidate_paths = [
-                format!("{}/.bun/bin/omp", home),
-                format!("{}/.omp/bin/omp", home),
-                format!("{}/.local/bin/omp", home),
-                format!("{}/.cargo/bin/omp", home),
-                "/usr/local/bin/omp".to_string(),
-                "/opt/homebrew/bin/omp".to_string(),
-            ];
-            for path in candidate_paths {
-                if Path::new(&path).exists() {
-                    return path;
-                }
-            }
-        }
         "omp".to_string()
     }
 }

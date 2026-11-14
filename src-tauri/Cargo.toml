@@ -52,6 +52,9 @@ uuid = { version = "1", features = ["v4"] }
 # chunk e' base64 e va decodificato in Rust, non nel webview.
 base64 = "0.22"
 sha2 = "0.10"
+# Riconoscimento delle famiglie di modelli del setup (`setup_roles`): pattern
+# ancorati e nominali, compilati una volta sola.
+regex = "1"
 trash = "3"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]

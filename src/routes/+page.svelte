@@ -52,7 +52,7 @@
 	import CloseConfirmModal, { type ProjectCloseTarget } from '#lib/components/CloseConfirmModal.svelte';
 	import { getCurrentWindow } from '@tauri-apps/api/window';
 	import type QueueDrawerSurface from '#lib/components/QueueDrawer.svelte';
-	import type SetupModalSurface from '#lib/components/SetupModal.svelte';
+	import type SetupExperienceSurface from '#lib/components/setup/SetupExperience.svelte';
 	import type ShortcutsHelpModalSurface from '#lib/agent/components/ShortcutsHelpModal.svelte';
 	import { shortcutsModalStore } from '#lib/stores/shortcutsModal.svelte.ts';
 	import { isShortcutsHelpKey, isProjectCycleShortcut, isLaneCycleShortcut } from '#lib/shortcuts/shortcutMatch.ts';
@@ -67,6 +67,7 @@
 	import { backgroundJobs } from '#lib/stores/backgroundJobs.svelte.ts';
 	import { projectOrder } from '#lib/stores/projectOrder.svelte.ts';
 	import { notificationManager } from '#lib/stores/notifications.svelte.ts';
+	import { setupFlow, SETUP_STEPS, type SetupStatus, type SetupStepId, type SetupProgress } from '#lib/stores/setupFlow.svelte.ts';
 	import { headsUpSeen } from '#lib/agent/headsUpSeen.svelte.ts';
 	import { companionStore, type CompanionProjectRuntime } from '#lib/stores/companion.svelte.ts';
 	import { buildAttentionRequest } from '#lib/stores/companionAttention.ts';
@@ -506,23 +507,21 @@
 		}
 	});
 
-	let SetupModalComponent = $state<typeof SetupModalSurface | null>(null);
-	let setupModalPromise: Promise<void> | null = null;
-	let setupModalEverOpened = $state(false);
-	function loadSetupModal(): Promise<void> {
-		if (SetupModalComponent) return Promise.resolve();
-		if (!setupModalPromise) {
-			setupModalPromise = import('#lib/components/SetupModal.svelte').then((module) => {
-				SetupModalComponent = module.default;
+	// Il setup grafico pesa (rovina, passi, terminale): si scarica solo quando
+	// serve, come le altre superfici pesanti.
+	let SetupExperienceComponent = $state<typeof SetupExperienceSurface | null>(null);
+	let setupExperiencePromise: Promise<void> | null = null;
+	function loadSetupExperience(): Promise<void> {
+		if (SetupExperienceComponent) return Promise.resolve();
+		if (!setupExperiencePromise) {
+			setupExperiencePromise = import('#lib/components/setup/SetupExperience.svelte').then((module) => {
+				SetupExperienceComponent = module.default;
 			});
 		}
-		return setupModalPromise;
+		return setupExperiencePromise;
 	}
 	$effect(() => {
-		if (setupOpen) {
-			setupModalEverOpened = true;
-			void loadSetupModal();
-		}
+		if (setupFlow.open) void loadSetupExperience();
 	});
 
 	let QueueDrawerComponent = $state<typeof QueueDrawerSurface | null>(null);
@@ -674,7 +673,7 @@
 				: 'nessuna';
 			const modals = Object.entries({
 				settings: settingsStore.open,
-				setup: setupOpen,
+				setup: setupFlow.open,
 				usage: usageOpen,
 				picker: pickerOpen,
 				queue: queueOpen,
@@ -741,9 +740,8 @@
 	// progetti c'e' lavoro in attesa, senza aprirli uno a uno.
 	let queueOpen = $state(false);
 	let queueAnchor = $state<HTMLElement | null>(null);
-	// Primo avvio guidato: `contract_check` decide se e da quale carta partire.
-	let setupOpen = $state(false);
-	let setupStartAt = $state<'install' | 'wizard' | 'project'>('wizard');
+	// Primo avvio guidato: `setupFlow` sa se la finestra è aperta e a che passo;
+	// qui resta solo il segnale per il chip della barra.
 	let setupIncomplete = $state(false);
 
 	// Richiesta di apertura diff proveniente dal pannello GIT: porta il file
@@ -3370,17 +3368,10 @@
 	} | null>(null);
 	let isInstallingUpdate = $state(false);
 
-	type ContractStatus = {
-		missing: string[];
-		ompVersion?: string | null;
-		ompOutdated?: boolean;
-		minOmpVersion?: string;
-	};
-
 	/** Versione e soglia minima di `omp` dal contratto: sotto la soglia il chip
 	 *  resta acceso finche' l'utente non aggiorna, e il suo click propone
 	 *  l'aggiornamento come per una nuova versione. */
-	function applyContractVersion(status: ContractStatus) {
+	function applyContractVersion(status: SetupStatus) {
 		if (status.ompVersion) {
 			ompVersionStore.set(status.ompVersion);
 		}
@@ -3391,59 +3382,112 @@
 	}
 
 	/**
-	 * Verifica del contratto con `omp` all'avvio (docs/PLAN.md Fase 8). Il
-	 * wizard si apre solo quando c'e' qualcosa da fare, e parte dalla carta
-	 * giusta: senza binario dall'installazione, senza credenziali o modello
-	 * dal setup nativo, tutto a posto ma senza progetti dalla cartella.
+	 * Decide se (e dove) aprire il setup grafico (SET-020/021).
+	 *
+	 * Tre casi soli, perché la finestra è una sola:
+	 * - **primo avvio** — il setup non è mai stato completato e manca qualcosa:
+	 *   ingresso lungo, dal primo passo (o dal punto salvato, SET-041);
+	 * - **ritorno** — il setup è già stato fatto ma un pezzo bloccante è sparito
+	 *   (omp assente o rotto, nessuna credenziale, nessun modello predefinito):
+	 *   si apre sul passo che manca, gli altri segnati come fatti, niente ingresso;
+	 * - **niente** — i problemi non bloccanti (omp vecchio, Git Bash, database)
+	 *   restano nel chip della barra e nelle notifiche.
 	 */
 	async function checkSetupContract() {
 		try {
 			// I progetti salvati arrivano dal disco in modo asincrono: senza
-			// attendere, un utente con progetti vedrebbe il wizard solo perche'
-			// la lista e' ancora vuota.
+			// attendere, un utente con progetti vedrebbe il setup solo perché la
+			// lista è ancora vuota.
 			await Promise.all([projectStore.init(), laneStore.init()]);
-			const status = await invoke<ContractStatus>('setup_status');
+			const status = await setupFlow.readStatus();
+			if (!status) return;
 			applyContractVersion(status);
-			setupIncomplete = status.missing.length > 0;
-			if (status.missing.includes('omp')) {
-				setupStartAt = 'install';
-			} else if (setupIncomplete) {
-				setupStartAt = 'wizard';
-			} else if (projectStore.projects.length === 0) {
-				setupStartAt = 'project';
-			} else {
+			// Il chip resta acceso anche per i soli avvisi non bloccanti (SET-021):
+			// è lì che finiscono, non in un'apertura automatica della finestra.
+			setupIncomplete = setupFlow.warnings.length > 0 || status.missing.length > 0;
+
+			const progress: SetupProgress | null = await setupFlow.readProgress();
+			const blocked = setupFlow.blockingMissing.length > 0;
+			// Senza file di progresso si conta come concluso chi ha già passato il
+			// wizard di omp (`setupVersion` alla soglia): chi aggiorna Studio con omp
+			// configurato non deve ritrovarsi il setup del primo avvio.
+			const completedBefore = progress ? progress.completed : !status.wizardPending;
+
+			if (!completedBefore && blocked) {
+				// Primo avvio. Il passo salvato vale solo se è ancora coerente con
+				// lo stato: un progresso fermo su Provider mentre manca omp
+				// riaprirebbe la finestra su un passo che non può proseguire.
+				const saved = progress?.step as SetupStepId | undefined;
+				const resume = saved && SETUP_STEPS.includes(saved) && SETUP_STEPS.indexOf(saved) <= SETUP_STEPS.indexOf(setupFlow.firstMissingStep)
+					? saved
+					: setupFlow.firstMissingStep;
+				const done = (progress?.done ?? []).filter((id): id is SetupStepId => SETUP_STEPS.includes(id as SetupStepId));
+				setupFlow.openAt('first', resume, done.filter((id) => id !== resume));
 				return;
 			}
-			setupOpen = true;
+
+			if (!completedBefore && progress) {
+				// Setup lasciato a metà ma ormai senza pezzi bloccanti: riparte dal
+				// passo salvato (SET-041), così l'utente vede cosa resta e chiude.
+				const done = progress.done.filter((id): id is SetupStepId => SETUP_STEPS.includes(id as SetupStepId));
+				const saved = progress.step as SetupStepId;
+				setupFlow.openAt('first', SETUP_STEPS.includes(saved) ? saved : 'summary', done.filter((id) => id !== saved));
+				return;
+			}
+
+			if (!blocked) return;
+
+			// Ritorno: si riparte dal passo che manca con gli altri già fatti.
+			const done = SETUP_STEPS.filter((id) => id !== setupFlow.firstMissingStep && id !== 'summary');
+			setupFlow.openAt('return', setupFlow.firstMissingStep, done);
 		} catch (e) {
 			console.error(m.ui__page_verifica_del_contratto_omp_545e(), e);
 		}
 	}
 
-	function openSetup() {
-		setupStartAt = setupIncomplete ? 'wizard' : 'project';
-		setupOpen = true;
+	/** Apertura dal chip della barra o dallo stato vuoto: sempre in modalità ritorno. */
+	async function openSetup() {
+		await loadSetupExperience();
+		await setupFlow.readStatus();
+		let step: SetupStepId;
+		if (setupFlow.blockingMissing.length > 0) {
+			step = setupFlow.firstMissingStep;
+		} else if (setupFlow.warnings.length > 0) {
+			// Gli avvisi non bloccanti (SET-021) si leggono e si risolvono nel
+			// passo Motore: lì c'è l'aggiornamento di omp e la spiegazione degli altri.
+			step = 'engine';
+		} else {
+			step = setupFlow.firstOpenStep;
+		}
+		const done = SETUP_STEPS.filter((id) => id !== step && id !== 'summary');
+		setupFlow.openAt('return', step, done);
 	}
 
 	async function closeSetup() {
-		setupOpen = false;
 		// Rileggere lo stato aggiorna il chip: se manca ancora qualcosa resta
-		// visibile in barra, ma il wizard non si riapre da solo — sarebbe una
+		// visibile in barra, ma la finestra non si riapre da sola — sarebbe una
 		// trappola.
 		const wasIncomplete = setupIncomplete;
 		await refreshSetupChip();
 		if (wasIncomplete) await ompVersionStore.refresh();
+		// Appena finito il setup senza un progetto aperto, lo stato vuoto di
+		// Studio (SET-018) mostra i repository della cartella scelta: il selettore
+		// che li elenca è già quello dei progetti, quindi si apre da lì.
+		if (setupFlow.progress?.completed && projectStore.projects.length === 0 && !automationWorkspaceOpen) {
+			pickerOpen = true;
+		}
 	}
 
-	/** Aggiorna il solo indicatore, senza decidere di aprire niente. */
+	/**
+	 * Aggiorna il solo indicatore, senza decidere di aprire niente. Il chip resta
+	 * acceso anche per i soli avvisi non bloccanti: è lì che finiscono (SET-021),
+	 * e spegnerlo quando mancano solo quelli li nasconderebbe.
+	 */
 	async function refreshSetupChip() {
-		try {
-			const status = await invoke<ContractStatus>('setup_status');
-			applyContractVersion(status);
-			setupIncomplete = status.missing.length > 0;
-		} catch (e) {
-			console.error(m.ui__page_verifica_del_contratto_omp_545e(), e);
-		}
+		const status = await setupFlow.readStatus();
+		if (!status) return;
+		applyContractVersion(status);
+		setupIncomplete = setupFlow.warnings.length > 0 || status.missing.length > 0;
 	}
 
 	async function checkOmpUpdateSilently() {
@@ -3512,7 +3556,7 @@
 			void loadEditor();
 			void loadTerminal();
 			void loadSettingsModal();
-			void loadSetupModal();
+			void loadSetupExperience();
 			void loadQueueDrawer();
 			void loadStudioUpdateModal();
 			void loadShortcutsHelpModal();
@@ -3961,7 +4005,7 @@
 				settingsStore.open ||
 				shortcutsModalStore.isOpen ||
 				closeConfirmModalState.open ||
-				setupOpen ||
+				setupFlow.open ||
 				usageOpen ||
 				pickerOpen ||
 				queueOpen ||
@@ -3986,7 +4030,7 @@
 				settingsStore.open ||
 				shortcutsModalStore.isOpen ||
 				closeConfirmModalState.open ||
-				setupOpen ||
+				setupFlow.open ||
 				usageOpen ||
 				pickerOpen ||
 				queueOpen ||
@@ -4113,8 +4157,8 @@
 	{#if projectStore.activeProject && projectStore.activeProject.canonicalProjectPath}
 		<LaneStrip project={projectStore.activeProject} onReviewLane={(lane) => (reviewingLane = lane)} />
 	{/if}
-	{#if SetupModalComponent && (setupOpen || setupModalEverOpened)}
-		<SetupModalComponent open={setupOpen} startAt={setupStartAt} onClose={closeSetup} />
+	{#if SetupExperienceComponent && setupFlow.open}
+		<SetupExperienceComponent onClose={closeSetup} />
 	{/if}
 	<UsagePopover open={usageOpen} anchor={usageAnchor} onClose={() => usageOpen = false} {guiHosts} />
 	<ProjectPicker open={pickerOpen} onClose={() => pickerOpen = false} />
@@ -4250,7 +4294,7 @@
 			<EmptyState
 				variant="no-projects"
 				setupIncomplete={setupIncomplete}
-				onSetupClick={() => { setupOpen = true; setupStartAt = 'wizard'; }}
+				onSetupClick={() => void openSetup()}
 				primaryAction={{
 					label: m.page_empty_open_project(),
 					shortcut: 'Ctrl+Alt+N',

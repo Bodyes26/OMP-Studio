@@ -188,12 +188,17 @@ commands.allow = [
 
 [[permission]]
 identifier = "allow-setup"
-description = "Primo avvio guidato: rilevamento stato, installazione di omp, font e radici progetti"
+description = "Setup grafico di primo avvio: stato, installazione di omp, font, radici progetti, chiavi di config, strumenti rilevati, progresso e proposta dei ruoli"
 commands.allow = [
     "setup_status",
     "install_omp",
     "install_nerd_font",
-    "detect_project_roots"
+    "detect_project_roots",
+    "setup_apply_config",
+    "setup_detect_tools",
+    "setup_progress_get",
+    "setup_progress_set",
+    "setup_propose_roles"
 ]
 
 [[permission]]

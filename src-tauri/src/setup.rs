@@ -13,12 +13,12 @@
 //! processo che lo lancia.
 
 use futures_util::StreamExt;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use tauri::{command, AppHandle, Emitter};
+use tauri::{command, AppHandle, Emitter, Manager};
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -71,6 +71,15 @@ pub struct DatabaseStatus {
 pub struct SetupStatus {
     pub omp_installed: bool,
     pub omp_path: Option<String>,
+    /// `true` quando non esiste un binario **funzionante** ma un candidato noto
+    /// c'e' lo stesso: un collegamento che punta a un file cancellato (il caso
+    /// `~/.bun/bin/omp` -> `../../node_modules/.../cli.js` sparito) oppure un
+    /// eseguibile che non risponde a `--version`. La differenza con "non
+    /// installato" e' quella che il passo Motore mostra all'utente: "danneggiata"
+    /// chiede una riparazione, non un primo download.
+    pub omp_broken: bool,
+    /// Il candidato rotto, per nominarlo nella schermata e nel registro.
+    pub omp_broken_path: Option<String>,
     /// Dove Studio installerebbe (o ha installato) il binario. Il frontend la
     /// mostra invece di indovinare un percorso per piattaforma: qui e' gia'
     /// rispettata anche la variabile `PI_INSTALL_DIR`.
@@ -391,12 +400,78 @@ fn version_below_minimum(version: &str) -> bool {
     current < minimum
 }
 
+/// Diagnosi di un candidato noto di `omp` che non e' un binario funzionante.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum BrokenCandidate {
+    /// Un collegamento simbolico la cui destinazione non esiste piu': il caso
+    /// reale `~/.bun/bin/omp` -> `../../node_modules/@oh-my-pi/pi-coding-agent/dist/cli.js`
+    /// dopo che l'utente ha cancellato la cartella di bun.
+    DanglingSymlink(PathBuf),
+    /// Un file che c'e', ma non risponde a `--version` (corrotto, permessi
+    /// sbagliati, architettura diversa).
+    NotRunnable(PathBuf),
+}
+
+impl BrokenCandidate {
+    pub(crate) fn path(&self) -> &Path {
+        match self {
+            BrokenCandidate::DanglingSymlink(path) | BrokenCandidate::NotRunnable(path) => path,
+        }
+    }
+}
+
+/// Classifica un singolo candidato: `None` se non c'e' niente da riparare.
+///
+/// `symlink_metadata` non segue il collegamento, quindi distingue un link rotto
+/// (`Ok` + `metadata` in errore) da un file assente: solo il primo e' una
+/// "installazione danneggiata", il secondo e' semplicemente "non installato".
+fn classify_candidate(candidate: &Path, runnable: impl Fn(&Path) -> bool) -> Option<BrokenCandidate> {
+    // Assente del tutto: "non installato", non "danneggiato".
+    std::fs::symlink_metadata(candidate).ok()?;
+    match std::fs::metadata(candidate) {
+        // Il link c'e' ma la destinazione no.
+        Err(_) => Some(BrokenCandidate::DanglingSymlink(candidate.to_path_buf())),
+        // Un link che punta a una cartella: esiste, ma non e' un programma.
+        Ok(meta) if !meta.is_file() => Some(BrokenCandidate::NotRunnable(candidate.to_path_buf())),
+        Ok(_) if !runnable(candidate) => Some(BrokenCandidate::NotRunnable(candidate.to_path_buf())),
+        Ok(_) => None,
+    }
+}
+
+/// Cerca un'installazione di `omp` danneggiata fra i percorsi noti. Va
+/// chiamata **solo** quando nessun binario funzionante e' stato trovato:
+/// con uno valido in mano, un link rotto accanto non e' un problema da
+/// mostrare (dopo una riparazione in `~/.omp/bin` il vecchio `~/.bun/bin/omp`
+/// resta rotto, e `omp_broken` deve tornare `false`).
+fn find_broken_candidate() -> Option<BrokenCandidate> {
+    find_broken_candidate_in(&crate::omp_ops::omp_binary_candidates())
+}
+
+/// Variante con l'elenco esplicito: i test la puntano a una cartella
+/// temporanea invece che all'`HOME` della macchina.
+pub(crate) fn find_broken_candidate_in(candidates: &[PathBuf]) -> Option<BrokenCandidate> {
+    candidates
+        .iter()
+        .find_map(|candidate| classify_candidate(candidate, |path| read_omp_version(path).is_some()))
+}
+
 /// Corpo di `setup_status` con la directory dell'agente esplicita: e' quello
 /// che i test possono puntare a una cartella vuota senza toccare la
 /// configurazione reale della macchina.
 fn status_for(agent: Option<PathBuf>) -> SetupStatus {
     let binary = omp_binary_if_present();
     let omp_version = binary.as_deref().and_then(read_omp_version);
+    // Solo senza un binario **funzionante**: un'installazione valida rende
+    // irrilevante un vecchio collegamento rotto rimasto accanto (e' il caso
+    // della riparazione in `~/.omp/bin`, che non cancella il `~/.bun/bin/omp`
+    // rimasto orfano). "Funzionante" e' la versione leggibile: un file che
+    // esiste ma non risponde a `--version` e' proprio l'altra forma di
+    // installazione danneggiata che il passo Motore deve poter riparare.
+    let broken = if omp_version.is_some() {
+        None
+    } else {
+        find_broken_candidate()
+    };
     let facts = agent
         .as_deref()
         .map(read_config_facts)
@@ -407,7 +482,10 @@ fn status_for(agent: Option<PathBuf>) -> SetupStatus {
         .unwrap_or_default();
 
     let mut missing = Vec::new();
-    if binary.is_none() {
+    // Anche quando un file c'e' ma e' danneggiato: per il passo Motore «manca
+    // un omp che funziona» e «non c'e' nessun omp» portano alla stessa carta,
+    // con `ompBroken` a scegliere fra riparazione e primo download.
+    if binary.is_none() || broken.is_some() {
         missing.push("omp".to_string());
     }
     if credential_providers.is_empty() {
@@ -427,6 +505,10 @@ fn status_for(agent: Option<PathBuf>) -> SetupStatus {
     SetupStatus {
         omp_installed: binary.is_some(),
         omp_path: binary.as_ref().map(|p| p.to_string_lossy().to_string()),
+        omp_broken: broken.is_some(),
+        omp_broken_path: broken
+            .as_ref()
+            .map(|candidate| candidate.path().to_string_lossy().to_string()),
         install_dir: install_dir().map(|p| p.to_string_lossy().to_string()),
         omp_version,
         setup_version: facts.setup_version,
@@ -1833,6 +1915,313 @@ pub async fn detect_project_roots() -> Result<Vec<ProjectRootCandidate>, String>
     })?
 }
 
+// -----------------------------------------------------------------------------
+// Scritture di configurazione dei passi del setup grafico
+// -----------------------------------------------------------------------------
+
+/// Le sole chiavi di `config.yml` che il setup grafico scrive. Tutte opzionali:
+/// il guscio manda solo i passi che l'utente ha davvero confermato.
+///
+/// I ruoli modello non passano da qui: li scrive `save_model_config` dal passo
+/// Ruoli, che conosce i fallback e i ruoli che il setup non tocca.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetupConfigPatch {
+    /// Passo Aspetto: `theme.dark`.
+    pub theme_dark: Option<String>,
+    /// Passo Aspetto: `theme.light`.
+    pub theme_light: Option<String>,
+    /// Passo Aspetto: `colorBlindMode`.
+    pub color_blind_mode: Option<bool>,
+    /// Passo Aggiornamenti: `update.auto`.
+    pub update_auto: Option<bool>,
+    /// Riepilogo: `true` scrive `setupVersion: CURRENT_SETUP_VERSION`, la
+    /// stessa soglia che Studio legge per considerare fatto il setup.
+    pub mark_complete: Option<bool>,
+}
+
+/// Sotto-chiave annidata di `config.yml`: `theme` esiste gia' come dizionario
+/// con altre voci (il tema scelto dalla TUI, `theme.light`, ...) e va fuso,
+/// non sostituito.
+fn set_nested(doc: &mut serde_yaml::Mapping, section: &str, key: &str, value: serde_yaml::Value) {
+    let section_key = serde_yaml::Value::String(section.to_string());
+    let mut sub = match doc.get(&section_key) {
+        // Una `theme: "titanium"` scritta a mano (o da una versione vecchia di
+        // `omp`) e' un valore che conosciamo: `omp` la migra in `theme.dark`,
+        // quindi la trattiamo come tale invece di scartare la sezione.
+        Some(serde_yaml::Value::String(theme)) if section == "theme" => {
+            let mut migrated = serde_yaml::Mapping::new();
+            migrated.insert(
+                serde_yaml::Value::String("dark".to_string()),
+                serde_yaml::Value::String(theme.clone()),
+            );
+            migrated
+        }
+        Some(serde_yaml::Value::Mapping(existing)) => existing.clone(),
+        _ => serde_yaml::Mapping::new(),
+    };
+    sub.insert(
+        serde_yaml::Value::String(key.to_string()),
+        value,
+    );
+    doc.insert(section_key, serde_yaml::Value::Mapping(sub));
+}
+
+/// Applica la patch al dizionario, toccando solo le chiavi presenti nella patch.
+fn merge_setup_patch(doc: &mut serde_yaml::Mapping, patch: &SetupConfigPatch) {
+    if let Some(theme) = patch.theme_dark.as_deref().filter(|t| !t.trim().is_empty()) {
+        set_nested(doc, "theme", "dark", serde_yaml::Value::String(theme.to_string()));
+    }
+    if let Some(theme) = patch.theme_light.as_deref().filter(|t| !t.trim().is_empty()) {
+        set_nested(doc, "theme", "light", serde_yaml::Value::String(theme.to_string()));
+    }
+    if let Some(enabled) = patch.color_blind_mode {
+        doc.insert(
+            serde_yaml::Value::String("colorBlindMode".to_string()),
+            serde_yaml::Value::Bool(enabled),
+        );
+    }
+    if let Some(auto) = patch.update_auto {
+        set_nested(doc, "update", "auto", serde_yaml::Value::Bool(auto));
+    }
+    if patch.mark_complete == Some(true) {
+        doc.insert(
+            serde_yaml::Value::String("setupVersion".to_string()),
+            serde_yaml::Value::Number(CURRENT_SETUP_VERSION.into()),
+        );
+    }
+}
+
+/// Corpo di `setup_apply_config` con l'agente esplicito: i test lo puntano a
+/// una cartella temporanea.
+fn apply_config_in(agent: &Path, patch: &SetupConfigPatch) -> Result<(), String> {
+    // `omp` legge `settings.json` **solo** per migrarlo quando nessun YAML
+    // esiste (docs/DECISIONS.md, revisione 2026-11-11): scriverlo quando il
+    // YAML c'e' gia' sarebbe una chiave inerte. Qui pero' il file va creato
+    // quando manca — questi passi valgono anche su una macchina dove `omp` non
+    // ha ancora scritto niente — e crearlo salterebbe quella migrazione,
+    // lasciando le vecchie impostazioni in un file che nessuno legge piu'.
+    // Percio' il nuovo YAML parte dal contenuto di `settings.json`: la stessa
+    // fusione che farebbe `omp`, fatta da noi prima di aggiungere le chiavi.
+    let (path, base) = match config_yml_path_in(agent) {
+        Some(existing) => (existing, None),
+        None => (
+            agent.join("config.yml"),
+            legacy_settings_mapping(agent),
+        ),
+    };
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| {
+            crate::tr!(
+                format!("Cartella di {}: {}", path.display(), error),
+                format!("Folder of {}: {}", path.display(), error)
+            )
+        })?;
+    }
+    crate::models_ops::mutate_config_mapping(&path, base, |doc| merge_setup_patch(doc, patch))
+}
+
+/// Le chiavi di un `settings.json` legacy, pronte come punto di partenza del
+/// `config.yml` che stiamo per creare. Un file illeggibile o non-oggetto non
+/// blocca niente: si parte da un dizionario vuoto, come farebbe `omp`
+/// («ignoring non-object legacy settings.json»).
+fn legacy_settings_mapping(agent: &Path) -> Option<serde_yaml::Mapping> {
+    let text = std::fs::read_to_string(agent.join("settings.json")).ok()?;
+    let value: serde_json::Value =
+        serde_json::from_str(text.trim_start_matches('\u{feff}')).ok()?;
+    let object = value.as_object()?;
+    if object.is_empty() {
+        return None;
+    }
+    // Valori JSON -> YAML uno per uno: `serde_yaml::to_value` su un oggetto
+    // intero passerebbe per le stringhe, perdendo i booleani e i numeri che
+    // `omp` legge come tali.
+    let mut mapping = serde_yaml::Mapping::new();
+    for (key, value) in object {
+        if let Ok(converted) = serde_yaml::to_value(value) {
+            mapping.insert(serde_yaml::Value::String(key.clone()), converted);
+        }
+    }
+    (!mapping.is_empty()).then_some(mapping)
+}
+
+/// Scrive nel `config.yml` di `omp` solo le chiavi dei passi che il setup
+/// grafico copre, in merge e sotto lo stesso lock delle altre scritture di
+/// Studio. Nessun'altra chiave viene toccata.
+#[command]
+pub async fn setup_apply_config(patch: SetupConfigPatch) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        let agent = crate::omp_ops::agent_dir().ok_or_else(|| {
+            crate::tr!(
+                "Impossibile trovare la cartella di configurazione di omp",
+                "Could not find the omp configuration folder"
+            )
+            .to_string()
+        })?;
+        apply_config_in(&agent, &patch)
+    })
+    .await
+    .map_err(|e| {
+        crate::tr!(
+            format!("Scrittura della configurazione: {}", e),
+            format!("Writing the configuration: {}", e)
+        )
+    })?
+}
+
+// -----------------------------------------------------------------------------
+// Strumenti presenti sulla macchina (passo Progetti)
+// -----------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DetectedTools {
+    pub claude_code: bool,
+    pub codex_cli: bool,
+    pub ollama: bool,
+}
+
+/// Cartelle di configurazione note: sono la prova che lo strumento e' stato
+/// usato almeno una volta, piu' affidabile del solo PATH (Claude Code si
+/// installa come app, Codex come npm globale).
+///
+/// `has_binary` e' un parametro invece di una chiamata diretta al `PATH`:
+/// l'ambiente della macchina di sviluppo non deve poter decidere l'esito dei
+/// test (qui `claude` c'e' davvero).
+fn detect_tools_with(
+    home: Option<&Path>,
+    has_binary: impl Fn(&str) -> bool,
+) -> DetectedTools {
+    let home_dir = |name: &str| home.map(|h| h.join(name)).is_some_and(|d| d.is_dir());
+
+    DetectedTools {
+        claude_code: has_binary("claude") || home_dir(".claude"),
+        codex_cli: has_binary("codex") || home_dir(".codex"),
+        ollama: has_binary("ollama")
+            || home_dir(".ollama")
+            // Su macOS Ollama si installa come applicazione e il demone vive
+            // li', senza niente in `PATH`: l'utente l'ha comunque installato.
+            || (cfg!(target_os = "macos") && Path::new("/Applications/Ollama.app").exists()),
+    }
+}
+
+fn detect_tools_in(home: Option<&Path>) -> DetectedTools {
+    detect_tools_with(home, |name| which_on_path(name).is_some())
+}
+
+/// Rileva gli strumenti esterni senza avviare processi: un `which` per volta
+/// costerebbe fino a 250 ms su Windows con l'antivirus attivo (vedi
+/// `path_lookup`), e questo comando gira mentre il passo si apre.
+#[command]
+pub async fn setup_detect_tools() -> Result<DetectedTools, String> {
+    tokio::task::spawn_blocking(|| {
+        let home = std::env::var_os("USERPROFILE")
+            .or_else(|| std::env::var_os("HOME"))
+            .map(PathBuf::from);
+        Ok(detect_tools_in(home.as_deref()))
+    })
+    .await
+    .map_err(|e| {
+        crate::tr!(
+            format!("Rilevamento degli strumenti: {}", e),
+            format!("Detecting tools: {}", e)
+        )
+    })?
+}
+
+// -----------------------------------------------------------------------------
+// Avanzamento del setup (ripresa dopo una chiusura, SET-041)
+// -----------------------------------------------------------------------------
+
+/// Dove si era fermato il setup. Vive nella cartella dati di Studio, non in
+/// `~/.omp`: e' stato dell'interfaccia, non configurazione di `omp`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetupProgress {
+    /// Passo su cui riaprire il setup (id del passo del guscio).
+    pub step: String,
+    /// Passi gia' confermati.
+    pub done: Vec<String>,
+    /// `true` quando l'utente ha premuto «Entra in Studio».
+    pub completed: bool,
+    /// Millisecondi dall'epoca: serve solo a ordinare e a mostrare "ripreso".
+    pub updated_at: i64,
+}
+
+const SETUP_PROGRESS_FILE: &str = "setup-progress.json";
+
+fn setup_progress_path(app: &AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_data_dir()
+        .map(|dir| dir.join(SETUP_PROGRESS_FILE))
+        .map_err(|error| {
+            crate::tr!(
+                format!("Cartella dati di Studio non disponibile: {error}"),
+                format!("Studio data folder unavailable: {error}")
+            )
+        })
+}
+
+fn read_progress(path: &Path) -> Result<Option<SetupProgress>, String> {
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(crate::tr!(
+                format!("Lettura {}: {error}", path.display()),
+                format!("Reading {}: {error}", path.display())
+            ))
+        }
+    };
+    // Un file illeggibile non deve impedire di riaprire il setup: si riparte
+    // dal primo passo, che e' esattamente il comportamento senza file.
+    Ok(serde_json::from_slice(&bytes).ok())
+}
+
+fn write_progress(path: &Path, progress: &SetupProgress) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| {
+            crate::tr!(
+                format!("Cartella di {}: {error}", path.display()),
+                format!("Folder of {}: {error}", path.display())
+            )
+        })?;
+    }
+    let serialized = serde_json::to_vec_pretty(progress).map_err(|error| {
+        crate::tr!(
+            format!("Serializzazione dell'avanzamento: {error}"),
+            format!("Serializing progress: {error}")
+        )
+    })?;
+    crate::fs_atomic::atomic_write(path, &serialized)
+}
+
+#[command]
+pub async fn setup_progress_get(app: AppHandle) -> Result<Option<SetupProgress>, String> {
+    let path = setup_progress_path(&app)?;
+    tokio::task::spawn_blocking(move || read_progress(&path))
+        .await
+        .map_err(|e| {
+            crate::tr!(
+                format!("Lettura dell'avanzamento: {}", e),
+                format!("Reading progress: {}", e)
+            )
+        })?
+}
+
+#[command]
+pub async fn setup_progress_set(app: AppHandle, progress: SetupProgress) -> Result<(), String> {
+    let path = setup_progress_path(&app)?;
+    tokio::task::spawn_blocking(move || write_progress(&path, &progress))
+        .await
+        .map_err(|e| {
+            crate::tr!(
+                format!("Scrittura dell'avanzamento: {}", e),
+                format!("Writing progress: {}", e)
+            )
+        })?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1965,6 +2354,348 @@ mod tests {
         assert_eq!(ensure_shell_path_in(&base, Some(bash)).unwrap(), None);
         assert_eq!(std::fs::read_to_string(base.join("settings.json")).unwrap(), "non json");
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    // --- Rilevamento dell'installazione danneggiata -------------------------
+
+    /// Nome di cartella unico per test: piu' test in parallelo nella stessa
+    /// `TMPDIR` non devono vedersi i file a vicenda.
+    fn unique_dir(label: &str) -> PathBuf {
+        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!(
+            "omp-studio-{}-{}-{}",
+            label,
+            std::process::id(),
+            n
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn un_collegamento_rotto_e_un_installazione_danneggiata() {
+        // Il caso reale: `~/.bun/bin/omp` -> `../../node_modules/.../cli.js`
+        // dopo che l'utente ha cancellato quella cartella.
+        let dir = unique_dir("broken-link");
+        let bin = dir.join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let link = bin.join("omp");
+        std::os::unix::fs::symlink("../node_modules/@oh-my-pi/pi-coding-agent/dist/cli.js", &link)
+            .unwrap();
+
+        let found = find_broken_candidate_in(std::slice::from_ref(&link)).expect("link rotto riconosciuto");
+        assert_eq!(found, BrokenCandidate::DanglingSymlink(link.clone()));
+        assert_eq!(found.path(), link.as_path());
+
+        // Un file assente non e' "danneggiato", e' "non installato": il passo
+        // Motore propone il download, non la riparazione.
+        assert_eq!(find_broken_candidate_in(&[bin.join("manca")]), None);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Dopo una riparazione (`install_omp` scrive in `~/.omp/bin`) il vecchio
+    /// `~/.bun/bin/omp` resta rotto: `ompBroken` deve comunque tornare `false`,
+    /// altrimenti il passo Motore chiederebbe di riparare all'infinito.
+    #[cfg(unix)]
+    #[test]
+    fn dopo_la_riparazione_il_link_rotto_non_conta_piu() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = unique_dir("repair");
+
+        let bun_bin = dir.join("bun-bin");
+        let omp_bin = dir.join("omp-bin");
+        std::fs::create_dir_all(&bun_bin).unwrap();
+        std::fs::create_dir_all(&omp_bin).unwrap();
+        let rotto = bun_bin.join("omp");
+        std::os::unix::fs::symlink("../../node_modules/pi-coding-agent/dist/cli.js", &rotto).unwrap();
+
+        let riparato = omp_bin.join("omp");
+        std::fs::write(&riparato, "#!/bin/sh\necho omp/18.18.3\n").unwrap();
+        std::fs::set_permissions(&riparato, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        // Ordine dei candidati reali: bun prima di ~/.omp/bin. Il link rotto
+        // viene saltato perche' `exists` segue il collegamento.
+        let candidates = vec![rotto.clone(), riparato.clone()];
+        assert_eq!(
+            crate::omp_ops::first_existing_candidate(&candidates),
+            Some(riparato.as_path())
+        );
+
+        // Con un binario funzionante in mano la diagnosi non si fa nemmeno:
+        // `status_for` la salta quando la versione e' leggibile. Qui si
+        // verifica il criterio usato, senza dipendere dall'`HOME` reale.
+        assert_eq!(find_broken_candidate_in(&[rotto]), Some(BrokenCandidate::DanglingSymlink(bun_bin.join("omp"))));
+        assert_eq!(find_broken_candidate_in(&[riparato]), None);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn un_binario_che_non_risponde_e_danneggiato_e_uno_valido_no() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = unique_dir("not-runnable");
+
+        let rotto = dir.join("rotto");
+        std::fs::write(&rotto, "#!/bin/sh\nexit 1\n").unwrap();
+        std::fs::set_permissions(&rotto, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(
+            find_broken_candidate_in(std::slice::from_ref(&rotto)),
+            Some(BrokenCandidate::NotRunnable(rotto.clone()))
+        );
+
+        // Riparazione simulata: accanto al candidato rotto compare uno che
+        // funziona. La ricerca parte solo se nessuno risponde, quindi qui la
+        // verifica e' che un binario valido non venga mai dichiarato rotto.
+        let valido = dir.join("valido");
+        std::fs::write(&valido, "#!/bin/sh\necho omp/18.18.3\n").unwrap();
+        std::fs::set_permissions(&valido, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(find_broken_candidate_in(&[valido]), None);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // --- `setup_apply_config` -----------------------------------------------
+
+    #[test]
+    fn apply_config_preserva_le_chiavi_esistenti_e_scrive_solo_la_patch() {
+        let base = unique_dir("apply-merge");
+        let original = "\
+# commento dell'utente: resta dov'e'
+setupVersion: 1
+modelRoles:
+  default: anthropic/claude-opus-5:medium
+  slow: x/y
+symbolPreset: nerd
+theme:
+  dark: titanium
+  light: light
+update:
+  channel: stable
+";
+        std::fs::write(base.join("config.yml"), original).unwrap();
+
+        let patch = SetupConfigPatch {
+            theme_dark: Some("omp-studio".into()),
+            update_auto: Some(true),
+            mark_complete: Some(true),
+            ..Default::default()
+        };
+        apply_config_in(&base, &patch).unwrap();
+
+        let text = std::fs::read_to_string(base.join("config.yml")).unwrap();
+        let saved: serde_yaml::Value = serde_yaml::from_str(&text).unwrap();
+        assert_eq!(saved["theme"]["dark"], "omp-studio");
+        assert_eq!(saved["theme"]["light"], "light", "l'altra modalita' resta");
+        assert_eq!(saved["update"]["auto"], true);
+        assert_eq!(saved["update"]["channel"], "stable", "chiavi sorelle intatte");
+        assert_eq!(saved["setupVersion"].as_u64(), Some(CURRENT_SETUP_VERSION));
+        assert_eq!(saved["modelRoles"]["default"], "anthropic/claude-opus-5:medium");
+        assert_eq!(saved["modelRoles"]["slow"], "x/y");
+        assert_eq!(saved["symbolPreset"], "nerd");
+        // Il writer esistente (serde_yaml) non conserva i commenti: il test lo
+        // dichiara invece di far finta che li preservi. Nessuna chiave e'
+        // andata persa, che e' la garanzia che il merge deve dare.
+        assert!(!text.contains("commento dell'utente"));
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn apply_config_non_tocca_le_chiavi_non_richieste() {
+        let base = unique_dir("apply-noop");
+        std::fs::write(
+            base.join("config.yml"),
+            "setupVersion: 3\ntheme:\n  dark: titanium\ncolorBlindMode: false\n",
+        )
+        .unwrap();
+        let before = std::fs::read_to_string(base.join("config.yml")).unwrap();
+
+        // Patch vuota: nessuna chiave passata, nessuna scritta.
+        apply_config_in(&base, &SetupConfigPatch::default()).unwrap();
+        let after: serde_yaml::Value =
+            serde_yaml::from_str(&std::fs::read_to_string(base.join("config.yml")).unwrap()).unwrap();
+        assert_eq!(after["theme"]["dark"], "titanium");
+        assert_eq!(after["colorBlindMode"], false);
+        assert_eq!(after["setupVersion"].as_u64(), Some(3));
+        assert!(!before.is_empty());
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn apply_config_crea_config_yml_da_settings_json_legacy() {
+        let base = unique_dir("apply-legacy");
+        // Nessun YAML: e' la macchina nuova, dove `omp` migrerebbe il legacy.
+        std::fs::write(
+            base.join("settings.json"),
+            "\u{feff}{\"shellPath\": \"/bin/bash\", \"symbolPreset\": \"ascii\", \"colorBlindMode\": true}",
+        )
+        .unwrap();
+
+        let patch = SetupConfigPatch {
+            color_blind_mode: Some(false),
+            update_auto: Some(false),
+            ..Default::default()
+        };
+        apply_config_in(&base, &patch).unwrap();
+
+        // Il file creato e' il YAML: le chiavi legacy sopravvivono e la patch
+        // vince dove l'utente ha appena scelto qualcosa di diverso.
+        assert!(!base.join("config.yaml").exists());
+        let saved: serde_yaml::Value =
+            serde_yaml::from_str(&std::fs::read_to_string(base.join("config.yml")).unwrap()).unwrap();
+        assert_eq!(saved["shellPath"], "/bin/bash");
+        assert_eq!(saved["symbolPreset"], "ascii");
+        assert_eq!(saved["colorBlindMode"], false);
+        assert_eq!(saved["update"]["auto"], false);
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn apply_config_scrive_in_config_yaml_quando_e_quello_che_esiste() {
+        let base = unique_dir("apply-yaml");
+        std::fs::write(base.join("config.yaml"), "setupVersion: 2\n").unwrap();
+
+        apply_config_in(
+            &base,
+            &SetupConfigPatch {
+                mark_complete: Some(true),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        // `omp` aggiorna in place il nome che trova: non ne creiamo un secondo.
+        assert!(!base.join("config.yml").exists());
+        let saved: serde_yaml::Value =
+            serde_yaml::from_str(&std::fs::read_to_string(base.join("config.yaml")).unwrap()).unwrap();
+        assert_eq!(saved["setupVersion"].as_u64(), Some(CURRENT_SETUP_VERSION));
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn mark_complete_scrive_la_versione_corrente_del_setup() {
+        let base = unique_dir("mark-complete");
+        apply_config_in(
+            &base,
+            &SetupConfigPatch {
+                mark_complete: Some(true),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let facts = read_config_facts(&base);
+        assert_eq!(facts.setup_version, CURRENT_SETUP_VERSION);
+        assert!(
+            !status_for(Some(base.clone())).wizard_pending,
+            "il setup risulta fatto"
+        );
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn un_theme_stringa_scritto_a_mano_diventa_theme_dark() {
+        // `omp` migra `theme: titanium` in `theme.dark` (vedi la fusione nel
+        // bundle): trattarlo come una sezione da buttare perderebbe la scelta.
+        let mut doc = serde_yaml::Mapping::new();
+        doc.insert(
+            serde_yaml::Value::String("theme".into()),
+            serde_yaml::Value::String("titanium".into()),
+        );
+        merge_setup_patch(
+            &mut doc,
+            &SetupConfigPatch {
+                theme_light: Some("light".into()),
+                ..Default::default()
+            },
+        );
+        let doc = serde_yaml::Value::Mapping(doc);
+        assert_eq!(doc["theme"]["dark"], "titanium");
+        assert_eq!(doc["theme"]["light"], "light");
+    }
+
+    // --- Rilevamento degli strumenti ---------------------------------------
+
+    #[test]
+    fn detect_tools_legge_le_cartelle_note_e_il_path() {
+        let home = unique_dir("tools");
+        let empty = unique_dir("tools-empty");
+        let no_path = |_: &str| false;
+
+        // Solo cartelle: nessun processo, nessun `which`.
+        std::fs::create_dir_all(home.join(".claude")).unwrap();
+        std::fs::create_dir_all(home.join(".codex")).unwrap();
+        std::fs::create_dir_all(home.join(".ollama")).unwrap();
+        let from_dirs = detect_tools_with(Some(&home), no_path);
+        assert!(from_dirs.claude_code);
+        assert!(from_dirs.codex_cli);
+        assert!(from_dirs.ollama);
+
+        // Solo PATH: nessuna cartella.
+        let from_path = detect_tools_with(Some(&empty), |name| name == "codex");
+        assert!(!from_path.claude_code);
+        assert!(from_path.codex_cli);
+        // Su macOS il rilevamento guarda anche l'app di Ollama: si verifica il
+        // fatto della piattaforma, non un valore che dipende dalla macchina.
+        assert_eq!(
+            from_path.ollama,
+            cfg!(target_os = "macos") && Path::new("/Applications/Ollama.app").exists()
+        );
+
+        // Macchina nuda: tutto assente.
+        let none = detect_tools_with(None, no_path);
+        assert!(!none.claude_code);
+        assert!(!none.codex_cli);
+        assert!(!none.ollama);
+
+        let _ = std::fs::remove_dir_all(&home);
+        let _ = std::fs::remove_dir_all(&empty);
+    }
+
+    // --- Avanzamento del setup ---------------------------------------------
+
+    #[test]
+    fn progress_roundtrip_nella_cartella_dati() {
+        let dir = unique_dir("progress");
+        let path = dir.join(SETUP_PROGRESS_FILE);
+
+        // Nessun file: il setup riparte dal primo passo, non da uno stato finto.
+        assert!(read_progress(&path).unwrap().is_none());
+
+        let progress = SetupProgress {
+            step: "providers".into(),
+            done: vec!["engine".into()],
+            completed: false,
+            updated_at: 1_763_000_000_000,
+        };
+        write_progress(&path, &progress).unwrap();
+
+        let read = read_progress(&path).unwrap().expect("file scritto");
+        assert_eq!(read.step, "providers");
+        assert_eq!(read.done, vec!["engine".to_string()]);
+        assert!(!read.completed);
+        assert_eq!(read.updated_at, 1_763_000_000_000);
+
+        // Il JSON in chiaro e' quello che il frontend si aspetta (camelCase).
+        let raw: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(raw["step"], "providers");
+        assert_eq!(raw["updatedAt"], 1_763_000_000_000i64);
+
+        // Un file corrotto non impedisce di riaprire il setup.
+        std::fs::write(&path, "{ non json").unwrap();
+        assert!(read_progress(&path).unwrap().is_none());
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

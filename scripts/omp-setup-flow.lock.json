@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "package": "@oh-my-pi/pi-tui",
+  "ompVersion": "18.20.0",
+  "packageVersion": "18.20.0",
+  "setupVersion": 3,
+  "scenes": [
+    {
+      "export": "providersSetupScene",
+      "file": "src/setup/scenes/sign-in.ts",
+      "id": "providers",
+      "minVersion": 1
+    },
+    {
+      "export": "modelSetupScene",
+      "file": "src/setup/scenes/model.ts",
+      "id": "model",
+      "minVersion": 1
+    },
+    {
+      "export": "glyphSetupScene",
+      "file": "src/setup/scenes/glyph.ts",
+      "id": "glyph-mode",
+      "minVersion": 1
+    },
+    {
+      "export": "composerSetupScene",
+      "file": "src/setup/scenes/composer.ts",
+      "id": "composer-shape",
+      "minVersion": 2
+    },
+    {
+      "export": "themeSetupScene",
+      "file": "src/setup/scenes/theme.ts",
+      "id": "theme",
+      "minVersion": 1
+    },
+    {
+      "export": "updatesSetupScene",
+      "file": "src/setup/scenes/updates.ts",
+      "id": "auto-update",
+      "minVersion": 3
+    }
+  ],
+  "files": {
+    "src/setup/lazy.ts": "23028dff491cc887fbbe8288c039e64f32ec0605ccd503a1a518c69f27520354",
+    "src/setup/scenes/composer.ts": "1aa7664baa9df24b006d787ab5964073c4bd0f3c71107bc2f8060492acef1df6",
+    "src/setup/scenes/glyph.ts": "500f90fbfd2008d389e44dabec4a1862f92369d4878375cd69c274edbd69f151",
+    "src/setup/scenes/model.ts": "db063670196626804d1cfc265d54a18e1841d3fd8eded6de38d634d731b84c78",
+    "src/setup/scenes/outro.ts": "c3902893d9206b57e581c6badb8652a795c0adf405c10998c73d16b7aea78878",
+    "src/setup/scenes/sign-in.ts": "3327a3ec34f41b6aa2ce578bee6938a0698a5e97cc91bf40bb4285eae0ff8907",
+    "src/setup/scenes/splash.ts": "586030b30421fcad3f4d1a5fe494b581d3652973bbad6a9eb9ebf7fc417842e5",
+    "src/setup/scenes/theme.ts": "bad3c75e61a625f2a4d912ae28fb5ba292b54936ffd26ae64e665a14b3124f84",
+    "src/setup/scenes/types.ts": "199f0876aab6e439f04a1d496aa9098c2c3964e2457dc2a6e3a2ed272bd332b1",
+    "src/setup/scenes/updates.ts": "e3aa59f9c6ca111809ea2ede53064075f056f71bffd92b7fc68e7dfe8fce22c6",
+    "src/setup/setup-version.ts": "a4e46b78214aa2cdb4c1b86c2d423ad435ca984f41f9bbf3d9df98be3339b0d6",
+    "src/setup/startup-splash.ts": "af22555333d7ebbe0de258fb71fb515e668cd550651803d58ad2e017449848e2",
+    "src/setup/wizard-overlay.ts": "0367adc8722062a7011c877c8d2d8d39de560977c9d9c6866277d4299b408ecf",
+    "src/setup/wizard.ts": "125fe864e69e544cf2cb12615239f522c693e5d0c36ae3c9161725b115f3b1c1"
+  }
+}

@@ -197,6 +197,8 @@ class ModelSettingsStore {
 	customProvidersLoaded = $state(false);
 	providers = $state<ProviderSummary[]>([]);
 	authAccounts = $state<AuthAccount[]>([]);
+	/** Id accettati da `omp login` (OAuth e chiave API); null finche' nessuna sessione pronta li ha elencati. */
+	loginProviderIds = $state<Set<string> | null>(null);
 	selectedProviderId = $state<string | null>(null);
 	catalogFilterProviderId = $state<string | null>(null);
 	
@@ -461,6 +463,19 @@ class ModelSettingsStore {
 		} catch (e) {
 			console.error('Failed to load auth accounts:', e);
 			this.authAccounts = [];
+		}
+	}
+
+	/** Chiede alla prima sessione pronta quali provider accetta `omp login`. Senza sessione
+	 *  l'elenco resta ignoto e la UI non filtra: un id sconosciuto lo segnala omp nel terminale. */
+	async loadLoginProviders() {
+		const ready = sessionRegistry.getAllSessions().find((s) => s.isReady && !s.exited);
+		if (!ready) return;
+		try {
+			const providers = await ready.client.getLoginProviders();
+			if (providers.length > 0) this.loginProviderIds = new Set(providers.map((p) => p.id));
+		} catch {
+			// Runtime senza il comando o sessione in chiusura: resta senza filtro.
 		}
 	}
 

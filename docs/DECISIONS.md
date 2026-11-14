@@ -174,6 +174,44 @@ dichiara una versione minima di `omp` (`MIN_OMP_VERSION`, 18.18.3, la prima con
 `invokeTool` nel contesto delle estensioni usato dal modulo `ask` della GUI): sotto
 soglia il chip della versione resta acceso e il setup offre `omp update`.
 
+**Revisione 2026-11-13: setup grafico nativo.** L'utente chiede di rifare il setup come
+interfaccia grafica di Studio, con la TUI di `omp setup` solo come via d'uscita nel piede
+(registro `docs/requisiti/setup.md`, SET-001–043). Il rischio che motivava R11 resta: le
+scene di `omp` cambiano tra le versioni. Lo si contiene così:
+
+- il login OAuth passa dai comandi RPC di `omp` (`get_login_providers`, `login`);
+- i provider a chiave usano `omp login <id>` in un mini-terminale, perché il `login` RPC di
+  18.20 rifiuta le richieste nascoste («requires secret input, which is not supported in
+  RPC mode»). Così è sempre `omp` a scrivere `agent.db`;
+- Studio scrive in merge solo le chiavi di `config.yml` dei passi che copre, più
+  `setupVersion: 3`;
+- una scena nuova non passa inosservata: `verify:nightly` e il rilascio confrontano i
+  sorgenti del wizard pubblicati in `@oh-my-pi/pi-tui` con un'impronta registrata e bloccano
+  la build a ogni cambiamento (SET-043).
+
+**Proposta dei ruoli nel setup (2026-11-13).** Su richiesta dell'utente la logica è stata
+discussa con un secondo modello (GPT-6 Astra) in due giri. Esito: un resolver
+deterministico in Rust (`setup_propose_roles`), senza LLM, perché il setup deve essere
+veloce, prevedibile e spiegabile; il suggeritore AI resta nelle Impostazioni.
+
+- Tre dati separati: un registro di famiglie riconosciute con regex ancorate sull'id
+  (`anthropic.opus`, `openai.sol`, `google.flash_lite`…), una policy per provider sugli slot
+  qualità, bilanciato, piccolo e visione con famiglie in ordine, e la mappa ruolo → slot.
+- La versione si confronta solo dentro una famiglia, quindi Opus 5.6 sostituisce Opus 5.5
+  da solo; una famiglia nuova (Fable, Mythos) no: è una decisione editoriale.
+- Esclusi in automatico preview, snapshot datati e varianti `-fast`/`-1m`/`:free`.
+  Capability per route: un Opus senza immagini su un aggregatore non vale per visione.
+- Fra connessioni vince l'abbonamento, poi l'API a consumo, poi il locale; l'ordine di
+  login non conta.
+- Il setup scrive solo default, plan (con ragionamento alto se supportato), smol, vision,
+  task e commit (copia di smol se vuoto). Non tocca slow, advisor, tiny e judge, né i
+  fallback. Un ruolo già configurato resta com'è: la proposta si applica solo se scelta.
+- I provider senza policy usano un'euristica dichiarata («Scelta automatica, da
+  verificare»), mai il prezzo alto come indizio di qualità.
+
+Discussione completa nel diario della sessione; famiglie e policy nel modulo Rust con test
+su fixture del catalogo reale.
+
 **Perché l'installazione di `omp` sta nell'app e non in un hook NSIS.** L'installer è
 `installMode: currentUser`, quindi un hook sarebbe tecnicamente possibile. Ma il binario
 è ~143 MB: dentro NSIS non c'è progresso né retry, e la via pratica (`powershell -Command

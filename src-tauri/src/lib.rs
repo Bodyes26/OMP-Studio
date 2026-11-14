@@ -91,7 +91,12 @@ use models_ops::{
 };
 pub(crate) mod path_lookup;
 mod setup;
-use setup::{detect_project_roots, install_nerd_font, install_omp, setup_status};
+use setup::{
+    detect_project_roots, install_nerd_font, install_omp, setup_apply_config, setup_detect_tools,
+    setup_progress_get, setup_progress_set, setup_status,
+};
+mod setup_roles;
+use setup_roles::setup_propose_roles;
 mod alerts;
 use alerts::{clear_app_attention, init_windows_aumid, set_app_attention};
 mod project_notifications;
@@ -383,6 +388,11 @@ pub fn run() {
             get_agent_model_overrides,
             remove_agent_model_override,
             setup_status,
+            setup_apply_config,
+            setup_detect_tools,
+            setup_progress_get,
+            setup_progress_set,
+            setup_propose_roles,
             run_studio_doctor,
             install_omp,
             install_nerd_font,
