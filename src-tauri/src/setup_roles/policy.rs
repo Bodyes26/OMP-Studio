@@ -70,8 +70,8 @@ impl ProviderPolicy {
 /// l'euristica.
 ///
 /// Le righe verificate su catalogo reale sono `anthropic`, `openai-codex`,
-/// `google-antigravity`, `cursor`, `commandcode`: per le altre gli ID sono una
-/// policy proposta, non una certificazione (design, stato "NV").
+/// `google-antigravity`, `antigravity-cli`, `cursor`, `commandcode`: per le
+/// altre gli ID sono una policy proposta, non una certificazione (design, stato "NV").
 pub static PROVIDER_POLICIES: &[ProviderPolicy] = &[
     ProviderPolicy {
         provider: "anthropic",
@@ -101,6 +101,20 @@ pub static PROVIDER_POLICIES: &[ProviderPolicy] = &[
     },
     ProviderPolicy {
         provider: "google-antigravity",
+        quality: &[
+            "google.pro",
+            "anthropic.opus",
+            "anthropic.sonnet",
+            "google.flash",
+        ],
+        balanced: &["google.flash", "anthropic.sonnet"],
+        small: &["google.flash_lite", "google.flash"],
+        vision: &["google.pro", "google.flash", "anthropic.sonnet", "anthropic.opus"],
+    },
+    // Stesso catalogo di Antigravity via ACP (omp 18.20.2): i Gemini 4 hanno
+    // nomi in codice senza famiglia, quindi restano all'euristica.
+    ProviderPolicy {
+        provider: "antigravity-cli",
         quality: &[
             "google.pro",
             "anthropic.opus",

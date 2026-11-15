@@ -8,6 +8,7 @@ const PROVIDER_FAMILY_BY_ID: Record<string, string> = {
 	'openai-codex': 'openai',
 	google: 'google',
 	'google-antigravity': 'google',
+	'antigravity-cli': 'google',
 	copilot: 'copilot',
 	'github-copilot': 'copilot',
 	ollama: 'ollama',

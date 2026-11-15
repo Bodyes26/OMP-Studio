@@ -31,8 +31,10 @@ progetto e ha priorità su qualsiasi altra istruzione.
   **Non versionata** (`.gitignore`): resta in locale e non finisce nel repo pubblico.
 - `assets/`: **sorgenti** degli asset, non spediti nell'app. `assets/logo/` contiene
   i vettoriali del pi greco squadrato (`pi-on-dark`/`pi-on-light` per Windows,
-  `tile-dark`/`tile-light` per macOS, `mono` per la topbar) e le PNG del README.
-  Sono **generati**: il disegno vive in `scripts/generate-logo.mjs`.
+  `tile-dark`/`tile-light` per macOS, `mono` per la topbar). Sono **generati**: il
+  disegno vive in `scripts/generate-logo.mjs`. `assets/screenshots/` contiene le
+  immagini del README con la grafica del sito, **generate** da
+  `scripts/generate-readme-media.py` (vedi `docs/SCREENSHOTS.md`).
 - `static/`: solo asset **spediti** nell'app, alla dimensione in cui servono.
   Niente originali qui: `static/` finisce dentro il bundle.
 - `site/`: sito di presentazione (Astro con isole Svelte 5), progetto npm separato con le

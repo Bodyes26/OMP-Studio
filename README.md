@@ -1,20 +1,15 @@
 <div align="center">
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/logo/readme-pi-on-dark.png" />
-  <img src="assets/logo/readme-pi-on-light.png" alt="OMP Studio" width="96" height="96" />
-</picture>
-
-# OMP Studio
+<img src="assets/screenshots/banner.en.jpg" alt="OMP Studio: every project, its own agent, one window" width="100%" />
 
 **English** · [Italiano](README.it.md)
 
 The desktop environment for working with [`omp`](https://github.com/can1357/oh-my-pi) across many projects,
 with several agents running in parallel in isolated Git worktrees: review their work and merge it with one click.
 
-[![Release](https://img.shields.io/github/v/release/Bodyes26/OMP-Studio?style=flat-square&color=crimson)](https://github.com/Bodyes26/OMP-Studio/releases/latest)
-[![Platform](https://img.shields.io/badge/Windows%20%7C%20macOS%20%7C%20Linux-0078D4?style=flat-square)](https://github.com/Bodyes26/OMP-Studio/releases/latest)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/Bodyes26/OMP-Studio?style=flat-square&color=e3c06a&labelColor=141412)](https://github.com/Bodyes26/OMP-Studio/releases/latest)
+[![Platform](https://img.shields.io/badge/Windows%20%7C%20macOS%20%7C%20Linux-e3c06a?style=flat-square&labelColor=141412)](https://github.com/Bodyes26/OMP-Studio/releases/latest)
+[![License: MIT](https://img.shields.io/badge/License-MIT-e3c06a?style=flat-square&labelColor=141412)](LICENSE)
 
 <img src="assets/screenshots/screen_hero.png" alt="OMP Studio: project bar, lanes, editor and agent chat" width="100%" />
 

@@ -729,6 +729,46 @@ export const OMP_ENTRIES_SESSION: readonly CommandManifestEntry[] = [
 		}
 	},
 	{
+		id: 'commit',
+		origin: 'omp',
+		category: 'workspace',
+		icon: 'IconRoleCommit',
+		control: 'action',
+		supported: [...STATUS_LINE_PLACEMENTS],
+		defaultPlacement: null,
+		argsHint: '[instructions]',
+		text: {
+			it: {
+				title: 'Commit dell\'agente',
+				summary: 'Crea un commit con le sole modifiche fatte dall\'agente e dai suoi sottoagenti, senza toccare il lavoro tuo o di altri agenti.',
+				benefits: [
+					'Seleziona riga per riga le modifiche dell\'agente anche in file che hai modificato anche tu',
+					'Lascia intatte le modifiche non committate dell\'utente e degli altri agenti nello stesso working tree',
+					'Gestisce file binari, symlink, cambi di permessi e il primo commit di un repository'
+				],
+				examples: [
+					{ command: '/commit', note: 'Committa le modifiche della sessione con un messaggio scritto dall\'agente' },
+					{ command: '/commit messaggio in italiano, un commit per funzione', note: 'Passa istruzioni su messaggio e suddivisione dei commit' }
+				],
+				whenToUse: 'Quando più agenti o tu stesso state lavorando nello stesso repository e vuoi committare solo il lavoro di questa sessione.'
+			},
+			en: {
+				title: 'Agent Commit',
+				summary: 'Creates a commit with only the changes made by this agent and its subagents, leaving your work and other agents\' work untouched.',
+				benefits: [
+					'Selects the agent\'s changes line by line, even in files you edited too',
+					'Leaves the uncommitted changes of the user and other agents in the same working tree intact',
+					'Handles binary files, symlinks, mode changes and a repository\'s first commit'
+				],
+				examples: [
+					{ command: '/commit', note: 'Commit this session\'s changes with a message written by the agent' },
+					{ command: '/commit one commit per feature, conventional messages', note: 'Pass instructions about the message and how to split commits' }
+				],
+				whenToUse: 'When you or several agents work in the same repository and you want to commit only this session\'s work.'
+			}
+		}
+	},
+	{
 		id: 'add-dir',
 		origin: 'omp',
 		category: 'workspace',

@@ -1,0 +1,182 @@
+{
+  "models": [
+    {
+      "provider": "antigravity-cli",
+      "kind": "chat",
+      "id": "claude-opus-5-5",
+      "selector": "antigravity-cli/claude-opus-5-5",
+      "name": "Claude Opus 5.5",
+      "contextWindow": 1000000,
+      "maxTokens": 128000,
+      "reasoning": true,
+      "thinking": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "input": [
+        "text",
+        "image"
+      ],
+      "cost": {
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "input": 0,
+        "output": 0
+      },
+      "pricingStatus": "unknown"
+    },
+    {
+      "provider": "antigravity-cli",
+      "kind": "chat",
+      "id": "claude-sonnet-5-5",
+      "selector": "antigravity-cli/claude-sonnet-5-5",
+      "name": "Claude Sonnet 5.5",
+      "contextWindow": 1000000,
+      "maxTokens": 128000,
+      "reasoning": true,
+      "thinking": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "input": [
+        "text",
+        "image"
+      ],
+      "cost": {
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "input": 0,
+        "output": 0
+      },
+      "pricingStatus": "unknown"
+    },
+    {
+      "provider": "antigravity-cli",
+      "kind": "chat",
+      "id": "gemini-3.8-flash",
+      "selector": "antigravity-cli/gemini-3.8-flash",
+      "name": "Gemini 3.8 Flash",
+      "contextWindow": 1048576,
+      "maxTokens": 65536,
+      "reasoning": true,
+      "thinking": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "input": [
+        "text",
+        "image"
+      ],
+      "cost": {
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "input": 0,
+        "output": 0
+      },
+      "pricingStatus": "unknown"
+    },
+    {
+      "provider": "antigravity-cli",
+      "kind": "chat",
+      "id": "gemini-4-argon",
+      "selector": "antigravity-cli/gemini-4-argon",
+      "name": "Gemini 4 Argon",
+      "contextWindow": 1048576,
+      "maxTokens": 65536,
+      "reasoning": true,
+      "thinking": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "input": [
+        "text",
+        "image"
+      ],
+      "cost": {
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "input": 0,
+        "output": 0
+      },
+      "pricingStatus": "unknown"
+    },
+    {
+      "provider": "antigravity-cli",
+      "kind": "chat",
+      "id": "gemini-4-carbon",
+      "selector": "antigravity-cli/gemini-4-carbon",
+      "name": "Gemini 4 Carbon",
+      "contextWindow": 1048576,
+      "maxTokens": 262144,
+      "reasoning": true,
+      "thinking": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "input": [
+        "text",
+        "image"
+      ],
+      "cost": {
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "input": 0,
+        "output": 0
+      },
+      "pricingStatus": "unknown"
+    },
+    {
+      "provider": "antigravity-cli",
+      "kind": "chat",
+      "id": "gemini-4-hydrogen",
+      "selector": "antigravity-cli/gemini-4-hydrogen",
+      "name": "Gemini 4 Hydrogen",
+      "contextWindow": 1048576,
+      "maxTokens": 262144,
+      "reasoning": true,
+      "thinking": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "input": [
+        "text",
+        "image"
+      ],
+      "cost": {
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "input": 0,
+        "output": 0
+      },
+      "pricingStatus": "unknown"
+    },
+    {
+      "provider": "antigravity-cli",
+      "kind": "chat",
+      "id": "gpt-oss-120b-medium",
+      "selector": "antigravity-cli/gpt-oss-120b-medium",
+      "name": "GPT-OSS 120B (Medium)",
+      "contextWindow": 131072,
+      "maxTokens": 32768,
+      "reasoning": false,
+      "thinking": null,
+      "input": [
+        "text"
+      ],
+      "cost": {
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "input": 0,
+        "output": 0
+      },
+      "pricingStatus": "unknown"
+    }
+  ]
+}

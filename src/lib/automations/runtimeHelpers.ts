@@ -25,7 +25,7 @@ export interface PaygCheckResult {
  * Valuta rigorosamente se un modello è soggetto a costi a consumo (Pay-As-You-Go).
  * Rispetta le specifiche di sicurezza di AUT-026, AUT-079, AUT-080 e ACC-15:
  * - Solo provider locali e keyless garantiti (ollama, local, lmstudio, llamacpp, vllm, apple).
- * - Provider native OAuth-only flat rate documentati (google-gemini-cli, google-antigravity, openai-codex, github-copilot)
+ * - Provider native OAuth-only flat rate documentati (google-gemini-cli, google-antigravity, antigravity-cli, openai-codex, github-copilot)
  *   con account OAuth valido e instradabile.
  * - Per provider ibridi come Anthropic (OAuth + API key): se è presente una chiave API o il percorso è ambiguo
  *   senza pin di enforcement nativo, fail-closed bloccato.
@@ -62,6 +62,7 @@ export function checkModelPayAsYouGo(modelSelectorOrId: string): PaygCheckResult
 	if (
 		effectiveProvider === 'google-gemini-cli' ||
 		effectiveProvider === 'google-antigravity' ||
+		effectiveProvider === 'antigravity-cli' ||
 		effectiveProvider === 'openai-codex' ||
 		effectiveProvider === 'github-copilot'
 	) {

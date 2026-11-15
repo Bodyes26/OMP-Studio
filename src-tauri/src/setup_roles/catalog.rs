@@ -149,6 +149,7 @@ pub mod fixtures {
             "anthropic" => include_bytes!("fixtures/anthropic.json").as_slice(),
             "openai-codex" => include_bytes!("fixtures/openai-codex.json").as_slice(),
             "google-antigravity" => include_bytes!("fixtures/google-antigravity.json").as_slice(),
+            "antigravity-cli" => include_bytes!("fixtures/antigravity-cli.json").as_slice(),
             "cursor" => include_bytes!("fixtures/cursor.json").as_slice(),
             "commandcode" => include_bytes!("fixtures/commandcode.json").as_slice(),
             "local" => include_bytes!("fixtures/local.json").as_slice(),
@@ -162,10 +163,11 @@ pub mod fixtures {
         providers.iter().flat_map(|provider| load(provider)).collect()
     }
 
-    pub const PROVIDERS: [&str; 6] = [
+    pub const PROVIDERS: [&str; 7] = [
         "anthropic",
         "openai-codex",
         "google-antigravity",
+        "antigravity-cli",
         "cursor",
         "commandcode",
         "local",

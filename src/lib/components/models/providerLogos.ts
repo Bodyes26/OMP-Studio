@@ -6,7 +6,7 @@
  * Requisiti e policy di matching:
  * - Claude sunburst per Anthropic
  * - Logo ChatGPT per OpenAI / openai-codex
- * - Antigravity per google-antigravity (indipendentemente dalla famiglia del modello veicolato)
+ * - Antigravity per google-antigravity e antigravity-cli (indipendentemente dalla famiglia del modello veicolato)
  * - Distinzione provider/account rispetto alla famiglia modello
  * - Whitelist esatta di alias/identificativi noti per evitare falsi positivi su custom (es. "anthropic-proxy-mio")
  * - Asset locali offline senza dipendenze remote
@@ -88,6 +88,7 @@ const KNOWN_PROVIDERS = new Map<string, KnownProviderId>([
 	// Google Antigravity
 	['google-antigravity', 'google-antigravity'],
 	['antigravity', 'google-antigravity'],
+	['antigravity-cli', 'google-antigravity'],
 
 	// Google / Gemini / Vertex
 	['google-vertex', 'google-vertex'],

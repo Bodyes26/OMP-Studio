@@ -220,6 +220,7 @@ export function evaluateQuotaGate(input: QuotaGateInput): QuotaGateResult {
 			pCanonical === 'openai-codex' ||
 			pCanonical === 'google' ||
 			pCanonical === 'google-antigravity' ||
+			pCanonical === 'antigravity-cli' ||
 			pCanonical === 'google-gemini-cli' ||
 			pCanonical === 'github-copilot' ||
 			pCanonical === 'factory-droid';

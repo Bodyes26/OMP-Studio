@@ -188,6 +188,16 @@ mod tests {
     }
 
     #[test]
+    fn fixture_reali_di_antigravity_cli() {
+        let catalog = fixture_catalog(&["antigravity-cli"]);
+        let roles = propose(&catalog, &connections_of(&[("antigravity-cli", AccessKind::Subscription)]), &Default::default());
+        assert_eq!(by_role(&roles, "default").selector.as_deref(), Some("antigravity-cli/claude-opus-5-5"));
+        // Nessun Flash Lite nel catalogo: smol e vision scendono sul Flash.
+        assert_eq!(by_role(&roles, "smol").selector.as_deref(), Some("antigravity-cli/gemini-3.8-flash"));
+        assert_eq!(by_role(&roles, "vision").selector.as_deref(), Some("antigravity-cli/gemini-3.8-flash"));
+    }
+
+    #[test]
     fn fixture_reali_di_commandcode_escludono_vision_senza_immagini() {
         let catalog = fixture_catalog(&["commandcode"]);
         let roles = propose(&catalog, &connections_of(&[("commandcode", AccessKind::ApiKey)]), &Default::default());

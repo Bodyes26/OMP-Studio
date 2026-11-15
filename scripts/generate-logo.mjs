@@ -7,7 +7,6 @@
 // unita' t (lo spessore unico di tetto e gambe). Da qui escono:
 //
 //   assets/logo/*.svg              sorgenti vettoriali (Windows, macOS, monocolore)
-//   assets/logo/readme-*.png       logo del README, una variante per tema di GitHub
 //   src-tauri/icons/icon.ico       Windows: solo pi, gambe scure (Esplora risorse chiaro)
 //   src-tauri/icons/window/*.png   Windows: icona di finestra/taskbar scambiata a runtime
 //   src-tauri/icons/icon.icns      macOS: pi su riquadro arrotondato scuro
@@ -139,7 +138,7 @@ const svg = (w, h, body) =>
 	`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">${body}</svg>\n`;
 
 /**
- * Solo pi su fondo trasparente (Windows, README). Fino a 64px t e' intero e i
+ * Solo pi su fondo trasparente (Windows). Fino a 64px t e' intero e i
  * bordi cadono sui pixel; sotto i 48px niente bagliore, che a quella scala
  * diventa una macchia attorno al tetto.
  */
@@ -324,10 +323,6 @@ try {
 	out('assets/logo/tile-dark.svg', tileSvg(1024, 'dark'));
 	out('assets/logo/tile-light.svg', tileSvg(1024, 'light'));
 	out('assets/logo/mono.svg', monoSvg());
-
-	console.log('README (96px mostrati, 3x per il DPI)');
-	out('assets/logo/readme-pi-on-dark.png', rasterize(piSvg(1024, 'onDark'), 288));
-	out('assets/logo/readme-pi-on-light.png', rasterize(piSvg(1024, 'onLight'), 288));
 
 	console.log('Windows');
 	const piPng = (size, variant) => rasterize(size <= 64 ? piSvg(size, variant) : piSvg(1024, variant), size);

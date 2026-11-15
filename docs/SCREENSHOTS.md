@@ -1,32 +1,35 @@
 # Screenshot e video del README
 
 Le immagini del README stanno in `assets/screenshots/` e vanno rifatte quando
-l'interfaccia cambia in modo visibile (ultimo giro: 1.10.0, novembre 2026, da macOS).
-Servono l'app desktop vera e la finestra di Studio già aperta: niente cloud, niente
-seconda istanza.
+l'interfaccia cambia in modo visibile (ultimo giro di catture: 1.10.0, novembre 2026, da
+macOS). Servono l'app desktop vera e la finestra di Studio già aperta: niente cloud,
+niente seconda istanza. La grafica attorno alle catture segue il sito (`site/`) ed è
+generata: `python3 scripts/generate-readme-media.py` (numpy, Pillow, ffmpeg, pngquant).
 
 ## File
 
 | File | Contenuto |
 |---|---|
+| `banner.en.jpg`, `banner.it.jpg` | Apertura del README, una per lingua: il pi della rovina in caratteri ASCII sopra la foto da pellicola, titolo del sito in Geist Serif e sottotitolo in Geist Mono ocra. Nessuna cattura: escono dallo script. |
 | `screen_hero.png` | Finestra intera sul progetto demo: barra progetti, riga corsie con almeno due corsie worktree e un prototipo del Laboratorio, albero file, editor con un file modificato, chat con gruppo di tool e risposta finale. |
 | `demo_lanes.gif` | Animazione di circa 25 s: task in coda → «New lane» → riepilogo della corsia → Review & Integrate → commit nella cronologia Git. |
 | `screen_remote.png` | Tre schermate della PWA di Studio Remote dall'iPhone (elenco progetti con le corsie del demo, chat di una corsia, foglio «Nuovo lavoro»), affiancate su fondo trasparente. I nomi di progetti privati vanno pixelati; niente quote con email, niente impostazioni con i nomi delle macchine. |
 | `screen_lab.png` | Prototipo del Laboratorio: anteprima a sinistra, chat con il riepilogo dell'agente a destra. |
 
-Formato: PNG largo 1920 px. La cattura della finestra (1440×770 punti su Retina, angoli
-arrotondati trasparenti) sta su uno sfondo a gradiente diagonale indaco → viola → rosa
-(`#4338CA` → `#8B5CF6` → `#EC4899`, con un bagliore chiaro in alto a sinistra), con il
-6% di margine e un'ombra sfocata sotto la finestra. Compressione con `pngquant
---quality=75-95`: 250–350 KB. Per Remote le tre schermate del telefono hanno angoli
-arrotondati e la stessa ombra sullo stesso gradiente.
+Catture grezze in `ricerca/readme-media/` (fuori da git), con i nomi che lo script legge:
+`window-hero.png`, `window-lab.png` (sola finestra, angoli arrotondati trasparenti,
+1440×770 punti su Retina), `remote-1.png`…`remote-3.png` (schermate del telefono con
+angoli arrotondati trasparenti), `omp-studio-lanes.mp4` (registrazione montata, 1440×770).
 
-La GIF nasce da una registrazione MP4 (in `ricerca/readme-media/`, fuori da git),
-montata con `ffmpeg`: video a 8 fps scalato a 844 px, angoli arrotondati con
-`alphamerge`, sovrapposto allo stesso gradiente (960 px di larghezza), poi
-`palettegen` a 256 colori e `paletteuse` con dithering bayer: circa 2 MB. Le immagini
-in più (`-loop 1`) vanno limitate con `-t` alla durata del video, altrimenti ffmpeg
-non termina. Un MP4 si vedrebbe meglio, ma GitHub lo
+Grafica (token di `site/src/styles/global.css`): fondo `#0e0e0c` con la foto della
+rovina (`assets/dmg/rovina.png`) sciolta in caratteri color pietra, vignettatura e grana;
+le catture hanno 96 px di margine, ombra sfocata e bordo di 1 px in pietra al 12%, come lo
+screenshot del sito. PNG quantizzati con `pngquant --quality=75-95`: 400–550 KB. I banner
+sono JPEG (circa 400 KB): in PNG la foto pesa il triplo.
+
+La GIF: video a 8 fps scalato a 844 px, angoli arrotondati con `alphamerge`, sullo
+stesso fondo (960 px di larghezza), `palettegen` a 256 colori e `paletteuse` con
+dithering bayer: circa 2 MB. Un MP4 si vedrebbe meglio, ma GitHub lo
 riproduce nel README solo come allegato `user-attachments`, che si carica dal browser
 trascinandolo in una issue: `gh` non ha un comando per farlo.
 

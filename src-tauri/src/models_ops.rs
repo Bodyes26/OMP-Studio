@@ -2283,6 +2283,7 @@ const BUILTIN_PROVIDER_NAMES: &[(&str, &str)] = &[
     ("anthropic", "Anthropic Claude"),
     ("openai-codex", "OpenAI Codex"),
     ("google-antigravity", "Google Antigravity"),
+    ("antigravity-cli", "Google Antigravity (CLI)"),
     ("opencode-go", "OpenCode Go"),
     ("opencode-zen", "OpenCode Zen"),
     ("perplexity", "Perplexity Search"),

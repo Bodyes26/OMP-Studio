@@ -2,12 +2,13 @@
  * Tessere in evidenza del passo Provider del setup.
  *
  * Gli `ids` sono quelli veri accettati da `omp login` (verificati con
- * `get_login_providers`: `anthropic`, `openai-codex`, `google-antigravity`,
+ * `get_login_providers`: `anthropic`, `openai-codex`, `antigravity-cli`,
  * `google-gemini-cli`, `github-copilot`, `cursor`, `opencode-zen`,
  * `opencode-go`, `openrouter`, `xai`, `zai`, `deepseek`, `ollama`). Quando omp
- * espone più id per lo stesso marchio (OpenCode Zen e Go) la tessera tiene una
- * lista in ordine di preferenza e usa il primo che il processo elenca: così la
- * griglia in evidenza non cambia se uno dei due sparisce.
+ * espone più id per lo stesso marchio (OpenCode Zen e Go, Antigravity via ACP e
+ * il vecchio `google-antigravity`, messo in pausa da omp 18.20.1) la tessera
+ * tiene una lista in ordine di preferenza e usa il primo che il processo
+ * elenca: così la griglia in evidenza non cambia se uno dei due sparisce.
  *
  * Il nome è il marchio e resta com'è in ogni lingua; il piano/abbonamento sotto
  * il nome è testo d'interfaccia e passa da Paraglide.
@@ -61,7 +62,7 @@ export const FEATURED_PROVIDERS: SetupProviderDef[] = [
 	},
 	{
 		key: 'google-antigravity',
-		ids: ['google-antigravity'],
+		ids: ['antigravity-cli', 'google-antigravity'],
 		logo: 'google-antigravity',
 		name: 'Google Antigravity',
 		plan: () => m.setup2_prov_plan_google_account(),
@@ -151,6 +152,7 @@ const PROVIDER_LABELS: Record<string, string> = {
 	'openai-codex': 'ChatGPT',
 	'openai-codex-device': 'ChatGPT',
 	'google-antigravity': 'Google Antigravity',
+	'antigravity-cli': 'Google Antigravity',
 	'google-gemini-cli': 'Google Gemini CLI',
 	'github-copilot': 'GitHub Copilot',
 	cursor: 'Cursor',

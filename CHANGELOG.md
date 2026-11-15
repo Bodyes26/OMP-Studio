@@ -12,6 +12,8 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 ## [Unreleased]
 
 ### Added
+- Studio riconosce il provider `antigravity-cli` di omp 18.20.2 (Google Antigravity via ACP): la tessera Google Antigravity del setup collega questo provider al posto di `google-antigravity`, messo in pausa da omp; i suoi modelli hanno il logo Antigravity, rientrano nella proposta dei ruoli e le automazioni li trattano come abbonamento, non a consumo.
+- Il catalogo dei comandi include `/commit` di omp 18.20.1, che crea un commit con le sole modifiche dell'agente e dei suoi sottoagenti; si può fissare come chip o icona nella riga di stato.
 - Studio Remote: la PWA si può ricaricare senza chiuderla e riaprirla, trascinando verso il basso (app installata) o con il pulsante «Aggiorna» nelle Impostazioni.
 - Studio si apre come editor di file esterni: compare in «Apri con…» per i file di testo e di codice, senza diventare il programma predefinito, e apre anche i file scelti con `Ctrl+O`, trascinati nella finestra o cliccati come percorso assoluto nel terminale o in chat. Un file dentro un progetto aperto si apre in quel progetto; gli altri finiscono nello spazio «File esterni» della barra superiore, con una chat per ogni cartella (la radice del repository git, se c'è) e il pulsante «Apri cartella come progetto». Le schede si ripristinano al riavvio. (EXT-001…010, EXT-012)
 - L'editor si accorge quando un altro programma modifica un file aperto: senza modifiche non salvate lo ricarica mantenendo cursore e scorrimento, altrimenti mostra un avviso per scegliere fra «Ricarica dal disco» e «Mantieni le mie». Un file cancellato resta aperto e lo segnala. Vale per i file dei progetti e per i file esterni. (EXT-011)

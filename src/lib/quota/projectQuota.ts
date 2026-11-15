@@ -38,7 +38,7 @@ export interface QuotaInfo {
 export function formatProviderShortName(providerId: string | undefined): string {
 	if (!providerId) return '';
 	const p = providerId.trim().toLowerCase();
-	if (p === 'google' || p === 'google-antigravity') return 'Google';
+	if (p === 'google' || p === 'google-antigravity' || p === 'antigravity-cli') return 'Google';
 	if (p === 'anthropic') return 'Anthropic';
 	if (p === 'openai' || p === 'openai-codex') return 'OpenAI';
 	if (p === 'copilot' || p === 'github-copilot') return 'Copilot';

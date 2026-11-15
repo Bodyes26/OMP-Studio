@@ -291,6 +291,7 @@ pub fn evaluate_with_usage(
             || p_canonical.eq_ignore_ascii_case("openai-codex")
             || p_canonical.eq_ignore_ascii_case("google")
             || p_canonical.eq_ignore_ascii_case("google-antigravity")
+            || p_canonical.eq_ignore_ascii_case("antigravity-cli")
             || p_canonical.eq_ignore_ascii_case("google-gemini-cli")
             || p_canonical.eq_ignore_ascii_case("github-copilot")
             || p_canonical.eq_ignore_ascii_case("factory-droid");

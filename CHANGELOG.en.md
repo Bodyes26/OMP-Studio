@@ -12,6 +12,8 @@ released: items are closed into a version via `npm run release -- <version>`.
 ## [Unreleased]
 
 ### Added
+- Studio recognizes omp 18.20.2's `antigravity-cli` provider (Google Antigravity over ACP): the setup's Google Antigravity tile connects this provider instead of `google-antigravity`, which omp has paused; its models show the Antigravity logo, are included in role proposals, and automations treat them as a subscription rather than pay-as-you-go.
+- The command catalog includes omp 18.20.1's `/commit`, which commits only the changes made by the agent and its subagents; it can be pinned as a chip or icon in the status line.
 - Studio Remote: the PWA can be reloaded without closing and reopening it, by pulling down (installed app) or with the "Refresh" button in Settings.
 - Studio works as an editor for external files: it appears in "Open with…" for text and code files, without becoming the default program, and also opens files chosen with `Ctrl+O`, dropped on the window or clicked as an absolute path in the terminal or chat. A file inside an open project opens in that project; the others go to the "External files" space in the top bar, with one chat per folder (the git repository root, if any) and an "Open folder as project" button. Tabs are restored on restart. (EXT-001…010, EXT-012)
 - The editor notices when another program changes an open file: with no unsaved changes it reloads it keeping cursor and scroll, otherwise it shows a notice to choose between "Reload from disk" and "Keep mine". A deleted file stays open and is flagged. Applies to project files and external files. (EXT-011)
