@@ -354,11 +354,7 @@ impl Observer {
         }
 
         // Controlla anche la presenza di commit locali recenti nel periodo
-        if self.has_commits_since(project_path, since_ms, &[]) {
-            return true;
-        }
-
-        false
+        self.has_commits_since(project_path, since_ms, &[])
     }
 
     /// Verifica la presenza di commit locali dal momento `since_ms`, con eventuale filtro autori (AUT-007).

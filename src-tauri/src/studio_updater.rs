@@ -228,11 +228,7 @@ pub fn is_trusted_download_url(url: &str) -> bool {
         return parsed.path().to_lowercase().starts_with(&expected_prefix);
     }
 
-    if host == "objects.githubusercontent.com" || host.ends_with(".githubusercontent.com") {
-        return true;
-    }
-
-    false
+    host == "objects.githubusercontent.com" || host.ends_with(".githubusercontent.com")
 }
 
 /// Valida e ripulisce il nome file dell'installer evitando path traversal ed estensioni non ammesse.
