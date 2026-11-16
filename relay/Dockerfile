@@ -2,13 +2,18 @@
 # identici per ogni architettura, e Bun sotto emulazione arm64 sarebbe lento.
 FROM --platform=$BUILDPLATFORM oven/bun:1.3-alpine AS web
 WORKDIR /build
-COPY relay/package.json relay/bun.lock relay/tsconfig.json ./
+# La PWA riusa moduli di `src/lib` che importano pacchetti del progetto
+# principale (`@xterm/*`, `@tauri-apps/plugin-*`, `esbuild-wasm`): servono
+# entrambi gli alberi di dipendenze, come in locale dove relay/node_modules
+# convive con quello della radice.
+COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile
+COPY relay/package.json relay/bun.lock ./relay/
+RUN cd /build/relay && bun install --frozen-lockfile
 COPY project.inlang ./project.inlang
 COPY messages ./messages
 COPY src ./src
 COPY relay ./relay
-RUN ln -sf /build/node_modules /build/relay/node_modules
 WORKDIR /build/relay
 # Monaco e i componenti condivisi della GUI superano l'heap predefinito di
 # Node: senza questo limite `vite build` muore con "JavaScript heap out of memory".
