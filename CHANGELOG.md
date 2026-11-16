@@ -11,6 +11,9 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 
 ## [Unreleased]
 
+### Fixed
+- Studio Remote torna a riconoscere quali modelli accettano immagini: la PWA leggeva un campo del modello che lo stato della macchina non manda più, quindi ogni modello sembrava accettarle. Controllo dei tipi del relay ripristinato, quindi l'immagine del relay torna a pubblicarsi a ogni modifica. (REL-001)
+
 ### Added
 - Controllo fra istanze di Studio: in «Impostazioni → Altre istanze» si accende il collegamento con un relay proprio, si genera un codice di abbinamento e si abbinano due computer; l'elenco dei dispositivi mostra quali sono in linea e con quali permessi (Lettura sempre, Agenti, File e Git, Terminale), revocabili per macchina. Spenta per default, nessun account e nessun servizio di terzi obbligatorio. (R-MI-16, R-MI-17, R-MI-09)
 - I progetti aperti sull'altra istanza compaiono nella barra dei progetti con un badge che dice su quale macchina girano, spento quando il computer non risponde: chat, albero dei file, editor, Git, terminale e corsie funzionano come sui progetti locali. Il selettore dei progetti ha una sezione per ogni macchina con le cartelle note, anche quelle non aperte in barra, e aprirne una la apre sull'altra macchina. (R-MI-03, R-MI-04, R-MI-06, R-MI-07)

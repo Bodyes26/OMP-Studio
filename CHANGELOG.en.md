@@ -11,6 +11,9 @@ released: items are closed into a version via `npm run release -- <version>`.
 
 ## [Unreleased]
 
+### Fixed
+- Studio Remote again recognizes which models accept images: the PWA read a model field that the machine state no longer sends, so every model looked like it accepted them. The relay type check is restored, so the relay image is published again on every change. (REL-001)
+
 ### Added
 - Studio-to-Studio control: in "Settings → Other instances" you turn on the link with your own relay, generate a pairing code and pair two computers; the device list shows which are online and with which permissions (Read always, Agents, Files and Git, Terminal), revocable per machine. Off by default, no account and no mandatory third-party service. (R-MI-16, R-MI-17, R-MI-09)
 - Projects open on the other instance appear in the project bar with a badge naming the machine they run on, dashed when that computer is not responding: chat, file tree, editor, Git, terminal and lanes work just like local projects. The project picker has one section per machine with the folders it knows, even those not open in the bar, and opening one opens it on the other machine. (R-MI-03, R-MI-04, R-MI-06, R-MI-07)

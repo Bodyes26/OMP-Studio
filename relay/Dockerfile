@@ -10,6 +10,9 @@ COPY src ./src
 COPY relay ./relay
 RUN ln -sf /build/node_modules /build/relay/node_modules
 WORKDIR /build/relay
+# Monaco e i componenti condivisi della GUI superano l'heap predefinito di
+# Node: senza questo limite `vite build` muore con "JavaScript heap out of memory".
+ENV NODE_OPTIONS=--max-old-space-size=8192
 RUN bun run build:web
 
 FROM oven/bun:1.3-alpine
