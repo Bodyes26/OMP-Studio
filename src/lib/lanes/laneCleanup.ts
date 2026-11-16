@@ -5,7 +5,10 @@
 
 import { m } from '#lib/paraglide/messages.js';
 
-export type LaneCommandInvoker = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
+export type LaneCommandInvoker = <T>(
+	command: 'worktree_lane_unintegrated_summary' | 'worktree_lane_integration_state',
+	args?: Record<string, unknown>
+) => Promise<T>;
 
 /** Risposta di `worktree_lane_unintegrated_summary`. */
 export interface LaneUnintegratedSummary {

@@ -1,5 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
-import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { emit, invoke, listen, type UnlistenFn } from '#lib/backend/ipc.ts';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { projectStore, type Project } from './projects.svelte';
 import { settingsStore } from './settings.svelte';

@@ -1,7 +1,7 @@
 // Controller reattivo per l'assistente AI dedicato alla creazione e rifinitura delle automazioni.
 // Rispetta AUT-024, AUT-059, AUT-060, AUT-061, AUT-062 e AUT-099.
 
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '#lib/backend/ipc.ts';
 import type {
 	AutomationDraft,
 	AutomationDefinition,

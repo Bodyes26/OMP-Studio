@@ -116,7 +116,7 @@ impl RecentFramesRing {
 }
 
 #[derive(Default)]
-pub(super) struct RpcStats {
+pub(crate) struct RpcStats {
     stdout_lines: AtomicU64,
     /// Byte letti da stdout: righe medie da decine di KB vogliono dire che
     /// omp sta spedendo istantanee intere del messaggio, non delta.
@@ -182,6 +182,17 @@ impl RpcStats {
             self.send_errors.fetch_add(1, Ordering::Relaxed);
         }
         ok
+    }
+
+    /// Una finestra ricaricata riprende una sessione gia' avviata con un
+    /// `Channel` nuovo, che Tauri numera da zero: i contatori dei frame
+    /// ripartono con lui, o il confronto con i frame ricevuti dal frontend
+    /// direbbe persi quelli spediti alla finestra di prima.
+    pub(super) fn restart_channel(&self) {
+        self.frames_sent.store(0, Ordering::Relaxed);
+        self.fetch_path_frames.store(0, Ordering::Relaxed);
+        self.send_errors.store(0, Ordering::Relaxed);
+        *self.recent.lock() = RecentFramesRing::default();
     }
 
     pub(super) fn snapshot(&self) -> serde_json::Value {

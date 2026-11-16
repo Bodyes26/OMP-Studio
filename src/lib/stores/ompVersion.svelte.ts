@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '#lib/backend/ipc.ts';
 
 /**
  * Versione del binario `omp` in uso, condivisa fra barra di stato, modale di

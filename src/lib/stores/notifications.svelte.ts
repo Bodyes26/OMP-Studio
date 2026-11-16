@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '#lib/backend/ipc.ts';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
 	isPermissionGranted,

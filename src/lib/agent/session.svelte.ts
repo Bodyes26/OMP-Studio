@@ -1,5 +1,5 @@
 import { attachEditorContext, splitMessageAndEditorContext, stripEditorContext } from '#lib/editor/editorContext.ts';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke as backendInvoke, LOCAL_MACHINE, type MachineId, type BackendCommand, type InvokeArgs } from '#lib/backend/ipc.ts';
 import { orchestratePromptPreflight, type PromptPreflightDeps } from './promptPreflight';
 import { settingsStore } from '#lib/stores/settings.svelte.ts';
 import { formatTokens } from '#lib/utils/format.ts';
@@ -606,6 +606,7 @@ export interface AutomationSessionOptions {
 
 export interface AgentSessionConfig {
 	cwd: string;
+	machineId?: MachineId;
 	scope?: 'lane' | 'main';
 	laneId?: string | null;
 	projectKey?: string | null;
@@ -617,6 +618,8 @@ export interface AgentSessionConfig {
 
 export class AgentSession {
 	readonly client: OmpRpcClient;
+	readonly machineId: MachineId;
+	readonly hostProjectId: string;
 	readonly suggestions: SessionSuggestions = new SessionSuggestions(this);
 	/**
 	 * Domande a margine (`/btw`): riquadro sopra il composer, storico e
@@ -1154,15 +1157,22 @@ export class AgentSession {
 		return isBackgroundPending(this.settle, this.isStreaming || this.isCompacting);
 	}
 	constructor(config: AgentSessionConfig) {
-		this.client = config.client ?? new OmpRpcClient();
+		const project = projectStore.projects.find((project) => project.id === config.projectKey);
+		this.machineId = config.machineId ?? project?.machineId ?? LOCAL_MACHINE;
+		this.client = config.client ?? new OmpRpcClient(this.machineId);
 		this.cwd = config.cwd;
 		this.scope = config.scope ?? 'lane';
 		this.laneId = config.laneId ?? 'main';
 		this.labConfig = config.lab;
 		this.projectKey = config.projectKey ?? config.cwd;
+		this.hostProjectId = project?.hostProjectId ?? this.projectKey;
 		this.observedRevisionId = config.observedRevisionId ?? null;
 		this.unsubscribeEvent = this.client.onEvent((event) => this.reduce(event));
 		this.automationConfig = config.automation;
+	}
+
+	private invoke<T>(command: BackendCommand, args?: InvokeArgs): Promise<T> {
+		return backendInvoke<T>(command, args, { machine: this.machineId });
 	}
 
 	get visibleEntries(): TranscriptEntry[] {
@@ -1331,7 +1341,7 @@ export class AgentSession {
 		// La chiusura parte dopo l'assegnazione della guardia: chi reagisce
 		// alla `close()` deve gia' trovarla.
 		const reopening: Promise<void> = Promise.resolve().then(async () => {
-			await this.close();
+			await this.close(true);
 			// Un cambio chiesto dopo questo ha gia' chiuso e aperto la sua
 			// sessione: riaprire qui rimetterebbe la scelta precedente.
 			if (this.reopening !== reopening) return;
@@ -1387,7 +1397,7 @@ export class AgentSession {
 						workspacePath: this.cwd,
 						projectPath: this.labConfig.projectPath,
 						prototypeId: this.labConfig.prototypeId,
-						projectId: this.projectKey,
+						projectId: this.hostProjectId,
 						laneId: this.laneId ?? 'main',
 						resume: requestedResume,
 						continueLast: true,
@@ -1400,7 +1410,7 @@ export class AgentSession {
 					const continueLast = isWorktreeLane && (project?.worktreeResumeChat ?? true);
 					await this.client.open(this.cwd, requestedResume, {
 						laneId: this.laneId ?? null,
-						projectId: this.projectKey ?? null,
+						projectId: this.hostProjectId,
 						continueLast,
 						model: modelOverride ?? this.automationConfig?.model ?? null,
 						automationOrigin: this.automationConfig?.origin ?? (this.automationConfig ? 'automation' : null),
@@ -1435,7 +1445,7 @@ export class AgentSession {
 		}
 	}
 
-	async close() {
+	async close(replacing = false) {
 		studioLog.info('session', `chiusura ${projectStore.projects.find((p) => p.id === this.projectKey)?.name ?? this.projectKey} ${this.laneId ?? 'main'}`);
 		this.clearPrewalkState();
 		this.unsubscribeEvent?.();
@@ -1480,7 +1490,7 @@ export class AgentSession {
 		this.suggestions.invalidate();
 		this.deltaBatcher.clear();
 		this.resetProcessScopedState();
-		await this.client.close();
+		await this.client.close(replacing);
 	}
 
 	/**
@@ -2143,7 +2153,7 @@ export class AgentSession {
 		if (involuntaryRelocation && typeof state.sessionId === 'string') {
 			const newSessionId = state.sessionId;
 			if (this.sessionName) {
-				void invoke('session_title_save', {
+				void this.invoke('session_title_save', {
 					sessionId: newSessionId,
 					title: this.sessionName
 				}).catch((err) => console.warn('Copia titolo sessione fallita:', err));
@@ -2548,6 +2558,32 @@ export class AgentSession {
 		// Protezione da eventi per sessioni/prototipi diversi o revisioni superate
 		// ("un evento in ritardo non aggiorna l'oggetto sbagliato")
 
+		if (event.type === 'studio_rebind') {
+			this.attachGeneration++;
+			this.isAttaching = false;
+			this.isAttached = false;
+			this.isReady = false;
+			this.isStreaming = false;
+			this.isCompacting = false;
+			this.attachEventQueue = [];
+			this.transcriptLoad = null;
+			this.deltaBatcher.clear();
+			this.clearPendingUi();
+			this.resetLiveSessionState();
+			return;
+		}
+		if (event.type === 'studio_session_changed') {
+			this.attachGeneration++;
+			this.isAttaching = false;
+			this.isAttached = false;
+			this.attachEventQueue = [];
+			this.deltaBatcher.clear();
+			this.clearPendingUi();
+			this.suggestions.invalidate();
+			this.resetLiveSessionState();
+			void this.attach();
+			return;
+		}
 
 		// Se la sessione e' in fase di attach, accoda tutti gli eventi in ordine FIFO
 		// tranne quelli di terminazione/errore critico che interrompono l'attach.
@@ -4197,11 +4233,13 @@ export class AgentSession {
 					void promptBus.cancelRequest(cancelId, undefined, true);
 				}
 				this.clearPendingUi();
-				this.pushNotice(
-					'info',
-					messages.chat_v2_ask_withdrawn(),
-					messages.l10n_agent_notice_source_questions()
-				);
+				if (event.answeredElsewhere !== true) {
+					this.pushNotice(
+						'info',
+						messages.chat_v2_ask_withdrawn(),
+						messages.l10n_agent_notice_source_questions()
+					);
+				}
 			}
 			return;
 		}
@@ -4531,6 +4569,15 @@ export class AgentSession {
 
 	/* --------------------------------------------------------- risposte UI */
 
+	private wasAnsweredElsewhere(error: unknown, requestId: string): boolean {
+		if (!(error instanceof Error) || !('code' in error) ||
+			(error.code !== 'ui_already_answered' && error.code !== 'ui_request_closed')) return false;
+		if (this.pendingUi?.requestId === requestId) this.clearPendingUi();
+		if (promptBus.hasPending(requestId)) void promptBus.cancelRequest(requestId, undefined, true);
+		this.pushNotice('info', error.message, messages.l10n_agent_notice_source_questions());
+		return true;
+	}
+
 	/**
 	 * Invia una risposta e conferma lo stato solo se l'invio riesce. Su errore
 	 * la richiesta torna all'utente cosi' com'era: perderla lascerebbe
@@ -4580,6 +4627,7 @@ export class AgentSession {
 			}
 			return true;
 		} catch (error) {
+			if (this.wasAnsweredElsewhere(error, pending.requestId)) return false;
 			this.pendingUi = pending;
 			this.agentState = previousState;
 			this.pushNotice('error', messages.l10n_agent_reply_not_sent({ error: this.reason(error) }));
@@ -4720,6 +4768,7 @@ export class AgentSession {
 			});
 			return true;
 		} catch (error) {
+			if (this.wasAnsweredElsewhere(error, pending.requestId)) return false;
 			// Conserva pending e bozza intatti su fallimento
 			this.pendingUi = pending;
 			this.agentState = previousState;
@@ -5523,7 +5572,7 @@ export class AgentSession {
 	/** Destinazione e ripartenza predefinite da `config.yml`, lette una volta per chat. */
 	async ensurePrewalkTargets(): Promise<PrewalkTargets> {
 		if (this.prewalkTargets) return this.prewalkTargets;
-		this.prewalkTargetsLoad ??= invoke<Partial<PrewalkTargets>>('get_prewalk_settings')
+		this.prewalkTargetsLoad ??= this.invoke<Partial<PrewalkTargets>>('get_prewalk_settings')
 			.then(normalizePrewalkTargets)
 			.catch((error) => {
 				console.warn('Lettura destinazione prewalk:', error);
@@ -5547,7 +5596,7 @@ export class AgentSession {
 		const current = await this.ensurePrewalkTargets();
 		const next = normalizePrewalkTargets({ ...current, ...patch });
 		this.prewalkTargets = next;
-		if (options.persist) await invoke('set_prewalk_settings', { settings: next });
+		if (options.persist) await this.invoke('set_prewalk_settings', { settings: next });
 		if (next.into !== current.into && this.prewalk.state === 'armed') await this.armPrewalk();
 	}
 
@@ -6712,7 +6761,7 @@ export class AgentSession {
 		const file = this.sessionFile;
 		if (!file) return;
 		try {
-			const cost = await invoke<number>('session_subagent_cost', { sessionFile: file });
+			const cost = await this.invoke<number>('session_subagent_cost', { sessionFile: file });
 			if (typeof cost === 'number' && Number.isFinite(cost)) {
 				this.subagentCost = cost;
 			}

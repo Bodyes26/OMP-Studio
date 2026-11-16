@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '#lib/backend/ipc.ts';
 
 export type DoctorCategory = 'omp' | 'shell_git' | 'pty' | 'sqlite' | 'providers';
 export type DoctorStatus = 'ok' | 'warn' | 'error';

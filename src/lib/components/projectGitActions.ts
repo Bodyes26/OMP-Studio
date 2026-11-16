@@ -8,7 +8,7 @@
  * non selezionabile. `git_branch_checkout` e' lo stesso comando del pannello
  * Git: nessuno stash o reset automatico.
  */
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '#lib/backend/ipc.ts';
 import { fetchWorktreeBranches, type WorktreeBranchEntry } from '#lib/lanes/branchFilter.ts';
 import { notifyGitStatusRefresh } from '#lib/stores/gitDiff.svelte.ts';
 

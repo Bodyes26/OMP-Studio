@@ -22,6 +22,7 @@ let nextCallbackId = 1;
 let channelId = 0;
 let backend: BackendDiagnostics | null = null;
 let writtenReport: string | null = null;
+let sentIds: string[] = [];
 
 function backendWith(transport: Partial<BackendDiagnostics['transport']>, tree?: BackendDiagnostics['processTree']): BackendDiagnostics {
 	return {
@@ -56,6 +57,7 @@ function installTauriInternals() {
 	callbacks = new Map();
 	nextCallbackId = 1;
 	writtenReport = null;
+	sentIds = [];
 	const internals = {
 		transformCallback(callback: (raw: unknown) => void): number {
 			const id = nextCallbackId++;
@@ -77,6 +79,7 @@ function installTauriInternals() {
 				writtenReport = typeof args.report === 'string' ? args.report : null;
 				return Promise.resolve('C:/logs/rpc-hang-1.json');
 			}
+			if (cmd === 'rpc_send') sentIds.push(JSON.parse(String(args.line)).id);
 			return Promise.resolve(undefined);
 		}
 	};
@@ -107,15 +110,6 @@ describe('Rapporto di blocco RPC', () => {
 		// L'indice 2 non arriva mai: il 3 resta in coda nel Channel.
 		deliver(3, { type: 'turn_start' });
 
-		backend = backendWith({
-			framesSent: 5,
-			tauriFetchPathFrames: 1,
-			recentFrames: [
-				{ index: 2, atMs: 991_000, bytes: 20_000, kind: 'message_end', tauriFetchPath: true },
-				{ index: 3, atMs: 991_100, bytes: 30, kind: 'turn_start', tauriFetchPath: false },
-				{ index: 4, atMs: 995_000, bytes: 80, kind: 'response:prompt#s1', tauriFetchPath: false }
-			]
-		});
 		const sent = client.send({ type: 'prompt', message: 'ciao' });
 		const outcome = assert.rejects(sent, (error: Error & { code?: string }) => {
 			assert.equal(error.code, 'timeout');
@@ -124,6 +118,17 @@ describe('Rapporto di blocco RPC', () => {
 		});
 		// `send` attende `rpc_send` prima di armare l'attesa della risposta.
 		await Promise.resolve();
+		const promptId = sentIds[0];
+		assert.ok(promptId, 'prompt non spedito');
+		backend = backendWith({
+			framesSent: 5,
+			tauriFetchPathFrames: 1,
+			recentFrames: [
+				{ index: 2, atMs: 991_000, bytes: 20_000, kind: 'message_end', tauriFetchPath: true },
+				{ index: 3, atMs: 991_100, bytes: 30, kind: 'turn_start', tauriFetchPath: false },
+				{ index: 4, atMs: 995_000, bytes: 80, kind: `response:prompt#${promptId}`, tauriFetchPath: false }
+			]
+		});
 		t.mock.timers.tick(60_000);
 		await outcome;
 
@@ -132,7 +137,7 @@ describe('Rapporto di blocco RPC', () => {
 		assert.equal(report.client.framesReceived, 2);
 		assert.match(report.verdict[0], /Channel Tauri fermo: Rust ha spedito 5 frame, il WebView ne ha consegnati 2/);
 		assert.match(report.verdict[0], /indice 2, "message_end", 20000 byte, consegnato da Tauri via fetch/);
-		assert.ok(report.verdict.some((line: string) => /risposta a "prompt" \(s1\) (?:e’|è) arrivata a Rust/.test(line)));
+		assert.ok(report.verdict.some((line: string) => line.includes(`risposta a "prompt" (${promptId})`) && /(?:e’|è) arrivata a Rust/.test(line)));
 	});
 
 	it('se anche il backend non risponde il prompt fallisce comunque', async (t) => {

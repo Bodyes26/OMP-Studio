@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '#lib/backend/ipc.ts';
 import {
 	SOURCE_HINTS_MARKER,
 	GIT_CONTEXT_MARKER,

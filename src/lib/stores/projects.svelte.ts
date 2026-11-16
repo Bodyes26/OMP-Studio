@@ -1,4 +1,5 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke, LOCAL_MACHINE } from '#lib/backend/ipc.ts';
+import type { DesktopHostSnapshot } from '#lib/backend/host.ts';
 import { m } from '#lib/paraglide/messages.js';
 import { load, type Store } from '@tauri-apps/plugin-store';
 import { homeDir } from '@tauri-apps/api/path';
@@ -8,6 +9,7 @@ import { extractOrigin, isLocalOrigin } from '#lib/agent/browser-live.ts';
 import {
 	canonicalProjectPath,
 	createMainLane,
+	MAIN_LANE_ID,
 	projectId,
 	type AgentLane,
 	type AgentState,
@@ -42,6 +44,9 @@ export type { AgentState } from '#lib/types/lanes.ts';
 
 export interface Project {
 	id: ProjectId;
+	/** La copia che esegue il lavoro; assente per i progetti locali storici. */
+	machineId?: string;
+	hostProjectId?: string;
 	name: string;
 	label: string | null;
 	canonicalProjectPath: CanonicalProjectPath | null;
@@ -384,7 +389,7 @@ class ProjectStore {
 	/** Catalogo noto anche per le automazioni: chiudere una scheda non dimentica il progetto. */
 	get registeredProjectMetadata(): StoredProjectMetadata[] {
 		const known = new Map(this.metadata);
-		for (const project of this.projects) {
+		for (const project of this.localProjects) {
 			if (!project.canonicalProjectPath || project.external) continue;
 			const metadata = buildProjectMetadata({
 				id: project.id,
@@ -411,12 +416,12 @@ class ProjectStore {
 			}
 			return;
 		}
-		for (const p of this.projects) {
+		for (const p of this.localProjects) {
 			if (p.canonicalProjectPath && !p.external) {
 				this.syncProjectMetadata(p);
 			}
 		}
-		const toSave = this.projects
+		const toSave = this.localProjects
 			.filter((p) => p.canonicalProjectPath !== null || p.labDraft != null)
 			.map((p) => ({
 				id: p.id,
@@ -440,7 +445,8 @@ class ProjectStore {
 		const metaToSave = pruneProjectMetadata(Array.from(this.metadata.values()));
 		await this.store.set('projects', toSave);
 		await this.store.set('projectMetadata', metaToSave);
-		await this.store.set('activeProjectId', this.activeId);
+		const active = this.projects.find((p) => p.id === this.activeId);
+		await this.store.set('activeProjectId', active && !this.isRemote(active) ? this.activeId : null);
 		await this.store.set('projectRoot', this.projectRoot);
 		await this.store.save();
 	}, 500);
@@ -449,8 +455,10 @@ class ProjectStore {
 		const normalizedPath = normalizeProjectPath(path);
 		if (!normalizedPath) return null;
 		const key = pathKey(normalizedPath);
+		// Solo le copie di questa macchina: un progetto remoto con lo stesso
+		// percorso e' un'altra superficie e non va riusato ne' risvegliato.
 		const existing = this.projects.find(
-			(p) => p.canonicalProjectPath && pathKey(p.canonicalProjectPath) === key
+			(p) => !this.isRemote(p) && p.canonicalProjectPath && pathKey(p.canonicalProjectPath) === key
 		);
 		if (existing) {
 			if (existing.external) {
@@ -688,7 +696,9 @@ class ProjectStore {
 				console.warn('Aggiornamento stato bozza chiusa fallito:', err);
 			});
 		}
-		if (p.canonicalProjectPath) {
+		// Una copia remota non e' un progetto di questa macchina: il catalogo
+		// locale non deve impararne il percorso solo perche' l'utente l'ha chiusa.
+		if (p.canonicalProjectPath && !this.isRemote(p)) {
 			this.syncProjectMetadata(p);
 		}
 		this.projects.splice(idx, 1);
@@ -988,6 +998,103 @@ class ProjectStore {
 
 	get activeProject(): Project | undefined {
 		return this.projects.find(p => p.id === this.activeId);
+	}
+
+	/** Solo le copie di questa macchina: quelle remote non si persistono. */
+	get localProjects(): Project[] {
+		return this.projects.filter((p) => !p.machineId || p.machineId === LOCAL_MACHINE);
+	}
+
+	isRemote(project: Project): boolean {
+		return Boolean(project.machineId && project.machineId !== LOCAL_MACHINE);
+	}
+
+	/**
+	 * Proiezione dei progetti di un'altra istanza: la stessa tessera delle
+	 * locali, con `machineId` valorizzato. L'identificativo incorpora la
+	 * macchina e l'id dell'host perche' due copie dello stesso repository sono
+	 * due superfici distinte finche' la fase 2 non le unisce.
+	 */
+	syncRemoteProjects(machine: string, name: string, snapshot: DesktopHostSnapshot): void {
+		const existing = new Map(this.projects.filter((p) => p.machineId === machine).map((p) => [p.id, p]));
+		const next: Project[] = [];
+		for (const host of snapshot.projects) {
+			if (host.external || host.labDraft) continue;
+			const id = projectId(`${machine}::${host.id}`);
+			const previous = existing.get(id);
+			// La tessera descrive la Principale: prendere la prima corsia
+			// trovata mostrerebbe lo stato di un worktree come stato del progetto.
+			const lane = snapshot.lanes.find(
+				(candidate) => candidate.projectId === host.id && candidate.laneId === MAIN_LANE_ID
+			);
+			const canonical = host.canonicalProjectPath
+				? canonicalProjectPath(host.canonicalProjectPath)
+				: null;
+			const project: Project = previous ?? {
+				id,
+				machineId: machine,
+				hostProjectId: host.id,
+				name: host.name,
+				label: host.label,
+				canonicalProjectPath: canonical,
+				hue: host.hue,
+				colorMode: host.colorMode,
+				lane: createMainLane(id, canonical, host.lane.surface),
+				layout: {
+					left: 260,
+					center: 0.5,
+					leftSection: 'files',
+					editorOpen: true,
+					panelGeometry: readPanelGeometries(undefined)
+				},
+				lastOpened: host.lastOpened,
+				autoDispatch: false,
+				taskDefaults: null,
+				worktreeResumeChat: host.worktreeResumeChat,
+				external: false
+			};
+			project.name = host.name || name;
+			project.hostProjectId = host.id;
+			project.canonicalProjectPath = canonical;
+			project.hue = host.hue;
+			project.colorMode = host.colorMode;
+			project.lastOpened = host.lastOpened;
+			project.lane = {
+				...project.lane,
+				projectId: id,
+				laneId: lane?.laneId ?? MAIN_LANE_ID,
+				title: lane?.title ?? project.lane.title,
+				workspacePath: lane?.workspacePath
+					? workspacePath(lane.workspacePath)
+					: host.lane.workspacePath ? workspacePath(host.lane.workspacePath) : null,
+				branch: lane?.branch ?? null,
+				baseCommit: lane?.baseCommit ?? null,
+				targetBranch: lane?.targetBranch ?? null,
+				status: lane?.status ?? 'active',
+				origin: lane?.origin ?? 'main',
+				agentState: lane?.agentState ?? host.lane.agentState,
+				surface: lane?.surface ?? host.lane.surface,
+				kind: lane?.kind ?? host.lane.kind,
+				labPrototypeId: lane?.labPrototypeId ?? host.lane.labPrototypeId,
+				openFiles: lane ? [...lane.openFiles] : [...project.lane.openFiles],
+				activeFile: lane ? lane.activeFile : project.lane.activeFile
+			};
+			next.push(project);
+		}
+		const kept = this.projects.filter((p) => p.machineId !== machine);
+		this.projects = [...kept, ...next];
+		if (this.activeId && !this.projects.some((p) => p.id === this.activeId)) {
+			this.activeId = this.projects[0]?.id ?? null;
+		}
+	}
+
+	removeRemoteMachine(machine: string): void {
+		const kept = this.projects.filter((p) => p.machineId !== machine);
+		if (kept.length === this.projects.length) return;
+		this.projects = kept;
+		if (this.activeId && !this.projects.some((p) => p.id === this.activeId)) {
+			this.activeId = this.projects[0]?.id ?? null;
+		}
 	}
 }
 

@@ -15,7 +15,7 @@
 // `tool_execution_start/update/end`.
 
 import { m as msg } from '#lib/paraglide/messages.js';
-import { Channel, invoke } from '@tauri-apps/api/core';
+import { Channel, invoke } from '#lib/backend/ipc.ts';
 
 /* ------------------------------------------------------------- capability */
 

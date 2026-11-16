@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '#lib/backend/ipc.ts';
 import { projectStore, normalizeProjectPath, joinProjectPath } from './projects.svelte';
 import { settingsStore } from './settings.svelte';
 import { notificationManager } from './notifications.svelte';

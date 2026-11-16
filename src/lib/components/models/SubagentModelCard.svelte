@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { invoke } from '@tauri-apps/api/core';
+	import { invoke } from '#lib/backend/ipc.ts';
 	import { m } from '#lib/paraglide/messages.js';
 	import {
 		modelSettingsStore,

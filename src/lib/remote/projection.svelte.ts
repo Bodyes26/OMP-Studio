@@ -23,6 +23,9 @@ import { modelSettingsStore } from '#lib/stores/modelSettings.svelte.ts';
 import { onThemeChange, getCurrentAnchors } from '#lib/theme.ts';
 import { settingsStore } from '#lib/stores/settings.svelte.ts';
 import { buildRemoteSessionSnapshot } from './completion.svelte';
+import { linkStore } from '#lib/backend/link.svelte.ts';
+import { invoke } from '#lib/backend/ipc.ts';
+import type { DesktopHostSnapshot } from '#lib/backend/host.ts';
 
 export interface RemoteProjectionOptions {
 	getCandidateTaskId?: (projectId: string) => string | null;
@@ -34,6 +37,8 @@ export interface RemoteProjectionOptions {
  */
 export function startRemoteProjection(options: RemoteProjectionOptions = {}): () => void {
 	let lastPublishedJson = '';
+	let publishing = Promise.resolve();
+	let disposed = false;
 	// Codice della WebView: il timer e' quello del browser, non il tipo di Node.
 	let debounceTimer: number | null = null;
 	let themeAnchors = $state(getCurrentAnchors());
@@ -45,8 +50,9 @@ export function startRemoteProjection(options: RemoteProjectionOptions = {}): ()
 			const enabled = remoteStore.status.enabled;
 			const paired = remoteStore.status.paired;
 
-			// Attivo solo quando il controllo remoto e' abilitato e abbinato
-			if (!enabled || !paired) {
+			const phoneEnabled = enabled && paired;
+			const desktopEnabled = linkStore.status.enabled;
+			if (!phoneEnabled && !desktopEnabled) {
 				window.clearTimeout(debounceTimer ?? undefined);
 				debounceTimer = null;
 				lastPublishedJson = '';
@@ -54,12 +60,13 @@ export function startRemoteProjection(options: RemoteProjectionOptions = {}): ()
 			}
 
 			// Registrazione delle dipendenze reattive di Studio
-			const projects = projectOrder.list;
+			const projects = projectOrder.list.filter((project) => !project.machineId || project.machineId === 'local');
+			const localIds = new Set(projects.map((project) => String(project.id)));
 			// Dipendenze reattive per le conferme di avvio
 			const _pendingConcurrency = dispatchConfirmationsStore.concurrencyPrompt;
 			const _pendingProfile = dispatchConfirmationsStore.profilePrompt;
 			const activeId = projectStore.activeId;
-			const lanes = laneStore.lanes;
+			const lanes = laneStore.lanes.filter((lane) => localIds.has(lane.projectId));
 			const runtimes = companionStore.projectRuntimes;
 			const attentions = companionStore.attentionRequests;
 			const tasks = taskStore.tasks;
@@ -171,18 +178,38 @@ export function startRemoteProjection(options: RemoteProjectionOptions = {}): ()
 				dispatchConfirmationsForProject: (pId) => dispatchConfirmationsStore.getConfirmationsForProject(pId)
 			});
 
-			const json = JSON.stringify(hostState);
+			const desktopState: DesktopHostSnapshot = {
+				version: 1,
+				platform: linkStore.status.platform,
+				projectRoot: projectStore.projectRoot,
+				projects,
+				lanes,
+				tasks,
+				sessions: projects.flatMap((project) => sessionRegistry.getSessionsForProject(project.id).map((session) => ({
+					projectId: project.id, laneId: session.laneId ?? 'main',
+					rpcId: session.client.id, sessionId: session.sessionId
+				}))),
+				state: hostState
+			};
+			const desktopJson = desktopEnabled ? JSON.stringify(desktopState) : '';
+			const json = JSON.stringify([phoneEnabled ? hostState : null, desktopJson]);
 			if (json === lastPublishedJson) return;
 
 			window.clearTimeout(debounceTimer ?? undefined);
-			debounceTimer = window.setTimeout(async () => {
+			debounceTimer = window.setTimeout(() => {
 				debounceTimer = null;
-				lastPublishedJson = json;
-				try {
-					await remoteBridge.publishState(hostState);
-				} catch (err) {
-					console.warn('[remote] publishState fallito:', err);
-				}
+				publishing = publishing.then(async () => {
+					if (disposed) return;
+					try {
+						await Promise.all([
+							...(phoneEnabled ? [remoteBridge.publishState(hostState)] : []),
+							...(desktopEnabled ? [invoke('link_publish_state', { state: desktopJson })] : [])
+						]);
+						lastPublishedJson = json;
+					} catch (err) {
+						console.warn('[remote] publishState fallito:', err);
+					}
+				});
 			}, 400);
 
 			return () => {
@@ -193,6 +220,7 @@ export function startRemoteProjection(options: RemoteProjectionOptions = {}): ()
 	});
 
 	return () => {
+		disposed = true;
 		window.clearTimeout(debounceTimer ?? undefined);
 		debounceTimer = null;
 		cleanupRoot();

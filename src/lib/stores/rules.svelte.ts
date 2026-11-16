@@ -7,7 +7,7 @@
  * L'aggiornamento avviene solo su richiesta (`force`) o al primo ingresso.
  */
 
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '#lib/backend/ipc.ts';
 import { m } from '#lib/paraglide/messages.js';
 
 export interface ContextRuleItem {

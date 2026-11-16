@@ -2,7 +2,7 @@
 	import './companion.css';
 	import { m } from '#lib/paraglide/messages.js';
 	import { onMount, tick, untrack } from 'svelte';
-	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+	import { listen, type UnlistenFn } from '#lib/backend/ipc.ts';
 	import { companionStore, type AttentionRequest, type QuickTaskAiParsed } from '#lib/stores/companion.svelte.ts';
 	import { projectStore, type Project } from '#lib/stores/projects.svelte.ts';
 	import { quotaStore } from '#lib/stores/quota.svelte.ts';

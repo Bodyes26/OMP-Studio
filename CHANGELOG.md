@@ -12,6 +12,8 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 ## [Unreleased]
 
 ### Added
+- Controllo fra istanze di Studio: in «Impostazioni → Altre istanze» si accende il collegamento con un relay proprio, si genera un codice di abbinamento e si abbinano due computer; l'elenco dei dispositivi mostra quali sono in linea e con quali permessi (Lettura sempre, Agenti, File e Git, Terminale), revocabili per macchina. Spenta per default, nessun account e nessun servizio di terzi obbligatorio. (R-MI-16, R-MI-17, R-MI-09)
+- I progetti aperti sull'altra istanza compaiono nella barra dei progetti con un badge che dice su quale macchina girano, spento quando il computer non risponde: chat, albero dei file, editor, Git, terminale e corsie funzionano come sui progetti locali. Il selettore dei progetti ha una sezione per ogni macchina con le cartelle note, anche quelle non aperte in barra, e aprirne una la apre sull'altra macchina. (R-MI-03, R-MI-04, R-MI-06, R-MI-07)
 - Studio riconosce il provider `antigravity-cli` di omp 18.20.2 (Google Antigravity via ACP): la tessera Google Antigravity del setup collega questo provider al posto di `google-antigravity`, messo in pausa da omp; i suoi modelli hanno il logo Antigravity, rientrano nella proposta dei ruoli e le automazioni li trattano come abbonamento, non a consumo.
 - Il catalogo dei comandi include `/commit` di omp 18.20.1, che crea un commit con le sole modifiche dell'agente e dei suoi sottoagenti; si può fissare come chip o icona nella riga di stato.
 - Studio Remote: la PWA si può ricaricare senza chiuderla e riaprirla, trascinando verso il basso (app installata) o con il pulsante «Aggiorna» nelle Impostazioni.
@@ -26,6 +28,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Se l'installazione di `omp` è rotta (per esempio un collegamento che punta a una cartella cancellata), Studio lo dice e offre «Ripara», invece di ripartire come su un computer nuovo. Quando manca un pezzo indispensabile il setup riapre direttamente su quel passo, senza l'ingresso animato. (SET-010, SET-020)
 
 ### Changed
+- Preparazione del controllo fra istanze: le chiamate interne distinguono la macchina di destinazione e rifiutano quelle remote non ancora disponibili, senza eseguirle in locale. Il controllo completo di un'altra istanza non è ancora disponibile. (R-MI-06, MI01)
 - I tab dei progetti mostrano un'anteprima in sola lettura al passaggio del mouse; i comandi si aprono dai tre puntini o con il tasto destro in una card stabile, con viste interne, chiusura sempre visibile, nome e sigla modificabili, colori dal tema e percorso relativo alla radice progetti. Dopo un riordino la card resta ferma finché il puntatore è dentro. (TPR-001…011, TPR-031…032, TPR-037…038)
 - Le schede dei progetti nella barra superiore scivolano al nuovo posto quando si spostano con le frecce del menu del progetto o si trascinano, invece di saltare di colpo; con il movimento ridotto lo spostamento resta immediato. (TPR-039)
 - La Coda del progetto mostra titolo, modello con logo e quattro azioni compatte: avvio, nuovo worktree, modifica e programmazione. Gli avvii restano in background, con Ctrl/Cmd per seguirli; le label degli interruttori sono cliccabili e i menu figli non chiudono la card. (TPR-012…017)
@@ -43,6 +46,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Chiarimento sul Browser Studio annunciato nella 1.5.0: con l'`omp` pubblico la pagina dal vivo, la presa di controllo e la modalità privata non sono disponibili, perché la parte del runtime su cui si basavano non è mai stata pubblicata. Studio continua a mostrare riepilogo e screenshot delle azioni del tool `browser`; la versione dal vivo è in riprogettazione.
 
 ### Fixed
+- Se la finestra di Studio si ricarica, le chat GUI in corso vengono riprese: la conversazione si ricostruisce e l'agente prosegue, invece di avviare un secondo `omp` sullo stesso progetto mentre il primo continuava a lavorare senza essere visibile. Una chat rimasta senza finestra e mai ripresa si chiude dopo dieci minuti. (R-MI-07, R-MI-11, MI02)
 - Barra dei progetti: la tessera del progetto aperto ha di nuovo il bordo attorno a nome e menu «⋯», e il pulsante del menu compare solo su quella tessera. Il passaggio dall’anteprima al pannello del progetto è animato: la card cambia misura e il contenuto sfuma.
 - Scegliere un orario personalizzato per un task mantiene aperto il menu di programmazione e porta il focus al campo orario, invece di chiuderlo mentre la voce viene sostituita. (TPR-016)
 - Nel popover delle quote, «Aggiorna» ricarica i consumi e lascia il pannello aperto.

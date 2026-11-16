@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { invoke } from '@tauri-apps/api/core';
+	import { invoke } from '#lib/backend/ipc.ts';
 	import { automationsStore } from '#lib/automations/store.svelte.ts';
 	import { t, formatDateTime, formatDuration } from '#lib/automations/i18n.ts';
 	import type { AutomationOccurrence, AutomationExecution, ResolvedAutomationTarget } from '#lib/automations/types.ts';

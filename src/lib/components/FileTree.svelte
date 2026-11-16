@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
-	import { invoke } from '@tauri-apps/api/core';
+	import { useProjectBackend } from '#lib/backend/projectScope.ts';
+	const { invoke } = useProjectBackend();
 	import { revealItemInDir } from '@tauri-apps/plugin-opener';
 	import { Lingering, ROW_EXIT_MS } from '#lib/agent/motionState.svelte.ts';
 	import { setContext, getContext, tick } from 'svelte';

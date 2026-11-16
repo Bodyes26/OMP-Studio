@@ -9,8 +9,7 @@
 	// atomicamente il file di ack `<id>.ack.json` prima di passare alla richiesta successiva.
 
 	import { onMount, onDestroy } from 'svelte';
-	import { invoke, isTauri } from '@tauri-apps/api/core';
-	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+	import { invoke, isTauri, listen, type UnlistenFn } from '#lib/backend/ipc.ts';
 	import { wrapPrototypeCode } from '#lib/prototype/wrapper.ts';
 	import type { LanePreviewPayload } from '#lib/agent/laneSurfaces.ts';
 	import { buildPreviewHarnessScript, injectPreviewHarness } from './harness.ts';

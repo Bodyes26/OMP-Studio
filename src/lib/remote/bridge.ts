@@ -1,5 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { invoke, listen, type UnlistenFn } from '#lib/backend/ipc.ts';
 import type {
 	CommandError,
 	DeviceInfo,

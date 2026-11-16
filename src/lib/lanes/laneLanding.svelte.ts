@@ -11,7 +11,7 @@
 // Le richieste del bridge (`lane-bridge://request`) le smista
 // `agentLanes.svelte.ts`: qui arriva solo `land()` per `corsia_integra`.
 
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '#lib/backend/ipc.ts';
 import { laneStore } from '#lib/stores/lanes.svelte.ts';
 import { projectStore, type Project } from '#lib/stores/projects.svelte.ts';
 import { sessionRegistry } from '#lib/agent/sessionRegistry.ts';

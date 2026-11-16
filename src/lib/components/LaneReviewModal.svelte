@@ -12,7 +12,7 @@
 -->
 <script lang="ts">
 	import { unintegratedWarning } from '#lib/lanes/laneCleanup.ts';
-	import { invoke } from '@tauri-apps/api/core';
+	import { invoke } from '#lib/backend/ipc.ts';
 	import { m } from '#lib/paraglide/messages.js';
 	import Dialog from '#lib/ui/Dialog.svelte';
 	import Tooltip from '#lib/ui/Tooltip.svelte';

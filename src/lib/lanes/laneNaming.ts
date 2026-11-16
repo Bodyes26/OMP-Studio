@@ -8,7 +8,7 @@
 // 3. I prototipi preesistenti con titolo non bloccato superiore a 24 caratteri vengono
 //    sintetizzati una tantum a partire dal summary all'apertura della corsia.
 
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '#lib/backend/ipc.ts';
 import { projectStore } from '#lib/stores/projects.svelte.ts';
 import { laneStore } from '#lib/stores/lanes.svelte.ts';
 import { labApi } from '#lib/lab/api.ts';

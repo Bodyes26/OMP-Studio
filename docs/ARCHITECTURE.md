@@ -241,6 +241,8 @@ lib/
 
 ## 4. Superficie IPC
 
+**Confine della finestra (R49, MI01).** `src/lib/backend/ipc.ts` è l'unico modulo di `src/` che importa `@tauri-apps/api/core` e `/event`: gli altri importano da lì `invoke`, `listen`, `emit`, `Channel` e i tipi. `invoke` accetta un nome presente in `backend/commands.ts` (258 comandi registrati) e una destinazione opzionale `machine` nel terzo argomento; assente significa `local`. Il catalogo distingue `routed` (eseguibile sulla macchina del progetto), `adapt` (richiede gli adattamenti dei successivi passi MI02–MI11) e `local` (finestra e macchina di chi guarda). Oggi esiste solo il trasporto locale: una destinazione diversa è sempre rifiutata con `BackendRouteError`, senza ripiegare sull'esecuzione locale. I byte degli allegati, gli header IPC e gli errori strutturati del backend restano invariati. Eventi e `Channel` sono ancora quelli locali di Tauri, non flussi remoti. Le API di finestra e i plugin nativi restano fuori da questo confine.
+
 Tutti i comandi Tauri invocabili dal frontend passano da firme tipizzate in Rust (`src-tauri/src/lib.rs`):
 
 ```rust
@@ -498,6 +500,17 @@ Studio pubblica lo stato delle sue macchine su un relay ospitato dall'utente e r
 
 Comandi IPC aggiunti: `remote_get_status`, `remote_pair`, `remote_set_enabled`, `remote_set_machine_name`, `remote_unpair`, `remote_publish_state`, `remote_command_result`, `remote_publish_chat_event`, `remote_open_machines_window` (permesso `allow-remote`), `project_canonicalize_child_dir` (permesso `allow-workspace-files`) e `read_historical_session_messages` (permesso `allow-usage-and-sessions`).
 
+### 5.6-bis Collegamento fra istanze (Gate R49, R-MI-03…17)
+
+Due installazioni di Studio si abbinano e si guidano a vicenda: i progetti dell'una compaiono nella barra dell'altra con il badge della macchina e si lavorano con le stesse superfici. Nessuna macchina apre porte in ingresso: entrambe escono verso un relay iroh configurato dall'utente.
+
+- **Trasporto.** `src-tauri/src/link/` apre un endpoint iroh con `RelayMode::Custom` sul relay scelto e `CaTlsConfig::system()` (necessario dalla rete aziendale, che ispeziona TLS; vedi MI00 in `PLAN.md`). `config.rs` conserva identità, chiave e dispositivi in `app_local_data_dir/link.json` con scrittura atomica; `protocol.rs` definisce ALPN, `Hello` e le operazioni; `access.rs` limita i percorsi che una macchina può leggere alle radici dichiarate dal suo snapshot; `host.rs` accoda le azioni della finestra proprietaria e ne raccoglie l'esito; `streams.rs` trasporta chat e terminale con il loro `Channel`.
+- **Instradatore unico.** `src/lib/backend/ipc.ts` è l'unico punto che parla con il backend: il terzo argomento di `invoke` dice la macchina di destinazione. `commands.json` (letto anche da `link/catalog.rs`) classifica i 258 comandi in `routed`, `stream`, `adapt` e `local` con il permesso richiesto. Un comando `local` chiesto per una macchina remota viene rifiutato con `BackendRouteError`, mai eseguito in locale.
+- **Superfici remote.** `ProjectScope.svelte` fornisce il backend della tessera (`projectScope.ts`) a chat, albero dei file, editor, Git, terminale e anteprime, quindi il codice esistente non conosce la macchina: cambia solo la destinazione. Gli eventi ammessi sono `studio://file-changed`, `lab://changed` e `diagram://new`, inoltrati come `link:event:<machine>:<event>`.
+- **Progetti remoti.** `linkStore.applyHost` proietta lo snapshot ricevuto in `projectStore.projects` con `machineId` e `hostProjectId`; la tessera mostra il badge, spento e tratteggiato se il peer è offline. Le copie remote non si persistono (né progetto, né corsie, né progetto attivo) e spariscono alla revoca. Il selettore progetti (`ProjectPicker.svelte`) chiede a ogni macchina le sue cartelle con l'azione `list_project_folders` e le apre con `open_project`.
+- **Terminale e domande.** `pty/hub.rs` conserva 1 MiB di storia e uno schermo VT, distribuisce l'output a tutti gli iscritti, impone la misura più piccola e ripristina la maggiore all'uscita; `rpc/hub.rs` tiene le domande in attesa con il loro numero di frame e chiude la richiesta alla prima risposta. Entrambi permettono a una finestra ricaricata o a un'altra istanza di agganciarsi alla stessa superficie.
+- **Interfaccia.** «Impostazioni → Altre istanze» (`InstancesSection.svelte`) accende il collegamento, genera il codice di abbinamento, elenca i dispositivi e i loro quattro permessi; la barra di stato mostra un chip con la macchina del progetto attivo (`StatusBarChips.svelte`). Spento per default.
+
 ### 5.7 Companion 2.0: lettura e orchestrazione locale
 
 - **Una selezione esplicita.** `CompanionView`, `CompanionCenterReader` e `CompanionRightRail` sostituiscono la griglia. `companionPresentation.ts` conserva snapshot, bozza, stato di invio e scorrimento per progetto/corsia, separando le sessioni quando una corsia cambia chat. Le domande si selezionano anche per `requestId`: un arrivo non cambia il lettore, una domanda risolta non lascia entrare automaticamente la successiva.
@@ -522,6 +535,7 @@ La seconda superficie nativa si interfaccia direttamente con il runtime di OMP s
 
 ### 6.2 Gestione Streaming e Riassemblaggio Chunk
 - I messaggi estesi vengono inviati da OMP come sequenze di frame `rpc_chunk`. Rust riassembla l'intero buffer binario prima di convertirlo in stringa JSON ed emetterlo sul `Channel` verso Svelte.
+- **Più consumatori per sessione (R49, MI02).** Il lettore pubblica ogni frame su `SessionHub` (`src-tauri/src/rpc/hub.rs`): numero crescente, consegna a tutti gli iscritti sotto lo stesso lock dell'aggancio, coda di ripresa limitata (4 MiB, 4096 frame) e frame `ready` conservato. `Resume::After(n)` riceve i frame successivi a `n` se la coda li contiene; altrimenti, come `Resume::Fresh`, riceve `ready` e il riduttore ricostruisce con `get_state` e `get_messages_page`. Le iscrizioni delle WebView portano l'etichetta della finestra: `on_page_load` (`lib.rs`) le toglie quando la pagina si ricarica e `rpc_open`/`rpc_open_lab` riprendono una sessione GUI senza consumatori con la stessa corsia, cartella e conversazione invece di avviare un altro omp. Le sessioni di automazione non si riprendono. Un thread chiude le sessioni senza consumatori da 10 minuti. `OmpRpcClient` trattiene i frame arrivati prima dell'id di `rpc_open` e usa id di richiesta con prefisso casuale per finestra, perché le risposte arrivano a ogni iscritto. Il confronto dei frame del rapporto di blocco riparte con il `Channel` della finestra che riprende (`RpcStats::restart_channel`).
 - I delta di streaming (`assistantMessageEvent`) vengono unificati entro un intervallo di 8 ms, consentendo rendering fluido a 120 fps senza saturare il bridge IPC.
 
 ### 6.3 Richieste Interattive (`extension_ui_request`)

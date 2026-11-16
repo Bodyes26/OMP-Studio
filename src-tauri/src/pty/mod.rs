@@ -1,3 +1,5 @@
+pub(crate) mod hub;
+
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -7,7 +9,7 @@ use std::thread;
 
 use parking_lot::Mutex;
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::ipc::{Channel, Response};
 use tauri::State;
 
@@ -26,9 +28,25 @@ pub struct PtySession {
     killed: Arc<AtomicBool>,
     pub cwd: String,
     pub project_id: Option<String>,
+    lane_id: Option<String>,
+    launch_args: Vec<String>,
+    hub: Arc<hub::TerminalHub>,
 }
 
 impl PtySession {
+    fn resize_physical(&self, cols: u16, rows: u16) -> Result<(), String> {
+        self.master.lock().resize(PtySize { cols, rows, pixel_width: 0, pixel_height: 0 })
+            .map_err(|error| error.to_string())
+    }
+
+    fn set_consumer_size(&self, owner: &str, cols: u16, rows: u16) -> Result<(), String> {
+        self.hub.set_size(owner, cols, rows, |cols, rows| self.resize_physical(cols, rows)).map(|_| ())
+    }
+
+    fn detach_consumer(&self, owner: &str) -> Result<(), String> {
+        self.hub.detach_owner(owner, |cols, rows| self.resize_physical(cols, rows)).map(|_| ())
+    }
+
     pub fn kill_tree(&self) {
         if self.killed.swap(true, Ordering::SeqCst) {
             return;
@@ -400,14 +418,58 @@ pub fn write_extension(file_name: &str, source: &str) -> Option<String> {
 pub struct PtyManager {
     sessions: Arc<Mutex<HashMap<u64, PtySession>>>,
     next_id: Mutex<u64>,
+    open_gate: Mutex<()>,
 }
 
 impl PtyManager {
     pub fn new() -> Self {
+        let sessions: Arc<Mutex<HashMap<u64, PtySession>>> = Arc::new(Mutex::new(HashMap::new()));
+        let weak = Arc::downgrade(&sessions);
+        thread::Builder::new().name("pty-orphans".into()).spawn(move || loop {
+            thread::sleep(std::time::Duration::from_secs(30));
+            let Some(sessions) = weak.upgrade() else { break; };
+            let expired = {
+                let mut sessions = sessions.lock();
+                let now = std::time::Instant::now();
+                let ids: Vec<_> = sessions.iter().filter_map(|(id, session)| {
+                    session.hub.orphaned_for(now).filter(|age| *age >= hub::ORPHAN_GRACE)
+                        .map(|_| *id)
+                }).collect();
+                ids.into_iter().filter_map(|id| sessions.remove(&id)).collect::<Vec<_>>()
+            };
+            for session in expired {
+                session.kill_tree();
+            }
+        }).expect("starting PTY orphan reaper");
         PtyManager {
-            sessions: Arc::new(Mutex::new(HashMap::new())),
+            sessions,
             next_id: Mutex::new(1),
+            open_gate: Mutex::new(()),
         }
+    }
+
+    pub(crate) fn detach_window(&self, owner: &str) {
+        for session in self.sessions.lock().values() {
+            if let Err(error) = session.detach_consumer(owner) {
+                crate::studio_log::info("pty", format!("Ridimensionamento dopo scollegamento: {error}"));
+            }
+        }
+    }
+
+    pub(crate) fn attach(
+        &self,
+        pty_id: u64,
+        sink: Box<dyn hub::ByteSink>,
+        owner: String,
+        size: (u16, u16),
+        after: Option<u64>,
+    ) -> Result<(u64, bool), String> {
+        let sessions = self.sessions.lock();
+        let session = sessions.get(&pty_id).ok_or("Terminal session is unavailable")?;
+        session.detach_consumer(&owner)?;
+        let attached = session.hub.attach(sink, owner.clone(), Some(size), after)?;
+        session.set_consumer_size(&owner, size.0, size.1)?;
+        Ok(attached)
     }
 
     pub fn close_all(&self) {
@@ -515,8 +577,53 @@ pub async fn pty_open(
     lane_id: Option<String>,
     project_id: Option<String>,
     on_output: Channel<Response>,
+    webview: tauri::Webview,
     manager: State<'_, PtyManager>,
 ) -> Result<u64, String> {
+    open_session(&manager, OpenPtyArgs { cwd, args, cols, rows, lane_id, project_id },
+        Box::new(hub::ChannelByteSink(on_output)), webview.label().to_owned())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct OpenPtyArgs {
+    pub cwd: String,
+    pub args: Vec<String>,
+    pub cols: u16,
+    pub rows: u16,
+    pub lane_id: Option<String>,
+    pub project_id: Option<String>,
+}
+
+pub(crate) fn open_session(
+    manager: &PtyManager,
+    args: OpenPtyArgs,
+    sink: Box<dyn hub::ByteSink>,
+    owner: String,
+) -> Result<u64, String> {
+    let OpenPtyArgs { cwd, args, cols, rows, lane_id, project_id } = args;
+    let _opening = manager.open_gate.lock();
+    if cols == 0 || rows == 0 {
+        return Err("Terminal dimensions must be positive".into());
+    }
+    // Il setup e i terminali senza corsia restano indipendenti.
+    if lane_id.is_some() && project_id.is_some() {
+        let sessions = manager.sessions.lock();
+        if let Some(session) = sessions.values().find(|session| {
+            session.cwd == cwd && session.lane_id == lane_id
+                && session.project_id == project_id && session.launch_args == args
+                && !session.killed.load(Ordering::SeqCst)
+                && !session.hub.has_owner(&owner)
+                && session.child.lock().try_wait().ok().flatten().is_none()
+        }) {
+            session.hub.attach(sink, owner.clone(), Some((cols, rows)), None)?;
+            session.set_consumer_size(&owner, cols, rows)?;
+            return Ok(session.pty_id);
+        }
+    }
+    let launch_args = args.clone();
+    let hub = Arc::new(hub::TerminalHub::new(cols, rows));
+    hub.attach(sink, owner, Some((cols, rows)), None)?;
     let pty_system = native_pty_system();
 
     let pair = pty_system
@@ -812,6 +919,9 @@ pub async fn pty_open(
         killed: Arc::new(AtomicBool::new(false)),
         cwd: cwd.clone(),
         project_id: project_id.clone(),
+        lane_id: lane_id.clone(),
+        launch_args,
+        hub: hub.clone(),
     };
 
     manager.sessions.lock().insert(pty_id, session.clone());
@@ -869,9 +979,7 @@ pub async fn pty_open(
                 }
             }
 
-            if on_output.send(Response::new(coalesced)).is_err() {
-                break;
-            }
+            hub.publish(&coalesced);
         }
     });
 
@@ -977,24 +1085,41 @@ pub async fn pty_resize(
     pty_id: u64,
     cols: u16,
     rows: u16,
+    webview: tauri::Webview,
     manager: State<'_, PtyManager>,
 ) -> Result<(), String> {
+    resize_session(&manager, pty_id, webview.label(), cols, rows)
+}
+
+pub(crate) fn resize_session(manager: &PtyManager, pty_id: u64, owner: &str, cols: u16, rows: u16) -> Result<(), String> {
     let sessions = manager.sessions.lock();
     if let Some(session) = sessions.get(&pty_id) {
-        let master = session.master.lock();
-        let _ = master.resize(PtySize {
-            rows,
-            cols,
-            pixel_width: 0,
-            pixel_height: 0,
-        });
+        if cols == 0 || rows == 0 {
+            return Err("Terminal dimensions must be positive".into());
+        }
+        session.set_consumer_size(owner, cols, rows)?;
     }
     Ok(())
 }
 
 #[tauri::command]
-pub async fn pty_close(pty_id: u64, manager: State<'_, PtyManager>) -> Result<(), String> {
-    let session = manager.sessions.lock().remove(&pty_id);
+pub async fn pty_close(
+    pty_id: u64,
+    webview: tauri::Webview,
+    manager: State<'_, PtyManager>,
+) -> Result<(), String> {
+    close_session(&manager, pty_id, webview.label()).await
+}
+
+pub(crate) async fn close_session(manager: &PtyManager, pty_id: u64, owner: &str) -> Result<(), String> {
+    let session = {
+        let mut sessions = manager.sessions.lock();
+        let Some(session) = sessions.get(&pty_id) else { return Ok(()); };
+        if !session.hub.has_owner(owner) { return Ok(()); }
+        session.detach_consumer(owner)?;
+        if !session.hub.is_orphaned() { return Ok(()); }
+        sessions.remove(&pty_id)
+    };
     tokio::task::spawn_blocking(move || {
         if let Some(session) = session {
             session.kill_tree();

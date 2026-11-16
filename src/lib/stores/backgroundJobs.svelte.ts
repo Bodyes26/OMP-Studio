@@ -10,7 +10,7 @@
  *   e sincronizza via eventi lo stato dei task per mostrare il placeholder.
  */
 
-import { invoke } from '@tauri-apps/api/core';
+import { invoke, listen } from '#lib/backend/ipc.ts';
 import { m } from '#lib/paraglide/messages.js';
 import { untrack } from 'svelte';
 import { settingsStore, type BackgroundJobId } from './settings.svelte';
@@ -1016,12 +1016,10 @@ export const backgroundJobs = {
 
 			let unlistenAutomations: (() => void) | null = null;
 			try {
-				void import('@tauri-apps/api/event').then(({ listen }) => {
-					void listen('automations://changed', () => {
-						void drain();
-					}).then((u) => {
-						unlistenAutomations = u;
-					});
+				void listen('automations://changed', () => {
+					void drain();
+				}).then((u) => {
+					unlistenAutomations = u;
 				});
 			} catch {
 				// non-tauri

@@ -6,6 +6,7 @@
 	import { installContextMenuHandling } from '#lib/contextMenu.svelte.ts';
 	import ContextMenu from '#lib/components/ContextMenu.svelte';
 	import { installStudioLogCapture } from '#lib/diagnostics/capture.svelte.ts';
+	import { linkStore } from '#lib/backend/link.svelte.ts';
 
 	let { children } = $props();
 
@@ -20,6 +21,7 @@
 	// dipendono attendono la stessa promessa memoizzata.
 	void settingsStore.init();
 	i18n.initialize();
+	void linkStore.initialize();
 
 	// La preferenza persistita governa Paraglide senza ricaricare la WebView:
 	// cambiare lingua non deve interrompere RPC, terminali o sessioni in corso.

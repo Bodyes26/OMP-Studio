@@ -5,7 +5,7 @@
 // Qui restano tre cose: correlare le risposte, non lasciare promise appese, e
 // consegnare i frame non-risposta a chi li riduce.
 
-import { Channel, invoke } from '@tauri-apps/api/core';
+import { Channel, invoke as backendInvoke, LOCAL_MACHINE, type MachineId, type BackendCommand, type InvokeArgs } from '#lib/backend/ipc.ts';
 import type {
 	AbortAndRestoreQueueResult,
 	AgentSessionEvent,
@@ -103,7 +103,15 @@ export class OmpRpcClient {
 	 * entrambi i loro eventi nello stesso riduttore.
 	 */
 	private openEpoch = 0;
+	private processEpoch = 0;
 	private seq = 0;
+	/**
+	 * Le risposte di omp arrivano a ogni finestra iscritta alla sessione, e una
+	 * finestra ricaricata riprende un processo che puo' ancora rispondere ai
+	 * comandi della finestra di prima: id solo numerici si scambierebbero le
+	 * risposte. Il prefisso casuale le tiene distinte.
+	 */
+	private readonly requestPrefix = `${crypto.randomUUID().slice(0, 8)}-`;
 	private readonly pending = new Map<string, Pending>();
 	private eventHandler: ((event: AgentSessionEvent) => void) | null = null;
 	private closed = false;
@@ -117,10 +125,17 @@ export class OmpRpcClient {
 	}
 	/** Generazione dell'apertura: ogni processo omp ne ha una sua, mai riusata. */
 	get epoch(): number {
-		return this.openEpoch;
+		return this.processEpoch;
 	}
 	get isOpen(): boolean {
 		return this.rpcId !== null && !this.closed;
+	}
+
+	readonly machine: MachineId;
+	constructor(machine: MachineId = LOCAL_MACHINE) { this.machine = machine; }
+
+	private invoke<T>(command: BackendCommand, args?: InvokeArgs): Promise<T> {
+		return backendInvoke<T>(command, args, { machine: this.machine });
 	}
 
 	onEvent(handler: (event: AgentSessionEvent) => void): () => void {
@@ -148,22 +163,7 @@ export class OmpRpcClient {
 			executionId?: string | null;
 		}
 	): Promise<number> {
-		const epoch = ++this.openEpoch;
-		const channel = new Channel<unknown>();
-		const tally = (this.tally = newTally());
-		channel.onmessage = (payload) => {
-			const index = tally.count++;
-			tally.lastAt = Date.now();
-			// Frame di un processo superato: la sessione ne sta aprendo un
-			// altro. Ridurli significherebbe insediarsi sul primo processo
-			// pronto invece che su quello richiesto, e con una sessione nuova
-			// e vuota il transcript ricostruito resta vuoto per sempre.
-			if (epoch !== this.openEpoch) return;
-			this.receive(payload, index);
-		};
-		this.rpcId = null;
-		this.closed = false;
-		const rpcId = await invoke<number>('rpc_open', {
+		return this.openChannel('rpc_open', {
 			cwd,
 			resume: resume ?? null,
 			laneId: opts?.laneId ?? null,
@@ -175,19 +175,8 @@ export class OmpRpcClient {
 			allowedRoots: opts?.allowedRoots ?? null,
 			maxCostUsd: opts?.maxCostUsd ?? null,
 			preventPayg: opts?.preventPayg ?? null,
-			executionId: opts?.executionId ?? null,
-			onEvent: channel
+			executionId: opts?.executionId ?? null
 		});
-		// Un processo che fallisce in avvio puo' emettere `studio_exit` prima
-		// che la Promise di `rpc_open` venga risolta. Non rianimare quell'id.
-		// Stesso trattamento per un'apertura superata: il processo e' nato ed
-		// e' vivo, e senza questa chiusura resterebbe a tenere la sessione.
-		if (this.closed || epoch !== this.openEpoch) {
-			void invoke('rpc_close', { rpcId }).catch(() => {});
-			return rpcId;
-		}
-		this.rpcId = rpcId;
-		return rpcId;
 	}
 
 	async openLab(opts: {
@@ -200,18 +189,7 @@ export class OmpRpcClient {
 		continueLast?: boolean;
 		model?: string | null;
 	}): Promise<number> {
-		const epoch = ++this.openEpoch;
-		const channel = new Channel<unknown>();
-		const tally = (this.tally = newTally());
-		channel.onmessage = (payload) => {
-			const index = tally.count++;
-			tally.lastAt = Date.now();
-			if (epoch !== this.openEpoch) return;
-			this.receive(payload, index);
-		};
-		this.rpcId = null;
-		this.closed = false;
-		const rpcId = await invoke<number>('rpc_open_lab', {
+		return this.openChannel('rpc_open_lab', {
 			workspacePath: opts.workspacePath,
 			projectPath: opts.projectPath ?? null,
 			prototypeId: opts.prototypeId,
@@ -219,14 +197,50 @@ export class OmpRpcClient {
 			laneId: opts.laneId ?? null,
 			resume: opts.resume ?? null,
 			continueLast: opts.continueLast ?? false,
-			model: opts.model ?? null,
-			onEvent: channel
+			model: opts.model ?? null
 		});
+	}
+
+	private async openChannel(command: 'rpc_open' | 'rpc_open_lab', args: Record<string, unknown>): Promise<number> {
+		const epoch = ++this.openEpoch;
+		this.processEpoch++;
+		const channel = new Channel<unknown>();
+		const tally = (this.tally = newTally());
+		// Una sessione ripresa dopo una ricarica della finestra rimanda il suo
+		// `ready` dentro `rpc_open`, prima che l'id arrivi qui: il riduttore
+		// partirebbe con l'insediamento su un client ancora senza id. I frame
+		// aspettano l'id, nell'ordine in cui sono arrivati.
+		let early: Array<{ payload: unknown; index: number }> | null = [];
+		channel.onmessage = (payload) => {
+			const index = tally.count++;
+			tally.lastAt = Date.now();
+			// Frame di un processo superato: la sessione ne sta aprendo un
+			// altro. Ridurli significherebbe insediarsi sul primo processo
+			// pronto invece che su quello richiesto, e con una sessione nuova
+			// e vuota il transcript ricostruito resta vuoto per sempre.
+			if (epoch !== this.openEpoch) return;
+			if (early) {
+				early.push({ payload, index });
+				return;
+			}
+			this.receive(payload, index);
+		};
+		this.rpcId = null;
+		this.closed = false;
+		const rpcId = await this.invoke<number>(command, { ...args, onEvent: channel });
+		// Un'apertura superata o chiusa nel frattempo: il processo e' nato ed
+		// e' vivo, e senza questa chiusura resterebbe a tenere la sessione.
 		if (this.closed || epoch !== this.openEpoch) {
-			void invoke('rpc_close', { rpcId }).catch(() => {});
+			early = null;
+			void this.invoke('rpc_close', { rpcId }).catch(() => {});
 			return rpcId;
 		}
 		this.rpcId = rpcId;
+		const buffered = early;
+		early = null;
+		// Puo' contenere `studio_exit` di un avvio fallito: `receive` chiude il
+		// client e il riduttore lo racconta.
+		for (const frame of buffered) this.receive(frame.payload, frame.index);
 		return rpcId;
 	}
 
@@ -237,7 +251,7 @@ export class OmpRpcClient {
 	 */
 	async setPrewalk(enabled: boolean, targets: { into?: string; from?: string } = {}): Promise<void> {
 		if (this.rpcId === null || this.closed) throw rpcError(msg.l10n_agent_rpc_session_not_open(), 'prewalk');
-		await invoke('rpc_set_prewalk', {
+		await this.invoke('rpc_set_prewalk', {
 			rpcId: this.rpcId,
 			enabled,
 			into: targets.into ?? null,
@@ -252,7 +266,7 @@ export class OmpRpcClient {
 	 */
 	async send<T = unknown>(command: RpcCommand): Promise<T> {
 		if (this.rpcId === null || this.closed) throw rpcError(msg.l10n_agent_rpc_session_not_open(), command.type);
-		const id = `s${++this.seq}`;
+		const id = `${this.requestPrefix}${++this.seq}`;
 		// `/compact <modo>` passa da `prompt` ma fa la stessa chiamata al modello di `compact`.
 		const slowPrompt = command.type === 'prompt' && /^\/compact(\s|$)/.test(command.message);
 		const timeoutMs =
@@ -285,7 +299,7 @@ export class OmpRpcClient {
 
 		this.pending.set(id, { id, command: command.type, resolve, reject, timer, sentAt });
 		try {
-			await invoke('rpc_send', { rpcId: this.rpcId, line: JSON.stringify({ id, ...command }) });
+			await this.invoke('rpc_send', { rpcId: this.rpcId, line: JSON.stringify({ id, ...command }) });
 		} catch (error) {
 			window.clearTimeout(timer);
 			this.pending.delete(id);
@@ -313,7 +327,15 @@ export class OmpRpcClient {
 	/** Risposta a una `extension_ui_request`: fuori dal canale delle risposte. */
 	async respondUi(response: ExtensionUiResponse): Promise<void> {
 		if (this.rpcId === null || this.closed) return;
-		await invoke('rpc_send', { rpcId: this.rpcId, line: JSON.stringify(response) });
+		try {
+			await this.invoke('rpc_send', { rpcId: this.rpcId, line: JSON.stringify(response) });
+		} catch (error) {
+			if (error && typeof error === 'object' && 'code' in error &&
+				(error.code === 'ui_already_answered' || error.code === 'ui_request_closed')) {
+				throw rpcError('message' in error ? String(error.message) : 'Already answered', 'extension_ui_response', error.code);
+			}
+			throw error;
+		}
 	}
 
 	/**
@@ -327,13 +349,13 @@ export class OmpRpcClient {
 		this.abortEpoch++;
 		this.abortPendingRequests(msg.l10n_agent_tool_interrupted_by_user());
 		const rpcId = this.rpcId;
-		const abortId = `s${++this.seq}`;
-		const abortBashId = `s${++this.seq}`;
+		const abortId = `${this.requestPrefix}${++this.seq}`;
+		const abortBashId = `${this.requestPrefix}${++this.seq}`;
 		try {
-			await invoke('rpc_abort', { rpcId }).catch(() =>
+			await this.invoke('rpc_abort', { rpcId }).catch(() =>
 				Promise.allSettled([
-					invoke('rpc_send', { rpcId, line: JSON.stringify({ id: abortId, type: 'abort' }) }),
-					invoke('rpc_send', { rpcId, line: JSON.stringify({ id: abortBashId, type: 'abort_bash' }) })
+					this.invoke('rpc_send', { rpcId, line: JSON.stringify({ id: abortId, type: 'abort' }) }),
+					this.invoke('rpc_send', { rpcId, line: JSON.stringify({ id: abortBashId, type: 'abort_bash' }) })
 				])
 			);
 		} catch (error) {
@@ -350,8 +372,8 @@ export class OmpRpcClient {
 		this.abortPendingRequests(msg.l10n_agent_tool_forced_stop());
 		const rpcId = this.rpcId;
 		try {
-			await invoke('rpc_force_kill', { rpcId }).catch(() =>
-				invoke('force_kill_session', { rpcId })
+			await this.invoke('rpc_force_kill', { rpcId }).catch(() =>
+				this.invoke('force_kill_session', { rpcId })
 			);
 		} catch (error) {
 			console.warn('Errore invocazione force kill su RPC:', error);
@@ -389,7 +411,7 @@ export class OmpRpcClient {
 		const rpcId = this.rpcId;
 		// `abort_and_restore_queue` fa l'abort del turno, `abort_bash` ferma il
 		// processo figlio in corso e sblocca i buffer di delta lato Rust.
-		void invoke('rpc_send', { rpcId, line: JSON.stringify({ id: `s${++this.seq}`, type: 'abort_bash' }) }).catch(
+		void this.invoke('rpc_send', { rpcId, line: JSON.stringify({ id: `${this.requestPrefix}${++this.seq}`, type: 'abort_bash' }) }).catch(
 			() => {}
 		);
 		try {
@@ -402,7 +424,7 @@ export class OmpRpcClient {
 		}
 	}
 
-	async close(): Promise<void> {
+	async close(replacing = false): Promise<void> {
 		const rpcId = this.rpcId;
 		this.closed = true;
 		this.rpcId = null;
@@ -411,7 +433,7 @@ export class OmpRpcClient {
 		this.openEpoch++;
 		this.failAllPending(msg.l10n_agent_rpc_closed());
 		if (rpcId === null) return;
-		await invoke('rpc_close', { rpcId });
+		await this.invoke('rpc_close', { rpcId, replacing });
 	}
 
 	/** Chiamata dal riduttore quando arriva `studio_exit`. */
@@ -451,7 +473,7 @@ export class OmpRpcClient {
 		let backend: BackendDiagnostics | null = null;
 		let backendError: string | null = null;
 		try {
-			backend = await withTimeout(invoke<BackendDiagnostics>('rpc_diagnostics', { rpcId }), HANG_REPORT_INVOKE_TIMEOUT_MS);
+			backend = await withTimeout(this.invoke<BackendDiagnostics>('rpc_diagnostics', { rpcId }), HANG_REPORT_INVOKE_TIMEOUT_MS);
 		} catch (error) {
 			backendError = error instanceof Error ? error.message : String(error);
 		}
@@ -470,7 +492,7 @@ export class OmpRpcClient {
 		console.error('[rpc-hang]', report.verdict.join(' | '));
 		try {
 			return await withTimeout(
-				invoke<string>('rpc_write_hang_report', { report: JSON.stringify(report, null, 2) }),
+				backendInvoke<string>('rpc_write_hang_report', { report: JSON.stringify(report, null, 2) }),
 				HANG_REPORT_INVOKE_TIMEOUT_MS
 			);
 		} catch (error) {
@@ -503,6 +525,16 @@ export class OmpRpcClient {
 		if (!frame || typeof frame !== 'object') return;
 		const event = frame as AgentSessionEvent;
 		noteReceived(this.tally, index, chars, frameLabel(event), Date.now());
+		if (event.type === 'studio_session_changed' &&
+			typeof event.requestId === 'string' && event.requestId.startsWith(this.requestPrefix)) return;
+
+		if (event.type === 'studio_rebind') {
+			if (typeof event.rpcId !== 'number' || !Number.isSafeInteger(event.rpcId) || event.rpcId < 1) return;
+			this.failAllPending(msg.l10n_agent_rpc_closed());
+			this.rpcId = event.rpcId;
+			this.processEpoch++;
+			this.abortEpoch++;
+		}
 
 		if (event.type === 'response') {
 			this.settle(frame as RpcResponse);

@@ -24,6 +24,7 @@
 	import DoctorSection from './DoctorSection.svelte';
 	import CommandsSection from './CommandsSection.svelte';
 	import RemoteSection from './RemoteSection.svelte';
+	import InstancesSection from './InstancesSection.svelte';
 	import BackgroundJobsSection from './BackgroundJobsSection.svelte';
 	import StatsSection from './StatsSection.svelte';
 	import { doctorStore } from '#lib/stores/doctor.svelte.ts';
@@ -46,7 +47,8 @@
 		{ id: 'models', label: m.settings_nav_models() },
 		{ id: 'github', label: 'GitHub' },
 		{ id: 'doctor', label: m.settings_nav_doctor() },
-		{ id: 'remote', label: m.settings_nav_remote() }
+		{ id: 'remote', label: m.settings_nav_remote() },
+		{ id: 'instances', label: m.instances_title() }
 	]);
 
 	const MODEL_TABS = $derived([
@@ -302,6 +304,8 @@
 						<DoctorSection />
 					{:else if settingsStore.section === 'remote'}
 						<RemoteSection />
+					{:else if settingsStore.section === 'instances'}
+						<InstancesSection />
 					{/if}
 				</div>
 			{/if}

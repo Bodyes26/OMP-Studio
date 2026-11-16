@@ -12,7 +12,7 @@
  * Il motivo è che il setup non è l'editor dei ruoli: chi ha già una
  * configurazione pensata non deve vedersela riscritta per un «Continua».
  */
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '#lib/backend/ipc.ts';
 import { m } from '#lib/paraglide/messages.js';
 import { modelSettingsStore } from '#lib/stores/modelSettings.svelte.ts';
 import { splitModelSelector } from '#lib/stores/modelSettingsHelpers.ts';

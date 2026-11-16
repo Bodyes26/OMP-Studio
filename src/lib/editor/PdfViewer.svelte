@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { invoke } from '@tauri-apps/api/core';
+	import { invoke } from '#lib/backend/ipc.ts';
 	import { m } from '#lib/paraglide/messages.js';
 	import type { PDFDocumentProxy, RenderTask } from 'pdfjs-dist';
 	import workerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';

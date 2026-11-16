@@ -8,7 +8,7 @@
 	 * di omp, che si apre dal pulsante in testata.
 	 */
 	import { untrack } from 'svelte';
-	import { invoke } from '@tauri-apps/api/core';
+	import { invoke } from '#lib/backend/ipc.ts';
 	import { m } from '#lib/paraglide/messages.js';
 	import { getLocale } from '#lib/paraglide/runtime.js';
 	import { IconExternalLink } from '#lib/icons.ts';

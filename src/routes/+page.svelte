@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
+	import ProjectScope from '#lib/backend/ProjectScope.svelte';
 	import { attachEditorContext } from '#lib/editor/editorContext.ts';
 	import { perfMark } from '#lib/perf.ts';
 	import { promptBus } from '#lib/agent/promptBus.ts';
@@ -148,8 +149,7 @@
 	import PreviewRenderHost from '#lib/prototype/PreviewRenderHost.svelte';
 	import { labApi } from '#lib/lab/api.ts';
 	import type { TerminalSessionInfo } from '#lib/terminal/terminal.ts';
-	import { invoke } from '@tauri-apps/api/core';
-	import { listen } from '@tauri-apps/api/event';
+	import { invoke, listen } from '#lib/backend/ipc.ts';
 	import { onMount, untrack } from 'svelte';
 	import { startFocusTracer } from '#lib/focusTracer.ts';
 	import { registerSnapshotProvider } from '#lib/diagnostics/studioLog.ts';
@@ -4364,6 +4364,8 @@
 					<SurfaceBoundary name="sidebar">
 					{#if projectStore.activeProject}
 						{@const proj = projectStore.activeProject}
+					{#key `${proj.id}:${proj.machineId ?? 'local'}`}
+					<ProjectScope machine={proj.machineId}>
 					{#if !proj.lane.workspacePath}
 						<div style="padding: var(--space-2); color: var(--ink-faint);">
 							{m.page_scratchpad_notice()}
@@ -4424,6 +4426,8 @@
 							isExternal={proj.external === true}
 						/>
 					{/if}
+					</ProjectScope>
+					{/key}
 				{/if}
 					</SurfaceBoundary>
 				</div>
@@ -4509,6 +4513,9 @@
 						</div>
 					</div>
 				{:else if projectStore.activeProject}
+					{@const active = projectStore.activeProject}
+					{#key `${active.id}:${active.machineId ?? 'local'}`}
+					<ProjectScope machine={active.machineId}>
 					{#if activeTaskEditor}
 						<TaskEditor
 							task={activeTaskEditor}
@@ -4558,11 +4565,14 @@
 							/>
 						</SurfaceBoundary>
 					{/if}
+					</ProjectScope>
+					{/key}
 				{/if}
 				</div>
 
 				<!-- Livelli anteprima Laboratorio per ogni corsia Lab montata (contratto §7 e §8) -->
 				{#each projectStore.projects as p (p.id)}
+					<ProjectScope machine={p.machineId}>
 					{@const mountedLanes = laneOrchestrator.getMountedLanes(p)}
 					{#each mountedLanes as lane (lane.laneId)}
 						{#if lane.kind === 'lab' && lane.workspacePath && lane.labPrototypeId}
@@ -4594,6 +4604,7 @@
 							</div>
 						{/if}
 					{/each}
+					</ProjectScope>
 				{/each}
 			</div>
 		</section>
@@ -4648,6 +4659,7 @@
 				aria-labelledby={projectStore.activeProject?.lane.kind !== 'lab' ? `surface-tab-${activeSurface}` : undefined}
 			>
 				{#each projectStore.projects as p (p.id)}
+					<ProjectScope machine={p.machineId}>
 					{@const mountedLanes = laneOrchestrator.getMountedLanes(p)}
 					{#each mountedLanes as lane (lane.laneId)}
 						{@const key = laneSessionKey(p.id, lane.laneId)}
@@ -4693,6 +4705,7 @@
 							<div class="terminal-placeholder" aria-busy="true"></div>
 						{/if}
 					{/each}
+					</ProjectScope>
 				{/each}
 			</div>
 		</section>

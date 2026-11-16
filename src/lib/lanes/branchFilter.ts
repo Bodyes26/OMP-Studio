@@ -4,7 +4,7 @@
 
 import type { AgentLane } from '#lib/types/lanes.ts';
 import type { LaneRecord } from '#lib/stores/lanePersistence.ts';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '#lib/backend/ipc.ts';
 
 export interface WorktreeBranchEntry {
 	name: string;

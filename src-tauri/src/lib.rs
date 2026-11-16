@@ -26,6 +26,7 @@ use external_open::{external_open_take, external_route, PendingOpens};
 mod file_watch;
 use file_watch::file_watch_set;
 mod fs_atomic;
+mod link;
 mod lanes_store;
 use lanes_store::{lanes_store_backup, lanes_store_read, lanes_store_write_atomic};
 pub mod lane_bridge;
@@ -217,11 +218,25 @@ pub fn run() {
     tauri::Builder::default()
         .manage(PtyManager::new())
         .manage(RpcManager::new())
+        .manage(link::LinkManager::default())
         .manage(StudioUpdaterState::new())
         .manage(diagrams::DiagramWatcherState::new())
         .manage(projects::ProjectTasksState::new())
         .manage(BrowserLiveManager::new())
         .manage(PendingOpens::default())
+        // Una WebView che si ricarica perde i suoi Channel: le sessioni agente
+        // restano vive e la finestra ricaricata le riprende (`rpc_open`, MI02).
+        .on_page_load(|webview, payload| {
+            if payload.event() == tauri::webview::PageLoadEvent::Started {
+                use tauri::Manager;
+                if let Some(manager) = webview.try_state::<RpcManager>() {
+                    manager.detach_window(webview.label());
+                }
+                if let Some(manager) = webview.try_state::<PtyManager>() {
+                    manager.detach_window(webview.label());
+                }
+            }
+        })
         .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
             // "Apri con… Studio" con Studio gia' aperto: il file arriva qui come
             // argomento della seconda istanza (EXT-002).
@@ -265,6 +280,20 @@ pub fn run() {
         ))
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
+            link::link_status,
+            link::link_configure,
+            link::link_pairing_code,
+            link::link_pair,
+            link::link_permissions,
+            link::link_revoke,
+            link::link_invoke,
+            link::streams::link_open_rpc,
+            link::streams::link_open_pty,
+            link::host::link_host_action,
+            link::host::link_host_snapshot,
+            link::host::link_command_result,
+            link::host::link_publish_state,
+            link::host::link_host_states,
             lane_bridge_respond,
             focus_trace_append,
             focus_trace_path,
@@ -603,6 +632,7 @@ pub fn run() {
                 lab::paths::init(dir);
             }
             remote::init(app.handle().clone());
+            link::initialize(app.handle());
             if let Ok(cwd) = std::env::current_dir() {
                 external_open::push(
                     app.handle(),

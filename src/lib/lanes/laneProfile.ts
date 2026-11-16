@@ -10,7 +10,7 @@
 // 3. Un candidato gia' mostrato non viene piu' riproposto, accettato o no:
 //    le corsie successive riusano la decisione registrata.
 
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '#lib/backend/ipc.ts';
 import { laneStore } from '#lib/stores/lanes.svelte.ts';
 import type { LaneRecord } from '#lib/stores/lanePersistence.ts';
 import type { Project } from '#lib/stores/projects.svelte.ts';

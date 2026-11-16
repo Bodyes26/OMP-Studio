@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '#lib/backend/ipc.ts';
 import { load, type Store } from '@tauri-apps/plugin-store';
 import { broadcastToWindows, listenFromWindows } from './windowBridge';
 import { DEFAULT_THEME, THEMES, THEME_NAMES, anchorsFor, applyAnchors, type ThemeMode } from '#lib/theme.ts';

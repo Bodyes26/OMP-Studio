@@ -10,7 +10,7 @@
 // 4. Eliminazione prototipo (deleteLabPrototype): chiude la corsia o la tessera bozza,
 //    poi cancella workspace e voce d'indice; se il workspace resta bloccato la voce resta.
 
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '#lib/backend/ipc.ts';
 import {
 	MAIN_LANE_ID,
 	createMainLane,

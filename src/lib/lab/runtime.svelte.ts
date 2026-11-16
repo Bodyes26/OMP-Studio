@@ -7,7 +7,7 @@
 //  - Chiusura revisione git (commit automatico) a fine turno agente e sync titolo/indice;
 //  - Consultazione storica e ripristino di revisioni precedenti.
 
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { listen, type UnlistenFn } from '#lib/backend/ipc.ts';
 import type { AgentSession } from '#lib/agent/session.svelte.ts';
 import { labApi } from './api';
 import { compileLabPrototypeInWorker } from './compiler';

@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '#lib/backend/ipc.ts';
 import {
 	MAIN_LANE_ID,
 	type AgentSurface,
@@ -161,7 +161,7 @@ class LaneStore {
 		// I progetti non attivi vengono riconciliati in differita a fine avvio
 		// o non appena l'utente passa a quel progetto.
 		const activeProject = projectStore.activeProject;
-		if (activeProject?.canonicalProjectPath) {
+		if (activeProject?.canonicalProjectPath && !projectStore.isRemote(activeProject)) {
 			try {
 				const worktrees = await invoke<WorktreeInfo[]>('worktree_list', {
 					args: { projectPath: activeProject.canonicalProjectPath }
@@ -266,7 +266,7 @@ class LaneStore {
 	async reconcileProject(projectId: ProjectId, projectPath: CanonicalProjectPath, force = false): Promise<boolean> {
 		if (!this.isTauri || !projectPath) return false;
 		const proj = projectStore.projects.find((p) => p.id === projectId);
-		if (proj?.external) return false;
+		if (proj?.external || (proj && projectStore.isRemote(proj))) return false;
 		if (!force && this.reconciledProjects.has(projectId)) return false;
 
 		try {
@@ -295,7 +295,7 @@ class LaneStore {
 	 */
 	async reconcileRemainingProjects(): Promise<void> {
 		if (!this.isTauri) return;
-		const remaining = projectStore.projects.filter(
+		const remaining = projectStore.localProjects.filter(
 			(project) => !project.external && project.canonicalProjectPath && !this.reconciledProjects.has(project.id)
 		);
 		if (remaining.length === 0) return;
@@ -355,7 +355,7 @@ class LaneStore {
 
 	private ensureMainLanes(): boolean {
 		let changed = false;
-		for (const project of projectStore.projects) {
+		for (const project of projectStore.localProjects) {
 			if (!project.canonicalProjectPath && !project.labDraft) continue;
 			const exists = this.lanes.some(
 				(lane) => lane.projectId === project.id && lane.laneId === MAIN_LANE_ID

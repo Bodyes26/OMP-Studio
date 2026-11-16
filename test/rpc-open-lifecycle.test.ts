@@ -222,4 +222,108 @@ describe('Canale RPC: aperture concorrenti e processi orfani', () => {
 			});
 		}
 	}
+
+	it('una sessione ripresa dopo la ricarica si insedia anche se il ready precede l id', async () => {
+		const client = new OmpRpcClient();
+		const events: string[] = [];
+		const firstCommands: Promise<unknown>[] = [];
+		client.onEvent((event) => {
+			events.push(String(event.type));
+			// Come il riduttore: al `ready` parte l'insediamento con `get_state`.
+			if (event.type === 'ready') firstCommands.push(client.send({ type: 'get_state' }));
+		});
+
+		const opening = client.open('C:/proj', 'sessione-A');
+		// Rust riprende la sessione orfana e rimanda subito il suo handshake.
+		emit(0, JSON.stringify({ type: 'ready' }), 0);
+		assert.deepEqual(events, [], 'il ready aspetta l id della sessione');
+		opens[0].resolve(7);
+		await opening;
+
+		assert.deepEqual(events, ['ready']);
+		const sent = calls.filter((c) => c.cmd === 'rpc_send');
+		assert.equal(sent.length, 1);
+		assert.equal(sent[0].args.rpcId, 7, 'l insediamento parla con la sessione ripresa');
+		const command = JSON.parse(String(sent[0].args.line));
+		emit(0, JSON.stringify({ type: 'response', id: command.id, command: 'get_state', success: true, data: { isStreaming: true } }), 1);
+		assert.deepEqual(await firstCommands[0], { isStreaming: true });
+		await client.close();
+	});
+
+	it('la risposta a un comando di un altra finestra non chiude quello di questa', async () => {
+		const here = new OmpRpcClient();
+		const elsewhere = new OmpRpcClient();
+		const openingHere = here.open('C:/proj', 'sessione-A');
+		const openingElsewhere = elsewhere.open('C:/proj', 'sessione-A');
+		opens[0].resolve(7);
+		opens[1].resolve(7);
+		await Promise.all([openingHere, openingElsewhere]);
+
+		const mine = here.send<{ who: string }>({ type: 'get_state' });
+		const theirs = elsewhere.send<{ who: string }>({ type: 'get_state' });
+		const [mineLine, theirsLine] = calls.filter((c) => c.cmd === 'rpc_send').map((c) => JSON.parse(String(c.args.line)));
+		assert.notEqual(mineLine.id, theirsLine.id);
+
+		// omp risponde sulla stessa sessione: ogni finestra riceve entrambe le risposte.
+		for (const index of [0, 1]) {
+			emit(index, JSON.stringify({ type: 'response', id: theirsLine.id, command: 'get_state', success: true, data: { who: 'elsewhere' } }), 0);
+		}
+		for (const index of [0, 1]) {
+			emit(index, JSON.stringify({ type: 'response', id: mineLine.id, command: 'get_state', success: true, data: { who: 'here' } }), 1);
+		}
+		assert.deepEqual(await mine, { who: 'here' });
+		assert.deepEqual(await theirs, { who: 'elsewhere' });
+		await Promise.all([here.close(), elsewhere.close()]);
+	});
+	it('segue la chat scelta altrove e invia i comandi al nuovo processo sullo stesso canale', async () => {
+		const client = new OmpRpcClient();
+		const opening = client.open('C:/proj', 'sessione-A');
+		opens[0].resolve(7);
+		await opening;
+		const oldEpoch = client.epoch;
+		const stale = client.send({ type: 'get_state' });
+		const rejected = assert.rejects(stale, (error: unknown) =>
+			error instanceof Error && 'code' in error && error.code === 'closed');
+		emit(0, JSON.stringify({ type: 'studio_rebind', rpcId: 8 }), 0);
+		await rejected;
+		assert.equal(client.id, 8);
+		assert.ok(client.epoch > oldEpoch);
+		const events: string[] = [];
+		client.onEvent((event) => { events.push(event.type); });
+		emit(0, JSON.stringify({ type: 'ready' }), 1);
+		emit(0, JSON.stringify({ type: 'agent_start' }), 2);
+		assert.deepEqual(events, ['ready', 'agent_start']);
+		const pending = client.send({ type: 'get_state' });
+		const sent = calls.findLast((call) => call.cmd === 'rpc_send')!;
+		assert.equal(sent.args.rpcId, 8);
+		const command = JSON.parse(String(sent.args.line));
+		emit(0, JSON.stringify({ type: 'response', id: command.id, command: 'get_state',
+			success: true, data: { sessionId: 'sessione-B' } }), 3);
+		assert.deepEqual(await pending, { sessionId: 'sessione-B' });
+		await client.close();
+	});
+	it('la nuova chat aggiorna le altre finestre senza ripetere la transizione in quella che l ha chiesta', async () => {
+		const first = new OmpRpcClient();
+		const second = new OmpRpcClient();
+		const firstOpen = first.open('C:/proj');
+		const secondOpen = second.open('C:/proj');
+		opens[0].resolve(7);
+		opens[1].resolve(7);
+		await Promise.all([firstOpen, secondOpen]);
+		const firstEvents: string[] = [];
+		const secondEvents: string[] = [];
+		first.onEvent((event) => { firstEvents.push(event.type); });
+		second.onEvent((event) => { secondEvents.push(event.type); });
+		const transition = first.send({ type: 'new_session' });
+		const sent = calls.findLast((call) => call.cmd === 'rpc_send')!;
+		const command = JSON.parse(String(sent.args.line));
+		for (const index of [0, 1]) {
+			emit(index, JSON.stringify({ type: 'response', id: command.id, command: 'new_session', success: true }), 0);
+			emit(index, JSON.stringify({ type: 'studio_session_changed', requestId: command.id }), 1);
+		}
+		await transition;
+		assert.deepEqual(firstEvents, []);
+		assert.deepEqual(secondEvents, ['studio_session_changed']);
+		await Promise.all([first.close(), second.close()]);
+	});
 });

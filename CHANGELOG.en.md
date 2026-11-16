@@ -12,6 +12,8 @@ released: items are closed into a version via `npm run release -- <version>`.
 ## [Unreleased]
 
 ### Added
+- Studio-to-Studio control: in "Settings → Other instances" you turn on the link with your own relay, generate a pairing code and pair two computers; the device list shows which are online and with which permissions (Read always, Agents, Files and Git, Terminal), revocable per machine. Off by default, no account and no mandatory third-party service. (R-MI-16, R-MI-17, R-MI-09)
+- Projects open on the other instance appear in the project bar with a badge naming the machine they run on, dashed when that computer is not responding: chat, file tree, editor, Git, terminal and lanes work just like local projects. The project picker has one section per machine with the folders it knows, even those not open in the bar, and opening one opens it on the other machine. (R-MI-03, R-MI-04, R-MI-06, R-MI-07)
 - Studio recognizes omp 18.20.2's `antigravity-cli` provider (Google Antigravity over ACP): the setup's Google Antigravity tile connects this provider instead of `google-antigravity`, which omp has paused; its models show the Antigravity logo, are included in role proposals, and automations treat them as a subscription rather than pay-as-you-go.
 - The command catalog includes omp 18.20.1's `/commit`, which commits only the changes made by the agent and its subagents; it can be pinned as a chip or icon in the status line.
 - Studio Remote: the PWA can be reloaded without closing and reopening it, by pulling down (installed app) or with the "Refresh" button in Settings.
@@ -26,6 +28,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - When the `omp` installation is broken (for example a link pointing to a deleted folder), Studio says so and offers "Repair" instead of starting over as on a new computer. When an essential piece is missing, the setup reopens directly on that step, without the animated intro. (SET-010, SET-020)
 
 ### Changed
+- Preparation for cross-instance control: internal calls distinguish their target machine and reject unavailable remote calls rather than execute them locally. Full control of another instance is not available yet. (R-MI-06, MI01)
 - Project tabs show a read-only preview on hover; commands open from the three dots or a right click in one stable card, with internal views, an always-visible close button, editable name and code, theme-derived colors and a path relative to the projects root. After reordering, the card stays still while the pointer is inside. (TPR-001…011, TPR-031…032, TPR-037…038)
 - Project tabs in the top bar slide to their new place when moved with the project menu arrows or dragged, instead of jumping; with reduced motion the move stays instant. (TPR-039)
 - The project queue shows the title, model with its provider logo and four compact actions: run, new worktree, edit and schedule. Runs stay in the background, with Ctrl/Cmd to follow; switch labels are clickable and child menus do not close the card. (TPR-012…017)
@@ -43,6 +46,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Clarification on the Browser Studio announced in 1.5.0: with the public `omp`, the live page, takeover and private mode are not available, because the runtime part they relied on was never published. Studio keeps showing the summary and screenshots of the `browser` tool's actions; the live version is being redesigned.
 
 ### Fixed
+- When the Studio window reloads, running GUI chats are resumed: the conversation is rebuilt and the agent carries on, instead of starting a second `omp` on the same project while the first kept working out of sight. A chat left without a window and never resumed closes after ten minutes. (R-MI-07, R-MI-11, MI02)
 - Project bar: the open project's tab has its border back around the name and the "⋯" menu, and the menu button only shows on that tab. Going from the hover preview to the project panel is animated: the card resizes and the content cross-fades.
 - Picking a custom task time keeps the schedule menu open and moves focus to the time field instead of closing it while its menu item is replaced. (TPR-016)
 - In the quota popover, Refresh reloads usage and leaves the panel open.

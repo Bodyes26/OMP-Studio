@@ -1,6 +1,6 @@
 import { remoteBridge, type RemoteStatus } from '#lib/remote/bridge.ts';
 import { normalizePairingCode } from '$remote-protocol';
-import type { UnlistenFn } from '@tauri-apps/api/event';
+import type { UnlistenFn } from '#lib/backend/ipc.ts';
 import { m } from '#lib/paraglide/messages.js';
 
 const DEFAULT_REMOTE_STATUS: RemoteStatus = {

@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke, LOCAL_MACHINE, type MachineId } from '#lib/backend/ipc.ts';
 import { perfSpan } from '#lib/perf.ts';
 
 export interface SessionEntry {
@@ -22,14 +22,15 @@ export interface SessionEntry {
  */
 const inFlight = new Map<string, Promise<SessionEntry[]>>();
 
-export function fetchSessionsList(projectPath: string): Promise<SessionEntry[]> {
-	const existing = inFlight.get(projectPath);
+export function fetchSessionsList(projectPath: string, machine: MachineId = LOCAL_MACHINE): Promise<SessionEntry[]> {
+	const key = JSON.stringify([machine, projectPath]);
+	const existing = inFlight.get(key);
 	if (existing) {
 		return existing;
 	}
 
 	const endSpan = perfSpan('sessions', `load ${projectPath}`);
-	const promise = invoke<SessionEntry[]>('sessions_list', { projectPath })
+	const promise = invoke<SessionEntry[]>('sessions_list', { projectPath }, { machine })
 		.then((res) => {
 			endSpan('ok');
 			return res;
@@ -39,9 +40,9 @@ export function fetchSessionsList(projectPath: string): Promise<SessionEntry[]> 
 			throw err;
 		})
 		.finally(() => {
-			inFlight.delete(projectPath);
+			inFlight.delete(key);
 		});
 
-	inFlight.set(projectPath, promise);
+	inFlight.set(key, promise);
 	return promise;
 }

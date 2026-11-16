@@ -1,5 +1,5 @@
 import { load, type Store } from '@tauri-apps/plugin-store';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '#lib/backend/ipc.ts';
 import { debounce } from 'lodash-es';
 import {
 	type TaskDirective,
@@ -77,7 +77,7 @@ export type ChatReveal = 'blur' | 'stream' | 'final';
 export type { StreamingBehavior, QueueMode, InterruptMode, CacheWarmingMode };
 
 
-export type SettingsSection = 'general' | 'appearance' | 'accessibility' | 'notifications' | 'projectBar' | 'workspace' | 'tasks' | 'models' | 'suggestions' | 'companion' | 'github' | 'doctor' | 'commands' | 'remote' | 'backgroundJobs' | 'stats';
+export type SettingsSection = 'general' | 'appearance' | 'accessibility' | 'notifications' | 'projectBar' | 'workspace' | 'tasks' | 'models' | 'suggestions' | 'companion' | 'github' | 'doctor' | 'commands' | 'remote' | 'instances' | 'backgroundJobs' | 'stats';
 /** Stile del messaggio della notifica di sistema. */
 export type NotificationStyle = 'brief' | 'detailed';
 
@@ -969,7 +969,7 @@ class SettingsStore {
 	}
 
 	/** Riporta ai default una sezione, o tutto se non se ne indica una. */
-	reset(section?: Exclude<SettingsSection, 'models' | 'doctor' | 'remote' | 'stats'>) {
+	reset(section?: Exclude<SettingsSection, 'models' | 'doctor' | 'remote' | 'instances' | 'stats'>) {
 		if (!section || section === 'projectBar') this.projectBar = { ...DEFAULT_SETTINGS.projectBar };
 		if (!section || section === 'workspace') {
 			this.editor = { ...DEFAULT_SETTINGS.editor };
@@ -1016,7 +1016,7 @@ class SettingsStore {
 		if (!section || section === 'commands') this.composerLayout = null;
 		this.save();
 	}
-	resetToDefaults(section?: Exclude<SettingsSection, 'models' | 'doctor' | 'remote' | 'stats'>) {
+	resetToDefaults(section?: Exclude<SettingsSection, 'models' | 'doctor' | 'remote' | 'instances' | 'stats'>) {
 		this.reset(section);
 	}
 }

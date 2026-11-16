@@ -7,7 +7,7 @@
  *   al progetto prima della lettura, senza aprire ne' alterare l'AgentSession attiva.
  */
 
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '#lib/backend/ipc.ts';
 import { m } from '#lib/paraglide/messages.js';
 import type {
 	RemoteChatMessage,

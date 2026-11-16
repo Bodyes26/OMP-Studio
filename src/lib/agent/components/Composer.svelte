@@ -45,7 +45,7 @@
 	import { isTypingSurface } from '#lib/agent/askFocus.ts';
 	import { resolveContextWindow } from '#lib/agent/contextReport.ts';
 	import { formatTokens } from '#lib/utils/format.ts';
-	import { invoke } from '@tauri-apps/api/core';
+	import { invoke } from '#lib/backend/ipc.ts';
 	import { open as openDialog } from '@tauri-apps/plugin-dialog';
 	import {
 		MAX_STAGED_ATTACHMENT_BYTES,

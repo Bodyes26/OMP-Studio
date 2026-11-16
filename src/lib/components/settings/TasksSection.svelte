@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { tick } from 'svelte';
 	import { m } from '#lib/paraglide/messages.js';
-	import { invoke } from '@tauri-apps/api/core';
+	import { invoke } from '#lib/backend/ipc.ts';
 	import { settingsStore } from '#lib/stores/settings.svelte.ts';
 	import { projectStore } from '#lib/stores/projects.svelte.ts';
 	import { STANDARD_ROLES } from '#lib/stores/modelSettings.svelte.ts';

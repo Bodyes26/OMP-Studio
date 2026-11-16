@@ -32,7 +32,8 @@ import { taskStore } from '#lib/stores/tasks.svelte.ts';
 import { promptBus } from '#lib/agent/promptBus.ts';
 import type { PromptAnswer } from '#lib/agent/askAnswers.ts';
 import { sessionRegistry } from '#lib/agent/sessionRegistry.ts';
-import type { UnlistenFn } from '@tauri-apps/api/event';
+import { invoke, listen, type UnlistenFn } from '#lib/backend/ipc.ts';
+import { linkStore } from '#lib/backend/link.svelte.ts';
 import { m } from '#lib/paraglide/messages.js';
 import { isAskFormSubmission } from '#lib/agent/askForm.ts';
 /** Esito strutturato dell'avvio di un task condiviso tra GUI, Companion e Controllo Remoto. */
@@ -658,7 +659,7 @@ export async function setupRemoteCommands(
 ): Promise<UnlistenFn> {
 	const prodContext: CommandContext = {
 		isEnabled: () => remoteStore.status.enabled,
-		findProject: (id) => projectStore.projects.find((p) => p.id === id),
+		findProject: (id) => projectStore.projects.find((p) => p.id === id && (!p.machineId || p.machineId === 'local')),
 		findTask: (id) => taskStore.taskById(id),
 		executor,
 		resolvePrompt: createRemotePromptResolver(options),
@@ -668,7 +669,25 @@ export async function setupRemoteCommands(
 		notify: notifyRemoteCommandExecuted
 	};
 
-	return remoteBridge.onCommand((event) => {
-		void handleRemoteCommand(event, prodContext);
-	});
+	const desktopContext: CommandContext = {
+		...prodContext,
+		isEnabled: () => linkStore.status.enabled,
+		reportResult: (commandId, ok, error, data) => invoke('link_command_result', {
+			commandId, ok, error: error ?? null, data: data ?? null
+		})
+	};
+	const subscriptions = await Promise.allSettled([
+		remoteBridge.onCommand((event) => { void handleRemoteCommand(event, prodContext); }),
+		listen<RemoteCommandEvent>('link:command', (event) => {
+			void handleRemoteCommand(event.payload, desktopContext).catch((error) => console.error('[link] Host action failed:', error));
+		})
+	]);
+	const failed = subscriptions.find((subscription) => subscription.status === 'rejected');
+	if (failed) {
+		for (const subscription of subscriptions) if (subscription.status === 'fulfilled') subscription.value();
+		throw failed.reason;
+	}
+	return () => {
+		for (const subscription of subscriptions) if (subscription.status === 'fulfilled') subscription.value();
+	};
 }

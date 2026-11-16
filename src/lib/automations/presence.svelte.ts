@@ -9,8 +9,7 @@
 // - AUT-058 / AUT-084: Fallback sicuro, gestione macOS Dock (Accessory quando nascosto, Regular al ripristino).
 // - Intercettazione di chiusura ed uscita; annullamento uscita non uccide alcun processo.
 
-import { invoke } from '@tauri-apps/api/core';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { invoke, listen, type UnlistenFn } from '#lib/backend/ipc.ts';
 import { automationsStore } from './store.svelte.ts';
 import { getLocale, t } from '#lib/automations/i18n.ts';
 

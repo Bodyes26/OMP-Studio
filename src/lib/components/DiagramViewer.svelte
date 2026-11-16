@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
 	import { onMount } from 'svelte';
-	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+	import type { UnlistenFn } from '#lib/backend/ipc.ts';
+	import { useProjectBackend } from '#lib/backend/projectScope.ts';
+	const { listen } = useProjectBackend();
 	import { renderMermaidSvg } from '#lib/mermaidSvg.ts';
 	import { normalizeRoutingPath } from '#lib/agent/laneRouting.ts';
 	import { IconClose, IconZoomIn, IconZoomOut, IconDownload, IconFileImage, IconCheck } from '#lib/icons.ts';

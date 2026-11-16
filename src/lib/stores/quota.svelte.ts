@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '#lib/backend/ipc.ts';
 import { accountPinHash, shortestWindowLimit, remainingFractionOf } from '../quota/resolve';
 import { providersMatch } from '../quota/providers';
 import { m as msg } from '#lib/paraglide/messages.js';

@@ -1,13 +1,15 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import { m } from '#lib/paraglide/messages.js';
-	import { invoke } from '@tauri-apps/api/core';
+	import { invoke } from '#lib/backend/ipc.ts';
 	import { open as openDialog } from '@tauri-apps/plugin-dialog';
 	import { projectStore, joinProjectPath, type ProjectColorMode } from '#lib/stores/projects.svelte.ts';
 	import { githubStore, type GithubRemoteRepo, type DetectedGithubRemote } from '#lib/stores/github.svelte.ts';
 	import { settingsStore } from '#lib/stores/settings.svelte.ts';
 	import { trapFocus } from '#lib/focusTrap.ts';
-	import { IconGithub, IconFolderOpen, IconPlus, IconGlobe, IconLock, IconArrowLeft } from '#lib/icons.ts';
+	import { IconGithub, IconFolderOpen, IconPlus, IconGlobe, IconLock, IconArrowLeft, IconMonitor } from '#lib/icons.ts';
+	import { linkStore } from '#lib/backend/link.svelte.ts';
+	import type { RemoteFolderList } from '$remote-protocol';
 
 	let { open = false, onClose } = $props<{ open?: boolean; onClose?: () => void }>();
 
@@ -22,6 +24,12 @@
 	}
 
 	let candidates = $state<Candidate[]>([]);
+	/**
+	 * Cartelle delle altre istanze collegate, una voce per macchina. Arrivano
+	 * dalla stessa azione che usa Studio Remote (`list_project_folders`), quindi
+	 * comprendono i progetti noti all'altra macchina ma non aperti in barra.
+	 */
+	let machineFolders = $state<{ id: string; name: string; folders: RemoteFolderList['folders'] }[]>([]);
 	let error = $state<string | null>(null);
 	let query = $state('');
 	let index = $state(0);
@@ -94,10 +102,35 @@
 			: notLocal;
 	});
 
+	// Cartelle delle altre macchine gia' aperte in barra: non si ripropongono.
+	const openRemoteKeys = $derived(new Set(
+		projectStore.projects
+			.filter((p) => p.machineId && p.machineId !== 'local' && p.canonicalProjectPath)
+			.map((p) => `${p.machineId}:${p.canonicalProjectPath!.toLowerCase()}`)
+	));
+
+	const filteredMachineFolders = $derived.by(() => {
+		const q = query.trim().toLowerCase();
+		return machineFolders
+			.map((machine) => ({
+				...machine,
+				folders: machine.folders.filter((folder) =>
+					!openRemoteKeys.has(`${machine.id}:${folder.path.toLowerCase()}`) &&
+					(!q || folder.name.toLowerCase().includes(q) || folder.path.toLowerCase().includes(q))
+				)
+			}))
+			.filter((machine) => machine.folders.length > 0);
+	});
+
+	const machineFolderCount = $derived(
+		filteredMachineFolders.reduce((total, machine) => total + machine.folders.length, 0)
+	);
+
 	// Lista unificata di tutti gli elementi selezionabili con tastiera
 	type SelectableItem =
 		| { type: 'new' }
 		| { type: 'local'; candidate: Candidate; localIndex: number }
+		| { type: 'machine'; machineId: string; path: string }
 		| { type: 'remote'; repo: GithubRemoteRepo; remoteIndex: number }
 		| { type: 'browse' };
 
@@ -106,6 +139,11 @@
 		filteredLocal.forEach((candidate, localIndex) => {
 			items.push({ type: 'local', candidate, localIndex });
 		});
+		for (const machine of filteredMachineFolders) {
+			for (const folder of machine.folders) {
+				items.push({ type: 'machine', machineId: machine.id, path: folder.path });
+			}
+		}
 		availableRemoteRepos.forEach((repo, remoteIndex) => {
 			items.push({ type: 'remote', repo, remoteIndex });
 		});
@@ -113,10 +151,37 @@
 		return items;
 	});
 
-	const browseItemIndex = $derived(1 + filteredLocal.length + availableRemoteRepos.length);
+	const browseItemIndex = $derived(1 + filteredLocal.length + machineFolderCount + availableRemoteRepos.length);
 
 	const selectedIndex = $derived(Math.max(0, Math.min(index, allItems.length - 1)));
 
+
+	/**
+	 * Una macchina irraggiungibile o con troppa latenza non blocca l'elenco
+	 * locale: sparisce solo la sua sezione, con il resto della palette pronto.
+	 */
+	async function loadMachineFolders() {
+		machineFolders = [];
+		const peers = linkStore.status.peers.filter((peer) => peer.online && peer.compatible);
+		if (peers.length === 0) return;
+		const results = await Promise.allSettled(peers.map(async (peer) => {
+			const list = await linkStore.command<RemoteFolderList>(peer.id, { kind: 'list_project_folders' });
+			return { id: peer.id, name: peer.name, folders: list.folders };
+		}));
+		machineFolders = results
+			.filter((result): result is PromiseFulfilledResult<{ id: string; name: string; folders: RemoteFolderList['folders'] }> => result.status === 'fulfilled')
+			.map((result) => result.value);
+	}
+
+	/** Apre la cartella sull'altra macchina: la targhetta arriva al prossimo stato. */
+	async function openRemoteFolder(machineId: string, path: string) {
+		try {
+			await linkStore.command(machineId, { kind: 'open_project', path });
+			onClose?.();
+		} catch (e) {
+			error = String(e);
+		}
+	}
 
 	async function loadCandidates() {
 		error = null;
@@ -168,6 +233,7 @@
 			index = 0;
 			cloneError = null;
 			void loadCandidates();
+			void loadMachineFolders();
 			if (githubStore.status.authenticated) {
 				void githubStore.loadRemoteRepos();
 			}
@@ -226,6 +292,8 @@
 		} else if (item.type === 'local') {
 			projectStore.openProject(item.candidate.path);
 			onClose?.();
+		} else if (item.type === 'machine') {
+			await openRemoteFolder(item.machineId, item.path);
 		} else if (item.type === 'remote') {
 			await handleCloneAndOpen(item.repo);
 		} else if (item.type === 'browse') {
@@ -495,7 +563,36 @@
 				{/each}
 			{/if}
 
-			<!-- SEZIONE 2: REPOSITORY GITHUB -->
+			<!-- SEZIONE 2: CARTELLE DELLE ALTRE ISTANZE -->
+			{#if machineFolders.length > 0}
+				<div class="section-divider"></div>
+				{#each filteredMachineFolders as machine (machine.id)}
+					{@const machineOffset = allItems.findIndex((item) => item.type === 'machine' && item.machineId === machine.id)}
+					<div class="section-label">
+						<span class="with-icon"><IconMonitor /> {machine.name}</span>
+					</div>
+					{#each machine.folders as folder, folderIndex (folder.path)}
+						{@const itemIndex = machineOffset + folderIndex}
+						{@const isSelected = selectedIndex === itemIndex}
+						<button
+							type="button"
+							class="row"
+							class:sel={isSelected}
+							role="option"
+							aria-selected={isSelected}
+							aria-label={`${folder.name} - ${folder.path}`}
+							onmouseenter={() => (index = itemIndex)}
+							onclick={() => void openRemoteFolder(machine.id, folder.path)}
+							disabled={isCloning}
+						>
+							<span class="row-icon"><IconMonitor /></span>
+							<span class="name">{@render highlight(folder.name, query)}</span>
+							<span class="path">{folder.path}</span>
+						</button>
+					{/each}
+				{/each}
+			{/if}
+
 			<div class="section-divider"></div>
 			<div class="section-label">
 				<span class="with-icon"><IconGithub /> {m.project_picker_github_section()}</span>
@@ -524,7 +621,7 @@
 				</div>
 			{:else}
 				{#each availableRemoteRepos as r, j (r.fullName)}
-					{@const itemIndex = 1 + filteredLocal.length + j}
+					{@const itemIndex = 1 + filteredLocal.length + machineFolderCount + j}
 					{@const isSelected = selectedIndex === itemIndex}
 					<button
 						type="button"

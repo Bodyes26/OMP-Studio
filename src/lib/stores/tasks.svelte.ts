@@ -1,5 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
-import { emit, listen } from '@tauri-apps/api/event';
+import { emit, invoke, listen } from '#lib/backend/ipc.ts';
 import { load, type Store } from '@tauri-apps/plugin-store';
 import { debounce } from 'lodash-es';
 import { normalizeProjectPath, projectStore } from './projects.svelte';

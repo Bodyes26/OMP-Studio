@@ -19,7 +19,10 @@
 	} from './monaco';
 	import { decideFileReload } from './fileReloadDecision';
 	import { languageForFile } from './languages';
-	import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+	import { LOCAL_MACHINE, type UnlistenFn } from '#lib/backend/ipc.ts';
+	import { useProjectBackend } from '#lib/backend/projectScope.ts';
+	const backend = useProjectBackend();
+	const { invoke, listen } = backend;
 	import { registerSnapshot, pendingSwitch, switchSnapshot, dissolve } from '#lib/switchDissolve.ts';
 	import { perfSpan } from '#lib/perf.ts';
 	import { settingsStore } from '#lib/stores/settings.svelte.ts';
@@ -35,7 +38,6 @@
 	import { onThemeChange } from '#lib/theme.ts';
 	import { projectStore, joinProjectPath, isWindows, pathKey, normalizeProjectPath } from '#lib/stores/projects.svelte.ts';
 	import { IS_MAC, REVEAL_LABEL } from '#lib/utils/platform.ts';
-	import { invoke } from '@tauri-apps/api/core';
 	import { revealItemInDir } from '@tauri-apps/plugin-opener';
 	import { contextMenu, type ContextMenuEntry } from '#lib/contextMenu.svelte.ts';
 	import { registerEditorDirty } from './editorActivity.svelte.ts';
@@ -316,6 +318,27 @@
 				unlistenFileChanged();
 				unlistenFileChanged = null;
 			}
+		};
+	});
+
+	$effect(() => {
+		if (backend.machine === LOCAL_MACHINE) return;
+		let active = true;
+		let unlisten: UnlistenFn | null = null;
+		void backend.listenResync(() => {
+			if (!active) return;
+			for (const file of filePaths) {
+				const key = fileKey(projectPath, file);
+				const cached = fileStates.get(key);
+				if (cached) void syncFileFromDisk(projectPath, file, key, cached);
+			}
+		}).then((cleanup) => {
+			if (active) unlisten = cleanup;
+			else cleanup();
+		});
+		return () => {
+			active = false;
+			unlisten?.();
 		};
 	});
 

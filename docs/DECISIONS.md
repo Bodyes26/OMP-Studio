@@ -2259,6 +2259,18 @@ Il confine fra finestra e backend conta 253 comandi: circa 167 instradabili cos�
 - Il confronto con T3 Code conferma l'impianto (finestra come client, più macchine in una barra, progetti raggruppati ma separati) e mostra che spostamento e replica fra macchine non li ha realizzati: sono la parte più incerta, per questo ultime.
 - La fattibilità sul PC di lavoro (rete aziendale, Sophos) non è stata valutata e va provata prima di investire nel resto.
 
+### Revisione 2026-11-16 — trasporto: iroh con relay proprio
+
+**Esito:** approvata dall'utente («direi ok per tutto»). Risolve Q2, sostituisce R-MI-01 e R-MI-02 con R-MI-16 e R-MI-17.
+
+1. **Trasporto iroh.** Identità della macchina, cifratura da capo a capo, via diretta quando la rete lo permette e ripiego sul relay vengono dalla libreria; Studio aggiunge sopra solo il proprio protocollo.
+2. **Relay proprio.** Un `iroh-relay` ospitato dall'utente (oggi sul VPS, dietro il reverse proxy, con token d'accesso). Nessun relay o servizio di scoperta di n0: i loro domini sono bloccati dal DNS della rete aziendale e un servizio di terzi non serve. Torna valido per questa funzione il vincolo R44 «Studio non si collega a un servizio predefinito».
+3. **Certificati di sistema.** Il certificato del relay si verifica con l'archivio del sistema (`CaTlsConfig::system()`, feature `platform-verifier`), come il bridge di Remote (`rustls-tls-native-roots`). Con le radici Mozilla incorporate, default di iroh, il collegamento dall'ufficio non arrivava al Mac; con quelle di sistema riesce. La sicurezza del collegamento non dipende da questo certificato: iroh autentica le macchine con le proprie chiavi.
+4. **Studio Remote invariato.** Il relay Bun e la PWA restano per il telefono: le notifiche Web Push nascono dalla lettura dello stato delle macchine, incompatibile con la cifratura da capo a capo.
+5. **Prova MI00.** Dal PC in ufficio al Mac di casa: 531 ms per collegarsi, sempre via relay, ping mediano 87,5 ms, 52 Mbit/s. Gli altri scenari di rete non sono stati provati: l'utente li assume («questo dall'ufficio era il caso peggiore»).
+
+Con questa revisione cade il rischio «Il punto d'incontro è un servizio di terzi o pubblicato dal progetto» e quello sulla fattibilità del PC di lavoro. Resta l'ufficio come caso sempre via relay: il terminale remoto sente circa 90 ms per tasto.
+
 ## Popover dei tab progetto: proposta consolidata
 
 Decisioni puntuali concordate nella sessione del 2026-11-12/13, consolidate in docs/requisiti/tab-progetti.md (TPR-001…038), in attesa della conferma finale del documento e dell’eventuale autorizzazione all’implementazione. Anteprima informativa separata dai comandi persistenti; una sola card che si sposta tra tab; identità e colore modificabili in testata; viste interne Coda/Git/Corsie; Git usa il branch realmente in checkout; eliminazione delle corsie chiuse con conferma a scadenza sulla stessa riga e perdita esplicita; X worktree apre la revisione, X Lab chiude conservando; Automazioni resta accesso diretto alla vista filtrata. Dopo riordino la card resta ferma finché il puntatore è dentro, poi segue il tab: sostituito il timer inizialmente proposto. Il prototipo è simulato, non implementazione nativa né prova end-to-end. Fonte: sessione corrente. [sessione 01a1d02e]

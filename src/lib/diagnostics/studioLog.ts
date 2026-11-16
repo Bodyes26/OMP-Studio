@@ -8,7 +8,7 @@
  * finirebbe qui, in un giro senza fine.
  */
 
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '#lib/backend/ipc.ts';
 import { formatLogLine, type LogLevel } from './logCore';
 
 const FLUSH_DELAY_MS = 1000;

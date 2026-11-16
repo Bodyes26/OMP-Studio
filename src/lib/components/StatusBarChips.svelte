@@ -3,9 +3,11 @@
 	import { taskStore } from '#lib/stores/tasks.svelte.ts';
 	import { companionStore } from '#lib/stores/companion.svelte.ts';
 	import { remoteStore } from '#lib/remote/remoteStore.svelte.ts';
+	import { projectStore } from '#lib/stores/projects.svelte.ts';
+	import { linkStore } from '#lib/backend/link.svelte.ts';
 	import { contextMenu } from '#lib/contextMenu.svelte.ts';
 	import Tooltip from '#lib/ui/Tooltip.svelte';
-	import { IconPin, IconRemote } from '#lib/icons.ts';
+	import { IconPin, IconRemote, IconMonitor } from '#lib/icons.ts';
 
 	// Companion, coda globale e controllo remoto riguardano tutta l'app, non il
 	// progetto attivo: stanno nella barra di stato cosi' la barra superiore
@@ -17,6 +19,8 @@
 		onQueueClick?: (anchor: HTMLElement) => void;
 		onRemoteSettings?: () => void;
 	} = $props();
+
+	const controlledMachine = $derived(linkStore.machineFor(projectStore.activeProject?.machineId));
 </script>
 
 <Tooltip text={m.statusbar_companion_chip_title()} placement="top">
@@ -40,6 +44,21 @@
 			aria-label={m.statusbar_queue_chip_aria({ count: taskStore.totalQueued })}
 		>
 			{m.statusbar_queue_chip_label({ count: taskStore.totalQueued })}
+		</button>
+	</Tooltip>
+{/if}
+
+{#if controlledMachine}
+	<Tooltip text={m.statusbar_machine_chip_title({ name: controlledMachine.name })} placement="top">
+		<button
+			type="button"
+			class="statusbar-chip brand"
+			class:offline={!controlledMachine.online}
+			onclick={(e) => { e.stopPropagation(); onRemoteSettings?.(); }}
+			aria-label={m.statusbar_machine_chip_aria({ name: controlledMachine.name })}
+		>
+			<IconMonitor size={13} />
+			<span>{controlledMachine.name}</span>
 		</button>
 	</Tooltip>
 {/if}
@@ -123,6 +142,13 @@
 
 	.statusbar-chip.brand:hover {
 		border-color: var(--brand);
+	}
+
+	/* Il progetto attivo vive su un'altra macchina: il chip resta visibile
+	   anche a collegamento caduto, perche' dice dove sta il lavoro. */
+	.statusbar-chip.offline {
+		color: var(--ink-faint);
+		border-style: dashed;
 	}
 
 	.companion-chip.active {

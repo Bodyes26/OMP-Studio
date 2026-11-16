@@ -17,8 +17,7 @@
  * 10. Pulizia completa delle risorse e propagazione rigorosa degli errori iniziali.
  */
 
-import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
+import { invoke, listen } from '#lib/backend/ipc.ts';
 import {
 	isPermissionGranted,
 	requestPermission,

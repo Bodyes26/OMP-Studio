@@ -15,7 +15,7 @@
 	 * inoltra i clic. Gli id collegati escono da `onConnectedChange`.
 	 */
 	import { onDestroy, onMount } from 'svelte';
-	import { invoke } from '@tauri-apps/api/core';
+	import { invoke } from '#lib/backend/ipc.ts';
 	import { m } from '#lib/paraglide/messages.js';
 	import { IconChevronDown, IconSearch } from '#lib/icons.ts';
 	import ProviderLogo from '#lib/components/models/ProviderLogo.svelte';

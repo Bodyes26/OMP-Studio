@@ -1,4 +1,4 @@
-import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { emit, listen, type UnlistenFn } from '#lib/backend/ipc.ts';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
 /**

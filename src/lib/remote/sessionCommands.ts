@@ -3,7 +3,7 @@
  * scrivere alla sessione di una corsia.
  */
 
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '#lib/backend/ipc.ts';
 import { projectStore } from '#lib/stores/projects.svelte.ts';
 import { laneOrchestrator } from '#lib/lanes/laneOrchestrator.svelte.ts';
 import { sessionRegistry } from '#lib/agent/sessionRegistry.ts';

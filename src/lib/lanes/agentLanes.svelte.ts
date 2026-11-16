@@ -16,7 +16,7 @@
 //   e lo avvia quando si libera un posto;
 // - scartare lavoro mai integrato chiede sempre conferma nella finestra della GUI.
 
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '#lib/backend/ipc.ts';
 import { laneStore, type LaneRecord } from '#lib/stores/lanes.svelte.ts';
 import { projectStore, type Project } from '#lib/stores/projects.svelte.ts';
 import { taskStore } from '#lib/stores/tasks.svelte.ts';

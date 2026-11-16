@@ -12,7 +12,7 @@ import { sessionRegistry } from '#lib/agent/sessionRegistry.ts';
 import { projectStore } from '#lib/stores/projects.svelte.ts';
 import { laneOrchestrator } from '#lib/lanes/laneOrchestrator.svelte.ts';
 import { m } from '#lib/paraglide/messages.js';
-import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { emit, listen, type UnlistenFn } from '#lib/backend/ipc.ts';
 
 export interface CompanionHostOptions {
 	registry?: SessionRegistry;

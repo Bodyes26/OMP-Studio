@@ -5,7 +5,8 @@ import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { SearchAddon } from '@xterm/addon-search';
 import { ClipboardAddon } from '@xterm/addon-clipboard';
-import { invoke, Channel } from '@tauri-apps/api/core';
+import { invoke as backendInvoke, Channel, LOCAL_MACHINE, type MachineId, type BackendCommand, type InvokeArgs } from '#lib/backend/ipc.ts';
+import { projectStore } from '#lib/stores/projects.svelte.ts';
 import { IS_MAC } from '#lib/utils/platform.ts';
 import { isAllowedExternalUrl } from '#lib/utils/externalUrl.ts';
 import { openExternalUrl } from '#lib/utils/openExternal.ts';
@@ -86,6 +87,8 @@ export class TerminalSession {
 	private launchArgs: string[] | null;
 	private laneId: string | null = null;
 	private projectId: string | null = null;
+	private readonly machineId: MachineId;
+	private readonly hostProjectId: string | null;
 	private continueLast = false;
 	/** Contesto WebAudio per il campanello, creato al primo bell e riusato:
 	 *  aprirne uno per ogni bell sarebbe inutile e piu' lento. */
@@ -147,6 +150,9 @@ export class TerminalSession {
 		this.launchArgs = launchArgs;
 		this.laneId = laneId;
 		this.projectId = projectId;
+		const project = projectStore.projects.find((project) => project.id === projectId);
+		this.machineId = project?.machineId ?? LOCAL_MACHINE;
+		this.hostProjectId = project?.hostProjectId ?? projectId;
 		this.continueLast = continueLast;
 		this.cwd = cwd;
 		this.onStateChange = onStateChange;
@@ -245,11 +251,6 @@ export class TerminalSession {
 			});
 		});
 
-		this.term.onResize((size) => {
-			if (this.ptyId !== null) {
-				invoke('pty_resize', { ptyId: this.ptyId, cols: size.cols, rows: size.rows });
-			}
-		});
 
 		this.term.onTitleChange((title) => {
 			const state = parseTitleState(title);
@@ -285,7 +286,7 @@ export class TerminalSession {
 	private async activateFileCandidate(candidate: string) {
 		if (!this.cwd) return;
 		try {
-			const res: { rel_path: string; line: number | null } | null = await invoke('resolve_project_file', {
+			const res: { rel_path: string; line: number | null } | null = await this.invoke('resolve_project_file', {
 				projectPath: this.cwd,
 				candidate
 			});
@@ -329,12 +330,12 @@ export class TerminalSession {
 	private async writePty(data: string) {
 		if (this.ptyId === null) throw new Error(msg.ui_ts_terminal_terminale_omp_non_pronto_c22b());
 		const encoded = new TextEncoder().encode(data);
-		await invoke('pty_write', { ptyId: this.ptyId, data: Array.from(encoded) });
+		await this.invoke('pty_write', { ptyId: this.ptyId, data: Array.from(encoded) });
 	}
 
 	private async readSessionInfo() {
 		if (this.ptyId === null || !this.cwd) return null;
-		return invoke<TerminalSessionInfo | null>('pty_session_info', { ptyId: this.ptyId });
+		return this.invoke<TerminalSessionInfo | null>('pty_session_info', { ptyId: this.ptyId });
 	}
 
 	private updateSessionInfo(info: TerminalSessionInfo | null) {
@@ -651,10 +652,21 @@ export class TerminalSession {
 	}
 
 	private async startPty(cwd: string) {
-		const onOutput = new Channel<Uint8Array>();
+		const epoch = this.ptyEpoch;
+		const onOutput = new Channel<unknown>();
 		onOutput.onmessage = (message: unknown) => {
+			if (this.disposed || epoch !== this.ptyEpoch) return;
 			try {
-				if (message instanceof Uint8Array) {
+				if (message && typeof message === 'object' && 'type' in message && message.type === 'studio_pty_resize') {
+					const { cols, rows } = message as { cols?: unknown; rows?: unknown };
+					if (typeof cols !== 'number' || typeof rows !== 'number' ||
+						!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 1 || rows < 1 ||
+						cols > 65535 || rows > 65535) throw new Error('Invalid terminal dimensions');
+					this.flushTerminalOutput();
+					this.term.write('', () => {
+						if (!this.disposed && epoch === this.ptyEpoch) this.term.resize(cols, rows);
+					});
+				} else if (message instanceof Uint8Array) {
 					this.queueTerminalOutput(message);
 				} else if (message instanceof ArrayBuffer) {
 					this.queueTerminalOutput(new Uint8Array(message));
@@ -696,37 +708,35 @@ export class TerminalSession {
 			const cols = this.term.cols || 80;
 			const rows = this.term.rows || 24;
 
-			const epoch = this.ptyEpoch;
-			const ptyId = await invoke<number>('pty_open', {
+			const ptyId = await this.invoke<number>('pty_open', {
 				cwd: launchCwd,
 				args,
 				cols,
 				rows,
 				laneId: this.laneId ?? null,
-				projectId: this.projectId ?? null,
+				projectId: this.hostProjectId,
 				onOutput
 			});
 			// Chiusura, rilascio o riavvio arrivati mentre pty_open era in volo
 			// hanno trovato ptyId ancora null: senza questa chiusura il processo
 			// omp appena nato resterebbe vivo senza nessuno che lo possieda.
 			if (this.disposed || epoch !== this.ptyEpoch) {
-				void invoke('pty_close', { ptyId }).catch(() => {});
+				void this.invoke('pty_close', { ptyId }).catch(() => {});
 				return;
 			}
 			this.ptyId = ptyId;
 
-			// Il fit puo' essere cambiato mentre pty_open era in volo: allora
-			// onResize e' scattato con ptyId ancora null e il pty sarebbe
-			// rimasto sulle dimensioni iniziali.
-			if (this.term.cols !== cols || this.term.rows !== rows) {
-				invoke('pty_resize', { ptyId: this.ptyId, cols: this.term.cols, rows: this.term.rows });
-			}
+			this.fit();
 			void this.refreshSessionInfo();
 		} catch (e) {
 			console.error("Failed to open PTY", e);
 			this.endBootHint();
 			this.term.write(`\r\n\x1b[31m${msg.terminal_start_failed({ error: String(e) })}\x1b[0m\r\n`);
 		}
+	}
+
+	private invoke<T>(command: BackendCommand, args?: InvokeArgs): Promise<T> {
+		return backendInvoke<T>(command, args, { machine: this.machineId });
 	}
 
 	public fit() {
@@ -736,7 +746,14 @@ export class TerminalSession {
 		// stato produce cols/rows assurdi e taglia il contenuto.
 		if (clientWidth < 2 || clientHeight < 2) return;
 		try {
-			this.fitAddon.fit();
+			const size = this.fitAddon.proposeDimensions();
+			if (!size || size.cols < 1 || size.rows < 1) return;
+			if (this.ptyId === null) {
+				this.term.resize(size.cols, size.rows);
+			} else {
+				void this.invoke('pty_resize', { ptyId: this.ptyId, cols: size.cols, rows: size.rows })
+					.catch((error) => console.error('Ridimensionamento PTY:', error));
+			}
 		} catch (e) {
 			console.error("Fit error", e);
 		}
@@ -840,7 +857,7 @@ export class TerminalSession {
 		this.ptyEpoch++;
 		if (this.ptyId !== null) {
 			try {
-				await invoke('pty_close', { ptyId: this.ptyId });
+				await this.invoke('pty_close', { ptyId: this.ptyId });
 			} catch (error) {
 				console.warn('pty_close on restart:', error);
 			}
@@ -874,7 +891,7 @@ export class TerminalSession {
 		if (this.disposed || this.ptyId === null) return;
 		const ptyId = this.ptyId;
 		try {
-			await invoke('pty_force_kill', { ptyId });
+			await this.invoke('pty_force_kill', { ptyId });
 		} catch (error) {
 			console.warn('Errore invocazione force kill su PTY:', error);
 		}
@@ -892,7 +909,7 @@ export class TerminalSession {
 		this.ptyId = null;
 		if (ptyId === null) return;
 		try {
-			await invoke('pty_close', { ptyId });
+			await this.invoke('pty_close', { ptyId });
 		} catch {
 			// Il processo puo' essere gia' terminato: il rilascio resta idempotente.
 		}

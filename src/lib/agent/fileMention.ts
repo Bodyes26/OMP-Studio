@@ -1,5 +1,5 @@
 import { matchesLooseQuery } from '../looseSearch.ts';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '#lib/backend/ipc.ts';
 
 /**
  * Directory di compilazione, cache e rumore da escludere categoricamente

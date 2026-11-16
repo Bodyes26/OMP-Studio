@@ -4,7 +4,7 @@
  * progetto, appartenenza del task e stato in coda.
  */
 
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '#lib/backend/ipc.ts';
 import { m } from '#lib/paraglide/messages.js';
 import type {
 	RemoteScheduleChoice,

@@ -1605,8 +1605,8 @@ In linea con i principi di `PRODUCT.md`:
 
 ## Piano Multi-istanza — Gate R49
 
-**Data:** 2026-11-12. **Stato:** pianificato. Nessun passo iniziato, nessun codice scritto. Attua il Gate R49 di `DECISIONS.md`.
-**Fonte di verità:** [requisiti/multi-istanza.md](requisiti/multi-istanza.md), R-MI-01…15. Le domande aperte Q2–Q4 del registro bloccano i passi che le citano.
+**Data:** 2026-11-12. **Stato:** MI00–MI07 chiusi il 2026-11-16 (un solo passo rimasto aperto prima della prova con l'utente è MI08). Trasporto: iroh con relay proprio (revisione del Gate R49), abbinamento e progetti remoti in barra già nell'app. Attua il Gate R49 di `DECISIONS.md`.
+**Fonte di verità:** [requisiti/multi-istanza.md](requisiti/multi-istanza.md), R-MI-03…17 (R-MI-01/02 sostituiti da R-MI-16/17). Le domande aperte Q3–Q4 del registro bloccano i passi che le citano.
 
 ### Metodo
 
@@ -1618,39 +1618,53 @@ In linea con i principi di `PRODUCT.md`:
 
 ### Fase 0 — Prove preliminari
 
-- [ ] **MI00 — Prova del collegamento** (R-MI-01, R-MI-02; decide Q2)
+- [x] **MI00 — Prova del collegamento** (R-MI-16, R-MI-17; ha deciso Q2)
   Programma di prova fuori dall'app che abbina due macchine con una chiave e scambia un flusso cifrato: stessa rete senza Internet, reti diverse con via diretta, reti diverse con ripiego. Confronto fra libreria con relay pubblici e servizio proprio. Comprende il PC di lavoro.
   **Prova:** tabella degli esiti per ogni combinazione di rete, con latenza e via usata.
+  **Esiti (2026-11-16):** dalla rete dell'ufficio i relay pubblici di n0 sono bloccati dal DNS aziendale. Con un relay iroh proprio sul VPS (1.4.1 dietro Nginx Proxy Manager) il PC di lavoro si collega al Mac di casa: 531 ms per il collegamento, sempre via relay (nessuna via diretta), ping mediano 87,5 ms, 52 Mbit/s. Condizione necessaria: verificare il certificato del relay con l'archivio del sistema (`CaTlsConfig::system()`); con le radici Mozilla incorporate in iroh, il default, il collegamento dall'ufficio falliva senza arrivare al Mac. Indizio di ispezione HTTPS aziendale, emittente del certificato non controllato. Da fare: stessa rete (via diretta), Internet scollegato, rete mobile.
+  **Chiuso il 2026-11-16:** Q2 risolta con iroh e relay proprio. Stessa rete e rete mobile non provate: assunte dall'utente, il caso dell'ufficio era il peggiore.
 
 ### Fase 1 — Finestra remota
 
-- [ ] **MI01 — Instradatore unico nella finestra** (R-MI-06)
-  Ogni chiamata della finestra al backend passa da un solo punto che conosce la macchina del progetto. In questo passo esiste solo la macchina locale.
-  **Prova:** nessuna chiamata diretta residua fuori dall'instradatore; suite esistenti verdi.
+- [x] **MI01 — Instradatore unico nella finestra** (R-MI-06)
+  Ogni chiamata della finestra al backend passa da `src/lib/backend/ipc.ts`; `commands.ts` classifica i 258 comandi registrati. Il terzo argomento di `invoke` accetta la macchina di destinazione, predefinita locale. In questo passo esiste solo il trasporto locale: nessuna chiamata destinata a un'altra macchina viene eseguita per errore in locale.
+  **Verifica (2026-11-16):** inventario confrontato con `generate_handler!`, tutti i 258 comandi presenti; nessun import diretto di `@tauri-apps/api/core` o `/event` fuori dall'instradatore. `npm run check`: 0 errori, 7 avvisi; segnala anche le dipendenze mancanti del sito separato (`@astrojs/svelte`). `npm test`: 1.460 test passati, inclusi i quattro nuovi in `test/backend-router.test.ts` (nessuna scrittura locale per una macchina remota irraggiungibile, nessun processo locale per una richiesta remota, allegati binari e header intatti, errori strutturati di Git intatti). Backend Rust invariato; nessuna seconda istanza desktop avviata.
 
-- [ ] **MI02 — Sessione agganciabile da più consumatori** (R-MI-07, R-MI-11)
+- [x] **MI02 — Sessione agganciabile da più consumatori** (R-MI-07, R-MI-11)
   Il backend distribuisce gli eventi di una sessione a più consumatori, li numera, conserva quanto serve per la ripresa e offre l'aggancio a una sessione già viva.
   **Prova:** test Rust con due consumatori, uno dei quali si scollega e riprende senza buchi né duplicati; ricarica della finestra che ritrova la sessione in corso.
+  **Fatto (2026-11-16):** `src-tauri/src/rpc/hub.rs` numera i frame, li consegna a tutti gli iscritti e ne tiene una coda limitata (4 MiB, 4096 frame). Chi riprende dall'ultimo numero visto riceve il seguito; oltre la coda riparte dal `ready` e si ricostruisce con `get_state` e `get_messages_page`, come all'avvio. Alla ricarica di una WebView (`on_page_load`) le sue iscrizioni cadono e le sessioni restano vive; `rpc_open`/`rpc_open_lab` con la stessa identità (corsia, cartella, conversazione) le riprendono invece di avviare un secondo omp. Una sessione che nessuno riprende si chiude dopo 10 minuti. Il client trattiene i frame arrivati prima dell'id e usa id di richiesta unici per finestra, perché le risposte arrivano a tutti gli iscritti. La ripresa per numero e l'uscita volontaria servono al collegamento fra istanze (MI06): oggi le usano solo i test.
+  **Verifica (2026-11-16):** `cargo test` 503 passati (nuovi: due consumatori con ripresa senza buchi né duplicati, ripresa oltre la coda da `ready`, ricarica di una finestra con un altro consumatore attivo, consumatore morto tolto senza fermare gli altri, sessione ritrovata dopo la ricarica, identità richiesta per riprenderla, chiusura delle orfane dopo la tolleranza). `npm test` 1.462 passati (nuovi: `ready` arrivato prima dell'id, risposte di un'altra finestra che non chiudono le richieste di questa). `npm run check` 0 errori. Non provata sul binario desktop (regola del progetto): la ricarica reale resta da osservare con l'utente. Restano fuori: domande in attesa al momento della ricarica (MI04) e terminale (MI03).
 
-- [ ] **MI03 — Terminale condiviso** (R-MI-06, R-MI-07)
+- [x] **MI03 — Terminale condiviso** (R-MI-06, R-MI-07)
   Storia del terminale conservata nel backend, una sola dimensione concordata fra i consumatori, aggancio a un terminale già aperto.
   **Prova:** due consumatori di misura diversa senza corruzione; chi si aggancia dopo vede la storia.
+  **Fatto (2026-11-16):** `src-tauri/src/pty/hub.rs` conserva 1 MiB di storia e lo schermo VT, distribuisce l'output a tutti gli iscritti, prende la misura più piccola fra i consumatori e la riallarga appena quello piccolo esce. Chi si aggancia riceve lo stato VT formattato, non byte tagliati; chi riprende da un offset non duplica né salta byte, e un resize obbliga uno snapshot. `pty_open` con la stessa identità (cartella, corsia, progetto, argomenti) riprende il terminale esistente invece di avviarne un secondo; dopo 10 minuti senza consumatori il processo si chiude.
+  **Verifica (2026-11-16):** `cargo test` 523 passati (sei nuovi in `pty::hub`: storia agli iscritti tardivi, ripresa esatta, misura minima con ritorno, coda troncata ricostruita dallo schermo, resize fallito che non impone una misura sbagliata, resize durante lo scollegamento che impone lo snapshot). Non provato sul binario desktop né fra due macchine: resta la prova con l'utente.
 
-- [ ] **MI04 — Domande in attesa nel backend** (R-MI-07)
+- [x] **MI04 — Domande in attesa nel backend** (R-MI-07)
   Registro delle richieste interattive aperte; la prima risposta chiude la richiesta per tutti.
   **Prova:** un consumatore agganciato dopo vede la domanda; due risposte concorrenti producono un solo esito.
+  **Fatto (2026-11-16):** `rpc/hub.rs` tiene le `extension_ui_request` in attesa con il loro numero di frame; chi si aggancia dopo le riceve in ordine di frame, insieme ai frame conservati. La prima risposta scrive su stdin e toglie la richiesta per tutti; una risposta fallita la lascia visibile e la si può ritentare; gli id già risposti restano in memoria per un intervallo limitato, così un doppione tardivo non riapre la domanda.
+  **Verifica (2026-11-16):** `cargo test` 523 passati, inclusi i nuovi: risposta fallita ritentata, due risposte concorrenti con una sola scrittura, id vecchio rifiutato dopo lo scadere della memoria. Non provato con due finestre reali.
 
-- [ ] **MI05 — Collegamento e abbinamento** (R-MI-01, R-MI-02, R-MI-09; dopo MI00 e Q4)
-  Chiavi dell'istanza, abbinamento con codice, elenco dei dispositivi con revoca, scelta della via più diretta, impostazione spenta per default.
-  **Prova con l'utente:** scenari di accettazione di R-MI-01 e R-MI-02.
+- [x] **MI05 — Collegamento e abbinamento** (R-MI-16, R-MI-17, R-MI-09; dopo Q4)
+  Endpoint iroh nel backend Rust con relay proprio configurabile e certificati di sistema, chiavi dell'istanza, abbinamento con codice, elenco dei dispositivi con revoca, impostazione spenta per default.
+  **Prova con l'utente:** scenari di accettazione di R-MI-16 e R-MI-17.
+  **Fatto (2026-11-16):** `src-tauri/src/link/` (config, protocol, access, catalog, host, streams) apre un endpoint iroh con relay proprio e `CaTlsConfig::system()`, conserva identità e chiave dell'istanza, genera un codice di abbinamento monouso e collega l'altra macchina scambiando hello e permessi. La configurazione e l'elenco dispositivi vivono in «Impostazioni → Altre istanze» (`InstancesSection.svelte`), spenti per default. Revoca cancella l'abbinamento e chiude i collegamenti.
+  **Verifica (2026-11-16):** `cargo test` 523 passati; abbinamento e trasporto provati fra PC Windows in ufficio e Mac di casa con il programma di prova MI00. Scenario completo dei due pannelli di Impostazioni non ancora eseguito su due installazioni reali: resta la prova con l'utente.
 
-- [ ] **MI06 — Backend raggiungibile dal collegamento** (R-MI-06, R-MI-09, R-MI-10; dopo MI05 e Q3)
+- [x] **MI06 — Backend raggiungibile dal collegamento** (R-MI-06, R-MI-09, R-MI-10; dopo MI05 e Q3)
   La macchina del progetto esegue le chiamate in arrivo con gli stessi gestori locali, entro i permessi dell'abbinamento, con registro delle azioni, indicatore di collegamento e controllo della versione.
   **Prova:** chiamata fuori permesso rifiutata e registrata; versione incompatibile rifiutata con messaggio; scenario di revoca di R-MI-09.
+  **Fatto (2026-11-16):** un solo instradatore (`src/lib/backend/ipc.ts`) con il catalogo condiviso `commands.json` (258 comandi, ambiti `routed`/`stream`/`adapt`/`local`, permessi `read`/`agents`/`files`/`terminal`). `link_invoke`, `link_open_rpc` e `link_open_pty` eseguono sulla macchina proprietaria con i gestori locali; `link/access.rs` limita i percorsi alle radici dichiarate dallo snapshot, `host.rs` registra ogni azione e la esegue solo nella finestra della macchina del progetto. Versione diversa rifiutata con messaggio; il chip della barra di stato dice dove gira il progetto attivo.
+  **Verifica (2026-11-16):** `cargo test` 523 passati; `npm test` 1.467 passati (nuovi 3 in `test/remote-projects.test.ts` per la proiezione dei progetti remoti); `npm run check` 0 errori. La revoca fra due istanze reali non è stata provata.
 
-- [ ] **MI07 — Progetti remoti in barra** (R-MI-03, R-MI-04; dopo MI01, MI02, MI06)
+- [x] **MI07 — Progetti remoti in barra** (R-MI-03, R-MI-04; dopo MI01, MI02, MI06)
   Elenco dei progetti dell'altra macchina, apertura in barra con badge, chat, albero, editor, Git, corsie e coda sulla macchina remota.
   **Prova con l'utente:** scenari di R-MI-03 e R-MI-04.
+  **Fatto (2026-11-16):** `linkStore.applyHost` proietta i progetti dell'altra macchina in `projectStore.projects` con `machineId` e `hostProjectId`; le copie remote non si persistono (né progetto né corsie né progetto attivo) e spariscono alla revoca. La tessera mostra il badge con il nome della macchina, spento e tratteggiato quando il collegamento cade; la chat, l'albero, l'editor, Git e il terminale passano dal `ProjectScope` della tessera, quindi girano sulla macchina del progetto. Il selettore progetti ha una sezione per macchina con le cartelle note all'altra istanza (anche non aperte), aperte con l'azione `open_project`.
+  **Verifica (2026-11-16):** `test/remote-projects.test.ts` (materializzazione con badge, aggiornamento senza duplicati, dimenticanza alla revoca, copie locali separate). Scenario con due installazioni reali non eseguito: resta la prova con l'utente.
 
 - [ ] **MI08 — Azioni che spettano alla finestra proprietaria** (R-MI-06, R-MI-07; dopo MI07)
   Avvio dei task, programmazioni, automazioni e integrazione delle corsie eseguiti solo dalla finestra della macchina del progetto, innescati anche da remoto. Dati di progetto oggi salvati per macchina (elenco delle corsie, origini dei task) resi leggibili da remoto.
@@ -1682,8 +1696,14 @@ In linea con i principi di `PRODUCT.md`:
 
 - [ ] **MI20 — Identità di progetto e vista unita** (R-MI-12, R-MI-13; dopo la fase 1)
   Nessuna replica dei dati (Q1 risolta). Dettaglio dei passi da scrivere prima di iniziare la fase.
+  **Stato (2026-11-16):** non iniziata. Oggi lo stesso repository presente su due macchine compare
+  due volte, ciascuna con il badge della sua macchina: la fusione richiede un'identità di progetto
+  condivisa (per esempio il remoto git o il percorso relativo alla radice) e una vista che unisca
+  corsie, coda e storico delle due parti, con la scelta della macchina all'avvio di un lavoro.
 
 ### Fase 3 — Spostamento dell'esecuzione
 
 - [ ] **MI30 — Spostamento a fine turno** (R-MI-14; dopo la fase 2)
   Dettaglio e scenari di accettazione da scrivere prima di iniziare.
+  **Stato (2026-11-16):** non iniziata. Il trasferimento deciso in F16 (bundle git con le modifiche
+  non committate più il JSONL della sessione) non ha ancora comandi né interfaccia.

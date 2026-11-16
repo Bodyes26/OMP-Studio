@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '#lib/backend/ipc.ts';
 import { sessionRegistry } from '#lib/agent/sessionRegistry.ts';
 import { load, type Store } from '@tauri-apps/plugin-store';
 import { restartOmpTerminals } from '../terminal/terminalEvents.ts';

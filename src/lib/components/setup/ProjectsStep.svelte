@@ -7,7 +7,7 @@
   di riconoscibile come repository.
 -->
 <script lang="ts">
-	import { invoke } from '@tauri-apps/api/core';
+	import { invoke } from '#lib/backend/ipc.ts';
 	import { open as openDialog } from '@tauri-apps/plugin-dialog';
 	import { m } from '#lib/paraglide/messages.js';
 	import { IconFolderOpen, IconFolderPlus } from '#lib/icons.ts';

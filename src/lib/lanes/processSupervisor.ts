@@ -13,7 +13,7 @@
 // 3. Un cleanup fallito (lock file di Windows, Git che rifiuta) non produce
 //    mai una corsia archiviata per finta: resta recuperabile.
 
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '#lib/backend/ipc.ts';
 import { m } from '#lib/paraglide/messages.js';
 
 export type LaneProcessKind = 'terminal' | 'agent';

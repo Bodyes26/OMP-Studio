@@ -14,7 +14,7 @@
 	 *   proposta resta un suggerimento. `saveRoles` scriverà solo ciò che è
 	 *   cambiato o ciò che era vuoto.
 	 */
-	import { invoke } from '@tauri-apps/api/core';
+	import { invoke } from '#lib/backend/ipc.ts';
 	import { m } from '#lib/paraglide/messages.js';
 	import { modelSettingsStore } from '#lib/stores/modelSettings.svelte.ts';
 	import RoleCard from './RoleCard.svelte';

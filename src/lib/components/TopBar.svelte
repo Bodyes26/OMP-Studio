@@ -49,8 +49,11 @@
 		IconDownload,
 		IconFile,
 		IconClose,
-		IconMore
+		IconMore,
+		IconMonitor
 	} from '#lib/icons.ts';
+	import { linkStore } from '#lib/backend/link.svelte.ts';
+	import { LOCAL_MACHINE } from '#lib/backend/ipc.ts';
 	import { laneStore, type LaneRecord } from '#lib/stores/lanes.svelte.ts';
 	import { MAIN_LANE_ID, type ProjectId, type AgentLane } from '#lib/types/lanes.ts';
 	import { sessionRegistry } from '#lib/agent/sessionRegistry.ts';
@@ -863,6 +866,7 @@
 				  (upstream.ahead > 0 ? m.topbar_upstream_ahead_aria({ count: upstream.ahead }) : '')
 				: ''}
 			{@const aggState = getAggregatedState(p)}
+			{@const remoteMachine = linkStore.machineFor(p.machineId)}
 			{@const secondaryLanes = laneStore.lanesFor(p.id as ProjectId).filter((l) => l.laneId !== MAIN_LANE_ID && l.status !== 'archived' && l.status !== 'closed')}
 			{@const gitLanesCount = secondaryLanes.filter((l) => l.kind !== 'lab').length}
 			{@const labLanesCount = secondaryLanes.filter((l) => l.kind === 'lab').length}
@@ -934,6 +938,14 @@
 						<span class="tab-reveal-inner"><span class="tab-name">{p.name}</span></span>
 					</span>
 
+					{#if p.machineId && p.machineId !== LOCAL_MACHINE}
+						<span
+							class="tab-machine-badge"
+							class:offline={remoteMachine ? !remoteMachine.online : true}
+							title={remoteMachine?.name ?? p.machineId}
+							aria-hidden="true"
+						><IconMonitor /><span>{remoteMachine?.name ?? p.machineId}</span></span>
+					{/if}
 					{#if p.canonicalProjectPath && queueStyle !== 'off'}
 						<span class="tab-reveal" class:show={isActive && queued > 0}>
 							<span class="tab-reveal-inner">
@@ -1930,6 +1942,41 @@
 	}
 	.tab-lanes-badge + .tab-lanes-badge {
 		margin-left: 3px;
+	}
+
+	/* La macchina e' l'unica differenza visibile fra un progetto locale e uno
+	   remoto: icona e nome, misura dei badge delle corsie, stato in opacita'. */
+	.tab-machine-badge {
+		--icon-size: 10px;
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
+		max-width: 12ch;
+		margin-left: var(--space-2);
+		padding: 1px 5px;
+		border-radius: var(--radius-sm);
+		font-family: var(--font-mono);
+		font-size: var(--text-caption);
+		font-weight: 600;
+		color: var(--ink-muted);
+		background-color: var(--bg-hover);
+		border: 1px solid var(--line);
+		line-height: 1;
+		flex-shrink: 0;
+	}
+	.tab-machine-badge :global(svg) {
+		width: var(--icon-size, 10px);
+		height: var(--icon-size, 10px);
+		flex-shrink: 0;
+	}
+	.tab-machine-badge span {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.tab-machine-badge.offline {
+		color: var(--ink-faint);
+		border-style: dashed;
 	}
 
 

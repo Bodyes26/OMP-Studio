@@ -14,7 +14,7 @@
  * evento.
  */
 
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '#lib/backend/ipc.ts';
 
 /** Ritardo di raggruppamento: un cambio di fuoco ne scatena tre o quattro in
  *  pochi millisecondi, e vanno in un solo messaggio. */

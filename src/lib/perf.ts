@@ -10,7 +10,7 @@
  * Formato riga: `<epoch_ms> <+secondi dall'avvio> web <ambito> <durata_ms> <etichetta>`.
  */
 
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '#lib/backend/ipc.ts';
 
 const FLUSH_DELAY_MS = 2000;
 const FLUSH_THRESHOLD = 128;

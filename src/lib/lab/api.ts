@@ -2,7 +2,7 @@
 // nomi dei comandi e la forma degli argomenti non si ripetono nei componenti.
 // `projectPath: null` indica l'indice globale delle bozze.
 
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '#lib/backend/ipc.ts';
 import { m } from '#lib/paraglide/messages.js';
 import type {
 	LabFile,

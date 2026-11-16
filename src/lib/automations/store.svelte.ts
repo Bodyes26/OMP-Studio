@@ -1,5 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { invoke, listen, type BackendCommand, type UnlistenFn } from '#lib/backend/ipc.ts';
 import { t } from './i18n.ts';
 import { pathKey } from '#lib/utils/paths.ts';
 import {
@@ -143,7 +142,7 @@ class AutomationsStore {
 		this.createWithAi = false;
 		this.opened = true;
 	}
-	private async mutate<T>(command: string, args: Record<string, unknown>): Promise<T> {
+	private async mutate<T>(command: BackendCommand, args: Record<string, unknown>): Promise<T> {
 		try {
 			const result = await invoke<T>(command, args);
 			await this.refresh();

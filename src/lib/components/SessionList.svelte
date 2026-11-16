@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
 	import { i18n } from '#lib/i18n/i18n.svelte.ts';
-	import { invoke } from '@tauri-apps/api/core';
+	import { useProjectBackend } from '#lib/backend/projectScope.ts';
+	const backend = useProjectBackend();
+	const { invoke } = backend;
 	import { fetchSessionsList, type SessionEntry } from '#lib/agent/sessionsList.ts';
 	import { onMount, untrack } from 'svelte';
 	import { taskStore } from '#lib/stores/tasks.svelte.ts';
@@ -190,7 +192,7 @@
 		try {
 			const result = q.trim()
 				? await invoke<SessionEntry[]>('sessions_search', { query: q.trim(), projectPath: target })
-				: await fetchSessionsList(target);
+				: await fetchSessionsList(target, backend.machine);
 			if (token !== requestToken || target !== projectPath) return;
 			const fresh = new Set<string>();
 			knownSessions = trackFresh(knownSessions, result.map((s) => s.id), fresh);

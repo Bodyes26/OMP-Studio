@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '#lib/backend/ipc.ts';
 import { settingsStore } from '#lib/stores/settings.svelte.ts';
 import type { AgentSession, TranscriptEntry } from './session.svelte';
 import * as messages from '#lib/paraglide/messages.js';

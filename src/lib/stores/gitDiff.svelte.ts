@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '#lib/backend/ipc.ts';
 import { pathKey } from '#lib/utils/paths.ts';
 
 export interface GitDiffStats {

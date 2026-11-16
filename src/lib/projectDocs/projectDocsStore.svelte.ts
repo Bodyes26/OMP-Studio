@@ -4,7 +4,7 @@
  * chiamata effimera (`project_docs_ask`). Non scrive mai: i file li mantiene
  * l'agente con il tool `project_docs`, o l'utente a mano nell'editor.
  */
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '#lib/backend/ipc.ts';
 import { settingsStore } from '#lib/stores/settings.svelte.ts';
 import {
 	DOC_ROLES,

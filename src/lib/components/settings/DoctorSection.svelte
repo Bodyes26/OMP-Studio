@@ -8,7 +8,7 @@
 	import { doctorStore, type DoctorCategory, type DoctorItem } from '#lib/stores/doctor.svelte.ts';
 	import { projectStore } from '#lib/stores/projects.svelte.ts';
 	import { IconWarning, IconRefresh, IconCopy, IconArrowRight, IconFolderOpen } from '#lib/icons.ts';
-	import { invoke } from '@tauri-apps/api/core';
+	import { invoke } from '#lib/backend/ipc.ts';
 	import { revealItemInDir } from '@tauri-apps/plugin-opener';
 	import StatusMark from '#lib/ui/StatusMark.svelte';
 	import Segmented from '#lib/ui/Segmented.svelte';

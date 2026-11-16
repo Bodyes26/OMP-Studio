@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { untrack, onDestroy } from 'svelte';
 	import { m } from '#lib/paraglide/messages.js';
-	import { invoke } from '@tauri-apps/api/core';
+	import { useProjectBackend } from '#lib/backend/projectScope.ts';
+	const { invoke } = useProjectBackend();
 	import { wrapPrototypeCode } from '#lib/prototype/wrapper.ts';
 	import { previewShortcuts } from '#lib/shortcuts/previewShortcuts.ts';
 	import { buildSandboxedSvgDocument, isSvgFileName, isSvgContent } from '#lib/editor/svgSandbox.ts';

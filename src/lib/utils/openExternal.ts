@@ -6,7 +6,7 @@
  * sistema operativo.
  */
 
-import { isTauri } from '@tauri-apps/api/core';
+import { isTauri } from '#lib/backend/ipc.ts';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { isAllowedExternalUrl } from './externalUrl';
 

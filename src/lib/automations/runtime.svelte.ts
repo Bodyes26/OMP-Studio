@@ -12,8 +12,7 @@
  * 7. Factory `createAutomationAgent` con reale confinamento sola lettura per l'assistente (WizardAssistant).
  */
 
-import { invoke } from '@tauri-apps/api/core';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { invoke, listen, type UnlistenFn } from '#lib/backend/ipc.ts';
 import { AgentSession } from '#lib/agent/session.svelte.ts';
 import type { AgentSessionEvent } from '#lib/agent/wire.ts';
 import type {

@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
 	import { i18n } from '#lib/i18n/i18n.svelte.ts';
-	import { invoke } from '@tauri-apps/api/core';
+	import { useProjectBackend } from '#lib/backend/projectScope.ts';
+	const { invoke } = useProjectBackend();
 	import {
 		IconArrowDown,
 		IconArrowUp,

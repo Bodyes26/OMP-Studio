@@ -18,7 +18,7 @@
 	//    attendere, e non scrive stato se nel frattempo il progetto e' cambiato.
 	import { m } from '#lib/paraglide/messages.js';
 	import { tick, untrack } from 'svelte';
-	import { invoke } from '@tauri-apps/api/core';
+	import { invoke } from '#lib/backend/ipc.ts';
 	import { laneStore } from '#lib/stores/lanes.svelte.ts';
 	import { projectStore, type Project } from '#lib/stores/projects.svelte.ts';
 	import { laneOrchestrator } from '#lib/lanes/laneOrchestrator.svelte.ts';
