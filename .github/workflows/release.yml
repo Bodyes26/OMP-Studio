@@ -127,6 +127,15 @@ jobs:
         if: runner.os == 'macOS'
         run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
+      # Cache di registro e target Cargo, come nella Nightly: le dipendenze
+      # dell'albero Tauri sono decine di minuti di compilazione per sistema.
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: release-${{ matrix.artifact_name }}
+          workspaces: src-tauri -> target
+          cache-on-failure: true
+
       - name: Installa le dipendenze
         run: bun install --frozen-lockfile
 

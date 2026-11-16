@@ -58,6 +58,7 @@ Fonti ufficiali: [release v18.18.3](https://github.com/can1357/oh-my-pi/releases
 | Data | Requisiti | Scenario e risultato | Prova |
 | --- | --- | --- | --- |
 | 2026-11-09 | ASK-001…014 | Modulo unico, invio solo esplicito, note e immagini nello stesso risultato, bozza conservata, Companion, Remote e soglia di setup. L'utente li ha usati sull'app e il comportamento è quello atteso. | Utente, 2026-11-09: «ho provato tutto funziona». |
+| 2026-11-16 | ASK-001 (regressione su omp 18.21.0) | omp 18.21 ha rinominato `pi-tui/html-form/media` in `pi-tui/media` (`loadFormImage` → `loadMedia`): l'import statico faceva fallire il caricamento di `studio-ask.ts` («Cannot find package '@oh-my-pi/pi-tui'»), quindi il modulo `ask` non esisteva più nella GUI. Ora il caricatore prova il modulo nuovo e ricade su quello vecchio. Verificato che l'estensione si carica senza errori su `omp/18.21.0` e su `omp/18.20.2`; flusso completo del modulo nell'app non esercitato. | `omp -p --no-session --no-tools -e extensions/studio-ask.ts` su entrambi i binari: nessun «Failed to load extension». |
 
 ## Cutover proposto: comportamenti esistenti
 

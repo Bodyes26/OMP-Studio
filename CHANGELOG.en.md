@@ -12,6 +12,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 ## [Unreleased]
 
 ### Fixed
+- Agent questions are back with `omp` 18.21: the new version moved the module that reads images inside HTML forms, and the component opening the form stopped loading, leaving the agent waiting without showing the question in the chat. Studio uses the new module and keeps working with earlier `omp` versions too. (ASK-001)
 - Studio Remote again recognizes which models accept images: the PWA read a model field that the machine state no longer sends, so every model looked like it accepted them. The relay type check is restored, so the relay image is published again on every change. (REL-001)
 
 ### Added
@@ -31,6 +32,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - When the `omp` installation is broken (for example a link pointing to a deleted folder), Studio says so and offers "Repair" instead of starting over as on a new computer. When an essential piece is missing, the setup reopens directly on that step, without the animated intro. (SET-010, SET-020)
 
 ### Changed
+- Automated builds (Nightly and releases) take far less time: Rust dependencies stay cached between runs instead of being compiled from scratch, and the quality gate no longer compiles the translation dictionaries three times. On top of that, the vulnerability scan no longer blocks publishing for an advisory already fixed in the updated SvelteKit libraries.
 - Preparation for cross-instance control: internal calls distinguish their target machine and reject unavailable remote calls rather than execute them locally. Full control of another instance is not available yet. (R-MI-06, MI01)
 - Project tabs show a read-only preview on hover; commands open from the three dots or a right click in one stable card, with internal views, an always-visible close button, editable name and code, theme-derived colors and a path relative to the projects root. After reordering, the card stays still while the pointer is inside. (TPR-001…011, TPR-031…032, TPR-037…038)
 - Project tabs in the top bar slide to their new place when moved with the project menu arrows or dragged, instead of jumping; with reduced motion the move stays instant. (TPR-039)

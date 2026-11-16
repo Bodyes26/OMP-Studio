@@ -15,7 +15,11 @@ import studioExtension from '../extensions/studio-diagram.ts';
 describe('Estensione studio_preview: sicurezza, confinamento e I/O atomico', () => {
 	let tempProjectDir: string;
 	let tempExchangeRoot: string;
-	const isolatedEnv = ['LOCALAPPDATA', 'HOME', 'OMP_PROJECT_ID', 'OMP_LANE_ID'] as const;
+	// `OMP_STUDIO_LOCALE` cambia i messaggi di errore di `studio-diagram.ts`
+	// (`tr`): senza isolarlo, il test cerca il testo inglese ma su una macchina
+	// con locale italiana riceve quello italiano e fallisce senza che il codice
+	// sia sbagliato. I messaggi asseriti sono quelli inglesi.
+	const isolatedEnv = ['LOCALAPPDATA', 'HOME', 'OMP_PROJECT_ID', 'OMP_LANE_ID', 'OMP_STUDIO_LOCALE'] as const;
 	const savedEnv = new Map<string, string | undefined>();
 	interface RegisteredTool {
 		name: string;
@@ -44,6 +48,7 @@ describe('Estensione studio_preview: sicurezza, confinamento e I/O atomico', () 
 		process.env.HOME = tempExchangeRoot;
 		delete process.env.OMP_PROJECT_ID;
 		delete process.env.OMP_LANE_ID;
+		process.env.OMP_STUDIO_LOCALE = 'en';
 		registeredTools = new Map();
 
 		// Mock Zod builder per la registrazione dei tool

@@ -6,7 +6,6 @@ import { isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseHtmlForm, type HtmlForm } from "@oh-my-pi/pi-tui/html-form/parse";
 import { defaultFormData, fieldError, fieldQuestions, textValue } from "@oh-my-pi/pi-tui/html-form/data";
-import { loadFormImage } from "@oh-my-pi/pi-tui/html-form/media";
 import { resizeImage } from "@oh-my-pi/pi-coding-agent/utils/image-resize";
 // La copia estratta e' autonoma: questa busta JSON coincide con askForm.ts,
 // mentre struttura dei campi e validazione rimangono quelle canoniche OMP.
@@ -41,6 +40,30 @@ function isAskImageData(data: string): boolean {
 const TITLE_PREFIX = "studio-ask-form:";
 const IMAGE_BUDGET = 700_000;
 const FORM_MEDIA_BYTES = 160_000;
+
+type LoadFormImage = (src: string, options: { cwd: string; signal?: AbortSignal }) => Promise<{ bytes: Uint8Array; mime: string }>;
+
+/**
+ * omp 18.21 ha rinominato `pi-tui/html-form/media` in `pi-tui/media`
+ * (`loadFormImage` -> `loadMedia`, `FormMedia` -> `Media`). L'import non puo'
+ * essere statico: un modulo mancante fa fallire il caricamento dell'intera
+ * estensione, quindi `ask` sparirebbe dalla GUI su una delle due versioni.
+ */
+let formImageLoader: Promise<LoadFormImage> | undefined;
+function loadFormImageModule(): Promise<LoadFormImage> {
+	if (!formImageLoader) {
+		formImageLoader = (async () => {
+			try {
+				const current = (await import("@oh-my-pi/pi-tui/media")) as { loadMedia: LoadFormImage };
+				return current.loadMedia;
+			} catch {
+				const legacy = (await import("@oh-my-pi/pi-tui/html-form/media")) as { loadFormImage: LoadFormImage };
+				return legacy.loadFormImage;
+			}
+		})();
+	}
+	return formImageLoader;
+}
 
 type TextPart = { type: "text"; text: string };
 type ImagePart = { type: "image"; data: string; mimeType: string };
@@ -109,6 +132,7 @@ async function prepareForm(form: HtmlForm, cwd: string, signal?: AbortSignal): P
 			if (block.kind !== "image") continue;
 			try {
 				if (signal?.aborted) throw signal.reason;
+				const loadFormImage = await loadFormImageModule();
 				const loaded = await loadFormImage(imageSource(block.src, cwd), { cwd, signal });
 				if (loaded.mime === "image/svg+xml") {
 					section.blocks[index] = { kind: "svg", markup: new TextDecoder().decode(loaded.bytes), alt: block.alt };

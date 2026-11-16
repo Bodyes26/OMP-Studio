@@ -197,6 +197,20 @@ jobs:
         if: runner.os == 'macOS'
         run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
+      # Cache di registro e target Cargo: senza, ogni run ricompila tutte le
+      # dipendenze e la sola creazione degli installer supera i 16 minuti.
+      # `key` distingue i tre sistemi operativi; rust-cache aggiunge gia'
+      # OS e architettura alla chiave.
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: nightly-${{ matrix.key }}
+          workspaces: src-tauri -> target
+          # I test del backend vengono eseguiti in questo stesso job: la cache
+          # deve sopravvivere a un run fallito, altrimenti il successivo
+          # riparte da zero proprio quando serve di piu'.
+          cache-on-failure: true
+
       - name: Installa le dipendenze
         run: bun install --frozen-lockfile
 

@@ -12,6 +12,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 ## [Unreleased]
 
 ### Fixed
+- Le domande dell'agente tornano a comparire con `omp` 18.21: la nuova versione ha spostato il modulo che legge le immagini dei moduli HTML, e il componente che apre il modulo non si caricava più, lasciando l'agente fermo in attesa senza mostrare la domanda nella chat. Studio usa il modulo nuovo e continua a funzionare anche con le versioni precedenti di `omp`. (ASK-001)
 - Studio Remote torna a riconoscere quali modelli accettano immagini: la PWA leggeva un campo del modello che lo stato della macchina non manda più, quindi ogni modello sembrava accettarle. Controllo dei tipi del relay ripristinato, quindi l'immagine del relay torna a pubblicarsi a ogni modifica. (REL-001)
 
 ### Added
@@ -31,6 +32,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Se l'installazione di `omp` è rotta (per esempio un collegamento che punta a una cartella cancellata), Studio lo dice e offre «Ripara», invece di ripartire come su un computer nuovo. Quando manca un pezzo indispensabile il setup riapre direttamente su quel passo, senza l'ingresso animato. (SET-010, SET-020)
 
 ### Changed
+- Le build automatiche (Nightly e release) durano molto meno: le dipendenze Rust restano in cache fra un'esecuzione e l'altra invece di essere ricompilate da zero, e il controllo di qualità non ricompila più tre volte i dizionari delle traduzioni. In più, l'analisi delle vulnerabilità non blocca più la pubblicazione per un avviso già corretto nelle librerie di SvelteKit aggiornate.
 - Preparazione del controllo fra istanze: le chiamate interne distinguono la macchina di destinazione e rifiutano quelle remote non ancora disponibili, senza eseguirle in locale. Il controllo completo di un'altra istanza non è ancora disponibile. (R-MI-06, MI01)
 - I tab dei progetti mostrano un'anteprima in sola lettura al passaggio del mouse; i comandi si aprono dai tre puntini o con il tasto destro in una card stabile, con viste interne, chiusura sempre visibile, nome e sigla modificabili, colori dal tema e percorso relativo alla radice progetti. Dopo un riordino la card resta ferma finché il puntatore è dentro. (TPR-001…011, TPR-031…032, TPR-037…038)
 - Le schede dei progetti nella barra superiore scivolano al nuovo posto quando si spostano con le frecce del menu del progetto o si trascinano, invece di saltare di colpo; con il movimento ridotto lo spostamento resta immediato. (TPR-039)

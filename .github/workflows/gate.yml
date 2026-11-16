@@ -38,14 +38,17 @@ jobs:
       - name: Allineamento dei quattro file di versione
         run: node scripts/release.mjs --check
 
-      - name: Compila dizionari i18n
-        run: node node_modules/@inlang/paraglide-js/bin/run.js compile --project ./project.inlang --outdir ./src/lib/paraglide --strategy baseLocale --emit-ts-declarations --disable-async-local-storage
+      # Preparazione unica (Paraglide + SvelteKit sync), come il preflight
+      # locale `npm run verify:nightly`. Prima la compilavano tre volte:
+      # lo step i18n, `bun run check` e il runner degli smoke test.
+      - name: Prepara il frontend
+        run: node scripts/prepare-frontend.mjs
 
       - name: Tipi del frontend
-        run: bun run check
+        run: node node_modules/svelte-check/bin/svelte-check --tsconfig ./tsconfig.json
 
       - name: Smoke test delle funzionalita critiche
-        run: npm run test:smoke
+        run: node scripts/run-smoke-tests.mjs --prepared
 
       # GHSA-gcqx-w48m-w2h4 (deepmerge, bassa): arriva solo da @sveltejs/vite-plugin-svelte
       # in fase di build e non esiste una versione corretta (4.3.1 e' l'ultima, 2026-11-05).
