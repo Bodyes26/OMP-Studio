@@ -16,17 +16,12 @@
 
 import { m as msg } from '#lib/paraglide/messages.js';
 import { Channel, invoke } from '#lib/backend/ipc.ts';
+import type { BrowserSessionIdentity, RpcCapability } from './browserProtocol';
+// Le forme pure restano importabili da `browserProtocol.ts`: qui si ri-esportano
+// perche' i consumatori della GUI le hanno sempre chieste a questo modulo.
+export type { BrowserSessionIdentity, RpcCapability } from './browserProtocol';
 
 /* ------------------------------------------------------------- capability */
-
-export interface RpcCapability {
-	name: string;
-	version: number;
-	/** Trasporti supportati. Assente o vuoto significa inutilizzabile. */
-	transports?: string[];
-	/** Estensioni opzionali: un'intersezione vuota e' comunque valida. */
-	features?: string[];
-}
 
 export const BROWSER_LIVE_CAPABILITY_NAME = 'browser-live';
 export const BROWSER_LIVE_VERSION = 1;
@@ -157,14 +152,6 @@ export function shouldNegotiate(advertised: readonly RpcCapability[]): boolean {
 }
 
 /* -------------------------------------------------------------- identita' */
-
-export interface BrowserSessionIdentity {
-	projectId: string;
-	laneId?: string;
-	chatSessionId: string;
-	browserSessionId: string;
-	tabId: string;
-}
 
 export type BrowserMode = 'managed' | 'chrome-relay';
 export type BrowserController = 'agent' | 'user' | 'private-user';

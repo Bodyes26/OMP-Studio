@@ -313,10 +313,14 @@
 		project?.attention?.find((a) => a.laneId === route.laneId || (!a.laneId && route.laneId === 'main')) ?? null
 	);
 
+	// `RemoteAgent` pubblica provider e modello separati: la chiave composta
+	// `provider/modello` serve solo a cercare la voce nel catalogo.
 	const activeLaneModel = $derived(
-		optimisticModelId
-			? (optimisticProvider ? `${optimisticProvider}/${optimisticModelId}` : optimisticModelId)
-			: lane?.agent.model
+		(optimisticModelId ?? activeModelId)
+			? ((optimisticProvider ?? activeProvider)
+				? `${optimisticProvider ?? activeProvider}/${optimisticModelId ?? activeModelId}`
+				: (optimisticModelId ?? activeModelId))
+			: null
 	);
 	const laneSupportsImages = $derived.by(() => {
 		if (!activeLaneModel) return true;

@@ -6,7 +6,7 @@
 // non mandare. La forma di `details` per tool e' documentata in
 // `ricerca/TOOL-DETAILS.md`, rilevata sul filo e non dedotta.
 
-import type { BrowserSessionIdentity, RpcCapability } from './browser-live';
+import type { BrowserSessionIdentity, RpcCapability } from './browserProtocol';
 
 /* ---------------------------------------------------------------- comandi */
 
@@ -724,20 +724,21 @@ export class StreamBatcher {
 		}
 
 		if (this.rafId === null) {
-			if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
-				this.rafId = window.requestAnimationFrame(() => {
+			const host = frameHost();
+			if (host?.requestAnimationFrame) {
+				this.rafId = host.requestAnimationFrame(() => {
 					this.rafId = null;
 					if (this.timeoutId !== null) {
-						window.clearTimeout(this.timeoutId);
+						host.clearTimeout(this.timeoutId);
 						this.timeoutId = null;
 					}
 					this.flush();
 				});
 				if (this.timeoutId === null) {
-					this.timeoutId = window.setTimeout(() => {
+					this.timeoutId = host.setTimeout(() => {
 						this.timeoutId = null;
 						if (this.rafId !== null) {
-							window.cancelAnimationFrame(this.rafId);
+							host.cancelAnimationFrame?.(this.rafId);
 							this.rafId = null;
 						}
 						this.flush();
@@ -750,12 +751,13 @@ export class StreamBatcher {
 	}
 
 	flush() {
-		if (this.rafId !== null && typeof window !== 'undefined') {
-			window.cancelAnimationFrame(this.rafId);
+		const host = frameHost();
+		if (this.rafId !== null && host) {
+			host.cancelAnimationFrame?.(this.rafId);
 			this.rafId = null;
 		}
-		if (this.timeoutId !== null && typeof window !== 'undefined') {
-			window.clearTimeout(this.timeoutId);
+		if (this.timeoutId !== null && host) {
+			host.clearTimeout(this.timeoutId);
 			this.timeoutId = null;
 		}
 		if (this.pending.size === 0) return;
@@ -766,16 +768,37 @@ export class StreamBatcher {
 	}
 
 	clear() {
-		if (this.rafId !== null && typeof window !== 'undefined') {
-			window.cancelAnimationFrame(this.rafId);
+		const host = frameHost();
+		if (this.rafId !== null && host) {
+			host.cancelAnimationFrame?.(this.rafId);
 			this.rafId = null;
 		}
-		if (this.timeoutId !== null && typeof window !== 'undefined') {
-			window.clearTimeout(this.timeoutId);
+		if (this.timeoutId !== null && host) {
+			host.clearTimeout(this.timeoutId);
 			this.timeoutId = null;
 		}
 		this.pending.clear();
 	}
+}
+
+/**
+ * Orologio della finestra senza nominare `window`: questo modulo lo importa
+ * anche il typecheck del relay, che non ha la lib DOM. Nel webview trova
+ * `requestAnimationFrame`; altrove ricade sul solo timer, come prima.
+ */
+interface FrameHost {
+	requestAnimationFrame?: (callback: (time: number) => void) => number;
+	cancelAnimationFrame?: (id: number) => void;
+	setTimeout: (callback: () => void, ms: number) => number;
+	clearTimeout: (id: number) => void;
+}
+
+function frameHost(): FrameHost | null {
+	// Nel webview il vero orologio e' `window`; nei test e in Bun lo si
+	// sostituisce, quindi va letto per nome invece che da `globalThis`.
+	const scope = globalThis as unknown as { window?: Partial<FrameHost> } & Partial<FrameHost>;
+	const host = scope.window ?? scope;
+	return typeof host.setTimeout === 'function' ? (host as FrameHost) : null;
 }
 
 /* ------------------------------------------- parsing e validazione wire */
