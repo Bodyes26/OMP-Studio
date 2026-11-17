@@ -3,13 +3,28 @@
 	import { m } from '#lib/paraglide/messages.js';
 	import { invoke } from '#lib/backend/ipc.ts';
 	import { open as openDialog } from '@tauri-apps/plugin-dialog';
-	import { projectStore, joinProjectPath, type ProjectColorMode } from '#lib/stores/projects.svelte.ts';
+	import { projectStore, joinProjectPath, normalizeProjectPath, type ProjectColorMode } from '#lib/stores/projects.svelte.ts';
 	import { githubStore, type GithubRemoteRepo, type DetectedGithubRemote } from '#lib/stores/github.svelte.ts';
 	import { settingsStore } from '#lib/stores/settings.svelte.ts';
 	import { trapFocus } from '#lib/focusTrap.ts';
-	import { IconGithub, IconFolderOpen, IconPlus, IconGlobe, IconLock, IconArrowLeft, IconMonitor } from '#lib/icons.ts';
+	import { IconGithub, IconFolderOpen, IconPlus, IconGlobe, IconLock, IconArrowLeft } from '#lib/icons.ts';
 	import { linkStore } from '#lib/backend/link.svelte.ts';
+	import { LOCAL_MACHINE } from '#lib/backend/ipc.ts';
 	import type { RemoteFolderList } from '$remote-protocol';
+	import { projectOrder } from '#lib/stores/projectOrder.svelte.ts';
+	import { provenance, copyDivergence, machineName } from '#lib/stores/projectMachines.svelte.ts';
+	import {
+		buildPickerEntries,
+		filterPickerEntries,
+		folderName,
+		pickerKey,
+		preferredClosedCopy,
+		type PickerCopy,
+		type PickerEntry,
+		type PickerGroup,
+		type PickerSource
+	} from '#lib/stores/pickerEntries.ts';
+	import MachineGlyph from '#lib/ui/MachineGlyph.svelte';
 
 	let { open = false, onClose } = $props<{ open?: boolean; onClose?: () => void }>();
 
@@ -61,21 +76,6 @@
 		candidates.filter((c) => !openKeys.has(c.path.toLowerCase()))
 	);
 
-	// Filtra cartelle locali non ancora aperte
-	const filteredLocal = $derived.by(() => {
-		const q = query.trim().toLowerCase();
-		return q
-			? unopenedCandidates.filter(
-					(c) =>
-						c.name.toLowerCase().includes(q) ||
-						(c.customName && c.customName.toLowerCase().includes(q)) ||
-						(c.label && c.label.toLowerCase().includes(q)) ||
-						c.path.toLowerCase().includes(q) ||
-						c.githubRemote?.fullName.toLowerCase().includes(q)
-				)
-			: unopenedCandidates;
-	});
-
 	// Repo remoti GitHub dell'utente che NON sono già presenti tra le cartelle locali
 	const availableRemoteRepos = $derived.by(() => {
 		if (!githubStore.status.authenticated) return [];
@@ -102,48 +102,127 @@
 			: notLocal;
 	});
 
-	// Cartelle delle altre macchine gia' aperte in barra: non si ripropongono.
-	const openRemoteKeys = $derived(new Set(
-		projectStore.projects
-			.filter((p) => p.machineId && p.machineId !== 'local' && p.canonicalProjectPath)
-			.map((p) => `${p.machineId}:${p.canonicalProjectPath!.toLowerCase()}`)
-	));
+	/** Macchine da filtrare: vuoto = tutte (R-MI-21). */
+	let machineFilter = $state<string[]>([]);
+	const filterMachines = $derived([
+		{ id: LOCAL_MACHINE, name: machineName(LOCAL_MACHINE), local: true, online: true },
+		...linkStore.status.peers.map((peer) => ({ id: peer.id, name: peer.name, local: false, online: peer.online }))
+	]);
 
-	const filteredMachineFolders = $derived.by(() => {
-		const q = query.trim().toLowerCase();
-		return machineFolders
-			.map((machine) => ({
-				...machine,
-				folders: machine.folders.filter((folder) =>
-					!openRemoteKeys.has(`${machine.id}:${folder.path.toLowerCase()}`) &&
-					(!q || folder.name.toLowerCase().includes(q) || folder.path.toLowerCase().includes(q))
-				)
-			}))
-			.filter((machine) => machine.folders.length > 0);
+	function repoOfPath(path: string | null | undefined): string | null {
+		if (!path) return null;
+		return githubStore.upstreamByPath[normalizeProjectPath(path).toLowerCase()]?.repoSlug ?? null;
+	}
+
+	/** Tessere della barra: una voce per gruppo di copie, tutte aperte. */
+	const tileSources = $derived(
+		projectOrder.unified
+			.filter((p) => p.canonicalProjectPath && !p.labDraft && !p.external)
+			.map((p) => {
+				const view = provenance(p);
+				const repo = view.copies.map((copy) => repoOfPath(copy.project.canonicalProjectPath)).find(Boolean) ?? null;
+				return {
+					id: p.id,
+					key: pickerKey(repo, folderName(p.canonicalProjectPath!)),
+					name: p.name,
+					label: p.label,
+					hue: p.colorMode === 'custom' ? p.hue : null,
+					diverged: view.kind === 'copies' && copyDivergence(p) !== null,
+					copies: view.copies.map((copy): PickerCopy => ({
+						machineId: copy.machineId,
+						machineName: copy.name,
+						local: copy.local,
+						online: copy.online,
+						state: 'open',
+						path: copy.project.canonicalProjectPath ?? '',
+						projectId: copy.project.id
+					}))
+				};
+			})
+	);
+
+	/**
+	 * Aperti su un'altra macchina ma non in questa barra: le tessere nascoste
+	 * (R-MI-20) e quelle che il riepilogo dell'host non ha ancora portato.
+	 */
+	const elsewhereSources = $derived.by((): PickerSource[] => {
+		const sources: PickerSource[] = [];
+		const shown = new Set<string>(projectStore.projects.map((p) => p.id));
+		for (const [machine, snapshot] of Object.entries(linkStore.hosts)) {
+			const peer = linkStore.machineFor(machine);
+			const folders = machineFolders.find((entry) => entry.id === machine)?.folders ?? [];
+			for (const host of snapshot.projects) {
+				const id = `${machine}::${host.id}`;
+				if (host.external || host.labDraft || !host.canonicalProjectPath || shown.has(id)) continue;
+				const folder = folders.find((candidate) => candidate.openProjectId === host.id);
+				sources.push({
+					key: pickerKey(folder?.repo, folderName(host.canonicalProjectPath)),
+					name: host.name,
+					label: host.label,
+					copy: {
+						machineId: machine,
+						machineName: peer?.name ?? machine,
+						local: false,
+						online: peer?.online ?? false,
+						state: 'open',
+						path: host.canonicalProjectPath,
+						projectId: id
+					}
+				});
+			}
+		}
+		return sources;
 	});
 
-	const machineFolderCount = $derived(
-		filteredMachineFolders.reduce((total, machine) => total + machine.folders.length, 0)
-	);
+	/** Cartelle note ma chiuse, qui e sulle altre macchine. */
+	const closedSources = $derived.by((): PickerSource[] => {
+		const local = unopenedCandidates.map((c): PickerSource => ({
+			key: pickerKey(c.githubRemote?.fullName, c.name),
+			name: c.customName || c.name,
+			label: c.label ?? null,
+			hue: c.colorMode === 'custom' ? (c.hue ?? null) : null,
+			copy: { machineId: LOCAL_MACHINE, machineName: machineName(LOCAL_MACHINE), local: true, online: true, state: 'closed', path: c.path }
+		}));
+		const remote = machineFolders.flatMap((machine) =>
+			machine.folders
+				.filter((folder) => !folder.openProjectId)
+				.map((folder): PickerSource => ({
+					key: pickerKey(folder.repo, folder.name),
+					name: folder.name,
+					copy: { machineId: machine.id, machineName: machine.name, local: false, online: true, state: 'closed', path: folder.path }
+				}))
+		);
+		return [...local, ...remote];
+	});
+
+	const GROUPS: PickerGroup[] = ['window', 'elsewhere', 'closed'];
+	const entries = $derived.by(() => {
+		const all = filterPickerEntries(
+			buildPickerEntries(tileSources, elsewhereSources, closedSources),
+			new Set(machineFilter),
+			query
+		);
+		return GROUPS.flatMap((group) => all.filter((entry) => entry.group === group));
+	});
+
+	function groupLabel(group: PickerGroup): string {
+		return group === 'window'
+			? m.project_picker_group_window()
+			: group === 'elsewhere'
+				? m.project_picker_group_elsewhere()
+				: m.project_picker_group_closed();
+	}
 
 	// Lista unificata di tutti gli elementi selezionabili con tastiera
 	type SelectableItem =
 		| { type: 'new' }
-		| { type: 'local'; candidate: Candidate; localIndex: number }
-		| { type: 'machine'; machineId: string; path: string }
+		| { type: 'entry'; entry: PickerEntry }
 		| { type: 'remote'; repo: GithubRemoteRepo; remoteIndex: number }
 		| { type: 'browse' };
 
 	const allItems = $derived.by((): SelectableItem[] => {
 		const items: SelectableItem[] = [{ type: 'new' }];
-		filteredLocal.forEach((candidate, localIndex) => {
-			items.push({ type: 'local', candidate, localIndex });
-		});
-		for (const machine of filteredMachineFolders) {
-			for (const folder of machine.folders) {
-				items.push({ type: 'machine', machineId: machine.id, path: folder.path });
-			}
-		}
+		for (const entry of entries) items.push({ type: 'entry', entry });
 		availableRemoteRepos.forEach((repo, remoteIndex) => {
 			items.push({ type: 'remote', repo, remoteIndex });
 		});
@@ -151,10 +230,49 @@
 		return items;
 	});
 
-	const browseItemIndex = $derived(1 + filteredLocal.length + machineFolderCount + availableRemoteRepos.length);
+	const browseItemIndex = $derived(1 + entries.length + availableRemoteRepos.length);
 
 	const selectedIndex = $derived(Math.max(0, Math.min(index, allItems.length - 1)));
 
+	function toggleMachineFilter(id: string) {
+		machineFilter = machineFilter.includes(id) ? machineFilter.filter((other) => other !== id) : [...machineFilter, id];
+		index = 0;
+	}
+
+	/**
+	 * Apre una copia: torna alla tessera se è in barra, rimette in barra una
+	 * tessera nascosta, apre la cartella chiusa sulla sua macchina.
+	 */
+	async function openCopy(copy: PickerCopy) {
+		if (copy.state === 'open' && copy.projectId) {
+			if (projectStore.isHiddenRemote(copy.projectId)) {
+				projectStore.showRemote(copy.projectId);
+				const snapshot = linkStore.hosts[copy.machineId];
+				if (snapshot) projectStore.syncRemoteProjects(copy.machineId, copy.machineName, snapshot);
+			}
+			if (projectStore.projects.some((p) => p.id === copy.projectId)) projectStore.setActive(copy.projectId);
+			onClose?.();
+			return;
+		}
+		if (copy.local) {
+			projectStore.openProject(copy.path);
+			onClose?.();
+			return;
+		}
+		await openRemoteFolder(copy.machineId, copy.path);
+	}
+
+	async function openEntry(entry: PickerEntry) {
+		if (entry.group === 'window' && entry.tileId) {
+			projectStore.setActive(entry.tileId);
+			onClose?.();
+			return;
+		}
+		const target = entry.group === 'elsewhere'
+			? entry.copies.find((copy) => copy.state === 'open')
+			: preferredClosedCopy(entry);
+		if (target) await openCopy(target);
+	}
 
 	/**
 	 * Una macchina irraggiungibile o con troppa latenza non blocca l'elenco
@@ -289,11 +407,8 @@
 	async function pickItem(item: SelectableItem) {
 		if (item.type === 'new') {
 			openNewProject();
-		} else if (item.type === 'local') {
-			projectStore.openProject(item.candidate.path);
-			onClose?.();
-		} else if (item.type === 'machine') {
-			await openRemoteFolder(item.machineId, item.path);
+		} else if (item.type === 'entry') {
+			await openEntry(item.entry);
 		} else if (item.type === 'remote') {
 			await handleCloneAndOpen(item.repo);
 		} else if (item.type === 'browse') {
@@ -517,81 +632,72 @@
 			</button>
 			<div class="section-divider"></div>
 
-			<!-- SEZIONE 1: CARTELLE LOCALI -->
-			<div class="section-label">
-				<span>{m.project_picker_local_section({ count: filteredLocal.length })}</span>
-				<span class="section-hint">{m.project_picker_in_root({ root: projectStore.projectRoot })}</span>
-			</div>
-
-			{#if filteredLocal.length === 0}
-				<div class="empty-row">{m.project_picker_local_empty()}</div>
-			{:else}
-				{#each filteredLocal as c, i (c.path)}
-					{@const itemIndex = i + 1}
-					{@const isSelected = selectedIndex === itemIndex}
-					<button
-						type="button"
-						class="row"
-						class:sel={isSelected}
-						role="option"
-						aria-selected={isSelected}
-						aria-label={`${c.customName ? `${c.customName} (${c.name})` : c.name} - ${c.path}`}
-						onmouseenter={() => (index = itemIndex)}
-						onclick={() => pickItem({ type: 'local', candidate: c, localIndex: i })}
-						disabled={isCloning}
-					>
-						<span class="row-icon"><IconFolderOpen /></span>
-						<span class="name font-mono">{@render highlight(c.customName || c.name, query)}</span>
-						{#if c.customName}
-							<span class="badge folder-badge">({c.name})</span>
-						{/if}
-						{#if c.label}
-							<span
-								class="badge label-badge"
-								style={c.hue !== undefined ? `--proj-hue: ${c.hue}` : undefined}
-							>
-								{c.label}
-							</span>
-						{/if}
-						{#if c.githubRemote}
-							<span class="badge gh-badge" title={m.project_picker_linked_to({ url: `https://github.com/${c.githubRemote.fullName}` })}>
-								<IconGithub /> {c.githubRemote.fullName}
-							</span>
-						{/if}
-						<span class="path">{@render highlight(c.path, query)}</span>
-					</button>
-				{/each}
-			{/if}
-
-			<!-- SEZIONE 2: CARTELLE DELLE ALTRE ISTANZE -->
-			{#if machineFolders.length > 0}
-				<div class="section-divider"></div>
-				{#each filteredMachineFolders as machine (machine.id)}
-					{@const machineOffset = allItems.findIndex((item) => item.type === 'machine' && item.machineId === machine.id)}
-					<div class="section-label">
-						<span class="with-icon"><IconMonitor /> {machine.name}</span>
-					</div>
-					{#each machine.folders as folder, folderIndex (folder.path)}
-						{@const itemIndex = machineOffset + folderIndex}
-						{@const isSelected = selectedIndex === itemIndex}
+			<!-- Un elenco solo per tutte le macchine, in tre gruppi (R-MI-21, F23). -->
+			{#if filterMachines.length > 1}
+				<div class="machine-filters" role="group" aria-label={m.project_picker_list_aria()}>
+					{#each filterMachines as machine (machine.id)}
 						<button
 							type="button"
-							class="row"
-							class:sel={isSelected}
-							role="option"
-							aria-selected={isSelected}
-							aria-label={`${folder.name} - ${folder.path}`}
-							onmouseenter={() => (index = itemIndex)}
-							onclick={() => void openRemoteFolder(machine.id, folder.path)}
-							disabled={isCloning}
+							class="machine-filter"
+							class:offline={!machine.online}
+							aria-pressed={machineFilter.includes(machine.id)}
+							aria-label={m.project_picker_machine_filter_aria({ machine: machine.name })}
+							onclick={() => toggleMachineFilter(machine.id)}
 						>
-							<span class="row-icon"><IconMonitor /></span>
-							<span class="name">{@render highlight(folder.name, query)}</span>
-							<span class="path">{folder.path}</span>
+							<MachineGlyph kind={machine.local ? 'here' : machine.online ? 'remote' : 'offline'} size={11} />
+							{machine.name}
 						</button>
 					{/each}
-				{/each}
+				</div>
 			{/if}
+
+			{#if entries.length === 0}
+				<div class="empty-row">{m.project_picker_group_none()}</div>
+			{/if}
+			{#each GROUPS as group (group)}
+				{@const groupEntries = entries.filter((entry) => entry.group === group)}
+				{#if groupEntries.length > 0}
+					<div class="section-label"><span>{groupLabel(group)} · {groupEntries.length}</span></div>
+					{#each groupEntries as entry (entry.key)}
+						{@const itemIndex = 1 + entries.indexOf(entry)}
+						{@const isSelected = selectedIndex === itemIndex}
+						<div
+							class="row entry-row"
+							class:sel={isSelected}
+							role="option"
+							tabindex="-1"
+							aria-selected={isSelected}
+							aria-label={`${entry.name} - ${entry.copies.map((copy) => copy.machineName).join(', ')}`}
+							onmouseenter={() => (index = itemIndex)}
+							onclick={() => void openEntry(entry)}
+							onkeydown={(event) => { if (event.key === 'Enter') void openEntry(entry); }}
+						>
+							<span class="entry-code" style={entry.hue !== null ? `--proj-hue: ${entry.hue}` : undefined}>{entry.label ?? entry.name.slice(0, 2).toUpperCase()}</span>
+							<span class="name">{@render highlight(entry.name, query)}</span>
+							{#if entry.diverged}<span class="entry-diverged">{m.project_picker_diverged()}</span>{/if}
+							<span class="entry-machines">
+								{#each entry.copies as copy (copy.machineId)}
+									{#if copy.state === 'closed' && copy.online}
+										<button
+											type="button"
+											class="machine-tag closed"
+											title={m.project_picker_open_on({ machine: copy.machineName })}
+											aria-label={m.project_picker_open_on({ machine: copy.machineName })}
+											onclick={(event) => { event.stopPropagation(); void openCopy(copy); }}
+										>
+											<MachineGlyph kind={copy.local ? 'here' : 'remote'} size={11} />{copy.machineName}
+										</button>
+									{:else}
+										<span class="machine-tag" class:open={copy.state === 'open' && copy.online} class:offline={!copy.online}>
+											<MachineGlyph kind={copy.local ? 'here' : copy.online ? 'remote' : 'offline'} size={11} />{copy.machineName}
+										</span>
+									{/if}
+								{/each}
+							</span>
+						</div>
+					{/each}
+				{/if}
+			{/each}
 
 			<div class="section-divider"></div>
 			<div class="section-label">
@@ -621,7 +727,7 @@
 				</div>
 			{:else}
 				{#each availableRemoteRepos as r, j (r.fullName)}
-					{@const itemIndex = 1 + filteredLocal.length + machineFolderCount + j}
+					{@const itemIndex = 1 + entries.length + j}
 					{@const isSelected = selectedIndex === itemIndex}
 					<button
 						type="button"
@@ -827,6 +933,68 @@
 		font-family: var(--font-mono);
 	}
 
+	/* Elenco unico (R-MI-21): sigla, nome e, a destra, le macchine dove esiste. */
+	.machine-filters {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
+		padding: 4px var(--space-2) var(--space-2);
+	}
+	.machine-filter {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		padding: 5px 9px;
+		border: 1px solid var(--line);
+		border-radius: var(--radius-full);
+		background: transparent;
+		color: var(--ink-muted);
+		font: 500 var(--text-caption)/1 var(--font-ui);
+		cursor: pointer;
+		transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+	}
+	.machine-filter:hover { background: var(--bg-hover); }
+	.machine-filter[aria-pressed='true'] { color: var(--ink); background: var(--bg-active); border-color: var(--line-strong); }
+	.machine-filter.offline { border-style: dashed; }
+	.entry-row { min-height: 36px; }
+	.entry-code {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-width: 32px;
+		height: 24px;
+		padding: 0 5px;
+		border-radius: var(--radius-sm);
+		background: var(--bg-hover);
+		font: 600 var(--text-caption)/1 var(--font-ui);
+		color: var(--ink);
+		flex-shrink: 0;
+	}
+	.entry-diverged { font-size: var(--text-caption); color: var(--warn); white-space: nowrap; }
+	.entry-machines {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: flex-end;
+		gap: 4px;
+		margin-left: auto;
+	}
+	.machine-tag {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		padding: 3px 7px;
+		border: 1px solid var(--line);
+		border-radius: var(--radius-sm);
+		background: transparent;
+		color: var(--ink-faint);
+		font: 450 var(--text-caption)/1.2 var(--font-ui);
+		white-space: nowrap;
+	}
+	.machine-tag.open { color: var(--ink); border-color: var(--line-strong); }
+	.machine-tag.offline { border-style: dashed; }
+	.machine-tag.closed { cursor: pointer; transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+	.machine-tag.closed:hover { background: var(--bg-hover); color: var(--ink); }
+
 	.highlight-char {
 		background: transparent;
 		color: var(--ink);
@@ -843,35 +1011,6 @@
 		border-radius: var(--radius-full);
 		padding: 1px 6px;
 	}
-	.badge.folder-badge {
-		color: var(--ink-faint);
-		font-family: var(--font-mono);
-		font-size: var(--text-meta);
-		padding: 0;
-	}
-
-	.badge.label-badge {
-		background: oklch(var(--proj-l-fill, 0.28) var(--proj-c-fill) var(--proj-hue, 220));
-		color: var(--on-project, var(--ink));
-		font-family: var(--font-mono);
-		font-weight: 700;
-		font-size: var(--text-meta);
-		padding: 1px 6px;
-		letter-spacing: 0.03em;
-		border: 1px solid oklch(var(--proj-l-fill, 0.35) var(--proj-c-fill) var(--proj-hue, 220));
-	}
-
-	.badge.gh-badge {
-		display: inline-flex;
-		align-items: center;
-		gap: 4px;
-		background: color-mix(in srgb, var(--brand) 12%, transparent);
-		color: var(--brand-ink);
-		border: 1px solid color-mix(in srgb, var(--brand) 28%, transparent);
-		font-family: var(--font-mono);
-		font-size: var(--text-meta);
-	}
-
 	.badge.private-badge {
 		background: color-mix(in srgb, var(--ink) 8%, transparent);
 		color: var(--ink-muted);

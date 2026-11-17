@@ -57,6 +57,10 @@ export interface GitUpstreamStatus {
 	repoSlug?: string | null;
 	/** Primo commit: identifica le copie senza origin condiviso. */
 	rootCommit?: string | null;
+	/** Commit corrente: due copie sullo stesso branch con HEAD diversi divergono (R-MI-22). */
+	headCommit?: string | null;
+	/** File con modifiche non committate; assente dagli host precedenti. */
+	changedFiles?: number;
 }
 
 export interface GithubActionRun {

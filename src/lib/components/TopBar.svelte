@@ -49,12 +49,11 @@
 		IconDownload,
 		IconFile,
 		IconClose,
-		IconMore,
-		IconMonitor,
-		IconJobs
+		IconMore
 	} from '#lib/icons.ts';
 	import { linkStore } from '#lib/backend/link.svelte.ts';
-	import { LOCAL_MACHINE } from '#lib/backend/ipc.ts';
+	import MachineGlyph from '#lib/ui/MachineGlyph.svelte';
+	import { provenance, copyDivergence, type Provenance } from '#lib/stores/projectMachines.svelte.ts';
 	import { laneStore, type LaneRecord } from '#lib/stores/lanes.svelte.ts';
 	import { MAIN_LANE_ID, type ProjectId, type AgentLane } from '#lib/types/lanes.ts';
 	import { sessionRegistry } from '#lib/agent/sessionRegistry.ts';
@@ -89,6 +88,20 @@
 		onRequestCloseProject: (projectId: string) => void;
 		onReviewLane: (projectId: string, lane: AgentLane | LaneRecord) => void;
 	}>();
+
+	/**
+	 * Dove gira il progetto, per chi usa un lettore di schermo: il glifo della
+	 * tessera non ha testo (R-MI-19).
+	 */
+	function provenanceAria(view: Provenance, diverged: boolean): string {
+		if (view.kind === 'local') return '';
+		if (view.kind === 'remote') return m.topbar_tab_aria_runs_on({ machine: view.inUse.name });
+		if (view.kind === 'offline') return m.topbar_tab_aria_unreachable({ machine: view.inUse.name });
+		return m.topbar_tab_aria_copies({
+			machine: view.inUse.name,
+			others: view.others.map((copy) => copy.name).join(', ')
+		}) + (diverged ? m.topbar_tab_aria_diverged() : '');
+	}
 
 	async function handleGhostButtonClick(event: MouseEvent) {
 		event.preventDefault();
@@ -868,13 +881,9 @@
 				  (upstream.ahead > 0 ? m.topbar_upstream_ahead_aria({ count: upstream.ahead }) : '')
 				: ''}
 			{@const aggState = getAggregatedState(p)}
-			{@const remoteMachine = linkStore.machineFor(p.machineId)}
 			{@const otherCopies = projectOrder.copiesOf(p)}
-			{@const otherCopyNames = otherCopies
-				.map((copy) => copy.machineId
-					? (linkStore.machineFor(copy.machineId)?.name ?? m.topbar_copies_local())
-					: m.topbar_copies_local())
-				.join(', ')}
+			{@const prov = provenance(p)}
+			{@const diverged = prov.kind === 'copies' && copyDivergence(p) !== null}
 			<!-- Con una tessera sola, le corsie da contare sono quelle di tutte le
 			     copie: la locale dal `laneStore`, le remote dallo snapshot della
 			     loro macchina (R-MI-12). -->
@@ -932,7 +941,7 @@
 					onkeydown={handleTabKeydown}
 					aria-selected={isActive}
 					tabindex={p.id === rovingTabId ? 0 : -1}
-					aria-label={m.topbar_tab_aria_label({ type: p.labDraft ? m.lab_lane_draft_badge() : p.canonicalProjectPath ? m.topbar_tab_project() : m.topbar_tab_scratchpad(), name: p.name, state: AGENT_STATE_LABEL[aggState], queued: queued > 0 ? ` · ${m.topbar_queue_count_label({ count: queued })}` : '' }) + (gitLanesCount > 0 ? ` · ${m.topbar_tab_aria_worktrees({ count: gitLanesCount })}` : '') + (labLanesCount > 0 ? ` · ${m.topbar_tab_aria_prototypes({ count: labLanesCount })}` : '') + gitDiffLabel + upstreamLabel}
+					aria-label={m.topbar_tab_aria_label({ type: p.labDraft ? m.lab_lane_draft_badge() : p.canonicalProjectPath ? m.topbar_tab_project() : m.topbar_tab_scratchpad(), name: p.name, state: AGENT_STATE_LABEL[aggState], queued: queued > 0 ? ` · ${m.topbar_queue_count_label({ count: queued })}` : '' }) + provenanceAria(prov, diverged) + (gitLanesCount > 0 ? ` · ${m.topbar_tab_aria_worktrees({ count: gitLanesCount })}` : '') + (labLanesCount > 0 ? ` · ${m.topbar_tab_aria_prototypes({ count: labLanesCount })}` : '') + gitDiffLabel + upstreamLabel}
 				>
 
 					<span
@@ -952,22 +961,14 @@
 						<span class="tab-reveal-inner"><span class="tab-name">{p.name}</span></span>
 					</span>
 
-					{#if p.machineId && p.machineId !== LOCAL_MACHINE}
-						<span
-							class="tab-machine-badge"
-							class:offline={remoteMachine ? !remoteMachine.online : true}
-							title={remoteMachine?.name ?? p.machineId}
-							aria-hidden="true"
-						><IconMonitor /><span>{remoteMachine?.name ?? p.machineId}</span></span>
-					{/if}
-					<!-- Stesso repository su un'altra macchina: la tessera è una sola,
-					     e dice dove sono le altre copie (R-MI-12). -->
-					{#if otherCopies.length > 0}
-						<span
-							class="tab-machine-badge tab-copies-badge"
-							title={m.topbar_copies_aria({ machines: otherCopyNames })}
-							aria-hidden="true"
-						><IconJobs /><span>{otherCopyNames}</span></span>
+					{#if prov.kind !== 'local'}
+						<span class="tab-machine" aria-hidden="true">
+							<MachineGlyph
+								kind={prov.kind === 'copies' ? 'copies' : prov.kind}
+								copies={prov.marks}
+								diverge={diverged}
+							/>
+						</span>
 					{/if}
 					{#if p.canonicalProjectPath && queueStyle !== 'off'}
 						<span class="tab-reveal" class:show={isActive && queued > 0}>
@@ -1967,39 +1968,21 @@
 		margin-left: 3px;
 	}
 
-	/* La macchina e' l'unica differenza visibile fra un progetto locale e uno
-	   remoto: icona e nome, misura dei badge delle corsie, stato in opacita'. */
-	.tab-machine-badge {
-		--icon-size: 10px;
+	/* Dove gira il progetto (R-MI-19): un glifo senza testo, tenue, che si
+	   schiarisce sulla tessera attiva. Niente riquadro: i nomi troncati del
+	   vecchio badge sono stati scartati in anteprima (F21). */
+	.tab-machine {
 		display: inline-flex;
 		align-items: center;
-		gap: 3px;
-		max-width: 12ch;
-		margin-left: var(--space-2);
-		padding: 1px 5px;
-		border-radius: var(--radius-sm);
-		font-family: var(--font-mono);
-		font-size: var(--text-caption);
-		font-weight: 600;
-		color: var(--ink-muted);
-		background-color: var(--bg-hover);
-		border: 1px solid var(--line);
-		line-height: 1;
-		flex-shrink: 0;
-	}
-	.tab-machine-badge :global(svg) {
-		width: var(--icon-size, 10px);
-		height: var(--icon-size, 10px);
-		flex-shrink: 0;
-	}
-	.tab-machine-badge span {
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-	.tab-machine-badge.offline {
+		margin-left: 6px;
 		color: var(--ink-faint);
-		border-style: dashed;
+		position: relative;
+		z-index: 1;
+		flex-shrink: 0;
+		transition: color var(--dur-calm) var(--ease-out);
+	}
+	.tab.active .tab-machine {
+		color: var(--ink-muted);
 	}
 
 

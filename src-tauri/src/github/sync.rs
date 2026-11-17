@@ -39,6 +39,13 @@ pub struct GitUpstreamStatus {
     pub repo_slug: Option<String>,
     /// Primo commit del repository: identifica le copie senza origin condiviso.
     pub root_commit: Option<String>,
+    /// Commit corrente della copia: due copie sullo stesso branch con HEAD
+    /// diversi divergono (R-MI-22). Gratis da `branch.oid`, nessun git in più.
+    #[serde(default)]
+    pub head_commit: Option<String>,
+    /// File con modifiche non committate, per il riassunto della divergenza.
+    #[serde(default)]
+    pub changed_files: u32,
 }
 
 fn run_git_in(dir: &Path, args: &[&str]) -> Result<String, String> {
@@ -481,6 +488,8 @@ pub(crate) struct GitPorcelainV2BranchInfo {
     pub ahead: u32,
     pub behind: u32,
     pub has_uncommitted: bool,
+    pub head_commit: Option<String>,
+    pub changed_files: u32,
 }
 
 /// Parsing di `git status --porcelain=v2 --branch`.
@@ -497,6 +506,8 @@ pub(crate) fn parse_porcelain_v2_branch(raw: &str) -> GitPorcelainV2BranchInfo {
     let mut ahead = 0;
     let mut behind = 0;
     let mut has_uncommitted = false;
+    let mut head_commit = None;
+    let mut changed_files = 0u32;
 
     for line in raw.lines() {
         let trimmed = line.trim();
@@ -506,7 +517,13 @@ pub(crate) fn parse_porcelain_v2_branch(raw: &str) -> GitPorcelainV2BranchInfo {
 
         if let Some(rest) = trimmed.strip_prefix('#') {
             let header = rest.trim_start();
-            if let Some(b) = header.strip_prefix("branch.head ") {
+            if let Some(oid) = header.strip_prefix("branch.oid ") {
+                // `(initial)` su un repository senza commit: nessun HEAD.
+                let oid = oid.trim();
+                if !oid.is_empty() && !oid.starts_with('(') {
+                    head_commit = Some(oid.to_string());
+                }
+            } else if let Some(b) = header.strip_prefix("branch.head ") {
                 branch = b.trim().to_string();
             } else if let Some(u) = header.strip_prefix("branch.upstream ") {
                 let u_clean = u.trim();
@@ -526,6 +543,7 @@ pub(crate) fn parse_porcelain_v2_branch(raw: &str) -> GitPorcelainV2BranchInfo {
             // Qualsiasi voce fuori dagli header (#) segnala file modificati,
             // aggiunti, rimossi o untracked nel working tree
             has_uncommitted = true;
+            changed_files += 1;
         }
     }
 
@@ -539,6 +557,8 @@ pub(crate) fn parse_porcelain_v2_branch(raw: &str) -> GitPorcelainV2BranchInfo {
         ahead,
         behind,
         has_uncommitted,
+        head_commit,
+        changed_files,
     }
 }
 
@@ -571,6 +591,8 @@ pub async fn git_upstream_status(project_path: String) -> Result<GitUpstreamStat
                     has_uncommitted: false,
                     repo_slug: None,
                     root_commit: None,
+                    head_commit: None,
+                    changed_files: 0,
                 });
             }
         };
@@ -624,6 +646,8 @@ pub async fn git_upstream_status(project_path: String) -> Result<GitUpstreamStat
             has_uncommitted: parsed.has_uncommitted,
             repo_slug,
             root_commit,
+            head_commit: parsed.head_commit,
+            changed_files: parsed.changed_files,
         })
     })
     .await
@@ -1570,6 +1594,9 @@ mod tests {
 ";
         let info_dirty = parse_porcelain_v2_branch(raw_dirty);
         assert!(info_dirty.has_uncommitted);
+        assert_eq!(info_dirty.changed_files, 2);
+        assert_eq!(info_dirty.head_commit.as_deref(), Some("881a25b3e1fa841ed15c654789cc993158a08c45"));
+        assert_eq!(parse_porcelain_v2_branch("# branch.oid (initial)\n# branch.head main\n").head_commit, None);
     }
 
     #[test]

@@ -36,6 +36,7 @@
 	import BtwPopover from './BtwPopover.svelte';
 	import { btwLatestTurn, isBtwRunning } from '../btw';
 	import Composer from './Composer.svelte';
+	import CopyDivergenceStrip from './CopyDivergenceStrip.svelte';
 	import type { MachineChoice } from '../machineChoice.ts';
 	import ComposerTray from './ComposerTray.svelte';
 	import LoopComposer from './LoopComposer.svelte';
@@ -769,6 +770,7 @@
 			<div
 				class:composer-under-ask={(session.pendingUi !== null && !askMinimized) || session.plan.approvalOpen || session.plan.handingOff || guidedAsking}
 			>
+				{#if !readOnly}<CopyDivergenceStrip projectId={session.projectKey} {visible} />{/if}
 				<Composer
 					bind:this={composerRef}
 					{session}

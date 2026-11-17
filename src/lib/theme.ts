@@ -352,6 +352,9 @@ function anchorDeclarations(anchors: ThemeAnchors): [string, string][] {
 		['--brand-dim-l', light ? '0.880' : '0.440'],
 		['--warn-l', light ? '0.420' : '0.780'],
 		['--warn-dim-l', light ? '0.880' : '0.560'],
+		// Segni grafici in ambra (R-MI-19): sul chiaro --warn a 0.42 e' leggibile
+		// come testo ma accanto ai grigi della barra sembra marrone.
+		['--warn-glyph', light ? 'oklch(0.640 calc(var(--warn-c) * 1.13) var(--warn-h))' : 'var(--warn)'],
 		['--success-h', '145'],
 		['--success-c', successC],
 		['--success-l', successL],

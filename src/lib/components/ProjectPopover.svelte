@@ -20,12 +20,15 @@
 	import ProjectGitView from './ProjectGitView.svelte';
 	import ProjectLanesView from './ProjectLanesView.svelte';
 	import Tooltip from '#lib/ui/Tooltip.svelte';
+	import MachineGlyph from '#lib/ui/MachineGlyph.svelte';
+	import { linkStore } from '#lib/backend/link.svelte.ts';
+	import { provenance, copyDivergence, divergenceSummary, type MachineCopy } from '#lib/stores/projectMachines.svelte.ts';
 	import StatusMark from '#lib/ui/StatusMark.svelte';
 	import IconAutomation from './automations/IconAutomation.svelte';
 	import {
 		IconArrowLeft, IconArrowRight, IconChevronLeft, IconChevronRight,
 		IconClose, IconCopy, IconGhost, IconLab, IconGitBranch, IconPlus,
-		IconQueue, IconFolderOpen
+		IconQueue, IconFolderOpen, IconEyeOff, IconCheck
 	} from '#lib/icons.ts';
 
 	interface Props {
@@ -47,7 +50,7 @@
 		onRunTask, onEditTask, onNewTask, onRequestCloseProject, onReviewLane,
 		canRunTask, runReason }: Props = $props();
 
-	type View = 'home' | 'queue' | 'git' | 'lanes' | 'associate';
+	type View = 'home' | 'queue' | 'git' | 'lanes' | 'associate' | 'machines' | 'close';
 	let panelEl = $state<HTMLElement | null>(null);
 	let stageEl = $state<HTMLElement | null>(null);
 	let bodyEl = $state<HTMLElement | null>(null);
@@ -113,6 +116,17 @@
 	const realProjects = $derived(projectStore.projects.filter(p => p.canonicalProjectPath && !p.labDraft && !p.external));
 	const position = $derived(projectOrder.list.findIndex(p => p.id === project.id));
 	const manualOrder = $derived(settingsStore.projectBar.order === 'fixed');
+	/** Dove vive il progetto (R-MI-23): macchina in uso e altre copie. */
+	const prov = $derived(provenance(project));
+	const onlyHere = $derived(prov.kind === 'local');
+	const divergence = $derived(prov.kind === 'copies' ? copyDivergence(project) : null);
+	const hasLocalCopy = $derived(prov.copies.some((copy) => copy.local));
+	/** A turno in corso la macchina non si cambia: lo spostamento è la fase 3 (R-MI-14). */
+	const machineBusy = $derived(prov.inUse.project.lane.agentState === 'working');
+	const autoOwner = $derived(prov.copies.find((copy) => copy.project.autoDispatch) ?? null);
+	/** Macchine scelte per «Chiudi progetto…»: tutte quelle raggiungibili. */
+	let closeSelection = $state<Record<string, boolean>>({});
+	const closeTargets = $derived(prov.copies.filter((copy) => copy.online && closeSelection[copy.project.id] !== false));
 	const stateLabel = $derived.by(() => {
 		switch (project.lane.agentState) {
 			case 'working': return m.topbar_agent_state_working();
@@ -122,7 +136,7 @@
 			default: return m.topbar_agent_state_idle();
 		}
 	});
-	const title = $derived(view === 'queue' ? m.project_tabs_core_queue() : view === 'git' ? m.project_tabs_core_git() : view === 'lanes' ? m.project_tabs_core_lanes() : m.lab_lane_associate_project());
+	const title = $derived(view === 'queue' ? m.project_tabs_core_queue() : view === 'git' ? m.project_tabs_core_git() : view === 'lanes' ? m.project_tabs_core_lanes() : view === 'machines' ? (prov.kind === 'copies' ? m.project_popover_machines() : m.project_popover_machine()) : view === 'close' ? m.project_popover_close_project() : m.lab_lane_associate_project());
 	const displayPath = $derived.by(() => {
 		const path = project.canonicalProjectPath;
 		if (!path) return '';
@@ -177,6 +191,7 @@
 			untrack(() => finishEdit(true));
 			lastProjectId = nextId;
 			view = 'home';
+			closeSelection = {};
 			colorOpen = false;
 			fixedPosition = null;
 			notice = '';
@@ -236,15 +251,77 @@
 		closePanel();
 		onNewTask?.(id);
 	}
-	async function copyPath() {
+	async function copyPath(path = project.canonicalProjectPath) {
 		const target = project;
-		if (!target.canonicalProjectPath) return;
+		if (!path) return;
 		try {
-			await navigator.clipboard.writeText(target.canonicalProjectPath);
+			await navigator.clipboard.writeText(path);
 			if (project.id === target.id) flash(m.project_popover_toast_copied());
 		} catch {
 			if (project.id === target.id) flash(m.project_popover_toast_copy_failed());
 		}
+	}
+	/**
+	 * Copia in uso (R-MI-13, R-MI-23): su un progetto mostrato si passa a
+	 * quella copia, come l'indicatore sotto il composer; altrimenti cambia
+	 * solo dove nasceranno le prossime chat, senza saltare su quel progetto.
+	 */
+	function pickInUse(copy: MachineCopy) {
+		if (copy.inUse || !copy.online || machineBusy) return;
+		if (prov.copies.some((candidate) => candidate.project.id === projectStore.activeId)) {
+			projectStore.setActive(copy.project.id);
+		} else {
+			projectStore.markUsed(copy.project.id);
+		}
+	}
+	/** L'auto-avvio è acceso su una sola copia (F20): accenderlo qui lo spegne altrove. */
+	function setAutoDispatchOn(copy: MachineCopy, enabled: boolean) {
+		if (copy.local) {
+			projectStore.setAutoDispatch(copy.project.id, enabled);
+			return;
+		}
+		copy.project.autoDispatch = enabled;
+		void linkStore
+			.command(copy.machineId, { kind: 'set_auto_dispatch', projectId: copy.project.hostProjectId ?? '', enabled })
+			.catch((error) => flash(String(error)));
+	}
+	function pickAutoDispatch(copy: MachineCopy) {
+		if (!copy.online || copy.project.autoDispatch) return;
+		for (const other of prov.copies) {
+			if (other !== copy && other.project.autoDispatch) setAutoDispatchOn(other, false);
+		}
+		setAutoDispatchOn(copy, true);
+	}
+	/** Toglie le tessere remote solo da questa finestra (R-MI-20). */
+	function hideHere() {
+		const ids = prov.copies.filter((copy) => !copy.local).map((copy) => copy.project.id);
+		closePanel();
+		for (const id of ids) projectStore.hideRemote(id);
+	}
+	/**
+	 * Chiude sulle macchine scelte (R-MI-20). La copia locale passa dalla
+	 * chiusura di sempre, che chiede conferma per il lavoro in corso; quelle
+	 * remote ricevono il comando, e la loro tessera sparisce con il riepilogo.
+	 */
+	function closeOnSelected() {
+		const targets = closeTargets;
+		if (targets.length === 0) return;
+		closePanel();
+		for (const copy of targets) {
+			if (copy.local) {
+				onRequestCloseProject(copy.project.id);
+				continue;
+			}
+			void linkStore
+				.command(copy.machineId, { kind: 'close_project', projectId: copy.project.hostProjectId ?? '' })
+				.catch((error) => flash(m.project_popover_close_failed({ machine: copy.name, error: String(error) })));
+		}
+	}
+	function copyLaneCount(copy: MachineCopy): number {
+		const lanes = copy.local
+			? laneStore.lanesFor(copy.project.id as ProjectId)
+			: (projectStore.remoteLanes[copy.project.id] ?? []);
+		return lanes.filter((lane) => lane.laneId !== MAIN_LANE_ID && lane.status !== 'archived' && lane.status !== 'closed').length;
 	}
 	async function reveal() {
 		const target = project;
@@ -311,13 +388,31 @@
 >
 	<div class="popover-content" bind:this={contentEl}>
 	{#if !pinned}
+		{#if !onlyHere && hasWorkspace}
+			<!-- Prima dove gira, poi il progetto (R-MI-23, F22). -->
+			<div class="peek-machine">
+				<MachineGlyph kind={prov.inUse.local ? 'here' : prov.inUse.online ? 'remote' : 'offline'} size={12} />
+				<span>{prov.inUse.online ? prov.inUse.name : m.project_popover_machine_unreachable({ machine: prov.inUse.name })}</span>
+			</div>
+		{/if}
 		<div class="peek-identity">
 			<span class="identity-code" style="--proj-hue: {hue}">{#if isDraft}<IconLab />{:else if isScratchpad}<IconGhost />{:else}{project.label ?? project.name.slice(0, 2).toUpperCase()}{/if}</span>
 			<strong>{project.name}</strong>
 		</div>
-		{#if displayPath}<p class="peek-path">{displayPath}</p>{/if}
+		{#if displayPath && onlyHere}<p class="peek-path">{displayPath}</p>{/if}
 		<div class="peek-status"><StatusMark status={project.lane.agentState === 'working' ? 'running' : project.lane.agentState === 'attention' ? 'attention' : project.lane.agentState === 'finished' ? 'completed' : 'pending'} /><span>{stateLabel}</span>{#if hasWorkspace}<span class="peek-count">{m.project_popover_queue_header({ count: queueCount })}</span>{/if}</div>
 		{#if attention}<p class="peek-question">{askQuestionText(attention.pendingUi, m.project_popover_quick_ask_title())}</p>{/if}
+		{#if divergence}<p class="peek-diverged">{m.copies_diverged_title()}</p>{/if}
+		{#if prov.others.length > 0}
+			<div class="peek-also">
+				<span>{m.project_popover_also_on()}</span>
+				{#each prov.others as copy (copy.project.id)}
+					<span class="peek-machine-chip" class:offline={!copy.online}>
+						<MachineGlyph kind={copy.local ? 'here' : copy.online ? 'remote' : 'offline'} size={11} />{copy.name}
+					</span>
+				{/each}
+			</div>
+		{/if}
 	{:else}
 		<div class="card-close"><Tooltip text={m.project_tabs_core_dismiss()} placement="bottom"><button class="close-card icon-button" aria-label={m.project_tabs_core_dismiss()} onclick={closePanel}><IconClose /></button></Tooltip></div>
 		{#if view === 'home'}
@@ -330,8 +425,8 @@
 					{#if editing?.field === 'name'}<input class="identity-edit name-edit" bind:this={fieldEl} bind:value={fieldDraft} aria-label={m.project_popover_name_aria()} onblur={() => finishEdit(true)} onkeydown={fieldKeydown} />
 					{:else}<button class="identity-name editable" aria-label={m.project_popover_edit_name_title()} onclick={() => beginEdit('name')}>{project.name}</button>{/if}
 				</div>
-				{#if displayPath}<div class="path-line"><Tooltip text={m.project_tabs_core_reveal()} placement="bottom"><button class="project-path" onclick={() => void reveal()}>{displayPath}</button></Tooltip><Tooltip text={m.project_popover_copy_path()} placement="bottom"><button class="icon-button copy-path" onclick={() => void copyPath()} aria-label={m.project_popover_copy_path()}><IconCopy /></button></Tooltip></div>
-				{:else}<span class="project-kind">{isDraft ? m.lab_lane_draft_badge() : m.project_popover_badge_scratchpad()}</span>{/if}
+				{#if displayPath && onlyHere}<div class="path-line"><Tooltip text={m.project_tabs_core_reveal()} placement="bottom"><button class="project-path" onclick={() => void reveal()}>{displayPath}</button></Tooltip><Tooltip text={m.project_popover_copy_path()} placement="bottom"><button class="icon-button copy-path" onclick={() => void copyPath()} aria-label={m.project_popover_copy_path()}><IconCopy /></button></Tooltip></div>
+				{:else if !hasWorkspace}<span class="project-kind">{isDraft ? m.lab_lane_draft_badge() : m.project_popover_badge_scratchpad()}</span>{/if}
 			</header>
 			<div class="color-fold" class:open={colorOpen}><div class="color-fold-inner" inert={!colorOpen}><div class="color-content"><HuePicker hue={project.hue} mode={project.colorMode} {autoHue} onhue={(next) => projectStore.setProjectHue(project.id, next)} onauto={() => projectStore.useAutomaticProjectColor(project.id)} /></div></div></div>
 		{:else}
@@ -341,6 +436,15 @@
 			<div class="view-body" bind:this={bodyEl}>
 				{#if view === 'home'}
 					<div class="home-actions">
+						{#if divergence}<button class="menu-row diverged-row" onclick={() => void navigate('machines')}><MachineGlyph kind="copies" copies={prov.marks} diverge /><span>{m.copies_diverged_title()}</span><IconChevronRight /></button>{/if}
+						{#if !onlyHere && hasWorkspace}
+							<button class="menu-row" onclick={() => void navigate('machines')}>
+								<span class="row-glyph"><MachineGlyph kind={prov.kind === 'copies' ? 'copies' : prov.kind === 'local' ? 'here' : prov.kind} copies={prov.marks} diverge={divergence !== null} /></span>
+								<span>{prov.kind === 'copies' ? m.project_popover_machines() : m.project_popover_machine()}<small class="row-hint">{prov.kind === 'copies' ? m.project_popover_machines_hint({ machine: prov.inUse.name }) : prov.inUse.online ? prov.inUse.name : m.project_popover_machine_unreachable({ machine: prov.inUse.name })}</small></span>
+								<IconChevronRight />
+							</button>
+							<div class="divider"></div>
+						{/if}
 						{#if attention}<button class="menu-row attention-row" onclick={openAttention}><StatusMark status="attention" /><span>{m.project_popover_quick_reply_in_composer()}</span></button>{/if}
 						{#if onNewTask && !project.external}<button class="menu-row" onclick={newTask}><IconPlus /><span>{m.project_popover_new_task()}</span></button>{/if}
 						{#if hasWorkspace}<button class="menu-row" onclick={() => void navigate('queue')}><IconQueue /><span>{m.project_tabs_core_queue()}</span><small>{queueCount}</small><IconChevronRight /></button>{/if}
@@ -350,11 +454,75 @@
 						{#if isDraft}<button class="menu-row" onclick={() => void navigate('associate')}><IconFolderOpen /><span>{m.lab_lane_associate_project()}</span><IconChevronRight /></button>{/if}
 						<div class="divider"></div>
 						<div class="reorder-row"><span>{m.project_tabs_core_order()}</span><Tooltip text={manualOrder ? m.project_popover_shift_left() : m.project_tabs_core_manual_order()}><button class="icon-button" disabled={!manualOrder || position <= 0} onclick={() => void shift(-1)} aria-label={m.project_popover_shift_left_aria()}><IconArrowLeft /></button></Tooltip><Tooltip text={manualOrder ? m.project_popover_shift_right() : m.project_tabs_core_manual_order()}><button class="icon-button" disabled={!manualOrder || position < 0 || position >= projectOrder.list.length - 1} onclick={() => void shift(1)} aria-label={m.project_popover_shift_right_aria()}><IconArrowRight /></button></Tooltip></div>
-						<button class="menu-row danger" onclick={requestCloseProject}><IconClose /><span>{m.project_popover_close_project()}</span></button>
+						{#if onlyHere || !hasWorkspace}
+							<button class="menu-row danger" onclick={requestCloseProject}><IconClose /><span>{m.project_popover_close_project()}</span></button>
+						{:else}
+							{#if !hasLocalCopy}<button class="menu-row" onclick={hideHere}><IconEyeOff /><span>{m.project_popover_hide()}</span></button>{/if}
+							<button class="menu-row danger" onclick={() => void navigate('close')}><IconClose /><span>{m.project_popover_close_project_choose()}</span></button>
+						{/if}
 					</div>
 				{:else if view === 'queue'}<div class="detail-content"><ProjectQueueView {project} {onRunTask} {onEditTask} {canRunTask} {runReason} onClose={closePanel} /></div>
 				{:else if view === 'git'}<div class="detail-content"><ProjectGitView {project} /></div>
 				{:else if view === 'lanes'}<div class="detail-content"><ProjectLanesView {project} onClose={closePanel} {onReviewLane} /></div>
+				{:else if view === 'machines'}
+					<div class="detail-content machines">
+						{#if divergence}
+							<div class="diverged-box" role="status">
+								<strong>{m.copies_diverged_title()}</strong>
+								<ul>{#each divergenceSummary(divergence) as line (line)}<li>{line}</li>{/each}</ul>
+							</div>
+						{/if}
+						{#if prov.kind === 'copies'}
+							<div class="group-label">{m.project_popover_new_chats_on()}</div>
+							{#each prov.copies as copy (copy.project.id)}
+								<button class="choice-row" role="radio" aria-checked={copy.inUse} disabled={!copy.online || (machineBusy && !copy.inUse)} title={machineBusy && !copy.inUse ? m.project_popover_machine_busy() : undefined} onclick={() => pickInUse(copy)}>
+									<span class="radio" class:on={copy.inUse}></span>
+									<MachineGlyph kind={copy.local ? 'here' : copy.online ? 'remote' : 'offline'} />
+									<span class="choice-name">{copy.name}</span>
+									{#if !copy.online}<small>{m.project_popover_machine_off()}</small>{/if}
+								</button>
+							{/each}
+							<div class="divider"></div>
+							<div class="group-label">{m.project_popover_queue_runs_on()}</div>
+							{#each prov.copies as copy (copy.project.id)}
+								<button class="choice-row" role="radio" aria-checked={autoOwner === copy} disabled={!copy.online} onclick={() => pickAutoDispatch(copy)}>
+									<span class="radio" class:on={autoOwner === copy}></span>
+									<MachineGlyph kind={copy.local ? 'here' : copy.online ? 'remote' : 'offline'} />
+									<span class="choice-name">{copy.name}</span>
+									{#if !copy.online}<small>{m.project_popover_machine_off()}</small>{/if}
+								</button>
+							{/each}
+							{#if !autoOwner}<p class="empty">{m.project_popover_queue_runs_nowhere()}</p>{/if}
+							<div class="divider"></div>
+						{/if}
+						<div class="group-label">{m.project_popover_copies()}</div>
+						{#each prov.copies as copy (copy.project.id)}
+							{@const laneCount = copyLaneCount(copy)}
+							<div class="copy-row" class:offline={!copy.online}>
+								<MachineGlyph kind={copy.local ? 'here' : copy.online ? 'remote' : 'offline'} />
+								<span class="choice-name">{copy.name}</span>
+								<Tooltip text={m.project_popover_copy_path()} placement="bottom"><button class="icon-button copy-path" onclick={() => void copyPath(copy.project.canonicalProjectPath)} aria-label={m.project_popover_copy_path()}><IconCopy /></button></Tooltip>
+								<small class="copy-meta">{[copy.online ? '' : m.project_popover_machine_off(), copy.project.lane.agentState === 'working' ? m.project_popover_copy_working() : '', laneCount > 0 ? m.project_popover_copy_lanes({ count: laneCount }) : ''].filter(Boolean).join(' · ')}</small>
+							</div>
+						{/each}
+					</div>
+				{:else if view === 'close'}
+					<div class="detail-content machines">
+						{#each prov.copies as copy (copy.project.id)}
+							{@const checked = copy.online && closeSelection[copy.project.id] !== false}
+							<button class="choice-row close-choice" role="checkbox" aria-checked={checked} disabled={!copy.online} onclick={() => { closeSelection = { ...closeSelection, [copy.project.id]: !checked }; }}>
+								<span class="checkbox" class:on={checked}>{#if checked}<IconCheck />{/if}</span>
+								<MachineGlyph kind={copy.local ? 'here' : copy.online ? 'remote' : 'offline'} />
+								<span class="choice-name">{copy.name}</span>
+								<small class="close-hint" class:warn={copy.online && copy.project.lane.agentState === 'working'}>{!copy.online ? m.project_popover_close_offline() : copy.project.lane.agentState === 'working' ? m.project_popover_close_working() : m.project_popover_close_idle()}</small>
+							</button>
+						{/each}
+						<p class="close-note">{m.project_popover_close_note()}</p>
+						<div class="close-actions">
+							<button class="ui-button ui-button-ghost" onclick={() => void navigate('home')}>{m.project_popover_close_cancel()}</button>
+							<button class="ui-button ui-button-danger" disabled={closeTargets.length === 0} onclick={closeOnSelected}>{m.project_popover_close_confirm({ count: closeTargets.length })}</button>
+						</div>
+					</div>
 				{:else}<div class="detail-content">{#each realProjects as target (target.id)}<button class="menu-row" onclick={() => void associate(target)}><IconFolderOpen /><span>{target.name}</span></button>{:else}<p class="empty">{m.project_tabs_core_no_projects()}</p>{/each}</div>{/if}
 			</div>
 		</div>
@@ -372,6 +540,44 @@
 	.peek-status { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: var(--text-label); color: var(--ink-muted); }
 	.peek-count { margin-left: auto; font-size: var(--text-caption); font-variant-numeric: tabular-nums; }
 	.peek-question { margin: 12px 0 0; font-size: var(--text-label); color: var(--ink-muted); }
+	/* Macchina in testa all'anteprima (R-MI-23): un'etichetta, non un titolo. */
+	.peek-machine { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; font-size: var(--text-meta); color: var(--ink-muted); }
+	.peek-diverged { margin: 8px 0 0; font-size: var(--text-label); color: var(--warn); }
+	.peek-also { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); font-size: var(--text-caption); color: var(--ink-faint); }
+	.peek-machine-chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 7px; border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--ink-muted); }
+	.peek-machine-chip.offline { border-style: dashed; color: var(--ink-faint); }
+	.row-glyph { display: inline-flex; justify-content: center; flex: none !important; min-width: 22px; color: var(--ink-muted); }
+	.row-hint { display: block; font-size: var(--text-caption); color: var(--ink-faint); }
+	.diverged-row { background: color-mix(in oklch, var(--warn-glyph) 14%, transparent); margin-bottom: 4px; }
+	.diverged-row:hover { background: color-mix(in oklch, var(--warn-glyph) 20%, transparent); }
+	.diverged-row :global(.machine-glyph) { color: var(--ink-muted); }
+	.detail-content.machines { padding: 8px 6px 12px; }
+	.group-label { font: 600 var(--text-group-label)/1.4 var(--font-ui); letter-spacing: .05em; text-transform: uppercase; color: var(--ink-faint); padding: 4px 8px; }
+	.choice-row { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 34px; padding: 7px 8px; border: 0; border-radius: var(--radius-md); background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; transition: background var(--dur-fast) var(--ease-out); }
+	.choice-row:hover:not(:disabled) { background: var(--bg-hover); }
+	.choice-row:disabled { cursor: default; color: var(--ink-faint); }
+	.choice-row :global(.machine-glyph) { color: var(--ink-muted); }
+	.choice-row small, .copy-row small { margin-left: auto; font-size: var(--text-caption); color: var(--ink-faint); }
+	.choice-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.radio { width: 14px; height: 14px; flex: none; border: 1.5px solid var(--ink-faint); border-radius: var(--radius-full); display: grid; place-items: center; }
+	.radio.on { border-color: var(--brand); }
+	.radio.on::after { content: ''; width: 6px; height: 6px; border-radius: var(--radius-full); background: var(--brand); }
+	.checkbox { width: 16px; height: 16px; flex: none; border: 1px solid var(--ink-faint); border-radius: var(--radius-sm); background: var(--bg-sunken); display: grid; place-items: center; color: var(--bg-sunken); --icon-size: 12px; }
+	.checkbox.on { background: var(--ink); border-color: var(--ink); }
+	.close-choice { flex-wrap: wrap; }
+	.close-hint { flex-basis: 100%; margin-left: 46px !important; }
+	.close-hint.warn { color: var(--warn); }
+	.close-note { margin: 8px 8px 12px; font-size: var(--text-caption); color: var(--ink-faint); }
+	.close-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 0 8px; }
+	.copy-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 4px 8px; border-radius: var(--radius-md); }
+	.copy-row.offline { color: var(--ink-faint); }
+	.copy-row :global(.machine-glyph) { color: var(--ink-muted); }
+	.copy-row :global(.tooltip-trigger) { margin-left: auto; }
+	.copy-meta { flex-basis: 100%; margin: -4px 0 0 30px !important; }
+	.copy-meta:empty { display: none; }
+	.diverged-box { margin: 0 2px 8px; padding: 10px; border-radius: var(--radius-md); background: color-mix(in oklch, var(--warn-glyph) 14%, transparent); font-size: var(--text-label); }
+	.diverged-box strong { font-weight: 550; }
+	.diverged-box ul { margin: 4px 0 0; padding-left: 16px; color: var(--ink-muted); }
 	.identity-header { padding: 14px 44px 12px 12px; border-bottom: 1px solid var(--line); }
 	.identity-line { display: flex; align-items: center; gap: 6px; min-height: 30px; }
 	.icon-button { width: 30px; height: 30px; padding: 6px; border: 0; background: transparent; color: var(--ink-muted); display: grid; place-items: center; border-radius: var(--radius-md); cursor: pointer; flex: none; transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }

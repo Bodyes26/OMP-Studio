@@ -75,6 +75,10 @@
   --warn-dim-l:  0.560;
   --warn-dim:    oklch(var(--warn-dim-l) calc(var(--warn-c) * 0.800) var(--warn-h));
   --color-amber: var(--warn);
+  /* Ambra dei segni grafici (glifi, punti): sui temi chiari --warn e' tarato
+     per il testo e accanto ai grigi sembra marrone; qui serve 3:1 su fondo
+     chiaro, non 4.5:1. `applyAnchors` la ricalcola con il tema. */
+  --warn-glyph:  var(--warn);
 
   /* Errore — distinto da `--warn`: l'attenzione avverte, l'errore dice che
      qualcosa non e' avvenuto. Tinta rossa fissa, indipendente dal tema di

@@ -285,7 +285,7 @@ export async function listRemoteProjectFolders(
 			deps.detectGithubRemotes(root).catch(() => [])
 		]);
 
-		const remotesSet = new Set(remotes.map((r) => pathKey(r.path, win)));
+		const remotesByKey = new Map(remotes.map((r) => [pathKey(r.path, win), r.fullName.toLowerCase()]));
 
 		const folders: RemoteFolder[] = entries
 			.filter((e) => e.isDir && !e.name.startsWith('.'))
@@ -296,11 +296,13 @@ export async function listRemoteProjectFolders(
 					(p) => p.canonicalProjectPath && pathKey(p.canonicalProjectPath, win) === normalizedKey
 				);
 
+				const repo = remotesByKey.get(normalizedKey);
 				return {
 					name: e.name,
 					path: fullPath,
 					openProjectId: openMatch ? openMatch.id : null,
-					git: remotesSet.has(normalizedKey)
+					git: repo !== undefined,
+					...(repo ? { repo } : {})
 				};
 			});
 

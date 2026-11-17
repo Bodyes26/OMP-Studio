@@ -1705,6 +1705,13 @@
 					setAutoDispatch: (projectId: string, enabled: boolean) => {
 						projectStore.setAutoDispatch(projectId, enabled);
 					},
+					// Chiusura chiesta dall'altra macchina (R-MI-20): la conferma
+					// sul lavoro interrotto l'ha data lei, qui si chiude e basta.
+					closeProject: (projectId: string) => {
+						const owner = projectStore.projects.find((p) => p.id === projectId && !projectStore.isRemote(p));
+						if (!owner) throw new Error(m.l10n_lab_remote_project_not_found({ project: projectId }));
+						projectStore.closeProject(owner.id);
+					},
 					// Corsie chieste dall'altra macchina (R-MI-06): worktree e
 					// registro sono di questa. La vista qui non cambia corsia.
 					laneAction: async (projectId, action) => {
@@ -3308,8 +3315,14 @@
 			disposeAgentSession(projectId);
 			void laneStore.removeDraftLanes(projectId as ProjectId).catch(() => undefined);
 		};
+		// «Confronta» della striscia sulle copie divergenti (R-MI-22): apre Git.
+		const onShowGit = () => { leftSection = 'git'; };
 		window.addEventListener('studio-project-closed', onProjectClosed);
-		return () => window.removeEventListener('studio-project-closed', onProjectClosed);
+		window.addEventListener('studio-show-git', onShowGit);
+		return () => {
+			window.removeEventListener('studio-project-closed', onProjectClosed);
+			window.removeEventListener('studio-show-git', onShowGit);
+		};
 	});
 
 	onDestroy(() => {

@@ -46,6 +46,9 @@ fn action_permission(kind: &str) -> Result<&'static str, String> {
             // Cambia chi avvia i task del progetto (F20): stessa famiglia degli
             // altri comandi che governano l'esecuzione, non una lettura.
             | "set_auto_dispatch"
+            // Chiudere il progetto ferma le sue chat (R-MI-20): governa
+            // l'esecuzione degli agenti, come Stop.
+            | "close_project"
             | "compact_context" | "mark_session_seen" => Ok("agents"),
         _ => Err("Unknown host action".into()),
     }

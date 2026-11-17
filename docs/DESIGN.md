@@ -593,6 +593,7 @@ Altre coppie misurate:
 ### Semantici
 
 - **Ambra** (`--warn`, `--warn-dim`): attenzione. Domanda in attesa (riga del vassoio a fondo `--warn` 15%, ping), quota al limite, contesto oltre il 60%, avviso di visione, scadenza della domanda, evidenziazione delle lettere trovate nella palette.
+- **Ambra dei segni grafici** (`--warn-glyph`): glifi e fondi tinti senza testo in ambra, come il segno ≠ delle copie divergenti (R-MI-19) e la loro striscia sopra il composer. Sul tema scuro coincide con `--warn`; sui temi chiari è più chiara (luminanza 0.64), perché `--warn` a 0.42 è tarato per il testo e accanto ai grigi della barra sembra marrone. Il testo in ambra resta `--warn`.
 - **Verde** (`--success`): esito positivo esplicito. Righe aggiunte di un diff (`+N`), passo di domanda completato, etichetta «Consigliata».
 - **Rosso** (`--danger`): esito negativo o azione che interrompe. Righe rimosse (`−N`), chiamata fallita, todo bloccato, quota esaurita, contesto oltre l'85%, pulsante Stop. Negli esiti di riga è testo meta senza fondo («fallito», «bloccato»), mai una pillola piena.
 

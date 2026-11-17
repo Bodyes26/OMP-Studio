@@ -147,6 +147,11 @@ export interface RemoteCommandExecutor {
 	writeQueue: (projectPath: string, tasksJson: string) => Promise<void>;
 	/** Coda di questo progetto, come JSON: la chiede un'altra copia (F19). */
 	readQueue: (projectPath: string) => Promise<string>;
+	/**
+	 * Chiude il progetto su questa macchina, chiesto da un'altra finestra
+	 * (R-MI-20). La conferma sul lavoro interrotto l'ha già data chi lo chiede.
+	 */
+	closeProject: (projectId: string) => void;
 	createProject: (
 		name: string,
 		github: { visibility: 'private' | 'public' } | null
@@ -251,6 +256,7 @@ const ACTION_LABEL_KEYS: Record<RemoteCommand['kind'], () => string> = {
 	read_queue: () => m.l10n_lab_remote_action_read_queue(),
 	write_queue: () => m.l10n_lab_remote_action_write_queue(),
 	open_project: () => m.l10n_lab_remote_action_open_project(),
+	close_project: () => m.l10n_lab_remote_action_close_project(),
 	create_project: () => m.l10n_lab_remote_action_create_project(),
 	composer_catalog: () => m.l10n_lab_remote_action_composer_catalog(),
 	set_lane_role: () => m.l10n_lab_remote_action_set_lane_role(),
@@ -372,6 +378,20 @@ export async function handleRemoteCommand(
 			}
 			case 'write_queue': {
 				await ctx.executor.writeQueue(command.projectPath, command.tasks);
+				await ctx.reportResult(commandId, true);
+				return;
+			}
+			case 'close_project': {
+				const closing = ctx.findProject(command.projectId);
+				if (!closing) {
+					throw new RemoteCommandFailure(
+						'not_found',
+						m.l10n_lab_remote_project_not_found({ project: command.projectId })
+					);
+				}
+				// L'avviso va prima: chiuso il progetto, la sua sessione non c'è più.
+				ctx.notify?.(device, closing, command.kind, null);
+				ctx.executor.closeProject(command.projectId);
 				await ctx.reportResult(commandId, true);
 				return;
 			}

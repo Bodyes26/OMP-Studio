@@ -12,6 +12,9 @@ released: items are closed into a version via `npm run release -- <version>`.
 ## [Unreleased]
 
 ### Fixed
+- On a project from another machine, the path in the panel no longer opens the folder on this computer's disk, where it does not exist. (R-MI-23)
+- "Close project" on a project present on several machines no longer closes only the shown copy and brings the other back as a separate tile: you now choose which machines to close it on. (R-MI-20)
+- Choosing who starts the queue of a shared project shows auto-start enabled on the other machine again: the remote copy always looked off. (R-MI-13)
 - Quitting Studio, installing an update or closing a project no longer asks to interrupt chats working on another machine: they keep running on the instance that executes them, so the "Active jobs running" confirmation lists and counts only this machine's work.
 - In chats of a remote project, roles and models are those of the machine running the chat: composer, `/role`, role cycling, plan approval, prewalk and fallback model read this machine's configuration and could ask the other one for a model it does not have. (R-MI-06)
 - In a remote chat, attachments, `@file` mentions and automatic prompt context (matched files and git status) come from the project's machine: attachments used to stay on this machine so the remote agent received a path that did not exist, and mentions listed the files of the wrong disk. (R-MI-06, R-MI-08)
@@ -28,6 +31,8 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Studio Remote again recognizes which models accept images: the PWA read a model field that the machine state no longer sends, so every model looked like it accepted them. The relay type check is restored, so the relay image is published again on every change. (REL-001)
 
 ### Added
+- When the same project is on several machines and the copies diverge (different branches, different commits, or uncommitted changes on both), a strip above the composer shows the summary, "Compare" to open Git and "Later" to hide it until the copies change. (R-MI-22)
+- A project from another machine can be hidden from this window without closing it where it runs, and "Close project…" asks which machines to close it on, warning about working chats that would be stopped. (R-MI-20)
 - The task queue of a shared project is a single one: creating, editing or starting a task on one machine shows up on the other right away, and tasks have no owning machine. The last edit per task wins, without overwriting tasks created elsewhere in the meantime. (R-MI-12, F19)
 - The session history merges those of every machine into one list, with a badge saying where each comes from: resuming one from another machine opens the right copy. The badge only appears on projects present on more than one machine. (R-MI-12, F19)
 - A task can ask which machine to start on: the choice is in the Task Editor and stays editable, with "Where auto-start is on" as the default. (R-MI-13, F17)
@@ -50,6 +55,9 @@ released: items are closed into a version via `npm run release -- <version>`.
 - When the `omp` installation is broken (for example a link pointing to a deleted folder), Studio says so and offers "Repair" instead of starting over as on a new computer. When an essential piece is missing, the setup reopens directly on that step, without the animated intro. (SET-010, SET-020)
 
 ### Changed
+- Project bar tiles show where the project runs with a text-free glyph instead of the badge with the machine name: a screen with waves for another machine, a crossed-out screen when it does not respond, one screen per copy when the project is on several machines (the one in use filled) and an amber ≠ when the copies diverge. The glyph no longer changes when the tile is clicked, and screen readers announce the machine. On light themes the amber of graphic marks is lighter, so it stands out next to the greys. (R-MI-19)
+- A project's hover preview shows the machine it runs on first and, at the bottom, the other machines where it is available; the project panel has a "Machines" row that opens a view to choose which machine new chats and tasks start on and which one starts the queue by itself, and to copy each copy's path. (R-MI-23)
+- The project picker is a single list for all machines, in three groups ("In this window", "Open on other machines", "Closed"), with each project's machines on the right and per-machine filters; a closed folder opens on the chosen machine. (R-MI-21)
 - Automated builds (Nightly and releases) take far less time: Rust dependencies stay cached between runs instead of being compiled from scratch, and the quality gate no longer compiles the translation dictionaries three times. On top of that, the vulnerability scan no longer blocks publishing for an advisory already fixed in the updated SvelteKit libraries.
 - Preparation for cross-instance control: internal calls distinguish their target machine and reject unavailable remote calls rather than execute them locally. Full control of another instance is not available yet. (R-MI-06, MI01)
 - Project tabs show a read-only preview on hover; commands open from the three dots or a right click in one stable card, with internal views, an always-visible close button, editable name and code, theme-derived colors and a path relative to the projects root. After reordering, the card stays still while the pointer is inside. (TPR-001…011, TPR-031…032, TPR-037…038)

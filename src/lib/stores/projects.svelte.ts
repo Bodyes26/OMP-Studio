@@ -115,6 +115,12 @@ class ProjectStore {
 	private store: Store | null = null;
 	private initialized = false;
 	private initPromise: Promise<void> | null = null;
+	/**
+	 * Tessere remote nascoste da questa finestra (R-MI-20), per id proiettato
+	 * `macchina::id dell'host`. Il progetto resta aperto dove gira: senza
+	 * questo elenco il riepilogo successivo dell'host lo rimetterebbe in barra.
+	 */
+	hiddenRemote = $state<string[]>([]);
 
 	constructor() {
 		void this.init();
@@ -156,13 +162,15 @@ class ProjectStore {
 			load('settings.json', { autoSave: false })
 		]);
 		this.store = store;
-		const [storedProjects, storedMetadata, storedActiveId, storedRoot, home] = await Promise.all([
+		const [storedProjects, storedMetadata, storedActiveId, storedRoot, storedHidden, home] = await Promise.all([
 			store.get<StoredProject[]>('projects'),
 			store.get<StoredProjectMetadata[]>('projectMetadata'),
 			store.get<string>('activeProjectId'),
 			store.get<string>('projectRoot'),
+			store.get<string[]>('hiddenRemoteProjects'),
 			homeDir()
 		]);
+		this.hiddenRemote = Array.isArray(storedHidden) ? storedHidden.filter((id) => typeof id === 'string') : [];
 		this.metadata = createProjectMetadataMap(storedMetadata);
 		// `join` del plugin path e' un altro giro di IPC per concatenare
 		// segmenti gia' noti: `joinProjectPath` fa lo stesso in memoria.
@@ -449,6 +457,7 @@ class ProjectStore {
 		const active = this.projects.find((p) => p.id === this.activeId);
 		await this.store.set('activeProjectId', active && !this.isRemote(active) ? this.activeId : null);
 		await this.store.set('projectRoot', this.projectRoot);
+		await this.store.set('hiddenRemoteProjects', $state.snapshot(this.hiddenRemote));
 		await this.store.save();
 	}, 500);
 
@@ -728,6 +737,40 @@ class ProjectStore {
 		}
 		this.activeId = id;
 		this.save();
+	}
+
+	/**
+	 * La copia diventa quella in uso senza cambiare il progetto mostrato
+	 * (R-MI-23): dal pannello di una tessera non attiva si sceglie dove
+	 * partiranno le prossime chat, non si salta su quel progetto.
+	 */
+	markUsed(id: string) {
+		const p = this.projects.find((x) => x.id === id);
+		if (!p) return;
+		p.lastOpened = Date.now();
+		this.save();
+	}
+
+	/**
+	 * Toglie una tessera remota solo da questa finestra (R-MI-20): il
+	 * progetto resta aperto sulla macchina che lo esegue e torna dal
+	 * selettore con `showRemote`.
+	 */
+	hideRemote(id: string) {
+		const p = this.projects.find((x) => x.id === id);
+		if (!p || !this.isRemote(p)) return;
+		if (!this.hiddenRemote.includes(id)) this.hiddenRemote = [...this.hiddenRemote, id];
+		this.closeProject(id);
+	}
+
+	/** Rimette in barra una tessera nascosta; arriva con il riepilogo dell'host. */
+	showRemote(id: string) {
+		this.hiddenRemote = this.hiddenRemote.filter((hidden) => hidden !== id);
+		this.save();
+	}
+
+	isHiddenRemote(id: string): boolean {
+		return this.hiddenRemote.includes(id);
 	}
 	/**
 	 * Con ordinamento 'mru' ("Attività recente"), sposta il progetto in prima
@@ -1072,6 +1115,8 @@ class ProjectStore {
 		for (const host of snapshot.projects) {
 			if (host.external || host.labDraft) continue;
 			const id = projectId(`${machine}::${host.id}`);
+			// Nascosta da questa finestra (R-MI-20): resta aperta dove gira.
+			if (this.hiddenRemote.includes(id)) continue;
 			const previous = existing.get(id);
 			// Le corsie del progetto vivono sulla macchina che lo possiede: qui se
 			// ne mostra la proiezione, con l'id della tessera e i percorsi nel
@@ -1124,7 +1169,12 @@ class ProjectStore {
 			project.canonicalProjectPath = canonical;
 			project.hue = host.hue;
 			project.colorMode = host.colorMode;
-			project.lastOpened = host.lastOpened;
+			// La scelta della copia in uso fatta qui (R-MI-13) non deve essere
+			// cancellata dal riepilogo successivo, che porta l'uso visto dall'host.
+			project.lastOpened = Math.max(previous?.lastOpened ?? 0, host.lastOpened);
+			// Chi ha l'auto-avvio lo dice l'host (F20): senza, la copia remota
+			// risultava sempre spenta e la scelta nel pannello mentiva.
+			project.autoDispatch = Boolean(host.autoDispatch);
 			project.lane = {
 				...project.lane,
 				projectId: id,
@@ -1146,6 +1196,11 @@ class ProjectStore {
 			};
 			next.push(project);
 		}
+		// Un progetto chiuso sull'host non è più nascosto: se si riapre lì,
+		// deve tornare in barra.
+		const present = new Set(snapshot.projects.map((host) => `${machine}::${host.id}`));
+		const hidden = this.hiddenRemote.filter((id) => !id.startsWith(`${machine}::`) || present.has(id));
+		if (hidden.length !== this.hiddenRemote.length) this.hiddenRemote = hidden;
 		const kept = this.projects.filter((p) => p.machineId !== machine);
 		this.projects = [...kept, ...next];
 		const otherLanes = Object.fromEntries(

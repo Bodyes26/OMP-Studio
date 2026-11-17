@@ -4,6 +4,7 @@ import { settingsStore } from './settings.svelte';
 import { taskStore } from './tasks.svelte';
 import { githubStore } from './github.svelte';
 import { groupByRepository, type RepositoryIdentity } from './projectIdentity.ts';
+import { inUseCopy } from './projectCopies.ts';
 
 /**
  * Identità git di una copia. Lo stato upstream è già letto e in cache per ogni
@@ -47,15 +48,15 @@ class ProjectOrder {
 	}
 
 	/**
-	 * Un progetto per repository. Rappresentante: la copia che si sta
-	 * guardando — l'ultima usata, che è anche la macchina proposta per una
-	 * nuova chat (F16, ripristinata in F18) — altrimenti la prima nell'ordine.
+	 * Un progetto per repository. Rappresentante: la copia in uso, cioè
+	 * l'ultima usata (F18), la stessa su cui nasce una nuova chat; se una
+	 * copia del gruppo è quella mostrata, è lei. Cliccare la tessera attiva
+	 * quindi il rappresentante e il glifo non cambia (R-MI-19).
 	 */
 	get unified(): Project[] {
-		return this.groups.map((group) => {
-			if (group.length === 1) return group[0];
-			return group.find((p) => p.id === projectStore.activeId) ?? group[0];
-		});
+		return this.groups.map((group) =>
+			group.find((p) => p.id === projectStore.activeId) ?? inUseCopy(group) ?? group[0]
+		);
 	}
 
 	/** Le altre copie dello stesso progetto, per il segno nella tessera. */

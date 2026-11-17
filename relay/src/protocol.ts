@@ -554,6 +554,12 @@ export type RemoteCommand =
 	| { kind: 'read_queue'; projectPath: string }
 	| { kind: 'write_queue'; projectPath: string; tasks: string }
 	| { kind: 'open_project'; path: string }
+	/**
+	 * Chiude il progetto sulla macchina che lo possiede (R-MI-20): lo chiede
+	 * un'altra finestra dalla vista «Chiudi progetto…», dove l'utente ha già
+	 * visto il lavoro che si interrompe. `projectId` è l'id locale all'host.
+	 */
+	| { kind: 'close_project'; projectId: string }
 	/** Cartella nuova sotto la radice, `git init`, repository GitHub facoltativo. */
 	| { kind: 'create_project'; name: string; github: { visibility: 'private' | 'public' } | null }
 	/** Comandi, skill, modelli e ruoli per il composer della corsia (vedi `RemoteComposerCatalog`). */
@@ -602,6 +608,7 @@ export const COMMAND_FEATURE: Record<RemoteCommand['kind'], Feature> = {
 	read_queue: 'projects',
 	write_queue: 'projects',
 	open_project: 'projects',
+	close_project: 'projects',
 	create_project: 'projects',
 	composer_catalog: 'lane_config',
 	set_lane_role: 'lane_config',
@@ -739,6 +746,11 @@ export interface RemoteFolder {
 	/** Progetto gia' aperto in Studio su quella cartella. */
 	openProjectId: string | null;
 	git: boolean;
+	/**
+	 * `owner/repo` GitHub in minuscolo: il selettore unisce la stessa cartella
+	 * presente su più macchine (R-MI-21). Assente dagli host precedenti.
+	 */
+	repo?: string | null;
 }
 
 export interface RemoteFolderList {

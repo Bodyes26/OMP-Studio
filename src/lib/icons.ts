@@ -96,6 +96,7 @@ export { default as IconGithub } from './icons/IconGithub.svelte';
 export { default as IconViewCode } from '@lucide/svelte/icons/code';
 export { default as IconViewSplit } from '@lucide/svelte/icons/columns-2';
 export { default as IconViewPreview } from '@lucide/svelte/icons/eye';
+export { default as IconEyeOff } from '@lucide/svelte/icons/eye-off';
 export { default as IconDiff } from '@lucide/svelte/icons/file-diff';
 
 // Menu contestuali e modifica testo.

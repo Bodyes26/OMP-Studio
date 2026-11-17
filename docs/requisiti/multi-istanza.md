@@ -41,6 +41,12 @@ Citazioni dell'utente dalla discussione del 2026-11-12:
   Scelte nel modulo della stessa sessione: **anche i task programmati** seguono la stessa regola (partono solo dove l'auto-avvio è acceso, quindi cambia il comportamento attuale per cui la programmazione li faceva partire comunque); l'auto-avvio **si può accendere da un'altra macchina** (il comando viaggia al proprietario della copia, che accende il proprio e spegne gli altri); con la macchina designata **spenta** la coda aspetta, nessuno eredita il ruolo.
   F20 sostituisce la «macchina designata» di F19: la designazione non è un'impostazione separata, **è** l'auto-avvio acceso su quella copia.
 
+- **F21 — Provenienza e azioni su barra e popover (2026-11-17):** revisione in anteprima (`proto/multi-istanza-topbar-popover.html`, `proto/multi-istanza-tessera-alternative.html`, `proto/multi-istanza-glifi.html`, locali). Sul badge della tessera: «così com'è non mi piace assolutamente né con la sigla né il badge. Perché per i nomi troppo lunghi va con i puntini [...] E anche per quelli che hanno più [...] computer». Fra sei alternative: «mi piace l'idea del A, glifo nudo», con icone disegnate per Studio invece di quelle di libreria («lo schermo [...] potrebbe essere confuso come per dire gira su questo computer»; i due fogli «sembra un tasto di copia»). Scelta: «per il punto uno la c, per il punto due la b, per il punto tre la a», con ambra più chiara sul tema chiaro e onde che partono dall'angolo dello schermo; conferma: «Perfetto così». Sulle domande della stessa discussione: chiudere e solo nascondere dalla finestra «entrambe le opzioni»; la macchina controllata «basta il chip nella barra di stato»; il selettore come «un'unica lista con un calderone dei progetti di tutte le macchine, con indicazioni e filtri»; la divergenza delle copie avvisata nel popover e «anche nella gui», perché «è abbastanza grave».
+
+- **F22 — Anteprima e pannello del progetto (2026-11-17):** sulla prima proposta (`proto/multi-istanza-popover.html`): nell'anteprima «non mi piace che mi faccia solo vedere su due macchine in uso MacBook di Maurizio [...] sarebbe utile vedere su che macchina è in giro come prima cosa, e poi dire disponibile anche su»; nel pannello «c'è troppo testo con il percorso completo, i pulsanti non sono capibili». Fra tre alternative per ciascuno (`proto/multi-istanza-pannello.html`): «per l'anteprima l'opzione B con la macchina in testa, e invece per il pannello completo l'opzione C sotto vista».
+
+- **F23 — Avviso, selettore, nascondi e chiudi (2026-11-17):** fra tre alternative per ciascun punto (`proto/multi-istanza-avviso-selettore.html`): «Per l'avviso, farei l'opzione B, la striscia sopra il composer. Per il selettore progetti, però, farei l'opzione C. Per nascondere il progetto, invece farei l'opzione A.»
+
 Le sei strade valutate sono illustrate in `proto/multi-istanza-strade.html` (locale, fuori da git): è materiale di discussione, non un'anteprima di interfaccia approvata. F16 autorizza l'implementazione diretta dell'interfaccia secondo le convenzioni di Studio, senza un'ulteriore approvazione su anteprima.
 
 ## Stato dei requisiti
@@ -65,6 +71,11 @@ Le sei strade valutate sono illustrate in `proto/multi-istanza-strade.html` (loc
 | R-MI-16 | 1 | Attivo, approvato il 2026-11-16 (F4, F13, F15) | MI05: endpoint iroh, chiavi persistenti, abbinamento con codice, revoca | 2026-11-16: abbinamento provato fuori dall'app (MI00); pannello su due installazioni reali non provato |
 | R-MI-17 | 1 | Attivo, approvato il 2026-11-16 (F8, F13, F15) | MI05: endpoint e relay proprio configurabile con certificati di sistema | Trasporto provato fuori dall'app il 2026-11-16 (MI00): caso ufficio–casa riuscito; altri casi assunti (F15) |
 | R-MI-18 | 1 | Attivo; segnalato il 2026-11-17 (F17) | Fatto il 2026-11-17: `src-tauri/src/link/activity.rs` osserva i frame del run e pubblica il riepilogo; frontend in `laneActivity.ts`, consumato da `laneAgentState` e `laneBusy` | 2026-11-17: 6 test Rust sul tracker, 9 test TS sul riepilogo, 529 test Rust e 1485 smoke verdi; scenario con due finestre reali da provare |
+| R-MI-19 | 1–2 | Attivo, approvato il 2026-11-17 (F21) | Fatto il 2026-11-17: `src/lib/ui/MachineGlyph.svelte`, tessera in `TopBar.svelte` (glifo, etichetta accessibile), rappresentante stabile in `projectOrder.unified`, token `--warn-glyph` (`app.css`, `theme.ts`) | 2026-11-17: `npm run check` 0 errori, 1554 smoke, build verde; glifi verificati in anteprima su tema scuro e chiaro; resa nell'app con due macchine reali da provare |
+| R-MI-20 | 1–2 | Attivo, approvato il 2026-11-17 (F21, F23) | Fatto il 2026-11-17: «Nascondi da questa finestra» (`projectStore.hideRemote`, persistito come `hiddenRemoteProjects`) e vista «Chiudi progetto…» nel popover; comando `close_project` (ambito Agenti) verso la macchina che possiede la copia | 2026-11-17: tipi, smoke, `cargo check`, test Rust `link::`, relay `tsc`; scenario con due macchine reali da provare |
+| R-MI-21 | 1 | Attivo, approvato il 2026-11-17 (F21, F23) | Fatto il 2026-11-17: `ProjectPicker.svelte` in tre gruppi con filtri per macchina; unione per repository in `pickerEntries.ts` (le cartelle remote portano `repo`) | 2026-11-17: 5 test in `test/picker-entries.test.ts`; elenco con due macchine reali da provare |
+| R-MI-22 | 2 | Attivo; interfaccia approvata il 2026-11-17 (F23); regola approvata il 2026-11-17 (Q5) | Fatto il 2026-11-17: regola in `projectCopies.ts`, `git_upstream_status` porta `headCommit` e `changedFiles` (da `branch.oid`, nessun git in più), striscia `CopyDivergenceStrip.svelte` sopra il composer, dettaglio nella vista Macchine | 2026-11-17: 9 test in `test/project-copies.test.ts`, test Rust del parser; scenario con due copie reali divergenti da provare |
+| R-MI-23 | 1–2 | Attivo, approvato il 2026-11-17 (F22) | Fatto il 2026-11-17: anteprima con la macchina in testa e «Anche su», riga e vista «Macchine» in `ProjectPopover.svelte`, stato condiviso in `projectMachines.svelte.ts`; l'auto-avvio delle copie remote ora arriva dal riepilogo dell'host | 2026-11-17: tipi, smoke e build verdi; prova con due macchine reali da fare |
 
 Nei testi che seguono **W** è la macchina da cui si guarda (nello scenario il PC Windows) e **M** quella che possiede il progetto (il Mac).
 
@@ -95,6 +106,7 @@ Sulla stessa rete le due istanze si collegano senza passare da Internet. Fra ret
 I progetti aperti su M si possono aprire nella barra dei progetti di W, accanto a quelli locali, con le stesse tessere e gli stessi segni di stato. L'unica differenza visibile è un badge con la macchina su cui il progetto gira.
 
 **Accettazione:** con due progetti locali e due aperti su M, la barra di W ne mostra quattro; quelli di M portano il badge; lo stato (al lavoro, domanda in attesa, fermo) corrisponde a quello che si vede su M.
+**Forma del badge:** precisata il 2026-11-17 da R-MI-19 (F21): un glifo senza testo al posto del badge con il nome.
 **Errore da evitare:** una finestra o una vista separata per le macchine remote; differenze di aspetto oltre al badge.
 
 ## R-MI-04 — Elenco completo dei progetti dell'altra macchina
@@ -262,6 +274,71 @@ Mentre una finestra guida un progetto da un'altra macchina, la finestra della ma
 | 2026-11-17 | Correzione: il backend link conta le superfici remote per corsia e riconosce i confini del run dai frame che già trasporta (`agent_start` apre, `agent_end` terminale o `session_settled` chiude, `studio_exit` libera); il riepilogo arriva alla finestra con `link:activity` e una revisione che scarta i pacchetti vecchi | Verde: 6 test Rust sul tracker (conto delle superfici, yield non terminale, delta ignorati, processo uscito, corsie distinte) e 9 test TS sul riepilogo (revisione, pacchetti malformati, corsia aperta ma ferma). `cargo test` 529, smoke 1485, clippy `-D warnings` senza avvisi, `npm run check` 0 errori | `src-tauri/src/link/activity.rs`, `src/lib/backend/laneActivity.ts`, `test/lane-activity.test.ts` |
 | — | Scenario con due finestre reali: la corsia del Mac deve passare a «al lavoro» mentre il PC scrive | Da fare: richiede una build con la correzione su entrambe | — |
 
+## R-MI-19 — Provenienza sulla tessera con un glifo senza testo
+
+**Fonti:** F21. Precisa la forma del badge di R-MI-03 e il segno delle copie di R-MI-12.
+
+La tessera di un progetto non porta più un riquadro con il nome della macchina: dopo la sigla compare un glifo disegnato per Studio, alto quanto il testo, in `--ink-faint` (`--ink-muted` sulla tessera attiva). Il nome delle macchine si legge al passaggio del mouse, nel pannello del progetto e nell'etichetta accessibile della tessera.
+
+- **Solo su questa macchina:** nessun glifo.
+- **Solo su un'altra macchina:** schermo con due onde che partono dall'angolo in alto a destra.
+- **Macchina spenta o non raggiungibile:** schermo barrato.
+- **Su più macchine:** uno schermo per copia, separati da frecce di andata e ritorno; schermo pieno = copia in uso, contorno = in linea, tratteggio = spenta.
+- **Copie divergenti:** fra le copie, al posto delle frecce, il segno ≠ in ambra; solo quella parte è colorata.
+
+Sul tema chiaro l'ambra dei segni grafici è più chiara di `--warn` (`oklch(0.64 0.17 68)` nell'anteprima, almeno 3:1 sul fondo), perché `--warn` chiaro (luminanza 0.42) è tarato per il testo e accanto ai grigi della barra non si riconosce. Il testo in ambra resta `--warn`.
+
+**Accettazione:** con un progetto locale, uno remoto, uno su due macchine, uno con copie divergenti e uno su una macchina spenta, la barra mostra i cinque casi distinti senza testo troncato, sia sul tema scuro sia sul chiaro; il glifo non cambia quando la tessera diventa attiva; un lettore di schermo legge la macchina.
+**Errore da evitare:** riquadri con nomi troncati; un'icona che si legga come «questo computer» o come «copia»; ambra marrone sul tema chiaro.
+
+## R-MI-20 — Nascondere o chiudere un progetto remoto o su più macchine
+
+**Fonti:** F21.
+
+Il pannello del progetto offre due azioni distinte: «Nascondi da questa finestra», che toglie la tessera solo qui e lascia il progetto aperto sulle macchine che lo eseguono (si ritrova nel selettore), e «Chiudi progetto…», che chiede su quali macchine chiuderlo e avvisa del lavoro attivo che verrebbe interrotto.
+
+**Accettazione:** su un progetto presente su due macchine, nascondere dalla finestra di W non chiude nulla su M; chiudere scegliendo solo M lascia la copia di W aperta e la tessera in barra.
+**Interfaccia approvata (F23, variante A):** nella pagina principale del pannello, sotto le azioni, «Nascondi da questa finestra» e «Chiudi progetto…». La seconda apre una sottovista con una casella per ogni macchina (tutte spuntate), il glifo della macchina e, per ciascuna, il lavoro che verrebbe interrotto o «Spento: si chiude quando torna in linea»; il pulsante dice su quante macchine chiude. Sui progetti solo di questa macchina resta il solo «Chiudi progetto», come oggi, senza sottovista.
+**Precisazione (2026-11-17, confermata dall'utente nel modulo di pubblicazione):** «Nascondi da questa finestra» compare solo quando nessuna copia è su questa macchina. Una copia locale vive nei processi di questa finestra: nasconderla senza chiuderla lascerebbe un agente senza interfaccia. Per toglierla si usa «Chiudi progetto…» spuntando questa macchina; la tessera resta finché il progetto è aperto altrove.
+**Errore da evitare:** «Chiudi» che chiude soltanto la copia mostrata e fa ricomparire l'altra come tessera separata (comportamento del 2026-11-17).
+
+## R-MI-21 — Un elenco solo dei progetti di tutte le macchine
+
+**Fonti:** F21. Precisa R-MI-04.
+
+Il selettore dei progetti mostra un elenco unico con i progetti di tutte le macchine abbinate, con le copie dello stesso repository già unite, l'indicazione di dove esiste e dove è aperto ciascuno, e filtri per macchina e per stato.
+
+**Accettazione:** con progetti su W, su M e su entrambe, il selettore li elenca una volta ciascuno; il filtro per M mostra solo quelli presenti su M; un progetto aperto su M ma non in barra su W si apre da qui.
+**Interfaccia approvata (F23, variante C):** l'elenco è diviso in tre gruppi con il conteggio: «In questa finestra», «Aperti su altre macchine», «Chiusi». Ogni riga ha sigla, nome e, a destra, un'etichetta per macchina con glifo (R-MI-19) e nome intero: in evidenza dove il progetto è aperto, tratteggiata se la macchina è spenta. Le copie divergenti sono segnalate accanto al nome. Sopra l'elenco, i filtri sono le macchine.
+
+## R-MI-22 — Avviso quando le copie divergono
+
+**Fonti:** F17 («avviso quando divergono»), F21.
+
+Quando le copie dello stesso progetto divergono, Studio lo segnala nel glifo della tessera (R-MI-19), nel pannello del progetto con il dettaglio della differenza, e nella finestra del progetto attivo, dove si lavora.
+
+**Interfaccia approvata (F23, variante B):** una striscia agganciata sopra il composer del progetto attivo, come la riga di attenzione del vassoio (fondo ambra al 15%), con il glifo ≠ di R-MI-19, il riassunto della differenza e due azioni: «Confronta» (apre il confronto in Git) e «Più tardi» (la riduce finché lo stato delle copie non cambia). Il dettaglio resta anche nel pannello del progetto (R-MI-23).
+
+**Regola (Q5, 2026-11-17):** due copie divergono se sono su branch diversi, se una ha commit che l'altra non ha (anche sullo stesso branch), oppure se entrambe hanno modifiche non committate. Una sola copia con modifiche non committate non basta.
+
+**Accettazione:** con due copie divergenti, la striscia compare sopra il composer del progetto attivo con il riassunto corretto; «Più tardi» la toglie e torna solo se le copie cambiano; quando le copie tornano allineate sparisce; con modifiche non committate su una sola copia non compare.
+
+## R-MI-23 — Anteprima e pannello del progetto con la macchina
+
+**Fonti:** F22. Precisa R-MI-03, R-MI-12 e R-MI-13 per il popover del progetto; il disegno è in `proto/multi-istanza-pannello.html` (varianti B e C).
+
+**Anteprima al passaggio del mouse.** Per un progetto che non è solo su questa macchina, la macchina su cui gira sta sopra il nome del progetto, come un'etichetta con il suo glifo (R-MI-19); se è spenta lo dice. In fondo, separata da una linea, «Anche su» con un segno per ogni altra macchina (glifo e nome intero, tratteggiato se spenta). Nessun percorso completo; per i progetti solo locali resta il percorso breve di oggi.
+
+**Pannello (tre puntini o tasto destro).** La pagina principale resta corta: una riga «Macchine» (o «Macchina» con una copia sola) con il glifo del progetto e, sotto, dove partono le nuove chat; porta a una sottovista dedicata, come Coda e Git. La sottovista contiene:
+
+- «Nuove chat e task partono su»: scelta fra le macchine in linea (è la copia in uso, la stessa dell'indicatore sotto il composer, R-MI-13);
+- «La coda parte da sola su»: scelta dell'unica macchina con l'auto-avvio (F20);
+- «Copie»: una riga per macchina con sistema, corsie e lavoro in corso, e il pulsante per copiare il percorso.
+
+Le macchine spente sono visibili ma non si scelgono. Niente pulsanti generici come «Usa questa copia» e niente percorsi completi nella pagina principale.
+
+**Accettazione:** su un progetto presente su tre macchine con una spenta, l'anteprima mostra prima la macchina in uso e poi le altre due, quella spenta riconoscibile; nella sottovista cambiare «Nuove chat e task partono su» cambia la macchina dell'indicatore sotto il composer e il pieno del glifo in barra; la macchina spenta non è selezionabile in nessuna delle due scelte.
+
 ## Strade scartate
 
 Confermate dall'utente il 2026-11-12 (F5):
@@ -278,6 +355,7 @@ Confermate dall'utente il 2026-11-12 (F5):
 - **Q2 — Punto d'incontro.** Risolta il 2026-11-16 (F13, F15): iroh, con un `iroh-relay` ospitato dall'utente sul proprio server (R-MI-16, R-MI-17). Il relay Bun di Studio Remote resta per il telefono.
 - **Q3 — Ambiti dei permessi** di R-MI-09. Risolta il 2026-11-16 (F16): Lettura (sempre), Agenti, File e Git, Terminale; tutti accesi all'abbinamento, modificabili e revocabili per macchina.
 - **Q4 — Interfaccia** di abbinamento, elenco macchine e badge. Risolta il 2026-11-16 (F16): implementazione diretta con i componenti di Studio, senza anteprima.
+- **Q5 — Quando due copie divergono** (R-MI-22). Risolta il 2026-11-17 nel modulo della sessione: branch diversi, commit presenti in una copia e non nell'altra, modifiche non committate su entrambe; esclusa la sola copia con modifiche non committate.
 
 ---
 
