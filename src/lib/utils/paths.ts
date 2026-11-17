@@ -20,6 +20,17 @@ function checkIsWindows(): boolean {
 }
 
 export const isWindows = checkIsWindows();
+
+/**
+ * Un percorso remoto segue il sistema della macchina che lo possiede, non
+ * quello di chi guarda: lo snapshot dichiara `platform` della macchina host,
+ * e questa funzione traduce quel valore nella semantica di `normalizeProjectPath`.
+ * Senza di essa un progetto del Mac aperto da Windows diventava `\Users\...`.
+ */
+export function isWindowsPath(platform: string | null | undefined): boolean {
+	if (!platform) return isWindows;
+	return /^(win|windows|win32|windows_nt)$/i.test(platform.trim());
+}
 /**
  * Normalizza il percorso di un progetto in base al sistema operativo.
  * Parametro opzionale `win` per forzare la semantica Windows/POSIX (utile nei test).

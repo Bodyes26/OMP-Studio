@@ -23,7 +23,7 @@ import type { LabIndexEntry } from '#lib/lab/types.ts';
 import { noteProjectSwitch, studioLog } from '#lib/diagnostics/studioLog.ts';
 import { readPanelGeometries } from '#lib/panelGeometry.ts';
 
-import { isWindows, normalizeProjectPath, joinProjectPath, pathKey } from '#lib/utils/paths.ts';
+import { isWindows, isWindowsPath, normalizeProjectPath, joinProjectPath, pathKey } from '#lib/utils/paths.ts';
 import {
 	applyTabRename,
 	applyTabTrash,
@@ -1016,6 +1016,11 @@ class ProjectStore {
 	 * due superfici distinte finche' la fase 2 non le unisce.
 	 */
 	syncRemoteProjects(machine: string, name: string, snapshot: DesktopHostSnapshot): void {
+		// I percorsi dello snapshot sono del sistema della macchina che possiede
+		// i progetti: normalizzarli con quello di chi guarda li corrompeva
+		// (Windows li convertiva in `\Users\...` per il Mac, e `omp` sul Mac non
+		// trovava piu' la cartella).
+		const hostWin = isWindowsPath(snapshot.platform);
 		const existing = new Map(this.projects.filter((p) => p.machineId === machine).map((p) => [p.id, p]));
 		const next: Project[] = [];
 		for (const host of snapshot.projects) {
@@ -1028,7 +1033,7 @@ class ProjectStore {
 				(candidate) => candidate.projectId === host.id && candidate.laneId === MAIN_LANE_ID
 			);
 			const canonical = host.canonicalProjectPath
-				? canonicalProjectPath(host.canonicalProjectPath)
+				? canonicalProjectPath(host.canonicalProjectPath, hostWin)
 				: null;
 			const project: Project = previous ?? {
 				id,
@@ -1065,8 +1070,8 @@ class ProjectStore {
 				laneId: lane?.laneId ?? MAIN_LANE_ID,
 				title: lane?.title ?? project.lane.title,
 				workspacePath: lane?.workspacePath
-					? workspacePath(lane.workspacePath)
-					: host.lane.workspacePath ? workspacePath(host.lane.workspacePath) : null,
+					? workspacePath(lane.workspacePath, hostWin)
+					: host.lane.workspacePath ? workspacePath(host.lane.workspacePath, hostWin) : null,
 				branch: lane?.branch ?? null,
 				baseCommit: lane?.baseCommit ?? null,
 				targetBranch: lane?.targetBranch ?? null,

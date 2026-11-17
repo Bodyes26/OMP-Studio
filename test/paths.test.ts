@@ -1,6 +1,36 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeProjectPath, joinProjectPath, pathKey } from '../src/lib/utils/paths.ts';
+import { normalizeProjectPath, joinProjectPath, pathKey, isWindowsPath } from '../src/lib/utils/paths.ts';
+
+/**
+ * La semantica di un percorso remoto e' quella della macchina che lo possiede.
+ * Deterministico di proposito: non dipende dal sistema che esegue i test, e
+ * copre la direzione Windows -> Mac che su un runner macOS non si riprodurrebbe.
+ */
+describe('isWindowsPath (semantica del sistema di una macchina remota)', () => {
+	it('riconosce la piattaforma di std::env::consts::OS', () => {
+		assert.equal(isWindowsPath('windows'), true);
+		assert.equal(isWindowsPath('macos'), false);
+		assert.equal(isWindowsPath('linux'), false);
+	});
+
+	it('accetta le varianti e non distingue maiuscole', () => {
+		assert.equal(isWindowsPath('Windows'), true);
+		assert.equal(isWindowsPath(' win32 '), true);
+		assert.equal(isWindowsPath('windows_nt'), true);
+		assert.equal(isWindowsPath('darwin'), false);
+	});
+
+	it('senza piattaforma ricade sul sistema locale', () => {
+		assert.equal(isWindowsPath(null), isWindowsPath(undefined));
+		assert.equal(isWindowsPath(''), isWindowsPath(undefined));
+	});
+
+	it('un percorso del Mac resta POSIX anche con semantica Windows disattivata', () => {
+		const macPath = '/Users/other/dev/repo';
+		assert.equal(normalizeProjectPath(macPath, isWindowsPath('macos')), macPath);
+	});
+});
 
 describe('Normalizzazione percorsi di progetto', () => {
 	describe('normalizeProjectPath (Windows)', () => {

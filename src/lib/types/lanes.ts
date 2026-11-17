@@ -117,13 +117,22 @@ export function laneId(value: string): LaneId {
 	return nonEmpty(value, 'laneId') as LaneId;
 }
 
-export function canonicalProjectPath(value: string): CanonicalProjectPath {
-	const normalized = normalizeProjectPath(value);
+/**
+ * Un percorso che descrive un progetto remoto appartiene al sistema della
+ * macchina che lo possiede, non a quello di chi guarda: normalizzarlo con
+ * `isWindows` locale trasformava `/Users/maurizio/x` del Mac in
+ * `\Users\maurizio\x` e `omp` sul Mac non trovava piu' la cartella
+ * («No such file or directory»), lasciando il progetto in caricamento.
+ * Con `win` esplicito la semantica e' quella del proprietario; senza, resta
+ * quella della macchina locale come prima.
+ */
+export function canonicalProjectPath(value: string, win?: boolean): CanonicalProjectPath {
+	const normalized = normalizeProjectPath(value, win);
 	return nonEmpty(normalized, 'canonicalProjectPath') as CanonicalProjectPath;
 }
 
-export function workspacePath(value: string): WorkspacePath {
-	const normalized = normalizeProjectPath(value);
+export function workspacePath(value: string, win?: boolean): WorkspacePath {
+	const normalized = normalizeProjectPath(value, win);
 	return nonEmpty(normalized, 'workspacePath') as WorkspacePath;
 }
 

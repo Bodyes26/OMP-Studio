@@ -101,4 +101,31 @@ describe('Progetti remoti in barra (R-MI-03/MI-04)', () => {
 		assert.equal(projectStore.projects.length, 2);
 		assert.equal(projectStore.isRemote(projectStore.projects[1]), true);
 	});
+
+	/**
+	 * Il percorso di un progetto remoto appartiene al sistema della macchina che
+	 * lo possiede. Normalizzarlo con `isWindows` di chi guarda lo corrompeva: da
+	 * Windows il Mac riceveva `\Users\other\dev\repo` e `omp` falliva con
+	 * «No such file or directory», lasciando la chat in caricamento per sempre.
+	 */
+	it('conserva i percorsi POSIX di un host macOS anche se chi guarda e su Windows', () => {
+		projectStore.syncRemoteProjects('mac-1', 'MacBook Air', snapshot());
+		const remote = projectStore.projects[0];
+		assert.equal(remote.canonicalProjectPath, '/Users/other/dev/repo');
+		assert.equal(remote.lane.workspacePath, '/Users/other/dev/repo');
+		assert.ok(!String(remote.canonicalProjectPath).includes('\\'));
+		assert.ok(!String(remote.lane.workspacePath).includes('\\'));
+	});
+
+	it('normalizza invece con la semantica Windows quando l host e Windows', () => {
+		const host = snapshot();
+		host.platform = 'windows';
+		host.projectRoot = 'C:/Users/other/source/repos';
+		host.projects[0].canonicalProjectPath = 'C:/Users/other/source/repos/repo';
+		host.projects[0].lane.workspacePath = 'C:/Users/other/source/repos/repo';
+		projectStore.syncRemoteProjects('pc-1', 'PC ufficio', host);
+		const remote = projectStore.projects[0];
+		assert.equal(remote.canonicalProjectPath, 'C:\\Users\\other\\source\\repos\\repo');
+		assert.equal(remote.lane.workspacePath, 'C:\\Users\\other\\source\\repos\\repo');
+	});
 });

@@ -12,6 +12,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 ## [Unreleased]
 
 ### Fixed
+- Projects on another machine open even when the two machines use different systems: paths were adapted to the viewing machine's system, so from Windows the Mac's folder arrived as `\Users\...`, `omp` could not find it, and the chat stayed on "Loading session…" forever. Each path now follows the system of the machine that owns the project. (R-MI-03, R-MI-06)
 - "Settings → Other instances" saves its configuration again: the Studio-to-Studio link commands were not declared among the window's permissions, so every attempt to turn the link on, generate a code or pair a machine ended with "Command link_configure not allowed by ACL". (R-MI-16)
 - Agent questions are back with `omp` 18.21: the new version moved the module that reads images inside HTML forms, and the component opening the form stopped loading, leaving the agent waiting without showing the question in the chat. Studio uses the new module and keeps working with earlier `omp` versions too. (ASK-001)
 - Studio Remote again recognizes which models accept images: the PWA read a model field that the machine state no longer sends, so every model looked like it accepted them. The relay type check is restored, so the relay image is published again on every change. (REL-001)
