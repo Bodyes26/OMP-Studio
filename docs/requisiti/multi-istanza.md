@@ -202,6 +202,14 @@ Due istanze di Studio si abbinano una volta sola scambiandosi una chiave (codice
 **Accettazione:** su due installazioni mai collegate, con lo stesso relay configurato, generare il codice su M e inserirlo su W: M compare fra le macchine di W senza creare account; dopo il riavvio di entrambe il collegamento torna da solo; nessuna connessione verso servizi di n0.
 **Errore da evitare:** account, relay pubblici di terzi, indirizzi da configurare oltre al relay.
 
+**Verifiche:**
+
+| Data | Scenario | Esito | Prova |
+|---|---|---|---|
+| 2026-11-17 | Primo uso reale del pannello su Windows (nightly `1.10.1-nightly.1794865373032`): salvataggio con nome macchina e relay `https://iroh-relay.myapollo.it` | Fallito: «Command link_configure not allowed by ACL». I 14 comandi `link_*` non erano in nessun permesso di `src-tauri/permissions/`; `test/acl-coverage.test.ts` non li vedeva perché scartava le voci con percorso (`link::link_configure`) invece di ridurle all'ultimo segmento, che è il nome usato da Tauri sia nella ACL sia in `invoke` | Segnalazione dell'utente; `generate_handler!` in `lib.rs` (272 voci, 258 controllate prima del fix); manifest ACL generato dopo il fix con i 14 comandi |
+| 2026-11-17 | Dopo il fix: `allow-instance-link` in `app-commands.toml`, incluso nel set `studio-app` | Comandi consentiti: 272 su 272; togliendo il permesso ne mancano esattamente 14, tutti `link_*`. `node --test test/acl-coverage.test.ts` verde. `cargo check` verde, manifest ACL generato con i 14 comandi | Sessione corrente; `src-tauri/target/debug/build/omp-studio-app-*/out/acl-manifests.json` |
+| — | Abbinamento dall'app fra Windows e Mac | Non riprodotto dopo il fix: richiede una build con la correzione installata su entrambe | — |
+
 ## R-MI-17 — Collegamento diretto quando possibile, altrimenti dal relay proprio
 
 **Fonti:** F8, F13, F15. Sostituisce R-MI-02.

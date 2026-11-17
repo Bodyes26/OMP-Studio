@@ -439,6 +439,26 @@ commands.allow = [
     "automations_host_handshake"
 ]
 
+[[permission]]
+identifier = "allow-instance-link"
+description = "Collegamento fra istanze Studio: configurazione, abbinamento, permessi, revoca e superfici remote"
+commands.allow = [
+    "link_status",
+    "link_configure",
+    "link_pairing_code",
+    "link_pair",
+    "link_permissions",
+    "link_revoke",
+    "link_invoke",
+    "link_open_rpc",
+    "link_open_pty",
+    "link_host_action",
+    "link_host_snapshot",
+    "link_command_result",
+    "link_publish_state",
+    "link_host_states"
+]
+
 [[set]]
 identifier = "studio-app"
 description = "Comandi nativi del guscio Studio, escluso l'updater che ha un set dedicato"
@@ -472,5 +492,6 @@ permissions = [
     "allow-doctor",
     "allow-remote",
     "allow-desktop-presence",
-    "allow-automations"
+    "allow-automations",
+    "allow-instance-link"
 ]

@@ -16,7 +16,16 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const TAURI = join(ROOT, 'src-tauri');
 const PERMISSIONS_DIR = join(TAURI, 'permissions');
 
-/** Comandi registrati nella macro `generate_handler!` di src/lib.rs. */
+/**
+ * Comandi registrati nella macro `generate_handler!` di src/lib.rs.
+ *
+ * Tauri prende il nome del comando dall'**ultimo segmento** del percorso
+ * (`link::link_configure` -> `link_configure`): il namespace del modulo non
+ * entra ne' nella ACL ne' nell'`invoke`. Scartare le voci con percorso invece
+ * di ridurle all'ultimo segmento nascondeva proprio i comandi registrati in
+ * questo modo, che restavano fuori da ogni permesso e venivano rifiutati a
+ * runtime con "Command <nome> not allowed by ACL".
+ */
 function comandiRegistrati(): string[] {
 	const lib = readFileSync(join(TAURI, 'src', 'lib.rs'), 'utf8');
 	const inizio = lib.indexOf('generate_handler![');
@@ -24,11 +33,19 @@ function comandiRegistrati(): string[] {
 	const blocco = lib.slice(inizio + 'generate_handler!['.length);
 	const fine = blocco.indexOf(']');
 	assert.notEqual(fine, -1, 'chiusura della macro generate_handler! non trovata');
-	return blocco
+	const voci = blocco
 		.slice(0, fine)
 		.split(',')
 		.map((voce) => voce.trim())
-		.filter((voce) => /^[a-z_][a-z0-9_]*$/.test(voce));
+		.filter(Boolean);
+	for (const voce of voci) {
+		assert.match(
+			voce,
+			/^[a-z_][a-z0-9_]*(::[a-z_][a-z0-9_]*)*$/,
+			`voce non riconosciuta in generate_handler!: ${voce}`
+		);
+	}
+	return voci.map((voce) => voce.split('::').pop() as string);
 }
 
 interface Permessi {

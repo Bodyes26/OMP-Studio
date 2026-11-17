@@ -12,6 +12,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 ## [Unreleased]
 
 ### Fixed
+- «Impostazioni → Altre istanze» torna a salvare la configurazione: i comandi del collegamento fra istanze non erano dichiarati fra i permessi della finestra, quindi ogni tentativo di accendere il collegamento, generare un codice o abbinare una macchina finiva con «Command link_configure not allowed by ACL». (R-MI-16)
 - Le domande dell'agente tornano a comparire con `omp` 18.21: la nuova versione ha spostato il modulo che legge le immagini dei moduli HTML, e il componente che apre il modulo non si caricava più, lasciando l'agente fermo in attesa senza mostrare la domanda nella chat. Studio usa il modulo nuovo e continua a funzionare anche con le versioni precedenti di `omp`. (ASK-001)
 - Studio Remote torna a riconoscere quali modelli accettano immagini: la PWA leggeva un campo del modello che lo stato della macchina non manda più, quindi ogni modello sembrava accettarle. Controllo dei tipi del relay ripristinato, quindi l'immagine del relay torna a pubblicarsi a ogni modifica. (REL-001)
 
