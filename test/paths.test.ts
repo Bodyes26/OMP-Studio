@@ -30,6 +30,29 @@ describe('isWindowsPath (semantica del sistema di una macchina remota)', () => {
 		const macPath = '/Users/other/dev/repo';
 		assert.equal(normalizeProjectPath(macPath, isWindowsPath('macos')), macPath);
 	});
+
+	/**
+	 * La base dichiara il sistema: senza questa inferenza, un progetto del Mac
+	 * aperto da Windows produceva `/Users/x\src\file.ts`, che il Mac non trova.
+	 */
+	it('unisce un percorso del Mac in forma POSIX anche quando chi chiama e su Windows', () => {
+		assert.equal(
+			joinProjectPath('/Users/other/dev/repo', 'src/lib/foo.ts'),
+			'/Users/other/dev/repo/src/lib/foo.ts'
+		);
+	});
+
+	it('unisce un percorso di Windows in forma Windows', () => {
+		assert.equal(
+			joinProjectPath('C:/Users/other/repo', 'src/lib/foo.ts'),
+			'C:\\Users\\other\\repo\\src\\lib\\foo.ts'
+		);
+	});
+
+	it('non trasforma una base POSIX in Windows in nessun caso', () => {
+		const joined = joinProjectPath('/Users/other/dev/repo', 'src/lib/foo.ts');
+		assert.ok(!joined.includes('\\'));
+	});
 });
 
 describe('Normalizzazione percorsi di progetto', () => {

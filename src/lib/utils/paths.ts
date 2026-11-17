@@ -56,16 +56,31 @@ export function pathKey(p: string, win: boolean = isWindows): string {
 }
 
 /**
- * Unisce il percorso base del progetto con un percorso relativo.
+ * La forma di un percorso assoluto dichiara il suo sistema: `/…` e' POSIX,
+ * `C:…` o `\\…` e' Windows. Serve a non corrompere i percorsi di un progetto
+ * remoto quando la macchina che guarda usa l'altro sistema (`/Users/x` del Mac
+ * diventava `/Users/x\src\file.ts` da Windows). Resta possibile forzare la
+ * semantica col terzo argomento; senza un percorso assoluto riconoscibile vale
+ * quella locale.
  */
-export function joinProjectPath(projectPath: string, rel: string, win: boolean = isWindows): string {
+function pathLooksWindows(projectPath: string): boolean | null {
+	if (projectPath.startsWith('/')) return false;
+	if (/^[A-Za-z]:/.test(projectPath) || projectPath.startsWith('\\\\')) return true;
+	return null;
+}
+
+export function joinProjectPath(projectPath: string, rel: string, win?: boolean): string {
+	if (win === undefined) win = pathLooksWindows(projectPath) ?? isWindows;
 	if (!rel) return projectPath;
+	// La base si normalizza prima di unire: un `C:/x` grezzo produceva un
+	// percorso misto (`C:/x\y`) che nessuno dei due sistemi apre. Su una base
+	// gia' normalizzata e' un passaggio in piu' senza effetti.
 	if (win) {
-		const base = projectPath.endsWith('\\') ? projectPath.slice(0, -1) : projectPath;
+		const base = normalizeProjectPath(projectPath, true);
 		const cleanRel = rel.replace(/\//g, '\\').replace(/^\\+/, '');
 		return `${base}\\${cleanRel}`;
 	} else {
-		const base = projectPath.endsWith('/') ? projectPath.slice(0, -1) : projectPath;
+		const base = normalizeProjectPath(projectPath, false);
 		const child = rel.startsWith('/') ? rel.slice(1) : rel;
 		return `${base}/${child.replace(/\\/g, '/')}`;
 	}
