@@ -28,6 +28,10 @@
 	import Tooltip from '#lib/ui/Tooltip.svelte';
 	import ProviderLogo from './models/ProviderLogo.svelte';
 	import ScheduleMenu from './schedule/ScheduleMenu.svelte';
+	import { projectOrder } from '#lib/stores/projectOrder.svelte.ts';
+	import { linkStore } from '#lib/backend/link.svelte.ts';
+	import { LOCAL_MACHINE } from '#lib/backend/ipc.ts';
+	import type { DispatchCopy } from '#lib/stores/autoDispatchOwner.ts';
 
 	interface Props {
 		project: Project;
@@ -61,6 +65,65 @@
 	 * progetto: l'operazione del destinatario precedente resta in volo e, se si
 	 * torna su quella coda, il pulsante deve essere ancora spento.
 	 */
+	/**
+	 * Chi avvia la coda di questo progetto (F20). Su una macchina sola non c'è
+	 * nulla da dire; su un progetto condiviso la riga dice se l'auto-avvio è
+	 * qui, altrove, o spento ovunque — senza questa etichetta l'interruttore
+	 * spento sembra un errore invece di una scelta.
+	 */
+	const ownerCopies = $derived<DispatchCopy[]>([project, ...projectOrder.copiesOf(project)].map((copy) => ({
+		machineId: copy.machineId ?? LOCAL_MACHINE,
+		name: copy.machineId && copy.machineId !== LOCAL_MACHINE
+			? (linkStore.machineFor(copy.machineId)?.name ?? copy.machineId)
+			: (linkStore.status.name || m.machine_indicator_this_device()),
+		online: copy.machineId && copy.machineId !== LOCAL_MACHINE
+			? (linkStore.machineFor(copy.machineId)?.online ?? false)
+			: true,
+		autoDispatch: copy.autoDispatch,
+		lastUsed: copy.lastOpened ?? null
+	})));
+
+	const ownerHint = $derived.by(() => {
+		// Ricalcolato qui invece che passando un secondo stato: la riga deve
+		// seguire gli stessi dati dell'interruttore, o si contraddicono.
+		const copies = ownerCopies;
+		const enabled = copies.filter((copy) => copy.autoDispatch);
+		if (copies.length <= 1) return '';
+		if (enabled.length === 0) return m.project_tabs_queue_owner_none();
+		if (enabled.length > 1) return m.project_tabs_queue_owner_conflict();
+		const owner = enabled[0];
+		if (owner.machineId !== LOCAL_MACHINE) {
+			return owner.online
+				? m.project_tabs_queue_owner_elsewhere({ name: owner.name })
+				: m.project_tabs_queue_owner_offline({ name: owner.name });
+		}
+		return '';
+	});
+
+	/**
+	 * Accendere qui l'auto-avvio lo spegne sulle altre copie (F20): la
+	 * designazione è l'interruttore, non un'impostazione separata. Le copie
+	 * remote vivono nel loro stato; qui si spegne il locale e si chiede al
+	 * proprietario di spegnere la sua, così due macchine non restano accese.
+	 */
+	function setAutoDispatchExclusive(checked: boolean): void {
+		projectStore.setAutoDispatch(project.id, checked);
+		if (!checked) return;
+		for (const copy of projectOrder.copiesOf(project)) {
+			if (!copy.autoDispatch) continue;
+			// Una copia remota: il comando viaggia e il suo esito arriva con lo
+			// stato successivo; qui si toglie subito dalla vista per non lasciare
+			// due interruttori accesi nel frattempo.
+			void linkStore
+				.command(copy.machineId ?? LOCAL_MACHINE, {
+					kind: 'set_auto_dispatch',
+					projectId: copy.hostProjectId ?? '',
+					enabled: false
+				})
+				.catch(() => undefined);
+		}
+	}
+
 	let inFlight = $state<string[]>([]);
 	let error = $state('');
 	/** Destinatario dell'errore: un esito in ritardo non parla di un altro progetto. */
@@ -210,10 +273,13 @@
 				id={autoDispatchId}
 				checked={project.autoDispatch}
 				ariaLabelledBy={autoDispatchLabelId}
-				onChange={(checked) => projectStore.setAutoDispatch(project.id, checked)}
+				onChange={(checked) => setAutoDispatchExclusive(checked)}
 			/>
 		</Tooltip>
 	</div>
+	{#if ownerHint}
+		<p class="owner-hint">{ownerHint}</p>
+	{/if}
 
 	{#if tasks.length === 0}
 		<p class="empty">{m.project_tabs_queue_empty()}</p>
@@ -313,6 +379,15 @@
 
 	/* Avvio automatico: etichetta cliccabile e switch sulla stessa linea.
 	   Nessuna spiegazione permanente: il perche' sta nel tooltip. */
+	/* Chi avvia la coda, su un progetto condiviso: una riga sola, in tono
+	   basso. Su una macchina sola non compare. */
+	.owner-hint {
+		margin: -2px 0 8px;
+		color: var(--ink-faint);
+		font-size: var(--text-caption);
+		line-height: 1.4;
+	}
+
 	.auto-row {
 		display: flex;
 		align-items: center;

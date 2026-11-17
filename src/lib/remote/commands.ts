@@ -128,6 +128,18 @@ export interface RemoteCommandExecutor {
 	listProjectFolders: () => Promise<RemoteFolderList>;
 	/** La cartella va verificata sotto la radice dei progetti: il percorso arriva da un dispositivo. */
 	openProject: (path: string) => Promise<{ projectId: string }>;
+	/**
+	 * Auto-avvio esclusivo (F20): accendere su questa macchina lo spegne sulle
+	 * altre, che lo chiedono a loro volta. `projectId` è l'id locale all'host.
+	 */
+	setAutoDispatch: (projectId: string, enabled: boolean) => void;
+	/**
+	 * Coda arrivata da un'altra macchina (F19): si fonde per task, non si
+	 * sovrascrive il file — i task creati qui nel frattempo restano.
+	 */
+	writeQueue: (projectPath: string, tasksJson: string) => Promise<void>;
+	/** Coda di questo progetto, come JSON: la chiede un'altra copia (F19). */
+	readQueue: (projectPath: string) => Promise<string>;
 	createProject: (
 		name: string,
 		github: { visibility: 'private' | 'public' } | null
@@ -227,6 +239,9 @@ const ACTION_LABEL_KEYS: Record<RemoteCommand['kind'], () => string> = {
 	send_prompt: () => m.l10n_lab_remote_action_send_prompt(),
 	chat_history: () => m.l10n_lab_remote_action_chat_history(),
 	list_project_folders: () => m.l10n_lab_remote_action_list_project_folders(),
+	set_auto_dispatch: () => m.l10n_lab_remote_action_set_auto_dispatch(),
+	read_queue: () => m.l10n_lab_remote_action_read_queue(),
+	write_queue: () => m.l10n_lab_remote_action_write_queue(),
 	open_project: () => m.l10n_lab_remote_action_open_project(),
 	create_project: () => m.l10n_lab_remote_action_create_project(),
 	composer_catalog: () => m.l10n_lab_remote_action_composer_catalog(),
@@ -330,6 +345,21 @@ export async function handleRemoteCommand(
 		switch (command.kind) {
 			case 'list_project_folders': {
 				await ctx.reportResult(commandId, true, undefined, await ctx.executor.listProjectFolders());
+				return;
+			}
+			case 'set_auto_dispatch': {
+				ctx.executor.setAutoDispatch(command.projectId, command.enabled);
+				await ctx.reportResult(commandId, true);
+				return;
+			}
+			case 'read_queue': {
+				const data = await ctx.executor.readQueue(command.projectPath);
+				await ctx.reportResult(commandId, true, undefined, data);
+				return;
+			}
+			case 'write_queue': {
+				await ctx.executor.writeQueue(command.projectPath, command.tasks);
+				await ctx.reportResult(commandId, true);
 				return;
 			}
 			case 'open_project':

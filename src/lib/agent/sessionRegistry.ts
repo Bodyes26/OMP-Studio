@@ -120,6 +120,8 @@ export class SessionRegistry<T extends AgentSessionLike = AgentSession> {
 	getOrCreateLaneSession(project: {
 		id: string;
 		canonicalProjectPath?: string | null;
+		/** Macchina che esegue il lavoro: la copia del progetto (R-MI-12). */
+		machineId?: string;
 		lane: {
 			laneId: string;
 			workspacePath: string | null;
@@ -140,6 +142,9 @@ export class SessionRegistry<T extends AgentSessionLike = AgentSession> {
 			const isLab = project.lane.kind === 'lab';
 			session = this.factory({
 				cwd,
+				// Senza la macchina la sessione nascerebbe locale anche per un
+				// progetto che vive altrove: la conversazione partirebbe qui.
+				machineId: project.machineId,
 				scope: project.lane.laneId === 'main' ? 'main' : 'lane',
 				laneId: project.lane.laneId,
 				projectKey: project.id,

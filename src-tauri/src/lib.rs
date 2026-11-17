@@ -281,6 +281,7 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             link::link_status,
+            link::link_activity,
             link::link_configure,
             link::link_pairing_code,
             link::link_pair,

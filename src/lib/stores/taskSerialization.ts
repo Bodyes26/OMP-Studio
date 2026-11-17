@@ -45,7 +45,10 @@ export interface StudioTaskOptions {
  * - `at`: non parte prima di `notBefore` (epoch ms).
  *
  * Un task programmato parte da solo anche con l'auto-avvio del progetto
- * spento: la programmazione e' gia' l'azione esplicita dell'utente.
+ * spento: la programmazione e' gia' l'azione esplicita dell'utente. Da F20
+ * (auto-avvio esclusivo) parte però **solo sulla macchina** con l'auto-avvio
+ * acceso: senza quel presidio, con la coda replicata lo stesso task
+ * partirebbe su due macchine.
  */
 export type TaskScheduleKind = 'reset' | 'at';
 export type TaskScheduleOrigin = 'user' | 'recovery';
@@ -97,6 +100,12 @@ export interface StudioTask {
 	schedule?: TaskSchedule;
 	/** Presente solo nelle voci di ripresa create da un blocco di quota. */
 	resume?: TaskResume;
+	/**
+	 * Macchina su cui il task deve partire (F17, F19). Assente = quella con
+	 * l'auto-avvio acceso. Non è la macchina che ha creato il task: il task è
+	 * di tutte le copie, e questa è una scelta esplicita, modificabile.
+	 */
+	machineId?: string;
 }
 
 /**
@@ -438,7 +447,10 @@ export function sanitizeLoadedTasks(tasks: StudioTask[], defaultProjectPath?: st
 				};
 			}
 
-			const { schedule: rawSchedule, resume: rawResume, manualStartOnly, ...rest } = task;
+			// `machineId` (F19) arriva dal file scritto anche altrove: una stringa
+			// vuota o non stringa è rumore, e un task con macchina invalida non
+			// partirebbe mai.
+			const { schedule: rawSchedule, resume: rawResume, manualStartOnly, machineId: rawMachine, ...rest } = task;
 			const sanitized: StudioTask = {
 				...rest,
 				options,
@@ -456,6 +468,7 @@ export function sanitizeLoadedTasks(tasks: StudioTask[], defaultProjectPath?: st
 			const resume = normalizeTaskResume(rawResume);
 			if (resume) sanitized.resume = resume;
 			if (manualStartOnly === true) sanitized.manualStartOnly = true;
+			if (typeof rawMachine === 'string' && rawMachine.trim()) sanitized.machineId = rawMachine.trim();
 			return sanitized;
 		});
 }

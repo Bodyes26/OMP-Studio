@@ -65,6 +65,53 @@ impl Drop for DetachOnExit {
     }
 }
 
+/// Tiene occupata la corsia finché la superficie remota resta aperta: il
+/// conto si fa all'apertura e si disfa all'uscita, qualunque sia la ragione
+/// (chiusura del flusso, rete caduta, processo finito). R-MI-18.
+struct ActivityGuard {
+    app: tauri::AppHandle,
+    activity: activity::SharedActivity,
+    project: String,
+    lane: String,
+}
+impl ActivityGuard {
+    fn new(app: tauri::AppHandle, activity: activity::SharedActivity, project: String, lane: String) -> Self {
+        activity.attach(&project, &lane);
+        publish_activity(&app, &activity);
+        Self { app, activity, project, lane }
+    }
+}
+impl Drop for ActivityGuard {
+    fn drop(&mut self) {
+        self.activity.detach(&self.project, &self.lane);
+        // La corsia si libera subito, senza aspettare che il frontend
+        // interroghi: chi guarda vede il progetto tornare fermo.
+        publish_activity(&self.app, &self.activity);
+    }
+}
+
+/// Manda il riepilogo alla finestra proprietaria. Il payload è piccolo e
+/// cambia solo ai confini del run, non a ogni token.
+fn publish_activity(app: &tauri::AppHandle, activity: &activity::SharedActivity) {
+    let snapshot = activity::LinkActivitySnapshot {
+        revision: activity.revision(),
+        lanes: activity.snapshot(),
+    };
+    if let Err(error) = app.emit("link:activity", &snapshot) {
+        crate::studio_log::info("link", format!("Pubblicazione attivita' corsie: {error}"));
+    }
+}
+
+/// Corsia a cui appartiene la sessione richiesta. `rpc_open_lab` non ha un
+/// progetto vero e proprio: si tiene la sua chiave come corsia, così due
+/// prototipi non si confondono.
+fn lane_of(args: &Value) -> Option<(String, String)> {
+    let project = args.get("projectId").and_then(Value::as_str)
+        .or_else(|| args.get("prototypeId").and_then(Value::as_str))?;
+    let lane = args.get("laneId").and_then(Value::as_str).unwrap_or("main");
+    Some((project.to_owned(), lane.to_owned()))
+}
+
 pub(super) enum Surface {
     Rpc(Channel<InvokeResponseBody>),
     Pty(Channel<Response>),
@@ -116,8 +163,17 @@ impl Runtime {
         let machine = connection.remote_id().to_string();
         if consumer.len() > 128 || consumer.is_empty() { return Err("Invalid stream consumer".into()); }
         if self.authorize(&machine, &command, generation)? != "stream" { return Err("Not a streaming command".into()); }
+        // Corsia della sessione, per dire alla finestra proprietaria che è
+        // occupata (R-MI-18). Il terminale non ha una corsia con agente: solo
+        // le sessioni RPC entrano nel conteggio.
+        let lane = (command == "rpc_open" || command == "rpc_open_lab")
+            .then(|| lane_of(&args))
+            .flatten();
         let owner = format!("link:{machine}:{consumer}");
         let _detach = DetachOnExit { app: self.app.clone(), owner: owner.clone() };
+        let _activity = lane.as_ref().map(|(project, lane)| {
+            ActivityGuard::new(self.app.clone(), self.activity.clone(), project.clone(), lane.clone())
+        });
         let (tx, mut rx) = tokio::sync::mpsc::channel(8192);
         let queued = Arc::new(AtomicUsize::new(0));
         let outbox = Outbox { sender: tx, bytes: queued.clone() };
@@ -161,6 +217,15 @@ impl Runtime {
                 _ = send.stopped() => break,
             };
             self.authorize(&machine, &command, generation)?;
+            // Un confronto di prefisso per frame: i delta escono subito senza
+            // toccare il JSON. Solo un cambio di stato del run pubblica.
+            if let Some((project, lane)) = lane.as_ref() {
+                if let Ok(frame) = std::str::from_utf8(&packet.bytes) {
+                    if self.activity.observe(project, lane, frame) != activity::FrameEffect::Unchanged {
+                        publish_activity(&self.app, &self.activity);
+                    }
+                }
+            }
             send_json(send, &packet.header).await?;
             send.write_all(&packet.bytes).await.map_err(|error| error.to_string())?;
             queued.fetch_sub(packet.bytes.len(), Ordering::SeqCst);

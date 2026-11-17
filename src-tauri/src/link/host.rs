@@ -31,10 +31,18 @@ fn action_permission(kind: &str) -> Result<&'static str, String> {
     match kind {
         "get_task" | "refresh_quota" | "chat_history" | "list_project_folders" | "composer_catalog"
             | "refresh_context" | "list_sessions" | "session_history" | "get_artifact" => Ok("read"),
+        // Replica della coda (F19): leggere e scrivere i task del progetto.
+        // Scrivere è «Agenti», come creare e modificare un task.
+        "read_queue" => Ok("read"),
+        "write_queue" => Ok("agents"),
         "open_project" | "create_project" => Ok("files"),
+
         "respond_ui" | "run_task" | "wait_quota_reset" | "dismiss_quota_blocked" | "create_task"
             | "update_task" | "delete_task" | "move_task" | "respond_dispatch" | "abort" | "send_prompt"
             | "set_lane_role" | "set_lane_model" | "set_lane_thinking" | "stage_attachment"
+            // Cambia chi avvia i task del progetto (F20): stessa famiglia degli
+            // altri comandi che governano l'esecuzione, non una lettura.
+            | "set_auto_dispatch"
             | "compact_context" | "mark_session_seen" => Ok("agents"),
         _ => Err("Unknown host action".into()),
     }

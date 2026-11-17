@@ -444,6 +444,7 @@ identifier = "allow-instance-link"
 description = "Collegamento fra istanze Studio: configurazione, abbinamento, permessi, revoca e superfici remote"
 commands.allow = [
     "link_status",
+    "link_activity",
     "link_configure",
     "link_pairing_code",
     "link_pair",

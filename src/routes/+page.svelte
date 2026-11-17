@@ -67,6 +67,11 @@
 	import { settingsStore } from '#lib/stores/settings.svelte.ts';
 	import { backgroundJobs } from '#lib/stores/backgroundJobs.svelte.ts';
 	import { projectOrder } from '#lib/stores/projectOrder.svelte.ts';
+	import { linkStore } from '#lib/backend/link.svelte.ts';
+	import { LOCAL_MACHINE } from '#lib/backend/ipc.ts';
+	import { machineChoices, type MachineChoice, type MachineCopy } from '#lib/agent/machineChoice.ts';
+	import type { SessionCopy } from '#lib/agent/sessionCopies.ts';
+	import { dispatchOwner, type DispatchCopy } from '#lib/stores/autoDispatchOwner.ts';
 	import { notificationManager } from '#lib/stores/notifications.svelte.ts';
 	import { setupFlow, SETUP_STEPS, type SetupStatus, type SetupStepId, type SetupProgress } from '#lib/stores/setupFlow.svelte.ts';
 	import { headsUpSeen } from '#lib/agent/headsUpSeen.svelte.ts';
@@ -1228,6 +1233,125 @@
 
 
 	/**
+	 * Macchine su cui esiste questo progetto, per l'indicatore sotto il
+	 * composer (R-MI-13). Sono le copie del gruppo, non le macchine abbinate:
+	 * un computer senza il progetto non è una scelta.
+	 */
+	/**
+	 * Replica della coda (F19): quando la coda locale di un progetto condiviso
+	 * viene scritta, la si manda alle altre copie. `publish` non attende —
+	 * il salvataggio su disco non deve dipendere dalla rete — e chi riceve
+	 * fonde per task, non sovrascrive il file.
+	 */
+	/**
+	 * All'apertura di un progetto, chiede la coda alle copie raggiungibili e la
+	 * fonde (F19). Serve al primo avvio su una macchina che non ha mai visto la
+	 * coda dell'altra: la replica a senso unico lascerebbe le code divergenti
+	 * finché una delle due non scrive.
+	 */
+	async function pullRemoteQueues(project: Project): Promise<void> {
+		const copies = projectOrder.copiesOf(project).filter((copy) =>
+			copy.machineId && linkStore.machineFor(copy.machineId)?.online
+		);
+		for (const copy of copies) {
+			if (!copy.canonicalProjectPath) continue;
+			try {
+				const raw = await linkStore.command<string>(copy.machineId!, {
+					kind: 'read_queue',
+					projectPath: copy.canonicalProjectPath
+				});
+				const parsed = JSON.parse(raw) as StudioTask[];
+				if (Array.isArray(parsed)) await taskStore.adoptRemoteQueue(project.canonicalProjectPath ?? '', parsed);
+			} catch {
+				// Una copia che non risponde non deve impedire l'apertura.
+			}
+		}
+	}
+
+	function installQueueReplication(): void {
+		taskStore.setReplication({
+			publish(projectPath: string, tasks: readonly StudioTask[]) {
+				const project = projectStore.projects.find(
+					(candidate) => candidate.canonicalProjectPath &&
+						normalizeProjectPath(candidate.canonicalProjectPath).toLowerCase() ===
+						normalizeProjectPath(projectPath).toLowerCase()
+				);
+				if (!project) return;
+				const copies = projectOrder.copiesOf(project).filter((copy) =>
+					copy.machineId && linkStore.machineFor(copy.machineId)?.online
+				);
+				if (copies.length === 0) return;
+				const payload = JSON.stringify(tasks);
+				for (const copy of copies) {
+					void linkStore
+						.command(copy.machineId!, {
+							kind: 'write_queue',
+							projectPath: copy.canonicalProjectPath ?? '',
+							tasks: payload
+						})
+						.catch(() => undefined);
+				}
+			}
+		});
+	}
+
+	/** Copie del progetto da interrogare per lo storico unificato (F19). */
+	function sessionCopiesFor(p: Project): SessionCopy[] {
+		return [p, ...projectOrder.copiesOf(p)].map((copy) => {
+			const isRemote = Boolean(copy.machineId && copy.machineId !== LOCAL_MACHINE);
+			return {
+				machineId: copy.machineId ?? LOCAL_MACHINE,
+				name: isRemote
+					? (linkStore.machineFor(copy.machineId!)?.name ?? copy.machineId!)
+					: (linkStore.status.name || m.machine_indicator_this_device()),
+				projectPath: copy.canonicalProjectPath ?? '',
+				online: isRemote ? (linkStore.machineFor(copy.machineId!)?.online ?? false) : true
+			};
+		});
+	}
+
+	/**
+	 * Apre la copia di un'altra macchina e ne riprende la sessione scelta:
+	 * una sessione vive dove è nata e non si sposta (la fase 3 lo farà, R-MI-14).
+	 */
+	function switchToCopyMachine(p: Project, machineId: string, sessionId: string): void {
+		const target = projectOrder.copiesOf(p).find((copy) => copy.machineId === machineId);
+		if (!target) return;
+		projectStore.setActive(target.id);
+		// Lo switch ricrea la superficie della copia: la ripresa parte quando
+		// la sessione di quella macchina è pronta, non prima.
+		queueMicrotask(() => void handleResumeSession(target.id, sessionId));
+	}
+
+	function machineChoicesFor(p: Project): MachineChoice[] {
+		const copies: MachineCopy[] = [p, ...projectOrder.copiesOf(p)].map((copy) => {
+			const machine = copy.machineId ? linkStore.machineFor(copy.machineId) : undefined;
+			return {
+				machineId: copy.machineId ?? LOCAL_MACHINE,
+				name: copy.machineId && copy.machineId !== LOCAL_MACHINE
+					? (machine?.name ?? copy.machineId)
+					: (linkStore.status.name || m.machine_indicator_this_device()),
+				online: copy.machineId && copy.machineId !== LOCAL_MACHINE ? (machine?.online ?? false) : true,
+				lastUsed: copy.lastOpened ?? null
+			};
+		});
+		return machineChoices(copies, p.machineId ?? LOCAL_MACHINE);
+	}
+
+	/**
+	 * Cambia la macchina su cui nascono le chat di questa corsia attivando la
+	 * copia gemella: la copia attiva è anche «l'ultima usata», quindi la
+	 * proposta successiva (F18) segue da sola, senza uno stato in più da
+	 * salvare. Spostare un lavoro già avviato resta la fase 3 (R-MI-14).
+	 */
+	function pickMachineFor(p: Project, machineId: string): void {
+		const target = [p, ...projectOrder.copiesOf(p)]
+			.find((copy) => (copy.machineId ?? LOCAL_MACHINE) === machineId);
+		if (!target || target.id === p.id) return;
+		projectStore.setActive(target.id);
+	}
+
+	/**
 	 * Come sopra, ma garantisce anche che il processo sia avviato. `ensureOpen`
 	 * e non `open`: un'apertura gia' in volo (per esempio la ripresa scelta
 	 * dall'utente) non va scavalcata dall'ultima sessione conosciuta.
@@ -1567,6 +1691,20 @@
 					getArtifact: remoteGetArtifact,
 					listProjectFolders: listRemoteProjectFolders,
 					openProject: openRemoteProject,
+					// Auto-avvio esclusivo (F20): questa è la macchina che
+					// possiede la copia, quindi spegne il proprio interruttore
+					// quando un'altra lo accende.
+					setAutoDispatch: (projectId: string, enabled: boolean) => {
+						projectStore.setAutoDispatch(projectId, enabled);
+					},
+					// Coda arrivata dall'altra macchina (F19): si fonde per task,
+					// così i task creati qui nel frattempo non spariscono.
+					readQueue: async (projectPath: string) =>
+						JSON.stringify(taskStore.tasksFor(projectPath)),
+					writeQueue: async (projectPath: string, tasksJson: string) => {
+						const parsed = JSON.parse(tasksJson) as StudioTask[];
+						await taskStore.adoptRemoteQueue(projectPath, Array.isArray(parsed) ? parsed : []);
+					},
 					createProject: createRemoteProject,
 					composerCatalog: remoteLaneConfig.getRemoteComposerCatalog,
 					setLaneRole: remoteLaneConfig.setRemoteLaneRole,
@@ -1582,6 +1720,21 @@
 			)
 		);
 		register(initRemoteChat());
+	installQueueReplication();
+	// Prima lettura delle code delle altre copie: solo per i progetti condivisi,
+	// una volta sola per progetto e dopo che il collegamento è noto.
+	const queuePulled = new Set<string>();
+	$effect(() => {
+		for (const project of projectStore.projects) {
+			if (!project.canonicalProjectPath) continue;
+			const copies = projectOrder.copiesOf(project);
+			if (copies.length === 0) continue;
+			if (!copies.some((copy) => copy.machineId && linkStore.machineFor(copy.machineId)?.online)) continue;
+			if (queuePulled.has(project.id)) continue;
+			queuePulled.add(project.id);
+			void pullRemoteQueues(project);
+		}
+	});
 
 		return () => {
 			disposed = true;
@@ -2338,14 +2491,45 @@
 		return lane?.surface;
 	}
 
+	/**
+	 * L'auto-avvio di un progetto condiviso sta acceso su una sola macchina
+	 * (F20): senza questo controllo due copie con l'interruttore acceso
+	 * avvierebbero lo stesso task. Vale anche per i task programmati, che
+	 * senza il presidio partirebbero comunque ("la programmazione e' gia'
+	 * l'azione esplicita") aggirando la regola.
+	 */
+	function dispatchOwnerFor(project: Project) {
+		const copies: DispatchCopy[] = [project, ...projectOrder.copiesOf(project)].map((copy) => ({
+			machineId: copy.machineId ?? LOCAL_MACHINE,
+			name: copy.machineId && copy.machineId !== LOCAL_MACHINE
+				? (linkStore.machineFor(copy.machineId)?.name ?? copy.machineId)
+				: (linkStore.status.name || m.machine_indicator_this_device()),
+			online: copy.machineId && copy.machineId !== LOCAL_MACHINE
+				? (linkStore.machineFor(copy.machineId)?.online ?? false)
+				: true,
+			autoDispatch: copy.autoDispatch,
+			lastUsed: copy.lastOpened ?? null
+		}));
+		return dispatchOwner(copies);
+	}
+
 	function autoDispatchCandidateFor(project: Project): AutoDispatchCandidate | null {
-		// Task programmati (Gate R35): passano per primi e partono
-		// anche con l'auto-avvio spento, dallo stesso arbitro (scheduleRunner).
+		// Nessuna coda avviata se l'auto-avvio e' spento ovunque, acceso
+		// altrove, o acceso qui su una copia che il collegamento non raggiunge:
+		// in tutti e tre i casi la coda aspetta (F20).
+		const owner = dispatchOwnerFor(project);
+		if (owner.machineId !== LOCAL_MACHINE || owner.offline) return null;
+		// Task programmati (Gate R35): passano per primi, dallo stesso arbitro
+		// (scheduleRunner), e seguono la stessa regola dell'auto-avvio (F20).
 		const scheduled = scheduleRunner.candidateFor(project, scheduleRouteDeps);
 		if (scheduled) return { projectId: project.id, ...scheduled };
 		if (!project.autoDispatch || !project.canonicalProjectPath) return null;
 		const next = nextAutoDispatchTask(taskStore.tasksFor(project.canonicalProjectPath), autoDispatchFailed);
 		if (!next) return null;
+		// Un task può chiedere una macchina precisa (F17): se non è questa, non
+		// lo avvia qui. Senza macchina vale la designazione di F20, già
+		// verificata sopra: parte solo dove l'auto-avvio è acceso.
+		if (next.machineId && next.machineId !== LOCAL_MACHINE) return null;
 		const decision = decideAutoDispatch({
 			lanes: laneOrchestrator.laneDispatchSnapshots(project),
 			worktreeCapable: Boolean(project.canonicalProjectPath)
@@ -4416,7 +4600,13 @@
 							onCreateTask={() => openNewTask(proj.canonicalProjectPath!)}
 							onRunTask={(taskId, shiftKey) => void handleRunTask(proj.id, taskId, { shiftKey })}
 							onEditTask={(taskId) => openTask(taskId)}
-							onResumeSession={(sessionId) => void handleResumeSession(proj.id, sessionId)}
+							sessionCopies={sessionCopiesFor(proj)}
+							onResumeSession={(sessionId, machineId) => {
+								// Una sessione di un'altra macchina si riprende attivando
+								// la sua copia: il processo deve nascere lì (F19).
+								if (machineId && machineId !== LOCAL_MACHINE) switchToCopyMachine(proj, machineId, sessionId);
+								else void handleResumeSession(proj.id, sessionId);
+							}}
 							onOpenFile={(relPath) => {
 								void handleTerminalOpenFile(proj.id, relPath, null);
 								closeActiveSurface();
@@ -4524,6 +4714,7 @@
 							onClose={() => taskEditorId = null}
 							onRunTask={(taskId: string, { newLane }) => void handleRunTask(projectStore.activeProject!.id, taskId, { shiftKey: newLane })}
 							onOpenImage={(data: string, mimeType: string) => (viewingImage = { data, mimeType })}
+							machines={projectStore.activeProject ? machineChoicesFor(projectStore.activeProject) : []}
 						/>
 					{:else if diagramOpen}
 						<DiagramViewer
@@ -4677,6 +4868,8 @@
 									onSlashCommand={(raw) => handleGuiSlashCommand(p.id, lane.laneId, raw)}
 									onNewChat={lane.kind === 'lab' ? undefined : () => void handleNewChat(p.id, lane.laneId)}
 									onOpenDiagram={(diagram) => handleChatOpenDiagram(p.id, lane.laneId, diagram)}
+									machineChoices={machineChoicesFor(p)}
+									onPickMachine={(machineId) => pickMachineFor(p, machineId)}
 								/>
 							</SurfaceBoundary>
 						{:else if TerminalComponent}

@@ -50,7 +50,8 @@
 		IconFile,
 		IconClose,
 		IconMore,
-		IconMonitor
+		IconMonitor,
+		IconJobs
 	} from '#lib/icons.ts';
 	import { linkStore } from '#lib/backend/link.svelte.ts';
 	import { LOCAL_MACHINE } from '#lib/backend/ipc.ts';
@@ -255,11 +256,11 @@
 	}
 
 	const rovingTabId = $derived(
-		projectOrder.list.some((candidate) => candidate.id === projectStore.activeId)
+		projectOrder.unified.some((candidate) => candidate.id === projectStore.activeId)
 			? projectStore.activeId
 			: isExternalActive
 				? 'external-tab'
-				: projectOrder.list[0]?.id ?? (externalProjects.length > 0 ? 'external-tab' : null)
+				: projectOrder.unified[0]?.id ?? (externalProjects.length > 0 ? 'external-tab' : null)
 	);
 
 	/** Tooltip e aria-label per la chip impostazioni: se c'e' un avviso di salute
@@ -303,7 +304,7 @@
 
 	$effect(() => {
 		// Tracciamo il numero di progetti per ricalcolare lo scorrimento
-		void projectOrder.list.length;
+		void projectOrder.unified.length;
 		if (tabsTrackEl) {
 			requestAnimationFrame(updateScrollState);
 		}
@@ -615,9 +616,10 @@
 	}
 
 	/** Le tessere in ordine di documento, che nella barra e' anche quello
-	 *  visibile: il `#each` segue `projectOrder.list` e nessuna regola CSS
+	 *  visibile: il `#each` segue `projectOrder.unified` e nessuna regola CSS
 	 *  inverte le righe, quindi le frecce restano coerenti anche dopo un
-	 *  riordino manuale. */
+	 *  riordino manuale. `unified` è `list` con una sola tessera per
+	 *  repository (R-MI-12), quindi la corrispondenza indice/tessera regge. */
 	function tabButtons(): HTMLElement[] {
 		if (!tabsTrackEl) return [];
 		return Array.from(tabsTrackEl.querySelectorAll<HTMLElement>('button.tab[role="tab"]'));
@@ -852,7 +854,7 @@
 			     agganciare `aria-controls`, e inventarne uno che non punta a
 			     niente sarebbe peggio dell'assenza. -->
 			<div class="tabs" role="tablist" aria-orientation="horizontal" aria-label={m.topbar_open_projects()}>
-		{#each projectOrder.list as p (p.id)}
+		{#each projectOrder.unified as p (p.id)}
 			{@const queued = p.canonicalProjectPath ? taskStore.queuedCountFor(p.canonicalProjectPath) : 0}
 			{@const ready = canRunTask?.(p.id) ?? false}
 			{@const isActive = projectStore.activeId === p.id}
@@ -867,7 +869,19 @@
 				: ''}
 			{@const aggState = getAggregatedState(p)}
 			{@const remoteMachine = linkStore.machineFor(p.machineId)}
-			{@const secondaryLanes = laneStore.lanesFor(p.id as ProjectId).filter((l) => l.laneId !== MAIN_LANE_ID && l.status !== 'archived' && l.status !== 'closed')}
+			{@const otherCopies = projectOrder.copiesOf(p)}
+			{@const otherCopyNames = otherCopies
+				.map((copy) => copy.machineId
+					? (linkStore.machineFor(copy.machineId)?.name ?? m.topbar_copies_local())
+					: m.topbar_copies_local())
+				.join(', ')}
+			<!-- Con una tessera sola, le corsie da contare sono quelle di tutte le
+			     copie: la locale dal `laneStore`, le remote dallo snapshot della
+			     loro macchina (R-MI-12). -->
+			{@const copyLanes = [p, ...otherCopies].flatMap((copy) => copy === p
+				? laneStore.lanesFor(p.id as ProjectId)
+				: (linkStore.hosts[copy.machineId ?? '']?.lanes ?? []).filter((lane) => lane.projectId === copy.hostProjectId))}
+			{@const secondaryLanes = copyLanes.filter((l) => l.laneId !== MAIN_LANE_ID && l.status !== 'archived' && l.status !== 'closed')}
 			{@const gitLanesCount = secondaryLanes.filter((l) => l.kind !== 'lab').length}
 			{@const labLanesCount = secondaryLanes.filter((l) => l.kind === 'lab').length}
 			<!-- Il contenitore esiste solo per trascinamento, hover e menu
@@ -945,6 +959,15 @@
 							title={remoteMachine?.name ?? p.machineId}
 							aria-hidden="true"
 						><IconMonitor /><span>{remoteMachine?.name ?? p.machineId}</span></span>
+					{/if}
+					<!-- Stesso repository su un'altra macchina: la tessera è una sola,
+					     e dice dove sono le altre copie (R-MI-12). -->
+					{#if otherCopies.length > 0}
+						<span
+							class="tab-machine-badge tab-copies-badge"
+							title={m.topbar_copies_aria({ machines: otherCopyNames })}
+							aria-hidden="true"
+						><IconJobs /><span>{otherCopyNames}</span></span>
 					{/if}
 					{#if p.canonicalProjectPath && queueStyle !== 'off'}
 						<span class="tab-reveal" class:show={isActive && queued > 0}>

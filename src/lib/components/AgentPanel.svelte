@@ -2,6 +2,7 @@
 	import { flip } from 'svelte/animate';
 	import { m } from '#lib/paraglide/messages.js';
 	import SessionList from './SessionList.svelte';
+	import type { SessionCopy } from '#lib/agent/sessionCopies.ts';
 	import RulesPanel from './RulesPanel.svelte';
 	import ProjectDocsPanel from './ProjectDocsPanel.svelte';
 	import EmptyState from './EmptyState.svelte';
@@ -29,7 +30,8 @@
 		onOpenFile,
 		agentBusy = false,
 		onInitJournal,
-		isExternal = false
+		isExternal = false,
+		sessionCopies = []
 	}: {
 		projectPath: string;
 		gate: AutomationGate;
@@ -38,7 +40,10 @@
 		onCreateTask: () => void;
 		onEditTask: (taskId: string) => void;
 		onRunTask: (taskId: string, shiftKey: boolean) => void;
-		onResumeSession: (sessionId: string) => void;
+		/** `machineId` dice da quale macchina riprendere (F19). */
+		onResumeSession: (sessionId: string, machineId?: string) => void;
+		/** Copie del progetto per lo storico unificato con badge. */
+		sessionCopies?: SessionCopy[];
 		onOpenFile: (relPath: string) => void;
 		/** L'agente principale del progetto sta lavorando (la scheda Progetto rilegge a fine lavoro). */
 		agentBusy?: boolean;
@@ -271,6 +276,7 @@
 				automationReason={gate.label}
 				{currentSessionId}
 				onResume={onResumeSession}
+				copies={sessionCopies}
 			/>
 		</div>
 	{:else if view === 'rules'}

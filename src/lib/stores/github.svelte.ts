@@ -53,6 +53,10 @@ export interface GitUpstreamStatus {
 	incomingCommits: CommitSummary[];
 	outgoingCommits: CommitSummary[];
 	hasUncommitted: boolean;
+	/** `owner/repo` in minuscolo: lo stesso valore su ogni copia (R-MI-12). */
+	repoSlug?: string | null;
+	/** Primo commit: identifica le copie senza origin condiviso. */
+	rootCommit?: string | null;
 }
 
 export interface GithubActionRun {

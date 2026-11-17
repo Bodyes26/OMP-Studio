@@ -30,6 +30,8 @@ import { resolveDroppedTask, type InFlightTask } from './taskRecovery';
 import { windowLabel } from './windowBridge';
 import { m as msg } from '#lib/paraglide/messages.js';
 import { taskLabel, promptHash } from './taskTitle';
+import type { QueueReplicationBridge } from './queueReplicationBridge.ts';
+import { mergeQueues, resequence } from './queueReplication.ts';
 
 export type {
 	AgentView,
@@ -90,10 +92,21 @@ class TaskStore {
 	private readonly hydration = new QueueHydration();
 	/** Ultimo contenuto scritto per progetto: evita riscritture identiche. */
 	private readonly lastWritten = new Map<string, string>();
+	/**
+	 * Chi sa mandare e ricevere la coda delle altre macchine (F19). Lo imposta
+	 * il guscio quando il progetto è condiviso: qui dentro non si importa il
+	 * collegamento, che dipende da Tauri e non deve entrare in questo store.
+	 */
+	private replication: QueueReplicationBridge | null = null;
 	private pendingProjectSaves = new Map<string, ReturnType<typeof setTimeout>>();
 
 	constructor() {
 		void this.init();
+	}
+
+	/** Registra il ponte di replica; `null` lo spegne (progetto non condiviso). */
+	setReplication(bridge: QueueReplicationBridge | null): void {
+		this.replication = bridge;
 	}
 
 	private get isTauri(): boolean {
@@ -227,6 +240,26 @@ class TaskStore {
 		return this.tasks.filter((task) => task.projectPath !== key).concat(merged);
 	}
 
+	/**
+	 * Coda arrivata da un'altra macchina (F19). Si fonde **per task**: vincere
+	 * l'ultima modifica e adottare le creazioni altrui. Scrivere il file
+	 * dell'altra macchina cancellerebbe i task creati qui nel frattempo.
+	 *
+	 * Non riscrive se nulla è cambiato: l'eco fra due istanze ferme
+	 * rimbalzerebbe all'infinito.
+	 */
+	async adoptRemoteQueue(projectPath: string, remote: readonly StudioTask[]): Promise<void> {
+		if (!projectPath || remote.length === 0) return;
+		await this.loadProject(projectPath);
+		const local = this.tasksFor(projectPath);
+		const outcome = mergeQueues(local, remote.map((task) => ({ ...task, projectPath })));
+		if (!outcome.changed) return;
+		const resequenced = resequence(outcome.tasks) as StudioTask[];
+		const others = this.tasks.filter((task) => task.projectPath !== projectPath);
+		this.tasks = [...others, ...resequenced];
+		this.saveProject(projectPath);
+	}
+
 	/** Rilettura forzata: il file e' cambiato da fuori (TUI, tool, altro omp). */
 	async reloadProject(projectPath: string) {
 		if (!projectPath || !this.isTauri) return;
@@ -276,6 +309,9 @@ class TaskStore {
 			// per 450 ms. Senza un annuncio esplicito l'altra webview non vede
 			// mai questa coda fino a una modifica esterna o al riavvio.
 			await emit('project-tasks-changed', { projectPath, source: windowLabel });
+			// Replica (F19): la coda appena scritta è la verità di questa
+			// macchina; le altre la ricevono e la fondono per task.
+			void this.replication?.publish(projectPath, this.tasksFor(projectPath));
 		} catch (err) {
 			console.error(msg.ui_ts_tasks_errore_salvataggio_immediato_task_per_value1_8f04({ value1: projectPath }), err);
 		}

@@ -5,6 +5,15 @@
 	const backend = useProjectBackend();
 	const { invoke } = backend;
 	import { fetchSessionsList, type SessionEntry } from '#lib/agent/sessionsList.ts';
+	import { invoke as backendInvoke } from '#lib/backend/ipc.ts';
+	import {
+		mergeSessionCopies,
+		needsMachineBadge,
+		reachableCopies,
+		type CopyResult,
+		type SessionCopy
+	} from '#lib/agent/sessionCopies.ts';
+	import { IconMonitor } from '#lib/icons.ts';
 	import { onMount, untrack } from 'svelte';
 	import { taskStore } from '#lib/stores/tasks.svelte.ts';
 	import { IconGitBranch, IconListTodo, IconSearch } from '#lib/icons.ts';
@@ -17,16 +26,27 @@
 		canAutomate,
 		automationReason,
 		currentSessionId,
-		onResume
+		onResume,
+		copies = []
 	}: {
 		projectPath: string;
 		canAutomate: boolean;
 		automationReason: string;
 		currentSessionId: string | null;
-		onResume: (sessionId: string) => void;
+		/** `resume` dice da quale macchina arriva la sessione scelta (F19). */
+		onResume: (sessionId: string, machineId?: string) => void;
+		/**
+		 * Copie del progetto sulle altre macchine, per lo storico unificato.
+		 * Vuoto o una sola voce: elenco locale, nessun badge.
+		 */
+		copies?: SessionCopy[];
 	} = $props();
 
 	let sessions = $state<SessionEntry[]>([]);
+	/** Sessione -> macchina, per il badge e per riprendere dal posto giusto. */
+	let sessionMachines = $state<Record<string, string>>({});
+	/** Nome della macchina per il badge; assente = locale. */
+	let machineNames = $state<Record<string, string>>({});
 	let query = $state('');
 	/** Filtro dello storico per corsia di esecuzione (Gate R27 / W09). */
 	let laneFilter = $state<'all' | 'main' | 'worktree'>('all');
@@ -190,13 +210,45 @@
 		loadError = null;
 		const q = customQuery !== undefined ? customQuery : untrack(() => query);
 		try {
-			const result = q.trim()
-				? await invoke<SessionEntry[]>('sessions_search', { query: q.trim(), projectPath: target })
-				: await fetchSessionsList(target, backend.machine);
+			const others = reachableCopies(copies).filter((copy) => copy.machineId !== backend.machine);
+			const readLocal = q.trim()
+				? invoke<SessionEntry[]>('sessions_search', { query: q.trim(), projectPath: target })
+				: fetchSessionsList(target, backend.machine);
+			// Le copie remote si interrogano in parallelo; una macchina che non
+			// risponde non deve togliere lo storico di casa.
+			const remoteReads = others.map((copy) =>
+				(q.trim()
+					// `backend.invoke` è già legato alla macchina dello scope: per le
+					// altre copie serve la funzione globale, che accetta `machine`.
+					? backendInvoke<SessionEntry[]>('sessions_search', { query: q.trim(), projectPath: copy.projectPath }, { machine: copy.machineId })
+					: fetchSessionsList(copy.projectPath, copy.machineId)
+				).then(
+					(entries): CopyResult<SessionEntry>[] => entries.map((entry) => ({ copy, entry })),
+					() => []
+				)
+			);
+			const [localEntries, ...remoteGroups] = await Promise.all([readLocal, ...remoteReads]);
 			if (token !== requestToken || target !== projectPath) return;
+			const localCopy: SessionCopy = {
+				machineId: backend.machine,
+				name: '',
+				projectPath: target,
+				online: true
+			};
+			const merged = mergeSessionCopies<SessionEntry>([
+				...localEntries.map((entry) => ({ copy: localCopy, entry })),
+				...remoteGroups.flat()
+			]);
+			const names: Record<string, string> = {};
+			for (const copy of copies) names[copy.machineId] = copy.name;
+			const machines: Record<string, string> = {};
+			for (const row of merged) machines[`${row.machineId}\0${row.entry.id}`] = row.machineId;
+			const result = merged.map((row) => row.entry);
 			const fresh = new Set<string>();
 			knownSessions = trackFresh(knownSessions, result.map((s) => s.id), fresh);
 			freshKeys = fresh;
+			sessionMachines = machines;
+			machineNames = names;
 			sessions = result;
 			lastLoadedAt = Date.now();
 			scheduleReconciliation();
@@ -333,6 +385,8 @@
 								: session.title || session.prompt
 									? originLabel(session)
 									: m.session_list_no_messages()}
+							{@const sessionMachine = sessionMachines[`${backend.machine}\0${session.id}`] ?? Object.entries(sessionMachines).find(([key]) => key.endsWith(`\0${session.id}`))?.[1] ?? backend.machine}
+							{@const showBadge = needsMachineBadge(copies) && sessionMachine && sessionMachine !== backend.machine}
 							<li in:chatReveal={{ duration: freshKeys.has(session.id) ? undefined : 0 }}>
 								<button
 									type="button"
@@ -347,7 +401,7 @@
 												? m.session_list_resume_title({ title: primary })
 												: automationReason}
 									aria-label={isCurrent ? m.ui_sessionlist_sessione_attiva_value1_dd4e({ value1: primary }) : m.session_list_resume_aria({ title: primary, age: formatRelative(session.created_at) })}
-									onclick={() => onResume(session.id)}
+									onclick={() => onResume(session.id, sessionMachine ?? backend.machine)}
 								>
 									<span class="line">
 										<span class="title">{primary}</span>
@@ -366,6 +420,9 @@
 										{/if}
 										{#if showsPrompt && session.laneKind === 'worktree'}
 											<span class="mark" title={session.laneTitle ?? m.session_list_lane_filter_worktree()}><IconGitBranch /></span>
+										{/if}
+										{#if showBadge}
+											<span class="mark machine" title={machineNames[sessionMachine] ?? sessionMachine}><IconMonitor /><span class="machine-name">{machineNames[sessionMachine] ?? sessionMachine}</span></span>
 										{/if}
 									</span>
 								</button>
@@ -500,6 +557,24 @@
 	}
 
 	/* Senza reset WebKit dipinge il <button> col grigio di sistema (ButtonFace). */
+	.mark.machine {
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
+		color: var(--ink-faint);
+		font-size: var(--text-caption);
+	}
+	.mark.machine :global(svg) {
+		width: 11px;
+		height: 11px;
+		flex: none;
+	}
+	.machine-name {
+		max-width: 8ch;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
 	.session-row {
 		position: relative;
 		width: 100%;

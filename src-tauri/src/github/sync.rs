@@ -31,6 +31,14 @@ pub struct GitUpstreamStatus {
     pub incoming_commits: Vec<CommitSummary>,
     pub outgoing_commits: Vec<CommitSummary>,
     pub has_uncommitted: bool,
+    /// Identità del repository condivisa fra le macchine (R-MI-12): `owner/repo`
+    /// in minuscolo quando l'origin è GitHub, altrimenti `None`. Due copie con
+    /// la stessa identità sono lo stesso progetto, anche su sistemi diversi.
+    /// Viaggia con questo comando perché è già instradato e in cache per
+    /// progetto: una seconda chiamata git per ogni tessera sarebbe sprecata.
+    pub repo_slug: Option<String>,
+    /// Primo commit del repository: identifica le copie senza origin condiviso.
+    pub root_commit: Option<String>,
 }
 
 fn run_git_in(dir: &Path, args: &[&str]) -> Result<String, String> {
@@ -561,6 +569,8 @@ pub async fn git_upstream_status(project_path: String) -> Result<GitUpstreamStat
                     incoming_commits: Vec::new(),
                     outgoing_commits: Vec::new(),
                     has_uncommitted: false,
+                    repo_slug: None,
+                    root_commit: None,
                 });
             }
         };
@@ -591,6 +601,18 @@ pub async fn git_upstream_status(project_path: String) -> Result<GitUpstreamStat
             }
         }
 
+        // Identità del repository: l'origin GitHub normalizzato, altrimenti il
+        // primo commit. Due letture in più ma una volta per progetto, dentro il
+        // giro che già interroga git.
+        let repo_slug = run_git_in(path, &["remote", "get-url", "origin"])
+            .ok()
+            .and_then(|url| crate::github::repos::parse_github_url(&url))
+            .map(|(owner, repo)| format!("{}/{}", owner.to_lowercase(), repo.to_lowercase()));
+        let root_commit = run_git_in(path, &["rev-list", "--max-parents=0", "HEAD"])
+            .ok()
+            .and_then(|out| out.lines().next().map(|line| line.trim().to_owned()))
+            .filter(|commit| !commit.is_empty());
+
         Ok(GitUpstreamStatus {
             is_git: true,
             branch: parsed.branch,
@@ -600,6 +622,8 @@ pub async fn git_upstream_status(project_path: String) -> Result<GitUpstreamStat
             incoming_commits: incoming,
             outgoing_commits: outgoing,
             has_uncommitted: parsed.has_uncommitted,
+            repo_slug,
+            root_commit,
         })
     })
     .await

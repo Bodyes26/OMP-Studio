@@ -15,6 +15,7 @@ import { sessionRegistry, laneSessionKey } from '#lib/agent/sessionRegistry.ts';
 import type { AgentSession } from '#lib/agent/session.svelte.ts';
 import { sessionCompletions } from '#lib/agent/completion.svelte.ts';
 import { taskStore } from '#lib/stores/tasks.svelte.ts';
+import { linkStore } from '#lib/backend/link.svelte.ts';
 import type { LaneDispatchSnapshot } from './queueDispatch';
 import { applyProfileToLane } from './laneProfile';
 import {
@@ -79,6 +80,8 @@ export class LaneOrchestrator {
 		return sessionRegistry.getOrCreateLaneSession({
 			id: project.id,
 			canonicalProjectPath: project.canonicalProjectPath,
+			// La sessione gira sulla macchina che possiede la copia (R-MI-12).
+			machineId: project.machineId,
 			lane: {
 				laneId: lane.laneId,
 				workspacePath: lane.workspacePath ?? project.canonicalProjectPath,
@@ -277,9 +280,16 @@ export class LaneOrchestrator {
 		// Copre la finestra fra la spedizione di un task e il primo evento
 		// dell'agente, quando la sessione non trasmette ancora.
 		if (this.terminalBusy[key] === true) return 'working';
+		// Una sessione aperta da un'altra macchina vive nel backend, non in
+		// `sessionRegistry` di questa finestra: senza questo la corsia
+		// sembrerebbe ferma mentre l'agente lavora per il peer, e la coda
+		// potrebbe avviare un secondo lavoro sopra il primo (R-MI-18).
+		if (linkStore.laneWorkingRemotely(String(project.id), laneId)) return 'working';
 		if (this.laneSurface(project, laneId) === 'gui') {
 			const session = sessionRegistry.getLaneSession(project.id, laneId);
-			if (!session) return 'unknown';
+			// Nessuna sessione locale ma una remota occupata: la corsia non è
+			// «unknown», è occupata da fuori.
+			if (!session) return linkStore.laneBusyRemotely(String(project.id), laneId) ? 'working' : 'unknown';
 			if (session.pendingUi) return 'attention';
 			// Il run vivo (fra un giro di tool e l'altro `isStreaming` e' spento)
 			// e il prompt appena ammesso contano come lavoro: senza, la coda
@@ -317,6 +327,10 @@ export class LaneOrchestrator {
 	 * il task puo' partire in questa corsia.
 	 */
 	laneBusy(project: Project, lane: AgentLane | LaneRecord): boolean {
+		// Una sessione aperta da un'altra macchina occupa la corsia anche se
+		// questa finestra non ha il processo (R-MI-18): senza, la coda
+		// avvierebbe un secondo lavoro sopra quello del peer.
+		if (linkStore.laneBusyRemotely(String(project.id), lane.laneId)) return true;
 		// Un /loop attivo, anche in pausa, tiene la corsia: la coda va altrove.
 		if (sessionRegistry.getLaneSession(project.id, lane.laneId)?.loopActive) return true;
 		const state = this.laneAgentState(project, lane.laneId);

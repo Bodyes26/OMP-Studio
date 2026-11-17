@@ -2,6 +2,13 @@ import { invoke, isTauri, listen, updateLinkedMachines, LOCAL_MACHINE, type Unli
 import type { RemoteCommand } from '$remote-protocol';
 import type { DesktopHostSnapshot } from './host.ts';
 import { projectStore } from '#lib/stores/projects.svelte.ts';
+import {
+	NO_ACTIVITY,
+	laneBusyRemotely as laneBusyIn,
+	laneWorkingRemotely as laneWorkingIn,
+	mergeActivity,
+	type LaneActivitySnapshot
+} from './laneActivity.ts';
 
 export interface MachinePermissions {
 	agents: boolean;
@@ -28,15 +35,26 @@ export interface LinkStatus {
 	peers: LinkedMachine[];
 }
 
+/**
+ * Corsie che questa macchina sta facendo lavorare per un'altra (R-MI-18).
+ * Vivono nel backend, perché la sessione la apre il peer: senza questo
+ * riepilogo la finestra locale le vedrebbe ferme e la coda potrebbe avviare
+ * un secondo lavoro sopra il primo. Le regole stanno in `laneActivity.ts`.
+ */
+export type { LaneActivity, LaneActivitySnapshot } from './laneActivity.ts';
+
 class LinkStore {
 	status = $state<LinkStatus>({ enabled: false, name: '', machineId: '', platform: '', relayUrl: '', hasRelayToken: false, peers: [] });
 	hosts = $state<Record<string, DesktopHostSnapshot>>({});
+	/** Corsie occupate da sessioni remote; la revisione scarta i riepiloghi vecchi. */
+	activity = $state<LaneActivitySnapshot>({ revision: NO_ACTIVITY.revision, lanes: [] });
 	loading = $state(false);
 	busy = $state(false);
 	error = $state<string | null>(null);
 	private initializing: Promise<void> | null = null;
 	private unlisten: UnlistenFn | null = null;
 	private unlistenHost: UnlistenFn | null = null;
+	private unlistenActivity: UnlistenFn | null = null;
 
 	private apply(status: LinkStatus): void {
 		this.status = status;
@@ -47,6 +65,25 @@ class LinkStore {
 			delete this.hosts[machine];
 			projectStore.removeRemoteMachine(machine);
 		}
+	}
+
+	/**
+	 * Un riepilogo arrivato in ritardo non deve riportare indietro la vista:
+	 * vale solo se è più recente. Serve perché evento e lettura iniziale
+	 * possono incrociarsi.
+	 */
+	private applyActivity(snapshot: LaneActivitySnapshot): void {
+		this.activity = mergeActivity(this.activity, snapshot);
+	}
+
+	/** La corsia sta lavorando per un'altra macchina? */
+	laneWorkingRemotely(projectId: string, laneId: string): boolean {
+		return laneWorkingIn(this.activity, projectId, laneId);
+	}
+
+	/** La corsia è occupata da una sessione remota, in qualunque stato? */
+	laneBusyRemotely(projectId: string, laneId: string): boolean {
+		return laneBusyIn(this.activity, projectId, laneId);
 	}
 
 	private applyHost(machine: string, state: DesktopHostSnapshot): void {
@@ -82,6 +119,12 @@ class LinkStore {
 				received.add(event.payload.machine);
 				this.applyHost(event.payload.machine, event.payload.state);
 			});
+			this.unlistenActivity ??= await listen<LaneActivitySnapshot>('link:activity', (event) => {
+				this.applyActivity(event.payload);
+			});
+			// Riepilogo corrente all'avvio: una sessione può essere già aperta da
+			// un'altra macchina mentre questa finestra si carica.
+			this.applyActivity(await invoke<LaneActivitySnapshot>('link_activity'));
 			const cached = await invoke<Record<string, DesktopHostSnapshot>>('link_host_states');
 			for (const [machine, state] of Object.entries(cached)) {
 				if (!received.has(machine)) this.applyHost(machine, state);

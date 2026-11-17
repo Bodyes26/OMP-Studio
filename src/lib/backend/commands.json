@@ -279,6 +279,7 @@
 	"remote_publish_chat_event": ["local", "local"],
 	"remote_open_machines_window": ["local", "local"],
 	"link_status": ["local", "local"],
+	"link_activity": ["local", "local"],
 	"link_configure": ["local", "local"],
 	"link_pairing_code": ["local", "local"],
 	"link_pair": ["local", "local"],

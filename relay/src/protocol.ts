@@ -533,6 +533,14 @@ export type RemoteCommand =
 	| { kind: 'chat_history'; projectId: string; laneId: string | null; before: string | null; limit: number }
 	| { kind: 'list_project_folders' }
 	/** Solo cartelle sotto la radice dei progetti di Studio, come nel selettore della GUI. */
+	/**
+	 * Auto-avvio esclusivo (F20): accendere su una macchina lo spegne sulle
+	 * altre, e i task partono in locale dove è acceso.
+	 */
+	| { kind: 'set_auto_dispatch'; projectId: string; enabled: boolean }
+	/** Replica della coda (F19): la coda di un progetto, come JSON. */
+	| { kind: 'read_queue'; projectPath: string }
+	| { kind: 'write_queue'; projectPath: string; tasks: string }
 	| { kind: 'open_project'; path: string }
 	/** Cartella nuova sotto la radice, `git init`, repository GitHub facoltativo. */
 	| { kind: 'create_project'; name: string; github: { visibility: 'private' | 'public' } | null }
@@ -577,6 +585,9 @@ export const COMMAND_FEATURE: Record<RemoteCommand['kind'], Feature> = {
 	send_prompt: 'session_control',
 	chat_history: 'chat',
 	list_project_folders: 'projects',
+	set_auto_dispatch: 'projects',
+	read_queue: 'projects',
+	write_queue: 'projects',
 	open_project: 'projects',
 	create_project: 'projects',
 	composer_catalog: 'lane_config',

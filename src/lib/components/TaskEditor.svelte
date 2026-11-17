@@ -67,6 +67,7 @@
 	import StatusMark from '#lib/ui/StatusMark.svelte';
 	import { roleConfigFromSelector } from './taskRoleConfig';
 	import ScheduleChip from './schedule/ScheduleChip.svelte';
+	import type { MachineChoice } from '#lib/agent/machineChoice.ts';
 	import {
 		IconAttach,
 		IconAt,
@@ -85,7 +86,8 @@
 		guiHosts = [],
 		onClose,
 		onRunTask,
-		onOpenImage
+		onOpenImage,
+		machines = []
 	}: {
 		task: StudioTask;
 		session?: AgentSession | null;
@@ -94,6 +96,11 @@
 		/** `newLane`: avvio forzato in una corsia isolata, come Shift su «Avvia» nella coda. */
 		onRunTask?: (taskId: string, options: { newLane: boolean }) => void;
 		onOpenImage?: (data: string, mimeType: string) => void;
+		/**
+		 * Macchine su cui il progetto esiste (F17): il task può chiedere dove
+		 * partire. Vuoto o una sola voce: nessuna scelta, la domanda non si pone.
+		 */
+		machines?: MachineChoice[];
 	} = $props();
 
 	type RoleChoice = 'default' | 'smol' | 'plan' | 'slow' | 'custom';
@@ -410,6 +417,15 @@
 			return configured.model === modelSelector && configured.thinking === thinkingLevel;
 		});
 		options.role = matchingRole?.id ?? 'custom';
+	}
+
+	/**
+	 * Macchina scelta per il task (F17). `null` toglie la scelta: parte dove
+	 * l'auto-avvio è acceso (F20). Si salva subito, come le altre opzioni.
+	 */
+	function updateMachine(machineId: string | null) {
+		task.machineId = machineId ?? undefined;
+		saveTask();
 	}
 
 	function selectRole(roleId: string) {
@@ -909,6 +925,34 @@
 					/>
 				</div>
 
+				{#if machines.length > 1}
+					<div class="field">
+						<span class="field-label" id="task-machine-label">{m.task_editor_machine_label()}</span>
+						<div class="machine-field" role="radiogroup" aria-labelledby="task-machine-label">
+							{#each machines as machine (machine.id)}
+								<button
+									type="button"
+									role="radio"
+									aria-checked={(task.machineId ?? '') === machine.id}
+									class="machine-choice"
+									class:active={(task.machineId ?? '') === machine.id}
+									disabled={!machine.online}
+									title={machine.online ? machine.name : m.machine_indicator_offline()}
+									onclick={() => updateMachine(machine.id)}
+								>{machine.name}</button>
+							{/each}
+							<button
+								type="button"
+								role="radio"
+								aria-checked={!task.machineId}
+								class="machine-choice"
+								class:active={!task.machineId}
+								onclick={() => updateMachine(null)}
+							>{m.task_editor_machine_auto()}</button>
+						</div>
+					</div>
+				{/if}
+
 				<div class="run-grid">
 					<div class="field">
 						<span class="field-label" id="task-model-label">{m.task_editor_specific_model_label()}</span>
@@ -1063,6 +1107,38 @@
 </section>
 
 <style>
+	/* Macchina del task (F17): riga di pastiglie, come i ruoli. Compare solo
+	   sui progetti condivisi. */
+	.machine-field {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
+		padding: 2px 0;
+	}
+	.machine-choice {
+		padding: 4px 10px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-pill, 999px);
+		background: transparent;
+		color: var(--ink-muted);
+		font: inherit;
+		font-size: var(--text-caption);
+		cursor: pointer;
+		transition: color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+	}
+	.machine-choice:hover:not(:disabled) {
+		color: var(--ink);
+		border-color: var(--ink-faint);
+	}
+	.machine-choice.active {
+		color: var(--ink);
+		border-color: var(--accent);
+	}
+	.machine-choice:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
 	.task-editor {
 		display: flex;
 		flex-direction: column;

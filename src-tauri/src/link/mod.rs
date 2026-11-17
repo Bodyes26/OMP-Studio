@@ -3,6 +3,7 @@ mod catalog;
 mod config;
 mod protocol;
 mod access;
+mod activity;
 pub(crate) mod streams;
 pub(crate) mod host;
 
@@ -54,6 +55,8 @@ struct Runtime {
     events: tokio::sync::broadcast::Sender<Arc<host::HostEvent>>,
     peer_states: Mutex<HashMap<String, Arc<String>>>,
     roots: parking_lot::RwLock<access::Roots>,
+    /// Cosa stanno facendo le sessioni aperte da un'altra macchina (R-MI-18).
+    pub(crate) activity: activity::SharedActivity,
 }
 
 #[derive(Serialize)]
@@ -100,6 +103,7 @@ impl LinkManager {
             events: tokio::sync::broadcast::channel(64).0,
             peer_states: Mutex::new(HashMap::new()),
             roots: parking_lot::RwLock::new(access::Roots::default()),
+            activity: Arc::new(activity::Activity::default()),
         });
         *guard = Some(runtime.clone());
         runtime.listen_host_events();
@@ -469,6 +473,22 @@ struct PairingCode { protocol: u32, address: Address, token: String }
 #[tauri::command]
 pub(crate) async fn link_status(app: tauri::AppHandle, manager: tauri::State<'_, LinkManager>) -> Result<LinkStatus, String> {
     manager.runtime(&app).await?.status()
+}
+
+/// Corsie occupate da sessioni aperte su un'altra macchina (R-MI-18).
+///
+/// La finestra del proprietario non ha queste sessioni in `sessionRegistry`
+/// (vivono nel backend), quindi senza questo riepilogo le vedeva ferme e la
+/// coda poteva avviare un secondo lavoro sopra il primo. Il numero di
+/// revisione è il seme con cui la finestra scarta un riepilogo arrivato in
+/// ritardo, come fa con le generazioni di sessione.
+#[tauri::command]
+pub(crate) async fn link_activity(app: tauri::AppHandle, manager: tauri::State<'_, LinkManager>) -> Result<activity::LinkActivitySnapshot, String> {
+    let runtime = manager.runtime(&app).await?;
+    Ok(activity::LinkActivitySnapshot {
+        revision: runtime.activity.revision(),
+        lanes: runtime.activity.snapshot(),
+    })
 }
 
 #[tauri::command]

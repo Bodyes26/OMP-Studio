@@ -36,6 +36,7 @@
 	import BtwPopover from './BtwPopover.svelte';
 	import { btwLatestTurn, isBtwRunning } from '../btw';
 	import Composer from './Composer.svelte';
+	import type { MachineChoice } from '../machineChoice.ts';
 	import ComposerTray from './ComposerTray.svelte';
 	import LoopComposer from './LoopComposer.svelte';
 	import GoalBanner from './GoalBanner.svelte';
@@ -60,7 +61,9 @@
 		onOpenDiagram,
 		onSwitchToTerminal,
 		onSlashCommand,
-		onNewChat
+		onNewChat,
+		machineChoices = [],
+		onPickMachine
 	} = $props<{
 		session: AgentSession;
 		visible?: boolean;
@@ -72,6 +75,10 @@
 		onOpenDiagram?: (diagram: { title?: string; mermaid: string }) => void;
 		onSlashCommand?: (raw: string) => boolean;
 		onNewChat?: () => void;
+		/** Macchine su cui esiste il progetto, per l'indicatore sotto il composer. */
+		machineChoices?: MachineChoice[];
+		/** Cambio della macchina: attiva la copia gemella del progetto. */
+		onPickMachine?: (machineId: string) => void;
 	}>();
 
 	/** Inserisce testo nel composer della sessione attiva */
@@ -769,6 +776,8 @@
 					dropTarget={isDraggingColumn}
 					onSlashCommand={(cmd: string) => (onSlashCommand ? onSlashCommand(cmd) : false)}
 					{onNewChat}
+					{machineChoices}
+					{onPickMachine}
 					shellOverride={session.loopSetup || session.loop ? loopShell : undefined}
 				/>
 				{#snippet loopShell()}

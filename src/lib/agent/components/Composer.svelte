@@ -80,6 +80,8 @@
 	import ComposerNoticeStrip from './ComposerNoticeStrip.svelte';
 	import PrewalkCard from './PrewalkCard.svelte';
 	import ComposerStatusLine from './ComposerStatusLine.svelte';
+	import MachineIndicator from './MachineIndicator.svelte';
+	import type { MachineChoice } from '../machineChoice.ts';
 	import ExtensionWidgets from './ExtensionWidgets.svelte';
 	import ComposerPinnedItem from './ComposerPinnedItem.svelte';
 	import LabNotesQueue from '#lib/lab/LabNotesQueue.svelte';
@@ -114,7 +116,9 @@
 		dropTarget = false,
 		onSlashCommand,
 		onNewChat,
-		shellOverride
+		shellOverride,
+		machineChoices = [],
+		onPickMachine
 	} = $props<{
 		session: AgentSession;
 		visible?: boolean;
@@ -128,6 +132,14 @@
 		 * il composer in modalita' ripetizione. La bozza resta nell'editor nascosto.
 		 */
 		shellOverride?: Snippet;
+		/**
+		 * Macchine su cui il progetto esiste, per l'indicatore sotto il composer
+		 * (R-MI-13). Vuoto o una sola voce: niente indicatore, la domanda non si
+		 * pone.
+		 */
+		machineChoices?: MachineChoice[];
+		/** Cambio della macchina su cui nascono le chat di questa corsia. */
+		onPickMachine?: (machineId: string) => void;
 	}>();
 
 	// Convertitore esportato per trasformare ImageContent del protocollo wire in ComposerAttachment
@@ -1481,22 +1493,41 @@
 		</div>
 	</div>
 
-	<ComposerStatusLine
-		{session}
-		{activeRole}
-		{isLab}
-		{layout}
-		draftTokens={draftTokensEstimate}
-		onActivateCommand={handlePinnedCommand}
-		onInsertMention={() => {
-			editorRef?.insertTrigger('@');
-			focus();
-		}}
-	/>
+	<div class="composer-footer">
+		{#if session.machineId && machineChoices.length > 1 && onPickMachine}
+			<MachineIndicator
+				machines={machineChoices}
+				current={session.machineId}
+				busy={session.isStreaming || session.isCompacting || session.settle.running}
+				onChange={onPickMachine}
+			/>
+		{/if}
+		<ComposerStatusLine
+			{session}
+			{activeRole}
+			{isLab}
+			{layout}
+			draftTokens={draftTokensEstimate}
+			onActivateCommand={handlePinnedCommand}
+			onInsertMention={() => {
+				editorRef?.insertTrigger('@');
+				focus();
+			}}
+		/>
+	</div>
 	<ExtensionWidgets widgets={session.extensionWidgets} placement="belowEditor" />
 </div>
 
 <style>
+	/* Indicatore della macchina sopra la riga di stato: una riga sola quando
+	   c'è, nessuno spazio quando il progetto vive su una macchina sola. */
+	.composer-footer {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		padding: 0 2px;
+	}
+
 	.composer-root {
 		position: relative;
 		width: 100%;
