@@ -4126,6 +4126,7 @@
   "l10n_lab_remote_action_list_project_folders": "read the folders",
   "l10n_lab_remote_action_open_project": "opened the project",
   "l10n_lab_remote_action_set_auto_dispatch": "Queue auto-start",
+  "l10n_lab_remote_action_lane_action": "managed a lane",
   "l10n_lab_remote_action_write_queue": "Shared task queue",
   "l10n_lab_remote_action_read_queue": "Task queue requested",
   "l10n_lab_remote_action_create_project": "created the project",

@@ -48,6 +48,7 @@
 		type ComposerTrigger
 	} from '#lib/agent/composerDoc.ts';
 	import { computeCaretAnchorLeft, loadProjectFiles, rankFileCandidates } from '#lib/agent/fileMention.ts';
+	import { projectStore } from '#lib/stores/projects.svelte.ts';
 	import { SUGGEST_WIDTH, commandSuggestions, fileSuggestions, suggestKeyAction } from '#lib/agent/suggestItems.ts';
 	import { matchesLooseQuery } from '#lib/looseSearch.ts';
 	import { resolvePastedTokens } from '#lib/companion/pasteTokens.ts';
@@ -203,7 +204,7 @@
 		} else if (fileProjectPath) {
 			const projectPath = fileProjectPath;
 			suggestItems = [];
-			void loadProjectFiles(projectPath).then((files) => {
+			void loadProjectFiles(projectPath, projectStore.machineOfPath(projectPath)).then((files) => {
 				// Un tasto arrivato durante il caricamento ha gia' cambiato trigger.
 				if (currentTrigger !== trigger) return;
 				suggestItems = fileSuggestions(rankFileCandidates(trigger.query, files, {}));

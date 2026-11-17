@@ -85,7 +85,7 @@ export async function reviewProjectProfile(project: Project): Promise<ProjectPro
 
 	const scan = await invoke<WorktreeProfileScan>('worktree_profile_scan', {
 		args: { projectPath: project.canonicalProjectPath }
-	});
+	}, { machine: project.machineId });
 	const detection = detectStack(scan);
 
 	const existing = laneStore.profileFor(project.id as ProjectId);
@@ -159,5 +159,5 @@ export async function applyProfileToLane(
 			worktreePath: lane.workspacePath,
 			files: [...profile.untrackedFileAllowlist]
 		}
-	});
+	}, { machine: project.machineId });
 }

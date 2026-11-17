@@ -33,6 +33,7 @@ import { STUDIO_SLASH_COMMANDS, mergeCommands } from '#lib/agent/commands.ts';
 import { isSkillName } from '#lib/agent/suggestItems.ts';
 import { routeComposerSubmit } from '#lib/agent/composerSubmit.ts';
 import { applyRoleToSession, RoleApplyError, type RoleSettingsContext } from '#lib/agent/laneRole.ts';
+import type { MachineId } from '#lib/backend/ipc.ts';
 import { RemoteCommandFailure } from './commands';
 
 const DEFAULT_THINKING_LEVELS = [
@@ -77,21 +78,24 @@ function resolveTargetLane(projectId: string, laneId: string | null): TargetLane
 	return { project, lane, isMain, effectiveLaneId, surface };
 }
 
+/** `machine` e' la macchina che esegue la sessione: ruoli e catalogo sono i suoi (R-MI-06). */
 export interface LaneConfigDeps {
-	ensureLoaded: () => Promise<void>;
+	ensureLoaded: (machine?: MachineId) => Promise<void>;
 	/** Solo `config.yml` e catalogo: applicare un ruolo non richiede `omp models --json`. */
-	ensureRoleConfig: () => Promise<void>;
-	getModelConfig: () => { modelRoles?: Record<string, string>; cycleOrder?: string[] } | null | undefined;
-	getAssignableCatalog: () => ModelDto[];
-	getKnownSelectors?: () => ReadonlySet<string>;
+	ensureRoleConfig: (machine?: MachineId) => Promise<void>;
+	getModelConfig: (machine?: MachineId) => { modelRoles?: Record<string, string>; cycleOrder?: string[] } | null | undefined;
+	getAssignableCatalog: (machine?: MachineId) => ModelDto[];
+	getKnownSelectors?: (machine?: MachineId) => ReadonlySet<string>;
 }
 
 export function createLaneConfigCommands(deps: LaneConfigDeps) {
-	const roleContext: RoleSettingsContext = {
-		ensureLoaded: deps.ensureRoleConfig,
-		getModelConfig: deps.getModelConfig,
-		getKnownSelectors: deps.getKnownSelectors
-	};
+	function roleContextFor(machine: MachineId | undefined): RoleSettingsContext {
+		return {
+			ensureLoaded: () => deps.ensureRoleConfig(machine),
+			getModelConfig: () => deps.getModelConfig(machine),
+			getKnownSelectors: deps.getKnownSelectors && (() => deps.getKnownSelectors!(machine))
+		};
+	}
 
 
 	async function getRemoteComposerCatalog(
@@ -115,7 +119,9 @@ export function createLaneConfigCommands(deps: LaneConfigDeps) {
 			session = laneOrchestrator.getOrCreateAgentSession(project, lane ?? project.lane);
 		}
 
-		await deps.ensureLoaded();
+		// Ruoli e catalogo della macchina che esegue la sessione (R-MI-06).
+		const machine = session.machineId;
+		await deps.ensureLoaded(machine);
 
 		// 1. Comandi e skill: solo quelli che routeComposerSubmit inoltra a omp
 		const merged = mergeCommands(STUDIO_SLASH_COMMANDS, session.availableCommands ?? []);
@@ -136,7 +142,7 @@ export function createLaneConfigCommands(deps: LaneConfigDeps) {
 		}
 
 		// 2. Modelli assegnabili (tetto a 600)
-		const assignable = deps.getAssignableCatalog() ?? [];
+		const assignable = deps.getAssignableCatalog(machine) ?? [];
 		const models: RemoteModelOption[] = assignable.slice(0, 600).map((option) => ({
 			provider: option.provider,
 			id: option.id,
@@ -149,9 +155,9 @@ export function createLaneConfigCommands(deps: LaneConfigDeps) {
 		}));
 
 		// 3. Ruoli standard con assegnazioni da configurazione
-		const cfg = deps.getModelConfig();
+		const cfg = deps.getModelConfig(machine);
 		const rolesMap = cfg?.modelRoles || {};
-		const known = deps.getKnownSelectors?.();
+		const known = deps.getKnownSelectors?.(machine);
 		const roles: RemoteRoleOption[] = STANDARD_ROLE_METAS.map((meta) => {
 			const full = rolesMap[meta.id];
 			let model: string | null = null;
@@ -228,7 +234,7 @@ export function createLaneConfigCommands(deps: LaneConfigDeps) {
 		}
 
 		try {
-			await applyRoleToSession(session, roleId, roleContext);
+			await applyRoleToSession(session, roleId, roleContextFor(session.machineId));
 		} catch (err) {
 			if (err instanceof RoleApplyError) throw new RemoteCommandFailure('rejected', err.message);
 			throw err;
@@ -268,8 +274,8 @@ export function createLaneConfigCommands(deps: LaneConfigDeps) {
 			await session.open(null);
 		}
 
-		await deps.ensureLoaded();
-		const assignable = deps.getAssignableCatalog() ?? [];
+		await deps.ensureLoaded(session.machineId);
+		const assignable = deps.getAssignableCatalog(session.machineId) ?? [];
 		const found =
 			assignable.find((option) => option.provider === provider && option.id === modelId) ??
 			assignable.find(

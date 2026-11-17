@@ -372,7 +372,7 @@ export async function projectLaneActions(
 			try {
 				const outcome =
 					options?.branchesState?.data ??
-					(await fetchWorktreeBranches(project.canonicalProjectPath));
+					(await fetchWorktreeBranches(project.canonicalProjectPath, project.machineId));
 				const openLanes = laneStore.lanesFor(project.id as ProjectId);
 				const openable = filterOpenableBranches(outcome, openLanes);
 				if (openable.length === 0) {

@@ -1,4 +1,4 @@
-import { invoke } from '#lib/backend/ipc.ts';
+import { invoke, type MachineId } from '#lib/backend/ipc.ts';
 import {
 	SOURCE_HINTS_MARKER,
 	GIT_CONTEXT_MARKER,
@@ -28,11 +28,13 @@ export interface GitStatusResult {
 export interface PromptPreflightOptions {
 	images?: Array<{ data: string | Uint8Array; mimeType: string }>;
 	projectPath?: string;
+	/** Macchina che possiede `projectPath`: la ricerca gira sul suo disco. */
+	machine?: MachineId;
 }
 
 export interface PromptPreflightDeps {
-	searchSource?: (projectPath: string, candidates: string[]) => Promise<ProjectContentSearchResult>;
-	getGitStatus?: (projectPath: string) => Promise<GitStatusResult>;
+	searchSource?: (projectPath: string, candidates: string[], machine?: MachineId) => Promise<ProjectContentSearchResult>;
+	getGitStatus?: (projectPath: string, machine?: MachineId) => Promise<GitStatusResult>;
 	timeoutMs?: number;
 }
 
@@ -337,17 +339,17 @@ export function formatGitContext(result: GitStatusResult | null | undefined): st
 
 /* ------------------------------------------------------------- Orchestratore asincrono */
 
-async function defaultSearchSource(projectPath: string, candidates: string[]): Promise<ProjectContentSearchResult> {
+async function defaultSearchSource(projectPath: string, candidates: string[], machine?: MachineId): Promise<ProjectContentSearchResult> {
 	try {
-		return await invoke<ProjectContentSearchResult>('project_content_search', { projectPath, candidates });
+		return await invoke<ProjectContentSearchResult>('project_content_search', { projectPath, candidates }, { machine });
 	} catch {
 		return { literal: '', matches: [], omitted: 0 };
 	}
 }
 
-async function defaultGetGitStatus(projectPath: string): Promise<GitStatusResult> {
+async function defaultGetGitStatus(projectPath: string, machine?: MachineId): Promise<GitStatusResult> {
 	try {
-		return await invoke<GitStatusResult>('project_git_status', { projectPath });
+		return await invoke<GitStatusResult>('project_git_status', { projectPath }, { machine });
 	} catch {
 		return { statuses: {} };
 	}
@@ -391,11 +393,11 @@ export async function orchestratePromptPreflight(
 	}
 
 	const searchPromise = (!hasSourceHints && candidates.length > 0)
-		? searchFn(projectPath, candidates).catch(() => ({ literal: '', matches: [], omitted: 0 }))
+		? searchFn(projectPath, candidates, options?.machine).catch(() => ({ literal: '', matches: [], omitted: 0 }))
 		: Promise.resolve<ProjectContentSearchResult>({ literal: '', matches: [], omitted: 0 });
 
 	const gitPromise = (!hasGitContext)
-		? gitFn(projectPath).catch(() => ({ statuses: {} }))
+		? gitFn(projectPath, options?.machine).catch(() => ({ statuses: {} }))
 		: Promise.resolve<GitStatusResult>({ statuses: {} });
 
 	let searchResult: ProjectContentSearchResult | null = null;

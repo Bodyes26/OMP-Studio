@@ -104,9 +104,10 @@
 			}
 		}
 
-		// 3. Chat / corsie interattive al lavoro
+		// 3. Chat / corsie interattive al lavoro su questa macchina: quelle remote
+		// continuano sull'altra istanza e l'uscita non le interrompe.
 		for (const p of projectStore.projects) {
-			if (p.lane?.agentState === 'working') {
+			if (p.lane?.agentState === 'working' && !projectStore.isRemote(p)) {
 				items.push({
 					id: `project-${p.id}`,
 					kind: 'interactive',

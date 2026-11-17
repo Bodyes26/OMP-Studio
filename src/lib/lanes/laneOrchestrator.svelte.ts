@@ -18,6 +18,7 @@ import { taskStore } from '#lib/stores/tasks.svelte.ts';
 import { linkStore } from '#lib/backend/link.svelte.ts';
 import type { LaneDispatchSnapshot } from './queueDispatch';
 import { applyProfileToLane } from './laneProfile';
+import { archiveRemoteLane, requestRemoteLane } from './remoteLanes';
 import {
 	MAIN_LANE_ID,
 	type LaneId,
@@ -389,6 +390,13 @@ export class LaneOrchestrator {
 			activate?: boolean;
 		} = {}
 	): Promise<LaneRecord> {
+		// Corsia di un progetto remoto: la crea la macchina che lo possiede,
+		// con il suo profilo dei file locali (R-MI-06).
+		if (projectStore.isRemote(project)) {
+			return await requestRemoteLane(project, {
+				op: 'create', title: options.title, origin: options.origin, surface: options.surface
+			}, options.activate !== false);
+		}
 		// Salva lo stato dei file della corsia attiva prima della creazione
 		await this.saveLaneSnapshot(project).catch(() => undefined);
 
@@ -415,6 +423,11 @@ export class LaneOrchestrator {
 			activate?: boolean;
 		}
 	): Promise<LaneRecord> {
+		if (projectStore.isRemote(project)) {
+			return await requestRemoteLane(project, {
+				op: 'open_branch', branch: options.branch, branchKind: options.kind, origin: options.origin, surface: options.surface
+			}, options.activate !== false);
+		}
 		await this.saveLaneSnapshot(project).catch(() => undefined);
 		const record = await laneStore.openBranchLane(project, options);
 		try {
@@ -440,6 +453,12 @@ export class LaneOrchestrator {
 		reason: LaneArchiveReason = 'integrated',
 		options: { stopProcesses?: boolean } = {}
 	): Promise<LaneArchiveOutcome> {
+		const project = projectStore.projects.find((candidate) => candidate.id === projectId);
+		if (project && projectStore.isRemote(project)) {
+			return await archiveRemoteLane(project, {
+				op: 'archive', laneId: targetLaneId, reason, stopProcesses: options.stopProcesses
+			});
+		}
 		return await laneStore.archiveLane(projectId, targetLaneId, reason, options);
 	}
 

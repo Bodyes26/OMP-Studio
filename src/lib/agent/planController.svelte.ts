@@ -10,6 +10,7 @@ import { m as messages } from '#lib/paraglide/messages.js';
 import { parseRoleSelector } from '#lib/stores/modelSettingsHelpers.ts';
 import type { AgentSession, PlanEntry, ToolEntry, UserEntry } from './session.svelte';
 import type { ThinkingLevel } from './wire';
+import type { MachineId } from '#lib/backend/ipc.ts';
 import {
 	DEFAULT_PLAN_EXEC_MODE,
 	DEFAULT_PLAN_EXEC_ROLE,
@@ -88,11 +89,11 @@ export interface PlanHost {
 
 let host: PlanHost = {};
 
-/** Ruoli configurati (impostazioni modelli): caricati alla prima richiesta. */
+/** Ruoli configurati (impostazioni modelli) della macchina che esegue la sessione: caricati alla prima richiesta. */
 export interface PlanRoleSource {
-	ensureLoaded(): Promise<void>;
-	roles(): Record<string, string>;
-	knownSelectors(): ReadonlySet<string> | undefined;
+	ensureLoaded(machine?: MachineId): Promise<void>;
+	roles(machine?: MachineId): Record<string, string>;
+	knownSelectors(machine?: MachineId): ReadonlySet<string> | undefined;
 }
 
 let roleSource: PlanRoleSource | null = null;
@@ -108,9 +109,9 @@ async function loadRoleSource(): Promise<PlanRoleSource | null> {
 		// Import differito: lo store delle impostazioni porta con se' Tauri e le icone.
 		const { modelSettingsStore } = await import('#lib/stores/modelSettings.svelte.ts');
 		roleSource = {
-			ensureLoaded: () => modelSettingsStore.ensureConfigAndCatalog(),
-			roles: () => modelSettingsStore.config?.modelRoles ?? modelSettingsStore.draftConfig?.modelRoles ?? {},
-			knownSelectors: () => modelSettingsStore.knownSelectors
+			ensureLoaded: (machine) => modelSettingsStore.ensureMachineModels(machine),
+			roles: (machine) => modelSettingsStore.configFor(machine)?.modelRoles ?? {},
+			knownSelectors: (machine) => modelSettingsStore.knownSelectorsFor(machine)
 		};
 	} catch {
 		return null;
@@ -708,9 +709,10 @@ export class PlanController {
 	}
 
 	private roleModelLabel(role: string): string {
-		const selector = roleSource?.roles()[role];
+		const machine = this.session.machineId;
+		const selector = roleSource?.roles(machine)[role];
 		if (!selector) return role === 'default' ? modelLabel(this.session) : '';
-		return parseRoleSelector(selector, roleSource?.knownSelectors()).modelId;
+		return parseRoleSelector(selector, roleSource?.knownSelectors(machine)).modelId;
 	}
 
 	/**
@@ -721,13 +723,13 @@ export class PlanController {
 		const session = this.session;
 		const source = await loadRoleSource();
 		try {
-			await source?.ensureLoaded();
+			await source?.ensureLoaded(session.machineId);
 		} catch {
 			// Senza impostazioni si resta sul modello attuale.
 		}
-		const selector = source?.roles()[role];
+		const selector = source?.roles(session.machineId)[role];
 		if (!source || !selector) return modelLabel(session);
-		const { provider, modelId, thinking } = parseRoleSelector(selector, source.knownSelectors());
+		const { provider, modelId, thinking } = parseRoleSelector(selector, source.knownSelectors(session.machineId));
 		try {
 			await session.client.send({ type: 'set_model', provider: provider || session.model?.provider || '', modelId });
 			if (thinking && thinking !== 'auto') {

@@ -36,6 +36,9 @@ fn action_permission(kind: &str) -> Result<&'static str, String> {
         "read_queue" => Ok("read"),
         "write_queue" => Ok("agents"),
         "open_project" | "create_project" => Ok("files"),
+        // Corsie di un progetto (R-MI-06): creano e rimuovono worktree sul
+        // disco di questa macchina, come gli altri comandi «File e Git».
+        "lane_action" => Ok("files"),
 
         "respond_ui" | "run_task" | "wait_quota_reset" | "dismiss_quota_blocked" | "create_task"
             | "update_task" | "delete_task" | "move_task" | "respond_dispatch" | "abort" | "send_prompt"

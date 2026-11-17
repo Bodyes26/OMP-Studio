@@ -365,8 +365,10 @@ class AgentLaneService {
 					})
 				};
 			}
-			const roles = modelSettingsStore.config?.modelRoles ?? {};
-			const { model, thinking } = roleConfigFromSelector(roles[role.id] ?? '', modelSettingsStore.knownSelectors);
+			// Il task parte sulla macchina del progetto: vale la sua configurazione dei ruoli.
+			await modelSettingsStore.ensureMachineModels(project.machineId);
+			const roles = modelSettingsStore.configFor(project.machineId)?.modelRoles ?? {};
+			const { model, thinking } = roleConfigFromSelector(roles[role.id] ?? '', modelSettingsStore.knownSelectorsFor(project.machineId));
 			roleOptions = { role: role.id, modelSelector: model || undefined, thinkingLevel: model ? thinking : undefined };
 		}
 		await taskStore.loadProject(root).catch(() => false);
@@ -441,7 +443,7 @@ class AgentLaneService {
 					worktreePath: lane.workspacePath,
 					targetBranch: lane.targetBranch ?? undefined
 				}
-			});
+			}, { machine: project.machineId });
 		} catch {
 			return null;
 		}

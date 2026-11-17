@@ -1,4 +1,4 @@
-import { invoke } from '#lib/backend/ipc.ts';
+import { invoke, LOCAL_MACHINE, type MachineId } from '#lib/backend/ipc.ts';
 import { sessionRegistry } from '#lib/agent/sessionRegistry.ts';
 import { load, type Store } from '@tauri-apps/plugin-store';
 import { restartOmpTerminals } from '../terminal/terminalEvents.ts';
@@ -616,6 +616,60 @@ class ModelSettingsStore {
 		})();
 
 		return this.configCatalogPromise;
+	}
+
+	/**
+	 * Ruoli e catalogo di un'altra macchina (R-MI-06). Una chat remota gira con
+	 * `config.yml` e account di quella macchina: applicarle i ruoli di questa
+	 * mandava un `set_model` con un modello che là può mancare. Le Impostazioni
+	 * restano sulla configurazione locale; queste copie sono di sola lettura.
+	 */
+	private machineModels = $state<Record<string, { config: ModelConfigDto; catalog: ModelDto[]; at: number }>>({});
+	private machineModelsPromises = new Map<string, Promise<void>>();
+
+	/** Configurazione dei ruoli della macchina che esegue la sessione; null finché non è letta. */
+	configFor(machine: MachineId = LOCAL_MACHINE): ModelConfigDto | null {
+		if (machine === LOCAL_MACHINE) return this.config ?? this.draftConfig;
+		return this.machineModels[machine]?.config ?? null;
+	}
+
+	catalogFor(machine: MachineId = LOCAL_MACHINE): ModelDto[] {
+		if (machine === LOCAL_MACHINE) return this.catalog;
+		return this.machineModels[machine]?.catalog ?? [];
+	}
+
+	knownSelectorsFor(machine: MachineId = LOCAL_MACHINE): ReadonlySet<string> {
+		if (machine === LOCAL_MACHINE) return this.knownSelectors;
+		return new Set(this.catalogFor(machine).map((model) => model.selector));
+	}
+
+	/**
+	 * Legge ruoli e catalogo della macchina indicata. La copia remota si
+	 * rilegge dopo un minuto: i ruoli si cambiano dalle Impostazioni
+	 * dell'altra macchina e qui non arriva alcun evento.
+	 */
+	async ensureMachineModels(machine: MachineId = LOCAL_MACHINE): Promise<void> {
+		if (machine === LOCAL_MACHINE) return this.ensureConfigAndCatalog();
+		const cached = this.machineModels[machine];
+		if (cached && Date.now() - cached.at < 60_000) return;
+		const pending = this.machineModelsPromises.get(machine);
+		if (pending) return pending;
+		const request = (async () => {
+			try {
+				const [config, catalog] = await Promise.all([
+					invoke<ModelConfigDto>('get_model_config', undefined, { machine }),
+					invoke<ModelDto[]>('get_models_catalog', undefined, { machine })
+				]);
+				this.machineModels = { ...this.machineModels, [machine]: { config, catalog, at: Date.now() } };
+			} catch (e) {
+				// Macchina non raggiungibile: resta l'ultima copia letta, se c'era.
+				console.warn(`Model config of ${machine} unavailable:`, e);
+			} finally {
+				this.machineModelsPromises.delete(machine);
+			}
+		})();
+		this.machineModelsPromises.set(machine, request);
+		return request;
 	}
 
 	updateDraftCustomProvider(name: string, patch: Partial<CustomProviderDef>) {

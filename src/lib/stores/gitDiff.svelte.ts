@@ -1,5 +1,6 @@
 import { invoke } from '#lib/backend/ipc.ts';
 import { pathKey } from '#lib/utils/paths.ts';
+import { projectStore } from './projects.svelte.ts';
 
 export interface GitDiffStats {
 	additions: number;
@@ -72,7 +73,7 @@ class GitDiffStore {
 			return current;
 		}
 
-		const request = invoke<GitDiffStats>('git_diff_stats', { projectPath })
+		const request = invoke<GitDiffStats>('git_diff_stats', { projectPath }, { machine: projectStore.machineOfPath(projectPath) })
 			.then((stats) => {
 				this.statsByPath[key] = stats;
 				this.updatedAt.set(key, Date.now());

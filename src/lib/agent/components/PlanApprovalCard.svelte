@@ -38,18 +38,17 @@ import {
 	const modes = $derived(isLab ? LAB_PLAN_EXEC_MODES : PLAN_EXEC_MODES);
 	const comments = $derived(doc ? plan.commentCount(doc.id) : 0);
 	const edits = $derived(doc ? doc.deleted.length + Object.keys(doc.bodies).length : 0);
-	const roles = $derived<Record<string, string>>(
-		modelSettingsStore.config?.modelRoles ?? modelSettingsStore.draftConfig?.modelRoles ?? {}
-	);
+	// Ruoli della macchina che esegue la sessione (R-MI-06).
+	const roles = $derived<Record<string, string>>(modelSettingsStore.configFor(session.machineId)?.modelRoles ?? {});
 	const roleOptions = $derived(availableExecRoles(roles).map((role) => ({ value: role, label: role })));
 	const roleModel = $derived.by(() => {
 		const selector = roles[plan.execRole];
 		if (!selector) return session.model?.name || session.model?.id || '';
-		return parseRoleSelector(selector, modelSettingsStore.knownSelectors).modelId;
+		return parseRoleSelector(selector, modelSettingsStore.knownSelectorsFor(session.machineId)).modelId;
 	});
 
 	$effect(() => {
-		if (visible) void modelSettingsStore.ensureConfigAndCatalog();
+		if (visible) void modelSettingsStore.ensureMachineModels(session.machineId);
 	});
 
 	const tokens = $derived(session.contextUsage?.tokens ?? null);

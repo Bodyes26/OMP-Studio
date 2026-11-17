@@ -7,8 +7,14 @@
  * L'aggiornamento avviene solo su richiesta (`force`) o al primo ingresso.
  */
 
-import { invoke } from '#lib/backend/ipc.ts';
+import { invoke as backendInvoke, type BackendCommand } from '#lib/backend/ipc.ts';
 import { m } from '#lib/paraglide/messages.js';
+import { projectStore } from './projects.svelte.ts';
+
+/** Ogni comando di questa scheda riguarda `projectPath`: gira sulla macchina che lo possiede. */
+function invoke<T>(command: BackendCommand, args: { projectPath: string } & Record<string, unknown>): Promise<T> {
+	return backendInvoke<T>(command, args, { machine: projectStore.machineOfPath(args.projectPath) });
+}
 
 export interface ContextRuleItem {
 	id: string;

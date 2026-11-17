@@ -135,7 +135,7 @@
 		} else if (trigger.kind === '@' && project.canonicalProjectPath) {
 			const projectPath = project.canonicalProjectPath;
 			suggestItems = [];
-			void loadProjectFiles(projectPath).then((files) => {
+			void loadProjectFiles(projectPath, project.machineId).then((files) => {
 				if (currentTrigger !== trigger) return;
 				suggestItems = fileSuggestions(rankFileCandidates(trigger.query, files, {}));
 			});

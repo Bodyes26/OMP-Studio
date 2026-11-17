@@ -128,4 +128,42 @@ describe('Progetti remoti in barra (R-MI-03/MI-04)', () => {
 		assert.equal(remote.canonicalProjectPath, 'C:\\Users\\other\\source\\repos\\repo');
 		assert.equal(remote.lane.workspacePath, 'C:\\Users\\other\\source\\repos\\repo');
 	});
+
+	/**
+	 * Le corsie di un progetto remoto sono della macchina che lo possiede
+	 * (R-MI-06): la tessera le proietta con il proprio id, e le letture sul
+	 * worktree di una corsia vanno a quella macchina, non al disco locale.
+	 */
+	it('proietta le corsie dell host e instrada i loro worktree alla sua macchina', () => {
+		const host = snapshot();
+		const main = { ...host.projects[0].lane };
+		host.lanes = [main, { ...main, laneId: 'wt-1', title: 'Worktree 1', workspacePath: '/Users/other/dev/repo-wt-1', agentState: 'idle' }];
+		projectStore.syncRemoteProjects('mac-1', 'Mac Studio', host);
+		const remote = projectStore.projects[0];
+		const lanes = projectStore.remoteLanes[remote.id];
+		assert.deepEqual(lanes.map((lane) => [lane.projectId, lane.laneId]), [[remote.id, MAIN_LANE_ID], [remote.id, 'wt-1']]);
+		assert.equal(projectStore.machineOfPath('/Users/other/dev/repo-wt-1'), 'mac-1');
+		assert.equal(projectStore.machineOfPath('/Users/me/elsewhere'), 'local');
+	});
+
+	it('mantiene la corsia scelta dall utente ai riepiloghi successivi, con lo stato della Principale', () => {
+		const host = snapshot();
+		const main = { ...host.projects[0].lane };
+		host.lanes = [main, { ...main, laneId: 'wt-1', title: 'Worktree 1', workspacePath: '/Users/other/dev/repo-wt-1', agentState: 'idle' }];
+		projectStore.syncRemoteProjects('mac-1', 'Mac Studio', host);
+		const remote = projectStore.projects[0];
+		projectStore.setProjectLane(remote.id, projectStore.remoteLanes[remote.id][1]);
+		projectStore.syncRemoteProjects('mac-1', 'Mac Studio', host);
+		const after = projectStore.projects[0];
+		assert.equal(after.lane.laneId, 'wt-1');
+		assert.equal(after.lane.workspacePath, '/Users/other/dev/repo-wt-1');
+		assert.equal(after.lane.agentState, 'working');
+	});
+
+	it('a macchina irraggiungibile la tessera non resta al lavoro', () => {
+		projectStore.syncRemoteProjects('mac-1', 'Mac Studio', snapshot());
+		assert.equal(projectStore.projects[0].lane.agentState, 'working');
+		projectStore.markRemoteMachineOffline('mac-1');
+		assert.equal(projectStore.projects[0].lane.agentState, 'unknown');
+	});
 });

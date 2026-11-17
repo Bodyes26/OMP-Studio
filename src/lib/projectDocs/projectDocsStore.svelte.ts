@@ -6,6 +6,7 @@
  */
 import { invoke } from '#lib/backend/ipc.ts';
 import { settingsStore } from '#lib/stores/settings.svelte.ts';
+import { projectStore } from '#lib/stores/projects.svelte.ts';
 import {
 	DOC_ROLES,
 	MANIFEST_REL,
@@ -48,7 +49,8 @@ export interface AskState {
 
 async function readRel(projectPath: string, rel: string): Promise<string | null> {
 	try {
-		const res = await invoke<{ content: string }>('file_read', { projectPath, rel });
+		// Il diario sta nella cartella del progetto, sul disco della macchina che lo possiede.
+		const res = await invoke<{ content: string }>('file_read', { projectPath, rel }, { machine: projectStore.machineOfPath(projectPath) });
 		return res.content;
 	} catch {
 		return null;

@@ -198,6 +198,7 @@ import { generationMs } from './turnStats';
 import type { CacheWarmingInFlight, CacheWarmingLast } from './sessionModes';
 import { modelSettingsStore } from '#lib/stores/modelSettings.svelte.ts';
 import { computeQuotaInfo } from '#lib/quota/projectQuota.ts';
+import { quotaStoreFor } from '#lib/stores/quota.svelte.ts';
 import {
 	type BlockedQuotaState,
 	classifyFailureReason,
@@ -3584,12 +3585,11 @@ export class AgentSession {
 		}
 		let defaultModel: string | null = null;
 		try {
-			await modelSettingsStore.ensureConfigAndCatalog();
-			const raw =
-				modelSettingsStore.config?.modelRoles?.default ||
-				modelSettingsStore.draftConfig?.modelRoles?.default;
+			// Il modello di ripiego e' il `default` della macchina che esegue la sessione.
+			await modelSettingsStore.ensureMachineModels(this.machineId);
+			const raw = modelSettingsStore.configFor(this.machineId)?.modelRoles?.default;
 			if (raw) {
-				const base = splitModelSelector(raw, modelSettingsStore.knownSelectors).base.trim();
+				const base = splitModelSelector(raw, modelSettingsStore.knownSelectorsFor(this.machineId)).base.trim();
 				if (base && base !== failedModel) {
 					defaultModel = base;
 				}
@@ -3963,7 +3963,9 @@ export class AgentSession {
 		const currentModel = this.model;
 		const provider = currentModel?.provider || '';
 		const modelId = currentModel?.id || '';
-		const qInfo = computeQuotaInfo(provider, modelId, undefined);
+		// Quote, ruoli e catalogo della macchina che esegue la sessione (R-MI-06).
+		const machineQuota = quotaStoreFor(this.machineId);
+		const qInfo = computeQuotaInfo(provider, modelId, undefined, machineQuota);
 		const classification = classifyFailureReason(rawError, qInfo.status);
 
 		// Se non e' un esaurimento effettivo di quota/crediti e non e' forzato
@@ -3977,10 +3979,10 @@ export class AgentSession {
 		const recovery = recommendRecoveryModel({
 			failedProvider: provider,
 			failedModelId: modelId,
-			config: modelSettingsStore.config,
-			catalog: modelSettingsStore.catalog,
-			knownSelectors: modelSettingsStore.knownSelectors,
-			checkQuota: (p, m) => computeQuotaInfo(p, m, undefined).status
+			config: modelSettingsStore.configFor(this.machineId),
+			catalog: modelSettingsStore.catalogFor(this.machineId),
+			knownSelectors: modelSettingsStore.knownSelectorsFor(this.machineId),
+			checkQuota: (p, m) => computeQuotaInfo(p, m, undefined, machineQuota).status
 		});
 
 		this.blockedQuotaState = {
@@ -5210,7 +5212,7 @@ export class AgentSession {
 		const preflightPath = isLab ? (linkedProjectPath ?? undefined) : this.cwd;
 		const enriched = await orchestratePromptPreflight(
 			trimmed,
-			{ images, projectPath: preflightPath },
+			{ images, projectPath: preflightPath, machine: this.machineId },
 			this.preflightDeps ?? undefined
 		);
 		const fullMessage = isLab

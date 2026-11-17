@@ -23,7 +23,9 @@ import type {
 	RemoteTaskDetail,
 	RemoteDispatchAnswer,
 	RemoteDispatchOutcome,
-	RemoteDispatchDestination
+	RemoteDispatchDestination,
+	RemoteLaneAction,
+	RemoteCommandData
 } from '$remote-protocol';
 import { remoteBridge, type RemoteCommandEvent } from './bridge';
 import { remoteStore } from './remoteStore.svelte';
@@ -134,6 +136,11 @@ export interface RemoteCommandExecutor {
 	 */
 	setAutoDispatch: (projectId: string, enabled: boolean) => void;
 	/**
+	 * Corsie chieste da un'altra istanza (R-MI-06): worktree e registro sono
+	 * di questa macchina. `projectId` è l'id locale all'host.
+	 */
+	laneAction: (projectId: string, action: RemoteLaneAction) => Promise<RemoteCommandData['lane_action']>;
+	/**
 	 * Coda arrivata da un'altra macchina (F19): si fonde per task, non si
 	 * sovrascrive il file — i task creati qui nel frattempo restano.
 	 */
@@ -240,6 +247,7 @@ const ACTION_LABEL_KEYS: Record<RemoteCommand['kind'], () => string> = {
 	chat_history: () => m.l10n_lab_remote_action_chat_history(),
 	list_project_folders: () => m.l10n_lab_remote_action_list_project_folders(),
 	set_auto_dispatch: () => m.l10n_lab_remote_action_set_auto_dispatch(),
+	lane_action: () => m.l10n_lab_remote_action_lane_action(),
 	read_queue: () => m.l10n_lab_remote_action_read_queue(),
 	write_queue: () => m.l10n_lab_remote_action_write_queue(),
 	open_project: () => m.l10n_lab_remote_action_open_project(),
@@ -350,6 +358,11 @@ export async function handleRemoteCommand(
 			case 'set_auto_dispatch': {
 				ctx.executor.setAutoDispatch(command.projectId, command.enabled);
 				await ctx.reportResult(commandId, true);
+				return;
+			}
+			case 'lane_action': {
+				const data = await ctx.executor.laneAction(command.projectId, command.action);
+				await ctx.reportResult(commandId, true, undefined, data);
 				return;
 			}
 			case 'read_queue': {

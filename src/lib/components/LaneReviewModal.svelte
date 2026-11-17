@@ -236,7 +236,7 @@
 					worktreePath: lane.workspacePath,
 					targetBranch: lane.targetBranch ?? undefined
 				}
-			});
+			}, { machine: project.machineId });
 			reviewData = inspection;
 
 			// Carica i processi vivi runtime per la corsia
@@ -307,7 +307,7 @@
 					const modRes = await invoke<{ content: string }>('file_read', {
 						projectPath: lane!.workspacePath,
 						rel: filePath
-					});
+					}, { machine: project.machineId });
 					modified = modRes.content;
 				} else if (fileInfo?.status === 'D') {
 					// File rimosso: presente sul target, assente nel worktree
@@ -315,7 +315,7 @@
 						projectPath: project.canonicalProjectPath,
 						rel: filePath,
 						rev: inspection!.targetBranch
-					});
+					}, { machine: project.machineId });
 					original = origRes.exists ? origRes.content : '';
 					modified = '';
 				} else {
@@ -324,13 +324,13 @@
 						projectPath: project.canonicalProjectPath,
 						rel: filePath,
 						rev: inspection!.targetBranch
-					});
+					}, { machine: project.machineId });
 					original = origRes.exists ? origRes.content : '';
 
 					const modRes = await invoke<{ content: string }>('file_read', {
 						projectPath: lane!.workspacePath,
 						rel: filePath
-					});
+					}, { machine: project.machineId });
 					modified = modRes.content;
 				}
 

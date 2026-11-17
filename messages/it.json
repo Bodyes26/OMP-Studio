@@ -4126,6 +4126,7 @@
   "l10n_lab_remote_action_list_project_folders": "letto le cartelle",
   "l10n_lab_remote_action_open_project": "aperto il progetto",
   "l10n_lab_remote_action_set_auto_dispatch": "Auto-avvio della coda",
+  "l10n_lab_remote_action_lane_action": "gestito una corsia",
   "l10n_lab_remote_action_write_queue": "Coda dei task condivisa",
   "l10n_lab_remote_action_read_queue": "Coda dei task richiesta",
   "l10n_lab_remote_action_create_project": "creato il progetto",

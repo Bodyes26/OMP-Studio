@@ -541,7 +541,7 @@ export class LaneLandingService {
 					message: commitMessage,
 					exemptOwners
 				}
-			});
+			}, { machine: project.machineId });
 		} catch (error) {
 			const parsed = parseWorktreeError(error);
 			if (previousStatus !== 'integrating') {
@@ -768,7 +768,8 @@ export class LaneLandingService {
 					try {
 						await invoke(
 							'worktree_delete_lane_branch',
-							laneBranchDeleteArgs(project.canonicalProjectPath, laneId, false)
+							laneBranchDeleteArgs(project.canonicalProjectPath, laneId, false),
+							{ machine: project.machineId }
 						);
 					} catch (branchErr) {
 						const errorMsg = worktreeErrorMessage(branchErr, m.lane_error_branch_delete_failed());
@@ -864,7 +865,7 @@ export class LaneLandingService {
 					commit: record.commit,
 					previousTarget: record.previousTarget
 				}
-			});
+			}, { machine: project.machineId });
 
 			record.kind = 'undone';
 			record.restoredBranch = outcome.restoredBranch;

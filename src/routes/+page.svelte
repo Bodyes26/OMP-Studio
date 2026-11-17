@@ -217,7 +217,9 @@
 		let interactiveAgentCount = getAutomationAssistantActiveCount();
 		for (const dirtyPath of getDirtyEditorPaths()) busyPaths.add(dirtyPath);
 		for (const project of projectStore.projects) {
-			if (project.external) continue;
+			// Le copie di un'altra istanza lavorano su quella macchina: uscire o
+			// aggiornare questa non le interrompe, quindi non contano come lavoro locale.
+			if (project.external || projectStore.isRemote(project)) continue;
 			for (const lane of laneOrchestrator.getMountedLanes(project)) {
 				const gate = automationGate(project.id, lane.laneId, false);
 				if (!gate.ready && gate.block !== 'no-session') {
@@ -1055,7 +1057,8 @@
 				// rilanciava l'effetto in un ciclo infinito di scansioni del disco.
 				if (cached === undefined && !sessionPinsInFlight.has(sessionKey)) {
 					sessionPinsInFlight.add(sessionKey);
-					invoke<Record<string, string>>('session_credential_pins', { sessionId: sessionKey })
+					// Il transcript della sessione sta sulla macchina che la esegue.
+					invoke<Record<string, string>>('session_credential_pins', { sessionId: sessionKey }, { machine: project.machineId })
 						.then((pins) => {
 							sessionPinsCache[sessionKey] = pins || {};
 						})
@@ -1108,7 +1111,7 @@
 		}
 
 		const { provider, modelId, credentialPin } = resolveProjectRuntime(project);
-		activeQuotaStore.setActiveModel(provider, modelId, credentialPin);
+		activeQuotaStore.setActiveModel(provider, modelId, credentialPin, project.machineId);
 	});
 
 	// Ritrasmette alla finestra companion stato, modello e riga di attivita' di
@@ -1628,11 +1631,16 @@
 			scheduleTarget: (task) => scheduleStore.targetFor(task)
 		});
 		const remoteLaneConfig = createLaneConfigCommands({
-			ensureLoaded: () => modelSettingsStore.ensureLoaded(),
-			ensureRoleConfig: () => modelSettingsStore.ensureConfigAndCatalog(),
-			getModelConfig: () => modelSettingsStore.config || modelSettingsStore.draftConfig,
-			getAssignableCatalog: () => modelSettingsStore.assignableCatalog,
-			getKnownSelectors: () => modelSettingsStore.knownSelectors
+			// La macchina locale usa il catalogo completo delle Impostazioni; le altre la loro copia.
+			ensureLoaded: (machine) => !machine || machine === LOCAL_MACHINE
+				? modelSettingsStore.ensureLoaded()
+				: modelSettingsStore.ensureMachineModels(machine),
+			ensureRoleConfig: (machine) => modelSettingsStore.ensureMachineModels(machine),
+			getModelConfig: (machine) => modelSettingsStore.configFor(machine),
+			getAssignableCatalog: (machine) => !machine || machine === LOCAL_MACHINE
+				? modelSettingsStore.assignableCatalog
+				: modelSettingsStore.catalogFor(machine),
+			getKnownSelectors: (machine) => modelSettingsStore.knownSelectorsFor(machine)
 		});
 		register(
 			setupRemoteCommands(
@@ -1696,6 +1704,31 @@
 					// quando un'altra lo accende.
 					setAutoDispatch: (projectId: string, enabled: boolean) => {
 						projectStore.setAutoDispatch(projectId, enabled);
+					},
+					// Corsie chieste dall'altra macchina (R-MI-06): worktree e
+					// registro sono di questa. La vista qui non cambia corsia.
+					laneAction: async (projectId, action) => {
+						const owner = projectStore.projects.find((p) => p.id === projectId && !projectStore.isRemote(p));
+						if (!owner) throw new Error(m.l10n_state_lane_project_not_found());
+						const surface = action.op === 'archive' ? undefined : action.surface;
+						const origin = action.op === 'archive' ? undefined : action.origin as LaneRecord['origin'] | undefined;
+						if (action.op === 'create') {
+							const lane = await laneOrchestrator.createNewLane(owner, { title: action.title, origin, surface, activate: false });
+							return { lane: { ...lane } };
+						}
+						if (action.op === 'open_branch') {
+							const lane = await laneOrchestrator.openBranchLane(owner, {
+								branch: action.branch, kind: action.branchKind, origin, surface, activate: false
+							});
+							return { lane: { ...lane } };
+						}
+						const outcome = await laneOrchestrator.archiveLane(
+							owner.id as LaneRecord['projectId'],
+							action.laneId as LaneRecord['laneId'],
+							action.reason as NonNullable<LaneRecord['archiveReason']>,
+							{ stopProcesses: action.stopProcesses }
+						);
+						return { outcome: { ...outcome } };
 					},
 					// Coda arrivata dall'altra macchina (F19): si fonde per task,
 					// così i task creati qui nel frattempo non spariscono.
@@ -3055,9 +3088,9 @@
 			void (async () => {
 				try {
 					const result = await applyRoleToSession(session, arg, {
-						ensureLoaded: () => modelSettingsStore.ensureConfigAndCatalog(),
-						getModelConfig: () => modelSettingsStore.config || modelSettingsStore.draftConfig,
-						getKnownSelectors: () => modelSettingsStore.knownSelectors
+						ensureLoaded: () => modelSettingsStore.ensureMachineModels(session.machineId),
+						getModelConfig: () => modelSettingsStore.configFor(session.machineId),
+						getKnownSelectors: () => modelSettingsStore.knownSelectorsFor(session.machineId)
 					});
 					session.flashNotice(
 						'info',
@@ -3331,8 +3364,10 @@
 		const queuedCount = project.canonicalProjectPath
 			? taskStore.pendingCountFor(project.canonicalProjectPath)
 			: 0;
-		const isWorking =
-			project.lane.agentState === 'working' || Boolean(terminalBusy[runtimeKey(project)]);
+		// Chiudere la tessera di un progetto remoto non ferma il suo agente,
+		// che vive sull'altra macchina: nessuna conferma da chiedere.
+		const isWorking = !projectStore.isRemote(project) &&
+			(project.lane.agentState === 'working' || Boolean(terminalBusy[runtimeKey(project)]));
 
 		if (queuedCount === 0 && !isWorking) {
 			projectStore.closeProject(projectId);

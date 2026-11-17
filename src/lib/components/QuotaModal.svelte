@@ -15,10 +15,12 @@
 	import { i18n } from '#lib/i18n/i18n.svelte.ts';
 	import { rvLift } from '#lib/agent/motion.ts';
 	import { anchoredPopover } from '#lib/anchoredPopover.ts';
-	import { quotaStore, type ProviderHost, type QuotaLimit, type QuotaReport } from '#lib/stores/quota.svelte.ts';
+	import type { ProviderHost, QuotaLimit, QuotaReport } from '#lib/stores/quota.svelte.ts';
 	import { providersMatch } from '#lib/quota/providers.ts';
 	import { reportIndexForHost } from '#lib/quota/accountHosts.ts';
 	import { activeQuotaStore } from '#lib/stores/activeQuota.svelte.ts';
+	// Quote della macchina che esegue il progetto attivo (R-MI-06).
+	const quotaStore = $derived(activeQuotaStore.store);
 	import { settingsStore } from '#lib/stores/settings.svelte.ts';
 	import QuotaLimitRow from './quota/QuotaLimitRow.svelte';
 	import ProviderLogo from './models/ProviderLogo.svelte';

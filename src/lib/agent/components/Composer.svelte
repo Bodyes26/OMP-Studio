@@ -294,18 +294,22 @@
 
 	// Senza configurazione caricata le assegnazioni sono vuote e il ruolo mostrato
 	// resterebbe 'default' fino alla prima apertura delle impostazioni modelli.
+	// Ruoli e catalogo sono quelli della macchina che esegue la sessione: una
+	// chat remota usa `config.yml` dell'altra macchina (R-MI-06).
 	$effect(() => {
-		if (visible) void modelSettingsStore.ensureConfigAndCatalog();
+		if (visible) void modelSettingsStore.ensureMachineModels(session.machineId);
 	});
 
-	const rolesMap = $derived(modelSettingsStore.config?.modelRoles || modelSettingsStore.draftConfig?.modelRoles || {});
+	const rolesMap = $derived(modelSettingsStore.configFor(session.machineId)?.modelRoles || {});
+	const machineSelectors = $derived(modelSettingsStore.knownSelectorsFor(session.machineId));
 	// Assegnazioni ruoli dal settings store
 	const roleAssignments = $derived.by(() => {
 		const out: Record<string, RoleAssignment> = {};
+		const catalog = modelSettingsStore.catalogFor(session.machineId);
 		for (const [rId, sel] of Object.entries(rolesMap)) {
 			if (typeof sel === 'string') {
-				const { base, thinking } = splitModelSelector(sel, modelSettingsStore.knownSelectors);
-				const catalogMatch = resolveCatalogModel(modelSettingsStore.catalog, base);
+				const { base, thinking } = splitModelSelector(sel, machineSelectors);
+				const catalogMatch = resolveCatalogModel(catalog, base);
 				const provider = catalogMatch?.provider || (base.includes('/') ? base.split('/')[0] : '');
 				out[rId] = { model: base, provider: provider || undefined, thinking: thinking ?? undefined };
 			}
@@ -319,7 +323,7 @@
 			session.model,
 			session.thinkingLevel,
 			session.lastPickedRole,
-			modelSettingsStore.knownSelectors
+			machineSelectors
 		) ?? 'default'
 	);
 
@@ -341,7 +345,7 @@
 			}
 
 			const trigger = currentTrigger;
-			void loadProjectFiles(projectPath).then((files) => {
+			void loadProjectFiles(projectPath, projectStore.machineOfPath(projectPath)).then((files) => {
 				// Una risposta arrivata dopo altri tasti non deve sovrascrivere
 				// la palette della query corrente (o riaprirne una chiusa).
 				if (
@@ -451,8 +455,10 @@
 				try {
 					// IPC grezzo: i byte viaggiano come corpo binario, i metadati negli header.
 					const bytes = new Uint8Array(await file.arrayBuffer());
+					// La macchina della sessione: l'agente remoto legge il percorso sul suo disco (R-MI-08).
 					const staged = await invoke<{ path: string; name: string; size: number }>('stage_chat_attachment', bytes, {
-						headers: stageAttachmentHeaders(session.sessionKey, file.name)
+						headers: stageAttachmentHeaders(session.sessionKey, file.name),
+						machine: session.machineId
 					});
 					const objUrl = isVideo ? URL.createObjectURL(file) : undefined;
 					attachments = [

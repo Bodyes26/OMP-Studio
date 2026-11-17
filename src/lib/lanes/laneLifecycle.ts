@@ -242,7 +242,7 @@ export async function inspectUnintegratedWork(
 	const project = projectStore.projects.find((p) => p.id === ownerProjectId);
 	if (!project?.canonicalProjectPath) return null;
 	return await fetchUnintegratedLoss(
-		(command, args) => invoke(command, args),
+		(command, args) => invoke(command, args, { machine: project.machineId }),
 		project.canonicalProjectPath,
 		targetLaneId
 	);
@@ -291,7 +291,7 @@ export async function deleteWorktreeLane(
 					worktreePath: lane.workspacePath,
 					stopProcesses: options.stopProcesses === true
 				}
-			});
+			}, { machine: project.machineId });
 		} catch (error) {
 			const diagnosis = classifyWorktreeRemovalError(error);
 			if (diagnosis.failure === 'processes-active') {
@@ -314,7 +314,8 @@ export async function deleteWorktreeLane(
 		try {
 			await invoke(
 				'worktree_delete_lane_branch',
-				laneBranchDeleteArgs(project.canonicalProjectPath, targetLaneId, discardUnintegrated)
+				laneBranchDeleteArgs(project.canonicalProjectPath, targetLaneId, discardUnintegrated),
+				{ machine: project.machineId }
 			);
 		} catch (err) {
 			const errorMsg = worktreeErrorMessage(err, m.lane_error_branch_delete_failed());

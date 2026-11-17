@@ -41,6 +41,8 @@ export interface AgentSessionLike {
 	readonly laneId?: string | null;
 	readonly projectKey: string;
 	readonly sessionKey: string;
+	/** Macchina che esegue la sessione: i suoi allegati vivono sul suo disco. */
+	readonly machineId?: string;
 	sessionId: string | null;
 	observedRevisionId?: string | null;
 	pendingUi?: { kind: string; requestId?: string; message?: string } | null;
@@ -249,7 +251,7 @@ export class SessionRegistry<T extends AgentSessionLike = AgentSession> {
 		const sessions = this.getSessionsForProject(projectKey);
 		for (const session of sessions) {
 			this.sessions.delete(session.sessionKey);
-			void invoke('cleanup_chat_attachments', { sessionKey: session.sessionKey }).catch(() => {});
+			void invoke('cleanup_chat_attachments', { sessionKey: session.sessionKey }, { machine: session.machineId }).catch(() => {});
 		}
 		if (sessions.length > 0) this.membershipChanged();
 		await Promise.allSettled(sessions.map((session) => session.close()));
@@ -262,7 +264,7 @@ export class SessionRegistry<T extends AgentSessionLike = AgentSession> {
 		if (session.laneId) {
 			this.removeLaneSession(session.projectKey, session.laneId);
 		}
-		void invoke('cleanup_chat_attachments', { sessionKey: session.sessionKey }).catch(() => {});
+		void invoke('cleanup_chat_attachments', { sessionKey: session.sessionKey }, { machine: session.machineId }).catch(() => {});
 		await session.close();
 	}
 

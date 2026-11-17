@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { invoke } from '#lib/backend/ipc.ts';
+	import { useProjectBackend } from '#lib/backend/projectScope.ts';
+	const { invoke } = useProjectBackend();
 	import { m } from '#lib/paraglide/messages.js';
 
 	// Solo la tela: nome, misure e zoom stanno nella barra dell'editor (una

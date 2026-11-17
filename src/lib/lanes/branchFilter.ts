@@ -4,7 +4,7 @@
 
 import type { AgentLane } from '#lib/types/lanes.ts';
 import type { LaneRecord } from '#lib/stores/lanePersistence.ts';
-import { invoke } from '#lib/backend/ipc.ts';
+import { invoke, type MachineId } from '#lib/backend/ipc.ts';
 
 export interface WorktreeBranchEntry {
 	name: string;
@@ -66,12 +66,13 @@ export function filterOpenableBranches(
 }
 
 export async function fetchWorktreeBranches(
-	projectPath: string
+	projectPath: string,
+	machine?: MachineId
 ): Promise<WorktreeListBranchesOutcome> {
 	if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) {
 		return { primaryBranch: 'main', branches: [] };
 	}
 	return await invoke<WorktreeListBranchesOutcome>('worktree_list_branches', {
 		args: { projectPath }
-	});
+	}, { machine });
 }

@@ -1,5 +1,6 @@
 import {
-	quotaStore,
+	quotaStore as localQuotaStore,
+	type QuotaStore,
 	type QuotaReport,
 	type QuotaLimit
 } from '../stores/quota.svelte';
@@ -54,13 +55,15 @@ export function formatProviderShortName(providerId: string | undefined): string 
  * righe della finestra companion (un modello per ogni progetto con agente al
  * lavoro). Una sola implementazione, nessuna divergenza fra le due superfici.
  *
- * Legge direttamente `quotaStore`: essendo invocata dentro `$derived`, la
- * dipendenza reattiva si registra come se il calcolo fosse inline.
+ * Legge direttamente lo store ricevuto: essendo invocata dentro `$derived`, la
+ * dipendenza reattiva si registra come se il calcolo fosse inline. Lo store e'
+ * quello della macchina che esegue il progetto (R-MI-06).
  */
 export function computeQuotaInfo(
 	provider: string | undefined,
 	modelId: string | undefined,
-	credentialPin: string | undefined
+	credentialPin: string | undefined,
+	quotaStore: QuotaStore = localQuotaStore
 ): QuotaInfo {
 	// Se la rete o il servizio sono offline
 	if (quotaStore.status === 'offline') {

@@ -1,5 +1,5 @@
 import { matchesLooseQuery } from '../looseSearch.ts';
-import { invoke } from '#lib/backend/ipc.ts';
+import { invoke, LOCAL_MACHINE, type MachineId } from '#lib/backend/ipc.ts';
 
 /**
  * Directory di compilazione, cache e rumore da escludere categoricamente
@@ -217,30 +217,36 @@ const projectFilesInflight = new Map<string, Promise<string[]>>();
 
 /**
  * Carica e memorizza nella cache l'elenco dei file del progetto attivo.
+ * `machine` e' la macchina che possiede il percorso: la cache e' per
+ * macchina, perche' lo stesso percorso su due macchine sono due alberi.
  */
 export async function loadProjectFiles(
 	projectPath: string,
+	machine: MachineId = LOCAL_MACHINE,
 	force = false
 ): Promise<string[]> {
 	if (!projectPath) return [];
 
+	const key = `${machine}::${projectPath}`;
 	const now = Date.now();
-	const cached = projectFilesCache.get(projectPath);
+	const cached = projectFilesCache.get(key);
 	if (!force && cached && now - cached.timestamp < CACHE_TTL_MS) {
 		return cached.files;
 	}
-	const inflight = projectFilesInflight.get(projectPath);
+	const inflight = projectFilesInflight.get(key);
 	if (inflight && !force) return inflight;
 
-	const request = fetchProjectFiles(projectPath, now, cached).finally(() => {
-		if (projectFilesInflight.get(projectPath) === request) projectFilesInflight.delete(projectPath);
+	const request = fetchProjectFiles(projectPath, machine, key, now, cached).finally(() => {
+		if (projectFilesInflight.get(key) === request) projectFilesInflight.delete(key);
 	});
-	projectFilesInflight.set(projectPath, request);
+	projectFilesInflight.set(key, request);
 	return request;
 }
 
 async function fetchProjectFiles(
 	projectPath: string,
+	machine: MachineId,
+	key: string,
 	now: number,
 	cached: CachedCatalog | undefined
 ): Promise<string[]> {
@@ -248,12 +254,12 @@ async function fetchProjectFiles(
 		const files = await invoke<string[]>('project_files_list', {
 			projectPath,
 			limit: 3000
-		});
+		}, { machine });
 		const normalized = (files || [])
 			.map((f) => f.replace(/\\/g, '/').replace(/^\.?\//, ''))
 			.filter((f) => Boolean(f) && !isExcludedPath(f));
 
-		projectFilesCache.set(projectPath, {
+		projectFilesCache.set(key, {
 			files: normalized,
 			timestamp: now
 		});

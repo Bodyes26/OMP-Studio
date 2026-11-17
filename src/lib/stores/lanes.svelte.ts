@@ -431,6 +431,10 @@ class LaneStore {
 	}
 
 	lanesFor(ownerProjectId: ProjectId): LaneRecord[] {
+		// Le corsie di un progetto remoto sono della macchina che lo possiede:
+		// qui si legge la proiezione del suo riepilogo, mai lanes.json locale.
+		const remote = projectStore.remoteLanes[ownerProjectId];
+		if (remote) return remote;
 		return this.lanes.filter((lane) => lane.projectId === ownerProjectId);
 	}
 
@@ -439,6 +443,8 @@ class LaneStore {
 	}
 
 	async upsertLane(record: LaneRecord): Promise<void> {
+		// Il registro di una corsia remota lo scrive la sua macchina.
+		if (projectStore.remoteLanes[record.projectId]) return;
 		await this.init();
 		this.assertWritable();
 		const index = this.lanes.findIndex(
@@ -451,6 +457,14 @@ class LaneStore {
 	}
 
 	async updateLane(ownerProjectId: ProjectId, targetLaneId: LaneId, patch: LanePatch): Promise<void> {
+		const remote = projectStore.remoteLanes[ownerProjectId];
+		if (remote) {
+			// Solo in memoria, fino al prossimo riepilogo dell'host: file aperti e
+			// stato visto restano di chi guarda, il registro e' della sua macchina.
+			const lane = remote.find((candidate) => candidate.laneId === targetLaneId);
+			if (lane) Object.assign(lane, patch);
+			return;
+		}
 		await this.init();
 		// Lo stato dell'agente non e' su disco: riscrivere lanes.json a ogni
 		// cambio di stato era solo I/O sprecato, e uno store in sola lettura

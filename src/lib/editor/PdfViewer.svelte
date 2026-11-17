@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { invoke } from '#lib/backend/ipc.ts';
+	import { useProjectBackend } from '#lib/backend/projectScope.ts';
+	const { invoke } = useProjectBackend();
 	import { m } from '#lib/paraglide/messages.js';
 	import type { PDFDocumentProxy, RenderTask } from 'pdfjs-dist';
 	import workerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';

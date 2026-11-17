@@ -345,7 +345,7 @@
 			suggestItems = [];
 			return;
 		}
-		void loadProjectFiles(task.projectPath).then((files) => {
+		void loadProjectFiles(task.projectPath, projectStore.machineOfPath(task.projectPath)).then((files) => {
 			if (currentTrigger !== trigger) return;
 			const key = pathKey(task.projectPath);
 			const project = projectStore.projects.find(

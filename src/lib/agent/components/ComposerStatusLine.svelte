@@ -81,11 +81,13 @@
 	// Destinazione del prewalk: un ruolo (`@smol`, predefinito di omp) o un modello esplicito.
 	const prewalkInto = $derived(session.prewalkTargets?.into ?? DEFAULT_PREWALK_TARGETS.into);
 	const prewalkIntoRole = $derived(prewalkTargetRole(prewalkInto));
+	// Il ruolo del prewalk si risolve sulla macchina che esegue la sessione.
+	const machineConfig = $derived(modelSettingsStore.configFor(session.machineId));
 	const prewalkIntoModel = $derived(
-		prewalkIntoRole ? modelSettingsStore.config?.modelRoles?.[prewalkIntoRole]?.trim() || '' : prewalkInto
+		prewalkIntoRole ? machineConfig?.modelRoles?.[prewalkIntoRole]?.trim() || '' : prewalkInto
 	);
 	const prewalkFallbacks = $derived(
-		prewalkIntoRole ? modelSettingsStore.config?.fallbackChains?.[prewalkIntoRole] || [] : []
+		prewalkIntoRole ? machineConfig?.fallbackChains?.[prewalkIntoRole] || [] : []
 	);
 	const prewalkState = $derived(session.prewalk?.state ?? 'off');
 	const prewalkTarget = $derived(session.prewalk?.target || '');

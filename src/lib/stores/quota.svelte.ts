@@ -1,4 +1,4 @@
-import { invoke } from '#lib/backend/ipc.ts';
+import { invoke, LOCAL_MACHINE, type MachineId } from '#lib/backend/ipc.ts';
 import { accountPinHash, shortestWindowLimit, remainingFractionOf } from '../quota/resolve';
 import { providersMatch } from '../quota/providers';
 import { m as msg } from '#lib/paraglide/messages.js';
@@ -126,6 +126,13 @@ export interface QuotaSnapshotRaw {
 const QUOTA_POLL_MS = 90_000;
 
 class QuotaStore {
+	/** Macchina di cui si leggono le quote: account e `omp usage` sono suoi (R-MI-06). */
+	readonly machine: MachineId;
+
+	constructor(machine: MachineId = LOCAL_MACHINE) {
+		this.machine = machine;
+	}
+
 	status = $state<QuotaStatus>('idle');
 	loading = $state(false);
 	error = $state<string | null>(null);
@@ -263,10 +270,11 @@ class QuotaStore {
 	private async doRefresh(force: boolean): Promise<void> {
 		this.loading = true;
 		try {
+			const machine = this.machine;
 			const [usage, hosts, resets] = await Promise.all([
-				invoke<{ raw_json: QuotaSnapshotRaw }>('usage_snapshot', { force }),
-				invoke<ProviderHost[]>('provider_hosts').catch(() => [] as ProviderHost[]),
-				invoke<{ raw_json: UsageResetListRaw }>('usage_reset_list', { force }).catch(() => null)
+				invoke<{ raw_json: QuotaSnapshotRaw }>('usage_snapshot', { force }, { machine }),
+				invoke<ProviderHost[]>('provider_hosts', undefined, { machine }).catch(() => [] as ProviderHost[]),
+				invoke<{ raw_json: UsageResetListRaw }>('usage_reset_list', { force }, { machine }).catch(() => null)
 			]);
 
 			this.rawJson = usage.raw_json;
@@ -280,9 +288,12 @@ class QuotaStore {
 			this.evaluateStatus();
 			await this.updateReportPinHashes(this.reports);
 			this.poller?.markRefreshed(this.lastFetchedAt);
-			void import('./modelSettings.svelte.ts').then(({ modelSettingsStore }) =>
-				modelSettingsStore.syncAuthentication()
-			).catch(() => {});
+			// Lo stato degli accessi nelle Impostazioni e' quello di questa macchina.
+			if (machine === LOCAL_MACHINE) {
+				void import('./modelSettings.svelte.ts').then(({ modelSettingsStore }) =>
+					modelSettingsStore.syncAuthentication()
+				).catch(() => {});
+			}
 		} catch (err) {
 			// Resilienza totale: non rilanciamo mai l'errore per evitare crash del renderer UI
 			this.error = String(err);
@@ -349,7 +360,7 @@ class QuotaStore {
 		try {
 			const res = await invoke<{ ok: boolean; target: string; message: string }>('usage_reset_redeem', {
 				target
-			});
+			}, { machine: this.machine });
 			this.lastRedeemOutcome = { ...res, at: Date.now() };
 			await this.refresh(true);
 			return res;
@@ -440,3 +451,24 @@ class QuotaStore {
 }
 
 export const quotaStore = new QuotaStore();
+
+const machineQuotaStores = new Map<MachineId, QuotaStore>();
+
+/**
+ * Quote della macchina indicata. `quotaStore` resta quello locale: scheduler
+ * e ripresa dopo il blocco decidono per i lavori di questa macchina. Le altre
+ * si creano alla prima richiesta e si aggiornano con lo stesso poller.
+ */
+export function quotaStoreFor(machine: MachineId | undefined): QuotaStore {
+	if (!machine || machine === LOCAL_MACHINE) return quotaStore;
+	let store = machineQuotaStores.get(machine);
+	if (!store) {
+		store = new QuotaStore(machine);
+		machineQuotaStores.set(machine, store);
+		store.init();
+		void store.refresh(false);
+	}
+	return store;
+}
+
+export type { QuotaStore };

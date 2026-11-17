@@ -1,4 +1,4 @@
-import { invoke, LOCAL_MACHINE } from '#lib/backend/ipc.ts';
+import { invoke, LOCAL_MACHINE, type MachineId } from '#lib/backend/ipc.ts';
 import type { DesktopHostSnapshot } from '#lib/backend/host.ts';
 import { m } from '#lib/paraglide/messages.js';
 import { load, type Store } from '@tauri-apps/plugin-store';
@@ -22,6 +22,7 @@ import { labApi } from '#lib/lab/api.ts';
 import type { LabIndexEntry } from '#lib/lab/types.ts';
 import { noteProjectSwitch, studioLog } from '#lib/diagnostics/studioLog.ts';
 import { readPanelGeometries } from '#lib/panelGeometry.ts';
+import type { LaneRecord } from './lanePersistence.ts';
 
 import { isWindows, isWindowsPath, normalizeProjectPath, joinProjectPath, pathKey } from '#lib/utils/paths.ts';
 import {
@@ -1009,6 +1010,49 @@ class ProjectStore {
 		return Boolean(project.machineId && project.machineId !== LOCAL_MACHINE);
 	}
 
+	/** Corsie dei progetti remoti per id della tessera, dall'ultimo riepilogo dell'host. */
+	remoteLanes = $state<Record<string, LaneRecord[]>>({});
+	/** Sistema di ogni macchina remota: i percorsi delle sue corsie seguono il suo formato. */
+	private remoteHostWin: Record<string, boolean> = {};
+
+	/**
+	 * Record di corsia restituito dall'host (`lane_action`): diventa subito
+	 * parte della proiezione, senza aspettare il riepilogo successivo.
+	 */
+	adoptRemoteLane(project: Project, raw: LaneRecord): LaneRecord {
+		const hostWin = this.remoteHostWin[project.machineId ?? ''] ?? false;
+		const lane: LaneRecord = {
+			...raw,
+			projectId: project.id as ProjectId,
+			workspacePath: raw.workspacePath ? workspacePath(raw.workspacePath, hostWin) : null,
+			openFiles: [...(raw.openFiles ?? [])]
+		};
+		const current = this.remoteLanes[project.id] ?? [];
+		this.remoteLanes = {
+			...this.remoteLanes,
+			[project.id]: [...current.filter((candidate) => candidate.laneId !== lane.laneId), lane]
+		};
+		return lane;
+	}
+
+	/**
+	 * Macchina che possiede un percorso di progetto o di corsia: le letture
+	 * per percorso (git, regole, diario, file) vanno chieste a quella macchina,
+	 * non al disco di questa. A parità di percorso vince la copia locale.
+	 */
+	machineOfPath(projectPath: string | null | undefined): MachineId {
+		if (!projectPath) return LOCAL_MACHINE;
+		const key = normalizeProjectPath(projectPath).toLowerCase();
+		const matches = (path: string | null | undefined) =>
+			Boolean(path) && normalizeProjectPath(path!).toLowerCase() === key;
+		const owners = this.projects.filter(
+			(p) => matches(p.canonicalProjectPath) || matches(p.lane.workspacePath)
+				|| (this.remoteLanes[p.id]?.some((lane) => matches(lane.workspacePath)) ?? false)
+		);
+		if (owners.length === 0 || owners.some((p) => !this.isRemote(p))) return LOCAL_MACHINE;
+		return owners[0].machineId!;
+	}
+
 	/**
 	 * Proiezione dei progetti di un'altra istanza: la stessa tessera delle
 	 * locali, con `machineId` valorizzato. L'identificativo incorpora la
@@ -1021,17 +1065,34 @@ class ProjectStore {
 		// (Windows li convertiva in `\Users\...` per il Mac, e `omp` sul Mac non
 		// trovava piu' la cartella).
 		const hostWin = isWindowsPath(snapshot.platform);
+		this.remoteHostWin[machine] = hostWin;
 		const existing = new Map(this.projects.filter((p) => p.machineId === machine).map((p) => [p.id, p]));
 		const next: Project[] = [];
+		const lanes: Record<string, LaneRecord[]> = {};
 		for (const host of snapshot.projects) {
 			if (host.external || host.labDraft) continue;
 			const id = projectId(`${machine}::${host.id}`);
 			const previous = existing.get(id);
-			// La tessera descrive la Principale: prendere la prima corsia
-			// trovata mostrerebbe lo stato di un worktree come stato del progetto.
-			const lane = snapshot.lanes.find(
-				(candidate) => candidate.projectId === host.id && candidate.laneId === MAIN_LANE_ID
-			);
+			// Le corsie del progetto vivono sulla macchina che lo possiede: qui se
+			// ne mostra la proiezione, con l'id della tessera e i percorsi nel
+			// formato del suo sistema (R-MI-06).
+			const projected = snapshot.lanes
+				.filter((candidate) => candidate.projectId === host.id)
+				.map((candidate) => ({
+					...candidate,
+					projectId: id,
+					workspacePath: candidate.workspacePath ? workspacePath(candidate.workspacePath, hostWin) : null,
+					openFiles: [...candidate.openFiles]
+				}));
+			lanes[id] = projected;
+			// Lo stato della tessera e' quello della Principale: prendere la prima
+			// corsia trovata mostrerebbe lo stato di un worktree come stato del
+			// progetto. La corsia mostrata resta quella scelta dall'utente, finche'
+			// esiste ancora sulla macchina che la possiede.
+			const main = projected.find((candidate) => candidate.laneId === MAIN_LANE_ID);
+			const lane = projected.find((candidate) =>
+				candidate.laneId === previous?.lane.laneId && candidate.status !== 'archived' && candidate.status !== 'closed'
+			) ?? main;
 			const canonical = host.canonicalProjectPath
 				? canonicalProjectPath(host.canonicalProjectPath, hostWin)
 				: null;
@@ -1070,14 +1131,13 @@ class ProjectStore {
 				laneId: lane?.laneId ?? MAIN_LANE_ID,
 				title: lane?.title ?? project.lane.title,
 				workspacePath: lane?.workspacePath
-					? workspacePath(lane.workspacePath, hostWin)
-					: host.lane.workspacePath ? workspacePath(host.lane.workspacePath, hostWin) : null,
+					?? (host.lane.workspacePath ? workspacePath(host.lane.workspacePath, hostWin) : null),
 				branch: lane?.branch ?? null,
 				baseCommit: lane?.baseCommit ?? null,
 				targetBranch: lane?.targetBranch ?? null,
 				status: lane?.status ?? 'active',
 				origin: lane?.origin ?? 'main',
-				agentState: lane?.agentState ?? host.lane.agentState,
+				agentState: main?.agentState ?? host.lane.agentState,
 				surface: lane?.surface ?? host.lane.surface,
 				kind: lane?.kind ?? host.lane.kind,
 				labPrototypeId: lane?.labPrototypeId ?? host.lane.labPrototypeId,
@@ -1088,6 +1148,10 @@ class ProjectStore {
 		}
 		const kept = this.projects.filter((p) => p.machineId !== machine);
 		this.projects = [...kept, ...next];
+		const otherLanes = Object.fromEntries(
+			Object.entries(this.remoteLanes).filter(([id]) => kept.some((p) => p.id === id))
+		);
+		this.remoteLanes = { ...otherLanes, ...lanes };
 		if (this.activeId && !this.projects.some((p) => p.id === this.activeId)) {
 			this.activeId = this.projects[0]?.id ?? null;
 		}
@@ -1097,8 +1161,25 @@ class ProjectStore {
 		const kept = this.projects.filter((p) => p.machineId !== machine);
 		if (kept.length === this.projects.length) return;
 		this.projects = kept;
+		this.remoteLanes = Object.fromEntries(
+			Object.entries(this.remoteLanes).filter(([id]) => kept.some((p) => p.id === id))
+		);
 		if (this.activeId && !this.projects.some((p) => p.id === this.activeId)) {
 			this.activeId = this.projects[0]?.id ?? null;
+		}
+	}
+
+	/**
+	 * Macchina non raggiungibile (R-MI-11): l'ultimo stato ricevuto non è più
+	 * vero. Una tessera rimasta «al lavoro» girava per sempre e contava come
+	 * lavoro in corso per coda, companion e ordinamento; torna «sconosciuto»
+	 * finché il prossimo riepilogo dell'host non dice com'è davvero.
+	 */
+	markRemoteMachineOffline(machine: string): void {
+		for (const project of this.projects) {
+			if (project.machineId === machine && project.lane.agentState !== 'unknown') {
+				project.lane.agentState = 'unknown';
+			}
 		}
 	}
 }

@@ -410,7 +410,7 @@
 
 		// Carica i branch asincronamente e aggiorna il menu in tempo reale
 		try {
-			const branchesData = await fetchWorktreeBranches(project.canonicalProjectPath);
+			const branchesData = await fetchWorktreeBranches(project.canonicalProjectPath, project.machineId);
 			const updatedItems = await projectLaneActions(project, {
 				...actionOptions,
 				branchesState: { loading: false, error: null, data: branchesData }

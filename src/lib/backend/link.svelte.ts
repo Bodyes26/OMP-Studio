@@ -65,6 +65,9 @@ class LinkStore {
 			delete this.hosts[machine];
 			projectStore.removeRemoteMachine(machine);
 		}
+		for (const peer of status.peers) {
+			if (!peer.online) projectStore.markRemoteMachineOffline(peer.id);
+		}
 	}
 
 	/**

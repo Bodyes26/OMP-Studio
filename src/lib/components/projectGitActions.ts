@@ -11,6 +11,7 @@
 import { invoke } from '#lib/backend/ipc.ts';
 import { fetchWorktreeBranches, type WorktreeBranchEntry } from '#lib/lanes/branchFilter.ts';
 import { notifyGitStatusRefresh } from '#lib/stores/gitDiff.svelte.ts';
+import { projectStore } from '#lib/stores/projects.svelte.ts';
 
 /** Voce letta da `git_branch_list`. */
 export interface LocalBranch {
@@ -86,9 +87,10 @@ export function buildBranchChoices(
  * apparentemente libero.
  */
 export async function loadBranchPlan(projectPath: string): Promise<BranchPlan> {
+	const machine = projectStore.machineOfPath(projectPath);
 	const [local, usage] = await Promise.all([
-		invoke<LocalBranch[]>('git_branch_list', { projectPath }),
-		fetchWorktreeBranches(projectPath)
+		invoke<LocalBranch[]>('git_branch_list', { projectPath }, { machine }),
+		fetchWorktreeBranches(projectPath, machine)
 	]);
 
 	const branches = buildBranchChoices(local, usage?.branches ?? null);
@@ -98,6 +100,6 @@ export async function loadBranchPlan(projectPath: string): Promise<BranchPlan> {
 
 /** Checkout reale del branch scelto, con la stessa notifica del pannello Git. */
 export async function checkoutBranch(projectPath: string, name: string): Promise<void> {
-	await invoke('git_branch_checkout', { projectPath, name });
+	await invoke('git_branch_checkout', { projectPath, name }, { machine: projectStore.machineOfPath(projectPath) });
 	notifyGitStatusRefresh(projectPath);
 }

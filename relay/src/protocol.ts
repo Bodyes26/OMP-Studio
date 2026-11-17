@@ -474,6 +474,12 @@ export interface RemoteLaneRef {
 	laneId: string;
 }
 
+/** Operazione sulle corsie chiesta da un'altra istanza di Studio (`lane_action`). */
+export type RemoteLaneAction =
+	| { op: 'create'; title?: string; origin?: string; surface?: 'gui' | 'terminal' }
+	| { op: 'open_branch'; branch: string; branchKind: 'local' | 'remote'; origin?: string; surface?: 'gui' | 'terminal' }
+	| { op: 'archive'; laneId: string; reason: string; stopProcesses?: boolean };
+
 export type RemoteCommand =
 	| { kind: 'respond_ui'; projectId: string; laneId: string | null; requestId: string; answer: RemoteAnswer }
 	/** `destination` (`task_options`) assente = `auto`. Risultato: `RemoteDispatchOutcome`. */
@@ -538,6 +544,12 @@ export type RemoteCommand =
 	 * altre, e i task partono in locale dove è acceso.
 	 */
 	| { kind: 'set_auto_dispatch'; projectId: string; enabled: boolean }
+	/**
+	 * Corsie di un progetto di un'altra macchina (R-MI-06): le crea, adotta e
+	 * archivia la macchina che possiede il progetto, perché worktree e registro
+	 * delle corsie stanno sul suo disco. `projectId` è l'id locale all'host.
+	 */
+	| { kind: 'lane_action'; projectId: string; action: RemoteLaneAction }
 	/** Replica della coda (F19): la coda di un progetto, come JSON. */
 	| { kind: 'read_queue'; projectPath: string }
 	| { kind: 'write_queue'; projectPath: string; tasks: string }
@@ -586,6 +598,7 @@ export const COMMAND_FEATURE: Record<RemoteCommand['kind'], Feature> = {
 	chat_history: 'chat',
 	list_project_folders: 'projects',
 	set_auto_dispatch: 'projects',
+	lane_action: 'projects',
 	read_queue: 'projects',
 	write_queue: 'projects',
 	open_project: 'projects',
@@ -811,6 +824,8 @@ export interface RemoteCommandData {
 	session_history: RemoteChatPage;
 	mark_session_seen: { success: true };
 	get_artifact: { artifact: RemoteArtifact };
+	/** `lane` è il record della corsia come lo salva l'host; `archive` ne restituisce l'esito. */
+	lane_action: { lane?: Record<string, unknown>; outcome?: Record<string, unknown> };
 }
 
 export interface RemotePromptImage {
