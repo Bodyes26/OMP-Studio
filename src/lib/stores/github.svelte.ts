@@ -1,4 +1,4 @@
-import { invoke } from '#lib/backend/ipc.ts';
+import { invoke, LOCAL_MACHINE, type MachineId } from '#lib/backend/ipc.ts';
 import { projectStore, normalizeProjectPath, joinProjectPath } from './projects.svelte';
 import { settingsStore } from './settings.svelte';
 import { notificationManager } from './notifications.svelte';
@@ -312,6 +312,23 @@ class GithubStore {
 		}
 	}
 
+	/**
+	 * Macchina che possiede il percorso. Lo stato git di una copia remota va
+	 * letto sul suo host: chiesto qui falliva sempre, e senza `repoSlug` e
+	 * `rootCommit` le copie dello stesso repository non si univano (R-MI-12).
+	 * A parità di percorso vince la copia locale.
+	 */
+	private machineOf(projectPath: string): MachineId {
+		const key = normalizeProjectPath(projectPath).toLowerCase();
+		const matches = (path: string | null | undefined) =>
+			Boolean(path) && normalizeProjectPath(path!).toLowerCase() === key;
+		const owners = projectStore.projects.filter(
+			(p) => matches(p.canonicalProjectPath) || matches(p.lane.workspacePath)
+		);
+		if (owners.length === 0 || owners.some((p) => !projectStore.isRemote(p))) return LOCAL_MACHINE;
+		return owners[0].machineId!;
+	}
+
 	async loadUpstreamStatus(projectPath: string, force = false): Promise<GitUpstreamStatus | null> {
 		const key = normalizeProjectPath(projectPath).toLowerCase();
 		if (!key) return null;
@@ -326,7 +343,7 @@ class GithubStore {
 
 		const request = (async () => {
 			try {
-				const status = await invoke<GitUpstreamStatus>('git_upstream_status', { projectPath });
+				const status = await invoke<GitUpstreamStatus>('git_upstream_status', { projectPath }, { machine: this.machineOf(projectPath) });
 				this.upstreamByPath[key] = status;
 				this.upstreamUpdatedAt.set(key, Date.now());
 				return status;
@@ -396,7 +413,7 @@ class GithubStore {
 		if (this.isSyncingByPath[key]) throw new Error(m.git_remote_operation_busy());
 		this.isSyncingByPath[key] = true;
 		try {
-			const result = await invoke<string>('git_sync_repo', { projectPath, action });
+			const result = await invoke<string>('git_sync_repo', { projectPath, action }, { machine: this.machineOf(projectPath) });
 			// Un polling locale partito prima del fetch non deve ripubblicare lo stato vecchio.
 			await this.upstreamPending.get(key);
 			const status = await this.loadUpstreamStatus(projectPath, true);

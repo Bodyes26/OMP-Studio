@@ -38,7 +38,9 @@ class ProjectOrder {
 	 * devono cambiare.
 	 */
 	get groups(): Project[][] {
-		const projects = projectStore.projects.filter((p) => !p.external);
+		// Si parte da `list`, non dall'array grezzo: la barra itera `unified` e
+		// l'ordinamento scelto (alfabetico, priorità, recenti) deve valere anche lì.
+		const projects = this.list;
 		return groupByRepository(projects.map((p) => identityOfCopy(p))).map((indices) =>
 			indices.map((index) => projects[index])
 		);

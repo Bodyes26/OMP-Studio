@@ -12,6 +12,8 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 ## [Unreleased]
 
 ### Fixed
+- Riprendere dallo storico una sessione di un progetto aperto su un'altra macchina torna ad aprirla: il clic non faceva nulla, perché Studio cercava una seconda copia del progetto invece di riprendere la sessione sulla macchina che lo possiede. (R-MI-12, F19)
+- Lo stesso repository su due macchine si unisce davvero in una tessera: lo stato git delle copie remote veniva chiesto alla macchina locale, falliva sempre e le copie non si riconoscevano. La barra unificata rispetta di nuovo l'ordinamento scelto (alfabetico, priorità, recenti), e Studio non prova più a leggere coda, regole e aggiornamenti git delle copie remote sul disco locale. (R-MI-12)
 - La finestra della macchina che possiede il progetto mostra il lavoro che arriva dall'altra: mentre una chat aperta da remoto sta lavorando, la corsia risulta occupata anche lì invece di sembrare ferma, e la coda non avvia un secondo lavoro sopra il primo. (R-MI-18)
 - I progetti di un'altra macchina si aprono anche quando le due macchine usano sistemi diversi: i percorsi venivano adattati al sistema di chi guarda, quindi da Windows la cartella del Mac arrivava come `\Users\...` e `omp` non la trovava, lasciando la chat ferma su «Caricamento sessione in corso» per sempre. Ora ogni percorso segue il sistema della macchina che possiede il progetto. (R-MI-03, R-MI-06)
 - «Impostazioni → Altre istanze» torna a salvare la configurazione: i comandi del collegamento fra istanze non erano dichiarati fra i permessi della finestra, quindi ogni tentativo di accendere il collegamento, generare un codice o abbinare una macchina finiva con «Command link_configure not allowed by ACL». (R-MI-16)

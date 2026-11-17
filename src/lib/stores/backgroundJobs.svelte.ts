@@ -371,7 +371,8 @@ async function scanUntitledSessions(): Promise<void> {
 function getOpenCanonicalPaths(): string[] {
 	const paths: string[] = [];
 	const seen = new Set<string>();
-	for (const p of projectStore.projects) {
+	// Il fetch di una copia remota spetta alla macchina che la possiede.
+	for (const p of projectStore.localProjects) {
 		if (!p.labDraft && p.canonicalProjectPath) {
 			const norm = normalizeProjectPath(p.canonicalProjectPath).toLowerCase();
 			if (!seen.has(norm)) {

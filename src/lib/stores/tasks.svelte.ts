@@ -189,7 +189,9 @@ class TaskStore {
 	async loadRemainingProjects(): Promise<void> {
 		if (!this.isTauri) return;
 		await projectStore.init();
-		const pending = projectStore.projects.filter(
+		// Le copie remote hanno la coda sul loro host: qui il percorso non
+		// esiste e la lettura fallirebbe a ogni giro.
+		const pending = projectStore.localProjects.filter(
 			(project) =>
 				!project.external &&
 				project.canonicalProjectPath &&

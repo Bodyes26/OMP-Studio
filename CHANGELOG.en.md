@@ -12,6 +12,8 @@ released: items are closed into a version via `npm run release -- <version>`.
 ## [Unreleased]
 
 ### Fixed
+- Resuming from history a session of a project open on another machine opens it again: the click did nothing, because Studio looked for a second copy of the project instead of resuming the session on the machine that owns it. (R-MI-12, F19)
+- The same repository on two machines really merges into one tile: the git state of remote copies was asked to the local machine, always failed, and the copies were never recognized. The unified bar again follows the chosen order (alphabetical, priority, recent), and Studio no longer tries to read the queue, rules and git updates of remote copies from the local disk. (R-MI-12)
 - The window of the machine that owns the project shows work coming from the other one: while a chat opened remotely is working, the lane reads as busy there too instead of looking idle, and the queue does not start a second job on top of the first. (R-MI-18)
 - Projects on another machine open even when the two machines use different systems: paths were adapted to the viewing machine's system, so from Windows the Mac's folder arrived as `\Users\...`, `omp` could not find it, and the chat stayed on "Loading session…" forever. Each path now follows the system of the machine that owns the project. (R-MI-03, R-MI-06)
 - "Settings → Other instances" saves its configuration again: the Studio-to-Studio link commands were not declared among the window's permissions, so every attempt to turn the link on, generate a code or pair a machine ended with "Command link_configure not allowed by ACL". (R-MI-16)

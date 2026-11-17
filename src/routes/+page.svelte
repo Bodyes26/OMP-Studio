@@ -1725,7 +1725,9 @@
 	// una volta sola per progetto e dopo che il collegamento è noto.
 	const queuePulled = new Set<string>();
 	$effect(() => {
-		for (const project of projectStore.projects) {
+		// Solo le copie di questa macchina: la coda di una copia remota vive
+		// sul suo host e qui il percorso non esiste.
+		for (const project of projectStore.localProjects) {
 			if (!project.canonicalProjectPath) continue;
 			const copies = projectOrder.copiesOf(project);
 			if (copies.length === 0) continue;
@@ -3941,7 +3943,9 @@
 	$effect(() => {
 		const project = projectStore.activeProject;
 		const path = project?.canonicalProjectPath;
-		if (!path || project?.external) return;
+		// Una copia remota ha le sue regole sulla macchina che la possiede: qui
+		// il percorso non esiste e il comando fallirebbe a ogni attivazione.
+		if (!path || !project || project.external || projectStore.isRemote(project)) return;
 		const key = path.toLowerCase();
 		if (ensuredPreviewPaths.has(key)) return;
 		ensuredPreviewPaths.add(key);
@@ -4603,8 +4607,12 @@
 							sessionCopies={sessionCopiesFor(proj)}
 							onResumeSession={(sessionId, machineId) => {
 								// Una sessione di un'altra macchina si riprende attivando
-								// la sua copia: il processo deve nascere lì (F19).
-								if (machineId && machineId !== LOCAL_MACHINE) switchToCopyMachine(proj, machineId, sessionId);
+								// la sua copia: il processo deve nascere lì (F19). Il
+								// confronto va fatto con la macchina di questa copia, non
+								// con quella locale: da un progetto remoto ogni sessione
+								// arriva con il suo machineId e finiva in uno switch verso
+								// una copia gemella inesistente, senza aprire nulla.
+								if (machineId && machineId !== (proj.machineId ?? LOCAL_MACHINE)) switchToCopyMachine(proj, machineId, sessionId);
 								else void handleResumeSession(proj.id, sessionId);
 							}}
 							onOpenFile={(relPath) => {
