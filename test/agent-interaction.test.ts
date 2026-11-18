@@ -16,8 +16,11 @@ import {
 import {
 	isShortcutsHelpKey,
 	isGlobalShellShortcut,
-	isProjectCycleShortcut,
-	isLaneCycleShortcut,
+	projectCycleDirection,
+	projectJumpDigit,
+	projectJumpIndex,
+	projectJumpLabel,
+	isJumpModifierKey,
 	type KeyboardEventLike
 } from '../src/lib/shortcuts/shortcutMatch.ts';
 import { askConfirmKeyAction, isImeComposing, shouldAutoFocusAskCard, isTypingSurface } from '../src/lib/agent/askFocus.ts';
@@ -218,70 +221,54 @@ describe('Shortcuts: unico owner globale e prevenzione doppi toggle', () => {
 		assert.equal(toggleCount, 1, 'Il conteggio dei toggle non deve cambiare');
 	});
 
-	it('Ctrl/Cmd+Tab cambia progetto, Ctrl/Cmd+Shift+Tab cambia corsia, mai entrambi', () => {
-		const ctrlTab: KeyboardEventLike = { key: 'Tab', code: 'Tab', altKey: false, ctrlKey: true, metaKey: false, shiftKey: false };
-		const ctrlShiftTab: KeyboardEventLike = { key: 'Tab', code: 'Tab', altKey: false, ctrlKey: true, metaKey: false, shiftKey: true };
-		const cmdTab: KeyboardEventLike = { key: 'Tab', code: 'Tab', altKey: false, ctrlKey: false, metaKey: true, shiftKey: false };
-		const cmdShiftTab: KeyboardEventLike = { key: 'Tab', code: 'Tab', altKey: false, ctrlKey: false, metaKey: true, shiftKey: true };
+	it('Ctrl/Cmd+Tab va al progetto successivo, con Maiusc al precedente', () => {
+		const tab = (mods: Partial<KeyboardEventLike>): KeyboardEventLike =>
+			({ key: 'Tab', code: 'Tab', altKey: false, ctrlKey: false, metaKey: false, shiftKey: false, ...mods });
 
-		assert.equal(isProjectCycleShortcut(ctrlTab), true);
-		assert.equal(isProjectCycleShortcut(cmdTab), true);
-		assert.equal(isProjectCycleShortcut(ctrlShiftTab), false);
-		assert.equal(isProjectCycleShortcut(cmdShiftTab), false);
-		assert.equal(isLaneCycleShortcut(ctrlShiftTab), true);
-		assert.equal(isLaneCycleShortcut(cmdShiftTab), true);
-		assert.equal(isLaneCycleShortcut(ctrlTab), false);
-		assert.equal(isLaneCycleShortcut(cmdTab), false);
+		assert.equal(projectCycleDirection(tab({ ctrlKey: true })), 1);
+		assert.equal(projectCycleDirection(tab({ metaKey: true })), 1);
+		assert.equal(projectCycleDirection(tab({ ctrlKey: true, shiftKey: true })), -1);
+		assert.equal(projectCycleDirection(tab({ metaKey: true, shiftKey: true })), -1);
+		assert.equal(projectCycleDirection(tab({})), null, 'Tab ordinario');
+		assert.equal(projectCycleDirection(tab({ shiftKey: true })), null, 'Maiusc+Tab ordinario');
+		assert.equal(projectCycleDirection(tab({ altKey: true })), null, 'Alt+Tab');
+		assert.equal(projectCycleDirection(tab({ ctrlKey: true, altKey: true })), null, 'Ctrl+Alt+Tab');
 	});
 
-	it('non confonde Tab ordinario o Alt+Tab con il cambio progetto', () => {
-		const plainTab: KeyboardEventLike = { key: 'Tab', code: 'Tab', altKey: false, ctrlKey: false, metaKey: false, shiftKey: false };
-		const plainShiftTab: KeyboardEventLike = { key: 'Tab', code: 'Tab', altKey: false, ctrlKey: false, metaKey: false, shiftKey: true };
-		const altTab: KeyboardEventLike = { key: 'Tab', code: 'Tab', altKey: true, ctrlKey: false, metaKey: false, shiftKey: false };
-		const ctrlAltTab: KeyboardEventLike = { key: 'Tab', code: 'Tab', altKey: true, ctrlKey: true, metaKey: false, shiftKey: false };
+	it('Ctrl+cifra salta al progetto su Windows/Linux, Cmd+cifra su Mac; AltGr e Alt no', () => {
+		const key = (code: string, mods: Partial<KeyboardEventLike>): KeyboardEventLike =>
+			({ key: code.replace('Digit', ''), code, altKey: false, ctrlKey: false, metaKey: false, shiftKey: false, ...mods });
 
-		assert.equal(isProjectCycleShortcut(plainTab), false);
-		assert.equal(isProjectCycleShortcut(altTab), false);
-		assert.equal(isProjectCycleShortcut(ctrlAltTab), false);
-		assert.equal(isLaneCycleShortcut(plainShiftTab), false);
-		assert.equal(isLaneCycleShortcut(altTab), false);
+		assert.equal(projectJumpDigit(key('Digit3', { ctrlKey: true }), false), 3);
+		assert.equal(projectJumpDigit(key('Digit3', { metaKey: true }), true), 3);
+		assert.equal(projectJumpDigit(key('Digit3', { ctrlKey: true }), true), null, 'Ctrl+cifra su Mac cambia Scrivania');
+		assert.equal(projectJumpDigit(key('Digit3', { ctrlKey: true, altKey: true }), false), null, 'AltGr');
+		assert.equal(projectJumpDigit(key('Digit3', { altKey: true }), false), null, 'Alt+cifra resta al composer');
+		assert.equal(projectJumpDigit(key('Digit0', { ctrlKey: true }), false), null);
+		// Tastiera francese: senza Maiusc la riga dei numeri scrive simboli.
+		assert.equal(projectJumpDigit({ key: '"', code: 'Digit3', altKey: false, ctrlKey: true, metaKey: false, shiftKey: false }, false), 3);
 	});
 
-	it('terminale cede Ctrl+Tab e Ctrl+Shift+Tab al window handler', () => {
-		const projects = ['proj-a', 'proj-b', 'proj-c'];
-		let activeId = 'proj-a';
-		let lane = 'main';
+	it('i numeri compaiono solo tenendo il modificatore da solo', () => {
+		const mod = (key: string, mods: Partial<KeyboardEventLike>): KeyboardEventLike =>
+			({ key, altKey: false, ctrlKey: false, metaKey: false, shiftKey: false, ...mods });
+		assert.equal(isJumpModifierKey(mod('Control', { ctrlKey: true }), false), true);
+		assert.equal(isJumpModifierKey(mod('Meta', { metaKey: true }), true), true);
+		assert.equal(isJumpModifierKey(mod('Control', { ctrlKey: true, altKey: true }), false), false, 'AltGr');
+		assert.equal(isJumpModifierKey(mod('Control', { ctrlKey: true }), true), false, 'su Mac conta Cmd');
+	});
 
-		function terminalCustomKeyHandler(event: KeyboardEventLike): boolean {
-			if (isShortcutsHelpKey(event)) return false;
-			if (isGlobalShellShortcut(event)) return false;
-			if (isProjectCycleShortcut(event) || isLaneCycleShortcut(event)) return false;
-			return true;
-		}
+	it('1–8 per posizione e 9 sull ultima tessera, nel salto e nei numeri', () => {
+		assert.equal(projectJumpIndex(1, 5), 0);
+		assert.equal(projectJumpIndex(5, 5), 4);
+		assert.equal(projectJumpIndex(6, 5), null, 'oltre le tessere aperte');
+		assert.equal(projectJumpIndex(9, 5), 4);
+		assert.equal(projectJumpIndex(9, 12), 11);
+		assert.equal(projectJumpIndex(1, 0), null);
 
-		function windowKeyHandler(event: KeyboardEventLike): boolean {
-			if (isProjectCycleShortcut(event)) {
-				activeId = projects[(projects.indexOf(activeId) + 1) % projects.length];
-				return true;
-			}
-			if (isLaneCycleShortcut(event)) {
-				lane = lane === 'main' ? 'feat' : 'main';
-				return true;
-			}
-			return false;
-		}
-
-		const ctrlTab: KeyboardEventLike = { key: 'Tab', code: 'Tab', altKey: false, ctrlKey: true, metaKey: false, shiftKey: false };
-		const ctrlShiftTab: KeyboardEventLike = { key: 'Tab', code: 'Tab', altKey: false, ctrlKey: true, metaKey: false, shiftKey: true };
-
-		assert.equal(terminalCustomKeyHandler(ctrlTab), false);
-		assert.equal(terminalCustomKeyHandler(ctrlShiftTab), false);
-		windowKeyHandler(ctrlTab);
-		assert.equal(activeId, 'proj-b');
-		assert.equal(lane, 'main', 'Ctrl+Tab non tocca la corsia');
-		windowKeyHandler(ctrlShiftTab);
-		assert.equal(lane, 'feat');
-		assert.equal(activeId, 'proj-b', 'Ctrl+Shift+Tab non tocca il progetto');
+		assert.deepEqual([0, 1, 2, 3, 4].map((i) => projectJumpLabel(i, 5)), [1, 2, 3, 4, 5]);
+		assert.deepEqual([7, 8, 10, 11].map((i) => projectJumpLabel(i, 12)), [8, null, null, 9]);
+		assert.equal(projectJumpLabel(8, 9), 9);
 	});
 
 	it('con ordinamento Attività recente (mru), Ctrl+Tab scorre tutti i progetti senza oscillare tra i primi due', () => {

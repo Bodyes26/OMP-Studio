@@ -102,7 +102,9 @@
 				{ keys: ['Ctrl+Alt+D'], description: m.shortcuts_item_doctor() },
 				{ keys: ['Ctrl+Alt+T'], description: m.ui_shortcutshelpmodal_apre_la_vista_aggregata_dei_task_in_94ef() },
 				{ keys: ['Ctrl+Tab'], description: m.shortcuts_item_next_project() },
-				{ keys: ['Ctrl+Shift+Tab'], description: m.shortcuts_item_next_lane() },
+				{ keys: ['Ctrl+Shift+Tab'], description: m.shortcuts_item_prev_project() },
+				{ keys: [IS_MAC ? '⌘1…⌘9' : 'Ctrl+1…9'], description: m.shortcuts_item_jump_project() },
+				{ keys: ['Ctrl+Alt+↓', 'Ctrl+Alt+↑'], description: m.shortcuts_item_switch_machine() },
 				{ keys: ['Ctrl+Alt+→', 'Ctrl+Alt+←'], description: m.ui_shortcutshelpmodal_passa_al_progetto_aperto_successivo_precedente_7793() },
 				{ keys: ['Ctrl+Alt+Shift+→/←'], description: m.ui_shortcutshelpmodal_sposta_la_posizione_della_tessera_del_progetto_5853() }
 			]

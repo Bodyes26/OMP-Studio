@@ -47,6 +47,8 @@ Citazioni dell'utente dalla discussione del 2026-11-12:
 
 - **F23 — Avviso, selettore, nascondi e chiudi (2026-11-17):** fra tre alternative per ciascun punto (`proto/multi-istanza-avviso-selettore.html`): «Per l'avviso, farei l'opzione B, la striscia sopra il composer. Per il selettore progetti, però, farei l'opzione C. Per nascondere il progetto, invece farei l'opzione A.»
 
+- **F24 — Tessera unica anche per tastiera e stato (2026-11-18):** «su un progetto multi-istanza il ctrl tab non fa passare al prossimo progetto ma scorre da una macchina all'altra [...] il ctrl+tab dovrebbe contarli una sola volta. Possiamo valutare piuttosto una scorciatoia rapida per passare da una macchina all'altra»; «c'era il lavoro da rispondere su questo progetto sul macbook ma aprendo la tab da windows mi mostrava la sessione vuota sul pc windows invece di prendermi questa del mac». Scelte nel modulo della stessa sessione: `Ctrl+Alt+↑/↓` per le macchine, saltando quelle spente; la tessera apre prima la copia che aspetta una risposta; lo stato della tessera unisce tutte le copie (R-MI-24, R-MI-25, TPR-040).
+
 Le sei strade valutate sono illustrate in `proto/multi-istanza-strade.html` (locale, fuori da git): è materiale di discussione, non un'anteprima di interfaccia approvata. F16 autorizza l'implementazione diretta dell'interfaccia secondo le convenzioni di Studio, senza un'ulteriore approvazione su anteprima.
 
 ## Stato dei requisiti
@@ -76,6 +78,8 @@ Le sei strade valutate sono illustrate in `proto/multi-istanza-strade.html` (loc
 | R-MI-21 | 1 | Attivo, approvato il 2026-11-17 (F21, F23) | Fatto il 2026-11-17: `ProjectPicker.svelte` in tre gruppi con filtri per macchina; unione per repository in `pickerEntries.ts` (le cartelle remote portano `repo`) | 2026-11-17: 5 test in `test/picker-entries.test.ts`; elenco con due macchine reali da provare |
 | R-MI-22 | 2 | Attivo; interfaccia approvata il 2026-11-17 (F23); regola approvata il 2026-11-17 (Q5) | Fatto il 2026-11-17: regola in `projectCopies.ts`, `git_upstream_status` porta `headCommit` e `changedFiles` (da `branch.oid`, nessun git in più), striscia `CopyDivergenceStrip.svelte` sopra il composer, dettaglio nella vista Macchine | 2026-11-17: 9 test in `test/project-copies.test.ts`, test Rust del parser; scenario con due copie reali divergenti da provare |
 | R-MI-23 | 1–2 | Attivo, approvato il 2026-11-17 (F22) | Fatto il 2026-11-17: anteprima con la macchina in testa e «Anche su», riga e vista «Macchine» in `ProjectPopover.svelte`, stato condiviso in `projectMachines.svelte.ts`; l'auto-avvio delle copie remote ora arriva dal riepilogo dell'host | 2026-11-17: tipi, smoke e build verdi; prova con due macchine reali da fare |
+| R-MI-24 | 2 | Attivo, approvato il 2026-11-18 (F24) | 2026-11-18: `tileCopy` in `projectCopies.ts`, stato unito in `projectActivity.ts`, `projectOrder.unified` | Scenario con due macchine reali da provare |
+| R-MI-25 | 2 | Attivo, approvato il 2026-11-18 (F24) | 2026-11-18: `Ctrl+Alt+↑/↓` in `+page.svelte` sulle copie di `provenance()` | Scenario con due macchine reali da provare |
 
 Nei testi che seguono **W** è la macchina da cui si guarda (nello scenario il PC Windows) e **M** quella che possiede il progetto (il Mac).
 
@@ -289,6 +293,7 @@ La tessera di un progetto non porta più un riquadro con il nome della macchina:
 Sul tema chiaro l'ambra dei segni grafici è più chiara di `--warn` (`oklch(0.64 0.17 68)` nell'anteprima, almeno 3:1 sul fondo), perché `--warn` chiaro (luminanza 0.42) è tarato per il testo e accanto ai grigi della barra non si riconosce. Il testo in ambra resta `--warn`.
 
 **Accettazione:** con un progetto locale, uno remoto, uno su due macchine, uno con copie divergenti e uno su una macchina spenta, la barra mostra i cinque casi distinti senza testo troncato, sia sul tema scuro sia sul chiaro; il glifo non cambia quando la tessera diventa attiva; un lettore di schermo legge la macchina.
+**Precisazione del 2026-11-18 (F24, R-MI-24):** quando la tessera non è in primo piano non rappresenta più sempre l'ultima copia usata, ma prima la copia che aspetta una risposta. Il glifo della copia in uso resta la regola F18.
 **Errore da evitare:** riquadri con nomi troncati; un'icona che si legga come «questo computer» o come «copia»; ambra marrone sul tema chiaro.
 
 ## R-MI-20 — Nascondere o chiudere un progetto remoto o su più macchine
@@ -339,6 +344,23 @@ Le macchine spente sono visibili ma non si scelgono. Niente pulsanti generici co
 
 **Accettazione:** su un progetto presente su tre macchine con una spenta, l'anteprima mostra prima la macchina in uso e poi le altre due, quella spenta riconoscibile; nella sottovista cambiare «Nuove chat e task partono su» cambia la macchina dell'indicatore sotto il composer e il pieno del glifo in barra; la macchina spenta non è selezionabile in nessuna delle due scelte.
 
+## R-MI-24 — Una tessera, lo stato di tutte le copie
+
+**Fonti:** F24. Precisa R-MI-12 e R-MI-19.
+
+Lo stato della tessera (al lavoro, domanda in attesa, finito) unisce tutte le copie: se l'agente aspetta sul Mac, la tessera lo mostra anche quando rappresenta la copia di Windows. Quando il progetto non è in primo piano, clic, `Ctrl+Tab` e `Ctrl+N` aprono la copia che aspetta una risposta (domanda, conflitto della corsia); se sono più d'una, l'ultima usata; se nessuna aspetta, l'ultima usata come da F18. La macchina proposta per le nuove chat resta l'ultima usata (F18).
+
+**Accettazione:** progetto su Windows e Mac, ultima usata Windows, domanda in attesa sul Mac: la tessera da Windows mostra l'attesa e un clic apre la sessione del Mac.
+**Errore da evitare:** la tessera ferma mentre un'altra copia aspetta; aprire una sessione vuota mentre il lavoro è altrove.
+
+## R-MI-25 — Cambiare macchina da tastiera
+
+**Fonti:** F24.
+
+Con in primo piano un progetto presente su più macchine, `Ctrl+Alt+↓` passa alla copia della macchina successiva e `Ctrl+Alt+↑` alla precedente, nell'ordine del pannello «Macchine» (questa macchina, poi le altre per nome). Le macchine spente si saltano. Su un progetto con una sola copia raggiungibile la combinazione non fa nulla.
+
+**Accettazione:** progetto su tre macchine con una spenta: `Ctrl+Alt+↓` alterna le due in linea.
+
 ## Strade scartate
 
 Confermate dall'utente il 2026-11-12 (F5):
@@ -356,6 +378,7 @@ Confermate dall'utente il 2026-11-12 (F5):
 - **Q3 — Ambiti dei permessi** di R-MI-09. Risolta il 2026-11-16 (F16): Lettura (sempre), Agenti, File e Git, Terminale; tutti accesi all'abbinamento, modificabili e revocabili per macchina.
 - **Q4 — Interfaccia** di abbinamento, elenco macchine e badge. Risolta il 2026-11-16 (F16): implementazione diretta con i componenti di Studio, senza anteprima.
 - **Q5 — Quando due copie divergono** (R-MI-22). Risolta il 2026-11-17 nel modulo della sessione: branch diversi, commit presenti in una copia e non nell'altra, modifiche non committate su entrambe; esclusa la sola copia con modifiche non committate.
+- **Q6 — Una sola copia per ramo** (aperta, 2026-11-18): «se c'è un progetto multi-istanza c'è solo una copia, non ci deve essere una copia diversa per macchina, questo eviterebbe anche problemi di versioni divergenti. Ogni ramo deve essere una sola copia, ci sia una macchina o 10». Va contro R-MI-12 come realizzato (copie unite per identità, R-MI-22 per le divergenze) e tocca la strada scartata «Sincronizzazione continua dei file». Da decidere: ogni ramo vive su una sola macchina e le altre lo guidano da remoto, oppure una sincronizzazione via git. R-MI-24/25 restano validi finché esistono copie.
 
 ---
 

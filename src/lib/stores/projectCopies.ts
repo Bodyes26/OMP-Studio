@@ -21,6 +21,35 @@ export function inUseCopy<T extends { lastOpened: number }>(group: readonly T[])
 	return best;
 }
 
+/**
+ * La copia che la tessera apre quando il progetto non è in primo piano
+ * (R-MI-24): prima quella che aspetta una risposta, perché il lavoro da
+ * riprendere è lì; fra più copie in attesa, e senza attese, l'ultima usata.
+ */
+export function tileCopy<T extends { lastOpened: number }>(
+	group: readonly T[],
+	waiting: (copy: T) => boolean
+): T | undefined {
+	return inUseCopy(group.filter(waiting)) ?? inUseCopy(group);
+}
+
+/**
+ * La copia successiva (o precedente) raggiungibile, in giro (R-MI-25): le
+ * macchine spente si saltano. `undefined` se non c'è un'altra copia in linea.
+ */
+export function nextOnlineCopy<T extends { online: boolean }>(
+	copies: readonly T[],
+	current: number,
+	direction: 1 | -1
+): T | undefined {
+	const count = copies.length;
+	for (let step = 1; step < count; step++) {
+		const candidate = copies[(((current + direction * step) % count) + count) % count];
+		if (candidate.online) return candidate;
+	}
+	return undefined;
+}
+
 /** Stato git di una copia, quanto basta per decidere se diverge. */
 export interface CopyGitState {
 	/** Branch corrente; `HEAD` se staccato. */

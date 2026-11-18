@@ -26,8 +26,10 @@ Le scorciatoie globali catturate dall'app vivono dietro il modificatore **`Ctrl+
 | `Tab`, poi `←` / `→` o `↑` / `↓` | Divisore dei pannelli a fuoco | Regola di 10 px lungo l'asse del divisore; `Maiusc` aumenta il passo a 40 px |
 | `Home` / `End` / `Invio` | Divisore dei pannelli a fuoco | Dimensione minima / massima / ripristino predefinito (come doppio clic) |
 | `Ctrl+Alt+C` / `Ctrl+Alt+R` | Globale | Apre e chiude la finestra Companion |
-| `Ctrl+Tab` | Globale | Passa al progetto aperto successivo, nell'ordine mostrato in barra. Vale anche col cursore nel composer |
-| `Ctrl+Shift+Tab` | Globale | Passa alla corsia successiva del progetto attivo (Principale, poi le secondarie, poi di nuovo Principale). Vale anche col cursore nel composer |
+| `Ctrl+Tab` | Globale | Passa al progetto aperto successivo, nell'ordine mostrato in barra. Un progetto su più macchine conta una volta sola e si apre sulla copia che aspetta una risposta, altrimenti sull'ultima usata. Vale anche col cursore nel composer |
+| `Ctrl+Shift+Tab` | Globale | Passa al progetto aperto precedente. Vale anche col cursore nel composer |
+| `Ctrl+1` … `Ctrl+8` / `Ctrl+9` | Globale | Apre il progetto in quella posizione della barra; `Ctrl+9` l'ultimo. Tenendo premuto `Ctrl` da solo per un istante compaiono i numeri sulle tessere. Su macOS `⌘1` … `⌘9` |
+| `Ctrl+Alt+Freccia Giù` / `Ctrl+Alt+Freccia Su` | Globale | Sul progetto aperto su più macchine, passa alla copia della macchina successiva o precedente; le macchine spente si saltano |
 | `Ctrl+Alt+Freccia Destra` | Globale | Se il progetto attivo ha corsie secondarie, passa alla corsia successiva; altrimenti al progetto aperto successivo |
 | `Ctrl+Alt+Freccia Sinistra` | Globale | Se il progetto attivo ha corsie secondarie, passa alla corsia precedente; altrimenti al progetto aperto precedente |
 | `Ctrl+Alt+Maiusc+Freccia` | Globale | Sposta la tessera del progetto attivo a destra o a sinistra (ordinamento manuale) |

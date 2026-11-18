@@ -56,7 +56,9 @@
 	import { provenance, copyDivergence, type Provenance } from '#lib/stores/projectMachines.svelte.ts';
 	import { laneStore, type LaneRecord } from '#lib/stores/lanes.svelte.ts';
 	import { MAIN_LANE_ID, type ProjectId, type AgentLane } from '#lib/types/lanes.ts';
-	import { sessionRegistry } from '#lib/agent/sessionRegistry.ts';
+	import { groupAgentState } from '#lib/stores/projectActivity.ts';
+	import { projectJumpHints } from '#lib/shortcuts/projectJump.svelte.ts';
+	import { projectJumpLabel } from '#lib/shortcuts/shortcutMatch.ts';
 	import { contextMenu, type ContextMenuEntry } from '#lib/contextMenu.svelte.ts';
 	import { labApi } from '#lib/lab/api.ts';
 	import { openLabEntry, reportLabDeleteFailure } from '#lib/lanes/laneActions.ts';
@@ -472,46 +474,6 @@
 
 	$effect(() => () => clearTimers());
 
-	/** Il cambio di stato di un agente e' un evento, non soltanto un colore
-	 *  diverso: un lampo nella tinta del progetto lo rende percepibile con la
-	 *  coda dell'occhio, che e' l'unico modo in cui questa barra viene
-	 *  guardata mentre si lavora. */
-	function getAggregatedState(p: Project): Project['lane']['agentState'] {
-		const projectLanes = laneStore.lanesFor(p.id as ProjectId).filter((l) => l.status !== 'archived' && l.status !== 'closed');
-		const sessions = sessionRegistry.getSessionsForProject(p.id);
-		const candidateStates: string[] = [];
-
-		if (p.lane.agentState && p.lane.agentState !== 'unknown') {
-			candidateStates.push(p.lane.agentState);
-		}
-
-		for (const l of projectLanes) {
-			if (l.status === 'conflict') {
-				candidateStates.push('attention');
-			}
-			if (l.agentState && l.agentState !== 'unknown') {
-				candidateStates.push(l.agentState);
-			}
-		}
-
-		for (const s of sessions) {
-			if (s.agentState && s.agentState !== 'unknown') {
-				candidateStates.push(s.agentState);
-			}
-			if (s.pendingUi) {
-				candidateStates.push('attention');
-			}
-		}
-
-		if (candidateStates.includes('attention')) return 'attention';
-		if (candidateStates.includes('working')) return 'working';
-		if (candidateStates.includes('finished')) return 'finished';
-		if (candidateStates.includes('idle')) return 'idle';
-		return p.lane.agentState ?? 'unknown';
-	}
-
-
-
 	function projectHue(project: Project): number {
 		if (!project.canonicalProjectPath || project.colorMode === 'custom') return project.hue;
 		return automaticProjectHue(THEMES[themeStore.current], project.canonicalProjectPath);
@@ -867,7 +829,7 @@
 			     agganciare `aria-controls`, e inventarne uno che non punta a
 			     niente sarebbe peggio dell'assenza. -->
 			<div class="tabs" role="tablist" aria-orientation="horizontal" aria-label={m.topbar_open_projects()}>
-		{#each projectOrder.unified as p (p.id)}
+		{#each projectOrder.unified as p, tileIndex (p.id)}
 			{@const queued = p.canonicalProjectPath ? taskStore.queuedCountFor(p.canonicalProjectPath) : 0}
 			{@const ready = canRunTask?.(p.id) ?? false}
 			{@const isActive = projectStore.activeId === p.id}
@@ -880,8 +842,9 @@
 				? (upstream.behind > 0 ? m.topbar_upstream_behind_aria({ count: upstream.behind }) : '') +
 				  (upstream.ahead > 0 ? m.topbar_upstream_ahead_aria({ count: upstream.ahead }) : '')
 				: ''}
-			{@const aggState = getAggregatedState(p)}
 			{@const otherCopies = projectOrder.copiesOf(p)}
+			{@const aggState = groupAgentState([p, ...otherCopies])}
+			{@const jumpLabel = projectJumpHints.visible ? projectJumpLabel(tileIndex, projectOrder.unified.length) : null}
 			{@const prov = provenance(p)}
 			{@const diverged = prov.kind === 'copies' && copyDivergence(p) !== null}
 			<!-- Con una tessera sola, le corsie da contare sono quelle di tutte le
@@ -913,6 +876,11 @@
 						class:has-menu={isActive}
 						oncontextmenu={(event) => handleTabContextMenu(p.id, event)}
 					>
+				{#if jumpLabel !== null}
+					<!-- Ctrl+N (Cmd+N su Mac) apre questa tessera (TPR-042): l'etichetta
+					     accessibile non cambia, il numero e' solo un aiuto visivo. -->
+					<span class="tab-jump" aria-hidden="true">{jumpLabel}</span>
+				{/if}
 				<!-- `aria-selected` dice quale progetto e' in primo piano, percio'
 				     l'`aria-current` di prima sarebbe un doppione letto due volte.
 				     Anche `aria-expanded` e' sparito: su una scheda descrive il
@@ -1499,6 +1467,39 @@
 	   bordo trasparente e il suo `overflow: hidden`, che lo taglierebbe. */
 	.tab-container.active-tab { border-color: var(--line-strong); }
 	.tab-container.panel-open { border-color: var(--ink-faint); }
+
+	/* Numero del salto Ctrl+N (TPR-042): copre il punto del progetto finche'
+	   si tiene il modificatore. Pieno in `--ink` per staccarsi da tessere
+	   attive, tenui e in attesa allo stesso modo. */
+	.tab-jump {
+		position: absolute;
+		left: 2px;
+		top: 50%;
+		z-index: 2;
+		min-width: 16px;
+		height: 16px;
+		padding: 0 3px;
+		display: grid;
+		place-items: center;
+		border-radius: var(--radius-sm);
+		font-family: var(--font-mono);
+		font-size: var(--text-caption);
+		font-weight: 600;
+		line-height: 1;
+		color: var(--bg-raised);
+		background-color: var(--ink);
+		pointer-events: none;
+		transform: translateY(-50%);
+		animation: tab-jump-in var(--dur-fast) var(--ease-out);
+	}
+
+	@keyframes tab-jump-in {
+		from { opacity: 0; }
+	}
+	:global(:root[data-animations="false"]) .tab-jump {
+		animation: none;
+	}
+
 	.tab-container:not(.has-menu) .tab { border-radius: var(--radius-md); }
 
 	.tab-menu {
@@ -2018,6 +2019,9 @@
 			animation: none;
 			transform: none;
 			opacity: 1;
+		}
+		.tab-jump {
+			animation: none;
 		}
 	}
 

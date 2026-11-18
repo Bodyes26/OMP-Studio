@@ -26,8 +26,10 @@ Global shortcuts captured by the application live behind the **`Ctrl+Alt`** modi
 | `Tab`, then `←` / `→` or `↑` / `↓` | Focused panel separator | Resize by 10 px along the separator's axis; `Shift` increases the step to 40 px |
 | `Home` / `End` / `Enter` | Focused panel separator | Minimum / maximum / default size (same as double-click) |
 | `Ctrl+Alt+C` / `Ctrl+Alt+R` | Global | Open and close the Companion window |
-| `Ctrl+Tab` | Global | Switch to next open project, in project bar order. Works with the cursor in the composer |
-| `Ctrl+Shift+Tab` | Global | Switch to the next lane of the active project (Main, then the secondary lanes, then Main again). Works with the cursor in the composer |
+| `Ctrl+Tab` | Global | Switch to next open project, in project bar order. A project on several machines counts once and opens on the copy waiting for an answer, otherwise on the last used one. Works with the cursor in the composer |
+| `Ctrl+Shift+Tab` | Global | Switch to the previous open project. Works with the cursor in the composer |
+| `Ctrl+1` … `Ctrl+8` / `Ctrl+9` | Global | Open the project at that position in the bar; `Ctrl+9` opens the last one. Holding `Ctrl` alone for a moment shows the numbers on the tiles. On macOS `⌘1` … `⌘9` |
+| `Ctrl+Alt+Arrow Down` / `Ctrl+Alt+Arrow Up` | Global | On a project open on several machines, switch to the copy on the next or previous machine; offline machines are skipped |
 | `Ctrl+Alt+Arrow Right` | Global | If the active project has secondary lanes, switch to the next lane; otherwise switch to the next open project |
 | `Ctrl+Alt+Arrow Left` | Global | If the active project has secondary lanes, switch to the previous lane; otherwise switch to the previous open project |
 | `Ctrl+Alt+Shift+Arrow` | Global | Move active project tile left or right (manual reordering) |

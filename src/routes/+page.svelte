@@ -56,7 +56,11 @@
 	import type SetupExperienceSurface from '#lib/components/setup/SetupExperience.svelte';
 	import type ShortcutsHelpModalSurface from '#lib/agent/components/ShortcutsHelpModal.svelte';
 	import { shortcutsModalStore } from '#lib/stores/shortcutsModal.svelte.ts';
-	import { isShortcutsHelpKey, isProjectCycleShortcut, isLaneCycleShortcut } from '#lib/shortcuts/shortcutMatch.ts';
+	import { isShortcutsHelpKey, projectCycleDirection, projectJumpDigit, projectJumpIndex } from '#lib/shortcuts/shortcutMatch.ts';
+	import { projectJumpHints } from '#lib/shortcuts/projectJump.svelte.ts';
+	import { provenance } from '#lib/stores/projectMachines.svelte.ts';
+	import { nextOnlineCopy } from '#lib/stores/projectCopies.ts';
+	import { IS_MAC } from '#lib/utils/platform.ts';
 	import TaskEditor from '#lib/components/TaskEditor.svelte';
 	import EmptyState from '#lib/components/EmptyState.svelte';
 	import { studioUpdaterStore, formatVersion } from '#lib/stores/studioUpdater.svelte.ts';
@@ -4178,7 +4182,9 @@
 	});
 
 	function cycleProject(direction: 1 | -1) {
-		const normalProjects = projectOrder.list;
+		// Una tessera per progetto (TPR-040): le copie su altre macchine non
+		// sono fermate in piu', ci si muove fra loro con Ctrl+Alt+Su/Giu.
+		const normalProjects = projectOrder.unified;
 		const externalProjects = projectStore.projects.filter((p) => p.external);
 		const hasExternal = externalProjects.length > 0;
 		const totalSlots = normalProjects.length + (hasExternal ? 1 : 0);
@@ -4201,6 +4207,34 @@
 		}
 	}
 
+	/** Ctrl+1…9 (Cmd su Mac): la tessera in quella posizione, 9 l'ultima (TPR-042). */
+	function jumpToProject(digit: number) {
+		const tiles = projectOrder.unified;
+		const index = projectJumpIndex(digit, tiles.length);
+		if (index !== null) projectStore.setActive(tiles[index].id);
+	}
+
+	/** Ctrl+Alt+Su/Giu: la copia del progetto sulla macchina in linea precedente/successiva (R-MI-25). */
+	function cycleMachine(direction: 1 | -1) {
+		const active = projectStore.activeProject;
+		if (!active || active.external) return;
+		const copies = provenance(active).copies;
+		const target = nextOnlineCopy(copies, copies.findIndex((copy) => copy.project.id === active.id), direction);
+		if (target) projectStore.setActive(target.project.id);
+	}
+
+	function shellModalOpen(): boolean {
+		return settingsStore.open ||
+			shortcutsModalStore.isOpen ||
+			closeConfirmModalState.open ||
+			setupFlow.open ||
+			usageOpen ||
+			pickerOpen ||
+			queueOpen ||
+			showRestartModal ||
+			showUpdatePromptModal;
+	}
+
 	async function handleOpenFiles() {
 		try {
 			const selected = await openDialog({ multiple: true, directory: false });
@@ -4214,6 +4248,8 @@
 	}
 
 	function handleKeydown(e: KeyboardEvent) {
+		projectJumpHints.keydown(e);
+
 		// Esc chiude il dialogo piu' esterno, dal piu' recente al piu' vecchio.
 		if (e.key === 'Escape') {
 
@@ -4232,29 +4268,24 @@
 			return;
 		}
 
-		// Ctrl+Tab: progetto aperto successivo. Ctrl+Shift+Tab: corsia successiva
-		// del progetto attivo. Il tasto non scrive nulla, quindi vale anche col
-		// cursore nel composer o in un campo: niente guard sui campi di testo.
-		const projectCycle = isProjectCycleShortcut(e);
-		if (projectCycle || isLaneCycleShortcut(e)) {
-			const hasOpenModal =
-				settingsStore.open ||
-				shortcutsModalStore.isOpen ||
-				closeConfirmModalState.open ||
-				setupFlow.open ||
-				usageOpen ||
-				pickerOpen ||
-				queueOpen ||
-				showRestartModal ||
-				showUpdatePromptModal;
-
-			if (hasOpenModal) return;
+		// Ctrl+Tab: progetto successivo. Ctrl+Shift+Tab: precedente (TPR-041).
+		// Il tasto non scrive nulla, quindi vale anche col cursore nel composer o
+		// in un campo: niente guard sui campi di testo.
+		const cycle = projectCycleDirection(e);
+		if (cycle !== null) {
+			if (shellModalOpen()) return;
 			e.preventDefault();
-			if (projectCycle) {
-				cycleProject(1);
-			} else if (projectStore.activeProject && !projectStore.activeProject.external) {
-				void laneOrchestrator.cycleLane(projectStore.activeProject.id as ProjectId, 'next');
-			}
+			cycleProject(cycle);
+			return;
+		}
+
+		// Ctrl+1…9 (Cmd su Mac): salto alla tessera. Ctrl+cifra non scrive nulla
+		// nei campi, quindi vale anche dal composer.
+		const digit = projectJumpDigit(e, IS_MAC);
+		if (digit !== null) {
+			if (shellModalOpen()) return;
+			e.preventDefault();
+			jumpToProject(digit);
 			return;
 		}
 
@@ -4262,17 +4293,7 @@
 		// alla TUI di omp, che lo usa per espandere l'output degli strumenti.
 		const inTerminal = e.target instanceof Element && e.target.closest('.xterm') !== null;
 		if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'o' && !inTerminal) {
-			const hasOpenModal =
-				settingsStore.open ||
-				shortcutsModalStore.isOpen ||
-				closeConfirmModalState.open ||
-				setupFlow.open ||
-				usageOpen ||
-				pickerOpen ||
-				queueOpen ||
-				showRestartModal ||
-				showUpdatePromptModal;
-			if (hasOpenModal) return;
+			if (shellModalOpen()) return;
 			e.preventDefault();
 			void handleOpenFiles();
 			return;
@@ -4359,11 +4380,19 @@
 				return;
 			}
 			cycleProject(e.key === 'ArrowRight' ? 1 : -1);
+		} else if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !e.shiftKey) {
+			e.preventDefault();
+			cycleMachine(e.key === 'ArrowDown' ? 1 : -1);
 		}
 	}
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
+<svelte:window
+	onkeydown={handleKeydown}
+	onkeyup={() => projectJumpHints.reset()}
+	onblur={() => projectJumpHints.reset()}
+	onpointerdown={() => projectJumpHints.reset()}
+/>
 
 <div class="app-layout">
 	<TopBar

@@ -12,7 +12,13 @@ import { isAllowedExternalUrl } from '#lib/utils/externalUrl.ts';
 import { openExternalUrl } from '#lib/utils/openExternal.ts';
 import { canvasColors, onThemeChange } from '#lib/theme.ts';
 import { settingsStore, withFontFamily } from '#lib/stores/settings.svelte.ts';
-import { isShortcutsHelpKey, isGlobalShellShortcut, isProjectCycleShortcut, isLaneCycleShortcut } from '#lib/shortcuts/shortcutMatch.ts';
+import {
+	isShortcutsHelpKey,
+	isGlobalShellShortcut,
+	projectCycleDirection,
+	projectJumpDigit,
+	isJumpModifierKey
+} from '#lib/shortcuts/shortcutMatch.ts';
 import {
 	describeConfigurationMismatch,
 	type TerminalTaskConfiguration
@@ -213,8 +219,14 @@ export class TerminalSession {
 				if (isGlobalShellShortcut(event)) {
 					return false;
 				}
-				// Ctrl+Tab (progetto) e Ctrl+Shift+Tab (corsia): gestite da +page.svelte
-				if (isProjectCycleShortcut(event) || isLaneCycleShortcut(event)) {
+				// Ctrl+Tab / Ctrl+Shift+Tab (progetto successivo/precedente) e
+				// Ctrl+1…9 (salto al progetto): gestite da +page.svelte. Anche Ctrl
+				// da solo sale alla finestra: tenuto, mostra i numeri sulle tessere.
+				if (
+					projectCycleDirection(event) !== null ||
+					projectJumpDigit(event, IS_MAC) !== null ||
+					isJumpModifierKey(event, IS_MAC)
+				) {
 					return false;
 				}
 			}

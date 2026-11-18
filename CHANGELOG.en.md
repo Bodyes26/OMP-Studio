@@ -12,6 +12,8 @@ released: items are closed into a version via `npm run release -- <version>`.
 ## [Unreleased]
 
 ### Fixed
+- A project present on several machines counts once for `Ctrl+Tab`, as in the bar: the cycle used to go through every copy of the same project before moving on. (TPR-040)
+- The tile of a project on several machines shows when the agent is waiting for an answer on any copy, and click, `Ctrl+Tab` and `Ctrl+1…9` open the copy that is waiting instead of an empty session on the last machine used. (R-MI-24)
 - On a project from another machine, the path in the panel no longer opens the folder on this computer's disk, where it does not exist. (R-MI-23)
 - "Close project" on a project present on several machines no longer closes only the shown copy and brings the other back as a separate tile: you now choose which machines to close it on. (R-MI-20)
 - Choosing who starts the queue of a shared project shows auto-start enabled on the other machine again: the remote copy always looked off. (R-MI-13)
@@ -31,6 +33,8 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Studio Remote again recognizes which models accept images: the PWA read a model field that the machine state no longer sends, so every model looked like it accepted them. The relay type check is restored, so the relay image is published again on every change. (REL-001)
 
 ### Added
+- `Ctrl+1` … `Ctrl+8` (`⌘1` … `⌘8` on Mac) open the project at that position in the bar, `Ctrl+9` the last one; holding `Ctrl` (`⌘` on Mac) for a moment shows a number above each tile. (TPR-042)
+- `Ctrl+Alt+↓` / `Ctrl+Alt+↑` switch to the active project's copy on the next or previous machine, skipping offline ones. (R-MI-25)
 - When the same project is on several machines and the copies diverge (different branches, different commits, or uncommitted changes on both), a strip above the composer shows the summary, "Compare" to open Git and "Later" to hide it until the copies change. (R-MI-22)
 - A project from another machine can be hidden from this window without closing it where it runs, and "Close project…" asks which machines to close it on, warning about working chats that would be stopped. (R-MI-20)
 - The task queue of a shared project is a single one: creating, editing or starting a task on one machine shows up on the other right away, and tasks have no owning machine. The last edit per task wins, without overwriting tasks created elsewhere in the meantime. (R-MI-12, F19)
@@ -55,6 +59,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - When the `omp` installation is broken (for example a link pointing to a deleted folder), Studio says so and offers "Repair" instead of starting over as on a new computer. When an essential piece is missing, the setup reopens directly on that step, without the animated intro. (SET-010, SET-020)
 
 ### Changed
+- `Ctrl+Shift+Tab` switches to the previous project, also from the composer, the terminal and the preview; lanes are cycled with `Ctrl+Alt+←/→`. (TPR-041, ANT-012)
 - Project bar tiles show where the project runs with a text-free glyph instead of the badge with the machine name: a screen with waves for another machine, a crossed-out screen when it does not respond, one screen per copy when the project is on several machines (the one in use filled) and an amber ≠ when the copies diverge. The glyph no longer changes when the tile is clicked, and screen readers announce the machine. On light themes the amber of graphic marks is lighter, so it stands out next to the greys. (R-MI-19)
 - A project's hover preview shows the machine it runs on first and, at the bottom, the other machines where it is available; the project panel has a "Machines" row that opens a view to choose which machine new chats and tasks start on and which one starts the queue by itself, and to copy each copy's path. (R-MI-23)
 - The project picker is a single list for all machines, in three groups ("In this window", "Open on other machines", "Closed"), with each project's machines on the right and per-machine filters; a closed folder opens on the chosen machine. (R-MI-21)

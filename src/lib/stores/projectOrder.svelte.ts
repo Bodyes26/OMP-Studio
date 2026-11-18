@@ -4,7 +4,8 @@ import { settingsStore } from './settings.svelte';
 import { taskStore } from './tasks.svelte';
 import { githubStore } from './github.svelte';
 import { groupByRepository, type RepositoryIdentity } from './projectIdentity.ts';
-import { inUseCopy } from './projectCopies.ts';
+import { tileCopy } from './projectCopies.ts';
+import { copyNeedsAttention } from './projectActivity.ts';
 
 /**
  * Identità git di una copia. Lo stato upstream è già letto e in cache per ogni
@@ -48,14 +49,15 @@ class ProjectOrder {
 	}
 
 	/**
-	 * Un progetto per repository. Rappresentante: la copia in uso, cioè
-	 * l'ultima usata (F18), la stessa su cui nasce una nuova chat; se una
-	 * copia del gruppo è quella mostrata, è lei. Cliccare la tessera attiva
-	 * quindi il rappresentante e il glifo non cambia (R-MI-19).
+	 * Un progetto per repository. Se una copia del gruppo è quella mostrata,
+	 * è lei; altrimenti quella che aspetta una risposta, poi l'ultima usata
+	 * (R-MI-24, F18). Clic, Ctrl+Tab e Ctrl+N aprono quindi il lavoro da
+	 * riprendere invece di una sessione vuota su un'altra macchina.
 	 */
 	get unified(): Project[] {
-		return this.groups.map((group) =>
-			group.find((p) => p.id === projectStore.activeId) ?? inUseCopy(group) ?? group[0]
+		return this.groups.map((group) => group.length === 1
+			? group[0]
+			: group.find((p) => p.id === projectStore.activeId) ?? tileCopy(group, copyNeedsAttention) ?? group[0]
 		);
 	}
 

@@ -74,6 +74,16 @@ Motivazione iniziale, utente 2026-11-12: «il popover compare all'hover ma i men
 | TPR-033 | Q23, 2026-11-13, proposta `preserve` approvata | Chiudi progetto richiama il flusso centrale esistente, indipendente dalla durata del popover. Fermo senza coda: diretto. Coda: conserva/scarta/chiedi secondo preferenza. Agente al lavoro: conferma esplicita prima di interrompere. Automazioni attive: scelta esplicita di lasciarle proseguire, interromperle o annullare. Nessuna eliminazione dei file/worktree dalla semplice chiusura del progetto. |
 | TPR-039 | 2026-11-13: «il movimento delle tab dei progetti in top bar quando si premono le frecce per spostare è da animare» | Spostando un progetto con le frecce del menu, le schede coinvolte scivolano dalla vecchia alla nuova posizione invece di saltare. Stessa animazione dopo il rilascio di un trascinamento. Durata e curva come il riordino della coda (210 ms, `revealEase`); con movimento ridotto (sistema o impostazioni di Studio) lo spostamento è immediato. |
 
+## Navigazione da tastiera
+
+Fonte comune: utente, 2026-11-18, «su un progetto multi-istanza il ctrl tab non fa passare al prossimo progetto ma scorre da una macchina all'altra [...] il ctrl+tab dovrebbe contarli una sola volta»; «ctrl+shift+tab per andare indietro di progetto»; «se tengo premuto un tasto modificatore [...] compaiono un numero sopra ogni tab di ogni progetto così che ctrl + 1 mi mette sul primo progetto». Scelte nel modulo della stessa sessione: progetto precedente su `Ctrl+Shift+Tab` con rimozione esplicita del ciclo corsie da quella combinazione; Ctrl su Windows/Linux e Cmd su Mac; numeri dopo circa 0,8 s; `Ctrl+9` = ultimo; tessera dei file esterni fuori dalla numerazione.
+
+| ID | Fonte | Requisito e scenario concreto |
+|---|---|---|
+| TPR-040 | 2026-11-18, vedi sopra | `Ctrl+Tab` e `Ctrl+Alt+←/→` (senza corsie) scorrono le tessere mostrate in barra: un progetto su più macchine conta una volta sola e si apre sulla copia scelta da R-MI-24. Scenario: barra A, B (su Windows e Mac), C; da A, `Ctrl+Tab` porta a B, il successivo a C. |
+| TPR-041 | 2026-11-18, vedi sopra | `Ctrl+Shift+Tab` (Cmd+Shift+Tab su Mac) passa al progetto precedente, anche dal composer, dal terminale e dall'anteprima (ANT-012). Il ciclo delle corsie lascia questa combinazione e resta su `Ctrl+Alt+←/→`. Scenario: da C, `Ctrl+Shift+Tab` porta a B. |
+| TPR-042 | 2026-11-18, vedi sopra | `Ctrl+1` … `Ctrl+8` (Cmd su Mac) aprono la tessera in quella posizione; `Ctrl+9` l'ultima. Tenendo premuto solo il modificatore per circa 0,8 s compare il numero sopra le prime nove tessere; qualsiasi altro tasto, clic, rilascio o perdita del fuoco lo annulla, e con AltGr (Ctrl+Alt) non compare. Il salto non aspetta i numeri. La tessera dei file esterni non è numerata. Scenario: tenere Ctrl, leggere 3 sulla terza tessera, premere 3: si apre quel progetto. |
+
 ## Cutover delle azioni e confini
 
 | ID | Funzione attuale | Destinazione/esito concordato | Fonte |
