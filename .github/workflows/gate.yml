@@ -53,8 +53,12 @@ jobs:
       # GHSA-gcqx-w48m-w2h4 (deepmerge, bassa): arriva solo da @sveltejs/vite-plugin-svelte
       # in fase di build e non esiste una versione corretta (4.3.1 e' l'ultima, 2026-11-05).
       # Toglierlo quando deepmerge o il plugin pubblicano una correzione.
+      # GHSA-fc5q-39xc-vjpf (picomatch <=4.0.7, ReDoS, alta): pubblicata il 2026-10-19,
+      # nessuna versione corretta (4.0.7 e' l'ultima). Arriva solo da vite, svelte-check e
+      # unplugin di Paraglide in fase di build, con glob scritti da noi e mai dall'utente;
+      # non finisce nel bundle. Toglierlo quando picomatch pubblica una correzione.
       - name: Vulnerabilita delle dipendenze
-        run: bun audit --ignore=GHSA-gcqx-w48m-w2h4
+        run: bun audit --ignore=GHSA-gcqx-w48m-w2h4 --ignore=GHSA-fc5q-39xc-vjpf
 
       - name: Igiene del diff dell'ultimo commit
         run: git diff --check HEAD^ HEAD
