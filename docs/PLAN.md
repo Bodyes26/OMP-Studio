@@ -1701,6 +1701,18 @@ In linea con i principi di `PRODUCT.md`:
   condivisa (per esempio il remoto git o il percorso relativo alla radice) e una vista che unisca
   corsie, coda e storico delle due parti, con la scelta della macchina all'avvio di un lavoro.
 
+- [x] **MI21 — Commit fra le copie e nuova regola di divergenza** (R-MI-26, R-MI-22; F25) — fatto il 2026-11-18, prova con due macchine da fare
+  Comando di sola lettura sull'host che produce un bundle git incrementale delle branch richieste, al netto dei commit che chi chiede dichiara di avere (il collegamento porta già corpi binari fino a 64 MB, `link/protocol.rs`); comando locale che lo importa in `refs/studio/<macchina>/<branch>`. Ogni macchina tira per le proprie copie quando lo stato dell'altra cambia (HEAD dal riepilogo `git_upstream_status`). Confronto locale con `merge-base` per branch: allineata, indietro, avanti, divergente. Regola in `projectCopies.ts` e stato «da aggiornare» nel glifo e nel pannello. Oltre il limite di 64 MB (prima sincronizzazione di storie grandi) si propone di passare da `origin`.
+  **Prova:** test Rust con due repository temporanei (incrementale, senza `origin`, storia divergente); test della regola; scenario di R-MI-26 con due macchine.
+
+- [x] **MI22 — Avanzamento automatico** (R-MI-27; dopo MI21) — fatto il 2026-11-18, prova con due macchine da fare
+  Solo fast-forward, deciso dalla finestra della macchina che possiede la copia (lei sa di editor, agenti e terminali): cartella pulita, nessun file non salvato, corsia ferma. Branch non in uso: aggiornamento del riferimento solo se discendente. Altrimenti «da aggiornare» e nuovo tentativo quando la corsia si libera. L'editor ricarica i file come per le modifiche esterne (EXT-011).
+  **Prova:** test Rust su cartella pulita/sporca e su worktree di corsia; scenario di R-MI-27 con agente al lavoro.
+
+- [x] **MI23 — «Porta qui le modifiche»** (R-MI-28; dopo MI22) — fatto il 2026-11-18, prova con due macchine da fare
+  Istantanea delle modifiche come commit non collegato a una branch (indice temporaneo, file nuovi compresi) in `refs/studio/wip/…`, trasferita col bundle di MI21; applicazione sulla copia di arrivo allineata e pulita; pulizia della partenza solo dopo conferma, istantanea conservata su entrambe. Proposta nell'indicatore sotto il composer e su `Ctrl+Alt+↑/↓`.
+  **Prova:** test Rust su modifiche, file nuovi, cancellazioni e fallimento a metà; scenario di R-MI-28 con due macchine.
+
 ### Fase 3 — Spostamento dell'esecuzione
 
 - [ ] **MI30 — Spostamento a fine turno** (R-MI-14; dopo la fase 2)

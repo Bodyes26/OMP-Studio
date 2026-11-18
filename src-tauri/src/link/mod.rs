@@ -448,6 +448,39 @@ impl Runtime {
     }
 }
 
+/// Risposta di un comando chiesto da Rust a un'altra macchina.
+pub(crate) enum PeerBody {
+    Json(Value),
+    Raw(Vec<u8>),
+}
+
+/// Chiede un comando del catalogo a una macchina abbinata senza passare dalla
+/// WebView: la sincronizzazione delle copie (R-MI-26) sposta pacchetti git
+/// fino a decine di MB, che non devono attraversare due volte il ponte IPC.
+/// L'altra macchina applica gli stessi permessi di una richiesta della finestra.
+pub(crate) async fn call_peer(app: &tauri::AppHandle, machine: &str, command: &str, args: &Value) -> Result<PeerBody, String> {
+    let runtime = app.state::<LinkManager>().runtime(app).await?;
+    let body = serde_json::to_vec(args).map_err(|error| error.to_string())?;
+    if body.len() > MAX_BODY { return Err("Link body exceeds limit".into()); }
+    let request = async {
+        let connection = runtime.live_connection(machine).ok_or("Machine is unreachable")?;
+        let (mut send, mut recv) = connection.open_bi().await.map_err(|error| error.to_string())?;
+        send_json(&mut send, &Operation::Invoke {
+            command: command.to_owned(), headers: HashMap::new(), body_len: body.len(), raw: false, consumer: None,
+        }).await?;
+        send.write_all(&body).await.map_err(|error| error.to_string())?;
+        send.finish().map_err(|error| error.to_string())?;
+        match read_json(&mut recv).await? {
+            Reply::Json { len } => serde_json::from_slice(&read_body(&mut recv, len).await?)
+                .map(PeerBody::Json).map_err(|error| error.to_string()),
+            Reply::Raw { len } => Ok(PeerBody::Raw(read_body(&mut recv, len).await?)),
+            Reply::Error { error } => Err(error.as_str().map(str::to_owned).unwrap_or_else(|| error.to_string())),
+            _ => Err("Unexpected remote command response".to_string()),
+        }
+    };
+    tokio::time::timeout(REQUEST_TIMEOUT, request).await.map_err(|_| "Remote command timed out".to_string())?
+}
+
 async fn dispatch(app: &tauri::AppHandle, command: String, body: InvokeBody, headers: HashMap<String, String>) -> Result<InvokeResponse, String> {
     let window = app.get_webview_window("main").ok_or("Host Studio window is unavailable")?;
     let webview: &tauri::Webview = window.as_ref();

@@ -1,7 +1,8 @@
 /**
- * R-MI-22 / Q5: quando due copie dello stesso progetto divergono. L'avviso
- * sopra il composer dipende da questa regola: un falso positivo lo mostra a
- * chi sta solo lavorando, un falso negativo nasconde due codici diversi.
+ * R-MI-22, regola F25: quando due copie dello stesso progetto divergono.
+ * L'avviso sopra il composer dipende da questa regola: un falso positivo lo
+ * mostra a chi ha solo una copia da aggiornare, un falso negativo nasconde due
+ * codici diversi.
  */
 
 import { describe, it } from 'node:test';
@@ -15,43 +16,32 @@ const copy = (over: Partial<CopyGitState> = {}): CopyGitState => ({
 	...over
 });
 
-describe('Copie divergenti (Q5)', () => {
-	it('allineate: stesso branch, stesso commit, nessuna modifica', () => {
-		assert.deepEqual(divergenceReasons([copy(), copy()]), []);
+describe('Copie divergenti (F25)', () => {
+	it('una copia soltanto indietro non diverge: si sincronizza', () => {
+		assert.deepEqual(divergenceReasons([copy(), copy({ head: 'b2' })], []), []);
+	});
+
+	it('branch diverse sulle due macchine non sono una divergenza', () => {
+		assert.deepEqual(divergenceReasons([copy(), copy({ branch: 'redesign' })], []), []);
+	});
+
+	it('commit propri su entrambe le copie', () => {
+		assert.deepEqual(divergenceReasons([copy(), copy({ head: 'b2' })], ['main']), ['commits']);
 	});
 
 	it('una sola copia con modifiche non committate non basta', () => {
-		assert.deepEqual(divergenceReasons([copy({ changedFiles: 4 }), copy()]), []);
-		assert.deepEqual(divergenceReasons([copy(), copy({ changedFiles: 2 })]), []);
+		assert.deepEqual(divergenceReasons([copy({ changedFiles: 4 }), copy()], []), []);
 	});
 
-	it('modifiche non committate su entrambe', () => {
-		assert.deepEqual(divergenceReasons([copy({ changedFiles: 4 }), copy({ changedFiles: 1 })]), ['uncommitted']);
+	it('modifiche non committate su due copie, anche se non quella in uso', () => {
+		assert.deepEqual(divergenceReasons([copy(), copy({ changedFiles: 1 }), copy({ changedFiles: 3 })], []), ['uncommitted']);
 	});
 
-	it('branch diversi, anche con lo stesso commit', () => {
-		assert.deepEqual(divergenceReasons([copy(), copy({ branch: 'redesign' })]), ['branch']);
-	});
-
-	it('stesso branch con commit diversi', () => {
-		assert.deepEqual(divergenceReasons([copy(), copy({ head: 'b2' })]), ['commits']);
-	});
-
-	it('un commit non ancora letto non fa scattare l avviso', () => {
-		assert.deepEqual(divergenceReasons([copy(), copy({ head: null })]), []);
-	});
-
-	it('con tre copie confronta ognuna con quella in uso', () => {
-		assert.deepEqual(
-			divergenceReasons([copy({ changedFiles: 1 }), copy(), copy({ branch: 'x', changedFiles: 3 })]).sort(),
-			['branch', 'uncommitted']
-		);
-	});
-
-	it('l impronta cambia quando cambia lo stato di una copia', () => {
-		const before = divergenceSignature([copy(), copy({ branch: 'redesign' })]);
-		assert.equal(before, divergenceSignature([copy(), copy({ branch: 'redesign' })]));
-		assert.notEqual(before, divergenceSignature([copy(), copy({ branch: 'redesign', head: 'c3' })]));
+	it('l impronta cambia quando cambia lo stato di una copia o una branch diverge', () => {
+		const before = divergenceSignature([copy(), copy({ changedFiles: 2 })], []);
+		assert.equal(before, divergenceSignature([copy(), copy({ changedFiles: 2 })], []));
+		assert.notEqual(before, divergenceSignature([copy(), copy({ changedFiles: 3 })], []));
+		assert.notEqual(before, divergenceSignature([copy(), copy({ changedFiles: 2 })], ['main']));
 	});
 });
 

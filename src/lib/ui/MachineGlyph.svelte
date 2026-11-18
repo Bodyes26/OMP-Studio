@@ -6,7 +6,9 @@
   macchina», barrato e' «non raggiungibile». Per un progetto su piu'
   macchine uno schermo per copia: pieno la copia in uso, contorno in linea,
   tratteggio spenta; fra le copie le frecce di andata e ritorno, oppure il
-  segno ≠ in ambra quando le copie divergono (R-MI-22). Il nome delle
+  segno ≠ in ambra quando le copie divergono (R-MI-22). Un punto sopra le
+  frecce dice che questa copia ha commit da ricevere e aspetta la cartella
+  libera (R-MI-27). Il nome delle
   macchine non sta qui: lo dicono l'etichetta accessibile e il popover.
 -->
 <script lang="ts">
@@ -16,12 +18,15 @@
 		kind,
 		copies = [],
 		diverge = false,
+		pending = false,
 		size = 14
 	}: {
 		kind: 'here' | 'remote' | 'offline' | 'copies';
 		/** Solo per `copies`: una voce per macchina, nell'ordine da mostrare. */
 		copies?: CopyMark[];
 		diverge?: boolean;
+		/** Commit da ricevere in attesa della cartella libera («da aggiornare»). */
+		pending?: boolean;
 		/** Altezza in px; la larghezza segue il disegno. */
 		size?: number;
 	} = $props();
@@ -82,6 +87,9 @@
 					d="M{link.x1 + 1} 6.4H{link.x2 - 1}m-1.4-1.4 1.4 1.4-1.4 1.4M{link.x2 - 1} 9.8H{link.x1 + 1}m1.4-1.4-1.4 1.4 1.4 1.4"
 				/>
 			{/if}
+			{#if pending && !link.diverge && index === 0}
+				<circle class="pending" cx={link.mid} cy="2.2" r="1.3" />
+			{/if}
 		{/each}
 	{/if}
 </svg>
@@ -104,5 +112,9 @@
 	}
 	.diverge {
 		stroke: var(--warn-glyph);
+	}
+	.pending {
+		fill: currentColor;
+		stroke: none;
 	}
 </style>

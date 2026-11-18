@@ -53,7 +53,7 @@
 	} from '#lib/icons.ts';
 	import { linkStore } from '#lib/backend/link.svelte.ts';
 	import MachineGlyph from '#lib/ui/MachineGlyph.svelte';
-	import { provenance, copyDivergence, type Provenance } from '#lib/stores/projectMachines.svelte.ts';
+	import { provenance, copyDivergence, copyPending, type Provenance } from '#lib/stores/projectMachines.svelte.ts';
 	import { laneStore, type LaneRecord } from '#lib/stores/lanes.svelte.ts';
 	import { MAIN_LANE_ID, type ProjectId, type AgentLane } from '#lib/types/lanes.ts';
 	import { groupAgentState } from '#lib/stores/projectActivity.ts';
@@ -95,14 +95,14 @@
 	 * Dove gira il progetto, per chi usa un lettore di schermo: il glifo della
 	 * tessera non ha testo (R-MI-19).
 	 */
-	function provenanceAria(view: Provenance, diverged: boolean): string {
+	function provenanceAria(view: Provenance, diverged: boolean, pending: boolean): string {
 		if (view.kind === 'local') return '';
 		if (view.kind === 'remote') return m.topbar_tab_aria_runs_on({ machine: view.inUse.name });
 		if (view.kind === 'offline') return m.topbar_tab_aria_unreachable({ machine: view.inUse.name });
 		return m.topbar_tab_aria_copies({
 			machine: view.inUse.name,
 			others: view.others.map((copy) => copy.name).join(', ')
-		}) + (diverged ? m.topbar_tab_aria_diverged() : '');
+		}) + (diverged ? m.topbar_tab_aria_diverged() : '') + (pending ? m.copies_pending_aria() : '');
 	}
 
 	async function handleGhostButtonClick(event: MouseEvent) {
@@ -847,6 +847,7 @@
 			{@const jumpLabel = projectJumpHints.visible ? projectJumpLabel(tileIndex, projectOrder.unified.length) : null}
 			{@const prov = provenance(p)}
 			{@const diverged = prov.kind === 'copies' && copyDivergence(p) !== null}
+			{@const pending = prov.kind === 'copies' && copyPending(p).length > 0}
 			<!-- Con una tessera sola, le corsie da contare sono quelle di tutte le
 			     copie: la locale dal `laneStore`, le remote dallo snapshot della
 			     loro macchina (R-MI-12). -->
@@ -909,7 +910,7 @@
 					onkeydown={handleTabKeydown}
 					aria-selected={isActive}
 					tabindex={p.id === rovingTabId ? 0 : -1}
-					aria-label={m.topbar_tab_aria_label({ type: p.labDraft ? m.lab_lane_draft_badge() : p.canonicalProjectPath ? m.topbar_tab_project() : m.topbar_tab_scratchpad(), name: p.name, state: AGENT_STATE_LABEL[aggState], queued: queued > 0 ? ` · ${m.topbar_queue_count_label({ count: queued })}` : '' }) + provenanceAria(prov, diverged) + (gitLanesCount > 0 ? ` · ${m.topbar_tab_aria_worktrees({ count: gitLanesCount })}` : '') + (labLanesCount > 0 ? ` · ${m.topbar_tab_aria_prototypes({ count: labLanesCount })}` : '') + gitDiffLabel + upstreamLabel}
+					aria-label={m.topbar_tab_aria_label({ type: p.labDraft ? m.lab_lane_draft_badge() : p.canonicalProjectPath ? m.topbar_tab_project() : m.topbar_tab_scratchpad(), name: p.name, state: AGENT_STATE_LABEL[aggState], queued: queued > 0 ? ` · ${m.topbar_queue_count_label({ count: queued })}` : '' }) + provenanceAria(prov, diverged, pending) + (gitLanesCount > 0 ? ` · ${m.topbar_tab_aria_worktrees({ count: gitLanesCount })}` : '') + (labLanesCount > 0 ? ` · ${m.topbar_tab_aria_prototypes({ count: labLanesCount })}` : '') + gitDiffLabel + upstreamLabel}
 				>
 
 					<span
@@ -935,6 +936,7 @@
 								kind={prov.kind === 'copies' ? 'copies' : prov.kind}
 								copies={prov.marks}
 								diverge={diverged}
+								{pending}
 							/>
 						</span>
 					{/if}

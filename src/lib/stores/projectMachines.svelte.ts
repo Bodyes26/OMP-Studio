@@ -13,6 +13,7 @@ import { projectStore, normalizeProjectPath, type Project } from './projects.sve
 import { projectOrder } from './projectOrder.svelte';
 import { githubStore, type GitUpstreamStatus } from './github.svelte';
 import { divergenceReasons, divergenceSignature, inUseCopy, type CopyMark, type DivergenceReason } from './projectCopies.ts';
+import { copySyncStore, type BranchSync } from './copySync.svelte';
 
 export interface MachineCopy {
 	project: Project;
@@ -97,15 +98,19 @@ function gitOf(project: Project): GitUpstreamStatus | null {
 
 export interface CopyDivergence {
 	reasons: DivergenceReason[];
-	/** Copie confrontate, la prima è quella in uso; solo quelle con stato git noto. */
+	/** Copie con stato git noto, la prima è quella in uso. */
 	copies: Array<{ copy: MachineCopy; git: GitUpstreamStatus }>;
+	/** Branch con commit propri su entrambe le copie (R-MI-26). */
+	branches: string[];
 	signature: string;
 }
 
 /**
- * Le copie divergono (R-MI-22, Q5)? Si confrontano solo copie con lo stato
- * git già letto: una copia spenta o non ancora interrogata non fa scattare
- * l'avviso, perché non si sa com'è.
+ * Le copie divergono (R-MI-22, regola F25)? I commit si confrontano dalla
+ * copia di questa macchina, l'unica di cui questa finestra legge i commit
+ * delle gemelle; le modifiche non committate si contano su ogni copia con lo
+ * stato git già letto. Una copia spenta o non ancora interrogata non fa
+ * scattare l'avviso, perché non si sa com'è.
  */
 export function copyDivergence(project: Project): CopyDivergence | null {
 	const view = provenance(project);
@@ -113,15 +118,27 @@ export function copyDivergence(project: Project): CopyDivergence | null {
 	const known = [view.inUse, ...view.others]
 		.map((copy) => ({ copy, git: gitOf(copy.project) }))
 		.filter((entry): entry is { copy: MachineCopy; git: GitUpstreamStatus } => entry.git !== null);
-	if (known.length < 2 || !known[0].copy.inUse) return null;
+	const local = view.copies.find((copy) => copy.local);
+	const branches = local ? copySyncStore.divergedBranches(local.project) : [];
 	const states = known.map(({ git }) => ({
 		branch: git.branch,
 		head: git.headCommit ?? null,
 		changedFiles: git.changedFiles ?? (git.hasUncommitted ? 1 : 0)
 	}));
-	const reasons = divergenceReasons(states);
+	const reasons = divergenceReasons(states, branches);
 	if (reasons.length === 0) return null;
-	return { reasons, copies: known, signature: divergenceSignature(states) };
+	return { reasons, copies: known, branches, signature: divergenceSignature(states, branches) };
+}
+
+/**
+ * Branch della copia di questa macchina indietro rispetto a una gemella che
+ * aspettano la cartella libera per avanzare (R-MI-27, «da aggiornare»).
+ */
+export function copyPending(project: Project): BranchSync[] {
+	const view = provenance(project);
+	if (view.kind !== 'copies') return [];
+	const local = view.copies.find((copy) => copy.local);
+	return local ? copySyncStore.pendingBranches(local.project) : [];
 }
 
 /** Rilegge lo stato git di tutte le copie: la barra lo aggiorna solo per la tessera attiva. */
@@ -134,14 +151,7 @@ export function refreshCopiesGit(project: Project, force = false): void {
 
 /** Righe che spiegano la divergenza, per pannello e striscia (R-MI-22). */
 export function divergenceSummary(divergence: CopyDivergence): string[] {
-	const lines: string[] = [];
-	if (divergence.reasons.includes('branch')) {
-		for (const { copy, git } of divergence.copies) {
-			lines.push(m.copies_diverged_branch({ machine: copy.name, branch: git.branch }));
-		}
-	} else if (divergence.reasons.includes('commits')) {
-		lines.push(m.copies_diverged_commits());
-	}
+	const lines = divergence.branches.map((branch) => m.copies_diverged_commits({ branch }));
 	if (divergence.reasons.includes('uncommitted')) {
 		for (const { copy, git } of divergence.copies) {
 			const count = git.changedFiles ?? (git.hasUncommitted ? 1 : 0);
@@ -149,4 +159,13 @@ export function divergenceSummary(divergence: CopyDivergence): string[] {
 		}
 	}
 	return lines;
+}
+
+/** Righe «da aggiornare» per il pannello del progetto (R-MI-27). */
+export function pendingSummary(pending: readonly BranchSync[]): string[] {
+	return pending.map((branch) => branch.reason === 'dirty'
+		? m.copies_pending_dirty({ branch: branch.name, count: branch.behind })
+		: branch.reason === 'busy'
+			? m.copies_pending_busy({ branch: branch.name, count: branch.behind })
+			: m.copies_pending_failed({ branch: branch.name, error: branch.reason ?? '' }));
 }

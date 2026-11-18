@@ -22,7 +22,7 @@
 	import Tooltip from '#lib/ui/Tooltip.svelte';
 	import MachineGlyph from '#lib/ui/MachineGlyph.svelte';
 	import { linkStore } from '#lib/backend/link.svelte.ts';
-	import { provenance, copyDivergence, divergenceSummary, type MachineCopy } from '#lib/stores/projectMachines.svelte.ts';
+	import { provenance, copyDivergence, copyPending, divergenceSummary, pendingSummary, type MachineCopy } from '#lib/stores/projectMachines.svelte.ts';
 	import StatusMark from '#lib/ui/StatusMark.svelte';
 	import IconAutomation from './automations/IconAutomation.svelte';
 	import {
@@ -120,6 +120,7 @@
 	const prov = $derived(provenance(project));
 	const onlyHere = $derived(prov.kind === 'local');
 	const divergence = $derived(prov.kind === 'copies' ? copyDivergence(project) : null);
+	const pending = $derived(prov.kind === 'copies' ? copyPending(project) : []);
 	const hasLocalCopy = $derived(prov.copies.some((copy) => copy.local));
 	/** A turno in corso la macchina non si cambia: lo spostamento è la fase 3 (R-MI-14). */
 	const machineBusy = $derived(prov.inUse.project.lane.agentState === 'working');
@@ -472,6 +473,12 @@
 								<ul>{#each divergenceSummary(divergence) as line (line)}<li>{line}</li>{/each}</ul>
 							</div>
 						{/if}
+						{#if pending.length > 0}
+							<div class="pending-box" role="status">
+								<strong>{m.copies_pending_title()}</strong>
+								<ul>{#each pendingSummary(pending) as line (line)}<li>{line}</li>{/each}</ul>
+							</div>
+						{/if}
 						{#if prov.kind === 'copies'}
 							<div class="group-label">{m.project_popover_new_chats_on()}</div>
 							{#each prov.copies as copy (copy.project.id)}
@@ -575,9 +582,11 @@
 	.copy-row :global(.tooltip-trigger) { margin-left: auto; }
 	.copy-meta { flex-basis: 100%; margin: -4px 0 0 30px !important; }
 	.copy-meta:empty { display: none; }
-	.diverged-box { margin: 0 2px 8px; padding: 10px; border-radius: var(--radius-md); background: color-mix(in oklch, var(--warn-glyph) 14%, transparent); font-size: var(--text-label); }
-	.diverged-box strong { font-weight: 550; }
-	.diverged-box ul { margin: 4px 0 0; padding-left: 16px; color: var(--ink-muted); }
+	.diverged-box, .pending-box { margin: 0 2px 8px; padding: 10px; border-radius: var(--radius-md); background: color-mix(in oklch, var(--warn-glyph) 14%, transparent); font-size: var(--text-label); }
+	/* «Da aggiornare» non chiede un intervento: fondo neutro, non ambra. */
+	.pending-box { background: var(--bg-hover); }
+	.diverged-box strong, .pending-box strong { font-weight: 550; }
+	.diverged-box ul, .pending-box ul { margin: 4px 0 0; padding-left: 16px; color: var(--ink-muted); }
 	.identity-header { padding: 14px 44px 12px 12px; border-bottom: 1px solid var(--line); }
 	.identity-line { display: flex; align-items: center; gap: 6px; min-height: 30px; }
 	.icon-button { width: 30px; height: 30px; padding: 6px; border: 0; background: transparent; color: var(--ink-muted); display: grid; place-items: center; border-radius: var(--radius-md); cursor: pointer; flex: none; transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }

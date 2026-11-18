@@ -60,37 +60,30 @@ export interface CopyGitState {
 	changedFiles: number;
 }
 
-export type DivergenceReason = 'branch' | 'commits' | 'uncommitted';
+export type DivergenceReason = 'commits' | 'uncommitted';
 
 /**
- * Le copie divergono (Q5, 2026-11-17) se sono su branch diversi, se una ha
- * commit che l'altra non ha, oppure se entrambe hanno modifiche non
- * committate. Una sola copia con modifiche non basta: è il lavoro normale di
- * chi sta scrivendo lì. Il confronto è con la copia in uso, la prima.
- *
- * Due HEAD diversi sullo stesso branch vogliono dire che almeno una delle due
- * ha commit che l'altra non ha: da qui non si sa quale, perché i commit
- * dell'altra macchina non sono su questo disco.
+ * Le copie divergono (R-MI-22, regola F25 del 2026-11-18) solo quando la
+ * sincronizzazione non basta: una branch ha commit propri su entrambe le
+ * copie (`divergedBranches`, dal confronto fatto con i commit dell'altra
+ * macchina, R-MI-26), oppure almeno due copie hanno modifiche non committate.
+ * Una copia soltanto indietro si aggiorna da sola; branch diverse sulle due
+ * macchine sono una scelta, non una divergenza.
  */
-export function divergenceReasons(copies: readonly CopyGitState[]): DivergenceReason[] {
-	if (copies.length < 2) return [];
-	const [first, ...others] = copies;
-	const reasons = new Set<DivergenceReason>();
-	for (const other of others) {
-		if (first.branch !== other.branch) {
-			reasons.add('branch');
-		} else if (first.head && other.head && first.head !== other.head) {
-			reasons.add('commits');
-		}
-		if (first.changedFiles > 0 && other.changedFiles > 0) reasons.add('uncommitted');
-	}
-	return [...reasons];
+export function divergenceReasons(copies: readonly CopyGitState[], divergedBranches: readonly string[]): DivergenceReason[] {
+	const reasons: DivergenceReason[] = [];
+	if (divergedBranches.length > 0) reasons.push('commits');
+	if (copies.filter((copy) => copy.changedFiles > 0).length >= 2) reasons.push('uncommitted');
+	return reasons;
 }
 
 /**
  * Impronta dello stato delle copie: «Più tardi» vale finché non cambia, poi
  * l'avviso torna (R-MI-22).
  */
-export function divergenceSignature(copies: readonly CopyGitState[]): string {
-	return copies.map((copy) => `${copy.branch}@${copy.head ?? '-'}+${copy.changedFiles}`).join('|');
+export function divergenceSignature(copies: readonly CopyGitState[], divergedBranches: readonly string[]): string {
+	return [
+		...copies.map((copy) => `${copy.branch}@${copy.head ?? '-'}+${copy.changedFiles}`),
+		...[...divergedBranches].sort()
+	].join('|');
 }

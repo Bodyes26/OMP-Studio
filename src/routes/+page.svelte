@@ -58,7 +58,10 @@
 	import { shortcutsModalStore } from '#lib/stores/shortcutsModal.svelte.ts';
 	import { isShortcutsHelpKey, projectCycleDirection, projectJumpDigit, projectJumpIndex } from '#lib/shortcuts/shortcutMatch.ts';
 	import { projectJumpHints } from '#lib/shortcuts/projectJump.svelte.ts';
-	import { provenance } from '#lib/stores/projectMachines.svelte.ts';
+	import { provenance, machineName } from '#lib/stores/projectMachines.svelte.ts';
+	import { copySyncStore } from '#lib/stores/copySync.svelte.ts';
+	import { canMoveChanges, moveChanges } from '#lib/stores/copyMove.ts';
+	import { copyAgentState } from '#lib/stores/projectActivity.ts';
 	import { nextOnlineCopy } from '#lib/stores/projectCopies.ts';
 	import { IS_MAC } from '#lib/utils/platform.ts';
 	import TaskEditor from '#lib/components/TaskEditor.svelte';
@@ -163,7 +166,7 @@
 	import { startFocusTracer } from '#lib/focusTracer.ts';
 	import { registerSnapshotProvider } from '#lib/diagnostics/studioLog.ts';
 	import { markSwitch } from '#lib/switchDissolve.ts';
-	import { open as openDialog } from '@tauri-apps/plugin-dialog';
+	import { open as openDialog, ask as askDialog, message as messageDialog } from '@tauri-apps/plugin-dialog';
 	import { getCurrentWebview } from '@tauri-apps/api/webview';
 	import { openPaths, externalOpenState } from '#lib/externalOpen.svelte.ts';
 	import ExternalFilesPanel from '#lib/components/ExternalFilesPanel.svelte';
@@ -300,6 +303,15 @@
 			});
 		}
 	});
+
+	// Copie su più macchine (R-MI-26, R-MI-27): un giro appena cambia la cima
+	// di una delle due copie o si libera una cartella, e comunque ogni minuto.
+	$effect(() => {
+		if (!projectStore.ready) return;
+		const plan = copySyncStore.pairs().map((pair) => ({ pair, signature: copySyncStore.signature(pair) }));
+		untrack(() => { for (const { pair, signature } of plan) copySyncStore.syncIfChanged(pair, signature); });
+	});
+	$effect(() => copySyncStore.start());
 
 	const automationContext = $derived.by(() => projectStore.ready ? buildAutomationContext() : null);
 	let presenceActivityDigest = '';
@@ -1349,13 +1361,44 @@
 	 * Cambia la macchina su cui nascono le chat di questa corsia attivando la
 	 * copia gemella: la copia attiva è anche «l'ultima usata», quindi la
 	 * proposta successiva (F18) segue da sola, senza uno stato in più da
-	 * salvare. Spostare un lavoro già avviato resta la fase 3 (R-MI-14).
+	 * salvare. Le modifiche non committate possono seguire (R-MI-28); spostare
+	 * una sessione già avviata resta la fase 3 (R-MI-14).
 	 */
 	function pickMachineFor(p: Project, machineId: string): void {
 		const target = [p, ...projectOrder.copiesOf(p)]
 			.find((copy) => (copy.machineId ?? LOCAL_MACHINE) === machineId);
 		if (!target || target.id === p.id) return;
-		projectStore.setActive(target.id);
+		void switchCopy(p, target);
+	}
+
+	/**
+	 * Passa da una copia all'altra. Se la partenza ha modifiche non committate
+	 * propone di portarle (R-MI-28); con un agente al lavoro su una delle due
+	 * copie restano dove sono. Se lo spostamento fallisce si resta sulla
+	 * partenza, dove le modifiche sono ancora.
+	 */
+	async function switchCopy(from: Project, to: Project): Promise<void> {
+		const path = from.canonicalProjectPath;
+		if (path && canMoveChanges(from, to)) {
+			const status = await githubStore.loadUpstreamStatus(path, true).catch(() => null);
+			const count = status?.isGit ? (status.changedFiles ?? (status.hasUncommitted ? 1 : 0)) : 0;
+			if (count > 0) {
+				const names = { from: machineName(from.machineId), to: machineName(to.machineId), count };
+				if (copyAgentState(from) === 'working' || copyAgentState(to) === 'working') {
+					await messageDialog(m.copies_move_busy(names), { title: m.copies_move_title(), kind: 'info' });
+				} else if (await askDialog(m.copies_move_prompt(names), {
+					title: m.copies_move_title(), okLabel: m.copies_move_bring(), cancelLabel: m.copies_move_leave()
+				})) {
+					try {
+						await moveChanges(from, to);
+					} catch (error) {
+						await messageDialog(m.copies_move_failed({ from: names.from, error: String(error) }), { title: m.copies_move_title(), kind: 'error' });
+						return;
+					}
+				}
+			}
+		}
+		projectStore.setActive(to.id);
 	}
 
 	/**
@@ -4220,7 +4263,7 @@
 		if (!active || active.external) return;
 		const copies = provenance(active).copies;
 		const target = nextOnlineCopy(copies, copies.findIndex((copy) => copy.project.id === active.id), direction);
-		if (target) projectStore.setActive(target.project.id);
+		if (target) void switchCopy(active, target.project);
 	}
 
 	function shellModalOpen(): boolean {

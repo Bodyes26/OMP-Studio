@@ -320,6 +320,12 @@ commands.allow = [
     "project_create_new",
     "git_upstream_status",
     "git_sync_repo",
+    "copy_sync_heads",
+    "copy_sync_bundle",
+    "copy_sync",
+    "copy_wip_snapshot",
+    "copy_wip_receive",
+    "copy_wip_finish",
     "github_get_actions_status"
 ]
 

@@ -49,6 +49,8 @@ Citazioni dell'utente dalla discussione del 2026-11-12:
 
 - **F24 — Tessera unica anche per tastiera e stato (2026-11-18):** «su un progetto multi-istanza il ctrl tab non fa passare al prossimo progetto ma scorre da una macchina all'altra [...] il ctrl+tab dovrebbe contarli una sola volta. Possiamo valutare piuttosto una scorciatoia rapida per passare da una macchina all'altra»; «c'era il lavoro da rispondere su questo progetto sul macbook ma aprendo la tab da windows mi mostrava la sessione vuota sul pc windows invece di prendermi questa del mac». Scelte nel modulo della stessa sessione: `Ctrl+Alt+↑/↓` per le macchine, saltando quelle spente; la tessera apre prima la copia che aspetta una risposta; lo stato della tessera unisce tutte le copie (R-MI-24, R-MI-25, TPR-040).
 
+- **F25 — Copie sincronizzate via git (2026-11-18):** «secondo me è meglio avere il sync con git, perché tipo adesso sto facendo un lavoro dal pc windows sul mac, ora mi dice che le copie divergono ma appunto, devono syncarsi. Secondo me dovremmo fare che un progetto ha copie che divergono solo nel momento in cui su una macchina si fa una modifica in esterno o offline o solo in locale per cui non c'è modo di aggiornare git e ottenere la stessa versione su tutte le macchine». Scelte nel modulo della stessa sessione: i commit viaggiano **direttamente fra le macchine** sul collegamento, senza passare da GitHub; le modifiche non committate si spostano **solo al cambio di macchina** con «Porta qui le modifiche»; la copia indietro si aggiorna **solo con fast-forward, pulita e senza agente al lavoro**, altrimenti resta «da aggiornare»; nuova regola di divergenza (sotto R-MI-22); **nessun push automatico** su origin; requisiti e piano prima del codice (R-MI-26, R-MI-27, R-MI-28; risolve Q6, sostituisce la regola Q5).
+
 Le sei strade valutate sono illustrate in `proto/multi-istanza-strade.html` (locale, fuori da git): è materiale di discussione, non un'anteprima di interfaccia approvata. F16 autorizza l'implementazione diretta dell'interfaccia secondo le convenzioni di Studio, senza un'ulteriore approvazione su anteprima.
 
 ## Stato dei requisiti
@@ -76,10 +78,13 @@ Le sei strade valutate sono illustrate in `proto/multi-istanza-strade.html` (loc
 | R-MI-19 | 1–2 | Attivo, approvato il 2026-11-17 (F21) | Fatto il 2026-11-17: `src/lib/ui/MachineGlyph.svelte`, tessera in `TopBar.svelte` (glifo, etichetta accessibile), rappresentante stabile in `projectOrder.unified`, token `--warn-glyph` (`app.css`, `theme.ts`) | 2026-11-17: `npm run check` 0 errori, 1554 smoke, build verde; glifi verificati in anteprima su tema scuro e chiaro; resa nell'app con due macchine reali da provare |
 | R-MI-20 | 1–2 | Attivo, approvato il 2026-11-17 (F21, F23) | Fatto il 2026-11-17: «Nascondi da questa finestra» (`projectStore.hideRemote`, persistito come `hiddenRemoteProjects`) e vista «Chiudi progetto…» nel popover; comando `close_project` (ambito Agenti) verso la macchina che possiede la copia | 2026-11-17: tipi, smoke, `cargo check`, test Rust `link::`, relay `tsc`; scenario con due macchine reali da provare |
 | R-MI-21 | 1 | Attivo, approvato il 2026-11-17 (F21, F23) | Fatto il 2026-11-17: `ProjectPicker.svelte` in tre gruppi con filtri per macchina; unione per repository in `pickerEntries.ts` (le cartelle remote portano `repo`) | 2026-11-17: 5 test in `test/picker-entries.test.ts`; elenco con due macchine reali da provare |
-| R-MI-22 | 2 | Attivo; interfaccia approvata il 2026-11-17 (F23); regola approvata il 2026-11-17 (Q5) | Fatto il 2026-11-17: regola in `projectCopies.ts`, `git_upstream_status` porta `headCommit` e `changedFiles` (da `branch.oid`, nessun git in più), striscia `CopyDivergenceStrip.svelte` sopra il composer, dettaglio nella vista Macchine | 2026-11-17: 9 test in `test/project-copies.test.ts`, test Rust del parser; scenario con due copie reali divergenti da provare |
+| R-MI-22 | 2 | Attivo; interfaccia approvata il 2026-11-17 (F23); regola sostituita il 2026-11-18 (F25, al posto di Q5) | Fatto il 2026-11-17: striscia `CopyDivergenceStrip.svelte` sopra il composer, dettaglio nella vista Macchine. 2026-11-18: nuova regola in `projectCopies.ts` (commit propri su entrambe da `copySync.svelte.ts`, modifiche su almeno due copie). Limite: i commit si confrontano solo dalla finestra che ha una copia locale del progetto | 2026-11-18: 6 test della regola in `test/project-copies.test.ts`; scenario con due copie reali da provare |
 | R-MI-23 | 1–2 | Attivo, approvato il 2026-11-17 (F22) | Fatto il 2026-11-17: anteprima con la macchina in testa e «Anche su», riga e vista «Macchine» in `ProjectPopover.svelte`, stato condiviso in `projectMachines.svelte.ts`; l'auto-avvio delle copie remote ora arriva dal riepilogo dell'host | 2026-11-17: tipi, smoke e build verdi; prova con due macchine reali da fare |
 | R-MI-24 | 2 | Attivo, approvato il 2026-11-18 (F24) | 2026-11-18: `tileCopy` in `projectCopies.ts`, stato unito in `projectActivity.ts`, `projectOrder.unified` | Scenario con due macchine reali da provare |
 | R-MI-25 | 2 | Attivo, approvato il 2026-11-18 (F24) | 2026-11-18: `Ctrl+Alt+↑/↓` in `+page.svelte` sulle copie di `provenance()` | Scenario con due macchine reali da provare |
+| R-MI-26 | 2 | Attivo, approvato il 2026-11-18 (F25) | Fatto il 2026-11-18 (MI21): `copy_sync_heads`/`copy_sync_bundle` (sola lettura, sull'altra macchina) e `copy_sync` in `src-tauri/src/github/copies.rs`; richiesta da Rust a Rust con `link::call_peer`; riferimenti `refs/studio/<macchina>/heads/*`; giri da `copySync.svelte.ts` al cambio delle cime e ogni minuto | 2026-11-18: 10 test Rust con due repository senza origin (`github::copies`); scenario con due macchine reali da provare |
+| R-MI-27 | 2 | Attivo, approvato il 2026-11-18 (F25) | Fatto il 2026-11-18 (MI22): solo fast-forward in `advance`, cartelle occupate (agente al lavoro o in attesa anche da remoto, file non salvati, automazioni) passate dalla finestra proprietaria; «da aggiornare» nel glifo (punto sopra le frecce), nell'etichetta accessibile e nella vista Macchine | 2026-11-18: test Rust su cartella pulita/sporca/occupata, branch non in uso e worktree di corsia; scenario con agente al lavoro da provare |
+| R-MI-28 | 2 | Attivo, approvato il 2026-11-18 (F25) | Fatto il 2026-11-18 (MI23): `copy_wip_snapshot`/`copy_wip_receive`/`copy_wip_finish`, orchestrazione in `copyMove.ts`, proposta in `switchCopy` (`+page.svelte`) dall'indicatore sotto il composer e da `Ctrl+Alt+↑/↓`; pulizia della partenza nello stash | 2026-11-18: test Rust su modifiche, file nuovi, cancellazioni, partenza cambiata e arrivo non allineato; scenario con due macchine da provare |
 
 Nei testi che seguono **W** è la macchina da cui si guarda (nello scenario il PC Windows) e **M** quella che possiede il progetto (il Mac).
 
@@ -324,9 +329,11 @@ Quando le copie dello stesso progetto divergono, Studio lo segnala nel glifo del
 
 **Interfaccia approvata (F23, variante B):** una striscia agganciata sopra il composer del progetto attivo, come la riga di attenzione del vassoio (fondo ambra al 15%), con il glifo ≠ di R-MI-19, il riassunto della differenza e due azioni: «Confronta» (apre il confronto in Git) e «Più tardi» (la riduce finché lo stato delle copie non cambia). Il dettaglio resta anche nel pannello del progetto (R-MI-23).
 
-**Regola (Q5, 2026-11-17):** due copie divergono se sono su branch diversi, se una ha commit che l'altra non ha (anche sullo stesso branch), oppure se entrambe hanno modifiche non committate. Una sola copia con modifiche non committate non basta.
+**Regola (F25, 2026-11-18, sostituisce Q5 del 2026-11-17):** il confronto è per branch, fra la stessa branch sulle due copie. Due copie divergono solo se entrambe hanno commit che l'altra non ha (nessun fast-forward possibile) oppure se entrambe hanno modifiche non committate. Una copia soltanto indietro, o con modifiche da una parte sola, **non diverge**: si sincronizza (R-MI-26, R-MI-27). Branch diversi fra le due copie non sono una divergenza. Il lavoro fatto offline o fuori da Studio diverge solo se, al ritorno, ricade in uno dei due casi.
 
-**Accettazione:** con due copie divergenti, la striscia compare sopra il composer del progetto attivo con il riassunto corretto; «Più tardi» la toglie e torna solo se le copie cambiano; quando le copie tornano allineate sparisce; con modifiche non committate su una sola copia non compare.
+*Regola precedente (Q5, 2026-11-17, sostituita da F25):* divergenza anche per branch diversi e per HEAD diversi sullo stesso branch, perché senza i commit dell'altra macchina non si distingueva «indietro» da «divergente».
+
+**Accettazione:** con commit nuovi su una sola copia la striscia non compare e l'altra copia risulta «da aggiornare» (poi aggiornata, R-MI-27); con commit nuovi su entrambe la striscia compare con il riassunto corretto; «Più tardi» la toglie e torna solo se le copie cambiano; quando le copie tornano allineate sparisce; con modifiche non committate su una sola copia non compare; due copie su branch diversi non la fanno comparire.
 
 ## R-MI-23 — Anteprima e pannello del progetto con la macchina
 
@@ -361,6 +368,33 @@ Con in primo piano un progetto presente su più macchine, `Ctrl+Alt+↓` passa a
 
 **Accettazione:** progetto su tre macchine con una spenta: `Ctrl+Alt+↓` alterna le due in linea.
 
+## R-MI-26 — I commit viaggiano fra le copie
+
+**Fonti:** F25. Risolve Q6.
+
+Ogni macchina tiene aggiornata la propria copia leggendo i commit delle copie gemelle in linea, direttamente sul collegamento di Studio: niente push su GitHub, funziona anche senza `origin`. Ogni macchina scrive solo sul proprio repository: dall'altra legge soltanto. I commit ricevuti stanno in riferimenti propri di Studio (per macchina e per branch), separati dai branch di lavoro, così ogni macchina sa da sola se è allineata, indietro, avanti o divergente rispetto all'altra. Se `origin` c'è, lo si legge come oggi. Studio non fa mai push da solo.
+
+**Accettazione:** due copie dello stesso repository senza `origin`; un commit sul Mac compare, entro il successivo aggiornamento dello stato, fra i riferimenti della copia di Windows, che risulta «indietro di 1»; nessun push su GitHub; con il permesso di sola lettura la lettura dei commit funziona e nessun file dell'altra macchina cambia.
+**Errore da evitare:** scrivere sul repository dell'altra macchina; commit di lavoro pubblicati su GitHub senza una scelta dell'utente.
+
+## R-MI-27 — La copia indietro si aggiorna da sola
+
+**Fonti:** F25.
+
+Una branch che sulla copia locale è soltanto indietro avanza con un fast-forward. Se la branch è in uso nella cartella del progetto o in una corsia, l'avanzamento avviene solo se quella cartella non ha modifiche non committate, l'editor non ha file non salvati e nessun agente o terminale sta lavorando lì; altrimenti la tessera la segna «da aggiornare» e l'aggiornamento parte appena la cartella si libera. Mai merge, rebase o reset automatici.
+
+**Accettazione:** commit sul Mac, copia di Windows ferma e pulita: Windows avanza da sola e l'editor ricarica i file aperti; con un agente al lavoro su Windows resta «da aggiornare» e avanza a turno finito; con commit su entrambe nessun avanzamento e compare l'avviso di R-MI-22.
+**Errore da evitare:** toccare la cartella mentre un agente scrive; perdere modifiche non salvate.
+
+## R-MI-28 — Portare le modifiche non committate cambiando macchina
+
+**Fonti:** F25. Precisa R-MI-13 e R-MI-25; anticipa una parte di R-MI-14.
+
+Le modifiche non committate restano sulla loro macchina. Cambiando macchina (indicatore sotto il composer, `Ctrl+Alt+↑/↓`) quando la copia di partenza ne ha, Studio offre «Porta qui le modifiche». La copia di arrivo prima si allinea ai commit (R-MI-27), poi riceve un'istantanea delle modifiche, file nuovi compresi, e la applica. La copia di partenza torna pulita solo dopo la conferma dell'arrivo, e l'istantanea resta recuperabile su entrambe. Serve che nessun agente lavori su nessuna delle due copie. La sessione della chat non si sposta: resta R-MI-14.
+
+**Accettazione:** modifiche non committate sul Mac, passaggio a Windows con «Porta qui le modifiche»: su Windows compaiono gli stessi file modificati, nuovi e cancellati, e il Mac torna pulito; se l'applicazione fallisce a metà, il Mac non perde nulla.
+**Errore da evitare:** modifiche sincronizzate in automatico (resta scartata la sincronizzazione continua dei file); pulire la copia di partenza prima della conferma.
+
 ## Strade scartate
 
 Confermate dall'utente il 2026-11-12 (F5):
@@ -369,7 +403,7 @@ Confermate dall'utente il 2026-11-12 (F5):
 |---|---|
 | Collab di omp | Una stanza per sessione, solo chat, relay non ospitabile in proprio; già scartata in `IDEAS.md` e nel Gate R44 |
 | omp via SSH senza Studio | Tutto ciò che non è chat andrebbe riscritto sopra SSH; richiede una porta raggiungibile |
-| Sincronizzazione continua dei file | Conflitti, file a metà, sessioni rovinate da due scrittori, percorsi non portabili |
+| Sincronizzazione continua dei file | Conflitti, file a metà, sessioni rovinate da due scrittori, percorsi non portabili. Resta scartata anche dopo F25: si sincronizzano i commit (R-MI-26) e le modifiche non committate si spostano solo su richiesta, cambiando macchina (R-MI-28) |
 
 ## Domande aperte
 
@@ -377,8 +411,8 @@ Confermate dall'utente il 2026-11-12 (F5):
 - **Q2 — Punto d'incontro.** Risolta il 2026-11-16 (F13, F15): iroh, con un `iroh-relay` ospitato dall'utente sul proprio server (R-MI-16, R-MI-17). Il relay Bun di Studio Remote resta per il telefono.
 - **Q3 — Ambiti dei permessi** di R-MI-09. Risolta il 2026-11-16 (F16): Lettura (sempre), Agenti, File e Git, Terminale; tutti accesi all'abbinamento, modificabili e revocabili per macchina.
 - **Q4 — Interfaccia** di abbinamento, elenco macchine e badge. Risolta il 2026-11-16 (F16): implementazione diretta con i componenti di Studio, senza anteprima.
-- **Q5 — Quando due copie divergono** (R-MI-22). Risolta il 2026-11-17 nel modulo della sessione: branch diversi, commit presenti in una copia e non nell'altra, modifiche non committate su entrambe; esclusa la sola copia con modifiche non committate.
-- **Q6 — Una sola copia per ramo** (aperta, 2026-11-18): «se c'è un progetto multi-istanza c'è solo una copia, non ci deve essere una copia diversa per macchina, questo eviterebbe anche problemi di versioni divergenti. Ogni ramo deve essere una sola copia, ci sia una macchina o 10». Va contro R-MI-12 come realizzato (copie unite per identità, R-MI-22 per le divergenze) e tocca la strada scartata «Sincronizzazione continua dei file». Da decidere: ogni ramo vive su una sola macchina e le altre lo guidano da remoto, oppure una sincronizzazione via git. R-MI-24/25 restano validi finché esistono copie.
+- **Q5 — Quando due copie divergono** (R-MI-22). Risolta il 2026-11-17 nel modulo della sessione: branch diversi, commit presenti in una copia e non nell'altra, modifiche non committate su entrambe; esclusa la sola copia con modifiche non committate. **Sostituita il 2026-11-18 da F25** (nuova regola in R-MI-22).
+- **Q6 — Una sola copia per ramo.** Risolta il 2026-11-18 (F25): le copie restano una per macchina ma si sincronizzano via git, con i commit scambiati direttamente fra le macchine (R-MI-26, R-MI-27, R-MI-28); divergono solo quando una sincronizzazione automatica non basta (R-MI-22).
 
 ---
 

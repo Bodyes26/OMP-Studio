@@ -61,6 +61,12 @@
 	"git_branch_create": ["routed", "files"],
 	"git_upstream_status": ["routed", "read"],
 	"git_sync_repo": ["routed", "files"],
+	"copy_sync_heads": ["routed", "read"],
+	"copy_sync_bundle": ["routed", "read"],
+	"copy_sync": ["routed", "files"],
+	"copy_wip_snapshot": ["routed", "files"],
+	"copy_wip_receive": ["routed", "files"],
+	"copy_wip_finish": ["routed", "files"],
 
 	"project_tasks_read": ["routed", "read"],
 	"project_tasks_write": ["routed", "agents"],
