@@ -6,7 +6,7 @@
 // come `extension_ui_request` di tipo `editor` con il titolo che inizia con
 // `studio-plan-review:` (meta JSON) e il piano come testo precompilato; la
 // risposta e' la decisione JSON. Testi dei prompt di esecuzione adattati da
-// oh-my-pi 18.8.4 (MIT): prompts/system/plan-mode-approved.md e
+// oh-my-pi 19.0.0 (MIT): prompts/system/plan-mode-approved.md e
 // plan-mode-compact-instructions.md.
 
 export const PLAN_REVIEW_TITLE_PREFIX = 'studio-plan-review:';

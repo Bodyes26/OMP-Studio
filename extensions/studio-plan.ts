@@ -22,8 +22,9 @@
 // I testi dei prompt sono adattati da oh-my-pi (MIT, Copyright (c) 2025 Mario
 // Zechner, (c) 2025-2026 Can Boluk, (c) 2026 Stencil Labs, Inc.):
 // packages/coding-agent/src/prompts/system/plan-mode-active.md e
-// plan-mode-subagent.md, versione 18.8.4. Vanno riallineati quando upstream li
-// cambia (controllo di release dei comandi, docs/COMMANDS.md).
+// plan-mode-subagent.md, versione 19.0.0. Vanno riallineati quando upstream li
+// cambia (controllo di release dei comandi, docs/COMMANDS.md). Il «Save» della
+// revisione upstream (19.0) non si copia: la revisione di Studio ha le sue strade.
 
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
@@ -98,9 +99,9 @@ Use \`##\` headings for the sections below: OMP Studio shows each \`##\` section
 Resolve unknowns by discovery, not questions.
 
 - Discoverable facts (locations, behavior, signatures, configs): MUST discover with \`glob\`, \`grep\`, \`read\`, or parallel read-only \`scout\` subagents via \`task\`. Every asserted path, symbol, signature, behavior: actually read this session. Unconfirmed: mark inline \`unverified — confirm first\`.
-- Preferences/tradeoffs (intent, UX, scope edges): ask early via \`ask\` with 2–4 mutually exclusive options and a recommended default. Unanswered → use default; record under Assumptions.
+- Preferences/tradeoffs (intent, UX, scope edges): ask early via \`ask\` with 2–4 mutually exclusive options, recommended default preselected. Unanswered → use default; record under Assumptions.
 
-Every question MUST alter the plan or resolve a load-bearing choice; batch questions. NEVER ask what exploration answers.
+Every question MUST alter the plan or resolve a load-bearing choice; one form per round. NEVER ask what exploration answers.
 
 ## Workflow
 

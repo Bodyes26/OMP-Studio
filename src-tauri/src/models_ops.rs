@@ -2284,6 +2284,7 @@ const BUILTIN_PROVIDER_NAMES: &[(&str, &str)] = &[
     ("openai-codex", "OpenAI Codex"),
     ("google-antigravity", "Google Antigravity"),
     ("antigravity-cli", "Google Antigravity (CLI)"),
+    ("kiro", "Kiro"),
     ("opencode-go", "OpenCode Go"),
     ("opencode-zen", "OpenCode Zen"),
     ("perplexity", "Perplexity Search"),

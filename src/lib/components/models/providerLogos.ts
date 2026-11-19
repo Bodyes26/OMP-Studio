@@ -30,6 +30,7 @@ export type KnownProviderId =
 	| 'commandcode'
 	| 'tokenrouter'
 	| 'xkiro'
+	| 'kiro'
 	| 'google-antigravity'
 	| 'gemini'
 	| 'google'
@@ -84,6 +85,8 @@ const KNOWN_PROVIDERS = new Map<string, KnownProviderId>([
 	['commandcode', 'commandcode'],
 	['tokenrouter', 'tokenrouter'],
 	['xkiro', 'xkiro'],
+	// Kiro (AWS), provider integrato da omp 18.22.2: distinto da xKiro.
+	['kiro', 'kiro'],
 
 	// Google Antigravity
 	['google-antigravity', 'google-antigravity'],

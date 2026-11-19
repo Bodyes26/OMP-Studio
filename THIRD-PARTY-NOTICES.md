@@ -50,6 +50,7 @@ All brand icons, trademarks, and registered trademarks belong to their respectiv
 - Fireworks AI is a trademark of Fireworks AI.
 - GitLab is a trademark of GitLab, Inc.
 - Hugging Face is a trademark of Hugging Face, Inc.
+- Kiro is a trademark of Amazon.com, Inc. or its affiliates; the bundled `static/provider-logos/kiro.svg` is the Lobe Icons mark.
 
 ## Locally bundled provider marks
 

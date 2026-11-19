@@ -12,6 +12,9 @@ released: items are closed into a version via `npm run release -- <version>`.
 ## [Unreleased]
 
 ### Fixed
+- With omp 19, tool cards, the subagent tray and the activity line show the purpose of each action again: omp 19 turns it off outside the terminal, Studio turns it back on for chats, the Lab and automations.
+- `/handoff` with omp 19 compacts the context in place with the handoff summary and shows the tokens saved: the chat is no longer emptied and the "new session started" notice no longer appears.
+- In setup, connecting Google Antigravity with omp 18.22.2 or later shows the provider's warning with "I accept, continue" and "Cancel", instead of a "Paste the code" field that would not accept the answer.
 - A project present on several machines counts once for `Ctrl+Tab`, as in the bar: the cycle used to go through every copy of the same project before moving on. (TPR-040)
 - The tile of a project on several machines shows when the agent is waiting for an answer on any copy, and click, `Ctrl+Tab` and `Ctrl+1…9` open the copy that is waiting instead of an empty session on the last machine used. (R-MI-24)
 - On a project from another machine, the path in the panel no longer opens the folder on this computer's disk, where it does not exist. (R-MI-23)
@@ -33,6 +36,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Studio Remote again recognizes which models accept images: the PWA read a model field that the machine state no longer sends, so every model looked like it accepted them. The relay type check is restored, so the relay image is published again on every change. (REL-001)
 
 ### Added
+- omp 18.22.2's Kiro provider shows its own name and logo, distinct from xKiro.
 - `Ctrl+1` … `Ctrl+8` (`⌘1` … `⌘8` on Mac) open the project at that position in the bar, `Ctrl+9` the last one; holding `Ctrl` (`⌘` on Mac) for a moment shows a number above each tile. (TPR-042)
 - `Ctrl+Alt+↓` / `Ctrl+Alt+↑` switch to the active project's copy on the next or previous machine, skipping offline ones. (R-MI-25)
 - Copies of the same project on several machines sync through git, directly between the machines and without going through GitHub: each Studio reads the other's commits and the copy left behind fast-forwards on its own once the folder has no changes, the editor has no unsaved files and no agent is working there; meanwhile the tile marks it "to update". Studio never pushes or merges on its own. (R-MI-26, R-MI-27)
@@ -61,6 +65,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - When the `omp` installation is broken (for example a link pointing to a deleted folder), Studio says so and offers "Repair" instead of starting over as on a new computer. When an essential piece is missing, the setup reopens directly on that step, without the animated intro. (SET-010, SET-020)
 
 ### Changed
+- In Plan mode the agent gathers its questions in one form per round, with the recommended option already selected, as in omp 19.
 - `Ctrl+Shift+Tab` switches to the previous project, also from the composer, the terminal and the preview; lanes are cycled with `Ctrl+Alt+←/→`. (TPR-041, ANT-012)
 - Project bar tiles show where the project runs with a text-free glyph instead of the badge with the machine name: a screen with waves for another machine, a crossed-out screen when it does not respond, one screen per copy when the project is on several machines (the one in use filled) and an amber ≠ when the copies diverge. The glyph no longer changes when the tile is clicked, and screen readers announce the machine. On light themes the amber of graphic marks is lighter, so it stands out next to the greys. (R-MI-19)
 - A project's hover preview shows the machine it runs on first and, at the bottom, the other machines where it is available; the project panel has a "Machines" row that opens a view to choose which machine new chats and tasks start on and which one starts the queue by itself, and to copy each copy's path. (R-MI-23)

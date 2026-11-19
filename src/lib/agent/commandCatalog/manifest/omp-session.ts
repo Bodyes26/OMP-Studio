@@ -386,7 +386,7 @@ export const OMP_ENTRIES_SESSION: readonly CommandManifestEntry[] = [
 				summary: 'Rimuove meccanicamente output di tool voluminosi, immagini o blocchi di reasoning a costo zero.',
 				benefits: [
 					'Istantaneo ed economico: non chiama alcun modello LLM di summarization',
-					'Sostituisce output pesanti con riferimenti artifact:// recuperabili all\'occorrenza',
+					'Sostituisce output pesanti con file local://N.log recuperabili all\'occorrenza',
 					'Permette di ripulire solo immagini o solo blocchi di reasoning del modello'
 				],
 				examples: [
@@ -401,7 +401,7 @@ export const OMP_ENTRIES_SESSION: readonly CommandManifestEntry[] = [
 				summary: 'Mechanically strip heavy tool outputs, images, or thinking blocks locally with zero model cost.',
 				benefits: [
 					'Instant and zero-cost: requires no LLM summarization call',
-					'Replaces large payloads with recoverable artifact:// pointers',
+					'Replaces large payloads with recoverable local://N.log files',
 					'Can selectively target attached images or historical thinking blocks'
 				],
 				examples: [

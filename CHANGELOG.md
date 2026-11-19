@@ -12,6 +12,9 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 ## [Unreleased]
 
 ### Fixed
+- Con omp 19 le card dei tool, il vassoio dei subagenti e la riga di attività mostrano di nuovo lo scopo di ogni azione: omp 19 lo spegne fuori dal terminale, Studio lo riattiva per chat, Laboratorio e automazioni.
+- `/handoff` con omp 19 compatta il contesto sul posto con il riassunto di passaggio consegne e mostra i token risparmiati: la chat non si svuota più e non compare più l'avviso «nuova sessione avviata».
+- Nel setup il collegamento a Google Antigravity con omp 18.22.2 o successivo mostra l'avviso del provider con «Accetto, continua» e «Annulla», invece di un campo «Incolla il codice» che non accettava la risposta.
 - Un progetto presente su più macchine conta una volta sola per `Ctrl+Tab`, come nella barra: prima il ciclo passava da una copia all'altra dello stesso progetto prima di andare avanti. (TPR-040)
 - La tessera di un progetto su più macchine mostra se l'agente aspetta una risposta su una qualunque delle copie, e clic, `Ctrl+Tab` e `Ctrl+1…9` aprono la copia che aspetta invece di una sessione vuota sull'ultima macchina usata. (R-MI-24)
 - Su un progetto di un'altra macchina il percorso nel pannello non apre più la cartella sul disco di questo computer, dove non esiste. (R-MI-23)
@@ -33,6 +36,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Studio Remote torna a riconoscere quali modelli accettano immagini: la PWA leggeva un campo del modello che lo stato della macchina non manda più, quindi ogni modello sembrava accettarle. Controllo dei tipi del relay ripristinato, quindi l'immagine del relay torna a pubblicarsi a ogni modifica. (REL-001)
 
 ### Added
+- Il provider Kiro di omp 18.22.2 compare con il suo nome e il suo logo, distinto da xKiro.
 - `Ctrl+1` … `Ctrl+8` (`⌘1` … `⌘8` su Mac) aprono il progetto in quella posizione della barra, `Ctrl+9` l'ultimo; tenendo premuto `Ctrl` (`⌘` su Mac) per un istante compare il numero sopra ogni tessera. (TPR-042)
 - `Ctrl+Alt+↓` / `Ctrl+Alt+↑` passano alla copia del progetto attivo sulla macchina successiva o precedente, saltando quelle spente. (R-MI-25)
 - Le copie dello stesso progetto su più macchine si sincronizzano via git, direttamente fra le macchine e senza passare da GitHub: ogni Studio legge i commit dell'altro e la copia rimasta indietro avanza da sola con un fast-forward, quando la cartella non ha modifiche, l'editor non ha file non salvati e nessun agente ci sta lavorando; nel frattempo la tessera la segna «da aggiornare». Studio non fa mai push né merge da solo. (R-MI-26, R-MI-27)
@@ -61,6 +65,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Se l'installazione di `omp` è rotta (per esempio un collegamento che punta a una cartella cancellata), Studio lo dice e offre «Ripara», invece di ripartire come su un computer nuovo. Quando manca un pezzo indispensabile il setup riapre direttamente su quel passo, senza l'ingresso animato. (SET-010, SET-020)
 
 ### Changed
+- In modalità Piano l'agente raccoglie le domande in un solo modulo per giro, con l'opzione consigliata già selezionata, come in omp 19.
 - `Ctrl+Shift+Tab` passa al progetto precedente, anche dal composer, dal terminale e dall'anteprima; le corsie si scorrono con `Ctrl+Alt+←/→`. (TPR-041, ANT-012)
 - Le tessere della barra dicono dove gira il progetto con un glifo senza testo al posto del badge con il nome della macchina: schermo con le onde per un'altra macchina, schermo barrato se non risponde, uno schermo per copia quando il progetto è su più macchine (pieno quello in uso) e il segno ≠ in ambra quando le copie divergono. Il glifo non cambia più cliccando la tessera, e il lettore di schermo legge la macchina. Sui temi chiari l'ambra dei segni grafici è più chiara, per riconoscerla accanto ai grigi. (R-MI-19)
 - L'anteprima di un progetto mostra prima la macchina su cui gira e in fondo le altre dove è disponibile; il pannello del progetto ha la riga «Macchine», che apre una vista dove scegliere su quale macchina partono le nuove chat e i task e su quale parte da sola la coda, e da cui copiare il percorso di ogni copia. (R-MI-23)

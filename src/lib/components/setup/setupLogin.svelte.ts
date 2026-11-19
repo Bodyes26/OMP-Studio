@@ -13,6 +13,10 @@
  * - Terminale: quando omp risponde «requires secret input» o «requires
  *   interactive prompts» in RPC non c'è modo di andare avanti, e serve
  *   `omp login <id>` in un vero PTY (KeyLoginTerminal.svelte).
+ * - Conferma: da omp 18.22.2 i provider «a tuo rischio» (`antigravity-cli`)
+ *   mandano un `input` con l'avviso prima di `open_url`, e proseguono solo con
+ *   «yes». In RPC e' l'unico `input` che puo' precedere l'URL (gli altri omp li
+ *   rifiuta), quindi la tessera lo mostra come avviso da accettare.
  *
  * Un solo login per volta: il processo è uno, gli eventi non portano il
  * provider con sé, quindi due flussi aperti insieme si confonderebbero. Chi
@@ -29,7 +33,7 @@ import {
 	type AuthAccount
 } from '#lib/stores/modelSettings.svelte.ts';
 
-export type LoginStatus = 'idle' | 'waiting' | 'linking' | 'terminal' | 'connected' | 'error' | 'cancelled';
+export type LoginStatus = 'idle' | 'waiting' | 'confirm' | 'linking' | 'terminal' | 'connected' | 'error' | 'cancelled';
 
 export interface LoginState {
 	status: LoginStatus;
@@ -42,6 +46,8 @@ export interface LoginState {
 	/** Domanda di omp in attesa di risposta (`input`): titolo e segnaposto. */
 	promptTitle: string | null;
 	promptPlaceholder: string | null;
+	/** Avviso «a tuo rischio» da accettare prima del login (`confirm`). */
+	riskMessage: string | null;
 	/** Messaggio d'errore vero, quando il runtime lo dice. */
 	error: string | null;
 }
@@ -53,6 +59,7 @@ const IDLE: LoginState = {
 	deviceCode: null,
 	promptTitle: null,
 	promptPlaceholder: null,
+	riskMessage: null,
 	error: null
 };
 
@@ -64,6 +71,7 @@ const CONNECTED_STATE: LoginState = {
 	deviceCode: null,
 	promptTitle: null,
 	promptPlaceholder: null,
+	riskMessage: null,
 	error: null
 };
 
@@ -89,6 +97,8 @@ export class SetupLoginStore {
 	private activeId: string | null = null;
 	/** Richiesta `input` ancora senza risposta: è lì che va il codice incollato. */
 	private pendingInputId: string | null = null;
+	/** `open_url` gia' arrivato nel flusso attivo: un `input` prima di lui e' l'avviso di rischio. */
+	private authUrlSeen = false;
 	/** Contatore per scartare le promise di tentativi abbandonati. */
 	private attempt = 0;
 	private disposed = false;
@@ -206,6 +216,7 @@ export class SetupLoginStore {
 						? event.url
 						: null;
 			if (target === null) return;
+			this.authUrlSeen = true;
 			this.set(id, { url: target, deviceCode: extractDeviceCode(event, target) });
 			if (isAllowedExternalUrl(target)) void openExternalUrl(target);
 			return;
@@ -234,6 +245,13 @@ export class SetupLoginStore {
 				this.set(id, { status: 'terminal', promptTitle: null, promptPlaceholder: null });
 				return;
 			}
+			if (!this.authUrlSeen) {
+				this.pendingInputId = requestId;
+				// L'ultima riga chiede di battere «yes»: qui risponde il pulsante.
+				const message = title.replace(/\s*Type "yes"[^\n]*$/i, '').trim();
+				this.set(id, { status: 'confirm', riskMessage: message || null });
+				return;
+			}
 			this.pendingInputId = requestId;
 			this.set(id, { status: 'waiting', promptTitle: title || null, promptPlaceholder: placeholder });
 		}
@@ -251,6 +269,7 @@ export class SetupLoginStore {
 		const attempt = ++this.attempt;
 		this.activeId = providerId;
 		this.pendingInputId = null;
+		this.authUrlSeen = false;
 		this.set(providerId, { ...IDLE, status: 'waiting', id: providerId });
 
 		await this.ensureOpen();
@@ -277,9 +296,11 @@ export class SetupLoginStore {
 			await this.markConnected(providerId);
 		} catch (error) {
 			if (attempt !== this.attempt) return;
-			// Il passaggio al terminale annulla la richiesta `input`: l'errore che ne
-			// segue è la conseguenza della nostra scelta, non un esito da mostrare.
-			if (this.states[providerId]?.status === 'terminal') return;
+			// Il passaggio al terminale o l'annullamento rispondono alla richiesta
+			// `input`: l'errore che ne segue e' la conseguenza della nostra scelta,
+			// non un esito da mostrare.
+			const status = this.states[providerId]?.status;
+			if (status === 'terminal' || status === 'cancelled') return;
 			const message = error instanceof Error ? error.message : String(error);
 			if (/requires secret input|requires interactive prompts/i.test(message)) {
 				// omp stesso dice che serve la TUI: la tessera mostra il terminale.
@@ -306,6 +327,16 @@ export class SetupLoginStore {
 		await client.respondUi({ type: 'extension_ui_response', id: requestId, value: trimmed });
 	}
 
+	/** Accetta l'avviso «a tuo rischio»: omp prosegue solo con «yes». */
+	async acceptRisk(providerId: string): Promise<void> {
+		const requestId = this.pendingInputId;
+		const client = this.client;
+		if (!requestId || !client) return;
+		this.pendingInputId = null;
+		this.set(providerId, { status: 'waiting', riskMessage: null });
+		await client.respondUi({ type: 'extension_ui_response', id: requestId, value: 'yes' });
+	}
+
 	/** Annulla il flusso: risponde `cancelled` a omp, che smette di attendere. */
 	cancel(providerId: string): void {
 		const requestId = this.pendingInputId;
@@ -317,7 +348,7 @@ export class SetupLoginStore {
 				.respondUi({ type: 'extension_ui_response', id: requestId, cancelled: true })
 				.catch(() => {});
 		}
-		this.set(providerId, { status: 'cancelled', promptTitle: null, promptPlaceholder: null });
+		this.set(providerId, { status: 'cancelled', promptTitle: null, promptPlaceholder: null, riskMessage: null });
 	}
 
 	/** Il terminale si è chiuso: si rilegge lo stato vero, senza indovinare. */

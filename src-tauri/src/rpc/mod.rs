@@ -537,13 +537,16 @@ pub(crate) struct PrewalkTargets {
 }
 
 /// Riscrive in modo atomico il file di configurazione overlay GUI,
-/// preservando la base (`tools.approvalMode: yolo`, `read.defaultLimit: 1200`,
-/// `goal.continuationModes` con `rpc`, `ask.timeout: 0`) e aggiornando `prewalk.enabled` con
-/// destinazione e ripartenza della sessione.
+/// preservando la base (`tools.approvalMode: yolo`, `tools.intentTracing: true`,
+/// `read.defaultLimit: 1200`, `goal.continuationModes` con `rpc`, `ask.timeout: 0`)
+/// e aggiornando `prewalk.enabled` con destinazione e ripartenza della sessione.
 ///
 /// `goal.continuationModes`: di default omp fa proseguire da solo un obiettivo
 /// (goal mode) solo nel terminale (`interactive`). Senza `rpc` un obiettivo
 /// creato dalla chat GUI farebbe un turno e poi si fermerebbe.
+///
+/// `tools.intentTracing`: da omp 19.0 l'intento dei tool (`i`) e' spento di
+/// default fuori dalla TUI, ma la GUI lo mostra in card, vassoio e riga di attivita'.
 ///
 /// `prewalk.into` sta nello stesso file di `enabled`: il watcher di omp risolve
 /// la destinazione quando `enabled` passa a vero, e una scrittura separata
@@ -562,7 +565,7 @@ pub(crate) fn set_gui_overlay_prewalk(
         .to_string());
     }
     let mut content = String::from(
-        "tools:\n  approvalMode: yolo\nread:\n  defaultLimit: 1200\ngoal:\n  continuationModes:\n    - interactive\n    - rpc\nask:\n  timeout: 0\nprewalk:\n",
+        "tools:\n  approvalMode: yolo\n  intentTracing: true\nread:\n  defaultLimit: 1200\ngoal:\n  continuationModes:\n    - interactive\n    - rpc\nask:\n  timeout: 0\nprewalk:\n",
     );
     content.push_str(if enabled {
         "  enabled: true\n"
@@ -711,9 +714,9 @@ pub fn write_automation_session_config(
         content.push_str("bash:\n  enabled: false\n\n");
         content.push_str("eval:\n  py: false\n  js: false\n  rb: false\n  jl: false\n\n");
         content.push_str("mcp:\n  enableProjectConfig: false\n\n");
-        content.push_str("tools:\n  approvalMode: review\n  xdev: false\n\n");
+        content.push_str("tools:\n  approvalMode: review\n  xdev: false\n  intentTracing: true\n\n");
     } else {
-        content.push_str("tools:\n  approvalMode: review\n\n");
+        content.push_str("tools:\n  approvalMode: review\n  intentTracing: true\n\n");
     }
     content.push_str("read:\n  defaultLimit: 1200\n\n");
     content.push_str("retry:\n  modelFallback: false\n  fallbackChains: {}\n\n");
@@ -837,8 +840,9 @@ pub fn write_lab_session_config(
     // Disattivazione configurazioni MCP di progetto
     content.push_str("mcp:\n  enableProjectConfig: false\n\n");
 
-    // Disattivazione xdev per esporre direttamente i tool confinati del Laboratorio
-    content.push_str("tools:\n  xdev: false\n\n");
+    // Disattivazione xdev per esporre direttamente i tool confinati del Laboratorio;
+    // intentTracing come nella GUI (spento di default in RPC da omp 19.0).
+    content.push_str("tools:\n  xdev: false\n  intentTracing: true\n\n");
     // ask.timeout: 0 per disabilitare auto-timeout di ask
     content.push_str("ask:\n  timeout: 0\n\n");
 
@@ -3557,6 +3561,8 @@ mod tests {
         struct OverlayTools {
             #[serde(rename = "approvalMode")]
             approval_mode: String,
+            #[serde(rename = "intentTracing")]
+            intent_tracing: bool,
         }
 
         #[derive(Deserialize)]
@@ -3577,6 +3583,8 @@ mod tests {
         let overlay: Overlay = serde_yaml::from_str(&content).expect("overlay GUI YAML valido");
 
         assert_eq!(overlay.tools.approval_mode, "yolo");
+        // omp 19.0 spegne gli intenti in RPC se l'impostazione manca.
+        assert!(overlay.tools.intent_tracing);
         assert_eq!(overlay.ask.timeout, 0);
         assert_eq!(overlay.read.default_limit, 1200);
         assert!(overlay.read.summarize.is_none());

@@ -51,6 +51,7 @@
 		onStart,
 		onReopen,
 		onSubmitCode,
+		onAcceptRisk,
 		onCancel,
 		onDisconnect,
 		onTerminalDone
@@ -65,6 +66,8 @@
 		onStart: () => void;
 		onReopen: () => void;
 		onSubmitCode: (code: string) => void;
+		/** Accetta l'avviso «a tuo rischio» di omp (Antigravity via ACP). */
+		onAcceptRisk: () => void;
 		onCancel: () => void;
 		onDisconnect: () => void;
 		onTerminalDone: () => void;
@@ -168,6 +171,22 @@
 			{#if loginState.status === 'error' && loginState.error}
 				<p class="tile-detail">{loginState.error}</p>
 			{/if}
+		{:else if loginState.status === 'confirm'}
+			<div class="tile-row">
+				<StatusMark status="pending" />
+				<span class="tile-trace">{m.setup2_prov_risk_title()}</span>
+			</div>
+			{#if loginState.riskMessage}
+				<p class="tile-detail tile-risk">{loginState.riskMessage}</p>
+			{/if}
+			<div class="tile-row">
+				<button type="button" class="ui-button ui-button-primary ui-button-sm" onclick={onAcceptRisk}>
+					{m.setup2_prov_risk_accept()}
+				</button>
+				<button type="button" class="ui-button ui-button-ghost ui-button-sm" onclick={onCancel}>
+					{m.setup2_prov_cancel()}
+				</button>
+			</div>
 		{:else}
 			<div class="tile-row">
 				<StatusMark status="running" label={m.setup2_prov_in_progress()} />
@@ -391,6 +410,11 @@
 		font-size: var(--text-caption);
 		color: var(--ink-muted);
 		overflow-wrap: anywhere;
+	}
+
+	/* L'avviso di omp e' su piu' paragrafi. */
+	.tile-risk {
+		white-space: pre-line;
 	}
 
 	.tile-code {

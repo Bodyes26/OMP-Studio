@@ -826,10 +826,15 @@ export class AgentSession {
 	// Righe `command_output` raccolte mentre una compattazione passa dal comando slash.
 	private compactCapture: string[] | null = null;
 	/**
-	 * Compattazione avviata da `compact()` di Studio: i suoi eventi
+	 * Compattazione avviata da Studio (`compact()`, `handoff()`): i suoi eventi
 	 * `manual_compaction_*` (omp 18.13.3+) li gestisce gia' la risposta RPC.
 	 */
 	private ownCompaction = false;
+	/**
+	 * Esito dell'ultimo `manual_compaction_end` di una compattazione propria:
+	 * da omp 19 l'RPC `handoff` risponde `{}` e i token risparmiati arrivano solo qui.
+	 */
+	private ownCompactionResult: CompactResult | null = null;
 	sessionId = $state<string | null>(null);
 	sessionFile = $state<string | null>(null);
 	sessionName = $state<string | null>(null);
@@ -3138,7 +3143,10 @@ export class AgentSession {
 			}
 
 			case 'manual_compaction_end': {
-				if (this.ownCompaction) return;
+				if (this.ownCompaction) {
+					this.ownCompactionResult = (event.result as CompactResult | undefined) ?? null;
+					return;
+				}
 				this.isCompacting = false;
 				const last = this.lastOfKind('compaction');
 				const result = event.result as CompactResult | undefined;
@@ -6212,42 +6220,76 @@ export class AgentSession {
 		if (typeof res?.tokensAfter === 'number') entry.tokensAfter = res.tokensAfter;
 	}
 
-	/** Esegue l'handoff della sessione, avviandone una nuova con il riassunto della precedente. */
+	/**
+	 * Passaggio di consegne. Da omp 19 l'RPC `handoff` e' una compattazione in
+	 * loco (`compact` in modo handoff, in background) e risponde `{}`; fino alla
+	 * 18.x apriva una nuova sessione e rispondeva `{ savedPath }` o `null`.
+	 */
 	async handoff(customInstructions?: string): Promise<boolean> {
 		if (this.isCompacting) return false;
 		this.isCompacting = true;
-		this.pushNotice('info', messages.ui_ts_session_passaggio_delle_consegne_handoff_in_corso_bce8(), 'studio');
-
+		this.ownCompaction = true;
+		this.ownCompactionResult = null;
+		const entryId = this.nextEntryId++;
+		const entry = this.push<CompactionEntry>({
+			id: entryId,
+			kind: 'compaction',
+			message: messages.ui_ts_session_passaggio_delle_consegne_handoff_in_corso_bce8(),
+			running: true
+		});
+		// Solo la 18.x cambia sessione, ma lo si sa dalla risposta: il flag va
+		// alzato prima, e `refreshState` lo azzera comunque alla prima lettura.
 		this.expectingSessionTransition = true;
 		try {
-			await this.client.send({
+			const res = await this.client.send<{ savedPath?: string } | null>({
 				type: 'handoff',
 				customInstructions: customInstructions || undefined
 			});
 
-			this.entries = [];
-			this.toolEntries.clear();
-			this.clearStreamAsk();
-			this.assistantEntry = null;
-			this.activeAssistantId = null;
-			this.activityLine = null;
-			this.clearHeadsUp();
-			this.optimisticUser = null;
-			this.subagents = [];
-			this.todoPhases = [];
-			this.todoReminder = null;
-			this.renderedCustomKeys.clear();
-			this.clearQueueState();
-			this.visibleCount = RENDER_WINDOW;
+			if (res === null || res === undefined || 'savedPath' in res) {
+				this.removeEntry(entryId);
+				this.entries = [];
+				this.toolEntries.clear();
+				this.clearStreamAsk();
+				this.assistantEntry = null;
+				this.activeAssistantId = null;
+				this.activityLine = null;
+				this.clearHeadsUp();
+				this.optimisticUser = null;
+				this.subagents = [];
+				this.todoPhases = [];
+				this.todoReminder = null;
+				this.renderedCustomKeys.clear();
+				this.clearQueueState();
+				this.visibleCount = RENDER_WINDOW;
 
+				await this.rebuildTranscript();
+				await this.refreshState();
+				void this.refreshCost();
+				this.pushNotice('info', messages.ui_ts_session_handoff_completato_nuova_sessione_avviata_con_il_e2ff(), 'studio');
+				return true;
+			}
+
+			this.expectingSessionTransition = false;
+			this.applyCompactResult(entry, this.ownCompactionResult);
 			await this.rebuildTranscript();
 			await this.refreshState();
+			this.promptCacheContextChanged = true;
+			this.cacheWarmingLast = null;
+			this.invalidateContextReport();
 			void this.refreshCost();
-			this.pushNotice('info', messages.ui_ts_session_handoff_completato_nuova_sessione_avviata_con_il_e2ff(), 'studio');
+			this.pushNotice('info', messages.l10n_agent_handoff_done(), 'studio');
 			return true;
 		} catch (error) {
+			this.expectingSessionTransition = false;
+			this.removeEntry(entryId);
 			const errStr = error instanceof Error ? error.message : String(error);
-			if (errStr.includes('Nothing to hand off') || errStr.includes('no messages')) {
+			if (
+				errStr.includes('Nothing to hand off') ||
+				errStr.includes('Nothing to compact') ||
+				errStr.includes('session too small') ||
+				errStr.includes('no messages')
+			) {
 				this.pushNotice('info', messages.ui_ts_session_nessun_contenuto_per_l_handoff_la_sessione_129e(), 'studio');
 			} else {
 				this.pushNotice('error', messages.l10n_agent_handoff_failed({ error: this.reason(error) }), 'studio');
@@ -6255,10 +6297,17 @@ export class AgentSession {
 			return false;
 		} finally {
 			this.isCompacting = false;
+			this.ownCompaction = false;
+			this.ownCompactionResult = null;
 			if (!this.isStreaming) {
 				this.agentState = this.pendingUi ? 'attention' : 'idle';
 			}
 		}
+	}
+
+	private removeEntry(id: number): void {
+		const idx = this.entries.findIndex((e) => e.id === id);
+		if (idx !== -1) this.entries.splice(idx, 1);
 	}
 
 	/** Provider OAuth disponibili per il login, con stato di autenticazione corrente. */

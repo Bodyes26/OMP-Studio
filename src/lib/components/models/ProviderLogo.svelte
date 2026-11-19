@@ -9,6 +9,7 @@
 		commandcode: '/provider-logos/commandcode.svg',
 		tokenrouter: '/provider-logos/tokenrouter.svg',
 		xkiro: '/provider-logos/xkiro.svg',
+		kiro: '/provider-logos/kiro.svg',
 		openrouter: '/provider-logos/openrouter.svg'
 	};
 	const monochromeLogos = new Set(['llama.cpp', 'commandcode', 'tokenrouter', 'devin']);

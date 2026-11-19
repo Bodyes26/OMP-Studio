@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "package": "@oh-my-pi/pi-tui",
-  "ompVersion": "18.20.2",
-  "packageVersion": "18.20.2",
+  "ompVersion": "19.0.0",
+  "packageVersion": "19.0.0",
   "setupVersion": 3,
   "scenes": [
     {

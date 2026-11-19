@@ -195,6 +195,7 @@
 						onStart={() => start(def)}
 						onReopen={() => void login.reopen(activeIdOf(def))}
 						onSubmitCode={(code) => void login.submitCode(activeIdOf(def), code)}
+						onAcceptRisk={() => void login.acceptRisk(activeIdOf(def))}
 						onCancel={() => login.cancel(activeIdOf(def))}
 						onDisconnect={() => void login.disconnect(activeIdOf(def))}
 						onTerminalDone={() => void login.finishTerminal(activeIdOf(def))}
@@ -223,6 +224,7 @@
 					onStart={() => start(def)}
 					onReopen={() => void login.reopen(activeIdOf(def))}
 					onSubmitCode={(code) => void login.submitCode(activeIdOf(def), code)}
+					onAcceptRisk={() => void login.acceptRisk(activeIdOf(def))}
 					onCancel={() => login.cancel(activeIdOf(def))}
 					onDisconnect={() => void login.disconnect(activeIdOf(def))}
 					onTerminalDone={() => void login.finishTerminal(activeIdOf(def))}
@@ -322,6 +324,26 @@
 												onclick={() => startOther(provider.id)}
 											>
 												{m.setup2_prov_retry()}
+											</button>
+										</div>
+									{:else if state.status === 'confirm'}
+										<div class="prov-other-line">
+											<span class="prov-other-note">
+												{state.riskMessage ?? m.setup2_prov_risk_title()}
+											</span>
+											<button
+												type="button"
+												class="ui-button ui-button-primary ui-button-sm"
+												onclick={() => void login.acceptRisk(provider.id)}
+											>
+												{m.setup2_prov_risk_accept()}
+											</button>
+											<button
+												type="button"
+												class="prov-other-link"
+												onclick={() => login.cancel(provider.id)}
+											>
+												{m.setup2_prov_cancel()}
 											</button>
 										</div>
 									{:else}

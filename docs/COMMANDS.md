@@ -90,7 +90,6 @@ Regole della politica di esclusione:
 | Comando | Descrizione omp | Motivo dell'esclusione dalla GUI |
 | --- | --- | --- |
 | `/forget-approvals` | Forget every file and folder approval Ask and remember has recorded | Studio opera con `tools.approvalMode: yolo` (`src-tauri/src/rpc/mod.rs:217-219`), concedendo approvazione automatica agli strumenti. Le approvazioni persistenti di singoli file o cartelle (funzione di `Ask and remember` nella TUI/CLI) non vengono registrate ne' utilizzate nel normale flusso della GUI; pertanto il comando non e' esposto nel catalogo comandi e non blocca il rilascio. |
-| `/unpin` | Unpin a session from the top of the resume list | Le sessioni fissate (omp 18.17, `~/.omp/session-pins.json`) non sono gestite da Studio: l'elenco sessioni della GUI non legge i pin, quindi il comando non viene esposto. Scelta dell'utente del 2026-11-06. |
 
 ---
 
@@ -159,10 +158,10 @@ Alcune funzioni della GUI replicano un flusso che omp offre solo nella TUI e ne 
 
 | Copia in Studio | Originale in oh-my-pi (`packages/coding-agent/src/`) | Versione copiata |
 | --- | --- | --- |
-| `PLAN_MODE_ACTIVE_PROMPT` in `extensions/studio-plan.ts` | `prompts/system/plan-mode-active.md` (adattato: `resolve { action: "apply" }` → `studio_plan_submit`) | 18.8.4 |
-| `PLAN_MODE_SUBAGENT_PROMPT` in `extensions/studio-plan.ts` | `prompts/system/plan-mode-subagent.md` | 18.8.4 |
-| prompt d'esecuzione e istruzioni di compattazione in `src/lib/agent/planMode.ts` | `prompts/system/plan-mode-approved.md`, `plan-mode-compact-instructions.md` | 18.8.4 |
-| `planSaveFileName` (estensione e `planMode.ts`), `normalizePlanSlug` e `resolveLocalRoot` (estensione) | `plan-mode/plan-autosave.ts`, `plan-mode/plan-files.ts`, radice di `local://` | 18.8.4 |
+| `PLAN_MODE_ACTIVE_PROMPT` in `extensions/studio-plan.ts` | `prompts/system/plan-mode-active.md` (adattato: `resolve { action: "apply" }` → `studio_plan_submit`; non copiato il «Save» della revisione TUI) | 19.0.0 |
+| `PLAN_MODE_SUBAGENT_PROMPT` in `extensions/studio-plan.ts` | `prompts/system/plan-mode-subagent.md` | 19.0.0 |
+| prompt d'esecuzione e istruzioni di compattazione in `src/lib/agent/planMode.ts` | `prompts/system/plan-mode-approved.md`, `plan-mode-compact-instructions.md` | 19.0.0 |
+| `planSaveFileName` (estensione e `planMode.ts`), `normalizePlanSlug` e `resolveLocalRoot` (estensione) | `plan-mode/plan-autosave.ts`, `plan-mode/plan-files.ts`, radice di `local://` | 19.0.0 |
 
 Procedura: `git diff` dei file upstream tra la versione copiata e quella nuova; se cambiano, aggiorna la copia mantenendo l'adattamento, aggiorna la colonna «Versione copiata» qui e nell'intestazione dei file, rilancia `test/plan-mode.test.ts`. Se omp introduce un comando RPC `plan` (o una richiesta UI `plan_review`), apri invece una decisione per sostituire l'estensione.
 
