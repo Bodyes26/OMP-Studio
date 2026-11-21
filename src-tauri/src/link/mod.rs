@@ -1059,7 +1059,8 @@ mod tests {
         assert!(versions_compatible("1.10.1-nightly.1794865373032", "1.10.1-nightly.1795999999999"));
         assert!(versions_compatible("1.10.1", "1.10.1-nightly.123"));
         assert!(versions_compatible("1.10.1-nightly.123", "1.10.1"));
-        assert!(versions_compatible("1.10.0", VERSION));
+        // La CI riscrive CARGO_PKG_VERSION prima di eseguire i test.
+        assert!(versions_compatible("1.10.1", "1.10.1"));
         assert!(!versions_compatible("1.9.0", "1.10.0"));
         assert!(!versions_compatible("1.10.0", "1.10.1"));
         assert!(!versions_compatible("2.0.0-nightly.1", "1.10.0-nightly.1"));
