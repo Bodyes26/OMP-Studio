@@ -257,17 +257,79 @@ pub(crate) enum CloseOutcome {
     Missing,
 }
 
+/// Le sessioni del gestore, consultabili da chi non ha lo stato Tauri sotto
+/// mano (la sincronizzazione delle copie gira in un thread bloccante).
+static QUERY_SESSIONS: std::sync::OnceLock<Weak<Mutex<HashMap<u64, RpcSession>>>> = std::sync::OnceLock::new();
+
+/// Forma confrontabile di un percorso: canonica se esiste, con separatori e
+/// maiuscole uniformi, cosi' la cartella di una sessione e quella di una
+/// corsia si riconoscono anche scritte in modo diverso.
+fn comparable_path(path: &std::path::Path) -> String {
+    std::fs::canonicalize(path)
+        .unwrap_or_else(|_| path.to_path_buf())
+        .to_string_lossy()
+        .replace('\\', "/")
+        .trim_end_matches('/')
+        .to_lowercase()
+}
+
+/// Un agente sta lavorando in questa cartella adesso (R-MI-27): una sessione
+/// con `cwd` uguale e un turno aperto. Lo chiede la sincronizzazione delle
+/// copie subito prima di muovere la cartella, invece di fidarsi dell'elenco
+/// calcolato dalla finestra prima del giro di rete (A1, A2).
+pub(crate) fn turn_running_in(path: &std::path::Path) -> bool {
+    let Some(sessions) = QUERY_SESSIONS.get().and_then(Weak::upgrade) else { return false };
+    let running: Vec<String> = sessions
+        .lock()
+        .values()
+        .filter(|session| session.hub.is_running())
+        .map(|session| session.cwd.clone())
+        .collect();
+    if running.is_empty() { return false; }
+    let target = comparable_path(path);
+    running.iter().any(|cwd| comparable_path(std::path::Path::new(cwd)) == target)
+}
+
 impl RpcManager {
     pub fn new() -> Self {
         let sessions = Arc::new(Mutex::new(HashMap::new()));
         let followers = Arc::new(Mutex::new(Vec::new()));
         spawn_orphan_reaper(Arc::downgrade(&sessions), Arc::downgrade(&followers));
+        let _ = QUERY_SESSIONS.set(Arc::downgrade(&sessions));
         RpcManager {
             sessions,
             next_id: Mutex::new(1),
             open_gate: Mutex::new(()),
             followers,
         }
+    }
+
+    pub(crate) fn with_open_gate<T>(&self, f: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+        let _guard = self.open_gate.lock();
+        f()
+    }
+
+    pub(crate) fn freeze_for_move(&self, rpc_id: u64, id: &str, cwd: &str,
+        mark: impl FnOnce() -> Result<(), String>) -> Result<(), String> {
+        self.with_open_gate(|| {
+            let session = {
+                let mut sessions = self.sessions.lock();
+                let Some(session) = sessions.get(&rpc_id) else {
+                    return if crate::session_move::moved(id)?.is_some() { mark() } else { Err(session_missing(rpc_id)) };
+                };
+                if session.session_id.lock().as_deref() != Some(id) ||
+                    comparable_path(std::path::Path::new(&session.cwd)) != comparable_path(std::path::Path::new(cwd)) ||
+                    session.scope != "main" || session.execution_id.is_some() ||
+                    session.hub.is_running() {
+                    return Err("The session is not idle or does not belong to this workspace".into());
+                }
+                mark()?;
+                sessions.remove(&rpc_id).ok_or_else(|| session_missing(rpc_id))?
+            };
+            crate::lane_bridge::revoke_owner("agent", rpc_id);
+            stop_removed_session(session);
+            Ok(())
+        })
     }
 
     /// Chiude tutte le sessioni RPC attive rilasciando stdin e terminando i processi figli.
@@ -1607,6 +1669,7 @@ pub(crate) fn open_main_session(
         prevent_payg,
         execution_id,
     } = args;
+    let arrival = resume.as_deref().map(|id| crate::session_move::moved_notice(id, &cwd)).transpose()?.flatten();
     let is_read_only = read_only.unwrap_or(false);
     let is_automation_session =
         is_read_only || execution_id.is_some() || automation_origin.is_some();
@@ -1739,9 +1802,12 @@ pub(crate) fn open_main_session(
     if let Some(cost) = max_cost_usd {
         command.arg(format!("--max-cost={}", cost));
     }
-    command
-        .arg("--append-system-prompt")
-        .arg(crate::pty::main_agent_system_prompt());
+    let system = crate::pty::main_agent_system_prompt();
+    if let Some(arrival) = arrival {
+        command.arg("--append-system-prompt").arg(format!("{system}\n\n{arrival}"));
+    } else {
+        command.arg("--append-system-prompt").arg(system);
+    }
     if let Some(path) = &readonly_extension {
         command.arg("-e").arg(path);
     }
@@ -1782,7 +1848,7 @@ pub(crate) fn open_main_session(
     apply_resume_or_continue(
         &mut session_args,
         resume.as_deref(),
-        continue_last.unwrap_or(false),
+        continue_last.unwrap_or(false) && crate::session_move::allow_implicit_resume(&cwd),
         crate::omp_ops::session_transcript_exists,
     );
     for arg in session_args {

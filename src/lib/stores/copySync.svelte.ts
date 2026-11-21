@@ -15,8 +15,9 @@ import { githubStore } from './github.svelte';
 import { laneStore } from './lanes.svelte';
 import { normalizeProjectPath, type Project } from './projects.svelte';
 import { projectOrder } from './projectOrder.svelte';
+import type { CaseConflict } from './projectCopies.ts';
 
-export type BranchSyncState = 'equal' | 'ahead' | 'diverged' | 'advanced' | 'pending' | 'onlyPeer';
+export type BranchSyncState = 'equal' | 'ahead' | 'diverged' | 'advanced' | 'pending' | 'onlyPeer' | 'caseConflict';
 
 export interface BranchSync {
 	name: string;
@@ -50,7 +51,7 @@ function reportKey(localId: string, machine: string): string {
  * lavoro o in attesa (anche guidato da un'altra macchina, R-MI-18) e file non
  * salvati nell'editor. Rust le confronta con la cartella di ogni branch.
  */
-function busyPaths(local: Project): string[] {
+export function busyPaths(local: Project): string[] {
 	const paths = new Set(getDirtyEditorPaths());
 	const sessionsBusy = sessionRegistry.getSessionsForProject(local.id)
 		.some((session) => session.agentState === 'working' || session.pendingUi);
@@ -80,7 +81,13 @@ class CopySyncStore {
 	private signatures = new Map<string, string>();
 
 	reportFor(localId: string, machine: string): CopySyncReport | null {
+		if (!this.reachable(machine)) return null;
 		return this.reports[reportKey(localId, machine)] ?? null;
+	}
+
+	private reachable(machineId: string): boolean {
+		const machine = linkStore.machineFor(machineId);
+		return Boolean(machine?.online && machine.compatible);
 	}
 
 	/** Coppie (copia di questa macchina, gemella in linea e compatibile). */
@@ -91,8 +98,12 @@ class CopySyncStore {
 			if (!local?.canonicalProjectPath) continue;
 			for (const remote of group) {
 				if (remote === local || !remote.machineId || !remote.canonicalProjectPath) continue;
-				const machine = linkStore.machineFor(remote.machineId);
-				if (!machine?.online || !machine.compatible) continue;
+				if (!this.reachable(remote.machineId)) {
+					// Al ritorno in linea il giro deve ripartire subito, anche se
+					// cime e cartelle occupate sono le stesse di prima.
+					this.signatures.delete(reportKey(local.id, remote.machineId));
+					continue;
+				}
 				result.push({ key: reportKey(local.id, remote.machineId), local, remote });
 			}
 		}
@@ -162,12 +173,25 @@ class CopySyncStore {
 		return this.branchesIn(local, 'diverged');
 	}
 
+	/** Branch che collidono per maiuscole con una gemella in linea (R-MI-35). */
+	caseConflicts(local: Project): CaseConflict[] {
+		const seen = new Set<string>();
+		const result: CaseConflict[] = [];
+		for (const report of this.liveReports(local)) {
+			for (const branch of report.branches) {
+				if (branch.state !== 'caseConflict' || seen.has(branch.name)) continue;
+				seen.add(branch.name);
+				result.push({ branch: branch.name, other: branch.reason ?? '' });
+			}
+		}
+		return result;
+	}
+
 	/** Branch indietro che aspettano la cartella libera («da aggiornare»). */
 	pendingBranches(local: Project): BranchSync[] {
 		const seen = new Set<string>();
 		const result: BranchSync[] = [];
-		for (const [key, report] of Object.entries(this.reports)) {
-			if (!key.startsWith(`${local.id}|`)) continue;
+		for (const report of this.liveReports(local)) {
 			for (const branch of report.branches) {
 				if (branch.state === 'pending' && !seen.has(branch.name)) {
 					seen.add(branch.name);
@@ -180,11 +204,25 @@ class CopySyncStore {
 
 	private branchesIn(local: Project, state: BranchSyncState): string[] {
 		const names = new Set<string>();
-		for (const [key, report] of Object.entries(this.reports)) {
-			if (!key.startsWith(`${local.id}|`)) continue;
+		for (const report of this.liveReports(local)) {
 			for (const branch of report.branches) if (branch.state === state) names.add(branch.name);
 		}
 		return [...names];
+	}
+
+	/**
+	 * Esiti delle gemelle ancora raggiungibili. Quello di una macchina spenta
+	 * descrive com'era al suo ultimo giro: lasciava accesi «≠» e «da
+	 * aggiornare» per ore, finché la macchina non tornava (M9).
+	 */
+	private liveReports(local: Project): CopySyncReport[] {
+		const result: CopySyncReport[] = [];
+		const prefix = `${local.id}|`;
+		for (const [key, report] of Object.entries(this.reports)) {
+			if (!key.startsWith(prefix)) continue;
+			if (this.reachable(key.slice(prefix.length))) result.push(report);
+		}
+		return result;
 	}
 }
 

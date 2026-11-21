@@ -478,7 +478,8 @@ export interface RemoteLaneRef {
 export type RemoteLaneAction =
 	| { op: 'create'; title?: string; origin?: string; surface?: 'gui' | 'terminal' }
 	| { op: 'open_branch'; branch: string; branchKind: 'local' | 'remote'; origin?: string; surface?: 'gui' | 'terminal' }
-	| { op: 'archive'; laneId: string; reason: string; stopProcesses?: boolean };
+	| { op: 'archive'; laneId: string; reason: string; stopProcesses?: boolean }
+	| { op: 'land'; laneId: string; message?: string; interactive: boolean; confirmed?: boolean };
 
 export type RemoteCommand =
 	| { kind: 'respond_ui'; projectId: string; laneId: string | null; requestId: string; answer: RemoteAnswer }

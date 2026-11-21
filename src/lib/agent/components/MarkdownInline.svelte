@@ -5,6 +5,8 @@
 	// e' un percorso di file valido del progetto, viene aperto nell'editor.
 	import { isAllowedExternalUrl } from '#lib/utils/externalUrl.ts';
 	import { openExternalUrl } from '#lib/utils/openExternal.ts';
+	import { chatPreview, loopbackUrl, requestPreview } from '#lib/backend/remotePreview.svelte.ts';
+	import { LOCAL_MACHINE } from '#lib/backend/ipc.ts';
 	import { m } from '#lib/paraglide/messages.js';
 	import type { Token } from '../markdown';
 	import { agentUiHooks, hasAgentUiHooks } from '../ui-context';
@@ -22,6 +24,10 @@
 
 	const hooks = agentUiHooks();
 	const hasFileActions = hasAgentUiHooks();
+	const previewSource = chatPreview();
+	const remote = $derived(Boolean(previewSource && previewSource().machine !== LOCAL_MACHINE));
+	const preview = (href: string) => previewSource ? requestPreview(previewSource(), href) : false;
+	const textFragments = (text: string) => text.split(/((?<![\w/:])(?:https?:\/\/)?(?:localhost|127\.0\.0\.1|\[::1\]):\d{1,5}(?:[/?#][^\s<>"']*)?(?![\w]))/gi);
 
 	// Gli agenti scrivono i link markdown con il percorso codificato come URL
 	// (`%5B` per `[`, `%20` per lo spazio): il file su disco ha il nome in chiaro.
@@ -36,6 +42,7 @@
 	function handleLink(e: MouseEvent, href: string) {
 		e.preventDefault();
 		if (!href) return;
+		if (preview(href)) return;
 		if (isAllowedExternalUrl(href)) {
 			void openExternalUrl(href);
 			return;
@@ -67,7 +74,13 @@
 		{#if 'tokens' in token && token.tokens && token.tokens.length > 0}
 			<MarkdownInline tokens={token.tokens} {onOpenFile} />
 		{:else}
-			{token.text}
+			{#if remote}
+				{#each textFragments(token.text) as part, index}
+					{#if index % 2 === 1 && loopbackUrl(part)}
+						<a class="link" href={loopbackUrl(part)?.href} onclick={(event) => handleLink(event, part)}>{part}</a>
+					{:else}{part}{/if}
+				{/each}
+			{:else}{token.text}{/if}
 		{/if}
 	{:else if token.type === 'strong'}
 		<strong><MarkdownInline tokens={token.tokens} {onOpenFile} /></strong>
@@ -85,7 +98,9 @@
 		<span class="chat-badge chat-badge--cmd">/{token.name}</span>
 	{:else if token.type === 'codespan'}
 		{@const isFileLike = token.text.includes('/') || token.text.includes('\\') || /\.[a-zA-Z0-9_-]+(?::\d+)?$/.test(token.text.trim())}
-		{#if isFileLike && (onOpenFile || hasFileActions)}
+		{#if remote && loopbackUrl(token.text)}
+			<a class="link" href={loopbackUrl(token.text)?.href} onclick={(event) => handleLink(event, token.text)}><code class="codespan">{token.text}</code></a>
+		{:else if isFileLike && (onOpenFile || hasFileActions)}
 			<button
 				type="button"
 				class="codespan-btn"

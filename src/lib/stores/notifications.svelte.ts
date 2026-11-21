@@ -13,6 +13,38 @@ import { projectStore } from './projects.svelte';
 import { settingsStore } from './settings.svelte';
 import { m } from '#lib/paraglide/messages.js';
 import { IS_WINDOWS } from '#lib/utils/platform.ts';
+import { linkStore } from '#lib/backend/link.svelte.ts';
+import { notifiesHere, type PresenceSample } from './notificationPresence.ts';
+
+/** Attesa massima della risposta di un'altra macchina prima di notificare comunque. */
+const PRESENCE_TIMEOUT_MS = 1500;
+
+/** Secondi di inattività di una macchina, o `null` se non risponde in tempo. */
+async function idleSecondsOn(machine?: string): Promise<number | null> {
+	const { promise, resolve } = Promise.withResolvers<number | null>();
+	const timer = setTimeout(() => resolve(null), PRESENCE_TIMEOUT_MS);
+	invoke<number | null>('system_idle_seconds', undefined, machine ? { machine } : undefined)
+		.then((seconds) => resolve(typeof seconds === 'number' ? seconds : null))
+		.catch(() => resolve(null));
+	const seconds = await promise;
+	clearTimeout(timer);
+	return seconds;
+}
+
+/**
+ * Solo la macchina usata per ultima notifica (R-MI-31). Senza altre macchine
+ * in linea non c'è nulla da chiedere: si notifica come sempre.
+ */
+async function shouldNotifyHere(): Promise<boolean> {
+	const peers = linkStore.status.peers.filter((peer) => peer.online && peer.compatible);
+	if (peers.length === 0) return true;
+	const [here, ...others] = await Promise.all([
+		idleSecondsOn(),
+		...peers.map((peer) => idleSecondsOn(peer.id))
+	]);
+	const samples: PresenceSample[] = peers.map((peer, index) => ({ machineId: peer.id, idleSeconds: others[index] }));
+	return notifiesHere({ machineId: linkStore.status.machineId, idleSeconds: here }, samples);
+}
 
 class NotificationManager {
 	/** Progetti per cui l'utente ha preso visione portando il progetto a fuoco. */
@@ -114,11 +146,11 @@ class NotificationManager {
 		// L'app e' in background/minimizzata OPPURE l'utente e' su un altro progetto
 		this.acknowledgedIds.delete(projectId);
 
-		// Invia notifica OS se abilitata
-		await this.dispatchOsNotification(project);
-
-		// Aggiorna l'alert nativo dell'icona (badge Dock / dot rosso Taskbar + flash)
-		await this.syncNativeAttention(true);
+		// Notifica OS e lampeggio dell'icona solo sulla macchina usata per
+		// ultima (R-MI-31); il conteggio sul badge resta, perché è stato.
+		const here = await shouldNotifyHere();
+		if (here) await this.dispatchOsNotification(project);
+		await this.syncNativeAttention(here);
 	}
 
 	private async dismissProjectNotifications(projectId: string) {
@@ -168,6 +200,7 @@ class NotificationManager {
 	/** Gli aggiornamenti Git restano distinti dalle richieste dell'agente. */
 	async notifyGitUpdates(project: { id: string; name: string }, count: number): Promise<void> {
 		if (!settingsStore.notifications.enabled || this.isAppFocused()) return;
+		if (!(await shouldNotifyHere())) return;
 		try {
 			await this.init();
 			let granted = await isPermissionGranted();
@@ -192,6 +225,7 @@ class NotificationManager {
 	async notifyHeadsUp(project: { id: string; name: string }, text: string): Promise<void> {
 		if (!settingsStore.notifications.enabled) return;
 		if (this.isAppFocused()) return;
+		if (!(await shouldNotifyHere())) return;
 		try {
 			await this.init();
 			let granted = await isPermissionGranted();

@@ -60,7 +60,15 @@ export interface CopyGitState {
 	changedFiles: number;
 }
 
-export type DivergenceReason = 'commits' | 'uncommitted';
+export type DivergenceReason = 'commits' | 'uncommitted' | 'case';
+
+/** Branch che differiscono solo per maiuscole fra le copie (R-MI-35). */
+export interface CaseConflict {
+	/** Nome sull'altra macchina. */
+	branch: string;
+	/** Nome che collide, sull'altra macchina o su questa. */
+	other: string;
+}
 
 /**
  * Le copie divergono (R-MI-22, regola F25 del 2026-11-18) solo quando la
@@ -70,10 +78,17 @@ export type DivergenceReason = 'commits' | 'uncommitted';
  * Una copia soltanto indietro si aggiorna da sola; branch diverse sulle due
  * macchine sono una scelta, non una divergenza.
  */
-export function divergenceReasons(copies: readonly CopyGitState[], divergedBranches: readonly string[]): DivergenceReason[] {
+export function divergenceReasons(
+	copies: readonly CopyGitState[],
+	divergedBranches: readonly string[],
+	caseConflicts: readonly CaseConflict[] = []
+): DivergenceReason[] {
 	const reasons: DivergenceReason[] = [];
 	if (divergedBranches.length > 0) reasons.push('commits');
 	if (copies.filter((copy) => copy.changedFiles > 0).length >= 2) reasons.push('uncommitted');
+	// Branch che collidono per maiuscole non si sincronizzano: restano
+	// diverse finché l'utente non ne rinomina una (R-MI-35).
+	if (caseConflicts.length > 0) reasons.push('case');
 	return reasons;
 }
 
@@ -81,9 +96,14 @@ export function divergenceReasons(copies: readonly CopyGitState[], divergedBranc
  * Impronta dello stato delle copie: «Più tardi» vale finché non cambia, poi
  * l'avviso torna (R-MI-22).
  */
-export function divergenceSignature(copies: readonly CopyGitState[], divergedBranches: readonly string[]): string {
+export function divergenceSignature(
+	copies: readonly CopyGitState[],
+	divergedBranches: readonly string[],
+	caseConflicts: readonly CaseConflict[] = []
+): string {
 	return [
 		...copies.map((copy) => `${copy.branch}@${copy.head ?? '-'}+${copy.changedFiles}`),
-		...[...divergedBranches].sort()
+		...[...divergedBranches].sort(),
+		...caseConflicts.map((conflict) => `${conflict.branch}~${conflict.other}`).sort()
 	].join('|');
 }

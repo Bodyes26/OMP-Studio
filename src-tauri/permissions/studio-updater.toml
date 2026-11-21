@@ -22,11 +22,21 @@ commands.allow = [
     "install_studio_update_and_restart"
 ]
 
+[[permission]]
+identifier = "allow-studio-update-remote"
+description = "Aggiornamento di Studio chiesto da un'altra macchina abbinata (R-MI-38) e suo stato"
+commands.allow = [
+    "studio_update_remote_start",
+    "studio_update_remote_status",
+    "studio_update_remote_report"
+]
+
 [[set]]
 identifier = "studio-updater"
 description = "Set di permessi confinati per l'updater di Studio"
 permissions = [
     "allow-check-studio-update",
     "allow-studio-update-download",
-    "allow-studio-update-install"
+    "allow-studio-update-install",
+    "allow-studio-update-remote"
 ]

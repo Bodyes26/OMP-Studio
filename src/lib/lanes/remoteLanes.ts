@@ -10,6 +10,7 @@ import { projectStore, type Project } from '#lib/stores/projects.svelte.ts';
 import type { LaneRecord } from '#lib/stores/lanePersistence.ts';
 import type { LaneArchiveOutcome } from '#lib/stores/lanes.svelte.ts';
 import type { RemoteCommandData, RemoteLaneAction } from '$remote-protocol';
+import type { LandResult } from './laneLanding.svelte';
 
 async function send(project: Project, action: RemoteLaneAction): Promise<RemoteCommandData['lane_action']> {
 	return linkStore.command<RemoteCommandData['lane_action']>(project.machineId ?? LOCAL_MACHINE, {
@@ -38,4 +39,10 @@ export async function archiveRemoteLane(
 ): Promise<LaneArchiveOutcome> {
 	const data = await send(project, action);
 	return data?.outcome as unknown as LaneArchiveOutcome;
+}
+
+export async function landRemoteLane(project: Project, action: Extract<RemoteLaneAction, { op: 'land' }>): Promise<LandResult> {
+	const data = await send(project, action);
+	if (!data?.outcome) throw new Error('The other machine did not return the integration result');
+	return data.outcome as unknown as LandResult;
 }

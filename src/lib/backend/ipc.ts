@@ -21,6 +21,14 @@ export type { BackendCommand, Event, EventCallback, InvokeArgs, UnlistenFn };
 /** Identificativo di una macchina con Studio; `LOCAL_MACHINE` e' questa. */
 export type MachineId = string;
 export const LOCAL_MACHINE: MachineId = 'local';
+/**
+ * Comandi che passano anche verso una macchina con una versione di Studio
+ * incompatibile: servono ad aggiornarla (R-MI-10, R-MI-38). Stesso elenco di
+ * `UPDATE_COMMANDS` in `src-tauri/src/link/mod.rs`.
+ */
+export const UPDATE_COMMANDS: readonly string[] = [
+	'get_studio_version', 'check_studio_update', 'studio_update_remote_start', 'studio_update_remote_status'
+];
 
 const linkedMachines = new Map<MachineId, { online: boolean; compatible: boolean }>();
 
@@ -86,10 +94,9 @@ export async function invoke<T>(
 		case 'machine': {
 			const status = linkedMachines.get(machine);
 			if (!status?.online) throw new BackendRouteError(command, machine, 'machine_unreachable');
-			if (!status.compatible && ![
-				'get_studio_version', 'check_studio_update', 'start_studio_update',
-				'cancel_studio_update', 'install_studio_update_and_restart'
-			].includes(command)) throw new BackendRouteError(command, machine, 'incompatible_version');
+			if (!status.compatible && !UPDATE_COMMANDS.includes(command)) {
+				throw new BackendRouteError(command, machine, 'incompatible_version');
+			}
 			if (commandScope(command) === 'stream') {
 				const { onEvent, onOutput, ...body } = (args ?? {}) as Record<string, unknown>;
 				if (command === 'pty_open') {

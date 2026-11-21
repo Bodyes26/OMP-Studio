@@ -19,6 +19,7 @@
 import { invoke } from '#lib/backend/ipc.ts';
 import { laneStore, type LaneRecord } from '#lib/stores/lanes.svelte.ts';
 import { projectStore, type Project } from '#lib/stores/projects.svelte.ts';
+import { provenance, projectGroup } from '#lib/stores/projectMachines.svelte.ts';
 import { taskStore } from '#lib/stores/tasks.svelte.ts';
 import { modelSettingsStore, STANDARD_ROLES } from '#lib/stores/modelSettings.svelte.ts';
 import { roleConfigFromSelector } from '#lib/components/taskRoleConfig.ts';
@@ -263,11 +264,24 @@ class AgentLaneService {
 		payload: CorsieBridgePayload,
 		body: Record<string, unknown>
 	): Promise<BridgeResponse> {
+		const reference = text(body.corsia);
+		if (reference && (verbo === 'risultato' || verbo === 'integra' || verbo === 'chiudi' || verbo === 'scarta')) {
+			const [machine, laneId] = reference.split('::');
+			if (laneId) {
+				const target = provenance(project).copies.find((copy) => copy.machineId === machine);
+				if (!target?.online) return Promise.resolve({ ok: false, text: m.lane_machine_unavailable({ machine }) });
+				project = target.project;
+				body = { ...body, corsia: laneId };
+			} else if (!this.lanes(project).some((lane) => lane.laneId === reference)) {
+				const matches = projectGroup(project).filter((copy) => this.lanes(copy).some((lane) => lane.laneId === reference));
+				if (matches.length === 1) project = matches[0];
+			}
+		}
 		switch (verbo) {
 			case 'avvia':
 				return this.avvia(project, body);
 			case 'stato':
-				return this.stato(project);
+				return this.groupStatus(project);
 			case 'risultato':
 				return this.risultato(project, text(body.corsia));
 			case 'integra':
@@ -313,6 +327,13 @@ class AgentLaneService {
 		const obiettivo = text(body.obiettivo);
 		if (!obiettivo) return { ok: false, text: m.l10n_state_lane_required_field({ field: 'obiettivo' }) };
 		const profilo = text(body.profilo);
+		const machine = text(body.macchina);
+		if (machine) {
+			const matches = provenance(project).copies.filter((copy) => copy.machineId === machine || copy.name.toLowerCase() === machine.toLowerCase());
+			if (matches.length !== 1 || !matches[0].online) return { ok: false, text: m.lane_machine_unavailable({ machine }) };
+			if (body.tipo === 'lab' && matches[0].project.id !== project.id) return { ok: false, text: m.lane_machine_lab_local() };
+			project = matches[0].project;
+		}
 		if (body.tipo === 'lab') return this.avviaLab(project, obiettivo, profilo);
 
 		if (!project.canonicalProjectPath) {
@@ -377,6 +398,16 @@ class AgentLaneService {
 		return { taskId: task.id };
 	}
 
+	private async groupStatus(project: Project): Promise<BridgeResponse> {
+		const copies = provenance(project).copies.filter((copy) => copy.online);
+		if (copies.length < 2) return this.stato(project);
+		const parts = await Promise.all(copies.map(async (copy) => {
+			const result = await this.stato(copy.project, copy.project.id === project.id ? '' : `${copy.machineId}::`);
+			return { text: `${copy.name}:\n${result.text}`, rows: result.details?.corsie as AgentLaneRow[] };
+		}));
+		return { ok: true, text: parts.map((part) => part.text).join('\n\n'), details: { corsie: parts.flatMap((part) => part.rows) } };
+	}
+
 	private async startGoal(
 		project: Project,
 		taskId: string,
@@ -387,10 +418,11 @@ class AgentLaneService {
 		}
 		const outcome = await this.host.dispatchTaskInNewLane(project, taskId, options);
 		if (outcome.kind === 'started') {
+			const id = project.machineId && project.machineId !== 'local' ? `${project.machineId}::${outcome.lane.laneId}` : outcome.lane.laneId;
 			return {
 				ok: true,
-				text: m.l10n_state_lane_started({ id: outcome.lane.laneId, title: outcome.lane.title }),
-				details: { stato: 'in_corso', corsia: outcome.lane.laneId, titolo: outcome.lane.title, tipo: 'worktree' }
+				text: m.l10n_state_lane_started({ id, title: outcome.lane.title }),
+				details: { stato: 'in_corso', corsia: id, titolo: outcome.lane.title, tipo: 'worktree' }
 			};
 		}
 		if (outcome.kind === 'awaiting-consent') {
@@ -454,7 +486,7 @@ class AgentLaneService {
 		return labApi.listIndex(project.canonicalProjectPath).catch(() => [] as LabIndexEntry[]);
 	}
 
-	private async stato(project: Project): Promise<BridgeResponse> {
+	private async stato(project: Project, prefix = ''): Promise<BridgeResponse> {
 		const lanes = this.lanes(project).filter(
 			(lane) => lane.laneId !== MAIN_LANE_ID && lane.status !== 'archived' && lane.status !== 'closed'
 		);
@@ -470,7 +502,7 @@ class AgentLaneService {
 				if (lane.kind === 'lab') {
 					const entry = index.find((item) => item.id === lane.labPrototypeId);
 					return {
-						laneId: lane.laneId,
+						laneId: `${prefix}${lane.laneId}`,
 						title: lane.title,
 						kind: 'lab' as const,
 						state,
@@ -480,7 +512,7 @@ class AgentLaneService {
 				}
 				const inspection = await this.inspect(project, lane);
 				return {
-					laneId: lane.laneId,
+					laneId: `${prefix}${lane.laneId}`,
 					title: lane.title,
 					kind: 'git' as const,
 					state,
@@ -490,7 +522,7 @@ class AgentLaneService {
 			})
 		);
 		for (const goal of this.queuedFor(project.id)) {
-			rows.push({ laneId: goal.id, title: goal.obiettivo.slice(0, 60), kind: 'goal', state: 'in_coda' });
+			rows.push({ laneId: `${prefix}${goal.id}`, title: goal.obiettivo.slice(0, 60), kind: 'goal', state: 'in_coda' });
 		}
 		return { ok: true, text: formatStatoText(rows), details: { corsie: rows } };
 	}
@@ -625,8 +657,8 @@ class AgentLaneService {
 		}
 		const caller: LandCaller = {
 			kind: payload.ownerKind,
-			ownerId: payload.ownerId,
-			callerLaneId: callerIsMain(payload.callerLaneId) ? 'main' : payload.callerLaneId
+			ownerId: projectStore.isRemote(project) ? 0 : payload.ownerId,
+			callerLaneId: projectStore.isRemote(project) ? null : callerIsMain(payload.callerLaneId) ? 'main' : payload.callerLaneId
 		};
 		const result = await laneLanding.land(project, lane.laneId, { message: messaggio, caller });
 		if (result.kind === 'conflicts') {

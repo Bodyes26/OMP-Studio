@@ -22,6 +22,7 @@ import { IconGitBranch, IconLab, IconTrash } from '#lib/icons.ts';
 import { m } from '#lib/paraglide/messages.js';
 import { getLocale } from '#lib/paraglide/runtime.js';
 import { message } from '@tauri-apps/plugin-dialog';
+import { provenance } from '#lib/stores/projectMachines.svelte.ts';
 import { listClosedLanes, reopenLane, type ClosedLaneEntry } from './laneLifecycle';
 export {
 	filterOpenableBranches,
@@ -327,6 +328,25 @@ export async function projectLaneActions(
 			await startCreateWorktreeFlow(project, { onProfileReview: options?.onProfileReview });
 		}
 	});
+	if (isGitRepo) {
+		for (const copy of provenance(project).copies) {
+			if (copy.project.id === project.id) continue;
+			items.push({
+				kind: 'item',
+				label: m.lane_start_on_machine({ machine: copy.name }),
+				icon: IconGitBranch,
+				disabled: !copy.online,
+				run: async () => {
+					try {
+						await laneOrchestrator.createNewLane(copy.project);
+						projectStore.setActive(copy.project.id);
+					} catch (error) {
+						await message(String(error), { kind: 'error' });
+					}
+				}
+			});
+		}
+	}
 
 	// 2. Nuovo prototipo
 	if (project.canonicalProjectPath) {

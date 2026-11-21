@@ -1,6 +1,6 @@
 import { invoke, isTauri, listen, updateLinkedMachines, LOCAL_MACHINE, type UnlistenFn } from './ipc.ts';
 import type { RemoteCommand } from '$remote-protocol';
-import type { DesktopHostSnapshot } from './host.ts';
+import { expandReducedSnapshot, isReducedHostSnapshot, type DesktopHostSnapshot } from './host.ts';
 import { projectStore } from '#lib/stores/projects.svelte.ts';
 import {
 	NO_ACTIVITY,
@@ -24,6 +24,7 @@ export interface LinkedMachine {
 	version: string | null;
 	route: 'direct' | 'relay' | null;
 	latencyMs: number | null;
+	lastSeen: number | null;
 }
 export interface LinkStatus {
 	enabled: boolean;
@@ -32,7 +33,10 @@ export interface LinkStatus {
 	platform: string;
 	relayUrl: string;
 	hasRelayToken: boolean;
+	relayReachable: boolean | null;
 	peers: LinkedMachine[];
+	/** La chiave della macchina non c'è più nel portachiavi (R-MI-43). */
+	keyMissing: boolean;
 }
 
 /**
@@ -44,7 +48,8 @@ export interface LinkStatus {
 export type { LaneActivity, LaneActivitySnapshot } from './laneActivity.ts';
 
 class LinkStore {
-	status = $state<LinkStatus>({ enabled: false, name: '', machineId: '', platform: '', relayUrl: '', hasRelayToken: false, peers: [] });
+	status = $state<LinkStatus>({ enabled: false, name: '', machineId: '', platform: '', relayUrl: '', hasRelayToken: false, relayReachable: null, peers: [], keyMissing: false });
+	replacements = $state<LinkedMachine[]>([]);
 	hosts = $state<Record<string, DesktopHostSnapshot>>({});
 	/** Corsie occupate da sessioni remote; la revisione scarta i riepiloghi vecchi. */
 	activity = $state<LaneActivitySnapshot>({ revision: NO_ACTIVITY.revision, lanes: [] });
@@ -57,6 +62,20 @@ class LinkStore {
 	private unlistenActivity: UnlistenFn | null = null;
 
 	private apply(status: LinkStatus): void {
+		// Solo nuovi id dopo lo stato iniziale: funziona anche per chi genera
+		// il codice, che apprende l'abbinamento dall'evento e non da link_pair.
+		if (this.status.machineId) {
+			const previous = new Set(this.status.peers.map((peer) => peer.id));
+			for (const fresh of status.peers) {
+				if (previous.has(fresh.id)) continue;
+				for (const old of status.peers) {
+					if (old.id !== fresh.id && previous.has(old.id) && !old.online && old.name === fresh.name &&
+						!this.replacements.some((candidate) => candidate.id === old.id)) {
+						this.replacements.push(old);
+					}
+				}
+			}
+		}
 		this.status = status;
 		updateLinkedMachines(status.peers);
 		const known = new Set(status.peers.map((peer) => peer.id));
@@ -68,6 +87,15 @@ class LinkStore {
 		for (const peer of status.peers) {
 			if (!peer.online) projectStore.markRemoteMachineOffline(peer.id);
 		}
+	}
+
+	offlineReason(machineId: string): 'relay' | 'machine' | null {
+		const peer = this.machineFor(machineId);
+		return !peer || peer.online ? null : this.status.relayReachable === false ? 'relay' : 'machine';
+	}
+
+	dismissReplacement(): void {
+		this.replacements.shift();
 	}
 
 	/**
@@ -89,8 +117,20 @@ class LinkStore {
 		return laneBusyIn(this.activity, projectId, laneId);
 	}
 
-	private applyHost(machine: string, state: DesktopHostSnapshot): void {
-		if (state.version !== 1 || !Array.isArray(state.projects) || !Array.isArray(state.lanes) ||
+	private applyHost(machine: string, received: unknown): void {
+		let state: DesktopHostSnapshot;
+		if (isReducedHostSnapshot(received)) {
+			// Versione incompatibile (R-MI-10): arriva solo l'elenco dei progetti.
+			// L'ultimo snapshot completo, se c'e', descrive meglio le tessere: lo
+			// si tiene; altrimenti le tessere si costruiscono dall'elenco, invece
+			// di sparire dalla barra (M1).
+			const previous = this.hosts[machine];
+			if (previous && !previous.reduced) return;
+			state = expandReducedSnapshot(received);
+		} else {
+			state = received as DesktopHostSnapshot;
+		}
+		if (!state || typeof state !== 'object' || state.version !== 1 || !Array.isArray(state.projects) || !Array.isArray(state.lanes) ||
 			!Array.isArray(state.tasks) || typeof state.projectRoot !== 'string') {
 			this.error = `Invalid host snapshot from ${machine}`;
 			return;
@@ -177,9 +217,18 @@ class LinkStore {
 		return this.action(async () => this.apply(await invoke<LinkStatus>('link_permissions', { machine, permissions })));
 	}
 
-	revoke(machine: string): Promise<void> {
-		return this.action(async () => this.apply(await invoke<LinkStatus>('link_revoke', { machine })));
+	revoke(machine: string, everywhere = false): Promise<void> {
+		return this.action(async () => this.apply(await invoke<LinkStatus>('link_revoke', { machine, everywhere })));
+	}
+
+	/** «Crea una nuova identità» dopo la perdita della chiave (R-MI-43). */
+	resetIdentity(): Promise<void> {
+		return this.action(async () => this.apply(await invoke<LinkStatus>('link_reset_identity')));
 	}
 }
 
 export const linkStore = new LinkStore();
+
+export function offlineReason(machineId: string): 'relay' | 'machine' | null {
+	return linkStore.offlineReason(machineId);
+}

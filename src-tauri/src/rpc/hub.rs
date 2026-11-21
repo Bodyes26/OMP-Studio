@@ -12,6 +12,7 @@
 //! lo stato chiedendolo a omp, come all'avvio.
 
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -152,12 +153,19 @@ struct UiRequestPeek {
 pub(crate) struct SessionHub {
     inner: Mutex<HubInner>,
     response_gate: Mutex<()>,
+    /// Un turno dell'agente e' in corso: fra `agent_start` e la sua fine.
+    /// Lo legge la sincronizzazione delle copie (R-MI-27), che non deve
+    /// muovere la cartella mentre l'agente ci lavora. Non e' il lock
+    /// interattivo delle automazioni: quello resta preso per tutta la vita
+    /// della sessione e bloccherebbe l'avanzamento per sempre.
+    running: AtomicBool,
 }
 
 impl SessionHub {
     pub(crate) fn new() -> Self {
         Self {
             response_gate: Mutex::new(()),
+            running: AtomicBool::new(false),
             inner: Mutex::new(HubInner {
                 next_seq: 1,
                 backlog: VecDeque::new(),
@@ -177,6 +185,7 @@ impl SessionHub {
     /// Consegna e coda stanno sotto lo stesso lock di `attach`: un consumatore
     /// che si aggancia vede ogni frame una volta sola.
     pub(crate) fn publish(&self, kind: &str, frame: String) {
+        self.track_run(kind, &frame);
         let mut inner = self.inner.lock();
         let seq = inner.next_seq;
         inner.next_seq += 1;
@@ -205,6 +214,29 @@ impl SessionHub {
             };
             inner.backlog_bytes -= evicted.frame.len();
         }
+    }
+
+    /// Segue i confini del turno dai frame che passano comunque di qui. Un
+    /// `agent_end` non terminale (yield con lavoro ancora da fare) lascia il
+    /// turno aperto, come nel riepilogo di `link::activity`.
+    fn track_run(&self, kind: &str, frame: &str) {
+        match kind {
+            "agent_start" => self.running.store(true, Ordering::Release),
+            "agent_end" => {
+                let terminal = serde_json::from_str::<serde_json::Value>(frame)
+                    .ok()
+                    .and_then(|value| value.get("isTerminal").and_then(serde_json::Value::as_bool))
+                    .unwrap_or(true);
+                if terminal { self.running.store(false, Ordering::Release); }
+            }
+            "session_settled" | "studio_exit" => self.running.store(false, Ordering::Release),
+            _ => {}
+        }
+    }
+
+    /// L'agente di questa sessione sta lavorando adesso.
+    pub(crate) fn is_running(&self) -> bool {
+        self.running.load(Ordering::Acquire)
     }
 
     /// Serializza le risposte fino alla scrittura effettiva: un rifiuto di
@@ -667,6 +699,22 @@ mod tests {
         }
         let error = hub.answer_ui_request("q0", || panic!("stale answer was sent")).unwrap_err();
         assert_eq!(error["code"], "ui_request_closed");
+    }
+
+    #[test]
+    fn il_turno_in_corso_segue_i_confini_del_run() {
+        let hub = SessionHub::new();
+        assert!(!hub.is_running());
+        hub.publish("agent_start", r#"{"type":"agent_start"}"#.into());
+        assert!(hub.is_running());
+        // Uno yield con lavoro da fare non chiude il turno.
+        hub.publish("agent_end", r#"{"type":"agent_end","isTerminal":false}"#.into());
+        assert!(hub.is_running());
+        hub.publish("agent_end", r#"{"type":"agent_end"}"#.into());
+        assert!(!hub.is_running());
+        hub.publish("agent_start", r#"{"type":"agent_start"}"#.into());
+        hub.publish("studio_exit", r#"{"type":"studio_exit"}"#.into());
+        assert!(!hub.is_running(), "il processo uscito non lavora piu'");
     }
 
 }

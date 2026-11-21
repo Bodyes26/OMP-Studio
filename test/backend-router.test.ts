@@ -41,7 +41,8 @@ describe('Destinazione delle operazioni di progetto', () => {
 	it('non apre processi locali o aggiorna Studio per una destinazione remota', async () => {
 		for (const [command, reason] of [
 			['rpc_open', 'machine_unreachable'],
-			['install_studio_update_and_restart', 'machine_unreachable']
+			['install_studio_update_and_restart', 'local_only'],
+			['studio_update_remote_start', 'machine_unreachable']
 		] as const) {
 			await assert.rejects(invoke(command, undefined, { machine: 'mac' }), (error: unknown) =>
 				error instanceof BackendRouteError && error.command === command &&

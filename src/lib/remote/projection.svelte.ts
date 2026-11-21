@@ -24,6 +24,7 @@ import { onThemeChange, getCurrentAnchors } from '#lib/theme.ts';
 import { settingsStore } from '#lib/stores/settings.svelte.ts';
 import { buildRemoteSessionSnapshot } from './completion.svelte';
 import { linkStore } from '#lib/backend/link.svelte.ts';
+import { projectLinks } from '#lib/stores/projectLinks.svelte.ts';
 import { invoke } from '#lib/backend/ipc.ts';
 import type { DesktopHostSnapshot } from '#lib/backend/host.ts';
 
@@ -69,7 +70,9 @@ export function startRemoteProjection(options: RemoteProjectionOptions = {}): ()
 			const lanes = laneStore.lanes.filter((lane) => localIds.has(lane.projectId));
 			const runtimes = companionStore.projectRuntimes;
 			const attentions = companionStore.attentionRequests;
-			const tasks = taskStore.tasks;
+			// Solo le code dei progetti di questa macchina: gli specchi delle code
+			// di altre macchine (R-MI-15) non sono di questo host.
+			const tasks = taskStore.ownTasks;
 			const now = scheduleStore.now;
 			const quotaReports = quotaStore.reports;
 			const quotaFetchedAt = quotaStore.lastFetchedAt;
@@ -189,7 +192,9 @@ export function startRemoteProjection(options: RemoteProjectionOptions = {}): ()
 					projectId: project.id, laneId: session.laneId ?? 'main',
 					rpcId: session.client.id, sessionId: session.sessionId
 				}))),
-				state: hostState
+				state: hostState,
+				// Decisioni «stesso progetto / diversi» per le altre macchine (R-MI-44).
+				linkDecisions: projectLinks.shared()
 			};
 			const desktopJson = desktopEnabled ? JSON.stringify(desktopState) : '';
 			const json = JSON.stringify([phoneEnabled ? hostState : null, desktopJson]);

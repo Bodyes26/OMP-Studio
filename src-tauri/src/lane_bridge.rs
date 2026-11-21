@@ -180,11 +180,56 @@ impl AutomationRoute {
     }
 }
 
+/// Verbi di «Esegui su macchina» (R-MI-36): `/v1/macchine/{verbo}`. Li gestisce
+/// Rust direttamente, senza passare dalla finestra: i job vivono in
+/// `link::exec` e devono restare vivi anche con la finestra ricaricata.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MachineRoute {
+    Elenco,
+    Pronta,
+    Esegui,
+    Stato,
+    Risultato,
+    Annulla,
+    /// Domanda all'utente nella finestra di Studio quando la build
+    /// distribuita non trova l'altra macchina (R-MI-37).
+    Chiedi,
+    /// Fine della Nightly distribuita: proposta «Aggiorna entrambe» (R-MI-38).
+    Aggiorna,
+}
+
+impl MachineRoute {
+    pub fn from_path(path: &str) -> Option<MachineRoute> {
+        match path.strip_prefix("/v1/macchine/")? {
+            "elenco" => Some(MachineRoute::Elenco),
+            "pronta" => Some(MachineRoute::Pronta),
+            "esegui" => Some(MachineRoute::Esegui),
+            "stato" => Some(MachineRoute::Stato),
+            "risultato" => Some(MachineRoute::Risultato),
+            "annulla" => Some(MachineRoute::Annulla),
+            "chiedi" => Some(MachineRoute::Chiedi),
+            "aggiorna" => Some(MachineRoute::Aggiorna),
+            _ => None,
+        }
+    }
+
+    fn required_field(self) -> Option<&'static str> {
+        match self {
+            MachineRoute::Elenco | MachineRoute::Chiedi => None,
+            MachineRoute::Pronta => Some("piattaforma"),
+            MachineRoute::Aggiorna => Some("versione"),
+            MachineRoute::Esegui => Some("comando"),
+            MachineRoute::Stato | MachineRoute::Risultato | MachineRoute::Annulla => Some("job"),
+        }
+    }
+}
+
 /// Destinazione della richiesta HTTP instradata dal bridge: corsia o automazione.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BridgeRouteTarget {
     Corsia(CorsiaRoute),
     Automation(AutomationRoute),
+    Machine(MachineRoute),
 }
 
 /// Payload dell'evento Tauri emesso verso il frontend quando arriva una richiesta HTTP valida.
@@ -286,6 +331,9 @@ pub fn issue_token(owner: BridgeOwner) -> Option<(String, String)> {
 pub fn revoke_owner(owner_kind: &str, owner_id: u64) {
     let mut tokens = TOKENS.lock();
     tokens.retain(|_, owner| !(owner.owner_kind == owner_kind && owner.owner_id == owner_id));
+    drop(tokens);
+    // I job remoti lanciati dalla sessione che se ne va si fermano (R-MI-36).
+    crate::link::exec::owner_gone(owner_kind, owner_id);
 }
 
 /// Comando Tauri invocato dal frontend quando la richiesta e' stata gestita.
@@ -408,6 +456,24 @@ fn authorize_automations(owner: &BridgeOwner) -> Result<(), Rejection> {
     Ok(())
 }
 
+/// «Esegui su macchina» e' per agenti e terminali di Studio: non per il
+/// Laboratorio (il suo agente vive in un prototipo isolato) ne' per gli
+/// helper in sola lettura, che non devono eseguire nulla.
+fn authorize_machines(owner: &BridgeOwner) -> Result<(), Rejection> {
+    let lab = owner.lane_id.as_deref().map(str::trim).is_some_and(|lane| lane == "lab" || lane.starts_with("lab-"));
+    if lab || !matches!(owner.owner_kind.as_str(), "agent" | "terminal") {
+        return Err(rejection(
+            403,
+            "Forbidden",
+            crate::tr!(
+                "Esegui su macchina e' disponibile solo agli agenti e ai terminali di Studio",
+                "Run on machine is only available to Studio agents and terminals"
+            ),
+        ));
+    }
+    Ok(())
+}
+
 /// Legge header e corpo di una sola richiesta. Il timeout copre l'intera
 /// lettura: un client lento dopo gli header non tiene aperta la connessione.
 async fn read_request(stream: &mut TcpStream) -> Result<BridgeRequest, Rejection> {
@@ -458,6 +524,8 @@ async fn read_request(stream: &mut TcpStream) -> Result<BridgeRequest, Rejection
     let clean_path = path.split('?').next().unwrap_or_default().trim_end_matches('/');
     let (target, legacy) = if let Some((c_route, leg)) = CorsiaRoute::from_path(path) {
         (BridgeRouteTarget::Corsia(c_route), leg)
+    } else if let Some(m_route) = MachineRoute::from_path(clean_path) {
+        (BridgeRouteTarget::Machine(m_route), false)
     } else if let Some(action) = clean_path.strip_prefix("/v1/automations/") {
         match action {
             "activate" | "run" | "disable" | "enable" | "delete" | "cancel" | "acknowledge" | "set_state" => {
@@ -541,12 +609,15 @@ async fn read_request(stream: &mut TcpStream) -> Result<BridgeRequest, Rejection
         BridgeRouteTarget::Automation(_) => {
             authorize_automations(&owner)?;
         }
+        BridgeRouteTarget::Machine(_) => {
+            authorize_machines(&owner)?;
+        }
     }
 
     let length = match content_length {
         Some(len) => len,
         None if method == "GET" => 0,
-        None if matches!(target, BridgeRouteTarget::Automation(_)) => 0,
+        None if matches!(target, BridgeRouteTarget::Automation(_) | BridgeRouteTarget::Machine(MachineRoute::Elenco)) => 0,
         None => {
             return Err(rejection(
                 411,
@@ -633,6 +704,20 @@ async fn read_request(stream: &mut TcpStream) -> Result<BridgeRequest, Rejection
 
     match target {
         BridgeRouteTarget::Corsia(route) => {
+            if let Some(field) = route.required_field() {
+                if request.text(field).is_none() {
+                    return Err(rejection(
+                        400,
+                        "Bad Request",
+                        crate::tr!(
+                            format!("Campo '{field}' obbligatorio"),
+                            format!("Field '{field}' required")
+                        ),
+                    ));
+                }
+            }
+        }
+        BridgeRouteTarget::Machine(route) => {
             if let Some(field) = route.required_field() {
                 if request.text(field).is_none() {
                     return Err(rejection(
@@ -734,6 +819,122 @@ async fn read_request(stream: &mut TcpStream) -> Result<BridgeRequest, Rejection
     Ok(request)
 }
 
+/// Esegue un verbo di «Esegui su macchina» per il proprietario del token.
+/// Gli script (terminale) tengono vivo il job interrogando `stato`; gli
+/// agenti no: il loro job si ferma con la sessione (`revoke_owner`).
+async fn handle_machine(
+    app: &AppHandle,
+    route: MachineRoute,
+    owner: &BridgeOwner,
+    body: &serde_json::Map<String, serde_json::Value>,
+) -> (u16, &'static str, serde_json::Value) {
+    use crate::link::exec;
+    let text = |field: &str| body.get(field).and_then(|value| value.as_str()).map(str::trim).filter(|value| !value.is_empty()).map(str::to_owned);
+    let job_owner = exec::JobOwner { kind: owner.owner_kind.clone(), id: owner.owner_id };
+    let failure = |error: String| (400, "Bad Request", serde_json::json!({ "ok": false, "text": error }));
+    match route {
+        MachineRoute::Elenco => match exec::machines(app).await {
+            Ok(machines) => {
+                let lines: Vec<String> = machines.iter().map(|machine| format!("- {} ({})", machine.name,
+                    if machine.online { crate::tr!("in linea", "online") } else { crate::tr!("non raggiungibile", "unreachable") })).collect();
+                let text = if lines.is_empty() {
+                    crate::tr!("Nessuna altra macchina abbinata", "No other paired machine").to_string()
+                } else { lines.join("\n") };
+                (200, "OK", serde_json::json!({ "ok": true, "text": text, "details": { "machines": machines } }))
+            }
+            Err(error) => failure(error),
+        },
+        MachineRoute::Pronta => {
+            let Some(machine) = text("macchina") else { return failure("Missing machine".into()); };
+            let platform = text("piattaforma").unwrap_or_default();
+            match exec::check_nightly_ready(app, std::path::PathBuf::from(&owner.cwd), &machine, &platform).await {
+                Ok(()) => (200, "OK", serde_json::json!({ "ok": true })),
+                Err(error) => failure(error),
+            }
+        }
+        MachineRoute::Esegui => {
+            let artifacts = body.get("artefatti").and_then(|value| value.as_array())
+                .map(|values| values.iter().filter_map(|value| value.as_str().map(str::to_owned)).collect())
+                .unwrap_or_default();
+            let request = exec::StartLocal {
+                machine: text("macchina"),
+                cwd: std::path::PathBuf::from(&owner.cwd),
+                command: text("comando").unwrap_or_default(),
+                artifacts,
+                owner: Some(job_owner),
+                // Il guinzaglio (job fermato se chi chiede smette di
+                // interrogare) vale di base per i terminali; uno script
+                // lanciato da un agente lo chiede esplicitamente.
+                leased: body.get("guinzaglio").and_then(|value| value.as_bool()).unwrap_or(owner.owner_kind == "terminal"),
+                expected_commit: text("commit"),
+            };
+            match exec::start_local(app, request).await {
+                Ok(job) => match exec::status_local(&job, None, Some(0)) {
+                    Ok(status) => (200, "OK", serde_json::json!({
+                        "ok": true,
+                        "text": crate::tr!(format!("Job {job} avviato su {}", status.machine), format!("Job {job} started on {}", status.machine)),
+                        "details": { "job": job, "machine": status.machine, "commit": status.commit },
+                    })),
+                    Err(error) => failure(error),
+                },
+                Err(error) => failure(error),
+            }
+        }
+        MachineRoute::Stato => {
+            let offset = body.get("offset").and_then(|value| value.as_u64());
+            match exec::status_local(&text("job").unwrap_or_default(), Some(&job_owner), offset) {
+                Ok(status) => (200, "OK", serde_json::json!({ "ok": true, "text": exec::describe(&status), "details": status })),
+                Err(error) => failure(error),
+            }
+        }
+        MachineRoute::Risultato => {
+            let wait = body.get("attesaSecondi").and_then(|value| value.as_u64()).unwrap_or(1800).min(4 * 3600);
+            let destination = text("destinazione").map(std::path::PathBuf::from);
+            match exec::result_local(app, &text("job").unwrap_or_default(), Some(&job_owner), destination, Duration::from_secs(wait)).await {
+                Ok(result) => {
+                    let mut text = exec::describe(&result.status);
+                    if !result.files.is_empty() { text.push_str(&format!("\n{}", result.files.join("\n"))); }
+                    (200, "OK", serde_json::json!({ "ok": true, "text": text, "details": result }))
+                }
+                Err(error) => failure(error),
+            }
+        }
+        MachineRoute::Annulla => match exec::cancel_local(&text("job").unwrap_or_default(), Some(&job_owner)) {
+            Ok(()) => (200, "OK", serde_json::json!({ "ok": true, "text": crate::tr!("Annullamento richiesto", "Cancellation requested") })),
+            Err(error) => failure(error),
+        },
+        MachineRoute::Aggiorna => {
+            let machines: Vec<String> = body.get("macchine").and_then(|value| value.as_array())
+                .map(|values| values.iter().filter_map(|value| value.as_str().map(str::to_owned)).collect())
+                .unwrap_or_default();
+            let payload = serde_json::json!({ "version": text("versione"), "machines": machines });
+            match app.emit("link:update-both", &payload) {
+                Ok(()) => (200, "OK", serde_json::json!({ "ok": true, "text": crate::tr!("Proposta mostrata in Studio", "Proposal shown in Studio") })),
+                Err(error) => failure(error.to_string()),
+            }
+        }
+        MachineRoute::Chiedi => {
+            // La finestra mostra la domanda e risponde con
+            // `lane_bridge_respond`; l'attesa e' quella dell'utente, senza
+            // un limite stretto (un giorno copre una finestra dimenticata).
+            let request_id = generate_request_id();
+            let (tx, rx) = oneshot::channel::<serde_json::Value>();
+            PENDING_REQUESTS.lock().insert(request_id.clone(), tx);
+            let payload = serde_json::json!({ "requestId": request_id, "body": body });
+            if let Err(error) = app.emit("link:exec-ask", &payload) {
+                PENDING_REQUESTS.lock().remove(&request_id);
+                return failure(error.to_string());
+            }
+            let outcome = tokio::time::timeout(Duration::from_secs(24 * 3600), rx).await;
+            PENDING_REQUESTS.lock().remove(&request_id);
+            match outcome {
+                Ok(Ok(answer)) => (200, "OK", serde_json::json!({ "ok": true, "text": answer.get("scelta").and_then(|value| value.as_str()).unwrap_or(""), "details": answer })),
+                _ => failure(crate::tr!("Nessuna risposta dalla finestra di Studio", "No answer from the Studio window").to_string()),
+            }
+        }
+    }
+}
+
 /// Gestisce una singola connessione HTTP.
 async fn handle_connection(mut stream: TcpStream, app: AppHandle) -> Result<(), std::io::Error> {
     let request = match tokio::time::timeout(Duration::from_secs(10), read_request(&mut stream))
@@ -820,6 +1021,10 @@ async fn handle_connection(mut stream: TcpStream, app: AppHandle) -> Result<(), 
                     send_response(&mut stream, 504, "Gateway Timeout", &body).await
                 }
             }
+        }
+        BridgeRouteTarget::Machine(route) => {
+            let (code, reason, body) = handle_machine(&app, route, &request.owner, &request.body).await;
+            send_response(&mut stream, code, reason, &body).await
         }
         BridgeRouteTarget::Automation(route) => {
             let action = route.as_str();

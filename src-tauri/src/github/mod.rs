@@ -1,6 +1,7 @@
 pub mod actions;
 pub mod copies;
 pub mod auth;
+pub mod identity;
 pub mod repos;
 pub mod sync;
 

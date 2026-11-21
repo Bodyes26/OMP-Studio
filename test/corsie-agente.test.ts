@@ -64,7 +64,7 @@ function fakeZod() {
 	const node: Record<string, unknown> = {};
 	const self = () => node;
 	Object.assign(node, { optional: self, describe: self });
-	return { object: self, string: self, number: self, boolean: self, enum: self };
+	return { object: self, string: self, number: self, boolean: self, enum: self, array: self };
 }
 
 function register(env: CorsieEnvironment): Map<string, RegisteredTool> {
@@ -126,7 +126,11 @@ describe('Gate R43 — tool corsia_* guidati dall\'agente', () => {
 				corsia_chiudi: 'write',
 				corsia_scarta: 'write',
 				corsia_consegna: 'write',
-				corsia_proponi: 'read'
+				corsia_proponi: 'read',
+				macchina_esegui: 'exec',
+				macchina_stato: 'read',
+				macchina_risultato: 'read',
+				macchina_annulla: 'write'
 			});
 			assert.equal(register({ ...BRIDGE, laneId: 'wt1' }).get('corsia_fatto')?.approval, 'read');
 		});

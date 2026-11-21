@@ -601,7 +601,16 @@ pub(crate) fn open_session(
     sink: Box<dyn hub::ByteSink>,
     owner: String,
 ) -> Result<u64, String> {
-    let OpenPtyArgs { cwd, args, cols, rows, lane_id, project_id } = args;
+    let OpenPtyArgs { cwd, mut args, cols, rows, lane_id, project_id } = args;
+    if args.iter().any(|arg| arg == "--continue") && !crate::session_move::allow_implicit_resume(&cwd) {
+        args.retain(|arg| arg != "--continue");
+    }
+    let arrival = args.windows(2).find(|pair| pair[0] == "--resume")
+        .map(|pair| crate::session_move::moved_notice(&pair[1], &cwd)).transpose()?.flatten();
+    let main_prompt = match arrival {
+        Some(note) => format!("{}\n\n{note}", main_agent_system_prompt()),
+        None => main_agent_system_prompt(),
+    };
     let _opening = manager.open_gate.lock();
     if cols == 0 || rows == 0 {
         return Err("Terminal dimensions must be positive".into());
@@ -671,7 +680,7 @@ pub(crate) fn open_session(
             "--config".to_string(),
             overlay_path.to_string_lossy().to_string(),
             "--append-system-prompt".to_string(),
-            main_agent_system_prompt(),
+            main_prompt,
         ];
         if let Some(ext) = &extension_arg {
             launch_args.push("-e".to_string());
@@ -745,7 +754,6 @@ pub(crate) fn open_session(
         };
         let shell = std::env::var("SHELL").unwrap_or_else(|_| default_shell.to_string());
         let mut c = CommandBuilder::new(&shell);
-        let main_prompt = main_agent_system_prompt();
         let mut launch = if std::path::Path::new(&omp_path).exists() {
             format!(
                 "{} --config {} --append-system-prompt {}",

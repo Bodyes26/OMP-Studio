@@ -38,6 +38,13 @@
 	import type SettingsModalSurface from '#lib/components/settings/SettingsModal.svelte';
 	import AutomationIndicator from '#lib/components/automations/AutomationIndicator.svelte';
 	import StatusBarChips from '#lib/components/StatusBarChips.svelte';
+	import RemoteBuildAsk from '#lib/components/RemoteBuildAsk.svelte';
+	import PeerUpdateDialog from '#lib/components/PeerUpdateDialog.svelte';
+	import RemotePreviewDialog from '#lib/components/RemotePreviewDialog.svelte';
+	import MovedSessionDialog from '#lib/agent/components/MovedSessionDialog.svelte';
+	import { closePreviews } from '#lib/backend/remotePreview.svelte.ts';
+	import { ompSync } from '#lib/backend/ompSync.svelte.ts';
+	import { continueSessionOn } from '#lib/agent/sessionMove.ts';
 	import AutomationsView from '#lib/components/automations/AutomationsView.svelte';
 	import { automationsStore } from '#lib/automations/store.svelte.ts';
 	import { presenceStore } from '#lib/automations/presence.svelte.ts';
@@ -60,7 +67,8 @@
 	import { projectJumpHints } from '#lib/shortcuts/projectJump.svelte.ts';
 	import { provenance, machineName } from '#lib/stores/projectMachines.svelte.ts';
 	import { copySyncStore } from '#lib/stores/copySync.svelte.ts';
-	import { canMoveChanges, moveChanges } from '#lib/stores/copyMove.ts';
+	import { canMoveChanges, estimateMove, moveChanges, MoveNotFinishedError } from '#lib/stores/copyMove.ts';
+	import { formatBytes } from '#lib/stores/studioUpdater.svelte.ts';
 	import { copyAgentState } from '#lib/stores/projectActivity.ts';
 	import { nextOnlineCopy } from '#lib/stores/projectCopies.ts';
 	import { IS_MAC } from '#lib/utils/platform.ts';
@@ -75,6 +83,9 @@
 	import { backgroundJobs } from '#lib/stores/backgroundJobs.svelte.ts';
 	import { projectOrder } from '#lib/stores/projectOrder.svelte.ts';
 	import { linkStore } from '#lib/backend/link.svelte.ts';
+	import type { DesktopHostSnapshot } from '#lib/backend/host.ts';
+	import { samePathLoose } from '#lib/stores/remoteQueue.ts';
+	import { loadCachedHosts, saveCachedHosts } from '#lib/stores/remoteHostCache.ts';
 	import { LOCAL_MACHINE } from '#lib/backend/ipc.ts';
 	import { machineChoices, type MachineChoice, type MachineCopy } from '#lib/agent/machineChoice.ts';
 	import type { SessionCopy } from '#lib/agent/sessionCopies.ts';
@@ -97,6 +108,7 @@
 	import { rulesStore } from '#lib/stores/rules.svelte.ts';
 	import { PANEL_SPLIT as SPLIT, DEFAULT_COLUMN_ORDER, panelScope, panelMetrics, resizePanel, panelKeyValue, panelPlacement, filesOnRight, type PanelGeometry, type SplitterAxis } from '#lib/panelGeometry.ts';
 	import { taskStore, formatTaskPrompt, type StudioTask, type TaskRunLaneContext } from '#lib/stores/tasks.svelte.ts';
+	import { parseReplicatedQueue, type RemovedTasks } from '#lib/stores/queueReplication.ts';
 	import { taskLabel } from '#lib/stores/taskTitle.ts';
 	import { nextAutoDispatchTask } from '#lib/quota/scheduleQueue.ts';
 	import { parkSessionUntilReset, scheduleRunner } from '#lib/stores/scheduleRunner.svelte.ts';
@@ -164,7 +176,7 @@
 	import { invoke, listen } from '#lib/backend/ipc.ts';
 	import { onMount, untrack } from 'svelte';
 	import { startFocusTracer } from '#lib/focusTracer.ts';
-	import { registerSnapshotProvider } from '#lib/diagnostics/studioLog.ts';
+	import { registerSnapshotProvider, studioLog } from '#lib/diagnostics/studioLog.ts';
 	import { markSwitch } from '#lib/switchDissolve.ts';
 	import { open as openDialog, ask as askDialog, message as messageDialog } from '@tauri-apps/plugin-dialog';
 	import { getCurrentWebview } from '@tauri-apps/api/webview';
@@ -310,6 +322,65 @@
 		if (!projectStore.ready) return;
 		const plan = copySyncStore.pairs().map((pair) => ({ pair, signature: copySyncStore.signature(pair) }));
 		untrack(() => { for (const { pair, signature } of plan) copySyncStore.syncIfChanged(pair, signature); });
+	});
+
+	// Code dei progetti di altre macchine (R-MI-15): lo specchio segue il
+	// riepilogo di ogni host; le modifiche fatte qui ripartono appena l'host
+	// risponde. Le scritture avvengono fuori dal tracciamento: lo specchio
+	// cambia `taskStore.tasks`, che qui non deve diventare una dipendenza.
+	$effect(() => {
+		const plan: Array<[string, Array<{ key: string; hostPath: string; tasks: StudioTask[] }>]> = [];
+		for (const [machine, snapshot] of Object.entries(linkStore.hosts)) {
+			if (snapshot.reduced) continue;
+			const entries: Array<{ key: string; hostPath: string; tasks: StudioTask[] }> = [];
+			for (const project of projectStore.projects) {
+				if (project.machineId !== machine || !project.canonicalProjectPath || !project.hostProjectId) continue;
+				const hostPath = snapshot.projects.find((host) => host.id === project.hostProjectId)?.canonicalProjectPath;
+				if (!hostPath) continue;
+				entries.push({
+					key: normalizeProjectPath(project.canonicalProjectPath).toLowerCase(),
+					hostPath,
+					tasks: snapshot.tasks.filter((task) => samePathLoose(task.projectPath, hostPath))
+				});
+			}
+			plan.push([machine, entries]);
+		}
+		untrack(() => { for (const [machine, entries] of plan) taskStore.applyHostQueues(machine, entries); });
+	});
+
+	// Ultimo riepilogo di ogni macchina, per riaprire Studio con l'altra spenta
+	// e ritrovare le sue tessere (R-MI-11) e le code su cui lasciare task (R-MI-15).
+	$effect(() => {
+		const hosts = $state.snapshot(linkStore.hosts);
+		untrack(() => void saveCachedHosts(hosts));
+	});
+	const cachedHostsApplied = new Set<string>();
+	let cachedHosts: Record<string, DesktopHostSnapshot> | null = null;
+	$effect(() => {
+		if (!projectStore.ready) return;
+		const peers = linkStore.status.peers.map((peer) => ({ id: peer.id, name: peer.name, online: peer.online }));
+		untrack(() => void (async () => {
+			cachedHosts ??= await loadCachedHosts();
+			for (const peer of peers) {
+				const cached = cachedHosts[peer.id];
+				if (!cached || peer.online || linkStore.hosts[peer.id] || cachedHostsApplied.has(peer.id)) continue;
+				cachedHostsApplied.add(peer.id);
+				projectStore.syncRemoteProjects(peer.id, peer.name, cached);
+				projectStore.markRemoteMachineOffline(peer.id);
+				for (const project of projectStore.projects) {
+					if (project.machineId !== peer.id || !project.canonicalProjectPath || !project.hostProjectId) continue;
+					const hostPath = cached.projects.find((host) => host.id === project.hostProjectId)?.canonicalProjectPath;
+					if (hostPath) taskStore.registerRemoteQueue(normalizeProjectPath(project.canonicalProjectPath).toLowerCase(), peer.id, hostPath);
+				}
+			}
+			// Una macchina revocata non torna dalla cache.
+			const known = new Set(peers.map((peer) => peer.id));
+			for (const machine of cachedHostsApplied) {
+				if (known.has(machine)) continue;
+				cachedHostsApplied.delete(machine);
+				projectStore.removeRemoteMachine(machine);
+			}
+		})());
 	});
 	$effect(() => copySyncStore.start());
 
@@ -851,6 +922,7 @@
 	let viewingImage = $state<{ data: string; mimeType: string } | null>(null);
 	let taskEditorId = $state<string | null>(null);
 	let reviewingLane = $state<AgentLane | LaneRecord | null>(null);
+	let movedChat = $state<{ machine: string; transcript: string; onContinue?: () => void } | null>(null);
 
 	/**
 	 * `corsia_integra` con conflitti consegna la corsia all'utente: la revisione
@@ -1263,15 +1335,16 @@
 	 * fonde per task, non sovrascrive il file.
 	 */
 	/**
-	 * All'apertura di un progetto, chiede la coda alle copie raggiungibili e la
-	 * fonde (F19). Serve al primo avvio su una macchina che non ha mai visto la
-	 * coda dell'altra: la replica a senso unico lascerebbe le code divergenti
-	 * finché una delle due non scrive.
+	 * Chiede la coda alle copie raggiungibili e la fonde (F19), poi rimanda la
+	 * propria: i task e le rimozioni nati qui mentre l'altra era spenta non le
+	 * arriverebbero finché qui non si scrive di nuovo. Gira all'apertura e ogni
+	 * volta che una copia torna in linea.
 	 */
 	async function pullRemoteQueues(project: Project): Promise<void> {
 		const copies = projectOrder.copiesOf(project).filter((copy) =>
 			copy.machineId && linkStore.machineFor(copy.machineId)?.online
 		);
+		const localPath = project.canonicalProjectPath ?? '';
 		for (const copy of copies) {
 			if (!copy.canonicalProjectPath) continue;
 			try {
@@ -1279,17 +1352,27 @@
 					kind: 'read_queue',
 					projectPath: copy.canonicalProjectPath
 				});
-				const parsed = JSON.parse(raw) as StudioTask[];
-				if (Array.isArray(parsed)) await taskStore.adoptRemoteQueue(project.canonicalProjectPath ?? '', parsed);
+				const queue = parseReplicatedQueue<StudioTask>(raw);
+				await taskStore.adoptRemoteQueue(localPath, queue.tasks, queue.removed);
 			} catch {
 				// Una copia che non risponde non deve impedire l'apertura.
 			}
 		}
+		if (copies.length > 0) taskStore.republish(localPath);
 	}
 
 	function installQueueReplication(): void {
+		taskStore.setRemoteQueueBridge({
+			online(machine: string) {
+				const peer = linkStore.machineFor(machine);
+				return Boolean(peer?.online && peer.compatible);
+			},
+			async send(machine: string, hostPath: string, payload: string) {
+				await linkStore.command(machine, { kind: 'write_queue', projectPath: hostPath, tasks: payload });
+			}
+		});
 		taskStore.setReplication({
-			publish(projectPath: string, tasks: readonly StudioTask[]) {
+			publish(projectPath: string, tasks: readonly StudioTask[], removed: RemovedTasks) {
 				const project = projectStore.projects.find(
 					(candidate) => candidate.canonicalProjectPath &&
 						normalizeProjectPath(candidate.canonicalProjectPath).toLowerCase() ===
@@ -1300,7 +1383,7 @@
 					copy.machineId && linkStore.machineFor(copy.machineId)?.online
 				);
 				if (copies.length === 0) return;
-				const payload = JSON.stringify(tasks);
+				const payload = JSON.stringify({ tasks, removed });
 				for (const copy of copies) {
 					void linkStore
 						.command(copy.machineId!, {
@@ -1377,23 +1460,68 @@
 	 * copie restano dove sono. Se lo spostamento fallisce si resta sulla
 	 * partenza, dove le modifiche sono ancora.
 	 */
+	async function resumeTransferredChat(project: Project, laneId: LaneRecord['laneId'], sessionId: string, model: string | null) {
+		await laneOrchestrator.switchLane(project.id as ProjectId, laneId);
+		let target = projectStore.projects.find((copy) => copy.id === project.id);
+		if (target?.lane.surface === 'terminal') {
+			if (laneOrchestrator.laneBusy(target, target.lane)) throw new Error(m.session_move_busy());
+			await laneOrchestrator.switchSurface(target.id, 'gui');
+			target = projectStore.projects.find((copy) => copy.id === project.id);
+		}
+		const lane = target && laneOf(target, laneId);
+		if (!target || !lane || lane.surface !== 'gui') throw new Error(m.session_move_busy());
+		const session = agentSessionFor(target, lane);
+		await session.reopen(sessionId, { modelOverride: model });
+		if (!await session.waitUntilReady(15_000) || session.sessionId !== sessionId) throw new Error(m.session_move_resume_failed());
+		projectStore.setActive(target.id);
+	}
+
 	async function switchCopy(from: Project, to: Project): Promise<void> {
+		if (from.lane.surface === 'terminal' && terminalSessionFor(from)?.currentSessionInfo?.sessionId) {
+			if (laneOrchestrator.laneBusy(from, from.lane)) {
+				await messageDialog(m.session_move_busy(), { kind: 'info' });
+				return;
+			}
+			await laneOrchestrator.switchSurface(from.id, 'gui');
+			const updated = projectStore.projects.find((copy) => copy.id === from.id);
+			if (!updated || updated.lane.surface !== 'gui') return;
+			from = updated;
+			const agent = registeredSessionFor(from);
+			if (!agent || !await agent.waitUntilReady(15_000)) {
+				await messageDialog(m.session_move_resume_failed(), { kind: 'error' });
+				return;
+			}
+		}
+		if (await continueSessionOn(from, to, registeredSessionFor(from), async ({ sessionId, lane, model }) => {
+			await resumeTransferredChat(to, lane, sessionId, model);
+			window.dispatchEvent(new CustomEvent('studio-sessions-refresh', { detail: { projectPath: to.canonicalProjectPath, sessionId } }));
+		})) return;
 		const path = from.canonicalProjectPath;
 		if (path && canMoveChanges(from, to)) {
-			const status = await githubStore.loadUpstreamStatus(path, true).catch(() => null);
-			const count = status?.isGit ? (status.changedFiles ?? (status.hasUncommitted ? 1 : 0)) : 0;
+			// La stima legge i file sulla macchina di partenza (R-MI-33); se non
+			// risponde si ripiega sul conteggio dello stato git, senza dimensione.
+			const estimate = await estimateMove(from).catch(() => null);
+			const status = estimate ? null : await githubStore.loadUpstreamStatus(path, true).catch(() => null);
+			const count = estimate?.files ?? (status?.isGit ? (status.changedFiles ?? (status.hasUncommitted ? 1 : 0)) : 0);
 			if (count > 0) {
 				const names = { from: machineName(from.machineId), to: machineName(to.machineId), count };
+				const size = estimate ? formatBytes(estimate.bytes) : '?';
 				if (copyAgentState(from) === 'working' || copyAgentState(to) === 'working') {
 					await messageDialog(m.copies_move_busy(names), { title: m.copies_move_title(), kind: 'info' });
-				} else if (await askDialog(m.copies_move_prompt(names), {
+				} else if (await askDialog(m.copies_move_prompt({ ...names, size }), {
 					title: m.copies_move_title(), okLabel: m.copies_move_bring(), cancelLabel: m.copies_move_leave()
 				})) {
 					try {
 						await moveChanges(from, to);
 					} catch (error) {
-						await messageDialog(m.copies_move_failed({ from: names.from, error: String(error) }), { title: m.copies_move_title(), kind: 'error' });
-						return;
+						// Arrivate ma non ripulite: il lavoro è già sulla copia di
+						// arrivo, quindi si passa lì e si dice cosa resta da fare.
+						if (error instanceof MoveNotFinishedError) {
+							await messageDialog(m.copies_move_unfinished({ from: names.from, to: names.to, error: error.message }), { title: m.copies_move_title(), kind: 'warning' });
+						} else {
+							await messageDialog(m.copies_move_failed({ from: names.from, error: String(error) }), { title: m.copies_move_title(), kind: 'error' });
+							return;
+						}
 					}
 				}
 			}
@@ -1764,6 +1892,13 @@
 					laneAction: async (projectId, action) => {
 						const owner = projectStore.projects.find((p) => p.id === projectId && !projectStore.isRemote(p));
 						if (!owner) throw new Error(m.l10n_state_lane_project_not_found());
+						if (action.op === 'land') {
+							const outcome = await laneLanding.land(owner, action.laneId as LaneRecord['laneId'], {
+								message: action.message, confirmed: action.confirmed,
+								caller: action.interactive ? { kind: 'gui' } : { kind: 'agent', ownerId: 0, callerLaneId: null }
+							});
+							return { outcome: { ...outcome } };
+						}
 						const surface = action.op === 'archive' ? undefined : action.surface;
 						const origin = action.op === 'archive' ? undefined : action.origin as LaneRecord['origin'] | undefined;
 						if (action.op === 'create') {
@@ -1787,10 +1922,10 @@
 					// Coda arrivata dall'altra macchina (F19): si fonde per task,
 					// così i task creati qui nel frattempo non spariscono.
 					readQueue: async (projectPath: string) =>
-						JSON.stringify(taskStore.tasksFor(projectPath)),
+						JSON.stringify({ tasks: taskStore.tasksFor(projectPath), removed: taskStore.removedFor(projectPath) }),
 					writeQueue: async (projectPath: string, tasksJson: string) => {
-						const parsed = JSON.parse(tasksJson) as StudioTask[];
-						await taskStore.adoptRemoteQueue(projectPath, Array.isArray(parsed) ? parsed : []);
+						const queue = parseReplicatedQueue<StudioTask>(tasksJson);
+						await taskStore.adoptRemoteQueue(projectPath, queue.tasks, queue.removed);
 					},
 					createProject: createRemoteProject,
 					composerCatalog: remoteLaneConfig.getRemoteComposerCatalog,
@@ -1808,19 +1943,27 @@
 		);
 		register(initRemoteChat());
 	installQueueReplication();
-	// Prima lettura delle code delle altre copie: solo per i progetti condivisi,
-	// una volta sola per progetto e dopo che il collegamento è noto.
-	const queuePulled = new Set<string>();
+	// Lettura delle code delle altre copie: solo per i progetti condivisi, dopo
+	// che il collegamento è noto, e di nuovo ogni volta che cambia l'insieme
+	// delle copie in linea. Rileggere solo all'apertura lasciava le code
+	// divergenti dopo che una macchina era stata spenta (o scollegata).
+	const queuePulled = new Map<string, string>();
 	$effect(() => {
 		// Solo le copie di questa macchina: la coda di una copia remota vive
 		// sul suo host e qui il percorso non esiste.
 		for (const project of projectStore.localProjects) {
 			if (!project.canonicalProjectPath) continue;
-			const copies = projectOrder.copiesOf(project);
-			if (copies.length === 0) continue;
-			if (!copies.some((copy) => copy.machineId && linkStore.machineFor(copy.machineId)?.online)) continue;
-			if (queuePulled.has(project.id)) continue;
-			queuePulled.add(project.id);
+			const online = projectOrder.copiesOf(project)
+				.map((copy) => copy.machineId)
+				.filter((machine): machine is string => Boolean(machine && linkStore.machineFor(machine)?.online))
+				.sort()
+				.join(',');
+			if (!online) {
+				queuePulled.delete(project.id);
+				continue;
+			}
+			if (queuePulled.get(project.id) === online) continue;
+			queuePulled.set(project.id, online);
 			void pullRemoteQueues(project);
 		}
 	});
@@ -2597,10 +2740,29 @@
 				? (linkStore.machineFor(copy.machineId)?.online ?? false)
 				: true,
 			autoDispatch: copy.autoDispatch,
+			enabledAt: copy.autoDispatchAt ?? null,
 			lastUsed: copy.lastOpened ?? null
 		}));
 		return dispatchOwner(copies);
 	}
+
+	/**
+	 * Due copie con l'auto-avvio acceso (A4): capita accendendolo su una
+	 * macchina mentre l'altra è spenta, perché il comando che la spegneva non
+	 * arriva. Ogni macchina spegne da sé solo la propria copia, se non è quella
+	 * dell'accensione più recente: tutte vedono gli stessi istanti, quindi
+	 * nessuno deve aspettare un comando e non restano mai due detentori.
+	 */
+	$effect(() => {
+		for (const project of projectStore.localProjects) {
+			if (!project.autoDispatch || projectOrder.copiesOf(project).length === 0) continue;
+			const owner = dispatchOwnerFor(project);
+			if (owner.conflict && owner.toDisable.includes(LOCAL_MACHINE)) {
+				studioLog.info('project', `auto-avvio spento qui: acceso piu' di recente su ${owner.name ?? owner.machineId}`);
+				projectStore.setAutoDispatch(project.id, false);
+			}
+		}
+	});
 
 	function autoDispatchCandidateFor(project: Project): AutoDispatchCandidate | null {
 		// Nessuna coda avviata se l'auto-avvio e' spento ovunque, acceso
@@ -2792,6 +2954,36 @@
 		if (!project?.canonicalProjectPath || !canAutomate(projectId)) return;
 		const lane = laneOf(project, laneId ?? project.lane.laneId);
 		if (!lane) return;
+		const redirect = await invoke<{ machine: string; projectPath: string; sourcePath: string; targetPath: string; model: string | null } | null>('session_move_redirect', { session: sessionId }, { machine: project.machineId }).catch(() => null);
+		if (redirect) {
+			const machine = redirect.machine === linkStore.status.machineId ? LOCAL_MACHINE : redirect.machine;
+			const name = machineName(machine);
+			const target = [project, ...projectOrder.copiesOf(project)].find((copy) => (copy.machineId ?? LOCAL_MACHINE) === machine && copy.canonicalProjectPath === redirect.projectPath);
+			const title = m.session_move_title({ machine: name });
+			try {
+				const transcript = await invoke<string>('session_move_recover', { projectPath: redirect.sourcePath, session: sessionId }, { machine: project.machineId });
+				movedChat = { machine: name, transcript, onContinue: target ? () => {
+					void (async () => {
+						try {
+							const row = laneStore.lanesFor(target.id as ProjectId).find((item) => item.workspacePath === redirect.targetPath);
+							if (redirect.targetPath !== redirect.projectPath && !row) throw new Error(m.session_move_commit());
+							const next = laneOf(target, row?.laneId ?? MAIN_LANE_ID);
+							if (!next || !canAutomate(target.id)) throw new Error(m.session_move_busy());
+							await invoke('session_move_import', { projectPath: redirect.targetPath, sourcePath: redirect.sourcePath, session: sessionId, transcript }, { machine });
+							await agentSessionFor(target, next).reopen(sessionId, { modelOverride: redirect.model });
+							projectStore.setActive(target.id);
+							await laneOrchestrator.switchLane(target.id as ProjectId, next.laneId);
+							movedChat = null;
+						} catch (error) {
+							await messageDialog(String(error), { title, kind: 'error' });
+						}
+					})();
+				} : undefined };
+			} catch (error) {
+				await messageDialog(String(error), { title, kind: 'error' });
+			}
+			return;
+		}
 		const key = runtimeKey(project, lane.laneId);
 
 		terminalBusy[key] = true;
@@ -3356,10 +3548,12 @@
 	}
 
 	onMount(() => {
+		const stopOmpSync = ompSync.start();
 		const onProjectClosed = (event: Event) => {
 			const projectId = (event as CustomEvent<{ projectId?: string }>).detail?.projectId;
 			if (!projectId) return;
 			disposeAgentSession(projectId);
+			closePreviews(projectId);
 			void laneStore.removeDraftLanes(projectId as ProjectId).catch(() => undefined);
 		};
 		// «Confronta» della striscia sulle copie divergenti (R-MI-22): apre Git.
@@ -3367,6 +3561,7 @@
 		window.addEventListener('studio-project-closed', onProjectClosed);
 		window.addEventListener('studio-show-git', onShowGit);
 		return () => {
+			stopOmpSync();
 			window.removeEventListener('studio-project-closed', onProjectClosed);
 			window.removeEventListener('studio-show-git', onShowGit);
 		};
@@ -5162,6 +5357,11 @@
 		<p>{m.page_modal_restart_desc()}</p>
 		<p>{m.page_modal_restart_sub()}</p>
 	</ConfirmDialog>
+
+	<RemoteBuildAsk />
+	<PeerUpdateDialog />
+	<RemotePreviewDialog />
+	{#if movedChat}<MovedSessionDialog {...movedChat} onClose={() => { movedChat = null; }} />{/if}
 
 	{#if StudioUpdateModalComponent && (studioUpdaterStore.showModal || studioUpdateModalEverOpened)}
 		<StudioUpdateModalComponent />

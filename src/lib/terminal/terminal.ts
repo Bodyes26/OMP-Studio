@@ -10,6 +10,7 @@ import { projectStore } from '#lib/stores/projects.svelte.ts';
 import { IS_MAC } from '#lib/utils/platform.ts';
 import { isAllowedExternalUrl } from '#lib/utils/externalUrl.ts';
 import { openExternalUrl } from '#lib/utils/openExternal.ts';
+import { requestPreview } from '#lib/backend/remotePreview.svelte.ts';
 import { canvasColors, onThemeChange } from '#lib/theme.ts';
 import { settingsStore, withFontFamily } from '#lib/stores/settings.svelte.ts';
 import {
@@ -165,6 +166,8 @@ export class TerminalSession {
 		this.onOpenFile = onOpenFile;
 		this.onInputPendingChange = onInputPendingChange;
 		this.onSessionChange = onSessionChange;
+		const preview = (text: string) => this.hostProjectId !== null && this.projectId !== null &&
+			requestPreview({ machine: this.machineId, project: this.hostProjectId, owner: this.projectId }, text);
 
 		this.term = new Terminal({
 			allowProposedApi: true,
@@ -186,6 +189,7 @@ export class TerminalSession {
 			linkHandler: {
 				allowNonHttpProtocols: true,
 				activate: (_event, text) => {
+					if (preview(text)) return;
 					if (isAllowedExternalUrl(text)) {
 						void openExternalUrl(text);
 						return;
@@ -200,11 +204,11 @@ export class TerminalSession {
 		this.term.loadAddon(new Unicode11Addon());
 		this.term.unicode.activeVersion = '11';
 		this.term.loadAddon(new WebLinksAddon((_event, uri) => {
-			void openExternalUrl(uri);
+			if (!preview(uri)) void openExternalUrl(uri);
 		}));
 		this.term.registerLinkProvider(new FileLinkProvider(this.term, (text) => {
-			void this.activateFileCandidate(text);
-		}));
+			if (!preview(text)) void this.activateFileCandidate(text);
+		}, this.machineId !== LOCAL_MACHINE));
 		this.term.loadAddon(new SearchAddon());
 		this.term.loadAddon(new ClipboardAddon());
 
@@ -964,7 +968,8 @@ const FILE_TOKEN_REGEX = /(?:\[([^\s\]\r\n]+(?:#[0-9A-Fa-f]+|:[0-9]+(?:-[0-9]+)?
 class FileLinkProvider implements ILinkProvider {
 	constructor(
 		private readonly term: Terminal,
-		private readonly onActivate: (text: string) => void
+		private readonly onActivate: (text: string) => void,
+		private readonly remote = false
 	) {}
 
 	public provideLinks(y: number, callback: (links: ILink[] | undefined) => void): void {
@@ -978,7 +983,8 @@ class FileLinkProvider implements ILinkProvider {
 		if (!line.trim()) return [];
 
 		const results: ILink[] = [];
-		const regex = new RegExp(FILE_TOKEN_REGEX.source, 'g');
+		const barePreview = String.raw`(?<![\w/:])(?:localhost|127\.0\.0\.1|\[::1\]):\d{1,5}(?:[/?#][^\s<>"']*)?(?![\w])`;
+		const regex = new RegExp(this.remote ? `${barePreview}|${FILE_TOKEN_REGEX.source}` : FILE_TOKEN_REGEX.source, 'g');
 		let match: RegExpExecArray | null;
 
 		while ((match = regex.exec(line)) !== null) {

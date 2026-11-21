@@ -13,3 +13,16 @@ Studio Remote mobile — 2026-11-01, gestione della coda dei lavori (scelte dell
 - File esterni (2026-11-08): niente finestra separata e niente tab nel progetto attivo. I file esterni hanno uno spazio fisso «File esterni» nella barra progetti, perché riusa editor, anteprime e corsie. La lettura e la scrittura fuori dai progetti passano da percorsi autorizzati da un'azione dell'utente, senza allentare il confine di `resolve_path`. Aprire un file vale come consenso perché l'agente lavori nella sua cartella (radice git se esiste). Registro: docs/requisiti/file-esterni.md. [sessione 01a1babd]
 
 2026-11-16 — Multi-istanza: scelto iroh con relay ospitato dall'utente, cifratura da capo a capo e certificati del sistema per raggiungere il relay dalle reti aziendali. Nessun servizio di n0; Studio Remote mantiene il relay Bun per il telefono. Approvazione: «direi ok per tutto» dopo la prova riuscita PC in ufficio–Mac a casa (531 ms, ping mediano 87,5 ms, 52 Mbit/s); gli altri scenari sono assunti, non verificati. Riferimenti: Gate R49, R-MI-16/17, MI00. MI01 centralizza l'IPC locale; il controllo completo di progetti remoti resta da implementare. [sessione 01a1e051]
+
+## Multi-istanza: sicurezza e compatibilità
+
+- Confinamento dei percorsi (A5, 2026-11-20): vale per le macchine abbinate senza Agenti né Terminale, su ogni comando (letture e File e Git). Agenti e Terminale equivalgono già a una shell (R-MI-09: gli ambiti non sono una sandbox), quindi confinarli non protegge nulla e romperebbe letture legittime fuori dai progetti (Laboratorio, progetti chiusi). Prima il confinamento scattava solo con tutti gli ambiti spenti e una macchina con il solo File e Git poteva scrivere ovunque.
+- Azioni host (M11): `read_queue`/`write_queue` restano nelle radici dichiarate dell'host e i `projectId` devono essere progetti noti; `open_project` non si confina, perché richiede Agenti e i progetti chiusi possono stare fuori dalla radice (R-MI-04).
+- «Agente al lavoro» per l'aggiornamento delle copie (R-MI-27) si legge dal turno della sessione RPC (`agent_start` → fine terminale), non dal lock interattivo delle automazioni: quello resta preso per tutta la vita della sessione e bloccherebbe l'aggiornamento per sempre.
+- Versioni (R-MI-10): compatibili se coincide la base stabile major.minor.patch (le nightly differiscono solo per `-nightly.N`). A versione diversa l'host manda uno snapshot ridotto (`reduced: true`, solo progetti) e la finestra ne ricostruisce le tessere.
+- Battito: Ping ogni 10 s con 10 s di attesa, tre fallimenti di fila chiudono la connessione: abbastanza tollerante da non staccare un trasferimento grande su relay lento.
+- Stream (B1): se l'host scarta frame invia `Resync` e il consumatore si riaggancia da capo, invece di proseguire con un buco. [sessione corrente]
+
+## Multi-istanza — prima Nightly senza worker remoto
+
+Per il primo giro si pubblica dal Mac con `npm run nightly -- --no-remote`: GitHub Actions costruisce Windows e Linux. La doppia build Mac+PC si prova dalle Nightly successive, dopo aver installato su entrambe una versione che conosce il nuovo flusso. L’utente ha chiesto di non avviare test o prove locali durante la scrittura del codice; il registro non segna l’accettazione come eseguita. [sessione 01a1fd2b]

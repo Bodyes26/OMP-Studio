@@ -19,6 +19,19 @@
 export interface RepositoryIdentity {
 	repoSlug?: string | null;
 	rootCommit?: string | null;
+	/**
+	 * Nome attuale del repository su GitHub, se diverso da `repoSlug`: una
+	 * copia con l'origin di prima di una rinomina resta lo stesso progetto
+	 * (R-MI-32).
+	 */
+	canonicalSlug?: string | null;
+	/**
+	 * Solo per le copie senza origin: `false` finché l'utente non ha confermato
+	 * che è lo stesso progetto delle altre con lo stesso primo commit. Due fork
+	 * locali hanno la stessa radice: unirli da soli li confondeva (R-MI-32).
+	 * Assente = regola precedente, il primo commit basta.
+	 */
+	rootConfirmed?: boolean;
 }
 
 /** Come si riconosce la seconda copia di un progetto. */
@@ -32,16 +45,18 @@ export interface Identity {
 
 /**
  * Identità di una copia, oppure `null` se non è un repository git con una
- * delle due ancore. L'origin vince sul primo commit: due fork con la stessa
- * radice restano progetti distinti, come deve essere.
+ * delle due ancore o se il primo commit non è ancora stato confermato.
+ * L'origin vince sul primo commit: due fork con la stessa radice e origin
+ * diversi restano progetti distinti.
  */
 export function identityOf(copy: RepositoryIdentity | null | undefined): Identity | null {
 	if (!copy) return null;
-	const slug = typeof copy.repoSlug === 'string' ? copy.repoSlug.trim().toLowerCase() : '';
+	const slugOf = (value: string | null | undefined) => typeof value === 'string' ? value.trim().toLowerCase() : '';
+	const slug = slugOf(copy.canonicalSlug) || slugOf(copy.repoSlug);
 	if (slug) return { kind: 'origin', value: slug };
 	const root = typeof copy.rootCommit === 'string' ? copy.rootCommit.trim().toLowerCase() : '';
-	if (root) return { kind: 'root-commit', value: root };
-	return null;
+	if (!root || copy.rootConfirmed === false) return null;
+	return { kind: 'root-commit', value: root };
 }
 
 /** Chiave di fusione: due copie con la stessa chiave sono lo stesso progetto. */

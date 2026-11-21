@@ -894,6 +894,7 @@ async fn resolve_asset_sha256(
 pub async fn check_studio_update(
     state: State<'_, StudioUpdaterState>,
     channel: StudioUpdateChannel,
+    preferred_version: Option<String>,
 ) -> Result<StudioUpdateInfo, String> {
     let current_version = env!("CARGO_PKG_VERSION");
     let client = reqwest::Client::builder()
@@ -906,16 +907,29 @@ pub async fn check_studio_update(
             )
         })?;
 
-    let stable = fetch_latest_stable_release(&client, current_version)
-        .await?
-        .map(|release| StudioReleaseCandidate {
-            version: normalize_version(&release.tag_name).to_string(),
-            published_at: release.published_at.clone(),
-            release,
-            channel: StudioUpdateChannel::Stable,
-            manifest_checksums: std::collections::HashMap::new(),
-            manifest_sha256: None,
-        });
+    let preferred = preferred_version.as_deref().map(normalize_version);
+    let stable = async {
+        if let Some(version) = preferred.filter(|v| semver::Version::parse(v).is_ok_and(|parsed| parsed.pre.is_empty())) {
+            let url = format!("https://api.github.com/repos/{GITHUB_REPO}/releases/tags/v{version}");
+            let response = github_get(&client, &url, current_version).send().await.map_err(|error| error.to_string())?;
+            if response.status().is_success() {
+                let release: GithubRelease = response.json().await.map_err(|error| error.to_string())?;
+                if !release.draft && !release.prerelease && normalize_version(&release.tag_name) == version {
+                    return Ok(Some(release));
+                }
+            } else if response.status() != reqwest::StatusCode::NOT_FOUND {
+                return Err(format!("GitHub returned {}", response.status()));
+            }
+        }
+        fetch_latest_stable_release(&client, current_version).await
+    }.await?.map(|release| StudioReleaseCandidate {
+        version: normalize_version(&release.tag_name).to_string(),
+        published_at: release.published_at.clone(),
+        release,
+        channel: StudioUpdateChannel::Stable,
+        manifest_checksums: std::collections::HashMap::new(),
+        manifest_sha256: None,
+    });
 
     let nightly = if channel == StudioUpdateChannel::Nightly {
         fetch_nightly_release(&client, current_version).await?
@@ -924,6 +938,8 @@ pub async fn check_studio_update(
     };
 
     let candidate = match (stable, nightly) {
+        (Some(stable), _) if Some(stable.version.as_str()) == preferred => stable,
+        (_, Some(nightly)) if Some(nightly.version.as_str()) == preferred => nightly,
         (Some(stable), Some(nightly))
             if compare_versions(&nightly.version, &stable.version)
                 == Some(std::cmp::Ordering::Greater) =>
@@ -936,9 +952,11 @@ pub async fn check_studio_update(
     };
 
     let relation = compare_versions(&candidate.version, current_version);
+    let exact = Some(candidate.version.as_str()) == preferred;
     let has_update = match relation {
         Some(std::cmp::Ordering::Greater) => true,
-        Some(_) => false,
+        Some(std::cmp::Ordering::Less) => exact,
+        Some(std::cmp::Ordering::Equal) => false,
         None => candidate.version != normalize_version(current_version),
     };
     let ahead_of_channel = relation == Some(std::cmp::Ordering::Less);
@@ -1461,6 +1479,83 @@ pub async fn start_studio_update_download(
     });
 
     Ok(target_path_str)
+}
+
+/// Aggiornamento chiesto da un'altra macchina (R-MI-38): stato letto da chi
+/// l'ha chiesto per mostrare sulla tessera a che punto e' («in attesa che
+/// finisca …»). Lo aggiorna la finestra, che sa cosa tiene occupata la
+/// macchina (agenti, domande, file non salvati) e quando installare.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteUpdateStatus {
+    pub version: String,
+    pub requested_by: String,
+    /// `starting`, `downloading`, `waiting`, `installing`, `failed`.
+    pub phase: String,
+    #[serde(default)]
+    pub waiting_for: Vec<String>,
+    pub error: Option<String>,
+}
+
+static REMOTE_UPDATE: Mutex<Option<RemoteUpdateStatus>> = Mutex::new(None);
+
+/// Il mittente indica la versione confermata; URL e checksum sono risolti
+/// nuovamente qui dal repository ufficiale.
+#[tauri::command]
+pub async fn studio_update_remote_start(
+    app: AppHandle,
+    request: tauri::ipc::Request<'_>,
+    version: String,
+    state: State<'_, StudioUpdaterState>,
+) -> Result<(), String> {
+    let requested_by = request
+        .headers()
+        .get("x-studio-authenticated-peer")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned)
+        .ok_or("Remote updates can only be requested by another machine")?;
+    let channel = if normalize_version(&version).contains("-nightly.") { StudioUpdateChannel::Nightly } else { StudioUpdateChannel::Stable };
+    let info = check_studio_update(state, channel, Some(version.clone())).await?;
+    if !info.has_update || info.latest_version != version {
+        return Err("The confirmed update version is no longer available".into());
+    }
+    let asset = info.asset.filter(|asset| asset.sha256.is_some()).ok_or("The installer has no verified checksum")?;
+    {
+        let mut remote = REMOTE_UPDATE.lock();
+        if remote.as_ref().is_some_and(|status| status.phase != "failed") {
+            return Err("A remote update is already in progress".into());
+        }
+        *remote = Some(RemoteUpdateStatus {
+            version: version.clone(),
+            requested_by: requested_by.clone(),
+            phase: "starting".into(),
+            waiting_for: Vec::new(),
+            error: None,
+        });
+    }
+    if let Err(error) = app.emit(
+        "studio-update:remote-install",
+        serde_json::json!({ "version": version, "asset": asset, "requestedBy": requested_by }),
+    ) {
+        *REMOTE_UPDATE.lock() = None;
+        return Err(error.to_string());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn studio_update_remote_status() -> Option<RemoteUpdateStatus> {
+    REMOTE_UPDATE.lock().clone()
+}
+
+/// La finestra riporta la fase dell'aggiornamento chiesto da fuori.
+#[tauri::command]
+pub fn studio_update_remote_report(phase: String, waiting_for: Vec<String>, error: Option<String>) {
+    if let Some(status) = REMOTE_UPDATE.lock().as_mut() {
+        status.phase = phase;
+        status.waiting_for = waiting_for;
+        status.error = error;
+    }
 }
 
 /// Annulla il download in corso se presente ed elimina ogni file temporaneo.

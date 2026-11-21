@@ -30,8 +30,11 @@ detect_*.stderr.txt
 /lab
 /proto
 
-# Staging locale di scripts/publish-nightly.mjs
+# Staging locale di scripts/publish-nightly.mjs (anche quelli della build
+# distribuita: installer del worker e quelli riportati al coordinatore)
 /staging-nightly/
+/staging-nightly-worker/
+/staging-nightly-remote/
 
 # Il progetto usa bun (bun.lock): un package-lock.json generato per errore da npm
 # andrebbe fuori sincrono e non viene usato da CI e build.

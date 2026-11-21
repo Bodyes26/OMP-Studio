@@ -83,12 +83,13 @@ impl Runtime {
 
     async fn host_action(&self, peer: Option<String>, command: Value) -> ActionResult {
         let kind = command.get("kind").and_then(Value::as_str).ok_or_else(|| json!("Missing host action kind"))?;
-        action_permission(kind).map_err(Value::String)?;
+        let permission = action_permission(kind).map_err(Value::String)?;
         let name = if let Some(id) = &peer {
             self.authorize_action(id, &command).map_err(Value::String)?;
             self.config.lock().peers.get(id).ok_or_else(|| json!("Device pairing was revoked"))?.name.clone()
         } else { self.config.lock().name.clone() };
         crate::studio_log::info("link", format!("{name}: {kind}"));
+        if let Some(id) = &peer { self.audit(id, permission, kind, &command); }
         let command_id = uuid::Uuid::new_v4().to_string();
         let (tx, rx) = tokio::sync::oneshot::channel();
         self.actions.lock().insert(command_id.clone(), PendingAction { result: tx });
@@ -144,20 +145,71 @@ pub(super) fn validate_json(text: &str) -> Result<(), String> {
     deserializer.end().map_err(|error| error.to_string())
 }
 
+/// Forma ridotta dello snapshot per una macchina con versione incompatibile
+/// (R-MI-10): separata dal `Runtime` per essere provata senza Tauri. Esclude
+/// lo stato operativo (corsie, task, sessioni) ma conserva l'identita' della
+/// macchina e l'elenco dei progetti, cosi' la finestra puo' materializzare la
+/// tessera e mostrare «aggiorna Studio».
+fn reduced_snapshot(machine_id: &str, machine_name: &str, snapshot: &str) -> Result<String, String> {
+    let full: Value = serde_json::from_str(snapshot).map_err(|error| error.to_string())?;
+    let projects = full.get("projects").and_then(Value::as_array).map(|projects| {
+        projects.iter().map(|project| {
+            let id = project.get("id").cloned().unwrap_or(Value::Null);
+            let name = project.get("name").cloned().unwrap_or(Value::Null);
+            let canonical = project.get("canonicalProjectPath").cloned().unwrap_or(Value::Null);
+            let repo = project.get("repo").cloned().unwrap_or(Value::Null);
+            let lane = project.get("lane").cloned().unwrap_or(Value::Null);
+            json!({
+                "id": id,
+                "name": name,
+                "canonicalProjectPath": canonical,
+                "repo": repo,
+                "branch": lane.get("branch").cloned().unwrap_or(Value::Null),
+            })
+        }).collect::<Vec<Value>>()
+    }).unwrap_or_default();
+    Ok(json!({
+        "version": 1,
+        "reduced": true,
+        // Lo stesso valore dello snapshot pieno: la finestra lo usa per sapere
+        // con che separatori leggere i percorsi della macchina.
+        "platform": full.get("platform").cloned().unwrap_or(Value::Null),
+        "machineId": machine_id,
+        "machineName": machine_name,
+        "studioVersion": VERSION,
+        "projectRoot": full.get("projectRoot").cloned().unwrap_or(Value::Null),
+        "projects": projects,
+    }).to_string())
+}
+
 impl Runtime {
     pub(super) async fn serve_host_state(&self, connection: &Connection, send: &mut iroh::endpoint::SendStream, generation: u64) -> Result<(), String> {
         let peer = connection.remote_id().to_string();
-        self.authorize(&peer, "link_host_snapshot", generation)?;
+        // R-MI-10: con versione incompatibile lo snapshot pieno non passa, ma
+        // la finestra deve comunque materializzare la tessera e mostrare
+        // «aggiorna Studio». Qui si decide una volta per tutte la forma da
+        // servire: ridotta se il peer non e' compatibile, piena altrimenti.
         let mut state = self.snapshot.subscribe();
         let mut events = self.events.subscribe();
         let mut send_state = true;
         loop {
-            self.authorize(&peer, "link_host_snapshot", generation)?;
+            // Controllo di vita e di abbinamento (senza versione: lo snapshot
+            // ridotto deve arrivare anche a una macchina da aggiornare, R-MI-10).
+            if generation != self.generation.load(Ordering::SeqCst) { return Err("Obsolete connection".into()); }
+            self.authorize_scope(&peer, "link_host_snapshot")?;
+            // Un collegamento che diventa compatibile a meta' (aggiornamento
+            // completato) passa allo snapshot pieno al giro successivo.
+            let now_reduced = !self.connections.lock().get(&peer).is_some_and(|entry| versions_compatible(&entry.version, VERSION));
             if send_state {
                 let current = state.borrow_and_update().clone();
                 if let Some(current) = current {
-                    send_json(send, &Reply::Json { len: current.len() }).await?;
-                    send.write_all(current.as_bytes()).await.map_err(|error| error.to_string())?;
+                    let payload: Arc<String> = if now_reduced {
+                        Arc::new(self.reduced_snapshot(&current)?)
+                    } else {
+                        current
+                    };
+                    send_json(send, &Reply::Json { len: payload.len() }).await?;
+                    send.write_all(payload.as_bytes()).await.map_err(|error| error.to_string())?;
                 }
             }
             send_state = false;
@@ -169,6 +221,13 @@ impl Runtime {
                     send_state = true;
                 },
                 event = events.recv() => {
+                    // Con versione incompatibile lo snapshot e' ridotto e non
+                    // porta stato operativo: gli eventi dal vivo non si
+                    // servono ne' si autorizzano (il controllo di versione li
+                    // rifiuterebbe comunque).
+                    if now_reduced {
+                        continue;
+                    }
                     self.authorize(&peer, "link_host_snapshot", generation)?;
                     match event {
                         Ok(event) => {
@@ -187,6 +246,17 @@ impl Runtime {
             }
         }
         Ok(())
+    }
+
+    /// Snapshot ridotto per una macchina con versione incompatibile (R-MI-10):
+    /// solo identita', versione, piattaforma e l'elenco dei progetti con nome,
+    /// percorso e repository, senza stato operativo. Il frontend lo riconosce
+    /// da `"reduced": true` e mostra «aggiorna Studio» invece di provare ad
+    /// aprire il progetto. Nessuna operazione di progetto resta consentita:
+    /// il controllo di versione in `authorize` le rifiuta comunque.
+    fn reduced_snapshot(&self, snapshot: &str) -> Result<String, String> {
+        let name = self.config.lock().name.clone();
+        reduced_snapshot(&self.id, &name, snapshot)
     }
 
     pub(super) async fn watch_peer_state(&self, connection: Connection) -> Result<(), String> {
@@ -298,5 +368,42 @@ mod tests {
         assert!(shared_event("auth:secret", &changed, &roots).is_err());
         assert!(shared_event("lab://changed", "{}); alert(1)", &roots).is_err());
         std::fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
+    fn a_reduced_snapshot_carries_identity_and_projects_without_operational_state() {
+        let full = json!({
+            "version": 1,
+            "platform": "macos",
+            "projectRoot": "/Users/maurizio/dev",
+            "projects": [
+                { "id": "p1", "name": "OMP Studio", "canonicalProjectPath": "/Users/maurizio/dev/omp", "repo": "owner/omp", "lane": { "branch": "main" }, "autoDispatch": true },
+                { "id": "p2", "name": "Sito", "canonicalProjectPath": null, "repo": null, "lane": {} }
+            ],
+            "lanes": [{ "projectId": "p1" }],
+            "tasks": [{ "id": "t1" }],
+            "sessions": [{ "projectId": "p1" }],
+            "state": { "activeProjectId": "p1" }
+        }).to_string();
+        let reduced = reduced_snapshot("mac-id", "MacBook", &full).unwrap();
+        let value: Value = serde_json::from_str(&reduced).unwrap();
+        assert_eq!(value.get("reduced"), Some(&json!(true)));
+        assert_eq!(value.get("machineId"), Some(&json!("mac-id")));
+        assert_eq!(value.get("machineName"), Some(&json!("MacBook")));
+        assert_eq!(value.get("studioVersion"), Some(&json!(VERSION)));
+        assert_eq!(value.get("platform"), Some(&json!("macos")));
+        assert_eq!(value.get("projectRoot"), Some(&json!("/Users/maurizio/dev")));
+        let projects = value.get("projects").and_then(Value::as_array).unwrap();
+        assert_eq!(projects.len(), 2);
+        assert_eq!(projects[0].get("id"), Some(&json!("p1")));
+        assert_eq!(projects[0].get("name"), Some(&json!("OMP Studio")));
+        assert_eq!(projects[0].get("canonicalProjectPath"), Some(&json!("/Users/maurizio/dev/omp")));
+        assert_eq!(projects[0].get("repo"), Some(&json!("owner/omp")));
+        assert_eq!(projects[0].get("branch"), Some(&json!("main")));
+        // Nessuno stato operativo nel ridotto: niente lanes/tasks/sessions/state.
+        assert!(value.get("lanes").is_none());
+        assert!(value.get("tasks").is_none());
+        assert!(value.get("sessions").is_none());
+        assert!(value.get("state").is_none());
     }
 }

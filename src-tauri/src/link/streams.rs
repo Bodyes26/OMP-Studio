@@ -11,15 +11,29 @@ struct Packet { header: StreamFrame, bytes: Vec<u8> }
 struct Outbox {
     sender: tokio::sync::mpsc::Sender<Packet>,
     bytes: Arc<AtomicUsize>,
+    /// Diventa vero quando una consegna ha superato il tetto della coda: il
+    /// consumatore deve ripartire da capo, perche' un frame scartato apre un
+    /// buco nel flusso. Il giro di `open_stream` lo legge e lo azzera mentre
+    /// emette `Resync`, poi riprende a inviare frame normali.
+    resync: Arc<AtomicBool>,
 }
 impl Outbox {
+    /// Segnala al mittente che la coda e' andata oltre il tetto e il
+    /// consumatore va rimesso in pari (B1). Non azzera qui: il flag si
+    /// consuma nel giro di `open_stream`, che emette `Resync` e poi torna a
+    /// inviare i frame, svuotando la coda.
+    fn overflow(&self) {
+        self.resync.store(true, Ordering::SeqCst);
+    }
     fn queue(&self, header: StreamFrame, size: usize, bytes: impl FnOnce() -> Vec<u8>) -> bool {
         if self.bytes.fetch_add(size, Ordering::SeqCst).saturating_add(size) > MAX_QUEUED {
             self.bytes.fetch_sub(size, Ordering::SeqCst);
+            self.overflow();
             return false;
         }
         if self.sender.try_send(Packet { header, bytes: bytes() }).is_err() {
             self.bytes.fetch_sub(size, Ordering::SeqCst);
+            self.overflow();
             return false;
         }
         true
@@ -176,7 +190,13 @@ impl Runtime {
         });
         let (tx, mut rx) = tokio::sync::mpsc::channel(8192);
         let queued = Arc::new(AtomicUsize::new(0));
-        let outbox = Outbox { sender: tx, bytes: queued.clone() };
+        let resync = Arc::new(AtomicBool::new(false));
+        let outbox = Outbox { sender: tx, bytes: queued.clone(), resync: resync.clone() };
+        // Aprire un terminale o una sessione nuova esegue qualcosa (R-MI-39);
+        // riagganciarsi a una gia' aperta e' solo guardare.
+        if session_id.is_none() {
+            self.audit(&machine, super::catalog::permission(&command).unwrap_or("read"), &command, &args);
+        }
         let app = self.app.clone();
         let opening_command = command.clone();
         let (id, continued) = tokio::task::spawn_blocking(move || -> Result<(u64, bool), String> {
@@ -217,6 +237,12 @@ impl Runtime {
                 _ = send.stopped() => break,
             };
             self.authorize(&machine, &command, generation)?;
+            // La coda dell'host ha scartato un frame per il tetto: il
+            // consumatore deve ripartire da capo, non ricevere un flusso con
+            // un buco. Il Resync e' un pacchetto vuoto fuori banda.
+            if resync.swap(false, Ordering::SeqCst) {
+                send_json(send, &StreamFrame::Resync).await?;
+            }
             // Un confronto di prefisso per frame: i delta escono subito senza
             // toccare il JSON. Solo un cambio di stato del run pubblica.
             if let Some((project, lane)) = lane.as_ref() {
@@ -264,8 +290,22 @@ impl Runtime {
                             }
                             continue;
                         }
+                        StreamFrame::Resync => {
+                            // L'host ha scartato un frame per il tetto (B1):
+                            // continuare lascerebbe un buco nel flusso. Si
+                            // chiude e si riaggancia da capo, cosi' la
+                            // superficie riceve `studio_rebind` e ricostruisce
+                            // lo stato come dopo una ripresa oltre la coda.
+                            after = None;
+                            break Err("Host dropped frames: resubscribing from scratch".into());
+                        }
                         StreamFrame::Rebind { id, len } => {
                             subscription.id.store(id, Ordering::SeqCst);
+                            // Il rebind cambia la sessione (nuovo hub, nuova
+                            // numerazione): la posizione di ripresa del vecchio
+                            // flusso non vale piu'. L'host ha gia' riallineato
+                            // con `ready` e i frame conservati, che qui sotto
+                            // riporteranno `after` alla cima corretta.
                             after = None;
                             (len, 0, false, false)
                         }
@@ -341,4 +381,37 @@ pub(crate) async fn link_open_rpc(app: tauri::AppHandle, webview: tauri::Webview
 #[tauri::command]
 pub(crate) async fn link_open_pty(app: tauri::AppHandle, webview: tauri::Webview, machine: String, args: Value, on_output: Channel<Response>, manager: tauri::State<'_, LinkManager>) -> Result<u64, String> {
     manager.runtime(&app).await?.subscribe(machine, webview.label().to_owned(), "pty_open".into(), args, Surface::Pty(on_output)).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_outbox_overflow_signals_resync_instead_of_silently_dropping() {
+        // Senza rete: un frame oltre il tetto non passa, ma alza il flag che
+        // fa emettere Resync, cosi' il consumatore sa di dover ripartire (B1).
+        let (tx, _rx) = tokio::sync::mpsc::channel::<Packet>(1);
+        let bytes = Arc::new(AtomicUsize::new(0));
+        let resync = Arc::new(AtomicBool::new(false));
+        let outbox = Outbox { sender: tx, bytes: bytes.clone(), resync: resync.clone() };
+        let oversized = vec![0u8; MAX_QUEUED + 1];
+        assert!(!outbox.push(StreamFrame::Rpc { seq: 1, len: oversized.len() }, &oversized));
+        assert!(resync.load(Ordering::SeqCst));
+        // Il contatore non e' stato toccato: il frame e' stato scartato, non
+        // accodato.
+        assert_eq!(bytes.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn an_outbox_within_the_cap_does_not_signal_resync() {
+        let (tx, _rx) = tokio::sync::mpsc::channel::<Packet>(1);
+        let bytes = Arc::new(AtomicUsize::new(0));
+        let resync = Arc::new(AtomicBool::new(false));
+        let outbox = Outbox { sender: tx, bytes: bytes.clone(), resync: resync.clone() };
+        let small = b"ok".to_vec();
+        assert!(outbox.push(StreamFrame::Cursor { seq: 1 }, &small));
+        assert!(!resync.load(Ordering::SeqCst));
+        assert_eq!(bytes.load(Ordering::SeqCst), small.len());
+    }
 }

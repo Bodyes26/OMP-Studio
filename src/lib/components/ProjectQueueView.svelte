@@ -80,6 +80,7 @@
 			? (linkStore.machineFor(copy.machineId)?.online ?? false)
 			: true,
 		autoDispatch: copy.autoDispatch,
+		enabledAt: copy.autoDispatchAt ?? null,
 		lastUsed: copy.lastOpened ?? null
 	})));
 
@@ -113,7 +114,10 @@
 			if (!copy.autoDispatch) continue;
 			// Una copia remota: il comando viaggia e il suo esito arriva con lo
 			// stato successivo; qui si toglie subito dalla vista per non lasciare
-			// due interruttori accesi nel frattempo.
+			// due interruttori accesi nel frattempo. Se il comando non arriva
+			// (macchina spenta), al ritorno quella copia si spegne da sé perché
+			// questa accensione è più recente (F20).
+			projectStore.markRemoteAutoDispatch(copy.id, false);
 			void linkStore
 				.command(copy.machineId ?? LOCAL_MACHINE, {
 					kind: 'set_auto_dispatch',

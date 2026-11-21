@@ -26,6 +26,7 @@ use external_open::{external_open_take, external_route, PendingOpens};
 mod file_watch;
 use file_watch::file_watch_set;
 mod fs_atomic;
+mod keep_awake;
 mod link;
 mod lanes_store;
 use lanes_store::{lanes_store_backup, lanes_store_read, lanes_store_write_atomic};
@@ -67,6 +68,7 @@ use projects::{
     worktree_attach_branch, worktree_list_branches,
 };
 mod omp_ops;
+mod session_move;
 use omp_ops::{
     check_omp_update, get_omp_changelog_status, get_omp_version, mark_omp_changelog_seen,
     omp_user_theme, provider_hosts, read_historical_session_messages, run_omp_update,
@@ -78,7 +80,8 @@ use stats_ops::{stats_open_dashboard, stats_summary, stats_sync};
 mod studio_updater;
 use studio_updater::{
     cancel_studio_update_download, check_studio_update, get_studio_version,
-    install_studio_update_and_restart, start_studio_update_download, StudioUpdaterState,
+    install_studio_update_and_restart, start_studio_update_download, studio_update_remote_report,
+    studio_update_remote_start, studio_update_remote_status, StudioUpdaterState,
 };
 mod models_ops;
 mod provider_auth;
@@ -102,6 +105,8 @@ mod alerts;
 use alerts::{clear_app_attention, init_windows_aumid, set_app_attention};
 mod project_notifications;
 use project_notifications::{dismiss_project_notifications, send_project_notification};
+mod system_idle;
+use system_idle::system_idle_seconds;
 mod focus_trace;
 use focus_trace::{focus_trace_append, focus_trace_path};
 mod window_icon;
@@ -281,7 +286,9 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             link::link_status,
+            link::link_reset_identity,
             link::link_activity,
+            link::link_audit,
             link::link_configure,
             link::link_pairing_code,
             link::link_pair,
@@ -295,6 +302,25 @@ pub fn run() {
             link::host::link_command_result,
             link::host::link_publish_state,
             link::host::link_host_states,
+            link::forward::link_forward_open,
+            link::forward::link_forward_close,
+            link::forward::link_forward_window,
+            link::exec::exec_start,
+            link::exec::exec_nightly_ready,
+            link::omp_settings::omp_sync_preferences,
+            link::omp_settings::omp_sync_snapshot,
+            link::omp_settings::omp_sync_apply,
+            session_move::session_move_export,
+            session_move::session_move_import,
+            session_move::session_move_redirect,
+            session_move::session_move_recover,
+            github::copies::copy_receive_lane_branch,
+            link::exec::exec_status,
+            link::exec::exec_cancel,
+            link::exec::exec_artifact_chunk,
+            link::exec::exec_jobs,
+            link::exec::exec_job_log,
+            link::exec::exec_job_cancel,
             lane_bridge_respond,
             focus_trace_append,
             focus_trace_path,
@@ -395,6 +421,9 @@ pub fn run() {
             start_studio_update_download,
             cancel_studio_update_download,
             install_studio_update_and_restart,
+            studio_update_remote_start,
+            studio_update_remote_status,
+            studio_update_remote_report,
             get_model_config,
             save_model_config,
             get_models_catalog,
@@ -463,6 +492,8 @@ pub fn run() {
             github_clone_repo,
             project_create_new,
             git_upstream_status,
+            github::identity::github_canonical_repo,
+            github::identity::github_update_origin,
             git_sync_repo,
             github::copies::copy_sync_heads,
             github::copies::copy_sync_bundle,
@@ -470,6 +501,10 @@ pub fn run() {
             github::copies::copy_wip_snapshot,
             github::copies::copy_wip_receive,
             github::copies::copy_wip_finish,
+            github::copies::copy_wip_bundle,
+            github::copies::copy_sync_bundle_chunk,
+            github::copies::copy_wip_bundle_chunk,
+            github::copies::copy_wip_estimate,
             github_get_actions_status,
             lab_paths,
             lab_prototype_create,
@@ -508,6 +543,7 @@ pub fn run() {
             remote_open_machines_window,
             send_project_notification,
             dismiss_project_notifications,
+            system_idle_seconds,
             stats_summary,
             stats_sync,
             stats_open_dashboard,

@@ -24,7 +24,13 @@ export interface DispatchCopy {
 	online: boolean;
 	/** Interruttore dello stato letto da quella macchina. */
 	autoDispatch: boolean;
-	/** Ultima volta usata, epoch ms; `null` se mai. */
+	/**
+	 * Quando l'interruttore di quella copia è stato cambiato l'ultima volta
+	 * (istante di `logicalClock`); `null` per le copie scritte prima che
+	 * esistesse. Decide il conflitto: vince l'ultima accensione (F20).
+	 */
+	enabledAt: number | null;
+	/** Ultima volta usata; `null` se mai. Solo ripiego senza `enabledAt`. */
 	lastUsed: number | null;
 }
 
@@ -37,8 +43,9 @@ export interface DispatchOwner {
 	offline: boolean;
 	/**
 	 * Più copie con l'interruttore acceso: stato incoerente da correggere
-	 * (può capitare con una macchina accesa mentre l'altra era spenta).
-	 * Vince la più recente per `lastUsed`; il resto va spento.
+	 * (capita accendendolo su una macchina mentre l'altra era spenta, perché
+	 * il comando che la spegneva non è arrivato). Vince l'accensione più
+	 * recente; ogni macchina spegne da sé la propria copia se è in `toDisable`.
 	 */
 	conflict: boolean;
 	/** Macchine da spegnere per riportare l'invariante, in ordine stabile. */
@@ -56,10 +63,16 @@ export function dispatchOwner(copies: readonly DispatchCopy[]): DispatchOwner {
 	if (enabled.length === 0) {
 		return { machineId: null, name: null, offline: false, conflict: false, toDisable: [] };
 	}
-	// In caso di conflitto vince l'ultima usata: è quella su cui l'utente ha
-	// agito per ultimo, quindi la più probabile da tenere accesa.
+	// In caso di conflitto vince l'accensione più recente: è l'ultima scelta
+	// dell'utente (F20, «attivarlo su una macchina lo disattiva sulle altre»).
+	// L'ordine deve essere lo stesso visto da tutte le macchine, perché
+	// ognuna decide da sola se avviare: niente orologi locali, solo istanti
+	// già confrontabili e, a parità, il nome.
 	const ranked = [...enabled].sort(
-		(a, b) => (b.lastUsed ?? 0) - (a.lastUsed ?? 0) || a.name.localeCompare(b.name)
+		(a, b) =>
+			(b.enabledAt ?? 0) - (a.enabledAt ?? 0) ||
+			(b.lastUsed ?? 0) - (a.lastUsed ?? 0) ||
+			a.name.localeCompare(b.name)
 	);
 	const owner = ranked[0];
 	return {

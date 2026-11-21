@@ -28,6 +28,7 @@
 	import ScheduleMenu from './schedule/ScheduleMenu.svelte';
 	import ProviderLogo from './models/ProviderLogo.svelte';
 	import { resolveTaskModelBadge } from './taskModelBadge.ts';
+	import { linkStore } from '#lib/backend/link.svelte.ts';
 
 	/**
 	 * Un task della coda, condiviso da pannello Agente e cassetto globale.
@@ -75,6 +76,18 @@
 	const imageCount = $derived(task.images?.length ?? 0);
 	const launchDisabled = $derived(!task.prompt.trim() && imageCount === 0);
 	const isQueued = $derived(task.status === 'queued');
+	/**
+	 * Modificato qui per un progetto di un'altra macchina che ora non risponde
+	 * (R-MI-15): parte solo quando quella macchina lo riceve. Con la macchina
+	 * raggiungibile la consegna dura un istante e il segno lampeggerebbe a ogni modifica.
+	 */
+	const awaitingMachine = $derived.by(() => {
+		const machineId = taskStore.awaitingDelivery[task.id];
+		if (!machineId) return null;
+		const machine = linkStore.machineFor(machineId);
+		if (machine?.online && machine.compatible) return null;
+		return machine?.name ?? machineId;
+	});
 	const finished = $derived(task.status === 'completed' || task.status === 'abandoned');
 	const directives = $derived(task.options?.directives ?? []);
 	const modelBadge = $derived(resolveTaskModelBadge(task));
@@ -325,6 +338,12 @@
 				</span>
 			{/if}
 			{#if isQueued && task.schedule}<ScheduleChip {task} />{/if}
+			{#if awaitingMachine}
+				<span class="chip status awaiting">
+					<StatusMark status="pending" />
+					<span>{m.queue_awaiting_machine({ machine: awaitingMachine })}</span>
+				</span>
+			{/if}
 			{#if !showHeadline || !text.headline}
 				<Tooltip text={modelBadge.tooltip} placement="top" offset={4}>
 					<span class="chip model" class:session={modelBadge.isSession}>
@@ -727,6 +746,10 @@
 
 	.chip.status.abandoned {
 		color: var(--danger);
+	}
+
+	.chip.status.awaiting {
+		color: var(--warn);
 	}
 
 	.actions,

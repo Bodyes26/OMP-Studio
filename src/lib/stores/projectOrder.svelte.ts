@@ -1,9 +1,11 @@
 import { getLocale } from '#lib/paraglide/runtime.js';
 import { projectStore, normalizeProjectPath, type Project } from './projects.svelte';
+import { LOCAL_MACHINE } from '#lib/backend/ipc.ts';
 import { settingsStore } from './settings.svelte';
 import { taskStore } from './tasks.svelte';
 import { githubStore } from './github.svelte';
 import { groupByRepository, type RepositoryIdentity } from './projectIdentity.ts';
+import { copyKeyOf, projectLinks } from './projectLinks.svelte.ts';
 import { tileCopy } from './projectCopies.ts';
 import { copyNeedsAttention } from './projectActivity.ts';
 
@@ -13,12 +15,24 @@ import { copyNeedsAttention } from './projectActivity.ts';
  * interrogazione: se non c'è ancora, la copia resta senza identità e non si
  * fonde per sbaglio.
  */
-function identityOfCopy(project: Project): RepositoryIdentity {
+function identityOfCopy(project: Project, multiMachine: boolean): RepositoryIdentity {
 	const path = project.canonicalProjectPath;
 	if (!path) return {};
+	void projectLinks.init();
 	const key = normalizeProjectPath(path).toLowerCase();
 	const status = githubStore.upstreamByPath[key];
-	return { repoSlug: status?.repoSlug ?? null, rootCommit: status?.rootCommit ?? null };
+	const repoSlug = status?.repoSlug ?? null;
+	const rootCommit = status?.rootCommit ?? null;
+	return {
+		repoSlug,
+		rootCommit,
+		// Nome attuale su GitHub: unisce la copia rimasta col nome di prima
+		// di una rinomina (R-MI-32). Solo con progetti di altre macchine in
+		// barra: su una macchina sola non c'è nulla da unire.
+		canonicalSlug: repoSlug && multiMachine ? projectLinks.canonicalSlug(repoSlug) : null,
+		// Senza origin il primo commit unisce solo dopo la conferma (R-MI-32).
+		rootConfirmed: false
+	};
 }
 
 /**
@@ -43,9 +57,31 @@ class ProjectOrder {
 		// Si parte da `list`, non dall'array grezzo: la barra itera `unified` e
 		// l'ordinamento scelto (alfabetico, priorità, recenti) deve valere anche lì.
 		const projects = this.list;
-		return groupByRepository(projects.map((p) => identityOfCopy(p))).map((indices) =>
-			indices.map((index) => projects[index])
-		);
+		const multiMachine = projects.some((p) => Boolean(p.machineId && p.machineId !== LOCAL_MACHINE));
+		const identities = projects.map((p) => identityOfCopy(p, multiMachine));
+		const groups = groupByRepository(identities);
+		const edges: Array<{ a: number; b: number; at: number }> = [];
+		const keys = projects.map(copyKeyOf);
+		for (let a = 0; a < projects.length; a++) {
+			const root = identities[a].rootCommit;
+			if (!root || identities[a].repoSlug) continue;
+			for (let b = a + 1; b < projects.length; b++) {
+				if (identities[b].repoSlug || identities[b].rootCommit !== root) continue;
+				const decision = projectLinks.decisionFor(keys[a], keys[b]);
+				if (decision?.same && decision.root === root.toLowerCase()) edges.push({ a, b, at: decision.at });
+			}
+		}
+		// Il primo commit da solo non collega due coppie di fork.
+		edges.sort((a, b) => b.at - a.at || keys[a.a].localeCompare(keys[b.a]) || keys[a.b].localeCompare(keys[b.b]));
+		for (const { a, b } of edges) {
+			const left = groups.find((group) => group.includes(a))!;
+			const right = groups.find((group) => group.includes(b))!;
+			if (left === right || left.some((i) => right.some((j) => projectLinks.isRefused(keys[i], keys[j])))) continue;
+			left.push(...right);
+			left.sort((i, j) => i - j);
+			groups.splice(groups.indexOf(right), 1);
+		}
+		return groups.sort((a, b) => a[0] - b[0]).map((indices) => indices.map((index) => projects[index]));
 	}
 
 	/**

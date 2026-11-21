@@ -26,6 +26,7 @@
 	import { getCurrentWebview } from '@tauri-apps/api/webview';
 	import { dropSummary, physicalToCssPoint } from '../chatDrop';
 	import { sessionCompletions } from '../completion.svelte';
+	import { provideChatPreview } from '#lib/backend/remotePreview.svelte.ts';
 
 	import AskCard from './AskCard.svelte';
 	import AskForm from './AskForm.svelte';
@@ -87,6 +88,7 @@
 		session.insertComposerText(text);
 	}
 	setContext<() => string>('git-diff-project-path', () => session.cwd);
+	provideChatPreview(() => ({ machine: session.machineId, project: session.hostProjectId, owner: session.projectKey }));
 	// Ganci condivisi passati via contesto: i componenti annidati non hanno
 	// bisogno di callback inoltrate a mano.
 	setAgentUiHooks({

@@ -1716,6 +1716,37 @@ In linea con i principi di `PRODUCT.md`:
 ### Fase 3 — Spostamento dell'esecuzione
 
 - [ ] **MI30 — Spostamento a fine turno** (R-MI-14; dopo la fase 2)
-  Dettaglio e scenari di accettazione da scrivere prima di iniziare.
-  **Stato (2026-11-16):** non iniziata. Il trasferimento deciso in F16 (bundle git con le modifiche
-  non committate più il JSONL della sessione) non ha ancora comandi né interfaccia.
+  Scelte aperte e accettazione fissate il 2026-11-21 (F29, vedi R-MI-14). Nell'ordine di F30 viene dopo MI46.
+  **Stato:** codice collegato a «Continua su…», con WIP Git, transcript intatto e storico in sola lettura. Accettazione non eseguita.
+
+### Funzioni aggiunte il 2026-11-21 (F27–F30)
+
+Ordine di lavoro approvato in F30. Il codice dei gate è in preparazione per la Nightly; le caselle attestano l'accettazione, non la presenza di codice. Per la prima Nightly si usa il Mac con `npm run nightly -- --no-remote`, lasciando Windows e Linux a GitHub Actions. La build distribuita fra i due computer si prova sulle Nightly successive. Nessun test o prova locale in questa sessione, su richiesta dell'utente.
+
+- [ ] **MI40 — Registro delle azioni remote** (R-MI-39, R-MI-09)
+  **Prova:** scenario di R-MI-39 con due macchine; test della scadenza a 30 giorni.
+
+- [ ] **MI41 — Esegui su macchina** (R-MI-36; dopo MI40)
+  Verbi del bridge locale (`lane_bridge.rs`) per script e tool `macchina_esegui`/`macchina_stato`/`macchina_risultato`; job in una cartella di lavoro per progetto spostata al commit; log in diretta, codice d'uscita, artefatti dichiarati a pezzi (meccanismo di R-MI-33); annullamento propagato; un job per progetto; sospensione impedita durante il job.
+  **Prova:** scenario di R-MI-36 fra Mac e PC.
+
+- [ ] **MI42 — Build Nightly distribuita** (R-MI-37; dopo MI41)
+  `scripts/publish-nightly.mjs` dentro Studio: un `build_id`, build dell'altra piattaforma con MI41, pubblicazione unica (`nightly.json` fuso, tag una volta, cloud solo per Linux o per ripiego), dialogo di Studio se l'altra macchina manca.
+  **Prova:** scenario di R-MI-37; Nightly reale pubblicata dal Mac con installer Windows dal PC.
+
+- [ ] **MI43 — Aggiornamento dell'altra macchina con un clic** (R-MI-38, R-MI-10; dopo MI42)
+  **Prova:** scenario di R-MI-38 con due versioni reali.
+
+- [ ] **MI44 — Chiave sparita e decisioni condivise** (R-MI-43, R-MI-44)
+  **Prova:** scenari di R-MI-43 e R-MI-44.
+
+- [ ] **MI45 — Anteprima del server di sviluppo remoto** (R-MI-40)
+  **Prova:** scenario di R-MI-40 con `npm run dev` sul Mac.
+
+- [ ] **MI46 — Corsie su macchine diverse** (R-MI-41)
+  **Prova:** scenario di R-MI-41.
+
+- **MI30** (sopra): spostamento dell'agente, in questa posizione dell'ordine.
+
+- [ ] **MI47 — Impostazioni di omp sincronizzate** (R-MI-42)
+  **Prova:** scenario di R-MI-42.

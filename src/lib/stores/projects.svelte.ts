@@ -23,6 +23,7 @@ import type { LabIndexEntry } from '#lib/lab/types.ts';
 import { noteProjectSwitch, studioLog } from '#lib/diagnostics/studioLog.ts';
 import { readPanelGeometries } from '#lib/panelGeometry.ts';
 import type { LaneRecord } from './lanePersistence.ts';
+import { logicalClock } from './logicalClock.ts';
 
 import { isWindows, isWindowsPath, normalizeProjectPath, joinProjectPath, pathKey } from '#lib/utils/paths.ts';
 import {
@@ -58,6 +59,13 @@ export interface Project {
 	lastOpened: number;
 	/** Il primo task in coda parte da solo appena il terminale e' libero. */
 	autoDispatch: boolean;
+	/**
+	 * Istante (di `logicalClock`) dell'ultimo cambio dell'interruttore. Fra le
+	 * copie di un progetto condiviso decide chi tiene l'auto-avvio quando due
+	 * risultano accese (F20) e scarta i riepiloghi dell'host piu' vecchi della
+	 * scelta appena fatta qui.
+	 */
+	autoDispatchAt?: number;
 	/** Default dei task di questo progetto: sovrascrivono taskDefaults globali. */
 	taskDefaults: Partial<TaskDefaults> | null;
 	/** Origini remote autorizzate per Browser Studio (S43). Persistite per progetto. */
@@ -82,6 +90,7 @@ interface StoredProject {
 	layout?: Partial<ProjectLayout> & { rightSection?: AgentSurface };
 	lastOpened?: number;
 	autoDispatch?: boolean;
+	autoDispatchAt?: number;
 	taskDefaults?: Partial<TaskDefaults> | null;
 	browserAllowedOrigins?: string[];
 	labDraft?: { prototypeId: string } | null;
@@ -351,12 +360,17 @@ class ProjectStore {
 					},
 					lastOpened: typeof p.lastOpened === 'number' ? p.lastOpened : 0,
 					autoDispatch: p.autoDispatch === true,
+					autoDispatchAt: typeof p.autoDispatchAt === 'number' ? p.autoDispatchAt : undefined,
 					taskDefaults: p.taskDefaults && typeof p.taskDefaults === 'object' ? p.taskDefaults : null,
 					browserAllowedOrigins: p.browserAllowedOrigins,
 					worktreeResumeChat: p.worktreeResumeChat ?? true,
 					external: false
 				};
 				this.projects.push(project);
+				// Istanti emessi in sessioni precedenti, forse oltre l'orologio di
+				// questa macchina: le prossime scelte devono superarli.
+				logicalClock.observe(project.lastOpened);
+				logicalClock.observe(project.autoDispatchAt);
 				this.syncProjectMetadata(project);
 			}
 		}
@@ -443,6 +457,7 @@ class ProjectStore {
 				layout: $state.snapshot(p.layout),
 				lastOpened: p.lastOpened,
 				autoDispatch: p.autoDispatch,
+				autoDispatchAt: p.autoDispatchAt,
 				taskDefaults: p.taskDefaults ? $state.snapshot(p.taskDefaults) : null,
 				browserAllowedOrigins: p.browserAllowedOrigins,
 				labDraft: p.labDraft ?? undefined,
@@ -474,7 +489,7 @@ class ProjectStore {
 			if (existing.external) {
 				existing.external = false;
 			}
-			existing.lastOpened = Date.now();
+			existing.lastOpened = logicalClock.now();
 			this.syncProjectMetadata(existing);
 			this.activeId = existing.id;
 			this.save();
@@ -500,7 +515,7 @@ class ProjectStore {
 			colorMode: resolved.colorMode,
 			lane: createMainLane(id, canonicalPath, settingsStore.general.defaultSurface),
 			layout: resolved.layout,
-			lastOpened: Date.now(),
+			lastOpened: logicalClock.now(),
 			autoDispatch: resolved.autoDispatch,
 			taskDefaults: resolved.taskDefaults,
 			browserAllowedOrigins: resolved.browserAllowedOrigins,
@@ -532,7 +547,7 @@ class ProjectStore {
 			(p) => p.canonicalProjectPath && pathKey(p.canonicalProjectPath) === key
 		);
 		if (existing) {
-			existing.lastOpened = Date.now();
+			existing.lastOpened = logicalClock.now();
 			this.save();
 			return existing.id;
 		}
@@ -555,7 +570,7 @@ class ProjectStore {
 				leftSection: 'files',
 				editorOpen: true
 			},
-			lastOpened: Date.now(),
+			lastOpened: logicalClock.now(),
 			autoDispatch: false,
 			taskDefaults: null,
 			browserAllowedOrigins: undefined,
@@ -634,7 +649,7 @@ class ProjectStore {
 				leftSection: 'files',
 				editorOpen: false
 			},
-			lastOpened: Date.now(),
+			lastOpened: logicalClock.now(),
 			autoDispatch: false,
 			taskDefaults: null,
 			worktreeResumeChat: true,
@@ -676,7 +691,7 @@ class ProjectStore {
 				leftSection: 'files',
 				editorOpen: false
 			},
-			lastOpened: Date.now(),
+			lastOpened: logicalClock.now(),
 			autoDispatch: false,
 			taskDefaults: null,
 			labDraft: { prototypeId: entry.id },
@@ -730,7 +745,7 @@ class ProjectStore {
 			noteProjectSwitch(from, p.name);
 			studioLog.info('project', `attivo: ${from} -> ${p.name} agente=${p.lane.agentState} corsia=${p.lane.laneId}`);
 		}
-		p.lastOpened = Date.now();
+		p.lastOpened = logicalClock.now();
 		// La chat conferma la lettura dal transcript visibile, non dal cambio scheda.
 		if (p.lane.surface === 'terminal' && p.lane.agentState === 'finished') {
 			p.lane.agentState = 'idle';
@@ -747,7 +762,7 @@ class ProjectStore {
 	markUsed(id: string) {
 		const p = this.projects.find((x) => x.id === id);
 		if (!p) return;
-		p.lastOpened = Date.now();
+		p.lastOpened = logicalClock.now();
 		this.save();
 	}
 
@@ -803,7 +818,20 @@ class ProjectStore {
 		const p = this.projects.find(p => p.id === id);
 		if (!p) return;
 		p.autoDispatch = value;
+		p.autoDispatchAt = logicalClock.now();
 		this.save();
+	}
+
+	/**
+	 * Scelta fatta qui sull'auto-avvio di una copia remota, prima che l'host
+	 * la confermi: l'istante tiene la vista ferma sulla scelta finche' non
+	 * arriva un riepilogo almeno altrettanto recente (M8).
+	 */
+	markRemoteAutoDispatch(id: string, value: boolean): void {
+		const p = this.projects.find((item) => item.id === id);
+		if (!p || !this.isRemote(p)) return;
+		p.autoDispatch = value;
+		p.autoDispatchAt = logicalClock.now();
 	}
 
 	setWorktreeResumeChat(projectId: string, value: boolean) {
@@ -1171,10 +1199,16 @@ class ProjectStore {
 			project.colorMode = host.colorMode;
 			// La scelta della copia in uso fatta qui (R-MI-13) non deve essere
 			// cancellata dal riepilogo successivo, che porta l'uso visto dall'host.
+			logicalClock.observe(host.lastOpened);
 			project.lastOpened = Math.max(previous?.lastOpened ?? 0, host.lastOpened);
-			// Chi ha l'auto-avvio lo dice l'host (F20): senza, la copia remota
-			// risultava sempre spenta e la scelta nel pannello mentiva.
-			project.autoDispatch = Boolean(host.autoDispatch);
+			// Chi ha l'auto-avvio lo dice l'host (F20), tranne quando la scelta
+			// fatta qui e' piu' recente del riepilogo: un riepilogo partito prima
+			// del comando riportava indietro l'interruttore per un giro (M8).
+			logicalClock.observe(host.autoDispatchAt);
+			if (!previous || (previous.autoDispatchAt ?? 0) <= (host.autoDispatchAt ?? 0)) {
+				project.autoDispatch = Boolean(host.autoDispatch);
+				project.autoDispatchAt = host.autoDispatchAt;
+			}
 			project.lane = {
 				...project.lane,
 				projectId: id,

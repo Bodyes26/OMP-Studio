@@ -37,6 +37,12 @@ describe('Copie divergenti (F25)', () => {
 		assert.deepEqual(divergenceReasons([copy(), copy({ changedFiles: 1 }), copy({ changedFiles: 3 })], []), ['uncommitted']);
 	});
 
+	it('branch che differiscono solo per maiuscole sono una divergenza (R-MI-35)', () => {
+		const conflict = [{ branch: 'Feature', other: 'feature' }];
+		assert.deepEqual(divergenceReasons([copy(), copy()], [], conflict), ['case']);
+		assert.notEqual(divergenceSignature([copy(), copy()], []), divergenceSignature([copy(), copy()], [], conflict));
+	});
+
 	it('l impronta cambia quando cambia lo stato di una copia o una branch diverge', () => {
 		const before = divergenceSignature([copy(), copy({ changedFiles: 2 })], []);
 		assert.equal(before, divergenceSignature([copy(), copy({ changedFiles: 2 })], []));

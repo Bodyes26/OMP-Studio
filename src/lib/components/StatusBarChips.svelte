@@ -5,9 +5,10 @@
 	import { remoteStore } from '#lib/remote/remoteStore.svelte.ts';
 	import { projectStore } from '#lib/stores/projects.svelte.ts';
 	import { linkStore } from '#lib/backend/link.svelte.ts';
+	import { remoteJobs } from '#lib/backend/remoteJobs.svelte.ts';
 	import { contextMenu } from '#lib/contextMenu.svelte.ts';
 	import Tooltip from '#lib/ui/Tooltip.svelte';
-	import { IconPin, IconRemote, IconMonitor } from '#lib/icons.ts';
+	import { IconPin, IconRemote, IconMonitor, IconTerminal } from '#lib/icons.ts';
 
 	// Companion, coda globale e controllo remoto riguardano tutta l'app, non il
 	// progetto attivo: stanno nella barra di stato cosi' la barra superiore
@@ -21,6 +22,10 @@
 	} = $props();
 
 	const controlledMachine = $derived(linkStore.machineFor(projectStore.activeProject?.machineId));
+	// Un'altra macchina sta eseguendo un comando qui (R-MI-36): deve restare
+	// visibile cosa gira e chi l'ha chiesto, anche senza aprire le impostazioni.
+	const incomingJob = $derived(remoteJobs.incomingActive[0] ?? null);
+	$effect(() => { remoteJobs.start(); });
 </script>
 
 <Tooltip text={m.statusbar_companion_chip_title()} placement="top">
@@ -59,6 +64,20 @@
 		>
 			<IconMonitor size={13} />
 			<span>{controlledMachine.name}</span>
+		</button>
+	</Tooltip>
+{/if}
+
+{#if incomingJob}
+	<Tooltip text={m.statusbar_exec_chip_title({ name: incomingJob.machineName, command: incomingJob.command })} placement="top">
+		<button
+			type="button"
+			class="statusbar-chip brand"
+			onclick={(e) => { e.stopPropagation(); onRemoteSettings?.(); }}
+			aria-label={m.statusbar_exec_chip_aria({ name: incomingJob.machineName })}
+		>
+			<IconTerminal size={13} />
+			<span>{incomingJob.machineName}</span>
 		</button>
 	</Tooltip>
 {/if}

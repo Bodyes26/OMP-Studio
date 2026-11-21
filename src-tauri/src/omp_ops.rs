@@ -1769,7 +1769,7 @@ fn extract_credential_pins_from_file(path: &Path) -> HashMap<String, String> {
 /// nelle centinaia di cartelle degli artefatti, il caso di gran lunga piu'
 /// frequente. Un match esatto vince sempre su un prefisso; a parita' vince il
 /// transcript principale.
-fn find_session_file_in(sessions_root: &Path, session_id: &str) -> Option<PathBuf> {
+pub(crate) fn find_session_file_in(sessions_root: &Path, session_id: &str) -> Option<PathBuf> {
     let clean_id = session_id
         .trim()
         .strip_suffix(".jsonl")

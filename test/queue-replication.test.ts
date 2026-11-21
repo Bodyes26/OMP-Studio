@@ -6,14 +6,19 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-	hasPendingChanges,
-	isClosedTask,
 	mergeQueues,
+	mergeRemoved,
+	parseReplicatedQueue,
+	pruneRemoved,
+	REMOVED_RETENTION_MS,
 	resequence,
 	type ReplicableTask
 } from '../src/lib/stores/queueReplication.ts';
+import { LogicalClock, MAX_OBSERVED_SKEW_MS } from '../src/lib/stores/logicalClock.ts';
 
-const task = (id: string, over: Partial<ReplicableTask> = {}): ReplicableTask => ({
+type TestTask = ReplicableTask & Record<string, unknown>;
+
+const task = (id: string, over: Partial<TestTask> = {}): TestTask => ({
 	id,
 	updatedAt: 100,
 	position: 0,
@@ -54,11 +59,38 @@ describe('Replica della coda (F19)', () => {
 		assert.equal(mergeQueues([local], [remote]).tasks[0].status, 'running');
 	});
 
-	it('riconosce i task chiusi', () => {
-		for (const status of ['done', 'failed', 'discarded']) {
-			assert.equal(isClosedTask(task('a', { status })), true, status);
-		}
-		assert.equal(isClosedTask(task('a', { status: 'queued' })), false);
+	it('un task cancellato su una macchina non risorge dalla copia dell altra (C1)', () => {
+		// Il Mac ha cancellato `a` a 200; il PC ha ancora la versione di 100.
+		const onMac = mergeQueues([task('b', { position: 1 })], [task('a'), task('b', { position: 1 })], { a: 200 });
+		assert.deepEqual(onMac.tasks.map((t) => t.id), ['b'], 'il Mac non la riadotta');
+		assert.deepEqual(onMac.adopted, []);
+		const onPc = mergeQueues([task('a'), task('b', { position: 1 })], [task('b', { position: 1 })], { a: 200 });
+		assert.deepEqual(onPc.tasks.map((t) => t.id), ['b'], 'il PC la toglie');
+		assert.equal(onPc.changed, true, 'e riscrive la propria coda');
+	});
+
+	it('un task avviato altrove non torna in coda per essere avviato di nuovo', () => {
+		// L'avvio toglie il task dalla coda del detentore: l'altra copia ha
+		// ancora la versione «queued» con lo stesso istante.
+		const out = mergeQueues([task('a', { status: 'queued' })], [], { a: 101 });
+		assert.equal(out.tasks.length, 0);
+	});
+
+	it('una modifica successiva alla cancellazione tiene il task', () => {
+		const out = mergeQueues([], [task('a', { updatedAt: 300 })], { a: 200 });
+		assert.deepEqual(out.tasks.map((t) => t.id), ['a']);
+	});
+
+	it('le rimozioni si uniscono tenendo l istante piu recente e scadono', () => {
+		assert.deepEqual(mergeRemoved({ a: 100, b: 300 }, { a: 200, b: 100, c: 50 }), { a: 200, b: 300, c: 50 });
+		const now = 10 * REMOVED_RETENTION_MS;
+		assert.deepEqual(pruneRemoved({ old: now - REMOVED_RETENTION_MS - 1, fresh: now - 1 }, now), { fresh: now - 1 });
+	});
+
+	it('legge sia il formato nuovo sia l array di una copia non aggiornata', () => {
+		assert.deepEqual(parseReplicatedQueue(JSON.stringify([task('a')])), { tasks: [task('a')], removed: {} });
+		const parsed = parseReplicatedQueue(JSON.stringify({ tasks: [task('a')], removed: { b: 5, bad: 'x' } }));
+		assert.deepEqual(parsed.removed, { b: 5 });
 	});
 
 	it('rinumera le posizioni per evitare collisioni fra macchine', () => {
@@ -66,9 +98,10 @@ describe('Replica della coda (F19)', () => {
 		assert.deepEqual(merged.map((t) => t.position), [0, 1]);
 	});
 
-	it('segnala modifiche locali solo oltre l ultimo invio', () => {
-		assert.equal(hasPendingChanges([task('a', { updatedAt: 100 })], 100), false);
-		assert.equal(hasPendingChanges([task('a', { updatedAt: 101 })], 100), true);
+	it('una coda locale in ordine diverso ma con gli stessi oggetti non e riscritta', () => {
+		const a = task('a', { position: 1 });
+		const b = task('b', { position: 0 });
+		assert.equal(mergeQueues([a, b], [b, a]).changed, false);
 	});
 
 	it('una coda identica non viene riscritta', () => {
@@ -82,5 +115,24 @@ describe('Replica della coda (F19)', () => {
 		const remote = { ...task('a', { updatedAt: 100 }), machineId: 'mac' };
 		// A parità di orologio resta la copia locale: la scelta non oscilla.
 		assert.equal(mergeQueues([local], [remote]).tasks[0].machineId, 'local');
+	});
+});
+
+describe('Orologio fra macchine (C2, C3)', () => {
+	it('un azione fatta dopo aver visto l altra macchina la supera anche con l orologio indietro', () => {
+		let wall = 1_000;
+		const pc = new LogicalClock(() => wall);
+		// Il Mac e avanti di 5 minuti: la sua modifica porta 301_000.
+		pc.observe(301_000);
+		assert.ok(pc.now() > 301_000, 'la modifica del PC vince');
+		wall = 2_000;
+		const first = pc.now();
+		assert.ok(pc.now() > first, 'gli istanti emessi crescono sempre');
+	});
+
+	it('ignora istanti assurdamente nel futuro', () => {
+		const clock = new LogicalClock(() => 1_000);
+		clock.observe(1_000 + MAX_OBSERVED_SKEW_MS + 1);
+		assert.equal(clock.now(), 1_000);
 	});
 });

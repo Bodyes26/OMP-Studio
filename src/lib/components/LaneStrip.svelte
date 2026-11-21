@@ -48,6 +48,8 @@
 	import type { LaneProcessInfo } from '#lib/lanes/processSupervisor.ts';
 	import { agentLanes } from '#lib/lanes/agentLanes.svelte.ts';
 	import { badgeReveal } from '#lib/agent/motion.ts';
+	import MachineGlyph from '#lib/ui/MachineGlyph.svelte';
+	import { provenance } from '#lib/stores/projectMachines.svelte.ts';
 
 	let {
 		project,
@@ -104,6 +106,12 @@
 			(l) => l.laneId !== MAIN_LANE_ID && l.status !== 'archived' && l.status !== 'closed'
 		)
 	);
+	const copies = $derived(provenance(project).copies);
+	const siblings = $derived(copies.filter((copy) => copy.project.id !== project.id).flatMap((copy) =>
+		laneStore.lanesFor(copy.project.id as ProjectId)
+			.filter((lane) => lane.laneId !== MAIN_LANE_ID && lane.status !== 'archived' && lane.status !== 'closed')
+			.map((lane) => ({ copy, lane, key: `${copy.project.id}:${lane.laneId}` }))
+	));
 	const activeLaneId = $derived(project.lane.laneId);
 
 	let rovingLaneId = $state<string>(MAIN_LANE_ID);
@@ -126,7 +134,7 @@
 
 	$effect(() => {
 		// Ricalcola lo scorrimento quando cambiano le schede visibili
-		const _ = secondaryLanes.length;
+		const _ = secondaryLanes.length + siblings.length;
 		const timer = setTimeout(updateScrollState, 50);
 		return () => clearTimeout(timer);
 	});
@@ -630,6 +638,11 @@
 								<IconGitBranch />
 							{/if}
 						</span>
+						{#if copies.length > 1}
+							<span title={copies.find((copy) => copy.project.id === project.id)?.name}>
+								<MachineGlyph kind={projectStore.isRemote(project) ? 'remote' : 'here'} size={12} />
+							</span>
+						{/if}
 
 						{#if renamingLaneId === lane.laneId}
 							<input
@@ -712,6 +725,22 @@
 							</button>
 						</div>
 					</div>
+				</div>
+			{/each}
+			{#each siblings as { copy, lane, key } (key)}
+				<div class="lane-tab-item">
+					<button type="button" role="tab" class="lane-tab" aria-selected="false"
+						tabindex={rovingLaneId === key ? 0 : -1}
+						data-lane-id={key}
+						title={m.lane_on_machine({ lane: lane.title, machine: copy.name })}
+						aria-label={m.lane_on_machine({ lane: lane.title, machine: copy.name })}
+						onclick={() => {
+							projectStore.setActive(copy.project.id);
+							void laneOrchestrator.switchLane(copy.project.id as ProjectId, lane.laneId);
+						}}>
+						<MachineGlyph kind={!copy.online ? 'offline' : copy.local ? 'here' : 'remote'} size={12} />
+						<span class="lane-title">{lane.title}</span>
+					</button>
 				</div>
 			{/each}
 		</div>

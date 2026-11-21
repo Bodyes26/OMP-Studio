@@ -1343,7 +1343,7 @@ export class AgentSession {
 	 * di riaprire la sessione precedente, e la `open()` successiva trovava il
 	 * processo vivo e non riprendeva nulla.
 	 */
-	async reopen(resume: string | null): Promise<void> {
+	async reopen(resume: string | null, options?: { modelOverride?: string | null }): Promise<void> {
 		// La chiusura parte dopo l'assegnazione della guardia: chi reagisce
 		// alla `close()` deve gia' trovarla.
 		const reopening: Promise<void> = Promise.resolve().then(async () => {
@@ -1351,7 +1351,7 @@ export class AgentSession {
 			// Un cambio chiesto dopo questo ha gia' chiuso e aperto la sua
 			// sessione: riaprire qui rimetterebbe la scelta precedente.
 			if (this.reopening !== reopening) return;
-			await this.open(resume);
+			await this.open(resume, options);
 		});
 		this.reopening = reopening;
 		try {

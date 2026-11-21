@@ -51,6 +51,16 @@ Citazioni dell'utente dalla discussione del 2026-11-12:
 
 - **F25 — Copie sincronizzate via git (2026-11-18):** «secondo me è meglio avere il sync con git, perché tipo adesso sto facendo un lavoro dal pc windows sul mac, ora mi dice che le copie divergono ma appunto, devono syncarsi. Secondo me dovremmo fare che un progetto ha copie che divergono solo nel momento in cui su una macchina si fa una modifica in esterno o offline o solo in locale per cui non c'è modo di aggiornare git e ottenere la stessa versione su tutte le macchine». Scelte nel modulo della stessa sessione: i commit viaggiano **direttamente fra le macchine** sul collegamento, senza passare da GitHub; le modifiche non committate si spostano **solo al cambio di macchina** con «Porta qui le modifiche»; la copia indietro si aggiorna **solo con fast-forward, pulita e senza agente al lavoro**, altrimenti resta «da aggiornare»; nuova regola di divergenza (sotto R-MI-22); **nessun push automatico** su origin; requisiti e piano prima del codice (R-MI-26, R-MI-27, R-MI-28; risolve Q6, sostituisce la regola Q5).
 
+- **F26 — Casi limite (2026-11-20):** dopo il piano dei casi limite proposto nella sessione: «Direi che come ordine va bene. Saltiamo pure il punto di test»; sulla sospensione: «il Mac voglio che resti sveglio sempre, ma in teoria resta sveglio sempre già di suo»; «le notifiche. Va bene la macchina usata per ultima»; «fork senza origin. Va bene a chiedere conferma»; «maiuscole nei branch, le segnali come divergenza»; «tieni tutto fermo senza commit, facciamo poi un'unica build finale». Decisioni registrate: niente intervento di Studio sulla sospensione (il Mac resta sveglio per impostazione del sistema); test di integrazione con due istanze simulate esclusi da questo lavoro.
+
+- **F27 — Esecuzione su un'altra macchina e build Nightly distribuita (2026-11-21):** sulla build distribuita proposta nell'esplorazione del 2026-11-20: «non basterebbe avere che la build quando la lancio sul Mac, vede se c'è un computer Windows collegato, lancia la build anche sul computer Windows dello stesso commit, e poi si riprende il file una volta che ha finito. Così comunque l'invio [su GitHub] lo fa solo uno dei due [...] il flusso è solo il Mac che dice al computer Windows di eseguire un comando e aspetta. Il Mac aspetta e legge il risultato e si prende il file»; sul canale della domanda: «ovviamente deve essere una funzione esclusiva di studio [...] Questa cosa di fare la build su entrambe le macchine è una specifica interpretazione della funzione di esecuzione di codice da una macchina all'altra». Scelte nei moduli della stessa sessione: prima la primitiva «Esegui su macchina», la build ne è il primo uso; se l'altra macchina manca all'avvio Studio chiede con un proprio dialogo (attendi senza limite, cloud, solo la mia piattaforma), se la sua build fallisce a metà ripiego sul cloud; Linux sempre in cloud; log dell'altra macchina sia nell'output dello script sia in un pannello di Studio; basta l'ambito Terminale, senza conferma per comando; esecuzione in una cartella di lavoro dedicata al commit, una per progetto e riusata; lanciano script avviati da Studio e agenti (non l'utente dall'interfaccia né i task della coda); artefatti dichiarati da chi lancia; annullamento propagato; un job alla volta per progetto; Studio impedisce la sospensione della macchina finché un job remoto è in corso (deroga limitata alla decisione di F26).
+
+- **F28 — Aggiornare l'altra macchina con un clic (2026-11-21):** completamento di R-MI-10 discusso dopo F27. Scelte nel modulo della stessa sessione: l'altra macchina si aggiorna alla stessa versione di chi lancia, se pubblicata, altrimenti all'ultima del canale di chi lancia, dicendolo prima; se lì c'è lavoro in corso scarica subito e installa e riavvia appena è libera; la proposta compare sulla tessera e nel pannello del progetto, nelle Impostazioni accanto alla macchina e a fine Nightly distribuita come «Aggiorna entrambe»; nessun aggiornamento automatico delle altre macchine.
+
+- **F29 — Spostamento dell'agente, scelte aperte di R-MI-14 (2026-11-21):** scelte nel modulo della stessa sessione: la storia della sessione resta intatta e alla ripresa l'agente riceve una nota con la nuova radice del progetto e il sistema operativo; se il modello della sessione manca sulla destinazione Studio lo dice prima e propone il modello del ruolo predefinito di lì, con possibilità di annullare; la sessione di partenza resta nello storico in sola lettura con il rimando alla macchina di arrivo; lo spostamento si comanda dall'indicatore sotto il composer e da `Ctrl+Alt+↑/↓` su una sessione ferma, non da un tool dell'agente; si spostano anche le sessioni di una corsia.
+
+- **F30 — Registro, anteprima, corsie, impostazioni di omp, chiave, decisioni condivise e ordine (2026-11-21):** dopo lo smistamento dei punti rimasti, tutti tenuti. Scelte nei moduli della stessa sessione: il registro delle azioni remote raccoglie ciò che cambia qualcosa o esegue, non le letture, si consulta in Impostazioni › Altre istanze anche da un'altra macchina, dura 30 giorni; l'anteprima del server di sviluppo si apre dai link `localhost:PORTA` e da «Apri porta…», nel Browser di Studio o in quello di sistema, con l'ambito Terminale; la corsia parte di base sulla macchina della sessione che la apre ma se ne può indicare un'altra, l'integrazione gira sulla macchina della corsia, le corsie di tutte le macchine stanno in un'unica barra; le impostazioni di omp (ruoli, agenti, skill, regole, server MCP senza token) si sincronizzano per file, vince l'ultima modifica, chiedendo se cambiate su entrambe, spente di base e accese per macchina e categoria; sui ruoli: «dobbiamo però ipotizzare di poter dire "ok questo ruolo lasciami modello X sul mac e modello Y sul pc"»; chiave sparita dal portachiavi con uscita guidata; decisioni «unisci / non unire» condivise fra le macchine, vince la più recente. Ordine di lavoro: registro, «Esegui su macchina», build distribuita, aggiornamento con un clic, chiave e decisioni condivise, anteprima, corsie, spostamento dell'agente, impostazioni di omp.
+
 Le sei strade valutate sono illustrate in `proto/multi-istanza-strade.html` (locale, fuori da git): è materiale di discussione, non un'anteprima di interfaccia approvata. F16 autorizza l'implementazione diretta dell'interfaccia secondo le convenzioni di Studio, senza un'ulteriore approvazione su anteprima.
 
 ## Stato dei requisiti
@@ -65,13 +75,13 @@ Le sei strade valutate sono illustrate in `proto/multi-istanza-strade.html` (loc
 | R-MI-06 | 1 | Attivo, approvato il 2026-11-12 (F3) | MI01+MI06+MI07: confine IPC, catalogo e instradamento per macchina; superfici remote (chat, albero, editor, Git, terminale) e selettore progetti; restano fuori le eccezioni approvate in F16 e i passi MI08–MI11 | 2026-11-16: 258 comandi censiti, nessun import IPC diretto residuo, tipi senza errori, 1.467 smoke test e 523 test Rust passati; giro completo di parità su progetto remoto non eseguito |
 | R-MI-07 | 1 | Attivo, proposta accettata il 2026-11-12 (F1, F9) | MI02–MI04: eventi, terminale e domande in attesa distribuiti a più consumatori | 2026-11-16: test Rust di ripresa, terminale condiviso e risposta unica; scenario con due finestre reali non eseguito |
 | R-MI-08 | 1 | Attivo, proposta accettata il 2026-11-12 (F3, F9) | Non iniziata | — |
-| R-MI-09 | 1 | Attivo; ambiti confermati il 2026-11-16 (F16) | Abbinamento, revoca e controlli per comando scritti; indicatore e copertura completa ancora da integrare | 2026-11-16: test Rust mirati di autorizzazione e confinamento delle letture; revoca su due istanze reali non provata |
-| R-MI-10 | 1 | Attivo, proposta accettata il 2026-11-12 (F9) | Non iniziata | — |
+| R-MI-09 | 1 | Attivo; ambiti confermati il 2026-11-16 (F16) | Abbinamento, revoca e controlli per comando scritti; 2026-11-20: confinamento dei percorsi per i peer senza Agenti né Terminale, su ogni comando (prima solo con tutti gli ambiti spenti); azioni host sulla coda confinate alle radici, `projectId` verificati; istantanee WIP leggibili solo con File e Git; indicatore e copertura completa ancora da integrare | 2026-11-16: test Rust mirati di autorizzazione e confinamento delle letture; 2026-11-20: vedi «Correzioni del 2026-11-20»; revoca su due istanze reali non provata |
+| R-MI-10 | 1 | Attivo, proposta accettata il 2026-11-12 (F9); precisato da R-MI-38 | Compatibilità sulla versione stabile di base, snapshot ridotto per versioni incompatibili, indicazione e aggiornamento comandato tramite R-MI-38 | 2026-11-20: test Rust su compatibilità e snapshot ridotto; accettazione dell'aggiornamento non eseguita |
 | R-MI-11 | 1 | Attivo, confermato il 2026-11-12 (F11) | MI02/MI03: ripresa senza buchi né duplicati, sessione e terminale vivi senza consumatori; ripresa delle superfici dal collegamento scritta | 2026-11-16: test Rust di ripresa; scenario di rete interrotta con due istanze reali ancora da eseguire |
 | R-MI-12 | 2 | Attivo, approvato il 2026-11-12 (F6, F9, F11); fase 2 avviata in F17, F19, F20 | Fatto il 2026-11-17: identità per `origin`/primo commit (`repoSlug`/`rootCommit` in `git_upstream_status`), una tessera per repository (`projectOrder.unified`), **coda replicata** fra le copie (fusione per task, vince l'ultima modifica, `queueReplication.ts` + comandi `read_queue`/`write_queue`), **storico sessioni unificato con badge** della macchina (`sessionCopies.ts`) e scelta della macchina sul task (`StudioTask.machineId`) | 2026-11-17: 12 test su identità, 9 su fusione coda, 9 su sessioni, 13 su detentore; 1537 smoke, 529 Rust, clippy `-D warnings`, `npm run check` 0 errori, `npm run build` verde, relay `tsc` pulito. Prova con due macchine reali da fare |
 | R-MI-13 | 2 | Attivo, approvato il 2026-11-12 (F2, F6); macchina proposta in F18, indicatore in F19, auto-avvio esclusivo in F20 | Fatto il 2026-11-17: indicatore sotto il composer (`MachineIndicator`), auto-avvio acceso su una sola copia (`autoDispatchOwner.ts`), programmati compresi nella regola, comando `set_auto_dispatch` anche da remoto, macchina per task nel Task Editor | 2026-11-17: 13 test su proposta e cambio, 13 su detentore e accensione; verifiche come sopra. Prova con due macchine reali da fare |
-| R-MI-14 | 3 | Attivo; trasferimento con bundle e JSONL confermato il 2026-11-16 (F16) | Non iniziata | — |
-| R-MI-15 | 1 | Attivo, approvato il 2026-11-12 (F11, F12) | Non iniziata | — |
+| R-MI-14 | 3 | Attivo; trasferimento con bundle e JSONL confermato il 2026-11-16 (F16); scelte aperte e accettazione precisate il 2026-11-21 (F29) | Trasferimento attraverso `session_move.rs`, WIP Git e scelta «Continua su»; storico in sola lettura, con ripresa dalla destinazione | Accettazione non eseguita |
+| R-MI-15 | 1 | Attivo, approvato il 2026-11-12 (F11, F12) | 2026-11-20: specchio della coda dei progetti remoti (`remoteQueue.ts`, `taskStore.applyHostQueues`): segue il riepilogo dell'host, le modifiche fatte qui partono con `write_queue` e restano «in attesa di …» (salvate fra i riavvii) finché l'host non le pubblica; orario già passato alla consegna → `missed` (F12); tessere ricostruite dall'ultimo riepilogo salvato (`remoteHostCache.ts`) quando l'altra macchina è spenta al riavvio. Corretto anche il difetto per cui la finestra leggeva e scriveva la coda remota sul proprio disco | 2026-11-20: 7 test in `test/remote-queue.test.ts`; scenario con due macchine reali da provare |
 | R-MI-16 | 1 | Attivo, approvato il 2026-11-16 (F4, F13, F15) | MI05: endpoint iroh, chiavi persistenti, abbinamento con codice, revoca | 2026-11-16: abbinamento provato fuori dall'app (MI00); pannello su due installazioni reali non provato |
 | R-MI-17 | 1 | Attivo, approvato il 2026-11-16 (F8, F13, F15) | MI05: endpoint e relay proprio configurabile con certificati di sistema | Trasporto provato fuori dall'app il 2026-11-16 (MI00): caso ufficio–casa riuscito; altri casi assunti (F15) |
 | R-MI-18 | 1 | Attivo; segnalato il 2026-11-17 (F17) | Fatto il 2026-11-17: `src-tauri/src/link/activity.rs` osserva i frame del run e pubblica il riepilogo; frontend in `laneActivity.ts`, consumato da `laneAgentState` e `laneBusy` | 2026-11-17: 6 test Rust sul tracker, 9 test TS sul riepilogo, 529 test Rust e 1485 smoke verdi; scenario con due finestre reali da provare |
@@ -84,7 +94,23 @@ Le sei strade valutate sono illustrate in `proto/multi-istanza-strade.html` (loc
 | R-MI-25 | 2 | Attivo, approvato il 2026-11-18 (F24) | 2026-11-18: `Ctrl+Alt+↑/↓` in `+page.svelte` sulle copie di `provenance()` | Scenario con due macchine reali da provare |
 | R-MI-26 | 2 | Attivo, approvato il 2026-11-18 (F25) | Fatto il 2026-11-18 (MI21): `copy_sync_heads`/`copy_sync_bundle` (sola lettura, sull'altra macchina) e `copy_sync` in `src-tauri/src/github/copies.rs`; richiesta da Rust a Rust con `link::call_peer`; riferimenti `refs/studio/<macchina>/heads/*`; giri da `copySync.svelte.ts` al cambio delle cime e ogni minuto | 2026-11-18: 10 test Rust con due repository senza origin (`github::copies`); scenario con due macchine reali da provare |
 | R-MI-27 | 2 | Attivo, approvato il 2026-11-18 (F25) | Fatto il 2026-11-18 (MI22): solo fast-forward in `advance`, cartelle occupate (agente al lavoro o in attesa anche da remoto, file non salvati, automazioni) passate dalla finestra proprietaria; «da aggiornare» nel glifo (punto sopra le frecce), nell'etichetta accessibile e nella vista Macchine | 2026-11-18: test Rust su cartella pulita/sporca/occupata, branch non in uso e worktree di corsia; scenario con agente al lavoro da provare |
-| R-MI-28 | 2 | Attivo, approvato il 2026-11-18 (F25) | Fatto il 2026-11-18 (MI23): `copy_wip_snapshot`/`copy_wip_receive`/`copy_wip_finish`, orchestrazione in `copyMove.ts`, proposta in `switchCopy` (`+page.svelte`) dall'indicatore sotto il composer e da `Ctrl+Alt+↑/↓`; pulizia della partenza nello stash | 2026-11-18: test Rust su modifiche, file nuovi, cancellazioni, partenza cambiata e arrivo non allineato; scenario con due macchine da provare |
+| R-MI-28 | 2 | Attivo, approvato il 2026-11-18 (F25) | Fatto il 2026-11-18 (MI23): `copy_wip_snapshot`/`copy_wip_receive`/`copy_wip_finish`, orchestrazione in `copyMove.ts`, proposta in `switchCopy` (`+page.svelte`) dall'indicatore sotto il composer e da `Ctrl+Alt+↑/↓`; 2026-11-20: pulizia della partenza dall'istantanea, senza stash | 2026-11-18: test Rust su modifiche, file nuovi, cancellazioni, partenza cambiata e arrivo non allineato; scenario con due macchine da provare |
+| R-MI-29 | 1 | Attivo, approvato il 2026-11-20 (F26) | 2026-11-21: `lastSeen` per macchina in `link/config.rs` (compatibile con i file precedenti), aggiornato all'hello e col battito; Impostazioni con «vista l'ultima volta», evidenza oltre 30 giorni e proposta di sostituzione per stesso nome dopo un nuovo abbinamento | 2026-11-21: test Rust di persistenza e compatibilità; scenario di reinstallazione reale da provare |
+| R-MI-30 | 1 | Attivo, approvato il 2026-11-20 (F26) | 2026-11-21: `GET /ping` del relay con i certificati di sistema (`link/relay.rs`, endpoint verificato nel sorgente di iroh-relay 1.4.1), `relayReachable` nello stato, `offlineReason()`; etichetta «relay non raggiungibile da qui» in Impostazioni e nel pannello del progetto | 2026-11-21: `cargo test` e clippy verdi; prova con relay spento da fare |
+| R-MI-31 | 1–2 | Attivo, approvato il 2026-11-20 (F26) | 2026-11-20: comando `system_idle_seconds` (macOS CoreGraphics, Windows `GetLastInputInfo`), decisione pura in `notificationPresence.ts`, applicata a notifiche di attenzione, heads-up, aggiornamenti Git e lampeggio dell'icona | 2026-11-20: 4 test in `test/notification-presence.test.ts`; scenario con due macchine reali da provare |
+| R-MI-32 | 2 | Attivo, approvato il 2026-11-20 (F26); precisato da R-MI-44 | Copie senza origin unite solo per conferma; decisioni condivise in R-MI-44. La rinomina GitHub non separa le copie e si può aggiornare l'origin dal pannello del progetto | 2026-11-21: test TS su conferma e rinomina, test Rust su formato dell'indirizzo e slug; prova reale con rinomina su GitHub da fare |
+| R-MI-33 | 2 | Attivo, approvato il 2026-11-20 (F26) | 2026-11-21: pacchetti aperti sull'host e letti a pezzi da 16 MB con verifica di dimensione e SHA-256 (`copy_*_bundle_chunk`), tetto di sicurezza 2 GiB, scrittura su disco man mano; stima `copy_wip_estimate` mostrata nella domanda di «Porta qui le modifiche»; disco pieno riconosciuto nei messaggi | 2026-11-21: test Rust (commit oltre un pezzo, pacchetto danneggiato, permesso WIP, stima); prova reale con un file grande fra le due macchine da fare |
+| R-MI-34 | 1 | Attivo, approvato il 2026-11-20 (F26); precisato da R-MI-43 | Chiave nel portachiavi con migrazione verificata, ripiego su Linux, revoca propagata; uscita guidata quando manca la chiave in R-MI-43 | 2026-11-21: test Rust con portachiavi finto e regola della revoca; accettazione Keychain e Credential Manager non eseguita |
+| R-MI-35 | 2 | Attivo, approvato il 2026-11-20 (F26) | 2026-11-21: `case_conflicts` in `copies.rs`: nomi che differiscono solo per maiuscole non si scaricano né si tracciano e tornano come `caseConflict`; divergenza `case` con la riga che nomina le due branch | 2026-11-21: test Rust con `Feature`/`feature`, test TS sulla regola di divergenza |
+| R-MI-36 | 3 | Attivo, approvato il 2026-11-21 (F27) | Bridge `macchina_*`, worktree riusato a commit esatto, stato, log, annullamento e artefatti | Accettazione non eseguita |
+| R-MI-37 | 3 | Attivo, approvato il 2026-11-21 (F27); dipende da R-MI-36 | Verifica della macchina candidata, coordinatore e worker con stesso commit e `build_id`, manifest unico, ripiego cloud; `--no-remote` per la prima Nightly | Accettazione non eseguita |
+| R-MI-38 | 1 | Attivo, approvato il 2026-11-21 (F28); precisa R-MI-10 | Aggiornamento comandato, risoluzione sulla macchina di arrivo da GitHub, attesa di macchina libera | Accettazione non eseguita |
+| R-MI-39 | 1 | Attivo, approvato il 2026-11-21 (F30); precisa R-MI-09 | Registro JSONL delle azioni remote, filtro per progetto, consultazione locale e remota, scadenza a 30 giorni | Accettazione non eseguita |
+| R-MI-40 | 1 | Attivo, approvato il 2026-11-21 (F30); supera per questo caso l'esclusione del Browser di Studio di F16 | Inoltro loopback con ambito Terminale; apertura da link o porta manuale, in una finestra Studio isolata o nel browser di sistema | Accettazione non eseguita |
+| R-MI-41 | 2 | Attivo, approvato il 2026-11-21 (F30) | Scelta della macchina nel menu delle corsie e in `corsia_avvia`; barra condivisa e integrazione gestita dall'host della corsia | Accettazione non eseguita |
+| R-MI-42 | 2 | Attivo, approvato il 2026-11-21 (F30) | Opt-in per macchina e categoria, confronto per file e scelta in caso di conflitto, eccezioni locali per i ruoli, proiezione MCP senza `env` e `headers` | Accettazione non eseguita |
+| R-MI-43 | 1 | Attivo, approvato il 2026-11-21 (F30); precisa R-MI-34 | Recupero guidato; la chiave viene ricontrollata prima di sostituire l'identità | Accettazione non eseguita |
+| R-MI-44 | 2 | Attivo, approvato il 2026-11-21 (F30); precisa R-MI-32 | Decisioni per coppia replicate con lo snapshot e modificabili dal pannello; rifiuti rispettati anche fra più fork | Accettazione non eseguita |
 
 Nei testi che seguono **W** è la macchina da cui si guarda (nello scenario il PC Windows) e **M** quella che possiede il progetto (il Mac).
 
@@ -217,7 +243,9 @@ In un progetto presente su più macchine, all'avvio di una chat, di un task o di
 
 Una sessione o una corsia si sposta da una macchina all'altra con un'azione esplicita, a fine turno. Viaggiano lo storico della sessione e lo stato del codice, comprese le modifiche non committate. Non viaggiano shell aperte, job in background e schede del browser: Studio lo dice prima di spostare. Dopo lo spostamento la sessione prosegue sulla nuova macchina e l'origine può spegnersi.
 
-**Accettazione:** da definire prima della fase 3; deve comprendere uno spostamento fra Windows e macOS con file non tracciati e la ripresa della conversazione sulla destinazione.
+**Precisazioni del 2026-11-21 (F29):** il JSONL non si riscrive; alla ripresa l'agente riceve un messaggio di sistema con la nuova radice del progetto e il sistema operativo («i percorsi sotto X ora sono sotto Y»). Se il modello della sessione non esiste sulla destinazione, Studio lo dice prima di spostare e propone il modello del ruolo predefinito della destinazione; si può annullare. La sessione di partenza resta nello storico in sola lettura, con il badge della macchina e il rimando «continua su M». Lo spostamento si comanda dall'indicatore della macchina sotto il composer e con `Ctrl+Alt+↑/↓` su una sessione ferma, che propone «Continua su M» invece di aprire una sessione vuota; nessun tool per l'agente. Le sessioni di una corsia si spostano anch'esse: branch con R-MI-26, modifiche con R-MI-28, worktree ricreato sulla destinazione.
+
+**Accettazione:** dal PC Windows una sessione ferma con file non tracciati si sposta sul Mac; sul Mac la conversazione riprende con i file presenti e l'agente usa i percorsi del Mac; sul PC la sessione resta leggibile ma non scrivibile; con un modello assente sul Mac la proposta compare prima dello spostamento; la stessa prova vale per una corsia.
 **Errore da evitare:** spostamento a metà turno; due macchine che scrivono la stessa sessione.
 
 ## R-MI-15 — Registrare task in coda a macchina spenta
@@ -394,6 +422,158 @@ Le modifiche non committate restano sulla loro macchina. Cambiando macchina (ind
 
 **Accettazione:** modifiche non committate sul Mac, passaggio a Windows con «Porta qui le modifiche»: su Windows compaiono gli stessi file modificati, nuovi e cancellati, e il Mac torna pulito; se l'applicazione fallisce a metà, il Mac non perde nulla.
 **Errore da evitare:** modifiche sincronizzate in automatico (resta scartata la sincronizzazione continua dei file); pulire la copia di partenza prima della conferma.
+
+## R-MI-29 — Macchine non più raggiungibili e reinstallate
+
+**Fonti:** F26.
+
+Ogni macchina abbinata porta l'istante dell'ultimo contatto, conservato fra i riavvii e mostrato nelle Impostazioni («vista l'ultima volta …»); oltre 30 giorni senza contatto la riga è evidenziata. Quando una macchina si abbina con lo stesso nome di una già abbinata e mai più vista dopo il cambio di chiave (reinstallazione), Studio propone di sostituire la vecchia. Nessuna revoca o cancellazione automatica.
+
+**Accettazione:** reinstallare Studio sul Mac e riabbinarlo dal PC: il PC propone di sostituire il vecchio «MacBook» e, accettando, ne resta uno solo; una macchina mai vista da oltre 30 giorni è evidenziata ma non sparisce.
+
+## R-MI-30 — Relay irraggiungibile o macchina spenta
+
+**Fonti:** F26. Precisa R-MI-17.
+
+Studio distingue «la macchina non risponde» da «il relay non è raggiungibile da qui»: verifica da sé il relay configurato e lo dice nelle Impostazioni e nell'etichetta della macchina spenta.
+
+**Accettazione:** con il relay spento, le macchine non raggiungibili risultano «relay non raggiungibile» e non «spenta»; con il relay acceso e il Mac spento risulta «non raggiungibile».
+
+## R-MI-31 — Una notifica sola, sulla macchina usata per ultima
+
+**Fonti:** F26.
+
+Un evento di un progetto (agente che finisce, domanda, errore) notifica e fa lampeggiare l'icona dell'app solo sulla macchina con l'input dell'utente più recente fra quelle in linea. Il confronto usa da quanti secondi ogni macchina è inattiva, misurato sul posto, non orari di macchine diverse. Se tutte le macchine sono inattive da più di 10 minuti notificano tutte.
+
+**Precisazione (2026-11-20, implementazione):** il Companion non emette suoni; il suo elenco di richieste e il numero sul badge dell'icona restano su tutte le macchine, perché descrivono lo stato e non sono avvisi. Se l'altra macchina non risponde entro 1,5 s si notifica comunque: un avviso doppio è meglio di uno perso.
+
+**Accettazione:** con l'utente al PC e un agente del Mac che finisce, la notifica compare solo sul PC; allontanandosi da entrambe per oltre 10 minuti compare su tutte e due.
+
+## R-MI-32 — Identità del progetto: rinomina e fork senza origin
+
+**Fonti:** F26. Precisa R-MI-12.
+
+Se una copia ha l'`origin` col nome vecchio di un repository rinominato su GitHub, Studio lo riconosce e propone di aggiornare l'indirizzo, così le copie tornano unite. Due copie senza `origin` con lo stesso primo commit non si uniscono da sole: Studio chiede «È lo stesso progetto?» e ricorda la risposta.
+
+**Accettazione:** rinominare il repository su GitHub con le due copie collegate: compare la proposta e, accettandola, la tessera torna una; due fork locali senza origin compaiono separati finché l'utente non conferma.
+
+## R-MI-33 — Trasferimenti grandi fra le copie
+
+**Fonti:** F26. Precisa R-MI-26 e R-MI-28.
+
+I commit e le istantanee viaggiano a pezzi, senza il tetto di 60 MB di una sola risposta. «Porta qui le modifiche» indica prima quanto pesa lo spostamento. Un disco pieno produce un messaggio chiaro, non l'errore di git.
+
+**Accettazione:** un commit con un file da 200 MB arriva sull'altra copia; la domanda di «Porta qui le modifiche» mostra la dimensione.
+
+## R-MI-34 — Chiave della macchina protetta e revoca propagata
+
+**Fonti:** F26. Precisa R-MI-09.
+
+La chiave segreta della macchina vive nel portachiavi del sistema (Keychain su macOS, archivio credenziali su Windows), non in chiaro nel file di configurazione; una chiave già salvata in chiaro si sposta al primo avvio. Revocando una macchina si può chiedere di revocarla anche su tutte le altre macchine abbinate in linea.
+
+**Accettazione:** dopo l'avvio il file di configurazione non contiene la chiave; con tre macchine, revocare il portatile dal Mac con «anche sulle altre» lo revoca anche sulla terza.
+
+## R-MI-35 — Branch che differiscono solo per maiuscole
+
+**Fonti:** F26. Precisa R-MI-22 e R-MI-26.
+
+Branch delle copie che differiscono solo per maiuscole (`Feature` e `feature`) collidono sui filesystem di macOS e Windows: Studio non le sincronizza e le segnala come divergenza, con il nome delle due branch.
+
+**Accettazione:** con `Feature` sul Mac e `feature` sul PC compare la striscia di divergenza che le nomina, e nessuna delle due viene sovrascritta.
+
+## R-MI-36 — Esegui su macchina
+
+**Fonti:** F27. Usa R-MI-09 (ambito Terminale) e R-MI-33 (trasferimento a pezzi).
+
+Uno script avviato da Studio (attraverso il bridge locale che Studio passa ad agenti e terminali) o un agente (tool `macchina_esegui`, `macchina_stato`, `macchina_risultato`) lancia un comando su un'altra macchina abbinata. Il comando gira in una cartella di lavoro dedicata al progetto su quella macchina, spostata al commit richiesto: la copia dove lavorano l'utente o gli agenti non viene toccata. La cartella è una per progetto e viene riusata, con la cache di compilazione, così i job successivi partono caldi. Chi lancia riceve il log in diretta, il codice d'uscita e gli artefatti che ha dichiarato (percorsi o glob relativi alla cartella del job), trasferiti a pezzi con verifica SHA-256 fino a 2 GiB. Fermare chi ha lanciato ferma il job remoto con tutti i processi figli. Sulla stessa macchina gira un job alla volta per progetto; gli altri attendono in fila. Finché un job è in corso Studio impedisce la sospensione di quella macchina. Basta l'ambito Terminale, senza conferma per singolo comando; sulla macchina che esegue resta visibile cosa gira e chi l'ha chiesto. Fuori da Studio (terminale esterno, senza bridge) la funzione non esiste.
+
+**Accettazione:** dal Mac un agente esegue `npm test` sul PC Windows allo stesso commit, vede il log mentre scorre, riceve il codice d'uscita e un file di rapporto dichiarato; con un'interruzione dal Mac il processo sul PC termina; la cartella di lavoro del progetto sul PC resta com'era.
+
+## R-MI-37 — Build Nightly distribuita su Mac e Windows
+
+**Fonti:** F27. Primo uso di R-MI-36; vale per la Nightly, la stabile resta su `release.yml` in cloud.
+
+`npm run nightly` lanciato dentro Studio usa l'altra macchina collegata: dopo preflight, commit e push sul coordinatore (la macchina da cui si lancia), chiede all'altra di compilare la propria piattaforma allo stesso commit e con lo stesso `build_id`, mentre il coordinatore compila la sua. Il log dell'altra macchina appare nell'output dello script, con il prefisso della macchina, e in un pannello di Studio. A fine build il coordinatore si riprende installer e firme e pubblica tutto da solo: un solo caricamento, un solo `nightly.json` con i checksum di entrambe le piattaforme, un solo spostamento del tag. Linux si compila sempre in cloud. Se all'avvio l'altra macchina manca (spenta, non collegata, versione incompatibile, progetto o chiave di firma assenti), Studio chiede con un proprio dialogo: attendere senza limite, affidare l'altra piattaforma al cloud, oppure pubblicare solo la propria. Se la build dell'altra macchina fallisce a metà, la sua piattaforma passa al cloud e il riepilogo finale lo dice. Fuori da Studio `npm run nightly` resta com'è oggi.
+
+**Accettazione:** lanciata dal Mac con il PC collegato, la prerelease `nightly` contiene DMG e installer Windows della stessa versione, `nightly.json` con entrambe le piattaforme verificabili dall'aggiornamento, e il workflow cloud compila solo Linux; con il PC spento compare il dialogo con le tre scelte.
+
+## R-MI-38 — Aggiornare l'altra macchina con un clic
+
+**Fonti:** F28. Precisa R-MI-10 e completa la riga R-MI-10 della tabella (indicazione e aggiornamento comandato).
+
+Quando un'altra macchina ha una versione di Studio diversa, la sua tessera, il pannello del progetto e la sua riga in Impostazioni › Altre istanze mostrano «Aggiorna Studio su M». Il comando porta M alla stessa versione della macchina da cui si clicca, se è pubblicata; altrimenti all'ultima del canale di chi clicca, e la domanda lo dice prima di partire. Se su M c'è lavoro in corso (agente al lavoro, domanda in attesa, job remoto di R-MI-36, file non salvati), M scarica subito e installa e riavvia appena è libera; intanto la tessera mostra «aggiornamento in attesa che finisca …». A fine Nightly distribuita (R-MI-37) Studio propone «Aggiorna entrambe». Nessuna macchina si aggiorna da sola perché si è aggiornata un'altra.
+
+**Accettazione:** con M su una Nightly precedente, un clic da W porta M alla versione di W e il collegamento torna pieno; con un agente al lavoro su M l'installazione aspetta la fine del turno e la tessera lo dice.
+
+## R-MI-39 — Registro delle azioni remote
+
+**Fonti:** F30. Precisa R-MI-09 («il registro di M riporta le azioni di W»).
+
+Ogni macchina registra le azioni che un'altra macchina le fa fare e che cambiano qualcosa o eseguono: messaggi e risposte all'agente, scritture di file, operazioni Git, terminali aperti, job di R-MI-36, aggiornamenti di R-MI-38, inoltri di porta di R-MI-40, revoche, spostamenti di copie e di sessioni. Le sole letture non si registrano. Ogni voce dice quando, quale macchina, quale progetto e cosa. Il registro si consulta in Impostazioni › Altre istanze, «Attività» per ogni macchina, filtrabile per progetto, anche da un'altra macchina con l'ambito Lettura. Le voci più vecchie di 30 giorni si cancellano.
+
+**Accettazione:** dal PC si invia un messaggio all'agente sul Mac, si salva un file e si lancia un job; nel registro del Mac compaiono tre voci col nome del PC, consultabili anche dal PC; aprire un file in sola lettura non aggiunge voci.
+
+## R-MI-40 — Anteprima del server di sviluppo dell'altra macchina
+
+**Fonti:** F30. Supera, per il solo server di sviluppo, l'esclusione del Browser di Studio dal vivo sui progetti remoti approvata in F16; parità MI11.
+
+Un indirizzo `localhost:PORTA` scritto dall'agente o dal terminale di un progetto che gira su un'altra macchina diventa cliccabile: Studio apre un inoltro dalla porta di quella macchina a una porta locale e mostra la pagina nel Browser di Studio o nel browser di sistema, a scelta. Il pannello del progetto offre anche «Apri porta…» per indicare la porta a mano. Si inoltrano solo porte di `localhost` della macchina remota e serve l'ambito Terminale. L'inoltro si chiude chiudendo la scheda o il progetto, o quando la macchina si scollega; il ricaricamento a caldo del server di sviluppo continua a funzionare.
+
+**Accettazione:** con `npm run dev` avviato sul Mac, dal PC il link scritto nel terminale apre il sito nel Browser di Studio; una modifica salvata sul Mac si vede sul PC senza ricaricare a mano; senza ambito Terminale il link non apre l'inoltro e lo dice.
+
+## R-MI-41 — Corsie dello stesso progetto su macchine diverse
+
+**Fonti:** F30. Usa R-MI-26 e R-MI-27.
+
+Una corsia parte di base sulla macchina della sessione che la apre; dall'interfaccia di avvio e da `corsia_avvia` se ne può indicare un'altra fra quelle con una copia del progetto. Le corsie di tutte le macchine compaiono in un'unica barra delle corsie del progetto, ciascuna col glifo della propria macchina. L'integrazione di una corsia gira sulla macchina della corsia, nella sua copia; il risultato raggiunge le altre copie con la sincronizzazione dei commit. Gli eventuali conflitti si risolvono su quella macchina, anche comandandola da un'altra.
+
+**Accettazione:** dal PC si avviano due corsie, una sul PC e una sul Mac; entrambe compaiono nella stessa barra con il loro glifo; integrata dal PC, la corsia del Mac porta i suoi commit nella copia del Mac e poi in quella del PC.
+
+## R-MI-42 — Impostazioni di omp sincronizzate
+
+**Fonti:** F30.
+
+Le impostazioni di omp si possono sincronizzare fra le macchine abbinate: ruoli modello e impostazioni generali, agenti utente (`~/.omp/agent/agents`), skill utente, regole globali (`~/.omp/agent/AGENTS.md`), server MCP. Le credenziali non viaggiano mai: di un server MCP viaggia la configurazione, mentre i valori di `env` e `headers` restano su ogni macchina. La sincronizzazione è spenta di base e si accende per macchina e per categoria. Funziona per file e vince l'ultima modifica; se lo stesso file è cambiato su entrambe le macchine dall'ultimo giro, Studio mostra le due versioni e chiede quale tenere. Un ruolo si può fissare su una macchina («su questo Mac il ruolo X usa il modello A») e quell'eccezione non viaggia. Un ruolo che punta a un modello senza credenziali sulla macchina di arrivo viaggia comunque, e le Impostazioni di quella macchina lo segnalano come inutilizzabile finché non si accede al provider.
+
+**Accettazione:** con la categoria agenti accesa, un agente creato sul Mac compare sul PC; un ruolo fissato sul PC resta com'è quando sul Mac lo si cambia; un file di regole cambiato su entrambe fa comparire la scelta fra le due versioni; nessun token MCP compare sull'altra macchina.
+
+## R-MI-43 — Chiave della macchina sparita dal portachiavi
+
+**Fonti:** F30. Precisa R-MI-34.
+
+Se il portachiavi risponde ma la chiave della macchina non c'è più, Studio non crea da solo una nuova identità e non resta bloccato in silenzio: Impostazioni › Altre istanze mostra un avviso con tre scelte. «Riprova» serve se il portachiavi era bloccato. «Crea una nuova identità» avvisa che le altre macchine vanno riabbinate; su di esse compare la proposta di sostituzione per stesso nome di R-MI-29. «Lascia spento il collegamento» non cambia nulla. Non serve più cancellare a mano `instances.json`.
+
+**Accettazione:** tolta la chiave dal portachiavi, all'avvio compare l'avviso; con «Crea una nuova identità» e un nuovo abbinamento, l'altra macchina propone di sostituire la vecchia voce con lo stesso nome.
+
+## R-MI-44 — Decisioni su fork e rinomina condivise
+
+**Fonti:** F30. Precisa R-MI-32, dove le decisioni valevano solo per la finestra che le prendeva.
+
+La risposta a «unisci / non unire» per le copie senza origin con lo stesso primo commit viaggia fra le macchine collegate come la coda: vale ovunque e vince la più recente. Si cambia dal pannello del progetto su qualunque macchina.
+
+**Accettazione:** rispondendo «non unire» sul Mac, il PC non pone la stessa domanda; cambiata la scelta dal PC, il Mac la segue.
+
+## Correzioni del 2026-11-20 (revisione del codice)
+
+Revisione per lettura del codice di tutta la funzione (rapporto della sessione, 25 voci) e correzione in un unico lavoro, su richiesta dell'utente del 2026-11-20: «ok parti dalla risoluzione dei bug, elenco completo». Nessun requisito cambia: le correzioni riportano il codice ai requisiti esistenti. Nessuna prova con due macchine reali.
+
+| Voce | Requisito | Difetto | Correzione | Prova |
+|---|---|---|---|---|
+| C1 | R-MI-12 | Task cancellati o avviati tornavano in coda dalla copia dell'altra macchina; l'auto-avvio poteva rilanciarli | Rimozioni con istante che viaggiano con la coda (`queueReplication.ts`, `removed` nello store globale), anche quelle fatte da fuori (tool di omp, Companion) | `test/queue-replication.test.ts` |
+| C2, C3 | R-MI-12, R-MI-13 | «Vince l'ultima modifica» e copia in uso decise da `Date.now()` di macchine diverse | `logicalClock.ts`: ogni istante supera quelli già visti, locali o remoti | `test/queue-replication.test.ts` (orologio) |
+| A4, M8 | R-MI-13, F20 | Auto-avvio acceso su due macchine dopo un comando perso; interruttore remoto che tornava indietro | Istante dell'interruttore (`autoDispatchAt`); vince l'accensione più recente e ogni macchina spegne da sé la propria copia; riepiloghi più vecchi della scelta ignorati | `test/auto-dispatch-owner.test.ts` |
+| — | R-MI-12 | Code rilette solo all'apertura del progetto | Rilettura e rinvio a ogni cambio delle copie in linea | `npm run check`, smoke |
+| A1, A2 | R-MI-27, R-MI-28 | Controllo «cartella occupata» solo dalla finestra, prima del giro di rete | Il backend controlla il turno in corso della sessione RPC (`SessionHub::is_running`, `rpc::turn_running_in`) subito prima di muovere la cartella; non il lock interattivo, che dura quanto la sessione e avrebbe bloccato R-MI-27 per sempre | `rpc::hub` test del turno; `github::copies` |
+| A3, B2 | R-MI-28 | Ricezione dell'istantanea non ripetibile, applicazione a metà | Ricezione idempotente (`refs/studio/wip-applied/<id>`), ripristino solo se l'applicazione era partita, nuovi tentativi dalla finestra, avviso quando la partenza non conferma la pulizia; verifica che il commit ricevuto sia quello del ref | `github::copies` (idempotenza, file dell'utente intatti) |
+| A6 | R-MI-09, R-MI-26 | La sola Lettura scaricava le modifiche non committate | `copy_wip_bundle` con permesso File e Git; `copy_sync_bundle` solo branch | `github::copies`, `acl-coverage` |
+| A5, M11 | R-MI-09 | Confinamento solo con tutti gli ambiti spenti; `write_queue` scriveva ovunque | Vedi riga R-MI-09 sopra | `link::catalog`, `link::` |
+| M1 | R-MI-10 | A versione diversa i progetti sparivano dalla barra | Snapshot ridotto dall'host, tessere ricostruite nella finestra (`expandReducedSnapshot`) | `link::host` |
+| M2–M7 | R-MI-26, R-MI-27, R-MI-28 | HEAD staccato, repo shallow o senza commit, stash dell'utente usato per la partenza, CRLF/filemode, chiave macchina collassata, `SyncGuard` sulla stringa | Worktree staccato blocca l'avanzamento («detached» nel pannello); root commit ignorato sui repo shallow; partenza ripulita dal ref senza stash; `core.autocrlf`/`core.filemode` fissati per processo; id macchina intero; guardia sul percorso canonico | `github::copies`, `github::sync` |
+| M9 | R-MI-22, R-MI-27 | «≠» e «da aggiornare» accesi con la macchina spenta | Esiti delle macchine non raggiungibili ignorati; giro immediato al ritorno | `npm run check` |
+| B1, B3 | R-MI-11, R-MI-26 | Frame scartati in silenzio; pacchetti grandi oltre i 300 s | `Resync` che fa riagganciare da capo; 900 s per i pacchetti | `link::streams` |
+| Battito | R-MI-11 | `Ping` mai inviato | Battito ogni 10 s, tre fallimenti di fila chiudono la connessione | `link::` |
+
+Verifiche eseguite il 2026-11-20: `cargo test --lib` 558 passati, `cargo clippy --lib --tests -D warnings` pulito, `npm run check` 0 errori, `npm run check:commands` allineato, `npm test` 1566 passati. Rimandato con motivo: collisione di branch che differiscono solo per maiuscole su filesystem che non le distinguono (M6, seconda parte), da decidere con l'utente.
 
 ## Strade scartate
 

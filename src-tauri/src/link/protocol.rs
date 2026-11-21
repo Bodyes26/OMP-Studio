@@ -27,6 +27,13 @@ pub(crate) enum Operation {
     Open { command: String, args: Value, consumer: String, session_id: Option<u64>, after: Option<u64> },
     WatchState,
     Ping,
+    /// Revoca propagata (R-MI-34): una macchina abbinata chiede alle altre di
+    /// revocare lo stesso id. Non viaggia mai come comando del catalogo: e'
+    /// un messaggio del protocollo, accettato solo da un peer abbinato.
+    Revoke { id: String },
+    /// Inoltro di una porta di `localhost` dell'host (R-MI-40): dopo la
+    /// risposta lo stream porta i byte di una connessione TCP nei due sensi.
+    Forward { port: u16, project: String, probe: bool },
 }
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -50,6 +57,9 @@ pub(crate) enum StreamFrame {
     Snapshot { offset: u64, len: usize },
     Resize { cols: u16, rows: u16 },
     Cursor { seq: u64 },
+    /// La coda dell'host ha scartato un frame per il tetto: il consumatore
+    /// deve ripartire da capo invece di ricevere un flusso con un buco (B1).
+    Resync,
 }
 
 pub(crate) async fn send_json<T: Serialize>(send: &mut SendStream, value: &T) -> Result<(), String> {

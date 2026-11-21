@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // Compila in locale l'installer per il sistema operativo corrente, genera il
 // manifest nightly.json con checksum esatti per asset e aggiorna la prerelease
-// `nightly` su GitHub tramite `gh` in modo fail-safe.
+// `nightly` su GitHub tramite `gh` in modo fail-safe. Dentro Studio fa
+// compilare l'altra piattaforma all'altra macchina collegata e pubblica gli
+// installer di entrambe (R-MI-37, `nightly-remote.mjs`).
 //
 // Uso:
 //   npm run nightly                    # build locale e pubblicazione completa
@@ -24,6 +26,16 @@ import {
 } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { performance } from 'node:perf_hooks';
+import {
+	WORKER_MANIFEST,
+	WORKER_STAGING,
+	bridgeFromEnv,
+	chooseWorker,
+	cloudPlatforms,
+	mergeWorker,
+	proposeUpdateBoth,
+	startWorker
+} from './nightly-remote.mjs';
 import { printSummary, verifyNightly, withNightlyLock } from './verify-nightly.mjs';
 import { wrapWindowsInstaller } from './build-windows-installer.mjs';
 import { computeFrontendFingerprint, computeFrontendFingerprintDetails } from './nightly-cache.mjs';
@@ -51,6 +63,8 @@ function parseArgs() {
 		skipCommandCheck: false,
 		skipSetupFlowCheck: false,
 		full: false,
+		worker: false,
+		noRemote: false,
 		help: false
 	};
 
@@ -72,6 +86,10 @@ function parseArgs() {
 			opts.skipSetupFlowCheck = true;
 		} else if (arg === '--full') {
 			opts.full = true;
+		} else if (arg === '--worker') {
+			opts.worker = true;
+		} else if (arg === '--no-remote') {
+			opts.noRemote = true;
 		} else if (arg === '--build-id') {
 			opts.buildId = args[++i];
 		} else if (/^[1-9]\d*$/.test(arg)) {
@@ -100,6 +118,9 @@ Opzioni:
   --skip-setup-flow-check
                      Salta la verifica dell'impronta del setup di omp (emergenza)
   --full             Riesegue tutti i gate, senza riusare verifiche precedenti
+  --no-remote        Dentro Studio non usa l'altra macchina collegata per l'altra piattaforma
+  --worker           Uso interno della build distribuita: compila e prepara gli
+                     installer per il coordinatore, senza preflight ne' upload
   -h, --help          Mostra questo messaggio di aiuto
 `);
 }
@@ -137,13 +158,14 @@ async function runNpm(script, args = [], observe = () => {}) {
 		throw new Error('Avvia la pubblicazione con npm run nightly.');
 	}
 	abortController.signal.throwIfAborted();
+	const detached = process.platform !== 'win32' && process.env.OMP_STUDIO_REMOTE_JOB !== '1';
 	await new Promise((resolve, reject) => {
 		const child = spawn(process.execPath, [npmCli, 'run', script, '--', ...args], {
 			cwd: ROOT,
 			env: process.env,
 			stdio: ['inherit', 'pipe', 'pipe'],
 			windowsHide: true,
-			detached: process.platform !== 'win32'
+			detached
 		});
 		let killTimer;
 		const abort = () => {
@@ -156,6 +178,8 @@ async function runNpm(script, args = [], observe = () => {}) {
 					windowsHide: true
 				});
 				killer.once('error', () => child.kill('SIGTERM'));
+			} else if (!detached) {
+				child.kill('SIGTERM');
 			} else {
 				try { process.kill(-child.pid, 'SIGTERM'); } catch {}
 				killTimer = setTimeout(() => {
@@ -424,38 +448,69 @@ async function main() {
 
 async function publish(opts) {
 	const totalStart = performance.now();
-	assertCleanWorkingTree(opts);
+	// Il worker gira nella cartella di lavoro dedicata di «Esegui su macchina»,
+	// gia' al commit esatto: il preflight l'ha fatto il coordinatore sullo stesso
+	// commit, e qui non si ripete (R-MI-37).
+	if (opts.worker && !opts.buildId) throw new Error('--worker richiede --build-id');
+	if (!opts.worker) assertCleanWorkingTree(opts);
 	const commitSha = getCommitSha();
-	const verification = await verifyNightly({
-		root: ROOT,
-		full: opts.full,
-		lockHeld: true,
-		signal: abortController.signal,
-		skipCommandCheck: opts.skipCommandCheck,
-		skipSetupFlowCheck: opts.skipSetupFlowCheck
-	});
-	printSummary(verification);
+	if (!opts.worker) {
+		const verification = await verifyNightly({
+			root: ROOT,
+			full: opts.full,
+			lockHeld: true,
+			signal: abortController.signal,
+			skipCommandCheck: opts.skipCommandCheck,
+			skipSetupFlowCheck: opts.skipSetupFlowCheck
+		});
+		printSummary(verification);
 
-	assertCleanWorkingTree(opts);
-	if (getCommitSha() !== commitSha) {
-		throw new Error('Commit cambiato durante il preflight: pubblicazione interrotta.');
+		assertCleanWorkingTree(opts);
+		if (getCommitSha() !== commitSha) {
+			throw new Error('Commit cambiato durante il preflight: pubblicazione interrotta.');
+		}
 	}
 	const platform = getPlatformConfig();
 	const buildId = normalizeBuildId(opts.buildId);
 	const version = getNightlyVersion(buildId);
 
 	console.log(`\n========================================`);
-	console.log(`  Pubblicazione Nightly Locale`);
+	console.log(`  ${opts.worker ? 'Build Nightly per il coordinatore' : 'Pubblicazione Nightly Locale'}`);
 	console.log(`========================================`);
 	console.log(`  Piattaforma:  ${platform.name}`);
 	console.log(`  Build ID:     ${buildId}`);
 	console.log(`  Versione:     ${version}`);
 	console.log(`  Commit:       ${commitSha}`);
-	console.log(`  Modalita':    ${opts.dryRun ? 'DRY-RUN (nessun upload)' : 'Pubblicazione GitHub'}`);
+	console.log(`  Modalita':    ${opts.worker ? 'WORKER (nessun upload)' : opts.dryRun ? 'DRY-RUN (nessun upload)' : 'Pubblicazione GitHub'}`);
 	console.log(`========================================\n`);
 
-	if (!opts.dryRun) {
+	if (!opts.dryRun && !opts.worker) {
 		verifyGhAuth();
+	}
+
+	// Build distribuita (R-MI-37): l'altra piattaforma la compila l'altra
+	// macchina collegata, in parallelo a questa; fuori da Studio `mode: none`.
+	let remote = null;
+	let worker = null;
+	if (!opts.worker && !opts.noRemote && !opts.skipBuild) {
+		const bridge = bridgeFromEnv();
+		remote = await chooseWorker({ bridge, localPlatform: platform.key, signal: abortController.signal });
+		if (remote.mode === 'machine') {
+			console.log(`Build ${remote.platform} affidata a ${remote.machine.name}, in parallelo a questa.`);
+			try {
+				worker = await startWorker({ bridge, machine: remote.machine, buildId, commit: commitSha, signal: abortController.signal });
+			} catch (error) {
+				abortController.signal.throwIfAborted();
+				console.warn(`Impossibile avviare ${remote.machine.name} (${error.message}): ${remote.platform} passa al cloud.`);
+			}
+			// L'esito si legge dopo la build locale; un rifiuto prima non deve
+			// diventare un errore non gestito.
+			worker?.done.catch(() => {});
+		} else if (remote.mode === 'local') {
+			console.log(`Build ${remote.platform} esclusa: pubblico solo ${platform.name}.`);
+		} else if (remote.mode === 'cloud') {
+			console.log(`Build ${remote.platform} affidata al cloud.`);
+		}
 	}
 
 	// Salva copie di backup in memoria per il ripristino
@@ -463,7 +518,8 @@ async function publish(opts) {
 	let versionApplied = false;
 
 	const buildStartTime = Date.now();
-	const stagingDir = join(ROOT, 'staging-nightly');
+	const stagingDir = join(ROOT, opts.worker ? WORKER_STAGING : 'staging-nightly');
+	const remoteDir = join(ROOT, 'staging-nightly-remote');
 
 	try {
 		// 1. Applica versione temporanea
@@ -525,6 +581,15 @@ async function publish(opts) {
 
 		// 3. Individuazione installer e preparazione staging piatto con nomi normalizzati a punti
 		const rawInstallers = findInstallers(platform, version, buildStartTime);
+		const counterparts = rawInstallers.flatMap((installer) => {
+			const path = `${installer.path}.sig`;
+			if (!existsSync(path)) return [];
+			const signature = statSync(path);
+			return signature.isFile() && signature.mtimeMs >= installer.mtimeMs
+				? [{ path, name: `${installer.name}.sig`, size: signature.size, mtimeMs: signature.mtimeMs }]
+				: [];
+		});
+		rawInstallers.push(...counterparts);
 		if (existsSync(stagingDir)) {
 			rmSync(stagingDir, { recursive: true, force: true });
 		}
@@ -558,6 +623,39 @@ async function publish(opts) {
 			console.log(`  - ${targetName} (${sizeMb} MB) -> SHA256: ${fileSha}`);
 		}
 
+		// Installer per il coordinatore: li riporta «Esegui su macchina».
+		if (opts.worker) {
+			const workerManifest = {
+				platform: platform.key,
+				version,
+				commit: commitSha,
+				installers: stagedInstallers.map(({ name, size, sha256 }) => ({ name, size, sha256 }))
+			};
+			writeFileSync(join(stagingDir, WORKER_MANIFEST), JSON.stringify(workerManifest, null, 2) + '\n', 'utf8');
+			console.log(`\nInstaller pronti per il coordinatore in ${stagingDir}.`);
+			return;
+		}
+
+		// Installer dell'altra macchina: stessa versione e stesso commit, o niente.
+		if (worker) {
+			const status = await worker.done.catch((error) => ({ state: 'failed', error: error.message }));
+			if (status.state === 'exited' && status.code === 0) {
+				try {
+					const workerManifest = await worker.collect(remoteDir);
+					mergeWorker({ manifest: workerManifest, version, commit: commitSha, stagingDir, staged: stagedInstallers, checksums, sha256Lines });
+					remote.ok = true;
+					for (const installer of workerManifest.installers) {
+						console.log(`  - ${installer.name} (${remote.machine.name}) -> SHA256: ${installer.sha256}`);
+					}
+				} catch (error) {
+					console.warn(`Installer di ${remote.machine.name} non usabili (${error.message}): ${remote.platform} passa al cloud.`);
+				}
+			} else {
+				const reason = status.state === 'exited' ? `codice ${status.code}` : status.error || status.state;
+				console.warn(`Build su ${remote.machine.name} non riuscita (${reason}): ${remote.platform} passa al cloud.`);
+			}
+		}
+
 		// Scrivi file SHA256SUMS.txt nello staging
 		const sumsPath = join(stagingDir, 'SHA256SUMS.txt');
 		writeFileSync(sumsPath, sha256Lines.join('\n') + '\n', 'utf8');
@@ -578,7 +676,7 @@ async function publish(opts) {
 		writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n', 'utf8');
 
 		const notesContent = [
-			`Build locale del commit \`${commitSha}\` (${platform.name}).`,
+			`Build locale del commit \`${commitSha}\` (${platform.name}${remote?.ok ? `, ${remote.platform} da ${remote.machine.name}` : ''}).`,
 			'',
 			`Versione prerelease: \`${version}\``,
 			'',
@@ -683,21 +781,23 @@ async function publish(opts) {
 			// workflow compila lo stesso commit con lo stesso build-id (quindi la stessa
 			// versione) e aggiunge i propri asset senza toccare quelli appena caricati.
 			if (!opts.noCloud) {
-				const others = ALL_PLATFORMS.filter((p) => p !== platform.key);
-				console.log(`\nAvvio su GitHub la build di ${others.join(', ')} per il commit ${commitSha}...`);
-				runCommand('gh', [
-					'workflow',
-					'run',
-					'nightly.yml',
-					'--ref',
-					'main',
-					'-f',
-					`commit=${commitSha}`,
-					'-f',
-					`build_id=${buildId}`,
-					'-f',
-					`platforms=${others.join(',')}`
-				]);
+				const others = cloudPlatforms({ all: ALL_PLATFORMS, local: platform.key, remote });
+				if (others.length > 0) {
+					console.log(`\nAvvio su GitHub la build di ${others.join(', ')} per il commit ${commitSha}...`);
+					runCommand('gh', [
+						'workflow',
+						'run',
+						'nightly.yml',
+						'--ref',
+						'main',
+						'-f',
+						`commit=${commitSha}`,
+						'-f',
+						`build_id=${buildId}`,
+						'-f',
+						`platforms=${others.join(',')}`
+					]);
+				}
 			}
 
 			console.log(`\nPrerelease Nightly pubblicata con successo!`);
@@ -705,12 +805,21 @@ async function publish(opts) {
 				allowFailure: true
 			});
 			timings.push({ fase: 'Upload e aggiornamento release', secondi: ((performance.now() - uploadStart) / 1000).toFixed(1) });
+			// Le due macchine devono finire sulla stessa versione, o il
+			// collegamento resta ridotto (R-MI-10): Studio propone di aggiornarle.
+			if (remote?.ok) {
+				await proposeUpdateBoth({ bridge: bridgeFromEnv(), version, machineIds: [remote.machine.id] });
+			}
 		} else {
 			console.log(`\n[DRY-RUN] File di staging generati in ${stagingDir}`);
 			console.log(`[DRY-RUN] Manifest:\n${JSON.stringify(manifest, null, 2)}`);
 			console.log(`[DRY-RUN] Nessun upload effettuato su GitHub.`);
 		}
 	} finally {
+		// Un'interruzione o un errore qui ferma anche la build dell'altra macchina.
+		if (worker && !worker.finished) {
+			await worker.cancel();
+		}
 		// Ripristino garantito dei file di versione allo stato stabile pulito
 		if (versionApplied) {
 			console.log(`\nRipristino file di versione allo stato stabile...`);
@@ -720,8 +829,12 @@ async function publish(opts) {
 			console.log(`File di versione ripristinati.`);
 		}
 
-		if (!opts.dryRun && existsSync(stagingDir)) {
+		// Lo staging del worker resta: il coordinatore lo scarica a job finito.
+		if (!opts.dryRun && !opts.worker && existsSync(stagingDir)) {
 			rmSync(stagingDir, { recursive: true, force: true });
+		}
+		if (existsSync(remoteDir)) {
+			rmSync(remoteDir, { recursive: true, force: true });
 		}
 		console.table(timings);
 		console.log(`Tempo totale locale: ${((performance.now() - totalStart) / 1000).toFixed(1)} s`);

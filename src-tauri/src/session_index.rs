@@ -269,9 +269,10 @@ pub fn parse_session_file(path: &Path) -> Option<ParsedSessionInfo> {
         }
     }
 
+    let session_id = session_id?;
     Some(ParsedSessionInfo {
-        session_id: session_id?,
-        project_path: project_path?,
+        project_path: crate::session_move::arrival_path(&session_id).or(project_path)?,
+        session_id,
         header_title,
         first_prompt,
     })

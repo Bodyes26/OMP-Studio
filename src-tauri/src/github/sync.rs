@@ -48,7 +48,7 @@ pub struct GitUpstreamStatus {
     pub changed_files: u32,
 }
 
-fn run_git_in(dir: &Path, args: &[&str]) -> Result<String, String> {
+pub(crate) fn run_git_in(dir: &Path, args: &[&str]) -> Result<String, String> {
     let _span = crate::perf_trace::span("git", crate::perf_trace::command_label("git", args));
     let mut cmd = Command::new("git");
     cmd.current_dir(dir);
@@ -562,6 +562,32 @@ pub(crate) fn parse_porcelain_v2_branch(raw: &str) -> GitPorcelainV2BranchInfo {
     }
 }
 
+/// Identità del repository: l'origin GitHub normalizzato, altrimenti il primo
+/// commit (R-MI-12). Serve anche a trovare la copia dello stesso progetto su
+/// un'altra macchina (R-MI-36).
+pub(crate) fn repo_identity(path: &Path) -> (Option<String>, Option<String>) {
+    let repo_slug = run_git_in(path, &["remote", "get-url", "origin"])
+        .ok()
+        .and_then(|url| crate::github::repos::parse_github_url(&url))
+        .map(|(owner, repo)| format!("{}/{}", owner.to_lowercase(), repo.to_lowercase()));
+    // Il primo commit identifica le copie senza origin solo se il repo e'
+    // completo: su un clone shallow `rev-list --max-parents=0` restituisce
+    // il confine shallow e non la vera radice, e due cloni con profondita'
+    // diverse otterrebbero identita' diverse (M3).
+    let root_commit = if run_git_in(path, &["rev-parse", "--is-shallow-repository"])
+        .map(|out| out.trim() == "true")
+        .unwrap_or(false)
+    {
+        None
+    } else {
+        run_git_in(path, &["rev-list", "--max-parents=0", "HEAD"])
+            .ok()
+            .and_then(|out| out.lines().next().map(|line| line.trim().to_owned()))
+            .filter(|commit| !commit.is_empty())
+    };
+    (repo_slug, root_commit)
+}
+
 #[tauri::command]
 pub async fn git_upstream_status(project_path: String) -> Result<GitUpstreamStatus, String> {
     tokio::task::spawn_blocking(move || {
@@ -623,17 +649,7 @@ pub async fn git_upstream_status(project_path: String) -> Result<GitUpstreamStat
             }
         }
 
-        // Identità del repository: l'origin GitHub normalizzato, altrimenti il
-        // primo commit. Due letture in più ma una volta per progetto, dentro il
-        // giro che già interroga git.
-        let repo_slug = run_git_in(path, &["remote", "get-url", "origin"])
-            .ok()
-            .and_then(|url| crate::github::repos::parse_github_url(&url))
-            .map(|(owner, repo)| format!("{}/{}", owner.to_lowercase(), repo.to_lowercase()));
-        let root_commit = run_git_in(path, &["rev-list", "--max-parents=0", "HEAD"])
-            .ok()
-            .and_then(|out| out.lines().next().map(|line| line.trim().to_owned()))
-            .filter(|commit| !commit.is_empty());
+        let (repo_slug, root_commit) = repo_identity(path);
 
         Ok(GitUpstreamStatus {
             is_git: true,
@@ -1608,5 +1624,28 @@ mod tests {
         assert_eq!(info.ahead, 0);
         assert_eq!(info.behind, 0);
         assert!(!info.has_uncommitted);
+    }
+
+    #[tokio::test]
+    async fn test_shallow_repo_has_no_root_commit_identity() {
+        let setup = setup_test_repos();
+        // Trasforma work_b in un clone shallow del remote, cosi' la radice vera
+        // non e' presente (M3): `--is-shallow-repository` e' true e il primo
+        // commit non deve essere usato come identita'.
+        let shallow = setup.container.join("work_shallow");
+        // `file://` evita l'ottimizzazione del clone locale, che ignora
+        // `--depth` e non produrrebbe un repository shallow.
+        let source = format!("file://{}", setup.work_b.join(".git").to_str().unwrap());
+        run_git_test_cmd(&setup.container, &[
+            "clone", "--quiet", "--depth", "1", &source, shallow.to_str().unwrap(),
+        ]);
+        let shallow_str = shallow.to_str().unwrap().to_string();
+        let status = git_upstream_status(shallow_str).await.unwrap();
+        assert!(status.is_git);
+        assert_eq!(
+            run_git_in(&shallow, &["rev-parse", "--is-shallow-repository"]).unwrap(),
+            "true"
+        );
+        assert_eq!(status.root_commit, None, "un clone shallow non deve esporre la radice come identita'");
     }
 }

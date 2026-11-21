@@ -21,6 +21,7 @@ import type { AgentSession } from '#lib/agent/session.svelte.ts';
 import { m } from '#lib/paraglide/messages.js';
 import { laneBranchDeleteArgs, worktreeErrorMessage } from './laneCleanup';
 import { landingNeedsUserConfirm } from './integrationGate';
+import { landRemoteLane } from './remoteLanes';
 
 export type LandCaller =
 	| { kind: 'gui' }
@@ -438,6 +439,16 @@ export class LaneLandingService {
 	 * Pipeline di atterraggio (land) in un clic.
 	 */
 	async land(project: Project, laneId: LaneId, opts: LandOptions): Promise<LandResult> {
+		if (projectStore.isRemote(project)) {
+			try {
+				return await landRemoteLane(project, {
+					op: 'land', laneId, message: opts.message, interactive: opts.caller.kind === 'gui', confirmed: opts.confirmed
+				});
+			} catch (error) {
+				const parsed = parseWorktreeError(error);
+				return { kind: 'error', error: parsed, agentText: parsed.message };
+			}
+		}
 		const lane = laneStore
 			.lanesFor(project.id as ProjectId)
 			.find((candidate) => candidate.laneId === laneId);

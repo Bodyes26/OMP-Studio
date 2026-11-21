@@ -208,7 +208,8 @@ commands.allow = [
     "set_app_attention",
     "clear_app_attention",
     "send_project_notification",
-    "dismiss_project_notifications"
+    "dismiss_project_notifications",
+    "system_idle_seconds"
 ]
 
 [[permission]]
@@ -319,6 +320,8 @@ commands.allow = [
     "github_clone_repo",
     "project_create_new",
     "git_upstream_status",
+    "github_canonical_repo",
+    "github_update_origin",
     "git_sync_repo",
     "copy_sync_heads",
     "copy_sync_bundle",
@@ -326,6 +329,10 @@ commands.allow = [
     "copy_wip_snapshot",
     "copy_wip_receive",
     "copy_wip_finish",
+    "copy_wip_bundle",
+    "copy_sync_bundle_chunk",
+    "copy_wip_bundle_chunk",
+    "copy_wip_estimate",
     "github_get_actions_status"
 ]
 
@@ -450,7 +457,9 @@ identifier = "allow-instance-link"
 description = "Collegamento fra istanze Studio: configurazione, abbinamento, permessi, revoca e superfici remote"
 commands.allow = [
     "link_status",
+    "link_reset_identity",
     "link_activity",
+    "link_audit",
     "link_configure",
     "link_pairing_code",
     "link_pair",
@@ -459,11 +468,30 @@ commands.allow = [
     "link_invoke",
     "link_open_rpc",
     "link_open_pty",
+    "link_forward_open",
+    "link_forward_close",
+    "link_forward_window",
+    "exec_nightly_ready",
+    "omp_sync_preferences",
+    "omp_sync_snapshot",
+    "omp_sync_apply",
+    "session_move_export",
+    "session_move_import",
+    "session_move_redirect",
+    "session_move_recover",
+    "copy_receive_lane_branch",
     "link_host_action",
     "link_host_snapshot",
     "link_command_result",
     "link_publish_state",
-    "link_host_states"
+    "link_host_states",
+    "exec_start",
+    "exec_status",
+    "exec_cancel",
+    "exec_artifact_chunk",
+    "exec_jobs",
+    "exec_job_log",
+    "exec_job_cancel"
 ]
 
 [[set]]

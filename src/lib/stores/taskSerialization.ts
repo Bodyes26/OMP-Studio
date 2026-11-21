@@ -192,6 +192,13 @@ export interface PersistedTaskState {
 	tasks: StudioTask[];
 	origins: TaskSessionOrigin[];
 	views: Record<string, AgentView>;
+	/** Rimozioni dalle code replicate, per progetto (vedi `queueReplication.ts`). */
+	removed?: Record<string, Record<string, number>>;
+	/**
+	 * Specchi delle code dei progetti di altre macchine, con le modifiche non
+	 * ancora consegnate (vedi `remoteQueue.ts`, R-MI-15).
+	 */
+	remoteQueues?: Record<string, { machine: string; hostPath: string; tasks: StudioTask[]; edits: string[]; dirty?: boolean }>;
 }
 
 export function createDefaultPersistedState(): PersistedTaskState {
@@ -385,7 +392,34 @@ export function parsePersistedState(value: unknown): PersistedTaskState | null {
 		)
 	);
 
-	return { tasks, origins, views };
+	const removed: Record<string, Record<string, number>> = {};
+	if (record.removed && typeof record.removed === 'object') {
+		for (const [project, ids] of Object.entries(record.removed as Record<string, unknown>)) {
+			if (!ids || typeof ids !== 'object') continue;
+			const valid = Object.entries(ids as Record<string, unknown>).filter(
+				(entry): entry is [string, number] => typeof entry[1] === 'number' && Number.isFinite(entry[1])
+			);
+			if (valid.length > 0) removed[project] = Object.fromEntries(valid);
+		}
+	}
+
+	const remoteQueues: NonNullable<PersistedTaskState['remoteQueues']> = {};
+	if (record.remoteQueues && typeof record.remoteQueues === 'object') {
+		for (const [key, value] of Object.entries(record.remoteQueues as Record<string, unknown>)) {
+			if (!value || typeof value !== 'object') continue;
+			const saved = value as Record<string, unknown>;
+			if (typeof saved.machine !== 'string' || typeof saved.hostPath !== 'string') continue;
+			remoteQueues[key] = {
+				machine: saved.machine,
+				hostPath: saved.hostPath,
+				tasks: Array.isArray(saved.tasks) ? saved.tasks.filter(isStudioTask) : [],
+				edits: Array.isArray(saved.edits) ? saved.edits.filter((id): id is string => typeof id === 'string') : [],
+				dirty: saved.dirty === true
+			};
+		}
+	}
+
+	return { tasks, origins, views, removed, remoteQueues };
 }
 
 /**

@@ -21,8 +21,12 @@
 	import ProjectLanesView from './ProjectLanesView.svelte';
 	import Tooltip from '#lib/ui/Tooltip.svelte';
 	import MachineGlyph from '#lib/ui/MachineGlyph.svelte';
+	import PeerUpdateNotice from '#lib/components/PeerUpdateNotice.svelte';
 	import { linkStore } from '#lib/backend/link.svelte.ts';
-	import { provenance, copyDivergence, copyPending, divergenceSummary, pendingSummary, type MachineCopy } from '#lib/stores/projectMachines.svelte.ts';
+	import { provenance, copyDivergence, copyPending, divergenceSummary, pendingSummary, linkCandidates, decidedCopies, originUpdates, machineName, refreshCopiesGit, type LinkCandidate, type MachineCopy, type OriginUpdate } from '#lib/stores/projectMachines.svelte.ts';
+	import { copyKeyOf, projectLinks } from '#lib/stores/projectLinks.svelte.ts';
+	import { invoke, LOCAL_MACHINE } from '#lib/backend/ipc.ts';
+	import { closePreviews, requestPreview } from '#lib/backend/remotePreview.svelte.ts';
 	import StatusMark from '#lib/ui/StatusMark.svelte';
 	import IconAutomation from './automations/IconAutomation.svelte';
 	import {
@@ -122,6 +126,32 @@
 	const divergence = $derived(prov.kind === 'copies' ? copyDivergence(project) : null);
 	const pending = $derived(prov.kind === 'copies' ? copyPending(project) : []);
 	const hasLocalCopy = $derived(prov.copies.some((copy) => copy.local));
+	/** Altre macchine del progetto: ognuna puo' dover aggiornare Studio (R-MI-38). */
+	const remoteMachineIds = $derived([...new Set(prov.copies.filter((copy) => !copy.local && copy.project.machineId).map((copy) => copy.project.machineId!))]);
+	/** Macchina in uso spenta: se il relay non risponde da qui lo dice, non è la macchina (R-MI-30). */
+	const unreachableLabel = $derived(linkStore.offlineReason(prov.inUse.project.machineId ?? '') === 'relay'
+		? m.project_popover_relay_unreachable({ machine: prov.inUse.name })
+		: m.project_popover_machine_unreachable({ machine: prov.inUse.name }));
+	// Identità delle copie (R-MI-32): fork senza origin da confermare e copie
+	// con l'origin di prima di una rinomina su GitHub.
+	const candidates = $derived(linkCandidates(project));
+	// Decisioni gia' prese, condivise fra le macchine e modificabili da qui (R-MI-44).
+	const decided = $derived(decidedCopies(project));
+	const renames = $derived(originUpdates(project));
+	function linkCopies(candidate: LinkCandidate) {
+		projectLinks.link(candidate.root, [copyKeyOf(candidate.mine), copyKeyOf(candidate.other)]);
+	}
+	function keepApart(candidate: LinkCandidate) {
+		projectLinks.refuse(copyKeyOf(candidate.mine), copyKeyOf(candidate.other), candidate.root);
+	}
+	async function updateOrigin(update: OriginUpdate) {
+		try {
+			await invoke('github_update_origin', { projectPath: update.copy.canonicalProjectPath, slug: update.slug }, { machine: update.copy.machineId ?? LOCAL_MACHINE });
+			refreshCopiesGit(project, true);
+		} catch (error) {
+			flash(String(error));
+		}
+	}
 	/** A turno in corso la macchina non si cambia: lo spostamento è la fase 3 (R-MI-14). */
 	const machineBusy = $derived(prov.inUse.project.lane.agentState === 'working');
 	const autoOwner = $derived(prov.copies.find((copy) => copy.project.autoDispatch) ?? null);
@@ -281,7 +311,7 @@
 			projectStore.setAutoDispatch(copy.project.id, enabled);
 			return;
 		}
-		copy.project.autoDispatch = enabled;
+		projectStore.markRemoteAutoDispatch(copy.project.id, enabled);
 		void linkStore
 			.command(copy.machineId, { kind: 'set_auto_dispatch', projectId: copy.project.hostProjectId ?? '', enabled })
 			.catch((error) => flash(String(error)));
@@ -393,9 +423,10 @@
 			<!-- Prima dove gira, poi il progetto (R-MI-23, F22). -->
 			<div class="peek-machine">
 				<MachineGlyph kind={prov.inUse.local ? 'here' : prov.inUse.online ? 'remote' : 'offline'} size={12} />
-				<span>{prov.inUse.online ? prov.inUse.name : m.project_popover_machine_unreachable({ machine: prov.inUse.name })}</span>
+				<span>{prov.inUse.online ? prov.inUse.name : unreachableLabel}</span>
 			</div>
 		{/if}
+		{#each remoteMachineIds as machineId (machineId)}<PeerUpdateNotice {machineId} compact />{/each}
 		<div class="peek-identity">
 			<span class="identity-code" style="--proj-hue: {hue}">{#if isDraft}<IconLab />{:else if isScratchpad}<IconGhost />{:else}{project.label ?? project.name.slice(0, 2).toUpperCase()}{/if}</span>
 			<strong>{project.name}</strong>
@@ -437,11 +468,46 @@
 			<div class="view-body" bind:this={bodyEl}>
 				{#if view === 'home'}
 					<div class="home-actions">
+						{#each candidates as candidate (candidate.other.id)}
+							<div class="link-box" role="status">
+								<p>{m.project_links_same_question({ machine: machineName(candidate.other.machineId), name: candidate.other.name })}</p>
+								<div class="link-actions">
+									<button type="button" class="link-action primary" onclick={() => linkCopies(candidate)}>{m.project_links_merge()}</button>
+									<button type="button" class="link-action" onclick={() => keepApart(candidate)}>{m.project_links_different()}</button>
+								</div>
+							</div>
+						{/each}
+						{#each renames as update (update.copy.id)}
+							<div class="link-box" role="status">
+								<p>{m.project_links_renamed({ machine: machineName(update.copy.machineId), slug: update.slug })}</p>
+								<div class="link-actions">
+									<button type="button" class="link-action primary" onclick={() => void updateOrigin(update)}>{m.project_links_update_origin()}</button>
+								</div>
+							</div>
+						{/each}
+						{#each decided as choice (choice.other.id)}
+							<div class="link-box" role="status">
+								<p>{choice.same ? m.project_links_merged_with({ machine: machineName(choice.other.machineId), name: choice.other.name }) : m.project_links_kept_apart({ machine: machineName(choice.other.machineId), name: choice.other.name })}</p>
+								<div class="link-actions">
+									{#if choice.same}
+										<button type="button" class="link-action" onclick={() => keepApart(choice)}>{m.project_links_separate()}</button>
+									{:else}
+										<button type="button" class="link-action" onclick={() => linkCopies(choice)}>{m.project_links_merge()}</button>
+									{/if}
+								</div>
+							</div>
+						{/each}
+						{#each remoteMachineIds as machineId (machineId)}<div class="update-notice"><PeerUpdateNotice {machineId} /></div>{/each}
+						{#if project.machineId && project.machineId !== LOCAL_MACHINE && project.hostProjectId}
+							{@const source = { machine: project.machineId, project: project.hostProjectId, owner: project.id }}
+							<button class="menu-row" onclick={() => { requestPreview(source); closePanel(); }}><IconPlus /><span>{m.remote_preview_title()}</span></button>
+							<button class="menu-row" onclick={() => { closePreviews(project.id); closePanel(); }}><IconClose /><span>{m.remote_preview_close()}</span></button>
+						{/if}
 						{#if divergence}<button class="menu-row diverged-row" onclick={() => void navigate('machines')}><MachineGlyph kind="copies" copies={prov.marks} diverge /><span>{m.copies_diverged_title()}</span><IconChevronRight /></button>{/if}
 						{#if !onlyHere && hasWorkspace}
 							<button class="menu-row" onclick={() => void navigate('machines')}>
 								<span class="row-glyph"><MachineGlyph kind={prov.kind === 'copies' ? 'copies' : prov.kind === 'local' ? 'here' : prov.kind} copies={prov.marks} diverge={divergence !== null} /></span>
-								<span>{prov.kind === 'copies' ? m.project_popover_machines() : m.project_popover_machine()}<small class="row-hint">{prov.kind === 'copies' ? m.project_popover_machines_hint({ machine: prov.inUse.name }) : prov.inUse.online ? prov.inUse.name : m.project_popover_machine_unreachable({ machine: prov.inUse.name })}</small></span>
+								<span>{prov.kind === 'copies' ? m.project_popover_machines() : m.project_popover_machine()}<small class="row-hint">{prov.kind === 'copies' ? m.project_popover_machines_hint({ machine: prov.inUse.name }) : prov.inUse.online ? prov.inUse.name : unreachableLabel}</small></span>
 								<IconChevronRight />
 							</button>
 							<div class="divider"></div>
@@ -587,6 +653,15 @@
 	.pending-box { background: var(--bg-hover); }
 	.diverged-box strong, .pending-box strong { font-weight: 550; }
 	.diverged-box ul, .pending-box ul { margin: 4px 0 0; padding-left: 16px; color: var(--ink-muted); }
+	/* Domande sull'identità delle copie (R-MI-32): chiedono una scelta, come la divergenza. */
+	.link-box { margin: 0 2px 8px; padding: 10px; border-radius: var(--radius-md); background: var(--bg-hover); font-size: var(--text-label); }
+	.update-notice { margin: 0 2px 8px; padding: 10px; border-radius: var(--radius-md); background: var(--bg-hover); }
+	.update-notice:empty { display: none; }
+	.link-box p { margin: 0 0 8px; color: var(--ink); }
+	.link-actions { display: flex; gap: 6px; }
+	.link-action { padding: 5px 8px; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--ink-muted); font: inherit; cursor: pointer; }
+	.link-action:hover { background: var(--bg-hover); color: var(--ink); }
+	.link-action.primary { border-color: var(--line-strong); color: var(--ink); }
 	.identity-header { padding: 14px 44px 12px 12px; border-bottom: 1px solid var(--line); }
 	.identity-line { display: flex; align-items: center; gap: 6px; min-height: 30px; }
 	.icon-button { width: 30px; height: 30px; padding: 6px; border: 0; background: transparent; color: var(--ink-muted); display: grid; place-items: center; border-radius: var(--radius-md); cursor: pointer; flex: none; transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }

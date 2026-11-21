@@ -52,6 +52,8 @@
 		IconMore
 	} from '#lib/icons.ts';
 	import { linkStore } from '#lib/backend/link.svelte.ts';
+	import { needsUpdate } from '#lib/backend/peerUpdate.svelte.ts';
+	import { studioUpdaterStore } from '#lib/stores/studioUpdater.svelte.ts';
 	import MachineGlyph from '#lib/ui/MachineGlyph.svelte';
 	import { provenance, copyDivergence, copyPending, type Provenance } from '#lib/stores/projectMachines.svelte.ts';
 	import { laneStore, type LaneRecord } from '#lib/stores/lanes.svelte.ts';
@@ -96,13 +98,20 @@
 	 * tessera non ha testo (R-MI-19).
 	 */
 	function provenanceAria(view: Provenance, diverged: boolean, pending: boolean): string {
+		// Il glifo non dice che l'altra macchina ha un altro Studio (R-MI-38).
+		const outdated = view.copies
+			.filter((copy) => !copy.local && copy.project.machineId)
+			.map((copy) => linkStore.machineFor(copy.project.machineId))
+			.filter((machine) => machine && needsUpdate(machine, studioUpdaterStore.currentVersion))
+			.map((machine) => m.topbar_tab_aria_update({ machine: machine!.name }))
+			.join('');
 		if (view.kind === 'local') return '';
-		if (view.kind === 'remote') return m.topbar_tab_aria_runs_on({ machine: view.inUse.name });
+		if (view.kind === 'remote') return m.topbar_tab_aria_runs_on({ machine: view.inUse.name }) + outdated;
 		if (view.kind === 'offline') return m.topbar_tab_aria_unreachable({ machine: view.inUse.name });
 		return m.topbar_tab_aria_copies({
 			machine: view.inUse.name,
 			others: view.others.map((copy) => copy.name).join(', ')
-		}) + (diverged ? m.topbar_tab_aria_diverged() : '') + (pending ? m.copies_pending_aria() : '');
+		}) + (diverged ? m.topbar_tab_aria_diverged() : '') + (pending ? m.copies_pending_aria() : '') + outdated;
 	}
 
 	async function handleGhostButtonClick(event: MouseEvent) {

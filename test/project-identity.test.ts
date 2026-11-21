@@ -40,6 +40,23 @@ describe('Identita del progetto fra macchine (R-MI-12)', () => {
 		assert.deepEqual(identityOf({ rootCommit: 'ABC123' }), { kind: 'root-commit', value: 'abc123' });
 	});
 
+	it('senza origin due copie con la stessa radice restano separate finché non confermate (R-MI-32)', () => {
+		const copies = [
+			{ rootCommit: 'abc123', rootConfirmed: false },
+			{ rootCommit: 'abc123', rootConfirmed: false }
+		];
+		assert.deepEqual(groupByRepository(copies), [[0], [1]], 'un fork locale non si unisce da solo');
+		const confirmed = copies.map((copy) => ({ ...copy, rootConfirmed: true }));
+		assert.deepEqual(groupByRepository(confirmed), [[0, 1]], 'dopo la conferma sono una tessera');
+	});
+
+	it('una copia con l origin di prima della rinomina resta lo stesso progetto (R-MI-32)', () => {
+		const renamed = { repoSlug: 'bodyes26/vecchio', canonicalSlug: 'bodyes26/nuovo' };
+		const current = { repoSlug: 'bodyes26/nuovo' };
+		assert.deepEqual(groupByRepository([renamed, current]), [[0, 1]]);
+		assert.deepEqual(groupByRepository([{ repoSlug: 'bodyes26/vecchio' }, current]), [[0], [1]], 'senza il nome attuale restano separate');
+	});
+
 	it('senza ancore non c e identita e le copie restano separate', () => {
 		assert.equal(identityOf(null), null);
 		assert.equal(identityOf({}), null);

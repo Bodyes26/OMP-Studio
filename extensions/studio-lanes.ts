@@ -41,6 +41,7 @@ interface ZodBuilder {
 	number(): ZodType;
 	boolean(): ZodType;
 	enum(values: readonly string[]): ZodType;
+	array(item: ZodType): ZodType;
 }
 
 interface ToolContext {
@@ -159,9 +160,34 @@ export async function callBridge(
 	signal: AbortSignal | undefined,
 	fetchImpl: typeof fetch = fetch
 ): Promise<ToolResult> {
+	return postBridge(env, `/v1/corsie/${verbo}`, `corsia_${verbo}`, { verbo }, body, signal, fetchImpl);
+}
+
+export type MacchinaVerbo = "elenco" | "esegui" | "stato" | "risultato" | "annulla";
+
+/** Verbi di «Esegui su macchina» (R-MI-36), gestiti da Rust nel bridge. */
+export async function callMachines(
+	env: CorsieEnvironment,
+	verbo: MacchinaVerbo,
+	body: Record<string, unknown>,
+	signal: AbortSignal | undefined,
+	fetchImpl: typeof fetch = fetch
+): Promise<ToolResult> {
+	return postBridge(env, `/v1/macchine/${verbo}`, `macchina_${verbo}`, { verbo }, body, signal, fetchImpl);
+}
+
+async function postBridge(
+	env: CorsieEnvironment,
+	path: string,
+	tool: string,
+	extra: Record<string, unknown>,
+	body: Record<string, unknown>,
+	signal: AbortSignal | undefined,
+	fetchImpl: typeof fetch
+): Promise<ToolResult> {
 	const base = (env.bridgeUrl ?? "").replace(/\/+$/, "");
 	try {
-		const response = await fetchImpl(`${base}/v1/corsie/${verbo}`, {
+		const response = await fetchImpl(`${base}${path}`, {
 			method: "POST",
 			headers: {
 				Authorization: `Bearer ${env.bridgeToken ?? ""}`,
@@ -181,16 +207,25 @@ export async function callBridge(
 				)
 			);
 		}
-		const details = { ...(data?.details ?? {}), verbo };
+		const details = { ...(data?.details ?? {}), ...extra };
 		const text =
 			data?.text ||
-			(data?.ok ? tr("Fatto.", "Done.") : tr(`Studio ha rifiutato corsia_${verbo}.`, `Studio refused corsia_${verbo}.`));
+			(data?.ok ? tr("Fatto.", "Done.") : tr(`Studio ha rifiutato ${tool}.`, `Studio refused ${tool}.`));
 		return data?.ok ? textResult(text, details) : errorResult(text, details);
 	} catch (err: unknown) {
-		if (signal?.aborted) return errorResult(tr(`corsia_${verbo} annullato.`, `corsia_${verbo} cancelled.`));
+		if (signal?.aborted) return errorResult(tr(`${tool} annullato.`, `${tool} cancelled.`));
 		const msg = err instanceof Error ? err.message : String(err);
 		return errorResult(tr(`Errore di rete verso il bridge di Studio: ${msg}`, `Network error towards the Studio bridge: ${msg}`));
 	}
+}
+
+/**
+ * Tool di «Esegui su macchina»: in ogni sessione di Studio col bridge, corsie
+ * comprese (i test sull'altra macchina servono anche li'), non nel Laboratorio.
+ */
+export function macchinaToolsFor(env: CorsieEnvironment): string[] {
+	if (!env.bridgeUrl || !env.bridgeToken || env.labSession) return [];
+	return ["macchina_esegui", "macchina_stato", "macchina_risultato", "macchina_annulla"];
 }
 
 const NO_GIT =
@@ -201,7 +236,7 @@ const NO_GIT =
  */
 export default function studioLanesExtension(pi: StudioLanesApi, envOverride?: CorsieEnvironment): void {
 	const env = envOverride ?? readEnvironment();
-	const enabled = new Set<string>(corsiaToolsFor(env));
+	const enabled = new Set<string>([...corsiaToolsFor(env), ...macchinaToolsFor(env)]);
 	if (enabled.size === 0) return;
 
 	const z = pi.zod;
@@ -209,7 +244,7 @@ export default function studioLanesExtension(pi: StudioLanesApi, envOverride?: C
 		if (enabled.has(definition.name)) pi.registerTool(definition);
 	};
 
-	register<{ obiettivo?: string; tipo?: string; profilo?: string }>({
+	register<{ obiettivo?: string; tipo?: string; profilo?: string; macchina?: string }>({
 		name: "corsia_avvia",
 		label: tr("Avvia corsia", "Start lane"),
 		description:
@@ -229,14 +264,16 @@ export default function studioLanesExtension(pi: StudioLanesApi, envOverride?: C
 			profilo: z
 				.string()
 				.optional()
-				.describe("Ruolo modello dell'agente della corsia (es. 'default', 'plan', 'smol', 'slow'). Ometti per il predefinito del progetto.")
+				.describe("Ruolo modello dell'agente della corsia (es. 'default', 'plan', 'smol', 'slow'). Ometti per il predefinito del progetto."),
+			macchina: z.string().optional().describe("Nome o ID della macchina con una copia del progetto. Se omessa, usa la macchina della sessione.")
 		}),
 		approval: "write",
 		async execute(_id, params, signal) {
 			const obiettivo = cleanText(params?.obiettivo);
 			if (!obiettivo) return errorResult(tr("Il parametro 'obiettivo' e' obbligatorio.", "The 'obiettivo' parameter is required."));
 			const tipo = params?.tipo === "lab" ? "lab" : "worktree";
-			return callBridge(env, "avvia", { obiettivo, tipo, profilo: cleanText(params?.profilo) }, signal);
+			const macchina = cleanText(params?.macchina);
+			return callBridge(env, "avvia", { obiettivo, tipo, profilo: cleanText(params?.profilo), ...(macchina ? { macchina } : {}) }, signal);
 		}
 	});
 
@@ -391,6 +428,88 @@ export default function studioLanesExtension(pi: StudioLanesApi, envOverride?: C
 				{ motivo, obiettivo: cleanText(params?.obiettivo), toolCallId },
 				signal
 			);
+		}
+	});
+
+	register<{ comando?: string; macchina?: string; artefatti?: string[] }>({
+		name: "macchina_esegui",
+		label: tr("Esegui su macchina", "Run on machine"),
+		description:
+			"Lancia un comando di shell su un'altra macchina abbinata a Studio (es. `npm test` o `cargo test` sul PC Windows dal Mac), " +
+			"nella copia dello stesso progetto, in una cartella di lavoro dedicata spostata all'ultimo commit di qui: " +
+			"le modifiche non committate NON viaggiano, committale prima se servono. La copia dove lavora l'utente sull'altra macchina non viene toccata. " +
+			"Restituisce l'id del job da usare con macchina_stato, macchina_risultato e macchina_annulla. " +
+			"Uno alla volta per progetto su quella macchina: gli altri attendono in fila. Usalo per provare il codice su un altro sistema operativo, " +
+			"non per lavori che puoi fare qui.",
+		parameters: z.object({
+			comando: z.string().describe("Comando di shell da eseguire nella radice del progetto (cmd.exe su Windows, shell di login su macOS/Linux)."),
+			macchina: z
+				.string()
+				.optional()
+				.describe("Nome della macchina come in Studio. Ometti se ce n'e' una sola in linea; macchina_stato senza job le elenca."),
+			artefatti: z
+				.array(z.string())
+				.optional()
+				.describe("Glob relativi alla radice del progetto dei file da riportare qui a fine job (es. 'test-results/*.xml').")
+		}),
+		approval: "exec",
+		async execute(_id, params, signal) {
+			const comando = cleanText(params?.comando);
+			if (!comando) return errorResult(tr("Il parametro 'comando' e' obbligatorio.", "The 'comando' parameter is required."));
+			const artefatti = Array.isArray(params?.artefatti) ? params.artefatti.filter((value) => typeof value === "string") : [];
+			return callMachines(env, "esegui", { comando, macchina: cleanText(params?.macchina), artefatti }, signal);
+		}
+	});
+
+	register<{ job?: string }>({
+		name: "macchina_stato",
+		label: tr("Stato job remoto", "Remote job status"),
+		description:
+			"Con un job: stato (in fila, in preparazione, in esecuzione, finito con codice d'uscita) e coda del log. " +
+			"Senza job: elenca le macchine abbinate e se sono in linea.",
+		parameters: z.object({
+			job: z.string().optional().describe("Id del job restituito da macchina_esegui.")
+		}),
+		approval: "read",
+		async execute(_id, params, signal) {
+			const job = cleanText(params?.job);
+			return job ? callMachines(env, "stato", { job }, signal) : callMachines(env, "elenco", {}, signal);
+		}
+	});
+
+	register<{ job?: string; attesaSecondi?: number }>({
+		name: "macchina_risultato",
+		label: tr("Risultato job remoto", "Remote job result"),
+		description:
+			"Aspetta la fine del job (di base fino a 30 minuti) e restituisce codice d'uscita, coda del log e i percorsi locali degli artefatti " +
+			"scaricati e verificati. Se l'attesa scade il job continua: richiamalo. Se fermi questo tool il job remoto viene annullato.",
+		parameters: z.object({
+			job: z.string().describe("Id del job restituito da macchina_esegui."),
+			attesaSecondi: z.number().optional().describe("Attesa massima in secondi (fino a 14400).")
+		}),
+		approval: "read",
+		async execute(_id, params, signal) {
+			const job = cleanText(params?.job);
+			if (!job) return errorResult(tr("Il parametro 'job' e' obbligatorio.", "The 'job' parameter is required."));
+			const result = await callMachines(env, "risultato", { job, attesaSecondi: params?.attesaSecondi }, signal);
+			// Stop dell'agente durante l'attesa: il job remoto si ferma con lui (R-MI-36).
+			if (signal?.aborted) await callMachines(env, "annulla", { job }, undefined);
+			return result;
+		}
+	});
+
+	register<{ job?: string }>({
+		name: "macchina_annulla",
+		label: tr("Annulla job remoto", "Cancel remote job"),
+		description: "Ferma un job lanciato con macchina_esegui, con tutti i suoi processi sull'altra macchina.",
+		parameters: z.object({
+			job: z.string().describe("Id del job restituito da macchina_esegui.")
+		}),
+		approval: "write",
+		async execute(_id, params, signal) {
+			const job = cleanText(params?.job);
+			if (!job) return errorResult(tr("Il parametro 'job' e' obbligatorio.", "The 'job' parameter is required."));
+			return callMachines(env, "annulla", { job }, signal);
 		}
 	});
 }

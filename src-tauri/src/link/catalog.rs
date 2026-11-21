@@ -19,6 +19,13 @@ impl Default for Permissions {
     fn default() -> Self { Self { agents: true, files: true, terminal: true } }
 }
 
+/// Ambito di permesso di un comando del catalogo (`read`, `agents`, `files`,
+/// `terminal`, `local`); serve al registro delle azioni remote (R-MI-39),
+/// che registra tutto cio' che non e' Lettura.
+pub(crate) fn permission(command: &str) -> Option<&'static str> {
+    COMMANDS.get(command).map(|(_, permission)| permission.as_str())
+}
+
 impl Permissions {
     pub(crate) fn authorize(&self, command: &str) -> Result<&'static str, String> {
         let (scope, permission) = COMMANDS.get(command)
@@ -35,6 +42,18 @@ impl Permissions {
         };
         if !allowed { return Err(format!("Permission denied: {permission}")); }
         Ok(scope.as_str())
+    }
+
+    /// I percorsi dei comandi vanno tenuti nelle radici dichiarate dell'host
+    /// (A5)? Agenti e Terminale equivalgono a una shell sulla macchina
+    /// (R-MI-09: gli ambiti non sono una sandbox): con uno dei due il
+    /// confinamento non protegge nulla e romperebbe letture legittime fuori
+    /// dalle radici (Laboratorio, progetti chiusi). Senza nessuno dei due
+    /// ogni percorso resta nelle radici, File e Git compresi: prima il
+    /// confinamento scattava solo con tutti gli ambiti spenti, e un peer con il
+    /// solo File e Git poteva scrivere ovunque sul disco.
+    pub(crate) fn confines_paths(&self) -> bool {
+        !self.agents && !self.terminal
     }
 }
 
@@ -57,5 +76,15 @@ mod tests {
         assert!(permissions.authorize("rpc_open").is_ok());
         assert!(permissions.authorize("pty_open").is_ok());
         assert!(permissions.authorize("file_read").is_ok());
+    }
+
+    #[test]
+    fn only_shell_equivalent_grants_lift_the_path_confinement() {
+        let none = Permissions { agents: false, files: false, terminal: false };
+        let files_only = Permissions { agents: false, files: true, terminal: false };
+        assert!(none.confines_paths());
+        assert!(files_only.confines_paths(), "File e Git da solo non deve scrivere fuori dai progetti");
+        assert!(!Permissions { agents: true, ..files_only }.confines_paths());
+        assert!(!Permissions { terminal: true, ..files_only }.confines_paths());
     }
 }

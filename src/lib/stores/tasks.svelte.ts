@@ -1,4 +1,4 @@
-import { emit, invoke, listen } from '#lib/backend/ipc.ts';
+import { emit, invoke, listen, LOCAL_MACHINE } from '#lib/backend/ipc.ts';
 import { load, type Store } from '@tauri-apps/plugin-store';
 import { debounce } from 'lodash-es';
 import { normalizeProjectPath, projectStore } from './projects.svelte';
@@ -30,8 +30,16 @@ import { resolveDroppedTask, type InFlightTask } from './taskRecovery';
 import { windowLabel } from './windowBridge';
 import { m as msg } from '#lib/paraglide/messages.js';
 import { taskLabel, promptHash } from './taskTitle';
-import type { QueueReplicationBridge } from './queueReplicationBridge.ts';
-import { mergeQueues, resequence } from './queueReplication.ts';
+import type { QueueReplicationBridge, RemoteQueueBridge } from './queueReplicationBridge.ts';
+import { holdOverdueSchedules, mergeHostQueue } from './remoteQueue.ts';
+import {
+	mergeQueues,
+	mergeRemoved,
+	pruneRemoved,
+	resequence,
+	type RemovedTasks
+} from './queueReplication.ts';
+import { logicalClock } from './logicalClock.ts';
 
 export type {
 	AgentView,
@@ -99,6 +107,32 @@ class TaskStore {
 	 */
 	private replication: QueueReplicationBridge | null = null;
 	private pendingProjectSaves = new Map<string, ReturnType<typeof setTimeout>>();
+	/**
+	 * Task tolti dalla coda per progetto (cancellati o avviati), con l'istante
+	 * della rimozione: viaggiano con la coda replicata, altrimenti la copia di
+	 * un'altra macchina li rimetteva in coda (C1). Vivono nello store globale
+	 * e non in `.omp/tasks.json`, che anche il tool di omp riscrive per intero.
+	 */
+	private removed: Record<string, RemovedTasks> = {};
+	/**
+	 * Code dei progetti che vivono su un'altra macchina, per chiave del
+	 * progetto (vedi `remoteQueue.ts`). Non hanno un file qui: lo specchio
+	 * arriva dal riepilogo dell'host e le modifiche ripartono con `write_queue`.
+	 * `known` è l'ultima versione confermata dall'host di ogni task, `edits` i
+	 * task cambiati qui e non ancora confermati, `dirty` una modifica (anche una
+	 * cancellazione) non ancora consegnata.
+	 */
+	private remoteQueues = new Map<string, {
+		machine: string;
+		hostPath: string;
+		edits: Set<string>;
+		known: Map<string, string>;
+		dirty: boolean;
+		sending: Promise<void> | null;
+	}>();
+	private remoteBridge: RemoteQueueBridge | null = null;
+	/** Task modificati qui e non ancora confermati dalla loro macchina: id → macchina. */
+	awaitingDelivery = $state<Record<string, string>>({});
 
 	constructor() {
 		void this.init();
@@ -107,6 +141,11 @@ class TaskStore {
 	/** Registra il ponte di replica; `null` lo spegne (progetto non condiviso). */
 	setReplication(bridge: QueueReplicationBridge | null): void {
 		this.replication = bridge;
+	}
+
+	/** Registra il ponte verso le macchine che possiedono i progetti remoti. */
+	setRemoteQueueBridge(bridge: RemoteQueueBridge | null): void {
+		this.remoteBridge = bridge;
 	}
 
 	private get isTauri(): boolean {
@@ -132,6 +171,27 @@ class TaskStore {
 			this.tasks = mergeHydratedTasks(this.tasks, legacy);
 			this.origins = persisted.origins ?? [];
 			this.views = persisted.views ?? {};
+			this.removed = persisted.removed ?? {};
+			for (const ids of Object.values(this.removed)) {
+				for (const at of Object.values(ids)) logicalClock.observe(at);
+			}
+			// Code dei progetti remoti con le modifiche non ancora consegnate:
+			// restano dopo un riavvio anche se l'altra macchina è spenta (R-MI-15).
+			for (const [key, saved] of Object.entries(persisted.remoteQueues ?? {})) {
+				const restored = sanitizeLoadedTasks(saved.tasks, key);
+				const edits = new Set(saved.edits);
+				this.remoteQueues.set(key, {
+					machine: saved.machine,
+					hostPath: saved.hostPath,
+					edits,
+					known: new Map(restored.filter((task) => !edits.has(task.id)).map((task) => [task.id, JSON.stringify(task)])),
+					dirty: edits.size > 0 || saved.dirty === true,
+					sending: null
+				});
+				for (const task of restored) logicalClock.observe(task.updatedAt);
+				this.tasks = [...this.tasks.filter((task) => task.projectPath !== key), ...restored];
+			}
+			this.refreshAwaitingDelivery();
 		}
 		this.initialized = true;
 
@@ -209,13 +269,144 @@ class TaskStore {
 	async loadProject(projectPath: string): Promise<boolean> {
 		if (!projectPath || !projectPath.trim() || !this.isTauri) return false;
 		const key = projectKey(projectPath);
+		// La coda di un progetto remoto non ha un file qui: leggere il percorso
+		// dell'altra macchina sul disco di questa la trovava vuota, e scriverlo
+		// creava cartelle estranee.
+		if (this.isRemoteKey(key)) return this.remoteQueues.has(key);
 		return this.hydration.ensure(key, () => this.readProject(projectPath, key));
+	}
+
+	/** La chiave è di un progetto che vive su un'altra macchina. */
+	private isRemoteKey(key: string): boolean {
+		if (this.remoteQueues.has(key)) return true;
+		return projectStore.projects.some((project) =>
+			Boolean(project.machineId && project.machineId !== LOCAL_MACHINE &&
+				project.canonicalProjectPath && projectKey(project.canonicalProjectPath) === key)
+		);
+	}
+
+	/** Task dei progetti di questa macchina, senza gli specchi delle altre (per il riepilogo dell'host). */
+	get ownTasks(): StudioTask[] {
+		return this.remoteQueues.size === 0
+			? this.tasks
+			: this.tasks.filter((task) => !this.remoteQueues.has(task.projectPath));
+	}
+
+	/**
+	 * Riepilogo di un host: aggiorna lo specchio delle code dei suoi progetti
+	 * (R-MI-15). `entries` dà, per ogni progetto remoto mostrato qui, la chiave
+	 * locale, il percorso sull'host e i task che l'host pubblica. Le modifiche
+	 * fatte qui e non ancora consegnate ripartono appena l'host risponde.
+	 */
+	applyHostQueues(machine: string, entries: readonly { key: string; hostPath: string; tasks: readonly StudioTask[] }[]): void {
+		let tasks = this.tasks;
+		let changed = false;
+		for (const entry of entries) {
+			let queue = this.remoteQueues.get(entry.key);
+			if (!queue) {
+				queue = { machine, hostPath: entry.hostPath, edits: new Set(), known: new Map(), dirty: false, sending: null };
+				this.remoteQueues.set(entry.key, queue);
+			}
+			queue.machine = machine;
+			queue.hostPath = entry.hostPath;
+			const host = entry.tasks.map((task) => ({ ...task, projectPath: entry.key }));
+			for (const task of host) logicalClock.observe(task.updatedAt);
+			const local = tasks.filter((task) => task.projectPath === entry.key);
+			const outcome = mergeHostQueue(local, host, queue.edits, this.removed[entry.key] ?? {});
+			const edits = outcome.edits;
+			queue.edits = edits;
+			queue.known = new Map(outcome.tasks
+				.filter((task) => !edits.has(task.id))
+				.map((task) => [task.id, JSON.stringify(task)]));
+			const same = outcome.tasks.length === local.length &&
+				outcome.tasks.every((task, index) => JSON.stringify(task) === JSON.stringify(local[index]));
+			if (!same) {
+				tasks = [...tasks.filter((task) => task.projectPath !== entry.key), ...outcome.tasks];
+				changed = true;
+			}
+			if (queue.dirty || edits.size > 0) void this.deliverRemoteQueue(entry.key);
+		}
+		if (changed) this.tasks = tasks;
+		this.refreshAwaitingDelivery();
+	}
+
+	/**
+	 * Tessera di un progetto remoto ricostruita senza il riepilogo dell'host
+	 * (macchina spenta al riavvio): la coda deve esistere per accogliere i task
+	 * scritti qui, ma senza fondere nulla, perché non si sa cosa abbia l'host.
+	 */
+	registerRemoteQueue(key: string, machine: string, hostPath: string): void {
+		if (this.remoteQueues.has(key)) return;
+		this.remoteQueues.set(key, { machine, hostPath, edits: new Set(), known: new Map(), dirty: false, sending: null });
+	}
+
+	/** Registra le modifiche fatte qui alla coda di un progetto remoto e prova a consegnarle. */
+	private async flushRemoteQueue(key: string): Promise<void> {
+		const queue = this.remoteQueues.get(key);
+		if (!queue) return;
+		for (const task of this.tasks) {
+			if (task.projectPath !== key) continue;
+			if (queue.known.get(task.id) !== JSON.stringify(task)) queue.edits.add(task.id);
+		}
+		queue.dirty = true;
+		this.refreshAwaitingDelivery();
+		this.saveGlobal();
+		await this.deliverRemoteQueue(key);
+	}
+
+	/**
+	 * Manda la coda all'host se è in linea. Una consegna alla volta per
+	 * progetto: una modifica arrivata durante l'invio ne chiede un'altra.
+	 * Le modifiche restano «in attesa» finché il riepilogo dell'host non le
+	 * mostra: l'invio riuscito non basta a dire che sono arrivate.
+	 */
+	private async deliverRemoteQueue(key: string): Promise<void> {
+		const queue = this.remoteQueues.get(key);
+		const bridge = this.remoteBridge;
+		if (!queue || !bridge?.online(queue.machine)) return;
+		if (queue.sending) {
+			await queue.sending;
+			if (!queue.dirty) return;
+		}
+		queue.dirty = false;
+		const run = (async () => {
+			const current = this.tasks.filter((task) => task.projectPath === key);
+			// Consegna in ritardo (F12): un orario già passato non parte da solo.
+			const held = holdOverdueSchedules(current, queue.edits, Date.now());
+			if (held.some((task, index) => task !== current[index])) {
+				const byId = new Map(held.map((task) => [task.id, task]));
+				this.tasks = this.tasks.map((task) => task.projectPath === key ? byId.get(task.id) ?? task : task);
+			}
+			const payload = JSON.stringify({ tasks: $state.snapshot(held), removed: this.removedFor(key) });
+			try {
+				await bridge.send(queue.machine, queue.hostPath, payload);
+			} catch (error) {
+				queue.dirty = true;
+				console.warn(`Coda non consegnata a ${queue.machine}:`, error);
+			}
+		})();
+		queue.sending = run;
+		await run;
+		queue.sending = null;
+		this.saveGlobal();
+	}
+
+	private refreshAwaitingDelivery(): void {
+		const next: Record<string, string> = {};
+		for (const queue of this.remoteQueues.values()) {
+			for (const id of queue.edits) next[id] = queue.machine;
+		}
+		const current = this.awaitingDelivery;
+		const same = Object.keys(next).length === Object.keys(current).length &&
+			Object.entries(next).every(([id, machine]) => current[id] === machine);
+		if (!same) this.awaitingDelivery = next;
 	}
 
 	private async readProject(projectPath: string, key: string): Promise<void> {
 		const content = await invoke<string>('project_tasks_read', { projectPath });
 		if (content && content.trim()) {
 			const fromDisk = parseProjectTasksFile(content, key);
+			for (const task of fromDisk) logicalClock.observe(task.updatedAt);
 			this.lastWritten.set(key, serializeProjectTasksFile(fromDisk));
 			this.tasks = this.mergeProjectTasks(key, fromDisk);
 		} else {
@@ -250,16 +441,63 @@ class TaskStore {
 	 * Non riscrive se nulla è cambiato: l'eco fra due istanze ferme
 	 * rimbalzerebbe all'infinito.
 	 */
-	async adoptRemoteQueue(projectPath: string, remote: readonly StudioTask[]): Promise<void> {
-		if (!projectPath || remote.length === 0) return;
+	async adoptRemoteQueue(
+		projectPath: string,
+		remote: readonly StudioTask[],
+		remoteRemoved: RemovedTasks = {}
+	): Promise<void> {
+		if (!projectPath) return;
+		if (remote.length === 0 && Object.keys(remoteRemoved).length === 0) return;
 		await this.loadProject(projectPath);
+		const key = projectKey(projectPath);
+		for (const task of remote) logicalClock.observe(task.updatedAt);
+		for (const at of Object.values(remoteRemoved)) logicalClock.observe(at);
+		const knownRemoved = this.removed[key] ?? {};
+		const removed = mergeRemoved(knownRemoved, remoteRemoved);
+		if (Object.keys(removed).length !== Object.keys(knownRemoved).length ||
+			Object.entries(removed).some(([id, at]) => knownRemoved[id] !== at)) {
+			this.removed[key] = removed;
+			this.saveGlobal();
+		}
 		const local = this.tasksFor(projectPath);
-		const outcome = mergeQueues(local, remote.map((task) => ({ ...task, projectPath })));
+		const outcome = mergeQueues(local, remote.map((task) => ({ ...task, projectPath: key })), removed);
 		if (!outcome.changed) return;
 		const resequenced = resequence(outcome.tasks) as StudioTask[];
-		const others = this.tasks.filter((task) => task.projectPath !== projectPath);
+		const others = this.tasks.filter((task) => task.projectPath !== key);
 		this.tasks = [...others, ...resequenced];
 		this.saveProject(projectPath);
+	}
+
+	/** Rimozioni note per la coda di un progetto, da mandare con la coda. */
+	removedFor(projectPath: string): RemovedTasks {
+		return { ...(this.removed[projectKey(projectPath)] ?? {}) };
+	}
+
+	/**
+	 * Rimanda la coda alle altre copie anche senza modifiche locali: dopo una
+	 * lettura dall'altra macchina, i task e le rimozioni che lei non conosce
+	 * altrimenti non le arriverebbero finche' qui non si scrive di nuovo.
+	 */
+	republish(projectPath: string): void {
+		if (!projectPath || !this.hydration.isHydrated(projectKey(projectPath))) return;
+		this.replication?.publish(projectPath, this.tasksFor(projectPath), this.removedFor(projectPath));
+	}
+
+	/** Registra la rimozione di task dalla coda: vedi `removed`. */
+	private noteRemoved(projectPath: string, ids: readonly string[]): void {
+		if (ids.length === 0) return;
+		const key = projectKey(projectPath);
+		const at = logicalClock.now();
+		const next = pruneRemoved({ ...(this.removed[key] ?? {}) }, at);
+		for (const id of ids) next[id] = at;
+		this.removed[key] = next;
+		this.saveGlobal();
+	}
+
+	/** Una modifica dell'utente da replicare: vince sulle versioni gia' viste. */
+	private touch(tasks: readonly StudioTask[]): void {
+		const at = logicalClock.now();
+		for (const task of tasks) task.updatedAt = at;
 	}
 
 	/** Rilettura forzata: il file e' cambiato da fuori (TUI, tool, altro omp). */
@@ -267,12 +505,24 @@ class TaskStore {
 		if (!projectPath || !this.isTauri) return;
 		const key = projectKey(projectPath);
 		this.hydration.forget(key);
+		let gone: string[] = [];
 		await this.hydration.ensure(key, async () => {
 			const content = await invoke<string>('project_tasks_read', { projectPath });
 			const fromDisk = parseProjectTasksFile(content ?? '', key);
+			for (const task of fromDisk) logicalClock.observe(task.updatedAt);
+			// Un task tolto dal file da fuori (tool di omp, TUI, Companion) e'
+			// una rimozione come le altre: senza il segno le altre copie lo
+			// rimetterebbero in coda. Conta solo cio' che era sul disco: un task
+			// in memoria non ancora scritto non e' stato cancellato da nessuno.
+			const previous = this.lastWritten.get(key);
+			const wasOnDisk = previous ? parseProjectTasksFile(previous, key).map((task) => task.id) : [];
+			const onDisk = new Set(fromDisk.map((task) => task.id));
+			gone = wasOnDisk.filter((id) => !onDisk.has(id));
 			this.lastWritten.set(key, serializeProjectTasksFile(fromDisk));
 			this.tasks = mergeReloadedTasks(this.tasks, key, fromDisk);
+			if (gone.length > 0) this.noteRemoved(projectPath, gone);
 		});
+		if (gone.length > 0) this.republish(projectPath);
 	}
 
 	private saveGlobal = debounce(async () => {
@@ -280,7 +530,15 @@ class TaskStore {
 		const state: PersistedTaskState = {
 			tasks: [], // I task di progetto risiedono in .omp/tasks.json
 			origins: $state.snapshot(this.origins),
-			views: $state.snapshot(this.views)
+			views: $state.snapshot(this.views),
+			removed: this.removed,
+			remoteQueues: Object.fromEntries([...this.remoteQueues].map(([key, queue]) => [key, {
+				machine: queue.machine,
+				hostPath: queue.hostPath,
+				tasks: $state.snapshot(this.tasks.filter((task) => task.projectPath === key)),
+				edits: [...queue.edits],
+				dirty: queue.dirty
+			}]))
 		};
 		await this.store.set('taskState', state);
 		await this.store.save();
@@ -293,6 +551,12 @@ class TaskStore {
 		if (pending) {
 			clearTimeout(pending);
 			this.pendingProjectSaves.delete(key);
+		}
+		// Coda di un progetto di un'altra macchina: niente file qui, le
+		// modifiche vanno all'host (o aspettano che torni, R-MI-15).
+		if (this.isRemoteKey(key)) {
+			await this.flushRemoteQueue(key);
+			return;
 		}
 		if (!this.isTauri) return;
 		// Mai scrivere una coda che non e' stata letta: si sovrascriverebbe il
@@ -313,7 +577,7 @@ class TaskStore {
 			await emit('project-tasks-changed', { projectPath, source: windowLabel });
 			// Replica (F19): la coda appena scritta è la verità di questa
 			// macchina; le altre la ricevono e la fondono per task.
-			void this.replication?.publish(projectPath, this.tasksFor(projectPath));
+			void this.replication?.publish(projectPath, this.tasksFor(projectPath), this.removedFor(projectPath));
 		} catch (err) {
 			console.error(msg.ui_ts_tasks_errore_salvataggio_immediato_task_per_value1_8f04({ value1: projectPath }), err);
 		}
@@ -334,7 +598,7 @@ class TaskStore {
 
 	createTask(projectPath: string): StudioTask {
 		const key = projectKey(projectPath);
-		const now = Date.now();
+		const now = logicalClock.now();
 		// I default del progetto sovrascrivono quelli globali, non li sostituiscono:
 		// un progetto puo' scegliere solo il ruolo e lasciare il resto ai default.
 		const project = projectStore.projects.find(
@@ -451,7 +715,7 @@ class TaskStore {
 		if (options !== undefined) {
 			task.options = options;
 		}
-		task.updatedAt = Date.now();
+		task.updatedAt = logicalClock.now();
 		this.saveProject(task.projectPath);
 	}
 	updatePrompt(id: string, prompt: string) {
@@ -480,6 +744,7 @@ class TaskStore {
 		if (!task) return;
 		if (schedule) task.schedule = { ...schedule };
 		else delete task.schedule;
+		this.touch([task]);
 		this.saveProject(task.projectPath);
 	}
 
@@ -506,6 +771,7 @@ class TaskStore {
 			const task = this.taskById(id);
 			if (!task?.schedule) continue;
 			delete task.schedule;
+			this.touch([task]);
 			paths.add(task.projectPath);
 		}
 		for (const path of paths) this.saveProject(path);
@@ -530,10 +796,11 @@ class TaskStore {
 		if (existing) {
 			existing.schedule = { ...schedule };
 			existing.resume = { ...resume };
+			this.touch([existing]);
 			this.saveProject(existing.projectPath);
 			return existing;
 		}
-		const now = Date.now();
+		const now = logicalClock.now();
 		const prompt = '/retry';
 		const task: StudioTask = {
 			id: crypto.randomUUID(),
@@ -563,6 +830,7 @@ class TaskStore {
 		if (!task) return;
 		const path = task.projectPath;
 		this.tasks = this.tasks.filter((candidate) => candidate.id !== id);
+		this.noteRemoved(path, [id]);
 		this.reindex(path);
 		this.saveProject(path);
 	}
@@ -581,6 +849,7 @@ class TaskStore {
 			console.error(`Coda non letta da disco: svuotamento annullato per ${projectPath}`);
 			return;
 		}
+		this.noteRemoved(projectPath, this.tasks.filter((task) => task.projectPath === key).map((task) => task.id));
 		this.tasks = this.tasks.filter((task) => task.projectPath !== key);
 		await this.saveProjectImmediate(projectPath);
 	}
@@ -597,6 +866,7 @@ class TaskStore {
 		const [moved] = ordered.splice(from, 1);
 		ordered.splice(to, 0, moved);
 		ordered.forEach((task, index) => task.position = index);
+		this.touch(ordered);
 		this.saveProject(source.projectPath);
 	}
 
@@ -620,6 +890,7 @@ class TaskStore {
 		const [moved] = ordered.splice(from, 1);
 		ordered.splice(clamped, 0, moved);
 		ordered.forEach((task, index) => (task.position = index));
+		this.touch(ordered);
 		this.saveProject(source.projectPath);
 	}
 
@@ -682,6 +953,9 @@ class TaskStore {
 		});
 		const path = task.projectPath;
 		this.tasks = this.tasks.filter((candidate) => candidate.id !== id);
+		// L'avvio toglie il task dalla coda: senza il segno la copia di
+		// un'altra macchina lo rimetteva «queued» e partiva una seconda volta.
+		this.noteRemoved(path, [id]);
 		this.reindex(path);
 		this.saveProject(path);
 		this.saveGlobal();
@@ -755,7 +1029,7 @@ class TaskStore {
 		for (const task of this.tasks) {
 			if (task.projectPath !== key || task.status !== 'dispatching') continue;
 			task.status = 'queued';
-			task.updatedAt = Date.now();
+			task.updatedAt = logicalClock.now();
 			this.rollbackSeq[task.id] = (this.rollbackSeq[task.id] ?? 0) + 1;
 		}
 		this.reindex(projectPath);
@@ -777,6 +1051,9 @@ class TaskStore {
 		const restored = resolveDroppedTask(this.inFlight.get(key), sessionId, queuedIds);
 		if (restored) {
 			this.inFlight.delete(key);
+			// L'avvio aveva segnato il task come rimosso: tornando in coda deve
+			// essere piu' recente del segno, o le altre copie lo toglierebbero.
+			restored.updatedAt = logicalClock.now();
 			this.tasks.unshift(restored);
 			this.rollbackSeq[restored.id] = (this.rollbackSeq[restored.id] ?? 0) + 1;
 		}
