@@ -1083,7 +1083,7 @@ fn test_connection_task_startup_outside_tokio_runtime() {
     // Il task e' partito: su un runner lento il tentativo verso la porta chiusa
     // puo' gia' essere fallito, e lo stato passa da Connecting a Waiting (attesa
     // prima del nuovo tentativo). Entrambi dicono che il task gira senza panico.
-    let connection = manager.ctx.status.lock().connection.clone();
+    let connection = manager.ctx.status.lock().connection;
     assert!(
         matches!(connection, RemoteConnection::Connecting | RemoteConnection::Waiting),
         "stato inatteso dopo l'avvio: {connection:?}"
