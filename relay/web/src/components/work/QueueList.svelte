@@ -1,11 +1,11 @@
 <!--
-  QueueList.svelte — Elenco dei lavori in coda nel progetto (Gate R48 / R-REM-11).
-  Disegna la sezione "Coda · N" nell'espansione del progetto: titolo, Prossimo,
-  ruolo, modello con ThinkingMeter, programmazione, conteggio direttive e immagini.
-  Al tocco apre il pannello Lavoro in coda via workSheet.openTask.
+  QueueList.svelte — Coda unica del progetto (R-REM-11, R-REM-19).
+  Ogni lavoro compare una volta sola, anche se ogni macchina ne pubblica una
+  copia (vince `updatedAt` più recente). Ogni riga mostra la macchina del
+  lavoro o «dove è acceso l'auto-avvio», e il pannello del lavoro la cambia.
 -->
 <script lang="ts">
-	import type { RemoteProject, Feature, RemoteTask } from '../../../../src/protocol.ts';
+	import type { RemoteTask } from '../../../../src/protocol.ts';
 	import { t } from '../../i18n.ts';
 	import { formatScheduleLabel } from '../../schedule.ts';
 	import { workSheet } from '../../work.svelte.ts';
@@ -14,21 +14,28 @@
 	import ThinkingMeter from '#lib/agent/components/ThinkingMeter.svelte';
 	import type { ThinkingLevel } from '#lib/agent/wire.ts';
 	import { listReorder } from '../../motion.ts';
+	import MachineGlyph from '../MachineGlyph.svelte';
+	import type { MachineOption, ProjectGroup, TaskEntry } from '../../multiMachine.ts';
+
 	let {
-		hostId,
-		project,
-		features = []
+		group,
+		tasks,
+		machines = []
 	}: {
-		hostId: string;
-		project: RemoteProject;
-		features?: Feature[];
+		group: ProjectGroup;
+		tasks: TaskEntry[];
+		machines?: MachineOption[];
 	} = $props();
 
-	const hasTaskOptions = $derived(features.includes('task_options'));
-	const canEdit = $derived(features.includes('task_edit'));
-	// Solo i lavori ancora in coda: quelli in avvio o gia' partiti escono dalla coda
-	// come in Studio e si seguono nella chat del loro ramo.
-	const tasks = $derived((project.tasks ?? []).filter((task: RemoteTask) => task.status === 'queued'));
+	function machineLabel(task: RemoteTask): string {
+		if (!task.machineId) return t('workMachineAutoDispatch');
+		return machines.find((machine) => machine.id === task.machineId)?.name ?? t('queueTaskMachineUnknown');
+	}
+
+	function machineOnline(task: RemoteTask): boolean {
+		if (!task.machineId) return group.reachable;
+		return machines.find((machine) => machine.id === task.machineId)?.online ?? false;
+	}
 
 	function parseModelSelector(selector?: string | null): { provider: string | null; modelName: string | null } {
 		if (!selector) return { provider: null, modelName: null };
@@ -49,7 +56,8 @@
 			{t('workQueueSection', { count: tasks.length })}
 		</p>
 		<div class="tasks-list" role="list" aria-label={t('workQueueSection', { count: tasks.length })}>
-			{#each tasks as task, i (task.id)}
+			{#each tasks as entry, i (entry.task.id)}
+				{@const task = entry.task}
 				{@const schedLabel = formatScheduleLabel(task.schedule)}
 				{@const modelInfo = parseModelSelector(task.modelSelector)}
 				{@const taskRole = task.role || 'default'}
@@ -58,9 +66,12 @@
 					class="task-row"
 					animate:listReorder
 					data-testid="task-{task.id}"
-					disabled={!canEdit}
 					onclick={() => {
-						void workSheet.openTask({ hostId, projectId: project.id, taskId: task.id });
+						void workSheet.openTask({
+							hostId: entry.copy.hostId,
+							projectId: entry.copy.project.id,
+							taskId: task.id
+						});
 					}}
 				>
 					<span class="task-info">
@@ -71,25 +82,33 @@
 								<span class="sep" aria-hidden="true">·</span>
 							{/if}
 
-							{#if hasTaskOptions}
-								<span
-									class="role-dot"
-									class:has-hue={ROLE_HUES[taskRole] !== undefined}
-									style={ROLE_HUES[taskRole] !== undefined ? `--role-h: ${ROLE_HUES[taskRole]}` : undefined}
-								></span>
-								<span class="font-mono">{taskRole}</span>
+							<span
+								class="machine-chip"
+								class:unreachable={!machineOnline(task)}
+								title={machineLabel(task)}
+							>
+								<MachineGlyph glyph={{ kind: machineOnline(task) ? 'remote' : 'offline' }} size={11} />
+								<span class="machine-name">{machineLabel(task)}</span>
+							</span>
+							<span class="sep" aria-hidden="true">·</span>
 
-								{#if modelInfo.modelName}
-									<span class="sep" aria-hidden="true">·</span>
-									{#if modelInfo.provider}
-										<ProviderLogo provider={modelInfo.provider} size={12} />
-									{/if}
-									<span class="model-name">{modelInfo.modelName}</span>
-								{/if}
+							<span
+								class="role-dot"
+								class:has-hue={ROLE_HUES[taskRole] !== undefined}
+								style={ROLE_HUES[taskRole] !== undefined ? `--role-h: ${ROLE_HUES[taskRole]}` : undefined}
+							></span>
+							<span class="font-mono">{taskRole}</span>
 
-								{#if task.thinkingLevel}
-									<ThinkingMeter level={task.thinkingLevel as ThinkingLevel} />
+							{#if modelInfo.modelName}
+								<span class="sep" aria-hidden="true">·</span>
+								{#if modelInfo.provider}
+									<ProviderLogo provider={modelInfo.provider} size={12} />
 								{/if}
+								<span class="model-name">{modelInfo.modelName}</span>
+							{/if}
+
+							{#if task.thinkingLevel}
+								<ThinkingMeter level={task.thinkingLevel as ThinkingLevel} />
 							{/if}
 
 							{#if schedLabel}
@@ -97,7 +116,7 @@
 								<span>{schedLabel}</span>
 							{/if}
 
-							{#if hasTaskOptions && task.directives && task.directives.length > 0}
+							{#if task.directives && task.directives.length > 0}
 								<span class="sep" aria-hidden="true">·</span>
 								<span>
 									{task.directives.length === 1
@@ -106,7 +125,7 @@
 								</span>
 							{/if}
 
-							{#if hasTaskOptions && task.imageCount && task.imageCount > 0}
+							{#if task.imageCount && task.imageCount > 0}
 								<span class="sep" aria-hidden="true">·</span>
 								<span>
 									{task.imageCount === 1
@@ -182,6 +201,7 @@
 	.t {
 		display: -webkit-box;
 		-webkit-line-clamp: 1;
+		line-clamp: 1;
 		-webkit-box-orient: vertical;
 		overflow: hidden;
 		font-weight: 560;
@@ -202,6 +222,26 @@
 	.next {
 		color: var(--accent, var(--brand-ink));
 		font-weight: 600;
+	}
+
+	.machine-chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
+		color: var(--ink-muted);
+		font-size: 12px;
+		font-weight: 500;
+	}
+
+	.machine-chip.unreachable {
+		color: var(--danger);
+	}
+
+	.machine-name {
+		max-width: 110px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.role-dot {

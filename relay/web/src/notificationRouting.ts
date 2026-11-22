@@ -1,10 +1,10 @@
 /**
- * Instradamento delle notifiche Web Push nella nuova navigazione (Gate R48,
- * R-REM-16): la notifica porta alla macchina interessata e, se riguarda un
- * progetto, apre la chat del ramo della richiesta (la Principale se non e' detto).
+ * Instradamento delle notifiche Web Push (R-REM-16, R-REM-17): la notifica
+ * porta alla copia esatta che ha generato la richiesta, per `hostId`, e apre
+ * la chat del suo ramo (la Principale se non e' detto). Senza selettore di
+ * macchina non c'e' niente da cambiare prima: la chat sa la sua macchina.
  */
 import { navigation } from './navigation.svelte.ts';
-import { machineSelection } from './machine.svelte.ts';
 
 export interface NotificationTarget {
 	hostId?: string;
@@ -15,7 +15,6 @@ export interface NotificationTarget {
 
 export function navigateToNotificationTarget(target: NotificationTarget): void {
 	if (!target.hostId) return;
-	machineSelection.select(target.hostId);
 	if (!target.projectId) return;
 	navigation.openChat({
 		hostId: target.hostId,

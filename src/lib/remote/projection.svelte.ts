@@ -10,7 +10,7 @@
 import { buildHostState } from './projection';
 import { remoteStore } from './remoteStore.svelte';
 import { remoteBridge } from './bridge';
-import { projectStore } from '#lib/stores/projects.svelte.ts';
+import { normalizeProjectPath, projectStore } from '#lib/stores/projects.svelte.ts';
 import { projectOrder } from '#lib/stores/projectOrder.svelte.ts';
 import { dispatchConfirmationsStore } from '#lib/lanes/dispatchConfirmations.svelte.ts';
 import { laneStore } from '#lib/stores/lanes.svelte.ts';
@@ -24,7 +24,9 @@ import { onThemeChange, getCurrentAnchors } from '#lib/theme.ts';
 import { settingsStore } from '#lib/stores/settings.svelte.ts';
 import { buildRemoteSessionSnapshot } from './completion.svelte';
 import { linkStore } from '#lib/backend/link.svelte.ts';
-import { projectLinks } from '#lib/stores/projectLinks.svelte.ts';
+import { githubStore } from '#lib/stores/github.svelte.ts';
+import { copyKeyOf, projectLinks } from '#lib/stores/projectLinks.svelte.ts';
+import { publishedProjectIdentity } from '#lib/stores/projectCopyIdentity.ts';
 import { invoke } from '#lib/backend/ipc.ts';
 import type { DesktopHostSnapshot } from '#lib/backend/host.ts';
 
@@ -82,14 +84,40 @@ export function startRemoteProjection(options: RemoteProjectionOptions = {}): ()
 				modelSettingsStore.draftConfig?.modelRoles ||
 				{};
 			const knownSelectors = modelSettingsStore.knownSelectors;
-			const hostState = buildHostState({
-				projects: projects.map((p) => ({
+			// Chiave di fusione delle copie (R-REM-17) e ultimo uso (R-REM-18): la
+			// stessa regola della barra, cosi' telefono e computer uniscono le
+			// stesse copie. Le decisioni «stesso progetto» valgono anche qui: una
+			// copia senza origin si fonde solo se l'utente l'ha confermata.
+			//
+			const projectInputs = projects.map((p) => {
+				const upstream = p.canonicalProjectPath
+					? githubStore.upstreamByPath[normalizeProjectPath(p.canonicalProjectPath).toLowerCase()]
+					: undefined;
+				const slug = upstream?.repoSlug ?? null;
+				const identityInput = {
+					canonicalProjectPath: p.canonicalProjectPath,
+					upstream,
+					canonicalSlug: slug ? projectLinks.canonicalSlug(slug) : null,
+					// Il nome attuale dello slug conta sempre sul canale, non solo
+					// con la multi-istanza accesa: le copie le confronta la PWA,
+					// che vede tutte le macchine abbinate al relay (R-REM-17).
+					multiMachine: true
+				};
+				return {
 					id: p.id,
 					name: p.name,
 					canonicalProjectPath: p.canonicalProjectPath,
 					hue: p.hue,
-					autoDispatch: p.autoDispatch
-				})),
+					autoDispatch: p.autoDispatch,
+					identity: publishedProjectIdentity({
+						...identityInput,
+						confirmedRoot: (root) => projectLinks.isConfirmed(root, copyKeyOf(p))
+					}),
+					lastUsedAt: p.lastOpened ?? null
+				};
+			});
+			const hostState = buildHostState({
+				projects: projectInputs,
 				activeProjectId: activeId,
 				lanes: lanes.map((l) => ({
 					projectId: l.projectId,
@@ -176,6 +204,9 @@ export function startRemoteProjection(options: RemoteProjectionOptions = {}): ()
 				quotaReports,
 				quotaFetchedAt,
 				theme,
+				// Con la multi-istanza spenta resta vuoto: la PWA non mostra il
+				// glifo della macchina e non attribuisce i lavori.
+				linkMachineId: linkStore.status.machineId || null,
 				rolesMap,
 				knownSelectors,
 				dispatchConfirmationsForProject: (pId) => dispatchConfirmationsStore.getConfirmationsForProject(pId)

@@ -1803,7 +1803,13 @@
 			buildResetSchedule: (t) => scheduleStore.buildReset(t, 'user'),
 			roleModels: () => (modelSettingsStore.config || modelSettingsStore.draftConfig)?.modelRoles ?? {},
 			knownSelectors: () => modelSettingsStore.knownSelectors,
-			scheduleTarget: (task) => scheduleStore.targetFor(task)
+			scheduleTarget: (task) => scheduleStore.targetFor(task),
+			// Il telefono sceglie una macchina fra quelle collegate (R-REM-19):
+			// l'id di questa e' quello del collegamento, i peer sono gia' noti.
+			machines: () => ({
+				selfId: linkStore.status.machineId || null,
+				peers: linkStore.status.peers
+			})
 		});
 		const remoteLaneConfig = createLaneConfigCommands({
 			// La macchina locale usa il catalogo completo delle Impostazioni; le altre la loro copia.

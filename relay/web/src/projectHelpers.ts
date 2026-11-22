@@ -1,16 +1,14 @@
 /**
- * Funzioni pure per lo stato, ordinamento e metadati dei progetti e delle corsie (Gate R48).
- * Rimpiazza fleet.ts e projectSort.ts implementando R-REM-01, R-REM-02, R-REM-03, R-REM-08.
+ * Funzioni pure per stato, ordinamento e metadati di progetti e corsie (Gate R48).
+ * Valgono per una singola copia; l'unione delle copie e' in `multiMachine.ts`
+ * (R-REM-02, R-REM-03, R-REM-08, R-REM-17).
  */
 
 import type {
 	RemoteProject,
 	RemoteLane,
-	RemoteQuota,
 	RemoteQuotaProvider,
-	RemoteQuotaWindow,
-	HostSummary,
-	HostState
+	RemoteQuotaWindow
 } from '../../src/protocol.ts';
 import { normalizeProviderId } from '#lib/components/models/providerLogos.ts';
 import { t } from './i18n.ts';
@@ -192,140 +190,4 @@ export function getProvidersInUse(projects: readonly RemoteProject[]): Set<strin
 		}
 	}
 	return set;
-}
-
-export interface ProviderToken {
-	providerId: string;
-	name: string;
-	pct: string;
-	tone: 'ok' | 'warning' | 'exhausted';
-}
-
-export interface ProjectMetaInfo {
-	status: ProjectStatus;
-	statusLabel: string;
-	contextText: string;
-	queuedCount: number;
-	providerTokens: ProviderToken[];
-}
-
-/**
- * Calcola i dati della riga meta del progetto (R-REM-02):
- * - stato e contesto sintetico
- * - «N in coda» quando presenti
- * - percentuali dei provider usati dai rami attivi
- */
-export function getProjectMeta(
-	project: RemoteProject,
-	quota: RemoteQuota | null
-): ProjectMetaInfo {
-	const status = getProjectStatus(project);
-	let contextText = '';
-
-	if (status === 'question') {
-		const qLane = project.lanes.find((l) => getLaneStatus(project, l) === 'question') ?? project.lanes[0];
-		const summary = qLane ? getLaneSummary(project, qLane) : '';
-		if (project.lanes.length > 1 && qLane) {
-			contextText = `${laneLabel(qLane)} · ${summary}`;
-		} else {
-			contextText = summary;
-		}
-	} else if (status === 'working') {
-		const workingLanes = project.lanes.filter((l) => getLaneStatus(project, l) === 'working');
-		if (workingLanes.length > 1) {
-			contextText = t('branchesWorking', { count: workingLanes.length });
-		} else if (workingLanes.length === 1) {
-			contextText = getLaneSummary(project, workingLanes[0]);
-		} else {
-			contextText = project.lanes[0] ? getLaneSummary(project, project.lanes[0]) : '';
-		}
-	} else {
-		contextText = project.lanes[0] ? getLaneSummary(project, project.lanes[0]) : '';
-	}
-
-	const queuedCount = queuedTaskCount(project);
-	const providerTokens: ProviderToken[] = [];
-
-	if (status !== 'idle' && quota?.providers) {
-		const working = getWorkingProviders(project);
-		for (const provId of working) {
-			const qp = quota.providers.find((p) => normalizeProviderId(p.provider) === provId);
-			if (qp) {
-				const worst = getWorstQuotaWindow(qp);
-				if (worst && worst.usedFraction != null) {
-					providerTokens.push({
-						providerId: provId,
-						name: providerDisplayName(qp.provider),
-						pct: `${Math.round(worst.usedFraction * 100)}%`,
-						tone: getQuotaLevel(worst.usedFraction, qp.status)
-					});
-				}
-			}
-		}
-	}
-
-	const statusLabel =
-		status === 'question'
-			? t('projectStatusQuestion')
-			: status === 'working'
-				? t('projectStatusWorking')
-				: t('projectStatusIdle');
-
-	return {
-		status,
-		statusLabel,
-		contextText,
-		queuedCount,
-		providerTokens
-	};
-}
-
-export type OpenTargetResult =
-	| { action: 'chat'; laneId: string }
-	| { action: 'expand' };
-
-/**
- * Decide l'azione al tocco di una riga progetto (R-REM-03):
- * 1. Con una sola richiesta si apre la chat del ramo interessato
- * 2. Con un solo ramo e coda vuota si apre la sua chat
- * 3. Altrimenti si espande il progetto
- */
-export function decideProjectOpenTarget(project: RemoteProject): OpenTargetResult {
-	const questionLanes = project.lanes.filter((l) => getLaneStatus(project, l) === 'question');
-	if (questionLanes.length === 1) {
-		return { action: 'chat', laneId: questionLanes[0].id };
-	}
-
-	const hasQueue = queuedTaskCount(project) > 0;
-	if (project.lanes.length === 1 && !hasQueue) {
-		return { action: 'chat', laneId: project.lanes[0].id };
-	}
-
-	return { action: 'expand' };
-}
-
-/**
- * Controlla se altre macchine connesse hanno richieste in attesa (R-REM-01).
- * Restituisce la prima macchina con richieste e il conteggio totale.
- */
-export function getOtherMachinePendingRequests(
-	currentHostId: string,
-	hosts: readonly HostSummary[],
-	hostStates: Record<string, { state: HostState }>
-): { hostId: string; name: string; count: number } | null {
-	for (const host of hosts) {
-		if (host.id === currentHostId || !host.online) continue;
-		const state = hostStates[host.id]?.state;
-		if (!state?.projects) continue;
-		let count = 0;
-		for (const p of state.projects) {
-			if (getProjectStatus(p) === 'question') {
-				count++;
-			}
-		}
-		if (count > 0) {
-			return { hostId: host.id, name: host.name, count };
-		}
-	}
-	return null;
 }

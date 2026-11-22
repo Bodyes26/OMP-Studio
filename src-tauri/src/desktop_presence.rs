@@ -563,6 +563,17 @@ pub fn on_run_event(app: &AppHandle, event: &RunEvent) -> bool {
             );
             true
         }
+        // Click sull'icona nel Dock (o riapertura da Finder/Launchpad) con Studio
+        // nascosto nella menu bar: senza questo il click non faceva nulla. Si guarda
+        // la finestra principale e non `has_visible_windows`, perche' la Companion
+        // visibile renderebbe il flag vero anche con la principale nascosta.
+        #[cfg(target_os = "macos")]
+        RunEvent::Reopen { .. } => {
+            if main_window_needs_restore(app) {
+                let _ = show_main_window(app);
+            }
+            true
+        }
         _ => false,
     }
 }
@@ -570,6 +581,15 @@ pub fn on_run_event(app: &AppHandle, event: &RunEvent) -> bool {
 // =========================================================================
 // Operazioni Finestra e Tray
 // =========================================================================
+
+/// Vero se la finestra principale e' nascosta nella menu bar o ridotta a icona:
+/// l'utente che riapre Studio dal Dock vuole rivederla.
+#[cfg(target_os = "macos")]
+fn main_window_needs_restore(app: &AppHandle) -> bool {
+    app.get_webview_window("main")
+        .map(|w| !w.is_visible().unwrap_or(true) || w.is_minimized().unwrap_or(false))
+        .unwrap_or(false)
+}
 
 pub fn show_main_window(app: &AppHandle) -> Result<(), String> {
     let window = app.get_webview_window("main").ok_or_else(|| {

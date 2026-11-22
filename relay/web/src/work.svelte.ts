@@ -32,9 +32,28 @@ import { findRole, splitSelector } from './work.ts';
 import { stageFileToHost } from './chat/remoteAttachments.svelte.ts';
 import { isImageFile, prepareImage } from '#lib/agent/images.ts';
 import { base64ToBlob } from '#lib/agent/chatDrop.ts';
+import type { MachineOption, ProjectCopy, ProjectGroup } from './multiMachine.ts';
+import {
+	copyForMachine,
+	createTaskCopy,
+	editTaskCopy,
+	groupForProject,
+	machineOptions,
+	proposedMachine,
+	runTaskCopy
+} from './multiMachine.ts';
 import { t } from './i18n.ts';
 
-export type WorkView = 'main' | 'project' | 'directives' | 'when' | 'menu' | 'schedule' | 'delete' | 'confirm';
+export type WorkView =
+	| 'main'
+	| 'project'
+	| 'machine'
+	| 'directives'
+	| 'when'
+	| 'menu'
+	| 'schedule'
+	| 'delete'
+	| 'confirm';
 export type WhenChoice = 'manual' | 'reset' | 'at';
 
 export interface WorkImage {
@@ -53,6 +72,8 @@ interface Baseline {
 	modelSelector: string | null;
 	thinking: string | null;
 	directiveIds: string[];
+	/** Macchina del lavoro: cambiarla e' una modifica da salvare (R-REM-19). */
+	machineId: string | null;
 }
 
 /** L'istantanea porta solo l'inizio del testo: oltre, senza `get_task`, non si puo' salvarlo. */
@@ -84,6 +105,8 @@ class WorkSheetStore {
 	thinking = $state<string | null>(null);
 	directiveIds = $state<string[]>([]);
 	newWorktree = $state(false);
+	/** Macchina scelta per il lavoro (R-REM-20): id del collegamento o hostId per gli host vecchi. */
+	machineId = $state<string | null>(null);
 
 	existingImages = $state<RemoteTaskImage[]>([]);
 	keptImages = $state<number[]>([]);
@@ -100,6 +123,9 @@ class WorkSheetStore {
 	promptLocked = $state(false);
 
 	confirmationId = $state<string | null>(null);
+	/** Macchina e progetto che hanno pubblicato la conferma: la risposta torna li'. */
+	confirmationHostId = $state<string | null>(null);
+	confirmationProjectId = $state<string | null>(null);
 	selectedFiles = $state<string[]>([]);
 
 	toast = $state<string | null>(null);
@@ -124,6 +150,11 @@ class WorkSheetStore {
 		return connection.hosts.find((host) => host.id === this.hostId)?.name ?? '';
 	}
 
+	/** Macchina che il foglio mostra: quella scelta, altrimenti quella della copia. */
+	get displayMachineName(): string {
+		return this.selectedMachine?.name ?? this.hostName;
+	}
+
 	get projects(): RemoteProject[] {
 		return connection.hostStates[this.hostId]?.state.projects ?? [];
 	}
@@ -138,6 +169,29 @@ class WorkSheetStore {
 
 	get queuedTasks(): RemoteTask[] {
 		return (this.project?.tasks ?? []).filter((task) => task.status === 'queued');
+	}
+
+	/** Il gruppo di copie di questo progetto su tutte le macchine (R-REM-17). */
+	get group(): ProjectGroup | null {
+		if (!this.hostId || !this.projectId) return null;
+		return groupForProject(connection.hosts, connection.hostStates, this.hostId, this.projectId);
+	}
+
+	/** Macchine proponibili per il lavoro, una per macchina (R-REM-20). */
+	get machines(): MachineOption[] {
+		const group = this.group;
+		return group ? machineOptions(group) : [];
+	}
+
+	/** La scelta ha senso solo se il progetto vive su piu' macchine. */
+	get canChooseMachine(): boolean {
+		return this.machines.length > 1;
+	}
+
+	get selectedMachine(): MachineOption | null {
+		const id = this.machineId;
+		if (!id) return null;
+		return this.machines.find((machine) => machine.id === id) ?? null;
 	}
 
 	/** Ruolo, modello, direttive e immagini: solo con le macchine che li gestiscono. */
@@ -178,8 +232,11 @@ class WorkSheetStore {
 	}
 
 	get confirmation(): RemoteDispatchConfirmation | null {
-		if (!this.confirmationId) return null;
-		return this.project?.dispatchConfirmations?.find((entry) => entry.id === this.confirmationId) ?? null;
+		if (!this.confirmationId || !this.confirmationHostId) return null;
+		const hostState = connection.hostStates[this.confirmationHostId]?.state;
+		const project =
+			hostState?.projects.find((candidate) => candidate.id === this.confirmationProjectId) ?? this.project;
+		return project?.dispatchConfirmations?.find((entry) => entry.id === this.confirmationId) ?? null;
 	}
 
 	get dirty(): boolean {
@@ -198,6 +255,11 @@ class WorkSheetStore {
 		this.hostId = hostId;
 		const projects = this.projects;
 		this.projectId = projectId && projects.some((p) => p.id === projectId) ? projectId : (projects[0]?.id ?? '');
+		// La macchina proposta e' l'ultima usata (R-REM-20): su un progetto
+		// presente su una macchina sola non c'e' nulla da scegliere.
+		const group = this.group;
+		const proposed = group ? proposedMachine(group) : null;
+		if (proposed && this.canChooseMachine) this.applyMachine(proposed.id);
 		this.isOpen = true;
 		void this.loadCatalog();
 	}
@@ -208,6 +270,7 @@ class WorkSheetStore {
 		this.hostId = hostId;
 		this.projectId = projectId;
 		this.taskId = taskId;
+		this.machineId = this.task?.machineId ?? null;
 		this.isOpen = true;
 		const seq = this.openSeq;
 		void this.loadCatalog();
@@ -275,6 +338,7 @@ class WorkSheetStore {
 		this.thinking = null;
 		this.directiveIds = [];
 		this.newWorktree = false;
+		this.machineId = null;
 		this.existingImages = [];
 		this.keptImages = [];
 		this.newImages = [];
@@ -286,6 +350,8 @@ class WorkSheetStore {
 		this.error = null;
 		this.promptLocked = false;
 		this.confirmationId = null;
+		this.confirmationHostId = null;
+		this.confirmationProjectId = null;
 		this.confirmationSeen = false;
 		this.selectedFiles = [];
 		this.baseline = null;
@@ -297,7 +363,8 @@ class WorkSheetStore {
 			role: this.role,
 			modelSelector: this.modelSelector,
 			thinking: this.thinking,
-			directiveIds: [...this.directiveIds]
+			directiveIds: [...this.directiveIds],
+			machineId: this.machineId
 		};
 	}
 
@@ -328,6 +395,46 @@ class WorkSheetStore {
 		this.directiveIds = [];
 		this.view = 'main';
 		void this.loadCatalog();
+	}
+
+	/**
+	 * Cambia la macchina del lavoro (R-REM-19, R-REM-20). Le opzioni del
+	 * catalogo (ruolo, modello, direttive) valgono per progetto, non per
+	 * macchina: si ricaricano solo se la copia scelta non le conosce.
+	 */
+	applyMachine(machineId: string): void {
+		this.machineId = machineId;
+		const copy = this.copyFor(machineId);
+		// Una macchina spenta resta la destinazione del lavoro, ma il foglio
+		// continua a lavorare sulla copia raggiungibile (R-REM-22).
+		if (copy?.online && (copy.hostId !== this.hostId || copy.project.id !== this.projectId)) {
+			this.hostId = copy.hostId;
+			this.projectId = copy.project.id;
+			this.catalog = null;
+			void this.loadCatalog();
+		}
+	}
+
+	/** La copia di una macchina scelta, dentro il gruppo del progetto. */
+	private copyFor(machineId: string): ProjectCopy | undefined {
+		const group = this.group;
+		return group ? copyForMachine(group, machineId) : undefined;
+	}
+
+	/** Dove creare il lavoro (R-REM-20): la copia della macchina scelta. */
+	private createTarget(): ProjectCopy {
+		const group = this.group;
+		if (!group) throw { code: 'not_found', message: t('errUnknown') } as CommandError;
+		return createTaskCopy(group, this.machineId);
+	}
+
+	/** Dove aggiornare o eliminare il lavoro: la macchina del lavoro se raggiungibile. */
+	private editTarget(): ProjectCopy {
+		const group = this.group;
+		const task = this.task;
+		if (!group) throw { code: 'not_found', message: t('errUnknown') } as CommandError;
+		const fallback = group.copies.find((copy) => copy.hostId === this.hostId);
+		return task ? editTaskCopy(group, task, fallback) : createTaskCopy(group, this.machineId);
 	}
 
 	/** Un ruolo nuovo porta con se' modello e ragionamento, come in Studio. */
@@ -420,7 +527,10 @@ class WorkSheetStore {
 			role: this.role,
 			modelSelector: this.modelSelector,
 			thinkingLevel: this.thinking,
-			directiveIds: [...this.directiveIds]
+			directiveIds: [...this.directiveIds],
+			// La macchina viaggia nel lavoro (R-REM-19): la replica della coda
+			// la porta alle altre copie, e «Avvia» sa dove andare.
+			machineId: this.machineId
 		};
 	}
 
@@ -435,7 +545,8 @@ class WorkSheetStore {
 			this.role !== base.role ||
 			this.modelSelector !== base.modelSelector ||
 			this.thinking !== base.thinking ||
-			!sameList(this.directiveIds, base.directiveIds)
+			!sameList(this.directiveIds, base.directiveIds) ||
+			this.machineId !== base.machineId
 		);
 	}
 
@@ -507,14 +618,23 @@ class WorkSheetStore {
 		if (this.busy || !this.validate()) return;
 		this.busy = true;
 		try {
-			await connection.sendCommand(this.hostId, {
+			const target = this.createTarget();
+			const command: Extract<RemoteCommand, { kind: 'create_task' }> = {
 				kind: 'create_task',
-				projectId: this.projectId,
+				projectId: target.project.id,
 				prompt: this.prompt.trim(),
 				schedule: this.scheduleChoice(this.when),
 				...(this.withOptions ? { options: this.optionsPayload(), images: this.stagedImages() } : {})
-			});
-			this.showToast(t('workSavedToast', { project: this.project?.name ?? '' }));
+			};
+			// Progetto solo su una macchina spenta: il relay conserva il lavoro
+			// e lo consegna al ritorno (R-REM-22), invece di un host_offline.
+			const defer = !target.online && this.deferable;
+			await connection.sendCommand(target.hostId, command, { deferIfOffline: defer });
+			this.showToast(
+				defer
+					? t('workDeferredToast', { machine: target.hostName })
+					: t('workSavedToast', { project: target.project.name })
+			);
 			this.close();
 		} catch (err) {
 			this.error = errorText(err);
@@ -522,6 +642,12 @@ class WorkSheetStore {
 		} finally {
 			this.busy = false;
 		}
+	}
+
+	/** Il lavoro puo' aspettare una macchina spenta solo se il progetto vive li' soltanto (R-REM-22). */
+	private get deferable(): boolean {
+		const group = this.group;
+		return Boolean(group && group.copies.length === 1 && !group.copies[0]!.online);
 	}
 
 	async save(): Promise<void> {
@@ -533,7 +659,8 @@ class WorkSheetStore {
 		}
 		this.busy = true;
 		try {
-			await connection.sendCommand(this.hostId, command);
+			const target = this.editTarget();
+			await connection.sendCommand(target.hostId, { ...command, projectId: target.project.id });
 			this.showToast(t('workUpdatedToast'));
 			this.close();
 		} catch (err) {
@@ -554,47 +681,67 @@ class WorkSheetStore {
 		this.busy = true;
 		try {
 			if (this.mode === 'new') {
+				// La macchina scelta decide dove parte (R-REM-20).
+				const target = this.createTarget();
 				if (this.withOptions) {
-					const result = (await connection.sendCommand(this.hostId, {
-						kind: 'create_task',
-						projectId: this.projectId,
-						prompt: this.prompt.trim(),
-						schedule: null,
-						options: this.optionsPayload(),
-						images: this.stagedImages(),
-						start: { destination }
-					})) as { taskId: string; dispatch?: RemoteDispatchOutcome };
-					this.taskId = result.taskId;
-					this.handleOutcome(result.dispatch);
+					const result = (await connection.sendCommand(
+						target.hostId,
+						{
+							kind: 'create_task',
+							projectId: target.project.id,
+							prompt: this.prompt.trim(),
+							schedule: null,
+							options: this.optionsPayload(),
+							images: this.stagedImages(),
+							start: { destination }
+						},
+						{ deferIfOffline: !target.online && this.deferable }
+					)) as { taskId: string; dispatch?: RemoteDispatchOutcome; deferred?: boolean };
+					this.taskId = result.taskId ?? null;
+					this.handleOutcome(result.dispatch, target);
 				} else {
 					// Macchina precedente: crea e avvia con le regole che conosce.
-					const created = (await connection.sendCommand(this.hostId, {
-						kind: 'create_task',
-						projectId: this.projectId,
-						prompt: this.prompt.trim(),
-						schedule: null
-					})) as { taskId: string };
+					const created = (await connection.sendCommand(
+						target.hostId,
+						{
+							kind: 'create_task',
+							projectId: target.project.id,
+							prompt: this.prompt.trim(),
+							schedule: null
+						},
+						{ deferIfOffline: !target.online && this.deferable }
+					)) as { taskId: string; deferred?: boolean };
+					if (created.deferred) {
+						this.showToast(t('workDeferredToast', { machine: target.hostName }));
+						this.close();
+						return;
+					}
 					this.taskId = created.taskId;
-					const outcome = (await connection.sendCommand(this.hostId, {
+					const outcome = (await connection.sendCommand(target.hostId, {
 						kind: 'run_task',
-						projectId: this.projectId,
+						projectId: target.project.id,
 						taskId: created.taskId
 					})) as RemoteDispatchOutcome | undefined;
-					this.handleOutcome(outcome);
+					this.handleOutcome(outcome, target);
 				}
 			} else if (this.taskId) {
+				// «Avvia» va alla macchina del lavoro, poi all'auto-avvio, poi
+				// all'ultima usata (R-REM-19).
+				const group = this.group;
+				const task = this.task;
+				const target = group && task ? runTaskCopy(group, task) : this.editTarget();
 				const update = this.updateCommand();
 				if (update) {
-					await connection.sendCommand(this.hostId, update);
+					await connection.sendCommand(target.hostId, { ...update, projectId: target.project.id });
 					this.captureBaseline();
 				}
-				const outcome = (await connection.sendCommand(this.hostId, {
+				const outcome = (await connection.sendCommand(target.hostId, {
 					kind: 'run_task',
-					projectId: this.projectId,
+					projectId: target.project.id,
 					taskId: this.taskId,
 					...(this.withOptions ? { destination } : {})
 				})) as RemoteDispatchOutcome | undefined;
-				this.handleOutcome(outcome);
+				this.handleOutcome(outcome, target);
 			}
 		} catch (err) {
 			this.error = errorText(err);
@@ -608,9 +755,10 @@ class WorkSheetStore {
 		if (this.busy || !this.taskId) return;
 		this.busy = true;
 		try {
-			await connection.sendCommand(this.hostId, {
+			const target = this.editTarget();
+			await connection.sendCommand(target.hostId, {
 				kind: 'update_task',
-				projectId: this.projectId,
+				projectId: target.project.id,
 				taskId: this.taskId,
 				schedule: this.scheduleChoice(when)
 			});
@@ -632,9 +780,10 @@ class WorkSheetStore {
 		if (from < 0 || to < 0 || to >= queued.length) return;
 		this.busy = true;
 		try {
-			await connection.sendCommand(this.hostId, {
+			const target = this.editTarget();
+			await connection.sendCommand(target.hostId, {
 				kind: 'move_task',
-				projectId: this.projectId,
+				projectId: target.project.id,
 				taskId: this.taskId,
 				toIndex: to
 			});
@@ -652,9 +801,10 @@ class WorkSheetStore {
 		if (this.busy || !this.taskId) return;
 		this.busy = true;
 		try {
-			await connection.sendCommand(this.hostId, {
+			const target = this.editTarget();
+			await connection.sendCommand(target.hostId, {
 				kind: 'delete_task',
-				projectId: this.projectId,
+				projectId: target.project.id,
 				taskId: this.taskId
 			});
 			this.showToast(t('workDeletedToast', { project: this.project?.name ?? '' }));
@@ -669,7 +819,7 @@ class WorkSheetStore {
 
 	// --- Esito dell'avvio e conferme (R-REM-10) ------------------------------
 
-	private handleOutcome(outcome: RemoteDispatchOutcome | undefined): void {
+	private handleOutcome(outcome: RemoteDispatchOutcome | undefined, target: ProjectCopy): void {
 		if (!outcome) {
 			// Macchina senza esito strutturato: il lavoro e' partito dove ha deciso Studio.
 			this.showToast(t('workStartedToast'));
@@ -677,13 +827,14 @@ class WorkSheetStore {
 			return;
 		}
 		if (outcome.status === 'started') {
-			const hostId = this.hostId;
-			const projectId = this.projectId;
 			this.close();
-			navigation.openChat({ hostId, projectId, laneId: outcome.laneId });
+			navigation.openChat({ hostId: target.hostId, projectId: target.project.id, laneId: outcome.laneId });
 			return;
 		}
+		// La conferma vive sull'istantanea della macchina che ha risposto (R-REM-10).
 		this.confirmationId = outcome.confirmationId;
+		this.confirmationHostId = target.hostId;
+		this.confirmationProjectId = target.project.id;
 		this.confirmationSeen = false;
 		this.selectedFiles = [];
 		this.view = 'confirm';
@@ -722,9 +873,14 @@ class WorkSheetStore {
 		if (!confirmationId || this.busy) return;
 		this.busy = true;
 		try {
-			const outcome = (await connection.sendCommand(this.hostId, {
+			const target =
+				this.group?.copies.find(
+					(copy) =>
+						copy.hostId === this.confirmationHostId && copy.project.id === this.confirmationProjectId
+				) ?? this.editTarget();
+			const outcome = (await connection.sendCommand(target.hostId, {
 				kind: 'respond_dispatch',
-				projectId: this.projectId,
+				projectId: target.project.id,
 				confirmationId,
 				answer
 			})) as RemoteDispatchOutcome | undefined;
@@ -734,7 +890,7 @@ class WorkSheetStore {
 				this.showToast(t('workLeftInQueue'));
 				return;
 			}
-			this.handleOutcome(outcome);
+			this.handleOutcome(outcome, target);
 		} catch (err) {
 			this.error = errorText(err);
 		} finally {

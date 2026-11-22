@@ -723,6 +723,23 @@ class TaskStore {
 	}
 
 	/**
+	 * Macchina scelta per il lavoro (F17, F19): `undefined` toglie la scelta e
+	 * il task parte dove e' acceso l'auto-avvio. E' una modifica come le altre
+	 * — il TaskEditor scrive il campo e salva — quindi muove `updatedAt` e la
+	 * replica la porta alle altre copie.
+	 */
+	setTaskMachine(id: string, machineId: string | null) {
+		const task = this.taskById(id);
+		if (!task) return;
+		const next = machineId?.trim() || undefined;
+		if (task.machineId === next) return;
+		if (next) task.machineId = next;
+		else delete task.machineId;
+		task.updatedAt = logicalClock.now();
+		this.saveProject(task.projectPath);
+	}
+
+	/**
 	 * Registra il titolo generato per la versione del prompt con impronta
 	 * `hash`. `updatedAt` resta fermo: il titolo e' un dato derivato e non
 	 * deve contare come modifica dell'utente.

@@ -12,6 +12,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 ## [Unreleased]
 
 ### Fixed
+- With Studio closed to the menu bar or notification area, clicking its icon in the Mac Dock or the Windows taskbar reopens the window: before, nothing happened and you had to go through the system icon. (AUT-107)
 - The queue of a project that lives on another machine is that machine's queue: the window read and wrote it on its own disk, at the other machine's path, so tasks written from here never arrived. (R-MI-06, R-MI-15)
 - A task deleted or started on one machine no longer comes back to the queue from the other machine's copy: the replicated queue picked up removed tasks again and auto-start could run the same task twice. Removals now travel with the queue, including those made by the omp tool or the Companion. (R-MI-12)
 - When the Mac and PC clocks are not aligned the latest edit really wins: an edit made on the computer whose clock is behind lost against an older version from the other one. The same applies to the copy "in use" and to choosing who keeps auto-start. (R-MI-12, R-MI-13)
@@ -94,6 +95,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - When the `omp` installation is broken (for example a link pointing to a deleted folder), Studio says so and offers "Repair" instead of starting over as on a new computer. When an essential piece is missing, the setup reopens directly on that step, without the animated intro. (SET-010, SET-020)
 
 ### Changed
+- Studio Remote shows a single list with the projects of every machine: a project open on several computers appears once, with the machines glyph, and opens on the copy waiting for an answer or on the one used last. Queue and history merge the copies, each task shows the machine it starts on, which can also be picked in New work; quotas are split by machine. When a machine is off its projects stay in the list and tasks queued for it reach it when it comes back. (R-REM-17…R-REM-23)
 - In Plan mode the agent gathers its questions in one form per round, with the recommended option already selected, as in omp 19.
 - `Ctrl+Shift+Tab` switches to the previous project, also from the composer, the terminal and the preview; lanes are cycled with `Ctrl+Alt+←/→`. (TPR-041, ANT-012)
 - Project bar tiles show where the project runs with a text-free glyph instead of the badge with the machine name: a screen with waves for another machine, a crossed-out screen when it does not respond, one screen per copy when the project is on several machines (the one in use filled) and an amber ≠ when the copies diverge. The glyph no longer changes when the tile is clicked, and screen readers announce the machine. On light themes the amber of graphic marks is lighter, so it stands out next to the greys. (R-MI-19)
@@ -118,6 +120,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Clarification on the Browser Studio announced in 1.5.0: with the public `omp`, the live page, takeover and private mode are not available, because the runtime part they relied on was never published. Studio keeps showing the summary and screenshots of the `browser` tool's actions; the live version is being redesigned.
 
 ### Fixed
+- Studio Remote no longer accepts from the phone the commands reserved for the link between computers (replicated queue, the other machine's lanes, closing a project, auto-start), which on that channel lacked folder limits. (R-REM-24)
 - When the Studio window reloads, running GUI chats are resumed: the conversation is rebuilt and the agent carries on, instead of starting a second `omp` on the same project while the first kept working out of sight. A chat left without a window and never resumed closes after ten minutes. (R-MI-07, R-MI-11, MI02)
 - Project bar: the open project's tab has its border back around the name and the "⋯" menu, and the menu button only shows on that tab. Going from the hover preview to the project panel is animated: the card resizes and the content cross-fades.
 - Picking a custom task time keeps the schedule menu open and moves focus to the time field instead of closing it while its menu item is replaced. (TPR-016)

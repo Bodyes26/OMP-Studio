@@ -12,6 +12,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 ## [Unreleased]
 
 ### Fixed
+- Con Studio chiuso nella menu bar o nell'area di notifica, un click sull'icona nel Dock del Mac o nella taskbar di Windows riapre la finestra: prima non succedeva nulla e bisognava passare dall'icona di sistema. (AUT-107)
 - La coda di un progetto che vive su un'altra macchina è quella di quella macchina: la finestra la leggeva e la scriveva sul proprio disco, nel percorso dell'altra macchina, quindi i task scritti da qui non arrivavano mai. (R-MI-06, R-MI-15)
 - Un task cancellato o avviato su una macchina non torna più in coda dalla copia dell'altra: la coda replicata riprendeva i task tolti e l'auto-avvio poteva lanciare lo stesso task due volte. Ora le rimozioni viaggiano con la coda, anche quelle fatte dal tool di omp o dalla Companion. (R-MI-12)
 - Con gli orologi di Mac e PC non allineati vince davvero l'ultima modifica: una modifica fatta sul computer con l'orologio indietro perdeva contro una versione precedente dell'altro. Lo stesso vale per la copia «in uso» e per la scelta di chi tiene l'auto-avvio. (R-MI-12, R-MI-13)
@@ -94,6 +95,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Se l'installazione di `omp` è rotta (per esempio un collegamento che punta a una cartella cancellata), Studio lo dice e offre «Ripara», invece di ripartire come su un computer nuovo. Quando manca un pezzo indispensabile il setup riapre direttamente su quel passo, senza l'ingresso animato. (SET-010, SET-020)
 
 ### Changed
+- Studio Remote mostra un solo elenco con i progetti di tutte le macchine: un progetto aperto su più computer compare una volta, con il glifo delle macchine, e si apre sulla copia che aspetta una risposta o su quella usata per ultima. Coda e storico uniscono le copie, ogni lavoro dice su quale macchina parte e la si sceglie anche in Nuovo lavoro; le quote sono divise per macchina. Con una macchina spenta i suoi progetti restano in elenco e i lavori messi in coda le arrivano alla riaccensione. (R-REM-17…R-REM-23)
 - In modalità Piano l'agente raccoglie le domande in un solo modulo per giro, con l'opzione consigliata già selezionata, come in omp 19.
 - `Ctrl+Shift+Tab` passa al progetto precedente, anche dal composer, dal terminale e dall'anteprima; le corsie si scorrono con `Ctrl+Alt+←/→`. (TPR-041, ANT-012)
 - Le tessere della barra dicono dove gira il progetto con un glifo senza testo al posto del badge con il nome della macchina: schermo con le onde per un'altra macchina, schermo barrato se non risponde, uno schermo per copia quando il progetto è su più macchine (pieno quello in uso) e il segno ≠ in ambra quando le copie divergono. Il glifo non cambia più cliccando la tessera, e il lettore di schermo legge la macchina. Sui temi chiari l'ambra dei segni grafici è più chiara, per riconoscerla accanto ai grigi. (R-MI-19)
@@ -118,6 +120,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Chiarimento sul Browser Studio annunciato nella 1.5.0: con l'`omp` pubblico la pagina dal vivo, la presa di controllo e la modalità privata non sono disponibili, perché la parte del runtime su cui si basavano non è mai stata pubblicata. Studio continua a mostrare riepilogo e screenshot delle azioni del tool `browser`; la versione dal vivo è in riprogettazione.
 
 ### Fixed
+- Studio Remote non accetta più dal telefono i comandi riservati al collegamento fra computer (coda replicata, corsie dell'altra macchina, chiusura del progetto, auto-avvio), che su quel canale non avevano i limiti sulle cartelle. (R-REM-24)
 - Se la finestra di Studio si ricarica, le chat GUI in corso vengono riprese: la conversazione si ricostruisce e l'agente prosegue, invece di avviare un secondo `omp` sullo stesso progetto mentre il primo continuava a lavorare senza essere visibile. Una chat rimasta senza finestra e mai ripresa si chiude dopo dieci minuti. (R-MI-07, R-MI-11, MI02)
 - Barra dei progetti: la tessera del progetto aperto ha di nuovo il bordo attorno a nome e menu «⋯», e il pulsante del menu compare solo su quella tessera. Il passaggio dall’anteprima al pannello del progetto è animato: la card cambia misura e il contenuto sfuma.
 - Scegliere un orario personalizzato per un task mantiene aperto il menu di programmazione e porta il focus al campo orario, invece di chiuderlo mentre la voce viene sostituita. (TPR-016)

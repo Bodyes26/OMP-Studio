@@ -40,6 +40,14 @@ export interface ProjectInput {
 	canonicalProjectPath?: string | null;
 	hue?: number;
 	autoDispatch?: boolean;
+	/**
+	 * Chiave di fusione delle copie (R-REM-17): la calcola chi chiama con
+	 * `repositoryIdentityOf` + `publishedProjectIdentity`, la stessa regola
+	 * della barra. `null`/assente = la copia resta un progetto a se'.
+	 */
+	identity?: string | null;
+	/** Ultimo uso di questa copia, epoch ms (F18); `Project.lastOpened` in Studio. */
+	lastUsedAt?: number | null;
 }
 
 export interface LaneInput {
@@ -91,6 +99,8 @@ export interface BuildHostStateInput {
 	quotaReports?: QuotaReport[];
 	quotaFetchedAt?: number | null;
 	theme?: RemoteTheme | null;
+	/** Id di questa macchina nel collegamento fra computer (`LinkStatus.machineId`). */
+	linkMachineId?: string | null;
 	rolesMap?: Readonly<Record<string, string>>;
 	knownSelectors?: ReadonlySet<string>;
 	dispatchConfirmationsForProject?: (projectId: string) => RemoteDispatchConfirmation[] | undefined;
@@ -467,6 +477,17 @@ function mapTasks(
 				? input.nextCandidateTaskIds.has(t.id)
 				: false;
 
+		// Macchina scelta per il lavoro (R-REM-19). In Studio il valore e'
+		// `local` per questa macchina: sul canale conta l'id del collegamento,
+		// che e' quello che la PWA confronta con `HostState.linkMachineId`.
+		// `null` = parte dove e' acceso l'auto-avvio, come nella coda di Studio.
+		const chosenMachine = t.machineId?.trim();
+		const machineId = chosenMachine
+			? chosenMachine === 'local'
+				? input.linkMachineId?.trim() || null
+				: chosenMachine
+			: null;
+
 		let schedule: RemoteTaskSchedule | null = null;
 		if (t.schedule) {
 			const target = input.resolveScheduleTarget
@@ -494,7 +515,10 @@ function mapTasks(
 			modelSelector: t.options?.modelSelector ?? null,
 			thinkingLevel: t.options?.thinkingLevel ?? null,
 			directives: (t.options?.directives || []).map((d) => ({ id: d.id, name: d.name })),
-			imageCount: t.images?.length ?? 0
+			imageCount: t.images?.length ?? 0,
+			machineId,
+			// Orologio della coda replicata: la PWA tiene la copia piu' recente.
+			updatedAt: t.updatedAt
 		};
 	});
 }
@@ -606,7 +630,11 @@ export function buildHostState(input: BuildHostStateInput): HostState {
 			autoDispatch: Boolean(p.autoDispatch),
 			canRunTask: runtime?.canRunTask ?? false,
 			runBlockReason: runtime?.runBlockReason ?? null,
-			dispatchConfirmations: input.dispatchConfirmationsForProject?.(p.id)
+			dispatchConfirmations: input.dispatchConfirmationsForProject?.(p.id),
+			// Chiave di fusione e ultimo uso (R-REM-17, R-REM-18): la PWA unisce
+			// le copie con la stessa chiave e propone quella usata per ultima.
+			identity: p.identity ?? null,
+			lastUsedAt: typeof p.lastUsedAt === 'number' ? p.lastUsedAt : null
 		};
 	});
 
@@ -615,6 +643,9 @@ export function buildHostState(input: BuildHostStateInput): HostState {
 	return {
 		projects,
 		quota,
-		theme: input.theme ?? null
+		theme: input.theme ?? null,
+		// Id di questa macchina nel collegamento fra computer (R-REM-19): senza,
+		// la PWA non sa a chi attribuire i lavori e non disegna il glifo.
+		linkMachineId: input.linkMachineId ?? null
 	};
 }

@@ -5,6 +5,7 @@ import { settingsStore } from './settings.svelte';
 import { taskStore } from './tasks.svelte';
 import { githubStore } from './github.svelte';
 import { groupByRepository, type RepositoryIdentity } from './projectIdentity.ts';
+import { repositoryIdentityOf } from './projectCopyIdentity.ts';
 import { copyKeyOf, projectLinks } from './projectLinks.svelte.ts';
 import { tileCopy } from './projectCopies.ts';
 import { copyNeedsAttention } from './projectActivity.ts';
@@ -22,17 +23,17 @@ function identityOfCopy(project: Project, multiMachine: boolean): RepositoryIden
 	const key = normalizeProjectPath(path).toLowerCase();
 	const status = githubStore.upstreamByPath[key];
 	const repoSlug = status?.repoSlug ?? null;
-	const rootCommit = status?.rootCommit ?? null;
-	return {
-		repoSlug,
-		rootCommit,
+	// La regola vive in `projectCopyIdentity.ts`: la usa anche la proiezione
+	// verso il relay, e barra e telefono devono fondere le stesse copie.
+	return repositoryIdentityOf({
+		canonicalProjectPath: path,
+		upstream: { repoSlug, rootCommit: status?.rootCommit ?? null },
 		// Nome attuale su GitHub: unisce la copia rimasta col nome di prima
 		// di una rinomina (R-MI-32). Solo con progetti di altre macchine in
 		// barra: su una macchina sola non c'è nulla da unire.
 		canonicalSlug: repoSlug && multiMachine ? projectLinks.canonicalSlug(repoSlug) : null,
-		// Senza origin il primo commit unisce solo dopo la conferma (R-MI-32).
-		rootConfirmed: false
-	};
+		multiMachine
+	});
 }
 
 /**

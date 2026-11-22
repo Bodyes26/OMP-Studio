@@ -251,6 +251,13 @@ pub fn run() {
                 return;
             }
             if let Some(window) = app.get_webview_window("main") {
+                // Nascosta nell'area di notifica: un nuovo avvio (icona fissata nella
+                // taskbar, menu Start) e' l'utente che vuole riaprire Studio, e senza
+                // finestra non ci sarebbe nemmeno un pulsante da far lampeggiare.
+                if !window.is_visible().unwrap_or(true) {
+                    let _ = desktop_presence::show_main_window(app);
+                    return;
+                }
                 // Se la finestra e' ridotta a icona, ripristinala. Mai chiamare
                 // `set_focus()` incondizionatamente: se l'utente sta scrivendo in
                 // un'altra applicazione e un processo figlio (agente, build, test)

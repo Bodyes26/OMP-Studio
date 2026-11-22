@@ -343,7 +343,11 @@ class RemoteConnectionManager {
 	 * Esito del comando: si risolve con `data` (vedi `RemoteCommandData`), che i
 	 * comandi senza dati lasciano `undefined`.
 	 */
-	async sendCommand(hostId: string, command: RemoteCommand): Promise<unknown> {
+	async sendCommand(
+		hostId: string,
+		command: RemoteCommand,
+		options?: { deferIfOffline?: boolean }
+	): Promise<unknown> {
 		if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
 			throw { code: 'host_offline', message: t('errRelayNotConnected') } as CommandError;
 		}
@@ -378,11 +382,21 @@ class RemoteConnectionManager {
 				type: 'command',
 				commandId,
 				hostId,
-				command
+				command,
+				...(options?.deferIfOffline ? { deferIfOffline: true } : {})
 			};
 
 			this.ws?.send(JSON.stringify(frame));
 		});
+	}
+
+	/** Annulla un lavoro che aspetta il ritorno di una macchina spenta (R-REM-22). */
+	async cancelDeferred(hostId: string, commandId: string): Promise<void> {
+		if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+			throw { code: 'host_offline', message: t('errRelayNotConnected') } as CommandError;
+		}
+		const frame: ClientFrame = { type: 'cancel_deferred', hostId, commandId };
+		this.ws.send(JSON.stringify(frame));
 	}
 
 	async fetchDevices(): Promise<DeviceListItem[]> {

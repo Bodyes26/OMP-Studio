@@ -1,97 +1,152 @@
 <!--
-  ProjectHistorySheet.svelte — Storico delle sessioni per singolo progetto (Gate R48, R-REM-15).
-  Accessibile dall'espansione del progetto o dal menu ⋯ della chat.
-  Elenca le sessioni passate in sola lettura con ricerca e paginazione indietro (list_sessions).
-  Il tocco apre la sessione storica in navigazione senza cambiare la sessione attiva.
+  ProjectHistorySheet.svelte — Storico delle sessioni di un progetto, unito su tutte le copie (R-REM-15, R-REM-21).
+  Le sessioni di ogni macchina raggiungibile stanno in un solo elenco, in ordine
+  di data, ognuna con il glifo della sua macchina; la ricerca vale su tutte.
+  Una macchina spenta lo dice in testa invece di far fallire lo storico.
 -->
 <script lang="ts">
-	import type { RemoteProject, RemoteSessionSummary, RemoteSessionPage } from '../../../src/protocol.ts';
+	import type { RemoteSessionSummary, RemoteSessionPage } from '../../../src/protocol.ts';
 	import { t, getFormatLocale } from '../i18n.ts';
 	import { connection } from '../connection.svelte.ts';
 	import { navigation } from '../navigation.svelte.ts';
 	import { IconClose, IconSearch, IconChevronRight } from '../icons.ts';
 	import { scrim, bottomSheet } from '../motion.ts';
+	import MachineGlyph from './MachineGlyph.svelte';
+	import { reachableCopies, type ProjectGroup } from '../multiMachine.ts';
+
 	let {
-		hostId,
-		project,
+		group,
 		onClose
 	}: {
-		hostId: string;
-		project: RemoteProject;
+		group: ProjectGroup;
 		onClose: () => void;
 	} = $props();
 
+	interface SessionRow {
+		hostId: string;
+		hostName: string;
+		online: boolean;
+		session: RemoteSessionSummary;
+	}
+
 	let searchQuery = $state('');
-	let sessions = $state<RemoteSessionSummary[]>([]);
-	let beforeCursor = $state<string | null>(null);
+	/** Sessioni di tutte le copie raggiungibili, unite per id di sessione. */
+	let sessions = $state<SessionRow[]>([]);
+	/** Cursore di pagina per macchina: ogni copia ha il suo storico. */
+	let cursors = $state<Record<string, string | null>>({});
 	let isLoading = $state(false);
 	let isLoadingMore = $state(false);
 	let errorMessage = $state<string | null>(null);
 	let searchTimer: number | null = null;
 	let activeRequestGen = 0;
 
-	// Escludi le sessioni attualmente agganciate alle corsie del progetto
+	const copies = $derived(reachableCopies(group));
+	const offlineHosts = $derived(group.copies.filter((copy) => !copy.online).map((copy) => copy.hostName));
+
+	// Sessioni agganciate alle corsie del progetto: sono quelle in corso, non storico.
 	const activeSessionIds = $derived.by<Set<string>>(() => {
 		const set = new Set<string>();
-		for (const lane of project.lanes) {
-			if (lane.session?.id) set.add(lane.session.id);
+		for (const copy of group.copies) {
+			for (const lane of copy.project.lanes) {
+				if (lane.session?.id) set.add(lane.session.id);
+			}
 		}
 		return set;
 	});
 
-	const displaySessions = $derived(
-		sessions.filter((s) => !activeSessionIds.has(s.sessionId))
-	);
+	const displaySessions = $derived(sessions.filter((row) => !activeSessionIds.has(row.session.sessionId)));
+	/** Almeno una copia ha ancora pagine indietro. */
+	const hasMore = $derived(Object.values(cursors).some((cursor) => cursor !== null));
 
 	$effect(() => {
 		void fetchHistory(false);
 	});
 
-	function handleSearchInput(e: Event): void {
-		searchQuery = (e.target as HTMLInputElement).value;
+	function handleSearchInput(event: Event): void {
+		searchQuery = (event.target as HTMLInputElement).value;
 		if (searchTimer) clearTimeout(searchTimer);
 		searchTimer = window.setTimeout(() => {
 			void fetchHistory(false);
 		}, 300);
 	}
 
+	/** Interroga in parallelo le copie raggiungibili e unisce per data. */
 	async function fetchHistory(append = false): Promise<void> {
 		const reqGen = ++activeRequestGen;
 		const query = searchQuery.trim() || undefined;
-		const cursor = append ? beforeCursor : null;
+		const limit = 30;
 
 		if (append) {
-			if (isLoadingMore || !cursor) return;
+			if (isLoadingMore) return;
 			isLoadingMore = true;
 		} else {
 			sessions = [];
-			beforeCursor = null;
+			cursors = {};
 			isLoading = true;
 			errorMessage = null;
 		}
 
-		try {
-			const res = (await connection.sendCommand(hostId, {
-				kind: 'list_sessions',
-				projectId: project.id,
-				query,
-				before: cursor,
-				limit: 30
-			})) as RemoteSessionPage | undefined;
-
-			if (reqGen !== activeRequestGen) return;
-
-			if (res && Array.isArray(res.sessions)) {
-				if (append) {
-					sessions = [...sessions, ...res.sessions];
-				} else {
-					sessions = res.sessions;
-				}
-				beforeCursor = res.before ?? null;
+		const targets = copies;
+		if (targets.length === 0) {
+			if (reqGen === activeRequestGen) {
+				isLoading = false;
+				isLoadingMore = false;
 			}
-		} catch (err) {
+			return;
+		}
+
+		try {
+			const responses = await Promise.allSettled(
+				targets.map(async (copy) => {
+					const before = append ? (cursors[copy.hostId] ?? null) : null;
+					// Una copia senza altre pagine non viene richiesta di nuovo.
+					if (append && before === null) return { copy, page: undefined };
+					const page = (await connection.sendCommand(copy.hostId, {
+						kind: 'list_sessions',
+						projectId: copy.project.id,
+						query,
+						before,
+						limit
+					})) as RemoteSessionPage | undefined;
+					return { copy, page };
+				})
+			);
+
 			if (reqGen !== activeRequestGen) return;
-			errorMessage = (err as Error)?.message || t('historyLoadError');
+
+			const merged: SessionRow[] = append ? [...sessions] : [];
+			const nextCursors: Record<string, string | null> = append ? { ...cursors } : {};
+			let failures = 0;
+			for (const result of responses) {
+				if (result.status !== 'fulfilled') {
+					failures++;
+					continue;
+				}
+				const { copy, page } = result.value;
+				if (!append) nextCursors[copy.hostId] = null;
+				if (!page || !Array.isArray(page.sessions)) continue;
+				nextCursors[copy.hostId] = page.before ?? null;
+				for (const session of page.sessions) {
+					if (merged.some((row) => row.session.sessionId === session.sessionId)) continue;
+					merged.push({
+						hostId: copy.hostId,
+						hostName: copy.hostName,
+						online: copy.online,
+						session
+					});
+				}
+			}
+
+			merged.sort((a, b) => b.session.createdAt - a.session.createdAt);
+			sessions = merged;
+			cursors = nextCursors;
+
+			// Una macchina spenta o una richiesta fallita non nascondono le altre.
+			if (failures > 0 && failures === targets.length && merged.length === 0) {
+				errorMessage = t('historyLoadError');
+			} else {
+				errorMessage = null;
+			}
 		} finally {
 			if (reqGen === activeRequestGen) {
 				isLoading = false;
@@ -100,12 +155,12 @@
 		}
 	}
 
-	function handleOpenSession(session: RemoteSessionSummary): void {
+	function handleOpenSession(row: SessionRow): void {
 		navigation.openChat({
-			hostId,
-			projectId: project.id,
-			sessionId: session.sessionId,
-			sessionTitle: session.title || session.prompt.slice(0, 40),
+			hostId: row.hostId,
+			projectId: group.copies.find((copy) => copy.hostId === row.hostId)?.project.id ?? group.primary.project.id,
+			sessionId: row.session.sessionId,
+			sessionTitle: row.session.title || row.session.prompt.slice(0, 40),
 			isHistory: true
 		});
 		onClose();
@@ -130,7 +185,7 @@
 		<div class="sheet-head">
 			<div class="head-titles">
 				<h2>{t('projectHistoryTitle')}</h2>
-				<p class="sub">{project.name}</p>
+				<p class="sub">{group.primary.project.name}</p>
 			</div>
 			<button
 				type="button"
@@ -156,6 +211,9 @@
 		</div>
 
 		<div class="sheet-body">
+			{#if offlineHosts.length > 0}
+				<p class="offline-notice">{t('historyMachineOffline')}</p>
+			{/if}
 			{#if isLoading}
 				<div class="loading-state">
 					<span class="spinner" aria-hidden="true"></span>
@@ -167,17 +225,21 @@
 				<p class="empty-text">{t('noHistorySessions')}</p>
 			{:else}
 				<div class="sessions-list">
-					{#each displaySessions as s (s.sessionId)}
+					{#each displaySessions as row (row.session.sessionId)}
+						{@const s = row.session}
 						<button
 							type="button"
 							class="session-item"
-							onclick={() => handleOpenSession(s)}
+							onclick={() => handleOpenSession(row)}
 						>
 							<div class="session-info">
 								<span class="session-title">
 									{s.title || (s.prompt.length > 60 ? s.prompt.slice(0, 59) + '…' : s.prompt)}
 								</span>
 								<span class="session-meta">
+									<MachineGlyph glyph={{ kind: 'remote' }} size={10} />
+									<span class="session-machine">{row.hostName}</span>
+									<span class="sep">·</span>
 									<span class="session-date">{formatDate(s.createdAt)}</span>
 									{#if s.laneTitle}
 										<span class="sep">·</span>
@@ -189,7 +251,7 @@
 						</button>
 					{/each}
 
-					{#if beforeCursor}
+					{#if hasMore}
 						<button
 							type="button"
 							class="load-more-btn"
@@ -389,6 +451,19 @@
 	.load-more-btn:disabled {
 		opacity: 0.6;
 		cursor: default;
+	}
+
+	.offline-notice {
+		margin: 0 0 8px;
+		padding: 8px 12px;
+		border-radius: var(--radius-md);
+		background: color-mix(in oklch, var(--warn) 10%, transparent);
+		color: var(--warn);
+		font-size: var(--text-xs);
+	}
+
+	.session-machine {
+		color: var(--ink-muted);
 	}
 
 	.empty-text,

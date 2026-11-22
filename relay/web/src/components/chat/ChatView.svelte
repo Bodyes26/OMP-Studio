@@ -33,6 +33,9 @@
 	import ContextControl from './ContextControl.svelte';
 	import QuotaSheet from '../QuotaSheet.svelte';
 	import ProjectHistorySheet from '../ProjectHistorySheet.svelte';
+	import MachineGlyph from '../MachineGlyph.svelte';
+	import QuotaStrip from '../QuotaStrip.svelte';
+	import { groupForProject, quotaSections as quotaSectionsOf, type ProjectCopy, type ProjectGroup } from '../../multiMachine.ts';
 	import { IconClose, IconMore, IconChevronDown, IconArrowUp, IconArrowDown } from '../../icons.ts';
 	import type { RemoteComposerAttachment } from '../../chat/remoteAttachments.svelte.ts';
 	import { scrim, bottomSheet, dropNotice } from '../../motion.ts';
@@ -132,6 +135,39 @@
 	const hostOnline = $derived(Boolean(host?.online));
 
 	const hostState = $derived(connection.hostStates[route.hostId]?.state);
+	// Il progetto puo' vivere su piu' macchine: storico e coda uniscono le copie (R-REM-21).
+	const chatGroup = $derived.by<ProjectGroup | null>(() => {
+		const found = groupForProject(connection.hosts, connection.hostStates, route.hostId, route.projectId);
+		if (found) return found;
+		return viewProject
+			? {
+					key: `${route.hostId}:${route.projectId}`,
+					identity: viewProject.identity ?? null,
+					name: viewProject.name,
+					copies: [
+						{
+							hostId: route.hostId,
+							hostName,
+							online: hostOnline,
+							linkMachineId: hostState?.linkMachineId ?? null,
+							project: viewProject
+						}
+					],
+					primary: {
+						hostId: route.hostId,
+						hostName,
+						online: hostOnline,
+						linkMachineId: hostState?.linkMachineId ?? null,
+						project: viewProject
+					},
+					status: 'idle',
+					lastUsedAt: viewProject.lastUsedAt ?? null,
+					isShared: false,
+					reachable: hostOnline
+				}
+			: null;
+	});
+	const quotaSections = $derived(quotaSectionsOf(connection.hosts, connection.hostStates));
 	const project = $derived<RemoteProject | undefined>(hostState?.projects.find((p) => p.id === route.projectId));
 	const lane = $derived<RemoteLane | undefined>(project?.lanes.find((l) => l.id === route.laneId));
 
@@ -614,7 +650,10 @@
 		const items: Array<{ id: 'new' | 'branches' | 'history' | 'quota'; label: string }> = [];
 		if (project && hostFeatures.includes('task_edit')) items.push({ id: 'new', label: t('chatMenuNewWork') });
 		if (hasOtherLanes) items.push({ id: 'branches', label: t('chatMenuBranches') });
-		if (viewProject && hostFeatures.includes('fleet')) items.push({ id: 'history', label: t('chatMenuHistory') });
+		const canHistory = (chatGroup?.copies ?? []).some((copy: ProjectCopy) =>
+			(connection.hosts.find((candidate) => candidate.id === copy.hostId)?.features ?? []).includes('fleet')
+		);
+		if (viewProject && canHistory) items.push({ id: 'history', label: t('chatMenuHistory') });
 		if (hostState?.quota) items.push({ id: 'quota', label: t('chatMenuQuota') });
 		return items;
 	});
@@ -664,6 +703,13 @@
 					<span class="branch-caret" aria-hidden="true"><IconChevronDown /></span>
 				{/if}
 			</span>
+			<!-- La macchina del ramo (R-REM-18, R-REM-23): solo quando il progetto vive altrove -->
+			{#if chatGroup?.isShared}
+				<span class="bar-machine" title={hostName} data-testid="chat-machine">
+					<MachineGlyph glyph={{ kind: hostOnline ? 'remote' : 'offline' }} size={11} />
+					<span class="bar-machine-name">{hostName}</span>
+				</span>
+			{/if}
 		</button>
 
 		<button
@@ -768,6 +814,16 @@
 							</button>
 						</div>
 					{:else}
+						<!-- Quote della macchina del ramo (R-REM-23). Solo per un progetto su
+						     piu' macchine: su una sola il foglio ⋯ basta e la chat resta nuda
+						     come chiede R-REM-04. -->
+						{#if hostState?.quota && chatGroup?.isShared}
+							<QuotaStrip
+								quota={hostState.quota}
+								projects={hostState.projects}
+								onOpenQuotaSheet={() => (sheet = 'quota')}
+							/>
+						{/if}
 						<Composer
 							isWorking={isWorking}
 							disabled={Boolean(disabledReason)}
@@ -868,18 +924,11 @@
 	{/if}
 
 	{#if sheet === 'quota' && host && hostState}
-		<QuotaSheet
-			hostId={route.hostId}
-			{hostName}
-			features={hostFeatures}
-			quota={hostState.quota}
-			projects={hostState.projects}
-			onClose={() => (sheet = null)}
-		/>
+		<QuotaSheet sections={quotaSections} highlightHostId={route.hostId} onClose={() => (sheet = null)} />
 	{/if}
 
-	{#if sheet === 'history' && viewProject}
-		<ProjectHistorySheet hostId={route.hostId} project={viewProject} onClose={() => (sheet = null)} />
+	{#if sheet === 'history' && chatGroup}
+		<ProjectHistorySheet group={chatGroup} onClose={() => (sheet = null)} />
 	{/if}
 
 	{#if activeImageModal}
@@ -1016,6 +1065,24 @@
 	.branch-kind {
 		flex-shrink: 0;
 		color: var(--ink-faint);
+	}
+
+	.bar-machine {
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
+		margin-left: 6px;
+		color: var(--ink-muted);
+		font-size: 11px;
+		font-weight: 500;
+		flex-shrink: 0;
+	}
+
+	.bar-machine-name {
+		max-width: 90px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.branch-caret {

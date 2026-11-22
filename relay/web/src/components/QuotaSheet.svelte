@@ -1,13 +1,11 @@
 <!--
-  QuotaSheet.svelte — Foglio di dettaglio di tutti i provider configurati (Gate R48, R-REM-08).
-  Allineato al popover Quote di Studio:
-  - Account e nome del provider
-  - Finestre di consumo con barra, percentuale e orario di azzeramento
-  - Progetti che utilizzano il provider, o «Non in uso»
-  - Pulsante «Aggiorna» via comando refresh_quota (se supportato dalla macchina)
+  QuotaSheet.svelte — Foglio di dettaglio delle quote, una sezione per macchina (R-REM-08, R-REM-23).
+  Ogni macchina ha i suoi provider e i suoi account: il foglio li divide, cosi'
+  un ramo del PC non mostra le quote del Mac. Chi apre il foglio da una chat
+  vede la sezione di quella macchina per prima.
 -->
 <script lang="ts">
-	import type { RemoteQuota, RemoteProject, Feature, RemoteQuotaProvider } from '../../../src/protocol.ts';
+	import type { RemoteQuota, RemoteProject, RemoteQuotaProvider } from '../../../src/protocol.ts';
 	import { t, getFormatLocale } from '../i18n.ts';
 	import { formatHHMM } from '../schedule.ts';
 	import { connection } from '../connection.svelte.ts';
@@ -21,44 +19,48 @@
 		laneLabel
 	} from '../projectHelpers.ts';
 	import { scrim, bottomSheet } from '../motion.ts';
+	import MachineGlyph from './MachineGlyph.svelte';
+	import type { QuotaSection } from '../multiMachine.ts';
+
 	let {
-		hostId,
-		hostName,
-		features = [],
-		quota = null,
-		projects = [],
+		sections,
+		highlightHostId = null,
 		onClose
 	}: {
-		hostId: string;
-		hostName: string;
-		features?: Feature[];
-		quota?: RemoteQuota | null;
-		projects?: readonly RemoteProject[];
+		sections: QuotaSection[];
+		/** Macchina della chat aperta: la sua sezione va per prima. */
+		highlightHostId?: string | null;
 		onClose: () => void;
 	} = $props();
 
 	let isRefreshing = $state(false);
 	let refreshMessage = $state<string | null>(null);
+	let refreshingHostId = $state<string | null>(null);
 
-	const canRefresh = $derived(features.includes('quota_refresh'));
+	const ordered = $derived.by(() => {
+		const list = [...sections];
+		if (highlightHostId) {
+			list.sort((a, b) => (a.hostId === highlightHostId ? -1 : b.hostId === highlightHostId ? 1 : 0));
+		}
+		return list;
+	});
 
-	const inUseSet = $derived(getProvidersInUse(projects));
-
-	// Ordina mettendo per primi i provider in uso
-	const sortedProviders = $derived.by<RemoteQuotaProvider[]>(() => {
-		if (!quota?.providers) return [];
-		return quota.providers.slice().sort((a, b) => {
-			const aInUse = inUseSet.has(normalizeProvider(a.provider));
-			const bInUse = inUseSet.has(normalizeProvider(b.provider));
+	function sortedProviders(section: QuotaSection): RemoteQuotaProvider[] {
+		const kind = section.quota?.providers;
+		if (!kind) return [];
+		const inUse = getProvidersInUse(section.projects);
+		return kind.slice().sort((a, b) => {
+			const aInUse = inUse.has(normalizeProvider(a.provider));
+			const bInUse = inUse.has(normalizeProvider(b.provider));
 			if (aInUse !== bInUse) return aInUse ? -1 : 1;
 			return a.provider.localeCompare(b.provider);
 		});
-	});
+	}
 
-	function getProjectsUsingProvider(providerName: string): string[] {
+	function getProjectsUsingProvider(section: QuotaSection, providerName: string): string[] {
 		const normTarget = normalizeProvider(providerName);
 		const list: string[] = [];
-		for (const p of projects) {
+		for (const p of section.projects) {
 			for (const lane of p.lanes) {
 				if (getLaneStatus(p, lane) !== 'idle') {
 					const laneProv = lane.agent.provider ? normalizeProvider(lane.agent.provider) : null;
@@ -88,12 +90,13 @@
 		return `${dayName} ${timeStr}`;
 	}
 
-	async function handleRefresh(): Promise<void> {
-		if (isRefreshing || !canRefresh) return;
+	async function handleRefresh(section: QuotaSection): Promise<void> {
+		if (isRefreshing || !section.features.includes('quota_refresh')) return;
 		isRefreshing = true;
+		refreshingHostId = section.hostId;
 		refreshMessage = null;
 		try {
-			await connection.sendCommand(hostId, { kind: 'refresh_quota' });
+			await connection.sendCommand(section.hostId, { kind: 'refresh_quota' });
 			refreshMessage = t('quotaRefreshed');
 			setTimeout(() => {
 				refreshMessage = null;
@@ -102,6 +105,7 @@
 			refreshMessage = (err as Error)?.message || t('errFailed');
 		} finally {
 			isRefreshing = false;
+			refreshingHostId = null;
 		}
 	}
 </script>
@@ -113,7 +117,11 @@
 		<div class="sheet-head">
 			<div class="head-titles">
 				<h2>{t('quotaSheetTitle')}</h2>
-				<p class="sub">{t('quotaSheetSub', { machine: hostName })}</p>
+				{#if ordered.length === 1}
+					<p class="sub">{t('quotaSheetSub', { machine: ordered[0]!.hostName })}</p>
+				{:else}
+					<p class="sub">{t('quotaPerMachine')}</p>
+				{/if}
 			</div>
 			<button
 				type="button"
@@ -127,81 +135,95 @@
 		</div>
 
 		<div class="sheet-body">
-			{#if sortedProviders.length === 0}
-				<p class="empty-text">{t('quotaNoData')}</p>
-			{:else}
-				<div class="providers-list">
-					{#each sortedProviders as p (p.provider + (p.account ?? ''))}
-						{@const normId = normalizeProvider(p.provider)}
-						{@const usingProjects = getProjectsUsingProvider(p.provider)}
-						<div class="quota-block">
-							<div class="provider-header">
-								<div class="provider-info">
-									<ProviderLogo provider={normId} size={16} />
-									<strong class="provider-name">{providerDisplayName(p.provider)}</strong>
-								</div>
-								{#if p.account}
-									<span class="provider-account">{p.account}</span>
-								{/if}
-							</div>
+			{#each ordered as section (section.hostId)}
+				{@const providers = sortedProviders(section)}
+				<div class="machine-section" data-testid={`quota-section-${section.hostId}`}>
+					<div class="machine-head">
+						<MachineGlyph glyph={{ kind: section.online ? 'remote' : 'offline' }} size={12} />
+						<span class="machine-name">{section.hostName}</span>
+						{#if !section.online}
+							<span class="machine-offline">{t('offline')}</span>
+						{/if}
+						{#if section.features.includes('quota_refresh')}
+							<button
+								type="button"
+								class="section-refresh"
+								disabled={isRefreshing && refreshingHostId === section.hostId}
+								onclick={() => void handleRefresh(section)}
+								aria-label={t('quotaRefresh')}
+								title={t('quotaRefresh')}
+							>
+								<IconRefresh />
+							</button>
+						{/if}
+					</div>
 
-							<div class="windows-list">
-								{#each p.windows as win (win.id)}
-									{@const frac = win.usedFraction ?? 0}
-									{@const tone = getQuotaLevel(win.usedFraction, p.status)}
-									<div class="window-row">
-										<div class="window-top">
-											<span class="window-label">{win.label}</span>
-											<span class="window-pct tone-{tone}">
-												{Math.round(frac * 100)}%
-											</span>
+					{#if providers.length === 0}
+						<p class="empty-text">{t('quotaNoData')}</p>
+					{:else}
+						<div class="providers-list">
+							{#each providers as p (p.provider + (p.account ?? ''))}
+								{@const normId = normalizeProvider(p.provider)}
+								{@const usingProjects = getProjectsUsingProvider(section, p.provider)}
+								<div class="quota-block">
+									<div class="provider-header">
+										<div class="provider-info">
+											<ProviderLogo provider={normId} size={16} />
+											<strong class="provider-name">{providerDisplayName(p.provider)}</strong>
 										</div>
-
-										<div class="meter" aria-hidden="true">
-											<i
-												class="meter-fill tone-{tone}"
-												style="width: {Math.max(4, Math.min(100, Math.round(frac * 100)))}%"
-											></i>
-										</div>
-
-										{#if win.resetsAt}
-											<div class="window-reset">
-												{t('quotaResetsAt', { time: formatResetTime(win.resetsAt) })}
-											</div>
+										{#if p.account}
+											<span class="provider-account">{p.account}</span>
 										{/if}
 									</div>
-								{/each}
-							</div>
 
-							<div class="usage-footer">
-								{#if usingProjects.length > 0}
-									<span class="in-use-text">
-										{t('quotaInUseBy', { projects: usingProjects.join(', ') })}
-									</span>
-								{:else}
-									<span class="not-in-use-text">{t('quotaNotInUse')}</span>
-								{/if}
-							</div>
+									<div class="windows-list">
+										{#each p.windows as win (win.id)}
+											{@const frac = win.usedFraction ?? 0}
+											{@const tone = getQuotaLevel(win.usedFraction, p.status)}
+											<div class="window-row">
+												<div class="window-top">
+													<span class="window-label">{win.label}</span>
+													<span class="window-pct tone-{tone}">
+														{Math.round(frac * 100)}%
+													</span>
+												</div>
+
+												<div class="meter" aria-hidden="true">
+													<i
+														class="meter-fill tone-{tone}"
+														style="width: {Math.max(4, Math.min(100, Math.round(frac * 100)))}%"
+													></i>
+												</div>
+
+												{#if win.resetsAt}
+													<div class="window-reset">
+														{t('quotaResetsAt', { time: formatResetTime(win.resetsAt) })}
+													</div>
+												{/if}
+											</div>
+										{/each}
+									</div>
+
+									<div class="usage-footer">
+										{#if usingProjects.length > 0}
+											<span class="in-use-text">
+												{t('quotaInUseBy', { projects: usingProjects.join(', ') })}
+											</span>
+										{:else}
+											<span class="not-in-use-text">{t('quotaNotInUse')}</span>
+										{/if}
+									</div>
+								</div>
+							{/each}
 						</div>
-					{/each}
+					{/if}
 				</div>
-			{/if}
+			{/each}
 		</div>
 
-		{#if canRefresh}
+		{#if refreshMessage}
 			<div class="sheet-actions">
-				{#if refreshMessage}
-					<span class="refresh-msg">{refreshMessage}</span>
-				{/if}
-				<button
-					type="button"
-					class="primary refresh-btn"
-					disabled={isRefreshing}
-					onclick={handleRefresh}
-				>
-					<IconRefresh />
-					<span>{isRefreshing ? t('quotaRefreshing') : t('quotaRefresh')}</span>
-				</button>
+				<span class="refresh-msg">{refreshMessage}</span>
 			</div>
 		{/if}
 	</div>
@@ -297,6 +319,53 @@
 		display: flex;
 		flex-direction: column;
 		gap: 16px;
+	}
+
+	.machine-section {
+		display: flex;
+		flex-direction: column;
+		gap: 10px;
+		padding: 4px 0 12px;
+		border-bottom: 1px dashed var(--line);
+	}
+
+	.machine-section:last-child {
+		border-bottom: none;
+	}
+
+	.machine-head {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		color: var(--ink-muted);
+		font-size: var(--text-xs);
+		font-weight: 600;
+	}
+
+	.machine-head .machine-name {
+		color: var(--ink);
+	}
+
+	.machine-offline {
+		color: var(--danger);
+	}
+
+	.section-refresh {
+		margin-left: auto;
+		width: 32px;
+		height: 32px;
+		display: grid;
+		place-items: center;
+		background: transparent;
+		border: none;
+		border-radius: 50%;
+		color: var(--ink-muted);
+		cursor: pointer;
+	}
+
+	.section-refresh:disabled {
+		opacity: 0.5;
+		cursor: default;
 	}
 
 	.quota-block {

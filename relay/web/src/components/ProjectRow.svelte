@@ -1,62 +1,116 @@
 <!--
-  ProjectRow.svelte — Riga di un singolo progetto aperto (Gate R48, R-REM-02, R-REM-03, R-REM-11).
-  Ogni progetto compare una sola volta indipendentemente da rami e sessioni.
-  Mostra pallino di stato, nome, riga «stato · contesto» con percentuali dei provider in uso.
-  Toccando la riga si espande (se ha più rami o compiti in coda) o apre la chat.
-  Nell'espansione mostra rami, compiti in coda (<QueueList>) e azioni Nuovo lavoro / Storico.
+  ProjectRow.svelte — Una riga per progetto, anche su più macchine (R-REM-17…R-REM-22).
+  Lo stato unisce quello delle copie (una richiesta su una copia mette la riga in
+  cima, R-REM-02) e il glifo dice su quali macchine vive. Nell'espansione i rami
+  di tutte le copie stanno insieme, ognuno con la macchina, poi la coda unica
+  (R-REM-19) e i lavori in attesa di una macchina spenta (R-REM-22).
 -->
 <script lang="ts">
-	import type { RemoteProject, RemoteQuota, Feature } from '../../../src/protocol.ts';
+	import type { RemoteQuotaProvider } from '../../../src/protocol.ts';
 	import { t } from '../i18n.ts';
+	import { connection } from '../connection.svelte.ts';
 	import {
-		getProjectMeta,
-		getLaneStatus,
 		getLaneSummary,
-		decideProjectOpenTarget,
+		getQuotaLevel,
+		getWorstQuotaWindow,
+		getWorkingProviders,
 		laneLabel,
+		normalizeProvider,
+		providerDisplayName,
 		queuedTaskCount
 	} from '../projectHelpers.ts';
+	import {
+		decideGroupOpenTarget,
+		deferredForGroup,
+		mergedLanes,
+		mergedTasks,
+		machineOptions,
+		type GlyphSpec,
+		type ProjectGroup
+	} from '../multiMachine.ts';
 	import QueueList from './work/QueueList.svelte';
+	import MachineGlyph from './MachineGlyph.svelte';
 	import { accordionFold } from '../motion.ts';
+
 	let {
-		hostId,
-		project,
-		quota = null,
-		features = [],
+		group,
+		glyph,
 		isExpanded = false,
 		onToggleExpand,
 		onOpenBranch,
 		onNewWork,
 		onOpenHistory
 	}: {
-		hostId: string;
-		project: RemoteProject;
-		quota?: RemoteQuota | null;
-		features?: Feature[];
+		group: ProjectGroup;
+		glyph: GlyphSpec;
 		isExpanded?: boolean;
 		onToggleExpand: () => void;
-		onOpenBranch: (laneId: string) => void;
+		onOpenBranch: (hostId: string, projectId: string, laneId: string) => void;
 		onNewWork: () => void;
 		onOpenHistory: () => void;
 	} = $props();
 
-	const meta = $derived(getProjectMeta(project, quota));
-	const isExpandable = $derived(
-		project.lanes.length > 1 || queuedTaskCount(project) > 0
+	const lanes = $derived(mergedLanes(group));
+	const tasks = $derived(mergedTasks(group));
+	const deferred = $derived(deferredForGroup(group, connection.hosts));
+	const machines = $derived(machineOptions(group));
+	const isExpandable = $derived(lanes.length > 1 || tasks.length > 0 || deferred.length > 0);
+	const status = $derived(group.status);
+
+	// Riga meta: stato, contesto, coda e macchine, come R-REM-02.
+	const contextText = $derived.by(() => {
+		const waiting = lanes.find((entry) => entry.status === 'question');
+		if (waiting) {
+			const summary = getLaneSummary(waiting.copy.project, waiting.lane);
+			return group.isShared
+				? `${laneLabel(waiting.lane)} · ${summary} · ${waiting.copy.hostName}`
+				: `${laneLabel(waiting.lane)} · ${summary}`;
+		}
+		const working = lanes.filter((entry) => entry.status === 'working');
+		if (working.length > 1) return t('branchesWorking', { count: working.length });
+		const first = working[0] ?? lanes[0];
+		return first ? getLaneSummary(first.copy.project, first.lane) : '';
+	});
+
+	const statusLabel = $derived(
+		status === 'question'
+			? t('projectStatusQuestion')
+			: status === 'working'
+				? t('projectStatusWorking')
+				: t('projectStatusIdle')
 	);
 
-	function handleRowClick() {
-		if (isExpanded) {
-			onToggleExpand();
-			return;
+	const queuedCount = $derived(
+		group.copies.reduce((sum, copy) => sum + queuedTaskCount(copy.project), 0)
+	);
+
+	// Percentuali dei provider in uso, ognuna presa dalla macchina che la pubblica (R-REM-23).
+	const providerTokens = $derived.by(() => {
+		if (status === 'idle') return [];
+		const tokens: Array<{ providerId: string; name: string; pct: string; tone: string }> = [];
+		const seen = new Set<string>();
+		for (const copy of group.copies) {
+			const providers: RemoteQuotaProvider[] = connection.hostStates[copy.hostId]?.state.quota?.providers ?? [];
+			if (providers.length === 0) continue;
+			for (const providerId of getWorkingProviders(copy.project)) {
+				if (seen.has(providerId)) continue;
+				const quotaProvider = providers.find(
+					(candidate) => normalizeProvider(candidate.provider) === providerId
+				);
+				const worst = quotaProvider ? getWorstQuotaWindow(quotaProvider) : null;
+				const fraction = worst?.usedFraction;
+				if (!quotaProvider || fraction == null) continue;
+				seen.add(providerId);
+				tokens.push({
+					providerId,
+					name: providerDisplayName(quotaProvider.provider),
+					pct: `${Math.round(fraction * 100)}%`,
+					tone: getQuotaLevel(fraction, quotaProvider.status)
+				});
+			}
 		}
-		const target = decideProjectOpenTarget(project);
-		if (target.action === 'chat') {
-			onOpenBranch(target.laneId);
-		} else {
-			onToggleExpand();
-		}
-	}
+		return tokens;
+	});
 </script>
 
 <li class="project-li">
@@ -64,30 +118,54 @@
 		type="button"
 		class="row-btn"
 		class:expanded={isExpanded}
-		onclick={handleRowClick}
-		data-testid={`project-${project.id}`}
+		onclick={() => {
+			if (isExpanded) {
+				onToggleExpand();
+				return;
+			}
+			const target = decideGroupOpenTarget(group);
+			if (target.action === 'chat') {
+				onOpenBranch(target.hostId, target.projectId, target.laneId);
+			} else {
+				onToggleExpand();
+			}
+		}}
+		data-testid={`project-${group.key}`}
 		aria-expanded={isExpandable ? isExpanded : undefined}
 	>
-		<span class="status-dot {meta.status}" aria-hidden="true"></span>
+		<span class="status-dot {status}" aria-hidden="true"></span>
 
 		<span class="row-content">
-			<span class="row-title">{project.name}</span>
+			<span class="row-title-line">
+				<span class="row-title">{group.primary.project.name}</span>
+				<span class="row-glyph" title={group.isShared ? t('machineSharedAria') : undefined}>
+					<MachineGlyph {glyph} size={13} />
+				</span>
+			</span>
 			<span class="row-meta">
-				<span class="meta-status {meta.status}-text">{meta.statusLabel}</span>
+				<span class="meta-status {status}-text">{statusLabel}</span>
 				<span class="meta-sep">·</span>
-				<span class="meta-ctx">{meta.contextText}</span>
-				{#if meta.queuedCount > 0}
+				<span class="meta-ctx">{contextText}</span>
+				{#if queuedCount > 0}
 					<span class="meta-sep">·</span>
-					<span class="meta-queue">{t('queuedWorkCount', { count: meta.queuedCount })}</span>
+					<span class="meta-queue">{t('queuedWorkCount', { count: queuedCount })}</span>
 				{/if}
-				{#if meta.providerTokens.length > 0}
+				{#if deferred.length > 0}
+					<span class="meta-sep">·</span>
+					<span class="meta-deferred">{t('deferredPendingCount', { count: deferred.length })}</span>
+				{/if}
+				{#if providerTokens.length > 0}
 					<span class="meta-sep">·</span>
 					<span class="meta-providers">
-						{#each meta.providerTokens as tok, i}
+						{#each providerTokens as tok, i (tok.providerId)}
 							{#if i > 0}, {/if}
 							<span class="prov-token tone-{tok.tone}">{tok.name} {tok.pct}</span>
 						{/each}
 					</span>
+				{/if}
+				{#if !group.reachable}
+					<span class="meta-sep">·</span>
+					<span class="meta-offline">{t('offline')}</span>
 				{/if}
 			</span>
 		</span>
@@ -97,30 +175,36 @@
 
 	{#if isExpandable && isExpanded}
 		<div class="expand-pane" transition:accordionFold>
-			<!-- Elenco dei rami (Principale, worktree, Lab) -->
+			<!-- Rami di tutte le copie, ognuno con la sua macchina (R-REM-18) -->
 			<div class="branches-list">
-				{#each project.lanes as lane (lane.id)}
-					{@const lStatus = getLaneStatus(project, lane)}
-					{@const lSummary = getLaneSummary(project, lane)}
+				{#each lanes as entry (entry.copy.hostId + ':' + entry.lane.id)}
 					<button
 						type="button"
 						class="branch-item"
-						onclick={() => onOpenBranch(lane.id)}
-						data-testid={`branch-${lane.id}`}
+						onclick={() => onOpenBranch(entry.copy.hostId, entry.copy.project.id, entry.lane.id)}
+						data-testid={`branch-${entry.copy.hostId}-${entry.lane.id}`}
 					>
 						<span class="branch-lead">
-							<span class="branch-name">{laneLabel(lane)}</span>
+							<span class="branch-name-line">
+								<span class="branch-name">{laneLabel(entry.lane)}</span>
+								{#if group.isShared}
+									<span class="branch-machine">
+										<MachineGlyph glyph={{ kind: entry.copy.online ? 'remote' : 'offline' }} size={11} />
+										<span class="branch-machine-name">{entry.copy.hostName}</span>
+									</span>
+								{/if}
+							</span>
 							<span class="branch-meta">
-								<span class="status-dot-mini {lStatus}" aria-hidden="true"></span>
-								<span class="meta-status {lStatus}-text">
-									{lStatus === 'question'
+								<span class="status-dot-mini {entry.status}" aria-hidden="true"></span>
+								<span class="meta-status {entry.status}-text">
+									{entry.status === 'question'
 										? t('projectStatusQuestion')
-										: lStatus === 'working'
+										: entry.status === 'working'
 											? t('projectStatusWorking')
 											: t('laneStatusReady')}
 								</span>
 								<span class="meta-sep">·</span>
-								<span class="meta-summary">{lSummary}</span>
+								<span class="meta-summary">{getLaneSummary(entry.copy.project, entry.lane)}</span>
 							</span>
 						</span>
 						<span class="chev" aria-hidden="true">›</span>
@@ -128,25 +212,36 @@
 				{/each}
 			</div>
 
-			<!-- Coda del progetto (Gate R48, R-REM-11) -->
-			<QueueList {hostId} {project} {features} />
+			<!-- Coda unica del progetto (R-REM-19) -->
+			<QueueList {group} {tasks} machines={machines} />
 
-			<!-- Azioni in fondo all'espansione -->
+			<!-- Lavori che aspettano il ritorno di una macchina spenta (R-REM-22) -->
+			{#if deferred.length > 0}
+				<div class="deferred-section" data-testid="deferred-list">
+					{#each deferred as entry (entry.commandId)}
+						<div class="deferred-row">
+							<span class="deferred-text">
+								<span class="deferred-title">{entry.prompt || group.primary.project.name}</span>
+								<span class="deferred-sub">{t('deferredWaitingItem', { machine: entry.hostName })}</span>
+							</span>
+							<button
+								type="button"
+								class="deferred-cancel"
+								onclick={() => void connection.cancelDeferred(entry.hostId, entry.commandId)}
+								data-testid={`deferred-cancel-${entry.commandId}`}
+							>
+								{t('deferredCancel')}
+							</button>
+						</div>
+					{/each}
+				</div>
+			{/if}
+
 			<div class="expand-actions">
-				<button
-					type="button"
-					class="expand-action-btn"
-					onclick={onNewWork}
-					data-testid="new-work-project"
-				>
+				<button type="button" class="expand-action-btn" onclick={onNewWork} data-testid="new-work-project">
 					{t('projectActionNewWork')}
 				</button>
-				<button
-					type="button"
-					class="expand-action-btn"
-					onclick={onOpenHistory}
-					data-testid="history-project"
-				>
+				<button type="button" class="expand-action-btn" onclick={onOpenHistory} data-testid="history-project">
 					{t('projectActionHistory')}
 				</button>
 			</div>
@@ -205,14 +300,17 @@
 		animation: pulseDot 2s infinite ease-in-out;
 	}
 
-	.status-dot.idle {
-		background: var(--ink-faint);
-	}
-
 	.row-content {
 		display: flex;
 		flex-direction: column;
 		gap: 2px;
+		min-width: 0;
+	}
+
+	.row-title-line {
+		display: flex;
+		align-items: center;
+		gap: 6px;
 		min-width: 0;
 	}
 
@@ -224,6 +322,12 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+
+	.row-glyph {
+		display: inline-flex;
+		color: var(--ink-muted);
+		flex-shrink: 0;
 	}
 
 	.row-meta {
@@ -245,18 +349,23 @@
 		font-weight: 500;
 	}
 
-	.meta-status.idle-text {
-		color: var(--ink-muted);
-	}
-
 	.meta-sep {
 		margin: 0 2px;
 		opacity: 0.6;
 	}
 
-	.meta-queue {
+	.meta-queue,
+	.meta-deferred {
 		font-weight: 500;
 		color: var(--ink);
+	}
+
+	.meta-deferred {
+		color: var(--warn);
+	}
+
+	.meta-offline {
+		color: var(--danger);
 	}
 
 	.prov-token.tone-warning {
@@ -322,10 +431,33 @@
 		min-width: 0;
 	}
 
+	.branch-name-line {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		min-width: 0;
+	}
+
 	.branch-name {
 		font-size: var(--text-sm);
 		font-weight: 600;
 		color: var(--ink);
+	}
+
+	.branch-machine {
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
+		color: var(--ink-muted);
+		font-size: 11px;
+		font-weight: 500;
+	}
+
+	.branch-machine-name {
+		max-width: 120px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.branch-meta {
@@ -355,8 +487,52 @@
 		background: var(--brand);
 	}
 
-	.status-dot-mini.idle {
-		background: var(--ink-faint);
+	.deferred-section {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+
+	.deferred-row {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		padding: 8px 6px;
+		border-radius: var(--radius-md);
+		background: color-mix(in oklch, var(--warn) 8%, transparent);
+	}
+
+	.deferred-text {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+
+	.deferred-title {
+		font-size: var(--text-sm);
+		font-weight: 550;
+		color: var(--ink);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.deferred-sub {
+		font-size: var(--text-xs);
+		color: var(--warn);
+	}
+
+	.deferred-cancel {
+		background: transparent;
+		border: 1px solid var(--line);
+		border-radius: var(--radius-md);
+		color: var(--ink);
+		font-size: var(--text-xs);
+		padding: 6px 10px;
+		min-height: 36px;
+		cursor: pointer;
 	}
 
 	.expand-actions {

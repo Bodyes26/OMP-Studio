@@ -1,6 +1,6 @@
 # Studio Remote mobile — registro dei requisiti
 
-**Data dell'accordo:** 2026-11-01. **Decisione:** Gate R48 in [DECISIONS.md](../DECISIONS.md).
+**Data dell'accordo:** 2026-11-01. **Decisione:** Gate R48 in [DECISIONS.md](../DECISIONS.md); elenco multi-macchina (R-REM-17…24) nel Gate R50 del 2026-11-22.
 **Piano operativo:** «Piano Studio Remote mobile — Gate R48» in [PLAN.md](../PLAN.md).
 **Anteprima approvata:** [remote-mobile-anteprima.html](remote-mobile-anteprima.html), struttura «B — Elenco espandibile», copia versionata del prototipo `proto/studio-remote-b-espandibile.html`. Dati e comandi dell'anteprima sono simulati; il tema chiaro serve solo alla revisione, l'app reale segue il tema di Studio.
 
@@ -23,6 +23,7 @@ Citazioni dell'utente dalla discussione del 2026-11-01:
 - **F9 — Selettore modello:** «riusare i componenti di studio ove possibile»; «anche remote adesso aveva un modo credo carino per mostrare e selezionare modello»; risultato «molto meglio, confermiamo questo».
 - **F10 — Coda:** «vorrei poterli gestire quindi avviarne uno, modificarlo in tutte le sue impostazioni o cancellarlo [...] potrei sempre avviare un task su una nuova worktree». Scelte: coda dentro il progetto, modifica nello stesso pannello di Nuovo lavoro, impostazioni aggiuntive immagini e direttive, conferme risolte dal telefono.
 - **F11 — Rimozioni:** confermate con domanda dedicata il 2026-11-01 (tabella «Cutover»).
+- **F12 — Remote multi-macchina (2026-11-22):** «se uno ha due macchine e sono tra di loro collegate [...] deve farmi vedere come vedo dal computer l'elenco dei progetti che è su una macchina, che sull'altra, o che sono su entrambi, ma la definizione è sempre un singolo progetto, non un singolo progetto per ogni singola macchina». Scelte nel modulo della stessa sessione: l'elenco lo unisce la PWA con lo stato che ogni macchina manda già al relay; via il selettore della macchina; glifo della barra di Studio sulla riga; apertura come sul computer (R-MI-24); coda con ogni lavoro una volta sola e con la sua macchina; Nuovo lavoro con la macchina usata per ultima; storico unito; macchina spenta ancora utilizzabile per mettere in coda; quote per macchina; comandi fra computer chiusi sul canale del telefono; implementazione diretta senza anteprima. **Non scelti:** auto-avvio comandato dal telefono e «Continua su…» (spostamento di sessione, R-MI-14).
 
 Le fonti complete sono nella conversazione di progetto del 2026-11-01 e nel diario `docs/diario/2026-11.md`.
 
@@ -30,7 +31,7 @@ Le fonti complete sono nella conversazione di progetto del 2026-11-01 e nel diar
 
 | ID | Stato del requisito | Implementazione | Verifica |
 |---|---|---|---|
-| R-REM-01 | Attivo, approvato il 2026-11-01 | Codice scritto il 2026-11-01 | Confermato dall'utente il 2026-11-09 sull'app («ho provato tutto funziona») |
+| R-REM-01 | Sostituito il 2026-11-22 da R-REM-17 (F12) | — | — |
 | R-REM-02 | Attivo, approvato il 2026-11-01 | Codice scritto il 2026-11-01 | Confermato dall'utente il 2026-11-09 sull'app («ho provato tutto funziona») |
 | R-REM-03 | Attivo, approvato il 2026-11-01 | Codice scritto il 2026-11-01 | Confermato dall'utente il 2026-11-09 sull'app («ho provato tutto funziona») |
 | R-REM-04 | Attivo, approvato il 2026-11-01 | Codice scritto il 2026-11-01 | Confermato dall'utente il 2026-11-09 sull'app («ho provato tutto funziona») |
@@ -46,6 +47,14 @@ Le fonti complete sono nella conversazione di progetto del 2026-11-01 e nel diar
 | R-REM-14 | Attivo, approvato il 2026-11-01 | Codice scritto il 2026-11-01 | Confermato dall'utente il 2026-11-09 sull'app («ho provato tutto funziona») |
 | R-REM-15 | Attivo, approvato il 2026-11-01 | Codice scritto il 2026-11-01 | Confermato dall'utente il 2026-11-09 sull'app («ho provato tutto funziona») |
 | R-REM-16 | Attivo, approvato il 2026-11-01 | Codice scritto il 2026-11-01 | Confermato dall'utente il 2026-11-09 sull'app («ho provato tutto funziona») |
+| R-REM-17 | Attivo, approvato il 2026-11-22 (F12); sostituisce R-REM-01 | 2026-11-22: `identity` pubblicata da `projectCopyIdentity.ts`; PWA `multiMachine.ts` (`groupProjects`), `HomeView`, `ProjectRow`, `MachineGlyph`; `machine.svelte.ts` rimosso | 2026-11-22: test di raggruppamento in `relay/web/test/multiMachine.test.ts` e di identità in `test/remote-multimachine.test.ts`; prova con due macchine reali e telefono da fare |
+| R-REM-18 | Attivo, approvato il 2026-11-22 (F12) | 2026-11-22: `lastUsedAt` da `Project.lastOpened`; apertura, rami uniti e macchina nell'intestazione della chat | 2026-11-22: test della copia da aprire; prova reale da fare |
+| R-REM-19 | Attivo, approvato il 2026-11-22 (F12) | 2026-11-22: `machineId`/`updatedAt` pubblicati, `options.machineId` validato in `taskCommands.ts`; coda unita e instradamento in `work.svelte.ts`; Studio rifiuta `run_task` di un lavoro assegnato a un'altra macchina | 2026-11-22: test di fusione, instradamento e validazione; prova reale da fare |
+| R-REM-20 | Attivo, approvato il 2026-11-22 (F12) | 2026-11-22: scelta della macchina in `WorkSheet.svelte` | 2026-11-22: test della macchina proposta; prova reale da fare |
+| R-REM-21 | Attivo, approvato il 2026-11-22 (F12) | 2026-11-22: `ProjectHistorySheet.svelte` con `list_sessions` su tutte le copie raggiungibili | Prova reale da fare |
+| R-REM-22 | Attivo, approvato il 2026-11-22 (F12) | 2026-11-22: copie spente dall'ultimo stato; outbox `deferred_commands` nel relay (massimo 20 per macchina, annullabile da ogni dispositivo abbinato, svuotato alla revoca) | 2026-11-22: test del relay su rinvio, consegna in ordine, annullamento, tetto e revoca; prova con macchina spenta da fare |
+| R-REM-23 | Attivo, approvato il 2026-11-22 (F12) | 2026-11-22: `QuotaSheet.svelte` per macchina; striscia della macchina del ramo nella chat dei progetti condivisi | Prova reale da fare |
+| R-REM-24 | Attivo, approvato il 2026-11-22 (F12) | 2026-11-22: rifiuto nel relay (`sockets.ts`) e in Studio (`commands.ts`, canale `phone`) | 2026-11-22: test del relay (nessuno dei cinque comandi arriva alla macchina) e di Studio (rifiuto sul canale del telefono, non su quello fra computer) |
 
 «Solo anteprima» significa che il comportamento è stato esercitato nel prototipo con dati simulati (vedi «Prove sull'anteprima»), non nell'app reale. «Codice scritto» significa che l'implementazione esiste ma, per scelta dell'utente del 2026-11-01 («non fare test»), non sono stati scritti test nuovi né fatte prove nel browser o sul telefono. Per la Nightly del 2026-11-02 sono passati i controlli di pubblicazione (`npm run check`, `npm test`, `npm run check:commands`, `cargo test`; in `relay/` `bun run check`, `bun run check:web`, `bun test`, `bun run build:web`): provano che il codice compila e non rompe le suite esistenti, non gli scenari di accettazione. Quegli scenari, insieme a ricarica della PWA, animazioni, barra di stato e scorrimento della chat, sono stati confermati dall'utente il 2026-11-09 sull'app («ho provato tutto funziona»).
 
@@ -120,6 +129,7 @@ Le funzioni non elencate come rimosse restano, spostate dove indicato. Le rimozi
 ## R-REM-01 — Una macchina alla volta
 
 **Fonti:** F1, F3.
+**Stato:** sostituito il 2026-11-22 da R-REM-17 (F12): il selettore della macchina sparisce e l'elenco è unico. Testo originale conservato qui sotto.
 
 La pagina iniziale mostra una sola macchina, scelta da un selettore. Se un'altra macchina ha richieste in attesa, un'indicazione accanto al selettore lo dice («● 1 richiesta su Studio Windows») e porta al foglio Macchine; la vista non cambia da sola. Il foglio Macchine elenca le macchine con progetti aperti e richieste, e contiene anche apertura/creazione di progetti e impostazioni (R-REM-16). Anteprima: `homeHTML`, azione `machines`.
 
@@ -259,6 +269,73 @@ Lo storico delle sessioni di un progetto si apre da «Storico» nell'espansione 
 Restano: abbinamento; impostazioni (dispositivi, codici, notifiche push, lingua, disconnessione) dal foglio Macchine; apertura e creazione di progetti dal foglio Macchine; notifiche che aprono il progetto e il ramo interessati; avviso offline e riconnessione; testi IT/EN; tema di Studio chiaro o scuro; correzioni di viewport e aree sicure per iPhone; funzioni negoziate per macchina, per cui le macchine con Studio precedente mostrano solo i controlli che supportano.
 
 **Accettazione:** una notifica di domanda apre la chat del ramo giusto; una macchina che non dichiara le nuove funzioni non mostra controlli che non può eseguire; tutti i testi nuovi hanno la traduzione inglese.
+
+## R-REM-17 — Un elenco unico, un progetto una volta sola
+
+**Fonti:** F12. Sostituisce R-REM-01; precisa R-REM-02, che resta valido per ordine e contenuto della riga.
+
+La pagina iniziale mostra un solo elenco con i progetti aperti su tutte le macchine abbinate al relay, senza selettore della macchina. Le copie dello stesso progetto su macchine diverse occupano una riga sola, con la stessa regola del computer (R-MI-12): stesso `origin` GitHub (anche dopo una rinomina, R-MI-32), oppure stesso primo commit solo se l'utente ha confermato che sono lo stesso progetto (R-MI-44). Ogni macchina pubblica la chiave della propria copia (`RemoteProject.identity`); senza chiave la copia resta una riga a sé. La riga porta il glifo della macchina della barra di Studio (R-MI-19): una macchina, l'altra o tutte e due. Lo stato della riga unisce quello delle copie: basta una richiesta su una copia per mettere il progetto in cima. Il foglio Macchine resta, per stato delle macchine, apertura e creazione dei progetti e impostazioni (R-REM-16).
+
+**Accettazione:** con lo stesso repository aperto sul Mac e sul PC e un progetto solo sul Mac, l'elenco ha due righe; la prima porta il glifo «su entrambe»; una domanda sulla copia del PC porta quella riga in cima.
+**Errore da evitare:** una riga per macchina dello stesso progetto; fondere due copie senza origin non confermate.
+
+## R-REM-18 — Apertura ed espansione di un progetto su più macchine
+
+**Fonti:** F12, R-MI-24.
+
+Toccando un progetto presente su più macchine valgono le regole di R-REM-03 sull'insieme delle copie: rami e richieste di tutte le copie contano insieme. La chat che si apre è quella della copia che aspetta una risposta; altrimenti quella della macchina usata per ultima (`RemoteProject.lastUsedAt`, F18). Nell'espansione i rami di tutte le copie stanno insieme, ognuno con il glifo della sua macchina; l'intestazione della chat dice su quale macchina gira il ramo.
+
+**Accettazione:** con una domanda sulla copia del PC e l'ultima sessione usata sul Mac, il tocco apre la chat del PC; senza richieste apre il Mac; l'espansione mostra i rami di entrambe le macchine con il loro glifo.
+
+## R-REM-19 — Coda unica con la macchina del lavoro
+
+**Fonti:** F12, R-MI-13, F19 e F20 di multi-istanza.
+
+La coda di un progetto condiviso è una sola: ogni lavoro compare una volta, anche se ogni macchina ne pubblica una copia (vince la voce con `updatedAt` più recente). Ogni lavoro mostra la sua macchina (`RemoteTask.machineId`) oppure «dove è acceso l'auto-avvio» quando non ne ha una, e la macchina si cambia nel pannello del lavoro. «Avvia» va alla macchina del lavoro; senza macchina, a quella con l'auto-avvio acceso; altrimenti alla macchina usata per ultima. Modifiche, spostamenti ed eliminazioni vanno a una copia raggiungibile, preferendo la macchina del lavoro: la replica della coda li porta alle altre. L'auto-avvio resta comandato solo dal computer.
+
+**Accettazione:** un lavoro della coda replicata compare una volta; assegnarlo al PC dal telefono lo mostra col glifo del PC anche nel Task Editor del Mac; «Avvia» lo fa partire sul PC.
+**Errore da evitare:** lo stesso lavoro due volte; un avvio sulla macchina sbagliata.
+
+## R-REM-20 — Nuovo lavoro con la macchina
+
+**Fonti:** F12, F18 di multi-istanza.
+
+Su un progetto presente su più macchine, Nuovo lavoro propone la macchina usata per ultima e ne permette un'altra con una scelta compatta accanto a «nuovo worktree», nello spazio di R-REM-09. Su un progetto presente su una sola macchina la scelta non compare. Messo in coda, il lavoro porta la macchina scelta; avviato subito, parte su quella macchina.
+
+**Accettazione:** su un progetto condiviso con ultima macchina il Mac, Nuovo lavoro propone il Mac; scegliendo il PC e avviando, la chat si apre sul PC.
+
+## R-REM-21 — Storico unito
+
+**Fonti:** F12, R-MI-12.
+
+Lo storico di un progetto condiviso (R-REM-15) elenca insieme le sessioni di tutte le copie raggiungibili, in ordine di data, ognuna con il glifo della sua macchina; la ricerca vale su tutte. Una macchina spenta lo dice in testa all'elenco invece di far fallire lo storico.
+
+**Accettazione:** con sessioni sul Mac e sul PC lo storico le mostra in un solo elenco con le due macchine; spegnendo il PC restano quelle del Mac con l'avviso.
+
+## R-REM-22 — Macchina spenta
+
+**Fonti:** F12, R-MI-15, F12 di multi-istanza (programmazione scaduta).
+
+Le copie di una macchina spenta restano nell'elenco con l'ultimo stato noto al relay, segnate come non raggiungibili; le copie raggiungibili dello stesso progetto restano utilizzabili. Si possono ancora mettere lavori in coda: su un progetto condiviso il lavoro va a una copia raggiungibile con la macchina spenta come destinazione, e parte quando quella torna; su un progetto presente solo sulla macchina spenta il relay conserva il lavoro (`deferIfOffline`) e lo consegna al ritorno, e la PWA lo mostra «in attesa di <macchina>» con la possibilità di annullarlo. Una programmazione già scaduta alla consegna si salva in coda e non parte da sola.
+
+**Accettazione:** con il PC spento: il progetto solo sul PC resta in elenco come non raggiungibile; un lavoro messo in coda lì compare «in attesa del PC» e arriva nella coda del PC alla riaccensione; un lavoro per il PC su un progetto condiviso finisce nella coda replicata con il glifo del PC.
+**Errore da evitare:** progetti che spariscono; lavori persi; avvii doppi alla consegna.
+
+## R-REM-23 — Quote per macchina
+
+**Fonti:** F12, R-REM-08.
+
+Nella chat la striscia delle quote è quella della macchina su cui gira il ramo. Il foglio delle quote le divide per macchina, ciascuna con i suoi provider e i suoi account.
+
+**Accettazione:** con account diversi sul Mac e sul PC, la chat di un ramo del PC mostra le quote del PC; il foglio mostra due sezioni.
+
+## R-REM-24 — Comandi fra computer chiusi al telefono
+
+**Fonti:** F12, R-MI-09.
+
+I comandi che le istanze di Studio si scambiano sul collegamento fra computer (`PEER_ONLY_COMMANDS`: lettura e scrittura della coda replicata, azioni sulle corsie dell'altra macchina, chiusura del progetto, auto-avvio esclusivo) non sono accettati sul canale del telefono: li rifiuta il relay e, per difesa in profondità, anche Studio. Su quel canale non c'è il confinamento dei percorsi e degli ambiti che Rust applica fra computer.
+
+**Accettazione:** un `write_queue` inviato al relay da un dispositivo abbinato torna rifiutato e non scrive nulla; lo stesso comando arrivato a Studio dal bridge del relay viene rifiutato.
 
 ---
 

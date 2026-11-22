@@ -9,7 +9,6 @@
 	import { connection } from '../connection.svelte.ts';
 	import {
 		IconClose,
-		IconCheck,
 		IconSettings,
 		IconFolder,
 		IconLaptop,
@@ -18,14 +17,10 @@
 	import { getProjectStatus } from '../projectHelpers.ts';
 	import { scrim, bottomSheet } from '../motion.ts';
 	let {
-		currentHostId,
-		onSelectHost,
 		onOpenProjectSheet,
 		onOpenSettings,
 		onClose
 	}: {
-		currentHostId: string;
-		onSelectHost: (hostId: string) => void;
 		onOpenProjectSheet: (host: HostSummary) => void;
 		onOpenSettings: () => void;
 		onClose: () => void;
@@ -35,7 +30,6 @@
 		host: HostSummary;
 		projectsCount: number;
 		questionCount: number;
-		isSelected: boolean;
 	}
 
 	const hostsList = $derived.by<HostDisplayItem[]>(() => {
@@ -46,14 +40,17 @@
 			return {
 				host,
 				projectsCount: projects.length,
-				questionCount,
-				isSelected: host.id === currentHostId
+				questionCount
 			};
 		});
 	});
 
-	const currentHost = $derived(
-		connection.hosts.find((h) => h.id === currentHostId) ?? connection.hosts[0]
+	// Aprire o creare un progetto e' un'azione di una macchina: si sceglie li'.
+	let selectedHostId = $state<string | null>(null);
+	const targetHost = $derived(
+		connection.hosts.find((host) => host.id === selectedHostId) ??
+			connection.hosts.find((host) => host.online) ??
+			connection.hosts[0]
 	);
 </script>
 
@@ -79,15 +76,7 @@
 		<div class="sheet-body">
 			<div class="machines-list">
 				{#each hostsList as item (item.host.id)}
-					<button
-						type="button"
-						class="machine-item"
-						class:selected={item.isSelected}
-						onclick={() => {
-							onSelectHost(item.host.id);
-							onClose();
-						}}
-					>
+					<div class="machine-item">
 						<span class="machine-icon" aria-hidden="true">
 							{#if item.host.platform === 'macos'}
 								<IconLaptop />
@@ -114,29 +103,39 @@
 							</span>
 						</span>
 
-						{#if item.isSelected}
-							<span class="check-icon" aria-label={t('machineSelected')}>
-								<IconCheck />
-							</span>
-						{/if}
-					</button>
+					</div>
 				{/each}
 			</div>
 		</div>
 
 		<div class="sheet-foot">
-			{#if currentHost && currentHost.features.includes('projects')}
-				<button
-					type="button"
-					class="foot-btn"
-					onclick={() => {
-						onOpenProjectSheet(currentHost);
-						onClose();
-					}}
-				>
-					<IconFolder />
-					<span>{t('openOrCreateProject')}</span>
-				</button>
+			{#if targetHost && targetHost.features.includes('projects')}
+				<div class="foot-project">
+					{#if connection.hosts.length > 1}
+						<label class="foot-project-pick">
+							<span>{t('workMachine')}</span>
+							<select
+								value={targetHost.id}
+								onchange={(event) => (selectedHostId = (event.currentTarget as HTMLSelectElement).value)}
+							>
+								{#each connection.hosts as host (host.id)}
+									<option value={host.id}>{host.name}</option>
+								{/each}
+							</select>
+						</label>
+					{/if}
+					<button
+						type="button"
+						class="foot-btn"
+						onclick={() => {
+							onOpenProjectSheet(targetHost);
+							onClose();
+						}}
+					>
+						<IconFolder />
+						<span>{t('openOrCreateProject')}</span>
+					</button>
+				</div>
 			{/if}
 
 			<button
@@ -238,20 +237,32 @@
 		border-radius: var(--radius-lg);
 		background: var(--bg-sunken);
 		border: 1px solid var(--line);
-		cursor: pointer;
 		min-height: 52px;
-		transition:
-			background-color var(--dur-fast) var(--ease-out),
-			border-color var(--dur-fast) var(--ease-out);
 	}
 
-	.machine-item:hover {
-		background: var(--bg-hover);
+	.foot-project {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
 	}
 
-	.machine-item.selected {
-		border-color: var(--brand);
-		background: color-mix(in oklch, var(--brand) 8%, var(--bg-sunken));
+	.foot-project-pick {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		font-size: var(--text-xs);
+		color: var(--ink-muted);
+	}
+
+	.foot-project-pick select {
+		flex: 1;
+		min-height: 36px;
+		border-radius: var(--radius-md);
+		border: 1px solid var(--line);
+		background: var(--bg-sunken);
+		color: var(--ink);
+		font-size: var(--text-sm);
+		padding: 0 8px;
 	}
 
 	.machine-icon {
@@ -297,13 +308,6 @@
 	.question-count {
 		color: var(--warn);
 		font-weight: 600;
-	}
-
-	.check-icon {
-		color: var(--brand);
-		display: grid;
-		place-items: center;
-		flex-shrink: 0;
 	}
 
 	.sheet-foot {

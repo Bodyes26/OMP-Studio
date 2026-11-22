@@ -13,6 +13,7 @@
 	import { workSheet, type WhenChoice } from '../../work.svelte.ts';
 	import { connection } from '../../connection.svelte.ts';
 	import { explainDestination, providerResetEstimate } from '../../work.ts';
+	import MachineGlyph from '../MachineGlyph.svelte';
 	import { getProjectStatus, sortProjects } from '../../projectHelpers.ts';
 	import { formatScheduleLabel } from '../../schedule.ts';
 	import ConfigChips from './ConfigChips.svelte';
@@ -125,7 +126,7 @@
 				<header class="head">
 					<div class="head-text">
 						<h2>{editing ? t('workEditTitle') : t('workNewTitle')}</h2>
-						<span class="sub">{t('workOnMachine', { machine: workSheet.hostName })}</span>
+						<span class="sub">{t('workOnMachine', { machine: workSheet.displayMachineName })}</span>
 					</div>
 					{#if editing && workSheet.canQueue}
 						<button
@@ -244,6 +245,27 @@
 					>
 						<span class="trunc">{t('workIsolatedWorktree')}</span>
 					</button>
+					{#if workSheet.canChooseMachine}
+						<button
+							type="button"
+							class="chip"
+							onclick={() => (workSheet.view = 'machine')}
+							aria-label={t('workMachineChoose')}
+							data-testid="work-machine"
+						>
+							<MachineGlyph
+								glyph={{ kind: workSheet.selectedMachine?.online ?? true ? 'remote' : 'offline' }}
+								size={12}
+							/>
+							<span class="trunc">
+								{workSheet.selectedMachine?.name ?? t('workMachine')}
+								{#if workSheet.selectedMachine && !workSheet.selectedMachine.online}
+									· {t('workMachineNotReachable')}
+								{/if}
+							</span>
+							<span class="caret" aria-hidden="true"><IconChevronDown /></span>
+						</button>
+					{/if}
 					{#if withOptions && workSheet.catalog}
 						<div class="cfg-row">
 							<ConfigChips
@@ -295,7 +317,7 @@
 				<header class="head">
 					<div class="head-text">
 						<h2>{t('workProject')}</h2>
-						<span class="sub">{t('workOnMachine', { machine: workSheet.hostName })}</span>
+						<span class="sub">{t('workOnMachine', { machine: workSheet.displayMachineName })}</span>
 					</div>
 					<button type="button" class="icon-btn" onclick={() => (workSheet.view = 'main')} aria-label={t('close')}>
 						<IconClose />
@@ -307,6 +329,41 @@
 							<span class="dot {getProjectStatus(candidate)}" aria-hidden="true"></span>
 							<span class="item-text"><strong>{candidate.name}</strong></span>
 							{#if candidate.id === workSheet.projectId}
+								<span class="check" aria-hidden="true"><IconCheck /></span>
+							{/if}
+						</button>
+					{/each}
+				</div>
+			{:else if workSheet.view === 'machine'}
+				<header class="head">
+					<div class="head-text">
+						<h2>{t('workMachineChoose')}</h2>
+						<span class="sub">{project?.name ?? ''}</span>
+					</div>
+					<button type="button" class="icon-btn" onclick={() => (workSheet.view = 'main')} aria-label={t('close')}>
+						<IconClose />
+					</button>
+				</header>
+				<div class="list" role="radiogroup" aria-label={t('workMachineChoose')}>
+					{#each workSheet.machines as machine (machine.id)}
+						<button
+							type="button"
+							class="item"
+							role="radio"
+							aria-checked={workSheet.machineId === machine.id}
+							onclick={() => {
+								workSheet.applyMachine(machine.id);
+								workSheet.view = 'main';
+							}}
+							data-testid={`machine-${machine.id}`}
+						>
+							<span class="item-text">
+								<strong>{machine.name}</strong>
+								{#if !machine.online}
+									<small>{t('workMachineNotReachable')}</small>
+								{/if}
+							</span>
+							{#if workSheet.machineId === machine.id}
 								<span class="check" aria-hidden="true"><IconCheck /></span>
 							{/if}
 						</button>

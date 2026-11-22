@@ -10,6 +10,7 @@ import {
 	HELLO_TIMEOUT_MS,
 	HEARTBEAT_TIMEOUT_MS,
 	MIN_HOST_PROTOCOL_VERSION,
+	PEER_ONLY_COMMANDS,
 	PROTOCOL,
 	type CommandError,
 	type DeviceInfo,
@@ -79,8 +80,11 @@ interface PendingCommand {
 	hostId: string;
 	deviceId: string;
 	kind: RemoteCommand['kind'];
-	clientWs: ServerWebSocket<RelayWsData>;
+	/** `null` per un lavoro rinviato il cui dispositivo non e' piu' collegato: l'esito si registra e basta. */
+	clientWs: ServerWebSocket<RelayWsData> | null;
 	timer: Timer;
+	/** Veniva dall'outbox (`deferIfOffline`): alla risposta la riga va rimossa (R-REM-22). */
+	deferred?: boolean;
 }
 
 function parseJson(raw: string | Buffer): Record<string, unknown> | null {
@@ -427,6 +431,101 @@ export class SocketHub {
 		if (conn.features.includes('chat')) {
 			this.notifyHostChatWatch(conn.hostId);
 		}
+
+		// La macchina e' tornata: le si consegnano i lavori che aspettavano,
+		// dal piu' vecchio (R-REM-22). Il riepilogo cambia, quindi lo si
+		// ribadisce ai client dopo aver svuotato l'outbox.
+		this.deliverDeferredCommands(ws, conn);
+	}
+
+	/**
+	 * Consegna in ordine FIFO i `create_task` conservati per una macchina
+	 * tornata in linea. Ogni lavoro diventa un comando in attesa come gli
+	 * altri: l'esito va al dispositivo che l'aveva chiesto se e' ancora
+	 * collegato, altrimenti resta solo nel registro.
+	 */
+	private deliverDeferredCommands(ws: ServerWebSocket<RelayWsData>, conn: HostWsSession): void {
+		const deferred = this.store.listDeferredForHost(conn.hostId);
+		if (deferred.length === 0) return;
+
+		const commandTimeout = this.config.commandTimeoutMs ?? COMMAND_TIMEOUT_MS;
+		for (const entry of deferred) {
+			const clientWs = this.findDeviceSocket(entry.deviceId);
+			const relayCommandId = randomUUID();
+			const forwardFrame: RelayToHostFrame = {
+				type: 'command',
+				commandId: relayCommandId,
+				device: { id: entry.deviceId, name: this.deviceNameFor(entry.deviceId) },
+				command: entry.command
+			};
+			try {
+				ws.send(JSON.stringify(forwardFrame));
+			} catch {
+				// Host sparito durante la consegna: la riga resta e si ritenta al
+				// prossimo hello invece di perdere il lavoro.
+				break;
+			}
+			// Consegnato: la riga sparisce perche' da ora il lavoro vive come
+			// comando in volo, e se l'host non risponde scade come gli altri.
+			this.store.deleteDeferredCommand(conn.hostId, entry.commandId);
+
+			const pendingEntry: PendingCommand = {
+				relayCommandId,
+				clientCommandId: entry.commandId,
+				hostId: conn.hostId,
+				deviceId: entry.deviceId,
+				kind: entry.command.kind,
+				clientWs,
+				timer: undefined as unknown as Timer
+			};
+			const timer = setTimeout(() => {
+				const current = this.pendingCommands.get(relayCommandId);
+				if (current !== pendingEntry) return;
+				this.pendingCommands.delete(relayCommandId);
+				this.sendToClient(clientWs, {
+					type: 'command_result',
+					hostId: conn.hostId,
+					commandId: pendingEntry.clientCommandId,
+					ok: false,
+					error: { code: 'timeout', message: 'Deferred command timed out' }
+				});
+				this.store.logCommand(Date.now(), entry.deviceId, conn.hostId, entry.command.kind, 'timeout');
+			}, commandTimeout);
+			timer.unref?.();
+			pendingEntry.timer = timer;
+			if (this.pendingCommands.size < MAX_GLOBAL_PENDING_COMMANDS) {
+				this.pendingCommands.set(relayCommandId, pendingEntry);
+			} else {
+				clearTimeout(timer);
+				this.sendToClient(clientWs, {
+					type: 'command_result',
+					hostId: conn.hostId,
+					commandId: entry.commandId,
+					ok: false,
+					error: { code: 'rejected', message: 'Global pending command quota reached' }
+				});
+			}
+		}
+
+		this.broadcastHostSummary(conn.hostId);
+	}
+
+	/** Il socket di un dispositivo collegato, se ne ha uno; `null` altrimenti. */
+	private findDeviceSocket(deviceId: string): ServerWebSocket<RelayWsData> | null {
+		for (const ws of this.activeClients) {
+			const data = ws.data as ClientWsSession;
+			if (data.deviceId === deviceId && data.helloReceived) return ws;
+		}
+		return null;
+	}
+
+	/** Nome del dispositivo per il frame verso l'host; ripiega sull'id. */
+	private deviceNameFor(deviceId: string): string {
+		for (const ws of this.activeClients) {
+			const data = ws.data as ClientWsSession;
+			if (data.deviceId === deviceId) return data.deviceName;
+		}
+		return deviceId;
 	}
 
 	private processHostSnapshot(
@@ -606,6 +705,11 @@ export class SocketHub {
 			return;
 		}
 
+		if (msg.type === 'cancel_deferred') {
+			this.processClientCancelDeferred(ws, conn, msg);
+			return;
+		}
+
 		if (msg.type === 'resync') {
 			this.processClientResync(ws, msg);
 			return;
@@ -710,6 +814,37 @@ export class SocketHub {
 			return;
 		}
 
+		// Comandi che esistono solo sul collegamento fra computer: dal telefono
+		// non c'e' il confinamento di percorsi e ambiti che Rust fa fra computer
+		// (R-REM-24). Si rifiutano prima di ogni altro controllo, cosi' un host
+		// spento non li fa sembrare consegnabili.
+		if (PEER_ONLY_COMMANDS[command.kind]) {
+			this.sendToClient(ws, {
+				type: 'command_result',
+				hostId,
+				commandId,
+				ok: false,
+				error: { code: 'unsupported', message: `Command "${command.kind}" is reserved to the computer link` }
+			});
+			this.store.logCommand(Date.now(), conn.deviceId, hostId, command.kind, 'unsupported');
+			return;
+		}
+
+		// `deferIfOffline` vale solo per `create_task` (R-REM-22): altrove
+		// sarebbe un comando accettato e mai eseguito.
+		const wantsDefer = msg.deferIfOffline === true;
+		if (wantsDefer && command.kind !== 'create_task') {
+			this.sendToClient(ws, {
+				type: 'command_result',
+				hostId,
+				commandId,
+				ok: false,
+				error: { code: 'unsupported', message: 'deferIfOffline is only valid for create_task' }
+			});
+			this.store.logCommand(Date.now(), conn.deviceId, hostId, command.kind, 'unsupported');
+			return;
+		}
+
 		const hostRecord = this.store.getHost(hostId);
 		if (!hostRecord) {
 			this.sendToClient(ws, {
@@ -726,6 +861,51 @@ export class SocketHub {
 		const hostWs = this.activeHosts.get(hostId);
 		const hostData = hostWs?.data as HostWsSession | undefined;
 		if (!hostWs || !hostData || !hostData.helloReceived) {
+			if (wantsDefer) {
+				// La macchina e' spenta: il relay conserva il lavoro e lo consegna
+				// al ritorno (R-REM-22). Le funzioni dichiarate l'ultima volta
+				// dicono se quella macchina sapra' eseguirlo.
+				if (!hostRecord.features.includes(COMMAND_FEATURE[command.kind])) {
+					this.sendToClient(ws, {
+						type: 'command_result',
+						hostId,
+						commandId,
+						ok: false,
+						error: { code: 'unsupported', message: 'Host does not support task_edit' }
+					});
+					this.store.logCommand(Date.now(), conn.deviceId, hostId, command.kind, 'unsupported');
+					return;
+				}
+				const stored = this.store.saveDeferredCommand(
+					hostId,
+					commandId,
+					conn.deviceId,
+					command.kind,
+					command,
+					Date.now()
+				);
+				if (!stored) {
+					this.sendToClient(ws, {
+						type: 'command_result',
+						hostId,
+						commandId,
+						ok: false,
+						error: { code: 'rejected', message: 'Deferred command quota reached or commandId already queued' }
+					});
+					this.store.logCommand(Date.now(), conn.deviceId, hostId, command.kind, 'rejected');
+					return;
+				}
+				this.sendToClient(ws, {
+					type: 'command_result',
+					hostId,
+					commandId,
+					ok: true,
+					deferred: true
+				});
+				this.store.logCommand(Date.now(), conn.deviceId, hostId, command.kind, 'deferred');
+				this.broadcastHostSummary(hostId);
+				return;
+			}
 			this.sendToClient(ws, {
 				type: 'command_result',
 				hostId,
@@ -835,6 +1015,42 @@ export class SocketHub {
 		pendingEntry.timer = timer;
 
 		this.pendingCommands.set(relayCommandId, pendingEntry);
+	}
+
+	/**
+	 * Annulla un lavoro che aspetta una macchina spenta (R-REM-22). Puo'
+	 * annullarlo qualunque dispositivo abbinato e non solo chi l'ha messo in
+	 * coda: i dispositivi sono tutti dello stesso utente e il lavoro compare
+	 * «in attesa di <macchina>» su ognuno, quindi un annullamento da un secondo
+	 * telefono deve funzionare invece di restare appeso.
+	 */
+	private processClientCancelDeferred(
+		ws: ServerWebSocket<RelayWsData>,
+		conn: ClientWsSession,
+		msg: Record<string, unknown>
+	): void {
+		const hostId = msg.hostId;
+		const commandId = msg.commandId;
+		if (typeof hostId !== 'string' || !hostId || typeof commandId !== 'string' || !commandId) {
+			ws.close(CloseCode.protocolError, 'invalid cancel_deferred frame');
+			return;
+		}
+
+		const removed = this.store.deleteDeferredCommand(hostId, commandId);
+		if (!removed) {
+			this.sendToClient(ws, {
+				type: 'command_result',
+				hostId,
+				commandId,
+				ok: false,
+				error: { code: 'not_found', message: 'Deferred command not found' }
+			});
+			return;
+		}
+
+		this.sendToClient(ws, { type: 'command_result', hostId, commandId, ok: true });
+		this.store.logCommand(Date.now(), conn.deviceId, hostId, removed.kind, 'cancelled');
+		this.broadcastHostSummary(hostId);
 	}
 
 	private processClientResync(ws: ServerWebSocket<RelayWsData>, msg: Record<string, unknown>): void {
@@ -1114,6 +1330,12 @@ export class SocketHub {
 		}
 	}
 
+	/** Rimanda ai client il riepilogo di una macchina, outbox compreso. */
+	private broadcastHostSummary(hostId: string): void {
+		const summary = this.getHostSummary(hostId);
+		if (summary) this.broadcastToClients({ type: 'host_status', host: summary });
+	}
+
 	/** Invia a tutte le macchine connesse l'elenco dei dispositivi attualmente online. */
 	broadcastClientsToHosts(): void {
 		const clients = this.getConnectedDeviceInfos();
@@ -1124,7 +1346,8 @@ export class SocketHub {
 		}
 	}
 
-	private sendToClient(ws: ServerWebSocket<RelayWsData>, frame: RelayToClientFrame): void {
+	private sendToClient(ws: ServerWebSocket<RelayWsData> | null, frame: RelayToClientFrame): void {
+		if (!ws) return;
 		try {
 			ws.send(JSON.stringify(frame));
 		} catch {
@@ -1172,6 +1395,12 @@ export class SocketHub {
 		return this.activeHosts.has(hostId);
 	}
 
+	/** Riepilogo dei lavori che aspettano questa macchina (R-REM-22), se ce ne sono. */
+	private deferredForSummary(hostId: string): { deferred?: HostSummary['deferred'] } {
+		const list = this.store.listDeferredSummaries(hostId);
+		return list.length > 0 ? { deferred: list } : {};
+	}
+
 	/** Restituisce il riepilogo di una macchina registrata. */
 	getHostSummary(hostId: string): HostSummary | null {
 		const record = this.store.getHost(hostId);
@@ -1186,7 +1415,8 @@ export class SocketHub {
 			features: activeData?.features ?? record.features,
 			online: this.isHostOnline(hostId),
 			pairedAt: record.pairedAt,
-			lastSeenAt: record.lastSeenAt
+			lastSeenAt: record.lastSeenAt,
+			...this.deferredForSummary(hostId)
 		};
 	}
 
@@ -1200,7 +1430,8 @@ export class SocketHub {
 			features: (this.activeHosts.get(h.id)?.data as HostWsSession | undefined)?.features ?? h.features,
 			online: this.isHostOnline(h.id),
 			pairedAt: h.pairedAt,
-			lastSeenAt: h.lastSeenAt
+			lastSeenAt: h.lastSeenAt,
+			...this.deferredForSummary(h.id)
 		}));
 	}
 

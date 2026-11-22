@@ -1,10 +1,21 @@
 import { Database } from 'bun:sqlite';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
-import type { Feature, HostState, PairingKind, Platform } from './protocol.ts';
+import type {
+	Feature,
+	HostState,
+	PairingKind,
+	Platform,
+	RemoteCommand,
+	RemoteDeferredTask
+} from './protocol.ts';
 export const MAX_ACTIVE_CODES_PER_DEVICE = 10;
 export const PAIRING_CODE_SWEEP_MS = 60_000;
 export const MAX_PUSH_SUBSCRIPTIONS_PER_DEVICE = 5;
+/** Tetto dei lavori in attesa per una macchina spenta: evita una crescita senza fine dell'outbox. */
+export const MAX_DEFERRED_PER_HOST = 20;
+/** Anteprima del prompt mostrata nella PWA per un lavoro in attesa. */
+export const DEFERRED_PROMPT_PREVIEW = 200;
 
 export interface HostRecord {
 	id: string;
@@ -52,6 +63,17 @@ interface RawHostRow {
 	credential_hash: string;
 	last_state: string | null;
 	last_state_at: number | null;
+}
+
+interface RawDeferredRow {
+	host_id: string;
+	command_id: string;
+	device_id: string;
+	kind: string;
+	command: string;
+	project_id: string;
+	prompt_preview: string;
+	created_at: number;
 }
 
 interface RawDeviceRow {
@@ -162,6 +184,26 @@ export class RelayStore {
 				this.db.run('ALTER TABLE push_subscriptions ADD COLUMN language TEXT;');
 			}
 			this.db.run('PRAGMA user_version = 3;');
+		}
+		if (currentVersion < 4) {
+			// Outbox dei `create_task` rinviati a macchina spenta (R-REM-22). Il
+			// comando intero sta in JSON: al ritorno dell'host va inoltrato cosi'
+			// com'e', con il `commandId` scelto dal telefono come chiave.
+			this.db.run(`
+				CREATE TABLE IF NOT EXISTS deferred_commands (
+					host_id TEXT NOT NULL,
+					command_id TEXT NOT NULL,
+					device_id TEXT NOT NULL,
+					kind TEXT NOT NULL,
+					command TEXT NOT NULL,
+					project_id TEXT NOT NULL,
+					prompt_preview TEXT NOT NULL,
+					created_at INTEGER NOT NULL,
+					PRIMARY KEY (host_id, command_id)
+				);
+				CREATE INDEX IF NOT EXISTS idx_deferred_host ON deferred_commands (host_id, created_at);
+			`);
+			this.db.run('PRAGMA user_version = 4;');
 		}
 	}
 
@@ -299,10 +341,147 @@ export class RelayStore {
 		return rows.map((r) => this.mapHost(r));
 	}
 
-	/** Elimina una macchina e il suo stato associato. */
+	/** Elimina una macchina, il suo stato e i lavori che aspettavano il suo ritorno. */
 	deleteHost(hostId: string): boolean {
 		const res = this.db.query('DELETE FROM hosts WHERE id = ?;').run(hostId);
+		// Alla revoca l'outbox non ha piu' destinatario: senza questa pulizia le
+		// righe resterebbero per sempre (R-REM-22).
+		this.db.query('DELETE FROM deferred_commands WHERE host_id = ?;').run(hostId);
 		return res.changes > 0;
+	}
+
+	// -------------------------------------------------------------------------
+	// Outbox dei lavori rinviati (R-REM-22)
+	// -------------------------------------------------------------------------
+
+	/**
+	 * Conserva un `create_task` per una macchina spenta. Oltre il tetto per host
+	 * rifiuta il nuovo invece di scartare un lavoro gia' accettato: il telefono
+	 * riceve `rejected` e lo puo' dire, senza perdite silenziose.
+	 * Restituisce `false` anche per un `commandId` gia' presente.
+	 */
+	saveDeferredCommand(
+		hostId: string,
+		commandId: string,
+		deviceId: string,
+		kind: string,
+		command: RemoteCommand,
+		now: number
+	): boolean {
+		if (this.closed) return false;
+		const existing = this.db
+			.query<{ command_id: string }, [string, string]>(
+				'SELECT command_id FROM deferred_commands WHERE host_id = ? AND command_id = ? LIMIT 1;'
+			)
+			.get(hostId, commandId);
+		if (existing) return false;
+		if (this.countDeferredForHost(hostId) >= MAX_DEFERRED_PER_HOST) return false;
+
+		const projectId =
+			'projectId' in command && typeof command.projectId === 'string' ? command.projectId : '';
+		const prompt =
+			'prompt' in command && typeof command.prompt === 'string' ? command.prompt : '';
+		this.db
+			.query(
+				`INSERT INTO deferred_commands (host_id, command_id, device_id, kind, command, project_id, prompt_preview, created_at)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?);`
+			)
+			.run(
+				hostId,
+				commandId,
+				deviceId,
+				kind,
+				JSON.stringify(command),
+				projectId,
+				prompt.slice(0, DEFERRED_PROMPT_PREVIEW),
+				now
+			);
+		return true;
+	}
+
+	/** Lavori rinviati di una macchina, dal piu' vecchio: l'ordine di consegna. */
+	listDeferredForHost(hostId: string): Array<{
+		commandId: string;
+		deviceId: string;
+		kind: string;
+		command: RemoteCommand;
+	}> {
+		if (this.closed) return [];
+		const rows = this.db
+			.query<RawDeferredRow, [string]>(
+				'SELECT * FROM deferred_commands WHERE host_id = ? ORDER BY created_at ASC, rowid ASC;'
+			)
+			.all(hostId);
+		const out: Array<{ commandId: string; deviceId: string; kind: string; command: RemoteCommand }> = [];
+		for (const row of rows) {
+			try {
+				out.push({
+					commandId: row.command_id,
+					deviceId: row.device_id,
+					kind: row.kind,
+					command: JSON.parse(row.command) as RemoteCommand
+				});
+			} catch {
+				// Riga illeggibile: la si scarta invece di bloccare la consegna delle altre.
+				this.db
+					.query('DELETE FROM deferred_commands WHERE host_id = ? AND command_id = ?;')
+					.run(row.host_id, row.command_id);
+			}
+		}
+		return out;
+	}
+
+	/** Riepilogo per la PWA: cosa aspetta una macchina spenta. */
+	listDeferredSummaries(hostId: string): RemoteDeferredTask[] {
+		if (this.closed) return [];
+		const rows = this.db
+			.query<RawDeferredRow, [string]>(
+				'SELECT * FROM deferred_commands WHERE host_id = ? ORDER BY created_at ASC, rowid ASC;'
+			)
+			.all(hostId);
+		return rows.map((row) => ({
+			commandId: row.command_id,
+			projectId: row.project_id,
+			prompt: row.prompt_preview,
+			createdAt: row.created_at,
+			deviceId: row.device_id
+		}));
+	}
+
+	countDeferredForHost(hostId: string): number {
+		if (this.closed) return 0;
+		const row = this.db
+			.query<{ count: number }, [string]>(
+				'SELECT COUNT(*) as count FROM deferred_commands WHERE host_id = ?;'
+			)
+			.get(hostId);
+		return row?.count ?? 0;
+	}
+
+	/** Rimuove un lavoro rinviato: consegnato o annullato dal telefono. */
+	deleteDeferredCommand(hostId: string, commandId: string): RemoteCommand | null {
+		if (this.closed) return null;
+		const row = this.db
+			.query<RawDeferredRow, [string, string]>(
+				'SELECT * FROM deferred_commands WHERE host_id = ? AND command_id = ? LIMIT 1;'
+			)
+			.get(hostId, commandId);
+		if (!row) return null;
+		this.db
+			.query('DELETE FROM deferred_commands WHERE host_id = ? AND command_id = ?;')
+			.run(hostId, commandId);
+		try {
+			return JSON.parse(row.command) as RemoteCommand;
+		} catch {
+			return null;
+		}
+	}
+
+	/** Svuota l'outbox di una macchina: alla revoca i lavori non hanno piu' destinatario. */
+	deleteDeferredForHost(hostId: string): number {
+		if (this.closed) return 0;
+		const res = this.db.query('DELETE FROM deferred_commands WHERE host_id = ?;').run(hostId);
+		return res.changes;
 	}
 
 	/** Salva un codice di abbinamento temporaneo. */

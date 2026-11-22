@@ -133,6 +133,21 @@ export interface HostSummary {
 	online: boolean;
 	pairedAt: number;
 	lastSeenAt: number | null;
+	/**
+	 * Lavori messi in coda dal telefono mentre la macchina era spenta
+	 * (R-REM-22): il relay li consegna al ritorno. Assente dai relay precedenti.
+	 */
+	deferred?: RemoteDeferredTask[];
+}
+
+/** Lavoro in attesa nel relay per una macchina spenta (`create_task` rinviato). */
+export interface RemoteDeferredTask {
+	commandId: string;
+	projectId: string;
+	/** Inizio del prompt, al massimo 200 caratteri. */
+	prompt: string;
+	createdAt: number;
+	deviceId: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -295,6 +310,17 @@ export interface RemoteTask {
 	directives?: RemoteTaskDirective[];
 	/** Immagini allegate: solo il conteggio, i dati arrivano con `get_task`. */
 	imageCount?: number;
+	/**
+	 * Macchina scelta per il lavoro (R-MI-13, R-REM-19): id della macchina nel
+	 * collegamento fra computer (`HostState.linkMachineId`). `null` = parte dove
+	 * è acceso l'auto-avvio. Assente dagli host precedenti.
+	 */
+	machineId?: string | null;
+	/**
+	 * Ultima modifica (orologio della coda replicata, F19): fra le copie di un
+	 * progetto la PWA tiene la voce più recente. Assente dagli host precedenti.
+	 */
+	updatedAt?: number;
 }
 
 /** Immagine di un lavoro in coda restituita da `get_task`. */
@@ -402,6 +428,19 @@ export interface RemoteProject {
 	runBlockReason: string | null;
 	/** Conferme di avvio in sospeso (`dispatch_confirm`). */
 	dispatchConfirmations?: RemoteDispatchConfirmation[];
+	/**
+	 * Chiave di fusione delle copie (R-REM-17, stessa regola di R-MI-12):
+	 * `origin:<owner/repo>` in minuscolo, con il nome attuale dopo una rinomina
+	 * (R-MI-32); `root:<primo commit>` solo per le copie senza origin che
+	 * l'utente ha confermato come lo stesso progetto (R-MI-44). `null` = la
+	 * copia resta un progetto a sé. Assente dagli host precedenti.
+	 */
+	identity?: string | null;
+	/**
+	 * Ultimo uso di questa copia, epoch ms (F18): fra le copie di un progetto
+	 * la PWA propone quella usata per ultima. Assente dagli host precedenti.
+	 */
+	lastUsedAt?: number | null;
 }
 
 /**
@@ -425,6 +464,12 @@ export interface HostState {
 	quota: RemoteQuota | null;
 	/** Assente dagli host pubblicati prima del campo. */
 	theme?: RemoteTheme | null;
+	/**
+	 * Id di questa macchina nel collegamento fra computer (`LinkStatus.machineId`):
+	 * lega `RemoteTask.machineId` alla macchina del relay (R-REM-19). `null`
+	 * con la multi-istanza spenta; assente dagli host precedenti.
+	 */
+	linkMachineId?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -458,6 +503,8 @@ export interface RemoteTaskOptions {
 	thinkingLevel?: string | null;
 	/** Id del catalogo `RemoteComposerCatalog.directives`, nell'ordine scelto. */
 	directiveIds?: string[];
+	/** Macchina del lavoro (`RemoteTask.machineId`); `null` = dove è acceso l'auto-avvio. */
+	machineId?: string | null;
 }
 
 /** Risposta a una conferma di avvio. */
@@ -622,6 +669,19 @@ export const COMMAND_FEATURE: Record<RemoteCommand['kind'], Feature> = {
 	session_history: 'fleet',
 	mark_session_seen: 'fleet',
 	get_artifact: 'artifacts'
+};
+
+/**
+ * Comandi che si scambiano solo le istanze di Studio sul collegamento fra
+ * computer, dove Rust confina percorsi e ambiti (R-MI-09). Dal telefono non
+ * passano: relay e Studio li rifiutano su questo canale (R-REM-24).
+ */
+export const PEER_ONLY_COMMANDS: Partial<Record<RemoteCommand['kind'], true>> = {
+	read_queue: true,
+	write_queue: true,
+	lane_action: true,
+	close_project: true,
+	set_auto_dispatch: true
 };
 
 export interface RemoteChatMessage {
@@ -905,8 +965,14 @@ export type RelayToHostFrame =
 /** PWA -> relay, su `API.clientSocket` con il cookie di sessione. */
 export type ClientFrame =
 	| { type: 'hello'; protocol: ProtocolId }
-	/** `commandId` lo genera il client (UUID) e torna nel risultato. */
-	| { type: 'command'; commandId: string; hostId: string; command: RemoteCommand }
+	/**
+	 * `commandId` lo genera il client (UUID) e torna nel risultato.
+	 * `deferIfOffline` vale solo per `create_task`: con la macchina spenta il
+	 * relay conserva il comando e lo consegna al ritorno (R-REM-22).
+	 */
+	| { type: 'command'; commandId: string; hostId: string; command: RemoteCommand; deferIfOffline?: boolean }
+	/** Annulla un lavoro rinviato non ancora consegnato. */
+	| { type: 'cancel_deferred'; hostId: string; commandId: string }
 	| { type: 'resync'; hostId: string }
 	/** Inizia o smette di seguire la chat di una corsia (`laneId` `main` per la Principale). */
 	| { type: 'chat_subscribe'; hostId: string; projectId: string; laneId: string }
@@ -935,6 +1001,8 @@ export type RelayToClientFrame =
 			ok: boolean;
 			error?: CommandError;
 			data?: unknown;
+			/** Comando conservato dal relay per una macchina spenta (`deferIfOffline`). */
+			deferred?: boolean;
 	  }
 	| { type: 'chat_event'; hostId: string; projectId: string; laneId: string; event: RemoteChatEvent }
 	| { type: 'ping'; seq: number; t: number };

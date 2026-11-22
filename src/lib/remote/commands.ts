@@ -27,6 +27,7 @@ import type {
 	RemoteLaneAction,
 	RemoteCommandData
 } from '$remote-protocol';
+import { PEER_ONLY_COMMANDS } from '$remote-protocol';
 import { remoteBridge, type RemoteCommandEvent } from './bridge';
 import { remoteStore } from './remoteStore.svelte';
 import { projectStore } from '#lib/stores/projects.svelte.ts';
@@ -195,12 +196,28 @@ export interface CommandTaskInfo {
 	id: string;
 	projectPath?: string;
 	status?: string;
+	/**
+	 * Macchina scelta per il lavoro, nella forma di Studio: `local` = questa,
+	 * altrimenti l'id di una macchina collegata (`StudioTask.machineId`).
+	 */
+	machineId?: string;
 }
 
 export interface CommandContext {
 	isEnabled: () => boolean;
 	findProject: (id: string) => CommandProjectInfo | undefined;
 	findTask: (id: string) => CommandTaskInfo | undefined;
+	/** Nome leggibile di una macchina collegata, per i messaggi d'errore. */
+	machineName?: (machineId: string) => string | undefined;
+	/** Id di questa macchina nel collegamento fra computer (per i suoi lavori). */
+	selfMachineId?: () => string | null;
+	/**
+	 * Canale da cui arriva il comando (R-REM-24): `phone` e' il relay della
+	 * PWA, `desktop` il collegamento fra computer, dove Rust confina percorsi
+	 * e ambiti. Assente = `phone`: un contesto nuovo non deve accettare per
+	 * distrazione i comandi riservati alle altre istanze.
+	 */
+	channel?: 'phone' | 'desktop';
 	executor: RemoteCommandExecutor;
 	resolvePrompt?: (params: {
 		projectId: string;
@@ -337,6 +354,26 @@ export function toDispatchOutcome(outcome: RunTaskOutcome | void): RemoteDispatc
 }
 
 /**
+ * «Avvia» da remoto per un lavoro assegnato a un'altra macchina (R-REM-19).
+ *
+ * Il desktop non lo avvia mai qui: l'auto-avvio scarta i candidati con una
+ * `machineId` che non e' la propria (`+page.svelte`, `autoDispatchCandidateFor`),
+ * e nella GUI il pulsante del lavoro agisce sulla coda della copia aperta.
+ * Un `run_task` che arrivasse alla macchina sbagliata partirebbe invece
+ * davvero, sulla macchina sbagliata: meglio rifiutare e dire dove va.
+ */
+function refuseForeignMachine(machineId: string | null | undefined, ctx: CommandContext): void {
+	// Nel task questa macchina si chiama `local`; una coda replicata puo'
+	// portare il suo id di collegamento, che vale lo stesso.
+	const target = machineId?.trim();
+	if (!target || target === 'local' || target === ctx.selfMachineId?.()) return;
+	throw new RemoteCommandFailure(
+		'rejected',
+		m.l10n_lab_remote_task_other_machine({ machine: ctx.machineName?.(target) ?? target })
+	);
+}
+
+/**
  * Esegue la logica di gestione di un comando remoto su un contesto iniettabile.
  * Isolata e testabile senza runtime Tauri.
  */
@@ -350,6 +387,18 @@ export async function handleRemoteCommand(
 		await ctx.reportResult(commandId, false, {
 			code: 'disabled',
 			message: m.l10n_lab_remote_remote_disabled()
+		});
+		return;
+	}
+
+	// R-REM-24, difesa in profondita': i comandi che le istanze si scambiano
+	// sul collegamento fra computer non passano dal canale del telefono, dove
+	// manca il confinamento di percorsi e ambiti che fa Rust fra computer.
+	// Il relay li rifiuta gia': se uno arriva qui, non deve avere effetti.
+	if ((ctx.channel ?? 'phone') === 'phone' && PEER_ONLY_COMMANDS[command.kind]) {
+		await ctx.reportResult(commandId, false, {
+			code: 'unsupported',
+			message: m.l10n_lab_remote_peer_only_command({ kind: command.kind })
 		});
 		return;
 	}
@@ -468,7 +517,8 @@ export async function handleRemoteCommand(
 			}
 
 			case 'run_task': {
-				queuedTask(command.taskId);
+				const runTask = queuedTask(command.taskId);
+				refuseForeignMachine(runTask.machineId, ctx);
 				const outcome = await ctx.executor.runTask(command.projectId, command.taskId, {
 					follow: false,
 					destination: command.destination ?? 'auto'
@@ -488,6 +538,13 @@ export async function handleRemoteCommand(
 				break;
 
 			case 'create_task': {
+				// «Avvia ora» su un lavoro destinato a un'altra macchina (R-REM-19)
+				// partirebbe qui, nel posto sbagliato. Si rifiuta prima di creare
+				// qualsiasi cosa, con lo stesso errore di `run_task`: il telefono
+				// deve mandare il comando alla macchina giusta.
+				// La sola messa in coda (`start` assente) passa: il lavoro e' di
+				// tutte le copie e parte dove l'ha assegnato l'utente.
+				if (command.start) refuseForeignMachine(command.options?.machineId, ctx);
 				const result = await ctx.executor.createTask(
 					command.projectId,
 					command.prompt,
@@ -724,6 +781,12 @@ export async function setupRemoteCommands(
 		isEnabled: () => remoteStore.status.enabled,
 		findProject: (id) => projectStore.projects.find((p) => p.id === id && (!p.machineId || p.machineId === 'local')),
 		findTask: (id) => taskStore.taskById(id),
+		// Nome leggibile di una macchina collegata, per i messaggi d'errore.
+		machineName: (id) => linkStore.status.peers.find((peer) => peer.id === id)?.name,
+		selfMachineId: () => linkStore.status.machineId || null,
+		// Canale del telefono (R-REM-24): i comandi del collegamento fra
+		// computer qui si rifiutano prima di toccare qualsiasi cosa.
+		channel: 'phone',
 		executor,
 		resolvePrompt: createRemotePromptResolver(options),
 		reportResult: async (commandId, ok, error, data) => {
@@ -735,6 +798,9 @@ export async function setupRemoteCommands(
 	const desktopContext: CommandContext = {
 		...prodContext,
 		isEnabled: () => linkStore.status.enabled,
+		// Il collegamento fra computer e' l'unico canale da cui i comandi
+		// riservati alle istanze devono passare (R-REM-24, R-MI-09).
+		channel: 'desktop',
 		reportResult: (commandId, ok, error, data) => invoke('link_command_result', {
 			commandId, ok, error: error ?? null, data: data ?? null
 		})

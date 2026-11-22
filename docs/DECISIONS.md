@@ -2274,3 +2274,23 @@ Con questa revisione cade il rischio «Il punto d'incontro è un servizio di ter
 ## Popover dei tab progetto: proposta consolidata
 
 Decisioni puntuali concordate nella sessione del 2026-11-12/13, consolidate in docs/requisiti/tab-progetti.md (TPR-001…038), in attesa della conferma finale del documento e dell’eventuale autorizzazione all’implementazione. Anteprima informativa separata dai comandi persistenti; una sola card che si sposta tra tab; identità e colore modificabili in testata; viste interne Coda/Git/Corsie; Git usa il branch realmente in checkout; eliminazione delle corsie chiuse con conferma a scadenza sulla stessa riga e perdita esplicita; X worktree apre la revisione, X Lab chiude conservando; Automazioni resta accesso diretto alla vista filtrata. Dopo riordino la card resta ferma finché il puntatore è dentro, poi segue il tab: sostituito il timer inizialmente proposto. Il prototipo è simulato, non implementazione nativa né prova end-to-end. Fonte: sessione corrente. [sessione 01a1d02e]
+
+## Gate R50: Studio Remote multi-macchina, un progetto una volta sola anche sul telefono
+
+**Data:** 2026-11-22
+**Esito:** APPROVATO dall'utente nel modulo della sessione, con implementazione diretta senza anteprima. Supera il punto 10 del Gate R49 («Studio Remote resta invariato») e sostituisce R-REM-01.
+**Registro canonico:** [requisiti/remote-mobile.md](requisiti/remote-mobile.md), R-REM-17…24 (F12).
+
+### Il problema
+
+Con due computer collegati, la barra di Studio mostra un progetto una volta sola anche quando esiste su entrambi, mentre la PWA di Remote mostrava una macchina alla volta: lo stesso progetto compariva sotto ogni macchina, con la stessa coda replicata due volte e senza dire su quale macchina partiva un lavoro. Inoltre i comandi aggiunti per il collegamento fra computer passavano anche dal relay del telefono, senza il confinamento dei percorsi che Rust applica fra computer.
+
+### Decisioni
+
+1. **L'elenco lo unisce la PWA.** Il relay riceve già lo stato di tutte le macchine abbinate; ogni macchina aggiunge la chiave di fusione della propria copia (`RemoteProject.identity`, stessa regola di R-MI-12), l'ultimo uso (`lastUsedAt`) e il proprio id nel collegamento fra computer (`linkMachineId`). Scartata la macchina-hub che ripubblica i progetti dell'altra: con lei spenta il telefono non vedrebbe nulla.
+2. **Niente selettore della macchina.** Il foglio Macchine resta per stato, apertura e creazione dei progetti e impostazioni.
+3. **Stesse regole del computer**: glifo R-MI-19, apertura sulla copia che aspetta una risposta o sull'ultima usata (R-MI-24, F18), coda con ogni lavoro una volta e la sua macchina (R-MI-13), storico unito.
+4. **Macchina spenta**: su un progetto condiviso il lavoro passa dalla coda replicata; su un progetto solo di quella macchina il relay conserva il `create_task` e lo consegna al ritorno. È l'unico comando che il relay trattiene.
+5. **Due canali, un solo gestore, permessi diversi.** I comandi riservati alle istanze di Studio (`PEER_ONLY_COMMANDS`) li rifiutano sia il relay sia Studio quando arrivano dal telefono.
+6. **Restano al computer** l'auto-avvio esclusivo (F20) e lo spostamento di una sessione (R-MI-14): l'utente non li ha scelti per il telefono.
+7. **Due relay restano**: Bun per il telefono (Web Push richiede di leggere lo stato), `iroh-relay` per i computer (Gate R49, revisione del 2026-11-16).

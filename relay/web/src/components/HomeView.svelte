@@ -1,26 +1,25 @@
 <!--
-  HomeView.svelte — Schermata principale a macchina singola (Gate R48, R-REM-01, R-REM-02, R-REM-03, R-REM-16).
-  Mostra una sola macchina alla volta, la striscia quote dei soli provider in uso,
-  l'elenco ordinato dei progetti e il pulsante «+ Nuovo» per avviare o accodare lavori.
-  L'indicatore «● N richieste su <macchina>» segnala richieste pendenti su altri host connessi.
+  HomeView.svelte — Schermata principale con un elenco solo (R-REM-17…R-REM-23).
+  I progetti di tutte le macchine abbinate stanno in un elenco unico: le copie
+  dello stesso progetto (stessa `RemoteProject.identity`) occupano una riga
+  sola con il glifo delle macchine. Niente selettore della macchina: il foglio
+  Macchine resta per stato, apertura/creazione progetti e impostazioni.
 -->
 <script lang="ts">
-	import type { RemoteProject, HostSummary } from '../../../src/protocol.ts';
 	import { t } from '../i18n.ts';
 	import { connection } from '../connection.svelte.ts';
 	import { navigation } from '../navigation.svelte.ts';
 	import { workSheet } from '../work.svelte.ts';
-	import { machineSelection } from '../machine.svelte.ts';
-	import {
-		sortProjects,
-		getOtherMachinePendingRequests
-	} from '../projectHelpers.ts';
+	import { groupProjects, quotaSections as quotaSectionsOf, type ProjectGroup } from '../multiMachine.ts';
 	import QuotaStrip from './QuotaStrip.svelte';
 	import ProjectRow from './ProjectRow.svelte';
 	import MachinesSheet from './MachinesSheet.svelte';
 	import QuotaSheet from './QuotaSheet.svelte';
 	import ProjectHistorySheet from './ProjectHistorySheet.svelte';
 	import ProjectSheet from './ProjectSheet.svelte';
+	import MachineGlyph from './MachineGlyph.svelte';
+	import { groupGlyph } from '../multiMachine.ts';
+	import { IconMachine } from '../icons.ts';
 
 	let {
 		onOpenSettings
@@ -28,71 +27,52 @@
 		onOpenSettings: () => void;
 	} = $props();
 
-	let expandedProjectId = $state<string | null>(null);
+	let expandedKey = $state<string | null>(null);
 
 	// Fogli modali aperti
 	let showMachinesSheet = $state(false);
 	let showQuotaSheet = $state(false);
-	let historyProject = $state<RemoteProject | null>(null);
-	let projectSheetHost = $state<HostSummary | null>(null);
+	let historyGroup = $state<ProjectGroup | null>(null);
+	let projectSheetHostId = $state<string | null>(null);
 
-	// Macchina scelta se esiste ancora, altrimenti la prima online o la prima disponibile.
-	const currentHost = $derived.by<HostSummary | null>(() => {
-		const hosts = connection.hosts;
-		if (hosts.length === 0) return null;
-		const chosen = machineSelection.id ? hosts.find((h) => h.id === machineSelection.id) : undefined;
-		if (chosen) return chosen;
-		const firstOnline = hosts.find((h) => h.online);
-		return firstOnline ?? hosts[0];
-	});
+	// Un elenco solo, ordine di Studio (R-REM-02) sull'unione delle copie.
+	const groups = $derived(groupProjects(connection.hosts, connection.hostStates));
 
-	const currentHostId = $derived(currentHost?.id ?? '');
-	const currentHostState = $derived(
-		currentHostId ? connection.hostStates[currentHostId]?.state : null
+	// La striscia delle quote elenca le macchine con i loro provider in uso
+	// (R-REM-23): i colori restano quelli della prima macchina in linea, cosi'
+	// la striscia non cambia tinta a ogni aggiornamento.
+	const quotaSections = $derived(quotaSectionsOf(connection.hosts, connection.hostStates));
+	const stripHost = $derived(
+		connection.hosts.find((host) => host.online && connection.hostStates[host.id]) ??
+			connection.hosts.find((host) => connection.hostStates[host.id])
 	);
-	const currentProjects = $derived<RemoteProject[]>(
-		currentHostState?.projects ?? []
+	const stripProjects = $derived(
+		stripHost ? (connection.hostStates[stripHost.id]?.state.projects ?? []) : []
 	);
-	const currentQuota = $derived(currentHostState?.quota ?? null);
-	const sortedProjects = $derived(sortProjects(currentProjects));
 
-	// Indicatore di richieste in attesa su altre macchine connesse (R-REM-01)
-	const otherPending = $derived.by(() => {
-		if (!currentHostId) return null;
-		return getOtherMachinePendingRequests(
-			currentHostId,
-			connection.hosts,
-			connection.hostStates
-		);
-	});
+	// "+ Nuovo" senza un progetto scelto: il foglio propone il primo progetto
+	// della macchina usata per ultima.
+	const newWorkHostId = $derived(connection.hosts.find((host) => host.online)?.id ?? connection.hosts[0]?.id ?? '');
 
-	function handleSelectHost(hostId: string): void {
-		machineSelection.select(hostId);
-		expandedProjectId = null;
+	function handleOpenBranch(hostId: string, projectId: string, laneId: string): void {
+		navigation.openChat({ hostId, projectId, laneId });
 	}
 
-	function handleOpenBranch(projectId: string, laneId: string): void {
-		if (!currentHostId) return;
-		navigation.openChat({
-			hostId: currentHostId,
-			projectId,
-			laneId
-		});
+	function openNewWork(group: ProjectGroup): void {
+		const copy = group.primary;
+		workSheet.openNew({ hostId: copy.hostId, projectId: copy.project.id });
 	}
 </script>
 
 <main class="home" aria-label={t('projects')}>
 	<div class="home-head">
-		<!-- Riga superiore: titolo «Progetti» e «+ Nuovo» -->
 		<div class="home-top">
 			<h1 class="home-title">{t('projects')}</h1>
 			<button
 				type="button"
 				class="new-work-btn"
 				onclick={() => {
-					if (currentHostId) {
-						workSheet.openNew({ hostId: currentHostId });
-					}
+					if (newWorkHostId) workSheet.openNew({ hostId: newWorkHostId });
 				}}
 				data-act="newWork"
 				data-testid="new-work"
@@ -102,114 +82,77 @@
 			</button>
 		</div>
 
-		<!-- Riga macchina con selettore e indicatore richieste altrove -->
+		<!-- Il foglio Macchine resta la porta per stato, progetti e impostazioni -->
 		<div class="machine-bar">
-			{#if currentHost}
-				<button
-					type="button"
-					class="machine-selector-btn"
-					onclick={() => (showMachinesSheet = true)}
-					data-act="machines"
-					data-testid="machine"
-					aria-label={t('machinePickAria', { machine: currentHost.name })}
-				>
-					<span class="machine-name">{currentHost.name}</span>
-					<span class="machine-arrow" aria-hidden="true">▾</span>
-				</button>
-			{/if}
-
-			{#if otherPending}
-				<button
-					type="button"
-					class="elsewhere-btn"
-					onclick={() => (showMachinesSheet = true)}
-					data-act="machines"
-					aria-label={otherPending.count === 1
-						? t('machinesElsewhereSingular', { count: 1, machine: otherPending.name })
-						: t('machinesElsewherePlural', { count: otherPending.count, machine: otherPending.name })}
-				>
-					{otherPending.count === 1
-						? t('machinesElsewhereSingular', { count: 1, machine: otherPending.name })
-						: t('machinesElsewherePlural', { count: otherPending.count, machine: otherPending.name })}
-				</button>
-			{/if}
+			<button
+				type="button"
+				class="machines-btn"
+				onclick={() => (showMachinesSheet = true)}
+				data-act="machines"
+				data-testid="machines"
+				aria-label={t('machinesTitle')}
+			>
+				<IconMachine />
+				<span>{t('machinesTitle')}</span>
+			</button>
 		</div>
 
-		<!-- Striscia compatta dei provider in uso (R-REM-08) -->
+		<!-- Striscia compatta dei provider in uso (R-REM-08, R-REM-23) -->
 		<QuotaStrip
-			quota={currentQuota}
-			projects={currentProjects}
+			quota={stripHost ? (connection.hostStates[stripHost.id]?.state.quota ?? null) : null}
+			projects={stripProjects}
 			onOpenQuotaSheet={() => (showQuotaSheet = true)}
 		/>
 	</div>
 
-	<!-- Elenco dei progetti ordinati per stato (richieste > lavoro > fermi) -->
-	{#if sortedProjects.length > 0}
+	{#if groups.length > 0}
 		<ul class="rows" role="list">
-			{#each sortedProjects as project (project.id)}
+			{#each groups as group (group.key)}
+				{@const glyph = groupGlyph(group)}
 				<ProjectRow
-					hostId={currentHostId}
-					{project}
-					quota={currentQuota}
-					features={currentHost?.features ?? []}
-					isExpanded={expandedProjectId === project.id}
+					{group}
+					glyph={glyph}
+					isExpanded={expandedKey === group.key}
 					onToggleExpand={() => {
-						expandedProjectId = expandedProjectId === project.id ? null : project.id;
+						expandedKey = expandedKey === group.key ? null : group.key;
 					}}
-					onOpenBranch={(laneId) => handleOpenBranch(project.id, laneId)}
-					onNewWork={() => {
-						workSheet.openNew({ hostId: currentHostId, projectId: project.id });
-					}}
+					onOpenBranch={(hostId, projectId, laneId) => handleOpenBranch(hostId, projectId, laneId)}
+					onNewWork={() => openNewWork(group)}
 					onOpenHistory={() => {
-						historyProject = project;
+						historyGroup = group;
 					}}
 				/>
 			{/each}
 		</ul>
-	{:else if currentHost}
-		<p class="empty-state">
-			{t('emptyProjectsHome', { machine: currentHost.name })}
-		</p>
+	{:else}
+		<p class="empty-state">{t('emptyProjectsOpen')}</p>
 	{/if}
 </main>
 
 <!-- Fogli a comparsa gestiti dalla Home -->
 {#if showMachinesSheet}
 	<MachinesSheet
-		{currentHostId}
-		onSelectHost={handleSelectHost}
 		onOpenProjectSheet={(host) => {
-			projectSheetHost = host;
+			projectSheetHostId = host.id;
 		}}
 		{onOpenSettings}
 		onClose={() => (showMachinesSheet = false)}
 	/>
 {/if}
 
-{#if showQuotaSheet && currentHost}
-	<QuotaSheet
-		hostId={currentHost.id}
-		hostName={currentHost.name}
-		features={currentHost.features}
-		quota={currentQuota}
-		projects={currentProjects}
-		onClose={() => (showQuotaSheet = false)}
-	/>
+{#if showQuotaSheet}
+	<QuotaSheet sections={quotaSections} onClose={() => (showQuotaSheet = false)} />
 {/if}
 
-{#if historyProject && currentHost}
-	<ProjectHistorySheet
-		hostId={currentHost.id}
-		project={historyProject}
-		onClose={() => (historyProject = null)}
-	/>
+{#if historyGroup}
+	<ProjectHistorySheet group={historyGroup} onClose={() => (historyGroup = null)} />
 {/if}
 
-{#if projectSheetHost}
-	<ProjectSheet
-		host={projectSheetHost}
-		onClose={() => (projectSheetHost = null)}
-	/>
+{#if projectSheetHostId}
+	{@const host = connection.hosts.find((candidate) => candidate.id === projectSheetHostId)}
+	{#if host}
+		<ProjectSheet {host} onClose={() => (projectSheetHostId = null)} />
+	{/if}
 {/if}
 
 <style>
@@ -277,10 +220,10 @@
 		padding: 2px 0 6px;
 	}
 
-	.machine-selector-btn {
+	.machines-btn {
 		display: inline-flex;
 		align-items: center;
-		gap: 4px;
+		gap: 6px;
 		background: transparent;
 		border: none;
 		padding: 6px 0;
@@ -292,33 +235,8 @@
 		transition: color var(--dur-fast);
 	}
 
-	.machine-selector-btn:hover {
+	.machines-btn:hover {
 		color: var(--ink);
-	}
-
-	.machine-arrow {
-		font-size: 11px;
-		opacity: 0.7;
-	}
-
-	.elsewhere-btn {
-		display: inline-flex;
-		align-items: center;
-		gap: 4px;
-		background: transparent;
-		border: none;
-		padding: 6px 4px;
-		min-height: 44px;
-		font-size: 13px;
-		font-weight: 550;
-		color: var(--warn);
-		cursor: pointer;
-		animation: pulse-soft 2s infinite ease-in-out;
-	}
-
-	@keyframes pulse-soft {
-		0%, 100% { opacity: 1; }
-		50% { opacity: 0.75; }
 	}
 
 	.rows {
@@ -334,11 +252,5 @@
 		text-align: center;
 		font-size: var(--text-body);
 		line-height: 1.5;
-	}
-
-	@media (prefers-reduced-motion: reduce) {
-		.elsewhere-btn {
-			animation: none;
-		}
 	}
 </style>

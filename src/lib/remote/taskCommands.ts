@@ -42,6 +42,11 @@ export interface TaskCommandDeps {
 	updateTask: (taskId: string, prompt: string, images?: ImageContent[], options?: StudioTaskOptions) => void;
 	updatePrompt: (taskId: string, prompt: string) => void;
 	deleteTask: (taskId: string) => void;
+	/**
+	 * Macchina del lavoro (`StudioTask.machineId`), fuori da `options` perche'
+	 * nel task sta alla radice: `null` toglie la scelta.
+	 */
+	setTaskMachine?: (taskId: string, machineId: string | null) => void;
 	setSchedule: (taskId: string, schedule: TaskSchedule | undefined) => void;
 	moveTaskToIndex: (taskId: string, toIndex: number) => void;
 	buildResetSchedule: (task: Pick<StudioTask, 'options'>) => TaskSchedule | null;
@@ -55,6 +60,12 @@ export interface TaskCommandDeps {
 	knownSelectors?: () => ReadonlySet<string>;
 	/** Orario e provider attuali della programmazione, come nell'istantanea. */
 	scheduleTarget?: (task: StudioTask) => { dueAt?: number; provider?: string } | undefined;
+	/**
+	 * Macchine note al collegamento fra computer (R-REM-19): id di questa
+	 * macchina e peer. Il telefono parla di machine id del collegamento, il
+	 * task salvato usa `local` per questa macchina come fa il TaskEditor.
+	 */
+	machines?: () => { selfId: string | null; peers: readonly { id: string; name?: string }[] };
 	now?: () => number;
 }
 
@@ -68,6 +79,8 @@ const defaultDeps: TaskCommandDeps = {
 		taskStore.updateTask(taskId, prompt, images, options),
 	updatePrompt: (taskId: string, prompt: string) => taskStore.updatePrompt(taskId, prompt),
 	deleteTask: (taskId: string) => taskStore.deleteTask(taskId),
+	setTaskMachine: (taskId: string, machineId: string | null) =>
+		taskStore.setTaskMachine(taskId, machineId),
 	setSchedule: (taskId: string, schedule: TaskSchedule | undefined) =>
 		taskStore.setSchedule(taskId, schedule),
 	moveTaskToIndex: (taskId: string, toIndex: number) => taskStore.moveTaskToIndex(taskId, toIndex),
@@ -164,6 +177,31 @@ export async function resolvePromptImages(images: RemotePromptImage[]): Promise<
 		}
 	}
 	return result;
+}
+
+/**
+ * Macchina scelta per il lavoro (R-REM-19), con le stesse regole del
+ * TaskEditor: `null` toglie la scelta (parte dove e' acceso l'auto-avvio), un
+ * id deve essere questa macchina o una collegata. Sul canale l'id del
+ * collegamento e' quello che l'utente vede; nel task questa macchina si
+ * chiama `local`, come la scrive il TaskEditor e come la legge l'auto-avvio.
+ */
+function resolveTaskMachine(deps: TaskCommandDeps, machineId: string | null): string | undefined {
+	if (machineId === null) return undefined;
+	if (typeof machineId !== 'string') {
+		throw new RemoteCommandFailure('rejected', m.l10n_lab_remote_machine_invalid());
+	}
+	const wanted = machineId.trim();
+	if (!wanted) return undefined;
+	const machines = deps.machines?.();
+	if (!machines) {
+		// Nessun collegamento configurato: l'unica macchina possibile e' questa.
+		throw new RemoteCommandFailure('rejected', m.l10n_lab_remote_machine_unknown({ machine: wanted }));
+	}
+	const self = machines.selfId?.trim();
+	if (self && wanted === self) return 'local';
+	if (machines.peers.some((peer) => peer.id === wanted)) return wanted;
+	throw new RemoteCommandFailure('rejected', m.l10n_lab_remote_machine_unknown({ machine: wanted }));
 }
 
 function resolveRoleDefault(project?: { taskDefaults?: { role?: string } | null }): string {
@@ -323,6 +361,11 @@ export function createTaskCommands(customDeps?: Partial<TaskCommandDeps>) {
 				throw new RemoteCommandFailure('not_found', m.l10n_lab_remote_project_not_found({ project: projectId }));
 			}
 
+			// La macchina si valida prima di creare il lavoro: un id sconosciuto
+			// non deve lasciare dietro un task appena creato e cancellato.
+			const machine =
+				options?.machineId !== undefined ? resolveTaskMachine(deps, options.machineId) : undefined;
+
 			await deps.loadProject(project.canonicalProjectPath);
 
 			const resolvedImages = images && images.length > 0 ? await resolvePromptImages(images) : undefined;
@@ -338,6 +381,9 @@ export function createTaskCommands(customDeps?: Partial<TaskCommandDeps>) {
 				} else {
 					deps.updatePrompt(task.id, validPrompt);
 				}
+				// La macchina sta alla radice del task, non in `options`: si scrive
+				// dopo, come fa il TaskEditor quando si sceglie dal suo elenco.
+				if (machine !== undefined) deps.setTaskMachine?.(task.id, machine);
 				deps.requestTaskTitle?.(task.id);
 
 				if (schedule) {
@@ -390,10 +436,17 @@ export function createTaskCommands(customDeps?: Partial<TaskCommandDeps>) {
 			}
 
 			let newOptions: StudioTaskOptions | undefined = task.options;
+			// `machineId` vive alla radice del task e si valida prima di
+			// scrivere: un id sconosciuto non deve lasciare a meta' le altre
+			// modifiche dello stesso comando.
+			let newMachineId: string | null | undefined;
 			if (patch.options !== undefined) {
 				const project = deps.findProject(_projectId);
 				const defaultRole = resolveRoleDefault(project);
 				newOptions = validateAndNormalizeOptions(deps, patch.options, defaultRole, task.options);
+				if (patch.options.machineId !== undefined) {
+					newMachineId = resolveTaskMachine(deps, patch.options.machineId) ?? null;
+				}
 			}
 
 			// Prima di scrivere: lo store aggiorna il task sul posto.
@@ -407,6 +460,9 @@ export function createTaskCommands(customDeps?: Partial<TaskCommandDeps>) {
 			if (promptChanged) {
 				deps.requestTaskTitle?.(task.id);
 			}
+			// La macchina si scrive dopo le opzioni: `updateTask` riscrive il
+			// task in un colpo e non conosce il campo, che vive alla radice.
+			if (newMachineId !== undefined) deps.setTaskMachine?.(task.id, newMachineId);
 
 			if (patch.schedule !== undefined) {
 				if (patch.schedule === null) {
