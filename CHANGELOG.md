@@ -12,6 +12,9 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 ## [Unreleased]
 
 ### Fixed
+- Un task avviato dalla coda parte sulla Principale se non c'è lavoro attivo, anche quando la chat è aperta da un'altra macchina. L'avvio automatico continua a rispettare la riserva della vista remota. (R-MI-18)
+- «Interrompi» e le relative scorciatoie restano disponibili mentre la chat aspetta un lavoro in background; a lavoro concluso sparisce anche «Forza arresto». (ATT-003)
+- La Nightly distingue una macchina offline da una in linea che non può compilare: mostra il motivo del blocco e, se scegli «Attendi», segnala solo i cambi di stato. (R-MI-37)
 - Con Studio chiuso nella menu bar o nell'area di notifica, un click sull'icona nel Dock del Mac o nella taskbar di Windows riapre la finestra: prima non succedeva nulla e bisognava passare dall'icona di sistema. (AUT-107)
 - La coda di un progetto che vive su un'altra macchina è quella di quella macchina: la finestra la leggeva e la scriveva sul proprio disco, nel percorso dell'altra macchina, quindi i task scritti da qui non arrivavano mai. (R-MI-06, R-MI-15)
 - Un task cancellato o avviato su una macchina non torna più in coda dalla copia dell'altra: la coda replicata riprendeva i task tolti e l'auto-avvio poteva lanciare lo stesso task due volte. Ora le rimozioni viaggiano con la coda, anche quelle fatte dal tool di omp o dalla Companion. (R-MI-12)

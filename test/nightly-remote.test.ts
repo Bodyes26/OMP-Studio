@@ -17,7 +17,10 @@ function fakeBridge(replies: Record<string, (body: Record<string, unknown>) => u
 		calls.push({ verb, body });
 		const reply = replies[verb];
 		if (!reply) throw new Error(`verbo inatteso ${verb}`);
-		return { status: 200, json: async () => ({ ok: true, details: reply(body) }) };
+		const details = reply(body);
+		return details instanceof Error
+			? { status: 400, json: async () => ({ ok: false, text: details.message }) }
+			: { status: 200, json: async () => ({ ok: true, details }) };
 	}) as unknown as typeof fetch;
 	return { calls, fetchImpl };
 }
@@ -49,10 +52,41 @@ describe('Build Nightly distribuita (R-MI-37)', () => {
 			pronta: () => ({}),
 			chiedi: () => ({ scelta: 'attendi' })
 		});
-		const choice = await chooseWorker({ bridge: BRIDGE, localPlatform: 'macos', fetchImpl, pollMs: 1, log: () => {} });
+		const logs: string[] = [];
+		const choice = await chooseWorker({ bridge: BRIDGE, localPlatform: 'macos', fetchImpl, pollMs: 1, log: (line: string) => logs.push(line) });
 		assert.equal(choice.mode, 'machine');
 		const asked = calls.find((call) => call.verb === 'chiedi');
 		assert.deepEqual(asked?.body, { macchina: 'PC', piattaforma: 'windows', locale: 'macos' });
+		assert.deepEqual(logs, ['In attesa di una macchina windows collegata...']);
+	});
+
+	it('mostra il motivo del Mac in linea e distingue i cambiamenti durante «attendi»', async () => {
+		const motivo = 'The macOS signing identity is unavailable';
+		const offline = { ...mac, id: 'm-offline', name: 'Mac spento', online: false };
+		const macbook = { ...mac, name: 'MacBook Air' };
+		const listing = [[offline, macbook], [offline, macbook], [offline], [offline, macbook]];
+		let probes = 0;
+		const logs: string[] = [];
+		const { fetchImpl, calls } = fakeBridge({
+			elenco: () => {
+				const machines = listing.shift();
+				assert.ok(machines, 'non deve interrogare il bridge dopo che il Mac è pronto');
+				return { machines };
+			},
+			pronta: () => probes++ < 2 ? new Error(motivo) : {},
+			chiedi: () => ({ scelta: 'attendi' })
+		});
+		const choice = await chooseWorker({ bridge: BRIDGE, localPlatform: 'windows', fetchImpl, pollMs: 1, log: (line: string) => logs.push(line) });
+		assert.equal(choice.mode, 'machine');
+		assert.equal(choice.machine.id, macbook.id);
+		assert.deepEqual(calls.filter((call) => call.verb === 'chiedi').map((call) => call.body), [
+			{ macchina: 'MacBook Air', piattaforma: 'macos', locale: 'windows', motivo }
+		]);
+		assert.deepEqual(logs, [
+			`MacBook Air è in linea, ma non è pronta per la Nightly macos: ${motivo}`,
+			`In attesa che MacBook Air sia pronta per la Nightly macos (è in linea): ${motivo}`,
+			'In attesa di una macchina macos collegata...'
+		]);
 	});
 
 	it('le scelte cloud e solo-locale decidono cosa compila il cloud; annulla interrompe', async () => {

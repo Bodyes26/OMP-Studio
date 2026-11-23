@@ -63,43 +63,51 @@ const sleep = (ms, signal) => delay(ms, undefined, { signal });
  * Decide chi compila l'altra piattaforma. Esiti:
  * - `{ mode: 'none' }`: fuori da Studio, coordinatore Linux, nessuna macchina abbinata → come prima (cloud);
  * - `{ mode: 'cloud' }` / `{ mode: 'local' }`: scelte dell'utente nel dialogo di Studio;
- * - `{ mode: 'machine', machine }`: c'e' una macchina in linea con la piattaforma giusta.
+ * - `{ mode: 'machine', machine }`: una macchina con la piattaforma giusta supera il controllo di disponibilità.
  * `annulla` nel dialogo interrompe la pubblicazione.
  */
 export async function chooseWorker({ bridge, localPlatform, signal, log = console.log, fetchImpl = bridgeFetch, pollMs = 10_000 }) {
 	const want = OTHER_PLATFORM[localPlatform];
 	if (!bridge || !want) return { mode: 'none', platform: want ?? null };
 	const list = async () => (await call(bridge, 'elenco', {}, signal, fetchImpl)).details?.machines ?? [];
-	let machines = await list();
-	const ready = async (all) => {
-		for (const candidate of all) {
+	const probe = async (machines) => {
+		let blocked = null;
+		for (const candidate of machines) {
 			if (!candidate.online || candidate.platform !== want) continue;
 			try {
 				await call(bridge, 'pronta', { macchina: candidate.id, piattaforma: want }, signal, fetchImpl);
-				return candidate;
+				return { machine: candidate, blocked: null };
 			} catch (error) {
 				signal?.throwIfAborted();
-				log(`${candidate.name}: ${error.message}`);
+				blocked ??= { machine: candidate, reason: error instanceof Error ? error.message : String(error) };
 			}
 		}
-		return null;
+		return { machine: null, blocked };
 	};
-	let machine = await ready(machines);
+	const machines = await list();
+	let { machine, blocked } = await probe(machines);
 	if (machine) return { mode: 'machine', machine, platform: want };
 	if (machines.length === 0) return { mode: 'none', platform: want };
-	// Una macchina abbinata c'e' ma non e' pronta (spenta, scollegata, o in
-	// linea con un'altra piattaforma): decide l'utente nel dialogo di Studio.
-	const named = machines.find((candidate) => candidate.platform === want) ?? machines.find((candidate) => !candidate.online);
-	const answer = await call(bridge, 'chiedi', { macchina: named?.name ?? '', piattaforma: want, locale: localPlatform }, signal, fetchImpl);
+	// Preferisci la macchina in linea la cui verifica è fallita: l'utente
+	// deve vedere l'impedimento, non lo stato di un'altra macchina spenta.
+	const named = blocked?.machine ?? machines.find((candidate) => candidate.platform === want) ?? machines.find((candidate) => !candidate.online);
+	if (blocked) log(`${blocked.machine.name} è in linea, ma non è pronta per la Nightly ${want}: ${blocked.reason}`);
+	const answer = await call(bridge, 'chiedi', { macchina: named?.name ?? '', piattaforma: want, locale: localPlatform, motivo: blocked?.reason }, signal, fetchImpl);
 	const choice = answer.details?.scelta;
 	if (choice === 'cloud') return { mode: 'cloud', platform: want };
 	if (choice === 'locale') return { mode: 'local', platform: want };
 	if (choice !== 'attendi') throw new Error('Pubblicazione annullata dal dialogo di Studio.');
-	log(`In attesa di una macchina ${want} collegata...`);
+	let lastStatus;
 	for (;;) {
+		const status = blocked
+			? `In attesa che ${blocked.machine.name} sia pronta per la Nightly ${want} (è in linea): ${blocked.reason}`
+			: `In attesa di una macchina ${want} collegata...`;
+		if (status !== lastStatus) {
+			log(status);
+			lastStatus = status;
+		}
 		await sleep(pollMs, signal);
-		machines = await list();
-		machine = await ready(machines);
+		({ machine, blocked } = await probe(await list()));
 		if (machine) return { mode: 'machine', machine, platform: want };
 	}
 }

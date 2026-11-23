@@ -177,6 +177,7 @@
 
 	// Stop a due stadi: abort, poi «Forza arresto» se l'agente non si ferma.
 	let stopArmed = $state(false);
+	const canStop = $derived(session.isStreaming || session.backgroundPending || stopArmed);
 	const stopControl = new TwoStepStop({
 		abort: () => session.abort(),
 		forceKill: () => session.forceKill(),
@@ -197,10 +198,15 @@
 	// dal turno precedente (abort chiuso dal timer di sicurezza, senza agent_end)
 	// farebbe uccidere omp al primo clic invece di tentare l'interruzione.
 	let wasStreaming = false;
+	let wasBackgroundPending = false;
 	$effect(() => {
 		const streaming = session.isStreaming;
-		if (streaming && !wasStreaming) stopControl.settle();
+		const backgroundPending = session.backgroundPending;
+		if ((streaming && !wasStreaming) || (wasBackgroundPending && !backgroundPending)) {
+			stopControl.settle();
+		}
 		wasStreaming = streaming;
+		wasBackgroundPending = backgroundPending;
 	});
 
 	let sendBehaviorChoice = $state<StreamingBehavior>(settingsStore.general.defaultStreamingBehavior);
@@ -744,7 +750,7 @@
 				// Senza preventDefault la WebView apre la stampa.
 				e.preventDefault();
 				onSlashCommand?.('/role next');
-			} else if (key === 'c' && (session.isStreaming || stopArmed) && !window.getSelection()?.toString()) {
+			} else if (key === 'c' && canStop && !window.getSelection()?.toString()) {
 				e.preventDefault();
 				stopControl.press();
 			}
@@ -779,7 +785,7 @@
 				cycleThinkingLevel();
 				break;
 			case 'c':
-				if (session.isStreaming || stopArmed) stopControl.press();
+				if (canStop) stopControl.press();
 				else clear();
 				break;
 			case 'e':
@@ -1414,9 +1420,9 @@
 					</span>
 				{/each}
 
-				<!-- Stop non disabilita l'invio: durante il turno si puo' fare steer o follow-up.
-				     Se dopo l'abort l'agente non si ferma, il pulsante si arma come «Forza arresto». -->
-				{#if session.isStreaming || stopArmed}
+				<!-- Stop resta disponibile anche durante il lavoro in background, senza bloccare l'invio.
+				     Se l'abort non ferma l'agente, il pulsante si arma come «Forza arresto». -->
+				{#if canStop}
 					{@const stopLabel = stopArmed ? m.force_kill_session_btn() : m.chat_v2_composer_stop_tooltip()}
 					<button
 						type="button"

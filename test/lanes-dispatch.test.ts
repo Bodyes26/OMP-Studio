@@ -15,6 +15,9 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { linkStore } from '../src/lib/backend/link.svelte.ts';
+import { LaneOrchestrator } from '../src/lib/lanes/laneOrchestrator.svelte.ts';
+import type { Project } from '../src/lib/stores/projects.svelte.ts';
 import {
 	buildConcurrencyWarning,
 	decideAutoDispatch,
@@ -44,6 +47,16 @@ import {
 
 const PROJECT_ID = projectId('project-1');
 const CANONICAL = 'C:/Users/dev/repos/app';
+
+function dispatchProject(surface: 'gui' | 'terminal'): Project {
+	return {
+		id: PROJECT_ID, name: 'App', label: null, canonicalProjectPath: canonicalProjectPath(CANONICAL),
+		hue: 220, colorMode: 'auto',
+		lane: createMainLane(PROJECT_ID, canonicalProjectPath(CANONICAL), surface),
+		layout: { left: 300, center: 0.6, leftSection: 'files', editorOpen: false },
+		lastOpened: 0, autoDispatch: false, taskDefaults: null, worktreeResumeChat: true
+	};
+}
 
 function mainLane(overrides: Partial<LaneDispatchSnapshot> = {}): LaneDispatchSnapshot {
 	return {
@@ -78,6 +91,42 @@ describe('W09 — Routing della coda verso le corsie', () => {
 				worktreeCapable: true
 			});
 			assert.deepEqual(route, { kind: 'main' });
+		});
+
+		it('non chiede una corsia isolata per una Principale aperta da remoto ma ferma', (t) => {
+			const orchestrator = new LaneOrchestrator();
+			const project = dispatchProject('gui');
+			t.mock.method(linkStore, 'laneBusyRemotely', () => true);
+			let working = false;
+			t.mock.method(linkStore, 'laneWorkingRemotely', () => working);
+			const routeInput = (mode: 'manual' | 'auto') => ({
+				lanes: orchestrator.laneDispatchSnapshots(project, mode),
+				worktreeCapable: true
+			});
+
+			assert.deepEqual(decideQueueRoute(routeInput('manual')), { kind: 'main' });
+			assert.deepEqual(decideAutoDispatch(routeInput('auto')), { kind: 'new-lane' });
+
+			working = true;
+			assert.deepEqual(decideQueueRoute(routeInput('manual')), { kind: 'prompt', confirmConcurrency: false });
+		});
+
+		it('ignora lo stato prima del montaggio ma protegge il terminale in attesa di risposta', (t) => {
+			const project = dispatchProject('terminal');
+			const orchestrator = new LaneOrchestrator();
+			const route = () => decideQueueRoute({
+				lanes: orchestrator.laneDispatchSnapshots(project, 'manual'),
+				worktreeCapable: true
+			});
+			project.lane.agentState = 'working';
+			assert.deepEqual(route(), { kind: 'main' });
+
+			t.mock.method(orchestrator.terminalSessions, 'has', () => true);
+			project.lane.agentState = 'idle';
+			assert.deepEqual(route(), { kind: 'main' });
+
+			orchestrator.updateTerminalMeta(orchestrator.runtimeKey(project.id, project.lane.laneId), { inputPending: true });
+			assert.deepEqual(route(), { kind: 'prompt', confirmConcurrency: false });
 		});
 
 		it('chiede conferma quando Principale sta lavorando', () => {

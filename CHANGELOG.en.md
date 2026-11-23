@@ -12,6 +12,9 @@ released: items are closed into a version via `npm run release -- <version>`.
 ## [Unreleased]
 
 ### Fixed
+- A task started from the queue runs on Main when no work is active, even if the chat is open from another machine. Auto-start still respects the remote view's reservation. (R-MI-18)
+- Stop and its keyboard shortcuts remain available while chat waits for background work; when that work ends, Force stop disappears too. (ATT-003)
+- Nightly distinguishes an offline machine from one that is online but cannot build: it shows what's blocking the build and reports only status changes if you choose Wait. (R-MI-37)
 - With Studio closed to the menu bar or notification area, clicking its icon in the Mac Dock or the Windows taskbar reopens the window: before, nothing happened and you had to go through the system icon. (AUT-107)
 - The queue of a project that lives on another machine is that machine's queue: the window read and wrote it on its own disk, at the other machine's path, so tasks written from here never arrived. (R-MI-06, R-MI-15)
 - A task deleted or started on one machine no longer comes back to the queue from the other machine's copy: the replicated queue picked up removed tasks again and auto-start could run the same task twice. Removals now travel with the queue, including those made by the omp tool or the Companion. (R-MI-12)
