@@ -8,6 +8,7 @@
 import { copyFileSync, createReadStream, existsSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { basename, join } from 'node:path';
+import { request as httpRequest } from 'node:http';
 import { setTimeout as delay } from 'node:timers/promises';
 
 /** Piattaforma che il coordinatore chiede all'altra macchina. */
@@ -22,7 +23,29 @@ export function bridgeFromEnv(env = process.env) {
 	return url && token ? { url: url.replace(/\/+$/, ''), token } : null;
 }
 
-async function call(bridge, verb, body, signal, fetchImpl = fetch) {
+/**
+ * Il `fetch` di Node chiude la richiesta se le intestazioni non arrivano entro
+ * 5 minuti (headersTimeout di undici): `chiedi` aspetta l'utente e `risultato`
+ * fino a 10 minuti, quindi fallivano con «fetch failed». Il bridge e' HTTP
+ * locale (`lane_bridge.rs`): basta `node:http`, senza scadenza.
+ */
+export function bridgeFetch(url, init) {
+	return new Promise((resolve, reject) => {
+		const req = httpRequest(url, { method: init.method, headers: init.headers, signal: init.signal }, (res) => {
+			const chunks = [];
+			res.on('data', (chunk) => chunks.push(chunk));
+			res.on('error', reject);
+			res.on('end', () => {
+				const text = Buffer.concat(chunks).toString('utf8');
+				resolve({ status: res.statusCode ?? 0, json: async () => JSON.parse(text) });
+			});
+		});
+		req.on('error', reject);
+		req.end(init.body);
+	});
+}
+
+async function call(bridge, verb, body, signal, fetchImpl = bridgeFetch) {
 	const response = await fetchImpl(`${bridge.url}/v1/macchine/${verb}`, {
 		method: 'POST',
 		headers: { Authorization: `Bearer ${bridge.token}`, 'Content-Type': 'application/json' },
@@ -43,7 +66,7 @@ const sleep = (ms, signal) => delay(ms, undefined, { signal });
  * - `{ mode: 'machine', machine }`: c'e' una macchina in linea con la piattaforma giusta.
  * `annulla` nel dialogo interrompe la pubblicazione.
  */
-export async function chooseWorker({ bridge, localPlatform, signal, log = console.log, fetchImpl = fetch, pollMs = 10_000 }) {
+export async function chooseWorker({ bridge, localPlatform, signal, log = console.log, fetchImpl = bridgeFetch, pollMs = 10_000 }) {
 	const want = OTHER_PLATFORM[localPlatform];
 	if (!bridge || !want) return { mode: 'none', platform: want ?? null };
 	const list = async () => (await call(bridge, 'elenco', {}, signal, fetchImpl)).details?.machines ?? [];
@@ -85,7 +108,7 @@ export async function chooseWorker({ bridge, localPlatform, signal, log = consol
  * Lancia la build dell'altra piattaforma e ne segue il log, con il prefisso
  * della macchina. Il guinzaglio fa fermare il job se questo script muore.
  */
-export async function startWorker({ bridge, machine, buildId, commit, signal, write = (line) => process.stdout.write(line), fetchImpl = fetch, pollMs = 1000 }) {
+export async function startWorker({ bridge, machine, buildId, commit, signal, write = (line) => process.stdout.write(line), fetchImpl = bridgeFetch, pollMs = 1000 }) {
 	// Dipendenze come in CI (`bun install --frozen-lockfile`, nightly.yml): il
 	// progetto usa bun.lock, e la cartella di lavoro riusata le tiene calde.
 	const command = `bun install --frozen-lockfile && npm run nightly -- --worker --build-id ${buildId}`;
@@ -146,7 +169,7 @@ export async function startWorker({ bridge, machine, buildId, commit, signal, wr
  * Nightly pubblicata con l'altra macchina: Studio propone «Aggiorna
  * entrambe» (R-MI-38). Una proposta non riuscita non tocca la pubblicazione.
  */
-export async function proposeUpdateBoth({ bridge, version, machineIds, fetchImpl = fetch }) {
+export async function proposeUpdateBoth({ bridge, version, machineIds, fetchImpl = bridgeFetch }) {
 	if (!bridge) return;
 	await call(bridge, 'aggiorna', { versione: version, macchine: machineIds }, undefined, fetchImpl).catch(() => {});
 }

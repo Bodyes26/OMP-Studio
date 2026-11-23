@@ -200,7 +200,9 @@ pub(crate) async fn exec_nightly_ready(app: tauri::AppHandle, request: tauri::ip
         #[cfg(target_os = "macos")]
         {
             let identity = std::env::var("APPLE_SIGNING_IDENTITY").unwrap_or_else(|_| "OMP Studio Self-Signed".into());
-            let output = std::process::Command::new("security").args(["find-identity", "-p", "codesigning", "-v"])
+            // Senza `-v`, come `publish-nightly.mjs`: il certificato self-signed non e'
+            // fidato (CSSMERR_TP_NOT_TRUSTED) e `-v` elenca solo le identita' valide.
+            let output = std::process::Command::new("security").args(["find-identity", "-p", "codesigning"])
                 .output().map_err(|error| error.to_string())?;
             if !output.status.success() || !String::from_utf8_lossy(&output.stdout).contains(&format!("\"{identity}\"")) {
                 return Err("The macOS signing identity is unavailable".into());
