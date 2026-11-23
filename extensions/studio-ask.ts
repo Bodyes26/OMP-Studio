@@ -266,13 +266,15 @@ export default function studioAskExtension(pi: StudioApi): void {
 			}
 			if (active) throw new Error(tr("Una domanda e' gia' aperta: attendi la risposta.", "A question is already open: wait for its answer."));
 			active = true;
-			const previous = ctx.ui.formDialog;
+			// Da omp 19 il contesto UI RPC e' una classe con `formDialog` come getter
+			// senza setter: l'assegnazione fallisce, una proprieta' propria lo copre.
+			const previous = Object.getOwnPropertyDescriptor(ctx.ui, "formDialog");
 			let accepted: AskFormSubmission | undefined;
 			let opened = false;
 			try {
 				// RPC usa lo stesso oggetto pubblico per i tool e per le estensioni.
 				// Il tool nativo conserva schema, cancel, steer e bookkeeping.
-				ctx.ui.formDialog = async (html, options) => {
+				const studioFormDialog: StudioUi["formDialog"] = async (html, options) => {
 					opened = true;
 					const form = parseHtmlForm(html);
 					const questions = Object.fromEntries([...fieldQuestions(form)].map(([field, question]) => [field.name, question]));
@@ -295,6 +297,7 @@ export default function studioAskExtension(pi: StudioApi): void {
 						}
 					}
 				};
+				Object.defineProperty(ctx.ui, "formDialog", { value: studioFormDialog, writable: true, configurable: true, enumerable: true });
 				const result = await ctx.invokeTool({ html: params.html }, { signal, onUpdate });
 				if (!opened && !result.isError && !(Array.isArray(result.details?.answers) && result.details.answers.length === 0)) {
 					throw new Error(tr("OMP non ha aperto la superficie form di Studio.", "OMP did not open Studio's form surface."));
@@ -320,9 +323,10 @@ export default function studioAskExtension(pi: StudioApi): void {
 				}
 				return { ...result, content, details: { ...result.details, annotations, delegated: accepted.action === "delegate" } };
 			} finally {
-				if (previous === undefined) delete ctx.ui.formDialog;
-				else ctx.ui.formDialog = previous;
+				// Prima lo sblocco: un ripristino fallito non deve lasciare la domanda aperta.
 				active = false;
+				if (previous) Object.defineProperty(ctx.ui, "formDialog", previous);
+				else delete ctx.ui.formDialog;
 			}
 		}
 	});
