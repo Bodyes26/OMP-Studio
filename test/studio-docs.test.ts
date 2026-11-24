@@ -362,6 +362,9 @@ describe('Diario: commit di chi scrive (R-MI-46)', () => {
 
 	function gitRepo(): void {
 		git(['init', '-q', '-b', 'main']);
+		// Anche l'estensione esegue Git: non eredita l'identità del helper.
+		git(['config', '--local', 'user.name', 'Studio Docs Test']);
+		git(['config', '--local', 'user.email', 'studio-docs-test@example.invalid']);
 		write('a.txt', 'a\n');
 		git(['add', 'a.txt']);
 		git(['commit', '-qm', 'init']);
