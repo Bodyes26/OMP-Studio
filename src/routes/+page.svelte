@@ -2470,7 +2470,7 @@
 			return { kind: 'started', laneId: lane.laneId };
 		}
 
-		const lanes = laneOrchestrator.laneDispatchSnapshots(project);
+		const lanes = laneOrchestrator.laneDispatchSnapshots(project, 'manual');
 		const queueRoute = decideQueueRoute({
 			// Da remoto «Nuovo worktree» vale come Shift + click: worktree nuovo senza dialogo.
 			shiftKey: options.shiftKey === true || options.destination === 'new_lane',

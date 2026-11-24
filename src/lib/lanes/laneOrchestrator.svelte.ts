@@ -288,9 +288,7 @@ export class LaneOrchestrator {
 		if (linkStore.laneWorkingRemotely(String(project.id), laneId)) return 'working';
 		if (this.laneSurface(project, laneId) === 'gui') {
 			const session = sessionRegistry.getLaneSession(project.id, laneId);
-			// Nessuna sessione locale ma una remota occupata: la corsia non è
-			// «unknown», è occupata da fuori.
-			if (!session) return linkStore.laneBusyRemotely(String(project.id), laneId) ? 'working' : 'unknown';
+			if (!session) return 'unknown';
 			if (session.pendingUi) return 'attention';
 			// Il run vivo (fra un giro di tool e l'altro `isStreaming` e' spento)
 			// e il prompt appena ammesso contano come lavoro: senza, la coda
@@ -347,11 +345,35 @@ export class LaneOrchestrator {
 		return Boolean(session?.pendingUi) || Boolean(quota && !quota.dismissed);
 	}
 
+	/** Per un avvio esplicito conta il lavoro, non l'apertura della superficie. */
+	private laneHasActiveWork(project: Project, laneId: string): boolean {
+		const key = this.runtimeKey(project.id, laneId);
+		if (this.terminalBusy[key] === true || linkStore.laneWorkingRemotely(String(project.id), laneId)) return true;
+		if (this.laneSurface(project, laneId) !== 'gui') {
+			// Senza un terminale montato, lo stato del record non prova che ci
+			// sia un processo al lavoro (per esempio al primo cambio progetto).
+			if (!this.terminalSessions.has(key)) return false;
+			const state = this.laneAgentState(project, laneId);
+			const terminal = this.terminalMeta[key];
+			return state === 'working' || state === 'attention'
+				|| terminal?.awaitingStart === true || terminal?.progressActive === true;
+		}
+		const session = sessionRegistry.getLaneSession(project.id, laneId);
+		if (!session) return false;
+		if (session.isCompacting || session.hasPendingStartupPrompts) return true;
+		const snapshot = session.automationSnapshot;
+		return snapshot.streaming || snapshot.runActive === true || snapshot.awaitingRun === true
+			|| snapshot.blockingQuestion !== null || snapshot.quotaBlock !== null
+			|| snapshot.loopActive === true || snapshot.goalHold === true || snapshot.retrying === true
+			|| snapshot.backgroundWork === true || snapshot.nativeQueue === true || snapshot.subagentsRunning === true;
+	}
+
 	/**
 	 * Fotografia delle corsie per il routing della coda (PLAN W09): include
 	 * sempre `Principale`, anche quando il registro non la conosce ancora.
+	 * L'auto-avvio rispetta la prenotazione R-MI-18 anche con una vista remota ferma.
 	 */
-	laneDispatchSnapshots(project: Project): LaneDispatchSnapshot[] {
+	laneDispatchSnapshots(project: Project, mode: 'manual' | 'auto' = 'auto'): LaneDispatchSnapshot[] {
 		const stored = laneStore.lanesFor(project.id as ProjectId);
 		const lanes: Array<AgentLane | LaneRecord> = stored.some(
 			(lane) => lane.laneId === MAIN_LANE_ID
@@ -368,7 +390,7 @@ export class LaneOrchestrator {
 				title: lane.title,
 				origin: lane.origin,
 				status: lane.status,
-				busy: this.laneBusy(project, lane),
+				busy: mode === 'manual' ? this.laneHasActiveWork(project, lane.laneId) : this.laneBusy(project, lane),
 				liveProcess: Boolean(session?.sessionId) || this.terminalSessions.has(key),
 				model: session?.model ? { provider: session.model.provider, id: session.model.id } : null
 			};

@@ -39,8 +39,8 @@ Le scorciatoie globali catturate dall'app vivono dietro il modificatore **`Ctrl+
 | `Alt+P` | Superficie GUI | Apre il catalogo modelli con filtro rapido e navigazione tastiera |
 | `Alt+M` | Superficie GUI | Apre il menu di selezione del livello di thinking (ragionamento) |
 | `Alt+T` | Superficie GUI | Cicla direttamente il livello di thinking (`off` → `max`) |
-| `Alt+C` | Superficie GUI | Interrompe la risposta in corso o cancella il testo scritto; se l'agente non si ferma, una seconda pressione forza l'arresto |
-| `Ctrl+C` | Superficie GUI | Interrompe la risposta in streaming (quando non c'è testo evidenziato); se l'agente non si ferma, una seconda pressione forza l'arresto |
+| `Alt+C` | Superficie GUI | Interrompe l'agente anche se aspetta un lavoro in background; se non sta lavorando, cancella il testo scritto. Se non si ferma, una seconda pressione forza l'arresto |
+| `Ctrl+C` | Superficie GUI | Interrompe l'agente anche se aspetta un lavoro in background (quando non c'è testo evidenziato); se non si ferma, una seconda pressione forza l'arresto |
 | `Alt+E` | Superficie GUI | Mette a fuoco il campo di scrittura del Composer |
 | `Alt+N` | Superficie GUI | Apre una nuova chat nel progetto attivo |
 | `Alt+Maiusc+P` | Superficie GUI | Accende e spegne la modalita' Piano della chat (come `/plan` e la pillola «Piano» del composer; nel Terminale vale l'`app.plan.toggle` di omp). Su Mac `Ctrl+Opzione+Maiusc+P`. Non attiva nel Laboratorio |

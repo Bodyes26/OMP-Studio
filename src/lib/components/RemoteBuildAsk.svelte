@@ -1,6 +1,6 @@
 <!--
-  Domanda della build Nightly distribuita (R-MI-37): l'altra macchina non e'
-  raggiungibile all'avvio. Arriva da `npm run nightly` attraverso il bridge
+  Domanda della build Nightly distribuita (R-MI-37): l'altra macchina non è
+  disponibile per la build all'avvio. Arriva da `npm run nightly` attraverso il bridge
   (`/v1/macchine/chiedi`) e la risposta torna allo script. Esc annulla la
   pubblicazione: nessuna delle tre scelte di pubblicazione parte da sola.
 -->
@@ -11,7 +11,7 @@
 
 	interface Ask {
 		requestId: string;
-		body: { macchina?: string; piattaforma?: string; locale?: string };
+		body: { macchina?: string; piattaforma?: string; locale?: string; motivo?: string };
 	}
 
 	let queue = $state<Ask[]>([]);
@@ -44,7 +44,13 @@
 	{@const other = platformName(current.body.piattaforma)}
 	<Dialog open title={m.remote_build_ask_title({ platform: other })} onClose={() => void answer('annulla')} initialFocus="button.remote-build-wait">
 		{#snippet body()}
-			<p>{current.body.macchina ? m.remote_build_ask_named({ name: current.body.macchina, platform: other }) : m.remote_build_ask_unnamed({ platform: other })}</p>
+			{#if current.body.macchina && current.body.motivo}
+				<p>{m.remote_build_ask_not_ready({ name: current.body.macchina, platform: other, reason: current.body.motivo })}</p>
+			{:else if current.body.macchina}
+				<p>{m.remote_build_ask_named({ name: current.body.macchina, platform: other })}</p>
+			{:else}
+				<p>{m.remote_build_ask_unnamed({ platform: other })}</p>
+			{/if}
 		{/snippet}
 		{#snippet footer()}
 			<button type="button" class="ui-button ui-button-ghost" onclick={() => void answer('annulla')}>{m.remote_build_ask_abort()}</button>
