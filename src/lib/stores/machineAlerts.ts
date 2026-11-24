@@ -10,6 +10,9 @@
 export type MachineAlert =
 	| { kind: 'presence'; machine: string; name: string; online: boolean }
 	| { kind: 'advanced'; machine: string; name: string; project: string; count: number }
+	/** Copie divergenti unite da sole, senza conflitti (R-MI-61). */
+	| { kind: 'merged'; machine: string; name: string; project: string }
+	/** L'unione riguardava solo il diario (R-MI-48 e R-MI-61). */
 	| { kind: 'journal'; machine: string; name: string; project: string }
 	| { kind: 'blocked'; machine: string; name: string; project: string; reason: string; count: number };
 
@@ -25,9 +28,12 @@ export interface OutcomeSample {
 	machine: string;
 	name: string;
 	project: string;
-	/** Commit arrivati e copia avanzata (`advanced` o `mergedJournal`). */
+	/** Commit arrivati e copia avanzata (`advanced` o `merged`). */
 	advanced: number;
-	mergedJournal: boolean;
+	/** Questa macchina ha unito una branch divergente senza conflitti (R-MI-61). */
+	merged: boolean;
+	/** L'unione riguardava solo il diario: l'avviso dice «Diario unito» (R-MI-48). */
+	journalOnly: boolean;
 	/** Avanzamenti rimasti indietro: branch, motivo e commit in attesa. */
 	blocked: Array<{ branch: string; reason: string; behind: number }>;
 	/** Cima locale dopo il giro: due lotti da 3 commit sono due eventi. */
@@ -100,12 +106,17 @@ function outcomeAlerts(state: MachineAlertsState, outcomes: readonly OutcomeSamp
 				});
 			}
 		}
-		if (outcome.mergedJournal) {
-			const key = `journal|${outcome.project}|${outcome.machine}`;
+		// Un'unione senza conflitti si annuncia come «Copie unite»; quando i file
+		// toccati stavano solo nel diario la frase resta la sua (R-MI-61).
+		if (outcome.merged) {
+			const key = `${outcome.journalOnly ? 'journal' : 'merged'}|${outcome.project}|${outcome.machine}`;
 			const signature = `${outcome.advanced}|${outcome.head ?? ''}`;
 			if (state.emitted[key] !== signature) {
 				state.emitted[key] = signature;
-				alerts.push({ kind: 'journal', machine: outcome.machine, name: outcome.name, project: outcome.project });
+				alerts.push({
+					kind: outcome.journalOnly ? 'journal' : 'merged',
+					machine: outcome.machine, name: outcome.name, project: outcome.project
+				});
 			}
 		}
 		for (const blocked of outcome.blocked) {

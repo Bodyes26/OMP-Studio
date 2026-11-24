@@ -1,5 +1,6 @@
 import { attachEditorContext, splitMessageAndEditorContext, stripEditorContext } from '#lib/editor/editorContext.ts';
 import { invoke as backendInvoke, LOCAL_MACHINE, type MachineId, type BackendCommand, type InvokeArgs } from '#lib/backend/ipc.ts';
+import { linkStore } from '#lib/backend/link.svelte.ts';
 import { orchestratePromptPreflight, type PromptPreflightDeps } from './promptPreflight';
 import { settingsStore } from '#lib/stores/settings.svelte.ts';
 import { formatTokens } from '#lib/utils/format.ts';
@@ -1399,6 +1400,13 @@ export class AgentSession {
 			this.requestedResume = requestedResume;
 			this.clearPrewalkState();
 			try {
+				// D6 (R-MI-11): all'avvio la sessione di un progetto dell'altra
+				// macchina partiva prima del collegamento e falliva con
+				// `machine_unreachable`. Si aspetta il primo riepilogo dell'host;
+				// se la macchina e' spenta la promessa si risolve subito e
+				// l'apertura fallisce in modo ordinato, poi si riapre al ritorno
+				// in linea (vedi `+page.svelte`).
+				if (this.machineId !== LOCAL_MACHINE) await linkStore.whenResponded(this.machineId);
 				if (this.labConfig) {
 					await this.client.openLab({
 						workspacePath: this.cwd,
@@ -5249,7 +5257,10 @@ export class AgentSession {
 		// forzato (canale chiuso senza `exited`), riapri prima di accodare il messaggio
 		if (this.exited || !this.client.isOpen) {
 			this.exited = false;
-			void this.ensureOpen(this.sessionId ?? null);
+			// La macchina puo' essere spenta: l'apertura riprova piu' tardi, ma
+			// l'esito non deve diventare una rejection non gestita (D6).
+			void this.ensureOpen(this.sessionId ?? null)
+				.catch((error) => studioLog.warn('session', `apertura non riuscita: ${this.reason(error)}`));
 		}
 
 		// Se OMP e' ancora in fase di avvio, accoda il messaggio e mostra subito l'entry ottimistica

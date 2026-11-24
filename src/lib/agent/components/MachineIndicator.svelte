@@ -3,12 +3,13 @@
 
   Compare solo quando il progetto esiste su più di una macchina: su un progetto
   di una sola macchina la domanda non si pone, e un'etichetta fissa sarebbe
-  rumore. Il clic apre l'elenco delle copie; sceglierne una cambia la macchina
-  su cui nascono le chat e i task di questa corsia.
+  rumore. Il clic apre l'elenco delle copie; sceglierne una passa su quella
+  macchina.
 
-  Il cambio è ammesso solo a sessione ferma: spostare un lavoro a metà turno
-  non è supportato (R-MI-14, fase 3, richiede il trasferimento di codice e
-  sessione). A turno in corso le voci sono disabilitate e il titolo lo spiega.
+  Sempre cliccabile (R-MI-62): una chat vuota passa subito, una chat ferma si
+  sposta, un turno in corso prenota il cambio a fine turno. Non c'è più uno
+  stato «a turno fermo»: era quello a dire «aspetta la fine del turno» anche
+  quando nessuno stava lavorando.
 -->
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
@@ -19,13 +20,17 @@
 	let {
 		machines,
 		current,
-		busy = false,
+		blocked,
 		onChange
 	}: {
 		machines: MachineChoice[];
 		current: string;
-		/** Vero mentre la sessione lavora: cambiare macchina è sconsigliato. */
-		busy?: boolean;
+		/**
+		 * Perché il cambio verso quella macchina non può partire adesso (R-MI-62).
+		 * È lo stesso predicato del flusso: un turno in corso non compare qui,
+		 * perché quello si prenota a fine turno.
+		 */
+		blocked?: (machineId: string) => string | null;
 		onChange: (machineId: string) => void;
 	} = $props();
 
@@ -56,8 +61,7 @@
 		<button
 			type="button"
 			class="chip"
-			class:busy
-			title={busy ? m.machine_indicator_busy({ name: currentName }) : m.machine_indicator_title({ name: currentName })}
+			title={m.machine_indicator_title({ name: currentName })}
 			aria-label={m.machine_indicator_aria({ name: currentName })}
 			aria-haspopup="menu"
 			aria-expanded={open}
@@ -69,12 +73,14 @@
 		{#if open}
 			<div class="menu" role="menu" aria-label={m.machine_indicator_menu()}>
 				{#each machines as machine (machine.id)}
+					{@const reason = machine.id === current ? null : blocked?.(machine.id) ?? null}
 					<button
 						type="button"
 						role="menuitemradio"
 						aria-checked={machine.id === current}
 						class="row"
-						disabled={busy && machine.id !== current}
+						disabled={reason !== null}
+						title={reason ?? undefined}
 						onclick={() => pick(machine)}
 					>
 						<span class="mark">{#if machine.id === current}<IconCheck />{/if}</span>
@@ -82,9 +88,6 @@
 						{#if !machine.online}<span class="off">{m.machine_indicator_offline()}</span>{/if}
 					</button>
 				{/each}
-				{#if busy}
-					<p class="hint">{m.machine_indicator_busy_hint()}</p>
-				{/if}
 			</div>
 		{/if}
 	</div>
@@ -117,9 +120,6 @@
 		width: 12px;
 		height: 12px;
 		flex: none;
-	}
-	.chip.busy {
-		opacity: 0.7;
 	}
 	.menu {
 		position: absolute;
@@ -171,11 +171,5 @@
 	.off {
 		color: var(--ink-faint);
 		font-size: var(--text-caption);
-	}
-	.hint {
-		margin: 4px 6px 2px;
-		color: var(--ink-faint);
-		font-size: var(--text-caption);
-		line-height: 1.4;
 	}
 </style>

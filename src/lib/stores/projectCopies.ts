@@ -5,6 +5,8 @@
  * composer: devono dare la stessa risposta ovunque, quindi non leggono store.
  */
 
+import { pathKey } from '#lib/utils/paths.ts';
+
 /** Stato di una copia nel glifo: in uso, in linea, spenta. */
 export type CopyMark = 'use' | 'on' | 'off';
 
@@ -90,6 +92,47 @@ export function divergenceReasons(
 	// diverse finché l'utente non ne rinomina una (R-MI-35).
 	if (caseConflicts.length > 0) reasons.push('case');
 	return reasons;
+}
+
+/**
+ * Cartelle occupate di una copia (R-MI-57, D1, D2).
+ *
+ * Una copia è occupata solo dove si lavora davvero: cartelle di QUESTO
+ * progetto con un agente al lavoro o in attesa di risposta, e cartelle di
+ * questo progetto con file non salvati nell'editor. Una chat aperta e ferma,
+ * qui o sull'altra macchina, e i file non salvati di un altro progetto non
+ * occupano niente: prima la radice del progetto bastava perché una sessione
+ * qualsiasi fosse al lavoro, e l'intera finestra contava (D2).
+ */
+export interface BusyCopyInput {
+	/** Cartelle del progetto: la principale e i worktree delle sue corsie. */
+	folders: readonly string[];
+	/** Cartelle con file non salvati nell'editor, di tutti i progetti aperti. */
+	dirtyFolders: readonly string[];
+	/** Cartelle in cui un agente di questa macchina lavora o aspetta. */
+	workingFolders: readonly string[];
+	/** Cartelle di corsie su cui lavora davvero un'altra macchina (D1). */
+	remoteWorkingFolders: readonly string[];
+}
+
+export function busyCopyPaths(input: BusyCopyInput): string[] {
+	// La forma originale vince: Rust confronta i percorsi con quelli dei
+	// worktree che ha in mano, non con una chiave normalizzata.
+	const byKey = new Map<string, string>();
+	for (const folder of input.folders) {
+		if (!folder) continue;
+		const key = pathKey(folder);
+		if (!byKey.has(key)) byKey.set(key, folder);
+	}
+	const paths = new Set<string>();
+	for (const group of [input.dirtyFolders, input.workingFolders, input.remoteWorkingFolders]) {
+		for (const folder of group) {
+			if (!folder) continue;
+			const known = byKey.get(pathKey(folder));
+			if (known) paths.add(known);
+		}
+	}
+	return [...paths];
 }
 
 /**

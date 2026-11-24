@@ -2,13 +2,14 @@
  * Stato delle macchine abbinate visto dalla barra di stato (R-MI-49).
  *
  * Funzioni pure, senza store: il chip e il popover devono dare la stessa
- * risposta e i test la devono poter calcolare senza finestra. Tre stati per
- * punto, come li distingue il collegamento: in linea, macchina spenta (relay
- * raggiungibile ma il peer no) e relay non raggiungibile. La versione
- * incompatibile e' uno stato a se': la macchina risponde ma non si capisce.
+ * risposta e i test la devono poter calcolare senza finestra. Quattro stati per
+ * punto, come li distingue il collegamento: in linea, in attesa di risposta,
+ * macchina spenta (relay raggiungibile ma il peer no) e relay non
+ * raggiungibile. La versione incompatibile e' uno stato a se': la macchina
+ * risponde ma non si capisce.
  */
 
-export type MachineDotState = 'online' | 'offline' | 'relay' | 'incompatible';
+export type MachineDotState = 'online' | 'waiting' | 'offline' | 'relay' | 'incompatible';
 
 /** Quel che serve sapere di una macchina per disegnarne il punto. */
 export interface MachineStatusInput {
@@ -16,6 +17,11 @@ export interface MachineStatusInput {
 	name: string;
 	online: boolean;
 	compatible: boolean;
+	/**
+	 * L'host ha gia' mandato il suo primo riepilogo (D8): `online` dice solo
+	 * che il canale QUIC e' aperto, non che l'altra macchina abbia risposto.
+	 */
+	responded: boolean;
 	/** `relay` quando e' il relay a non rispondere, `machine` quando e' spenta. */
 	offlineReason: 'relay' | 'machine' | null;
 }
@@ -27,12 +33,14 @@ export interface MachineDot {
 }
 
 /**
- * Il punto di una macchina: in linea batte tutto, poi la versione
- * incompatibile, poi la ragione dell'assenza (relay o macchina spenta).
+ * Il punto di una macchina: spenta batte tutto, poi la versione incompatibile,
+ * poi «in attesa di risposta» finché l'host non ha parlato (D8), infine in
+ * linea.
  */
 export function machineState(machine: Omit<MachineStatusInput, 'id' | 'name'>): MachineDotState {
-	if (machine.online) return machine.compatible ? 'online' : 'incompatible';
-	return machine.offlineReason === 'relay' ? 'relay' : 'offline';
+	if (!machine.online) return machine.offlineReason === 'relay' ? 'relay' : 'offline';
+	if (!machine.compatible) return 'incompatible';
+	return machine.responded ? 'online' : 'waiting';
 }
 
 /** I punti del chip, nell'ordine dell'elenco; vuoto senza macchine abbinate. */
@@ -56,36 +64,9 @@ export function machinesChipSummary(machines: readonly MachineStatusInput[]): Ma
 	return {
 		visible: dots.length > 0,
 		dots,
-		anyOnline: dots.some((dot) => dot.state === 'online'),
+		anyOnline: dots.some((dot) => dot.state === 'online' || dot.state === 'waiting'),
 		anyRelayDown: dots.some((dot) => dot.state === 'relay')
 	};
-}
-
-/**
- * Come risponde una macchina in linea (IMP-005).
- *
- * `online` del collegamento dice che il canale e' aperto, non che l'altra
- * macchina abbia risposto: all'avvio, e mentre un giro di copie aspetta, la
- * macchina e' raggiungibile ma non ha ancora confermato nulla. Una macchina
- * lenta resta `waiting`, mai `unreachable`: l'assenza di risposta non e'
- * un'assenza di rete.
- */
-export type MachineResponse = 'responding' | 'waiting' | 'unreachable' | 'incompatible';
-
-export interface MachineResponseInput {
-	online: boolean;
-	compatible: boolean;
-	/** C'e' una richiesta partita e non ancora risolta (giro di copie, prompt, coda). */
-	requested: boolean;
-	/** L'altra macchina ha gia' risposto almeno una volta. */
-	responded: boolean;
-}
-
-export function machineResponse(input: MachineResponseInput): MachineResponse {
-	if (!input.online) return 'unreachable';
-	if (!input.compatible) return 'incompatible';
-	if (input.requested && !input.responded) return 'waiting';
-	return 'responding';
 }
 
 /** Unita' del tempo trascorso, dal minuto in su: «adesso» non ha unita'. */

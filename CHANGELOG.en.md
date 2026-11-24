@@ -12,6 +12,12 @@ released: items are closed into a version via `npm run release -- <version>`.
 ## [Unreleased]
 
 ### Fixed
+- Switching machine on an empty chat no longer asks you to "wait for the turn to finish": unsaved files in any project and the same chat open, but idle, on the other machine counted as work in progress. When the switch is really blocked, the message says what blocks it and on which machine. (R-MI-62)
+- A copy left behind updates even when the project's chat is open and idle on the other machine or another project has unsaved files: it used to stay "to update" and you had to pull by hand. (R-MI-57)
+- Two Nightlies of the same base version no longer show "X runs Studio Y, different from here": the link worked, but the warning suggested incompatible copies or versions. (R-MI-64)
+- At startup the chats of the other machine's projects open as soon as the link is ready, instead of failing because they started before it. (R-MI-11)
+- Tasks written into the queue of a project on the other machine no longer stay "waiting for confirmation" when the first delivery fails: Studio retries until the machine confirms them. (R-MI-15)
+- The Machines chip shows "waiting for a reply" until the other machine has actually answered, instead of a green dot right after connecting. (R-MI-49)
 - Closing a project in the main window immediately removes it from Unread in the Companion and closes its reader if open.
 - At startup a project present on several machines shows up right away as a single tile, even with the other machine off: on Windows the two copies stayed separate until you clicked one of them. (R-MI-45)
 - The project journal and documents updated by the agent are committed right away, and only those files: they used to stay modified (for example after a Nightly), and the copies on the other machines showed up as diverged. (R-MI-46)
@@ -115,6 +121,15 @@ released: items are closed into a version via `npm run release -- <version>`.
 - When the `omp` installation is broken (for example a link pointing to a deleted folder), Studio says so and offers "Repair" instead of starting over as on a new computer. When an essential piece is missing, the setup reopens directly on that step, without the animated intro. (SET-010, SET-020)
 
 ### Changed
+- Copies of the same project sync right away: when the other machine commits, when it comes back online, when you return to the window, when you open the project and when an agent finishes its turn, instead of at most once a minute. A failed round retries on its own and, if it keeps failing, a notice shows the reason. (R-MI-57)
+- Commits that arrive on GitHub are applied on their own with a fast-forward, with the same safeguards as the sync between machines: no more "N commits to pull" to fix by hand. Studio never merges, rebases or pushes to GitHub on its own. (R-MI-58)
+- The journal no longer conflicts: lines written on different machines, even uncommitted, are merged in every sync, pull or stash, and no longer end up parked in the stash. (R-MI-59)
+- A journal modified by an agent is committed on its own at the end of the turn, that file only. (R-MI-60)
+- Two copies with different commits on the same branch merge on their own when git finds no conflicts, with a single merge commit identical on every machine. With conflicts, the strip above the composer names the files and "Resolve" hands the merge to an agent with the task already written. (R-MI-61)
+- If you switch machine while the agent is working, the switch is booked and happens on its own at the end of the turn, with "Cancel" under the composer. Before moving a chat Studio aligns the two copies by itself, even when the source copy is behind. (R-MI-62)
+- Uncommitted changes follow the machine switch without questions; a notice says how many arrived and "Undo" moves them back. (R-MI-63)
+- When this machine moves to a newer Studio version, older paired machines update on their own as soon as they are free. The update dialog shows one row per paired machine, with its status and "Update". (R-MI-64)
+- "Publish" no longer attempts a push GitHub would reject: if commits from GitHub are missing it offers "Pull and publish". (R-MI-65)
 - Settings group omp, Studio and workspace preferences; Models, Roles and Providers open directly. Studio preferences remain local. (IMP-001, IMP-002)
 - When pairing by code, choose whether to show or enter it. Studio shows when it contacts the server, when it waits for the other computer and whether pairing succeeded. (IMP-003)
 - The Updates screen shows the version of paired computers and lets you request an update on the other computer. (IMP-004)

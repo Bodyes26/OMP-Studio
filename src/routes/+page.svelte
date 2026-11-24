@@ -67,9 +67,6 @@
 	import { projectJumpHints } from '#lib/shortcuts/projectJump.svelte.ts';
 	import { provenance, machineName, projectGroup } from '#lib/stores/projectMachines.svelte.ts';
 	import { copySyncStore } from '#lib/stores/copySync.svelte.ts';
-	import { canMoveChanges, estimateMove, moveChanges, MoveNotFinishedError } from '#lib/stores/copyMove.ts';
-	import { formatBytes } from '#lib/stores/studioUpdater.svelte.ts';
-	import { copyAgentState } from '#lib/stores/projectActivity.ts';
 	import { nextOnlineCopy } from '#lib/stores/projectCopies.ts';
 	import { IS_MAC } from '#lib/utils/platform.ts';
 	import TaskEditor from '#lib/components/TaskEditor.svelte';
@@ -183,7 +180,7 @@
 	import { startFocusTracer } from '#lib/focusTracer.ts';
 	import { registerSnapshotProvider, studioLog } from '#lib/diagnostics/studioLog.ts';
 	import { markSwitch } from '#lib/switchDissolve.ts';
-	import { open as openDialog, ask as askDialog, message as messageDialog } from '@tauri-apps/plugin-dialog';
+	import { open as openDialog, message as messageDialog } from '@tauri-apps/plugin-dialog';
 	import { getCurrentWebview } from '@tauri-apps/api/webview';
 	import { openPaths, externalOpenState } from '#lib/externalOpen.svelte.ts';
 	import ExternalFilesPanel from '#lib/components/ExternalFilesPanel.svelte';
@@ -321,8 +318,10 @@
 		}
 	});
 
-	// Copie su più macchine (R-MI-26, R-MI-27): un giro appena cambia la cima
-	// di una delle due copie o si libera una cartella, e comunque ogni minuto.
+	// Copie su più macchine (R-MI-26, R-MI-27, R-MI-57): un giro appena cambia
+	// la cima di una delle due copie o si libera una cartella. Gli altri
+	// segnali (fuoco, visibilità, progetto attivato, macchina tornata in linea,
+	// cime rilette ogni dieci secondi) vivono in `copySyncStore.start()`.
 	$effect(() => {
 		if (!projectStore.ready) return;
 		const plan = copySyncStore.pairs().map((pair) => ({ pair, signature: copySyncStore.signature(pair) }));
@@ -352,7 +351,8 @@
 				name: peer.name,
 				project: project?.name ?? localId,
 				advanced: outcome.advanced,
-				mergedJournal: outcome.mergedJournal,
+				merged: outcome.merged,
+				journalOnly: outcome.journalOnly,
 				blocked: outcome.blocked,
 				head: outcome.head
 			});
@@ -1592,21 +1592,22 @@
 	}
 
 	/**
-	 * Passa da una copia all'altra. Se la partenza ha modifiche non committate
-	 * propone di portarle (R-MI-28); con un agente al lavoro su una delle due
-	 * copie restano dove sono. Se lo spostamento fallisce si resta sulla
-	 * partenza, dove le modifiche sono ancora.
+	 * Passa da una copia all'altra (R-MI-62). Una chat vuota passa subito; una
+	 * chat ferma si sposta dopo che le copie sono state allineate; con un agente
+	 * al lavoro il cambio si prenota a fine turno. Le modifiche non committate
+	 * seguono da sole (R-MI-63): nessuna domanda, un avviso con «Annulla».
+	 * Attivare la copia di arrivo tocca a `continueSessionOn`: se lo spostamento
+	 * è prenotato o già in corso, qui non si anticipa nulla.
 	 */
 	async function resumeTransferredChat(project: Project, laneId: LaneRecord['laneId'], sessionId: string, model: string | null) {
 		await laneOrchestrator.switchLane(project.id as ProjectId, laneId);
 		let target = projectStore.projects.find((copy) => copy.id === project.id);
 		if (target?.lane.surface === 'terminal') {
-			if (laneOrchestrator.laneBusy(target, target.lane)) throw new Error(m.session_move_busy());
 			await laneOrchestrator.switchSurface(target.id, 'gui');
 			target = projectStore.projects.find((copy) => copy.id === project.id);
 		}
 		const lane = target && laneOf(target, laneId);
-		if (!target || !lane || lane.surface !== 'gui') throw new Error(m.session_move_busy());
+		if (!target || !lane || lane.surface !== 'gui') throw new Error(m.session_move_resume_failed());
 		const session = agentSessionFor(target, lane);
 		await session.reopen(sessionId, { modelOverride: model });
 		if (!await session.waitUntilReady(15_000) || session.sessionId !== sessionId) throw new Error(m.session_move_resume_failed());
@@ -1614,56 +1615,35 @@
 	}
 
 	async function switchCopy(from: Project, to: Project): Promise<void> {
+		// La superficie a terminale non si sposta: si passa alla GUI della stessa
+		// corsia, e solo se lì un turno sta davvero girando si aspetta. La sola
+		// presenza remota non conta (D1): `laneBusy` la includeva e bloccava il
+		// cambio su una corsia aperta e ferma sull'altra macchina.
 		if (from.lane.surface === 'terminal' && terminalSessionFor(from)?.currentSessionInfo?.sessionId) {
-			if (laneOrchestrator.laneBusy(from, from.lane)) {
-				await messageDialog(m.session_move_busy(), { kind: 'info' });
+			const agent = registeredSessionFor(from);
+			if (agent && (agent.isStreaming || agent.agentState === 'working')) {
+				await messageDialog(m.session_switch_blocked_agent({
+					machine: machineName(from.machineId), folder: from.lane.workspacePath ?? from.canonicalProjectPath ?? ''
+				}), { kind: 'info' });
 				return;
 			}
 			await laneOrchestrator.switchSurface(from.id, 'gui');
 			const updated = projectStore.projects.find((copy) => copy.id === from.id);
 			if (!updated || updated.lane.surface !== 'gui') return;
 			from = updated;
-			const agent = registeredSessionFor(from);
-			if (!agent || !await agent.waitUntilReady(15_000)) {
+			const ready = registeredSessionFor(from);
+			if (!ready || !await ready.waitUntilReady(15_000)) {
 				await messageDialog(m.session_move_resume_failed(), { kind: 'error' });
 				return;
 			}
 		}
-		if (await continueSessionOn(from, to, registeredSessionFor(from), async ({ sessionId, lane, model }) => {
+		const result = await continueSessionOn(from, to, registeredSessionFor(from), async ({ sessionId, lane, model }) => {
 			await resumeTransferredChat(to, lane, sessionId, model);
 			window.dispatchEvent(new CustomEvent('studio-sessions-refresh', { detail: { projectPath: to.canonicalProjectPath, sessionId } }));
-		})) return;
-		const path = from.canonicalProjectPath;
-		if (path && canMoveChanges(from, to)) {
-			// La stima legge i file sulla macchina di partenza (R-MI-33); se non
-			// risponde si ripiega sul conteggio dello stato git, senza dimensione.
-			const estimate = await estimateMove(from).catch(() => null);
-			const status = estimate ? null : await githubStore.loadUpstreamStatus(path, true).catch(() => null);
-			const count = estimate?.files ?? (status?.isGit ? (status.changedFiles ?? (status.hasUncommitted ? 1 : 0)) : 0);
-			if (count > 0) {
-				const names = { from: machineName(from.machineId), to: machineName(to.machineId), count };
-				const size = estimate ? formatBytes(estimate.bytes) : '?';
-				if (copyAgentState(from) === 'working' || copyAgentState(to) === 'working') {
-					await messageDialog(m.copies_move_busy(names), { title: m.copies_move_title(), kind: 'info' });
-				} else if (await askDialog(m.copies_move_prompt({ ...names, size }), {
-					title: m.copies_move_title(), okLabel: m.copies_move_bring(), cancelLabel: m.copies_move_leave()
-				})) {
-					try {
-						await moveChanges(from, to);
-					} catch (error) {
-						// Arrivate ma non ripulite: il lavoro è già sulla copia di
-						// arrivo, quindi si passa lì e si dice cosa resta da fare.
-						if (error instanceof MoveNotFinishedError) {
-							await messageDialog(m.copies_move_unfinished({ from: names.from, to: names.to, error: error.message }), { title: m.copies_move_title(), kind: 'warning' });
-						} else {
-							await messageDialog(m.copies_move_failed({ from: names.from, error: String(error) }), { title: m.copies_move_title(), kind: 'error' });
-							return;
-						}
-					}
-				}
-			}
-		}
-		projectStore.setActive(to.id);
+		});
+		// Solo una chat vuota passa senza spostare nulla: qui si attiva la copia.
+		// Uno spostamento vero l'ha già attivata da sé (`resumeTransferredChat`).
+		if (result === 'instant') projectStore.setActive(to.id);
 	}
 
 	/**
@@ -1674,7 +1654,10 @@
 	function getOrCreateAgentSession(p: Project): AgentSession {
 		const session = agentSessionFor(p);
 		removeFromWarmupQueue(p.id);
-		void session.ensureOpen(terminalMeta[runtimeKey(p)]?.sessionId ?? null);
+		// D6: nessuna rejection non gestita se la macchina non risponde; la
+		// sessione si riapre quando l'effetto qui sotto la rivede in linea.
+		void session.ensureOpen(terminalMeta[runtimeKey(p)]?.sessionId ?? null)
+			.catch((error) => studioLog.warn('session', `apertura ${p.name} non riuscita: ${String(error)}`));
 		return session;
 	}
 
@@ -1723,7 +1706,10 @@
 					continue;
 				}
 
-				void next.session.ensureOpen(next.resumeSessionId);
+				// D6: un'apertura fallita non deve diventare una rejection non
+				// gestita; la macchina potrebbe essere caduta fra i due istanti.
+				void next.session.ensureOpen(next.resumeSessionId)
+					.catch((error) => studioLog.warn('session', `apertura ${next.projectId} non riuscita: ${String(error)}`));
 				await next.session.waitUntilReady(7000);
 			}
 		} finally {
@@ -1733,6 +1719,21 @@
 			}
 		}
 	}
+
+	// D7 (R-MI-15): quando una macchina torna in linea ripartono subito le code
+	// rimaste in attesa di conferma, senza aspettare il prossimo giro. Solo
+	// sul passaggio a in linea: lo stato dei peer cambia anche per latenza e
+	// battito, e ripartire a ogni cambio annullerebbe l'attesa crescente.
+	let queuePeersOnline = new Set<string>();
+	$effect(() => {
+		const online = new Set(linkStore.status.peers.filter((peer) => peer.online).map((peer) => peer.id));
+		untrack(() => {
+			for (const machine of online) {
+				if (!queuePeersOnline.has(machine)) taskStore.resumeRemoteQueues(machine);
+			}
+			queuePeersOnline = online;
+		});
+	});
 
 	// Notifica quando la sessione attiva diventa pronta per la prima volta
 	let activeSessionReadyFired = false;
@@ -1751,8 +1752,17 @@
 	// Ogni scrittura qui dentro deve convergere: `setAgentState` non riassegna
 	// un valore uguale e `updateTerminalMeta` scrive solo se qualcosa cambia.
 	$effect(() => {
+		// D6: una macchina spenta non si apre. L'apertura fallirebbe con
+		// `machine_unreachable`; la sessione parte al ritorno in linea, perche'
+		// leggere qui lo stato dei peer fa ripartire l'effetto. `whenResponded`
+		// dentro `open()` copre il caso della macchina gia' in linea ma senza
+		// primo riepilogo.
+		const offlineMachines = new Set(
+			linkStore.status.peers.filter((peer) => !peer.online).map((peer) => peer.id)
+		);
 		for (const p of projectStore.projects) {
 			const activeSession = registeredSessionFor(p);
+			if (p.machineId && offlineMachines.has(p.machineId)) continue;
 			if (p.lane.surface === 'gui' && activeSession) {
 				if (!activeSession.exited) {
 					const isCurrentProject = p.id === projectStore.activeId;
@@ -1768,7 +1778,8 @@
 					if (isCurrentProject || hasPendingWork) {
 						// Progetto attivo o con lavoro pendente: apertura immediata, scavalca la coda
 						removeFromWarmupQueue(p.id);
-						void activeSession.ensureOpen(resumeSessionId);
+						void activeSession.ensureOpen(resumeSessionId)
+							.catch((error) => studioLog.warn('session', `apertura ${p.name} non riuscita: ${String(error)}`));
 					} else {
 						// Sessione GUI inattiva senza lavoro pendente: accoda per preriscaldamento seriale
 						enqueueWarmup(p.id, activeSession, resumeSessionId);
@@ -3125,7 +3136,7 @@
 							const row = laneStore.lanesFor(target.id as ProjectId).find((item) => item.workspacePath === redirect.targetPath);
 							if (redirect.targetPath !== redirect.projectPath && !row) throw new Error(m.session_move_commit());
 							const next = laneOf(target, row?.laneId ?? MAIN_LANE_ID);
-							if (!next || !canAutomate(target.id)) throw new Error(m.session_move_busy());
+							if (!next || !canAutomate(target.id)) throw new Error(m.session_move_resume_failed());
 							await invoke('session_move_import', { projectPath: redirect.targetPath, sourcePath: redirect.sourcePath, session: sessionId, transcript }, { machine });
 							await agentSessionFor(target, next).reopen(sessionId, { modelOverride: redirect.model });
 							projectStore.setActive(target.id);
@@ -4611,7 +4622,12 @@
 		if (index !== null) projectStore.setActive(tiles[index].id);
 	}
 
-	/** Ctrl+Alt+Su/Giu: la copia del progetto sulla macchina in linea precedente/successiva (R-MI-25). */
+	/**
+	 * Ctrl+Alt+Su/Giu: la copia del progetto sulla macchina in linea
+	 * precedente/successiva (R-MI-25). Passa dallo stesso flusso
+	 * dell'indicatore sotto il composer (R-MI-62): chat vuota subito, chat ferma
+	 * spostata, turno in corso prenotato a fine turno.
+	 */
 	function cycleMachine(direction: 1 | -1) {
 		const active = projectStore.activeProject;
 		if (!active || active.external) return;

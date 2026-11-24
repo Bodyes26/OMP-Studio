@@ -6,25 +6,34 @@
  * ha file non salvati o un agente sta scrivendo lì.
  */
 
+import { untrack } from 'svelte';
 import { invoke, isTauri, LOCAL_MACHINE } from '#lib/backend/ipc.ts';
 import { linkStore } from '#lib/backend/link.svelte.ts';
-import { sessionRegistry } from '#lib/agent/sessionRegistry.ts';
-import { getDirtyEditorPaths } from '#lib/editor/editorActivity.svelte.ts';
-import type { ProjectId } from '#lib/types/lanes.ts';
+import { m } from '#lib/paraglide/messages.js';
 import { githubStore } from './github.svelte';
-import { laneStore } from './lanes.svelte';
-import { normalizeProjectPath, type Project } from './projects.svelte';
+import { busyPaths } from './copyBusy.ts';
+import { machineAlertFeed } from './machineAlertFeed.svelte.ts';
+import { normalizeProjectPath, projectStore, type Project } from './projects.svelte';
 import { projectOrder } from './projectOrder.svelte';
 import type { CaseConflict } from './projectCopies.ts';
+import {
+	emptySyncRetry,
+	recordSyncFailure,
+	recordSyncSuccess,
+	syncDue,
+	syncRetryDelay,
+	type SyncRetryState
+} from './copySyncRetry.ts';
 
 export type BranchSyncState =
 	| 'equal'
 	| 'ahead'
+	/** Commit propri su entrambe le copie e l'unione ha conflitti (R-MI-61). */
 	| 'diverged'
 	/** Commit arrivati e copia avanzata (R-MI-27): `behind` e' quanti. */
 	| 'advanced'
-	/** La branch divergeva solo sul diario e questa macchina ha unito (R-MI-48). */
-	| 'mergedJournal'
+	/** Era divergente, nessun conflitto: la copia e' sul commit di unione (R-MI-61). */
+	| 'merged'
 	| 'pending'
 	| 'onlyPeer'
 	| 'caseConflict';
@@ -37,10 +46,12 @@ export interface BranchSync {
 	behind: number;
 	state: BranchSyncState;
 	/**
-	 * Per `pending`: `busy` (agente/editor/automazione), `journalPeer` (diario
-	 * divergente, unisce l'altra macchina), `detached` (HEAD staccato),
-	 * `conflict:<file>[,<file>…]` (modifiche locali che non si riapplicano,
-	 * R-MI-47), altrimenti il messaggio di git.
+	 * Per `pending`: `busy` (agente/editor/automazione), `detached` (HEAD
+	 * staccato), `conflict:<file>[,<file>…]` (modifiche locali che non si
+	 * riapplicano, R-MI-47), altrimenti il messaggio di git. Per `diverged`:
+	 * `conflict:<file>[,<file>…]` con i file che git non unisce da solo
+	 * (R-MI-61). Per `merged`: `journal` quando le modifiche delle due parti
+	 * stavano solo in `docs/diario/`, altrimenti `null`.
 	 */
 	reason: string | null;
 }
@@ -58,9 +69,12 @@ export interface CopySyncReport {
 export interface SyncOutcome {
 	at: number;
 	machine: string;
-	/** Commit arrivati (`advanced` e `mergedJournal`, il loro `behind`). */
+	/** Commit arrivati (`advanced` e `merged`, il loro `behind`). */
 	advanced: number;
-	mergedJournal: boolean;
+	/** Questa macchina ha unito una branch divergente senza conflitti (R-MI-61). */
+	merged: boolean;
+	/** L'unione riguardava solo il diario: l'avviso dice «Diario unito» (R-MI-48). */
+	journalOnly: boolean;
 	/** Avanzamenti rimasti indietro con il motivo, uno per branch. */
 	blocked: Array<{ branch: string; reason: string; behind: number }>;
 	/** Cima della copia locale dopo il giro: distingue commit nuovi da un conteggio uguale. */
@@ -69,6 +83,12 @@ export interface SyncOutcome {
 
 /** Ogni quanto si rilegge l'altra macchina anche senza segnali di cambio. */
 const SYNC_INTERVAL_MS = 60_000;
+/** Con la finestra visibile le cime delle gemelle si rileggono spesso (R-MI-57). */
+const HEAD_REFRESH_VISIBLE_MS = 10_000;
+/** Da nascosta basta un minuto: nessuno sta guardando la tessera. */
+const HEAD_REFRESH_HIDDEN_MS = 60_000;
+/** Ogni quanto si guarda se il progetto attivo o le macchine in linea sono cambiati. */
+const TRANSITION_POLL_MS = 2_000;
 
 function isLocal(project: Project): boolean {
 	return !project.machineId || project.machineId === LOCAL_MACHINE;
@@ -79,25 +99,12 @@ function reportKey(localId: string, machine: string): string {
 }
 
 /**
- * Cartelle della copia locale che non si toccano: corsie con un agente al
- * lavoro o in attesa (anche guidato da un'altra macchina, R-MI-18) e file non
- * salvati nell'editor. Rust le confronta con la cartella di ogni branch.
+ * Cartelle della copia locale che non si toccano (R-MI-57, D1, D2). La regola
+ * sta in `copyBusy.ts`, che `githubStore` usa senza cicli; qui resta
+ * esportata perche' e' da qui che la cercano i chiamanti (contratto di
+ * `copy_sync`).
  */
-export function busyPaths(local: Project): string[] {
-	const paths = new Set(getDirtyEditorPaths());
-	const sessionsBusy = sessionRegistry.getSessionsForProject(local.id)
-		.some((session) => session.agentState === 'working' || session.pendingUi);
-	for (const lane of laneStore.lanesFor(local.id as ProjectId)) {
-		const path = lane.workspacePath;
-		if (!path) continue;
-		const busy = lane.agentState === 'working' || lane.agentState === 'attention'
-			|| linkStore.laneBusyRemotely(local.id, lane.laneId);
-		if (busy) paths.add(path);
-	}
-	// Una sessione aperta senza corsia nota occupa la cartella principale.
-	if (sessionsBusy && local.canonicalProjectPath) paths.add(local.canonicalProjectPath);
-	return [...paths];
-}
+export { busyPaths } from './copyBusy.ts';
 
 interface SyncPair {
 	key: string;
@@ -122,6 +129,11 @@ class CopySyncStore {
 	lastSyncAt = $state<Record<string, number>>({});
 	private inFlight = new Set<string>();
 	private signatures = new Map<string, string>();
+	/** Fallimenti e attese per coppia (R-MI-57). */
+	private retryHistory = new Map<string, SyncRetryState>();
+	private retryTimers = new Map<string, number>();
+	/** Pulizia di `start()`: la pagina la chiama una volta sola. */
+	private stopper: (() => void) | null = null;
 
 	reportFor(localId: string, machine: string): CopySyncReport | null {
 		if (!this.reachable(machine)) return null;
@@ -208,8 +220,17 @@ class CopySyncStore {
 		void this.sync(pair);
 	}
 
+	/**
+	 * Giro di tutti i pari. Chi ha appena fallito aspetta la sua attesa
+	 * crescente: ci pensa il timer di `scheduleRetry`, non il minuto, o si
+	 * tenterebbe a ogni giro vanificando il ritento lento (R-MI-57).
+	 */
 	syncAll(): void {
-		for (const pair of this.pairs()) void this.sync(pair);
+		const now = Date.now();
+		for (const pair of this.pairs()) {
+			if (!syncDue(this.retryHistory.get(pair.key) ?? emptySyncRetry(), now)) continue;
+			void this.sync(pair);
+		}
 	}
 
 	async sync(pair: SyncPair): Promise<CopySyncReport | null> {
@@ -225,28 +246,36 @@ class CopySyncStore {
 			});
 			this.reports[pair.key] = report;
 			delete this.errors[pair.key];
+			this.retryHistory.set(pair.key, recordSyncSuccess());
 			const moved = report.branches.filter((branch) =>
-				branch.state === 'advanced' || branch.state === 'mergedJournal');
+				branch.state === 'advanced' || branch.state === 'merged');
+			const merged = report.branches.filter((branch) => branch.state === 'merged');
 			this.outcomes[pair.key] = {
 				at: Date.now(),
 				machine: pair.remote.machineId ?? '',
 				advanced: moved.reduce((count, branch) => count + branch.behind, 0),
-				mergedJournal: report.branches.some((branch) => branch.state === 'mergedJournal'),
+				merged: merged.length > 0,
+				journalOnly: merged.some((branch) => branch.reason === 'journal'),
 				blocked: report.branches
 					.filter((branch) => branch.state === 'pending' && branch.reason)
 					.map((branch) => ({ branch: branch.name, reason: branch.reason ?? '', behind: branch.behind })),
 				head: report.branches.find((branch) => branch.local)?.local ?? null
 			};
 			this.lastSyncAt[pair.key] = Date.now();
-			// Dopo un avanzamento la barra (stato git, divergenza) deve vederlo subito.
 			if (moved.length > 0 && pair.local.canonicalProjectPath) {
+				// Dopo un avanzamento la barra (stato git, divergenza) deve vederlo
+				// subito e origin va riletto: i commit gia' pubblicati dall'altra
+				// macchina non devono risultare «da pubblicare» (R-MI-58).
 				void githubStore.loadUpstreamStatus(pair.local.canonicalProjectPath, true);
+				void githubStore.checkRemote(pair.local.canonicalProjectPath, true);
 			}
 			return report;
 		} catch (error) {
 			// Un giro gia' in corso nel backend non e' un errore da mostrare.
 			const text = String(error);
-			if (!text.includes('sync already running')) this.errors[pair.key] = text;
+			if (text.includes('sync already running')) return null;
+			this.errors[pair.key] = text;
+			this.failed(pair, text);
 			return null;
 		} finally {
 			this.inFlight.delete(pair.key);
@@ -255,17 +284,131 @@ class CopySyncStore {
 	}
 
 	/**
-	 * Avvia i giri automatici: subito quando cambia un'impronta, comunque ogni
-	 * minuto per le branch che la barra non osserva. Restituisce la pulizia.
+	 * Un giro fallito (R-MI-57): si ritenta con attesa crescente e, dopo tre
+	 * fallimenti di fila, l'avviso delle macchine lo dice una volta sola. Gli
+	 * errori non restano piu' solo nel pannello.
 	 */
-	start(): () => void {
-		const timer = setInterval(() => this.syncAll(), SYNC_INTERVAL_MS);
-		return () => clearInterval(timer);
+	private failed(pair: SyncPair, reason: string): void {
+		const previous = this.retryHistory.get(pair.key) ?? emptySyncRetry();
+		const { state, alertReason } = recordSyncFailure(previous, reason, Date.now());
+		this.retryHistory.set(pair.key, state);
+		if (alertReason !== null) {
+			const machine = pair.remote.machineId ?? '';
+			const name = linkStore.machineFor(machine)?.name ?? machine;
+			machineAlertFeed.announce(m.copies_sync_error({ machine: name, error: alertReason }));
+		}
+		this.scheduleRetry(pair, syncRetryDelay(state.failures));
 	}
 
-	/** Branch della copia locale di questo gruppo che divergono da una gemella. */
-	divergedBranches(local: Project): string[] {
-		return this.branchesIn(local, 'diverged');
+	private scheduleRetry(pair: SyncPair, delay: number): void {
+		window.clearTimeout(this.retryTimers.get(pair.key));
+		this.retryTimers.set(pair.key, window.setTimeout(() => {
+			this.retryTimers.delete(pair.key);
+			void this.sync(pair);
+		}, delay));
+	}
+
+	/**
+	 * Rilegge la cima delle copie delle gemelle: e' l'unico modo perche' un
+	 * commit dell'altra macchina si veda entro dieci secondi (R-MI-57). Solo
+	 * con la finestra visibile si paga questo giro; da nascosta resta il
+	 * minuto di `syncAll`.
+	 */
+	private refreshPeerHeads(): void {
+		for (const pair of this.pairs()) {
+			const path = pair.remote.canonicalProjectPath;
+			if (!path) continue;
+			void githubStore.loadUpstreamStatus(path, true, pair.remote.machineId);
+		}
+	}
+
+	/**
+	 * Avvia i giri automatici (R-MI-57): un giro quando cambia un'impronta
+	 * (effetto della pagina), il ritmo breve sulle cime delle gemelle, e i
+	 * segnali che dicono «sei tornato»: fuoco o visibilita' della finestra,
+	 * progetto attivato, macchina tornata in linea. Il minuto resta come rete
+	 * di sicurezza. Restituisce la pulizia.
+	 */
+	start(): () => void {
+		if (this.stopper !== null) return this.stopper;
+		const visible = () => typeof document === 'undefined' || document.visibilityState === 'visible';
+		const timer = setInterval(() => this.syncAll(), SYNC_INTERVAL_MS);
+		// Visibile si legge ogni dieci secondi; da nascosta basta un tick su sei.
+		let ticks = 0;
+		const heads = setInterval(() => {
+			ticks += 1;
+			if (visible() || ticks % (HEAD_REFRESH_HIDDEN_MS / HEAD_REFRESH_VISIBLE_MS) === 0) {
+				this.refreshPeerHeads();
+			}
+		}, HEAD_REFRESH_VISIBLE_MS);
+		const wake = () => {
+			this.refreshPeerHeads();
+			this.syncAll();
+		};
+		// Solo al ritorno: nascondere la finestra non e' un segnale per rileggere.
+		const onVisibility = () => {
+			if (visible()) wake();
+		};
+
+		// Progetto attivato e macchina tornata in linea sono transizioni, non
+		// valori: si guardano da un giro leggero invece che da un effetto, cosi'
+		// `start()` resta chiamabile da qualunque punto (lo fa la pagina dentro
+		// un `$effect`) senza creare una radice di effetti annidata.
+		let activeId = untrack(() => projectStore.activeId);
+		let online = untrack(() => this.onlineSignature());
+		const transitions = setInterval(() => {
+			const nextActive = projectStore.activeId;
+			const nextOnline = this.onlineSignature();
+			const peerBack = nextOnline !== online && linkStore.status.peers.some((peer) => peer.online);
+			const projectChanged = nextActive !== activeId;
+			activeId = nextActive;
+			online = nextOnline;
+			if (peerBack || projectChanged) wake();
+		}, TRANSITION_POLL_MS);
+
+		if (typeof window !== 'undefined') {
+			window.addEventListener('focus', wake);
+			document.addEventListener('visibilitychange', onVisibility);
+		}
+		this.stopper = () => {
+			clearInterval(timer);
+			clearInterval(heads);
+			clearInterval(transitions);
+			if (typeof window !== 'undefined') {
+				window.removeEventListener('focus', wake);
+				document.removeEventListener('visibilitychange', onVisibility);
+			}
+			for (const id of this.retryTimers.values()) window.clearTimeout(id);
+			this.retryTimers.clear();
+			this.stopper = null;
+		};
+		return this.stopper;
+	}
+
+	/** Chi e' in linea adesso: la forma cambia solo quando cambia la presenza. */
+	private onlineSignature(): string {
+		return linkStore.status.peers.map((peer) => `${peer.id}:${peer.online}`).join('|');
+	}
+
+	/**
+	 * Branch divergenti con la gemella che li ha causati e i file in conflitto
+	 * (R-MI-61): serve a «Risolvi», che deve sapere quale ref unire.
+	 */
+	divergedDetails(local: Project): Array<{ branch: BranchSync; machine: string }> {
+		const prefix = `${local.id}|`;
+		const seen = new Set<string>();
+		const result: Array<{ branch: BranchSync; machine: string }> = [];
+		for (const [key, report] of Object.entries(this.reports)) {
+			if (!key.startsWith(prefix)) continue;
+			const machine = key.slice(prefix.length);
+			if (!this.reachable(machine)) continue;
+			for (const branch of report.branches) {
+				if (branch.state !== 'diverged' || seen.has(branch.name)) continue;
+				seen.add(branch.name);
+				result.push({ branch, machine });
+			}
+		}
+		return result;
 	}
 
 	/** Branch che collidono per maiuscole con una gemella in linea (R-MI-35). */
@@ -295,14 +438,6 @@ class CopySyncStore {
 			}
 		}
 		return result;
-	}
-
-	private branchesIn(local: Project, state: BranchSyncState): string[] {
-		const names = new Set<string>();
-		for (const report of this.liveReports(local)) {
-			for (const branch of report.branches) if (branch.state === state) names.add(branch.name);
-		}
-		return [...names];
 	}
 
 	/**

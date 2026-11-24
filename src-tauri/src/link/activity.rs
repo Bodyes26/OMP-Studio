@@ -121,6 +121,23 @@ impl Activity {
         self.revision.fetch_add(1, Ordering::SeqCst);
     }
 
+    /// Stacca tutte le superfici di una macchina, qualunque corsia guardino.
+    ///
+    /// Serve alla chiusura della connessione: le guardie delle singole
+    /// superfici si rilasciano quando il loro flusso finisce, ma se un flusso
+    /// resta appeso per una ragione che non conosciamo la corsia rimarrebbe
+    /// «occupata da fuori» e la coda della macchina proprietaria non
+    /// partirebbe piu'. Con questo la connessione chiusa non lascia residui.
+    pub(crate) fn detach_peer(&self, peer_id: &str) {
+        let mut lanes = self.lanes.lock();
+        let mut touched = false;
+        lanes.retain(|_, entry| {
+            if entry.views.remove(peer_id).is_some() { touched = true; }
+            !(entry.views.is_empty() || entry.ended)
+        });
+        if touched { self.revision.fetch_add(1, Ordering::SeqCst); }
+    }
+
     /// Osserva un frame della sessione. Riconosce solo i confini del run: il
     /// resto (delta compresi) torna indietro con un confronto di prefisso e
     /// nessuna allocazione. Restituisce `true` quando il riepilogo è cambiato.
@@ -254,6 +271,33 @@ mod tests {
         activity.observe("p", "main", r#"{"type":"agent_start"}"#);
         assert_eq!(activity.observe("p", "main", r#"{"type":"studio_exit","code":0}"#), FrameEffect::Ended);
         assert!(activity.snapshot().is_empty(), "una voce terminata non resta appesa");
+    }
+
+    #[test]
+    fn la_chiusura_di_una_connessione_stacca_tutte_le_sue_corsie() {
+        // D8/R-MI-18: un peer che sparisce senza chiudere i flussi lasciava le
+        // corsie «occupate da fuori». `detach_peer` e' la rete di sicurezza
+        // della chiusura della connessione, e non tocca le altre macchine.
+        let activity = Activity::default();
+        activity.attach("p", "main", "mac");
+        activity.attach("p", "wt-1", "mac");
+        activity.attach("p", "main", "pc");
+        assert_eq!(activity.snapshot().len(), 2);
+        activity.detach_peer("mac");
+        let lanes = activity.snapshot();
+        assert_eq!(lanes.len(), 1, "la corsia guardata solo dal Mac sparisce");
+        assert_eq!(lanes[0].lane_id, "main");
+        assert_eq!(lanes[0].peer_ids, vec!["pc".to_string()], "il PC resta");
+    }
+
+    #[test]
+    fn detach_peer_non_tocca_una_macchina_che_non_guarda_nulla() {
+        let activity = Activity::default();
+        activity.attach("p", "main", "mac");
+        let revision = activity.revision();
+        activity.detach_peer("pc");
+        assert_eq!(activity.revision(), revision, "nessun cambiamento, nessuna revisione nuova");
+        assert_eq!(activity.snapshot().len(), 1);
     }
 
     #[test]

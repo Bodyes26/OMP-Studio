@@ -310,7 +310,11 @@ function verifyGhAuth() {
 }
 
 // Identita' di firma macOS condivisa con i runner GitHub (secret APPLE_SIGNING_IDENTITY).
-const MAC_SIGNING_IDENTITY = 'OMP Studio Self-Signed';
+// Serve un certificato Apple con Team ID (R-MI-66): con il self-signed il
+// portachiavi registra nelle partizioni l'hash di ogni build (`cdhash:`) e
+// chiede di nuovo l'accesso a ogni aggiornamento; con il Team ID la partizione
+// e' `teamid:` e vale per tutte le build.
+const MAC_SIGNING_IDENTITY = 'Apple Development: apple@maurizioactis.it (PRF667R7JB)';
 
 // La firma ad-hoc della configurazione lega l'identita' dell'app all'hash del
 // binario: ogni aggiornamento sembrerebbe un'altra app e macOS richiederebbe di

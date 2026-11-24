@@ -14,9 +14,11 @@ import studioDocsExtension, {
 	appendDiary,
 	defaultManifest,
 	detectExistingMappings,
+	dirtyJournalFiles,
 	initProject,
 	initPrompt,
 	isJournalActive,
+	isoDate,
 	loadManifest,
 	loadState,
 	normalizeSource,
@@ -470,6 +472,129 @@ describe('Diario: commit di chi scrive (R-MI-46)', () => {
 	});
 });
 
+describe('Diario: fine turno (R-MI-60)', () => {
+	const git = (args: string[], cwd = root) =>
+		execFileSync('git', args, {
+			cwd,
+			encoding: 'utf8',
+			stdio: ['ignore', 'pipe', 'pipe'],
+			env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' }
+		}).trim();
+
+	function gitRepo(): void {
+		git(['init', '-q', '-b', 'main']);
+		// Anche l'estensione esegue Git: non eredita l'identita' del helper.
+		git(['config', '--local', 'user.name', 'Studio Docs Test']);
+		git(['config', '--local', 'user.email', 'studio-docs-test@example.invalid']);
+		write('a.txt', 'a\n');
+		git(['add', 'a.txt']);
+		git(['commit', '-qm', 'init']);
+	}
+
+	// Cattura l'handler registrato dall'estensione per `agent_end` e lo
+	// invoca come farebbe omp alla fine di un turno.
+	function extension(): ((ctx?: { cwd?: string }) => void) | null {
+		const on = (event: string, handler: (event: unknown, ctx?: unknown) => unknown) => {
+			if (event === 'agent_end') agentEndHook = (ctx?: { cwd?: string }) => handler({}, ctx);
+		};
+		let agentEndHook: ((ctx?: { cwd?: string }) => void) | null = null;
+		const pi: Record<string, unknown> = {
+			zod: (() => {
+				const z: Record<string, unknown> = {};
+				for (const k of ['object', 'string', 'boolean', 'enum', 'optional', 'describe']) z[k] = () => z;
+				return z;
+			})(),
+			registerTool: () => {},
+			registerCommand: () => {},
+			on,
+			sendUserMessage: () => {}
+		};
+		studioDocsExtension(pi as never);
+		return agentEndHook;
+	}
+
+	it('una modifica semplice del diario a fine turno finisce in un commit «diario: …»', () => {
+		gitRepo();
+		// Diario attivo con un file del mese gia' committato.
+		initProject(root, 'repo', NOW);
+		git(['add', '-A']);
+		git(['commit', '-qm', 'diario iniziale']);
+
+		// L'agente ha scritto con un edit semplice: la cartella e' sporca.
+		write('docs/diario/2026-10.md', '# Diario 2026-10\n\n## 2026-10-08\n- Nota a mano.\n');
+		assert.equal(git(['status', '--porcelain']), 'M docs/diario/2026-10.md');
+
+		const agentEnd = extension();
+		assert.ok(agentEnd, 'hook agent_end registrato');
+		agentEnd!({ cwd: root });
+
+		// Stato pulito e un solo commit «diario: <oggi>» col solo diario: il
+		// messaggio usa la data di fine turno, non quella del contenuto.
+		assert.equal(git(['status', '--porcelain']), '');
+		assert.equal(git(['show', '--format=%s', '--no-patch', 'HEAD']), `diario: ${isoDate(new Date())}`);
+		assert.equal(git(['show', '--name-only', '--format=', 'HEAD']), 'docs/diario/2026-10.md');
+	});
+
+	it('un file dell\'utente gia\' in stage resta in stage e fuori dal commit', () => {
+		gitRepo();
+		initProject(root, 'repo', NOW);
+		git(['add', '-A']);
+		git(['commit', '-qm', 'diario iniziale']);
+
+		write('mine.txt', 'mio\n');
+		git(['add', 'mine.txt']);
+		write('docs/diario/2026-10.md', '# Diario 2026-10\n\n## 2026-10-08\n- Nota a mano.\n');
+
+		const agentEnd = extension();
+		agentEnd!({ cwd: root });
+
+		assert.equal(git(['show', '--name-only', '--format=', 'HEAD']), 'docs/diario/2026-10.md');
+		assert.equal(git(['diff', '--cached', '--name-only']), 'mine.txt');
+		assert.equal(git(['status', '--porcelain']), 'A  mine.txt');
+	});
+
+	it('con archivio locale non committa nulla', () => {
+		gitRepo();
+		initProject(root, 'local', NOW);
+		git(['add', '-A']);
+		git(['commit', '-qm', 'diario iniziale']);
+
+		// storage "local": il diario vive in .omp/progetto/, ignorato da git.
+		write('.omp/progetto/diario/2026-10.md', '# Diario 2026-10\n\n## 2026-10-08\n- Nota locale.\n');
+
+		const agentEnd = extension();
+		agentEnd!({ cwd: root });
+
+		assert.equal(git(['show', '--format=%s', '--no-patch', 'HEAD']), 'diario iniziale');
+	});
+
+	it('fuori da git non lancia e non committa', () => {
+		initProject(root, 'repo', NOW);
+		write('docs/diario/2026-10.md', '# Diario 2026-10\n\n## 2026-10-08\n- Nota.\n');
+
+		const agentEnd = extension();
+		// La cartella non e' un repository: non deve lanciare.
+		assert.doesNotThrow(() => agentEnd!({ cwd: root }));
+	});
+
+	it('elenca i file sporchi sotto la cartella del diario', () => {
+		gitRepo();
+		initProject(root, 'repo', NOW);
+		git(['add', '-A']);
+		git(['commit', '-qm', 'diario iniziale']);
+
+		write('docs/diario/2026-10.md', '# Diario 2026-10\n\n## 2026-10-08\n- Nota.\n');
+		write('docs/diario/2026-09.md', '# Diario 2026-09\n\n## 2026-09-02\n- Vecchia.\n');
+		write('docs/progetto/scopo.md', 'Scopo\n');
+		write('altrove.txt', 'fuori\n');
+
+		assert.deepEqual(dirtyJournalFiles(root, 'docs/diario').sort(), [
+			'docs/diario/2026-09.md',
+			'docs/diario/2026-10.md'
+		]);
+	});
+});
+
 describe('Diario: corsie e prompt', () => {
 	it('in una corsia (worktree) il diario e\' quello del checkout principale', () => {
 		const git = (args: string[], cwd = root) =>
@@ -518,8 +643,10 @@ describe('Diario: corsie e prompt', () => {
 				tools.set(d.name, d);
 			},
 			registerCommand: (name, cmd) => commands.set(name, cmd as never),
-			on: (_event, handler) => {
-				hook = handler;
+			on: (event: string, handler: unknown) => {
+				// L'estensione registra ora due hook (before_agent_start e
+				// agent_end): qui interessa solo la riga del prompt.
+				if (event === 'before_agent_start') hook = handler as never;
 			},
 			sendUserMessage: (text) => sent.push(text)
 		});

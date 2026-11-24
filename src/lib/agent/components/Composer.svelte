@@ -31,7 +31,8 @@
 		type ComposerTrigger
 	} from '#lib/agent/composerDoc.ts';
 	import { prepareImage, isImageFile } from '#lib/agent/images.ts';
-	import { projectStore } from '#lib/stores/projects.svelte.ts';
+	import { projectStore, type Project } from '#lib/stores/projects.svelte.ts';
+	import { projectOrder } from '#lib/stores/projectOrder.svelte.ts';
 	import { settingsStore, type StreamingBehavior } from '#lib/stores/settings.svelte.ts';
 	import {
 		visibleSuggestions,
@@ -45,7 +46,7 @@
 	import { isTypingSurface } from '#lib/agent/askFocus.ts';
 	import { resolveContextWindow } from '#lib/agent/contextReport.ts';
 	import { formatTokens } from '#lib/utils/format.ts';
-	import { invoke } from '#lib/backend/ipc.ts';
+	import { invoke, LOCAL_MACHINE } from '#lib/backend/ipc.ts';
 	import { open as openDialog } from '@tauri-apps/plugin-dialog';
 	import {
 		MAX_STAGED_ATTACHMENT_BYTES,
@@ -81,6 +82,14 @@
 	import PrewalkCard from './PrewalkCard.svelte';
 	import ComposerStatusLine from './ComposerStatusLine.svelte';
 	import MachineIndicator from './MachineIndicator.svelte';
+	import {
+		cancelMachineSwitch,
+		machineSwitchNotice,
+		subscribeMachineSwitch,
+		switchBlock,
+		switchBlockText,
+		undoMovedChanges
+	} from '#lib/agent/sessionMove.ts';
 	import type { MachineChoice } from '../machineChoice.ts';
 	import ExtensionWidgets from './ExtensionWidgets.svelte';
 	import ComposerPinnedItem from './ComposerPinnedItem.svelte';
@@ -164,6 +173,39 @@
 	let controlsStripEl = $state<HTMLDivElement | null>(null);
 	type MenuKind = 'attach' | 'role' | 'model' | 'thinking' | 'context' | 'sendMode' | null;
 	let activeMenu = $state<MenuKind>(null);
+
+	// Avviso del cambio macchina (R-MI-62, R-MI-63): prenotato a fine turno,
+	// oppure modifiche portate con «Annulla». Lo stato vive in `sessionMove`,
+	// che lo scrive da fuori; la revisione riletta qui e' l'unico segnale.
+	let switchRevision = $state(0);
+	$effect(() => subscribeMachineSwitch(() => (switchRevision += 1)));
+	const switchNotice = $derived.by(() => {
+		void switchRevision;
+		return machineSwitchNotice(session.sessionKey);
+	});
+	// La copia di questa macchina e le gemelle: le stesse che il flusso del
+	// cambio riceve, cosi' indicatore e spostamento non divergono (R-MI-62).
+	const switchFrom = $derived(projectStore.projects.find((copy) => copy.id === session.projectKey));
+	const switchTo = $derived.by(() => {
+		const from = switchFrom;
+		const map = new Map<string, Project>();
+		if (!from) return map;
+		for (const copy of [from, ...projectOrder.copiesOf(from)]) {
+			map.set(copy.machineId ?? LOCAL_MACHINE, copy);
+		}
+		return map;
+	});
+
+	// L'indicatore resta cliccabile anche a turno in corso: il cambio si
+	// prenota (R-MI-62). Si disabilita solo cio' che davvero non si puo' fare,
+	// con la stessa regola del flusso.
+	function machineBlocked(machineId: string): string | null {
+		const from = switchFrom;
+		const to = switchTo.get(machineId);
+		if (!from || !to || !session.machineId || machineId === session.machineId) return null;
+		const blocked = switchBlock(from, to, session);
+		return blocked ? switchBlockText(blocked) : null;
+	}
 
 	let attachments = $state<ComposerAttachment[]>([]);
 	// Note visive del Laboratorio («Indica e disegna»): solo nelle corsie Lab.
@@ -1511,11 +1553,36 @@
 	</div>
 
 	<div class="composer-footer">
+		{#if switchNotice}
+			{@const pending = switchNotice}
+			<div class="switch-notice" role="status">
+				<span class="switch-text">
+					{#if pending.kind === 'deferred'}
+						{m.session_switch_deferred({ machine: pending.machine })}
+					{:else if pending.kind === 'moved'}
+						{m.copies_moved_notice({ count: pending.count, from: pending.machine })}
+					{:else}
+						{m.copies_moved_back({ machine: pending.machine })}
+					{/if}
+				</span>
+				{#if pending.kind !== 'moved-back'}
+					<button
+						type="button"
+						class="switch-action"
+						onclick={() => (pending.kind === 'deferred'
+							? cancelMachineSwitch(session.sessionKey)
+							: void undoMovedChanges(session.sessionKey, pending.id))}
+					>
+						{m.common_cancel()}
+					</button>
+				{/if}
+			</div>
+		{/if}
 		{#if session.machineId && machineChoices.length > 1 && onPickMachine}
 			<MachineIndicator
 				machines={machineChoices}
 				current={session.machineId}
-				busy={session.isStreaming || session.isCompacting || session.settle.running}
+				blocked={machineBlocked}
 				onChange={onPickMachine}
 			/>
 		{/if}
@@ -1543,6 +1610,38 @@
 		flex-direction: column;
 		gap: 2px;
 		padding: 0 2px;
+	}
+
+	/* Avviso del cambio macchina (R-MI-62, R-MI-63): una riga sola sotto il
+	   composer, dove l'utente ha appena cliccato la macchina. */
+	.switch-notice {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		padding: 1px 2px;
+		font-size: var(--text-caption);
+		line-height: 1.4;
+		color: var(--ink-muted);
+	}
+	.switch-text {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.switch-action {
+		flex: none;
+		padding: 0;
+		border: 0;
+		background: transparent;
+		color: var(--ink);
+		font: inherit;
+		cursor: pointer;
+		text-decoration: underline;
+		text-underline-offset: 2px;
+	}
+	.switch-action:hover {
+		color: var(--accent);
 	}
 
 	.composer-root {

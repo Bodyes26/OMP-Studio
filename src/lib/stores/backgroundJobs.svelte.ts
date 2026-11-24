@@ -1003,7 +1003,11 @@ export const backgroundJobs = {
 			});
 
 			const handleFocus = () => {
-				enqueueGitFetch(false);
+				// Al ritorno in primo piano origin si rilegge subito: e' il
+				// momento in cui l'utente si siede, e i commit arrivati mentre
+				// era via devono applicarsi da soli (R-MI-58). Il toggle dei job
+				// in background resta rispettato dal drain.
+				enqueueGitFetch(true);
 				sweepUntitledTasks();
 				void drain();
 			};

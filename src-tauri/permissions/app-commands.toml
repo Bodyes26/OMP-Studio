@@ -333,6 +333,7 @@ commands.allow = [
     "copy_sync_bundle_chunk",
     "copy_wip_bundle_chunk",
     "copy_wip_estimate",
+    "git_fast_forward_upstream",
     "github_get_actions_status"
 ]
 

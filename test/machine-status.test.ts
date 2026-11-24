@@ -15,12 +15,22 @@ import {
 } from '../src/lib/stores/machineStatus.ts';
 
 const peer = (over: Partial<MachineStatusInput> = {}): MachineStatusInput => ({
-	id: 'mac', name: 'MacBook', online: true, compatible: true, offlineReason: null, ...over
+	id: 'mac', name: 'MacBook', online: true, compatible: true, responded: true, offlineReason: null, ...over
 });
 
 describe('Stato del chip Macchine (R-MI-49)', () => {
 	it('in linea e compatibile e verde', () => {
 		assert.equal(machineState(peer()), 'online');
+	});
+
+	it('connessa ma senza risposta dell host e in attesa, non verde (D8)', () => {
+		// QUIC aperto non significa che l'altra macchina abbia parlato: il
+		// punto resta ambra finche' non arriva il primo riepilogo.
+		assert.equal(machineState(peer({ responded: false })), 'waiting');
+	});
+
+	it('spenta batte la mancanza di risposta', () => {
+		assert.equal(machineState(peer({ online: false, responded: false, offlineReason: 'machine' })), 'offline');
 	});
 
 	it('in linea ma di un altra versione e incompatibile, non spenta', () => {
@@ -48,6 +58,12 @@ describe('Stato del chip Macchine (R-MI-49)', () => {
 
 	it('senza macchine abbinate il chip non compare', () => {
 		assert.deepEqual(machinesChipSummary([]), { visible: false, dots: [], anyOnline: false, anyRelayDown: false });
+	});
+
+	it('una macchina in attesa conta come raggiungibile nel riassunto', () => {
+		const summary = machinesChipSummary([peer({ responded: false })]);
+		assert.equal(summary.dots[0].state, 'waiting');
+		assert.equal(summary.anyOnline, true, 'il chip non dice «tutto spento»');
 	});
 
 	it('il riassunto dice se qualcuna risponde e se il relay e giu', () => {

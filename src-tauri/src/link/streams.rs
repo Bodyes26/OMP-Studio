@@ -107,7 +107,7 @@ impl Drop for ActivityGuard {
 
 /// Manda il riepilogo alla finestra proprietaria. Il payload è piccolo e
 /// cambia solo ai confini del run, non a ogni token.
-fn publish_activity(app: &tauri::AppHandle, activity: &activity::SharedActivity) {
+pub(super) fn publish_activity(app: &tauri::AppHandle, activity: &activity::SharedActivity) {
     let snapshot = activity::LinkActivitySnapshot {
         revision: activity.revision(),
         lanes: activity.snapshot(),

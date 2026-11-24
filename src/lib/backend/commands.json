@@ -74,6 +74,7 @@
 	"copy_sync_bundle_chunk": ["routed", "read"],
 	"copy_wip_bundle_chunk": ["routed", "files"],
 	"copy_wip_estimate": ["routed", "read"],
+	"git_fast_forward_upstream": ["routed", "files"],
 
 	"project_tasks_read": ["routed", "read"],
 	"project_tasks_write": ["routed", "agents"],

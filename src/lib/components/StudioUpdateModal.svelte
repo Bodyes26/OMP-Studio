@@ -13,8 +13,8 @@
 		formatVersion
 	} from '#lib/stores/studioUpdater.svelte.ts';
 	import Dialog from '#lib/ui/Dialog.svelte';
-	import { linkStore } from '#lib/backend/link.svelte.ts';
-	import PeerUpdateNotice from './PeerUpdateNotice.svelte';
+	import { linkStore, type LinkedMachine } from '#lib/backend/link.svelte.ts';
+	import { machineUpdateState, peerUpdate, type MachineUpdateState, type WaitReason } from '#lib/backend/peerUpdate.svelte.ts';
 	import Tooltip from '#lib/ui/Tooltip.svelte';
 	import { lexMarkdown } from '#lib/agent/markdown.ts';
 	import Markdown from '#lib/agent/components/Markdown.svelte';
@@ -49,6 +49,46 @@
 
 	const parsedReleaseNotes = $derived(
 		releaseNotesMarkdown ? lexMarkdown(releaseNotesMarkdown) : []
+	);
+
+	/**
+	 * Una riga per macchina abbinata (R-MI-64): nome, versione, stato e
+	 * «Aggiorna» per lanciarlo subito. Lo stato viene dalla regola pura, cosi'
+	 * la parola mostrata e' la stessa che decide se chiedere l'aggiornamento.
+	 */
+	const WAIT_LABEL: Record<WaitReason, () => string> = {
+		agents: () => m.peer_update_reason_agents(),
+		questions: () => m.peer_update_reason_questions(),
+		jobs: () => m.peer_update_reason_jobs(),
+		unsaved: () => m.peer_update_reason_unsaved()
+	};
+
+	function rowState(peer: LinkedMachine): MachineUpdateState {
+		return machineUpdateState({
+			online: peer.online,
+			version: peer.version,
+			own: studioUpdaterStore.currentVersion,
+			phase: peerUpdate.statusFor(peer.id)?.phase ?? null
+		});
+	}
+
+	function rowLabel(peer: LinkedMachine, state: MachineUpdateState): string {
+		switch (state) {
+			case 'updated': return m.peer_update_row_updated();
+			case 'updating': return m.peer_update_row_updating();
+			case 'offline': return m.peer_update_row_offline();
+			case 'unknown': return m.machines_response_waiting();
+			case 'waiting': {
+				const reasons = peerUpdate.statusFor(peer.id)?.waitingFor ?? [];
+				return m.peer_update_row_waiting({ reasons: reasons.map((reason) => WAIT_LABEL[reason]()).join(', ') });
+			}
+			default: return m.peer_update_row_outdated();
+		}
+	}
+
+	/** La versione a cui portare l'altra macchina: quella di questa, o quella gia' in arrivo. */
+	const targetVersion = $derived(
+		studioUpdaterStore.hasUpdate ? studioUpdaterStore.updateInfo?.latest_version : studioUpdaterStore.currentVersion
 	);
 </script>
 
@@ -128,10 +168,21 @@
 			<section class="linked-updates" aria-label={m.devices_computers()}>
 				<h3>{m.devices_computers()}</h3>
 				{#each linkStore.status.peers as peer (peer.id)}
+					{@const state = rowState(peer)}
 					<div class="linked-update-row">
 						<strong>{peer.name}</strong>
-						<span>{peer.version ? `v${formatVersion(peer.version)}` : '—'} · {peer.online ? m.devices_online() : m.devices_offline()}</span>
-						<PeerUpdateNotice machineId={peer.id} targetVersion={studioUpdaterStore.hasUpdate ? studioUpdaterStore.updateInfo?.latest_version : undefined} />
+						<span class="linked-update-meta">
+							{peer.version ? `v${formatVersion(peer.version)}` : '—'} · {rowLabel(peer, state)}
+						</span>
+						{#if state === 'outdated'}
+							<button
+								type="button"
+								class="ui-button ui-button-secondary"
+								onclick={() => void peerUpdate.request(peer.id, targetVersion ?? undefined)}
+							>
+								{m.peer_update_confirm()}
+							</button>
+						{/if}
 					</div>
 				{/each}
 			</section>

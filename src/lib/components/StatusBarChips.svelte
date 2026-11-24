@@ -37,6 +37,7 @@
 		name: peer.name,
 		online: peer.online,
 		compatible: peer.compatible,
+		responded: linkStore.hasResponded(peer.id),
 		offlineReason: linkStore.offlineReason(peer.id)
 	}))));
 	const projectMachine = $derived.by(() => {
@@ -62,6 +63,7 @@
 	function stateLabel(state: MachineDotState): string {
 		switch (state) {
 			case 'online': return m.machines_state_online();
+			case 'waiting': return m.machines_response_waiting();
 			case 'relay': return m.machines_state_relay();
 			case 'incompatible': return m.machines_state_incompatible();
 			default: return m.machines_state_offline();
@@ -119,6 +121,7 @@
 					<span
 						class="dot"
 						class:online={dot.state === 'online'}
+						class:waiting={dot.state === 'waiting'}
 						class:relay={dot.state === 'relay'}
 						class:incompatible={dot.state === 'incompatible'}
 					></span>
@@ -281,6 +284,8 @@
 		background: var(--ink-faint);
 	}
 	.machines-chip .dot.online { background: var(--success); }
+	/* Collegata ma non ancora risposta (D8): ambra, non verde. */
+	.machines-chip .dot.waiting { background: var(--warn); }
 	.machines-chip .dot.relay { background: var(--warn); }
 	.machines-chip .dot.incompatible { background: var(--warn); }
 	.machines-chip.all-off { color: var(--ink-faint); border-style: dashed; }

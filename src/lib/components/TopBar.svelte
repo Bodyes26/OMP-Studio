@@ -52,7 +52,7 @@
 		IconMore
 	} from '#lib/icons.ts';
 	import { linkStore } from '#lib/backend/link.svelte.ts';
-	import { needsUpdate } from '#lib/backend/peerUpdate.svelte.ts';
+	import { needsUpdate, peerBehind } from '#lib/backend/peerUpdate.svelte.ts';
 	import { studioUpdaterStore } from '#lib/stores/studioUpdater.svelte.ts';
 	import MachineGlyph from '#lib/ui/MachineGlyph.svelte';
 	import { provenance, copyDivergence, copyPending, type Provenance } from '#lib/stores/projectMachines.svelte.ts';
@@ -100,10 +100,15 @@
 	 */
 	function provenanceAria(view: Provenance, diverged: boolean, pending: boolean): string {
 		// Il glifo non dice che l'altra macchina ha un altro Studio (R-MI-38).
+		// Base incompatibile o versione piu' vecchia: in entrambi i casi c'e'
+		// un aggiornamento da fare (R-MI-64).
 		const outdated = view.copies
 			.filter((copy) => !copy.local && copy.project.machineId)
 			.map((copy) => linkStore.machineFor(copy.project.machineId))
-			.filter((machine) => machine && needsUpdate(machine, studioUpdaterStore.currentVersion))
+			.filter((machine) => machine && (
+				needsUpdate(machine, studioUpdaterStore.currentVersion) ||
+				peerBehind(machine, studioUpdaterStore.currentVersion)
+			))
 			.map((machine) => m.topbar_tab_aria_update({ machine: machine!.name }))
 			.join('');
 		if (view.kind === 'local') return '';

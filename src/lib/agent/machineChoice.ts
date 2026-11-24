@@ -67,20 +67,3 @@ export function proposedMachine(copies: readonly MachineCopy[]): string | null {
 	const reachable = ranked.find((copy) => copy.online);
 	return (reachable ?? ranked[0]).machineId;
 }
-
-/**
- * Si può cambiare macchina adesso? Solo a sessione ferma: spostare un lavoro a
- * metà turno richiederebbe il trasferimento di codice e sessione (R-MI-14,
- * fase 3). La macchina corrente resta sempre selezionabile, così il menu non
- * sembra rotto quando la sessione lavora.
- */
-export function canChangeMachine(
-	machineId: string,
-	current: string,
-	busy: boolean,
-	choices: readonly MachineChoice[]
-): boolean {
-	if (machineId === current) return true;
-	if (busy) return false;
-	return choices.some((choice) => choice.id === machineId);
-}

@@ -18,7 +18,7 @@ const pc: PresenceSample = { id: 'pc', name: 'PC', online: true };
 
 const outcome = (over: Partial<OutcomeSample> = {}): OutcomeSample => ({
 	machine: 'mac', name: 'MacBook', project: 'omp-studio', advanced: 0,
-	mergedJournal: false, blocked: [], head: 'abc', ...over
+	merged: false, journalOnly: false, blocked: [], head: 'abc', ...over
 });
 
 describe('Avvisi delle macchine (R-MI-51)', () => {
@@ -73,13 +73,31 @@ describe('Avvisi delle macchine (R-MI-51)', () => {
 
 	it('il diario unito si annuncia una volta, e di nuovo solo se succede ancora', () => {
 		let state = reduceMachineAlerts(emptyAlertsState(), { machines: [mac], outcomes: [outcome()] }).state;
-		const first = reduceMachineAlerts(state, { machines: [mac], outcomes: [outcome({ mergedJournal: true, advanced: 1, head: 'j1' })] });
+		const first = reduceMachineAlerts(state, {
+			machines: [mac],
+			outcomes: [outcome({ merged: true, journalOnly: true, advanced: 1, head: 'j1' })]
+		});
 		assert.deepEqual(first.alerts, [
 			{ kind: 'advanced', machine: 'mac', name: 'MacBook', project: 'omp-studio', count: 1 },
 			{ kind: 'journal', machine: 'mac', name: 'MacBook', project: 'omp-studio' }
 		]);
 		state = first.state;
-		assert.deepEqual(reduceMachineAlerts(state, { machines: [mac], outcomes: [outcome({ mergedJournal: true, advanced: 1, head: 'j1' })] }).alerts, []);
+		assert.deepEqual(reduceMachineAlerts(state, {
+			machines: [mac],
+			outcomes: [outcome({ merged: true, journalOnly: true, advanced: 1, head: 'j1' })]
+		}).alerts, []);
+	});
+
+	it('copie unite senza conflitti: «Copie unite», una volta per lotto (R-MI-61)', () => {
+		let state = reduceMachineAlerts(emptyAlertsState(), { machines: [mac], outcomes: [outcome()] }).state;
+		const merged = outcome({ merged: true, advanced: 2, head: 'm1' });
+		const first = reduceMachineAlerts(state, { machines: [mac], outcomes: [merged] });
+		assert.deepEqual(first.alerts, [
+			{ kind: 'advanced', machine: 'mac', name: 'MacBook', project: 'omp-studio', count: 2 },
+			{ kind: 'merged', machine: 'mac', name: 'MacBook', project: 'omp-studio' }
+		], 'nessun «Diario unito»: i file toccati non erano solo del diario');
+		state = first.state;
+		assert.deepEqual(reduceMachineAlerts(state, { machines: [mac], outcomes: [merged] }).alerts, []);
 	});
 
 	it('avanzamento bloccato: motivo e numero una volta, poi solo quando cambia', () => {

@@ -197,8 +197,18 @@ class NotificationManager {
 		}
 	}
 
-	/** Gli aggiornamenti Git restano distinti dalle richieste dell'agente. */
-	async notifyGitUpdates(project: { id: string; name: string }, count: number): Promise<void> {
+	/**
+	 * Gli aggiornamenti Git restano distinti dalle richieste dell'agente.
+	 * `arrived` = i commit sono gia' stati applicati da soli (R-MI-58): la
+	 * frase dice che sono arrivati invece di chiedere la pull. `blocked` e'
+	 * il motivo per cui l'avanzamento automatico non e' avvenuto.
+	 */
+	async notifyGitUpdates(
+		project: { id: string; name: string },
+		count: number,
+		arrived = false,
+		blocked: string | null = null
+	): Promise<void> {
 		if (!settingsStore.notifications.enabled || this.isAppFocused()) return;
 		if (!(await shouldNotifyHere())) return;
 		try {
@@ -206,11 +216,16 @@ class NotificationManager {
 			let granted = await isPermissionGranted();
 			if (!granted) granted = (await requestPermission()) === 'granted';
 			if (!granted) return;
+			const body = arrived
+				? m.git_remote_arrived_body({ name: project.name, count })
+				: blocked
+					? m.git_remote_blocked_body({ name: project.name, count, reason: blocked })
+					: m.git_remote_notification_body({ name: project.name, count });
 			await this.sendProjectNotification(
 				project.id,
 				settingsStore.notifications.style === 'detailed'
 					? `OMP Studio · ${project.name}` : 'OMP Studio',
-				m.git_remote_notification_body({ name: project.name, count })
+				body
 			);
 		} catch (error) {
 			console.warn('Invio notifica Git non riuscito:', error);

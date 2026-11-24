@@ -444,6 +444,44 @@ export function commitDiary(root: string, rel: string, now = new Date()): DocsCo
 	return commitDocsFiles(root, [rel], `diario: ${isoDate(now)}`);
 }
 
+/**
+ * File del diario che lasciano sporca la cartella secondo `git status
+ * --porcelain` (modificati e non tracciati, sotto la cartella del diario).
+ * Servono alla fine del turno per committare le righe scritte dagli agenti
+ * con edit semplici, che altrimenti bloccherebbero il sync fra le macchine
+ * (R-MI-60). Rinomine e copie si saltano: un diario rinominato a mano non si
+ * committa da solo, resta all'utente.
+ */
+export function dirtyJournalFiles(root: string, diaryDir: string): string[] {
+	const dir = toPosix(diaryDir).replace(/\/+$/, "");
+	let out = "";
+	try {
+		// Niente trim: `git status --porcelain` inizia la prima riga con uno
+		// spazio (stato " M") e `trim()` lo toglierebbe, rompendo il parsing.
+		out = execFileSync("git", ["status", "--porcelain", "--", dir], {
+			cwd: root,
+			encoding: "utf8",
+			stdio: ["ignore", "pipe", "pipe"],
+			windowsHide: true,
+			env: { ...process.env, GIT_TERMINAL_PROMPT: "0", LC_ALL: "C", LANGUAGE: "C" }
+		});
+	} catch {
+		// Fuori da git o cartella non versionata: nessun file da committare.
+		return [];
+	}
+	const rels: string[] = [];
+	for (const line of out.split(/\r?\n/)) {
+		// Porcelain v1: due caratteri di stato, uno spazio, poi il percorso.
+		if (line.length < 4) continue;
+		const status = line.slice(0, 2);
+		if (status[0] === "R" || status[0] === "C") continue;
+		const path = toPosix(line.slice(3)).replace(/^"|"$/g, "");
+		if (!path.startsWith(`${dir}/`)) continue;
+		rels.push(path);
+	}
+	return rels;
+}
+
 /** Riga aggiunta al risultato del tool: cosa e' stato committato o perche' no. */
 export function describeDocsCommit(result: DocsCommitResult): string {
 	if (result.commit) {
@@ -1333,6 +1371,7 @@ export interface StudioDocsApi {
 	registerTool<TParams>(definition: ToolDefinition<TParams>): void;
 	registerCommand?(name: string, command: { description: string; handler: (args: string, ctx: CommandContext) => Promise<void> }): void;
 	on?(event: "before_agent_start", handler: (event: { systemPrompt: string[] }, ctx: { cwd?: string }) => unknown): void;
+	on?(event: "agent_end", handler: (event: unknown, ctx?: { cwd?: string; sessionManager?: { getCwd?: () => string } }) => unknown): void;
 	sendUserMessage?(content: string): void;
 	sendMessage?(message: string, options?: { triggerTurn?: boolean }): void;
 }
@@ -1605,6 +1644,34 @@ export default function studioDocsExtension(pi: StudioDocsApi): void {
 			return undefined;
 		}
 	});
+
+	// A fine turno committa le righe di diario lasciate sporche dagli agenti,
+	// che hanno scritto `docs/diario/AAAA-MM.md` con edit semplici invece del
+	// tool (R-MI-60): altrimenti la cartella resta sporca e il sync fra le
+	// macchine si ferma. Solo se il diario e' versionato e la sessione non e'
+	// di laboratorio ne' in sola lettura. Il commit e' path-scoped
+	// (`commit --only`): cio' che l'utente ha gia' in stage non viene toccato.
+	if (typeof pi.on === "function") {
+		const labSession = process.env.OMP_LAB_SESSION === "1";
+		const readOnly = process.env.OMP_READONLY === "1" || process.env.OMP_AUTOMATION_READONLY === "1";
+		if (!labSession && !readOnly) {
+			pi.on("agent_end", (_event, ctx) => {
+				try {
+					const cwd = ctx?.sessionManager?.getCwd?.() ?? ctx?.cwd ?? process.cwd();
+					const root = resolveProjectRoot(cwd);
+					const { manifest, source } = loadManifest(root);
+					// Senza diario attivo, o con archiviazione locale, i file
+					// non sono in git: niente da committare.
+					if (source === "none" || manifest.storage === "local") return;
+					const files = dirtyJournalFiles(root, manifest.diaryDir);
+					if (files.length === 0) return;
+					commitDocsFiles(root, files, `diario: ${isoDate(new Date())}`);
+				} catch {
+					// L'hook non deve mai interrompere la fine del turno.
+				}
+			});
+		}
+	}
 
 	const send = (text: string) => {
 		if (typeof pi.sendUserMessage === "function") pi.sendUserMessage(text);

@@ -3,23 +3,39 @@ import { linkStore, type LinkedMachine } from './link.svelte.ts';
 import { remoteJobs } from './remoteJobs.svelte.ts';
 import { sessionRegistry } from '#lib/agent/sessionRegistry.ts';
 import { getDirtyEditorPaths } from '#lib/editor/editorActivity.svelte.ts';
+import { m } from '#lib/paraglide/messages.js';
 import {
 	studioUpdaterStore,
 	type StudioReleaseAsset,
 	type StudioUpdateInfo
 } from '#lib/stores/studioUpdater.svelte.ts';
-import { channelOf, waitReasons, type WaitReason } from './peerUpdateRules.ts';
+import { autoUpdateKey, channelOf, shouldRequestAutoUpdate, waitReasons, type WaitReason } from './peerUpdateRules.ts';
 
-export { channelOf, needsUpdate, waitReasons, type WaitReason } from './peerUpdateRules.ts';
+export {
+	channelOf,
+	compareStudioVersions,
+	machineUpdateState,
+	needsUpdate,
+	peerBehind,
+	parseStudioVersion,
+	shouldRequestAutoUpdate,
+	waitReasons,
+	type MachineUpdateState,
+	type WaitReason
+} from './peerUpdateRules.ts';
 
 /**
- * Aggiornare Studio su un'altra macchina con un clic (R-MI-38).
+ * Aggiornare Studio su un'altra macchina (R-MI-38, R-MI-64).
  *
  * Chi chiede controlla gli aggiornamenti *sull'altra macchina* (il controllo
  * gira li': canale, asset e checksum sono i suoi), conferma la versione e la
  * avvia con `studio_update_remote_start`. L'altra macchina scarica subito,
  * aspetta di essere libera e installa; lo stato si legge con
  * `studio_update_remote_status` per mostrarlo sulla tessera.
+ *
+ * Da R-MI-64 una macchina con una versione piu' vecchia viene aggiornata da
+ * sola, una volta per (macchina, versione di questa): un rifiuto o un errore
+ * non si ripetono finche' l'app resta aperta.
  */
 
 export interface RemoteUpdateStatus {
@@ -61,6 +77,8 @@ class PeerUpdateStore {
 	/** «Aggiorna entrambe» a fine Nightly distribuita (R-MI-37). */
 	bothProposal = $state<{ version: string; machineIds: MachineId[] } | null>(null);
 	private polling = new Set<MachineId>();
+	/** Gia' chieste da sole, per (macchina, versione di questa) (R-MI-64). */
+	private asked = new Set<string>();
 	private started = false;
 
 	/** Ascolta le richieste che arrivano da fuori e quelle dello script Nightly. */
@@ -73,6 +91,49 @@ class PeerUpdateStore {
 		void listen<{ version: string; machines: MachineId[] }>('link:update-both', (event) => {
 			this.bothProposal = { version: event.payload.version, machineIds: event.payload.machines };
 		});
+		this.followOwnVersion();
+	}
+
+	/**
+	 * Chiede da sola l'aggiornamento delle macchine piu' vecchie (R-MI-64).
+	 * Dipende dalla versione di questa macchina e dallo stato dei peer, non dai
+	 * singoli eventi: anche una macchina che torna in linea dopo un riavvio
+	 * riceve la richiesta senza che nessuno apra il modale.
+	 */
+	private followOwnVersion(): void {
+		$effect.root(() => {
+			$effect(() => {
+				const own = studioUpdaterStore.currentVersion;
+				if (!own) return;
+				for (const peer of linkStore.status.peers) {
+					if (!shouldRequestAutoUpdate({
+						peer: { id: peer.id, online: peer.online, version: peer.version },
+						own,
+						asked: this.asked,
+						// Una build di sviluppo non comanda aggiornamenti.
+						dev: import.meta.env?.DEV === true
+					})) continue;
+					this.asked.add(autoUpdateKey(peer.id, own));
+					void this.autoUpdate(peer.id, own);
+				}
+			});
+		});
+	}
+
+	/**
+	 * Porta l'altra macchina alla versione di questa senza chiedere conferma:
+	 * la riga nel modale di aggiornamento dice a che punto e'. Un errore non si
+	 * ripete in questa esecuzione (R-MI-64): la prossima apertura di Studio ci
+	 * riprova.
+	 */
+	private async autoUpdate(machineId: MachineId, own: string): Promise<void> {
+		try {
+			const info = await invoke<StudioUpdateInfo>('check_studio_update',
+				{ channel: channelOf(own), preferredVersion: own }, { machine: machineId });
+			if (info.has_update && info.asset && info.latest_version === own) await this.startOn(machineId, info);
+		} catch {
+			// Macchina che si e' spenta fra il controllo e l'avvio: resta com'e'.
+		}
 	}
 
 	statusFor(machineId: MachineId): RemoteUpdateStatus | null {
@@ -163,17 +224,20 @@ function report(phase: RemoteUpdateStatus['phase'], waitingFor: WaitReason[] = [
 }
 
 /**
- * Scarica subito e installa appena la macchina e' libera (R-MI-38). Passa dal
- * negozio dell'updater, cosi' la finestra di questa macchina mostra
- * l'avanzamento come per un aggiornamento chiesto da qui.
+ * Scarica subito e installa appena la macchina e' libera (R-MI-38, R-MI-64).
+ * Passa dal negozio dell'updater, cosi' la finestra di questa macchina mostra
+ * l'avanzamento come per un aggiornamento chiesto da qui. Non chiede conferma:
+ * la richiesta arriva da un'altra macchina che ha gia' deciso, e lo stato
+ * (`studio_update_remote_report`) e' il riscontro che quella finestra mostra.
  */
 async function installWhenIdle(asset: StudioReleaseAsset, onPhase: typeof report): Promise<void> {
 	onPhase('downloading');
+	// Avviso locale: chi e' davanti a questa macchina deve sapere perche' Studio
+	// si riavviera' da solo appena e' libero.
+	studioUpdaterStore.setBadge(m.peer_update_remote_incoming(), 'info');
 	try {
 		// In ascolto prima di avviare: l'esito non deve arrivare prima del listener.
-		let complete!: () => void;
-		let fail!: (reason: Error) => void;
-		const downloaded = new Promise<void>((resolve, reject) => { complete = resolve; fail = reject; });
+		const { promise: downloaded, resolve: complete, reject: fail } = Promise.withResolvers<void>();
 		void downloaded.catch(() => {});
 		const off = await listen<{ status: string; error?: string | null }>('studio_update_progress', (event) => {
 			const { status, error } = event.payload;

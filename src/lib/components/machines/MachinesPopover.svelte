@@ -18,7 +18,7 @@
 	import { machineFeedback } from '#lib/stores/machineFeedback.svelte.ts';
 	import { projectStore, type Project } from '#lib/stores/projects.svelte.ts';
 	import { pendingReasonText } from '#lib/stores/projectMachines.svelte.ts';
-	import { agoParts, machineResponse, machineState, type MachineDotState, type MachineResponse } from '#lib/stores/machineStatus.ts';
+	import { agoParts, machineState, type MachineDotState } from '#lib/stores/machineStatus.ts';
 	import { settingsStore } from '#lib/stores/settings.svelte.ts';
 	import { i18n } from '#lib/i18n/i18n.svelte.ts';
 	import MachineGlyph from '#lib/ui/MachineGlyph.svelte';
@@ -51,6 +51,7 @@
 	function stateLabel(state: MachineDotState): string {
 		switch (state) {
 			case 'online': return m.machines_state_online();
+			case 'waiting': return m.machines_response_waiting();
 			case 'relay': return m.machines_state_relay();
 			case 'incompatible': return m.machines_state_incompatible();
 			default: return m.machines_state_offline();
@@ -128,28 +129,6 @@
 	}
 
 	/**
-	 * Come risponde la macchina, non solo se il canale e' aperto (IMP-005):
-	 * una macchina lenta con una richiesta in volo e' «in attesa», non spenta.
-	 */
-	function responseOf(peer: LinkedMachine): MachineResponse {
-		return machineResponse({
-			online: peer.online,
-			compatible: peer.compatible,
-			requested: machineFeedback.activeFor(peer.id).length > 0,
-			responded: Object.keys(copySyncStore.lastSyncAt).some((key) => key.endsWith(`|${peer.id}`))
-		});
-	}
-
-	function responseLabel(state: MachineResponse): string {
-		switch (state) {
-			case 'responding': return m.machines_response_responding();
-			case 'waiting': return m.machines_response_waiting();
-			case 'incompatible': return m.machines_response_incompatible();
-			default: return m.machines_response_unreachable();
-		}
-	}
-
-	/**
 	 * Conferma o attesa della destinazione; un messaggio locale non basta
 	 * (IMP-006). `failed` distingue l'errore, che non scade come una conferma.
 	 */
@@ -221,12 +200,12 @@
 				{@const state = machineState({
 					online: peer.online,
 					compatible: peer.compatible,
+					responded: linkStore.hasResponded(peer.id),
 					offlineReason: linkStore.offlineReason(peer.id)
 				})}
 				{@const lines = copyLines(peer)}
 				{@const job = jobsText(peer)}
 				{@const update = updateText(peer)}
-				{@const response = responseOf(peer)}
 				{@const feedback = feedbackOf(peer)}
 				{@const pendingQueue = machineFeedback.activeFor(peer.id).filter((op) => op.kind === 'queue').length}
 				<button
@@ -236,7 +215,7 @@
 					onclick={() => openDevice(peer)}
 				>
 					<span class="row-head">
-						<MachineGlyph kind={state === 'online' ? 'remote' : 'offline'} size={12} />
+						<MachineGlyph kind={state === 'online' || state === 'waiting' ? 'remote' : 'offline'} size={12} />
 						<span class="name">{peer.name}</span>
 						<span class="state" class:ok={state === 'online'} class:warn={state === 'incompatible'}>
 							<span class="dot" class:online={state === 'online'} class:warn={state === 'incompatible'} class:relay={state === 'relay'} aria-hidden="true"></span>
@@ -244,7 +223,6 @@
 						</span>
 					</span>
 					<span class="meta">{routeText(peer)} · {lastSyncText(peer)}</span>
-					{#if response === 'waiting'}<span class="line waiting">{responseLabel(response)}</span>{/if}
 					{#each lines as line (line)}<span class="line">{line}</span>{/each}
 					{#if feedback}<span class="line" class:update={feedback.failed} class:waiting={!feedback.failed}>{feedback.text}</span>{/if}
 					{#if pendingQueue > 0}<span class="line">{m.machines_queue_pending({ count: pendingQueue })}</span>{/if}

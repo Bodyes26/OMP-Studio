@@ -5,6 +5,10 @@
   composer come la riga di attenzione del vassoio, perché è lì che si lavora
   e lì il rischio di scrivere sulla copia sbagliata si vede. «Confronta» apre
   la colonna Git; «Più tardi» la toglie finché lo stato delle copie non cambia.
+
+  Con un conflitto vero l'unione non si fa da sola: la striscia nomina i file
+  e offre «Risolvi», che affida il lavoro a un agente su questa macchina con il
+  compito già scritto (R-MI-61).
 -->
 <script module lang="ts">
 	/** Impronta ignorata per progetto: sopravvive al cambio di scheda, non al riavvio. */
@@ -14,7 +18,8 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
 	import { projectStore } from '#lib/stores/projects.svelte.ts';
-	import { copyDivergence, divergenceSummary, provenance, refreshCopiesGit } from '#lib/stores/projectMachines.svelte.ts';
+	import { copyDivergence, divergenceSummary, provenance, refreshCopiesGit, machineName } from '#lib/stores/projectMachines.svelte.ts';
+	import { requestCopyConflictResolution } from '#lib/stores/copyConflictTask.ts';
 	import MachineGlyph from '#lib/ui/MachineGlyph.svelte';
 
 	let { projectId, visible = true }: { projectId: string; visible?: boolean } = $props();
@@ -23,6 +28,8 @@
 	const divergence = $derived(project ? copyDivergence(project) : null);
 	const marks = $derived(project ? provenance(project).marks : []);
 	const shown = $derived(divergence !== null && dismissed[projectId] !== divergence.signature);
+	/** Il primo conflitto vero: e' quello che «Risolvi» consegna all'agente. */
+	const conflict = $derived(divergence?.conflicts.find((entry) => entry.files.length > 0) ?? null);
 
 	// La barra rilegge git solo per la tessera attiva: qui servono tutte le
 	// copie, altrimenti l'avviso resterebbe fermo su uno stato vecchio.
@@ -34,11 +41,31 @@
 		return () => clearInterval(timer);
 	});
 
+	let resolving = $state(false);
+
 	function compare(): void {
 		window.dispatchEvent(new CustomEvent('studio-show-git'));
 	}
 	function later(): void {
 		if (divergence) dismissed[projectId] = divergence.signature;
+	}
+	async function resolve(): Promise<void> {
+		if (!project || !conflict || resolving) return;
+		// L'unione la fa un agente DI QUESTA macchina: la copia e' la locale,
+		// anche quando la chat aperta e' quella dell'altra (R-MI-61).
+		const local = divergence?.copies.find((entry) => entry.copy.local)?.copy.project;
+		if (!local) return;
+		resolving = true;
+		try {
+			await requestCopyConflictResolution({
+				project: local,
+				branch: conflict.branch,
+				machine: conflict.machine,
+				files: conflict.files
+			});
+		} finally {
+			resolving = false;
+		}
 	}
 </script>
 
@@ -49,6 +76,17 @@
 			<strong>{m.copies_diverged_title()}</strong>
 			<span class="detail">· {divergenceSummary(divergence).join(' · ')}</span>
 		</span>
+		{#if conflict}
+			<button
+				type="button"
+				class="action"
+				disabled={resolving}
+				title={m.copies_diverged_resolve_hint({ machine: machineName(conflict.machine) })}
+				onclick={() => void resolve()}
+			>
+				{m.copies_diverged_resolve()}
+			</button>
+		{/if}
 		<button type="button" class="action" onclick={compare}>{m.copies_diverged_compare()}</button>
 		<button type="button" class="action ghost" onclick={later}>{m.copies_diverged_later()}</button>
 	</div>
@@ -99,6 +137,10 @@
 	}
 	.action:hover {
 		background: var(--bg-hover);
+	}
+	.action:disabled {
+		cursor: default;
+		opacity: 0.6;
 	}
 	.action.ghost {
 		border-color: transparent;

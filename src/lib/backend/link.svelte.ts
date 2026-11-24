@@ -89,9 +89,17 @@ class LinkStore {
 	hosts = $state<Record<string, DesktopHostSnapshot>>({});
 	/** Corsie occupate da sessioni remote; la revisione scarta i riepiloghi vecchi. */
 	activity = $state<LaneActivitySnapshot>({ revision: NO_ACTIVITY.revision, lanes: [] });
+	/**
+	 * Macchine che hanno gia' risposto dopo la connessione (D8, R-MI-49).
+	 * `online` dice solo che il canale QUIC e' aperto: prima del primo
+	 * riepilogo dell'host la macchina e' «in attesa di risposta», non «in
+	 * linea». Le attese di D6 si sciolgono qui.
+	 */
+	responded = $state<Record<string, boolean>>({});
 	loading = $state(false);
 	busy = $state(false);
 	error = $state<string | null>(null);
+	private respondWaiters: Array<{ machine: string; resolve: () => void }> = [];
 	/** Macchine in rete locale: piene solo fra startDiscovery e stopDiscovery (R-MI-54). */
 	discovery = $state<DiscoveredMachine[]>([]);
 	/** Richieste di abbinamento da confermare con le 6 cifre (R-MI-54). */
@@ -128,8 +136,61 @@ class LinkStore {
 			projectStore.removeRemoteMachine(machine);
 		}
 		for (const peer of status.peers) {
-			if (!peer.online) projectStore.markRemoteMachineOffline(peer.id);
+			if (!peer.online) {
+				projectStore.markRemoteMachineOffline(peer.id);
+				// Una connessione nuova riparte da «in attesa di risposta» (D8):
+				// senza questo il punto resterebbe verde prima del primo
+				// riepilogo anche dopo una riconnessione.
+				if (this.responded[peer.id]) {
+					const { [peer.id]: _reset, ...rest } = this.responded;
+					this.responded = rest;
+				}
+			}
 		}
+	}
+
+	/** L'altra macchina ha risposto almeno una volta da quando e' in linea (D8). */
+	hasResponded(machineId: string): boolean {
+		return this.responded[machineId] === true;
+	}
+
+	/**
+	 * Attende che una macchina risponda (D6): all'avvio le sessioni dei progetti
+	 * remoti si aprivano prima del collegamento e fallivano con
+	 * `machine_unreachable`. Si risolve anche se la macchina e' spenta o il
+	 * collegamento e' spento: chi aspetta riprova al primo riepilogo, non resta
+	 * appeso per sempre.
+	 */
+	whenResponded(machineId: string, timeoutMs = 60_000): Promise<void> {
+		if (this.hasResponded(machineId)) return Promise.resolve();
+		const peer = this.machineFor(machineId);
+		// Spenta: si risolve subito, l'apertura fallisce e la sessione riparte
+		// al ritorno in linea (D6). Aspettare qui lascerebbe appesa la chat.
+		if (!peer?.online || !this.status.enabled) return Promise.resolve();
+		const { promise, resolve } = Promise.withResolvers<void>();
+		const waiter = {
+			machine: machineId,
+			resolve: () => {
+				window.clearTimeout(timer);
+				resolve();
+			}
+		};
+		// Un tetto esiste perche' chi aspetta non resti appeso per sempre: al
+		// ritorno in linea si riprova comunque (D6).
+		const timer = window.setTimeout(() => {
+			this.respondWaiters = this.respondWaiters.filter((candidate) => candidate !== waiter);
+			resolve();
+		}, timeoutMs);
+		this.respondWaiters.push(waiter);
+		return promise;
+	}
+
+	private markResponded(machine: string): void {
+		if (this.responded[machine]) return;
+		this.responded = { ...this.responded, [machine]: true };
+		const ready = this.respondWaiters.filter((waiter) => waiter.machine === machine);
+		this.respondWaiters = this.respondWaiters.filter((waiter) => waiter.machine !== machine);
+		for (const waiter of ready) waiter.resolve();
 	}
 
 	offlineReason(machineId: string): 'relay' | 'machine' | null {
@@ -179,6 +240,11 @@ class LinkStore {
 			return;
 		}
 		this.hosts[machine] = state;
+		// Il primo riepilogo e' la risposta dell'host: da qui la macchina e'
+		// «in linea» (D8) e le aperture in attesa partono (D6). Anche quello
+		// letto all'avvio con `link_host_states` e' stato ricevuto dal
+		// collegamento, quindi conta.
+		this.markResponded(machine);
 		projectStore.syncRemoteProjects(machine, this.status.peers.find((peer) => peer.id === machine)?.name ?? machine, state);
 	}
 

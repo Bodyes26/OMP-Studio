@@ -1,16 +1,12 @@
 /**
- * R-MI-13 / F18-F19: la macchina proposta è l'ultima usata; su un progetto di
- * una sola macchina non c'è scelta; il cambio è ammesso solo a sessione ferma.
+ * R-MI-13 / F18: la macchina proposta è l'ultima usata; su un progetto di una
+ * sola macchina non c'è scelta. Se il cambio sia possibile lo decide
+ * `decideSwitch` (R-MI-62), non questo modulo.
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import {
-	canChangeMachine,
-	machineChoices,
-	proposedMachine,
-	type MachineCopy
-} from '../src/lib/agent/machineChoice.ts';
+import { machineChoices, proposedMachine, type MachineCopy } from '../src/lib/agent/machineChoice.ts';
 
 const mac: MachineCopy = { machineId: 'mac', name: 'MacBook Air', online: true, lastUsed: 100 };
 const pc: MachineCopy = { machineId: 'local', name: 'PIE-CN-LTC13', online: true, lastUsed: 200 };
@@ -57,29 +53,5 @@ describe('Elenco delle macchine nell indicatore', () => {
 	it('porta con se lo stato del collegamento', () => {
 		const choices = machineChoices([mac, { ...pc, online: false }], 'mac');
 		assert.equal(choices[1].online, false);
-	});
-});
-
-describe('Cambio di macchina a sessione ferma (F19)', () => {
-	const choices = machineChoices([mac, pc], 'local');
-
-	it('a sessione ferma si puo cambiare', () => {
-		assert.equal(canChangeMachine('mac', 'local', false, choices), true);
-	});
-
-	it('mentre la sessione lavora no', () => {
-		assert.equal(canChangeMachine('mac', 'local', true, choices), false);
-	});
-
-	it('la macchina corrente resta selezionabile anche mentre lavora', () => {
-		assert.equal(
-			canChangeMachine('local', 'local', true, choices),
-			true,
-			'il menu non deve sembrare rotto a meta turno'
-		);
-	});
-
-	it('una macchina che non ha il progetto non e selezionabile', () => {
-		assert.equal(canChangeMachine('sconosciuta', 'local', false, choices), false);
 	});
 });

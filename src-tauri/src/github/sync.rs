@@ -687,6 +687,13 @@ pub async fn git_sync_repo(project_path: String, action: String) -> Result<Strin
             ));
         }
 
+        // R-MI-59: ogni operazione git di Studio che puo' unire o riapplicare
+        // (pull, rebase, merge, stash) trova il diario gia' in unione per
+        // righe. Anche `fetch-background`, cosi' ogni repository la riceve
+        // entro un giro. Se gli attributi non si possono scrivere (`.git` in
+        // sola lettura) si prosegue: non e' una condizione per lavorare.
+        let _ = crate::github::copies::ensure_journal_union(path);
+
         let act = action.trim().to_lowercase();
         if act != "fetch"
             && act != "fetch-background"
@@ -1463,6 +1470,43 @@ mod tests {
         assert!(
             rebase_in_progress(&setup.work_b),
             "il rebase dell'utente non va annullato"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_pull_with_dirty_journal_leaves_nothing_in_the_stash() {
+        // R-MI-59: la riga di diario non committata e quella arrivata da
+        // origin stanno nello stesso file; senza l'attributo di unione
+        // l'autostash finirebbe nello stash, con l'attributo restano entrambe
+        // nel working tree e lo stash resta vuoto.
+        let setup = setup_test_repos();
+        let path_b_str = setup.work_b.to_str().unwrap().to_string();
+        let journal = "docs/diario/2026-11.md";
+        fs::create_dir_all(setup.work_a.join("docs/diario")).unwrap();
+        fs::write(setup.work_a.join(journal), "# Diario\n\n## 2026-11-24\n- base\n").unwrap();
+        run_git_test_cmd(&setup.work_a, &["add", "."]);
+        run_git_test_cmd(&setup.work_a, &["commit", "-m", "diario base"]);
+        run_git_test_cmd(&setup.work_a, &["push", "origin", "main"]);
+        git_sync_repo(path_b_str.clone(), "fetch-background".to_string()).await.unwrap();
+        run_git_test_cmd(&setup.work_b, &["pull", "--ff-only"]);
+
+        // Una voce per parte, nello stesso file.
+        fs::write(setup.work_a.join(journal), "# Diario\n\n## 2026-11-24\n- base\n- da github\n").unwrap();
+        run_git_test_cmd(&setup.work_a, &["commit", "-am", "diario da github"]);
+        run_git_test_cmd(&setup.work_a, &["push", "origin", "main"]);
+        fs::write(setup.work_b.join(journal), "# Diario\n\n## 2026-11-24\n- base\n- da qui\n").unwrap();
+        let stash_before = stash_list(&setup.work_b);
+
+        let res = git_sync_repo(path_b_str, "pull".to_string()).await;
+        assert!(res.is_ok(), "la pull deve riuscire: {res:?}");
+        let content = fs::read_to_string(setup.work_b.join(journal)).unwrap();
+        assert!(content.contains("- da github"), "{content}");
+        assert!(content.contains("- da qui"), "{content}");
+        assert_eq!(stash_list(&setup.work_b), stash_before, "niente nello stash");
+        assert_eq!(
+            String::from_utf8_lossy(&run_git_test_cmd(&setup.work_b, &["status", "--porcelain"]).stdout).trim(),
+            format!("M {journal}"),
+            "la riga locale resta non committata"
         );
     }
 

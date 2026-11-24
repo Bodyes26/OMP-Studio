@@ -16,6 +16,7 @@
 	} from '#lib/icons.ts';
 	import { chatReveal } from '#lib/agent/motion.ts';
 	import GitStatusMark from '#lib/ui/GitStatusMark.svelte';
+	import ConfirmDialog from '#lib/ui/ConfirmDialog.svelte';
 	import MenuButton from '#lib/ui/MenuButton.svelte';
 	import StatusMark from '#lib/ui/StatusMark.svelte';
 	import Tooltip from '#lib/ui/Tooltip.svelte';
@@ -94,6 +95,12 @@
 	const actionsRuns = $derived(githubStore.actionsByPath[normalizedKey] ?? []);
 	const latestAction = $derived(actionsRuns.length > 0 ? actionsRuns[0] : null);
 
+	// R-MI-65: un push che GitHub rifiuterebbe non parte. Si legge origin
+	// appena prima; se la branch e' indietro, il dialogo dice quanti commit
+	// mancano e propone «Scarica e pubblica» (la stessa azione `sync`).
+	let pushBehind = $state(0);
+	let pushPromptOpen = $state(false);
+
 	async function handleSync(action: 'pull' | 'push' | 'sync' | 'fetch') {
 		syncMessage = null;
 		actionError = null;
@@ -105,6 +112,29 @@
 		} catch (e) {
 			actionError = String(e);
 		}
+	}
+
+	async function requestPush() {
+		syncMessage = null;
+		actionError = null;
+		try {
+			await githubStore.syncRepo(projectPath, 'fetch');
+		} catch (e) {
+			actionError = String(e);
+			return;
+		}
+		const behind = githubStore.upstreamByPath[normalizedKey]?.behind ?? 0;
+		if (behind > 0) {
+			pushBehind = behind;
+			pushPromptOpen = true;
+			return;
+		}
+		await handleSync('push');
+	}
+
+	async function downloadAndPublish() {
+		pushPromptOpen = false;
+		await handleSync('sync');
 	}
 	function baseName(p: string): string {
 		return p.split('/').pop() || p;
@@ -423,7 +453,7 @@
 							<button
 								type="button"
 								class="ui-button ui-button-primary btn-sync"
-								onclick={() => handleSync('push')}
+								onclick={() => void requestPush()}
 								disabled={isSyncing}
 								title={m.git_push_title()}
 							>
@@ -638,6 +668,16 @@
 		{/if}
 	{/if}
 </div>
+
+<!-- R-MI-65: il push non parte se GitHub lo rifiuterebbe. -->
+<ConfirmDialog
+	open={pushPromptOpen}
+	title={m.git_push_behind_title()}
+	message={m.git_push_behind_body({ count: pushBehind, branch: upstream?.branch ?? branch })}
+	confirmLabel={m.git_push_behind_confirm()}
+	onConfirm={() => void downloadAndPublish()}
+	onCancel={() => (pushPromptOpen = false)}
+/>
 
 <style>
 	.git-panel {

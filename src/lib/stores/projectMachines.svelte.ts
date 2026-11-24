@@ -12,6 +12,7 @@ import { linkStore } from '#lib/backend/link.svelte.ts';
 import { projectStore, normalizeProjectPath, type Project } from './projects.svelte';
 import { projectOrder } from './projectOrder.svelte';
 import { githubStore, type GitUpstreamStatus } from './github.svelte';
+import { conflictFiles } from '#lib/agent/machineSwitch.ts';
 import { divergenceReasons, divergenceSignature, inUseCopy, type CaseConflict, type CopyMark, type DivergenceReason } from './projectCopies.ts';
 import { copySyncStore, type BranchSync } from './copySync.svelte';
 import { copyKeyOf, projectLinks } from './projectLinks.svelte.ts';
@@ -103,6 +104,11 @@ export interface CopyDivergence {
 	copies: Array<{ copy: MachineCopy; git: GitUpstreamStatus }>;
 	/** Branch con commit propri su entrambe le copie (R-MI-26). */
 	branches: string[];
+	/**
+	 * Unione tentata e ferma su conflitti veri (R-MI-61): branch, macchina
+	 * gemella e file che git non riesce a unire da solo.
+	 */
+	conflicts: Array<{ branch: string; machine: string; files: string[] }>;
 	/** Branch che differiscono solo per maiuscole fra le copie (R-MI-35). */
 	caseConflicts: CaseConflict[];
 	signature: string;
@@ -122,7 +128,13 @@ export function copyDivergence(project: Project): CopyDivergence | null {
 		.map((copy) => ({ copy, git: gitOf(copy.project) }))
 		.filter((entry): entry is { copy: MachineCopy; git: GitUpstreamStatus } => entry.git !== null);
 	const local = view.copies.find((copy) => copy.local);
-	const branches = local ? copySyncStore.divergedBranches(local.project) : [];
+	const details = local ? copySyncStore.divergedDetails(local.project) : [];
+	const branches = details.map((detail) => detail.branch.name);
+	const conflicts = details.map((detail) => ({
+		branch: detail.branch.name,
+		machine: detail.machine,
+		files: conflictFiles(detail.branch.reason)
+	}));
 	const caseConflicts = local ? copySyncStore.caseConflicts(local.project) : [];
 	const states = known.map(({ git }) => ({
 		branch: git.branch,
@@ -131,7 +143,7 @@ export function copyDivergence(project: Project): CopyDivergence | null {
 	}));
 	const reasons = divergenceReasons(states, branches, caseConflicts);
 	if (reasons.length === 0) return null;
-	return { reasons, copies: known, branches, caseConflicts, signature: divergenceSignature(states, branches, caseConflicts) };
+	return { reasons, copies: known, branches, conflicts, caseConflicts, signature: divergenceSignature(states, branches, caseConflicts) };
 }
 
 /**
@@ -153,9 +165,19 @@ export function refreshCopiesGit(project: Project, force = false): void {
 	}
 }
 
-/** Righe che spiegano la divergenza, per pannello e striscia (R-MI-22). */
+/** Righe che spiegano la divergenza, per pannello e striscia (R-MI-22, R-MI-61). */
 export function divergenceSummary(divergence: CopyDivergence): string[] {
-	const lines = divergence.branches.map((branch) => m.copies_diverged_commits({ branch }));
+	const lines: string[] = [];
+	for (const conflict of divergence.conflicts) {
+		// Un conflitto vero nomina i file: e' quello che l'agente deve aprire.
+		lines.push(conflict.files.length > 0
+			? m.copies_diverged_conflict({ branch: conflict.branch, files: conflict.files.join(', ') })
+			: m.copies_diverged_commits({ branch: conflict.branch }));
+	}
+	for (const branch of divergence.branches) {
+		if (divergence.conflicts.some((conflict) => conflict.branch === branch)) continue;
+		lines.push(m.copies_diverged_commits({ branch }));
+	}
 	for (const conflict of divergence.caseConflicts) {
 		lines.push(m.copies_diverged_case({ branch: conflict.branch, other: conflict.other }));
 	}
@@ -171,20 +193,18 @@ export function divergenceSummary(divergence: CopyDivergence): string[] {
 /**
  * Perche' una copia indietro non avanza, in una frase (R-MI-27, R-MI-47).
  * `conflict:` porta i file che le modifiche locali non riescono a
- * riapplicare; `journalPeer` aspetta che unisca l'altra macchina (R-MI-48).
+ * riapplicare.
  */
 export function pendingReasonText(branch: BranchSync): string {
 	const values = { branch: branch.name, count: branch.behind };
 	const reason = branch.reason ?? '';
 	if (reason.startsWith('conflict:')) {
-		const files = reason.slice('conflict:'.length).split(',').filter(Boolean);
-		return m.copies_pending_conflict({ ...values, files: files.join(', ') });
+		return m.copies_pending_conflict({ ...values, files: conflictFiles(reason).join(', ') });
 	}
 	switch (reason) {
 		case 'busy': return m.copies_pending_busy(values);
 		// Un worktree con HEAD staccato: avanzare la branch lo lascerebbe indietro.
 		case 'detached': return m.copies_pending_detached(values);
-		case 'journalPeer': return m.copies_pending_journal_peer(values);
 		default: return m.copies_pending_failed({ branch: branch.name, error: reason });
 	}
 }

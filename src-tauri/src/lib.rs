@@ -520,6 +520,7 @@ pub fn run() {
             github::copies::copy_sync_bundle_chunk,
             github::copies::copy_wip_bundle_chunk,
             github::copies::copy_wip_estimate,
+            github::copies::git_fast_forward_upstream,
             github_get_actions_status,
             lab_paths,
             lab_prototype_create,

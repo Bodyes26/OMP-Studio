@@ -87,6 +87,22 @@ export function holdOverdueSchedules<T extends SchedulableTask>(
 	});
 }
 
+/**
+ * Attesa prima del nuovo tentativo di consegna (D7, R-MI-15).
+ *
+ * Un host che non risponde lasciava la modifica «in attesa di conferma» per
+ * sempre: la coda va ritentata da sola mentre la macchina e' in linea, con
+ * attese crescenti per non tempestarla di richieste. Il tetto evita che una
+ * macchina tornata da un giorno di assenza aspetti ore.
+ */
+export const DELIVERY_RETRY_BASE_MS = 2_000;
+export const DELIVERY_RETRY_MAX_MS = 60_000;
+
+export function deliveryRetryDelay(attempt: number): number {
+	const exponent = Math.max(0, Math.min(attempt, 5));
+	return Math.min(DELIVERY_RETRY_MAX_MS, DELIVERY_RETRY_BASE_MS * 2 ** exponent);
+}
+
 /** Confronto di percorsi scritti dal sistema di un'altra macchina. */
 export function samePathLoose(a: string | null | undefined, b: string | null | undefined): boolean {
 	const simplify = (path: string) => path.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();

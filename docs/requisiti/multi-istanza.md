@@ -63,6 +63,8 @@ Citazioni dell'utente dalla discussione del 2026-11-12:
 
 - **F31 — Gestione del progetto multi-istanza rivista (2026-11-23):** «ogni volta che apro studio su windows mi mostra i due progetti separati nella topbar invece che uniti, devo cliccare su uno per aggiornarlo»; «molte volte quando fa la build nightly poi aggiorna il diario e non committa quindi finisco con una modifica e mi dice che le copie divergono e non riesce a fare l'auto sync»; «Mancano poi feedback da sistema per quando sono su un progetto multi istanza per lo stato in tempo reale delle altre macchine, di eventuali sync in corso»; «C'è anche da ridisegnare da zero la schermata in impostazioni [...] collegare una macchina è difficile e scomodo e gestire le connessioni è brutto, in più ci sono due sezioni diverse per remote e per la multi istanza». Scelte nel modulo della stessa sessione: diario committato da chi lo scrive, avanzamento tollerante dei file sporchi non toccati, unione automatica del solo diario (cambia R-MI-27); chip «Macchine» nella barra di stato, sincronizzazione animata sul glifo con «sincronizzata N min fa», avvisi sugli eventi; una sola sezione «Dispositivi» con dettaglio per dispositivo e «Aggiungi dispositivo»; codice che porta relay e token, scoperta in rete locale con 6 cifre di conferma, codice corto fra reti diverse depositato sul relay di Studio Remote, codice del telefono generabile dal desktop; un solo «Server di collegamento» con gli indirizzi separati in «Avanzate»; implementazione diretta senza anteprima.
 
+- **F32 — Il progetto condiviso deve sembrare locale (2026-11-24):** «ci sono ancora fastidi e attriti sui progetti condivisi da più istanze come questo. [...] io vorrei solo funzionasse e fosse tutto sempre aggiornato pronto per lavorare invece magari mi dice che devo fare la pull su windows perché ho fatto il lavoro sul mac e non la fa in automatico, ho fatto commit di una riga di diario e dal mac mi dice che sono versioni diverse, provo a cambiare macchina dove voglio far partire un agente e mi dice di aspettare la fine del lavoro ma è vuoto non sta facendo niente»; «per me deve diventare veramente una gestione talmente rapida che lavorare su un progetto multi-istanza o in remoto deve essere percepito esattamente come lavorare su un progetto locale». Dopo la revisione del codice e dei log, scelte nel modulo della stessa sessione: i commit arrivati su GitHub si applicano da soli, solo fast-forward e con le sicurezze della gemella; unione per righe del diario in ogni operazione git, diario committato a fine turno, unione del diario divergente fatta da qualunque macchina disponibile; divergenza di codice unita da sola quando git non trova conflitti, altrimenti «Risolvi» con un agente; cambio di macchina durante il turno prenotato per la fine del turno; modifiche non committate portate in automatico con «Annulla»; le altre macchine si aggiornano da sole quando sono libere, e «secondo me sarebbe da mostrare nel modal di aggiornamento di uno studio, se è collegato ad altri computer, una riga per macchina con "aggiorna" da poter triggherare»; push su GitHub sempre manuale, bloccato solo quando sarebbe rifiutato; tutto in un unico lavoro. Segnalato anche: «su mac ogni volta che apro studio mi compare il lucchetto di accesso portachiavi che mi chiede di mettere la password perché studio deve accedere al portachiavi, anche se faccio "sempre" ogni volta lo chiede».
+
 Le sei strade valutate sono illustrate in `proto/multi-istanza-strade.html` (locale, fuori da git): è materiale di discussione, non un'anteprima di interfaccia approvata. F16 autorizza l'implementazione diretta dell'interfaccia secondo le convenzioni di Studio, senza un'ulteriore approvazione su anteprima.
 
 ## Stato dei requisiti
@@ -125,6 +127,16 @@ Le sei strade valutate sono illustrate in `proto/multi-istanza-strade.html` (loc
 | R-MI-54 | 1 | Attivo, approvato il 2026-11-23 (F31); precisa R-MI-16 | 2026-11-24: `link/discovery.rs` con `iroh-mdns-address-lookup`, ALPN `omp-studio/pair/1`, SAS `SHA-256(id minore‖id maggiore‖nonce) mod 10^6`; annuncio solo fra `link_discovery_start` e `stop` | 2026-11-24: test Rust (SAS uguale/diverso, rifiuto senza peer scritto); due macchine in LAN da provare |
 | R-MI-55 | 1 | Attivo, approvato il 2026-11-23 (F31); precisa R-MI-16 | 2026-11-24: `link/depot.rs` (8 caratteri Crockford, Argon2id + AES-256-GCM), relay `POST /v1/host/mailbox` e `GET /v1/mailbox/:id` con ritiro unico, TTL 10 min, limite per indirizzo | 2026-11-24: test Rust (codice sbagliato) e `relay/test/pairing.test.ts`; relay distribuito su `studio.myapollo.it`: deposito con la credenziale del Mac, primo ritiro 200, secondo 404. Abbinamento fra due macchine da provare |
 | R-MI-56 | 1 | Attivo, approvato il 2026-11-23 (F31); precisa R-MI-16 e R-MI-17 | 2026-11-24: `devices_set_server`, `GET /v1/host/info` dal relay con `RELAY_IROH_RELAY_URL` | 2026-11-24: test del relay; relay distribuito con `RELAY_IROH_RELAY_URL=https://iroh-relay.myapollo.it`: `GET /v1/host/info` con la credenziale del Mac restituisce l'indirizzo, senza credenziale 401 |
+| R-MI-57 | 2 | Attivo, approvato il 2026-11-24 (F32); precisa R-MI-26 | 2026-11-24 (MI50): `busyPaths` in `copyBusy.ts` (cartelle del progetto, lavoro vero, `laneWorkingRemotely`); giri su fuoco, ritorno visibile, progetto attivato, macchina tornata in linea e cime delle gemelle rilette ogni 10 s (`copySyncStore.start`); nuovi tentativi 5 s→5 min e un solo avviso dopo tre fallimenti (`copySyncRetry.ts`) | 2026-11-24: `test/copy-busy.test.ts`, `test/copy-sync-retry.test.ts`; scenario con due macchine da provare |
+| R-MI-58 | 2 | Attivo, approvato il 2026-11-24 (F32); cambia R-MI-26 («origin si legge come oggi») | 2026-11-24 (MI51): comando `git_fast_forward_upstream` in `copies.rs` (stesse guardie di `advance`, mai fetch/merge/rebase/reset/push); `checkRemote` lo chiama dopo il fetch e avvisa «N commit arrivati da GitHub»; fetch forzato al fuoco e dopo un avanzamento dalla gemella | 2026-11-24: test Rust `github::copies` (ff pulito, file sporco non toccato, file toccato riapplicato, conflitto intatto, branch non in uso, avanti e indietro); scenario reale da provare |
+| R-MI-59 | 2 | Attivo, approvato il 2026-11-24 (F32); estende R-MI-48 | 2026-11-24 (MI52): `ensure_journal_union` scrive `docs/diario/** merge=union` in `<git-common-dir>/info/attributes`; chiamato da `copy_sync`, ogni `git_sync_repo`, ricezione dell'istantanea, riapplicazione e unione | 2026-11-24: test Rust (diario sporco riapplicato, pull con autostash senza nulla nello stash, idempotenza, corsie); verifica manuale su repository temporanei di `pull --rebase --autostash`, rebase e `merge-tree` |
+| R-MI-60 | 2 | Attivo, approvato il 2026-11-24 (F32); precisa R-MI-46 | 2026-11-24 (MI52): hook `agent_end` in `extensions/studio-docs.ts` con `dirtyJournalFiles` e `commitDocsFiles` (salta laboratorio, sola lettura, diario locale) | 2026-11-24: 5 test in `test/studio-docs.test.ts` |
+| R-MI-61 | 2 | Attivo, approvato il 2026-11-24 (F32); cambia R-MI-27 («mai merge»), R-MI-22 e R-MI-48 («id minore») | 2026-11-24 (MI53): `merge_branches`/`merge_commit` in `copies.rs` (ordine dei genitori per id di macchina, date del genitore più recente, messaggio fisso), stato `merged`; «Risolvi» in `CopyDivergenceStrip.svelte` con il task di `copyConflictTask.ts` | 2026-11-24: test Rust (stesso hash costruito da due repository, conflitto che non tocca nulla, unione di codice, solo diario, cartella occupata); scenario reale da provare |
+| R-MI-62 | 3 | Attivo, approvato il 2026-11-24 (F32); precisa R-MI-14 e R-MI-25 | 2026-11-24 (MI54): `machineSwitch.ts` (decisione pura), `sessionMove.ts` (chat vuota subito, allineamento nelle due direzioni con attesa della guardia, prenotazione a fine turno con «Annulla», motivo preciso), indicatore e `Ctrl+Alt+↑/↓` sulla stessa regola | 2026-11-24: 19 test in `test/machine-switch.test.ts`; scenario reale da provare |
+| R-MI-63 | 2 | Attivo, approvato il 2026-11-24 (F32); cambia R-MI-28 («offre») | 2026-11-24 (MI54): `copyMove.ts` senza domande, avviso «Portate N modifiche» con «Annulla» per 30 s; nessun trasferimento con lavoro, domande o file non salvati nelle due cartelle | Scenario reale da provare |
+| R-MI-64 | 1 | Attivo, approvato il 2026-11-24 (F32); cambia R-MI-38 («nessuna macchina si aggiorna da sola») | 2026-11-24 (MI55): `compareStudioVersions`/`peerBehind`/`shouldRequestAutoUpdate` in `peerUpdateRules.ts`, richiesta automatica una volta per (macchina, versione) solo verso macchine più vecchie dello stesso canale, mai da build di sviluppo; righe per macchina in `StudioUpdateModal.svelte`; avviso solo per base incompatibile | 2026-11-24: `test/peer-update.test.ts`; scenario reale da provare |
+| R-MI-65 | 2 | Attivo, approvato il 2026-11-24 (F32) | 2026-11-24 (MI51): `GitPanel.svelte` legge origin prima del push e, se manca qualcosa, propone «Scarica e pubblica» (`sync`) | Scenario reale da provare |
+| R-MI-66 | 1 | Attivo, segnalato il 2026-11-24 (F32); precisa R-MI-34 | Causa verificata (partizioni `cdhash:` dell'elemento del portachiavi); la correzione richiede la firma con un'identità Apple con Team ID e l'aggiornamento dei secret di GitHub (MI56) | — |
 
 Nei testi che seguono **W** è la macchina da cui si guarda (nello scenario il PC Windows) e **M** quella che possiede il progetto (il Mac).
 
@@ -430,6 +442,7 @@ Una branch che sulla copia locale è soltanto indietro avanza con un fast-forwar
 **Accettazione:** commit sul Mac, copia di Windows ferma e pulita: Windows avanza da sola e l'editor ricarica i file aperti; con un agente al lavoro su Windows resta «da aggiornare» e avanza a turno finito; con commit su entrambe nessun avanzamento e compare l'avviso di R-MI-22.
 **Errore da evitare:** toccare la cartella mentre un agente scrive; perdere modifiche non salvate.
 **Precisazioni del 2026-11-23 (F31):** i file sporchi che i commit in arrivo non toccano non bloccano più l'avanzamento (R-MI-47); il solo diario si unisce in automatico anche su branch divergenti (R-MI-48). Restano vietati merge, rebase e reset automatici su qualunque altro file.
+**Precisazioni del 2026-11-24 (F32):** anche la upstream di `origin` avanza così (R-MI-58); una divergenza senza conflitti si unisce da sola (R-MI-61); «occupata» vale solo per il lavoro vero in quella cartella (R-MI-57). Restano vietati rebase e reset automatici e ogni unione che git non risolve da solo.
 
 ## R-MI-28 — Portare le modifiche non committate cambiando macchina
 
@@ -439,6 +452,7 @@ Le modifiche non committate restano sulla loro macchina. Cambiando macchina (ind
 
 **Accettazione:** modifiche non committate sul Mac, passaggio a Windows con «Porta qui le modifiche»: su Windows compaiono gli stessi file modificati, nuovi e cancellati, e il Mac torna pulito; se l'applicazione fallisce a metà, il Mac non perde nulla.
 **Errore da evitare:** modifiche sincronizzate in automatico (resta scartata la sincronizzazione continua dei file); pulire la copia di partenza prima della conferma.
+**Precisazione del 2026-11-24 (F32):** Studio non offre più: le modifiche seguono il cambio di macchina da sole, con «Annulla» (R-MI-63).
 
 ## R-MI-29 — Macchine non più raggiungibili e reinstallate
 
@@ -523,6 +537,7 @@ Uno script avviato da Studio (attraverso il bridge locale che Studio passa ad ag
 Quando un'altra macchina ha una versione di Studio diversa, la sua tessera, il pannello del progetto e la sua riga in Impostazioni › Altre istanze mostrano «Aggiorna Studio su M». Il comando porta M alla stessa versione della macchina da cui si clicca, se è pubblicata; altrimenti all'ultima del canale di chi clicca, e la domanda lo dice prima di partire. Se su M c'è lavoro in corso (agente al lavoro, domanda in attesa, job remoto di R-MI-36, file non salvati), M scarica subito e installa e riavvia appena è libera; intanto la tessera mostra «aggiornamento in attesa che finisca …». A fine Nightly distribuita (R-MI-37) Studio propone «Aggiorna entrambe». Nessuna macchina si aggiorna da sola perché si è aggiornata un'altra.
 
 **Accettazione:** con M su una Nightly precedente, un clic da W porta M alla versione di W e il collegamento torna pieno; con un agente al lavoro su M l'installazione aspetta la fine del turno e la tessera lo dice.
+**Precisazione del 2026-11-24 (F32):** l'ultima frase non vale più: una macchina più vecchia dello stesso canale si aggiorna da sola quando un'altra passa a una versione più recente (R-MI-64).
 
 ## R-MI-39 — Registro delle azioni remote
 
@@ -589,6 +604,7 @@ Quando `project_docs` scrive il diario (`docs/diario/AAAA-MM.md`) o un documento
 
 **Accettazione:** a fine Nightly l'agente aggiorna il diario: `git status` resta pulito e c'è un commit «diario: …» con il solo file del diario; con altri file in stage, quelli restano in stage e fuori dal commit.
 **Errore da evitare:** working tree sporco dopo un aggiornamento del diario; commit che trascina modifiche dell'utente.
+**Precisazione del 2026-11-24 (F32):** il diario modificato con edit diretti si committa anche a fine turno (R-MI-60).
 
 ## R-MI-47 — Avanzamento con file sporchi che i commit non toccano
 
@@ -607,6 +623,7 @@ Se la stessa branch è divergente fra due copie e, dal punto di separazione, i c
 
 **Accettazione:** diario committato su Mac e su Windows nello stesso giorno: entro due giri di sincronizzazione le due copie hanno la stessa cima, il file contiene le righe di entrambe e la striscia di divergenza non compare; con un commit che tocca anche `src/` la striscia compare come oggi.
 **Errore da evitare:** due commit di unione diversi che fanno divergere di nuovo; righe del diario perse; unione automatica di file che non sono il diario.
+**Precisazione del 2026-11-24 (F32):** l'unione è ora un caso di R-MI-61: la costruisce qualunque macchina disponibile, con un commit identico ovunque, e la regola per righe del diario vale in ogni operazione git (R-MI-59). La macchina con id minore non decide più.
 
 ## R-MI-49 — Chip «Macchine» nella barra di stato
 
@@ -685,6 +702,96 @@ L'utente inserisce un solo indirizzo, quello del relay di Studio Remote. Studio 
 
 **Accettazione:** con il server che dichiara il relay iroh, inserire solo `https://studio.myapollo.it` basta per telefono e computer; con un server che non lo dichiara, «Avanzate» chiede il relay iroh e lo dice.
 
+## R-MI-57 — Copie pronte quando ti siedi
+
+**Fonti:** F32. Precisa R-MI-26 («entro il successivo aggiornamento dello stato»).
+
+Il giro di sincronizzazione delle copie parte da solo, senza aspettare il minuto: quando l'altra macchina committa o cambia branch, quando torna in linea, quando la finestra torna in primo piano, quando si apre il progetto e quando un agente finisce il turno. Un giro fallito si ritenta con attesa crescente; se continua a fallire compare un avviso con il motivo, una volta sola finché il motivo non cambia. Una copia è «occupata» solo se un agente sta davvero lavorando o aspetta una risposta in quella cartella (su questa macchina o guidato da un'altra), se l'editor ha file non salvati di quella cartella o se un'automazione la tiene: una chat aperta e ferma, su questa o sull'altra macchina, e i file non salvati di un altro progetto non la occupano.
+
+**Accettazione:** con Windows in linea e ferma, un commit sul Mac arriva su Windows entro 10 secondi; con la chat dello stesso progetto aperta e ferma su entrambe le macchine l'avanzamento avviene lo stesso; un file non salvato in un altro progetto non blocca nulla; riaccendendo il Mac il giro parte subito.
+**Errore da evitare:** «da aggiornare» per una cartella dove nessuno lavora; errori di giro che restano solo nel pannello.
+
+## R-MI-58 — I commit arrivati su GitHub si applicano da soli
+
+**Fonti:** F32. Cambia R-MI-26 nella parte «se `origin` c'è, lo si legge come oggi».
+
+Dopo ogni lettura di `origin` (periodica, al ritorno in primo piano, dopo un avanzamento dalla gemella) una branch che è soltanto indietro rispetto alla sua upstream avanza con un fast-forward, con le stesse regole della gemella: cartella libera (R-MI-57), file sporchi non toccati lasciati dove sono e file toccati salvati e riapplicati (R-MI-47), mai merge, rebase o reset verso `origin`. L'avviso dice «N commit arrivati da GitHub» invece di chiedere la pull. Se l'avanzamento è bloccato resta l'avviso di oggi con il motivo. Dopo un avanzamento dalla gemella Studio rilegge `origin`, così i commit già pubblicati dall'altra macchina non risultano «da pubblicare».
+
+**Accettazione:** commit e push dal Mac spento subito dopo: Windows, tornata in primo piano, avanza da sola e non propone la pull; con un file locale in conflitto con i commit in arrivo la copia resta intatta e l'avviso nomina il file.
+**Errore da evitare:** merge o rebase verso `origin` fatti da Studio; «da pubblicare» per commit che sono già su GitHub.
+
+## R-MI-59 — Il diario non va mai in conflitto
+
+**Fonti:** F32. Estende R-MI-48 alle modifiche non committate e a ogni operazione git.
+
+In ogni repository di un progetto Studio dichiara per `docs/diario/**` l'unione per righe di git (`merge=union` negli attributi locali del repository, `.git/info/attributes`, non versionati). Vale per la sincronizzazione delle copie, per la riapplicazione delle modifiche locali di R-MI-47, per la pull con autostash, per rebase, merge e stash fatti da Studio o dall'utente nel terminale. Nessun altro file riceve questa regola.
+
+**Accettazione:** riga di diario non committata sul Mac e riga committata su Windows nello stesso file: il Mac avanza da solo e il file contiene entrambe le righe, modificato come prima; una pull con autostash nello stesso caso non lascia nulla nello stash.
+**Errore da evitare:** righe del diario parcheggiate nello stash o perse; unione per righe applicata a file che non sono il diario.
+
+## R-MI-60 — Il diario si committa a fine turno
+
+**Fonti:** F32. Precisa R-MI-46.
+
+Quando un turno di un agente finisce e un file del diario (`docs/diario/AAAA-MM.md`) del repository della sessione risulta modificato, Studio lo committa da solo con le regole di R-MI-46: solo i file del diario, `commit --only`, messaggio «diario: AAAA-MM-GG», nessun push, nessun commit con merge o rebase in corso o HEAD staccato. Vale anche per le sessioni guidate da un'altra macchina e per le automazioni, perché lo fa la macchina che esegue.
+
+**Accettazione:** un agente aggiunge una riga al diario con una modifica diretta: a fine turno `git status` è pulito e c'è un commit «diario: …» con il solo diario; con altri file in stage quelli restano in stage.
+**Errore da evitare:** commit di file diversi dal diario; diario sporco a fine turno che blocca la sincronizzazione.
+
+## R-MI-61 — Copie divergenti unite da sole quando non c'è conflitto
+
+**Fonti:** F32. Cambia R-MI-27 («mai merge automatici») e R-MI-22; sostituisce in R-MI-48 la regola «unisce la macchina con id minore».
+
+Quando la stessa branch ha commit propri su due copie, Studio prova l'unione senza toccare nulla (`git merge-tree`, con la regola del diario di R-MI-59). Se git non trova conflitti, qualunque macchina disponibile costruisce il commit di unione in modo identico (genitori nell'ordine degli id delle macchine, albero dell'unione, autore, date e messaggio fissi), così due macchine che uniscono insieme producono lo stesso commit; poi la copia avanza con le regole di R-MI-27 e R-MI-47 e l'altra fa fast-forward. Se git trova conflitti, la striscia di R-MI-22 resta, nomina i file e offre «Risolvi», che affida l'unione a un agente su questa macchina con il compito già scritto (branch, macchina, file in conflitto, verifica e commit). L'unione del solo diario di R-MI-48 diventa un caso di questa regola.
+
+**Accettazione:** commit su `src/a.ts` sul Mac e su `src/b.ts` su Windows: entro due giri le due copie hanno la stessa cima, con un solo commit di unione; commit sulla stessa riga dello stesso file: la striscia nomina il file e «Risolvi» apre l'agente con il compito.
+**Errore da evitare:** due commit di unione diversi; unione con conflitti scritta nei file; unione mentre un agente lavora nella cartella.
+
+## R-MI-62 — Cambiare macchina senza attese
+
+**Fonti:** F32. Precisa R-MI-14 («su una sessione ferma») e R-MI-25.
+
+Dall'indicatore sotto il composer o con `Ctrl+Alt+↑/↓`: una chat vuota passa subito all'altra macchina, senza domande e senza spostare nulla. Una chat ferma si sposta come in R-MI-14; se le copie non sono sullo stesso commit Studio le allinea prima da solo (fast-forward nella direzione che serve, R-MI-61 se divergono) e si ferma solo davanti a un conflitto. Se l'agente sta lavorando o aspetta una risposta, lo spostamento si prenota: sotto il composer compare «Passa a M a fine turno · Annulla» e lo spostamento parte da solo appena il turno finisce. Quando qualcosa impedisce davvero il cambio, il messaggio dice cosa (agente al lavoro, domanda in attesa, file non salvati in quella cartella, conflitto) e dove.
+
+**Accettazione:** chat vuota su Windows, clic su Mac nell'indicatore: la chat successiva parte sul Mac senza dialoghi; chat ferma con la copia di partenza indietro di un commit: lo spostamento riesce; durante un turno il cambio si prenota e avviene a turno finito; «Annulla» lo toglie.
+**Errore da evitare:** «aspetta la fine del turno» con nessun agente al lavoro; spostamento a metà turno.
+
+## R-MI-63 — Le modifiche non committate seguono il cambio di macchina
+
+**Fonti:** F32. Cambia R-MI-28 («Studio offre»).
+
+Cambiando macchina con modifiche non committate sulla copia di partenza, Studio le porta sulla copia di arrivo senza chiedere, con il procedimento di R-MI-28 (prima allineamento, poi istantanea, pulizia della partenza solo dopo la conferma dell'arrivo, istantanea recuperabile su entrambe). Un avviso breve dice «Portate N modifiche da M» con «Annulla», che le riporta indietro con lo stesso procedimento. Restano i vincoli di R-MI-28 sull'agente al lavoro: in quel caso il trasferimento si prenota con il cambio (R-MI-62).
+
+**Accettazione:** due file modificati sul Mac, passaggio a Windows: i file compaiono su Windows e il Mac torna pulito senza domande; «Annulla» li riporta sul Mac.
+**Errore da evitare:** modifiche spostate mentre un agente lavora; partenza ripulita prima della conferma dell'arrivo.
+
+## R-MI-64 — Le altre macchine si aggiornano da sole quando sono libere
+
+**Fonti:** F32. Cambia R-MI-38 («nessuna macchina si aggiorna da sola perché si è aggiornata un'altra»).
+
+Quando questa macchina passa a una versione di Studio più recente, chiede alle macchine abbinate con una versione più vecchia di aggiornarsi alla stessa versione con il procedimento di R-MI-38, che installa e riavvia solo quando la macchina è libera. Una macchina con una versione più recente di questa non riceve richieste. Il modale di aggiornamento di Studio, se ci sono macchine abbinate, mostra una riga per macchina con versione, stato («aggiornata», «in attesa che finisca …», «spenta») e «Aggiorna» per lanciarlo subito. Le indicazioni «versione diversa» compaiono solo quando la versione base è davvero incompatibile (R-MI-10); due Nightly della stessa base non sono un avviso ma un aggiornamento in corso o in attesa.
+
+**Accettazione:** il Mac si aggiorna a una Nightly nuova: Windows, ferma, si aggiorna da sola alla stessa versione; con un agente al lavoro su Windows l'installazione aspetta la fine del turno; il modale di aggiornamento del Mac mostra la riga di Windows con lo stato e «Aggiorna».
+**Errore da evitare:** due macchine che si chiedono a vicenda di aggiornarsi; riavvio con un agente al lavoro.
+
+## R-MI-65 — Il push destinato al rifiuto non parte
+
+**Fonti:** F32. Il push resta sempre una scelta dell'utente (R-MI-26).
+
+Se la branch è indietro rispetto alla sua upstream dopo una lettura appena fatta di `origin`, «Pubblica» non tenta un push che GitHub rifiuterebbe: dice quanti commit mancano e offre «Scarica e pubblica», che fa la pull (con le regole di R-MI-59 sul diario) e poi il push.
+
+**Accettazione:** commit locale e un commit nuovo su GitHub: «Pubblica» propone «Scarica e pubblica» e, scelto, il branch risulta pubblicato senza errori di git.
+**Errore da evitare:** errore grezzo di push rifiutato mostrato all'utente.
+
+## R-MI-66 — Il portachiavi non chiede la password dopo gli aggiornamenti
+
+**Fonti:** F32. Precisa R-MI-34.
+
+La chiave della macchina resta nel portachiavi (R-MI-34), ma l'accesso concesso con «Consenti sempre» deve valere anche per le versioni successive di Studio. Causa verificata il 2026-11-24 sul Mac: l'elemento `omp-studio-instance` ha nell'elenco delle partizioni un `cdhash:` per ogni build a cui è stato concesso l'accesso (quattro al momento della verifica), perché l'app firmata con il certificato self-signed non ha un Team ID; ogni build nuova ha un hash diverso e macOS chiede di nuovo.
+
+**Accettazione:** dopo «Consenti sempre» su una versione, l'aggiornamento successivo di Studio si avvia senza richieste del portachiavi.
+**Errore da evitare:** chiave spostata in chiaro su disco per evitare la richiesta.
+
 ## Correzioni del 2026-11-20 (revisione del codice)
 
 Revisione per lettura del codice di tutta la funzione (rapporto della sessione, 25 voci) e correzione in un unico lavoro, su richiesta dell'utente del 2026-11-20: «ok parti dalla risoluzione dei bug, elenco completo». Nessun requisito cambia: le correzioni riportano il codice ai requisiti esistenti. Nessuna prova con due macchine reali.
@@ -706,6 +813,23 @@ Revisione per lettura del codice di tutta la funzione (rapporto della sessione, 
 | Battito | R-MI-11 | `Ping` mai inviato | Battito ogni 10 s, tre fallimenti di fila chiudono la connessione | `link::` |
 
 Verifiche eseguite il 2026-11-20: `cargo test --lib` 558 passati, `cargo clippy --lib --tests -D warnings` pulito, `npm run check` 0 errori, `npm run check:commands` allineato, `npm test` 1566 passati. Rimandato con motivo: collisione di branch che differiscono solo per maiuscole su filesystem che non le distinguono (M6, seconda parte), da decidere con l'utente.
+
+## Correzioni del 2026-11-24 (revisione del codice, F32)
+
+Revisione per lettura del codice e dei log reali del Mac del 2026-11-24 (registro `link-audit.jsonl`, `studio.log`). Le correzioni riportano il codice ai requisiti; le regole nuove sono R-MI-57…66.
+
+| Voce | Requisito | Difetto | Correzione | Prova |
+|---|---|---|---|---|
+| D1 | R-MI-27, R-MI-14 | Una corsia aperta e ferma sull'altra macchina contava come occupata (`laneBusyRemotely` vale per la sola presenza) e bloccava avanzamento e cambio di macchina | `busyPaths` usa il lavoro vero (`laneWorkingRemotely`); la presenza resta solo per la coda; il collegamento chiuso stacca le viste del peer (`Activity::detach_peer`) | `test/copy-busy.test.ts`, test Rust `link::activity` |
+| D2 | R-MI-27, R-MI-14 | `busyPaths` partiva dai file non salvati di tutti i progetti e dalla radice del progetto per qualunque sessione al lavoro | Solo le cartelle di questo progetto, solo la cartella della sessione che lavora | `test/copy-busy.test.ts` |
+| D3 | R-MI-14 | Anche una chat vuota passava dallo spostamento completo e falliva con «Le copie non sono sullo stesso commit» se la partenza era indietro | R-MI-62 | `test/machine-switch.test.ts` |
+| D4 | R-MI-48 | Il diario divergente aspettava per sempre la macchina con id minore; il commit di unione non era identico fra macchine (date correnti) | R-MI-61: commit deterministico con date fisse, unisce chiunque | test Rust `github::copies` (stesso hash da due repository) |
+| D5 | R-MI-10 | «Su X c'è Studio Y, diverso da qui» per due Nightly della stessa base, con il collegamento pieno | R-MI-64 | `test/peer-update.test.ts` |
+| D6 | R-MI-11 | All'avvio le sessioni dei progetti dell'altra macchina si aprivano prima del collegamento e fallivano (`rpc_open … machine_unreachable`, rejection non gestite nel log) | `open()` aspetta il primo stato dell'host (`linkStore.whenResponded`); le macchine spente non si aprono e si riaprono al ritorno in linea | `npm run check`; scenario reale da provare |
+| D7 | R-MI-15 | Coda remota «in attesa di conferma» senza nuovi tentativi se l'host non risponde | Nuovi tentativi 2 s→60 s mentre la macchina è in linea, subito al suo ritorno | `test/remote-queue.test.ts` |
+| D8 | R-MI-49 | Punto verde «in linea» prima che l'altra macchina abbia risposto | Stato `waiting` fino al primo stato dell'host | `test/machine-status.test.ts` |
+
+Verifiche eseguite il 2026-11-24 sull'intero lavoro: `cargo test --lib` 618 passati, `cargo clippy --lib --tests -D warnings` pulito, `npm run check` 0 errori, `npm test` 1694 passati, `npm run check:commands` allineato. Nessuna prova con due macchine reali.
 
 ## Strade scartate
 

@@ -31,7 +31,7 @@ import { windowLabel } from './windowBridge';
 import { m as msg } from '#lib/paraglide/messages.js';
 import { taskLabel, promptHash } from './taskTitle';
 import type { QueueReplicationBridge, RemoteQueueBridge } from './queueReplicationBridge.ts';
-import { holdOverdueSchedules, mergeHostQueue } from './remoteQueue.ts';
+import { deliveryRetryDelay, holdOverdueSchedules, mergeHostQueue } from './remoteQueue.ts';
 import {
 	mergeQueues,
 	mergeRemoved,
@@ -129,6 +129,9 @@ class TaskStore {
 		known: Map<string, string>;
 		dirty: boolean;
 		sending: Promise<void> | null;
+		/** Nuovi tentativi di consegna falliti (D7): tentativi fatti e timer. */
+		attempts: number;
+		retry: number | null;
 	}>();
 	private remoteBridge: RemoteQueueBridge | null = null;
 	/** Task modificati qui e non ancora confermati dalla loro macchina: id → macchina. */
@@ -192,7 +195,9 @@ class TaskStore {
 					edits,
 					known: new Map(restored.filter((task) => !edits.has(task.id)).map((task) => [task.id, JSON.stringify(task)])),
 					dirty: edits.size > 0 || saved.dirty === true,
-					sending: null
+					sending: null,
+					attempts: 0,
+					retry: null
 				});
 				for (const task of restored) logicalClock.observe(task.updatedAt);
 				this.tasks = [...this.tasks.filter((task) => task.projectPath !== key), ...restored];
@@ -310,7 +315,7 @@ class TaskStore {
 		for (const entry of entries) {
 			let queue = this.remoteQueues.get(entry.key);
 			if (!queue) {
-				queue = { machine, hostPath: entry.hostPath, edits: new Set(), known: new Map(), dirty: false, sending: null };
+				queue = { machine, hostPath: entry.hostPath, edits: new Set(), known: new Map(), dirty: false, sending: null, attempts: 0, retry: null };
 				this.remoteQueues.set(entry.key, queue);
 			}
 			queue.machine = machine;
@@ -352,7 +357,7 @@ class TaskStore {
 	 */
 	registerRemoteQueue(key: string, machine: string, hostPath: string): void {
 		if (this.remoteQueues.has(key)) return;
-		this.remoteQueues.set(key, { machine, hostPath, edits: new Set(), known: new Map(), dirty: false, sending: null });
+		this.remoteQueues.set(key, { machine, hostPath, edits: new Set(), known: new Map(), dirty: false, sending: null, attempts: 0, retry: null });
 	}
 
 	/** Registra le modifiche fatte qui alla coda di un progetto remoto e prova a consegnarle. */
@@ -378,6 +383,8 @@ class TaskStore {
 	private async deliverRemoteQueue(key: string): Promise<void> {
 		const queue = this.remoteQueues.get(key);
 		const bridge = this.remoteBridge;
+		// Spenta: le modifiche restano salvate e partono al primo riepilogo
+		// dell'host, che `applyHostQueues` fa arrivare (R-MI-15).
 		if (!queue || !bridge?.online(queue.machine)) return;
 		if (queue.sending) {
 			await queue.sending;
@@ -395,15 +402,50 @@ class TaskStore {
 			const payload = JSON.stringify({ tasks: $state.snapshot(held), removed: this.removedFor(key) });
 			try {
 				await bridge.send(queue.machine, queue.hostPath, payload);
+				queue.attempts = 0;
 			} catch (error) {
 				queue.dirty = true;
 				console.warn(`Coda non consegnata a ${queue.machine}:`, error);
+				// D7: senza un nuovo tentativo la modifica resterebbe «in attesa
+				// di conferma» per sempre, anche con l'host di nuovo raggiungibile.
+				this.scheduleRemoteRetry(key, queue);
 			}
 		})();
 		queue.sending = run;
 		await run;
 		queue.sending = null;
 		this.saveGlobal();
+	}
+
+	/**
+	 * Riprova una consegna fallita (D7) con attese crescenti, finché l'host è
+	 * in linea. A host spento non si arma nulla: al ritorno in linea
+	 * `resumeRemoteQueues` riprova subito, senza aspettare il timer.
+	 */
+	private scheduleRemoteRetry(key: string, queue: { machine: string; attempts: number; retry: number | null }): void {
+		if (queue.retry !== null || !this.remoteBridge?.online(queue.machine)) return;
+		const delay = deliveryRetryDelay(queue.attempts);
+		queue.attempts += 1;
+		queue.retry = window.setTimeout(() => {
+			queue.retry = null;
+			void this.deliverRemoteQueue(key);
+		}, delay);
+	}
+
+	/**
+	 * Una macchina e' tornata in linea (D7, R-MI-15): le code che aspettavano
+	 * la sua risposta ripartono subito, senza aspettare il prossimo giro.
+	 */
+	resumeRemoteQueues(machine?: string): void {
+		for (const [key, queue] of this.remoteQueues) {
+			if (machine && queue.machine !== machine) continue;
+			if (queue.retry !== null) {
+				window.clearTimeout(queue.retry);
+				queue.retry = null;
+			}
+			queue.attempts = 0;
+			if (queue.dirty || queue.edits.size > 0) void this.deliverRemoteQueue(key);
+		}
 	}
 
 	private refreshAwaitingDelivery(): void {

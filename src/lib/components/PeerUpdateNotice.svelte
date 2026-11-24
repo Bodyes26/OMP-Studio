@@ -1,20 +1,23 @@
 <!--
-  «Aggiorna Studio su M» (R-MI-38): la versione dell'altra macchina e' diversa
-  da questa. Mostra anche a che punto e' un aggiornamento gia' chiesto
-  («in attesa che finisca …»). Usato nelle Impostazioni e nel pannello del
-  progetto.
+  «Aggiorna Studio su M» (R-MI-38, R-MI-64): l'altra macchina ha una versione
+  diversa. L'avviso compare solo quando la base e' incompatibile (D5): due
+  Nightly della stessa base sono un aggiornamento in corso o in attesa, e lo
+  dicono con lo stato, non con «diverso da qui». Usato nelle Impostazioni e nel
+  pannello del progetto.
 -->
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
 	import { linkStore } from '#lib/backend/link.svelte.ts';
-	import { needsUpdate, peerUpdate, type WaitReason } from '#lib/backend/peerUpdate.svelte.ts';
+	import { needsUpdate, peerBehind, peerUpdate, type WaitReason } from '#lib/backend/peerUpdate.svelte.ts';
 	import { studioUpdaterStore, formatVersion } from '#lib/stores/studioUpdater.svelte.ts';
 
 	let { machineId, compact = false, targetVersion }: { machineId: string; compact?: boolean; targetVersion?: string } = $props();
 
 	const machine = $derived(linkStore.machineFor(machineId));
 	const status = $derived(peerUpdate.statusFor(machineId));
-	const outdated = $derived(machine ? needsUpdate(machine, studioUpdaterStore.currentVersion) : false);
+	const own = $derived(studioUpdaterStore.currentVersion);
+	const incompatible = $derived(machine ? needsUpdate(machine, own) : false);
+	const behind = $derived(machine ? peerBehind(machine, own) : false);
 
 	const reasonLabel: Record<WaitReason, () => string> = {
 		agents: () => m.peer_update_reason_agents(),
@@ -33,10 +36,11 @@
 			case 'installing': return m.peer_update_installing({ name });
 			case 'failed': return m.peer_update_failed({ name, error: status.error ?? '' });
 		}
-		return outdated ? m.peer_update_needed({ name, version: formatVersion(machine.version, { prefix: true }) || machine.version || '' }) : '';
+		// Solo una base incompatibile e' un avviso (D5).
+		return incompatible ? m.peer_update_needed({ name, version: formatVersion(machine.version, { prefix: true }) || machine.version || '' }) : '';
 	});
 	const targetAvailable = $derived(Boolean(machine?.online && targetVersion && machine.version !== targetVersion));
-	const canStart = $derived((outdated || targetAvailable) && (!status || status.phase === 'failed'));
+	const canStart = $derived((incompatible || behind || targetAvailable) && (!status || status.phase === 'failed'));
 </script>
 
 {#if text || canStart}

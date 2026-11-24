@@ -1,5 +1,7 @@
 import { invoke, LOCAL_MACHINE, type MachineId } from '#lib/backend/ipc.ts';
 import { projectStore, normalizeProjectPath, joinProjectPath } from './projects.svelte';
+import { conflictFiles } from '#lib/agent/machineSwitch.ts';
+import { busyPaths } from './copyBusy.ts';
 import { settingsStore } from './settings.svelte';
 import { notificationManager } from './notifications.svelte';
 import { m } from '#lib/paraglide/messages.js';
@@ -62,6 +64,20 @@ export interface GitUpstreamStatus {
 	headCommit?: string | null;
 	/** File con modifiche non committate; assente dagli host precedenti. */
 	changedFiles?: number;
+}
+
+/** Una branch locale avanzata o ferma rispetto alla sua upstream (R-MI-58). */
+export interface UpstreamSyncState {
+	name: string;
+	upstream: string;
+	ahead: number;
+	behind: number;
+	state: 'equal' | 'ahead' | 'diverged' | 'advanced' | 'pending';
+	reason: string | null;
+}
+
+export interface FastForwardReport {
+	branches: UpstreamSyncState[];
 }
 
 export interface GithubActionRun {
@@ -381,6 +397,25 @@ class GithubStore {
 		return request;
 	}
 
+	/**
+	 * Avanza da sole le branch solo indietro rispetto a origin (R-MI-58), con
+	 * le stesse regole della gemella: mai merge, rebase o reset verso origin.
+	 * Non fa fetch: chi chiama ha appena letto origin.
+	 */
+	async fastForwardUpstream(projectPath: string, busy: string[]): Promise<FastForwardReport | null> {
+		try {
+			return await invoke<FastForwardReport>('git_fast_forward_upstream', {
+				projectPath,
+				busyPaths: busy
+			});
+		} catch (error) {
+			// Un blocco (cartella occupata, worktree staccato) arriva come
+			// `pending` nel rapporto; qui restano solo errori veri.
+			console.error('git_fast_forward_upstream', error);
+			return null;
+		}
+	}
+
 	/** Il controllo remoto non tocca il checkout e non apre prompt di credenziali. */
 	async checkRemote(projectPath: string, force = false): Promise<void> {
 		await settingsStore.init();
@@ -403,6 +438,34 @@ class GithubStore {
 				if (!before) throw new Error(m.git_remote_status_error());
 				if (!before.isGit || !settingsStore.backgroundJobs.enabled || !settingsStore.backgroundJobs.jobs.gitFetch.enabled) return;
 				await this.syncRepo(projectPath, 'fetch-background');
+				const project = projectStore.projects.find((candidate) =>
+					candidate.canonicalProjectPath &&
+					normalizeProjectPath(candidate.canonicalProjectPath).toLowerCase() === key
+				);
+				// Solo la copia di questa macchina si avanza: quella di una gemella
+				// la muove la sua finestra (R-MI-12). `owner` lo dice.
+				let blocked: string | null = null;
+				if (project && owner === LOCAL_MACHINE) {
+					// La cartella occupata blocca l'avanzamento (R-MI-57): `busyPaths`
+					// e' l'unica verita' su chi sta lavorando qui.
+					const report = await this.fastForwardUpstream(projectPath, busyPaths(project));
+					const advanced = report?.branches.filter((branch) => branch.state === 'advanced') ?? [];
+					// «Da scaricare» resta solo se qualcosa ha davvero impedito
+					// l'avanzamento: l'avviso nomina i file in conflitto, gli altri
+					// motivi restano la frase di oggi (R-MI-58).
+					const reason = report?.branches.find((branch) => branch.state === 'pending' || branch.state === 'diverged')?.reason ?? '';
+					blocked = conflictFiles(reason).join(', ') || null;
+					if (advanced.length > 0) {
+						const count = advanced.reduce((sum, branch) => sum + branch.behind, 0);
+						const status = await this.loadUpstreamStatus(projectPath, true, owner);
+						const signature = JSON.stringify(['arrived', key, status?.headCommit ?? '', count]);
+						if (this.notifiedIncoming.get(key) !== signature) {
+							this.notifiedIncoming.set(key, signature);
+							await notificationManager.notifyGitUpdates(project, count, true);
+						}
+						return;
+					}
+				}
 				const status = this.upstreamByPath[key];
 				if (!status?.behind) {
 					this.notifiedIncoming.delete(key);
@@ -414,13 +477,9 @@ class GithubStore {
 					status.incomingCommits[0]?.hash ?? status.behind
 				]);
 				if (this.notifiedIncoming.get(key) === signature) return;
-				const project = projectStore.projects.find((candidate) =>
-					candidate.canonicalProjectPath &&
-					normalizeProjectPath(candidate.canonicalProjectPath).toLowerCase() === key
-				);
 				if (!project || !settingsStore.backgroundJobs.enabled || !settingsStore.backgroundJobs.jobs.gitFetch.enabled) return;
 				this.notifiedIncoming.set(key, signature);
-				await notificationManager.notifyGitUpdates(project, status.behind);
+				await notificationManager.notifyGitUpdates(project, status.behind, false, blocked);
 			} catch (error) {
 				this.remoteErrorByPath[key] = String(error);
 			} finally {

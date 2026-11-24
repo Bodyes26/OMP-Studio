@@ -199,9 +199,11 @@ pub(crate) async fn exec_nightly_ready(app: tauri::AppHandle, request: tauri::ip
         resolve_project(snapshot.as_deref().map(String::as_str), repo_slug.as_deref(), root_commit.as_deref())?;
         #[cfg(target_os = "macos")]
         {
-            let identity = std::env::var("APPLE_SIGNING_IDENTITY").unwrap_or_else(|_| "OMP Studio Self-Signed".into());
-            // Senza `-v`, come `publish-nightly.mjs`: il certificato self-signed non e'
-            // fidato (CSSMERR_TP_NOT_TRUSTED) e `-v` elenca solo le identita' valide.
+            // Stessa identita' di `publish-nightly.mjs`: un certificato Apple con
+            // Team ID, perche' il portachiavi conservi l'accesso fra le build (R-MI-66).
+            let identity = std::env::var("APPLE_SIGNING_IDENTITY")
+                .unwrap_or_else(|_| "Apple Development: apple@maurizioactis.it (PRF667R7JB)".into());
+            // Senza `-v`, come `publish-nightly.mjs`: basta che l'identita' ci sia.
             let output = std::process::Command::new("security").args(["find-identity", "-p", "codesigning"])
                 .output().map_err(|error| error.to_string())?;
             if !output.status.success() || !String::from_utf8_lossy(&output.stdout).contains(&format!("\"{identity}\"")) {

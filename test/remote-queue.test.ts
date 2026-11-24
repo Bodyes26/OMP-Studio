@@ -6,7 +6,15 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { holdOverdueSchedules, mergeHostQueue, samePathLoose, type SchedulableTask } from '../src/lib/stores/remoteQueue.ts';
+import {
+	DELIVERY_RETRY_BASE_MS,
+	DELIVERY_RETRY_MAX_MS,
+	deliveryRetryDelay,
+	holdOverdueSchedules,
+	mergeHostQueue,
+	samePathLoose,
+	type SchedulableTask
+} from '../src/lib/stores/remoteQueue.ts';
 
 const task = (id: string, over: Partial<SchedulableTask> & Record<string, unknown> = {}): SchedulableTask & Record<string, unknown> => ({
 	id,
@@ -56,6 +64,17 @@ describe('Coda di un progetto remoto (R-MI-15)', () => {
 		assert.equal(held[0].schedule?.missed, true);
 		assert.equal(held[1].schedule?.missed, undefined);
 		assert.equal(held[2].schedule?.missed, undefined, 'solo i task scritti qui');
+	});
+
+	it('una consegna fallita si ritenta con attese crescenti (D7)', () => {
+		// Prima era «in attesa di conferma» per sempre: la modifica resta finche'
+		// l'host non la vede, ma i tentativi ripartono da soli.
+		assert.equal(deliveryRetryDelay(0), DELIVERY_RETRY_BASE_MS);
+		assert.equal(deliveryRetryDelay(1), DELIVERY_RETRY_BASE_MS * 2);
+		assert.equal(deliveryRetryDelay(2), DELIVERY_RETRY_BASE_MS * 4);
+		assert.equal(deliveryRetryDelay(3), DELIVERY_RETRY_BASE_MS * 8);
+		assert.equal(deliveryRetryDelay(40), DELIVERY_RETRY_MAX_MS, 'il tetto vale anche dopo molti tentativi');
+		assert.ok(deliveryRetryDelay(2) > deliveryRetryDelay(1), 'l attesa cresce');
 	});
 
 	it('riconosce lo stesso percorso scritto da Windows o dal Mac', () => {

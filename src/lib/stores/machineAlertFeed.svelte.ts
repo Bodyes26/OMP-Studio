@@ -74,6 +74,16 @@ class MachineAlertFeed {
 		if (this.current === null) this.advance();
 	}
 
+	/**
+	 * Un avviso gia' pronto, fuori dalla deduplica degli eventi delle macchine:
+	 * lo usa il giro delle copie quando fallisce tre volte di fila (R-MI-57).
+	 * Chi chiama ha gia' deciso che va detto una volta sola.
+	 */
+	announce(text: string): void {
+		this.queue.push({ text, sticky: false });
+		if (this.current === null) this.advance();
+	}
+
 	/** Passa all'avviso successivo, o chiude se la coda e' vuota. */
 	advance(): void {
 		const next = this.queue.shift();
@@ -96,6 +106,8 @@ function noticeText(alert: MachineAlert, working: boolean): string {
 					: m.machines_alert_offline({ name: alert.name });
 		case 'advanced':
 			return m.machines_alert_advanced({ count: alert.count, name: alert.name });
+		case 'merged':
+			return m.machines_alert_merged({ name: alert.name });
 		case 'journal':
 			return m.machines_alert_journal({ name: alert.name });
 		case 'blocked':
@@ -103,9 +115,6 @@ function noticeText(alert: MachineAlert, working: boolean): string {
 			if (alert.reason.startsWith('conflict:')) {
 				const files = alert.reason.slice('conflict:'.length).split(',').filter(Boolean).join(', ');
 				return m.machines_alert_blocked_conflict({ project: alert.project, files });
-			}
-			if (alert.reason === 'journalPeer') {
-				return m.machines_alert_blocked_journal({ project: alert.project, name: alert.name });
 			}
 			return m.machines_alert_blocked_other({ project: alert.project, reason: alert.reason });
 	}

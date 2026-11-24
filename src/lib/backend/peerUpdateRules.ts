@@ -1,6 +1,6 @@
 /**
- * Regole pure dell'aggiornamento di un'altra macchina (R-MI-38), separate dal
- * negozio per provarle senza finestra.
+ * Regole pure dell'aggiornamento di un'altra macchina (R-MI-38, R-MI-64),
+ * separate dal negozio per provarle senza finestra.
  */
 
 export type WaitReason = 'agents' | 'questions' | 'jobs' | 'unsaved';
@@ -10,9 +10,142 @@ export function channelOf(version: string): 'stable' | 'nightly' {
 	return version.includes('-nightly') ? 'nightly' : 'stable';
 }
 
-/** L'altra macchina va aggiornata: in linea, con una versione diversa da questa. */
-export function needsUpdate(peer: { online: boolean; version: string | null }, own: string | null): boolean {
-	return Boolean(peer.online && peer.version && own && peer.version !== own);
+export interface StudioVersion {
+	/** `major.minor.patch`; `null` quando la stringa non si legge. */
+	base: [number, number, number] | null;
+	/** Numero di build dopo `-nightly`; `null` per una stabile. */
+	nightly: number | null;
+}
+
+export function parseStudioVersion(version: string | null | undefined): StudioVersion {
+	const clean = (version ?? '').trim().replace(/^v/i, '');
+	const match = /^(\d+)\.(\d+)\.(\d+)(?:-nightly\.(\d+))?$/.exec(clean);
+	if (!match) return { base: null, nightly: null };
+	return {
+		base: [Number(match[1]), Number(match[2]), Number(match[3])],
+		nightly: match[4] === undefined ? null : Number(match[4])
+	};
+}
+
+/**
+ * Ordine totale fra due versioni di Studio (R-MI-64, D5).
+ *
+ * La base semver decide; a parita' di base la stabile viene dopo ogni Nightly e
+ * due Nightly si ordinano per numero di build. Serve perché confrontare le
+ * stringhe intere fa sembrare «diverse» due build della stessa base, che il
+ * collegamento considera compatibili (`stable_version` in `link/mod.rs`): la
+ * macchina riceveva un avviso invece dell'aggiornamento in corso.
+ *
+ * `0` anche quando una delle due non si legge: senza un ordine non si chiede e
+ * non si avvisa nulla, che e' il ripiego sicuro.
+ */
+export function compareStudioVersions(a: string | null | undefined, b: string | null | undefined): number {
+	const left = parseStudioVersion(a);
+	const right = parseStudioVersion(b);
+	if (!left.base || !right.base) return 0;
+	for (let index = 0; index < 3; index++) {
+		const delta = left.base[index] - right.base[index];
+		if (delta !== 0) return delta > 0 ? 1 : -1;
+	}
+	if (left.nightly === right.nightly) return 0;
+	// Stabile e Nightly della stessa base sono lo stesso codice: la stabile e'
+	// la build distribuita, quindi viene dopo.
+	if (left.nightly === null) return 1;
+	if (right.nightly === null) return -1;
+	return left.nightly > right.nightly ? 1 : -1;
+}
+
+/** Quel che serve per decidere se l'altra macchina va portata a questa versione. */
+export interface PeerVersion {
+	online: boolean;
+	version: string | null;
+	/** Base diversa: le due istanze non si capiscono (R-MI-10). */
+	compatible?: boolean;
+}
+
+/**
+ * L'avviso «versione diversa» (D5, R-MI-64): solo quando la base non coincide,
+ * cioe' quando le due istanze davvero non si capiscono (R-MI-10). Due Nightly
+ * della stessa base non sono un avviso ma un aggiornamento in corso o in
+ * attesa, che si legge dallo stato di `peerUpdate`.
+ */
+export function needsUpdate(peer: PeerVersion, own: string | null): boolean {
+	if (!peer.online || !peer.version || !own) return false;
+	return peer.compatible === false;
+}
+
+/**
+ * L'altra macchina esegue una versione piu' vecchia di questa e va portata
+ * alla stessa: e' il caso di R-MI-64, che chiede l'aggiornamento da soli.
+ * Mai verso una versione piu' nuova.
+ */
+export function peerBehind(peer: PeerVersion, own: string | null): boolean {
+	if (!peer.online || !peer.version || !own) return false;
+	// Canali diversi non si portano l'uno sull'altro: chi usa le Nightly non
+	// vede la sua macchina tornare alla stabile solo perche' l'altra la usa.
+	// R-MI-64 nasce da due Nightly della stessa base (D5).
+	if (channelOf(peer.version) !== channelOf(own)) return false;
+	return compareStudioVersions(peer.version, own) < 0;
+}
+
+/** Chiave di «gia' chiesto»: una richiesta sola per (macchina, versione di questa). */
+export function autoUpdateKey(machineId: string, version: string): string {
+	return `${machineId}@${version}`;
+}
+
+export interface AutoUpdateInput {
+	peer: { id: string; online: boolean; version: string | null };
+	own: string | null;
+	/** Chiavi gia' chieste in questa esecuzione dell'app. */
+	asked: ReadonlySet<string>;
+	/** Costruzione di sviluppo: non comanda aggiornamenti alle altre macchine. */
+	dev: boolean;
+}
+
+/**
+ * Se chiedere da soli l'aggiornamento di quella macchina (R-MI-64).
+ *
+ * Solo verso una versione piu' vecchia: mai a una piu' nuova, che non ha nulla
+ * da ricevere. Una volta per (macchina, versione di questa): un rifiuto o un
+ * errore non si ripete finche' l'app resta aperta.
+ */
+export function shouldRequestAutoUpdate(input: AutoUpdateInput): boolean {
+	if (input.dev) return false;
+	const { peer, own } = input;
+	if (!own || !peerBehind(peer, own)) return false;
+	return !input.asked.has(autoUpdateKey(peer.id, own));
+}
+
+/**
+ * La riga di una macchina nel modale di aggiornamento (R-MI-64): una sola
+ * parola che dica a che punto e', senza aprire nient'altro.
+ *
+ * - `updated`: alla stessa versione di questa;
+ * - `updating`: un aggiornamento e' gia' partito (scaricamento, attesa o
+ *   riavvio in corso);
+ * - `waiting`: aggiornamento chiesto e in attesa che la macchina sia libera;
+ * - `offline`: spenta, non raggiungibile adesso;
+ * - `unknown`: in linea ma la versione non e' ancora arrivata (prima del
+ *   primo riepilogo, D8): non si dice nulla di sbagliato;
+ * - `outdated`: piu' vecchia, si puo' aggiornare con «Aggiorna».
+ */
+export type MachineUpdateState = 'updated' | 'updating' | 'waiting' | 'offline' | 'unknown' | 'outdated';
+
+export function machineUpdateState(input: {
+	online: boolean;
+	version: string | null;
+	own: string | null;
+	/** Fase dell'aggiornamento gia' chiesto, se c'e'. */
+	phase?: 'starting' | 'downloading' | 'waiting' | 'installing' | 'failed' | null;
+}): MachineUpdateState {
+	if (!input.online) return 'offline';
+	if (input.phase === 'waiting') return 'waiting';
+	if (input.phase && input.phase !== 'failed') return 'updating';
+	if (!input.version || !input.own) return 'unknown';
+	// «Aggiornata» vale anche per una macchina piu' nuova: non c'e' nulla da
+	// mandarle e, per R-MI-64, a una piu' nuova non si chiede mai nulla.
+	if (input.version && input.own && compareStudioVersions(input.version, input.own) >= 0) return 'updated';
+	return 'outdated';
 }
 
 /**

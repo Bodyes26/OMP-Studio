@@ -1750,3 +1750,29 @@ Ordine di lavoro approvato in F30. Il codice dei gate è in preparazione per la 
 
 - [ ] **MI47 — Impostazioni di omp sincronizzate** (R-MI-42)
   **Prova:** scenario di R-MI-42.
+
+### Attriti del progetto condiviso (F32, 2026-11-24)
+
+Fonte: [requisiti/multi-istanza.md](requisiti/multi-istanza.md), R-MI-57…66 e «Correzioni del 2026-11-24». Un unico lavoro, una sola verifica finale (`npm run check`, `npm test`, `cargo test`, clippy).
+
+- [x] **MI50 — Copie pronte** (R-MI-57; D1, D2, D6, D7, D8) — fatto il 2026-11-24, prova con due macchine da fare
+  `busyPaths` limitato alle cartelle del progetto e al lavoro vero; giri al cambio di cima dell'altra macchina, al ritorno in linea, al primo piano, all'apertura del progetto e a fine turno; nuovi tentativi con attesa crescente e avviso persistente; sessioni remote aperte a collegamento pronto; coda remota ritentata; stato «in attesa di risposta» fino al primo stato dell'host.
+  **Prova:** test puri su `busyPaths` e sulla regola dei tentativi; scenario di R-MI-57 con due macchine.
+- [x] **MI51 — GitHub senza pull a mano** (R-MI-58, R-MI-65) — fatto il 2026-11-24, prova con due macchine da fare
+  Fast-forward dalla upstream con le guardie di `copies.rs` dopo ogni fetch; fetch al primo piano e dopo un avanzamento dalla gemella; «Pubblica» che propone «Scarica e pubblica» quando il push sarebbe rifiutato.
+  **Prova:** test Rust con repository e `origin` temporanei (pulito, file sporco non toccato, conflitto, branch non in uso); scenario di R-MI-58.
+- [x] **MI52 — Diario senza attriti** (R-MI-59, R-MI-60) — fatto il 2026-11-24
+  `merge=union` per `docs/diario/**` in `.git/info/attributes` prima di ogni operazione git di Studio; commit del diario a fine turno nell'estensione `studio-docs` (hook `agent_end`), sulla macchina che esegue.
+  **Prova:** test Rust: autostash e riapplicazione con il diario sporco, commit a fine turno con altri file in stage.
+- [x] **MI53 — Unione automatica delle copie** (R-MI-61; D4) — fatto il 2026-11-24, prova con due macchine da fare
+  Unione con `merge-tree` per ogni divergenza senza conflitti, commit deterministico costruibile da qualunque macchina; «Risolvi» nella striscia con il compito per l'agente.
+  **Prova:** test Rust: stesso commit di unione costruito dalle due parti, conflitto che non tocca nulla, diario; scenario di R-MI-61.
+- [x] **MI54 — Cambio macchina senza attese** (R-MI-62, R-MI-63; D3) — fatto il 2026-11-24, prova con due macchine da fare
+  Chat vuota che passa subito, allineamento nelle due direzioni, spostamento prenotato a fine turno con «Annulla», modifiche portate in automatico con «Annulla», motivo preciso quando il cambio è impedito.
+  **Prova:** test puri della decisione di cambio; scenari di R-MI-62 e R-MI-63.
+- [x] **MI55 — Aggiornamento delle altre macchine** (R-MI-64; D5) — fatto il 2026-11-24, prova con due macchine da fare
+  Confronto di versione ordinato, richiesta automatica alle macchine più vecchie, righe per macchina nel modale di aggiornamento, avviso solo per versioni base incompatibili.
+  **Prova:** test puri dell'ordinamento delle versioni e della regola di richiesta; scenario di R-MI-64.
+- [ ] **MI56 — Portachiavi stabile** (R-MI-66)
+  Firma macOS con un'identità Apple che porta un Team ID, così la partizione del portachiavi diventa `teamid:` e vale per tutte le build; richiede l'esportazione del certificato nei secret di GitHub da parte dell'utente.
+  **Prova:** dopo «Consenti sempre» una Nightly successiva parte senza richieste.

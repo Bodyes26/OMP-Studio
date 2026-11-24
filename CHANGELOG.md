@@ -12,6 +12,12 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 ## [Unreleased]
 
 ### Fixed
+- Cambiare macchina su una chat vuota non chiede più di «aspettare la fine del turno»: contavano come lavoro in corso i file non salvati di qualunque progetto e la stessa chat aperta, ma ferma, sull'altra macchina. Quando il cambio è davvero impedito, il messaggio dice cosa lo blocca e su quale macchina. (R-MI-62)
+- Una copia rimasta indietro si aggiorna anche se la chat del progetto è aperta e ferma sull'altra macchina o se un altro progetto ha file non salvati: prima restava «da aggiornare» e toccava fare la pull a mano. (R-MI-57)
+- Due Nightly della stessa versione base non mostrano più «Su X c'è Studio Y, diverso da qui»: il collegamento funzionava, ma l'avviso faceva pensare a copie o versioni incompatibili. (R-MI-64)
+- All'avvio le chat dei progetti dell'altra macchina si aprono appena il collegamento è pronto, invece di fallire perché partivano prima. (R-MI-11)
+- I task scritti nella coda di un progetto dell'altra macchina non restano più «in attesa di conferma» se il primo invio non riesce: Studio riprova finché la macchina li conferma. (R-MI-15)
+- Il chip «Macchine» mostra «in attesa di risposta» finché l'altra macchina non ha davvero risposto, invece del punto verde subito dopo il collegamento. (R-MI-49)
 - Chiudendo un progetto dalla finestra principale, la Companion lo rimuove subito da «Da leggere» e chiude la relativa scheda, se aperta.
 - All'avvio un progetto presente su più macchine compare subito come una sola tessera, anche con l'altra macchina spenta: su Windows le due copie restavano separate finché non si cliccava su una delle due. (R-MI-45)
 - Il diario e i documenti del progetto aggiornati dall'agente vengono committati subito, solo quei file: prima restavano modificati (per esempio dopo una Nightly) e le copie sulle altre macchine risultavano divergenti. (R-MI-46)
@@ -115,6 +121,15 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Se l'installazione di `omp` è rotta (per esempio un collegamento che punta a una cartella cancellata), Studio lo dice e offre «Ripara», invece di ripartire come su un computer nuovo. Quando manca un pezzo indispensabile il setup riapre direttamente su quel passo, senza l'ingresso animato. (SET-010, SET-020)
 
 ### Changed
+- Le copie dello stesso progetto si sincronizzano subito: quando l'altra macchina committa, quando torna in linea, quando torni sulla finestra, quando apri il progetto e quando un agente finisce il turno, invece che al massimo una volta al minuto. Un giro non riuscito si ritenta da solo e, se continua a fallire, compare un avviso con il motivo. (R-MI-57)
+- I commit arrivati su GitHub si applicano da soli con un fast-forward, con le stesse sicurezze della sincronizzazione fra macchine: niente più «N commit da scaricare» da sistemare a mano. Studio non fa mai merge, rebase o push da solo verso GitHub. (R-MI-58)
+- Il diario non va più in conflitto: le righe scritte su macchine diverse, anche non committate, si uniscono in ogni sincronizzazione, pull o stash, e non finiscono più parcheggiate nello stash. (R-MI-59)
+- Il diario modificato da un agente si committa da solo a fine turno, solo quel file. (R-MI-60)
+- Due copie con commit diversi sulla stessa branch si uniscono da sole quando git non trova conflitti, con un solo commit di unione uguale su tutte le macchine. Se ci sono conflitti la striscia sopra il composer nomina i file e «Risolvi» affida l'unione a un agente con il compito già scritto. (R-MI-61)
+- Se cambi macchina mentre l'agente lavora, il cambio si prenota e avviene da solo a fine turno, con «Annulla» sotto il composer. Prima di spostare una chat Studio allinea da solo le due copie, anche quando quella di partenza è indietro. (R-MI-62)
+- Le modifiche non committate seguono il cambio di macchina senza domande; un avviso dice quante sono arrivate e «Annulla» le riporta indietro. (R-MI-63)
+- Quando questa macchina passa a una versione più recente di Studio, le macchine abbinate più vecchie si aggiornano da sole appena sono libere. Il modale di aggiornamento mostra una riga per ogni macchina abbinata, con lo stato e «Aggiorna». (R-MI-64)
+- «Pubblica» non tenta più un push che GitHub rifiuterebbe: se mancano commit da GitHub propone «Scarica e pubblica». (R-MI-65)
 - Le Impostazioni raggruppano le preferenze di omp, Studio e area di lavoro; Modelli, Ruoli e Provider si aprono direttamente. Le preferenze di Studio restano locali. (IMP-001, IMP-002)
 - Per abbinare via codice scegli se mostrarlo o inserirlo. Studio indica quando contatta il server, quando aspetta l’altro computer e l’esito dell’abbinamento. (IMP-003)
 - Nella schermata Aggiornamenti puoi vedere la versione delle macchine abbinate e chiedere l’aggiornamento dell’altra macchina. (IMP-004)

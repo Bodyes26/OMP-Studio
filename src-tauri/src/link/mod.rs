@@ -718,6 +718,7 @@ impl Runtime {
             let _ = watch_runtime.watch_peer_state(watch_connection).await;
         });
         let runtime = self.clone();
+        let peer = id;
         tauri::async_runtime::spawn(async move {
             while let Ok((send, recv)) = connection.accept_bi().await {
                 let runtime = runtime.clone();
@@ -725,6 +726,20 @@ impl Runtime {
                 tauri::async_runtime::spawn(async move {
                     let _ = runtime.serve(&connection, send, recv, generation).await;
                 });
+            }
+            // R-MI-18: una connessione chiusa non deve lasciare una corsia
+            // «occupata da fuori». Le guardie dei flussi si rilasciano da sole,
+            // ma qui si toglie l'intera macchina: una superficie appesa non
+            // tiene bloccata la coda della macchina proprietaria.
+            //
+            // Solo se questa e' ancora la connessione registrata: quando una
+            // nuova la sostituisce, le viste sono gia' della nuova e toglierle
+            // qui libererebbe una corsia che qualcuno sta ancora guardando.
+            let current = runtime.connections.lock().get(&peer)
+                .is_some_and(|entry| entry.connection.stable_id() == connection.stable_id());
+            if current {
+                runtime.activity.detach_peer(&peer);
+                streams::publish_activity(&runtime.app, &runtime.activity);
             }
             runtime.relay_check.notify_one();
             runtime.changed();
