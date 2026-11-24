@@ -38,7 +38,8 @@ export function startRelay(config: RelayConfigInput): RelayServer {
 		dataDir,
 		webDir,
 		version,
-		commandTimeoutMs: config.commandTimeoutMs
+		commandTimeoutMs: config.commandTimeoutMs,
+		irohRelay: config.irohRelay ?? null
 	};
 
 	const store = new RelayStore(dataDir);

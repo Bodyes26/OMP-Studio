@@ -21,6 +21,12 @@ export interface RelayConfig {
 	version: string;
 	/** Timeout di risposta ai comandi in millisecondi (default 30_000). */
 	commandTimeoutMs?: number;
+	/**
+	 * R-MI-56: indirizzo del relay iroh che questo server dichiara agli host
+	 * autenticati su `GET /v1/host/info`. `null` se non configurato: la UI
+	 * mostra allora «Avanzate».
+	 */
+	irohRelay: string | null;
 }
 
 export type RelayConfigInput = Partial<RelayConfig> & Pick<RelayConfig, 'adminToken'>;
@@ -46,6 +52,9 @@ export function loadConfig(env: Record<string, string | undefined>): RelayConfig
 	const webDir = rawWebDir ? resolve(process.cwd(), rawWebDir) : defaultWebDir;
 
 	const version = env.RELAY_VERSION?.trim() || pkg.version;
+	// R-MI-56: `RELAY_IROH_RELAY_URL` e' l'indirizzo che il server dichiara
+	// agli host; `null` se manca o non e' un'origine HTTPS valida.
+	const irohRelay = normalizeIrohRelay(env.RELAY_IROH_RELAY_URL);
 
 	return {
 		port: parsePort(env.RELAY_PORT),
@@ -56,8 +65,23 @@ export function loadConfig(env: Record<string, string | undefined>): RelayConfig
 		maxDiagSessions: 8,
 		dataDir,
 		webDir,
-		version
+		version,
+		irohRelay
 	};
+}
+
+/** Solo origini HTTPS senza credenziali, percorsi o query: e' quella che Studio si aspetta. */
+function normalizeIrohRelay(raw: string | undefined): string | null {
+	const value = raw?.trim();
+	if (!value) return null;
+	try {
+		const url = new URL(value);
+		if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) return null;
+		if (url.pathname !== '/' && url.pathname !== '') return null;
+		return url.origin;
+	} catch {
+		return null;
+	}
 }
 
 function parsePort(raw: string | undefined): number {

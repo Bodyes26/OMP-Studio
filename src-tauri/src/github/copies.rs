@@ -4,9 +4,13 @@
 //! Ogni macchina scrive solo sul proprio repository: dall'altra legge le cime
 //! delle branch e un pacchetto git con i commit che le mancano, li tiene in
 //! `refs/studio/<macchina>/heads/*` e da li' decide se e' allineata, indietro,
-//! avanti o divergente. La copia indietro avanza soltanto con un fast-forward,
-//! a cartella pulita e ferma. Le modifiche non committate non viaggiano mai da
-//! sole: si spostano con un'istantanea esplicita quando si cambia macchina.
+//! avanti o divergente. La copia indietro avanza con un fast-forward anche con
+//! modifiche non committate, purche' i commit in arrivo non tocchino i file
+//! sporchi; se li toccano si mettono da parte con un'istantanea e si
+//! riapplicano (R-MI-47). Le modifiche non committate non viaggiano mai da
+//! sole fra le macchine: si spostano con un'istantanea esplicita quando si
+//! cambia macchina. Se la divergenza riguarda solo `docs/diario/`, la macchina
+//! con id minore unisce le due storie con l'unione per righe (R-MI-48).
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -76,6 +80,10 @@ pub enum BranchState {
     Diverged,
     /// Era indietro ed e' avanzata con un fast-forward (R-MI-27).
     Advanced,
+    /// Era divergente solo sul diario e questa macchina ha unito le due
+    /// storie con l'unione per righe (R-MI-48). `behind` sono i commit
+    /// arrivati dall'altra copia.
+    MergedJournal,
     /// E' indietro ma non si puo' avanzare ora: `reason` dice perche'.
     Pending,
     /// La branch esiste solo sull'altra macchina: non si crea da sola.
@@ -115,8 +123,12 @@ pub struct BranchSync {
     /// Commit solo dell'altra.
     pub behind: u32,
     pub state: BranchState,
-    /// Per `Pending`: `busy` (agente, editor o automazione), `dirty`
-    /// (modifiche non committate), oppure il messaggio di git.
+    /// Per `Pending`: `busy` (agente, editor o automazione),
+    /// `conflict:<file>[,<file>…]` (le modifiche locali non si riapplicano sui
+    /// commit in arrivo, R-MI-47), `journalPeer` (il diario divergente lo
+    /// unisce l'altra macchina, R-MI-48), oppure il messaggio di git. Il
+    /// vecchio `dirty` non esiste piu': i file sporchi che i commit in arrivo
+    /// non toccano non fermano piu' l'avanzamento.
     pub reason: Option<String>,
 }
 
@@ -189,6 +201,20 @@ fn explain_disk_full(error: String) -> String {
 
 fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
     git_raw(dir, args, &[], None).map(|out| String::from_utf8_lossy(&out).trim().to_string())
+}
+
+/// Git che puo' uscire con codice diverso da zero lasciando un'uscita utile
+/// (`merge-tree` coi conflitti): restituisce se e' andata e cosa ha scritto.
+fn git_allow_failure(dir: &Path, args: &[&str]) -> Result<(bool, Vec<u8>), String> {
+    let mut cmd = Command::new("git");
+    cmd.args(["-c", "core.autocrlf=false", "-c", "core.filemode=false"])
+        .current_dir(dir).args(args)
+        .env("LC_ALL", "C").env("LANGUAGE", "C").env("GIT_TERMINAL_PROMPT", "0")
+        .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    let out = cmd.output().map_err(|error| format!("git {}: {error}", args.join(" ")))?;
+    Ok((out.status.success(), out.stdout))
 }
 
 fn has_commit(dir: &Path, commit: &str) -> bool {
@@ -505,6 +531,46 @@ fn added_files(dir: &Path, from: &str, to: &str) -> Result<Vec<String>, String> 
     Ok(String::from_utf8_lossy(&raw).split('\0').filter(|name| !name.is_empty()).map(str::to_owned).collect())
 }
 
+/// Percorsi separati da NUL, come li stampa git con `-z`.
+fn split_paths(raw: &[u8]) -> Vec<String> {
+    String::from_utf8_lossy(raw).split('\0').filter(|path| !path.is_empty()).map(str::to_owned).collect()
+}
+
+/// File toccati dai commit fra `from` e `to`, cancellazioni comprese: sono
+/// quelli che un avanzamento sovrascriverebbe (R-MI-47). `--no-renames` evita
+/// che una rinomina nasconda il percorso di partenza.
+fn changed_files(dir: &Path, from: &str, to: &str) -> Result<Vec<String>, String> {
+    let raw = git_raw(dir, &["diff", "--name-only", "-z", "--no-renames", from, to], &[], None)?;
+    Ok(split_paths(&raw))
+}
+
+/// File sporchi adesso: modificati, cancellati, in stage e non tracciati
+/// (R-MI-47). I nomi sono relativi alla radice del worktree.
+fn dirty_files(dir: &Path) -> Result<Vec<String>, String> {
+    // `-z` divide con NUL e non mette virgolette: lo stato occupa i primi due
+    // caratteri, che qui contano (uno spazio significa «modificato, non in
+    // stage») e che `git()` taglierebbe.
+    let raw = git_raw(dir, &["status", "--porcelain=v1", "-z", "--untracked-files=all"], &[], None)?;
+    let text = String::from_utf8_lossy(&raw);
+    let mut entries = text.split('\0').filter(|entry| !entry.is_empty());
+    let mut files = Vec::new();
+    while let Some(entry) = entries.next() {
+        if entry.len() < 4 { continue; }
+        let (status, name) = entry.split_at(3);
+        // Rinomina e copia portano il percorso di origine nell'elemento dopo.
+        if status.contains('R') || status.contains('C') { entries.next(); }
+        files.push(name.to_owned());
+    }
+    Ok(files)
+}
+
+fn conflict_reason(files: &[String]) -> String {
+    let mut unique: Vec<&str> = files.iter().map(String::as_str).collect();
+    unique.sort_unstable();
+    unique.dedup();
+    format!("conflict:{}", unique.join(","))
+}
+
 fn counts(dir: &Path, local: &str, peer: &str) -> Result<(u32, u32), String> {
     let raw = git(dir, &["rev-list", "--left-right", "--count", &format!("{local}...{peer}")])?;
     let mut parts = raw.split_whitespace().map(|value| value.parse::<u32>().unwrap_or(0));
@@ -514,7 +580,7 @@ fn counts(dir: &Path, local: &str, peer: &str) -> Result<(u32, u32), String> {
 /// Porta i riferimenti di tracciamento sulle cime dell'altra macchina e
 /// decide per ogni branch. `busy` sono le cartelle in cui un agente lavora,
 /// l'editor ha file non salvati o un'automazione e' attiva.
-fn reconcile(dir: &Path, machine: &str, peer: &[BranchHead], busy: &[String]) -> Result<Vec<BranchSync>, String> {
+fn reconcile(dir: &Path, machine: &str, local_id: Option<&str>, peer: &[BranchHead], busy: &[String]) -> Result<Vec<BranchSync>, String> {
     let prefix = tracking_prefix(machine);
     let local: HashMap<String, String> = heads(dir)?.into_iter().map(|head| (head.name, head.commit)).collect();
     // Nomi che collidono per maiuscole (R-MI-35): niente riferimenti di
@@ -566,7 +632,13 @@ fn reconcile(dir: &Path, machine: &str, peer: &[BranchHead], busy: &[String]) ->
             entry.state = if behind == 0 {
                 BranchState::Ahead
             } else if ahead > 0 {
-                BranchState::Diverged
+                // Divergenza: di norma resta tale (R-MI-22), ma se entrambe le
+                // parti hanno toccato solo il diario si unisce da sole
+                // (R-MI-48), con un solo commit di unione deciso dall'id
+                // minore fra le due macchine.
+                merge_journal_branch(dir, &head.name, mine, &head.commit, local_id, machine, worktrees.get(&head.name), has_detached, busy)
+                    .map(|merged| if merged { BranchState::MergedJournal } else { BranchState::Diverged })
+                    .unwrap_or_else(|reason| { entry.reason = Some(reason); BranchState::Pending })
             } else {
                 match advance(dir, &head.name, mine, &head.commit, worktrees.get(&head.name), has_detached, busy) {
                     Ok(()) => BranchState::Advanced,
@@ -579,11 +651,17 @@ fn reconcile(dir: &Path, machine: &str, peer: &[BranchHead], busy: &[String]) ->
     Ok(result)
 }
 
-/// Solo fast-forward (R-MI-27): mai merge, rebase o reset.
+/// Solo fast-forward (R-MI-27): mai merge, rebase o reset su file altrui.
 ///
 /// `has_detached` e' vero se esiste un worktree con HEAD staccato: occupato
 /// per ogni branch, cosi' nessun avanzamento lascia i suoi file al commit
 /// staccato mentre la branch avanza (M2).
+///
+/// I file sporchi che i commit in arrivo non toccano non fermano piu'
+/// l'avanzamento (R-MI-47): restano dove sono, come con `git pull --autostash`.
+/// Se invece li toccano, si salva un'istantanea con il meccanismo WIP,
+/// si avanza e la si riapplica; se la riapplicazione confligge si torna
+/// esattamente allo stato di prima e si dice quale file blocca.
 fn advance(dir: &Path, branch: &str, from: &str, to: &str, worktree: Option<&PathBuf>, has_detached: bool, busy: &[String]) -> Result<(), String> {
     // Il controllo occupato/pulito e il movimento devono essere atomici
     // rispetto al backend: si ricontrolla lo stato proprio qui, dentro la
@@ -604,12 +682,265 @@ fn advance(dir: &Path, branch: &str, from: &str, to: &str, worktree: Option<&Pat
     };
     // Ricontrolla occupazione e pulizia subito prima del merge: un agente puo'
     // aver cominciato a lavorare dopo il calcolo dell'elenco della finestra.
+    ensure_free(worktree, busy)?;
+    move_branch(worktree, branch, from, to)
+}
+
+/// Un avanzamento non parte se un agente sta lavorando nella cartella o se il
+/// frontend l'ha dichiarata occupata (A1, R-MI-27).
+fn ensure_free(worktree: &Path, busy: &[String]) -> Result<(), String> {
     if busy.iter().any(|candidate| same_path(worktree, candidate)) || is_busy_in_backend(worktree) {
         return Err("busy".into());
     }
-    if !git(worktree, &["status", "--porcelain"])?.is_empty() { return Err("dirty".into()); }
-    // Il fast-forward rifiuta da solo un working tree sporco nel frattempo.
-    git(worktree, &["merge", "--ff-only", "--quiet", to]).map(|_| ())
+    Ok(())
+}
+
+/// Sposta la branch di questa cartella da `from` a `to` conservando le
+/// modifiche non committate (R-MI-47).
+fn move_branch(worktree: &Path, branch: &str, from: &str, to: &str) -> Result<(), String> {
+    let incoming = changed_files(worktree, from, to)?;
+    let dirty = dirty_files(worktree)?;
+    // Solo i file sporchi che i commit in arrivo toccano vanno messi da
+    // parte: gli altri restano esattamente come sono (R-MI-47).
+    let overlapping = dirty.iter().any(|path| incoming.contains(path));
+    if !overlapping {
+        // Il fast-forward lascia intatte le modifiche che non tocca; se git
+        // rifiuta lo stesso (file non tracciato da sovrascrivere) l'errore
+        // arriva al chiamante e la copia resta «da aggiornare».
+        return git(worktree, &["merge", "--ff-only", "--quiet", to]).map(|_| ());
+    }
+    advance_with_snapshot(worktree, branch, from, to)
+}
+
+/// Avanzamento con modifiche locali che i commit in arrivo toccano
+/// (R-MI-47): istantanea della cartella, ff, riapplicazione a tre vie dei soli
+/// file. Niente stash dell'utente. Se qualcosa va storto si torna allo stato
+/// di prima, HEAD compreso.
+///
+/// Se la fusione anticipata confligge non si tocca niente: HEAD e file
+/// restano esattamente com'erano. Quando invece si arriva in fondo, le
+/// modifiche locali sono di nuovo nel working tree ma non in stage:
+/// l'avanzamento ha riportato l'indice su HEAD, come dopo un `git pull`.
+fn advance_with_snapshot(worktree: &Path, branch: &str, from: &str, to: &str) -> Result<(), String> {
+    if git(worktree, &["rev-parse", "HEAD"])? != from {
+        return Err("La copia non è sul commit da cui partire".into());
+    }
+    // Stessa istantanea di R-MI-28, ma senza lasciare un ref: serve solo qui
+    // per riportare indietro il lavoro se la riapplicazione non riesce.
+    let tree = worktree_tree(worktree)?;
+    let message = "OMP Studio: modifiche locali durante l'avanzamento";
+    let snapshot = String::from_utf8_lossy(
+        &git_raw(worktree, &["commit-tree", &tree, "-p", from, "-m", message], &STUDIO_IDENTITY, None)?
+    ).trim().to_string();
+    // La fusione si prova prima, senza indice e senza working tree: se
+    // confligge si esce senza aver toccato ne' HEAD ne' i file.
+    let merged = merge_tree(worktree, to, &snapshot)?;
+    let outcome = (|| -> Result<(), String> {
+        // Cartella pulita rispetto a `from`: l'istantanea e' gia' nel commit
+        // temporaneo, quindi si possono togliere anche i file nuovi.
+        git(worktree, &["read-tree", "--reset", "-u", from])?;
+        for name in added_files(worktree, from, &snapshot)? {
+            let _ = std::fs::remove_file(worktree.join(name));
+        }
+        git(worktree, &["merge", "--ff-only", "--quiet", to])?;
+        // `read-tree -m -u` scrive nel working tree il risultato della fusione
+        // e lo mette nell'indice; il `--reset` finale riporta l'indice a HEAD,
+        // cosi' le modifiche restano non in stage come prima.
+        git(worktree, &["read-tree", "-m", "-u", to, &merged])?;
+        git(worktree, &["read-tree", "--reset", to])?;
+        Ok(())
+    })();
+    if let Err(error) = outcome {
+        rollback_advance(worktree, branch, from, to, &snapshot);
+        return Err(error);
+    }
+    Ok(())
+}
+
+/// Cartella del diario (R-MI-48): l'unione automatica vale solo per i file
+/// che stanno qui, senza eccezioni.
+const JOURNAL_DIR: &str = "docs/diario/";
+
+fn is_journal_file(path: &str) -> bool {
+    path.starts_with(JOURNAL_DIR)
+}
+
+/// Unione del diario fra due storie divergenti (R-MI-48).
+///
+/// Restituisce `Ok(true)` quando questa macchina ha unito, `Ok(false)` quando
+/// la divergenza non riguarda solo il diario (resta `Diverged`, R-MI-22) o
+/// quando l'unione spetta all'altra macchina (id maggiore, che qui aspetta
+/// `journalPeer`), `Err(reason)` quando l'unione spetta a questa macchina ma
+/// non puo' avvenire ora (cartella occupata, errore di git).
+#[allow(clippy::too_many_arguments)]
+fn merge_journal_branch(dir: &Path, branch: &str, mine: &str, peer: &str, local_id: Option<&str>, machine: &str,
+    worktree: Option<&PathBuf>, has_detached: bool, busy: &[String]) -> Result<bool, String> {
+    let Some(base) = merge_base(dir, mine, peer) else { return Ok(false) };
+    let incoming = changed_files(dir, &base, peer)?;
+    let mine_files = changed_files(dir, &base, mine)?;
+    // Basta un file fuori dal diario, in una delle due parti, perche' la
+    // divergenza resti quella di sempre (R-MI-22).
+    let others: Vec<&String> = incoming.iter().chain(mine_files.iter()).filter(|path| !is_journal_file(path)).collect();
+    if !others.is_empty() { return Ok(false); }
+    // Entrambe le parti devono aver toccato almeno un file del diario,
+    // altrimenti non e' una divergenza ma un caso di avanzamento normale.
+    if incoming.is_empty() || mine_files.is_empty() { return Ok(false); }
+    // Chi unisce si sceglie in modo deterministico: id minore fra le due
+    // macchine. L'altra aspetta il commit di unione e poi fara' fast-forward.
+    let Some(local_id) = local_id else {
+        return Err(crate::tr!(
+            "Identità della macchina non disponibile: il diario divergente non si unisce",
+            "Machine identity unavailable: the diverged journal is not merged"
+        ).to_string());
+    };
+    if local_id >= machine { return Err("journalPeer".into()); }
+    // Stessi vincoli di cartella di R-MI-27/R-MI-47.
+    let Some(worktree) = worktree else {
+        if has_detached { return Err("detached".into()); }
+        // La branch non e' in uso: si costruisce il commit di unione e si
+        // sposta il riferimento, senza toccare nessuna cartella.
+        let union = journal_union_commit(dir, mine, peer, &base)?;
+        return git(dir, &["update-ref", &format!("refs/heads/{branch}"), &union, mine]).map(|_| true);
+    };
+    ensure_free(worktree, busy)?;
+    let union = journal_union_commit(dir, mine, peer, &base)?;
+    // Le modifiche locali seguono le stesse regole dell'avanzamento: se i file
+    // del diario sono sporchi si passa dall'istantanea, altrimenti il
+    // fast-forward li lascia stare.
+    let dirty = dirty_files(worktree)?;
+    let touched: Vec<String> = changed_files(worktree, &base, &union)?;
+    if dirty.iter().any(|path| touched.contains(path)) {
+        advance_with_snapshot(worktree, branch, mine, &union)
+    } else {
+        git(worktree, &["merge", "--ff-only", "--quiet", &union]).map(|_| ())
+    }?;
+    Ok(true)
+}
+
+/// Genitore comune piu' recente, `None` se le due storie non si toccano (repo
+/// riscritto o shallow): in quel caso non si unisce niente.
+fn merge_base(dir: &Path, a: &str, b: &str) -> Option<String> {
+    git(dir, &["merge-base", a, b]).ok().filter(|base| is_hash(base))
+}
+
+/// Commit di unione del diario con due genitori in ordine fisso (ours, theirs)
+/// e contenuto per file dall'unione per righe (R-MI-48).
+///
+/// Si costruisce con il plumbing su un indice temporaneo: l'albero di `ours`
+/// meno i file del diario piu' quelli uniti. Nessun file fuori dal diario
+/// viene riscritto, e il commit e' identico su qualunque macchina lo produca
+/// (stessi genitori, stesso albero, stesso messaggio).
+fn journal_union_commit(dir: &Path, ours: &str, theirs: &str, base: &str) -> Result<String, String> {
+    // File del diario toccati da entrambe le parti: la base e' il genitore
+    // comune, i due lati sono i commit. Nessun altro file entra qui.
+    let index = TempPath::new(".index");
+    let path = index.0.to_string_lossy().to_string();
+    let env = [("GIT_INDEX_FILE", path.as_str())];
+    git_raw(dir, &["read-tree", ours], &env, None)?;
+    let mut journal: Vec<String> = changed_files(dir, base, ours)?.into_iter().chain(changed_files(dir, base, theirs)?)
+        .filter(|path| is_journal_file(path)).collect();
+    journal.sort_unstable();
+    journal.dedup();
+    for rel in &journal {
+        let merged = union_blob(dir, base, ours, theirs, rel)?;
+        let mode = blob_mode(dir, ours, rel).or(blob_mode(dir, theirs, rel)).unwrap_or("100644");
+        let spec = format!("{mode},{merged},{rel}");
+        git_raw(dir, &["update-index", "--add", "--replace", "--cacheinfo", &spec], &env, None)?;
+    }
+    let tree = String::from_utf8_lossy(&git_raw(dir, &["write-tree"], &env, None)?).trim().to_string();
+    // Messaggio fisso e senza traduzione: insieme ai genitori nell'ordine
+    // ours/theirs rende il commit identico ovunque venga costruito.
+    let commit = String::from_utf8_lossy(
+        &git_raw(dir, &["commit-tree", &tree, "-p", ours, "-p", theirs, "-m", "OMP Studio: journal union"], &STUDIO_IDENTITY, None)?
+    ).trim().to_string();
+    Ok(commit)
+}
+
+/// Modalita' di un file nel commit, per conservarne i bit eseguibili.
+/// `ls-tree` comincia sempre con la modalita' su sei cifre.
+fn blob_mode(dir: &Path, commit: &str, rel: &str) -> Option<&'static str> {
+    let entry = git(dir, &["ls-tree", "-z", commit, "--", rel]).ok()?;
+    Some(if entry.starts_with("100755") { "100755" } else { "100644" })
+}
+
+/// Blob del file unito con `git merge-file --union` (base, ours, theirs):
+/// restano le righe di entrambe le parti, senza marcature.
+///
+/// Un file aggiunto da una parte sola non ha una base ne' un altro lato: si
+/// prende cosi' com'e', e le righe dell'altra parte non possono mancare
+/// perche' non esistono.
+fn union_blob(dir: &Path, base: &str, ours: &str, theirs: &str, rel: &str) -> Result<String, String> {
+    let base_content = blob_content(dir, base, rel)?;
+    let ours_content = blob_content(dir, ours, rel)?;
+    let theirs_content = blob_content(dir, theirs, rel)?;
+    let content = match (&base_content, &ours_content, &theirs_content) {
+        (None, Some(side), None) | (None, None, Some(side)) => side.clone(),
+        _ => {
+            let files = [("base", &base_content), ("ours", &ours_content), ("theirs", &theirs_content)];
+            // I `TempPath` restano vivi fino a `merge-file`: i percorsi da soli
+            // non bastano, il file sparisce appena il valore esce dallo scope.
+            let inputs: Vec<TempPath> = files.iter().map(|(label, blob)| {
+                let file = TempPath::new(&format!(".{label}"));
+                std::fs::write(&file.0, blob.as_deref().unwrap_or_default())
+                    .map_err(|error| explain_disk_full(error.to_string()))?;
+                Ok(file)
+            }).collect::<Result<_, String>>()?;
+            let path = |index: usize| inputs[index].0.to_string_lossy().to_string();
+            // `--union` risolve ogni conflitto tenendo le righe di entrambe le
+            // parti: e' il driver chiesto da R-MI-48, senza conflitti.
+            git_raw(dir, &["merge-file", "-p", "--union", &path(1), &path(0), &path(2)], &[], None)?
+        }
+    };
+    let blob = git_raw(dir, &["hash-object", "-w", "--stdin"], &[], Some(&content))?;
+    Ok(String::from_utf8_lossy(&blob).trim().to_string())
+}
+
+fn blob_content(dir: &Path, commit: &str, rel: &str) -> Result<Option<Vec<u8>>, String> {
+    match git_raw(dir, &["cat-file", "blob", &format!("{commit}:{rel}")], &[], None) {
+        Ok(content) => Ok(Some(content)),
+        // Un file assente in quel commit e' normale: non c'e' nulla da unire.
+        Err(_) => Ok(None),
+    }
+}
+
+/// Rimette la copia com'era prima di `advance_with_snapshot`: branch a `from`,
+/// file uguali all'istantanea. Ogni passo ignora l'errore: si tenta di
+/// ripristinare tutto anche se un passaggio non riesce.
+fn rollback_advance(worktree: &Path, branch: &str, from: &str, to: &str, snapshot: &str) {
+    let _ = git(worktree, &["update-ref", &format!("refs/heads/{branch}"), from, to]);
+    let _ = git(worktree, &["read-tree", "--reset", "-u", from]);
+    for commit in [to, snapshot] {
+        for name in added_files(worktree, from, commit).unwrap_or_default() {
+            let _ = std::fs::remove_file(worktree.join(name));
+        }
+    }
+    let _ = git(worktree, &["read-tree", "-m", "-u", from, snapshot]);
+    let _ = git(worktree, &["read-tree", "--reset", from]);
+}
+
+/// Albero della fusione a tre vie fra `ours` e `theirs` (base implicita: il
+/// loro genitore comune), senza toccare indice, HEAD o working tree.
+///
+/// `merge-tree --write-tree` fa la fusione di contenuto vera, che `read-tree`
+/// non fa: con modifiche su righe diverse dello stesso file restituisce
+/// l'albero gia' unito. Se restano conflitti il risultato e' l'elenco dei file.
+fn merge_tree(dir: &Path, ours: &str, theirs: &str) -> Result<String, String> {
+    // `merge-tree` esce con 1 quando la fusione ha conflitti: l'uscita resta
+    // utile (albero parziale e nomi dei file), quindi non si passa da `git_raw`
+    // che la tratterebbe come errore.
+    // `--name-only` fa stampare i soli nomi dei file in conflitto (con l'uscita
+    // predefinita sarebbero righe d'indice con modo e blob).
+    let (ok, raw) = git_allow_failure(dir, &["merge-tree", "--write-tree", "--name-only", "--no-messages", "-z", ours, theirs])?;
+    let text = String::from_utf8_lossy(&raw);
+    let mut parts = text.split('\0');
+    if !ok {
+        // Primo campo: l'albero parziale; poi i nomi dei file in conflitto.
+        let _ = parts.next();
+        let conflicts: Vec<String> = parts.filter(|part| !part.is_empty()).map(str::to_owned).collect();
+        return Err(if conflicts.is_empty() { "Fusione non riuscita".into() } else { conflict_reason(&conflicts) });
+    }
+    parts.next().map(|tree| tree.trim().to_owned()).filter(|tree| !tree.is_empty())
+        .ok_or_else(|| "Fusione non riuscita".to_owned())
 }
 
 // ── istantanea delle modifiche non committate (R-MI-28) ────────────────────
@@ -940,6 +1271,10 @@ pub async fn copy_sync(app: tauri::AppHandle, project_path: String, machine: Str
         let refspecs = missing.iter().map(|head| format!("+refs/heads/{0}:{prefix}{0}", head.name)).collect();
         fetch_from_peer(&app, dir.clone(), &machine, &peer_path, refs, refspecs, false).await?;
     }
+    // Id di questa macchina (R-MI-48): decide chi unisce il diario divergente.
+    // Se manca (collegamento mai configurato) l'unione del diario non parte e
+    // la divergenza resta quella di R-MI-22.
+    let local_id = crate::link::local_machine_id(&app).await.ok();
     let report_machine = machine.clone();
     blocking(move || {
         // Una cima che il pacchetto non ha portato (branch spostata nel
@@ -949,7 +1284,8 @@ pub async fn copy_sync(app: tauri::AppHandle, project_path: String, machine: Str
         let present: Vec<BranchHead> = branches.into_iter()
             .filter(|head| known.contains(&head.commit) || conflicted.contains(&head.name))
             .collect();
-        reconcile(&dir, &machine, &present, &busy_paths).map(|branches| CopySyncReport { machine: report_machine, branches })
+        reconcile(&dir, &machine, local_id.as_deref(), &present, &busy_paths)
+            .map(|branches| CopySyncReport { machine: report_machine, branches })
     }).await
 }
 
@@ -1006,6 +1342,7 @@ mod tests {
     }
 
     fn commit(dir: &Path, file: &str, content: &str) -> String {
+        if let Some(parent) = dir.join(file).parent() { std::fs::create_dir_all(parent).unwrap(); }
         std::fs::write(dir.join(file), content).unwrap();
         run(dir, &["add", "-A"]);
         run(dir, &["commit", "-q", "-m", file]);
@@ -1038,17 +1375,30 @@ mod tests {
         writer.finish().unwrap()
     }
 
+    /// Porta in `target` i commit di `source`, come il giro di rete vero.
+    fn fetch_into(target: &Path, source: &Path, machine: &str) {
+        let peer = heads(source).unwrap();
+        let missing: Vec<&BranchHead> = peer.iter().filter(|head| !has_commit(target, &head.commit)).collect();
+        if missing.is_empty() { return; }
+        let refs: Vec<String> = missing.iter().map(|head| format!("refs/heads/{}", head.name)).collect();
+        let bundle = transfer(create_bundle(source, &refs, &local_tips(target).unwrap()).unwrap(), false);
+        let specs: Vec<String> = missing.iter().map(|head| format!("+refs/heads/{0}:{1}{0}", head.name, tracking_prefix(machine))).collect();
+        fetch_bundle(target, &bundle.0, &specs).unwrap();
+    }
+
+    /// Un giro di sincronizzazione di `target` verso `source` con l'id della
+    /// macchina di qui: serve a scegliere chi unisce il diario (R-MI-48).
+    fn sync_as(target: &Path, source: &Path, machine: &str, local_id: Option<&str>, busy: &[String]) -> Vec<BranchSync> {
+        fetch_into(target, source, machine);
+        let peer = heads(source).unwrap();
+        reconcile(target, machine, local_id, &peer, busy).unwrap()
+    }
+
     /// Un giro di sincronizzazione di `win` verso `mac`, senza collegamento.
+    /// L'id locale e' maggiore di quello del peer: se il diario diverge e'
+    /// l'altra macchina a unirlo.
     fn sync(win: &Path, mac: &Path, busy: &[String]) -> Vec<BranchSync> {
-        let peer = heads(mac).unwrap();
-        let missing: Vec<&BranchHead> = peer.iter().filter(|head| !has_commit(win, &head.commit)).collect();
-        if !missing.is_empty() {
-            let refs: Vec<String> = missing.iter().map(|head| format!("refs/heads/{}", head.name)).collect();
-            let bundle = transfer(create_bundle(mac, &refs, &local_tips(win).unwrap()).unwrap(), false);
-            let specs: Vec<String> = missing.iter().map(|head| format!("+refs/heads/{0}:{1}{0}", head.name, tracking_prefix("mac"))).collect();
-            fetch_bundle(win, &bundle.0, &specs).unwrap();
-        }
-        reconcile(win, "mac", &peer, busy).unwrap()
+        sync_as(win, mac, "mac", Some("zz-local"), busy)
     }
 
     #[test]
@@ -1066,18 +1416,76 @@ mod tests {
     }
 
     #[test]
-    fn a_dirty_or_busy_copy_waits_instead_of_moving() {
+    fn a_busy_copy_waits_instead_of_moving() {
         let (_root, mac, win) = pair();
         commit(&mac, "b.txt", "b");
-        std::fs::write(win.join("a.txt"), "edited").unwrap();
-        let report = sync(&win, &mac, &[]);
-        assert_eq!((report[0].state, report[0].reason.as_deref()), (BranchState::Pending, Some("dirty")));
-        assert_eq!(std::fs::read_to_string(win.join("a.txt")).unwrap(), "edited");
-
-        run(&win, &["checkout", "-q", "--", "a.txt"]);
         let report = sync(&win, &mac, &[win.to_string_lossy().to_string()]);
         assert_eq!((report[0].state, report[0].reason.as_deref()), (BranchState::Pending, Some("busy")));
         assert_eq!(sync(&win, &mac, &[])[0].state, BranchState::Advanced);
+    }
+
+    #[test]
+    fn a_dirty_file_the_incoming_commits_do_not_touch_advances_and_keeps_the_change() {
+        // R-MI-47: il diario scritto e non committato non blocca piu' i commit
+        // che toccano altri file.
+        let (_root, mac, win) = pair();
+        std::fs::create_dir_all(win.join("docs/diario")).unwrap();
+        std::fs::create_dir_all(mac.join("docs/diario")).unwrap();
+        std::fs::write(mac.join("docs/diario/2026-11.md"), "# Diario\n").unwrap();
+        run(&mac, &["add", "-A"]);
+        run(&mac, &["commit", "-q", "-m", "diario"]);
+        sync(&win, &mac, &[]);
+        let head = commit(&mac, "src/a.ts", "export {};\n");
+        std::fs::write(win.join("docs/diario/2026-11.md"), "# Diario\n- voce locale\n").unwrap();
+        let report = sync(&win, &mac, &[]);
+        assert_eq!((report[0].state, report[0].behind), (BranchState::Advanced, 1));
+        assert_eq!(run(&win, &["rev-parse", "HEAD"]), head);
+        assert_eq!(std::fs::read_to_string(win.join("docs/diario/2026-11.md")).unwrap(), "# Diario\n- voce locale\n");
+        assert_eq!(run(&win, &["status", "--porcelain"]), "M docs/diario/2026-11.md");
+        assert_eq!(run(&win, &["diff", "--cached", "--name-only"]), "", "niente in stage");
+    }
+
+    /// `o.txt` presente su entrambe le copie, cosi' una modifica locale e una
+    /// remota hanno una base comune su cui fare la fusione a tre vie.
+    fn pair_with_shared_file(mac: &Path, win: &Path) {
+        commit(mac, "o.txt", "l1\nl2\nl3\n");
+        sync(win, mac, &[]);
+    }
+
+    #[test]
+    fn dirty_changes_that_the_incoming_commits_touch_are_reapplied_cleanly() {
+        // R-MI-47: parti diverse dello stesso file si uniscono e la modifica
+        // locale resta, non in stage.
+        let (_root, mac, win) = pair();
+        pair_with_shared_file(&mac, &win);
+        commit(&mac, "o.txt", "rem\nl2\nl3\n");
+        std::fs::write(win.join("o.txt"), "l1\nl2\nloc\n").unwrap();
+        let report = sync(&win, &mac, &[]);
+        assert_eq!(report[0].state, BranchState::Advanced, "{:?}", report[0].reason);
+        assert_eq!(run(&win, &["rev-parse", "HEAD"]), run(&mac, &["rev-parse", "HEAD"]));
+        assert_eq!(std::fs::read_to_string(win.join("o.txt")).unwrap(), "rem\nl2\nloc\n");
+        assert_eq!(run(&win, &["status", "--porcelain"]), "M o.txt");
+        assert_eq!(run(&win, &["diff", "--cached", "--name-only"]), "", "modifica non in stage");
+    }
+
+    #[test]
+    fn a_conflicting_reapply_leaves_head_and_files_untouched() {
+        // R-MI-47: se le modifiche locali non si riapplicano, la copia torna
+        // esattamente com'era e il motivo nomina il file.
+        let (_root, mac, win) = pair();
+        pair_with_shared_file(&mac, &win);
+        commit(&mac, "o.txt", "remote\n");
+        std::fs::write(win.join("o.txt"), "local\n").unwrap();
+        let before = run(&win, &["rev-parse", "HEAD"]);
+        let report = sync(&win, &mac, &[]);
+        assert_eq!(report[0].state, BranchState::Pending);
+        assert_eq!(report[0].reason.as_deref(), Some("conflict:o.txt"));
+        assert_eq!(run(&win, &["rev-parse", "HEAD"]), before);
+        assert_eq!(std::fs::read_to_string(win.join("o.txt")).unwrap(), "local\n");
+        assert_eq!(run(&win, &["status", "--porcelain"]), "M o.txt");
+        assert_eq!(run(&win, &["diff", "--cached", "--name-only"]), "", "modifica non in stage");
+        // Nessun file di appoggio lasciato indietro dalla fusione.
+        assert_eq!(run(&win, &["ls-files", "-u"]), "");
     }
 
     #[test]
@@ -1088,6 +1496,88 @@ mod tests {
         let report = sync(&win, &mac, &[]);
         assert_eq!((report[0].state, report[0].ahead, report[0].behind), (BranchState::Diverged, 1, 1));
         assert_eq!(run(&win, &["rev-parse", "HEAD"]), mine);
+    }
+
+    /// Diario di partenza condiviso, poi una voce per parte.
+    fn diverged_journal(mac: &Path, win: &Path) -> (String, String) {
+        std::fs::create_dir_all(mac.join("docs/diario")).unwrap();
+        std::fs::write(mac.join("docs/diario/2026-11.md"), "# Diario\n\n## 2026-11-23\n- base\n").unwrap();
+        run(mac, &["add", "-A"]);
+        run(mac, &["commit", "-q", "-m", "diario"]);
+        sync(win, mac, &[]);
+        std::fs::write(mac.join("docs/diario/2026-11.md"), "# Diario\n\n## 2026-11-23\n- base\n- dal mac\n").unwrap();
+        let theirs = commit(mac, "docs/diario/2026-11.md", "# Diario\n\n## 2026-11-23\n- base\n- dal mac\n");
+        let mine = commit(win, "docs/diario/2026-11.md", "# Diario\n\n## 2026-11-23\n- base\n- dal win\n");
+        (mine, theirs)
+    }
+
+    #[test]
+    fn a_disjunction_only_in_the_journal_is_merged_by_the_lower_machine_id() {
+        // R-MI-48: unisce solo la macchina con id minore, con un contenuto
+        // che tiene le righe di entrambe.
+        let (_root, mac, win) = pair();
+        let (mine, theirs) = diverged_journal(&mac, &win);
+        let report = sync_as(&win, &mac, "mac", Some("aaa-local"), &[]);
+        assert_eq!(report[0].state, BranchState::MergedJournal, "{:?}", report[0].reason);
+        // Il commit di unione ha due genitori: il mio e quello del peer.
+        let merger = run(&win, &["rev-parse", "HEAD"]);
+        assert_ne!(merger, mine);
+        assert_ne!(merger, theirs);
+        let parents = run(&win, &["rev-list", "--parents", "-n", "1", "HEAD"]);
+        let mut parents = parents.split_whitespace();
+        assert_eq!(parents.next(), Some(merger.as_str()));
+        assert_eq!(parents.next(), Some(mine.as_str()), "primo genitore: ours");
+        assert_eq!(parents.next(), Some(theirs.as_str()), "secondo genitore: theirs");
+        assert_eq!(parents.next(), None);
+        let journal = std::fs::read_to_string(win.join("docs/diario/2026-11.md")).unwrap();
+        assert!(journal.contains("- dal mac"), "{journal}");
+        assert!(journal.contains("- dal win"), "{journal}");
+        assert_eq!(run(&win, &["status", "--porcelain"]), "", "cartella pulita");
+    }
+
+    #[test]
+    fn the_higher_machine_waits_for_the_journal_union_then_fast_forwards() {
+        // R-MI-48: l'altra macchina non unisce, aspetta `journalPeer`; al giro
+        // successivo legge il commit di unione e avanza.
+        let (_root, mac, win) = pair();
+        let (_mine, _theirs) = diverged_journal(&mac, &win);
+        let waiting = sync_as(&win, &mac, "mac", Some("zzz-local"), &[]);
+        assert_eq!((waiting[0].state, waiting[0].reason.as_deref()), (BranchState::Pending, Some("journalPeer")));
+        // La macchina con id minore unisce.
+        let merged = sync_as(&win, &mac, "mac", Some("aaa-local"), &[]);
+        assert_eq!(merged[0].state, BranchState::MergedJournal);
+        let union = run(&win, &["rev-parse", "HEAD"]);
+        // L'altra copia legge l'unione e arriva alla stessa cima.
+        let follower = sync_as(&mac, &win, "win", Some("zzz-local"), &[]);
+        assert_eq!(follower[0].state, BranchState::Advanced);
+        assert_eq!(run(&mac, &["rev-parse", "HEAD"]), union);
+        // Entrambe le cime coincidono e il giro dopo e' Equal.
+        assert_eq!(sync_as(&mac, &win, "win", Some("zzz-local"), &[])[0].state, BranchState::Equal);
+    }
+
+    #[test]
+    fn a_disjunction_with_source_files_stays_diverged() {
+        // R-MI-48: basta un file fuori dal diario e la divergenza resta
+        // quella di R-MI-22, senza unione.
+        let (_root, mac, win) = pair();
+        let (mine, _theirs) = diverged_journal(&mac, &win);
+        commit(&win, "src/a.ts", "export {};\n");
+        let before = run(&win, &["rev-parse", "HEAD"]);
+        let report = sync_as(&win, &mac, "mac", Some("aaa-local"), &[]);
+        assert_eq!(report[0].state, BranchState::Diverged);
+        assert_eq!(run(&win, &["rev-parse", "HEAD"]), before);
+        assert_ne!(before, mine);
+    }
+
+    #[test]
+    fn the_journal_union_never_touches_files_outside_the_journal() {
+        // Il commit di unione conserva gli altri file del mio albero.
+        let (_root, mac, win) = pair();
+        diverged_journal(&mac, &win);
+        let report = sync_as(&win, &mac, "mac", Some("aaa-local"), &[]);
+        assert_eq!(report[0].state, BranchState::MergedJournal);
+        // `a.txt` era nel commit di partenza e non e' cambiato.
+        assert_eq!(run(&win, &["show", "HEAD:a.txt"]), "a");
     }
 
     #[test]
@@ -1107,20 +1597,21 @@ mod tests {
     }
 
     #[test]
-    fn a_lane_worktree_advances_in_its_own_folder_only_when_clean() {
+    fn a_lane_worktree_advances_in_its_own_folder_keeping_untouched_scratch_files() {
         let (root, mac, win) = pair();
         run(&mac, &["branch", "lane"]);
         let lane = root.0.join("win-lane");
         run(&win, &["worktree", "add", "-q", "-b", "lane", lane.to_str().unwrap()]);
         run(&mac, &["checkout", "-q", "lane"]);
         let head = commit(&mac, "l.txt", "l");
+        // Un file nuovo che i commit in arrivo non toccano non ferma piu'
+        // l'avanzamento (R-MI-47) e resta al suo posto.
         std::fs::write(lane.join("scratch.txt"), "wip").unwrap();
         let state = |report: &[BranchSync]| report.iter().find(|branch| branch.name == "lane").map(|branch| (branch.state, branch.reason.clone())).unwrap();
-        assert_eq!(state(&sync(&win, &mac, &[])), (BranchState::Pending, Some("dirty".into())));
-        std::fs::remove_file(lane.join("scratch.txt")).unwrap();
         assert_eq!(state(&sync(&win, &mac, &[])).0, BranchState::Advanced);
         assert_eq!(run(&lane, &["rev-parse", "HEAD"]), head);
         assert!(lane.join("l.txt").exists());
+        assert_eq!(std::fs::read_to_string(lane.join("scratch.txt")).unwrap(), "wip");
     }
 
     #[test]

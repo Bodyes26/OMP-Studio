@@ -29,6 +29,8 @@ import { copyKeyOf, projectLinks } from '#lib/stores/projectLinks.svelte.ts';
 import { publishedProjectIdentity } from '#lib/stores/projectCopyIdentity.ts';
 import { invoke } from '#lib/backend/ipc.ts';
 import type { DesktopHostSnapshot } from '#lib/backend/host.ts';
+import { laneSurfaceStore } from '#lib/stores/laneSurfaces.svelte.ts';
+import { collectLocalOpenItems } from '#lib/stores/openItemsSnapshot.ts';
 
 export interface RemoteProjectionOptions {
 	getCandidateTaskId?: (projectId: string) => string | null;
@@ -84,6 +86,9 @@ export function startRemoteProjection(options: RemoteProjectionOptions = {}): ()
 				modelSettingsStore.draftConfig?.modelRoles ||
 				{};
 			const knownSelectors = modelSettingsStore.knownSelectors;
+			// Superfici centrali (IMP-011): un'anteprima aperta o chiusa qui deve
+			// arrivare all'altra macchina senza aspettare un altro cambio di stato.
+			void laneSurfaceStore.version;
 			// Chiave di fusione delle copie (R-REM-17) e ultimo uso (R-REM-18): la
 			// stessa regola della barra, cosi' telefono e computer uniscono le
 			// stesse copie. Le decisioni «stesso progetto» valgono anche qui: una
@@ -212,11 +217,24 @@ export function startRemoteProjection(options: RemoteProjectionOptions = {}): ()
 				dispatchConfirmationsForProject: (pId) => dispatchConfirmationsStore.getConfirmationsForProject(pId)
 			});
 
+			// L'identità nota (git letto o record salvato) viaggia nello snapshot
+			// desktop: le altre macchine uniscono la tessera dal primo disegno
+			// senza attendere il loro `git_upstream_status` (R-MI-45).
+			// `knownIdentityOf` copre già lo stato git letto (lo registra
+			// `rememberGitIdentity`) e il record salvato: un solo punto.
+			const desktopProjects = projects.map((project) => ({
+				...project,
+				identity: projectStore.knownIdentityOf(project)
+			}));
+			// Editor e anteprime aperte qui (IMP-011): chi guarda dall'altra
+			// macchina le vede senza rifare l'apertura. Viaggiano i percorsi
+			// relativi, non il contenuto dei file.
+			const openItems = collectLocalOpenItems(projects);
 			const desktopState: DesktopHostSnapshot = {
 				version: 1,
 				platform: linkStore.status.platform,
 				projectRoot: projectStore.projectRoot,
-				projects,
+				projects: desktopProjects,
 				lanes,
 				tasks,
 				sessions: projects.flatMap((project) => sessionRegistry.getSessionsForProject(project.id).map((session) => ({
@@ -225,7 +243,8 @@ export function startRemoteProjection(options: RemoteProjectionOptions = {}): ()
 				}))),
 				state: hostState,
 				// Decisioni «stesso progetto / diversi» per le altre macchine (R-MI-44).
-				linkDecisions: projectLinks.shared()
+				linkDecisions: projectLinks.shared(),
+				openItems
 			};
 			const desktopJson = desktopEnabled ? JSON.stringify(desktopState) : '';
 			const json = JSON.stringify([phoneEnabled ? hostState : null, desktopJson]);

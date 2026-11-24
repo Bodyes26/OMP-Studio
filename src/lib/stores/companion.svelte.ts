@@ -150,7 +150,12 @@ class CompanionStore {
 	isCompanionWindow = $state(false);
 	isPinned = $state(false);
 	attentionRequests = $state<AttentionRequest[]>([]);
-	projects = $state<Project[]>([]);
+	private syncedProjects = $state<Project[] | null>(null);
+
+	get projects() {
+		// Lo snapshot vuoto e' autorevole quanto uno con progetti aperti.
+		return this.syncedProjects ?? projectStore.projects;
+	}
 	projectRuntimes = $state<CompanionProjectRuntime[]>([]);
 	isParsingTask = $state(false);
 	parseError = $state<string | null>(null);
@@ -211,7 +216,7 @@ class CompanionStore {
 			if (u1) this.unlisteners.push(u1);
 
 			const u2 = await listenFromWindows<Project[]>('studio-projects-update', (payload) => {
-				this.projects = payload ?? [];
+				this.syncedProjects = payload ?? [];
 			});
 			if (u2) this.unlisteners.push(u2);
 
@@ -696,7 +701,7 @@ class CompanionStore {
 			await modelSettingsStore.loadAll();
 
 			// Prepara metadati progetti noti
-			const knownProjects = (this.projects.length > 0 ? this.projects : projectStore.projects)
+			const knownProjects = this.projects
 				.filter((p) => !p.external)
 				.flatMap((p) =>
 					p.canonicalProjectPath
@@ -791,7 +796,7 @@ class CompanionStore {
 			}
 
 			// Prepara opzioni task
-			const project = (this.projects.length > 0 ? this.projects : projectStore.projects).find(
+			const project = this.projects.find(
 				(p) =>
 					p.canonicalProjectPath &&
 					p.canonicalProjectPath.toLowerCase() === parsed.projectPath!.toLowerCase()

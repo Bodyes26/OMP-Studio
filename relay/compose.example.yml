@@ -13,6 +13,9 @@ services:
     # Context is relative to this Compose file: `..` assumes it is inside relay/.
     restart: unless-stopped
     env_file: .env
+    # R-MI-56: the iroh relay this server advertises to Studio comes from
+    # RELAY_IROH_RELAY_URL in .env (GET /v1/host/info). Empty means Studio
+    # asks for it under "Advanced".
     volumes:
       - relay-data:/data
     # No published ports: the reverse proxy reaches the container on its own

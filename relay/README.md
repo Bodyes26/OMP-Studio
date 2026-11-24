@@ -102,6 +102,7 @@ Clone the entire repository: the build includes shared `src/lib` components and 
 | `RELAY_DATA_DIR` | `/data` in the image, `./data` from source | SQLite database folder. |
 | `RELAY_WEB_DIR` | the PWA built into the image | Folder of the dashboard files. |
 | `RELAY_VERSION` | set at image build, else `package.json` | Version shown by `/healthz`, Studio and the dashboard. |
+| `RELAY_IROH_RELAY_URL` | empty | Address of the **iroh** relay (for example `https://iroh-relay.example.com`) advertised to Studio on `GET /v1/host/info`: with only the Studio Remote server configured, Studio derives the computer relay from here (R-MI-56). Empty: the «Advanced» section asks for the address by hand. |
 | `PROXY_NETWORK` | required by `compose.example.yml` | Docker network shared with the reverse proxy. |
 
 ## Development

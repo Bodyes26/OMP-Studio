@@ -18,6 +18,8 @@ export class RateLimiter {
 	private readonly clientPairingFailures = new Map<string, number[]>();
 	private globalPairingFailures: number[] = [];
 	private readonly clientWsFailures = new Map<string, number[]>();
+	/** Tentativi falliti di ritiro del codice corto (R-MI-55), per indirizzo. */
+	private readonly clientMailboxFailures = new Map<string, number[]>();
 
 	/** Verifica se la richiesta di abbinamento ha superato la soglia locale o globale. */
 	isPairingRateLimited(clientKey: string, now: number): boolean {
@@ -56,12 +58,32 @@ export class RateLimiter {
 		this.clientWsFailures.set(clientKey, times);
 	}
 
+	/**
+	 * R-MI-55: tentativi di ritiro di un codice corto. Limite solo per
+	 * indirizzo, mai globale: chi prova codici a caso non deve poter bloccare
+	 * l'abbinamento di tutti gli altri (a differenza dei codici del telefono,
+	 * dove un codice indovinato da' una sessione).
+	 */
+	isMailboxRateLimited(clientKey: string, now: number): boolean {
+		this.prune(now);
+		const times = this.clientMailboxFailures.get(clientKey);
+		return !!times && times.length >= MAX_CLIENT_FAILURES;
+	}
+
+	recordMailboxFailure(clientKey: string, now: number): void {
+		this.prune(now);
+		const times = this.clientMailboxFailures.get(clientKey) ?? [];
+		times.push(now);
+		this.clientMailboxFailures.set(clientKey, times);
+	}
+
 
 	/** Rimuove i dati storici (utilizzato nei test per isolare i casi). */
 	reset(): void {
 		this.clientPairingFailures.clear();
 		this.globalPairingFailures = [];
 		this.clientWsFailures.clear();
+		this.clientMailboxFailures.clear();
 	}
 
 	private prune(now: number): void {
@@ -69,6 +91,7 @@ export class RateLimiter {
 		this.globalPairingFailures = this.globalPairingFailures.filter((t) => t >= cutoff);
 		this.pruneMap(this.clientPairingFailures, cutoff);
 		this.pruneMap(this.clientWsFailures, cutoff);
+		this.pruneMap(this.clientMailboxFailures, cutoff);
 	}
 
 	private pruneMap(map: Map<string, number[]>, cutoff: number): void {

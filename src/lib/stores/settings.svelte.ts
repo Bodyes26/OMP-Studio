@@ -77,7 +77,9 @@ export type ChatReveal = 'blur' | 'stream' | 'final';
 export type { StreamingBehavior, QueueMode, InterruptMode, CacheWarmingMode };
 
 
-export type SettingsSection = 'general' | 'appearance' | 'accessibility' | 'notifications' | 'projectBar' | 'workspace' | 'tasks' | 'models' | 'suggestions' | 'companion' | 'github' | 'doctor' | 'commands' | 'remote' | 'instances' | 'backgroundJobs' | 'stats';
+export type SettingsSection = 'general' | 'appearance' | 'accessibility' | 'notifications' | 'projectBar' | 'workspace' | 'tasks' | 'models' | 'suggestions' | 'companion' | 'github' | 'doctor' | 'commands' | 'devices' | 'backgroundJobs' | 'stats';
+/** Dispositivo da aprire nel dettaglio della sezione «Dispositivi» (R-MI-52). */
+export type DeviceTarget = { kind: 'computer' | 'phone'; id: string };
 /** Stile del messaggio della notifica di sistema. */
 export type NotificationStyle = 'brief' | 'detailed';
 
@@ -574,6 +576,13 @@ class SettingsStore {
 	/** Stato del centro impostazioni: unica fonte, nessun secondo flag. */
 	open = $state(false);
 	section = $state<SettingsSection>('general');
+	/**
+	 * Dettaglio del dispositivo da mostrare quando si apre «Dispositivi»: lo
+	 * impostano i chip e il pannello del progetto, che sanno quale macchina
+	 * riguarda (R-MI-49, difetto del 2026-11-23). `null` apre l'elenco.
+	 */
+	deviceTarget = $state<DeviceTarget | null>(null);
+	connectionMapRequested = $state(false);
 
 	private store: Store | null = null;
 	private initialized = false;
@@ -681,6 +690,27 @@ class SettingsStore {
 
 	openSection(section: SettingsSection = 'general') {
 		this.section = section;
+		// Aperta per sezione, «Dispositivi» mostra l'elenco e non l'ultimo dettaglio.
+		this.deviceTarget = null;
+		this.connectionMapRequested = false;
+		this.open = true;
+	}
+
+	/**
+	 * Apre «Dispositivi» sul dettaglio di un dispositivo: è il punto d'ingresso
+	 * dei chip di stato e del pannello del progetto (R-MI-49, R-MI-52).
+	 */
+	openDevice(kind: DeviceTarget['kind'], id: string) {
+		this.connectionMapRequested = false;
+		this.deviceTarget = { kind, id };
+		this.section = 'devices';
+		this.open = true;
+	}
+
+	openConnectionMap() {
+		this.deviceTarget = null;
+		this.connectionMapRequested = true;
+		this.section = 'devices';
 		this.open = true;
 	}
 
@@ -969,7 +999,7 @@ class SettingsStore {
 	}
 
 	/** Riporta ai default una sezione, o tutto se non se ne indica una. */
-	reset(section?: Exclude<SettingsSection, 'models' | 'doctor' | 'remote' | 'instances' | 'stats'>) {
+	reset(section?: Exclude<SettingsSection, 'models' | 'doctor' | 'devices' | 'stats'>) {
 		if (!section || section === 'projectBar') this.projectBar = { ...DEFAULT_SETTINGS.projectBar };
 		if (!section || section === 'workspace') {
 			this.editor = { ...DEFAULT_SETTINGS.editor };
@@ -1016,7 +1046,7 @@ class SettingsStore {
 		if (!section || section === 'commands') this.composerLayout = null;
 		this.save();
 	}
-	resetToDefaults(section?: Exclude<SettingsSection, 'models' | 'doctor' | 'remote' | 'instances' | 'stats'>) {
+	resetToDefaults(section?: Exclude<SettingsSection, 'models' | 'doctor' | 'devices' | 'stats'>) {
 		this.reset(section);
 	}
 }

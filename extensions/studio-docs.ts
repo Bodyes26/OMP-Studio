@@ -316,6 +316,157 @@ export function isGitIgnored(root: string, rel: string): boolean {
 	}
 }
 
+/* -------------------------------------------------------------- commit --- */
+
+/**
+ * Esito del commit automatico dei file appena scritti (R-MI-46). `skipped`
+ * dice perche' non si e' committato: il file resta modificato e il tool lo
+ * riporta. Nessun push: il commit resta locale e viaggia con le copie (R-MI-26).
+ */
+export type DocsCommitSkip = "notGit" | "busy" | "detached" | "ignored" | "nothing" | "error";
+
+export interface DocsCommitResult {
+	commit?: string;
+	files: string[];
+	skipped?: DocsCommitSkip;
+	detail?: string;
+}
+
+/** Git senza terminale interattivo e con messaggi in inglese: i testi li compone `tr`. */
+function gitOut(cwd: string, args: string[], input?: string): string {
+	return execFileSync("git", args, {
+		cwd,
+		encoding: "utf8",
+		input,
+		stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
+		windowsHide: true,
+		env: { ...process.env, GIT_TERMINAL_PROMPT: "0", LC_ALL: "C", LANGUAGE: "C" }
+	}).trim();
+}
+
+/** Vero se un marcatore di operazione in corso (merge, rebase, cherry-pick) esiste. */
+function gitMarkerExists(root: string, name: string): boolean {
+	try {
+		const path = gitOut(root, ["rev-parse", "--git-path", name]);
+		return existsSync(resolve(root, path));
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Ultima riga utile di un errore di git. `execFileSync` allega `stderr` al
+ * `Error`, ma il tipo dichiarato non lo espone: si legge con un controllo di
+ * forma invece di un'asserzione.
+ */
+function gitErrorDetail(err: unknown): string {
+	let text = "";
+	if (err && typeof err === "object" && "stderr" in err) {
+		const stderr = err.stderr;
+		text = typeof stderr === "string" ? stderr : stderr ? String(stderr) : "";
+	}
+	const fallback = err instanceof Error ? err.message : String(err);
+	return (text.trim() || fallback).split(/\r?\n/).filter(Boolean).slice(-1)[0] ?? fallback;
+}
+
+/**
+ * Committa solo i file scritti, senza toccare cio' che l'utente ha gia' in
+ * stage (R-MI-46): `git commit --only -- <percorsi>` prende il contenuto del
+ * working tree di quei percorsi e lascia il resto dell'indice com'e'. I file
+ * nuovi si aggiungono prima, perche' `--only` non conosce i non tracciati.
+ *
+ * Non si usa `--no-verify`: gli hook dell'utente restano attivi. Se un hook
+ * rifiuta il commit l'errore torna al tool e il file resta modificato.
+ */
+export function commitDocsFiles(root: string, rels: string[], message: string): DocsCommitResult {
+	const files = [...new Set(rels.map((rel) => safeRel(root, rel)).filter((rel): rel is string => !!rel))];
+	if (files.length === 0) return { files, skipped: "nothing" };
+	try {
+		gitOut(root, ["rev-parse", "--is-inside-work-tree"]);
+	} catch {
+		// Fuori da git (o cartella non versionata): non c'e' niente da committare.
+		return { files, skipped: "notGit" };
+	}
+	// Un commit dentro un merge, rebase o cherry-pick in corso finirebbe in
+	// un'operazione dell'utente: la lasciamo a lui.
+	for (const marker of ["MERGE_HEAD", "rebase-merge", "rebase-apply", "CHERRY_PICK_HEAD", "REVERT_HEAD"]) {
+		if (gitMarkerExists(root, marker)) return { files, skipped: "busy", detail: marker };
+	}
+	// HEAD staccato: il commit resterebbe su nessuna branch.
+	try {
+		gitOut(root, ["symbolic-ref", "-q", "HEAD"]);
+	} catch {
+		return { files, skipped: "detached" };
+	}
+	const ignored = files.filter((rel) => isGitIgnored(root, rel));
+	const candidates = files.filter((rel) => !ignored.includes(rel));
+	// Un percorso che git non conosce e che non esiste (per esempio il
+	// manifest di un diario solo rilevato) farebbe fallire tutto il commit con
+	// «pathspec did not match»: si toglie prima di provarci.
+	const untracked: string[] = [];
+	const wanted = candidates.filter((rel) => {
+		try {
+			gitOut(root, ["ls-files", "--error-unmatch", "--", rel]);
+			return true;
+		} catch {
+			if (!existsSync(join(root, rel))) return false;
+			untracked.push(rel);
+			return true;
+		}
+	});
+	if (wanted.length === 0) return { files, skipped: ignored.length > 0 ? "ignored" : "nothing", detail: ignored.join(", ") };
+	try {
+		if (untracked.length > 0) gitOut(root, ["add", "--", ...untracked]);
+		gitOut(root, ["commit", "--only", "-m", message, "--", ...wanted]);
+		return { commit: gitOut(root, ["rev-parse", "HEAD"]), files: wanted };
+	} catch (err) {
+		const detail = gitErrorDetail(err);
+		// L'aggiunta appena fatta non deve restare in stage: si toglie solo
+		// l'indice dei file nuovi, che restano sul disco.
+		if (untracked.length > 0) {
+			try {
+				gitOut(root, ["rm", "-q", "--cached", "--", ...untracked]);
+			} catch {
+				// niente da togliere
+			}
+		}
+		if (/nothing to commit|nothing added to commit|no changes added/i.test(detail)) return { files: wanted, skipped: "nothing" };
+		return { files: wanted, skipped: "error", detail };
+	}
+}
+
+/**
+ * Commit del diario appena scritto con il messaggio «diario: <data>»
+ * (R-MI-46). Solo il file del mese: il manifest non lo scrive `appendDiary` e
+ * un suo commit qui trascinerebbe una modifica fatta dall'utente.
+ */
+export function commitDiary(root: string, rel: string, now = new Date()): DocsCommitResult {
+	return commitDocsFiles(root, [rel], `diario: ${isoDate(now)}`);
+}
+
+/** Riga aggiunta al risultato del tool: cosa e' stato committato o perche' no. */
+export function describeDocsCommit(result: DocsCommitResult): string {
+	if (result.commit) {
+		return tr(
+			` Commit ${result.commit.slice(0, 8)} (${result.files.join(", ")}).`,
+			` Commit ${result.commit.slice(0, 8)} (${result.files.join(", ")}).`
+		);
+	}
+	switch (result.skipped) {
+		case "busy":
+			return tr(" File non committato: merge o rebase in corso.", " File not committed: a merge or rebase is in progress.");
+		case "detached":
+			return tr(" File non committato: HEAD staccato.", " File not committed: detached HEAD.");
+		case "ignored":
+			return tr(` File non committato: ${result.detail} e' ignorato da git.`, ` File not committed: ${result.detail} is gitignored.`);
+		case "error":
+			return tr(` File non committato: ${result.detail ?? "errore di git"}.`, ` File not committed: ${result.detail ?? "git error"}.`);
+		default:
+			// Fuori da git o niente da committare: niente da dire.
+			return "";
+	}
+}
+
 /* ---------------------------------------------------------------- date --- */
 
 function pad(n: number): string {
@@ -1361,7 +1512,13 @@ export async function runProjectDocs(cwd: string, params: ProjectDocsParams, ses
 			const doc = (params.doc ?? "").trim().toLowerCase();
 			if (doc === "diario" || doc === "journal") {
 				const rel = appendDiary(root, manifest, text, src, now);
-				return textResult(tr(`Diario aggiornato: ${rel}.`, `Journal updated: ${rel}.`), { rel });
+				// Il diario e' uno solo e il commit e' path-scoped (R-MI-46):
+				// a fine Nightly `git status` resta pulito e le copie avanzano.
+				const commit = commitDiary(root, rel, now);
+				return textResult(
+					tr(`Diario aggiornato: ${rel}.`, `Journal updated: ${rel}.`) + describeDocsCommit(commit),
+					{ rel, commit: commit.commit ?? null }
+				);
 			}
 			const role = asRole(doc);
 			if (!role)
@@ -1374,8 +1531,11 @@ export async function runProjectDocs(cwd: string, params: ProjectDocsParams, ses
 			const state = loadState(root);
 			const outcome = updateDoc(root, manifest, { role, mode: params.mode ?? "append", section: params.section, text, source: src, force: params.force }, state);
 			if (outcome.ok) saveState(root, state);
+			// Solo il file scritto: `updateDoc` non tocca il manifest, quindi
+			// un suo commit qui trascinerebbe una modifica dell'utente (R-MI-46).
+			const commit = outcome.ok ? commitDocsFiles(root, [outcome.rel], `docs: ${role}`) : null;
 			return outcome.ok
-				? textResult(outcome.message, { rel: outcome.rel })
+				? textResult(outcome.message + (commit ? describeDocsCommit(commit) : ""), { rel: outcome.rel, commit: commit?.commit ?? null })
 				: {
 						content: [
 							{
@@ -1489,8 +1649,16 @@ export default function studioDocsExtension(pi: StudioDocsApi): void {
 				}
 				if (sub === "locale" || sub === "local" || sub === "repo") {
 					const { moved, manifest } = switchStorage(root, sub === "repo" ? "repo" : "local");
+					// Il cambio di manifest e i file spostati finiscono in un
+					// commit path-scoped (R-MI-46): altrimenti la cartella resta
+					// sporca e le copie non avanzano. Verso `local` i file di
+					// destinazione sono ignorati: si committano le cancellazioni.
+					// `.omp/.gitignore` lo riscrive `switchStorage`: insieme al
+					// manifest e ai file spostati e' tutto cio' che ha scritto.
+					const paths = [MANIFEST_REL, ".omp/.gitignore", ...moved.flatMap((line) => line.split(" -> "))];
+					const commit = commitDocsFiles(root, paths, `docs: diario ${manifest.storage === "local" ? "locale" : "repo"}`);
 					notify(
-						manifest.storage === "local"
+						(manifest.storage === "local"
 							? tr(
 									`Diario spostato fuori da git (.omp/progetto/). ${moved.length} file spostati.`,
 									`Journal moved outside git (.omp/progetto/). ${moved.length} files moved.`
@@ -1498,7 +1666,7 @@ export default function studioDocsExtension(pi: StudioDocsApi): void {
 							: tr(
 									`Diario riportato nel repo (docs/). ${moved.length} file spostati.`,
 									`Journal moved back into the repo (docs/). ${moved.length} files moved.`
-								)
+								)) + describeDocsCommit(commit)
 					);
 					return;
 				}

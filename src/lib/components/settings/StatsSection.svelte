@@ -6,9 +6,15 @@
 	 * errori, modelli, progetti, subagenti) letti da `~/.omp/stats.db`. Per
 	 * tutto il resto (richieste, errori, tracce, tool) c'e' la dashboard web
 	 * di omp, che si apre dal pulsante in testata.
+	 *
+	 * IMP-010: ogni macchina abbinata ha il suo `stats.db`. La stessa finestra
+	 * temporale si chiede a ciascuna (`stats_summary`, comando `routed`) e si
+	 * può leggere per macchina o unita; chi non risponde resta fuori dai totali
+	 * ed è dichiarato, non riempito di zeri (`machineStats.ts`).
 	 */
 	import { untrack } from 'svelte';
-	import { invoke } from '#lib/backend/ipc.ts';
+	import { BackendRouteError, LOCAL_MACHINE, invoke } from '#lib/backend/ipc.ts';
+	import { linkStore } from '#lib/backend/link.svelte.ts';
 	import { m } from '#lib/paraglide/messages.js';
 	import { getLocale } from '#lib/paraglide/runtime.js';
 	import { IconExternalLink } from '#lib/icons.ts';
@@ -32,80 +38,255 @@
 		type StatsRange,
 		type StatsSummary
 	} from '#lib/stats/usageStats.ts';
+	import {
+		mergeSummaries,
+		type MachineStats,
+		type MachineStatsState,
+		type MachineTarget
+	} from '#lib/stats/machineStats.ts';
 
 	let range = $state<StatsRange>('7d');
 	let metric = $state<StatsMetric>('requests');
-	let summary = $state<StatsSummary | null>(null);
-	let error = $state<{ kind: 'missing' | 'schema' | 'other'; detail: string } | null>(null);
+	/** Questa macchina e le abbinate: ognuna ha il suo `stats.db` (IMP-010). */
+	let machines = $state<MachineStats[]>([]);
+	/** `all` oppure l'id di una macchina. */
+	let scope = $state<string>('all');
 	let syncing = $state(false);
-	let syncFailed = $state(false);
+	let syncPartial = $state(false);
 	let updatedAt = $state<number | null>(null);
 	let opening = $state(false);
+	let dashboardError = $state<string | null>(null);
 
-	const f = createFormatters(getLocale());
+	// Formattatori e testi seguono la lingua attiva anche senza riaprire la sezione.
+	const f = $derived(createFormatters(getLocale()));
 
 	const projects = $derived(projectStore.projects.filter((p) => p.canonicalProjectPath));
-	const projectPaths = $derived(projects.map((p) => p.canonicalProjectPath as string));
+	/**
+	 * I percorsi servono solo a dare un nome di progetto alle cartelle di
+	 * sessioni: quelli di una macchina sono i suoi, non quelli di questa.
+	 */
+	const projectPathsFor = (machineId: string): string[] =>
+		projects
+			.filter((p) => (p.machineId ?? LOCAL_MACHINE) === machineId)
+			.map((p) => p.canonicalProjectPath as string);
 	const activePath = $derived(projectStore.activeProject?.canonicalProjectPath ?? null);
 	const projectName = (path: string | null) =>
 		(path && projects.find((p) => p.canonicalProjectPath === path)?.name) || null;
 
-	async function load(r: StatsRange) {
+	const machineLabel = (machine: { local: boolean; name: string }) =>
+		machine.local ? m.machine_this_computer() : machine.name;
+
+	/** Le macchine consultabili in questo contesto: questa e le abbinate. */
+	function machineTargets(): MachineTarget[] {
+		return [
+			{ id: LOCAL_MACHINE, name: '', local: true, online: true, compatible: true },
+			...linkStore.status.peers.map((peer) => ({
+				id: peer.id,
+				name: peer.name,
+				local: false,
+				online: peer.online,
+				compatible: peer.compatible
+			}))
+		];
+	}
+
+	function statsFailure(error: unknown): { state: MachineStatsState; detail: string } {
+		if (error instanceof BackendRouteError) {
+			return error.reason === 'incompatible_version'
+				? { state: 'incompatible', detail: '' }
+				: { state: 'unreachable', detail: '' };
+		}
+		const value = String(error);
+		const kind = value.startsWith('missing:') ? 'missing' : value.startsWith('schema:') ? 'schema' : 'error';
+		return { state: kind, detail: value.replace(/^(missing|schema):/, '') };
+	}
+
+	/** Legge il riepilogo di una macchina; una spenta non viene interrogata. */
+	async function readMachine(target: MachineTarget, r: StatsRange, endAtMs: number): Promise<MachineStats> {
+		if (!target.online) return { ...target, state: 'unreachable', detail: '', summary: null };
+		if (!target.compatible) return { ...target, state: 'incompatible', detail: '', summary: null };
 		try {
-			const next = await invoke<StatsSummary>('stats_summary', {
-				rangeHours: RANGE_HOURS[r],
-				projectPaths: $state.snapshot(projectPaths)
-			});
-			// Una risposta lenta di un intervallo precedente non sovrascrive quella corrente.
-			if (r !== range) return;
-			summary = next;
-			error = null;
+			const summary = await invoke<StatsSummary>(
+				'stats_summary',
+				{ rangeHours: RANGE_HOURS[r], projectPaths: projectPathsFor(target.id), endAtMs },
+				{ machine: target.id }
+			);
+			if (summary.to !== endAtMs) {
+				return { ...target, state: 'incompatible', detail: '', summary: null };
+			}
+			return { ...target, state: 'ok', detail: '', summary };
 		} catch (e) {
-			const text = String(e);
-			const kind = text.startsWith('missing:') ? 'missing' : text.startsWith('schema:') ? 'schema' : 'other';
-			error = { kind, detail: text.replace(/^(missing|schema):/, '') };
+			return { ...target, ...statsFailure(e), summary: null };
 		}
 	}
 
-	// Prima i dati gia' nel database (subito), poi omp ingerisce i transcript
-	// nuovi e si rilegge: la sezione non resta mai vuota ad aspettare omp.
-	async function refresh() {
-		await load(range);
-		syncing = true;
-		try {
-			await invoke<boolean>('stats_sync');
-			syncFailed = false;
-			await load(range);
-		} catch {
-			syncFailed = true;
-		} finally {
-			syncing = false;
-			updatedAt = Date.now();
-		}
+	// Una risposta di un giro precedente (altro intervallo, altra macchina) non
+	// deve sovrascrivere quelle correnti.
+	let generation = 0;
+
+	async function loadAll(r: StatsRange, targets: MachineTarget[], sync = false) {
+		const token = ++generation;
+		const endAtMs = Date.now();
+		machines = targets.map((target) => ({
+			...target,
+			state: !target.online ? 'unreachable' : !target.compatible ? 'incompatible' : 'loading',
+			detail: '',
+			summary: null
+		}));
+		updatedAt = null;
+		syncPartial = false;
+		syncing = sync && targets.some((target) => target.online && target.compatible);
+		const publish = (machine: MachineStats) => {
+			if (token !== generation) return;
+			machines = machines.map((entry) => entry.id === machine.id ? machine : entry);
+			if (machine.state === 'ok') updatedAt = Date.now();
+		};
+		await Promise.all(targets.map(async (target) => {
+			if (!target.online || !target.compatible) return;
+			const initial = await readMachine(target, r, endAtMs);
+			publish(initial);
+			if (token !== generation || !sync || initial.state === 'incompatible') return;
+			try {
+				await invoke('stats_sync', {}, { machine: target.id });
+				if (token === generation) publish(await readMachine(target, r, endAtMs));
+			} catch {
+				if (token === generation) syncPartial = true;
+			}
+		}));
+		if (token === generation) syncing = false;
 	}
-	// Un solo giro all'apertura della sezione: `refresh` legge stato reattivo
-	// (intervallo, progetti) che non deve rilanciare la sincronizzazione.
+
+	// Ogni macchina pubblica subito i propri dati, anche se un peer tarda.
+	function refresh() {
+		return loadAll(range, machineTargets(), true);
+	}
+
+	// Si rilegge all'apertura e quando cambia il gruppo di macchine abbinate
+	// (una macchina che torna in linea deve entrare nei totali). `refresh`
+	// legge intervallo e progetti, che non devono rilanciare la lettura.
+	let loadedOnce = false;
+	let machineSignature = '';
 	$effect(() => {
+		const signature = linkStore.status.peers
+			.map((peer) => `${peer.id}:${peer.online}:${peer.compatible}`)
+			.join('|');
+		if (loadedOnce && signature === machineSignature) return;
+		loadedOnce = true;
+		machineSignature = signature;
 		untrack(() => void refresh());
 	});
 
 	function selectRange(r: StatsRange) {
 		range = r;
-		void load(r);
+		void loadAll(r, machineTargets());
 	}
 
 	async function openDashboard() {
 		opening = true;
 		try {
 			await invoke('stats_open_dashboard');
+			dashboardError = null;
 		} catch (e) {
-			error = { kind: 'other', detail: String(e) };
+			dashboardError = String(e);
 		} finally {
 			opening = false;
 		}
 	}
 
+	// Vista scelta: se quella macchina non c'e' piu' si torna all'aggregato.
+	const scopeValue = $derived(
+		scope === 'all' || machines.some((machine) => machine.id === scope) ? scope : 'all'
+	);
+	const scopeMachines = $derived(
+		scopeValue === 'all' ? machines : machines.filter((machine) => machine.id === scopeValue)
+	);
+	const pending = $derived(scopeMachines.some((machine) => machine.state === 'loading'));
+	const answering = $derived(scopeMachines.filter((machine) => machine.state === 'ok'));
+	const excluded = $derived(
+		scopeMachines.filter((machine) => machine.state !== 'ok' && machine.state !== 'loading')
+	);
+	// Unione dei fatti delle macchine che hanno risposto: i contributi restano
+	// distinti, e chi manca non viene sostituito da zeri.
+	const summary = $derived(mergeSummaries(scopeMachines));
 	const totals = $derived(summary?.totals ?? null);
+
+	const reason = (state: MachineStatsState) =>
+		state === 'unreachable'
+			? m.devices_map_unreachable()
+			: state === 'incompatible'
+				? m.settings_stats_reason_incompatible()
+				: state === 'missing'
+					? m.settings_stats_reason_missing()
+					: state === 'schema'
+						? m.settings_stats_reason_schema()
+						: m.settings_stats_reason_unavailable();
+	const excludedLabel = (machine: MachineStats) => `${machineLabel(machine)} (${reason(machine.state)})`;
+	const excludedList = $derived(excluded.map(excludedLabel).join(', '));
+	const excludedDetail = $derived(
+		excluded
+			.filter((machine) => machine.detail)
+			.map((machine) => `${machineLabel(machine)}: ${machine.detail}`)
+			.join('\n')
+	);
+
+	// Cosa dire quando non tutti i numeri ci sono: una macchina sola non
+	// disponibile non mostra zeri, l'aggregato dice esplicitamente chi manca.
+	const notice = $derived.by(():
+		| { variant: 'info' | 'warning'; title: string; message: string; retry: boolean }
+		| null => {
+		if (pending || machines.length === 0) return null;
+		// Una macchina sola (questa, o quella scelta): il messaggio dice il
+		// motivo preciso invece di un errore generico, e non mostra zeri.
+		if (scopeMachines.length === 1) {
+			const single = scopeMachines[0];
+			if (single.state === 'ok') return null;
+			if (single.state === 'missing') {
+				return {
+					variant: 'info',
+					title: m.settings_stats_missing_title(),
+					message: m.settings_stats_missing_desc(),
+					retry: false
+				};
+			}
+			if (single.state === 'schema') {
+				return {
+					variant: 'warning',
+					title: m.settings_stats_schema_title(),
+					message: m.settings_stats_schema_desc(),
+					retry: true
+				};
+			}
+			return {
+				variant: 'warning',
+				title: m.settings_stats_error_title(),
+				message: m.settings_stats_machines_unavailable({ machines: machineLabel(single) }),
+				retry: true
+			};
+		}
+		if (answering.length === 0) {
+			return {
+				variant: 'warning',
+				title: m.settings_stats_error_title(),
+				message: m.settings_stats_machines_unavailable({ machines: excludedList }),
+				retry: true
+			};
+		}
+		if (excluded.length > 0) {
+			return {
+				variant: 'warning',
+				title: m.settings_stats_partial_title(),
+				message: m.settings_stats_machines_excluded({ machines: excludedList }),
+				retry: false
+			};
+		}
+		return null;
+	});
+
+	const scopeOptions = $derived([
+		{ value: 'all', label: m.settings_stats_all_machines() },
+		...machines.map((machine) => ({ value: machine.id, label: machineLabel(machine) }))
+	]);
+
 	const buckets = $derived(summary ? bucketize(summary.hours, range) : []);
 	const spark = (pick: (b: (typeof buckets)[number]) => number) => buckets.map(pick);
 
@@ -158,6 +339,14 @@
 	<div class="section-header">
 		<h4>{m.settings_stats_title()}</h4>
 		<div class="header-actions">
+			{#if machines.length > 1}
+				<Segmented
+					options={scopeOptions}
+					value={scopeValue}
+					ariaLabel={m.settings_stats_scope_aria()}
+					onChange={(value) => (scope = value)}
+				/>
+			{/if}
 			<Segmented
 				options={RANGE_OPTIONS}
 				value={range}
@@ -177,36 +366,45 @@
 			{#if syncing}
 				<StatusMark status="running" />
 				{m.settings_stats_syncing()}
-			{:else if syncFailed}
-				{m.settings_stats_sync_failed()}
+			{:else if syncPartial}
+				{m.settings_stats_sync_partial()}
 			{:else if updatedAt}
 				{m.settings_stats_updated({ time: f.hour(updatedAt) })}
 			{/if}
 		</span>
 	</p>
 
-	{#if error?.kind === 'missing'}
+	{#if notice}
 		<AlertBanner
-			variant="info"
-			title={m.settings_stats_missing_title()}
-			message={m.settings_stats_missing_desc()}
-			diagnostic={error.detail}
+			variant={notice.variant}
+			title={notice.title}
+			message={notice.message}
+			diagnostic={excludedDetail}
+			onRetry={notice.retry ? refresh : undefined}
 		/>
-	{:else if error}
+	{/if}
+
+	{#if dashboardError}
 		<AlertBanner
 			variant="warning"
-			title={error.kind === 'schema' ? m.settings_stats_schema_title() : m.settings_stats_error_title()}
-			message={error.kind === 'schema' ? m.settings_stats_schema_desc() : ''}
-			diagnostic={error.detail}
-			onRetry={refresh}
+			title={m.settings_stats_error_title()}
+			diagnostic={dashboardError}
 		/>
-	{:else if !summary || !totals}
+	{/if}
+
+	{#if !summary && (pending || machines.length === 0)}
 		<div class="loading">
 			<StatusMark status="running" />
 			<span>{m.settings_stats_loading()}</span>
 		</div>
+	{:else if !summary || !totals}
+		{#if !notice}
+			<div class="empty">{m.settings_stats_empty_range()}</div>
+		{/if}
 	{:else if totals.requests === 0}
-		<div class="empty">{m.settings_stats_empty_range()}</div>
+		{#if excluded.length === 0}
+			<div class="empty">{m.settings_stats_empty_range()}</div>
+		{/if}
 	{:else}
 		<div class="stats-data" in:fade={{ duration: motionReduced() ? 0 : 250, easing: revealEase }}>
 			<!-- KPI -->
@@ -254,13 +452,15 @@
 				<div class="kpi">
 					<span class="kpi-label">{m.settings_stats_kpi_cache()}</span>
 					<AnimatedNumber value={totals.cacheRate} format={f.percent} class="kpi-value tabular" />
-					<span class="kpi-sub tabular">
-						<AnimatedNumber
-							inline
-							value={totals.cacheSavings}
-							format={(pct) => m.settings_stats_kpi_cache_saved({ pct: f.percent(pct) })}
-						/>
-					</span>
+					{#if totals.cacheSavings !== null}
+						<span class="kpi-sub tabular">
+							<AnimatedNumber
+								inline
+								value={totals.cacheSavings}
+								format={(pct) => m.settings_stats_kpi_cache_saved({ pct: f.percent(pct) })}
+							/>
+						</span>
+					{/if}
 					<div class="meter" aria-hidden="true"><span style:width={`${totals.cacheRate * 100}%`}></span></div>
 				</div>
 				<div class="kpi">
@@ -276,6 +476,41 @@
 					<StatsSparkline values={spark((b) => b.failed)} />
 				</div>
 			</div>
+
+		<!-- Per macchina (IMP-010): contributi distinti, mai riempiti con zeri -->
+		{#if machines.length > 1 && scopeValue === 'all'}
+			<section class="block" aria-labelledby="stats-machines-title">
+				<div class="block-head">
+					<div class="block-copy">
+						<span id="stats-machines-title" class="block-title">{m.settings_stats_by_machine()}</span>
+						<span class="block-desc">{m.settings_stats_by_machine_description()}</span>
+					</div>
+				</div>
+				<ul class="machines">
+					{#each scopeMachines as machine (machine.id)}
+						{@const machineTotals = machine.summary?.totals ?? null}
+						<li class="machine-row">
+							<span class="machine-name">{machineLabel(machine)}</span>
+							<span class="machine-value tabular">
+								{#if machineTotals}
+									<AnimatedNumber value={machineTotals.requests} format={f.count} />
+									<span class="sub">· <AnimatedNumber inline value={machineTotals.cost} format={f.cost} /></span>
+								{:else if machine.state === 'loading'}
+									<StatusMark status="running" />
+								{:else}
+									<span class="sub">— {reason(machine.state)}</span>
+								{/if}
+							</span>
+							{#if machineTotals}
+								<span class="meter" aria-hidden="true">
+									<span style:width={`${share(machineTotals.requests, totals.requests) * 100}%`}></span>
+								</span>
+							{/if}
+						</li>
+					{/each}
+				</ul>
+			</section>
+		{/if}
 
 		<!-- Attivita' nel tempo -->
 		<section class="block" aria-labelledby="stats-activity-title">
@@ -576,6 +811,42 @@
 		height: 100%;
 		background: var(--brand);
 		transition: width var(--dur-calm, 480ms) var(--ease-reveal);
+	}
+
+	/* Per macchina: una riga per macchina, il metro mostra il peso sul totale. */
+	.machines {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+	}
+
+	.machine-row {
+		display: grid;
+		grid-template-columns: minmax(80px, max-content) 1fr;
+		align-items: center;
+		gap: 4px var(--space-3);
+		font-size: var(--text-label);
+	}
+
+	.machine-name {
+		color: var(--ink-muted);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.machine-value {
+		text-align: right;
+		white-space: nowrap;
+		color: var(--ink);
+	}
+
+	.machine-row .meter {
+		grid-column: 1 / -1;
+		margin: 2px 0 0;
 	}
 
 	.block {

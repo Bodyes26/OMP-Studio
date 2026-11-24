@@ -22,9 +22,13 @@
 	import Tooltip from '#lib/ui/Tooltip.svelte';
 	import MachineGlyph from '#lib/ui/MachineGlyph.svelte';
 	import PeerUpdateNotice from '#lib/components/PeerUpdateNotice.svelte';
+	import RemoteOpenItems from '#lib/components/RemoteOpenItems.svelte';
 	import { linkStore } from '#lib/backend/link.svelte.ts';
 	import { provenance, copyDivergence, copyPending, divergenceSummary, pendingSummary, linkCandidates, decidedCopies, originUpdates, machineName, refreshCopiesGit, type LinkCandidate, type MachineCopy, type OriginUpdate } from '#lib/stores/projectMachines.svelte.ts';
 	import { copyKeyOf, projectLinks } from '#lib/stores/projectLinks.svelte.ts';
+	import { copySyncStore } from '#lib/stores/copySync.svelte.ts';
+	import { agoParts } from '#lib/stores/machineStatus.ts';
+	import { i18n } from '#lib/i18n/i18n.svelte.ts';
 	import { invoke, LOCAL_MACHINE } from '#lib/backend/ipc.ts';
 	import { closePreviews, requestPreview } from '#lib/backend/remotePreview.svelte.ts';
 	import StatusMark from '#lib/ui/StatusMark.svelte';
@@ -125,9 +129,48 @@
 	const onlyHere = $derived(prov.kind === 'local');
 	const divergence = $derived(prov.kind === 'copies' ? copyDivergence(project) : null);
 	const pending = $derived(prov.kind === 'copies' ? copyPending(project) : []);
+	/**
+	 * Sincronizzazione delle copie (R-MI-50): mentre il giro gira l'anteprima
+	 * dice «sincronizzazione in corso», altrimenti da quanto e' ferma l'ultima.
+	 * La copia locale del gruppo e' quella che ha i giri: le altre le sincronizza
+	 * la loro macchina.
+	 */
+	// Solo la copia locale ha i giri: un progetto che qui non ha una copia si
+	// sincronizza sulla sua macchina e qui non ha nulla da raccontare.
+	const localCopyId = $derived(prov.copies.find((copy) => copy.local)?.project.id ?? null);
+	const syncing = $derived(localCopyId !== null && copySyncStore.runningFor(localCopyId));
+	const lastSyncAt = $derived(localCopyId === null ? null : copySyncStore.lastSyncFor(localCopyId));
+	// Il tempo relativo invecchia mentre il pannello e' aperto, anche in anteprima.
+	let syncNow = $state(Date.now());
+	$effect(() => {
+		const timer = window.setInterval(() => { syncNow = Date.now(); }, 30_000);
+		return () => window.clearInterval(timer);
+	});
+	const syncText = $derived.by(() => {
+		if (syncing) return m.machines_tile_syncing();
+		if (lastSyncAt === null) return m.machines_tile_never();
+		const { value, unit } = agoParts(syncNow - lastSyncAt);
+		if (unit === 'minute' && value === 0) return m.machines_tile_now();
+		return m.machines_tile_ago({ ago: i18n.formatRelativeTime(-value, unit) });
+	});
 	const hasLocalCopy = $derived(prov.copies.some((copy) => copy.local));
 	/** Altre macchine del progetto: ognuna puo' dover aggiornare Studio (R-MI-38). */
 	const remoteMachineIds = $derived([...new Set(prov.copies.filter((copy) => !copy.local && copy.project.machineId).map((copy) => copy.project.machineId!))]);
+	/**
+	 * Quante cose sono aperte nelle altre copie (IMP-011): una riga
+	 * nell'anteprima dice che c'è qualcosa da vedere, il pannello lo elenca.
+	 */
+	const remoteOpenCount = $derived(
+		prov.copies
+			.filter((copy) => !copy.local && copy.online)
+			.reduce((total, copy) => {
+				const lanes = projectStore.remoteOpenItems[copy.project.id] ?? [];
+				return total + lanes.reduce(
+					(sum, lane) => sum + lane.openFiles.length + (lane.previewFile ? 1 : 0),
+					0
+				);
+			}, 0)
+	);
 	/** Macchina in uso spenta: se il relay non risponde da qui lo dice, non è la macchina (R-MI-30). */
 	const unreachableLabel = $derived(linkStore.offlineReason(prov.inUse.project.machineId ?? '') === 'relay'
 		? m.project_popover_relay_unreachable({ machine: prov.inUse.name })
@@ -433,8 +476,12 @@
 		</div>
 		{#if displayPath && onlyHere}<p class="peek-path">{displayPath}</p>{/if}
 		<div class="peek-status"><StatusMark status={project.lane.agentState === 'working' ? 'running' : project.lane.agentState === 'attention' ? 'attention' : project.lane.agentState === 'finished' ? 'completed' : 'pending'} /><span>{stateLabel}</span>{#if hasWorkspace}<span class="peek-count">{m.project_popover_queue_header({ count: queueCount })}</span>{/if}</div>
+		{#if prov.kind === 'copies' && localCopyId !== null}<p class="peek-sync" class:running={syncing}>{syncText}</p>{/if}
 		{#if attention}<p class="peek-question">{askQuestionText(attention.pendingUi, m.project_popover_quick_ask_title())}</p>{/if}
 		{#if divergence}<p class="peek-diverged">{m.copies_diverged_title()}</p>{/if}
+		{#if remoteOpenCount > 0}
+			<p class="peek-open">{m.open_items_peek({ count: remoteOpenCount })}</p>
+		{/if}
 		{#if prov.others.length > 0}
 			<div class="peek-also">
 				<span>{m.project_popover_also_on()}</span>
@@ -498,6 +545,9 @@
 							</div>
 						{/each}
 						{#each remoteMachineIds as machineId (machineId)}<div class="update-notice"><PeerUpdateNotice {machineId} /></div>{/each}
+						<!-- Ciò che l'altra macchina ha aperto in questo lavoro (IMP-011):
+						     visibile e apribile qui, senza rifare l'apertura là. -->
+						<div class="open-items-block"><RemoteOpenItems {project} /></div>
 						{#if project.machineId && project.machineId !== LOCAL_MACHINE && project.hostProjectId}
 							{@const source = { machine: project.machineId, project: project.hostProjectId, owner: project.id }}
 							<button class="menu-row" onclick={() => { requestPreview(source); closePanel(); }}><IconPlus /><span>{m.remote_preview_title()}</span></button>
@@ -616,6 +666,12 @@
 	/* Macchina in testa all'anteprima (R-MI-23): un'etichetta, non un titolo. */
 	.peek-machine { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; font-size: var(--text-meta); color: var(--ink-muted); }
 	.peek-diverged { margin: 8px 0 0; font-size: var(--text-label); color: var(--warn); }
+	/* Cose aperte altrove (IMP-011): una traccia, non un avviso. */
+	.peek-open { margin: 6px 0 0; font-size: var(--text-caption); color: var(--ink-faint); }
+	/* Sincronizzazione delle copie (R-MI-50): una riga di traccia, non un
+	   avviso. Mentre gira resta nel colore del testo, senza ambra. */
+	.peek-sync { margin: 6px 0 0; font-size: var(--text-caption); color: var(--ink-faint); }
+	.peek-sync.running { color: var(--ink-muted); }
 	.peek-also { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); font-size: var(--text-caption); color: var(--ink-faint); }
 	.peek-machine-chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 7px; border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--ink-muted); }
 	.peek-machine-chip.offline { border-style: dashed; color: var(--ink-faint); }
@@ -657,6 +713,7 @@
 	.link-box { margin: 0 2px 8px; padding: 10px; border-radius: var(--radius-md); background: var(--bg-hover); font-size: var(--text-label); }
 	.update-notice { margin: 0 2px 8px; padding: 10px; border-radius: var(--radius-md); background: var(--bg-hover); }
 	.update-notice:empty { display: none; }
+	.open-items-block:empty { display: none; }
 	.link-box p { margin: 0 0 8px; color: var(--ink); }
 	.link-actions { display: flex; gap: 6px; }
 	.link-action { padding: 5px 8px; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--ink-muted); font: inherit; cursor: pointer; }

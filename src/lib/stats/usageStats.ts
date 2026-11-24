@@ -13,10 +13,20 @@ export interface StatsTotals {
 	cost: number;
 	unpriced: number;
 	cacheRate: number;
-	cacheSavings: number;
+	cacheSavings: number | null;
 	avgTtftMs: number | null;
 	avgTokensPerSecond: number | null;
 	lastActivity: number | null;
+	samples?: StatsSamples;
+}
+
+export interface StatsSamples {
+	ttftSum: number;
+	ttftCount: number;
+	tpsSum: number;
+	tpsCount: number;
+	noCacheInputCost: number;
+	cachedPromptCost: number;
 }
 
 export interface StatsHour {

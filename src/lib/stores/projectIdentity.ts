@@ -15,6 +15,8 @@
  * render della barra, quindi deve essere pura e senza dipendenze da Tauri.
  */
 
+import { isWindowsPath, normalizeProjectPath } from '../utils/paths.ts';
+
 /** Ciò che identifica una copia, ricavato dal suo stato git. */
 export interface RepositoryIdentity {
 	repoSlug?: string | null;
@@ -36,6 +38,30 @@ export interface RepositoryIdentity {
 
 /** Come si riconosce la seconda copia di un progetto. */
 export type IdentityKind = 'origin' | 'root-commit';
+
+/** Ultima identità nota di una copia: quella persistita o arrivata dallo snapshot dell'host. */
+export interface KnownCopyIdentity {
+	repoSlug?: string | null;
+	rootCommit?: string | null;
+}
+
+/**
+ * Chiave della cache di identità: macchina + percorso normalizzato col sistema
+ * della macchina che possiede la copia (R-MI-45).
+ *
+ * Senza la macchina due copie omonime (`C:\dev\omp` su due PC) si
+ * scambierebbero l'identità; senza il sistema giusto lo stesso percorso remoto
+ * avrebbe due chiavi a seconda di chi guarda (`/Users/x` letto da Windows).
+ */
+export function identityCacheKey(
+	machineId: string | null | undefined,
+	projectPath: string | null | undefined,
+	platform?: string | null
+): string | null {
+	const normalized = normalizeProjectPath(projectPath ?? '', isWindowsPath(platform));
+	if (!normalized) return null;
+	return `${machineId || 'local'}::${normalized.toLowerCase()}`;
+}
 
 export interface Identity {
 	kind: IdentityKind;

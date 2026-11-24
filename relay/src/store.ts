@@ -205,16 +205,49 @@ export class RelayStore {
 			`);
 			this.db.run('PRAGMA user_version = 4;');
 		}
+		if (currentVersion < 5) {
+			// R-MI-55: deposito del codice corto (solo indice, cifrato e scadenza)
+			// e R-REM-25/R-MI-52: il codice del telefono e il dispositivo che
+			// nasce da lui ricordano l'host che li ha creati.
+			this.db.run(`
+				CREATE TABLE IF NOT EXISTS mailbox (
+					id TEXT PRIMARY KEY,
+					payload TEXT NOT NULL,
+					created_by_host TEXT NOT NULL,
+					expires_at INTEGER NOT NULL
+				);
+				CREATE INDEX IF NOT EXISTS idx_mailbox_expiry ON mailbox (expires_at);
+			`);
+			const pairingColumns = this.db
+				.query<{ name: string }, []>('PRAGMA table_info(pairing_codes);')
+				.all();
+			if (!pairingColumns.some((column) => column.name === 'created_by_host')) {
+				this.db.run('ALTER TABLE pairing_codes ADD COLUMN created_by_host TEXT;');
+			}
+			const deviceColumns = this.db
+				.query<{ name: string }, []>('PRAGMA table_info(devices);')
+				.all();
+			if (!deviceColumns.some((column) => column.name === 'host_id')) {
+				this.db.run('ALTER TABLE devices ADD COLUMN host_id TEXT;');
+			}
+			this.db.run('PRAGMA user_version = 5;');
+		}
 	}
 
-	/** Registra un nuovo dispositivo client abbinato. */
-	createDevice(name: string, sessionHash: string, now: number): { id: string; name: string } {
+	/**
+	 * Registra un nuovo dispositivo client abbinato.
+	 *
+	 * `hostId` (R-REM-25, R-MI-52) e' l'host che ha generato il codice: solo lui
+	 * potra' revocare il telefono. `null` per i dispositivi abbinati con il
+	 * token amministratore o con un codice emesso da un telefono.
+	 */
+	createDevice(name: string, sessionHash: string, now: number, hostId: string | null = null): { id: string; name: string } {
 		const id = randomUUID();
 		this.db
 			.query(
-				'INSERT INTO devices (id, name, created_at, last_seen_at, session_hash, revoked) VALUES (?, ?, ?, ?, ?, 0);'
+				'INSERT INTO devices (id, name, created_at, last_seen_at, session_hash, revoked, host_id) VALUES (?, ?, ?, ?, ?, 0, ?);'
 			)
-			.run(id, name, now, now, sessionHash);
+			.run(id, name, now, now, sessionHash, hostId);
 		return { id, name };
 	}
 
@@ -489,6 +522,103 @@ export class RelayStore {
 		this.db
 			.query('INSERT INTO pairing_codes (code_hash, kind, created_by_device, expires_at) VALUES (?, ?, ?, ?);')
 			.run(codeHash, kind, createdByDevice, expiresAt);
+	}
+
+	/**
+	 * R-REM-25: codice emesso dall'host autenticato (non da un telefono). Il
+	 * mittente resta scritto, cosi' il dispositivo che nasce da quel codice
+	 * risulta abbinato a quell'host e solo lui puo' revocarlo.
+	 */
+	createHostPairingCode(codeHash: string, hostId: string, expiresAt: number): void {
+		this.db
+			.query('INSERT INTO pairing_codes (code_hash, kind, created_by_device, expires_at, created_by_host) VALUES (?, ?, NULL, ?, ?);')
+			.run(codeHash, 'device', expiresAt, hostId);
+	}
+
+	/**
+	 * Consuma un codice e dice chi lo ha emesso (telefono o host). `null` se il
+	 * codice non vale. Serve a legare il nuovo dispositivo all'host giusto.
+	 */
+	consumeDeviceCode(codeHash: string, now: number): { hostId: string | null } | null {
+		const row = this.db
+			.query<{ created_by_host: string | null; created_by_device: string | null }, [string, number]>(
+				`SELECT created_by_host, created_by_device FROM pairing_codes
+				 WHERE code_hash = ? AND kind = 'device' AND used_at IS NULL AND expires_at > ?
+				   AND (created_by_device IS NULL OR created_by_device IN (SELECT id FROM devices WHERE revoked = 0));`
+			)
+			.get(codeHash, now);
+		if (!row) return null;
+		const res = this.db
+			.query(`UPDATE pairing_codes SET used_at = ? WHERE code_hash = ? AND used_at IS NULL;`)
+			.run(now, codeHash);
+		if (res.changes === 0) return null;
+		return { hostId: row.created_by_host };
+	}
+
+	/** Codici ancora validi emessi da un host: la stessa quota dei telefoni. */
+	countActiveCodesForHost(hostId: string, now: number): number {
+		if (this.closed) return 0;
+		const row = this.db
+			.query<{ count: number }, [string, number]>(
+				'SELECT COUNT(*) as count FROM pairing_codes WHERE created_by_host = ? AND used_at IS NULL AND expires_at > ?;'
+			)
+			.get(hostId, now);
+		return row?.count ?? 0;
+	}
+
+	/**
+	 * R-MI-55: deposito del codice corto. Il relay conserva solo l'impronta
+	 * dell'indice e il cifrato, mai il codice: `expiresAt` e' l'unico dato che
+	 * gli serve per scartarlo. Un secondo deposito con lo stesso indice
+	 * sostituisce il precedente (chi rigenera il codice corto non lascia
+	 * copie vecchie), e questo non allunga la vita del deposito.
+	 */
+	depositMailbox(id: string, payload: string, hostId: string, expiresAt: number): number {
+		this.db
+			.query('INSERT OR REPLACE INTO mailbox (id, payload, created_by_host, expires_at) VALUES (?, ?, ?, ?);')
+			.run(id, payload, hostId, expiresAt);
+		return expiresAt;
+	}
+
+	/**
+	 * R-MI-55: ritiro una volta sola. `DELETE ... RETURNING` e' atomico in
+	 * SQLite, quindi due ritiri insieme non ottengono entrambi il contenuto.
+	 */
+	withdrawMailbox(id: string, now: number): string | null {
+		const row = this.db
+			.query<{ payload: string }, [string, number]>(
+				'DELETE FROM mailbox WHERE id = ? AND expires_at > ? RETURNING payload;'
+			)
+			.get(id, now);
+		return row?.payload ?? null;
+	}
+
+	/** Pulizia dei depositi scaduti, insieme ai codici. */
+	pruneMailbox(now: number): number {
+		return this.db.query('DELETE FROM mailbox WHERE expires_at <= ?;').run(now).changes;
+	}
+
+	/**
+	 * R-MI-52: un host revoca un telefono che ha abbinato lui. Nessun altro
+	 * host puo' revocare un dispositivo di un altro: la condizione su
+	 * `host_id` lo impedisce, e il chiamante distingue «non trovato» da
+	 * «non tuo» con `deviceBelongsToHost`.
+	 */
+	revokeDeviceForHost(deviceId: string, hostId: string): boolean {
+		const res = this.db
+			.query('UPDATE devices SET revoked = 1 WHERE id = ? AND host_id = ? AND revoked = 0;')
+			.run(deviceId, hostId);
+		if (res.changes === 0) return false;
+		this.db.query('DELETE FROM push_subscriptions WHERE device_id = ?;').run(deviceId);
+		return true;
+	}
+
+	/** Il dispositivo esiste ed e' stato abbinato da questo host? */
+	deviceBelongsToHost(deviceId: string, hostId: string): boolean {
+		const row = this.db
+			.query<{ id: string }, [string, string]>('SELECT id FROM devices WHERE id = ? AND host_id = ? LIMIT 1;')
+			.get(deviceId, hostId);
+		return row !== null && row !== undefined;
 	}
 
 	/** Consuma un codice di abbinamento verificando tipo, validita' temporale e unicita'. */

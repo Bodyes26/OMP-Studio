@@ -168,18 +168,30 @@ export function divergenceSummary(divergence: CopyDivergence): string[] {
 	return lines;
 }
 
+/**
+ * Perche' una copia indietro non avanza, in una frase (R-MI-27, R-MI-47).
+ * `conflict:` porta i file che le modifiche locali non riescono a
+ * riapplicare; `journalPeer` aspetta che unisca l'altra macchina (R-MI-48).
+ */
+export function pendingReasonText(branch: BranchSync): string {
+	const values = { branch: branch.name, count: branch.behind };
+	const reason = branch.reason ?? '';
+	if (reason.startsWith('conflict:')) {
+		const files = reason.slice('conflict:'.length).split(',').filter(Boolean);
+		return m.copies_pending_conflict({ ...values, files: files.join(', ') });
+	}
+	switch (reason) {
+		case 'busy': return m.copies_pending_busy(values);
+		// Un worktree con HEAD staccato: avanzare la branch lo lascerebbe indietro.
+		case 'detached': return m.copies_pending_detached(values);
+		case 'journalPeer': return m.copies_pending_journal_peer(values);
+		default: return m.copies_pending_failed({ branch: branch.name, error: reason });
+	}
+}
+
 /** Righe «da aggiornare» per il pannello del progetto (R-MI-27). */
 export function pendingSummary(pending: readonly BranchSync[]): string[] {
-	return pending.map((branch) => {
-		const values = { branch: branch.name, count: branch.behind };
-		switch (branch.reason) {
-			case 'dirty': return m.copies_pending_dirty(values);
-			case 'busy': return m.copies_pending_busy(values);
-			// Un worktree con HEAD staccato: avanzare la branch lo lascerebbe indietro.
-			case 'detached': return m.copies_pending_detached(values);
-			default: return m.copies_pending_failed({ branch: branch.name, error: branch.reason ?? '' });
-		}
-	});
+	return pending.map(pendingReasonText);
 }
 
 /** Una copia di un'altra macchina con la stessa storia ma senza origin (R-MI-32). */

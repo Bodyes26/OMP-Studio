@@ -13,12 +13,14 @@
 -->
 <script lang="ts">
 	import type { CopyMark } from '#lib/stores/projectCopies.ts';
+	import { motionReduced } from '#lib/agent/motionState.svelte.ts';
 
 	let {
 		kind,
 		copies = [],
 		diverge = false,
 		pending = false,
+		syncing = false,
 		size = 14
 	}: {
 		kind: 'here' | 'remote' | 'offline' | 'copies';
@@ -27,9 +29,15 @@
 		diverge?: boolean;
 		/** Commit da ricevere in attesa della cartella libera («da aggiornare»). */
 		pending?: boolean;
+		/** Giro di sincronizzazione in corso: le frecce si muovono (R-MI-50). */
+		syncing?: boolean;
 		/** Altezza in px; la larghezza segue il disegno. */
 		size?: number;
 	} = $props();
+
+	// Le frecce si animano solo con almeno una coppia di copie e senza
+	// movimento ridotto: il movimento racconta il giro, non decora.
+	const animate = $derived(syncing && !diverge && copies.length > 1 && !motionReduced());
 
 	// Geometria su una griglia alta 16: gli schermi delle copie sono larghi 9,
 	// distanziati 7 (9 con il ≠, che ha bisogno di aria per leggersi).
@@ -85,6 +93,7 @@
 				<path
 					stroke-width="1.3"
 					d="M{link.x1 + 1} 6.4H{link.x2 - 1}m-1.4-1.4 1.4 1.4-1.4 1.4M{link.x2 - 1} 9.8H{link.x1 + 1}m1.4-1.4-1.4 1.4 1.4 1.4"
+					class:syncing={animate}
 				/>
 			{/if}
 			{#if pending && !link.diverge && index === 0}
@@ -116,5 +125,18 @@
 	.pending {
 		fill: currentColor;
 		stroke: none;
+	}
+	/* Giro in corso (R-MI-50): le frecce scorrono piano, andata e ritorno. Il
+	   segno e' gia' quello di sempre; il movimento dice solo «sta parlando».
+	   Durata lunga: un lampeggio a ogni giro sembrerebbe un errore. */
+	.syncing {
+		animation: arrows-flow 1400ms var(--ease-in-out) infinite alternate;
+	}
+	@keyframes arrows-flow {
+		from { transform: translateX(-0.7px); }
+		to { transform: translateX(0.7px); }
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.syncing { animation: none; }
 	}
 </style>

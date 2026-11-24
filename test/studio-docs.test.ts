@@ -351,6 +351,122 @@ describe('Diario: tool project_docs', () => {
 	});
 });
 
+describe('Diario: commit di chi scrive (R-MI-46)', () => {
+	const git = (args: string[], cwd = root) =>
+		execFileSync('git', args, {
+			cwd,
+			encoding: 'utf8',
+			stdio: ['ignore', 'pipe', 'pipe'],
+			env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' }
+		}).trim();
+
+	function gitRepo(): void {
+		git(['init', '-q', '-b', 'main']);
+		write('a.txt', 'a\n');
+		git(['add', 'a.txt']);
+		git(['commit', '-qm', 'init']);
+	}
+
+	it('committa solo il file del diario e lascia in stage quello dell\'utente', async () => {
+		gitRepo();
+		await runProjectDocs(root, { action: 'init' }, 'sess1234abcd', NOW);
+		git(['add', '-A']);
+		git(['commit', '-qm', 'diario iniziale']);
+		// Un file dell'utente gia' in stage: non deve entrare nel commit.
+		write('mine.txt', 'mio\n');
+		git(['add', 'mine.txt']);
+
+		const res = await runProjectDocs(root, { action: 'update', doc: 'diario', text: 'Voce di fine Nightly' }, 'sess1234abcd', NOW);
+		assert.equal(res.isError, undefined, res.content[0].text);
+		assert.match(res.content[0].text, /Commit [0-9a-f]{8}/);
+
+		assert.equal(git(['show', '--format=%s', '--no-patch', 'HEAD']), 'diario: 2026-10-08');
+		assert.equal(git(['show', '--name-only', '--format=', 'HEAD']), 'docs/diario/2026-10.md');
+		// Il file dell'utente resta in stage, fuori dal commit.
+		assert.equal(git(['diff', '--cached', '--name-only']), 'mine.txt');
+		assert.equal(git(['status', '--porcelain']), 'A  mine.txt');
+	});
+
+	it('committa il documento tematico con «docs: <ruolo>»', async () => {
+		gitRepo();
+		await runProjectDocs(root, { action: 'init' }, 'sess1234abcd', NOW);
+		// L'init crea i file: si committano a mano per isolare il caso.
+		git(['add', '-A']);
+		git(['commit', '-qm', 'diario iniziale']);
+		const res = await runProjectDocs(root, { action: 'update', doc: 'scopo', mode: 'add_section', section: 'Per chi', text: 'Per Maurizio.' }, 'sess1234abcd', NOW);
+		assert.equal(res.isError, undefined, res.content[0].text);
+		assert.equal(git(['show', '--format=%s', '--name-only', 'HEAD']), 'docs: scopo\n\ndocs/progetto/scopo.md');
+		assert.equal(git(['status', '--porcelain']), '');
+	});
+
+	it('non committa con HEAD staccato e lo dice nel risultato', async () => {
+		gitRepo();
+		await runProjectDocs(root, { action: 'init' }, 'sess1234abcd', NOW);
+		git(['add', '-A']);
+		git(['commit', '-qm', 'diario iniziale']);
+		git(['checkout', '-q', '--detach']);
+		const res = await runProjectDocs(root, { action: 'update', doc: 'diario', text: 'Voce' }, 'sess1234abcd', NOW);
+		assert.match(res.content[0].text, /HEAD staccato/);
+		assert.equal(git(['status', '--porcelain']), 'M docs/diario/2026-10.md');
+	});
+
+	it('non committa durante un merge in corso e lascia il file dov\'e\'', async () => {
+		gitRepo();
+		await runProjectDocs(root, { action: 'init' }, 'sess1234abcd', NOW);
+		git(['add', '-A']);
+		git(['commit', '-qm', 'diario iniziale']);
+		// Un merge fermo su un conflitto: il marcatore basta a fermare il commit.
+		git(['checkout', '-q', '-b', 'side']);
+		write('a.txt', 'side\n');
+		git(['commit', '-qam', 'side']);
+		git(['checkout', '-q', 'main']);
+		write('a.txt', 'main\n');
+		git(['commit', '-qam', 'main']);
+		try {
+			git(['merge', '-q', 'side']);
+		} catch {
+			// conflitto atteso
+		}
+		assert.ok(existsSync(join(root, '.git/MERGE_HEAD')));
+		const before = git(['rev-parse', 'HEAD']);
+		const res = await runProjectDocs(root, { action: 'update', doc: 'diario', text: 'Voce' }, 'sess1234abcd', NOW);
+		assert.match(res.content[0].text, /merge o rebase in corso/);
+		assert.equal(git(['rev-parse', 'HEAD']), before);
+	});
+
+	it('fuori da git scrive e basta, senza aggiungere avvisi', async () => {
+		await runProjectDocs(root, { action: 'init' }, 'sess1234abcd', NOW);
+		const res = await runProjectDocs(root, { action: 'update', doc: 'diario', text: 'Voce' }, 'sess1234abcd', NOW);
+		assert.equal(res.isError, undefined);
+		assert.doesNotMatch(res.content[0].text, /Commit|non committato/);
+	});
+
+	it('il cambio locale|repo committa i file spostati', async () => {
+		gitRepo();
+		await runProjectDocs(root, { action: 'init' }, 'sess1234abcd', NOW);
+		git(['add', '-A']);
+		git(['commit', '-qm', 'diario iniziale']);
+		const commands = new Map<string, { handler: (args: string, ctx: unknown) => Promise<void> }>();
+		const notes: string[] = [];
+		const zod: Record<string, unknown> = {};
+		for (const k of ['object', 'string', 'boolean', 'enum', 'optional', 'describe']) zod[k] = () => zod;
+		studioDocsExtension({
+			zod: zod as never,
+			registerTool: () => {},
+			registerCommand: (name, cmd) => commands.set(name, cmd as never),
+			on: () => {},
+			sendUserMessage: () => {}
+		});
+		await commands.get('diario')!.handler('locale', { cwd: root, ui: { notify: (m: string) => notes.push(m) } });
+		assert.match(notes.pop() ?? '', /fuori da git/);
+		// Il manifest e le cancellazioni sono nel commit; la cartella e' pulita.
+		assert.equal(git(['status', '--porcelain']), '');
+		const files = git(['show', '--name-only', '--format=', 'HEAD']);
+		assert.match(files, /^\.omp\/progetto\.json$/m);
+		assert.match(files, /^docs\/diario\/2026-10\.md$/m);
+	});
+});
+
 describe('Diario: corsie e prompt', () => {
 	it('in una corsia (worktree) il diario e\' quello del checkout principale', () => {
 		const git = (args: string[], cwd = root) =>

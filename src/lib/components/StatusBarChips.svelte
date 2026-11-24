@@ -6,19 +6,22 @@
 	import { projectStore } from '#lib/stores/projects.svelte.ts';
 	import { linkStore } from '#lib/backend/link.svelte.ts';
 	import { remoteJobs } from '#lib/backend/remoteJobs.svelte.ts';
+	import { copySyncStore } from '#lib/stores/copySync.svelte.ts';
+	import { projectGroup } from '#lib/stores/projectMachines.svelte.ts';
+	import { machinesChipSummary, type MachineDotState } from '#lib/stores/machineStatus.ts';
+	import { settingsStore } from '#lib/stores/settings.svelte.ts';
 	import { contextMenu } from '#lib/contextMenu.svelte.ts';
 	import Tooltip from '#lib/ui/Tooltip.svelte';
-	import { IconPin, IconRemote, IconMonitor, IconTerminal } from '#lib/icons.ts';
+	import MachinesPopover from './machines/MachinesPopover.svelte';
+	import { IconPin, IconRemote, IconMonitor, IconTerminal, IconRefresh } from '#lib/icons.ts';
 
-	// Companion, coda globale e controllo remoto riguardano tutta l'app, non il
+	// Companion, coda globale e macchine riguardano tutta l'app, non il
 	// progetto attivo: stanno nella barra di stato cosi' la barra superiore
 	// resta alle tessere dei progetti.
 	let {
-		onQueueClick,
-		onRemoteSettings
+		onQueueClick
 	}: {
 		onQueueClick?: (anchor: HTMLElement) => void;
-		onRemoteSettings?: () => void;
 	} = $props();
 
 	const controlledMachine = $derived(linkStore.machineFor(projectStore.activeProject?.machineId));
@@ -26,6 +29,50 @@
 	// visibile cosa gira e chi l'ha chiesto, anche senza aprire le impostazioni.
 	const incomingJob = $derived(remoteJobs.incomingActive[0] ?? null);
 	$effect(() => { remoteJobs.start(); });
+
+	// Chip «Macchine» (R-MI-49): c'e' con almeno una macchina abbinata, con un
+	// punto per macchina e l'indicatore animato durante un giro di copie.
+	const summary = $derived(machinesChipSummary(linkStore.status.peers.map((peer) => ({
+		id: peer.id,
+		name: peer.name,
+		online: peer.online,
+		compatible: peer.compatible,
+		offlineReason: linkStore.offlineReason(peer.id)
+	}))));
+	const projectMachine = $derived.by(() => {
+		const project = projectStore.activeProject;
+		if (!project) return null;
+		const group = projectGroup(project);
+		if (group.length < 2) return null;
+		const ids = new Set(group.flatMap((copy) => copy.machineId ? [copy.machineId] : []));
+		if (ids.size !== 1) return null;
+		return summary.dots.find((dot) => ids.has(dot.id)) ?? null;
+	});
+	const syncing = $derived(copySyncStore.anyRunning);
+
+	let machinesOpen = $state(false);
+	let machinesAnchor = $state<HTMLElement | null>(null);
+
+	// L'etichetta accessibile dice nome e stato di ogni macchina, piu' il giro
+	// in corso: i punti colorati da soli non bastano a chi non li vede.
+	const machinesAria = $derived(m.machines_chip_aria({
+		devices: summary.dots.map((dot) => `${dot.name} (${stateLabel(dot.state)})`).join(', ')
+	}) + (syncing ? ` · ${m.machines_chip_syncing()}` : ''));
+
+	function stateLabel(state: MachineDotState): string {
+		switch (state) {
+			case 'online': return m.machines_state_online();
+			case 'relay': return m.machines_state_relay();
+			case 'incompatible': return m.machines_state_incompatible();
+			default: return m.machines_state_offline();
+		}
+	}
+
+	function toggleMachines(event: MouseEvent): void {
+		event.stopPropagation();
+		machinesAnchor = event.currentTarget as HTMLElement;
+		machinesOpen = !machinesOpen;
+	}
 </script>
 
 <Tooltip text={m.statusbar_companion_chip_title()} placement="top">
@@ -53,13 +100,57 @@
 	</Tooltip>
 {/if}
 
+{#if summary.visible}
+	<Tooltip text={m.machines_chip_title()} placement="top">
+		<button
+			type="button"
+			class="statusbar-chip brand machines-chip"
+			class:all-off={!summary.anyOnline}
+			aria-expanded={machinesOpen}
+			aria-haspopup="dialog"
+			onclick={toggleMachines}
+			aria-label={machinesAria}
+		>
+			{#if syncing}
+				<span class="sync-mark" aria-hidden="true"><IconRefresh size={12} /></span>
+			{/if}
+			<span class="dots" aria-hidden="true">
+				{#each summary.dots as dot (dot.id)}
+					<span
+						class="dot"
+						class:online={dot.state === 'online'}
+						class:relay={dot.state === 'relay'}
+						class:incompatible={dot.state === 'incompatible'}
+					></span>
+				{/each}
+			</span>
+			<span>{projectMachine ? `${projectMachine.name} · ${stateLabel(projectMachine.state)}` : m.machines_chip_label()}</span>
+		</button>
+	</Tooltip>
+	<MachinesPopover open={machinesOpen} anchor={machinesAnchor} onClose={() => (machinesOpen = false)} />
+{/if}
+
 {#if controlledMachine}
 	<Tooltip text={m.statusbar_machine_chip_title({ name: controlledMachine.name })} placement="top">
 		<button
 			type="button"
 			class="statusbar-chip brand"
 			class:offline={!controlledMachine.online}
-			onclick={(e) => { e.stopPropagation(); onRemoteSettings?.(); }}
+			onclick={(e) => { e.stopPropagation(); settingsStore.openDevice('computer', controlledMachine.id); }}
+			oncontextmenu={(e) => {
+				e.preventDefault();
+				e.stopPropagation();
+				contextMenu.open(e, {
+					label: controlledMachine.name,
+					items: [
+						{
+							kind: 'item',
+							label: m.statusbar_machine_chip_open_device({ name: controlledMachine.name }),
+							run: () => settingsStore.openDevice('computer', controlledMachine.id)
+						}
+					]
+				});
+			}}
 			aria-label={m.statusbar_machine_chip_aria({ name: controlledMachine.name })}
 		>
 			<IconMonitor size={13} />
@@ -73,7 +164,7 @@
 		<button
 			type="button"
 			class="statusbar-chip brand"
-			onclick={(e) => { e.stopPropagation(); onRemoteSettings?.(); }}
+			onclick={(e) => { e.stopPropagation(); settingsStore.openDevice('computer', incomingJob.machineId); }}
 			aria-label={m.statusbar_exec_chip_aria({ name: incomingJob.machineName })}
 		>
 			<IconTerminal size={13} />
@@ -91,7 +182,7 @@
 		<button
 			type="button"
 			class="statusbar-chip brand"
-			onclick={(e) => { e.stopPropagation(); onRemoteSettings?.(); }}
+			onclick={(e) => { e.stopPropagation(); settingsStore.openSection('devices'); }}
 			oncontextmenu={(e) => {
 				e.preventDefault();
 				e.stopPropagation();
@@ -106,7 +197,7 @@
 						{
 							kind: 'item',
 							label: m.statusbar_remote_chip_settings(),
-							run: () => onRemoteSettings?.()
+							run: () => settingsStore.openSection('devices')
 						}
 					]
 				});
@@ -152,7 +243,7 @@
 		box-shadow: 0 0 0 1px var(--brand);
 	}
 
-	/* Coda e remoto compaiono solo quando c'e' qualcosa: il colore del brand
+	/* Coda e macchine compaiono solo quando c'e' qualcosa: il colore del brand
 	   dice che sono uno stato, non un comando sempre presente. */
 	.statusbar-chip.brand {
 		color: var(--brand-ink);
@@ -174,5 +265,38 @@
 		color: var(--brand-ink);
 		border-color: color-mix(in srgb, var(--brand) 40%, var(--line-strong));
 		background: color-mix(in oklch, var(--brand) 12%, transparent);
+	}
+
+	/* Punti delle macchine: 5 px, in fila. Il colore e' l'unico segnale del
+	   chip; l'etichetta accessibile dice nome e stato di ognuna. */
+	.machines-chip .dots {
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
+	}
+	.machines-chip .dot {
+		width: 5px;
+		height: 5px;
+		border-radius: var(--radius-full);
+		background: var(--ink-faint);
+	}
+	.machines-chip .dot.online { background: var(--success); }
+	.machines-chip .dot.relay { background: var(--warn); }
+	.machines-chip .dot.incompatible { background: var(--warn); }
+	.machines-chip.all-off { color: var(--ink-faint); border-style: dashed; }
+
+	/* Giro di sincronizzazione in corso: una freccia che gira piano. Con il
+	   movimento ridotto resta ferma e il testo accessibile dice lo stesso. */
+	.sync-mark {
+		display: inline-flex;
+		align-items: center;
+		color: var(--brand-ink);
+		animation: machines-spin 1400ms linear infinite;
+	}
+	@keyframes machines-spin {
+		to { transform: rotate(360deg); }
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.sync-mark { animation: none; }
 	}
 </style>

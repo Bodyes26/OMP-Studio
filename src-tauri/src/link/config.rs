@@ -22,10 +22,19 @@ impl Address {
         Self { id: addr.id.to_string(), relay: relay.to_owned(), ips: addr.ip_addrs().copied().collect() }
     }
     pub(crate) fn endpoint(&self, expected_relay: &str) -> Result<EndpointAddr, String> {
-        if self.relay != expected_relay { return Err("Pairing code uses a different relay".into()); }
+        // R-MI-54: l'abbinamento in rete locale non ha ancora nessun relay su
+        // una delle due macchine. Con un relay configurato qui resta il
+        // controllo di identita' dell'indirizzo; senza, valgono solo gli
+        // indirizzi diretti (e il relay del peer, se ne dichiara uno).
+        if !expected_relay.is_empty() && self.relay != expected_relay {
+            return Err("Pairing code uses a different relay".into());
+        }
         let id: EndpointId = self.id.parse().map_err(|_| "Invalid endpoint identity")?;
-        let relay: RelayUrl = self.relay.parse().map_err(|_| "Invalid relay URL")?;
-        let mut addr = EndpointAddr::new(id).with_relay_url(relay);
+        let mut addr = EndpointAddr::new(id);
+        if !self.relay.is_empty() {
+            let relay: RelayUrl = self.relay.parse().map_err(|_| "Invalid relay URL")?;
+            addr = addr.with_relay_url(relay);
+        }
         for ip in &self.ips { addr = addr.with_ip_addr(*ip); }
         Ok(addr)
     }

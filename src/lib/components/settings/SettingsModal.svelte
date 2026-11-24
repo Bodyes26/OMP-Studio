@@ -4,7 +4,6 @@
 	import { settingsStore, type SettingsSection } from '#lib/stores/settings.svelte.ts';
 	import { modelSettingsStore } from '#lib/stores/modelSettings.svelte.ts';
 	import Dialog from '#lib/ui/Dialog.svelte';
-	import ColumnTabs from '#lib/ui/ColumnTabs.svelte';
 	import Tooltip from '#lib/ui/Tooltip.svelte';
 	import StatusMark from '#lib/ui/StatusMark.svelte';
 	import RolesTab from '../models/RolesTab.svelte';
@@ -23,39 +22,56 @@
 	import GithubSection from './GithubSection.svelte';
 	import DoctorSection from './DoctorSection.svelte';
 	import CommandsSection from './CommandsSection.svelte';
-	import RemoteSection from './RemoteSection.svelte';
-	import InstancesSection from './InstancesSection.svelte';
+	import DevicesSection from './devices/DevicesSection.svelte';
+	import PairRequestDialog from './devices/PairRequestDialog.svelte';
 	import BackgroundJobsSection from './BackgroundJobsSection.svelte';
 	import StatsSection from './StatsSection.svelte';
 	import { doctorStore } from '#lib/stores/doctor.svelte.ts';
+	import { studioUpdaterStore } from '#lib/stores/studioUpdater.svelte.ts';
 
-	// Navigazione di primo livello: ogni voce apre una sezione del centro
-	// impostazioni. "Modelli" e' l'unica con le tre schede orizzontali storiche.
-	const NAV_SECTIONS = $derived.by((): { id: SettingsSection; label: string }[] => [
-		{ id: 'general', label: m.settings_nav_general() },
-		{ id: 'appearance', label: m.settings_nav_appearance() },
-		{ id: 'companion', label: m.settings_nav_companion() },
-		{ id: 'accessibility', label: m.settings_nav_accessibility() },
-		{ id: 'notifications', label: m.settings_nav_notifications() },
-		{ id: 'projectBar', label: m.settings_nav_project_bar() },
-		{ id: 'workspace', label: m.settings_nav_workspace() },
-		{ id: 'tasks', label: m.settings_nav_tasks() },
-		{ id: 'suggestions', label: m.settings_nav_suggestions() },
-		{ id: 'commands', label: m.settings_nav_commands() },
-		{ id: 'backgroundJobs', label: m.settings_nav_background_jobs() },
-		{ id: 'stats', label: m.settings_nav_stats() },
-		{ id: 'models', label: m.settings_nav_models() },
-		{ id: 'github', label: 'GitHub' },
-		{ id: 'doctor', label: m.settings_nav_doctor() },
-		{ id: 'remote', label: m.settings_nav_remote() },
-		{ id: 'instances', label: m.instances_title() }
+	type ModelTab = typeof modelSettingsStore.activeTab;
+	type NavItem = { id: SettingsSection | 'updates'; label: string; modelTab?: ModelTab };
+	const NAV_GROUPS = $derived.by((): { label: string; items: NavItem[] }[] => [
+		{ label: 'omp', items: [
+			{ id: 'models', modelTab: 'catalog', label: m.settings_redo_models() },
+			{ id: 'models', modelTab: 'roles', label: m.settings_models_tab_roles() },
+			{ id: 'models', modelTab: 'providers', label: m.settings_models_tab_providers() },
+			{ id: 'stats', label: m.settings_nav_stats() }
+		] },
+		{ label: 'Studio', items: [
+			{ id: 'devices', label: m.devices_title() },
+			{ id: 'updates', label: m.settings_redo_updates() },
+			{ id: 'general', label: m.settings_nav_general() },
+			{ id: 'appearance', label: m.settings_nav_appearance() },
+			{ id: 'accessibility', label: m.settings_nav_accessibility() },
+			{ id: 'notifications', label: m.settings_nav_notifications() },
+			{ id: 'companion', label: m.settings_nav_companion() }
+		] },
+		{ label: m.settings_nav_workspace(), items: [
+			{ id: 'workspace', label: m.settings_nav_workspace() },
+			{ id: 'projectBar', label: m.settings_nav_project_bar() },
+			{ id: 'tasks', label: m.settings_nav_tasks() },
+			{ id: 'commands', label: m.settings_nav_commands() },
+			{ id: 'suggestions', label: m.settings_nav_suggestions() },
+			{ id: 'backgroundJobs', label: m.settings_nav_background_jobs() },
+			{ id: 'github', label: 'GitHub' },
+			{ id: 'doctor', label: m.settings_nav_doctor() }
+		] }
 	]);
 
-	const MODEL_TABS = $derived([
-		{ id: 'roles', label: m.settings_models_tab_roles() },
-		{ id: 'catalog', label: m.settings_models_tab_catalog({ count: (modelSettingsStore.availableCatalog.length > 0 ? modelSettingsStore.availableCatalog : modelSettingsStore.catalog).length }) },
-		{ id: 'providers', label: m.settings_models_tab_providers() }
-	]);
+	function selected(item: NavItem): boolean {
+		return item.id === settingsStore.section &&
+			(!item.modelTab || item.modelTab === modelSettingsStore.activeTab);
+	}
+
+	function select(item: NavItem): void {
+		if (item.id === 'updates') {
+			studioUpdaterStore.openModal();
+			return;
+		}
+		if (item.modelTab) modelSettingsStore.activeTab = item.modelTab;
+		settingsStore.section = item.id;
+	}
 
 	// Stato di una sezione letto da un numero, non da un puntino colorato: gli
 	// avvisi in ambra (attention), gli aggiornamenti disponibili neutri.
@@ -84,7 +100,7 @@
 
 	let showDiscardConfirm = $state(false);
 
-	const sectionLabel = $derived(NAV_SECTIONS.find((s) => s.id === settingsStore.section)?.label ?? '');
+	const sectionLabel = $derived(NAV_GROUPS.flatMap((group) => group.items).find(selected)?.label ?? '');
 	const blockingCount = $derived(modelSettingsStore.attentionLevel === 'warn' ? modelSettingsStore.attentionCount : 0);
 
 	function requestClose() {
@@ -178,38 +194,32 @@
 	<div class="modal-layout">
 		<!-- Nav di primo livello -->
 		<nav class="section-nav" aria-label={m.ui_settingsmodal_sezioni_impostazioni_7e84()}>
-			{#each NAV_SECTIONS as s (s.id)}
-				{@const count = navCounts[s.id]}
-				<Tooltip text={count?.detail} placement="bottom" disabled={!count}>
-					<button
-						type="button"
-						class="section-nav-item"
-						class:active={settingsStore.section === s.id}
-						aria-current={settingsStore.section === s.id ? 'page' : undefined}
-						onclick={() => (settingsStore.section = s.id)}
-					>
-						<span class="section-nav-label">{s.label}</span>
-						{#if count}
-							<span class="ui-count" class:attention={count.attention}>{count.value}</span>
-						{/if}
-					</button>
-				</Tooltip>
+			{#each NAV_GROUPS as group (group.label)}
+				<div class="section-nav-group">
+					<span class="section-nav-heading">{group.label}</span>
+					{#each group.items as item (item.modelTab ?? item.id)}
+						{@const count = item.id === 'updates' || (item.modelTab && item.modelTab !== 'catalog') ? undefined : navCounts[item.id]}
+						<Tooltip text={count?.detail} placement="bottom" disabled={!count}>
+							<button
+								type="button"
+								class="section-nav-item"
+								class:active={selected(item)}
+								aria-current={selected(item) ? 'page' : undefined}
+								onclick={() => select(item)}
+							>
+								<span class="section-nav-label">{item.label}</span>
+								{#if count}
+									<span class="ui-count" class:attention={count.attention}>{count.value}</span>
+								{/if}
+							</button>
+						</Tooltip>
+					{/each}
+				</div>
 			{/each}
 		</nav>
 
 		<div class="section-content">
 			{#if settingsStore.section === 'models'}
-				<div class="models-tabs">
-					<ColumnTabs
-						tabs={MODEL_TABS}
-						selected={modelSettingsStore.activeTab}
-						onChange={(id) => (modelSettingsStore.activeTab = id as typeof modelSettingsStore.activeTab)}
-						ariaLabel={m.ui_settingsmodal_sezioni_impostazioni_modelli_b9dd()}
-						tabIdPrefix="settings-models-tab-"
-						panelIdPrefix="settings-models-panel-"
-					/>
-				</div>
-
 				<div class="modal-body">
 					{#if modelSettingsStore.loading}
 						<div class="loading-state">
@@ -217,12 +227,7 @@
 							<span>{m.ui_settingsmodal_caricamento_configurazione_modelli_omp_71c9()}</span>
 						</div>
 					{:else}
-						<div
-							id={`settings-models-panel-${modelSettingsStore.activeTab}`}
-							role="tabpanel"
-							aria-labelledby={`settings-models-tab-${modelSettingsStore.activeTab}`}
-							class="tab-panel"
-						>
+						<div class="tab-panel">
 							{#if modelSettingsStore.activeTab === 'roles'}
 								<RolesTab />
 							{:else if modelSettingsStore.activeTab === 'catalog'}
@@ -302,10 +307,8 @@
 						<GithubSection />
 					{:else if settingsStore.section === 'doctor'}
 						<DoctorSection />
-					{:else if settingsStore.section === 'remote'}
-						<RemoteSection />
-					{:else if settingsStore.section === 'instances'}
-						<InstancesSection />
+					{:else if settingsStore.section === 'devices'}
+						<DevicesSection />
 					{/if}
 				</div>
 			{/if}
@@ -313,8 +316,11 @@
 	</div>
 
 	{#snippet outside()}
-		<!-- Dialoghi secondari nel top layer (referto di salute e conferma di scarto) -->
+		<!-- Dialoghi secondari nel top layer (referto di salute, conferma di scarto
+		     e richieste di abbinamento in arrivo R-MI-54: queste ultime riguardano
+		     tutta l'app, non solo la sezione Dispositivi). -->
 		<ModelHealthModal />
+		<PairRequestDialog />
 
 		<Dialog
 			open={showDiscardConfirm}
@@ -356,10 +362,23 @@
 		overflow-y: auto;
 	}
 
-	/* Il Tooltip avvolge ogni voce: l'involucro deve occupare la riga intera. */
-	.section-nav > :global(.tooltip-wrapper) {
-		display: flex;
+	.section-nav-group {
+		display: grid;
+		gap: 2px;
 	}
+
+	.section-nav-group + .section-nav-group { margin-top: var(--space-3); }
+
+	.section-nav-heading {
+		padding: var(--space-1) var(--space-3);
+		font-size: var(--text-caption);
+		font-weight: 600;
+		letter-spacing: 0.05em;
+		text-transform: uppercase;
+		color: var(--ink-faint);
+	}
+
+	.section-nav-group > :global(.tooltip-wrapper) { display: flex; }
 
 	.section-nav-item {
 		flex: 1;
@@ -407,12 +426,6 @@
 		overflow: hidden;
 	}
 
-	.models-tabs {
-		flex-shrink: 0;
-		padding: 0 var(--space-4);
-		border-bottom: 1px solid var(--line);
-		background: var(--bg-raised);
-	}
 
 	.modal-body {
 		flex: 1;

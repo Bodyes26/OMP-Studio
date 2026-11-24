@@ -10,7 +10,7 @@
 	import { needsUpdate, peerUpdate, type WaitReason } from '#lib/backend/peerUpdate.svelte.ts';
 	import { studioUpdaterStore, formatVersion } from '#lib/stores/studioUpdater.svelte.ts';
 
-	let { machineId, compact = false }: { machineId: string; compact?: boolean } = $props();
+	let { machineId, compact = false, targetVersion }: { machineId: string; compact?: boolean; targetVersion?: string } = $props();
 
 	const machine = $derived(linkStore.machineFor(machineId));
 	const status = $derived(peerUpdate.statusFor(machineId));
@@ -35,14 +35,15 @@
 		}
 		return outdated ? m.peer_update_needed({ name, version: formatVersion(machine.version, { prefix: true }) || machine.version || '' }) : '';
 	});
-	const canStart = $derived(outdated && (!status || status.phase === 'failed'));
+	const targetAvailable = $derived(Boolean(machine?.online && targetVersion && machine.version !== targetVersion));
+	const canStart = $derived((outdated || targetAvailable) && (!status || status.phase === 'failed'));
 </script>
 
-{#if text}
+{#if text || canStart}
 	<div class="peer-update" class:compact role="status">
-		<span>{text}</span>
+		{#if text}<span>{text}</span>{/if}
 		{#if canStart && machine}
-			<button type="button" class="ui-button ui-button-secondary" onclick={() => void peerUpdate.request(machineId)}>{m.peer_update_button({ name: machine.name })}</button>
+			<button type="button" class="ui-button ui-button-secondary" onclick={() => void peerUpdate.request(machineId, targetVersion)}>{m.peer_update_button({ name: machine.name })}</button>
 		{/if}
 	</div>
 	{#if peerUpdate.error && canStart}<p class="peer-update-error" role="alert">{peerUpdate.error}</p>{/if}

@@ -80,13 +80,14 @@ class PeerUpdateStore {
 	}
 
 	/** Controlla sull'altra macchina e apre la conferma con la versione. */
-	async request(machineId: MachineId): Promise<void> {
+	async request(machineId: MachineId, targetVersion?: string): Promise<void> {
 		this.error = null;
 		const machine = linkStore.machineFor(machineId);
 		const own = studioUpdaterStore.currentVersion;
 		if (!machine || !own) return;
 		try {
-			const info = await invoke<StudioUpdateInfo>('check_studio_update', { channel: channelOf(own), preferredVersion: own }, { machine: machineId });
+			const preferredVersion = targetVersion ?? own;
+			const info = await invoke<StudioUpdateInfo>('check_studio_update', { channel: channelOf(preferredVersion), preferredVersion }, { machine: machineId });
 			this.proposal = { machine, own, info };
 		} catch (reason) {
 			this.error = reason instanceof Error ? reason.message : String(reason);
@@ -103,6 +104,10 @@ class PeerUpdateStore {
 	private async startOn(machineId: MachineId, info: StudioUpdateInfo): Promise<void> {
 		try {
 			await invoke('studio_update_remote_start', { version: info.latest_version }, { machine: machineId });
+			this.statuses = { ...this.statuses, [machineId]: {
+				version: info.latest_version, requestedBy: linkStore.status.machineId,
+				phase: 'starting', waitingFor: [], error: null
+			} };
 			this.follow(machineId, info.latest_version);
 		} catch (reason) {
 			this.error = reason instanceof Error ? reason.message : String(reason);

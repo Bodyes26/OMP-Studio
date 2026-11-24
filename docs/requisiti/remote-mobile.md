@@ -55,6 +55,7 @@ Le fonti complete sono nella conversazione di progetto del 2026-11-01 e nel diar
 | R-REM-22 | Attivo, approvato il 2026-11-22 (F12) | 2026-11-22: copie spente dall'ultimo stato; outbox `deferred_commands` nel relay (massimo 20 per macchina, annullabile da ogni dispositivo abbinato, svuotato alla revoca) | 2026-11-22: test del relay su rinvio, consegna in ordine, annullamento, tetto e revoca; prova con macchina spenta da fare |
 | R-REM-23 | Attivo, approvato il 2026-11-22 (F12) | 2026-11-22: `QuotaSheet.svelte` per macchina; striscia della macchina del ramo nella chat dei progetti condivisi | Prova reale da fare |
 | R-REM-24 | Attivo, approvato il 2026-11-22 (F12) | 2026-11-22: rifiuto nel relay (`sockets.ts`) e in Studio (`commands.ts`, canale `phone`) | 2026-11-22: test del relay (nessuno dei cinque comandi arriva alla macchina) e di Studio (rifiuto sul canale del telefono, non su quello fra computer) |
+| R-REM-25 | Attivo, approvato il 2026-11-23 (F31 di `multi-istanza.md`) | 2026-11-24: `remote_create_phone_code` e `remote_revoke_device`, relay `POST /v1/host/codes` e `DELETE /v1/host/devices/:id` autenticati dall'host | 2026-11-24: `relay/test/pairing.test.ts`; richiede il deploy del relay |
 
 «Solo anteprima» significa che il comportamento è stato esercitato nel prototipo con dati simulati (vedi «Prove sull'anteprima»), non nell'app reale. «Codice scritto» significa che l'implementazione esiste ma, per scelta dell'utente del 2026-11-01 («non fare test»), non sono stati scritti test nuovi né fatte prove nel browser o sul telefono. Per la Nightly del 2026-11-02 sono passati i controlli di pubblicazione (`npm run check`, `npm test`, `npm run check:commands`, `cargo test`; in `relay/` `bun run check`, `bun run check:web`, `bun test`, `bun run build:web`): provano che il codice compila e non rompe le suite esistenti, non gli scenari di accettazione. Quegli scenari, insieme a ricarica della PWA, animazioni, barra di stato e scorrimento della chat, sono stati confermati dall'utente il 2026-11-09 sull'app («ho provato tutto funziona»).
 
@@ -336,6 +337,14 @@ Nella chat la striscia delle quote è quella della macchina su cui gira il ramo.
 I comandi che le istanze di Studio si scambiano sul collegamento fra computer (`PEER_ONLY_COMMANDS`: lettura e scrittura della coda replicata, azioni sulle corsie dell'altra macchina, chiusura del progetto, auto-avvio esclusivo) non sono accettati sul canale del telefono: li rifiuta il relay e, per difesa in profondità, anche Studio. Su quel canale non c'è il confinamento dei percorsi e degli ambiti che Rust applica fra computer.
 
 **Accettazione:** un `write_queue` inviato al relay da un dispositivo abbinato torna rifiutato e non scrive nulla; lo stesso comando arrivato a Studio dal bridge del relay viene rifiutato.
+
+## R-REM-25 — Codice del telefono generato dal desktop
+
+**Fonti:** F31 del registro multi-istanza (2026-11-23). Precisa R-REM-16.
+
+Da Impostazioni › Dispositivi › «Aggiungi dispositivo › Telefono» il computer già abbinato al relay genera il codice per un nuovo telefono, con indirizzo, conto alla rovescia e copia, come fa oggi la PWA. Il relay accetta la richiesta solo dalla credenziale di un host abbinato.
+
+**Accettazione:** dal Mac si genera il codice, il telefono lo inserisce nella PWA e compare fra i dispositivi del Mac; un codice scaduto viene rifiutato.
 
 ---
 

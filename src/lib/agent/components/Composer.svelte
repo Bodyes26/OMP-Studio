@@ -116,6 +116,7 @@
 		dropTarget = false,
 		onSlashCommand,
 		onNewChat,
+		onBeforeFirstPrompt,
 		shellOverride,
 		machineChoices = [],
 		onPickMachine
@@ -126,6 +127,7 @@
 		dropTarget?: boolean;
 		onSlashCommand?: (raw: string) => boolean;
 		onNewChat?: () => void;
+		onBeforeFirstPrompt?: () => Promise<boolean>;
 		/**
 		 * Sostituisce la sagoma (editor e barra) restando dentro il composer:
 		 * avvisi e riga di stato restano dove sono. Lo usa /loop, che trasforma
@@ -812,6 +814,9 @@
 				if (editorRef) editorRef.clear();
 				currentTrigger = null;
 				return;
+			}
+			if (onBeforeFirstPrompt && !session.entries.some((entry: TranscriptEntry) => entry.kind === 'user')) {
+				if (!(await onBeforeFirstPrompt())) return;
 			}
 			const sent = [...attachments];
 			// «Usa nel messaggio»: la citazione della domanda a margine entra

@@ -97,6 +97,18 @@ pub struct StatsTotals {
     pub avg_ttft_ms: Option<f64>,
     pub avg_tokens_per_second: Option<f64>,
     pub last_activity: Option<i64>,
+    pub samples: StatsSamples,
+}
+
+#[derive(Serialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct StatsSamples {
+    ttft_sum: f64,
+    ttft_count: i64,
+    tps_sum: f64,
+    tps_count: i64,
+    no_cache_input_cost: f64,
+    cached_prompt_cost: f64,
 }
 
 impl From<&Facts> for StatsTotals {
@@ -121,6 +133,14 @@ impl From<&Facts> for StatsTotals {
             avg_ttft_ms: (f.ttft_n > 0).then(|| f.ttft_sum / f.ttft_n as f64),
             avg_tokens_per_second: (f.tps_n > 0).then(|| f.tps_sum / f.tps_n as f64),
             last_activity: (f.last_ts > 0).then_some(f.last_ts),
+            samples: StatsSamples {
+                ttft_sum: f.ttft_sum,
+                ttft_count: f.ttft_n,
+                tps_sum: f.tps_sum,
+                tps_count: f.tps_n,
+                no_cache_input_cost: f.no_cache_input_cost,
+                cached_prompt_cost: f.cached_prompt_cost,
+            },
         }
     }
 }
@@ -246,8 +266,9 @@ fn read_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<FactRow> {
 
 /// Righe di fatti che coprono `[cutoff, adesso]`, senza contare due volte
 /// un'ora: vedi l'unione in `messageSource` di omp.
-fn fact_rows(conn: &Connection, cutoff: i64) -> rusqlite::Result<Vec<FactRow>> {
+fn fact_rows(conn: &Connection, cutoff: i64, end: i64) -> rusqlite::Result<Vec<FactRow>> {
     let hi = (cutoff + HOUR_MS - 1).div_euclid(HOUR_MS) * HOUR_MS;
+    let end_hour = end.div_euclid(HOUR_MS) * HOUR_MS;
     let dirty: i64 = conn.query_row(
         &format!("SELECT COUNT(*) FROM (SELECT 1 FROM rollup_dirty LIMIT {})", EXACT_DIRTY_LIMIT + 1),
         [],
@@ -257,36 +278,39 @@ fn fact_rows(conn: &Connection, cutoff: i64) -> rusqlite::Result<Vec<FactRow>> {
 
     let mut rows = Vec::new();
     let clean = format!(
-        "SELECT {ROLLUP_COLUMNS} FROM message_rollup WHERE bucket >= ?1{}",
+        "SELECT {ROLLUP_COLUMNS} FROM message_rollup WHERE bucket >= ?1 AND bucket < ?2{}",
         if exact { " AND bucket NOT IN (SELECT bucket FROM rollup_dirty)" } else { "" }
     );
     let mut stmt = conn.prepare(&clean)?;
-    for row in stmt.query_map(params![hi], read_row)? {
+    for row in stmt.query_map(params![hi, end_hour], read_row)? {
         rows.push(row?);
     }
 
-    if cutoff < hi {
-        let partial = format!(
-            "SELECT {} FROM messages WHERE timestamp >= ?1 AND timestamp < ?2
-             GROUP BY 1, model, provider, folder, agent_type",
-            raw_facts(&format!("(timestamp / {HOUR_MS}) * {HOUR_MS}"), "")
-        );
-        let mut stmt = conn.prepare(&partial)?;
-        for row in stmt.query_map(params![cutoff, hi], read_row)? {
-            rows.push(row?);
-        }
+    // Legge le due ore di confine dalle righe grezze, senza includere timestamp
+    // oltre la fine condivisa fra i peer.
+    let partial = format!(
+        "SELECT {} FROM messages WHERE timestamp >= ?1 AND timestamp < ?2
+         GROUP BY 1, model, provider, folder, agent_type",
+        raw_facts(&format!("(timestamp / {HOUR_MS}) * {HOUR_MS}"), "")
+    );
+    let mut stmt = conn.prepare(&partial)?;
+    for row in stmt.query_map(params![cutoff, hi], read_row)? {
+        rows.push(row?);
+    }
+    for row in stmt.query_map(params![end_hour, end + 1], read_row)? {
+        rows.push(row?);
     }
 
     if exact {
         let dirty_raw = format!(
             "SELECT {} FROM rollup_dirty d
              JOIN messages m ON m.timestamp >= d.bucket AND m.timestamp < d.bucket + {HOUR_MS}
-             WHERE d.bucket >= ?1
+             WHERE d.bucket >= ?1 AND d.bucket < ?2
              GROUP BY d.bucket, m.model, m.provider, m.folder, m.agent_type",
             raw_facts("d.bucket", "m.")
         );
         let mut stmt = conn.prepare(&dirty_raw)?;
-        for row in stmt.query_map(params![hi], read_row)? {
+        for row in stmt.query_map(params![hi, end_hour], read_row)? {
             rows.push(row?);
         }
     }
@@ -310,7 +334,7 @@ fn summarize(
     project_paths: &[String],
 ) -> rusqlite::Result<StatsSummary> {
     let cutoff = now - range_hours * HOUR_MS;
-    let rows = fact_rows(conn, cutoff)?;
+    let rows = fact_rows(conn, cutoff, now)?;
 
     let first_hour = cutoff.div_euclid(HOUR_MS) * HOUR_MS;
     let last_hour = now.div_euclid(HOUR_MS) * HOUR_MS;
@@ -365,10 +389,11 @@ fn now_ms() -> i64 {
 /// l'interfaccia: `missing:` (nessun `stats.db`), `schema:` (formato di omp
 /// diverso da quello atteso).
 #[command]
-pub async fn stats_summary(range_hours: u32, project_paths: Vec<String>) -> Result<StatsSummary, String> {
+pub async fn stats_summary(range_hours: u32, project_paths: Vec<String>, end_at_ms: Option<i64>) -> Result<StatsSummary, String> {
     tokio::task::spawn_blocking(move || {
         let conn = open_readonly_db("stats.db").map_err(|e| format!("missing:{e}"))?;
-        summarize(&conn, now_ms(), i64::from(range_hours.clamp(1, 24 * 366)), &project_paths)
+        let end = end_at_ms.filter(|end| (0..i64::MAX - HOUR_MS).contains(end)).unwrap_or_else(now_ms);
+        summarize(&conn, end, i64::from(range_hours.clamp(1, 24 * 366)), &project_paths)
             .map_err(|e| format!("schema:{e}"))
     })
     .await

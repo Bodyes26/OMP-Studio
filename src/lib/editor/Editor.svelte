@@ -21,6 +21,7 @@
 	import { languageForFile } from './languages';
 	import { LOCAL_MACHINE, type UnlistenFn } from '#lib/backend/ipc.ts';
 	import { useProjectBackend } from '#lib/backend/projectScope.ts';
+	import { machineFeedback } from '#lib/stores/machineFeedback.svelte.ts';
 	const backend = useProjectBackend();
 	const { invoke, listen } = backend;
 	import { registerSnapshot, pendingSwitch, switchSnapshot, dissolve } from '#lib/switchDissolve.ts';
@@ -959,8 +960,13 @@
 		const abs = joinProjectPath(projectPath, targetPath);
 		const content = getCurrentFileContent(abs) ?? state.currentText;
 		if (content === null || content === undefined) return;
+		// Un salvataggio su un'altra macchina non è confermato dal disco locale:
+		// l'esito lo dà solo la destinazione (IMP-006).
+		const remote = backend.machine !== LOCAL_MACHINE;
+		const op = remote ? machineFeedback.begin({ kind: 'files', machineId: backend.machine }) : null;
 		try {
 			await invoke('file_write', { projectPath, rel: targetPath, content });
+			if (op !== null) machineFeedback.confirm(op);
 			state.initialContent = content;
 			state.currentText = content;
 			if (targetPath === filePath) {
@@ -984,6 +990,7 @@
 		} catch (error) {
 			console.error('Save failed', error);
 			saveError = String(error);
+			if (op !== null) machineFeedback.fail(op, String(error));
 		}
 	}
 

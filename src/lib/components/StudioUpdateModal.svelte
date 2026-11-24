@@ -13,6 +13,8 @@
 		formatVersion
 	} from '#lib/stores/studioUpdater.svelte.ts';
 	import Dialog from '#lib/ui/Dialog.svelte';
+	import { linkStore } from '#lib/backend/link.svelte.ts';
+	import PeerUpdateNotice from './PeerUpdateNotice.svelte';
 	import Tooltip from '#lib/ui/Tooltip.svelte';
 	import { lexMarkdown } from '#lib/agent/markdown.ts';
 	import Markdown from '#lib/agent/components/Markdown.svelte';
@@ -121,6 +123,19 @@
 				</div>
 			{/if}
 		</div>
+
+		{#if linkStore.status.peers.length > 0}
+			<section class="linked-updates" aria-label={m.devices_computers()}>
+				<h3>{m.devices_computers()}</h3>
+				{#each linkStore.status.peers as peer (peer.id)}
+					<div class="linked-update-row">
+						<strong>{peer.name}</strong>
+						<span>{peer.version ? `v${formatVersion(peer.version)}` : '—'} · {peer.online ? m.devices_online() : m.devices_offline()}</span>
+						<PeerUpdateNotice machineId={peer.id} targetVersion={studioUpdaterStore.hasUpdate ? studioUpdaterStore.updateInfo?.latest_version : undefined} />
+					</div>
+				{/each}
+			</section>
+		{/if}
 
 		{#if studioUpdaterStore.updateInfo?.ahead_of_channel && studioUpdaterStore.channel === 'stable'}
 			<p class="channel-waiting">
@@ -334,6 +349,17 @@
 </Dialog>
 
 <style>
+	.linked-updates {
+		display: grid;
+		gap: var(--space-2);
+		border-block: 1px solid var(--line);
+		padding-block: var(--space-3);
+	}
+	.linked-updates h3 { margin: 0; font-size: var(--text-base); }
+	.linked-update-row { display: grid; gap: var(--space-1); }
+	.linked-update-row + .linked-update-row { border-top: 1px solid var(--line); padding-top: var(--space-2); }
+	.linked-update-row > span { color: var(--ink-muted); }
+
 	.refresh-icon-btn {
 		width: 28px;
 		height: 28px;

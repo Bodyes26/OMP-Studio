@@ -52,6 +52,7 @@ export { default as IconInfo } from '@lucide/svelte/icons/info';
 export { default as IconQuota } from '@lucide/svelte/icons/gauge';
 export { default as IconKeyboard } from '@lucide/svelte/icons/keyboard';
 export { default as IconRemote } from '@lucide/svelte/icons/cast';
+export { default as IconPhone } from '@lucide/svelte/icons/smartphone';
 export { default as IconMonitor } from '@lucide/svelte/icons/monitor';
 export { default as IconJobs } from '@lucide/svelte/icons/layers-2';
 

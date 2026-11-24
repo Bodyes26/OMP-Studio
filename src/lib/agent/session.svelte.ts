@@ -29,6 +29,7 @@ import { entryToRemoteMessage, remoteMessageId } from '#lib/remote/chatProjectio
 import { remoteStore } from '#lib/remote/remoteStore.svelte.ts';
 import { sessionCompletions } from './completion.svelte';
 import { observeSessionJobs, finishSessionJobs, type SessionJob } from './jobActivity';
+import { machineFeedback } from '#lib/stores/machineFeedback.svelte.ts';
 import type { WaitContext } from './tools/wait';
 import { authenticationFailureOutcome } from './providerAuthentication';
 
@@ -2159,10 +2160,21 @@ export class AgentSession {
 		if (involuntaryRelocation && typeof state.sessionId === 'string') {
 			const newSessionId = state.sessionId;
 			if (this.sessionName) {
+				// La sessione vive sull'altra macchina: il salvataggio è confermato
+				// solo quando il suo comando risponde (IMP-006).
+				const remote = this.machineId !== LOCAL_MACHINE;
+				const feedback = remote
+					? machineFeedback.begin({ kind: 'session', machineId: this.machineId, projectId: this.projectKey })
+					: null;
 				void this.invoke('session_title_save', {
 					sessionId: newSessionId,
 					title: this.sessionName
-				}).catch((err) => console.warn('Copia titolo sessione fallita:', err));
+				})
+					.then(() => { if (feedback !== null) machineFeedback.confirm(feedback); })
+					.catch((err) => {
+						if (feedback !== null) machineFeedback.fail(feedback, this.reason(err));
+						console.warn('Copia titolo sessione fallita:', err);
+					});
 			}
 
 			if (typeof window !== 'undefined') {
@@ -5281,6 +5293,11 @@ export class AgentSession {
 		// all'ammissione, prima di `agent_start`: fino ad allora la sessione
 		// risulterebbe ferma e la coda potrebbe spedire il task dopo.
 		if (!streaming) this.applyRunActivity(runActivityOnPromptSent(this.runActivity, Date.now()));
+		// Un prompt su un'altra macchina è preso in carico quando omp risponde
+		// all'ammissione: prima è solo partito (IMP-006). La conferma arriva
+		// dopo il `send`, mai dall'entry ottimistica disegnata qui.
+		const remote = this.machineId !== LOCAL_MACHINE;
+		const feedback = remote ? machineFeedback.begin({ kind: 'prompt', machineId: this.machineId, projectId: this.projectKey }) : null;
 		try {
 			const ack = await this.client.send<{ agentInvoked?: boolean } | undefined>({
 				type: 'prompt',
@@ -5290,9 +5307,11 @@ export class AgentSession {
 			});
 			// Comando locale (slash builtin, estensione): nessun run partira'.
 			if (ack?.agentInvoked === false) this.applyRunActivity(runActivityOnPromptDropped(this.runActivity));
+			if (feedback !== null) machineFeedback.confirm(feedback);
 		} catch (error) {
 			this.applyRunActivity(runActivityOnPromptDropped(this.runActivity));
 			this.dropOptimisticUser();
+			if (feedback !== null) machineFeedback.fail(feedback, this.reason(error));
 			this.pushNotice('error', messages.l10n_agent_prompt_not_accepted({ error: this.reason(error) }));
 			return 'failed';
 		}

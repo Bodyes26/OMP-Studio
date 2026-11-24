@@ -1,5 +1,5 @@
 import { getLocale } from '#lib/paraglide/runtime.js';
-import { projectStore, normalizeProjectPath, type Project } from './projects.svelte';
+import { projectStore, type Project } from './projects.svelte';
 import { LOCAL_MACHINE } from '#lib/backend/ipc.ts';
 import { settingsStore } from './settings.svelte';
 import { taskStore } from './tasks.svelte';
@@ -11,23 +11,32 @@ import { tileCopy } from './projectCopies.ts';
 import { copyNeedsAttention } from './projectActivity.ts';
 
 /**
- * Identità git di una copia. Lo stato upstream è già letto e in cache per ogni
- * progetto mostrato in barra (`upstreamByPath`), quindi non serve una seconda
- * interrogazione: se non c'è ancora, la copia resta senza identità e non si
- * fonde per sbaglio.
+ * Identità di una copia per la barra (R-MI-45). Prima lo stato git fresco di
+ * *quella* macchina, che conferma o corregge; se non c'è ancora, l'ultima
+ * identità nota (snapshot dell'host o record salvato), così la tessera è unita
+ * dal primo disegno senza aspettare git e senza un clic.
  */
 function identityOfCopy(project: Project, multiMachine: boolean): RepositoryIdentity {
 	const path = project.canonicalProjectPath;
 	if (!path) return {};
 	void projectLinks.init();
-	const key = normalizeProjectPath(path).toLowerCase();
-	const status = githubStore.upstreamByPath[key];
-	const repoSlug = status?.repoSlug ?? null;
+	// `upstreamFor` distingue la macchina: due copie con lo stesso percorso su
+	// macchine diverse non devono leggere la stessa riga di `upstreamByPath`.
+	// La corsia può essere un worktree: la lettura git usa quella cartella,
+	// l'identità resta del progetto, quindi si guardano entrambe le chiavi.
+	const lanePath: string | null = project.lane.workspacePath ?? null;
+	const status = githubStore.upstreamFor(project.machineId, path)
+		?? (lanePath && lanePath !== (path as string)
+			? githubStore.upstreamFor(project.machineId, lanePath)
+			: null);
+	const known = projectStore.knownIdentityOf(project);
+	const repoSlug = status?.repoSlug ?? known?.repoSlug ?? null;
+	const rootCommit = status?.rootCommit ?? known?.rootCommit ?? null;
 	// La regola vive in `projectCopyIdentity.ts`: la usa anche la proiezione
 	// verso il relay, e barra e telefono devono fondere le stesse copie.
 	return repositoryIdentityOf({
 		canonicalProjectPath: path,
-		upstream: { repoSlug, rootCommit: status?.rootCommit ?? null },
+		upstream: { repoSlug, rootCommit },
 		// Nome attuale su GitHub: unisce la copia rimasta col nome di prima
 		// di una rinomina (R-MI-32). Solo con progetti di altre macchine in
 		// barra: su una macchina sola non c'è nulla da unire.

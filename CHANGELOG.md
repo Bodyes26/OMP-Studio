@@ -12,6 +12,11 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 ## [Unreleased]
 
 ### Fixed
+- Chiudendo un progetto dalla finestra principale, la Companion lo rimuove subito da «Da leggere» e chiude la relativa scheda, se aperta.
+- All'avvio un progetto presente su più macchine compare subito come una sola tessera, anche con l'altra macchina spenta: su Windows le due copie restavano separate finché non si cliccava su una delle due. (R-MI-45)
+- Il diario e i documenti del progetto aggiornati dall'agente vengono committati subito, solo quei file: prima restavano modificati (per esempio dopo una Nightly) e le copie sulle altre macchine risultavano divergenti. (R-MI-46)
+- Una copia rimasta indietro si aggiorna anche con modifiche non committate, se i commit in arrivo non toccano quei file; se li toccano, le modifiche vengono rimesse al loro posto dopo l'aggiornamento, oppure la copia resta com'era e Studio indica quale file blocca. (R-MI-47)
+- Il chip della macchina nella barra di stato apre la macchina giusta nelle Impostazioni, non più Studio Remote. (R-MI-49)
 - Con Studio chiuso nella menu bar o nell'area di notifica, un click sull'icona nel Dock del Mac o nella taskbar di Windows riapre la finestra: prima non succedeva nulla e bisognava passare dall'icona di sistema. (AUT-107)
 - La coda di un progetto che vive su un'altra macchina è quella di quella macchina: la finestra la leggeva e la scriveva sul proprio disco, nel percorso dell'altra macchina, quindi i task scritti da qui non arrivavano mai. (R-MI-06, R-MI-15)
 - Un task cancellato o avviato su una macchina non torna più in coda dalla copia dell'altra: la coda replicata riprendeva i task tolti e l'auto-avvio poteva lanciare lo stesso task due volte. Ora le rimozioni viaggiano con la coda, anche quelle fatte dal tool di omp o dalla Companion. (R-MI-12)
@@ -49,7 +54,18 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Studio Remote torna a riconoscere quali modelli accettano immagini: la PWA leggeva un campo del modello che lo stato della macchina non manda più, quindi ogni modello sembrava accettarle. Controllo dei tipi del relay ripristinato, quindi l'immagine del relay torna a pubblicarsi a ogni modifica. (REL-001)
 
 ### Added
-- Consulta il registro delle azioni remote da Impostazioni › Altre istanze e filtralo per progetto. (R-MI-39)
+- La mappa di «Dispositivi» mostra quali collegamenti sono in uso, inattivi o non raggiungibili e distingue i percorsi diretti, il relay fra computer e Studio Remote. (IMP-009)
+- In Statistiche puoi confrontare l’uso di omp delle singole macchine o vedere il totale per lo stesso periodo. Se una macchina non risponde, Studio indica che il totale è parziale. (IMP-010)
+- Dal pannello del progetto puoi aprire qui i file e le anteprime già aperti sull’altro computer, senza cambiare scheda in automatico. (IMP-011)
+- La barra di stato mostra la risposta della macchina del progetto. Il pannello «Macchine» distingue operazioni in attesa, confermate o fallite e dà priorità all’avviso se la macchina cade durante il lavoro. (IMP-005, IMP-006, IMP-008)
+- Prima di avviare un lavoro su un progetto condiviso, Studio rileva quali copie sono indietro rispetto a `origin` e permette di aggiornarle o partire comunque. (IMP-007)
+- Chip «Macchine» nella barra di stato: stato di ogni macchina abbinata, via e latenza, ultima sincronizzazione, copie da aggiornare, job e aggiornamenti, con un'animazione mentre le copie si sincronizzano. (R-MI-49)
+- Le frecce sulla tessera di un progetto su più macchine si muovono mentre le copie si sincronizzano, e l'anteprima indica quando è avvenuta l'ultima sincronizzazione. (R-MI-50)
+- Avvisi brevi quando una macchina torna in linea o cade, quando arrivano commit dall'altra macchina e quando un aggiornamento della copia resta bloccato, con il motivo. (R-MI-51)
+- Le righe del diario scritte su due macchine diverse nello stesso giorno si uniscono da sole, senza segnalare copie divergenti. (R-MI-48)
+- Sulla stessa rete i computer si trovano da soli e si conferma con 6 cifre uguali sui due schermi. Fra reti diverse si usa il codice breve con un server Studio Remote, oppure il codice completo che porta con sé il relay. (R-MI-53, R-MI-54, R-MI-55)
+- Il codice per collegare un telefono a Studio Remote si genera anche dal computer. (R-REM-25)
+- Consulta il registro delle azioni remote da Impostazioni › Dispositivi, nel dettaglio di ogni computer, e filtralo per progetto. (R-MI-39)
 - Esegui build e test su una macchina abbinata in una cartella di lavoro separata, con log, annullamento e recupero degli artefatti. (R-MI-36)
 - Dentro Studio Mac e Windows possono compilare in parallelo la stessa Nightly; chi lancia la build raccoglie gli installer e pubblica una sola volta. (R-MI-37)
 - Aggiorna l'altra macchina con un clic: scarica subito, poi installa e riavvia quando il lavoro in corso è finito. (R-MI-10, R-MI-38)
@@ -95,6 +111,11 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Se l'installazione di `omp` è rotta (per esempio un collegamento che punta a una cartella cancellata), Studio lo dice e offre «Ripara», invece di ripartire come su un computer nuovo. Quando manca un pezzo indispensabile il setup riapre direttamente su quel passo, senza l'ingresso animato. (SET-010, SET-020)
 
 ### Changed
+- Le Impostazioni raggruppano le preferenze di omp, Studio e area di lavoro; Modelli, Ruoli e Provider si aprono direttamente. Le preferenze di Studio restano locali. (IMP-001, IMP-002)
+- Per abbinare via codice scegli se mostrarlo o inserirlo. Studio indica quando contatta il server, quando aspetta l’altro computer e l’esito dell’abbinamento. (IMP-003)
+- Nella schermata Aggiornamenti puoi vedere la versione delle macchine abbinate e chiedere l’aggiornamento dell’altra macchina. (IMP-004)
+- Quando sposti un file nel Cestino dall’albero, il nome viene depennato in rosso e le righe sottostanti risalgono. Con movimento ridotto, la riga sparisce subito. (FT-001)
+- «Remote» e «Altre istanze» diventano un'unica sezione «Dispositivi» nelle Impostazioni. Contiene un solo nome per questo computer, un solo «Server di collegamento» (gli indirizzi separati restano in «Avanzate»), l'elenco di computer e telefoni con una pagina di dettaglio per ciascuno e il pulsante «Aggiungi dispositivo». (R-MI-52, R-MI-56)
 - Studio Remote mostra un solo elenco con i progetti di tutte le macchine: un progetto aperto su più computer compare una volta, con il glifo delle macchine, e si apre sulla copia che aspetta una risposta o su quella usata per ultima. Coda e storico uniscono le copie, ogni lavoro dice su quale macchina parte e la si sceglie anche in Nuovo lavoro; le quote sono divise per macchina. Con una macchina spenta i suoi progetti restano in elenco e i lavori messi in coda le arrivano alla riaccensione. (R-REM-17…R-REM-23)
 - In modalità Piano l'agente raccoglie le domande in un solo modulo per giro, con l'opzione consigliata già selezionata, come in omp 19.
 - `Ctrl+Shift+Tab` passa al progetto precedente, anche dal composer, dal terminale e dall'anteprima; le corsie si scorrono con `Ctrl+Alt+←/→`. (TPR-041, ANT-012)

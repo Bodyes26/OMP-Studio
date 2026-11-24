@@ -65,13 +65,32 @@ export class LaneSurfaceManager {
 	// ferma (anteprime e diagrammi impossibili da chiudere).
 	protected readonly surfaces: Record<string, LaneSurfaceState>;
 	protected readonly browserTabCounts: Record<string, number>;
+	/**
+	 * Contatore delle mutazioni. L'effetto che pubblica i file aperti
+	 * (IMP-011) legge il contatore per accorgersi di una superficie creata
+	 * su una chiave che prima non esisteva: leggere una chiave assente non
+	 * registra una dipendenza, quindi senza questo l'anteprima appena aperta
+	 * non arrivava all'altra macchina.
+	 */
+	protected readonly revisionState: { value: number };
 
 	constructor(
 		surfaces: Record<string, LaneSurfaceState> = {},
-		browserTabCounts: Record<string, number> = {}
+		browserTabCounts: Record<string, number> = {},
+		revisionState: { value: number } = { value: 0 }
 	) {
 		this.surfaces = surfaces;
 		this.browserTabCounts = browserTabCounts;
+		this.revisionState = revisionState;
+	}
+
+	/** Versione reattiva delle superfici: cambia a ogni mutazione. */
+	get version(): number {
+		return this.revisionState.value;
+	}
+
+	private touch(): void {
+		this.revisionState.value += 1;
 	}
 
 	getLaneSurface(projectId: string, laneId: string): LaneSurfaceState {
@@ -86,6 +105,7 @@ export class LaneSurfaceManager {
 			...current,
 			surface
 		};
+		this.touch();
 	}
 
 	setLaneDiagram(projectId: string, laneId: string, payload: LaneDiagramPayload): void {
@@ -97,6 +117,7 @@ export class LaneSurfaceManager {
 			previewFile: null,
 			previewRevision: current.previewRevision ?? 0
 		};
+		this.touch();
 	}
 
 	setLanePreview(projectId: string, laneId: string, filePath: string): void {
@@ -108,6 +129,7 @@ export class LaneSurfaceManager {
 			previewFile: filePath,
 			previewRevision: (current.previewRevision ?? 0) + 1
 		};
+		this.touch();
 	}
 
 	setLaneBrowser(projectId: string, laneId: string): void {
@@ -117,6 +139,7 @@ export class LaneSurfaceManager {
 			...current,
 			surface: 'browser'
 		};
+		this.touch();
 	}
 
 	closeLaneSurface(projectId: string, laneId: string): void {
@@ -126,6 +149,7 @@ export class LaneSurfaceManager {
 			...current,
 			surface: 'editor'
 		};
+		this.touch();
 	}
 
 	syncBrowserTabCount(

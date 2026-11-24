@@ -6,6 +6,26 @@ import type { LinkDecision } from '#lib/stores/linkDecisions.ts';
 import { createMainLane, projectId as toProjectId, type CanonicalProjectPath } from '#lib/types/lanes.ts';
 import { readPanelGeometries } from '#lib/panelGeometry.ts';
 
+/**
+ * Cosa una macchina ha aperto in una corsia (IMP-011): i file nell'editor e
+ * l'anteprima. Non è l'elenco dei file del progetto — quello lo legge chi
+ * guarda — né un inoltro di porta (R-MI-40).
+ */
+export interface OpenItemsLane {
+	laneId: string;
+	/** Titolo della corsia, per dire dove è stato aperto. */
+	laneTitle: string;
+	openFiles: string[];
+	activeFile: string | null;
+	previewFile: string | null;
+}
+
+/** Ciò che un host ha aperto, per id del progetto sulla macchina che lo possiede. */
+export interface OpenItemsProject {
+	projectId: string;
+	lanes: OpenItemsLane[];
+}
+
 /** Solo lo stato della macchina proprietaria, mai le copie osservate da altri host. */
 export interface DesktopHostSnapshot {
 	version: 1;
@@ -24,6 +44,11 @@ export interface DesktopHostSnapshot {
 	reduced?: true;
 	/** Decisioni «stesso progetto / diversi» di questa macchina (R-MI-44). */
 	linkDecisions?: LinkDecision[];
+	/**
+	 * Editor e anteprime aperte su questa macchina (IMP-011). Assente da chi
+	 * non lo manda: chi legge non inventa nulla e non mostra la sezione.
+	 */
+	openItems?: OpenItemsProject[];
 }
 
 /** Ciò che manda una macchina con una versione incompatibile (R-MI-10). */

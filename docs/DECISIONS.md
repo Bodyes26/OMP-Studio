@@ -2294,3 +2294,22 @@ Con due computer collegati, la barra di Studio mostra un progetto una volta sola
 5. **Due canali, un solo gestore, permessi diversi.** I comandi riservati alle istanze di Studio (`PEER_ONLY_COMMANDS`) li rifiutano sia il relay sia Studio quando arrivano dal telefono.
 6. **Restano al computer** l'auto-avvio esclusivo (F20) e lo spostamento di una sessione (R-MI-14): l'utente non li ha scelti per il telefono.
 7. **Due relay restano**: Bun per il telefono (Web Push richiede di leggere lo stato), `iroh-relay` per i computer (Gate R49, revisione del 2026-11-16).
+
+## Multi-istanza F31: dispositivi in una sezione, diario che si unisce da sé
+
+**Data:** 2026-11-23
+**Esito:** APPROVATO dall'utente nel modulo della sessione, con implementazione diretta senza anteprima.
+**Registro canonico:** [requisiti/multi-istanza.md](requisiti/multi-istanza.md), R-MI-45…56 (F31); [requisiti/remote-mobile.md](requisiti/remote-mobile.md), R-REM-25.
+
+### Il problema
+
+All'avvio su Windows le copie dello stesso progetto comparivano come due tessere, perché l'identità del repository arrivava solo dallo stato git, caricato in modo pigro. Il diario scritto dall'agente a fine turno restava non committato: bastava un file sporco per bloccare l'avanzamento automatico, e il diario sporco o committato su entrambe le macchine produceva copie divergenti che nessuno ricomponeva. Mancava una vista dello stato delle macchine e delle sincronizzazioni. Le Impostazioni avevano due sezioni con due nomi della macchina, due relay da digitare e un codice di abbinamento da circa 1,5 KB.
+
+### Decisioni
+
+1. **L'identità viaggia con lo snapshot** e si salva in cache; lo stato git la conferma ma non è più la condizione per unire.
+2. **Chi scrive il diario lo committa**, solo quei percorsi, senza push.
+3. **Eccezione a «mai merge automatici» (R-MI-27) per il solo `docs/diario/`**: unione per righe, eseguita da una sola macchina (id minore) perché due unioni indipendenti produrrebbero due commit diversi e una nuova divergenza; l'altra avanza con il fast-forward. Gli altri file restano esclusi da merge, rebase e reset automatici.
+4. **Avanzamento tollerante**: i file sporchi che i commit in arrivo non toccano non bloccano l'avanzamento; se li toccano si usa l'istantanea di R-MI-28, e in caso di conflitto la copia torna com'era.
+5. **Una sezione «Dispositivi»**, un nome, un «Server di collegamento». Restano due relay (Gate R50, punto 7): il relay Bun dichiara l'indirizzo di `iroh-relay` agli host autenticati e custodisce per 10 minuti il codice di abbinamento cifrato dietro un codice corto, senza poterlo leggere. Scartato un unico trasporto anche per il telefono, perché la PWA dovrebbe parlare iroh.
+6. **Scoperta in rete locale solo mentre si abbina**, con conferma a 6 cifre su entrambe le macchine: niente annunci permanenti in rete.

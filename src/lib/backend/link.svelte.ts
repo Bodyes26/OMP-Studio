@@ -1,3 +1,4 @@
+import { Channel } from '@tauri-apps/api/core';
 import { invoke, isTauri, listen, updateLinkedMachines, LOCAL_MACHINE, type UnlistenFn } from './ipc.ts';
 import type { RemoteCommand } from '$remote-protocol';
 import { expandReducedSnapshot, isReducedHostSnapshot, type DesktopHostSnapshot } from './host.ts';
@@ -47,6 +48,41 @@ export interface LinkStatus {
  */
 export type { LaneActivity, LaneActivitySnapshot } from './laneActivity.ts';
 
+/** Macchina vista in rete locale mentre «Aggiungi dispositivo» è aperto (R-MI-54). */
+export interface DiscoveredMachine {
+	id: string;
+	name: string;
+	platform: string;
+}
+
+/** Richiesta di abbinamento in rete locale, da confermare con le 6 cifre (R-MI-54). */
+export interface PairRequest {
+	requestId: string;
+	peerId: string;
+	name: string;
+	sas: string;
+	direction: 'incoming' | 'outgoing';
+}
+
+/** Codice di abbinamento (R-MI-53, R-MI-55). `shortCode` null senza Studio Remote. */
+export interface PairingCode {
+	code: string;
+	shortCode: string | null;
+	expiresAt: number;
+}
+
+/** Risposta di `devices_set_server` (R-MI-56): il relay iroh può mancare. */
+export interface DevicesServerInfo {
+	remoteRelay: string;
+	irohRelay: string | null;
+}
+
+interface PairResult {
+	requestId: string;
+	ok: boolean;
+	error?: string;
+}
+
 class LinkStore {
 	status = $state<LinkStatus>({ enabled: false, name: '', machineId: '', platform: '', relayUrl: '', hasRelayToken: false, relayReachable: null, peers: [], keyMissing: false });
 	replacements = $state<LinkedMachine[]>([]);
@@ -56,10 +92,17 @@ class LinkStore {
 	loading = $state(false);
 	busy = $state(false);
 	error = $state<string | null>(null);
+	/** Macchine in rete locale: piene solo fra startDiscovery e stopDiscovery (R-MI-54). */
+	discovery = $state<DiscoveredMachine[]>([]);
+	/** Richieste di abbinamento da confermare con le 6 cifre (R-MI-54). */
+	pairRequests = $state<PairRequest[]>([]);
 	private initializing: Promise<void> | null = null;
 	private unlisten: UnlistenFn | null = null;
 	private unlistenHost: UnlistenFn | null = null;
 	private unlistenActivity: UnlistenFn | null = null;
+	private unlistenDiscovered: UnlistenFn | null = null;
+	private unlistenPairRequest: UnlistenFn | null = null;
+	private unlistenPairResult: UnlistenFn | null = null;
 
 	private apply(status: LinkStatus): void {
 		// Solo nuovi id dopo lo stato iniziale: funziona anche per chi genera
@@ -205,12 +248,87 @@ class LinkStore {
 		});
 	}
 
-	pairingCode(): Promise<string> {
-		return this.action(() => invoke<string>('link_pairing_code'));
+	pairingCode(): Promise<PairingCode> {
+		return this.action(() => invoke<PairingCode>('link_pairing_code'));
 	}
 
-	pair(code: string): Promise<void> {
-		return this.action(async () => this.apply(await invoke<LinkStatus>('link_pair', { code })));
+	/**
+	 * Incolla un codice (completo o corto). Su una macchina non configurata
+	 * adotta relay e token del codice (R-MI-53); con un relay diverso rigetta
+	 * `relay_mismatch:<url>` finché non si richiama con `adoptRelay`.
+	 */
+	pair(code: string, opts: { adoptRelay?: boolean; server?: string; onProgress?: (stage: 'server' | 'configuration' | 'peer') => void } = {}): Promise<void> {
+		return this.action(async () => {
+			const progress = new Channel(opts.onProgress);
+			this.apply(await invoke<LinkStatus>('link_pair', { code, adoptRelay: opts.adoptRelay ?? null, server: opts.server ?? null, progress }));
+		});
+	}
+
+	/** Annuncio e ascolto mDNS solo mentre «Aggiungi dispositivo» è aperto (R-MI-54). */
+	async startDiscovery(): Promise<void> {
+		this.unlistenDiscovered ??= await listen<DiscoveredMachine[]>('link:discovered', (event) => {
+			this.discovery = event.payload;
+		});
+		this.unlistenPairRequest ??= await listen<PairRequest>('link:pair_request', (event) => {
+			// Una richiesta per id: un doppione (evento e ritorno) non si somma.
+			const fresh = event.payload;
+			if (!this.pairRequests.some((request) => request.requestId === fresh.requestId)) {
+				this.pairRequests = [...this.pairRequests, fresh];
+			}
+		});
+		this.unlistenPairResult ??= await listen<PairResult>('link:pair_result', (event) => {
+			// L'esito (accettato o no) chiude la conferma: l'errore, quando
+			// c'è, arriva già come rigetto di `pairLan`.
+			this.pairRequests = this.pairRequests.filter((request) => request.requestId !== event.payload.requestId);
+		});
+		await invoke('link_discovery_start');
+	}
+
+	/** Ferma annuncio e ascolto: fuori da qui la macchina non si annuncia. */
+	async stopDiscovery(): Promise<void> {
+		try {
+			await invoke('link_discovery_stop');
+		} finally {
+			this.discovery = [];
+			this.pairRequests = [];
+		}
+	}
+
+	/**
+	 * Sceglie una macchina in rete locale (R-MI-54). Si risolve solo quando
+	 * l'altra macchina accetta; rifiuto o silenzio (2 min) rigettano, col
+	 * messaggio che il backend ha prodotto.
+	 */
+	pairLan(id: string): Promise<void> {
+		return this.action(async () => {
+			try {
+				this.apply(await invoke<LinkStatus>('link_pair_lan', { id }));
+			} finally {
+				// L'esito chiude la richiesta in uscita, accettata o no: la
+				// finestra non deve mostrare una conferma già risolta.
+				this.pairRequests = this.pairRequests.filter(
+					(request) => !(request.direction === 'outgoing' && request.peerId === id)
+				);
+			}
+		});
+	}
+
+	/** Risponde a una richiesta in arrivo: dopo la risposta sparisce dalla lista. */
+	async answerPairRequest(requestId: string, accept: boolean): Promise<void> {
+		await invoke('link_pair_lan_answer', { requestId, accept });
+		this.pairRequests = this.pairRequests.filter((request) => request.requestId !== requestId);
+		if (accept) await this.refresh();
+	}
+
+	/** Nome unico per computer e telefoni (R-MI-52). */
+	async setName(name: string): Promise<void> {
+		await invoke('devices_set_name', { name });
+		await this.refresh();
+	}
+
+	/** Server di collegamento unico (R-MI-56). */
+	setServer(url: string): Promise<DevicesServerInfo> {
+		return this.action(() => invoke<DevicesServerInfo>('devices_set_server', { url }));
 	}
 
 	permissions(machine: string, permissions: MachinePermissions): Promise<void> {
@@ -231,4 +349,20 @@ export const linkStore = new LinkStore();
 
 export function offlineReason(machineId: string): 'relay' | 'machine' | null {
 	return linkStore.offlineReason(machineId);
+}
+
+/**
+ * Nome unico di questo computer (R-MI-52): lo stesso valore vale per le
+ * macchine abbinate e per Studio Remote, così non esistono due nomi.
+ */
+export function devicesSetName(name: string): Promise<void> {
+	return linkStore.setName(name);
+}
+
+/**
+ * «Server di collegamento» unico (R-MI-56): dal relay di Studio Remote si
+ * ricava, se il server lo dichiara, anche quello dei computer.
+ */
+export function devicesSetServer(url: string): Promise<DevicesServerInfo> {
+	return linkStore.setServer(url);
 }

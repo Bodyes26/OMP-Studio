@@ -1,9 +1,10 @@
-import { invoke } from '#lib/backend/ipc.ts';
+import { invoke, LOCAL_MACHINE, type MachineId } from '#lib/backend/ipc.ts';
 import { projectStore, normalizeProjectPath, joinProjectPath } from './projects.svelte';
 import { settingsStore } from './settings.svelte';
 import { notificationManager } from './notifications.svelte';
 import { m } from '#lib/paraglide/messages.js';
 import { ActionsPollGate } from './actionsPollGate';
+import { machineFeedback } from './machineFeedback.svelte';
 
 export interface GithubAuthStatus {
 	installed: boolean;
@@ -109,6 +110,14 @@ class GithubStore {
 	isLoadingActionsByPath = $state<Record<string, boolean>>({});
 
 	private upstreamUpdatedAt = new Map<string, number>();
+	/**
+	 * Macchina che ha prodotto lo stato in `upstreamByPath` per ogni percorso.
+	 * La mappa resta indicizzata per percorso (la leggono pannelli e badge), ma
+	 * l'identità va letta solo dalla copia che possiede davvero quel percorso:
+	 * senza questo due macchine con `C:\dev\omp` si scambiavano il repository
+	 * (R-MI-45).
+	 */
+	private upstreamOwner = new Map<string, MachineId>();
 	private upstreamPending = new Map<string, Promise<GitUpstreamStatus | null>>();
 	private UPSTREAM_CACHE_TTL_MS = 5_000;
 	private remoteCheckedAt = new Map<string, number>();
@@ -316,33 +325,59 @@ class GithubStore {
 		}
 	}
 
-	async loadUpstreamStatus(projectPath: string, force = false): Promise<GitUpstreamStatus | null> {
+	/**
+	 * Stato upstream del percorso solo se l'ultima lettura l'ha fatta la
+	 * macchina indicata: la mappa è per percorso, quindi due macchine con
+	 * `C:\dev\omp` condividerebbero la chiave. `null` = non ancora letto da
+	 * quella macchina, e chi fonde le tessere usa l'identità nota (R-MI-45).
+	 */
+	upstreamFor(machine: MachineId | null | undefined, projectPath: string | null | undefined): GitUpstreamStatus | null {
+		const key = normalizeProjectPath(projectPath ?? '').toLowerCase();
+		if (!key) return null;
+		if ((this.upstreamOwner.get(key) ?? LOCAL_MACHINE) !== (machine || LOCAL_MACHINE)) return null;
+		return this.upstreamByPath[key] ?? null;
+	}
+
+	async loadUpstreamStatus(projectPath: string, force = false, machine?: MachineId): Promise<GitUpstreamStatus | null> {
 		const key = normalizeProjectPath(projectPath).toLowerCase();
 		if (!key) return null;
+		// La macchina che possiede il percorso decide l'identità: se il
+		// chiamante la conosce (una tessera remota) va usata, perché
+		// `machineOfPath` preferisce la copia locale a parità di percorso.
+		const owner = machine ?? projectStore.machineOfPath(projectPath);
 
 		const cachedAt = this.upstreamUpdatedAt.get(key) ?? 0;
-		if (!force && Date.now() - cachedAt < this.UPSTREAM_CACHE_TTL_MS) {
+		if (!force && Date.now() - cachedAt < this.UPSTREAM_CACHE_TTL_MS && this.upstreamOwner.get(key) === owner) {
 			return this.upstreamByPath[key] ?? null;
 		}
 
-		const current = this.upstreamPending.get(key);
+		// La richiesta in corso è per macchina+percorso: la stessa cartella su
+		// due macchine sono due letture diverse (R-MI-45).
+		const pendingKey = `${owner}\u0000${key}`;
+		const current = this.upstreamPending.get(pendingKey);
 		if (current) return current;
 
 		const request = (async () => {
 			try {
-				const status = await invoke<GitUpstreamStatus>('git_upstream_status', { projectPath }, { machine: projectStore.machineOfPath(projectPath) });
+				const status = await invoke<GitUpstreamStatus>('git_upstream_status', { projectPath }, { machine: owner });
+				// La macchina prima del valore: chi legge la mappa deve trovare
+				// già coerenti stato e proprietario.
+				this.upstreamOwner.set(key, owner);
 				this.upstreamByPath[key] = status;
 				this.upstreamUpdatedAt.set(key, Date.now());
+				// Lo stato git è la conferma dell'identità: vale subito e, per le
+				// copie locali, resta nel record per il prossimo avvio (R-MI-45).
+				projectStore.rememberGitIdentity(owner, projectPath, status);
 				return status;
 			} catch (e) {
 				console.error('git_upstream_status', e);
 				return null;
 			} finally {
-				this.upstreamPending.delete(key);
+				this.upstreamPending.delete(pendingKey);
 			}
 		})();
 
-		this.upstreamPending.set(key, request);
+		this.upstreamPending.set(pendingKey, request);
 		return request;
 	}
 
@@ -361,9 +396,10 @@ class GithubStore {
 		) return;
 
 		this.remoteCheckedAt.set(key, Date.now());
+		const owner = projectStore.machineOfPath(projectPath);
 		const request = (async () => {
 			try {
-				const before = await this.loadUpstreamStatus(projectPath);
+				const before = await this.loadUpstreamStatus(projectPath, false, owner);
 				if (!before) throw new Error(m.git_remote_status_error());
 				if (!before.isGit || !settingsStore.backgroundJobs.enabled || !settingsStore.backgroundJobs.jobs.gitFetch.enabled) return;
 				await this.syncRepo(projectPath, 'fetch-background');
@@ -399,16 +435,23 @@ class GithubStore {
 		const key = normalizeProjectPath(projectPath).toLowerCase();
 		if (this.isSyncingByPath[key]) throw new Error(m.git_remote_operation_busy());
 		this.isSyncingByPath[key] = true;
+		const owner = projectStore.machineOfPath(projectPath);
+		// Su un'altra macchina l'esito di git è la sua risposta, non il nostro
+		// stato: finché non torna, l'operazione è in attesa (IMP-006).
+		const remote = owner !== LOCAL_MACHINE;
+		const feedback = remote ? machineFeedback.begin({ kind: 'git', machineId: owner }) : null;
 		try {
-			const result = await invoke<string>('git_sync_repo', { projectPath, action }, { machine: projectStore.machineOfPath(projectPath) });
+			const result = await invoke<string>('git_sync_repo', { projectPath, action }, { machine: owner });
+			if (feedback !== null) machineFeedback.confirm(feedback);
 			// Un polling locale partito prima del fetch non deve ripubblicare lo stato vecchio.
-			await this.upstreamPending.get(key);
-			const status = await this.loadUpstreamStatus(projectPath, true);
+			await this.upstreamPending.get(`${owner}\u0000${key}`);
+			const status = await this.loadUpstreamStatus(projectPath, true, owner);
 			if (!status) throw new Error(m.git_remote_status_error());
 			this.remoteErrorByPath[key] = null;
 			return result;
 		} catch (e) {
 			console.error('git_sync_repo', e);
+			if (feedback !== null) machineFeedback.fail(feedback, e instanceof Error ? e.message : String(e));
 			throw e;
 		} finally {
 			this.isSyncingByPath[key] = false;

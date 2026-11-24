@@ -87,17 +87,18 @@ struct ActivityGuard {
     activity: activity::SharedActivity,
     project: String,
     lane: String,
+    peer_id: String,
 }
 impl ActivityGuard {
-    fn new(app: tauri::AppHandle, activity: activity::SharedActivity, project: String, lane: String) -> Self {
-        activity.attach(&project, &lane);
+    fn new(app: tauri::AppHandle, activity: activity::SharedActivity, project: String, lane: String, peer_id: String) -> Self {
+        activity.attach(&project, &lane, &peer_id);
         publish_activity(&app, &activity);
-        Self { app, activity, project, lane }
+        Self { app, activity, project, lane, peer_id }
     }
 }
 impl Drop for ActivityGuard {
     fn drop(&mut self) {
-        self.activity.detach(&self.project, &self.lane);
+        self.activity.detach(&self.project, &self.lane, &self.peer_id);
         // La corsia si libera subito, senza aspettare che il frontend
         // interroghi: chi guarda vede il progetto tornare fermo.
         publish_activity(&self.app, &self.activity);
@@ -186,7 +187,7 @@ impl Runtime {
         let owner = format!("link:{machine}:{consumer}");
         let _detach = DetachOnExit { app: self.app.clone(), owner: owner.clone() };
         let _activity = lane.as_ref().map(|(project, lane)| {
-            ActivityGuard::new(self.app.clone(), self.activity.clone(), project.clone(), lane.clone())
+            ActivityGuard::new(self.app.clone(), self.activity.clone(), project.clone(), lane.clone(), machine.clone())
         });
         let (tx, mut rx) = tokio::sync::mpsc::channel(8192);
         let queued = Arc::new(AtomicUsize::new(0));

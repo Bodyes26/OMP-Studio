@@ -133,6 +133,12 @@ class TaskStore {
 	private remoteBridge: RemoteQueueBridge | null = null;
 	/** Task modificati qui e non ancora confermati dalla loro macchina: id → macchina. */
 	awaitingDelivery = $state<Record<string, string>>({});
+	/**
+	 * Task che l'host ha pubblicato dopo una modifica fatta qui: id → istante
+	 * della conferma (IMP-006). Cresce e basta; chi mostra il riscontro lo
+	 * confronta con l'istante in cui la modifica è partita.
+	 */
+	deliveredAcks = $state<Record<string, number>>({});
 
 	constructor() {
 		void this.init();
@@ -312,9 +318,18 @@ class TaskStore {
 			const host = entry.tasks.map((task) => ({ ...task, projectPath: entry.key }));
 			for (const task of host) logicalClock.observe(task.updatedAt);
 			const local = tasks.filter((task) => task.projectPath === entry.key);
+			const previousEdits = new Set(queue.edits);
 			const outcome = mergeHostQueue(local, host, queue.edits, this.removed[entry.key] ?? {});
 			const edits = outcome.edits;
 			queue.edits = edits;
+			// L'host ha pubblicato un task che qui era ancora in attesa: è la
+			// conferma di consegna (IMP-006). Solo il suo riepilogo la dà, non
+			// l'invio riuscito né la sparizione dalla coda locale.
+			for (const id of previousEdits) {
+				if (edits.has(id)) continue;
+				if (!outcome.tasks.some((task) => task.id === id)) continue;
+				this.deliveredAcks[id] = Date.now();
+			}
 			queue.known = new Map(outcome.tasks
 				.filter((task) => !edits.has(task.id))
 				.map((task) => [task.id, JSON.stringify(task)]));

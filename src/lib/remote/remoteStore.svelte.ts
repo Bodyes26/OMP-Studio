@@ -1,7 +1,14 @@
 import { remoteBridge, type RemoteStatus } from '#lib/remote/bridge.ts';
 import { normalizePairingCode } from '$remote-protocol';
-import type { UnlistenFn } from '#lib/backend/ipc.ts';
+import { invoke, type UnlistenFn } from '#lib/backend/ipc.ts';
 import { m } from '#lib/paraglide/messages.js';
+
+/** Codice di un nuovo telefono (R-REM-25): indirizzo e scadenza per il conto alla rovescia. */
+export interface PhoneCode {
+	code: string;
+	url: string;
+	expiresAt: number;
+}
 
 const DEFAULT_REMOTE_STATUS: RemoteStatus = {
 	enabled: false,
@@ -155,6 +162,36 @@ export class RemoteStore {
 			return false;
 		} finally {
 			this.loading = false;
+		}
+	}
+
+	/**
+	 * Codice per un nuovo telefono generato da qui (R-REM-25): il relay lo
+	 * accetta solo con la credenziale di un host abbinato.
+	 */
+	async createPhoneCode(): Promise<PhoneCode | null> {
+		this.actionError = null;
+		try {
+			return await invoke<PhoneCode>('remote_create_phone_code');
+		} catch (err) {
+			this.actionError = err instanceof Error ? err.message : String(err);
+			return null;
+		}
+	}
+
+	/** Disconnette un telefono abbinato a questo computer (R-MI-52). */
+	async revokeDevice(id: string): Promise<boolean> {
+		this.actionError = null;
+		try {
+			await invoke('remote_revoke_device', { id });
+			// Il relay toglie il dispositivo dall'elenco: si rilegge lo stato
+			// invece di indovinare quale riga sparisce.
+			const updated = await this.bridge.status();
+			if (updated) this.status = updated;
+			return true;
+		} catch (err) {
+			this.actionError = err instanceof Error ? err.message : String(err);
+			return false;
 		}
 	}
 

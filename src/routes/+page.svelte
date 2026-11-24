@@ -16,7 +16,7 @@
 	import { goalTitle } from '#lib/agent/guidedGoal.ts';
 	import type { RpcCommand, ThinkingLevel } from '#lib/agent/wire.ts';
 	import ImageModal from '#lib/agent/components/ImageModal.svelte';
-	import { IconNewChat, IconCircleAlert, IconClose } from '#lib/icons.ts';
+	import { IconNewChat, IconCircleAlert, IconClose, IconInfo } from '#lib/icons.ts';
 	import TopBar from '#lib/components/TopBar.svelte';
 	import FileTree from '#lib/components/FileTree.svelte';
 	import type EditorSurface from '#lib/editor/Editor.svelte';
@@ -65,7 +65,7 @@
 	import { shortcutsModalStore } from '#lib/stores/shortcutsModal.svelte.ts';
 	import { isShortcutsHelpKey, projectCycleDirection, projectJumpDigit, projectJumpIndex } from '#lib/shortcuts/shortcutMatch.ts';
 	import { projectJumpHints } from '#lib/shortcuts/projectJump.svelte.ts';
-	import { provenance, machineName } from '#lib/stores/projectMachines.svelte.ts';
+	import { provenance, machineName, projectGroup } from '#lib/stores/projectMachines.svelte.ts';
 	import { copySyncStore } from '#lib/stores/copySync.svelte.ts';
 	import { canMoveChanges, estimateMove, moveChanges, MoveNotFinishedError } from '#lib/stores/copyMove.ts';
 	import { formatBytes } from '#lib/stores/studioUpdater.svelte.ts';
@@ -83,6 +83,11 @@
 	import { backgroundJobs } from '#lib/stores/backgroundJobs.svelte.ts';
 	import { projectOrder } from '#lib/stores/projectOrder.svelte.ts';
 	import { linkStore } from '#lib/backend/link.svelte.ts';
+	import { machineAlertFeed } from '#lib/stores/machineAlertFeed.svelte.ts';
+	import { machineFeedback } from '#lib/stores/machineFeedback.svelte.ts';
+	import { checkOriginBehind, updateBehindCopies, type OriginCheck } from '#lib/stores/gitPreflight.svelte.ts';
+	import GitPreflightDialog from '#lib/components/machines/GitPreflightDialog.svelte';
+	import type { OutcomeSample } from '#lib/stores/machineAlerts.ts';
 	import type { DesktopHostSnapshot } from '#lib/backend/host.ts';
 	import { samePathLoose } from '#lib/stores/remoteQueue.ts';
 	import { loadCachedHosts, saveCachedHosts } from '#lib/stores/remoteHostCache.ts';
@@ -324,6 +329,60 @@
 		untrack(() => { for (const { pair, signature } of plan) copySyncStore.syncIfChanged(pair, signature); });
 	});
 
+	// Avvisi brevi delle macchine (R-MI-51): presenza e esiti dei giri passano
+	// alla deduplica pura, che decide cosa merita un avviso. Gli store si
+	// leggono fuori dal tracciamento perche' l'avviso non deve riattivare se
+	// stesso; la superficie che lo mostra e' quella galleggiante gia' usata
+	// dagli errori di caricamento, piu' in alto della barra di stato.
+	$effect(() => {
+		if (!projectStore.ready) return;
+		const peers = linkStore.status.peers.map((peer) => ({ id: peer.id, name: peer.name, online: peer.online }));
+		const outcomes: OutcomeSample[] = [];
+		for (const [key, outcome] of Object.entries(copySyncStore.outcomes)) {
+			const separator = key.indexOf('|');
+			if (separator < 0) continue;
+			const localId = key.slice(0, separator);
+			const machineId = key.slice(separator + 1);
+			const peer = linkStore.machineFor(machineId);
+			// Una macchina spenta non produce avvisi: l'ultimo esito resta fermo.
+			if (!peer?.online) continue;
+			const project = projectStore.projects.find((candidate) => candidate.id === localId);
+			outcomes.push({
+				machine: machineId,
+				name: peer.name,
+				project: project?.name ?? localId,
+				advanced: outcome.advanced,
+				mergedJournal: outcome.mergedJournal,
+				blocked: outcome.blocked,
+				head: outcome.head
+			});
+		}
+		// Le macchine su cui si sta lavorando hanno la precedenza (IMP-008): la
+		// caduta di una di loro passa davanti agli altri avvisi e resta finché
+		// non la si chiude. R-MI-51 resta attivo per tutti gli altri eventi.
+		const working = new Set<string>();
+		for (const session of sessionRegistry.getAllSessions()) {
+			if (session.machineId && (session.isStreaming || session.agentState === 'working')) {
+				working.add(session.machineId);
+			}
+		}
+		for (const lane of linkStore.activity.lanes) {
+			if (!lane.working || !lane.peerIds) continue;
+			for (const id of lane.peerIds) working.add(id);
+		}
+		untrack(() => machineAlertFeed.update(peers, outcomes, working));
+	});
+	// Un avviso non resta per sempre: sparisce da solo, e il puntatore sopra
+	// lo ferma. Quello di una macchina su cui si lavora non scade: la perdita
+	// di connessione va letta, non persa (IMP-008).
+	let machineNoticeHovered = $state(false);
+	$effect(() => {
+		const notice = machineAlertFeed.current;
+		if (!notice || machineNoticeHovered || notice.sticky) return;
+		const timer = window.setTimeout(() => machineAlertFeed.dismiss(), 6000);
+		return () => window.clearTimeout(timer);
+	});
+
 	// Code dei progetti di altre macchine (R-MI-15): lo specchio segue il
 	// riepilogo di ogni host; le modifiche fatte qui ripartono appena l'host
 	// risponde. Le scritture avvengono fuori dal tracciamento: lo specchio
@@ -346,6 +405,22 @@
 			plan.push([machine, entries]);
 		}
 		untrack(() => { for (const [machine, entries] of plan) taskStore.applyHostQueues(machine, entries); });
+	});
+
+	// Coda di un progetto remoto (IMP-006): «in attesa» finché l'host non
+	// mostra il task nel suo riepilogo, poi «confermato». La consegna riuscita
+	// non basta: `awaitingDelivery` toglie l'id solo quando l'host l'ha visto.
+	$effect(() => {
+		const pending: Record<string, { machineId: string; projectId: string | null }> = {};
+		for (const [taskId, machineId] of Object.entries(taskStore.awaitingDelivery)) {
+			const project = projectStore.projects.find((candidate) => taskStore.taskById(taskId)?.projectPath ===
+				normalizeProjectPath(candidate.canonicalProjectPath ?? '').toLowerCase());
+			pending[taskId] = { machineId, projectId: project?.id ?? null };
+		}
+		// La conferma è solo quella dell'host: `deliveredAcks` cresce quando il
+		// suo riepilogo pubblica il task modificato qui.
+		const acks = $state.snapshot(taskStore.deliveredAcks);
+		untrack(() => machineFeedback.setQueuePending(pending, acks));
 	});
 
 	// Ultimo riepilogo di ogni macchina, per riaprire Studio con l'altra spenta
@@ -837,6 +912,68 @@
 	// Primo avvio guidato: `setupFlow` sa se la finestra è aperta e a che passo;
 	// qui resta solo il segnale per il chip della barra.
 	let setupIncomplete = $state(false);
+
+	// Avviso prima di avviare un lavoro (IMP-007): le copie indietro rispetto a
+	// origin, l'azione scelta e l'azione da riprendere se si è aggiornato prima.
+	let originPrompt = $state<{ projectId: string; check: OriginCheck } | null>(null);
+	let originUpdating = $state(false);
+	let originUpdateError = $state<string[]>([]);
+	let originResolve: ((proceed: boolean) => void) | null = null;
+	let originChecking = false;
+
+	/**
+	 * IMP-007: prima di avviare un lavoro, le copie indietro rispetto a origin.
+	 * Il controllo vale su tutte le copie del progetto, non solo su quella che
+	 * eseguirà il lavoro; l'utente può aggiornare prima o partire comunque.
+	 * L'avvio automatico della coda è escluso: non c'è nessuno a rispondere a
+	 * una domanda, e le regole della coda restano quelle di R-MI-15.
+	 */
+	async function confirmOrigin(projectId: string, options: RunTaskOptions = {}): Promise<boolean> {
+		if (options.skipOriginCheck || options.auto) return true;
+		const project = projectStore.projects.find((candidate) => candidate.id === projectId);
+		if (!project?.canonicalProjectPath || projectGroup(project).length < 2) return true;
+		if (originChecking || originPrompt !== null) return false;
+		originChecking = true;
+		try {
+			originUpdateError = [];
+			const check = await checkOriginBehind(project).catch(() => null);
+			if (!check || check.behind.length === 0) return true;
+			originPrompt = { projectId, check };
+		} finally {
+			originChecking = false;
+		}
+		return new Promise<boolean>((resolve) => { originResolve = resolve; });
+	}
+
+	function finishOrigin(proceed: boolean): void {
+		const resolve = originResolve;
+		originResolve = null;
+		originPrompt = null;
+		originUpdateError = [];
+		resolve?.(proceed);
+	}
+
+	async function updateOriginAndContinue(): Promise<void> {
+		const prompt = originPrompt;
+		if (!prompt || originUpdating) return;
+		originUpdating = true;
+		originUpdateError = [];
+		try {
+			const outcome = await updateBehindCopies(prompt.check.behind);
+			if (outcome.failed.length === 0) {
+				finishOrigin(true);
+				return;
+			}
+			// Alcune copie non si sono aggiornate: l'avviso resta con l'esito,
+			// così l'utente vede cosa blocca e può ancora partire comunque.
+			originUpdateError = outcome.failed.map((entry) => m.git_preflight_failed({ machine: entry.machine, error: entry.error }));
+			const project = projectStore.projects.find((candidate) => candidate.id === prompt.projectId);
+			const remaining = project ? await checkOriginBehind(project).catch(() => null) : null;
+			if (remaining && originPrompt) originPrompt = { ...originPrompt, check: remaining };
+		} finally {
+			originUpdating = false;
+		}
+	}
 
 	// Richiesta di apertura diff proveniente dal pannello GIT: porta il file
 	// nell'editor gia' in modalita' diff, con la revisione giusta.
@@ -1774,7 +1911,7 @@
 
 		register(listen<{ projectId: string; taskId: string; follow?: boolean }>('studio-run-task', (event) => {
 			const { projectId, taskId, follow } = event.payload;
-			void handleRunTask(projectId, taskId, { follow: follow ?? false });
+			void handleRunTask(projectId, taskId, { follow: follow ?? false, skipOriginCheck: true });
 		}));
 
 		// La companion chiede di portare qui il fuoco su un progetto: e' la
@@ -1826,7 +1963,8 @@
 		register(
 			setupRemoteCommands(
 				{
-					runTask: (pId, tId, opts) => handleRunTask(pId, tId, opts),
+					// Controllo remoto: nessuna finestra a cui chiedere (IMP-007), si avvia.
+					runTask: (pId, tId, opts) => handleRunTask(pId, tId, { ...opts, skipOriginCheck: true }),
 					waitQuotaReset: handleWaitQuotaReset,
 					dismissQuotaBlocked: handleDismissQuotaBlocked,
 					createTask: remoteTasks.createRemoteTask,
@@ -1865,7 +2003,7 @@
 						}
 						// Il worktree puo' chiedere a sua volta il consenso sui file: l'esito lo porta.
 						return toDispatchOutcome(
-							await handleRunTask(projectId, found.prompt.taskId, { newLane: true, follow: false })
+							await handleRunTask(projectId, found.prompt.taskId, { newLane: true, follow: false, skipOriginCheck: true })
 						);
 					},
 					refreshQuota: async () => {
@@ -2237,6 +2375,11 @@
 		force?: boolean;
 		/** Destinazione richiesta da controllo remoto (`task_options`). */
 		destination?: 'auto' | 'new_lane';
+		/**
+		 * Salta il controllo su origin (IMP-007): l'utente ha già visto l'avviso
+		 * e ha scelto di partire comunque.
+		 */
+		skipOriginCheck?: boolean;
 	}
 
 	function taskTitleOf(task: StudioTask): string {
@@ -2266,7 +2409,7 @@
 		taskStore.updateTask(task.id, storage === 'local' ? '/diario init locale' : '/diario init', [], {
 			role: task.options?.role
 		});
-		await handleRunTask(projectId, task.id);
+		await handleRunTask(projectId, task.id, { skipOriginCheck: true });
 	}
 
 	/**
@@ -2284,6 +2427,11 @@
 		}
 		if (automationsStore.projectIsReserved(project.canonicalProjectPath)) {
 			return { kind: 'failed', message: automationText('host_locked_detail') };
+		}
+		// Prima di avviare: nessuna copia deve restare indietro rispetto a origin,
+		// non solo quella che eseguirà il lavoro (IMP-007). L'utente decide.
+		if (!(await confirmOrigin(projectId, options))) {
+			return { kind: 'blocked', reason: m.git_preflight_cancelled() };
 		}
 
 		// Voce di ripresa (Gate R35): torna nella sua sessione.
@@ -2659,7 +2807,8 @@
 		dispatchConfirmationsStore.clearConcurrency();
 		void handleRunTask(request.projectId, request.taskId, {
 			newLane: true,
-			follow: request.follow
+			follow: request.follow,
+			skipOriginCheck: true
 		});
 	}
 
@@ -2671,7 +2820,8 @@
 		void handleRunTask(request.projectId, request.taskId, {
 			laneId: request.forceLane.laneId,
 			force: true,
-			follow: request.follow
+			follow: request.follow,
+			skipOriginCheck: true
 		});
 	}
 
@@ -2695,7 +2845,8 @@
 		}
 		await handleRunTask(request.projectId, request.taskId, {
 			newLane: true,
-			follow: request.follow
+			follow: request.follow,
+			skipOriginCheck: true
 		});
 	}
 
@@ -3558,6 +3709,8 @@
 		const onProjectClosed = (event: Event) => {
 			const projectId = (event as CustomEvent<{ projectId?: string }>).detail?.projectId;
 			if (!projectId) return;
+			// La chiusura non deve aspettare il timer dei runtime della Companion.
+			companionStore.broadcastState();
 			disposeAgentSession(projectId);
 			closePreviews(projectId);
 			void laneStore.removeDraftLanes(projectId as ProjectId).catch(() => undefined);
@@ -4703,6 +4856,15 @@
 		onForce={dispatchConfirmationsStore.concurrencyPrompt?.forceLane ? forceLaneDispatch : undefined}
 		onCancel={() => dispatchConfirmationsStore.clearConcurrency()}
 	/>
+	<GitPreflightDialog
+		open={originPrompt !== null}
+		check={originPrompt?.check ?? null}
+		busy={originUpdating}
+		errors={originUpdateError}
+		onUpdate={() => void updateOriginAndContinue()}
+		onForce={() => finishOrigin(true)}
+		onCancel={() => finishOrigin(false)}
+	/>
 	<LaneProfileDialog
 		open={dispatchConfirmationsStore.profilePrompt !== null}
 		detection={dispatchConfirmationsStore.profilePrompt?.review.detection ?? null}
@@ -4784,6 +4946,29 @@
 				type="button"
 				class="floating-error-close"
 				onclick={() => externalOpenState.clearNotice()}
+				aria-label={m.common_close()}
+			>
+				<IconClose />
+			</button>
+		</div>
+	{/if}
+	<!-- Avviso breve delle macchine (R-MI-51): la stessa superficie degli altri
+	     avvisi, con icona neutra perche' non e' un errore. Sopra la barra di
+	     stato, cosi' non copre le versioni. Uno alla volta, si consuma da solo. -->
+	{#if machineAlertFeed.current}
+		<div
+			class="floating-error-toast machine-notice"
+			role="status"
+			in:rvLift={{ duration: 150 }}
+			onpointerenter={() => (machineNoticeHovered = true)}
+			onpointerleave={() => (machineNoticeHovered = false)}
+		>
+			<span class="floating-error-icon machine-notice-icon"><IconInfo /></span>
+			<span class="floating-error-text">{machineAlertFeed.current.text}</span>
+			<button
+				type="button"
+				class="floating-error-close"
+				onclick={() => machineAlertFeed.dismiss()}
 				aria-label={m.common_close()}
 			>
 				<IconClose />
@@ -5196,6 +5381,7 @@
 									onSwitchToTerminal={lane.kind === 'lab' ? undefined : () => void switchSurface(p.id, 'terminal')}
 									onSlashCommand={(raw) => handleGuiSlashCommand(p.id, lane.laneId, raw)}
 									onNewChat={lane.kind === 'lab' ? undefined : () => void handleNewChat(p.id, lane.laneId)}
+									onBeforeFirstPrompt={lane.kind === 'lab' ? undefined : () => confirmOrigin(p.id)}
 									onOpenDiagram={(diagram) => handleChatOpenDiagram(p.id, lane.laneId, diagram)}
 									machineChoices={machineChoicesFor(p)}
 									onPickMachine={(machineId) => pickMachineFor(p, machineId)}
@@ -5239,7 +5425,6 @@
 			<AutomationIndicator onOpenView={() => openAutomations()} onOpenSession={(id) => void openAutomationSession(id)} />
 			<StatusBarChips
 				onQueueClick={(anchor) => { queueAnchor = anchor; queueOpen = !queueOpen; }}
-				onRemoteSettings={() => settingsStore.openSection('remote')}
 			/>
 		</div>
 		<div class="statusbar-right">
@@ -5908,6 +6093,16 @@
 	/* Con l'avviso dei progetti gia' a schermo quello delle corsie sale sopra. */
 	.lane-store-toast.with-sibling {
 		bottom: calc(var(--space-3) + 44px);
+	}
+
+	/* Avviso delle macchine (R-MI-51): sopra la barra di stato, icona neutra.
+	   Un esito positivo o un evento non e' un errore: il colore resta nel testo. */
+	.machine-notice {
+		bottom: calc(26px + var(--space-2));
+	}
+	/* Doppia classe: vince sulla regola dell'icona d'errore, che viene dopo. */
+	.floating-error-icon.machine-notice-icon {
+		color: var(--ink-muted);
 	}
 
 	.floating-error-icon {

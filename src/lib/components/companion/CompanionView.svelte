@@ -4,7 +4,7 @@
 	import { onMount, tick, untrack } from 'svelte';
 	import { listen, type UnlistenFn } from '#lib/backend/ipc.ts';
 	import { companionStore, type AttentionRequest, type QuickTaskAiParsed } from '#lib/stores/companion.svelte.ts';
-	import { projectStore, type Project } from '#lib/stores/projects.svelte.ts';
+	import type { Project } from '#lib/stores/projects.svelte.ts';
 	import { quotaStore } from '#lib/stores/quota.svelte.ts';
 	import { scheduleStore } from '#lib/stores/schedule.svelte.ts';
 	import { settingsStore } from '#lib/stores/settings.svelte.ts';
@@ -129,11 +129,7 @@
 	});
 
 	const attentionList = $derived(companionStore.attentionRequests);
-	const knownProjects = $derived(
-		(companionStore.projects.length > 0 ? companionStore.projects : projectStore.projects).filter(
-			(p) => !p.external
-		)
-	);
+	const knownProjects = $derived(companionStore.projects.filter((p) => !p.external));
 	const knownDirectives = $derived(settingsStore.taskDirectives.filter((d) => !d.hidden));
 
 	/** Tinta d'identita' di ogni progetto: la stessa nelle card e nei badge `#progetto`. */
@@ -343,7 +339,8 @@
 	});
 
 	$effect(() => {
-		if (presentation.viewMode === 'question' && !currentAttention) {
+		if (presentation.selectedProjectId &&
+			(!selectedProject || (presentation.viewMode === 'question' && !currentAttention))) {
 			presentation.selectedRequestId = null;
 			presentation.selectedProjectId = null;
 			presentation.viewMode = 'answer';
@@ -394,7 +391,7 @@
 		if (!presentation.previousSelection) return null;
 		const prevId = presentation.previousSelection.projectId;
 		const p = knownProjects.find((proj) => proj.id.toLowerCase() === prevId.toLowerCase());
-		return p ? p.name : prevId;
+		return p?.name ?? null;
 	});
 
 	const effectiveProjectPath = $derived(
@@ -823,12 +820,13 @@
 	}
 
 	function handleSelectProject(projectId: string, laneId = 'main', mode: CompanionViewMode = 'answer', requestId?: string) {
+		const project = knownProjects.find((p) => p.id.toLowerCase() === projectId.toLowerCase());
+		if (!project) return;
 		const scroll = workspaceEl?.scrollTop ?? 0;
 		selectProject(presentation, projectId, laneId, mode, scroll);
 		presentation.selectedRequestId = requestId ?? null;
-		const project = knownProjects.find((p) => p.id.toLowerCase() === projectId.toLowerCase());
 		const request = attentionList.find((a) => a.pendingUi.requestId === requestId && a.projectId.toLowerCase() === projectId.toLowerCase());
-		const title = request?.laneTitle || (project?.lane.laneId === laneId ? project.lane.title : null);
+		const title = request?.laneTitle || (project.lane.laneId === laneId ? project.lane.title : null);
 		if (title) laneTitles[conversationKey(projectId, laneId)] = title;
 		if (mode === 'answer') void loadConversationForSelected(projectId, laneId, true);
 		void tick().then(() => {
@@ -842,7 +840,7 @@
 	function handleReturnToPrevious() {
 		const scroll = workspaceEl?.scrollTop ?? 0;
 		const prev = presentation.previousSelection;
-		if (prev) {
+		if (prev && previousProjectName !== null) {
 			returnToPreviousSelection(presentation, scroll);
 			void loadConversationForSelected(prev.projectId, prev.laneId);
 			void tick().then(() => {

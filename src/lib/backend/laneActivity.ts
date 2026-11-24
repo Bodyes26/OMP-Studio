@@ -11,6 +11,7 @@ export interface LaneActivity {
 	projectId: string;
 	laneId: string;
 	working: boolean;
+	peerIds?: string[];
 }
 
 export interface LaneActivitySnapshot {

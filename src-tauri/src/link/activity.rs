@@ -34,6 +34,7 @@ pub(crate) struct LaneActivity {
     pub lane_id: String,
     /// Un run è vivo: fra `agent_start` e la sua fine.
     pub working: bool,
+    pub peer_ids: Vec<String>,
 }
 
 /// Riepilogo letto dalla finestra proprietaria.
@@ -46,10 +47,8 @@ pub(crate) struct LinkActivitySnapshot {
 
 #[derive(Default)]
 struct Entry {
-    /// Quante superfici remote stanno guardando la sessione: due macchine
-    /// possono seguire la stessa corsia, e la corsia resta occupata finché
-    /// almeno una c'è.
-    views: u32,
+    /// Conta i flussi per macchina senza sommare più osservatori dello stesso peer.
+    views: HashMap<String, u32>,
     working: bool,
     /// Il processo è finito (`studio_exit`): la voce si toglie.
     ended: bool,
@@ -78,10 +77,13 @@ impl Activity {
             .filter(|(_, entry)| !entry.ended)
             .map(|(key, entry)| {
                 let (project_id, lane_id) = split(key);
+                let mut peer_ids: Vec<_> = entry.views.keys().cloned().collect();
+                peer_ids.sort_unstable();
                 LaneActivity {
                     project_id: project_id.to_owned(),
                     lane_id: lane_id.to_owned(),
                     working: entry.working,
+                    peer_ids,
                 }
             })
             .collect();
@@ -90,24 +92,29 @@ impl Activity {
     }
 
     /// Una superficie remota ha aperto (o ripreso) una sessione.
-    pub(crate) fn attach(&self, project: &str, lane: &str) -> bool {
+    pub(crate) fn attach(&self, project: &str, lane: &str, peer_id: &str) {
         let key = key(project, lane);
         let mut lanes = self.lanes.lock();
         let entry = lanes.entry(key).or_default();
-        entry.views = entry.views.saturating_add(1);
+        if let Some(views) = entry.views.get_mut(peer_id) {
+            *views = views.saturating_add(1);
+        } else {
+            entry.views.insert(peer_id.to_owned(), 1);
+        }
         entry.ended = false;
         self.revision.fetch_add(1, Ordering::SeqCst);
-        true
     }
 
     /// La superficie si è staccata. Quando l'ultima se ne va, la voce sparisce:
     /// nessuno sta più lavorando su quella corsia da fuori.
-    pub(crate) fn detach(&self, project: &str, lane: &str) {
+    pub(crate) fn detach(&self, project: &str, lane: &str, peer_id: &str) {
         let key = key(project, lane);
         let mut lanes = self.lanes.lock();
         let Some(entry) = lanes.get_mut(&key) else { return };
-        entry.views = entry.views.saturating_sub(1);
-        let gone = entry.views == 0 || entry.ended;
+        let Some(views) = entry.views.get_mut(peer_id) else { return };
+        *views -= 1;
+        if *views == 0 { entry.views.remove(peer_id); }
+        let gone = entry.views.is_empty() || entry.ended;
         if gone {
             lanes.remove(&key);
         }
@@ -190,19 +197,19 @@ mod tests {
     #[test]
     fn una_corsia_resta_occupata_finche_una_superficie_la_guarda() {
         let activity = Activity::default();
-        activity.attach("p", "main");
-        activity.attach("p", "main");
-        assert_eq!(activity.snapshot(), vec![LaneActivity { project_id: "p".into(), lane_id: "main".into(), working: false }]);
-        activity.detach("p", "main");
+        activity.attach("p", "main", "mac");
+        activity.attach("p", "main", "mac");
+        assert_eq!(activity.snapshot(), vec![LaneActivity { project_id: "p".into(), lane_id: "main".into(), working: false, peer_ids: vec!["mac".into()] }]);
+        activity.detach("p", "main", "mac");
         assert_eq!(activity.snapshot().len(), 1, "la seconda superficie tiene viva la corsia");
-        activity.detach("p", "main");
+        activity.detach("p", "main", "mac");
         assert!(activity.snapshot().is_empty());
     }
 
     #[test]
     fn il_run_si_apre_su_agent_start_e_si_chiude_solo_col_terminale() {
         let activity = Activity::default();
-        activity.attach("p", "main");
+        activity.attach("p", "main", "mac");
         assert_eq!(activity.observe("p", "main", r#"{"type":"agent_start"}"#), FrameEffect::Working);
         assert!(activity.snapshot()[0].working);
         assert_eq!(
@@ -218,7 +225,7 @@ mod tests {
     #[test]
     fn session_settled_e_uno_yield_senza_indicazione_chiudono_il_run() {
         let activity = Activity::default();
-        activity.attach("p", "main");
+        activity.attach("p", "main", "mac");
         activity.observe("p", "main", r#"{"type":"agent_start"}"#);
         assert_eq!(activity.observe("p", "main", r#"{"type":"session_settled"}"#), FrameEffect::Idle);
 
@@ -229,7 +236,7 @@ mod tests {
     #[test]
     fn i_delta_e_i_frame_ignoti_non_cambiano_nulla() {
         let activity = Activity::default();
-        activity.attach("p", "main");
+        activity.attach("p", "main", "mac");
         for frame in [
             r#"{"type":"studio_delta","kind":"text","contentIndex":0,"delta":"x"}"#,
             r#"{"type":"message_update"}"#,
@@ -243,7 +250,7 @@ mod tests {
     #[test]
     fn un_processo_uscito_libera_subito_la_corsia() {
         let activity = Activity::default();
-        activity.attach("p", "main");
+        activity.attach("p", "main", "mac");
         activity.observe("p", "main", r#"{"type":"agent_start"}"#);
         assert_eq!(activity.observe("p", "main", r#"{"type":"studio_exit","code":0}"#), FrameEffect::Ended);
         assert!(activity.snapshot().is_empty(), "una voce terminata non resta appesa");
@@ -252,8 +259,8 @@ mod tests {
     #[test]
     fn una_corsia_remota_non_confonde_le_altre() {
         let activity = Activity::default();
-        activity.attach("p", "main");
-        activity.attach("p", "wt-1");
+        activity.attach("p", "main", "mac");
+        activity.attach("p", "wt-1", "mac");
         activity.observe("p", "wt-1", r#"{"type":"agent_start"}"#);
         let lanes = activity.snapshot();
         assert_eq!(lanes.len(), 2);

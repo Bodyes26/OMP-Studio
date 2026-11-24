@@ -3,7 +3,9 @@
 	import { useProjectBackend } from '#lib/backend/projectScope.ts';
 	const { invoke } = useProjectBackend();
 	import { revealItemInDir } from '@tauri-apps/plugin-opener';
-	import { Lingering, ROW_EXIT_MS } from '#lib/agent/motionState.svelte.ts';
+	import { Lingering, motionReduced, ROW_EXIT_MS } from '#lib/agent/motionState.svelte.ts';
+	import { revealEase } from '#lib/agent/motion.ts';
+	import type { TransitionConfig } from 'svelte/transition';
 	import { setContext, getContext, tick } from 'svelte';
 	import FileTree from './FileTree.svelte';
 	import { registerSnapshot, pendingSwitch, switchSnapshot, dissolve } from '#lib/switchDissolve.ts';
@@ -229,11 +231,13 @@
 	let treeEl = $state<HTMLDivElement | null>(null);
 	let activeKey = $state('row:');
 	let trashError = $state<string | null>(null);
+	let trashedFile = false;
 
 
 	// Una riga chiusa resta nel DOM per tutta la piegatura d'uscita: va
 	// esclusa dalla navigazione, altrimenti il focus finisce su un nodo morente.
 	function isRowLive(row: HTMLElement): boolean {
+		if (row.closest('[inert]')) return false;
 		let group = row.parentElement?.closest('.children') ?? null;
 		while (group) {
 			if (group.previousElementSibling?.getAttribute('aria-expanded') === 'false') return false;
@@ -693,12 +697,26 @@
 		}
 	}
 
+	function trashOutro(node: HTMLElement): TransitionConfig {
+		if (!trashedFile || motionReduced()) return { duration: 0 };
+		const height = node.offsetHeight;
+		return {
+			duration: 240,
+			css: (_t, elapsed) => {
+				const strike = Math.min(elapsed / 0.29, 1);
+				const close = revealEase(Math.max(0, (elapsed - 0.4) / 0.6));
+				return `--trash-strike: ${strike}; height: ${height * (1 - close)}px; opacity: ${1 - close}`;
+			}
+		};
+	}
+
 	// Cestino
 	async function trashItem() {
 		if (isDirty) return;
 		trashError = null;
 		try {
 			await invoke('path_trash', { projectPath, rel: relPath });
+			trashedFile = !isDir;
 			trashError = null;
 			if (parentRefresh) {
 				await parentRefresh();
@@ -1282,6 +1300,7 @@
 	class="tree-node"
 	class:tree-root={level === 0}
 	bind:this={nodeEl}
+	out:trashOutro|global
 	role={level === 0 && !searchQuery.trim() ? "tree" : undefined}
 	aria-label={level === 0 ? m.l10n_cmp_filetree_aria({ name }) : undefined}
 	tabindex={level === 0 && !searchQuery.trim() ? -1 : undefined}
@@ -1452,7 +1471,7 @@
 			>
 				{@render twistie(isDir, expanded)}
 				{@render typeIcon(name, isDir, expanded)}
-				<span class="name">{name}</span>
+				<span class="name"><span class="name-text">{name}</span></span>
 				{#if fileStatus}
 					<GitStatusMark status={fileStatus} description={getStatusTitle(fileStatus, isDir)} dot={isDir} />
 				{/if}
@@ -1715,6 +1734,20 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+
+	.name-text {
+		position: relative;
+	}
+
+	.name-text::after {
+		content: '';
+		position: absolute;
+		inset: 50% 0 auto;
+		height: 1px;
+		background: var(--danger);
+		transform: scaleX(var(--trash-strike, 0));
+		transform-origin: left;
 	}
 
 	/* Decorazioni Git come in VS Code: il nome prende il colore dello stato

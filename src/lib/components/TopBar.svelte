@@ -56,6 +56,7 @@
 	import { studioUpdaterStore } from '#lib/stores/studioUpdater.svelte.ts';
 	import MachineGlyph from '#lib/ui/MachineGlyph.svelte';
 	import { provenance, copyDivergence, copyPending, type Provenance } from '#lib/stores/projectMachines.svelte.ts';
+	import { copySyncStore } from '#lib/stores/copySync.svelte.ts';
 	import { laneStore, type LaneRecord } from '#lib/stores/lanes.svelte.ts';
 	import { MAIN_LANE_ID, type ProjectId, type AgentLane } from '#lib/types/lanes.ts';
 	import { groupAgentState } from '#lib/stores/projectActivity.ts';
@@ -356,15 +357,20 @@
 		reason: 'interval' | 'focus' | 'visible' | 'event' | 'boot',
 		force = false
 	) {
-		const path = project.lane.kind !== 'lab' ? project.lane.workspacePath : null;
-		if (!path) return;
+		const workspacePath = project.lane.kind !== 'lab' ? project.lane.workspacePath : null;
+		if (!workspacePath) return;
+		// L'identità della copia si legge sulla cartella del progetto
+		// (`canonicalProjectPath`, come in `projectOrder`), non su quella della
+		// corsia: su un worktree le due differiscono e la tessera restava senza
+		// upstream (R-MI-45). Lo stato della corsia resta quello del worktree.
+		const identityPath = project.canonicalProjectPath ?? workspacePath;
 
 		// Se non e' forzato ed entrambi gli stati sono gia' freschi (< 5 s),
 		// saltiamo per evitare spawn git inutili e tracciamento a vuoto.
 		if (
 			!force &&
-			gitDiffStore.wasRefreshedRecently(path, 5000) &&
-			githubStore.wasUpstreamRefreshedRecently(path, 5000)
+			gitDiffStore.wasRefreshedRecently(workspacePath, 5000) &&
+			githubStore.wasUpstreamRefreshedRecently(identityPath, 5000)
 		) {
 			return;
 		}
@@ -372,8 +378,10 @@
 		const end = perfSpan('poll', `topbar ${project.name} reason=${reason}`);
 		try {
 			await Promise.all([
-				gitDiffStore.load(path, force),
-				githubStore.loadUpstreamStatus(path, force)
+				gitDiffStore.load(workspacePath, force),
+				// La macchina che possiede la copia va dichiarata: a parità di
+				// percorso `machineOfPath` sceglierebbe quella locale.
+				githubStore.loadUpstreamStatus(identityPath, force, project.machineId)
 			]);
 		} finally {
 			end();
@@ -396,51 +404,74 @@
 		}
 	});
 
+	/**
+	 * Copie già lette all'avvio e coda delle altre. La coda vive fuori
+	 * dall'effetto apposta (R-MI-45): prima ogni riesecuzione dell'effetto
+	 * (arrivo dello snapshot dell'host, salvataggi git, cambio di progetto)
+	 * annullava il giro in corso e le copie remote — le ultime aggiunte — non
+	 * venivano mai lette senza un clic.
+	 */
 	const bootedProjects = new Set<string>();
+	const bootQueue: string[] = [];
+	let bootRunning = false;
+	let bootStopped = false;
+
+	async function drainBootQueue(): Promise<void> {
+		if (bootRunning || bootStopped) return;
+		bootRunning = true;
+		try {
+			while (!bootStopped) {
+				const id = bootQueue.shift();
+				if (id === undefined) break;
+				if (bootedProjects.has(id)) continue;
+				const project = projectStore.projects.find((p) => p.id === id);
+				if (!project || project.lane.kind === 'lab' || !project.lane.workspacePath) continue;
+				// Segnata prima della lettura: una riesecuzione dell'effetto la
+				// esclude, ma il giro già partito arriva comunque in fondo.
+				bootedProjects.add(id);
+				await refreshTopBarProject(project, 'boot', true);
+				// Scaglionate per non rafficare spawn git all'avvio.
+				if (!bootStopped) await new Promise((resolve) => setTimeout(resolve, 600));
+			}
+		} finally {
+			bootRunning = false;
+			// Arrivate copie nuove mentre il giro finiva: riparte subito.
+			if (!bootStopped && bootQueue.length > 0) void drainBootQueue();
+		}
+	}
 
 	$effect(() => {
-		let cancelled = false;
-
-		// All'avvio: carica subito il progetto attivo
-		const activeProj = projectStore.projects.find((p) => p.id === projectStore.activeId);
-		if (activeProj && !bootedProjects.has(activeProj.id)) {
-			bootedProjects.add(activeProj.id);
-			void refreshTopBarProject(activeProj, 'boot', true);
+		// Dipendenze: l'elenco dei progetti e quello attivo. Le copie senza
+		// identità nota vengono per prime, così la fusione delle tessere (che
+		// per loro non può contare sul record o sullo snapshot) si risolve
+		// prima dello stato git delle altre.
+		const projects = projectStore.projects;
+		const activeId = projectStore.activeId;
+		// Una copia che sparisce (macchina scollegata, scheda chiusa) e poi
+		// torna va riletta: senza questo il segno restava per sempre.
+		const present = new Set<string>(projects.map((p) => p.id));
+		for (const id of bootedProjects) if (!present.has(id)) bootedProjects.delete(id);
+		const pending = projects
+			.filter((p) => p.id !== activeId && p.lane.kind !== 'lab' && p.lane.workspacePath && !bootedProjects.has(p.id))
+			.map((p, index) => ({ p, index, known: p.canonicalProjectPath ? projectStore.knownIdentityOf(p) : null }))
+			.sort((a, b) => (a.known ? 1 : 0) - (b.known ? 1 : 0) || a.index - b.index)
+			.map((entry) => entry.p.id);
+		const active = projects.find((p) => p.id === activeId);
+		bootQueue.length = 0;
+		if (active && !bootedProjects.has(active.id) && active.lane.kind !== 'lab' && active.lane.workspacePath) {
+			bootQueue.push(active.id);
 		}
-
-		// Gli altri progetti si caricano in modo scaglionato (uno alla volta, distanziati)
-		// per evitare raffiche di spawn git all'avvio dell'applicazione.
-		const otherProjects = projectStore.projects.filter(
-			(p) =>
-				p.id !== projectStore.activeId &&
-				p.lane.kind !== 'lab' &&
-				p.lane.workspacePath &&
-				!bootedProjects.has(p.id)
-		);
-		// Il progetto si segna come avviato solo quando il suo refresh parte
-		// davvero: segnarli tutti subito faceva saltare per sempre quelli
-		// rimasti in fila se l'effetto si rieseguiva (cancelled) a meta' giro.
-		if (otherProjects.length > 0) {
-			void (async () => {
-				for (const p of otherProjects) {
-					if (cancelled) break;
-					await new Promise((resolve) => setTimeout(resolve, 600));
-					if (cancelled) break;
-					if (bootedProjects.has(p.id)) continue;
-					bootedProjects.add(p.id);
-					await refreshTopBarProject(p, 'boot', true);
-				}
-			})();
-		}
+		bootQueue.push(...pending);
+		if (!bootStopped) void drainBootQueue();
 
 		const handleGitRefresh = (event: Event) => {
 			const projectPath = (event as CustomEvent<GitStatusRefreshDetail>).detail?.projectPath;
 			if (projectPath) {
-				const proj = projectStore.projects.find(
-					(p) =>
-						p.lane.workspacePath &&
-						normalizeProjectPath(p.lane.workspacePath).toLowerCase() ===
-							normalizeProjectPath(projectPath).toLowerCase()
+				const key = normalizeProjectPath(projectPath).toLowerCase();
+				const proj = projectStore.projects.find((p) =>
+					[p.lane.workspacePath, p.canonicalProjectPath].some(
+						(candidate) => candidate && normalizeProjectPath(candidate).toLowerCase() === key
+					)
 				);
 				if (proj) {
 					void refreshTopBarProject(proj, 'event', true);
@@ -448,11 +479,12 @@
 				return;
 			}
 			// Evento senza percorso: aggiorna subito solo il progetto attivo e marca obsoleti gli altri
-			const active = projectStore.projects.find((p) => p.id === projectStore.activeId);
-			if (active?.lane.workspacePath) {
-				gitDiffStore.markOthersStale(active.lane.workspacePath);
-				githubStore.markOtherUpstreamsStale(active.lane.workspacePath);
-				void refreshTopBarProject(active, 'event', true);
+			const activeProject = projectStore.projects.find((p) => p.id === projectStore.activeId);
+			if (activeProject?.lane.workspacePath) {
+				const identityPath = activeProject.canonicalProjectPath ?? activeProject.lane.workspacePath;
+				gitDiffStore.markOthersStale(activeProject.lane.workspacePath);
+				githubStore.markOtherUpstreamsStale(identityPath);
+				void refreshTopBarProject(activeProject, 'event', true);
 			}
 		};
 
@@ -473,11 +505,18 @@
 
 		window.addEventListener('git-status-refresh', handleGitRefresh);
 
+		// La coda d'avvio NON si ferma qui: questo cleanup gira anche a ogni
+		// riesecuzione dell'effetto, ed era la causa delle tessere mai unite
+		// (R-MI-45). Si ferma solo quando la barra viene smontata.
 		return () => {
-			cancelled = true;
 			window.removeEventListener('git-status-refresh', handleGitRefresh);
 			poller.destroy();
 		};
+	});
+
+	$effect(() => () => {
+		bootStopped = true;
+		bootQueue.length = 0;
 	});
 
 
@@ -857,6 +896,7 @@
 			{@const prov = provenance(p)}
 			{@const diverged = prov.kind === 'copies' && copyDivergence(p) !== null}
 			{@const pending = prov.kind === 'copies' && copyPending(p).length > 0}
+			{@const syncing = prov.kind === 'copies' && copySyncStore.runningFor(p.id)}
 			<!-- Con una tessera sola, le corsie da contare sono quelle di tutte le
 			     copie: la locale dal `laneStore`, le remote dallo snapshot della
 			     loro macchina (R-MI-12). -->
@@ -946,6 +986,7 @@
 								copies={prov.marks}
 								diverge={diverged}
 								{pending}
+								syncing={syncing}
 							/>
 						</span>
 					{/if}

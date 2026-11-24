@@ -62,6 +62,13 @@ trash = "3"
 # certificati del relay si verificano con l'archivio di sistema
 # (`platform-verifier`): le reti aziendali ispezionano l'HTTPS.
 iroh = { version = "1.4", default-features = false, features = ["tls-ring", "platform-verifier", "portmapper"] }
+# Scoperta in rete locale (R-MI-54): servizio mDNS di iroh 1.4, attivo solo
+# mentre il percorso «Aggiungi dispositivo» e' aperto.
+iroh-mdns-address-lookup = "0.6"
+# Codice corto del deposito (R-MI-55): Argon2id rende illeggibile al relay il
+# codice completo e rende impraticabile indovinare la chiave del deposito.
+argon2 = "0.6"
+aes-gcm = "0.10"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-single-instance = "2"

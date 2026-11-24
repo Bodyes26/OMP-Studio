@@ -12,6 +12,11 @@ released: items are closed into a version via `npm run release -- <version>`.
 ## [Unreleased]
 
 ### Fixed
+- Closing a project in the main window immediately removes it from Unread in the Companion and closes its reader if open.
+- At startup a project present on several machines shows up right away as a single tile, even with the other machine off: on Windows the two copies stayed separate until you clicked one of them. (R-MI-45)
+- The project journal and documents updated by the agent are committed right away, and only those files: they used to stay modified (for example after a Nightly), and the copies on the other machines showed up as diverged. (R-MI-46)
+- A copy left behind updates even with uncommitted changes, as long as the incoming commits don't touch those files; if they do, the changes are put back after the update, or the copy stays as it was and Studio says which file blocks it. (R-MI-47)
+- The machine chip in the status bar opens the right machine in Settings instead of Studio Remote. (R-MI-49)
 - With Studio closed to the menu bar or notification area, clicking its icon in the Mac Dock or the Windows taskbar reopens the window: before, nothing happened and you had to go through the system icon. (AUT-107)
 - The queue of a project that lives on another machine is that machine's queue: the window read and wrote it on its own disk, at the other machine's path, so tasks written from here never arrived. (R-MI-06, R-MI-15)
 - A task deleted or started on one machine no longer comes back to the queue from the other machine's copy: the replicated queue picked up removed tasks again and auto-start could run the same task twice. Removals now travel with the queue, including those made by the omp tool or the Companion. (R-MI-12)
@@ -49,7 +54,18 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Studio Remote again recognizes which models accept images: the PWA read a model field that the machine state no longer sends, so every model looked like it accepted them. The relay type check is restored, so the relay image is published again on every change. (REL-001)
 
 ### Added
-- Browse remote actions in Settings › Other instances and filter them by project. (R-MI-39)
+- The Devices map shows which connections are in use, idle or unreachable and distinguishes direct links, the computer relay and Studio Remote. (IMP-009)
+- In Statistics, compare omp usage one machine at a time or see a combined total for the same period. If a machine does not answer, Studio marks the total as partial. (IMP-010)
+- The project panel lets you open files and previews already open on the other computer, without switching tabs automatically. (IMP-011)
+- The status bar shows whether the project's machine is responding. The Machines panel distinguishes pending, confirmed and failed operations, and prioritizes a connection loss while you are working. (IMP-005, IMP-006, IMP-008)
+- Before starting work on a shared project, Studio checks which copies are behind `origin` and lets you update them or continue anyway. (IMP-007)
+- "Machines" chip in the status bar: state of each paired machine, route and latency, last sync, copies to update, jobs and updates, animated while copies sync. (R-MI-49)
+- The arrows on the tile of a project on several machines move while copies sync, and the preview shows when the last sync happened. (R-MI-50)
+- Short notices when a machine comes back online or drops, when commits arrive from the other machine, and when a copy update is blocked, with the reason. (R-MI-51)
+- Journal lines written on two different machines on the same day merge by themselves, without reporting diverged copies. (R-MI-48)
+- Computers on the same network find each other and ask you to match six digits on both screens. Across networks, use a short code with a Studio Remote server or a full code that carries the relay address. (R-MI-53, R-MI-54, R-MI-55)
+- The code to connect a phone to Studio Remote can be generated from the computer too. (R-REM-25)
+- Browse remote actions in Settings › Devices, in each computer's detail page, and filter them by project. (R-MI-39)
 - Run builds and tests on a paired machine in a separate worktree, with logs, cancellation, and artifact retrieval. (R-MI-36)
 - In Studio, Mac and Windows can build the same Nightly in parallel. The machine that starts the build collects the installers and publishes once. (R-MI-37)
 - Update the other machine with one click: it downloads immediately, then installs and restarts after active work finishes. (R-MI-10, R-MI-38)
@@ -95,6 +111,11 @@ released: items are closed into a version via `npm run release -- <version>`.
 - When the `omp` installation is broken (for example a link pointing to a deleted folder), Studio says so and offers "Repair" instead of starting over as on a new computer. When an essential piece is missing, the setup reopens directly on that step, without the animated intro. (SET-010, SET-020)
 
 ### Changed
+- Settings group omp, Studio and workspace preferences; Models, Roles and Providers open directly. Studio preferences remain local. (IMP-001, IMP-002)
+- When pairing by code, choose whether to show or enter it. Studio shows when it contacts the server, when it waits for the other computer and whether pairing succeeded. (IMP-003)
+- The Updates screen shows the version of paired computers and lets you request an update on the other computer. (IMP-004)
+- When you move a file to Trash from the file tree, a red line crosses out its name and the rows below slide up. With reduced motion, the row disappears immediately. (FT-001)
+- "Remote" and "Other instances" become a single "Devices" section in Settings. It has one name for this computer, one "Connection server" (the separate addresses stay under "Advanced"), the list of computers and phones with a detail page for each, and an "Add device" button. (R-MI-52, R-MI-56)
 - Studio Remote shows a single list with the projects of every machine: a project open on several computers appears once, with the machines glyph, and opens on the copy waiting for an answer or on the one used last. Queue and history merge the copies, each task shows the machine it starts on, which can also be picked in New work; quotas are split by machine. When a machine is off its projects stay in the list and tasks queued for it reach it when it comes back. (R-REM-17…R-REM-23)
 - In Plan mode the agent gathers its questions in one form per round, with the recommended option already selected, as in omp 19.
 - `Ctrl+Shift+Tab` switches to the previous project, also from the composer, the terminal and the preview; lanes are cycled with `Ctrl+Alt+←/→`. (TPR-041, ANT-012)

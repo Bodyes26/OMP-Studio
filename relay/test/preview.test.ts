@@ -30,7 +30,8 @@ function harness() {
 		maxDiagSessions: 4,
 		dataDir: dir,
 		webDir: '/tmp',
-		version: '1.0.0'
+		version: '1.0.0',
+		irohRelay: null
 	};
 	const store = new RelayStore(dir);
 	const hub = new SocketHub(config, store);

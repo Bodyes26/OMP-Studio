@@ -29,7 +29,13 @@ import {
 	type PublishPreviewRequest,
 	type PublishPreviewResponse,
 	PREVIEW_MAX_HTML_BYTES,
-	PREVIEW_PATH_PREFIX
+	PREVIEW_PATH_PREFIX,
+	MAILBOX_MAX_BYTES,
+	MAILBOX_TTL_MS,
+	type HostInfoResponse,
+	type MailboxDepositRequest,
+	type MailboxDepositResponse,
+	type MailboxWithdrawResponse
 } from './protocol.ts';
 import { isValidAuth, isValidP256dh, isValidPushEndpoint, type VapidKeyPair } from './vapid.ts';
 import { normalizePushLanguage } from './pushText.ts';
@@ -37,7 +43,7 @@ import { extractClientKey, type RateLimiter } from './ratelimit.ts';
 import type { RelayWsData, SocketHub } from './sockets.ts';
 import { PreviewStore, servePreview } from './previews.ts';
 import { servePwa } from './static.ts';
-import { MAX_ACTIVE_CODES_PER_DEVICE, type DeviceRecord, type RelayStore } from './store.ts';
+import { MAX_ACTIVE_CODES_PER_DEVICE, type DeviceRecord, type HostRecord, type RelayStore } from './store.ts';
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const BASE_HEADERS: Record<string, string> = {
@@ -281,13 +287,19 @@ export async function handleRequest(
 			return apiError('rate_limited', 'Too many authentication failures', 429);
 		}
 
+		let issuedByHost: string | null = null;
 		let authed = false;
 		if (typeof body.adminToken === 'string' && body.adminToken) {
 			authed = tokensMatch(body.adminToken, config.adminToken);
 		} else if (typeof body.code === 'string' && body.code) {
 			const normalized = normalizePairingCode(body.code);
 			if (normalized) {
-				authed = store.consumePairingCode(hashSecret(normalized), 'device', now);
+				// R-REM-25: il codice puo' venire da un telefono o da un host;
+				// `issuedByHost` lega il nuovo dispositivo all'host che lo ha
+				// generato, cosi' solo lui potra' revocarlo (R-MI-52).
+				const consumed = store.consumeDeviceCode(hashSecret(normalized), now);
+				issuedByHost = consumed?.hostId ?? null;
+				authed = consumed !== null;
 			}
 		}
 
@@ -297,7 +309,7 @@ export async function handleRequest(
 		}
 
 		const sessionToken = generateSecret();
-		const device = store.createDevice(body.name.trim(), hashSecret(sessionToken), now);
+		const device = store.createDevice(body.name.trim(), hashSecret(sessionToken), now, issuedByHost);
 
 		const isHttps = isRequestHttps(req);
 		let cookie = `${SESSION_COOKIE}=${sessionToken}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000`;
@@ -429,6 +441,100 @@ export async function handleRequest(
 			kind: body.kind,
 			expiresAt
 		};
+		return Response.json(resBody, { headers: BASE_HEADERS });
+	}
+
+	// ---------------------------------------------------------------------------
+	// Endpoint autenticati dall'host (R-MI-52, R-MI-55, R-MI-56, R-REM-25)
+	// ---------------------------------------------------------------------------
+
+	// Chi e' l'host che parla: credenziale a 256 bit, come il socket.
+	const host = hostFromRequest(req, store);
+
+	// R-MI-56: il server dichiara il proprio relay iroh. Solo a chi si
+	// autentica, cosi' l'indirizzo non e' pubblico.
+	if (pathname === API.hostInfo) {
+		if (req.method !== 'GET') return new Response('Method not allowed', { status: 405, headers: BASE_HEADERS });
+		if (!host) return apiError('unauthorized', 'Missing or invalid host credential', 401);
+		const resBody: HostInfoResponse = { irohRelay: config.irohRelay ?? null };
+		return Response.json(resBody, { headers: BASE_HEADERS });
+	}
+
+	// R-REM-25: il codice di un nuovo telefono, generato dall'host. Stessa
+	// logica e stessa quota dei codici creati dalla PWA (`API.codes`).
+	if (pathname === API.hostCodes) {
+		if (req.method !== 'POST') return new Response('Method not allowed', { status: 405, headers: BASE_HEADERS });
+		if (!host) return apiError('unauthorized', 'Missing or invalid host credential', 401);
+		const body = await parseBody<CreateCodeRequest>(req);
+		if (!body || body.kind !== 'device') {
+			return apiError('bad_request', 'Hosts can only create device codes', 400);
+		}
+		const now = Date.now();
+		store.prunePairingCodes(now);
+		if (store.countActiveCodesForHost(host.id, now) >= MAX_ACTIVE_CODES_PER_DEVICE) {
+			return apiError('rate_limited', 'Too many active pairing codes for this host', 429);
+		}
+		const rawCode = generatePairingCode();
+		const normalized = normalizePairingCode(rawCode);
+		if (!normalized) return apiError('bad_request', 'Failed to generate code', 400);
+		const expiresAt = now + PAIRING_CODE_TTL_MS;
+		store.createHostPairingCode(hashSecret(normalized), host.id, expiresAt);
+		const resBody: CreateCodeResponse = { code: formatPairingCode(normalized), kind: 'device', expiresAt };
+		return Response.json(resBody, { headers: BASE_HEADERS });
+	}
+
+	// R-MI-55: deposito del codice corto, ancorato all'host che lo deposita.
+	if (pathname === API.hostMailbox) {
+		if (req.method !== 'POST') return new Response('Method not allowed', { status: 405, headers: BASE_HEADERS });
+		if (!host) return apiError('unauthorized', 'Missing or invalid host credential', 401);
+		const body = await parseBody<MailboxDepositRequest>(req);
+		if (!body || !isMailboxId(body.id) || typeof body.payload !== 'string' || body.payload.length < 32) {
+			return apiError('bad_request', 'Invalid mailbox deposit', 400);
+		}
+		if (body.payload.length > MAILBOX_MAX_BYTES) {
+			return apiError('payload_too_large', 'Mailbox payload too large', 413);
+		}
+		const now = Date.now();
+		store.pruneMailbox(now);
+		const expiresAt = store.depositMailbox(body.id, body.payload, host.id, now + MAILBOX_TTL_MS);
+		const resBody: MailboxDepositResponse = { expiresAt };
+		return Response.json(resBody, { headers: BASE_HEADERS });
+	}
+
+	// R-MI-52: un host revoca un telefono che ha abbinato lui.
+	if (pathname.startsWith(API.hostDevices)) {
+		if (req.method !== 'DELETE') return new Response('Method not allowed', { status: 405, headers: BASE_HEADERS });
+		if (!host) return apiError('unauthorized', 'Missing or invalid host credential', 401);
+		const deviceId = pathname.slice(API.hostDevices.length);
+		if (!deviceId || !store.deviceBelongsToHost(deviceId, host.id)) {
+			// Un dispositivo altrui non si tocca: per questo host «non esiste».
+			return apiError('not_found', 'Device not found for this host', 404);
+		}
+		store.revokeDeviceForHost(deviceId, host.id);
+		socketHub.revokeDeviceSockets(deviceId);
+		return Response.json({ ok: true }, { headers: BASE_HEADERS });
+	}
+
+	// R-MI-55: ritiro del deposito, una volta sola e senza autenticazione. Il
+	// segreto e' il codice corto: senza la chiave il cifrato non si apre.
+	if (pathname.startsWith(API.mailbox)) {
+		if (req.method !== 'GET') return new Response('Method not allowed', { status: 405, headers: BASE_HEADERS });
+		const id = pathname.slice(API.mailbox.length);
+		if (!isMailboxId(id)) return apiError('bad_request', 'Invalid mailbox id', 400);
+		const clientKey = extractClientKey(req, server.requestIP(req)?.address);
+		const now = Date.now();
+		// R-MI-55: chi prova a indovinare un codice corto consuma il proprio
+		// limite (10 tentativi ogni 15 minuti). Solo per indirizzo: un attacco
+		// non deve poter fermare l'abbinamento di tutte le altre macchine.
+		if (rateLimiter.isMailboxRateLimited(clientKey, now)) {
+			return apiError('rate_limited', 'Too many attempts', 429);
+		}
+		const payload = store.withdrawMailbox(id, now);
+		if (!payload) {
+			rateLimiter.recordMailboxFailure(clientKey, now);
+			return apiError('not_found', 'Mailbox not found, expired or already withdrawn', 404);
+		}
+		const resBody: MailboxWithdrawResponse = { payload };
 		return Response.json(resBody, { headers: BASE_HEADERS });
 	}
 
@@ -624,6 +730,26 @@ export async function handleRequest(
 
 	// Tutto cio' che non e' API viene servito come file statico PWA o fallback SPA.
 	return servePwa(req, config.webDir);
+}
+
+/**
+ * R-MI-52, R-MI-55, R-MI-56, R-REM-25: l'host si autentica come sul socket,
+ * `Authorization: Bearer <credential>`. Nessun limite di velocita' qui: la
+ * credenziale e' un segreto a 256 bit e un rifiuto non apre nulla.
+ */
+function hostFromRequest(req: Request, store: RelayStore): HostRecord | null {
+	const header = req.headers.get('authorization');
+	if (!header || !header.startsWith('Bearer ')) return null;
+	const credential = header.slice('Bearer '.length).trim();
+	if (!credential) return null;
+	// `getHostByCredentialHash` restituisce solo macchine registrate: una
+	// credenziale revocata non ha piu' riga in tabella.
+	return store.getHostByCredentialHash(hashSecret(credential));
+}
+
+/** `mailboxId` e' l'impronta SHA-256 esadecimale del codice corto (64 caratteri). */
+function isMailboxId(value: string): boolean {
+	return /^[0-9a-f]{64}$/.test(value);
 }
 
 function authenticateDevice(req: Request, store: RelayStore): DeviceRecord | null {

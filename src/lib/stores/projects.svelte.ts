@@ -1,5 +1,5 @@
 import { invoke, LOCAL_MACHINE, type MachineId } from '#lib/backend/ipc.ts';
-import type { DesktopHostSnapshot } from '#lib/backend/host.ts';
+import type { DesktopHostSnapshot, OpenItemsLane } from '#lib/backend/host.ts';
 import { m } from '#lib/paraglide/messages.js';
 import { load, type Store } from '@tauri-apps/plugin-store';
 import { homeDir } from '@tauri-apps/api/path';
@@ -24,6 +24,7 @@ import { noteProjectSwitch, studioLog } from '#lib/diagnostics/studioLog.ts';
 import { readPanelGeometries } from '#lib/panelGeometry.ts';
 import type { LaneRecord } from './lanePersistence.ts';
 import { logicalClock } from './logicalClock.ts';
+import { identityCacheKey, type KnownCopyIdentity } from './projectIdentity.ts';
 
 import { isWindows, isWindowsPath, normalizeProjectPath, joinProjectPath, pathKey } from '#lib/utils/paths.ts';
 import {
@@ -76,6 +77,13 @@ export interface Project {
 	worktreeResumeChat: boolean;
 	/** Vero per cartelle di file esterni aperte senza progetto (EXT-002..010). */
 	external: boolean;
+	/**
+	 * Ultima identità nota della copia (R-MI-45): persa fra i riavvii per le
+	 * copie locali, arriva nello snapshot per quelle remote. Permette alla barra
+	 * di unire le tessere dal primo disegno, prima dello stato git. Lo stato git
+	 * la conferma o la corregge; qui non è mai una verità di sincronizzazione.
+	 */
+	identity?: KnownCopyIdentity | null;
 }
 
 interface StoredProject {
@@ -94,6 +102,8 @@ interface StoredProject {
 	taskDefaults?: Partial<TaskDefaults> | null;
 	browserAllowedOrigins?: string[];
 	labDraft?: { prototypeId: string } | null;
+	/** Ultima identità nota (R-MI-45): l'unione in barra non attende git. */
+	identity?: KnownCopyIdentity | null;
 	worktreeResumeChat?: boolean;
 	external?: boolean;
 	openFiles?: string[];
@@ -109,6 +119,21 @@ function getProjectHue(path: string): number {
 		hash = key.charCodeAt(i) + ((hash << 5) - hash);
 	}
 	return PRESET_HUES[Math.abs(hash) % PRESET_HUES.length];
+}
+
+/**
+ * Identità nota di una copia, ripulita dai campi assenti. `null` quando non c'è
+ * né un origin né un primo commit: una copia senza ancore non deve fingersi
+ * riconosciuta (R-MI-45).
+ */
+function normalizeStoredIdentity(value: unknown): KnownCopyIdentity | null {
+	if (!value || typeof value !== 'object') return null;
+	const record = value as Record<string, unknown>;
+	const text = (field: unknown) => (typeof field === 'string' && field.trim() ? field.trim() : null);
+	const repoSlug = text(record.repoSlug);
+	const rootCommit = text(record.rootCommit);
+	if (!repoSlug && !rootCommit) return null;
+	return { repoSlug, rootCommit };
 }
 
 class ProjectStore {
@@ -364,7 +389,9 @@ class ProjectStore {
 					taskDefaults: p.taskDefaults && typeof p.taskDefaults === 'object' ? p.taskDefaults : null,
 					browserAllowedOrigins: p.browserAllowedOrigins,
 					worktreeResumeChat: p.worktreeResumeChat ?? true,
-					external: false
+					external: false,
+					// L'identità salvata unisce la tessera al primo disegno (R-MI-45).
+					identity: normalizeStoredIdentity(p.identity)
 				};
 				this.projects.push(project);
 				// Istanti emessi in sessioni precedenti, forse oltre l'orologio di
@@ -461,6 +488,7 @@ class ProjectStore {
 				taskDefaults: p.taskDefaults ? $state.snapshot(p.taskDefaults) : null,
 				browserAllowedOrigins: p.browserAllowedOrigins,
 				labDraft: p.labDraft ?? undefined,
+				identity: p.identity ? $state.snapshot(p.identity) : undefined,
 				worktreeResumeChat: p.worktreeResumeChat,
 				external: p.external ? true : undefined,
 				openFiles: p.external ? $state.snapshot(p.lane.openFiles) : undefined,
@@ -1083,8 +1111,80 @@ class ProjectStore {
 
 	/** Corsie dei progetti remoti per id della tessera, dall'ultimo riepilogo dell'host. */
 	remoteLanes = $state<Record<string, LaneRecord[]>>({});
+	/**
+	 * Editor e anteprime aperte sull'altra macchina, per id della tessera
+	 * (IMP-011): solo percorsi relativi al progetto, nessun contenuto. La
+	 * finestra li mostra come cose già aperte là e li apre qui su richiesta.
+	 */
+	remoteOpenItems = $state<Record<string, OpenItemsLane[]>>({});
 	/** Sistema di ogni macchina remota: i percorsi delle sue corsie seguono il suo formato. */
 	private remoteHostWin: Record<string, boolean> = {};
+	/** Piattaforma dichiarata da ogni macchina remota, per le chiavi di identità. */
+	private remoteHostPlatform: Record<string, string> = {};
+	/**
+	 * Ultima identità nota per copia, con la macchina nella chiave (R-MI-45):
+	 * due copie con lo stesso percorso su macchine diverse non si scambiano
+	 * l'identità. Reattiva perché la barra la legge a ogni disegno.
+	 */
+	private knownIdentities = $state<Record<string, KnownCopyIdentity>>({});
+
+	/**
+	 * Identità nota di una copia senza attendere git: quella arrivata dallo
+	 * snapshot dell'host o dall'ultima lettura git di questa finestra, altrimenti
+	 * quella persistita col progetto.
+	 */
+	knownIdentityOf(project: Project): KnownCopyIdentity | null {
+		const key = identityCacheKey(
+			project.machineId,
+			project.canonicalProjectPath,
+			this.remoteHostPlatform[project.machineId ?? '']
+		);
+		return (key ? this.knownIdentities[key] : null) ?? project.identity ?? null;
+	}
+
+	/**
+	 * Registra l'ultima identità vista (git, snapshot o avvio) e la persiste per
+	 * le copie locali, così al riavvio la tessera è unita prima di git (R-MI-45).
+	 */
+	rememberIdentity(project: Project, identity: { repoSlug?: string | null; rootCommit?: string | null } | null): void {
+		const normalized = normalizeStoredIdentity(identity);
+		if (!normalized) return;
+		const key = identityCacheKey(
+			project.machineId,
+			project.canonicalProjectPath,
+			this.remoteHostPlatform[project.machineId ?? '']
+		);
+		const cached = key ? this.knownIdentities[key] : null;
+		const changedCache = (cached?.repoSlug ?? null) !== normalized.repoSlug
+			|| (cached?.rootCommit ?? null) !== normalized.rootCommit;
+		if (key && changedCache) this.knownIdentities = { ...this.knownIdentities, [key]: normalized };
+		const changedProject = (project.identity?.repoSlug ?? null) !== normalized.repoSlug
+			|| (project.identity?.rootCommit ?? null) !== normalized.rootCommit;
+		if (!changedProject) return;
+		project.identity = normalized;
+		// Le copie remote non si persistono: la loro identità torna con lo snapshot.
+		if (!this.isRemote(project)) this.save();
+	}
+
+	/**
+	 * Lo stato git appena letto conferma o corregge l'identità nota (R-MI-45) e,
+	 * per le copie locali, la lascia nel record salvato: al prossimo avvio la
+	 * tessera è unita prima di git. Chiamato da `githubStore` dopo ogni lettura.
+	 */
+	rememberGitIdentity(machine: MachineId, projectPath: string, status: { repoSlug?: string | null; rootCommit?: string | null }): void {
+		const owner = machine || LOCAL_MACHINE;
+		const hostWin = this.remoteHostWin[owner] ?? isWindows;
+		const key = pathKey(projectPath, hostWin);
+		// Lo stato git si legge sulla cartella della corsia (che può essere un
+		// worktree), ma l'identità è del progetto: si accetta l'una o l'altra.
+		const project = this.projects.find((p) =>
+			(p.machineId ?? LOCAL_MACHINE) === owner
+			&& ((p.canonicalProjectPath != null && pathKey(p.canonicalProjectPath, hostWin) === key)
+				|| (p.lane.workspacePath != null && pathKey(p.lane.workspacePath, hostWin) === key))
+		);
+		if (!project) return;
+		this.rememberIdentity(project, { repoSlug: status.repoSlug ?? null, rootCommit: status.rootCommit ?? null });
+	}
 
 	/**
 	 * Record di corsia restituito dall'host (`lane_action`): diventa subito
@@ -1137,9 +1237,17 @@ class ProjectStore {
 		// trovava piu' la cartella).
 		const hostWin = isWindowsPath(snapshot.platform);
 		this.remoteHostWin[machine] = hostWin;
+		this.remoteHostPlatform[machine] = snapshot.platform;
 		const existing = new Map(this.projects.filter((p) => p.machineId === machine).map((p) => [p.id, p]));
 		const next: Project[] = [];
 		const lanes: Record<string, LaneRecord[]> = {};
+		// Editor e anteprime aperte là (IMP-011). I percorsi sono già relativi
+		// alla radice del progetto sulla macchina che li ha aperti: si copiano
+		// come arrivano, senza normalizzarli col separatore di chi guarda.
+		const openItemsByProject = new Map(
+			(snapshot.openItems ?? []).map((entry) => [entry.projectId, entry.lanes])
+		);
+		const openItems: Record<string, OpenItemsLane[]> = {};
 		for (const host of snapshot.projects) {
 			if (host.external || host.labDraft) continue;
 			const id = projectId(`${machine}::${host.id}`);
@@ -1190,8 +1298,14 @@ class ProjectStore {
 				autoDispatch: false,
 				taskDefaults: null,
 				worktreeResumeChat: host.worktreeResumeChat,
-				external: false
+				external: false,
+				// Identità pubblicata dall'host nello snapshot (R-MI-45): senza,
+				// la tessera restava doppia finché non arrivava il suo stato git.
+				identity: normalizeStoredIdentity(host.identity)
 			};
+			// I riepiloghi precedenti possono non portarla: si conserva quella
+			// già nota invece di azzerarla a ogni giro.
+			project.identity = normalizeStoredIdentity(host.identity) ?? project.identity ?? null;
 			project.name = host.name || name;
 			project.hostProjectId = host.id;
 			project.canonicalProjectPath = canonical;
@@ -1228,6 +1342,18 @@ class ProjectStore {
 				openFiles: lane ? [...lane.openFiles] : [...project.lane.openFiles],
 				activeFile: lane ? lane.activeFile : project.lane.activeFile
 			};
+			// Sempre presente, anche vuoto: un progetto che non ha più nulla di
+			// aperto là non deve restare elencato dallo snapshot precedente.
+			const hostOpenItems = openItemsByProject.get(host.id) ?? [];
+			openItems[id] = hostOpenItems
+				.filter((lane) => lane.laneId)
+				.map((lane) => ({
+					laneId: lane.laneId,
+					laneTitle: lane.laneTitle,
+					openFiles: [...lane.openFiles],
+					activeFile: lane.activeFile,
+					previewFile: lane.previewFile
+				}));
 			next.push(project);
 		}
 		// Un progetto chiuso sull'host non è più nascosto: se si riapre lì,
@@ -1241,6 +1367,10 @@ class ProjectStore {
 			Object.entries(this.remoteLanes).filter(([id]) => kept.some((p) => p.id === id))
 		);
 		this.remoteLanes = { ...otherLanes, ...lanes };
+		const otherOpenItems = Object.fromEntries(
+			Object.entries(this.remoteOpenItems).filter(([id]) => kept.some((p) => p.id === id))
+		);
+		this.remoteOpenItems = { ...otherOpenItems, ...openItems };
 		if (this.activeId && !this.projects.some((p) => p.id === this.activeId)) {
 			this.activeId = this.projects[0]?.id ?? null;
 		}
@@ -1252,6 +1382,9 @@ class ProjectStore {
 		this.projects = kept;
 		this.remoteLanes = Object.fromEntries(
 			Object.entries(this.remoteLanes).filter(([id]) => kept.some((p) => p.id === id))
+		);
+		this.remoteOpenItems = Object.fromEntries(
+			Object.entries(this.remoteOpenItems).filter(([id]) => kept.some((p) => p.id === id))
 		);
 		if (this.activeId && !this.projects.some((p) => p.id === this.activeId)) {
 			this.activeId = this.projects[0]?.id ?? null;

@@ -1041,8 +1041,42 @@ export const API = {
 	clientSocket: '/v1/client',
 	pushVapidPublicKey: '/v1/push/vapid-public-key',
 	pushSubscriptions: '/v1/push/subscriptions',
-	preview: '/v1/preview'
+	preview: '/v1/preview',
+	/** R-MI-56: l'host autenticato chiede quale relay iroh dichiara il server. */
+	hostInfo: '/v1/host/info',
+	/** R-REM-25: l'host genera il codice di un nuovo telefono. */
+	hostCodes: '/v1/host/codes',
+	/** R-MI-55: deposito (autenticato) e ritiro (una volta) del codice corto. */
+	hostMailbox: '/v1/host/mailbox',
+	mailbox: '/v1/mailbox/',
+	/** R-MI-52: l'host revoca un telefono abbinato a lui. */
+	hostDevices: '/v1/host/devices/'
 } as const;
+
+/** R-MI-55: validita' del deposito del codice corto, uguale a quella dei codici. */
+export const MAILBOX_TTL_MS = 10 * 60_000;
+
+/** R-MI-55: tetto del corpo cifrato del deposito (il codice completo e' ~2 KB). */
+export const MAILBOX_MAX_BYTES = 16 * 1024;
+
+/** Stato del deposito di un codice corto: il relay vede solo il cifrato. */
+export interface MailboxDepositRequest {
+	/** Impronta SHA-256 del codice corto: il relay non conserva il codice. */
+	id: string;
+	/** `salt || nonce || ciphertext` in base64url. */
+	payload: string;
+}
+export interface MailboxDepositResponse {
+	expiresAt: number;
+}
+export interface MailboxWithdrawResponse {
+	payload: string;
+}
+
+/** R-MI-56: risposta di `GET /v1/host/info`, da variabile d'ambiente del server. */
+export interface HostInfoResponse {
+	irohRelay: string | null;
+}
 
 /** Percorso con cui il relay serve un prototipo pubblicato: `/p/<id>/`. */
 export const PREVIEW_PATH_PREFIX = '/p/';

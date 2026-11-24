@@ -9,6 +9,8 @@ mod protocol;
 mod access;
 mod activity;
 mod relay;
+mod depot;
+mod discovery;
 pub(crate) mod streams;
 pub(crate) mod host;
 
@@ -93,6 +95,9 @@ pub(crate) fn epoch_ms() -> u64 {
 pub(crate) struct LinkManager {
     runtime: tokio::sync::Mutex<Option<Arc<Runtime>>>,
     configuration_gate: tokio::sync::Mutex<()>,
+    // Il deposito corto si ritira una volta sola: conserva il codice completo
+    // solo mentre la finestra chiede conferma per il cambio di relay.
+    pair_relay_confirmation: Mutex<Option<RelayConfirmation>>,
     /// Chiave della macchina sparita dal portachiavi (R-MI-43): lo stato lo
     /// dice alla finestra invece di un errore generico.
     key_missing: std::sync::atomic::AtomicBool,
@@ -105,6 +110,22 @@ struct Connected {
 }
 struct Invitation {
     token: String,
+    expires: Instant,
+}
+
+struct RelayConfirmation {
+    short_code: String,
+    full_code: String,
+    expires: Instant,
+}
+
+/// Richiesta di abbinamento in rete locale in attesa di risposta (R-MI-54).
+/// Una richiesta rifiutata o scaduta viene tolta senza lasciare stato: nessun
+/// peer scritto, nessun invito consumato.
+struct PendingPair {
+    /// Chi riceve la richiesta risponde con `true`/`false`; chi l'ha scelta
+    /// non ha un canale e aspetta la risposta dell'altra macchina.
+    answer: Option<tokio::sync::oneshot::Sender<bool>>,
     expires: Instant,
 }
 struct Runtime {
@@ -131,6 +152,15 @@ struct Runtime {
     relay_check: tokio::sync::Notify,
     /// Cosa stanno facendo le sessioni aperte da un'altra macchina (R-MI-18).
     pub(crate) activity: activity::SharedActivity,
+    /// Macchine viste in rete locale, solo mentre la scoperta e' accesa
+    /// (R-MI-54). Annuncio e ascolto vivono dentro `discovery`.
+    discovery: Mutex<Option<discovery::Session>>,
+    /// Richieste di abbinamento in rete locale in attesa (R-MI-54), per id.
+    pairs: Mutex<HashMap<String, PendingPair>>,
+    /// Relay con cui l'endpoint vivo e' stato costruito: vuoto quando la
+    /// scoperta in rete locale ha acceso un endpoint senza relay (R-MI-54).
+    /// Serve a capire che un codice con relay richiede di ripartire.
+    endpoint_relay: Mutex<String>,
 }
 
 #[derive(Serialize)]
@@ -192,6 +222,9 @@ impl LinkManager {
             relay_reachable: Mutex::new(None),
             relay_check: tokio::sync::Notify::new(),
             activity: Arc::new(activity::Activity::default()),
+            discovery: Mutex::new(None),
+            pairs: Mutex::new(HashMap::new()),
+            endpoint_relay: Mutex::new(String::new()),
         });
         *guard = Some(runtime.clone());
         runtime.listen_host_events();
@@ -230,23 +263,45 @@ impl Runtime {
     }
 
     async fn start(self: &Arc<Self>) -> Result<(), String> {
+        self.start_with(false).await
+    }
+
+    /// `start` con `force` per la sola scoperta in rete locale (R-MI-54): il
+    /// percorso «Aggiungi dispositivo» deve funzionare anche a collegamento
+    /// spento e senza relay, altrimenti la prima macchina non potrebbe
+    /// abbinarne nessuna.
+    async fn start_with(self: &Arc<Self>, force: bool) -> Result<(), String> {
         let (enabled, relay_url, token, secret) = {
             let config = self.config.lock();
             (config.enabled, config.relay_url.clone(), config.relay_token.clone(), config.secret()?)
         };
-        if !enabled {
+        if !enabled && !force {
             // Collegamento spento: nessun relay da verificare (R-MI-30).
             *self.relay_reachable.lock() = None;
             return Ok(());
         }
-        let url: RelayUrl = relay_url.parse().map_err(|_| "Invalid iroh relay URL")?;
-        let mut relay_map = RelayMode::custom([url]).relay_map();
-        if !token.is_empty() { relay_map = relay_map.with_auth_token(token); }
+        if self.endpoint.lock().is_some() { return Ok(()); }
+        // R-MI-54: il percorso «Aggiungi dispositivo › rete locale» deve
+        // funzionare anche prima che esista un relay configurato. Senza
+        // indirizzo l'endpoint non usa relay (solo via diretta); appena il
+        // codice ne adotta uno, `start` viene richiamato con l'indirizzo.
+        let relay_mode = if relay_url.trim().is_empty() {
+            RelayMode::Disabled
+        } else {
+            let url: RelayUrl = relay_url.parse().map_err(|_| "Invalid iroh relay URL")?;
+            let mut relay_map = RelayMode::custom([url]).relay_map();
+            if !token.is_empty() { relay_map = relay_map.with_auth_token(token); }
+            RelayMode::Custom(relay_map)
+        };
         let endpoint = Endpoint::builder(presets::Minimal)
-            .secret_key(secret).relay_mode(RelayMode::Custom(relay_map))
-            .ca_tls_config(CaTlsConfig::system()).alpns(vec![ALPN.to_vec()])
+            .secret_key(secret).relay_mode(relay_mode)
+            .ca_tls_config(CaTlsConfig::system())
+            // L'ALPN dell'abbinamento in rete locale resta registrato sempre;
+            // accettarlo richiede pero' la scoperta accesa (vedi `accept_pair`).
+            .alpns(vec![ALPN.to_vec(), discovery::PAIR_ALPN.to_vec()])
             .bind().await.map_err(|error| format!("Starting instance link: {error}"))?;
         *self.endpoint.lock() = Some(endpoint.clone());
+        *self.endpoint_relay.lock() = relay_url.trim().to_owned();
         let generation = self.generation.load(Ordering::SeqCst);
         let runtime = self.clone();
         let accepting = endpoint.clone();
@@ -256,6 +311,12 @@ impl Runtime {
                 tauri::async_runtime::spawn(async move {
                     let result = tokio::time::timeout(CONNECT_TIMEOUT, async {
                         let connection = incoming.await.map_err(|error| error.to_string())?;
+                        // L'ALPN dell'abbinamento non porta un token: si accetta
+                        // solo con la scoperta accesa, cioe' mentre l'utente ha
+                        // aperto «Aggiungi dispositivo» (R-MI-54).
+                        if connection.alpn() == discovery::PAIR_ALPN {
+                            return runtime.accept_pair(connection).await;
+                        }
                         runtime.accept(connection, generation).await
                     }).await;
                     if let Ok(Err(error)) = result {
@@ -360,9 +421,14 @@ impl Runtime {
         self.relay_check.notify_one();
         *self.relay_reachable.lock() = None;
         self.invitation.lock().take();
+        self.pairs.lock().clear();
+        // L'annuncio in rete locale segue l'endpoint: senza endpoint non c'e'
+        // niente da scoprire, e la sessione cadrebbe comunque.
+        if let Some(session) = self.discovery.lock().take() { session.shutdown(); }
         let connections = std::mem::take(&mut *self.connections.lock());
         for (_, connected) in connections { connected.connection.close(0u32.into(), b"configuration changed"); }
         let endpoint = self.endpoint.lock().take();
+        *self.endpoint_relay.lock() = String::new();
         if let Some(endpoint) = endpoint { endpoint.close().await; }
     }
 
@@ -496,6 +562,137 @@ impl Runtime {
             ));
         }
         Ok(())
+    }
+
+    /// Scrive un peer appena abbinato (R-MI-54). I permessi restano quelli
+    /// gia' scelti dall'utente; per una macchina nuova valgono quelli iniziali
+    /// di R-MI-09 (`Permissions::default`).
+    fn add_peer(&self, peer: Peer) -> Result<(), String> {
+        let mut config = self.config.lock();
+        let mut updated = config.clone();
+        // Un abbinamento in rete locale aggiorna l'indirizzo ma non i permessi
+        // gia' scelti: quelli sono dell'utente (R-MI-09), non del trasporto.
+        let previous = updated.peers.get(peer.address.id.as_str()).map(|existing| existing.permissions);
+        let mut peer = peer;
+        if let Some(permissions) = previous { peer.permissions = permissions; }
+        updated.peers.insert(peer.address.id.clone(), peer);
+        // Un abbinamento esplicito accende il collegamento: `authorize_hello`
+        // rifiuta i peer quando e' spento, quindi senza questo le due macchine
+        // risulterebbero abbinate ma mai collegate (R-MI-09, R-MI-54).
+        updated.enabled = true;
+        updated.save(&self.path)?;
+        *config = updated;
+        drop(config);
+        self.changed();
+        Ok(())
+    }
+
+    /// Lato di chi riceve una richiesta di abbinamento in rete locale: mostra
+    /// la conferma e scrive il peer solo dopo l'accettazione dell'utente.
+    async fn accept_pair(self: &Arc<Self>, connection: Connection) -> Result<(), String> {
+        let open = self.discovery.lock().is_some();
+        if !open {
+            connection.close(1u32.into(), b"pairing is not open");
+            return Err("Local network discovery is not running".into());
+        }
+        let (mut send, mut recv) = connection.accept_bi().await.map_err(|error| error.to_string())?;
+        let request: discovery::PairRequest = read_json(&mut recv).await?;
+        let reply = |accept: bool, name: &str| discovery::PairReply { accept, name: name.to_owned(), version: VERSION.into() };
+        let remote = connection.remote_id().to_string();
+        let sas = discovery::sas(&self.id, &remote, &request.nonce);
+        // Le due macchine devono leggere lo stesso numero: se il nonce non
+        // torna, la richiesta non e' quella che l'altra schermata mostra.
+        let admission = lan_admission(
+            open, request.protocol, versions_compatible(&request.version, VERSION),
+            request.address.id == remote, remote == self.id, sas == request.sas,
+        );
+        if let Err(refused) = admission {
+            let name = self.config.lock().name.clone();
+            send_json(&mut send, &reply(false, &name)).await?;
+            let _ = send.finish();
+            return Err(match refused {
+                LanAdmission::Incompatible if request.protocol != PROTOCOL => "Incompatible Studio link protocol".into(),
+                LanAdmission::Incompatible => format!("Update Studio before pairing: {VERSION} / {}", request.version),
+                LanAdmission::IdentityMismatch => "Endpoint identity mismatch".into(),
+                LanAdmission::SelfPair => "Cannot pair Studio with itself".into(),
+                LanAdmission::ConfirmationMismatch => "Pairing confirmation does not match".into(),
+                LanAdmission::DiscoveryClosed | LanAdmission::AwaitingAnswer => "Local network discovery is not running".into(),
+            });
+        }
+        let request_id = uuid::Uuid::new_v4().simple().to_string();
+        let (answer_tx, answer_rx) = tokio::sync::oneshot::channel();
+        self.pairs.lock().insert(request_id.clone(), PendingPair {
+            answer: Some(answer_tx), expires: Instant::now() + discovery::PAIR_TIMEOUT,
+        });
+        let prompt = discovery::PairPrompt {
+            request_id: request_id.clone(), peer_id: remote.clone(), name: request.name.clone(),
+            sas, direction: "incoming",
+        };
+        let _ = self.app.emit("link:pair_request", &prompt);
+        // Due minuti: oltre, la richiesta non vale piu' e non resta nulla.
+        let accepted = tokio::time::timeout(discovery::PAIR_TIMEOUT, answer_rx).await.ok().and_then(Result::ok).unwrap_or(false);
+        self.pairs.lock().remove(&request_id);
+        let name = self.config.lock().name.clone();
+        send_json(&mut send, &reply(accepted, &name)).await?;
+        let _ = send.finish();
+        // Rifiuto o silenzio: nessun peer scritto, nessun invito consumato.
+        if !lan_pair_writes_peer(&LanAdmission::AwaitingAnswer, accepted) { return Ok(()); }
+        self.add_peer(Peer {
+            name: request.name.clone(), address: request.address.clone(),
+            permissions: catalog::Permissions::default(), last_seen: Some(epoch_ms()),
+        })?;
+        Ok(())
+    }
+
+    /// Lato di chi sceglie una macchina in rete locale (R-MI-54): propone
+    /// l'abbinamento e aspetta la risposta; senza accettazione non scrive
+    /// nulla.
+    async fn pair_lan(self: &Arc<Self>, id: &str) -> Result<(), String> {
+        let endpoint = self.endpoint.lock().clone().ok_or("Enable instance control first")?;
+        let discovered = {
+            let guard = self.discovery.lock();
+            let session = guard.as_ref().ok_or("Local network discovery is not running")?;
+            let found = session.peers.lock().get(id).cloned();
+            found.ok_or("That machine is no longer on the local network")?
+        };
+        let address = discovered.endpoint_addr()?;
+        let nonce = uuid::Uuid::new_v4().simple().to_string();
+        let sas = discovery::sas(&self.id, id, &nonce);
+        let own = self.hello(None)?;
+        let request = discovery::PairRequest {
+            protocol: PROTOCOL, version: VERSION.into(), name: own.name.clone(),
+            address: own.address, nonce, sas: sas.clone(),
+        };
+        let request_id = uuid::Uuid::new_v4().simple().to_string();
+        let prompt = discovery::PairPrompt {
+            request_id: request_id.clone(), peer_id: id.to_owned(), name: discovered.name.clone(),
+            sas, direction: "outgoing",
+        };
+        let _ = self.app.emit("link:pair_request", &prompt);
+        let exchange = async {
+            let connection = endpoint.connect(address, discovery::PAIR_ALPN).await.map_err(|error| error.to_string())?;
+            let (mut send, mut recv) = connection.open_bi().await.map_err(|error| error.to_string())?;
+            send_json(&mut send, &request).await?;
+            send.finish().map_err(|error| error.to_string())?;
+            let reply: discovery::PairReply = read_json(&mut recv).await?;
+            if !reply.accept { return Err(crate::tr!("L'altra macchina ha rifiutato l'abbinamento", "The other machine declined the pairing").to_string()); }
+            if !versions_compatible(&reply.version, VERSION) {
+                return Err(format!("Update Studio before pairing: {VERSION} / {}", reply.version));
+            }
+            let name = if reply.name.trim().is_empty() { discovered.name.clone() } else { reply.name.clone() };
+            self.add_peer(Peer {
+                name, address: discovered.address(),
+                permissions: catalog::Permissions::default(), last_seen: Some(epoch_ms()),
+            })?;
+            Ok::<(), String>(())
+        };
+        let outcome = tokio::time::timeout(discovery::PAIR_TIMEOUT, exchange).await
+            .unwrap_or_else(|_| Err(crate::tr!("Nessuna risposta dall'altra macchina", "The other machine did not answer").to_string()));
+        let _ = self.app.emit("link:pair_result", &json!({
+            "requestId": request_id, "ok": outcome.is_ok(),
+            "error": outcome.as_ref().err().cloned(),
+        }));
+        outcome
     }
 
     fn register(self: &Arc<Self>, connection: Connection, version: String, generation: u64, outgoing: bool) {
@@ -889,9 +1086,95 @@ async fn dispatch(app: &tauri::AppHandle, command: String, body: InvokeBody, hea
     rx.await.map_err(|_| "Host command response was interrupted".to_owned())
 }
 
+/// Codice di abbinamento (R-MI-16, R-MI-53): porta l'identita' e gli
+/// indirizzi della macchina, il token monouso dell'invito e, se c'e', il
+/// token del relay iroh, cosi' una macchina nuova non deve configurare nulla.
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct PairingCode { protocol: u32, address: Address, token: String }
+struct PairingCode {
+    protocol: u32,
+    address: Address,
+    token: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    relay_token: Option<String>,
+}
+
+/// Cosa fare col relay del codice rispetto a quello configurato qui
+/// (R-MI-53). Separata dal resto per essere provata senza rete.
+#[derive(Debug, PartialEq, Eq)]
+enum RelayPlan {
+    /// Stesso relay: si procede.
+    Same,
+    /// Questa macchina non ha ancora un relay, oppure l'utente ha scelto di
+    /// sostituirlo: si adotta quello del codice (con il suo token).
+    Adopt,
+    /// Relay diverso e nessuna scelta esplicita: l'errore dice quale sarebbe.
+    Mismatch,
+}
+
+/// Ammissione di una richiesta di abbinamento in rete locale (R-MI-54),
+/// separata dalla rete per essere provata da sola: dice se la richiesta puo'
+/// arrivare all'utente, e se alla fine il peer va scritto. `accepted` e' la
+/// risposta dell'utente; senza di essa non si scrive nulla.
+#[derive(Debug, PartialEq, Eq)]
+enum LanAdmission {
+    /// Il percorso non e' aperto: la macchina non si annuncia ne' si abbina.
+    DiscoveryClosed,
+    /// Protocollo o versione non compatibili.
+    Incompatible,
+    /// La chiave del richiedente non corrisponde all'identita' della connessione.
+    IdentityMismatch,
+    /// La macchina ha provato ad abbinarsi con se stessa.
+    SelfPair,
+    /// Le due schermate non mostrano lo stesso numero: la richiesta non e' quella.
+    ConfirmationMismatch,
+    /// In attesa della risposta dell'utente.
+    AwaitingAnswer,
+}
+
+fn lan_admission(discovery_open: bool, protocol: u32, compatible: bool, same_identity: bool, same_machine: bool, sas_matches: bool) -> Result<LanAdmission, LanAdmission> {
+    if !discovery_open { return Err(LanAdmission::DiscoveryClosed); }
+    if protocol != PROTOCOL || !compatible { return Err(LanAdmission::Incompatible); }
+    if !same_identity { return Err(LanAdmission::IdentityMismatch); }
+    if same_machine { return Err(LanAdmission::SelfPair); }
+    if !sas_matches { return Err(LanAdmission::ConfirmationMismatch); }
+    Ok(LanAdmission::AwaitingAnswer)
+}
+
+/// Un abbinamento in rete locale scrive il peer solo con l'accettazione
+/// dell'utente: rifiuto o silenzio non lasciano stato (R-MI-54).
+fn lan_pair_writes_peer(admission: &LanAdmission, accepted: bool) -> bool {
+    matches!(admission, LanAdmission::AwaitingAnswer) && accepted
+}
+
+/// Origine di relay confrontabile: uno slash finale di troppo non e' un
+/// relay diverso (i file vecchi non lo normalizzavano sempre).
+fn relay_origin(url: &str) -> &str {
+    url.trim().trim_end_matches('/')
+}
+
+fn relay_plan(local: &str, from_code: &str, adopt: bool) -> Result<RelayPlan, String> {
+    let code_relay = relay_origin(from_code);
+    if code_relay.is_empty() { return Err("Pairing code has no relay".into()); }
+    let local = relay_origin(local);
+    if local.is_empty() { return Ok(RelayPlan::Adopt); }
+    if local == code_relay { return Ok(RelayPlan::Same); }
+    if adopt { return Ok(RelayPlan::Adopt); }
+    Ok(RelayPlan::Mismatch)
+}
+
+/// Esito del codice di abbinamento per la finestra (R-MI-53, R-MI-55).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PairingCodeView {
+    /// Codice completo, sempre copiabile.
+    code: String,
+    /// `XXXX-XXXX` quando il server di Remote e' configurato e il deposito
+    /// e' riuscito; `null` altrimenti.
+    short_code: Option<String>,
+    /// Scadenza in millisecondi epoch.
+    expires_at: u64,
+}
 
 #[tauri::command]
 pub(crate) async fn link_status(app: tauri::AppHandle, manager: tauri::State<'_, LinkManager>) -> Result<LinkStatus, String> {
@@ -965,29 +1248,423 @@ pub(crate) async fn link_configure(app: tauri::AppHandle, enabled: bool, name: S
     runtime.status()
 }
 
-#[tauri::command]
-pub(crate) async fn link_pairing_code(app: tauri::AppHandle, manager: tauri::State<'_, LinkManager>) -> Result<String, String> {
-    let runtime = manager.runtime(&app).await?;
-    let hello = runtime.hello(None)?;
-    let token = format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple());
-    let code = PairingCode { protocol: PROTOCOL, address: hello.address, token: token.clone() };
-    *runtime.invitation.lock() = Some(Invitation { token, expires: Instant::now() + Duration::from_secs(300) });
-    Ok(format!("studio1:{}", URL_SAFE_NO_PAD.encode(serde_json::to_vec(&code).map_err(|error| error.to_string())?)))
+/// Relay di Studio Remote configurato, con la credenziale dell'host, se c'e'
+/// (R-MI-55): serve a depositare il codice corto e a chiedere il relay iroh.
+fn remote_host(credential: Option<String>, relay_url: Option<String>) -> Option<(String, String)> {
+    match (credential, relay_url) {
+        (Some(credential), Some(relay_url)) if !credential.trim().is_empty() && !relay_url.trim().is_empty() =>
+            Some((relay_url, credential)),
+        _ => None,
+    }
 }
 
 #[tauri::command]
-pub(crate) async fn link_pair(app: tauri::AppHandle, code: String, manager: tauri::State<'_, LinkManager>) -> Result<LinkStatus, String> {
+pub(crate) async fn link_pairing_code(app: tauri::AppHandle, manager: tauri::State<'_, LinkManager>) -> Result<PairingCodeView, String> {
+    let runtime = manager.runtime(&app).await?;
+    // Generare un invito è un'accensione esplicita: un endpoint forzato
+    // per la sola scoperta altrimenti rifiuta l'hello del nuovo computer.
+    {
+        let _configuration = manager.configuration_gate.lock().await;
+        let changed = {
+            let mut config = runtime.config.lock();
+            if config.relay_url.trim().is_empty() {
+                return Err(crate::tr!(
+                    "Per un codice di abbinamento serve il relay: configuralo, oppure usa «rete locale»",
+                    "A pairing code needs the relay: configure it, or use «local network»"
+                ).into());
+            }
+            if config.enabled { false } else {
+                let mut updated = config.clone();
+                updated.enabled = true;
+                updated.save(&runtime.path)?;
+                *config = updated;
+                true
+            }
+        };
+        if changed || runtime.endpoint.lock().is_none() || runtime.endpoint_relay.lock().trim().is_empty() {
+            runtime.stop().await;
+            runtime.start().await?;
+            runtime.changed();
+        }
+    }
+    let hello = runtime.hello(None)?;
+    let relay_token = { let config = runtime.config.lock(); config.relay_token.clone() };
+    let token = format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple());
+    let expires = Instant::now() + Duration::from_secs(600);
+    let code = PairingCode {
+        protocol: PROTOCOL, address: hello.address, token: token.clone(),
+        relay_token: (!relay_token.is_empty()).then_some(relay_token),
+    };
+    *runtime.invitation.lock() = Some(Invitation { token, expires });
+    let full = format!("studio1:{}", URL_SAFE_NO_PAD.encode(serde_json::to_vec(&code).map_err(|error| error.to_string())?));
+    let expires_at = epoch_ms() + 600_000;
+    // R-MI-55: con Studio Remote configurato il codice corto esiste, ma il
+    // codice completo resta disponibile per chi non usa Remote.
+    let remote = app.try_state::<crate::remote::RemoteManager>().map(|manager| {
+        let config = manager.ctx.config.lock();
+        (config.relay_url.clone(), config.credential.clone())
+    });
+    let short_code = match remote.and_then(|(relay, credential)| remote_host(credential, relay)) {
+        Some((relay, credential)) => {
+            let short = depot::generate_short_code();
+            match depot::deposit(&relay, &credential, &short, &full).await {
+                Ok(_) => Some(depot::format_short_code(&short)),
+                Err(error) => {
+                    crate::studio_log::info("link", format!("Deposito del codice corto non riuscito: {error}"));
+                    None
+                }
+            }
+        }
+        None => None,
+    };
+    Ok(PairingCodeView { code: full, short_code, expires_at })
+}
+
+/// Codice completo da un codice corto: ritiro unico dal relay di Remote
+/// configurato, decifrato con la chiave ricavata dal codice (R-MI-55).
+async fn withdraw_short_code(app: &tauri::AppHandle, short: &str, server: Option<&str>) -> Result<String, String> {
+    let relay = match server {
+        Some(url) => crate::remote::config::validate_and_normalize_relay_url(url)?.http_url,
+        None => {
+            let manager = app.try_state::<crate::remote::RemoteManager>()
+                .ok_or_else(|| crate::tr!("Modulo di controllo remoto non inizializzato", "Remote control module not initialized").to_string())?;
+            let configured = manager.ctx.config.lock().relay_url.clone();
+            configured.ok_or_else(|| crate::tr!(
+                "Per un codice corto serve il server di Studio Remote configurato",
+                "A short code requires the Studio Remote server to be configured"
+            ).to_string())?
+        }
+    };
+    depot::withdraw(&relay, short).await
+}
+
+#[tauri::command]
+pub(crate) async fn link_pair(app: tauri::AppHandle, code: String, adopt_relay: Option<bool>, server: Option<String>, progress: tauri::ipc::Channel<&'static str>, manager: tauri::State<'_, LinkManager>) -> Result<LinkStatus, String> {
     if code.len() > 16384 { return Err("Pairing code is too long".into()); }
-    let code = code.trim().strip_prefix("studio1:").ok_or("Invalid pairing code")?;
-    let code: PairingCode = serde_json::from_slice(&URL_SAFE_NO_PAD.decode(code).map_err(|_| "Invalid pairing code")?).map_err(|_| "Invalid pairing code")?;
+    let trimmed = code.trim();
+    let adopt = adopt_relay.unwrap_or(false);
+    let notify = |stage| {
+        let _ = progress.send(stage);
+    };
+    let waiting = manager.pair_relay_confirmation.lock().take();
+    let mut short_code = None;
+    // Codice corto (R-MI-55): lo si ritira una volta sola e si prosegue col
+    // codice completo che conteneva.
+    let full = match trimmed.strip_prefix("studio1:") {
+        Some(_) => trimmed.to_owned(),
+        None => {
+            let short = depot::normalize_short_code(trimmed)
+                .ok_or_else(|| crate::tr!("Codice di abbinamento non valido", "Invalid pairing code").to_string())?;
+            short_code = Some(short.clone());
+            match waiting {
+                Some(pending) if adopt && pending.short_code == short && pending.expires > Instant::now() => pending.full_code,
+                _ => {
+                    notify("server");
+                    withdraw_short_code(&app, &short, server.as_deref()).await?
+                }
+            }
+        }
+    };
+    let encoded = full.strip_prefix("studio1:").ok_or("Invalid pairing code")?;
+    let code: PairingCode = serde_json::from_slice(&URL_SAFE_NO_PAD.decode(encoded).map_err(|_| "Invalid pairing code")?).map_err(|_| "Invalid pairing code")?;
     if code.protocol != PROTOCOL { return Err("Incompatible pairing code".into()); }
     let runtime = manager.runtime(&app).await?;
+    // R-MI-53: su una macchina non configurata il relay e il token arrivano
+    // dal codice; con un relay diverso si chiede prima all'utente.
+    let local_relay = runtime.config.lock().relay_url.clone();
+    notify("configuration");
+    match relay_plan(&local_relay, &code.address.relay, adopt)? {
+        RelayPlan::Mismatch => {
+            if let Some(short) = short_code {
+                *manager.pair_relay_confirmation.lock() = Some(RelayConfirmation {
+                    short_code: short, full_code: full, expires: Instant::now() + Duration::from_secs(60),
+                });
+            }
+            return Err(format!("relay_mismatch:{}", code.address.relay.trim()));
+        }
+        RelayPlan::Adopt => {
+            let _configuration = manager.configuration_gate.lock().await;
+            {
+                let mut config = runtime.config.lock();
+                let mut updated = config.clone();
+                updated.relay_url = config::validate_relay(&code.address.relay)?;
+                updated.relay_token = code.relay_token.clone().unwrap_or_default();
+                updated.enabled = true;
+                updated.save(&runtime.path)?;
+                *config = updated;
+            }
+            runtime.stop().await;
+            runtime.start().await?;
+            runtime.changed();
+        }
+        RelayPlan::Same => {
+            // Endpoint spento o collegamento da accendere: il codice porta
+            // tutto il necessario, non serve un salvataggio a parte.
+            let _configuration = manager.configuration_gate.lock().await;
+            let needs_start = {
+                let config = runtime.config.lock();
+                // Un endpoint acceso dalla sola scoperta in rete locale non ha
+                // relay: il codice ne porta uno, va costruito da capo (R-MI-54).
+                let live_without_relay = runtime.endpoint.lock().is_some()
+                    && runtime.endpoint_relay.lock().trim().is_empty();
+                runtime.endpoint.lock().is_none()
+                    || live_without_relay
+                    || (!config.enabled && !config.relay_url.trim().is_empty())
+            };
+            if needs_start {
+                {
+                    let mut config = runtime.config.lock();
+                    let mut updated = config.clone();
+                    updated.enabled = true;
+                    // Un token locale assente si prende dal codice: e' il caso
+                    // della macchina che ha gia' l'indirizzo ma non il token.
+                    if updated.relay_token.is_empty() {
+                        if let Some(token) = code.relay_token.clone() { updated.relay_token = token; }
+                    }
+                    updated.save(&runtime.path)?;
+                    *config = updated;
+                }
+                runtime.stop().await;
+                runtime.start().await?;
+                runtime.changed();
+            }
+        }
+    }
     let endpoint = runtime.endpoint.lock().clone().ok_or("Enable instance control first")?;
     if code.address.id == endpoint.id().to_string() { return Err("Cannot pair Studio with itself".into()); }
     let generation = runtime.generation.load(Ordering::SeqCst);
+    notify("peer");
     tokio::time::timeout(CONNECT_TIMEOUT, runtime.connect(&endpoint, &code.address, Some(code.token), generation)).await
         .map_err(|_| "Pairing timed out")??;
     runtime.status()
+}
+
+/// Nessun `relay_mismatch` e un codice completo lasciano la scelta all'utente:
+/// `adoptRelay: true` sostituisce relay e token con quelli del codice.
+#[tauri::command]
+pub(crate) async fn link_discovery_start(app: tauri::AppHandle, manager: tauri::State<'_, LinkManager>) -> Result<(), String> {
+    let runtime = manager.runtime(&app).await?;
+    if runtime.discovery.lock().is_some() { return Ok(()); }
+    // R-MI-54: la scoperta accende anche un endpoint senza relay; il
+    // collegamento vero resta spento finché non c'è un relay da usare.
+    if runtime.endpoint.lock().is_none() { runtime.start_with(true).await?; }
+    let endpoint = runtime.endpoint.lock().clone().ok_or("Enable instance control first")?;
+    let (name, platform) = { let config = runtime.config.lock(); (config.name.clone(), std::env::consts::OS) };
+    let app = app.clone();
+    let session = discovery::start(&endpoint, &name, platform, move |list| {
+        let _ = app.emit("link:discovered", &list);
+    })?;
+    *runtime.discovery.lock() = Some(session);
+    Ok(())
+}
+
+#[tauri::command]
+pub(crate) async fn link_discovery_stop(app: tauri::AppHandle, manager: tauri::State<'_, LinkManager>) -> Result<(), String> {
+    let runtime = manager.runtime(&app).await?;
+    // Le richieste ancora in attesa non hanno piu' senso senza il percorso
+    // aperto: chi aspettava riceve «nessuna risposta», non resta appesa.
+    runtime.pairs.lock().clear();
+    let session = runtime.discovery.lock().take();
+    if let Some(endpoint) = runtime.endpoint.lock().clone() { discovery::stop(&endpoint); }
+    if let Some(session) = session { session.shutdown(); }
+    let _ = app.emit("link:discovered", &Vec::<discovery::DiscoveredView>::new());
+    Ok(())
+}
+
+#[tauri::command]
+pub(crate) async fn link_pair_lan(app: tauri::AppHandle, id: String, manager: tauri::State<'_, LinkManager>) -> Result<LinkStatus, String> {
+    let runtime = manager.runtime(&app).await?;
+    runtime.pair_lan(&id).await?;
+    runtime.status()
+}
+
+#[tauri::command]
+pub(crate) async fn link_pair_lan_answer(app: tauri::AppHandle, request_id: String, accept: bool, manager: tauri::State<'_, LinkManager>) -> Result<(), String> {
+    let runtime = manager.runtime(&app).await?;
+    let sender = {
+        let mut pairs = runtime.pairs.lock();
+        let pending = pairs.get_mut(&request_id).ok_or("Unknown pairing request")?;
+        if pending.expires <= Instant::now() { pairs.remove(&request_id); return Err("Pairing request expired".into()); }
+        pending.answer.take()
+    };
+    // Chi sceglie non ha un canale: la sua risposta arriva dall'altra macchina.
+    let Some(sender) = sender else { return Err("This pairing request is waiting for the other machine".into()); };
+    sender.send(accept).map_err(|_| "Pairing request expired".to_string())?;
+    let _ = app.emit("link:pair_result", &json!({ "requestId": request_id, "ok": accept }));
+    Ok(())
+}
+
+/// Nome unico per computer e telefoni (R-MI-52): lo stesso valore in
+/// `instances.json` e in `remote.json`.
+#[tauri::command]
+pub(crate) async fn devices_set_name(app: tauri::AppHandle, name: String, manager: tauri::State<'_, LinkManager>) -> Result<(), String> {
+    let name = name.trim();
+    if name.is_empty() || name.len() > 128 { return Err("Machine name must contain 1–128 bytes".into()); }
+    let name = name.to_owned();
+    // remote.json prima: se il modulo non c'e' non c'e' niente da allineare.
+    if app.try_state::<crate::remote::RemoteManager>().is_some() {
+        crate::remote::remote_set_machine_name(app.clone(), name.clone()).await?;
+    }
+    let runtime = manager.runtime(&app).await?;
+    {
+        let mut config = runtime.config.lock();
+        let mut updated = config.clone();
+        updated.name = name;
+        updated.save(&runtime.path)?;
+        *config = updated;
+    }
+    runtime.changed();
+    Ok(())
+}
+
+/// Un solo «Server di collegamento» (R-MI-56): l'utente inserisce il relay
+/// di Studio Remote e il server dichiara a chi si autentica il relay iroh.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DevicesServer {
+    pub remote_relay: String,
+    pub iroh_relay: Option<String>,
+}
+
+#[tauri::command]
+pub(crate) async fn devices_set_server(app: tauri::AppHandle, url: String, manager: tauri::State<'_, LinkManager>) -> Result<DevicesServer, String> {
+    let normalized = crate::remote::config::validate_and_normalize_relay_url(&url)?;
+    let remote = app.try_state::<crate::remote::RemoteManager>()
+        .ok_or_else(|| crate::tr!("Modulo di controllo remoto non inizializzato", "Remote control module not initialized").to_string())?;
+    {
+        let mut config = remote.ctx.config.lock();
+        config.relay_url = Some(normalized.http_url.clone());
+        crate::remote::config::save_config(&remote.config_path, &config)?;
+    }
+    {
+        let mut status = remote.ctx.status.lock();
+        status.relay_url = Some(normalized.http_url.clone());
+    }
+    remote.ctx.emit_status_update();
+    // Una macchina gia' abbinata deve riconnettersi al nuovo server: senza
+    // questo il cambio di indirizzo resterebbe solo scritto sul disco.
+    let resume = { let config = remote.ctx.config.lock(); config.credential.is_some() && config.enabled };
+    if resume { remote.restart_connection(); }
+    // Endpoint autenticato del relay Bun: senza credenziale non c'e' nulla da
+    // chiedere, e la UI mostra «Avanzate».
+    let iroh_relay = {
+        let credential = remote.ctx.config.lock().credential.clone();
+        match credential {
+            Some(credential) => crate::link::host_info(&remote.ctx.http_client, &normalized.http_url, &credential).await,
+            None => None,
+        }
+    };
+    // Se il server dichiara il relay iroh lo si adotta qui: l'utente non
+    // digita due indirizzi.
+    if let Some(dedicated) = &iroh_relay {
+        if let Ok(valid) = config::validate_relay(dedicated) {
+            let runtime = manager.runtime(&app).await?;
+            let changed = {
+                let mut config = runtime.config.lock();
+                if config.relay_url == valid { false } else {
+                    let mut updated = config.clone();
+                    updated.relay_url = valid;
+                    // Il token iroh viaggia col codice: qui non si inventa.
+                    updated.save(&runtime.path)?;
+                    *config = updated;
+                    true
+                }
+            };
+            if changed { runtime.stop().await; let _ = runtime.start().await; runtime.changed(); }
+        }
+    }
+    Ok(DevicesServer { remote_relay: normalized.http_url, iroh_relay })
+}
+
+/// Relay iroh dichiarato dal server di Studio Remote (R-MI-56), letto con
+/// l'endpoint autenticato dell'host.
+pub(crate) async fn host_info(client: &reqwest::Client, relay: &str, credential: &str) -> Option<String> {
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Info { iroh_relay: Option<String> }
+    let response = client.get(format!("{relay}/v1/host/info"))
+        .bearer_auth(credential)
+        .timeout(Duration::from_secs(10))
+        .send().await.ok()?;
+    if !response.status().is_success() { return None; }
+    let info: Info = response.json().await.ok()?;
+    info.iroh_relay.filter(|value| !value.trim().is_empty())
+}
+
+/// Codice per un nuovo telefono (R-REM-25), generato dal desktop con la
+/// credenziale dell'host.
+#[tauri::command]
+pub(crate) async fn remote_create_phone_code(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    let remote = app.try_state::<crate::remote::RemoteManager>()
+        .ok_or_else(|| crate::tr!("Modulo di controllo remoto non inizializzato", "Remote control module not initialized").to_string())?;
+    let (relay, credential) = {
+        let config = remote.ctx.config.lock();
+        (config.relay_url.clone(), config.credential.clone())
+    };
+    let (relay, credential) = remote_host(credential, relay).ok_or_else(|| crate::tr!(
+        "Questo computer non e' abbinato a un server di Studio Remote",
+        "This computer is not paired with a Studio Remote server"
+    ).to_string())?;
+    #[derive(serde::Deserialize)]
+    struct Created { code: String, expires_at: Option<u64> }
+    let response = remote.ctx.http_client.post(format!("{relay}/v1/host/codes"))
+        .bearer_auth(&credential)
+        .json(&json!({ "kind": "device" }))
+        .timeout(Duration::from_secs(15))
+        .send().await.map_err(|error| error.to_string())?;
+    if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+        return Err(crate::tr!("Credenziale dell'host rifiutata dal relay", "Host credential rejected by the relay").into());
+    }
+    if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        return Err(crate::tr!("Troppi codici attivi, attendi la scadenza", "Too many active codes, wait for one to expire").into());
+    }
+    if !response.status().is_success() {
+        return Err(format!("The relay refused the phone code ({})", response.status()));
+    }
+    let created: Created = response.json().await.map_err(|error| error.to_string())?;
+    Ok(json!({
+        "code": created.code,
+        "url": relay,
+        "expiresAt": created.expires_at.unwrap_or_else(|| epoch_ms() + 600_000),
+    }))
+}
+
+/// Revoca di un telefono abbinato al relay (R-MI-52: «per un telefono stato e
+/// disconnessione»), autenticata con la credenziale dell'host.
+#[tauri::command]
+pub(crate) async fn remote_revoke_device(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    let remote = app.try_state::<crate::remote::RemoteManager>()
+        .ok_or_else(|| crate::tr!("Modulo di controllo remoto non inizializzato", "Remote control module not initialized").to_string())?;
+    let (relay, credential) = {
+        let config = remote.ctx.config.lock();
+        (config.relay_url.clone(), config.credential.clone())
+    };
+    let (relay, credential) = remote_host(credential, relay).ok_or_else(|| crate::tr!(
+        "Questo computer non e' abbinato a un server di Studio Remote",
+        "This computer is not paired with a Studio Remote server"
+    ).to_string())?;
+    // Gli id dei dispositivi sono UUID generati dal relay: niente caratteri da
+    // codificare, e un id che non lo fosse non deve finire nel percorso.
+    if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+        return Err("Invalid device id".into());
+    }
+    let response = remote.ctx.http_client
+        .delete(format!("{relay}/v1/host/devices/{id}"))
+        .bearer_auth(&credential)
+        .timeout(Duration::from_secs(15))
+        .send().await.map_err(|error| error.to_string())?;
+    match response.status() {
+        status if status.is_success() => Ok(()),
+        reqwest::StatusCode::NOT_FOUND => Err(crate::tr!("Dispositivo non trovato", "Device not found").into()),
+        reqwest::StatusCode::UNAUTHORIZED => Err(crate::tr!("Credenziale dell'host rifiutata dal relay", "Host credential rejected by the relay").into()),
+        status => Err(format!("The relay refused the revocation ({status})")),
+    }
+}
+
+/// Id della macchina locale (R-MI-48): chi unisce il diario si sceglie
+/// confrontando questo id con quello del peer.
+pub(crate) async fn local_machine_id(app: &tauri::AppHandle) -> Result<String, String> {
+    Ok(app.state::<LinkManager>().runtime(app).await?.id.clone())
 }
 
 #[tauri::command]
@@ -1110,6 +1787,86 @@ mod tests {
         assert!(!Runtime::accept_propagated_revoke("mac", "pc", "laptop", false));
         assert!(!Runtime::accept_propagated_revoke("mac", "pc", "pc", true));
         assert!(!Runtime::accept_propagated_revoke("mac", "pc", "mac", true));
+    }
+
+    #[test]
+    fn a_new_machine_adopts_the_relay_from_the_code() {
+        // R-MI-53: installazione nuova, il codice porta relay e token.
+        let relay = "https://iroh-relay.myapollo.it/";
+        assert_eq!(relay_plan("", relay, false).unwrap(), RelayPlan::Adopt);
+        // Stesso relay (con o senza slash finale, che `validate_relay` normalizza): si prosegue.
+        assert_eq!(relay_plan("https://iroh-relay.myapollo.it/", relay, false).unwrap(), RelayPlan::Same);
+        // Relay diverso senza scelta: la finestra riceve l'indirizzo da proporre.
+        assert_eq!(relay_plan("https://other.example/", relay, false).unwrap(), RelayPlan::Mismatch);
+        // Relay diverso con `adoptRelay`: si sostituisce.
+        assert_eq!(relay_plan("https://other.example/", relay, true).unwrap(), RelayPlan::Adopt);
+        // Un codice senza relay non e' utilizzabile.
+        assert!(relay_plan("", "  ", false).is_err());
+    }
+
+    #[test]
+    fn the_mismatch_error_carries_the_relay_of_the_code() {
+        // Il contratto D1 -> D2: `relay_mismatch:<url>`, prefisso letterale.
+        let relay = "https://iroh-relay.myapollo.it";
+        let error = match relay_plan("https://other.example", relay, false).unwrap() {
+            RelayPlan::Mismatch => format!("relay_mismatch:{}", relay.trim()),
+            other => panic!("atteso Mismatch, trovato {other:?}"),
+        };
+        assert!(error.starts_with("relay_mismatch:"));
+        assert_eq!(error.trim_start_matches("relay_mismatch:"), relay);
+    }
+
+    #[test]
+    fn the_full_code_carries_the_relay_token_and_a_short_code_is_never_one() {
+        let code = PairingCode {
+            protocol: PROTOCOL,
+            address: Address { id: "mac".into(), relay: "https://iroh-relay.myapollo.it/".into(), ips: vec![] },
+            token: "one-shot".into(),
+            relay_token: Some("relay-secret".into()),
+        };
+        let encoded = format!("studio1:{}", URL_SAFE_NO_PAD.encode(serde_json::to_vec(&code).unwrap()));
+        // R-MI-53: una macchina che non sa nulla ricava relay e token dal codice.
+        let decoded: PairingCode = serde_json::from_slice(
+            &URL_SAFE_NO_PAD.decode(encoded.trim_start_matches("studio1:")).unwrap()
+        ).unwrap();
+        assert_eq!(decoded.address.relay, code.address.relay);
+        assert_eq!(decoded.relay_token.as_deref(), Some("relay-secret"));
+        // Un codice completo non e' scambiato per un codice corto (R-MI-55).
+        assert!(depot::normalize_short_code(&encoded).is_none());
+    }
+
+    #[test]
+    fn a_lan_pairing_writes_the_peer_only_after_the_confirmation() {
+        // R-MI-54: il rifiuto non lascia nulla, e senza accettazione la
+        // richiesta non arriva nemmeno a scrivere.
+        let ok = lan_admission(true, PROTOCOL, true, true, false, true).unwrap();
+        assert_eq!(ok, LanAdmission::AwaitingAnswer);
+        assert!(lan_pair_writes_peer(&ok, true), "accettata: il peer si scrive");
+        assert!(!lan_pair_writes_peer(&ok, false), "rifiutata o scaduta: niente peer");
+        for refused in [
+            LanAdmission::DiscoveryClosed,
+            LanAdmission::Incompatible,
+            LanAdmission::IdentityMismatch,
+            LanAdmission::SelfPair,
+            LanAdmission::ConfirmationMismatch,
+        ] {
+            assert!(!lan_pair_writes_peer(&refused, true), "{refused:?}");
+        }
+    }
+
+    #[test]
+    fn lan_pairing_refuses_a_closed_path_or_a_mismatched_confirmation() {
+        // Nessun annuncio fuori dal percorso: una richiesta che arriva lo
+        // stesso viene rifiutata prima di mostrare qualcosa.
+        assert_eq!(lan_admission(false, PROTOCOL, true, true, false, true), Err(LanAdmission::DiscoveryClosed));
+        // Il numero mostrato deve essere lo stesso sulle due macchine.
+        assert_eq!(lan_admission(true, PROTOCOL, true, true, false, false), Err(LanAdmission::ConfirmationMismatch));
+        // Versione o protocollo diversi: si aggiorna prima.
+        assert_eq!(lan_admission(true, PROTOCOL + 1, true, true, false, true), Err(LanAdmission::Incompatible));
+        assert_eq!(lan_admission(true, PROTOCOL, false, true, false, true), Err(LanAdmission::Incompatible));
+        // Una chiave che non corrisponde alla connessione non e' quella macchina.
+        assert_eq!(lan_admission(true, PROTOCOL, true, false, false, true), Err(LanAdmission::IdentityMismatch));
+        assert_eq!(lan_admission(true, PROTOCOL, true, true, true, true), Err(LanAdmission::SelfPair));
     }
 
     #[test]

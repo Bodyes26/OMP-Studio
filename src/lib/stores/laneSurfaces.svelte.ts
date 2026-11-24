@@ -26,5 +26,6 @@ export type {
 // Proxy `$state` passati alla base: le mutazioni `surfaces[key] = ...` restano reattive.
 const surfaces = $state<Record<string, LaneSurfaceState>>({});
 const browserTabCounts = $state<Record<string, number>>({});
+const revisionState = $state<{ value: number }>({ value: 0 });
 
-export const laneSurfaceStore = new LaneSurfaceManager(surfaces, browserTabCounts);
+export const laneSurfaceStore = new LaneSurfaceManager(surfaces, browserTabCounts, revisionState);

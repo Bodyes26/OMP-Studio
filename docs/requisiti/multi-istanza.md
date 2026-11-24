@@ -61,6 +61,8 @@ Citazioni dell'utente dalla discussione del 2026-11-12:
 
 - **F30 — Registro, anteprima, corsie, impostazioni di omp, chiave, decisioni condivise e ordine (2026-11-21):** dopo lo smistamento dei punti rimasti, tutti tenuti. Scelte nei moduli della stessa sessione: il registro delle azioni remote raccoglie ciò che cambia qualcosa o esegue, non le letture, si consulta in Impostazioni › Altre istanze anche da un'altra macchina, dura 30 giorni; l'anteprima del server di sviluppo si apre dai link `localhost:PORTA` e da «Apri porta…», nel Browser di Studio o in quello di sistema, con l'ambito Terminale; la corsia parte di base sulla macchina della sessione che la apre ma se ne può indicare un'altra, l'integrazione gira sulla macchina della corsia, le corsie di tutte le macchine stanno in un'unica barra; le impostazioni di omp (ruoli, agenti, skill, regole, server MCP senza token) si sincronizzano per file, vince l'ultima modifica, chiedendo se cambiate su entrambe, spente di base e accese per macchina e categoria; sui ruoli: «dobbiamo però ipotizzare di poter dire "ok questo ruolo lasciami modello X sul mac e modello Y sul pc"»; chiave sparita dal portachiavi con uscita guidata; decisioni «unisci / non unire» condivise fra le macchine, vince la più recente. Ordine di lavoro: registro, «Esegui su macchina», build distribuita, aggiornamento con un clic, chiave e decisioni condivise, anteprima, corsie, spostamento dell'agente, impostazioni di omp.
 
+- **F31 — Gestione del progetto multi-istanza rivista (2026-11-23):** «ogni volta che apro studio su windows mi mostra i due progetti separati nella topbar invece che uniti, devo cliccare su uno per aggiornarlo»; «molte volte quando fa la build nightly poi aggiorna il diario e non committa quindi finisco con una modifica e mi dice che le copie divergono e non riesce a fare l'auto sync»; «Mancano poi feedback da sistema per quando sono su un progetto multi istanza per lo stato in tempo reale delle altre macchine, di eventuali sync in corso»; «C'è anche da ridisegnare da zero la schermata in impostazioni [...] collegare una macchina è difficile e scomodo e gestire le connessioni è brutto, in più ci sono due sezioni diverse per remote e per la multi istanza». Scelte nel modulo della stessa sessione: diario committato da chi lo scrive, avanzamento tollerante dei file sporchi non toccati, unione automatica del solo diario (cambia R-MI-27); chip «Macchine» nella barra di stato, sincronizzazione animata sul glifo con «sincronizzata N min fa», avvisi sugli eventi; una sola sezione «Dispositivi» con dettaglio per dispositivo e «Aggiungi dispositivo»; codice che porta relay e token, scoperta in rete locale con 6 cifre di conferma, codice corto fra reti diverse depositato sul relay di Studio Remote, codice del telefono generabile dal desktop; un solo «Server di collegamento» con gli indirizzi separati in «Avanzate»; implementazione diretta senza anteprima.
+
 Le sei strade valutate sono illustrate in `proto/multi-istanza-strade.html` (locale, fuori da git): è materiale di discussione, non un'anteprima di interfaccia approvata. F16 autorizza l'implementazione diretta dell'interfaccia secondo le convenzioni di Studio, senza un'ulteriore approvazione su anteprima.
 
 ## Stato dei requisiti
@@ -111,6 +113,18 @@ Le sei strade valutate sono illustrate in `proto/multi-istanza-strade.html` (loc
 | R-MI-42 | 2 | Attivo, approvato il 2026-11-21 (F30) | Opt-in per macchina e categoria, confronto per file e scelta in caso di conflitto, eccezioni locali per i ruoli, proiezione MCP senza `env` e `headers` | Accettazione non eseguita |
 | R-MI-43 | 1 | Attivo, approvato il 2026-11-21 (F30); precisa R-MI-34 | Recupero guidato; la chiave viene ricontrollata prima di sostituire l'identità | Accettazione non eseguita |
 | R-MI-44 | 2 | Attivo, approvato il 2026-11-21 (F30); precisa R-MI-32 | Decisioni per coppia replicate con lo snapshot e modificabili dal pannello; rifiuti rispettati anche fra più fork | Accettazione non eseguita |
+| R-MI-45 | 2 | Attivo, segnalato il 2026-11-23 (F31); precisa R-MI-12 e R-MI-24 | 2026-11-24: identità nello snapshot desktop (`projection.svelte.ts`) e nel record salvato (`Project.identity`), `knownIdentityOf`, `upstreamFor(macchina, percorso)`, chiave `identityCacheKey`; giro d'avvio di `TopBar.svelte` che non si annulla e mette prima le copie senza identità | 2026-11-24: 6 test in `test/project-identity-startup.test.ts` (unione senza git, stesso percorso su due macchine, identità salvata); prova al riavvio su Windows da fare |
+| R-MI-46 | 2 | Attivo, approvato il 2026-11-23 (F31) | 2026-11-24: `commitDocsFiles`/`commitDiary` in `extensions/studio-docs.ts` (`commit --only` sui soli percorsi scritti, salti con motivo nel risultato del tool, hook non saltati) | 2026-11-24: test in `test/studio-docs.test.ts` (file estraneo in stage resta fuori, HEAD staccato, merge in corso, fuori da git, cambio di archivio) |
+| R-MI-47 | 2 | Attivo, approvato il 2026-11-23 (F31); precisa R-MI-27 | 2026-11-24: `move_branch`/`advance_with_snapshot`/`rollback_advance` in `copies.rs`; fusione anticipata con `git merge-tree --write-tree`, nessuna modifica se confligge | 2026-11-24: test Rust `github::copies` (file non toccato, riapplicazione pulita, conflitto con HEAD e file invariati, corsia) |
+| R-MI-48 | 2 | Attivo, approvato il 2026-11-23 (F31); eccezione a R-MI-27 | 2026-11-24: `merge_journal_branch`/`journal_union_commit` in `copies.rs` (`merge-file --union`, genitori fissi, id macchina minore da `link::local_machine_id`), stato `mergedJournal`, attesa `journalPeer` | 2026-11-24: test Rust (unione dal minore, attesa e fast-forward del maggiore, divergenza con `src/`, nessun file fuori dal diario); prova su due macchine da fare |
+| R-MI-49 | 1–2 | Attivo, approvato il 2026-11-23 (F31) | 2026-11-24: chip in `StatusBarChips.svelte`, `machines/MachinesPopover.svelte`, regole in `machineStatus.ts`, stato del giro in `copySync.svelte.ts`; chip della macchina verso `openDevice` | 2026-11-24: `test/machine-status.test.ts`; resa con macchine reali da provare |
+| R-MI-50 | 2 | Attivo, approvato il 2026-11-23 (F31); precisa R-MI-19 e R-MI-23 | 2026-11-24: prop `syncing` di `MachineGlyph.svelte` (ferma con movimento ridotto), testo nell'anteprima di `ProjectPopover.svelte` | Da provare nell'app |
+| R-MI-51 | 1–2 | Attivo, approvato il 2026-11-23 (F31) | 2026-11-24: `machineAlerts.ts` (deduplica pura), `machineAlertFeed.svelte.ts`, superficie toast esistente in `+page.svelte` | 2026-11-24: `test/machine-alerts.test.ts`; prova reale da fare |
+| R-MI-52 | 1 | Attivo, approvato il 2026-11-23 (F31); sposta R-MI-29, R-MI-30, R-MI-38, R-MI-39, R-MI-42, R-MI-43 nella nuova sezione | 2026-11-24: `settings/devices/` (sezione, questo computer, dettaglio computer e telefono, aggiunta guidata, richiesta in arrivo, chiave mancante); `devices_set_name`; tolte `RemoteSection`/`InstancesSection` | 2026-11-24: tipi verdi; resa da provare nell'app |
+| R-MI-53 | 1 | Attivo, approvato il 2026-11-23 (F31); precisa R-MI-16 | 2026-11-24: `PairingCode.relayToken`, adozione del relay in `link_pair`, errore `relay_mismatch` e `adoptRelay` | 2026-11-24: test Rust `link::` (adozione del relay); installazione nuova da provare |
+| R-MI-54 | 1 | Attivo, approvato il 2026-11-23 (F31); precisa R-MI-16 | 2026-11-24: `link/discovery.rs` con `iroh-mdns-address-lookup`, ALPN `omp-studio/pair/1`, SAS `SHA-256(id minore‖id maggiore‖nonce) mod 10^6`; annuncio solo fra `link_discovery_start` e `stop` | 2026-11-24: test Rust (SAS uguale/diverso, rifiuto senza peer scritto); due macchine in LAN da provare |
+| R-MI-55 | 1 | Attivo, approvato il 2026-11-23 (F31); precisa R-MI-16 | 2026-11-24: `link/depot.rs` (8 caratteri Crockford, Argon2id + AES-256-GCM), relay `POST /v1/host/mailbox` e `GET /v1/mailbox/:id` con ritiro unico, TTL 10 min, limite per indirizzo | 2026-11-24: test Rust (codice sbagliato) e `relay/test/pairing.test.ts`; relay distribuito su `studio.myapollo.it`: deposito con la credenziale del Mac, primo ritiro 200, secondo 404. Abbinamento fra due macchine da provare |
+| R-MI-56 | 1 | Attivo, approvato il 2026-11-23 (F31); precisa R-MI-16 e R-MI-17 | 2026-11-24: `devices_set_server`, `GET /v1/host/info` dal relay con `RELAY_IROH_RELAY_URL` | 2026-11-24: test del relay; relay distribuito con `RELAY_IROH_RELAY_URL=https://iroh-relay.myapollo.it`: `GET /v1/host/info` con la credenziale del Mac restituisce l'indirizzo, senza credenziale 401 |
 
 Nei testi che seguono **W** è la macchina da cui si guarda (nello scenario il PC Windows) e **M** quella che possiede il progetto (il Mac).
 
@@ -413,6 +427,7 @@ Una branch che sulla copia locale è soltanto indietro avanza con un fast-forwar
 
 **Accettazione:** commit sul Mac, copia di Windows ferma e pulita: Windows avanza da sola e l'editor ricarica i file aperti; con un agente al lavoro su Windows resta «da aggiornare» e avanza a turno finito; con commit su entrambe nessun avanzamento e compare l'avviso di R-MI-22.
 **Errore da evitare:** toccare la cartella mentre un agente scrive; perdere modifiche non salvate.
+**Precisazioni del 2026-11-23 (F31):** i file sporchi che i commit in arrivo non toccano non bloccano più l'avanzamento (R-MI-47); il solo diario si unisce in automatico anche su branch divergenti (R-MI-48). Restano vietati merge, rebase e reset automatici su qualunque altro file.
 
 ## R-MI-28 — Portare le modifiche non committate cambiando macchina
 
@@ -552,6 +567,119 @@ Se il portachiavi risponde ma la chiave della macchina non c'è più, Studio non
 La risposta a «unisci / non unire» per le copie senza origin con lo stesso primo commit viaggia fra le macchine collegate come la coda: vale ovunque e vince la più recente. Si cambia dal pannello del progetto su qualunque macchina.
 
 **Accettazione:** rispondendo «non unire» sul Mac, il PC non pone la stessa domanda; cambiata la scelta dal PC, il Mac la segue.
+
+## R-MI-45 — Tessera unita fin dall'avvio
+
+**Fonti:** F31. Precisa R-MI-12 e R-MI-24.
+
+Un progetto presente su più macchine compare come una sola tessera dal primo disegno della barra, senza clic e senza aspettare lo stato git della copia. L'identità del repository (`origin` normalizzato, primo commit) arriva con lo snapshot dell'host e si conserva nella cache delle macchine, quindi vale anche con l'altra macchina spenta. Lo stato git della copia la conferma o la corregge, ma non è più la condizione per unire. Le chiavi della cache di identità distinguono la macchina: due copie con lo stesso percorso su macchine diverse non si scambiano l'identità.
+
+**Accettazione:** riavviare Studio su Windows con `omp-studio` presente su Windows e Mac: la barra mostra una sola tessera dal primo disegno, senza clic; con il Mac spento e il riepilogo in cache, la tessera è comunque una.
+**Errore da evitare:** due tessere che si uniscono solo dopo un clic; tessere unite per errore perché due macchine usano lo stesso percorso.
+
+## R-MI-46 — Diario e documenti del progetto committati da chi li scrive
+
+**Fonti:** F31.
+
+Quando `project_docs` scrive il diario (`docs/diario/AAAA-MM.md`) o un documento di progetto in un repository git, committa subito solo i file che ha scritto, con un messaggio «diario: …» o «docs: …», senza includere altro già in stage né file dell'utente. Se il commit non è possibile (merge o rebase in corso, HEAD staccato, errore di git) il file resta modificato e il tool lo dice nel risultato. Il commit non viene mai pubblicato da solo (resta R-MI-26: nessun push automatico).
+
+**Accettazione:** a fine Nightly l'agente aggiorna il diario: `git status` resta pulito e c'è un commit «diario: …» con il solo file del diario; con altri file in stage, quelli restano in stage e fuori dal commit.
+**Errore da evitare:** working tree sporco dopo un aggiornamento del diario; commit che trascina modifiche dell'utente.
+
+## R-MI-47 — Avanzamento con file sporchi che i commit non toccano
+
+**Fonti:** F31. Precisa R-MI-27.
+
+Una copia indietro con modifiche non committate avanza lo stesso se i commit in arrivo non toccano i file modificati: le modifiche restano dove sono, come con `git pull --autostash`. Se li toccano, Studio salva un'istantanea delle modifiche (la stessa di R-MI-28), avanza e la riapplica; se la riapplicazione va in conflitto, ripristina la copia com'era e la lascia «da aggiornare», dicendo quale file blocca. Restano i vincoli di R-MI-27 sull'agente al lavoro, i file non salvati nell'editor e le automazioni.
+
+**Accettazione:** commit sul Mac che tocca `src/a.ts`, copia di Windows con `docs/diario/2026-11.md` modificato: Windows avanza e il diario resta modificato; con modifiche locali in conflitto con il commit in arrivo la copia resta intatta e risulta «da aggiornare» con il nome del file.
+**Errore da evitare:** perdere modifiche non committate; avanzamento bloccato da un file che i commit non toccano.
+
+## R-MI-48 — Il solo diario si unisce da sé
+
+**Fonti:** F31. Eccezione approvata a «mai merge automatici» di R-MI-27.
+
+Se la stessa branch è divergente fra due copie e, dal punto di separazione, i commit di entrambe le parti toccano solo file sotto `docs/diario/`, la sincronizzazione unisce le due storie con l'unione per righe (driver `union` di git), senza conflitti. Per non produrre due commit di unione diversi, unisce una sola delle due macchine, scelta in modo deterministico (identificativo di macchina minore); l'altra avanza poi con il fast-forward di R-MI-27. Valgono gli stessi vincoli di cartella libera di R-MI-27 e R-MI-47. Se anche un solo commit tocca altri file, resta la divergenza di R-MI-22.
+
+**Accettazione:** diario committato su Mac e su Windows nello stesso giorno: entro due giri di sincronizzazione le due copie hanno la stessa cima, il file contiene le righe di entrambe e la striscia di divergenza non compare; con un commit che tocca anche `src/` la striscia compare come oggi.
+**Errore da evitare:** due commit di unione diversi che fanno divergere di nuovo; righe del diario perse; unione automatica di file che non sono il diario.
+
+## R-MI-49 — Chip «Macchine» nella barra di stato
+
+**Fonti:** F31.
+
+Con almeno una macchina abbinata, la barra di stato mostra un chip «Macchine» con un punto di stato per ogni macchina (in linea, spenta, relay non raggiungibile, versione incompatibile) e un indicatore animato mentre una sincronizzazione delle copie è in corso. Il popover elenca ogni macchina con: stato e motivo, via (diretta o relay) e latenza, ultima sincronizzazione, copie da aggiornare o divergenti con il motivo, job in corso (R-MI-36), aggiornamento in corso o disponibile (R-MI-38), e porta al dettaglio della macchina in Impostazioni › Dispositivi.
+
+**Accettazione:** con il Mac in linea il chip mostra il punto verde; spegnendo il Mac il punto cambia entro un minuto; durante un giro di sincronizzazione l'indicatore si anima; il clic sul popover porta al dettaglio della macchina giusta.
+**Errore da evitare:** il chip che apre la sezione sbagliata (difetto del 2026-11-23: il chip della macchina apriva Studio Remote).
+
+## R-MI-50 — Sincronizzazione visibile sulla tessera
+
+**Fonti:** F31. Precisa R-MI-19 e R-MI-23.
+
+Sulla tessera di un progetto su più macchine le frecce del glifo si animano mentre la sincronizzazione delle copie di quel progetto è in corso. L'anteprima al passaggio del mouse aggiunge «sincronizzata N min fa» (o «mai sincronizzata», «sincronizzazione in corso»). L'animazione rispetta la preferenza di movimento ridotto.
+
+**Accettazione:** durante un giro le frecce si muovono e l'anteprima dice «sincronizzazione in corso»; a giro finito dice «sincronizzata adesso»; con movimento ridotto le frecce non si muovono e resta il testo.
+
+## R-MI-51 — Avvisi sugli eventi delle macchine
+
+**Fonti:** F31.
+
+Studio mostra un avviso breve, non bloccante, quando: una macchina abbinata torna in linea o cade; arrivano commit dall'altra macchina e la copia avanza («3 commit arrivati dal Mac»); l'unione del diario di R-MI-48 è avvenuta; un avanzamento resta bloccato e perché (agente al lavoro, file in conflitto, file non salvati). Lo stesso evento non si ripete finché lo stato non cambia; all'avvio non si annunciano le macchine già in linea.
+
+**Accettazione:** spegnendo il Mac compare «MacBook non raggiungibile» una volta sola; riaccendendolo «MacBook di nuovo in linea»; un commit sul Mac produce «1 commit arrivato dal MacBook» quando la copia avanza.
+**Errore da evitare:** avvisi ripetuti a ogni giro; avvisi all'avvio per lo stato già noto.
+
+## R-MI-52 — Una sola sezione «Dispositivi» nelle Impostazioni
+
+**Fonti:** F31. Sostituisce nell'interfaccia le sezioni «Remote» e «Altre istanze»; non toglie funzioni.
+
+Le Impostazioni hanno una sola sezione «Dispositivi». In testa c'è questo computer: un solo nome, usato sia per i computer abbinati sia per Studio Remote, e il «Server di collegamento» (R-MI-56). Sotto c'è un elenco unico di computer e telefoni, ciascuno con il proprio stato. Una riga apre il dettaglio del dispositivo: per un computer stato e via, ambiti di permesso, aggiornamento di Studio (R-MI-38), job (R-MI-36), sincronizzazione di omp (R-MI-42), registro attività (R-MI-39), revoca; per un telefono stato e disconnessione. Un solo pulsante «Aggiungi dispositivo» apre il percorso guidato: computer in rete locale (R-MI-54), computer con codice (R-MI-53, R-MI-55), telefono (R-REM-25). Gli avvisi di R-MI-29 (vista l'ultima volta, sostituzione) e R-MI-43 (chiave mancante) stanno qui.
+
+**Accettazione:** non esistono più due voci separate nel menu delle Impostazioni; cambiare il nome di questo computer lo cambia per il telefono e per le altre macchine; ogni funzione delle due sezioni precedenti si raggiunge dalla nuova.
+**Errore da evitare:** due nomi per lo stesso computer; un'impostazione delle sezioni precedenti non più raggiungibile.
+
+**Cutover (2026-11-23):**
+
+| Da | A | Esito |
+|---|---|---|
+| Impostazioni › Remote (abilita, stato, nome, relay, dispositivi, dimentica abbinamento, abbina) | Dispositivi: testata, elenco telefoni, dettaglio, «Aggiungi dispositivo» | Spostato |
+| Impostazioni › Altre istanze (abilita, nome, relay iroh e token, codice, peer, permessi, aggiornamento, job, sync omp, attività, revoca, avvisi) | Dispositivi: testata, «Avanzate» del server, dettaglio del computer, «Aggiungi dispositivo» | Spostato |
+| «Altre macchine» (finestra con la PWA del relay) | Dettaglio dei computer dalla sezione Dispositivi | Spostato |
+
+## R-MI-53 — Il codice porta relay e token
+
+**Fonti:** F31. Precisa R-MI-16.
+
+Il codice di abbinamento di un computer contiene l'indirizzo del relay iroh e, se c'è, il suo token. Una macchina che non ha ancora configurato il collegamento lo adotta incollando il codice: non serve configurare né accendere nulla prima. Se ha già un relay diverso, Studio chiede se passare a quello del codice.
+
+**Accettazione:** su un'installazione nuova, «Aggiungi dispositivo › Ho un codice», incollare il codice del Mac: l'abbinamento riesce senza altri campi e il relay risulta configurato.
+
+## R-MI-54 — Scoperta in rete locale con conferma a 6 cifre
+
+**Fonti:** F31. Precisa R-MI-16.
+
+Con «Aggiungi dispositivo» aperto, i computer con Studio sulla stessa rete locale compaiono da soli (scoperta mDNS di iroh, senza servizi esterni). Scelto un computer, entrambi gli schermi mostrano le stesse 6 cifre, ricavate dalle chiavi delle due macchine; l'abbinamento si completa solo se l'altra macchina accetta. Fuori da questo percorso la macchina non si annuncia in rete come disponibile all'abbinamento.
+
+**Accettazione:** Mac e PC sulla stessa rete: il Mac compare nell'elenco del PC; il PC sceglie il Mac, il Mac mostra la richiesta con le stesse 6 cifre e, accettando, entrambe risultano abbinate; rifiutando non resta nulla.
+**Errore da evitare:** abbinamento senza conferma dall'altra macchina; macchine annunciate in rete mentre nessuno sta abbinando.
+
+## R-MI-55 — Codice corto fra reti diverse
+
+**Fonti:** F31. Precisa R-MI-16.
+
+Se il server di Studio Remote è configurato, il codice da digitare è corto (`XXXX-XXXX`): Studio deposita il codice completo sul relay di Studio Remote per 10 minuti, cifrato con una chiave ricavata dal codice corto, e l'altra macchina lo ritira una sola volta. Il relay non può leggerlo. Il codice completo resta disponibile da copiare per chi non usa Studio Remote.
+
+**Accettazione:** dal PC in ufficio si digita il codice corto mostrato dal Mac a casa: l'abbinamento riesce; un secondo ritiro dello stesso codice fallisce; dopo 10 minuti il codice non vale più.
+**Errore da evitare:** il codice completo leggibile dal relay; codici corti riutilizzabili.
+
+## R-MI-56 — Un solo «Server di collegamento»
+
+**Fonti:** F31. Precisa R-MI-16 e R-MI-17.
+
+L'utente inserisce un solo indirizzo, quello del relay di Studio Remote. Studio ricava da lì l'indirizzo del relay iroh, che il server dichiara a chi si autentica; il token del relay iroh viaggia con il codice di abbinamento (R-MI-53). In «Avanzate» restano modificabili i due indirizzi e il token separati, per i server che non dichiarano il relay iroh.
+
+**Accettazione:** con il server che dichiara il relay iroh, inserire solo `https://studio.myapollo.it` basta per telefono e computer; con un server che non lo dichiara, «Avanzate» chiede il relay iroh e lo dice.
 
 ## Correzioni del 2026-11-20 (revisione del codice)
 

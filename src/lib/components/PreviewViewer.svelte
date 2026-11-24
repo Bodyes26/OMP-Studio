@@ -2,7 +2,7 @@
 	import { untrack, onDestroy } from 'svelte';
 	import { m } from '#lib/paraglide/messages.js';
 	import { useProjectBackend } from '#lib/backend/projectScope.ts';
-	const { invoke } = useProjectBackend();
+	import { invoke as invokeLocal } from '#lib/backend/ipc.ts';
 	import { wrapPrototypeCode } from '#lib/prototype/wrapper.ts';
 	import { previewShortcuts } from '#lib/shortcuts/previewShortcuts.ts';
 	import { buildSandboxedSvgDocument, isSvgFileName, isSvgContent } from '#lib/editor/svgSandbox.ts';
@@ -13,6 +13,8 @@
 	import { IconCheck, IconClose, IconCopy } from '#lib/icons.ts';
 	import { loadPreview } from './previewLoad';
 	import PreviewFrameStatus from './PreviewFrameStatus.svelte';
+	const { invoke } = useProjectBackend();
+
 	let {
 		projectPath,
 		filePath,
@@ -145,7 +147,9 @@
 					}
 					const title =
 						targetFile.split('/').pop()?.replace(/\.[^/.]+$/, '') || m.preview_default_doc_title();
-					const { url } = await invoke<{ url: string }>('studio_preview_publish', {
+					// Servito dal server loopback di questa macchina (IMP-011): la
+					// pagina è HTML puro, il file resta letto sulla macchina del progetto.
+					const { url } = await invokeLocal<{ url: string }>('studio_preview_publish', {
 						key: publishKey,
 						html: wrapPrototypeCode(title, content)
 					});
@@ -154,7 +158,7 @@
 				},
 				unpublish: (staleKey) => {
 					if (publishedKey === staleKey) publishedKey = null;
-					void invoke('lab_preview_unpublish', { key: staleKey }).catch(() => {});
+					void invokeLocal('lab_preview_unpublish', { key: staleKey }).catch(() => {});
 				}
 			});
 			if (!result) return;
@@ -254,7 +258,7 @@
 		const isNewKey = key !== lastLoadedKey;
 		const prevKeyToUnpublish = isNewKey && publishedKey && publishedKey !== key ? publishedKey : null;
 		if (prevKeyToUnpublish) {
-			void invoke('lab_preview_unpublish', { key: prevKeyToUnpublish }).catch(() => {});
+			void invokeLocal('lab_preview_unpublish', { key: prevKeyToUnpublish }).catch(() => {});
 			publishedKey = null;
 		}
 		lastLoadedKey = key;
@@ -286,7 +290,7 @@
 		loadSeq++;
 		activeKey = '';
 		if (publishedKey) {
-			void invoke('lab_preview_unpublish', { key: publishedKey }).catch(() => {});
+			void invokeLocal('lab_preview_unpublish', { key: publishedKey }).catch(() => {});
 			publishedKey = null;
 		}
 	});

@@ -38,6 +38,7 @@
 	import { btwLatestTurn, isBtwRunning } from '../btw';
 	import Composer from './Composer.svelte';
 	import CopyDivergenceStrip from './CopyDivergenceStrip.svelte';
+	import MachineWorkStrip from '#lib/components/machines/MachineWorkStrip.svelte';
 	import type { MachineChoice } from '../machineChoice.ts';
 	import ComposerTray from './ComposerTray.svelte';
 	import LoopComposer from './LoopComposer.svelte';
@@ -64,6 +65,7 @@
 		onSwitchToTerminal,
 		onSlashCommand,
 		onNewChat,
+		onBeforeFirstPrompt,
 		machineChoices = [],
 		onPickMachine
 	} = $props<{
@@ -77,6 +79,7 @@
 		onOpenDiagram?: (diagram: { title?: string; mermaid: string }) => void;
 		onSlashCommand?: (raw: string) => boolean;
 		onNewChat?: () => void;
+		onBeforeFirstPrompt?: () => Promise<boolean>;
 		/** Macchine su cui esiste il progetto, per l'indicatore sotto il composer. */
 		machineChoices?: MachineChoice[];
 		/** Cambio della macchina: attiva la copia gemella del progetto. */
@@ -772,7 +775,10 @@
 			<div
 				class:composer-under-ask={(session.pendingUi !== null && !askMinimized) || session.plan.approvalOpen || session.plan.handingOff || guidedAsking}
 			>
-				{#if !readOnly}<CopyDivergenceStrip projectId={session.projectKey} {visible} />{/if}
+				{#if !readOnly}
+					<MachineWorkStrip projectId={session.projectKey} machineId={session.machineId} />
+					<CopyDivergenceStrip projectId={session.projectKey} {visible} />
+				{/if}
 				<Composer
 					bind:this={composerRef}
 					{session}
@@ -780,6 +786,7 @@
 					dropTarget={isDraggingColumn}
 					onSlashCommand={(cmd: string) => (onSlashCommand ? onSlashCommand(cmd) : false)}
 					{onNewChat}
+					{onBeforeFirstPrompt}
 					{machineChoices}
 					{onPickMachine}
 					shellOverride={session.loopSetup || session.loop ? loopShell : undefined}

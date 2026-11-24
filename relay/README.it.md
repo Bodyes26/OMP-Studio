@@ -102,6 +102,7 @@ Clona l'intero repository: la build include i componenti condivisi di `src/lib` 
 | `RELAY_DATA_DIR` | `/data` nell'immagine, `./data` dai sorgenti | Cartella del database SQLite. |
 | `RELAY_WEB_DIR` | la PWA inclusa nell'immagine | Cartella dei file del quadro. |
 | `RELAY_VERSION` | fissata alla build dell'immagine, altrimenti `package.json` | Versione mostrata da `/healthz`, Studio e il quadro. |
+| `RELAY_IROH_RELAY_URL` | vuota | Indirizzo del relay **iroh** (per esempio `https://iroh-relay.example.com`) dichiarato a Studio su `GET /v1/host/info`: impostando solo il server di Studio Remote, Studio ricava da qui il relay dei computer (R-MI-56). Vuota: la sezione «Avanzate» chiede l'indirizzo a mano. |
 | `PROXY_NETWORK` | richiesta da `compose.example.yml` | Rete Docker condivisa con il reverse proxy. |
 
 ## Sviluppo

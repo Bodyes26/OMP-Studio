@@ -49,7 +49,8 @@ function mockConfig(dataDir: string): RelayConfig {
 		maxDiagSessions: 4,
 		dataDir,
 		webDir: '/tmp',
-		version: '1.0.0'
+		version: '1.0.0',
+		irohRelay: null
 	};
 }
 

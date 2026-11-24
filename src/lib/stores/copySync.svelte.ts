@@ -17,7 +17,17 @@ import { normalizeProjectPath, type Project } from './projects.svelte';
 import { projectOrder } from './projectOrder.svelte';
 import type { CaseConflict } from './projectCopies.ts';
 
-export type BranchSyncState = 'equal' | 'ahead' | 'diverged' | 'advanced' | 'pending' | 'onlyPeer' | 'caseConflict';
+export type BranchSyncState =
+	| 'equal'
+	| 'ahead'
+	| 'diverged'
+	/** Commit arrivati e copia avanzata (R-MI-27): `behind` e' quanti. */
+	| 'advanced'
+	/** La branch divergeva solo sul diario e questa macchina ha unito (R-MI-48). */
+	| 'mergedJournal'
+	| 'pending'
+	| 'onlyPeer'
+	| 'caseConflict';
 
 export interface BranchSync {
 	name: string;
@@ -26,13 +36,35 @@ export interface BranchSync {
 	ahead: number;
 	behind: number;
 	state: BranchSyncState;
-	/** Per `pending`: `busy`, `dirty` o il messaggio di git. */
+	/**
+	 * Per `pending`: `busy` (agente/editor/automazione), `journalPeer` (diario
+	 * divergente, unisce l'altra macchina), `detached` (HEAD staccato),
+	 * `conflict:<file>[,<file>…]` (modifiche locali che non si riapplicano,
+	 * R-MI-47), altrimenti il messaggio di git.
+	 */
 	reason: string | null;
 }
 
 export interface CopySyncReport {
 	machine: string;
 	branches: BranchSync[];
+}
+
+/**
+ * Esito riassunto di un giro, quello che serve alla barra e agli avvisi
+ * (R-MI-49, R-MI-50, R-MI-51): quanti commit sono arrivati, se il diario e'
+ * stato unito, cosa resta bloccato e perche'.
+ */
+export interface SyncOutcome {
+	at: number;
+	machine: string;
+	/** Commit arrivati (`advanced` e `mergedJournal`, il loro `behind`). */
+	advanced: number;
+	mergedJournal: boolean;
+	/** Avanzamenti rimasti indietro con il motivo, uno per branch. */
+	blocked: Array<{ branch: string; reason: string; behind: number }>;
+	/** Cima della copia locale dopo il giro: distingue commit nuovi da un conteggio uguale. */
+	head: string | null;
 }
 
 /** Ogni quanto si rilegge l'altra macchina anche senza segnali di cambio. */
@@ -77,12 +109,51 @@ class CopySyncStore {
 	reports = $state<Record<string, CopySyncReport>>({});
 	/** Ultimo errore per coppia: si mostra nel pannello, non blocca nulla. */
 	errors = $state<Record<string, string>>({});
-	private running = new Set<string>();
+	/**
+	 * Coppie con un giro in corso: la tessera anima le frecce e il chip della
+	 * barra mostra l'indicatore finche' c'e' almeno una chiave (R-MI-49,
+	 * R-MI-50). Reattivo, a differenza del Set che serve solo a non sovrapporre
+	 * due giri della stessa coppia.
+	 */
+	active = $state<Record<string, true>>({});
+	/** Esito dell'ultimo giro concluso per coppia, per barra e avvisi (R-MI-51). */
+	outcomes = $state<Record<string, SyncOutcome>>({});
+	/** Ultimo giro concluso per coppia, in ms epoch (R-MI-50). */
+	lastSyncAt = $state<Record<string, number>>({});
+	private inFlight = new Set<string>();
 	private signatures = new Map<string, string>();
 
 	reportFor(localId: string, machine: string): CopySyncReport | null {
 		if (!this.reachable(machine)) return null;
 		return this.reports[reportKey(localId, machine)] ?? null;
+	}
+
+	/** Un giro che riguarda questa copia locale e' in corso? */
+	runningFor(localId: string): boolean {
+		const prefix = `${localId}|`;
+		return Object.keys(this.active).some((key) => key.startsWith(prefix));
+	}
+
+	/** Almeno un giro in corso in tutta la finestra: anima il chip «Macchine». */
+	get anyRunning(): boolean {
+		return Object.keys(this.active).length > 0;
+	}
+
+	/** Ultima sincronizzazione di questa copia, tutte le gemelle: la piu' recente. */
+	lastSyncFor(localId: string): number | null {
+		const prefix = `${localId}|`;
+		let latest: number | null = null;
+		for (const [key, at] of Object.entries(this.lastSyncAt)) {
+			if (!key.startsWith(prefix)) continue;
+			if (latest === null || at > latest) latest = at;
+		}
+		return latest;
+	}
+
+	/** Esito dell'ultimo giro con una gemella raggiungibile. */
+	outcomeFor(localId: string, machine: string): SyncOutcome | null {
+		if (!this.reachable(machine)) return null;
+		return this.outcomes[reportKey(localId, machine)] ?? null;
 	}
 
 	private reachable(machineId: string): boolean {
@@ -111,14 +182,23 @@ class CopySyncStore {
 	}
 
 	/**
-	 * Impronta di ciò che può cambiare l'esito: cime note delle due copie e
-	 * cartelle occupate. Letta dentro un `$effect`, rilancia il giro quando
-	 * l'altra macchina committa o la corsia si libera.
+	 * Impronta di ciò che può cambiare l'esito: cime note delle due copie,
+	 * numero di file modificati e cartelle occupate. Letta dentro un `$effect`,
+	 * rilancia il giro quando l'altra macchina committa, quando l'editor salva
+	 * o cambia i file aperti (R-MI-47: un file sporco che i commit non toccano
+	 * non blocca piu', ma se tocca bisogna riprovare) o quando la corsia si libera.
 	 */
 	signature(pair: SyncPair): string {
-		const head = (path: string | null | undefined) =>
-			path ? githubStore.upstreamByPath[normalizeProjectPath(path).toLowerCase()]?.headCommit ?? '-' : '-';
-		return [head(pair.remote.canonicalProjectPath), head(pair.local.canonicalProjectPath), ...busyPaths(pair.local).sort()].join('|');
+		const remoteKey = pair.remote.canonicalProjectPath ? normalizeProjectPath(pair.remote.canonicalProjectPath).toLowerCase() : '';
+		const localKey = pair.local.canonicalProjectPath ? normalizeProjectPath(pair.local.canonicalProjectPath).toLowerCase() : '';
+		const remoteGit = remoteKey ? githubStore.upstreamByPath[remoteKey] : undefined;
+		const localGit = localKey ? githubStore.upstreamByPath[localKey] : undefined;
+		return [
+			remoteGit?.headCommit ?? '-',
+			localGit?.headCommit ?? '-',
+			localGit ? String(localGit.changedFiles ?? (localGit.hasUncommitted ? 1 : 0)) : '-',
+			...busyPaths(pair.local).sort()
+		].join('|');
 	}
 
 	/** Giro solo se l'impronta è cambiata dall'ultimo. */
@@ -133,8 +213,9 @@ class CopySyncStore {
 	}
 
 	async sync(pair: SyncPair): Promise<CopySyncReport | null> {
-		if (!isTauri() || this.running.has(pair.key)) return null;
-		this.running.add(pair.key);
+		if (!isTauri() || this.inFlight.has(pair.key)) return null;
+		this.inFlight.add(pair.key);
+		this.active[pair.key] = true;
 		try {
 			const report = await invoke<CopySyncReport>('copy_sync', {
 				projectPath: pair.local.canonicalProjectPath,
@@ -144,8 +225,21 @@ class CopySyncStore {
 			});
 			this.reports[pair.key] = report;
 			delete this.errors[pair.key];
+			const moved = report.branches.filter((branch) =>
+				branch.state === 'advanced' || branch.state === 'mergedJournal');
+			this.outcomes[pair.key] = {
+				at: Date.now(),
+				machine: pair.remote.machineId ?? '',
+				advanced: moved.reduce((count, branch) => count + branch.behind, 0),
+				mergedJournal: report.branches.some((branch) => branch.state === 'mergedJournal'),
+				blocked: report.branches
+					.filter((branch) => branch.state === 'pending' && branch.reason)
+					.map((branch) => ({ branch: branch.name, reason: branch.reason ?? '', behind: branch.behind })),
+				head: report.branches.find((branch) => branch.local)?.local ?? null
+			};
+			this.lastSyncAt[pair.key] = Date.now();
 			// Dopo un avanzamento la barra (stato git, divergenza) deve vederlo subito.
-			if (report.branches.some((branch) => branch.state === 'advanced') && pair.local.canonicalProjectPath) {
+			if (moved.length > 0 && pair.local.canonicalProjectPath) {
 				void githubStore.loadUpstreamStatus(pair.local.canonicalProjectPath, true);
 			}
 			return report;
@@ -155,7 +249,8 @@ class CopySyncStore {
 			if (!text.includes('sync already running')) this.errors[pair.key] = text;
 			return null;
 		} finally {
-			this.running.delete(pair.key);
+			this.inFlight.delete(pair.key);
+			delete this.active[pair.key];
 		}
 	}
 
