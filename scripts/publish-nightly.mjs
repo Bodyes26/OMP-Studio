@@ -335,6 +335,12 @@ function useMacSigningIdentity() {
 function getPlatformConfig() {
 	switch (process.platform) {
 		case 'win32':
+			// Sul PC in ufficio l'ispezione TLS della rete fa fallire il controllo
+			// di revoca di schannel (CRYPT_E_NO_REVOCATION_CHECK) e Cargo non
+			// scarica le crate nuove: la Nightly distribuita ripiegava sul cloud.
+			// L'integrita' resta garantita dai checksum di Cargo.lock. Una scelta
+			// esplicita dell'utente nell'ambiente vince.
+			process.env.CARGO_HTTP_CHECK_REVOKE ??= 'false';
 			// Profilo Cargo `nightly` e NSIS zlib: compilazione e packaging piu'
 			// rapidi in cambio di un installer piu' grande (vedi il commento del
 			// profilo in src-tauri/Cargo.toml). Tauri legge `--profile` dagli
