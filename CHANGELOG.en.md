@@ -12,6 +12,10 @@ released: items are closed into a version via `npm run release -- <version>`.
 ## [Unreleased]
 
 ### Fixed
+- After an omp update, "Restart application" really closes and reopens Studio: it used to reload only the interface, leaving agents and terminals on the old omp version. (R-MI-70)
+- The "{machine} accepted the prompt" note above the composer disappears as soon as the other machine starts working, and within a few seconds at most: it used to stay there forever. (IMP-006)
+- Other notices of the cross-machine update no longer stay forever: "installs and restarts as soon as it is free" clears when installation does not close Studio or fails, another machine's update stops showing "in progress" after 30 minutes without an outcome, and a failed Studio or omp update clears itself once the machine is up to date. (R-MI-64, R-MI-69)
+- With omp 19.2 the `ask` question form shows up in Studio again, including its images (links, embedded images, project files): omp 19.2 moved the modules the extension relied on.
 - Switching machine on an empty chat no longer asks you to "wait for the turn to finish": unsaved files in any project and the same chat open, but idle, on the other machine counted as work in progress. When the switch is really blocked, the message says what blocks it and on which machine. (R-MI-62)
 - A copy left behind updates even when the project's chat is open and idle on the other machine or another project has unsaved files: it used to stay "to update" and you had to pull by hand. (R-MI-57)
 - Two Nightlies of the same base version no longer show "X runs Studio Y, different from here": the link worked, but the warning suggested incompatible copies or versions. (R-MI-64)
@@ -64,6 +68,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Studio Remote again recognizes which models accept images: the PWA read a model field that the machine state no longer sends, so every model looked like it accepted them. The relay type check is restored, so the relay image is published again on every change. (REL-001)
 
 ### Added
+- omp stays aligned across linked machines: when another machine runs an older omp, Studio asks "Update omp on …?" and, once confirmed, that machine updates omp and restarts as soon as it is free; when another machine runs a newer one, it offers to update it here. This also applies when a freshly updated machine comes back online. The computer detail in Devices shows its omp version and the update status. (R-MI-67, R-MI-68, R-MI-69)
 - The Devices map shows which connections are in use, idle or unreachable and distinguishes direct links, the computer relay and Studio Remote. (IMP-009)
 - In Statistics, compare omp usage one machine at a time or see a combined total for the same period. If a machine does not answer, Studio marks the total as partial. (IMP-010)
 - The project panel lets you open files and previews already open on the other computer, without switching tabs automatically. (IMP-011)
@@ -121,6 +126,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - When the `omp` installation is broken (for example a link pointing to a deleted folder), Studio says so and offers "Repair" instead of starting over as on a new computer. When an essential piece is missing, the setup reopens directly on that step, without the animated intro. (SET-010, SET-020)
 
 ### Changed
+- Studio is aligned with omp 19.2.1: Plan follows the new version's prompts, the Lab keeps reporting issues with `report_issue` and reads tool docs from `help://`, and the generated settings use omp's new names for tool commands.
 - Copies of the same project sync right away: when the other machine commits, when it comes back online, when you return to the window, when you open the project and when an agent finishes its turn, instead of at most once a minute. A failed round retries on its own and, if it keeps failing, a notice shows the reason. (R-MI-57)
 - Commits that arrive on GitHub are applied on their own with a fast-forward, with the same safeguards as the sync between machines: no more "N commits to pull" to fix by hand. Studio never merges, rebases or pushes to GitHub on its own. (R-MI-58)
 - The journal no longer conflicts: lines written on different machines, even uncommitted, are merged in every sync, pull or stash, and no longer end up parked in the stash. (R-MI-59)

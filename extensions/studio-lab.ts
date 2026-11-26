@@ -26,14 +26,19 @@
 //      `.git/`, `.env*`, `web.config`, `Parametri.ini`, `appsettings*.json`,
 //      `*.pem`, `*.key`, `id_rsa*`.
 //    - Schemi URL in lettura: ammessi URL interni (`skill://`, `rule://`, `artifact://`,
-//      `agent://`, `local://`, `history://`) e `http(s)://`; altri schemi negati.
+//      `agent://`, `local://`, `history://`, `help://`) e `http(s)://`; altri schemi negati.
+//      `help://` serve da omp 19.1: i documenti dei tool che erano `xd://<tool>/<topic>`
+//      sono testi virtuali in sola lettura, non toccano il disco.
 //
 // 3. Tool di scrittura e modifica file (`write`, `edit`, `ast_edit`):
 //    - Scrittura consentita ESCLUSIVAMENTE dentro il workspace del prototipo (OMP_LAB_WORKSPACE).
 //    - Il progetto originale e' in SOLA LETTURA (nessuna modifica al codice sorgente dell'app).
 //    - Cartella `.git/` interna protetta: nessuna scrittura o modifica consentita in `.git/`.
-//    - `write` ammette lo schema interno `local://` e il canale QA `xd://report_issue`;
+//    - `write` ammette lo schema interno `local://` e, per i soli omp fino alla 19.0,
+//      il canale QA `xd://report_issue` (in 19.1 i device xd:// sono stati rimossi);
 //      altri schemi URL sono negati.
+//    - Da omp 19.1 il canale QA `report_issue` e' un tool proprio, ammesso fra i
+//      tool liberi: con `tools.commands: false` e bash spento resta in cima.
 //    - Per `edit`, vengono analizzate sia le intestazioni hashline `[PATH#TAG]` sia le
 //      righe di rename `MV DEST` e l'eventuale `path` nei parametri. Se nessun percorso
 //      e' riconoscibile nel testo, l'operazione viene bloccata per difetto.
@@ -207,6 +212,10 @@ const FREE_TOOLS: Record<string, true> = {
 	lab_preview_status: true,
 	lab_set_summary: true,
 	studio_plan_submit: true,
+	// Canale QA di omp per le anomalie dei tool: non tocca file ne' esegue nulla.
+	// Da omp 19.1 e' un tool proprio (prima era il device `xd://report_issue`);
+	// con `tools.commands: false` e bash spento resta in cima, non un comando.
+	report_issue: true,
 	// Unico tool delle corsie ammesso nel Laboratorio: segnala a Studio la fine
 	// del lavoro tramite il bridge. Gli altri `corsia_*` restano bloccati.
 	corsia_fatto: true
@@ -219,6 +228,10 @@ const ALLOWED_READ_SCHEMES: Record<string, true> = {
 	agent: true,
 	local: true,
 	history: true,
+	// Documentazione dei tool: da omp 19.1 le pagine che erano `xd://<tool>/<topic>`
+	// stanno qui, e le descrizioni dei tool le linkano. Sono testi virtuali in sola
+	// lettura, non toccano il disco.
+	help: true,
 	http: true,
 	https: true
 };
@@ -809,9 +822,10 @@ export function createLabToolCallHook(env?: LabHookEnvironment) {
 					}
 					return undefined;
 				}
-				// Canale QA di omp per segnalare anomalie dei tool: non tocca file.
-				// Solo questo device: gli altri xd:// (ast_edit, debug, ...) eseguono
-				// operazioni che scavalcherebbero il confinamento del workspace.
+				// Canale QA di omp fino alla 19.0: era il device `xd://report_issue`, che
+				// non tocca file. Da omp 19.1 il device non esiste piu' e il canale e'
+				// il tool `report_issue` (ammesso in FREE_TOOLS): su un omp nuovo questa
+				// scrittura la rifiuta omp stessa, quindi il ramo resta solo per i vecchi.
 				if (rawPath.toLowerCase() === "xd://report_issue") {
 					return undefined;
 				}

@@ -65,6 +65,8 @@ Citazioni dell'utente dalla discussione del 2026-11-12:
 
 - **F32 — Il progetto condiviso deve sembrare locale (2026-11-24):** «ci sono ancora fastidi e attriti sui progetti condivisi da più istanze come questo. [...] io vorrei solo funzionasse e fosse tutto sempre aggiornato pronto per lavorare invece magari mi dice che devo fare la pull su windows perché ho fatto il lavoro sul mac e non la fa in automatico, ho fatto commit di una riga di diario e dal mac mi dice che sono versioni diverse, provo a cambiare macchina dove voglio far partire un agente e mi dice di aspettare la fine del lavoro ma è vuoto non sta facendo niente»; «per me deve diventare veramente una gestione talmente rapida che lavorare su un progetto multi-istanza o in remoto deve essere percepito esattamente come lavorare su un progetto locale». Dopo la revisione del codice e dei log, scelte nel modulo della stessa sessione: i commit arrivati su GitHub si applicano da soli, solo fast-forward e con le sicurezze della gemella; unione per righe del diario in ogni operazione git, diario committato a fine turno, unione del diario divergente fatta da qualunque macchina disponibile; divergenza di codice unita da sola quando git non trova conflitti, altrimenti «Risolvi» con un agente; cambio di macchina durante il turno prenotato per la fine del turno; modifiche non committate portate in automatico con «Annulla»; le altre macchine si aggiornano da sole quando sono libere, e «secondo me sarebbe da mostrare nel modal di aggiornamento di uno studio, se è collegato ad altri computer, una riga per macchina con "aggiorna" da poter triggherare»; push su GitHub sempre manuale, bloccato solo quando sarebbe rifiutato; tutto in un unico lavoro. Segnalato anche: «su mac ogni volta che apro studio mi compare il lucchetto di accesso portachiavi che mi chiede di mettere la password perché studio deve accedere al portachiavi, anche se faccio "sempre" ogni volta lo chiede».
 
+- **F33 — omp allineato fra le macchine (2026-11-26):** «quando si aggiorna studio su un'altra macchina collegata dovrebbe chiedere di allineare anche omp, o quando aggiorno omp su un computer dovrebbe chiedere di aggiornare omp anche sugli altri collegati, con aggiornamento completo di riavvio dell'app per essere funzionale». Scelte nel modulo della stessa sessione: la domanda compare sulla macchina da cui si guarda («allineare omp su Windows?»), con «Aggiorna» e «Non ora»; dopo l'aggiornamento di omp Studio si riavvia del tutto, chiudendo ogni processo omp, solo quando la macchina è libera, sia in locale sia sulla macchina remota; dopo un aggiornamento di Studio su un'altra macchina vale la stessa regola al suo rientro; solo verso la versione più nuova, mai indietro, e un omp più nuovo altrove propone l'aggiornamento qui.
+
 Le sei strade valutate sono illustrate in `proto/multi-istanza-strade.html` (locale, fuori da git): è materiale di discussione, non un'anteprima di interfaccia approvata. F16 autorizza l'implementazione diretta dell'interfaccia secondo le convenzioni di Studio, senza un'ulteriore approvazione su anteprima.
 
 ## Stato dei requisiti
@@ -137,6 +139,10 @@ Le sei strade valutate sono illustrate in `proto/multi-istanza-strade.html` (loc
 | R-MI-64 | 1 | Attivo, approvato il 2026-11-24 (F32); cambia R-MI-38 («nessuna macchina si aggiorna da sola») | 2026-11-24 (MI55): `compareStudioVersions`/`peerBehind`/`shouldRequestAutoUpdate` in `peerUpdateRules.ts`, richiesta automatica una volta per (macchina, versione) solo verso macchine più vecchie dello stesso canale, mai da build di sviluppo; righe per macchina in `StudioUpdateModal.svelte`; avviso solo per base incompatibile | 2026-11-24: `test/peer-update.test.ts`; scenario reale da provare |
 | R-MI-65 | 2 | Attivo, approvato il 2026-11-24 (F32) | 2026-11-24 (MI51): `GitPanel.svelte` legge origin prima del push e, se manca qualcosa, propone «Scarica e pubblica» (`sync`) | Scenario reale da provare |
 | R-MI-66 | 1 | Attivo, segnalato il 2026-11-24 (F32); precisa R-MI-34 | Causa verificata (partizioni `cdhash:` dell'elemento del portachiavi); la correzione richiede la firma con un'identità Apple con Team ID e l'aggiornamento dei secret di GitHub (MI56) | — |
+| R-MI-67 | 1 | Attivo, approvato il 2026-11-26 (F33) | 2026-11-26: `get_omp_version` letto su ogni macchina in linea e compatibile al rientro, a ogni cambio di versione di Studio o di omp e ogni 10 minuti (`ompPeerUpdate.svelte.ts`) | 2026-11-26: `test/omp-peer-update.test.ts`; scenario con due macchine da provare |
+| R-MI-68 | 1 | Attivo, approvato il 2026-11-26 (F33) | 2026-11-26: `ompAlignment` in `peerUpdateRules.ts`, una domanda per (macchina, versione di là, versione di qui) in `OmpPeerUpdateDialog.svelte` | 2026-11-26: `test/omp-peer-update.test.ts`; scenario con due macchine da provare |
+| R-MI-69 | 1 | Attivo, approvato il 2026-11-26 (F33); precisa R-MI-06 | 2026-11-26: `omp_update_remote_start`/`_status`/`_report` in `omp_ops.rs`, aggiornamento e riavvio quando la macchina è libera in `ompPeerUpdate.svelte.ts` | Scenario con due macchine da provare |
+| R-MI-70 | 1 | Attivo, approvato il 2026-11-26 (F33) | 2026-11-26: comando `studio_restart` (`AppHandle::request_restart`, uscita autorizzata come per R-MI-38) al posto del ricaricamento dell'interfaccia | Riavvio reale da provare nell'app installata |
 
 Nei testi che seguono **W** è la macchina da cui si guarda (nello scenario il PC Windows) e **M** quella che possiede il progetto (il Mac).
 
@@ -791,6 +797,42 @@ La chiave della macchina resta nel portachiavi (R-MI-34), ma l'accesso concesso 
 
 **Accettazione:** dopo «Consenti sempre» su una versione, l'aggiornamento successivo di Studio si avvia senza richieste del portachiavi.
 **Errore da evitare:** chiave spostata in chiaro su disco per evitare la richiesta.
+
+## R-MI-67 — Ogni macchina conosce la versione di omp delle altre
+
+**Fonti:** F33.
+
+Studio legge la versione di omp di ogni macchina abbinata in linea con una versione di Studio compatibile (R-MI-10): quando la macchina torna in linea, quando cambia la sua versione di Studio o quella di omp di questa macchina, e comunque ogni 10 minuti. Una macchina con Studio incompatibile si allinea prima su Studio (R-MI-64) e poi su omp al rientro.
+
+**Accettazione:** il Mac aggiorna omp: entro il rientro o 10 minuti Windows conosce la nuova versione del Mac.
+**Errore da evitare:** versione di omp letta da una macchina spenta o rimasta in cache dopo l'aggiornamento.
+
+## R-MI-68 — La macchina da cui si guarda propone di allineare omp
+
+**Fonti:** F33.
+
+Se omp su un'altra macchina è più vecchio di qui, Studio chiede «Aggiornare omp su {macchina}?» con le due versioni; se è più nuovo, chiede di aggiornare omp qui. Una domanda per (macchina, versione di là, versione di qui) finché l'app resta aperta: «Non ora» non la ripete. Mai verso una versione più vecchia. Vale anche dopo un aggiornamento di Studio sull'altra macchina, al suo rientro.
+
+**Accettazione:** omp 18.20 sul Mac e 18.18 su Windows: il Mac chiede di aggiornare Windows, Windows chiede di aggiornare sé stessa; «Non ora» non torna finché le versioni restano quelle.
+**Errore da evitare:** domande ripetute a ogni lettura; proposta di tornare a una versione più vecchia.
+
+## R-MI-69 — omp si aggiorna sull'altra macchina con un clic
+
+**Fonti:** F33. Precisa R-MI-06.
+
+«Aggiorna» avvia sull'altra macchina `omp update` e poi il riavvio completo di R-MI-70, che aspetta che la macchina sia libera (agenti al lavoro, domande in attesa, job, file non salvati, come R-MI-38). Una sola esecuzione per volta su ogni macchina: una seconda richiesta mentre la prima è in corso viene rifiutata. La macchina che ha chiesto mostra a che punto è e l'eventuale errore.
+
+**Accettazione:** dal Mac «Aggiorna» su Windows libera: Windows aggiorna omp, si riavvia e torna in linea con la nuova versione; con un agente al lavoro il riavvio aspetta la fine del turno.
+**Errore da evitare:** riavvio con un agente al lavoro; due `omp update` contemporanei sulla stessa macchina.
+
+## R-MI-70 — Dopo l'aggiornamento di omp Studio si riavvia davvero
+
+**Fonti:** F33.
+
+Dopo un aggiornamento di omp, locale o chiesto da un'altra macchina, Studio si chiude e si riapre: ogni processo omp (agenti e terminali) si chiude e i nuovi partono con il binario aggiornato. Il semplice ricaricamento dell'interfaccia non basta perché lascia vivi i processi omp vecchi.
+
+**Accettazione:** aggiornato omp e scelto «Riavvia», nessun processo omp della versione precedente resta in esecuzione e Studio torna aperto.
+**Errore da evitare:** ricaricare la sola interfaccia dichiarando l'aggiornamento applicato.
 
 ## Correzioni del 2026-11-20 (revisione del codice)
 

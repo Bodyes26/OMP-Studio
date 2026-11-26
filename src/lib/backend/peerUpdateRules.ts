@@ -1,6 +1,7 @@
 /**
- * Regole pure dell'aggiornamento di un'altra macchina (R-MI-38, R-MI-64),
- * separate dal negozio per provarle senza finestra.
+ * Regole pure dell'aggiornamento di un'altra macchina (R-MI-38, R-MI-64) e
+ * dell'allineamento di omp fra le macchine (R-MI-68), separate dai negozi per
+ * provarle senza finestra.
  */
 
 export type WaitReason = 'agents' | 'questions' | 'jobs' | 'unsaved';
@@ -166,4 +167,59 @@ export function waitReasons(input: {
 	if (input.incomingJobs > 0) reasons.push('jobs');
 	if (input.unsavedProjects > 0) reasons.push('unsaved');
 	return reasons;
+}
+
+/**
+ * Ordine fra due versioni di omp (`major.minor.patch`, anche dentro un testo
+ * come `omp 18.18.3`). `0` quando una delle due non si legge: senza un ordine
+ * non si propone nulla (R-MI-68).
+ */
+export function compareOmpVersions(a: string | null | undefined, b: string | null | undefined): number {
+	const parse = (value: string | null | undefined) => {
+		const match = /(\d+)\.(\d+)\.(\d+)/.exec(value ?? '');
+		return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null;
+	};
+	const left = parse(a);
+	const right = parse(b);
+	if (!left || !right) return 0;
+	for (let index = 0; index < 3; index++) {
+		const delta = left[index] - right[index];
+		if (delta !== 0) return delta > 0 ? 1 : -1;
+	}
+	return 0;
+}
+
+/**
+ * Dove serve `omp update` perche' le due macchine abbiano lo stesso omp
+ * (R-MI-68): `peer` se l'altra e' indietro, `here` se e' indietro questa,
+ * `null` se sono pari o una versione manca. Sempre verso la piu' nuova.
+ */
+export function ompAlignment(peer: string | null | undefined, own: string | null | undefined): 'peer' | 'here' | null {
+	const order = compareOmpVersions(peer, own);
+	if (order < 0) return 'peer';
+	if (order > 0) return 'here';
+	return null;
+}
+
+/**
+ * Un errore di aggiornamento ha smesso di essere vero (R-MI-38, R-MI-68).
+ *
+ * Capita davvero: l'aggiornamento fallisce qui, poi la macchina si allinea da
+ * sola, o l'utente la aggiorna dall'altro lato. Lo stato `failed` resta
+ * nell'elenco perche' nessuno lo sostituisce, e la tessera ripete un errore che
+ * non esiste piu' — senza modo di chiuderlo. Quando la versione letta e' alla
+ * destinazione o piu' avanti, la riga va tolta.
+ */
+export function updateFailureObsolete(
+	target: string | null | undefined,
+	current: string | null | undefined,
+	compare: (a: string, b: string) => number
+): boolean {
+	if (!target || !current) return false;
+	return compare(current, target) >= 0;
+}
+
+/** Una domanda sola per (macchina, versione di la', versione di qui) (R-MI-68). */
+export function ompAskKey(machineId: string, peer: string, own: string): string {
+	return `${machineId}@${peer}>${own}`;
 }

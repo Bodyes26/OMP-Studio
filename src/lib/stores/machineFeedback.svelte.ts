@@ -12,8 +12,10 @@
  * l'id da `awaitingDelivery`). Finché l'id resta lì, lo stato è «in attesa»,
  * anche se l'invio è già riuscito.
  *
- * Le conferme non sono uno storico: restano leggibili per un minuto, il tempo
- * di vederle, poi si consumano da sole.
+ * Le conferme non sono uno storico: restano leggibili per poco, il tempo di
+ * vederle, poi si consumano da sole. La presa in carico del prompt sparisce
+ * anche prima, appena il run parte davvero (`dismiss` da `agent_start`): da li'
+ * in poi e' il transcript a dire che la macchina sta lavorando.
  */
 
 export type MachineOpKind = 'prompt' | 'files' | 'session' | 'queue' | 'git';
@@ -32,8 +34,21 @@ export interface MachineOp {
 	at: number;
 }
 
-/** Quanto resta visibile una conferma prima di consumarsi. */
-const CONFIRMED_TTL_MS = 60_000;
+/**
+ * Quanto resta visibile una conferma prima di consumarsi, per tipo.
+ *
+ * La presa in carico del prompt vale pochi secondi: e' un cenno, non uno
+ * stato. Se il run parte la riga sparisce prima (`release`), ma nemmeno una
+ * conferma che nessuno ritira deve restare sopra il composer. Gli altri
+ * riscontri restano il minuto di sempre.
+ */
+const CONFIRMED_TTL_MS: Record<MachineOpKind, number> = {
+	prompt: 10_000,
+	files: 60_000,
+	session: 60_000,
+	queue: 60_000,
+	git: 60_000
+};
 /** Tetto delle operazioni tenute in memoria: è un riscontro, non un registro. */
 const MAX_ENTRIES = 40;
 
@@ -48,11 +63,19 @@ interface QueuePending {
 	projectId: string | null;
 }
 
-class MachineFeedbackStore {
+export class MachineFeedbackStore {
 	private entries = $state<MachineOp[]>([]);
 	private sequence = 0;
 	/** Id del task in coda → operazione aperta che aspetta la conferma dell'host. */
 	private queueOps = new Map<string, number>();
+	/**
+	 * Sveglia che consuma le conferme scadute. Senza, il filtro per tempo di
+	 * `live()` non avrebbe chi lo fa rieseguire: la riga resterebbe finche'
+	 * un'altra operazione non cambia `entries`.
+	 */
+	private expiryTimer: number | undefined = undefined;
+	/** Istante a cui la sveglia corrente e' armata: serve a non allungarla. */
+	private expiryArmedFor: number | null = null;
 
 	/** Apre un'operazione in attesa: la richiesta sta partendo. */
 	begin(input: FeedbackStart): number {
@@ -80,6 +103,36 @@ class MachineFeedbackStore {
 	/** L'operazione non è riuscita: il testo è quello che la destinazione o il trasporto hanno dato. */
 	fail(id: number, error: string): void {
 		this.patch(id, (op) => ({ ...op, phase: 'failed', detail: error, at: Date.now() }));
+	}
+
+	/**
+	 * Il riscontro ha esaurito il suo compito prima della scadenza: la presa in
+	 * carico del prompt sparisce appena il run parte davvero sulla
+	 * destinazione, perche' da li' in poi e' il transcript a dire che si sta
+	 * lavorando. Non tocca gli altri riscontri.
+	 */
+	release(id: number): void {
+		const kept = this.entries.filter((op) => op.id !== id);
+		if (kept.length === this.entries.length) return;
+		this.entries = kept;
+		this.scheduleExpiry();
+	}
+
+	/**
+	 * Ritira la presa in carico del prompt perche' la macchina ha cominciato a
+	 * lavorare. Toglie solo una riga gia' confermata: una ancora in attesa
+	 * resta, cosi' un errore arrivato dopo puo' ancora comparire.
+	 *
+	 * Chi tiene gli id appesi smette di seguirli con qualunque esito diverso da
+	 * `waiting`: una riga ancora in attesa puo' diventare un errore da
+	 * mostrare, una gia' chiusa (o sparita) non ha piu' niente da dire.
+	 */
+	settlePrompt(id: number): 'released' | 'waiting' | 'done' {
+		const op = this.entries.find((candidate) => candidate.id === id);
+		if (!op) return 'done';
+		if (op.phase !== 'confirmed') return op.phase === 'waiting' ? 'waiting' : 'done';
+		this.release(id);
+		return 'released';
 	}
 
 	/**
@@ -133,6 +186,9 @@ class MachineFeedbackStore {
 		}
 		this.queueOps = next;
 		this.entries = entries;
+		// Anche queste conferme devono consumarsi da sole: senza sveglia
+		// resterebbero finche' un'altra operazione non cambia l'elenco.
+		if (confirmedIds.size > 0) this.scheduleExpiry();
 	}
 
 	/** Ultima operazione di una macchina: il riscontro da mostrare (IMP-006). */
@@ -169,12 +225,51 @@ class MachineFeedbackStore {
 			return change(op);
 		});
 		if (!touched) return;
+		this.scheduleExpiry();
+	}
+
+	/**
+	 * Arma una sola sveglia alla prossima conferma in scadenza. Allo scadere
+	 * toglie davvero le righe da `entries`, cosi' la vista si aggiorna senza
+	 * aspettare un'altra operazione; poi riarma, se ne restano.
+	 */
+	private scheduleExpiry(): void {
+		let next: number | null = null;
+		for (const op of this.entries) {
+			if (op.phase !== 'confirmed') continue;
+			const at = op.at + CONFIRMED_TTL_MS[op.kind];
+			if (next === null || at < next) next = at;
+		}
+		if (next === null) {
+			clearTimeout(this.expiryTimer);
+			this.expiryTimer = undefined;
+			this.expiryArmedFor = null;
+			return;
+		}
+		// Se la sveglia corrente scade gia' non dopo quella riga, va bene cosi':
+		// riarmarla piu' tardi rimanderebbe la riga che le sta davanti.
+		if (this.expiryTimer !== undefined && this.expiryArmedFor !== null && this.expiryArmedFor <= next) return;
+		clearTimeout(this.expiryTimer);
+		this.expiryTimer = setTimeout(() => {
+			this.expiryTimer = undefined;
+			this.expiryArmedFor = null;
+			this.pruneExpired();
+		}, Math.max(0, next - Date.now()));
+		this.expiryArmedFor = next;
+	}
+
+	/** Toglie le conferme scadute e riarma sulla prossima. */
+	private pruneExpired(): void {
+		const now = Date.now();
+		const kept = this.entries.filter((op) => op.phase !== 'confirmed' || now - op.at < CONFIRMED_TTL_MS[op.kind]);
+		if (kept.length !== this.entries.length) this.entries = kept;
+		this.scheduleExpiry();
 	}
 
 	/** Le conferme scadono; le attese e gli errori restano finché non cambiano. */
 	private live(): MachineOp[] {
 		const now = Date.now();
-		return this.entries.filter((op) => op.phase !== 'confirmed' || now - op.at < CONFIRMED_TTL_MS);
+		return this.entries.filter((op) => op.phase !== 'confirmed' || now - op.at < CONFIRMED_TTL_MS[op.kind]);
 	}
 }
 

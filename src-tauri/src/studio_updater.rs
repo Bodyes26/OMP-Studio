@@ -1558,6 +1558,17 @@ pub fn studio_update_remote_report(phase: String, waiting_for: Vec<String>, erro
     }
 }
 
+/// Riavvio completo di Studio dopo un aggiornamento di omp (R-MI-70): passa da
+/// `RunEvent::Exit`, che chiude ogni processo omp e il blocco single-instance,
+/// e solo dopo rilancia l'eseguibile. Ricaricare l'interfaccia non basta: le
+/// sessioni si staccano dalla finestra ma i processi omp vecchi restano vivi.
+/// Il chiamante autorizza prima l'uscita (`desktop_presence_prepare_exit`).
+#[tauri::command]
+pub fn studio_restart(app: AppHandle) {
+    crate::studio_log::info("app", "riavvio dopo l'aggiornamento di omp");
+    app.request_restart();
+}
+
 /// Annulla il download in corso se presente ed elimina ogni file temporaneo.
 #[tauri::command]
 pub async fn cancel_studio_update_download(

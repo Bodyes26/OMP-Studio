@@ -911,6 +911,19 @@ export class AgentSession {
 	private awaitingRunTimer: ReturnType<typeof setTimeout> | null = null;
 	private runWatchTimer: ReturnType<typeof setTimeout> | null = null;
 	/**
+	 * Prese in carico del prompt ancora da ritirare (IMP-006): si registrano
+	 * quando la richiesta parte e si tolgono appena il run parte davvero sulla
+	 * destinazione. Senza questo ritiro la riga sopra il composer resterebbe
+	 * li' fino alla scadenza, anche a lavoro iniziato.
+	 */
+	private readonly pendingPromptFeedback = new Set<number>();
+	/**
+	 * Quante volte la destinazione ha mostrato di lavorare (`agent_start`,
+	 * `turn_start`). Serve a non lasciare in sospeso una presa in carico la cui
+	 * conferma arriva dopo che il run e' gia' partito.
+	 */
+	private activitySeq = 0;
+	/**
 	 * /loop della GUI (estensione `studio-loop.ts`): stato pubblicato con
 	 * `setStatus("studio.loop")`. Resta dopo la fine finche' l'utente non
 	 * preme «Chiudi», come il pannello del prototipo.
@@ -2930,6 +2943,7 @@ export class AgentSession {
 
 			case 'agent_start':
 				this.pendingCompletion = null;
+				this.releasePromptFeedback();
 				if (this.isAborting) return;
 				this.invalidateContextReport();
 				if (this.turnStartedAt === null) this.turnStartedAt = Date.now();
@@ -3009,6 +3023,7 @@ export class AgentSession {
 				if (this.isAborting) return;
 				// Un run contiene piu' giri di tool: turn_end spegne lo streaming,
 				// ma agent_start non viene ripetuto prima del giro successivo.
+				this.releasePromptFeedback();
 				this.isStreaming = true;
 				if (this.turnStartedAt === null) this.turnStartedAt = Date.now();
 				this.suggestions.invalidate();
@@ -3899,6 +3914,22 @@ export class AgentSession {
 		else if (this.awaitingRunTimer !== null) {
 			clearTimeout(this.awaitingRunTimer);
 			this.awaitingRunTimer = null;
+		}
+	}
+
+	/**
+	 * La destinazione ha cominciato: le prese in carico ancora appese non
+	 * dicono piu' nulla, il transcript (o la riga di lavoro) basta. Si ritirano
+	 * qui, non alla fine del turno, perche' altrimenti coprirebbero il composer
+	 * per tutta la durata del lavoro.
+	 */
+	private releasePromptFeedback(): void {
+		this.activitySeq += 1;
+		if (this.pendingPromptFeedback.size === 0) return;
+		for (const id of this.pendingPromptFeedback) {
+			// Se l'ammissione non e' ancora arrivata la riga resta in attesa: la
+			// ritira l'ack che segue, cosi' un errore non va perso.
+			if (machineFeedback.settlePrompt(id) !== 'waiting') this.pendingPromptFeedback.delete(id);
 		}
 	}
 
@@ -5309,6 +5340,7 @@ export class AgentSession {
 		// dopo il `send`, mai dall'entry ottimistica disegnata qui.
 		const remote = this.machineId !== LOCAL_MACHINE;
 		const feedback = remote ? machineFeedback.begin({ kind: 'prompt', machineId: this.machineId, projectId: this.projectKey }) : null;
+		const activityAtSend = this.activitySeq;
 		try {
 			const ack = await this.client.send<{ agentInvoked?: boolean } | undefined>({
 				type: 'prompt',
@@ -5318,7 +5350,16 @@ export class AgentSession {
 			});
 			// Comando locale (slash builtin, estensione): nessun run partira'.
 			if (ack?.agentInvoked === false) this.applyRunActivity(runActivityOnPromptDropped(this.runActivity));
-			if (feedback !== null) machineFeedback.confirm(feedback);
+			if (feedback !== null) {
+				machineFeedback.confirm(feedback);
+				// La presa in carico e' vera ma provvisoria: si ritira appena la
+				// macchina comincia davvero, cosi' non resta sopra il composer per
+				// tutta la durata del lavoro. Se il run e' gia' partito mentre
+				// aspettavamo la risposta all'ammissione (`agent_start` prima
+				// dell'ack), non c'e' niente da aspettare: via subito.
+				if (ack?.agentInvoked === false || this.activitySeq !== activityAtSend) machineFeedback.release(feedback);
+				else this.pendingPromptFeedback.add(feedback);
+			}
 		} catch (error) {
 			this.applyRunActivity(runActivityOnPromptDropped(this.runActivity));
 			this.dropOptimisticUser();
@@ -5823,6 +5864,10 @@ export class AgentSession {
 	 */
 	private resetLiveSessionState(): void {
 		this.plan.onSessionReset();
+		// Un cambio di sessione non e' un inizio di lavoro sulla destinazione: le
+		// prese in carico appese si tolgono qui, senza aspettare la scadenza.
+		for (const id of this.pendingPromptFeedback) machineFeedback.release(id);
+		this.pendingPromptFeedback.clear();
 		this.pendingCompletion = null;
 		this.backgroundJobs = [];
 		this.entries = [];

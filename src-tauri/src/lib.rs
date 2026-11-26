@@ -71,6 +71,7 @@ mod omp_ops;
 mod session_move;
 use omp_ops::{
     check_omp_update, get_omp_changelog_status, get_omp_version, mark_omp_changelog_seen,
+    omp_update_remote_report, omp_update_remote_start, omp_update_remote_status,
     omp_user_theme, provider_hosts, read_historical_session_messages, run_omp_update,
     session_credential_pins, sessions_list, sessions_search, sweep_stale_logs, theme_apply,
     usage_reset_list, usage_reset_redeem, usage_snapshot,
@@ -80,8 +81,9 @@ use stats_ops::{stats_open_dashboard, stats_summary, stats_sync};
 mod studio_updater;
 use studio_updater::{
     cancel_studio_update_download, check_studio_update, get_studio_version,
-    install_studio_update_and_restart, start_studio_update_download, studio_update_remote_report,
-    studio_update_remote_start, studio_update_remote_status, StudioUpdaterState,
+    install_studio_update_and_restart, start_studio_update_download, studio_restart,
+    studio_update_remote_report, studio_update_remote_start, studio_update_remote_status,
+    StudioUpdaterState,
 };
 mod models_ops;
 mod provider_auth;
@@ -426,6 +428,9 @@ pub fn run() {
             get_omp_version,
             check_omp_update,
             run_omp_update,
+            omp_update_remote_start,
+            omp_update_remote_status,
+            omp_update_remote_report,
             get_omp_changelog_status,
             mark_omp_changelog_seen,
             theme_apply,
@@ -439,6 +444,7 @@ pub fn run() {
             studio_update_remote_start,
             studio_update_remote_status,
             studio_update_remote_report,
+            studio_restart,
             get_model_config,
             save_model_config,
             get_models_catalog,

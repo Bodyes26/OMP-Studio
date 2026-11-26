@@ -158,10 +158,10 @@ Alcune funzioni della GUI replicano un flusso che omp offre solo nella TUI e ne 
 
 | Copia in Studio | Originale in oh-my-pi (`packages/coding-agent/src/`) | Versione copiata |
 | --- | --- | --- |
-| `PLAN_MODE_ACTIVE_PROMPT` in `extensions/studio-plan.ts` | `prompts/system/plan-mode-active.md` (adattato: `resolve { action: "apply" }` → `studio_plan_submit`; non copiato il «Save» della revisione TUI) | 19.0.0 |
-| `PLAN_MODE_SUBAGENT_PROMPT` in `extensions/studio-plan.ts` | `prompts/system/plan-mode-subagent.md` | 19.0.0 |
-| prompt d'esecuzione e istruzioni di compattazione in `src/lib/agent/planMode.ts` | `prompts/system/plan-mode-approved.md`, `plan-mode-compact-instructions.md` | 19.0.0 |
-| `planSaveFileName` (estensione e `planMode.ts`), `normalizePlanSlug` e `resolveLocalRoot` (estensione) | `plan-mode/plan-autosave.ts`, `plan-mode/plan-files.ts`, radice di `local://` | 19.0.0 |
+| `PLAN_MODE_ACTIVE_PROMPT` in `extensions/studio-plan.ts` | `prompts/system/plan-mode-active.md` (adattato: il `propose` di omp — comando bash o tool — e la `resolve { action: "apply" }` di 19.0 → `studio_plan_submit`; opzioni di revisione riscritte per le strade di Studio; non copiato il «Save» della revisione TUI) | 19.2.1 |
+| `PLAN_MODE_SUBAGENT_PROMPT` in `extensions/studio-plan.ts` | `prompts/system/plan-mode-subagent.md` | 19.2.1 |
+| prompt d'esecuzione e istruzioni di compattazione in `src/lib/agent/planMode.ts` | `prompts/system/plan-mode-approved.md`, `plan-mode-compact-instructions.md` | 19.2.1 |
+| `planSaveFileName` (estensione e `planMode.ts`), `normalizePlanSlug` e `resolveLocalRoot` (estensione) | `plan-mode/plan-autosave.ts`, `plan-mode/plan-files.ts`, radice di `local://` | 19.2.1 |
 
 Procedura: `git diff` dei file upstream tra la versione copiata e quella nuova; se cambiano, aggiorna la copia mantenendo l'adattamento, aggiorna la colonna «Versione copiata» qui e nell'intestazione dei file, rilancia `test/plan-mode.test.ts`. Se omp introduce un comando RPC `plan` (o una richiesta UI `plan_review`), apri invece una decisione per sostituire l'estensione.
 
@@ -197,9 +197,13 @@ npm run check:setup-flow
 
 Lo script `scripts/check-setup-flow.mjs`:
 1. Individua il binario `omp` con la stessa ricerca di `check:commands` (`--bin`, `OMP_BIN`, percorsi standard) e ne legge la versione con `omp --version`.
-2. Scarica dal registry npm il tarball di `@oh-my-pi/pi-tui@<versione omp>` e ne estrae `package/src/setup/**` (tar letto in Node, senza strumenti esterni come `tar.exe`).
-3. Estrae `CURRENT_SETUP_VERSION` da `setup-version.ts`, l'elenco ordinato delle scene da `ALL_SCENES` in `wizard.ts` (con `id` e `minVersion` per ciascuna) e il `sha256` di ogni file di `src/setup/**`.
+2. Scarica dal registry npm il tarball di `@oh-my-pi/pi-coding-agent@<versione omp>` e ne estrae `package/src/ui/setup/**` piu' `package/src/config/setup-version.ts` (tar letto in Node, senza strumenti esterni come `tar.exe`).
+3. Estrae `CURRENT_SETUP_VERSION` da `src/config/setup-version.ts`, l'elenco ordinato delle scene da `ALL_SCENES` in `src/ui/setup/wizard.tsx` (con `id` e `minVersion` per ciascuna) e il `sha256` di ogni file letto.
 4. Confronta il risultato con il lock.
+
+Impronta attualmente registrata: omp `19.2.1`, setup `v3`, 6 scene (`providers`, `model`, `glyph-mode`, `composer-shape`, `theme`, `auto-update`) e 12 file fra `src/ui/setup/**` e `src/config/setup-version.ts`.
+
+> Da omp 19.2.0 il wizard non e' piu' in `@oh-my-pi/pi-tui`: e' stato riscritto come UI JSX dentro il pacchetto dell'agente (`src/ui/setup/*.tsx`, scene in `src/ui/setup/scenes/*.tsx`). `setup-version.ts` resta fuori da quella cartella perche' il gate di avvio a freddo di omp la legge senza importare il wizard: il nostro gate la impronta come file singolo. Fino alla 19.1.x i percorsi erano `@oh-my-pi/pi-tui` + `package/src/setup/**`.
 
 ### Esiti
 

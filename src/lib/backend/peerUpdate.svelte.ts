@@ -9,7 +9,15 @@ import {
 	type StudioReleaseAsset,
 	type StudioUpdateInfo
 } from '#lib/stores/studioUpdater.svelte.ts';
-import { autoUpdateKey, channelOf, shouldRequestAutoUpdate, waitReasons, type WaitReason } from './peerUpdateRules.ts';
+import {
+	autoUpdateKey,
+	channelOf,
+	compareStudioVersions,
+	shouldRequestAutoUpdate,
+	updateFailureObsolete,
+	waitReasons,
+	type WaitReason
+} from './peerUpdateRules.ts';
 
 export {
 	channelOf,
@@ -53,7 +61,7 @@ export interface UpdateProposal {
 	info: StudioUpdateInfo;
 }
 
-async function currentWaitReasons(): Promise<WaitReason[]> {
+export async function currentWaitReasons(): Promise<WaitReason[]> {
 	const local = sessionRegistry.getAllSessions().filter((session) => !session.machineId || session.machineId === LOCAL_MACHINE);
 	const jobs = await invoke<{ totalJobs: number }>('desktop_presence_get_active_jobs', {}, { machine: LOCAL_MACHINE })
 		.catch(() => ({ totalJobs: 0 }));
@@ -67,6 +75,8 @@ async function currentWaitReasons(): Promise<WaitReason[]> {
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+/** Oltre questo tempo si smette di seguire: la riga non resta «in corso» per sempre. */
+const FOLLOW_LIMIT_MS = 30 * 60_000;
 
 class PeerUpdateStore {
 	/** Stato dell'aggiornamento in corso su ogni altra macchina. */
@@ -105,6 +115,7 @@ class PeerUpdateStore {
 			$effect(() => {
 				const own = studioUpdaterStore.currentVersion;
 				if (!own) return;
+				this.dropObsoleteFailures();
 				for (const peer of linkStore.status.peers) {
 					if (!shouldRequestAutoUpdate({
 						peer: { id: peer.id, online: peer.online, version: peer.version },
@@ -134,6 +145,24 @@ class PeerUpdateStore {
 		} catch {
 			// Macchina che si e' spenta fra il controllo e l'avvio: resta com'e'.
 		}
+	}
+
+	/**
+	 * Un errore resta nell'elenco finche' qualcuno non lo sostituisce: se nel
+	 * frattempo l'altra macchina e' arrivata alla versione chiesta (aggiornata
+	 * da sola o dall'altro lato), la riga direbbe il falso e non si chiuderebbe
+	 * mai. Si toglie quando la versione letta ha raggiunto quella dell'errore.
+	 */
+	private dropObsoleteFailures(): void {
+		let next: Record<MachineId, RemoteUpdateStatus> | null = null;
+		for (const [machineId, status] of Object.entries(this.statuses)) {
+			if (status.phase !== 'failed') continue;
+			const peer = linkStore.machineFor(machineId);
+			if (!updateFailureObsolete(status.version, peer?.version, compareStudioVersions)) continue;
+			next ??= { ...this.statuses };
+			delete next[machineId];
+		}
+		if (next) this.statuses = next;
 	}
 
 	statusFor(machineId: MachineId): RemoteUpdateStatus | null {
@@ -192,13 +221,19 @@ class PeerUpdateStore {
 		if (local?.has_update && local.asset && local.latest_version === proposal.version) void installWhenIdle(local.asset, () => {});
 	}
 
-	/** Segue lo stato finche' l'altra macchina non si riavvia con la nuova versione. */
+	/**
+	 * Segue lo stato finche' l'altra macchina non si riavvia con la nuova
+	 * versione, con un tetto: senza, una macchina che torna in linea senza
+	 * essersi aggiornata lasciava la riga «in corso» per sempre (nessuno la
+	 * sostituiva e il ciclo non usciva mai).
+	 */
 	private follow(machineId: MachineId, version: string): void {
 		if (this.polling.has(machineId)) return;
 		this.polling.add(machineId);
+		const startedAt = Date.now();
 		void (async () => {
 			try {
-				for (;;) {
+				while (Date.now() - startedAt < FOLLOW_LIMIT_MS) {
 					const machine = linkStore.machineFor(machineId);
 					if (!machine || (machine.online && machine.version === version)) break;
 					if (machine?.online) {
@@ -262,8 +297,14 @@ async function installWhenIdle(asset: StudioReleaseAsset, onPhase: typeof report
 		}
 		onPhase('installing');
 		await studioUpdaterStore.installAndRestart();
+		// L'avviso «installa e riavvia appena libera» vale finche' l'installazione
+		// non ha un esito: se Studio resta aperto (pacchetto .deb, errore) non e'
+		// piu' vero e resterebbe nella barra per sempre, perche' nessuno lo
+		// sostituisce. Se il riavvio parte davvero l'avviso sparisce con l'app.
+		studioUpdaterStore.setBadge(null);
 		if (studioUpdaterStore.errorMessage) onPhase('failed', [], studioUpdaterStore.errorMessage);
 	} catch (reason) {
+		studioUpdaterStore.setBadge(null);
 		onPhase('failed', [], reason instanceof Error ? reason.message : String(reason));
 	}
 }

@@ -119,6 +119,9 @@
 	"get_omp_version": ["routed", "read"],
 	"check_omp_update": ["routed", "read"],
 	"run_omp_update": ["routed", "files"],
+	"omp_update_remote_start": ["routed", "files"],
+	"omp_update_remote_status": ["routed", "read"],
+	"omp_update_remote_report": ["local", "local"],
 	"provider_hosts": ["routed", "read"],
 	"get_model_config": ["routed", "read"],
 	"save_model_config": ["routed", "agents"],
@@ -250,6 +253,7 @@
 	"studio_update_remote_start": ["routed", "files"],
 	"studio_update_remote_status": ["routed", "read"],
 	"studio_update_remote_report": ["local", "local"],
+	"studio_restart": ["local", "local"],
 
 	"setup_status": ["local", "local"],
 	"setup_apply_config": ["local", "local"],

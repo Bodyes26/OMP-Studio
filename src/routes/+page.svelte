@@ -40,6 +40,8 @@
 	import StatusBarChips from '#lib/components/StatusBarChips.svelte';
 	import RemoteBuildAsk from '#lib/components/RemoteBuildAsk.svelte';
 	import PeerUpdateDialog from '#lib/components/PeerUpdateDialog.svelte';
+	import OmpPeerUpdateDialog from '#lib/components/OmpPeerUpdateDialog.svelte';
+	import { restartStudio } from '#lib/backend/ompPeerUpdate.svelte.ts';
 	import RemotePreviewDialog from '#lib/components/RemotePreviewDialog.svelte';
 	import MovedSessionDialog from '#lib/agent/components/MovedSessionDialog.svelte';
 	import { closePreviews } from '#lib/backend/remotePreview.svelte.ts';
@@ -4330,8 +4332,16 @@
 		}
 	}
 
-	function handleRestartApp() {
-		window.location.reload();
+	// R-MI-70: riavvio completo; ricaricare la pagina lascerebbe vivi i processi omp vecchi.
+	async function handleRestartApp() {
+		showRestartModal = false;
+		try {
+			await restartStudio();
+		} catch (e) {
+			console.error("Restart failed", e);
+			updateMessage = m.page_omp_update_status_update_error();
+			ompBadgeType = 'error';
+		}
 	}
 	let columnsEl = $state<HTMLElement | null>(null);
 	let columnsWidth = $state(0);
@@ -5567,6 +5577,7 @@
 
 	<RemoteBuildAsk />
 	<PeerUpdateDialog />
+	<OmpPeerUpdateDialog paused={showRestartModal || showUpdatePromptModal} />
 	<RemotePreviewDialog />
 	{#if movedChat}<MovedSessionDialog {...movedChat} onClose={() => { movedChat = null; }} />{/if}
 

@@ -5,8 +5,12 @@
  * Il setup grafico di Studio replica le scene del wizard nativo di omp: se omp
  * cambia il setup (versione, scene, sorgenti) la copia in Studio puo' diventare
  * silenziosamente obsoleta. Questo gate confronta i sorgenti pubblicati in
- * `@oh-my-pi/pi-tui@<versione omp>` (`package/src/setup/**`) con l'impronta
- * registrata in `scripts/omp-setup-flow.lock.json`.
+ * `@oh-my-pi/pi-coding-agent@<versione omp>` (`package/src/ui/setup/**` piu'
+ * `package/src/config/setup-version.ts`) con l'impronta registrata in
+ * `scripts/omp-setup-flow.lock.json`.
+ *
+ * Da omp 19.2.0 il wizard non vive piu' in `@oh-my-pi/pi-tui/src/setup/**`:
+ * e' stato riscritto come UI JSX dentro il pacchetto dell'agente.
  *
  * Qualsiasi differenza (versione del setup, scene, hash dei file, file
  * aggiunti/rimossi) termina con codice 1, elenca per file cosa e' cambiato e
@@ -39,11 +43,17 @@ const ROOT = join(__dirname, '..');
 /** File di impronta versionato: la sua storia Git documenta l'evoluzione del setup di omp. */
 export const LOCK_FILE = join(ROOT, 'scripts', 'omp-setup-flow.lock.json');
 
-/** Pacchetto npm che pubblica i sorgenti del wizard nativo. */
-export const SETUP_PACKAGE = '@oh-my-pi/pi-tui';
+/** Pacchetto npm che pubblica i sorgenti del wizard nativo (dalla 19.2.0, prima era pi-tui). */
+export const SETUP_PACKAGE = '@oh-my-pi/pi-coding-agent';
 
 /** Prefisso degli entry del tarball che ci interessano (sorgenti, non `dist/`). */
-const SETUP_PREFIX = 'package/src/setup/';
+const SETUP_PREFIX = 'package/src/ui/setup/';
+
+/**
+ * `CURRENT_SETUP_VERSION` sta fuori da ui/setup/ perche' il gate di avvio a
+ * freddo la legge senza importare il wizard: la improntiamo come file singolo.
+ */
+const SETUP_VERSION_ENTRY = 'package/src/config/setup-version.ts';
 
 /** Schema del lock: cambialo solo se il formato dell'impronta cambia davvero. */
 const LOCK_SCHEMA_VERSION = 1;
@@ -88,8 +98,9 @@ function printHelp() {
 	console.log(`
 Uso: node scripts/check-setup-flow.mjs [opzioni]
 
-Confronta i sorgenti del setup nativo di omp (${SETUP_PACKAGE}, src/setup/**)
-con l'impronta registrata in scripts/omp-setup-flow.lock.json.
+Confronta i sorgenti del setup nativo di omp (${SETUP_PACKAGE}, src/ui/setup/**
+piu' src/config/setup-version.ts) con l'impronta registrata in
+scripts/omp-setup-flow.lock.json.
 
 Opzioni:
   --update         Riscrive il lock con l'impronta della versione installata
@@ -222,9 +233,10 @@ function readCString(buffer, start, length) {
 }
 
 /**
- * Scarica ed estrae i sorgenti di `src/setup/**` dalla versione indicata.
+ * Scarica ed estrae i sorgenti di `src/ui/setup/**` (piu' `src/config/setup-version.ts`)
+ * dalla versione indicata.
  *
- * @returns {Promise<{ files: Map<string, string>, tarballUrl: string }>} mappa percorso relativo -> contenuto UTF-8
+ * @returns {Promise<{ files: Map<string, string>, tarballUrl: string }>} mappa percorso relativo a `package/` -> contenuto UTF-8
  */
 export async function fetchSetupSources(pkgVersion) {
 	const tarballUrl = await resolveTarballUrl(pkgVersion);
@@ -239,14 +251,15 @@ export async function fetchSetupSources(pkgVersion) {
 
 	const files = new Map();
 	for (const entry of entries) {
-		if (!entry.name.startsWith(SETUP_PREFIX)) continue;
+		const wanted = entry.name.startsWith(SETUP_PREFIX) || entry.name === SETUP_VERSION_ENTRY;
+		if (!wanted) continue;
 		const relative = entry.name.slice('package/'.length);
 		files.set(relative, Buffer.from(entry.content).toString('utf8'));
 	}
 
 	if (files.size === 0) {
 		throw new Error(
-			`Il tarball ${SETUP_PACKAGE}@${pkgVersion} non contiene ${SETUP_PREFIX}**: ` +
+			`Il tarball ${SETUP_PACKAGE}@${pkgVersion} non contiene ${SETUP_PREFIX}** ne' ${SETUP_VERSION_ENTRY}: ` +
 				'la struttura upstream del setup e\' cambiata e il controllo va aggiornato.'
 		);
 	}
@@ -255,11 +268,12 @@ export async function fetchSetupSources(pkgVersion) {
 }
 
 /**
- * Estrae l'elenco ordinato delle scene da `ALL_SCENES` in wizard.ts.
+ * Estrae l'elenco ordinato delle scene da `ALL_SCENES` in wizard.tsx.
  * L'ordine e' significativo: e' l'ordine in cui il wizard nativo le presenta.
+ * Dall'upstream il literal ha l'annotazione di tipo (`: readonly SetupScene[]`).
  */
 export function parseSceneOrder(wizardSource) {
-	const block = wizardSource.match(/export const ALL_SCENES\s*=\s*\[([\s\S]*?)\]/);
+	const block = wizardSource.match(/export const ALL_SCENES\b[^=]*=\s*\[([\s\S]*?)\]/);
 	if (!block) return [];
 
 	return block[1]
@@ -293,22 +307,22 @@ export function parseSceneDefinition(source, exportName) {
  * Costruisce l'impronta (senza il campo versione omp) dai sorgenti estratti.
  */
 export function buildFingerprint(files) {
-	const versionSource = files.get('src/setup/setup-version.ts');
+	const versionSource = files.get('src/config/setup-version.ts');
 	if (!versionSource) {
-		throw new Error('setup-version.ts assente in src/setup/**: impossibile leggere CURRENT_SETUP_VERSION.');
+		throw new Error('setup-version.ts assente in src/config/: impossibile leggere CURRENT_SETUP_VERSION.');
 	}
 	const versionMatch = /CURRENT_SETUP_VERSION\s*(?::[^=]+)?=\s*(\d+)/.exec(versionSource);
 	if (!versionMatch) {
 		throw new Error('CURRENT_SETUP_VERSION non trovato in setup-version.ts: struttura upstream cambiata.');
 	}
 
-	const wizardSource = files.get('src/setup/wizard.ts');
+	const wizardSource = files.get('src/ui/setup/wizard.tsx');
 	if (!wizardSource) {
-		throw new Error('wizard.ts assente in src/setup/**: impossibile leggere ALL_SCENES.');
+		throw new Error('wizard.tsx assente in src/ui/setup/**: impossibile leggere ALL_SCENES.');
 	}
 
 	const sceneExports = parseSceneOrder(wizardSource);
-	const sceneFiles = [...files.keys()].filter((path) => path.startsWith('src/setup/scenes/')).sort();
+	const sceneFiles = [...files.keys()].filter((path) => path.startsWith('src/ui/setup/scenes/')).sort();
 
 	const scenes = [];
 	for (const exportName of sceneExports) {
@@ -536,7 +550,7 @@ function printDifferences(result) {
 
 	const { added, removed, changed } = diff.files;
 	if (added.length + removed.length + changed.length > 0) {
-		console.error('\n  File di src/setup/**:');
+		console.error('\n  File del setup upstream (src/ui/setup/**, setup-version.ts):');
 		for (const path of added) console.error(`    + ${path}`);
 		for (const path of removed) console.error(`    - ${path}`);
 		for (const entry of changed) {
@@ -635,7 +649,7 @@ async function main() {
 				? ` Versione omp aggiornata ${result.lockedOmpVersion} -> ${result.ompVersion}: sorgenti del setup identici (allinea il lock con --update quando vuoi).`
 				: '';
 			console.log(
-				`\n[PASS] Setup grafico di omp allineato (omp ${result.ompVersion}, setup v${result.fingerprint.setupVersion}): ${result.fingerprint.scenes.length} scene e ${Object.keys(result.fingerprint.files).length} file di src/setup/** invariati.${versionNote}\n`
+				`\n[PASS] Setup grafico di omp allineato (omp ${result.ompVersion}, setup v${result.fingerprint.setupVersion}): ${result.fingerprint.scenes.length} scene e ${Object.keys(result.fingerprint.files).length} file del setup upstream invariati.${versionNote}\n`
 			);
 		}
 		process.exit(0);

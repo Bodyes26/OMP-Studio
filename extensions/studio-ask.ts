@@ -2,14 +2,55 @@
 // la superficie form sul contesto UI pubblico condiviso dal trasporto RPC.
 // Il risultato resta una sola tool call, comprese le immagini dell'utente.
 import { realpathSync } from "node:fs";
+import { readFile, stat } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseHtmlForm, type HtmlForm } from "@oh-my-pi/pi-tui/html-form/parse";
-import { defaultFormData, fieldError, fieldQuestions, textValue } from "@oh-my-pi/pi-tui/html-form/data";
-import { resizeImage } from "@oh-my-pi/pi-coding-agent/utils/image-resize";
+// Nessun import statico da `@oh-my-pi`: quei moduli vivono solo dentro il
+// runtime omp, cambiano percorso fra le versioni e non sono risolvibili dai
+// test di Studio che caricano questo file con Node. Un import statico
+// mancante fa fallire il caricamento dell'intera estensione, quindi `ask`
+// sparirebbe dalla GUI. Tutto passa da import dinamici con cache (sotto).
 // La copia estratta e' autonoma: questa busta JSON coincide con askForm.ts,
 // mentre struttura dei campi e validazione rimangono quelle canoniche OMP.
-type AskFormData = Record<string, string | number | string[]>;
+type AskFormValue = string | number | string[];
+type AskFormData = Record<string, AskFormValue>;
+
+// Modello del form come lo espone il parser OMP (invariato da 18.18.3 a
+// 19.2.x): tipi locali minimi, cosi' il file non dipende dai `.d.ts` del
+// pacchetto installato, che non e' presente nel repo.
+interface FormSpan { text: string; style?: "code" | "strong" | "em" }
+interface ChoiceOption { value: string; label: FormSpan[]; checked: boolean; disabled: boolean }
+interface ChoiceField {
+	kind: "choice"; name: string; multi: boolean; select: boolean; other: boolean;
+	label: FormSpan[]; options: ChoiceOption[]; required: boolean;
+}
+interface TextField {
+	kind: "text"; name: string; type: string; multiline: boolean;
+	label: FormSpan[]; value: string; placeholder: string; required: boolean;
+	min?: number; max?: number; pattern?: string; minLength?: number; maxLength?: number; rows: number;
+}
+type FormField = ChoiceField | TextField;
+type FormBlock =
+	| { kind: "text"; spans: FormSpan[]; heading: boolean }
+	| { kind: "list"; items: FormSpan[][]; ordered: boolean }
+	| { kind: "pre"; text: string }
+	| { kind: "table"; rows: FormSpan[][][]; headerRows: number }
+	| { kind: "image"; src: string; alt: string }
+	| { kind: "svg"; markup: string; alt: string }
+	| { kind: "field"; field: FormField; optionsEnd?: number };
+// `fieldset` esiste da 19.2: opzionale perche' il parser di 18/19.0 non lo manda.
+interface FormSection { title: FormSpan[]; blocks: FormBlock[]; fieldset?: boolean }
+/** Un form interpretato: cosa disegnare, i campi in ordine e gli `<input type="hidden">`. */
+interface HtmlForm { sections: FormSection[]; fields: FormField[]; hidden: [name: string, value: string][] }
+
+/** Import OMP risolti a runtime (percorso e firma cambiano fra le versioni). */
+interface FormModules {
+	parseHtmlForm(html: string): HtmlForm;
+	defaultFormData(form: HtmlForm): AskFormData;
+	fieldError(field: FormField, value: AskFormValue | undefined): string | undefined;
+	fieldQuestions(form: HtmlForm): Map<FormField, string>;
+	textValue(field: TextField, text: string): AskFormValue;
+}
 interface AskFormAnnotation { field: string; note: string; images: ImagePart[] }
 interface AskFormSubmission { action: "submit" | "delegate"; data: AskFormData; annotations: AskFormAnnotation[] }
 interface AskFormDraft {
@@ -41,28 +82,151 @@ const TITLE_PREFIX = "studio-ask-form:";
 const IMAGE_BUDGET = 700_000;
 const FORM_MEDIA_BYTES = 160_000;
 
-type LoadFormImage = (src: string, options: { cwd: string; signal?: AbortSignal }) => Promise<{ bytes: Uint8Array; mime: string }>;
+/** Come `resizeImage` di OMP: bytes e MIME, con base64 gia' calcolato dal modulo. */
+interface ResizedImage {
+	buffer: Uint8Array;
+	mimeType: string;
+	data: string;
+	decodeFailed?: boolean;
+}
+type ResizeImageInput = { bytes: Uint8Array; mimeType: string } | { type: "image"; data: string; mimeType: string };
+type ResizeImage = (
+	image: ResizeImageInput,
+	options: { maxWidth?: number; maxHeight?: number; maxBytes?: number; excludeWebP?: boolean }
+) => Promise<ResizedImage>;
 
 /**
- * omp 18.21 ha rinominato `pi-tui/html-form/media` in `pi-tui/media`
- * (`loadFormImage` -> `loadMedia`, `FormMedia` -> `Media`). L'import non puo'
- * essere statico: un modulo mancante fa fallire il caricamento dell'intera
- * estensione, quindi `ask` sparirebbe dalla GUI su una delle due versioni.
+ * Il parser e le regole di validazione sono quelli canonici di OMP, ma il loro
+ * percorso cambia: fino a 19.1 stavano in `@oh-my-pi/pi-tui/html-form/*`, da
+ * 19.2 in `@oh-my-pi/pi-coding-agent/tools/html-form/*`. L'import non puo'
+ * essere statico (vedi commento in testa al file): un modulo mancante fa
+ * fallire l'intero caricamento dell'estensione. Il piu' recente ha la
+ * precedenza; `resizeImage` e' rimasto in `utils/image-resize`.
  */
-let formImageLoader: Promise<LoadFormImage> | undefined;
-function loadFormImageModule(): Promise<LoadFormImage> {
-	if (!formImageLoader) {
-		formImageLoader = (async () => {
+let formModules: Promise<FormModules> | undefined;
+function loadFormModules(): Promise<FormModules> {
+	if (!formModules) {
+		formModules = (async () => {
+			// Gli specificatori devono restare letterali: il loader delle estensioni
+			// di OMP li riscrive nel sorgente per servire i moduli interni, e una
+			// variabile non viene intercettata ("Cannot find package").
 			try {
-				const current = (await import("@oh-my-pi/pi-tui/media")) as { loadMedia: LoadFormImage };
-				return current.loadMedia;
+				const [parse, data] = await Promise.all([
+					import("@oh-my-pi/pi-coding-agent/tools/html-form/parse") as Promise<{ parseHtmlForm: FormModules["parseHtmlForm"] }>,
+					import("@oh-my-pi/pi-coding-agent/tools/html-form/data") as Promise<Omit<FormModules, "parseHtmlForm">>
+				]);
+				return { parseHtmlForm: parse.parseHtmlForm, ...data };
 			} catch {
-				const legacy = (await import("@oh-my-pi/pi-tui/html-form/media")) as { loadFormImage: LoadFormImage };
-				return legacy.loadFormImage;
+				// Fino a 19.1 gli stessi moduli vivevano in pi-tui.
+			}
+			try {
+				const [parse, data] = await Promise.all([
+					import("@oh-my-pi/pi-tui/html-form/parse") as Promise<{ parseHtmlForm: FormModules["parseHtmlForm"] }>,
+					import("@oh-my-pi/pi-tui/html-form/data") as Promise<Omit<FormModules, "parseHtmlForm">>
+				]);
+				return { parseHtmlForm: parse.parseHtmlForm, ...data };
+			} catch {
+				throw new Error(tr("Parser HTML di OMP non disponibile", "OMP HTML parser is not available"));
 			}
 		})();
 	}
-	return formImageLoader;
+	return formModules;
+}
+
+let resizeImageLoader: Promise<ResizeImage> | undefined;
+function loadResizeImage(): Promise<ResizeImage> {
+	if (!resizeImageLoader) {
+		resizeImageLoader = (async () => {
+			try {
+				// Percorso scelto a runtime, come sopra: il pacchetto OMP non e' nel repo.
+				const module = (await import("@oh-my-pi/pi-coding-agent/utils/image-resize")) as { resizeImage: ResizeImage };
+				return module.resizeImage;
+			} catch {
+				throw new Error(tr("Ridimensionamento immagini di OMP non disponibile", "OMP image resizing is not available"));
+			}
+		})();
+	}
+	return resizeImageLoader;
+}
+
+/** Limite del caricatore di OMP per una singola immagine del form. */
+const MAX_FORM_IMAGE_BYTES = 10 * 1024 * 1024;
+const FETCH_TIMEOUT_MS = 10_000;
+const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
+const SVG_MIME = "image/svg+xml";
+
+function decodeDataUri(uri: string): Uint8Array {
+	const comma = uri.indexOf(",");
+	if (comma === -1) throw new Error(tr("URI data: malformato", "Malformed data: URI"));
+	const header = uri.slice(5, comma);
+	const payload = uri.slice(comma + 1);
+	if (/;base64$/i.test(header)) return Uint8Array.fromBase64(payload.replace(/\s+/g, ""));
+	return new TextEncoder().encode(decodeURIComponent(payload));
+}
+
+/** Un `<svg>` come documento autonomo: namespace e dimensioni dal `viewBox`. */
+function svgStandalone(markup: string): string {
+	const open = /<svg\b[^>]*>/i.exec(markup)?.[0];
+	if (!open) return markup;
+	const added: string[] = [];
+	if (!/\bxmlns\s*=/i.test(open)) added.push(`xmlns="${SVG_NAMESPACE}"`);
+	const box = /\bviewBox\s*=\s*["']\s*[-\d.]+[\s,]+[-\d.]+[\s,]+([\d.]+)[\s,]+([\d.]+)\s*["']/i.exec(open);
+	if (box && !/\swidth\s*=/i.test(open) && !/\sheight\s*=/i.test(open)) added.push(`width="${box[1]}"`, `height="${box[2]}"`);
+	return added.length > 0 ? markup.replace(/<svg\b/i, `<svg ${added.join(" ")}`) : markup;
+}
+
+/** MIME di un raster dai primi byte, come `parseImageMetadata` di OMP. */
+function rasterMime(bytes: Uint8Array): string | undefined {
+	const ascii = (offset: number, text: string): boolean => {
+		if (bytes.length < offset + text.length) return false;
+		for (let index = 0; index < text.length; index++) if (bytes[offset + index] !== text.charCodeAt(index)) return false;
+		return true;
+	};
+	if (bytes[0] === 0x89 && ascii(1, "PNG")) return "image/png";
+	if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
+	if (ascii(0, "GIF8")) return "image/gif";
+	if (ascii(0, "RIFF") && ascii(8, "WEBP")) return "image/webp";
+	return undefined;
+}
+
+/**
+ * Un `<img>` disegnato dal form: http(s), data URI, `file:` o percorso locale.
+ * Da omp 19.2 il caricatore TUI (`pi-tui/media`, prima
+ * `pi-tui/html-form/media`) non e' piu' esportato: il comportamento equivalente
+ * (stessi limiti, stessi MIME, SVG reso autonomo) e' qui, con node:fs e fetch.
+ * Il confinamento al progetto e' applicato qui, non dal chiamante, cosi' non
+ * esiste una strada che legga un file fuori dalla cartella del progetto.
+ */
+export async function loadFormImage(
+	src: string,
+	options: { cwd: string; signal?: AbortSignal }
+): Promise<{ bytes: Uint8Array; mime: string }> {
+	const source = imageSource(src, options.cwd);
+	let bytes: Uint8Array;
+	if (/^data:/i.test(source)) {
+		bytes = decodeDataUri(source);
+	} else if (/^https?:\/\//i.test(source)) {
+		const timeout = AbortSignal.timeout(FETCH_TIMEOUT_MS);
+		const response = await fetch(source, {
+			signal: options.signal ? AbortSignal.any([options.signal, timeout]) : timeout
+		});
+		if (!response.ok) throw new Error(`HTTP ${response.status}`);
+		const declared = Number(response.headers.get("content-length") ?? 0);
+		if (declared > MAX_FORM_IMAGE_BYTES) throw new Error(tr("Immagine troppo grande", "Image is too large"));
+		bytes = new Uint8Array(await response.arrayBuffer());
+	} else {
+		// La dimensione si controlla prima di leggere: un file enorme non deve
+		// arrivare in memoria per poi essere scartato.
+		const size = (await stat(source)).size;
+		if (size > MAX_FORM_IMAGE_BYTES) throw new Error(tr("Immagine troppo grande", "Image is too large"));
+		bytes = new Uint8Array(await readFile(source));
+	}
+	if (bytes.byteLength > MAX_FORM_IMAGE_BYTES) throw new Error(tr("Immagine troppo grande", "Image is too large"));
+	const raster = rasterMime(bytes);
+	if (raster) return { bytes, mime: raster };
+	const text = new TextDecoder().decode(bytes.subarray(0, 4096));
+	if (/<svg[\s>]/i.test(text)) return { bytes: new TextEncoder().encode(svgStandalone(text)), mime: SVG_MIME };
+	throw new Error(tr("Non e' un'immagine PNG, JPEG, GIF, WebP o SVG", "Not a PNG, JPEG, GIF, WebP or SVG image"));
 }
 
 type TextPart = { type: "text"; text: string };
@@ -105,7 +269,7 @@ function object(value: unknown): value is Record<string, unknown> {
 }
 
 /** I file del modello non possono espandere il perimetro del progetto via symlink. */
-function imageSource(src: string, cwd: string): string {
+export function imageSource(src: string, cwd: string): string {
 	if (/^data:/i.test(src)) return src;
 	if (/^https?:\/\//i.test(src)) {
 		const url = new URL(src);
@@ -125,6 +289,7 @@ function imageSource(src: string, cwd: string): string {
 /** Le immagini arrivano ai client come dati, mai come percorsi del computer host. */
 async function prepareForm(form: HtmlForm, cwd: string, signal?: AbortSignal): Promise<void> {
 	const count = form.sections.reduce((total, section) => total + section.blocks.filter((block) => block.kind === "image").length, 0);
+	if (!count) return;
 	let remaining = FORM_MEDIA_BYTES;
 	for (const section of form.sections) {
 		for (let index = 0; index < section.blocks.length; index++) {
@@ -132,13 +297,16 @@ async function prepareForm(form: HtmlForm, cwd: string, signal?: AbortSignal): P
 			if (block.kind !== "image") continue;
 			try {
 				if (signal?.aborted) throw signal.reason;
-				const loadFormImage = await loadFormImageModule();
-				const loaded = await loadFormImage(imageSource(block.src, cwd), { cwd, signal });
+				const loaded = await loadFormImage(block.src, { cwd, signal });
 				if (loaded.mime === "image/svg+xml") {
 					section.blocks[index] = { kind: "svg", markup: new TextDecoder().decode(loaded.bytes), alt: block.alt };
 					continue;
 				}
 				const maxBytes = Math.max(1024, Math.min(remaining, Math.floor(FORM_MEDIA_BYTES / Math.max(1, count))));
+				// Caricato qui, non prima del ciclo: un modulo assente deve
+				// diventare il testo di ripiego di quella immagine, non far
+				// fallire l'intero form.
+				const resizeImage = await loadResizeImage();
 				const picture = await resizeImage({ bytes: loaded.bytes, mimeType: loaded.mime }, {
 					maxWidth: 1280, maxHeight: 1280, maxBytes, excludeWebP: true
 				});
@@ -159,7 +327,12 @@ async function prepareForm(form: HtmlForm, cwd: string, signal?: AbortSignal): P
 interface ParsedSubmission { submission: AskFormSubmission; other: AskFormDraft["other"] }
 
 /** La busta non puo' inserire file, valori o associazioni estranei al form. */
-function readSubmission(raw: string, form: HtmlForm, remember: (draft: AskFormDraft) => void): ParsedSubmission {
+function readSubmission(
+	raw: string,
+	form: HtmlForm,
+	modules: FormModules,
+	remember: (draft: AskFormDraft) => void
+): ParsedSubmission {
 	const value: unknown = JSON.parse(raw);
 	if (!object(value) || (value.action !== "submit" && value.action !== "delegate") || !object(value.data) || !Array.isArray(value.annotations)) {
 		throw new Error(tr("Risposta al modulo non valida", "Invalid form response"));
@@ -203,7 +376,7 @@ function readSubmission(raw: string, form: HtmlForm, remember: (draft: AskFormDr
 		let input = data[field.name];
 		if (field.kind === "text") {
 			if (input !== undefined && Array.isArray(input)) throw new Error(tr("Valore testuale non valido", "Invalid text value"));
-			input = textValue(field, input === undefined ? "" : String(input));
+			input = modules.textValue(field, input === undefined ? "" : String(input));
 			data[field.name] = input;
 		} else if (input !== undefined) {
 			const multiple = field.multi && field.options.length > 1;
@@ -225,10 +398,10 @@ function readSubmission(raw: string, form: HtmlForm, remember: (draft: AskFormDr
 	}
 	remember({ data: draftData, annotations, other });
 	if (value.action === "submit") {
-		const questions = fieldQuestions(form);
+		const questions = modules.fieldQuestions(form);
 		for (const field of form.fields) {
 			if (!field.name) continue;
-			const error = fieldError(field, data[field.name]);
+			const error = modules.fieldError(field, data[field.name]);
 			if (error) throw new Error(`${questions.get(field) || field.name}: ${error}`);
 		}
 	}
@@ -240,6 +413,7 @@ async function prepareAttachments(submission: AskFormSubmission, ctx: ToolContex
 	if (!count) return;
 	const model = ctx.models?.current() ?? ctx.model;
 	if (!model?.input?.includes("image")) throw new Error(tr("Il modello attuale non supporta immagini. Cambia modello o rimuovi gli allegati.", "The current model does not support images. Change model or remove the attachments."));
+	const resizeImage = await loadResizeImage();
 	let total = 0;
 	for (const annotation of submission.annotations) {
 		for (let index = 0; index < annotation.images.length; index++) {
@@ -276,18 +450,21 @@ export default function studioAskExtension(pi: StudioApi): void {
 				// Il tool nativo conserva schema, cancel, steer e bookkeeping.
 				const studioFormDialog: StudioUi["formDialog"] = async (html, options) => {
 					opened = true;
-					const form = parseHtmlForm(html);
-					const questions = Object.fromEntries([...fieldQuestions(form)].map(([field, question]) => [field.name, question]));
+					// Il parser canonico arriva a runtime: se manca, il tool nativo
+					// ricade da solo sulla propria superficie e l'errore e' esplicito.
+					const modules = await loadFormModules();
+					const form = modules.parseHtmlForm(html);
+					const questions = Object.fromEntries([...modules.fieldQuestions(form)].map(([field, question]) => [field.name, question]));
 					await prepareForm(form, ctx.cwd || process.cwd(), options?.signal ?? signal);
 					const request: AskFormRequest = {
 						version: 1, toolCallId, title: tr("Domanda dell'agente", "Agent question"), html,
-						form: { ...form, questions }, defaults: defaultFormData(form)
+						form: { ...form, questions }, defaults: modules.defaultFormData(form)
 					};
 					for (;;) {
 						const answer = await ctx.ui.editor(`${TITLE_PREFIX}${JSON.stringify({ version: 1, toolCallId })}`, JSON.stringify(request), { signal: options?.signal ?? signal });
 						if (answer === undefined) return undefined;
 						try {
-							const parsed = readSubmission(answer, form, (draft) => { request.draft = draft; });
+							const parsed = readSubmission(answer, form, modules, (draft) => { request.draft = draft; });
 							await prepareAttachments(parsed.submission, ctx);
 							accepted = parsed.submission;
 							return { data: accepted.data };

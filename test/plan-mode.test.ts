@@ -35,6 +35,7 @@ import { isPlanToggleChord } from '../src/lib/agent/composerShortcuts.ts';
 import { STUDIO_SLASH_COMMANDS, mergeCommands } from '../src/lib/agent/commands.ts';
 import studioPlanExtension, {
 	PLAN_MODE_ACTIVE_PROMPT,
+	PLAN_MODE_SUBAGENT_PROMPT,
 	PLAN_STATE_ENTRY,
 	PLAN_STATUS_KEY,
 	PLAN_SUBMIT_TOOL,
@@ -371,6 +372,11 @@ describe('Estensione studio-plan: utilita\'', () => {
 		assert.match(decisionResultText({ action: 'approve' }, 'local://a-plan.md', '.omp/plans/A_PLAN.md'), /STOP NOW/);
 		assert.match(decisionResultText({ action: 'cancel' }, 'local://a-plan.md', null), /still active/);
 		assert.match(PLAN_MODE_ACTIVE_PROMPT, new RegExp(PLAN_SUBMIT_TOOL));
+		// Copia di 19.2.1: la sottomissione e' il solo tool di Studio, non i
+		// `propose`/`resolve`/`xd://propose` di omp (19.1 ha eliminato i device).
+		assert.doesNotMatch(PLAN_MODE_ACTIVE_PROMPT, /xd:\/\//);
+		assert.doesNotMatch(PLAN_MODE_ACTIVE_PROMPT, /`propose`|`resolve`/);
+		assert.match(PLAN_MODE_SUBAGENT_PROMPT, /### Critical Files for Implementation/);
 	});
 });
 

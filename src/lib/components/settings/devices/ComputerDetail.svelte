@@ -15,6 +15,7 @@
 	import ConfirmDialog from '#lib/ui/ConfirmDialog.svelte';
 	import { remoteStore } from '#lib/remote/remoteStore.svelte.ts';
 	import PeerUpdateNotice from '#lib/components/PeerUpdateNotice.svelte';
+	import OmpPeerUpdateNotice from '#lib/components/OmpPeerUpdateNotice.svelte';
 	import MachineJobs from './MachineJobs.svelte';
 	import MachineActivity from './MachineActivity.svelte';
 	import OmpSyncSettings from './OmpSyncSettings.svelte';
@@ -109,6 +110,7 @@
 	</fieldset>
 
 	<PeerUpdateNotice machineId={peer.id} />
+	<OmpPeerUpdateNotice machineId={peer.id} />
 	<MachineJobs {peer} />
 	<OmpSyncSettings {peer} />
 

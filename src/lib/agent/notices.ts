@@ -73,6 +73,8 @@ const KNOWN_TITLES: Record<string, string> = {
 	get 'irc:autoreply'() { return msg.l10n_agent_notice_irc_autoreply(); },
 	get advisor() { return msg.l10n_agent_notice_advisor(); },
 	get 'skill-prompt'() { return msg.l10n_agent_notice_skill_prompt(); },
+	// omp 19.1 ha rinominato l'avviso in `tool-command-mount-notice`, ma la
+	// versione minima supportata (18.18.3) emette ancora questo id: si tiene.
 	get 'xdev-mount-notice'() { return msg.l10n_agent_notice_xdev_mount(); },
 	get 'launch-completion'() { return msg.l10n_agent_notice_launch_completion(); },
 	get 'lsp-late-diagnostic'() { return msg.l10n_agent_notice_lsp_late(); },

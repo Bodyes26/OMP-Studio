@@ -19,7 +19,8 @@ commands.allow = [
 identifier = "allow-studio-update-install"
 description = "Permette di eseguire l'installazione verificata e riavviare Studio"
 commands.allow = [
-    "install_studio_update_and_restart"
+    "install_studio_update_and_restart",
+    "studio_restart"
 ]
 
 [[permission]]

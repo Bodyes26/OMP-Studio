@@ -12,6 +12,10 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 ## [Unreleased]
 
 ### Fixed
+- Dopo l'aggiornamento di omp «Riavvia applicazione» chiude e riapre davvero Studio: prima ricaricava solo l'interfaccia e agenti e terminali restavano sulla versione vecchia di omp. (R-MI-70)
+- La conferma «{macchina} ha preso in carico il prompt» sopra il composer sparisce appena l'altra macchina inizia a lavorare, e comunque entro pochi secondi: prima restava lì per sempre. (IMP-006)
+- Altri avvisi dell'aggiornamento fra macchine non restano più per sempre: «installa e riavvia appena è libera» sparisce se l'installazione non chiude Studio o non riesce, l'aggiornamento di un'altra macchina smette di risultare «in corso» dopo 30 minuti senza esito, e un aggiornamento di Studio o di omp non riuscito sparisce da solo quando la macchina risulta aggiornata. (R-MI-64, R-MI-69)
+- Con omp 19.2 il modulo di domande di `ask` torna a comparire in Studio, con le immagini del modulo (link, immagini incorporate, file del progetto): omp 19.2 ha spostato i moduli che l'estensione usava.
 - Cambiare macchina su una chat vuota non chiede più di «aspettare la fine del turno»: contavano come lavoro in corso i file non salvati di qualunque progetto e la stessa chat aperta, ma ferma, sull'altra macchina. Quando il cambio è davvero impedito, il messaggio dice cosa lo blocca e su quale macchina. (R-MI-62)
 - Una copia rimasta indietro si aggiorna anche se la chat del progetto è aperta e ferma sull'altra macchina o se un altro progetto ha file non salvati: prima restava «da aggiornare» e toccava fare la pull a mano. (R-MI-57)
 - Due Nightly della stessa versione base non mostrano più «Su X c'è Studio Y, diverso da qui»: il collegamento funzionava, ma l'avviso faceva pensare a copie o versioni incompatibili. (R-MI-64)
@@ -64,6 +68,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Studio Remote torna a riconoscere quali modelli accettano immagini: la PWA leggeva un campo del modello che lo stato della macchina non manda più, quindi ogni modello sembrava accettarle. Controllo dei tipi del relay ripristinato, quindi l'immagine del relay torna a pubblicarsi a ogni modifica. (REL-001)
 
 ### Added
+- omp resta allineato fra le macchine collegate: se su un'altra macchina omp è più vecchio, Studio chiede «Aggiornare omp su …?» e, confermato, quella macchina aggiorna omp e si riavvia appena è libera; se è più nuovo altrove, propone di aggiornarlo qui. Vale anche al rientro di una macchina appena aggiornata. Il dettaglio del computer in Dispositivi mostra la sua versione di omp e lo stato dell'aggiornamento. (R-MI-67, R-MI-68, R-MI-69)
 - La mappa di «Dispositivi» mostra quali collegamenti sono in uso, inattivi o non raggiungibili e distingue i percorsi diretti, il relay fra computer e Studio Remote. (IMP-009)
 - In Statistiche puoi confrontare l’uso di omp delle singole macchine o vedere il totale per lo stesso periodo. Se una macchina non risponde, Studio indica che il totale è parziale. (IMP-010)
 - Dal pannello del progetto puoi aprire qui i file e le anteprime già aperti sull’altro computer, senza cambiare scheda in automatico. (IMP-011)
@@ -121,6 +126,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Se l'installazione di `omp` è rotta (per esempio un collegamento che punta a una cartella cancellata), Studio lo dice e offre «Ripara», invece di ripartire come su un computer nuovo. Quando manca un pezzo indispensabile il setup riapre direttamente su quel passo, senza l'ingresso animato. (SET-010, SET-020)
 
 ### Changed
+- Studio è allineato a omp 19.2.1: il Piano segue i prompt della nuova versione, il Laboratorio continua a segnalare i problemi con `report_issue` e legge la documentazione degli strumenti da `help://`, e le impostazioni generate usano i nuovi nomi di omp per i comandi degli strumenti.
 - Le copie dello stesso progetto si sincronizzano subito: quando l'altra macchina committa, quando torna in linea, quando torni sulla finestra, quando apri il progetto e quando un agente finisce il turno, invece che al massimo una volta al minuto. Un giro non riuscito si ritenta da solo e, se continua a fallire, compare un avviso con il motivo. (R-MI-57)
 - I commit arrivati su GitHub si applicano da soli con un fast-forward, con le stesse sicurezze della sincronizzazione fra macchine: niente più «N commit da scaricare» da sistemare a mano. Studio non fa mai merge, rebase o push da solo verso GitHub. (R-MI-58)
 - Il diario non va più in conflitto: le righe scritte su macchine diverse, anche non committate, si uniscono in ogni sincronizzazione, pull o stash, e non finiscono più parcheggiate nello stash. (R-MI-59)

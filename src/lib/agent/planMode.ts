@@ -6,8 +6,9 @@
 // come `extension_ui_request` di tipo `editor` con il titolo che inizia con
 // `studio-plan-review:` (meta JSON) e il piano come testo precompilato; la
 // risposta e' la decisione JSON. Testi dei prompt di esecuzione adattati da
-// oh-my-pi 19.0.0 (MIT): prompts/system/plan-mode-approved.md e
-// plan-mode-compact-instructions.md.
+// oh-my-pi 19.2.1 (MIT): prompts/system/plan-mode-approved.md e
+// plan-mode-compact-instructions.md (identici a 19.0.0; cambia solo il testo
+// del Piano attivo, in extensions/studio-plan.ts).
 
 export const PLAN_REVIEW_TITLE_PREFIX = 'studio-plan-review:';
 export const PLAN_STATUS_KEY = 'studio-plan';
@@ -334,7 +335,7 @@ export function buildApprovedPrompt(input: {
 		`NEVER re-read \`${input.planFilePath}\` while the inline ${isLab ? 'brief' : 'plan'} is intact; the path is for ${isLab ? 'recovery' : 'subagent handoff and recovery'} only.`,
 		isLab
 			? 'Before execution: check mock data, surface references, and recipe axes.'
-			: 'Before execution: initialize todo tracking with `todo`. After each completed step: immediately update `todo`.',
+			: 'Before execution: initialize todo tracking with `todo`. After each completed step: immediately update `todo`. If `todo` fails: fix payload; retry before continuing.',
 		'</instruction>',
 		'',
 		`<plan path="${input.planFilePath}">`,

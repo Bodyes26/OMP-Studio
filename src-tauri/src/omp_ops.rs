@@ -2446,6 +2446,94 @@ pub async fn run_omp_update() -> Result<String, String> {
         })?
 }
 
+/// `omp update` chiesto da un'altra macchina (R-MI-69): chi l'ha chiesto legge
+/// la fase per mostrarla. La aggiorna la finestra di questa macchina, che sa
+/// quando e' libera e quindi quando riavviare (R-MI-70).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteOmpUpdateStatus {
+    pub requested_by: String,
+    /// `starting`, `updating`, `waiting`, `restarting`, `failed`.
+    pub phase: String,
+    #[serde(default)]
+    pub waiting_for: Vec<String>,
+    pub error: Option<String>,
+}
+
+static REMOTE_OMP_UPDATE: Mutex<Option<RemoteOmpUpdateStatus>> = Mutex::new(None);
+
+/// Prende il posto dell'aggiornamento remoto: uno solo per volta, perche' due
+/// `omp update` contemporanei sullo stesso binario si pestano i piedi.
+fn claim_remote_omp_update(
+    slot: &mut Option<RemoteOmpUpdateStatus>,
+    requested_by: &str,
+) -> Result<(), String> {
+    if slot.as_ref().is_some_and(|status| status.phase != "failed") {
+        return Err("An omp update is already in progress on this machine".into());
+    }
+    *slot = Some(RemoteOmpUpdateStatus {
+        requested_by: requested_by.to_owned(),
+        phase: "starting".into(),
+        waiting_for: Vec::new(),
+        error: None,
+    });
+    Ok(())
+}
+
+#[command]
+pub fn omp_update_remote_start(
+    app: tauri::AppHandle,
+    request: tauri::ipc::Request<'_>,
+) -> Result<(), String> {
+    use tauri::Emitter;
+    let requested_by = request
+        .headers()
+        .get("x-studio-authenticated-peer")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned)
+        .ok_or("Remote omp updates can only be requested by another machine")?;
+    claim_remote_omp_update(&mut REMOTE_OMP_UPDATE.lock(), &requested_by)?;
+    if let Err(error) = app.emit(
+        "omp-update:remote-install",
+        serde_json::json!({ "requestedBy": requested_by }),
+    ) {
+        *REMOTE_OMP_UPDATE.lock() = None;
+        return Err(error.to_string());
+    }
+    Ok(())
+}
+
+#[command]
+pub fn omp_update_remote_status() -> Option<RemoteOmpUpdateStatus> {
+    REMOTE_OMP_UPDATE.lock().clone()
+}
+
+/// La finestra riporta la fase; senza una richiesta remota in corso non fa nulla.
+#[command]
+pub fn omp_update_remote_report(phase: String, waiting_for: Vec<String>, error: Option<String>) {
+    if let Some(status) = REMOTE_OMP_UPDATE.lock().as_mut() {
+        status.phase = phase;
+        status.waiting_for = waiting_for;
+        status.error = error;
+    }
+}
+
+#[cfg(test)]
+mod remote_omp_update_tests {
+    use super::*;
+
+    #[test]
+    fn una_sola_richiesta_remota_per_volta() {
+        let mut slot = None;
+        assert!(claim_remote_omp_update(&mut slot, "mac").is_ok());
+        assert!(claim_remote_omp_update(&mut slot, "win").is_err());
+        assert_eq!(slot.as_ref().map(|s| s.requested_by.as_str()), Some("mac"));
+        slot.as_mut().unwrap().phase = "failed".into();
+        assert!(claim_remote_omp_update(&mut slot, "win").is_ok());
+        assert_eq!(slot.as_ref().map(|s| s.requested_by.as_str()), Some("win"));
+    }
+}
+
 /// Rappresentazione semver semplice per confrontare versioni di omp e changelog.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SemVer {

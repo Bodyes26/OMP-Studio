@@ -15,6 +15,7 @@ import {
 	parseStudioVersion,
 	peerBehind,
 	shouldRequestAutoUpdate,
+	updateFailureObsolete,
 	waitReasons
 } from '../src/lib/backend/peerUpdateRules.ts';
 
@@ -102,6 +103,16 @@ describe('Aggiornamento di un\'altra macchina (R-MI-38, R-MI-64)', () => {
 		assert.equal(machineUpdateState({ online: true, version: '1.10.1', own, phase: 'downloading' }), 'updating');
 		assert.equal(machineUpdateState({ online: true, version: '1.10.0', own, phase: 'waiting' }), 'waiting');
 		assert.equal(machineUpdateState({ online: true, version: '1.10.0', own, phase: 'failed' }), 'outdated');
+	});
+
+	it('un errore smette di valere quando la macchina e\' gia\' arrivata (R-MI-38)', () => {
+		// L'altra macchina si e' aggiornata da sola dopo il fallimento: la riga
+		// «non riuscito» direbbe il falso e non si chiuderebbe mai.
+		assert.equal(updateFailureObsolete('1.10.1', '1.10.1', compareStudioVersions), true);
+		assert.equal(updateFailureObsolete('1.10.1', '1.10.2', compareStudioVersions), true);
+		assert.equal(updateFailureObsolete('1.10.1', '1.10.0', compareStudioVersions), false, 'ancora indietro: l errore resta');
+		assert.equal(updateFailureObsolete('1.10.1', null, compareStudioVersions), false, 'versione non ancora letta: non si decide');
+		assert.equal(updateFailureObsolete(null, '1.10.1', compareStudioVersions), false);
 	});
 
 	it('una Nightly porta l altra macchina sul canale Nightly', () => {

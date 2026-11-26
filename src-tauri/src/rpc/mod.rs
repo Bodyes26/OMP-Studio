@@ -776,7 +776,16 @@ pub fn write_automation_session_config(
         content.push_str("bash:\n  enabled: false\n\n");
         content.push_str("eval:\n  py: false\n  js: false\n  rb: false\n  jl: false\n\n");
         content.push_str("mcp:\n  enableProjectConfig: false\n\n");
-        content.push_str("tools:\n  approvalMode: review\n  xdev: false\n  intentTracing: true\n\n");
+        // `tools.commands: false` espone i pochi tool ammessi in cima (con `--tools`
+        // ristretto omp non monta comandi comunque). `tools.xdev` e' la chiave che
+        // faceva lo stesso fino a omp 19.0: omp ignora in silenzio le chiavi di
+        // config.yml che non conosce (la validazione dei nomi vale solo per gli
+        // override del costruttore), quindi restano scritte tutte e due e ogni
+        // versione usa la sua. Verificato su omp 19.2.1: `--config` con `tools.xdev`
+        // avvia senza errori ne' avvisi e `tools.commands` resta il default.
+        content.push_str(
+            "tools:\n  approvalMode: review\n  commands: false\n  xdev: false\n  intentTracing: true\n\n",
+        );
     } else {
         content.push_str("tools:\n  approvalMode: review\n  intentTracing: true\n\n");
     }
@@ -902,9 +911,14 @@ pub fn write_lab_session_config(
     // Disattivazione configurazioni MCP di progetto
     content.push_str("mcp:\n  enableProjectConfig: false\n\n");
 
-    // Disattivazione xdev per esporre direttamente i tool confinati del Laboratorio;
+    // `tools.commands: false` espone direttamente i tool confinati del Laboratorio
+    // invece di montarli come comandi bash: qui bash e' spento, e i comandi non
+    // avrebbero il trasporto per girare. `tools.xdev` e' la chiave equivalente fino
+    // a omp 19.0; le chiavi di config.yml sconosciute sono ignorate in silenzio
+    // (solo gli override del costruttore sono validati sui nomi), quindi si scrivono
+    // entrambe e ogni versione di omp applica la sua.
     // intentTracing come nella GUI (spento di default in RPC da omp 19.0).
-    content.push_str("tools:\n  xdev: false\n  intentTracing: true\n\n");
+    content.push_str("tools:\n  commands: false\n  xdev: false\n  intentTracing: true\n\n");
     // ask.timeout: 0 per disabilitare auto-timeout di ask
     content.push_str("ask:\n  timeout: 0\n\n");
 
@@ -3232,6 +3246,19 @@ mod tests {
     }
 
     #[test]
+    fn configurazione_automazione_sola_lettura_scrive_entrambe_le_chiavi_tool() {
+        let config_path = write_automation_session_config(998, true, None)
+            .expect("scrittura configurazione riuscita");
+        let content = std::fs::read_to_string(&config_path).expect("lettura file riuscita");
+        let _ = std::fs::remove_file(&config_path);
+
+        // `commands` per omp >= 19.1, `xdev` per le versioni precedenti: omp ignora
+        // in silenzio la chiave che non conosce, quindi convivono nello stesso blocco.
+        assert!(content.contains("tools:\n  approvalMode: review\n  commands: false\n  xdev: false"));
+        assert!(content.contains("intentTracing: true"));
+    }
+
+    #[test]
     fn configurazione_laboratorio_disattiva_tool_e_non_ha_yolo() {
         let config_path = write_lab_session_config(
             999,
@@ -3250,7 +3277,9 @@ mod tests {
         assert!(content.contains("eval:\n  py: false"));
         assert!(content.contains("browser:\n  enabled: true"));
         assert!(content.contains("mcp:\n  enableProjectConfig: false"));
-        assert!(content.contains("tools:\n  xdev: false"));
+        // Entrambe le chiavi: `commands` per omp >= 19.1, `xdev` per quelle piu'
+        // vecchie. omp ignora in silenzio la chiave che non conosce.
+        assert!(content.contains("tools:\n  commands: false\n  xdev: false"));
         assert!(content.contains("ask:\n  timeout: 0"));
 
         // Verifica estensione caricata
