@@ -2314,3 +2314,7 @@ All'avvio su Windows le copie dello stesso progetto comparivano come due tessere
 4. **Avanzamento tollerante**: i file sporchi che i commit in arrivo non toccano non bloccano l'avanzamento; se li toccano si usa l'istantanea di R-MI-28, e in caso di conflitto la copia torna com'era.
 5. **Una sezione «Dispositivi»**, un nome, un «Server di collegamento». Restano due relay (Gate R50, punto 7): il relay Bun dichiara l'indirizzo di `iroh-relay` agli host autenticati e custodisce per 10 minuti il codice di abbinamento cifrato dietro un codice corto, senza poterlo leggere. Scartato un unico trasporto anche per il telefono, perché la PWA dovrebbe parlare iroh.
 6. **Scoperta in rete locale solo mentre si abbina**, con conferma a 6 cifre su entrambe le macchine: niente annunci permanenti in rete.
+
+## tao patchato in vendor (Rc->Arc)
+
+Studio usa una copia di tao 0.35.3 in src-tauri/vendor/tao, con EventLoopRunnerShared cambiato da Rc ad Arc, collegata con [patch.crates-io]. Motivo: su Windows AppHandle::clone() sui worker tokio incrementa un Rc non atomico. Il conteggio si corrompe e il runner viene liberato mentre e' in uso: Studio si chiude senza messaggi (0xc0000374, abort per overflow dell'Rc), vedi tauri-apps/tauri#15793. La correzione upstream tauri-apps/tauri#15411 e' unita ma non ancora pubblicata. Scelta dell'utente: patch locale invece del branch git di tauri o dell'attesa. Uscita: togliere vendor/tao e la patch quando una release di tauri-runtime-wry include #15411. [sessione 01a2186b]
