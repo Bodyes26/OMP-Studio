@@ -46,8 +46,10 @@ describe('immagini del modulo ask senza i moduli media di OMP', () => {
 		writeFileSync(join(cwd, 'inside.png'), PNG_1X1);
 		await assert.doesNotReject(loadFormImage(join(cwd, 'inside.png'), { cwd }));
 		await assert.rejects(loadFormImage('../outside/secret.png', { cwd }), /fuori dalla cartella|outside the project/i);
-		symlinkSync(join(outside, 'secret.png'), join(cwd, 'link.png'));
-		assert.throws(() => imageSource('link.png', cwd), /fuori dalla cartella|outside the project/i);
+		// Giunzione di cartella: su Windows non chiede privilegi (un symlink di
+		// file si', EPERM senza modalita' sviluppatore); su POSIX e' un symlink.
+		symlinkSync(outside, join(cwd, 'linked'), 'junction');
+		assert.throws(() => imageSource(join('linked', 'secret.png'), cwd), /fuori dalla cartella|outside the project/i);
 	});
 
 	it('accetta data URI base64 e percent-encoded senza toccare il disco', async () => {

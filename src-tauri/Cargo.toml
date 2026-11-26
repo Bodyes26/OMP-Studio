@@ -131,3 +131,12 @@ opt-level = 2
 [dev-dependencies]
 tokio = { version = "1.53.1", features = ["test-util"] }
 glob = "0.3"
+
+# tao 0.35.3 con una sola modifica (Windows, `EventLoopRunnerShared` da Rc ad
+# Arc): tauri-runtime-wry clona e rilascia `AppHandle` sui worker tokio e il
+# conteggio non atomico dell'Rc si corrompe, liberando il runner dell'event
+# loop mentre gira. Studio si chiudeva senza messaggi (0xc0000374, abort per
+# overflow dell'Rc). Vedi tauri-apps/tauri#15793. Da togliere quando una
+# release di tauri-runtime-wry include tauri-apps/tauri#15411.
+[patch.crates-io]
+tao = { path = "vendor/tao" }

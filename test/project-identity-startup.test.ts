@@ -137,7 +137,7 @@ describe('Tessera unita fin dall avvio (R-MI-45)', () => {
 		assert.equal(identityCacheKey('pc-1', 'C:\\dev\\omp\\', 'windows'), identityCacheKey('pc-1', 'c:/dev/omp', 'windows'));
 		// Il percorso remoto si normalizza col sistema della macchina che lo possiede.
 		assert.equal(identityCacheKey('mac-1', '/Users/x/dev/omp', 'macos'), 'mac-1::/users/x/dev/omp');
-		assert.equal(identityCacheKey(null, '/dev/omp'), 'local::/dev/omp');
+		assert.equal(identityCacheKey(null, '/dev/omp', 'macos'), 'local::/dev/omp');
 	});
 
 	it('identita salvata nel record all avvio: una tessera prima di git', () => {

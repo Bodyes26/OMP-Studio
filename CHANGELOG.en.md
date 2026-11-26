@@ -12,6 +12,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 ## [Unreleased]
 
 ### Fixed
+- On Windows Studio no longer closes suddenly without any message: a Tauri defect corrupted memory when the app worked across threads, especially with the link between machines active.
 - After an omp update, "Restart application" really closes and reopens Studio: it used to reload only the interface, leaving agents and terminals on the old omp version. (R-MI-70)
 - The "{machine} accepted the prompt" note above the composer disappears as soon as the other machine starts working, and within a few seconds at most: it used to stay there forever. (IMP-006)
 - Other notices of the cross-machine update no longer stay forever: "installs and restarts as soon as it is free" clears when installation does not close Studio or fails, another machine's update stops showing "in progress" after 30 minutes without an outcome, and a failed Studio or omp update clears itself once the machine is up to date. (R-MI-64, R-MI-69)

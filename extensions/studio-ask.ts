@@ -160,7 +160,7 @@ function decodeDataUri(uri: string): Uint8Array {
 	if (comma === -1) throw new Error(tr("URI data: malformato", "Malformed data: URI"));
 	const header = uri.slice(5, comma);
 	const payload = uri.slice(comma + 1);
-	if (/;base64$/i.test(header)) return Uint8Array.fromBase64(payload.replace(/\s+/g, ""));
+	if (/;base64$/i.test(header)) return Buffer.from(payload.replace(/\s+/g, ""), "base64");
 	return new TextEncoder().encode(decodeURIComponent(payload));
 }
 

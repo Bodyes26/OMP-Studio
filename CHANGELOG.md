@@ -12,6 +12,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 ## [Unreleased]
 
 ### Fixed
+- Su Windows Studio non si chiude più all'improvviso, senza messaggi: un difetto di Tauri corrompeva la memoria quando l'app lavorava su più thread, soprattutto con il collegamento fra macchine attivo.
 - Dopo l'aggiornamento di omp «Riavvia applicazione» chiude e riapre davvero Studio: prima ricaricava solo l'interfaccia e agenti e terminali restavano sulla versione vecchia di omp. (R-MI-70)
 - La conferma «{macchina} ha preso in carico il prompt» sopra il composer sparisce appena l'altra macchina inizia a lavorare, e comunque entro pochi secondi: prima restava lì per sempre. (IMP-006)
 - Altri avvisi dell'aggiornamento fra macchine non restano più per sempre: «installa e riavvia appena è libera» sparisce se l'installazione non chiude Studio o non riesce, l'aggiornamento di un'altra macchina smette di risultare «in corso» dopo 30 minuti senza esito, e un aggiornamento di Studio o di omp non riuscito sparisce da solo quando la macchina risulta aggiornata. (R-MI-64, R-MI-69)
