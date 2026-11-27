@@ -10,7 +10,8 @@
 	import Segmented from '#lib/ui/Segmented.svelte';
 	import Tooltip from '#lib/ui/Tooltip.svelte';
 	import StatusMark from '#lib/ui/StatusMark.svelte';
-	import { IconCheck, IconClose, IconCopy } from '#lib/icons.ts';
+	import { IconCheck, IconClose, IconCopy, IconExternalLink } from '#lib/icons.ts';
+	import { openExternalUrl } from '#lib/utils/openExternal.ts';
 	import { loadPreview } from './previewLoad';
 	import PreviewFrameStatus from './PreviewFrameStatus.svelte';
 	const { invoke } = useProjectBackend();
@@ -331,6 +332,18 @@
 				{#if copied}<IconCheck /> {m.preview_copied()}{:else}<IconCopy /> {m.context_menu_item_copy()}{/if}
 			</button>
 		</Tooltip>
+		{#if frameUrl && viewMode === 'preview'}
+			<!-- Stesso URL loopback dell'iframe: nel browser di sistema si usano
+			     i suoi strumenti di sviluppo e le larghezze reali. -->
+			<Tooltip text={m.preview_open_browser()} placement="bottom">
+				<button
+					type="button"
+					class="ui-button ui-button-ghost"
+					onclick={() => void openExternalUrl(frameUrl)}
+					aria-label={m.preview_open_browser()}
+				><IconExternalLink /> {m.preview_open_browser_short()}</button>
+			</Tooltip>
+		{/if}
 		<Tooltip text={m.preview_reload_aria()} placement="bottom">
 			<button type="button" class="ui-button ui-button-ghost" onclick={() => void load(true)}>
 				{m.preview_reload()}

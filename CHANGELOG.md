@@ -69,6 +69,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Studio Remote torna a riconoscere quali modelli accettano immagini: la PWA leggeva un campo del modello che lo stato della macchina non manda più, quindi ogni modello sembrava accettarle. Controllo dei tipi del relay ripristinato, quindi l'immagine del relay torna a pubblicarsi a ogni modifica. (REL-001)
 
 ### Added
+- L'anteprima dei prototipi ha il pulsante «Browser», che apre la stessa pagina nel browser di sistema.
 - omp resta allineato fra le macchine collegate: se su un'altra macchina omp è più vecchio, Studio chiede «Aggiornare omp su …?» e, confermato, quella macchina aggiorna omp e si riavvia appena è libera; se è più nuovo altrove, propone di aggiornarlo qui. Vale anche al rientro di una macchina appena aggiornata. Il dettaglio del computer in Dispositivi mostra la sua versione di omp e lo stato dell'aggiornamento. (R-MI-67, R-MI-68, R-MI-69)
 - La mappa di «Dispositivi» mostra quali collegamenti sono in uso, inattivi o non raggiungibili e distingue i percorsi diretti, il relay fra computer e Studio Remote. (IMP-009)
 - In Statistiche puoi confrontare l’uso di omp delle singole macchine o vedere il totale per lo stesso periodo. Se una macchina non risponde, Studio indica che il totale è parziale. (IMP-010)

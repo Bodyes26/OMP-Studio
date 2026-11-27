@@ -69,6 +69,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Studio Remote again recognizes which models accept images: the PWA read a model field that the machine state no longer sends, so every model looked like it accepted them. The relay type check is restored, so the relay image is published again on every change. (REL-001)
 
 ### Added
+- The prototype preview has a "Browser" button that opens the same page in the system browser.
 - omp stays aligned across linked machines: when another machine runs an older omp, Studio asks "Update omp on …?" and, once confirmed, that machine updates omp and restarts as soon as it is free; when another machine runs a newer one, it offers to update it here. This also applies when a freshly updated machine comes back online. The computer detail in Devices shows its omp version and the update status. (R-MI-67, R-MI-68, R-MI-69)
 - The Devices map shows which connections are in use, idle or unreachable and distinguishes direct links, the computer relay and Studio Remote. (IMP-009)
 - In Statistics, compare omp usage one machine at a time or see a combined total for the same period. If a machine does not answer, Studio marks the total as partial. (IMP-010)

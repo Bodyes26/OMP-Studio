@@ -1975,6 +1975,8 @@
   "preview_copied": "Copiato",
   "preview_reload": "Ricarica",
   "preview_reload_aria": "Ricarica il file",
+  "preview_open_browser": "Apri l'anteprima nel browser di sistema",
+  "preview_open_browser_short": "Browser",
   "preview_retry": "Riprova",
   "preview_default_doc_title": "Prototipo",
   "preview_frame_title": "Anteprima di {path}",
