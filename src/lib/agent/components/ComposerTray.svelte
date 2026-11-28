@@ -17,6 +17,7 @@
 	import Tooltip from '#lib/ui/Tooltip.svelte';
 	import GoalTray from './GoalTray.svelte';
 	import StatusMark from '#lib/ui/StatusMark.svelte';
+	import SubagentModelMeta from './SubagentModelMeta.svelte';
 	import {
 		IconAside,
 		IconChevronRight,
@@ -564,6 +565,7 @@
 														</button>
 													</Tooltip>
 												{/if}
+												<SubagentModelMeta class="agent-model" progress={sub} name={sub.id ?? sub.agent} />
 											</div>
 										{/each}
 									</div>
@@ -845,11 +847,18 @@
 	/* I segni di stato sono gestiti dal componente StatusMark */
 	.agent-row {
 		display: flex;
+		flex-wrap: wrap;
 		align-items: center;
-		gap: var(--space-2);
+		column-gap: var(--space-2);
 		min-height: 2rem;
-		padding: 0 var(--space-1);
+		padding: 2px var(--space-1);
 		border-radius: var(--radius-md);
+	}
+	/* Metadati a capo, allineati sotto il nome (segno di stato 16px + gap). */
+	.agent-row :global(.agent-model) {
+		flex-basis: 100%;
+		padding-left: calc(16px + var(--space-2));
+		padding-bottom: 2px;
 	}
 	.agent-row:hover {
 		background: var(--bg-hover);

@@ -428,7 +428,15 @@ export interface AgentProgress {
 	agent?: string;
 	agentSource?: string;
 	modelRole?: string;
+	/** Selettore `provider/modello` effettivamente servito, aggiornato da omp durante il lavoro. */
 	resolvedModel?: string;
+	resolvedThinkingLevel?: string;
+	/** Vero se omp ha servito un modello di ripiego al posto di quello richiesto. */
+	resolvedModelIsFallback?: boolean;
+	contextTokens?: number;
+	contextWindow?: number;
+	/** Retry automatico in corso; omp lo azzera (campo assente) a retry concluso. */
+	retryState?: { attempt: number; maxAttempts: number; delayMs?: number; errorMessage?: string; startedAtMs?: number };
 	status?: 'pending' | 'running' | 'completed' | 'failed' | 'aborted';
 	task?: string;
 	assignment?: string;

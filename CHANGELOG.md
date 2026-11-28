@@ -108,6 +108,7 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Studio Remote torna a riconoscere quali modelli accettano immagini: la PWA leggeva un campo del modello che lo stato della macchina non manda più, quindi ogni modello sembrava accettarle. Controllo dei tipi del relay ripristinato, quindi l'immagine del relay torna a pubblicarsi a ogni modifica. (REL-001)
 
 ### Added
+- Ogni subagente mostra sotto nome e attività provider e modello in uso, livello di ragionamento, occupazione del contesto e costo; segnala se il modello è un ripiego e quando sta riprovando dopo un errore. Vale per il vassoio sopra il composer, la traccia in chat e il cassetto del transcript, dove il nome è ora quello del subagente e il tipo d'agente passa fra i dettagli. (VSUB-001…VSUB-008)
 - Nei progetti presenti su più macchine collegate il lavoro dell'agente diventa un commit a fine turno, con i soli file che l'agente ha cambiato e il messaggio «Studio · ‹macchina› · ‹chat›»: arriva da solo sull'altra macchina e si unisce in automatico. Le modifiche fatte a mano restano non committate. (R-MI-73)
 - «Allinea tutto» nella striscia delle copie: quando le copie non riescono ad allinearsi da sole, Studio committa le modifiche in sospeso di ogni copia libera, le scambia e, se git non riesce a unirle, affida l'unione a un agente che risolve, verifica e committa. (R-MI-74)
 - L'anteprima dei prototipi ha il pulsante «Browser», che apre la stessa pagina nel browser di sistema.

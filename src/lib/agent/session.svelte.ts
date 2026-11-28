@@ -4599,7 +4599,17 @@ export class AgentSession {
 		if (!key) return;
 		const existing = this.subagents.findIndex((candidate) => candidate.id === key);
 		if (existing === -1) this.subagents.push({ ...progress, id: key });
-		else this.subagents[existing] = { ...this.subagents[existing], ...progress, id: key };
+		// `retryState` assente nel progress vuol dire retry concluso: il merge per
+		// spread lo lascerebbe appeso, quindi si prende dal progress quando c'e'.
+		else {
+			const current = this.subagents[existing];
+			this.subagents[existing] = {
+				...current,
+				...progress,
+				retryState: payload.progress ? progress.retryState : current.retryState,
+				id: key
+			};
+		}
 		this.refreshWaitContexts();
 
 		if (progress.status === 'completed' || progress.status === 'failed' || progress.status === 'aborted') {

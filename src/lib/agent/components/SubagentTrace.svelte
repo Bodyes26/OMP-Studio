@@ -7,6 +7,7 @@
 	import { agentUiHooks } from '../ui-context';
 	import type { ToolEntry } from '../session.svelte';
 	import type { AgentProgress } from '../wire';
+	import SubagentModelMeta from './SubagentModelMeta.svelte';
 
 	let { entry, subagents } = $props<{ entry: ToolEntry; subagents: AgentProgress[] }>();
 	const hooks = agentUiHooks();
@@ -67,10 +68,13 @@
 						<div class="agent-row">
 							<StatusMark status={agent?.status ? (agent.status === 'completed' ? 'completed' : agent.status === 'running' ? 'running' : agent.status === 'failed' ? 'failed' : agent.status === 'aborted' ? 'aborted' : 'pending') : 'pending'} />
 							{#if agent?.id}
-								<button type="button" class="agent-name" onclick={() => hooks.openSubagent(agent.id!)}>{agent.agent ?? agent.id}</button>
+								<button type="button" class="agent-name" onclick={() => hooks.openSubagent(agent.id!)}>{agent.id}</button>
 							{:else}<strong>{agent?.agent ?? (typeof assignment?.agent === 'string' ? assignment.agent : m.l10n_agentcmp_subagent_index({ n: index + 1 }))}</strong>{/if}
 							<span class="agent-task">{agent?.task ?? agent?.description ?? (typeof assignment?.task === 'string' ? assignment.task : '')}</span>
 							<span class="meta">{agent?.toolCount ?? agent?.recentTools?.length ?? 0} · {duration(agent?.durationMs)}</span>
+							{#if agent}
+								<SubagentModelMeta class="agent-model" progress={agent} name={agent.id ?? agent.agent} />
+							{/if}
 						</div>
 					{/each}
 					{#if entry.result?.isError}<p class="failed">{m.task_row_status_failed()}</p>{/if}
@@ -89,7 +93,8 @@
 	.chevron.expanded { transform:rotate(180deg); }
 	.meta { color:var(--ink-faint); font-variant-numeric:tabular-nums; }
 	.agents-list { margin:var(--space-2) 0 0 6px; border-left:1px solid var(--line); padding-left:var(--space-3); display:grid; gap:5px; }
-	.agent-row { display:flex; gap:var(--space-2); align-items:center; min-width:0; }
+	.agent-row { display:flex; flex-wrap:wrap; column-gap:var(--space-2); row-gap:1px; align-items:center; min-width:0; }
+	.agent-row :global(.agent-model) { flex-basis:100%; padding-left:calc(14px + var(--space-2)); }
 	.agent-name { background:none; border:0; color:var(--ink); padding:0; font:inherit; font-weight:600; cursor:pointer; }
 	.agent-task { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 	.agent-row .meta { margin-left:auto; white-space:nowrap; }

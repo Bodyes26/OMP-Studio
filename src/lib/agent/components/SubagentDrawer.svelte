@@ -12,6 +12,7 @@
 	import type { AgentSession, SystemChipEntry } from '../session.svelte';
 	import type { AgentMessage, AgentProgress } from '../wire';
 	import { IconSubagents, IconClose } from '#lib/icons.ts';
+	import SubagentModelMeta from './SubagentModelMeta.svelte';
 	import { classifySystemMessage, stripNoticeWrapper } from '../notices';
 	import SystemChip from './SystemChip.svelte';
 	import Markdown from './Markdown.svelte';
@@ -351,7 +352,12 @@
 	<div class="drawer-head">
 		<div class="head-info">
 			<span class="glyph"><IconSubagents aria-hidden="true" /></span>
-			<span class="title">{resolvedSubagentId}</span>
+			<div class="head-text">
+				<span class="title">{resolvedSubagentId}</span>
+				{#if subagent}
+					<SubagentModelMeta progress={subagent} name={resolvedSubagentId} />
+				{/if}
+			</div>
 		</div>
 		<div class="head-actions">
 			{#if canStop}
@@ -475,9 +481,18 @@
 		align-items: center;
 	}
 
+	.head-text {
+		display: flex;
+		flex-direction: column;
+		gap: 1px;
+		min-width: 0;
+		font-family: var(--font-ui);
+	}
+
 	.title {
 		color: var(--ink);
 		font-weight: 600;
+		font-family: var(--font-mono);
 	}
 
 	.btn-close {

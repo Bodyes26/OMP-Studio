@@ -108,6 +108,7 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Studio Remote again recognizes which models accept images: the PWA read a model field that the machine state no longer sends, so every model looked like it accepted them. The relay type check is restored, so the relay image is published again on every change. (REL-001)
 
 ### Added
+- Each subagent shows, under its name and activity, the provider and model in use, reasoning level, context usage and cost; it flags fallback models and automatic retries after an error. This applies to the tray above the composer, the chat trace and the transcript drawer, where the name is now the subagent's own and the agent type moves into the details. (VSUB-001…VSUB-008)
 - In projects present on several linked machines the agent's work becomes a commit at the end of the turn, with only the files the agent changed and the message "Studio · ‹machine› · ‹chat›": it reaches the other machine on its own and merges automatically. Changes made by hand stay uncommitted. (R-MI-73)
 - "Align all" in the copies strip: when copies cannot align on their own, Studio commits the pending changes of every free copy, exchanges them and, if git cannot merge them, hands the merge to an agent that resolves, verifies and commits. (R-MI-74)
 - The prototype preview has a "Browser" button that opens the same page in the system browser.

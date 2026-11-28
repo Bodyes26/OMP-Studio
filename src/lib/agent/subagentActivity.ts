@@ -71,3 +71,66 @@ export function formatTrayDuration(ms: number | undefined): string {
 	const minutes = Math.floor(totalSeconds / 60);
 	return `${minutes}:${String(totalSeconds % 60).padStart(2, '0')}`;
 }
+
+export interface SubagentModelInfo {
+	/** Id del provider (es. `anthropic`); l'etichetta leggibile la sceglie la vista. */
+	providerId?: string;
+	model?: string;
+	effort?: string;
+	fallback: boolean;
+	/** Tipo di agente, solo se diverso dal nome gia' mostrato. */
+	agentType?: string;
+	contextPct?: number;
+	contextTokens?: number;
+	contextWindow?: number;
+	cost?: number;
+	retry?: { attempt: number; max: number; error?: string };
+}
+
+/**
+ * Metadati del modello di un subagente per la riga sotto nome e attivita'.
+ * Il selettore di omp e' `provider/modello`: si taglia alla prima barra perche'
+ * l'id del modello puo' contenerne altre (es. `openrouter/anthropic/claude-…`).
+ */
+export function describeSubagentModel(progress: AgentProgress, shownName?: string): SubagentModelInfo {
+	const selector = progress.resolvedModel?.trim();
+	let providerId: string | undefined;
+	let model: string | undefined;
+	if (selector) {
+		const slash = selector.indexOf('/');
+		if (slash > 0) {
+			providerId = selector.slice(0, slash);
+			model = selector.slice(slash + 1) || undefined;
+		} else {
+			model = selector;
+		}
+	}
+
+	const tokens = progress.contextTokens;
+	const windowSize = progress.contextWindow;
+	const hasContext = typeof tokens === 'number' && typeof windowSize === 'number' && tokens > 0 && windowSize > 0;
+
+	const retry = progress.retryState;
+	const agentType = progress.agent?.trim();
+
+	return {
+		providerId,
+		model,
+		effort: progress.resolvedThinkingLevel || undefined,
+		fallback: Boolean(selector) && progress.resolvedModelIsFallback === true,
+		agentType: agentType && agentType !== shownName ? agentType : undefined,
+		contextPct: hasContext ? Math.min(100, Math.round((tokens / windowSize) * 100)) : undefined,
+		contextTokens: hasContext ? tokens : undefined,
+		contextWindow: hasContext ? windowSize : undefined,
+		cost: typeof progress.cost === 'number' && progress.cost > 0 ? progress.cost : undefined,
+		retry:
+			retry && progress.status === 'running'
+				? { attempt: retry.attempt, max: retry.maxAttempts, error: retry.errorMessage }
+				: undefined
+	};
+}
+
+/** Costo compatto: due decimali, sotto il centesimo «<$0.01». */
+export function formatSubagentCost(cost: number): string {
+	return cost < 0.01 ? '<$0.01' : `$${cost.toFixed(2)}`;
+}
