@@ -309,7 +309,7 @@
 	.search-icon {
 		display: inline-flex;
 		color: var(--ink-faint);
-		font-size: 13px;
+		font-size: var(--text-body);
 	}
 
 	.search-input {
@@ -361,7 +361,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		font-size: 11px;
+		font-size: var(--text-caption);
 		font-weight: 600;
 		color: var(--ink-muted);
 		text-transform: uppercase;
@@ -451,7 +451,7 @@
 
 	.chip-slash {
 		color: var(--ink-faint);
-		font-size: 11px;
+		font-size: var(--text-caption);
 	}
 
 	.quick-pin-btn {

@@ -289,10 +289,14 @@ describe('remote command handling', () => {
 	});
 
 	it('stale requestId with another single pending prompt reports not_found and leaves other prompt untouched', async () => {
+		// Il responder locale evita il ramo request/ack verso l'owner, che senza
+		// una finestra vera attenderebbe il timeout di 10 s: qui interessa che
+		// l'altra richiesta resti intatta e annullabile.
 		const reqB = promptBus.registerRequest({
 			requestId: 'prompt-B-test',
 			projectId: 'p1',
-			title: 'Domanda B'
+			title: 'Domanda B',
+			responder: async () => true
 		});
 		assert.equal(promptBus.hasPending('prompt-B-test'), true);
 
@@ -328,7 +332,8 @@ describe('remote command handling', () => {
 			requestId: 'prompt-main-lane',
 			projectId: 'p1',
 			laneId: 'main',
-			title: 'Domanda Principale'
+			title: 'Domanda Principale',
+			responder: async () => true
 		});
 
 		const resolvePrompt = createRemotePromptResolver();

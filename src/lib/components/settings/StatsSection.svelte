@@ -777,7 +777,7 @@
 	}
 
 	.kpi-value {
-		font-size: 20px;
+		font-size: var(--text-xl);
 		font-weight: 600;
 		line-height: 1.25;
 		color: var(--ink);
@@ -980,7 +980,7 @@
 	}
 
 	.name {
-		font-size: 12px;
+		font-size: var(--text-label);
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
@@ -1030,7 +1030,7 @@
 	}
 
 	.rank-name .mono {
-		font-size: 12px;
+		font-size: var(--text-label);
 		color: var(--ink-muted);
 	}
 

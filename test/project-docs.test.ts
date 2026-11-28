@@ -1,14 +1,14 @@
 /**
  * Diario di progetto lato Studio (Gate R41): lettura del manifest e del
- * diario, contesto per «Chiedi al diario», contratto con l'estensione e
- * caricamento con `-e`.
+ * diario, contesto per «Chiedi al diario» e contratto con l'estensione. Il
+ * cablaggio dell'estensione (inclusione nel binario e `-e`) vive in
+ * `extension-wiring.test.ts`.
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import {
 	DOC_ROLES,
 	buildAskContext,
@@ -23,8 +23,6 @@ import {
 } from '../src/lib/projectDocs/projectDocs.ts';
 import * as ext from '../extensions/studio-docs.ts';
 import { AGENT_VIEWS } from '../src/lib/stores/taskSerialization.ts';
-
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 describe('Diario lato Studio: contratto con l\'estensione', () => {
 	it('stessi ruoli, stessi percorsi di default e stesso manifest', () => {
@@ -104,15 +102,5 @@ describe('Diario lato Studio: chiedi al diario', () => {
 describe('Diario lato Studio: integrazione', () => {
 	it('la scheda Progetto e\' una vista del pannello Agente', () => {
 		assert.ok((AGENT_VIEWS as readonly string[]).includes('project'));
-	});
-
-	it('Studio carica studio-docs con -e nel PTY e in RPC, ed espone project_docs_ask', () => {
-		const pty = readFileSync(join(ROOT, 'src-tauri/src/pty/mod.rs'), 'utf8');
-		const rpc = readFileSync(join(ROOT, 'src-tauri/src/rpc/mod.rs'), 'utf8');
-		const lib = readFileSync(join(ROOT, 'src-tauri/src/lib.rs'), 'utf8');
-		assert.match(pty, /include_str!\("\.\.\/\.\.\/\.\.\/extensions\/studio-docs\.ts"\)/);
-		assert.equal((pty.match(/&docs_extension_arg/g) ?? []).length, 2, 'Windows e Unix');
-		assert.match(rpc, /write_extension\("studio-docs\.ts", crate::pty::DOCS_EXTENSION_TS\)/);
-		assert.match(lib, /project_docs_ask,/);
 	});
 });

@@ -73,6 +73,14 @@ import {
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
+// Helper condivisi col Piano: la definizione vive in `studio-plan.ts`, che
+// Studio scrive sempre accanto a questa estensione. Il caricatore di omp
+// risolve gli import relativi letterali fra file di estensione (verificato su
+// 19.2.1), quindi una sola copia basta per entrambe e una correzione di
+// sicurezza non puo' divergere. Il re-export li tiene raggiungibili da chi
+// importava questa estensione.
+import { isLabBriefApprovedOnDisk, normalizePathForBinding } from "./studio-plan.ts";
+export { isLabBriefApprovedOnDisk, normalizePathForBinding };
 
 /* ------------------------------------------------------------- interfacce */
 
@@ -309,63 +317,6 @@ export function isInternalLabProtectedPath(targetPath: string, workspaceDir?: st
 		} catch {}
 	}
 	return false;
-}
-
-/**
- * Normalizza un percorso per il confronto dei binding nel marker su disco,
- * risolvendo i percorsi reali ed eseguendo il case-folding su Windows.
- */
-export function normalizePathForBinding(pathStr: string | null | undefined): string | null {
-	if (!pathStr || !pathStr.trim()) return null;
-	const trimmed = pathStr.trim();
-	try {
-		const resolved = resolve(trimmed);
-		const real = existsSync(resolved) ? realpathSync(resolved) : resolved;
-		return process.platform === "win32" ? real.toLowerCase() : real;
-	} catch {
-		const resolved = resolve(trimmed);
-		return process.platform === "win32" ? resolved.toLowerCase() : resolved;
-	}
-}
-
-export function isLabBriefApprovedOnDisk(
-	workspaceDir: string,
-	expectedPrototypeId: string | null = process.env.OMP_LAB_PROTOTYPE_ID || null,
-	expectedProjectPath: string | null = process.env.OMP_LAB_PROJECT_PATH || null
-): boolean {
-	try {
-		const markerPath = join(workspaceDir, ".lab", ".brief-approved.json");
-		if (!existsSync(markerPath)) return false;
-		const raw = JSON.parse(readFileSync(markerPath, "utf8"));
-		if (!raw || typeof raw !== "object") return false;
-
-		// 1. Approvazione esplicita e campi informativi obbligatori
-		if (!("approved" in raw) || raw.approved !== true) return false;
-		if (!("approvedAt" in raw) || typeof raw.approvedAt !== "string" || !raw.approvedAt.trim()) return false;
-		if (!("slug" in raw) || typeof raw.slug !== "string" || !raw.slug.trim()) return false;
-
-		// 2. prototypeId deve coincidere esattamente con l'atteso (stringa ID o esplicito null)
-		const expectedProto =
-			expectedPrototypeId && expectedPrototypeId.trim() ? expectedPrototypeId.trim() : null;
-		if (!("prototypeId" in raw)) return false;
-		const protoId = raw.prototypeId === null || typeof raw.prototypeId === "string" ? raw.prototypeId : undefined;
-		if (protoId !== expectedProto) return false;
-
-		// 3. workspaceDir deve essere presente e coincidere esattamente con il workspace canonico normalizzato
-		const currentWorkspace = normalizePathForBinding(workspaceDir);
-		if (!("workspaceDir" in raw) || typeof raw.workspaceDir !== "string" || !currentWorkspace) return false;
-		if (raw.workspaceDir !== currentWorkspace) return false;
-
-		// 4. projectDir deve essere presente e coincidere esattamente (stringa canonica o esplicito null)
-		const currentProject = normalizePathForBinding(expectedProjectPath);
-		if (!("projectDir" in raw)) return false;
-		const boundProject = raw.projectDir === null || typeof raw.projectDir === "string" ? raw.projectDir : undefined;
-		if (boundProject !== currentProject) return false;
-
-		return true;
-	} catch {
-		return false;
-	}
 }
 
 export function isLabBriefApproved(workspaceDir: string): boolean {

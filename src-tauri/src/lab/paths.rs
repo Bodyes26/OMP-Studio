@@ -97,6 +97,27 @@ pub fn prototype_workspace_path(id: &str) -> Option<PathBuf> {
     lab_root().map(|root| root.join("prototypes").join(id))
 }
 
+/// Workspace del Laboratorio richiesto dal frontend, canonico e confinato a
+/// `<lab_root>/prototypes` (S8-02).
+///
+/// I comandi `lab_*` arrivano con un percorso scelto dalla finestra: per un
+/// progetto di un'altra macchina e' un percorso Windows che qui e' relativo, e
+/// senza questo controllo `lab_preview_status_write` creava cartelle dentro la
+/// cartella di lavoro del processo e `lab_workspace_snapshot` leggeva ovunque.
+/// Stesso confinamento dei `lab_git_*`, che lo avevano gia'.
+pub(super) fn confined_lab_workspace(workspace_path: &str) -> Result<PathBuf, String> {
+    let prototypes_dir = lab_root()
+        .ok_or_else(|| {
+            crate::tr!(
+                "Radice del Laboratorio non disponibile",
+                "Lab root not available"
+            )
+            .to_string()
+        })?
+        .join("prototypes");
+    super::index::confined_prototype_workspace(&prototypes_dir, Path::new(workspace_path))
+}
+
 /// Ritorna la radice dei dati del Laboratorio e il percorso dell'indice bozze globale.
 #[command]
 pub async fn lab_paths() -> Result<LabPaths, String> {
@@ -135,6 +156,19 @@ mod tests {
     fn fallback_usa_la_cartella_dell_identificatore() {
         if let Some(dir) = fallback_local_data_dir() {
             assert!(dir.ends_with(APP_IDENTIFIER), "{}", dir.display());
+        }
+    }
+
+    /// S8-02: un percorso che non e' un prototipo (percorso Windows visto dal
+    /// Mac, o una cartella qualsiasi) non deve essere accettato dai comandi
+    /// `lab_*`: senza, `lab_preview_status_write` creava cartelle relative.
+    #[test]
+    fn rifiuta_i_workspace_fuori_dai_prototypi() {
+        for outside in [r"C:\Users\nome\progetto\lab\prototypes\p-1", "/tmp", "."] {
+            assert!(
+                confined_lab_workspace(outside).is_err(),
+                "{outside} doveva essere rifiutato"
+            );
         }
     }
 }

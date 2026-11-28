@@ -35,12 +35,22 @@
 			case 'waiting': return m.peer_update_waiting({ name, reasons: status.waitingFor.map((reason) => reasonLabel[reason]()).join(', ') });
 			case 'installing': return m.peer_update_installing({ name });
 			case 'failed': return m.peer_update_failed({ name, error: status.error ?? '' });
+			// Esiti terminali (S2-09): nessuno dei due e' «in corso», e senza
+			// una riga l'avviso resterebbe zitto su un aggiornamento tentato.
+			case 'manual': return m.peer_update_manual({ name });
+			case 'cancelled': return m.peer_update_cancelled({ name });
 		}
 		// Solo una base incompatibile e' un avviso (D5).
 		return incompatible ? m.peer_update_needed({ name, version: formatVersion(machine.version, { prefix: true }) || machine.version || '' }) : '';
 	});
 	const targetAvailable = $derived(Boolean(machine?.online && targetVersion && machine.version !== targetVersion));
-	const canStart = $derived((incompatible || behind || targetAvailable) && (!status || status.phase === 'failed'));
+	/**
+	 * Si riprova anche dopo un esito terminale (`manual`, `cancelled`): in quei
+	 * casi l'aggiornamento non e' avvenuto e senza il pulsante resterebbe solo
+	 * la riga, senza modo di ritentare (S2-09).
+	 */
+	const canStart = $derived((incompatible || behind || targetAvailable) &&
+		(!status || status.phase === 'failed' || status.phase === 'manual' || status.phase === 'cancelled'));
 </script>
 
 {#if text || canStart}

@@ -176,8 +176,28 @@ impl Storage {
             "ALTER TABLE registered_projects ADD COLUMN workspace_paths_json TEXT DEFAULT '[]'",
             [],
         );
+        // Le esecuzioni si leggono tutte per `run_id` (anche con `IN (...)`):
+        // senza indice ogni tick scansionava la tabella (S9-06).
+        let _ = conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_executions_run_id ON executions(run_id)",
+            [],
+        );
 
         Ok(())
+    }
+
+    /// Compatta il WAL nel file principale (S9-08). Nessun checkpoint periodico
+    /// esisteva e il `-wal` cresceva senza limite; lo chiama il tick orario di
+    /// retention e una volta all'avvio.
+    pub fn wal_checkpoint_truncate(&self) -> Result<(), String> {
+        let conn = self.conn.lock();
+        conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))
+            .map_err(|e| {
+                crate::tr!(
+                    format!("Checkpoint WAL automazioni: {}", e),
+                    format!("Automations WAL checkpoint: {}", e)
+                )
+            })
     }
 
     /// Riconcilia lo stato dopo un crash o riavvio anomalo (AUT-046, AUT-106):
@@ -642,28 +662,45 @@ impl Storage {
 
         let mut occurrences: Vec<AutomationOccurrence> = rows.flatten().collect();
 
-        // Popola esecuzioni per ciascuna occorrenza
-        for occ in &mut occurrences {
-            occ.executions = self.get_executions_for_run_locked(&conn, &occ.id);
+        // Popola le esecuzioni con una sola query: il ciclo per occorrenza
+        // faceva fino a 51 query a ogni tick (S9-06).
+        if !occurrences.is_empty() {
+            let run_ids: Vec<&str> = occurrences.iter().map(|occ| occ.id.as_str()).collect();
+            let mut by_run = self.get_executions_for_runs_locked(&conn, &run_ids);
+            for occ in &mut occurrences {
+                if let Some(executions) = by_run.remove(&occ.id) {
+                    occ.executions = executions;
+                }
+            }
         }
 
         Ok(occurrences)
     }
 
-    fn get_executions_for_run_locked(
+    /// Esecuzioni di piu' occorrenze in una sola query (`WHERE run_id IN (...)`),
+    /// raggruppate per `run_id`. L'ordine delle righe resta quello della tabella,
+    /// come nella lettura per singola occorrenza.
+    fn get_executions_for_runs_locked(
         &self,
         conn: &Connection,
-        run_id: &str,
-    ) -> Vec<AutomationExecution> {
-        let mut stmt = match conn.prepare(
+        run_ids: &[&str],
+    ) -> std::collections::HashMap<String, Vec<AutomationExecution>> {
+        let mut grouped: std::collections::HashMap<String, Vec<AutomationExecution>> =
+            std::collections::HashMap::with_capacity(run_ids.len());
+        if run_ids.is_empty() {
+            return grouped;
+        }
+        let placeholders = vec!["?"; run_ids.len()].join(",");
+        let sql = format!(
             "SELECT id, run_id, state, targets_json, reason, started_at, finished_at, exit_code, model, session_id, result, question, output_truncated, active_duration_ms, active_since, human_deadline
-             FROM executions WHERE run_id = ?1",
-        ) {
+             FROM executions WHERE run_id IN ({placeholders})"
+        );
+        let mut stmt = match conn.prepare(&sql) {
             Ok(s) => s,
-            Err(_) => return Vec::new(),
+            Err(_) => return grouped,
         };
 
-        let rows = stmt.query_map(params![run_id], |row| {
+        let rows = stmt.query_map(rusqlite::params_from_iter(run_ids.iter()), |row| {
             let id: String = row.get(0)?;
             let run_id: String = row.get(1)?;
             let state: String = row.get(2)?;
@@ -704,7 +741,21 @@ impl Storage {
             })
         });
 
-        rows.map(|iter| iter.flatten().collect())
+        if let Ok(iter) = rows {
+            for exec in iter.flatten() {
+                grouped.entry(exec.run_id.clone()).or_default().push(exec);
+            }
+        }
+        grouped
+    }
+
+    fn get_executions_for_run_locked(
+        &self,
+        conn: &Connection,
+        run_id: &str,
+    ) -> Vec<AutomationExecution> {
+        self.get_executions_for_runs_locked(conn, &[run_id])
+            .remove(run_id)
             .unwrap_or_default()
     }
 
@@ -755,6 +806,7 @@ impl Storage {
 
         if let Ok(mut occ) = res {
             occ.executions = self.get_executions_for_run_locked(&conn, &occ.id);
+
             Some(occ)
         } else {
             None
@@ -1524,4 +1576,116 @@ fn compute_aggregated_state(states: &[String]) -> (String, bool) {
         return ("interrupted".to_string(), false);
     }
     ("skipped".to_string(), false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_storage(name: &str) -> (Storage, PathBuf) {
+        let dir = std::env::temp_dir().join(format!(
+            "omp-auto-storage-{}-{}-{}",
+            name,
+            std::process::id(),
+            chrono_now_ms()
+        ));
+        let storage = Storage::open(&dir.join("automations.db"), &dir.join("out"))
+            .expect("apertura storage di prova");
+        (storage, dir)
+    }
+
+    fn definition(id: &str) -> AutomationDefinition {
+        serde_json::from_str(&format!(
+            r#"{{"id":"{id}","revision":1,"name":"{id}","state":"enabled",
+            "action":{{"kind":"prompt","prompt":"x"}},
+            "targets":{{"source":"selected","projectPaths":[]}},
+            "triggers":[],"policy":{{"timezone":"Europe/Rome"}},
+            "createdAt":0,"updatedAt":0}}"#
+        ))
+        .expect("definizione di prova")
+    }
+
+    fn occurrence(id: &str, executions: Vec<AutomationExecution>) -> AutomationOccurrence {
+        AutomationOccurrence {
+            id: id.to_string(),
+            automation_id: format!("auto-{id}"),
+            revision: 1,
+            name: id.to_string(),
+            scheduled_at: 1,
+            created_at: 1,
+            deadline: 0,
+            state: "running".to_string(),
+            reasons: Vec::new(),
+            targets: Vec::new(),
+            executions,
+            definition: definition(&format!("auto-{id}")),
+            acknowledged: false,
+            requires_review: false,
+        }
+    }
+
+    fn execution(run_id: &str, id: &str) -> AutomationExecution {
+        AutomationExecution {
+            id: id.to_string(),
+            run_id: run_id.to_string(),
+            targets: Vec::new(),
+            state: "running".to_string(),
+            reason: None,
+            started_at: Some(1),
+            finished_at: None,
+            exit_code: None,
+            model: None,
+            session_id: None,
+            result: None,
+            question: None,
+            output_truncated: false,
+            active_duration_ms: 0,
+            active_since: None,
+            human_deadline: None,
+        }
+    }
+
+    /// S9-06: le esecuzioni di tutte le occorrenze arrivano con una sola query,
+    /// ciascuna sotto la propria occorrenza.
+    #[test]
+    fn le_occorrenze_portano_le_proprie_esecuzioni() {
+        let (storage, dir) = temp_storage("esecuzioni");
+        storage
+            .save_occurrence(&occurrence("run-a", vec![execution("run-a", "e1")]))
+            .unwrap();
+        storage
+            .save_occurrence(&occurrence(
+                "run-b",
+                vec![execution("run-b", "e2"), execution("run-b", "e3")],
+            ))
+            .unwrap();
+
+        let occurrences = storage.get_occurrences(10).unwrap();
+        assert_eq!(occurrences.len(), 2);
+        for occ in &occurrences {
+            match occ.id.as_str() {
+                "run-a" => assert_eq!(occ.executions.len(), 1, "una esecuzione per run-a"),
+                "run-b" => {
+                    let mut ids: Vec<&str> =
+                        occ.executions.iter().map(|e| e.id.as_str()).collect();
+                    ids.sort_unstable();
+                    assert_eq!(ids, ["e2", "e3"], "due esecuzioni per run-b");
+                    assert!(
+                        occ.executions.iter().all(|e| e.run_id == "run-b"),
+                        "nessuna esecuzione di un'altra occorrenza"
+                    );
+                }
+                altro => panic!("occorrenza inattesa: {altro}"),
+            }
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// S9-08: il checkpoint non deve fallire su un database appena creato.
+    #[test]
+    fn checkpoint_wal_disponibile_da_subito() {
+        let (storage, dir) = temp_storage("wal");
+        storage.wal_checkpoint_truncate().expect("checkpoint");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

@@ -464,7 +464,7 @@
 		background: transparent;
 		border: 1px solid transparent;
 		color: var(--ink-muted);
-		font-size: 12px;
+		font-size: var(--text-label);
 		cursor: pointer;
 		transition: all var(--dur-fast, 120ms) ease;
 	}
@@ -499,13 +499,13 @@
 		height: 18px;
 		padding: 0 5px;
 		border-radius: var(--radius-full);
-		font-size: 11px;
+		font-size: var(--text-caption);
 		font-weight: 600;
 	}
 
 	.update-chip.warn {
 		background: var(--warn);
-		color: #000;
+		color: var(--bg-sunken);
 	}
 
 	.update-chip.neutral {
@@ -522,7 +522,7 @@
 		background: var(--bg-overlay);
 		border: 1px solid var(--line-strong);
 		border-radius: var(--radius-lg);
-		box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+		box-shadow: var(--shadow-overlay);
 		color: var(--ink);
 		z-index: 9999;
 		overflow: hidden;
@@ -544,7 +544,7 @@
 	}
 
 	.popover-title {
-		font-size: 13px;
+		font-size: var(--text-body);
 		font-weight: 600;
 		margin: 0;
 	}
@@ -610,7 +610,7 @@
 	}
 
 	.item-name {
-		font-size: 12px;
+		font-size: var(--text-label);
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
@@ -637,7 +637,7 @@
 
 	.action-xs {
 		padding: 3px 6px;
-		font-size: 11px;
+		font-size: var(--text-caption);
 		min-height: 22px;
 	}
 
@@ -683,7 +683,7 @@
 	}
 
 	.status-badge {
-		font-size: 10px;
+		font-size: var(--text-caption);
 		padding: 1px 5px;
 		border-radius: var(--radius-full);
 		font-weight: 600;

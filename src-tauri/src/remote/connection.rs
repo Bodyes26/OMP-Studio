@@ -35,6 +35,10 @@ use crate::remote::protocol::{
 /// Tabella dei ritardi base di backoff (in secondi).
 pub const BACKOFF_SCHEDULE_SECS: &[u64] = &[1, 2, 5, 10, 30, 60];
 
+/// Tetto di un singolo invio al relay (S2-08): oltre, il TCP e' bloccato e la
+/// connessione va considerata persa invece di restare appesa.
+const SEND_TIMEOUT: Duration = Duration::from_secs(10);
+
 /// Calcola il ritardo base di backoff in secondi per un determinato tentativo.
 pub fn backoff_base_secs(attempt: usize) -> u64 {
     if attempt < BACKOFF_SCHEDULE_SECS.len() {
@@ -919,7 +923,7 @@ pub(crate) async fn run_single_session(
                                     Ok(RelayToHostFrame::Ping { seq: ping_seq, .. }) => {
                                         let pong = HostFrame::Pong { seq: ping_seq };
                                         if let Ok(pong_json) = serde_json::to_string(&pong) {
-                                            let _ = write_half.send(Message::Text(pong_json.into())).await;
+                                            send_or_timeout(&mut write_half, Message::Text(pong_json.into())).await?;
                                         }
                                     }
                                     Ok(RelayToHostFrame::Clients { clients }) => {
@@ -964,7 +968,7 @@ pub(crate) async fn run_single_session(
                                 return Err(map_close_code(code, reason));
                             }
                             Message::Ping(payload) => {
-                                let _ = write_half.send(Message::Pong(payload)).await;
+                                send_or_timeout(&mut write_half, Message::Pong(payload)).await?;
                             }
                             Message::Pong(_) => {}
                             Message::Binary(_) => {}
@@ -984,7 +988,7 @@ pub(crate) async fn run_single_session(
                         .ok()
                         .filter(|json| snapshot_fits(ctx, json))
                     {
-                        let _ = write_half.send(Message::Text(json.into())).await;
+                        send_or_timeout(&mut write_half, Message::Text(json.into())).await?;
                     }
                 }
             }
@@ -1028,7 +1032,7 @@ pub(crate) async fn run_single_session(
                         let Ok(refused_json) = serde_json::to_string(&refused) else { continue };
                         json = refused_json;
                     }
-                    let _ = write_half.send(Message::Text(json.into())).await;
+                    send_or_timeout(&mut write_half, Message::Text(json.into())).await?;
                 }
             }
 
@@ -1048,6 +1052,12 @@ pub(crate) async fn run_single_session(
                         // Dividi il delta in blocchi sicuri di massimo 64 KB di testo
                         const CHUNK_CHAR_LIMIT: usize = 64 * 1024;
                         if text.len() > CHUNK_CHAR_LIMIT {
+                            // `block` e `index` dell'evento originale devono
+                            // viaggiare in ogni pezzo: senza, la PWA li tratta
+                            // come testo della risposta e un blocco di
+                            // ragionamento finisce nel messaggio (S2-16).
+                            let block = event_val.get("block").cloned().unwrap_or(serde_json::Value::Null);
+                            let index = event_val.get("index").cloned().unwrap_or(serde_json::Value::Null);
                             let mut remainder = text;
                             while !remainder.is_empty() {
                                 let mut cut = remainder.len().min(CHUNK_CHAR_LIMIT);
@@ -1066,11 +1076,13 @@ pub(crate) async fn run_single_session(
                                         "kind": "delta",
                                         "messageId": message_id,
                                         "text": chunk,
+                                        "block": block,
+                                        "index": index,
                                     }),
                                 };
                                 if let Ok(chunk_json) = serde_json::to_string(&chunk_frame) {
                                     if chunk_json.len() <= MAX_FRAME_BYTES {
-                                        let _ = write_half.send(Message::Text(chunk_json.into())).await;
+                                        send_or_timeout(&mut write_half, Message::Text(chunk_json.into())).await?;
                                     }
                                 }
                             }
@@ -1091,10 +1103,33 @@ pub(crate) async fn run_single_session(
                         );
                         continue;
                     }
-                    let _ = write_half.send(Message::Text(json.into())).await;
+                    send_or_timeout(&mut write_half, Message::Text(json.into())).await?;
                 }
             }
         }
+    }
+}
+
+/// Invio di un frame WebSocket con un tetto di tempo (S2-08). Dentro un ramo
+/// di `select!` un `send().await` senza timeout sospende il ramo per sempre se
+/// il TCP si blocca (relay che non legge, rete cambiata senza RST): il `select!`
+/// non viene piu' ripollato e il watchdog dei 70 s non scatta, mentre lo stato
+/// resta «connected». Su errore o scadenza il chiamante esce in backoff.
+async fn send_or_timeout<S>(write_half: &mut S, message: Message) -> Result<(), CloseOutcome>
+where
+    S: futures_util::Sink<Message, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
+{
+    match tokio::time::timeout(SEND_TIMEOUT, write_half.send(message)).await {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(e)) => Err(CloseOutcome::Backoff(crate::tr!(
+            format!("Invio al relay fallito: {e}"),
+            format!("Sending to the relay failed: {e}")
+        ))),
+        Err(_) => Err(CloseOutcome::Backoff(crate::tr!(
+            "Invio al relay bloccato per 10 s: connessione interrotta",
+            "Sending to the relay stalled for 10 s: connection dropped"
+        )
+        .to_string())),
     }
 }
 

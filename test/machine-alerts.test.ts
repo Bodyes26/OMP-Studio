@@ -77,8 +77,9 @@ describe('Avvisi delle macchine (R-MI-51)', () => {
 			machines: [mac],
 			outcomes: [outcome({ merged: true, journalOnly: true, advanced: 1, head: 'j1' })]
 		});
+		// Un'unione produce un avviso solo (D4): i commit che ha portato non
+		// fanno anche «N commit arrivati», sarebbero due avvisi per un evento.
 		assert.deepEqual(first.alerts, [
-			{ kind: 'advanced', machine: 'mac', name: 'MacBook', project: 'omp-studio', count: 1 },
 			{ kind: 'journal', machine: 'mac', name: 'MacBook', project: 'omp-studio' }
 		]);
 		state = first.state;
@@ -86,6 +87,11 @@ describe('Avvisi delle macchine (R-MI-51)', () => {
 			machines: [mac],
 			outcomes: [outcome({ merged: true, journalOnly: true, advanced: 1, head: 'j1' })]
 		}).alerts, []);
+		// Un giro successivo senza unione ma con commit nuovi torna a dirli.
+		assert.deepEqual(reduceMachineAlerts(state, {
+			machines: [mac],
+			outcomes: [outcome({ advanced: 2, head: 'j2' })]
+		}).alerts, [{ kind: 'advanced', machine: 'mac', name: 'MacBook', project: 'omp-studio', count: 2 }]);
 	});
 
 	it('copie unite senza conflitti: «Copie unite», una volta per lotto (R-MI-61)', () => {
@@ -93,11 +99,22 @@ describe('Avvisi delle macchine (R-MI-51)', () => {
 		const merged = outcome({ merged: true, advanced: 2, head: 'm1' });
 		const first = reduceMachineAlerts(state, { machines: [mac], outcomes: [merged] });
 		assert.deepEqual(first.alerts, [
-			{ kind: 'advanced', machine: 'mac', name: 'MacBook', project: 'omp-studio', count: 2 },
 			{ kind: 'merged', machine: 'mac', name: 'MacBook', project: 'omp-studio' }
-		], 'nessun «Diario unito»: i file toccati non erano solo del diario');
+		], 'nessun «Diario unito» (i file non erano solo del diario) e un avviso solo per l\'unione (D4)');
 		state = first.state;
 		assert.deepEqual(reduceMachineAlerts(state, { machines: [mac], outcomes: [merged] }).alerts, []);
+	});
+
+	it('dopo un unione i commit di un giro successivo si annunciano di nuovo', () => {
+		let state = reduceMachineAlerts(emptyAlertsState(), { machines: [mac], outcomes: [outcome()] }).state;
+		state = reduceMachineAlerts(state, {
+			machines: [mac],
+			outcomes: [outcome({ merged: true, advanced: 1, head: 'm1' })]
+		}).state;
+		const next = reduceMachineAlerts(state, { machines: [mac], outcomes: [outcome({ advanced: 1, head: 'm2' })] });
+		assert.deepEqual(next.alerts, [
+			{ kind: 'advanced', machine: 'mac', name: 'MacBook', project: 'omp-studio', count: 1 }
+		]);
 	});
 
 	it('avanzamento bloccato: motivo e numero una volta, poi solo quando cambia', () => {

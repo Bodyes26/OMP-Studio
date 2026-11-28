@@ -4,6 +4,7 @@ pub mod auth;
 pub mod identity;
 pub mod repos;
 pub mod sync;
+pub mod turn_commit;
 
 pub use actions::github_get_actions_status;
 pub use auth::{

@@ -203,11 +203,13 @@ export async function compileRustTests(root, options = {}) {
 							const hasHarness = msg.target?.harness !== false;
 							const hasExecutable = typeof msg.executable === 'string' && msg.executable.length > 0;
 
+							// Gli eseguibili dei test stavano in `target/debug/deps/`; con
+							// Cargo 1.100 (layout di `build-dir`) stanno in
+							// `target/debug/build/<pacchetto>/<hash>/out/`. Il profilo di test
+							// con harness e un eseguibile bastano a riconoscerli: gli script
+							// di build non hanno il profilo di test.
 							if (isTestProfile && hasHarness && hasExecutable) {
-								const normalizedExe = msg.executable.replace(/\\/g, '/');
-								if (normalizedExe.includes('/deps/')) {
-									harnessExecutables.add(msg.executable);
-								}
+								harnessExecutables.add(msg.executable);
 							}
 						}
 					} catch {}
@@ -223,7 +225,7 @@ export async function compileRustTests(root, options = {}) {
 
 	if (harnessExecutables.size === 0) {
 		throw new Error(
-			'Nessun artefatto test harness valido rilevato in `target/debug/deps/`. ' +
+			'Nessun artefatto test harness valido nei messaggi di `cargo test --no-run`. ' +
 			'Verifica la configurazione del manifest src-tauri/Cargo.toml.'
 		);
 	}

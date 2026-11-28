@@ -66,6 +66,7 @@
 	import type ShortcutsHelpModalSurface from '#lib/agent/components/ShortcutsHelpModal.svelte';
 	import { shortcutsModalStore } from '#lib/stores/shortcutsModal.svelte.ts';
 	import { isShortcutsHelpKey, projectCycleDirection, projectJumpDigit, projectJumpIndex } from '#lib/shortcuts/shortcutMatch.ts';
+	import { anyModalSurfaceOpen } from '#lib/focusTrap.ts';
 	import { projectJumpHints } from '#lib/shortcuts/projectJump.svelte.ts';
 	import { provenance, machineName, projectGroup } from '#lib/stores/projectMachines.svelte.ts';
 	import { copySyncStore } from '#lib/stores/copySync.svelte.ts';
@@ -78,7 +79,7 @@
 	import { ompChangelogStore } from '#lib/stores/ompChangelog.svelte.ts';
 	import type OmpChangelogModalSurface from '#lib/components/OmpChangelogModal.svelte';
 	import { modelSettingsStore } from '#lib/stores/modelSettings.svelte.ts';
-	import { settingsStore } from '#lib/stores/settings.svelte.ts';
+	import { settingsStore, type SettingsSection } from '#lib/stores/settings.svelte.ts';
 	import { backgroundJobs } from '#lib/stores/backgroundJobs.svelte.ts';
 	import { projectOrder } from '#lib/stores/projectOrder.svelte.ts';
 	import { linkStore } from '#lib/backend/link.svelte.ts';
@@ -177,9 +178,8 @@
 	import PreviewRenderHost from '#lib/prototype/PreviewRenderHost.svelte';
 	import { labApi } from '#lib/lab/api.ts';
 	import type { TerminalSessionInfo } from '#lib/terminal/terminal.ts';
-	import { invoke, listen } from '#lib/backend/ipc.ts';
+	import { invoke, listen, routeErrorText } from '#lib/backend/ipc.ts';
 	import { onMount, untrack } from 'svelte';
-	import { startFocusTracer } from '#lib/focusTracer.ts';
 	import { registerSnapshotProvider, studioLog } from '#lib/diagnostics/studioLog.ts';
 	import { markSwitch } from '#lib/switchDissolve.ts';
 	import { open as openDialog, message as messageDialog } from '@tauri-apps/plugin-dialog';
@@ -333,8 +333,23 @@
 	// Avvisi brevi delle macchine (R-MI-51): presenza e esiti dei giri passano
 	// alla deduplica pura, che decide cosa merita un avviso. Gli store si
 	// leggono fuori dal tracciamento perche' l'avviso non deve riattivare se
-	// stesso; la superficie che lo mostra e' quella galleggiante gia' usata
-	// dagli errori di caricamento, piu' in alto della barra di stato.
+	// stesso; la superficie che lo mostra e' la pila degli avvisi del guscio.
+	//
+	// Le due chiavi qui sotto cambiano solo quando cambia davvero qualcosa
+	// (una macchina va giu', una sessione entra o esce dal lavoro): senza di
+	// esse l'effetto rileggeva lo stato di ogni sessione a ogni token di
+	// streaming, per tutte le sessioni aperte.
+	const workingMachinesKey = $derived.by(() => {
+		const ids = new Set<string>();
+		for (const session of sessionRegistry.getAllSessions()) {
+			if (session.machineId && (session.isStreaming || session.agentState === 'working')) ids.add(session.machineId);
+		}
+		for (const lane of linkStore.activity.lanes) {
+			if (!lane.working || !lane.peerIds) continue;
+			for (const id of lane.peerIds) ids.add(id);
+		}
+		return [...ids].sort().join(',');
+	});
 	$effect(() => {
 		if (!projectStore.ready) return;
 		const peers = linkStore.status.peers.map((peer) => ({ id: peer.id, name: peer.name, online: peer.online }));
@@ -360,27 +375,20 @@
 			});
 		}
 		// Le macchine su cui si sta lavorando hanno la precedenza (IMP-008): la
-		// caduta di una di loro passa davanti agli altri avvisi e resta finché
+		// caduta di una di loro passa davanti agli altri avvisi e resta finche'
 		// non la si chiude. R-MI-51 resta attivo per tutti gli altri eventi.
-		const working = new Set<string>();
-		for (const session of sessionRegistry.getAllSessions()) {
-			if (session.machineId && (session.isStreaming || session.agentState === 'working')) {
-				working.add(session.machineId);
-			}
-		}
-		for (const lane of linkStore.activity.lanes) {
-			if (!lane.working || !lane.peerIds) continue;
-			for (const id of lane.peerIds) working.add(id);
-		}
+		// La lettura passa dalla chiave derivata: l'effetto non sottoscrive lo
+		// stato delle sessioni.
+		const working = new Set(workingMachinesKey ? workingMachinesKey.split(',') : []);
 		untrack(() => machineAlertFeed.update(peers, outcomes, working));
 	});
-	// Un avviso non resta per sempre: sparisce da solo, e il puntatore sopra
-	// lo ferma. Quello di una macchina su cui si lavora non scade: la perdita
-	// di connessione va letta, non persa (IMP-008).
+	// Un avviso della coda non resta per sempre: sparisce da solo, e il
+	// puntatore sopra lo ferma. La caduta di una macchina al lavoro vive in
+	// `sticky`, fuori da questa coda: e' uno stato, non scade (IMP-008).
 	let machineNoticeHovered = $state(false);
 	$effect(() => {
 		const notice = machineAlertFeed.current;
-		if (!notice || machineNoticeHovered || notice.sticky) return;
+		if (!notice || machineNoticeHovered) return;
 		const timer = window.setTimeout(() => machineAlertFeed.dismiss(), 6000);
 		return () => window.clearTimeout(timer);
 	});
@@ -861,7 +869,6 @@
 	);
 
 	onMount(() => {
-		void startFocusTracer();
 		void notificationManager.init();
 		laneLanding.init();
 		agentLanes.init();
@@ -1621,6 +1628,7 @@
 		// corsia, e solo se lì un turno sta davvero girando si aspetta. La sola
 		// presenza remota non conta (D1): `laneBusy` la includeva e bloccava il
 		// cambio su una corsia aperta e ferma sull'altra macchina.
+		let switchedFromTerminal = false;
 		if (from.lane.surface === 'terminal' && terminalSessionFor(from)?.currentSessionInfo?.sessionId) {
 			const agent = registeredSessionFor(from);
 			if (agent && (agent.isStreaming || agent.agentState === 'working')) {
@@ -1630,12 +1638,17 @@
 				return;
 			}
 			await laneOrchestrator.switchSurface(from.id, 'gui');
+			switchedFromTerminal = true;
 			const updated = projectStore.projects.find((copy) => copy.id === from.id);
-			if (!updated || updated.lane.surface !== 'gui') return;
+			if (!updated || updated.lane.surface !== 'gui') {
+				await restoreTerminalSurface(from);
+				return;
+			}
 			from = updated;
 			const ready = registeredSessionFor(from);
 			if (!ready || !await ready.waitUntilReady(15_000)) {
 				await messageDialog(m.session_move_resume_failed(), { kind: 'error' });
+				await restoreTerminalSurface(from);
 				return;
 			}
 		}
@@ -1646,6 +1659,24 @@
 		// Solo una chat vuota passa senza spostare nulla: qui si attiva la copia.
 		// Uno spostamento vero l'ha già attivata da sé (`resumeTransferredChat`).
 		if (result === 'instant') projectStore.setActive(to.id);
+		// Bloccato o annullato: la corsia resta dove l'utente la stava guardando.
+		// Passare alla GUI prima di sapere l'esito la lasciava in GUI per sempre
+		// (S3-18); `deferred`/`pending` prenotano il cambio e restano in GUI
+		// perche' lo spostamento e' gia' in corso.
+		if (switchedFromTerminal && (result === 'blocked' || result === 'cancelled')) {
+			await restoreTerminalSurface(from);
+		}
+	}
+
+	/** Riporta la corsia al terminale dopo un cambio macchina non riuscito. */
+	async function restoreTerminalSurface(project: Project): Promise<void> {
+		const current = projectStore.projects.find((copy) => copy.id === project.id);
+		if (!current || current.lane.surface === 'terminal') return;
+		try {
+			await laneOrchestrator.switchSurface(current.id, 'terminal');
+		} catch (error) {
+			studioLog.warn('project', `ripristino terminale non riuscito: ${String(error)}`);
+		}
 	}
 
 	/**
@@ -1904,7 +1935,17 @@
 			'studio-resolve-quota-blocked',
 			async (event) => {
 				const { projectId, laneId, targetSelector, thinkingLevel } = event.payload;
-				await handleResolveQuotaBlocked(projectId, laneId, targetSelector, thinkingLevel);
+				// La Companion chiede il recupero da un'altra finestra: se la
+				// macchina del progetto non risponde il rifiuto di instradamento
+				// non deve diventare una promessa rifiutata non gestita.
+				try {
+					await handleResolveQuotaBlocked(projectId, laneId, targetSelector, thinkingLevel);
+				} catch (error) {
+					const project = projectStore.projects.find((p) => p.id === projectId);
+					if (project) {
+						agentErrors[runtimeKey(project, laneId ?? project.lane.laneId)] = routeErrorText(error);
+					}
+				}
 			}
 		));
 
@@ -1933,6 +1974,13 @@
 		// ripristinare la finestra e selezionare il progetto.
 		register(listen<{ projectId: string }>('studio-focus-project', (event) => {
 			void notificationManager.handleNotificationClick(event.payload.projectId);
+		}));
+
+		// La Companion e' una webview separata: il CTA «Configura» della quota
+		// chiede alla finestra principale di aprire le impostazioni, perche' li'
+		// vive la modale (S6-02).
+		register(listen<{ section?: SettingsSection | null }>('studio-open-settings', (event) => {
+			settingsStore.openSection(event.payload?.section ?? undefined);
 		}));
 
 		// Companion 2.0 host: serve le richieste di snapshot conversazione e invio messaggi
@@ -2236,21 +2284,30 @@
 	});
 
 	// Riapplica le modalita' di coda a tutte le sessioni agenti attive quando cambiano le preferenze generali.
+	// Le tre preferenze sono le uniche dipendenze: l'elenco delle sessioni e
+	// il loro `isReady` vanno letti in `untrack`, altrimenti ogni sessione che
+	// si insedia riarma l'effetto e rimanda i comandi a tutte le altre
+	// (N sessioni -> N^2 comandi, S4-02).
 	$effect(() => {
-		const _steering = settingsStore.general.steeringMode;
-		const _followUp = settingsStore.general.followUpMode;
-		const _interrupt = settingsStore.general.interruptMode;
-		for (const session of sessionRegistry.getAllSessions()) {
-			void session.applyQueueModes?.();
-		}
+		void settingsStore.general.steeringMode;
+		void settingsStore.general.followUpMode;
+		void settingsStore.general.interruptMode;
+		untrack(() => {
+			for (const session of sessionRegistry.getAllSessions()) {
+				void session.applyQueueModes?.();
+			}
+		});
 	});
 
 	// Riapplica la modalita' di cache warming a tutte le sessioni agenti attive quando cambia la preferenza generale.
+	// Vale la stessa regola: solo la preferenza e' una dipendenza.
 	$effect(() => {
 		const warming = settingsStore.general.cacheWarming;
-		for (const session of sessionRegistry.getAllSessions()) {
-			void session.applyCacheWarming?.(warming);
-		}
+		untrack(() => {
+			for (const session of sessionRegistry.getAllSessions()) {
+				void session.applyCacheWarming?.(warming);
+			}
+		});
 	});
 
 	/**
@@ -3277,11 +3334,18 @@
 		const lane = project ? laneOf(project, laneId ?? project.lane.laneId) : undefined;
 		if (!project || !lane || lane.kind === 'lab') return;
 		const session = agentSessionFor(project, lane);
-		// newSession() azzera isStreaming solo localmente e non inoltra l'abort al
-		// processo omp: senza questo, i token della risposta in corso finirebbero
-		// dentro la chat appena creata.
-		if (session.isStreaming) await session.abort();
-		await session.newSession();
+		try {
+			// newSession() azzera isStreaming solo localmente e non inoltra l'abort al
+			// processo omp: senza questo, i token della risposta in corso finirebbero
+			// dentro la chat appena creata.
+			if (session.isStreaming) await session.abort();
+			await session.newSession();
+		} catch (error) {
+			// Su una macchina spenta o con il processo chiuso `newSession` passa da
+			// `ensureOpen` e puo' rigettare con `BackendRouteError`: senza cattura
+			// era una promessa rifiutata non gestita e il pulsante sembrava morto.
+			agentErrors[runtimeKey(project, lane.laneId)] = routeErrorText(error);
+		}
 	}
 
 	function handleGuiSlashCommand(projectId: string, laneId: string, raw: string): boolean {
@@ -3719,14 +3783,26 @@
 
 	onMount(() => {
 		const stopOmpSync = ompSync.start();
+		// Percorsi dei progetti locali ancora aperti: serve a fermare i watcher
+		// della coda dei progetti chiusi (S8-16).
+		const openTaskProjectPaths = () =>
+			projectStore.localProjects
+				.filter((project) => !project.external && project.canonicalProjectPath)
+				.map((project) => project.canonicalProjectPath!);
 		const onProjectClosed = (event: Event) => {
 			const projectId = (event as CustomEvent<{ projectId?: string }>).detail?.projectId;
 			if (!projectId) return;
+			// L'annuncio arriva dopo che il progetto e' uscito dall'elenco:
+			// per questo il percorso non e' nell'evento e la lista dei watcher
+			// da fermare si ricava dai percorsi ancora aperti.
 			// La chiusura non deve aspettare il timer dei runtime della Companion.
 			companionStore.broadcastState();
 			disposeAgentSession(projectId);
 			closePreviews(projectId);
 			void laneStore.removeDraftLanes(projectId as ProjectId).catch(() => undefined);
+			// Un progetto chiuso non ha piu' una coda da seguire (S8-16): il
+			// percorso non e' nell'evento, quindi si allinea dai percorsi aperti.
+			void taskStore.syncWatchedProjects(openTaskProjectPaths());
 		};
 		// «Confronta» della striscia sulle copie divergenti (R-MI-22): apre Git.
 		const onShowGit = () => { leftSection = 'git'; };
@@ -3774,7 +3850,15 @@
 		// Il salvataggio dei progetti e' ritardato di 500 ms e `beforeunload`
 		// non attende promesse: senza questa attesa l'ultima modifica (layout,
 		// progetto attivo, tessera chiusa) poteva perdersi alla chiusura.
-		await Promise.allSettled([projectStore.flushSave(), laneStore.flush()]);
+		// Stessa cosa per impostazioni e tombe dei task, il cui salvataggio e'
+		// ritardato di 250 ms: uscendo prima del timer la modifica non era mai
+		// stata scritta su disco (S7-01, S7-02).
+		await Promise.allSettled([
+			projectStore.flushSave(),
+			laneStore.flush(),
+			settingsStore.flush(),
+			taskStore.flushGlobal()
+		]);
 	}
 
 	function handleRequestCloseProject(projectId: string, automationReviewed = false) {
@@ -4000,6 +4084,17 @@
 		return m.lanes_store_notice_discarded({ count });
 	});
 	let dismissedLaneStoreNotice = $state<string | null>(null);
+
+	// Un avviso chiuso non deve restare chiuso per sempre: quando la stessa
+	// anomalia si ripresenta dopo essere sparita, torna a farsi vedere. Prima
+	// il testo chiuso restava la chiave e la terza occorrenza identica non
+	// compariva piu'.
+	let lastLaneStoreNotice: string | null = null;
+	$effect(() => {
+		const current = laneStoreNotice;
+		if (current !== null && lastLaneStoreNotice === null) dismissedLaneStoreNotice = null;
+		lastLaneStoreNotice = current;
+	});
 
 	$effect(() => {
 		const currentErr = projectStore.loadError;
@@ -4647,6 +4742,12 @@
 	}
 
 	function shellModalOpen(): boolean {
+		// Una superficie modale aperta sospende le scorciatoie di shell: prima
+		// l'elenco a mano ne dimenticava otto e una scorciatoia cambiava
+		// progetto sotto la finestra di revisione. La fonte vera e' il DOM
+		// (top layer, stack di focusTrap, popover): l'elenco degli stati resta
+		// come rete per il frame in cui il componente non e' ancora montato.
+		if (anyModalSurfaceOpen()) return true;
 		return settingsStore.open ||
 			shortcutsModalStore.isOpen ||
 			closeConfirmModalState.open ||
@@ -4655,7 +4756,16 @@
 			pickerOpen ||
 			queueOpen ||
 			showRestartModal ||
-			showUpdatePromptModal;
+			showUpdatePromptModal ||
+			reviewingLane !== null ||
+			viewingImage !== null ||
+			movedChat !== null ||
+			studioUpdaterStore.showModal ||
+			ompChangelogStore.isModalOpen ||
+			originPrompt !== null ||
+			dispatchConfirmationsStore.concurrencyPrompt !== null ||
+			dispatchConfirmationsStore.profilePrompt !== null ||
+			pendingAutomationClose !== null;
 	}
 
 	async function handleOpenFiles() {
@@ -4723,6 +4833,10 @@
 		}
 
 		if (!(e.ctrlKey || e.metaKey) || !e.altKey) return;
+		// Con una superficie modale aperta il resto delle scorciatoie di shell
+		// tace: Ctrl+Alt+N non deve aprire la palette sopra una finestra di
+		// revisione, ne' Ctrl+Alt+T la coda sopra una conferma distruttiva.
+		if (shellModalOpen()) return;
 		// Su tastiere internazionali AltGr alza sia ctrlKey sia altKey: senza
 		// questa guardia scrivere una parentesi graffa in un campo di testo
 		// aprirebbe un pannello. Nei campi le scorciatoie del guscio tacciono.
@@ -4848,7 +4962,13 @@
 	{#if SetupExperienceComponent && setupFlow.open}
 		<SetupExperienceComponent onClose={closeSetup} />
 	{/if}
-	<UsagePopover open={usageOpen} anchor={usageAnchor} onClose={() => usageOpen = false} {guiHosts} />
+	<UsagePopover
+		open={usageOpen}
+		anchor={usageAnchor}
+		onClose={() => usageOpen = false}
+		{guiHosts}
+		onOpenSettings={(section) => settingsStore.openSection(section)}
+	/>
 	<ProjectPicker open={pickerOpen} onClose={() => pickerOpen = false} />
 	{#if SettingsModalComponent && (settingsStore.open || settingsModalEverOpened)}
 		<SettingsModalComponent />
@@ -4923,84 +5043,117 @@
 	<div class="sr-only" role="status" aria-live="polite" aria-atomic="true">
 		{agentAnnouncement}
 	</div>
-	{#if laneStoreNotice && laneStoreNotice !== dismissedLaneStoreNotice}
-		<div
-			class="floating-error-toast lane-store-toast"
-			class:with-sibling={projectStore.loadError && !loadErrorDismissed}
-			role="alert"
-			in:rvLift={{ duration: 150 }}
-		>
-			<span class="floating-error-icon"><IconCircleAlert /></span>
-			<span class="floating-error-text">{laneStoreNotice}</span>
-			<button
-				type="button"
-				class="floating-error-close"
-				onclick={() => (dismissedLaneStoreNotice = laneStoreNotice)}
-				aria-label={m.common_close()}
+	<!-- Avvisi del guscio: una pila unica. Prima erano quattro superfici
+	     `position: fixed` con scostamenti a pixel che dovevano sommarsi a mano
+	     (44px sopra l'errore progetti, 26+8px sopra la barra di stato): con due
+	     avvisi insieme si sovrapponevano. Ora e' un contenitore flex sopra la
+	     barra di stato, e l'ordine lo decide il flusso. -->
+	<div class="toast-stack">
+		{#if laneStoreNotice && laneStoreNotice !== dismissedLaneStoreNotice}
+			<div class="floating-error-toast" role="alert" in:rvLift={{ duration: 150 }}>
+				<span class="floating-error-icon"><IconCircleAlert /></span>
+				<span class="floating-error-text">{laneStoreNotice}</span>
+				<button
+					type="button"
+					class="floating-error-close"
+					onclick={() => (dismissedLaneStoreNotice = laneStoreNotice)}
+					aria-label={m.common_close()}
+				>
+					<IconClose />
+				</button>
+			</div>
+		{/if}
+		{#if projectStore.loadError && !loadErrorDismissed}
+			<div class="floating-error-toast" role="alert" in:rvLift={{ duration: 150 }}>
+				<span class="floating-error-icon"><IconCircleAlert /></span>
+				<span class="floating-error-text">{m.page_projects_load_error({ reason: projectStore.loadError })}</span>
+				<button
+					type="button"
+					class="floating-error-close"
+					onclick={() => (loadErrorDismissed = true)}
+					aria-label={m.common_close()}
+				>
+					<IconClose />
+				</button>
+			</div>
+		{/if}
+		{#if externalOpenState.notice}
+			<div class="floating-error-toast" role="alert" in:rvLift={{ duration: 150 }}>
+				<span class="floating-error-icon"><IconCircleAlert /></span>
+				<span class="floating-error-text">{externalOpenState.notice}</span>
+				<button
+					type="button"
+					class="floating-error-close"
+					onclick={() => externalOpenState.clearNotice()}
+					aria-label={m.common_close()}
+				>
+					<IconClose />
+				</button>
+			</div>
+		{/if}
+		{#if settingsStore.saveError}
+			<div class="floating-error-toast" role="alert" in:rvLift={{ duration: 150 }}>
+				<span class="floating-error-icon"><IconCircleAlert /></span>
+				<span class="floating-error-text">{m.page_settings_save_error({ reason: settingsStore.saveError })}</span>
+				<button
+					type="button"
+					class="floating-error-close"
+					onclick={() => (settingsStore.saveError = null)}
+					aria-label={m.common_close()}
+				>
+					<IconClose />
+				</button>
+			</div>
+		{/if}
+		<!-- Avviso breve delle macchine (R-MI-51): la stessa pila degli altri
+		     avvisi, con icona neutra perche' non e' un errore. Uno alla volta,
+		     si consuma da solo. Un errore di sincronizzazione porta
+		     `tone: 'error'` e si annuncia come errore (S3-link-front-22). -->
+		{#if machineAlertFeed.current}
+			{@const notice = machineAlertFeed.current}
+			<div
+				class="floating-error-toast"
+				role={notice.tone === 'error' ? 'alert' : 'status'}
+				in:rvLift={{ duration: 150 }}
+				onpointerenter={() => (machineNoticeHovered = true)}
+				onpointerleave={() => (machineNoticeHovered = false)}
 			>
-				<IconClose />
-			</button>
-		</div>
-	{/if}
-	{#if projectStore.loadError && !loadErrorDismissed}
-		<div
-			class="floating-error-toast"
-			role="alert"
-			in:rvLift={{ duration: 150 }}
-		>
-			<span class="floating-error-icon"><IconCircleAlert /></span>
-			<span class="floating-error-text">{m.page_projects_load_error({ reason: projectStore.loadError })}</span>
-			<button
-				type="button"
-				class="floating-error-close"
-				onclick={() => (loadErrorDismissed = true)}
-				aria-label={m.common_close()}
-			>
-				<IconClose />
-			</button>
-		</div>
-	{/if}
-	{#if externalOpenState.notice}
-		<div
-			class="floating-error-toast"
-			role="alert"
-			in:rvLift={{ duration: 150 }}
-		>
-			<span class="floating-error-icon"><IconCircleAlert /></span>
-			<span class="floating-error-text">{externalOpenState.notice}</span>
-			<button
-				type="button"
-				class="floating-error-close"
-				onclick={() => externalOpenState.clearNotice()}
-				aria-label={m.common_close()}
-			>
-				<IconClose />
-			</button>
-		</div>
-	{/if}
-	<!-- Avviso breve delle macchine (R-MI-51): la stessa superficie degli altri
-	     avvisi, con icona neutra perche' non e' un errore. Sopra la barra di
-	     stato, cosi' non copre le versioni. Uno alla volta, si consuma da solo. -->
-	{#if machineAlertFeed.current}
-		<div
-			class="floating-error-toast machine-notice"
-			role="status"
-			in:rvLift={{ duration: 150 }}
-			onpointerenter={() => (machineNoticeHovered = true)}
-			onpointerleave={() => (machineNoticeHovered = false)}
-		>
-			<span class="floating-error-icon machine-notice-icon"><IconInfo /></span>
-			<span class="floating-error-text">{machineAlertFeed.current.text}</span>
-			<button
-				type="button"
-				class="floating-error-close"
-				onclick={() => machineAlertFeed.dismiss()}
-				aria-label={m.common_close()}
-			>
-				<IconClose />
-			</button>
-		</div>
-	{/if}
+				<span
+					class="floating-error-icon"
+					class:machine-notice-error={notice.tone === 'error'}
+					class:machine-notice-icon={notice.tone !== 'error'}
+				>
+					{#if notice.tone === 'error'}<IconCircleAlert />{:else}<IconInfo />{/if}
+				</span>
+				<span class="floating-error-text">{notice.text}</span>
+				<button
+					type="button"
+					class="floating-error-close"
+					onclick={() => machineAlertFeed.dismiss()}
+					aria-label={m.common_close()}
+				>
+					<IconClose />
+				</button>
+			</div>
+		{/if}
+		<!-- Caduta di una macchina su cui si sta lavorando (IMP-008): spazio
+		     suo, resta finche' non la si chiude, e non ferma la coda qui sopra. -->
+		{#if machineAlertFeed.sticky}
+			{@const sticky = machineAlertFeed.sticky}
+			<div class="floating-error-toast machine-notice-sticky" role="status" in:rvLift={{ duration: 150 }}>
+				<span class="floating-error-icon machine-notice-icon"><IconInfo /></span>
+				<span class="floating-error-text">{sticky.text}</span>
+				<button
+					type="button"
+					class="floating-error-close"
+					onclick={() => machineAlertFeed.dismissSticky()}
+					aria-label={m.common_close()}
+				>
+					<IconClose />
+				</button>
+			</div>
+		{/if}
+	</div>
 
 
 	{#if !projectStore.ready}
@@ -6094,17 +6247,28 @@
 	}
 
 
+	/* Pila unica degli avvisi del guscio: sopra la barra di stato (26px),
+	   incolonnati dal basso. Nessuno scostamento a pixel da sommare a mano. */
+	.toast-stack {
+		position: fixed;
+		inset-inline: 0;
+		bottom: calc(26px + var(--space-2));
+		z-index: var(--z-toast);
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: var(--space-2);
+		padding-inline: var(--space-3);
+		pointer-events: none;
+	}
+
 	/* Il velo e' un <button>: il colore lo mette la regola, ma il bordo
 	   `outset` dello user agent va rimosso o disegna una cornice a 2px
 	   lungo tutto il perimetro della finestra. */
 	.floating-error-toast {
-		position: fixed;
-		inset-inline: 0;
-		bottom: var(--space-3);
-		margin-inline: auto;
+		pointer-events: auto;
 		width: fit-content;
 		max-width: min(80vw, 560px);
-		z-index: var(--z-toast);
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
@@ -6117,19 +6281,21 @@
 		font-size: var(--text-label);
 	}
 
-	/* Con l'avviso dei progetti gia' a schermo quello delle corsie sale sopra. */
-	.lane-store-toast.with-sibling {
-		bottom: calc(var(--space-3) + 44px);
-	}
-
-	/* Avviso delle macchine (R-MI-51): sopra la barra di stato, icona neutra.
+	/* Avviso delle macchine (R-MI-51): icona neutra.
 	   Un esito positivo o un evento non e' un errore: il colore resta nel testo. */
-	.machine-notice {
-		bottom: calc(26px + var(--space-2));
-	}
 	/* Doppia classe: vince sulla regola dell'icona d'errore, che viene dopo. */
 	.floating-error-icon.machine-notice-icon {
 		color: var(--ink-muted);
+	}
+
+	.floating-error-icon.machine-notice-error {
+		color: var(--danger);
+	}
+
+	/* La caduta di una macchina al lavoro non e' un errore del guscio: bordo
+	   d'attenzione, non rosso (Outcome-Only Color Rule). */
+	.machine-notice-sticky {
+		border-color: color-mix(in oklab, var(--warn) 45%, var(--line-strong));
 	}
 
 	.floating-error-icon {

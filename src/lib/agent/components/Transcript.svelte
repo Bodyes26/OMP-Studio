@@ -23,12 +23,12 @@
 	import { groupsInExecution, rendererFor } from '../tools/registry';
 	import { isCorsiaTool } from '#lib/lanes/agentLaneRoutes.ts';
 	import { categoryForTool } from '../tools/categories';
-	import { TodoTraceTracker, type TodoTraceItem } from '../todoTrace';
+	import type { TodoTraceItem } from '../todoTrace';
 	import AssistantText from './AssistantText.svelte';
 	import TurnFooter, { type TurnFooterData } from './TurnFooter.svelte';
 	import { addToolToTurnDiff, emptyTurnDiff, type TurnDiffStats } from '../turnDiff';
 	import TurnHeadsUp from './TurnHeadsUp.svelte';
-	import { agentHeadsUp, isHeadsUpToolEntry, type TurnHeadsUp as TurnHeadsUpData } from '../turnHeadsUp';
+	import { isHeadsUpToolEntry, type TurnHeadsUp as TurnHeadsUpData } from '../turnHeadsUp';
 	import { headsUpSeen } from '../headsUpSeen.svelte';
 	import CompactionRow from './CompactionRow.svelte';
 	import NoticeRow from './NoticeRow.svelte';
@@ -52,15 +52,23 @@
 	import { settingsStore } from '#lib/stores/settings.svelte.ts';
 	import LoopTranscriptRow from './LoopTranscriptRow.svelte';
 	import { foldLoopItems, giroHeadline, isGiroClosed, isLoopActive } from '../loopMode';
+	import RowBoundary from './RowBoundary.svelte';
+	import { TranscriptIndex } from './transcriptIndex';
 
 	let { session, visible = true } = $props<{ session: AgentSession; visible?: boolean }>();
 
+	// Indice incrementale di tracce todo e heads-up: le entry si visitano una
+	// volta sola, non a ogni flush dello streaming (S5-02).
+	const transcriptIndex = new TranscriptIndex();
+	// Finestra visibile materializzata una volta per aggiornamento: il getter
+	// alloca una copia e scansiona le entry, e il template lo leggeva piu' volte.
+	const visibleEntries = $derived(session.visibleEntries);
 
 	const projectName = $derived(
 		projectStore.activeProject?.name ?? session.sessionName ?? 'Progetto'
 	);
 	const activeAssistant = $derived(
-		session.visibleEntries.find(
+		visibleEntries.find(
 			(entry: TranscriptEntry) => entry.kind === 'assistant' && entry.id === session.activeAssistantId
 		)
 	);
@@ -71,7 +79,7 @@
 				: activeAssistant.blocks.some((block: Block) => block.type !== 'text' || block.text.length > 0))
 	);
 	const hasRunningTool = $derived(
-		session.visibleEntries.some((entry: TranscriptEntry) => entry.kind === 'tool' && entry.running)
+		visibleEntries.some((entry: TranscriptEntry) => entry.kind === 'tool' && entry.running)
 	);
 	// Timer adattivo di 400ms: se l'avvio della sessione omp richiede tempo (spawn/handshake),
 	// mostra l'indicatore di attivita' con il testo di avvio senza fliccherii nei casi rapidi.
@@ -158,14 +166,11 @@
 	const displayItems = $derived.by<DisplayItem[]>(() => {
 		const items: DisplayItem[] = [];
 		let currentSegment: ToolGroupEntry[] = [];
-		const tracker = new TodoTraceTracker();
-		const todoTraces = new Map<number, TodoTraceItem[]>();
-		for (const entry of session.entries) {
-			if (entry.kind === 'tool' && entry.toolName === 'todo') {
-				todoTraces.set(entry.id, tracker.process({ args: entry.args, result: entry.result }));
-			}
-		}
-		const entries = session.visibleEntries;
+		// Tracce calcolate sull'intera storia, ma con una sola visita delle entry
+		// nuove: una lista todo creata prima della finestra visibile conta ancora
+		// per le righe che si vedono (S5-02).
+		const todoTraces = transcriptIndex.todoTraces(session.entries);
+		const entries = visibleEntries;
 
 		function flushSegment() {
 			if (currentSegment.length === 0) return;
@@ -336,24 +341,9 @@
 	 * complete: la chiamata non entra in `displayItems`.
 	 */
 	const agentHeadsUpByTurn = $derived.by<Map<number, { text: string; entryId: number }>>(() => {
-		const map = new Map<number, { text: string; entryId: number }>();
-		let turnStart = -1;
-		let segment: TranscriptEntry[] = [];
-		const flush = () => {
-			const found = segment.some(isHeadsUpToolEntry) ? agentHeadsUp(segment) : null;
-			if (found) map.set(turnStart, found);
-		};
-		for (const entry of session.entries) {
-			if (entry.kind === 'user') {
-				flush();
-				turnStart = entry.id;
-				segment = [];
-			} else {
-				segment.push(entry);
-			}
-		}
-		flush();
-		return map;
+		// Stesso indice incrementale delle tracce: si conservano solo le chiamate
+		// `studio_headsup`, non tutte le entry della storia (S5-02).
+		return transcriptIndex.headsUpByTurn(session.entries);
 	});
 
 	/** Indice dell'elemento visualizzato che contiene ciascuna entry: serve al clic sull'heads-up. */
@@ -405,12 +395,79 @@
 	}
 
 	// Piè del turno dell'agente: calcola i metadati di ogni turno concluso (Gate R32 - C07).
+	//
+	// Cache per turno (S5-03): un turno chiuso non cambia, e leggere ogni volta
+	// il testo di tutte le sue risposte e ricomporre `.join` costava O(testo
+	// storico) per frame. Il turno si riconosce dal messaggio utente che lo apre
+	// e da un'impronta dei campi che entrano nei metadati: se anche l'ultima
+	// entry e' la stessa, i valori gia' calcolati valgono ancora. Il ciclo resta
+	// O(righe), ma e' di sole somme intere, non di stringhe ricomposte.
+	interface CachedTurn {
+		lastEntry: TranscriptEntry | null;
+		/** Impronta dei campi letti (id, testi, esiti, costi): regge alle modifiche sul posto. */
+		signature: number;
+		/**
+		 * Risposta in streaming esclusa dal testo del turno. Alla fine dello
+		 * streaming lo stesso blocco entra nel conteggio senza che la sua
+		 * impronta cambi: senza questo campo il pie' resterebbe senza quella parte.
+		 */
+		streamingActive: number;
+		/** Ripiego del provider quando la risposta non ne dichiara uno: cambia col modello. */
+		fallbackProvider: string | undefined;
+		data: TurnFooterData;
+	}
+	const turnCache = new Map<number, CachedTurn>();
+	/** Testo gia' estratto da una risposta conclusa: i suoi blocchi non cambiano piu'. */
+	const assistantTextCache = new WeakMap<AssistantEntry, { signature: number; text: string[] }>();
+	let turnCacheGeneration = 0;
+	const turnCacheStamp = new Map<number, number>();
+
+	function textsOfAssistant(entry: AssistantEntry): string[] {
+		// Firma O(blocchi): tipo e lunghezza di ciascuno. Un blocco cresciuto
+		// (streaming fra due giri di tool, con `isStreaming` gia' spento) o
+		// sostituito da un altro tipo cambia la firma, quindi la cache non
+		// resta indietro. Il testo di una risposta chiusa non cambia piu'.
+		let signature = 0;
+		for (const block of entry.blocks) {
+			const size = 'text' in block ? block.text.length : block.data.length;
+			signature = (Math.imul(signature, 31) + block.type.charCodeAt(0) * 7 + size) | 0;
+		}
+		const cached = assistantTextCache.get(entry);
+		if (cached && cached.signature === signature) return cached.text;
+		const text: string[] = [];
+		for (const block of entry.blocks) {
+			if (block.type === 'text' && block.text.trim()) text.push(block.text.trim());
+		}
+		assistantTextCache.set(entry, { signature, text });
+		return text;
+	}
+
+	/**
+	 * Identita' degli oggetti che arrivano in sostituzione (`result` di un tool
+	 * prima parziale e poi finale): omp li sostituisce, non li muta, e un cambio
+	 * di oggetto e' l'unico segnale che il bilancio `+N -M` del turno puo'
+	 * essere cambiato. Fuori dal `$derived`: le impronte di giri diversi devono
+	 * usare la stessa numerazione, altrimenti la cache non colpisce mai.
+	 */
+	const objectIds = new WeakMap<object, number>();
+	let nextObjectId = 1;
+	function objectId(value: object | undefined): number {
+		if (!value) return 0;
+		const known = objectIds.get(value);
+		if (known !== undefined) return known;
+		const id = nextObjectId++;
+		objectIds.set(value, id);
+		return id;
+	}
+
 	const turnFootersByIndex = $derived.by<Map<number, TurnFooterData & { headsUp?: TurnHeadsUpData }>>(() => {
 		const map = new Map<number, TurnFooterData & { headsUp?: TurnHeadsUpData }>();
 		if (displayItems.length === 0) return map;
 		let currentUserEntryId = -1;
 
 		let currentTurnStartIndex = -1;
+		let currentTurnLastEntry: TranscriptEntry | null = null;
+		let currentTurnSignature = 0;
 		let currentTurnAssistantTexts: string[] = [];
 		let currentTurnToolCalls = 0;
 		let currentTurnCost = 0;
@@ -427,19 +484,56 @@
 			return currentTurnDiff.added > 0 || currentTurnDiff.removed > 0 ? currentTurnDiff : undefined;
 		}
 
+		/**
+		 * Impronta dei campi che entrano nei metadati del turno. Costa qualche
+		 * somma intera per entry, contro la rilettura e la ricomposizione di tutto
+		 * il testo del turno; serve perche' le entry cambiano sul posto (`result`
+		 * di un tool, coda dell'ultima risposta) senza cambiare di identita'.
+		 */
+		function mix(hash: number, value: number): number {
+			return (Math.imul(hash, 31) + (value | 0)) | 0;
+		}
+		function mixText(hash: number, text: string | undefined): number {
+			if (!text) return mix(hash, 0);
+			let next = mix(hash, text.length);
+			for (let i = 0; i < text.length; i++) next = (Math.imul(next, 31) + text.charCodeAt(i)) | 0;
+			return next;
+		}
+		function recordSignature(entry: TranscriptEntry): void {
+			let hash = mix(currentTurnSignature, entry.id);
+			if (entry.kind === 'assistant') {
+				hash = mix(hash, entry.blocks.length);
+				for (const block of entry.blocks) {
+					hash = mix(hash, block.type === 'text' ? block.text.length : block.type.length);
+				}
+				hash = mix(hash, Math.round((entry.usage?.cost?.total ?? 0) * 1e6));
+				hash = mix(hash, entry.usage?.output ?? 0);
+				hash = mix(hash, entry.genMs ?? 0);
+				hash = mix(hash, entry.messageTs ?? 0);
+				hash = mixText(hash, entry.model);
+				hash = mixText(hash, entry.provider);
+			} else if (entry.kind === 'tool') {
+				hash = mix(hash, entry.running ? 1 : 0);
+				hash = mix(hash, objectId(entry.result));
+				hash = mix(hash, objectId(entry.args));
+				hash = mix(hash, entry.startedAt);
+				hash = mix(hash, entry.endedAt ?? 0);
+			}
+			currentTurnSignature = hash;
+		}
+
 		function recordEntries(entries: TranscriptEntry[]) {
 			for (const entry of entries) {
+				currentTurnLastEntry = entry;
+				recordSignature(entry);
 				if (entry.kind === 'assistant') {
 					// Non leggiamo i blocchi di testo dell'assistente attivo durante
 					// lo streaming per evitare invalidazioni reattive a ogni frame
 					// (il footer del turno attivo verra calcolato solo a fine streaming).
 					const isStreamingActive = session.isStreaming && entry.id === session.activeAssistantId;
 					if (!isStreamingActive) {
-						for (const block of entry.blocks) {
-							if (block.type === 'text' && block.text.trim()) {
-								currentTurnAssistantTexts.push(block.text.trim());
-							}
-						}
+						const texts = textsOfAssistant(entry);
+						for (const text of texts) currentTurnAssistantTexts.push(text);
 					}
 					if (entry.usage?.cost?.total) {
 						currentTurnCost += entry.usage.cost.total;
@@ -465,29 +559,66 @@
 			}
 		}
 
+		/** Risposta ancora in scrittura, esclusa dal testo del turno (0 = nessuna). */
+		function streamingActive(): number {
+			return session.isStreaming && session.activeAssistantId !== null ? session.activeAssistantId + 1 : 0;
+		}
+
+		/** Riusa i metadati di un turno gia' visto, se non e' cambiato. */
+		function cachedFooter(userEntryId: number): TurnFooterData | null {
+			if (currentTurnStartIndex < 0) return null;
+			const cached = turnCache.get(userEntryId);
+			if (
+				!cached ||
+				cached.lastEntry !== currentTurnLastEntry ||
+				cached.signature !== currentTurnSignature ||
+				cached.streamingActive !== streamingActive() ||
+				cached.fallbackProvider !== session.model?.provider
+			) {
+				return null;
+			}
+			turnCacheStamp.set(userEntryId, turnCacheGeneration);
+			return cached.data;
+		}
+
+		function storeFooter(userEntryId: number, data: TurnFooterData): TurnFooterData {
+			turnCache.set(userEntryId, {
+				lastEntry: currentTurnLastEntry,
+				signature: currentTurnSignature,
+				streamingActive: streamingActive(),
+				fallbackProvider: session.model?.provider,
+				data
+			});
+			turnCacheStamp.set(userEntryId, turnCacheGeneration);
+			return data;
+		}
+
+		turnCacheGeneration += 1;
+
 		for (let i = 0; i < displayItems.length; i++) {
 			const item = displayItems[i];
 			const isUser = item.kind === 'single' && item.entry.kind === 'user';
 
 			if (isUser) {
 				if (currentTurnStartIndex >= 0 && (currentTurnAssistantTexts.length > 0 || currentTurnToolCalls > 0)) {
-					const duration = currentTurnEndMs > currentTurnStartMs ? currentTurnEndMs - currentTurnStartMs : 0;
-					map.set(i - 1, {
+					const data = cachedFooter(currentUserEntryId) ?? storeFooter(currentUserEntryId, {
 						assistantText: currentTurnAssistantTexts.join('\n\n'),
 						toolCallsCount: currentTurnToolCalls,
-						durationMs: duration,
+						durationMs: currentTurnEndMs > currentTurnStartMs ? currentTurnEndMs - currentTurnStartMs : 0,
 						model: currentTurnModel,
 						provider: currentTurnProvider || session.model?.provider || undefined,
 						cost: currentTurnCost > 0 ? currentTurnCost : undefined,
 						tokensPerSecond: currentTurnSpeed.tokensPerSecond,
 						userTranscriptId: currentTurnUserId,
 						assistantTs: currentTurnAssistantTs,
-						diff: turnDiffOrUndefined(),
-						headsUp: headsUpForTurn(currentUserEntryId, false)
+						diff: turnDiffOrUndefined()
 					});
+					map.set(i - 1, { ...data, headsUp: headsUpForTurn(currentUserEntryId, false) });
 				}
 				currentUserEntryId = item.entry.id;
 				currentTurnStartIndex = i;
+				currentTurnLastEntry = item.entry;
+				currentTurnSignature = 0;
 				currentTurnAssistantTexts = [];
 				currentTurnToolCalls = 0;
 				currentTurnCost = 0;
@@ -522,20 +653,28 @@
 			&& !hasRunningTool
 			&& (currentTurnAssistantTexts.length > 0 || currentTurnToolCalls > 0)
 		) {
-			const duration = currentTurnEndMs > currentTurnStartMs ? currentTurnEndMs - currentTurnStartMs : 0;
-			map.set(displayItems.length - 1, {
+			const data = cachedFooter(currentUserEntryId) ?? storeFooter(currentUserEntryId, {
 				assistantText: currentTurnAssistantTexts.join('\n\n'),
 				toolCallsCount: currentTurnToolCalls,
-				durationMs: duration,
+				durationMs: currentTurnEndMs > currentTurnStartMs ? currentTurnEndMs - currentTurnStartMs : 0,
 				model: currentTurnModel,
 				provider: currentTurnProvider || session.model?.provider || undefined,
 				cost: currentTurnCost > 0 ? currentTurnCost : undefined,
 				tokensPerSecond: currentTurnSpeed.tokensPerSecond,
 				userTranscriptId: currentTurnUserId,
 				assistantTs: currentTurnAssistantTs,
-				diff: turnDiffOrUndefined(),
-				headsUp: headsUpForTurn(currentUserEntryId, true)
+				diff: turnDiffOrUndefined()
 			});
+			map.set(displayItems.length - 1, { ...data, headsUp: headsUpForTurn(currentUserEntryId, true) });
+		}
+
+		// Potatura: i turni non piu' incontrati (finestra scorsa, storia riscritta)
+		// non servono, e la cache non deve crescere con la chat.
+		for (const [userId] of turnCache) {
+			if (turnCacheStamp.get(userId) !== turnCacheGeneration) {
+				turnCache.delete(userId);
+				turnCacheStamp.delete(userId);
+			}
 		}
 
 		return map;
@@ -666,7 +805,7 @@
 <div
 	bind:this={transcriptEl}
 	class="transcript"
-	class:is-empty={session.visibleEntries.length === 0}
+	class:is-empty={visibleEntries.length === 0}
 	aria-busy={session.isStreaming}
 >
 	{#if session.hasEarlier && !session.transcriptLoad}
@@ -677,7 +816,7 @@
 		</div>
 	{/if}
 
-	{#if session.visibleEntries.length === 0}
+	{#if visibleEntries.length === 0}
 		<!-- Stesso componente per caricamento e chat vuota: il lockup in fil di
 		     ferro si riempie sul posto quando omp e' pronto. -->
 		<OmpWelcome {visible} loading={session.isLoading} />
@@ -703,13 +842,15 @@
 					<AskTrace entry={item.entry} />
 				{:else if item.kind === 'corsia-trace'}
 					{@const corsia = rendererFor(item.entry.toolName)}
-					<corsia.component
-						name={item.entry.toolName}
-						args={item.entry.args}
-						result={item.entry.result}
-						running={item.entry.running}
-						toolCallId={item.entry.toolCallId}
-					/>
+					<RowBoundary name={`corsia-${item.entry.toolName}`}>
+						<corsia.component
+							name={item.entry.toolName}
+							args={item.entry.args}
+							result={item.entry.result}
+							running={item.entry.running}
+							toolCallId={item.entry.toolCallId}
+						/>
+					</RowBoundary>
 				{:else if item.kind === 'system-group'}
 					<NoticeGroup entries={item.entries} fresh={!disableAnimations} />
 				{:else if item.kind === 'loop-giro'}
@@ -734,7 +875,7 @@
 				{:else if item.entry.kind === 'user'}
 					{@const approved = parseApprovedPlanMessage(item.entry.content)}
 					{#if approved}
-						<PlanApprovedCard {approved} />
+						<RowBoundary name="plan-approved"><PlanApprovedCard {approved} /></RowBoundary>
 					{:else}
 						<UserMessage
 							entry={item.entry}
@@ -750,9 +891,9 @@
 				{:else if item.entry.kind === 'tool'}
 					<ToolGroup entries={[item.entry]} activeAssistantId={session.activeAssistantId} />
 				{:else if item.entry.kind === 'subagent-result'}
-					<SubagentResultCard entry={item.entry} />
+					<RowBoundary name="subagent-result"><SubagentResultCard entry={item.entry} /></RowBoundary>
 				{:else if item.entry.kind === 'irc'}
-					<IrcMessageCard entry={item.entry} />
+					<RowBoundary name="irc"><IrcMessageCard entry={item.entry} /></RowBoundary>
 				{:else if item.entry.kind === 'system-chip'}
 					<SystemChip entry={item.entry} fresh={!disableAnimations} />
 				{:else if item.entry.kind === 'notice'}
@@ -764,11 +905,11 @@
 				{:else if item.entry.kind === 'ttsr'}
 					<TtsrRow entry={item.entry} fresh={!disableAnimations} />
 				{:else if item.entry.kind === 'lane-landing'}
-					<LaneLandingCard entry={item.entry} />
+					<RowBoundary name="lane-landing"><LaneLandingCard entry={item.entry} /></RowBoundary>
 				{:else if item.entry.kind === 'plan'}
-					<PlanEntryView {session} entry={item.entry} />
+					<RowBoundary name="plan"><PlanEntryView {session} entry={item.entry} /></RowBoundary>
 				{:else if item.entry.kind === 'guided-goal'}
-					<GuidedGoalEntry entry={item.entry} {session} />
+					<RowBoundary name="guided-goal"><GuidedGoalEntry entry={item.entry} {session} /></RowBoundary>
 				{/if}
 			</div>
 			{@const footer = turnFootersByIndex.get(i)}

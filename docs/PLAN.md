@@ -5,6 +5,31 @@ Documento operativo. Traccia l'evoluzione del prodotto, il piano di stabilizzazi
 **Leggere prima:** `PRODUCT.md` (visione e perimetro), `DESIGN.md` (sistema visivo e token), `ARCHITECTURE.md` (architettura tecnica).
 
 ---
+## Polish di stabilità dopo la multi-istanza (2026-11-28)
+
+**Data:** 2026-11-28. **Stato:** piano approvato dall'utente con il modulo della stessa sessione (tutti i flussi W1–W10, decisioni D1–D10) e implementato; attrito git fra le macchine aggiunto dopo (W11, F34, R-MI-71…74). Piano completo con le evidenze `file:riga`: `ricerca/polish-2026-11-28/PIANO.md` (locale, fuori da git), rapporti per fetta in `ricerca/polish-2026-11-28/rapporti/`.
+
+**Richiesta:** «abbiamo aggiunto un sacco di roba con la multi istanza e ora trovo tutto molto più instabile di prima [...] Voglio tornare ad avere un prodotto super stabile» (2026-11-28).
+
+**Cause trovate:** `link:status` emesso ogni 5 s senza cambiamenti (22.348 `get_omp_version` in 30 h); omp 19.2.1 esegue i comandi in una fila e accoda le risposte dietro i progressi dei subagenti, e Studio trasformava i timeout in chat vuote, avvisi e falsi «Channel stalled»; gare nella ricostruzione della chat; ripresa remota per solo numero di sessione; storie senza antenato che perdevano commit; automazioni comando che non partivano mai.
+
+| Flusso | Contenuto | ID |
+|---|---|---|
+| W1 | Collegamento senza polling a vuoto, costo git e log | S2-03…07, S2-14/15, S3-01…04, S3-07, S3-10, S3-29, S5-07, S7-04/05, S8-08, S8-11 |
+| W2 | Sessioni remote, ripresa e trasporto | S1-rpc-01/02/03/07/08/09/10, S2-02, S2-08, S2-16…18, S3-05, S3-06, S8-02/03, S8-12, S14-06 |
+| W3 | Sessione agente | S4-01…17, S1-rpc-04/06, S3-09, S3-17…19 |
+| W4 | Avvisi (D1, D4) | S4-03, S1-rpc-05, S13-05, S3-08, S3-11…16, S3-20, S3-22, S3-25…28, S2-09, S6-04 |
+| W5 | Guscio, pannelli, animazioni | S6-01…20 (S6-06 rimandato, S6-14 non approvato), S5-01…05, S5-08, S8-13 |
+| W6 | Dati e persistenza | S2-01, S7-01…03, S7-08/09, S9-08, S8-05 |
+| W7 | Backend: processi, automazioni, uscita (D3) | S9-01…13, S8-01, S8-04, S8-06/07, S8-09, S8-15…19, S2-10…13 |
+| W8 | Estensioni e relay | S10-02…04, S10-07…09 (S10-01 solo nota: relay sempre dietro proxy) |
+| W9 | Test (D5) | S11-01, S11-04…07, S11-09…13, S11-16, S4-16 |
+| W10 | Codice morto (D6, D8) | S12-01…20, focus-trace, 3 comandi `automations_*`, chiavi i18n senza uso |
+| W11 | Attrito git zero (F34) | R-MI-71, R-MI-72, R-MI-73, R-MI-74 |
+
+**Verifiche da fare sulle due macchine reali:** un'ora di log a macchine ferme senza `get_omp_version` ogni 5 s; ricarica con chat remota aperta; riavvio del PC con chat remota aperta dal Mac; commit dal Mac con Windows in primo piano; scenari di accettazione di R-MI-71…74.
+
+---
 ## Nightly locale Windows — accelerazione delle verifiche e del rilascio
 
 **Data:** 2026-11-05. **Stato:** implementazione approvata dall'utente («ok procedi pure») e in corso; nessuna autorizzazione a pubblicare. Registro: [NLC-001…010](requisiti/nightly-locale.md).

@@ -6,8 +6,7 @@ import {
 	sendNotification,
 	createChannel,
 	Importance,
-	Visibility,
-	onAction
+	Visibility
 } from '@tauri-apps/plugin-notification';
 import { projectStore } from './projects.svelte';
 import { settingsStore } from './settings.svelte';
@@ -77,15 +76,13 @@ class NotificationManager {
 			console.debug('Inizializzazione canale notifiche:', err);
 		}
 
-		// Registra il listener per il click sulle notifiche di sistema
-		try {
-			await onAction((notification) => {
-				const projectId = (notification.extra?.projectId as string) || undefined;
-				void this.handleNotificationClick(projectId);
-			});
-		} catch (err) {
-			console.warn('Listener notifiche non disponibile:', err);
-		}
+		// Il click su una notifica di sistema non passa da `onAction`: su desktop
+		// il plugin registra solo `notify`/`request_permission`/
+		// `is_permission_granted` e `register_listener` vive solo su mobile, per
+		// cui la sottoscrizione falliva con un errore ACL a ogni avvio senza mai
+		// consegnare nulla (S8-13, S13-11). Su Windows il click passa da
+		// `studio-focus-project`; la Companion apre il progetto con il suo
+		// percorso. `handleNotificationClick` resta per quei percorsi.
 
 		if (typeof window !== 'undefined') {
 			window.addEventListener('focus', () => this.checkFocusAcknowledgement());

@@ -15,12 +15,13 @@ use std::sync::{LazyLock, Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{command, AppHandle, Manager};
 
-/// Oltre questa soglia il file riparte: interessa la sessione in corso.
+/// Oltre questa soglia il file passa a `perf-trace.prev.log` e riparte: la
+/// cancellazione secca portava via l'avvio di Studio e le misure del boot,
+/// cioe' proprio le righe che servono a capire un avvio lento.
 const MAX_BYTES: u64 = 4 * 1024 * 1024;
 
 static SINK: OnceLock<Mutex<Sender<String>>> = OnceLock::new();
 static STARTED: LazyLock<Instant> = LazyLock::new(Instant::now);
-static PATH: OnceLock<PathBuf> = OnceLock::new();
 
 fn epoch_ms() -> u128 {
     SystemTime::now()
@@ -33,10 +34,18 @@ fn since_start_secs() -> f64 {
     STARTED.elapsed().as_secs_f64()
 }
 
-/// Accoda righe al file, azzerandolo oltre il tetto. Separata per i test.
+/// File precedente: la rotazione conserva una generazione, come `studio.log`.
+fn prev_path(path: &Path) -> PathBuf {
+    path.with_file_name("perf-trace.prev.log")
+}
+
+/// Accoda righe al file, ruotandolo oltre il tetto. Separata per i test.
 fn append_lines(path: &Path, lines: &[String]) -> std::io::Result<()> {
     if fs::metadata(path).map(|m| m.len()).unwrap_or(0) > MAX_BYTES {
-        let _ = fs::remove_file(path);
+        // Il rinomino sostituisce il precedente: senza la rimozione fallirebbe
+        // su Windows, dove `rename` non sovrascrive.
+        let _ = fs::remove_file(prev_path(path));
+        let _ = fs::rename(path, prev_path(path));
     }
     let mut buffer = String::with_capacity(lines.iter().map(|l| l.len() + 1).sum());
     for line in lines {
@@ -61,7 +70,6 @@ pub fn init(app: &AppHandle) {
         return;
     }
     let path = dir.join("perf-trace.log");
-    let _ = PATH.set(path.clone());
     let (tx, rx) = channel::<String>();
     if SINK.set(Mutex::new(tx)).is_err() {
         return;
@@ -148,35 +156,25 @@ pub async fn perf_trace_append(lines: Vec<String>) -> Result<(), String> {
     Ok(())
 }
 
-/// Percorso del file di traccia, da mostrare a chi deve raccoglierlo.
-#[command]
-pub async fn perf_trace_path() -> Result<String, String> {
-    PATH.get()
-        .map(|p| p.to_string_lossy().to_string())
-        .ok_or_else(|| {
-            crate::tr!(
-                "Traccia dei tempi non inizializzata",
-                "Timing trace not initialized"
-            )
-            .to_string()
-        })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn oltre_il_tetto_il_file_riparte_invece_di_crescere_senza_fine() {
+    fn oltre_il_tetto_il_file_ruota_e_la_generazione_precedente_resta_leggibile() {
         let path = std::env::temp_dir().join(format!(
             "omp-studio-perf-trace-{}.log",
             std::process::id()
         ));
+        let prev = prev_path(&path);
+        let _ = fs::remove_file(&prev);
         fs::write(&path, vec![b'x'; (MAX_BYTES + 1) as usize]).unwrap();
 
         append_lines(&path, &["dopo il taglio\n".to_string()]).unwrap();
 
         assert_eq!(fs::read_to_string(&path).unwrap(), "dopo il taglio\n");
+        assert_eq!(fs::metadata(&prev).unwrap().len(), MAX_BYTES + 1);
         let _ = fs::remove_file(&path);
+        let _ = fs::remove_file(&prev);
     }
 }

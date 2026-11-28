@@ -368,7 +368,10 @@ fn snapshot_workspace(root: &Path) -> Result<Vec<LabFile>, String> {
 /// Scatta uno snapshot completo di tutti i file di testo del workspace.
 #[command]
 pub async fn lab_workspace_snapshot(workspace_path: String) -> Result<Vec<LabFile>, String> {
-    tokio::task::spawn_blocking(move || snapshot_workspace(Path::new(&workspace_path)))
+    // Il percorso arriva dal frontend: si accetta solo quello di un prototipo
+    // (S8-02), come gia' fanno i `lab_git_*`.
+    let root = super::paths::confined_lab_workspace(&workspace_path)?;
+    tokio::task::spawn_blocking(move || snapshot_workspace(&root))
         .await
         .map_err(|e| e.to_string())?
 }
@@ -376,9 +379,18 @@ pub async fn lab_workspace_snapshot(workspace_path: String) -> Result<Vec<LabFil
 /// Verifica se la directory del workspace esiste fisicamente sul filesystem.
 #[command]
 pub async fn lab_workspace_exists(workspace_path: String) -> Result<bool, String> {
-    tokio::task::spawn_blocking(move || Ok(Path::new(&workspace_path).is_dir()))
-        .await
-        .map_err(|e| e.to_string())?
+    tokio::task::spawn_blocking(move || {
+        // Un workspace fuori dai prototipi non esiste "per il Laboratorio":
+        // rispondere `false` invece di un errore tiene il chiamante sul
+        // percorso normale (prototipo da ricreare), senza leggere altrove.
+        Ok::<bool, String>(
+            super::paths::confined_lab_workspace(&workspace_path)
+                .map(|root| root.is_dir())
+                .unwrap_or(false),
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Copia ricorsiva selettiva di una cartella.
@@ -550,8 +562,10 @@ pub async fn lab_prototype_duplicate(
 /// La destinazione non deve esistere o deve essere una cartella vuota.
 #[command]
 pub async fn lab_export(workspace_path: String, destination: String) -> Result<(), String> {
+    // Origine confinata ai prototipi (S8-02); la destinazione la sceglie
+    // l'utente nel dialogo di sistema e resta fuori dal confinamento.
+    let src = super::paths::confined_lab_workspace(&workspace_path)?;
     tokio::task::spawn_blocking(move || {
-        let src = Path::new(&workspace_path);
         if !src.is_dir() {
             return Err(crate::tr!(
                 format!("Workspace di origine non valido: {}", src.display()),
@@ -586,7 +600,7 @@ pub async fn lab_export(workspace_path: String, destination: String) -> Result<(
             }
         }
 
-        copy_dir_filtered(src, dst, false, true)?;
+        copy_dir_filtered(&src, dst, false, true)?;
         Ok(())
     })
     .await

@@ -12,13 +12,13 @@ import { join } from 'node:path';
 import studioDocsExtension, {
 	PROMPT_LINE,
 	appendDiary,
+	commitDiary,
 	defaultManifest,
 	detectExistingMappings,
 	dirtyJournalFiles,
 	initProject,
 	initPrompt,
 	isJournalActive,
-	isoDate,
 	loadManifest,
 	loadState,
 	normalizeSource,
@@ -46,6 +46,42 @@ function canonicalPath(p: string): string {
 	return process.platform === 'win32' ? real.toLowerCase() : real;
 }
 
+/**
+ * Configurazione Git isolata per i test: il repository e' temporaneo, ma git
+ * legge comunque `~/.gitconfig`. Un'identita' globale, un `commit.gpgsign` o un
+ * `core.hooksPath` ereditato cambierebbero l'esito di questi test (che devono
+ * poter verificare l'esito dei commit dell'estensione).
+ */
+const GIT_ISOLATION: Record<string, string> = {
+	// Percorso inesistente: git ignora un file globale mancante, mentre `/dev/null`
+	// non esiste su Windows.
+	GIT_CONFIG_GLOBAL: join(tmpdir(), 'omp-studio-test-gitconfig-none'),
+	GIT_CONFIG_NOSYSTEM: '1',
+	GIT_AUTHOR_NAME: 't',
+	GIT_AUTHOR_EMAIL: 't@t',
+	GIT_COMMITTER_NAME: 't',
+	GIT_COMMITTER_EMAIL: 't@t'
+};
+
+const GIT_ENV: NodeJS.ProcessEnv = { ...process.env, ...GIT_ISOLATION };
+
+const savedGitEnv = new Map<string, string | undefined>();
+
+function isolateGitEnvironment(): void {
+	for (const [key, value] of Object.entries(GIT_ISOLATION)) {
+		savedGitEnv.set(key, process.env[key]);
+		process.env[key] = value;
+	}
+}
+
+function restoreGitEnvironment(): void {
+	for (const [key, value] of savedGitEnv) {
+		if (value === undefined) delete process.env[key];
+		else process.env[key] = value;
+	}
+	savedGitEnv.clear();
+}
+
 function write(rel: string, text: string) {
 	mkdirSync(join(root, rel, '..'), { recursive: true });
 	writeFileSync(join(root, rel), text);
@@ -60,6 +96,9 @@ beforeEach(() => {
 	mockAgentDir = mkdtempSync(join(tmpdir(), 'omp-agent-fixture-'));
 	originalAgentDir = process.env.PI_CODING_AGENT_DIR;
 	process.env.PI_CODING_AGENT_DIR = mockAgentDir;
+	// Anche l'estensione invoca git (`gitOut` legge `process.env`): senza
+	// questo isolamento un `.gitconfig` globale deciderebbe l'esito dei commit.
+	isolateGitEnvironment();
 });
 
 afterEach(() => {
@@ -74,6 +113,7 @@ afterEach(() => {
 			} else {
 				process.env.PI_CODING_AGENT_DIR = originalAgentDir;
 			}
+			restoreGitEnvironment();
 		}
 	}
 });
@@ -359,7 +399,7 @@ describe('Diario: commit di chi scrive (R-MI-46)', () => {
 			cwd,
 			encoding: 'utf8',
 			stdio: ['ignore', 'pipe', 'pipe'],
-			env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' }
+			env: GIT_ENV
 		}).trim();
 
 	function gitRepo(): void {
@@ -478,7 +518,7 @@ describe('Diario: fine turno (R-MI-60)', () => {
 			cwd,
 			encoding: 'utf8',
 			stdio: ['ignore', 'pipe', 'pipe'],
-			env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' }
+			env: GIT_ENV
 		}).trim();
 
 	function gitRepo(): void {
@@ -524,15 +564,31 @@ describe('Diario: fine turno (R-MI-60)', () => {
 		write('docs/diario/2026-10.md', '# Diario 2026-10\n\n## 2026-10-08\n- Nota a mano.\n');
 		assert.equal(git(['status', '--porcelain']), 'M docs/diario/2026-10.md');
 
+		// Stato pulito e un solo commit col solo diario. Il messaggio usa la data
+		// di fine turno, non quella del contenuto: l'hook chiama `new Date()` e
+		// non la si puo' iniettare, quindi qui si verifica la forma; il testo
+		// esatto con una data congelata lo fissa il test di `commitDiary`.
 		const agentEnd = extension();
 		assert.ok(agentEnd, 'hook agent_end registrato');
 		agentEnd!({ cwd: root });
 
-		// Stato pulito e un solo commit «diario: <oggi>» col solo diario: il
-		// messaggio usa la data di fine turno, non quella del contenuto.
 		assert.equal(git(['status', '--porcelain']), '');
-		assert.equal(git(['show', '--format=%s', '--no-patch', 'HEAD']), `diario: ${isoDate(new Date())}`);
+		const subject = git(['show', '--format=%s', '--no-patch', 'HEAD']);
+		assert.match(subject, /^diario: \d{4}-\d{2}-\d{2}$/, `oggetto del commit inatteso: «${subject}»`);
 		assert.equal(git(['show', '--name-only', '--format=', 'HEAD']), 'docs/diario/2026-10.md');
+	});
+
+	it('commitDiary firma il commit con la data che riceve', () => {
+		gitRepo();
+		initProject(root, 'repo', NOW);
+		git(['add', '-A']);
+		git(['commit', '-qm', 'diario iniziale']);
+
+		write('docs/diario/2026-10.md', '# Diario 2026-10\n\n## 2026-10-08\n- Nota a mano.\n');
+		const result = commitDiary(root, 'docs/diario/2026-10.md', NOW);
+
+		assert.equal(result.commit !== undefined, true, 'commitDiary deve aver creato un commit');
+		assert.equal(git(['show', '--format=%s', '--no-patch', 'HEAD']), 'diario: 2026-10-08');
 	});
 
 	it('un file dell\'utente gia\' in stage resta in stage e fuori dal commit', () => {
@@ -598,7 +654,7 @@ describe('Diario: fine turno (R-MI-60)', () => {
 describe('Diario: corsie e prompt', () => {
 	it('in una corsia (worktree) il diario e\' quello del checkout principale', () => {
 		const git = (args: string[], cwd = root) =>
-			execFileSync('git', args, { cwd, stdio: 'ignore', env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } });
+			execFileSync('git', args, { cwd, stdio: 'ignore', env: GIT_ENV });
 		git(['init', '-q']);
 		write('a.txt', 'x');
 		git(['add', '.']);

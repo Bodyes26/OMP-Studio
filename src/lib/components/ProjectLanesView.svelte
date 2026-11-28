@@ -18,12 +18,13 @@
 	//    attendere, e non scrive stato se nel frattempo il progetto e' cambiato.
 	import { m } from '#lib/paraglide/messages.js';
 	import { tick, untrack } from 'svelte';
-	import { invoke } from '#lib/backend/ipc.ts';
+	import { LOCAL_MACHINE } from '#lib/backend/ipc.ts';
+	import { createProjectBackend } from '#lib/backend/projectScope.ts';
 	import { laneStore } from '#lib/stores/lanes.svelte.ts';
 	import { projectStore, type Project } from '#lib/stores/projects.svelte.ts';
 	import { laneOrchestrator } from '#lib/lanes/laneOrchestrator.svelte.ts';
 	import { gitDiffStore } from '#lib/stores/gitDiff.svelte.ts';
-	import { labApi } from '#lib/lab/api.ts';
+	import { labApiFor } from '#lib/lab/api.ts';
 	import {
 		formatRelativeDate,
 		openLabEntry,
@@ -65,6 +66,13 @@
 	}
 
 	let { project, onClose, onReviewLane }: Props = $props();
+
+	// Il Laboratorio di questa superficie deve girare sulla macchina della
+	// tessera (S3-05). `ProjectLanesView` pero' vive in `ProjectPopover`, sotto
+	// `TopBar`, fuori da ogni `ProjectScope`: `useProjectBackend()` darebbe il
+	// backend locale, cioe' di nuovo il disco sbagliato. `labApiFor` sceglie
+	// dalla macchina del progetto (e ricade sul laboratorio locale se manca).
+	const labApi = $derived(labApiFor(project));
 
 	/** Finestra di validita' della conferma in linea: scaduta, non elimina. */
 	const CONFIRM_WINDOW_MS = 5000;
@@ -332,7 +340,7 @@
 			return { kind: 'none' };
 		}
 		try {
-			const summary = await invoke<LaneUnintegratedSummary>(
+			const summary = await createProjectBackend(owner.machineId ?? LOCAL_MACHINE).invoke<LaneUnintegratedSummary>(
 				'worktree_lane_unintegrated_summary',
 				{ args: { projectPath: owner.canonicalProjectPath, laneId: targetLaneId } }
 			);
@@ -463,6 +471,8 @@
 		creatingPrototype = true;
 		notice = null;
 		try {
+			// `labApi` qui e' quello della tessera (S3-05): con l'invoke locale il
+			// watcher partirebbe qui con il percorso dell'altra macchina.
 			const entry = await labApi.createPrototype(path);
 			// Il prototipo e' nato nel progetto catturato: aprire la corsia e'
 			// il seguito di quel lavoro, anche se la card mostra altro.

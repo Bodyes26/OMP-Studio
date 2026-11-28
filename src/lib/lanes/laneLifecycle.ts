@@ -24,7 +24,7 @@ import { projectStore, type Project } from '#lib/stores/projects.svelte.ts';
 import { sessionRegistry } from '#lib/agent/sessionRegistry.ts';
 import { laneOrchestrator } from './laneOrchestrator.svelte';
 import { openLabEntry } from './laneActions';
-import { labApi } from '#lib/lab/api.ts';
+import { labApi, labApiFor } from '#lib/lab/api.ts';
 import { m } from '#lib/paraglide/messages.js';
 import {
 	fetchUnintegratedLoss,
@@ -89,7 +89,7 @@ export async function listClosedLanes(project: Project): Promise<ClosedLaneEntry
 	// 2. Corsie Lab chiuse / non ancora aperte
 	if (project.canonicalProjectPath) {
 		try {
-			const indexEntries = await labApi.listIndex(project.canonicalProjectPath);
+			const indexEntries = await labApiFor(project).listIndex(project.canonicalProjectPath);
 			for (const entry of indexEntries) {
 				// Verifica se esiste gia' una corsia aperta per questo prototipo
 				const openLane = projectLanes.find(
@@ -174,10 +174,11 @@ export async function closeLane(
 		console.warn('[closeLane] Arresto processi fallito:', err);
 	}
 
-	// 3. Per le corsie Lab, aggiorna lo stato nell'indice
+	// 3. Per le corsie Lab, aggiorna lo stato nell'indice: comandi della
+	// macchina che possiede il progetto (S3-link-front-05).
 	if (lane.kind === 'lab' && lane.labPrototypeId && project?.canonicalProjectPath) {
 		try {
-			await labApi.updateIndex(project.canonicalProjectPath, lane.labPrototypeId, {
+			await labApiFor(project).updateIndex(project.canonicalProjectPath, lane.labPrototypeId, {
 				status: 'closed'
 			});
 		} catch (err) {
@@ -223,7 +224,7 @@ export async function reopenLane(project: Project, entry: ClosedLaneEntry): Prom
 	// Corsia Lab: la voce viene dall'indice appena letto da listClosedLanes; se
 	// nel frattempo e' sparita non c'e' nessun workspace da riaprire.
 	if (!project.canonicalProjectPath) return;
-	const list = await labApi.listIndex(project.canonicalProjectPath);
+	const list = await labApiFor(project).listIndex(project.canonicalProjectPath);
 	const labEntry = list.find((item) => item.id === entry.prototypeId);
 	if (!labEntry) return;
 	await openLabEntry(project.id, labEntry);
@@ -368,9 +369,10 @@ export async function deleteWorktreeLane(
 async function stopLabWatch(ownerProjectId: string, targetLaneId: string): Promise<void> {
 	// Caricamento dinamico: evita che l'albero di TopBar.svelte trascini
 	// il runtime del Laboratorio prima dell'uso effettivo di una corsia Lab.
+	// La dispose ferma gia' il watcher sul backend giusto (la corsia ricorda
+	// la sua macchina), quindi non serve un secondo stop qui.
 	const { disposeLabRuntime } = await import('#lib/lab/runtime.svelte.ts');
 	await disposeLabRuntime(ownerProjectId, targetLaneId).catch(() => undefined);
-	await labApi.watchStop(`${ownerProjectId}:${targetLaneId}`).catch(() => undefined);
 }
 
 /**
@@ -386,12 +388,16 @@ export async function deleteLabPrototype(
 ): Promise<DeleteLabOutcome> {
 	let indexPath: string | null = null;
 	let lane: LaneRecord | undefined;
+	// La macchina che possiede il progetto decide dove stanno indice e workspace
+	// (S3-link-front-05); le bozze libere sono di questa.
+	let projectOwner: Project | null = null;
 
 	if (ownerProjectId) {
 		const project = projectStore.projects.find((p) => p.id === ownerProjectId);
 		if (!project?.canonicalProjectPath) {
 			return { kind: 'failed', message: m.lab_error_owner_unavailable() };
 		}
+		projectOwner = project;
 		indexPath = project.canonicalProjectPath;
 		lane = laneStore
 			.lanesFor(ownerProjectId)
@@ -416,9 +422,10 @@ export async function deleteLabPrototype(
 		}
 	}
 
+	// L'anteprima pubblicata e' di questa macchina; l'indice sta dove vive il progetto.
 	await labApi.unpublish(prototypeId).catch(() => undefined);
 	try {
-		await labApi.removeFromIndex(indexPath, prototypeId, true);
+		await labApiFor(projectOwner).removeFromIndex(indexPath, prototypeId, true);
 	} catch (err) {
 		return { kind: 'failed', message: err instanceof Error ? err.message : String(err) };
 	}

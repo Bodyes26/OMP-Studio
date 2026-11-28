@@ -393,8 +393,8 @@
 		flex-direction: column;
 		height: 100%;
 		min-height: 520px;
-		background: var(--bg-primary, #1e1e24);
-		color: var(--text-primary, #ffffff);
+		background: var(--bg-base);
+		color: var(--ink);
 		border-radius: 8px;
 		overflow: hidden;
 	}
@@ -404,8 +404,8 @@
 		justify-content: space-between;
 		align-items: flex-start;
 		padding: 18px 24px;
-		border-bottom: 1px solid var(--line, rgba(255, 255, 255, 0.1));
-		background: var(--bg-secondary, #25252d);
+		border-bottom: 1px solid var(--line);
+		background: var(--bg-raised);
 		gap: 16px;
 	}
 
@@ -422,13 +422,13 @@
 	}
 
 	:global(.sparkle-icon) {
-		color: var(--accent, #7c3aed);
+		color: var(--brand);
 	}
 
 	.subtitle {
 		margin: 4px 0 8px 0;
 		font-size: 0.85rem;
-		color: var(--text-muted, #9ca3af);
+		color: var(--ink-muted);
 		line-height: 1.4;
 	}
 
@@ -447,27 +447,29 @@
 	}
 
 	.model-badge {
-		background: rgba(124, 58, 237, 0.15);
-		color: #c4b5fd;
-		border: 1px solid rgba(124, 58, 237, 0.3);
+		background: color-mix(in oklab, var(--brand) 15%, transparent);
+		color: var(--brand-ink);
+		border: 1px solid color-mix(in oklab, var(--brand) 30%, transparent);
 	}
 
 	.readonly-badge {
-		background: rgba(16, 185, 129, 0.12);
-		color: #6ee7b7;
-		border: 1px solid rgba(16, 185, 129, 0.25);
+		background: color-mix(in oklab, var(--success) 12%, transparent);
+		color: var(--success);
+		border: 1px solid color-mix(in oklab, var(--success) 25%, transparent);
 	}
 
+	/* Un'informazione non ha una tinta propria (Outcome-Only Color Rule):
+	   resta neutra come la variante info di AlertBanner. */
 	.scope-badge {
-		background: rgba(59, 130, 246, 0.12);
-		color: #93c5fd;
-		border: 1px solid rgba(59, 130, 246, 0.25);
+		background: color-mix(in oklab, var(--ink-muted) 12%, transparent);
+		color: var(--ink-muted);
+		border: 1px solid color-mix(in oklab, var(--ink-muted) 25%, transparent);
 	}
 
 	.switch-btn {
 		background: transparent;
-		border: 1px solid var(--line, rgba(255, 255, 255, 0.15));
-		color: var(--text-primary, #ffffff);
+		border: 1px solid var(--line-strong);
+		color: var(--ink);
 		padding: 6px 12px;
 		border-radius: 6px;
 		font-size: 0.82rem;
@@ -477,8 +479,8 @@
 	}
 
 	.switch-btn:hover {
-		background: rgba(255, 255, 255, 0.06);
-		border-color: var(--line-active, rgba(255, 255, 255, 0.3));
+		background: var(--bg-hover);
+		border-color: var(--line-strong);
 	}
 
 	.conversation-scroll {
@@ -491,8 +493,8 @@
 	}
 
 	.scope-picker-card {
-		background: var(--bg-secondary, #25252d);
-		border: 1px solid var(--line, rgba(255, 255, 255, 0.12));
+		background: var(--bg-raised);
+		border: 1px solid var(--line);
 		border-radius: 8px;
 		padding: 20px 24px;
 		display: flex;
@@ -516,7 +518,7 @@
 	.scope-desc {
 		margin: 0;
 		font-size: 0.85rem;
-		color: var(--text-muted, #9ca3af);
+		color: var(--ink-muted);
 		line-height: 1.45;
 	}
 
@@ -529,12 +531,12 @@
 	}
 
 	.scope-proj-btn {
-		background: rgba(255, 255, 255, 0.04);
-		border: 1px solid var(--line, rgba(255, 255, 255, 0.1));
+		background: var(--bg-hover);
+		border: 1px solid var(--line);
 		border-radius: 6px;
 		padding: 10px 14px;
 		text-align: left;
-		color: var(--text-primary, #ffffff);
+		color: var(--ink);
 		cursor: pointer;
 		display: flex;
 		flex-direction: column;
@@ -543,8 +545,8 @@
 	}
 
 	.scope-proj-btn:hover {
-		background: rgba(124, 58, 237, 0.12);
-		border-color: var(--accent, #7c3aed);
+		background: color-mix(in oklab, var(--brand) 12%, transparent);
+		border-color: var(--brand);
 	}
 
 	.scope-manual-row {
@@ -555,8 +557,8 @@
 	}
 
 	.btn-confirm-scope {
-		background: var(--accent, #7c3aed);
-		color: #ffffff;
+		background: var(--brand);
+		color: var(--on-brand);
 		border: none;
 		border-radius: 6px;
 		padding: 7px 16px;
@@ -582,14 +584,14 @@
 	}
 
 	:global(.empty-icon) {
-		color: var(--text-muted, #9ca3af);
+		color: var(--ink-muted);
 		opacity: 0.6;
 	}
 
 	.empty-text {
 		max-width: 480px;
 		font-size: 0.9rem;
-		color: var(--text-muted, #9ca3af);
+		color: var(--ink-muted);
 		line-height: 1.5;
 		margin: 0;
 	}
@@ -605,16 +607,16 @@
 
 	.starters-label {
 		font-size: 0.75rem;
-		color: var(--text-muted, #9ca3af);
+		color: var(--ink-muted);
 		text-align: left;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 	}
 
 	.starter-chip {
-		background: var(--bg-secondary, #25252d);
-		border: 1px solid var(--line, rgba(255, 255, 255, 0.08));
-		color: var(--text-primary, #ffffff);
+		background: var(--bg-raised);
+		border: 1px solid var(--line);
+		color: var(--ink);
 		padding: 8px 12px;
 		border-radius: 6px;
 		font-size: 0.82rem;
@@ -624,8 +626,8 @@
 	}
 
 	.starter-chip:hover {
-		background: rgba(124, 58, 237, 0.1);
-		border-color: rgba(124, 58, 237, 0.3);
+		background: color-mix(in oklab, var(--brand) 10%, transparent);
+		border-color: color-mix(in oklab, var(--brand) 30%, transparent);
 	}
 
 	.message-row {
@@ -650,15 +652,15 @@
 	}
 
 	.message-bubble.user {
-		background: var(--accent, #7c3aed);
-		color: #ffffff;
+		background: var(--brand);
+		color: var(--on-brand);
 		border-bottom-right-radius: 2px;
 	}
 
 	.message-bubble.assistant {
-		background: var(--bg-secondary, #25252d);
-		color: var(--text-primary, #ffffff);
-		border: 1px solid var(--line, rgba(255, 255, 255, 0.08));
+		background: var(--bg-raised);
+		color: var(--ink);
+		border: 1px solid var(--line);
 		border-bottom-left-radius: 2px;
 	}
 
@@ -690,7 +692,7 @@
 		width: 6px;
 		height: 6px;
 		border-radius: 50%;
-		background: var(--accent, #7c3aed);
+		background: var(--brand);
 		animation: pulse 1.4s infinite ease-in-out both;
 	}
 
@@ -704,14 +706,14 @@
 
 	.thinking-text {
 		font-size: 0.8rem;
-		color: var(--text-muted, #9ca3af);
+		color: var(--ink-muted);
 		font-style: italic;
 	}
 
 	.error-banner {
-		background: rgba(239, 68, 68, 0.15);
-		color: #fca5a5;
-		border: 1px solid rgba(239, 68, 68, 0.3);
+		background: color-mix(in oklab, var(--danger) 15%, transparent);
+		color: var(--danger);
+		border: 1px solid color-mix(in oklab, var(--danger) 30%, transparent);
 		padding: 10px 14px;
 		border-radius: 6px;
 		font-size: 0.85rem;
@@ -722,8 +724,8 @@
 	}
 
 	.proposal-card {
-		background: rgba(124, 58, 237, 0.07);
-		border: 1px solid rgba(124, 58, 237, 0.3);
+		background: color-mix(in oklab, var(--brand) 7%, transparent);
+		border: 1px solid color-mix(in oklab, var(--brand) 30%, transparent);
 		border-radius: 8px;
 		padding: 16px;
 		display: flex;
@@ -756,7 +758,7 @@
 	}
 
 	.prop-key {
-		color: var(--text-muted, #9ca3af);
+		color: var(--ink-muted);
 		min-width: 85px;
 	}
 
@@ -765,8 +767,8 @@
 		align-items: center;
 		gap: 6px;
 		font-size: 0.78rem;
-		color: var(--text-muted, #9ca3af);
-		background: rgba(0, 0, 0, 0.2);
+		color: var(--ink-muted);
+		background: var(--bg-sunken);
 		padding: 6px 10px;
 		border-radius: 4px;
 	}
@@ -781,8 +783,8 @@
 		display: flex;
 		align-items: center;
 		gap: 6px;
-		background: var(--accent, #7c3aed);
-		color: #ffffff;
+		background: var(--brand);
+		color: var(--on-brand);
 		border: none;
 		border-radius: 6px;
 		padding: 8px 14px;
@@ -800,8 +802,8 @@
 		align-items: center;
 		gap: 6px;
 		background: transparent;
-		border: 1px solid var(--line, rgba(255, 255, 255, 0.15));
-		color: var(--text-primary, #ffffff);
+		border: 1px solid var(--line-strong);
+		color: var(--ink);
 		border-radius: 6px;
 		padding: 8px 14px;
 		font-size: 0.84rem;
@@ -809,8 +811,8 @@
 	}
 
 	.script-card {
-		background: var(--bg-secondary, #25252d);
-		border: 1px solid var(--line, rgba(255, 255, 255, 0.12));
+		background: var(--bg-raised);
+		border: 1px solid var(--line);
 		border-radius: 8px;
 		padding: 16px;
 		display: flex;
@@ -833,12 +835,12 @@
 	.script-desc {
 		margin: 0;
 		font-size: 0.82rem;
-		color: var(--text-muted, #9ca3af);
+		color: var(--ink-muted);
 	}
 
 	.script-preview {
-		background: rgba(0, 0, 0, 0.35);
-		border: 1px solid var(--line, rgba(255, 255, 255, 0.08));
+		background: var(--bg-sunken);
+		border: 1px solid var(--line);
 		padding: 10px;
 		border-radius: 6px;
 		font-size: 0.8rem;
@@ -852,8 +854,8 @@
 		align-items: center;
 		gap: 6px;
 		align-self: flex-start;
-		background: #059669;
-		color: #ffffff;
+		background: var(--success-dim);
+		color: var(--on-success);
 		border: none;
 		border-radius: 6px;
 		padding: 8px 14px;
@@ -866,7 +868,7 @@
 		display: flex;
 		align-items: center;
 		gap: 6px;
-		color: #34d399;
+		color: var(--success);
 		font-size: 0.84rem;
 		font-weight: 500;
 	}
@@ -875,21 +877,21 @@
 		font-size: 0.8rem;
 		padding: 8px 12px;
 		border-radius: 6px;
-		background: rgba(255, 255, 255, 0.05);
-		border: 1px solid var(--line, rgba(255, 255, 255, 0.1));
+		background: var(--bg-hover);
+		border: 1px solid var(--line);
 		display: flex;
 		flex-direction: column;
 		gap: 4px;
 	}
 
 	.preserved-tag {
-		color: #fbbf24;
+		color: var(--warn);
 	}
 
 	.assistant-footer {
 		padding: 14px 24px;
-		border-top: 1px solid var(--line, rgba(255, 255, 255, 0.1));
-		background: var(--bg-secondary, #25252d);
+		border-top: 1px solid var(--line);
+		background: var(--bg-raised);
 	}
 
 	.input-row {
@@ -900,9 +902,9 @@
 
 	.chat-input {
 		flex: 1;
-		background: var(--bg-primary, #1e1e24);
-		border: 1px solid var(--line, rgba(255, 255, 255, 0.15));
-		color: var(--text-primary, #ffffff);
+		background: var(--bg-base);
+		border: 1px solid var(--line-strong);
+		color: var(--ink);
 		border-radius: 6px;
 		padding: 10px 12px;
 		font-size: 0.88rem;
@@ -913,12 +915,12 @@
 
 	.chat-input:focus {
 		outline: none;
-		border-color: var(--accent, #7c3aed);
+		border-color: var(--brand);
 	}
 
 	.send-btn {
-		background: var(--accent, #7c3aed);
-		color: #ffffff;
+		background: var(--brand);
+		color: var(--on-brand);
 		border: none;
 		border-radius: 6px;
 		width: 42px;

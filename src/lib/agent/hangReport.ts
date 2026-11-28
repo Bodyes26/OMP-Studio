@@ -89,10 +89,13 @@ export interface BackendDiagnostics {
 		stdoutLines: number;
 		stdoutBytes: number;
 		lastStdoutMs: number;
-		framesSent: number;
+		/** Contatori del sink della finestra che ha chiesto la diagnosi. */
+		framesSent?: number;
 		tauriFetchPathFrames: number;
 		sendErrors: number;
 		lastSentMs: number;
+		/** Falso quando la sessione non ha un Channel in questa finestra. */
+		windowSink?: boolean;
 		stdinWrites: number;
 		lastStdinMs: number;
 		stdinWriteSinceMs: number | null;
@@ -113,6 +116,15 @@ export interface HangInput {
 	pending: { id: string; command: string; sentAt: number }[];
 	backend: BackendDiagnostics | null;
 	backendError: string | null;
+	/**
+	 * La sessione e' ospitata su un'altra macchina: `rpc_diagnostics` e'
+	 * instradato la' e nei `transport.framesSent` compaiono i frame del suo
+	 * Channel, non quelli di questa finestra. Confrontarli con `client` dava
+	 * un divario costante spacciato per «Channel fermo».
+	 */
+	remote?: boolean;
+	/** Frame arrivati al client durante l'attesa del comando. */
+	framesDuringWait?: number;
 }
 
 /** Una scrittura su stdin ferma da piu' di cosi' non e' lentezza: omp non legge. */
@@ -149,10 +161,19 @@ export function diagnoseHang(input: HangInput): string[] {
 		findings.push(msg.l10n_agent_hang_omp_exited());
 	}
 
+	// Il confronto fra frame spediti e consegnati regge solo quando i due
+	// contatori vengono dalla stessa scatola: la diagnosi di una sessione
+	// remota e' instradata la' e conta il Channel della finestra dell'host.
+	// Confrontarli dava un divario costante letto come «Channel fermo» (85
+	// rapporti del Mac, tutti di sessioni ospitate sul PC).
+	const comparable = input.remote !== true && t.windowSink !== false;
+	const framesSent = typeof t.framesSent === 'number' ? t.framesSent : null;
 	// Un frame mancante spedito da pochi istanti e' solo in viaggio: il
 	// Channel e' fermo quando il primo frame non consegnato e' vecchio.
-	const missing = t.recentFrames.find((frame) => frame.index === client.count);
-	const gap = t.framesSent - client.count;
+	const missing = comparable && framesSent !== null
+		? t.recentFrames.find((frame) => frame.index === client.count)
+		: undefined;
+	const gap = comparable && framesSent !== null ? framesSent - client.count : 0;
 	const stalled = gap > 0 && (!missing || now - missing.atMs > IN_FLIGHT_MS);
 	if (stalled) {
 		const detail = missing
@@ -171,7 +192,7 @@ export function diagnoseHang(input: HangInput): string[] {
 					count: t.recentFrames.length
 				});
 		findings.push(
-			msg.l10n_agent_hang_channel_stalled({ sent: t.framesSent, delivered: client.count }) +
+			msg.l10n_agent_hang_channel_stalled({ sent: framesSent ?? 0, delivered: client.count }) +
 				' ' +
 				msg.l10n_agent_hang_channel_queue({ gap }) +
 				detail
@@ -228,6 +249,13 @@ export function diagnoseHang(input: HangInput): string[] {
 			findings.push(msg.l10n_agent_hang_tree_processes({ count: tree.activeProcesses }));
 		}
 	}
+	if (!comparable) findings.push(msg.l10n_agent_hang_channel_remote());
+	// Frame arrivati mentre il comando aspettava: omp sta scrivendo, quindi la
+	// risposta e' accodata dietro il suo output invece di essere persa.
+	const duringWait = input.framesDuringWait ?? 0;
+	if (duringWait > 0) {
+		findings.push(msg.l10n_agent_hang_frames_during_wait({ count: duringWait, command: input.command }));
+	}
 	return findings;
 }
 
@@ -243,6 +271,7 @@ export function buildHangReport(input: HangInput) {
 			framesReceived: input.client.count,
 			lastFrameAt: input.client.lastAt,
 			msSinceLastFrame: input.client.lastAt ? input.now - input.client.lastAt : null,
+			framesDuringWait: input.framesDuringWait ?? 0,
 			recentFrames: getRecentFrames(input.client)
 		},
 		backend: input.backend,

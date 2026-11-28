@@ -1,14 +1,18 @@
 /**
- * Ponte fra la deduplica pura degli avvisi (R-MI-51, `machineAlerts.ts`) e la
- * finestra. Tiene lo stato della deduplica e una coda di un avviso alla volta:
- * la superficie che lo mostra e' quella gia' esistente nella barra di stato.
+ * Avvisi brevi sugli eventi delle macchine (R-MI-51, IMP-008).
  *
- * La deduplica vive in `machineAlerts.ts` perche' i test la provano senza
- * finestra; qui non c'e' regola sull'*evento*, solo il passaggio a testo
- * tradotto e la precedenza (IMP-008): quando una macchina su cui si sta
- * lavorando cade, l'avviso passa davanti agli altri e lo dice, invece di
- * aspettare il proprio turno dietro un avanzamento di commit. Nessun avviso
- * viene spostato o rimosso: R-MI-51 resta attivo.
+ * Ponte fra la deduplica pura degli avvisi (R-MI-51, `machineAlerts.ts`) e la
+ * finestra. Due spazi separati:
+ * - `current` e' la coda normale, un avviso alla volta, si consuma da sola;
+ * - `sticky` e' la caduta di una macchina su cui si sta lavorando: resta
+ *   finche' non la si chiude, ma NON blocca la coda. Prima abitava la stessa
+ *   coda e, essendo fisso, teneva invisibili commit arrivati e unioni
+ *   (S3-link-front-12).
+ *
+ * Nessun avviso viene perso: la deduplica vive in `machineAlerts.ts`, qui
+ * c'e' solo il passaggio a testo tradotto e la precedenza. Gli errori di
+ * sincronizzazione portano `tone: 'error'` e la vista li annuncia con
+ * `role="alert"` (S3-link-front-22).
  */
 
 import { m } from '#lib/paraglide/messages.js';
@@ -21,30 +25,36 @@ import {
 	type PresenceSample
 } from './machineAlerts.ts';
 
+export type MachineNoticeTone = 'info' | 'error';
+
 /** Un avviso pronto da mostrare. */
 export interface MachineNotice {
 	/** Cambia a ogni nuovo avviso: la vista riparte da qui. */
 	id: number;
 	text: string;
-	/** Riguarda una macchina su cui si sta lavorando: non scade da solo. */
-	sticky: boolean;
+	tone: MachineNoticeTone;
 }
 
 interface QueuedNotice {
 	text: string;
-	sticky: boolean;
+	tone: MachineNoticeTone;
 }
 
-class MachineAlertFeed {
+/** Esportata per i test: la coda e lo spazio fisso si provano senza finestra. */
+export class MachineAlertFeed {
 	private state: MachineAlertsState = emptyAlertsState();
 	private queue: QueuedNotice[] = [];
 	private sequence = 0;
+	/** Coda normale: si consuma da sola dopo pochi secondi. */
 	current = $state<MachineNotice | null>(null);
+	/** Caduta di una macchina al lavoro: spazio suo, resta finche' non la si chiude. */
+	sticky = $state<MachineNotice | null>(null);
+	private stickyMachine: string | null = null;
 
 	/**
 	 * Un campione: campioni di presenza ed esiti dei giri. `working` sono le
-	 * macchine con una sessione al lavoro da questa finestra: i loro avvisi
-	 * vengono prima e la caduta si legge come «mentre lavoravi».
+	 * macchine con una sessione al lavoro da questa finestra: la loro caduta
+	 * va in testa e si legge come «mentre lavoravi».
 	 */
 	update(
 		machines: readonly PresenceSample[],
@@ -56,17 +66,32 @@ class MachineAlertFeed {
 		const urgent: QueuedNotice[] = [];
 		const rest: QueuedNotice[] = [];
 		for (const alert of result.alerts) {
-			const sticky = working.has(alert.machine);
-			(alert.kind === 'presence' && !alert.online && sticky ? urgent : rest).push({
-				text: noticeText(alert, sticky),
-				sticky: sticky && alert.kind === 'presence' && !alert.online
-			});
+			const workingHere = working.has(alert.machine);
+			const text = noticeText(alert, workingHere);
+			// La caduta di una macchina al lavoro non e' un avviso da coda: e'
+			// uno stato, e resta finche' la macchina non torna (IMP-008).
+			if (alert.kind === 'presence' && !alert.online && workingHere) {
+				this.sticky = { id: ++this.sequence, text, tone: 'info' };
+				this.stickyMachine = alert.machine;
+				continue;
+			}
+			// La macchina e' tornata: la caduta fissa non e' piu' vera e va
+			// tolta da sola, senza aspettare un clic su un avviso gia' superato.
+			if (alert.kind === 'presence' && alert.online && alert.machine === this.stickyMachine) {
+				this.sticky = null;
+				this.stickyMachine = null;
+			}
+			// Un blocco vero (non «cartella occupata», non un conflitto da
+			// risolvere) e' un errore e si annuncia come tale (S3-link-front-22).
+			const error = alert.kind === 'blocked' && alert.reason !== 'busy' && !alert.reason.startsWith('conflict:');
+			(alert.kind === 'presence' && !alert.online ? urgent : rest).push({ text, tone: error ? 'error' : 'info' });
 		}
+		// Gli altri avvisi si accodano sempre, anche quando una caduta urgente
+		// li precede: prima restavano fuori e la deduplica li dava per emessi
+		// (S3-link-front-11).
 		if (urgent.length > 0) {
-			// La caduta di una macchina al lavoro non aspetta il turno: quello che
-			// era in cima torna in coda, dopo (non sparisce).
-			if (this.current) this.queue.unshift({ text: this.current.text, sticky: this.current.sticky });
-			this.queue.unshift(...urgent);
+			const before = this.current ? [{ text: this.current.text, tone: this.current.tone }] : [];
+			this.queue = [...urgent, ...before, ...this.queue, ...rest];
 			this.current = null;
 		} else {
 			this.queue.push(...rest);
@@ -77,23 +102,31 @@ class MachineAlertFeed {
 	/**
 	 * Un avviso gia' pronto, fuori dalla deduplica degli eventi delle macchine:
 	 * lo usa il giro delle copie quando fallisce tre volte di fila (R-MI-57).
-	 * Chi chiama ha gia' deciso che va detto una volta sola.
+	 * Chi chiama ha gia' deciso che va detto una volta sola. Gli errori hanno
+	 * la variante errore (S3-link-front-22).
 	 */
-	announce(text: string): void {
-		this.queue.push({ text, sticky: false });
+	announce(text: string, tone: MachineNoticeTone = 'info'): void {
+		this.queue.push({ text, tone });
 		if (this.current === null) this.advance();
 	}
 
 	/** Passa all'avviso successivo, o chiude se la coda e' vuota. */
 	advance(): void {
 		const next = this.queue.shift();
-		this.current = next === undefined ? null : { id: ++this.sequence, text: next.text, sticky: next.sticky };
+		this.current = next === undefined ? null : { id: ++this.sequence, text: next.text, tone: next.tone };
 	}
 
 	dismiss(): void {
 		this.advance();
 	}
+
+	/** Chiude la caduta fissa: da qui la macchina o e' tornata o l'utente ha letto. */
+	dismissSticky(): void {
+		this.sticky = null;
+		this.stickyMachine = null;
+	}
 }
+
 
 /** Una frase sola per avviso, come gli heads-up di fine turno. */
 function noticeText(alert: MachineAlert, working: boolean): string {

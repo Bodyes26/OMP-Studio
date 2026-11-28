@@ -7,11 +7,12 @@
  */
 
 import { untrack } from 'svelte';
-import { invoke, isTauri, LOCAL_MACHINE } from '#lib/backend/ipc.ts';
+import { invoke, isTauri, LOCAL_MACHINE, routeErrorText } from '#lib/backend/ipc.ts';
 import { linkStore } from '#lib/backend/link.svelte.ts';
 import { m } from '#lib/paraglide/messages.js';
 import { githubStore } from './github.svelte';
 import { busyPaths } from './copyBusy.ts';
+import { beginCopyRound, endCopyRound } from './copyRound.ts';
 import { machineAlertFeed } from './machineAlertFeed.svelte.ts';
 import { normalizeProjectPath, projectStore, type Project } from './projects.svelte';
 import { projectOrder } from './projectOrder.svelte';
@@ -51,7 +52,8 @@ export interface BranchSync {
 	 * riapplicano, R-MI-47), altrimenti il messaggio di git. Per `diverged`:
 	 * `conflict:<file>[,<file>…]` con i file che git non unisce da solo
 	 * (R-MI-61). Per `merged`: `journal` quando le modifiche delle due parti
-	 * stavano solo in `docs/diario/`, altrimenti `null`.
+	 * stavano solo in file che crescono per righe (`docs/diario/**`,
+	 * `CHANGELOG*.md`, `docs/progetto/*.md`, R-MI-72), altrimenti `null`.
 	 */
 	reason: string | null;
 }
@@ -59,12 +61,23 @@ export interface BranchSync {
 export interface CopySyncReport {
 	machine: string;
 	branches: BranchSync[];
+	/**
+	 * Giro non avvenuto perche' la cartella aveva gia' una sincronizzazione in
+	 * corso (S2-06, contratto C2): `"busy"`. Non e' un errore, si riprova dopo.
+	 */
+	skipped?: string | null;
+}
+
+/** Cime delle copie gemelle, come le riporta `copy_sync_heads`. */
+interface CopyHeads {
+	branches: Array<{ name: string; commit: string }>;
 }
 
 /**
  * Esito riassunto di un giro, quello che serve alla barra e agli avvisi
- * (R-MI-49, R-MI-50, R-MI-51): quanti commit sono arrivati, se il diario e'
- * stato unito, cosa resta bloccato e perche'.
+ * (R-MI-49, R-MI-50, R-MI-51, R-MI-72): quanti commit sono arrivati, se
+ * l'unione ha toccato solo diario, changelog e documenti di progetto, cosa
+ * resta bloccato e perche'.
  */
 export interface SyncOutcome {
 	at: number;
@@ -73,7 +86,7 @@ export interface SyncOutcome {
 	advanced: number;
 	/** Questa macchina ha unito una branch divergente senza conflitti (R-MI-61). */
 	merged: boolean;
-	/** L'unione riguardava solo il diario: l'avviso dice «Diario unito» (R-MI-48). */
+	/** L'unione riguardava solo diario, changelog e documenti di progetto: l'avviso dice «Diario, changelog e documenti uniti» (R-MI-48, R-MI-72). */
 	journalOnly: boolean;
 	/** Avanzamenti rimasti indietro con il motivo, uno per branch. */
 	blocked: Array<{ branch: string; reason: string; behind: number }>;
@@ -114,8 +127,6 @@ interface SyncPair {
 
 class CopySyncStore {
 	reports = $state<Record<string, CopySyncReport>>({});
-	/** Ultimo errore per coppia: si mostra nel pannello, non blocca nulla. */
-	errors = $state<Record<string, string>>({});
 	/**
 	 * Coppie con un giro in corso: la tessera anima le frecce e il chip della
 	 * barra mostra l'indicatore finche' c'e' almeno una chiave (R-MI-49,
@@ -129,6 +140,9 @@ class CopySyncStore {
 	lastSyncAt = $state<Record<string, number>>({});
 	private inFlight = new Set<string>();
 	private signatures = new Map<string, string>();
+	/** Cima dell'ultima lettura completa per (percorso gemello): `git_upstream_status` solo se cambia. */
+	private peerHeads = new Map<string, string>();
+	private headReads = new Set<string>();
 	/** Fallimenti e attese per coppia (R-MI-57). */
 	private retryHistory = new Map<string, SyncRetryState>();
 	private retryTimers = new Map<string, number>();
@@ -224,11 +238,15 @@ class CopySyncStore {
 	 * Giro di tutti i pari. Chi ha appena fallito aspetta la sua attesa
 	 * crescente: ci pensa il timer di `scheduleRetry`, non il minuto, o si
 	 * tenterebbe a ogni giro vanificando il ritento lento (R-MI-57).
+	 * Chi ha gia' sincronizzato poco fa con la stessa impronta viene saltato:
+	 * il giro completo costa un `copy_sync` per coppia (S3-link-front-29).
 	 */
 	syncAll(): void {
 		const now = Date.now();
 		for (const pair of this.pairs()) {
 			if (!syncDue(this.retryHistory.get(pair.key) ?? emptySyncRetry(), now)) continue;
+			const last = this.lastSyncAt[pair.key] ?? 0;
+			if (now - last < SYNC_INTERVAL_MS && this.signatures.get(pair.key) === this.signature(pair)) continue;
 			void this.sync(pair);
 		}
 	}
@@ -237,6 +255,9 @@ class CopySyncStore {
 		if (!isTauri() || this.inFlight.has(pair.key)) return null;
 		this.inFlight.add(pair.key);
 		this.active[pair.key] = true;
+		// Il fast-forward da origin aspetta la fine di questo giro invece di
+		// ritentare a tempo perso (S3-04).
+		beginCopyRound();
 		try {
 			const report = await invoke<CopySyncReport>('copy_sync', {
 				projectPath: pair.local.canonicalProjectPath,
@@ -244,8 +265,10 @@ class CopySyncStore {
 				peerPath: pair.remote.canonicalProjectPath,
 				busyPaths: busyPaths(pair.local)
 			});
+			// Giro non avvenuto perche' la cartella era gia' occupata (C2):
+			// non e' un esito, si riprova al giro successivo senza avvisare.
+			if (report.skipped) return null;
 			this.reports[pair.key] = report;
-			delete this.errors[pair.key];
 			this.retryHistory.set(pair.key, recordSyncSuccess());
 			const moved = report.branches.filter((branch) =>
 				branch.state === 'advanced' || branch.state === 'merged');
@@ -271,13 +294,18 @@ class CopySyncStore {
 			}
 			return report;
 		} catch (error) {
-			// Un giro gia' in corso nel backend non e' un errore da mostrare.
+			// Un giro gia' in corso nel backend non e' un errore da mostrare:
+			// fino a qui era l'unico modo di riconoscerlo (S2-06, C2).
 			const text = String(error);
 			if (text.includes('sync already running')) return null;
-			this.errors[pair.key] = text;
-			this.failed(pair, text);
+			// La frase per l'utente e' quella comune (C5): un rifiuto di
+			// instradamento nomina la macchina invece dell'id (S3-link-front-08).
+			this.failed(pair, routeErrorText(error));
 			return null;
 		} finally {
+			// Anche un giro che esce subito per la guardia occupata sblocca chi
+			// aspetta: la cartella potrebbe essersi liberata dopo.
+			endCopyRound();
 			this.inFlight.delete(pair.key);
 			delete this.active[pair.key];
 		}
@@ -295,7 +323,9 @@ class CopySyncStore {
 		if (alertReason !== null) {
 			const machine = pair.remote.machineId ?? '';
 			const name = linkStore.machineFor(machine)?.name ?? machine;
-			machineAlertFeed.announce(m.copies_sync_error({ machine: name, error: alertReason }));
+			// Variante errore (S3-link-front-22): un guasto si annuncia come tale,
+			// non con la stessa veste neutra di «Diario, changelog e documenti uniti».
+			machineAlertFeed.announce(m.copies_sync_error({ machine: name, error: alertReason }), 'error');
 		}
 		this.scheduleRetry(pair, syncRetryDelay(state.failures));
 	}
@@ -309,16 +339,46 @@ class CopySyncStore {
 	}
 
 	/**
-	 * Rilegge la cima delle copie delle gemelle: e' l'unico modo perche' un
-	 * commit dell'altra macchina si veda entro dieci secondi (R-MI-57). Solo
-	 * con la finestra visibile si paga questo giro; da nascosta resta il
-	 * minuto di `syncAll`.
+	 * Rilegge la cima delle copie gemelle: e' l'unico modo perche' un commit
+	 * dell'altra macchina si veda entro dieci secondi (R-MI-57). La cima si
+	 * legge con `copy_sync_heads` (un solo `for-each-ref`); lo stato completo
+	 * (`git_upstream_status`, che sull'altra macchina costa un `git status` di
+	 * tutta la cartella) si rilegge solo quando la cima e' cambiata, al fuoco
+	 * della finestra e da chi mostra la striscia (S3-link-front-07).
 	 */
-	private refreshPeerHeads(): void {
-		for (const pair of this.pairs()) {
-			const path = pair.remote.canonicalProjectPath;
-			if (!path) continue;
-			void githubStore.loadUpstreamStatus(path, true, pair.remote.machineId);
+	private refreshPeerHeads(force = false): void {
+		for (const pair of this.pairs()) void this.readPeerHead(pair, force);
+	}
+
+	/**
+	 * `force` solo per i segnali «sei tornato» (fuoco, progetto attivato,
+	 * macchina rientrata): li' lo stato completo va riletto anche a cima
+	 * invariata, perche' puo' essere cambiato altro (branch, upstream).
+	 */
+	private async readPeerHead(pair: SyncPair, force: boolean): Promise<void> {
+		const path = pair.remote.canonicalProjectPath;
+		const machine = pair.remote.machineId;
+		if (!path || !machine) return;
+		const key = `${machine}\u0000${normalizeProjectPath(path).toLowerCase()}`;
+		if (this.headReads.has(key)) return;
+		this.headReads.add(key);
+		try {
+			const heads = await invoke<CopyHeads>('copy_sync_heads', { projectPath: path }, { machine });
+			const head = heads.branches
+				.map((branch) => `${branch.name}@${branch.commit}`)
+				.sort()
+				.join('|');
+			const changed = this.peerHeads.get(key) !== head;
+			this.peerHeads.set(key, head);
+			// Solo una cima nuova vale uno stato completo: sull'altra macchina
+			// `git_upstream_status` legge tutta la cartella (S3-link-front-07).
+			if (!changed && !force) return;
+			await githubStore.loadUpstreamStatus(path, true, machine);
+		} catch {
+			// Gemella irraggiungibile: al ritorno in linea si rilegge comunque.
+			this.peerHeads.delete(key);
+		} finally {
+			this.headReads.delete(key);
 		}
 	}
 
@@ -332,7 +392,13 @@ class CopySyncStore {
 	start(): () => void {
 		if (this.stopper !== null) return this.stopper;
 		const visible = () => typeof document === 'undefined' || document.visibilityState === 'visible';
-		const timer = setInterval(() => this.syncAll(), SYNC_INTERVAL_MS);
+		// Sfasato rispetto ai giri da 60 s della barra (`enqueueGitFetch`, S3-04):
+		// partendo insieme si contendevano il SyncGuard a ogni giro. Il primo
+		// giro e' a meta' intervallo, poi il ritmo e' quello di sempre.
+		let timer: number | null = window.setTimeout(() => {
+			this.syncAll();
+			timer = setInterval(() => this.syncAll(), SYNC_INTERVAL_MS);
+		}, SYNC_INTERVAL_MS / 2);
 		// Visibile si legge ogni dieci secondi; da nascosta basta un tick su sei.
 		let ticks = 0;
 		const heads = setInterval(() => {
@@ -342,7 +408,7 @@ class CopySyncStore {
 			}
 		}, HEAD_REFRESH_VISIBLE_MS);
 		const wake = () => {
-			this.refreshPeerHeads();
+			this.refreshPeerHeads(true);
 			this.syncAll();
 		};
 		// Solo al ritorno: nascondere la finestra non e' un segnale per rileggere.
@@ -371,7 +437,12 @@ class CopySyncStore {
 			document.addEventListener('visibilitychange', onVisibility);
 		}
 		this.stopper = () => {
-			clearInterval(timer);
+			// Il primo giro e' un timeout, poi diventa un intervallo: si azzera
+			// anche il riferimento, cosi' un secondo `start()` non lo riusa.
+			if (timer !== null) {
+				clearInterval(timer);
+				timer = null;
+			}
 			clearInterval(heads);
 			clearInterval(transitions);
 			if (typeof window !== 'undefined') {

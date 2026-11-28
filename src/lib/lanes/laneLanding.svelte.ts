@@ -221,7 +221,10 @@ export class LaneLandingService {
 		if (this.initialized) return;
 		this.initialized = true;
 		this.loadQueue();
+		// A finestra nascosta il giro e' sospeso e riparte al ritorno: era un
+		// timer da 15 s sempre acceso (S7-05).
 		this.timer = setInterval(() => {
+			if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
 			void this.processQueue();
 		}, 15_000) as unknown as number;
 	}

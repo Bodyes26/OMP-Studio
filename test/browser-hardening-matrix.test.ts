@@ -146,15 +146,11 @@ describe('S47 — Hardening e Matrice End-to-End', () => {
 	});
 
 	describe('Policy origini top-level (Origin Classification)', () => {
-		it('riconosce correttamente le origini locali loopback senza prompt', () => {
-			assert.equal(isLocalOrigin('http://localhost:3000/app'), true);
-			assert.equal(isLocalOrigin('http://127.0.0.1:8080/'), true);
-			assert.equal(isLocalOrigin('http://[::1]:5173/'), true);
-			assert.equal(isLocalOrigin('about:blank'), true);
-		});
-
+		// `isLocalOrigin`, `extractOrigin` e `classifyOrigin` hanno un solo
+		// proprietario: `browser-origin-policy.test.ts`. Qui resta solo cio' che
+		// quel file non copre (l'origine remota con porta esplicita, che passa
+		// dalla stessa funzione dopo la normalizzazione).
 		it('identifica le origini remote che richiedono consenso preventivo', () => {
-			assert.equal(isLocalOrigin('https://example.com/login'), false);
 			assert.equal(isLocalOrigin('https://github.com/'), false);
 			assert.equal(extractOrigin('https://example.com:8443/login?q=1'), 'https://example.com:8443');
 		});

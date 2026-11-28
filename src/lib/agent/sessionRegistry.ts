@@ -322,16 +322,20 @@ export class SessionRegistry<T extends AgentSessionLike = AgentSession> {
 			target = this.getAllSessions().find(
 				(s) => s.pendingUi?.requestId === requestId
 			);
-			if (target) {
-				if (target.projectKey.trim().toLowerCase() !== projectId.trim().toLowerCase()) {
-					return false;
-				}
-				if (laneId && (target.laneId ?? 'main').trim().toLowerCase() !== laneId.trim().toLowerCase()) {
-					return false;
-				}
-				if (sessionId && target.sessionId && target.sessionId !== sessionId) {
-					return false;
-				}
+			if (!target) {
+				// Con un `requestId` presente e nessuna richiesta corrispondente
+				// la risposta fallisce chiusa (ASK-009): ripiegare sulla corsia
+				// consegnava la risposta di una domanda scaduta a quella nuova.
+				return false;
+			}
+			if (target.projectKey.trim().toLowerCase() !== projectId.trim().toLowerCase()) {
+				return false;
+			}
+			if (laneId && (target.laneId ?? 'main').trim().toLowerCase() !== laneId.trim().toLowerCase()) {
+				return false;
+			}
+			if (sessionId && target.sessionId && target.sessionId !== sessionId) {
+				return false;
 			}
 		}
 

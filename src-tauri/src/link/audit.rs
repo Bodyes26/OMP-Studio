@@ -26,6 +26,16 @@ pub(crate) fn is_noise(action: &str) -> bool {
         | "omp_sync_snapshot" | "session_move_redirect")
 }
 
+/// `rpc_send` porta sia le azioni sia le letture della chat. R-MI-39 chiede di
+/// registrare messaggi e risposte, non `get_state`/`set_steering_mode`: il
+/// `type` sta nella riga JSON (`{ "rpcId": .., "line": "{\"type\":..}" }`).
+pub(crate) fn rpc_send_is_action(args: &Value) -> bool {
+    let Some(line) = args.get("line").and_then(Value::as_str) else { return false };
+    let Ok(frame) = serde_json::from_str::<Value>(line) else { return false };
+    matches!(frame.get("type").and_then(Value::as_str),
+        Some("prompt" | "steer" | "follow_up" | "abort" | "extension_ui_response" | "ui_response"))
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Entry {

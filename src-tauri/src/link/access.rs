@@ -39,9 +39,21 @@ impl Roots {
         declared.sort_unstable();
         declared.dedup();
         if declared == self.declared { return Ok(()); }
-        let canonical = declared.iter().filter_map(|path| {
-            if !Path::new(path).is_absolute() { return None; }
-            crate::projects::canonical_project_base(path).ok()
+        let canonical: Vec<PathBuf> = declared.iter().filter_map(|path| {
+            if !Path::new(path).is_absolute() {
+                // Un percorso relativo non puo' essere una radice: lo si dice
+                // nel log invece di scartarlo in silenzio, altrimenti una coda
+                // rifiutata sembra un errore di permessi (S3-06).
+                crate::studio_log::info("link", format!("Radice remota scartata (non assoluta): {path}"));
+                return None;
+            }
+            match crate::projects::canonical_project_base(path) {
+                Ok(base) => Some(base),
+                Err(error) => {
+                    crate::studio_log::info("link", format!("Radice remota scartata ({error}): {path}"));
+                    None
+                }
+            }
         }).collect();
         self.declared = declared;
         self.canonical = canonical;
@@ -66,6 +78,15 @@ impl Roots {
                 if !path.is_absolute() { return Err(format!("Remote path must be absolute: {key}")); }
                 let resolved = resolve_destination(path)?;
                 if self.canonical.iter().any(|root| resolved.starts_with(root)) { return Ok(()); }
+                // I prototipi del Laboratorio stanno sotto la cartella dati di
+                // Studio, non sotto i progetti: un peer confinato deve poterli
+                // aprire, ma solo con i comandi `lab_*` (S3-05). La stessa
+                // radice con `file_read` resta rifiutata.
+                if command.starts_with("lab_") {
+                    if let Some(root) = lab_root() {
+                        if resolved.starts_with(root) { return Ok(()); }
+                    }
+                }
                 if matches!(key, "sessionFile" | "sessionPath" | "resume")
                     || (command == "read_historical_session_messages" && key == "path") {
                     if let Some(root) = crate::omp_ops::agent_dir().and_then(|root| root.join("sessions").canonicalize().ok()) {
@@ -78,6 +99,14 @@ impl Roots {
         }
         Ok(())
     }
+}
+
+/// Radice dei prototipi del Laboratorio, canonica. `None` se non esiste
+/// ancora o non si puo' risolvere.
+fn lab_root() -> Option<PathBuf> {
+    crate::lab::paths::lab_root()
+        .map(|root| root.join("prototypes"))
+        .and_then(|root| root.canonicalize().ok())
 }
 
 fn path_key(key: &str) -> bool {

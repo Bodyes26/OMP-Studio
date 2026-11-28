@@ -122,9 +122,14 @@ pub fn filter_matching_paths(
     matched
 }
 
-/// Ricostruisce il RecommendedWatcher sulle cartelle genitore dell'unione dei percorsi osservati.
-fn rebuild_watcher(app: &AppHandle, all_paths: Vec<String>) -> Result<(), String> {
-    let mut state = WATCHER_STATE.lock();
+/// Ricostruisce il `RecommendedWatcher` sulle cartelle genitore dell'unione dei
+/// percorsi osservati. Lo stato resta preso per tutta la ricostruzione: chi
+/// chiama deve avere gia' aggiornato `owners` sotto lo stesso lock.
+fn rebuild_watcher_locked(
+    app: &AppHandle,
+    state: &mut WatcherState,
+    all_paths: Vec<String>,
+) -> Result<(), String> {
     // Interrompe e rilascia il watcher precedente
     state.active_handle = None;
 
@@ -254,17 +259,26 @@ pub async fn file_watch_set(
     owner: String,
     paths: Vec<String>,
 ) -> Result<(), String> {
-    let all_paths = {
+    // Unione e ricostruzione sotto lo stesso lock (S8-09): prima si calcolava
+    // l'unione, si rilasciava e poi si ricostruiva, cosi' due proprietari
+    // concorrenti (editor, split, companion) potevano ricostruire con un'unione
+    // vecchia e un file aperto smetteva di essere osservato. La ricostruzione
+    // crea un watcher di sistema: la si fa fuori dal worker async.
+    tokio::task::spawn_blocking(move || {
         let mut state = WATCHER_STATE.lock();
         if paths.is_empty() {
             state.owners.remove(&owner);
         } else {
             state.owners.insert(owner, paths);
         }
-        union_owner_paths(&state.owners)
-    };
-
-    rebuild_watcher(&app, all_paths)
+        let all_paths = union_owner_paths(&state.owners);
+        rebuild_watcher_locked(&app, &mut state, all_paths)
+    })
+    .await
+    .map_err(|e| crate::tr!(
+        format!("Ricostruzione del file watcher interrotta: {e}"),
+        format!("Rebuilding the file watcher was interrupted: {e}")
+    ))?
 }
 
 #[cfg(test)]

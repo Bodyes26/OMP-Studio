@@ -44,7 +44,10 @@ pub(crate) enum Reply {
     Pong,
     Event { event: std::borrow::Cow<'static, str>, len: usize },
     Resync,
-    Opened { id: u64, continued: bool },
+    /// `instance` e' l'identita' dell'host, stabile per processo: se cambia,
+    /// il runtime dell'altra macchina e' ripartito e gli id numerici delle sue
+    /// sessioni non valgono piu' (S1-rpc-03).
+    Opened { id: u64, continued: bool, #[serde(default)] instance: Option<String> },
 }
 
 #[derive(Serialize, Deserialize)]

@@ -346,6 +346,12 @@ class CompanionStore {
 			});
 			if (handled) return;
 		}
+		if (requestId) {
+			// Una domanda scaduta e sostituita da una nuova nella stessa corsia:
+			// ripiegare sull'unica pendente consegnerebbe a quella nuova la
+			// risposta destinata alla vecchia (ASK-009). Si fallisce chiusi.
+			return;
+		}
 		if (laneId) {
 			const pendings = promptBus.getPendingsForLane(projectId, laneId);
 			if (pendings.length === 1) {

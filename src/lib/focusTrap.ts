@@ -4,8 +4,6 @@
  * Ripristina automaticamente il focus all'elemento precedentemente attivo alla chiusura.
  */
 
-import { traceFocus } from '#lib/focusTracer.ts';
-
 export interface FocusTrapOptions {
 	/** Callback invocata quando l'utente preme il tasto Escape all'interno dell'elemento */
 	onEscape?: () => void;
@@ -17,6 +15,35 @@ export interface FocusTrapOptions {
 
 /** Stack globale delle trappole attive per gestire correttamente i dialoghi annidati */
 const activeTrapStack: HTMLElement[] = [];
+
+/**
+ * Vero quando una superficie modale e' aperta sopra la finestra.
+ *
+ * Serve alle scorciatoie globali del guscio: elencare a mano gli stati di ogni
+ * dialogo significava dimenticarne uno e cambiare progetto sotto una modale.
+ * Le fonti sono tre e coprono tutte le superfici:
+ * - il top layer dei `<dialog[open]>` (Dialog.svelte e ogni dialog nativo);
+ * - lo stack di focusTrap (palette, cassetti, menu che intrappolano il fuoco);
+ * - i popover nel top layer che si comportano da superficie, esclusi i tooltip
+ *   (che seguono il puntatore e non devono sospendere la tastiera).
+ */
+export function anyModalSurfaceOpen(): boolean {
+	if (typeof document === 'undefined') return false;
+	if (activeTrapStack.length > 0) return true;
+	if (document.querySelector('dialog[open]') !== null) return true;
+	for (const el of document.querySelectorAll<HTMLElement>('[popover]')) {
+		if (el.getAttribute('role') === 'tooltip') continue;
+		// `:popover-open` e' l'unico modo per sapere se e' mostrato: non ha
+		// un attributo ne' una classe propri.
+		try {
+			if (el.matches(':popover-open')) return true;
+		} catch {
+			// Motore senza il selettore: gli altri due controlli bastano.
+			continue;
+		}
+	}
+	return false;
+}
 
 const focusableSelector =
 	'button, [href], input, select, textarea, [tabindex]';
@@ -76,7 +103,6 @@ export function trapFocus(node: HTMLElement, options?: FocusTrapOptions | (() =>
 		if (!node.isConnected) return;
 		if (activeTrapStack.at(-1) !== node) return;
 		if (!document.hasFocus()) return;
-		traceFocus('focus-trap-initial', `node=${node.className || node.tagName.toLowerCase()}`);
 		if (currentOpts.initialFocus) {
 			const target =
 				typeof currentOpts.initialFocus === 'string'

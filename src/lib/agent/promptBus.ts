@@ -74,7 +74,8 @@ export interface PromptRequest {
 	readonly questionIndex?: number;
 	readonly totalQuestions?: number;
 	readonly createdAt: number;
-	readonly form?: AskFormRequest;
+	/** La richiesta chiusa non porta piu' il modulo: si azzera in `closeRequest`. */
+	form?: AskFormRequest;
 	formDraft?: AskFormDraft;
 	status: PromptStatus;
 	resolvedAt?: number;
@@ -108,6 +109,13 @@ export interface PromptBusOptions {
 
 const DEFAULT_STORAGE_KEY = 'omp-studio-pending-prompts';
 const MAX_PROMPT_AGE_MS = 24 * 60 * 60 * 1000; // 24 ore: pulizia richieste stantie
+
+/** Voci chiuse tenute in memoria: bastano a riconoscere una risposta doppia, e
+ *  non crescono con le domande della giornata. */
+const MAX_CLOSED_IDS = 500;
+/** Una voce chiusa da piu' di cosi' non serve nemmeno a riconoscere il doppio:
+ *  le due finestre si rispondono entro secondi, non minuti. */
+const CLOSED_RETENTION_MS = 10 * 60 * 1000;
 
 /**
  * Storage predefinito basato su window.localStorage con fallback in memoria.
@@ -151,6 +159,56 @@ export class PromptBus {
 	private requests = new Map<string, PromptRequest>();
 	private resolvingRequests = new Set<string>();
 	private formDrafts = new Map<string, AskFormDraft>();
+	/**
+	 * Id chiusi di recente, in ordine di chiusura. Una voce chiusa non si
+	 * ricrea da un `SYNC_RESPONSE` o da un annuncio in ritardo della
+	 * Companion, e la prima risposta continua a vincere (ASK-009) senza che
+	 * `requests` trattenga per sempre i `responder` (che chiudono su una
+	 * `AgentSession`) e le bozze con immagini base64.
+	 */
+	private closedIds = new Map<string, number>();
+
+	/**
+	 * Chiude una voce: stato finale, via il `responder` (chiude su una
+	 * `AgentSession` e tratterrebbe la sessione di un progetto chiuso), via la
+	 * bozza pesante, e l'id resta tra i chiusi recenti per riconoscere una
+	 * seconda risposta.
+	 */
+	private closeRequest(request: PromptRequest, status: 'resolved' | 'cancelled' | 'expired', answer?: PromptAnswer): void {
+		request.status = status;
+		request.resolvedAt = Date.now();
+		if (answer !== undefined) request.answer = answer;
+		request.responder = undefined;
+		request.form = undefined;
+		request.formDraft = undefined;
+		this.formDrafts.delete(request.requestId);
+		this.closedIds.set(request.requestId, request.resolvedAt);
+		this.pruneClosed();
+	}
+
+	/** Tiene solo gli id chiusi che servono davvero: recenti e sotto il tetto. */
+	private pruneClosed(): void {
+		const now = Date.now();
+		const expired: string[] = [];
+		for (const [id, at] of this.closedIds) {
+			if (now - at > CLOSED_RETENTION_MS) expired.push(id);
+		}
+		for (const id of expired) {
+			this.closedIds.delete(id);
+			this.requests.delete(id);
+		}
+		if (this.closedIds.size <= MAX_CLOSED_IDS) return;
+		const oldest = [...this.closedIds.entries()].sort((a, b) => a[1] - b[1]);
+		for (const [id] of oldest.slice(0, this.closedIds.size - MAX_CLOSED_IDS)) {
+			this.closedIds.delete(id);
+			this.requests.delete(id);
+		}
+	}
+
+	/** Una voce chiusa non torna viva per un annuncio in ritardo. */
+	private isClosed(requestId: string): boolean {
+		return this.closedIds.has(requestId);
+	}
 	private pendingAcks = new Map<string, (result: { ok: boolean; error?: string }) => void>();
 	private subscribers = new Set<(pendings: PromptRequest[]) => void>();
 	private unlistenBridge: Array<() => void> = [];
@@ -320,11 +378,26 @@ export class PromptBus {
 		}
 
 		const existing = this.requests.get(requestId);
+		if (!existing && this.isClosed(requestId)) {
+			// Una voce gia' chiusa non si riapre: la prima risposta vince
+			// (ASK-009) e il responder e' stato buttato via. Si restituisce la
+			// traccia chiusa, senza toccare la mappa viva.
+			return {
+				requestId,
+				projectId,
+				kind: payload.kind ?? 'ask',
+				method: payload.method ?? 'select',
+				title: payload.title,
+				options: payload.options ?? [],
+				optionDetails: payload.optionDetails ?? [],
+				createdAt: this.closedIds.get(requestId) ?? Date.now(),
+				status: 'cancelled'
+			};
+		}
 		if (existing) {
 			if (existing.status !== 'pending') {
 				return existing;
-			}
-			// Arricchimento della richiesta esistente
+			}			// Arricchimento della richiesta esistente
 			const enriched: PromptRequest = {
 				...existing,
 				laneId: payload.laneId !== undefined ? payload.laneId : existing.laneId,
@@ -432,11 +505,9 @@ export class PromptBus {
 					}
 				}
 
-				request.status = 'resolved';
-				request.resolvedAt = Date.now();
-				request.answer = answer;
-
-				// Rimuove immediatamente dallo storage delle pendenti
+				// Chiude la voce: via `responder`, bozza e immagini pesanti.
+				// Rimuove immediatamente dallo storage delle pendenti.
+				this.closeRequest(request, 'resolved', answer);
 				this.saveToStorage();
 
 				// Notifica le altre finestre dell'avvenuta risoluzione
@@ -480,9 +551,8 @@ export class PromptBus {
 				return false;
 			}
 
-			request.status = 'resolved';
-			request.resolvedAt = Date.now();
 			request.answer = answer;
+			this.closeRequest(request, 'resolved', answer);
 			this.saveToStorage();
 			this.notifySubscribers();
 			return true;
@@ -527,8 +597,7 @@ export class PromptBus {
 					}
 				}
 
-				request.status = 'cancelled';
-				request.resolvedAt = Date.now();
+				this.closeRequest(request, 'cancelled');
 
 				this.saveToStorage();
 				void this.broadcastFn(PROMPT_BUS_EVENTS.CANCELLED, { requestId });
@@ -565,8 +634,7 @@ export class PromptBus {
 				return false;
 			}
 
-			request.status = 'cancelled';
-			request.resolvedAt = Date.now();
+			this.closeRequest(request, 'cancelled');
 			this.saveToStorage();
 			this.notifySubscribers();
 			return true;
@@ -703,8 +771,7 @@ export class PromptBus {
 		for (const req of this.requests.values()) {
 			if (req.status === 'pending') {
 				if (!targetProject || req.projectId.trim().toLowerCase() === targetProject) {
-					req.status = 'cancelled';
-					req.resolvedAt = Date.now();
+					this.closeRequest(req, 'cancelled');
 					changed = true;
 				}
 			}
@@ -724,8 +791,7 @@ export class PromptBus {
 		const expired: string[] = [];
 		for (const req of this.requests.values()) {
 			if (req.status !== 'pending') continue;
-			req.status = 'expired';
-			req.resolvedAt = Date.now();
+			this.closeRequest(req, 'expired');
 			expired.push(req.requestId);
 		}
 		if (expired.length === 0) return;
@@ -810,6 +876,9 @@ export class PromptBus {
 
 	private handleRemoteRegistration(serialized: SerializedPromptRequest): void {
 		if (!serialized?.requestId || !serialized?.projectId) return;
+		// First-response-wins: una voce gia' chiusa qui non torna viva perche'
+		// un'altra finestra ne annuncia la registrazione in ritardo.
+		if (this.isClosed(serialized.requestId)) return;
 
 		const existing = this.requests.get(serialized.requestId);
 		if (existing) {
@@ -857,9 +926,8 @@ export class PromptBus {
 		if (!request || request.status !== 'pending') {
 			return;
 		}
-		request.status = 'resolved';
-		request.resolvedAt = Date.now();
 		request.answer = answer;
+		this.closeRequest(request, 'resolved', answer);
 		this.saveToStorage();
 		this.notifySubscribers();
 	}
@@ -869,8 +937,7 @@ export class PromptBus {
 		if (!request || request.status !== 'pending') {
 			return;
 		}
-		request.status = 'cancelled';
-		request.resolvedAt = Date.now();
+		this.closeRequest(request, 'cancelled');
 		this.saveToStorage();
 		this.notifySubscribers();
 	}
@@ -902,9 +969,8 @@ export class PromptBus {
 		}
 
 		if (success) {
-			request.status = 'resolved';
-			request.resolvedAt = Date.now();
 			request.answer = answer;
+			this.closeRequest(request, 'resolved', answer);
 			this.saveToStorage();
 			void this.broadcastFn(PROMPT_BUS_RESOLVE_ACK_EVENT, { nonce, requestId, ok: true });
 			void this.broadcastFn(PROMPT_BUS_EVENTS.RESOLVED, {
@@ -951,8 +1017,7 @@ export class PromptBus {
 		}
 
 		if (success) {
-			request.status = 'cancelled';
-			request.resolvedAt = Date.now();
+			this.closeRequest(request, 'cancelled');
 			this.saveToStorage();
 			void this.broadcastFn(PROMPT_BUS_CANCEL_ACK_EVENT, { nonce, requestId, ok: true });
 			void this.broadcastFn(PROMPT_BUS_EVENTS.CANCELLED, { requestId });
@@ -990,6 +1055,7 @@ export class PromptBus {
 
 		for (const item of pendings) {
 			if (!item?.requestId || !item?.projectId) continue;
+			if (this.isClosed(item.requestId)) continue;
 			const existing = this.requests.get(item.requestId);
 			if (!existing) {
 				this.requests.set(item.requestId, { ...item, status: 'pending' });

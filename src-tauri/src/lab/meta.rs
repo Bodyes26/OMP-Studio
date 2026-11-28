@@ -2,14 +2,14 @@
 
 use super::types::LabMeta;
 use std::fs;
-use std::path::Path;
 use tauri::command;
 
 /// Legge il contenuto del file `.lab/meta.json` del prototipo, se presente.
 #[command]
 pub async fn lab_meta_read(workspace_path: String) -> Result<Option<LabMeta>, String> {
+    let workspace = super::paths::confined_lab_workspace(&workspace_path)?;
     tokio::task::spawn_blocking(move || {
-        let meta_file = Path::new(&workspace_path).join(".lab").join("meta.json");
+        let meta_file = workspace.join(".lab").join("meta.json");
         if !meta_file.exists() {
             return Ok(None);
         }
@@ -32,8 +32,9 @@ pub async fn lab_preview_status_write(
     workspace_path: String,
     status: serde_json::Value,
 ) -> Result<(), String> {
+    let workspace = super::paths::confined_lab_workspace(&workspace_path)?;
     tokio::task::spawn_blocking(move || {
-        let lab_dir = Path::new(&workspace_path).join(".lab");
+        let lab_dir = workspace.join(".lab");
         fs::create_dir_all(&lab_dir).map_err(|e| {
             crate::tr!(
                 format!(

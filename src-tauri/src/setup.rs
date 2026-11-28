@@ -171,8 +171,13 @@ pub(crate) fn read_omp_version(binary: &Path) -> Option<String> {
         crate::perf_trace::command_label(binary.to_string_lossy().as_ref(), ["--version"]),
     );
     // Usiamo omp_capture per raccogliere stdout/stderr ed evitare che il figlio
-    // lasci file di log orfani in ~/.omp/logs.
-    let output = crate::omp_ops::omp_capture(cmd).ok()?;
+    // lasci file di log orfani in ~/.omp/logs. Scadenza corta (S8-04): qui si
+    // tiene SPAWN_LOCK, e `omp --version` risponde in millisecondi.
+    let output = crate::omp_ops::omp_capture_with_timeout(
+        cmd,
+        std::time::Duration::from_secs(5),
+    )
+    .ok()?;
     // Con exit diverso da 0 lo stderr e' un messaggio d'errore, non una versione:
     // leggerlo come tale (e metterlo in cache) mostrava l'errore al posto della versione.
     if !output.status.success() {

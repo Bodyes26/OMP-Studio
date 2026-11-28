@@ -24,7 +24,7 @@ export interface SwitchInfo {
 /** Durata di un elemento che si dissolve: allineata a --dur-dissolve in app.css. */
 export const DISSOLVE_MS = 300;
 /** Distanza fra un elemento e il successivo nella cascata. */
-export const DISSOLVE_STEP_MS = 35;
+const DISSOLVE_STEP_MS = 35;
 /** Tetto del ritardo: oltre, la cascata sembrerebbe un caricamento lento. */
 export const DISSOLVE_MAX_DELAY_MS = 420;
 /**

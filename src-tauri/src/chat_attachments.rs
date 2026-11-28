@@ -288,7 +288,15 @@ pub async fn stage_chat_attachment(
     })?;
 
     let session_dir = resolve_session_attachments_dir(&data_dir, &session_key)?;
-    stage_into_dir(&session_dir, &file_name, bytes)
+    // I byte arrivano in prestito dalla richiesta: la copia e' l'unico modo per
+    // portarli nel thread di I/O, che scrive fino a 50 MiB (S8-06).
+    let bytes = bytes.to_vec();
+    tokio::task::spawn_blocking(move || stage_into_dir(&session_dir, &file_name, &bytes))
+        .await
+        .map_err(|error| crate::tr!(
+            format!("Salvataggio dell'allegato interrotto: {error}"),
+            format!("Staging the attachment was interrupted: {error}")
+        ))?
 }
 
 /// Immagine letta da disco per l'anteprima di un file trascinato.
@@ -405,15 +413,23 @@ pub async fn cleanup_chat_attachments(app: AppHandle, session_key: String) -> Re
     })?;
 
     let session_dir = resolve_session_attachments_dir(&data_dir, &session_key)?;
-    if session_dir.exists() {
-        fs::remove_dir_all(&session_dir).map_err(|e| {
-            crate::tr!(
-                format!("Impossibile eliminare cartella allegati: {e}"),
-                format!("Could not delete the attachments folder: {e}")
-            )
-        })?;
-    }
-
+    // `remove_dir_all` di una cartella con file da decine di MB: I/O bloccante (S8-06).
+    tokio::task::spawn_blocking(move || {
+        if session_dir.exists() {
+            fs::remove_dir_all(&session_dir).map_err(|e| {
+                crate::tr!(
+                    format!("Impossibile eliminare cartella allegati: {e}"),
+                    format!("Could not delete the attachments folder: {e}")
+                )
+            })?;
+        }
+        Ok::<(), String>(())
+    })
+    .await
+    .map_err(|error| crate::tr!(
+        format!("Pulizia degli allegati interrotta: {error}"),
+        format!("Cleaning up the attachments was interrupted: {error}")
+    ))??;
     Ok(())
 }
 

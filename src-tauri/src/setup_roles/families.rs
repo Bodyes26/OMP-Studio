@@ -362,17 +362,31 @@ pub fn is_eligible_for_setup(model: &CatalogModel) -> bool {
 
 /// Regex compilate una volta sola, nello stesso ordine della tabella: il
 /// registro e' statico, quindi l'inizializzazione vive con la costante.
-static COMPILED: LazyLock<Vec<Regex>> = LazyLock::new(|| {
-    REGISTRY
-        .iter()
-        .map(|family| {
-            Regex::new(family.pattern)
-                .unwrap_or_else(|e| panic!("pattern non valido per {}: {}", family.id, e))
-        })
-        .collect()
+///
+/// Un pattern invalido viene **saltato** con una riga di log invece di far
+/// abortire il processo: il registro e' una costante compilata nell'app, una
+/// regex rotta e' un errore di sviluppo e non deve spegnere Studio al primo
+/// `classify` (S9-13). Il test `tutti_i_pattern_del_registro_compilano` chiude
+/// il caso lato build.
+static COMPILED: LazyLock<Vec<(usize, Regex)>> = LazyLock::new(|| {
+    let mut compiled = Vec::with_capacity(REGISTRY.len());
+    for (index, family) in REGISTRY.iter().enumerate() {
+        match Regex::new(family.pattern) {
+            Ok(regex) => compiled.push((index, regex)),
+            Err(error) => crate::studio_log::log(
+                crate::studio_log::Level::Error,
+                "setup",
+                format!(
+                    "Pattern non valido per la famiglia {}: {}: la famiglia resta esclusa",
+                    family.id, error
+                ),
+            ),
+        }
+    }
+    compiled
 });
 
-fn compiled() -> &'static [Regex] {
+fn compiled() -> &'static [(usize, Regex)] {
     &COMPILED
 }
 
@@ -394,7 +408,8 @@ pub fn classify(provider: &str, model: &CatalogModel) -> Option<Classified> {
 
     let normalized = normalize_namespace(provider, &model.id);
 
-    for (family, regex) in REGISTRY.iter().zip(compiled()) {
+    for (index, regex) in compiled() {
+        let family = &REGISTRY[*index];
         let allowed = match &family.providers {
             ProviderScope::Any => true,
             ProviderScope::Only(list) => list.contains(&provider),
@@ -569,5 +584,19 @@ mod tests {
         assert_eq!(version_from_name("Gemini 3.5 Flash Lite").as_deref(), Some(&[3, 5][..]));
         assert_eq!(version_from_name("Claude Opus 5.5").as_deref(), Some(&[5, 5][..]));
         assert_eq!(version_from_name("Composer 2.5").as_deref(), Some(&[2, 5][..]));
+    }
+
+    /// Ogni pattern del registro deve compilare: un errore qui significa che la
+    /// famiglia verrebbe saltata a runtime (S9-13).
+    #[test]
+    fn tutti_i_pattern_del_registro_compilano() {
+        for family in REGISTRY {
+            assert!(
+                Regex::new(family.pattern).is_ok(),
+                "pattern non valido per la famiglia {}: {}",
+                family.id,
+                family.pattern
+            );
+        }
     }
 }

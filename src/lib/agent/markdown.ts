@@ -22,6 +22,16 @@ export type BlockToken = Token;
 const MAX_LEX_CACHE_SIZE = 500;
 const lexCache = new Map<string, Token[]>();
 
+/**
+ * Ultimo risultato della lessicazione incrementale, con il testo a cui si
+ * riferisce. Nello stesso tick lo chiedono il template (`throttledTokens`) e
+ * `parseReveal` (via `lexMarkdown`): senza questa voce singola il secondo
+ * rifarebbe il lex completo appena evitato. E' chiavata sul testo esatto,
+ * quindi una risposta sbagliata non e' possibile; non entra nella LRU perche'
+ * ogni frame la sostituirebbe, spingendo fuori i blocchi statici.
+ */
+let lastStreamedLex: { source: string; tokens: Token[] } | null = null;
+
 function lexMarkdownUncached(source: string): Token[] {
 	if (!source) return [];
 	try {
@@ -39,6 +49,9 @@ function lexMarkdownUncached(source: string): Token[] {
  */
 export function lexMarkdown(source: string): Token[] {
 	if (!source) return [];
+	// Testo appena lessicato in streaming: `parseReveal` lo richiede nello
+	// stesso giro, e rifare il lex completo annullerebbe il risparmio (S5-04).
+	if (lastStreamedLex !== null && lastStreamedLex.source === source) return lastStreamedLex.tokens;
 	const cached = lexCache.get(source);
 	if (cached !== undefined) {
 		// Promuove in fondo per la politica LRU di Map
@@ -56,6 +69,189 @@ export function lexMarkdown(source: string): Token[] {
 	}
 	lexCache.set(source, tokens);
 	return tokens;
+}
+
+/**
+ * Token del testo in crescita dello streaming: si rilessa solo la coda dopo
+ * l'ultimo confine stabile e si riusano i token dei blocchi chiusi (S5-04).
+ * `lexer` va tenuto dal chiamante, uno per blocco di testo.
+ */
+export function lexMarkdownStreaming(lexer: IncrementalMarkdownLexer, source: string): Token[] {
+	if (!source) return [];
+	const tokens = lexer.lex(source);
+	lastStreamedLex = { source, tokens };
+	return tokens;
+}
+
+/* --------------------------------------------- lessicazione incrementale ---
+ *
+ * Durante lo streaming il testo cresce di pochi caratteri per volta, ma un
+ * lex completo riparte da zero. Qui si riconosce il prefisso "stabile" del
+ * testo (l'ultima riga vuota che chiude un blocco senza ambiguita') e si
+ * lessica solo la coda: i token dei blocchi chiusi non si ricalcolano e
+ * restano nell'istanza invece di finire nella LRU, le cui 500 voci si
+ * riempivano di copie quasi identiche del messaggio in crescita.
+ *
+ * Le condizioni per cui una riga vuota NON chiude un blocco (marked la
+ * leggerebbe insieme a quanto segue): dentro una recinzione aperta, dentro un
+ * commento o un contenitore raw (`<pre>`, `<script>`, `<style>`, `<textarea>`),
+ * prima di una riga indentata (codice o continuazione di lista), prima di un
+ * altro elemento della stessa lista (una lista "larga" si fonde) e prima di una
+ * sottolineatura Setext (`---` trasforma il paragrafo precedente in titolo).
+ * Difetti di definizione dei link e ritorni indietro del testo fanno scattare
+ * la via di ripiego: lex completo, come prima.
+ */
+
+/** Contenitori HTML che marked legge fino al tag di chiusura. */
+const RAW_HTML_CONTAINER = /^<(pre|script|style|textarea)(?:\s|>|$)/i;
+const RAW_CONTAINER_CLOSE: Record<string, RegExp> = {
+	pre: /<\/pre\s*>/i,
+	script: /<\/script\s*>/i,
+	style: /<\/style\s*>/i,
+	textarea: /<\/textarea\s*>/i
+};
+const LIST_MARKER = /^(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$)/;
+const SETEXT_UNDERLINE = /^(?:=+|-+)[ \t\r]*$/;
+const FENCE_OPEN = /^(`{3,}|~{3,})/;
+/* `\r` ammesso in coda: un testo arrivato dal filo puo' avere fine riga CRLF, e
+   una recinzione di chiusura non riconosciuta lascerebbe aperto il blocco. */
+const FENCE_CLOSE = /^(`{3,}|~{3,})[ \t\r]*$/;
+/** Una definizione `[x]: …` vale per tutto il documento: il prefisso non e' piu' indipendente. */
+const LINK_DEFINITION = /(^|\n)[ \t]{0,3}\[[^\]\n]+\]:/;
+/** Quanti caratteri di coda del prefisso stabile si ricontrollano a ogni aggiornamento. */
+const PREFIX_PROBE = 64;
+
+/**
+ * Ultima posizione in cui il testo puo' essere spezzato in due documenti
+ * markdown indipendenti: un confine di blocco la cui continuazione non
+ * cambierebbe il significato di quanto precede. `from` se non ce n'e' nessuno.
+ */
+export function stableMarkdownPrefix(source: string, from = 0): number {
+	let pos = from;
+	let blockStart = from;
+	let fence = '';
+	let container: string | null = null;
+	let inComment = false;
+	let listBlock = false;
+
+	while (pos < source.length) {
+		const lineEnd = source.indexOf('\n', pos);
+		if (lineEnd === -1) break; // ultima riga senza a capo: mai stabile
+		const line = source.slice(pos, lineEnd);
+		const next = lineEnd + 1;
+		const lead = line.trimStart();
+
+		if (fence) {
+			const close = FENCE_CLOSE.exec(lead);
+			if (close && close[1][0] === fence[0] && close[1].length >= fence.length) fence = '';
+			pos = next;
+			continue;
+		}
+		if (container) {
+			if (RAW_CONTAINER_CLOSE[container].test(line)) container = null;
+			pos = next;
+			continue;
+		}
+		if (inComment) {
+			if (lead.includes('-->')) inComment = false;
+			pos = next;
+			continue;
+		}
+		const opened = FENCE_OPEN.exec(lead);
+		if (opened) {
+			fence = opened[1];
+			pos = next;
+			continue;
+		}
+
+		if (line.trim() === '') {
+			// Il confine e' valido solo guardando la prossima riga piena: una
+			// continuazione di lista o un blocco indentato assorbono anche la riga vuota.
+			let scan = next;
+			let nextStart = -1;
+			let nextLine = '';
+			while (scan < source.length) {
+				const end = source.indexOf('\n', scan);
+				if (end === -1) break;
+				const candidate = source.slice(scan, end);
+				if (candidate.trim() !== '') {
+					nextStart = scan;
+					nextLine = candidate;
+					break;
+				}
+				scan = end + 1;
+			}
+			if (nextStart === -1) break; // coda incompleta: nessun confine
+			const nextLead = nextLine.trimStart();
+			const indented = /^[ \t]/.test(nextLine);
+			const startsList = LIST_MARKER.test(nextLead);
+			const rawTag = RAW_HTML_CONTAINER.test(nextLead) || nextLead.startsWith('<!--');
+			const safe = !indented && !startsList && !listBlock && !rawTag && !SETEXT_UNDERLINE.test(nextLead);
+			if (safe) return nextStart;
+			blockStart = nextStart;
+			listBlock = false;
+			pos = nextStart;
+			continue;
+		}
+
+		if (pos === blockStart) listBlock = LIST_MARKER.test(lead);
+		const tag = RAW_HTML_CONTAINER.exec(lead);
+		if (tag) {
+			const name = tag[1].toLowerCase();
+			if (!RAW_CONTAINER_CLOSE[name].test(line)) container = name;
+		}
+		if (lead.startsWith('<!--') && !lead.includes('-->')) inComment = true;
+		pos = next;
+	}
+	return from;
+}
+
+/**
+ * Lessicatore incrementale di un testo che cresce (un messaggio in streaming).
+ * Un'istanza per blocco di testo: quando il testo non e' piu' un'estensione di
+ * quello gia' visto (nuovo blocco, riscrittura) riparte da zero.
+ */
+export class IncrementalMarkdownLexer {
+	#stable = '';
+	#tokens: Token[] = [];
+
+	/** Token del testo dato, riusando quelli dei blocchi gia' chiusi. */
+	lex(source: string): Token[] {
+		if (!source) {
+			this.#stable = '';
+			this.#tokens = [];
+			return [];
+		}
+		if (!source.startsWith(this.#stable)) {
+			this.#stable = '';
+			this.#tokens = [];
+		}
+		// Una definizione di link vale per tutto il documento: nessun prefisso e'
+		// indipendente dalla coda, quindi si torna al lex completo.
+		if (LINK_DEFINITION.test(source)) {
+			this.#stable = '';
+			this.#tokens = [];
+			return lexMarkdown(source);
+		}
+		if (this.#stable) {
+			const probe = Math.min(PREFIX_PROBE, this.#stable.length);
+			if (source.slice(this.#stable.length - probe, this.#stable.length) !== this.#stable.slice(-probe)) {
+				this.#stable = '';
+				this.#tokens = [];
+			}
+		}
+		const boundary = stableMarkdownPrefix(source, this.#stable.length);
+		if (boundary > this.#stable.length) {
+			const chunk = source.slice(this.#stable.length, boundary);
+			if (chunk) this.#tokens = this.#tokens.concat(lexMarkdownUncached(chunk));
+			this.#stable = source.slice(0, boundary);
+		}
+		const tail = source.slice(this.#stable.length);
+		if (!tail) return this.#tokens;
+		// La coda si rilessa sempre: e' l'unica parte che puo' cambiare, e la sua
+		// lessicazione non deve sporcare la LRU con testi parziali.
+		return this.#tokens.concat(lexMarkdownUncached(tail));
+	}
 }
 
 /**

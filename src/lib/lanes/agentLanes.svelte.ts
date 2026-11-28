@@ -28,7 +28,7 @@ import { laneOrchestrator } from './laneOrchestrator.svelte';
 import { laneLanding, type LandCaller } from './laneLanding.svelte';
 import { closeLane, deleteWorktreeLane, inspectUnintegratedWork } from './laneLifecycle';
 import { activeLanes, shouldWarnConcurrency } from './queueDispatch';
-import { labApi } from '#lib/lab/api.ts';
+import { labApiFor } from '#lib/lab/api.ts';
 import type { LabIndexEntry } from '#lib/lab/types.ts';
 import { peekLabRuntime } from '#lib/lab/runtime.svelte.ts';
 import { laneId as toLaneId, workspacePath, MAIN_LANE_ID, type LaneId, type ProjectId } from '#lib/types/lanes.ts';
@@ -168,7 +168,12 @@ class AgentLaneService {
 	init(): void {
 		if (this.timer !== null) return;
 		this.loadQueue();
-		this.timer = setInterval(() => void this.processQueue(), QUEUE_TICK_MS);
+		// A finestra nascosta la coda non gira: riparte al ritorno, come gli
+		// altri giri periodici (S7-05).
+		this.timer = setInterval(() => {
+			if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+			void this.processQueue();
+		}, QUEUE_TICK_MS);
 	}
 
 	dispose(): void {
@@ -442,7 +447,8 @@ class AgentLaneService {
 			console.info('[agentLanes] Profilo ignorato per il Laboratorio:', profilo);
 		}
 		const title = obiettivo.length > 48 ? `${obiettivo.slice(0, 47)}\u2026` : obiettivo;
-		const entry = await labApi.createPrototype(project.canonicalProjectPath, title);
+		// Il prototipo nasce sulla macchina che possiede il progetto (S3-link-front-05).
+		const entry = await labApiFor(project).createPrototype(project.canonicalProjectPath, title);
 		const record = labLaneRecord(project, entry);
 		await laneStore.upsertLane(record);
 		try {
@@ -483,7 +489,7 @@ class AgentLaneService {
 
 	private async labIndex(project: Project): Promise<LabIndexEntry[]> {
 		if (!project.canonicalProjectPath) return [];
-		return labApi.listIndex(project.canonicalProjectPath).catch(() => [] as LabIndexEntry[]);
+		return labApiFor(project).listIndex(project.canonicalProjectPath).catch(() => [] as LabIndexEntry[]);
 	}
 
 	private async stato(project: Project, prefix = ''): Promise<BridgeResponse> {
@@ -770,19 +776,20 @@ class AgentLaneService {
 				})
 			};
 		}
-		const exists = await labApi.workspaceExists(entry.workspacePath).catch(() => false);
+		const api = labApiFor(project);
+		const exists = await api.workspaceExists(entry.workspacePath).catch(() => false);
 		if (!exists) {
 			return {
 				ok: false,
 				text: m.l10n_state_lane_prototype_folder_missing({ id: entry.id })
 			};
 		}
-		const log = await labApi.log(entry.workspacePath, 1);
+		const log = await api.log(entry.workspacePath, 1);
 		const revision = log[0] ?? entry.lastRevision ?? null;
 		// Brief e sorgenti devono descrivere la stessa revisione, non un turno ancora in corso.
 		const files = revision
-			? await labApi.filesAt(entry.workspacePath, revision.sha)
-			: await labApi.snapshot(entry.workspacePath);
+			? await api.filesAt(entry.workspacePath, revision.sha)
+			: await api.snapshot(entry.workspacePath);
 		const lane = lanes.find((candidate) => candidate.labPrototypeId === entry.id);
 		const runtime = lane ? peekLabRuntime(project.id, lane.laneId) : null;
 		const pacchetto = buildLabHandoffPackage({

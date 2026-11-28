@@ -8,13 +8,14 @@
 	// Tipografia della prosa a 15px / 28px (DESIGN §7.14).
 	import { onDestroy } from 'svelte';
 	import { agentUiHooks } from '../ui-context';
-	import { lexMarkdown, lexMarkdownInline, type Token } from '../markdown';
+	import { IncrementalMarkdownLexer, lexMarkdown, lexMarkdownInline, lexMarkdownStreaming, type Token } from '../markdown';
 	import type { AssistantEntry, Block } from '../session.svelte';
 	import Markdown from './Markdown.svelte';
 	import MarkdownInline from './MarkdownInline.svelte';
 	import CodeBlock from './CodeBlock.svelte';
 	import ThinkingBlock from './ThinkingBlock.svelte';
 	import { RevealScheduler } from '../revealScheduler.svelte';
+	import RowBoundary from './RowBoundary.svelte';
 
 	let {
 		entry,
@@ -39,14 +40,29 @@
 	let throttledTokens = $state<Token[] | null>(null);
 	let lastParseTime = 0;
 	let throttleTimer: number | null = null;
+	// Un lessicatore incrementale per blocco in streaming: a ogni tick si
+	// rilessa solo la coda dopo l'ultimo confine stabile, riusando i token dei
+	// blocchi chiusi (S5-04). Un blocco nuovo (o riscritto) riparte da zero
+	// dentro `IncrementalMarkdownLexer`.
+	let blockLexer: IncrementalMarkdownLexer | null = null;
+	let blockLexerKey = '';
+
+	function lexStreaming(key: string, text: string): Token[] {
+		if (!blockLexer || blockLexerKey !== key) {
+			blockLexer = new IncrementalMarkdownLexer();
+			blockLexerKey = key;
+		}
+		return lexMarkdownStreaming(blockLexer, text);
+	}
 
 	const scheduler = new RevealScheduler();
 
 	$effect(() => {
+		const key = `${entry.id}:${lastBlockIndex}`;
 		if (!isStreamingLastText) {
 			throttledText = targetText;
 			throttledTokens = targetText ? lexMarkdown(targetText) : null;
-			scheduler.update(`${entry.id}:${lastBlockIndex}`, targetText, false);
+			scheduler.update(key, targetText, false);
 			return;
 		}
 
@@ -55,17 +71,17 @@
 
 		if (elapsed >= STREAM_PARSE_INTERVAL_MS || !throttledTokens) {
 			throttledText = targetText;
-			throttledTokens = lexMarkdown(targetText);
+			throttledTokens = lexStreaming(key, targetText);
 			lastParseTime = now;
-			scheduler.update(`${entry.id}:${lastBlockIndex}`, throttledText, true);
+			scheduler.update(key, throttledText, true);
 		} else {
 			if (throttleTimer !== null) clearTimeout(throttleTimer);
 			throttleTimer = window.setTimeout(() => {
 				throttleTimer = null;
 				throttledText = targetText;
-				throttledTokens = lexMarkdown(targetText);
+				throttledTokens = lexStreaming(key, targetText);
 				lastParseTime = performance.now();
-				scheduler.update(`${entry.id}:${lastBlockIndex}`, throttledText, isStreamingLastText);
+				scheduler.update(key, throttledText, isStreamingLastText);
 			}, STREAM_PARSE_INTERVAL_MS - elapsed);
 		}
 	});
@@ -87,119 +103,124 @@
 </script>
 
 <div class="assistant-entry" class:streaming>
-	<div class="blocks">
-		{#each entry.blocks as block, i (`${block.type}-${i}`)}
-			{@const isLastBlock = i === lastBlockIndex}
-			<div class="assistant-block">
-				{#if block.type === 'text'}
-					{#if isStreamingLastText && isLastBlock && !scheduler.settled}
-						{#if scheduler.effectiveMode === 'final'}
-							<div class="writing-label">{m.chat_v2_reveal_writing()}</div>
-						{:else if scheduler.effectiveMode === 'stream'}
-							<div class="markdown-wrap">
-								<Markdown tokens={throttledTokens || lexMarkdown(block.text)} />
-							</div>
-						{:else if scheduler.parsed}
-							<div class="markdown-wrap">
-								{#each scheduler.parsed.blocks as b, bi (bi)}
-									{#if b.kind === 'code'}
-										{#if b.units[0].index < scheduler.revealedCount}
-											<div class="rv-lift">
-												<CodeBlock lang={b.lang} text={b.units[0].text} />
-											</div>
-										{/if}
-									{:else if b.kind === 'table' || b.kind === 'blockquote'}
-										{#if b.units[0].index < scheduler.revealedCount}
-											<div class="rv-lift">
-												<Markdown tokens={lexMarkdown(b.units[0].text)} />
-											</div>
-										{/if}
-									{:else if b.kind === 'h'}
-										{@const vis = b.units.filter((u) => u.index < scheduler.revealedCount)}
-										{#if vis.length > 0}
-											<svelte:element this={'h' + (b.depth || 3)} class="heading h{b.depth || 3}">
-												{#each vis as u, ui (u.index)}
-													{#if ui > 0}{' '}{/if}
-													<span class="rv-blur"><MarkdownInline tokens={lexMarkdownInline(u.text)} /></span>
-												{/each}
-											</svelte:element>
-										{/if}
-									{:else if b.kind === 'li'}
-										{@const vis = b.units.filter((u) => u.index < scheduler.revealedCount)}
-										{#if vis.length > 0}
-											<div class="reveal-li">
-												<span class="reveal-bullet rv-blur"></span>
-												<div class="reveal-li-content">
+	<!-- Boundary per messaggio (S5-01): un throw nella rivelazione o in un
+	     parser di intelligent-ui ferma questa bolla, non la chat. Il composer e
+	     la bozza non inviata vivono nello stato di Chat, che resta montata. -->
+	<RowBoundary name={`assistant-${entry.id}`}>
+		<div class="blocks">
+			{#each entry.blocks as block, i (`${block.type}-${i}`)}
+				{@const isLastBlock = i === lastBlockIndex}
+				<div class="assistant-block">
+					{#if block.type === 'text'}
+						{#if isStreamingLastText && isLastBlock && !scheduler.settled}
+							{#if scheduler.effectiveMode === 'final'}
+								<div class="writing-label">{m.chat_v2_reveal_writing()}</div>
+							{:else if scheduler.effectiveMode === 'stream'}
+								<div class="markdown-wrap">
+									<Markdown tokens={throttledTokens || lexMarkdown(block.text)} />
+								</div>
+							{:else if scheduler.parsed}
+								<div class="markdown-wrap">
+									{#each scheduler.parsed.blocks as b, bi (bi)}
+										{#if b.kind === 'code'}
+											{#if b.units[0].index < scheduler.revealedCount}
+												<div class="rv-lift">
+													<CodeBlock lang={b.lang} text={b.units[0].text} />
+												</div>
+											{/if}
+										{:else if b.kind === 'table' || b.kind === 'blockquote'}
+											{#if b.units[0].index < scheduler.revealedCount}
+												<div class="rv-lift">
+													<Markdown tokens={lexMarkdown(b.units[0].text)} />
+												</div>
+											{/if}
+										{:else if b.kind === 'h'}
+											{@const vis = b.units.filter((u) => u.index < scheduler.revealedCount)}
+											{#if vis.length > 0}
+												<svelte:element this={'h' + (b.depth || 3)} class="heading h{b.depth || 3}">
 													{#each vis as u, ui (u.index)}
 														{#if ui > 0}{' '}{/if}
 														<span class="rv-blur"><MarkdownInline tokens={lexMarkdownInline(u.text)} /></span>
 													{/each}
+												</svelte:element>
+											{/if}
+										{:else if b.kind === 'li'}
+											{@const vis = b.units.filter((u) => u.index < scheduler.revealedCount)}
+											{#if vis.length > 0}
+												<div class="reveal-li">
+													<span class="reveal-bullet rv-blur"></span>
+													<div class="reveal-li-content">
+														{#each vis as u, ui (u.index)}
+															{#if ui > 0}{' '}{/if}
+															<span class="rv-blur"><MarkdownInline tokens={lexMarkdownInline(u.text)} /></span>
+														{/each}
+													</div>
 												</div>
-											</div>
-										{/if}
-									{:else if b.kind === 'oli'}
-										{@const vis = b.units.filter((u) => u.index < scheduler.revealedCount)}
-										{#if vis.length > 0}
-											<div class="reveal-oli">
-												<span class="reveal-num rv-blur">{b.num}.</span>
-												<div class="reveal-oli-content">
+											{/if}
+										{:else if b.kind === 'oli'}
+											{@const vis = b.units.filter((u) => u.index < scheduler.revealedCount)}
+											{#if vis.length > 0}
+												<div class="reveal-oli">
+													<span class="reveal-num rv-blur">{b.num}.</span>
+													<div class="reveal-oli-content">
+														{#each vis as u, ui (u.index)}
+															{#if ui > 0}{' '}{/if}
+															<span class="rv-blur"><MarkdownInline tokens={lexMarkdownInline(u.text)} /></span>
+														{/each}
+													</div>
+												</div>
+											{/if}
+										{:else}
+											{@const vis = b.units.filter((u) => u.index < scheduler.revealedCount)}
+											{#if vis.length > 0}
+												<p class="paragraph">
 													{#each vis as u, ui (u.index)}
 														{#if ui > 0}{' '}{/if}
 														<span class="rv-blur"><MarkdownInline tokens={lexMarkdownInline(u.text)} /></span>
 													{/each}
-												</div>
-											</div>
+												</p>
+											{/if}
 										{/if}
-									{:else}
-										{@const vis = b.units.filter((u) => u.index < scheduler.revealedCount)}
-										{#if vis.length > 0}
-											<p class="paragraph">
-												{#each vis as u, ui (u.index)}
-													{#if ui > 0}{' '}{/if}
-													<span class="rv-blur"><MarkdownInline tokens={lexMarkdownInline(u.text)} /></span>
-												{/each}
-											</p>
-										{/if}
-									{/if}
-								{/each}
+									{/each}
 
-								{#if showGhost}
-									<div class="ghost-wrap" aria-hidden="true">
-										{#each scheduler.ghostLines as line, li (li)}
-											<div class="ghost-line" style="width: {line.width}%;"></div>
-										{/each}
-									</div>
-								{/if}
+									{#if showGhost}
+										<div class="ghost-wrap" aria-hidden="true">
+											{#each scheduler.ghostLines as line, li (li)}
+												<div class="ghost-line" style="width: {line.width}%;"></div>
+											{/each}
+										</div>
+									{/if}
+								</div>
+							{/if}
+						{:else}
+							<div class="markdown-wrap">
+								<Markdown tokens={lexMarkdown(block.text)} />
 							</div>
 						{/if}
-					{:else}
-						<div class="markdown-wrap">
-							<Markdown tokens={lexMarkdown(block.text)} />
+					{:else if block.type === 'thinking'}
+						<ThinkingBlock
+							text={block.text}
+							streaming={streaming && isLastBlock}
+						/>
+					{:else if block.type === 'image'}
+						<div class="image-wrap">
+							<button
+								type="button"
+								class="image-btn"
+								onclick={() => hooks.openImage(block.data, block.mimeType)}
+								title={m.ui_assistanttext_apri_immagine_f45c()}
+							>
+								<img
+									src={`data:${block.mimeType};base64,${block.data}`}
+									alt={m.l10n_agentcmp_assistant_image_alt()}
+								/>
+							</button>
 						</div>
 					{/if}
-				{:else if block.type === 'thinking'}
-					<ThinkingBlock
-						text={block.text}
-						streaming={streaming && isLastBlock}
-					/>
-				{:else if block.type === 'image'}
-					<div class="image-wrap">
-						<button
-							type="button"
-							class="image-btn"
-							onclick={() => hooks.openImage(block.data, block.mimeType)}
-							title={m.ui_assistanttext_apri_immagine_f45c()}
-						>
-							<img
-								src={`data:${block.mimeType};base64,${block.data}`}
-								alt={m.l10n_agentcmp_assistant_image_alt()}
-							/>
-						</button>
-					</div>
-				{/if}
-			</div>
-		{/each}
-	</div>
+				</div>
+			{/each}
+		</div>
+	</RowBoundary>
 </div>
 
 <style>

@@ -29,6 +29,7 @@
 	import CategoryIcon from './parts/CategoryIcon.svelte';
 	import WritePreview from './parts/WritePreview.svelte';
 	import JsonBlock from './parts/JsonBlock.svelte';
+	import RowBoundary from '../components/RowBoundary.svelte';
 	import { asRecord, str } from './types';
 	import { isSvgFileName } from '#lib/editor/svgSandbox.ts';
 	import { isMermaidFileName } from '#lib/mermaidSvg.ts';
@@ -390,14 +391,18 @@
 						<p class="tool-intent">{item.entry.intent}</p>
 					{/if}
 					{@const renderer = rendererFor(item.entry.toolName)}
-					<renderer.component
-						name={item.entry.toolName}
-						args={item.entry.args}
-						result={item.entry.result}
-						running={item.entry.running}
-						toolCallId={item.entry.toolCallId}
-						waitContext={item.entry.waitContext}
-					/>
+					<!-- Boundary sul solo corpo: un renderer che lancia non porta via
+					     l'intestazione del gruppo e le altre righe (S5-01). -->
+					<RowBoundary name={`renderer-${item.entry.toolName}`}>
+						<renderer.component
+							name={item.entry.toolName}
+							args={item.entry.args}
+							result={item.entry.result}
+							running={item.entry.running}
+							toolCallId={item.entry.toolCallId}
+							waitContext={item.entry.waitContext}
+						/>
+					</RowBoundary>
 					<details class="technical-details">
 						<summary>{m.chat_tool_technical_details()} · {item.entry.toolName}</summary>
 						<JsonBlock value={item.entry.args} />

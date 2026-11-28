@@ -215,8 +215,99 @@ where
     })
 }
 
-fn resolve_gh_binary() -> Option<PathBuf> {
+/// Tempo massimo concesso a una interrogazione a `git`/`gh` (S9-09). Senza
+/// limite un processo appeso su rete teneva occupato per sempre il thread del
+/// pool `spawn_blocking` e con esso lo stato di autenticazione o degli Actions.
+pub(crate) const GIT_GH_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// L'installazione della CLI (winget/brew) puo' durare minuti: il limite serve
+/// solo a non tenere un thread per sempre se il gestore di pacchetti si blocca.
+const INSTALL_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+
+/// Esegue un processo esterno con un limite di tempo e ne abbatte l'albero allo
+/// scadere.
+///
+/// `Ok(None)` significa «scaduto»: il processo e' stato terminato e raccolto,
+/// quindi non resta nessuno zombie. `Ok(Some(output))` e' il processo concluso.
+/// Senza limite un `git`/`gh` appeso su rete teneva occupato per sempre il thread
+/// del pool `spawn_blocking` (S9-09).
+pub(crate) fn capture_with_timeout(
+    cmd: &mut Command,
+    timeout: Duration,
+) -> std::io::Result<Option<std::process::Output>> {
+    use std::io::Read;
+
+    cmd.stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
+
+    let mut child = cmd.spawn()?;
+    let pid = child.id();
+    // Su Windows l'appartenenza al Job Object e' cio' che permette di abbattere
+    // anche i nipoti quando il figlio e' un launcher.
     #[cfg(target_os = "windows")]
+    let job = crate::process_tree::WindowsJob::create_for_process(pid).ok();
+
+    // Le pipe si drenano su thread dedicati: riempiendosi bloccherebbero il
+    // figlio prima ancora che la scadenza potesse scattare.
+    let mut stdout_pipe = child.stdout.take();
+    let mut stderr_pipe = child.stderr.take();
+    let stdout_reader = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(pipe) = stdout_pipe.as_mut() {
+            let _ = pipe.read_to_end(&mut buf);
+        }
+        buf
+    });
+    let stderr_reader = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(pipe) = stderr_pipe.as_mut() {
+            let _ = pipe.read_to_end(&mut buf);
+        }
+        buf
+    });
+
+    let deadline = Instant::now() + timeout;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Some(status),
+            Ok(None) => {
+                if Instant::now() >= deadline {
+                    kill_child_tree(&mut child, pid);
+                    break None;
+                }
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            Err(_) => {
+                kill_child_tree(&mut child, pid);
+                break None;
+            }
+        }
+    };
+
+    let stdout = stdout_reader.join().unwrap_or_default();
+    let stderr = stderr_reader.join().unwrap_or_default();
+    Ok(status.map(|status| std::process::Output {
+        status,
+        stdout,
+        stderr,
+    }))
+}
+
+fn kill_child_tree(child: &mut std::process::Child, pid: u32) {
+    #[cfg(target_os = "windows")]
+    crate::process_tree::kill_process_tree(Some(pid), None);
+    #[cfg(not(target_os = "windows"))]
+    crate::process_tree::kill_process_tree(Some(pid));
+    let _ = child.kill();
+    let _ = child.wait();
+}
+fn resolve_gh_binary() -> Option<PathBuf> {    #[cfg(target_os = "windows")]
     {
         let candidate = PathBuf::from(r"C:\Program Files\GitHub CLI\gh.exe");
         if candidate.exists() {
@@ -254,7 +345,9 @@ fn resolve_gh_binary() -> Option<PathBuf> {
         }
         // Ultimo tentativo: shell di login dell'utente (legge il suo PATH reale).
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-        if let Ok(out) = Command::new(shell).args(["-lc", "command -v gh"]).output() {
+        let mut probe = Command::new(shell);
+        probe.args(["-lc", "command -v gh"]);
+        if let Ok(Some(out)) = capture_with_timeout(&mut probe, GIT_GH_TIMEOUT) {
             if out.status.success() {
                 let txt = String::from_utf8_lossy(&out.stdout);
                 if let Some(last) = txt.lines().map(str::trim).rfind(|l| l.starts_with('/')) {
@@ -274,7 +367,7 @@ fn check_gh_cli_status(gh_path: &Path) -> (bool, Option<String>, String) {
     #[cfg(target_os = "windows")]
     cmd.creation_flags(CREATE_NO_WINDOW);
 
-    let Ok(out) = cmd.output() else {
+    let Ok(Some(out)) = capture_with_timeout(&mut cmd, GIT_GH_TIMEOUT) else {
         return (false, None, "https".to_string());
     };
 
@@ -488,7 +581,7 @@ fn github_status_from_gh_cli() -> Option<GithubAuthStatus> {
         #[cfg(target_os = "windows")]
         cmd.creation_flags(CREATE_NO_WINDOW);
 
-        if let Ok(out) = cmd.output() {
+        if let Ok(Some(out)) = capture_with_timeout(&mut cmd, GIT_GH_TIMEOUT) {
             if out.status.success() {
                 #[derive(Deserialize)]
                 struct BriefUser {
@@ -575,12 +668,23 @@ pub async fn github_logout(also_gh_cli: Option<bool>) -> Result<(), String> {
             cmd.args(["auth", "logout", "-h", "github.com"]);
             #[cfg(target_os = "windows")]
             cmd.creation_flags(CREATE_NO_WINDOW);
-            let out = cmd
-                .output()
+            let out = capture_with_timeout(&mut cmd, GIT_GH_TIMEOUT)
                 .map_err(|e| {
                     crate::tr!(
                         format!("Avvio gh auth logout fallito: {e}"),
                         format!("Starting gh auth logout failed: {e}")
+                    )
+                })?
+                .ok_or_else(|| {
+                    crate::tr!(
+                        format!(
+                            "gh auth logout non ha risposto entro {} secondi",
+                            GIT_GH_TIMEOUT.as_secs()
+                        ),
+                        format!(
+                            "gh auth logout did not answer within {} seconds",
+                            GIT_GH_TIMEOUT.as_secs()
+                        )
                     )
                 })?;
             if !out.status.success() {
@@ -624,12 +728,23 @@ async fn install_gh_cli() -> Result<String, String> {
                 "--silent",
             ]);
             cmd.creation_flags(CREATE_NO_WINDOW);
-            let out = cmd
-                .output()
+            let out = capture_with_timeout(&mut cmd, INSTALL_TIMEOUT)
                 .map_err(|e| {
                     crate::tr!(
                         format!("Avvio winget fallito: {e}"),
                         format!("Starting winget failed: {e}")
+                    )
+                })?
+                .ok_or_else(|| {
+                    crate::tr!(
+                        format!(
+                            "winget non ha risposto entro {} secondi",
+                            INSTALL_TIMEOUT.as_secs()
+                        ),
+                        format!(
+                            "winget did not answer within {} seconds",
+                            INSTALL_TIMEOUT.as_secs()
+                        )
                     )
                 })?;
             if !out.status.success() {
@@ -669,15 +784,28 @@ async fn install_gh_cli() -> Result<String, String> {
                     )
                     .to_string()
                 })?;
-            let out = Command::new(&brew)
+            let mut brew_cmd = Command::new(&brew);
+            brew_cmd
                 .args(["install", "gh"])
                 .env("HOMEBREW_NO_AUTO_UPDATE", "1")
-                .env("NONINTERACTIVE", "1")
-                .output()
+                .env("NONINTERACTIVE", "1");
+            let out = capture_with_timeout(&mut brew_cmd, INSTALL_TIMEOUT)
                 .map_err(|e| {
                     crate::tr!(
                         format!("Avvio brew fallito: {e}"),
                         format!("Starting brew failed: {e}")
+                    )
+                })?
+                .ok_or_else(|| {
+                    crate::tr!(
+                        format!(
+                            "brew non ha risposto entro {} secondi",
+                            INSTALL_TIMEOUT.as_secs()
+                        ),
+                        format!(
+                            "brew did not answer within {} seconds",
+                            INSTALL_TIMEOUT.as_secs()
+                        )
                     )
                 })?;
             if !out.status.success() {

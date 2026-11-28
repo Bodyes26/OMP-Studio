@@ -14,7 +14,7 @@ const URGENCY: AgentState[] = ['attention', 'working', 'finished', 'idle'];
  * Le corsie delle copie remote arrivano dallo snapshot dell'host tramite
  * `laneStore.lanesFor`.
  */
-export function copyAgentState(p: Project): AgentState {
+function copyAgentState(p: Project): AgentState {
 	const candidates: AgentState[] = [];
 	if (p.lane.agentState && p.lane.agentState !== 'unknown') candidates.push(p.lane.agentState);
 

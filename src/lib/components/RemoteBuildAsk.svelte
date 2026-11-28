@@ -7,7 +7,7 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
 	import Dialog from '#lib/ui/Dialog.svelte';
-	import { invoke, isTauri, listen, LOCAL_MACHINE } from '#lib/backend/ipc.ts';
+	import { invoke, isTauri, listen, LOCAL_MACHINE, routeErrorText } from '#lib/backend/ipc.ts';
 
 	interface Ask {
 		requestId: string;
@@ -15,6 +15,9 @@
 	}
 
 	let queue = $state<Ask[]>([]);
+	/** Risposta non recapitata: la domanda resta in coda e lo dice (S3-link-front-31). */
+	let error = $state<string | null>(null);
+	let answering = $state(false);
 	const current = $derived(queue[0] ?? null);
 
 	$effect(() => {
@@ -32,11 +35,24 @@
 		}
 	}
 
+	/**
+	 * Toglie la domanda solo dopo l'esito (S3-link-front-31): prima spariva
+	 * prima dell'invio e l'errore era ignorato, quindi una risposta persa
+	 * lasciava lo script della Nightly in attesa senza che nessuno lo sapesse.
+	 */
 	async function answer(scelta: 'attendi' | 'cloud' | 'locale' | 'annulla'): Promise<void> {
 		const ask = current;
-		if (!ask) return;
-		queue = queue.slice(1);
-		await invoke('lane_bridge_respond', { requestId: ask.requestId, response: { scelta } }, { machine: LOCAL_MACHINE }).catch(() => {});
+		if (!ask || answering) return;
+		answering = true;
+		error = null;
+		try {
+			await invoke('lane_bridge_respond', { requestId: ask.requestId, response: { scelta } }, { machine: LOCAL_MACHINE });
+			queue = queue.slice(1);
+		} catch (reason) {
+			error = routeErrorText(reason);
+		} finally {
+			answering = false;
+		}
 	}
 </script>
 
@@ -51,6 +67,7 @@
 			{:else}
 				<p>{m.remote_build_ask_unnamed({ platform: other })}</p>
 			{/if}
+			{#if error}<p role="alert">{m.remote_build_ask_failed({ error })}</p>{/if}
 		{/snippet}
 		{#snippet footer()}
 			<button type="button" class="ui-button ui-button-ghost" onclick={() => void answer('annulla')}>{m.remote_build_ask_abort()}</button>

@@ -82,8 +82,6 @@ pub struct GithubRelease {
 #[derive(Debug, Clone, Deserialize)]
 pub struct NightlyManifest {
     pub version: String,
-    #[allow(dead_code)]
-    pub commit: String,
     pub published_at: Option<String>,
     #[serde(default)]
     pub sha256: Option<String>,
@@ -116,6 +114,20 @@ pub struct StudioUpdaterState {
     pub verified_installer: Arc<Mutex<Option<VerifiedInstaller>>>,
     pub current_target_path: Arc<Mutex<Option<PathBuf>>>,
     pub expected_sha256: Arc<Mutex<Option<String>>>,
+    /// Installazione in corso: due avvii paralleli lavorerebbero sullo stesso
+    /// staging e sullo stesso bundle (S8-05).
+    installing: Arc<AtomicBool>,
+}
+
+/// Rilascia il segnaposto anche quando l'installazione fallisce o esce presto.
+pub struct InstallGuard {
+    flag: Arc<AtomicBool>,
+}
+
+impl Drop for InstallGuard {
+    fn drop(&mut self) {
+        self.flag.store(false, Ordering::SeqCst);
+    }
 }
 
 impl StudioUpdaterState {
@@ -126,7 +138,19 @@ impl StudioUpdaterState {
             verified_installer: Arc::new(Mutex::new(None)),
             current_target_path: Arc::new(Mutex::new(None)),
             expected_sha256: Arc::new(Mutex::new(None)),
+            installing: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    /// `Some` se questa chiamata e' l'unica a installare; `None` se un'altra
+    /// e' gia' in corso.
+    fn install_guard(&self) -> Option<InstallGuard> {
+        self.installing
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .ok()
+            .map(|_| InstallGuard {
+                flag: self.installing.clone(),
+            })
     }
 }
 
@@ -1490,11 +1514,31 @@ pub async fn start_studio_update_download(
 pub struct RemoteUpdateStatus {
     pub version: String,
     pub requested_by: String,
-    /// `starting`, `downloading`, `waiting`, `installing`, `failed`.
+    /// `starting`, `downloading`, `waiting`, `installing`, `failed`,
+    /// `manual`, `cancelled`. `manual` = l'installazione e' stata avviata ma
+    /// Studio resta aperto (pacchetto .deb, uscita non autorizzata): una
+    /// richiesta successiva puo' ripartire, e chi l'aveva chiesta smette di
+    /// seguire. `cancelled` = chi doveva installare ha rinunciato.
     pub phase: String,
     #[serde(default)]
     pub waiting_for: Vec<String>,
     pub error: Option<String>,
+    /// Quando la fase e' cambiata l'ultima volta. Non esce nel JSON: serve
+    /// solo a far scadere una fase non terminale rimasta appesa (finestra
+    /// chiusa a meta' installazione), che altrimenti rifiuterebbe ogni nuova
+    /// richiesta fino al riavvio.
+    #[serde(skip)]
+    pub changed_at: Option<Instant>,
+}
+
+/// Oltre questo tempo una fase non terminale non blocca piu' un nuovo avvio:
+/// un `installing` davvero in corso dura secondi, un riavvio al massimo un
+/// minuto.
+const REMOTE_UPDATE_STALE: Duration = Duration::from_secs(15 * 60);
+
+/// Fasi dopo le quali una nuova richiesta e' ammessa.
+fn remote_phase_is_terminal(phase: &str) -> bool {
+    matches!(phase, "failed" | "manual" | "cancelled")
 }
 
 static REMOTE_UPDATE: Mutex<Option<RemoteUpdateStatus>> = Mutex::new(None);
@@ -1522,7 +1566,18 @@ pub async fn studio_update_remote_start(
     let asset = info.asset.filter(|asset| asset.sha256.is_some()).ok_or("The installer has no verified checksum")?;
     {
         let mut remote = REMOTE_UPDATE.lock();
-        if remote.as_ref().is_some_and(|status| status.phase != "failed") {
+        // Una fase terminale non blocca piu': senza `manual`/`cancelled` un
+        // `installing` che non porta al riavvio (uscita non autorizzata,
+        // pacchetto .deb) rifiutava ogni richiesta successiva fino al
+        // riavvio di Studio (S2-09). Scade anche una fase non terminale
+        // rimasta appesa oltre `REMOTE_UPDATE_STALE`.
+        let busy = remote.as_ref().is_some_and(|status| {
+            !remote_phase_is_terminal(&status.phase)
+                && status
+                    .changed_at
+                    .is_none_or(|changed| changed.elapsed() < REMOTE_UPDATE_STALE)
+        });
+        if busy {
             return Err("A remote update is already in progress".into());
         }
         *remote = Some(RemoteUpdateStatus {
@@ -1531,6 +1586,7 @@ pub async fn studio_update_remote_start(
             phase: "starting".into(),
             waiting_for: Vec::new(),
             error: None,
+            changed_at: Some(Instant::now()),
         });
     }
     if let Err(error) = app.emit(
@@ -1555,6 +1611,7 @@ pub fn studio_update_remote_report(phase: String, waiting_for: Vec<String>, erro
         status.phase = phase;
         status.waiting_for = waiting_for;
         status.error = error;
+        status.changed_at = Some(Instant::now());
     }
 }
 
@@ -1861,7 +1918,6 @@ pub struct StudioInstallOutcome {
 }
 
 impl StudioInstallOutcome {
-    #[allow(dead_code)]
     fn restarting() -> Self {
         Self {
             manual_completion_required: false,
@@ -1984,6 +2040,19 @@ pub async fn install_studio_update_and_restart(
     app: AppHandle,
     state: State<'_, StudioUpdaterState>,
 ) -> Result<StudioInstallOutcome, String> {
+    // Due avvii ravvicinati (clic sulla finestra e richiesta remota) farebbero
+    // due attach/ditto/scambio sullo stesso bundle, con il rischio di lasciarlo
+    // a meta' (S8-05). La guardia si rilascia da sola su ogni via d'uscita.
+    let _installing = match state.install_guard() {
+        Some(guard) => guard,
+        None => {
+            return Err(crate::tr!(
+                "Un'installazione dell'aggiornamento e' gia' in corso.",
+                "An update installation is already in progress."
+            )
+            .to_string());
+        }
+    };
     let verified = {
         let guard = state.verified_installer.lock();
         match guard.as_ref() {
@@ -2033,18 +2102,31 @@ pub async fn install_studio_update_and_restart(
         .to_string());
     }
 
-    // 2. Ricalcolo dell'hash SHA256 direttamente dal disco prima dell'esecuzione (TOCTOU protection)
-    let disk_sha256 = compute_file_sha256(&installer_path).map_err(|e| {
-        let _ = std::fs::remove_file(&installer_path);
-        *state.verified_installer.lock() = None;
-        crate::tr!(
-            format!(
-                "Impossibile validare l'hash del file prima dell'installazione: {}",
-                e
-            ),
-            format!("Could not validate the file hash before installing: {}", e)
-        )
-    })?;
+    // 2. Ricalcolo dell'hash SHA256 direttamente dal disco prima dell'esecuzione (TOCTOU protection).
+    // L'hash di un pacchetto da centinaia di MB e' lavoro bloccante: va fuori dal worker async.
+    let hash_target = installer_path.clone();
+    let disk_sha256 = match tokio::task::spawn_blocking(move || compute_file_sha256(&hash_target)).await {
+        Ok(Ok(hash)) => hash,
+        Ok(Err(e)) => {
+            let _ = std::fs::remove_file(&installer_path);
+            *state.verified_installer.lock() = None;
+            return Err(crate::tr!(
+                format!(
+                    "Impossibile validare l'hash del file prima dell'installazione: {}",
+                    e
+                ),
+                format!("Could not validate the file hash before installing: {}", e)
+            ));
+        }
+        Err(e) => {
+            let _ = std::fs::remove_file(&installer_path);
+            *state.verified_installer.lock() = None;
+            return Err(crate::tr!(
+                format!("Validazione dell'hash interrotta: {}", e),
+                format!("Hash validation was interrupted: {}", e)
+            ));
+        }
+    };
 
     if !disk_sha256.eq_ignore_ascii_case(&verified.sha256) {
         let _ = std::fs::remove_file(&installer_path);
@@ -2147,7 +2229,20 @@ pub async fn install_studio_update_and_restart(
             .and_then(|e| e.to_str())
             .unwrap_or("");
         if ext.eq_ignore_ascii_case("dmg") {
-            match install_dmg_in_place(&canonical_installer, &app.config().identifier) {
+            // Il montaggio del DMG (hdiutil), la copia del bundle (ditto) e lo
+            // scambio delle cartelle sono processi e I/O bloccanti (S8-06).
+            let dmg = canonical_installer.clone();
+            let bundle_id = app.config().identifier.clone();
+            let installed =
+                tokio::task::spawn_blocking(move || install_dmg_in_place(&dmg, &bundle_id))
+                    .await
+                    .unwrap_or_else(|error| {
+                        Err(crate::tr!(
+                            format!("Installazione interrotta: {}", error),
+                            format!("Installation was interrupted: {}", error)
+                        ))
+                    });
+            match installed {
                 Ok(()) => {
                     app.exit(0);
                     return Ok(StudioInstallOutcome::restarting());
@@ -2199,7 +2294,24 @@ pub async fn install_studio_update_and_restart(
                 .filter(|p| p.is_absolute() && p.is_file());
             let message = match running_appimage {
                 Some(target) => {
-                    replace_appimage_atomically(&canonical_installer, &target, &verified.sha256)?;
+                    // Scrittura e hash di un'AppImage intera: lavoro bloccante (S8-06).
+                    let installer = canonical_installer.clone();
+                    let replace_target = target.clone();
+                    let sha = verified.sha256.clone();
+                    match tokio::task::spawn_blocking(move || {
+                        replace_appimage_atomically(&installer, &replace_target, &sha)
+                    })
+                    .await
+                    {
+                        Ok(Ok(())) => {}
+                        Ok(Err(error)) => return Err(error),
+                        Err(error) => {
+                            return Err(crate::tr!(
+                                format!("Sostituzione dell'AppImage interrotta: {}", error),
+                                format!("Replacing the AppImage was interrupted: {}", error)
+                            ));
+                        }
+                    }
                     *state.verified_installer.lock() = None;
                     if let Err(e) =
                         spawn_linux_relaunch_after_exit(&target, &[canonical_installer.as_path()])

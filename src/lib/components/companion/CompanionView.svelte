@@ -2,7 +2,7 @@
 	import './companion.css';
 	import { m } from '#lib/paraglide/messages.js';
 	import { onMount, tick, untrack } from 'svelte';
-	import { listen, type UnlistenFn } from '#lib/backend/ipc.ts';
+	import { emit, listen, type UnlistenFn } from '#lib/backend/ipc.ts';
 	import { companionStore, type AttentionRequest, type QuickTaskAiParsed } from '#lib/stores/companion.svelte.ts';
 	import type { Project } from '#lib/stores/projects.svelte.ts';
 	import { quotaStore } from '#lib/stores/quota.svelte.ts';
@@ -1134,7 +1134,17 @@
 	onClose={() => void companionStore.hideCompanion()}
 >
 	{#if usageOpen}
-		<UsagePopover open={usageOpen} onClose={() => (usageOpen = false)} />
+		<UsagePopover
+			open={usageOpen}
+			onClose={() => (usageOpen = false)}
+			onOpenSettings={(section) => {
+				// Le impostazioni sono nella finestra principale: questa e' una
+				// webview separata con la propria copia dello store, aprirle qui
+				// non mostrerebbe nulla. Il CTA le chiede alla finestra madre.
+				void emit('studio-open-settings', { section: section ?? null });
+				usageOpen = false;
+			}}
+		/>
 	{/if}
 
 	<main class="companion-body priority-body" class:pinned={companionStore.isPinned} bind:this={bodyEl}>

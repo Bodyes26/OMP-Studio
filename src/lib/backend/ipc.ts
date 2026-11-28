@@ -14,6 +14,8 @@ import {
 } from '@tauri-apps/api/core';
 import { emit, listen, type Event, type EventCallback, type UnlistenFn } from '@tauri-apps/api/event';
 import { commandScope, type BackendCommand } from './commands.ts';
+import { m } from '#lib/paraglide/messages.js';
+import { studioLog } from '#lib/diagnostics/studioLog.ts';
 
 export { Channel, emit, isTauri, listen };
 export type { BackendCommand, Event, EventCallback, InvokeArgs, UnlistenFn };
@@ -30,11 +32,11 @@ export const UPDATE_COMMANDS: readonly string[] = [
 	'get_studio_version', 'check_studio_update', 'studio_update_remote_start', 'studio_update_remote_status'
 ];
 
-const linkedMachines = new Map<MachineId, { online: boolean; compatible: boolean }>();
+const linkedMachines = new Map<MachineId, { online: boolean; compatible: boolean; name: string }>();
 
-export function updateLinkedMachines(machines: readonly { id: MachineId; online: boolean; compatible: boolean }[]): void {
+export function updateLinkedMachines(machines: readonly { id: MachineId; name?: string; online: boolean; compatible: boolean }[]): void {
 	linkedMachines.clear();
-	for (const machine of machines) linkedMachines.set(machine.id, machine);
+	for (const machine of machines) linkedMachines.set(machine.id, { ...machine, name: machine.name ?? machine.id });
 }
 
 export interface BackendCallOptions extends Partial<InvokeOptions> {
@@ -66,6 +68,33 @@ export class BackendRouteError extends Error {
 		this.machine = machine;
 		this.reason = reason;
 	}
+}
+
+/**
+ * Testo per le superfici d'errore di un errore qualunque (S3-link-front-08,
+ * contratto C5): un rifiuto di instradamento diventa una frase con il nome
+ * della macchina, il resto resta il messaggio dell'errore. L'id della macchina
+ * non arriva mai all'utente.
+ *
+ * Il rifiuto va nel registro a INFO, non sulla console come errore: o la
+ * macchina e' spenta (l'utente lo vede gia' nel chip e nel popover), o il
+ * comando non appartiene a quella macchina, e succede a ogni giro di polling.
+ */
+export function routeErrorText(error: unknown): string {
+	if (error instanceof BackendRouteError) {
+		// Fuori dalla finestra (test, avvio) il registro non esiste: il testo per
+		// l'utente non deve dipendere da lui.
+		if (typeof window !== 'undefined') {
+			studioLog.info('link', `comando ${error.command} non instradato: ${error.reason} -> ${error.machine}`);
+		}
+		const name = linkedMachines.get(error.machine)?.name ?? error.machine;
+		switch (error.reason) {
+			case 'machine_unreachable': return m.machines_error_unreachable({ machine: name });
+			case 'incompatible_version': return m.machines_error_incompatible({ machine: name });
+			case 'local_only': return m.machines_error_local_only({ machine: name });
+		}
+	}
+	return error instanceof Error ? error.message : String(error);
 }
 
 /** Decide dove gira `command` chiesto per `machine`; puro, non apre collegamenti. */

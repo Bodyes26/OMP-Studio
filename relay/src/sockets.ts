@@ -112,6 +112,7 @@ export class SocketHub {
 	private readonly chatWatchers = new Map<string, Set<ServerWebSocket<RelayWsData>>>();
 	private diagSessions = 0;
 	private heartbeatInterval?: Timer;
+	private stopped = false;
 
 	constructor(
 		private readonly config: RelayConfig,
@@ -124,8 +125,15 @@ export class SocketHub {
 	getDiagSessionsCount(): number {
 		return this.diagSessions;
 	}
-	/** Chiude il battito globale e tutti i socket aperti. */
+	/**
+	 * Chiude il battito globale, i timer di sessione e i socket aperti, poi il
+	 * database del relay. Senza questa chiusura il DB SQLite restava aperto e
+	 * lo sweep dei codici di abbinamento continuava a girare finche' il
+	 * processo non usciva. Idempotente: `server.stop()` puo' arrivare due volte.
+	 */
 	stop(): void {
+		if (this.stopped) return;
+		this.stopped = true;
 		clearInterval(this.heartbeatInterval);
 		for (const pending of this.pendingCommands.values()) {
 			clearTimeout(pending.timer);
@@ -133,6 +141,37 @@ export class SocketHub {
 		this.pendingCommands.clear();
 		this.clientSubscriptions.clear();
 		this.chatWatchers.clear();
+
+		// Socket ancora aperti: quelli host (anche pre-hello, elencati in
+		// `hostSockets`) e quelli client. Un set evita di chiudere due volte lo
+		// stesso socket, che farebbe arrivare due `handleClose`.
+		const closing = new Set<ServerWebSocket<RelayWsData>>();
+		for (const sockets of this.hostSockets.values()) {
+			for (const ws of sockets) closing.add(ws);
+		}
+		for (const ws of this.activeHosts.values()) closing.add(ws);
+		for (const ws of this.activeClients) closing.add(ws);
+		for (const ws of closing) this.closeForStop(ws);
+		this.hostSockets.clear();
+		this.activeHosts.clear();
+		this.activeClients.clear();
+
+		this.store.close();
+	}
+
+	private closeForStop(ws: ServerWebSocket<RelayWsData>): void {
+		const data = ws.data;
+		if (data.kind === 'diag') {
+			clearTimeout(data.authTimer);
+			clearInterval(data.heartbeat);
+		} else {
+			clearTimeout(data.helloTimer);
+		}
+		try {
+			ws.close(CloseCode.normal, 'relay stopping');
+		} catch {
+			// Socket gia' chiuso dal runtime.
+		}
 	}
 
 	// ---------------------------------------------------------------------------
@@ -772,7 +811,27 @@ export class SocketHub {
 		};
 		ws.send(JSON.stringify(welcome));
 
-		// Spedisce subito lo stato salvato di tutte le macchine registrate.
+		// Stato salvato delle macchine: si salta quello che il client dichiara
+		// di avere gia', confrontando `receivedAt` (l'istante in cui il relay ha
+		// accettato lo stato) e `seq`. `receivedAt` da solo basterebbe nella
+		// pratica, ma due stati accettati nello stesso millisecondo resterebbero
+		// indistinguibili. Un client vecchio non manda il campo e riceve tutto
+		// come prima.
+		const known = new Map<string, { seq: number; receivedAt: number }>();
+		if (Array.isArray(msg.snapshots)) {
+			for (const entry of msg.snapshots) {
+				if (
+					entry &&
+					typeof entry === 'object' &&
+					typeof entry.hostId === 'string' &&
+					typeof entry.seq === 'number' &&
+					typeof entry.receivedAt === 'number'
+				) {
+					known.set(entry.hostId, { seq: entry.seq, receivedAt: entry.receivedAt });
+				}
+			}
+		}
+
 		for (const host of this.store.listHosts()) {
 			const activeWs = this.activeHosts.get(host.id);
 			const activeData = activeWs?.data as HostWsSession | undefined;
@@ -780,6 +839,11 @@ export class SocketHub {
 			const receivedAt = activeData?.stateReceivedAt ?? host.lastStateAt;
 			const seq = activeData?.lastAcceptedSeq ?? 0;
 			if (state && receivedAt !== null) {
+				const cached = known.get(host.id);
+				// `seq` 0 e' quello che un host spento riporta sempre: in quel caso
+				// l'identita' dello stato e' solo `receivedAt`.
+				const sameState = cached && cached.receivedAt === receivedAt && (seq === 0 || cached.seq === seq);
+				if (sameState) continue;
 				const frame: RelayToClientFrame = {
 					type: 'host_snapshot',
 					hostId: host.id,

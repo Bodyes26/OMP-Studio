@@ -1,41 +1,15 @@
 /**
- * R-MI-13 / F18: la macchina proposta è l'ultima usata; su un progetto di una
- * sola macchina non c'è scelta. Se il cambio sia possibile lo decide
- * `decideSwitch` (R-MI-62), non questo modulo.
+ * R-MI-13 / F19: l'elenco delle macchine dell'indicatore sotto il composer.
+ * La regola F18 (l'ultima copia usata, non quella locale) la applica
+ * `projectCopies.ts`; qui si prova solo l'ordine e la deduplica dell'elenco.
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { machineChoices, proposedMachine, type MachineCopy } from '../src/lib/agent/machineChoice.ts';
+import { machineChoices, type MachineCopy } from '../src/lib/agent/machineChoice.ts';
 
 const mac: MachineCopy = { machineId: 'mac', name: 'MacBook Air', online: true, lastUsed: 100 };
 const pc: MachineCopy = { machineId: 'local', name: 'PIE-CN-LTC13', online: true, lastUsed: 200 };
-
-describe('Macchina proposta per chat e task (R-MI-13, F18)', () => {
-	it('con una sola copia parte li, senza domande', () => {
-		assert.equal(proposedMachine([mac]), 'mac');
-	});
-
-	it('con piu copie vince l ultima usata, non la locale', () => {
-		assert.equal(proposedMachine([mac, pc]), 'local');
-		assert.equal(proposedMachine([pc, mac]), 'local', "l'ordine dell'elenco non conta");
-	});
-
-	it("se l'ultima usata e spenta si sceglie l'altra raggiungibile", () => {
-		const offline: MachineCopy = { ...pc, online: false };
-		assert.equal(proposedMachine([mac, offline]), 'mac');
-	});
-
-	it('se nessuna e raggiungibile resta l ultima usata, da mostrare come non raggiungibile', () => {
-		const a: MachineCopy = { ...mac, online: false, lastUsed: 300 };
-		const b: MachineCopy = { ...pc, online: false };
-		assert.equal(proposedMachine([b, a]), 'mac');
-	});
-
-	it('senza copie non propone nulla', () => {
-		assert.equal(proposedMachine([]), null);
-	});
-});
 
 describe('Elenco delle macchine nell indicatore', () => {
 	it('mette la corrente per prima e le altre per ultimo uso', () => {

@@ -8,13 +8,13 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { readPermissionSets, expandCapabilityPermissions } from './permissions-fixture.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const TAURI = join(ROOT, 'src-tauri');
-const PERMISSIONS_DIR = join(TAURI, 'permissions');
 
 /**
  * Comandi registrati nella macro `generate_handler!` di src/lib.rs.
@@ -48,70 +48,11 @@ function comandiRegistrati(): string[] {
 	return voci.map((voce) => voce.split('::').pop() as string);
 }
 
-interface Permessi {
-	/** identificatore del permesso -> comandi consentiti */
-	comandiPerPermesso: Map<string, string[]>;
-	/** identificatore del set -> permessi inclusi */
-	permessiPerSet: Map<string, string[]>;
-}
-
-/** Legge i file TOML dei permessi senza dipendere da un parser esterno. */
-function leggiPermessi(): Permessi {
-	const comandiPerPermesso = new Map<string, string[]>();
-	const permessiPerSet = new Map<string, string[]>();
-
-	for (const file of readdirSync(PERMISSIONS_DIR).filter((f) => f.endsWith('.toml'))) {
-		const testo = readFileSync(join(PERMISSIONS_DIR, file), 'utf8');
-		// Ogni blocco inizia con [[permission]] o [[set]] e termina al blocco successivo.
-		const blocchi = testo.split(/^\[\[(permission|set)\]\]$/m);
-		for (let i = 1; i < blocchi.length; i += 2) {
-			const tipo = blocchi[i];
-			const corpo = blocchi[i + 1] ?? '';
-			const identifier = corpo.match(/^identifier\s*=\s*"([^"]+)"/m)?.[1];
-			assert.ok(identifier, `blocco [[${tipo}]] senza identifier in ${file}`);
-			const lista = corpo.match(
-				tipo === 'permission'
-					? /commands\.allow\s*=\s*\[([\s\S]*?)\]/
-					: /permissions\s*=\s*\[([\s\S]*?)\]/
-			);
-			const voci = (lista?.[1] ?? '')
-				.split(',')
-				.map((v) => v.trim().replace(/^"|"$/g, ''))
-				.filter(Boolean);
-			if (tipo === 'permission') {
-				comandiPerPermesso.set(identifier, voci);
-			} else {
-				permessiPerSet.set(identifier, voci);
-			}
-		}
-	}
-
-	return { comandiPerPermesso, permessiPerSet };
-}
-
-/** Espande i riferimenti della capability in comandi effettivamente consentiti. */
 function comandiConsentiti(): Set<string> {
-	const { comandiPerPermesso, permessiPerSet } = leggiPermessi();
-	const capability = JSON.parse(
-		readFileSync(join(TAURI, 'capabilities', 'default.json'), 'utf8')
-	) as { permissions: string[] };
-
-	const consentiti = new Set<string>();
-	const daEspandere = capability.permissions.filter((p) => !p.includes(':'));
-
-	while (daEspandere.length > 0) {
-		const riferimento = daEspandere.pop() as string;
-		const comandi = comandiPerPermesso.get(riferimento);
-		if (comandi) {
-			for (const comando of comandi) consentiti.add(comando);
-			continue;
-		}
-		const set = permessiPerSet.get(riferimento);
-		assert.ok(set, `la capability referenzia '${riferimento}', che non esiste nei permessi`);
-		daEspandere.push(...set);
-	}
-
-	return consentiti;
+	return expandCapabilityPermissions(
+		readPermissionSets(join(TAURI, 'permissions')),
+		join(TAURI, 'capabilities', 'default.json')
+	);
 }
 
 test('ACL dei comandi nativi', async (t) => {

@@ -281,7 +281,7 @@
 		align-items: center;
 		gap: 6px;
 		padding: 8px 14px;
-		font-size: 13px;
+		font-size: var(--text-body);
 		font-weight: 500;
 		background: transparent;
 		border: none;

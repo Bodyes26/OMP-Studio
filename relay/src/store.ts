@@ -11,6 +11,14 @@ import type {
 } from './protocol.ts';
 export const MAX_ACTIVE_CODES_PER_DEVICE = 10;
 export const PAIRING_CODE_SWEEP_MS = 60_000;
+/** Righe di registro comandi conservate per la diagnostica. */
+export const COMMAND_LOG_MAX = 500;
+/**
+ * La potatura del registro e' una `DELETE` con sottoquery sull'intera tabella:
+ * eseguirla a ogni comando costava una scansione completa. Ogni N inserimenti
+ * basta a tenere la tabella vicina al tetto, con l'errore massimo di N righe.
+ */
+export const COMMAND_LOG_PRUNE_EVERY = 64;
 export const MAX_PUSH_SUBSCRIPTIONS_PER_DEVICE = 5;
 /** Tetto dei lavori in attesa per una macchina spenta: evita una crescita senza fine dell'outbox. */
 export const MAX_DEFERRED_PER_HOST = 20;
@@ -93,6 +101,7 @@ export class RelayStore {
 	private readonly db: Database;
 	private closed = false;
 	private sweepTimer?: Timer;
+	private commandLogInserts = 0;
 	constructor(dataDir: string) {
 		const dbPath = join(dataDir, 'relay.db');
 		this.db = new Database(dbPath);
@@ -656,18 +665,34 @@ export class RelayStore {
 		return row?.count ?? 0;
 	}
 
-	/** Registra l'esito di un comando mantenendo le ultime 500 righe. */
+	/**
+	 * Registra l'esito di un comando mantenendo le ultime 500 righe.
+	 *
+	 * La potatura non gira a ogni insert: la `DELETE ... NOT IN (SELECT ...
+	 * LIMIT 500)` costa una scansione completa della tabella, e a ogni comando
+	 * rendeva caro un registro che serve solo alla diagnostica. Si sfoltisce
+	 * ogni `COMMAND_LOG_PRUNE_EVERY` inserimenti e alla chiusura del DB.
+	 */
 	logCommand(at: number, deviceId: string, hostId: string, kind: string, outcome: string): void {
 		if (this.closed) return;
 		this.db
 			.query('INSERT INTO command_log (at, device_id, host_id, kind, outcome) VALUES (?, ?, ?, ?, ?);')
 			.run(at, deviceId, hostId, kind, outcome);
-		// Mantiene la tabella entro il tetto di 500 eventi per evitare crescita indefinita del database.
+		this.commandLogInserts += 1;
+		if (this.commandLogInserts >= COMMAND_LOG_PRUNE_EVERY) {
+			this.commandLogInserts = 0;
+			this.pruneCommandLog();
+		}
+	}
+
+	/** Riduce `command_log` alle ultime `COMMAND_LOG_MAX` righe. */
+	pruneCommandLog(): void {
+		if (this.closed) return;
 		this.db
 			.query(
-				'DELETE FROM command_log WHERE id NOT IN (SELECT id FROM command_log ORDER BY id DESC LIMIT 500);'
+				'DELETE FROM command_log WHERE id NOT IN (SELECT id FROM command_log ORDER BY id DESC LIMIT ?);'
 			)
-			.run();
+			.run(COMMAND_LOG_MAX);
 	}
 
 
@@ -787,6 +812,11 @@ export class RelayStore {
 			.all();
 	}
 	close(): void {
+		// Idempotente: `SocketHub.stop()` chiude lo store, e i test lo
+		// richiamano a mano; una seconda `db.close()` farebbe eccezione.
+		if (this.closed) return;
+		// Sfoltisce le righe residue di registro non ancora potate.
+		if (this.commandLogInserts > 0) this.pruneCommandLog();
 		this.closed = true;
 		clearInterval(this.sweepTimer);
 		this.db.close();

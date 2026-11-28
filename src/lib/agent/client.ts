@@ -5,7 +5,7 @@
 // Qui restano tre cose: correlare le risposte, non lasciare promise appese, e
 // consegnare i frame non-risposta a chi li riduce.
 
-import { Channel, invoke as backendInvoke, LOCAL_MACHINE, type MachineId, type BackendCommand, type InvokeArgs } from '#lib/backend/ipc.ts';
+import { BackendRouteError, Channel, invoke as backendInvoke, LOCAL_MACHINE, type MachineId, type BackendCommand, type InvokeArgs } from '#lib/backend/ipc.ts';
 import type {
 	AbortAndRestoreQueueResult,
 	AgentSessionEvent,
@@ -24,6 +24,7 @@ import {
 	type ClientTally
 } from './hangReport';
 import { m as msg } from '#lib/paraglide/messages.js';
+import { studioLog } from '#lib/diagnostics/studioLog.ts';
 
 /** Timeout di default per richiesta. Un comando che non risponde entro un
  *  minuto e' un comando perso: senza timeout la promise resterebbe appesa. */
@@ -57,6 +58,27 @@ const FAST_COMMANDS: Record<string, true> = {
 	// omp lo esegue fuori dalla coda dei comandi e risponde subito.
 	btw_cancel: true
 };
+
+/** Comandi accessori: riaffermano una preferenza o accendono un canale. Se la
+ *  risposta arriva dopo un minuto la sessione e' gia' cambiata e il valore non
+ *  serve piu'; con omp occupato dietro decine di MB di progressi (S14) il
+ *  minuto era una attesa inutile. Timeout breve e ritentativo silenzioso al
+ *  prossimo `ready` (D1). */
+const SET_COMMAND_TIMEOUT_MS = 8_000;
+const SET_COMMANDS: Record<string, true> = {
+	set_steering_mode: true,
+	set_follow_up_mode: true,
+	set_interrupt_mode: true,
+	set_cache_warming: true,
+	set_subagent_subscription: true,
+	set_ask_dialog: true,
+	set_event_filter: true
+};
+
+/** Frame arrivati durante l'attesa che bastano a dire «omp sta lavorando, la
+ *  risposta e' in coda» invece di «il comando e' bloccato». Il primo frame
+ *  puo' essere un delta gia' in volo all'invio; due no. */
+const FRAMES_DURING_WAIT_BUSY = 2;
 
 /** Un rapporto di blocco al massimo ogni tanto: un blocco fa scadere in
  *  cascata tutte le richieste in volo, e basta fotografarlo una volta. */
@@ -117,7 +139,9 @@ export class OmpRpcClient {
 	private closed = false;
 	private abortEpoch = 0;
 	/** Frame consegnati dal Channel dell'apertura corrente: confrontati con
-	 *  quelli spediti da Rust dicono se il Channel si e' fermato. */
+	 *  quelli spediti dal sink Rust della stessa finestra dicono se il Channel
+	 *  si e' fermato. Con una sessione ospitata altrove quei contatori sono di
+	 *  un'altra macchina e non si confrontano (vedi `reportHang`). */
 	private tally: ClientTally = newTally();
 	private lastHangReportAt = 0;
 	get id(): number | null {
@@ -265,7 +289,9 @@ export class OmpRpcClient {
 	 * emissione non e' garantito dal protocollo.
 	 */
 	async send<T = unknown>(command: RpcCommand): Promise<T> {
-		if (this.rpcId === null || this.closed) throw rpcError(msg.l10n_agent_rpc_session_not_open(), command.type);
+		if (this.rpcId === null || this.closed) {
+			throw rpcError(msg.l10n_agent_rpc_session_not_open(), command.type, 'closed');
+		}
 		const id = `${this.requestPrefix}${++this.seq}`;
 		// `/compact <modo>` passa da `prompt` ma fa la stessa chiamata al modello di `compact`.
 		const slowPrompt = command.type === 'prompt' && /^\/compact(\s|$)/.test(command.message);
@@ -276,9 +302,20 @@ export class OmpRpcClient {
 					? SLOW_COMMAND_TIMEOUT_MS
 					: FAST_COMMANDS[command.type] === true
 						? FAST_COMMAND_TIMEOUT_MS
-						: DEFAULT_TIMEOUT_MS;
+						: SET_COMMANDS[command.type] === true
+							? SET_COMMAND_TIMEOUT_MS
+							: DEFAULT_TIMEOUT_MS;
 		const { promise, resolve, reject } = Promise.withResolvers<unknown>();
+		// Il rifiuto puo' arrivare mentre `rpc_send` e' ancora in volo (canale
+		// lento, risposta vecchia, chiusura): senza un gestore subito la WebView
+		// lo registra come promessa rifiutata non gestita anche se il chiamante
+		// lo intercetta un istante dopo.
+		promise.catch(() => {});
 		const sentAt = Date.now();
+		// Frame arrivati mentre questa richiesta aspetta: distinguono omp
+		// occupato (scrive, ma la risposta e' in coda dietro i suoi progressi)
+		// da un comando fermo dentro omp.
+		const framesAtSend = this.tally.count;
 
 		const timer = window.setTimeout(() => {
 			this.pending.delete(id);
@@ -286,7 +323,20 @@ export class OmpRpcClient {
 				command: command.type,
 				seconds: timeoutMs / 1000
 			});
-			void this.reportHang(id, command.type, sentAt, timeoutMs).then((path) =>
+			const framesDuringWait = this.tally.count - framesAtSend;
+			const busy = framesDuringWait >= FRAMES_DURING_WAIT_BUSY;
+			// Con omp occupato la risposta non e' persa: e' in coda dietro i
+			// suoi frame. Un rapporto di blocco direbbe la cosa sbagliata e il
+			// ritentativo silenzioso la recupera al prossimo `ready`.
+			if (busy) {
+				studioLog.info(
+					'transport',
+					`"${command.type}" senza risposta in ${timeoutMs / 1000}s con ${framesDuringWait} frame ricevuti: omp occupato, nessun rapporto`
+				);
+				reject(rpcError(message, command.type, 'busy'));
+				return;
+			}
+			void this.reportHang(id, command.type, sentAt, timeoutMs, framesDuringWait).then((path) =>
 				reject(
 					rpcError(
 						path ? msg.l10n_agent_rpc_timeout_with_report({ message, path }) : message,
@@ -433,7 +483,15 @@ export class OmpRpcClient {
 		this.openEpoch++;
 		this.failAllPending(msg.l10n_agent_rpc_closed());
 		if (rpcId === null) return;
-		await this.invoke('rpc_close', { rpcId, replacing });
+		try {
+			await this.invoke('rpc_close', { rpcId, replacing });
+		} catch (error) {
+			// La sottoscrizione l'ha gia' chiusa il collegamento in locale: una
+			// macchina irraggiungibile a questo punto non e' un errore della
+			// chat, e propagarlo faceva fallire `close()`/`reopen()`.
+			if (!(error instanceof BackendRouteError)) throw error;
+			studioLog.warn('transport', `rpc_close non consegnato: ${error.reason}`);
+		}
 	}
 
 	/** Chiamata dal riduttore quando arriva `studio_exit`. */
@@ -457,7 +515,13 @@ export class OmpRpcClient {
 	 * il rapporto e' stato saltato o non si e' potuto scrivere. Non rigetta mai:
 	 * chi la chiama deve comunque far fallire il comando.
 	 */
-	private async reportHang(commandId: string, command: string, sentAt: number, timeoutMs: number): Promise<string | null> {
+	private async reportHang(
+		commandId: string,
+		command: string,
+		sentAt: number,
+		timeoutMs: number,
+		framesDuringWait: number
+	): Promise<string | null> {
 		const rpcId = this.rpcId;
 		const started = Date.now();
 		if (rpcId === null || started - this.lastHangReportAt < HANG_REPORT_MIN_INTERVAL_MS) return null;
@@ -487,7 +551,12 @@ export class OmpRpcClient {
 			client,
 			pending,
 			backend,
-			backendError
+			backendError,
+			// `rpc_diagnostics` e' instradato alla macchina della sessione: per
+			// una sessione ospitata altrove i suoi contatori sono di un Channel
+			// che non e' questo (S1-rpc-01).
+			remote: this.machine !== LOCAL_MACHINE,
+			framesDuringWait
 		});
 		console.error('[rpc-hang]', report.verdict.join(' | '));
 		try {
@@ -543,7 +612,7 @@ export class OmpRpcClient {
 		if (event.type === 'studio_exit') {
 			this.closed = true;
 			this.rpcId = null;
-			this.abortPendingRequests('Sessione OMP terminata');
+			this.abortPendingRequests(msg.l10n_agent_omp_terminated());
 		}
 		try {
 			this.eventHandler?.(event);

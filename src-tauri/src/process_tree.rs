@@ -170,6 +170,12 @@ fn send_signal(signal: &str, target: &str) -> bool {
 /// e' uno zombie. `kill -0` da solo non basta: il leader e' figlio di Studio e
 /// resta zombie finche' la sessione non lo raccoglie con `wait`, quindi il
 /// gruppo sembrerebbe vivo per tutta l'attesa.
+///
+/// Non si usa `ps -g`: su BSD `-g` chiede il gruppo, su procps seleziona per
+/// *sessione* o gruppo effettivo, e li' un gruppo nuovo (il figlio fa
+/// `process_group(0)` senza `setsid`) verrebbe dichiarato vuoto e ucciso senza
+/// attesa. Si tiene l'elenco completo, che costa ~10 ms, e si alza la cadenza
+/// del chiamante (S8-18): 30 giri da 50 ms erano 30 `ps` per albero.
 #[cfg(not(target_os = "windows"))]
 pub fn process_group_alive(pgid: u32) -> bool {
     if !send_signal("-0", &format!("-{}", pgid)) {
@@ -210,8 +216,11 @@ fn terminate_group(pgid: u32) -> bool {
     // (che con il job control vivono in gruppi propri) ed esce.
     let _ = send_signal("-HUP", &group);
     let deadline = std::time::Instant::now() + GROUP_TERM_GRACE;
+    // Cadenza di 100 ms, non 50 (S8-18): ogni giro e' un `kill -0` piu' uno
+    // `ps` completo, e la grazia dura 1,5 s. La reattivita' persa e' 50 ms su
+    // una chiusura che ne impiega comunque centinaia.
     while process_group_alive(pgid) && std::time::Instant::now() < deadline {
-        std::thread::sleep(std::time::Duration::from_millis(50));
+        std::thread::sleep(std::time::Duration::from_millis(100));
     }
     let _ = send_signal("-KILL", &group);
     true

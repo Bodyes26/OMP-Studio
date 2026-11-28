@@ -86,52 +86,89 @@ pub(crate) fn arrival_path(session: &str) -> Option<String> {
 }
 
 #[tauri::command]
-pub(crate) fn session_move_redirect(session: String) -> Result<Option<Redirect>, String> { moved(&session) }
-#[tauri::command]
-pub(crate) fn session_move_recover(project_path: String, session: String) -> Result<String, String> {
-    let session = id(&session)?;
-    let target = moved(&session)?.ok_or("Session transfer has not started")?;
-    if target.source_path != project_path { return Err("Session transfer belongs to a different workspace".into()); }
-    std::fs::read_to_string(checked_source(&session, &project_path)?).map_err(|e| e.to_string())
+pub(crate) async fn session_move_redirect(session: String) -> Result<Option<Redirect>, String> {
+    tokio::task::spawn_blocking(move || moved(&session))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
+/// Legge il transcript di una sessione gia' spostata. Il file puo' arrivare a
+/// 12 MB: lettura bloccante, fuori dal main thread (S8-01).
 #[tauri::command]
-pub(crate) fn session_move_export(manager: State<'_, crate::rpc::RpcManager>, project_path: String, session: String,
-    rpc_id: u64, target: Redirect) -> Result<String, String> {
-    let session = id(&session)?;
-    if target.source_path != project_path { return Err("Session transfer belongs to a different workspace".into()); }
-    let path = checked_source(&session, &project_path)?;
-    let marker = marker(&session, "moved")?;
-    manager.freeze_for_move(rpc_id, &session, &project_path, || {
-        if let Some(existing) = read::<Redirect>(&marker)? {
-            if existing.machine != target.machine || existing.project_path != target.project_path { return Err("Session already moved to a different workspace".into()); }
-        } else {
-            write(&marker, &target)?;
-        }
-        Ok(())
-    })?;
-    std::fs::read_to_string(path).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub(crate) fn session_move_import(manager: State<'_, crate::rpc::RpcManager>, project_path: String, session: String,
-    source_path: String, transcript: String) -> Result<(), String> {
-    let session = id(&session)?;
-    if transcript.len() as u64 > MAX || !Path::new(&project_path).is_dir() { return Err("Invalid destination or transcript size".into()); }
-    let header: serde_json::Value = serde_json::from_str(transcript.lines().next().ok_or("Empty transcript")?).map_err(|e| e.to_string())?;
-    if header.get("type").and_then(|v| v.as_str()) != Some("session") || header.get("id").and_then(|v| v.as_str()) != Some(session.as_str()) ||
-        header.get("cwd").and_then(|v| v.as_str()).map(crate::session_index::normalize_path_for_compare) != Some(crate::session_index::normalize_path_for_compare(&source_path)) {
-        return Err("Transcript metadata does not match the transfer".into());
-    }
-    manager.with_open_gate(|| {
-        if let Some(existing) = arrival_path(&session) {
-            if existing != project_path { return Err("The destination already has this session".into()); }
-            if crate::omp_ops::session_transcript_exists(&session) { return Ok(()); }
-        } else if crate::omp_ops::session_transcript_exists(&session) { return Err("The destination already has this session".into()); }
-        let dir = roots()?.join(crate::session_index::session_folder_candidates(&project_path).into_iter().next().ok_or("Invalid workspace path")?);
-        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-        let target = dir.join(format!("{}_{session}.jsonl", crate::link::epoch_ms()));
-        write(&marker(&session, "arrival")?, &Arrival { source_path, target_path: project_path })?;
-        crate::fs_atomic::atomic_write(&target, transcript.as_bytes())
+pub(crate) async fn session_move_recover(project_path: String, session: String) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        let session = id(&session)?;
+        let target = moved(&session)?.ok_or("Session transfer has not started")?;
+        if target.source_path != project_path { return Err("Session transfer belongs to a different workspace".into()); }
+        std::fs::read_to_string(checked_source(&session, &project_path)?).map_err(|e| e.to_string())
     })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Congela la sessione sul mittente (fino a 3 s di attesa dell'uscita di omp,
+/// poi `kill_tree`) e ne restituisce il transcript. Bloccante: sul main thread
+/// congelerebbe la finestra per tutta la durata (S8-01).
+#[tauri::command]
+pub(crate) async fn session_move_export(
+    manager: State<'_, crate::rpc::RpcManager>,
+    project_path: String,
+    session: String,
+    rpc_id: u64,
+    target: Redirect,
+) -> Result<String, String> {
+    let manager = manager.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        let session = id(&session)?;
+        if target.source_path != project_path { return Err("Session transfer belongs to a different workspace".into()); }
+        let path = checked_source(&session, &project_path)?;
+        let marker = marker(&session, "moved")?;
+        manager.freeze_for_move(rpc_id, &session, &project_path, || {
+            if let Some(existing) = read::<Redirect>(&marker)? {
+                if existing.machine != target.machine || existing.project_path != target.project_path { return Err("Session already moved to a different workspace".into()); }
+            } else {
+                write(&marker, &target)?;
+            }
+            Ok(())
+        })?;
+        std::fs::read_to_string(path).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Scrive il transcript nella cartella della sessione di destinazione (fino a
+/// 12 MB) sotto il gate di apertura: lavoro bloccante e main thread libero
+/// (S8-01).
+#[tauri::command]
+pub(crate) async fn session_move_import(
+    manager: State<'_, crate::rpc::RpcManager>,
+    project_path: String,
+    session: String,
+    source_path: String,
+    transcript: String,
+) -> Result<(), String> {
+    let manager = manager.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        let session = id(&session)?;
+        if transcript.len() as u64 > MAX || !Path::new(&project_path).is_dir() { return Err("Invalid destination or transcript size".into()); }
+        let header: serde_json::Value = serde_json::from_str(transcript.lines().next().ok_or("Empty transcript")?).map_err(|e| e.to_string())?;
+        if header.get("type").and_then(|v| v.as_str()) != Some("session") || header.get("id").and_then(|v| v.as_str()) != Some(session.as_str()) ||
+            header.get("cwd").and_then(|v| v.as_str()).map(crate::session_index::normalize_path_for_compare) != Some(crate::session_index::normalize_path_for_compare(&source_path)) {
+            return Err("Transcript metadata does not match the transfer".into());
+        }
+        manager.with_open_gate(|| {
+            if let Some(existing) = arrival_path(&session) {
+                if existing != project_path { return Err("The destination already has this session".into()); }
+                if crate::omp_ops::session_transcript_exists(&session) { return Ok(()); }
+            } else if crate::omp_ops::session_transcript_exists(&session) { return Err("The destination already has this session".into()); }
+            let dir = roots()?.join(crate::session_index::session_folder_candidates(&project_path).into_iter().next().ok_or("Invalid workspace path")?);
+            std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+            let target = dir.join(format!("{}_{session}.jsonl", crate::link::epoch_ms()));
+            write(&marker(&session, "arrival")?, &Arrival { source_path, target_path: project_path })?;
+            crate::fs_atomic::atomic_write(&target, transcript.as_bytes())
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }

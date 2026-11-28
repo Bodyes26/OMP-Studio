@@ -226,11 +226,6 @@ export interface AutomationPreview {
 	issues: string[];
 	fileHashes: Record<string, string>;
 }
-export const DEFAULT_AUTOMATION_SETTINGS: AutomationSettings = {
-	maxAi: 1, maxCommands: 1, retentionDays: 90,
-	outputPerRunBytes: 10 * 1024 * 1024, outputTotalBytes: 200 * 1024 * 1024,
-	assistantModelMode: 'role', assistantModel: 'smol', assistantAllowPayAsYouGo: false
-};
 export function newAutomationDefinition(projectPath = ''): AutomationDefinition {
 	const now = Date.now();
 	return {

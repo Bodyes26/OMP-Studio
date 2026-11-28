@@ -1,8 +1,16 @@
 // Accesso ai comandi Rust del Laboratorio. Un solo punto tipizzato, cosi' i
 // nomi dei comandi e la forma degli argomenti non si ripetono nei componenti.
 // `projectPath: null` indica l'indice globale delle bozze.
+//
+// Il contenuto del prototipo vive sulla macchina che possiede il progetto
+// (R-MI-06): i comandi che leggono o scrivono il workspace passano dal
+// `ProjectBackend` della superficie, quindi su un progetto remoto girano
+// sull'host con il suo percorso (S3-link-front-05). La pubblicazione resta
+// invece su questa macchina: il server di anteprima serve l'iframe di questa
+// finestra, e un URL loopback dell'host non sarebbe raggiungibile.
 
-import { invoke } from '#lib/backend/ipc.ts';
+import { invoke, LOCAL_MACHINE, type BackendCommand, type InvokeArgs } from '#lib/backend/ipc.ts';
+import { createProjectBackend, type ProjectBackend } from '#lib/backend/projectScope.ts';
 import { m } from '#lib/paraglide/messages.js';
 import type {
 	LabFile,
@@ -15,76 +23,132 @@ import type {
 	LabServedFile
 } from './types';
 
-export const labApi = {
-	paths: () => invoke<LabPaths>('lab_paths'),
+export interface LabApi {
+	readonly machine: string;
+	readonly backend: ProjectBackend;
+	paths: () => Promise<LabPaths>;
+	createPrototype: (projectPath: string | null, title?: string | null) => Promise<LabIndexEntry>;
+	listIndex: (projectPath: string | null) => Promise<LabIndexEntry[]>;
+	updateIndex: (projectPath: string | null, id: string, patch: LabIndexPatch) => Promise<LabIndexEntry>;
+	removeFromIndex: (projectPath: string | null, id: string, deleteWorkspace: boolean) => Promise<void>;
+	associate: (id: string, targetProjectPath: string) => Promise<LabIndexEntry>;
+	duplicate: (projectPath: string | null, id: string) => Promise<LabIndexEntry>;
+	commit: (workspacePath: string, message: string) => Promise<LabRevision | null>;
+	log: (workspacePath: string, limit?: number) => Promise<LabRevision[]>;
+	filesAt: (workspacePath: string, sha: string) => Promise<LabFile[]>;
+	restore: (workspacePath: string, sha: string) => Promise<LabRevision>;
+	snapshot: (workspacePath: string) => Promise<LabFile[]>;
+	workspaceExists: (workspacePath: string) => Promise<boolean>;
+	readMeta: (workspacePath: string) => Promise<LabMeta | null>;
+	writePreviewStatus: (workspacePath: string, status: LabPreviewStatus) => Promise<void>;
+	watchStart: (workspacePath: string, key: string) => Promise<void>;
+	watchStop: (key: string) => Promise<void>;
+	exportTo: (workspacePath: string, destination: string) => Promise<void>;
+	publishShared: (files: LabServedFile[]) => Promise<void>;
+	publish: (key: string, files: LabServedFile[]) => Promise<{ url: string }>;
+	unpublish: (key: string) => Promise<void>;
+}
 
-	/**
-	 * Crea workspace dal template, git interno con commit iniziale e voce d'indice.
-	 * Titolo predefinito e testo della pagina vuota arrivano nella lingua
-	 * dell'interfaccia: il template Rust non conosce la lingua scelta.
-	 */
-	createPrototype: (projectPath: string | null, title: string | null = null) =>
-		invoke<LabIndexEntry>('lab_prototype_create', {
-			projectPath,
-			title: title ?? m.lanestrip_new_prototype(),
-			emptyHint: m.lab_template_empty_hint()
-		}),
+/** I comandi del contenuto: gli unici che devono girare dove vive il progetto. */
+function contentCalls(run: <T>(command: BackendCommand, args?: InvokeArgs) => Promise<T>) {
+	return {
+		paths: () => run<LabPaths>('lab_paths'),
 
-	listIndex: (projectPath: string | null) =>
-		invoke<LabIndexEntry[]>('lab_index_list', { projectPath }),
+		/**
+		 * Crea workspace dal template, git interno con commit iniziale e voce d'indice.
+		 * Titolo predefinito e testo della pagina vuota arrivano nella lingua
+		 * dell'interfaccia: il template Rust non conosce la lingua scelta.
+		 */
+		createPrototype: (projectPath: string | null, title: string | null = null) =>
+			run<LabIndexEntry>('lab_prototype_create', {
+				projectPath,
+				title: title ?? m.lanestrip_new_prototype(),
+				emptyHint: m.lab_template_empty_hint()
+			}),
 
-	updateIndex: (projectPath: string | null, id: string, patch: LabIndexPatch) =>
-		invoke<LabIndexEntry>('lab_index_update', { projectPath, id, patch }),
+		listIndex: (projectPath: string | null) =>
+			run<LabIndexEntry[]>('lab_index_list', { projectPath }),
 
-	removeFromIndex: (projectPath: string | null, id: string, deleteWorkspace: boolean) =>
-		invoke<void>('lab_index_remove', { projectPath, id, deleteWorkspace }),
+		updateIndex: (projectPath: string | null, id: string, patch: LabIndexPatch) =>
+			run<LabIndexEntry>('lab_index_update', { projectPath, id, patch }),
 
-	/** Sposta una bozza nell'indice di un progetto; il workspace resta dov'e'. */
-	associate: (id: string, targetProjectPath: string) =>
-		invoke<LabIndexEntry>('lab_prototype_associate', { id, targetProjectPath }),
+		removeFromIndex: (projectPath: string | null, id: string, deleteWorkspace: boolean) =>
+			run<void>('lab_index_remove', { projectPath, id, deleteWorkspace }),
 
-	duplicate: (projectPath: string | null, id: string) =>
-		invoke<LabIndexEntry>('lab_prototype_duplicate', { projectPath, id }),
+		/** Sposta una bozza nell'indice di un progetto; il workspace resta dov'e'. */
+		associate: (id: string, targetProjectPath: string) =>
+			run<LabIndexEntry>('lab_prototype_associate', { id, targetProjectPath }),
 
-	/** `null` se non c'era nulla da committare. */
-	commit: (workspacePath: string, message: string) =>
-		invoke<LabRevision | null>('lab_git_commit', { workspacePath, message }),
+		duplicate: (projectPath: string | null, id: string) =>
+			run<LabIndexEntry>('lab_prototype_duplicate', { projectPath, id }),
 
-	log: (workspacePath: string, limit = 100) =>
-		invoke<LabRevision[]>('lab_git_log', { workspacePath, limit }),
+		/** `null` se non c'era nulla da committare. */
+		commit: (workspacePath: string, message: string) =>
+			run<LabRevision | null>('lab_git_commit', { workspacePath, message }),
 
-	filesAt: (workspacePath: string, sha: string) =>
-		invoke<LabFile[]>('lab_git_files_at', { workspacePath, sha }),
+		log: (workspacePath: string, limit = 100) =>
+			run<LabRevision[]>('lab_git_log', { workspacePath, limit }),
 
-	/** Riporta i file alla revisione `sha` e registra un nuovo commit di ripristino. */
-	restore: (workspacePath: string, sha: string) =>
-		invoke<LabRevision>('lab_git_restore', { workspacePath, sha }),
+		filesAt: (workspacePath: string, sha: string) =>
+			run<LabFile[]>('lab_git_files_at', { workspacePath, sha }),
 
-	snapshot: (workspacePath: string) => invoke<LabFile[]>('lab_workspace_snapshot', { workspacePath }),
+		/** Riporta i file alla revisione `sha` e registra un nuovo commit di ripristino. */
+		restore: (workspacePath: string, sha: string) =>
+			run<LabRevision>('lab_git_restore', { workspacePath, sha }),
 
-	workspaceExists: (workspacePath: string) =>
-		invoke<boolean>('lab_workspace_exists', { workspacePath }),
+		snapshot: (workspacePath: string) => run<LabFile[]>('lab_workspace_snapshot', { workspacePath }),
 
-	readMeta: (workspacePath: string) => invoke<LabMeta | null>('lab_meta_read', { workspacePath }),
+		workspaceExists: (workspacePath: string) =>
+			run<boolean>('lab_workspace_exists', { workspacePath }),
 
-	writePreviewStatus: (workspacePath: string, status: LabPreviewStatus) =>
-		invoke<void>('lab_preview_status_write', { workspacePath, status }),
+		readMeta: (workspacePath: string) => run<LabMeta | null>('lab_meta_read', { workspacePath }),
 
-	watchStart: (workspacePath: string, key: string) =>
-		invoke<void>('lab_watch_start', { workspacePath, key }),
+		writePreviewStatus: (workspacePath: string, status: LabPreviewStatus) =>
+			run<void>('lab_preview_status_write', { workspacePath, status }),
 
-	watchStop: (key: string) => invoke<void>('lab_watch_stop', { key }),
+		watchStart: (workspacePath: string, key: string) =>
+			run<void>('lab_watch_start', { workspacePath, key }),
 
-	/** La destinazione non deve esistere o deve essere una cartella vuota. */
-	exportTo: (workspacePath: string, destination: string) =>
-		invoke<void>('lab_export', { workspacePath, destination }),
+		watchStop: (key: string) => run<void>('lab_watch_stop', { key }),
 
+		/** La destinazione non deve esistere o deve essere una cartella vuota. */
+		exportTo: (workspacePath: string, destination: string) =>
+			run<void>('lab_export', { workspacePath, destination })
+	};
+}
+
+/** Pubblicazione sul server di anteprima di questa macchina: mai remota. */
+const publishCalls = {
 	/** Asset condivisi (vendor React, runtime Tailwind) serviti sotto `/_vendor/`. */
-	publishShared: (files: LabServedFile[]) => invoke<void>('lab_preview_publish_shared', { files }),
+	publishShared: (files: LabServedFile[]) =>
+		invoke<void>('lab_preview_publish_shared', { files }, { machine: LOCAL_MACHINE }),
 
 	/** Pubblica (sostituendo) i file di un'anteprima; `key` e' l'id prototipo o `id@sha`. */
 	publish: (key: string, files: LabServedFile[]) =>
-		invoke<{ url: string }>('lab_preview_publish', { key, files }),
+		invoke<{ url: string }>('lab_preview_publish', { key, files }, { machine: LOCAL_MACHINE }),
 
-	unpublish: (key: string) => invoke<void>('lab_preview_unpublish', { key })
+	unpublish: (key: string) =>
+		invoke<void>('lab_preview_unpublish', { key }, { machine: LOCAL_MACHINE })
 };
+
+/** Il Laboratorio di una superficie: contenuto sulla macchina che possiede il progetto. */
+export function createLabApi(backend: ProjectBackend): LabApi {
+	return {
+		machine: backend.machine,
+		backend,
+		...contentCalls((command, args) => backend.invoke(command, args)),
+		...publishCalls
+	};
+}
+
+/** Laboratorio di questa macchina: bozze libere, barra e ciclo di vita delle corsie. */
+export const labApi: LabApi = createLabApi(createProjectBackend(LOCAL_MACHINE));
+
+/**
+ * Comandi del Laboratorio per un progetto (S3-link-front-05): su una copia di
+ * un'altra macchina l'indice e il workspace vivono la'. `project` assente o
+ * senza macchina (bozze libere) resta questa.
+ */
+export function labApiFor(project: { machineId?: string | null } | null | undefined): LabApi {
+	return project?.machineId ? createLabApi(createProjectBackend(project.machineId)) : labApi;
+}

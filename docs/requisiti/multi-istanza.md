@@ -67,6 +67,8 @@ Citazioni dell'utente dalla discussione del 2026-11-12:
 
 - **F33 — omp allineato fra le macchine (2026-11-26):** «quando si aggiorna studio su un'altra macchina collegata dovrebbe chiedere di allineare anche omp, o quando aggiorno omp su un computer dovrebbe chiedere di aggiornare omp anche sugli altri collegati, con aggiornamento completo di riavvio dell'app per essere funzionale». Scelte nel modulo della stessa sessione: la domanda compare sulla macchina da cui si guarda («allineare omp su Windows?»), con «Aggiorna» e «Non ora»; dopo l'aggiornamento di omp Studio si riavvia del tutto, chiudendo ogni processo omp, solo quando la macchina è libera, sia in locale sia sulla macchina remota; dopo un aggiornamento di Studio su un'altra macchina vale la stessa regola al suo rientro; solo verso la versione più nuova, mai indietro, e un omp più nuovo altrove propone l'aggiornamento qui.
 
+- **F34 — Attrito git zero fra le due macchine (2026-11-28):** «molti dei problemi che riscontro nascono lavorando su questo progetto tra windows e macbook, dove mi fa mille casini con git perché l'agente tocca qualcosa, non committa, committa, l'altro computer non pulla perché ha modifiche anche sue non committate e mi rompe sempre le palle, sta cosa deve sistemarsi una volta per tutte deve essere zero friction, alla fine sono sempre io che lavoro su questo progetto, da due macchine»; «secondo me nel momento in cui voglio fare qualcosa su un progetto e ci sono blocchi git per versioni diverse tra pc diversi dovrebbe esserci un pulsante che con un agente prende tutte le modifiche tra tutte le versioni, verifica tutto e allinea tutte le versioni con tutte le modifiche così poi può partire». Scelte nel modulo della stessa sessione: mai repository lasciato in conflitto; unione per righe di `CHANGELOG*.md` e `docs/progetto/*.md` in tutti i progetti; commit automatico a fine turno del solo lavoro dell'agente in tutti i progetti collegati fra macchine, con messaggio fisso senza costo; nessuno specchio continuo delle modifiche non committate (resta scartato).
+
 Le sei strade valutate sono illustrate in `proto/multi-istanza-strade.html` (locale, fuori da git): è materiale di discussione, non un'anteprima di interfaccia approvata. F16 autorizza l'implementazione diretta dell'interfaccia secondo le convenzioni di Studio, senza un'ulteriore approvazione su anteprima.
 
 ## Stato dei requisiti
@@ -143,6 +145,10 @@ Le sei strade valutate sono illustrate in `proto/multi-istanza-strade.html` (loc
 | R-MI-68 | 1 | Attivo, approvato il 2026-11-26 (F33) | 2026-11-26: `ompAlignment` in `peerUpdateRules.ts`, una domanda per (macchina, versione di là, versione di qui) in `OmpPeerUpdateDialog.svelte` | 2026-11-26: `test/omp-peer-update.test.ts`; scenario con due macchine da provare |
 | R-MI-69 | 1 | Attivo, approvato il 2026-11-26 (F33); precisa R-MI-06 | 2026-11-26: `omp_update_remote_start`/`_status`/`_report` in `omp_ops.rs`, aggiornamento e riavvio quando la macchina è libera in `ompPeerUpdate.svelte.ts` | Scenario con due macchine da provare |
 | R-MI-70 | 1 | Attivo, approvato il 2026-11-26 (F33) | 2026-11-26: comando `studio_restart` (`AppHandle::request_restart`, uscita autorizzata come per R-MI-38) al posto del ricaricamento dell'interfaccia | Riavvio reale da provare nell'app installata |
+| R-MI-71 | 2 | Attivo, approvato il 2026-11-28 (F34); precisa R-MI-27 e R-MI-47 | 2026-11-28: `pull_with_snapshot` in `github/sync.rs` per pull, «Sincronizza» e «Aggiorna» (istantanea di R-MI-47 al posto di `--autostash`, conflitti letti prima dell'abort, ripristino esatto di file e ramo su ogni uscita), serializzati dalla `SyncGuard` delle copie; `restore_local_snapshot` in `copies.rs` riporta anche il ramo | 2026-11-28: test Rust `github::sync` (riga locale e commit in arrivo sulla stessa riga: repository identico, stash vuoto); prova con due macchine reali da fare |
+| R-MI-72 | 2 | Attivo, approvato il 2026-11-28 (F34); estende R-MI-59 | 2026-11-28: `UNION_ATTRIBUTES` (`docs/diario/**`, `CHANGELOG*.md`, `docs/progetto/*.md`) in `<git-common-dir>/info/attributes` da `ensure_journal_union` (anche in pull e `fetch-background`); `is_growing_file` per il motivo `journal` | 2026-11-28: test Rust `github::copies` (due righe in `[Unreleased]` unite, unione di codice non classificata come diario) |
+| R-MI-73 | 2 | Attivo, approvato il 2026-11-28 (F34); precisa R-MI-46 e R-MI-60 | 2026-11-28: `github/turn_commit.rs` (`git_turn_snapshot`, `git_turn_commit`, sulla `SyncGuard` delle copie, `commit --only` dei soli file cambiati nel turno), `stores/turnCommit.ts` + `turnCommitLive.ts` (baseline ad `agent_start`, commit a fine turno normale o Stop, nome del dispositivo e titolo della chat, sincronizzazione immediata delle copie), aggancio in `session.svelte.ts` | 2026-11-28: test Rust `github::turn_commit` (sporco prima e non toccato resta fuori, rinomina, ignorati, unione in corso, repository nudo), `test/turn-commit.test.ts`; scenario reale da provare |
+| R-MI-74 | 2 | Attivo, approvato il 2026-11-28 (F34); estende «Risolvi» di R-MI-61 | 2026-11-28: comando instradato `copy_commit_pending`; `stores/copyAlign.svelte.ts` + `copyAlignLive.svelte.ts` (fasi, copie occupate o spente nominate e attese), compito dell'agente in `copyConflictTask.ts`, pulsante «Allinea tutto» in `CopyDivergenceStrip.svelte` | 2026-11-28: `test/copy-align.test.ts`; scenario con due macchine da provare |
 
 Nei testi che seguono **W** è la macchina da cui si guarda (nello scenario il PC Windows) e **M** quella che possiede il progetto (il Mac).
 
@@ -834,6 +840,42 @@ Dopo un aggiornamento di omp, locale o chiesto da un'altra macchina, Studio si c
 **Accettazione:** aggiornato omp e scelto «Riavvia», nessun processo omp della versione precedente resta in esecuzione e Studio torna aperto.
 **Errore da evitare:** ricaricare la sola interfaccia dichiarando l'aggiornamento applicato.
 
+## R-MI-71 — Mai un repository lasciato in conflitto
+
+**Fonti:** F34 (scelta A del 2026-11-28). Caso osservato il 2026-11-28 alle 11:47: «Sincronizza» di Studio (pull con rebase e autostash) ha lasciato `CHANGELOG.md` e `CHANGELOG.en.md` con i marcatori di conflitto e le modifiche locali nello stash; due autostash simili del 7/11 e del 13/11 sono ancora nella lista degli stash.
+
+Ogni operazione git che Studio esegue da sé o su richiesta (pull, «Sincronizza», avanzamento e unione delle copie, cambio di macchina) finisce in uno di due stati: riuscita, oppure il repository esattamente com'era prima, con un messaggio che nomina i file che bloccano e la macchina. Le modifiche non committate si riapplicano con lo stesso meccanismo a istantanea di R-MI-47; se la riapplicazione confligge si torna indietro.
+
+**Accettazione:** con una riga non committata su `src/a.ts` e un commit in arrivo sulla stessa riga, «Sincronizza» non lascia marcatori, non lascia voci nello stash e il file resta com'era; il messaggio nomina `src/a.ts`.
+**Errore da evitare:** marcatori di conflitto nei file, stash dimenticati, rebase a metà.
+
+## R-MI-72 — Unione per righe dei file che si allungano
+
+**Fonti:** F34 (scelta B del 2026-11-28).
+
+Come il diario (R-MI-59), anche `CHANGELOG*.md` e `docs/progetto/*.md` si uniscono per righe in ogni operazione git di Studio e in tutti i progetti: due macchine che aggiungono una voce nello stesso punto ottengono entrambe le voci, senza conflitto. La regola si scrive negli attributi locali del repository (`info/attributes` della cartella git comune), non nel `.gitattributes` versionato.
+
+**Accettazione:** il Mac e Windows aggiungono ciascuno una riga sotto `## [Unreleased]` di `CHANGELOG.md`; dopo il giro delle copie (o una pull) il file contiene entrambe le righe e nessun marcatore.
+**Errore da evitare:** unione per righe estesa a file di codice o a JSON.
+
+## R-MI-73 — Il lavoro dell'agente diventa un commit a fine turno
+
+**Fonti:** F34 (scelte C, C1, C2 del 2026-11-28).
+
+Nei progetti presenti su più macchine collegate, a fine turno dell'agente Studio committa i soli file che l'agente ha cambiato in quel turno (confronto fra lo stato all'inizio e alla fine del turno, file nuovi non ignorati compresi), sulla branch della cartella in cui l'agente lavora. Il messaggio è fisso e senza costo: «Studio · ‹macchina› · ‹titolo della chat›». Così il lavoro viaggia da solo verso l'altra macchina (R-MI-26) e si unisce in automatico (R-MI-61). Le modifiche fatte a mano restano non committate. Non si committa a turno interrotto da un errore di omp, durante un'unione o un rebase in corso, né nei prototipi del Laboratorio.
+
+**Accettazione:** su Windows un agente modifica `src/a.ts` e crea `src/b.ts`; a fine turno c'è un commit con quei due file e il messaggio fisso, e il Mac avanza da solo entro un giro. Un file già modificato a mano prima del turno e non toccato dall'agente resta fuori dal commit.
+**Errore da evitare:** commit di file non toccati dall'agente; commit a metà turno; commit nei progetti presenti su una sola macchina.
+
+## R-MI-74 — «Allinea tutto» con un agente
+
+**Fonti:** F34 (nota del 2026-11-28).
+
+Quando la copia di questa macchina non può avanzare o unirsi da sola (conflitto di R-MI-61, commit in arrivo bloccati da modifiche non committate, modifiche non committate sulle altre copie), la striscia di R-MI-22 offre «Allinea tutto». Studio committa le modifiche in sospeso di ogni copia in linea e libera (messaggio fisso come R-MI-73), le scambia come in R-MI-26 e, se l'unione non riesce da sola, affida a un agente su questa macchina il compito già scritto: unire tutte le versioni, risolvere i conflitti, eseguire le verifiche del progetto e committare. Le altre copie avanzano poi da sole. Una copia con un agente al lavoro o spenta viene nominata e si aspetta.
+
+**Accettazione:** Mac e Windows con modifiche non committate sullo stesso file e un commit ciascuno: dopo «Allinea tutto» e la fine del lavoro dell'agente, tutte e due le copie hanno la stessa cima, che contiene tutte le modifiche, e la cartella pulita.
+**Errore da evitare:** modifiche non committate di un'altra macchina perse o sovrascritte; allineamento mentre un agente lavora in una delle cartelle.
+
 ## Correzioni del 2026-11-20 (revisione del codice)
 
 Revisione per lettura del codice di tutta la funzione (rapporto della sessione, 25 voci) e correzione in un unico lavoro, su richiesta dell'utente del 2026-11-20: «ok parti dalla risoluzione dei bug, elenco completo». Nessun requisito cambia: le correzioni riportano il codice ai requisiti esistenti. Nessuna prova con due macchine reali.
@@ -872,6 +914,30 @@ Revisione per lettura del codice e dei log reali del Mac del 2026-11-24 (registr
 | D8 | R-MI-49 | Punto verde «in linea» prima che l'altra macchina abbia risposto | Stato `waiting` fino al primo stato dell'host | `test/machine-status.test.ts` |
 
 Verifiche eseguite il 2026-11-24 sull'intero lavoro: `cargo test --lib` 618 passati, `cargo clippy --lib --tests -D warnings` pulito, `npm run check` 0 errori, `npm test` 1694 passati, `npm run check:commands` allineato. Nessuna prova con due macchine reali.
+
+## Correzioni del 2026-11-28 (polish di stabilità)
+
+Revisione di tutto il codice in 14 fette con i log reali del Mac (24–28/11) e il bundle di omp 19.2.1, su richiesta dell'utente del 2026-11-28 («trovo tutto molto più instabile di prima»), piano approvato nello stesso giorno (`ricerca/polish-2026-11-28/PIANO.md`, locale). Le regole nuove sono R-MI-71…74; le voci qui sotto riportano il codice ai requisiti esistenti senza cambiarli.
+
+| Voce | Requisito | Difetto | Correzione | Prova |
+|---|---|---|---|---|
+| P1 | R-MI-67, R-MI-49 | `link:status` emesso ogni 5 s anche senza cambiamenti: 22.348 `get_omp_version` in 30 h, il 99% del log | Emissione solo a stato cambiato; `linkStore.apply` campo per campo, effetti su chiavi derivate; versione di omp al rientro, al cambio e ogni 10 min, una richiesta in volo per macchina (`peerVersionCadence.ts`) | `test/peer-version-cadence.test.ts` |
+| P2 | R-MI-57, R-MI-26 | Cime delle copie lette ogni 10 s con `git_upstream_status` (4 git per chiamata); avanzamento fallito ripetuto ogni minuto con `git add -A` | `copy_sync_heads` ogni 10 s, stato completo solo a cima cambiata; cache dell'identità del repository; esito negativo ricordato finché nulla cambia; `GIT_OPTIONAL_LOCKS=0` sulle letture | test Rust `github::copies`, `github::sync` |
+| P3 | R-MI-58 | «sync already running» come errore: il fast-forward da origin falliva e si annunciava «N commit da scaricare» | Esito neutro `skipped: "busy"`; il fast-forward aspetta la fine del giro delle copie (`copyRound.ts`) | `test/copy-round.test.ts` |
+| P4 | R-MI-22, R-MI-27 | Storie senza antenato comune: la branch non in uso veniva spostata con `update-ref`, commit locali solo nel reflog | Stato `Diverged` con motivo `unrelated`; avanzamento di branch non in uso solo con `merge-base --is-ancestor` | test Rust `github::copies` |
+| P5 | R-MI-07, R-MI-11 | Iscrizioni del collegamento vive dopo una ricarica; ripresa per solo numero di sessione (dopo un riavvio dell'host, sessione di un altro progetto); ritentativi infiniti su sessione sparita | `detach_window` al caricamento della pagina; riaggancio per identità con id d'istanza dell'host; `studio_exit` sintetico su rifiuto, attesa crescente fino a 30 s se irraggiungibile | test Rust `link::streams` |
+| P6 | R-MI-11 | Progressi di tool e subagenti da 20–28 KB a ~4 al secondo: backlog di ripresa di ~30 s | Accorpamento per chiave entro 200 ms nell'hub (`ProgressCoalescer`) | test Rust `rpc` |
+| P7 | R-MI-11 | Avvio: cache dei riepiloghi applicata prima dello stato del collegamento, raffica di `machine_unreachable` | `refresh()` prima della cache, `markResponded` solo per macchine in linea, tessere rilette dopo una lettura fallita | `npm run check`; scenario reale da provare |
+| P8 | R-MI-06 | Laboratorio di un progetto remoto eseguito sul Mac con il percorso di Windows | `labApiFor(backend)` con l'instradamento della tessera, `lab://changed` instradato, radice dei prototipi ammessa ai soli comandi `lab_*` dei peer confinati | test Rust `link::access` |
+| P9 | R-MI-15 | Coda verso un progetto non più pubblicato dall'host rifiutata a ogni tentativo | Coda «orfana» con stato visibile (`remoteQueue.ts`), `read_queue`/`write_queue` anche per `projectId` noto | `test/remote-queue.test.ts` |
+| P10 | R-MI-51, IMP-008, IMP-006 | Avvisi persi dietro una caduta urgente, caduta che bloccava la coda, unione con due avvisi, riscontri Git/file sotto ogni progetto della macchina | Coda con tono, caduta in uno spazio separato, un avviso per unione (D4), `projectId` nei riscontri | `test/machine-alerts.test.ts`, `test/machine-alert-feed.test.ts`, `test/machine-feedback.test.ts` |
+| P11 | R-MI-38, R-MI-64 | Aggiornamento remoto fermo in `installing` se Studio non si riavviava; badge «si riavvierà appena libero» cancellato dal controllo aggiornamenti | Fasi terminali `manual`/`cancelled` e nuovo tentativo; avviso remoto in uno spazio proprio | `npm run check` |
+| P12 | R-MI-62, R-MI-63, R-MI-14 | Doppio clic su corsia, prenotazione che spostava un'altra chat, avvisi senza scadenza, corsia rimasta in GUI dopo un cambio fallito | Chiave per corsia, prenotazione legata al `sessionId`, scadenze, ripristino della superficie | `test/agent-session-recovery.test.ts` |
+| P13 | R-MI-39 | Ogni lettura di un peer scritta a INFO e ogni `rpc_send` nel registro delle azioni | INFO solo per comandi che cambiano qualcosa più riepilogo ogni 10 min; registro solo per prompt, steer, follow-up, abort e risposte | test Rust `link::audit` |
+| P14 | R-MI-36 | «Esegui su macchina» appeso se un nipote ereditava le pipe; job finiti mai potati | Lettori con scadenza dopo l'uscita, kill del gruppo, potatura | test Rust `link::exec` |
+| P15 | R-MI-34, R-MI-43 | Portachiavi letto in modo sincrono a ogni comando dopo un errore | Lettura fuori dal worker, errore memorizzato con attesa crescente | `cargo test --lib` |
+
+Verifiche eseguite il 2026-11-28 sull'intero lavoro, dopo l'ultima modifica al codice: `cargo test --lib` 660 passati (0 falliti), `cargo clippy --lib --tests -- -D warnings` pulito, `npm run check` 0 errori, `npm test` 1817 passati, `npm run check:commands` allineato. Nessuna prova con due macchine reali: restano da eseguire gli scenari di accettazione di R-MI-71…74 e le verifiche di `docs/PLAN.md` («Polish di stabilità dopo la multi-istanza»).
 
 ## Strade scartate
 

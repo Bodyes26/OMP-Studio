@@ -21,7 +21,7 @@
 import catalogue from './commands.json' with { type: 'json' };
 
 export type CommandScope = 'routed' | 'stream' | 'adapt' | 'local';
-export type CommandPermission = 'read' | 'agents' | 'files' | 'terminal' | 'local';
+type CommandPermission = 'read' | 'agents' | 'files' | 'terminal' | 'local';
 
 export type BackendCommand = keyof typeof catalogue;
 
@@ -44,13 +44,3 @@ const entries: Record<BackendCommand, CommandEntry> = source;
 export function commandScope(command: BackendCommand): CommandScope {
 	return entries[command][0];
 }
-
-export function commandPermission(command: BackendCommand): CommandPermission {
-	return entries[command][1];
-}
-
-export function isBackendCommand(command: string): command is BackendCommand {
-	return Object.hasOwn(entries, command);
-}
-
-export const BACKEND_COMMANDS = Object.keys(entries) as BackendCommand[];

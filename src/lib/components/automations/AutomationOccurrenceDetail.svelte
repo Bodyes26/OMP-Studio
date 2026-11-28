@@ -605,7 +605,7 @@
 		align-items: center;
 		gap: 4px;
 		padding: 2px 8px;
-		font-size: 11px;
+		font-size: var(--text-caption);
 		font-weight: 600;
 		border-radius: var(--radius-full);
 		background: var(--bg-sunken);
@@ -649,7 +649,7 @@
 	}
 
 	.occurrence-title {
-		font-size: 16px;
+		font-size: var(--text-title);
 		font-weight: 600;
 		margin: 0 0 4px;
 		color: var(--ink);
@@ -680,7 +680,7 @@
 	}
 
 	.section-label {
-		font-size: 11px;
+		font-size: var(--text-caption);
 		font-weight: 600;
 		color: var(--ink-muted);
 		text-transform: uppercase;
@@ -698,7 +698,7 @@
 		align-items: center;
 		gap: 6px;
 		padding: 4px 10px;
-		font-size: 12px;
+		font-size: var(--text-label);
 		border-radius: var(--radius-sm);
 		background: var(--bg-sunken);
 		border: 1px solid var(--line);
@@ -764,7 +764,7 @@
 	.status-indicator.status-waiting { background: var(--ink-muted); }
 
 	.exec-target-name {
-		font-size: 13px;
+		font-size: var(--text-body);
 		color: var(--ink);
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -841,12 +841,12 @@
 		align-items: center;
 		gap: 8px;
 		color: var(--warn);
-		font-size: 13px;
+		font-size: var(--text-body);
 	}
 
 	.question-text {
 		margin: 0;
-		font-size: 13px;
+		font-size: var(--text-body);
 		color: var(--ink);
 		line-height: 1.5;
 	}
@@ -887,7 +887,7 @@
 		border-radius: var(--radius-md);
 		background: var(--bg-sunken);
 		border: 1px solid var(--line);
-		font-size: 13px;
+		font-size: var(--text-body);
 		line-height: 1.5;
 	}
 
@@ -899,7 +899,7 @@
 	}
 
 	.result-label {
-		font-size: 11px;
+		font-size: var(--text-caption);
 		font-weight: 600;
 		text-transform: uppercase;
 		color: var(--ink-muted);
@@ -907,7 +907,7 @@
 	}
 
 	.session-inline-btn {
-		font-size: 11px;
+		font-size: var(--text-caption);
 		padding: 2px 6px;
 	}
 

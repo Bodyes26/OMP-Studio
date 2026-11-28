@@ -1,12 +1,10 @@
 /**
  * Heads-up di fine turno (Gate R40): fatti certi, priorita' delle
- * fonti, frase unica, estensione `studio_headsup` e caricamento con `-e`.
+ * fonti, frase unica e tool `studio_headsup`. Il cablaggio dell'estensione
+ * (inclusione nel binario e `-e`) vive in `extension-wiring.test.ts`.
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import {
 	agentHeadsUp,
 	buildTurnDigest,
@@ -26,8 +24,6 @@ import {
 } from '../src/lib/agent/turnHeadsUp.ts';
 import studioHeadsUpExtension, { normalizeHeadsUpText } from '../extensions/studio-headsup.ts';
 import type { TranscriptEntry } from '../src/lib/agent/session.svelte.ts';
-
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 let nextId = 1;
 function user(content = 'fai il lavoro'): TranscriptEntry {
@@ -290,7 +286,7 @@ describe('Estensione studio-headsup', () => {
 		assert.match(tool.description, /NON chiamarlo per riassumere/);
 	});
 
-	it('risponde subito ok e rifiuta una frase vuota', async () => {
+	it('rifiuta una frase vuota e normalizza il testo', async () => {
 		const tool = registered.get('studio_headsup')!;
 		const ok = await tool.execute('1', { text: '  Ha cambiato lo schema\n del DB. ' });
 		assert.equal(ok.content[0].text, 'ok');
@@ -299,14 +295,5 @@ describe('Estensione studio-headsup', () => {
 		assert.equal(empty.isError, true);
 		assert.equal(normalizeHeadsUpText(42), '');
 		assert.ok(normalizeHeadsUpText('x'.repeat(500)).length <= 220);
-	});
-
-	it('Studio carica l\'estensione con -e sia nel PTY sia in RPC', () => {
-		const pty = readFileSync(join(ROOT, 'src-tauri/src/pty/mod.rs'), 'utf8');
-		const rpc = readFileSync(join(ROOT, 'src-tauri/src/rpc/mod.rs'), 'utf8');
-		assert.match(pty, /include_str!\("\.\.\/\.\.\/\.\.\/extensions\/studio-headsup\.ts"\)/);
-		assert.equal((pty.match(/&headsup_extension_arg/g) ?? []).length, 2, 'Windows e Unix');
-		assert.match(rpc, /write_extension\("studio-headsup\.ts", crate::pty::HEADSUP_EXTENSION_TS\)/);
-		assert.match(rpc, /&headsup_extension \{\s*command\.arg\("-e"\)/);
 	});
 });

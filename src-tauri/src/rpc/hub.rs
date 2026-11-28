@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 use parking_lot::Mutex;
 use tauri::ipc::{Channel, InvokeResponseBody};
 
-use super::diag::RpcStats;
+use super::diag::SinkStats;
 
 /// Tetti della coda di ripresa: bastano a coprire un collegamento caduto per
 /// qualche minuto durante lo streaming senza tenere in memoria una sessione
@@ -38,17 +38,22 @@ pub(super) const ORPHAN_GRACE: Duration = Duration::from_secs(600);
 pub(crate) trait FrameSink: Send {
     fn deliver(&mut self, seq: u64, kind: &str, frame: &str) -> bool;
     fn caught_up(&mut self, _seq: u64) -> bool { true }
+    /// Contatori del `Channel` di questa superficie, quando ne ha uno: la
+    /// diagnosi li legge per la finestra che la chiede.
+    fn sink_stats(&self) -> Option<Arc<SinkStats>> { None }
 }
 
 /// Il `Channel` di una WebView. Il numero di sequenza non le serve: dopo una
 /// ricarica il suo stato e' perso e si ricostruisce comunque da `ready`.
+/// I contatori sono quelli del Channel di *questa* finestra: Tauri numera i
+/// frame per Channel, e sommare piu' finestre falserebbe la diagnosi.
 pub(crate) struct ChannelSink {
     channel: Channel<InvokeResponseBody>,
-    stats: Arc<RpcStats>,
+    stats: Arc<SinkStats>,
 }
 
 impl ChannelSink {
-    pub(crate) fn new(channel: Channel<InvokeResponseBody>, stats: Arc<RpcStats>) -> Self {
+    pub(crate) fn new(channel: Channel<InvokeResponseBody>, stats: Arc<SinkStats>) -> Self {
         Self { channel, stats }
     }
 }
@@ -56,6 +61,10 @@ impl ChannelSink {
 impl FrameSink for ChannelSink {
     fn deliver(&mut self, _seq: u64, kind: &str, frame: &str) -> bool {
         self.stats.send(&self.channel, kind, frame.to_owned())
+    }
+
+    fn sink_stats(&self) -> Option<Arc<SinkStats>> {
+        Some(self.stats.clone())
     }
 }
 
@@ -67,7 +76,6 @@ pub(crate) enum Resume {
     /// Ultimo numero ricevuto: riceve i frame successivi. La usa chi tiene il
     /// conto dei numeri, cioe' il collegamento fra istanze (MI06): una WebView
     /// ricaricata perde tutto e riparte sempre da `Fresh`.
-    #[cfg_attr(not(test), allow(dead_code))]
     After(u64),
 }
 
@@ -424,6 +432,18 @@ impl SessionHub {
             .consumers
             .iter()
             .any(|consumer| consumer.owner.as_deref() == Some(owner))
+    }
+
+    /// Contatori del Channel iscritto con questa etichetta. `None` per una
+    /// sessione vista solo dal collegamento (nessun Channel qui) o ripresa
+    /// da un'altra finestra.
+    pub(crate) fn sink_stats(&self, owner: &str) -> Option<Arc<SinkStats>> {
+        self.inner
+            .lock()
+            .consumers
+            .iter()
+            .find(|consumer| consumer.owner.as_deref() == Some(owner))
+            .and_then(|consumer| consumer.sink.sink_stats())
     }
 
     /// Toglie dagli iscritti tutti tranne `keep_out`: «Nuova chat» chiesta da

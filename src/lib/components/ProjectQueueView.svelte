@@ -148,6 +148,19 @@
 	);
 	const ready = $derived(canRunTask?.(project.id) ?? false);
 	const reason = $derived(runReason?.(project.id) ?? '');
+	/**
+	 * L'host ha chiuso il progetto: la coda resta qui e non parte (S3-06,
+	 * R-MI-15). Mostrato solo quando c'e' davvero una coda in attesa.
+	 */
+	const closedOnHost = $derived.by(() => {
+		if (tasks.length === 0) return '';
+		if (!project.machineId || project.machineId === LOCAL_MACHINE) return '';
+		if (!project.canonicalProjectPath) return '';
+		if (!taskStore.remoteQueueOrphaned(project.canonicalProjectPath)) return '';
+		return m.machines_queue_project_closed({
+			machine: linkStore.machineFor(project.machineId)?.name ?? project.machineId
+		});
+	});
 	const autoDispatchId = $derived(`popover-auto-dispatch-${project.id}`);
 	const autoDispatchLabelId = $derived(`${autoDispatchId}-label`);
 	/** Il task di questa coda attualmente in avvio, se c'e'. */
@@ -283,6 +296,9 @@
 	</div>
 	{#if ownerHint}
 		<p class="owner-hint">{ownerHint}</p>
+	{/if}
+	{#if closedOnHost}
+		<p class="owner-hint" role="status">{closedOnHost}</p>
 	{/if}
 
 	{#if tasks.length === 0}

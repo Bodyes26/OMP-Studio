@@ -51,6 +51,7 @@
 		IconClose,
 		IconMore
 	} from '#lib/icons.ts';
+	import { LOCAL_MACHINE } from '#lib/backend/ipc.ts';
 	import { linkStore } from '#lib/backend/link.svelte.ts';
 	import { needsUpdate, peerBehind } from '#lib/backend/peerUpdate.svelte.ts';
 	import { studioUpdaterStore } from '#lib/stores/studioUpdater.svelte.ts';
@@ -357,13 +358,18 @@
 	 * Aggiorna le statistiche git e upstream di un singolo progetto,
 	 * proteggendo l'operazione con soglia temporale e tracciando i tempi.
 	 */
+	/**
+	 * `false` quando la lettura non ha prodotto nulla (copia remota non ancora
+	 * raggiungibile): chi ha una coda d'avvio se ne ricorda e riprova, invece
+	 * di segnare la tessera come letta per sempre (S3-link-front-03).
+	 */
 	async function refreshTopBarProject(
 		project: Project,
 		reason: 'interval' | 'focus' | 'visible' | 'event' | 'boot',
 		force = false
-	) {
+	): Promise<boolean> {
 		const workspacePath = project.lane.kind !== 'lab' ? project.lane.workspacePath : null;
-		if (!workspacePath) return;
+		if (!workspacePath) return false;
 		// L'identità della copia si legge sulla cartella del progetto
 		// (`canonicalProjectPath`, come in `projectOrder`), non su quella della
 		// corsia: su un worktree le due differiscono e la tessera restava senza
@@ -377,17 +383,18 @@
 			gitDiffStore.wasRefreshedRecently(workspacePath, 5000) &&
 			githubStore.wasUpstreamRefreshedRecently(identityPath, 5000)
 		) {
-			return;
+			return true;
 		}
 
 		const end = perfSpan('poll', `topbar ${project.name} reason=${reason}`);
 		try {
-			await Promise.all([
+			const [, upstream] = await Promise.all([
 				gitDiffStore.load(workspacePath, force),
 				// La macchina che possiede la copia va dichiarata: a parità di
 				// percorso `machineOfPath` sceglierebbe quella locale.
 				githubStore.loadUpstreamStatus(identityPath, force, project.machineId)
 			]);
+			return upstream !== null;
 		} finally {
 			end();
 		}
@@ -421,6 +428,33 @@
 	let bootRunning = false;
 	let bootStopped = false;
 
+	/** Tentativi ravvicinati della lettura d'avvio (S3-link-front-03). */
+	const BOOT_RETRY_MS = 15_000;
+	const BOOT_RETRIES = 20;
+	const bootRetries = new Map<string, number>();
+
+	function scheduleBootRetry(project: Project): void {
+		if (bootStopped) return;
+		const machine = project.machineId;
+		// Macchina spenta: al ritorno in linea ci pensano il poller della barra
+		// e i giri delle copie. Riprovare qui sarebbe una raffica a vuoto.
+		if (machine && machine !== LOCAL_MACHINE && !linkStore.machineFor(machine)?.online) return;
+		const attempt = (bootRetries.get(project.id) ?? 0) + 1;
+		if (attempt > BOOT_RETRIES) {
+			// Dopo qualche minuto la barra e il poller la rileggono quando serve:
+			// una raffica perpetua sarebbe peggio della tessera senza stato git.
+			bootRetries.delete(project.id);
+			return;
+		}
+		bootRetries.set(project.id, attempt);
+		window.setTimeout(() => {
+			if (bootStopped || bootQueue.includes(project.id)) return;
+			bootedProjects.delete(project.id);
+			bootQueue.unshift(project.id);
+			void drainBootQueue();
+		}, BOOT_RETRY_MS * attempt);
+	}
+
 	async function drainBootQueue(): Promise<void> {
 		if (bootRunning || bootStopped) return;
 		bootRunning = true;
@@ -434,7 +468,12 @@
 				// Segnata prima della lettura: una riesecuzione dell'effetto la
 				// esclude, ma il giro già partito arriva comunque in fondo.
 				bootedProjects.add(id);
-				await refreshTopBarProject(project, 'boot', true);
+				const read = await refreshTopBarProject(project, 'boot', true);
+				// Una copia remota che non ha risposto non e' «letta»: si riprova
+				// da sola invece di lasciare la tessera senza stato git finche'
+				// qualcuno non la forza (S3-link-front-03).
+				if (read) bootRetries.delete(id);
+				else scheduleBootRetry(project);
 				// Scaglionate per non rafficare spawn git all'avvio.
 				if (!bootStopped) await new Promise((resolve) => setTimeout(resolve, 600));
 			}

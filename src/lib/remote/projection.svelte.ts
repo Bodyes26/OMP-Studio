@@ -36,6 +36,9 @@ export interface RemoteProjectionOptions {
 	getCandidateTaskId?: (projectId: string) => string | null;
 }
 
+/** Attesa massima della pubblicazione: oltre, lo stato parte comunque (S3-link-front-10). */
+const PROJECTION_MAX_WAIT_MS = 1500;
+
 /**
  * Avvia la sincronizzazione continua dello stato verso il relay.
  * Restituisce una funzione per arrestare l'effetto e annullare timer pendenti.
@@ -46,6 +49,8 @@ export function startRemoteProjection(options: RemoteProjectionOptions = {}): ()
 	let disposed = false;
 	// Codice della WebView: il timer e' quello del browser, non il tipo di Node.
 	let debounceTimer: number | null = null;
+	/** Quando e' arrivato il primo evento della raffica: l'attesa massima parte da qui. */
+	let burstStartedAt = 0;
 	let themeAnchors = $state(getCurrentAnchors());
 	const unlistenTheme = onThemeChange(() => {
 		themeAnchors = getCurrentAnchors();
@@ -250,9 +255,16 @@ export function startRemoteProjection(options: RemoteProjectionOptions = {}): ()
 			const json = JSON.stringify([phoneEnabled ? hostState : null, desktopJson]);
 			if (json === lastPublishedJson) return;
 
+			// Debounce con attesa massima (S3-link-front-10): con eventi piu'
+			// fitti del debounce la pubblicazione aspettava una pausa che non
+			// arrivava mai, e l'altra macchina restava su uno stato vecchio.
+			const burstNow = Date.now();
+			if (debounceTimer === null) burstStartedAt = burstNow;
 			window.clearTimeout(debounceTimer ?? undefined);
+			const wait = Math.max(0, Math.min(400, burstStartedAt + PROJECTION_MAX_WAIT_MS - burstNow));
 			debounceTimer = window.setTimeout(() => {
 				debounceTimer = null;
+				burstStartedAt = 0;
 				publishing = publishing.then(async () => {
 					if (disposed) return;
 					try {
@@ -265,7 +277,7 @@ export function startRemoteProjection(options: RemoteProjectionOptions = {}): ()
 						console.warn('[remote] publishState fallito:', err);
 					}
 				});
-			}, 400);
+			}, wait);
 
 			return () => {
 				window.clearTimeout(debounceTimer ?? undefined);

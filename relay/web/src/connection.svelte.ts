@@ -22,6 +22,7 @@ import {
 	type RemoteChatEvent
 } from '../../src/protocol.ts';
 import { calculateBackoffDelay, OFFLINE_BANNER_THRESHOLD } from './backoff.ts';
+import { InboundWatchdog } from './watchdog.ts';
 import { t, getLanguage } from './i18n.ts';
 
 export type AppConnectionStatus = 'checking' | 'unpaired' | 'connecting' | 'connected' | 'disconnected';
@@ -49,9 +50,17 @@ class RemoteConnectionManager {
 		return this.failedAttempts >= OFFLINE_BANNER_THRESHOLD && this.status !== 'connected';
 	}
 	private ws: WebSocket | null = null;
-	private watchdogTimer: number | null = null;
-	private backoffTimer: number | null = null;
+	/** Watchdog dell'attesa in ingresso, con la logica di sospensione estratta. */
+	private readonly watchdog = new InboundWatchdog({
+		timeoutMs: HEARTBEAT_TIMEOUT_MS,
+		isSuspended: () =>
+			typeof document !== 'undefined' && document.visibilityState === 'hidden',
+		onTimeout: () => {
+			if (this.ws) this.ws.close();
+		}
+	});
 	private pendingMap = new Map<string, PendingCommandState>();
+	private backoffTimer: number | null = null;
 	private chatListeners = new Map<string, Set<(event: RemoteChatEvent) => void>>();
 	private activeChatSubscriptions = new Set<string>();
 	init(): void {
@@ -62,8 +71,16 @@ class RemoteConnectionManager {
 		document.addEventListener('visibilitychange', () => {
 			const isVisible = document.visibilityState === 'visible';
 			this.sendVisibility(isVisible);
-			if (isVisible && this.status !== 'connected' && this.status !== 'unpaired') {
-				this.reconnectImmediate();
+			if (isVisible) {
+				// Con la pagina in background il sistema puo' sospendere i timer e
+				// trattenere i frame: al ritorno il conteggio dell'attesa riparte
+				// da ora, altrimenti il watchdog chiuderebbe un collegamento sano.
+				if (this.ws && this.ws.readyState === WebSocket.OPEN) this.watchdog.resume();
+				if (this.status !== 'connected' && this.status !== 'unpaired') {
+					this.reconnectImmediate();
+				}
+			} else {
+				this.watchdog.suspend();
 			}
 		});
 
@@ -149,9 +166,17 @@ class RemoteConnectionManager {
 
 			socket.onopen = () => {
 				if (this.ws !== socket) return;
+				// Dichiara gli stati gia' in memoria: il relay rimanda solo cio' che
+				// e' cambiato, invece dell'intero insieme a ogni riconnessione.
+				const snapshots = Object.entries(this.hostStates).map(([hostId, entry]) => ({
+					hostId,
+					seq: entry.seq,
+					receivedAt: entry.receivedAt
+				}));
 				const helloFrame: ClientFrame = {
 					type: 'hello',
-					protocol: PROTOCOL
+					protocol: PROTOCOL,
+					...(snapshots.length > 0 ? { snapshots } : {})
 				};
 				socket.send(JSON.stringify(helloFrame));
 				this.resetWatchdog();
@@ -284,19 +309,11 @@ class RemoteConnectionManager {
 	}
 
 	private resetWatchdog(): void {
-		this.clearWatchdog();
-		this.watchdogTimer = window.setTimeout(() => {
-			if (this.ws) {
-				this.ws.close();
-			}
-		}, HEARTBEAT_TIMEOUT_MS) as unknown as number;
+		this.watchdog.touch();
 	}
 
 	private clearWatchdog(): void {
-		if (this.watchdogTimer) {
-			clearTimeout(this.watchdogTimer);
-			this.watchdogTimer = null;
-		}
+		this.watchdog.stop();
 	}
 
 	private scheduleReconnect(): void {

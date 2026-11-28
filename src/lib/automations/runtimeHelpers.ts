@@ -106,10 +106,6 @@ export function checkModelPayAsYouGo(modelSelectorOrId: string): PaygCheckResult
 	};
 }
 
-export function isPayAsYouGoModel(modelSelectorOrId: string): boolean {
-	return checkModelPayAsYouGo(modelSelectorOrId).isPayg;
-}
-
 /**
  * Risolve il modello effettivo da utilizzare per l'automazione.
  * Rispetta la scelta tra 'role' (es. default, smol, fast) e 'model' esplicito,

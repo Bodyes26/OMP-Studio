@@ -681,12 +681,45 @@ class SettingsStore {
 			github: $state.snapshot(this.github),
 			composerLayout: $state.snapshot(this.composerLayout)
 		};
-		await this.store.set('studioSettings', snapshot);
-		await this.store.save();
+		// Lo stato in memoria e' gia' cambiato quando `patch*` chiama `save()`:
+		// un rifiuto di `store.save()` diventerebbe una promessa rifiutata non
+		// gestita, e l'utente crederebbe applicata una preferenza che alla
+		// riapertura e' tornata indietro. Si registra l'esito e lo si mostra.
+		try {
+			await this.store.set('studioSettings', snapshot);
+			await this.store.save();
+		} catch (error) {
+			this.saveError = error instanceof Error ? error.message : String(error);
+			return;
+		}
+		this.saveError = null;
 		cacheSnapshot(snapshot);
 		// Le altre finestre non rileggono il file: la modifica va annunciata.
-		await broadcastToWindows(SETTINGS_CHANGED_EVENT, snapshot);
+		// Un annuncio fallito non tocca il disco appena scritto: resta un
+		// avviso, non una promessa rifiutata.
+		try {
+			await broadcastToWindows(SETTINGS_CHANGED_EVENT, snapshot);
+		} catch (error) {
+			this.saveError = error instanceof Error ? error.message : String(error);
+		}
 	}, 250);
+
+	/**
+	 * Scrive subito la modifica in attesa e attende la fine della scrittura.
+	 *
+	 * Il salvataggio e' ritardato di 250 ms: uscendo prima che il timer scada
+	 * `store.set` non era mai stato chiamato e plugin-store salvava in uscita il
+	 * cache vecchio, perdendo l'ultima preferenza. `persistWorkBeforeQuit` la
+	 * chiama insieme agli altri flush.
+	 */
+	async flush(): Promise<void> {
+		// `flush()` di lodash esegue ora la chiamata in attesa e ne restituisce
+		// il valore: la promessa del salvataggio, da attendere.
+		await this.save.flush();
+	}
+
+	/** Esito dell'ultimo salvataggio, letto dall'interfaccia per avvisare. */
+	saveError = $state<string | null>(null);
 
 	openSection(section: SettingsSection = 'general') {
 		this.section = section;

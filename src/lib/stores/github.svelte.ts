@@ -1,7 +1,8 @@
-import { invoke, LOCAL_MACHINE, type MachineId } from '#lib/backend/ipc.ts';
+import { BackendRouteError, invoke, LOCAL_MACHINE, routeErrorText, type MachineId } from '#lib/backend/ipc.ts';
 import { projectStore, normalizeProjectPath, joinProjectPath } from './projects.svelte';
 import { conflictFiles } from '#lib/agent/machineSwitch.ts';
 import { busyPaths } from './copyBusy.ts';
+import { copyRoundIdle, copyRoundRunning } from './copyRound.ts';
 import { settingsStore } from './settings.svelte';
 import { notificationManager } from './notifications.svelte';
 import { m } from '#lib/paraglide/messages.js';
@@ -78,7 +79,17 @@ export interface UpstreamSyncState {
 
 export interface FastForwardReport {
 	branches: UpstreamSyncState[];
+	/**
+	 * Avanzamento non tentato perche' la cartella aveva gia' una
+	 * sincronizzazione in corso (S2-06, contratto C2): `"busy"`. Non e' un
+	 * errore e non dice nulla sui commit da scaricare.
+	 */
+	skipped?: string | null;
 }
+
+/** Tentativi quando la cartella ha gia' un giro in corso (come `sessionMove.ts`). */
+const GUARD_RETRIES = 8;
+const GUARD_WAIT_MS = 400;
 
 export interface GithubActionRun {
 	id: number;
@@ -386,7 +397,11 @@ class GithubStore {
 				projectStore.rememberGitIdentity(owner, projectPath, status);
 				return status;
 			} catch (e) {
-				console.error('git_upstream_status', e);
+				// Un rifiuto di instradamento (macchina spenta) arriva a ogni giro
+				// dei poller: nel registro va a INFO con la frase per l'utente, non
+				// come errore in inglese con l'id della macchina (S3-link-front-08).
+				if (e instanceof BackendRouteError) routeErrorText(e);
+				else console.error('git_upstream_status', e);
 				return null;
 			} finally {
 				this.upstreamPending.delete(pendingKey);
@@ -401,19 +416,64 @@ class GithubStore {
 	 * Avanza da sole le branch solo indietro rispetto a origin (R-MI-58), con
 	 * le stesse regole della gemella: mai merge, rebase o reset verso origin.
 	 * Non fa fetch: chi chiama ha appena letto origin.
+	 *
+	 * `copy_sync` prende la stessa guardia per la stessa cartella e puo' tenerla
+	 * attraverso le chiamate di rete (S2-06): con la cartella occupata si
+	 * aspetta la fine di quel giro, non un tempo fisso, e si riprova
+	 * (S3-link-front-04).
 	 */
 	async fastForwardUpstream(projectPath: string, busy: string[]): Promise<FastForwardReport | null> {
-		try {
-			return await invoke<FastForwardReport>('git_fast_forward_upstream', {
-				projectPath,
-				busyPaths: busy
-			});
-		} catch (error) {
-			// Un blocco (cartella occupata, worktree staccato) arriva come
-			// `pending` nel rapporto; qui restano solo errori veri.
-			console.error('git_fast_forward_upstream', error);
-			return null;
+		// Un giro delle copie libera la cartella una volta sola: si aspetta la
+		// sua fine prima di contare i tentativi brevi.
+		let awaitedRound = false;
+		for (let attempt = 0; ; attempt++) {
+			try {
+				const report = await invoke<FastForwardReport>('git_fast_forward_upstream', {
+					projectPath,
+					busyPaths: busy
+				});
+				// La guardia del backend e' occupata: si riprova, non si dice
+				// «da scaricare» su un esito che non c'e' stato.
+				if (report.skipped === 'busy' && attempt < GUARD_RETRIES) {
+					awaitedRound = await this.waitForGuard(awaitedRound);
+					continue;
+				}
+				return report;
+			} catch (error) {
+				// Fino a che il backend non risponde `skipped`, l'occupazione della
+				// cartella arriva come errore testuale (C2 transitorio).
+				const occupied = String(error).includes('sync already running');
+				if (occupied && attempt < GUARD_RETRIES) {
+					awaitedRound = await this.waitForGuard(awaitedRound);
+					continue;
+				}
+				// Un blocco (cartella occupata, worktree staccato) arriva come
+				// `pending` nel rapporto; qui restano solo errori veri.
+				console.error('git_fast_forward_upstream', error);
+				return null;
+			}
 		}
+	}
+
+	/**
+	 * Attesa prima di riprovare con la guardia occupata (S3-04): se e' in corso
+	 * un giro delle copie si aspetta la sua fine, che e' l'unico evento che
+	 * libera davvero la cartella. Il giro si aspetta una volta sola; dopo, o
+	 * se non ce n'era uno, l'attesa e' breve perche' l'occupazione e' di
+	 * qualcun altro (agente, editor, un'altra finestra) e il tetto dei
+	 * tentativi resta quello di prima.
+	 */
+	private async waitForGuard(alreadyAwaited: boolean): Promise<boolean> {
+		if (!alreadyAwaited && copyRoundRunning()) {
+			await copyRoundIdle(GUARD_RETRIES * GUARD_WAIT_MS);
+			// Un giro delle copie si aspetta una volta sola: se la cartella resta
+			// occupata, e' di qualcun altro e valgono i tentativi brevi.
+			return true;
+		}
+		const { promise, resolve } = Promise.withResolvers<void>();
+		setTimeout(resolve, GUARD_WAIT_MS);
+		await promise;
+		return alreadyAwaited;
 	}
 
 	/** Il controllo remoto non tocca il checkout e non apre prompt di credenziali. */
@@ -445,10 +505,15 @@ class GithubStore {
 				// Solo la copia di questa macchina si avanza: quella di una gemella
 				// la muove la sua finestra (R-MI-12). `owner` lo dice.
 				let blocked: string | null = null;
+				let outcomeKnown = true;
 				if (project && owner === LOCAL_MACHINE) {
 					// La cartella occupata blocca l'avanzamento (R-MI-57): `busyPaths`
 					// e' l'unica verita' su chi sta lavorando qui.
 					const report = await this.fastForwardUpstream(projectPath, busyPaths(project));
+					// Nessun esito (cartella ancora occupata dopo i tentativi, guasto
+					// vero): non si dice «N commit da scaricare», perche' non si sa se
+					// l'avanzamento fosse possibile (S3-link-front-04).
+					outcomeKnown = report !== null && !report.skipped;
 					const advanced = report?.branches.filter((branch) => branch.state === 'advanced') ?? [];
 					// «Da scaricare» resta solo se qualcosa ha davvero impedito
 					// l'avanzamento: l'avviso nomina i file in conflitto, gli altri
@@ -466,6 +531,7 @@ class GithubStore {
 						return;
 					}
 				}
+				if (!outcomeKnown) return;
 				const status = this.upstreamByPath[key];
 				if (!status?.behind) {
 					this.notifiedIncoming.delete(key);
@@ -481,7 +547,10 @@ class GithubStore {
 				this.notifiedIncoming.set(key, signature);
 				await notificationManager.notifyGitUpdates(project, status.behind, false, blocked);
 			} catch (error) {
-				this.remoteErrorByPath[key] = String(error);
+				// Un rifiuto di instradamento (macchina spenta, versione diversa)
+				// arriva qui a ogni giro del poller: si mostra con il nome della
+				// macchina, non con l'inglese e l'id (S3-link-front-08).
+				this.remoteErrorByPath[key] = routeErrorText(error);
 			} finally {
 				this.remotePending.delete(key);
 			}
@@ -498,7 +567,9 @@ class GithubStore {
 		// Su un'altra macchina l'esito di git è la sua risposta, non il nostro
 		// stato: finché non torna, l'operazione è in attesa (IMP-006).
 		const remote = owner !== LOCAL_MACHINE;
-		const feedback = remote ? machineFeedback.begin({ kind: 'git', machineId: owner }) : null;
+		const feedback = remote
+			? machineFeedback.begin({ kind: 'git', machineId: owner, projectId: machineFeedback.projectIdForPath(projectPath) })
+			: null;
 		try {
 			const result = await invoke<string>('git_sync_repo', { projectPath, action }, { machine: owner });
 			if (feedback !== null) machineFeedback.confirm(feedback);
@@ -510,7 +581,7 @@ class GithubStore {
 			return result;
 		} catch (e) {
 			console.error('git_sync_repo', e);
-			if (feedback !== null) machineFeedback.fail(feedback, e instanceof Error ? e.message : String(e));
+			if (feedback !== null) machineFeedback.fail(feedback, routeErrorText(e));
 			throw e;
 		} finally {
 			this.isSyncingByPath[key] = false;

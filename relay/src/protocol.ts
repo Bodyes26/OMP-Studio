@@ -964,7 +964,17 @@ export type RelayToHostFrame =
 
 /** PWA -> relay, su `API.clientSocket` con il cookie di sessione. */
 export type ClientFrame =
-	| { type: 'hello'; protocol: ProtocolId }
+	/**
+	 * `snapshots` elenca cio' che il client ha gia' salvato (`seq` e
+	 * `receivedAt` di ogni macchina): il relay non rimanda uno stato identico,
+	 * cosi' le riconnessioni frequenti della PWA non ritrasportano ogni volta
+	 * l'intero insieme degli stati (fino a qualche centinaio di KB).
+	 */
+	| {
+			type: 'hello';
+			protocol: ProtocolId;
+			snapshots?: Array<{ hostId: string; seq: number; receivedAt: number }>;
+	  }
 	/**
 	 * `commandId` lo genera il client (UUID) e torna nel risultato.
 	 * `deferIfOffline` vale solo per `create_task`: con la macchina spenta il

@@ -88,7 +88,9 @@ impl Runtime {
             self.authorize_action(id, &command).map_err(Value::String)?;
             self.config.lock().peers.get(id).ok_or_else(|| json!("Device pairing was revoked"))?.name.clone()
         } else { self.config.lock().name.clone() };
-        crate::studio_log::info("link", format!("{name}: {kind}"));
+        // Stessa regola di `serve_request`: una riga INFO per le azioni, un
+        // conteggio per le letture (S2-07).
+        self.log_command(&name, kind, permission);
         if let Some(id) = &peer { self.audit(id, permission, kind, &command); }
         let command_id = uuid::Uuid::new_v4().to_string();
         let (tx, rx) = tokio::sync::oneshot::channel();
@@ -127,7 +129,12 @@ pub(crate) async fn link_publish_state(app: tauri::AppHandle, webview: tauri::We
     if webview.label() != "main" { return Err("Only the host window may publish its state".into()); }
     if state.len() > MAX_BODY { return Err("Host snapshot exceeds limit".into()); }
     let runtime = manager.runtime(&app).await?;
-    runtime.roots.write().update(&state)?;
+    // Le radici sono un aiuto al confinamento, non una condizione per
+    // pubblicare: un errore qui non deve impedire allo snapshot di arrivare
+    // alle altre macchine (S3-06). Le radici scartate sono gia' nel log.
+    if let Err(error) = runtime.roots.write().update(&state) {
+        crate::studio_log::info("link", format!("Radici dello snapshot non aggiornate: {error}"));
+    }
     runtime.snapshot.send_replace(Some(Arc::new(state)));
     Ok(())
 }

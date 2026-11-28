@@ -8,7 +8,9 @@ use std::os::windows::process::CommandExt;
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
-use super::auth::{find_authorized_gh_binary, get_saved_token, run_blocking};
+use super::auth::{
+    capture_with_timeout, find_authorized_gh_binary, get_saved_token, run_blocking, GIT_GH_TIMEOUT,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -215,7 +217,7 @@ pub async fn github_list_remote_repos(limit: Option<u32>) -> Result<Vec<GithubRe
         #[cfg(target_os = "windows")]
         cmd.creation_flags(CREATE_NO_WINDOW);
 
-        let out = cmd.output().ok()?;
+        let out = capture_with_timeout(&mut cmd, GIT_GH_TIMEOUT).ok()??;
         if !out.status.success() {
             return None;
         }
@@ -326,12 +328,23 @@ pub async fn github_clone_repo(repo_url: String, target_path: String) -> Result<
         #[cfg(target_os = "windows")]
         cmd.creation_flags(CREATE_NO_WINDOW);
 
-        let out = cmd
-            .output()
+        let out = capture_with_timeout(&mut cmd, GIT_GH_TIMEOUT * 6)
             .map_err(|e| {
                 crate::tr!(
                     format!("Avvio git clone fallito: {e}"),
                     format!("Starting git clone failed: {e}")
+                )
+            })?
+            .ok_or_else(|| {
+                crate::tr!(
+                    format!(
+                        "git clone non ha risposto entro {} secondi",
+                        (GIT_GH_TIMEOUT * 6).as_secs()
+                    ),
+                    format!(
+                        "git clone did not answer within {} seconds",
+                        (GIT_GH_TIMEOUT * 6).as_secs()
+                    )
                 )
             })?;
 
@@ -435,7 +448,7 @@ fn created_repo_owner(gh_path: &Path, create_stdout: &str) -> Option<String> {
     cmd.args(["api", "user", "--jq", ".login"]);
     #[cfg(target_os = "windows")]
     cmd.creation_flags(CREATE_NO_WINDOW);
-    let out = cmd.output().ok()?;
+    let out = capture_with_timeout(&mut cmd, GIT_GH_TIMEOUT).ok()??;
     if !out.status.success() {
         return None;
     }
@@ -470,8 +483,20 @@ fn gh_create_repo(
     #[cfg(target_os = "windows")]
     cmd.creation_flags(CREATE_NO_WINDOW);
 
-    let out = match cmd.output() {
-        Ok(out) => out,
+    let out = match capture_with_timeout(&mut cmd, GIT_GH_TIMEOUT) {
+        Ok(Some(out)) => out,
+        Ok(None) => {
+            return GhCreateOutcome::Failed(crate::tr!(
+                format!(
+                    "gh repo create non ha risposto entro {} secondi",
+                    GIT_GH_TIMEOUT.as_secs()
+                ),
+                format!(
+                    "gh repo create did not answer within {} seconds",
+                    GIT_GH_TIMEOUT.as_secs()
+                )
+            ))
+        }
         Err(e) => {
             return GhCreateOutcome::Failed(crate::tr!(
                 format!("Avvio gh repo create fallito: {e}"),
@@ -509,7 +534,7 @@ fn gh_create_repo(
     #[cfg(target_os = "windows")]
     info_cmd.creation_flags(CREATE_NO_WINDOW);
 
-    if let Ok(info_out) = info_cmd.output() {
+    if let Ok(Some(info_out)) = capture_with_timeout(&mut info_cmd, GIT_GH_TIMEOUT) {
         if info_out.status.success() {
             if let Ok(r) = serde_json::from_slice::<GhCliRepo>(&info_out.stdout) {
                 return GhCreateOutcome::Created(Ok(GithubRemoteRepo {
@@ -781,12 +806,25 @@ pub async fn project_create_new(
             cmd.arg("-C").arg(&target).args(args);
             #[cfg(target_os = "windows")]
             cmd.creation_flags(CREATE_NO_WINDOW);
-            let out = cmd
-                .output()
+            let out = capture_with_timeout(&mut cmd, GIT_GH_TIMEOUT)
                 .map_err(|e| {
                     crate::tr!(
                         format!("Avvio git fallito: {e}"),
                         format!("Starting git failed: {e}")
+                    )
+                })?
+                .ok_or_else(|| {
+                    crate::tr!(
+                        format!(
+                            "git {} non ha risposto entro {} secondi",
+                            args.first().copied().unwrap_or(""),
+                            GIT_GH_TIMEOUT.as_secs()
+                        ),
+                        format!(
+                            "git {} did not answer within {} seconds",
+                            args.first().copied().unwrap_or(""),
+                            GIT_GH_TIMEOUT.as_secs()
+                        )
                     )
                 })?;
             if out.status.success() {

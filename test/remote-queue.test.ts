@@ -12,6 +12,7 @@ import {
 	deliveryRetryDelay,
 	holdOverdueSchedules,
 	mergeHostQueue,
+	queueIsOrphaned,
 	samePathLoose,
 	type SchedulableTask
 } from '../src/lib/stores/remoteQueue.ts';
@@ -75,6 +76,20 @@ describe('Coda di un progetto remoto (R-MI-15)', () => {
 		assert.equal(deliveryRetryDelay(3), DELIVERY_RETRY_BASE_MS * 8);
 		assert.equal(deliveryRetryDelay(40), DELIVERY_RETRY_MAX_MS, 'il tetto vale anche dopo molti tentativi');
 		assert.ok(deliveryRetryDelay(2) > deliveryRetryDelay(1), 'l attesa cresce');
+	});
+
+	it('un progetto che l host non pubblica piu non fa ritentare la coda (S3-06)', () => {
+		// Il task resta in attesa (R-MI-15): si fermano solo i tentativi e la
+		// coda dice «progetto chiuso», invece di farsi rifiutare le radici a ogni giro.
+		const host = { projectIds: new Set(['p-aperto']), reduced: false };
+		assert.equal(queueIsOrphaned(host, 'p-chiuso'), true);
+		assert.equal(queueIsOrphaned(host, 'p-aperto'), false);
+		// Versione incompatibile: l'host manda solo l'elenco e non si sa nulla.
+		assert.equal(queueIsOrphaned({ projectIds: new Set(), reduced: true }, 'p-chiuso'), false);
+		// Senza id sull'host non si puo' provare che il progetto sia chiuso.
+		assert.equal(queueIsOrphaned(host, null), false);
+		// Macchina mai vista: nessuna prova.
+		assert.equal(queueIsOrphaned(null, 'p-chiuso'), false);
 	});
 
 	it('riconosce lo stesso percorso scritto da Windows o dal Mac', () => {

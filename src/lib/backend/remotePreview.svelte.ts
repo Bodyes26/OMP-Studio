@@ -1,5 +1,5 @@
 import { getContext, setContext } from 'svelte';
-import { invoke, LOCAL_MACHINE, type MachineId } from './ipc.ts';
+import { invoke, LOCAL_MACHINE, routeErrorText, type MachineId } from './ipc.ts';
 import { openExternalUrl } from '#lib/utils/openExternal.ts';
 
 export interface PreviewSource {
@@ -24,12 +24,20 @@ interface Request { source: PreviewSource; input: string; }
 
 export const remotePreview = $state<{ request: Request | null; error: string | null; busy: boolean }>({ request: null, error: null, busy: false });
 
+/**
+ * Apre la domanda di anteprima remota per un link. Restituisce `false` quando
+ * il link non e' gestibile qui (macchina locale, niente progetto, non e' un
+ * loopback): chi chiama lo tratta come un link normale.
+ *
+ * Con un'apertura gia' in corso la richiesta nuova prende il posto di quella
+ * vecchia: l'inoltro in volo se ne accorge, chiude il proprio tunnel e torna
+ * (piu' sotto). Prima rispondeva `true` senza registrare nulla e il clic
+ * sembrava morto (S3-link-front-16).
+ */
 export function requestPreview(source: PreviewSource, input = ''): boolean {
 	if (source.machine === LOCAL_MACHINE || !source.project || (input && !loopbackUrl(input))) return false;
-	if (!remotePreview.busy) {
-		remotePreview.error = null;
-		remotePreview.request = { source, input };
-	}
+	remotePreview.error = null;
+	remotePreview.request = { source, input };
 	return true;
 }
 
@@ -59,7 +67,9 @@ export async function openPreview(input: string, external: boolean): Promise<voi
 		remotePreview.request = null;
 	} catch (error) {
 		if (id) await invoke('link_forward_close', { id }, { machine: LOCAL_MACHINE }).catch(() => {});
-		if (remotePreview.request === request) remotePreview.error = String(error);
+		// La domanda mostra una frase con il nome della macchina (C5), non
+		// l'inglese del trasporto con l'id.
+		if (remotePreview.request === request) remotePreview.error = routeErrorText(error);
 	} finally {
 		remotePreview.busy = false;
 	}

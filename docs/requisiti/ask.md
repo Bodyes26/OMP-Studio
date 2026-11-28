@@ -148,3 +148,7 @@ Fonti ufficiali: [AgentToolResult](https://github.com/can1357/oh-my-pi/blob/v18.
 | ASK-011 | Store e viste Companion, proiezione/comandi Remote, protocollo relay, `AttentionCard.svelte`, store bozze PWA; stesso modulo nelle superfici grafiche e timeout disabilitato anche nel PTY nativo. |
 
 I limiti dei frame non autorizzano invii parziali: errore esplicito e bozza conservata. Nel client Remote il budget di preparazione immagini e' ridotto rispetto al collegamento RPC locale per rispettare il frame WebSocket completo. Questa mappa documenta il codice scritto, non prove di riuscita.
+
+## Correzione del 2026-11-28 (polish di stabilità)
+
+ASK-009, ASK-004: una risposta che porta un `requestId` senza corrispondenza (domanda già chiusa e sostituita da un'altra nella stessa corsia) ora fallisce chiusa in `sessionRegistry.ts` e in `companion.respondUi`, invece di ripiegare sulla corsia e rispondere alla domanda nuova. I payload storici senza `requestId` seguono le regole di prima. `promptBus.ts` pota le richieste chiuse conservando gli id per la regola «la prima risposta vince». Prova: caso E1 in `test/agent-session-recovery.test.ts`, `test/prompt-bus.test.ts`, `test/lanes-routing.test.ts`. Piano: `docs/PLAN.md`, «Polish di stabilità dopo la multi-istanza».

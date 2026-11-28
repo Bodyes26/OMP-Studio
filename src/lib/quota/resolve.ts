@@ -53,7 +53,7 @@ function normalizeFamily(val?: string): ModelFamily {
  * dell'id separato da `:` (es. `google-antigravity:anthropic:default:daily`).
  * In alternativa usa la label come fallback (es. `Usage (Anthropic)` -> `anthropic`).
  */
-export function limitFamily(limit: QuotaLimit): ModelFamily {
+function limitFamily(limit: QuotaLimit): ModelFamily {
 	if (limit.id) {
 		const parts = limit.id.split(':');
 		if (parts.length >= 2) {

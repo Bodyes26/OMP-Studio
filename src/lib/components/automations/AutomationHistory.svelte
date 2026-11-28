@@ -173,13 +173,13 @@
 		width: 100%;
 		border-collapse: collapse;
 		text-align: left;
-		font-size: 13px;
+		font-size: var(--text-body);
 	}
 
 	.runs-table th {
 		padding: 10px 12px;
 		background: var(--bg-sunken);
-		font-size: 11px;
+		font-size: var(--text-caption);
 		font-weight: 600;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
@@ -211,7 +211,7 @@
 		align-items: center;
 		padding: 2px 7px;
 		border-radius: var(--radius-full);
-		font-size: 11px;
+		font-size: var(--text-caption);
 		font-weight: 600;
 	}
 
@@ -257,7 +257,7 @@
 
 	.action-xs {
 		padding: 4px 6px;
-		font-size: 11px;
+		font-size: var(--text-caption);
 		min-height: 24px;
 	}
 </style>

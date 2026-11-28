@@ -76,6 +76,8 @@ export class TerminalSession {
 	private resizeObserver: ResizeObserver;
 	private resizeTimeout: number | null = null;
 	private disposed = false;
+	/** Chiusura in corso: `close()` e' asincrona e puo' essere chiamata due volte. */
+	private closing = false;
 	/** Cresce a ogni rilascio o riavvio: un pty_open partito prima e' superato. */
 	private ptyEpoch = 0;
 	private unsubscribeTheme: () => void;
@@ -682,6 +684,27 @@ export class TerminalSession {
 					this.term.write('', () => {
 						if (!this.disposed && epoch === this.ptyEpoch) this.term.resize(cols, rows);
 					});
+				} else if (message && typeof message === 'object' && 'type' in message && message.type === 'studio_pty_exit') {
+					// Il processo e' uscito da solo (S8-19): il frame arriva sullo
+					// stesso canale dei ridimensionamenti, ma non e' output da
+					// scrivere. Senza questo ramo la barra restava su «in
+					// esecuzione» e il frame finiva in un avviso di output non
+					// riconosciuto a ogni uscita.
+					this.flushTerminalOutput();
+					// I timer d'avvio non hanno piu' senso: il processo non sta
+					// partendo, e il messaggio d'attesa resterebbe a schermo.
+					this.clearBootTimers();
+					// Lo stesso epilogo di `release()`, che e' il modo in cui il
+					// frontend chiude il PTY: l'id non e' piu' valido (il prossimo
+					// `fit()` ridimensiona solo la vista) e la corsia torna a
+					// «uscito» invece di restare al lavoro.
+					this.ptyEpoch++;
+					this.ptyId = null;
+					this.currentState = 'unknown';
+					this.setHold(holdReset());
+					this.setInputPending(0);
+					this.updateSessionInfo(null);
+					this.onStateChange('unknown');
 				} else if (message instanceof Uint8Array) {
 					this.queueTerminalOutput(message);
 				} else if (message instanceof ArrayBuffer) {
@@ -932,7 +955,12 @@ export class TerminalSession {
 	}
 
 	public async close() {
-		if (this.disposed) return;
+		// Doppia chiamata: `Terminal.svelte` la invoca sia dal cleanup di
+		// `onMount` sia da `onDestroy`. Senza la guardia sincrona le due corse
+		// arrivavano entrambe al `term.dispose()` (il flag `disposed` viene
+		// alzato solo dopo il primo `await`) e il secondo lancio finiva nel catch.
+		if (this.disposed || this.closing) return;
+		this.closing = true;
 		this.flushTerminalOutput();
 		this.clearTerminalOutputBuffer();
 		this.clearBootTimers();
@@ -942,6 +970,9 @@ export class TerminalSession {
 		}
 		await this.release();
 		this.disposed = true;
+		// L'osservatore tiene vivo il nodo rimosso e continua a ricevere
+		// callback dopo la chiusura: va staccato prima di disporre il terminale.
+		this.resizeObserver.disconnect();
 		this.unsubscribeTheme();
 		clearTimeout(this.resizeTimeout ?? undefined);
 		if (this.audioCtx) {

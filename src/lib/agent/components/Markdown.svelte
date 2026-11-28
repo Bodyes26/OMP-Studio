@@ -14,6 +14,7 @@
 	import AccordionCard from '../intelligent-ui/AccordionCard.svelte';
 	import ProcessStepper from '../intelligent-ui/ProcessStepper.svelte';
 	import CompareSlider from '../intelligent-ui/CompareSlider.svelte';
+	import RowBoundary from './RowBoundary.svelte';
 	import {
 		parseCallout,
 		parseMetricBlock,
@@ -54,37 +55,39 @@
 		{#if lang === 'ui:metric' || lang === 'ui:stat'}
 			{@const metrics = parseMetricBlock(token.text)}
 			{#if metrics}
-				<MetricGrid items={metrics} />
+				<RowBoundary name="ui:metric"><MetricGrid items={metrics} /></RowBoundary>
 			{:else}
 				<CodeBlock lang={token.lang} text={token.text} {onOpenFile} />
 			{/if}
 		{:else if lang === 'ui:tabs'}
 			{@const tabs = parseTabsBlock(token.text)}
 			{#if tabs}
-				<InteractiveTabs {tabs} {onOpenFile} />
+				<RowBoundary name="ui:tabs"><InteractiveTabs {tabs} {onOpenFile} /></RowBoundary>
 			{:else}
 				<CodeBlock lang={token.lang} text={token.text} {onOpenFile} />
 			{/if}
 		{:else if lang === 'ui:steps'}
 			{@const steps = parseStepsBlock(token.text)}
 			{#if steps}
-				<ProcessStepper {steps} />
+				<RowBoundary name="ui:steps"><ProcessStepper {steps} /></RowBoundary>
 			{:else}
 				<CodeBlock lang={token.lang} text={token.text} {onOpenFile} />
 			{/if}
 		{:else if lang === 'ui:compare'}
 			{@const comp = parseCompareBlock(token.text)}
 			{#if comp}
-				<CompareSlider {...comp} />
+				<RowBoundary name="ui:compare"><CompareSlider {...comp} /></RowBoundary>
 			{:else}
 				<CodeBlock lang={token.lang} text={token.text} {onOpenFile} />
 			{/if}
 		{:else if lang === 'ui:accordion'}
 			{@const acc = parseAccordionBlock(token.text)}
 			{#if acc}
-				<AccordionCard title={acc.title} badge={acc.badge}>
-					<p class="paragraph">{acc.content}</p>
-				</AccordionCard>
+				<RowBoundary name="ui:accordion">
+					<AccordionCard title={acc.title} badge={acc.badge}>
+						<p class="paragraph">{acc.content}</p>
+					</AccordionCard>
+				</RowBoundary>
 			{:else}
 				<CodeBlock lang={token.lang} text={token.text} {onOpenFile} />
 			{/if}
@@ -94,9 +97,11 @@
 	{:else if token.type === 'blockquote'}
 		{@const callout = parseCallout(token)}
 		{#if callout}
-			<CalloutCard kind={callout.kind} title={callout.title}>
-				<Markdown tokens={callout.bodyTokens} {onOpenFile} />
-			</CalloutCard>
+			<RowBoundary name="ui:callout">
+				<CalloutCard kind={callout.kind} title={callout.title}>
+					<Markdown tokens={callout.bodyTokens} {onOpenFile} />
+				</CalloutCard>
+			</RowBoundary>
 		{:else}
 			<blockquote class="blockquote">
 				<Markdown tokens={token.tokens} {onOpenFile} />
@@ -131,7 +136,7 @@
 			</ul>
 		{/if}
 	{:else if token.type === 'table'}
-		<SmartTable header={token.header} rows={token.rows} {onOpenFile} />
+		<RowBoundary name="table"><SmartTable header={token.header} rows={token.rows} {onOpenFile} /></RowBoundary>
 	{:else if token.type === 'hr'}
 		<hr class="hr" />
 	{:else if token.type === 'html'}

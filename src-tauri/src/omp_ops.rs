@@ -245,7 +245,25 @@ fn discard_child_log_in(dir: &Path, pid: u32, spawned_at: SystemTime) {
 
 /// Esegue una interrogazione breve a `omp` catturandone lo stdout e rimuove il
 /// log per-PID che il figlio ha lasciato dietro di se'.
-pub(crate) fn omp_capture(mut cmd: Command) -> std::io::Result<std::process::Output> {
+///
+/// La scadenza e' obbligatoria (S8-04): `omp usage` va in rete e puo' restare
+/// appeso per sempre. Chi lo chiama tiene lock seriali (USAGE_FETCH,
+/// SPAWN_LOCK, AUTH_CHECK_LOCK): senza scadenza un solo figlio piantato
+/// fermerebbe ogni lettura di quota, ogni verifica versione e lo scheduler
+/// delle automazioni. Alla scadenza il figlio viene ucciso e raccolto, cosi'
+/// non resta ne' un processo ne' uno zombie.
+pub(crate) fn omp_capture(cmd: Command) -> std::io::Result<std::process::Output> {
+    omp_capture_with_timeout(cmd, OMP_CAPTURE_TIMEOUT)
+}
+
+/// Scadenza predefinita: `omp usage` dura 2,1-2,35 s quando la rete risponde,
+/// `omp --version` pochi millisecondi.
+pub(crate) const OMP_CAPTURE_TIMEOUT: Duration = Duration::from_secs(20);
+
+pub(crate) fn omp_capture_with_timeout(
+    mut cmd: Command,
+    timeout: Duration,
+) -> std::io::Result<std::process::Output> {
     // `spawn` eredita gli stream, a differenza di `output`: senza queste tre
     // righe lo stdout del figlio finirebbe su quello di Studio e il chiamante
     // leggerebbe un buffer vuoto.
@@ -255,9 +273,82 @@ pub(crate) fn omp_capture(mut cmd: Command) -> std::io::Result<std::process::Out
     let spawned_at = SystemTime::now();
     let child = cmd.spawn()?;
     let pid = child.id();
-    let output = child.wait_with_output();
+    let output = wait_with_output_deadline(child, timeout);
     discard_child_log(pid, spawned_at);
     output
+}
+
+/// Lettore di uno dei due flussi del figlio: accumula e riconsegna al canale.
+fn spawn_reader(
+    mut stream: Box<dyn std::io::Read + Send>,
+    is_stdout: bool,
+    tx: &std::sync::mpsc::Sender<(bool, Vec<u8>)>,
+) -> std::thread::JoinHandle<()> {
+    use std::io::Read as _;
+    let tx = tx.clone();
+    std::thread::spawn(move || {
+        let mut buffer = Vec::new();
+        let _ = stream.read_to_end(&mut buffer);
+        let _ = tx.send((is_stdout, buffer));
+    })
+}
+
+/// Attende la fine del figlio con una scadenza, raccogliendone l'output.
+///
+/// I lettori di stdout/stderr girano in thread propri: `wait_with_output`
+/// bloccherebbe il chiamante senza modo di interromperlo. Alla scadenza si
+/// uccide il figlio e si attende la sua raccolta: nessuno zombie.
+fn wait_with_output_deadline(
+    mut child: std::process::Child,
+    timeout: Duration,
+) -> std::io::Result<std::process::Output> {
+    use std::sync::mpsc::channel;
+
+    let (tx, rx) = channel::<(bool, Vec<u8>)>();
+    let mut readers = Vec::with_capacity(2);
+    if let Some(stdout) = child.stdout.take() {
+        readers.push(spawn_reader(Box::new(stdout), true, &tx));
+    }
+    if let Some(stderr) = child.stderr.take() {
+        readers.push(spawn_reader(Box::new(stderr), false, &tx));
+    }
+    drop(tx);
+
+    let deadline = std::time::Instant::now() + timeout;
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        if std::time::Instant::now() >= deadline {
+            let _ = child.kill();
+            // La raccolta e' obbligatoria: senza `wait` il figlio resta zombie.
+            let _ = child.wait();
+            // I lettori non si attendono: se un nipote ha ereditato le pipe,
+            // resterebbero bloccati e la scadenza non varrebbe piu'. Escono da
+            // soli appena le pipe si chiudono.
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                crate::tr!(
+                    format!("comando scaduto dopo {} s", timeout.as_secs()),
+                    format!("command timed out after {}s", timeout.as_secs())
+                ),
+            ));
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    };
+    for reader in readers {
+        let _ = reader.join();
+    }
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+    while let Ok((is_stdout, bytes)) = rx.try_recv() {
+        if is_stdout {
+            stdout = bytes;
+        } else {
+            stderr = bytes;
+        }
+    }
+    Ok(std::process::Output { status, stdout, stderr })
 }
 
 /// Ripassata all'avvio sui log che `omp` considera scaduti ma non riconosce
@@ -2885,6 +2976,35 @@ pub async fn mark_omp_changelog_seen(version: Option<String>) -> Result<(), Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// S8-04: un figlio che non esce non deve tenere il chiamante (e i suoi
+    /// lock seriali) per sempre. Alla scadenza si uccide e si raccoglie.
+    #[cfg(unix)]
+    #[test]
+    fn omp_capture_uccide_e_raccoglie_il_figlio_che_scade() {
+        let mut cmd = Command::new("sh");
+        cmd.args(["-c", "sleep 30"]);
+        let started = Instant::now();
+        let error = omp_capture_with_timeout(cmd, Duration::from_millis(200))
+            .expect_err("il figlio non esce entro la scadenza");
+        assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+        assert!(
+            started.elapsed() < Duration::from_secs(4),
+            "la scadenza deve valere, non l'attesa del figlio"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn omp_capture_restituisce_stdout_e_stderr_di_un_figlio_breve() {
+        let mut cmd = Command::new("sh");
+        cmd.args(["-c", "echo fuori; echo errore >&2; exit 3"]);
+        let output = omp_capture_with_timeout(cmd, Duration::from_secs(10))
+            .expect("il comando termina da solo");
+        assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "fuori");
+        assert_eq!(String::from_utf8_lossy(&output.stderr).trim(), "errore");
+        assert_eq!(output.status.code(), Some(3));
+    }
 
     #[test]
     fn semver_parse_e_confronto() {

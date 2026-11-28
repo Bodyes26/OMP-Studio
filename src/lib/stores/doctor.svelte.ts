@@ -33,6 +33,8 @@ class DoctorStore {
 	loading = $state(false);
 	error = $state<string | null>(null);
 	copiedToast = $state(false);
+	/** Timer del riscontro «copiato»: uno solo, riarmato a ogni copia. */
+	private copiedTimer: ReturnType<typeof setTimeout> | null = null;
 	filter = $state<'all' | 'issues'>('all');
 
 	get issuesCount(): number {
@@ -80,7 +82,11 @@ class DoctorStore {
 		try {
 			await navigator.clipboard.writeText(this.report.markdownReport);
 			this.copiedToast = true;
-			setTimeout(() => {
+			// Un solo timer alla volta: copie ravvicinate non devono spegnere
+			// il riscontro della copia appena fatta.
+			clearTimeout(this.copiedTimer ?? undefined);
+			this.copiedTimer = setTimeout(() => {
+				this.copiedTimer = null;
 				this.copiedToast = false;
 			}, 2500);
 			return true;

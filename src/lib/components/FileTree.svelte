@@ -231,6 +231,9 @@
 	let treeEl = $state<HTMLDivElement | null>(null);
 	let activeKey = $state('row:');
 	let trashError = $state<string | null>(null);
+	/** Riscontro breve delle azioni dal menu (copia, apri nel terminale). */
+	let actionNotice = $state<string | null>(null);
+	let actionNoticeTimer: number | null = null;
 	let trashedFile = false;
 
 
@@ -503,8 +506,13 @@
 	async function copyText(text: string) {
 		try {
 			await navigator.clipboard.writeText(text);
+			// Riscontro breve: senza, il clic non produceva nulla di visibile.
+			actionNotice = m.file_tree_copied();
+			armActionNotice();
 		} catch (err) {
 			console.error(m.ui_filetree_errore_copia_negli_appunti_7b94(), err);
+			actionNotice = m.ui_filetree_errore_copia_negli_appunti_7b94();
+			armActionNotice();
 		}
 	}
 
@@ -522,7 +530,20 @@
 			});
 		} catch (err) {
 			console.error(m.ui_filetree_errore_apertura_terminale_ce02(), err);
+			// Il clic non poteva piu' fallire in silenzio: l'utente premeva e
+			// non succedeva nulla. Il riscontro vive nella riga, come trashError.
+			actionNotice = m.file_tree_error_open_terminal();
+			armActionNotice();
 		}
+	}
+
+	/** L'avviso di riga sparisce da solo: e' un riscontro, non un errore persistente. */
+	function armActionNotice() {
+		clearTimeout(actionNoticeTimer ?? undefined);
+		actionNoticeTimer = window.setTimeout(() => {
+			actionNoticeTimer = null;
+			actionNotice = null;
+		}, 2600);
 	}
 
 	async function refreshRoot() {
@@ -1486,6 +1507,16 @@
 					{trashError}
 				</div>
 			{/if}
+			{#if actionNotice}
+				<div
+					class="inline-notice"
+					role="status"
+					aria-live="polite"
+					style="padding-left: {level * 12 + 28}px;"
+				>
+					{actionNotice}
+				</div>
+			{/if}
 		{/if}
 
 		{#if isDir && childrenLinger.shown}
@@ -1556,7 +1587,10 @@
 							<button type="button" class="retry-btn" onclick={() => void loadEntries(true)}>{m.file_tree_retry()}</button>
 						</div>
 					{:else}
-						<div class="loading" style="padding-left: {(level + 1) * 12 + 24}px;">{m.common_loading()}</div>
+						<div class="loading" style="padding-left: {(level + 1) * 12 + 24}px;">
+							<StatusMark status="running" />
+							<span>{m.common_loading()}</span>
+						</div>
 					{/if}
 				</div>
 			</div>
@@ -1644,6 +1678,18 @@
 
 	.inline-error {
 		color: var(--danger);
+		font-size: var(--text-xs);
+		padding-top: 2px;
+		padding-bottom: 4px;
+		padding-right: var(--space-2);
+		line-height: 1.2;
+		word-break: break-word;
+	}
+
+	/* Riscontro breve di riga (copia, apertura nel terminale): stesso posto
+	   dell'errore, tinta neutra perche' e' un esito atteso. */
+	.inline-notice {
+		color: var(--ink-muted);
 		font-size: var(--text-xs);
 		padding-top: 2px;
 		padding-bottom: 4px;
@@ -1779,6 +1825,10 @@
 		align-items: center;
 		color: var(--ink-faint);
 		font-size: var(--text-xs);
+	}
+
+	.loading {
+		gap: var(--space-2);
 	}
 
 	.load-error {

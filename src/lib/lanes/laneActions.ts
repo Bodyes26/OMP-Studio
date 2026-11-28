@@ -4,7 +4,7 @@
 import { laneStore } from '#lib/stores/lanes.svelte.ts';
 import { projectStore, type Project } from '#lib/stores/projects.svelte.ts';
 import { laneOrchestrator } from './laneOrchestrator.svelte';
-import { labApi } from '#lib/lab/api.ts';
+import { labApi, labApiFor } from '#lib/lab/api.ts';
 import type { LabIndexEntry } from '#lib/lab/types.ts';
 import { gitDiffStore } from '#lib/stores/gitDiff.svelte.ts';
 import { reviewProjectProfile } from './laneProfile';
@@ -154,6 +154,7 @@ export async function openLabEntry(
 	const project = projectStore.projects.find((p) => p.id === ownerProjectId);
 	if (!project) return;
 
+	const api = labApiFor(project);
 	const targetLaneId = laneId(`lab-${entry.id}`);
 	projectStore.setActive(ownerProjectId);
 
@@ -166,7 +167,7 @@ export async function openLabEntry(
 			// Riapertura di un prototipo chiuso
 			if (entry.status === 'closed') {
 				try {
-					await labApi.updateIndex(project.canonicalProjectPath, entry.id, { status: 'active' });
+					await api.updateIndex(project.canonicalProjectPath, entry.id, { status: 'active' });
 				} catch (err) {
 					console.warn('Riapertura stato prototipo nell\'indice fallita:', err);
 				}
@@ -213,7 +214,7 @@ export async function openLabEntry(
 
 	if (entry.status === 'closed') {
 		try {
-			await labApi.updateIndex(project.canonicalProjectPath, entry.id, { status: 'active' });
+			await api.updateIndex(project.canonicalProjectPath, entry.id, { status: 'active' });
 		} catch (err) {
 			console.warn('Riapertura stato prototipo nell\'indice fallita:', err);
 		}
@@ -275,7 +276,9 @@ export async function associateDraftToProject(
 	);
 	if (!targetProject) return;
 
-	const updatedEntry = await labApi.associate(prototypeId, targetProjectPath);
+	// L'indice in cui la bozza entra e' quello del progetto di destinazione:
+	// se vive su un'altra macchina, il comando gira la' (S3-link-front-05).
+	const updatedEntry = await labApiFor(targetProject).associate(prototypeId, targetProjectPath);
 	projectStore.closeProject(draftProject.id);
 	await openLabEntry(targetProject.id, updatedEntry);
 	projectStore.setActive(targetProject.id);
@@ -286,13 +289,6 @@ export async function associateDraftToProject(
 export async function reportLabDeleteFailure(error: string): Promise<void> {
 	await message(m.lab_delete_failed({ error }), { kind: 'error' }).catch(() => {
 		console.error('Eliminazione prototipo fallita:', error);
-	});
-}
-
-/** Come sopra, per l'eliminazione di un worktree avviata da un popover gia' chiuso. */
-export async function reportLaneDeleteFailure(error: string): Promise<void> {
-	await message(m.lane_lifecycle_delete_failed({ error }), { kind: 'error' }).catch(() => {
-		console.error('Eliminazione worktree fallita:', error);
 	});
 }
 
@@ -360,10 +356,11 @@ export async function projectLaneActions(
 					return;
 				}
 				try {
-					const entry = await labApi.createPrototype(project.canonicalProjectPath);
+					const entry = await labApiFor(project).createPrototype(project.canonicalProjectPath);
 					await openLabEntry(project.id, entry);
 				} catch (err) {
 					console.error('Creazione prototipo Lab fallita:', err);
+					await message(m.project_tabs_lanes_create_failed({ error: err instanceof Error ? err.message : String(err) }), { kind: 'error' }).catch(() => undefined);
 				}
 			}
 		});

@@ -201,14 +201,6 @@ export interface PersistedTaskState {
 	remoteQueues?: Record<string, { machine: string; hostPath: string; tasks: StudioTask[]; edits: string[]; dirty?: boolean }>;
 }
 
-export function createDefaultPersistedState(): PersistedTaskState {
-	return {
-		tasks: [],
-		origins: [],
-		views: {}
-	};
-}
-
 /**
  * Valida che un oggetto rispetti lo schema di un StudioTask.
  */

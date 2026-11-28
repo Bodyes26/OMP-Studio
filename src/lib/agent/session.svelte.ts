@@ -4,8 +4,11 @@ import { linkStore } from '#lib/backend/link.svelte.ts';
 import { orchestratePromptPreflight, type PromptPreflightDeps } from './promptPreflight';
 import { settingsStore } from '#lib/stores/settings.svelte.ts';
 import { formatTokens } from '#lib/utils/format.ts';
-import { traceAgent } from '#lib/focusTracer.ts';
 import { notifyGitStatusRefresh } from '#lib/stores/gitDiff.svelte.ts';
+// R-MI-73: il lavoro dell'agente diventa un commit a fine turno. L'aggancio
+// vive in `turnCommitLive` perche' `turnCommit` resta caricabile dai test.
+import { turnCommit } from '#lib/stores/turnCommitLive.ts';
+import type { TurnContext, TurnOutcome } from '#lib/stores/turnCommit.ts';
 import { nameExistingPrototypeIfLong, nameLaneFromPrompt } from '#lib/lanes/laneNaming.ts';
 import { projectStore } from '#lib/stores/projects.svelte.ts';
 import { perfMark, perfSpan } from '#lib/perf.ts';
@@ -72,6 +75,7 @@ import {
 } from './askForm';
 import { AskStreamTracker, type StreamAskState } from './askStream';
 import { queueChips } from './queueRestore';
+import { isExpectedTransportError } from './transportErrors';
 import { canRestorePrompt, promptBus, type PromptRequest } from './promptBus';
 import { laneSessionKey } from './sessionKeys';
 import { SessionSuggestions } from './suggestions.svelte';
@@ -148,6 +152,7 @@ import {
 	type GoalInterview
 } from './guidedGoal';
 import { getLocale } from '#lib/paraglide/runtime.js';
+import { untrack } from 'svelte';
 import {
 	RENDER_WINDOW,
 	clampVisibleCount,
@@ -182,6 +187,8 @@ import {
 	type UsageLimitState,
 	type CacheWarmingPhase,
 	type CacheWarmingMode,
+	type RpcCommand,
+	type SubagentSubscription,
 	type AskDialogAnswer,
 	type AskDialogQuestion,
 	type CancelSubagentResult,
@@ -541,6 +548,14 @@ const SETTLE_POLL_MS = 15_000;
  */
 const RUN_STALE_MS = 20_000;
 
+/** Un ritentativo silenzioso di un comando accessorio: dopo, se fallisce
+ *  ancora, non si insiste (D1: un avviso al massimo per evento). */
+const ACCESSORY_RETRY_MS = 15_000;
+
+/** Livello di sottoscrizione ai subagenti: `off` a chat non visibile (S14-04). */
+const SUBAGENT_SUBSCRIPTION_VISIBLE: SubagentSubscription = 'progress';
+const SUBAGENT_SUBSCRIPTION_HIDDEN: SubagentSubscription = 'off';
+
 function textOf(blocks: ContentBlock[] | string | undefined): string {
 	if (!blocks) return '';
 	// I messaggi `custom` di omp portano `content` come stringa: senza questo
@@ -672,8 +687,16 @@ export class AgentSession {
 
 	subscribeRemoteChat(listener: (event: RemoteChatEvent) => void): () => void {
 		this.remoteChatListeners.add(listener);
+		// Una superficie remota chiede i progressi di questa chat: la
+		// sottoscrizione deve restare accesa anche a chat non visibile (C4).
+		if (this.remoteChatListeners.size === 1 && !this.viewVisible && this.isReady) {
+			void this.sendAccessory({ type: 'set_subagent_subscription', level: SUBAGENT_SUBSCRIPTION_VISIBLE }, 'vista remota');
+		}
 		return () => {
 			this.remoteChatListeners.delete(listener);
+			if (this.remoteChatListeners.size === 0 && !this.viewVisible && this.isReady) {
+				void this.sendAccessory({ type: 'set_subagent_subscription', level: SUBAGENT_SUBSCRIPTION_HIDDEN }, 'vista remota');
+			}
 		};
 	}
 
@@ -1017,6 +1040,10 @@ export class AgentSession {
 	private segmentWireIndex = new Map<number, number>();
 	private segmentFor: number | null = null;
 	private readonly toolEntries = new Map<string, ToolEntry>();
+	/** Le sole card `wait` in corso (S4-09): `refreshWaitContexts` parte a ogni
+	 *  progresso di subagente e non deve scorrere tutte le card vive. Le voci
+	 *  non piu' in `toolEntries` si tolgono pigramente al giro successivo. */
+	private readonly liveWaits = new Set<string>();
 	private renderedCustomKeys = new Set<string>();
 	readonly cwd: string;
 	private stateRefresh: Promise<void> | null = null;
@@ -1046,6 +1073,29 @@ export class AgentSession {
 	 */
 	private attachGeneration = 0;
 	/**
+	 * Generazione della vista (S4-04): avanza a ogni cambio di sessione, come
+	 * `attachGeneration`, e anche a ogni nuova ricostruzione e alla chiusura.
+	 * Una ricostruzione superata smette di appendere pagine e di riassegnare
+	 * `entries` appena il gettone cambia: senza, il transcript della chat
+	 * precedente finiva in quella nuova.
+	 */
+	private viewSeq = 0;
+	/** Preferenze gia' applicate a questo processo: `epoch` del client + valori. */
+	private appliedSetup: { epoch: number; queue: string; cache: string | null } = { epoch: -1, queue: '', cache: null };
+	/** Ritentativi silenziosi gia' usati nell'epoca corrente. */
+	private accessoryRetried = new Set<'queue' | 'cache'>();
+	private accessoryRetryTimers: number[] = [];
+	/** Guasti di preferenza gia' mostrati (uno per tipo, non per sessione). */
+	private reportedAccessoryFailures = new Set<string>();
+	/** La chat di questa sessione e' a schermo: vedi `setViewVisible`. */
+	private viewVisible = true;
+	/** Ricostruzione rinviata a fine run (compattazione a run vivo, S4-05). */
+	private rebuildAfterRun = false;
+	/** Run interrotto dall'utente: un `agent_end` tardivo non e' un turno finito. */
+	private abortedRun = false;
+	/** Turno aperto per il commit di fine turno (R-MI-73): chiuso una volta sola. */
+	private turnOpen = false;
+	/**
 	 * Apertura del client (`client.epoch`) che ha gia' emesso `ready`. Un
 	 * processo omp emette `ready` una sola volta: un secondo `ready` sulla
 	 * stessa apertura non e' un processo nuovo, e trattarlo come tale
@@ -1059,7 +1109,7 @@ export class AgentSession {
 	/** Prompt scritti subito dopo uno Stop che aspettano la fine dell'interruzione. */
 	private abortSettledWaiters: Array<() => void> = [];
 	/** Chi aspetta la fine del turno (passaggio di compito del Piano). */
-	private idleWaiters: Array<() => void> = [];
+	private idleWaiters: Array<(idle: boolean) => void> = [];
 	private unsubscribeEvent: (() => void) | null = null;
 	private deltaBatcher = new StreamBatcher((items) => {
 		for (const item of items) {
@@ -1196,19 +1246,25 @@ export class AgentSession {
 		return backendInvoke<T>(command, args, { machine: this.machineId });
 	}
 
-	get visibleEntries(): TranscriptEntry[] {
+	/**
+	 * Entry effettivamente disegnate: l'ultima finestra dello storico, piu' il
+	 * prompt seminato finche' omp non lo ha fatto proprio. `$derived` perche'
+	 * `Transcript` la legge cinque volte per giro (anche solo per `.length`) e
+	 * un getter ricopiava fino a 300 entry a ogni lettura.
+	 */
+	visibleEntries = $derived.by((): TranscriptEntry[] => {
 		const visible = sliceVisibleEntries(this.entries, this.visibleCount);
-		if (this.seededPrompt && !this.entries.some((e) => e.id === this.seededPrompt!.id)) {
-			const seededUserEntry: UserEntry = {
-				id: this.seededPrompt.id,
+		const seeded = this.seededPrompt;
+		if (seeded && !this.entries.some((e) => e.id === seeded.id)) {
+			return [...visible, {
+				id: seeded.id,
 				kind: 'user',
-				content: this.seededPrompt.content,
-				images: this.seededPrompt.images
-			};
-			return [...visible, seededUserEntry];
+				content: seeded.content,
+				images: seeded.images
+			}];
 		}
 		return visible;
-	}
+	});
 
 	get hasEarlier(): boolean {
 		return hasEarlierEntries(this.entries.length, this.visibleCount);
@@ -1502,6 +1558,9 @@ export class AgentSession {
 		this.subagents = [];
 		this.backgroundJobs = [];
 		this.attachGeneration++;
+		this.viewSeq++;
+		this.abortedRun = false;
+		this.rebuildAfterRun = false;
 		this.isRebuildingTranscript = false;
 		this.transcriptLoad = null;
 		this.requestedResume = null;
@@ -1509,7 +1568,17 @@ export class AgentSession {
 		this.sessionFile = null;
 		this.expectingSessionTransition = false;
 		this.endAborting();
-		this.pendingStartupPrompts = [];
+		this.failIdleWaiters();
+		// R-MI-73: la chat si chiude a meta' turno, il lavoro resta com'e'.
+		this.closeTurn('exit');
+		// I ritentativi silenziosi delle preferenze non servono a una sessione
+		// chiusa: restano solo un timer che tiene vivo questo oggetto.
+		for (const timer of this.accessoryRetryTimers) window.clearTimeout(timer);
+		this.accessoryRetryTimers = [];
+		this.accessoryRetried.clear();
+		// Il task in attesa dell'insediamento torna in coda: il suo testo vive
+		// solo nel prompt perduto (D2, ARCHITECTURE §5.3).
+		this.dropStartupPrompts('chiusura');
 		this.clearPendingUi();
 		this.resetBrowserLive();
 		this.btw.resetForProcess();
@@ -1544,9 +1613,12 @@ export class AgentSession {
 	}
 
 	/**
-	 * Insediamento: stato, sottoscrizione ai subagent, poi ricostruzione del
-	 * transcript. In quest'ordine, perche' la ricostruzione e' la parte che
-	 * puo' fallire e le altre due servono comunque.
+	 * Insediamento: stato, poi ricostruzione del transcript. Solo `get_state`
+	 * e' bloccante: e' l'unico comando senza il quale la chat non sa cosa
+	 * mostrare. La sottoscrizione ai subagenti, il dialogo delle domande e i
+	 * sync delle preferenze partono senza attesa e con esito solo nel
+	 * registro: con omp occupato (S14) una loro risposta in ritardo lasciava
+	 * la chat senza storico e gli eventi live accodati per un minuto.
 	 */
 	private async attach() {
 		if (this.isAttached) return;
@@ -1556,27 +1628,49 @@ export class AgentSession {
 		const projectName = projectStore.projects.find((p) => p.id === this.projectKey)?.name ?? this.projectKey;
 		const lane = this.laneId ?? 'main';
 		const endAttachSpan = perfSpan('session', `attach ${projectName} ${lane}`);
+		let notice: string | null = null;
 		try {
-			await Promise.all([
-				this.refreshState(),
-				this.client.send({ type: 'set_subagent_subscription', level: 'progress' }),
-				this.client.send({ type: 'set_ask_dialog', enabled: true }).catch(() => {}),
-				this.applyQueueModes(),
-				this.applyCacheWarming()
-			]);
-			await this.rebuildTranscript({ progressive: true });
-			void this.refreshCost();
-			// Dopo un resume o un riavvio di omp lo stato del loop si chiede
-			// esplicitamente: il frame di `session_start` puo' arrivare prima
-			// che la chat sia in ascolto.
-			void this.refreshCommands().then(() => this.requestLoopStatus());
-			// Sonda e storico insieme: un omp senza `/btw` nasconde il pulsante.
-			void this.btw.loadHistory();
-			endAttachSpan('ok');
-			studioLog.info('session', `insediata ${projectName} ${lane}`);
+			// Solo `get_state` e' bloccante: senza di lui la chat non sa cosa
+			// mostrare. Un suo fallimento e' un avviso solo, e la sessione resta
+			// utilizzabile (i prompt partono, lo storico no).
+			await this.refreshState();
 		} catch (error) {
+			notice = messages.ui_ts_session_insediamento_della_sessione_non_completato_value1_bce4({ value1: this.reason(error) });
+		}
+		if (notice === null) {
+			try {
+				// Accessori: nessuno condiziona la ricostruzione (D1).
+				this.syncOnAttach();
+				await this.rebuildTranscript({ progressive: true });
+				if (generation !== this.attachGeneration) return;
+				void this.refreshCost();
+				// Dopo un resume o un riavvio di omp lo stato del loop si chiede
+				// esplicitamente: il frame di `session_start` puo' arrivare prima
+				// che la chat sia in ascolto.
+				void this.refreshCommands().then(() => this.requestLoopStatus());
+				// Sonda e storico insieme: un omp senza `/btw` nasconde il pulsante.
+				void this.btw.loadHistory();
+				endAttachSpan('ok');
+				studioLog.info('session', `insediata ${projectName} ${lane}`);
+			} catch (error) {
+				endAttachSpan('errore');
+				notice = messages.ui_ts_session_insediamento_della_sessione_non_completato_value1_bce4({ value1: this.reason(error) });
+			}
+		} else {
 			endAttachSpan('errore');
-			this.pushNotice('error', messages.ui_ts_session_insediamento_della_sessione_non_completato_value1_bce4({ value1: this.reason(error) }));
+		}
+		if (notice !== null) {
+			// Un insediamento fallito non tiene la coda ferma: si scarica quella
+			// arrivata finora e la sessione smette di accodare. Resta «insediata»
+			// perche' i prompt devono poter partire lo stesso: e' lo storico a
+			// mancare, non il processo.
+			if (generation === this.attachGeneration) {
+				this.isAttaching = false;
+				this.attachEventQueue = [];
+				this.isAttached = true;
+			}
+			this.pushNotice('error', notice);
+			return;
 		}
 		if (generation !== this.attachGeneration) return;
 
@@ -1651,6 +1745,42 @@ export class AgentSession {
 	async refreshState() {
 		const state = await this.client.send<RpcSessionState>({ type: 'get_state' });
 		this.applyState(state);
+	}
+
+	/**
+	 * Comandi accessori dell'insediamento: sottoscrizione ai subagenti, dialogo
+	 * delle domande, preferenze di coda e cache warming. Partono insieme, senza
+	 * che nessuno venga atteso: non servono a disegnare la chat, e un loro
+	 * errore atteso (sessione chiusa, macchina spenta, omp occupato) resta nel
+	 * registro di Studio senza diventare un avviso (D1).
+	 */
+	private syncOnAttach(): void {
+		const subscription = this.subagentSubscriptionLevel();
+		void this.sendAccessory(
+			{ type: 'set_subagent_subscription', level: subscription },
+			'nuovo insediamento'
+		);
+		void this.sendAccessory({ type: 'set_ask_dialog', enabled: true }, 'nuovo insediamento');
+		void this.applyQueueModes();
+		void this.applyCacheWarming();
+	}
+
+	/**
+	 * Comando accessorio: un errore atteso finisce solo nel registro. Un errore
+	 * vero resta visibile, ma non interrompe il flusso che l'ha lanciato.
+	 */
+	private async sendAccessory(command: RpcCommand, label: string): Promise<boolean> {
+		try {
+			await this.client.send(command);
+			return true;
+		} catch (error) {
+			if (isExpectedTransportError(error)) {
+				studioLog.info('session', `${label}: "${command.type}" non applicato (${this.reason(error)})`);
+			} else {
+				studioLog.warn('session', `${label}: "${command.type}" non applicato (${this.reason(error)})`);
+			}
+			return false;
+		}
 	}
 
 	/** Le categorie sono stime locali: la freschezza dipende dalla richiesta, non dalla loro somma. */
@@ -2076,33 +2206,133 @@ export class AgentSession {
 	 * I modi di coda sono stato di sessione lato omp e si resettano a ogni chat:
 	 * Studio li riafferma sia durante l'insediamento sia quando l'utente modifica
 	 * le preferenze globali.
+	 *
+	 * La chiave dell'ultima applicazione (valori + epoca del client) evita di
+	 * rimandare gli stessi tre comandi a ogni giro: l'effetto di `+page.svelte`
+	 * chiama questa funzione per tutte le sessioni e senza la chiave ne
+	 * partivano quattro per sessione a ogni cambiamento dell'elenco.
+	 * Le letture sono dentro `untrack`: un effetto che chiama questa funzione
+	 * non deve diventare dipendente da `isReady` o dalle preferenze.
 	 */
 	async applyQueueModes(): Promise<void> {
-		if (!this.isReady) return;
-		try {
-			const { steeringMode, followUpMode, interruptMode } = settingsStore.general;
-			await Promise.all([
+		const ready = untrack(() => this.isReady);
+		if (!ready) return;
+		const { steeringMode, followUpMode, interruptMode } = untrack(() => settingsStore.general);
+		const key = `${steeringMode}|${followUpMode}|${interruptMode}`;
+		if (this.appliedSetup.epoch === this.client.epoch && this.appliedSetup.queue === key) return;
+		await untrack(async () => {
+			const results = await Promise.allSettled([
 				this.client.send({ type: 'set_steering_mode', mode: steeringMode }),
 				this.client.send({ type: 'set_follow_up_mode', mode: followUpMode }),
 				this.client.send({ type: 'set_interrupt_mode', mode: interruptMode })
 			]);
-		} catch (error) {
-			this.pushNotice('warning', messages.ui_ts_session_impossibile_sincronizzare_le_modalita_di_coda_value1_1e87({ value1: this.reason(error) }));
-		}
+			const failure = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+			if (!failure) {
+				this.appliedSetup.epoch = this.client.epoch;
+				this.appliedSetup.queue = key;
+				return;
+			}
+			this.logAccessoryFailure('modalita di coda', failure.reason);
+			this.retryAccessory('queue');
+		});
 	}
 
 	/**
 	 * Riafferma la modalita' di riscaldamento cache configurata nelle impostazioni.
 	 * Studio la riafferma sia durante l'insediamento sia quando l'utente modifica
-	 * la preferenza in Settings.
+	 * la preferenza in Settings. Stessa chiave per epoca di `applyQueueModes`.
 	 */
 	async applyCacheWarming(mode?: CacheWarmingMode): Promise<void> {
+		const ready = untrack(() => this.isReady);
+		if (!ready) return;
+		const targetMode = mode ?? untrack(() => settingsStore.general.cacheWarming);
+		if (this.appliedSetup.epoch === this.client.epoch && this.appliedSetup.cache === targetMode) return;
+		await untrack(async () => {
+			const ok = await this.sendAccessory({ type: 'set_cache_warming', mode: targetMode }, 'preferenze');
+			if (ok) {
+				this.appliedSetup.epoch = this.client.epoch;
+				this.appliedSetup.cache = targetMode;
+				return;
+			}
+			this.retryAccessory('cache');
+		});
+	}
+
+	/**
+	 * Un errore di preferenza: atteso non e' un avviso, ma il registro lo
+	 * tiene. Un vero guasto resta visibile una volta sola per epoca, cosi' un
+	 * `connection lost` seguito da venti sessioni non riempie il transcript.
+	 */
+	private logAccessoryFailure(label: string, error: unknown): void {
+		if (isExpectedTransportError(error)) {
+			studioLog.info('session', `${label}: non applicate (${this.reason(error)})`);
+			return;
+		}
+		studioLog.warn('session', `${label}: non applicate (${this.reason(error)})`);
+		const key = `${label}`;
+		if (this.reportedAccessoryFailures.has(key)) return;
+		this.reportedAccessoryFailures.add(key);
+		this.pushNotice(
+			'warning',
+			label === 'modalita di coda'
+				? messages.ui_ts_session_impossibile_sincronizzare_le_modalita_di_coda_value1_1e87({ value1: this.reason(error) })
+				: messages.ui_ts_session_impossibile_sincronizzare_cache_warming_value1_e82a({ value1: this.reason(error) })
+		);
+	}
+
+	/** Un solo ritentativo silenzioso per epoca, al prossimo `ready`. */
+	private retryAccessory(kind: 'queue' | 'cache'): void {
+		const retried = this.accessoryRetried;
+		if (retried.has(kind)) return;
+		retried.add(kind);
+		const epoch = this.client.epoch;
+		const timer = window.setTimeout(() => {
+			if (epoch !== this.client.epoch) return;
+			if (kind === 'queue') void this.applyQueueModes();
+			else void this.applyCacheWarming();
+		}, ACCESSORY_RETRY_MS);
+		this.accessoryRetryTimers.push(timer);
+	}
+
+	/** Livello di sottoscrizione ai subagenti per lo stato di vista corrente.
+	 *  Una superficie remota (relay, telefono) mostra i progressi di una chat
+	 *  che qui non e' a schermo: finche' ha ascoltatori resta `progress`. */
+	private subagentSubscriptionLevel(): SubagentSubscription {
+		return this.viewVisible || this.remoteChatListeners.size > 0
+			? SUBAGENT_SUBSCRIPTION_VISIBLE
+			: SUBAGENT_SUBSCRIPTION_HIDDEN;
+	}
+
+	/**
+	 * La chat e' a schermo (C4/S14-04). Con la chat non visibile i progressi
+	 * dei subagenti non servono a nessuno: la sottoscrizione passa a `off` e
+	 * non viaggia un solo frame di progresso. Al ritorno si ripristina il
+	 * livello e si riallinea l'elenco, perche' nel frattempo non e' arrivato
+	 * nulla.
+	 */
+	setViewVisible(visible: boolean): void {
+		if (this.viewVisible === visible) return;
+		this.viewVisible = visible;
 		if (!this.isReady) return;
+		const level = this.subagentSubscriptionLevel();
+		void this.sendAccessory({ type: 'set_subagent_subscription', level }, 'vista della chat');
+		if (visible) void this.refreshSubagents();
+	}
+
+	/** Riallinea l'elenco dei subagenti a quello che omp conosce adesso. */
+	private async refreshSubagents(): Promise<void> {
 		try {
-			const targetMode = mode ?? settingsStore.general.cacheWarming;
-			await this.client.send({ type: 'set_cache_warming', mode: targetMode });
+			const data = await this.client.send<{ subagents?: AgentProgress[] }>({ type: 'get_subagents' });
+			if (!Array.isArray(data?.subagents)) return;
+			const next = data.subagents.filter((agent) => agent && typeof agent === 'object');
+			// Le voci che omp non riporta piu' sono chiuse: l'elenco locale e'
+			// quello che serve alle superfici non visibili.
+			this.subagents = next;
+			this.refreshWaitContexts();
 		} catch (error) {
-			this.pushNotice('warning', messages.ui_ts_session_impossibile_sincronizzare_cache_warming_value1_e82a({ value1: this.reason(error) }));
+			if (!isExpectedTransportError(error)) {
+				studioLog.warn('session', `elenco subagenti non letto: ${this.reason(error)}`);
+			}
 		}
 	}
 
@@ -2324,6 +2554,10 @@ export class AgentSession {
 	 */
 	private async rebuildTranscript(opts: { progressive?: boolean } = {}) {
 		const progressive = opts.progressive === true;
+		// La ricostruzione post-compattazione a run vivo viene rinviata: la
+		// storia letta ora non contiene il messaggio ancora aperto, e
+		// sostituire `entries` lo faceva sparire sotto gli occhi (S4-05).
+		const seq = ++this.viewSeq;
 		// Il transcript precedente porta card del Piano e contesti di `wait`, che
 		// la storia di omp non ha; al passaggio dal terminale e' gia' fuori vista.
 		const previous = this.handoffStash ?? this.entries;
@@ -2331,6 +2565,7 @@ export class AgentSession {
 		this.isRebuildingTranscript = true;
 		try {
 			for (let attempt = 1; attempt <= REBUILD_ATTEMPTS; attempt++) {
+				if (seq !== this.viewSeq) return;
 				const collected: AgentMessage[] = [];
 				let cursor: string | undefined;
 				let failed: string | null = null;
@@ -2354,6 +2589,9 @@ export class AgentSession {
 							cursor,
 							limit: progressive ? PROGRESSIVE_PAGE_SIZE : 256
 						});
+						// Superata mentre la pagina era in volo: si esce senza toccare
+						// `entries`, `isRebuildingTranscript` o `transcriptLoad` (S4-04).
+						if (seq !== this.viewSeq) return;
 						const pageMessages = Array.isArray(page?.messages) ? page.messages : [];
 						collected.push(...pageMessages);
 						cursor = typeof page?.nextCursor === 'string' ? page.nextCursor : undefined;
@@ -2365,6 +2603,7 @@ export class AgentSession {
 							};
 						}
 					} catch (error) {
+						if (seq !== this.viewSeq) return;
 						// `session_busy` e `stale_cursor` invalidano le pagine gia'
 						// raccolte: mescolarle darebbe un transcript inventato.
 						const code = error instanceof Error && 'code' in error ? error.code : undefined;
@@ -2374,6 +2613,7 @@ export class AgentSession {
 				} while (cursor);
 
 				if (failed === null) {
+					if (seq !== this.viewSeq) return;
 					// Le card del Piano non sono nella storia di omp: tornano al loro posto.
 					const planEntries = (progressive ? previous : this.entries).filter(
 						(entry): entry is PlanEntry => entry.kind === 'plan' && entry.sessionId === this.sessionId
@@ -2398,7 +2638,9 @@ export class AgentSession {
 				const { promise, resolve } = Promise.withResolvers<void>();
 				window.setTimeout(resolve, 400 * attempt);
 				await promise;
+				if (seq !== this.viewSeq) return;
 			}
+			if (seq !== this.viewSeq) return;
 			// Storico illeggibile: meglio la conversazione di prima di una parziale.
 			if (progressive) {
 				this.entries = previous;
@@ -2406,16 +2648,90 @@ export class AgentSession {
 			}
 			this.pushNotice('warning', messages.ui_ts_session_transcript_storico_non_ricostruito_la_sessione_e_1030());
 		} finally {
-			this.isRebuildingTranscript = false;
-			this.transcriptLoad = null;
+			// Una ricostruzione superata non spegne il caricamento di quella viva.
+			if (seq === this.viewSeq) {
+				this.isRebuildingTranscript = false;
+				this.transcriptLoad = null;
+			}
 		}
+	}
+
+	/**
+	 * Ricostruzione dopo una compattazione. A run concluso si sostituisce il
+	 * transcript subito; a run vivo si rinvia alla fine (S4-05): la storia di
+	 * omp non contiene ancora il messaggio aperto, e la rebuild atomica lo
+	 * faceva sparire. Fino ad allora resta visibile il transcript precedente
+	 * con la voce «compattato» aggiornata.
+	 */
+	private refreshAfterCompaction(): void {
+		if (this.isStreaming || this.settle.running) {
+			this.rebuildAfterRun = true;
+			return;
+		}
+		void this.rebuildTranscript();
+	}
+
+	/** Run concluso: la ricostruzione rinviata dalla compattazione parte ora. */
+	private flushRebuildAfterRun(): void {
+		if (!this.rebuildAfterRun) return;
+		if (this.isStreaming || this.settle.running) return;
+		this.rebuildAfterRun = false;
+		void this.rebuildTranscript();
+	}
+
+	/**
+	 * Apre il turno per il commit di fine turno (R-MI-73): `agent_start` prende
+	 * l'istantanea dei file sporchi, cosi' alla fine si committano solo quelli
+	 * che l'agente ha toccato. Un turno gia' aperto non viene riaperto: le
+	 * continuazioni dello stesso run non cambiano la baseline.
+	 */
+	private openTurn(): void {
+		if (this.turnOpen) return;
+		this.turnOpen = true;
+		void turnCommit.onTurnStart(this.turnCommitContext()).catch((error) => {
+			studioLog.warn('copies', `inizio turno non registrato: ${this.reason(error)}`);
+		});
+	}
+
+	/**
+	 * Chiude il turno per il commit di fine turno (R-MI-73): e' l'unico punto
+	 * di uscita, cosi' i quattro esiti (normale, Stop, errore, uscita) non
+	 * divergono. Gli errori attesi non diventano avvisi: il lavoro resta nel
+	 * working tree e il giro delle copie lo segnala.
+	 */
+	private closeTurn(outcome: TurnOutcome): void {
+		if (!this.turnOpen) return;
+		this.turnOpen = false;
+		void turnCommit.onTurnEnd(this.turnCommitContext(), outcome).catch((error) => {
+			if (isExpectedTransportError(error)) return;
+			studioLog.warn('copies', `fine turno non registrata: ${this.reason(error)}`);
+		});
+	}
+
+	/**
+	 * Dati della sessione per il commit di fine turno. Il progetto va cercato
+	 * sulla radice (o sulla copia della macchina), non sul cwd della corsia:
+	 * il commit avviene dove l'agente ha lavorato, ma l'appartenenza al
+	 * progetto la dice il registro.
+	 */
+	private turnCommitContext(): TurnContext {
+		return {
+			sessionKey: this.sessionKey,
+			project: projectStore.projects.find((p) => p.id === this.projectKey) ?? null,
+			cwd: this.cwd || null,
+			machine: this.machineId,
+			title: this.sessionName
+		};
 	}
 
 	/** Le card ancora in corso, nelle istanze reattive, aggiornabili dalla diretta. */
 	private indexRunningTools(): void {
 		this.toolEntries.clear();
+		this.liveWaits.clear();
 		for (const entry of this.entries) {
-			if (entry.kind === 'tool' && !entry.result) this.toolEntries.set(entry.toolCallId, entry);
+			if (entry.kind !== 'tool' || entry.result) continue;
+			this.toolEntries.set(entry.toolCallId, entry);
+			if (entry.waitContext) this.liveWaits.add(entry.toolCallId);
 		}
 	}
 
@@ -2599,6 +2915,12 @@ export class AgentSession {
 
 		if (event.type === 'studio_rebind') {
 			this.attachGeneration++;
+			// Il rebind e' un processo nuovo: l'insediamento e le ricostruzioni
+			// in volo non devono piu' scrivere nella vista.
+			this.invalidateView();
+			this.stopSettlePoll();
+			this.stopRunWatch();
+			this.clearHeadsUp();
 			this.isAttaching = false;
 			this.isAttached = false;
 			this.isReady = false;
@@ -2613,6 +2935,7 @@ export class AgentSession {
 		}
 		if (event.type === 'studio_session_changed') {
 			this.attachGeneration++;
+			this.invalidateView();
 			this.isAttaching = false;
 			this.isAttached = false;
 			this.attachEventQueue = [];
@@ -2620,6 +2943,9 @@ export class AgentSession {
 			this.clearPendingUi();
 			this.suggestions.invalidate();
 			this.resetLiveSessionState();
+			// Il task che aspettava l'insediamento non e' stato consegnato:
+			// torna in coda (D2, ARCHITECTURE §5.3).
+			this.dropStartupPrompts('cambio sessione');
 			void this.attach();
 			return;
 		}
@@ -2672,6 +2998,12 @@ export class AgentSession {
 				// prima, che nella ripresa di una chat significa nessun
 				// messaggio a schermo.
 				this.isAttached = false;
+				// Il processo e' nuovo: una ricostruzione del precedente non
+				// deve piu' scrivere nella vista, e le preferenze vanno
+				// riaffermate (l'epoca del client e' cambiata).
+				this.invalidateView();
+				this.appliedSetup = { epoch: -1, queue: '', cache: null };
+				this.accessoryRetried.clear();
 				// Le capability appartengono al processo, non alla chat: un
 				// runtime nuovo puo' sostituirne uno precedente e viceversa.
 				this.resetBrowserLive();
@@ -2843,7 +3175,6 @@ export class AgentSession {
 			case 'tool_execution_start': {
 				if (typeof event.toolCallId !== 'string' || typeof event.toolName !== 'string') return;
 				if (!this.isStreaming || this.isAborting) return;
-				traceAgent(`tool-start:${event.toolName}`);
 				// Se un'entry assistant era ancora aperta, chiudila: l'esecuzione
 				// del tool appartiene al passo successivo del flusso di esecuzione.
 				// Il testo che arriva dopo, nello stesso messaggio, non si scarta:
@@ -2873,6 +3204,7 @@ export class AgentSession {
 				// Stessa ragione dell'entry assistant: nella mappa va l'istanza
 				// reattiva, non quella grezza appena costruita.
 				this.toolEntries.set(event.toolCallId, this.push(entry) as ToolEntry);
+				if (entry.waitContext) this.liveWaits.add(event.toolCallId);
 				if (event.toolName === 'ask' && this.deferredFormUiRequest) {
 					if (this.deferredFormUiRequest.formRequest.toolCallId === event.toolCallId) {
 						const deferred = this.deferredFormUiRequest;
@@ -2911,6 +3243,10 @@ export class AgentSession {
 					if (event.result && (!entry.result || !entry.result.isError)) entry.result = event.result;
 					entry.running = false;
 					entry.endedAt = Date.now();
+					// La card e' chiusa: fuori dall'indice delle vive. Senza questa
+					// potatura ogni frame di progresso, ogni fine tool e ogni
+					// `refreshWaitContexts` scandivano tutte le card del run.
+					if (typeof event.toolCallId === 'string') this.toolEntries.delete(event.toolCallId);
 					this.backgroundJobs = observeSessionJobs(this.backgroundJobs, entry.toolName, entry.args, entry.result?.details);
 					this.refreshWaitContexts();
 					const endToolMsg = entryToRemoteMessage(entry);
@@ -2928,7 +3264,6 @@ export class AgentSession {
 				) {
 					notifyGitStatusRefresh(this.cwd);
 				}
-				traceAgent(`tool-end:${entry?.toolName ?? '?'}`);
 				if (entry?.toolName === 'ask' && this.streamAsk?.toolCallId === event.toolCallId) {
 					this.clearStreamAsk();
 				}
@@ -2945,6 +3280,10 @@ export class AgentSession {
 				this.pendingCompletion = null;
 				this.releasePromptFeedback();
 				if (this.isAborting) return;
+				// Un run nuovo: lo Stop precedente e' chiuso davvero.
+				this.abortedRun = false;
+				// R-MI-73: istantanea dei file sporchi all'inizio del turno.
+				this.openTurn();
 				this.invalidateContextReport();
 				if (this.turnStartedAt === null) this.turnStartedAt = Date.now();
 				this.suggestions.invalidate();
@@ -2957,7 +3296,11 @@ export class AgentSession {
 				return;
 
 			case 'agent_end': {
-				const wasAborting = this.isAborting;
+				// `abortedRun` copre l'`agent_end` tardivo: dopo lo Stop la rete a
+				// 2,5 s spegne `isAborting`, e il turno chiuso un istante dopo
+				// sarebbe stato contato come concluso (analisi post-turno,
+				// heads-up, notifica, tentativo dell'obiettivo).
+				const wasAborting = this.isAborting || this.abortedRun;
 				this.endAborting();
 				// `isTerminal: false` significa che la sessione riprendera' solo se non e' stato
 				// richiesto un abort. Eccezione: una fine che aspetta solo un job in background
@@ -2973,6 +3316,7 @@ export class AgentSession {
 				this.isCompacting = false;
 				this.assistantEntry = null;
 				this.activeAssistantId = null;
+				this.abortedRun = false;
 				this.runEndSeq += 1;
 				this.agentState = this.resolveSettledState();
 				if (!wasAborting && this.sessionId) {
@@ -2992,6 +3336,10 @@ export class AgentSession {
 					this.suggestions.notifyTurnEnd();
 				}
 				if (this.backgroundPending) this.scheduleSettlePoll();
+				else this.flushRebuildAfterRun();
+				// R-MI-73: un turno fermato dall'utente resta lavoro del turno,
+				// quindi si committa lo stesso; `abortedRun` distingue i due casi.
+				this.closeTurn(wasAborting ? 'stop' : 'normal');
 				return;
 			}
 
@@ -3002,6 +3350,7 @@ export class AgentSession {
 				this.isCompacting = false;
 				this.settle = settleOnSessionSettled();
 				this.onSettled();
+				this.flushRebuildAfterRun();
 				return;
 			}
 
@@ -3160,8 +3509,8 @@ export class AgentSession {
 				if (!this.isStreaming) {
 					this.agentState = this.resolveSettledState();
 				}
-				void this.refreshState();
-				void this.rebuildTranscript();
+				void this.reconcile();
+				this.refreshAfterCompaction();
 				void this.refreshCost();
 				return;
 			}
@@ -3209,8 +3558,8 @@ export class AgentSession {
 				if (!this.isStreaming) {
 					this.agentState = this.resolveSettledState();
 				}
-				void this.refreshState();
-				void this.rebuildTranscript();
+				void this.reconcile();
+				this.refreshAfterCompaction();
 				void this.refreshCost();
 				return;
 			}
@@ -3260,7 +3609,7 @@ export class AgentSession {
 				}
 				// `todo_reminder.todos` e' una lista piatta senza fasi: per le
 				// fasi serve `get_state`, che e' l'unica fonte completa.
-				void this.refreshState();
+				void this.reconcile();
 				return;
 
 			case 'todo_auto_clear':
@@ -3303,7 +3652,7 @@ export class AgentSession {
 			case 'config_update':
 			case 'session_info_update':
 				this.invalidateContextReport();
-				void this.refreshState();
+				void this.reconcile();
 				return;
 
 			case 'goal_updated': {
@@ -3415,6 +3764,9 @@ export class AgentSession {
 				// Il trasporto e' caduto: nessun `session_settled` arrivera' da questo canale.
 				this.stopSettlePoll();
 				this.settle = { ...this.settle, settled: true, running: false };
+				// R-MI-73: un errore del provider o di omp lascia il working
+				// tree a meta', quindi non si committa.
+				this.closeTurn('error');
 				this.agentState = this.pendingUi ? 'attention' : 'idle';
 				this.pushNotice('error', msg);
 				void this.reconcile();
@@ -3460,6 +3812,8 @@ export class AgentSession {
 				// Come per `isStreaming`: per Studio il run e' finito. Se omp
 				// continua davvero, `agent_start`/`get_state` lo riaccendono.
 				if (this.settle.running) this.settle = { ...this.settle, running: false };
+				// R-MI-73: stesso esito dell'errore di trasporto.
+				this.closeTurn('error');
 				this.agentState = this.resolveSettledState();
 				this.pushNotice('error', msg);
 				void this.reconcile();
@@ -3498,6 +3852,9 @@ export class AgentSession {
 				// bus va chiusa, o la Companion e il prossimo insediamento la
 				// riaprirebbero come domanda fantasma.
 				this.clearPendingUi();
+				// R-MI-73: processo uscito a meta' turno, il working tree non e'
+				// finito: nessun commit.
+				this.closeTurn('exit');
 				this.agentState = 'idle';
 
 				for (const entry of this.toolEntries.values()) {
@@ -3521,18 +3878,15 @@ export class AgentSession {
 				}
 
 				this.client.markExited();
+				// Il processo non c'e' piu': chi aspetta il turno non lo vedra' finire.
+				this.failIdleWaiters();
 				if (this.seededPrompt) {
 					this.clearSeed();
 				}
 
 				if (this.pendingStartupPrompts.length > 0) {
-					for (const pending of this.pendingStartupPrompts) {
-						const idx = this.entries.indexOf(pending.optimisticUser);
-						if (idx !== -1) this.entries.splice(idx, 1);
-					}
-					this.pendingStartupPrompts = [];
+					this.dropStartupPrompts('processo terminato');
 					this.pushNotice('error', messages.ui_ts_session_prompt_non_inviato_la_sessione_omp_e_f327());
-					this.onStartupPromptsDropped?.();
 				}
 				if (resumeMissing) {
 					this.requestedResume = null;
@@ -3861,6 +4215,7 @@ export class AgentSession {
 		this.isCompacting = false;
 		if (this.agentState === 'working') this.agentState = this.resolveSettledState();
 		this.captureCompletion();
+		this.flushRebuildAfterRun();
 	}
 
 	private captureCompletion(): void {
@@ -4254,8 +4609,12 @@ export class AgentSession {
 
 	/** Aggiorna solo le identita gia presenti nell'attesa; a fine chiamata il contesto resta congelato. */
 	private refreshWaitContexts() {
-		for (const entry of this.toolEntries.values()) {
-			if (!entry.running || !entry.waitContext) continue;
+		for (const id of this.liveWaits) {
+			const entry = this.toolEntries.get(id);
+			if (!entry || !entry.running || !entry.waitContext) {
+				this.liveWaits.delete(id);
+				continue;
+			}
 			entry.waitContext = {
 				subagents: entry.waitContext.subagents?.map((sub) => {
 					const current = this.subagents.find((candidate) => candidate.id === sub.id);
@@ -4363,6 +4722,20 @@ export class AgentSession {
 				return;
 			}
 			void openExternalUrl(target);
+			return;
+		}
+		// `form` nativo di omp: arriva solo se `studio-ask.ts` non si e' caricata
+		// (omp aggiornato sotto uno Studio che non lo conosce ancora). La GUI non
+		// ha il parser canonico per disegnarlo: ignorarlo lasciava l'anteprima
+		// «sta preparando le domande» appesa e l'agente fermo in attesa.
+		if (method === 'form') {
+			this.clearStreamAsk();
+			void this.client.respondUi({ type: 'extension_ui_response', id, cancelled: true });
+			this.pushNotice(
+				'warning',
+				messages.chat_v2_ask_form_unsupported(),
+				messages.l10n_agent_notice_source_questions()
+			);
 			return;
 		}
 		if (ANSWERABLE_UI_METHODS[method] !== true) return;
@@ -4963,10 +5336,30 @@ export class AgentSession {
 		};
 	}
 
+	/**
+	 * Butta i prompt di avvio in attesa dell'insediamento, togliendo le bolle
+	 * ottimistiche, e dice a chi ha lanciato i task che non sono stati
+	 * consegnati: il testo del prompt esiste solo qui, il task e' gia' uscito
+	 * dalla coda (ARCHITECTURE §5.3). Un solo punto per tutti i percorsi che
+	 * interrompono l'insediamento; lo Stop esplicito scarta senza rimettere in
+	 * coda (D2).
+	 */
+	dropStartupPrompts(reason: string): void {
+		if (this.pendingStartupPrompts.length === 0) return;
+		const dropped = this.pendingStartupPrompts;
+		this.pendingStartupPrompts = [];
+		for (const pending of dropped) {
+			const idx = this.entries.indexOf(pending.optimisticUser);
+			if (idx !== -1) this.entries.splice(idx, 1);
+		}
+		this.dropOptimisticUser();
+		studioLog.info('session', `prompt di avvio scartati (${reason}): ${dropped.length}`);
+		if (reason !== 'interruzione') this.onStartupPromptsDropped?.();
+	}
+
 	/** Revoca eventuali prompt di avvio accodati in attesa dell'aggancio. */
 	clearPendingStartupPrompts() {
-		this.pendingStartupPrompts = [];
-		this.dropOptimisticUser();
+		this.dropStartupPrompts('revoca');
 	}
 
 	/**
@@ -5480,6 +5873,7 @@ export class AgentSession {
 	async abort() {
 		// 1. Notifica lo stato di interruzione e blocca l'accettazione di nuovi delta/messaggi
 		this.isAborting = true;
+		this.abortedRun = true;
 		this.suggestions.invalidate();
 		this.turnStartedAt = null;
 		this.isCompacting = false;
@@ -5515,7 +5909,10 @@ export class AgentSession {
 		}
 
 		this.clearPendingUi();
-		this.pendingStartupPrompts = [];
+		// D2: lo Stop esplicito scarta il task che aspettava l'insediamento, non
+		// lo rimette in coda (a differenza di chiusura, nuova chat, diramazione
+		// e forceKill).
+		this.dropStartupPrompts('interruzione');
 		this.attachEventQueue = [];
 		this.dropOptimisticUser();
 
@@ -5562,6 +5959,7 @@ export class AgentSession {
 	async forceKill() {
 		this.clearPrewalkState();
 		this.endAborting();
+		this.abortedRun = true;
 		this.isStreaming = false;
 		this.turnStartedAt = null;
 		this.isCompacting = false;
@@ -5600,7 +5998,10 @@ export class AgentSession {
 
 		this.clearPendingUi();
 		this.clearQueueState();
-		this.pendingStartupPrompts = [];
+		// R-MI-73: arresto chiesto dall'utente, il lavoro fatto fino a qui e'
+		// lavoro del turno.
+		this.closeTurn('stop');
+		this.dropStartupPrompts('arresto forzato');
 		this.attachEventQueue = [];
 		this.dropOptimisticUser();
 
@@ -5894,6 +6295,14 @@ export class AgentSession {
 		this.ompEntries.invalidate();
 	}
 
+	/**
+	 * Invalida la vista: le ricostruzioni e gli insediamenti in volo smettono
+	 * di scrivere in `entries` appena riprendono dopo un `await` (S4-04).
+	 */
+	private invalidateView(): void {
+		this.viewSeq++;
+	}
+
 	/** Voce del Piano nel transcript, ancorata all'ultimo messaggio di omp. */
 	pushPlanEntry(variant: PlanEntry['variant'], refId: string): PlanEntry {
 		let anchorTs: number | null = null;
@@ -5919,26 +6328,38 @@ export class AgentSession {
 		});
 	}
 
-	/** Si risolve quando il turno in corso finisce (o subito, a sessione ferma). */
+	/**
+	 * Si risolve quando il turno in corso finisce davvero (o subito, a sessione
+	 * ferma); `false` se il tempo scade o la sessione si chiude. Fra due giri
+	 * di tool `isStreaming` e' falso mentre il run continua: conta anche
+	 * `settle.running`, altrimenti una nuova chat partiva a meta' lavoro.
+	 */
 	waitForIdle(timeoutMs = 60_000): Promise<boolean> {
-		if (!this.isStreaming) return Promise.resolve(true);
-		return new Promise<boolean>((resolve) => {
-			const timer = window.setTimeout(() => {
-				this.idleWaiters = this.idleWaiters.filter((waiter) => waiter !== done);
-				resolve(false);
-			}, timeoutMs);
-			const done = () => {
-				window.clearTimeout(timer);
-				resolve(true);
-			};
-			this.idleWaiters.push(done);
-		});
+		if (!this.isStreaming && !this.settle.running) return Promise.resolve(true);
+		const { promise, resolve } = Promise.withResolvers<boolean>();
+		const timer = window.setTimeout(() => {
+			this.idleWaiters = this.idleWaiters.filter((waiter) => waiter !== done);
+			resolve(false);
+		}, timeoutMs);
+		const done = (idle: boolean) => {
+			window.clearTimeout(timer);
+			resolve(idle);
+		};
+		this.idleWaiters.push(done);
+		return promise;
 	}
 
 	private releaseIdleWaiters(): void {
 		const waiters = this.idleWaiters;
 		this.idleWaiters = [];
-		for (const resolve of waiters) resolve();
+		for (const resolve of waiters) resolve(true);
+	}
+
+	/** Sessione chiusa o processo uscito: chi aspetta il turno non lo vedra' finire. */
+	private failIdleWaiters(): void {
+		const waiters = this.idleWaiters;
+		this.idleWaiters = [];
+		for (const resolve of waiters) resolve(false);
 	}
 
 	/** Chiusa una richiesta interattiva del Piano, l'anello d'attenzione si spegne. */
@@ -5951,9 +6372,12 @@ export class AgentSession {
 	async newSession(): Promise<string | null> {
 		this.expectingSessionTransition = true;
 		await this.resetPrewalkForNewChat();
-		this.pendingStartupPrompts = [];
+		// Il task che aspettava l'insediamento torna in coda (D2): la chat nuova
+		// non lo ricevera'.
+		this.dropStartupPrompts('nuova chat');
 		this.attachEventQueue = [];
 		this.endAborting();
+		this.abortedRun = false;
 		this.suggestions.invalidate();
 		// Dopo un arresto forzato (o un'uscita di omp) il canale e' chiuso:
 		// `new_session` fallirebbe con "Sessione RPC non aperta" e la chat
@@ -6044,9 +6468,12 @@ export class AgentSession {
 				else this.flashNotice('error', messages.page_slash_cmd_fork_error({ error: outcome.message }));
 				return outcome;
 			}
-			this.pendingStartupPrompts = [];
+			// La diramazione adotta una sessione nuova: il task che aspettava
+			// l'insediamento torna in coda (D2).
+			this.dropStartupPrompts('diramazione');
 			this.attachEventQueue = [];
 			this.endAborting();
+			this.abortedRun = false;
 			this.suggestions.invalidate();
 			this.resetLiveSessionState();
 			await this.refreshState();
@@ -6473,7 +6900,7 @@ export class AgentSession {
 				this.fastModeEnabled = Boolean(res.enabled);
 				this.fastModeActive = Boolean(res.active);
 			}
-			void this.refreshState();
+			void this.reconcile();
 			return true;
 		} catch (error) {
 			this.flashNotice('error', this.reason(error));
@@ -6488,7 +6915,7 @@ export class AgentSession {
 			if (res && typeof res.enabled === 'boolean') {
 				this.slowModeEnabled = res.enabled;
 			}
-			void this.refreshState();
+			void this.reconcile();
 			return true;
 		} catch (error) {
 			this.flashNotice('error', this.reason(error));
@@ -6514,7 +6941,7 @@ export class AgentSession {
 				}
 				this.syncGoalTracking();
 			}
-			void this.refreshState();
+			void this.reconcile();
 			return true;
 		} catch (error) {
 			this.flashNotice('error', this.reason(error));
@@ -6800,7 +7227,7 @@ export class AgentSession {
 			if (res?.state !== undefined) this.goal = res.state;
 			this.syncGoalTracking();
 			if (attemptCap !== undefined) this.goalAttemptCap = attemptCap ?? null;
-			void this.refreshState();
+			void this.reconcile();
 			return true;
 		} catch (error) {
 			this.flashNotice('error', messages.guided_goal_create_failed({ error: this.reason(error) }));

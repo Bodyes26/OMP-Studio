@@ -112,6 +112,18 @@
 	const detailPhone = $derived(
 		detail?.kind === 'phone' ? phones.find((client) => client.id === detail?.id) ?? null : null
 	);
+
+	/**
+	 * Il dispositivo aperto nel dettaglio puo' sparire mentre lo si guarda
+	 * (revocato da un'altra finestra o sostituito): senza questo la sezione
+	 * restava su `detail` senza destinatario, cioe' un elenco vuoto con un
+	 * «Indietro» e niente da leggere (S3-link-front-27).
+	 */
+	$effect(() => {
+		if (view !== 'detail' || !detail) return;
+		const alive = detail.kind === 'computer' ? detailComputer !== null : detailPhone !== null;
+		if (!alive) backToList();
+	});
 </script>
 
 <div class="settings-section devices-section">
@@ -140,6 +152,10 @@
 	{:else if showMap}
 		<ConnectionMap onOpen={openDetail} />
 	{:else}
+
+		<!-- «Questo computer» in testa (R-MI-52): il nome e il server di
+		     collegamento di questa macchina vengono prima dell'elenco. -->
+		<ThisComputer />
 
 		<KeyMissing />
 
@@ -212,8 +228,6 @@
 				</ul>
 			{/if}
 		</section>
-
-		<ThisComputer />
 
 	{/if}
 </div>

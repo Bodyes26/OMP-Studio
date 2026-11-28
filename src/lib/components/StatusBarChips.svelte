@@ -133,7 +133,7 @@
 	<MachinesPopover open={machinesOpen} anchor={machinesAnchor} onClose={() => (machinesOpen = false)} />
 {/if}
 
-{#if controlledMachine}
+{#if controlledMachine && projectMachine?.id !== controlledMachine.id}
 	<Tooltip text={m.statusbar_machine_chip_title({ name: controlledMachine.name })} placement="top">
 		<button
 			type="button"

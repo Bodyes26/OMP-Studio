@@ -1204,7 +1204,11 @@ async fn is_git_worktree(canonical_base: &Path, timeout: Duration) -> bool {
     cmd.creation_flags(0x08000000);
     cmd.kill_on_drop(true);
     match tokio::time::timeout(timeout, cmd.output()).await {
-        Ok(Ok(out)) => out.status.success(),
+        // Il solo codice d'uscita non basta: `rev-parse --is-inside-work-tree`
+        // esce con 0 anche in un repository nudo, stampando `false`. Senza
+        // questo confronto `git grep` partirebbe su un bare repo e fallirebbe
+        // con «this operation must be run in a work tree» (S8-projects-bare).
+        Ok(Ok(out)) => out.status.success() && out.stdout.trim_ascii() == b"true",
         _ => false,
     }
 }
@@ -1924,7 +1928,13 @@ fn git_diff_stats_sync(project_path: &str) -> GitDiffStats {
     let mut stats = match diff_out {
         Some(out) => parse_git_diff_stats(&out),
         None => {
-            if run_git(project_path, &["rev-parse", "--is-inside-work-tree"]).is_none() {
+            // Anche qui conta cosa stampa, non il codice d'uscita: in un
+            // repository nudo `rev-parse --is-inside-work-tree` esce con 0 e
+            // stampa `false`. Guardando solo `is_none()` la tessera diceva
+            // «repository» con statistiche vuote invece di «non e' un repo».
+            let inside_work_tree = run_git(project_path, &["rev-parse", "--is-inside-work-tree"])
+                .is_some_and(|out| out.trim_ascii() == b"true");
+            if !inside_work_tree {
                 return GitDiffStats::default();
             }
             GitDiffStats {
@@ -2699,12 +2709,12 @@ mod tests {
     use super::resolve_parent_dir;
     use super::{
         content_search_within, count_untracked_text_lines, file_git_rev, fuzzy_match_str,
-        git_diff_stats_sync, git_last_commit, git_recent_commits, merge_name_status_numstat,
-        parse_git_diff_stats, path_create_directory, path_create_file, path_rename,
-        project_canonicalize_child_dir_sync, project_files_list, project_files_search,
-        project_git_ignored, rename_via_temp, resolve_existing_entry, resolve_new_destination,
-        resolve_path, resolve_project_file_sync, split_rel_path, validate_basename, Dirent,
-        ProjectContentSearchResult,
+        git_diff_stats_sync, git_last_commit, git_recent_commits, is_git_worktree,
+        merge_name_status_numstat, parse_git_diff_stats, path_create_directory, path_create_file,
+        path_rename, project_canonicalize_child_dir_sync, project_files_list,
+        project_files_search, project_git_ignored, rename_via_temp, resolve_existing_entry,
+        resolve_new_destination, resolve_path, resolve_project_file_sync, split_rel_path,
+        validate_basename, Dirent, ProjectContentSearchResult,
     };
     use std::collections::HashSet;
     use std::fs;
@@ -2854,6 +2864,43 @@ mod tests {
         assert_eq!(stats.files, 0);
         assert_eq!(stats.additions, 0);
         assert_eq!(stats.deletions, 0);
+    }
+
+    /// Un repository nudo non e' una cartella di lavoro: `rev-parse
+    /// --is-inside-work-tree` esce con 0 e stampa `false`. Guardando il solo
+    /// codice d'uscita la tessera diceva «repository» con statistiche vuote, e
+    /// `git grep` partiva per fallire con «this operation must be run in a work
+    /// tree».
+    #[test]
+    fn un_repository_nudo_non_e_una_cartella_di_lavoro() {
+        let root = temp_dir("bare-diff");
+        let ok = std::process::Command::new("git")
+            .current_dir(&root)
+            .args(["init", "-q", "--bare"])
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false);
+        assert!(ok, "git init --bare fallito");
+
+        // Prova che il caso ha davvero la forma descritta: uscita 0, stdout `false`.
+        let probe = std::process::Command::new("git")
+            .current_dir(&root)
+            .args(["rev-parse", "--is-inside-work-tree"])
+            .output()
+            .unwrap();
+        assert!(probe.status.success(), "il bare repo esce comunque con 0");
+        assert_eq!(probe.stdout.trim_ascii(), b"false");
+
+        let stats = git_diff_stats_sync(root.to_str().unwrap());
+        assert!(!stats.is_repo, "un bare repo non e' una cartella di lavoro");
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        assert!(!rt.block_on(is_git_worktree(
+            &root,
+            std::time::Duration::from_secs(5)
+        )));
+
+        let _ = fs::remove_dir_all(&root);
     }
 
     #[test]

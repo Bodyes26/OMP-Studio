@@ -455,7 +455,7 @@
 		bottom: 28px;
 		margin: 0;
 		text-align: center;
-		color: rgb(227 192 106 / 0.55);
+		color: color-mix(in oklab, var(--warn) 55%, transparent);
 		pointer-events: none;
 	}
 
@@ -674,14 +674,14 @@
 		justify-content: center;
 		gap: var(--space-3);
 		margin: 12px 0 0;
-		color: rgb(242 240 234 / 0.7);
+		color: var(--ink-muted);
 	}
 
 	.tui-back {
 		border: 0;
 		background: none;
 		padding: 0;
-		color: rgb(242 240 234);
+		color: var(--ink);
 		cursor: pointer;
 	}
 </style>

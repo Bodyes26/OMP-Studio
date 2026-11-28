@@ -9,6 +9,7 @@ use std::process::Command;
 #[cfg(test)]
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex};
+use std::time::Duration;
 use tauri::command;
 
 #[cfg(target_os = "windows")]
@@ -3465,6 +3466,66 @@ fn find_matching_catalog_selector<'a>(
     None
 }
 
+/// Limite per la chiamata `omp -p` dei suggerimenti di ruolo (S9-03). La
+/// generazione e' breve: oltre questo tempo il figlio viene abbattuto invece di
+/// tenere occupato un worker tokio a tempo indefinito.
+const ROLE_SUGGESTIONS_TIMEOUT: Duration = Duration::from_secs(90);
+
+/// Ordina i modelli per Coding ELO decrescente (S9-12): la stessa regola vale
+/// per la lista in abbonamento e per quella gratuita.
+fn sort_by_elo(models: &mut [ModelDto]) {
+    models.sort_by(|a, b| {
+        let (_, elo_a) = get_model_benchmark_profile(&a.id, &a.name);
+        let (_, elo_b) = get_model_benchmark_profile(&b.id, &b.name);
+        elo_b.cmp(&elo_a)
+    });
+}
+
+/// Aggiunge al sommario una sezione di modelli, con l'eventuale etichetta FREE.
+/// Le due sezioni di `get_role_suggestions` differiscono solo per quello (S9-12).
+fn append_models_summary(
+    summary: &mut String,
+    heading: &str,
+    models: &[ModelDto],
+    perf_map: &HashMap<String, ModelPerfStat>,
+    free: bool,
+) {
+    summary.push_str(heading);
+    for m in models {
+        let (_tier, elo) = get_model_benchmark_profile(&m.id, &m.name);
+        let perf_stat = perf_map.get(&m.selector).or_else(|| perf_map.get(&m.id));
+        let speed_tag = match perf_stat {
+            Some(p) if p.tokens_per_sec > 0.0 => {
+                format!(" [{} tok/s reali]", p.tokens_per_sec as u32)
+            }
+            _ => String::new(),
+        };
+        let mut tags = Vec::with_capacity(4);
+        if free {
+            tags.push("FREE".to_string());
+        }
+        tags.push(format!("Coding ELO: ~{}", elo));
+        if let Some(ctx) = m.context_window {
+            if ctx >= 1_000_000 {
+                tags.push(format!("{}M ctx", ctx / 1_000_000));
+            } else if ctx >= 1_000 {
+                tags.push(format!("{}k ctx", ctx / 1_000));
+            }
+        }
+        if m.reasoning.unwrap_or(false) {
+            tags.push("reasoning".to_string());
+        }
+        summary.push_str(&format!(
+            "- {} (nome: \"{}\", provider: {}) [{}] {}\n",
+            m.selector,
+            m.name,
+            m.provider,
+            tags.join(", "),
+            speed_tag
+        ));
+    }
+}
+
 #[command]
 pub async fn get_role_suggestions(
     role_id: String,
@@ -3595,22 +3656,13 @@ pub async fn get_role_suggestions(
         }
     }
 
-    // Ordina i modelli in abbonamento per ELO decrescente
-    sub_models.sort_by(|a, b| {
-        let (_, elo_a) = get_model_benchmark_profile(&a.id, &a.name);
-        let (_, elo_b) = get_model_benchmark_profile(&b.id, &b.name);
-        elo_b.cmp(&elo_a)
-    });
+    // Ordina per ELO decrescente, poi taglia: le due liste seguono la stessa
+    // regola con tetti diversi.
+    sort_by_elo(&mut sub_models);
     if sub_models.len() > 16 {
         sub_models.truncate(16);
     }
-
-    // Ordina i modelli free per ELO decrescente
-    free_models.sort_by(|a, b| {
-        let (_, elo_a) = get_model_benchmark_profile(&a.id, &a.name);
-        let (_, elo_b) = get_model_benchmark_profile(&b.id, &b.name);
-        elo_b.cmp(&elo_a)
-    });
+    sort_by_elo(&mut free_models);
     if free_models.len() > 10 {
         free_models.truncate(10);
     }
@@ -3624,68 +3676,22 @@ pub async fn get_role_suggestions(
     // 5. Costruzione del sommario dei modelli disponibili
     let mut models_summary = String::new();
     if !sub_models.is_empty() {
-        models_summary.push_str(
+        append_models_summary(
+            &mut models_summary,
             "### MODELLI DA ACCOUNT IN ABBONAMENTO (FLAT / PRIORITA ELEVATA / ZERO EXTRA COST):\n",
+            &sub_models,
+            &perf_map,
+            false,
         );
-        for m in &sub_models {
-            let (_tier, elo) = get_model_benchmark_profile(&m.id, &m.name);
-            let perf_stat = perf_map.get(&m.selector).or_else(|| perf_map.get(&m.id));
-            let speed_tag = match perf_stat {
-                Some(p) if p.tokens_per_sec > 0.0 => {
-                    format!(" [{} tok/s reali]", p.tokens_per_sec as u32)
-                }
-                _ => String::new(),
-            };
-            let mut tags = vec![format!("Coding ELO: ~{}", elo)];
-            if let Some(ctx) = m.context_window {
-                if ctx >= 1_000_000 {
-                    tags.push(format!("{}M ctx", ctx / 1_000_000));
-                } else if ctx >= 1_000 {
-                    tags.push(format!("{}k ctx", ctx / 1_000));
-                }
-            }
-            if m.reasoning.unwrap_or(false) {
-                tags.push("reasoning".to_string());
-            }
-            models_summary.push_str(&format!(
-                "- {} (nome: \"{}\", provider: {}) [{}] {}\n",
-                m.selector,
-                m.name,
-                m.provider,
-                tags.join(", "),
-                speed_tag
-            ));
-        }
     }
-
     if !free_models.is_empty() {
-        models_summary.push_str("\n### MODELLI COMPLETAMENTE GRATUITI / ZERO-COST (IDEALI PER RISERVE E SICUREZZA 429):\n");
-        for m in &free_models {
-            let (_tier, elo) = get_model_benchmark_profile(&m.id, &m.name);
-            let perf_stat = perf_map.get(&m.selector).or_else(|| perf_map.get(&m.id));
-            let speed_tag = match perf_stat {
-                Some(p) if p.tokens_per_sec > 0.0 => {
-                    format!(" [{} tok/s reali]", p.tokens_per_sec as u32)
-                }
-                _ => String::new(),
-            };
-            let mut tags = vec!["FREE".to_string(), format!("Coding ELO: ~{}", elo)];
-            if let Some(ctx) = m.context_window {
-                if ctx >= 1_000_000 {
-                    tags.push(format!("{}M ctx", ctx / 1_000_000));
-                } else if ctx >= 1_000 {
-                    tags.push(format!("{}k ctx", ctx / 1_000));
-                }
-            }
-            models_summary.push_str(&format!(
-                "- {} (nome: \"{}\", provider: {}) [{}] {}\n",
-                m.selector,
-                m.name,
-                m.provider,
-                tags.join(", "),
-                speed_tag
-            ));
-        }
+        append_models_summary(
+            &mut models_summary,
+            "\n### MODELLI COMPLETAMENTE GRATUITI / ZERO-COST (IDEALI PER RISERVE E SICUREZZA 429):\n",
+            &free_models,
+            &perf_map,
+            true,
+        );
     }
 
     let role_desc = match role_id.as_str() {
@@ -3752,23 +3758,32 @@ Rispondi ESCLUSIVAMENTE con un JSON valido con questa struttura esatta:\n\
     );
 
     let omp_path = crate::omp_ops::get_omp_binary();
-    let mut cmd = Command::new(&omp_path);
-    cmd.arg("-p")
-        .arg("--no-tools")
-        .arg("--no-session")
-        .arg("--system-prompt")
-        .arg("Sei un assistente per la selezione ottimale dei modelli AI. Restituisci SOLO un JSON valido, senza blocchi di codice markdown o testo aggiuntivo.")
-        .arg(&user_prompt);
+    // `Command::output()` e' bloccante: eseguito nel corpo di un comando async
+    // teneva un worker tokio e la chiamata per sempre se `omp -p` si piantava.
+    // Qui il processo gira fuori dal runtime e con un limite di tempo (S9-03).
+    const SYSTEM_PROMPT: &str = "Sei un assistente per la selezione ottimale dei modelli AI. Restituisci SOLO un JSON valido, senza blocchi di codice markdown o testo aggiuntivo.";
+    let output_res = tokio::task::spawn_blocking(move || {
+        let mut cmd = Command::new(&omp_path);
+        cmd.arg("-p")
+            .arg("--no-tools")
+            .arg("--no-session")
+            .arg("--system-prompt")
+            .arg(SYSTEM_PROMPT)
+            .arg(&user_prompt);
 
-    #[cfg(target_os = "windows")]
-    {
-        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-    }
+        #[cfg(target_os = "windows")]
+        {
+            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        }
 
-    let output_res = cmd.output();
+        crate::omp_ops::omp_capture_with_timeout(cmd, ROLE_SUGGESTIONS_TIMEOUT)
+    })
+    .await
+    .ok()
+    .and_then(|res| res.ok());
 
     let parsed_res: Option<RawLlmSuggestions> = match output_res {
-        Ok(o) if o.status.success() => {
+        Some(o) if o.status.success() => {
             let stdout_str = String::from_utf8_lossy(&o.stdout).to_string();
             let trimmed = stdout_str.trim();
             let json_candidate =

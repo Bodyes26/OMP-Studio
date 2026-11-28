@@ -19,7 +19,8 @@
 	import type { AgentSession } from '#lib/agent/session.svelte.ts';
 	import { openLabEntry } from '#lib/lanes/laneActions.ts';
 	import { previewShortcuts } from '#lib/shortcuts/previewShortcuts.ts';
-	import { labApi } from './api';
+	import { createLabApi } from './api';
+	import { useProjectBackend } from '#lib/backend/projectScope.ts';
 	import {
 		disposeLabRuntime,
 		getOrCreateLabRuntime,
@@ -74,6 +75,12 @@
 		onRunEnd?: () => void;
 	}>();
 
+	// Il Laboratorio del progetto vive dove vive il progetto (R-MI-06): i
+	// comandi del contenuto passano dal backend della tessera, l'ascolto
+	// `lab://changed` arriva instradato (S3-link-front-05).
+	const backend = useProjectBackend();
+	const labApi = createLabApi(backend);
+
 	// Inizializza il runtime della corsia in modo reattivo
 	const runtime = $derived(
 		getOrCreateLabRuntime({
@@ -82,7 +89,8 @@
 			prototypeId,
 			workspacePath,
 			projectPath,
-			session
+			session,
+			api: labApi
 		})
 	);
 
@@ -461,8 +469,12 @@
 		try {
 			const duplicated = await labApi.duplicate(projectPath, prototypeId);
 			await openLabEntry(projectPath ? projectId : null, duplicated);
+			setExportNotice('success', m.lab_view_duplicate_success({ title: duplicated.title ?? prototypeId }));
 		} catch (err) {
-			console.error('Errore durante la duplicazione del prototipo:', err);
+			// Il clic deve avere un esito visibile: prima finiva solo in console
+			// e «Duplica» sembrava non fare nulla (S6-12).
+			const message = err instanceof Error ? err.message : String(err);
+			setExportNotice('error', m.lab_view_duplicate_failed({ error: message }));
 		}
 	}
 

@@ -53,6 +53,12 @@ pub(crate) fn run_git_in(dir: &Path, args: &[&str]) -> Result<String, String> {
     let mut cmd = Command::new("git");
     cmd.current_dir(dir);
     cmd.args(args);
+    // Le letture in polling (status, rev-list, for-each-ref) non devono
+    // contendere `index.lock` con gli agenti che committano nello stesso
+    // repository (S8-08); fetch, push e pull lo lasciano.
+    if read_only(args) {
+        cmd.env("GIT_OPTIONAL_LOCKS", "0");
+    }
     #[cfg(target_os = "windows")]
     cmd.creation_flags(CREATE_NO_WINDOW);
 
@@ -72,8 +78,20 @@ pub(crate) fn run_git_in(dir: &Path, args: &[&str]) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
+/// Comandi git che leggono soltanto. `GIT_OPTIONAL_LOCKS=0` vale per loro: le
+/// letture non hanno nulla da aggiornare e non devono prendere l'indice.
+fn read_only(args: &[&str]) -> bool {
+    match args.first().copied() {
+        Some("cat-file" | "diff" | "for-each-ref" | "log" | "ls-files" | "merge-base" | "rev-list"
+            | "rev-parse" | "show" | "status" | "symbolic-ref") => true,
+        // `remote get-url` legge, `remote add`/`remote remove` scrivono.
+        Some("remote") => matches!(args.get(1).copied(), Some("get-url")),
+        _ => false,
+    }
+}
+
 /// Esito grezzo di un comando git: serve quando anche un exit 0 va interpretato
-/// (l'autostash che non si riapplica non cambia il codice di uscita).
+/// (un pull che lascia un rebase a meta' non cambia il codice di uscita).
 struct GitRawOutput {
     success: bool,
     stdout: String,
@@ -94,9 +112,9 @@ impl GitRawOutput {
     }
 }
 
-/// Esegue git con messaggi in inglese (LC_ALL/LANGUAGE=C): l'output viene
-/// analizzato per riconoscere l'autostash non riapplicato, e una traduzione
-/// locale di git renderebbe il controllo inaffidabile.
+/// Esegue git con messaggi in inglese (LC_ALL/LANGUAGE=C), cosi' un errore
+/// riportato all'utente non cambia lingua a meta' frase con le impostazioni
+/// di sistema.
 fn run_git_raw(dir: &Path, args: &[&str]) -> Result<GitRawOutput, String> {
     let _span = crate::perf_trace::span("git", crate::perf_trace::command_label("git", args));
     let mut cmd = Command::new("git");
@@ -106,6 +124,9 @@ fn run_git_raw(dir: &Path, args: &[&str]) -> Result<GitRawOutput, String> {
     cmd.env("LANGUAGE", "C");
     cmd.env("GIT_TERMINAL_PROMPT", "0");
     cmd.stdin(std::process::Stdio::null());
+    if read_only(args) {
+        cmd.env("GIT_OPTIONAL_LOCKS", "0");
+    }
     #[cfg(target_os = "windows")]
     cmd.creation_flags(CREATE_NO_WINDOW);
     let out = cmd
@@ -121,15 +142,6 @@ fn run_git_raw(dir: &Path, args: &[&str]) -> Result<GitRawOutput, String> {
         stdout: String::from_utf8_lossy(&out.stdout).to_string(),
         stderr: String::from_utf8_lossy(&out.stderr).to_string(),
     })
-}
-
-/// Hash della cima di refs/stash (None se lo stash e' vuoto). Confrontarlo prima e
-/// dopo il pull dice, indipendentemente dalla lingua di git, se l'autostash e'
-/// finito nello stash invece di tornare nel working tree.
-fn stash_top(dir: &Path) -> Option<String> {
-    run_git_in(dir, &["rev-parse", "-q", "--verify", "refs/stash"])
-        .ok()
-        .filter(|hash| !hash.is_empty())
 }
 
 /// Vero se nella gitdir del worktree e' rimasto un rebase interrotto.
@@ -150,40 +162,42 @@ fn rebase_in_progress(dir: &Path) -> bool {
     })
 }
 
-fn autostash_left_in_stash(output: &str) -> bool {
-    output.contains("Applying autostash resulted in conflicts")
-        || output.contains("Your changes are safe in the stash")
+/// File che bloccano un pull fallito. Con un'unione ferma li da' l'indice
+/// (`--diff-filter=U`); con un rebase fermo git li nomina in una riga
+/// `CONFLICT (content): Merge conflict in <file>`, perche' in quel momento
+/// nell'indice non ci sono ancora. Si legge prima di annullare: dopo
+/// `merge --abort` / `rebase --abort` non c'e' piu' niente da leggere.
+fn unmerged_files(dir: &Path, output: &str) -> Vec<String> {
+    let mut files: Vec<String> = run_git_in(dir, &["diff", "--name-only", "--diff-filter=U", "-z"])
+        .map(|raw| raw.split('\0').filter(|name| !name.is_empty()).map(str::to_owned).collect())
+        .unwrap_or_default();
+    for line in output.lines() {
+        let Some((_, rest)) = line.split_once("Merge conflict in ") else { continue };
+        let name = rest.trim().trim_end_matches(['.', '\'']);
+        if !name.is_empty() { files.push(name.to_owned()); }
+    }
+    files.sort_unstable();
+    files.dedup();
+    files
 }
 
-/// Testo del pull annullato da un conflitto: la lingua cambia a runtime, quindi
-/// e' una funzione e non una costante.
-fn pull_conflict_aborted() -> String {
-    crate::tr!(
-        "Pull annullato: conflitto con il remoto. Le tue modifiche locali sono intatte.",
-        "Pull cancelled: conflict with the remote. Your local changes are intact."
-    )
-    .to_string()
-}
-
-fn autostash_in_stash() -> String {
-    crate::tr!(
-        "Pull completato, ma le tue modifiche locali non si sono riapplicate senza conflitti: sono al sicuro nello stash di git (vedi `git stash list`). Recuperale con `git stash pop` dopo aver risolto i conflitti.",
-        "Pull completed, but your local changes could not be reapplied without conflicts: they are safe in the git stash (see `git stash list`). Recover them with `git stash pop` after resolving the conflicts."
-    )
-    .to_string()
-}
-
-/// Pull con rebase che non perde mai lavoro locale.
+/// Pull che non lascia mai il repository a meta' (R-MI-71).
 ///
-/// Lo stash manuale (`stash push` + `stash pop`) era pericoloso: con soli file non
-/// tracciati `stash push` non crea nulla e il `pop` successivo applicava uno stash
-/// preesistente dell'utente; con un conflitto il pop falliva in silenzio. Con
-/// `--autostash` git salva solo cio' che ha messo da parte lui e, se non riesce a
-/// riapplicarlo, lo lascia nello stash. Un rebase rimasto a meta' viene annullato,
-/// cosi' il repository torna esattamente com'era prima del pull.
-fn pull_rebase_autostash(dir: &Path) -> Result<String, String> {
-    // Un rebase gia' in corso e' dell'utente: annullarlo dopo il pull fallito
-    // butterebbe via i conflitti che sta risolvendo.
+/// La versione precedente usava `git pull --rebase --autostash`: con un
+/// conflitto lasciava i marcatori nei file e le modifiche locali nello stash
+/// (caso del 28/11: `CHANGELOG.md` in conflitto). Qui le modifiche non
+/// committate si mettono da parte con lo stesso meccanismo a istantanea di
+/// R-MI-47 (indice temporaneo, commit temporaneo, nessuno stash), la cartella
+/// resta pulita per il rebase, e alla fine l'istantanea si riapplica a tre vie.
+/// Se la riapplicazione confligge si torna esattamente allo stato iniziale —
+/// ramo compreso — e l'errore nomina i file che bloccano.
+///
+/// `ff_only` e' l'azione «Aggiorna» delle copie indietro (R-MI-58): si accetta
+/// solo il fast-forward, mai un rebase; le modifiche non committate che i
+/// commit in arrivo non toccano restano comunque dove sono.
+fn pull_with_snapshot(dir: &Path, ff_only: bool) -> Result<String, String> {
+    // Un rebase gia' in corso e' dell'utente: toccarlo butterebbe via i
+    // conflitti che sta risolvendo.
     if rebase_in_progress(dir) {
         return Err(crate::tr!(
             "Pull non eseguito: nel repository c'è già un rebase in corso. Completalo o annullalo prima di sincronizzare.",
@@ -191,61 +205,83 @@ fn pull_rebase_autostash(dir: &Path) -> Result<String, String> {
         )
         .to_string());
     }
-    let stash_before = stash_top(dir);
-    let pull = run_git_raw(dir, &["pull", "--rebase", "--autostash"])?;
-    let pull_text = pull.combined();
-
-    if !pull.success {
-        if rebase_in_progress(dir) {
-            let abort = run_git_raw(dir, &["rebase", "--abort"])?;
-            if !abort.success || rebase_in_progress(dir) {
-                return Err(crate::tr!(
-                    format!(
-                        "Pull interrotto da un conflitto e annullamento del rebase non riuscito: risolvi i conflitti o esegui `git rebase --abort` nel repository.\n{}\n{}",
-                        pull_text,
-                        abort.combined()
-                    ),
-                    format!(
-                        "Pull interrupted by a conflict and the rebase abort failed: resolve the conflicts or run `git rebase --abort` in the repository.\n{}\n{}",
-                        pull_text,
-                        abort.combined()
-                    )
-                ));
-            }
-            if autostash_left_in_stash(&abort.combined()) || stash_top(dir) != stash_before {
-                return Err(crate::tr!(
-                    format!(
-                        "Pull annullato: conflitto con il remoto. Le tue modifiche locali non si sono riapplicate e sono al sicuro nello stash di git (vedi `git stash list`).\n{pull_text}"
-                    ),
-                    format!(
-                        "Pull cancelled: conflict with the remote. Your local changes could not be reapplied and are safe in the git stash (see `git stash list`).\n{pull_text}"
-                    )
-                ));
-            }
-            return Err(format!("{}\n{pull_text}", pull_conflict_aborted()));
+    if run_git_in(dir, &["symbolic-ref", "--short", "-q", "HEAD"]).is_err() {
+        return Err(crate::tr!(
+            "Pull non eseguito: la copia non è su una branch.",
+            "Pull not run: the copy is not on a branch."
+        )
+        .to_string());
+    }
+    let snapshot = crate::github::copies::local_snapshot(dir)?;
+    // Le modifiche locali non viaggiano nello stash: sono gia' nel commit
+    // temporaneo, quindi la cartella resta pulita per il rebase. Se lo
+    // svuotamento si ferma a meta' il repository torna com'era: da qui in poi
+    // ogni uscita passa da `restore_local_snapshot` (R-MI-71).
+    if let Some(snapshot) = &snapshot {
+        if let Err(error) = crate::github::copies::clear_worktree(dir, snapshot) {
+            let _ = crate::github::copies::restore_local_snapshot(dir, snapshot);
+            return Err(error);
         }
-        if autostash_left_in_stash(&pull_text) || stash_top(dir) != stash_before {
+    }
+    // La scelta e' esplicita: `pull.ff` e `pull.rebase` dell'utente non
+    // decidono al posto nostro. Serve `pull.ff=false`, non `allow`: git
+    // accetta solo `true`/`false`/`only` in configurazione, e `allow` — che
+    // vale come opzione — qui verrebbe rifiutato. `autoStash=false` impedisce a
+    // git di rimettere qualcosa nello stash (il caso del 28/11): la cartella e'
+    // gia' pulita, quindi non c'e' niente da mettere da parte.
+    let mut args = vec!["-c", "rebase.autoStash=false", "-c", "merge.autoStash=false", "-c", "pull.ff=false"];
+    args.extend(if ff_only { ["pull", "--ff-only"] } else { ["pull", "--rebase"] });
+    let outcome = run_git_raw(dir, &args);
+    // Unione con conflitti: si annulla prima di riportare la cartella com'era,
+    // cosi' non restano ne' marcatori ne' `MERGE_HEAD`. I file in conflitto si
+    // leggono prima: dopo `merge --abort` / `rebase --abort` l'informazione
+    // non c'e' piu' (R-MI-71).
+    let failed = match &outcome {
+        Ok(out) if out.success => None,
+        Ok(out) => {
+            let combined = out.combined();
+            let conflicts = unmerged_files(dir, &combined);
+            let _ = run_git_raw(dir, &["merge", "--abort"]);
+            let _ = run_git_raw(dir, &["rebase", "--abort"]);
+            Some((combined, conflicts))
+        }
+        Err(error) => Some((error.clone(), Vec::new())),
+    };
+    // Sul pull riuscito si riapplica l'istantanea sul nuovo HEAD.
+    let blocking = match (&failed, &snapshot) {
+        (None, Some(snapshot)) => crate::github::copies::reapply_local_snapshot(dir, snapshot).err(),
+        _ => None,
+    };
+    if failed.is_some() || blocking.is_some() {
+        // In ogni caso il repository torna esattamente com'era (R-MI-71).
+        if let Some(snapshot) = &snapshot { let _ = crate::github::copies::restore_local_snapshot(dir, snapshot); }
+    }
+    if let Some(files) = blocking {
+        if files.is_empty() {
             return Err(crate::tr!(
-                format!(
-                    "Pull non riuscito. Le tue modifiche locali sono al sicuro nello stash di git (vedi `git stash list`).\n{pull_text}"
-                ),
-                format!(
-                    "Pull failed. Your local changes are safe in the git stash (see `git stash list`).\n{pull_text}"
-                )
-            ));
+                "Pull annullato: le modifiche locali non si riapplicano. Il repository è com'era.",
+                "Pull cancelled: the local changes could not be reapplied. The repository is as it was."
+            ).to_string());
         }
-        return Err(if pull_text.is_empty() {
-            crate::tr!("Pull non riuscito", "Pull failed").to_string()
-        } else {
-            pull_text
-        });
+        // Errore strutturato: il frontend lo mostra con i file che bloccano.
+        let tail = failed.as_ref().map(|(text, _)| text.as_str()).unwrap_or_default();
+        return Err(format!("blocked_by_local_changes:{}\n{tail}", files.join(",")));
     }
-
-    if autostash_left_in_stash(&pull_text) || stash_top(dir) != stash_before {
-        return Err(format!("{}\n{pull_text}", autostash_in_stash()));
+    if let Some((text, conflicts)) = failed {
+        // Un conflitto vero fra i due lati non e' «modifiche locali»: il
+        // messaggio di git pero' e' lungo e in inglese, quindi si antepone
+        // l'elenco dei file che bloccano in una riga sola.
+        if !conflicts.is_empty() {
+            let files = conflicts.join(", ");
+            return Err(crate::tr!(
+                format!("Pull annullato: conflitto su {files}. Il repository è com'era.\n{text}"),
+                format!("Pull cancelled: conflict on {files}. The repository is as it was.\n{text}")
+            ).to_string());
+        }
+        return Err(if text.trim().is_empty() { crate::tr!("Pull non riuscito", "Pull failed").to_string() } else { text });
     }
-
-    let stdout = pull.stdout.trim();
+    let out = outcome.expect("esito del pull");
+    let stdout = out.stdout.trim();
     Ok(if stdout.is_empty() {
         crate::tr!("Pull completato", "Pull completed").to_string()
     } else {
@@ -565,7 +601,31 @@ pub(crate) fn parse_porcelain_v2_branch(raw: &str) -> GitPorcelainV2BranchInfo {
 /// Identità del repository: l'origin GitHub normalizzato, altrimenti il primo
 /// commit (R-MI-12). Serve anche a trovare la copia dello stesso progetto su
 /// un'altra macchina (R-MI-36).
+///
+/// Il valore non cambia quasi mai ma i tre git che lo leggono costano (~40 ms
+/// su una storia lunga) e `git_upstream_status` arriva ogni pochi secondi da
+/// due finestre e dal peer: si tiene per percorso canonico, con l'mtime di
+/// `.git/config` e `shallow` come chiave di validita' (S2-04, S8-11), e una
+/// sola lettura per volta per lo stesso percorso.
 pub(crate) fn repo_identity(path: &Path) -> (Option<String>, Option<String>) {
+    let as_text = path.to_string_lossy();
+    let key = crate::projects::canonical_project_base(&as_text)
+        .map(|base| base.to_string_lossy().to_string())
+        .unwrap_or_else(|_| as_text.to_string());
+    let stamp = identity_stamp(path);
+    if let Some(entry) = IDENTITY_CACHE.lock().ok().and_then(|cache| cache.get(&key).cloned()) {
+        if entry.stamp == stamp && entry.taken.elapsed() < IDENTITY_TTL { return entry.identity; }
+    }
+    let identity = identity_read(path);
+    if let Ok(mut cache) = IDENTITY_CACHE.lock() {
+        if cache.len() >= IDENTITY_CAP { cache.clear(); }
+        cache.insert(key, IdentityEntry { stamp, taken: Instant::now(), identity: identity.clone() });
+    }
+    identity
+}
+
+/// Lettura vera dell'identita': tre git, nessuno sul percorso caldo.
+fn identity_read(path: &Path) -> (Option<String>, Option<String>) {
     let repo_slug = run_git_in(path, &["remote", "get-url", "origin"])
         .ok()
         .and_then(|url| crate::github::repos::parse_github_url(&url))
@@ -586,6 +646,39 @@ pub(crate) fn repo_identity(path: &Path) -> (Option<String>, Option<String>) {
             .filter(|commit| !commit.is_empty())
     };
     (repo_slug, root_commit)
+}
+
+/// Quanto vale una voce senza che nessuno la rinfreschi: il single-flight
+/// chiede «questo esito vale per tutti i chiamanti», non «per sempre».
+const IDENTITY_TTL: Duration = Duration::from_secs(2);
+/// Oltre questo numero di repository la cache si svuota: la mappa cresce con i
+/// progetti aperti e chiusi di una sessione lunga.
+const IDENTITY_CAP: usize = 64;
+
+#[derive(Clone)]
+struct IdentityEntry {
+    stamp: IdentityStamp,
+    taken: Instant,
+    identity: (Option<String>, Option<String>),
+}
+
+/// Impronta dei file che cambiano l'identita': mtime in nanosecondi epoch.
+type IdentityStamp = [u128; 3];
+
+static IDENTITY_CACHE: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, IdentityEntry>>> =
+    std::sync::LazyLock::new(Default::default);
+
+/// Istante dell'ultima modifica di `.git/config`, `.git/shallow` e `.git/HEAD`:
+/// sono i tre file che cambiano l'identita' del repository (origin, clone
+/// shallow, radice dei commit). Un percorso che non e' un repository lascia
+/// zeri, e allora vale solo il TTL.
+fn identity_stamp(path: &Path) -> IdentityStamp {
+    let git_dir = path.join(".git");
+    let nanos = |name: &str| std::fs::metadata(git_dir.join(name)).and_then(|meta| meta.modified()).ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|since| since.as_nanos())
+        .unwrap_or(0);
+    [nanos("config"), nanos("shallow"), nanos("HEAD")]
 }
 
 #[tauri::command]
@@ -687,11 +780,12 @@ pub async fn git_sync_repo(project_path: String, action: String) -> Result<Strin
             ));
         }
 
-        // R-MI-59: ogni operazione git di Studio che puo' unire o riapplicare
-        // (pull, rebase, merge, stash) trova il diario gia' in unione per
-        // righe. Anche `fetch-background`, cosi' ogni repository la riceve
-        // entro un giro. Se gli attributi non si possono scrivere (`.git` in
-        // sola lettura) si prosegue: non e' una condizione per lavorare.
+        // R-MI-59/R-MI-72: ogni operazione git di Studio che puo' unire o
+        // riapplicare (pull, rebase, merge, stash) trova il diario, i changelog
+        // e i documenti di progetto gia' in unione per righe. Anche
+        // `fetch-background`, cosi' ogni repository la riceve entro un giro. Se
+        // gli attributi non si possono scrivere (`.git` in sola lettura) si
+        // prosegue: non e' una condizione per lavorare.
         let _ = crate::github::copies::ensure_journal_union(path);
 
         let act = action.trim().to_lowercase();
@@ -710,6 +804,25 @@ pub async fn git_sync_repo(project_path: String, action: String) -> Result<Strin
                 )
             ));
         }
+        // Le azioni che spostano HEAD o il working tree passano dalla stessa
+        // guardia del giro delle copie: un avanzamento delle copie e una
+        // «Sincronizza» simultanei sullo stesso repository si sfarinano su
+        // `index.lock`, e R-MI-71 non potrebbe piu' garantire il ritorno allo
+        // stato di prima. La guardia si prende dopo il controllo delle
+        // automazioni, come fa `copy_sync`, cosi' l'ordine dei due lock e'
+        // sempre lo stesso e non c'e' attesa circolare.
+        let _guard = if matches!(act.as_str(), "pull" | "pull-ff" | "sync") {
+            match crate::github::copies::SyncGuard::acquire_waiting(&project_path)? {
+                Some(guard) => Some(guard),
+                // Il giro delle copie dura poche centinaia di millisecondi e
+                // qui si e' gia' aspettato il suo tempo: si dice all'utente di
+                // riprovare invece di restituire l'errore di git.
+                None => return Err(crate::tr!(
+                    "Operazione Git già in corso per questo progetto: riprova fra un istante.",
+                    "Another Git operation is already running for this project: retry in a moment."
+                ).to_string()),
+            }
+        } else { None };
         match act.as_str() {
             "fetch" => {
                 run_git_in(path, &["fetch", "--prune"])?;
@@ -720,44 +833,13 @@ pub async fn git_sync_repo(project_path: String, action: String) -> Result<Strin
                 .to_string())
             }
             "fetch-background" => run_git_fetch_background(path),
-            "pull-ff" => {
-                // Rifiuta modifiche non committate o file non tracciati (fail closed su errore git status)
-                let status_out = run_git_in(path, &["status", "--porcelain"])
-                    .map_err(|e| {
-                        crate::tr!(
-                            format!("Impossibile verificare lo stato del repository: {e}"),
-                            format!("Cannot verify the repository status: {e}")
-                        )
-                    })?;
-                if !status_out.trim().is_empty() {
-                    return Err(crate::tr!(
-                        "Impossibile eseguire il pull: sono presenti modifiche locali non salvate o file non tracciati",
-                        "Cannot pull: there are unsaved local changes or untracked files"
-                    )
-                    .to_string());
-                }
-
-                let pull_res = run_git_in(
-                    path,
-                    &[
-                        "-c",
-                        "rebase.autoStash=false",
-                        "-c",
-                        "merge.autoStash=false",
-                        "pull",
-                        "--ff-only",
-                    ],
-                );
-
-                pull_res.map(|msg| {
-                    if msg.is_empty() {
-                        crate::tr!("Pull completato", "Pull completed").to_string()
-                    } else {
-                        msg
-                    }
-                })
-            }
-            "pull" => pull_rebase_autostash(path),
+            // R-MI-71: anche «Aggiorna» (solo fast-forward) non lascia mai il
+            // repository a meta'. Le modifiche non committate che i commit in
+            // arrivo non toccano restano dove sono; quelle che li toccano
+            // passano dall'istantanea e, se la riapplicazione confligge, il
+            // repository torna com'era con i file che bloccano nel messaggio.
+            "pull-ff" => pull_with_snapshot(path, true),
+            "pull" => pull_with_snapshot(path, false),
             "push" => {
                 let push_res = run_git_in(path, &["push"])?;
                 execute_pending_remote_deletions(path);
@@ -772,9 +854,9 @@ pub async fn git_sync_repo(project_path: String, action: String) -> Result<Strin
                 // 1. Fetch
                 let _ = run_git_in(path, &["fetch", "--prune"]);
 
-                // 2. Pull con rebase: se non e' riuscito del tutto (anche solo
-                // l'autostash rimasto nello stash) non si pubblica nulla.
-                pull_rebase_autostash(path)?;
+                // 2. Pull che o riesce del tutto o non tocca niente
+                // (R-MI-71): se non e' riuscito non si pubblica nulla.
+                pull_with_snapshot(path, false)?;
 
                 // 3. Push
                 let push_res = run_git_in(path, &["push"])?;
@@ -1208,7 +1290,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_dirty_and_untracked_refusal_preserving_files() {
+    async fn test_pull_ff_keeps_untracked_and_tracked_local_changes() {
         let setup = setup_test_repos();
         let path_b_str = setup.work_b.to_str().unwrap().to_string();
 
@@ -1223,15 +1305,13 @@ mod tests {
             .await
             .unwrap();
 
-        // CASO 1: File non tracciato
+        // CASO 1: file non tracciato. R-MI-71: il pull non si ferma, il file
+        // non viene toccato e la copia avanza.
         let untracked_path = setup.work_b.join("untracked_file.txt");
         fs::write(&untracked_path, "precious untracked data").unwrap();
 
-        let pull_err = git_sync_repo(path_b_str.clone(), "pull-ff".to_string()).await;
-        assert!(
-            pull_err.is_err(),
-            "pull-ff deve fallire in presenza di file untracked"
-        );
+        let pull = git_sync_repo(path_b_str.clone(), "pull-ff".to_string()).await;
+        assert!(pull.is_ok(), "pull-ff deve riuscire: {pull:?}");
         assert!(
             untracked_path.exists(),
             "Il file non tracciato deve essere preservato"
@@ -1240,24 +1320,24 @@ mod tests {
             fs::read_to_string(&untracked_path).unwrap(),
             "precious untracked data"
         );
+        assert!(setup.work_b.join("remote_file.txt").exists());
 
-        // Puliamo il file non tracciato per testare la modifica a un file tracciato
-        fs::remove_file(&untracked_path).unwrap();
-
-        // CASO 2: Modifica non committata a file tracciato
+        // CASO 2: modifica non committata a file tracciato che il commit in
+        // arrivo non tocca: resta dove com'era, non in stage.
         let tracked_path = setup.work_b.join("initial.txt");
         fs::write(&tracked_path, "modified locally without commit\n").unwrap();
 
-        let pull_err2 = git_sync_repo(path_b_str.clone(), "pull-ff".to_string()).await;
-        assert!(
-            pull_err2.is_err(),
-            "pull-ff deve fallire in presenza di modifiche uncommitted"
-        );
+        let pull2 = git_sync_repo(path_b_str, "pull-ff".to_string()).await;
+        assert!(pull2.is_ok(), "pull-ff deve riuscire: {pull2:?}");
         assert_eq!(
             fs::read_to_string(&tracked_path).unwrap(),
             "modified locally without commit\n",
             "Il file tracciato modificato deve preservare il contenuto locale"
         );
+        let status = String::from_utf8_lossy(&run_git_test_cmd(&setup.work_b, &["status", "--porcelain"]).stdout).trim().to_string();
+        assert!(status.contains("M initial.txt"), "modifica locale non in stage: {status}");
+        assert!(status.contains("?? untracked_file.txt"), "il file nuovo resta nuovo: {status}");
+        assert!(stash_list(&setup.work_b).is_empty(), "niente nello stash");
     }
 
     #[tokio::test]
@@ -1302,6 +1382,42 @@ mod tests {
             setup.work_b.join("commit_y.txt").exists(),
             "I commit locali devono restare intatti"
         );
+    }
+
+    #[tokio::test]
+    async fn test_pull_ff_restores_head_when_a_dirty_file_would_conflict() {
+        // R-MI-71 anche per «Aggiorna» (R-MI-58): il fast-forward sposta HEAD,
+        // poi la riga non committata che il commit in arrivo tocca non si
+        // riapplica. Il repository deve tornare esattamente com'era — HEAD
+        // compreso — e l'errore deve nominare il file.
+        let setup = setup_test_repos();
+        let path_b_str = setup.work_b.to_str().unwrap().to_string();
+
+        push_remote_change(&setup, "initial.txt", "versione remota\n", "remote edit");
+        git_sync_repo(path_b_str.clone(), "fetch-background".to_string()).await.unwrap();
+        fs::write(setup.work_b.join("initial.txt"), "modifica locale\n").unwrap();
+        let head_before = test_rev_parse(&setup.work_b, "HEAD");
+        let stash_before = stash_list(&setup.work_b);
+
+        let err = git_sync_repo(path_b_str, "pull-ff".to_string())
+            .await
+            .expect_err("la riapplicazione in conflitto va segnalata");
+        assert!(
+            err.starts_with("blocked_by_local_changes:initial.txt"),
+            "errore non strutturato: {err}"
+        );
+        assert_eq!(test_rev_parse(&setup.work_b, "HEAD"), head_before, "HEAD torna dov'era");
+        assert_eq!(
+            fs::read_to_string(setup.work_b.join("initial.txt")).unwrap(),
+            "modifica locale\n"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&run_git_test_cmd(&setup.work_b, &["status", "--porcelain"]).stdout).trim(),
+            "M initial.txt",
+            "modifica ancora non in stage"
+        );
+        assert_eq!(stash_list(&setup.work_b), stash_before, "lo stash non cambia");
+        assert!(!setup.work_b.join(".git/MERGE_HEAD").exists(), "nessun merge in corso");
     }
 
     fn push_remote_change(setup: &TestGitSetup, file: &str, content: &str, message: &str) {
@@ -1378,7 +1494,7 @@ mod tests {
         assert!(setup.work_b.join("local.txt").exists());
         assert!(
             stash_list(&setup.work_b).is_empty(),
-            "l'autostash non deve restare nello stash"
+            "nessuno stash: le modifiche passano dall'istantanea (R-MI-71)"
         );
         let status = git_upstream_status(path_b_str).await.unwrap();
         assert_eq!(status.behind, 0);
@@ -1404,14 +1520,14 @@ mod tests {
 
         let res = git_sync_repo(path_b_str.clone(), "pull".to_string()).await;
         let err = res.expect_err("il pull in conflitto deve fallire");
-        assert!(
-            err.starts_with(&pull_conflict_aborted()),
-            "messaggio inatteso: {err}"
-        );
+        // R-MI-71: l'errore nomina il file che blocca, e il repository resta
+        // esattamente com'era (niente rebase a meta', niente marcatori).
+        assert!(err.contains("initial.txt"), "messaggio inatteso: {err}");
+        assert!(!err.contains("<<<<<<<"), "nessun marcatore nel messaggio: {err}");
 
         assert!(
             !rebase_in_progress(&setup.work_b),
-            "il rebase deve essere annullato"
+            "nessun rebase deve restare in corso"
         );
         assert_eq!(
             test_rev_parse(&setup.work_b, "HEAD"),
@@ -1475,33 +1591,35 @@ mod tests {
 
     #[tokio::test]
     async fn test_pull_with_dirty_journal_leaves_nothing_in_the_stash() {
-        // R-MI-59: la riga di diario non committata e quella arrivata da
-        // origin stanno nello stesso file; senza l'attributo di unione
-        // l'autostash finirebbe nello stash, con l'attributo restano entrambe
-        // nel working tree e lo stash resta vuoto.
+        // R-MI-59 e R-MI-72: la riga di diario non committata e quella
+        // arrivata da origin stanno nello stesso file; senza l'attributo di
+        // unione la riapplicazione confliggerebbe, con l'attributo restano
+        // entrambe nel working tree e lo stash resta vuoto.
         let setup = setup_test_repos();
         let path_b_str = setup.work_b.to_str().unwrap().to_string();
-        let journal = "docs/diario/2026-11.md";
-        fs::create_dir_all(setup.work_a.join("docs/diario")).unwrap();
-        fs::write(setup.work_a.join(journal), "# Diario\n\n## 2026-11-24\n- base\n").unwrap();
+        // La regola nasce in `<git-common-dir>/info/attributes` come per il
+        // diario vero: `ensure_journal_union` la scrive alla prima operazione.
+        let journal = "CHANGELOG.md";
+        fs::write(setup.work_a.join(journal), "# Changelog\n\n## [Unreleased]\n").unwrap();
         run_git_test_cmd(&setup.work_a, &["add", "."]);
-        run_git_test_cmd(&setup.work_a, &["commit", "-m", "diario base"]);
+        run_git_test_cmd(&setup.work_a, &["commit", "-m", "changelog base"]);
         run_git_test_cmd(&setup.work_a, &["push", "origin", "main"]);
         git_sync_repo(path_b_str.clone(), "fetch-background".to_string()).await.unwrap();
         run_git_test_cmd(&setup.work_b, &["pull", "--ff-only"]);
 
-        // Una voce per parte, nello stesso file.
-        fs::write(setup.work_a.join(journal), "# Diario\n\n## 2026-11-24\n- base\n- da github\n").unwrap();
-        run_git_test_cmd(&setup.work_a, &["commit", "-am", "diario da github"]);
+        // Una voce per parte, nello stesso punto del file (R-MI-72).
+        fs::write(setup.work_a.join(journal), "# Changelog\n\n## [Unreleased]\n- dal mac\n").unwrap();
+        run_git_test_cmd(&setup.work_a, &["commit", "-am", "voce dal mac"]);
         run_git_test_cmd(&setup.work_a, &["push", "origin", "main"]);
-        fs::write(setup.work_b.join(journal), "# Diario\n\n## 2026-11-24\n- base\n- da qui\n").unwrap();
+        fs::write(setup.work_b.join(journal), "# Changelog\n\n## [Unreleased]\n- da qui\n").unwrap();
         let stash_before = stash_list(&setup.work_b);
 
         let res = git_sync_repo(path_b_str, "pull".to_string()).await;
         assert!(res.is_ok(), "la pull deve riuscire: {res:?}");
         let content = fs::read_to_string(setup.work_b.join(journal)).unwrap();
-        assert!(content.contains("- da github"), "{content}");
+        assert!(content.contains("- dal mac"), "{content}");
         assert!(content.contains("- da qui"), "{content}");
+        assert!(!content.contains("<<<<<<<"), "{content}");
         assert_eq!(stash_list(&setup.work_b), stash_before, "niente nello stash");
         assert_eq!(
             String::from_utf8_lossy(&run_git_test_cmd(&setup.work_b, &["status", "--porcelain"]).stdout).trim(),
@@ -1511,26 +1629,40 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_pull_autostash_conflict_reports_stash() {
+    async fn a_local_line_and_an_incoming_line_leave_the_repository_exactly_as_it_was() {
+        // R-MI-71, accettazione: riga non committata e commit in arrivo sulla
+        // stessa riga. Il pull non lascia marcatori, non lascia voci nello
+        // stash, e il repository resta esattamente com'era; l'errore e'
+        // strutturato e nomina il file.
         let setup = setup_test_repos();
         let path_b_str = setup.work_b.to_str().unwrap().to_string();
 
         push_remote_change(&setup, "initial.txt", "versione remota\n", "remote edit");
-        // Modifica non committata sullo stesso file: il rebase riesce (fast-forward)
-        // ma l'autostash non si riapplica senza conflitti.
         fs::write(setup.work_b.join("initial.txt"), "modifica locale\n").unwrap();
+        let head_before = test_rev_parse(&setup.work_b, "HEAD");
+        let stash_before = stash_list(&setup.work_b);
 
         let err = git_sync_repo(path_b_str, "pull".to_string())
             .await
-            .expect_err("l'autostash in conflitto va segnalato");
-        assert!(err.contains("stash"), "messaggio inatteso: {err}");
-        let list = stash_list(&setup.work_b);
-        assert!(!list.is_empty(), "le modifiche devono essere nello stash");
-        let stashed = String::from_utf8_lossy(
-            &run_git_test_cmd(&setup.work_b, &["show", "stash@{0}:initial.txt"]).stdout,
-        )
-        .to_string();
-        assert_eq!(stashed, "modifica locale\n");
+            .expect_err("la riapplicazione in conflitto va segnalata");
+        assert!(
+            err.starts_with("blocked_by_local_changes:initial.txt"),
+            "errore non strutturato: {err}"
+        );
+        // Repository identico a prima: HEAD, file e indice.
+        assert_eq!(test_rev_parse(&setup.work_b, "HEAD"), head_before);
+        assert_eq!(
+            fs::read_to_string(setup.work_b.join("initial.txt")).unwrap(),
+            "modifica locale\n"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&run_git_test_cmd(&setup.work_b, &["status", "--porcelain"]).stdout).trim(),
+            "M initial.txt"
+        );
+        // Niente stash, niente marcatori, niente operazione a meta'.
+        assert_eq!(stash_list(&setup.work_b), stash_before, "lo stash non cambia");
+        assert!(!rebase_in_progress(&setup.work_b));
+        assert!(!setup.work_b.join(".git/MERGE_HEAD").exists(), "nessun merge in corso");
     }
 
     #[tokio::test]

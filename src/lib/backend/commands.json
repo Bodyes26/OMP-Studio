@@ -1,8 +1,5 @@
 {
-	"focus_trace_append": ["local", "local"],
-	"focus_trace_path": ["local", "local"],
 	"perf_trace_append": ["local", "local"],
-	"perf_trace_path": ["local", "local"],
 	"studio_log_append": ["local", "local"],
 	"studio_log_path": ["local", "local"],
 
@@ -63,6 +60,9 @@
 	"github_canonical_repo": ["local", "local"],
 	"github_update_origin": ["routed", "files"],
 	"git_sync_repo": ["routed", "files"],
+	"git_turn_snapshot": ["routed", "read"],
+	"git_turn_commit": ["routed", "files"],
+	"copy_commit_pending": ["routed", "files"],
 	"copy_sync_heads": ["routed", "read"],
 	"copy_sync_bundle": ["routed", "read"],
 	"copy_sync": ["routed", "files"],
@@ -233,11 +233,8 @@
 	"automations_title_release": ["adapt", "agents"],
 	"automations_resume_admission": ["adapt", "agents"],
 	"automations_resume_release": ["adapt", "agents"],
-	"automations_is_execution_terminal": ["adapt", "agents"],
-	"automations_project_path_for_id": ["adapt", "agents"],
 	"automations_host_handshake": ["adapt", "agents"],
 	"automations_extend_wait": ["adapt", "agents"],
-	"automations_canonical_root": ["adapt", "agents"],
 
 	"external_open_take": ["local", "local"],
 	"external_route": ["local", "local"],

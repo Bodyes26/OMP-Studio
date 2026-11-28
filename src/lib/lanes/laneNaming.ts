@@ -11,7 +11,7 @@
 import { invoke } from '#lib/backend/ipc.ts';
 import { projectStore } from '#lib/stores/projects.svelte.ts';
 import { laneStore } from '#lib/stores/lanes.svelte.ts';
-import { labApi } from '#lib/lab/api.ts';
+import { labApiFor } from '#lib/lab/api.ts';
 import { syncLabTitle } from '#lib/lanes/laneActions.ts';
 import { MAIN_LANE_ID, type LaneId, type ProjectId } from '#lib/types/lanes.ts';
 
@@ -62,7 +62,7 @@ export function nameLaneFromPrompt(projectId: string, laneId: string, prompt: st
 
 			if (isLab) {
 				try {
-					const labIndex = await labApi.listIndex(project?.canonicalProjectPath ?? null);
+					const labIndex = await labApiFor(project).listIndex(project?.canonicalProjectPath ?? null);
 					for (const entry of labIndex) {
 						const t = entry.title.trim();
 						if (t && !existingNames.includes(t)) {
@@ -102,7 +102,7 @@ export function nameLaneFromPrompt(projectId: string, laneId: string, prompt: st
 				const prototypeId = lane.labPrototypeId ?? project?.labDraft?.prototypeId;
 				if (prototypeId) {
 					try {
-						await labApi.updateIndex(project?.canonicalProjectPath ?? null, prototypeId, {
+						await labApiFor(project).updateIndex(project?.canonicalProjectPath ?? null, prototypeId, {
 							title: generatedName
 						});
 					} catch (err) {
@@ -145,7 +145,7 @@ export async function nameExistingPrototypeIfLong(
 	if (lane?.titleLocked) return;
 
 	try {
-		const index = await labApi.listIndex(project?.canonicalProjectPath ?? null);
+		const index = await labApiFor(project).listIndex(project?.canonicalProjectPath ?? null);
 		const entry = index.find((e) => e.id === prototypeId);
 		if (!entry || entry.titleLocked) return;
 
@@ -167,11 +167,11 @@ export async function nameExistingPrototypeIfLong(
 		});
 
 		if (generatedName) {
-			const freshIndex = await labApi.listIndex(project?.canonicalProjectPath ?? null);
+			const freshIndex = await labApiFor(project).listIndex(project?.canonicalProjectPath ?? null);
 			const freshEntry = freshIndex.find((e) => e.id === prototypeId);
 			if (freshEntry?.titleLocked) return;
 
-			await labApi.updateIndex(project?.canonicalProjectPath ?? null, prototypeId, {
+			await labApiFor(project).updateIndex(project?.canonicalProjectPath ?? null, prototypeId, {
 				title: generatedName
 			});
 			syncLabTitle(projectId, laneId, generatedName);
@@ -219,7 +219,7 @@ export async function renameLane(
 		const prototypeId = lane?.labPrototypeId ?? project?.labDraft?.prototypeId;
 		if (prototypeId) {
 			try {
-				await labApi.updateIndex(project?.canonicalProjectPath ?? null, prototypeId, {
+				await labApiFor(project).updateIndex(project?.canonicalProjectPath ?? null, prototypeId, {
 					title,
 					titleLocked: true
 				});

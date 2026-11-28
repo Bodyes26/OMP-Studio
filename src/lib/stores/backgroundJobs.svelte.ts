@@ -1037,8 +1037,20 @@ export const backgroundJobs = {
 			};
 		}
 
-		// Tick periodico da 60 secondi per compiti di manutenzione (AUT-094: nessun sweep automatico sessioni storiche)
+		// Tick periodico per compiti di manutenzione (AUT-094: nessun sweep
+		// automatico sessioni storiche). Il fetch di git costa processi veri
+		// sull'altra macchina: a finestra nascosta il giro e' sospeso, come per
+		// le quote (S7-04, R-MI-58). Titolo e indice restano a basso costo.
+		// Questo giro cade a 0 e 60 s; quello delle copie a 30 e 90 (S3-04):
+		// partendo insieme si contendevano il SyncGuard a ogni passata.
 		tickIntervalId = setInterval(() => {
+			if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+				sweepUntitledTasks();
+				enqueueSessionIndex(false);
+				enqueueUpdateCheck(false);
+				void drain();
+				return;
+			}
 			sweepUntitledTasks();
 			enqueueSessionIndex(false);
 			enqueueGitFetch(false);

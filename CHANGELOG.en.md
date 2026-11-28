@@ -12,7 +12,46 @@ released: items are closed into a version via `npm run release -- <version>`.
 ## [Unreleased]
 
 ### Fixed
+- Studio's "Sync" and pulls no longer leave the repository in conflict or changes in the stash: they either succeed or everything goes back exactly as it was, and the message names the file that blocks. (R-MI-71)
+- "Update" on a copy that fell behind no longer stops at local changes that the incoming commits do not touch.
+- Synced copies no longer move a branch that is not in use and lose its local commits when the two histories share no ancestor: the branch stays "diverged". (R-MI-22, R-MI-27)
+- A copy that cannot move forward because of a conflict no longer repeats the same attempt every minute, re-reading the whole folder each time.
+- Fast-forwarding from GitHub is no longer lost when the copy sync round holds the folder: it waits for the round to finish and retries, without announcing "N commits to pull". (R-MI-58)
+- The link between machines no longer polls the other machine every 5 seconds: the state is pushed only when it changes, the omp version is re-read when a machine comes back or every 10 minutes, and copy tips use a light read. Far fewer git processes, and Studio's log keeps days of diagnostics again. (R-MI-67, R-MI-57)
+- At startup, projects on other machines no longer fail in a burst with "machine unreachable" before the link is ready, and remote tiles are read again if the first read fails. (R-MI-11)
+- Reloading the window with a remote chat open closes the old subscription: no more messages sent to a window that no longer exists. (R-MI-07)
+- After the other machine restarts, a remote chat no longer attaches to another project's session; if the session no longer exists the chat reopens instead of retrying silently every second. (R-MI-11)
+- Progress from subagents and long tools travels coalesced: less traffic between machines and a resume after a drop that covers minutes instead of seconds. (R-MI-11)
+- A resumed chat always shows its history even when omp is slow to answer side commands: no more empty chat with "Session settlement not completed".
+- Reopening or switching chat while the history loads no longer mixes two conversations.
+- An automatic compaction in the middle of an answer no longer makes the incoming text disappear.
+- A task started while the chat is opening goes back to the queue if the chat closes, changes or branches; with Stop it is discarded.
+- An answer to a question that already expired no longer lands on the new question, from the Companion either. (ASK-009)
+- After a Stop, a late end of turn no longer triggers a notification, a heads-up or the turn analysis.
+- Hang reports no longer claim a false "Channel stalled" for sessions of another machine and are not written when omp is only emitting progress.
+- The Lab of a project on another machine runs on that machine: it used to look for the Windows path on the Mac. (R-MI-06)
+- A queue for a project that was closed on the other machine shows "project closed" instead of retrying delivery forever. (R-MI-15)
+- Machine notices: no notice is lost behind a disconnection, the disconnection has its own slot and no longer blocks the others, sync errors are shown as errors, "Studio will restart as soon as it is free" no longer disappears with the update check, and Git and file acknowledgements show only under the project they belong to. (R-MI-51, R-MI-64, IMP-006, IMP-008)
+- Machines popover and Devices: "waiting" in amber and no "0 ms" before the first measurement, "This computer" first, no empty page if the open device disappears, and the reason why copies diverged. (R-MI-49, R-MI-52)
+- A Studio update requested by another machine that never reaches the restart now has an outcome and can be retried, instead of staying "in progress" forever. (R-MI-38)
+- Machine switch: a second click no longer starts a second transfer, the booking no longer moves another chat resumed in the meantime, notices expire on their own, and a lane in the terminal goes back to it when the switch fails. (R-MI-62, R-MI-63)
+- Command automations tied to a project run again and no longer leave the project locked. (AUT-042)
+- An omp, git or gh that stops answering no longer blocks quotas, provider checks, the automation scheduler or role suggestions forever: after the deadline the process is stopped.
+- Moving a chat to another machine and closing Studio no longer freeze the window for a few seconds.
+- When a chat card fails to render, a row with "Retry" takes its place: the conversation and the text you were typing no longer disappear.
+- Streaming stays smooth even in very long chats: the incoming answer, turn footers and todo rows are no longer recomputed from scratch on every frame.
+- Closing Studio right after a change no longer loses settings and queues; if saving the settings fails, Studio says so.
+- The "Configure" button for an unconfigured quota now shows up, from the Companion too.
+- Bottom notices stack instead of overlapping, and an error that repeats shows up again.
+- "Copy path", "Open in terminal" and "Duplicate prototype" give visible feedback even when they fail.
+- The terminal notices by itself when its process exits, instead of staying on "running".
+- "Install update" can no longer start twice at once.
+- With the interface frozen, a second Cmd+Q or "Quit" from the tray after 10 seconds closes Studio anyway, shutting processes down in order. (AUT-054)
+- The permission error of the system notification listener no longer appears at startup.
+- The Doctor no longer reports a Git repository without a working folder as healthy.
+- Studio Remote no longer disconnects by itself when you come back to the app after leaving it in the background, and reopens faster when reconnecting.
 - On Windows Studio no longer closes suddenly without any message: a Tauri defect corrupted memory when the app worked across threads, especially with the link between machines active.
+- When omp is newer than Studio on a machine and Studio's question form fails to load, the agent's question no longer hangs on "The agent is preparing questions…" with the agent stuck waiting: it is cancelled right away and a notice says to update Studio on that machine.
 - After an omp update, "Restart application" really closes and reopens Studio: it used to reload only the interface, leaving agents and terminals on the old omp version. (R-MI-70)
 - The "{machine} accepted the prompt" note above the composer disappears as soon as the other machine starts working, and within a few seconds at most: it used to stay there forever. (IMP-006)
 - Other notices of the cross-machine update no longer stay forever: "installs and restarts as soon as it is free" clears when installation does not close Studio or fails, another machine's update stops showing "in progress" after 30 minutes without an outcome, and a failed Studio or omp update clears itself once the machine is up to date. (R-MI-64, R-MI-69)
@@ -69,6 +108,8 @@ released: items are closed into a version via `npm run release -- <version>`.
 - Studio Remote again recognizes which models accept images: the PWA read a model field that the machine state no longer sends, so every model looked like it accepted them. The relay type check is restored, so the relay image is published again on every change. (REL-001)
 
 ### Added
+- In projects present on several linked machines the agent's work becomes a commit at the end of the turn, with only the files the agent changed and the message "Studio · ‹machine› · ‹chat›": it reaches the other machine on its own and merges automatically. Changes made by hand stay uncommitted. (R-MI-73)
+- "Align all" in the copies strip: when copies cannot align on their own, Studio commits the pending changes of every free copy, exchanges them and, if git cannot merge them, hands the merge to an agent that resolves, verifies and commits. (R-MI-74)
 - The prototype preview has a "Browser" button that opens the same page in the system browser.
 - omp stays aligned across linked machines: when another machine runs an older omp, Studio asks "Update omp on …?" and, once confirmed, that machine updates omp and restarts as soon as it is free; when another machine runs a newer one, it offers to update it here. This also applies when a freshly updated machine comes back online. The computer detail in Devices shows its omp version and the update status. (R-MI-67, R-MI-68, R-MI-69)
 - The Devices map shows which connections are in use, idle or unreachable and distinguishes direct links, the computer relay and Studio Remote. (IMP-009)
@@ -128,10 +169,18 @@ released: items are closed into a version via `npm run release -- <version>`.
 - When the `omp` installation is broken (for example a link pointing to a deleted folder), Studio says so and offers "Repair" instead of starting over as on a new computer. When an essential piece is missing, the setup reopens directly on that step, without the animated intro. (SET-010, SET-020)
 
 ### Changed
+- The changelog and project documents (`docs/progetto`) merge line by line like the journal, in every project: two machines adding an entry at the same spot get both entries instead of a conflict. (R-MI-72)
+- Expected errors (session closed, link lost, machine off, side commands timing out) no longer show up as yellow notices in the chat: they go to Studio's log, with a silent retry.
+- Errors towards another machine now say, for example, "Windows unreachable" instead of the technical text with the machine identifier.
+- A merge of the copies produces a single notice, the merge one. (R-MI-51)
+- Global keyboard shortcuts no longer act while a dialog is open.
+- Chats that are not on screen no longer listen to focus, visibility and file drag, and no longer receive subagent progress, which catches up when you return to the chat.
+- Automations, the subagent card, step diagrams and the welcome screen use the theme's colors and sizes: they read well in light themes too.
 - Studio is aligned with omp 19.2.1: Plan follows the new version's prompts, the Lab keeps reporting issues with `report_issue` and reads tool docs from `help://`, and the generated settings use omp's new names for tool commands.
 - Copies of the same project sync right away: when the other machine commits, when it comes back online, when you return to the window, when you open the project and when an agent finishes its turn, instead of at most once a minute. A failed round retries on its own and, if it keeps failing, a notice shows the reason. (R-MI-57)
 - Commits that arrive on GitHub are applied on their own with a fast-forward, with the same safeguards as the sync between machines: no more "N commits to pull" to fix by hand. Studio never merges, rebases or pushes to GitHub on its own. (R-MI-58)
 - The journal no longer conflicts: lines written on different machines, even uncommitted, are merged in every sync, pull or stash, and no longer end up parked in the stash. (R-MI-59)
+- When two copies merge with changes only in the journal, changelog and project docs, the notice says "Journal, changelog and project docs merged with …" instead of "Journal merged". (R-MI-72)
 - A journal modified by an agent is committed on its own at the end of the turn, that file only. (R-MI-60)
 - Two copies with different commits on the same branch merge on their own when git finds no conflicts, with a single merge commit identical on every machine. With conflicts, the strip above the composer names the files and "Resolve" hands the merge to an agent with the task already written. (R-MI-61)
 - If you switch machine while the agent is working, the switch is booked and happens on its own at the end of the turn, with "Cancel" under the composer. Before moving a chat Studio aligns the two copies by itself, even when the source copy is behind. (R-MI-62)

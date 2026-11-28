@@ -8,7 +8,7 @@ use super::types::LabChangedEvent;
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
-use std::path::{Component, Path, PathBuf};
+use std::path::{Component, Path};
 use std::sync::LazyLock;
 use std::time::Duration;
 use tauri::{command, AppHandle, Emitter};
@@ -56,19 +56,14 @@ pub async fn lab_watch_start(
     // Interrompi eventuale watcher precedente per la stessa chiave
     lab_watch_stop(key.clone()).await?;
 
-    let ws_path = PathBuf::from(&workspace_path);
-    if !ws_path.is_dir() {
-        return Err(crate::tr!(
-            format!(
-                "Cartella workspace non valida per il watcher: {}",
-                ws_path.display()
-            ),
-            format!(
-                "Invalid workspace folder for the watcher: {}",
-                ws_path.display()
-            )
-        ));
-    }
+    // Solo i workspace dei prototipi (S8-02): il percorso arriva dalla finestra,
+    // e per un progetto di un'altra macchina qui sarebbe relativo.
+    let ws_path = super::paths::confined_lab_workspace(&workspace_path).map_err(|error| {
+        crate::tr!(
+            format!("Cartella workspace non valida per il watcher: {error}"),
+            format!("Invalid workspace folder for the watcher: {error}")
+        )
+    })?;
 
     let canonical_ws = ws_path.canonicalize().unwrap_or_else(|_| ws_path.clone());
     let (tx_events, mut rx_events) = tokio::sync::mpsc::unbounded_channel::<Vec<String>>();

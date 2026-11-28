@@ -592,7 +592,7 @@
 	.pin-badge {
 		display: inline-flex;
 		color: var(--ink-faint);
-		font-size: 11px;
+		font-size: var(--text-caption);
 	}
 
 	.remove-x-btn {
@@ -639,7 +639,7 @@
 	}
 
 	.status-line-empty-hint {
-		font-size: 11px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		font-style: italic;
 	}
@@ -673,6 +673,6 @@
 	}
 
 	.status-pin-label {
-		font-size: 11px;
+		font-size: var(--text-caption);
 	}
 </style>

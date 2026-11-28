@@ -32,7 +32,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 /* ------------------------------------------------------------------ costanti */
 
@@ -420,8 +420,36 @@ function unwrapHashline(raw: string): string {
 }
 
 /**
+ * Percorso reale anche per file non ancora creati: risolve il `realpath` del
+ * primo antenato esistente e vi riappende i segmenti mancanti. Serve alla
+ * guardia del Piano, perche' un `resolve` solo lessicale non vede un
+ * `.omp/plans` che e' un symlink verso fuori dal progetto.
+ */
+function realPathOfNearestExisting(target: string): string {
+	let current = resolve(target);
+	const trail: string[] = [];
+	for (;;) {
+		if (existsSync(current)) {
+			try {
+				return join(realpathSync(current), ...trail.reverse());
+			} catch {
+				return join(current, ...trail.reverse());
+			}
+		}
+		const parent = dirname(current);
+		if (parent === current) return join(current, ...trail.reverse());
+		trail.push(basename(current));
+		current = parent;
+	}
+}
+
+/**
  * Vero se `target` resta in un'area scrivibile durante il Piano: lo spazio di
  * sessione `local://` oppure `<cwd>/.omp/plans/`.
+ *
+ * Il confronto avviene sui percorsi reali e richiede che `.omp/plans` resti
+ * dentro il progetto: un `.omp/plans` che e' un symlink verso l'esterno e'
+ * rifiutato anche quando il percorso richiesto passa dal suo interno.
  */
 export function isPlanWritablePath(target: string, cwd: string): boolean {
 	const path = unwrapHashline(target);
@@ -429,8 +457,11 @@ export function isPlanWritablePath(target: string, cwd: string): boolean {
 	if (/^local:\/\//i.test(path)) return !path.includes("..");
 	// Ogni altro schema interno (`skill://`, `memory://`, ...) resta fuori.
 	if (/^[a-z][a-z0-9+.-]*:\/\//i.test(path)) return false;
-	const plansDir = resolve(cwd, ".omp", "plans");
-	const absolute = isAbsolute(path) ? resolve(path) : resolve(cwd, path);
+	const realCwd = realPathOfNearestExisting(resolve(cwd));
+	const plansDir = realPathOfNearestExisting(resolve(cwd, ".omp", "plans"));
+	const dirRel = relative(realCwd, plansDir);
+	if (dirRel === "" || dirRel.startsWith("..") || isAbsolute(dirRel)) return false;
+	const absolute = realPathOfNearestExisting(isAbsolute(path) ? resolve(path) : resolve(cwd, path));
 	const rel = relative(plansDir, absolute);
 	return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
 }

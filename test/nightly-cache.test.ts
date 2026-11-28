@@ -21,7 +21,17 @@ describe('Cache e Fingerprint delle verifiche Nightly (nightly-cache.mjs)', () =
 
 	beforeEach(() => {
 		testDir = mkdtempSync(join(tmpdir(), 'omp-test-cache-'));
-		const initialized = spawnSync('git', ['init', '-q', testDir], { encoding: 'utf8', windowsHide: true });
+		const initialized = spawnSync('git', ['init', '-q', testDir], {
+			encoding: 'utf8',
+			windowsHide: true,
+			// Il repository e' temporaneo: un `.gitconfig` globale (identita',
+			// template, `commit.gpgsign`) non deve entrare in questi test.
+			env: {
+				...process.env,
+				GIT_CONFIG_GLOBAL: join(tmpdir(), 'omp-studio-test-gitconfig-none'),
+				GIT_CONFIG_NOSYSTEM: '1'
+			}
+		});
 		assert.equal(initialized.status, 0, initialized.stderr);
 		writeFileSync(join(testDir, '.gitignore'), '/.omp/\n/src/lib/paraglide/\n/src-tauri/target/\n/build/\n');
 	});

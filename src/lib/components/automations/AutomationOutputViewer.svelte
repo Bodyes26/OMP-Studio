@@ -157,7 +157,7 @@
 	}
 
 	.output-title {
-		font-size: 11px;
+		font-size: var(--text-caption);
 		font-weight: 600;
 		color: var(--ink-muted);
 		text-transform: uppercase;
@@ -171,7 +171,7 @@
 	}
 
 	.loading-indicator {
-		font-size: 11px;
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
 	}
 
@@ -180,7 +180,7 @@
 		align-items: center;
 		gap: 8px;
 		padding: 6px 12px;
-		font-size: 12px;
+		font-size: var(--text-label);
 		background: color-mix(in srgb, var(--warn) 12%, transparent);
 		color: var(--warn);
 		border-bottom: 1px solid color-mix(in srgb, var(--warn) 25%, transparent);
@@ -191,7 +191,7 @@
 		align-items: center;
 		gap: 8px;
 		padding: 6px 12px;
-		font-size: 12px;
+		font-size: var(--text-label);
 		background: color-mix(in srgb, var(--danger) 12%, transparent);
 		color: var(--danger);
 		border-bottom: 1px solid color-mix(in srgb, var(--danger) 25%, transparent);
@@ -201,7 +201,7 @@
 		padding: 12px;
 		max-height: 380px;
 		overflow-y: auto;
-		font-size: 12px;
+		font-size: var(--text-label);
 		line-height: 1.5;
 		background: var(--bg-sunken);
 		color: var(--ink);

@@ -82,11 +82,13 @@ describe('Normalizzazione e monotonicita build-id (normalizeBuildId)', () => {
 	});
 
 	it('genera timestamp corrente in millisecondi se non fornito', () => {
-		const now = Date.now();
+		// La forma conta: un intero positivo in millisecondi. Confrontarlo con
+		// `Date.now()` renderebbe il test sensibile all'orologio senza
+		// verificare niente di piu' (la produzione non puo' iniettare il suo).
 		const id = normalizeBuildId();
 		assert.ok(typeof id === 'number');
-		assert.ok(id >= now - 1000 && id <= now + 1000);
-		assert.ok(String(id).length >= 13);
+		assert.ok(Number.isInteger(id) && id > 0);
+		assert.ok(String(id).length >= 13, 'un build-id di default deve stare in millisecondi');
 	});
 
 	it('rifiuta valori non validi, nulli, zero o negativi', () => {

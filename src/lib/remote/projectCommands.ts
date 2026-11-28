@@ -211,55 +211,46 @@ export function validateProjectName(
 	return { valid: true, cleanName: trimmed };
 }
 
-let activeDeps: ProjectCommandDeps | null = null;
-
 export function getDefaultProjectCommandDeps(): ProjectCommandDeps {
-	if (!activeDeps) {
-		return {
-			getProjectRoot: () => (projectStore.projectRoot ? normalizeProjectPath(projectStore.projectRoot) : null),
-			getOpenProjects: () =>
-				projectStore.projects
-					.filter((p) => !p.external)
-					.map((p) => ({
-						id: p.id,
-						canonicalProjectPath: p.canonicalProjectPath
-					})),
-			isGithubAuthenticated: () => Boolean(githubStore.status.authenticated),
-			readDir: async (dirPath: string) => {
-				const entries = await invoke<Array<{ name: string; is_dir: boolean }>>('tree_read', {
-					projectPath: dirPath,
-					rel: ''
-				});
-				return entries.map((e) => ({ name: e.name, isDir: e.is_dir }));
-			},
-			detectGithubRemotes: async (root: string) => {
-				const remotes = await githubStore.detectLocalRemotes(root);
-				return remotes.map((r) => ({ path: r.path, fullName: r.fullName }));
-			},
-			openProject: (path: string) => projectStore.openProject(path),
-			createProject: async (args: ProjectCreateArgs) => {
-				return await invoke<string>('project_create_new', {
-					parentDir: args.parentDir,
-					name: args.name,
-					visibility: args.visibility,
-					useSsh: args.useSsh
-				});
-			},
-			getUseSsh: () => settingsStore.github.cloneProtocol === 'ssh',
-			canonicalizeChildDir: async (root: string, candidate: string) => {
-				return await invoke<string>('project_canonicalize_child_dir', {
-					root,
-					candidate
-				});
-			},
-			isWin: isWindows
-		};
-	}
-	return activeDeps;
-}
-
-export function setProjectCommandDeps(deps: ProjectCommandDeps | null): void {
-	activeDeps = deps;
+	return {
+		getProjectRoot: () => (projectStore.projectRoot ? normalizeProjectPath(projectStore.projectRoot) : null),
+		getOpenProjects: () =>
+			projectStore.projects
+				.filter((p) => !p.external)
+				.map((p) => ({
+					id: p.id,
+					canonicalProjectPath: p.canonicalProjectPath
+				})),
+		isGithubAuthenticated: () => Boolean(githubStore.status.authenticated),
+		readDir: async (dirPath: string) => {
+			const entries = await invoke<Array<{ name: string; is_dir: boolean }>>('tree_read', {
+				projectPath: dirPath,
+				rel: ''
+			});
+			return entries.map((e) => ({ name: e.name, isDir: e.is_dir }));
+		},
+		detectGithubRemotes: async (root: string) => {
+			const remotes = await githubStore.detectLocalRemotes(root);
+			return remotes.map((r) => ({ path: r.path, fullName: r.fullName }));
+		},
+		openProject: (path: string) => projectStore.openProject(path),
+		createProject: async (args: ProjectCreateArgs) => {
+			return await invoke<string>('project_create_new', {
+				parentDir: args.parentDir,
+				name: args.name,
+				visibility: args.visibility,
+				useSsh: args.useSsh
+			});
+		},
+		getUseSsh: () => settingsStore.github.cloneProtocol === 'ssh',
+		canonicalizeChildDir: async (root: string, candidate: string) => {
+			return await invoke<string>('project_canonicalize_child_dir', {
+				root,
+				candidate
+			});
+		},
+		isWin: isWindows
+	};
 }
 
 export async function listRemoteProjectFolders(

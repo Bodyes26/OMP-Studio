@@ -93,13 +93,6 @@ pub fn project_path_for_id(project_id: &str) -> Option<String> {
         .and_then(|e| e.project_path_for_id(project_id))
 }
 
-pub fn canonical_root_for_path(path: &str) -> String {
-    ENGINE
-        .read()
-        .as_ref()
-        .map_or_else(|| path.to_string(), |e| e.canonical_root_for_path(path))
-}
-
 pub fn host_handshake(host_epoch: &str) -> Result<Vec<String>, String> {
     let engine = get_engine()?;
     engine.host_handshake(host_epoch)
@@ -844,18 +837,6 @@ pub async fn automations_resume_release(execution_id: String) -> Result<(), Stri
 }
 
 #[command]
-pub async fn automations_is_execution_terminal(execution_id: String) -> Result<bool, String> {
-    let engine = get_engine()?;
-    Ok(engine.is_execution_terminal(&execution_id))
-}
-
-#[command]
-pub async fn automations_project_path_for_id(project_id: String) -> Result<Option<String>, String> {
-    let engine = get_engine()?;
-    Ok(engine.project_path_for_id(&project_id))
-}
-
-#[command]
 pub async fn automations_host_handshake(host_epoch: String) -> Result<Vec<String>, String> {
     let engine = get_engine()?;
     engine.host_handshake(&host_epoch)
@@ -869,10 +850,4 @@ pub async fn automations_extend_wait(
 ) -> Result<i64, String> {
     let engine = get_engine()?;
     engine.extend_human_wait(&run_id, &execution_id, minutes)
-}
-
-#[command]
-pub async fn automations_canonical_root(path: String) -> Result<String, String> {
-    let engine = get_engine()?;
-    Ok(engine.canonical_root_for_path(&path))
 }

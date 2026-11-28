@@ -113,7 +113,7 @@ export type WindowCategory = 'short' | 'weekly' | 'other';
 /**
  * Classifica la finestra temporale di un limite in "short", "weekly" o "other".
  */
-export function categorizeQuotaWindow(limit: QuotaLimit): WindowCategory {
+function categorizeQuotaWindow(limit: QuotaLimit): WindowCategory {
 	const ms = limit.window?.durationMs;
 	if (typeof ms === 'number' && !Number.isNaN(ms) && ms > 0) {
 		if (ms <= 24 * 3600 * 1000) return 'short';

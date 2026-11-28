@@ -175,7 +175,7 @@ export function normalizeSuggestionText(value: string): string {
  * salvato: si riconosce confrontando entrambe le varianti, cosi' la chip segue
  * la lingua attiva. Un testo scritto dall'utente resta com'e'.
  */
-export function suggestionDisplayText(suggestion: PromptSuggestion): { label: string; prompt: string } {
+function suggestionDisplayText(suggestion: PromptSuggestion): { label: string; prompt: string } {
 	const key = suggestion.factoryKey;
 	if (!key) return { label: suggestion.label, prompt: suggestion.prompt };
 

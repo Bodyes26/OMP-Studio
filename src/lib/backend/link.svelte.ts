@@ -1,5 +1,5 @@
 import { Channel } from '@tauri-apps/api/core';
-import { invoke, isTauri, listen, updateLinkedMachines, LOCAL_MACHINE, type UnlistenFn } from './ipc.ts';
+import { invoke, isTauri, listen, updateLinkedMachines, routeErrorText, LOCAL_MACHINE, type UnlistenFn } from './ipc.ts';
 import type { RemoteCommand } from '$remote-protocol';
 import { expandReducedSnapshot, isReducedHostSnapshot, type DesktopHostSnapshot } from './host.ts';
 import { projectStore } from '#lib/stores/projects.svelte.ts';
@@ -83,6 +83,38 @@ interface PairResult {
 	error?: string;
 }
 
+/**
+ * Fonde i peer nell'elenco esistente: un campo cambiato avvisa solo chi lo
+ * legge, e l'elenco stesso cambia solo se cambiano gli id. Con il battito che
+ * arriva ogni pochi secondi, sostituire gli oggetti rimetteva in coda ogni
+ * effetto che li attraversa (S3-link-front-01).
+ */
+function mergePeer(previous: LinkedMachine, next: LinkedMachine): void {
+	if (previous.name !== next.name) previous.name = next.name;
+	if (previous.online !== next.online) previous.online = next.online;
+	if (previous.compatible !== next.compatible) previous.compatible = next.compatible;
+	if (previous.version !== next.version) previous.version = next.version;
+	if (previous.route !== next.route) previous.route = next.route;
+	if (previous.latencyMs !== next.latencyMs) previous.latencyMs = next.latencyMs;
+	if (previous.lastSeen !== next.lastSeen) previous.lastSeen = next.lastSeen;
+	if (previous.permissions.agents !== next.permissions.agents) previous.permissions.agents = next.permissions.agents;
+	if (previous.permissions.files !== next.permissions.files) previous.permissions.files = next.permissions.files;
+	if (previous.permissions.terminal !== next.permissions.terminal) previous.permissions.terminal = next.permissions.terminal;
+}
+
+/**
+ * Aggiorna `status.peers` senza sostituirlo quando gli id non cambiano: chi
+ * legge l'elenco (o un suo campo) viene avvisato solo per una modifica vera.
+ */
+function applyPeers(status: LinkStatus, peers: LinkedMachine[]): void {
+	const sameIds = status.peers.length === peers.length && status.peers.every((peer, index) => peer.id === peers[index].id);
+	if (!sameIds) {
+		status.peers = peers;
+		return;
+	}
+	for (let index = 0; index < peers.length; index++) mergePeer(status.peers[index], peers[index]);
+}
+
 class LinkStore {
 	status = $state<LinkStatus>({ enabled: false, name: '', machineId: '', platform: '', relayUrl: '', hasRelayToken: false, relayReachable: null, peers: [], keyMissing: false });
 	replacements = $state<LinkedMachine[]>([]);
@@ -96,6 +128,20 @@ class LinkStore {
 	 * linea». Le attese di D6 si sciolgono qui.
 	 */
 	responded = $state<Record<string, boolean>>({});
+	/**
+	 * Chiavi primitive per gli effetti: leggere `status.peers` fa dipendere
+	 * l'effetto da quel campo (e prima dall'intero oggetto), quindi un
+	 * `link:status` senza novita' ne faceva ripartire una mezza finestra
+	 * (S3-link-front-01). Chi non ha bisogno dei peer interi legge queste.
+	 */
+	onlinePeersKey = $derived(this.status.peers
+		.filter((peer) => peer.online && peer.compatible)
+		.map((peer) => `${peer.id}@${peer.version ?? ''}`)
+		.join('|'));
+	/** Versione di Studio di ogni macchina in linea: le domande d'aggiornamento (R-MI-38). */
+	peerVersionsKey = $derived(this.status.peers
+		.map((peer) => `${peer.id}@${peer.version ?? ''}@${peer.online}`)
+		.join('|'));
 	loading = $state(false);
 	busy = $state(false);
 	error = $state<string | null>(null);
@@ -113,13 +159,14 @@ class LinkStore {
 	private unlistenPairResult: UnlistenFn | null = null;
 
 	private apply(status: LinkStatus): void {
+		const current = this.status;
 		// Solo nuovi id dopo lo stato iniziale: funziona anche per chi genera
 		// il codice, che apprende l'abbinamento dall'evento e non da link_pair.
-		if (this.status.machineId) {
-			const previous = new Set(this.status.peers.map((peer) => peer.id));
+		if (current.machineId) {
+			const previous = new Set(current.peers.map((peer) => peer.id));
 			for (const fresh of status.peers) {
 				if (previous.has(fresh.id)) continue;
-				for (const old of status.peers) {
+				for (const old of current.peers) {
 					if (old.id !== fresh.id && previous.has(old.id) && !old.online && old.name === fresh.name &&
 						!this.replacements.some((candidate) => candidate.id === old.id)) {
 						this.replacements.push(old);
@@ -127,8 +174,21 @@ class LinkStore {
 				}
 			}
 		}
-		this.status = status;
-		updateLinkedMachines(status.peers);
+		// Campo per campo, non un oggetto nuovo: il backend emette `link:status`
+		// anche quando nulla e' cambiato, e sostituire `status` faceva ripartire
+		// ogni effetto che legge il collegamento (S3-link-front-01, S2-link-rust-03).
+		if (current.enabled !== status.enabled) current.enabled = status.enabled;
+		if (current.name !== status.name) current.name = status.name;
+		if (current.machineId !== status.machineId) current.machineId = status.machineId;
+		if (current.platform !== status.platform) current.platform = status.platform;
+		if (current.relayUrl !== status.relayUrl) current.relayUrl = status.relayUrl;
+		if (current.hasRelayToken !== status.hasRelayToken) current.hasRelayToken = status.hasRelayToken;
+		if (current.relayReachable !== status.relayReachable) current.relayReachable = status.relayReachable;
+		if (current.keyMissing !== status.keyMissing) current.keyMissing = status.keyMissing;
+		applyPeers(current, status.peers);
+		updateLinkedMachines(status.peers.map((peer) => ({
+			id: peer.id, name: peer.name, online: peer.online, compatible: peer.compatible
+		})));
 		const known = new Set(status.peers.map((peer) => peer.id));
 		for (const machine of Object.keys(this.hosts)) {
 			if (known.has(machine)) continue;
@@ -241,10 +301,10 @@ class LinkStore {
 		}
 		this.hosts[machine] = state;
 		// Il primo riepilogo e' la risposta dell'host: da qui la macchina e'
-		// «in linea» (D8) e le aperture in attesa partono (D6). Anche quello
-		// letto all'avvio con `link_host_states` e' stato ricevuto dal
-		// collegamento, quindi conta.
-		this.markResponded(machine);
+		// «in linea» (D8) e le aperture in attesa partono (D6). Vale pero' solo
+		// se il collegamento la vede in linea: un riepilogo applicato dalla
+		// cache all'avvio, con la macchina spenta, non e' una risposta (S3-link-front-03).
+		if (this.machineFor(machine)?.online) this.markResponded(machine);
 		projectStore.syncRemoteProjects(machine, this.status.peers.find((peer) => peer.id === machine)?.name ?? machine, state);
 	}
 
@@ -277,13 +337,18 @@ class LinkStore {
 			// Riepilogo corrente all'avvio: una sessione può essere già aperta da
 			// un'altra macchina mentre questa finestra si carica.
 			this.applyActivity(await invoke<LaneActivitySnapshot>('link_activity'));
+			// Prima lo stato del collegamento, poi la cache: con la cache davanti
+			// `ipc.ts` non conosceva ancora le macchine in linea e ogni apertura
+			// partiva con `machine_unreachable` (S3-link-front-03).
+			await this.refresh();
 			const cached = await invoke<Record<string, DesktopHostSnapshot>>('link_host_states');
 			for (const [machine, state] of Object.entries(cached)) {
 				if (!received.has(machine)) this.applyHost(machine, state);
 			}
-			await this.refresh();
 		} catch (error) {
-			this.error = String(error);
+			// Un rifiuto di instradamento nomina la macchina (C5); il resto
+			// resta il suo messaggio.
+			this.error = routeErrorText(error);
 		} finally {
 			this.loading = false;
 		}
@@ -301,7 +366,8 @@ class LinkStore {
 		try {
 			return await run();
 		} catch (error) {
-			this.error = error instanceof Error ? error.message : String(error);
+			// Rifiuto di instradamento o guasto: la frase e' quella comune (C5).
+			this.error = routeErrorText(error);
 			throw error;
 		} finally {
 			this.busy = false;

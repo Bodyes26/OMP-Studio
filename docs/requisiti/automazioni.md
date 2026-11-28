@@ -252,3 +252,11 @@ Sono responsabilita' da implementare, non dichiarazioni di funzionalita' gia' di
 ### Regola di arresto prima/durante lo sviluppo
 
 Qualsiasi impossibilita' del runtime omp, vincolo OS o caso con effetti utente non coperto da questo contratto riapre una decisione con l'utente. Non autorizza a ridurre il perimetro, aggiungere fallback, saltare verifiche o dichiarare una garanzia non dimostrata. Nomi privati e dettagli interni restano scelte ingegneristiche entro il contratto, non possono cambiare comportamento, costi, permessi o UI approvati.
+
+## Correzioni del 2026-11-28 (polish di stabilità)
+
+- AUT-042, AUT-012, AUT-036: le automazioni di tipo comando con un progetto non partivano mai, perché il lock del progetto veniva preso due volte e la seconda acquisizione trovava la prima; il lock restava preso e bloccava anche le automazioni prompt sullo stesso progetto. Ora l'acquisizione è unica, dopo il controllo della politica degli script, e il rilascio usa le stesse chiavi (percorso canonico e normalizzato) in ogni ramo d'errore (`automations/engine.rs`).
+- AUT-041, AUT-103: il conteggio dei comandi attivi si aggiorna dentro il giro del tick; `get_occurrences` non esegue più una query per occorrenza (indice su `executions.run_id`).
+- `omp usage` del motore e i controlli dei provider hanno una scadenza e non girano più sul thread del tick: un omp che non risponde non ferma lo scheduler. Checkpoint periodico del WAL di `automations.db`.
+- AUT-054: con la WebView che non risponde, un secondo «Esci» o Cmd+Q dopo 10 secondi chiude comunque Studio con la stessa chiusura ordinata dei processi (scelta D3 dell'utente del 2026-11-28); prima l'uscita restava sospesa per sempre.
+- Prova: `cargo test --lib` (moduli `automations::engine`, `automations::storage`, `provider_auth`); la chiusura forzata di AUT-054 non ha un test automatico e va provata sull'app installata. Piano: `docs/PLAN.md`, «Polish di stabilità dopo la multi-istanza».

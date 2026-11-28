@@ -448,7 +448,12 @@ export class PlanController {
 		try {
 			const fromTurn = this.review?.fromTurn ?? false;
 			if (!(await this.respond({ action: 'save', content: this.editedContent(doc) }, 'saved'))) return;
-			if (fromTurn) await this.session.waitForIdle(60_000);
+			if (fromTurn && !(await this.session.waitForIdle(60_000))) {
+				// Il turno e' ancora vivo: una nuova sessione a meta' lavoro
+				// perderebbe la risposta in arrivo. Il piano e' salvato, si riprova.
+				this.session.flashNotice('warning', messages.plan_turn_not_finished());
+				return;
+			}
 			if (this.isLab) {
 				// Nel Lab il salvataggio archivia la bozza non approvata in .lab/brief-draft.md
 				// e lascia la guardia attiva senza aprire una nuova sessione
@@ -528,7 +533,11 @@ export class PlanController {
 			if (!sent) throw new Error(messages.plan_handoff_not_sent());
 			// L'estensione salva e spegne la guardia dentro lo strumento: il turno
 			// finisce con una frase breve, poi la strada scelta parte da sessione ferma.
-			if (fromTurn) await session.waitForIdle(90_000);
+			if (fromTurn && !(await session.waitForIdle(90_000))) {
+				// Con un turno ancora vivo il passaggio partirebbe sopra il run:
+				// meglio fermarsi, con il piano salvato e la card in errore.
+				throw new Error(messages.plan_turn_not_finished());
+			}
 			const submitEntry = this.lastSubmitEntry();
 			if (submitEntry?.result?.isError) {
 				const errMsg = typeof submitEntry.result.details === 'string'

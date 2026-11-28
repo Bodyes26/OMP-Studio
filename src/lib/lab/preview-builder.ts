@@ -16,7 +16,7 @@ import { m } from '#lib/paraglide/messages.js';
 import { getLocale } from '#lib/paraglide/runtime.js';
 
 /** Sorgente dell'ispettore pronto per un `<script type="module">` inline. */
-export function buildInspectorModule(source: string = inspectorSource): string {
+function buildInspectorModule(source: string = inspectorSource): string {
 	// I messaggi della cattura nascono nell'iframe, dove Paraglide non arriva:
 	// Studio li risolve qui, nella lingua attiva, e li passa come letterale.
 	const strings = JSON.stringify({

@@ -9,39 +9,18 @@
 -->
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
-	import { projectStore, type Project } from '#lib/stores/projects.svelte.ts';
-	import { provenance } from '#lib/stores/projectMachines.svelte.ts';
-	import { openRemoteFile, openRemotePreview } from '#lib/remote/openItems.ts';
+	import { type Project } from '#lib/stores/projects.svelte.ts';
+	import { elsewhereOpenItems, openRemoteFile, openRemotePreview } from '#lib/remote/openItems.ts';
 	import { IconFile, IconViewPreview } from '#lib/icons.ts';
 
 	let { project }: { project: Project } = $props();
 
 	/**
-	 * Solo le copie raggiungibili che non sono già a video in questa finestra:
-	 * una copia locale attiva mostra i suoi tab nell'editor, ripeterli qui
-	 * sarebbe rumore. Una copia remota attiva mostra i tab (già sincronizzati)
-	 * ma non l'anteprima, che il server loopback dell'altra macchina non serve
-	 * qui: di quella copia resta solo la riga dell'anteprima.
-	 * Una macchina spenta non compare: l'ultimo elenco ricevuto potrebbe
-	 * essere vecchio, e chiamarlo «aperto adesso» sarebbe una bugia.
+	 * Solo le copie raggiungibili che non sono gia' a video in questa finestra
+	 * (IMP-011). La lista e' la stessa che conta il «N aperti» dell'anteprima
+	 * (S3-link-front-28): prima i due conteggi non coincidevano.
 	 */
-	const elsewhere = $derived(
-		provenance(project)
-			.copies.filter((copy) => copy.online && !(copy.local && copy.project.id === projectStore.activeId))
-			.map((copy) => {
-				const lanes = projectStore.remoteOpenItems[copy.project.id] ?? [];
-				const visibleHere = copy.project.id === projectStore.activeId;
-				return {
-					copy,
-					lanes: visibleHere
-						? lanes
-								.filter((lane) => Boolean(lane.previewFile))
-								.map((lane) => ({ ...lane, openFiles: [] }))
-						: lanes
-				};
-			})
-			.filter((entry) => entry.lanes.length > 0)
-	);
+	const elsewhere = $derived(elsewhereOpenItems(project));
 </script>
 
 {#if elsewhere.length > 0}

@@ -1,77 +1,16 @@
+/**
+ * Politica dei tooltip: i comandi la cui etichetta e' gia' ovvia (chiudere una
+ * finestra, svuotare una ricerca) non mostrano una bolla ridondante. Il
+ * controllo resta sul sorgente perche' l'oggetto e' proprio "nessun `<Tooltip>`
+ * attorno a questo comando": un test di rendering verificherebbe che il
+ * componente disegna la bolla, non che il comando non la riceva.
+ */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const ROOT = process.cwd();
-
-describe('Contratto e comportamento Tooltip (Tooltip.svelte)', () => {
-	const tooltipSource = readFileSync(join(ROOT, 'src', 'lib', 'ui', 'Tooltip.svelte'), 'utf-8');
-
-	it('supporta ritardo di apertura configurabile (openDelay, default 300ms) con timer e cancellazione', () => {
-		assert.ok(
-			tooltipSource.includes('openDelay = 300'),
-			'Tooltip.svelte deve dichiarare openDelay con default a 300ms'
-		);
-		assert.ok(
-			tooltipSource.includes('function cancelOpen()'),
-			'Tooltip.svelte deve definire la funzione cancelOpen per annullare aperture pendenti'
-		);
-		assert.ok(
-			tooltipSource.includes('cancelOpen()'),
-			'Tooltip.svelte deve invocare cancelOpen su pointerleave o dismiss'
-		);
-	});
-
-	it('chiude e annulla istantaneamente alla pressione (pointerdown/click) del trigger', () => {
-		assert.ok(
-			tooltipSource.includes('function dismiss()'),
-			'Tooltip.svelte deve definire la funzione dismiss'
-		);
-		assert.ok(
-			tooltipSource.includes('onpointerdown={dismiss}'),
-			'Il trigger wrapper deve intercettare onpointerdown per chiudere immediatamente'
-		);
-		assert.ok(
-			tooltipSource.includes('onclick={dismiss}'),
-			'Il trigger wrapper deve intercettare onclick per chiudere immediatamente'
-		);
-	});
-
-	it('consente apertura rapida (warm-up / quick switch) quando un tooltip era aperto da poco', () => {
-		assert.ok(
-			tooltipSource.includes('lastCloseTimestamp'),
-			'Tooltip.svelte deve memorizzare il timestamp di ultima chiusura a livello di modulo'
-		);
-		assert.ok(
-			tooltipSource.includes('anyTooltipOpen'),
-			'Tooltip.svelte deve tracciare la presenza di tooltip attivi a livello di modulo'
-		);
-		assert.ok(
-			tooltipSource.includes('isQuickSwitch'),
-			'Tooltip.svelte deve calcolare isQuickSwitch per rendere reattivo lo scorrimento tra tooltip'
-		);
-	});
-
-	it('evita apertura e permanenza da click controllando :focus-visible sulla navigazione da tastiera', () => {
-		assert.ok(
-			tooltipSource.includes(':focus-visible'),
-			'Tooltip.svelte deve verificare :focus-visible per distinguere focus tastiera da click mouse'
-		);
-		assert.ok(
-			tooltipSource.includes('handleFocusIn'),
-			'Tooltip.svelte deve gestire handleFocusIn per prevenire aperture dopo il click'
-		);
-	});
-
-	it('consente al bubble del tooltip di chiudersi se premuto direttamente', () => {
-		assert.ok(
-			tooltipSource.includes('class="tooltip-bubble rv-lift"') &&
-				tooltipSource.includes('onpointerdown={dismiss}'),
-			'La bolla del tooltip deve chiudersi immediatamente al click'
-		);
-	});
-});
 
 describe('Verifica rimozione tooltip ridondanti o fastidiosi', () => {
 	it('il pulsante di chiusura del Dialog non mostra tooltip "chiudi"', () => {

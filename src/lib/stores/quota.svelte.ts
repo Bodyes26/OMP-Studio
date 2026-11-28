@@ -1,4 +1,4 @@
-import { invoke, LOCAL_MACHINE, type MachineId } from '#lib/backend/ipc.ts';
+import { invoke, LOCAL_MACHINE, routeErrorText, type MachineId } from '#lib/backend/ipc.ts';
 import { accountPinHash, shortestWindowLimit, remainingFractionOf } from '../quota/resolve';
 import { providersMatch } from '../quota/providers';
 import { m as msg } from '#lib/paraglide/messages.js';
@@ -296,7 +296,7 @@ class QuotaStore {
 			}
 		} catch (err) {
 			// Resilienza totale: non rilanciamo mai l'errore per evitare crash del renderer UI
-			this.error = String(err);
+			this.error = routeErrorText(err);
 			this.status = 'offline';
 			this.reportPinHashes = [];
 		} finally {

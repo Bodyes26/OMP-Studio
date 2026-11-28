@@ -36,6 +36,7 @@
 	import Dialog from '#lib/ui/Dialog.svelte';
 	import type TerminalSurface from '#lib/terminal/Terminal.svelte';
 	import { modelSettingsStore } from '#lib/stores/modelSettings.svelte.ts';
+	import type { SettingsSection } from '#lib/stores/settings.svelte.ts';
 
 	let {
 		open = false,
@@ -48,7 +49,7 @@
 		anchor?: HTMLElement | null;
 		onClose?: () => void;
 		guiHosts?: ProviderHost[];
-		onOpenSettings?: (section?: string) => void;
+		onOpenSettings?: (section?: SettingsSection) => void;
 	}>();
 
 	let popoverEl = $state<HTMLDivElement | null>(null);

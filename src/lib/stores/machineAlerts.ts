@@ -12,7 +12,7 @@ export type MachineAlert =
 	| { kind: 'advanced'; machine: string; name: string; project: string; count: number }
 	/** Copie divergenti unite da sole, senza conflitti (R-MI-61). */
 	| { kind: 'merged'; machine: string; name: string; project: string }
-	/** L'unione riguardava solo il diario (R-MI-48 e R-MI-61). */
+	/** L'unione riguardava solo diario, changelog e documenti di progetto (R-MI-48, R-MI-61, R-MI-72). */
 	| { kind: 'journal'; machine: string; name: string; project: string }
 	| { kind: 'blocked'; machine: string; name: string; project: string; reason: string; count: number };
 
@@ -32,7 +32,7 @@ export interface OutcomeSample {
 	advanced: number;
 	/** Questa macchina ha unito una branch divergente senza conflitti (R-MI-61). */
 	merged: boolean;
-	/** L'unione riguardava solo il diario: l'avviso dice «Diario unito» (R-MI-48). */
+	/** L'unione riguardava solo diario, changelog e documenti di progetto: l'avviso dice «Diario, changelog e documenti uniti» (R-MI-48, R-MI-72). */
 	journalOnly: boolean;
 	/** Avanzamenti rimasti indietro: branch, motivo e commit in attesa. */
 	blocked: Array<{ branch: string; reason: string; behind: number }>;
@@ -86,36 +86,43 @@ function presenceAlerts(state: MachineAlertsState, machines: readonly PresenceSa
 }
 
 /**
- * Esiti dei giri: commit arrivati, diario unito, avanzamento bloccato. La
+ * Esiti dei giri: commit arrivati, diario/changelog/documenti uniti, avanzamento bloccato. La
  * chiave porta il conteggio, cosi' un nuovo commit produce un nuovo avviso e
  * lo stesso stato non si ripete a ogni giro.
+ *
+ * Un'unione produce UN avviso solo (D4): «Copie unite» o «Diario, changelog e documenti uniti», non
+ * anche «N commit arrivati». I commit che l'unione ha portato sono impliciti
+ * nell'unione, e due avvisi in fila per lo stesso evento erano rumore
+ * (S3-link-front-20).
  */
 function outcomeAlerts(state: MachineAlertsState, outcomes: readonly OutcomeSample[]): MachineAlert[] {
 	const alerts: MachineAlert[] = [];
 	// Senza il primo campione non si conosce il passato: si registra e basta.
 	if (!state.initialized) return alerts;
 	for (const outcome of outcomes) {
-		if (outcome.advanced > 0) {
-			const key = `advanced|${outcome.project}|${outcome.machine}`;
-			const signature = `${outcome.advanced}|${outcome.head ?? ''}`;
-			if (state.emitted[key] !== signature) {
-				state.emitted[key] = signature;
-				alerts.push({
-					kind: 'advanced', machine: outcome.machine, name: outcome.name,
-					project: outcome.project, count: outcome.advanced
-				});
-			}
-		}
-		// Un'unione senza conflitti si annuncia come «Copie unite»; quando i file
-		// toccati stavano solo nel diario la frase resta la sua (R-MI-61).
+		const signature = `${outcome.advanced}|${outcome.head ?? ''}`;
 		if (outcome.merged) {
+			// Un'unione senza conflitti si annuncia come «Copie unite»; quando i
+			// file toccati stavano solo in diario, changelog e documenti di
+			// progetto la frase resta la sua (R-MI-61, R-MI-48, R-MI-72).
 			const key = `${outcome.journalOnly ? 'journal' : 'merged'}|${outcome.project}|${outcome.machine}`;
-			const signature = `${outcome.advanced}|${outcome.head ?? ''}`;
 			if (state.emitted[key] !== signature) {
 				state.emitted[key] = signature;
 				alerts.push({
 					kind: outcome.journalOnly ? 'journal' : 'merged',
 					machine: outcome.machine, name: outcome.name, project: outcome.project
+				});
+			}
+			// L'unione copre i commit che ha portato: si marca la loro impronta
+			// cosi' il giro dopo non emetta anche «N commit arrivati».
+			state.emitted[`advanced|${outcome.project}|${outcome.machine}`] = signature;
+		} else if (outcome.advanced > 0) {
+			const key = `advanced|${outcome.project}|${outcome.machine}`;
+			if (state.emitted[key] !== signature) {
+				state.emitted[key] = signature;
+				alerts.push({
+					kind: 'advanced', machine: outcome.machine, name: outcome.name,
+					project: outcome.project, count: outcome.advanced
 				});
 			}
 		}

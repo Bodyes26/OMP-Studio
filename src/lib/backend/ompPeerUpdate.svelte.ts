@@ -1,8 +1,9 @@
 import { untrack } from 'svelte';
-import { invoke, isTauri, listen, LOCAL_MACHINE, type MachineId } from './ipc.ts';
+import { invoke, isTauri, listen, LOCAL_MACHINE, routeErrorText, type MachineId } from './ipc.ts';
 import { linkStore, type LinkedMachine } from './link.svelte.ts';
 import { currentWaitReasons } from './peerUpdate.svelte.ts';
 import { compareOmpVersions, ompAlignment, ompAskKey, updateFailureObsolete, type WaitReason } from './peerUpdateRules.ts';
+import { ompPeersKey, PeerVersionCadence, PEER_VERSION_REFRESH_MS } from './peerVersionCadence.ts';
 import { presenceStore } from '#lib/automations/presence.svelte.ts';
 import { m } from '#lib/paraglide/messages.js';
 import { ompVersionStore } from '#lib/stores/ompVersion.svelte.ts';
@@ -36,7 +37,6 @@ export interface OmpProposal {
 	own: string;
 }
 
-const REFRESH_MS = 10 * 60_000;
 const FOLLOW_INTERVAL_MS = 3000;
 /** Oltre questo tempo si smette di seguire: la macchina e' rimasta spenta. */
 const FOLLOW_LIMIT_MS = 2 * 60 * 60_000;
@@ -46,8 +46,10 @@ function sleep(ms: number): Promise<void> {
 	setTimeout(resolve, ms);
 	return promise;
 }
+
+/** Un rifiuto di instradamento diventa una frase con il nome della macchina (C5). */
 function errorText(reason: unknown): string {
-	return reason instanceof Error ? reason.message : String(reason);
+	return routeErrorText(reason);
 }
 
 /**
@@ -78,6 +80,10 @@ class OmpPeerUpdateStore {
 	error = $state<string | null>(null);
 	private asked = new Set<string>();
 	private polling = new Set<MachineId>();
+	/** Una sola richiesta `get_omp_version` in volo per macchina (R-MI-67). */
+	private inFlight = new Map<MachineId, Promise<string | null>>();
+	/** Cadenza condivisa con i test: rientro, cambio versione, dieci minuti. */
+	private cadence = new PeerVersionCadence();
 	private running: Promise<void> | null = null;
 	private started = false;
 
@@ -90,39 +96,61 @@ class OmpPeerUpdateStore {
 		this.started = true;
 		void listen('omp-update:remote-install', () => { void this.updateHereAndRestart(); });
 		ompVersionStore.ensure();
-		setInterval(() => this.readPeers(), REFRESH_MS);
+		// R-MI-67: dieci minuti come ripiego, piu' il rientro e il cambio di
+		// versione. Il giro era a ogni `link:status`, cioe' ogni ~5 s per
+		// macchina: il 99% di `studio.log` (S3-link-front-02). La cadenza sta in
+		// `peerVersionCadence.ts`, provata senza finestra.
+		setInterval(() => this.readPeers(true), PEER_VERSION_REFRESH_MS);
 		$effect.root(() => {
-			// R-MI-67: chiave = macchine in linea con la loro versione di Studio e
-			// omp di qui; un rientro o un aggiornamento la cambiano.
+			// Chiave primitiva, non `status.peers`: leggere l'elenco faceva
+			// dipendere l'effetto dal campo, che cambia a ogni battito. La
+			// chiave cambia solo per un rientro o un cambio di versione.
+			$effect(() => {
+				void linkStore.onlinePeersKey;
+				untrack(() => this.readPeers(false));
+			});
 			$effect(() => {
 				void ompVersionStore.current;
-				const key = linkStore.status.peers
-					.filter((peer) => peer.online && peer.compatible)
-					.map((peer) => `${peer.id}@${peer.version}`)
-					.join('|');
-				void key;
-				untrack(() => this.readPeers());
+				untrack(() => this.propose());
 			});
-			$effect(() => this.propose());
 		});
 	}
 
-	/** Rilegge omp sulle macchine in linea e compatibili (R-MI-67). */
-	private readPeers(): void {
+	/**
+	 * Rilegge omp sulle macchine in linea e compatibili (R-MI-67). `fallback`
+	 * e' il giro da dieci minuti: senza, la chiave invariata non rilegge.
+	 */
+	private readPeers(fallback: boolean): void {
 		const online = linkStore.status.peers.filter((peer) => peer.online && peer.compatible);
 		const ids = new Set(online.map((peer) => peer.id));
 		const kept = Object.fromEntries(Object.entries(this.peerVersions).filter(([id]) => ids.has(id)));
 		if (Object.keys(kept).length !== Object.keys(this.peerVersions).length) this.peerVersions = kept;
-		for (const peer of online) void this.readPeer(peer.id);
+		const due = this.cadence.due(online, ompPeersKey(online), Date.now(), fallback);
+		for (const machineId of due) void this.readPeer(machineId);
 	}
 
 	private async readPeer(machineId: MachineId): Promise<string | null> {
-		const version = await invoke<string>('get_omp_version', {}, { machine: machineId }).catch(() => null);
-		if (version && this.peerVersions[machineId] !== version) {
-			this.peerVersions = { ...this.peerVersions, [machineId]: version };
-		}
-		this.dropObsoleteFailure(machineId, version);
-		return version;
+		// Una richiesta in volo per macchina: il rientro e il giro da dieci
+		// minuti possono incrociarsi, e due `get_omp_version` per lo stesso
+		// peer non dicono niente di piu' (S3-link-front-02).
+		const running = this.inFlight.get(machineId);
+		if (running) return running;
+		this.cadence.begin(machineId);
+		const request = invoke<string>('get_omp_version', {}, { machine: machineId })
+			.catch(() => null)
+			.then((version) => {
+				if (version && this.peerVersions[machineId] !== version) {
+					this.peerVersions = { ...this.peerVersions, [machineId]: version };
+				}
+				this.dropObsoleteFailure(machineId, version);
+				return version;
+			})
+			.finally(() => {
+				this.inFlight.delete(machineId);
+				this.cadence.end(machineId, Date.now());
+			});
+		this.inFlight.set(machineId, request);
+		return request;
 	}
 
 	/**
@@ -269,7 +297,7 @@ class OmpPeerUpdateStore {
 			void invoke('omp_update_remote_report', { phase: value, waitingFor, error }, { machine: LOCAL_MACHINE }).catch(() => {});
 		};
 		// Chi e' davanti a questa macchina deve sapere perche' Studio si riavviera'.
-		studioUpdaterStore.setBadge(m.omp_peer_update_incoming(), 'info');
+		studioUpdaterStore.setRemoteNotice(m.omp_peer_update_incoming());
 		try {
 			phase('updating');
 			await invoke('run_omp_update', {}, { machine: LOCAL_MACHINE });
@@ -285,7 +313,7 @@ class OmpPeerUpdateStore {
 			phase('restarting');
 			if (!await restartStudio()) {
 				// Uscita rifiutata: l'avviso «si riavvia appena libera» non e' piu' vero.
-				studioUpdaterStore.setBadge(null);
+				studioUpdaterStore.setRemoteNotice(null);
 				phase('failed', [], m.omp_peer_update_restart_declined());
 			} else {
 				// Riavvio chiesto ma non avvenuto entro pochi secondi (uscita
@@ -294,13 +322,14 @@ class OmpPeerUpdateStore {
 				// `propose()` resterebbe zitto per sempre e nessuna macchina
 				// potrebbe piu' chiedere l'allineamento di omp.
 				setTimeout(() => {
-					studioUpdaterStore.setBadge(null);
+					studioUpdaterStore.setRemoteNotice(null);
 					if (this.localPhase === 'restarting') this.localPhase = null;
 				}, 10_000);
 			}
 		} catch (reason) {
 			const error = errorText(reason);
 			this.error = error;
+			studioUpdaterStore.setRemoteNotice(null);
 			studioUpdaterStore.setBadge(m.omp_peer_update_failed_here({ error }), 'error', 8000);
 			phase('failed', [], error);
 		}

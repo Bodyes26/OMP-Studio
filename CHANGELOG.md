@@ -12,7 +12,46 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 ## [Unreleased]
 
 ### Fixed
+- «Sincronizza» e le pull di Studio non lasciano più il repository in conflitto né modifiche nello stash: o riescono, o tutto torna esattamente com'era e il messaggio dice quale file blocca. (R-MI-71)
+- «Aggiorna» di una copia rimasta indietro non si ferma più davanti a modifiche locali che i commit in arrivo non toccano.
+- Le copie sincronizzate non spostano più una branch non in uso perdendo i commit locali quando le due storie non hanno un antenato comune: la branch resta «divergente». (R-MI-22, R-MI-27)
+- Una copia che non può avanzare per un conflitto non ripete più ogni minuto lo stesso tentativo, che rileggeva tutta la cartella.
+- L'avanzamento da GitHub non si perde più quando il giro delle copie tiene occupata la cartella: aspetta la fine del giro e riprova, senza annunciare «N commit da scaricare». (R-MI-58)
+- Il collegamento fra macchine non interroga più l'altra macchina ogni 5 secondi: lo stato si aggiorna solo quando cambia, la versione di omp si rilegge al rientro o ogni 10 minuti e le cime delle copie con una lettura leggera. Molti meno processi git, e il log di Studio torna a conservare giorni di diagnostica. (R-MI-67, R-MI-57)
+- All'avvio i progetti delle altre macchine non falliscono più in raffica con «macchina non raggiungibile» prima che il collegamento sia pronto, e le tessere remote si rileggono se la prima lettura non riesce. (R-MI-11)
+- Ricaricando la finestra con una chat remota aperta la vecchia iscrizione si chiude: niente più messaggi persi verso una finestra che non c'è più. (R-MI-07)
+- Dopo un riavvio dell'altra macchina una chat remota non si aggancia più alla sessione di un altro progetto; se la sessione non esiste più la chat si riapre invece di ritentare in silenzio ogni secondo. (R-MI-11)
+- I progressi dei subagenti e dei tool lunghi viaggiano accorpati: meno traffico fra le macchine e una ripresa dopo una caduta che copre minuti invece di secondi. (R-MI-11)
+- La chat ripresa mostra sempre lo storico anche quando omp è lento a rispondere ai comandi di contorno: niente più chat vuota con «Insediamento non completato».
+- Riaprire o cambiare chat mentre lo storico si carica non mescola più due conversazioni.
+- Una compattazione automatica a metà risposta non fa più sparire il testo in arrivo.
+- Un task avviato mentre la chat si apre torna in coda se la chat si chiude, cambia o si dirama; con Stop viene scartato.
+- La risposta a una domanda ormai scaduta non finisce più sulla domanda nuova, nemmeno dalla Companion. (ASK-009)
+- Dopo uno Stop, una fine turno arrivata in ritardo non produce più notifica, heads-up né analisi del turno.
+- I rapporti di blocco non segnalano più un falso «Channel fermo» per le sessioni di un'altra macchina e non vengono scritti quando omp sta solo emettendo progressi.
+- Il Laboratorio dei progetti di un'altra macchina gira su quella macchina: prima cercava sul Mac il percorso di Windows. (R-MI-06)
+- Una coda verso un progetto chiuso sull'altra macchina mostra «progetto chiuso» invece di ritentare la consegna all'infinito. (R-MI-15)
+- Avvisi delle macchine: nessun avviso perso dietro una caduta, la caduta ha uno spazio suo e non blocca gli altri, gli errori di sincronizzazione sono segnalati come errori, «Studio si riavvierà appena libero» non sparisce più col controllo degli aggiornamenti e i riscontri Git e file compaiono solo sotto il progetto a cui si riferiscono. (R-MI-51, R-MI-64, IMP-006, IMP-008)
+- Popover Macchine e Dispositivi: «in attesa» in ambra e niente «0 ms» prima della prima misura, «Questo computer» in testa, nessuna scheda vuota se il dispositivo aperto sparisce, motivo della divergenza delle copie. (R-MI-49, R-MI-52)
+- Un aggiornamento di Studio chiesto da un'altra macchina che non arriva al riavvio ora ha un esito e si può ritentare, invece di risultare «in corso» per sempre. (R-MI-38)
+- Cambio macchina: un secondo clic non avvia un secondo trasferimento, la prenotazione non sposta un'altra chat ripresa nel frattempo, gli avvisi scadono da soli e una corsia nel terminale ci torna se il cambio non riesce. (R-MI-62, R-MI-63)
+- Le automazioni di tipo comando legate a un progetto tornano a partire e non lasciano più il progetto bloccato. (AUT-042)
+- Un omp, git o gh che non risponde non blocca più per sempre quote, verifiche dei provider, scheduler delle automazioni o suggerimenti dei ruoli: passata la scadenza il processo viene fermato.
+- Spostare una chat su un'altra macchina e chiudere Studio non congelano più la finestra per qualche secondo.
+- Se una card della chat non riesce a disegnarsi resta una riga con «Riprova»: la conversazione e il testo che stavi scrivendo non spariscono più.
+- Lo streaming resta fluido anche nelle chat molto lunghe: la risposta in arrivo, i piè di turno e le righe dei todo non si ricalcolano più da capo a ogni frame.
+- Chiudendo Studio subito dopo una modifica, impostazioni e code non si perdono più; se il salvataggio delle impostazioni non riesce, Studio lo dice.
+- Il pulsante «Configura» della quota non configurata ora compare, anche dalla Companion.
+- Gli avvisi in basso si impilano invece di sovrapporsi, e un errore che si ripete ricompare.
+- «Copia percorso», «Apri nel terminale» e «Duplica prototipo» danno un riscontro visibile anche quando non riescono.
+- Il terminale si accorge da solo quando il suo processo esce, invece di restare su «in esecuzione».
+- «Installa aggiornamento» non può più partire due volte insieme.
+- Con l'interfaccia bloccata, un secondo Cmd+Q o «Esci» dal tray dopo 10 secondi chiude comunque Studio, con la chiusura ordinata dei processi. (AUT-054)
+- All'avvio non compare più l'errore di permessi del listener delle notifiche di sistema.
+- Il Doctor non dichiara più sano un repository Git senza cartella di lavoro.
+- Studio Remote non si scollega più da solo quando torni all'app dopo averla lasciata in background, e riconnettendosi si riapre più in fretta.
 - Su Windows Studio non si chiude più all'improvviso, senza messaggi: un difetto di Tauri corrompeva la memoria quando l'app lavorava su più thread, soprattutto con il collegamento fra macchine attivo.
+- Se su una macchina omp è più nuovo di Studio e il modulo delle domande di Studio non si carica, la domanda dell'agente non resta più appesa su «L'agente sta preparando le domande…» con l'agente fermo in attesa: viene annullata subito e un avviso spiega di aggiornare Studio su quella macchina.
 - Dopo l'aggiornamento di omp «Riavvia applicazione» chiude e riapre davvero Studio: prima ricaricava solo l'interfaccia e agenti e terminali restavano sulla versione vecchia di omp. (R-MI-70)
 - La conferma «{macchina} ha preso in carico il prompt» sopra il composer sparisce appena l'altra macchina inizia a lavorare, e comunque entro pochi secondi: prima restava lì per sempre. (IMP-006)
 - Altri avvisi dell'aggiornamento fra macchine non restano più per sempre: «installa e riavvia appena è libera» sparisce se l'installazione non chiude Studio o non riesce, l'aggiornamento di un'altra macchina smette di risultare «in corso» dopo 30 minuti senza esito, e un aggiornamento di Studio o di omp non riuscito sparisce da solo quando la macchina risulta aggiornata. (R-MI-64, R-MI-69)
@@ -69,6 +108,8 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Studio Remote torna a riconoscere quali modelli accettano immagini: la PWA leggeva un campo del modello che lo stato della macchina non manda più, quindi ogni modello sembrava accettarle. Controllo dei tipi del relay ripristinato, quindi l'immagine del relay torna a pubblicarsi a ogni modifica. (REL-001)
 
 ### Added
+- Nei progetti presenti su più macchine collegate il lavoro dell'agente diventa un commit a fine turno, con i soli file che l'agente ha cambiato e il messaggio «Studio · ‹macchina› · ‹chat›»: arriva da solo sull'altra macchina e si unisce in automatico. Le modifiche fatte a mano restano non committate. (R-MI-73)
+- «Allinea tutto» nella striscia delle copie: quando le copie non riescono ad allinearsi da sole, Studio committa le modifiche in sospeso di ogni copia libera, le scambia e, se git non riesce a unirle, affida l'unione a un agente che risolve, verifica e committa. (R-MI-74)
 - L'anteprima dei prototipi ha il pulsante «Browser», che apre la stessa pagina nel browser di sistema.
 - omp resta allineato fra le macchine collegate: se su un'altra macchina omp è più vecchio, Studio chiede «Aggiornare omp su …?» e, confermato, quella macchina aggiorna omp e si riavvia appena è libera; se è più nuovo altrove, propone di aggiornarlo qui. Vale anche al rientro di una macchina appena aggiornata. Il dettaglio del computer in Dispositivi mostra la sua versione di omp e lo stato dell'aggiornamento. (R-MI-67, R-MI-68, R-MI-69)
 - La mappa di «Dispositivi» mostra quali collegamenti sono in uso, inattivi o non raggiungibili e distingue i percorsi diretti, il relay fra computer e Studio Remote. (IMP-009)
@@ -128,10 +169,18 @@ rilasciati: vengono chiusi in una versione con `npm run release -- <versione>`.
 - Se l'installazione di `omp` è rotta (per esempio un collegamento che punta a una cartella cancellata), Studio lo dice e offre «Ripara», invece di ripartire come su un computer nuovo. Quando manca un pezzo indispensabile il setup riapre direttamente su quel passo, senza l'ingresso animato. (SET-010, SET-020)
 
 ### Changed
+- Changelog e documenti di progetto (`docs/progetto`) si uniscono per righe come il diario, in tutti i progetti: due macchine che aggiungono una voce nello stesso punto ottengono entrambe le voci invece di un conflitto. (R-MI-72)
+- Gli errori attesi (sessione chiusa, collegamento perso, macchina spenta, comandi di contorno scaduti) non compaiono più come avvisi gialli nella chat: vanno nel log di Studio, con un nuovo tentativo silenzioso.
+- Gli errori verso un'altra macchina dicono, per esempio, «Windows non raggiungibile» invece del testo tecnico con l'identificativo della macchina.
+- Un'unione delle copie produce un solo avviso, quello dell'unione. (R-MI-51)
+- Le scorciatoie da tastiera globali non agiscono più mentre è aperta una finestra di dialogo.
+- Le chat che non sono a schermo non ascoltano più fuoco, visibilità e trascinamento dei file e non ricevono i progressi dei subagenti, che si riallineano quando torni sulla chat.
+- Automazioni, scheda dei subagenti, schemi a fasi e schermata iniziale usano i colori e le dimensioni del tema: si leggono bene anche nei temi chiari.
 - Studio è allineato a omp 19.2.1: il Piano segue i prompt della nuova versione, il Laboratorio continua a segnalare i problemi con `report_issue` e legge la documentazione degli strumenti da `help://`, e le impostazioni generate usano i nuovi nomi di omp per i comandi degli strumenti.
 - Le copie dello stesso progetto si sincronizzano subito: quando l'altra macchina committa, quando torna in linea, quando torni sulla finestra, quando apri il progetto e quando un agente finisce il turno, invece che al massimo una volta al minuto. Un giro non riuscito si ritenta da solo e, se continua a fallire, compare un avviso con il motivo. (R-MI-57)
 - I commit arrivati su GitHub si applicano da soli con un fast-forward, con le stesse sicurezze della sincronizzazione fra macchine: niente più «N commit da scaricare» da sistemare a mano. Studio non fa mai merge, rebase o push da solo verso GitHub. (R-MI-58)
 - Il diario non va più in conflitto: le righe scritte su macchine diverse, anche non committate, si uniscono in ogni sincronizzazione, pull o stash, e non finiscono più parcheggiate nello stash. (R-MI-59)
+- Quando due copie si uniscono toccando solo diario, changelog e documenti di progetto, l'avviso dice «Diario, changelog e documenti uniti con …» invece di «Diario unito». (R-MI-72)
 - Il diario modificato da un agente si committa da solo a fine turno, solo quel file. (R-MI-60)
 - Due copie con commit diversi sulla stessa branch si uniscono da sole quando git non trova conflitti, con un solo commit di unione uguale su tutte le macchine. Se ci sono conflitti la striscia sopra il composer nomina i file e «Risolvi» affida l'unione a un agente con il compito già scritto. (R-MI-61)
 - Se cambi macchina mentre l'agente lavora, il cambio si prenota e avviene da solo a fine turno, con «Annulla» sotto il composer. Prima di spostare una chat Studio allinea da solo le due copie, anche quando quella di partenza è indietro. (R-MI-62)

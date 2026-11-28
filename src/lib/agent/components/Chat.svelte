@@ -92,6 +92,12 @@
 	}
 	setContext<() => string>('git-diff-project-path', () => session.cwd);
 	provideChatPreview(() => ({ machine: session.machineId, project: session.hostProjectId, owner: session.projectKey }));
+	// C4/S14-04: la sessione sa se la chat e' a schermo. Con la chat nascosta i
+	// progressi dei subagenti non servono: la sottoscrizione passa a `off` e non
+	// viaggia un frame; al ritorno si riallinea l'elenco.
+	$effect(() => {
+		session.setViewVisible(visible);
+	});
 	// Ganci condivisi passati via contesto: i componenti annidati non hanno
 	// bisogno di callback inoltrate a mano.
 	setAgentUiHooks({
@@ -123,7 +129,16 @@
 	let contentEl: HTMLElement | null = $state(null);
 	let userScrolledUp = $state(false);
 	let windowVisible = $state(false);
+	// Una sola chat e' a schermo per corsia, ma il guscio monta una `Chat` per
+	// ogni corsia e progetto: i tre listener globali e la sottoscrizione del
+	// trascinamento nativo valgono solo per quella visibile (S5-05). La chat
+	// nascosta li accende quando torna davanti, quindi `windowVisible` riparte
+	// gia' allineato e non serve aspettare un cambio di fuoco.
 	$effect(() => {
+		if (!visible) {
+			windowVisible = false;
+			return;
+		}
 		const update = () => { windowVisible = document.visibilityState === 'visible' && document.hasFocus(); };
 		update();
 		document.addEventListener('visibilitychange', update);
@@ -544,6 +559,14 @@
 
 	$effect(() => {
 		if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return;
+		// Solo la chat davanti riceve il trascinamento: una sottoscrizione per
+		// corsia montata era un listener nativo di troppo per ogni chat nascosta (S5-05).
+		if (!visible) {
+			// Una chat che sparisce a meta' trascinamento non deve riapparire con
+			// la cornice di rilascio accesa.
+			isDraggingColumn = false;
+			return;
+		}
 		let disposed = false;
 		let unlisten: (() => void) | null = null;
 		let paths: string[] = [];

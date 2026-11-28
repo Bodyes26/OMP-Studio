@@ -21,6 +21,7 @@ import { invoke, LOCAL_MACHINE } from '#lib/backend/ipc.ts';
 import { linkStore } from '#lib/backend/link.svelte.ts';
 import { laneSessionKey, sessionRegistry } from '#lib/agent/sessionRegistry.ts';
 import { getDirtyEditorPaths } from '#lib/editor/editorActivity.svelte.ts';
+import { studioLog } from '#lib/diagnostics/studioLog.ts';
 import { m } from '#lib/paraglide/messages.js';
 import { busyPaths, type CopySyncReport } from '#lib/stores/copySync.svelte.ts';
 import {
@@ -64,7 +65,12 @@ export interface SessionMoveResume {
  */
 export type SwitchResult = 'instant' | 'moved' | 'deferred' | 'pending' | 'blocked' | 'cancelled';
 
-/** Spostamenti in corso: un secondo clic non ne avvia un altro. */
+/**
+ * Spostamenti in corso, per corsia (S3-17): un secondo clic non ne avvia un
+ * altro. La chiave e' la corsia e non il `sessionId`, che cambia a meta'
+ * allineamento (riapertura, import) e lasciava passare un secondo
+ * trasferimento sulla stessa cartella.
+ */
 const running = new Set<string>();
 
 // ---------------------------------------------------------------------------
@@ -93,11 +99,20 @@ interface MovedPayload {
 
 interface DeferredSwitch {
 	cancelled: boolean;
+	/** Sessione che ha prenotato lo spostamento: se la corsia ne adotta un'altra, non parte. */
+	sessionId: string;
+}
+
+/** La corsia che la copia di arrivo mostrera' davvero (puo' essere cambiata). */
+function arrivalLaneKey(to: Project, laneId?: string): string {
+	const live = projectStore.projects.find((copy) => copy.id === to.id);
+	return laneSessionKey(to.id, laneId ?? live?.lane.laneId ?? to.lane.laneId);
 }
 
 const notices = new Map<string, MachineSwitchNotice>();
 const pendingSwitches = new Map<string, DeferredSwitch>();
 const movedPayloads = new Map<number, MovedPayload>();
+const noticeTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const listeners = new Set<() => void>();
 let noticeSeq = 0;
 
@@ -115,6 +130,15 @@ export function machineSwitchNotice(sessionKey: string): MachineSwitchNotice | n
 
 function setNotice(sessionKey: string, notice: MachineSwitchNotice): void {
 	notices.set(sessionKey, notice);
+	// Ogni avviso scade da solo: uno «prenotato» che resta sotto il composer
+	// dopo che lo spostamento e' partito mostra un «Annulla» che non fa piu'
+	// nulla, e un «Portate N modifiche» fuori tempo confonde (S3-19).
+	const existing = noticeTimers.get(sessionKey);
+	if (existing !== undefined) clearTimeout(existing);
+	noticeTimers.set(sessionKey, setTimeout(() => {
+		noticeTimers.delete(sessionKey);
+		clearNotice(sessionKey, notice.id);
+	}, notice.kind === 'moved-back' ? 5_000 : NOTICE_TTL_MS));
 	for (const listener of listeners) listener();
 }
 
@@ -122,6 +146,14 @@ function clearNotice(sessionKey: string, id?: number): void {
 	const current = notices.get(sessionKey);
 	if (!current || (id !== undefined && current.id !== id)) return;
 	notices.delete(sessionKey);
+	// Il payload dell'«Annulla» vive quanto l'avviso: scaduto quello, non c'e'
+	// piu' niente da riportare indietro.
+	movedPayloads.delete(current.id);
+	const timer = noticeTimers.get(sessionKey);
+	if (timer !== undefined) {
+		clearTimeout(timer);
+		noticeTimers.delete(sessionKey);
+	}
 	for (const listener of listeners) listener();
 }
 
@@ -323,8 +355,10 @@ async function waitForTurnEnd(session: AgentSession, cancelled: () => boolean): 
 	return false;
 }
 
-/** Quanto resta l'avviso delle modifiche portate, con il suo «Annulla». */
-const MOVED_NOTICE_MS = 30_000;
+/** Tutti gli avvisi sotto il composer scadono: uno prenotato che resta li'
+ *  dopo che lo spostamento e' partito mostra un «Annulla» che non fa piu'
+ *  nulla (S3-19). La scadenza si cancella con `clearNotice`. */
+const NOTICE_TTL_MS = 30_000;
 
 function notifyMoved(sessionKey: string, count: number, payload: MovedPayload): void {
 	// «Portate N modifiche da M» (R-MI-63). Senza modifiche non c'e' nulla da
@@ -333,12 +367,6 @@ function notifyMoved(sessionKey: string, count: number, payload: MovedPayload): 
 	const id = ++noticeSeq;
 	movedPayloads.set(id, payload);
 	setNotice(sessionKey, { id, kind: 'moved', machine: machineName(payload.fromMachine), count });
-	// Un avviso breve: scaduto, «Annulla» non avrebbe piu' senso e non deve
-	// restare sotto il composer per sempre.
-	setTimeout(() => {
-		movedPayloads.delete(id);
-		clearNotice(sessionKey, id);
-	}, MOVED_NOTICE_MS);
 }
 
 /** «Annulla» sull'avviso: le modifiche tornano sulla copia di partenza (R-MI-63). */
@@ -356,7 +384,6 @@ export async function undoMovedChanges(sessionKey: string, id: number): Promise<
 			busyPaths: back ? localBusy(back) : []
 		});
 		setNotice(sessionKey, { id, kind: 'moved-back', machine: machineName(payload.fromMachine), count: 0 });
-		setTimeout(() => clearNotice(sessionKey, id), 5000);
 	} catch (error) {
 		clearNotice(sessionKey, id);
 		await message(m.copies_move_failed({ from: machineName(payload.fromMachine), error: String(error) }), {
@@ -394,8 +421,10 @@ async function perform(
 	const sessionId = session.sessionId;
 	const rpcId = session.client.id;
 	if (!sessionId) return 'blocked';
-	if (running.has(sessionId)) return 'pending';
-	running.add(sessionId);
+	// La protezione e' per corsia, non per sessione (S3-17).
+	const laneKey = laneSessionKey(from.id, from.lane.laneId);
+	if (running.has(laneKey)) return 'pending';
+	running.add(laneKey);
 	const title = m.session_move_title({ machine: machineName(to.machineId) });
 	try {
 		const source = from.machineId ?? LOCAL_MACHINE;
@@ -479,7 +508,10 @@ async function perform(
 		const transcript = await invoke<string>('session_move_export', { projectPath: sourcePath, session: sessionId, rpcId, target }, { machine: source });
 		await invoke('session_move_import', { projectPath: targetPath, sourcePath, session: sessionId, transcript }, { machine: destination });
 		await resume({ sessionId, lane: targetLane, model });
-		notifyMoved(laneSessionKey(to.id, targetLane), carried, {
+		// L'avviso si aggancia alla corsia che la copia di arrivo mostra davvero:
+		// con una corsia diversa da quella di partenza la chiave di `to.lane`
+		// non e' montata e l'avviso non si vedeva (S3-19).
+		notifyMoved(arrivalLaneKey(to, targetLane), carried, {
 			fromMachine: from.machineId, fromPath: sourcePath,
 			toMachine: to.machineId, toPath: targetPath
 		});
@@ -488,7 +520,7 @@ async function perform(
 		await message(String(error), { title, kind: 'error' });
 		return 'blocked';
 	} finally {
-		running.delete(sessionId);
+		running.delete(laneKey);
 	}
 }
 
@@ -501,13 +533,20 @@ function deferSwitch(
 	resume: (result: SessionMoveResume) => Promise<void>
 ): void {
 	const id = ++noticeSeq;
-	const deferred: DeferredSwitch = { cancelled: false };
+	const deferred: DeferredSwitch = { cancelled: false, sessionId: session.sessionId ?? '' };
 	pendingSwitches.set(sessionKey, deferred);
 	setNotice(sessionKey, { id, kind: 'deferred', machine: machineName(to.machineId), count: 0 });
 	void (async () => {
 		if (!await waitForTurnEnd(session, () => deferred.cancelled)) return;
 		pendingSwitches.delete(sessionKey);
 		clearNotice(sessionKey, id);
+		// La corsia puo' aver ripreso un'altra chat nel frattempo: spostare
+		// quella nuova significherebbe portare via un lavoro che l'utente non
+		// ha prenotato (S4-14).
+		if (deferred.sessionId && session.sessionId !== deferred.sessionId) {
+			studioLog.info('session', `spostamento prenotato annullato: la corsia ha ripreso ${session.sessionId ?? 'nessuna chat'}`);
+			return;
+		}
 		await perform(from, to, session, resume);
 	})();
 }

@@ -5,6 +5,7 @@
 <script lang="ts">
 	import QuotaModal from './QuotaModal.svelte';
 	import type { ProviderHost } from '#lib/stores/quota.svelte.ts';
+	import type { SettingsSection } from '#lib/stores/settings.svelte.ts';
 
 	let {
 		open = false,
@@ -17,7 +18,7 @@
 		anchor?: HTMLElement | null;
 		onClose?: () => void;
 		guiHosts?: ProviderHost[];
-		onOpenSettings?: (section?: string) => void;
+		onOpenSettings?: (section?: SettingsSection) => void;
 	}>();
 </script>
 

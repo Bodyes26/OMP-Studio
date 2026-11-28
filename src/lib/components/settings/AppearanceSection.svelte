@@ -2,6 +2,8 @@
 	import { m } from '#lib/paraglide/messages.js';
 	import { onMount } from 'svelte';
 	import { flip } from 'svelte/animate';
+	import { motionReduced } from '#lib/agent/motionState.svelte.ts';
+	import { revealEase } from '#lib/agent/motion.ts';
 	import { themeStore } from '#lib/stores/theme.svelte.ts';
 	import {
 		settingsStore,
@@ -225,7 +227,7 @@
 		<ol class="column-order" aria-label={m.settings_appearance_columns_aria()}>
 			{#each columnOrder as role, i (role)}
 				{@const column = columnLabel(role)}
-				<li class="column-slot {MINI_CLASS[role]}" animate:flip={{ duration: 160 }}>
+				<li class="column-slot {MINI_CLASS[role]}" animate:flip={{ duration: motionReduced() ? 0 : 210, easing: revealEase }}>
 					<button
 						type="button"
 						class="ui-button ui-button-ghost column-move"

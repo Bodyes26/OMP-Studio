@@ -335,7 +335,7 @@
 	}
 
 	.origin-badge {
-		font-size: 11px;
+		font-size: var(--text-caption);
 		padding: 2px 7px;
 		border-radius: var(--radius-full);
 		font-weight: 500;
@@ -370,7 +370,7 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 3px;
-		font-size: 11px;
+		font-size: var(--text-caption);
 		padding: 2px 7px;
 		border-radius: var(--radius-full);
 		background: var(--bg-sunken);
@@ -427,7 +427,7 @@
 
 	.section-title {
 		margin: 0;
-		font-size: 12px;
+		font-size: var(--text-label);
 		text-transform: uppercase;
 		letter-spacing: 0.04em;
 		color: var(--ink-muted);
@@ -520,7 +520,7 @@
 	.benefit-check {
 		display: inline-flex;
 		color: var(--success);
-		font-size: 11px;
+		font-size: var(--text-caption);
 		align-self: center;
 	}
 

@@ -423,7 +423,7 @@
 	}
 
 	.subagent-saving-indicator {
-		font-size: 11px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		font-style: italic;
 	}
@@ -459,7 +459,7 @@
 	}
 
 	.subagent-control-hint {
-		font-size: 11px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		min-height: 16px;
 	}
@@ -493,12 +493,12 @@
 	}
 
 	.allowlist-hint {
-		font-size: 11px;
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
 	}
 
 	.allowlist-clear-btn {
-		font-size: 11px;
+		font-size: var(--text-caption);
 		padding: 3px 8px;
 		border-radius: var(--radius-sm);
 		border: 1px solid var(--line);
@@ -560,7 +560,7 @@
 
 	.allowlist-checkbox {
 		cursor: pointer;
-		accent-color: var(--accent);
+		accent-color: var(--brand);
 		width: 14px;
 		height: 14px;
 		flex-shrink: 0;
@@ -583,12 +583,12 @@
 
 	.allowlist-model-selector {
 		font-family: var(--font-mono);
-		font-size: 11px;
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
 	}
 
 	.role-pill {
-		font-size: 10px;
+		font-size: var(--text-caption);
 		padding: 1px 5px;
 		border-radius: 999px;
 		background: var(--bg-hover);
@@ -609,7 +609,7 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 4px;
-		font-size: 10px;
+		font-size: var(--text-caption);
 		padding: 2px 6px;
 		border-radius: var(--radius-xs);
 		white-space: nowrap;
@@ -617,13 +617,13 @@
 	}
 
 	.status-allowed {
-		background: rgba(16, 185, 129, 0.12);
-		color: #10b981;
+		background: color-mix(in oklab, var(--success) 12%, transparent);
+		color: var(--success);
 	}
 
 	.status-allowed-all {
-		background: rgba(59, 130, 246, 0.12);
-		color: #3b82f6;
+		background: color-mix(in oklab, var(--success) 12%, transparent);
+		color: var(--success);
 	}
 
 	.status-excluded {
@@ -636,8 +636,8 @@
 		align-items: center;
 		gap: 6px;
 		padding: 6px 10px;
-		background: rgba(239, 68, 68, 0.1);
-		border: 1px solid rgba(239, 68, 68, 0.2);
+		background: color-mix(in oklab, var(--danger) 10%, transparent);
+		border: 1px solid color-mix(in oklab, var(--danger) 20%, transparent);
 		border-radius: var(--radius-sm);
 		color: var(--danger);
 		font-size: var(--text-caption);
@@ -709,7 +709,7 @@
 	}
 
 	.status-pill {
-		font-size: 11px;
+		font-size: var(--text-caption);
 		padding: 2px 7px;
 		border-radius: var(--radius-sm);
 		border: 1px solid var(--line);
@@ -718,7 +718,7 @@
 	}
 
 	.status-pill.active {
-		border-color: #10b981;
-		color: #10b981;
+		border-color: var(--success);
+		color: var(--success);
 	}
 </style>

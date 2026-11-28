@@ -679,26 +679,26 @@ async fn test_handshake_401_maps_to_revoked_without_retry() {
     };
     let ctx = ConnectionContext::new(None, config);
 
+    // Lo stato Revoked arriva dal hook dello stato, non da un giro di `sleep`:
+    // il test non dipende piu' dal timing della rete (S11-12).
+    let (revoked_tx, mut revoked_rx) = mpsc::unbounded_channel();
+    *ctx.status_hook.lock() = Some(Arc::new(move |status| {
+        if status.connection == RemoteConnection::Revoked {
+            let _ = revoked_tx.send(status);
+        }
+    }));
+
     let _handle = start_connection_task(ctx.clone());
 
-    // Attesa che lo stato diventi Revoked
-    let mut revoked = false;
-    for _ in 0..50 {
-        tokio::time::sleep(Duration::from_millis(20)).await;
-        let st = ctx.status.lock().clone();
-        if st.connection == RemoteConnection::Revoked {
-            revoked = true;
-            assert!(
-                st.retry_at.is_none(),
-                "retry_at deve essere None su Revoked"
-            );
-            assert!(st.last_error.is_some(), "last_error deve essere presente");
-            break;
-        }
-    }
-    assert!(revoked, "Lo stato doveva diventare Revoked");
+    let revoked = tokio::time::timeout(Duration::from_secs(5), revoked_rx.recv())
+        .await
+        .expect("lo stato doveva diventare Revoked entro 5 s")
+        .expect("il canale dello stato e' chiuso");
+    assert!(revoked.retry_at.is_none(), "retry_at deve essere None su Revoked");
+    assert!(revoked.last_error.is_some(), "last_error deve essere presente");
 
-    // Attesa per confermare che nessun secondo tentativo venga effettuato
+    // Nessun secondo tentativo dopo 401: si aspetta un tempo breve, ma e' un
+    // controllo negativo, non una sincronizzazione.
     tokio::time::sleep(Duration::from_millis(100)).await;
     assert_eq!(
         attempts.load(Ordering::SeqCst),
@@ -1032,22 +1032,23 @@ async fn test_command_reaches_test_hook_exactly_once() {
 
     let cmd_counter = Arc::new(AtomicUsize::new(0));
     let cmd_counter_clone = cmd_counter.clone();
+    // Il comando raggiunge l'hook: si aspetta l'evento sul canale, non un giro
+    // di `sleep` (S11-12).
+    let (cmd_tx, mut cmd_rx) = mpsc::unbounded_channel();
     *ctx.command_hook.lock() = Some(Arc::new(move |_cmd| {
         cmd_counter_clone.fetch_add(1, Ordering::SeqCst);
+        let _ = cmd_tx.send(());
     }));
 
     start_connection_task(ctx.clone());
     connected_rx.await.expect("connesso");
 
-    // Attendi la ricezione del comando
-    for _ in 0..50 {
-        tokio::time::sleep(Duration::from_millis(20)).await;
-        if cmd_counter.load(Ordering::SeqCst) > 0 {
-            break;
-        }
-    }
+    tokio::time::timeout(Duration::from_secs(5), cmd_rx.recv())
+        .await
+        .expect("il comando doveva arrivare entro 5 s")
+        .expect("il canale dei comandi e' chiuso");
 
-    // Ulteriore attesa per verificare che non arrivino duplicati
+    // Controllo negativo: nessun duplicato.
     tokio::time::sleep(Duration::from_millis(100)).await;
     assert_eq!(
         cmd_counter.load(Ordering::SeqCst),
@@ -1064,9 +1065,12 @@ fn test_connection_task_startup_outside_tokio_runtime() {
     std::fs::create_dir_all(&dir).unwrap();
     let config_path = dir.join("remote.json");
 
+    // Porta 1 su loopback: nessun servizio ci ascolta (le porte < 1024 sono
+    // riservate), quindi il tentativo fallisce sempre allo stesso modo invece
+    // di dipendere da chi occupa la 9999 (S11-13).
     let cfg = RemoteConfig {
         enabled: true,
-        relay_url: Some("http://127.0.0.1:9999".to_string()),
+        relay_url: Some("http://127.0.0.1:1".to_string()),
         credential: Some("test-credential".to_string()),
         machine_name: "Test Machine".to_string(),
         host_id: "host-startup".to_string(),
@@ -1080,9 +1084,9 @@ fn test_connection_task_startup_outside_tokio_runtime() {
     // causava panico immediato: con `tauri::async_runtime::spawn`, il task viene avviato regolarmente.
     manager.start_if_enabled();
 
-    // Il task e' partito: su un runner lento il tentativo verso la porta chiusa
-    // puo' gia' essere fallito, e lo stato passa da Connecting a Waiting (attesa
-    // prima del nuovo tentativo). Entrambi dicono che il task gira senza panico.
+    // Il punto del test e' che il task parta senza panico: lo stato puo' essere
+    // gia' passato a `Waiting` quando il tentativo sulla porta chiusa e'
+    // fallito. Nessuna attesa: si guarda lo stato che c'e'.
     let connection = manager.ctx.status.lock().connection;
     assert!(
         matches!(connection, RemoteConnection::Connecting | RemoteConnection::Waiting),

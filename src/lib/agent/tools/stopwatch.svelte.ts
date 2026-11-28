@@ -12,8 +12,6 @@
 // epoca) senza poter arretrare se l'orologio di sistema viene corretto
 // mentre un comando lungo e' in esecuzione.
 
-import { formatElapsed } from './types';
-
 const TICK_MS = 100;
 const EPOCH_ORIGIN = Date.now() - performance.now();
 
@@ -55,21 +53,4 @@ export function subscribeStopwatch(): () => void {
 			timer = null;
 		}
 	};
-}
-
-/**
- * Etichetta del cronometro di una chiamata: scorre finche' il tool e' in
- * esecuzione, poi resta ferma sulla differenza reale fra `tool_call` e
- * `tool_result`. Restituisce `undefined` quando non c'e' nulla da mostrare
- * (chiamata senza avvio noto, o conclusa senza istante di fine).
- */
-export function stopwatchLabel(
-	startedAt: number,
-	endedAt: number | undefined,
-	running: boolean
-): string | undefined {
-	if (!startedAt) return undefined;
-	if (running) return formatElapsed(Math.max(0, stopwatchNow() - startedAt));
-	if (endedAt === undefined) return undefined;
-	return formatElapsed(Math.max(0, endedAt - startedAt));
 }

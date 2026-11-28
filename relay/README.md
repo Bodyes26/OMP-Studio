@@ -25,6 +25,10 @@ Visual previews appear as cards in chat: open Mermaid diagrams, SVGs and HTML/TS
 - A DNS name pointing to it.
 - A reverse proxy that terminates TLS and forwards WebSockets (Nginx Proxy Manager, Caddy, Traefik, plain nginx).
 
+### The relay always sits behind a reverse proxy
+
+The attempt limits (pairing, sockets, short codes) identify the caller by the last entry of `X-Forwarded-For`, the one added by the proxy that actually received the connection. The assumption is that the relay is not reachable directly from the internet: the container publishes no port and only the reverse proxy reaches it on the shared network (see install step 4). Exposing the relay in the clear would let an attacker write `X-Forwarded-For` and rotate the header to dodge the limits; that is why the published compose file publishes no port and the certificate lives on the proxy.
+
 ## Install
 
 1. On the server, create a folder (for example `/opt/stacks/studio-relay`) and put in it this folder's `compose.example.yml` as `compose.yaml` and `.env.example` as `.env`.

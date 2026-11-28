@@ -4,7 +4,7 @@
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -326,6 +326,32 @@ describe('Estensione studio-plan: guardia di scrittura', () => {
 		assert.ok(blocked({ toolName: 'edit', input: { path: 'local://x-plan.md', edits: [{ op: 'update', rename: 'local://y.md' }] } }));
 		assert.ok(blocked({ toolName: 'edit', input: { path: 'local://x-plan.md', edits: [{ op: 'delete' }] } }));
 		assert.ok(blocked({ toolName: 'edit', input: { input: '*** Begin Patch\n*** Update File: src/a.ts\n*** End Patch' } }));
+	});
+
+	it('rifiuta .omp/plans che e\' un symlink fuori dal progetto', () => {
+		const project = mkdtempSync(join(tmpdir(), 'omp-plan-symlink-'));
+		const outside = mkdtempSync(join(tmpdir(), 'omp-plan-outside-'));
+		try {
+			mkdirSync(join(project, '.omp'));
+			// `.omp/plans` puntato fuori: un `resolve` lessicale lo lascerebbe
+			// passare, quindi la guardia deve confrontare i percorsi reali.
+			symlinkSync(outside, join(project, '.omp', 'plans'), process.platform === 'win32' ? 'junction' : 'dir');
+			const target = join(project, '.omp', 'plans', 'X_PLAN.md');
+			assert.equal(isPlanWritablePath(target, project), false);
+			assert.equal(isPlanWritablePath('.omp/plans/X_PLAN.md', project), false);
+
+			// Controllo di non-regressione: senza symlink lo stesso percorso passa.
+			const plain = mkdtempSync(join(tmpdir(), 'omp-plan-plain-'));
+			try {
+				mkdirSync(join(plain, '.omp', 'plans'), { recursive: true });
+				assert.equal(isPlanWritablePath(join(plain, '.omp', 'plans', 'X_PLAN.md'), plain), true);
+			} finally {
+				rmSync(plain, { recursive: true, force: true });
+			}
+		} finally {
+			rmSync(project, { recursive: true, force: true });
+			rmSync(outside, { recursive: true, force: true });
+		}
 	});
 
 	it('non tocca bash, read e gli strumenti di sola lettura', () => {

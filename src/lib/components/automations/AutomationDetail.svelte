@@ -528,7 +528,7 @@
 		align-items: center;
 		padding: 3px 8px;
 		border-radius: var(--radius-full);
-		font-size: 11px;
+		font-size: var(--text-caption);
 		font-weight: 600;
 	}
 
@@ -542,7 +542,7 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 5px;
-		font-size: 11px;
+		font-size: var(--text-caption);
 		color: var(--ink-muted);
 		background: var(--bg-sunken);
 		padding: 2px 7px;
@@ -551,12 +551,12 @@
 	}
 
 	.revision-pill {
-		font-size: 11px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 	}
 
 	.def-title {
-		font-size: 18px;
+		font-size: var(--text-prose-h2);
 		font-weight: 600;
 		color: var(--ink);
 		margin: 0;
@@ -564,7 +564,7 @@
 
 	.def-description {
 		margin: 0;
-		font-size: 13px;
+		font-size: var(--text-body);
 		color: var(--ink-muted);
 		line-height: 1.4;
 	}
@@ -596,7 +596,7 @@
 		align-items: center;
 		gap: 6px;
 		padding: 8px 14px;
-		font-size: 13px;
+		font-size: var(--text-body);
 		font-weight: 500;
 		background: transparent;
 		border: none;
@@ -637,7 +637,7 @@
 
 	.card-title {
 		margin: 0;
-		font-size: 11px;
+		font-size: var(--text-caption);
 		font-weight: 600;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
@@ -652,7 +652,7 @@
 
 	.field-label {
 		color: var(--ink-muted);
-		font-size: 12px;
+		font-size: var(--text-label);
 	}
 
 	.field-value {
@@ -671,7 +671,7 @@
 		background: var(--bg-sunken);
 		border-radius: var(--radius-sm);
 		border: 1px solid var(--line);
-		font-size: 13px;
+		font-size: var(--text-body);
 		line-height: 1.5;
 		white-space: pre-wrap;
 		color: var(--ink);
@@ -683,7 +683,7 @@
 		background: var(--bg-sunken);
 		border-radius: var(--radius-sm);
 		border: 1px solid var(--line);
-		font-size: 13px;
+		font-size: var(--text-body);
 		color: var(--ink);
 	}
 

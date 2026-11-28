@@ -10,8 +10,8 @@ export type SplitterAxis = 'left' | 'center';
 export type ColumnRole = 'files' | 'editor' | 'agent';
 export const DEFAULT_COLUMN_ORDER: readonly ColumnRole[] = ['files', 'editor', 'agent'];
 export const PANEL_SPLIT = 6;
-export const PANEL_MIN_COL = 160;
-export const PANEL_MIN_ROW = 120;
+const PANEL_MIN_COL = 160;
+const PANEL_MIN_ROW = 120;
 
 export function panelScope(kind: 'git' | 'lab', identity: string): string {
 	return JSON.stringify([kind, identity]);

@@ -1,11 +1,10 @@
 /**
  * Su quale macchina girano chat e task di un progetto (R-MI-13, F19).
  *
- * F18 fissa la regola: la macchina proposta è **l'ultima usata** nel progetto,
- * non quella locale. Su un progetto presente su una sola macchina non c'è
- * scelta: parte lì. Questa logica è pura perché la usano l'indicatore sotto il
- * composer, il selettore dei task e la coda, e deve dare la stessa risposta in
- * tutti e tre.
+ * F18 (l'ultima copia usata, non quella locale) la applica `projectCopies.ts`
+ * con `inUseCopy`/`tileCopy`: è da li' che tessera, ordine della barra e
+ * provenienza prendono la copia su cui nascono chat e task. Qui resta l'elenco
+ * che l'indicatore sotto il composer mostra, con la stessa regola d'ordine.
  */
 
 /** Una copia del progetto su una macchina. */
@@ -49,21 +48,4 @@ export function machineChoices(copies: readonly MachineCopy[], current: string):
 		name: copy.name,
 		online: copy.online
 	}));
-}
-
-/**
- * Macchina proposta per un lavoro nuovo.
- *
- * - una sola copia → quella, sempre: non c'è nulla da decidere;
- * - più copie → l'ultima usata (F18), purché sia ancora raggiungibile: una
- *   macchina spenta farebbe fallire l'apertura e perderebbe il messaggio.
- *   Se nessuna è in linea si restituisce comunque l'ultima usata e il
- *   chiamante mostra «non raggiungibile» invece di inventare una scelta.
- */
-export function proposedMachine(copies: readonly MachineCopy[]): string | null {
-	if (copies.length === 0) return null;
-	if (copies.length === 1) return copies[0].machineId;
-	const ranked = [...copies].sort((a, b) => (b.lastUsed ?? 0) - (a.lastUsed ?? 0));
-	const reachable = ranked.find((copy) => copy.online);
-	return (reachable ?? ranked[0]).machineId;
 }

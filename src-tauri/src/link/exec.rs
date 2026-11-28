@@ -39,6 +39,11 @@ const MAX_ARTIFACT_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const KEEP_FINISHED_MS: u64 = 60 * 60 * 1000;
 /// Oltre questo tempo senza risposta l'altra macchina conta come persa.
 const UNREACHABLE_AFTER: Duration = Duration::from_secs(90);
+/// Quanto si aspetta che i lettori di stdout/stderr si chiudano dopo l'uscita
+/// del processo, prima di chiudere il gruppo (S2-11). Tre secondi sono il
+/// tempo di un `cat` che finisce; un nipote che tiene le pipe aperte non le
+/// chiuderebbe mai.
+const READER_JOIN_TIMEOUT: Duration = Duration::from_secs(3);
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "state", rename_all = "camelCase")]
@@ -403,13 +408,16 @@ fn run_process(job: &Arc<HostJob>, worktree: &Path) -> Result<JobState, String> 
         child.stderr.take().map(|err| Box::new(err) as Box<dyn Read + Send>)]
         .into_iter().flatten().map(|mut stream| {
             let job = job.clone();
+            let (tx, rx) = std::sync::mpsc::channel::<()>();
             std::thread::spawn(move || {
                 let mut buffer = [0u8; 16 * 1024];
                 while let Ok(read) = stream.read(&mut buffer) {
                     if read == 0 { break; }
                     job.log.lock().push(&buffer[..read]);
                 }
-            })
+                let _ = tx.send(());
+            });
+            rx
         }).collect();
     let state = loop {
         match child.try_wait() {
@@ -428,7 +436,22 @@ fn run_process(job: &Arc<HostJob>, worktree: &Path) -> Result<JobState, String> 
         }
         std::thread::sleep(Duration::from_millis(100));
     };
-    for reader in readers { let _ = reader.join(); }
+    // Dopo l'uscita si aspetta che i lettori si chiudano, ma non per sempre:
+    // un nipote che eredita le pipe (demone di build, server avviato in
+    // background) le tiene aperte e il job resterebbe `Running` per sempre,
+    // con `PROJECT_LOCKS` preso e i job successivi in fila (S2-11). Passato il
+    // tempo, si chiude il gruppo di processi e si termina il job: il log e'
+    // gia' quello raccolto.
+    for reader in &readers {
+        if reader.recv_timeout(READER_JOIN_TIMEOUT).is_err() {
+            #[cfg(target_os = "windows")]
+            crate::process_tree::kill_process_tree(Some(pid), windows_job.as_ref());
+            #[cfg(not(target_os = "windows"))]
+            crate::process_tree::kill_process_tree(Some(pid));
+            let _ = reader.recv_timeout(Duration::from_secs(1));
+            job.note("[studio] a child process kept the output pipe open: process group killed\n");
+        }
+    }
     if let JobState::Exited { code } = &state { job.note(&format!("exit code {code}")); }
     Ok(state)
 }
@@ -660,6 +683,7 @@ pub(crate) async fn start_local(app: &tauri::AppHandle, request: StartLocal) -> 
         job.log.lock().push(b"[studio] uncommitted changes are not included: the job runs at the last commit\n");
     }
     LOCAL_JOBS.lock().insert(id.clone(), job.clone());
+    prune_local_jobs();
     emit_changed(app);
     let app = app.clone();
     tauri::async_runtime::spawn(async move { follow(&app, &job).await });
@@ -714,6 +738,17 @@ async fn follow(app: &tauri::AppHandle, job: &Arc<LocalJob>) {
     }
     job.ended_at.store(epoch_ms(), Ordering::SeqCst);
     emit_changed(app);
+}
+
+/// Toglie i job locali finiti da piu' di `KEEP_FINISHED_MS` (S2-13): ognuno
+/// tiene fino a `LOG_CAP` di log, e senza potatura restavano per tutta la vita
+/// dell'app. Si chiama dove si creano e dove si elencano i job.
+fn prune_local_jobs() {
+    let now = epoch_ms();
+    LOCAL_JOBS.lock().retain(|_, job| {
+        let ended = job.ended_at.load(Ordering::SeqCst);
+        ended == 0 || now.saturating_sub(ended) <= KEEP_FINISHED_MS
+    });
 }
 
 fn local_job(id: &str, owner: Option<&JobOwner>) -> Result<Arc<LocalJob>, String> {
@@ -901,6 +936,7 @@ pub(crate) struct JobSummary {
 
 #[tauri::command]
 pub(crate) async fn exec_jobs() -> Result<Vec<JobSummary>, String> {
+    prune_local_jobs();
     let ended = |value: u64| (value != 0).then_some(value);
     let mut jobs: Vec<JobSummary> = LOCAL_JOBS.lock().values().map(|job| JobSummary {
         id: job.id.clone(), direction: "outgoing", machine_id: job.machine.clone(), machine_name: job.machine_name.clone(),

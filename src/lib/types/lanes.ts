@@ -136,7 +136,7 @@ export function workspacePath(value: string, win?: boolean): WorkspacePath {
 	return nonEmpty(normalized, 'workspacePath') as WorkspacePath;
 }
 
-export function workspacePathFromCanonical(path: CanonicalProjectPath): WorkspacePath {
+function workspacePathFromCanonical(path: CanonicalProjectPath): WorkspacePath {
 	return path as string as WorkspacePath;
 }
 

@@ -476,7 +476,7 @@
 		background: color-mix(in srgb, var(--danger) 15%, transparent);
 		color: var(--danger);
 		border-bottom: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
-		font-size: 12px;
+		font-size: var(--text-label);
 	}
 
 	.error-msg-wrap {
@@ -507,7 +507,7 @@
 	}
 
 	.view-title {
-		font-size: 16px;
+		font-size: var(--text-title);
 		font-weight: 600;
 		margin: 0;
 		color: var(--ink);
@@ -586,7 +586,7 @@
 		border-radius: var(--radius-sm);
 		background: transparent;
 		border: none;
-		font-size: 12px;
+		font-size: var(--text-label);
 		font-weight: 500;
 		color: var(--ink-muted);
 		cursor: pointer;
@@ -600,11 +600,11 @@
 	.seg-btn.active {
 		background: var(--bg-base);
 		color: var(--ink);
-		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+		box-shadow: var(--shadow-dock);
 	}
 
 	.count-badge {
-		font-size: 10px;
+		font-size: var(--text-caption);
 		padding: 1px 5px;
 		border-radius: var(--radius-full);
 		background: var(--bg-sunken);
@@ -734,7 +734,7 @@
 	.item-state-dot.state-archived { background: var(--ink-faint); }
 
 	.item-name {
-		font-size: 13px;
+		font-size: var(--text-body);
 		color: var(--ink);
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -769,7 +769,7 @@
 		align-items: center;
 		gap: 4px;
 		color: var(--ink-faint);
-		font-size: 11px;
+		font-size: var(--text-caption);
 	}
 
 	.bullet {
@@ -813,7 +813,7 @@
 	}
 
 	.empty-heading {
-		font-size: 18px;
+		font-size: var(--text-prose-h2);
 		font-weight: 600;
 		color: var(--ink);
 		margin: 0 0 8px;

@@ -25,6 +25,10 @@ Le anteprime visive compaiono come card nella chat: apri diagrammi Mermaid, SVG 
 - Un nome DNS che punta al server.
 - Un reverse proxy che termina il TLS e inoltra le WebSocket (Nginx Proxy Manager, Caddy, Traefik, nginx).
 
+### Il relay va sempre dietro un reverse proxy
+
+Il limite dei tentativi (abbinamento, socket, codici brevi) riconosce il chiamante dall'ultima voce di `X-Forwarded-For`, cioe' quella aggiunta dal proxy che ha ricevuto davvero la connessione. Presupposto: il relay non e' raggiungibile direttamente da Internet, perche' il container non pubblica porte e solo il reverse proxy lo raggiunge sulla rete condivisa (vedi il passo 4 dell'installazione). Se il relay venisse esposto in chiaro, un attaccante potrebbe scrivere lui `X-Forwarded-For` e aggirare i limiti ruotando l'header; per questo lo schema pubblicato non pubblica porte e il certificato sta sul proxy.
+
 ## Installazione
 
 1. Sul server crea una cartella (per esempio `/opt/stacks/studio-relay`) e mettici `compose.example.yml` di questa cartella come `compose.yaml` e `.env.example` come `.env`.

@@ -46,6 +46,17 @@ describe('Riscontro delle operazioni remote (IMP-006)', () => {
 		assert.equal(entriesOf(store).length, 0, 'la riga scaduta e tolta dallo stato, non solo filtrata');
 	});
 
+	it('il riscontro di un altro progetto della stessa macchina non compare sotto il composer (S3-14)', () => {
+		// Prima le operazioni `files`/`git` senza progetto comparivano sotto
+		// ogni progetto della macchina; ora il produttore passa il suo.
+		const mine = store.begin({ kind: 'files', machineId: 'mac', projectId: 'p1' });
+		store.confirm(mine);
+		const other = store.begin({ kind: 'files', machineId: 'mac', projectId: 'p2' });
+		store.confirm(other);
+		assert.equal(store.latestForWork('p1', 'mac')?.projectId, 'p1');
+		assert.equal(store.latestForWork('p3', 'mac'), null, 'un progetto senza operazioni non mostra quelle degli altri');
+	});
+
 	it('le altre conferme restano il minuto di sempre', (t) => {
 		const id = store.begin({ kind: 'git', machineId: 'mac' });
 		store.confirm(id);
@@ -59,7 +70,7 @@ describe('Riscontro delle operazioni remote (IMP-006)', () => {
 
 	it('release toglie la presa in carico e non tocca la sync Git in corso', () => {
 		const prompt = store.begin({ kind: 'prompt', machineId: 'mac', projectId: 'p1' });
-		const git = store.begin({ kind: 'git', machineId: 'mac' });
+		const git = store.begin({ kind: 'git', machineId: 'mac', projectId: 'p1' });
 		store.confirm(prompt);
 		store.confirm(git);
 

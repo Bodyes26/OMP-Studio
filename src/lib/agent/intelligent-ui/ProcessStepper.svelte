@@ -131,7 +131,9 @@
 	.step-done .step-indicator {
 		background: var(--success);
 		border-color: var(--success);
-		color: #ffffff;
+		/* Il glifo sopra --success segue il tema: su temi chiari il verde e' scuro
+		   e il bianco fisso restava a contrasto scarso. */
+		color: var(--on-success);
 	}
 	.step-done .step-line {
 		background: var(--success);
@@ -140,8 +142,8 @@
 	.step-current .step-indicator {
 		background: var(--brand);
 		border-color: var(--brand);
-		color: #ffffff;
-		box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.2);
+		color: var(--on-brand);
+		box-shadow: 0 0 0 3px color-mix(in oklch, var(--brand) 20%, transparent);
 	}
 
 	.step-pending .step-indicator {

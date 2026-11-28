@@ -963,7 +963,13 @@
 		// Un salvataggio su un'altra macchina non è confermato dal disco locale:
 		// l'esito lo dà solo la destinazione (IMP-006).
 		const remote = backend.machine !== LOCAL_MACHINE;
-		const op = remote ? machineFeedback.begin({ kind: 'files', machineId: backend.machine }) : null;
+		const op = remote ? machineFeedback.begin({
+			kind: 'files',
+			machineId: backend.machine,
+			// Il percorso e' della corsia: il riscontro deve comparire sotto il
+			// composer di QUEL progetto, non di ogni progetto della macchina.
+			projectId: machineFeedback.projectIdForPath(projectPath)
+		}) : null;
 		try {
 			await invoke('file_write', { projectPath, rel: targetPath, content });
 			if (op !== null) machineFeedback.confirm(op);

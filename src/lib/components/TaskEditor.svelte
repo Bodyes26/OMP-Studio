@@ -1132,7 +1132,7 @@
 	}
 	.machine-choice.active {
 		color: var(--ink);
-		border-color: var(--accent);
+		border-color: var(--brand);
 	}
 	.machine-choice:disabled {
 		opacity: 0.5;
@@ -1195,9 +1195,12 @@
 		--icon-size: 14px;
 		overflow: hidden;
 		white-space: nowrap;
-		transition: max-width 240ms cubic-bezier(0.16, 1, 0.3, 1),
-			width 240ms cubic-bezier(0.16, 1, 0.3, 1),
-			padding 240ms cubic-bezier(0.16, 1, 0.3, 1),
+		/* Larghezza, padding e ritaglio dalla scala dei token: la curva
+		   `cubic-bezier(0.16, 1, 0.3, 1)` duplicata a mano era gia'
+		   `--ease-out-expo`, e la durata era `--dur-slow`. */
+		transition: max-width var(--dur-slow) var(--ease-out-expo),
+			width var(--dur-slow) var(--ease-out-expo),
+			padding var(--dur-slow) var(--ease-out-expo),
 			background-color var(--dur-fast) var(--ease-out),
 			color var(--dur-fast) var(--ease-out);
 	}
@@ -1238,8 +1241,8 @@
 		max-width: 0;
 		opacity: 0;
 		color: var(--on-danger);
-		transition: max-width 240ms cubic-bezier(0.16, 1, 0.3, 1),
-			opacity 180ms var(--ease-out);
+		transition: max-width var(--dur-slow) var(--ease-out-expo),
+			opacity var(--dur-base) var(--ease-out);
 	}
 
 	.delete-btn.armed .delete-confirm-text {

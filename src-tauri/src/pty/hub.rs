@@ -28,6 +28,9 @@ pub(crate) trait ByteSink: Send {
         self.deliver(offset, &bytes)
     }
     fn resize(&mut self, _cols: u16, _rows: u16) -> bool { true }
+    /// Uscita del processo senza `pty_close` (S8-19). Chi non sa
+    /// rappresentarla la ignora: il flusso dei byte non cambia.
+    fn exit(&mut self, _code: Option<u32>) -> bool { true }
 }
 
 pub(crate) struct ChannelByteSink(pub Channel<Response>);
@@ -42,6 +45,12 @@ impl ByteSink for ChannelByteSink {
     fn resize(&mut self, cols: u16, rows: u16) -> bool {
         self.0.send(Response::new(tauri::ipc::InvokeResponseBody::Json(
             format!(r#"{{"type":"studio_pty_resize","cols":{cols},"rows":{rows}}}"#)
+        ))).is_ok()
+    }
+    fn exit(&mut self, code: Option<u32>) -> bool {
+        let code = code.map_or_else(|| "null".to_string(), |code| code.to_string());
+        self.0.send(Response::new(tauri::ipc::InvokeResponseBody::Json(
+            format!(r#"{{"type":"studio_pty_exit","code":{code}}}"#)
         ))).is_ok()
     }
 }
@@ -97,6 +106,19 @@ impl TerminalHub {
         let excess = inner.history.len().saturating_sub(HISTORY_MAX_BYTES);
         if excess > 0 {
             inner.history.drain(..excess);
+        }
+    }
+
+    /// Il processo del terminale e' uscito senza che nessuno chiamasse
+    /// `pty_close` (S8-19): lo si dice alle finestre con lo stesso canale dei
+    /// ridimensionamenti, cosi' il consumatore non cambia forma.
+    pub(crate) fn publish_exit(&self, code: Option<u32>) {
+        let mut inner = self.inner.lock();
+        inner
+            .consumers
+            .retain_mut(|consumer| consumer.sink.exit(code));
+        if inner.consumers.is_empty() && inner.orphaned_since.is_none() {
+            inner.orphaned_since = Some(Instant::now());
         }
     }
 
@@ -246,6 +268,34 @@ mod tests {
     fn recorder() -> (Box<dyn ByteSink>, Arc<Mutex<Vec<u8>>>) {
         let out = Arc::new(Mutex::new(Vec::new()));
         (Box::new(Recorder(out.clone())), out)
+    }
+
+    /// Sink che registra le uscite: `publish_exit` deve arrivare a ogni
+    /// consumatore vivo, anche dopo l'ultima riga di output (S8-19).
+    struct ExitRecorder(Arc<Mutex<Vec<Option<u32>>>>);
+
+    impl ByteSink for ExitRecorder {
+        fn deliver(&mut self, _offset: u64, _bytes: &[u8]) -> bool {
+            true
+        }
+        fn exit(&mut self, code: Option<u32>) -> bool {
+            self.0.lock().push(code);
+            true
+        }
+    }
+
+    #[test]
+    fn l_uscita_del_processo_arriva_a_tutti_i_consumatori_iscritti() {
+        let hub = TerminalHub::new(80, 24);
+        let codes = Arc::new(Mutex::new(Vec::new()));
+        let other = Arc::new(Mutex::new(Vec::new()));
+        hub.attach(Box::new(ExitRecorder(codes.clone())), "main".into(), Some((80, 24)), None).unwrap();
+        hub.attach(Box::new(ExitRecorder(other.clone())), "link:pc:main".into(), None, None).unwrap();
+
+        hub.publish_exit(Some(3));
+
+        assert_eq!(*codes.lock(), vec![Some(3)]);
+        assert_eq!(*other.lock(), vec![Some(3)]);
     }
 
     #[test]

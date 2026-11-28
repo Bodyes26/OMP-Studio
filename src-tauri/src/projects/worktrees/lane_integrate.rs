@@ -676,19 +676,28 @@ fn commit_tree_parents(
         )
     })?;
     {
-        let mut stdin = child.stdin.take().ok_or_else(|| {
-            WorktreeError::new(
-                WorktreeErrorCode::Internal,
-                crate::tr!("Impossibile scrivere il messaggio di commit", "Cannot write the commit message"),
-            )
-        })?;
-        stdin.write_all(message.as_bytes()).map_err(|error| {
-            WorktreeError::with_detail(
+        // Su ogni via d'errore il figlio va ucciso e raccolto: con `?` secco
+        // resterebbe zombie (S8-19).
+        let mut stdin = match child.stdin.take() {
+            Some(stdin) => stdin,
+            None => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(WorktreeError::new(
+                    WorktreeErrorCode::Internal,
+                    crate::tr!("Impossibile scrivere il messaggio di commit", "Cannot write the commit message"),
+                ));
+            }
+        };
+        if let Err(error) = stdin.write_all(message.as_bytes()) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(WorktreeError::with_detail(
                 WorktreeErrorCode::GitCommandFailed,
                 crate::tr!("Impossibile scrivere il messaggio di commit", "Cannot write the commit message"),
                 error.to_string(),
-            )
-        })?;
+            ));
+        }
     }
     let output = child.wait_with_output().map_err(|error| {
         WorktreeError::with_detail(

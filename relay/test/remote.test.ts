@@ -455,6 +455,73 @@ describe('Ciclo di vita Host e Client WebSocket', () => {
 		host.ws.close();
 	});
 
+	test('la riconnessione con gli snapshot gia\' posseduti non li riceve di nuovo', async () => {
+		const state: HostState = {
+			projects: [
+				{
+					id: 'proj-cache',
+					name: 'Cached Project',
+					hue: 120,
+					active: true,
+					lanes: [],
+					attention: [],
+					tasks: [],
+					autoDispatch: false,
+					canRunTask: true,
+					runBlockReason: null
+				}
+			],
+			quota: null
+		};
+
+		const host = connectWs('/v1/host', { Authorization: `Bearer ${hostCredential}` });
+		await host.opened;
+		host.send({
+			type: 'hello',
+			protocol: { name: PROTOCOL.name, version: PROTOCOL.version },
+			features: ['respond_ui'],
+			host: { name: 'Desktop-Workstation', platform: 'macos', appVersion: '1.0.0' }
+		});
+		await host.next((m) => m.type === 'welcome');
+		host.send({ type: 'snapshot', seq: 7, state });
+
+		const first = connectWs('/v1/client', { Cookie: clientCookie, Origin: baseUrl });
+		await first.opened;
+		first.send({ type: 'hello', protocol: { name: PROTOCOL.name, version: PROTOCOL.version } });
+		await first.next((m) => m.type === 'welcome');
+		const snapshot = await first.next((m) => m.type === 'host_snapshot');
+		first.ws.close();
+
+		// Stessa coppia (seq, receivedAt): il relay non rimanda lo stato. Lo si
+		// verifica in modo deterministico: la macchina manda subito dopo una
+		// snapshot nuova e il primo frame che arriva deve essere quella.
+		const second = connectWs('/v1/client', { Cookie: clientCookie, Origin: baseUrl });
+		await second.opened;
+		second.send({
+			type: 'hello',
+			protocol: { name: PROTOCOL.name, version: PROTOCOL.version },
+			snapshots: [
+				{ hostId: HOST_ID, seq: snapshot.seq as number, receivedAt: snapshot.receivedAt as number }
+			]
+		});
+		await second.next((m) => m.type === 'welcome');
+		host.send({ type: 'snapshot', seq: 8, state });
+		const nextSnapshot = await second.next((m) => m.type === 'host_snapshot');
+		expect(nextSnapshot.seq).toBe(8);
+
+		// Un client vecchio, senza `snapshots`, riceve sempre lo stato salvato.
+		const legacy = connectWs('/v1/client', { Cookie: clientCookie, Origin: baseUrl });
+		await legacy.opened;
+		legacy.send({ type: 'hello', protocol: { name: PROTOCOL.name, version: PROTOCOL.version } });
+		await legacy.next((m) => m.type === 'welcome');
+		const reloaded = await legacy.next((m) => m.type === 'host_snapshot');
+		expect(reloaded).toMatchObject({ hostId: HOST_ID, seq: 8 });
+
+		legacy.ws.close();
+		second.ws.close();
+		host.ws.close();
+	});
+
 	test('esecuzione comando: client -> host -> client', async () => {
 		const host = connectWs('/v1/host', { Authorization: `Bearer ${hostCredential}` });
 		await host.opened;

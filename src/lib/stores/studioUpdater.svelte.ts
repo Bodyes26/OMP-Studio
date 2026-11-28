@@ -19,6 +19,14 @@ export interface StudioReleaseAsset {
 
 export type StudioUpdateChannel = 'stable' | 'nightly';
 
+/**
+ * Esito di un'installazione avviata da qui. Serve a chi ha chiesto
+ * l'aggiornamento da un'altra macchina: se l'app resta aperta (uscita
+ * negata, pacchetto .deb) la fase remota non puo' restare «installing»
+ * per sempre (S2-09, R-MI-38).
+ */
+export type InstallOutcome = 'restarting' | 'keeps-running' | 'declined' | 'failed';
+
 export interface StudioUpdateInfo {
 	current_version: string;
 	latest_version: string;
@@ -73,8 +81,23 @@ class StudioUpdaterStore {
 	showModal = $state<boolean>(false);
 	updateInfo = $state<StudioUpdateInfo | null>(null);
 	hasUpdate = $state<boolean>(false);
-	updateBadge = $state<string | null>(null);
-	badgeType = $state<'info' | 'success' | 'warn' | 'error'>('info');
+	private normalBadge = $state<string | null>(null);
+	private normalBadgeType = $state<'info' | 'success' | 'warn' | 'error'>('info');
+	/**
+	 * «Studio si riavviera' appena libero», chiesto da un'altra macchina. Vive
+	 * in uno spazio suo e vince sul badge normale finche' la fase remota non
+	 * e' conclusa: prima il controllo in background senza novita' lo azzerava
+	 * e il download completato lo sostituiva per sei secondi, mentre l'attesa
+	 * della macchina libera puo' durare ore (S3-link-front-13).
+	 */
+	remoteNotice = $state<string | null>(null);
+	/** Il badge visibile: quello remoto, se c'e', altrimenti il badge normale. */
+	get updateBadge(): string | null {
+		return this.remoteNotice ?? this.normalBadge;
+	}
+	get badgeType(): 'info' | 'success' | 'warn' | 'error' {
+		return this.remoteNotice !== null ? 'info' : this.normalBadgeType;
+	}
 	downloadProgress = $state<StudioDownloadProgress | null>(null);
 	errorMessage = $state<string | null>(null);
 	/** Esito informativo dell'installazione quando Studio resta aperto (pacchetti .deb). */
@@ -137,18 +160,28 @@ class StudioUpdaterStore {
 	setBadge(text: string | null, type: 'info' | 'success' | 'warn' | 'error' = 'info', autoClearMs = 0) {
 		clearTimeout(this.badgeTimeout ?? undefined);
 		this.badgeTimeout = null;
-		this.updateBadge = text;
-		this.badgeType = type;
+		this.normalBadge = text;
+		this.normalBadgeType = type;
 		if (text && autoClearMs > 0) {
 			this.badgeTimeout = window.setTimeout(() => {
+				// L'avviso remoto non scade con il badge normale: lo toglie solo
+				// la fine della fase remota (S3-link-front-13).
 				if (!this.hasUpdate) {
-					this.updateBadge = null;
+					this.normalBadge = null;
 				} else {
-					this.updateBadge = formatVersion(this.updateInfo?.latest_version, { prefix: true, compact: true }) || null;
-					this.badgeType = 'warn';
+					this.normalBadge = formatVersion(this.updateInfo?.latest_version, { prefix: true, compact: true }) || null;
+					this.normalBadgeType = 'warn';
 				}
 			}, autoClearMs);
 		}
+	}
+
+	/**
+	 * «Un'altra macchina aggiorna Studio qui»: spazio separato dal badge normale,
+	 * che nessun controllo in background cancella (S3-link-front-13, R-MI-64).
+	 */
+	setRemoteNotice(text: string | null): void {
+		this.remoteNotice = text;
 	}
 
 
@@ -202,7 +235,7 @@ class StudioUpdaterStore {
 					this.setBadge(msg.studio_update_badge_up_to_date(), 'success', 3500);
 					this.showModal = true;
 				} else {
-					this.updateBadge = null;
+					this.setBadge(null);
 				}
 			}
 		} catch (e: unknown) {
@@ -266,7 +299,7 @@ class StudioUpdaterStore {
 		this.downloadProgress = null;
 		this.setBadge(null);
 	}
-	async installAndRestart() {
+	async installAndRestart(): Promise<InstallOutcome> {
 		this.isInstalling = true;
 		this.errorMessage = null;
 		this.installNotice = null;
@@ -274,7 +307,7 @@ class StudioUpdaterStore {
 		try {
 			if (!await presenceStore.authorizeExit('studio_update')) {
 				this.isInstalling = false;
-				return;
+				return 'declined';
 			}
 			const outcome = await invoke<unknown>('install_studio_update_and_restart');
 			if (installOutcomeKeepsRunning(outcome)) {
@@ -283,20 +316,22 @@ class StudioUpdaterStore {
 				// si mostra cosa resta da fare invece di attendere una chiusura.
 				this.isInstalling = false;
 				this.installNotice = installOutcomeNotice(outcome) ?? msg.studio_update_install_pending_default();
-			} else {
-				// Normalmente l'app si chiude subito dopo; se cosi' non e',
-				// il pulsante torna utilizzabile invece di restare bloccato.
-				window.setTimeout(() => {
-					void presenceStore.revokeExitAuthorization();
-					this.isInstalling = false;
-				}, 10_000);
+				return 'keeps-running';
 			}
+			// Normalmente l'app si chiude subito dopo; se cosi' non e',
+			// il pulsante torna utilizzabile invece di restare bloccato.
+			window.setTimeout(() => {
+				void presenceStore.revokeExitAuthorization();
+				this.isInstalling = false;
+			}, 10_000);
+			return 'restarting';
 		} catch (e: unknown) {
 			await presenceStore.revokeExitAuthorization();
 			this.isInstalling = false;
 			const errStr = extractErrorMessage(e);
 			studioLog.warn('update', `installazione non riuscita: ${errStr}`);
 			this.errorMessage = errStr;
+			return 'failed';
 		}
 	}
 

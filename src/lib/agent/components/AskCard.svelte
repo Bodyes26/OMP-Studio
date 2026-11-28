@@ -4,7 +4,8 @@
 	// Una domanda per volta con stepper, scelta 1…N, consigliata, multipla,
 	// "Altro…" in linea, nota (N), anteprime su un tabellone sopra la scheda,
 	// "Decidi tu" (testo libero convenzionale in `askAnswers.ts`), avanti/
-	// indietro/invia con conferma esplicita e conto alla rovescia del timeout.
+	// indietro/invia con conferma esplicita. Nessun conto alla rovescia e
+	// nessun invio automatico (ASK-003: il timeout lato runtime e' a zero).
 	// Il protocollo resta sequenziale: il
 	// wizard copre solo le domande ancora da chiedere (`pending.questionIndex`
 	// in avanti) e consegna tutto in un piano via `buildFlushPlan`, un passo
@@ -15,7 +16,6 @@
 
 	import { tick, untrack } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
-	import { traceFocus } from '#lib/focusTracer.ts';
 	import {
 		IconArrowLeft,
 		IconArrowRight,
@@ -317,10 +317,8 @@
 				cardEl?.contains(active) ?? false
 			)
 		) {
-			traceFocus('ask-card-focus-skipped', `visible=${visible}`);
 			return;
 		}
-		traceFocus('ask-card-focus');
 
 		if (pending.method === 'input' && plainInputEl) {
 			plainInputEl.focus();
@@ -809,7 +807,7 @@
 	tabindex="-1"
 	bind:this={cardEl}
 >
-	<!-- Intestazione: titolo, avanzamento, countdown, riduzione -->
+	<!-- Intestazione: titolo, avanzamento, riduzione nel vassoio -->
 	<div class="ask-head">
 		<span class="ask-icon" aria-hidden="true"><IconAsk /></span>
 		<span class="ask-title">
@@ -1341,18 +1339,6 @@
 		white-space: nowrap;
 	}
 
-	.ask-deadline {
-		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		font-variant-numeric: tabular-nums;
-		color: var(--warn);
-		background: var(--bg-sunken);
-		border: 1px solid var(--line);
-		border-radius: var(--radius-sm);
-		padding: 1px 6px;
-		white-space: nowrap;
-	}
-
 	.ask-min {
 		margin-left: auto;
 		display: inline-flex;
@@ -1365,8 +1351,7 @@
 		cursor: pointer;
 		padding: 2px;
 	}
-	.ask-progress + .ask-min,
-	.ask-deadline + .ask-min {
+	.ask-progress + .ask-min {
 		margin-left: 0;
 	}
 	.ask-min:hover {

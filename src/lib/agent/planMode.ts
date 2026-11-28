@@ -22,7 +22,6 @@ export type PlanExecMode = 'fresh' | 'lane' | 'compact' | 'keep';
 export const PLAN_EXEC_MODES: readonly PlanExecMode[] = ['fresh', 'lane', 'compact', 'keep'];
 export const DEFAULT_PLAN_EXEC_MODE: PlanExecMode = 'fresh';
 export const LAB_PLAN_EXEC_MODES: readonly PlanExecMode[] = ['compact', 'keep'];
-export const DEFAULT_LAB_PLAN_EXEC_MODE: PlanExecMode = 'compact';
 /** Ruoli proposti per l'esecuzione, come lo slider della revisione di omp. */
 export const PLAN_EXEC_ROLES: readonly string[] = ['smol', 'default', 'slow', 'task'];
 export const DEFAULT_PLAN_EXEC_ROLE = 'default';

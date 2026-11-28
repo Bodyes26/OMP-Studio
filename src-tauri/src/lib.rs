@@ -4,10 +4,10 @@ mod desktop_presence;
 pub mod i18n;
 use automations::{
     automations_activate, automations_acknowledge, automations_ai_pending, automations_ai_update,
-    automations_canonical_root, automations_cancel, automations_delete, automations_event,
+    automations_cancel, automations_delete, automations_event,
     automations_export, automations_extend_wait, automations_host_handshake, automations_import,
-    automations_is_execution_terminal, automations_output, automations_preview,
-    automations_project_path_for_id, automations_project_pending, automations_project_result,
+    automations_output, automations_preview,
+    automations_project_pending, automations_project_result,
     automations_resume_admission, automations_resume_release, automations_run_now,
     automations_save_draft, automations_secret_delete, automations_secret_put,
     automations_set_state, automations_settings, automations_snapshot, automations_title_claim,
@@ -109,11 +109,9 @@ mod project_notifications;
 use project_notifications::{dismiss_project_notifications, send_project_notification};
 mod system_idle;
 use system_idle::system_idle_seconds;
-mod focus_trace;
-use focus_trace::{focus_trace_append, focus_trace_path};
 mod window_icon;
 mod perf_trace;
-use perf_trace::{perf_trace_append, perf_trace_path};
+use perf_trace::perf_trace_append;
 mod studio_log;
 use studio_log::{studio_log_append, studio_log_path};
 mod external;
@@ -236,11 +234,24 @@ pub fn run() {
         .on_page_load(|webview, payload| {
             if payload.event() == tauri::webview::PageLoadEvent::Started {
                 use tauri::Manager;
+                let label = webview.label().to_owned();
                 if let Some(manager) = webview.try_state::<RpcManager>() {
-                    manager.detach_window(webview.label());
+                    manager.detach_window(&label);
                 }
                 if let Some(manager) = webview.try_state::<PtyManager>() {
-                    manager.detach_window(webview.label());
+                    manager.detach_window(&label);
+                }
+                // Il canale live di una tab del browser vive nel processo: senza
+                // stacco resterebbe aperto (WebSocket compreso) fino al tetto di
+                // 32 sessioni (S8-12).
+                if let Some(manager) = webview.try_state::<BrowserLiveManager>() {
+                    manager.detach_window(&label);
+                }
+                // Le iscrizioni del collegamento hanno un `Channel` morto dopo la
+                // ricarica: continuerebbero a spedirvi ogni frame remoto e sul
+                // peer la sessione non diventerebbe mai orfana (S1-rpc-02/C1).
+                if let Some(manager) = webview.try_state::<link::LinkManager>() {
+                    manager.detach_window(&label);
                 }
             }
         })
@@ -339,10 +350,7 @@ pub fn run() {
             link::exec::exec_job_log,
             link::exec::exec_job_cancel,
             lane_bridge_respond,
-            focus_trace_append,
-            focus_trace_path,
             perf_trace_append,
-            perf_trace_path,
             studio_log_append,
             studio_log_path,
             pty_open,
@@ -516,6 +524,9 @@ pub fn run() {
             github::identity::github_canonical_repo,
             github::identity::github_update_origin,
             git_sync_repo,
+            github::turn_commit::git_turn_snapshot,
+            github::turn_commit::git_turn_commit,
+            github::turn_commit::copy_commit_pending,
             github::copies::copy_sync_heads,
             github::copies::copy_sync_bundle,
             github::copies::copy_sync,
@@ -597,11 +608,8 @@ pub fn run() {
             automations_title_release,
             automations_resume_admission,
             automations_resume_release,
-            automations_is_execution_terminal,
-            automations_project_path_for_id,
             automations_host_handshake,
             automations_extend_wait,
-            automations_canonical_root,
             rpc_cleanup_automation_sessions,
             desktop_presence_get_state,
             desktop_presence_update_settings,

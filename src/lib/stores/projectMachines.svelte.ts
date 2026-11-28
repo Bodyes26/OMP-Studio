@@ -165,6 +165,24 @@ export function refreshCopiesGit(project: Project, force = false): void {
 	}
 }
 
+/**
+ * Copie di altre macchine con modifiche non committate (R-MI-74): sono quelle
+ * che bloccano i commit in arrivo e che «Allinea tutto» committa prima di
+ * scambiare. Le copie senza stato git noto non contano, come nella
+ * divergenza: non si sa com'e'.
+ */
+export function dirtyCopiesElsewhere(project: Project): Array<{ name: string; count: number }> {
+	const result: Array<{ name: string; count: number }> = [];
+	for (const copy of provenance(project).copies) {
+		if (copy.local) continue;
+		const git = gitOf(copy.project);
+		if (git === null) continue;
+		const count = git.changedFiles ?? (git.hasUncommitted ? 1 : 0);
+		if (count > 0) result.push({ name: copy.name, count });
+	}
+	return result;
+}
+
 /** Righe che spiegano la divergenza, per pannello e striscia (R-MI-22, R-MI-61). */
 export function divergenceSummary(divergence: CopyDivergence): string[] {
 	const lines: string[] = [];

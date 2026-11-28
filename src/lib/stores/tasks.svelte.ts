@@ -31,7 +31,8 @@ import { windowLabel } from './windowBridge';
 import { m as msg } from '#lib/paraglide/messages.js';
 import { taskLabel, promptHash } from './taskTitle';
 import type { QueueReplicationBridge, RemoteQueueBridge } from './queueReplicationBridge.ts';
-import { deliveryRetryDelay, holdOverdueSchedules, mergeHostQueue } from './remoteQueue.ts';
+import { deliveryRetryDelay, holdOverdueSchedules, mergeHostQueue, queueIsOrphaned } from './remoteQueue.ts';
+import { linkStore } from '#lib/backend/link.svelte.ts';
 import {
 	mergeQueues,
 	mergeRemoved,
@@ -100,6 +101,8 @@ class TaskStore {
 	private readonly hydration = new QueueHydration();
 	/** Ultimo contenuto scritto per progetto: evita riscritture identiche. */
 	private readonly lastWritten = new Map<string, string>();
+	/** Chiavi di cui e' stato avviato il watcher, col percorso da passarci: si fermano alla chiusura (S8-16). */
+	private readonly watched = new Map<string, string>();
 	/**
 	 * Chi sa mandare e ricevere la coda delle altre macchine (F19). Lo imposta
 	 * il guscio quando il progetto è condiviso: qui dentro non si importa il
@@ -132,8 +135,12 @@ class TaskStore {
 		/** Nuovi tentativi di consegna falliti (D7): tentativi fatti e timer. */
 		attempts: number;
 		retry: number | null;
+		/** L'host non pubblica piu' il progetto: i tentativi sono fermi (S3-06). */
+		orphaned: boolean;
 	}>();
 	private remoteBridge: RemoteQueueBridge | null = null;
+	/** Chiavi delle code che l'host non pubblica piu' (S3-06): reattive per la vista. */
+	private orphanedQueues = $state<Record<string, true>>({});
 	/** Task modificati qui e non ancora confermati dalla loro macchina: id → macchina. */
 	awaitingDelivery = $state<Record<string, string>>({});
 	/**
@@ -197,7 +204,10 @@ class TaskStore {
 					dirty: edits.size > 0 || saved.dirty === true,
 					sending: null,
 					attempts: 0,
-					retry: null
+					retry: null,
+					// Dal disco non si sa cosa pubblichi l'host: la prima consegna
+					// lo accerta e, se ha chiuso il progetto, ferma i tentativi.
+					orphaned: false
 				});
 				for (const task of restored) logicalClock.observe(task.updatedAt);
 				this.tasks = [...this.tasks.filter((task) => task.projectPath !== key), ...restored];
@@ -315,7 +325,7 @@ class TaskStore {
 		for (const entry of entries) {
 			let queue = this.remoteQueues.get(entry.key);
 			if (!queue) {
-				queue = { machine, hostPath: entry.hostPath, edits: new Set(), known: new Map(), dirty: false, sending: null, attempts: 0, retry: null };
+				queue = { machine, hostPath: entry.hostPath, edits: new Set(), known: new Map(), dirty: false, sending: null, attempts: 0, retry: null, orphaned: false };
 				this.remoteQueues.set(entry.key, queue);
 			}
 			queue.machine = machine;
@@ -357,7 +367,25 @@ class TaskStore {
 	 */
 	registerRemoteQueue(key: string, machine: string, hostPath: string): void {
 		if (this.remoteQueues.has(key)) return;
-		this.remoteQueues.set(key, { machine, hostPath, edits: new Set(), known: new Map(), dirty: false, sending: null, attempts: 0, retry: null });
+		this.remoteQueues.set(key, { machine, hostPath, edits: new Set(), known: new Map(), dirty: false, sending: null, attempts: 0, retry: null, orphaned: false });
+	}
+
+	/** Coda di un progetto remoto che l'host non pubblica piu' (S3-06). */
+	remoteQueueOrphaned(projectPath: string): boolean {
+		return this.orphanedQueues[projectKey(projectPath)] === true;
+	}
+
+	/**
+	 * Stato «l'host ha chiuso il progetto» di una coda. La mappa interna non e'
+	 * reattiva: l'etichetta della coda deve comparire e sparire da sola.
+	 */
+	private setQueueOrphaned(key: string, queue: { orphaned: boolean }, orphaned: boolean): void {
+		queue.orphaned = orphaned;
+		if ((this.orphanedQueues[key] === true) === orphaned) return;
+		const next = { ...this.orphanedQueues };
+		if (orphaned) next[key] = true;
+		else delete next[key];
+		this.orphanedQueues = next;
 	}
 
 	/** Registra le modifiche fatte qui alla coda di un progetto remoto e prova a consegnarle. */
@@ -386,8 +414,27 @@ class TaskStore {
 		// Spenta: le modifiche restano salvate e partono al primo riepilogo
 		// dell'host, che `applyHostQueues` fa arrivare (R-MI-15).
 		if (!queue || !bridge?.online(queue.machine)) return;
+		// L'host pubblica solo i progetti aperti nella sua barra: se ha chiuso
+		// questo, ogni tentativo verrebbe rifiutato («Remote path is outside the
+		// host's project roots») e l'avviso si ripeterebbe (S3-06). La coda
+		// smette di provare e lo dice; il task non si perde e non parte.
+		const snapshot = linkStore.hosts[queue.machine];
+		const host = snapshot
+			? { projectIds: new Set(snapshot.projects.map((project) => project.id)), reduced: snapshot.reduced === true }
+			: null;
+		// `hostProjectId` e' l'id del progetto sull'host, che la tessera locale
+		// conserva: la coda conosce il percorso, non l'id.
+		const local = projectStore.projects.find(
+			(project) => project.canonicalProjectPath && projectKey(project.canonicalProjectPath) === key
+		);
+		if (queueIsOrphaned(host, local?.hostProjectId ?? null)) {
+			this.setQueueOrphaned(key, queue, true);
+			return;
+		}
+		// L'host la ripubblica: i tentativi riprendono, anche senza attese armate.
+		this.setQueueOrphaned(key, queue, false);
 		if (queue.sending) {
-			await queue.sending;
+			await queue.sending.catch(() => {});
 			if (!queue.dirty) return;
 		}
 		queue.dirty = false;
@@ -412,8 +459,14 @@ class TaskStore {
 			}
 		})();
 		queue.sending = run;
-		await run;
-		queue.sending = null;
+		// `sending` va azzerato anche se `run` rigetta: altrimenti la promise
+		// rifiutata resterebbe appesa e le consegne successive per la stessa
+		// chiave aspetterebbero per sempre (R-MI-15, D7).
+		try {
+			await run;
+		} finally {
+			queue.sending = null;
+		}
 		this.saveGlobal();
 	}
 
@@ -422,7 +475,10 @@ class TaskStore {
 	 * in linea. A host spento non si arma nulla: al ritorno in linea
 	 * `resumeRemoteQueues` riprova subito, senza aspettare il timer.
 	 */
-	private scheduleRemoteRetry(key: string, queue: { machine: string; attempts: number; retry: number | null }): void {
+	private scheduleRemoteRetry(key: string, queue: { machine: string; attempts: number; retry: number | null; orphaned: boolean }): void {
+		// L'host ha chiuso il progetto: nessun nuovo tentativo da armare. Al
+		// ritorno della pubblicazione (`applyHostQueues`) la consegna riparte.
+		if (queue.orphaned) return;
 		if (queue.retry !== null || !this.remoteBridge?.online(queue.machine)) return;
 		const delay = deliveryRetryDelay(queue.attempts);
 		queue.attempts += 1;
@@ -476,6 +532,39 @@ class TaskStore {
 			}
 		}
 		await invoke('project_tasks_watch', { projectPath });
+		this.watched.set(key, projectPath);
+	}
+
+	/**
+	 * Smette di seguire le code dei progetti che non sono piu' aperti (S8-16).
+	 *
+	 * `readProject` avvia un watcher del file per ogni progetto letto; senza
+	 * questo, chiudendo la tessera il watcher restava vivo per tutta la
+	 * sessione (uno per progetto aperto in passato). Lo stato idratato viene
+	 * dimenticato con il watcher: riaprendo il progetto la coda si rilegge da
+	 * disco e il watcher riparte, come al primo avvio.
+	 *
+	 * La chiusura annuncia solo l'id del progetto, che a quel punto e' gia'
+	 * uscito dall'elenco: si confrontano i percorsi osservati con quelli
+	 * ancora aperti invece di rincorrere l'id.
+	 */
+	async syncWatchedProjects(openPaths: readonly string[]): Promise<void> {
+		if (!this.isTauri) return;
+		const open = new Set(openPaths.map((path) => projectKey(path)));
+		const closed = [...this.watched].filter(([key]) => !open.has(key));
+		await Promise.all(closed.map(([key, path]) => this.forgetProject(key, path)));
+	}
+
+	private async forgetProject(key: string, projectPath: string): Promise<void> {
+		this.watched.delete(key);
+		this.hydration.forget(key);
+		this.lastWritten.delete(key);
+		try {
+			await invoke('project_tasks_unwatch', { projectPath });
+		} catch (error) {
+			// Watcher gia' fermo: la disiscrizione resta idempotente.
+			console.warn('Watcher della coda non fermato:', projectPath, error);
+		}
 	}
 
 	/**
@@ -600,6 +689,17 @@ class TaskStore {
 		await this.store.set('taskState', state);
 		await this.store.save();
 	}, 250);
+
+	/**
+	 * Scrive subito le tombe e lo stato globale in attesa.
+	 *
+	 * Senza questo, uscendo entro i 250 ms del debounce la tomba `removed`
+	 * poteva non essere su disco e l'altra macchina rimetteva in coda un task
+	 * appena cancellato (R-MI-15, F19). La chiama `persistWorkBeforeQuit`.
+	 */
+	async flushGlobal(): Promise<void> {
+		await this.saveGlobal.flush();
+	}
 
 	async saveProjectImmediate(projectPath: string): Promise<void> {
 		if (!projectPath) return;

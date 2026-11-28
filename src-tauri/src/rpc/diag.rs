@@ -5,12 +5,18 @@
 //! guasti diversi: omp che non scrive piu' su stdout, omp che non legge piu'
 //! stdin, e frame che Rust ha spedito ma che il WebView non ha mai consegnato
 //! al Channel (che li consegna solo in ordine: un indice perso ferma tutti i
-//! successivi). Questi contatori separano i tre casi: il frontend confronta i
-//! frame spediti qui con quelli ricevuti dal suo `onmessage`.
+//! successivi). Questi contatori separano i tre casi.
+//!
+//! I conteggi dei frame sono **per consumatore** (`SinkStats`): ogni finestra
+//! ha il proprio `Channel` e la propria numerazione Tauri, e il frontend puo'
+//! confrontare solo i frame del Channel che sta leggendo. I contatori del
+//! processo (stdout, stdin, uscita del lettore) sono invece della sessione
+//! (`RpcStats`): valgono per chiunque la guardi.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use parking_lot::Mutex;
@@ -115,49 +121,21 @@ impl RecentFramesRing {
     }
 }
 
+/// Contatori di un solo consumatore: un `Channel` di una WebView. Due finestre
+/// sulla stessa sessione hanno numerazioni Tauri indipendenti, quindi i loro
+/// conteggi non vanno mai sommati.
 #[derive(Default)]
-pub(crate) struct RpcStats {
-    stdout_lines: AtomicU64,
-    /// Byte letti da stdout: righe medie da decine di KB vogliono dire che
-    /// omp sta spedendo istantanee intere del messaggio, non delta.
-    stdout_bytes: AtomicU64,
-    last_stdout_ms: AtomicU64,
+pub(crate) struct SinkStats {
     frames_sent: AtomicU64,
     fetch_path_frames: AtomicU64,
     send_errors: AtomicU64,
     last_sent_ms: AtomicU64,
-    stdin_writes: AtomicU64,
-    last_stdin_ms: AtomicU64,
-    /// Istante d'inizio della scrittura su stdin in corso, 0 se nessuna:
-    /// una scrittura che non finisce vuol dire che omp non legge piu'.
-    stdin_write_since_ms: AtomicU64,
-    reader_exited: AtomicBool,
     recent: Mutex<RecentFramesRing>,
 }
 
-impl RpcStats {
-    pub(super) fn stdout_line(&self, bytes: usize) {
-        self.stdout_lines.fetch_add(1, Ordering::Relaxed);
-        self.stdout_bytes.fetch_add(bytes as u64, Ordering::Relaxed);
-        self.last_stdout_ms.store(now_ms(), Ordering::Relaxed);
-    }
-
-    pub(super) fn reader_exited(&self) {
-        self.reader_exited.store(true, Ordering::Relaxed);
-    }
-
-    pub(super) fn stdin_write_started(&self) {
-        self.stdin_write_since_ms.store(now_ms(), Ordering::Relaxed);
-    }
-
-    pub(super) fn stdin_write_finished(&self) {
-        self.stdin_write_since_ms.store(0, Ordering::Relaxed);
-        self.stdin_writes.fetch_add(1, Ordering::Relaxed);
-        self.last_stdin_ms.store(now_ms(), Ordering::Relaxed);
-    }
-
+impl SinkStats {
     /// Spedisce un frame sul Channel registrandone indice, dimensione e tipo.
-    /// Tutti gli invii del lettore passano di qui: un invio non contato
+    /// Tutti gli invii verso una WebView passano di qui: un invio non contato
     /// sfaserebbe il confronto con i frame ricevuti dal frontend.
     pub(super) fn send(
         &self,
@@ -184,36 +162,90 @@ impl RpcStats {
         ok
     }
 
-    /// Una finestra ricaricata riprende una sessione gia' avviata con un
-    /// `Channel` nuovo, che Tauri numera da zero: i contatori dei frame
-    /// ripartono con lui, o il confronto con i frame ricevuti dal frontend
-    /// direbbe persi quelli spediti alla finestra di prima.
-    pub(super) fn restart_channel(&self) {
-        self.frames_sent.store(0, Ordering::Relaxed);
-        self.fetch_path_frames.store(0, Ordering::Relaxed);
-        self.send_errors.store(0, Ordering::Relaxed);
-        *self.recent.lock() = RecentFramesRing::default();
+    pub(super) fn snapshot(&self) -> serde_json::Value {
+        let recent = self.recent.lock().to_json_vec();
+        serde_json::json!({
+            "framesSent": self.frames_sent.load(Ordering::Relaxed),
+            "tauriFetchPathFrames": self.fetch_path_frames.load(Ordering::Relaxed),
+            "sendErrors": self.send_errors.load(Ordering::Relaxed),
+            "lastSentMs": self.last_sent_ms.load(Ordering::Relaxed),
+            "recentFrames": recent,
+        })
+    }
+}
+
+/// Contatori del processo `omp`: identici per tutti i consumatori.
+#[derive(Default)]
+pub(crate) struct RpcStats {
+    stdout_lines: AtomicU64,
+    /// Byte letti da stdout: righe medie da decine di KB vogliono dire che
+    /// omp sta spedendo istantanee intere del messaggio, non delta.
+    stdout_bytes: AtomicU64,
+    last_stdout_ms: AtomicU64,
+    stdin_writes: AtomicU64,
+    last_stdin_ms: AtomicU64,
+    /// Istante d'inizio della scrittura su stdin in corso, 0 se nessuna:
+    /// una scrittura che non finisce vuol dire che omp non legge piu'.
+    stdin_write_since_ms: AtomicU64,
+    reader_exited: AtomicBool,
+}
+
+impl RpcStats {
+    pub(super) fn stdout_line(&self, bytes: usize) {
+        self.stdout_lines.fetch_add(1, Ordering::Relaxed);
+        self.stdout_bytes.fetch_add(bytes as u64, Ordering::Relaxed);
+        self.last_stdout_ms.store(now_ms(), Ordering::Relaxed);
+    }
+
+    pub(super) fn reader_exited(&self) {
+        self.reader_exited.store(true, Ordering::Relaxed);
+    }
+
+    pub(super) fn stdin_write_started(&self) {
+        self.stdin_write_since_ms.store(now_ms(), Ordering::Relaxed);
+    }
+
+    pub(super) fn stdin_write_finished(&self) {
+        self.stdin_write_since_ms.store(0, Ordering::Relaxed);
+        self.stdin_writes.fetch_add(1, Ordering::Relaxed);
+        self.last_stdin_ms.store(now_ms(), Ordering::Relaxed);
     }
 
     pub(super) fn snapshot(&self) -> serde_json::Value {
-        let recent = self.recent.lock().to_json_vec();
         let since = self.stdin_write_since_ms.load(Ordering::Relaxed);
         serde_json::json!({
             "nowMs": now_ms(),
             "stdoutLines": self.stdout_lines.load(Ordering::Relaxed),
             "stdoutBytes": self.stdout_bytes.load(Ordering::Relaxed),
             "lastStdoutMs": self.last_stdout_ms.load(Ordering::Relaxed),
-            "framesSent": self.frames_sent.load(Ordering::Relaxed),
-            "tauriFetchPathFrames": self.fetch_path_frames.load(Ordering::Relaxed),
-            "sendErrors": self.send_errors.load(Ordering::Relaxed),
-            "lastSentMs": self.last_sent_ms.load(Ordering::Relaxed),
             "stdinWrites": self.stdin_writes.load(Ordering::Relaxed),
             "lastStdinMs": self.last_stdin_ms.load(Ordering::Relaxed),
             "stdinWriteSinceMs": if since == 0 { serde_json::Value::Null } else { since.into() },
             "readerExited": self.reader_exited.load(Ordering::Relaxed),
-            "recentFrames": recent,
         })
     }
+}
+
+/// Fotografia dei due livelli: il processo (condiviso) e il consumatore che
+/// ha chiesto la diagnosi. `windowSink` dice se quel consumatore esiste: una
+/// sessione aperta da un'altra istanza non ha un Channel in questa finestra,
+/// e i suoi frame non si possono contare da qui.
+pub(crate) fn transport_snapshot(
+    session: &RpcStats,
+    sink: Option<Arc<SinkStats>>,
+) -> serde_json::Value {
+    let mut value = session.snapshot();
+    let (sink_value, window_sink) = match sink {
+        Some(stats) => (stats.snapshot(), true),
+        None => (SinkStats::default().snapshot(), false),
+    };
+    if let (Some(target), Some(source)) = (value.as_object_mut(), sink_value.as_object()) {
+        for (key, entry) in source {
+            target.insert(key.clone(), entry.clone());
+        }
+        target.insert("windowSink".into(), serde_json::Value::Bool(window_sink));
+    }
+    value
 }
 
 /// Rapporti conservati: ognuno documenta un blocco, i piu' vecchi non
@@ -269,7 +301,7 @@ mod tests {
     /// frontend non ha ricevuto.
     #[test]
     fn indici_e_contatori_restano_allineati_al_channel() {
-        let fail = std::sync::Arc::new(AtomicBool::new(false));
+        let fail = Arc::new(AtomicBool::new(false));
         let fail_in_channel = fail.clone();
         let channel = Channel::<InvokeResponseBody>::new(move |_| {
             if fail_in_channel.load(Ordering::Relaxed) {
@@ -278,7 +310,7 @@ mod tests {
                 Ok(())
             }
         });
-        let stats = RpcStats::default();
+        let stats = SinkStats::default();
         let total = RECENT_FRAMES as u64 + 5;
         for i in 0..total {
             fail.store(i == 2, Ordering::Relaxed);
@@ -297,5 +329,24 @@ mod tests {
         assert_eq!(frames.len(), RECENT_FRAMES);
         assert_eq!(frames[0]["index"], 5);
         assert_eq!(frames[RECENT_FRAMES - 1]["index"], total - 1);
+    }
+
+    /// Due finestre hanno numerazioni Tauri indipendenti: i conteggi di una
+    /// non devono comparire in quelli dell'altra, o la diagnosi direbbe
+    /// «frame persi» a chi non ne ha perso nessuno.
+    #[test]
+    fn i_contatori_dei_frame_sono_per_consumatore() {
+        let channel = Channel::<InvokeResponseBody>::new(|_| Ok(()));
+        let first = Arc::new(SinkStats::default());
+        let second = Arc::new(SinkStats::default());
+        first.send(&channel, "ready", "{}".into());
+        first.send(&channel, "message_end", "{}".into());
+        assert_eq!(second.snapshot()["framesSent"], 0);
+        let session = RpcStats::default();
+        let report = transport_snapshot(&session, Some(first.clone()));
+        assert_eq!(report["framesSent"], 2);
+        assert_eq!(report["windowSink"], true);
+        let remote = transport_snapshot(&session, None);
+        assert_eq!(remote["windowSink"], false);
     }
 }

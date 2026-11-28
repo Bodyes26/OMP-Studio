@@ -45,6 +45,11 @@ impl Engine {
         outputs_dir: PathBuf,
     ) -> Result<Arc<Self>, String> {
         let storage = Arc::new(Storage::open(&db_path, &outputs_dir)?);
+        // All'avvio il WAL di una sessione precedente viene ricondotto nel file
+        // principale: senza, restava li' a crescere fra un avvio e l'altro (S9-08).
+        if let Err(e) = storage.wal_checkpoint_truncate() {
+            println!("[automations] Checkpoint WAL all'avvio non riuscito: {}", e);
+        }
 
         // Crash recovery: riconcilia occorrenze rimaste aperte (AUT-046, AUT-106)
         let suspended = storage.reconcile_crash()?;
@@ -84,6 +89,10 @@ impl Engine {
         });
 
         engine.start_tick_loop();
+        // Prima valutazione di quota a cache fredda: la rilettura di
+        // `omp usage` parte subito in background, cosi' il primo tick non deve
+        // aspettare un processo esterno (S9-04).
+        quota::request_usage_refresh();
         Ok(engine)
     }
 
@@ -170,15 +179,18 @@ impl Engine {
                     }
                 }
             }
-            // Verifica disponibilità lock sui target
+            // Verifica disponibilità lock sui target, con le stesse chiavi
+            // dell'acquisizione: il percorso canonico puo' differire da quello
+            // del target e controllarne una sola lasciava passare un progetto
+            // gia' occupato (S9-02).
+            let keys = self.project_lock_keys(&occ.targets);
             let locks = self.project_locks.lock();
-            for t in &occ.targets {
-                let norm = normalize_project_path(&t.path);
-                if locks.contains_key(&norm)
+            for key in &keys {
+                if locks.contains_key(key)
                     || ctx
                         .busy_paths
                         .iter()
-                        .any(|bp| normalize_project_path(bp) == norm)
+                        .any(|bp| normalize_project_path(bp) == *key)
                 {
                     return false;
                 }
@@ -248,6 +260,11 @@ impl Engine {
             let settings = self.storage.get_settings();
             self.storage
                 .cleanup_retention(settings.retention_days, settings.output_total_bytes);
+            // Una volta all'ora il WAL torna nel file principale: senza
+            // checkpoint il `-wal` cresceva senza limite (S9-08).
+            if let Err(e) = self.storage.wal_checkpoint_truncate() {
+                crate::studio_log::log(crate::studio_log::Level::Warn, "automations", e);
+            }
         }
 
         // 2. Poll eventi dall'Observer (Git, file, agente, studio)
@@ -695,7 +712,7 @@ impl Engine {
                         if is_expired {
                             crate::rpc::close_automation_execution(&self.app, &exec.id);
                             self.needs_input_executions.lock().remove(&exec.id);
-                            self.release_project_locks(&exec.targets);
+                            self.release_project_locks(&exec.id);
 
                             let update = AutomationAiUpdate {
                                 execution_id: exec.id.clone(),
@@ -739,7 +756,7 @@ impl Engine {
                                 crate::rpc::close_automation_execution(&self.app, &exec.id);
                                 self.running_ai_executions.lock().remove(&exec.id);
                                 self.pending_ai_requests.lock().remove(&exec.id);
-                                self.release_project_locks(&exec.targets);
+                                self.release_project_locks(&exec.id);
 
                                 let update = AutomationAiUpdate {
                                     execution_id: exec.id.clone(),
@@ -807,52 +824,42 @@ impl Engine {
         path.to_string()
     }
 
+    /// Chiavi esatte che l'acquisizione inserisce per i target dati: percorso
+    /// canonico normalizzato e, se diverso, percorso del target. Il rilascio le
+    /// riusa cosi' come sono: ricalcolarle a fine esecuzione poteva dare un
+    /// percorso canonico diverso e lasciare il progetto occupato (S9-02).
+    fn project_lock_keys(&self, targets: &[ResolvedAutomationTarget]) -> Vec<String> {
+        let mut keys: Vec<String> = Vec::with_capacity(targets.len() * 2);
+        for t in targets {
+            let canonical = self.canonical_root_for_path(&t.path);
+            let canonical_norm = normalize_project_path(&canonical);
+            let norm = normalize_project_path(&t.path);
+
+            if !keys.contains(&canonical_norm) {
+                keys.push(canonical_norm.clone());
+            }
+            if canonical_norm != norm && !keys.contains(&norm) {
+                keys.push(norm);
+            }
+        }
+        keys
+    }
+
     fn try_acquire_project_locks(
         &self,
         targets: &[ResolvedAutomationTarget],
         exec_id: &str,
         ctx: &AutomationContext,
     ) -> bool {
-        let mut locks = self.project_locks.lock();
-        for t in targets {
-            let canonical = self.canonical_root_for_path(&t.path);
-            let canonical_norm = normalize_project_path(&canonical);
-            let norm = normalize_project_path(&t.path);
-
-            if locks.contains_key(&canonical_norm)
-                || locks.contains_key(&norm)
-                || ctx.busy_paths.iter().any(|bp| {
-                    let bp_norm = normalize_project_path(bp);
-                    bp_norm == canonical_norm || bp_norm == norm
-                })
-            {
-                return false;
-            }
-        }
-
-        for t in targets {
-            let canonical = self.canonical_root_for_path(&t.path);
-            let canonical_norm = normalize_project_path(&canonical);
-            let norm = normalize_project_path(&t.path);
-
-            locks.insert(canonical_norm.clone(), exec_id.to_string());
-            if canonical_norm != norm {
-                locks.insert(norm, exec_id.to_string());
-            }
-        }
-        true
+        let keys = self.project_lock_keys(targets);
+        try_acquire_lock_keys(&self.project_locks, &keys, exec_id, &ctx.busy_paths)
     }
 
-    fn release_project_locks(&self, targets: &[ResolvedAutomationTarget]) {
-        let mut locks = self.project_locks.lock();
-        for t in targets {
-            let canonical = self.canonical_root_for_path(&t.path);
-            let canonical_norm = normalize_project_path(&canonical);
-            let norm = normalize_project_path(&t.path);
-
-            locks.remove(&canonical_norm);
-            locks.remove(&norm);
-        }
+    fn release_project_locks(&self, exec_id: &str) {
+        // Rilascia tutto cio' che questa esecuzione possiede, senza ricalcolare
+        // le chiavi: il percorso canonico puo' essere cambiato nel frattempo e
+        // una chiave ricalcolata non sarebbe quella inserita (S9-02).
+        self.project_locks.lock().retain(|_, owner| owner != exec_id);
     }
 
     pub fn is_project_locked(&self, path: &str, excluding_execution: Option<&str>) -> bool {
@@ -1218,7 +1225,7 @@ impl Engine {
                             .to_string(),
                         );
                         exec.finished_at = Some(chrono_now_ms());
-                        self.release_project_locks(&exec.targets);
+                        self.release_project_locks(&exec.id);
                         reconciled.push(exec.id.clone());
                         changed = true;
                     }
@@ -1252,9 +1259,7 @@ impl Engine {
         let interactive_blocked = ctx.interactive_waiting
             || (ctx.max_agent_count > 0 && ctx.interactive_agent_count >= ctx.max_agent_count);
 
-        let active_cmds = self.running_commands.lock().len();
-        // Conteggio richieste pendenti riservato per controlli futuri sui limiti di coda
-        let _active_ai = self.pending_ai_requests.lock().len();
+        let mut active_cmds = self.running_commands.lock().len();
 
         let mut occurrences = match self.storage.get_occurrences(50) {
             Ok(o) => o,
@@ -1287,46 +1292,50 @@ impl Engine {
                             continue;
                         }
 
-                        // Verifica lock di progetto (AUT-042, AUT-012)
-                        if !self.try_acquire_project_locks(
-                            &occ.executions[exec_idx].targets,
-                            &occ.executions[exec_idx].id,
-                            &ctx,
+                        // Verifica policy script e hash (AUT-036) prima di
+                        // prendere il lock: un rifiuto non deve lasciare il
+                        // progetto occupato (S9-01). Le chiavi si calcolano qui
+                        // e si passano al thread del comando: il rilascio riusa
+                        // le stesse, anche se il percorso canonico cambia (S9-02).
+                        let exec_id = occ.executions[exec_idx].id.clone();
+                        let lock_keys = self.project_lock_keys(&occ.executions[exec_idx].targets);
+                        let script_error = if ca.script_policy == "review" {
+                            self.check_script_approval(ca)
+                        } else {
+                            None
+                        };
+                        let admitted = match admit_command(
+                            &self.project_locks,
+                            lock_keys,
+                            &exec_id,
+                            &ctx.busy_paths,
+                            script_error,
                         ) {
-                            continue;
-                        }
-
-                        // Verifica policy script e hash (AUT-036)
-                        if ca.script_policy == "review" {
-                            if let Some(err) = self.check_script_approval(ca) {
+                            CommandAdmission::Admitted(keys) => keys,
+                            CommandAdmission::ScriptRejected(reason) => {
                                 occ.executions[exec_idx].state = "error".to_string();
-                                occ.executions[exec_idx].reason = Some(err);
+                                occ.executions[exec_idx].reason = Some(reason);
                                 occ.executions[exec_idx].finished_at = Some(now_ms);
                                 occ_changed = true;
                                 continue;
                             }
-                        }
-
-                        // Acquisizione atomica all-or-none
-                        let exec_id = occ.executions[exec_idx].id.clone();
-                        if !self.try_acquire_project_locks(
-                            &occ.executions[exec_idx].targets,
-                            &exec_id,
-                            &ctx,
-                        ) {
-                            continue;
-                        }
+                            CommandAdmission::LockBusy => continue,
+                        };
 
                         occ.executions[exec_idx].state = "running".to_string();
                         occ.executions[exec_idx].started_at = Some(now_ms);
                         occ.state = "running".to_string();
                         occ_changed = true;
+                        // Anche il conteggio locale cresce: piu' comandi dello
+                        // stesso tick altrimenti superano `max_commands` (S9-07).
+                        active_cmds += 1;
 
                         self.spawn_command_execution(
                             &occ.definition,
                             ca,
                             &occ.executions[exec_idx],
                             &occ.id,
+                            admitted,
                         );
                     }
                     AutomationAction::Prompt(pa) => {
@@ -1447,6 +1456,7 @@ impl Engine {
         ca: &CommandAction,
         exec: &AutomationExecution,
         run_id: &str,
+        lock_keys: Vec<String>,
     ) {
         let execution_id = exec.id.clone();
         let run_id = run_id.to_string();
@@ -1499,10 +1509,10 @@ impl Engine {
         }
 
         if let Some(err_msg) = secret_err {
-            let mut locks = engine_locks.lock();
-            for t in &targets {
-                locks.remove(&t.path);
-            }
+            // Rilascio con le stesse chiavi dell'acquisizione: il percorso grezzo
+            // non e' una chiave del lock (S9-02). Solo quelle ancora intestate a
+            // questa esecuzione, per non togliere il lock a chi l'ha gia' preso.
+            release_owned_lock_keys(&engine_locks, &lock_keys, &execution_id);
             let _ = fs::remove_file(&ctx_path);
 
             let update = AutomationAiUpdate {
@@ -1557,12 +1567,7 @@ impl Engine {
             // Cleanup
             let _ = fs::remove_file(&ctx_path);
             engine_running.lock().remove(&execution_id);
-            {
-                let mut locks = engine_locks.lock();
-                for t in &targets {
-                    locks.remove(&normalize_project_path(&t.path));
-                }
-            }
+            release_owned_lock_keys(&engine_locks, &lock_keys, &execution_id);
 
             // Controlla richieste di chiusura progetto differite (AUT-091)
             let mut reqs = pending_project_reqs.lock();
@@ -1704,7 +1709,7 @@ impl Engine {
         // Se terminale, rilascia i lock sui target dell'esecuzione
         if is_terminal {
             if let Some(exec) = occ.executions.iter().find(|e| e.id == update.execution_id) {
-                self.release_project_locks(&exec.targets);
+                self.release_project_locks(&exec.id);
                 let paths: Vec<String> = exec.targets.iter().map(|t| t.path.clone()).collect();
                 self.check_deferred_project_requests(&paths);
             }
@@ -1755,7 +1760,7 @@ impl Engine {
                     self.running_ai_executions.lock().remove(&exec.id);
                     self.needs_input_executions.lock().remove(&exec.id);
                     self.pending_ai_requests.lock().remove(&exec.id);
-                    self.release_project_locks(&exec.targets);
+                    self.release_project_locks(&exec.id);
 
                     let update = AutomationAiUpdate {
                         execution_id: exec.id.clone(),
@@ -2342,6 +2347,92 @@ fn lock_owner_blocks(owner: &str, excluding_execution: Option<&str>) -> bool {
     owner != INTERACTIVE_LOCK_OWNER && Some(owner) != excluding_execution
 }
 
+/// Esito dell'ammissione di un comando di automazione (S9-01).
+enum CommandAdmission {
+    /// Policy script non soddisfatta con hash approvato: nessun lock preso.
+    ScriptRejected(String),
+    /// Progetto gia' occupato o in uso da una sessione interattiva.
+    LockBusy,
+    /// Ammessa: i lock sono acquisiti con esattamente queste chiavi.
+    Admitted(Vec<String>),
+}
+
+/// Decide l'ammissione di un comando e, solo se ammesso, prende i lock.
+///
+/// L'ordine e' vincolante: la verifica della policy script viene prima
+/// dell'acquisizione, cosi' un rifiuto non lascia il progetto occupato, e
+/// l'acquisizione avviene una volta sola (S9-01). Le chiavi restituite sono
+/// quelle da passare al rilascio (S9-02).
+fn admit_command(
+    locks: &Mutex<HashMap<String, String>>,
+    keys: Vec<String>,
+    exec_id: &str,
+    busy_paths: &[String],
+    script_error: Option<String>,
+) -> CommandAdmission {
+    if let Some(error) = script_error {
+        return CommandAdmission::ScriptRejected(error);
+    }
+    if try_acquire_lock_keys(locks, &keys, exec_id, busy_paths) {
+        CommandAdmission::Admitted(keys)
+    } else {
+        CommandAdmission::LockBusy
+    }
+}
+
+/// Acquisizione all-or-none delle chiavi di progetto (AUT-042, AUT-012).
+///
+/// Vive fuori da `Engine` perche' e' l'unico pezzo di logica dei lock che si puo'
+/// provare senza un `AppHandle`: i test verificano che le chiavi inserite siano
+/// esattamente quelle che il rilascio rimuove (S9-01, S9-02).
+fn try_acquire_lock_keys(
+    locks: &Mutex<HashMap<String, String>>,
+    keys: &[String],
+    exec_id: &str,
+    busy_paths: &[String],
+) -> bool {
+    let mut guard = locks.lock();
+    for key in keys {
+        if guard.contains_key(key)
+            || busy_paths
+                .iter()
+                .any(|bp| normalize_project_path(bp) == *key)
+        {
+            return false;
+        }
+    }
+
+    for key in keys {
+        guard.insert(key.clone(), exec_id.to_string());
+    }
+    true
+}
+
+#[cfg(test)]
+fn release_lock_keys(locks: &Mutex<HashMap<String, String>>, keys: &[String]) {
+    let mut guard = locks.lock();
+    for key in keys {
+        guard.remove(key);
+    }
+}
+
+/// Rilascia solo le chiavi ancora intestate a questa esecuzione: se nel
+/// frattempo il progetto e' passato a un'altra esecuzione, il suo lock resta.
+/// Serve al thread del comando, che chiude per ultimo e puo' arrivare in ritardo
+/// rispetto a un annullamento gia' registrato altrove.
+fn release_owned_lock_keys(
+    locks: &Mutex<HashMap<String, String>>,
+    keys: &[String],
+    exec_id: &str,
+) {
+    let mut guard = locks.lock();
+    for key in keys {
+        if guard.get(key).is_some_and(|owner| owner == exec_id) {
+            guard.remove(key);
+        }
+    }
+}
+
 /// Regola di ammissione di un titolo AI (AUT-041 rivisto il 2026-10-30).
 ///
 /// Gli agenti interattivi non contano: un titolo e' una sola chiamata breve a
@@ -2403,6 +2494,92 @@ mod tests {
         assert!(lock_owner_blocks("exec-1", None));
         assert!(lock_owner_blocks("exec-1", Some("exec-2")));
         assert!(!lock_owner_blocks("exec-1", Some("exec-1")));
+    }
+
+    fn chiavi(paths: &[&str]) -> Vec<String> {
+        paths.iter().map(|p| p.to_string()).collect()
+    }
+
+    #[test]
+    fn rifiuto_della_policy_script_non_lascia_il_progetto_occupato() {
+        // S9-01: la review fallita non deve acquisire il lock, altrimenti il
+        // progetto resta bloccato per tutta la sessione.
+        let locks: Mutex<HashMap<String, String>> = Mutex::new(HashMap::new());
+        let esito = admit_command(
+            &locks,
+            chiavi(&["c:/repo"]),
+            "exec-1",
+            &[],
+            Some("script modificato".to_string()),
+        );
+        assert!(matches!(esito, CommandAdmission::ScriptRejected(_)));
+        assert!(locks.lock().is_empty(), "nessun lock dopo il rifiuto");
+    }
+
+    #[test]
+    fn ammissione_acquisisce_e_il_rilascio_usa_le_stesse_chiavi() {
+        // S9-02: rilasciare le chiavi dell'acquisizione svuota il registro anche
+        // quando percorso canonico e percorso del target sono diversi.
+        let locks: Mutex<HashMap<String, String>> = Mutex::new(HashMap::new());
+        let esito = admit_command(
+            &locks,
+            chiavi(&["c:/repo", "c:/repo/sotto"]),
+            "exec-1",
+            &[],
+            None,
+        );
+        let CommandAdmission::Admitted(acquisite) = esito else {
+            panic!("ammissione attesa");
+        };
+        assert_eq!(locks.lock().len(), 2, "entrambe le chiavi sono occupate");
+
+        release_lock_keys(&locks, &acquisite);
+        assert!(locks.lock().is_empty(), "il progetto torna libero");
+    }
+
+    #[test]
+    fn progetto_occupato_non_viene_riassegnato() {
+        // Due comandi dello stesso tick sullo stesso progetto: il secondo trova
+        // il lock del primo (AUT-042) e non deve contarli entrambi (S9-07).
+        let locks: Mutex<HashMap<String, String>> = Mutex::new(HashMap::new());
+        let keys = chiavi(&["c:/repo"]);
+        assert!(try_acquire_lock_keys(&locks, &keys, "exec-1", &[]));
+        assert!(!try_acquire_lock_keys(&locks, &keys, "exec-2", &[]));
+        assert_eq!(
+            locks.lock().get("c:/repo").map(String::as_str),
+            Some("exec-1")
+        );
+    }
+
+    #[test]
+    fn percorso_occupato_da_una_sessione_interattiva_blocca() {
+        let locks: Mutex<HashMap<String, String>> = Mutex::new(HashMap::new());
+        let keys = chiavi(&["c:/repo"]);
+        assert!(!try_acquire_lock_keys(
+            &locks,
+            &keys,
+            "exec-1",
+            &["c:/repo/".to_string()]
+        ));
+        assert!(locks.lock().is_empty());
+    }
+
+    #[test]
+    fn un_rilascio_in_ritardo_non_toglie_il_lock_a_un_altra_esecuzione() {
+        // Il thread del comando chiude per ultimo: se nel frattempo il progetto
+        // e' passato a un'altra esecuzione, il suo lock deve restare (S9-02).
+        let locks: Mutex<HashMap<String, String>> = Mutex::new(HashMap::new());
+        let keys = chiavi(&["c:/repo"]);
+        assert!(try_acquire_lock_keys(&locks, &keys, "exec-1", &[]));
+        release_lock_keys(&locks, &keys);
+        assert!(try_acquire_lock_keys(&locks, &keys, "exec-2", &[]));
+
+        release_owned_lock_keys(&locks, &keys, "exec-1");
+        assert_eq!(
+            locks.lock().get("c:/repo").map(String::as_str),
+            Some("exec-2"),
+            "il lock della nuova esecuzione resta"
+        );
     }
 
     fn definition(id: &str, triggers: &str, project_paths: &str) -> AutomationDefinition {

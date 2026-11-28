@@ -396,6 +396,8 @@ pub fn is_fatal_error_code(code: &str) -> bool {
 struct ActiveSession {
     stop_tx: oneshot::Sender<()>,
     msg_tx: mpsc::Sender<Message>,
+    /// Finestra che ha aperto il canale: alla sua ricarica il `Channel` muore.
+    owner: String,
 }
 
 pub struct BrowserLiveManager {
@@ -434,6 +436,23 @@ impl BrowserLiveManager {
             ))
         }
     }
+
+    /// Chiude i canali live aperti da una WebView che si sta ricaricando
+    /// (S8-12): il suo `Channel` non ha piu' nessuno in ascolto.
+    pub fn detach_window(&self, label: &str) -> usize {
+        let mut lock = self.sessions.lock();
+        let ids: Vec<u64> = lock
+            .iter()
+            .filter(|(_, session)| session.owner == label)
+            .map(|(id, _)| *id)
+            .collect();
+        for id in &ids {
+            if let Some(session) = lock.remove(id) {
+                let _ = session.stop_tx.send(());
+            }
+        }
+        ids.len()
+    }
 }
 
 /// Connette Studio al canale loopback live della tab specificata usando il ticket monouso.
@@ -444,6 +463,7 @@ pub async fn browser_live_connect(
     token: String,
     identity: BrowserSessionIdentity,
     on_event: Channel<BrowserLiveEvent>,
+    webview: tauri::Webview,
     manager: State<'_, BrowserLiveManager>,
 ) -> Result<u64, String> {
     if !is_loopback_endpoint(&endpoint) {
@@ -466,7 +486,7 @@ pub async fn browser_live_connect(
             )
             .to_string());
         }
-        lock.insert(session_id, ActiveSession { stop_tx, msg_tx });
+        lock.insert(session_id, ActiveSession { stop_tx, msg_tx, owner: webview.label().to_owned() });
     }
 
     let _ = on_event.send(BrowserLiveEvent::Connecting);
@@ -851,7 +871,7 @@ mod tests {
         manager
             .sessions
             .lock()
-            .insert(1, ActiveSession { stop_tx, msg_tx });
+            .insert(1, ActiveSession { stop_tx, msg_tx, owner: "main".into() });
 
         let send_res = manager.send_message(
             1,
@@ -864,6 +884,12 @@ mod tests {
             Message::Text(t) => assert!(t.contains("takeover")),
             _ => panic!("Expected text message"),
         }
+
+        // Alla ricarica della finestra il canale va chiuso: il `Channel` di
+        // quella WebView non ha piu' nessuno in ascolto (S8-12).
+        assert_eq!(manager.detach_window("main"), 1);
+        assert_eq!(manager.detach_window("main"), 0);
+        assert!(manager.send_message(1, Message::Text("{}".into())).is_err());
     }
 
     #[test]

@@ -46,9 +46,9 @@ const FIXTURE_REPORTS: QuotaReport[] = [
 			planType: 'plus',
 			allowed: true,
 			limitReached: false,
-			email: 'maurizioactis@gmail.com',
-			accountId: 'eb5a878e-dfcf-4b81-9fbd-d3d771ade542',
-			orgId: 'eb5a878e-dfcf-4b81-9fbd-d3d771ade542',
+			email: 'account@example.invalid',
+			accountId: '00000000-0000-4000-8000-000000000001',
+			orgId: '00000000-0000-4000-8000-000000000001',
 			orgName: 'plus'
 		}
 	},
@@ -72,10 +72,10 @@ const FIXTURE_REPORTS: QuotaReport[] = [
 			}
 		],
 		metadata: {
-			accountId: '3d9aa28c-6e67-4422-a285-9f1cc2855952',
-			email: 'maurizioactis@gmail.com',
-			orgId: 'e1439e83-398d-42a7-bd4a-b23a6ab67155',
-			orgName: "maurizioactis@gmail.com's Organization"
+			accountId: '00000000-0000-4000-8000-000000000002',
+			email: 'account@example.invalid',
+			orgId: '00000000-0000-4000-8000-000000000003',
+			orgName: "account@example.invalid's Organization"
 		},
 		resetCredits: {
 			availableCount: 0,
@@ -91,9 +91,9 @@ const FIXTURE_RESET_ACCOUNTS: ResetAccountRaw[] = [
 	{
 		provider: 'openai-codex',
 		credentialId: 5,
-		email: 'maurizioactis@gmail.com',
-		accountId: 'eb5a878e-dfcf-4b81-9fbd-d3d771ade542',
-		orgId: 'eb5a878e-dfcf-4b81-9fbd-d3d771ade542',
+		email: 'account@example.invalid',
+		accountId: '00000000-0000-4000-8000-000000000001',
+		orgId: '00000000-0000-4000-8000-000000000001',
 		orgName: 'plus',
 		availableCount: 1,
 		redeemableCount: 1,
@@ -111,10 +111,10 @@ const FIXTURE_RESET_ACCOUNTS: ResetAccountRaw[] = [
 	{
 		provider: 'anthropic',
 		credentialId: 10,
-		email: 'maurizioactis@gmail.com',
-		accountId: '3d9aa28c-6e67-4422-a285-9f1cc2855952',
-		orgId: 'e1439e83-398d-42a7-bd4a-b23a6ab67155',
-		orgName: "maurizioactis@gmail.com's Organization",
+		email: 'account@example.invalid',
+		accountId: '00000000-0000-4000-8000-000000000002',
+		orgId: '00000000-0000-4000-8000-000000000003',
+		orgName: "account@example.invalid's Organization",
 		availableCount: 0,
 		redeemableCount: 0,
 		unavailableReason: 'not_at_wall',
@@ -402,6 +402,6 @@ test('selectResetPromptCandidate rispetta le impostazioni autoRedeem per finestr
 	assert.equal(candidateWeekly.settingKey, 'codexResets.autoRedeemWeekly');
 
 	// 3. Verifica riconoscimento prompt di sessione con formati estesi
-	assert.equal(isAutoRedeemSessionPrompt('Spend 1 saved Codex rate-limit reset for maurizioactis@gmail.com?'), true);
+	assert.equal(isAutoRedeemSessionPrompt('Spend 1 saved Codex rate-limit reset for account@example.invalid?'), true);
 	assert.equal(isAutoRedeemSessionPrompt('Spend 2 saved Claude rate-limit resets?'), true);
 });

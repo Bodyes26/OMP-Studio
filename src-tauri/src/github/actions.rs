@@ -8,7 +8,9 @@ use std::os::windows::process::CommandExt;
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
-use super::auth::{find_authorized_gh_binary, get_saved_token, run_blocking};
+use super::auth::{
+    capture_with_timeout, find_authorized_gh_binary, get_saved_token, run_blocking, GIT_GH_TIMEOUT,
+};
 use super::repos::parse_github_url;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -67,7 +69,7 @@ fn get_project_github_slug(project_path: &Path) -> Option<(String, String)> {
     #[cfg(target_os = "windows")]
     cmd.creation_flags(CREATE_NO_WINDOW);
 
-    let out = cmd.output().ok()?;
+    let out = capture_with_timeout(&mut cmd, GIT_GH_TIMEOUT).ok()??;
     if !out.status.success() {
         return None;
     }
@@ -96,7 +98,7 @@ fn actions_from_gh(slug: &str, branch: Option<&str>) -> Option<Vec<GithubActionR
     #[cfg(target_os = "windows")]
     cmd.creation_flags(CREATE_NO_WINDOW);
 
-    let out = cmd.output().ok()?;
+    let out = capture_with_timeout(&mut cmd, GIT_GH_TIMEOUT).ok()??;
     if !out.status.success() {
         return None;
     }

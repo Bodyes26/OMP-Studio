@@ -138,7 +138,6 @@ fn cmd_arg(s: &str) -> String {
 }
 
 /// Cita un argomento per la riga di comando POSIX shell (single-quoted).
-#[allow(dead_code)]
 fn sh_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
 }
@@ -415,11 +414,18 @@ pub fn write_extension(file_name: &str, source: &str) -> Option<String> {
     Some(path.to_string_lossy().to_string())
 }
 
+/// Gestore dei terminali. Clonabile a costo di un conteggio: `pty_open` deve
+/// poterlo portare dentro `spawn_blocking` (S8-06).
+#[derive(Clone)]
 pub struct PtyManager {
     sessions: Arc<Mutex<HashMap<u64, PtySession>>>,
-    next_id: Mutex<u64>,
-    open_gate: Mutex<()>,
+    next_id: Arc<Mutex<u64>>,
+    open_gate: Arc<Mutex<()>>,
 }
+
+/// Tetto d'attesa di `close_all` sul main thread (S8-07): oltre, la finestra
+/// sembra bloccata. I thread di chiusura continuano da soli.
+const CLOSE_ALL_BUDGET: std::time::Duration = std::time::Duration::from_millis(1500);
 
 impl PtyManager {
     pub fn new() -> Self {
@@ -443,8 +449,8 @@ impl PtyManager {
         }).expect("starting PTY orphan reaper");
         PtyManager {
             sessions,
-            next_id: Mutex::new(1),
-            open_gate: Mutex::new(()),
+            next_id: Arc::new(Mutex::new(1)),
+            open_gate: Arc::new(Mutex::new(())),
         }
     }
 
@@ -479,7 +485,11 @@ impl PtyManager {
         };
         // In parallelo: su Unix ogni albero ha fino a 1.5 s per uscire con
         // SIGTERM prima del SIGKILL, e all'uscita dell'app le attese non devono
-        // sommarsi una sessione dopo l'altra.
+        // sommarsi una sessione dopo l'altra. L'attesa pero' ha un tetto
+        // (S8-07): qui siamo sul main thread, dentro `Destroyed`/`Exit`, e una
+        // finestra congelata per secondi sembra un blocco. Chi non e' uscito
+        // entro il tetto resta in mano al proprio Job Object/PGID, che il
+        // sistema raccoglie alla fine del processo.
         let handles: Vec<_> = sessions
             .into_iter()
             .map(|(pty_id, session)| {
@@ -489,17 +499,26 @@ impl PtyManager {
                 })
             })
             .collect();
-        for handle in handles {
+        let deadline = std::time::Instant::now() + CLOSE_ALL_BUDGET;
+        while std::time::Instant::now() < deadline && handles.iter().any(|h| !h.is_finished()) {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        // `join` blocca solo i thread non ancora finiti: si raccolgono quelli
+        // che ci sono, gli altri restano al sistema operativo.
+        let remaining: Vec<_> = handles
+            .into_iter()
+            .filter_map(|handle| handle.is_finished().then_some(handle))
+            .collect();
+        for handle in remaining {
             let _ = handle.join();
         }
     }
 }
 
-impl Drop for PtyManager {
-    fn drop(&mut self) {
-        self.close_all();
-    }
-}
+// Nota: `PtyManager` non ha piu' `Drop`. E' clonabile (serve a `pty_open` per
+// portarlo dentro `spawn_blocking`, S8-06) e un `Drop` su una copia temporanea
+// chiuderebbe tutti i terminali. La chiusura all'uscita la fa `lib.rs`
+// esplicitamente, in `Destroyed` e in `Exit`.
 
 pub fn remove_breadcrumb(pty_id: u64) {
     if let Some(mut breadcrumb) = crate::omp_ops::agent_dir() {
@@ -580,8 +599,24 @@ pub async fn pty_open(
     webview: tauri::Webview,
     manager: State<'_, PtyManager>,
 ) -> Result<u64, String> {
-    open_session(&manager, OpenPtyArgs { cwd, args, cols, rows, lane_id, project_id },
-        Box::new(hub::ChannelByteSink(on_output)), webview.label().to_owned())
+    let manager = manager.inner().clone();
+    let owner = webview.label().to_owned();
+    // `open_session` apre un PTY, scrive file e avvia un processo tenendo il
+    // gate di apertura: lavoro bloccante, mai su un worker del runtime
+    // (S8-06/S1-rpc-08).
+    tokio::task::spawn_blocking(move || {
+        open_session(
+            &manager,
+            OpenPtyArgs { cwd, args, cols, rows, lane_id, project_id },
+            Box::new(hub::ChannelByteSink(on_output)),
+            owner,
+        )
+    })
+    .await
+    .map_err(|error| crate::tr!(
+        format!("Apertura del terminale interrotta: {}", error),
+        format!("Opening the terminal was interrupted: {}", error)
+    ))?
 }
 
 #[derive(Deserialize)]
@@ -916,11 +951,12 @@ pub(crate) fn open_session(
         None
     };
 
+    let child = Arc::new(Mutex::new(child));
     let session = PtySession {
         pty_id,
         master: master_arc.clone(),
         writer: writer_arc.clone(),
-        child: Arc::new(Mutex::new(child)),
+        child: child.clone(),
         pid,
         #[cfg(target_os = "windows")]
         job,
@@ -933,6 +969,10 @@ pub(crate) fn open_session(
     };
 
     manager.sessions.lock().insert(pty_id, session.clone());
+    // Il flag serve al lettore per distinguere l'uscita spontanea dalla
+    // chiusura richiesta: va preso prima che `session` finisca nel registro
+    // delle corsie, che la consuma.
+    let killed = session.killed.clone();
 
     // Proprieta' della corsia (PLAN W11): il terminale e tutto cio' che vi si
     // avvia dentro (`dotnet watch`, `npm run dev`, IIS Express) restano dentro
@@ -961,6 +1001,9 @@ pub(crate) fn open_session(
     // per singoli tasti o echo) e poi aggrega con `try_recv()` tutti i dati gia'
     // in coda (fino a 256 KiB) prima di emettere un singolo messaggio IPC `on_output.send(...)`.
     let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
+    let exit_child = child.clone();
+    let exit_hub = hub.clone();
+    let exit_sessions = manager.sessions.clone();
 
     thread::spawn(move || {
         const MAX_COALESCED_BYTES: usize = 256 * 1024;
@@ -1003,6 +1046,49 @@ pub(crate) fn open_session(
                     }
                 }
                 _ => break,
+            }
+        }
+
+        // Il figlio e' uscito (EOF sul PTY): senza `pty_close` nessuno lo
+        // raccoglierebbe, e la finestra aspetterebbe per sempre un terminale
+        // morto. Si raccoglie e si annuncia l'uscita con il codice (S8-19).
+        // `kill_tree` scrive `killed` prima di toccare il figlio: se e' gia'
+        // stato chiamato, questo e' l'EOF di una chiusura richiesta e non
+        // c'e' nulla da annunciare.
+        //
+        // L'EOF puo' precedere di qualche istante l'uscita del processo: si
+        // aspetta un attimo per raccoglierlo e avere il codice vero. Se dopo
+        // la grazia e' ancora vivo (ha chiuso il terminale ma continua), il
+        // terminale e' comunque morto e lo si annuncia senza codice.
+        let mut code = None;
+        let grace = std::time::Instant::now() + std::time::Duration::from_millis(500);
+        loop {
+            // Il lock si prende e si rilascia a ogni giro: `kill_tree` lo
+            // aspetta, e qui si dorme.
+            let status = exit_child.lock().try_wait().ok().flatten();
+            match status {
+                Some(status) => {
+                    code = Some(status.exit_code());
+                    break;
+                }
+                None if std::time::Instant::now() < grace => {
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                }
+                None => break,
+            }
+        }
+        if !killed.load(Ordering::SeqCst) {
+            exit_hub.publish_exit(code);
+            crate::lane_bridge::revoke_owner("terminal", pty_id);
+            // Il processo e' finito e nessuno chiamera' `pty_close`: senza
+            // togliere la sessione, ogni terminale chiuso dal proprio comando
+            // resterebbe nella mappa per tutta la vita di Studio. La mappa si
+            // rilascia prima di `kill_tree`, che attende fino a un secondo e
+            // mezzo l'uscita dell'albero: tenerla qui fermerebbe ogni altro
+            // comando sui terminali.
+            let removed = exit_sessions.lock().remove(&pty_id);
+            if let Some(session) = removed {
+                session.kill_tree();
             }
         }
     });

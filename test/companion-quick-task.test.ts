@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { parseQuickTaskLocal } from '../src/lib/companion/quickTaskLocal.ts';
 import { segmentsToWireText, type ComposerSegment } from '../src/lib/agent/composerDoc.ts';
+import { readPermissionSets, expandCapabilityPermissions } from './permissions-fixture.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -87,14 +88,29 @@ test('Capabilities e permessi per la finestra Companion', () => {
 		'La capability desktop.json deve autorizzare la finestra companion'
 	);
 
-	const toml = readFileSync(join(ROOT, 'src-tauri', 'permissions', 'app-commands.toml'), 'utf8');
-	assert.ok(toml.includes('identifier = "allow-companion"'), 'Il permesso allow-companion deve essere definito in app-commands.toml');
-	assert.ok(toml.includes('"companion_prewarm"'), 'companion_prewarm deve essere presente nei comandi consentiti');
-	assert.ok(toml.includes('"toggle_companion_window"'), 'toggle_companion_window deve essere presente nei comandi consentiti');
-	assert.ok(toml.includes('"hide_companion_window"'), 'hide_companion_window deve essere presente nei comandi consentiti');
-	assert.ok(toml.includes('"parse_quick_task_ai"'), 'parse_quick_task_ai deve essere presente nei comandi consentiti');
-	assert.ok(toml.includes('"get_companion_state"'), 'get_companion_state deve essere presente nei comandi consentiti');
-	assert.ok(toml.includes('"set_companion_pinned"'), 'set_companion_pinned deve essere presente nei comandi consentiti');
+	// I comandi IPC della Companion devono stare in un permesso davvero incluso
+	// nella capability: e' il contratto ACL, non il testo del file TOML. Tauri
+	// rifiuta a runtime ogni comando fuori da un permesso incluso, quindi un
+	// comando nuovo non dichiarato qui non arriverebbe mai alla finestra.
+	const perms = readPermissionSets(join(ROOT, 'src-tauri', 'permissions'));
+	const allowed = expandCapabilityPermissions(
+		perms,
+		join(ROOT, 'src-tauri', 'capabilities', 'default.json')
+	);
+	const companionCommands = [
+		'companion_prewarm',
+		'toggle_companion_window',
+		'hide_companion_window',
+		'parse_quick_task_ai',
+		'get_companion_state',
+		'set_companion_pinned'
+	];
+	for (const command of companionCommands) {
+		assert.ok(
+			allowed.has(command),
+			`il comando ${command} non e' consentito da nessun permesso incluso nella capability default`
+		);
+	}
 });
 
 test('Struttura dati e contratto QuickTaskAiParsed', () => {

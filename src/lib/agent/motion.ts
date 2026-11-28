@@ -20,17 +20,42 @@ function durationToken(style: CSSStyleDeclaration, token: string, fallback: numb
 	return value && Number.isFinite(duration) ? duration : fallback;
 }
 
-/* Svelte interpola via JS: risolviamo la stessa curva di --ease-reveal
-   sull'asse x, invece di sostituirla con una curva polinomiale simile. */
+/**
+ * Unica copia JS della curva di `--ease-reveal` in `app.css`
+ * (`cubic-bezier(0.22, 0.61, 0.36, 1)`). Svelte interpola via JS e non legge
+ * la curva dal foglio di stile: il token e questa costante devono restare
+ * identici, altrimenti transizioni CSS e JS dello stesso ingresso finiscono su
+ * curve diverse. `test/reveal-ease.test.ts` confronta le due, cosi' la
+ * divergenza si vede come test rosso e non come cambio di ritmo a schermo.
+ */
+export const REVEAL_EASE_CURVE = [0.22, 0.61, 0.36, 1] as const;
+
+/** Coefficienti del polinomio di una coordinata della cubic-bezier. */
+function bezierCoefficients(start: number, end: number): [number, number, number] {
+	return [3 * start, 3 * end - 6 * start, 3 * start - 3 * end + 1];
+}
+
+const [X1, X2, X3] = bezierCoefficients(REVEAL_EASE_CURVE[0], REVEAL_EASE_CURVE[2]);
+const [Y1, Y2, Y3] = bezierCoefficients(REVEAL_EASE_CURVE[1], REVEAL_EASE_CURVE[3]);
+
+function bezier(coefficients: readonly [number, number, number], t: number): number {
+	return ((coefficients[2] * t + coefficients[1]) * t + coefficients[0]) * t;
+}
+
+/**
+ * La curva del token letta sull'asse x, risolta per `t` con Newton: Svelte
+ * vuole una funzione `progress → progress`, CSS vuole una parametrica.
+ */
 export function revealEase(progress: number): number {
 	if (progress <= 0 || progress >= 1) return progress;
 	let parameter = progress;
 	for (let iteration = 0; iteration < 6; iteration++) {
-		const x = ((0.58 * parameter - 0.24) * parameter + 0.66) * parameter;
-		const derivative = (1.74 * parameter - 0.48) * parameter + 0.66;
+		const x = bezier([X1, X2, X3], parameter);
+		const derivative = (3 * X3 * parameter + 2 * X2) * parameter + X1;
+		if (derivative === 0) break;
 		parameter -= (x - progress) / derivative;
 	}
-	return ((-0.17 * parameter - 0.66) * parameter + 1.83) * parameter;
+	return bezier([Y1, Y2, Y3], parameter);
 }
 
 /** Ingresso/uscita senza piegare il layout: menu, popover e dialoghi. */

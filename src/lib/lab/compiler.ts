@@ -29,7 +29,7 @@ export interface LabCompileResult {
 	importMap: Record<string, string>;
 }
 
-export function normalizeVfsPath(rawPath: string): string {
+function normalizeVfsPath(rawPath: string): string {
 	const forward = rawPath.replace(/\\/g, '/');
 	return forward.startsWith('/') ? forward : '/' + forward;
 }

@@ -14,6 +14,7 @@ const { AgentSession } = await import('../src/lib/agent/session.svelte.ts');
 
 class FeedClient {
 	id = 'feed';
+	responses: unknown[] = [];
 	private handler: ((event: AgentSessionEvent) => void) | null = null;
 	onEvent(handler: (event: AgentSessionEvent) => void): () => void {
 		this.handler = handler;
@@ -23,6 +24,9 @@ class FeedClient {
 	}
 	emit(event: AgentSessionEvent) {
 		this.handler?.(event);
+	}
+	async respondUi(response: unknown) {
+		this.responses.push(response);
 	}
 }
 
@@ -55,5 +59,38 @@ describe('anteprima della domanda in arrivo', () => {
 		});
 		assert.ok(session.pendingUi);
 		assert.equal(session.streamAsk, null);
+	});
+
+	// omp con `studio-ask.ts` non caricata ripiega sul `form` nativo: senza
+	// gestione l'anteprima restava appesa e l'agente aspettava per sempre.
+	it('annulla il form nativo e chiude l anteprima', () => {
+		const client = new FeedClient();
+		const session = new AgentSession({ cwd: '/tmp/ask-preview', client: client as unknown as OmpRpcClient });
+		const emit = (event: AgentSessionEvent) => client.emit(event);
+		emit({ type: 'agent_start' });
+		emit({ type: 'message_start', message: { role: 'assistant', timestamp: 1 } });
+		emit({
+			type: 'message_update',
+			assistantMessageEvent: {
+				type: 'toolcall_delta',
+				contentIndex: 0,
+				delta: '{"html":"<form><fieldset><legend>Regola</legend><label><input type=\\"radio\\" name=\\"r\\" value=\\"a\\">A</label></fieldset></form>"}',
+				toolCall: { name: 'ask' }
+			}
+		});
+		assert.ok(session.streamAsk);
+		emit({ type: 'tool_execution_start', toolCallId: 'call-ask', toolName: 'ask', args: {} });
+		// L'avviso finisce nel registro di Studio, che pianifica lo scarico su `window`.
+		const original = Object.getOwnPropertyDescriptor(globalThis, 'window');
+		Object.defineProperty(globalThis, 'window', { configurable: true, value: { setTimeout: () => 0 } });
+		try {
+			emit({ type: 'extension_ui_request', id: 'req-form', method: 'form', html: '<form></form>' });
+		} finally {
+			if (original) Object.defineProperty(globalThis, 'window', original);
+			else Reflect.deleteProperty(globalThis, 'window');
+		}
+		assert.equal(session.streamAsk, null);
+		assert.equal(session.pendingUi, null);
+		assert.deepEqual(client.responses, [{ type: 'extension_ui_response', id: 'req-form', cancelled: true }]);
 	});
 });

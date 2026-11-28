@@ -25,6 +25,8 @@ class OmpSync {
 	busy = $state(false);
 	private baseline: Record<string, Base> = {};
 	private loading: Promise<void> | null = null;
+	/** Giro chiesto mentre un altro era in corso: riparte appena quello finisce. */
+	private pendingSync: { only?: string } | null = null;
 
 	private load(): Promise<void> {
 		return this.loading ??= (async () => {
@@ -37,8 +39,21 @@ class OmpSync {
 		if (!isTauri()) return () => {};
 		const tick = () => { void this.sync().catch((error) => { this.errors = { ...this.errors, local: String(error) }; }); };
 		tick();
-		const timer = window.setInterval(tick, 30_000);
-		return () => window.clearInterval(timer);
+		// Il giro legge e scrive preferenze, anche su un'altra macchina: a
+		// finestra nascosta si salta, e il primo giro al ritorno rimette in
+		// pari (S7-04). Il ritmo resta quello di prima quando si guarda.
+		const timer = window.setInterval(() => {
+			if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+			tick();
+		}, 30_000);
+		const onVisibility = () => {
+			if (document.visibilityState === 'visible') tick();
+		};
+		document.addEventListener('visibilitychange', onVisibility);
+		return () => {
+			window.clearInterval(timer);
+			document.removeEventListener('visibilitychange', onVisibility);
+		};
 	}
 
 	async enable(machine: string, category: Category, enabled: boolean): Promise<void> {
@@ -61,9 +76,19 @@ class OmpSync {
 		this.preferences = await invoke<Preferences>('omp_sync_preferences', { value: $state.snapshot(value) }, scope);
 	}
 
+	/**
+	 * Un giro chiesto mentre un altro e' in corso non si perde (S3-link-front-30):
+	 * `enable()` puo' cadere li' e la categoria appena accesa aspetterebbe il
+	 * giro da 30 s senza dirlo. La richiesta si accoda e riparte a fine giro.
+	 */
 	async sync(only?: string): Promise<void> {
 		await this.load();
-		if (this.busy) return;
+		if (this.busy) {
+			// L'ultima richiesta vince: un giro su tutte le macchine copre anche
+			// quello chiesto per una sola.
+			this.pendingSync = only === undefined ? {} : { only };
+			return;
+		}
 		this.busy = true;
 		try {
 			for (const peer of linkStore.status.peers) {
@@ -77,6 +102,9 @@ class OmpSync {
 		} finally {
 			this.busy = false;
 			localStorage.setItem(storageKey, JSON.stringify(this.baseline));
+			const queued = this.pendingSync;
+			this.pendingSync = null;
+			if (queued !== null) void this.sync(queued.only);
 		}
 	}
 

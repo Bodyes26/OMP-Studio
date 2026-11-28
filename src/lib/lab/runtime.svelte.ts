@@ -7,9 +7,9 @@
 //  - Chiusura revisione git (commit automatico) a fine turno agente e sync titolo/indice;
 //  - Consultazione storica e ripristino di revisioni precedenti.
 
-import { listen, type UnlistenFn } from '#lib/backend/ipc.ts';
+import type { UnlistenFn } from '#lib/backend/ipc.ts';
 import type { AgentSession } from '#lib/agent/session.svelte.ts';
-import { labApi } from './api';
+import { labApi as localLabApi, type LabApi } from './api';
 import { compileLabPrototypeInWorker } from './compiler';
 import { buildLabPreviewHtml } from './preview-builder';
 import { ensureSharedVendorPublished } from './sharedVendor';
@@ -30,6 +30,11 @@ export interface LabLaneRuntimeConfig {
 	workspacePath: string;
 	projectPath: string | null;
 	session: AgentSession;
+	/**
+	 * Comandi del Laboratorio della superficie (S3-link-front-05): su un
+	 * progetto di un'altra macchina leggono e scrivono li'. Assente = questa.
+	 */
+	api?: LabApi;
 }
 
 export class LabLaneRuntime {
@@ -39,6 +44,7 @@ export class LabLaneRuntime {
 	readonly workspacePath: string;
 	readonly projectPath: string | null;
 	readonly session: AgentSession;
+	readonly api: LabApi;
 
 	readonly watchKey: string;
 
@@ -60,6 +66,8 @@ export class LabLaneRuntime {
 	private unlistenFn: UnlistenFn | null = null;
 	private isStarted = false;
 	private startGeneration = 0;
+	/** Chiave pubblicata per la revisione storica mostrata: si toglie quando si esce. */
+	private historicalKey: string | null = null;
 
 	constructor(config: LabLaneRuntimeConfig) {
 		this.projectId = config.projectId;
@@ -68,6 +76,10 @@ export class LabLaneRuntime {
 		this.workspacePath = config.workspacePath;
 		this.projectPath = config.projectPath;
 		this.session = config.session;
+		this.api = config.api ?? localLabApi;
+		// Chiave del watcher indipendente dalla macchina: l'id di progetto e'
+		// gia' unico, e `disposeLabRuntime` la ricostruisce senza sapere dove
+		// gira il Laboratorio.
 		this.watchKey = `${this.projectId}:${this.laneId}`;
 	}
 
@@ -91,14 +103,16 @@ export class LabLaneRuntime {
 		try {
 			await ensureSharedVendorPublished();
 			if (stopped()) return;
-			await labApi.watchStart(this.workspacePath, this.watchKey);
+			await this.api.watchStart(this.workspacePath, this.watchKey);
 			if (stopped()) {
 				// Un avvio piu' recente usa la stessa chiave: il suo watcher non va toccato.
-				if (!this.isStarted) await labApi.watchStop(this.watchKey).catch(() => {});
+				if (!this.isStarted) await this.api.watchStop(this.watchKey).catch(() => {});
 				return;
 			}
 
-			const unlisten = await listen<LabChangedEvent>(LAB_CHANGED_EVENT, (event) => {
+			// L'ascolto passa dal backend della superficie: su un progetto di
+			// un'altra macchina l'evento arriva instradato (S3-link-front-05).
+			const unlisten = await this.api.backend.listen<LabChangedEvent>(LAB_CHANGED_EVENT, (event) => {
 				if (event.payload.key === this.watchKey) {
 					this.scheduleRecompile();
 				}
@@ -135,7 +149,9 @@ export class LabLaneRuntime {
 			this.unlistenFn = null;
 		}
 
-		await labApi.watchStop(this.watchKey).catch(() => {});
+		await this.api.watchStop(this.watchKey).catch(() => {});
+		// Anche la revisione storica pubblicata esce dal server (S8-17).
+		await this.dropHistoricalPublish();
 	}
 
 	scheduleRecompile(): void {
@@ -152,14 +168,14 @@ export class LabLaneRuntime {
 		this.isCompiling = true;
 		try {
 			await ensureSharedVendorPublished();
-			const files = await labApi.snapshot(this.workspacePath);
+			const files = await this.api.snapshot(this.workspacePath);
 			const sourceStamp = Date.now();
 			const result = await compileLabPrototypeInWorker(files);
 			this.compileErrors = result.errors;
 			this.runtimeErrors = [];
 
 			if (!result.ok) {
-				await labApi.writePreviewStatus(this.workspacePath, {
+				await this.api.writePreviewStatus(this.workspacePath, {
 					url: this.url,
 					compiledAt: Date.now(),
 					sourceStamp,
@@ -187,13 +203,13 @@ export class LabLaneRuntime {
 				}
 			];
 
-			const published = await labApi.publish(key, servedFiles);
+			const published = await this.api.publish(key, servedFiles);
 			this.url = published.url;
 			this.publishSeq += 1;
 			this.lastCompiledAt = Date.now();
 			this.lastSourceStamp = sourceStamp;
 
-			await labApi.writePreviewStatus(this.workspacePath, {
+			await this.api.writePreviewStatus(this.workspacePath, {
 				url: published.url,
 				compiledAt: this.lastCompiledAt,
 				sourceStamp,
@@ -203,7 +219,7 @@ export class LabLaneRuntime {
 		} catch (err) {
 			const errMsg = err instanceof Error ? err.message : String(err);
 			this.compileErrors = [{ kind: 'compile', message: errMsg }];
-			await labApi.writePreviewStatus(this.workspacePath, {
+			await this.api.writePreviewStatus(this.workspacePath, {
 				url: this.url,
 				compiledAt: Date.now(),
 				sourceStamp: Date.now(),
@@ -221,7 +237,7 @@ export class LabLaneRuntime {
 		if (this.runtimeErrors.some((e) => e.message === error.message)) return;
 		this.runtimeErrors = [...this.runtimeErrors, error];
 
-		void labApi
+		void this.api
 			.writePreviewStatus(this.workspacePath, {
 				url: this.url,
 				compiledAt: this.lastCompiledAt,
@@ -249,7 +265,7 @@ export class LabLaneRuntime {
 				}
 			}
 
-			const rev = await labApi.commit(this.workspacePath, commitMsg);
+			const rev = await this.api.commit(this.workspacePath, commitMsg);
 			await this.syncMeta(rev);
 		} catch (err) {
 			console.error('Errore durante il salvataggio a fine turno del prototipo:', err);
@@ -262,8 +278,8 @@ export class LabLaneRuntime {
 	 */
 	private async syncMeta(rev: LabRevision | null): Promise<void> {
 		const [meta, index] = await Promise.all([
-			labApi.readMeta(this.workspacePath),
-			labApi.listIndex(this.projectPath)
+			this.api.readMeta(this.workspacePath),
+			this.api.listIndex(this.projectPath)
 		]);
 		const entry = index.find((e) => e.id === this.prototypeId);
 		const patch: LabIndexPatch = {};
@@ -271,14 +287,14 @@ export class LabLaneRuntime {
 		if (meta?.summary && meta.summary !== entry?.summary) patch.summary = meta.summary;
 		if (Object.keys(patch).length === 0) return;
 
-		await labApi.updateIndex(this.projectPath, this.prototypeId, patch);
+		await this.api.updateIndex(this.projectPath, this.prototypeId, patch);
 	}
 
 	async viewRevision(sha: string): Promise<void> {
 		this.isCompiling = true;
 		try {
 			await ensureSharedVendorPublished();
-			const files = await labApi.filesAt(this.workspacePath, sha);
+			const files = await this.api.filesAt(this.workspacePath, sha);
 			const result = await compileLabPrototypeInWorker(files);
 			if (!result.ok) {
 				this.compileErrors = result.errors;
@@ -289,10 +305,14 @@ export class LabLaneRuntime {
 				compiledCss: result.compiledCss
 			});
 			const key = `${this.prototypeId}@${sha}`;
-			const published = await labApi.publish(key, [
+			// La revisione aperta prima esce dal server: senza, ogni revisione
+			// guardata restava in memoria fino all'uscita (S8-17).
+			await this.dropHistoricalPublish();
+			const published = await this.api.publish(key, [
 				{ path: 'index.html', content: html, contentType: 'text/html' },
 				{ path: 'app.js', content: result.compiledJs, contentType: 'application/javascript' }
 			]);
+			this.historicalKey = key;
 			this.url = published.url;
 			this.publishSeq += 1;
 			this.activeRevisionSha = sha;
@@ -302,12 +322,25 @@ export class LabLaneRuntime {
 		}
 	}
 
+	/**
+	 * Il server di anteprima tiene in memoria ogni chiave pubblicata: le
+	 * revisioni storiche restavano li' fino all'uscita (S8-17). Si toglie la
+	 * precedente quando se ne apre un'altra, e tutte all'uscita dalla storia.
+	 */
+	private async dropHistoricalPublish(): Promise<void> {
+		const key = this.historicalKey;
+		if (!key) return;
+		this.historicalKey = null;
+		await this.api.unpublish(key).catch(() => undefined);
+	}
+
 	async restoreRevision(sha: string): Promise<void> {
 		this.isCompiling = true;
 		try {
-			await labApi.restore(this.workspacePath, sha);
+			await this.api.restore(this.workspacePath, sha);
 			this.isViewingHistorical = false;
 			this.activeRevisionSha = null;
+			await this.dropHistoricalPublish();
 			await this.recompileAndPublish();
 		} finally {
 			this.isCompiling = false;
@@ -317,6 +350,7 @@ export class LabLaneRuntime {
 	async returnToCurrent(): Promise<void> {
 		this.isViewingHistorical = false;
 		this.activeRevisionSha = null;
+		await this.dropHistoricalPublish();
 		await this.recompileAndPublish();
 	}
 }

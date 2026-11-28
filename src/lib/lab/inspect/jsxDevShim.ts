@@ -12,7 +12,7 @@
 // Vite pulito, senza attributi.
 
 /** Nome dell'attributo DOM con `file:riga:colonna` del JSX che ha creato l'elemento. */
-export const LAB_LOC_ATTR = 'data-lab-loc';
+const LAB_LOC_ATTR = 'data-lab-loc';
 
 /** `vfs:/src/App.tsx` + 12 + 5 -> `src/App.tsx:12:5` (percorso relativo al prototipo). */
 export function labLocFromSource(fileName: string, lineNumber: number, columnNumber: number): string {

@@ -21,8 +21,7 @@ import { invoke, listen } from '#lib/backend/ipc.ts';
 import {
 	isPermissionGranted,
 	requestPermission,
-	sendNotification,
-	onAction
+	sendNotification
 } from '@tauri-apps/plugin-notification';
 import { automationsStore } from './store.svelte.ts';
 import { t } from './i18n.ts';
@@ -211,36 +210,12 @@ export async function startAutomationHost(options: AutomationHostOptions): Promi
 		});
 		unlisteners.push(unlistenFocus);
 
-		// D. Listener per il click su notifica tramite plugin Tauri (onAction)
-		try {
-			const actionResult = await onAction((notification) => {
-				const extra = notification.extra;
-				const runId =
-					extra && typeof extra === 'object' && 'runId' in extra && typeof extra.runId === 'string'
-						? extra.runId
-						: undefined;
-				try {
-					automationsStore.open();
-					options.onOpenRun(runId);
-				} catch (err) {
-					const msg = err instanceof Error ? err.message : String(err);
-					automationsStore.error = msg;
-				}
-			});
-
-			if (typeof actionResult === 'function') {
-				unlisteners.push(actionResult);
-			} else if (actionResult && typeof actionResult === 'object' && 'unregister' in actionResult) {
-				const unregisterFn = actionResult.unregister;
-				if (typeof unregisterFn === 'function') {
-					unlisteners.push(() => {
-						unregisterFn.call(actionResult);
-					});
-				}
-			}
-		} catch (err) {
-			console.debug('[AutomationHost] Handler onAction non disponibile:', err);
-		}
+		// Il click sulle notifiche di macOS/Linux arriva da `onAction` del plugin,
+		// ma su desktop quel comando non esiste: il plugin registra solo
+		// `notify`, `request_permission` e `is_permission_granted`, e
+		// `register_listener` vive solo su mobile. La chiamata finiva quindi con
+		// un errore ACL a ogni avvio senza mai funzionare (S8-13, S13-11). Su
+		// Windows il click passa gia' da `studio-focus-project` qui sopra.
 
 		// E. Listener per la navigazione aperta da DesktopPresence / system tray
 		const unlistenPresence = await listen('desktop-presence://navigate-automations', () => {

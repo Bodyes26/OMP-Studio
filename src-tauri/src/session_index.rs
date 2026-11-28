@@ -359,6 +359,21 @@ impl SessionIndex {
         })
     }
 
+    /// Trunca il WAL: senza un checkpoint esplicito il file `-wal` cresce con
+    /// ogni aggiornamento finche' SQLite non ne fa uno da solo (S9-08). Il
+    /// `TRUNCATE` riporta il file a zero byte, cosi' non resta un cuscinetto
+    /// da 4 MB accanto a un indice di poche centinaia di KB.
+    pub fn checkpoint(&self) -> Result<(), String> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+            .map_err(|e| {
+                crate::tr!(
+                    format!("Checkpoint del WAL dell'indice sessioni fallito: {e}"),
+                    format!("Session index WAL checkpoint failed: {e}")
+                )
+            })
+    }
+
     /// Migrazione una tantum da `session-titles.json` verso SQLite.
     pub fn migrate_json_titles(&self, json_path: &Path) -> Result<usize, String> {
         if !json_path.exists() {
@@ -947,14 +962,23 @@ pub fn get_session_index(app: &AppHandle) -> Result<Arc<SessionIndex>, String> {
 #[command]
 pub async fn session_index_refresh(app: AppHandle) -> Result<SessionIndexStats, String> {
     let index = get_session_index(&app)?;
-    tokio::task::spawn_blocking(move || index.refresh())
-        .await
-        .map_err(|e| {
-            crate::tr!(
-                format!("Task session_index_refresh fallito: {e}"),
-                format!("session_index_refresh task failed: {e}")
-            )
-        })?
+    tokio::task::spawn_blocking(move || {
+        let stats = index.refresh()?;
+        // Ogni aggiornamento dell'indice lascia righe nel WAL: il rinnovo e' il
+        // momento naturale per troncarlo (S9-08). Un errore del checkpoint non
+        // deve far fallire l'aggiornamento, che e' gia' avvenuto.
+        if let Err(error) = index.checkpoint() {
+            crate::studio_log::warn("session_index", &error);
+        }
+        Ok(stats)
+    })
+    .await
+    .map_err(|e| {
+        crate::tr!(
+            format!("Task session_index_refresh fallito: {e}"),
+            format!("session_index_refresh task failed: {e}")
+        )
+    })?
 }
 
 /// Comando IPC: restituisce le sessioni che necessitano di un titolo generato dall'AI.

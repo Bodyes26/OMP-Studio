@@ -42,6 +42,16 @@ const MAX_REASSEMBLED_BYTES: usize = 67_108_864;
 /// svuotano immediatamente il buffer senza ritardi.
 const DELTA_WINDOW: Duration = Duration::from_millis(16);
 
+/// Finestra dell'accorpamento degli aggiornamenti di progresso (S1-rpc-07):
+/// `tool_execution_update` e `subagent_progress` sono istantanee complete da
+/// 20-28 KB emesse ~4 volte al secondo, e i consumatori ne tengono solo
+/// l'ultima per chiave. Con questa finestra i byte su IPC, rete e coda di
+/// ripresa scendono di un ordine di grandezza. Un thread dedicato svuota la
+/// coda allo scadere, cosi' l'ultimo aggiornamento esce comunque entro la
+/// finestra (200 ms, sotto il tetto di 250 ms chiesto dal piano) anche se omp
+/// tace.
+const PROGRESS_WINDOW: Duration = Duration::from_millis(200);
+
 /// Righe di stderr conservate per la diagnostica di crash. Un avvio fallito
 /// (binario mancante, provider non autenticato, estensione rotta) altrimenti
 /// si manifesterebbe solo come stdin chiuso.
@@ -62,11 +72,8 @@ pub struct RpcSession {
     #[cfg(target_os = "windows")]
     pub job: Option<Arc<crate::process_tree::WindowsJob>>,
     killed: Arc<AtomicBool>,
-    #[allow(dead_code)]
     pub scope: String,
-    #[allow(dead_code)]
     pub prototype_id: Option<String>,
-    #[allow(dead_code)]
     pub session_id: Arc<Mutex<Option<String>>>,
     pub cwd: String,
     pub execution_id: Option<String>,
@@ -178,10 +185,15 @@ impl crate::process_tree::LaneProcessControl for LaneAgentProcess {
     }
 }
 
+/// Gestore delle sessioni. Clonabile a costo di un conteggio: i comandi
+/// `async` devono poterlo portare dentro `spawn_blocking`, perche' avviare un
+/// processo, aprire file e attendere il gate di apertura non possono girare su
+/// un worker del runtime (S1-rpc-08).
+#[derive(Clone)]
 pub struct RpcManager {
     sessions: Arc<Mutex<HashMap<u64, RpcSession>>>,
-    next_id: Mutex<u64>,
-    open_gate: Mutex<()>,
+    next_id: Arc<Mutex<u64>>,
+    open_gate: Arc<Mutex<()>>,
     /// Finestre che seguivano una sessione chiusa con «Nuova chat» o con una
     /// ripresa dallo storico da un'altra finestra: si iscrivono alla sessione
     /// che la sostituisce (F16).
@@ -190,6 +202,8 @@ pub struct RpcManager {
 
 /// Ogni quanto si cercano sessioni rimaste senza finestre oltre `ORPHAN_GRACE`.
 const ORPHAN_SWEEP_INTERVAL: Duration = Duration::from_secs(30);
+/// Tetto d'attesa di `close_all` sul main thread (S8-07).
+const CLOSE_ALL_BUDGET: Duration = Duration::from_millis(1500);
 /// Tempo concesso alla sessione sostitutiva per nascere: oltre, chi seguiva
 /// riceve la fine del processo come se la chat fosse stata chiusa.
 const FOLLOWERS_TTL: Duration = Duration::from_secs(30);
@@ -227,21 +241,26 @@ struct Followers {
 /// (`Channel`) o un'altra istanza (collegamento).
 pub(crate) struct NewConsumer {
     pub owner: String,
-    make_sink: Box<dyn FnOnce(Arc<RpcStats>) -> Box<dyn hub::FrameSink> + Send>,
+    /// Costruisce la destinazione dei frame. Un `Channel` porta i propri
+    /// contatori (`SinkStats`): nascono qui, uno per iscrizione, perche' ogni
+    /// finestra ha una numerazione Tauri sua.
+    make_sink: Box<dyn FnOnce() -> Box<dyn hub::FrameSink> + Send>,
 }
 
 impl NewConsumer {
     pub(crate) fn channel(channel: Channel<InvokeResponseBody>, owner: String) -> Self {
         Self {
             owner,
-            make_sink: Box::new(move |stats| Box::new(ChannelSink::new(channel, stats))),
+            make_sink: Box::new(move || {
+                Box::new(ChannelSink::new(channel, Arc::new(diag::SinkStats::default())))
+            }),
         }
     }
 
     pub(crate) fn sink(owner: String, sink: Box<dyn hub::FrameSink>) -> Self {
         Self {
             owner,
-            make_sink: Box::new(move |_| sink),
+            make_sink: Box::new(move || sink),
         }
     }
 }
@@ -298,8 +317,8 @@ impl RpcManager {
         let _ = QUERY_SESSIONS.set(Arc::downgrade(&sessions));
         RpcManager {
             sessions,
-            next_id: Mutex::new(1),
-            open_gate: Mutex::new(()),
+            next_id: Arc::new(Mutex::new(1)),
+            open_gate: Arc::new(Mutex::new(())),
             followers,
         }
     }
@@ -340,12 +359,18 @@ impl RpcManager {
         };
 
         // In parallelo: ogni albero ha fino a 1.5 s per uscire con SIGTERM e
-        // all'uscita dell'app le attese non devono sommarsi.
+        // all'uscita dell'app le attese non devono sommarsi. Il main thread
+        // aspetta al massimo `CLOSE_ALL_BUDGET` (S8-07): oltre, la finestra
+        // sembrerebbe congelata, e i thread di chiusura continuano da soli.
         let handles: Vec<_> = sessions
             .into_iter()
             .map(|session| thread::spawn(move || session.kill_tree()))
             .collect();
-        for handle in handles {
+        let deadline = Instant::now() + CLOSE_ALL_BUDGET;
+        while Instant::now() < deadline && handles.iter().any(|handle| !handle.is_finished()) {
+            thread::sleep(Duration::from_millis(20));
+        }
+        for handle in handles.into_iter().filter(|handle| handle.is_finished()) {
             let _ = handle.join();
         }
     }
@@ -385,7 +410,7 @@ impl RpcManager {
     ) -> Result<hub::Attached, String> {
         let sessions = self.sessions.lock();
         let session = sessions.get(&rpc_id).ok_or_else(|| session_missing(rpc_id))?;
-        let sink = (consumer.make_sink)(session.stats.clone());
+        let sink = (consumer.make_sink)();
         session.hub.detach_owner(&consumer.owner);
         session.hub.attach(sink, Some(consumer.owner), resume)
     }
@@ -575,11 +600,8 @@ fn adopt_session(
     else {
         return Err(consumer);
     };
-    if session.hub.is_orphaned() {
-        session.stats.restart_channel();
-    }
     let owner = consumer.owner;
-    let sink = (consumer.make_sink)(session.stats.clone());
+    let sink = (consumer.make_sink)();
     let attached = session.hub.attach(sink, Some(owner.clone()), Resume::Fresh);
     Ok(attached.map(|_| {
         crate::studio_log::info(
@@ -663,6 +685,47 @@ pub(crate) fn write_gui_overlay(rpc_id: u64) -> Result<std::path::PathBuf, Strin
 
 /// Sorgente dell'estensione OMP per sessioni in sola lettura e assistente automazioni.
 pub const READONLY_EXTENSION_TS: &str = include_str!("../../../extensions/studio-readonly.ts");
+
+/// Pulizia di un'apertura fallita (S1-rpc-09): i file temporanei della sessione
+/// e il token del ponte esistono prima che la sessione entri nella mappa, e
+/// ogni via d'uscita con `?` li lasciava dietro (file pool nel `%TEMP%`, token
+/// del ponte ancora valido). `disarm` al successo, quando la sessione stessa
+/// diventa responsabile di `remove_config_file` e di `revoke_owner`.
+struct OpenCleanup {
+    files: Vec<std::path::PathBuf>,
+    rpc_id: u64,
+    bridge_token: bool,
+}
+
+impl OpenCleanup {
+    fn new(rpc_id: u64) -> Self {
+        Self { files: Vec::new(), rpc_id, bridge_token: false }
+    }
+
+    fn track(&mut self, path: &std::path::Path) {
+        self.files.push(path.to_path_buf());
+    }
+
+    fn with_bridge(&mut self) {
+        self.bridge_token = true;
+    }
+
+    fn disarm(&mut self) {
+        self.files.clear();
+        self.bridge_token = false;
+    }
+}
+
+impl Drop for OpenCleanup {
+    fn drop(&mut self) {
+        for path in &self.files {
+            let _ = std::fs::remove_file(path);
+        }
+        if self.bridge_token {
+            crate::lane_bridge::revoke_owner("agent", self.rpc_id);
+        }
+    }
+}
 
 /// Prepara un file di pool account temporaneo per la sessione, disattivando le API key a consumo.
 /// Rispetta il file OMP_AUTH_BROKER_ACCOUNT_POOL_FILE eventualmente configurato dall'utente,
@@ -991,6 +1054,21 @@ struct FramePeek<'a> {
     assistant_message_event: Option<AssistantEventPeek<'a>>,
 }
 
+/// Chiave d'accorpamento degli aggiornamenti di progresso (S1-rpc-07). Si legge
+/// solo per i due tipi che si accorpano: un `payload` di forma diversa in un
+/// altro frame non deve far fallire la lettura di `FramePeek`.
+#[derive(Deserialize)]
+struct ProgressKeyPeek<'a> {
+    #[serde(rename = "toolCallId")]
+    tool_call_id: Option<&'a str>,
+    payload: Option<ProgressPayloadPeek<'a>>,
+}
+
+#[derive(Deserialize)]
+struct ProgressPayloadPeek<'a> {
+    id: Option<&'a str>,
+}
+
 /// Correlazione di una `response`, letta a parte: un `id` di forma inattesa
 /// deve degradare solo l'etichetta della scatola nera, mai la `FramePeek`
 /// da cui dipendono coalescenza dei delta e sessionId.
@@ -1077,6 +1155,183 @@ fn delta_kind(event_kind: &str) -> Option<&'static str> {
     }
 }
 
+/// Un aggiornamento di progresso in attesa di essere spedito.
+struct PendingProgress {
+    /// Identita' dell'oggetto aggiornato (`tool:<id>`, `subagent:<id>`):
+    /// due aggiornamenti della stessa chiave si sostituiscono.
+    key: String,
+    label: String,
+    frame: String,
+    since: Instant,
+}
+
+#[derive(Default)]
+struct ProgressState {
+    pending: Vec<PendingProgress>,
+    closed: bool,
+}
+
+/// Accorpa gli aggiornamenti di progresso per chiave (S1-rpc-07).
+///
+/// `tool_execution_update` e `subagent_progress` portano l'istantanea completa
+/// dell'oggetto; i consumatori ne tengono solo l'ultima per chiave. Inoltrarli
+/// tutti costa 20-28 KB per frame, circa 4 volte al secondo, su IPC, rete e
+/// coda di ripresa (che cosi' copre ~30 s invece di minuti). Qui l'ultimo per
+/// chiave vince entro `PROGRESS_WINDOW`; un flusher dedicato svuota comunque
+/// la coda allo scadere, e ogni frame di altro tipo svuota prima di passare,
+/// cosi' l'ordine rispetto agli altri eventi non cambia.
+///
+/// Tutte le pubblicazioni passano da `gate`: e' cio' che rende l'ordine
+/// deterministico anche se lo svuotamento arriva dal thread del timer mentre
+/// il lettore sta inoltrando un frame terminale. Ordine dei lock: `gate`,
+/// poi `state`.
+pub(super) struct ProgressCoalescer {
+    hub: Arc<SessionHub>,
+    gate: Mutex<()>,
+    state: Mutex<ProgressState>,
+    wake: parking_lot::Condvar,
+}
+
+impl ProgressCoalescer {
+    pub(super) fn new(hub: Arc<SessionHub>) -> Arc<Self> {
+        Arc::new(Self {
+            hub,
+            gate: Mutex::new(()),
+            state: Mutex::new(ProgressState::default()),
+            wake: parking_lot::Condvar::new(),
+        })
+    }
+
+    /// Inoltra subito un frame, dopo aver spedito gli aggiornamenti che lo
+    /// precedono: un `tool_execution_end` non deve arrivare prima
+    /// dell'ultimo `tool_execution_update` della stessa chiamata.
+    pub(super) fn publish(&self, kind: &str, frame: String) {
+        let _gate = self.gate.lock();
+        let batch = std::mem::take(&mut self.state.lock().pending);
+        for entry in batch {
+            self.hub.publish(&entry.label, entry.frame);
+        }
+        self.hub.publish(kind, frame);
+    }
+
+    /// Come `publish`, ma con la sessione che cambia conversazione: la
+    /// pubblicazione della hub chiude anche le domande in sospeso.
+    fn conversation_changed(&self, request_id: Option<&str>) {
+        let _gate = self.gate.lock();
+        let batch = std::mem::take(&mut self.state.lock().pending);
+        for entry in batch {
+            self.hub.publish(&entry.label, entry.frame);
+        }
+        self.hub.conversation_changed(request_id);
+    }
+
+    /// Sostituisce l'aggiornamento in attesa con la stessa chiave.
+    fn push(&self, key: String, label: &str, frame: String) {
+        let mut state = self.state.lock();
+        if let Some(entry) = state.pending.iter_mut().find(|entry| entry.key == key) {
+            entry.label = label.to_string();
+            entry.frame = frame;
+        } else {
+            state.pending.push(PendingProgress {
+                key,
+                label: label.to_string(),
+                frame,
+                since: Instant::now(),
+            });
+        }
+        self.wake.notify_one();
+    }
+
+    /// Svuota l'ultimo giro e chiude la coda: il flusher esce, e nessun
+    /// aggiornamento puo' uscire dopo il frame che chiude la sessione.
+    fn close(&self) {
+        let _gate = self.gate.lock();
+        let batch = std::mem::take(&mut self.state.lock().pending);
+        for entry in batch {
+            self.hub.publish(&entry.label, entry.frame);
+        }
+        self.state.lock().closed = true;
+        self.wake.notify_all();
+    }
+}
+
+fn take_expired(state: &mut ProgressState, now: Instant) -> Vec<PendingProgress> {
+    let (expired, rest): (Vec<_>, Vec<_>) = std::mem::take(&mut state.pending)
+        .into_iter()
+        .partition(|entry| entry.since + PROGRESS_WINDOW <= now);
+    state.pending = rest;
+    expired
+}
+
+/// Thread che svuota la coda allo scadere della finestra: senza, un
+/// aggiornamento seguito dal silenzio di omp resterebbe invisibile.
+///
+/// La consegna avviene sotto `gate`, come `publish` e `close`: cosi' nessun
+/// aggiornamento puo' uscire dopo il frame che chiude la sessione.
+fn spawn_progress_flusher(progress: Arc<ProgressCoalescer>) {
+    let _ = thread::Builder::new()
+        .name("rpc-progress".to_string())
+        .spawn(move || loop {
+            // Attesa fuori dal gate: il gate e' il lock dei frame, non della coda.
+            let due = {
+                let mut state = progress.state.lock();
+                loop {
+                    if state.closed {
+                        break false;
+                    }
+                    let now = Instant::now();
+                    let next = state
+                        .pending
+                        .iter()
+                        .map(|entry| entry.since + PROGRESS_WINDOW)
+                        .min();
+                    match next {
+                        None => {
+                            progress.wake.wait(&mut state);
+                        }
+                        Some(deadline) if deadline <= now => break true,
+                        Some(deadline) => {
+                            progress.wake.wait_for(&mut state, deadline - now);
+                        }
+                    }
+                }
+            };
+            if !due {
+                return;
+            }
+            let _gate = progress.gate.lock();
+            let batch = {
+                let mut state = progress.state.lock();
+                if state.closed {
+                    return;
+                }
+                take_expired(&mut state, Instant::now())
+            };
+            for entry in batch {
+                progress.hub.publish(&entry.label, entry.frame);
+            }
+        });
+}
+
+/// Aggiornamento di progresso accorpabile: la chiave dice quale istantanea
+/// sostituisce, `None` per i frame che vanno inoltrati subito. La chiave si
+/// legge solo per i due tipi accorpabili, cosi' un frame qualsiasi non paga
+/// nessun parse in piu' e non puo' fallire.
+fn progress_key(peek: &FramePeek<'_>, line: &str) -> Option<String> {
+    match peek.kind? {
+        "tool_execution_update" | "subagent_progress" => {}
+        _ => return None,
+    }
+    let key: ProgressKeyPeek = serde_json::from_str(line).ok()?;
+    match peek.kind? {
+        "tool_execution_update" => key.tool_call_id.map(|id| format!("tool:{id}")),
+        _ => key
+            .payload
+            .and_then(|payload| payload.id)
+            .map(|id| format!("subagent:{id}")),
+    }
+}
+
 /// Legge stdout riga per riga. Le righe arrivano fino a 1 MiB, quindi
 /// `read_until` su un `Vec` che si ridimensiona, non `lines()` con il buffer
 /// di default.
@@ -1112,6 +1367,10 @@ fn reader_loop(args: ReaderLoopArgs) {
     let mut raw = Vec::with_capacity(1 << 16);
     let mut assembly: Option<ChunkAssembly> = None;
     let mut pending_delta: Option<DeltaBuffer> = None;
+    // L'accorpamento degli aggiornamenti di progresso ha bisogno di un thread
+    // che li svuoti allo scadere: omp puo' tacerne uno per minuti.
+    let progress = ProgressCoalescer::new(hub.clone());
+    spawn_progress_flusher(progress.clone());
 
     loop {
         raw.clear();
@@ -1144,7 +1403,7 @@ fn reader_loop(args: ReaderLoopArgs) {
                 Ok(Some(logical)) => {
                     dispatch(
                         &logical,
-                        &hub,
+                        &progress,
                         &stdin,
                         &protocol,
                         &mut pending_delta,
@@ -1159,7 +1418,7 @@ fn reader_loop(args: ReaderLoopArgs) {
                         "rpcId": rpc_id,
                         "message": reason,
                     });
-                    hub.publish("studio_error", frame.to_string());
+                    progress.publish("studio_error", frame.to_string());
                 }
             }
             continue;
@@ -1172,7 +1431,7 @@ fn reader_loop(args: ReaderLoopArgs) {
 
         dispatch(
             line,
-            &hub,
+            &progress,
             &stdin,
             &protocol,
             &mut pending_delta,
@@ -1181,8 +1440,11 @@ fn reader_loop(args: ReaderLoopArgs) {
     }
 
     if let Some(buffer) = pending_delta.take() {
-        hub.publish("studio_delta", buffer.into_frame());
+        progress.publish("studio_delta", buffer.into_frame());
     }
+    // Il flusher esce: gli ultimi aggiornamenti accorpati escono comunque
+    // prima del frame che racconta la fine.
+    progress.close();
     stats.reader_exited();
 
     // La morte del processo va raccontata con la sua causa: senza le righe di
@@ -1221,7 +1483,7 @@ fn reader_loop(args: ReaderLoopArgs) {
         );
     }
     crate::lane_bridge::revoke_owner("agent", rpc_id);
-    hub.publish(
+    progress.publish(
         "studio_exit",
         serde_json::json!({
             "type": "studio_exit",
@@ -1437,9 +1699,12 @@ fn strip_shell_trace(line: &str) -> Option<String> {
 }
 
 /// Instrada un frame logico verso le finestre iscritte alla sessione.
+/// Gli aggiornamenti di progresso passano dal `ProgressCoalescer`, che li
+/// accorpa per chiave; tutto il resto lo attraversa subito (dopo aver
+/// spedito quelli in attesa, per non invertire l'ordine).
 fn dispatch(
     line: &str,
-    hub: &SessionHub,
+    progress: &ProgressCoalescer,
     stdin: &Arc<Mutex<Option<ChildStdin>>>,
     protocol: &Arc<AtomicU8>,
     pending_delta: &mut Option<DeltaBuffer>,
@@ -1468,7 +1733,7 @@ fn dispatch(
                     }
                     _ => {
                         if let Some(buffer) = pending_delta.take() {
-                            hub.publish("studio_delta", buffer.into_frame());
+                            progress.publish("studio_delta", buffer.into_frame());
                         }
                         *pending_delta = Some(DeltaBuffer {
                             kind,
@@ -1486,7 +1751,7 @@ fn dispatch(
                     .is_some_and(|buffer| buffer.since.elapsed() >= DELTA_WINDOW)
                 {
                     let buffer = pending_delta.take().expect("appena verificato");
-                    hub.publish("studio_delta", buffer.into_frame());
+                    progress.publish("studio_delta", buffer.into_frame());
                 }
                 return;
             }
@@ -1499,7 +1764,7 @@ fn dispatch(
     if line.contains("\"command\":\"abort\"") {
         *pending_delta = None;
     } else if let Some(buffer) = pending_delta.take() {
-        hub.publish("studio_delta", buffer.into_frame());
+        progress.publish("studio_delta", buffer.into_frame());
     }
 
     if let Some(peek) = &peek {
@@ -1580,9 +1845,15 @@ fn dispatch(
     } else {
         serde_json::to_string(line).unwrap_or_else(|_| "{}".to_string())
     };
-    hub.publish(&label, frame);
+    // Aggiornamenti di progresso: l'ultimo per chiave vince entro
+    // `PROGRESS_WINDOW`. Senza chiave (payload inatteso) passano subito.
+    if let Some(key) = peek.as_ref().and_then(|peek| progress_key(peek, line)) {
+        progress.push(key, &label, frame);
+    } else {
+        progress.publish(&label, frame);
+    }
     if let Some(request_id) = transition_request {
-        hub.conversation_changed(request_id.as_deref());
+        progress.conversation_changed(request_id.as_deref());
     }
 }
 /// Applica `--resume <session_id>` se la sessione indicata possiede un transcript valido;
@@ -1624,24 +1895,37 @@ pub async fn rpc_open(
     prevent_payg: Option<bool>,
     execution_id: Option<String>,
 ) -> Result<u64, String> {
-    open_main_session(
-        &manager,
-        OpenMainArgs {
-            cwd,
-            resume,
-            lane_id,
-            project_id,
-            continue_last,
-            model,
-            automation_origin,
-            read_only,
-            allowed_roots,
-            max_cost_usd,
-            prevent_payg,
-            execution_id,
-        },
-        NewConsumer::channel(on_event, webview.label().to_string()),
-    )
+    let manager = manager.inner().clone();
+    let consumer = NewConsumer::channel(on_event, webview.label().to_string());
+    // Aprire una sessione avvia un processo, scrive file e attende il gate di
+    // apertura: I/O bloccante, mai su un worker del runtime (S1-rpc-08).
+    tokio::task::spawn_blocking(move || {
+        open_main_session(
+            &manager,
+            OpenMainArgs {
+                cwd,
+                resume,
+                lane_id,
+                project_id,
+                continue_last,
+                model,
+                automation_origin,
+                read_only,
+                allowed_roots,
+                max_cost_usd,
+                prevent_payg,
+                execution_id,
+            },
+            consumer,
+        )
+    })
+    .await
+    .map_err(|error| {
+        crate::tr!(
+            format!("Apertura della sessione RPC interrotta: {}", error),
+            format!("RPC session opening was interrupted: {}", error)
+        )
+    })?
 }
 
 /// Argomenti di `rpc_open`, con gli stessi nomi della finestra: il
@@ -1712,7 +1996,7 @@ pub(crate) fn open_main_session(
     let stats = Arc::new(RpcStats::default());
     let hub = Arc::new(SessionHub::new());
     hub.attach(
-        (consumer.make_sink)(stats.clone()),
+        (consumer.make_sink)(),
         Some(consumer.owner),
         Resume::Fresh,
     )?;
@@ -1737,6 +2021,12 @@ pub(crate) fn open_main_session(
     } else {
         write_gui_overlay(rpc_id)?
     };
+
+    // Da qui in poi ogni uscita con `?` deve togliere overlay, file pool e
+    // token del ponte: senza, restavano nel `%TEMP%` e il token restava
+    // valido (S1-rpc-09).
+    let mut cleanup = OpenCleanup::new(rpc_id);
+    cleanup.track(&overlay_path);
 
     let diagram_extension = if is_read_only {
         None
@@ -1913,6 +2203,7 @@ pub(crate) fn open_main_session(
     let owned_pool_path = if prevent_payg.unwrap_or(false) {
         command.env("OMP_AUTOMATION_NO_PAYG", "1");
         let pool_file = prepare_automation_pool_file(rpc_id)?;
+        cleanup.track(&pool_file);
         command.env(
             "OMP_AUTH_BROKER_ACCOUNT_POOL_FILE",
             pool_file.to_string_lossy().to_string(),
@@ -1943,6 +2234,7 @@ pub(crate) fn open_main_session(
     if let Some((url, token)) = &bridge_creds {
         command.env("OMP_STUDIO_BRIDGE_URL", url);
         command.env("OMP_STUDIO_BRIDGE_TOKEN", token);
+        cleanup.with_bridge();
     }
     command
         .stdin(Stdio::piped())
@@ -1980,10 +2272,6 @@ pub(crate) fn open_main_session(
     let mut child = match command.spawn() {
         Ok(c) => c,
         Err(error) => {
-            let _ = std::fs::remove_file(&overlay_path);
-            if bridge_creds.is_some() {
-                crate::lane_bridge::revoke_owner("agent", rpc_id);
-            }
             crate::studio_log::warn(
                 "rpc",
                 format!(
@@ -2021,7 +2309,6 @@ pub(crate) fn open_main_session(
     let stdin = match child.stdin.take() {
         Some(s) => s,
         None => {
-            let _ = std::fs::remove_file(&overlay_path);
             let _ = child.kill();
             return Err(
                 crate::tr!("stdin di omp non disponibile", "omp stdin unavailable").to_string(),
@@ -2031,7 +2318,6 @@ pub(crate) fn open_main_session(
     let stdout = match child.stdout.take() {
         Some(s) => s,
         None => {
-            let _ = std::fs::remove_file(&overlay_path);
             let _ = child.kill();
             return Err(
                 crate::tr!("stdout di omp non disponibile", "omp stdout unavailable").to_string(),
@@ -2041,7 +2327,6 @@ pub(crate) fn open_main_session(
     let stderr = match child.stderr.take() {
         Some(s) => s,
         None => {
-            let _ = std::fs::remove_file(&overlay_path);
             let _ = child.kill();
             return Err(
                 crate::tr!("stderr di omp non disponibile", "omp stderr unavailable").to_string(),
@@ -2092,6 +2377,9 @@ pub(crate) fn open_main_session(
             adoptable,
         },
     );
+    // La sessione ora possiede overlay, file pool e token: li toglie lei alla
+    // chiusura (`remove_config_file`, `revoke_owner`).
+    cleanup.disarm();
     manager.hand_over_followers(&identity, rpc_id, &hub);
 
     // Proprieta' della corsia (PLAN W11): la sessione agente e i processi che
@@ -2207,20 +2495,33 @@ pub async fn rpc_open_lab(
     webview: tauri::Webview,
     manager: State<'_, RpcManager>,
 ) -> Result<u64, String> {
-    open_lab_session(
-        &manager,
-        OpenLabArgs {
-            workspace_path,
-            project_path,
-            prototype_id,
-            project_id,
-            lane_id,
-            resume,
-            continue_last,
-            model,
-        },
-        NewConsumer::channel(on_event, webview.label().to_string()),
-    )
+    let manager = manager.inner().clone();
+    let consumer = NewConsumer::channel(on_event, webview.label().to_string());
+    // Come `rpc_open`: il corpo apre file, crea la cartella della sessione e
+    // avvia un processo, tutto lavoro bloccante (S1-rpc-08).
+    tokio::task::spawn_blocking(move || {
+        open_lab_session(
+            &manager,
+            OpenLabArgs {
+                workspace_path,
+                project_path,
+                prototype_id,
+                project_id,
+                lane_id,
+                resume,
+                continue_last,
+                model,
+            },
+            consumer,
+        )
+    })
+    .await
+    .map_err(|error| {
+        crate::tr!(
+            format!("Apertura della sessione Laboratorio interrotta: {}", error),
+            format!("Opening the Lab session was interrupted: {}", error)
+        )
+    })?
 }
 
 /// Argomenti di `rpc_open_lab`, con gli stessi nomi della finestra.
@@ -2304,7 +2605,7 @@ pub(crate) fn open_lab_session(
     let stats = Arc::new(RpcStats::default());
     let hub = Arc::new(SessionHub::new());
     hub.attach(
-        (consumer.make_sink)(stats.clone()),
+        (consumer.make_sink)(),
         Some(consumer.owner),
         Resume::Fresh,
     )?;
@@ -2374,6 +2675,10 @@ pub(crate) fn open_lab_session(
         Some(&plan_extension),
         lanes_extension.as_deref(),
     )?;
+    // Come per la sessione principale: ogni uscita con `?` toglie la
+    // configurazione e il token del ponte (S1-rpc-09).
+    let mut cleanup = OpenCleanup::new(rpc_id);
+    cleanup.track(&lab_config_path);
 
     let mut command = Command::new(&omp_path);
     command.arg("--mode").arg("rpc-ui");
@@ -2458,6 +2763,7 @@ pub(crate) fn open_lab_session(
     if let Some((url, token)) = &lab_bridge {
         command.env("OMP_STUDIO_BRIDGE_URL", url);
         command.env("OMP_STUDIO_BRIDGE_TOKEN", token);
+        cleanup.with_bridge();
     }
 
     #[cfg(target_os = "windows")]
@@ -2485,10 +2791,6 @@ pub(crate) fn open_lab_session(
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) => {
-            let _ = std::fs::remove_file(&lab_config_path);
-            if lab_bridge.is_some() {
-                crate::lane_bridge::revoke_owner("agent", rpc_id);
-            }
             crate::studio_log::warn(
                 "rpc",
                 format!("avvio di omp Laboratorio fallito rpc={}: {}", rpc_id, error),
@@ -2520,7 +2822,6 @@ pub(crate) fn open_lab_session(
     let stdin = match child.stdin.take() {
         Some(s) => s,
         None => {
-            let _ = std::fs::remove_file(&lab_config_path);
             let _ = child.kill();
             return Err(
                 crate::tr!("stdin di omp non disponibile", "omp stdin unavailable").to_string(),
@@ -2530,7 +2831,6 @@ pub(crate) fn open_lab_session(
     let stdout = match child.stdout.take() {
         Some(s) => s,
         None => {
-            let _ = std::fs::remove_file(&lab_config_path);
             let _ = child.kill();
             return Err(
                 crate::tr!("stdout di omp non disponibile", "omp stdout unavailable").to_string(),
@@ -2540,7 +2840,6 @@ pub(crate) fn open_lab_session(
     let stderr = match child.stderr.take() {
         Some(s) => s,
         None => {
-            let _ = std::fs::remove_file(&lab_config_path);
             let _ = child.kill();
             return Err(
                 crate::tr!("stderr di omp non disponibile", "omp stderr unavailable").to_string(),
@@ -2584,6 +2883,8 @@ pub(crate) fn open_lab_session(
     };
 
     manager.sessions.lock().insert(rpc_id, session.clone());
+    // La sessione ora possiede configurazione e token del ponte.
+    cleanup.disarm();
     manager.hand_over_followers(&identity, rpc_id, &hub);
 
     if !effective_project_id.is_empty() {
@@ -2667,13 +2968,21 @@ pub async fn rpc_send(
     // serializzazione scelta dal chiamante.
     let is_prompt_or_retry = matches!(command_type, Some("prompt" | "retry"));
     let is_ui_response = command_type == Some("extension_ui_response");
+    // Id posseduto: l'invio avviene su `spawn_blocking`, che richiede
+    // valori `'static` (l'id veniva preso in prestito da `command`).
     let answer_id = if is_ui_response {
-        Some(command.get("id").and_then(serde_json::Value::as_str)
-            .ok_or_else(|| "RPC UI response requires an id".to_string())?)
+        Some(
+            command
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| "RPC UI response requires an id".to_string())?
+                .to_string(),
+        )
     } else {
         None
     };
-    let send = || {
+    // `move`: questa scrittura puo' finire su `spawn_blocking` (vedi sotto).
+    let send = move || {
     let mut auto_admitted_eid: Option<String> = None;
 
     if (is_prompt_or_retry || is_ui_response) && !canonical_root.is_empty() {
@@ -2756,9 +3065,26 @@ pub async fn rpc_send(
     result
     };
     if let Some(id) = answer_id {
-        hub.answer_ui_request(id, send)
+        // Anche la risposta a una domanda scrive su stdin tenendo il gate
+        // delle risposte: la scrittura puo' bloccarsi (S1-rpc-08), quindi
+        // l'intero passaggio va fuori dal worker async.
+        match tokio::task::spawn_blocking(move || hub.answer_ui_request(&id, send)).await {
+            Ok(result) => result,
+            Err(error) => Err(serde_json::Value::String(crate::tr!(
+                format!("Invio sulla sessione RPC {} interrotto: {}", rpc_id, error),
+                format!("Sending on RPC session {} was interrupted: {}", rpc_id, error)
+            ))),
+        }
     } else {
-        send().map_err(serde_json::Value::String)
+        // La scrittura su stdin puo' bloccarsi perche' omp non legge (S1-rpc-08):
+        // va fuori dal worker async anche quando nessuna domanda la serializza.
+        match tokio::task::spawn_blocking(send).await {
+            Ok(result) => result.map_err(serde_json::Value::String),
+            Err(error) => Err(serde_json::Value::String(crate::tr!(
+                format!("Invio sulla sessione RPC {} interrotto: {}", rpc_id, error),
+                format!("Sending on RPC session {} was interrupted: {}", rpc_id, error)
+            ))),
+        }
     }
 }
 
@@ -2973,24 +3299,33 @@ pub async fn rpc_abort(rpc_id: u64, manager: State<'_, RpcManager>) -> Result<()
     };
 
     abort_signal.store(true, Ordering::SeqCst);
-    let mut guard = stdin.lock();
-    let handle = guard.as_mut().ok_or_else(|| {
-        crate::tr!(
-            format!("Sessione RPC {} in chiusura", rpc_id),
-            format!("RPC session {} is closing", rpc_id)
-        )
-    })?;
-
-    handle
-        .write_all(b"{\"id\":\"abort-direct-1\",\"type\":\"abort\"}\n")
-        .and_then(|()| handle.write_all(b"{\"id\":\"abort-direct-2\",\"type\":\"abort_bash\"}\n"))
-        .and_then(|()| handle.flush())
-        .map_err(|error| {
+    // `write_all` su stdin puo' bloccarsi perche' omp non legge (S1-rpc-08):
+    // qui si aspetta il mutex della scrittura, quindi fuori dal worker async.
+    tokio::task::spawn_blocking(move || {
+        let mut guard = stdin.lock();
+        let handle = guard.as_mut().ok_or_else(|| {
             crate::tr!(
-                format!("Invio abort sulla sessione RPC {}: {}", rpc_id, error),
-                format!("Sending abort on RPC session {}: {}", rpc_id, error)
+                format!("Sessione RPC {} in chiusura", rpc_id),
+                format!("RPC session {} is closing", rpc_id)
             )
-        })
+        })?;
+
+        handle
+            .write_all(b"{\"id\":\"abort-direct-1\",\"type\":\"abort\"}\n")
+            .and_then(|()| handle.write_all(b"{\"id\":\"abort-direct-2\",\"type\":\"abort_bash\"}\n"))
+            .and_then(|()| handle.flush())
+            .map_err(|error| {
+                crate::tr!(
+                    format!("Invio abort sulla sessione RPC {}: {}", rpc_id, error),
+                    format!("Sending abort on RPC session {}: {}", rpc_id, error)
+                )
+            })
+    })
+    .await
+    .map_err(|error| crate::tr!(
+        format!("Invio abort interrotto per la sessione RPC {}: {}", rpc_id, error),
+        format!("Sending abort was interrupted for RPC session {}: {}", rpc_id, error)
+    ))?
 }
 
 /// Termina forzatamente la sessione RPC e l'intero albero dei processi figli (SIGKILL/taskkill).
@@ -3044,19 +3379,23 @@ pub async fn force_kill_session(
 #[tauri::command]
 pub async fn rpc_diagnostics(
     rpc_id: u64,
+    webview: tauri::Webview,
     manager: State<'_, RpcManager>,
 ) -> Result<serde_json::Value, String> {
-    let session = manager
-        .sessions
-        .lock()
-        .get(&rpc_id)
-        .cloned()
-        .ok_or_else(|| {
-            crate::tr!(
-                format!("Sessione RPC {} non disponibile", rpc_id),
-                format!("RPC session {} not available", rpc_id)
-            )
-        })?;
+    let (session, sink) = {
+        let sessions = manager.sessions.lock();
+        let session = sessions
+            .get(&rpc_id)
+            .cloned()
+            .ok_or_else(|| {
+                crate::tr!(
+                    format!("Sessione RPC {} non disponibile", rpc_id),
+                    format!("RPC session {} not available", rpc_id)
+                )
+            })?;
+        let sink = session.hub.sink_stats(webview.label());
+        (session, sink)
+    };
     let child_alive = session
         .child
         .lock()
@@ -3099,7 +3438,7 @@ pub async fn rpc_diagnostics(
         "killed": session.killed.load(Ordering::Relaxed),
         "protocol": session.protocol.load(Ordering::Relaxed),
         "sessionId": session.session_id.lock().clone(),
-        "transport": session.stats.snapshot(),
+        "transport": diag::transport_snapshot(&session.stats, sink),
         "processTree": process_tree,
         "stderrTail": stderr_tail,
     }))
@@ -3117,8 +3456,17 @@ pub async fn rpc_write_hang_report(
         .path()
         .app_log_dir()
         .map_err(|error| error.to_string())?;
-    let path =
-        diag::write_hang_report(&dir, &report).map(|path| path.to_string_lossy().into_owned());
+    // Il rapporto e' un file piccolo, ma arriva proprio quando la sessione e'
+    // bloccata: la scrittura va comunque fuori dal worker async (S1-rpc-08).
+    let path = tokio::task::spawn_blocking(move || diag::write_hang_report(&dir, &report))
+        .await
+        .map_err(|error| {
+            crate::tr!(
+                format!("Scrittura del rapporto interrotta: {}", error),
+                format!("Writing the report was interrupted: {}", error)
+            )
+        })?
+        .map(|path| path.to_string_lossy().into_owned());
     if let Ok(path) = &path {
         crate::studio_log::warn("rpc", format!("comando senza risposta, rapporto {}", path));
     }
@@ -3385,7 +3733,7 @@ mod tests {
         let hub = session.hub.clone();
         let (mac, mac_received) = channel_di_prova();
         hub.attach(
-            Box::new(ChannelSink::new(mac, session.stats.clone())),
+            Box::new(ChannelSink::new(mac, Arc::new(diag::SinkStats::default()))),
             Some("main".into()),
             Resume::Fresh,
         )
@@ -3430,11 +3778,11 @@ mod tests {
         let (mac, mac_received) = channel_di_prova();
         let (windows, _) = channel_di_prova();
         old_hub
-            .attach(Box::new(ChannelSink::new(mac, old.stats.clone())), Some("main".into()), Resume::Fresh)
+            .attach(Box::new(ChannelSink::new(mac, Arc::new(diag::SinkStats::default()))), Some("main".into()), Resume::Fresh)
             .unwrap();
         old_hub
             .attach(
-                Box::new(ChannelSink::new(windows, old.stats.clone())),
+                Box::new(ChannelSink::new(windows, Arc::new(diag::SinkStats::default()))),
                 Some("link:pc:main".into()),
                 Resume::Fresh,
             )
@@ -3468,7 +3816,7 @@ mod tests {
         let hub = session.hub.clone();
         let (before_reload, _) = channel_di_prova();
         hub.attach(
-            Box::new(ChannelSink::new(before_reload, session.stats.clone())),
+            Box::new(ChannelSink::new(before_reload, Arc::new(diag::SinkStats::default()))),
             Some("main".into()),
             Resume::Fresh,
         )
@@ -3546,7 +3894,7 @@ mod tests {
         attached
             .hub
             .attach(
-                Box::new(ChannelSink::new(channel, attached.stats.clone())),
+                Box::new(ChannelSink::new(channel, Arc::new(diag::SinkStats::default()))),
                 Some("main".into()),
                 Resume::Fresh,
             )
@@ -3978,42 +4326,105 @@ mod tests {
         let raw_text_mention = r#"{"type":"tool_execution_update","toolCallId":"call_bash_1","toolName":"bash","args":{"command":"grep \"trace\" log.txt"},"partialResult":{"content":[{"type":"text","text":"stack \"trace\" line 42"}],"details":{"timeoutSeconds":300}}}"#;
         assert_eq!(strip_shell_trace(raw_text_mention), None);
     }
+
+    /// S1-rpc-07: l'ultimo aggiornamento per chiave vince, e un frame di altro
+    /// tipo non lo scavalca mai. Il risultato deve essere lo stesso per tutte
+    /// le superfici iscritte, WebView o collegamento.
+    #[test]
+    fn gli_aggiornamenti_di_progresso_si_accorpano_per_chiave_e_non_scavalcano_gli_altri_frame() {
+        let hub = Arc::new(SessionHub::new());
+        let progress = ProgressCoalescer::new(hub.clone());
+        let (sink, received) = channel_di_prova();
+        hub.attach(Box::new(ChannelSink::new(sink, Arc::new(diag::SinkStats::default()))), Some("main".into()), Resume::Fresh)
+            .unwrap();
+
+        let update = |tool: &str, value: u32| {
+            serde_json::json!({
+                "type": "tool_execution_update",
+                "toolCallId": tool,
+                "partialResult": { "content": [{ "type": "text", "text": value }] },
+            })
+            .to_string()
+        };
+        dispatch(&update("call_a", 1), &progress, &Arc::new(Mutex::new(None)), &Arc::new(AtomicU8::new(2)),
+            &mut None, &Arc::new(Mutex::new(None)));
+        dispatch(&update("call_b", 1), &progress, &Arc::new(Mutex::new(None)), &Arc::new(AtomicU8::new(2)),
+            &mut None, &Arc::new(Mutex::new(None)));
+        dispatch(&update("call_a", 2), &progress, &Arc::new(Mutex::new(None)), &Arc::new(AtomicU8::new(2)),
+            &mut None, &Arc::new(Mutex::new(None)));
+        assert!(received.lock().is_empty(), "nulla esce prima della finestra o di un frame che riallinea");
+
+        // Un frame terminale fa uscire prima gli accorpati, poi se stesso.
+        dispatch(r#"{"type":"tool_execution_end","toolCallId":"call_a"}"#, &progress,
+            &Arc::new(Mutex::new(None)), &Arc::new(AtomicU8::new(2)), &mut None, &Arc::new(Mutex::new(None)));
+
+        let frames = received.lock().clone();
+        assert_eq!(frames.len(), 3);
+        // L'ordine fra chiavi diverse e' quello del primo arrivo; cio' che
+        // conta e' che di ogni chiave resti l'ultima istantanea.
+        let first: serde_json::Value = serde_json::from_str(&frames[0]).unwrap();
+        assert_eq!(first["toolCallId"], "call_a");
+        assert_eq!(first["partialResult"]["content"][0]["text"], 2, "di call_a vince l'ultima");
+        let second: serde_json::Value = serde_json::from_str(&frames[1]).unwrap();
+        assert_eq!(second["toolCallId"], "call_b");
+        assert_eq!(second["partialResult"]["content"][0]["text"], 1, "call_b conserva la sua istantanea");
+        let third: serde_json::Value = serde_json::from_str(&frames[2]).unwrap();
+        assert_eq!(third["type"], "tool_execution_end", "il frame terminale arriva per ultimo");
+    }
+
+    /// Il timer deve svuotare la coda anche se omp tace dopo un aggiornamento.
+    #[test]
+    fn un_aggiornamento_rimasto_solo_esce_comunque_entro_la_finestra() {
+        let hub = Arc::new(SessionHub::new());
+        let progress = ProgressCoalescer::new(hub.clone());
+        spawn_progress_flusher(progress.clone());
+        let (sink, received) = channel_di_prova();
+        hub.attach(Box::new(ChannelSink::new(sink, Arc::new(diag::SinkStats::default()))), Some("main".into()), Resume::Fresh)
+            .unwrap();
+        progress.push("subagent:s1".into(), "subagent_progress", r#"{"type":"subagent_progress","payload":{"id":"s1"}}"#.into());
+
+        let deadline = Instant::now() + PROGRESS_WINDOW + Duration::from_secs(2);
+        while received.lock().is_empty() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(received.lock().len(), 1);
+        progress.close();
+    }
     #[test]
     fn cambiare_conversazione_da_una_finestra_notifica_anche_le_altre_e_non_ripropone_domande_vecchie() {
         for command in ["new_session", "fork", "branch"] {
-            let hub = SessionHub::new();
-            let stats = Arc::new(RpcStats::default());
+            let hub = Arc::new(SessionHub::new());
+            let progress = ProgressCoalescer::new(hub.clone());
             let (first, first_log) = channel_di_prova();
             let (second, second_log) = channel_di_prova();
-            hub.attach(Box::new(ChannelSink::new(first, stats.clone())), Some("main".into()), Resume::Fresh).unwrap();
-            hub.attach(Box::new(ChannelSink::new(second, stats.clone())), Some("other".into()), Resume::Fresh).unwrap();
+            hub.attach(Box::new(ChannelSink::new(first, Arc::new(diag::SinkStats::default()))), Some("main".into()), Resume::Fresh).unwrap();
+            hub.attach(Box::new(ChannelSink::new(second, Arc::new(diag::SinkStats::default()))), Some("other".into()), Resume::Fresh).unwrap();
             hub.publish("extension_ui_request", r#"{"type":"extension_ui_request","method":"input","id":"old-question"}"#.into());
             dispatch(&serde_json::json!({
                 "type": "response", "id": "first-1", "command": command, "success": true, "data": {},
-            }).to_string(), &hub, &Arc::new(Mutex::new(None)), &Arc::new(AtomicU8::new(2)),
+            }).to_string(), &progress, &Arc::new(Mutex::new(None)), &Arc::new(AtomicU8::new(2)),
                 &mut None, &Arc::new(Mutex::new(None)));
             assert_eq!(*first_log.lock(), *second_log.lock());
             let event: serde_json::Value = serde_json::from_str(first_log.lock().last().unwrap()).unwrap();
             assert_eq!(event["type"], "studio_session_changed");
             assert_eq!(event["requestId"], "first-1");
             let (late, late_log) = channel_di_prova();
-            hub.attach(Box::new(ChannelSink::new(late, stats)), Some("late".into()), Resume::Fresh).unwrap();
+            hub.attach(Box::new(ChannelSink::new(late, Arc::new(diag::SinkStats::default()))), Some("late".into()), Resume::Fresh).unwrap();
             assert!(late_log.lock().is_empty(), "la domanda apparteneva alla conversazione precedente");
         }
     }
 
     #[test]
-    fn una_diramazione_rifiutata_o_annullata_non_cancella_la_conversazione_delle_altre_finestre() {
-        for (success, data) in [(false, serde_json::Value::Null), (true, serde_json::json!({ "cancelled": true }))] {
-            let hub = SessionHub::new();
-            let stats = Arc::new(RpcStats::default());
+    fn una_diramazione_rifiutata_o_annullata_non_cancella_la_conversazione_delle_altre_finestre() {        for (success, data) in [(false, serde_json::Value::Null), (true, serde_json::json!({ "cancelled": true }))] {
+            let hub = Arc::new(SessionHub::new());
+            let progress = ProgressCoalescer::new(hub.clone());
             hub.publish("extension_ui_request", r#"{"type":"extension_ui_request","method":"input","id":"keep-question"}"#.into());
             dispatch(&serde_json::json!({
                 "type": "response", "id": "first-1", "command": "fork", "success": success, "data": data,
-            }).to_string(), &hub, &Arc::new(Mutex::new(None)), &Arc::new(AtomicU8::new(2)),
+            }).to_string(), &progress, &Arc::new(Mutex::new(None)), &Arc::new(AtomicU8::new(2)),
                 &mut None, &Arc::new(Mutex::new(None)));
             let (late, log) = channel_di_prova();
-            hub.attach(Box::new(ChannelSink::new(late, stats)), Some("late".into()), Resume::Fresh).unwrap();
+            hub.attach(Box::new(ChannelSink::new(late, Arc::new(diag::SinkStats::default()))), Some("late".into()), Resume::Fresh).unwrap();
             let event: serde_json::Value = serde_json::from_str(&log.lock()[0]).unwrap();
             assert_eq!(event["id"], "keep-question");
         }

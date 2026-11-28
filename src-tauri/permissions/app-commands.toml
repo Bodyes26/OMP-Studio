@@ -216,19 +216,10 @@ commands.allow = [
 ]
 
 [[permission]]
-identifier = "allow-focus-trace"
-description = "Traccia diagnostica dei salti di fuoco: scrittura del file di log dedicato e lettura del suo percorso"
-commands.allow = [
-    "focus_trace_append",
-    "focus_trace_path"
-]
-
-[[permission]]
 identifier = "allow-perf-trace"
-description = "Traccia dei tempi: scrittura del file di log delle misure e lettura del suo percorso"
+description = "Traccia dei tempi: scrittura del file di log delle misure"
 commands.allow = [
-    "perf_trace_append",
-    "perf_trace_path"
+    "perf_trace_append"
 ]
 
 [[permission]]
@@ -326,6 +317,9 @@ commands.allow = [
     "github_canonical_repo",
     "github_update_origin",
     "git_sync_repo",
+    "git_turn_snapshot",
+    "git_turn_commit",
+    "copy_commit_pending",
     "copy_sync_heads",
     "copy_sync_bundle",
     "copy_sync",
@@ -449,10 +443,7 @@ commands.allow = [
     "automations_title_release",
     "automations_resume_admission",
     "automations_resume_release",
-    "automations_is_execution_terminal",
-    "automations_project_path_for_id",
     "automations_extend_wait",
-    "automations_canonical_root",
     "automations_host_handshake"
 ]
 
@@ -521,7 +512,6 @@ permissions = [
     "allow-models",
     "allow-setup",
     "allow-attention",
-    "allow-focus-trace",
     "allow-perf-trace",
     "allow-studio-log",
     "allow-external-open",

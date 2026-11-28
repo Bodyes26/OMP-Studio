@@ -14,7 +14,7 @@
 	import { remoteJobs, jobActive } from '#lib/backend/remoteJobs.svelte.ts';
 	import { peerUpdate, needsUpdate, type WaitReason } from '#lib/backend/peerUpdate.svelte.ts';
 	import { studioUpdaterStore } from '#lib/stores/studioUpdater.svelte.ts';
-	import { copySyncStore, type BranchSync } from '#lib/stores/copySync.svelte.ts';
+	import { copySyncStore } from '#lib/stores/copySync.svelte.ts';
 	import { machineFeedback } from '#lib/stores/machineFeedback.svelte.ts';
 	import { projectStore, type Project } from '#lib/stores/projects.svelte.ts';
 	import { pendingReasonText } from '#lib/stores/projectMachines.svelte.ts';
@@ -60,7 +60,12 @@
 
 	function routeText(peer: LinkedMachine): string {
 		if (!peer.route) return m.machines_route_unknown();
-		const latency = peer.latencyMs ?? 0;
+		// Una latenza non ancora misurata non e' zero: dirlo sarebbe falso
+		// (S3-link-front-15, come fa gia' `DevicesSection`).
+		if (peer.latencyMs === null) {
+			return peer.route === 'direct' ? m.devices_direct() : m.devices_via_relay();
+		}
+		const latency = Math.round(peer.latencyMs);
 		return peer.route === 'direct'
 			? m.machines_route_direct({ latency })
 			: m.machines_route_relay({ latency });
@@ -78,8 +83,15 @@
 			for (const branch of report.branches) {
 				if (branch.state === 'pending') lines.push(`${name} — ${pendingReasonText(branch)}`);
 			}
-			if (report.branches.some((branch: BranchSync) => branch.state === 'diverged')) {
-				lines.push(`${name} — ${m.machines_copies_diverged()}`);
+			// Il motivo (branch e file in conflitto), non solo «copie divergenti»
+			// (S3-link-front-28, R-MI-49).
+			const diverged = report.branches.filter((branch) => branch.state === 'diverged');
+			if (diverged.length > 0) lines.push(`${name} — ${m.machines_copies_diverged()}`);
+			for (const branch of diverged) {
+				const files = branch.reason?.startsWith('conflict:') ? branch.reason.slice('conflict:'.length) : '';
+				lines.push(files
+					? m.machines_copies_diverged_why({ branch: branch.name, files })
+					: m.copies_diverged_commits({ branch: branch.name }));
 			}
 		}
 		return lines;
@@ -120,6 +132,10 @@
 				});
 				case 'installing': return m.peer_update_installing({ name: peer.name });
 				case 'failed': return m.peer_update_failed({ name: peer.name, error: status.error ?? '' });
+				// Terminali anche questi (S2-09): l'aggiornamento c'e' stato ma
+				// Studio e' rimasto aperto, oppure chi doveva installare ha rinunciato.
+				case 'manual': return m.peer_update_manual({ name: peer.name });
+				case 'cancelled': return m.peer_update_cancelled({ name: peer.name });
 			}
 		}
 		return needsUpdate(peer, studioUpdaterStore.currentVersion) ? m.peer_update_needed({
@@ -218,7 +234,7 @@
 						<MachineGlyph kind={state === 'online' || state === 'waiting' ? 'remote' : 'offline'} size={12} />
 						<span class="name">{peer.name}</span>
 						<span class="state" class:ok={state === 'online'} class:warn={state === 'incompatible'}>
-							<span class="dot" class:online={state === 'online'} class:warn={state === 'incompatible'} class:relay={state === 'relay'} aria-hidden="true"></span>
+							<span class="dot" class:online={state === 'online'} class:waiting={state === 'waiting'} class:warn={state === 'incompatible'} class:relay={state === 'relay'} aria-hidden="true"></span>
 							{stateLabel(state)}
 						</span>
 					</span>
@@ -282,6 +298,8 @@
 	.dot.online { background: var(--success); }
 	.dot.warn { background: var(--warn); }
 	.dot.relay { background: var(--warn); }
+	/* In attesa di risposta (D8): ambra come nel chip, non grigio come spenta. */
+	.dot.waiting { background: var(--warn); }
 	.meta { font-size: var(--text-caption); color: var(--ink-faint); }
 	.line { font-size: var(--text-caption); color: var(--ink-muted); overflow-wrap: anywhere; }
 	.line.update { color: var(--warn); }

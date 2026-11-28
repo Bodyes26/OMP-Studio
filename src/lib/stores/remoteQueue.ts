@@ -103,6 +103,32 @@ export function deliveryRetryDelay(attempt: number): number {
 	return Math.min(DELIVERY_RETRY_MAX_MS, DELIVERY_RETRY_BASE_MS * 2 ** exponent);
 }
 
+/**
+ * Cosa l'host pubblica adesso. `reduced` quando la sua versione di Studio manda
+ * solo l'elenco dei progetti (R-MI-10): in quel caso non si sa abbastanza per
+ * dire che un progetto e' chiuso.
+ */
+export interface HostPublishing {
+	projectIds: ReadonlySet<string>;
+	reduced: boolean;
+}
+
+/**
+ * La coda verso un host che non pubblica piu' il progetto (S3-link-front-06).
+ *
+ * Le radici pubblicate dall'host sono i progetti aperti nella sua barra: una
+ * coda registrata dalla cache, o di un progetto chiuso la', veniva rifiutata a
+ * ogni tentativo («Remote path is outside the host's project roots») con un
+ * avviso ripetuto. R-MI-15 resta: il task aspetta, non si perde e non parte.
+ * Si fermano soltanto i tentativi, e la coda lo dice con il nome della macchina.
+ */
+export function queueIsOrphaned(host: HostPublishing | null, hostProjectId: string | null): boolean {
+	if (!host || host.reduced) return false;
+	// Senza l'id sull'host non si puo' provare che il progetto sia chiuso.
+	if (!hostProjectId) return false;
+	return !host.projectIds.has(hostProjectId);
+}
+
 /** Confronto di percorsi scritti dal sistema di un'altra macchina. */
 export function samePathLoose(a: string | null | undefined, b: string | null | undefined): boolean {
 	const simplify = (path: string) => path.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();

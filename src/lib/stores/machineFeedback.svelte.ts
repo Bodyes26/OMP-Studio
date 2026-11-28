@@ -18,6 +18,8 @@
  * in poi e' il transcript a dire che la macchina sta lavorando.
  */
 
+import { normalizeProjectPath, projectStore } from './projects.svelte.ts';
+
 export type MachineOpKind = 'prompt' | 'files' | 'session' | 'queue' | 'git';
 export type MachineOpPhase = 'waiting' | 'confirmed' | 'failed';
 
@@ -198,18 +200,34 @@ export class MachineFeedbackStore {
 	}
 
 	/**
-	 * Ultima operazione del lavoro aperto: quelle del progetto, più quelle
-	 * senza progetto eseguite sulla macchina che lo ospita (salvataggio del
-	 * file e sync Git). Sono il riscontro accanto al composer.
+	 * Ultima operazione del lavoro aperto: quelle del progetto, piu' quelle
+	 * senza progetto eseguite sulla macchina che lo ospita. Sono il riscontro
+	 * accanto al composer; un'operazione di un altro progetto della stessa
+	 * macchina non compare qui (S3-link-front-14).
 	 */
 	latestForWork(projectId: string, machineId: string): MachineOp | null {
 		const ops = this.live();
 		for (let index = ops.length - 1; index >= 0; index--) {
 			const op = ops[index];
 			if (op.machineId !== machineId) continue;
-			if (op.projectId === projectId || (op.projectId === null && (op.kind === 'files' || op.kind === 'git'))) return op;
+			if (op.projectId === projectId) return op;
 		}
 		return null;
+	}
+
+	/**
+	 * Id locale del progetto che possiede un percorso: i produttori (salvataggio
+	 * del file, sync Git) conoscono il percorso, non l'id della tessera.
+	 */
+	projectIdForPath(projectPath: string | null | undefined): string | null {
+		const key = normalizeProjectPath(projectPath ?? '').toLowerCase();
+		if (!key) return null;
+		const project = projectStore.projects.find((candidate) =>
+			[candidate.canonicalProjectPath, candidate.lane.workspacePath].some(
+				(path) => path && normalizeProjectPath(path).toLowerCase() === key
+			)
+		);
+		return project?.id ?? null;
 	}
 
 	/** Operazioni ancora in attesa per una macchina. */

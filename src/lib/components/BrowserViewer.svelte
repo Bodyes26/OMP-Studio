@@ -35,7 +35,6 @@
 	} from '#lib/agent/browser-live.ts';
 	import { untrack } from 'svelte';
 	import { revealItemInDir } from '@tauri-apps/plugin-opener';
-	import { traceFocus } from '#lib/focusTracer.ts';
 	import { projectStore } from '#lib/stores/projects.svelte.ts';
 	import {
 		IconArrowLeft,
@@ -783,7 +782,6 @@
 		// risalire la finestra sopra l'applicazione che l'utente sta usando.
 		if (document.activeElement !== null && document.activeElement !== document.body) return;
 		if (!document.hasFocus()) return;
-		traceFocus('browser-viewport-refocus');
 		viewportEl.focus({ preventScroll: true });
 	});
 

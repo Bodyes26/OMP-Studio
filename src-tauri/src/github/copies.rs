@@ -85,8 +85,10 @@ pub enum BranchState {
     Advanced,
     /// Era divergente, git non ha trovato conflitti e la branch e' avanzata
     /// sul commit di unione deterministico (R-MI-61). `behind` sono i commit
-    /// arrivati dall'altra copia; `reason` vale `journal` quando le modifiche
-    /// da entrambe le parti stanno solo in `docs/diario/`.
+    /// arrivati dall'altra copia; `reason` vale `files-che-append` quando le
+    /// modifiche da entrambe le parti stanno solo nei file che crescono per
+    /// righe — diario, `CHANGELOG*.md`, `docs/progetto/*.md` (R-MI-48,
+    /// R-MI-72) — e la striscia lo dice invece di allarmare.
     Merged,
     /// E' indietro ma non si puo' avanzare ora: `reason` dice perche'.
     Pending,
@@ -142,6 +144,11 @@ pub struct BranchSync {
 pub struct CopySyncReport {
     pub machine: String,
     pub branches: Vec<BranchSync>,
+    /// `Some("busy")` quando un altro giro teneva il `SyncGuard` per lo stesso
+    /// repository: non e' un errore, il chiamante riprova dopo il giro in
+    /// corso senza avvisare l'utente (S2-06).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skipped: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -163,6 +170,19 @@ pub struct WipSnapshot {
 /// devono memorizzare gli stessi blob sulle due macchine, e `git status`
 /// dell'utente resta governato dalla sua configurazione.
 fn git_raw(dir: &Path, args: &[&str], env: &[(&str, &str)], stdin: Option<&[u8]>) -> Result<Vec<u8>, String> {
+    let out = git_output(dir, args, env, stdin)?;
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        return Err(explain_disk_full(if stderr.is_empty() { format!("git {} failed", args.join(" ")) } else { stderr }));
+    }
+    Ok(out.stdout)
+}
+
+/// Come `git_raw`, ma restituisce anche il codice di uscita e l'errore di git:
+/// alcune letture usano il codice per distinguere gli esiti (`merge-base` esce
+/// con 1 quando le storie non si toccano, con 128 quando non ha potuto
+/// rispondere) e confonderli cambierebbe il senso del risultato (S2-01).
+fn git_output(dir: &Path, args: &[&str], env: &[(&str, &str)], stdin: Option<&[u8]>) -> Result<std::process::Output, String> {
     let _span = crate::perf_trace::span("git", crate::perf_trace::command_label("git", args));
     let mut cmd = Command::new("git");
     cmd.args(["-c", "core.autocrlf=false", "-c", "core.filemode=false"])
@@ -170,6 +190,9 @@ fn git_raw(dir: &Path, args: &[&str], env: &[(&str, &str)], stdin: Option<&[u8]>
         .env("LC_ALL", "C").env("LANGUAGE", "C").env("GIT_TERMINAL_PROMPT", "0")
         .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped()).stderr(Stdio::piped());
+    // Le letture in polling non devono contendere `index.lock` con gli agenti
+    // che committano nello stesso repository (S8-08); le scritture lo lasciano.
+    if read_only(args) { cmd.env("GIT_OPTIONAL_LOCKS", "0"); }
     #[cfg(target_os = "windows")]
     cmd.creation_flags(CREATE_NO_WINDOW);
     let mut child = cmd.spawn().map_err(|error| format!("git {}: {error}", args.join(" ")))?;
@@ -180,12 +203,13 @@ fn git_raw(dir: &Path, args: &[&str], env: &[(&str, &str)], stdin: Option<&[u8]>
         let input = input.to_vec();
         std::thread::spawn(move || { let _ = pipe.write_all(&input); });
     }
-    let out = child.wait_with_output().map_err(|error| explain_disk_full(error.to_string()))?;
-    if !out.status.success() {
-        let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
-        return Err(explain_disk_full(if stderr.is_empty() { format!("git {} failed", args.join(" ")) } else { stderr }));
-    }
-    Ok(out.stdout)
+    child.wait_with_output().map_err(|error| explain_disk_full(error.to_string()))
+}
+
+/// Errore di git per un esito inatteso, con lo stderr quando c'e'.
+fn git_failure(args: &[&str], out: &std::process::Output) -> String {
+    let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+    explain_disk_full(if stderr.is_empty() { format!("git {} failed", args.join(" ")) } else { stderr })
 }
 
 /// Lo spazio su disco finito arriva da git o dal sistema con testi diversi
@@ -208,6 +232,20 @@ fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
     git_raw(dir, args, &[], None).map(|out| String::from_utf8_lossy(&out).trim().to_string())
 }
 
+/// Comandi git che leggono soltanto. Con `GIT_OPTIONAL_LOCKS=0` non prendono
+/// `index.lock` per aggiornare l'indice mentre un agente committa nello stesso
+/// repository (S8-08): lo `status` in polling e i `rev-list`/`for-each-ref`
+/// delle copie non hanno nulla da aggiornare.
+fn read_only(args: &[&str]) -> bool {
+    match args.first().copied() {
+        Some("cat-file" | "check-attr" | "diff" | "diff-tree" | "for-each-ref" | "log" | "ls-files"
+            | "merge-base" | "rev-list" | "rev-parse" | "show" | "status" | "symbolic-ref") => true,
+        // `remote get-url` legge, `remote add`/`remote remove` scrivono.
+        Some("remote") => matches!(args.get(1).copied(), Some("get-url")),
+        _ => false,
+    }
+}
+
 /// Git che puo' uscire con codice diverso da zero lasciando un'uscita utile
 /// (`merge-tree` coi conflitti): restituisce se e' andata e cosa ha scritto.
 fn git_allow_failure(dir: &Path, args: &[&str]) -> Result<(bool, Vec<u8>), String> {
@@ -216,6 +254,7 @@ fn git_allow_failure(dir: &Path, args: &[&str]) -> Result<(bool, Vec<u8>), Strin
         .current_dir(dir).args(args)
         .env("LC_ALL", "C").env("LANGUAGE", "C").env("GIT_TERMINAL_PROMPT", "0")
         .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    if read_only(args) { cmd.env("GIT_OPTIONAL_LOCKS", "0"); }
     #[cfg(target_os = "windows")]
     cmd.creation_flags(CREATE_NO_WINDOW);
     let out = cmd.output().map_err(|error| format!("git {}: {error}", args.join(" ")))?;
@@ -523,7 +562,10 @@ fn has_head(dir: &Path) -> bool {
 /// `SyncGuard`: l'elenco della finestra e' calcolato prima del giro di rete.
 /// Non si usa il lock interattivo delle automazioni, che resta preso per
 /// tutta la vita della sessione e bloccherebbe l'avanzamento per sempre.
-fn is_busy_in_backend(path: &Path) -> bool {
+///
+/// Visibile al crate per GitFriction (R-MI-73/R-MI-74): anche il commit di
+/// fine turno deve vedere la cartella occupata da un agente.
+pub(crate) fn is_busy_in_backend(path: &Path) -> bool {
     crate::automations::is_project_locked(&path.to_string_lossy(), None)
         || crate::rpc::turn_running_in(path)
 }
@@ -649,10 +691,14 @@ fn reconcile(dir: &Path, machine: &str, local_id: Option<&str>, peer: &[BranchHe
                         if journal_only { entry.reason = Some("journal".into()); }
                         BranchState::Merged
                     }
-                    Ok(None) => match advance(dir, &head.name, mine, &head.commit, worktrees.get(&head.name), has_detached, busy) {
-                        Ok(()) => BranchState::Advanced,
-                        Err(reason) => { entry.reason = Some(reason); BranchState::Pending }
-                    },
+                    // Storie senza antenato comune (clone shallow, storia
+                    // riscritta): non c'e' niente da unire e non si sposta
+                    // nessun riferimento, altrimenti i commit locali
+                    // resterebbero raggiungibili solo dal reflog (S2-01).
+                    Ok(None) => {
+                        entry.reason = Some("unrelated".into());
+                        BranchState::Diverged
+                    }
                     Err(reason) if reason.starts_with("conflict:") => {
                         entry.reason = Some(reason);
                         BranchState::Diverged
@@ -698,6 +744,12 @@ fn advance(dir: &Path, branch: &str, from: &str, to: &str, worktree: Option<&Pat
         }
         // Spostare il riferimento di una branch non in uso non tocca nessuna
         // cartella: un agente al lavoro altrove non e' un motivo per aspettare.
+        // Ma `update-ref` verifica solo il vecchio valore, non che `to`
+        // discenda da lui: senza questo controllo una branch divergente
+        // perderebbe i commit locali, raggiungibili solo dal reflog (S2-01).
+        if !is_ancestor(dir, from, to)? {
+            return Err("not-fast-forward".into());
+        }
         return git(dir, &["update-ref", &format!("refs/heads/{branch}"), to, from]).map(|_| ());
     };
     // Ricontrolla occupazione e pulizia subito prima del merge: un agente puo'
@@ -732,6 +784,21 @@ fn move_branch(worktree: &Path, branch: &str, from: &str, to: &str) -> Result<()
     advance_with_snapshot(worktree, branch, from, to)
 }
 
+/// Ultimo esito negativo di `advance_with_snapshot`, per (cartella, branch,
+/// from, to): un file sporco che confligge fa fallire ogni giro di
+/// `copy_sync` allo stesso modo, e ripetere `add -A` su tutta la cartella ogni
+/// volta scrive blob e commit orfani senza cambiare l'esito (S2-05). Il valore
+/// e' l'impronta dello stato della cartella e il motivo gia' visto: finche'
+/// nulla cambia, si restituisce subito quel motivo.
+static SNAPSHOT_FAILURES: LazyLock<Mutex<HashMap<String, (String, String)>>> = LazyLock::new(Default::default);
+
+/// Impronta dei file sporchi: uno `status --porcelain` intero costa molto meno
+/// di un `add -A` con indice temporaneo, e cambia appena qualcosa si muove.
+fn dirty_fingerprint(worktree: &Path) -> Result<String, String> {
+    let raw = git_raw(worktree, &["status", "--porcelain=v1", "-z", "--untracked-files=all"], &[], None)?;
+    Ok(format!("{:x}", Sha256::digest(&raw)))
+}
+
 /// Avanzamento con modifiche locali che i commit in arrivo toccano
 /// (R-MI-47): istantanea della cartella, ff, riapplicazione a tre vie dei soli
 /// file. Niente stash dell'utente. Se qualcosa va storto si torna allo stato
@@ -748,6 +815,32 @@ fn advance_with_snapshot(worktree: &Path, branch: &str, from: &str, to: &str) ->
     if git(worktree, &["rev-parse", "HEAD"])? != from {
         return Err("La copia non è sul commit da cui partire".into());
     }
+    // Un esito gia' visto con gli stessi file sporchi non si ripete: si
+    // restituisce lo stesso motivo, senza rifare l'istantanea (S2-05).
+    let key = format!("{}|{branch}|{from}|{to}", worktree.to_string_lossy());
+    let fingerprint = dirty_fingerprint(worktree)?;
+    if let Some((seen, reason)) = SNAPSHOT_FAILURES.lock().ok().and_then(|cache| cache.get(&key).cloned()) {
+        if seen == fingerprint { return Err(reason); }
+    }
+    let outcome = snapshot_advance(worktree, branch, from, to);
+    match &outcome {
+        Ok(()) => { if let Ok(mut cache) = SNAPSHOT_FAILURES.lock() { cache.remove(&key); } }
+        Err(reason) => {
+            // Si ricorda solo un esito che dipende dai file, non un guasto
+            // transitorio che il giro dopo potrebbe non avere piu'.
+            if reason.starts_with("conflict:") {
+                if let Ok(mut cache) = SNAPSHOT_FAILURES.lock() {
+                    cache.insert(key, (fingerprint, reason.clone()));
+                }
+            }
+        }
+    }
+    outcome
+}
+
+/// Il corpo di `advance_with_snapshot`, separato perche' il chiamante decide
+/// se ricordare l'esito negativo (S2-05).
+fn snapshot_advance(worktree: &Path, branch: &str, from: &str, to: &str) -> Result<(), String> {
     // Stessa istantanea di R-MI-28, ma senza lasciare un ref: serve solo qui
     // per riportare indietro il lavoro se la riapplicazione non riesce.
     let tree = worktree_tree(worktree)?;
@@ -780,24 +873,131 @@ fn advance_with_snapshot(worktree: &Path, branch: &str, from: &str, to: &str) ->
     Ok(())
 }
 
+/// Stato delle modifiche non committate di una cartella: commit temporaneo
+/// dell'albero (indice temporaneo, nessun ref) e impronta dei file sporchi.
+/// Serve a R-MI-71: chi opera sul repository mette da parte le modifiche
+/// locali con questo meccanismo, non con uno stash di git.
+pub(crate) struct LocalSnapshot {
+    pub commit: String,
+    pub base: String,
+}
+
 /// Cartella del diario (R-MI-48): l'unione automatica vale solo per i file
 /// che stanno qui, senza eccezioni.
 const JOURNAL_DIR: &str = "docs/diario/";
 
-fn is_journal_file(path: &str) -> bool {
-    path.starts_with(JOURNAL_DIR)
+/// Modifiche non committate come commit temporaneo; `None` se la cartella e'
+/// pulita rispetto a HEAD.
+///
+/// Senza commit (`rev-parse HEAD` fallisce) non c'e' una base a cui ancorare
+/// l'istantanea: si risponde `None` e il pull prosegue come prima, perche' un
+/// repository cosi' non ha niente in arrivo da unire.
+pub(crate) fn local_snapshot(dir: &Path) -> Result<Option<LocalSnapshot>, String> {
+    let Ok(base) = git(dir, &["rev-parse", "HEAD"]) else { return Ok(None) };
+    let tree = worktree_tree(dir)?;
+    if tree == git(dir, &["rev-parse", "HEAD^{tree}"])? { return Ok(None); }
+    let message = "OMP Studio: modifiche locali messe da parte";
+    let commit = String::from_utf8_lossy(
+        &git_raw(dir, &["commit-tree", &tree, "-p", &base, "-m", message], &STUDIO_IDENTITY, None)?
+    ).trim().to_string();
+    Ok(Some(LocalSnapshot { commit, base }))
 }
 
-/// Riga degli attributi locali che unisce il diario per righe (R-MI-59).
-const JOURNAL_ATTRIBUTE: &str = "docs/diario/** merge=union";
+/// Riporta il repository esattamente allo stato dell'istantanea: branch e HEAD
+/// a `base`, working tree e indice come prima. Usata per annullare
+/// un'operazione git che non e' riuscita (R-MI-71).
+///
+/// Se il pull era riuscito HEAD e' gia' sul commit nuovo: va riportato a
+/// `base` anche il riferimento, altrimenti la cartella sembrerebbe un
+/// `revert` di tutto (i file di `base` su una cima che non lo e' piu').
+pub(crate) fn restore_local_snapshot(dir: &Path, snapshot: &LocalSnapshot) -> Result<(), String> {
+    let moved = git(dir, &["rev-parse", "HEAD"]).ok().filter(|head| head != &snapshot.base);
+    if let Some(moved) = moved {
+        // Toglie anche i file portati dal commit nuovo: `reset --hard` non
+        // tocca i file non tracciati, e questi lo diventerebbero.
+        for name in added_files(dir, &snapshot.base, &moved).unwrap_or_default() {
+            let _ = std::fs::remove_file(dir.join(name));
+        }
+        git(dir, &["reset", "--hard", "--quiet", &snapshot.base])?;
+    }
+    for name in added_files(dir, &snapshot.base, &snapshot.commit)? {
+        let _ = std::fs::remove_file(dir.join(name));
+    }
+    git(dir, &["read-tree", "-m", "-u", &snapshot.base, &snapshot.commit])?;
+    git(dir, &["read-tree", "--reset", &snapshot.base])?;
+    Ok(())
+}
 
-/// Dichiara l'unione per righe di `docs/diario/**` negli attributi locali del
-/// repository (R-MI-59), se c'e' un diario: nessun altro file riceve regole.
+/// Riapplica l'istantanea sopra il nuovo HEAD con una fusione a tre vie.
+/// Restituisce i file che bloccano, se ci sono: il chiamante allora riporta
+/// tutto com'era.
+///
+/// La base e' `snapshot.base`, dichiarata e non dedotta: dopo un rebase il
+/// genitore comune che git troverebbe da solo sarebbe il padre di `base`, e
+/// ogni file toccato in entrambi i lati sembrerebbe in conflitto.
+pub(crate) fn reapply_local_snapshot(dir: &Path, snapshot: &LocalSnapshot) -> Result<(), Vec<String>> {
+    let head = match git(dir, &["rev-parse", "HEAD"]) { Ok(head) => head, Err(_) => return Err(Vec::new()) };
+    match merge_tree_from(dir, Some(&snapshot.base), &head, &snapshot.commit) {
+        Ok(merged) => {
+            if git(dir, &["read-tree", "-m", "-u", &head, &merged]).is_err() {
+                return Err(Vec::new());
+            }
+            // Le modifiche restano non in stage, come dopo un `git pull`.
+            let _ = git(dir, &["read-tree", "--reset", &head]);
+            Ok(())
+        }
+        Err(reason) if reason.starts_with("conflict:") => Err(reason.trim_start_matches("conflict:")
+            .split(',').map(str::to_owned).collect()),
+        Err(_) => Err(Vec::new()),
+    }
+}
+
+/// Svuota la cartella rispetto alla sua HEAD senza toccare l'istantanea: le
+/// modifiche sono gia' nel commit temporaneo, quindi si possono togliere anche
+/// i file nuovi (R-MI-71).
+pub(crate) fn clear_worktree(dir: &Path, snapshot: &LocalSnapshot) -> Result<(), String> {
+    git(dir, &["read-tree", "--reset", "-u", &snapshot.base])?;
+    for name in added_files(dir, &snapshot.base, &snapshot.commit)? {
+        let _ = std::fs::remove_file(dir.join(name));
+    }
+    Ok(())
+}
+
+/// File che crescono da soli e si uniscono per righe (R-MI-59, R-MI-72): gli
+/// stessi tre gruppi di `UNION_ATTRIBUTES`. Un'unione che li tocca soltanto
+/// non va raccontata come un conflitto risolto: la striscia dice «unito».
+fn is_growing_file(path: &str) -> bool {
+    // Git riporta i percorsi relativi alla radice del repository, senza
+    // `./` ne' `/` iniziali: le due forme si normalizzano qui invece di
+    // lasciare che un chiamante futuro le passi cosi' come sono.
+    let path = path.trim_start_matches("./").trim_start_matches('/');
+    if path.starts_with(JOURNAL_DIR) { return true; }
+    // `CHANGELOG*.md` alla radice: il modello di `info/attributes` non ha
+    // cartelle, quindi basta il nome del file.
+    if !path.contains('/') && path.starts_with("CHANGELOG") && path.ends_with(".md") { return true; }
+    // `docs/progetto/*.md`, senza sottocartelle: `*` in un attributo non
+    // attraversa le barre.
+    path.strip_prefix("docs/progetto/")
+        .is_some_and(|rest| !rest.is_empty() && !rest.contains('/') && rest.ends_with(".md"))
+}
+
+/// Righe degli attributi locali che uniscono per righe i file che crescono da
+/// sole (R-MI-59, esteso da R-MI-72): diario, changelog e documenti di
+/// progetto. Fuori da qui nessun file riceve regole: un `merge=union` su
+/// codice o JSON non e' una fusione, e' un file rotto.
+const UNION_ATTRIBUTES: [&str; 3] = [
+    "docs/diario/** merge=union",
+    "CHANGELOG*.md merge=union",
+    "docs/progetto/*.md merge=union",
+];
+
+/// Dichiara l'unione per righe dei file che crescono da soli negli attributi
+/// locali del repository (R-MI-59, R-MI-72).
 ///
 /// Il file e' `<git-common-dir>/info/attributes`, non versionato: vale per il
 /// working tree e per tutte le corsie, che condividono la cartella comune
-/// (verificato con `--git-common-dir`). La funzione e' idempotente e non
-/// tocca le altre righe.
+/// (verificato con `--git-common-dir`). La funzione e' idempotente riga per
+/// riga e non tocca le regole gia' scritte dall'utente.
 ///
 /// L'errore non ferma chi chiama: l'attributo aiuta le fusioni, non e' una
 /// condizione per lavorare (un `.git` in sola lettura non deve bloccare la
@@ -807,26 +1007,23 @@ pub(crate) fn ensure_journal_union(dir: &Path) -> Result<(), String> {
     let info = Path::new(&common).join("info");
     let attributes = info.join("attributes");
     let existing = std::fs::read_to_string(&attributes).unwrap_or_default();
-    // Gia' dichiarata: nessun altro comando git. Il giro periodico delle
-    // copie passa di qui ogni minuto, quindi il caso normale deve costare una
-    // sola lettura.
-    let declared = existing.lines().any(|line| {
-        let mut parts = line.split_whitespace();
-        parts.next() == Some("docs/diario/**") && parts.next() == Some("merge=union")
-    });
-    if declared { return Ok(()); }
-    // Il diario puo' esserci solo in HEAD (cartella svuotata a mano) o solo
-    // nel working tree di una branch nuova: in entrambi i casi la regola vale.
-    if !dir.join("docs/diario").is_dir() && git(dir, &["rev-parse", "--verify", "-q", "HEAD:docs/diario"]).is_err() {
-        return Ok(());
-    }
-    std::fs::create_dir_all(&info).map_err(|error| explain_disk_full(error.to_string()))?;
-    // Si aggiunge in coda senza riformattare: una riga senza a capo finale
+    // Solo le righe che mancano: il giro periodico delle copie passa di qui
+    // ogni minuto, quindi il caso normale deve costare una sola lettura.
+    let missing: Vec<&str> = UNION_ATTRIBUTES.into_iter().filter(|attribute| {
+        let mut parts = attribute.split_whitespace();
+        let (pattern, rule) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""));
+        !existing.lines().any(|line| {
+            let mut fields = line.split_whitespace();
+            fields.next() == Some(pattern) && fields.next() == Some(rule)
+        })
+    }).collect();
+    if missing.is_empty() { return Ok(()); }
+    // Si aggiungono in coda senza riformattare: una riga senza a capo finale
     // resterebbe incollata alla nostra.
     let mut content = existing;
     if !content.is_empty() && !content.ends_with('\n') { content.push('\n'); }
-    content.push_str(JOURNAL_ATTRIBUTE);
-    content.push('\n');
+    for attribute in missing { content.push_str(attribute); content.push('\n'); }
+    std::fs::create_dir_all(&info).map_err(|error| explain_disk_full(error.to_string()))?;
     std::fs::write(&attributes, content).map_err(|error| explain_disk_full(error.to_string()))
 }
 
@@ -847,19 +1044,26 @@ fn journal_union_quiet(dir: &Path) {
 ///
 /// Restituisce `Ok(Some(true))` quando le modifiche da unire stanno solo nel
 /// diario, `Ok(Some(false))` quando toccano altri file, `Ok(None)` quando le
-/// storie non si toccano (repo riscritto o shallow: divergenza normale,
-/// R-MI-22), `Err(reason)` quando l'unione non puo' avvenire ora (conflitti,
-/// cartella occupata, errore di git): in quel caso non si e' toccato niente.
+/// storie non hanno un antenato comune (repo riscritto o clone shallow: il
+/// chiamante le riporta come divergenza «unrelated», senza mai spostare il
+/// riferimento, S2-01), `Err(reason)` quando l'unione non puo' avvenire ora
+/// (conflitti, cartella occupata, errore di git): in quel caso non si e'
+/// toccato niente.
 #[allow(clippy::too_many_arguments)]
 fn merge_branches(dir: &Path, branch: &str, local_id: Option<&str>, peer_id: &str, mine: &str, peer: &str,
     worktree: Option<&PathBuf>, has_detached: bool, busy: &[String]) -> Result<Option<bool>, String> {
     // Se l'altra macchina ha gia' unito, la sua cima contiene la mia e il
     // chiamante vede `ahead == 0`: qui si arriva solo su storie davvero
     // divergenti, quindi un genitore comune mancante e' un repo riscritto.
-    let Some(base) = merge_base(dir, mine, peer) else { return Ok(None) };
+    let base = match merge_base(dir, mine, peer)? {
+        MergeBase::Common(base) => base,
+        MergeBase::Unrelated => return Ok(None),
+        // Un errore di git non e' una divergenza: si riprova al giro dopo.
+        MergeBase::Failed(reason) => return Err(reason),
+    };
     let touched: Vec<String> = changed_files(dir, &base, mine)?.into_iter()
         .chain(changed_files(dir, &base, peer)?).collect();
-    let journal_only = !touched.is_empty() && touched.iter().all(|path| is_journal_file(path));
+    let journal_only = !touched.is_empty() && touched.iter().all(|path| is_growing_file(path));
     let Some(local_id) = local_id else {
         // Senza id l'ordine canonico non e' decidibile, ma un conflitto vero
         // va comunque riportato come tale (R-MI-22): si prova l'unione solo
@@ -904,10 +1108,44 @@ fn merge_branches(dir: &Path, branch: &str, local_id: Option<&str>, peer_id: &st
     Ok(Some(journal_only))
 }
 
-/// Genitore comune piu' recente, `None` se le due storie non si toccano (repo
-/// riscritto o shallow): in quel caso non si unisce niente.
-fn merge_base(dir: &Path, a: &str, b: &str) -> Option<String> {
-    git(dir, &["merge-base", a, b]).ok().filter(|base| is_hash(base))
+/// Esito di `git merge-base`, con i tre casi che git distingue davvero.
+enum MergeBase {
+    /// Un genitore comune: la fusione a tre vie ha una base.
+    Common(String),
+    /// Nessun genitore comune (`exit 1`): storie riscritte o clone shallow.
+    Unrelated,
+    /// git non ha potuto rispondere (`exit 128`, oggetto mancante, repository
+    /// illeggibile): e' un guasto transitorio, non una divergenza normale.
+    Failed(String),
+}
+
+/// Genitore comune piu' recente. `merge-base` esce con 1 quando le due storie
+/// non si toccano e con 128 quando non ha potuto rispondere: confonderli
+/// trattava un errore di git come «nessun antenato» (S2-01).
+fn merge_base(dir: &Path, a: &str, b: &str) -> Result<MergeBase, String> {
+    let args = ["merge-base", a, b];
+    let out = git_output(dir, &args, &[], None)?;
+    if out.status.success() {
+        let base = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+        return if is_hash(&base) { Ok(MergeBase::Common(base)) } else { Ok(MergeBase::Failed(git_failure(&args, &out))) };
+    }
+    Ok(match out.status.code() {
+        Some(1) => MergeBase::Unrelated,
+        _ => MergeBase::Failed(git_failure(&args, &out)),
+    })
+}
+
+/// `git merge-base --is-ancestor from to`: vero se `to` contiene `from`, cioe'
+/// se spostare il riferimento e' un fast-forward. Un codice diverso da 0 e 1
+/// e' un errore: avanzare senza risposta perderebbe commit (S2-01).
+fn is_ancestor(dir: &Path, from: &str, to: &str) -> Result<bool, String> {
+    let args = ["merge-base", "--is-ancestor", from, to];
+    let out = git_output(dir, &args, &[], None)?;
+    match out.status.code() {
+        Some(0) => Ok(true),
+        Some(1) => Ok(false),
+        _ => Err(git_failure(&args, &out)),
+    }
 }
 
 /// Messaggio del commit di unione: fisso e senza traduzione, perche' entra
@@ -969,12 +1207,32 @@ fn rollback_advance(worktree: &Path, branch: &str, from: &str, to: &str, snapsho
 /// non fa: con modifiche su righe diverse dello stesso file restituisce
 /// l'albero gia' unito. Se restano conflitti il risultato e' l'elenco dei file.
 fn merge_tree(dir: &Path, ours: &str, theirs: &str) -> Result<String, String> {
+    merge_tree_from(dir, None, ours, theirs)
+}
+
+/// Come `merge_tree`, ma con una base dichiarata (R-MI-71). Serve quando le
+/// due parti non sono rami veri dello stesso albero di lavoro: dopo un rebase
+/// `ours` e `theirs` condividono anche il nonno, e il genitore comune che git
+/// troverebbe da solo non e' quello da cui l'istantanea e' partita (sarebbe il
+/// padre di `base`, e il rebase sembrerebbe un conflitto su tutto).
+fn merge_tree_from(dir: &Path, base: Option<&str>, ours: &str, theirs: &str) -> Result<String, String> {
     // `merge-tree` esce con 1 quando la fusione ha conflitti: l'uscita resta
     // utile (albero parziale e nomi dei file), quindi non si passa da `git_raw`
     // che la tratterebbe come errore.
     // `--name-only` fa stampare i soli nomi dei file in conflitto (con l'uscita
     // predefinita sarebbero righe d'indice con modo e blob).
-    let (ok, raw) = git_allow_failure(dir, &["merge-tree", "--write-tree", "--name-only", "--no-messages", "-z", ours, theirs])?;
+    let (ok, raw) = {
+        let mut args = vec!["merge-tree", "--write-tree", "--name-only", "--no-messages", "-z"];
+        if let Some(base) = base { args.extend(["--merge-base", base]); }
+        args.extend([ours, theirs]);
+        let out = git_allow_failure(dir, &args)?;
+        // `--merge-base` manca su git molto vecchi (esce con 129, uso errato):
+        // si riprova senza, e la base la deduce git. Sul caso normale — stesse
+        // storie, nessun rebase — l'esito e' identico.
+        if base.is_some() && !out.0 && out.1.is_empty() {
+            git_allow_failure(dir, &["merge-tree", "--write-tree", "--name-only", "--no-messages", "-z", ours, theirs])?
+        } else { out }
+    };
     let text = String::from_utf8_lossy(&raw);
     let mut parts = text.split('\0');
     if !ok {
@@ -1152,13 +1410,33 @@ fn finish_snapshot(dir: &Path, id: &str) -> Result<(), String> {
 
 static SYNCING: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Default::default);
 
-/// Una sincronizzazione alla volta per repository: il giro successivo trova
-/// lo stato aggiornato. La chiave e' il percorso canonico (M7), cosi' due
-/// grafie dello stesso repository si serializzano invece di correre in
-/// parallelo su `index.lock` e `update-ref`.
-struct SyncGuard(String);
+/// Quante volte `acquire_waiting` riprova e con che pausa: un paio di secondi
+/// in tutto, quanto basta a un giro delle copie in corso.
+const GUARD_ATTEMPTS: u32 = 10;
+const GUARD_WAIT: std::time::Duration = std::time::Duration::from_millis(200);
+
+/// Una serie di git alla volta per repository, condivisa da ogni comando di
+/// Studio che scrive sul repository (R-MI-26, R-MI-71, R-MI-73, R-MI-74): chi
+/// ha bisogno dello stesso diritto la prende da qui, cosi' due `git` non si
+/// contendono `index.lock`. La chiave e' il percorso canonico (M7).
+///
+/// La usano anche pull, «Sincronizza» e «Aggiorna» di `sync.rs`: R-MI-71
+/// chiede che un'operazione o riesca o lasci il repository com'era, e due giri
+/// intrecciati sullo stesso indice non lo possono garantire.
+pub(crate) struct SyncGuard(String);
 impl SyncGuard {
-    fn acquire(path: &str) -> Result<Self, String> {
+    /// Il giro serializzato di un repository: chi deve stare fuori dalla
+    /// cartella mentre un'altra operazione git la muove (R-MI-71/R-MI-73)
+    /// prende lo stesso diritto, cosi' non si intrecciano su `index.lock`.
+    pub(crate) fn acquire(path: &str) -> Result<Self, String> {
+        Self::try_acquire(path)?.ok_or_else(|| "sync already running".to_string())
+    }
+
+    /// Come `acquire`, ma un giro gia' in corso per lo stesso repository e'
+    /// `Ok(None)` e non un errore: `copy_sync` e `git_fast_forward_upstream`
+    /// si contendono spesso lo stesso `SyncGuard` e rispondono «busy» in modo
+    /// strutturato, senza far comparire un errore all'utente (S2-06, C2).
+    pub(crate) fn try_acquire(path: &str) -> Result<Option<Self>, String> {
         // Il percorso canonico distingue i repository anche quando arrivano
         // con spazi, case o separatori diversi; se la canonizzazione fallisce
         // si ripiega sulla stringa ricevuta (il comando git fallirebbe comunque).
@@ -1166,8 +1444,21 @@ impl SyncGuard {
             .map(|base| base.to_string_lossy().to_string())
             .unwrap_or_else(|_| path.to_owned());
         let mut set = SYNCING.lock().map_err(|_| "sync lock poisoned")?;
-        if !set.insert(key.clone()) { return Err("sync already running".into()); }
-        Ok(Self(key))
+        if !set.insert(key.clone()) { return Ok(None); }
+        Ok(Some(Self(key)))
+    }
+
+    /// Come `try_acquire`, ma aspetta un giro in corso prima di arrendersi.
+    /// Serve a un'azione chiesta dall'utente (pull, «Sincronizza»): il giro
+    /// delle copie dura poche centinaia di millisecondi, e far fallire un clic
+    /// per una collisione di quell'ordine sarebbe un errore inventato. Passata
+    /// l'attesa si risponde `None` e il chiamante lo dice all'utente.
+    pub(crate) fn acquire_waiting(path: &str) -> Result<Option<Self>, String> {
+        for attempt in 0..GUARD_ATTEMPTS {
+            if let Some(guard) = Self::try_acquire(path)? { return Ok(Some(guard)); }
+            if attempt + 1 < GUARD_ATTEMPTS { std::thread::sleep(GUARD_WAIT); }
+        }
+        Ok(None)
     }
 }
 impl Drop for SyncGuard {
@@ -1284,7 +1575,10 @@ pub(crate) async fn copy_receive_lane_branch(app: tauri::AppHandle, project_path
 /// Allinea questa copia a quella di `machine` (R-MI-26, R-MI-27).
 #[tauri::command]
 pub async fn copy_sync(app: tauri::AppHandle, project_path: String, machine: String, peer_path: String, busy_paths: Vec<String>) -> Result<CopySyncReport, String> {
-    let _guard = SyncGuard::acquire(&project_path)?;
+    let Some(_guard) = SyncGuard::try_acquire(&project_path)? else {
+        // Un altro giro tiene il repository: si riprova dopo, senza errore.
+        return Ok(CopySyncReport { machine, branches: Vec::new(), skipped: Some("busy".into()) });
+    };
     let dir = PathBuf::from(&project_path);
     // R-MI-59: il diario non va mai in conflitto. La regola si dichiara prima
     // di qualunque fusione o riapplicazione di questo giro; se il `.git` non
@@ -1333,7 +1627,7 @@ pub async fn copy_sync(app: tauri::AppHandle, project_path: String, machine: Str
             .filter(|head| known.contains(&head.commit) || conflicted.contains(&head.name))
             .collect();
         reconcile(&dir, &machine, local_id.as_deref(), &present, &busy_paths)
-            .map(|branches| CopySyncReport { machine: report_machine, branches })
+            .map(|branches| CopySyncReport { machine: report_machine, branches, skipped: None })
     }).await
 }
 
@@ -1370,6 +1664,11 @@ pub enum UpstreamState {
 #[serde(rename_all = "camelCase")]
 pub struct FastForwardReport {
     pub branches: Vec<UpstreamSync>,
+    /// `Some("busy")` quando il giro delle copie teneva il `SyncGuard`: il
+    /// frontend riprova dopo quel giro, senza `console.error` ne' notifica di
+    /// commit da scaricare (S2-06, C2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skipped: Option<String>,
 }
 
 /// Nome, cima e upstream (ref completo e nome breve) di ogni branch locale con
@@ -1431,8 +1730,13 @@ fn fast_forward_upstream(dir: &Path, busy: &[String]) -> Result<Vec<UpstreamSync
 /// Stessa serializzazione di `copy_sync` per lo stesso percorso.
 #[tauri::command]
 pub async fn git_fast_forward_upstream(project_path: String, busy_paths: Vec<String>) -> Result<FastForwardReport, String> {
-    let _guard = SyncGuard::acquire(&project_path)?;
-    blocking(move || fast_forward_upstream(Path::new(&project_path), &busy_paths).map(|branches| FastForwardReport { branches })).await
+    let Some(_guard) = SyncGuard::try_acquire(&project_path)? else {
+        // Il giro delle copie tiene il repository: il chiamante riprova
+        // dopo, senza avvisare di commit da scaricare (S2-06, C2).
+        return Ok(FastForwardReport { branches: Vec::new(), skipped: Some("busy".into()) });
+    };
+    blocking(move || fast_forward_upstream(Path::new(&project_path), &busy_paths)
+        .map(|branches| FastForwardReport { branches, skipped: None })).await
 }
 
 #[tauri::command]
@@ -1760,6 +2064,64 @@ mod tests {
     }
 
     #[test]
+    fn only_the_files_declared_in_the_local_attributes_count_as_growing() {
+        // La classificazione deve coincidere con `UNION_ATTRIBUTES`: se
+        // divergesse, due macchine unirebbero un file e la striscia direbbe
+        // «conflitto risolto» su un file che nessuno ha unito per righe.
+        for growing in ["docs/diario/2026-11.md", "CHANGELOG.md", "CHANGELOG.en.md", "docs/progetto/scopo.md",
+            "./CHANGELOG.md", "/docs/progetto/scopo.md"] {
+            assert!(is_growing_file(growing), "{growing} doveva essere un file che cresce");
+        }
+        for other in ["a.txt", "src/a.ts", "README.md", "docs/progetto/sub/scopo.md",
+            "docs/progetto/scopo.txt", "CHANGELOG.md.bak", "docs/altro.md", "docs/diario"] {
+            assert!(!is_growing_file(other), "{other} non deve valere come file che cresce");
+        }
+    }
+
+    #[test]
+    fn a_divergence_in_changelog_and_project_docs_merges_with_reason_journal() {
+        // R-MI-72: come il diario, anche `CHANGELOG*.md` e `docs/progetto/*.md`
+        // si uniscono per righe e l'esito benigno si racconta come tale.
+        let (_root, mac, win) = pair();
+        commit(&mac, "CHANGELOG.md", "# Changelog\n\n## [Unreleased]\n");
+        commit(&mac, "docs/progetto/scopo.md", "# Scopo\n\n## Base\n");
+        sync(&win, &mac, &[]);
+        let theirs = commit(&mac, "CHANGELOG.md", "# Changelog\n\n## [Unreleased]\n- dal mac\n");
+        commit(&mac, "docs/progetto/scopo.md", "# Scopo\n\n## Base\n- dal mac\n");
+        let mine = commit(&win, "CHANGELOG.md", "# Changelog\n\n## [Unreleased]\n- dal win\n");
+        commit(&win, "docs/progetto/scopo.md", "# Scopo\n\n## Base\n- dal win\n");
+
+        let report = sync_as(&win, &mac, "mac", Some("aaa-local"), &[]);
+        assert_eq!(report[0].state, BranchState::Merged, "{:?}", report[0].reason);
+        assert_eq!(report[0].reason.as_deref(), Some("journal"), "esito benigno, non un conflitto");
+        let merger = run(&win, &["rev-parse", "HEAD"]);
+        assert_ne!(merger, mine);
+        assert_ne!(merger, theirs);
+        let changelog = std::fs::read_to_string(win.join("CHANGELOG.md")).unwrap();
+        assert!(changelog.contains("- dal mac") && changelog.contains("- dal win"), "{changelog}");
+        assert!(!changelog.contains("<<<<<<<"), "{changelog}");
+        let scopo = std::fs::read_to_string(win.join("docs/progetto/scopo.md")).unwrap();
+        assert!(scopo.contains("- dal mac") && scopo.contains("- dal win"), "{scopo}");
+    }
+
+    #[test]
+    fn a_merge_that_touches_code_is_not_reported_as_a_diary_merge() {
+        // Il motivo `journal` e' riservato ai file che crescono per righe: un
+        // unione che tocca del codice e' un'unione vera (R-MI-72).
+        let (_root, mac, win) = pair();
+        commit(&mac, "CHANGELOG.md", "# Changelog\n\n## [Unreleased]\n");
+        sync(&win, &mac, &[]);
+        commit(&mac, "CHANGELOG.md", "# Changelog\n\n## [Unreleased]\n- dal mac\n");
+        commit(&mac, "src/a.ts", "export const a = 1;\n");
+        commit(&win, "CHANGELOG.md", "# Changelog\n\n## [Unreleased]\n- dal win\n");
+        commit(&win, "src/b.ts", "export const b = 2;\n");
+
+        let report = sync_as(&win, &mac, "mac", Some("aaa-local"), &[]);
+        assert_eq!(report[0].state, BranchState::Merged, "{:?}", report[0].reason);
+        assert_eq!(report[0].reason, None, "un'unione con codice non e' «solo diario»");
+    }
+
+    #[test]
     fn the_other_machine_fast_forwards_to_the_same_union_commit() {
         // R-MI-61/D4: non c'e' piu' una macchina che aspetta. Anche l'altra
         // unisce se le tocca, e siccome l'ordine e le date sono fissi produce
@@ -1856,22 +2218,26 @@ mod tests {
 
     #[test]
     fn the_journal_attribute_is_declared_once_and_keeps_other_lines() {
-        // R-MI-59: idempotente, in `<git-common-dir>/info/attributes`, e non
-        // tocca le regole gia' scritte dall'utente.
+        // R-MI-59/R-MI-72: idempotente riga per riga, in
+        // `<git-common-dir>/info/attributes`, e non tocca le regole gia'
+        // scritte dall'utente.
         let (_root, mac, _win) = pair();
         std::fs::create_dir_all(mac.join("docs/diario")).unwrap();
         std::fs::write(mac.join("docs/diario/2026-11.md"), "# Diario\n").unwrap();
         run(&mac, &["add", "-A"]);
         run(&mac, &["commit", "-q", "-m", "diario"]);
         let attributes = mac.join(".git/info/attributes");
-        std::fs::write(&attributes, "*.bin binary").unwrap();
+        std::fs::write(&attributes, "*.bin binary\n").unwrap();
         ensure_journal_union(&mac).unwrap();
         ensure_journal_union(&mac).unwrap();
         let content = std::fs::read_to_string(&attributes).unwrap();
-        assert_eq!(content, "*.bin binary\ndocs/diario/** merge=union\n");
+        assert_eq!(content, "*.bin binary\ndocs/diario/** merge=union\nCHANGELOG*.md merge=union\ndocs/progetto/*.md merge=union\n");
         assert_eq!(run(&mac, &["check-attr", "merge", "--", "docs/diario/2026-11.md"]), "docs/diario/2026-11.md: merge: union");
-        // Nessun altro file riceve la regola.
+        assert_eq!(run(&mac, &["check-attr", "merge", "--", "CHANGELOG.md"]), "CHANGELOG.md: merge: union");
+        assert_eq!(run(&mac, &["check-attr", "merge", "--", "docs/progetto/architettura.md"]), "docs/progetto/architettura.md: merge: union");
+        // Nessun altro file riceve la regola: il codice non si unisce per righe.
         assert_eq!(run(&mac, &["check-attr", "merge", "--", "a.txt"]), "a.txt: merge: unspecified");
+        assert_eq!(run(&mac, &["check-attr", "merge", "--", "src/a.ts"]), "src/a.ts: merge: unspecified");
         // Vale anche nelle corsie, che condividono la cartella comune.
         let lane = mac.parent().unwrap().join("mac-lane");
         run(&mac, &["worktree", "add", "-q", "-b", "lane", lane.to_str().unwrap()]);
@@ -1880,14 +2246,65 @@ mod tests {
     }
 
     #[test]
-    fn a_repo_without_a_journal_gets_no_attribute() {
-        // R-MI-59: la regola nasce col diario, non prima.
+    fn a_repo_without_a_journal_still_gets_the_growing_file_rules() {
+        // R-MI-72: `CHANGELOG*.md` e `docs/progetto/*.md` valgono in tutti i
+        // progetti, non solo dove c'e' un diario.
         let (_root, mac, _win) = pair();
         ensure_journal_union(&mac).unwrap();
-        assert!(!mac.join(".git/info/attributes").exists());
+        let content = std::fs::read_to_string(mac.join(".git/info/attributes")).unwrap();
+        assert!(content.contains("CHANGELOG*.md merge=union"), "{content}");
+        assert!(content.contains("docs/progetto/*.md merge=union"), "{content}");
     }
 
-    // ── R-MI-58: fast-forward verso la upstream di origin ──────────────────
+    #[test]
+    fn two_branches_adding_a_changelog_line_merge_with_both_lines() {
+        // R-MI-72: l'accettazione del requisito — Mac e Windows aggiungono
+        // una riga sotto `## [Unreleased]` e l'unione porta entrambe le righe,
+        // senza marcatori.
+        let (_root, mac, win) = pair();
+        commit(&mac, "CHANGELOG.md", "# Changelog\n\n## [Unreleased]\n");
+        sync(&win, &mac, &[]);
+        run(&mac, &["add", "-A"]);
+        commit(&mac, "CHANGELOG.md", "# Changelog\n\n## [Unreleased]\n- dal mac\n");
+        commit(&win, "CHANGELOG.md", "# Changelog\n\n## [Unreleased]\n- dal win\n");
+        let report = sync(&win, &mac, &[]);
+        assert_eq!(report[0].state, BranchState::Merged, "{:?}", report[0].reason);
+        let content = std::fs::read_to_string(win.join("CHANGELOG.md")).unwrap();
+        assert!(content.contains("- dal mac"), "{content}");
+        assert!(content.contains("- dal win"), "{content}");
+        assert!(!content.contains("<<<<<<<"), "{content}");
+        assert!(!content.contains(">>>>>>>"), "{content}");
+    }
+
+    // ── R-MI-71: un repository non resta mai a meta' ───────────────────────
+
+    /// Le modifiche non committate come istantanea, esattamente come le mette
+    /// da parte `sync.rs` prima di un pull (R-MI-71).
+    fn snapshot_local(dir: &Path) -> LocalSnapshot {
+        local_snapshot(dir).unwrap().expect("la cartella doveva essere sporca")
+    }
+
+    #[test]
+    fn the_reapply_uses_the_declared_base_and_matches_the_deduced_one() {
+        // Il filo dell'argomento: `--merge-base` va nella posizione giusta e
+        // non cambia l'esito del caso normale, in cui la base e' gia' quella
+        // che git dedurrebbe (R-MI-71).
+        let (_root, mac, win) = pair();
+        commit(&mac, "c.txt", "uno\ndue\ntre\n");
+        sync(&win, &mac, &[]);
+        commit(&mac, "c.txt", "uno\ndue\ntre\nquattro\n");
+        std::fs::write(win.join("c.txt"), "zero\nuno\ndue\ntre\n").unwrap();
+
+        let snapshot = snapshot_local(&win);
+        clear_worktree(&win, &snapshot).unwrap();
+        sync(&win, &mac, &[]);
+        let head = run(&win, &["rev-parse", "HEAD"]);
+
+        let declared = merge_tree_from(&win, Some(&snapshot.base), &head, &snapshot.commit)
+            .expect("righe diverse si uniscono");
+        let deduced = merge_tree(&win, &head, &snapshot.commit).expect("righe diverse si uniscono");
+        assert_eq!(declared, deduced, "stessa base, stesso albero");
+    }
 
     /// Un repository che segue `origin` (bare) con `main` in tracciamento.
     fn origin_pair() -> (TempPath, PathBuf, PathBuf) {
@@ -2231,6 +2648,55 @@ mod tests {
     }
 
     #[test]
+    fn a_snapshot_restores_the_repository_exactly_after_an_advanced_head() {
+        // R-MI-71: se il pull era riuscito e solo la riapplicazione e'
+        // confluita, HEAD e' gia' avanzato. Il ripristino deve riportare
+        // indietro anche il riferimento, non solo i file.
+        let (_root, mac, win) = pair();
+        pair_with_shared_file(&mac, &win);
+        // Il commit che arriva dall'altra copia tocca la prima riga di
+        // `o.txt`, la stessa che ho modificato qui: la riapplicazione
+        // confligge davvero.
+        commit(&mac, "o.txt", "rem\nl2\nl3\n");
+        fetch_into(&win, &mac, "mac");
+        std::fs::write(win.join("o.txt"), "locale\nl2\nl3\n").unwrap();
+        let base = run(&win, &["rev-parse", "HEAD"]);
+        let snapshot = local_snapshot(&win).unwrap().expect("c'e' una modifica locale");
+        assert_eq!(snapshot.base, base);
+        // Si simula il pull riuscito: HEAD avanza al commit dell'altra copia.
+        clear_worktree(&win, &snapshot).unwrap();
+        run(&win, &["merge", "--ff-only", "refs/studio/mac/heads/main"]);
+        assert_ne!(run(&win, &["rev-parse", "HEAD"]), base);
+        // La riapplicazione confligge e nomina il file.
+        let blocking = reapply_local_snapshot(&win, &snapshot).unwrap_err();
+        assert_eq!(blocking, vec!["o.txt".to_string()]);
+        // Si torna esattamente com'era, HEAD compreso.
+        restore_local_snapshot(&win, &snapshot).unwrap();
+        assert_eq!(run(&win, &["rev-parse", "HEAD"]), base, "HEAD torna indietro");
+        assert_eq!(std::fs::read_to_string(win.join("o.txt")).unwrap(), "locale\nl2\nl3\n");
+        assert_eq!(run(&win, &["status", "--porcelain"]), "M o.txt");
+        assert_eq!(run(&win, &["ls-files", "-u"]), "", "nessun conflitto in indice");
+        assert_eq!(run(&win, &["stash", "list"]), "", "nessuno stash");
+    }
+
+    #[test]
+    fn a_snapshot_round_trip_keeps_the_change_unstaged() {
+        // R-MI-71: nessuno stash, e la modifica resta non in stage come dopo
+        // un `git pull`.
+        let (_root, mac, win) = pair();
+        pair_with_shared_file(&mac, &win);
+        std::fs::write(win.join("o.txt"), "l1\nl2\nlocale\n").unwrap();
+        let snapshot = local_snapshot(&win).unwrap().expect("modifica locale");
+        clear_worktree(&win, &snapshot).unwrap();
+        assert_eq!(run(&win, &["status", "--porcelain"]), "", "cartella pulita per il pull");
+        reapply_local_snapshot(&win, &snapshot).unwrap();
+        assert_eq!(std::fs::read_to_string(win.join("o.txt")).unwrap(), "l1\nl2\nlocale\n");
+        assert_eq!(run(&win, &["diff", "--cached", "--name-only"]), "", "niente in stage");
+        // Nessuno stash creato: il meccanismo non lo usa.
+        assert_eq!(run(&win, &["stash", "list"]), "");
+    }
+
+    #[test]
     fn sync_guard_uses_the_canonical_path() {
         let (_root, mac, _win) = pair();
         let path = mac.to_string_lossy().to_string();
@@ -2238,6 +2704,80 @@ mod tests {
         // La stessa cartella con un'altra grafia non entra in parallelo (M7).
         let with_dot = format!("{path}/./");
         assert!(SyncGuard::acquire(&with_dot).is_err());
+        // `try_acquire` dice «occupato» invece di fallire: e' la forma che il
+        // frontend usa per riprovare senza mostrare un errore (S2-06, C2).
+        assert!(SyncGuard::try_acquire(&with_dot).unwrap().is_none());
+    }
+
+    #[test]
+    fn a_branch_without_a_common_ancestor_stays_diverged_and_keeps_its_commit() {
+        // S2-01: due repository con `git init` indipendenti non hanno antenato
+        // comune. `advance` spostava comunque il riferimento di una branch non
+        // in uso: i commit locali restavano raggiungibili solo dal reflog.
+        let root = TempPath::new("");
+        std::fs::create_dir_all(&root.0).unwrap();
+        let mine = root.0.join("mine");
+        let theirs = root.0.join("theirs");
+        std::fs::create_dir_all(&mine).unwrap();
+        std::fs::create_dir_all(&theirs).unwrap();
+        run(&mine, &["init", "-q", "-b", "main"]);
+        run(&theirs, &["init", "-q", "-b", "main"]);
+        let local = commit(&mine, "mine.txt", "mio");
+        // Anche l'altra macchina ha un commit: `git branch` su un repository
+        // senza HEAD non risolve `main`, e questo test parla di storie
+        // indipendenti, non di repository vuoti (S2-01).
+        commit(&theirs, "theirs-base.txt", "base");
+        // `feature` esiste su entrambe le macchine e non e' in uso qui.
+        run(&mine, &["branch", "feature"]);
+        run(&theirs, &["branch", "feature"]);
+        run(&theirs, &["checkout", "-q", "feature"]);
+        let peer = commit(&theirs, "theirs.txt", "altrui");
+        run(&theirs, &["checkout", "-q", "main"]);
+        let before = run(&mine, &["rev-parse", "refs/heads/feature"]);
+
+        fetch_into(&mine, &theirs, "peer");
+        let report = sync_as(&mine, &theirs, "peer", Some("zz-local"), &[]);
+        let feature = report.iter().find(|branch| branch.name == "feature").unwrap();
+        assert_eq!(feature.state, BranchState::Diverged);
+        assert_eq!(feature.reason.as_deref(), Some("unrelated"));
+        // `feature` nasce sulla cima di questa macchina e non si muove.
+        assert_eq!(run(&mine, &["rev-parse", "refs/heads/feature"]), before);
+        assert_eq!(before, local, "il riferimento e' ancora il commit locale");
+        assert_ne!(before, peer);
+    }
+
+    #[test]
+    fn advance_refuses_to_move_a_branch_that_would_lose_commits() {
+        // S2-01, secondo strato: `advance` su una branch non in uso sposta il
+        // riferimento con `update-ref`, che verifica solo il vecchio valore.
+        // Se `to` non discende da `from` i commit locali sparirebbero.
+        let (_root, mac, win) = pair();
+        run(&mac, &["branch", "feature"]);
+        run(&win, &["branch", "feature"]);
+        run(&mac, &["checkout", "-q", "feature"]);
+        let peer = commit(&mac, "f.txt", "loro");
+        // Il commit dell'altra macchina deve esistere anche qui: `is_ancestor`
+        // legge gli oggetti, e un'istantanea del giro di rete vero li porta
+        // sempre con il pacchetto. Senza, l'errore sarebbe di git e non
+        // «not-fast-forward».
+        fetch_into(&win, &mac, "mac");
+        run(&win, &["checkout", "-q", "feature"]);
+        let mine = commit(&win, "g.txt", "mio");
+        let error = advance(&win, "feature", &mine, &peer, None, false, &[]).unwrap_err();
+        assert_eq!(error, "not-fast-forward");
+        assert_eq!(run(&win, &["rev-parse", "refs/heads/feature"]), mine, "il riferimento non si e' mosso");
+        // Un fast-forward vero invece passa: `feature` si sposta su un commit
+        // che contiene la sua cima attuale (`mine`). Il commit si costruisce
+        // su `mine` stesso, cosi' la parentela e' quella che il giro di rete
+        // vera produrrebbe; la cartella resta su `main`, quindi `feature` non
+        // e' in uso e `update-ref` puo' spostarla.
+        run(&win, &["checkout", "-q", "main"]);
+        run(&win, &["checkout", "-q", "-B", "ahead-branch", &mine]);
+        let ahead = commit(&win, "h.txt", "avanti");
+        run(&win, &["checkout", "-q", "main"]);
+        run(&win, &["branch", "-q", "-D", "ahead-branch"]);
+        advance(&win, "feature", &mine, &ahead, None, false, &[]).unwrap();
+        assert_eq!(run(&win, &["rev-parse", "refs/heads/feature"]), ahead);
     }
 
     #[test]

@@ -64,15 +64,24 @@
 	};
 
 	function rowState(peer: LinkedMachine): MachineUpdateState {
+		const phase = peerUpdate.statusFor(peer.id)?.phase ?? null;
 		return machineUpdateState({
 			online: peer.online,
 			version: peer.version,
 			own: studioUpdaterStore.currentVersion,
-			phase: peerUpdate.statusFor(peer.id)?.phase ?? null
+			// `manual` e `cancelled` sono terminali (S2-09): non c'e' piu' un
+			// aggiornamento in corso, quindi la riga torna al confronto di
+			// versione. Il come e' finito lo dice `rowLabel`.
+			phase: phase === 'manual' || phase === 'cancelled' ? null : phase
 		});
 	}
 
 	function rowLabel(peer: LinkedMachine, state: MachineUpdateState): string {
+		const phase = peerUpdate.statusFor(peer.id)?.phase ?? null;
+		// Le due fasi terminali di S2-09 hanno gia' la loro frase, la stessa che
+		// mostrano la tessera e il popover delle macchine.
+		if (phase === 'manual') return m.peer_update_manual({ name: peer.name });
+		if (phase === 'cancelled') return m.peer_update_cancelled({ name: peer.name });
 		switch (state) {
 			case 'updated': return m.peer_update_row_updated();
 			case 'updating': return m.peer_update_row_updating();

@@ -31,6 +31,7 @@
 	import { i18n } from '#lib/i18n/i18n.svelte.ts';
 	import { invoke, LOCAL_MACHINE } from '#lib/backend/ipc.ts';
 	import { closePreviews, requestPreview } from '#lib/backend/remotePreview.svelte.ts';
+	import { elsewhereOpenItems } from '#lib/remote/openItems.ts';
 	import StatusMark from '#lib/ui/StatusMark.svelte';
 	import IconAutomation from './automations/IconAutomation.svelte';
 	import {
@@ -161,15 +162,13 @@
 	 * nell'anteprima dice che c'è qualcosa da vedere, il pannello lo elenca.
 	 */
 	const remoteOpenCount = $derived(
-		prov.copies
-			.filter((copy) => !copy.local && copy.online)
-			.reduce((total, copy) => {
-				const lanes = projectStore.remoteOpenItems[copy.project.id] ?? [];
-				return total + lanes.reduce(
-					(sum, lane) => sum + lane.openFiles.length + (lane.previewFile ? 1 : 0),
-					0
-				);
-			}, 0)
+		elsewhereOpenItems(project).reduce(
+			(total, entry) => total + entry.lanes.reduce(
+				(sum, lane) => sum + lane.openFiles.length + (lane.previewFile ? 1 : 0),
+				0
+			),
+			0
+		)
 	);
 	/** Macchina in uso spenta: se il relay non risponde da qui lo dice, non è la macchina (R-MI-30). */
 	const unreachableLabel = $derived(linkStore.offlineReason(prov.inUse.project.machineId ?? '') === 'relay'
@@ -478,7 +477,10 @@
 		<div class="peek-status"><StatusMark status={project.lane.agentState === 'working' ? 'running' : project.lane.agentState === 'attention' ? 'attention' : project.lane.agentState === 'finished' ? 'completed' : 'pending'} /><span>{stateLabel}</span>{#if hasWorkspace}<span class="peek-count">{m.project_popover_queue_header({ count: queueCount })}</span>{/if}</div>
 		{#if prov.kind === 'copies' && localCopyId !== null}<p class="peek-sync" class:running={syncing}>{syncText}</p>{/if}
 		{#if attention}<p class="peek-question">{askQuestionText(attention.pendingUi, m.project_popover_quick_ask_title())}</p>{/if}
-		{#if divergence}<p class="peek-diverged">{m.copies_diverged_title()}</p>{/if}
+		{#if divergence}
+			<!-- Il motivo, non solo il titolo (S3-link-front-28, R-MI-49). -->
+			<p class="peek-diverged">{m.copies_diverged_title()} · {divergenceSummary(divergence).join(' · ')}</p>
+		{/if}
 		{#if remoteOpenCount > 0}
 			<p class="peek-open">{m.open_items_peek({ count: remoteOpenCount })}</p>
 		{/if}

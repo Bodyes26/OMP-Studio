@@ -2,10 +2,13 @@
  * Rapporto di blocco del trasporto RPC.
  *
  * Il blocco da localizzare: la chat smette di aggiornarsi mentre l'agente
- * lavora e il prompt successivo cade dopo 60 s senza risposta. Il Channel di
- * Tauri consegna i frame solo in ordine di indice: se un frame non arriva mai
- * al WebView, tutti i successivi (risposte comprese) restano in coda per
- * sempre. Il rapporto deve dire quale lato si e' fermato e quale frame manca.
+ * lavora e il prompt successivo cade senza risposta. Il Channel di Tauri
+ * consegna i frame solo in ordine di indice: se un frame non arriva mai al
+ * WebView, tutti i successivi restano in coda. Ma il confronto fra spediti e
+ * consegnati regge solo se i due contatori vengono dalla stessa scatola: per
+ * una sessione ospitata su un'altra macchina `rpc_diagnostics` e' instradato
+ * la' (C3, S1-rpc-10), e leggere quel divario come «Channel fermo» era il
+ * falso positivo di 85 rapporti.
  */
 
 import { describe, it, beforeEach } from 'node:test';
@@ -41,6 +44,7 @@ function backendWith(transport: Partial<BackendDiagnostics['transport']>, tree?:
 			tauriFetchPathFrames: 0,
 			sendErrors: 0,
 			lastSentMs: 990_000,
+			windowSink: true,
 			stdinWrites: 1,
 			lastStdinMs: 900_000,
 			stdinWriteSinceMs: null,
@@ -137,7 +141,7 @@ describe('Rapporto di blocco RPC', () => {
 		assert.equal(report.client.framesReceived, 2);
 		assert.match(report.verdict[0], /Channel Tauri fermo: Rust ha spedito 5 frame, il WebView ne ha consegnati 2/);
 		assert.match(report.verdict[0], /indice 2, "message_end", 20000 byte, consegnato da Tauri via fetch/);
-		assert.ok(report.verdict.some((line: string) => line.includes(`risposta a "prompt" (${promptId})`) && /(?:e’|è) arrivata a Rust/.test(line)));
+		assert.ok(report.verdict.some((line: string) => line.includes(`risposta a "prompt" (${promptId})`)));
 	});
 
 	it('se anche il backend non risponde il prompt fallisce comunque', async (t) => {
@@ -152,10 +156,29 @@ describe('Rapporto di blocco RPC', () => {
 		await outcome;
 		assert.match(JSON.parse(writtenReport ?? '{}').verdict[0], /backend di Studio non ha risposto/);
 	});
+
+	it('con omp occupato (frame in arrivo) non scrive un rapporto di blocco', async (t) => {
+		t.mock.timers.enable({ apis: ['setTimeout'] });
+		const client = new OmpRpcClient();
+		await client.open('C:/proj', null);
+		const sent = client.send({ type: 'compact' });
+		const outcome = assert.rejects(sent, (error: Error & { code?: string }) => {
+			// `busy`, non `timeout`: la risposta e' in coda dietro i progressi.
+			assert.equal(error.code, 'busy');
+			return true;
+		});
+		await Promise.resolve();
+		// Frame di progresso durante l'attesa: omp sta scrivendo.
+		deliver(0, { type: 'tool_execution_update', toolCallId: 'x' } as never);
+		deliver(1, { type: 'studio_delta', kind: 'text', contentIndex: 0, delta: 'a' });
+		t.mock.timers.tick(300_000);
+		await outcome;
+		assert.equal(writtenReport, null, 'un comando accodato non e’ un blocco');
+	});
 });
 
 describe('Diagnosi del blocco', () => {
-	const base = (backend: BackendDiagnostics | null, received: number): HangInput => ({
+	const base = (given: BackendDiagnostics | null, received: number, extra: Partial<HangInput> = {}): HangInput => ({
 		now: 1_000_000,
 		commandId: 's9',
 		command: 'prompt',
@@ -163,8 +186,9 @@ describe('Diagnosi del blocco', () => {
 		timeoutMs: 60_000,
 		client: { ...newTally(), count: received },
 		pending: [],
-		backend,
-		backendError: backend ? null : 'IPC fermo'
+		backend: given,
+		backendError: given ? null : 'IPC fermo',
+		...extra
 	});
 
 	it('omp muto dall invio del comando e fermo in attesa', () => {
@@ -190,16 +214,39 @@ describe('Diagnosi del blocco', () => {
 	// fotografia e' in viaggio, non perso; le risposte erano in coda dietro
 	// righe `message_update` da decine di KB.
 	it('un frame appena spedito non e un Channel fermo; righe enormi sono arretrato di omp', () => {
-		const backend = backendWith({
+		const given = backendWith({
 			framesSent: 689,
 			lastStdoutMs: 999_972,
 			stdoutLines: 1795,
 			stdoutBytes: 1795 * 87 * 1024,
 			recentFrames: [{ index: 688, atMs: 999_972, bytes: 160, kind: 'studio_delta', tauriFetchPath: false }]
 		});
-		const verdict = diagnoseHang(base(backend, 688));
+		const verdict = diagnoseHang(base(given, 688));
 		assert.ok(!verdict.some((line) => /Channel Tauri fermo/.test(line)));
 		assert.match(verdict[0], /righe sono in media di 87 KB/);
 		assert.match(verdict[0], /risposta a "prompt" e’ ancora in coda/);
+	});
+
+	it('non dichiara il Channel fermo per una sessione di un’altra macchina', () => {
+		// I contatori dell'host sono molto avanti rispetto a quelli locali: il
+		// divario e' l'artefatto che generava i falsi positivi (C3).
+		const verdict = diagnoseHang(
+			base(backendWith({ framesSent: 32_000, windowSink: false, lastStdoutMs: 999_000 }), 40, { remote: true })
+		);
+		assert.ok(!verdict.some((line) => /Channel Tauri fermo/.test(line)));
+		assert.ok(verdict.some((line) => /altra macchina/.test(line)));
+	});
+
+	it('in locale lo stesso divario resta un guasto vero', () => {
+		const verdict = diagnoseHang(base(backendWith({ framesSent: 32_000, windowSink: true }), 40));
+		assert.match(verdict[0], /Channel Tauri fermo/);
+	});
+
+	it('registra i frame arrivati durante l’attesa', () => {
+		const verdict = diagnoseHang(base(backendWith({ framesSent: 40, lastStdoutMs: 999_000 }), 40, { framesDuringWait: 12 }));
+		assert.ok(
+			verdict.some((line) => line.includes('12 frame')),
+			`il rapporto deve dire quanti frame sono arrivati durante l'attesa: ${verdict.join(' | ')}`
+		);
 	});
 });

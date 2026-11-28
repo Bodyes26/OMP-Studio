@@ -337,6 +337,9 @@ fn evidence_status(evidence: &UsageEvidence, active: usize) -> &'static str {
 }
 
 pub fn observe_usage(value: &serde_json::Value) {
+    // Lo stesso report alimenta il cancello di quota delle automazioni: cosi'
+    // il thread di tick non deve mai eseguire `omp usage` da solo (S9-04).
+    crate::automations::quota::update_cached_usage(value.clone());
     if refresh_credentials().is_err() {
         return;
     }
@@ -544,7 +547,12 @@ async fn probe_omp_usage(provider: &str) -> &'static str {
             use std::os::windows::process::CommandExt;
             command.creation_flags(0x08000000);
         }
-        crate::omp_ops::omp_capture(command)
+        // Helper unico di `omp` (S8-04) con la scadenza breve del probe: un
+        // `omp usage` appeso non deve trattenere la verifica del provider (S9-05).
+        crate::omp_ops::omp_capture_with_timeout(
+            command,
+            Duration::from_secs(PROBE_TIMEOUT_SECS),
+        )
     })
     .await;
     let Ok(Ok(output)) = output else {
@@ -577,32 +585,38 @@ pub async fn check_provider_authentication(
     if provider.is_empty() || provider.contains('/') || provider.starts_with('-') {
         return Err(crate::tr!("Provider non valido", "Invalid provider").to_string());
     }
-    let _serial = AUTH_CHECK_LOCK.lock().await;
-    if refresh_credentials().is_err() {
-        return Ok(dto("unavailable", Some(Utc::now().timestamp_millis())));
-    }
-    let (expected, active, cached) = {
-        let store = AUTH_STORE.lock();
-        let info = store.credentials.get(&provider);
-        (
-            info.map(|info| info.signature),
-            info.map_or(0, |info| info.active),
-            cached_state(&store, &provider, true, Utc::now().timestamp_millis()),
-        )
+    // Il lock seriale serve a non duplicare la stessa richiesta, non a tenere
+    // ferme le altre verifiche: resta preso solo per la decisione, mentre le
+    // sonde (con il proprio timeout) girano fuori (S9-05).
+    let (provider_for_probe, expected) = {
+        let _serial = AUTH_CHECK_LOCK.lock().await;
+        if refresh_credentials().is_err() {
+            return Ok(dto("unavailable", Some(Utc::now().timestamp_millis())));
+        }
+        let (expected, active, cached) = {
+            let store = AUTH_STORE.lock();
+            let info = store.credentials.get(&provider);
+            (
+                info.map(|info| info.signature),
+                info.map_or(0, |info| info.active),
+                cached_state(&store, &provider, true, Utc::now().timestamp_millis()),
+            )
+        };
+        if cached
+            .checked_at
+            .is_some_and(|at| Utc::now().timestamp_millis().saturating_sub(at) < CHECK_DEBOUNCE_MS)
+        {
+            return Ok(cached);
+        }
+        if active == 0 {
+            return Ok(cached);
+        }
+        (provider.clone(), expected)
     };
-    if cached
-        .checked_at
-        .is_some_and(|at| Utc::now().timestamp_millis().saturating_sub(at) < CHECK_DEBOUNCE_MS)
-    {
-        return Ok(cached);
-    }
-    if active == 0 {
-        return Ok(cached);
-    }
-    let status = if provider == "commandcode" {
+    let status = if provider_for_probe == "commandcode" {
         probe_commandcode_accounts().await
     } else {
-        probe_omp_usage(&provider).await
+        probe_omp_usage(&provider_for_probe).await
     };
     if refresh_credentials().is_err() {
         return Ok(dto("unavailable", Some(Utc::now().timestamp_millis())));

@@ -1,4 +1,4 @@
-import { invoke, isTauri, listen, LOCAL_MACHINE, type MachineId } from './ipc.ts';
+import { invoke, isTauri, listen, LOCAL_MACHINE, routeErrorText, type MachineId } from './ipc.ts';
 import { linkStore, type LinkedMachine } from './link.svelte.ts';
 import { remoteJobs } from './remoteJobs.svelte.ts';
 import { sessionRegistry } from '#lib/agent/sessionRegistry.ts';
@@ -49,7 +49,13 @@ export {
 export interface RemoteUpdateStatus {
 	version: string;
 	requestedBy: string;
-	phase: 'starting' | 'downloading' | 'waiting' | 'installing' | 'failed';
+	/**
+	 * `manual`: l'installazione e' stata avviata ma Studio resta aperto
+	 * (pacchetto .deb, uscita negata). `cancelled`: chi doveva installare ha
+	 * rinunciato. Sono terminali come `failed` (S2-09): senza, chi ha chiesto
+	 * l'aggiornamento restava su «in corso» per sempre.
+	 */
+	phase: 'starting' | 'downloading' | 'waiting' | 'installing' | 'failed' | 'manual' | 'cancelled';
 	waitingFor: WaitReason[];
 	error: string | null;
 }
@@ -114,6 +120,10 @@ class PeerUpdateStore {
 		$effect.root(() => {
 			$effect(() => {
 				const own = studioUpdaterStore.currentVersion;
+				// Chiave primitiva (S3-link-front-01): `status.peers` cambia a ogni
+				// battito del collegamento, la chiave solo quando una macchina entra,
+				// esce o cambia versione.
+				void linkStore.peerVersionsKey;
 				if (!own) return;
 				this.dropObsoleteFailures();
 				for (const peer of linkStore.status.peers) {
@@ -156,7 +166,7 @@ class PeerUpdateStore {
 	private dropObsoleteFailures(): void {
 		let next: Record<MachineId, RemoteUpdateStatus> | null = null;
 		for (const [machineId, status] of Object.entries(this.statuses)) {
-			if (status.phase !== 'failed') continue;
+			if (status.phase !== 'failed' && status.phase !== 'manual' && status.phase !== 'cancelled') continue;
 			const peer = linkStore.machineFor(machineId);
 			if (!updateFailureObsolete(status.version, peer?.version, compareStudioVersions)) continue;
 			next ??= { ...this.statuses };
@@ -180,7 +190,7 @@ class PeerUpdateStore {
 			const info = await invoke<StudioUpdateInfo>('check_studio_update', { channel: channelOf(preferredVersion), preferredVersion }, { machine: machineId });
 			this.proposal = { machine, own, info };
 		} catch (reason) {
-			this.error = reason instanceof Error ? reason.message : String(reason);
+			this.error = routeErrorText(reason);
 		}
 	}
 
@@ -200,7 +210,7 @@ class PeerUpdateStore {
 			} };
 			this.follow(machineId, info.latest_version);
 		} catch (reason) {
-			this.error = reason instanceof Error ? reason.message : String(reason);
+			this.error = routeErrorText(reason);
 		}
 	}
 
@@ -239,13 +249,19 @@ class PeerUpdateStore {
 					if (machine?.online) {
 						const status = await invoke<RemoteUpdateStatus | null>('studio_update_remote_status', {}, { machine: machineId }).catch(() => null);
 						if (status) this.statuses = { ...this.statuses, [machineId]: status };
-						if (status?.phase === 'failed') break;
+						// `manual` e `cancelled` sono terminali quanto `failed`: si
+						// smette di seguire, invece di restare 30 minuti su una riga
+						// che non cambiera' piu' (S2-09).
+						if (status && status.phase !== 'starting' && status.phase !== 'downloading' &&
+							status.phase !== 'waiting' && status.phase !== 'installing') break;
 					}
 					await sleep(3000);
 				}
 			} finally {
 				this.polling.delete(machineId);
-				if (this.statuses[machineId]?.phase !== 'failed') {
+				const phase = this.statuses[machineId]?.phase;
+				const terminal = phase === 'failed' || phase === 'manual' || phase === 'cancelled';
+				if (!terminal) {
 					const { [machineId]: _done, ...rest } = this.statuses;
 					this.statuses = rest;
 				}
@@ -268,8 +284,9 @@ function report(phase: RemoteUpdateStatus['phase'], waitingFor: WaitReason[] = [
 async function installWhenIdle(asset: StudioReleaseAsset, onPhase: typeof report): Promise<void> {
 	onPhase('downloading');
 	// Avviso locale: chi e' davanti a questa macchina deve sapere perche' Studio
-	// si riavviera' da solo appena e' libero.
-	studioUpdaterStore.setBadge(m.peer_update_remote_incoming(), 'info');
+	// si riavviera' da solo appena e' libero. Vive in uno spazio suo, che il
+	// controllo in background e il download non cancellano (S3-link-front-13).
+	studioUpdaterStore.setRemoteNotice(m.peer_update_remote_incoming());
 	try {
 		// In ascolto prima di avviare: l'esito non deve arrivare prima del listener.
 		const { promise: downloaded, resolve: complete, reject: fail } = Promise.withResolvers<void>();
@@ -296,16 +313,20 @@ async function installWhenIdle(asset: StudioReleaseAsset, onPhase: typeof report
 			await sleep(5000);
 		}
 		onPhase('installing');
-		await studioUpdaterStore.installAndRestart();
+		const outcome = await studioUpdaterStore.installAndRestart();
 		// L'avviso «installa e riavvia appena libera» vale finche' l'installazione
-		// non ha un esito: se Studio resta aperto (pacchetto .deb, errore) non e'
-		// piu' vero e resterebbe nella barra per sempre, perche' nessuno lo
-		// sostituisce. Se il riavvio parte davvero l'avviso sparisce con l'app.
-		studioUpdaterStore.setBadge(null);
-		if (studioUpdaterStore.errorMessage) onPhase('failed', [], studioUpdaterStore.errorMessage);
+		// non ha un esito: se Studio resta aperto (pacchetto .deb, uscita negata)
+		// non e' piu' vero. Se il riavvio parte davvero l'avviso sparisce con l'app.
+		studioUpdaterStore.setRemoteNotice(null);
+		// La fase remota deve finire comunque (S2-09): senza un esito terminale
+		// chi l'ha chiesta restava su «installazione in corso» per sempre, e le
+		// richieste successive venivano rifiutate.
+		if (outcome === 'failed') onPhase('failed', [], studioUpdaterStore.errorMessage);
+		else if (outcome === 'keeps-running') onPhase('manual', [], studioUpdaterStore.installNotice);
+		else if (outcome === 'declined') onPhase('cancelled', [], null);
 	} catch (reason) {
-		studioUpdaterStore.setBadge(null);
-		onPhase('failed', [], reason instanceof Error ? reason.message : String(reason));
+		studioUpdaterStore.setRemoteNotice(null);
+		onPhase('failed', [], routeErrorText(reason));
 	}
 }
 

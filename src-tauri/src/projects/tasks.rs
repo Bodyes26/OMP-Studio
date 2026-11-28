@@ -35,6 +35,27 @@ impl ProjectTasksState {
     }
 }
 
+/// Radice di progetto accettabile per scrivere `.omp` (S8-03): assoluta ed
+/// esistente. Il frontend manda anche chiavi di progetti di un'altra macchina
+/// (`c:/users/...`); su macOS quel percorso e' relativo e `create_dir_all`
+/// creerebbe cartelle spazzatura o fallirebbe con EROFS.
+fn require_project_root(project_path: &str) -> Result<PathBuf, String> {
+    let root = Path::new(project_path);
+    if !root.is_absolute() || !root.is_dir() {
+        return Err(crate::tr!(
+            format!(
+                "Cartella del progetto non valida su questa macchina: {}",
+                project_path
+            ),
+            format!(
+                "Invalid project folder on this machine: {}",
+                project_path
+            )
+        ));
+    }
+    Ok(root.to_path_buf())
+}
+
 /// Risolve il percorso della cartella `.omp` per un progetto.
 fn project_omp_dir(project_path: &str) -> PathBuf {
     Path::new(project_path).join(".omp")
@@ -55,7 +76,6 @@ fn ensure_auto_ignore(omp_dir: &Path) -> Result<(), String> {
             )
         })?;
     }
-
     let gitignore_path = omp_dir.join(".gitignore");
     let needs_entry = if gitignore_path.exists() {
         match fs::read_to_string(&gitignore_path) {
@@ -117,7 +137,8 @@ pub async fn project_tasks_read(project_path: String) -> Result<String, String> 
 /// forzato il temporaneo su disco: non esiste piu' una finestra in cui il
 /// file di destinazione e' assente, come accadeva con il remove-then-rename.
 fn write_tasks_file(project_path: &str, content: &str) -> Result<(), String> {
-    let omp_dir = project_omp_dir(project_path);
+    let root = require_project_root(project_path)?;
+    let omp_dir = root.join(".omp");
     ensure_auto_ignore(&omp_dir)?;
 
     crate::fs_atomic::atomic_write(&omp_dir.join("tasks.json"), content.as_bytes())
@@ -157,13 +178,22 @@ pub async fn project_tasks_watch(
     state: State<'_, ProjectTasksState>,
 ) -> Result<(), String> {
     let norm_key = project_path.replace('\\', "/").to_lowercase();
-    let mut watchers = state.watchers.lock();
-    if watchers.contains_key(&norm_key) {
+    if state.watchers.lock().contains_key(&norm_key) {
         return Ok(());
     }
 
-    let omp_dir = project_omp_dir(&project_path);
-    ensure_auto_ignore(&omp_dir)?;
+    // Creazione della cartella e `notify::watch` fanno I/O: fuori dal worker
+    // async (S8-06).
+    let watch_target = {
+        let root = require_project_root(&project_path)?;
+        let omp_dir = root.join(".omp");
+        tokio::task::spawn_blocking(move || {
+            ensure_auto_ignore(&omp_dir)?;
+            Ok::<PathBuf, String>(omp_dir)
+        })
+        .await
+        .map_err(|e| e.to_string())??
+    };
 
     let path_clone = project_path.clone();
     let app_clone = app_handle.clone();
@@ -213,14 +243,14 @@ pub async fn project_tasks_watch(
         )
     })?;
 
-    watcher.watch(&omp_dir, RecursiveMode::NonRecursive).map_err(|e| {
+    watcher.watch(&watch_target, RecursiveMode::NonRecursive).map_err(|e| {
         crate::tr!(
             format!("Impossibile osservare cartella .omp: {}", e),
             format!("Cannot watch the .omp folder: {}", e)
         )
     })?;
 
-    watchers.insert(norm_key, watcher);
+    state.watchers.lock().insert(norm_key, watcher);
     Ok(())
 }
 
@@ -232,6 +262,10 @@ pub async fn project_tasks_unwatch(
 ) -> Result<(), String> {
     let norm_key = project_path.replace('\\', "/").to_lowercase();
     state.watchers.lock().remove(&norm_key);
+    // Il marcatore della scrittura di Studio serve solo finche' c'e' un
+    // watcher che lo legge: senza questa riga la mappa cresce a ogni progetto
+    // aperto e chiuso (S8-16).
+    state.last_studio_writes.lock().remove(&norm_key);
     Ok(())
 }
 
@@ -320,5 +354,21 @@ mod tests {
 
         fs::set_permissions(&omp_dir, permessi_originali).unwrap();
         let _ = fs::remove_dir_all(&project);
+    }
+
+    /// S8-03: un percorso relativo o inesistente (la chiave di un progetto di
+    /// un'altra macchina, `c:/users/...`, vista dal Mac) non deve creare
+    /// cartelle `.omp` fuori posto. Si rifiuta prima di toccare il disco.
+    #[test]
+    fn rifiuta_percorsi_relativi_o_inesistenti_senza_creare_cartelle() {
+        for percorso in ["c:/users/nome/progetto", "progetto/relativo", ""] {
+            let errore = write_tasks_file(percorso, "{\"tasks\":[]}").unwrap_err();
+            assert!(
+                errore.contains("non valida") || errore.contains("Invalid project folder"),
+                "errore inatteso per {percorso:?}: {errore}"
+            );
+        }
+        assert!(!Path::new("c:/users/nome/progetto/.omp").exists());
+        assert!(!Path::new("progetto/relativo/.omp").exists());
     }
 }

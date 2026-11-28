@@ -37,6 +37,17 @@ const HEARTBEAT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Fallimenti consecutivi che chiudono la connessione: un peer spento risulta
 /// offline entro circa un minuto, uno lento non viene staccato per un picco.
 const HEARTBEAT_MAX_FAILURES: u8 = 3;
+/// Attesa dopo un `Config::load` fallito (S2-10): basta a non riproporre un
+/// dialogo del portachiavi a ogni comando, corta abbastanza perche' «Riprova»
+/// dall'interfaccia abbia effetto.
+const LOAD_RETRY: Duration = Duration::from_secs(10);
+/// Intervallo minimo fra due scritture di `lastSeen` su `instances.json`
+/// (S2-14): R-MI-29 chiede la granularita' del giorno, non del minuto.
+const PEER_SEEN_PERSIST_MS: u64 = 5 * 60 * 1000;
+/// Ogni quanto si scrive una riga con i conteggi dei comandi remoti invece di
+/// una riga per comando (S2-07, S2-15). Il log ruota a 4 MB: una riga INFO per
+/// ogni `get_omp_version` lo riempiva in tre giorni e nascondeva gli errori.
+const LOG_SUMMARY_INTERVAL: Duration = Duration::from_secs(600);
 /// Frequenza del controllo di raggiungibilita' del relay (R-MI-30): ogni 30 s
 /// quando il collegamento e' acceso, e a ogni cambio di stato della config.
 const RELAY_CHECK_INTERVAL: Duration = Duration::from_secs(30);
@@ -101,6 +112,10 @@ pub(crate) struct LinkManager {
     /// Chiave della macchina sparita dal portachiavi (R-MI-43): lo stato lo
     /// dice alla finestra invece di un errore generico.
     key_missing: std::sync::atomic::AtomicBool,
+    /// Ultimo errore di `Config::load` e fino a quando non si riprova
+    /// (S2-10): senza, ogni comando successivo rileggeva il portachiavi.
+    load_error: Mutex<Option<String>>,
+    load_retry_at: Mutex<Option<Instant>>,
 }
 
 struct Connected {
@@ -131,6 +146,10 @@ struct PendingPair {
 struct Runtime {
     app: tauri::AppHandle,
     id: String,
+    /// Identita' di questo runtime, nuova a ogni avvio dell'app (S1-rpc-03):
+    /// viaggia in `Reply::Opened`, cosi' il viewer sa che gli id numerici
+    /// dell'host non valgono piu' e non prova a riagganciarsi per numero.
+    instance: String,
     path: std::path::PathBuf,
     config: Mutex<Config>,
     endpoint: Mutex<Option<Endpoint>>,
@@ -161,6 +180,25 @@ struct Runtime {
     /// scoperta in rete locale ha acceso un endpoint senza relay (R-MI-54).
     /// Serve a capire che un codice con relay richiede di ripartire.
     endpoint_relay: Mutex<String>,
+    /// Serializza la costruzione dell'endpoint (S2-17): `link_discovery_start`
+    /// e `devices_set_server` non passano da `configuration_gate`, e due
+    /// `bind()` concorrenti lasciavano vivo un secondo endpoint con la stessa
+    /// `generation`.
+    start_gate: tokio::sync::Mutex<()>,
+    /// Ultimo stato emesso su `link:status` (S2-03): il giro di riconnessione
+    /// gira ogni 5 s anche quando nulla cambia, e ogni emissione faceva
+    /// ripartire tutti gli effetti della finestra.
+    last_status: Mutex<Option<String>>,
+    /// Righe di log gia' contate per (peer, comando), scritte in un riepilogo
+    /// ogni `LINK_LOG_SUMMARY_INTERVAL` (S2-07, S2-15).
+    log_counts: Mutex<HashMap<String, u64>>,
+    log_summary_at: Mutex<Instant>,
+    /// Un salvataggio di `instances.json` alla volta, ma fuori dal lock della
+    /// config (S2-14).
+    save_gate: Mutex<()>,
+    /// Quando `lastSeen` di ogni peer e' stato scritto su disco l'ultima volta
+    /// (S2-14): in memoria cambia a ogni battito, il file ogni qualche minuto.
+    last_persisted_seen: Mutex<HashMap<String, u64>>,
 }
 
 #[derive(Serialize)]
@@ -194,14 +232,42 @@ struct PeerStatus {
 }
 
 impl LinkManager {
-    async fn runtime(&self, app: &tauri::AppHandle) -> Result<Arc<Runtime>, String> {
-        let mut guard = self.runtime.lock().await;
+    /// Stacca le superfici remote di una finestra che si ricarica (S1-rpc-02,
+    /// C1). Il `Runtime` esiste solo dopo l'inizializzazione del collegamento:
+    /// prima non c'e' nessuna iscrizione da staccare.
+    pub(crate) fn detach_window(&self, label: &str) {
+        let Ok(guard) = self.runtime.try_lock() else { return };
+        if let Some(runtime) = guard.as_ref() { runtime.detach_window(label); }
+    }
+
+    async fn runtime(&self, app: &tauri::AppHandle) -> Result<Arc<Runtime>, String> {        let mut guard = self.runtime.lock().await;
         if let Some(runtime) = guard.as_ref() { return Ok(runtime.clone()); }
         let path = config::path(app)?;
-        let config = match Config::load(&path) {
-            Ok(config) => { self.key_missing.store(false, Ordering::SeqCst); config }
+        // `Config::load` legge il portachiavi di sistema, che puo' aprire un
+        // dialogo e bloccare a lungo: sul worker tokio fermerebbe ogni altro
+        // comando async, questo compreso (S2-10). L'esito negativo si ricorda
+        // con un backoff: senza, ogni chiamata successiva rileggeva il
+        // portachiavi e riproponeva il dialogo.
+        if let Some(until) = *self.load_retry_at.lock() {
+            if Instant::now() < until { return Err(self.load_error.lock().clone().unwrap_or_else(|| "Link startup failed".into())); }
+        }
+        let load_path = path.clone();
+        let loaded = tokio::task::spawn_blocking(move || Config::load(&load_path))
+            .await.map_err(|error| error.to_string())?;
+        let config = match loaded {
+            Ok(config) => {
+                self.key_missing.store(false, Ordering::SeqCst);
+                *self.load_error.lock() = None;
+                *self.load_retry_at.lock() = None;
+                config
+            }
             Err(error) => {
                 self.key_missing.store(config::key_missing(&path), Ordering::SeqCst);
+                // Dieci secondi: abbastanza per non riproporre un dialogo a
+                // ogni comando, poco perche' "Riprova" dall'interfaccia
+                // (`link_reset_identity`, `link_configure`) abbia effetto.
+                *self.load_error.lock() = Some(error.clone());
+                *self.load_retry_at.lock() = Some(Instant::now() + LOAD_RETRY);
                 return Err(error);
             }
         };
@@ -209,6 +275,7 @@ impl LinkManager {
         let runtime = Arc::new(Runtime {
             app: app.clone(), path, config: Mutex::new(config), endpoint: Mutex::new(None),
             id,
+            instance: uuid::Uuid::new_v4().to_string(),
             connections: Mutex::new(HashMap::new()), invitation: Mutex::new(None), generation: AtomicU64::new(0),
             streams: Mutex::new(HashMap::new()),
             requests: tokio::sync::Semaphore::new(8),
@@ -225,6 +292,12 @@ impl LinkManager {
             discovery: Mutex::new(None),
             pairs: Mutex::new(HashMap::new()),
             endpoint_relay: Mutex::new(String::new()),
+            start_gate: tokio::sync::Mutex::new(()),
+            last_status: Mutex::new(None),
+            log_counts: Mutex::new(HashMap::new()),
+            log_summary_at: Mutex::new(Instant::now()),
+            save_gate: Mutex::new(()),
+            last_persisted_seen: Mutex::new(HashMap::new()),
         });
         *guard = Some(runtime.clone());
         runtime.listen_host_events();
@@ -242,8 +315,12 @@ impl Runtime {
             let (route, latency_ms) = connected.map_or((None, None), |entry| {
                 let paths = entry.connection.paths();
                 let Some(path) = paths.iter().find(|path| path.is_selected()) else { return (None, None); };
-                (Some(if path.is_ip() { "direct" } else { "relay" }),
-                    entry.connection.rtt(path.id()).map(|duration| duration.as_secs_f64() * 1000.0))
+                // Passi di 10 ms: il confronto fra due stati deve vedere la
+                // stessa latenza quando non e' cambiata in modo percepibile
+                // (S2-03).
+                let latency = entry.connection.rtt(path.id())
+                    .map(|duration| (duration.as_secs_f64() * 100.0).round() / 100.0);
+                (Some(if path.is_ip() { "direct" } else { "relay" }), latency)
             });
             PeerStatus {
                 id: id.clone(), name: peer.name.clone(), permissions: peer.permissions,
@@ -258,8 +335,21 @@ impl Runtime {
             relay_reachable: *self.relay_reachable.lock(), peers, key_missing: false })
     }
 
+    /// Emissione dello stato alle finestre. Il giro di riconnessione la chiama
+    /// ogni 5 s, ma quasi sempre non e' cambiato niente: emetterla lo stesso
+    /// faceva ripartire tutti gli effetti della finestra e, per uno di loro, un
+    /// `get_omp_version` verso ogni peer (S2-03, S3-link-front-01/-02).
+    /// La latenza entra nello stato arrotondata a passi di 10 ms: cambia a ogni
+    /// giro di qualche frazione di ms, e da sola non e' una notizia.
     fn changed(&self) {
-        if let Ok(status) = self.status() { let _ = self.app.emit("link:status", &status); }
+        let Ok(status) = self.status() else { return };
+        let Ok(serialized) = serde_json::to_string(&status) else { return };
+        {
+            let mut last = self.last_status.lock();
+            if last.as_deref() == Some(serialized.as_str()) { return; }
+            *last = Some(serialized);
+        }
+        let _ = self.app.emit("link:status", &status);
     }
 
     async fn start(self: &Arc<Self>) -> Result<(), String> {
@@ -271,6 +361,10 @@ impl Runtime {
     /// spento e senza relay, altrimenti la prima macchina non potrebbe
     /// abbinarne nessuna.
     async fn start_with(self: &Arc<Self>, force: bool) -> Result<(), String> {
+        // Due avvii concorrenti costruivano due endpoint con la stessa
+        // `generation` (S2-17): accept, battito e giro di connessione
+        // duplicati. Qui si serializza l'intera costruzione.
+        let _starting = self.start_gate.lock().await;
         let (enabled, relay_url, token, secret) = {
             let config = self.config.lock();
             (config.enabled, config.relay_url.clone(), config.relay_token.clone(), config.secret()?)
@@ -448,6 +542,7 @@ impl Runtime {
         let mut config = self.config.lock();
         if !config.enabled { return Err("Instance link is disabled".into()); }
         hello.address.endpoint(&config.relay_url)?;
+        let mut updated = None;
         if !config.peers.contains_key(&id) {
             if !initiated_pairing {
                 let mut invitation = self.invitation.lock();
@@ -457,31 +552,51 @@ impl Runtime {
                 invitation.take();
             }
             if !versions_compatible(&hello.version, VERSION) { return Err(format!("Update Studio before pairing: {VERSION} / {}", hello.version)); }
-            let mut updated = config.clone();
-            updated.peers.insert(id.clone(), Peer { name: hello.name.clone(), address: hello.address.clone(), permissions: catalog::Permissions::default(), last_seen: Some(now) });
-            updated.save(&self.path)?;
-            *config = updated;
+            let mut next = config.clone();
+            next.peers.insert(id.clone(), Peer { name: hello.name.clone(), address: hello.address.clone(), permissions: catalog::Permissions::default(), last_seen: Some(now) });
+            *config = next.clone();
+            updated = Some(next);
         } else if let Some(peer) = config.peers.get_mut(&id) {
             // Gli indirizzi diretti cambiano con la rete, l'identita' resta la chiave QUIC.
             peer.address = hello.address.clone();
             peer.name = hello.name.clone();
             peer.last_seen = Some(now);
-            config.save(&self.path)?;
+            updated = Some(config.clone());
         }
+        // Il lock si lascia prima di scrivere (S2-14): lo stesso `config` lo
+        // prendono `authorize` a ogni frame e `status()` ogni giro, e l'fsync
+        // di `instances.json` li faceva aspettare.
+        drop(config);
+        if let Some(updated) = updated { self.persist(updated); }
         Ok(())
     }
 
-    /// Il battito persiste al massimo una volta al minuto per peer.
+    /// Il battito persiste al massimo ogni qualche minuto per peer: a R-MI-29
+    /// basta la granularita' del giorno (S2-14). `lastSeen` in memoria cambia a
+    /// ogni battito, il file no.
     fn touch_peer(&self, id: &str) -> Result<(), String> {
         let now = epoch_ms();
-        let mut config = self.config.lock();
-        let Some(peer) = config.peers.get(id) else { return Ok(()); };
-        if peer.last_seen.is_some_and(|last| now.saturating_sub(last) < 60_000) { return Ok(()); }
-        let mut updated = config.clone();
-        if let Some(peer) = updated.peers.get_mut(id) { peer.last_seen = Some(now); }
-        updated.save(&self.path)?;
-        *config = updated;
+        if self.last_persisted_seen.lock().get(id).is_some_and(|last| now.saturating_sub(*last) < PEER_SEEN_PERSIST_MS) {
+            return Ok(());
+        }
+        let updated = {
+            let mut config = self.config.lock();
+            let Some(peer) = config.peers.get_mut(id) else { return Ok(()) };
+            peer.last_seen = Some(now);
+            config.clone()
+        };
+        self.last_persisted_seen.lock().insert(id.to_owned(), now);
+        self.persist(updated);
         Ok(())
+    }
+
+    /// Scrittura di `instances.json` fuori dal lock della config, una alla
+    /// volta (S2-14): lo snapshot da scrivere si prende sotto lock, l'fsync no.
+    fn persist(&self, config: Config) {
+        let _writing = self.save_gate.lock();
+        if let Err(error) = config.save(&self.path) {
+            crate::studio_log::info("link", format!("Salvataggio instances.json: {error}"));
+        }
     }
 
     /// Regola pura della revoca propagata (R-MI-34): chi riceve accetta solo
@@ -817,7 +932,14 @@ impl Runtime {
         match kind {
             // Percorso esplicito di una copia: deve stare nelle radici
             // dichiarate dell'host, come qualunque altra lettura/scrittura.
-            "read_queue" | "write_queue" => self.check_host_path(&roots, command, "projectPath", kind),
+            // Con la coda la cartella puo' pero' essere quella di un progetto
+            // chiuso su questa macchina (S3-06): un `projectId` noto all'host
+            // basta, perche' il task deve poter restare in attesa (R-MI-15).
+            "read_queue" | "write_queue" => {
+                let id = command.get("projectId").and_then(Value::as_str).unwrap_or("");
+                if !id.is_empty() && self.require_known_project(id).is_ok() { Ok(()) }
+                else { self.check_host_path(&roots, command, "projectPath", kind) }
+            }
             // `open_project` non si confina: richiede Agenti, cioe' una shell
             // sulla macchina, e i progetti noti ma chiusi possono stare fuori
             // dalla radice dei progetti (R-MI-04).
@@ -847,6 +969,29 @@ impl Runtime {
         roots.authorize(&format!("host_action:{kind}"), &json!({ key: path }))
     }
 
+    /// Righe di log di una richiesta servita a un peer. `INFO` solo per i
+    /// comandi che cambiano qualcosa o eseguono, con lo stesso criterio del
+    /// registro azioni; le letture si contano per (peer, comando) e si
+    /// scrivono in un riepilogo ogni `LOG_SUMMARY_INTERVAL` (S2-07, S2-15).
+    fn log_command(&self, peer_name: &str, command: &str, permission: &str) {
+        if !matches!(permission, "read" | "local") {
+            crate::studio_log::info("link", format!("{peer_name}: {command}"));
+            return;
+        }
+        let mut counts = self.log_counts.lock();
+        *counts.entry(format!("{peer_name}: {command}")).or_insert(0) += 1;
+        let mut at = self.log_summary_at.lock();
+        if at.elapsed() < LOG_SUMMARY_INTERVAL { return; }
+        *at = Instant::now();
+        let mut summary: Vec<String> = counts.drain().map(|(key, count)| format!("{key} {count}x")).collect();
+        drop(counts);
+        if summary.is_empty() { return; }
+        // Il riepilogo va letto come una riga sola: i comandi piu' frequenti
+        // per primi, cosi' un log troncato dice comunque i principali.
+        summary.sort_by_key(|line| std::cmp::Reverse(line.rsplit_once(' ').and_then(|(_, count)| count.trim_end_matches('x').parse::<u64>().ok()).unwrap_or(0)));
+        crate::studio_log::info("link", format!("letture: {}", summary.join(", ")));
+    }
+
     /// `projectId` di un'azione host deve corrispondere a un progetto che
     /// questa macchina conosce. L'elenco e' quello che la finestra del
     /// proprietario pubblica nello snapshot: il peer conosce gli id solo
@@ -863,12 +1008,15 @@ impl Runtime {
         });
         if known { Ok(()) } else { Err(format!("Unknown project on this machine: {id}")) }
     }
-
     /// Registra un'azione di un peer che cambia qualcosa o esegue
     /// (R-MI-39). `permission` e' l'ambito del comando: le letture non
     /// entrano nel registro.
     fn audit(&self, machine: &str, permission: &str, action: &str, args: &Value) {
         if matches!(permission, "read" | "local") || audit::is_noise(action) { return; }
+        // `rpc_send` e' il canale di ogni comando della chat: le letture di
+        // stato (`get_state`, `set_steering_mode`, ...) non sono azioni, solo
+        // prompt, steer, follow_up, abort e risposte UI lo sono (S2-15).
+        if action == "rpc_send" && !audit::rpc_send_is_action(args) { return; }
         let Some(machine_name) = self.config.lock().peers.get(machine).map(|peer| peer.name.clone()) else { return };
         let snapshot = self.snapshot.borrow().clone()
             .and_then(|snapshot| serde_json::from_str::<Value>(&snapshot).ok());
@@ -959,7 +1107,12 @@ impl Runtime {
                 let permission = self.authorize(&machine, &command, generation).map(|_| catalog::permission(&command).unwrap_or("read"))?;
                 headers.insert("x-studio-authenticated-peer".into(), machine.clone());
                 let name = self.config.lock().peers.get(&machine).ok_or("Device pairing was revoked")?.name.clone();
-                crate::studio_log::info("link", format!("{name}: {command}"));
+                // Una riga per comando che cambia qualcosa; le letture (che
+                // sono la grande maggioranza: `get_omp_version`,
+                // `git_upstream_status`, ...) vanno contate e riassunte ogni
+                // dieci minuti, altrimenti il log ruota ogni tre giorni e
+                // perde gli errori (S2-07, S2-15).
+                self.log_command(&name, &command, permission);
                 // Le azioni host (`link_host_action`, Lettura nel catalogo)
                 // si registrano in `host_action` col loro `kind` e il loro ambito.
                 if let InvokeBody::Json(args) = &body { self.audit(&machine, permission, &command, args); }
@@ -1017,9 +1170,13 @@ impl Runtime {
             let id = args.get(if command == "rpc_close" { "rpcId" } else { "ptyId" }).and_then(Value::as_u64)
                 .ok_or_else(|| json!("Missing surface id"))?;
             let streams = self.streams.lock();
-            let subscription = streams.values().find(|stream| stream.machine == machine && stream.window == window
+            let subscription = streams.values().filter(|stream| stream.machine == machine && stream.window == window
                 && stream.id.load(Ordering::SeqCst) == id
                 && ((command == "rpc_close") != (stream.command == "pty_open")))
+                // Piu' sottoscrizioni omonime (una sopravvissuta a una
+                // ricarica): si chiude quella viva, cioe' la piu' recente
+                // (S1-rpc-02).
+                .max_by_key(|stream| stream.sequence)
                 .ok_or_else(|| json!("Surface subscription is unavailable"))?;
             let token = subscription.token.lock().clone();
             if command != "pty_resize" { subscription.close(); }
@@ -1891,6 +2048,76 @@ mod tests {
         for command in UPDATE_COMMANDS {
             let permission = catalog::permission(command);
             assert!(permission.is_some_and(|permission| permission != "local"), "{command}");
+        }
+    }
+
+    /// Comandi instradati che girano sul worker tokio di `dispatch`, quindi
+    /// anche quelli **sincroni**, che in locale prendono il main thread.
+    /// `dispatch` non li sposta sul main thread: un comando sincrono che
+    /// tocca finestre, menu o tray lo farebbe da un thread sbagliato, che e'
+    /// la classe del crash tao (S2-18). Oggi nessuno lo fa; questo test
+    /// impedisce che ne compaia uno domani. Un comando che ne ha bisogno va
+    /// reso `async` e spostato sul main thread, oppure aggiunto qui dopo la
+    /// verifica.
+    const ROUTED_SYNC_COMMANDS: &[(&str, &str)] = &[
+        ("background_job_cancel", "task_title_ops.rs"),
+        ("omp_sync_apply", "link/omp_settings.rs"),
+        ("omp_sync_snapshot", "link/omp_settings.rs"),
+        ("omp_update_remote_start", "omp_ops.rs"),
+        ("omp_update_remote_status", "omp_ops.rs"),
+        ("studio_update_remote_status", "studio_updater.rs"),
+        ("system_idle_seconds", "system_idle.rs"),
+    ];
+
+    /// API che vanno chiamate solo dal main thread di Tauri.
+    const MAIN_THREAD_APIS: &[&str] = &[
+        "get_webview_window", "get_window(", "WebviewWindowBuilder", "MenuBuilder", "SubmenuBuilder",
+        "MenuItemBuilder", "PredefinedMenuItem", "TrayIconBuilder", "show_main_window", "hide_main_window",
+        "set_activation_policy", "set_focus(", "window.show(", "window.hide(",
+    ];
+
+    /// Corpo di `fn <name>` in `source`, dal `{` alla sua chiusura.
+    fn function_body<'a>(source: &'a str, name: &str) -> Option<&'a str> {
+        let needle = format!("fn {name}");
+        let start = source.find(&needle)?;
+        let open = start + source[start..].find('{')?;
+        let mut depth = 0usize;
+        for (offset, character) in source[open..].char_indices() {
+            match character {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 { return Some(&source[open..open + offset]); }
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn routed_synchronous_commands_do_not_touch_windows_menu_or_tray() {
+        // Ogni nome deve esistere nel catalogo ed essere davvero instradato:
+        // un comando `local` o sconosciuto sarebbe una lista inutile.
+        for (command, _) in ROUTED_SYNC_COMMANDS {
+            let scope = catalog::permission(command);
+            assert!(scope.is_some(), "{command} non e' nel catalogo");
+            assert_ne!(scope, Some("local"), "{command} non viene instradato");
+        }
+        for (command, file) in ROUTED_SYNC_COMMANDS {
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join(file);
+            let source = std::fs::read_to_string(&path)
+                .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+            let body = function_body(&source, command)
+                .unwrap_or_else(|| panic!("{command} non trovato in {}", path.display()));
+            // Deve restare sincrono (e' la ragione per cui sta in questa lista):
+            // se qualcuno lo rende `async`, va tolto da qui.
+            let declaration = &source[source.find(&format!("fn {command}")).unwrap()..];
+            assert!(!declaration[..declaration.find('{').unwrap_or(declaration.len())].contains("async"),
+                "{command} e' async: toglilo da ROUTED_SYNC_COMMANDS");
+            for api in MAIN_THREAD_APIS {
+                assert!(!body.contains(api), "{command} chiama {api} dal worker tokio di `dispatch`");
+            }
         }
     }
 }

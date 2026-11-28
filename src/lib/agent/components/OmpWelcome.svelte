@@ -286,8 +286,8 @@
 		gap: 6px;
 		padding: 4px 12px;
 		border-radius: var(--radius-full, 9999px);
-		border: 1px solid var(--line-subtle, rgba(255, 255, 255, 0.08));
-		background: var(--bg-surface-raised, rgba(255, 255, 255, 0.03));
+		border: 1px solid var(--line);
+		background: var(--bg-raised);
 		color: var(--ink-muted);
 		font-family: var(--font-ui, sans-serif);
 		font-size: var(--text-sm, 13px);
@@ -299,17 +299,17 @@
 
 	.update-notice-btn:hover {
 		color: var(--ink);
-		border-color: var(--accent, #f84fcc);
-		background: var(--accent-subtle, rgba(248, 79, 204, 0.08));
+		border-color: var(--brand-ink);
+		background: color-mix(in oklch, var(--brand) 8%, transparent);
 	}
 
 	.update-notice-btn:focus-visible {
-		outline: 2px solid var(--accent, #f84fcc);
+		outline: 2px solid var(--brand);
 		outline-offset: 2px;
 	}
 
 	.sparkle {
-		color: var(--accent, #f84fcc);
+		color: var(--brand-ink);
 		font-size: 11px;
 		flex-shrink: 0;
 	}

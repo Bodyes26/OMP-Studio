@@ -111,6 +111,30 @@ static STATE: Mutex<Option<InnerPresenceState>> = Mutex::new(None);
 static EXIT_CONFIRMED: AtomicBool = AtomicBool::new(false);
 static EXIT_CONFIRMED_EXPIRES_AT_MS: AtomicU64 = AtomicU64::new(0);
 static EXIT_PENDING: AtomicBool = AtomicBool::new(false);
+/// Da quando l'uscita e' in attesa della risposta della WebView (S2-12). Con
+/// la WebView bloccata nessuno chiama `desktop_presence_respond_exit`, e senza
+/// questa scadenza ne' Cmd+Q ne' «Esci» dal tray chiudevano piu' Studio.
+static EXIT_PENDING_SINCE_MS: AtomicU64 = AtomicU64::new(0);
+
+/// Oltre questo tempo senza risposta, un secondo tentativo di uscire chiude
+/// comunque (D3). Il teardown resta quello ordinato di `respond_exit`.
+const EXIT_GIVE_UP_MS: u64 = 10_000;
+
+/// Segna l'uscita in attesa di risposta e ne data l'inizio.
+fn mark_exit_pending() {
+    EXIT_PENDING.store(true, Ordering::SeqCst);
+    EXIT_PENDING_SINCE_MS.store(now_epoch_ms(), Ordering::SeqCst);
+}
+
+/// L'uscita e' gia' stata chiesta e la WebView non ha risposto da almeno
+/// `EXIT_GIVE_UP_MS`: chi la richiede di nuovo vuole davvero uscire.
+fn exit_response_overdue() -> bool {
+    if !EXIT_PENDING.load(Ordering::SeqCst) {
+        return false;
+    }
+    let since = EXIT_PENDING_SINCE_MS.load(Ordering::SeqCst);
+    since != 0 && now_epoch_ms().saturating_sub(since) >= EXIT_GIVE_UP_MS
+}
 
 fn now_epoch_ms() -> u64 {
     std::time::SystemTime::now()
@@ -500,7 +524,7 @@ pub fn on_window_event(window: &tauri::Window, event: &WindowEvent) -> bool {
             if remember && close_action == "quit" {
                 let (auto, interactive) = get_active_counts();
                 let total = auto + interactive;
-                EXIT_PENDING.store(true, Ordering::SeqCst);
+                mark_exit_pending();
                 let _ = window.emit(
                     "desktop-presence://exit-requested",
                     serde_json::json!({
@@ -546,10 +570,19 @@ pub fn on_run_event(app: &AppHandle, event: &RunEvent) -> bool {
                 return false;
             }
 
+            // D3: un secondo Cmd+Q (o «Esci» dal tray) dopo 10 s senza
+            // risposta dalla WebView chiude comunque, con lo stesso teardown
+            // ordinato di `respond_exit`. Altrimenti, con la WebView bloccata,
+            // Studio resterebbe aperto per sempre.
+            if exit_response_overdue() {
+                confirm_exit_and_close(app);
+                return true;
+            }
+
             // Intercettiamo sempre prima di qualunque teardown affinche' il frontend
             // esegua prima il callback di salvataggio (setBeforeExit) e poi confermi
             api.prevent_exit();
-            EXIT_PENDING.store(true, Ordering::SeqCst);
+            mark_exit_pending();
             let _ = show_main_window(app);
             let (auto, interactive) = get_active_counts();
             let total = auto + interactive;
@@ -653,9 +686,15 @@ pub fn open_automations_view(app: &AppHandle) -> Result<(), String> {
 
 fn handle_tray_quit(app: &AppHandle) -> Result<(), String> {
     let _ = show_main_window(app);
+    // D3: con la WebView che non risponde, «Esci» dal tray dopo 10 s chiude
+    // comunque invece di lasciare Studio appeso in attesa di conferma.
+    if exit_response_overdue() {
+        confirm_exit_and_close(app);
+        return Ok(());
+    }
     let (auto, interactive) = get_active_counts();
     let total = auto + interactive;
-    EXIT_PENDING.store(true, Ordering::SeqCst);
+    mark_exit_pending();
     let _ = app.emit(
         "desktop-presence://exit-requested",
         serde_json::json!({
@@ -766,7 +805,7 @@ pub fn desktop_presence_request_close(app: AppHandle) -> Result<CloseRequestOutc
 
     if remember && close_action == "quit" {
         if total > 0 {
-            EXIT_PENDING.store(true, Ordering::SeqCst);
+            mark_exit_pending();
             return Ok(CloseRequestOutcome {
                 action: "confirm_exit".to_string(),
                 total_jobs: total,
@@ -826,7 +865,7 @@ pub fn desktop_presence_respond_close(
             }
             let (auto, interactive) = get_active_counts();
             let total = auto + interactive;
-            EXIT_PENDING.store(true, Ordering::SeqCst);
+            mark_exit_pending();
             let _ = app.emit(
                 "desktop-presence://exit-requested",
                 serde_json::json!({
@@ -855,7 +894,7 @@ pub fn desktop_presence_request_exit(app: AppHandle) -> Result<ExitRequestOutcom
     let total = auto + interactive;
     let requires_confirmation = total > 0;
     if requires_confirmation {
-        EXIT_PENDING.store(true, Ordering::SeqCst);
+        mark_exit_pending();
         let _ = app.emit(
             "desktop-presence://exit-requested",
             serde_json::json!({
@@ -882,7 +921,7 @@ pub fn desktop_presence_prepare_exit(app: AppHandle) -> Result<ExitRequestOutcom
     let total = auto + interactive;
     let requires_confirmation = total > 0;
     if requires_confirmation {
-        EXIT_PENDING.store(true, Ordering::SeqCst);
+        mark_exit_pending();
         let _ = app.emit(
             "desktop-presence://exit-requested",
             serde_json::json!({
@@ -924,15 +963,28 @@ pub fn desktop_presence_authorize_exit(_app: AppHandle, allow: bool) -> Result<(
     Ok(())
 }
 
+/// Chiude Studio dopo che l'uscita e' rimasta in attesa troppo a lungo (D3):
+/// stesso teardown ordinato di `desktop_presence_respond_exit` con conferma.
+fn confirm_exit_and_close(app: &AppHandle) {
+    crate::studio_log::info("desktop", "Uscita confermata senza risposta della WebView");
+    EXIT_CONFIRMED.store(true, Ordering::SeqCst);
+    EXIT_CONFIRMED_EXPIRES_AT_MS.store(0, Ordering::SeqCst);
+    EXIT_PENDING.store(false, Ordering::SeqCst);
+    EXIT_PENDING_SINCE_MS.store(0, Ordering::SeqCst);
+    app.exit(0);
+}
+
 #[tauri::command]
 pub fn desktop_presence_respond_exit(app: AppHandle, confirm: bool) -> Result<(), String> {
     if confirm {
         EXIT_CONFIRMED.store(true, Ordering::SeqCst);
         EXIT_PENDING.store(false, Ordering::SeqCst);
+        EXIT_PENDING_SINCE_MS.store(0, Ordering::SeqCst);
         app.exit(0);
     } else {
         // Annullamento dell'uscita: nessun processo viene toccato o killato (AUT-045, AUT-054)
         EXIT_PENDING.store(false, Ordering::SeqCst);
+        EXIT_PENDING_SINCE_MS.store(0, Ordering::SeqCst);
         EXIT_CONFIRMED.store(false, Ordering::SeqCst);
     }
     Ok(())

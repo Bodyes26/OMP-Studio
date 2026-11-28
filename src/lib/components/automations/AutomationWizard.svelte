@@ -1253,8 +1253,8 @@
 		flex-direction: column;
 		height: 100%;
 		min-height: 560px;
-		background: var(--bg-primary, #1e1e24);
-		color: var(--text-primary, #ffffff);
+		background: var(--bg-base);
+		color: var(--ink);
 		border-radius: 8px;
 		overflow: hidden;
 	}
@@ -1264,8 +1264,8 @@
 		justify-content: space-between;
 		align-items: center;
 		padding: 14px 20px;
-		border-bottom: 1px solid var(--line, rgba(255, 255, 255, 0.1));
-		background: var(--bg-secondary, #25252d);
+		border-bottom: 1px solid var(--line);
+		background: var(--bg-raised);
 	}
 
 	.topbar-left {
@@ -1288,15 +1288,15 @@
 	}
 
 	.draft-badge {
-		background: rgba(156, 163, 175, 0.15);
-		color: #9ca3af;
-		border: 1px solid rgba(156, 163, 175, 0.3);
+		background: color-mix(in oklab, var(--ink-muted) 15%, transparent);
+		color: var(--ink-muted);
+		border: 1px solid color-mix(in oklab, var(--ink-muted) 30%, transparent);
 	}
 
 	.editing-badge {
-		background: rgba(245, 158, 11, 0.15);
-		color: #fcd34d;
-		border: 1px solid rgba(245, 158, 11, 0.3);
+		background: color-mix(in oklab, var(--warn) 15%, transparent);
+		color: var(--warn);
+		border: 1px solid color-mix(in oklab, var(--warn) 30%, transparent);
 	}
 
 	.topbar-right {
@@ -1309,9 +1309,9 @@
 		display: flex;
 		align-items: center;
 		gap: 6px;
-		background: rgba(124, 58, 237, 0.15);
-		color: #c4b5fd;
-		border: 1px solid rgba(124, 58, 237, 0.3);
+		background: color-mix(in oklab, var(--brand) 15%, transparent);
+		color: var(--brand-ink);
+		border: 1px solid color-mix(in oklab, var(--brand) 30%, transparent);
 		padding: 6px 12px;
 		border-radius: 6px;
 		font-size: 0.82rem;
@@ -1322,14 +1322,14 @@
 
 	.ai-toggle-btn.active,
 	.ai-toggle-btn:hover {
-		background: var(--accent, #7c3aed);
-		color: #ffffff;
+		background: var(--brand);
+		color: var(--on-brand);
 	}
 
 	.close-btn {
 		background: transparent;
 		border: none;
-		color: var(--text-muted, #9ca3af);
+		color: var(--ink-muted);
 		padding: 6px;
 		border-radius: 6px;
 		cursor: pointer;
@@ -1339,8 +1339,8 @@
 	}
 
 	.close-btn:hover {
-		color: #ffffff;
-		background: rgba(255, 255, 255, 0.08);
+		color: var(--ink);
+		background: var(--bg-hover);
 	}
 
 	.ai-container {
@@ -1364,13 +1364,13 @@
 			flex-direction: row !important;
 			overflow-x: auto;
 			border-right: none !important;
-			border-bottom: 1px solid var(--line, rgba(255, 255, 255, 0.1));
+			border-bottom: 1px solid var(--line);
 		}
 	}
 
 	.steps-nav {
-		background: var(--bg-secondary, #25252d);
-		border-right: 1px solid var(--line, rgba(255, 255, 255, 0.1));
+		background: var(--bg-raised);
+		border-right: 1px solid var(--line);
 		padding: 16px 10px;
 		display: flex;
 		flex-direction: column;
@@ -1383,7 +1383,7 @@
 		gap: 10px;
 		background: transparent;
 		border: none;
-		color: var(--text-muted, #9ca3af);
+		color: var(--ink-muted);
 		padding: 8px 12px;
 		border-radius: 6px;
 		font-size: 0.84rem;
@@ -1393,13 +1393,13 @@
 	}
 
 	.step-btn:hover {
-		background: rgba(255, 255, 255, 0.04);
-		color: var(--text-primary, #ffffff);
+		background: var(--bg-hover);
+		color: var(--ink);
 	}
 
 	.step-btn.active {
-		background: rgba(124, 58, 237, 0.15);
-		color: #ffffff;
+		background: var(--brand);
+		color: var(--on-brand);
 		font-weight: 500;
 	}
 
@@ -1410,20 +1410,20 @@
 		width: 22px;
 		height: 22px;
 		border-radius: 50%;
-		background: rgba(255, 255, 255, 0.1);
+		background: var(--bg-active);
 		font-size: 0.75rem;
 		font-weight: 600;
 		flex-shrink: 0;
 	}
 
 	.step-btn.active .step-num {
-		background: var(--accent, #7c3aed);
-		color: #ffffff;
+		background: var(--brand);
+		color: var(--on-brand);
 	}
 
 	.step-btn.completed .step-num {
-		background: #059669;
-		color: #ffffff;
+		background: var(--success-dim);
+		color: var(--on-success);
 	}
 
 	.step-content {
@@ -1444,7 +1444,7 @@
 		margin: 20px 0 10px 0;
 		font-size: 1rem;
 		font-weight: 600;
-		border-top: 1px solid var(--line, rgba(255, 255, 255, 0.08));
+		border-top: 1px solid var(--line);
 		padding-top: 16px;
 	}
 
@@ -1465,15 +1465,15 @@
 	.field-group .field-label {
 		font-size: 0.84rem;
 		font-weight: 500;
-		color: var(--text-primary, #ffffff);
+		color: var(--ink);
 	}
 
 	.text-input,
 	.select-input,
 	.textarea-input {
-		background: var(--bg-secondary, #25252d);
-		border: 1px solid var(--line, rgba(255, 255, 255, 0.15));
-		color: var(--text-primary, #ffffff);
+		background: var(--bg-raised);
+		border: 1px solid var(--line-strong);
+		color: var(--ink);
 		border-radius: 6px;
 		padding: 8px 12px;
 		font-size: 0.86rem;
@@ -1484,7 +1484,7 @@
 	.select-input:focus,
 	.textarea-input:focus {
 		outline: none;
-		border-color: var(--accent, #7c3aed);
+		border-color: var(--brand);
 	}
 
 	.text-input.small,
@@ -1499,7 +1499,7 @@
 
 	.muted-hint {
 		font-size: 0.78rem;
-		color: var(--text-muted, #9ca3af);
+		color: var(--ink-muted);
 		margin: 2px 0 0 0;
 	}
 
@@ -1521,10 +1521,10 @@
 		gap: 8px;
 		max-height: 180px;
 		overflow-y: auto;
-		background: rgba(0, 0, 0, 0.15);
+		background: var(--bg-sunken);
 		padding: 10px;
 		border-radius: 6px;
-		border: 1px solid var(--line, rgba(255, 255, 255, 0.08));
+		border: 1px solid var(--line);
 	}
 
 	.checkbox-item {
@@ -1541,7 +1541,7 @@
 
 	.proj-path {
 		font-size: 0.72rem;
-		color: var(--text-muted, #9ca3af);
+		color: var(--ink-muted);
 		margin-left: auto;
 	}
 
@@ -1550,8 +1550,8 @@
 	.vault-block,
 	.additional-triggers-block,
 	.quota-policy-block {
-		background: rgba(0, 0, 0, 0.12);
-		border: 1px solid var(--line, rgba(255, 255, 255, 0.08));
+		background: var(--bg-sunken);
+		border: 1px solid var(--line);
 		border-radius: 6px;
 		padding: 12px 14px;
 		margin-top: 12px;
@@ -1571,8 +1571,8 @@
 		align-items: center;
 		gap: 4px;
 		background: transparent;
-		border: 1px solid var(--line, rgba(255, 255, 255, 0.2));
-		color: var(--text-primary, #ffffff);
+		border: 1px solid var(--line-strong);
+		color: var(--ink);
 		padding: 4px 10px;
 		border-radius: 4px;
 		font-size: 0.76rem;
@@ -1582,7 +1582,7 @@
 	.remove-icon-btn {
 		background: transparent;
 		border: none;
-		color: var(--text-muted, #9ca3af);
+		color: var(--ink-muted);
 		cursor: pointer;
 		padding: 4px;
 		display: flex;
@@ -1590,7 +1590,7 @@
 	}
 
 	.remove-icon-btn:hover {
-		color: #ef4444;
+		color: var(--danger);
 	}
 
 	.filter-row,
@@ -1608,9 +1608,9 @@
 	}
 
 	.weekday-btn {
-		background: var(--bg-secondary, #25252d);
-		border: 1px solid var(--line, rgba(255, 255, 255, 0.15));
-		color: var(--text-primary, #ffffff);
+		background: var(--bg-raised);
+		border: 1px solid var(--line-strong);
+		color: var(--ink);
 		border-radius: 4px;
 		padding: 6px 12px;
 		font-size: 0.8rem;
@@ -1618,14 +1618,14 @@
 	}
 
 	.weekday-btn.selected {
-		background: var(--accent, #7c3aed);
-		color: #ffffff;
-		border-color: var(--accent, #7c3aed);
+		background: var(--brand);
+		color: var(--on-brand);
+		border-color: var(--brand);
 	}
 
 	.additional-trigger-card {
-		background: var(--bg-secondary, #25252d);
-		border: 1px solid var(--line, rgba(255, 255, 255, 0.1));
+		background: var(--bg-raised);
+		border: 1px solid var(--line);
 		border-radius: 6px;
 		padding: 10px;
 		display: flex;
@@ -1641,8 +1641,8 @@
 
 	.diff-box,
 	.preview-box {
-		background: rgba(0, 0, 0, 0.15);
-		border: 1px solid var(--line, rgba(255, 255, 255, 0.1));
+		background: var(--bg-sunken);
+		border: 1px solid var(--line);
 		border-radius: 8px;
 		padding: 14px 16px;
 		margin-bottom: 14px;
@@ -1666,12 +1666,12 @@
 	}
 
 	.diff-old {
-		color: #ef4444;
+		color: var(--danger);
 		margin: 0 4px;
 	}
 
 	.diff-new {
-		color: #34d399;
+		color: var(--success);
 		margin-left: 4px;
 	}
 
@@ -1683,14 +1683,14 @@
 	}
 
 	.fact-key {
-		color: var(--text-muted, #9ca3af);
+		color: var(--ink-muted);
 		min-width: 140px;
 	}
 
 	.warning-banner {
-		background: rgba(245, 158, 11, 0.12);
-		border: 1px solid rgba(245, 158, 11, 0.25);
-		color: #fcd34d;
+		background: color-mix(in oklab, var(--warn) 12%, transparent);
+		border: 1px solid color-mix(in oklab, var(--warn) 25%, transparent);
+		color: var(--warn);
 		padding: 10px 14px;
 		border-radius: 6px;
 		font-size: 0.82rem;
@@ -1703,15 +1703,15 @@
 	}
 
 	.error-banner {
-		background: rgba(239, 68, 68, 0.15);
-		color: #fca5a5;
-		border: 1px solid rgba(239, 68, 68, 0.3);
+		background: color-mix(in oklab, var(--danger) 15%, transparent);
+		color: var(--danger);
+		border: 1px solid color-mix(in oklab, var(--danger) 30%, transparent);
 	}
 
 	.success-banner {
-		background: rgba(16, 185, 129, 0.15);
-		color: #6ee7b7;
-		border: 1px solid rgba(16, 185, 129, 0.3);
+		background: color-mix(in oklab, var(--success) 15%, transparent);
+		color: var(--success);
+		border: 1px solid color-mix(in oklab, var(--success) 30%, transparent);
 	}
 
 	.wizard-footer {
@@ -1719,8 +1719,8 @@
 		justify-content: space-between;
 		align-items: center;
 		padding: 14px 24px;
-		border-top: 1px solid var(--line, rgba(255, 255, 255, 0.1));
-		background: var(--bg-secondary, #25252d);
+		border-top: 1px solid var(--line);
+		background: var(--bg-raised);
 	}
 
 	.footer-right {
@@ -1733,8 +1733,8 @@
 		align-items: center;
 		gap: 6px;
 		background: transparent;
-		border: 1px solid var(--line, rgba(255, 255, 255, 0.2));
-		color: var(--text-primary, #ffffff);
+		border: 1px solid var(--line-strong);
+		color: var(--ink);
 		border-radius: 6px;
 		padding: 8px 16px;
 		font-size: 0.84rem;
@@ -1750,8 +1750,8 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 6px;
-		background: var(--accent, #7c3aed);
-		color: #ffffff;
+		background: var(--brand);
+		color: var(--on-brand);
 		border: none;
 		border-radius: 6px;
 		padding: 8px 18px;
@@ -1764,8 +1764,8 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 6px;
-		background: #059669;
-		color: #ffffff;
+		background: var(--success-dim);
+		color: var(--on-success);
 		border: none;
 		border-radius: 6px;
 		padding: 8px 20px;

@@ -323,7 +323,7 @@ export function onThemeChange(fn: () => void): () => void {
  * Chiave della copia sincrona del tema. La scrive `applyAnchors`, la rilegge
  * lo script inline in `src/app.html` prima del primo paint.
  */
-export const THEME_CACHE_KEY = 'omp-studio-theme-css';
+const THEME_CACHE_KEY = 'omp-studio-theme-css';
 
 /**
  * Le dichiarazioni che il tema mette su `:root`. Unica fonte: le consuma sia

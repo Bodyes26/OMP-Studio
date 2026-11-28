@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
@@ -34,6 +35,68 @@ pub fn update_cached_usage(value: Value) {
     if let Ok(mut lock) = QUOTA_USAGE_CACHE.lock() {
         *lock = Some((Instant::now(), value));
     }
+}
+
+/// Un solo aggiornamento in volo: lo scheduler non deve accodare processi.
+static USAGE_REFRESH_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
+/// Istante dell'ultimo tentativo, per non riprovare a ogni tick quando `omp`
+/// non risponde: senza questo limite un `omp usage` sempre fallito avrebbe
+/// generato un processo al secondo.
+static USAGE_REFRESH_LAST_ATTEMPT: LazyLock<Mutex<Option<Instant>>> =
+    LazyLock::new(|| Mutex::new(None));
+/// Distanza minima fra due tentativi di aggiornamento della cache.
+const USAGE_REFRESH_RETRY: Duration = Duration::from_secs(60);
+/// Limite concesso a `omp usage --json` in background (S9-04). Lo scheduler non
+/// ha alcun timeout da aspettare: se il figlio non risponde viene abbattuto.
+const USAGE_REFRESH_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// Chiede in background di rileggere `omp usage --json`, senza bloccare chi
+/// chiama. Il tick delle automazioni passa di qui quando la cache e' scaduta e
+/// non deve mai attendere un processo esterno (S9-04).
+pub fn request_usage_refresh() {
+    if USAGE_REFRESH_IN_FLIGHT.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    {
+        let mut last = match USAGE_REFRESH_LAST_ATTEMPT.lock() {
+            Ok(guard) => guard,
+            Err(_) => {
+                USAGE_REFRESH_IN_FLIGHT.store(false, Ordering::SeqCst);
+                return;
+            }
+        };
+        if last.is_some_and(|at| at.elapsed() < USAGE_REFRESH_RETRY) {
+            // Tentato da poco: nessun nuovo processo e via libera al prossimo giro.
+            USAGE_REFRESH_IN_FLIGHT.store(false, Ordering::SeqCst);
+            return;
+        }
+        *last = Some(Instant::now());
+    }
+    std::thread::spawn(move || {
+        if let Some(value) = fetch_usage_report(USAGE_REFRESH_TIMEOUT) {
+            update_cached_usage(value);
+        }
+        USAGE_REFRESH_IN_FLIGHT.store(false, Ordering::SeqCst);
+    });
+}
+
+fn fetch_usage_report(timeout: Duration) -> Option<Value> {
+    let omp_binary = crate::omp_ops::get_omp_binary();
+    let mut cmd = std::process::Command::new(&omp_binary);
+    cmd.args(["usage", "--json"]);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    // Helper unico di `omp` (S8-04): alla scadenza abbatte il figlio e ne
+    // raccoglie il log per-PID, cosa che un cattura generica non fa.
+    let out = match crate::omp_ops::omp_capture_with_timeout(cmd, timeout) {
+        Ok(out) => out,
+        Err(_) => return None,
+    };
+    serde_json::from_slice::<Value>(&out.stdout).ok()
 }
 
 /// Recupera il report di utilizzo dalla cache interna se valido.
@@ -587,33 +650,20 @@ pub fn evaluate_with_usage(
     }
 }
 
-/// Valuta il cancello di quota per il modello/ruolo specificato usando la cache interna dei report.
-/// Non spawna subprocess aggiuntivi a meno che la cache non sia completamente assente.
+/// Valuta il cancello di quota per il modello/ruolo specificato usando la cache
+/// interna dei report.
+///
+/// Non esegue processi: la cache si riempie in background (`request_usage_refresh`)
+/// perche' questa funzione gira sul thread di tick dello scheduler e un
+/// `omp usage` appeso congelerebbe calendario, scadenze e ammissioni (S9-04).
+/// Senza report la valutazione resta quella documentata da AUT-032: i provider
+/// in abbonamento falliscono chiusi, quelli a consumo passano.
 pub fn evaluate(model_or_role: &str, policy: &AutomationQuotaPolicy) -> QuotaEvaluation {
     let reports_json = match get_cached_usage() {
         Some(val) => val,
         None => {
-            // Tenta lettura veloce da omp usage --json se cache assente
-            let omp_binary = crate::omp_ops::get_omp_binary();
-            let mut cmd = std::process::Command::new(&omp_binary);
-            cmd.args(["usage", "--json"]);
-            #[cfg(target_os = "windows")]
-            {
-                use std::os::windows::process::CommandExt;
-                const CREATE_NO_WINDOW: u32 = 0x08000000;
-                cmd.creation_flags(CREATE_NO_WINDOW);
-            }
-            match cmd.output() {
-                Ok(out) if out.status.success() => {
-                    if let Ok(parsed) = serde_json::from_slice::<Value>(&out.stdout) {
-                        update_cached_usage(parsed.clone());
-                        parsed
-                    } else {
-                        Value::Null
-                    }
-                }
-                _ => Value::Null,
-            }
+            request_usage_refresh();
+            Value::Null
         }
     };
 

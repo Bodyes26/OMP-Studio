@@ -537,7 +537,15 @@ fn check_shell_and_git_items(project_path: Option<&str>) -> Vec<DoctorItemDto> {
             is_repo_cmd.creation_flags(CREATE_NO_WINDOW);
 
             match is_repo_cmd.output() {
-                Ok(out) if out.status.success() => {
+                // Il solo codice d'uscita non basta: `rev-parse
+                // --is-inside-work-tree` esce con 0 anche in un repository nudo,
+                // stampando `false`. Guardando solo il successo, un bare repo
+                // arrivava al `git status` sotto, che falliva con «this
+                // operation must be run in a work tree»: il conteggio restava 0
+                // e la voce diceva «working tree pulito» invece di segnalare che
+                // non e' una cartella di lavoro. Stessa forma di
+                // `projects::is_git_worktree`.
+                Ok(out) if out.status.success() && out.stdout.trim_ascii() == b"true" => {
                     // Ottieni ramo corrente
                     let mut branch_cmd = Command::new("git");
                     branch_cmd.current_dir(repo_dir);
@@ -558,9 +566,14 @@ fn check_shell_and_git_items(project_path: Option<&str>) -> Vec<DoctorItemDto> {
                     #[cfg(target_os = "windows")]
                     status_cmd.creation_flags(CREATE_NO_WINDOW);
 
+                    // Un `git status` fallito non e' «zero modifiche»: senza il
+                    // filtro sul codice d'uscita un errore di git (indice
+                    // bloccato, cartella non piu' raggiungibile) diventava
+                    // «working tree pulito».
                     let mod_count = status_cmd
                         .output()
                         .ok()
+                        .filter(|s| s.status.success())
                         .map(|s| {
                             String::from_utf8_lossy(&s.stdout)
                                 .lines()

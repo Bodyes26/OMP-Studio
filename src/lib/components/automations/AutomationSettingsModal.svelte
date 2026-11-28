@@ -207,7 +207,7 @@
 		background: color-mix(in srgb, var(--danger) 12%, transparent);
 		color: var(--danger);
 		border-radius: var(--radius-sm);
-		font-size: 12px;
+		font-size: var(--text-label);
 	}
 
 	.settings-form {
@@ -227,7 +227,7 @@
 	}
 
 	.section-legend {
-		font-size: 11px;
+		font-size: var(--text-caption);
 		font-weight: 600;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
@@ -243,7 +243,7 @@
 	}
 
 	.field-label-text {
-		font-size: 12px;
+		font-size: var(--text-label);
 		color: var(--ink);
 	}
 

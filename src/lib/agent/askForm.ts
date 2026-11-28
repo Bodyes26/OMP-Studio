@@ -207,10 +207,6 @@ export function createAskFormDraft(request: AskFormRequest): AskFormDraft {
 	return { data: copyData(request.defaults), annotations: [], other: Object.create(null) };
 }
 
-export function askFormPlainText(value: readonly FormSpan[]): string {
-	return value.map((span) => span.text).join('');
-}
-
 /** Compone la busta; la validazione definitiva resta nel parser canonico OMP. */
 export function buildAskFormSubmission(model: AskFormModel, draft: AskFormDraft, action: 'submit' | 'delegate'): AskFormSubmission {
 	const values: AskFormData = Object.create(null);

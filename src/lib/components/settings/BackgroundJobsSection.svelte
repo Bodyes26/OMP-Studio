@@ -422,7 +422,7 @@
 	}
 
 	.model-row-desc {
-		font-size: 11px;
+		font-size: var(--text-caption);
 		color: var(--ink-faint);
 		line-height: 1.35;
 	}
