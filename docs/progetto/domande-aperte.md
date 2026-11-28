@@ -62,3 +62,5 @@ Precisazione dell'utente 2026-11-05: la priorità dell'indagine Nightly è il te
 - Da ricontrollare: togliere --ignore=GHSA-fc5q-39xc-vjpf (picomatch <=4.0.7, ReDoS, solo build) da gate.yml quando picomatch pubblica una versione corretta. [commit d892c2b]
 
 Correzioni per omp 19.2.1 ancora da fare (2026-11-26): studio-ask (import html-form e immagini), check-setup-flow (pacchetto e percorsi del setup), xdev→commands in rpc/mod.rs, xd://report_issue nel Lab, prompt Piano con propose. [sessione 01a20e33]
+
+2026-11-28 — omp 19.2.1 esegue quasi tutti i comandi RPC in una sola fila e accoda le risposte dietro i progressi dei subagenti (rpc-input/rpc-output nel bundle): Studio ora lo tollera, ma una corsia prioritaria per le risposte e un limite di frequenza dei progressi sarebbero correzioni upstream. L'utente ha scelto di non preparare la segnalazione per ora. Da provare sulle due macchine reali: scenari di R-MI-71…74 e le verifiche elencate in docs/PLAN.md (Polish di stabilità). [sessione 01a221c1]
